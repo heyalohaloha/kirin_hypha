@@ -1,0 +1,17 @@
+[package]
+name = "hypha_post"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+nih_plug = { workspace = true }
+nih_plug_egui = { workspace = true }
+kirin_measure = { workspace = true }
+hypha_gui = { workspace = true }
+rtrb = { workspace = true }
+uuid = { workspace = true }
+log = "0.4"
+open = { workspace = true }

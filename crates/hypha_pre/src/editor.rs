@@ -1,0 +1,282 @@
+//! PRE GUI — 300×200px（guardian_53 T-6 / サブ1-C）。
+//!
+//! hypha_gui 共有プリミティブを使用:
+//! - 5状態 LED（Error/WatchBreathing/RecordStandby/RecordActive/Idle）
+//! - 背景テクスチャ（菌糸 300×200 brightness 15% / 遅延 decode キャッシュ）
+//! - flora_color 横線（#d4a043 暫定）
+//! - 共通ウィジェット（value_row / fmt_val / tp_color）
+//!
+//! SS-7: SignalState に基づく表示切替。
+//! - Active → 数値表示
+//! - Bypassed / Inactive → 全項目 `---`（宣言ベース、即時切替）
+//!
+//! Record モード（recording=true）: 6 項目表示（LUFS-M/TP/Crest/PSR/N'/Sharpness）。
+//! Record ACK 成立時に「記録開始」バナーを 3 秒一時表示。
+//! サブ1-C 時点では recording / record_acknowledged は default false（サブ2/3 で実配線）。
+
+use hypha_gui::{
+    derive_led_state, fmt_val, led_color, tp_color, val_color, value_row, BackgroundTexture,
+    BG, COL_FLORA, COL_MUTED, COL_NORMAL,
+};
+use kirin_measure::{load_signal_state, MeasureResult, SignalState};
+use nih_plug::prelude::Editor;
+use nih_plug_egui::{
+    create_egui_editor,
+    egui::{self, Grid, RichText, Stroke, Vec2},
+    EguiState,
+};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+/// 記録開始バナーの表示時間（秒）。
+const RECORD_BANNER_DURATION_SECS: f64 = 3.0;
+
+// ── エディタ状態（user_state） ───────────────────────────────────────────
+
+/// PRE エディタの共有状態 + エディタ内部のトランジェント状態。
+pub struct PreEditorState {
+    pub measure: Arc<Mutex<MeasureResult>>,
+    pub measure_alive: Arc<AtomicBool>,
+    pub signal_state: Arc<AtomicU8>,
+    /// Record モード中か（サブ2 でボタン操作から設定）
+    pub recording: Arc<AtomicBool>,
+    /// Record 信号が ACK 済か（PRE は常に true と見なしてよい）
+    pub record_acknowledged: Arc<AtomicBool>,
+
+    // ── エディタローカル（egui state 内で保持） ──────────────────────
+    /// 背景テクスチャの遅延 decode キャッシュ
+    bg: BackgroundTexture,
+    /// 前フレームの ACK 値（false→true エッジ検出）
+    prev_ack: bool,
+    /// 「記録開始」バナーの終了時刻（`ctx.input(|i| i.time)` 基準）
+    banner_until: Option<f64>,
+}
+
+impl PreEditorState {
+    fn new(
+        measure: Arc<Mutex<MeasureResult>>,
+        measure_alive: Arc<AtomicBool>,
+        signal_state: Arc<AtomicU8>,
+        recording: Arc<AtomicBool>,
+        record_acknowledged: Arc<AtomicBool>,
+    ) -> Self {
+        Self {
+            measure,
+            measure_alive,
+            signal_state,
+            recording,
+            record_acknowledged,
+            bg: BackgroundTexture::new(),
+            prev_ack: false,
+            banner_until: None,
+        }
+    }
+}
+
+// ── 公開エントリポイント ─────────────────────────────────────────────────
+
+/// PRE エディタを生成して返す。`Plugin::editor()` から呼ぶ。
+pub fn create_pre_editor(
+    egui_state: Arc<EguiState>,
+    measure: Arc<Mutex<MeasureResult>>,
+    measure_alive: Arc<AtomicBool>,
+    signal_state: Arc<AtomicU8>,
+    recording: Arc<AtomicBool>,
+    record_acknowledged: Arc<AtomicBool>,
+) -> Option<Box<dyn Editor>> {
+    create_egui_editor(
+        egui_state,
+        PreEditorState::new(measure, measure_alive, signal_state, recording, record_acknowledged),
+        |ctx, state| {
+            let mut visuals = ctx.style().visuals.clone();
+            visuals.panel_fill = BG;
+            visuals.window_fill = BG;
+            ctx.set_visuals(visuals);
+            // build は毎 spawn（= 新 Context 作成時）に 1 回実行される
+            // （egui_baseview window.rs:128 で Context::default() + 170 で build 実行）。
+            // close/reopen 時に古い TextureHandle を抱えたままにならないよう bg を再生成する。
+            state.bg = BackgroundTexture::new();
+        },
+        |ctx, _setter, state| {
+            let sig = load_signal_state(&state.signal_state);
+            let m = state.measure.lock().map(|g| g.clone()).unwrap_or_default();
+            let alive = state.measure_alive.load(Ordering::Relaxed);
+            let recording = state.recording.load(Ordering::Relaxed);
+            let ack = state.record_acknowledged.load(Ordering::Relaxed);
+
+            // Record ACK 成立エッジで banner 発動
+            let now = ctx.input(|i| i.time);
+            if ack && !state.prev_ack {
+                state.banner_until = Some(now + RECORD_BANNER_DURATION_SECS);
+            }
+            state.prev_ack = ack;
+            let show_banner = state.banner_until.is_some_and(|until| now < until);
+            if !show_banner {
+                state.banner_until = None;
+            }
+
+            let led = derive_led_state(alive, sig, recording, ack);
+            let led_col = led_color(led, now);
+
+            draw_pre(ctx, &mut state.bg, &m, recording, sig, led_col, show_banner);
+        },
+    )
+}
+
+// ── 描画 ────────────────────────────────────────────────────────────────
+
+fn draw_pre(
+    ctx: &egui::Context,
+    bg: &mut BackgroundTexture,
+    m: &MeasureResult,
+    recording: bool,
+    state: SignalState,
+    led_col: egui::Color32,
+    show_banner: bool,
+) {
+    egui::CentralPanel::default()
+        .frame(egui::Frame::NONE.fill(BG))
+        .show(ctx, |ui| {
+            // 背景テクスチャ（panel_fill の上に重ねて敷く）
+            bg.paint(ctx, ui);
+
+            ui.add_space(8.0);
+
+            // タイトル行: 左に「PRE」、右に LED
+            ui.horizontal(|ui| {
+                ui.add_space(10.0);
+                ui.label(RichText::new("PRE").size(20.0).color(COL_NORMAL));
+                // 右端まで伸ばして LED を右寄せ
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.add_space(10.0);
+                    draw_led(ui, led_col);
+                });
+            });
+            ui.add_space(4.0);
+
+            // flora_color 横線（菌糸の先端を示すアクセント）
+            ui.horizontal(|ui| {
+                ui.add_space(10.0);
+                let w = ui.available_width() - 10.0;
+                let (rect, _) = ui.allocate_exact_size(Vec2::new(w, 1.0), egui::Sense::hover());
+                ui.painter().hline(rect.x_range(), rect.center().y, Stroke::new(1.0, COL_FLORA));
+            });
+            ui.add_space(6.0);
+
+            // SS-7: SignalState に基づく表示切替
+            let show_values = state == SignalState::Active;
+
+            // Record モード or Watch モードで表示項目を切替
+            if recording {
+                draw_record_grid(ui, m, show_values);
+            } else {
+                draw_watch_grid(ui, m, show_values);
+            }
+
+            // "Keeping" バナー（ACK 直後 3 秒のみ / Keep ボタンとの統一感・R-28 静かなニュアンス）
+            if show_banner {
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
+                    ui.add_space(10.0);
+                    ui.label(
+                        RichText::new("Keeping")
+                            .size(13.0)
+                            .color(COL_FLORA)
+                            .monospace(),
+                    );
+                });
+            }
+
+            // 100ms ごとに再描画（10fps）。呼吸アニメのため banner 表示中は 30fps に引き上げ。
+            let repaint_ms = if show_banner { 33 } else { 100 };
+            ctx.request_repaint_after(Duration::from_millis(repaint_ms));
+        });
+}
+
+/// Watch モード: 3 項目（LUFS-M / TP / Crest）。
+fn draw_watch_grid(ui: &mut egui::Ui, m: &MeasureResult, show_values: bool) {
+    ui.horizontal(|ui| {
+        ui.add_space(10.0);
+        Grid::new("pre_watch_vals")
+            .num_columns(3)
+            .min_col_width(58.0)
+            .spacing([6.0, 6.0])
+            .show(ui, |ui| {
+                if show_values {
+                    value_row(ui, "LUFS-M", fmt_val(m.lufs_m), "LUFS", val_color(m.lufs_m));
+                    value_row(ui, "TP", fmt_val(m.true_peak), "dBTP", tp_color(m.true_peak));
+                    value_row(ui, "Crest", fmt_val(m.crest), "dB", val_color(m.crest));
+                } else {
+                    value_row(ui, "LUFS-M", "---".to_string(), "LUFS", COL_MUTED);
+                    value_row(ui, "TP", "---".to_string(), "dBTP", COL_MUTED);
+                    value_row(ui, "Crest", "---".to_string(), "dB", COL_MUTED);
+                }
+            });
+    });
+}
+
+/// Record モード: 6 項目（LUFS-M / TP / Crest / PSR / N' / Sharpness）。
+/// 2 列 × 3 行で配置。
+fn draw_record_grid(ui: &mut egui::Ui, m: &MeasureResult, show_values: bool) {
+    ui.horizontal(|ui| {
+        ui.add_space(10.0);
+        Grid::new("pre_record_vals")
+            .num_columns(6)
+            .min_col_width(40.0)
+            .spacing([6.0, 4.0])
+            .show(ui, |ui| {
+                // 行1: LUFS-M | PSR
+                if show_values {
+                    row_pair(ui,
+                        ("LUFS-M", fmt_val(m.lufs_m), "LUFS", val_color(m.lufs_m)),
+                        ("PSR", fmt_val(m.psr), "dB", val_color(m.psr)),
+                    );
+                    row_pair(ui,
+                        ("TP", fmt_val(m.true_peak), "dBTP", tp_color(m.true_peak)),
+                        ("N'", fmt_val(m.n_prime_total), "sone", val_color(m.n_prime_total)),
+                    );
+                    row_pair(ui,
+                        ("Crest", fmt_val(m.crest), "dB", val_color(m.crest)),
+                        ("Sharp", fmt_val(m.sharpness), "acum", val_color(m.sharpness)),
+                    );
+                } else {
+                    row_pair(ui,
+                        ("LUFS-M", "---".to_string(), "LUFS", COL_MUTED),
+                        ("PSR", "---".to_string(), "dB", COL_MUTED),
+                    );
+                    row_pair(ui,
+                        ("TP", "---".to_string(), "dBTP", COL_MUTED),
+                        ("N'", "---".to_string(), "sone", COL_MUTED),
+                    );
+                    row_pair(ui,
+                        ("Crest", "---".to_string(), "dB", COL_MUTED),
+                        ("Sharp", "---".to_string(), "acum", COL_MUTED),
+                    );
+                }
+            });
+    });
+}
+
+/// 2 つの (label, value, unit, color) をグリッド 1 行に流し込む。
+fn row_pair(
+    ui: &mut egui::Ui,
+    left: (&str, String, &str, egui::Color32),
+    right: (&str, String, &str, egui::Color32),
+) {
+    // 左
+    ui.label(RichText::new(left.0).size(11.0).color(COL_MUTED));
+    ui.label(RichText::new(left.1).size(14.0).color(left.3).monospace());
+    ui.label(RichText::new(left.2).size(10.0).color(COL_MUTED));
+    // 右
+    ui.label(RichText::new(right.0).size(11.0).color(COL_MUTED));
+    ui.label(RichText::new(right.1).size(14.0).color(right.3).monospace());
+    ui.label(RichText::new(right.2).size(10.0).color(COL_MUTED));
+    ui.end_row();
+}
+
+/// LED を 1 点描画（タイトル右端配置）。
+fn draw_led(ui: &mut egui::Ui, color: egui::Color32) {
+    let (rect, _) = ui.allocate_exact_size(Vec2::splat(12.0), egui::Sense::hover());
+    ui.painter().circle_filled(rect.center(), 5.0, color);
+}

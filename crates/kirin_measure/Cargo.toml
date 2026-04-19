@@ -1,0 +1,21 @@
+[package]
+name = "kirin_measure"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ebur128 = "0.1"
+rtrb = { workspace = true }
+log = "0.4"
+chrono = { workspace = true }
+serde_json = { workspace = true }
+serde = { workspace = true }
+uuid = { workspace = true }
+hmac = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+
+[dev-dependencies]
+symphonia = { version = "0.5", features = ["wav", "pcm"] }
+hound = "3.5"
+rand = "0.8"

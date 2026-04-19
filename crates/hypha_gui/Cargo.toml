@@ -1,0 +1,9 @@
+[package]
+name = "hypha_gui"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+nih_plug_egui = { workspace = true }
+kirin_measure = { workspace = true }
+png = "0.17"

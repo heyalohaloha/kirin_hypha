@@ -1,0 +1,37 @@
+# Build artifacts
+/target
+/vendor/baseview/target
+/vendor/egui-baseview/target
+**/*.rs.bk
+
+# Bundled plugin outputs (re-generated via `cargo xtask bundle`)
+/target/bundled
+
+# Runtime-generated plugin data (structure belongs in code / docs, not in git)
+/plugin_data
+**/plugin_data/
+
+# /tmp/ IPC directory mirrors — never commit runtime measurement state
+/tmp/kirin
+
+# Debug/diagnostic log captures (fork-debug + generic catchall)
+hypha_fork_debug*.log
+*.log
+
+# macOS
+.DS_Store
+
+# Editors
+.idea/
+.vscode/
+*.swp
+*~
+
+# Per-machine local tool settings (Claude Code's "local" suffix follows
+# the same convention as .vscode/settings.local.json)
+.claude/settings.local.json
+
+# Cargo local overrides (if Daisuke adds a local .cargo/config.toml,
+# uncomment the line below; leave tracked by default so toolchain
+# pinning stays reproducible)
+# .cargo/config.toml
