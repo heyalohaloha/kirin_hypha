@@ -171,7 +171,13 @@ pub fn spawn_measure_thread(
                     if let Some(ref pd_r) = latest_pd {
                         new_result.n_prime_total = Some(pd_r.loudness);
                         new_result.sharpness = Some(pd_r.sharpness);
-                        new_result.psb_summary = Some(compute_psb_summary(&pd_r.psb));
+                        new_result.psb_summary = Some(compute_psb_summary(
+                            &pd_r.psb,
+                            &pd_r.psb_bark21_24,
+                            pd_r.psb_high_ext_15_5k_20k,
+                        ));
+                        new_result.n_prime = Some(pd_r.n_prime);
+                        new_result.psb_bark = Some(pd_r.psb);
                     }
                     match result.lock() {
                         Ok(mut guard) => *guard = new_result,
@@ -190,19 +196,96 @@ pub fn spawn_measure_thread(
     })
 }
 
-/// 20-Bark PSB を 3 帯域に集約して dB 表現にする。
+/// PSB low / mid / high を集約して dB 表現にする。
 ///
-/// - low:  Bark 1–8  (indices 0–7)
-/// - mid:  Bark 9–16 (indices 8–15)
-/// - high: Bark 17–20 (indices 16–19)
-fn compute_psb_summary(psb: &[f64; 20]) -> PsbSummary {
+/// guardian_61 C-3 (Daisuke 判断 経路A、破壊的変更):
+/// - low : Bark 1–8   ISO 532-1 specific loudness (sone/Bark)         → dB
+/// - mid : Bark 9–16  ISO 532-1 specific loudness (sone/Bark)         → dB
+/// - high: Bark 21–24 + 15.5k–20kHz FFT energy (linear power)         → dB
+///
+/// 旧 high (Bark 17–20 specific loudness) は完全廃止し並存させない。
+/// ISO 532-1 由来の psb[16..20] は計算に使わない（n_prime[20] / psb_bark[20]
+/// 側では引き続き露出するため、外部から参照したい場合はそちらを使う）。
+fn compute_psb_summary(
+    psb: &[f64; 20],
+    psb_bark21_24: &[f64; 4],
+    psb_high_ext_15_5k_20k: f64,
+) -> PsbSummary {
     let low: f64 = psb[0..8].iter().sum();
     let mid: f64 = psb[8..16].iter().sum();
-    let high: f64 = psb[16..20].iter().sum();
+    // guardian_61 C-3: Bark 21–24 FFT power + 15.5k–20kHz 補完。
+    // FFT 経路は別単位 (linear power) のため log10 で dB 化するのは
+    // low/mid と同じ「対数スケール」に揃えるためのみで、絶対値の
+    // 比較可能性を保証するものではない（PsbSummary doc 参照）。
+    let high_lin: f64 = psb_bark21_24.iter().sum::<f64>() + psb_high_ext_15_5k_20k;
     let tiny = 1e-12;
     PsbSummary {
         low: 10.0 * (low + tiny).log10(),
         mid: 10.0 * (mid + tiny).log10(),
-        high: 10.0 * (high + tiny).log10(),
+        high: 10.0 * (high_lin + tiny).log10(),
+    }
+}
+
+#[cfg(test)]
+pub mod tests {
+    use super::compute_psb_summary;
+
+    /// Test-only public wrapper for compute_psb_summary.
+    /// Used by stream.rs pink noise test.
+    pub fn compute_psb_summary_pub(
+        psb: &[f64; 20],
+        psb_bark21_24: &[f64; 4],
+        psb_high_ext_15_5k_20k: f64,
+    ) -> crate::PsbSummary {
+        compute_psb_summary(psb, psb_bark21_24, psb_high_ext_15_5k_20k)
+    }
+
+    /// guardian_61 C-3 ガード: PsbSummary.low / .mid は ISO 532-1 由来の
+    /// psb[0..16] のみを使い、Bark 21–24 / 15.5k–20k FFT 値の影響を一切
+    /// 受けないこと。
+    #[test]
+    fn psb_summary_low_mid_independent_of_fft_inputs() {
+        let psb = [
+            0.10, 0.12, 0.11, 0.13, 0.09, 0.10, 0.10, 0.10, // low (Bark 1-8)
+            0.05, 0.06, 0.05, 0.04, 0.05, 0.05, 0.06, 0.05, // mid (Bark 9-16)
+            0.20, 0.25, 0.22, 0.18,                         // 旧 high 帯域（C-3 で未使用）
+        ];
+        let s_a = compute_psb_summary(&psb, &[0.0; 4], 0.0);
+        let s_b = compute_psb_summary(&psb, &[1.0e3, 2.0e3, 3.0e3, 4.0e3], 5.0e3);
+        assert_eq!(s_a.low, s_b.low, "low must not depend on FFT inputs");
+        assert_eq!(s_a.mid, s_b.mid, "mid must not depend on FFT inputs");
+    }
+
+    /// PsbSummary.high は Bark 21–24 + 15.5k–20k の合計 (linear power) を
+    /// 10·log10 で dB 化した値であり、psb[16..20] の値には依存しない。
+    #[test]
+    fn psb_summary_high_uses_only_fft_inputs() {
+        let psb_a = [0.0; 20];
+        let mut psb_b = [0.0; 20];
+        for v in psb_b[16..20].iter_mut() {
+            *v = 0.5; // 旧 high 帯域に大きい値を入れても結果は変わらないこと
+        }
+        let bark21_24 = [10.0, 20.0, 30.0, 40.0];
+        let ext = 50.0;
+        let s_a = compute_psb_summary(&psb_a, &bark21_24, ext);
+        let s_b = compute_psb_summary(&psb_b, &bark21_24, ext);
+        assert_eq!(s_a.high, s_b.high, "high must NOT depend on psb[16..20]");
+
+        // 期待値: 10·log10(10+20+30+40+50 + 1e-12) = 10·log10(150)
+        let expected = 10.0 * (150.0_f64).log10();
+        assert!(
+            (s_a.high - expected).abs() < 1e-9,
+            "high = {} expected ≈ {}",
+            s_a.high, expected
+        );
+    }
+
+    /// FFT 入力が全 0 のとき high は ≈ 10·log10(tiny) = -120 dB に張り付く。
+    /// (STFT 未発火フレームが PsbSummary を出すケースの挙動定義)
+    #[test]
+    fn psb_summary_high_floor_when_no_fft_energy() {
+        let psb = [0.0; 20];
+        let s = compute_psb_summary(&psb, &[0.0; 4], 0.0);
+        assert!(s.high < -100.0, "high should floor near -120 dB, got {}", s.high);
     }
 }

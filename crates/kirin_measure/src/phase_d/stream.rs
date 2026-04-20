@@ -11,8 +11,13 @@
 //! Kirin Hypha T-2: ストリーミングアダプタ。
 
 use super::filter_bank::{sos_process, lp_process, SosState, LpState};
+use super::stft::{StftProcessor, STFT_FFT_SIZE};
 use super::tables::*;
 use super::{core_loudness, calc_slopes, sharpness, spectral_balance};
+
+/// Phase D stream が前提とする mono サンプリングレート (Hz)。
+/// STFT のビン→周波数変換で使用。
+const PHASE_D_SAMPLE_RATE: f64 = 48000.0;
 
 // ── Result ──────────────────────────────────────────────────────
 
@@ -27,6 +32,17 @@ pub struct PhaseDResult {
     pub n_specific: [f64; N_SPEC_BINS],
     /// 20-band Perceptual Spectral Balance
     pub psb: [f64; N_BARK],
+    /// 20-Bark aggregated specific loudness N'(t) in sone/Bark (サブ3-A-1).
+    /// Mean of 12 bins per Bark band; used for Frame.n_prime[20] persistence.
+    pub n_prime: [f64; N_BARK],
+    /// guardian_61 C-2: Bark 21-24 (5800-15500 Hz) FFT エネルギー (linear power)。
+    /// ISO 532-1 specific loudness (N_BARK=20) とは独立経路で、
+    /// STFT の最新完了フレームから取得。STFT 未完了時は `[0.0; 4]`。
+    /// **単位が異なる** ため `psb` や `n_prime` と素朴に加算・比較してはならない。
+    pub psb_bark21_24: [f64; 4],
+    /// guardian_61 C-2: 15.5k-20kHz FFT 補完帯域のエネルギー (linear power)。
+    /// Bark 24 upper (15500 Hz) より上の余剰帯域。同じく STFT 最新フレーム由来。
+    pub psb_high_ext_15_5k_20k: f64,
 }
 
 // ── Streaming Processor ─────────────────────────────────────────
@@ -37,11 +53,22 @@ pub struct PhaseDResult {
 /// at 2 kHz rate (one frame per 24 input samples).
 ///
 /// Call `reset()` on SS-8 Active transition to clear all filter state.
+///
+/// guardian_61 C-2: ISO 532-1 パイプラインと並列に STFT 経路を保持し、
+/// Bark 21-24 + 15.5k-20kHz 補完帯域のエネルギーを `PhaseDResult` に
+/// 添付する。両経路は相互独立で、STFT 側は同じ 48 kHz mono 入力を
+/// 受けるが ISO 532-1 の数値には一切影響しない。
 pub struct PhaseDStream {
     field_type: FieldType,
     fb: FbState,
     decay: DecayState,
     tw: TwState,
+    stft: StftProcessor,
+    /// STFT 最新完了フレームから算出した Bark 21-24 エネルギー。
+    /// 2 kHz 出力フレーム vs STFT hop (~93.75 Hz) のレート差を吸収するため、
+    /// 新しい STFT フレームが到着するまで前回値を保持する (ratchet & hold)。
+    latest_psb_bark21_24: [f64; 4],
+    latest_psb_high_ext: f64,
 }
 
 impl PhaseDStream {
@@ -51,6 +78,9 @@ impl PhaseDStream {
             fb: FbState::new(),
             decay: DecayState::new(),
             tw: TwState::new(),
+            stft: StftProcessor::new(),
+            latest_psb_bark21_24: [0.0; 4],
+            latest_psb_high_ext: 0.0,
         }
     }
 
@@ -59,6 +89,36 @@ impl PhaseDStream {
     /// Output count = number of decimation boundaries crossed in this chunk.
     /// May return empty Vec if fewer than DEC_FACTOR samples accumulated.
     pub fn push(&mut self, mono_48k: &[f64]) -> Vec<PhaseDResult> {
+        // guardian_61 C-2: STFT 経路を先に回す。ISO 532-1 パイプラインとは
+        // 独立で、同じ mono サンプルを入力とするが結果は別フィールドに格納。
+        // STFT は hop=512 で発火するため、複数フレーム or 0 フレームが返る。
+        // 最新完了フレームを保持して後続の 2 kHz 出力に添付する。
+        let stft_frames = self.stft.push(mono_48k);
+        if let Some(last_spec) = stft_frames.last() {
+            self.latest_psb_bark21_24 = spectral_balance::compute_psb_bark21_24_from_fft(
+                last_spec.as_slice(),
+                PHASE_D_SAMPLE_RATE,
+                STFT_FFT_SIZE,
+            );
+            self.latest_psb_high_ext = spectral_balance::compute_psb_high_ext_15_5k_20k(
+                last_spec.as_slice(),
+                PHASE_D_SAMPLE_RATE,
+                STFT_FFT_SIZE,
+            );
+            // PSB High bug fix: normalize FFT band powers by total spectral energy.
+            // Without this, high uses raw |X[k]|² sums (~35 for pink noise)
+            // while low/mid use PSB ratios (~0.3). The 20 dB mismatch makes high
+            // physically meaningless. After normalization, high represents the
+            // fraction of total energy in the band — same concept as low/mid.
+            let total_power: f64 = last_spec.iter().sum();
+            if total_power > 1e-12 {
+                for v in &mut self.latest_psb_bark21_24 {
+                    *v /= total_power;
+                }
+                self.latest_psb_high_ext /= total_power;
+            }
+        }
+
         // 1. Filter bank → SPL frames at 2 kHz
         let spl_frames = self.fb.process(mono_48k);
         if spl_frames.is_empty() {
@@ -80,10 +140,11 @@ impl PhaseDStream {
         // 5. Temporal weighting (stateful: dual LP IIR)
         let filtered = self.tw.process(&slopes.n_total);
 
-        // 6. Sharpness + PSB (stateless per frame)
+        // 6. Sharpness + PSB + n_prime (stateless per frame)
         let n = filtered.len();
         let sharp = sharpness::compute(&slopes.n_specific[..n], &filtered);
         let psb = spectral_balance::compute(&slopes.n_specific[..n], &filtered);
+        let n_prime = spectral_balance::compute_n_prime(&slopes.n_specific[..n]);
 
         (0..n)
             .map(|i| PhaseDResult {
@@ -91,6 +152,9 @@ impl PhaseDStream {
                 sharpness: sharp[i],
                 n_specific: slopes.n_specific[i],
                 psb: psb[i],
+                n_prime: n_prime[i],
+                psb_bark21_24: self.latest_psb_bark21_24,
+                psb_high_ext_15_5k_20k: self.latest_psb_high_ext,
             })
             .collect()
     }
@@ -100,6 +164,10 @@ impl PhaseDStream {
         self.fb.reset();
         self.decay.reset();
         self.tw.reset();
+        // guardian_61 C-2: STFT 経路も同時にリセット。
+        self.stft.reset();
+        self.latest_psb_bark21_24 = [0.0; 4];
+        self.latest_psb_high_ext = 0.0;
     }
 }
 
@@ -480,6 +548,7 @@ mod tests {
         let slopes = calc_slopes::compute(&decayed);
         let filtered = temporal_weighting::compute(&slopes.n_total);
         let sharp_b = sharpness::compute(&slopes.n_specific, &filtered);
+        let n_prime_b = spectral_balance::compute_n_prime(&slopes.n_specific);
 
         // Streaming pipeline (single push = same data, same deltas)
         let mut stream = PhaseDStream::new(FieldType::Free);
@@ -491,6 +560,10 @@ mod tests {
             assert!(ld < 1e-10, "Loudness frame {i}: diff={ld}");
             let sd = (sr[i].sharpness - sharp_b[i]).abs();
             assert!(sd < 1e-10, "Sharpness frame {i}: diff={sd}");
+            for (bark, &expected) in n_prime_b[i].iter().enumerate() {
+                let nd = (sr[i].n_prime[bark] - expected).abs();
+                assert!(nd < 1e-10, "n_prime frame {i} bark {bark}: diff={nd}");
+            }
         }
     }
 
@@ -507,6 +580,168 @@ mod tests {
                 (first[i].loudness - second[i].loudness).abs() < 1e-10,
                 "Frame {i} loudness mismatch after reset"
             );
+        }
+    }
+
+    // ── guardian_61 C-2: STFT 経路の end-to-end テスト ──
+
+    /// 48 kHz の正弦波信号を生成 (ピーク値 1.0)。
+    fn gen_sine(freq_hz: f64, duration_s: f64) -> Vec<f64> {
+        let n = (REQUIRED_FS as f64 * duration_s) as usize;
+        (0..n)
+            .map(|i| (2.0 * PI * freq_hz * i as f64 / REQUIRED_FS as f64).sin())
+            .collect()
+    }
+
+    /// 指定帯域に集中しているかを検証するヘルパ。
+    /// `target_idx` は 0=Bark21, 1=Bark22, 2=Bark23, 3=Bark24。
+    fn assert_dominated_by(psb_bark21_24: [f64; 4], target_idx: usize, min_ratio: f64) {
+        let total: f64 = psb_bark21_24.iter().sum();
+        assert!(total > 0.0, "total energy must be positive: {psb_bark21_24:?}");
+        let ratio = psb_bark21_24[target_idx] / total;
+        assert!(
+            ratio >= min_ratio,
+            "band {target_idx} should dominate ({ratio} < {min_ratio}): {psb_bark21_24:?}"
+        );
+    }
+
+    #[test]
+    fn test_stft_bark21_24_zero_before_first_frame() {
+        // STFT は 1024 サンプル (21.3 ms) 蓄積するまで発火しない。
+        // ISO 532-1 側 (2 kHz 出力) は 24 サンプルで発火する。
+        // 最初の 1023 サンプル以下を入力すると、PhaseDResult.psb_bark21_24 は
+        // 初期値 [0.0; 4] のまま返る。
+        let mut stream = PhaseDStream::new(FieldType::Free);
+        let results = stream.push(&vec![0.5; 1000]);
+        // 1000/24 = 41 frames from ISO 532-1 side.
+        assert!(!results.is_empty());
+        for r in &results {
+            assert_eq!(r.psb_bark21_24, [0.0; 4], "STFT not yet fired");
+            assert_eq!(r.psb_high_ext_15_5k_20k, 0.0);
+        }
+    }
+
+    #[test]
+    fn test_stft_bark21_dominated_by_7000hz() {
+        // 7000 Hz = Bark 21 center。200 ms で十分な STFT フレームが蓄積する。
+        let signal = gen_sine(7000.0, 0.2);
+        let mut stream = PhaseDStream::new(FieldType::Free);
+        let results = stream.push(&signal);
+        let last = results.last().expect("non-empty results");
+        assert_dominated_by(last.psb_bark21_24, 0, 0.95);
+    }
+
+    #[test]
+    fn test_stft_bark22_dominated_by_8500hz() {
+        let signal = gen_sine(8500.0, 0.2);
+        let mut stream = PhaseDStream::new(FieldType::Free);
+        let results = stream.push(&signal);
+        let last = results.last().expect("non-empty results");
+        assert_dominated_by(last.psb_bark21_24, 1, 0.95);
+    }
+
+    #[test]
+    fn test_stft_bark23_dominated_by_10500hz() {
+        let signal = gen_sine(10500.0, 0.2);
+        let mut stream = PhaseDStream::new(FieldType::Free);
+        let results = stream.push(&signal);
+        let last = results.last().expect("non-empty results");
+        assert_dominated_by(last.psb_bark21_24, 2, 0.95);
+    }
+
+    #[test]
+    fn test_stft_bark24_dominated_by_13500hz() {
+        let signal = gen_sine(13500.0, 0.2);
+        let mut stream = PhaseDStream::new(FieldType::Free);
+        let results = stream.push(&signal);
+        let last = results.last().expect("non-empty results");
+        assert_dominated_by(last.psb_bark21_24, 3, 0.95);
+    }
+
+    #[test]
+    fn test_stft_high_ext_captures_17khz() {
+        // 17 kHz は Bark 24 より上 (15.5k-20k 補完帯域)。
+        // Bark 21-24 にほとんど落ちず、psb_high_ext_15_5k_20k に集中する。
+        let signal = gen_sine(17000.0, 0.2);
+        let mut stream = PhaseDStream::new(FieldType::Free);
+        let results = stream.push(&signal);
+        let last = results.last().expect("non-empty results");
+
+        let bark_sum: f64 = last.psb_bark21_24.iter().sum();
+        let ext = last.psb_high_ext_15_5k_20k;
+        assert!(ext > 0.0, "15.5k-20k ext should capture 17 kHz");
+        assert!(
+            ext / (ext + bark_sum) >= 0.95,
+            "17 kHz should concentrate in ext (ext={ext}, bark21_24={bark_sum})"
+        );
+    }
+
+    #[test]
+    fn test_stft_5khz_not_in_bark21_24() {
+        // 5 kHz は Bark 21 (6400 Hz lower) より下。Bark 21-24 にほぼ落ちない。
+        let signal = gen_sine(5000.0, 0.2);
+        let mut stream = PhaseDStream::new(FieldType::Free);
+        let results = stream.push(&signal);
+        let last = results.last().expect("non-empty results");
+        let bark_sum: f64 = last.psb_bark21_24.iter().sum();
+        assert!(
+            bark_sum < 1e-3,
+            "5 kHz should NOT leak into Bark 21-24: got {bark_sum}"
+        );
+    }
+
+    #[test]
+    fn test_stft_reset_clears_held_values() {
+        // Reset 後、最新 Bark 21-24 値が初期値に戻る。
+        let signal = gen_sine(7000.0, 0.2);
+        let mut stream = PhaseDStream::new(FieldType::Free);
+        let _ = stream.push(&signal);
+        stream.reset();
+        // 小チャンク (STFT 発火前) を入れて確認
+        let results = stream.push(&vec![0.0; 100]);
+        for r in &results {
+            assert_eq!(r.psb_bark21_24, [0.0; 4]);
+            assert_eq!(r.psb_high_ext_15_5k_20k, 0.0);
+        }
+    }
+
+    // ── guardian_61 C-2 回帰保証: ISO 532-1 側に影響がないこと ──
+
+    #[test]
+    fn test_iso_532_1_fields_unchanged_by_stft_integration() {
+        // STFT 経路追加後も、ISO 532-1 由来のフィールド
+        // (loudness / sharpness / n_specific / psb / n_prime) は batch と bit-identical。
+        // これは既存の test_batch_vs_stream_equivalence と同等だが、
+        // guardian_61 C-2 のガードとして明示的に再確認する。
+        use super::super::{filter_bank, nonlinear_decay, temporal_weighting};
+        let signal = gen_1khz_94db(0.5);
+        let fb = filter_bank::compute(&signal);
+        let core = core_loudness::compute(&fb.spl, FieldType::Free);
+        let decayed = nonlinear_decay::compute(&core);
+        let slopes = calc_slopes::compute(&decayed);
+        let filtered = temporal_weighting::compute(&slopes.n_total);
+        let sharp_b = sharpness::compute(&slopes.n_specific, &filtered);
+        let psb_b = spectral_balance::compute(&slopes.n_specific, &filtered);
+        let n_prime_b = spectral_balance::compute_n_prime(&slopes.n_specific);
+
+        let mut stream = PhaseDStream::new(FieldType::Free);
+        let sr = stream.push(&signal);
+        assert_eq!(sr.len(), filtered.len());
+        for i in 0..sr.len() {
+            assert!((sr[i].loudness - filtered[i]).abs() < 1e-10);
+            assert!((sr[i].sharpness - sharp_b[i]).abs() < 1e-10);
+            for (bark, &expected) in psb_b[i].iter().enumerate() {
+                assert!(
+                    (sr[i].psb[bark] - expected).abs() < 1e-10,
+                    "psb[{bark}] diff at frame {i}"
+                );
+            }
+            for (bark, &expected) in n_prime_b[i].iter().enumerate() {
+                assert!(
+                    (sr[i].n_prime[bark] - expected).abs() < 1e-10,
+                    "n_prime[{bark}] diff at frame {i}"
+                );
+            }
         }
     }
 
@@ -534,5 +769,82 @@ mod tests {
                 single[i].loudness, split[i].loudness,
             );
         }
+    }
+
+    // ── PSB High bug fix: pink noise regression test ──
+
+    /// Generate synthetic pink noise (1/f spectrum, -3 dB/octave).
+    /// Uses Paul Kellet's pinking filter (well-known approximation to -3 dB/oct).
+    fn gen_pink_noise(n_samples: usize, seed: u64) -> Vec<f64> {
+        // Simple LCG for reproducible pseudo-random white noise
+        let mut rng_state = seed;
+        let mut pink = Vec::with_capacity(n_samples);
+
+        let mut b0 = 0.0f64;
+        let mut b1 = 0.0f64;
+        let mut b2 = 0.0f64;
+        let mut b3 = 0.0f64;
+        let mut b4 = 0.0f64;
+        let mut b5 = 0.0f64;
+        let mut b6 = 0.0f64;
+
+        for _ in 0..n_samples {
+            rng_state = rng_state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            let white = (rng_state >> 33) as f64 / (1u64 << 31) as f64 - 1.0;
+
+            // Paul Kellet's pinking filter (-3.01 dB/octave, accurate 40 Hz–20 kHz)
+            b0 = 0.99886 * b0 + white * 0.0555179;
+            b1 = 0.99332 * b1 + white * 0.0750759;
+            b2 = 0.96900 * b2 + white * 0.1538520;
+            b3 = 0.86650 * b3 + white * 0.3104856;
+            b4 = 0.55000 * b4 + white * 0.5329522;
+            b5 = -0.7616 * b5 - white * 0.0168980;
+            let sample = b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362;
+            b6 = white * 0.115926;
+
+            pink.push(sample * 0.05); // scale to reasonable amplitude
+        }
+        pink
+    }
+
+    /// PSB High bug fix regression test: for pink noise (1/f spectrum),
+    /// PSB summary must satisfy high < mid and high < low.
+    /// Before fix: high ≈ +15 dB (raw FFT power, unnormalized).
+    /// After fix: high ≈ -7 to -10 dB (normalized fraction).
+    #[test]
+    fn test_psb_high_pink_noise_monotone_decreasing() {
+        use crate::measure_thread::tests::compute_psb_summary_pub;
+
+        let signal = gen_pink_noise(48000 * 2, 42); // 2 seconds
+        let mut stream = PhaseDStream::new(FieldType::Free);
+        let results = stream.push(&signal);
+        assert!(!results.is_empty(), "should produce results");
+
+        // Use last result (steady-state after STFT has fired multiple times)
+        let last = results.last().unwrap();
+        let psb_summary = compute_psb_summary_pub(
+            &last.psb,
+            &last.psb_bark21_24,
+            last.psb_high_ext_15_5k_20k,
+        );
+
+        // For pink noise: low/mid should be > high
+        // (1/f means less energy at higher frequencies)
+        assert!(
+            psb_summary.high < psb_summary.low,
+            "Pink noise: high ({:.3}) must be < low ({:.3})",
+            psb_summary.high, psb_summary.low
+        );
+        assert!(
+            psb_summary.high < psb_summary.mid,
+            "Pink noise: high ({:.3}) must be < mid ({:.3})",
+            psb_summary.high, psb_summary.mid
+        );
+        // Sanity: high should be negative dB (fraction < 1.0)
+        assert!(
+            psb_summary.high < 0.0,
+            "Pink noise: high ({:.3}) should be negative dB (normalized fraction)",
+            psb_summary.high
+        );
     }
 }
