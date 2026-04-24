@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# commit-msg hook for kirin_hypha
+# Enforces: message must start with [B-XXX] or [W-XXX]
+# Merge commits and revert commits are exempt.
+
+set -e
+
+msg_file="$1"
+first_line="$(head -n 1 "$msg_file")"
+
+if [[ "$first_line" =~ ^Merge ]] || [[ "$first_line" =~ ^Revert ]]; then
+  exit 0
+fi
+
+if [[ "$first_line" =~ ^\[(B|W)-[0-9]+\][[:space:]].+ ]]; then
+  exit 0
+fi
+
+echo "ERROR: commit message must start with [B-XXX] or [W-XXX] followed by a space and description." >&2
+echo "       Got: $first_line" >&2
+echo "       Example: [B-012] add commit-msg hook" >&2
+exit 1
