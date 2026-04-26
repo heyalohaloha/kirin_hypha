@@ -316,6 +316,69 @@ fn scan_plugin_data_for_installation_id(plugin_data_dir: &Path) -> Option<String
     None
 }
 
+// ── installation_id loose reader（サブ3-A-2 / Adv-実装 承認 β 案）──────
+//
+// PluginDataWriter が Frame.installation_id を埋めるための最小読取り。
+// HMAC 検証・2-of-3 判定は行わず、identity JSON の `installation_id` フィールド
+// のみを loose に抽出する。license.rs `load_license_safe` と同位相:
+// - 本番パス: `~/Library/Application Support/Kirin OS/identity.json`
+// - $HOME 不在 / ファイル不在 / 不正 JSON / フィールド欠落 → `None`
+// - 書込は行わない（`load_or_recover` と分離）
+//
+// ログ分岐は以下の 5 系統:
+// - `[installation_id] loaded: <uuid>` — 正常
+// - `[installation_id] loaded: None (no $HOME)` — $HOME 解決不能
+// - `[installation_id] loaded: None (file missing)` — identity.json 不在
+// - `[installation_id] loaded: None (JSON parse error: <detail>)` — 破損
+// - `[installation_id] loaded: None (installation_id field missing)` — フィールド欠落
+
+/// `identity.json` から installation_id を安全に読み込む（IO Thread 起動時用）。
+///
+/// HMAC 署名検証・2-of-3 判定はしない。GUI の license 読取りと同位相の
+/// loose reader（Phase 1.0 手動テストや Kirin OS 本体未完成時点でも
+/// installation_id 値は独立して読める必要あり）。
+pub fn load_installation_id_safe() -> Option<String> {
+    let paths = match StoragePaths::default_macos() {
+        Ok(p) => p,
+        Err(_) => {
+            log::info!("[installation_id] loaded: None (no $HOME)");
+            return None;
+        }
+    };
+    load_installation_id_from(&paths.primary_path())
+}
+
+/// 任意パスから installation_id を loose 抽出（テスト・`load_installation_id_safe` 共用）。
+pub(crate) fn load_installation_id_from(path: &Path) -> Option<String> {
+    let text = match fs::read_to_string(path) {
+        Ok(t) => t,
+        Err(_) => {
+            log::info!(
+                "[installation_id] loaded: None (file missing: {})",
+                path.display()
+            );
+            return None;
+        }
+    };
+    let value: Value = match serde_json::from_str(&text) {
+        Ok(v) => v,
+        Err(e) => {
+            log::info!("[installation_id] loaded: None (JSON parse error: {})", e);
+            return None;
+        }
+    };
+    match value.get("installation_id").and_then(|v| v.as_str()) {
+        Some(s) if !s.is_empty() => {
+            log::info!("[installation_id] loaded: {}", s);
+            Some(s.to_string())
+        }
+        _ => {
+            log::info!("[installation_id] loaded: None (installation_id field missing)");
+            None
+        }
+    }
+}
+
 // ── 一次 / 二次 同期（起動中のアップグレード検出・T-6 準備） ─────────
 
 /// 一次を読み、mtime が変化していれば再読込した Identity を返す。
@@ -568,5 +631,87 @@ mod tests {
             second.identity.installation_id
         );
         let _ = fs::remove_dir_all(root);
+    }
+
+    // ── load_installation_id_from（サブ3-A-2）─────────────────────────
+
+    fn isolated_id_path(name: &str) -> PathBuf {
+        let n = TEST_COUNTER.fetch_add(1, Ordering::SeqCst);
+        let pid = std::process::id();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let root = std::env::temp_dir()
+            .join("kirin_hypha_id_test")
+            .join(format!("{}-{}-{}", pid, now, n));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        root.join(name)
+    }
+
+    #[test]
+    fn load_installation_id_reads_valid_field() {
+        let path = isolated_id_path("identity.json");
+        fs::write(&path, r#"{"installation_id": "abc-123-uuid"}"#).unwrap();
+        assert_eq!(
+            load_installation_id_from(&path),
+            Some("abc-123-uuid".to_string())
+        );
+    }
+
+    #[test]
+    fn load_installation_id_reads_from_full_schema() {
+        let path = isolated_id_path("identity.json");
+        let full = r#"{
+            "schema_version": "1.0",
+            "installation_id": "full-schema-uuid",
+            "hardware_id": "x",
+            "hardware_components": {"iop": "a", "sn": "b", "bd": "c"},
+            "machine_signature": "x",
+            "license": "os",
+            "created_at": "2026-04-19T00:00:00Z",
+            "last_verified_at": "2026-04-19T00:00:00Z"
+        }"#;
+        fs::write(&path, full).unwrap();
+        assert_eq!(
+            load_installation_id_from(&path),
+            Some("full-schema-uuid".to_string())
+        );
+    }
+
+    #[test]
+    fn load_installation_id_returns_none_on_missing_file() {
+        let path = isolated_id_path("does_not_exist.json");
+        assert_eq!(load_installation_id_from(&path), None);
+    }
+
+    #[test]
+    fn load_installation_id_returns_none_on_invalid_json() {
+        let path = isolated_id_path("identity.json");
+        fs::write(&path, "not a json").unwrap();
+        assert_eq!(load_installation_id_from(&path), None);
+    }
+
+    #[test]
+    fn load_installation_id_returns_none_on_missing_field() {
+        let path = isolated_id_path("identity.json");
+        fs::write(&path, r#"{"license": "os"}"#).unwrap();
+        assert_eq!(load_installation_id_from(&path), None);
+    }
+
+    #[test]
+    fn load_installation_id_returns_none_on_empty_field() {
+        let path = isolated_id_path("identity.json");
+        fs::write(&path, r#"{"installation_id": ""}"#).unwrap();
+        assert_eq!(load_installation_id_from(&path), None);
+    }
+
+    #[test]
+    fn load_installation_id_returns_none_on_non_string_field() {
+        // Guardrail: future schema change storing installation_id as number must fail safely.
+        let path = isolated_id_path("identity.json");
+        fs::write(&path, r#"{"installation_id": 42}"#).unwrap();
+        assert_eq!(load_installation_id_from(&path), None);
     }
 }

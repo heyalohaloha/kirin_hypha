@@ -13,9 +13,15 @@
 //!   "status": "pending | acknowledged | released",
 //!   "requested_by": "instance_id of POST",
 //!   "target_pre_instance_id": "instance_id of PRE (ペアリング結果)",
-//!   "t": "ISO 8601"
+//!   "t": "ISO 8601（最終遷移時刻。status 変化で更新）",
+//!   "started_at": "ISO 8601（Record 開始時刻。pending 配置時に固定、以後不変）"
 //! }
 //! ```
+//!
+//! `t` は status の更新時刻で、pending → acknowledged → released の度に書き換わる。
+//! `started_at` は Record 開始（pending 配置）時に固定され、遷移では変わらない。
+//! PRE / POST 双方が `started_at` を読んで共通の t_ms 軸を構築する（同じ Record
+//! に属する両側のフレームが同じ経過時間で並ぶ）。
 //!
 //! # シーケンス
 //! ```text
@@ -82,16 +88,22 @@ pub struct RecordSignal {
     pub requested_by: String,
     pub target_pre_instance_id: String,
     pub t: String,
+    /// Record 開始時刻（pending 配置時に固定）。status 遷移でも更新されない。
+    /// 旧バージョンで書かれたファイルには存在しないことがあるため `#[serde(default)]`。
+    #[serde(default)]
+    pub started_at: String,
 }
 
 impl RecordSignal {
-    /// 新規 pending シグナル。`t` は現在時刻。
+    /// 新規 pending シグナル。`t` と `started_at` は現在時刻。
     pub fn new_pending(requested_by: String, target_pre_instance_id: String) -> Self {
+        let now = now_iso8601();
         Self {
             status: SignalStatus::Pending,
             requested_by,
             target_pre_instance_id,
-            t: now_iso8601(),
+            t: now.clone(),
+            started_at: now,
         }
     }
 }
@@ -444,6 +456,35 @@ mod tests {
         assert!(changed);
         let loaded = read_signal(&base, "ph", "MIX").unwrap();
         assert_eq!(loaded.status, SignalStatus::Acknowledged);
+    }
+
+    #[test]
+    fn started_at_preserved_across_transitions() {
+        let base = isolated_dir();
+        let initial = write_pending(&base, "ph", "MIX", "p".into(), "r".into()).unwrap();
+        let first_started = initial.started_at.clone();
+        assert!(!first_started.is_empty(), "started_at must be set on new_pending");
+        // 遷移ごとに t は変わっても started_at は変わらない
+        std::thread::sleep(std::time::Duration::from_millis(1100)); // ISO 秒精度なので 1s 待つ
+        mark_acknowledged(&base, "ph", "MIX").unwrap();
+        let acked = read_signal(&base, "ph", "MIX").unwrap();
+        assert_eq!(acked.started_at, first_started);
+        assert_ne!(acked.t, first_started, "t should have advanced");
+        mark_released(&base, "ph", "MIX").unwrap();
+        let released = read_signal(&base, "ph", "MIX").unwrap();
+        assert_eq!(released.started_at, first_started);
+    }
+
+    #[test]
+    fn started_at_missing_field_defaults_to_empty() {
+        // 旧バージョン (started_at 無し) の JSON を読み込んでもパースできること
+        let base = isolated_dir();
+        let dir = base.join("ph").join("MIX");
+        fs::create_dir_all(&dir).unwrap();
+        let legacy = r#"{"status":"pending","requested_by":"p","target_pre_instance_id":"r","t":"2026-01-01T00:00:00Z"}"#;
+        fs::write(dir.join(SIGNAL_FILENAME), legacy).unwrap();
+        let loaded = read_signal(&base, "ph", "MIX").unwrap();
+        assert_eq!(loaded.started_at, "");
     }
 
     #[test]
