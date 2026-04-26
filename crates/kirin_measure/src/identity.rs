@@ -16,9 +16,15 @@
 //!   "machine_signature": "HMAC-SHA256(installation_id, hardware_id)",
 //!   "license": "sense | os",
 //!   "created_at": "ISO 8601",
-//!   "last_verified_at": "ISO 8601"
+//!   "last_verified_at": "ISO 8601",
+//!   "updated_at": "ISO 8601（最終書込時刻。touch_verified で更新）",
+//!   "os_version": "sw_vers -productVersion の結果。取得失敗時は \"\""
 //! }
 //! ```
+//!
+//! `updated_at` / `os_version` は guardian_59 Step 5 Additive（G-60-03）で
+//! 追加されたフィールド。旧 identity.json（既存ファイル）との互換のため
+//! `#[serde(default)]` を付与、欠けていれば空文字で読み込む。
 //!
 //! `hardware_components` は 2-of-3 判定用に 3 要素を個別保持する内部フィールド。
 //! `hardware_id` は 3 要素を結合した SHA-256 ハッシュ（外部参照用）。
@@ -88,14 +94,22 @@ pub struct Identity {
     pub license: License,
     pub created_at: String,
     pub last_verified_at: String,
+    /// 最終書込時刻（ISO 8601）。`touch_verified` で `last_verified_at` と同時に更新。
+    /// 旧スキーマ互換のため `#[serde(default)]`（欠けていれば空文字）。
+    #[serde(default)]
+    pub updated_at: String,
+    /// Identity 生成時の macOS バージョン（例 "15.0.1"）。取得失敗時は空文字。
+    /// 旧スキーマ互換のため `#[serde(default)]`。
+    #[serde(default)]
+    pub os_version: String,
 }
 
 impl Identity {
     /// schema_version の固定値。
     pub const SCHEMA_VERSION: &'static str = "1.0";
 
-    /// 新規生成。installation_id は UUID v4、created_at/last_verified_at は現在時刻、
-    /// machine_signature は自動計算。
+    /// 新規生成。installation_id は UUID v4、created_at/last_verified_at/updated_at は現在時刻、
+    /// machine_signature は自動計算、os_version は `sw_vers -productVersion`（取得失敗時は空文字）。
     pub fn new(components: HardwareComponents, license: License) -> Self {
         let installation_id = Uuid::new_v4().to_string();
         let hardware_id = components.hardware_id();
@@ -109,7 +123,9 @@ impl Identity {
             machine_signature,
             license,
             created_at: now.clone(),
-            last_verified_at: now,
+            last_verified_at: now.clone(),
+            updated_at: now,
+            os_version: detect_os_version(),
         }
     }
 
@@ -130,7 +146,9 @@ impl Identity {
             machine_signature,
             license,
             created_at: now.clone(),
-            last_verified_at: now,
+            last_verified_at: now.clone(),
+            updated_at: now,
+            os_version: detect_os_version(),
         }
     }
 
@@ -140,9 +158,11 @@ impl Identity {
         constant_time_eq(expected.as_bytes(), self.machine_signature.as_bytes())
     }
 
-    /// `last_verified_at` を現在時刻に更新（起動毎の検証成功時）。
+    /// `last_verified_at` と `updated_at` を現在時刻に更新（起動毎の検証成功時）。
     pub fn touch_verified(&mut self) {
-        self.last_verified_at = now_iso8601();
+        let now = now_iso8601();
+        self.last_verified_at = now.clone();
+        self.updated_at = now;
     }
 
     /// JSON 文字列にシリアライズ（pretty）。
@@ -201,6 +221,22 @@ fn now_iso8601() -> String {
     chrono::Utc::now()
         .format("%Y-%m-%dT%H:%M:%SZ")
         .to_string()
+}
+
+/// macOS バージョンを `sw_vers -productVersion` から取得する。
+///
+/// 失敗時は空文字。サンドボックスで `sw_vers` が使えないケースなど
+/// 取得不能な環境でも identity.json の生成を妨げない（R-28 沈黙原則）。
+fn detect_os_version() -> String {
+    match std::process::Command::new("sw_vers")
+        .arg("-productVersion")
+        .output()
+    {
+        Ok(out) if out.status.success() => {
+            String::from_utf8_lossy(&out.stdout).trim().to_string()
+        }
+        _ => String::new(),
+    }
 }
 
 /// 3 要素を結合して SHA-256 ハッシュを取る（hardware_id 計算用）。
@@ -314,5 +350,60 @@ mod tests {
         let h1 = hash_hardware("a", "b", "c");
         let h2 = hash_hardware("a", "b", "d");
         assert_ne!(h1, h2);
+    }
+
+    // ── G-60-03 Additive: updated_at / os_version ────────────────────────
+
+    #[test]
+    fn new_populates_updated_at_and_os_version_fields_exist() {
+        let id = Identity::new(sample_components(), License::Os);
+        assert!(!id.updated_at.is_empty(), "updated_at should be set at creation");
+        assert_eq!(
+            id.updated_at, id.created_at,
+            "updated_at should equal created_at on fresh creation"
+        );
+        // os_version は環境によって空文字になりうる（非 macOS CI）。型の存在のみ検証。
+        let _: &str = id.os_version.as_str();
+    }
+
+    #[test]
+    fn touch_verified_advances_updated_at() {
+        let mut id = Identity::new(sample_components(), License::Os);
+        let before = id.updated_at.clone();
+        // 時刻が進むまで 1 秒ちょうど待つのは過剰。last_verified_at と updated_at が
+        // 同値更新されることだけ検証し、clone を比較する。
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        id.touch_verified();
+        assert_eq!(id.updated_at, id.last_verified_at);
+        assert_ne!(id.updated_at, before, "updated_at should advance");
+    }
+
+    #[test]
+    fn old_json_without_updated_at_still_parses() {
+        // 旧 identity.json（updated_at / os_version なし）を復元できること（serde default）
+        let legacy = r#"{
+            "schema_version": "1.0",
+            "installation_id": "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+            "hardware_id": "0000000000000000000000000000000000000000000000000000000000000000",
+            "hardware_components": { "iop": "", "sn": "", "bd": "" },
+            "machine_signature": "deadbeef",
+            "license": "os",
+            "created_at": "2026-04-19T00:00:00Z",
+            "last_verified_at": "2026-04-19T00:00:00Z"
+        }"#;
+        let id = Identity::from_json(legacy).expect("legacy JSON should parse");
+        assert_eq!(id.updated_at, "", "missing updated_at defaults to empty");
+        assert_eq!(id.os_version, "", "missing os_version defaults to empty");
+    }
+
+    #[test]
+    fn json_roundtrip_preserves_additive_fields() {
+        let mut id = Identity::new(sample_components(), License::Os);
+        id.os_version = "15.0.1".to_string();
+        id.updated_at = "2026-04-20T12:34:56Z".to_string();
+        let json = id.to_json_pretty().unwrap();
+        let back = Identity::from_json(&json).unwrap();
+        assert_eq!(back.updated_at, "2026-04-20T12:34:56Z");
+        assert_eq!(back.os_version, "15.0.1");
     }
 }
