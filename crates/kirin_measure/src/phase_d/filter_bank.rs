@@ -156,8 +156,8 @@ mod tests {
         let n = result.n_frames;
         let mut band_means = [0.0f64; N_BANDS];
         for frame in 0..n {
-            for band in 0..N_BANDS {
-                band_means[band] += result.spl[frame][band];
+            for (band, mean) in band_means.iter_mut().enumerate() {
+                *mean += result.spl[frame][band];
             }
         }
         for m in band_means.iter_mut() {

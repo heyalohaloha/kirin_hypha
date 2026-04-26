@@ -3,7 +3,7 @@
 //! テスト信号定義（guardian_53 §8）:
 //! - S-1: 1kHz sine, -6dBFS, 48kHz, stereo, 10秒
 //! - S-4: 1kHz sine, -6dBFS, 48kHz, stereo, 48000サンプル（1秒）
-//!         Crest 理論値: 3.01 ± 0.05 dB（サンプル点一致条件）
+//!   Crest 理論値: 3.01 ± 0.05 dB（サンプル点一致条件）
 
 use kirin_measure::{MeasureEngine, N_CHANNELS};
 use std::f64::consts::PI;
@@ -305,7 +305,7 @@ fn test_true_peak_3db_diagnosis() {
     let n_channels: usize = 2;
     let amplitude = 10.0_f64.powf(-14.0 / 20.0); // -14dBFS linear ≈ 0.1995
     let expected_tp_db = -14.0_f64;
-    let expected_tp_linear = amplitude; // ≈ 0.1995
+    let _expected_tp_linear = amplitude; // ≈ 0.1995
 
     println!("\n=== TP 3dB診断 ===");
     println!("振幅: {:.6} (= -14dBFS = {:.4} dBFS)", amplitude, 20.0 * amplitude.log10());

@@ -4,17 +4,19 @@
 //! `led_color(state, time_secs)` で行う。egui の描画コードとは独立して
 //! ユニットテスト可能な構造。
 
-use crate::palette::{COL_LED_BLUE, COL_LED_GREEN, COL_LED_GREY, COL_LED_YELLOW};
+use crate::palette::{COL_FLORA, COL_LED_BLUE, COL_LED_GREEN, COL_LED_GREY, COL_LED_YELLOW};
 use kirin_measure::SignalState;
 use nih_plug_egui::egui::Color32;
 
-/// Watch LED の 5 状態。
+/// Watch LED の 6 状態。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LedState {
     /// 計測スレッド稼働中だが信号なし / バイパス → 灰（静）
     Idle,
     /// Watch 計測中（Active 信号あり、Record なし）→ 青（3秒周期呼吸）
     WatchBreathing,
+    /// OS 側から preset 提案が届いている（Watch 中）→ amber 緩やかパルス（COL_FLORA）
+    PresetAvailable,
     /// Record 待機（POST が PRE からの ACK を待っている）→ 緑（淡・静）
     RecordStandby,
     /// Record 計測中（ACK 済・両方 Active）→ 緑（1.5秒周期脈動）
@@ -23,20 +25,23 @@ pub enum LedState {
     Error,
 }
 
-/// LED 状態を 4 つの入力から導出する純粋関数。
+/// LED 状態を 5 つの入力から導出する純粋関数。
 ///
-/// 優先順位: Error > RecordActive > RecordStandby > WatchBreathing > Idle
+/// 優先順位: Error > RecordActive > RecordStandby > PresetAvailable > WatchBreathing > Idle
 ///
 /// - `measure_alive`: Measure Thread が稼働中か（false → Error）
 /// - `signal_state`: Audio Thread の宣言状態
 /// - `recording`: 自クレート（PRE / POST）の Record モードが有効か
 /// - `record_acknowledged`: Record 信号が ACK 済か（POST 側で意味を持つ。
 ///   PRE は常に true を渡してよい）
+/// - `preset_available`: preset/*.json が 1 件以上存在するか
+///   （POST IO Thread の poller が更新。Record 中は抑制される）
 pub fn derive_led_state(
     measure_alive: bool,
     signal_state: SignalState,
     recording: bool,
     record_acknowledged: bool,
+    preset_available: bool,
 ) -> LedState {
     if !measure_alive {
         return LedState::Error;
@@ -52,6 +57,9 @@ pub fn derive_led_state(
         }
         // ACK 済だが信号が止まった → Standby に戻す
         return LedState::RecordStandby;
+    }
+    if preset_available && signal_state == SignalState::Active {
+        return LedState::PresetAvailable;
     }
     if signal_state == SignalState::Active {
         return LedState::WatchBreathing;
@@ -70,6 +78,8 @@ pub fn led_color(state: LedState, time_secs: f64) -> Color32 {
         LedState::RecordStandby => dim(COL_LED_GREEN, 0.45),
         LedState::WatchBreathing => breathe(COL_LED_BLUE, time_secs, 3.0, 0.6, 1.0),
         LedState::RecordActive => breathe(COL_LED_GREEN, time_secs, 1.5, 0.7, 1.0),
+        // Q3 P1: amber 緩やかパルス（2.5s 周期・0.55–1.0）。COL_FLORA を使用。
+        LedState::PresetAvailable => breathe(COL_FLORA, time_secs, 2.5, 0.55, 1.0),
     }
 }
 
@@ -106,14 +116,12 @@ mod tests {
         for &sig in &[SignalState::Active, SignalState::Bypassed, SignalState::Inactive] {
             for &rec in &[true, false] {
                 for &ack in &[true, false] {
-                    assert_eq!(
-                        derive_led_state(false, sig, rec, ack),
-                        LedState::Error,
-                        "sig={:?} rec={} ack={}",
-                        sig,
-                        rec,
-                        ack
-                    );
+                    for &pa in &[true, false] {
+                        assert_eq!(
+                            derive_led_state(false, sig, rec, ack, pa),
+                            LedState::Error,
+                        );
+                    }
                 }
             }
         }
@@ -124,7 +132,7 @@ mod tests {
         // Record 要求済だが ACK 未取得 → Standby（信号状態に関わらず）
         for &sig in &[SignalState::Active, SignalState::Bypassed, SignalState::Inactive] {
             assert_eq!(
-                derive_led_state(true, sig, true, false),
+                derive_led_state(true, sig, true, false, false),
                 LedState::RecordStandby
             );
         }
@@ -133,7 +141,7 @@ mod tests {
     #[test]
     fn recording_ack_active_is_record_active() {
         assert_eq!(
-            derive_led_state(true, SignalState::Active, true, true),
+            derive_led_state(true, SignalState::Active, true, true, false),
             LedState::RecordActive
         );
     }
@@ -142,11 +150,11 @@ mod tests {
     fn recording_ack_non_active_falls_to_standby() {
         // ACK 済でも信号が止まれば Standby に戻す
         assert_eq!(
-            derive_led_state(true, SignalState::Bypassed, true, true),
+            derive_led_state(true, SignalState::Bypassed, true, true, false),
             LedState::RecordStandby
         );
         assert_eq!(
-            derive_led_state(true, SignalState::Inactive, true, true),
+            derive_led_state(true, SignalState::Inactive, true, true, false),
             LedState::RecordStandby
         );
     }
@@ -154,7 +162,7 @@ mod tests {
     #[test]
     fn watch_breathing_when_active_no_record() {
         assert_eq!(
-            derive_led_state(true, SignalState::Active, false, true),
+            derive_led_state(true, SignalState::Active, false, true, false),
             LedState::WatchBreathing
         );
     }
@@ -162,11 +170,11 @@ mod tests {
     #[test]
     fn idle_when_non_active_no_record() {
         assert_eq!(
-            derive_led_state(true, SignalState::Bypassed, false, true),
+            derive_led_state(true, SignalState::Bypassed, false, true, false),
             LedState::Idle
         );
         assert_eq!(
-            derive_led_state(true, SignalState::Inactive, false, true),
+            derive_led_state(true, SignalState::Inactive, false, true, false),
             LedState::Idle
         );
     }
@@ -205,6 +213,86 @@ mod tests {
                 min_b,
                 t
             );
+        }
+    }
+
+    // ── PresetAvailable（サブ3-C-1 / Q3 P1）──────────────────────────────
+
+    #[test]
+    fn preset_available_only_when_active_and_not_recording() {
+        // Active + 非 Record + preset=true → PresetAvailable
+        assert_eq!(
+            derive_led_state(true, SignalState::Active, false, true, true),
+            LedState::PresetAvailable
+        );
+        // preset=false のときは Watch に戻る
+        assert_eq!(
+            derive_led_state(true, SignalState::Active, false, true, false),
+            LedState::WatchBreathing
+        );
+    }
+
+    #[test]
+    fn preset_does_not_override_record() {
+        // recording=true のときは preset フラグを無視（優先度: Record > Preset）
+        assert_eq!(
+            derive_led_state(true, SignalState::Active, true, true, true),
+            LedState::RecordActive
+        );
+        assert_eq!(
+            derive_led_state(true, SignalState::Active, true, false, true),
+            LedState::RecordStandby
+        );
+    }
+
+    #[test]
+    fn preset_suppressed_when_signal_not_active() {
+        // Bypassed / Inactive のときは preset=true でも Idle（信号無しで amber は出さない）
+        for &sig in &[SignalState::Bypassed, SignalState::Inactive] {
+            assert_eq!(
+                derive_led_state(true, sig, false, true, true),
+                LedState::Idle
+            );
+        }
+    }
+
+    #[test]
+    fn preset_available_color_pulses_with_time() {
+        // amber パルスは周期 2.5s。0 と 0.625 で輝度が変わる
+        let a = led_color(LedState::PresetAvailable, 0.0);
+        let b = led_color(LedState::PresetAvailable, 0.625);
+        assert_ne!(a, b, "0s and 0.625s should differ within the 2.5s cycle");
+    }
+
+    #[test]
+    fn preset_available_color_uses_flora_hue() {
+        // breathe は明度を min_factor..=max_factor に線形マップするため
+        // 各チャネルは base * factor の範囲に収まる。COL_FLORA (0xD4, 0xA0, 0x43)。
+        let base = crate::palette::COL_FLORA;
+        for i in 0..100 {
+            let t = i as f64 * 0.05;
+            let c = led_color(LedState::PresetAvailable, t);
+            // 各チャネルは base の 0.55..=1.00 範囲内（±1 の丸め誤差を許容）
+            let min_r = (base.r() as f64 * 0.55).round() as u8;
+            assert!(c.r() >= min_r.saturating_sub(1), "r={} min_r={}", c.r(), min_r);
+            assert!(c.r() <= base.r(), "r={} base_r={}", c.r(), base.r());
+        }
+    }
+
+    #[test]
+    fn recording_priority_stays_above_preset() {
+        // 記録中は preset を完全に抑制（amber がちらつかない）
+        for &ack in &[true, false] {
+            for &pa in &[true, false] {
+                let got = derive_led_state(true, SignalState::Active, true, ack, pa);
+                assert!(
+                    matches!(got, LedState::RecordActive | LedState::RecordStandby),
+                    "got={:?} ack={} pa={}",
+                    got,
+                    ack,
+                    pa
+                );
+            }
         }
     }
 }

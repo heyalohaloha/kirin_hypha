@@ -129,4 +129,57 @@ mod tests {
         let img = decode_png(BG_BYTES).expect("decode failed");
         assert_eq!(img.size, [300, 200]);
     }
+
+    // ── U-8 / G-60-03: CE 2226 PNG アセット描画系の安全網 ────────────────
+
+    /// 埋込 PNG の RGBA ピクセル数が 300×200×4 になること。
+    /// `Vec<Color32>` ではなく size + alpha/RGB ピクセル列の妥当性を直接確認。
+    #[test]
+    fn embedded_png_pixels_are_well_formed() {
+        let img = decode_png(BG_BYTES).expect("decode failed");
+        assert_eq!(img.pixels.len(), 300 * 200, "300x200 pixel count");
+        // 暗い菌糸テクスチャ → 各ピクセルのアルファは不透明に近いこと（>=128）
+        // かつ RGB は低輝度側に寄っている（brightness ~15% = RGB <= 96 目安）
+        let mut bright = 0usize;
+        for p in &img.pixels {
+            if p.a() < 128 {
+                panic!("alpha too low at pixel: a={}", p.a());
+            }
+            if p.r() > 96 || p.g() > 96 || p.b() > 96 {
+                bright += 1;
+            }
+        }
+        // 全ピクセルが暗いわけではない（ハイライトピクセルが混ざるのは許容）。
+        // ただし半数超が明るいなら assets の取り違えが疑われる → 明示失敗。
+        assert!(
+            bright < img.pixels.len() / 2,
+            "too many bright pixels: {}/{} — assets may be wrong",
+            bright,
+            img.pixels.len()
+        );
+    }
+
+    /// 不正 PNG（マジック不正）→ Err を返し panic しない（R-28 沈黙原則の基盤）。
+    #[test]
+    fn decode_rejects_invalid_bytes() {
+        let bogus = b"not a PNG file";
+        let res = decode_png(bogus);
+        assert!(res.is_err(), "bogus bytes must error, got: {:?}", res);
+    }
+
+    /// 空バイト列 → Err（panic しない）。
+    #[test]
+    fn decode_rejects_empty_bytes() {
+        let res = decode_png(b"");
+        assert!(res.is_err());
+    }
+
+    /// BackgroundTexture::new / Default は 失敗 = false で開始する。
+    #[test]
+    fn new_starts_unfailed() {
+        let bg = BackgroundTexture::new();
+        assert!(!bg.failed, "fresh texture must not be in failed state");
+        let bg2: BackgroundTexture = Default::default();
+        assert!(!bg2.failed);
+    }
 }

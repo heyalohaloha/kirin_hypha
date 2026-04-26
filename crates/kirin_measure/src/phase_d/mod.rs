@@ -25,4 +25,5 @@ pub mod calc_slopes;
 pub mod temporal_weighting;
 pub mod sharpness;
 pub mod spectral_balance;
+pub mod stft;
 pub mod stream;

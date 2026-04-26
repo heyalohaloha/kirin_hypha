@@ -8,7 +8,7 @@
 
 use kirin_measure::{
     serialize_post_json, serialize_pre_json, spawn_io_thread_post, DeltaMode, DeltaResult,
-    MeasureResult, SignalState,
+    MeasureResult, RecordStateMachine, SignalState,
 };
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
@@ -172,11 +172,16 @@ fn test_io_thread_post_file_cleanup() {
     let shutdown = Arc::new(AtomicBool::new(false));
 
     let signal_state = Arc::new(AtomicU8::new(SignalState::Active as u8));
+    let record_sm = Arc::new(RecordStateMachine::new());
+    let preset_available = Arc::new(AtomicBool::new(false));
     let handle = spawn_io_thread_post(
         instance_id.clone(),
+        48000,
+        Arc::clone(&record_sm),
         Arc::clone(&post_result),
         Arc::clone(&delta_result),
         Arc::clone(&signal_state),
+        Arc::clone(&preset_available),
         Arc::clone(&shutdown),
     );
 

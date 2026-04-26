@@ -19,6 +19,7 @@ use symphonia::core::probe::Hint;
 const SIGNALS_DIR: &str = "/Users/nishiodaisuke/Dev/kirin_sense_lens/test_signals";
 
 /// Lensエンジンと同一ロジック：ebur128 true_peak(ch) = ファイル全体の running max
+#[allow(non_snake_case)]
 fn offline_true_peak_dBTP(path: &str) -> Result<f64, String> {
     // decode
     let file = File::open(path).map_err(|e| format!("open: {}", e))?;

@@ -6,7 +6,10 @@
 //! 3. プラグイン削除後にファイルが消える（← Drop テスト）
 //! 4. 権限エラーでも Audio/Measure が継続する（← エラーパステスト）
 
-use kirin_measure::{serialize_pre_json, spawn_io_thread_pre, MeasureResult, SignalState};
+use kirin_measure::{
+    serialize_pre_json, spawn_io_thread_pre, License, MeasureResult, RecordStateMachine,
+    SignalState,
+};
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -114,8 +117,17 @@ fn test_io_thread_writes_and_cleans_up() {
     let signal_state = Arc::new(AtomicU8::new(SignalState::Active as u8));
 
     // IO Thread 起動
+    let record_sm = Arc::new(RecordStateMachine::new());
+    let recording = Arc::new(AtomicBool::new(false));
+    let ack = Arc::new(AtomicBool::new(false));
+    let license = Arc::new(License::Unknown);
     let handle = spawn_io_thread_pre(
         instance_id.clone(),
+        48000,
+        Arc::clone(&record_sm),
+        Arc::clone(&recording),
+        Arc::clone(&ack),
+        Arc::clone(&license),
         Arc::clone(&result),
         Arc::clone(&signal_state),
         Arc::clone(&shutdown),
@@ -158,8 +170,17 @@ fn test_io_thread_updates_on_result_change() {
     let shutdown = Arc::new(AtomicBool::new(false));
 
     let signal_state = Arc::new(AtomicU8::new(SignalState::Active as u8));
+    let record_sm = Arc::new(RecordStateMachine::new());
+    let recording = Arc::new(AtomicBool::new(false));
+    let ack = Arc::new(AtomicBool::new(false));
+    let license = Arc::new(License::Unknown);
     let handle = spawn_io_thread_pre(
         instance_id.clone(),
+        48000,
+        Arc::clone(&record_sm),
+        Arc::clone(&recording),
+        Arc::clone(&ack),
+        Arc::clone(&license),
         Arc::clone(&result),
         Arc::clone(&signal_state),
         Arc::clone(&shutdown),

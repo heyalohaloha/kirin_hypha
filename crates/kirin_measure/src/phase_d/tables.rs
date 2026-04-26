@@ -409,6 +409,63 @@ pub const BARK_CENTER_HZ: [f64; N_BARK] = [
     1370.0, 1600.0, 1850.0, 2150.0, 2500.0, 2900.0, 3400.0, 4000.0, 4800.0, 5800.0,
 ];
 
+// ============================================================
+// PSB Bark Band Extension (Zwicker 1961 — 24 bands)
+// ============================================================
+//
+// PSB 出力専用の Bark バンド定義。ISO 532-1 Zwicker loudness
+// (N_BARK = 20) とは独立した定数として分離する。
+//
+// Bark 21-24 (5800-15500 Hz) は specific loudness パイプライン
+// では扱えない。ISO 532-1 の LTQ / A0 / DDF / DCB は 20 バンド
+// までしか規格化されていないため (MoSQITo v1.2.1 reference
+// implementation `_main_loudness.py` で LTQ/A0/DDF/DCB 全て 20
+// エントリであることを確認済み)、Bark 21-24 は FFT ビニングで
+// 直接エネルギーを取得する。
+//
+// Sources:
+// - Zwicker, E. (1961). "Subdivision of the audible frequency
+//   range into critical bands (Frequenzgruppen)". JASA 33(2):248.
+// - ISO 532-1:2017 (specific loudness pipeline — 20 bands only).
+// - MoSQITo v1.2.1 `mosqito/sq_metrics/loudness/loudness_zwst/_main_loudness.py`
+//   (LTQ/A0/DDF/DCB 全配列 20 entry を確認)。
+// - guardian_61_hypha_phase_d_24bark_extension §3.1
+//
+// PsbSummary.high 意味論変更 (guardian_61, Daisuke 判断 経路A):
+//   旧: Bark 17-20 specific loudness 由来 (3400-5800 Hz)
+//   新: Bark 21-24 FFT energy 由来 (5800-15500 Hz) + 15.5k-20kHz FFT 補完
+//
+// 警告: Bark 1-20 (specific loudness, sone/Bark) と Bark 21-24
+// (FFT energy, linear power) は単位も由来も異なる。PsbSummary
+// 内でも両者を素朴に加算・比較しないこと。
+
+/// PSB 出力専用の Bark バンド数 (Zwicker 1961, 24 bands)。
+/// ISO 532-1 の specific loudness 用 `N_BARK = 20` とは別物。
+pub const N_BARK_PSB: usize = 24;
+
+/// PSB 用 Bark 24 バンドの center frequency (Hz)。
+/// Bark 1-20 は `BARK_CENTER_HZ` と完全同一 (ISO 532-1)、
+/// Bark 21-24 は Zwicker 1961 定義値。
+pub const BARK_CENTER_HZ_PSB: [f64; N_BARK_PSB] = [
+    // Bark 1-20: ISO 532-1 BARK_CENTER_HZ と同一
+    50.0, 150.0, 250.0, 350.0, 450.0, 570.0, 700.0, 840.0, 1000.0, 1170.0,
+    1370.0, 1600.0, 1850.0, 2150.0, 2500.0, 2900.0, 3400.0, 4000.0, 4800.0, 5800.0,
+    // Bark 21-24: Zwicker 1961
+    7000.0, 8500.0, 10500.0, 13500.0,
+];
+
+/// PSB 用 Bark 24 バンドの上限周波数 (Hz, upper band edge)。
+/// Bark 1-20 は ISO 532-1 の Bark scale 上限 (Zwicker 1961 由来)、
+/// Bark 21-24 も Zwicker 1961 定義値。FFT ビニング時の境界として
+/// Step C-2 で使用する。
+pub const BARK_UPPER_HZ_PSB: [f64; N_BARK_PSB] = [
+    // Bark 1-20 upper edges (Zwicker 1961)
+    100.0, 200.0, 300.0, 400.0, 510.0, 630.0, 770.0, 920.0, 1080.0, 1270.0,
+    1480.0, 1720.0, 2000.0, 2320.0, 2700.0, 3150.0, 3700.0, 4400.0, 5300.0, 6400.0,
+    // Bark 21-24 upper edges (Zwicker 1961)
+    7700.0, 9500.0, 12000.0, 15500.0,
+];
+
 /// Sound field type
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum FieldType {

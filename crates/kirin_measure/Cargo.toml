@@ -14,8 +14,17 @@ uuid = { workspace = true }
 hmac = { workspace = true }
 sha2 = { workspace = true }
 hex = { workspace = true }
+# guardian_61 C-2: Phase D PSB High FFT 経路（Bark 21-24 + 15.5k-20kHz 補完）。
+# ISO 532-1 specific loudness パイプラインとは独立。Measure Thread 上で動作し、
+# Audio Thread (R-12 製造境界) には影響しない。
+rustfft = "6"
 
 [dev-dependencies]
 symphonia = { version = "0.5", features = ["wav", "pcm"] }
 hound = "3.5"
 rand = "0.8"
+# G-79-01 (2026-04-24 Daisuke approved): MoSQITo tolerance assertions.
+# - sharpness: assert_abs_diff_eq!(epsilon = 0.05 acum)
+# - N_spec:    assert_relative_eq!(max_relative = 1e-3)
+# - bit-identical: assert_abs_diff_eq!(epsilon = 1e-8)
+approx = "0.5"

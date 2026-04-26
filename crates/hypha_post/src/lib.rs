@@ -1,13 +1,13 @@
 mod editor;
 
 use kirin_measure::{
-    load_license_safe, spawn_io_thread_post, spawn_measure_thread, spawn_watchdog,
-    store_signal_state, DeltaResult, License, MeasureResult, RecordStateMachine, SignalState,
-    WatchdogParams, N_CHANNELS, RING_BUFFER_SECONDS,
+    load_installation_id_safe, load_license_safe, spawn_io_thread_post, spawn_measure_thread,
+    spawn_watchdog, store_signal_state, DeltaResult, License, MeasureResult, RecordStateMachine,
+    SignalState, WatchdogParams, N_CHANNELS, RING_BUFFER_SECONDS,
 };
 use nih_plug::prelude::*;
 use nih_plug_egui::EguiState;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use uuid::Uuid;
@@ -56,6 +56,24 @@ pub struct HyphaPost {
     /// Identity.json から読んだライセンス値（サブ2-A: GUI 分岐に使用）。
     /// 起動時に 1 回だけ読み込み、降格反映は Step 4 T-6 で別途実装。
     license: Arc<License>,
+
+    /// サブ3-C: preset/*.json が 1 件以上存在するか。
+    /// POST IO Thread が 1秒ごとに ls して更新、editor が LED 表示に反映。
+    preset_available: Arc<AtomicBool>,
+
+    // ── T-E/T-F 追加（guardian_77 v3 §9 / §10）────────────────────────
+    /// 自機の installation_id（identity.json 由来）。
+    /// editor が `scan_latest_v2_preset` 呼び出し時のフィルタに使う。
+    /// `load_installation_id_safe()` 失敗時は空文字（→ editor が早期 return）。
+    installation_id: Arc<String>,
+    /// Latest `transport().pos_samples()` from process(), or `i64::MIN` when
+    /// the host API returned `None` for this frame (fallback path engages).
+    /// Relaxed ordering — editor thread only needs eventual consistency.
+    playback_pos_samples: Arc<AtomicI64>,
+    /// Sample rate cached during `initialize()` so the editor can convert
+    /// `pos_samples` → seconds without touching the audio thread state.
+    /// 0 = uninitialised (editor falls back to wall-clock counter).
+    playback_sample_rate: Arc<AtomicU32>,
 }
 
 #[derive(Params)]
@@ -98,8 +116,19 @@ impl Default for HyphaPost {
             record_acknowledged: Arc::new(AtomicBool::new(false)),
             pair_label: Arc::new(Mutex::new(String::new())),
             license: Arc::new(load_license_safe()),
+            preset_available: Arc::new(AtomicBool::new(false)),
+            installation_id: Arc::new(load_installation_id_or_empty()),
+            playback_pos_samples: Arc::new(AtomicI64::new(i64::MIN)),
+            playback_sample_rate: Arc::new(AtomicU32::new(0)),
         }
     }
+}
+
+/// Best-effort read of the installation_id for T-E proposals filtering.
+/// Returns "" when identity.json is not present / unreadable — editor then
+/// silently skips preset scanning (R-28).
+fn load_installation_id_or_empty() -> String {
+    load_installation_id_safe().unwrap_or_default()
 }
 
 impl Drop for HyphaPost {
@@ -142,18 +171,22 @@ impl Plugin for HyphaPost {
     }
 
     fn editor(&mut self, _async_executor: AsyncExecutor<Self>) -> Option<Box<dyn Editor>> {
-        editor::create_post_editor(
-            Arc::clone(&self.editor_state),
-            self.instance_id.clone(),
-            Arc::clone(&self.measure_result),
-            Arc::clone(&self.delta_result),
-            Arc::clone(&self.measure_alive),
-            Arc::clone(&self.signal_state),
-            Arc::clone(&self.record_sm),
-            Arc::clone(&self.record_acknowledged),
-            Arc::clone(&self.pair_label),
-            Arc::clone(&self.license),
-        )
+        editor::create_post_editor(editor::PostEditorArgs {
+            egui_state: Arc::clone(&self.editor_state),
+            instance_id: self.instance_id.clone(),
+            measure: Arc::clone(&self.measure_result),
+            delta: Arc::clone(&self.delta_result),
+            measure_alive: Arc::clone(&self.measure_alive),
+            signal_state: Arc::clone(&self.signal_state),
+            record_sm: Arc::clone(&self.record_sm),
+            record_acknowledged: Arc::clone(&self.record_acknowledged),
+            pair_label: Arc::clone(&self.pair_label),
+            license: Arc::clone(&self.license),
+            preset_available: Arc::clone(&self.preset_available),
+            installation_id: Arc::clone(&self.installation_id),
+            playback_pos_samples: Arc::clone(&self.playback_pos_samples),
+            playback_sample_rate: Arc::clone(&self.playback_sample_rate),
+        })
     }
 
     fn initialize(
@@ -191,6 +224,11 @@ impl Plugin for HyphaPost {
         // ── Heartbeat リセット ────────────────────────────────────────
         self.heartbeat.store(0, Ordering::Relaxed);
 
+        // ── T-F: sample_rate キャッシュ（editor が pos_samples→秒に使用）──
+        self.playback_sample_rate
+            .store(buffer_config.sample_rate as u32, Ordering::Relaxed);
+        self.playback_pos_samples.store(i64::MIN, Ordering::Relaxed);
+
         // ── Measure Thread 起動 ──────────────────────────────────────
         let measure_handle = spawn_measure_thread(
             consumer,
@@ -202,26 +240,35 @@ impl Plugin for HyphaPost {
         );
 
         // ── IO Thread 起動 ───────────────────────────────────────────
+        let sample_rate = buffer_config.sample_rate as u32;
         let io_handle = spawn_io_thread_post(
             self.instance_id.clone(),
+            sample_rate,
+            Arc::clone(&self.record_sm),
             Arc::clone(&self.measure_result),
             Arc::clone(&self.delta_result),
             Arc::clone(&self.signal_state),
+            Arc::clone(&self.preset_available),
             Arc::clone(&self.io_shutdown),
         );
 
         // ── Watchdog Thread 起動（T-8） ──────────────────────────────
         let restart_io = {
             let instance_id = self.instance_id.clone();
+            let record_sm = Arc::clone(&self.record_sm);
             let measure_result = Arc::clone(&self.measure_result);
             let delta_result = Arc::clone(&self.delta_result);
             let signal_state = Arc::clone(&self.signal_state);
+            let preset_available = Arc::clone(&self.preset_available);
             move |new_shutdown: Arc<AtomicBool>| {
                 spawn_io_thread_post(
                     instance_id.clone(),
+                    sample_rate,
+                    Arc::clone(&record_sm),
                     Arc::clone(&measure_result),
                     Arc::clone(&delta_result),
                     Arc::clone(&signal_state),
+                    Arc::clone(&preset_available),
                     new_shutdown,
                 )
             }
@@ -262,6 +309,13 @@ impl Plugin for HyphaPost {
         let transport = context.transport();
         let playing = transport.playing;
         let silent = buffer_is_silent(buffer);
+
+        // ── T-F plumbing: 再生位置を atomic に反映（editor が秒換算）──
+        //   非 realtime-critical: `Ordering::Relaxed` の単一 store のみ。
+        //   host API が None を返した場合は i64::MIN を入れ、editor 側で
+        //   Record 開始 wall-clock fallback へ切り替わる（§10.2）。
+        let pos = transport.pos_samples().unwrap_or(i64::MIN);
+        self.playback_pos_samples.store(pos, Ordering::Relaxed);
 
         let state = if bypass_val {
             SignalState::Bypassed

@@ -15,8 +15,11 @@ pub mod measure_thread;
 pub mod phase_d;
 pub mod plugin_data;
 pub mod preset;
+pub mod preset_dispatch;
+pub mod preset_v2;
 pub mod record;
 pub mod record_signal;
+pub mod record_writer;
 pub mod storage;
 pub mod watchdog;
 
@@ -44,6 +47,15 @@ pub use preset::{
     compute_preset_checksum, preset_dir, region_resolved, scan_valid_presets, verify_preset,
     PresetFile, Region as PresetRegion, VerifyError as PresetVerifyError, PRESET_SUBDIR,
 };
+pub use preset_dispatch::{
+    dispatch_one as dispatch_preset_one, scan_any_presets, scan_latest_v2_preset,
+    DispatchError as PresetDispatchError, PresetVariant,
+};
+pub use preset_v2::{
+    compute_preset_v2_checksum, lookup_section_label, preset_dir_v2, scan_valid_presets_v2,
+    verify_preset_v2, Card as PresetV2Card, PresetFileV2,
+    SectionBoundary as PresetV2SectionBoundary, Summary as PresetV2Summary, VerifyErrorV2,
+};
 pub use record::{RecordState, RecordStateMachine, TransitionError};
 pub use record_signal::{
     delete_signal, is_timed_out, mark_acknowledged, mark_released, pick_closest_pre, read_signal,
@@ -51,8 +63,9 @@ pub use record_signal::{
     RecordSignal, SignalError, SignalStatus, ACK_TIMEOUT_SECONDS, SIGNAL_FILENAME,
 };
 pub use storage::{
-    load_or_recover, read_identity, write_both, write_identity_atomic, IdentityCache,
-    LoadStatus, LoadedIdentity, StorageError, StoragePaths,
+    load_installation_id_safe, load_or_recover, read_identity, write_both,
+    write_identity_atomic, IdentityCache, LoadStatus, LoadedIdentity, StorageError,
+    StoragePaths,
 };
 pub use watchdog::{spawn_watchdog, WatchdogParams};
 
@@ -129,15 +142,27 @@ pub fn store_signal_state(atom: &AtomicU8, state: SignalState) {
 
 /// Perceptual Spectral Balance 要約（low / mid / high）。
 ///
-/// Phase D (ISO 532-1) の 20-Bark PSB を 3 帯域に集約し dB 表現したもの。
 /// Kirin-original metric。
+///
+/// guardian_61 C-3 (Daisuke 判断 経路A、破壊的変更):
+/// - low  : Bark 1–8   ISO 532-1 specific loudness 由来 [dB]   (~20 Hz–920 Hz)
+/// - mid  : Bark 9–16  ISO 532-1 specific loudness 由来 [dB]   (~920 Hz–3400 Hz)
+/// - high : Bark 21–24 + 15.5k–20kHz **FFT エネルギー由来** [dB] (5800 Hz–20000 Hz)
+///
+/// **重要**: high の意味論は C-3 で変更された。旧仕様 (Bark 17–20 specific loudness)
+/// は廃止し、並存させない。high のみ FFT power → 10·log10 で dB 化しているため、
+/// low/mid (sone/Bark 由来) と数値の order が異なる場合がある。
+/// 比較・加算する際は単位が異なることに注意。
+///
+/// ISO 532-1 由来のフィールド (n_prime[20] / psb_bark[20] / sharpness / n_prime_total)
+/// は引き続き Bark 1–20 specific loudness ベースで C-3 では変更されない。
 #[derive(Debug, Clone, Default)]
 pub struct PsbSummary {
-    /// Bark 1–8 (low frequency) [dB]
+    /// Bark 1–8 specific loudness sum (sone/Bark) → dB
     pub low: f64,
-    /// Bark 9–16 (mid frequency) [dB]
+    /// Bark 9–16 specific loudness sum (sone/Bark) → dB
     pub mid: f64,
-    /// Bark 17–20 (high frequency) [dB]
+    /// Bark 21–24 + 15.5k–20kHz FFT energy (linear power) → dB
     pub high: f64,
 }
 
@@ -175,4 +200,14 @@ pub struct MeasureResult {
 
     /// Phase D: PSB 要約（low / mid / high）[dB]。
     pub psb_summary: Option<PsbSummary>,
+
+    /// Phase D: 20-Bark 帯域別 N'(t,z) [sone/Bark]（サブ3-A-1）。
+    /// plugin_data/.../post/*.json `Frame.n_prime[20]` に直接書き込む値。
+    /// Phase D 初期化中 / 48 kHz 以外は `None`。
+    pub n_prime: Option<[f64; 20]>,
+
+    /// Phase D: 20-Bark 帯域別 PSB 比率（サブ3-A）。
+    /// plugin_data/.../post/*.json `psb_snapshots[].psb` に直接書き込む値。
+    /// 3 帯域集約 (low/mid/high, dB) は `psb_summary` 側。
+    pub psb_bark: Option<[f64; 20]>,
 }

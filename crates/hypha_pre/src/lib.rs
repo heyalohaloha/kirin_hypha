@@ -1,8 +1,9 @@
 mod editor;
 
 use kirin_measure::{
-    spawn_io_thread_pre, spawn_measure_thread, spawn_watchdog, store_signal_state, MeasureResult,
-    SignalState, WatchdogParams, N_CHANNELS, RING_BUFFER_SECONDS,
+    load_license_safe, spawn_io_thread_pre, spawn_measure_thread, spawn_watchdog,
+    store_signal_state, License, MeasureResult, RecordStateMachine, SignalState, WatchdogParams,
+    N_CHANNELS, RING_BUFFER_SECONDS,
 };
 use nih_plug::prelude::*;
 use nih_plug_egui::EguiState;
@@ -56,11 +57,22 @@ pub struct HyphaPre {
     /// DAW がバイパス時に process() を停止するケース（Studio One 等）に対応。
     heartbeat: Arc<AtomicU32>,
 
-    // ── Record モード（サブ1-C: GUI プレースホルダ。サブ2/3 で実配線） ──
-    /// Record モード中か（サブ2 でボタン操作から設定）
+    // ── Record モード（サブ3-B で実配線） ────────────────────────────
+    /// Record 状態機械（POST と共通。IO Thread が record_signal.json poller から駆動）。
+    /// license 二重 gate 付き: Os 以外は try_enter_record が LicenseDenied を返す。
+    record_sm: Arc<RecordStateMachine>,
+    /// Record モード中か（editor 表示用のミラー。IO Thread が record_sm から反映）。
     recording: Arc<AtomicBool>,
-    /// Record 信号 ACK 済か（PRE は常時 true と見なす初期値。サブ3 で調整可）
+    /// PRE が record_signal を acknowledged したか（GUI 表示用）。
     record_acknowledged: Arc<AtomicBool>,
+    /// Identity.json から読んだライセンス値。
+    /// - Os: record_signal 追従参加
+    /// - Sense / Unknown: pending を検出してもログのみ。writer 生成しない
+    license: Arc<License>,
+
+    /// サブ3-C: preset/*.json が 1 件以上存在するか。POST IO Thread が更新、
+    /// PRE は LED 6番目状態（PresetAvailable）用に読むだけ。
+    preset_available: Arc<AtomicBool>,
 }
 
 #[derive(Params)]
@@ -99,14 +111,20 @@ impl Default for HyphaPre {
             process_counter: 0,
             signal_state: Arc::new(AtomicU8::new(SignalState::Inactive as u8)),
             heartbeat: Arc::new(AtomicU32::new(0)),
+            record_sm: Arc::new(RecordStateMachine::new()),
             recording: Arc::new(AtomicBool::new(false)),
             record_acknowledged: Arc::new(AtomicBool::new(false)),
+            license: Arc::new(load_license_safe()),
+            preset_available: Arc::new(AtomicBool::new(false)),
         }
     }
 }
 
 impl Drop for HyphaPre {
     fn drop(&mut self) {
+        // Record 中の場合は Watch へ戻す（plugin_data/ 書込停止。POST T-7 と同形）
+        self.record_sm.exit_record();
+
         // 全スレッドに停止信号（Watchdog が 50ms 以内に終了。Measure / IO も終了する）
         self.watchdog_shutdown.store(true, Ordering::Relaxed);
         self.measure_shutdown.store(true, Ordering::Relaxed);
@@ -153,6 +171,7 @@ impl Plugin for HyphaPre {
             Arc::clone(&self.signal_state),
             Arc::clone(&self.recording),
             Arc::clone(&self.record_acknowledged),
+            Arc::clone(&self.preset_available),
         )
     }
 
@@ -202,8 +221,14 @@ impl Plugin for HyphaPre {
         );
 
         // ── IO Thread 起動（handle は Watchdog に渡す） ───────────────
+        let sample_rate = buffer_config.sample_rate as u32;
         let io_handle = spawn_io_thread_pre(
             self.instance_id.clone(),
+            sample_rate,
+            Arc::clone(&self.record_sm),
+            Arc::clone(&self.recording),
+            Arc::clone(&self.record_acknowledged),
+            Arc::clone(&self.license),
             Arc::clone(&self.measure_result),
             Arc::clone(&self.signal_state),
             Arc::clone(&self.io_shutdown),
@@ -212,11 +237,20 @@ impl Plugin for HyphaPre {
         // ── Watchdog Thread 起動（T-8） ──────────────────────────────
         let restart_io = {
             let instance_id = self.instance_id.clone();
+            let record_sm = Arc::clone(&self.record_sm);
+            let recording = Arc::clone(&self.recording);
+            let record_acknowledged = Arc::clone(&self.record_acknowledged);
+            let license = Arc::clone(&self.license);
             let measure_result = Arc::clone(&self.measure_result);
             let signal_state = Arc::clone(&self.signal_state);
             move |new_shutdown: Arc<AtomicBool>| {
                 spawn_io_thread_pre(
                     instance_id.clone(),
+                    sample_rate,
+                    Arc::clone(&record_sm),
+                    Arc::clone(&recording),
+                    Arc::clone(&record_acknowledged),
+                    Arc::clone(&license),
                     Arc::clone(&measure_result),
                     Arc::clone(&signal_state),
                     new_shutdown,

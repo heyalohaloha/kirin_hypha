@@ -10,12 +10,35 @@
 //! このテストでは IO Thread を最小構成にして MIX ディレクトリへの影響を避ける。
 
 use kirin_measure::{
-    spawn_io_thread_pre, spawn_measure_thread, spawn_watchdog, MeasureResult, SignalState,
-    WatchdogParams,
+    spawn_io_thread_pre, spawn_measure_thread, spawn_watchdog, License, MeasureResult,
+    RecordStateMachine, SignalState, WatchdogParams,
 };
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
+use std::thread::JoinHandle;
 use std::time::Duration;
+
+/// watchdog_test 全体で共通の PRE IO Thread 起動ヘルパー。
+/// 新しい spawn_io_thread_pre シグネチャの引数数を吸収する。
+#[allow(clippy::too_many_arguments)]
+fn spawn_pre_io(
+    instance_id: String,
+    measure_result: Arc<Mutex<MeasureResult>>,
+    signal_state: Arc<AtomicU8>,
+    io_shutdown: Arc<AtomicBool>,
+) -> JoinHandle<()> {
+    spawn_io_thread_pre(
+        instance_id,
+        48000,
+        Arc::new(RecordStateMachine::new()),
+        Arc::new(AtomicBool::new(false)),
+        Arc::new(AtomicBool::new(false)),
+        Arc::new(License::Unknown),
+        measure_result,
+        signal_state,
+        io_shutdown,
+    )
+}
 
 // ── 基本起動・停止 ────────────────────────────────────────────────────────
 
@@ -45,7 +68,7 @@ fn test_watchdog_starts_and_stops() {
     // IO Thread は孤立したディレクトリへ書くためにユニーク id を使う
     let io_id = format!("wd-stop-{}", ts_id());
     let io_shutdown = Arc::new(AtomicBool::new(false));
-    let io_handle = spawn_io_thread_pre(
+    let io_handle = spawn_pre_io(
         io_id.clone(),
         Arc::clone(&measure_result),
         Arc::clone(&signal_state),
@@ -70,7 +93,7 @@ fn test_watchdog_starts_and_stops() {
         io_shutdown: Arc::clone(&io_shutdown),
         io_handle,
         restart_io: Box::new(move |sd| {
-            spawn_io_thread_pre(io_id2.clone(), Arc::clone(&mr2), Arc::clone(&ss2), sd)
+            spawn_pre_io(io_id2.clone(), Arc::clone(&mr2), Arc::clone(&ss2), sd)
         }),
         watchdog_shutdown: Arc::clone(&watchdog_shutdown),
     });
@@ -125,7 +148,7 @@ fn test_watchdog_detects_and_restarts_measure_thread() {
     // IO Thread は孤立 id を使って MIX dir への影響を最小化
     let io_id = format!("wd-restart-{}", ts_id());
     let io_shutdown = Arc::new(AtomicBool::new(false));
-    let io_handle = spawn_io_thread_pre(
+    let io_handle = spawn_pre_io(
         io_id.clone(),
         Arc::clone(&measure_result),
         Arc::clone(&signal_state),
@@ -134,7 +157,6 @@ fn test_watchdog_detects_and_restarts_measure_thread() {
 
     let watchdog_shutdown = Arc::new(AtomicBool::new(false));
     let restart_measure_shutdown = Arc::clone(&measure_shutdown);
-    let restart_measure_result = Arc::clone(&measure_result);
     let restart_io_id = io_id.clone();
     let restart_io_result = Arc::clone(&measure_result);
     let restart_io_ss = Arc::clone(&signal_state);
@@ -153,7 +175,7 @@ fn test_watchdog_detects_and_restarts_measure_thread() {
         io_shutdown: Arc::clone(&io_shutdown),
         io_handle,
         restart_io: Box::new(move |sd| {
-            spawn_io_thread_pre(restart_io_id.clone(), Arc::clone(&restart_io_result), Arc::clone(&restart_io_ss), sd)
+            spawn_pre_io(restart_io_id.clone(), Arc::clone(&restart_io_result), Arc::clone(&restart_io_ss), sd)
         }),
         watchdog_shutdown: Arc::clone(&watchdog_shutdown),
     });
@@ -215,7 +237,7 @@ fn test_watchdog_leaves_alive_true_when_healthy() {
 
     let io_id = format!("wd-healthy-{}", ts_id());
     let io_shutdown = Arc::new(AtomicBool::new(false));
-    let io_handle = spawn_io_thread_pre(
+    let io_handle = spawn_pre_io(
         io_id.clone(),
         Arc::clone(&measure_result),
         Arc::clone(&signal_state),
@@ -240,7 +262,7 @@ fn test_watchdog_leaves_alive_true_when_healthy() {
         io_shutdown: Arc::clone(&io_shutdown),
         io_handle,
         restart_io: Box::new(move |sd| {
-            spawn_io_thread_pre(io_id2.clone(), Arc::clone(&mr2), Arc::clone(&ss2), sd)
+            spawn_pre_io(io_id2.clone(), Arc::clone(&mr2), Arc::clone(&ss2), sd)
         }),
         watchdog_shutdown: Arc::clone(&watchdog_shutdown),
     });
