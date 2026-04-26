@@ -6,9 +6,10 @@
 //! - flora_color 横線（#d4a043 暫定）
 //! - 共通ウィジェット（value_row / fmt_val / fmt_delta / tp_color）
 //!
-//! SS-7: SignalState に基づく表示切替。
-//! - POST Active + PRE Active → Δ表示
-//! - POST Active + PRE 非Active（NoPre）→ Δ列は `---`
+//! SS-7: SignalState に基づく表示切替（guardian_64: PRE 不在時 絶対値表示復活）。
+//! - POST Active + PRE Active（DeltaMode::Active / Stale）→ Δ 3 項目表示
+//! - POST Active + PRE 不在 or Bypassed（DeltaMode::NoPre）→ 絶対値 3 項目表示
+//!   （LUFS-M / TP / Crest。POST 単独挿入での計測動作を目視確認する経路）
 //! - POST Bypassed → 全項目 `---` + ボタン非表示（プラグイン無効化中）
 //! - POST Inactive → 全項目 `---` + ボタン表示（信号待ちでも license 操作は可能）
 //!
@@ -31,11 +32,12 @@ use hypha_gui::{
     BackgroundTexture, BG, COL_FLORA, COL_FLORA_BRIGHT, COL_MUTED, COL_NORMAL,
 };
 use kirin_measure::{
-    append_annotation_to_latest, check_record_exclusion, load_signal_state, mark_released,
-    pick_closest_pre, scan_pre_candidates, show_note_button, show_save_button,
-    show_stop_record_button, write_pending, DeltaMode, DeltaResult, ExclusionResult, License,
-    MeasureResult, PluginDataRole, PostMetrics, RecordStateMachine, SignalState, StoragePaths,
-    TransitionError, BUS_PHASE1, PROJECT_HASH_PHASE1, SENSE_RECORD_HINT, SENSE_UPSELL_URL,
+    append_annotation_to_latest, check_record_exclusion, load_signal_state, lookup_section_label,
+    mark_released, pick_closest_pre, scan_latest_v2_preset, scan_pre_candidates,
+    show_note_button, show_save_button, show_stop_record_button, write_pending, DeltaMode,
+    DeltaResult, ExclusionResult, License, MeasureResult, PluginDataRole, PostMetrics,
+    PresetFileV2, RecordStateMachine, SignalState, StoragePaths, TransitionError, BUS_PHASE1,
+    PROJECT_HASH_PHASE1, SENSE_RECORD_HINT, SENSE_UPSELL_URL,
 };
 use nih_plug::prelude::Editor;
 use nih_plug_egui::{
@@ -43,9 +45,16 @@ use nih_plug_egui::{
     egui::{self, Grid, RichText, Stroke, Vec2},
     EguiState,
 };
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+
+/// T-E throttle: rescan `preset/` at most every 500 ms. proposals rarely
+/// change at sub-second cadence; avoids hitting FS every repaint (≈ 10 Hz).
+const PROPOSALS_SCAN_INTERVAL_SECS: f64 = 0.5;
+/// T-E: cap rendered cards to keep the 300×200 GUI bounded.  Beyond this,
+/// the user sees "+ N more" (or just truncates — see draw_proposals_block).
+const MAX_CARDS_RENDERED: usize = 8;
 
 /// 記録開始バナーの表示時間（秒）。
 const RECORD_BANNER_DURATION_SECS: f64 = 3.0;
@@ -88,6 +97,16 @@ pub struct PostEditorState {
     pub pair_label: Arc<Mutex<String>>,
     /// license 値（起動時に読込済。サブ2-A 範囲では不変）。
     pub license: Arc<License>,
+    /// preset/*.json が 1 件以上存在するか（サブ3-C-2: POST IO Thread が更新）。
+    pub preset_available: Arc<AtomicBool>,
+
+    // ── T-E / T-F 追加（guardian_77 v3 §9 / §10）──────────────────────
+    /// installation_id フィルタ用（empty → proposals scan 全 skip / R-28）。
+    pub installation_id: Arc<String>,
+    /// process() が書いた再生位置（サンプル）。i64::MIN = 不明 → fallback。
+    pub playback_pos_samples: Arc<AtomicI64>,
+    /// process() が initialize() でキャッシュしたサンプルレート。0 = 未初期化。
+    pub playback_sample_rate: Arc<AtomicU32>,
 
     // ── エディタローカル ───────────────────────────────────────────────
     bg: BackgroundTexture,
@@ -97,68 +116,76 @@ pub struct PostEditorState {
     /// サブ2-C: Note タップ後の 3 タグ選択行を表示中か。
     /// Record 中のみ有効。非 Record 時は毎フレーム false に戻される。
     note_picker_open: bool,
+    /// 直前フレームの LED 状態（edge-triggered log 用）。
+    prev_led: Option<hypha_gui::LedState>,
+    /// T-E: 最新 v2.0 proposals（500ms throttle で更新）。
+    latest_proposals: Option<PresetFileV2>,
+    /// T-E: proposals を最後にスキャンした wall-clock 時刻（秒）。
+    proposals_scan_last: Option<f64>,
+    /// T-E: カードリストが展開されているか（タップでトグル）。
+    cards_expanded: bool,
+    /// T-F fallback: Record 開始時の wall-clock（秒）。transport.pos_samples
+    /// が `None` 時に `now - record_start_wall_time` で経過時間を代替。
+    record_start_wall_time: Option<f64>,
 }
 
 impl PostEditorState {
-    #[allow(clippy::too_many_arguments)]
-    fn new(
-        instance_id: String,
-        measure: Arc<Mutex<MeasureResult>>,
-        delta: Arc<Mutex<DeltaResult>>,
-        measure_alive: Arc<AtomicBool>,
-        signal_state: Arc<AtomicU8>,
-        record_sm: Arc<RecordStateMachine>,
-        record_acknowledged: Arc<AtomicBool>,
-        pair_label: Arc<Mutex<String>>,
-        license: Arc<License>,
-    ) -> Self {
+    fn new(args: PostEditorArgs) -> Self {
         Self {
-            instance_id,
-            measure,
-            delta,
-            measure_alive,
-            signal_state,
-            record_sm,
-            record_acknowledged,
-            pair_label,
-            license,
+            instance_id: args.instance_id,
+            measure: args.measure,
+            delta: args.delta,
+            measure_alive: args.measure_alive,
+            signal_state: args.signal_state,
+            record_sm: args.record_sm,
+            record_acknowledged: args.record_acknowledged,
+            pair_label: args.pair_label,
+            license: args.license,
+            preset_available: args.preset_available,
+            installation_id: args.installation_id,
+            playback_pos_samples: args.playback_pos_samples,
+            playback_sample_rate: args.playback_sample_rate,
             bg: BackgroundTexture::new(),
             prev_ack: false,
             banner_until: None,
             toast: None,
             note_picker_open: false,
+            prev_led: None,
+            latest_proposals: None,
+            proposals_scan_last: None,
+            cards_expanded: false,
+            record_start_wall_time: None,
         }
     }
 }
 
+/// Bundle of `Arc`-shared plugin state handed to the editor. Replaces the
+/// 10+ positional arguments in the previous `create_post_editor` signature
+/// to keep call-sites tractable when T-E/T-F adds three more shared fields.
+pub struct PostEditorArgs {
+    pub egui_state: Arc<EguiState>,
+    pub instance_id: String,
+    pub measure: Arc<Mutex<MeasureResult>>,
+    pub delta: Arc<Mutex<DeltaResult>>,
+    pub measure_alive: Arc<AtomicBool>,
+    pub signal_state: Arc<AtomicU8>,
+    pub record_sm: Arc<RecordStateMachine>,
+    pub record_acknowledged: Arc<AtomicBool>,
+    pub pair_label: Arc<Mutex<String>>,
+    pub license: Arc<License>,
+    pub preset_available: Arc<AtomicBool>,
+    pub installation_id: Arc<String>,
+    pub playback_pos_samples: Arc<AtomicI64>,
+    pub playback_sample_rate: Arc<AtomicU32>,
+}
+
 // ── 公開エントリポイント ─────────────────────────────────────────────────
 
-#[allow(clippy::too_many_arguments)]
-pub fn create_post_editor(
-    egui_state: Arc<EguiState>,
-    instance_id: String,
-    measure: Arc<Mutex<MeasureResult>>,
-    delta: Arc<Mutex<DeltaResult>>,
-    measure_alive: Arc<AtomicBool>,
-    signal_state: Arc<AtomicU8>,
-    record_sm: Arc<RecordStateMachine>,
-    record_acknowledged: Arc<AtomicBool>,
-    pair_label: Arc<Mutex<String>>,
-    license: Arc<License>,
-) -> Option<Box<dyn Editor>> {
+pub fn create_post_editor(args: PostEditorArgs) -> Option<Box<dyn Editor>> {
+    let egui_state = Arc::clone(&args.egui_state);
     create_egui_editor(
         egui_state,
-        PostEditorState::new(
-            instance_id,
-            measure,
-            delta,
-            measure_alive,
-            signal_state,
-            record_sm,
-            record_acknowledged,
-            pair_label,
-            license,
-        ),
+        PostEditorState::new(args),
         |ctx, state| {
             let mut visuals = ctx.style().visuals.clone();
             visuals.panel_fill = BG;
@@ -181,6 +208,20 @@ pub fn create_post_editor(
             let license = *state.license;
 
             let now = ctx.input(|i| i.time);
+
+            // T-F fallback anchor: Record 開始 wall-clock を 1 度だけ記録し、
+            // Watch 復帰時にクリア。
+            if recording {
+                if state.record_start_wall_time.is_none() {
+                    state.record_start_wall_time = Some(now);
+                }
+            } else {
+                state.record_start_wall_time = None;
+            }
+
+            // T-E: proposals を 500ms throttle で再スキャン。
+            maybe_rescan_proposals(state, now);
+
             if ack && !state.prev_ack {
                 state.banner_until = Some(now + RECORD_BANNER_DURATION_SECS);
             }
@@ -190,7 +231,13 @@ pub fn create_post_editor(
                 state.banner_until = None;
             }
 
-            let led = derive_led_state(alive, sig, recording, ack);
+            let preset_available = state.preset_available.load(Ordering::Relaxed);
+            let led = derive_led_state(alive, sig, recording, ack, preset_available);
+            // R-28 edge-triggered: LED 状態が切り替わった瞬間のみログを出す。
+            if state.prev_led != Some(led) {
+                log::info!("[led] state: {:?}", led);
+                state.prev_led = Some(led);
+            }
             let led_col = led_color(led, now);
 
             draw_post(ctx, state, &m, &d, sig, recording, &pair, led_col, show_banner, license, now);
@@ -261,18 +308,34 @@ fn draw_post(
                         ui.add_space(4.0);
                         draw_button_row(ui, true, license, state, m, now);
                     } else {
-                        let delta_col = match d.mode {
-                            DeltaMode::Active => COL_NORMAL,
-                            DeltaMode::Stale => COL_MUTED,
-                            DeltaMode::NoPre => COL_MUTED,
-                        };
-                        let tp_warn = tp_over(m.true_peak);
-                        draw_delta_grid(ui, d, delta_col, tp_warn);
+                        // guardian_64: Watch + PRE 不在/Bypassed → 絶対値 3 項目表示。
+                        // io_thread_post::compute_delta_with_state が PRE 不在 or
+                        // pre_signal_state != Active のとき DeltaMode::NoPre を立てる。
+                        match d.mode {
+                            DeltaMode::Active | DeltaMode::Stale => {
+                                let delta_col = if d.mode == DeltaMode::Active {
+                                    COL_NORMAL
+                                } else {
+                                    COL_MUTED
+                                };
+                                let tp_warn = tp_over(m.true_peak);
+                                draw_delta_grid(ui, d, delta_col, tp_warn);
+                            }
+                            DeltaMode::NoPre => {
+                                draw_watch_absolute_grid(ui, m);
+                            }
+                        }
                         ui.add_space(4.0);
                         draw_button_row(ui, false, license, state, m, now);
                     }
                 }
             }
+
+            // ── T-E / T-F 行（guardian_77 v3 §9 / §10）────────────────
+            // draw_proposals_block は R-28 沈黙: 表示対象がなければ何も描かず、
+            // ここで allocate した add_space ぶんだけが残る。allocate は関数
+            // 側が行い、必要なければ空で return する。
+            draw_proposals_block(ui, state, now);
 
             if show_banner {
                 ui.add_space(4.0);
@@ -324,7 +387,8 @@ fn draw_inactive_grid(ui: &mut egui::Ui) {
     });
 }
 
-/// Watch: Δ値のみ（3 項目）。NoPre 時は d.lufs/tp/crest が None → `fmt_delta` が `---` を返す。
+/// Watch + PRE Active（DeltaMode::Active / Stale）: Δ 3 項目表示。
+/// NoPre は `draw_watch_absolute_grid` にルーティングされるのでここには到達しない（guardian_64）。
 fn draw_delta_grid(ui: &mut egui::Ui, d: &DeltaResult, delta_col: egui::Color32, tp_warn: bool) {
     ui.horizontal(|ui| {
         ui.add_space(10.0);
@@ -345,6 +409,29 @@ fn draw_delta_grid(ui: &mut egui::Ui, d: &DeltaResult, delta_col: egui::Color32,
 
                 let crest_col = if d.crest.is_some() { delta_col } else { COL_MUTED };
                 value_row(ui, "ΔCrest", fmt_delta(d.crest), "dB", crest_col);
+            });
+    });
+}
+
+/// Watch + PRE 不在 or Bypassed（DeltaMode::NoPre）: POST 絶対値 3 項目（LUFS-M / TP / Crest）。
+/// guardian_64 による旧仕様復活。Record の右列と同じ値源だが Watch 用の単列レイアウト。
+fn draw_watch_absolute_grid(ui: &mut egui::Ui, m: &MeasureResult) {
+    let tp_warn = tp_over(m.true_peak);
+    let tp_col = if tp_warn {
+        COL_FLORA_BRIGHT
+    } else {
+        val_color(m.true_peak)
+    };
+    ui.horizontal(|ui| {
+        ui.add_space(10.0);
+        Grid::new("post_watch_abs")
+            .num_columns(3)
+            .min_col_width(58.0)
+            .spacing([6.0, 6.0])
+            .show(ui, |ui| {
+                value_row(ui, "LUFS-M", fmt_val(m.lufs_m), "LUFS", val_color(m.lufs_m));
+                value_row(ui, "TP", fmt_val(m.true_peak), "dBTP", tp_col);
+                value_row(ui, "Crest", fmt_val(m.crest), "dB", val_color(m.crest));
             });
     });
 }
@@ -645,4 +732,157 @@ fn trigger_open_upsell(toast: &mut Option<Toast>, now: f64) {
 fn draw_led(ui: &mut egui::Ui, color: egui::Color32) {
     let (rect, _) = ui.allocate_exact_size(Vec2::splat(12.0), egui::Sense::hover());
     ui.painter().circle_filled(rect.center(), 5.0, color);
+}
+
+// ── T-E / T-F helpers (guardian_77 v3 §9 / §10) ─────────────────────────
+
+/// Throttle-guarded proposals rescan. Reads `plugin_data/{ph}/preset/` once
+/// per 500 ms and caches the newest v2.0 file in the editor-local state.
+///
+/// R-28 silence: any failure (missing installation_id, storage unresolved,
+/// verify failures inside scan_latest_v2_preset) ends with
+/// `state.latest_proposals = None` and nothing rendered.
+fn maybe_rescan_proposals(state: &mut PostEditorState, now: f64) {
+    let should_scan = match state.proposals_scan_last {
+        Some(t) => now - t >= PROPOSALS_SCAN_INTERVAL_SECS,
+        None => true,
+    };
+    if !should_scan {
+        return;
+    }
+    state.proposals_scan_last = Some(now);
+
+    let installation_id = state.installation_id.as_str();
+    if installation_id.is_empty() {
+        state.latest_proposals = None;
+        return;
+    }
+    let Ok(paths) = StoragePaths::default_macos() else {
+        state.latest_proposals = None;
+        return;
+    };
+    state.latest_proposals = scan_latest_v2_preset(
+        &paths.plugin_data_dir(),
+        PROJECT_HASH_PHASE1,
+        installation_id,
+    );
+}
+
+/// Resolve current playback time in seconds. Primary path reads the atomic
+/// written by `process()`; fallback uses wall-clock since Record start
+/// (§10.2). Returns `None` when neither source is available (Watch mode
+/// outside a Record session → section label row is silent).
+fn current_playback_time(state: &PostEditorState, now: f64) -> Option<f64> {
+    let pos = state.playback_pos_samples.load(Ordering::Relaxed);
+    let sr = state.playback_sample_rate.load(Ordering::Relaxed);
+    if pos != i64::MIN && sr > 0 {
+        return Some(pos as f64 / sr as f64);
+    }
+    state.record_start_wall_time.map(|start| now - start)
+}
+
+/// Severity → 1-char ASCII glyph (egui default font has no guaranteed CJK
+/// / dingbat coverage).
+fn severity_glyph(severity: &str) -> &'static str {
+    match severity {
+        "warning" => "!",
+        "suggestion" => ">",
+        _ => "i",
+    }
+}
+
+fn severity_color(severity: &str) -> egui::Color32 {
+    match severity {
+        "warning" => COL_FLORA_BRIGHT,
+        _ => COL_NORMAL,
+    }
+}
+
+/// T-E + T-F render block. Lays out:
+///
+///   [section_label]              [Cards N [+]/[-]]
+///   (if expanded, up to MAX_CARDS_RENDERED card rows inside a ScrollArea)
+///
+/// Silent (zero rows rendered) when both `latest_proposals` and the section
+/// label resolve to `None` — per R-28 / §10.4.
+fn draw_proposals_block(ui: &mut egui::Ui, state: &mut PostEditorState, now: f64) {
+    let play_t = current_playback_time(state, now);
+    let section_label = match (state.latest_proposals.as_ref(), play_t) {
+        (Some(p), Some(t)) => lookup_section_label(&p.section_boundaries, t).map(str::to_owned),
+        _ => None,
+    };
+    let has_proposals = state.latest_proposals.is_some();
+
+    if !has_proposals && section_label.is_none() {
+        return; // R-28
+    }
+
+    ui.add_space(4.0);
+    ui.horizontal(|ui| {
+        ui.add_space(10.0);
+        if let Some(l) = section_label.as_ref() {
+            ui.label(
+                RichText::new(l.as_str())
+                    .size(11.0)
+                    .color(COL_FLORA)
+                    .monospace(),
+            );
+        }
+        if let Some(p) = state.latest_proposals.as_ref() {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.add_space(10.0);
+                let n = p.cards.len();
+                let toggle = if state.cards_expanded { "[-]" } else { "[+]" };
+                let btn_text = format!("Cards {} {}", n, toggle);
+                let resp = ui.add(
+                    egui::Button::new(
+                        RichText::new(&btn_text).size(11.0).color(COL_NORMAL).monospace(),
+                    )
+                    .frame(false),
+                );
+                if resp.clicked() {
+                    state.cards_expanded = !state.cards_expanded;
+                }
+            });
+        }
+    });
+
+    if state.cards_expanded {
+        if let Some(p) = state.latest_proposals.as_ref() {
+            let shown = p.cards.len().min(MAX_CARDS_RENDERED);
+            egui::ScrollArea::vertical()
+                .id_salt("post_cards_scroll")
+                .max_height(48.0)
+                .show(ui, |ui| {
+                    for c in p.cards.iter().take(MAX_CARDS_RENDERED) {
+                        ui.horizontal(|ui| {
+                            ui.add_space(10.0);
+                            ui.label(
+                                RichText::new(severity_glyph(&c.severity))
+                                    .size(11.0)
+                                    .color(severity_color(&c.severity))
+                                    .monospace(),
+                            );
+                            ui.label(
+                                RichText::new(&c.message_key)
+                                    .size(11.0)
+                                    .color(COL_NORMAL)
+                                    .monospace(),
+                            );
+                        });
+                    }
+                    if p.cards.len() > MAX_CARDS_RENDERED {
+                        let more = p.cards.len() - shown;
+                        ui.horizontal(|ui| {
+                            ui.add_space(10.0);
+                            ui.label(
+                                RichText::new(format!("+ {} more", more))
+                                    .size(10.0)
+                                    .color(COL_MUTED),
+                            );
+                        });
+                    }
+                });
+        }
+    }
 }

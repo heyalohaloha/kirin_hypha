@@ -43,6 +43,8 @@ pub struct PreEditorState {
     pub recording: Arc<AtomicBool>,
     /// Record 信号が ACK 済か（PRE は常に true と見なしてよい）
     pub record_acknowledged: Arc<AtomicBool>,
+    /// preset/*.json が 1 件以上存在するか（POST IO Thread が更新、PRE は読むだけ）。
+    pub preset_available: Arc<AtomicBool>,
 
     // ── エディタローカル（egui state 内で保持） ──────────────────────
     /// 背景テクスチャの遅延 decode キャッシュ
@@ -51,6 +53,8 @@ pub struct PreEditorState {
     prev_ack: bool,
     /// 「記録開始」バナーの終了時刻（`ctx.input(|i| i.time)` 基準）
     banner_until: Option<f64>,
+    /// 直前フレームの LED 状態（edge-triggered log 用）。
+    prev_led: Option<hypha_gui::LedState>,
 }
 
 impl PreEditorState {
@@ -60,6 +64,7 @@ impl PreEditorState {
         signal_state: Arc<AtomicU8>,
         recording: Arc<AtomicBool>,
         record_acknowledged: Arc<AtomicBool>,
+        preset_available: Arc<AtomicBool>,
     ) -> Self {
         Self {
             measure,
@@ -67,9 +72,11 @@ impl PreEditorState {
             signal_state,
             recording,
             record_acknowledged,
+            preset_available,
             bg: BackgroundTexture::new(),
             prev_ack: false,
             banner_until: None,
+            prev_led: None,
         }
     }
 }
@@ -77,6 +84,7 @@ impl PreEditorState {
 // ── 公開エントリポイント ─────────────────────────────────────────────────
 
 /// PRE エディタを生成して返す。`Plugin::editor()` から呼ぶ。
+#[allow(clippy::too_many_arguments)]
 pub fn create_pre_editor(
     egui_state: Arc<EguiState>,
     measure: Arc<Mutex<MeasureResult>>,
@@ -84,10 +92,18 @@ pub fn create_pre_editor(
     signal_state: Arc<AtomicU8>,
     recording: Arc<AtomicBool>,
     record_acknowledged: Arc<AtomicBool>,
+    preset_available: Arc<AtomicBool>,
 ) -> Option<Box<dyn Editor>> {
     create_egui_editor(
         egui_state,
-        PreEditorState::new(measure, measure_alive, signal_state, recording, record_acknowledged),
+        PreEditorState::new(
+            measure,
+            measure_alive,
+            signal_state,
+            recording,
+            record_acknowledged,
+            preset_available,
+        ),
         |ctx, state| {
             let mut visuals = ctx.style().visuals.clone();
             visuals.panel_fill = BG;
@@ -116,7 +132,12 @@ pub fn create_pre_editor(
                 state.banner_until = None;
             }
 
-            let led = derive_led_state(alive, sig, recording, ack);
+            let preset_available = state.preset_available.load(Ordering::Relaxed);
+            let led = derive_led_state(alive, sig, recording, ack, preset_available);
+            if state.prev_led != Some(led) {
+                log::info!("[led] state: {:?}", led);
+                state.prev_led = Some(led);
+            }
             let led_col = led_color(led, now);
 
             draw_pre(ctx, &mut state.bg, &m, recording, sig, led_col, show_banner);
