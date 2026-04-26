@@ -515,7 +515,8 @@ mod tests {
         let frames = &ctx.data().frames;
         assert_eq!(frames.len(), 1);
         assert_eq!(frames[0].t_ms, 200);
-        assert_eq!(frames[0].n_prime[0], 0.5);
+        // 48kHz make_ctx: Phase D 値 Some (guardian_100 S-2)
+        assert_eq!(frames[0].n_prime.unwrap()[0], 0.5);
         assert_eq!(frames[0].lufs_m, -14.2);
         assert!(ctx.first_frame_logged);
     }
@@ -527,7 +528,11 @@ mod tests {
         let mut m = full_measure_result();
         m.psb_bark = None;
         assert!(!writer_append_psb(&mut ctx, 500, &m));
-        assert_eq!(ctx.data().psb_snapshots.len(), 0);
+        // 48kHz make_ctx: psb_snapshots = Some(vec![]) なので空チェックは len==0
+        assert_eq!(
+            ctx.data().psb_snapshots.as_ref().map(|v| v.len()),
+            Some(0)
+        );
     }
 
     #[test]
@@ -536,7 +541,7 @@ mod tests {
         let mut ctx = make_ctx(&base, Role::Post, now_epoch_ms());
         let m = full_measure_result();
         assert!(writer_append_psb(&mut ctx, 500, &m));
-        let snaps = &ctx.data().psb_snapshots;
+        let snaps = ctx.data().psb_snapshots.as_ref().unwrap();
         assert_eq!(snaps.len(), 1);
         assert_eq!(snaps[0].t_ms, 500);
         assert!(snaps[0].interpolatable);
@@ -601,7 +606,11 @@ mod tests {
 
         let ctx_ref = rec.as_ref().unwrap();
         assert_eq!(ctx_ref.data().frames.len(), 1);
-        assert_eq!(ctx_ref.data().psb_snapshots.len(), 1);
+        // 48kHz: psb_snapshots = Some(vec![one])
+        assert_eq!(
+            ctx_ref.data().psb_snapshots.as_ref().map(|v| v.len()),
+            Some(1)
+        );
         assert!(ctx_ref.next_frame_ms >= 600);
         assert!(ctx_ref.next_psb_ms >= 1000);
     }
@@ -623,7 +632,11 @@ mod tests {
 
         let ctx_ref = rec.as_ref().unwrap();
         assert_eq!(ctx_ref.data().frames.len(), 0);
-        assert_eq!(ctx_ref.data().psb_snapshots.len(), 0);
+        // 48kHz: psb_snapshots = Some(vec![]) (warmup → no append)
+        assert_eq!(
+            ctx_ref.data().psb_snapshots.as_ref().map(|v| v.len()),
+            Some(0)
+        );
     }
 
     #[test]
