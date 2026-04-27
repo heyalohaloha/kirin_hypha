@@ -16,7 +16,7 @@ use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
 
-const SIGNALS_DIR: &str = "/Users/nishiodaisuke/Dev/kirin_sense_lens/test_signals";
+const SIGNALS_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../test_signals");
 
 /// Lensエンジンと同一ロジック：ebur128 true_peak(ch) = ファイル全体の running max
 #[allow(non_snake_case)]

@@ -26,7 +26,7 @@ use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
 
-const SIGNALS_DIR: &str = "/Users/nishiodaisuke/Dev/kirin_hypha/test_signals";
+const SIGNALS_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../test_signals");
 const OUTPUT_DIR: &str = "/tmp/kirin_hypha_inspection";
 
 /// 48 kHz stereo WAV を mono f64 (L+R)/2 に decode して返す。
