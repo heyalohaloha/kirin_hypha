@@ -20,6 +20,7 @@ pub mod preset_v2;
 pub mod record;
 pub mod record_signal;
 pub mod record_writer;
+pub mod resampler;
 pub mod storage;
 pub mod watchdog;
 

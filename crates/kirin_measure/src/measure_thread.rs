@@ -7,7 +7,13 @@
 
 use crate::phase_d::stream::PhaseDStream;
 use crate::phase_d::tables::FieldType;
+use crate::resampler::ResamplerTo48k;
 use crate::{load_signal_state, store_signal_state, MeasureEngine, MeasureResult, PsbSummary, SignalState, N_CHANNELS};
+
+/// guardian_101 v2: Phase D / EBU R128 を回す内部処理 SR は常に 48 kHz。
+/// 入力 SR が 48000 でない場合は Measure Thread 入口で `ResamplerTo48k` を介して
+/// 48 kHz に変換してから engine / phase_d に渡す。
+const ENGINE_SR: u32 = 48_000;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
@@ -45,8 +51,9 @@ pub fn spawn_measure_thread(
     heartbeat: Arc<AtomicU32>,
 ) -> JoinHandle<()> {
     thread::spawn(move || {
-        // MeasureEngine 初期化。失敗したらこのスレッドのみ終了（Audio Thread は継続）。
-        let mut engine = match MeasureEngine::new(sample_rate, N_CHANNELS) {
+        // guardian_101 v2: 内部処理は 48 kHz 固定。入力 SR が異なる場合のみ
+        // ResamplerTo48k で変換して engine / phase_d に渡す。
+        let mut engine = match MeasureEngine::new(ENGINE_SR, N_CHANNELS) {
             Ok(e) => e,
             Err(e) => {
                 log::error!("[MeasureThread] MeasureEngine::new failed: {}", e);
@@ -54,23 +61,41 @@ pub fn spawn_measure_thread(
             }
         };
 
-        // Phase D streaming processor（48 kHz 限定。他レートでは None）
-        let mut phase_d: Option<PhaseDStream> = if sample_rate == 48000 {
-            Some(PhaseDStream::new(FieldType::Free))
+        // 入力 SR が 48 kHz の場合はバイパス（ゼロオーバーヘッド経路を維持）。
+        // 異なる場合のみ rubato Fft リサンプラを構築する。失敗時は Measure Thread のみ終了。
+        let mut resampler: Option<ResamplerTo48k> = if sample_rate != ENGINE_SR {
+            match ResamplerTo48k::new(sample_rate, N_CHANNELS) {
+                Ok(r) => {
+                    log::info!(
+                        "[MeasureThread] Resampler {}->{} Hz constructed",
+                        sample_rate, ENGINE_SR
+                    );
+                    Some(r)
+                }
+                Err(e) => {
+                    log::error!(
+                        "[MeasureThread] ResamplerTo48k::new({}) failed: {:?}",
+                        sample_rate, e
+                    );
+                    return;
+                }
+            }
         } else {
             None
         };
-        // Phase D stereo→mono 変換バッファ（再アロケーション回避）
-        let mut mono_buf: Vec<f64> = if phase_d.is_some() {
-            Vec::with_capacity(sample_rate as usize / N_CHANNELS)
-        } else {
-            Vec::new()
-        };
+
+        // Phase D streaming processor（guardian_101 v2: 全 SR 対応のため常に Some 相当）。
+        let mut phase_d = PhaseDStream::new(FieldType::Free);
+        // Phase D stereo→mono 変換バッファ（48 kHz 1 秒分の余裕で確保）。
+        let mut mono_buf: Vec<f64> = Vec::with_capacity(ENGINE_SR as usize / N_CHANNELS);
         // Phase D 最新結果（ループをまたいで保持。engine が結果を返した時にマージ）
         let mut latest_pd: Option<crate::phase_d::stream::PhaseDResult> = None;
 
         // f32 → f64 変換バッファ（ループをまたいで再利用。再アロケーションを避ける）
         let mut chunk_f64: Vec<f64> = Vec::with_capacity(sample_rate as usize);
+        // リサンプル後 48kHz interleaved バッファ（resampler が Some のときのみ使う）
+        let mut resampled_buf: Vec<f64> =
+            Vec::with_capacity(ENGINE_SR as usize * N_CHANNELS / 4);
 
         // 前回ループの SignalState を保持し、非Active→Active 遷移を検出する（SS-8）。
         let mut prev_active = false;
@@ -130,12 +155,14 @@ pub fn spawn_measure_thread(
             }
 
             // ── SS-8: 非Active→Active 遷移時にエンジンリセット ──────
-            // 前セッションの ebur128 FIR 遅延ライン / tp_window / window_400ms を
-            // クリアして、新セッション最初のチャンクが汚染されるのを防ぐ。
+            // 前セッションの ebur128 FIR 遅延ライン / tp_window / window_400ms / Phase D
+            // / リサンプラ FFT overlap / pending 入力 をすべてクリアして、新セッション
+            // 最初のチャンクが汚染されるのを防ぐ。
             if !prev_active {
                 engine.reset();
-                if let Some(pd) = &mut phase_d {
-                    pd.reset();
+                phase_d.reset();
+                if let Some(rs) = &mut resampler {
+                    rs.reset();
                 }
                 latest_pd = None;
                 prev_active = true;
@@ -153,20 +180,36 @@ pub fn spawn_measure_thread(
                     }
                 }
 
-                // Phase D: stereo→mono 変換 + push（48 kHz のみ）
-                if let Some(pd) = &mut phase_d {
-                    mono_buf.clear();
-                    for ch in chunk_f64.chunks_exact(N_CHANNELS) {
-                        mono_buf.push((ch[0] + ch[1]) * 0.5);
+                // guardian_101 v2: 入力 SR が 48 kHz でない場合のみリサンプリング。
+                // resampler 経由では 48 kHz interleaved f64 が `resampled_buf` に追記される。
+                // 端数フレームは ResamplerTo48k 内部の pending に保持され次回呼出で消費。
+                let chunk_48k: &[f64] = if let Some(rs) = resampler.as_mut() {
+                    resampled_buf.clear();
+                    if let Err(e) = rs.process(&chunk_f64, &mut resampled_buf) {
+                        log::warn!(
+                            "[MeasureThread] Resampler error ({}->48000): {:?}, dropping chunk",
+                            sample_rate, e
+                        );
+                        thread::sleep(LOOP_SLEEP);
+                        continue;
                     }
-                    let pd_results = pd.push(&mono_buf);
-                    if let Some(last) = pd_results.last() {
-                        latest_pd = Some(last.clone());
-                    }
+                    &resampled_buf
+                } else {
+                    &chunk_f64
+                };
+
+                // Phase D: stereo→mono 変換 + push（常に 48 kHz データに対して実行）
+                mono_buf.clear();
+                for ch in chunk_48k.chunks_exact(N_CHANNELS) {
+                    mono_buf.push((ch[0] + ch[1]) * 0.5);
+                }
+                let pd_results = phase_d.push(&mono_buf);
+                if let Some(last) = pd_results.last() {
+                    latest_pd = Some(last.clone());
                 }
 
                 // 100ms チャンク単位で計測し、揃ったら結果を共有領域に書き込む
-                if let Some(mut new_result) = engine.push(&chunk_f64) {
+                if let Some(mut new_result) = engine.push(chunk_48k) {
                     // Phase D 結果をマージ（初期化中は None のまま）
                     if let Some(ref pd_r) = latest_pd {
                         new_result.n_prime_total = Some(pd_r.loudness);

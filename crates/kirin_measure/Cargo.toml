@@ -18,6 +18,7 @@ hex = { workspace = true }
 # ISO 532-1 specific loudness パイプラインとは独立。Measure Thread 上で動作し、
 # Audio Thread (R-12 製造境界) には影響しない。
 rustfft = "6"
+rubato = { version = "2", features = ["fft_resampler"] }
 
 [dev-dependencies]
 symphonia = { version = "0.5", features = ["wav", "pcm"] }

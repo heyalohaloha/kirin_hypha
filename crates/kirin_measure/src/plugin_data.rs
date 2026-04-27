@@ -92,8 +92,10 @@ pub enum Status {
 /// n_prime は **20 Bark 帯域別** のフィルタ後 N'(t,z)（sone）。
 /// sharpness は **スカラー**（acum）。
 ///
-/// guardian_100: source_format != 48000 のとき n_prime / sharpness は `None`
-/// (JSON null)。LUFS-M / TP / Crest は常に書き込む。
+/// guardian_101 v2 (G-100-02): 全ての主要 SR (44.1k / 48k / 88.2k / 96k / 176.4k /
+/// 192kHz) で Phase D を計測する。Measure Thread 側で 48kHz へリサンプリング後に
+/// PhaseDStream に投入されるため、本フィールドは常に `Some` で書き出される。
+/// `Option` 型は将来の Phase D 取得失敗時のフォールバック余地として温存する。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Frame {
     pub t_ms: u64,
@@ -135,9 +137,10 @@ pub struct BounceMarker {
 /// plugin_data/ 1 ファイル分のルート（v1.1）。
 ///
 /// `source_format`: Record 開始時に ProcessContext から取得した入力サンプルレート
-/// (Hz)。48000 / 44100 / 88200 / 96000 等。取得失敗時は 0 (guardian_100 / G-79
-/// §2.3)。Phase D 値 (`Frame.n_prime` / `Frame.sharpness` / `psb_snapshots`) は
-/// `source_format == 48000` のときのみ書き込む。それ以外は `None` (JSON null)。
+/// (Hz)。48000 / 44100 / 88200 / 96000 / 176400 / 192000 等。取得失敗時は 0
+/// (guardian_100 / G-79 §2.3 / G-100-02)。Measure Thread 側で 48kHz にリサンプリング
+/// した上で Phase D を計測するため、`source_format` の値に関わらず `Frame.n_prime`
+/// / `Frame.sharpness` / `psb_snapshots` は常に `Some` で書き出される (guardian_101 v2)。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PluginDataFile {
     pub schema_version: String,
@@ -177,7 +180,6 @@ impl PluginDataFile {
         sample_rate: u32,
     ) -> Self {
         let now = now_iso8601();
-        let phase_d_enabled = sample_rate == 48000;
         Self {
             schema_version: Self::SCHEMA_VERSION.to_string(),
             installation_id,
@@ -199,7 +201,8 @@ impl PluginDataFile {
             heartbeat: now,
             status: Status::Active,
             frames: Vec::new(),
-            psb_snapshots: if phase_d_enabled { Some(Vec::new()) } else { None },
+            // guardian_101 v2: 全 SR で Phase D を計測するため初期値は常に Some。
+            psb_snapshots: Some(Vec::new()),
             annotations: Vec::new(),
             validity: true,
             checksum: String::new(),
@@ -344,8 +347,9 @@ impl PluginDataWriter {
 
     /// 1 frame を追加。数値を精度表に従って丸める。
     ///
-    /// guardian_100 S-2: `source_format != 48000` のとき n_prime / sharpness は
-    /// `None` (JSON null) で書き込み、LUFS-M / TP / Crest は通常通り記録する。
+    /// guardian_101 v2 (G-100-02): Measure Thread 側で全 SR を 48kHz にリサンプリングして
+    /// Phase D を計測するため、`n_prime` / `sharpness` は常に `Some` で記録される。
+    /// `Option` 型は将来 Phase D 取得失敗時のフォールバック余地として温存。
     pub fn append_frame(
         &mut self,
         t_ms: u64,
@@ -355,25 +359,14 @@ impl PluginDataWriter {
         true_peak: f64,
         crest: f64,
     ) {
-        let phase_d_enabled = self.data.source_format == 48000;
-        let n_prime_field = if phase_d_enabled {
-            let mut rounded_n = [0.0; 20];
-            for (i, v) in n_prime.iter().enumerate() {
-                rounded_n[i] = round1(*v);
-            }
-            Some(rounded_n)
-        } else {
-            None
-        };
-        let sharpness_field = if phase_d_enabled {
-            Some(round2(sharpness))
-        } else {
-            None
-        };
+        let mut rounded_n = [0.0; 20];
+        for (i, v) in n_prime.iter().enumerate() {
+            rounded_n[i] = round1(*v);
+        }
         self.data.frames.push(Frame {
             t_ms,
-            n_prime: n_prime_field,
-            sharpness: sharpness_field,
+            n_prime: Some(rounded_n),
+            sharpness: Some(round2(sharpness)),
             lufs_m: round1(lufs_m),
             true_peak: round1(true_peak),
             crest: round1(crest),
@@ -382,12 +375,13 @@ impl PluginDataWriter {
 
     /// 1 PSB スナップショットを追加。
     ///
-    /// guardian_100 S-2: `source_format != 48000` のとき `psb_snapshots` 自体が
-    /// `None` (JSON null) のため、本メソッドは silent skip (no-op)。
+    /// guardian_101 v2 (G-100-02): `psb_snapshots` は常に `Some(Vec)` で初期化されている
+    /// ため本メソッドは無条件で push する。
     pub fn append_psb(&mut self, t_ms: u64, psb: [f64; 20], interpolatable: bool) {
-        let Some(snapshots) = self.data.psb_snapshots.as_mut() else {
-            return; // Phase D 無効: silent skip
-        };
+        let snapshots = self
+            .data
+            .psb_snapshots
+            .get_or_insert_with(Vec::new);
         let mut rounded = [0.0; 20];
         for (i, v) in psb.iter().enumerate() {
             rounded[i] = round1(*v);
@@ -1001,9 +995,10 @@ mod tests {
         assert!(err.is_err(), "corrupt JSON should yield error");
     }
 
-    // ── guardian_100 / G-79 §2.3: source_format & Phase D silent skip ─────────
+    // ── guardian_100 S-1 / guardian_101 v2 (G-100-02): source_format & Phase D ──
 
     /// 48kHz: source_format=48000 / Phase D 値が JSON に通常通り書き込まれる。
+    /// guardian_101 v2 でも同等の挙動を確認する。
     #[test]
     fn source_format_48000_writes_phase_d_values() {
         let base = isolated_dir();
@@ -1020,7 +1015,7 @@ mod tests {
         let loaded: PluginDataFile = serde_json::from_slice(&bytes).unwrap();
         // source_format が JSON に出力されている (S-1)
         assert_eq!(loaded.source_format, 48000);
-        // Phase D 値が Some で書き出されている (S-2)
+        // Phase D 値が Some で書き出されている (guardian_101 v2)
         assert!(loaded.frames[0].n_prime.is_some());
         assert!(loaded.frames[0].sharpness.is_some());
         assert!(loaded.psb_snapshots.is_some());
@@ -1033,66 +1028,5 @@ mod tests {
         // JSON 文字列上で `"source_format":48000` が含まれることも確認
         let json_str = std::str::from_utf8(&bytes).unwrap();
         assert!(json_str.contains("\"source_format\":48000"));
-    }
-
-    /// 44.1kHz: source_format=44100 / Phase D 値は null だが LUFS/TP/Crest は継続。
-    #[test]
-    fn source_format_44100_nulls_phase_d_but_keeps_loudness() {
-        let base = isolated_dir();
-        let paths = WriterPaths::build(
-            &base,
-            "project_hash_test",
-            "MIX",
-            Role::Pre,
-            "2026-04-17T14:32:08Z",
-        );
-        // 44.1kHz で create → phase_d_enabled=false
-        let mut w = PluginDataWriter::create(
-            paths,
-            "11111111-2222-4333-8444-555555555555".to_string(),
-            "project_hash_test".to_string(),
-            Role::Pre,
-            "MIX".to_string(),
-            44100,
-        )
-        .unwrap();
-        assert_eq!(w.data().source_format, 44100);
-        // psb_snapshots 自体が None で初期化される
-        assert!(w.data().psb_snapshots.is_none());
-
-        // append_frame は Phase D 値を渡しても None で書き込む
-        w.append_frame(0, [1.5; 20], 1.5, -14.0, -1.0, 12.0);
-        // append_psb は silent skip (no-op)
-        w.append_psb(0, [-10.0; 20], true);
-        w.flush().unwrap();
-
-        let bytes = fs::read(&w.paths.final_path).unwrap();
-        let loaded: PluginDataFile = serde_json::from_slice(&bytes).unwrap();
-        // source_format が JSON に出力されている (S-1)
-        assert_eq!(loaded.source_format, 44100);
-        // Phase D 値が None (JSON null) で書き出されている (S-2)
-        assert!(
-            loaded.frames[0].n_prime.is_none(),
-            "non-48kHz: n_prime must be null"
-        );
-        assert!(
-            loaded.frames[0].sharpness.is_none(),
-            "non-48kHz: sharpness must be null"
-        );
-        assert!(
-            loaded.psb_snapshots.is_none(),
-            "non-48kHz: psb_snapshots must be null"
-        );
-        // LUFS-M / TP / Crest は **通常通り記録される** (S-2 / 合格基準#3)
-        assert_eq!(loaded.frames[0].lufs_m, -14.0);
-        assert_eq!(loaded.frames[0].true_peak, -1.0);
-        assert_eq!(loaded.frames[0].crest, 12.0);
-
-        // JSON 文字列上で `"source_format":44100` と `"n_prime":null` が確認される
-        let json_str = std::str::from_utf8(&bytes).unwrap();
-        assert!(json_str.contains("\"source_format\":44100"));
-        assert!(json_str.contains("\"n_prime\":null"));
-        assert!(json_str.contains("\"sharpness\":null"));
-        assert!(json_str.contains("\"psb_snapshots\":null"));
     }
 }
