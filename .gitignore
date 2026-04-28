@@ -35,3 +35,6 @@ hypha_fork_debug*.log
 # uncomment the line below; leave tracked by default so toolchain
 # pinning stays reproducible)
 # .cargo/config.toml
+
+# G-107-03: Notion stub cleanup artifact + 他の一時作業出力を除外
+tmp/
