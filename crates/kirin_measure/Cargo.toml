@@ -22,8 +22,6 @@ rubato = { version = "2", features = ["fft_resampler"] }
 
 [dev-dependencies]
 symphonia = { version = "0.5", features = ["wav", "pcm"] }
-hound = "3.5"
-rand = "0.8"
 # G-79-01 (2026-04-24 Daisuke approved): MoSQITo tolerance assertions.
 # - sharpness: assert_abs_diff_eq!(epsilon = 0.05 acum)
 # - N_spec:    assert_relative_eq!(max_relative = 1e-3)

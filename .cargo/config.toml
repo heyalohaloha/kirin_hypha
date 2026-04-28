@@ -17,3 +17,9 @@
 # serial を選択する。
 [env]
 RUST_TEST_THREADS = "1"
+
+# guardian_112 G-108-01: cargo xtask gen-signals でテスト信号 (S-1〜S-5) を seed 固定再生成。
+# cargo test では wav を読むだけ・書かない構造とし、フィクスチャ生成は明示コマンドへ分離。
+[alias]
+xtask = "run --package xtask --release --"
+xtask-debug = "run --package xtask --"
