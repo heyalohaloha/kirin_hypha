@@ -1,0 +1,19 @@
+# guardian_61 C-4: cargo test を serial 実行する。
+#
+# 理由: crates/kirin_measure/tests/engine_test.rs の
+# test_full_pipeline_tp_via_measure_thread が並列 CPU contention 下で
+# heartbeat stall detection (200ms × 2 → Inactive 上書き) を意図せず
+# 発火させ、MeasureResult が default にリセットされて落ちることがある。
+#
+# これは production-correct な仕様（Studio One 等のバイパス時 process()
+# 停止を検出するための機構）であって race condition ではない。テスト側の
+# producer ループが OS スケジューラに >200ms 奪われる timing 脆弱性。
+# guardian_61 C-2 で STFT 経路を Measure Thread に追加したため CPU 負荷が
+# 微増し、contention 確率が上がった結果として顕在化した。
+#
+# 影響: serial 実行で論理的に解消される (heartbeat 更新ループの周期が
+# 確実に 50-100ms 内に収まり、stall 閾値 200ms に到達しない)。
+# 並列実行で稼げる時間は ~30-40 秒程度であり、安定性とのトレードオフで
+# serial を選択する。
+[env]
+RUST_TEST_THREADS = "1"
