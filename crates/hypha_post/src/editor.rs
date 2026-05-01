@@ -36,8 +36,8 @@ use kirin_measure::{
     mark_released, pick_closest_pre, scan_latest_v2_preset, scan_pre_candidates,
     show_note_button, show_save_button, show_stop_record_button, write_pending, DeltaMode,
     DeltaResult, ExclusionResult, License, MeasureResult, PluginDataRole, PostMetrics,
-    PresetFileV2, RecordStateMachine, SignalState, StoragePaths, TransitionError, BUS_PHASE1,
-    PROJECT_HASH_PHASE1, SENSE_RECORD_HINT, SENSE_UPSELL_URL,
+    PresetFileV2, RecordStateMachine, SignalState, StoragePaths, TransitionError,
+    SENSE_RECORD_HINT, SENSE_UPSELL_URL,
 };
 use nih_plug::prelude::Editor;
 use nih_plug_egui::{
@@ -84,6 +84,10 @@ impl Toast {
 
 pub struct PostEditorState {
     pub instance_id: String,
+    /// プロセス単位 `project_hash`（plugin_data path のルートセグメント）。
+    pub project_hash: String,
+    /// プロセス単位 `daw_session_id`（record_signal content の cross-process 防壁）。
+    pub daw_session_id: String,
     pub measure: Arc<Mutex<MeasureResult>>,
     pub delta: Arc<Mutex<DeltaResult>>,
     pub measure_alive: Arc<AtomicBool>,
@@ -92,9 +96,14 @@ pub struct PostEditorState {
     pub record_sm: Arc<RecordStateMachine>,
     /// Record 信号が PRE から ACK されたか（false = Standby, true = Active）
     pub record_acknowledged: Arc<AtomicBool>,
-    /// ペアリング表示用ラベル（例: "PRE abc12345…"）。空文字 → `---`。
-    /// サブ3 で IO Thread が更新する。
+    /// ペアリング表示用ラベル。Record 中は "pair: PRE_xxxxxxxx"（trigger_keep が設定）、
+    /// Watch 中は空文字（trigger_stop / 自然遷移でクリア）。
     pub pair_label: Arc<Mutex<String>>,
+    /// trigger_keep が選定した PRE instance_id（v1.2 (a) cross-instance pair 復元キー）。
+    /// Watch 中は None、Keep 成功直後に Some、Stop / 失敗で None に戻す。
+    /// POST IO Thread が `run_record_tick` で読み出して plugin_data の
+    /// `paired_pre_instance_id` field に書き込む。
+    pub paired_pre_target: Arc<Mutex<Option<String>>>,
     /// license 値（起動時に読込済。サブ2-A 範囲では不変）。
     pub license: Arc<License>,
     /// preset/*.json が 1 件以上存在するか（サブ3-C-2: POST IO Thread が更新）。
@@ -133,6 +142,8 @@ impl PostEditorState {
     fn new(args: PostEditorArgs) -> Self {
         Self {
             instance_id: args.instance_id,
+            project_hash: args.project_hash,
+            daw_session_id: args.daw_session_id,
             measure: args.measure,
             delta: args.delta,
             measure_alive: args.measure_alive,
@@ -140,6 +151,7 @@ impl PostEditorState {
             record_sm: args.record_sm,
             record_acknowledged: args.record_acknowledged,
             pair_label: args.pair_label,
+            paired_pre_target: args.paired_pre_target,
             license: args.license,
             preset_available: args.preset_available,
             installation_id: args.installation_id,
@@ -159,12 +171,14 @@ impl PostEditorState {
     }
 }
 
-/// Bundle of `Arc`-shared plugin state handed to the editor. Replaces the
-/// 10+ positional arguments in the previous `create_post_editor` signature
-/// to keep call-sites tractable when T-E/T-F adds three more shared fields.
+/// Bundle of `Arc`-shared plugin state handed to the editor.
 pub struct PostEditorArgs {
     pub egui_state: Arc<EguiState>,
     pub instance_id: String,
+    /// プロセス単位 `project_hash`（A-3 修正後）。
+    pub project_hash: String,
+    /// プロセス単位 `daw_session_id`（A-3 修正後 / Q1 補強）。
+    pub daw_session_id: String,
     pub measure: Arc<Mutex<MeasureResult>>,
     pub delta: Arc<Mutex<DeltaResult>>,
     pub measure_alive: Arc<AtomicBool>,
@@ -172,6 +186,8 @@ pub struct PostEditorArgs {
     pub record_sm: Arc<RecordStateMachine>,
     pub record_acknowledged: Arc<AtomicBool>,
     pub pair_label: Arc<Mutex<String>>,
+    /// v1.2 (a): trigger_keep が選定した PRE instance_id を IO Thread に渡す共有スロット。
+    pub paired_pre_target: Arc<Mutex<Option<String>>>,
     pub license: Arc<License>,
     pub preset_available: Arc<AtomicBool>,
     pub installation_id: Arc<String>,
@@ -276,8 +292,13 @@ fn draw_post(
             ui.horizontal(|ui| {
                 ui.add_space(10.0);
                 ui.label(RichText::new("POST").size(20.0).color(COL_NORMAL));
-                ui.add_space(6.0);
-                pairing_label(ui, pair);
+                // A-3 修正後の pair_label 表示ルール:
+                //   Record 中 = "pair: PRE_xxxxxxxx" を表示（trigger_keep が設定）
+                //   Watch 中  = 描画自体を省略（pair_label は空文字に保たれる）
+                if recording {
+                    ui.add_space(6.0);
+                    pairing_label(ui, pair);
+                }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.add_space(10.0);
                     draw_led(ui, led_col);
@@ -515,7 +536,13 @@ fn draw_button_row(
                 for tag in ["Good", "Fix", "Hold"] {
                     if ui.button(tag).clicked() {
                         log::info!("[hypha-fork] button clicked: {}", tag);
-                        trigger_note_save(tag, &mut state.toast, now);
+                        trigger_note_save(
+                            tag,
+                            &state.project_hash,
+                            &state.instance_id,
+                            &mut state.toast,
+                            now,
+                        );
                         state.note_picker_open = false;
                     }
                 }
@@ -527,7 +554,15 @@ fn draw_button_row(
                 // Record: [Stop] [Note]
                 if show_stop_record_button(license) && ui.button("Stop").clicked() {
                     log::info!("[hypha-fork] button clicked: Stop");
-                    trigger_stop(&state.record_sm, &mut state.toast, now);
+                    trigger_stop(
+                        &state.record_sm,
+                        &state.project_hash,
+                        &state.instance_id,
+                        &state.pair_label,
+                        &state.paired_pre_target,
+                        &mut state.toast,
+                        now,
+                    );
                 }
                 if show_note_button(license) && ui.button("Note").clicked() {
                     log::info!("[hypha-fork] button clicked: Note");
@@ -543,6 +578,10 @@ fn draw_button_row(
                         license,
                         &state.record_sm,
                         &state.instance_id,
+                        &state.project_hash,
+                        &state.daw_session_id,
+                        &state.pair_label,
+                        &state.paired_pre_target,
                         m,
                         &mut state.toast,
                         now,
@@ -567,11 +606,40 @@ fn draw_button_row(
 
 // ── ボタンアクション ──────────────────────────────────────────────────────
 
+/// pair_label を `format!("pair: PRE_{}", &target_id[..8])` 形式で生成。
+/// instance_id が 8 文字未満の場合（テスト等）は丸ごと使う。
+fn format_pair_label(target_id: &str) -> String {
+    let short: String = target_id.chars().take(8).collect();
+    format!("pair: PRE_{}", short)
+}
+
+/// pair_label をクリア（Watch 復帰時 / Record 失敗時）。
+fn clear_pair_label(pair_label: &Arc<Mutex<String>>) {
+    if let Ok(mut g) = pair_label.lock() {
+        g.clear();
+    }
+}
+
+/// pair_label を設定（Record 開始成功時）。
+fn set_pair_label(pair_label: &Arc<Mutex<String>>, target_id: &str) {
+    if let Ok(mut g) = pair_label.lock() {
+        *g = format_pair_label(target_id);
+    }
+}
+
 /// Keep タップ: PRE 候補 / 排他 / license を事前チェック → `try_enter_record` → `write_pending`。
+/// 成功時は pair_label を `pair: PRE_xxxxxxxx` で設定する（POST GUI 表示用）。
+/// 同時に `paired_pre_target` に `target_id` を保存し、IO Thread が次回の writer_start で
+/// plugin_data の `paired_pre_instance_id` field に書き込めるようにする（v1.2 (a)）。
+#[allow(clippy::too_many_arguments)]
 fn trigger_keep(
     license: License,
     record_sm: &Arc<RecordStateMachine>,
     instance_id: &str,
+    project_hash: &str,
+    daw_session_id: &str,
+    pair_label: &Arc<Mutex<String>>,
+    paired_pre_target: &Arc<Mutex<Option<String>>>,
     m: &MeasureResult,
     toast: &mut Option<Toast>,
     now: f64,
@@ -588,23 +656,23 @@ fn trigger_keep(
     let plugin_data_dir = paths.plugin_data_dir();
     let tmp_base = std::env::temp_dir().join("kirin");
 
-    // 2. PRE 候補スキャン
-    let candidates = scan_pre_candidates(&tmp_base, PROJECT_HASH_PHASE1, BUS_PHASE1);
+    // 2. PRE 候補スキャン（A-3 修正後: instance_id 横断走査）
+    let candidates = scan_pre_candidates(&tmp_base, project_hash);
     if candidates.is_empty() {
         log::info!("[POST keep] no PRE candidate");
-        *toast = Some(Toast::new("No PRE plugin on this bus", now));
+        *toast = Some(Toast::new("No PRE plugin found", now));
         return;
     }
 
-    // 3. 排他チェック
-    match check_record_exclusion(&plugin_data_dir, PROJECT_HASH_PHASE1, BUS_PHASE1) {
+    // 3. 排他チェック（A-3 修正後: bus 引数なし、project_hash 全体で 1 record）
+    match check_record_exclusion(&plugin_data_dir, project_hash) {
         ExclusionResult::Ok => {}
         ExclusionResult::Conflict { role, heartbeat, .. } => {
             log::info!(
                 "[POST keep] exclusion conflict: role={:?} heartbeat={}",
                 role, heartbeat
             );
-            *toast = Some(Toast::new("This bus already has an active recording", now));
+            *toast = Some(Toast::new("Another recording is active", now));
             return;
         }
     }
@@ -618,9 +686,8 @@ fn trigger_keep(
     let target_id = match pick_closest_pre(&candidates, post_metrics) {
         Some(c) => c.instance_id.clone(),
         None => {
-            // candidates 非空なら必ず Some が返るはずだが保険
             log::warn!("[POST keep] pick_closest_pre returned None despite candidates");
-            *toast = Some(Toast::new("No PRE plugin on this bus", now));
+            *toast = Some(Toast::new("No PRE plugin found", now));
             return;
         }
     };
@@ -639,43 +706,64 @@ fn trigger_keep(
         }
     }
 
-    // 6. record_signal.json を pending で書き込み
+    // 6. record_signal を pending で書き込み（A-3 修正後: post_instance_id を path 識別子に）
     match write_pending(
         &plugin_data_dir,
-        PROJECT_HASH_PHASE1,
-        BUS_PHASE1,
-        instance_id.to_string(),
+        project_hash,
+        instance_id,
         target_id.clone(),
+        daw_session_id.to_string(),
     ) {
         Ok(_) => {
             log::info!(
-                "[POST keep] write_pending ok: requested_by={} target={}",
-                instance_id, target_id
+                "[POST keep] write_pending ok: requested_by={} target={} daw={}",
+                instance_id, target_id, daw_session_id
             );
+            // 7. pair_label を表示用に設定
+            set_pair_label(pair_label, &target_id);
+            // 8. v1.2 (a): paired_pre_target を保存（IO Thread が writer_start 時に消費）
+            if let Ok(mut g) = paired_pre_target.lock() {
+                *g = Some(target_id.clone());
+            }
         }
         Err(e) => {
             log::warn!("[POST keep] write_pending failed: {}", e);
-            // rollback
             record_sm.exit_record();
+            clear_pair_label(pair_label);
+            if let Ok(mut g) = paired_pre_target.lock() {
+                *g = None;
+            }
             *toast = Some(Toast::new("Failed to start record", now));
         }
     }
 }
 
-/// Stop タップ: Watch へ戻し、record_signal.json を released に更新。
-fn trigger_stop(record_sm: &Arc<RecordStateMachine>, toast: &mut Option<Toast>, now: f64) {
+/// Stop タップ: Watch へ戻し、record_signal を released に更新。pair_label をクリア。
+/// `paired_pre_target` も None に戻す（v1.2 (a) 次の Keep 待ち状態）。
+#[allow(clippy::too_many_arguments)]
+fn trigger_stop(
+    record_sm: &Arc<RecordStateMachine>,
+    project_hash: &str,
+    instance_id: &str,
+    pair_label: &Arc<Mutex<String>>,
+    paired_pre_target: &Arc<Mutex<Option<String>>>,
+    toast: &mut Option<Toast>,
+    now: f64,
+) {
     record_sm.exit_record();
+    clear_pair_label(pair_label);
+    if let Ok(mut g) = paired_pre_target.lock() {
+        *g = None;
+    }
     match StoragePaths::default_macos() {
-        Ok(paths) => {
-            match mark_released(&paths.plugin_data_dir(), PROJECT_HASH_PHASE1, BUS_PHASE1) {
-                Ok(true) => log::info!("[POST stop] mark_released ok"),
-                Ok(false) => log::info!("[POST stop] no signal to release"),
-                Err(e) => {
-                    log::warn!("[POST stop] mark_released failed: {}", e);
-                    *toast = Some(Toast::new("Record stop error", now));
-                }
+        Ok(paths) => match mark_released(&paths.plugin_data_dir(), project_hash, instance_id) {
+            Ok(true) => log::info!("[POST stop] mark_released ok"),
+            Ok(false) => log::info!("[POST stop] no signal to release"),
+            Err(e) => {
+                log::warn!("[POST stop] mark_released failed: {}", e);
+                *toast = Some(Toast::new("Record stop error", now));
             }
-        }
+        },
         Err(e) => {
             log::warn!("[POST stop] StoragePaths error: {:?}", e);
         }
@@ -683,10 +771,13 @@ fn trigger_stop(record_sm: &Arc<RecordStateMachine>, toast: &mut Option<Toast>, 
 }
 
 /// Note タグ確定: 最新 `plugin_data/.../post/*.json` に annotation を追記。
-///
-/// サブ2-C 仕様: post/*.json が不在（Record 開始前 / サブ3 未統合）の場合は
-/// `log::warn!` のみでスタブ動作。toast は成功時と同じく表示（UI 一貫性）。
-fn trigger_note_save(tag: &str, toast: &mut Option<Toast>, now: f64) {
+fn trigger_note_save(
+    tag: &str,
+    project_hash: &str,
+    instance_id: &str,
+    toast: &mut Option<Toast>,
+    now: f64,
+) {
     let paths = match StoragePaths::default_macos() {
         Ok(p) => p,
         Err(e) => {
@@ -697,8 +788,8 @@ fn trigger_note_save(tag: &str, toast: &mut Option<Toast>, now: f64) {
     };
     match append_annotation_to_latest(
         &paths.plugin_data_dir(),
-        PROJECT_HASH_PHASE1,
-        BUS_PHASE1,
+        project_hash,
+        instance_id,
         PluginDataRole::Post,
         tag.to_string(),
     ) {
@@ -708,7 +799,6 @@ fn trigger_note_save(tag: &str, toast: &mut Option<Toast>, now: f64) {
         }
         Ok(false) => {
             log::warn!("[note] no active record file");
-            // スタブ動作: post/*.json 不在でも toast は表示（サブ3 統合前の暫定）
             *toast = Some(Toast::new(format!("Note saved: {tag}"), now));
         }
         Err(e) => {
@@ -763,7 +853,7 @@ fn maybe_rescan_proposals(state: &mut PostEditorState, now: f64) {
     };
     state.latest_proposals = scan_latest_v2_preset(
         &paths.plugin_data_dir(),
-        PROJECT_HASH_PHASE1,
+        &state.project_hash,
         installation_id,
     );
 }
@@ -884,5 +974,36 @@ fn draw_proposals_block(ui: &mut egui::Ui, state: &mut PostEditorState, now: f64
                     }
                 });
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{Arc, Mutex};
+
+    /// A-3 仕様: format_pair_label は target_id の先頭 8 文字を抜き出して
+    /// `pair: PRE_xxxxxxxx` 形式に整形する。
+    #[test]
+    fn format_pair_label_takes_first_eight_chars() {
+        let id = "abcdefghijklmnop";
+        assert_eq!(format_pair_label(id), "pair: PRE_abcdefgh");
+    }
+
+    /// 8 文字未満（短い ID）でも切り捨てではなくそのまま全文を入れること。
+    #[test]
+    fn format_pair_label_shorter_than_eight_keeps_all_chars() {
+        let id = "abc";
+        assert_eq!(format_pair_label(id), "pair: PRE_abc");
+    }
+
+    /// set_pair_label / clear_pair_label が Mutex 越しに正しく値を出し入れすること。
+    #[test]
+    fn set_then_clear_pair_label_round_trip() {
+        let label = Arc::new(Mutex::new(String::new()));
+        set_pair_label(&label, "deadbeefcafef00d");
+        assert_eq!(label.lock().unwrap().as_str(), "pair: PRE_deadbeef");
+        clear_pair_label(&label);
+        assert!(label.lock().unwrap().is_empty());
     }
 }

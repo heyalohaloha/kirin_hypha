@@ -1,19 +1,18 @@
-//! IO Thread — POST 側。
+//! IO Thread — POST 側（A-3 修正後）。
 //!
 //! 100ms ループで:
-//! 1. `$TMPDIR/kirin/default/MIX/pre_*.json` をスキャン
-//! 2. 最新の `t` フィールドを持つ PRE ファイルを選択
+//! 1. `$TMPDIR/kirin/{project_hash}/*/pre.json` を全 instance_id 横断で走査
+//! 2. 最新 `t` を持つ PRE を選択
 //! 3. Δ = POST − PRE を算出、鮮度判定
-//! 4. `post_{instance_id}.json` にアトミック書き込み（将来の布石）
+//! 4. `$TMPDIR/kirin/{project_hash}/{self.instance_id}/post.json` にアトミック書込
 //! 5. `Arc<Mutex<DeltaResult>>` を更新
-//! 6. Record mode 時: `plugin_data/{project_hash}/{bus}/post/*.json` に
-//!    Frame (10 fps) / PSB スナップショット (2 fps) を追記、30 秒毎に flush
-//!    （サブ3-A-3）
+//! 6. Record mode 時: `plugin_data/{project_hash}/{instance_id}/post/*.json` に
+//!    Frame (10 fps) / PSB (2 fps) を追記、30 秒毎に flush
 //!
 //! 3層隔離（guardian_53）:
-//! - このスレッドが panic / 権限エラーで止まっても Audio Thread / Measure Thread は継続する。
-//! - Drop 時に自分の post ファイルを削除する。
-//! - Record 中にループ終了した場合、保留中の writer は status=closed で flush してから閉じる。
+//! - このスレッドが panic / 権限エラーで止まっても Audio Thread / Measure Thread は継続
+//! - Drop 時に自分の post.json と instance ディレクトリを削除する
+//! - Record 中に終了した場合、保留中の writer は status=closed で flush してから閉じる
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -25,10 +24,10 @@ use std::time::{Duration, Instant};
 use crate::delta::{DeltaMode, DeltaResult};
 use crate::plugin_data::Role as PluginDataRole;
 use crate::record::RecordStateMachine;
-use crate::record_signal::{self, SignalStatus, ACK_TIMEOUT_SECONDS};
+use crate::record_signal::{self, SignalStatus, ACK_TIMEOUT_SECONDS, SIGNALS_SUBDIR};
 use crate::record_writer::{run_record_tick, writer_close, RecordingCtx};
 use crate::storage::StoragePaths;
-use crate::{load_signal_state, MeasureResult, SignalState, BUS_PHASE1, PROJECT_HASH_PHASE1};
+use crate::{load_signal_state, MeasureResult, SignalState};
 
 /// IO Thread ループ間隔（guardian_53: 100ms = 10fps）
 const LOOP_SLEEP: Duration = Duration::from_millis(100);
@@ -48,28 +47,34 @@ const ACK_TIMEOUT_POLL_INTERVAL: Duration = Duration::from_secs(1);
 /// POST 用 IO Thread を起動して JoinHandle を返す。
 ///
 /// # 引数
-/// - `instance_id`      : UUID v4 文字列（プラグインインスタンス起動時に 1 回生成）
-/// - `sample_rate`      : Record モード Writer の `sample_rate` フィールドに格納
-/// - `record_sm`        : Watch/Record 判定用（editor.rs から共有）
-/// - `post_result`      : Measure Thread が更新する POST 側計測結果
-/// - `delta_result`     : この IO Thread が更新する Δ結果
-/// - `preset_available` : サブ3-C-2: preset/*.json が 1 件以上あるかを 1 秒ごとに ls して更新
-/// - `shutdown`         : `true` になったらループ終了
+/// - `instance_id`        : POST の永続 instance UUID（plugin params 経由で project save に同梱）
+/// - `project_hash`       : DAW プロセス単位の project_hash
+/// - `sample_rate`        : Record モード Writer の `sample_rate` フィールドに格納
+/// - `record_sm`          : Watch/Record 判定用（editor.rs から共有）
+/// - `post_result`        : Measure Thread が更新する POST 側計測結果
+/// - `delta_result`       : この IO Thread が更新する Δ結果
+/// - `preset_available`   : 1 秒ごとに preset/ を ls して更新
+/// - `paired_pre_target`  : trigger_keep が選定した PRE instance_id（v1.2 (a)
+///   cross-instance pair 復元キー）。Watch 中は None、Keep 成功直後に Some、Stop で None
+/// - `shutdown`           : `true` になったらループ終了
 #[allow(clippy::too_many_arguments)]
 pub fn spawn_io_thread_post(
     instance_id: String,
+    project_hash: String,
     sample_rate: u32,
     record_sm: Arc<RecordStateMachine>,
     post_result: Arc<Mutex<MeasureResult>>,
     delta_result: Arc<Mutex<DeltaResult>>,
     signal_state: Arc<AtomicU8>,
     preset_available: Arc<AtomicBool>,
+    paired_pre_target: Arc<Mutex<Option<String>>>,
     shutdown: Arc<AtomicBool>,
 ) -> JoinHandle<()> {
     thread::spawn(move || {
-        let dir = io_dir();
-        let post_file = dir.join(format!("post_{}.json", instance_id));
-        let post_tmp = dir.join(format!("post_{}.json.tmp", instance_id));
+        let project_dir = std::env::temp_dir().join("kirin").join(&project_hash);
+        let instance_dir = project_dir.join(&instance_id);
+        let post_file = instance_dir.join("post.json");
+        let post_tmp = instance_dir.join("post.json.tmp");
 
         log::info!("[IOThread POST] started → {}", post_file.display());
 
@@ -83,60 +88,91 @@ pub fn spawn_io_thread_post(
                 break;
             }
 
-            match run_tick(&dir, &post_tmp, &post_file, &instance_id, &post_result, &delta_result, &signal_state) {
+            match run_tick(
+                &project_dir,
+                &instance_dir,
+                &post_tmp,
+                &post_file,
+                &instance_id,
+                &post_result,
+                &delta_result,
+                &signal_state,
+            ) {
                 Ok(()) => {}
-                Err(e) => {
-                    log::warn!("[IOThread POST] tick error: {}", e);
-                }
+                Err(e) => log::warn!("[IOThread POST] tick error: {}", e),
             }
 
-            // plugin_data/.../post/*.json ライフサイクル（サブ3-A-3 / 3-B-refactor）
+            // plugin_data/.../post/*.json ライフサイクル
+            // POST は自身の signal_path から started_at を resolve
+            let project_hash_ref = project_hash.as_str();
+            let instance_id_ref = instance_id.as_str();
+            let resolver = || match StoragePaths::default_macos() {
+                Ok(paths) => crate::record_writer::resolve_started_at_ms(
+                    &paths.plugin_data_dir(),
+                    project_hash_ref,
+                    instance_id_ref,
+                ),
+                Err(_) => crate::record_writer::now_epoch_ms(),
+            };
+            // v1.2 (a): POST 側は paired_pre_instance_id に trigger_keep が保存した
+            // target_id を渡す。paired_post は常に None（POST 自身が POST なので相手 POST は無い）。
+            let paired_pre_arc = Arc::clone(&paired_pre_target);
+            let paired_pre_resolver =
+                move || paired_pre_arc.lock().ok().and_then(|g| g.clone());
+            let paired_post_resolver = || None::<String>;
             if let Err(e) = run_record_tick(
                 &record_sm,
                 PluginDataRole::Post,
                 sample_rate,
+                project_hash_ref,
+                instance_id_ref,
+                resolver,
+                paired_pre_resolver,
+                paired_post_resolver,
                 &post_result,
                 &mut recording,
             ) {
                 log::warn!("[writer] tick error: {}", e);
             }
 
-            // preset/*.json ポーリング（サブ3-C-2: 1 秒間隔、内容は読まない）
             if Instant::now() >= next_preset_poll {
-                poll_preset_availability(&preset_available, &mut last_preset_count);
+                poll_preset_availability(&project_hash, &preset_available, &mut last_preset_count);
                 next_preset_poll = Instant::now() + PRESET_POLL_INTERVAL;
             }
 
-            // record_signal.json ACK タイムアウト監視（G-60-02: pending 30秒超で自動 released）
             if Instant::now() >= next_ack_timeout_poll {
-                poll_ack_timeout(&record_sm);
+                poll_ack_timeout(&project_hash, &instance_id, &record_sm);
                 next_ack_timeout_poll = Instant::now() + ACK_TIMEOUT_POLL_INTERVAL;
             }
 
             thread::sleep(LOOP_SLEEP);
         }
 
-        // ── Record 中に shutdown された場合: writer を閉じる ─────────────
         if let Some(ctx) = recording.take() {
             writer_close(ctx);
         }
 
-        // ── クリーンアップ ───────────────────────────────────────────────
         if let Err(e) = fs::remove_file(&post_file) {
             log::debug!("[IOThread POST] cleanup post file: {}", e);
         }
         if let Err(e) = fs::remove_file(&post_tmp) {
             log::debug!("[IOThread POST] cleanup post tmp: {}", e);
         }
+        let _ = fs::remove_dir(&instance_dir);
         log::info!("[IOThread POST] terminated");
     })
 }
 
-/// 1 ループの処理本体。エラーは呼び出し元がログ出力して次ループに持ち越す。
+/// 1 ループの処理本体。
+///
+/// `project_dir` = `$TMPDIR/kirin/{project_hash}/`（PRE スキャンの起点）
+/// `instance_dir` = `$TMPDIR/kirin/{project_hash}/{self.instance_id}/`（POST 書込先）
+#[allow(clippy::too_many_arguments)]
 fn run_tick(
-    dir: &PathBuf,
-    post_tmp: &PathBuf,
-    post_file: &PathBuf,
+    project_dir: &Path,
+    instance_dir: &Path,
+    post_tmp: &Path,
+    post_file: &Path,
     instance_id: &str,
     post_result: &Arc<Mutex<MeasureResult>>,
     delta_result: &Arc<Mutex<DeltaResult>>,
@@ -144,10 +180,9 @@ fn run_tick(
 ) -> Result<(), String> {
     let state = load_signal_state(signal_state_atom);
 
-    fs::create_dir_all(dir).map_err(|e| format!("create_dir_all: {e}"))?;
+    fs::create_dir_all(instance_dir).map_err(|e| format!("create_dir_all: {e}"))?;
 
     if state != SignalState::Active {
-        // Bypassed/Inactive: Δ結果をクリア、最小 JSON を書き出す
         *delta_result
             .lock()
             .map_err(|e| format!("delta Mutex poisoned: {e}"))? = DeltaResult::default();
@@ -158,21 +193,17 @@ fn run_tick(
         return Ok(());
     }
 
-    // ── Active ──────────────────────────────────────────────────────
     let post = post_result
         .lock()
         .map_err(|e| format!("post Mutex poisoned: {e}"))?
         .clone();
 
-    // PRE ファイルをスキャンして Δ算出 + pre_signal_state 取得（SS-6）
-    let (delta, pre_signal_state) = compute_delta_with_state(dir, &post)?;
+    let (delta, pre_signal_state) = compute_delta_with_state(project_dir, &post)?;
 
-    // Δ結果を共有メモリに反映
     *delta_result
         .lock()
         .map_err(|e| format!("delta Mutex poisoned: {e}"))? = delta;
 
-    // POST JSON 書き出し（SS-5 + SS-6: signal_state + pre_signal_state 付き）
     let json = serialize_post_json(instance_id, state, pre_signal_state, &post);
     fs::write(post_tmp, json.as_bytes()).map_err(|e| format!("write tmp: {e}"))?;
     fs::rename(post_tmp, post_file).map_err(|e| format!("rename: {e}"))?;
@@ -181,26 +212,22 @@ fn run_tick(
 }
 
 /// PRE ファイルをスキャンして Δ を算出する（後方互換ラッパー）。
-///
-/// `compute_delta_with_state` の signal_state を捨てたバージョン。テストで使用。
 #[doc(hidden)]
-pub fn compute_delta(
-    dir: &PathBuf,
-    post: &MeasureResult,
-) -> Result<DeltaResult, String> {
-    compute_delta_with_state(dir, post).map(|(delta, _)| delta)
+pub fn compute_delta(project_dir: &Path, post: &MeasureResult) -> Result<DeltaResult, String> {
+    compute_delta_with_state(project_dir, post).map(|(delta, _)| delta)
 }
 
-/// PRE ファイルをスキャンして Δ を算出し、PRE 側の signal_state も返す（SS-6）。
+/// `$TMPDIR/kirin/{project_hash}/` 配下の全 instance_id サブディレクトリを走査して
+/// `pre.json` を集め、Δ を算出する。
 ///
 /// - 0 個 → `DeltaMode::NoPre`, `None`
 /// - 複数 → 最新 `t` を選択（ISO 8601 は文字列比較で最新判定可）
 /// - 鮮度判定 → `Active` / `Stale` / `NoPre`
 fn compute_delta_with_state(
-    dir: &PathBuf,
+    project_dir: &Path,
     post: &MeasureResult,
 ) -> Result<(DeltaResult, Option<SignalState>), String> {
-    if !dir.exists() {
+    if !project_dir.exists() {
         return Ok((
             DeltaResult {
                 mode: DeltaMode::NoPre,
@@ -210,17 +237,22 @@ fn compute_delta_with_state(
         ));
     }
 
-    let entries = fs::read_dir(dir).map_err(|e| format!("read_dir: {e}"))?;
-    let mut pre_files: Vec<PathBuf> = entries
-        .filter_map(|e| e.ok())
-        .map(|e| e.path())
-        .filter(|p| {
-            p.file_name()
-                .and_then(|n| n.to_str())
-                .map(|n| n.starts_with("pre_") && n.ends_with(".json"))
-                .unwrap_or(false)
-        })
-        .collect();
+    let mut pre_files: Vec<PathBuf> = Vec::new();
+    let project_entries = fs::read_dir(project_dir).map_err(|e| format!("read_dir: {e}"))?;
+    for entry in project_entries.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        // record_signal/ 等の予約名は instance_id ではない
+        if path.file_name().and_then(|n| n.to_str()) == Some(SIGNALS_SUBDIR) {
+            continue;
+        }
+        let candidate = path.join("pre.json");
+        if candidate.is_file() {
+            pre_files.push(candidate);
+        }
+    }
 
     if pre_files.is_empty() {
         return Ok((
@@ -237,7 +269,6 @@ fn compute_delta_with_state(
     let parsed: serde_json::Value =
         serde_json::from_str(&content).map_err(|e| format!("parse PRE JSON: {e}"))?;
 
-    // SS-6: PRE 側の signal_state を取得
     let pre_signal_state = parsed["signal_state"]
         .as_str()
         .map(|s| match s {
@@ -246,8 +277,6 @@ fn compute_delta_with_state(
             _ => SignalState::Inactive,
         });
 
-    // PRE が Active でない場合、Δ は算出不可（仕様: Δ=null、絶対値表示）。
-    // DeltaMode::NoPre にすることで GUI が自動的に絶対値モードに切り替わる。
     if pre_signal_state != Some(SignalState::Active) {
         return Ok((
             DeltaResult {
@@ -290,20 +319,19 @@ fn compute_delta_with_state(
     ))
 }
 
-/// pre_*.json のリストから最新 `t` フィールドを持つファイルを返す。
+/// pre.json リストから最新 `t` フィールドを持つファイルを返す。
 fn select_best_pre(files: &mut Vec<PathBuf>) -> Result<PathBuf, String> {
     if files.len() == 1 {
         return Ok(files.remove(0));
     }
 
-    // 各ファイルの `t` フィールドを読んで最大値を探す
     let mut best_path: Option<PathBuf> = None;
     let mut best_t = String::new();
 
     for path in files.iter() {
         let content = match fs::read_to_string(path) {
             Ok(c) => c,
-            Err(_) => continue, // 読み取り失敗は無視して次へ
+            Err(_) => continue,
         };
         let parsed: serde_json::Value = match serde_json::from_str(&content) {
             Ok(v) => v,
@@ -319,7 +347,6 @@ fn select_best_pre(files: &mut Vec<PathBuf>) -> Result<PathBuf, String> {
     best_path.ok_or_else(|| "no valid PRE file found".to_string())
 }
 
-/// PRE JSON の `t` フィールドから鮮度モードを判定する。
 fn freshness_mode(parsed: &serde_json::Value) -> Result<DeltaMode, String> {
     let t_str = parsed["t"]
         .as_str()
@@ -340,19 +367,7 @@ fn freshness_mode(parsed: &serde_json::Value) -> Result<DeltaMode, String> {
     })
 }
 
-/// `$TMPDIR/kirin/{project_hash}/{bus}/` パスを返す。
-fn io_dir() -> PathBuf {
-    std::env::temp_dir()
-        .join("kirin")
-        .join(PROJECT_HASH_PHASE1)
-        .join(BUS_PHASE1)
-}
-
-/// POST JSON v2 フォーマット（Active 時。SS-5 + SS-6）。
-///
-/// `pre_signal_state` が `Some(Active)` なら Δ 算出済み（DeltaResult が持っている）。
-/// `pre_signal_state` が Active 以外 or None なら Δ フィールドは null。
-/// Phase D フィールドは値が存在する場合のみ出力（skip_serializing_if 相当）。
+/// POST JSON v2 フォーマット（Active 時。SS-5 + SS-6）。bus フィールドは削除済（A-3 修正後）。
 pub fn serialize_post_json(
     instance_id: &str,
     state: SignalState,
@@ -364,9 +379,8 @@ pub fn serialize_post_json(
         .map(|s| format!(r#""{}""#, s.as_str()))
         .unwrap_or_else(|| "null".to_string());
     format!(
-        r#"{{"v":2,"role":"POST","instance_id":"{instance_id}","bus":"{bus}","signal_state":"{signal_state}","pre_signal_state":{pre_signal_state},"t":"{t}","lufs_m":{lufs_m},"true_peak":{true_peak},"crest":{crest},"psr":{psr}{phase_d}}}"#,
+        r#"{{"v":2,"role":"POST","instance_id":"{instance_id}","signal_state":"{signal_state}","pre_signal_state":{pre_signal_state},"t":"{t}","lufs_m":{lufs_m},"true_peak":{true_peak},"crest":{crest},"psr":{psr}{phase_d}}}"#,
         instance_id = instance_id,
-        bus = BUS_PHASE1,
         signal_state = state.as_str(),
         pre_signal_state = pre_state_str,
         t = t,
@@ -378,21 +392,17 @@ pub fn serialize_post_json(
     )
 }
 
-/// Bypassed / Inactive 時の最小 POST JSON（SS-5 仕様）。
+/// Bypassed / Inactive 時の最小 POST JSON。
 fn serialize_post_json_minimal(instance_id: &str, state: SignalState) -> String {
     let t = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ");
     format!(
-        r#"{{"v":2,"role":"POST","instance_id":"{instance_id}","bus":"{bus}","signal_state":"{signal_state}","t":"{t}"}}"#,
+        r#"{{"v":2,"role":"POST","instance_id":"{instance_id}","signal_state":"{signal_state}","t":"{t}"}}"#,
         instance_id = instance_id,
-        bus = BUS_PHASE1,
         signal_state = state.as_str(),
         t = t,
     )
 }
 
-/// `Option<f64>` を小数 3 桁文字列または `"null"` に変換する。
-///
-/// GUI 表示が 1 桁丸め担当。JSON は精度を保持する。
 fn opt_f64(v: Option<f64>) -> String {
     match v {
         Some(x) => format!("{:.3}", x),
@@ -400,10 +410,6 @@ fn opt_f64(v: Option<f64>) -> String {
     }
 }
 
-/// Phase D フィールドの JSON フラグメントを生成する。
-///
-/// 各フィールドが `Some` の場合のみカンマ付きで出力（skip_serializing_if 相当）。
-/// `None` のフィールドは JSON に含めない。
 fn phase_d_fragment(result: &MeasureResult) -> String {
     let mut s = String::new();
     if let Some(n) = result.n_prime_total {
@@ -422,30 +428,27 @@ fn phase_d_fragment(result: &MeasureResult) -> String {
 }
 
 // ── ACK タイムアウト監視（G-60-02 / B-7）──────────────────────────────────
-//
-// POST が pending 書込後、PRE から 30 秒以内に acknowledged が返らなければ
-// Record ロックを自動解除する。手動解決地獄（排他の焼き付き）を防ぐ。
-//
-// R-28: 利用者への明示通知なし。LED は derive_led_state 側で次フレーム自然遷移。
 
-/// pending シグナルが ACK_TIMEOUT_SECONDS を超えていれば mark_released + exit_record。
-///
-/// この関数は IO Thread ループから 1 秒間隔で呼ばれる。失敗時はログのみ。
-fn poll_ack_timeout(record_sm: &Arc<RecordStateMachine>) {
+fn poll_ack_timeout(
+    project_hash: &str,
+    instance_id: &str,
+    record_sm: &Arc<RecordStateMachine>,
+) {
     let base = match StoragePaths::default_macos() {
         Ok(paths) => paths.plugin_data_dir(),
         Err(_) => return,
     };
-    poll_ack_timeout_with_base(&base, record_sm, chrono::Utc::now());
+    poll_ack_timeout_with_base(&base, project_hash, instance_id, record_sm, chrono::Utc::now());
 }
 
-/// `poll_ack_timeout` のテスト可能な本体（base と現在時刻を注入）。
 fn poll_ack_timeout_with_base(
     base: &Path,
+    project_hash: &str,
+    instance_id: &str,
     record_sm: &Arc<RecordStateMachine>,
     now: chrono::DateTime<chrono::Utc>,
 ) {
-    let Some(signal) = record_signal::read_signal(base, PROJECT_HASH_PHASE1, BUS_PHASE1) else {
+    let Some(signal) = record_signal::read_signal(base, project_hash, instance_id) else {
         return;
     };
     if signal.status != SignalStatus::Pending {
@@ -458,7 +461,7 @@ fn poll_ack_timeout_with_base(
         "[IOThread POST] ACK timeout ({}s) — auto-releasing record signal",
         ACK_TIMEOUT_SECONDS
     );
-    match record_signal::mark_released(base, PROJECT_HASH_PHASE1, BUS_PHASE1) {
+    match record_signal::mark_released(base, project_hash, instance_id) {
         Ok(true) => log::info!("[IOThread POST] mark_released ok"),
         Ok(false) => log::debug!("[IOThread POST] signal already gone"),
         Err(e) => log::warn!("[IOThread POST] mark_released failed: {}", e),
@@ -466,19 +469,8 @@ fn poll_ack_timeout_with_base(
     record_sm.exit_record();
 }
 
-// ── preset/ poller（サブ3-C-2 / Q3 P1 / R-28 沈黙原則）────────────────────
-//
-// 1 秒ごとに `plugin_data/{project_hash}/preset/*.json` の件数だけを ls して
-// `preset_available: AtomicBool` を更新する。
-//
-// R-28: ファイルは open() しない。内容読み取り・HMAC 検証は詳細 GUI 統合
-// （Phase 2 / G-56-04）で別途実装する。ここでは存在有無のみを扱う。
-//
-// edge-triggered: 前回と件数が変化したときだけログを出す。ビジー更新でも
-// スパムにならない。
+// ── preset/ poller ──────────────────────────────────────────────────────────
 
-/// `$HOME/.../plugin_data/{project_hash}/preset/` 直下の `.json` 件数を返す。
-/// ディレクトリ不在 / 権限エラー時は 0（ファイルを open() しない）。
 fn count_preset_files(preset_dir: &Path) -> usize {
     let Ok(entries) = fs::read_dir(preset_dir) else {
         return 0;
@@ -495,18 +487,17 @@ fn count_preset_files(preset_dir: &Path) -> usize {
         .count()
 }
 
-/// 1 秒ごとの preset availability 更新。件数変化時のみ edge-triggered log。
 fn poll_preset_availability(
+    project_hash: &str,
     preset_available: &Arc<AtomicBool>,
     last_seen: &mut Option<usize>,
 ) {
     let preset_dir = match StoragePaths::default_macos() {
         Ok(paths) => paths
             .plugin_data_dir()
-            .join(PROJECT_HASH_PHASE1)
+            .join(project_hash)
             .join(crate::preset::PRESET_SUBDIR),
         Err(_) => {
-            // Kirin OS 未インストール環境 → 常に 0 件
             if *last_seen != Some(0) {
                 log::info!("[preset] unavailable");
                 *last_seen = Some(0);
@@ -522,7 +513,6 @@ fn poll_preset_availability(
         if count > 0 {
             log::info!("[preset] available: {} files", count);
         } else {
-            // 初回起動で 0 → None を抜け、明示的に unavailable を出す
             log::info!("[preset] unavailable");
         }
         *last_seen = Some(count);
@@ -562,7 +552,6 @@ mod preset_poll_tests {
     #[test]
     fn count_one_json_returns_one() {
         let dir = isolated_dir("one");
-        // 中身は 1 バイト。poller が open() しないことはコード上で保証。
         fs::write(dir.join("a.json"), b"x").unwrap();
         assert_eq!(count_preset_files(&dir), 1);
     }
@@ -584,86 +573,92 @@ mod preset_poll_tests {
         }
         assert_eq!(count_preset_files(&dir), 3);
     }
+}
 
-    // ── edge-triggered ログ抑制 + AtomicBool 反映の単体検証 ─────────────
-    //
-    // `poll_preset_availability` は StoragePaths::default_macos() を直接呼ぶため
-    // テスト環境では実パスに依存する（$HOME を置換できない）。ここでは
-    // 「count 0 のとき AtomicBool=false」「count>0 のとき AtomicBool=true」
-    // の反映を count_preset_files + AtomicBool の組で直接検証する。
-    // 実際の poll_preset_availability はパス解決以外ロジックが同じため、この
-    // 組み合わせで edge-triggered 動作は担保される（手動ステップ動作も確認）。
+// ── Tests (compute_delta with new structure) ─────────────────────────────────
+#[cfg(test)]
+mod compute_delta_tests {
+    use super::*;
+    use std::sync::atomic::AtomicU64;
 
-    #[test]
-    fn atomic_bool_reflects_count_transition() {
-        use std::sync::atomic::AtomicBool;
-        let flag = Arc::new(AtomicBool::new(false));
-        let dir = isolated_dir("bool");
-        // 初期: 0 件 → false
-        let count0 = count_preset_files(&dir);
-        flag.store(count0 > 0, Ordering::Relaxed);
-        assert!(!flag.load(Ordering::Relaxed));
+    fn isolated_project_dir() -> PathBuf {
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let pid = std::process::id();
+        let dir = std::env::temp_dir()
+            .join(format!("kirin_compute_delta_test_{pid}_{n}"))
+            .join("ph");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
 
-        // 1 件 → true
-        fs::write(dir.join("a.json"), b"x").unwrap();
-        let count1 = count_preset_files(&dir);
-        flag.store(count1 > 0, Ordering::Relaxed);
-        assert!(flag.load(Ordering::Relaxed));
-
-        // 消失 → false
-        fs::remove_file(dir.join("a.json")).unwrap();
-        let count2 = count_preset_files(&dir);
-        flag.store(count2 > 0, Ordering::Relaxed);
-        assert!(!flag.load(Ordering::Relaxed));
+    fn write_pre(project_dir: &Path, instance_id: &str, t: &str, lufs: f64) {
+        let dir = project_dir.join(instance_id);
+        fs::create_dir_all(&dir).unwrap();
+        let json = format!(
+            r#"{{"v":2,"role":"PRE","instance_id":"{instance_id}","signal_state":"active","t":"{t}","lufs_m":{lufs},"true_peak":-1.0,"crest":12.0,"psr":8.0}}"#
+        );
+        fs::write(dir.join("pre.json"), json).unwrap();
     }
 
     #[test]
-    fn edge_triggered_fires_only_on_change() {
-        // `last_seen` が変化時のみ更新されるロジックをローカル関数で再現し、
-        // 2 回同じ件数なら fire しないことを検証。
-        let dir = isolated_dir("edge");
-        fs::write(dir.join("a.json"), b"x").unwrap();
-
-        let mut last_seen: Option<usize> = None;
-        let mut fires = 0usize;
-        for _ in 0..5 {
-            let count = count_preset_files(&dir);
-            if last_seen != Some(count) {
-                fires += 1;
-                last_seen = Some(count);
-            }
-        }
-        assert_eq!(fires, 1, "5 同件数 poll で fire は 1 回");
-
-        // 件数変化 → fire
-        fs::write(dir.join("b.json"), b"x").unwrap();
-        let count = count_preset_files(&dir);
-        if last_seen != Some(count) {
-            fires += 1;
-            last_seen = Some(count);
-        }
-        assert_eq!(fires, 2);
-
-        // 消失 → fire
-        fs::remove_file(dir.join("a.json")).unwrap();
-        fs::remove_file(dir.join("b.json")).unwrap();
-        let count = count_preset_files(&dir);
-        if last_seen != Some(count) {
-            fires += 1;
-        }
-        assert_eq!(fires, 3);
+    fn no_pre_dir_returns_no_pre_mode() {
+        let pd = isolated_project_dir();
+        let r = compute_delta_with_state(
+            &pd,
+            &MeasureResult {
+                lufs_m: Some(-10.0),
+                true_peak: Some(-1.0),
+                crest: Some(12.0),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(r.0.mode, DeltaMode::NoPre);
     }
 
-    /// R-28 沈黙原則: count_preset_files は .json の中身を open() しない。
-    /// 破損 JSON や権限 0 ファイルを混ぜてもエラーや panic にならないこと。
     #[test]
-    fn count_does_not_open_file_contents() {
-        let dir = isolated_dir("silent");
-        fs::write(dir.join("broken.json"), b"{{not json!!").unwrap();
-        fs::write(dir.join("ok.json"), b"x").unwrap();
-        // パースを試みるなら broken.json で Err になるはず。件数で 2 が返る
-        // → 中身を読まないことの間接的証拠。
-        assert_eq!(count_preset_files(&dir), 2);
+    fn scans_across_instance_ids() {
+        let pd = isolated_project_dir();
+        let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+        write_pre(&pd, "iid-A", &now, -14.0);
+        write_pre(&pd, "iid-B", &now, -15.0);
+
+        let r = compute_delta_with_state(
+            &pd,
+            &MeasureResult {
+                lufs_m: Some(-10.0),
+                true_peak: Some(-1.0),
+                crest: Some(12.0),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        // Δ が算出される（mode が Active）
+        assert_eq!(r.0.mode, DeltaMode::Active);
+        assert!(r.0.lufs.is_some());
+    }
+
+    #[test]
+    fn record_signal_subdir_is_skipped() {
+        let pd = isolated_project_dir();
+        // record_signal/ ディレクトリを作るが pre.json は無い
+        let signal_dir = pd.join(SIGNALS_SUBDIR);
+        fs::create_dir_all(&signal_dir).unwrap();
+        fs::write(signal_dir.join("post-1.json"), b"{}").unwrap();
+        let r = compute_delta_with_state(
+            &pd,
+            &MeasureResult {
+                lufs_m: Some(-10.0),
+                true_peak: Some(-1.0),
+                crest: Some(12.0),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        // record_signal/ 以外に pre が無いので NoPre
+        assert_eq!(r.0.mode, DeltaMode::NoPre);
     }
 }
 
@@ -672,8 +667,11 @@ mod preset_poll_tests {
 mod ack_timeout_tests {
     use super::*;
     use crate::record::RecordState;
-    use crate::record_signal::{mark_acknowledged, write_pending, RecordSignal};
+    use crate::record_signal::{mark_acknowledged, write_pending};
     use std::sync::atomic::AtomicU64;
+
+    const TEST_PH: &str = "ph";
+    const TEST_POST_IID: &str = "post-iid";
 
     fn isolated_base(tag: &str) -> PathBuf {
         static COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -685,91 +683,81 @@ mod ack_timeout_tests {
         dir
     }
 
-    /// pending が 30 秒超 → mark_released + exit_record される。
     #[test]
     fn pending_over_30s_is_auto_released() {
         let base = isolated_base("stale");
         let sm = Arc::new(RecordStateMachine::new());
         sm.try_enter_record(crate::License::Os).unwrap();
 
-        // 現在時刻で pending を書き、現在より 31 秒先の now を注入して判定
-        write_pending(&base, PROJECT_HASH_PHASE1, BUS_PHASE1, "p".into(), "r".into()).unwrap();
+        write_pending(
+            &base,
+            TEST_PH,
+            TEST_POST_IID,
+            "pre-1".into(),
+            "daw-1".into(),
+        )
+        .unwrap();
         let future_now = chrono::Utc::now() + chrono::Duration::seconds(31);
 
-        poll_ack_timeout_with_base(&base, &sm, future_now);
+        poll_ack_timeout_with_base(&base, TEST_PH, TEST_POST_IID, &sm, future_now);
 
-        let after = record_signal::read_signal(&base, PROJECT_HASH_PHASE1, BUS_PHASE1).unwrap();
-        assert_eq!(after.status, SignalStatus::Released, "status should auto-release");
-        assert_eq!(sm.current(), RecordState::Watch, "state machine should exit record");
+        let after = record_signal::read_signal(&base, TEST_PH, TEST_POST_IID).unwrap();
+        assert_eq!(after.status, SignalStatus::Released);
+        assert_eq!(sm.current(), RecordState::Watch);
     }
 
-    /// pending が 30 秒以内 → 何もしない。
     #[test]
     fn pending_within_30s_is_noop() {
         let base = isolated_base("fresh");
         let sm = Arc::new(RecordStateMachine::new());
         sm.try_enter_record(crate::License::Os).unwrap();
 
-        write_pending(&base, PROJECT_HASH_PHASE1, BUS_PHASE1, "p".into(), "r".into()).unwrap();
-        // 直後の now → タイムアウトしない
-        poll_ack_timeout_with_base(&base, &sm, chrono::Utc::now());
+        write_pending(
+            &base,
+            TEST_PH,
+            TEST_POST_IID,
+            "pre-1".into(),
+            "daw-1".into(),
+        )
+        .unwrap();
+        poll_ack_timeout_with_base(&base, TEST_PH, TEST_POST_IID, &sm, chrono::Utc::now());
 
-        let after = record_signal::read_signal(&base, PROJECT_HASH_PHASE1, BUS_PHASE1).unwrap();
-        assert_eq!(after.status, SignalStatus::Pending, "status unchanged");
-        assert_eq!(sm.current(), RecordState::Record, "still recording");
+        let after = record_signal::read_signal(&base, TEST_PH, TEST_POST_IID).unwrap();
+        assert_eq!(after.status, SignalStatus::Pending);
+        assert_eq!(sm.current(), RecordState::Record);
     }
 
-    /// acknowledged → 何もしない（pending 以外はタイムアウト対象外）。
     #[test]
     fn acknowledged_is_noop_even_over_30s() {
         let base = isolated_base("acked");
         let sm = Arc::new(RecordStateMachine::new());
         sm.try_enter_record(crate::License::Os).unwrap();
 
-        write_pending(&base, PROJECT_HASH_PHASE1, BUS_PHASE1, "p".into(), "r".into()).unwrap();
-        mark_acknowledged(&base, PROJECT_HASH_PHASE1, BUS_PHASE1).unwrap();
+        write_pending(
+            &base,
+            TEST_PH,
+            TEST_POST_IID,
+            "pre-1".into(),
+            "daw-1".into(),
+        )
+        .unwrap();
+        mark_acknowledged(&base, TEST_PH, TEST_POST_IID).unwrap();
 
         let future_now = chrono::Utc::now() + chrono::Duration::seconds(300);
-        poll_ack_timeout_with_base(&base, &sm, future_now);
+        poll_ack_timeout_with_base(&base, TEST_PH, TEST_POST_IID, &sm, future_now);
 
-        let after = record_signal::read_signal(&base, PROJECT_HASH_PHASE1, BUS_PHASE1).unwrap();
-        assert_eq!(after.status, SignalStatus::Acknowledged, "acknowledged preserved");
+        let after = record_signal::read_signal(&base, TEST_PH, TEST_POST_IID).unwrap();
+        assert_eq!(after.status, SignalStatus::Acknowledged);
         assert_eq!(sm.current(), RecordState::Record);
     }
 
-    /// signal 不在 → 何もしない（panic しない）。
     #[test]
     fn missing_signal_is_noop() {
         let base = isolated_base("missing");
         let sm = Arc::new(RecordStateMachine::new());
 
-        poll_ack_timeout_with_base(&base, &sm, chrono::Utc::now());
+        poll_ack_timeout_with_base(&base, TEST_PH, TEST_POST_IID, &sm, chrono::Utc::now());
 
         assert_eq!(sm.current(), RecordState::Watch);
-    }
-
-    /// パース不能な t フィールド → タイムアウト扱いせず noop。
-    #[test]
-    fn invalid_t_field_is_noop() {
-        let base = isolated_base("badt");
-        let sm = Arc::new(RecordStateMachine::new());
-        sm.try_enter_record(crate::License::Os).unwrap();
-
-        // 不正 t の pending を直接書く
-        let bad = RecordSignal {
-            status: SignalStatus::Pending,
-            requested_by: "p".into(),
-            target_pre_instance_id: "r".into(),
-            t: "not-iso-8601".into(),
-            started_at: "2026-04-20T00:00:00Z".into(),
-        };
-        crate::record_signal::write_signal(&base, PROJECT_HASH_PHASE1, BUS_PHASE1, &bad).unwrap();
-
-        let future_now = chrono::Utc::now() + chrono::Duration::seconds(10_000);
-        poll_ack_timeout_with_base(&base, &sm, future_now);
-
-        let after = record_signal::read_signal(&base, PROJECT_HASH_PHASE1, BUS_PHASE1).unwrap();
-        assert_eq!(after.status, SignalStatus::Pending, "bad t → noop");
-        assert_eq!(sm.current(), RecordState::Record);
     }
 }

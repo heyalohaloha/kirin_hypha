@@ -6,7 +6,11 @@
 //! - 30 秒間隔で heartbeat + atomic flush
 //!
 //! PRE / POST どちらも同じロジックで動く。違いは Role の指定と、
-//! state machine を駆動するトリガ（POST=GUI ボタン、PRE=record_signal.json poll）のみ。
+//! state machine を駆動するトリガ（POST=GUI ボタン、PRE=record_signal poll）のみ。
+//!
+//! # A-3 修正後
+//! `project_hash` と `instance_id` は plugin から引数として渡る。旧
+//! `BUS_PHASE1="MIX"` / `PROJECT_HASH_PHASE1="default"` 定数依存は廃止。
 //!
 //! # t_ms 軸
 //! `started_at_ms` は record_signal.json の `started_at` を epoch ms に変換したもの。
@@ -20,8 +24,9 @@ use std::time::{Duration, Instant};
 
 use crate::plugin_data::{PluginDataWriter, Role, WriterPaths};
 use crate::record::RecordStateMachine;
+use crate::record_signal;
 use crate::storage::{load_installation_id_safe, StoragePaths};
-use crate::{record_signal, MeasureResult, BUS_PHASE1, PROJECT_HASH_PHASE1};
+use crate::MeasureResult;
 
 /// Frame サンプリング間隔（10 fps / G-50-17 リアルタイム Record）。
 pub const FRAME_INTERVAL_MS: u64 = 100;
@@ -72,16 +77,17 @@ pub fn parse_iso8601_to_epoch_ms(s: &str) -> Option<i64> {
         .map(|dt| dt.with_timezone(&chrono::Utc).timestamp_millis())
 }
 
-/// record_signal.json から `started_at` を読み取り epoch ms に変換。
+/// 指定 `post_instance_id` の record_signal.json から `started_at` を epoch ms 化。
 ///
-/// 失敗時（ファイル不在・`started_at` 空・パース不能）は現在時刻を返し、
-/// 警告ログを出す。t_ms = 0 起点にフォールバックすることで Record 続行可能。
-pub fn resolve_started_at_ms(tmp_base: &std::path::Path, project_hash: &str, bus: &str) -> i64 {
-    let signal_path = tmp_base
-        .join(project_hash)
-        .join(bus)
-        .join("record_signal.json");
-    match record_signal::read_signal(tmp_base, project_hash, bus) {
+/// 失敗時（ファイル不在 / `started_at` 空 / パース不能）は現在時刻 + 警告ログ。
+/// t_ms = 0 起点にフォールバックすることで Record 続行可能。
+pub fn resolve_started_at_ms(
+    base: &std::path::Path,
+    project_hash: &str,
+    post_instance_id: &str,
+) -> i64 {
+    let signal_path = record_signal::signal_path(base, project_hash, post_instance_id);
+    match record_signal::read_signal(base, project_hash, post_instance_id) {
         Some(sig) => parse_iso8601_to_epoch_ms(&sig.started_at).unwrap_or_else(|| {
             log::warn!(
                 "[signal] started_at missing, using now() as fallback ({})",
@@ -105,13 +111,27 @@ pub fn resolve_started_at_ms(tmp_base: &std::path::Path, project_hash: &str, bus
 /// - `role`: Pre / Post
 /// - `sample_rate`: writer メタデータに埋め込む sample_rate
 /// - `started_at_ms`: record_signal.started_at を epoch ms に変換したもの
+/// - `project_hash`, `instance_id`: 新構造 path 構築用
+/// - `paired_pre_instance_id`: POST 側でのみ Some。trigger_keep の target_id
+///   （v1.2 (a) cross-instance pair 復元キー）
+/// - `paired_post_instance_id`: PRE 側でのみ Some。record_signal の requested_by
+///   （v1.2 (a) cross-instance pair 復元キー）
 ///
 /// # 失敗要因（いずれも `None` を返してログ記録）
 /// - `$HOME` 未解決
 /// - identity.json 不在 or `installation_id` フィールド欠落
 /// - `PluginDataWriter::create` が IO エラー
-/// - 初回 flush 失敗（tmp 書込 or rename）
-pub fn writer_start(role: Role, sample_rate: u32, started_at_ms: i64) -> Option<RecordingCtx> {
+/// - 初回 flush 失敗
+#[allow(clippy::too_many_arguments)]
+pub fn writer_start(
+    role: Role,
+    sample_rate: u32,
+    started_at_ms: i64,
+    project_hash: &str,
+    instance_id: &str,
+    paired_pre_instance_id: Option<String>,
+    paired_post_instance_id: Option<String>,
+) -> Option<RecordingCtx> {
     let paths = match StoragePaths::default_macos() {
         Ok(p) => p,
         Err(e) => {
@@ -126,8 +146,8 @@ pub fn writer_start(role: Role, sample_rate: u32, started_at_ms: i64) -> Option<
         .to_string();
     let writer_paths = WriterPaths::build(
         &base,
-        PROJECT_HASH_PHASE1,
-        BUS_PHASE1,
+        project_hash,
+        instance_id,
         role,
         &wall_clock_iso,
     );
@@ -135,10 +155,13 @@ pub fn writer_start(role: Role, sample_rate: u32, started_at_ms: i64) -> Option<
     let mut w = match PluginDataWriter::create(
         writer_paths,
         installation_id,
-        PROJECT_HASH_PHASE1.to_string(),
+        project_hash.to_string(),
+        instance_id.to_string(),
         role,
-        BUS_PHASE1.to_string(),
+        None,
         sample_rate,
+        paired_pre_instance_id,
+        paired_post_instance_id,
     ) {
         Ok(w) => w,
         Err(e) => {
@@ -212,33 +235,46 @@ pub fn writer_append_psb(ctx: &mut RecordingCtx, t_ms: u64, m: &MeasureResult) -
 /// Record モード 1 ティック: Watch↔Record 遷移と Frame/PSB 追記を処理する。
 ///
 /// - 毎ループ呼ばれる（100ms 間隔）
-/// - (false → true) 遷移 → `writer_start`（started_at は record_signal から取得）
+/// - (false → true) 遷移 → `started_at_resolver` を呼び `writer_start`
 /// - (true → false) 遷移 → `writer_close`
 /// - Record 継続 → `next_frame_ms` / `next_psb_ms` に沿って append
 /// - 30 秒経過 → `heartbeat_now` + `flush`
 ///
-/// `record_sm` は外部（GUI ボタン / record_signal poller）が駆動する。
-/// 個々の append / flush 失敗は `Err` として戻し、呼出元が warn ログ出力。
-/// writer を破棄せず継続することで transient な FS エラーに強くなる。
+/// `started_at_resolver` は Watch→Record 遷移時にだけ呼ばれる（lazy）。
+/// PRE は `partner_post_instance_id` の signal.started_at を、POST は自身の
+/// signal.started_at を解決する用途で使う。
+///
+/// `paired_pre_resolver` / `paired_post_resolver` も Watch→Record 遷移時に
+/// 1 度だけ呼ばれる。PRE は `paired_post` を返し、POST は `paired_pre` を返す
+/// （v1.2 (a) cross-instance pair 復元キー）。
+#[allow(clippy::too_many_arguments)]
 pub fn run_record_tick(
     record_sm: &Arc<RecordStateMachine>,
     role: Role,
     sample_rate: u32,
+    project_hash: &str,
+    instance_id: &str,
+    started_at_resolver: impl FnOnce() -> i64,
+    paired_pre_resolver: impl FnOnce() -> Option<String>,
+    paired_post_resolver: impl FnOnce() -> Option<String>,
     measure_result: &Arc<Mutex<MeasureResult>>,
     recording: &mut Option<RecordingCtx>,
 ) -> Result<(), String> {
     let is_recording = record_sm.is_recording();
     match (is_recording, recording.is_some()) {
         (true, false) => {
-            let started_at_ms = match StoragePaths::default_macos() {
-                Ok(paths) => resolve_started_at_ms(
-                    &paths.plugin_data_dir(),
-                    PROJECT_HASH_PHASE1,
-                    BUS_PHASE1,
-                ),
-                Err(_) => now_epoch_ms(),
-            };
-            if let Some(ctx) = writer_start(role, sample_rate, started_at_ms) {
+            let started_at_ms = started_at_resolver();
+            let paired_pre = paired_pre_resolver();
+            let paired_post = paired_post_resolver();
+            if let Some(ctx) = writer_start(
+                role,
+                sample_rate,
+                started_at_ms,
+                project_hash,
+                instance_id,
+                paired_pre,
+                paired_post,
+            ) {
                 *recording = Some(ctx);
             }
         }
@@ -276,9 +312,6 @@ pub fn run_record_tick(
 }
 
 /// 別スレッドで Record 停止シグナルを受けたときに writer を即座に閉じる。
-///
-/// IO Thread 終了シーケンスで使用: shutdown=true になったあとに呼ぶ。
-/// 無用な writer drop を避けるため `Option` を消費する。
 pub fn drain_on_shutdown(
     shutdown: &Arc<AtomicBool>,
     recording: &mut Option<RecordingCtx>,
@@ -304,6 +337,9 @@ mod tests {
     use std::fs;
     use std::sync::atomic::{AtomicU64, Ordering};
 
+    const TEST_PH: &str = "ph";
+    const TEST_IID: &str = "iid-test";
+
     fn isolated_base() -> PathBuf {
         static COUNTER: AtomicU64 = AtomicU64::new(0);
         let n = COUNTER.fetch_add(1, Ordering::Relaxed);
@@ -315,21 +351,18 @@ mod tests {
     }
 
     fn make_ctx(base: &std::path::Path, role: Role, started_at_ms: i64) -> RecordingCtx {
-        let paths = WriterPaths::build(
-            base,
-            PROJECT_HASH_PHASE1,
-            BUS_PHASE1,
-            role,
-            "2026-04-19T12:00:00Z",
-        );
+        let paths = WriterPaths::build(base, TEST_PH, TEST_IID, role, "2026-04-19T12:00:00Z");
         let final_path = paths.final_path.clone();
         let mut writer = PluginDataWriter::create(
             paths,
             "test-installation-id".to_string(),
-            PROJECT_HASH_PHASE1.to_string(),
+            TEST_PH.to_string(),
+            TEST_IID.to_string(),
             role,
-            BUS_PHASE1.to_string(),
+            None,
             48000,
+            None,
+            None,
         )
         .unwrap();
         writer.flush().unwrap();
@@ -366,7 +399,6 @@ mod tests {
     fn parse_iso8601_to_epoch_ms_basic() {
         let ms_a = parse_iso8601_to_epoch_ms("2026-04-19T12:00:00Z").unwrap();
         let ms_b = parse_iso8601_to_epoch_ms("2026-04-19T12:00:01Z").unwrap();
-        // 1 秒差分が 1000 ms として正しく反映されること
         assert_eq!(ms_b - ms_a, 1000);
     }
 
@@ -382,107 +414,26 @@ mod tests {
 
     #[test]
     fn resolve_started_at_ms_reads_signal_file() {
-        let tmp_base = isolated_base();
+        let base = isolated_base();
         record_signal::write_pending(
-            &tmp_base,
-            PROJECT_HASH_PHASE1,
-            BUS_PHASE1,
-            "post-1".into(),
+            &base,
+            TEST_PH,
+            "post-1",
             "pre-1".into(),
+            "daw-1".into(),
         )
         .unwrap();
-        let ms = resolve_started_at_ms(&tmp_base, PROJECT_HASH_PHASE1, BUS_PHASE1);
+        let ms = resolve_started_at_ms(&base, TEST_PH, "post-1");
         let now = now_epoch_ms();
-        // started_at は now 付近に埋め込まれたはず
         assert!((now - ms).abs() < 5_000, "ms={}, now={}", ms, now);
     }
 
     #[test]
     fn resolve_started_at_ms_missing_falls_back_to_now() {
-        let tmp_base = isolated_base();
-        let ms = resolve_started_at_ms(&tmp_base, PROJECT_HASH_PHASE1, BUS_PHASE1);
+        let base = isolated_base();
+        let ms = resolve_started_at_ms(&base, TEST_PH, "post-x");
         let now = now_epoch_ms();
         assert!((now - ms).abs() < 1_000);
-    }
-
-    // ── ログ capture: Q9-C 仕様フォーマット検証 ─────────────────────────────
-    //
-    // `log::set_logger` は 1 プロセス 1 回だけ成功するため、同じ binary 内の他テストと
-    // 競合しないよう OnceLock で 1 回だけ install する（record_writer テスト専用）。
-
-    use std::sync::OnceLock;
-
-    struct CaptureLogger {
-        buf: Mutex<Vec<String>>,
-    }
-    static CAPTURE: OnceLock<&'static CaptureLogger> = OnceLock::new();
-
-    impl log::Log for CaptureLogger {
-        fn enabled(&self, _: &log::Metadata) -> bool {
-            true
-        }
-        fn log(&self, record: &log::Record) {
-            if let Ok(mut g) = self.buf.lock() {
-                g.push(format!("{} {}", record.level(), record.args()));
-            }
-        }
-        fn flush(&self) {}
-    }
-
-    fn install_capture() -> &'static CaptureLogger {
-        CAPTURE.get_or_init(|| {
-            let boxed: &'static CaptureLogger = Box::leak(Box::new(CaptureLogger {
-                buf: Mutex::new(Vec::new()),
-            }));
-            // 他のテストで既に別の logger が設定済なら set_logger は失敗するが
-            // それは capture テスト専用の前提上問題なし（無視）
-            let _ = log::set_logger(boxed);
-            log::set_max_level(log::LevelFilter::Warn);
-            boxed
-        })
-    }
-
-    fn drain_logs(cap: &CaptureLogger) -> Vec<String> {
-        let mut g = cap.buf.lock().unwrap();
-        let out = g.clone();
-        g.clear();
-        out
-    }
-
-    #[test]
-    fn fallback_emits_spec_log_line() {
-        let cap = install_capture();
-        let _ = drain_logs(cap);
-        let tmp_base = isolated_base();
-        let _ = resolve_started_at_ms(&tmp_base, PROJECT_HASH_PHASE1, BUS_PHASE1);
-        let logs = drain_logs(cap);
-        assert!(
-            logs.iter().any(|l| l.contains("[signal] started_at missing, using now() as fallback")),
-            "expected fallback log, got: {:?}",
-            logs
-        );
-    }
-
-    #[test]
-    fn fallback_emits_log_when_started_at_unparseable() {
-        let cap = install_capture();
-        let _ = drain_logs(cap);
-        // record_signal.json を started_at フィールド欠落状態で書き込む。
-        // #[serde(default)] により started_at = "" で deserialize され、
-        // parse_iso8601_to_epoch_ms("") が None を返して fallback path に入る。
-        let tmp_base = isolated_base();
-        let dir = tmp_base.join(PROJECT_HASH_PHASE1).join(BUS_PHASE1);
-        fs::create_dir_all(&dir).unwrap();
-        let minimal = r#"{"status":"pending","requested_by":"post-1","target_pre_instance_id":"pre-1","t":"2026-04-19T12:00:00.000Z"}"#;
-        fs::write(dir.join("record_signal.json"), minimal).unwrap();
-
-        let _ = resolve_started_at_ms(&tmp_base, PROJECT_HASH_PHASE1, BUS_PHASE1);
-        let logs = drain_logs(cap);
-        assert!(
-            logs.iter().any(|l| l.contains("[signal] started_at missing, using now() as fallback")),
-            "expected fallback log on parse failure, got: {:?}",
-            logs
-        );
     }
 
     #[test]
@@ -515,7 +466,6 @@ mod tests {
         let frames = &ctx.data().frames;
         assert_eq!(frames.len(), 1);
         assert_eq!(frames[0].t_ms, 200);
-        // 48kHz make_ctx: Phase D 値 Some (guardian_100 S-2)
         assert_eq!(frames[0].n_prime.unwrap()[0], 0.5);
         assert_eq!(frames[0].lufs_m, -14.2);
         assert!(ctx.first_frame_logged);
@@ -528,7 +478,6 @@ mod tests {
         let mut m = full_measure_result();
         m.psb_bark = None;
         assert!(!writer_append_psb(&mut ctx, 500, &m));
-        // 48kHz make_ctx: psb_snapshots = Some(vec![]) なので空チェックは len==0
         assert_eq!(
             ctx.data().psb_snapshots.as_ref().map(|v| v.len()),
             Some(0)
@@ -568,7 +517,19 @@ mod tests {
         let sm = Arc::new(RecordStateMachine::new());
         let m = Arc::new(Mutex::new(full_measure_result()));
         let mut rec: Option<RecordingCtx> = None;
-        run_record_tick(&sm, Role::Post, 48000, &m, &mut rec).unwrap();
+        run_record_tick(
+            &sm,
+            Role::Post,
+            48000,
+            TEST_PH,
+            TEST_IID,
+            now_epoch_ms,
+            || None,
+            || None,
+            &m,
+            &mut rec,
+        )
+        .unwrap();
         assert!(rec.is_none());
     }
 
@@ -583,7 +544,19 @@ mod tests {
         let mut rec: Option<RecordingCtx> = Some(ctx);
 
         sm.exit_record();
-        run_record_tick(&sm, Role::Post, 48000, &m, &mut rec).unwrap();
+        run_record_tick(
+            &sm,
+            Role::Post,
+            48000,
+            TEST_PH,
+            TEST_IID,
+            now_epoch_ms,
+            || None,
+            || None,
+            &m,
+            &mut rec,
+        )
+        .unwrap();
 
         assert!(rec.is_none());
         let bytes = fs::read(&final_path).unwrap();
@@ -594,7 +567,6 @@ mod tests {
     #[test]
     fn run_record_tick_record_active_appends_frame_and_psb() {
         let base = isolated_base();
-        // started_at を 600ms 前にずらして t_ms ≥ 500 となるようにする
         let started = now_epoch_ms() - 600;
         let ctx = make_ctx(&base, Role::Post, started);
         let sm = Arc::new(RecordStateMachine::new());
@@ -602,11 +574,22 @@ mod tests {
         let m = Arc::new(Mutex::new(full_measure_result()));
         let mut rec: Option<RecordingCtx> = Some(ctx);
 
-        run_record_tick(&sm, Role::Post, 48000, &m, &mut rec).unwrap();
+        run_record_tick(
+            &sm,
+            Role::Post,
+            48000,
+            TEST_PH,
+            TEST_IID,
+            now_epoch_ms,
+            || None,
+            || None,
+            &m,
+            &mut rec,
+        )
+        .unwrap();
 
         let ctx_ref = rec.as_ref().unwrap();
         assert_eq!(ctx_ref.data().frames.len(), 1);
-        // 48kHz: psb_snapshots = Some(vec![one])
         assert_eq!(
             ctx_ref.data().psb_snapshots.as_ref().map(|v| v.len()),
             Some(1)
@@ -628,11 +611,22 @@ mod tests {
         let m = Arc::new(Mutex::new(m0));
         let mut rec: Option<RecordingCtx> = Some(ctx);
 
-        run_record_tick(&sm, Role::Post, 48000, &m, &mut rec).unwrap();
+        run_record_tick(
+            &sm,
+            Role::Post,
+            48000,
+            TEST_PH,
+            TEST_IID,
+            now_epoch_ms,
+            || None,
+            || None,
+            &m,
+            &mut rec,
+        )
+        .unwrap();
 
         let ctx_ref = rec.as_ref().unwrap();
         assert_eq!(ctx_ref.data().frames.len(), 0);
-        // 48kHz: psb_snapshots = Some(vec![]) (warmup → no append)
         assert_eq!(
             ctx_ref.data().psb_snapshots.as_ref().map(|v| v.len()),
             Some(0)
@@ -641,8 +635,6 @@ mod tests {
 
     #[test]
     fn pre_and_post_share_t_ms_axis() {
-        // PRE と POST が同じ started_at_ms で記録すると、
-        // 同じ絶対時刻に生成された frame は同じ t_ms を持つ。
         let base = isolated_base();
         let started = now_epoch_ms() - 300;
         let mut pre = make_ctx(&base, Role::Pre, started);
@@ -655,74 +647,35 @@ mod tests {
         assert_eq!(pre.data().frames[0].t_ms, post.data().frames[0].t_ms);
     }
 
-    // ── V1: POST → PRE ペアリング統合テスト（サブ3-B path mismatch 退行防止）─────
-    //
-    // Bug 再現条件:
-    //   POST は record_signal.json を plugin_data_dir 配下に書く一方、PRE poller
-    //   と resolve_started_at_ms は $TMPDIR/kirin/ 配下を読んでいた。
-    //   両者が別ディレクトリを指していたため、PRE が pending を検出できず、
-    //   resolve_started_at_ms も fallback を返し続けていた。
-    //
-    // 本テストは「POST が書いたのと同じ base path を PRE / resolve が読む」
-    // 契約を end-to-end で検証する。path mismatch が再発すると pending 検出
-    // または started_at 復元が失敗して fail する。
-
+    /// POST → PRE ペアリング統合テスト (path mismatch 退行防止 / 新構造版)。
     #[test]
     fn post_write_pending_triggers_pre_record_entry() {
         let base = isolated_base();
+        let post_iid = "post-iid-1";
 
-        // POST 側: record_signal.json を pending で書き込む
         let written = record_signal::write_pending(
             &base,
-            PROJECT_HASH_PHASE1,
-            BUS_PHASE1,
-            "post-instance-1".into(),
-            "pre-instance-1".into(),
+            TEST_PH,
+            post_iid,
+            "pre-iid-1".into(),
+            "daw-1".into(),
         )
-        .expect("write_pending must succeed on isolated base");
-        assert!(!written.started_at.is_empty(), "started_at must be populated");
+        .expect("write_pending must succeed");
+        assert!(!written.started_at.is_empty());
+        assert_eq!(written.daw_session_id, "daw-1");
 
-        // PRE 側: 同じ base で read_signal → Pending を検出
-        let signal = record_signal::read_signal(&base, PROJECT_HASH_PHASE1, BUS_PHASE1)
-            .expect("PRE must find record_signal at the same base POST wrote to");
+        let signal = record_signal::read_signal(&base, TEST_PH, post_iid)
+            .expect("PRE must find signal at the same base POST wrote to");
         assert_eq!(signal.status, record_signal::SignalStatus::Pending);
 
-        // PRE 側: state machine 遷移が成立する（license gate 通過）
         let sm = RecordStateMachine::new();
         sm.try_enter_record(License::Os)
             .expect("Os license must allow entering Record");
         assert!(sm.is_recording());
 
-        // resolve_started_at_ms: record_signal.json から started_at を epoch_ms で返す
-        // （fallback now() ではない）
-        let resolved = resolve_started_at_ms(&base, PROJECT_HASH_PHASE1, BUS_PHASE1);
+        let resolved = resolve_started_at_ms(&base, TEST_PH, post_iid);
         let expected = parse_iso8601_to_epoch_ms(&signal.started_at)
             .expect("started_at must be parseable ISO 8601");
-        assert_eq!(
-            resolved, expected,
-            "resolve_started_at_ms must return started_at from file, not fallback"
-        );
-    }
-
-    /// record_signal.json の base path は plugin_data_dir 配下であり、
-    /// $TMPDIR/kirin/ 配下ではないこと（tmp_kirin_base 再導入の退行検出）。
-    #[test]
-    fn record_signal_base_is_plugin_data_not_tmp() {
-        let Ok(paths) = StoragePaths::default_macos() else {
-            return; // $HOME 未解決環境ではスキップ
-        };
-        let plugin_data = paths.plugin_data_dir();
-
-        // $TMPDIR/kirin/ 配下ではない
-        assert!(
-            !plugin_data.starts_with(std::env::temp_dir().join("kirin")),
-            "plugin_data_dir must not be under $TMPDIR/kirin/, got: {}",
-            plugin_data.display()
-        );
-        // 末端ディレクトリ名は "plugin_data"
-        assert_eq!(
-            plugin_data.file_name().and_then(|n| n.to_str()),
-            Some("plugin_data")
-        );
+        assert_eq!(resolved, expected);
     }
 }

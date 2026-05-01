@@ -31,7 +31,7 @@ fn run_v2_assertion(sample_rate: u32, label: &str) {
     let paths = WriterPaths::build(
         &base,
         "project_hash_test",
-        "MIX",
+        "instance_test_aaaa",
         Role::Pre,
         "2026-04-17T14:32:08Z",
     );
@@ -42,9 +42,12 @@ fn run_v2_assertion(sample_rate: u32, label: &str) {
         paths,
         "11111111-2222-4333-8444-555555555555".to_string(),
         "project_hash_test".to_string(),
+        "instance_test_aaaa".to_string(),
         Role::Pre,
-        "MIX".to_string(),
+        None,
         sample_rate,
+        None,
+        None,
     )
     .expect("create writer");
 

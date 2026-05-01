@@ -1,13 +1,17 @@
 //! plugin_data v1.1 writer — Record mode 計測結果の永続化。
 //!
-//! guardian_58_hypha_step5_record_plugin_data.md T-2 対応。
+//! guardian_58_hypha_step5_record_plugin_data.md T-2 対応（A-3 修正後）。
 //! スキーマ正本: `guardian_50_plugin_design_complete_v3.md` 行357-402。
 //!
-//! # ファイル命名（G-50-30）
+//! # ファイル命名（A-3 修正後）
 //! ```text
-//! plugin_data/{project_hash}/{bus}/pre/{compact_wall_clock}.json
-//! plugin_data/{project_hash}/{bus}/post/{compact_wall_clock}.json
+//! plugin_data/{project_hash}/{instance_id}/pre/{compact_wall_clock}.json
+//! plugin_data/{project_hash}/{instance_id}/post/{compact_wall_clock}.json
 //! ```
+//! 旧 `{project_hash}/{bus}/{role}/...` から移行。bus 概念を path から外し、
+//! 永続化される `instance_id`（plugin params 経由で project save に同梱）で
+//! ディレクトリを区切ることで複数バス・複数インスタンスの衝突を回避。
+//!
 //! `compact_wall_clock` = `%Y%m%dT%H%M%S`（例: `20260417T143208`）
 //!
 //! # 書込方法
@@ -134,21 +138,31 @@ pub struct BounceMarker {
     pub last_block_hash: String,
 }
 
-/// plugin_data/ 1 ファイル分のルート（v1.1）。
+/// plugin_data/ 1 ファイル分のルート（v1.2）。
 ///
-/// `source_format`: Record 開始時に ProcessContext から取得した入力サンプルレート
-/// (Hz)。48000 / 44100 / 88200 / 96000 / 176400 / 192000 等。取得失敗時は 0
-/// (guardian_100 / G-79 §2.3 / G-100-02)。Measure Thread 側で 48kHz にリサンプリング
-/// した上で Phase D を計測するため、`source_format` の値に関わらず `Frame.n_prime`
-/// / `Frame.sharpness` / `psb_snapshots` は常に `Some` で書き出される (guardian_101 v2)。
+/// v1.2 (A-3 (a)): `instance_id` field 追加 + `paired_pre_instance_id` /
+/// `paired_post_instance_id` field 追加（cross-instance pair 復元の決定論的キー）。
+/// schema_version "1.2"。
+///
+/// 各 field の詳細仕様は [`PluginDataFile::new`] の doc コメント参照。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PluginDataFile {
     pub schema_version: String,
     pub installation_id: String,
     pub project_hash: String,
+    /// Plugin Default 起動時に `Uuid::new_v4` で生成され、VST3 state として
+    /// 永続化される plugin インスタンス UUID。同一 plugin instance の PRE/POST
+    /// ペア復元の一次キー。Lens reader.js で `paired_*_instance_id` との一致比較に
+    /// 使用される（A-3 (a) v1.2）。
+    pub instance_id: String,
     pub timestamp: String,
     pub role: Role,
-    pub bus: String,
+    /// Bus 名は Phase 1 では path から外され（{project_hash}/{instance_id}/{role}/）
+    /// PluginDataFile content では `Option<String>` として残す。Phase 1 では `None` を
+    /// 書き込み（field omitted）、Lens 側 schema は optional として読む。
+    /// 将来 Bus メタデータが復活した場合は `Some(bus_name)` として書き込み再開する。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bus: Option<String>,
     pub mode: String,
     pub chain_memo: String,
     pub sample_rate: u32,
@@ -160,30 +174,67 @@ pub struct PluginDataFile {
     pub frames: Vec<Frame>,
     pub psb_snapshots: Option<Vec<PsbSnapshot>>,
     pub annotations: Vec<Annotation>,
+    /// POST 側でのみ書き込み: Keep タップ時に選定した PRE 候補の instance_id。
+    /// 不在時 None。Lens 側 cross-instance pair 復元の決定論的キー（A-3 (a) v1.2）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub paired_pre_instance_id: Option<String>,
+    /// PRE 側でのみ書き込み: Record 開始時に受信した record_signal の
+    /// `requested_by`（POST 側 instance_id）。不在時 None。
+    /// Lens 側 cross-instance pair 復元の決定論的キー（A-3 (a) v1.2）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub paired_post_instance_id: Option<String>,
     pub validity: bool,
     pub checksum: String,
 }
 
 impl PluginDataFile {
-    pub const SCHEMA_VERSION: &'static str = "1.1";
+    pub const SCHEMA_VERSION: &'static str = "1.2";
 
-    /// 空の v1.1 ファイルを生成（heartbeat = timestamp = now, status=active, checksum=空）。
+    /// 空の v1.2 ファイルを生成（heartbeat = timestamp = now, status=active, checksum=空）。
     ///
-    /// `sample_rate` は Record 開始時に ProcessContext から取得した値。本フィールドは
-    /// JSON `sample_rate` および `source_format` 両方に同一値で記録される (guardian_100
-    /// S-1 / G-79 §2.3)。取得失敗時は 0 を渡すこと（fallback 仕様）。
+    /// # source_format（v1.2 (α) 文言 / Daisuke 判断 2026-05-01）
+    /// Hz 単位の DAW 入力サンプルレート。0 = 取得失敗（fallback）。
+    /// リサンプリング前の監査トレイル用。
+    /// 値は `sample_rate` と同一値で書き込まれる（plugin_data.rs L204）。
+    /// 仕様書根拠（guardian_100 S-1 / G-79 §2.3 / G-100-02）はコード
+    /// コメントから前方参照されているのみで、Hypha リポジトリ内に
+    /// 実体 md は未配置（番人マター並行確認中）。
+    ///
+    /// # bus
+    /// Phase 1 では `None` を渡す（A-3 修正後 / Lens schema optional）。
+    ///
+    /// # instance_id（v1.2 (a)）
+    /// Plugin Default 起動時に `Uuid::new_v4` で生成され、VST3 state として
+    /// 永続化される plugin インスタンス UUID。同一 plugin instance の
+    /// PRE/POST ペア復元の一次キー。
+    ///
+    /// # paired_*_instance_id（v1.2 (a)）
+    /// Record 開始時に既知なら Some を渡す。
+    /// - PRE: `paired_post_instance_id` = record_signal の `requested_by` を Some で渡す
+    ///        `paired_pre_instance_id` = None（自分が PRE なので相手 PRE は無い）
+    /// - POST: `paired_pre_instance_id` = trigger_keep の `target_id` を Some で渡す
+    ///         `paired_post_instance_id` = None（自分が POST）
+    ///
+    /// # sample_rate
+    /// Record 開始時に ProcessContext から取得した値。本フィールドは
+    /// JSON `sample_rate` および `source_format` 両方に同一値で記録される。
+    /// 取得失敗時は 0 を渡す（fallback 仕様）。
     pub fn new(
         installation_id: String,
         project_hash: String,
+        instance_id: String,
         role: Role,
-        bus: String,
+        bus: Option<String>,
         sample_rate: u32,
+        paired_pre_instance_id: Option<String>,
+        paired_post_instance_id: Option<String>,
     ) -> Self {
         let now = now_iso8601();
         Self {
             schema_version: Self::SCHEMA_VERSION.to_string(),
             installation_id,
             project_hash,
+            instance_id,
             timestamp: now.clone(),
             role,
             bus,
@@ -204,6 +255,8 @@ impl PluginDataFile {
             // guardian_101 v2: 全 SR で Phase D を計測するため初期値は常に Some。
             psb_snapshots: Some(Vec::new()),
             annotations: Vec::new(),
+            paired_pre_instance_id,
+            paired_post_instance_id,
             validity: true,
             checksum: String::new(),
         }
@@ -278,21 +331,24 @@ pub struct WriterPaths {
 }
 
 impl WriterPaths {
-    /// `plugin_data/{project_hash}/{bus}/{role_dir}/{compact}.json` を構築。
+    /// `plugin_data/{project_hash}/{instance_id}/{role_dir}/{compact}.json` を構築。
     ///
     /// `wall_clock_start` は ISO 8601（秒精度）。compact 形式への変換は
     /// [`compact_wall_clock`] を使用。
+    ///
+    /// A-3 修正後: 旧 `bus` セグメントは `instance_id` に置換された
+    /// （永続化された Plugin 永続 instance UUID。Lens 側読取り `reader.js` も同調）。
     pub fn build(
         base_dir: &Path,
         project_hash: &str,
-        bus: &str,
+        instance_id: &str,
         role: Role,
         wall_clock_start_iso: &str,
     ) -> Self {
         let compact = compact_wall_clock(wall_clock_start_iso);
         let dir = base_dir
             .join(project_hash)
-            .join(bus)
+            .join(instance_id)
             .join(role.dir_name());
         let final_path = dir.join(format!("{compact}.json"));
         let tmp_path = dir.join(format!("{compact}.json.tmp"));
@@ -302,18 +358,37 @@ impl WriterPaths {
 
 impl PluginDataWriter {
     /// tmp ディレクトリを作成して Writer を起動。最初の flush で空ファイルが rename される。
+    ///
+    /// `bus` は Phase 1 では `None` を渡す（A-3 修正後）。将来 bus メタデータが復活
+    /// したら `Some(bus_name)` で content にだけ書き込む（path には影響しない）。
+    ///
+    /// `instance_id` / `paired_*_instance_id` は v1.2 (a) cross-instance pair 復元用。
+    /// 詳細は [`PluginDataFile::new`] の doc コメント参照。
+    #[allow(clippy::too_many_arguments)]
     pub fn create(
         paths: WriterPaths,
         installation_id: String,
         project_hash: String,
+        instance_id: String,
         role: Role,
-        bus: String,
+        bus: Option<String>,
         sample_rate: u32,
+        paired_pre_instance_id: Option<String>,
+        paired_post_instance_id: Option<String>,
     ) -> Result<Self, WriterError> {
         if let Some(parent) = paths.final_path.parent() {
             fs::create_dir_all(parent)?;
         }
-        let data = PluginDataFile::new(installation_id, project_hash, role, bus, sample_rate);
+        let data = PluginDataFile::new(
+            installation_id,
+            project_hash,
+            instance_id,
+            role,
+            bus,
+            sample_rate,
+            paired_pre_instance_id,
+            paired_post_instance_id,
+        );
         Ok(Self { paths, data })
     }
 
@@ -434,8 +509,8 @@ impl PluginDataWriter {
 
 // ── Annotation 追記（サブ2-C / Note ボタン）──────────────────────────────────
 
-/// `plugin_data/{project_hash}/{bus}/{role_dir}/` 配下の最新 `*.json` に 1 件
-/// annotation を追記して atomic rename で書き戻す。checksum は再計算される。
+/// `plugin_data/{project_hash}/{instance_id}/{role_dir}/` 配下の最新 `*.json` に
+/// 1 件 annotation を追記して atomic rename で書き戻す。checksum は再計算される。
 ///
 /// # 戻り値
 /// - `Ok(true)`: 対象ファイルが見つかり追記成功
@@ -446,16 +521,18 @@ impl PluginDataWriter {
 /// 「最新」は同一ディレクトリ内の filename 辞書順最大を使う（`{compact}.json` が
 /// `YYYYMMDDTHHMMSS.json` 形式なので辞書順 = 時系列順）。mtime ではなく filename を
 /// 使うことで再現性・テスタビリティを確保。
+///
+/// A-3 修正後: 旧 `bus` パスセグメントは `instance_id` に置換された。
 pub fn append_annotation_to_latest(
     base_dir: &Path,
     project_hash: &str,
-    bus: &str,
+    instance_id: &str,
     role: Role,
     memo: String,
 ) -> Result<bool, WriterError> {
     let dir = base_dir
         .join(project_hash)
-        .join(bus)
+        .join(instance_id)
         .join(role.dir_name());
     let Some(latest) = find_latest_json(&dir) else {
         return Ok(false);
@@ -585,11 +662,14 @@ mod tests {
         dir
     }
 
+    /// Test の固定 instance_id（path セグメント。新構造に追従）。
+    const TEST_INSTANCE_ID: &str = "test-instance-aaaa";
+
     fn sample_writer(base: &Path, role: Role) -> PluginDataWriter {
         let paths = WriterPaths::build(
             base,
             "project_hash_test",
-            "MIX",
+            TEST_INSTANCE_ID,
             role,
             "2026-04-17T14:32:08Z",
         );
@@ -597,9 +677,12 @@ mod tests {
             paths,
             "11111111-2222-4333-8444-555555555555".to_string(),
             "project_hash_test".to_string(),
+            TEST_INSTANCE_ID.to_string(),
             role,
-            "MIX".to_string(),
+            None,
             48000,
+            None,
+            None,
         )
         .unwrap()
     }
@@ -631,39 +714,75 @@ mod tests {
     #[test]
     fn writer_paths_build_hierarchy() {
         let base = Path::new("/tmp/kirin_base");
-        let p = WriterPaths::build(base, "ph", "MIX", Role::Pre, "2026-04-17T14:32:08Z");
+        let p = WriterPaths::build(base, "ph", "iid-1", Role::Pre, "2026-04-17T14:32:08Z");
         assert_eq!(
             p.final_path,
-            Path::new("/tmp/kirin_base/ph/MIX/pre/20260417T143208.json")
+            Path::new("/tmp/kirin_base/ph/iid-1/pre/20260417T143208.json")
         );
         assert_eq!(
             p.tmp_path,
-            Path::new("/tmp/kirin_base/ph/MIX/pre/20260417T143208.json.tmp")
+            Path::new("/tmp/kirin_base/ph/iid-1/pre/20260417T143208.json.tmp")
         );
     }
 
     #[test]
-    fn new_file_has_schema_1_1_defaults() {
+    fn new_file_has_schema_1_2_defaults_with_optional_bus() {
+        // Phase 1: bus = None → JSON では field omitted（skip_serializing_if）
         let f = PluginDataFile::new(
             "iid".to_string(),
             "ph".to_string(),
+            TEST_INSTANCE_ID.to_string(),
             Role::Post,
-            "DRUM".to_string(),
+            None,
             48000,
+            None,
+            None,
         );
-        assert_eq!(f.schema_version, "1.1");
+        assert_eq!(f.schema_version, "1.2");
         assert_eq!(f.role, Role::Post);
-        assert_eq!(f.bus, "DRUM");
+        assert_eq!(f.instance_id, TEST_INSTANCE_ID);
+        assert!(f.bus.is_none(), "Phase 1: bus must be None");
         assert_eq!(f.mode, "record");
         assert_eq!(f.status, Status::Active);
         assert!(f.frames.is_empty());
-        // 48000Hz: psb_snapshots は Some(empty vec) で初期化される (guardian_100 S-1)
         assert_eq!(f.psb_snapshots.as_ref().map(|v| v.len()), Some(0));
         assert!(f.annotations.is_empty());
+        assert!(f.paired_pre_instance_id.is_none());
+        assert!(f.paired_post_instance_id.is_none());
         assert_eq!(f.sample_rate, 48000);
         assert_eq!(f.source_format, 48000);
         assert!(f.validity);
         assert!(f.checksum.is_empty());
+
+        // JSON 出力に "bus" field が含まれない（skip_serializing_if）
+        let json = serde_json::to_string(&f).unwrap();
+        assert!(!json.contains("\"bus\""), "bus must be omitted when None: {json}");
+        // paired_*_instance_id も None の時は出ない（skip_serializing_if）
+        assert!(
+            !json.contains("paired_pre_instance_id"),
+            "paired_pre_instance_id omitted when None: {json}"
+        );
+        assert!(
+            !json.contains("paired_post_instance_id"),
+            "paired_post_instance_id omitted when None: {json}"
+        );
+    }
+
+    #[test]
+    fn new_file_with_some_bus_includes_field() {
+        // 将来 bus メタデータが復活した場合: Some(name) を渡せば JSON に出る
+        let f = PluginDataFile::new(
+            "iid".to_string(),
+            "ph".to_string(),
+            TEST_INSTANCE_ID.to_string(),
+            Role::Post,
+            Some("DRUM".to_string()),
+            48000,
+            None,
+            None,
+        );
+        let json = serde_json::to_string(&f).unwrap();
+        assert!(json.contains("\"bus\":\"DRUM\""), "bus included when Some: {json}");
     }
 
     #[test]
@@ -737,7 +856,7 @@ mod tests {
         let bytes = fs::read(&w.paths.final_path).unwrap();
         let loaded: PluginDataFile = serde_json::from_slice(&bytes).unwrap();
         assert!(verify_checksum(&loaded), "checksum must round-trip");
-        assert_eq!(loaded.schema_version, "1.1");
+        assert_eq!(loaded.schema_version, "1.2");
         assert_eq!(loaded.frames.len(), 1);
     }
 
@@ -852,11 +971,11 @@ mod tests {
     #[test]
     fn append_annotation_to_latest_returns_false_when_dir_missing() {
         let base = isolated_dir();
-        // project_hash/bus/post ディレクトリ自体が無い状態
+        // project_hash/instance_id/post ディレクトリ自体が無い状態
         let result = append_annotation_to_latest(
             &base,
             "ph",
-            "MIX",
+            TEST_INSTANCE_ID,
             Role::Post,
             "Good".to_string(),
         )
@@ -867,14 +986,13 @@ mod tests {
     #[test]
     fn append_annotation_to_latest_returns_false_when_no_json() {
         let base = isolated_dir();
-        let dir = base.join("ph").join("MIX").join("post");
+        let dir = base.join("ph").join(TEST_INSTANCE_ID).join("post");
         fs::create_dir_all(&dir).unwrap();
-        // .tmp だけあって .json が無い
         fs::write(dir.join("20260417T140000.json.tmp"), b"{}").unwrap();
         let result = append_annotation_to_latest(
             &base,
             "ph",
-            "MIX",
+            TEST_INSTANCE_ID,
             Role::Post,
             "Good".to_string(),
         )
@@ -890,18 +1008,16 @@ mod tests {
         w.flush().unwrap();
         let path = w.paths.final_path.clone();
 
-        // append_annotation_to_latest 実行
         let ok = append_annotation_to_latest(
             &base,
             "project_hash_test",
-            "MIX",
+            TEST_INSTANCE_ID,
             Role::Post,
             "Fix".to_string(),
         )
         .unwrap();
         assert!(ok);
 
-        // 再読込: annotation が 1 件追加され、checksum 整合
         let bytes = fs::read(&path).unwrap();
         let loaded: PluginDataFile = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(loaded.annotations.len(), 1);
@@ -913,10 +1029,9 @@ mod tests {
     #[test]
     fn append_annotation_to_latest_picks_lexicographic_max_filename() {
         let base = isolated_dir();
-        let dir = base.join("ph").join("MIX").join("post");
+        let dir = base.join("ph").join(TEST_INSTANCE_ID).join("post");
         fs::create_dir_all(&dir).unwrap();
 
-        // 2 ファイルを手動作成。compact filename の辞書順 = 時系列順
         for stamp in ["20260417T140000", "20260417T150000", "20260417T143000"] {
             let paths = WriterPaths {
                 final_path: dir.join(format!("{stamp}.json")),
@@ -926,9 +1041,12 @@ mod tests {
                 paths,
                 "iid".to_string(),
                 "ph".to_string(),
+                TEST_INSTANCE_ID.to_string(),
                 Role::Post,
-                "MIX".to_string(),
+                None,
                 48000,
+                None,
+                None,
             )
             .unwrap();
             w.flush().unwrap();
@@ -937,14 +1055,13 @@ mod tests {
         let ok = append_annotation_to_latest(
             &base,
             "ph",
-            "MIX",
+            TEST_INSTANCE_ID,
             Role::Post,
             "Hold".to_string(),
         )
         .unwrap();
         assert!(ok);
 
-        // 最新ファイル（15:00:00）にのみ annotation が入る
         let latest = fs::read(dir.join("20260417T150000.json")).unwrap();
         let other = fs::read(dir.join("20260417T140000.json")).unwrap();
         let latest: PluginDataFile = serde_json::from_slice(&latest).unwrap();
@@ -964,7 +1081,7 @@ mod tests {
         let ok = append_annotation_to_latest(
             &base,
             "project_hash_test",
-            "MIX",
+            TEST_INSTANCE_ID,
             Role::Post,
             "Good".to_string(),
         )
@@ -982,13 +1099,13 @@ mod tests {
     #[test]
     fn append_annotation_to_latest_errors_on_corrupt_json() {
         let base = isolated_dir();
-        let dir = base.join("ph").join("MIX").join("post");
+        let dir = base.join("ph").join(TEST_INSTANCE_ID).join("post");
         fs::create_dir_all(&dir).unwrap();
         fs::write(dir.join("20260417T140000.json"), b"not a json").unwrap();
         let err = append_annotation_to_latest(
             &base,
             "ph",
-            "MIX",
+            TEST_INSTANCE_ID,
             Role::Post,
             "Good".to_string(),
         );

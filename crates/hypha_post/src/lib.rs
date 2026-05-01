@@ -1,30 +1,40 @@
 mod editor;
 
 use kirin_measure::{
-    load_installation_id_safe, load_license_safe, spawn_io_thread_post, spawn_measure_thread,
-    spawn_watchdog, store_signal_state, DeltaResult, License, MeasureResult, RecordStateMachine,
-    SignalState, WatchdogParams, N_CHANNELS, RING_BUFFER_SECONDS,
+    daw_session_id, ensure_legacy_cleanup_done, load_installation_id_safe, load_license_safe,
+    process_project_hash, spawn_io_thread_post, spawn_measure_thread, spawn_watchdog,
+    store_signal_state, DeltaResult, License, MeasureResult, RecordStateMachine, SignalState,
+    WatchdogParams, N_CHANNELS, RING_BUFFER_SECONDS,
 };
 use nih_plug::prelude::*;
 use nih_plug_egui::EguiState;
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU8, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::thread::JoinHandle;
 use uuid::Uuid;
 
 /// Kirin Hypha POST — マスタリングチェイン後段計測プラグイン。
 ///
-/// # 4層隔離（guardian_53 T-8 追加後）
+/// # 4層隔離
 /// ```text
 /// Audio Thread    — process(): バッファコピーのみ（R-12）。絶対に止まらない
 /// Measure Thread  — 4項目計測（ebur128 + スライディングウィンドウ）
-/// IO Thread       — PRE ファイル読み + Δ算出 + post_{id}.json アトミック書き込み
+/// IO Thread       — PRE ファイル読み + Δ算出 + post.json アトミック書き込み
 /// Watchdog Thread — Measure / IO の is_finished() 監視・自動再起動（T-8）
 /// ```
+///
+/// # A-3 修正後の識別子モデル
+/// - `params.instance_id`: 永続 UUID（`#[persist]`）。project save に同梱され、再オープンで復元
+/// - `project_hash`       : DAW プロセス起動時に 1 度だけ生成（OnceLock 経由で PRE/POST 共有）
+/// - `daw_session_id`     : DAW プロセス UUID（cross-process 防壁。record_signal content に同梱）
 pub struct HyphaPost {
     params: Arc<HyphaPostParams>,
     editor_state: Arc<EguiState>,
-    instance_id: String,
+
+    /// プロセス単位 `project_hash`（plugin_data path のルートセグメント）。
+    project_hash: String,
+    /// プロセス単位 `daw_session_id`（record_signal content の cross-process 防壁）。
+    daw_session_id: String,
 
     ring_producer: Option<rtrb::Producer<f32>>,
     measure_result: Arc<Mutex<MeasureResult>>,
@@ -46,33 +56,23 @@ pub struct HyphaPost {
     // ── Heartbeat（SS-3 代替: process() 停止検出）────────────────────
     heartbeat: Arc<AtomicU32>,
 
-    // ── Record モード（サブ2-B: RecordStateMachine と実配線済）─────
-    /// Record 状態機械（Watch ↔ Record の遷移。license 二重 gate 付き）。
+    // ── Record モード ─────────────────────────────────────────────────
     record_sm: Arc<RecordStateMachine>,
-    /// Record 信号 ACK 済か（false=Standby, true=Active。サブ3 で IO Thread が更新）
     record_acknowledged: Arc<AtomicBool>,
-    /// ペアリング表示ラベル（例: "PRE abc123…"）。サブ3 で IO Thread が更新。
+    /// pair_label（POST GUI に表示。Record 中は "pair: PRE_xxxxxxxx"、Watch 中は空文字）
     pair_label: Arc<Mutex<String>>,
-    /// Identity.json から読んだライセンス値（サブ2-A: GUI 分岐に使用）。
-    /// 起動時に 1 回だけ読み込み、降格反映は Step 4 T-6 で別途実装。
+    /// trigger_keep が選定した PRE instance_id（v1.2 (a) cross-instance pair 復元キー）。
+    /// Watch 中は None、Keep 成功直後に Some、Stop / 失敗で None。POST IO Thread が
+    /// Record 開始時に読み出して plugin_data の `paired_pre_instance_id` に書き込む。
+    paired_pre_target: Arc<Mutex<Option<String>>>,
     license: Arc<License>,
 
-    /// サブ3-C: preset/*.json が 1 件以上存在するか。
-    /// POST IO Thread が 1秒ごとに ls して更新、editor が LED 表示に反映。
+    /// preset/*.json が 1 件以上存在するか。
     preset_available: Arc<AtomicBool>,
 
     // ── T-E/T-F 追加（guardian_77 v3 §9 / §10）────────────────────────
-    /// 自機の installation_id（identity.json 由来）。
-    /// editor が `scan_latest_v2_preset` 呼び出し時のフィルタに使う。
-    /// `load_installation_id_safe()` 失敗時は空文字（→ editor が早期 return）。
     installation_id: Arc<String>,
-    /// Latest `transport().pos_samples()` from process(), or `i64::MIN` when
-    /// the host API returned `None` for this frame (fallback path engages).
-    /// Relaxed ordering — editor thread only needs eventual consistency.
     playback_pos_samples: Arc<AtomicI64>,
-    /// Sample rate cached during `initialize()` so the editor can convert
-    /// `pos_samples` → seconds without touching the audio thread state.
-    /// 0 = uninitialised (editor falls back to wall-clock counter).
     playback_sample_rate: Arc<AtomicU32>,
 }
 
@@ -81,6 +81,13 @@ struct HyphaPostParams {
     /// DAW バイパスパラメータ（SS-3: nih-plug `kIsBypass` フラグ）。
     #[id = "bypass"]
     pub bypass: BoolParam,
+
+    /// プロジェクト保存時に永続化される instance UUID（A-3 修正後）。
+    /// 初回挿入時に Default::default() で生成、project 再オープン時には
+    /// nih-plug の persist 機構が同じ値を復元する。Watch / Record / plugin_data
+    /// の path 構築と record_signal の target_pre_instance_id 識別に使う。
+    #[persist = "instance_id"]
+    pub instance_id: RwLock<String>,
 }
 
 impl Default for HyphaPostParams {
@@ -90,16 +97,21 @@ impl Default for HyphaPostParams {
                 .make_bypass()
                 .with_value_to_string(formatters::v2s_bool_bypass())
                 .with_string_to_value(formatters::s2v_bool_bypass()),
+            instance_id: RwLock::new(Uuid::new_v4().to_string()),
         }
     }
 }
 
 impl Default for HyphaPost {
     fn default() -> Self {
+        // 起動時 1 回限りの旧構造 cleanup（OnceLock 内側で flag-guarded）。
+        ensure_legacy_cleanup_done();
+
         Self {
             params: Arc::new(HyphaPostParams::default()),
             editor_state: EguiState::from_size(300, 200),
-            instance_id: Uuid::new_v4().to_string(),
+            project_hash: process_project_hash(),
+            daw_session_id: daw_session_id(),
             ring_producer: None,
             measure_result: Arc::new(Mutex::new(MeasureResult::default())),
             delta_result: Arc::new(Mutex::new(DeltaResult::default())),
@@ -115,6 +127,7 @@ impl Default for HyphaPost {
             record_sm: Arc::new(RecordStateMachine::new()),
             record_acknowledged: Arc::new(AtomicBool::new(false)),
             pair_label: Arc::new(Mutex::new(String::new())),
+            paired_pre_target: Arc::new(Mutex::new(None)),
             license: Arc::new(load_license_safe()),
             preset_available: Arc::new(AtomicBool::new(false)),
             installation_id: Arc::new(load_installation_id_or_empty()),
@@ -125,15 +138,22 @@ impl Default for HyphaPost {
 }
 
 /// Best-effort read of the installation_id for T-E proposals filtering.
-/// Returns "" when identity.json is not present / unreadable — editor then
-/// silently skips preset scanning (R-28).
 fn load_installation_id_or_empty() -> String {
     load_installation_id_safe().unwrap_or_default()
 }
 
+/// `params.instance_id` から現在の文字列を読み取る（panic-safe）。
+fn read_instance_id(params: &HyphaPostParams) -> String {
+    params
+        .instance_id
+        .read()
+        .ok()
+        .map(|g| g.clone())
+        .unwrap_or_default()
+}
+
 impl Drop for HyphaPost {
     fn drop(&mut self) {
-        // T-7 先取り: Record 中の場合は Watch へ戻す（plugin_data/ 書込停止）
         self.record_sm.exit_record();
 
         self.watchdog_shutdown.store(true, Ordering::Relaxed);
@@ -173,7 +193,9 @@ impl Plugin for HyphaPost {
     fn editor(&mut self, _async_executor: AsyncExecutor<Self>) -> Option<Box<dyn Editor>> {
         editor::create_post_editor(editor::PostEditorArgs {
             egui_state: Arc::clone(&self.editor_state),
-            instance_id: self.instance_id.clone(),
+            instance_id: read_instance_id(&self.params),
+            project_hash: self.project_hash.clone(),
+            daw_session_id: self.daw_session_id.clone(),
             measure: Arc::clone(&self.measure_result),
             delta: Arc::clone(&self.delta_result),
             measure_alive: Arc::clone(&self.measure_alive),
@@ -181,6 +203,7 @@ impl Plugin for HyphaPost {
             record_sm: Arc::clone(&self.record_sm),
             record_acknowledged: Arc::clone(&self.record_acknowledged),
             pair_label: Arc::clone(&self.pair_label),
+            paired_pre_target: Arc::clone(&self.paired_pre_target),
             license: Arc::clone(&self.license),
             preset_available: Arc::clone(&self.preset_available),
             installation_id: Arc::clone(&self.installation_id),
@@ -224,7 +247,7 @@ impl Plugin for HyphaPost {
         // ── Heartbeat リセット ────────────────────────────────────────
         self.heartbeat.store(0, Ordering::Relaxed);
 
-        // ── T-F: sample_rate キャッシュ（editor が pos_samples→秒に使用）──
+        // ── T-F: sample_rate キャッシュ ──────────────────────────────
         self.playback_sample_rate
             .store(buffer_config.sample_rate as u32, Ordering::Relaxed);
         self.playback_pos_samples.store(i64::MIN, Ordering::Relaxed);
@@ -241,34 +264,42 @@ impl Plugin for HyphaPost {
 
         // ── IO Thread 起動 ───────────────────────────────────────────
         let sample_rate = buffer_config.sample_rate as u32;
+        let instance_id = read_instance_id(&self.params);
+        let project_hash = self.project_hash.clone();
         let io_handle = spawn_io_thread_post(
-            self.instance_id.clone(),
+            instance_id.clone(),
+            project_hash.clone(),
             sample_rate,
             Arc::clone(&self.record_sm),
             Arc::clone(&self.measure_result),
             Arc::clone(&self.delta_result),
             Arc::clone(&self.signal_state),
             Arc::clone(&self.preset_available),
+            Arc::clone(&self.paired_pre_target),
             Arc::clone(&self.io_shutdown),
         );
 
-        // ── Watchdog Thread 起動（T-8） ──────────────────────────────
+        // ── Watchdog Thread 起動 ──────────────────────────────────────
         let restart_io = {
-            let instance_id = self.instance_id.clone();
+            let instance_id = instance_id.clone();
+            let project_hash = project_hash.clone();
             let record_sm = Arc::clone(&self.record_sm);
             let measure_result = Arc::clone(&self.measure_result);
             let delta_result = Arc::clone(&self.delta_result);
             let signal_state = Arc::clone(&self.signal_state);
             let preset_available = Arc::clone(&self.preset_available);
+            let paired_pre_target = Arc::clone(&self.paired_pre_target);
             move |new_shutdown: Arc<AtomicBool>| {
                 spawn_io_thread_post(
                     instance_id.clone(),
+                    project_hash.clone(),
                     sample_rate,
                     Arc::clone(&record_sm),
                     Arc::clone(&measure_result),
                     Arc::clone(&delta_result),
                     Arc::clone(&signal_state),
                     Arc::clone(&preset_available),
+                    Arc::clone(&paired_pre_target),
                     new_shutdown,
                 )
             }
@@ -301,19 +332,13 @@ impl Plugin for HyphaPost {
         _aux: &mut AuxiliaryBuffers,
         context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
-        // ── Heartbeat: process() が呼ばれていることを Measure Thread に通知 ──
         self.heartbeat.fetch_add(1, Ordering::Relaxed);
 
-        // ── SS-2/SS-3: SignalState 判定（process() 先頭）──────────────
         let bypass_val = self.params.bypass.value();
         let transport = context.transport();
         let playing = transport.playing;
         let silent = buffer_is_silent(buffer);
 
-        // ── T-F plumbing: 再生位置を atomic に反映（editor が秒換算）──
-        //   非 realtime-critical: `Ordering::Relaxed` の単一 store のみ。
-        //   host API が None を返した場合は i64::MIN を入れ、editor 側で
-        //   Record 開始 wall-clock fallback へ切り替わる（§10.2）。
         let pos = transport.pos_samples().unwrap_or(i64::MIN);
         self.playback_pos_samples.store(pos, Ordering::Relaxed);
 
@@ -326,7 +351,6 @@ impl Plugin for HyphaPost {
         };
         store_signal_state(&self.signal_state, state);
 
-        // R-12: バッファを変更しない（in-place 素通し）
         if state == SignalState::Active {
             if let Some(producer) = &mut self.ring_producer {
                 for channel_samples in buffer.iter_samples() {
@@ -337,10 +361,8 @@ impl Plugin for HyphaPost {
             }
         }
 
-        // T-8: Watchdog が差し込んだ新 Producer を低頻度でスワップ
         self.process_counter = self.process_counter.wrapping_add(1);
         if self.process_counter & 0xFF == 0 {
-            // ── SS-9 診断ログ（低頻度: ~5秒に1回）──────────────────
             log::info!(
                 "[POST diag] state={:?} bypass={} playing={} silent={} buf_len={}",
                 state, bypass_val, playing, silent,
@@ -365,7 +387,6 @@ impl Vst3Plugin for HyphaPost {
         &[Vst3SubCategory::Fx, Vst3SubCategory::Analyzer];
 }
 
-/// 入力バッファが全ゼロ（無音）かを判定する。
 fn buffer_is_silent(buffer: &mut Buffer) -> bool {
     for channel in buffer.as_slice() {
         for &sample in channel.iter() {

@@ -252,8 +252,15 @@ pub fn load_or_recover(
     Ok(LoadedIdentity { identity, status: LoadStatus::FreshlyGenerated })
 }
 
-/// `plugin_data/{project_hash}/{bus}/pre/*.json` を走査して最新ファイルから
-/// `installation_id` を抽出する。
+/// `plugin_data/{project_hash}/{instance_id}/pre/*.json` を走査して最新ファイルから
+/// `installation_id` を抽出する（A-3 修正後の階層）。
+///
+/// # PRE 専用前提（A H-4 / 受入基準 #4）
+/// 本関数は `pre/` ディレクトリ固定で走査する。POST 側の `installation_id` は読まない。
+/// PRE/POST は同一 DAW プロセスで同じ identity.json を参照するため `installation_id`
+/// は等価であり、片側走査で十分という設計判断（pre_dir 固定）。
+/// もし将来 PRE が一切起動されないユースケースが発生した場合は、POST 側 path も
+/// fallback として走査する拡張が必要になる。
 ///
 /// 走査対象が見つからない、installation_id が全ファイル欠落している等の場合は `None`。
 fn scan_plugin_data_for_installation_id(plugin_data_dir: &Path) -> Option<String> {
@@ -261,7 +268,7 @@ fn scan_plugin_data_for_installation_id(plugin_data_dir: &Path) -> Option<String
         return None;
     }
 
-    // 深さ 3 まで再帰走査: plugin_data / {project_hash} / {bus} / pre
+    // 深さ 3 まで再帰走査: plugin_data / {project_hash} / {instance_id} / pre
     let mut candidates: Vec<(std::time::SystemTime, PathBuf)> = Vec::new();
 
     let projects = fs::read_dir(plugin_data_dir).ok()?;
@@ -269,15 +276,26 @@ fn scan_plugin_data_for_installation_id(plugin_data_dir: &Path) -> Option<String
         if !project.file_type().ok()?.is_dir() {
             continue;
         }
-        let buses = match fs::read_dir(project.path()) {
+        let instances = match fs::read_dir(project.path()) {
             Ok(d) => d,
             Err(_) => continue,
         };
-        for bus in buses.flatten() {
-            if !bus.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+        for inst in instances.flatten() {
+            if !inst.file_type().map(|t| t.is_dir()).unwrap_or(false) {
                 continue;
             }
-            let pre_dir = bus.path().join("pre");
+            // record_signal/ / preset/ 等の予約ディレクトリは instance_id ではない
+            let name = inst.file_name();
+            let name_str = match name.to_str() {
+                Some(s) => s,
+                None => continue,
+            };
+            if name_str == crate::record_signal::SIGNALS_SUBDIR
+                || name_str == crate::preset::PRESET_SUBDIR
+            {
+                continue;
+            }
+            let pre_dir = inst.path().join("pre");
             if !pre_dir.is_dir() {
                 continue;
             }
@@ -299,7 +317,6 @@ fn scan_plugin_data_for_installation_id(plugin_data_dir: &Path) -> Option<String
         }
     }
 
-    // 新しい順にソート
     candidates.sort_by(|a, b| b.0.cmp(&a.0));
 
     for (_, path) in candidates {
@@ -314,6 +331,96 @@ fn scan_plugin_data_for_installation_id(plugin_data_dir: &Path) -> Option<String
         }
     }
     None
+}
+
+// ── 旧構造 cleanup（1a-6 / Q4）────────────────────────────────────────────────
+
+/// `~/Library/Application Support/Kirin OS/.cleanup_v1_done` フラグファイル名。
+pub const CLEANUP_V1_DONE_FILENAME: &str = ".cleanup_v1_done";
+
+/// 旧構造（`PROJECT_HASH_PHASE1="default"` / `BUS_PHASE1="MIX"` 時代）の残骸を 1 度
+/// だけ削除する。flag ファイル `.cleanup_v1_done` の有無で冪等性を保証。
+///
+/// 削除対象:
+/// - `~/Library/.../plugin_data/default/MIX/`（旧 Watch + Record データ）
+/// - `~/Library/.../plugin_data/default/preset/`（旧 default プロジェクトの preset）
+/// - `$TMPDIR/kirin/default/MIX/`（旧 /tmp/ Watch ファイル）
+///
+/// flag ファイルは `~/Library/.../Kirin OS/.cleanup_v1_done`。2 回目起動時はスキップ。
+/// 失敗時はログのみ出力して continue（破壊的にならない）。
+pub fn cleanup_legacy_v1(paths: &StoragePaths) -> CleanupReport {
+    let flag = paths.kirin_os_root.join(CLEANUP_V1_DONE_FILENAME);
+    if flag.exists() {
+        return CleanupReport {
+            ran: false,
+            removed: 0,
+            errors: 0,
+        };
+    }
+
+    let mut removed = 0usize;
+    let mut errors = 0usize;
+
+    let pd = paths.plugin_data_dir();
+    let legacy_mix = pd.join("default").join("MIX");
+    let legacy_preset = pd.join("default").join("preset");
+    let legacy_tmp = std::env::temp_dir().join("kirin").join("default").join("MIX");
+
+    for target in [&legacy_mix, &legacy_preset, &legacy_tmp] {
+        if !target.exists() {
+            continue;
+        }
+        match fs::remove_dir_all(target) {
+            Ok(()) => {
+                log::info!("[cleanup_v1] removed: {}", target.display());
+                removed += 1;
+            }
+            Err(e) => {
+                log::warn!("[cleanup_v1] failed to remove {}: {}", target.display(), e);
+                errors += 1;
+            }
+        }
+    }
+
+    // 親 `default/` ディレクトリが空になっていれば一緒に消す（残骸を残さない）
+    let legacy_default = pd.join("default");
+    if legacy_default.exists() {
+        let _ = fs::remove_dir(&legacy_default);
+    }
+    let legacy_tmp_default = std::env::temp_dir().join("kirin").join("default");
+    if legacy_tmp_default.exists() {
+        let _ = fs::remove_dir(&legacy_tmp_default);
+    }
+
+    // flag ファイル書込
+    if let Some(parent) = flag.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    if let Err(e) = fs::write(&flag, b"cleanup v1 completed\n") {
+        log::warn!(
+            "[cleanup_v1] failed to write flag {}: {}",
+            flag.display(),
+            e
+        );
+        errors += 1;
+    }
+
+    CleanupReport {
+        ran: true,
+        removed,
+        errors,
+    }
+}
+
+/// `cleanup_legacy_v1` の実行レポート。テスト・ログ用。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CleanupReport {
+    /// この呼び出しで cleanup が実行されたか（false = 既に実行済みでスキップ）。
+    pub ran: bool,
+    /// 削除に成功したディレクトリ数。
+    pub removed: usize,
+    /// 削除に失敗したディレクトリ数（flag 書込失敗も含む）。
+    pub errors: usize,
 }
 
 // ── installation_id loose reader（サブ3-A-2 / Adv-実装 承認 β 案）──────
@@ -507,8 +614,12 @@ mod tests {
             load_or_recover(&paths, hc("A", "B", "C"), License::Os).unwrap();
         let original_id = first.identity.installation_id.clone();
 
-        // plugin_data に pre JSON を作成
-        let pre_dir = paths.plugin_data_dir().join("default").join("MIX").join("pre");
+        // 新構造: plugin_data/{project_hash}/{instance_id}/pre/*.json
+        let pre_dir = paths
+            .plugin_data_dir()
+            .join("ph-test")
+            .join("iid-test")
+            .join("pre");
         fs::create_dir_all(&pre_dir).unwrap();
         let pre_file = pre_dir.join("20260417T120000.json");
         let json = format!(r#"{{"installation_id":"{}","other":"data"}}"#, original_id);
@@ -531,7 +642,11 @@ mod tests {
     #[test]
     fn stage3_picks_newest_by_mtime() {
         let (paths, root) = isolated_paths();
-        let pre_dir = paths.plugin_data_dir().join("p1").join("MIX").join("pre");
+        let pre_dir = paths
+            .plugin_data_dir()
+            .join("p1")
+            .join("iid-newest")
+            .join("pre");
         fs::create_dir_all(&pre_dir).unwrap();
         let old_file = pre_dir.join("a.json");
         let new_file = pre_dir.join("b.json");
@@ -713,5 +828,69 @@ mod tests {
         let path = isolated_id_path("identity.json");
         fs::write(&path, r#"{"installation_id": 42}"#).unwrap();
         assert_eq!(load_installation_id_from(&path), None);
+    }
+
+    // ── cleanup_legacy_v1 (1a-6 / Q4) ─────────────────────────────────────
+
+    #[test]
+    fn cleanup_legacy_v1_removes_default_mix_and_writes_flag() {
+        let (paths, root) = isolated_paths();
+        // 旧構造を擬似的に作成
+        let pd = paths.plugin_data_dir();
+        let legacy_pre = pd.join("default").join("MIX").join("pre");
+        let legacy_post = pd.join("default").join("MIX").join("post");
+        let legacy_preset = pd.join("default").join("preset");
+        fs::create_dir_all(&legacy_pre).unwrap();
+        fs::create_dir_all(&legacy_post).unwrap();
+        fs::create_dir_all(&legacy_preset).unwrap();
+        fs::write(legacy_pre.join("a.json"), b"{}").unwrap();
+        fs::write(legacy_post.join("b.json"), b"{}").unwrap();
+        fs::write(legacy_preset.join("c.json"), b"{}").unwrap();
+
+        let report = cleanup_legacy_v1(&paths);
+        assert!(report.ran);
+        assert_eq!(report.errors, 0);
+        assert!(report.removed >= 2, "MIX + preset must be removed: {report:?}");
+
+        // 旧構造が消えている
+        assert!(!pd.join("default").join("MIX").exists());
+        assert!(!pd.join("default").join("preset").exists());
+        // flag が書かれている
+        assert!(paths.kirin_os_root.join(CLEANUP_V1_DONE_FILENAME).exists());
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn cleanup_legacy_v1_is_idempotent_via_flag() {
+        let (paths, root) = isolated_paths();
+        // 初回（旧構造なし）
+        let r1 = cleanup_legacy_v1(&paths);
+        assert!(r1.ran);
+        // 2 回目: flag が立っているのでスキップ
+        let r2 = cleanup_legacy_v1(&paths);
+        assert!(!r2.ran, "second run must be skipped: {r2:?}");
+        assert_eq!(r2.removed, 0);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn cleanup_legacy_v1_preserves_new_structure() {
+        let (paths, root) = isolated_paths();
+        let pd = paths.plugin_data_dir();
+        // 新構造（残しておくべき）
+        let new_pre = pd.join("ph-new").join("iid-A").join("pre");
+        fs::create_dir_all(&new_pre).unwrap();
+        fs::write(new_pre.join("keep.json"), b"{}").unwrap();
+        // 旧構造（消えるべき）
+        let legacy = pd.join("default").join("MIX").join("pre");
+        fs::create_dir_all(&legacy).unwrap();
+        fs::write(legacy.join("drop.json"), b"{}").unwrap();
+
+        cleanup_legacy_v1(&paths);
+
+        assert!(new_pre.join("keep.json").exists(), "new structure preserved");
+        assert!(!legacy.exists(), "legacy structure removed");
+        let _ = fs::remove_dir_all(root);
     }
 }
