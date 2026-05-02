@@ -17,7 +17,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
@@ -48,7 +48,9 @@ const ACK_TIMEOUT_POLL_INTERVAL: Duration = Duration::from_secs(1);
 /// POST 用 IO Thread を起動して JoinHandle を返す。
 ///
 /// # 引数
-/// - `instance_id`        : POST の永続 instance UUID（plugin params 経由で project save に同梱）
+/// - `instance_id`        : POST の永続 instance UUID（`Arc<RwLock<String>>` で
+///   plugin params と共有。B-022 段階 1 で String snapshot から lazy-read 化。
+///   `set_state` 経由の chunk-restore 後でも次 tick から最新値を拾う）
 /// - `project_hash`       : DAW プロセス単位の project_hash
 /// - `sample_rate`        : Record モード Writer の `sample_rate` フィールドに格納
 /// - `record_sm`          : Watch/Record 判定用（editor.rs から共有）
@@ -60,7 +62,7 @@ const ACK_TIMEOUT_POLL_INTERVAL: Duration = Duration::from_secs(1);
 /// - `shutdown`           : `true` になったらループ終了
 #[allow(clippy::too_many_arguments)]
 pub fn spawn_io_thread_post(
-    instance_id: String,
+    instance_id: Arc<RwLock<String>>,
     project_hash: String,
     sample_rate: u32,
     record_sm: Arc<RecordStateMachine>,
@@ -78,13 +80,10 @@ pub fn spawn_io_thread_post(
         // POST 自身の post.json 書込先は instance_dir 固定 (POST 自分の project_uuid)。
         let kirin_root = std::env::temp_dir().join("kirin");
         let project_dir_hint = kirin_root.join(&project_hash);
-        let instance_dir = project_dir_hint.join(&instance_id);
-        let post_file = instance_dir.join("post.json");
-        let post_tmp = instance_dir.join("post.json.tmp");
 
         log::info!(
-            "[IOThread POST] started → {} (kirin_root={})",
-            post_file.display(),
+            "[IOThread POST] started (lazy-read instance_id, project_dir_hint={}, kirin_root={})",
+            project_dir_hint.display(),
             kirin_root.display()
         );
 
@@ -99,6 +98,16 @@ pub fn spawn_io_thread_post(
                 break;
             }
 
+            // B-022 段階 1: tick 開始時に instance_id を lazy-read。
+            // `Arc<RwLock<String>>` は plugin params と同実体を共有するため、
+            // `set_state_inner` 経由で chunk-restored 値が書かれた直後でも
+            // 次 tick からは新値を拾う。
+            let instance_id_owned = read_instance_id_arc(&instance_id);
+            let instance_id_ref = instance_id_owned.as_str();
+            let instance_dir = project_dir_hint.join(instance_id_ref);
+            let post_file = instance_dir.join("post.json");
+            let post_tmp = instance_dir.join("post.json.tmp");
+
             match run_tick(
                 &project_dir_hint,
                 &kirin_root,
@@ -106,7 +115,7 @@ pub fn spawn_io_thread_post(
                 &instance_dir,
                 &post_tmp,
                 &post_file,
-                &instance_id,
+                instance_id_ref,
                 &post_result,
                 &delta_result,
                 &signal_state,
@@ -118,7 +127,6 @@ pub fn spawn_io_thread_post(
             // plugin_data/.../post/*.json ライフサイクル
             // POST は自身の signal_path から started_at を resolve
             let project_hash_ref = project_hash.as_str();
-            let instance_id_ref = instance_id.as_str();
             let resolver = || match StoragePaths::default_macos() {
                 Ok(paths) => crate::record_writer::resolve_started_at_ms(
                     &paths.plugin_data_dir(),
@@ -154,26 +162,44 @@ pub fn spawn_io_thread_post(
             }
 
             if Instant::now() >= next_ack_timeout_poll {
-                poll_ack_timeout(&project_hash, &instance_id, &record_sm);
+                poll_ack_timeout(&project_hash, instance_id_ref, &record_sm);
                 next_ack_timeout_poll = Instant::now() + ACK_TIMEOUT_POLL_INTERVAL;
             }
 
             thread::sleep(LOOP_SLEEP);
         }
 
+        // 終了処理: 直近 tick の instance_id でクリーンアップ。
+        // `set_state` 復元後に instance_id が切り替わった場合は旧 instance dir
+        // (Default UUID) の post.json が残骸として残るが、次回起動時の同関数で
+        // 同じ Default UUID を踏むことは無いため自然消失する (R-28 機能的沈黙)。
         if let Some(ctx) = recording.take() {
             writer_close(ctx);
         }
 
-        if let Err(e) = fs::remove_file(&post_file) {
+        let final_iid = read_instance_id_arc(&instance_id);
+        let final_instance_dir = project_dir_hint.join(&final_iid);
+        let final_post_file = final_instance_dir.join("post.json");
+        let final_post_tmp = final_instance_dir.join("post.json.tmp");
+        if let Err(e) = fs::remove_file(&final_post_file) {
             log::debug!("[IOThread POST] cleanup post file: {}", e);
         }
-        if let Err(e) = fs::remove_file(&post_tmp) {
+        if let Err(e) = fs::remove_file(&final_post_tmp) {
             log::debug!("[IOThread POST] cleanup post tmp: {}", e);
         }
-        let _ = fs::remove_dir(&instance_dir);
+        let _ = fs::remove_dir(&final_instance_dir);
         log::info!("[IOThread POST] terminated");
     })
+}
+
+/// `Arc<RwLock<String>>` から現在値を lazy-read（panic-safe）。
+///
+/// B-022 段階 1: chunk-restore 後の最新 instance_id を毎 tick / 各 use site で
+/// 取得するための kirin_measure 内部ヘルパ。`hypha_post::read_instance_id_arc`
+/// と同等の実装だが、kirin_measure crate からは hypha_* を参照できないため
+/// 重複定義する。public は不要 (本ファイル + io_thread_pre.rs から使うのみ)。
+pub(crate) fn read_instance_id_arc(arc: &Arc<RwLock<String>>) -> String {
+    arc.read().ok().map(|g| g.clone()).unwrap_or_default()
 }
 
 /// 1 ループの処理本体。

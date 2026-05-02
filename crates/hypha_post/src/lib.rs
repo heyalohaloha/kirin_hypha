@@ -95,8 +95,15 @@ struct HyphaPostParams {
     /// 初回挿入時に Default::default() で生成、project 再オープン時には
     /// nih-plug の persist 機構が同じ値を復元する。Watch / Record / plugin_data
     /// の path 構築と record_signal の target_pre_instance_id 識別に使う。
+    ///
+    /// B-022 段階 1: chunk-restore タイミングで host が `set_state` を発行した
+    /// 直後に editor / io_thread の snapshot が陳腐化する問題への対処として
+    /// `Arc<RwLock<String>>` 型で `editor::PostEditorArgs` / `spawn_io_thread_post`
+    /// に共有する。`#[persist]` は `Arc<RwLock<String>>` も等価に扱う
+    /// （nih-plug `params/persist.rs` の `impl_persistent_arc!` 経由で
+    /// chunk JSON 形式は変わらない / 既存プロジェクト互換）。
     #[persist = "instance_id"]
-    pub instance_id: RwLock<String>,
+    pub instance_id: Arc<RwLock<String>>,
 
     /// プロジェクト chunk に永続化される project UUID（B-020 / γ-3）。
     /// PRE 側の値を `sync_project_uuid_from_pre()` でセルから取り込んだ後、
@@ -118,7 +125,7 @@ impl Default for HyphaPostParams {
                 .make_bypass()
                 .with_value_to_string(formatters::v2s_bool_bypass())
                 .with_string_to_value(formatters::s2v_bool_bypass()),
-            instance_id: RwLock::new(Uuid::new_v4().to_string()),
+            instance_id: Arc::new(RwLock::new(Uuid::new_v4().to_string())),
             project_uuid: RwLock::new(Uuid::new_v4().to_string()),
             daw_session_uuid: RwLock::new(Uuid::new_v4().to_string()),
         }
@@ -165,14 +172,14 @@ fn load_installation_id_or_empty() -> String {
     load_installation_id_safe().unwrap_or_default()
 }
 
-/// `params.instance_id` から現在の文字列を読み取る（panic-safe）。
-fn read_instance_id(params: &HyphaPostParams) -> String {
-    params
-        .instance_id
-        .read()
-        .ok()
-        .map(|g| g.clone())
-        .unwrap_or_default()
+/// `Arc<RwLock<String>>` から現在値を lazy-read（panic-safe）。
+///
+/// B-022 段階 1: editor / io_thread 側で snapshot を取らず、毎 use site で
+/// 最新値を取得する目的で使う。`params.instance_id` が `Arc<RwLock<String>>` 化
+/// されたことで、editor() 時点 / initialize() 時点に String snapshot を取らず
+/// 共有 Arc を渡し、各 use site で `read_instance_id_arc(&arc)` を呼ぶ。
+pub(crate) fn read_instance_id_arc(arc: &Arc<RwLock<String>>) -> String {
+    arc.read().ok().map(|g| g.clone()).unwrap_or_default()
 }
 
 /// `RwLock<String>` 永続フィールドから現在値を読む（panic-safe）。
@@ -248,7 +255,11 @@ impl Plugin for HyphaPost {
     fn editor(&mut self, _async_executor: AsyncExecutor<Self>) -> Option<Box<dyn Editor>> {
         editor::create_post_editor(editor::PostEditorArgs {
             egui_state: Arc::clone(&self.editor_state),
-            instance_id: read_instance_id(&self.params),
+            // B-022 段階 1: editor 側は use site で lazy-read するため Arc を共有する
+            // （旧: `read_instance_id(&self.params)` で String snapshot を渡していたが
+            // editor() 自体が WrapperInner::new() で 1 度だけ呼ばれ、Default UUID で
+            // 凍結されてしまう問題があった）。
+            instance_id: Arc::clone(&self.params.instance_id),
             project_hash: self.project_hash.clone(),
             daw_session_id: self.daw_session_id.clone(),
             measure: Arc::clone(&self.measure_result),
@@ -335,11 +346,14 @@ impl Plugin for HyphaPost {
         );
 
         // ── IO Thread 起動 ───────────────────────────────────────────
+        // B-022 段階 1: io_thread には Arc<RwLock<String>> 共有 → tick ごと lazy-read。
+        // 旧 String snapshot は initialize() 時点で凍結されるため、setState 経由の
+        // 後続復元・再 initialize で値が変わったケースで instance_id が陳腐化していた。
         let sample_rate = buffer_config.sample_rate as u32;
-        let instance_id = read_instance_id(&self.params);
+        let instance_id_arc = Arc::clone(&self.params.instance_id);
         let project_hash = self.project_hash.clone();
         let io_handle = spawn_io_thread_post(
-            instance_id.clone(),
+            Arc::clone(&instance_id_arc),
             project_hash.clone(),
             sample_rate,
             Arc::clone(&self.record_sm),
@@ -353,7 +367,7 @@ impl Plugin for HyphaPost {
 
         // ── Watchdog Thread 起動 ──────────────────────────────────────
         let restart_io = {
-            let instance_id = instance_id.clone();
+            let instance_id_arc = Arc::clone(&instance_id_arc);
             let project_hash = project_hash.clone();
             let record_sm = Arc::clone(&self.record_sm);
             let measure_result = Arc::clone(&self.measure_result);
@@ -363,7 +377,7 @@ impl Plugin for HyphaPost {
             let paired_pre_target = Arc::clone(&self.paired_pre_target);
             move |new_shutdown: Arc<AtomicBool>| {
                 spawn_io_thread_post(
-                    instance_id.clone(),
+                    Arc::clone(&instance_id_arc),
                     project_hash.clone(),
                     sample_rate,
                     Arc::clone(&record_sm),

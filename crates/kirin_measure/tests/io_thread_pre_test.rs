@@ -11,7 +11,7 @@ use kirin_measure::{
     SignalState,
 };
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
 // ── JSON フォーマットテスト ─────────────────────────────────────────────────
@@ -126,7 +126,7 @@ fn test_io_thread_writes_and_cleans_up() {
     let ack = Arc::new(AtomicBool::new(false));
     let license = Arc::new(License::Unknown);
     let handle = spawn_io_thread_pre(
-        instance_id.clone(),
+        Arc::new(RwLock::new(instance_id.clone())),
         project_hash.clone(),
         daw_session_id.clone(),
         48000,
@@ -184,7 +184,7 @@ fn test_io_thread_updates_on_result_change() {
     let ack = Arc::new(AtomicBool::new(false));
     let license = Arc::new(License::Unknown);
     let handle = spawn_io_thread_pre(
-        instance_id.clone(),
+        Arc::new(RwLock::new(instance_id.clone())),
         project_hash.clone(),
         daw_session_id.clone(),
         48000,

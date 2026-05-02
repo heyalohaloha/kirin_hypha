@@ -142,9 +142,14 @@ fn editor_rs_caps_rendered_cards() {
 // ── A-3 修正: instance_id 永続化 + pair_label 配線 ───────────────────────
 
 /// HyphaPostParams に instance_id が `#[persist = "instance_id"]` で
-/// `RwLock<String>` 型で永続化されていること。これが無いと DAW 再保存→
+/// `Arc<RwLock<String>>` 型で永続化されていること。これが無いと DAW 再保存→
 /// 再起動で PRE/POST のペアリングが切れ、record_signal の target_pre_instance_id
 /// 一致判定が崩れる（A-3 致命級）。
+///
+/// B-022 段階 1: 型を `RwLock<String>` から `Arc<RwLock<String>>` に変更
+/// （chunk-restore 後の最新値を editor / io_thread に lazy-read 経由で伝播
+/// するため。nih-plug `params/persist.rs` の `impl_persistent_arc!` で
+/// `Arc<RwLock<T>>` も `RwLock<T>` と同等に扱われる / chunk JSON は不変）。
 #[test]
 fn lib_rs_persists_instance_id_via_rwlock_string() {
     let src = read("src/lib.rs");
@@ -153,8 +158,8 @@ fn lib_rs_persists_instance_id_via_rwlock_string() {
         "HyphaPostParams must annotate instance_id with `#[persist = \"instance_id\"]`"
     );
     assert!(
-        src.contains("instance_id: RwLock<String>"),
-        "instance_id must be `RwLock<String>` (PersistentField for nih-plug)"
+        src.contains("instance_id: Arc<RwLock<String>>"),
+        "instance_id must be `Arc<RwLock<String>>` (B-022 段階 1: lazy-read 共有用)"
     );
 }
 

@@ -11,7 +11,7 @@ use kirin_measure::{
     MeasureResult, RecordStateMachine, SignalState,
 };
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
 // ── serialize_post_json テスト ────────────────────────────────────────────
@@ -180,7 +180,7 @@ fn test_io_thread_post_file_cleanup() {
     let preset_available = Arc::new(AtomicBool::new(false));
     let paired_pre_target = Arc::new(Mutex::new(None));
     let handle = spawn_io_thread_post(
-        instance_id.clone(),
+        Arc::new(RwLock::new(instance_id.clone())),
         project_hash.clone(),
         48000,
         Arc::clone(&record_sm),

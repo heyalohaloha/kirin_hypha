@@ -11,6 +11,10 @@ fn read_lib_rs() -> String {
     fs::read_to_string(&path).unwrap_or_else(|e| panic!("read src/lib.rs: {e}"))
 }
 
+/// B-022 段階 1: 型を `RwLock<String>` から `Arc<RwLock<String>>` に変更。
+/// chunk-restore 後の最新値を io_thread の毎 tick lazy-read に届けるため、
+/// `Arc` を共有する形に格上げ。`#[persist]` 互換は nih-plug
+/// `params/persist.rs` の `impl_persistent_arc!` で担保 / chunk JSON は不変。
 #[test]
 fn lib_rs_persists_instance_id_via_rwlock_string() {
     let src = read_lib_rs();
@@ -19,8 +23,8 @@ fn lib_rs_persists_instance_id_via_rwlock_string() {
         "HyphaPreParams must annotate instance_id with `#[persist = \"instance_id\"]`"
     );
     assert!(
-        src.contains("instance_id: RwLock<String>"),
-        "instance_id must be `RwLock<String>` (PersistentField for nih-plug)"
+        src.contains("instance_id: Arc<RwLock<String>>"),
+        "instance_id must be `Arc<RwLock<String>>` (B-022 段階 1: lazy-read 共有用)"
     );
 }
 

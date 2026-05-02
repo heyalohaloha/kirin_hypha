@@ -14,12 +14,14 @@ use kirin_measure::{
     RecordStateMachine, SignalState, WatchdogParams,
 };
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
 /// watchdog_test 全体で共通の PRE IO Thread 起動ヘルパー。
-/// 新しい spawn_io_thread_pre シグネチャの引数数を吸収する。
+/// B-022 段階 1 後: `spawn_io_thread_pre` の `instance_id` 引数は
+/// `Arc<RwLock<String>>` 化された。テストは `Arc::new(RwLock::new(_))` で
+/// 即時 wrap して渡す。
 /// `project_hash` / `daw_session_id` はテスト内では検証対象外なので
 /// instance_id ベースで決定論的に派生させる。
 #[allow(clippy::too_many_arguments)]
@@ -32,7 +34,7 @@ fn spawn_pre_io(
     let project_hash = format!("test-proj-{}", instance_id);
     let daw_session_id = format!("test-daw-{}", instance_id);
     spawn_io_thread_pre(
-        instance_id,
+        Arc::new(RwLock::new(instance_id)),
         project_hash,
         daw_session_id,
         48000,

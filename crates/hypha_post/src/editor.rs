@@ -46,8 +46,10 @@ use nih_plug_egui::{
     EguiState,
 };
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU8, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
+
+use crate::read_instance_id_arc;
 
 /// T-E throttle: rescan `preset/` at most every 500 ms. proposals rarely
 /// change at sub-second cadence; avoids hitting FS every repaint (≈ 10 Hz).
@@ -83,7 +85,11 @@ impl Toast {
 // ── エディタ状態 ─────────────────────────────────────────────────────────
 
 pub struct PostEditorState {
-    pub instance_id: String,
+    /// B-022 段階 1: chunk-restore 後の最新 instance_id を毎フレーム lazy-read するため
+    /// `Arc<RwLock<String>>` を共有保持する。trigger_keep / trigger_stop /
+    /// trigger_note_save の各 use site で `read_instance_id_arc(&self.instance_id)` を
+    /// 呼び出してから渡す。
+    pub instance_id: Arc<RwLock<String>>,
     /// プロセス単位 `project_hash`（plugin_data path のルートセグメント）。
     pub project_hash: String,
     /// プロセス単位 `daw_session_id`（record_signal content の cross-process 防壁）。
@@ -174,7 +180,9 @@ impl PostEditorState {
 /// Bundle of `Arc`-shared plugin state handed to the editor.
 pub struct PostEditorArgs {
     pub egui_state: Arc<EguiState>,
-    pub instance_id: String,
+    /// B-022 段階 1: lib.rs `editor()` から `Arc::clone(&self.params.instance_id)` を
+    /// 渡す。chunk-restore 直後の最新値を use site で lazy-read するため。
+    pub instance_id: Arc<RwLock<String>>,
     /// プロセス単位 `project_hash`（A-3 修正後）。
     pub project_hash: String,
     /// プロセス単位 `daw_session_id`（A-3 修正後 / Q1 補強）。
@@ -528,6 +536,9 @@ fn draw_button_row(
     m: &MeasureResult,
     now: f64,
 ) {
+    // B-022 段階 1: chunk-restore 後の最新値を 1 フレーム 1 回 lazy-read。
+    // ボタン押下が同フレーム内で発火するため、各 trigger_* に同じ値を渡せる。
+    let instance_id = read_instance_id_arc(&state.instance_id);
     ui.horizontal(|ui| {
         ui.add_space(10.0);
         if recording {
@@ -539,7 +550,7 @@ fn draw_button_row(
                         trigger_note_save(
                             tag,
                             &state.project_hash,
-                            &state.instance_id,
+                            &instance_id,
                             &mut state.toast,
                             now,
                         );
@@ -557,7 +568,7 @@ fn draw_button_row(
                     trigger_stop(
                         &state.record_sm,
                         &state.project_hash,
-                        &state.instance_id,
+                        &instance_id,
                         &state.pair_label,
                         &state.paired_pre_target,
                         &mut state.toast,
@@ -577,7 +588,7 @@ fn draw_button_row(
                     trigger_keep(
                         license,
                         &state.record_sm,
-                        &state.instance_id,
+                        &instance_id,
                         &state.project_hash,
                         &state.daw_session_id,
                         &state.pair_label,

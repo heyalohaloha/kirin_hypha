@@ -68,8 +68,14 @@ struct HyphaPreParams {
 
     /// プロジェクト保存時に永続化される instance UUID（A-3 修正後）。
     /// POST が pending を立てる際の `target_pre_instance_id` 識別子として使われる。
+    ///
+    /// B-022 段階 1: chunk-restore タイミングで host が `set_state` を発行した
+    /// 直後の最新値を io_thread が lazy-read で拾えるよう `Arc<RwLock<String>>`
+    /// にする。`#[persist]` は `Arc<RwLock<String>>` も RwLock<String> 同様に
+    /// 扱う（nih-plug `params/persist.rs` `impl_persistent_arc!` 経由 / chunk
+    /// JSON 形式は変わらない / 既存プロジェクト互換）。
     #[persist = "instance_id"]
-    pub instance_id: RwLock<String>,
+    pub instance_id: Arc<RwLock<String>>,
 
     /// プロジェクト chunk に永続化される project UUID（B-020 / γ-3）。
     /// 同一プロジェクト内の PRE/POST instances 全てが同じ値を共有する。
@@ -91,7 +97,7 @@ impl Default for HyphaPreParams {
                 .make_bypass()
                 .with_value_to_string(formatters::v2s_bool_bypass())
                 .with_string_to_value(formatters::s2v_bool_bypass()),
-            instance_id: RwLock::new(Uuid::new_v4().to_string()),
+            instance_id: Arc::new(RwLock::new(Uuid::new_v4().to_string())),
             project_uuid: RwLock::new(Uuid::new_v4().to_string()),
             daw_session_uuid: RwLock::new(Uuid::new_v4().to_string()),
         }
@@ -127,16 +133,12 @@ impl Default for HyphaPre {
     }
 }
 
-fn read_instance_id(params: &HyphaPreParams) -> String {
-    params
-        .instance_id
-        .read()
-        .ok()
-        .map(|g| g.clone())
-        .unwrap_or_default()
-}
-
 /// `RwLock<String>` 永続フィールドから現在値を読む（panic-safe）。
+///
+/// B-022 段階 1: `instance_id` は `Arc<RwLock<String>>` 化されたが、project_uuid
+/// / daw_session_uuid の `RwLock<String>` 経路（chunk-restored 値の cell 反映）
+/// では引き続き本ヘルパを使う。`instance_id` の lazy-read は io_thread_post の
+/// `read_instance_id_arc` を再利用する。
 fn read_persisted_string(field: &RwLock<String>) -> String {
     field.read().ok().map(|g| g.clone()).unwrap_or_default()
 }
@@ -248,12 +250,15 @@ impl Plugin for HyphaPre {
             Arc::clone(&self.heartbeat),
         );
 
+        // B-022 段階 1: io_thread には Arc<RwLock<String>> 共有 → tick ごと lazy-read。
+        // 旧 String snapshot は initialize() 時点で凍結されるため、setState 経由の
+        // 後続復元・再 initialize で値が変わったケースで instance_id が陳腐化していた。
         let sample_rate = buffer_config.sample_rate as u32;
-        let instance_id = read_instance_id(&self.params);
+        let instance_id_arc = Arc::clone(&self.params.instance_id);
         let project_hash = self.project_hash.clone();
         let daw_session_id = self.daw_session_id.clone();
         let io_handle = spawn_io_thread_pre(
-            instance_id.clone(),
+            Arc::clone(&instance_id_arc),
             project_hash.clone(),
             daw_session_id.clone(),
             sample_rate,
@@ -267,7 +272,7 @@ impl Plugin for HyphaPre {
         );
 
         let restart_io = {
-            let instance_id = instance_id.clone();
+            let instance_id_arc = Arc::clone(&instance_id_arc);
             let project_hash = project_hash.clone();
             let daw_session_id = daw_session_id.clone();
             let record_sm = Arc::clone(&self.record_sm);
@@ -278,7 +283,7 @@ impl Plugin for HyphaPre {
             let signal_state = Arc::clone(&self.signal_state);
             move |new_shutdown: Arc<AtomicBool>| {
                 spawn_io_thread_pre(
-                    instance_id.clone(),
+                    Arc::clone(&instance_id_arc),
                     project_hash.clone(),
                     daw_session_id.clone(),
                     sample_rate,

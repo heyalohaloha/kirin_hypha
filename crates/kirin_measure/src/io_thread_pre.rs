@@ -20,10 +20,11 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
+use crate::io_thread_post::read_instance_id_arc;
 use crate::plugin_data::Role as PluginDataRole;
 use crate::record::RecordStateMachine;
 use crate::record_signal::{self, SignalStatus};
@@ -46,7 +47,9 @@ struct PartnerInfo {
 /// PRE 用 IO Thread を起動して JoinHandle を返す。
 ///
 /// # 引数
-/// - `instance_id`         : PRE の永続 instance UUID（plugin params 経由で project save に同梱）
+/// - `instance_id`         : PRE の永続 instance UUID（`Arc<RwLock<String>>` で
+///   plugin params と共有。B-022 段階 1 で String snapshot から lazy-read 化。
+///   `set_state` 経由の chunk-restore 後でも次 tick から最新値を拾う）
 /// - `project_hash`        : DAW プロセス単位の project_hash
 /// - `daw_session_id`      : DAW プロセス単位の UUID（cross-process 防壁）
 /// - `sample_rate`         : Record writer メタデータ用
@@ -59,7 +62,7 @@ struct PartnerInfo {
 /// - `shutdown`            : `true` になったらループ終了
 #[allow(clippy::too_many_arguments)]
 pub fn spawn_io_thread_pre(
-    instance_id: String,
+    instance_id: Arc<RwLock<String>>,
     project_hash: String,
     daw_session_id: String,
     sample_rate: u32,
@@ -72,11 +75,10 @@ pub fn spawn_io_thread_pre(
     shutdown: Arc<AtomicBool>,
 ) -> JoinHandle<()> {
     thread::spawn(move || {
-        let dir = io_dir(&project_hash, &instance_id);
-        let file_path = dir.join("pre.json");
-        let tmp_path = dir.join("pre.json.tmp");
-
-        log::info!("[IOThread PRE] started → {}", file_path.display());
+        log::info!(
+            "[IOThread PRE] started (lazy-read instance_id, project_hash={})",
+            project_hash
+        );
 
         let mut writer_ctx: Option<RecordingCtx> = None;
         let mut last_poll: Option<Instant> = None;
@@ -87,12 +89,22 @@ pub fn spawn_io_thread_pre(
                 break;
             }
 
+            // B-022 段階 1: tick 開始時に instance_id を lazy-read。
+            // POST 側 io_thread と同パターン。`Arc<RwLock<String>>` は plugin
+            // params と同実体を共有するため、`set_state_inner` 経由の
+            // chunk-restored 値を次 tick で拾う。
+            let instance_id_owned = read_instance_id_arc(&instance_id);
+            let instance_id_ref = instance_id_owned.as_str();
+            let dir = io_dir(&project_hash, instance_id_ref);
+            let file_path = dir.join("pre.json");
+            let tmp_path = dir.join("pre.json.tmp");
+
             // ① pre.json（Watch 値）書き込み
             if let Err(e) = write_json(
                 &dir,
                 &tmp_path,
                 &file_path,
-                &instance_id,
+                instance_id_ref,
                 &result,
                 &signal_state,
             ) {
@@ -106,7 +118,7 @@ pub fn spawn_io_thread_pre(
                 last_poll = Some(now);
                 poll_record_signal(
                     &project_hash,
-                    &instance_id,
+                    instance_id_ref,
                     &daw_session_id,
                     &record_sm,
                     &recording,
@@ -119,7 +131,6 @@ pub fn spawn_io_thread_pre(
             // ③ plugin_data/.../pre/*.json ライフサイクル（Record writer）
             // partner が居れば partner の signal.started_at を解決、不在なら現在時刻 fallback
             let project_hash_ref = project_hash.as_str();
-            let instance_id_ref = instance_id.as_str();
             let partner_iid = partner.as_ref().map(|p| p.post_instance_id.clone());
             let started_resolver_iid = partner_iid.clone();
             let resolver = move || match started_resolver_iid {
@@ -167,14 +178,20 @@ pub fn spawn_io_thread_pre(
         record_acknowledged.store(false, Ordering::Relaxed);
 
         // ── クリーンアップ ───────────────────────────────────────────────
-        if let Err(e) = fs::remove_file(&file_path) {
+        // 終了時の instance_id を lazy-read して使用 (POST 側 io_thread と同様、
+        // 設計上残骸が残るのは Default UUID dir の 1 度限り。R-28 機能的沈黙)。
+        let final_iid = read_instance_id_arc(&instance_id);
+        let final_dir = io_dir(&project_hash, &final_iid);
+        let final_file = final_dir.join("pre.json");
+        let final_tmp = final_dir.join("pre.json.tmp");
+        if let Err(e) = fs::remove_file(&final_file) {
             log::debug!("[IOThread PRE] cleanup file: {}", e);
         }
-        if let Err(e) = fs::remove_file(&tmp_path) {
+        if let Err(e) = fs::remove_file(&final_tmp) {
             log::debug!("[IOThread PRE] cleanup tmp: {}", e);
         }
         // instance ディレクトリ自体も空なら削除（残骸を残さない）
-        let _ = fs::remove_dir(&dir);
+        let _ = fs::remove_dir(&final_dir);
         log::info!("[IOThread PRE] terminated");
     })
 }
