@@ -305,7 +305,27 @@ pub fn scan_signals_dir(
     let dir = signals_dir(base_dir, project_hash);
     let entries = match fs::read_dir(&dir) {
         Ok(e) => e,
-        Err(_) => return Vec::new(),
+        // B-022 段階 5 P-1 #2: read_dir Err を WARN ログ (沈黙撤回)。
+        // ENOENT (dir 不存在) は Watch 中の通常状態なので debug に落とし、
+        // それ以外 (権限・FS lock 等の transient 失敗) のみ WARN で出す。
+        // P-3 直接 read リトライの起点となるシグナルでもある。
+        Err(e) => {
+            if e.kind() == io::ErrorKind::NotFound {
+                log::debug!(
+                    "[scan_signals_dir] dir not found: {} (kind={:?})",
+                    dir.display(),
+                    e.kind()
+                );
+            } else {
+                log::warn!(
+                    "[scan_signals_dir] read_dir failed: {} (kind={:?}, err={})",
+                    dir.display(),
+                    e.kind(),
+                    e
+                );
+            }
+            return Vec::new();
+        }
     };
     let mut out: Vec<(String, RecordSignal)> = Vec::new();
     for entry in entries.flatten() {
@@ -320,11 +340,34 @@ pub fn scan_signals_dir(
         else {
             continue;
         };
-        let Ok(bytes) = fs::read(&path) else { continue };
-        let Ok(signal): Result<RecordSignal, _> = serde_json::from_slice(&bytes) else {
-            continue;
+        let bytes = match fs::read(&path) {
+            Ok(b) => b,
+            // B-022 段階 5 P-1 #2 (補): 個別ファイル read 失敗も WARN。
+            // atomic rename と read の race で transient に起こり得る。
+            Err(e) => {
+                log::warn!(
+                    "[scan_signals_dir] file read failed: {} (kind={:?}, err={})",
+                    path.display(),
+                    e.kind(),
+                    e
+                );
+                continue;
+            }
         };
-        out.push((stem, signal));
+        match serde_json::from_slice::<RecordSignal>(&bytes) {
+            Ok(signal) => out.push((stem, signal)),
+            // B-022 段階 5 P-1 #3: serde parse 失敗を WARN ログ。
+            // atomic rename と read の race で空ファイル / 部分書込を読むと
+            // ここに落ちる (仮説 γ)。P-3 直接 read リトライの起点候補。
+            Err(e) => {
+                log::warn!(
+                    "[scan_signals_dir] parse failed: {} (err={})",
+                    path.display(),
+                    e
+                );
+                continue;
+            }
+        }
     }
     out.sort_by(|a, b| a.0.cmp(&b.0));
     out

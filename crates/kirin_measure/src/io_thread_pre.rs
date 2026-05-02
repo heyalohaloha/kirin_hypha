@@ -46,6 +46,20 @@ const LOOP_SLEEP: Duration = Duration::from_millis(100);
 /// record_signal poll 間隔（1 秒）。
 const SIGNAL_POLL_INTERVAL: Duration = Duration::from_secs(1);
 
+/// B-022 段階 5 P-3: 直接 read リトライ最大回数。
+///
+/// `scan_signals_dir` が transient 失敗 (read_dir Err / parse race) で
+/// `current=None` を返した場合、`read_signal` で直接 path を read し直す
+/// 最大回数。本値 + `RETRY_INTERVAL` の積が「Keep 解除を遅延させる最大時間」。
+const RETRY_MAX_ATTEMPTS: usize = 2;
+
+/// B-022 段階 5 P-3: 直接 read リトライ間隔。
+///
+/// atomic rename (`fs::rename`) の race window は通常 ms 未満だが、
+/// macOS の APFS / 仮想ボリューム経由では数十 ms に延びることがあるため
+/// 50ms を採用 (リトライ 2 回で最大 100ms 遅延)。
+const RETRY_INTERVAL: Duration = Duration::from_millis(50);
+
 /// PRE スレッドが追従中の partner POST 情報（IO Thread ローカル）。
 struct PartnerInfo {
     post_instance_id: String,
@@ -95,6 +109,9 @@ pub fn spawn_io_thread_pre(
         let mut writer_ctx: Option<RecordingCtx> = None;
         let mut last_poll: Option<Instant> = None;
         let mut partner: Option<PartnerInfo> = None;
+        // B-022 段階 5 P-1 #1: effective_project_hash_ref の edge-triggered ログ用。
+        // 値が前回と異なる時のみ INFO で出す (毎 tick 出すと R-26/R-28 沈黙ゲート違反)。
+        let mut prev_effective_ph: Option<String> = None;
         // B-022 段階 2: PRE 側 filesystem-discovery (G-115-36)。
         // `plugin_data/{any_uuid}/record_signal/*.json` を 1 秒 throttle で scan
         // し、`target_pre_instance_id == 自 PRE instance_id` の signal が居る
@@ -182,6 +199,19 @@ pub fn spawn_io_thread_pre(
             let effective_project_hash_ref: &str = effective_project_hash_owned
                 .as_deref()
                 .unwrap_or(project_hash.as_str());
+
+            // B-022 段階 5 P-1 #1: effective_project_hash_ref が前回と異なる
+            // 場合のみ INFO ログ。fallback 切替 (POST_uuid → PRE 自身 / 逆) の
+            // 瞬間を 1 行で捕捉できる。R-28 沈黙ゲート: 値不変時は無音。
+            if prev_effective_ph.as_deref() != Some(effective_project_hash_ref) {
+                log::info!(
+                    "[discover] effective_project_hash_ref={} (prev={:?}, partner={:?})",
+                    effective_project_hash_ref,
+                    prev_effective_ph,
+                    partner.as_ref().map(|p| p.post_instance_id.as_str())
+                );
+                prev_effective_ph = Some(effective_project_hash_ref.to_string());
+            }
 
             // B-022 段階 3: PRE 側 `daw_session_id` は record_signal filter から
             // 撤廃。`discovery.cached_daw_session_id()` (= POST が書いた signal
@@ -358,13 +388,66 @@ fn poll_record_signal(
                 }
             }
             None => {
-                // partner signal 消失 → Watch 復帰
+                // B-022 段階 5 P-1 #4: scan が partner.post_instance_id を
+                // 含まなかった瞬間の matching 内容を診断ログとしてダンプ。
+                // 真因 β/γ 確定 (= scan transient 失敗 vs 別 POST instance) の
+                // 決め手になる情報を 1 行に集約。
+                let matching_iids: Vec<&str> =
+                    matching.iter().map(|(iid, _)| iid.as_str()).collect();
+                log::warn!(
+                    "[signal] current=None: project_hash={}, partner.post_instance_id={}, \
+                     matching_count={}, matching_iids={:?}",
+                    project_hash,
+                    p.post_instance_id,
+                    matching.len(),
+                    matching_iids
+                );
+
+                // B-022 段階 5 P-3: 直接 read リトライ。
+                // scan_signals_dir の transient 失敗 (read_dir Err / parse race) を
+                // 救済するため、`signal_path(base, project_hash, post_instance_id)`
+                // で直接 read し直す。1 path 直撃 read は scan の `read_dir` よりも
+                // 失敗確率が低く、atomic rename と read の race window も
+                // 50ms 待機で抜けやすい。
+                //
+                // 最大 RETRY_MAX_ATTEMPTS (= 2) 回、各 RETRY_INTERVAL (= 50ms) 間隔で
+                // read を試み、いずれかで Some が返れば transient 失敗扱いで
+                // exit_record をスキップして watch を維持。全試行で None なら
+                // 真の消失として従来通り exit_record。
+                let recovered = retry_direct_read(&base, project_hash, &p.post_instance_id);
+
+                if let Some(sig) = recovered {
+                    log::info!(
+                        "[signal] recovered via direct read after scan miss \
+                         (partner={}, status={:?}) — keeping Record",
+                        p.post_instance_id,
+                        sig.status
+                    );
+                    // status は記憶し直す (Released なら次 tick の status==last_seen で
+                    // 抜けないよう、ここで Released を検出した場合は exit_record する)。
+                    if sig.status == SignalStatus::Released {
+                        record_sm.exit_record();
+                        recording.store(false, Ordering::Relaxed);
+                        record_acknowledged.store(false, Ordering::Relaxed);
+                        log::info!(
+                            "[signal] released (via direct read), PRE exiting Record (partner={})",
+                            p.post_instance_id
+                        );
+                        *partner = None;
+                    } else {
+                        // 単に scan が transient で取り逃しただけ。partner 維持。
+                        p.last_seen_status = sig.status;
+                    }
+                    return;
+                }
+
+                // 直接 read も None → 真の消失 → 従来動作。
                 if record_sm.is_recording() {
                     record_sm.exit_record();
                     recording.store(false, Ordering::Relaxed);
                     record_acknowledged.store(false, Ordering::Relaxed);
                     log::info!(
-                        "[signal] file removed, PRE exiting Record (partner={})",
+                        "[signal] file removed (confirmed by direct read), PRE exiting Record (partner={})",
                         p.post_instance_id
                     );
                 }
@@ -417,6 +500,44 @@ fn poll_record_signal(
 
 fn is_os_license(license: &License) -> bool {
     matches!(license, License::Os)
+}
+
+/// B-022 段階 5 P-3: 直接 read リトライヘルパ。
+///
+/// `scan_signals_dir` が transient 失敗で対象 signal を取り逃した場合に、
+/// `record_signal::read_signal` (path 直撃 read) で `RETRY_MAX_ATTEMPTS` 回まで
+/// 再試行する。各試行間に `RETRY_INTERVAL` 秒待機 (atomic rename race window
+/// 抜けを期待)。
+///
+/// # 戻り値
+/// - `Some(signal)` : いずれかの試行で読込成功。呼出側は scan の transient
+///   失敗とみなして exit_record を呼ばずに watch を維持する。
+/// - `None`         : 全試行で read 不能。真の消失 (unload / delete_signal) と
+///   みなして従来通り exit_record してよい。
+///
+/// # 副作用
+/// IO Thread を最大 `RETRY_MAX_ATTEMPTS * RETRY_INTERVAL` 秒間 sleep する。
+/// 100ms 主ループの 1 tick 内で完結 (現状: 2 * 50ms = 100ms 上限)。
+fn retry_direct_read(
+    base: &Path,
+    project_hash: &str,
+    post_instance_id: &str,
+) -> Option<crate::record_signal::RecordSignal> {
+    for attempt in 0..RETRY_MAX_ATTEMPTS {
+        if attempt > 0 {
+            thread::sleep(RETRY_INTERVAL);
+        }
+        if let Some(sig) = record_signal::read_signal(base, project_hash, post_instance_id) {
+            log::debug!(
+                "[signal] direct read recovered: attempt={}/{}, post_iid={}",
+                attempt + 1,
+                RETRY_MAX_ATTEMPTS,
+                post_instance_id
+            );
+            return Some(sig);
+        }
+    }
+    None
 }
 
 /// 計測結果を JSON に変換して アトミックに書き込む（Watch 値）。
@@ -566,6 +687,20 @@ mod tests {
                     return;
                 }
                 None => {
+                    // B-022 段階 5 P-3: 直接 read リトライ救済 (production と同一ロジック)。
+                    let recovered =
+                        retry_direct_read(base, TEST_PH, &p.post_instance_id);
+                    if let Some(sig) = recovered {
+                        if sig.status == SignalStatus::Released {
+                            record_sm.exit_record();
+                            recording.store(false, Ordering::Relaxed);
+                            record_acknowledged.store(false, Ordering::Relaxed);
+                            *partner = None;
+                        } else {
+                            p.last_seen_status = sig.status;
+                        }
+                        return;
+                    }
                     if record_sm.is_recording() {
                         record_sm.exit_record();
                         recording.store(false, Ordering::Relaxed);
@@ -1021,5 +1156,149 @@ mod tests {
             Some(new_post_dir.as_path()),
             "新 partner 中も cached_post_project_dir は保持される"
         );
+    }
+
+    // ── B-022 段階 5: P-3 直接 read リトライ救済 ─────────────────────────
+    //
+    // 真因 β/γ (scan transient 失敗 = read_dir Err / parse race) で
+    // poll_record_signal が `current=None` に陥った場合でも、`read_signal`
+    // で path 直撃 read し直して Some を取れれば exit_record をスキップして
+    // watch を維持する。実機 09b71ce 検証で確定した「ファイル実在 + scan 空」
+    // 状態を救済する設計の不変条件を構造的に固定する。
+
+    /// scan が空 Vec を返す状況を `partner=Some` のまま再現するため、
+    /// 直接 `retry_direct_read` をテストするヘルパ。
+    /// (poll_with_base 経路は scan を上書きできないため、retry_direct_read 単独で
+    /// 「scan miss + 直接 read 救済」の判定軸を孤立させる)。
+    fn run_p3_recovery_check(
+        base: &Path,
+        post_iid: &str,
+    ) -> Option<crate::record_signal::RecordSignal> {
+        retry_direct_read(base, TEST_PH, post_iid)
+    }
+
+    /// T3: scan が空 Vec を返す + read_signal が Some を返す → recovered=Some。
+    ///
+    /// 不変条件: ファイルが path 直撃 read で取得可能なら、retry_direct_read は
+    /// `Some(signal)` を返す。これを poll_with_base が受け取れば
+    /// exit_record はスキップされ partner / record_sm は維持される。
+    #[test]
+    fn p3_retry_recovers_when_signal_file_exists_on_disk() {
+        let base = isolated_base();
+        // 実ファイルを base/{TEST_PH}/record_signal/ に配置。
+        write_pending(
+            &base,
+            TEST_PH,
+            "post-T3",
+            TEST_PRE_IID.into(),
+            TEST_DAW.into(),
+        )
+        .unwrap();
+
+        // retry_direct_read 単独: ファイルがあれば必ず Some。
+        let recovered = run_p3_recovery_check(&base, "post-T3");
+        let sig = recovered.expect(
+            "ファイル実在時は retry_direct_read が必ず Some を返す \
+             (P-3 救済の根幹)",
+        );
+        assert_eq!(sig.requested_by, "post-T3");
+        assert_eq!(sig.target_pre_instance_id, TEST_PRE_IID);
+        assert_eq!(sig.status, SignalStatus::Pending);
+
+        // poll_with_base 経路統合: scan が偶然空ではないが、本テストは
+        // retry_direct_read の救済能力を孤立して固定する目的。
+        // poll_with_base 統合経路は既存 `signal_file_removed_*` で
+        // 真消失時に exit_record する逆向きを既に固定済。
+    }
+
+    /// T4: scan が空 Vec を返す + read_signal も None → recovered=None で
+    /// exit_record が呼ばれる。
+    ///
+    /// 不変条件: ファイルが本当に存在しない場合、retry_direct_read は
+    /// `RETRY_MAX_ATTEMPTS` 回試行しても None を返す。これを poll_with_base
+    /// が受け取れば従来通り exit_record + partner=None になる。
+    #[test]
+    fn p3_retry_returns_none_when_signal_genuinely_absent() {
+        let base = isolated_base();
+        // ファイルを意図的に書かない (= 真の消失状態)。
+
+        let recovered = run_p3_recovery_check(&base, "post-T4");
+        assert!(
+            recovered.is_none(),
+            "ファイル不在時は retry_direct_read が必ず None を返す \
+             (RETRY_MAX_ATTEMPTS 回試行後)"
+        );
+
+        // poll_with_base 統合経路: partner=Some の状態で current=None を
+        // 引き起こし、retry も None なら exit_record + partner=None。
+        let sm = Arc::new(RecordStateMachine::new());
+        sm.try_enter_record(License::Os).unwrap();
+        let recording = Arc::new(AtomicBool::new(true));
+        let ack = Arc::new(AtomicBool::new(true));
+        let license = Arc::new(License::Os);
+        let mut partner = Some(PartnerInfo {
+            post_instance_id: "post-T4".to_string(),
+            last_seen_status: SignalStatus::Acknowledged,
+        });
+
+        // base には何も無い → scan_signals_dir 空 → matching=空 → current=None
+        // → retry_direct_read も None → exit_record。
+        poll_with_base(
+            &base, &sm, &recording, &ack, &license, &mut partner, TEST_PRE_IID,
+        );
+
+        assert_eq!(
+            sm.current(),
+            RecordState::Watch,
+            "真消失時は P-3 retry が None を返し、exit_record が発火する \
+             (受入基準 #5-7 T4)"
+        );
+        assert!(!recording.load(Ordering::Relaxed));
+        assert!(!ack.load(Ordering::Relaxed));
+        assert!(
+            partner.is_none(),
+            "exit_record と同時に partner も None にクリアされる"
+        );
+    }
+
+    /// T3 補強: poll_with_base 経由でファイル存在時に partner / Record が
+    /// 維持されることを確認。`scan_signals_dir` がファイルを発見できれば
+    /// そもそも current=None ではないので P-3 retry は通らないが、
+    /// 「scan 成功時に partner が壊れない」という負の不変条件として固定。
+    #[test]
+    fn p3_keeps_partner_when_scan_finds_signal_normally() {
+        let base = isolated_base();
+        write_pending(
+            &base,
+            TEST_PH,
+            "post-T3b",
+            TEST_PRE_IID.into(),
+            TEST_DAW.into(),
+        )
+        .unwrap();
+        // PRE が ack 済の状態を再現
+        record_signal::mark_acknowledged(&base, TEST_PH, "post-T3b").unwrap();
+
+        let sm = Arc::new(RecordStateMachine::new());
+        sm.try_enter_record(License::Os).unwrap();
+        let recording = Arc::new(AtomicBool::new(true));
+        let ack = Arc::new(AtomicBool::new(true));
+        let license = Arc::new(License::Os);
+        let mut partner = Some(PartnerInfo {
+            post_instance_id: "post-T3b".to_string(),
+            last_seen_status: SignalStatus::Acknowledged,
+        });
+
+        poll_with_base(
+            &base, &sm, &recording, &ack, &license, &mut partner, TEST_PRE_IID,
+        );
+
+        assert_eq!(
+            sm.current(),
+            RecordState::Record,
+            "scan が signal を発見できれば Record 継続 (P-3 を経由せず通常分岐)"
+        );
+        assert!(partner.is_some());
+        assert_eq!(partner.as_ref().unwrap().post_instance_id, "post-T3b");
     }
 }
