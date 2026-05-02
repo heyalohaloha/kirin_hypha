@@ -14,6 +14,7 @@ pub mod license;
 pub mod measure_thread;
 pub mod phase_d;
 pub mod plugin_data;
+pub mod pre_discovery;
 pub mod preset;
 pub mod preset_dispatch;
 pub mod preset_v2;
@@ -44,6 +45,7 @@ pub use plugin_data::{
     Frame, PluginDataFile, PluginDataWriter, PsbSnapshot, Role as PluginDataRole,
     Status as PluginDataStatus, WriterError as PluginDataWriterError, WriterPaths,
 };
+pub use pre_discovery::{discover_active_pre_dir, PostDiscoveryState, DISCOVERY_STALE_SECS};
 pub use preset::{
     compute_preset_checksum, preset_dir, region_resolved, scan_valid_presets, verify_preset,
     PresetFile, Region as PresetRegion, VerifyError as PresetVerifyError, PRESET_SUBDIR,

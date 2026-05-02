@@ -23,6 +23,7 @@ use std::time::{Duration, Instant};
 
 use crate::delta::{DeltaMode, DeltaResult};
 use crate::plugin_data::Role as PluginDataRole;
+use crate::pre_discovery::{discover_active_pre_dir, PostDiscoveryState};
 use crate::record::RecordStateMachine;
 use crate::record_signal::{self, SignalStatus, ACK_TIMEOUT_SECONDS, SIGNALS_SUBDIR};
 use crate::record_writer::{run_record_tick, writer_close, RecordingCtx};
@@ -71,17 +72,27 @@ pub fn spawn_io_thread_post(
     shutdown: Arc<AtomicBool>,
 ) -> JoinHandle<()> {
     thread::spawn(move || {
-        let project_dir = std::env::temp_dir().join("kirin").join(&project_hash);
-        let instance_dir = project_dir.join(&instance_id);
+        // B-021 Phase 1A: PRE scan の起点は `kirin_root` (= $TMPDIR/kirin/) で、
+        // POST IO Thread が動的に discover する。`project_dir_hint` は POST 自身の
+        // project_uuid から構築した fallback (PRE が見つからない場合のみ使う)。
+        // POST 自身の post.json 書込先は instance_dir 固定 (POST 自分の project_uuid)。
+        let kirin_root = std::env::temp_dir().join("kirin");
+        let project_dir_hint = kirin_root.join(&project_hash);
+        let instance_dir = project_dir_hint.join(&instance_id);
         let post_file = instance_dir.join("post.json");
         let post_tmp = instance_dir.join("post.json.tmp");
 
-        log::info!("[IOThread POST] started → {}", post_file.display());
+        log::info!(
+            "[IOThread POST] started → {} (kirin_root={})",
+            post_file.display(),
+            kirin_root.display()
+        );
 
         let mut recording: Option<RecordingCtx> = None;
         let mut last_preset_count: Option<usize> = None;
         let mut next_preset_poll = Instant::now();
         let mut next_ack_timeout_poll = Instant::now();
+        let mut discovery = PostDiscoveryState::new();
 
         loop {
             if shutdown.load(Ordering::Relaxed) {
@@ -89,7 +100,9 @@ pub fn spawn_io_thread_post(
             }
 
             match run_tick(
-                &project_dir,
+                &project_dir_hint,
+                &kirin_root,
+                &mut discovery,
                 &instance_dir,
                 &post_tmp,
                 &post_file,
@@ -165,11 +178,19 @@ pub fn spawn_io_thread_post(
 
 /// 1 ループの処理本体。
 ///
-/// `project_dir` = `$TMPDIR/kirin/{project_hash}/`（PRE スキャンの起点）
-/// `instance_dir` = `$TMPDIR/kirin/{project_hash}/{self.instance_id}/`（POST 書込先）
+/// # B-021 Phase 1A: filesystem-discovery の優先順位
+///
+/// `kirin_root` (= `$TMPDIR/kirin/`) を `discovery` 経由で 1 秒に 1 回 scan し、
+/// active な PRE が居る `{project_uuid}/` dir を採用する。検出できない場合のみ
+/// `project_dir_hint` (POST 自身の project_uuid 由来) にフォールバック。
+///
+/// `instance_dir` (POST 自身の post.json 書込先) は変更しない。POST 自身の
+/// `project_uuid` で構築された path のままで、検出された PRE dir とは独立。
 #[allow(clippy::too_many_arguments)]
 fn run_tick(
-    project_dir: &Path,
+    project_dir_hint: &Path,
+    kirin_root: &Path,
+    discovery: &mut PostDiscoveryState,
     instance_dir: &Path,
     post_tmp: &Path,
     post_file: &Path,
@@ -192,6 +213,16 @@ fn run_tick(
         fs::rename(post_tmp, post_file).map_err(|e| format!("rename: {e}"))?;
         return Ok(());
     }
+
+    // B-021 Phase 1A: PRE discovery (1 秒 throttle)。
+    let now = Instant::now();
+    if discovery.should_rescan(now) {
+        let found = discover_active_pre_dir(kirin_root);
+        discovery.record_scan(now, found);
+    }
+    let project_dir: &Path = discovery
+        .cached_pre_dir()
+        .unwrap_or(project_dir_hint);
 
     let post = post_result
         .lock()

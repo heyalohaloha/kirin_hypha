@@ -211,14 +211,15 @@ impl PluginDataFile {
     /// # paired_*_instance_id（v1.2 (a)）
     /// Record 開始時に既知なら Some を渡す。
     /// - PRE: `paired_post_instance_id` = record_signal の `requested_by` を Some で渡す
-    ///        `paired_pre_instance_id` = None（自分が PRE なので相手 PRE は無い）
+    ///   `paired_pre_instance_id` = None（自分が PRE なので相手 PRE は無い）
     /// - POST: `paired_pre_instance_id` = trigger_keep の `target_id` を Some で渡す
-    ///         `paired_post_instance_id` = None（自分が POST）
+    ///   `paired_post_instance_id` = None（自分が POST）
     ///
     /// # sample_rate
     /// Record 開始時に ProcessContext から取得した値。本フィールドは
     /// JSON `sample_rate` および `source_format` 両方に同一値で記録される。
     /// 取得失敗時は 0 を渡す（fallback 仕様）。
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         installation_id: String,
         project_hash: String,
