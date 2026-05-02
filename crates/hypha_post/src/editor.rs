@@ -32,12 +32,12 @@ use hypha_gui::{
     BackgroundTexture, BG, COL_FLORA, COL_FLORA_BRIGHT, COL_MUTED, COL_NORMAL,
 };
 use kirin_measure::{
-    append_annotation_to_latest, check_record_exclusion, load_signal_state, lookup_section_label,
-    mark_released, pick_closest_pre, scan_latest_v2_preset, scan_pre_candidates,
-    show_note_button, show_save_button, show_stop_record_button, write_pending, DeltaMode,
-    DeltaResult, ExclusionResult, License, MeasureResult, PluginDataRole, PostMetrics,
-    PresetFileV2, RecordStateMachine, SignalState, StoragePaths, TransitionError,
-    SENSE_RECORD_HINT, SENSE_UPSELL_URL,
+    append_annotation_to_latest, check_record_exclusion, discover_active_pre_dir,
+    load_signal_state, lookup_section_label, mark_released, pick_closest_pre,
+    scan_latest_v2_preset, scan_pre_candidates_in, show_note_button, show_save_button,
+    show_stop_record_button, write_pending, DeltaMode, DeltaResult, ExclusionResult, License,
+    MeasureResult, PluginDataRole, PostMetrics, PresetFileV2, RecordStateMachine, SignalState,
+    StoragePaths, TransitionError, SENSE_RECORD_HINT, SENSE_UPSELL_URL,
 };
 use nih_plug::prelude::Editor;
 use nih_plug_egui::{
@@ -656,10 +656,29 @@ fn trigger_keep(
     let plugin_data_dir = paths.plugin_data_dir();
     let tmp_base = std::env::temp_dir().join("kirin");
 
-    // 2. PRE 候補スキャン（A-3 修正後: instance_id 横断走査）
-    let candidates = scan_pre_candidates(&tmp_base, project_hash);
+    // 2. PRE 候補スキャン（B-021 Phase 1A 追加修正）
+    //
+    // 旧: `scan_pre_candidates(&tmp_base, project_hash)` で POST 自身の
+    //     `project_hash` 配下のみ scan。cdylib 隔離下で PRE と project_uuid が
+    //     乖離しているため空 → 「No PRE plugin found」誤表示の根本。
+    // 新: `discover_active_pre_dir` で kirin_root 横断走査して active な
+    //     `{project_uuid}/` dir を採用 → そこを `scan_pre_candidates_in` で読む。
+    //     Δ 計算経路 (io_thread_post::run_tick) と同じ discovery を使うため、
+    //     単一 PRE 前提 (guardian_50 §G-50-35) では同一 PRE が選ばれる。
+    let pre_project_dir = match discover_active_pre_dir(&tmp_base) {
+        Some(p) => p,
+        None => {
+            log::info!("[POST keep] no PRE candidate (discovery returned None)");
+            *toast = Some(Toast::new("No PRE plugin found", now));
+            return;
+        }
+    };
+    let candidates = scan_pre_candidates_in(&pre_project_dir);
     if candidates.is_empty() {
-        log::info!("[POST keep] no PRE candidate");
+        log::info!(
+            "[POST keep] no PRE candidate (project_dir={} empty)",
+            pre_project_dir.display()
+        );
         *toast = Some(Toast::new("No PRE plugin found", now));
         return;
     }

@@ -62,9 +62,9 @@ pub use preset_v2::{
 pub use record::{RecordState, RecordStateMachine, TransitionError};
 pub use record_signal::{
     delete_signal, is_timed_out, mark_acknowledged, mark_released, pick_closest_pre, read_signal,
-    scan_pre_candidates, scan_signals_dir, signal_path, signals_dir, write_pending, write_signal,
-    PostMetrics, PreCandidate, RecordSignal, SignalError, SignalStatus, ACK_TIMEOUT_SECONDS,
-    SIGNALS_SUBDIR, SIGNAL_FILENAME,
+    scan_pre_candidates, scan_pre_candidates_in, scan_signals_dir, signal_path, signals_dir,
+    write_pending, write_signal, PostMetrics, PreCandidate, RecordSignal, SignalError,
+    SignalStatus, ACK_TIMEOUT_SECONDS, SIGNALS_SUBDIR, SIGNAL_FILENAME,
 };
 pub use storage::{
     cleanup_legacy_v1, load_installation_id_safe, load_or_recover, read_identity, write_both,

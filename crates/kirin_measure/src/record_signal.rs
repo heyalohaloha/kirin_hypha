@@ -358,9 +358,22 @@ struct PreTmpJson {
 ///
 /// `tmp_base` は通常 `std::env::temp_dir().join("kirin")`。走査失敗・パース失敗は
 /// silently skip。返値は instance_id 辞書順（再現性確保）。
+///
+/// B-021 補足: 本関数は `tmp_base.join(project_hash)` 配下のみ scan する。
+/// cdylib 隔離下で POST の `project_hash` が PRE と一致しない場合、結果は空に
+/// なる。新コードでは `pre_discovery::discover_active_pre_dir` で project_dir
+/// を動的検出してから [`scan_pre_candidates_in`] を直接呼ぶこと。
 pub fn scan_pre_candidates(tmp_base: &Path, project_hash: &str) -> Vec<PreCandidate> {
-    let project_dir = tmp_base.join(project_hash);
-    let entries = match fs::read_dir(&project_dir) {
+    scan_pre_candidates_in(&tmp_base.join(project_hash))
+}
+
+/// 指定された `{project_uuid}/` dir 配下の `pre.json` を走査する。
+///
+/// `scan_pre_candidates` 内部実装かつ B-021 Phase 1A の Keep ハンドラ修正用 API。
+/// `project_dir` は `pre_discovery::discover_active_pre_dir` の戻り値（または
+/// 同等 path）を渡す。`record_signal/` 予約名 dir は除外する。
+pub fn scan_pre_candidates_in(project_dir: &Path) -> Vec<PreCandidate> {
+    let entries = match fs::read_dir(project_dir) {
         Ok(e) => e,
         Err(_) => return Vec::new(),
     };
@@ -733,6 +746,38 @@ mod tests {
         let v = scan_pre_candidates(&base, "ph");
         assert_eq!(v.len(), 1);
         assert_eq!(v[0].instance_id, "ok-pre");
+    }
+
+    /// B-021 Phase 1A 追加修正: Keep ハンドラ経路の cross-project シナリオ。
+    ///
+    /// cdylib 隔離下で PRE と POST が別 `project_uuid` 配下に書く状況を再現。
+    /// 旧 `scan_pre_candidates(&base, post_ph)` は POST の project_hash 配下のみ
+    /// 走査するため空 Vec を返してしまう（= 実機 NG #8 の根本）。
+    /// 新 `scan_pre_candidates_in(pre_project_dir)` は discovery で得た PRE 側
+    /// dir を直接受け取るため、project_uuid が乖離していても候補を返す。
+    #[test]
+    fn scan_pre_candidates_in_works_across_project_uuids() {
+        let base = isolated_dir();
+        // PRE 側: project_uuid="pre-proj", POST 側: project_uuid="post-proj"
+        write_pre_tmp(&base, "pre-proj", "pre-A", Some((-14.0, -1.0, 12.0)));
+
+        // 旧 API (POST の project_hash で scan) → 空（cdylib 隔離下の誤動作再現）
+        let old_path_result = scan_pre_candidates(&base, "post-proj");
+        assert!(
+            old_path_result.is_empty(),
+            "scan_pre_candidates(post_ph) must return empty when PRE is under different project_uuid"
+        );
+
+        // 新 API (discovery が返した PRE dir を直接渡す) → 1 件返る
+        let pre_project_dir = base.join("pre-proj");
+        let new_path_result = scan_pre_candidates_in(&pre_project_dir);
+        assert_eq!(
+            new_path_result.len(),
+            1,
+            "scan_pre_candidates_in(pre_project_dir) must find PRE across project_uuid boundaries"
+        );
+        assert_eq!(new_path_result[0].instance_id, "pre-A");
+        assert_eq!(new_path_result[0].lufs_m, Some(-14.0));
     }
 
     #[test]
