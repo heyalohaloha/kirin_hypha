@@ -26,6 +26,7 @@ use std::time::{Duration, Instant};
 
 use crate::io_thread_post::read_instance_id_arc;
 use crate::plugin_data::Role as PluginDataRole;
+use crate::pre_self_discovery::{discover_pair_post_project_dir, PreSelfDiscoveryState};
 use crate::record::RecordStateMachine;
 use crate::record_signal::{self, SignalStatus};
 use crate::record_writer::{run_record_tick, writer_close, RecordingCtx};
@@ -76,13 +77,21 @@ pub fn spawn_io_thread_pre(
 ) -> JoinHandle<()> {
     thread::spawn(move || {
         log::info!(
-            "[IOThread PRE] started (lazy-read instance_id, project_hash={})",
+            "[IOThread PRE] started (lazy-read instance_id, fallback project_hash={})",
             project_hash
         );
 
         let mut writer_ctx: Option<RecordingCtx> = None;
         let mut last_poll: Option<Instant> = None;
         let mut partner: Option<PartnerInfo> = None;
+        // B-022 段階 2: PRE 側 filesystem-discovery (G-115-36)。
+        // `plugin_data/{any_uuid}/record_signal/*.json` を 1 秒 throttle で scan
+        // し、`target_pre_instance_id == 自 PRE instance_id` の signal が居る
+        // `{any_uuid}/` (= POST 側 project_uuid) を採用する。これにより PRE 側
+        // plugin_data 出力先 / record_signal poll 経路を POST と同じ
+        // project_uuid 空間に揃え、cdylib 隔離下 (`static OnceLock` が PRE/POST
+        // で別実体) でも cross-instance pair 復元 v1.2 (a) が機能する。
+        let mut discovery = PreSelfDiscoveryState::new();
 
         loop {
             if shutdown.load(Ordering::Relaxed) {
@@ -100,6 +109,11 @@ pub fn spawn_io_thread_pre(
             let tmp_path = dir.join("pre.json.tmp");
 
             // ① pre.json（Watch 値）書き込み
+            // path は PRE 自身の `project_hash` で構築する。POST 側 io_thread
+            // の B-021 filesystem-discovery (`pre_discovery::discover_active_pre_dir`)
+            // が `$TMPDIR/kirin/` 配下を全 project_uuid 横断で scan するため、
+            // PRE/POST の project_hash が乖離していても POST はこの pre.json を
+            // 拾える。本 path は B-022 では変更しない。
             if let Err(e) = write_json(
                 &dir,
                 &tmp_path,
@@ -111,13 +125,46 @@ pub fn spawn_io_thread_pre(
                 log::warn!("[IOThread PRE] write error: {}", e);
             }
 
+            // B-022 段階 2: 1 秒 throttle で POST 側 project_uuid を再走査。
+            // 結果が cache されるので、各 tick での fs::read_dir コストは抑制。
+            let now_instant = Instant::now();
+            if discovery.should_rescan(now_instant) {
+                let plugin_data_root = StoragePaths::default_macos()
+                    .ok()
+                    .map(|paths| paths.plugin_data_dir());
+                let found = match plugin_data_root.as_ref() {
+                    Some(root) => discover_pair_post_project_dir(root, instance_id_ref),
+                    None => None,
+                };
+                discovery.record_scan(now_instant, found);
+            }
+
+            // `effective_project_hash`:
+            // - discover が POST project_uuid を見つけた場合 → その値
+            // - 見つからない場合 → PRE 自身の project_hash (B-020 fallback)
+            //
+            // record_signal poll / plugin_data writer の入出力 path 両方で
+            // この値を一貫して使うことで「PRE が POST と別 plugin_data 空間に
+            // 書いてしまう」 cdylib 隔離問題を回避する。
+            let effective_project_hash_owned: Option<String> = discovery
+                .cached_post_project_dir()
+                .and_then(|p| {
+                    p.file_name()
+                        .and_then(|n| n.to_str())
+                        .map(str::to_string)
+                });
+            let effective_project_hash_ref: &str = effective_project_hash_owned
+                .as_deref()
+                .unwrap_or(project_hash.as_str());
+
             // ② record_signal poll（1 秒間隔）
+            // base_dir = plugin_data_root / project_hash = effective_project_hash_ref
             let now = Instant::now();
             let should_poll = last_poll.is_none_or(|t| now.duration_since(t) >= SIGNAL_POLL_INTERVAL);
             if should_poll {
                 last_poll = Some(now);
                 poll_record_signal(
-                    &project_hash,
+                    effective_project_hash_ref,
                     instance_id_ref,
                     &daw_session_id,
                     &record_sm,
@@ -130,14 +177,19 @@ pub fn spawn_io_thread_pre(
 
             // ③ plugin_data/.../pre/*.json ライフサイクル（Record writer）
             // partner が居れば partner の signal.started_at を解決、不在なら現在時刻 fallback
-            let project_hash_ref = project_hash.as_str();
+            //
+            // B-022 段階 2: project_hash 引数も `effective_project_hash_ref`
+            // に切り替え。PRE 側 plugin_data の親 dir = `{POST の project_uuid}/`
+            // を採用 (G-115-36)。
+            let writer_project_hash: String = effective_project_hash_ref.to_string();
+            let project_hash_ref_for_resolver = writer_project_hash.clone();
             let partner_iid = partner.as_ref().map(|p| p.post_instance_id.clone());
             let started_resolver_iid = partner_iid.clone();
             let resolver = move || match started_resolver_iid {
                 Some(iid) => match StoragePaths::default_macos() {
                     Ok(paths) => crate::record_writer::resolve_started_at_ms(
                         &paths.plugin_data_dir(),
-                        project_hash_ref,
+                        &project_hash_ref_for_resolver,
                         &iid,
                     ),
                     Err(_) => crate::record_writer::now_epoch_ms(),
@@ -153,7 +205,7 @@ pub fn spawn_io_thread_pre(
                 &record_sm,
                 PluginDataRole::Pre,
                 sample_rate,
-                project_hash_ref,
+                &writer_project_hash,
                 instance_id_ref,
                 resolver,
                 paired_pre_resolver,
