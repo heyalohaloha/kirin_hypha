@@ -1,11 +1,18 @@
-//! IO Thread — PRE 側（A-3 修正後）。
+//! IO Thread — PRE 側（A-3 修正後 / B-022 段階 3 更新）。
 //!
 //! 100ms ループで:
 //! 1. `$TMPDIR/kirin/{project_hash}/{instance_id}/pre.json` にアトミック書込（Watch 値）
-//! 2. 1 秒毎に `{plugin_data_dir}/{project_hash}/record_signal/*.json` を全件 polling し、
-//!    `target_pre_instance_id == self.instance_id` かつ `daw_session_id == self.daw_session_id`
-//!    の signal にだけ追従（Q1 (b) 厳格化 + cross-process 防壁）
-//! 3. Record 中: `plugin_data/{project_hash}/{instance_id}/pre/*.json` に Frame / PSB を追記
+//! 2. 1 秒毎に `{plugin_data_dir}/{effective_project_hash}/record_signal/*.json`
+//!    を全件 polling し、`target_pre_instance_id == self.instance_id` の signal
+//!    にだけ追従。`daw_session_id` の filter 比較は撤廃（B-022 段階 3）:
+//!    cdylib 隔離下では PRE/POST が別 `static OnceLock` を持ち、
+//!    `daw_session_id_cell()` 値が PRE 側 / POST が書いた signal 値で乖離する
+//!    ため、PRE 側 cell との比較は構造的に成立しない。代わりに
+//!    `target_pre_instance_id` (UUID v4 ≈ 衝突 2^-122) で 1 PRE↔1 POST の
+//!    決定論性を保ち、必要なら discover が見つけた signal の `daw_session_id`
+//!    を `effective_daw_session_id_ref` として `record_signal` 書込側で利用する。
+//! 3. Record 中: `plugin_data/{effective_project_hash}/{instance_id}/pre/*.json`
+//!    に Frame / PSB を追記
 //!
 //! 3層隔離（guardian_53）:
 //! - このスレッドが panic / 権限エラーで止まっても Audio Thread / Measure Thread は継続。
@@ -52,7 +59,11 @@ struct PartnerInfo {
 ///   plugin params と共有。B-022 段階 1 で String snapshot から lazy-read 化。
 ///   `set_state` 経由の chunk-restore 後でも次 tick から最新値を拾う）
 /// - `project_hash`        : DAW プロセス単位の project_hash
-/// - `daw_session_id`      : DAW プロセス単位の UUID（cross-process 防壁）
+/// - `_daw_session_id`     : DAW プロセス単位の UUID。chunk persistence 用に
+///   呼出側で保持される値。B-022 段階 3 で record_signal filter から撤廃した
+///   ため本スレッドでは未使用（cdylib 隔離下で PRE 側 cell 値と POST が
+///   書いた signal の `daw_session_id` が乖離するため filter は破綻）。
+///   将来 record_signal 書込側で必要になった時点で復活する余地を残す。
 /// - `sample_rate`         : Record writer メタデータ用
 /// - `record_sm`           : Watch ↔ Record 状態機械（IO Thread が駆動）
 /// - `recording`           : editor 表示用ミラー
@@ -65,7 +76,7 @@ struct PartnerInfo {
 pub fn spawn_io_thread_pre(
     instance_id: Arc<RwLock<String>>,
     project_hash: String,
-    daw_session_id: String,
+    _daw_session_id: String,
     sample_rate: u32,
     record_sm: Arc<RecordStateMachine>,
     recording: Arc<AtomicBool>,
@@ -157,8 +168,22 @@ pub fn spawn_io_thread_pre(
                 .as_deref()
                 .unwrap_or(project_hash.as_str());
 
+            // B-022 段階 3: PRE 側 `daw_session_id` は record_signal filter から
+            // 撤廃。`discovery.cached_daw_session_id()` (= POST が書いた signal
+            // の値) は将来 record_signal 書込側で必要になった時点で参照する
+            // ため state 内に保持済み。本ループでは使わない。
+            //
+            // 設計補足: cdylib 隔離下で PRE/POST が別 `static OnceLock` を
+            // 持つため、PRE 側 `daw_session_id_cell()` 値と POST が書いた
+            // signal の `daw_session_id` は構造的に乖離する。filter 比較は
+            // 成立しないため撤廃 (`target_pre_instance_id` UUID v4 で
+            // 衝突 ≈ 2^-122、決定論的に PRE 自身宛てを識別)。
+
             // ② record_signal poll（1 秒間隔）
             // base_dir = plugin_data_root / project_hash = effective_project_hash_ref
+            //
+            // B-022 段階 3: filter から daw_session_id 比較を撤廃。
+            // target_pre_instance_id (UUID v4) のみで PRE 自身宛て signal を識別。
             let now = Instant::now();
             let should_poll = last_poll.is_none_or(|t| now.duration_since(t) >= SIGNAL_POLL_INTERVAL);
             if should_poll {
@@ -166,7 +191,6 @@ pub fn spawn_io_thread_pre(
                 poll_record_signal(
                     effective_project_hash_ref,
                     instance_id_ref,
-                    &daw_session_id,
                     &record_sm,
                     &recording,
                     &record_acknowledged,
@@ -258,14 +282,20 @@ pub fn io_dir(project_hash: &str, instance_id: &str) -> PathBuf {
 
 /// record_signal を 1 度だけ poll し、PRE 側の record state を同期する。
 ///
-/// scan_signals_dir で全 signal を取得し、`target_pre_instance_id == instance_id` かつ
-/// `daw_session_id == daw_session_id` を **両方** 満たす最初の signal にだけ追従。
-/// 追従中の partner（post_instance_id）を `partner` に保持し、消失・released で外す。
+/// scan_signals_dir で全 signal を取得し、`target_pre_instance_id == instance_id`
+/// を満たす最初の signal にだけ追従。追従中の partner（post_instance_id）を
+/// `partner` に保持し、消失・released で外す。
+///
+/// # B-022 段階 3: daw_session_id filter 撤廃
+/// 旧版は `daw_session_id` 比較で cross-process 防壁を掛けていたが、cdylib 隔離
+/// 下で PRE/POST が別 `static OnceLock` を持つため両者の値は構造的に乖離し、
+/// filter は常に false を返して signal を全廃棄していた (実機 NG 真因)。
+/// `target_pre_instance_id` (UUID v4) のみで衝突確率 2^-122 の決定論性が
+/// 確保されるため、二重 filter は冗長として撤廃した。
 #[allow(clippy::too_many_arguments)]
 fn poll_record_signal(
     project_hash: &str,
     instance_id: &str,
-    daw_session_id: &str,
     record_sm: &Arc<RecordStateMachine>,
     recording: &Arc<AtomicBool>,
     record_acknowledged: &Arc<AtomicBool>,
@@ -277,13 +307,11 @@ fn poll_record_signal(
         Err(_) => return,
     };
 
-    // 全 signal を読む。条件一致しないものは弾く。
+    // 全 signal を読む。target_pre_instance_id 一致のみで filter。
     let signals = record_signal::scan_signals_dir(&base, project_hash);
     let matching: Vec<_> = signals
         .into_iter()
-        .filter(|(_, s)| {
-            s.target_pre_instance_id == instance_id && s.daw_session_id == daw_session_id
-        })
+        .filter(|(_, s)| s.target_pre_instance_id == instance_id)
         .collect();
 
     // 既存 partner の現状況を確認
@@ -486,7 +514,9 @@ mod tests {
     }
 
     /// poll_record_signal の挙動を検証するため、tmp_kirin_base に依存しない薄いラッパー。
-    /// 実装と同じロジック（scan_signals_dir + 二重 filter）を直接回す。
+    /// 実装と同じロジック（scan_signals_dir + target_pre_instance_id 単一 filter）を直接回す。
+    ///
+    /// B-022 段階 3: daw_session_id filter 撤廃に追従。
     #[allow(clippy::too_many_arguments)]
     fn poll_with_base(
         base: &Path,
@@ -496,15 +526,11 @@ mod tests {
         license: &Arc<License>,
         partner: &mut Option<PartnerInfo>,
         instance_id: &str,
-        daw_session_id: &str,
     ) {
         let signals = record_signal::scan_signals_dir(base, TEST_PH);
         let matching: Vec<_> = signals
             .into_iter()
-            .filter(|(_, s)| {
-                s.target_pre_instance_id == instance_id
-                    && s.daw_session_id == daw_session_id
-            })
+            .filter(|(_, s)| s.target_pre_instance_id == instance_id)
             .collect();
 
         if let Some(p) = partner.as_mut() {
@@ -578,7 +604,7 @@ mod tests {
         let mut partner = None;
 
         poll_with_base(
-            &base, &sm, &recording, &ack, &license, &mut partner, TEST_PRE_IID, TEST_DAW,
+            &base, &sm, &recording, &ack, &license, &mut partner, TEST_PRE_IID,
         );
 
         assert_eq!(sm.current(), RecordState::Record);
@@ -611,7 +637,7 @@ mod tests {
         let mut partner = None;
 
         poll_with_base(
-            &base, &sm, &recording, &ack, &license, &mut partner, TEST_PRE_IID, TEST_DAW,
+            &base, &sm, &recording, &ack, &license, &mut partner, TEST_PRE_IID,
         );
 
         // 自分宛てではないので Record に入らない
@@ -623,16 +649,24 @@ mod tests {
         assert_eq!(sig.status, SignalStatus::Pending);
     }
 
-    /// Q1 補強: daw_session_id が異なる signal は無視される（cross-process 防壁）。
+    /// B-022 段階 3 退行防止: PRE 側 cell の daw_session_id と signal の値が
+    /// 乖離していても、target_pre_instance_id が一致する signal には追従する
+    /// （cdylib 隔離下で PRE/POST が別 OnceLock を持つ実機シナリオ）。
+    ///
+    /// 旧版 (段階 1〜2) の `signal_with_wrong_daw_session_id_is_ignored` は
+    /// `daw_session_id` filter で signal を弾く挙動を固定していたが、その
+    /// filter は実機で全 signal を弾く真因となったため段階 3 で撤廃。
+    /// 本テストは「撤廃 = false-negative 救済」の不変条件を逆方向に固定。
     #[test]
-    fn signal_with_wrong_daw_session_id_is_ignored() {
+    fn signal_with_different_daw_session_id_is_still_acknowledged() {
         let base = isolated_base();
+        // POST が書いた signal の daw_session_id は PRE 側 cell 値と異なる
         write_pending(
             &base,
             TEST_PH,
             "post-1",
             TEST_PRE_IID.into(),
-            "daw-OTHER-process".into(),
+            "daw-from-POST-cdylib".into(),
         )
         .unwrap();
 
@@ -642,18 +676,26 @@ mod tests {
         let license = Arc::new(License::Os);
         let mut partner = None;
 
+        // poll_with_base は instance_id だけ受け取り、daw_session_id 比較は
+        // しない（段階 3 実装に同期）。
         poll_with_base(
-            &base, &sm, &recording, &ack, &license, &mut partner, TEST_PRE_IID, TEST_DAW,
+            &base, &sm, &recording, &ack, &license, &mut partner, TEST_PRE_IID,
         );
 
         assert_eq!(
             sm.current(),
-            RecordState::Watch,
-            "別プロセスからの signal は ack しない"
+            RecordState::Record,
+            "段階 3: target_pre_instance_id 一致のみで PRE は追従する"
         );
-        assert!(partner.is_none());
+        assert!(recording.load(Ordering::Relaxed));
+        assert!(ack.load(Ordering::Relaxed));
         let sig = record_signal::read_signal(&base, TEST_PH, "post-1").unwrap();
-        assert_eq!(sig.status, SignalStatus::Pending);
+        assert_eq!(
+            sig.status,
+            SignalStatus::Acknowledged,
+            "POST 側 cell からの signal も ack される (cdylib 隔離 G-115-36)"
+        );
+        assert_eq!(partner.as_ref().unwrap().post_instance_id, "post-1");
     }
 
     #[test]
@@ -668,7 +710,7 @@ mod tests {
         let mut partner = None;
 
         poll_with_base(
-            &base, &sm, &recording, &ack, &license, &mut partner, TEST_PRE_IID, TEST_DAW,
+            &base, &sm, &recording, &ack, &license, &mut partner, TEST_PRE_IID,
         );
 
         assert_eq!(sm.current(), RecordState::Watch);
@@ -688,13 +730,13 @@ mod tests {
         let license = Arc::new(License::Os);
         let mut partner = None;
         poll_with_base(
-            &base, &sm, &recording, &ack, &license, &mut partner, TEST_PRE_IID, TEST_DAW,
+            &base, &sm, &recording, &ack, &license, &mut partner, TEST_PRE_IID,
         );
         assert!(sm.is_recording());
 
         record_signal::mark_released(&base, TEST_PH, "post-1").unwrap();
         poll_with_base(
-            &base, &sm, &recording, &ack, &license, &mut partner, TEST_PRE_IID, TEST_DAW,
+            &base, &sm, &recording, &ack, &license, &mut partner, TEST_PRE_IID,
         );
 
         assert_eq!(sm.current(), RecordState::Watch);
@@ -713,13 +755,13 @@ mod tests {
         let license = Arc::new(License::Os);
         let mut partner = None;
         poll_with_base(
-            &base, &sm, &recording, &ack, &license, &mut partner, TEST_PRE_IID, TEST_DAW,
+            &base, &sm, &recording, &ack, &license, &mut partner, TEST_PRE_IID,
         );
         assert!(sm.is_recording());
 
         record_signal::delete_signal(&base, TEST_PH, "post-1").unwrap();
         poll_with_base(
-            &base, &sm, &recording, &ack, &license, &mut partner, TEST_PRE_IID, TEST_DAW,
+            &base, &sm, &recording, &ack, &license, &mut partner, TEST_PRE_IID,
         );
 
         assert_eq!(sm.current(), RecordState::Watch);
@@ -736,7 +778,7 @@ mod tests {
         let mut partner = None;
 
         poll_with_base(
-            &base, &sm, &recording, &ack, &license, &mut partner, TEST_PRE_IID, TEST_DAW,
+            &base, &sm, &recording, &ack, &license, &mut partner, TEST_PRE_IID,
         );
 
         assert_eq!(sm.current(), RecordState::Watch);
@@ -765,7 +807,7 @@ mod tests {
         let mut partner = None;
 
         poll_with_base(
-            &base, &sm, &recording, &ack, &license, &mut partner, TEST_PRE_IID, TEST_DAW,
+            &base, &sm, &recording, &ack, &license, &mut partner, TEST_PRE_IID,
         );
 
         assert!(sm.is_recording());

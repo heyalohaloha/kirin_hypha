@@ -66,13 +66,22 @@ const RESCAN_INTERVAL: Duration = Duration::from_secs(1);
 /// PRE 側の動的 POST 検出キャッシュ。
 ///
 /// PRE IO Thread の `run_tick` 内で `should_rescan(now)` が true のときだけ
-/// `record_scan` を呼ぶ。それ以外のループでは `cached_post_project_dir()` で
-/// 前回結果を再利用する。
+/// `record_scan` を呼ぶ。それ以外のループでは `cached_post_project_dir()` /
+/// `cached_daw_session_id()` で前回結果を再利用する。
 ///
 /// B-021 `pre_discovery::PostDiscoveryState` と等価な構造。
+///
+/// # B-022 段階 3 拡張
+/// `cached_daw_session_id` を追加。`discover_pair_post_project_dir` が
+/// 発見した signal の `daw_session_id` を保持し、PRE 側 io_thread で
+/// `effective_daw_session_id_ref` として利用する。これにより cdylib 隔離下
+/// (PRE/POST が別 OnceLock 実体) で `daw_session_id_cell()` 値が乖離しても、
+/// PRE は **POST が書いた signal の daw_session_id を信じる** 設計で同期を
+/// 達成する (G-115-36 補完 / 案 (a))。
 #[derive(Debug, Default)]
 pub struct PreSelfDiscoveryState {
     cached_post_project_dir: Option<PathBuf>,
+    cached_daw_session_id: Option<String>,
     last_scan: Option<Instant>,
 }
 
@@ -81,9 +90,19 @@ impl PreSelfDiscoveryState {
         Self::default()
     }
 
-    /// 前回 scan 結果 (cache)。`run_tick` の毎ループで参照される。
+    /// 前回 scan 結果 (project dir cache)。`run_tick` の毎ループで参照される。
     pub fn cached_post_project_dir(&self) -> Option<&Path> {
         self.cached_post_project_dir.as_deref()
+    }
+
+    /// 前回 scan 結果 (daw_session_id cache)。
+    ///
+    /// B-022 段階 3: cross-process 防壁を「PRE 側 cell 値との比較」から
+    /// 「signal 自身が持つ daw_session_id を信じる」方式に切替えるための値。
+    /// `target_pre_instance_id` (UUID v4) で 1 PRE↔1 POST の決定論性が確保
+    /// されているため (衝突確率 ≈ 2^-122)、二重チェックは冗長。
+    pub fn cached_daw_session_id(&self) -> Option<&str> {
+        self.cached_daw_session_id.as_deref()
     }
 
     /// 1 秒以上経過しているか、まだ一度も scan していない場合のみ true。
@@ -95,15 +114,29 @@ impl PreSelfDiscoveryState {
     }
 
     /// scan 結果を記録する。`should_rescan(now)` が true だった直後に呼ぶ。
-    pub fn record_scan(&mut self, now: Instant, result: Option<PathBuf>) {
+    ///
+    /// # 入力
+    /// `result`: `Some((project_dir, daw_session_id))` で発見成功、`None` で
+    /// 不在 (cache を両方クリア)。
+    pub fn record_scan(&mut self, now: Instant, result: Option<(PathBuf, String)>) {
         self.last_scan = Some(now);
-        self.cached_post_project_dir = result;
+        match result {
+            Some((path, session_id)) => {
+                self.cached_post_project_dir = Some(path);
+                self.cached_daw_session_id = Some(session_id);
+            }
+            None => {
+                self.cached_post_project_dir = None;
+                self.cached_daw_session_id = None;
+            }
+        }
     }
 }
 
 /// `plugin_data_root` (= `~/Library/Application Support/Kirin OS/plugin_data/`)
 /// 配下を scan して `target_pre_instance_id == my_instance_id` を満たす
-/// `record_signal.json` を持つ `{any_uuid}/` を返す。
+/// `record_signal.json` を持つ `{any_uuid}/` と、その signal の `daw_session_id`
+/// を返す。
 ///
 /// # 入力
 /// - `plugin_data_root`: 探索ルート (`StoragePaths::default_macos().plugin_data_dir()`
@@ -112,9 +145,13 @@ impl PreSelfDiscoveryState {
 ///   `read_instance_id_arc(&self.params.instance_id)` 等で lazy-read 済みの
 ///   値を `&str` で渡す** (段階 1 lazy-read 経路との結合点)
 ///
-/// # 戻り値
-/// - 一致 + 非 stale な signal が 1 件以上見つかった → mtime 最新の signal を
-///   持つ `{any_uuid}/` の `PathBuf`
+/// # 戻り値 (B-022 段階 3 拡張)
+/// - 一致 + 非 stale な signal が 1 件以上見つかった →
+///   `Some((post_project_dir, signal_daw_session_id))`
+///   - `post_project_dir`: mtime 最新の signal を持つ `{any_uuid}/` の `PathBuf`
+///   - `signal_daw_session_id`: その signal の `daw_session_id` フィールド
+///     値 (PRE 側 io_thread が `effective_daw_session_id_ref` として
+///     `poll_record_signal` の filter 条件に使う)
 /// - それ以外 → `None`
 ///
 /// # 失敗 mode (R-28 沈黙ゲート)
@@ -123,7 +160,7 @@ impl PreSelfDiscoveryState {
 pub fn discover_pair_post_project_dir(
     plugin_data_root: &Path,
     my_instance_id: &str,
-) -> Option<PathBuf> {
+) -> Option<(PathBuf, String)> {
     discover_pair_post_project_dir_at(plugin_data_root, my_instance_id, SystemTime::now())
 }
 
@@ -134,7 +171,7 @@ pub fn discover_pair_post_project_dir_at(
     plugin_data_root: &Path,
     my_instance_id: &str,
     now: SystemTime,
-) -> Option<PathBuf> {
+) -> Option<(PathBuf, String)> {
     if my_instance_id.is_empty() {
         // 段階 1 lazy-read が空文字を返すケース (RwLock poisoned 等)。
         // false-positive で全 signal を一致扱いするのを防ぐため早期 return。
@@ -144,8 +181,8 @@ pub fn discover_pair_post_project_dir_at(
 
     let project_entries = fs::read_dir(plugin_data_root).ok()?;
 
-    // 候補: (project_dir, signal_mtime). 最新 mtime を勝者とする。
-    let mut best: Option<(PathBuf, SystemTime)> = None;
+    // 候補: (project_dir, daw_session_id, signal_mtime). 最新 mtime を勝者とする。
+    let mut best: Option<(PathBuf, String, SystemTime)> = None;
 
     for project_entry in project_entries.flatten() {
         let project_dir = project_entry.path();
@@ -201,14 +238,18 @@ pub fn discover_pair_post_project_dir_at(
             // mtime 最新を残す。tie-break は後続走査結果で上書き = ファイル
             // 探索順序依存だが、現実には 2 signal が同 mtime に揃うことは
             // ほぼ無く、揃った場合でも結果はいずれかの正規 project_dir。
+            //
+            // B-022 段階 3: signal 自身の `daw_session_id` を best と一緒に
+            // 保持する。空文字でも信じる (legacy schema fallback /
+            // `record_signal.rs:90` `#[serde(default)]`)。
             best = match best {
-                Some((_, prev)) if prev > mtime => best,
-                _ => Some((project_dir.clone(), mtime)),
+                Some((_, _, prev)) if prev > mtime => best,
+                _ => Some((project_dir.clone(), parsed.daw_session_id.clone(), mtime)),
             };
         }
     }
 
-    best.map(|(p, _)| p)
+    best.map(|(p, s, _)| (p, s))
 }
 
 #[cfg(test)]
@@ -280,7 +321,10 @@ mod tests {
         let root = unique_root("single_match");
         touch_signal(&root, "post-proj-A", "post-1", "pre-target");
         let result = discover_pair_post_project_dir(&root, "pre-target");
-        assert_eq!(result, Some(root.join("post-proj-A")));
+        assert_eq!(
+            result,
+            Some((root.join("post-proj-A"), "daw-test".to_string()))
+        );
     }
 
     #[test]
@@ -306,7 +350,10 @@ mod tests {
         set_mtime(&path_new, now);
 
         let result = discover_pair_post_project_dir_at(&root, "pre-target", now);
-        assert_eq!(result, Some(root.join("post-new")));
+        assert_eq!(
+            result,
+            Some((root.join("post-new"), "daw-test".to_string()))
+        );
     }
 
     #[test]
@@ -334,7 +381,11 @@ mod tests {
         touch_signal(&root, "post-proj", "post-good", "pre-target");
 
         let result = discover_pair_post_project_dir(&root, "pre-target");
-        assert_eq!(result, Some(proj_dir), "corrupt file must be skipped silently");
+        assert_eq!(
+            result,
+            Some((proj_dir, "daw-test".to_string())),
+            "corrupt file must be skipped silently"
+        );
     }
 
     #[test]
@@ -347,7 +398,7 @@ mod tests {
         touch_signal(&root, "post-proj", "post-1", "pre-target");
 
         let result = discover_pair_post_project_dir(&root, "pre-target");
-        assert_eq!(result, Some(proj_dir));
+        assert_eq!(result, Some((proj_dir, "daw-test".to_string())));
     }
 
     #[test]
@@ -382,7 +433,33 @@ mod tests {
         touch_signal(&root, "post-C", "post-C-1", "other-pre-C");
 
         let result = discover_pair_post_project_dir(&root, "pre-self");
-        assert_eq!(result, Some(root.join("post-B")));
+        assert_eq!(result, Some((root.join("post-B"), "daw-test".to_string())));
+    }
+
+    /// B-022 段階 3: discover が見つけた signal の `daw_session_id` を
+    /// `PreSelfDiscoveryState::cached_daw_session_id()` で取得できることを
+    /// 構造的に固定する。これは `effective_daw_session_id_ref` 経路で
+    /// PRE 側 io_thread が POST が書いた値を採用する設計の根幹。
+    #[test]
+    fn discovers_signal_with_matching_daw_session_id() {
+        let root = unique_root("discover_session_id");
+        // POST が書いた signal は daw_session_id="daw-test" (touch_signal 既定)
+        touch_signal(&root, "post-proj-X", "post-X-1", "pre-target");
+
+        let result = discover_pair_post_project_dir(&root, "pre-target");
+        let (project_dir, session_id) =
+            result.expect("一致 signal が 1 件あれば必ず Some を返す");
+        assert_eq!(project_dir, root.join("post-proj-X"));
+        assert_eq!(
+            session_id, "daw-test",
+            "discover は signal 自身の daw_session_id を返す \
+             (PRE 側 cell 値ではなく POST が書いた値を信じる設計)"
+        );
+
+        // PreSelfDiscoveryState 経由でも同じ値が取り出せる
+        let mut state = PreSelfDiscoveryState::new();
+        state.record_scan(Instant::now(), Some((project_dir, session_id)));
+        assert_eq!(state.cached_daw_session_id(), Some("daw-test"));
     }
 
     // ── PreSelfDiscoveryState ──────────────────────────────────────────
@@ -398,7 +475,10 @@ mod tests {
     fn state_throttles_within_one_second() {
         let mut s = PreSelfDiscoveryState::new();
         let t0 = Instant::now();
-        s.record_scan(t0, Some(PathBuf::from("/tmp/post-A")));
+        s.record_scan(
+            t0,
+            Some((PathBuf::from("/tmp/post-A"), "daw-test".to_string())),
+        );
         // 0.5 秒以内は再走査しない
         assert!(!s.should_rescan(t0 + Duration::from_millis(500)));
         // 1 秒経過時点で再走査可
@@ -410,9 +490,11 @@ mod tests {
         let mut s = PreSelfDiscoveryState::new();
         let t0 = Instant::now();
         let dir = PathBuf::from("/tmp/post-A");
-        s.record_scan(t0, Some(dir.clone()));
+        s.record_scan(t0, Some((dir.clone(), "daw-test".to_string())));
         assert_eq!(s.cached_post_project_dir(), Some(dir.as_path()));
+        assert_eq!(s.cached_daw_session_id(), Some("daw-test"));
         s.record_scan(t0 + Duration::from_secs(1), None);
         assert!(s.cached_post_project_dir().is_none());
+        assert!(s.cached_daw_session_id().is_none());
     }
 }
