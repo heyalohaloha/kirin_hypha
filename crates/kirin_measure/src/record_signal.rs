@@ -1,52 +1,45 @@
 //! record_signal.json — POST → PRE 自動追従シグナル（G-50-34 / G-50-35）。
 //!
-//! guardian_58_hypha_step5_record_plugin_data.md T-4 対応。
-//!
-//! # ファイル
+//! # ファイル構造（A-3 修正後 / Q2 平坦化）
 //! ```text
-//! plugin_data/{project_hash}/{bus}/record_signal.json
+//! plugin_data/{project_hash}/record_signal/{post_instance_id}.json
 //! ```
+//! 旧 `{project_hash}/{bus}/record_signal.json` から移行。bus 概念を path から外し、
+//! POST インスタンスごとに 1 ファイル。同一 project_hash 内に複数 POST が居ても
+//! ファイル名で区別できる。
 //!
 //! # スキーマ
 //! ```json
 //! {
 //!   "status": "pending | acknowledged | released",
-//!   "requested_by": "instance_id of POST",
-//!   "target_pre_instance_id": "instance_id of PRE (ペアリング結果)",
-//!   "t": "ISO 8601（最終遷移時刻。status 変化で更新）",
-//!   "started_at": "ISO 8601（Record 開始時刻。pending 配置時に固定、以後不変）"
+//!   "requested_by": "post_instance_id (= filename stem)",
+//!   "target_pre_instance_id": "PRE 永続 instance_id（ペアリング結果）",
+//!   "daw_session_id": "DAW プロセス UUID（cross-process 防壁 / Q1 補強）",
+//!   "t": "ISO 8601（最終遷移時刻。status 更新で書き換わる）",
+//!   "started_at": "ISO 8601（pending 配置時に固定、以後不変）"
 //! }
 //! ```
 //!
-//! `t` は status の更新時刻で、pending → acknowledged → released の度に書き換わる。
-//! `started_at` は Record 開始（pending 配置）時に固定され、遷移では変わらない。
-//! PRE / POST 双方が `started_at` を読んで共通の t_ms 軸を構築する（同じ Record
-//! に属する両側のフレームが同じ経過時間で並ぶ）。
+//! `t` は status の更新時刻、`started_at` は Record 開始時刻。
+//! `daw_session_id` は POST 側 [`crate::daw_session_id`] の値で、PRE 側で
+//! 自身の `daw_session_id` と一致しない signal は **必ず無視する** こと
+//! （別 DAW プロセスからの誤 ack 防止）。
 //!
-//! # シーケンス
-//! ```text
-//! 1. POST「残す」→ 排他OK → pending 配置 + 自 Record 切替
-//! 2. PRE IO Thread が 1 秒間隔で監視（T-6 側）
-//!    → pending 検出 → 自 Record 切替 → acknowledged 更新
-//! 3. POST「記録を止める」→ released 更新 → POST Watch → PRE が released 検出 → Watch
-//!    → record_signal.json 削除
-//! ```
+//! # PRE 側 polling（Q1 (b) 厳格化）
+//! 1. [`scan_signals_dir`] で `{project_hash}/record_signal/*.json` を全件読み込む
+//! 2. 各 signal について以下を **両方** 満たすもののみ処理:
+//!    - `signal.target_pre_instance_id == self.instance_id`
+//!    - `signal.daw_session_id == self.daw_session_id`
+//! 3. 1 つも条件一致がなければ Record 状態を維持（pending 検出なしと同義）
 //!
-//! # タイムアウト
-//! POST が pending 配置後 30 秒以内に acknowledged が返らなければ GUI 警告 +
-//! POST 自身 Watch 復帰 + record_signal.json 削除。
+//! # POST 側 ライフサイクル
+//! 1. POST「Keep」→ 排他 OK → [`write_pending`] で自身の post_instance_id 用 signal 配置
+//! 2. PRE が ack → [`mark_acknowledged`]
+//! 3. POST「Stop」→ [`mark_released`] → 30 秒後に自動 [`delete_signal`]
 //!
-//! # POST→PRE ペアリング（G-50-35）
-//! `/tmp/kirin/{project_hash}/{bus}/pre_*.json` を走査。
-//! - 1 つ → 自動確定
-//! - 複数 → `distance = |ΔLUFS| + |ΔTP| + |ΔCrest|` 最小を選択（同値は先頭優先）
-//!
-//! # Phase 1 制限（G-50-35）
-//! Watch 複数ペア ✅、Record 複数ペア同一バス ❌ → 12 セット送り（Phase 2）。
-//!
-//! # T-4 のスコープ
-//! 本モジュールは純粋な FS I/O + 距離計算のみ。1 秒間隔ポーリングや GUI 警告は
-//! T-6 Plugin 統合で組み立てる。
+//! # ペアリング距離（G-50-35）
+//! `/tmp/kirin/{project_hash}/{instance_id}/pre.json` を全 instance_id 横断で走査。
+//! distance = `|ΔLUFS| + |ΔTP| + |ΔCrest|` 最小を選択（同値は instance_id 辞書順先頭）。
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -54,10 +47,14 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-/// pending→acknowledged タイムアウト（秒）。
+/// pending → acknowledged タイムアウト（秒）。
 pub const ACK_TIMEOUT_SECONDS: i64 = 30;
 
-/// record_signal.json のファイル名（定数）。
+/// record_signal ディレクトリ名（`{project_hash}/record_signal/`）。
+pub const SIGNALS_SUBDIR: &str = "record_signal";
+
+/// 旧バージョン互換: 1 ファイルだけ置かれていた頃の filename。テストや残骸検出
+/// にだけ参照され、新コードから書込先には使わない。
 pub const SIGNAL_FILENAME: &str = "record_signal.json";
 
 // ── スキーマ ─────────────────────────────────────────────────────────────────
@@ -85,23 +82,36 @@ impl SignalStatus {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RecordSignal {
     pub status: SignalStatus,
+    /// POST インスタンス UUID。filename stem と同値。
     pub requested_by: String,
+    /// ペアリングで選ばれた PRE 永続 instance_id（PRE 側 ack 条件 1）。
     pub target_pre_instance_id: String,
+    /// POST 側の `daw_session_id`。PRE 側 ack 条件 2（cross-process 防壁）。
+    /// 旧 schema からの読込で欠落している場合は空文字で defaulted。
+    #[serde(default)]
+    pub daw_session_id: String,
+    /// 状態遷移の最終時刻（ISO 8601 / RFC 3339, 秒精度 / UTC）。
     pub t: String,
-    /// Record 開始時刻（pending 配置時に固定）。status 遷移でも更新されない。
-    /// 旧バージョンで書かれたファイルには存在しないことがあるため `#[serde(default)]`。
+    /// pending 配置時刻（以後 status 遷移で更新されない）。
+    /// 旧バージョン互換のため `#[serde(default)]`（不在で空文字）。
     #[serde(default)]
     pub started_at: String,
 }
 
 impl RecordSignal {
-    /// 新規 pending シグナル。`t` と `started_at` は現在時刻。
-    pub fn new_pending(requested_by: String, target_pre_instance_id: String) -> Self {
+    /// 新規 pending シグナルを生成。`t` と `started_at` は現在時刻、
+    /// `daw_session_id` は呼び出し側が責任を持って渡す。
+    pub fn new_pending(
+        requested_by: String,
+        target_pre_instance_id: String,
+        daw_session_id: String,
+    ) -> Self {
         let now = now_iso8601();
         Self {
             status: SignalStatus::Pending,
             requested_by,
             target_pre_instance_id,
+            daw_session_id,
             t: now.clone(),
             started_at: now,
         }
@@ -110,9 +120,14 @@ impl RecordSignal {
 
 // ── パス構築 ─────────────────────────────────────────────────────────────────
 
-/// `{base}/{project_hash}/{bus}/record_signal.json` を構築。
-pub fn signal_path(base_dir: &Path, project_hash: &str, bus: &str) -> PathBuf {
-    base_dir.join(project_hash).join(bus).join(SIGNAL_FILENAME)
+/// `{base}/{project_hash}/record_signal/` ディレクトリ。
+pub fn signals_dir(base_dir: &Path, project_hash: &str) -> PathBuf {
+    base_dir.join(project_hash).join(SIGNALS_SUBDIR)
+}
+
+/// `{base}/{project_hash}/record_signal/{post_instance_id}.json`。
+pub fn signal_path(base_dir: &Path, project_hash: &str, post_instance_id: &str) -> PathBuf {
+    signals_dir(base_dir, project_hash).join(format!("{post_instance_id}.json"))
 }
 
 fn tmp_path(final_path: &Path) -> PathBuf {
@@ -157,12 +172,16 @@ impl From<serde_json::Error> for SignalError {
 pub fn write_pending(
     base_dir: &Path,
     project_hash: &str,
-    bus: &str,
-    requested_by: String,
+    post_instance_id: &str,
     target_pre_instance_id: String,
+    daw_session_id: String,
 ) -> Result<RecordSignal, SignalError> {
-    let signal = RecordSignal::new_pending(requested_by, target_pre_instance_id);
-    write_signal(base_dir, project_hash, bus, &signal)?;
+    let signal = RecordSignal::new_pending(
+        post_instance_id.to_string(),
+        target_pre_instance_id,
+        daw_session_id,
+    );
+    write_signal(base_dir, project_hash, post_instance_id, &signal)?;
     Ok(signal)
 }
 
@@ -170,10 +189,10 @@ pub fn write_pending(
 pub fn write_signal(
     base_dir: &Path,
     project_hash: &str,
-    bus: &str,
+    post_instance_id: &str,
     signal: &RecordSignal,
 ) -> Result<(), SignalError> {
-    let final_path = signal_path(base_dir, project_hash, bus);
+    let final_path = signal_path(base_dir, project_hash, post_instance_id);
     if let Some(parent) = final_path.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -185,44 +204,58 @@ pub fn write_signal(
 }
 
 /// シグナル読込。存在しない / パース失敗時は None。
-pub fn read_signal(base_dir: &Path, project_hash: &str, bus: &str) -> Option<RecordSignal> {
-    let path = signal_path(base_dir, project_hash, bus);
+pub fn read_signal(
+    base_dir: &Path,
+    project_hash: &str,
+    post_instance_id: &str,
+) -> Option<RecordSignal> {
+    let path = signal_path(base_dir, project_hash, post_instance_id);
     let bytes = fs::read(&path).ok()?;
     serde_json::from_slice(&bytes).ok()
 }
 
 /// 状態遷移: pending → acknowledged。`t` は現在時刻に更新。
 ///
-/// 既存シグナルが無い / 読込失敗時は `Ok(false)` を返す（呼出側で扱い決定）。
+/// 既存シグナルが無い / 読込失敗時は `Ok(false)` を返す。
 pub fn mark_acknowledged(
     base_dir: &Path,
     project_hash: &str,
-    bus: &str,
+    post_instance_id: &str,
 ) -> Result<bool, SignalError> {
-    transition_status(base_dir, project_hash, bus, SignalStatus::Acknowledged)
+    transition_status(
+        base_dir,
+        project_hash,
+        post_instance_id,
+        SignalStatus::Acknowledged,
+    )
 }
 
 /// 状態遷移: * → released。
 pub fn mark_released(
     base_dir: &Path,
     project_hash: &str,
-    bus: &str,
+    post_instance_id: &str,
 ) -> Result<bool, SignalError> {
-    transition_status(base_dir, project_hash, bus, SignalStatus::Released)
+    transition_status(
+        base_dir,
+        project_hash,
+        post_instance_id,
+        SignalStatus::Released,
+    )
 }
 
 fn transition_status(
     base_dir: &Path,
     project_hash: &str,
-    bus: &str,
+    post_instance_id: &str,
     next: SignalStatus,
 ) -> Result<bool, SignalError> {
-    let Some(mut signal) = read_signal(base_dir, project_hash, bus) else {
+    let Some(mut signal) = read_signal(base_dir, project_hash, post_instance_id) else {
         return Ok(false);
     };
     signal.status = next;
     signal.t = now_iso8601();
-    write_signal(base_dir, project_hash, bus, &signal)?;
+    write_signal(base_dir, project_hash, post_instance_id, &signal)?;
     Ok(true)
 }
 
@@ -230,9 +263,9 @@ fn transition_status(
 pub fn delete_signal(
     base_dir: &Path,
     project_hash: &str,
-    bus: &str,
+    post_instance_id: &str,
 ) -> Result<(), SignalError> {
-    let path = signal_path(base_dir, project_hash, bus);
+    let path = signal_path(base_dir, project_hash, post_instance_id);
     match fs::remove_file(&path) {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
@@ -258,9 +291,48 @@ pub fn is_timed_out(
     now.signed_duration_since(t).num_seconds() > timeout_secs
 }
 
-// ── PRE ペアリング ───────────────────────────────────────────────────────────
+/// `{project_hash}/record_signal/` 配下の `*.json` を全件読み込んで返す。
+///
+/// 各要素は `(post_instance_id, RecordSignal)`。filename stem を post_instance_id
+/// として返すため、呼び出し側はファイル名と signal 内の `requested_by` の整合
+/// を別途確認しなくてよい。
+///
+/// パース不能・I/O 失敗ファイルは silently skip。返値は post_instance_id 辞書順。
+pub fn scan_signals_dir(
+    base_dir: &Path,
+    project_hash: &str,
+) -> Vec<(String, RecordSignal)> {
+    let dir = signals_dir(base_dir, project_hash);
+    let entries = match fs::read_dir(&dir) {
+        Ok(e) => e,
+        Err(_) => return Vec::new(),
+    };
+    let mut out: Vec<(String, RecordSignal)> = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|s| s.to_str()) != Some("json") {
+            continue;
+        }
+        let Some(stem) = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .map(str::to_string)
+        else {
+            continue;
+        };
+        let Ok(bytes) = fs::read(&path) else { continue };
+        let Ok(signal): Result<RecordSignal, _> = serde_json::from_slice(&bytes) else {
+            continue;
+        };
+        out.push((stem, signal));
+    }
+    out.sort_by(|a, b| a.0.cmp(&b.0));
+    out
+}
 
-/// `/tmp/kirin/{ph}/{bus}/pre_*.json` 1 件分のパース結果。
+// ── PRE ペアリング（A-3 後: instance_id 横断走査）─────────────────────────────
+
+/// `/tmp/kirin/{ph}/{instance_id}/pre.json` 1 件分のパース結果。
 #[derive(Debug, Clone, PartialEq)]
 pub struct PreCandidate {
     pub instance_id: String,
@@ -282,27 +354,28 @@ struct PreTmpJson {
     crest: Option<f64>,
 }
 
-/// `/tmp/kirin/{project_hash}/{bus}/` 配下の `pre_*.json` を走査。
+/// `/tmp/kirin/{project_hash}/{instance_id}/pre.json` を全 instance_id 横断で走査。
 ///
-/// `tmp_base` は通常 `std::env::temp_dir().join("kirin")`。テストでは注入可。
-/// 走査失敗・パース失敗は skip（バッシュ panic せず）。
-pub fn scan_pre_candidates(
-    tmp_base: &Path,
-    project_hash: &str,
-    bus: &str,
-) -> Vec<PreCandidate> {
-    let dir = tmp_base.join(project_hash).join(bus);
-    let entries = match fs::read_dir(&dir) {
+/// `tmp_base` は通常 `std::env::temp_dir().join("kirin")`。走査失敗・パース失敗は
+/// silently skip。返値は instance_id 辞書順（再現性確保）。
+pub fn scan_pre_candidates(tmp_base: &Path, project_hash: &str) -> Vec<PreCandidate> {
+    let project_dir = tmp_base.join(project_hash);
+    let entries = match fs::read_dir(&project_dir) {
         Ok(e) => e,
         Err(_) => return Vec::new(),
     };
     let mut out = Vec::new();
     for entry in entries.flatten() {
         let path = entry.path();
-        if !is_pre_json(&path) {
+        if !path.is_dir() {
             continue;
         }
-        let Ok(bytes) = fs::read(&path) else { continue };
+        // record_signal/ ディレクトリは除外
+        if path.file_name().and_then(|n| n.to_str()) == Some(SIGNALS_SUBDIR) {
+            continue;
+        }
+        let pre_file = path.join("pre.json");
+        let Ok(bytes) = fs::read(&pre_file) else { continue };
         let Ok(parsed): Result<PreTmpJson, _> = serde_json::from_slice(&bytes) else {
             continue;
         };
@@ -311,10 +384,9 @@ pub fn scan_pre_candidates(
             lufs_m: parsed.lufs_m,
             true_peak: parsed.true_peak,
             crest: parsed.crest,
-            path,
+            path: pre_file,
         });
     }
-    // 再現性のため instance_id 順にソート（同値 distance の先頭選択を安定化）。
     out.sort_by(|a, b| a.instance_id.cmp(&b.instance_id));
     out
 }
@@ -332,7 +404,7 @@ pub struct PostMetrics {
 /// - 0 件 → None
 /// - 1 件 → その 1 つを返す（計測値無くても自動確定。G-50-35）
 /// - 複数 + POST/PRE 双方に全 3 メトリック有 → distance 最小を返す
-/// - 複数 + いずれかメトリック不在 → 最初の候補を返す（ソート済みなので安定）
+/// - 複数 + いずれかメトリック不在 → 最初の候補を返す（ソート済みで安定）
 pub fn pick_closest_pre(
     candidates: &[PreCandidate],
     post: PostMetrics,
@@ -370,13 +442,6 @@ fn now_iso8601() -> String {
         .to_string()
 }
 
-fn is_pre_json(path: &Path) -> bool {
-    let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
-        return false;
-    };
-    name.starts_with("pre_") && name.ends_with(".json") && !name.ends_with(".tmp")
-}
-
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -408,16 +473,23 @@ mod tests {
 
     #[test]
     fn signal_roundtrip_preserves_all_fields() {
-        let s = RecordSignal::new_pending("post-001".into(), "pre-xyz".into());
+        let s = RecordSignal::new_pending(
+            "post-001".into(),
+            "pre-xyz".into(),
+            "daw-uuid-1".into(),
+        );
         let json = serde_json::to_string(&s).unwrap();
         let back: RecordSignal = serde_json::from_str(&json).unwrap();
         assert_eq!(s, back);
     }
 
     #[test]
-    fn signal_path_hierarchy() {
-        let p = signal_path(Path::new("/tmp/kb"), "phash", "MIX");
-        assert_eq!(p, Path::new("/tmp/kb/phash/MIX/record_signal.json"));
+    fn signal_path_uses_post_instance_id_as_filename() {
+        let p = signal_path(Path::new("/tmp/kb"), "phash", "post-uuid-A");
+        assert_eq!(
+            p,
+            Path::new("/tmp/kb/phash/record_signal/post-uuid-A.json")
+        );
     }
 
     // ── I/O ─────────────────────────────────────────────────
@@ -425,107 +497,149 @@ mod tests {
     #[test]
     fn write_pending_creates_file_with_pending_status() {
         let base = isolated_dir();
-        let s = write_pending(&base, "ph", "MIX", "post-1".into(), "pre-1".into()).unwrap();
+        let s = write_pending(
+            &base,
+            "ph",
+            "post-1",
+            "pre-1".into(),
+            "daw-1".into(),
+        )
+        .unwrap();
         assert_eq!(s.status, SignalStatus::Pending);
         assert_eq!(s.requested_by, "post-1");
         assert_eq!(s.target_pre_instance_id, "pre-1");
-        let loaded = read_signal(&base, "ph", "MIX").unwrap();
+        assert_eq!(s.daw_session_id, "daw-1");
+        let loaded = read_signal(&base, "ph", "post-1").unwrap();
         assert_eq!(loaded, s);
     }
 
     #[test]
     fn read_signal_missing_returns_none() {
         let base = isolated_dir();
-        assert!(read_signal(&base, "ph", "MIX").is_none());
+        assert!(read_signal(&base, "ph", "post-x").is_none());
     }
 
     #[test]
     fn read_signal_corrupt_returns_none() {
         let base = isolated_dir();
-        let dir = base.join("ph").join("MIX");
+        let dir = signals_dir(&base, "ph");
         fs::create_dir_all(&dir).unwrap();
-        fs::write(dir.join(SIGNAL_FILENAME), b"not json").unwrap();
-        assert!(read_signal(&base, "ph", "MIX").is_none());
+        fs::write(dir.join("post-x.json"), b"not json").unwrap();
+        assert!(read_signal(&base, "ph", "post-x").is_none());
     }
 
     #[test]
     fn mark_acknowledged_updates_status_and_returns_true() {
         let base = isolated_dir();
-        write_pending(&base, "ph", "MIX", "p".into(), "r".into()).unwrap();
-        let changed = mark_acknowledged(&base, "ph", "MIX").unwrap();
+        write_pending(&base, "ph", "post-1", "pre-1".into(), "daw-1".into()).unwrap();
+        let changed = mark_acknowledged(&base, "ph", "post-1").unwrap();
         assert!(changed);
-        let loaded = read_signal(&base, "ph", "MIX").unwrap();
+        let loaded = read_signal(&base, "ph", "post-1").unwrap();
         assert_eq!(loaded.status, SignalStatus::Acknowledged);
+        assert_eq!(loaded.daw_session_id, "daw-1", "daw_session_id preserved on transition");
     }
 
     #[test]
     fn started_at_preserved_across_transitions() {
         let base = isolated_dir();
-        let initial = write_pending(&base, "ph", "MIX", "p".into(), "r".into()).unwrap();
+        let initial =
+            write_pending(&base, "ph", "post-1", "pre-1".into(), "daw-1".into()).unwrap();
         let first_started = initial.started_at.clone();
-        assert!(!first_started.is_empty(), "started_at must be set on new_pending");
-        // 遷移ごとに t は変わっても started_at は変わらない
-        std::thread::sleep(std::time::Duration::from_millis(1100)); // ISO 秒精度なので 1s 待つ
-        mark_acknowledged(&base, "ph", "MIX").unwrap();
-        let acked = read_signal(&base, "ph", "MIX").unwrap();
+        assert!(!first_started.is_empty(), "started_at must be set");
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        mark_acknowledged(&base, "ph", "post-1").unwrap();
+        let acked = read_signal(&base, "ph", "post-1").unwrap();
         assert_eq!(acked.started_at, first_started);
         assert_ne!(acked.t, first_started, "t should have advanced");
-        mark_released(&base, "ph", "MIX").unwrap();
-        let released = read_signal(&base, "ph", "MIX").unwrap();
+        mark_released(&base, "ph", "post-1").unwrap();
+        let released = read_signal(&base, "ph", "post-1").unwrap();
         assert_eq!(released.started_at, first_started);
     }
 
     #[test]
-    fn started_at_missing_field_defaults_to_empty() {
-        // 旧バージョン (started_at 無し) の JSON を読み込んでもパースできること
+    fn legacy_schema_without_daw_session_id_defaults_to_empty() {
         let base = isolated_dir();
-        let dir = base.join("ph").join("MIX");
+        let dir = signals_dir(&base, "ph");
         fs::create_dir_all(&dir).unwrap();
-        let legacy = r#"{"status":"pending","requested_by":"p","target_pre_instance_id":"r","t":"2026-01-01T00:00:00Z"}"#;
-        fs::write(dir.join(SIGNAL_FILENAME), legacy).unwrap();
-        let loaded = read_signal(&base, "ph", "MIX").unwrap();
-        assert_eq!(loaded.started_at, "");
+        let legacy = r#"{"status":"pending","requested_by":"post-1","target_pre_instance_id":"pre-1","t":"2026-01-01T00:00:00Z","started_at":"2026-01-01T00:00:00Z"}"#;
+        fs::write(dir.join("post-1.json"), legacy).unwrap();
+        let loaded = read_signal(&base, "ph", "post-1").unwrap();
+        assert_eq!(loaded.daw_session_id, "");
     }
 
     #[test]
     fn mark_released_updates_status() {
         let base = isolated_dir();
-        write_pending(&base, "ph", "MIX", "p".into(), "r".into()).unwrap();
-        mark_released(&base, "ph", "MIX").unwrap();
-        let loaded = read_signal(&base, "ph", "MIX").unwrap();
+        write_pending(&base, "ph", "post-1", "pre-1".into(), "daw-1".into()).unwrap();
+        mark_released(&base, "ph", "post-1").unwrap();
+        let loaded = read_signal(&base, "ph", "post-1").unwrap();
         assert_eq!(loaded.status, SignalStatus::Released);
     }
 
     #[test]
     fn transition_on_missing_returns_false() {
         let base = isolated_dir();
-        let changed = mark_acknowledged(&base, "ph", "MIX").unwrap();
+        let changed = mark_acknowledged(&base, "ph", "post-x").unwrap();
         assert!(!changed);
     }
 
     #[test]
     fn delete_signal_removes_file() {
         let base = isolated_dir();
-        write_pending(&base, "ph", "MIX", "p".into(), "r".into()).unwrap();
-        delete_signal(&base, "ph", "MIX").unwrap();
-        assert!(read_signal(&base, "ph", "MIX").is_none());
+        write_pending(&base, "ph", "post-1", "pre-1".into(), "daw-1".into()).unwrap();
+        delete_signal(&base, "ph", "post-1").unwrap();
+        assert!(read_signal(&base, "ph", "post-1").is_none());
     }
 
     #[test]
     fn delete_signal_on_missing_is_ok() {
         let base = isolated_dir();
-        // エラー無く成功すること（冪等）
-        delete_signal(&base, "ph", "MIX").unwrap();
+        delete_signal(&base, "ph", "post-x").unwrap();
     }
 
     #[test]
     fn atomic_write_leaves_no_tmp_behind() {
         let base = isolated_dir();
-        write_pending(&base, "ph", "MIX", "p".into(), "r".into()).unwrap();
-        let final_path = signal_path(&base, "ph", "MIX");
+        write_pending(&base, "ph", "post-1", "pre-1".into(), "daw-1".into()).unwrap();
+        let final_path = signal_path(&base, "ph", "post-1");
         let tmp = tmp_path(&final_path);
         assert!(final_path.exists());
         assert!(!tmp.exists(), "tmp must be renamed away: {tmp:?}");
+    }
+
+    // ── scan_signals_dir ────────────────────────────────────
+
+    #[test]
+    fn scan_signals_returns_empty_when_dir_missing() {
+        let base = isolated_dir();
+        let v = scan_signals_dir(&base, "ph");
+        assert!(v.is_empty());
+    }
+
+    #[test]
+    fn scan_signals_returns_all_in_alphabetical_order() {
+        let base = isolated_dir();
+        write_pending(&base, "ph", "post-b", "pre-1".into(), "daw-1".into()).unwrap();
+        write_pending(&base, "ph", "post-a", "pre-1".into(), "daw-1".into()).unwrap();
+        write_pending(&base, "ph", "post-c", "pre-2".into(), "daw-1".into()).unwrap();
+        let v = scan_signals_dir(&base, "ph");
+        assert_eq!(v.len(), 3);
+        assert_eq!(v[0].0, "post-a");
+        assert_eq!(v[1].0, "post-b");
+        assert_eq!(v[2].0, "post-c");
+    }
+
+    #[test]
+    fn scan_signals_skips_corrupt_and_non_json() {
+        let base = isolated_dir();
+        let dir = signals_dir(&base, "ph");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("bad.json"), b"{ invalid").unwrap();
+        fs::write(dir.join("readme.txt"), b"ignore me").unwrap();
+        write_pending(&base, "ph", "post-good", "pre-1".into(), "daw-1".into()).unwrap();
+        let v = scan_signals_dir(&base, "ph");
+        assert_eq!(v.len(), 1);
+        assert_eq!(v[0].0, "post-good");
     }
 
     // ── タイムアウト ────────────────────────────────────────
@@ -538,9 +652,9 @@ mod tests {
     #[test]
     fn timeout_fires_strictly_after_30s() {
         let now = Utc::now();
-        let mut sig = RecordSignal::new_pending("p".into(), "r".into());
+        let mut sig =
+            RecordSignal::new_pending("p".into(), "r".into(), "d".into());
         sig.t = iso_ago(30, now);
-        // 30 秒ちょうどは timed_out=false（> 判定）
         assert!(!is_timed_out(&sig, now, ACK_TIMEOUT_SECONDS));
         sig.t = iso_ago(31, now);
         assert!(is_timed_out(&sig, now, ACK_TIMEOUT_SECONDS));
@@ -549,7 +663,8 @@ mod tests {
     #[test]
     fn timeout_not_considered_for_non_pending() {
         let now = Utc::now();
-        let mut sig = RecordSignal::new_pending("p".into(), "r".into());
+        let mut sig =
+            RecordSignal::new_pending("p".into(), "r".into(), "d".into());
         sig.t = iso_ago(3600, now);
         sig.status = SignalStatus::Acknowledged;
         assert!(!is_timed_out(&sig, now, ACK_TIMEOUT_SECONDS));
@@ -560,30 +675,30 @@ mod tests {
     #[test]
     fn timeout_invalid_iso_is_false() {
         let now = Utc::now();
-        let mut sig = RecordSignal::new_pending("p".into(), "r".into());
+        let mut sig =
+            RecordSignal::new_pending("p".into(), "r".into(), "d".into());
         sig.t = "not-iso".to_string();
         assert!(!is_timed_out(&sig, now, ACK_TIMEOUT_SECONDS));
     }
 
-    // ── ペアリング ──────────────────────────────────────────
+    // ── ペアリング（新構造: {project_hash}/{instance_id}/pre.json）──
 
     fn write_pre_tmp(
         tmp_base: &Path,
         ph: &str,
-        bus: &str,
         instance_id: &str,
         metrics: Option<(f64, f64, f64)>,
     ) -> PathBuf {
-        let dir = tmp_base.join(ph).join(bus);
+        let dir = tmp_base.join(ph).join(instance_id);
         fs::create_dir_all(&dir).unwrap();
-        let path = dir.join(format!("pre_{instance_id}.json"));
+        let path = dir.join("pre.json");
         let json = if let Some((l, t, c)) = metrics {
             format!(
-                r#"{{"v":2,"role":"PRE","instance_id":"{instance_id}","bus":"{bus}","signal_state":"active","t":"now","lufs_m":{l},"true_peak":{t},"crest":{c},"psr":8.0}}"#
+                r#"{{"v":2,"role":"PRE","instance_id":"{instance_id}","signal_state":"active","t":"now","lufs_m":{l},"true_peak":{t},"crest":{c},"psr":8.0}}"#
             )
         } else {
             format!(
-                r#"{{"v":2,"role":"PRE","instance_id":"{instance_id}","bus":"{bus}","signal_state":"inactive","t":"now"}}"#
+                r#"{{"v":2,"role":"PRE","instance_id":"{instance_id}","signal_state":"inactive","t":"now"}}"#
             )
         };
         fs::write(&path, json).unwrap();
@@ -593,110 +708,68 @@ mod tests {
     #[test]
     fn scan_with_no_dir_returns_empty() {
         let base = isolated_dir();
-        let v = scan_pre_candidates(&base, "ph", "MIX");
+        let v = scan_pre_candidates(&base, "ph");
         assert!(v.is_empty());
     }
 
     #[test]
-    fn scan_ignores_non_pre_json_and_tmp() {
+    fn scan_skips_record_signal_subdir() {
         let base = isolated_dir();
-        let dir = base.join("ph").join("MIX");
-        fs::create_dir_all(&dir).unwrap();
-        fs::write(dir.join("post_x.json"), b"{}").unwrap();
-        fs::write(dir.join("pre_y.json.tmp"), b"{}").unwrap();
-        fs::write(dir.join("unrelated.txt"), b"{}").unwrap();
-        write_pre_tmp(&base, "ph", "MIX", "good", Some((-14.0, -1.0, 12.0)));
-        let v = scan_pre_candidates(&base, "ph", "MIX");
-        assert_eq!(v.len(), 1);
-        assert_eq!(v[0].instance_id, "good");
+        // record_signal/ をプロジェクト直下に作成（ペアリング走査の対象外）
+        write_pending(&base, "ph", "post-1", "pre-1".into(), "daw-1".into()).unwrap();
+        write_pre_tmp(&base, "ph", "good-pre", Some((-14.0, -1.0, 12.0)));
+        let v = scan_pre_candidates(&base, "ph");
+        assert_eq!(v.len(), 1, "record_signal/ must not be treated as instance");
+        assert_eq!(v[0].instance_id, "good-pre");
     }
 
     #[test]
-    fn scan_skips_corrupt_json() {
+    fn scan_skips_corrupt_pre_json() {
         let base = isolated_dir();
-        let dir = base.join("ph").join("MIX");
+        let dir = base.join("ph").join("bad-pre");
         fs::create_dir_all(&dir).unwrap();
-        fs::write(dir.join("pre_bad.json"), b"{ not valid").unwrap();
-        write_pre_tmp(&base, "ph", "MIX", "ok", Some((-14.0, -1.0, 12.0)));
-        let v = scan_pre_candidates(&base, "ph", "MIX");
+        fs::write(dir.join("pre.json"), b"{ not valid").unwrap();
+        write_pre_tmp(&base, "ph", "ok-pre", Some((-14.0, -1.0, 12.0)));
+        let v = scan_pre_candidates(&base, "ph");
         assert_eq!(v.len(), 1);
-        assert_eq!(v[0].instance_id, "ok");
+        assert_eq!(v[0].instance_id, "ok-pre");
     }
 
     #[test]
     fn pick_zero_returns_none() {
         let v: Vec<PreCandidate> = Vec::new();
-        let r = pick_closest_pre(&v, PostMetrics { lufs_m: Some(-14.0), true_peak: Some(-1.0), crest: Some(12.0) });
+        let r = pick_closest_pre(
+            &v,
+            PostMetrics {
+                lufs_m: Some(-14.0),
+                true_peak: Some(-1.0),
+                crest: Some(12.0),
+            },
+        );
         assert!(r.is_none());
     }
 
     #[test]
     fn pick_single_auto_selects() {
         let base = isolated_dir();
-        write_pre_tmp(&base, "ph", "MIX", "solo", Some((-14.0, -1.0, 12.0)));
-        let v = scan_pre_candidates(&base, "ph", "MIX");
-        let r = pick_closest_pre(&v, PostMetrics { lufs_m: Some(-14.0), true_peak: Some(-1.0), crest: Some(12.0) });
+        write_pre_tmp(&base, "ph", "solo", Some((-14.0, -1.0, 12.0)));
+        let v = scan_pre_candidates(&base, "ph");
+        let r = pick_closest_pre(
+            &v,
+            PostMetrics {
+                lufs_m: Some(-14.0),
+                true_peak: Some(-1.0),
+                crest: Some(12.0),
+            },
+        );
         assert_eq!(r.unwrap().instance_id, "solo");
     }
 
     #[test]
     fn pick_single_with_no_metrics_still_auto_selects() {
-        // G-50-35: PRE 1 つなら計測値がなくても自動確定
         let base = isolated_dir();
-        write_pre_tmp(&base, "ph", "MIX", "silent", None);
-        let v = scan_pre_candidates(&base, "ph", "MIX");
-        let r = pick_closest_pre(&v, PostMetrics { lufs_m: None, true_peak: None, crest: None });
-        assert_eq!(r.unwrap().instance_id, "silent");
-    }
-
-    #[test]
-    fn pick_multi_picks_minimum_distance() {
-        let base = isolated_dir();
-        // POST: (-14, -1, 12)
-        // A: (-20, -5, 15) → distance = 6+4+3 = 13
-        // B: (-13, -1.5, 12) → distance = 1+0.5+0 = 1.5 ← closest
-        // C: (-14, -2, 14) → distance = 0+1+2 = 3
-        write_pre_tmp(&base, "ph", "MIX", "a", Some((-20.0, -5.0, 15.0)));
-        write_pre_tmp(&base, "ph", "MIX", "b", Some((-13.0, -1.5, 12.0)));
-        write_pre_tmp(&base, "ph", "MIX", "c", Some((-14.0, -2.0, 14.0)));
-        let v = scan_pre_candidates(&base, "ph", "MIX");
-        let r = pick_closest_pre(
-            &v,
-            PostMetrics {
-                lufs_m: Some(-14.0),
-                true_peak: Some(-1.0),
-                crest: Some(12.0),
-            },
-        );
-        assert_eq!(r.unwrap().instance_id, "b");
-    }
-
-    #[test]
-    fn pick_multi_tie_picks_first_by_sorted_order() {
-        // 同値 distance は sort 済みの先頭を返す（安定性）。
-        let base = isolated_dir();
-        // POST: (-14, -1, 12)
-        // a と b がどちらも distance=1（偏り方向が異なる）
-        write_pre_tmp(&base, "ph", "MIX", "a", Some((-15.0, -1.0, 12.0))); // 1+0+0
-        write_pre_tmp(&base, "ph", "MIX", "b", Some((-14.0, -2.0, 12.0))); // 0+1+0
-        let v = scan_pre_candidates(&base, "ph", "MIX");
-        let r = pick_closest_pre(
-            &v,
-            PostMetrics {
-                lufs_m: Some(-14.0),
-                true_peak: Some(-1.0),
-                crest: Some(12.0),
-            },
-        );
-        assert_eq!(r.unwrap().instance_id, "a");
-    }
-
-    #[test]
-    fn pick_multi_post_missing_metrics_falls_back_to_first() {
-        let base = isolated_dir();
-        write_pre_tmp(&base, "ph", "MIX", "a", Some((-20.0, -5.0, 15.0)));
-        write_pre_tmp(&base, "ph", "MIX", "b", Some((-14.0, -1.0, 12.0)));
-        let v = scan_pre_candidates(&base, "ph", "MIX");
+        write_pre_tmp(&base, "ph", "silent", None);
+        let v = scan_pre_candidates(&base, "ph");
         let r = pick_closest_pre(
             &v,
             PostMetrics {
@@ -705,18 +778,16 @@ mod tests {
                 crest: None,
             },
         );
-        // distance 計算不能 → 先頭（sorted: a）
-        assert_eq!(r.unwrap().instance_id, "a");
+        assert_eq!(r.unwrap().instance_id, "silent");
     }
 
     #[test]
-    fn pick_multi_pre_missing_metrics_skipped_for_distance() {
-        // a: メトリック無し, b: distance=2, c: distance=10
+    fn pick_multi_picks_minimum_distance() {
         let base = isolated_dir();
-        write_pre_tmp(&base, "ph", "MIX", "a", None);
-        write_pre_tmp(&base, "ph", "MIX", "b", Some((-15.0, -2.0, 12.0))); // 1+1+0
-        write_pre_tmp(&base, "ph", "MIX", "c", Some((-20.0, -5.0, 15.0))); // 6+4+3
-        let v = scan_pre_candidates(&base, "ph", "MIX");
+        write_pre_tmp(&base, "ph", "a", Some((-20.0, -5.0, 15.0))); // distance=13
+        write_pre_tmp(&base, "ph", "b", Some((-13.0, -1.5, 12.0))); // distance=1.5 (closest)
+        write_pre_tmp(&base, "ph", "c", Some((-14.0, -2.0, 14.0))); // distance=3
+        let v = scan_pre_candidates(&base, "ph");
         let r = pick_closest_pre(
             &v,
             PostMetrics {
@@ -733,19 +804,21 @@ mod tests {
     #[test]
     fn full_post_to_pre_handshake_sequence() {
         let base = isolated_dir();
-        // 1. POST: write pending
-        let sig = write_pending(&base, "ph", "MIX", "post-1".into(), "pre-1".into()).unwrap();
+        let sig =
+            write_pending(&base, "ph", "post-1", "pre-1".into(), "daw-1".into()).unwrap();
         assert_eq!(sig.status, SignalStatus::Pending);
-        // 2. PRE reads + acknowledges
-        let seen = read_signal(&base, "ph", "MIX").unwrap();
-        assert_eq!(seen.target_pre_instance_id, "pre-1");
-        mark_acknowledged(&base, "ph", "MIX").unwrap();
-        // 3. POST: release
-        mark_released(&base, "ph", "MIX").unwrap();
-        // 4. PRE: detects released → Watch + delete
-        let after = read_signal(&base, "ph", "MIX").unwrap();
+        assert_eq!(sig.daw_session_id, "daw-1");
+
+        let scanned = scan_signals_dir(&base, "ph");
+        assert_eq!(scanned.len(), 1);
+        assert_eq!(scanned[0].0, "post-1");
+        assert_eq!(scanned[0].1.target_pre_instance_id, "pre-1");
+
+        mark_acknowledged(&base, "ph", "post-1").unwrap();
+        mark_released(&base, "ph", "post-1").unwrap();
+        let after = read_signal(&base, "ph", "post-1").unwrap();
         assert_eq!(after.status, SignalStatus::Released);
-        delete_signal(&base, "ph", "MIX").unwrap();
-        assert!(read_signal(&base, "ph", "MIX").is_none());
+        delete_signal(&base, "ph", "post-1").unwrap();
+        assert!(read_signal(&base, "ph", "post-1").is_none());
     }
 }

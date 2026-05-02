@@ -60,17 +60,19 @@ pub use preset_v2::{
 pub use record::{RecordState, RecordStateMachine, TransitionError};
 pub use record_signal::{
     delete_signal, is_timed_out, mark_acknowledged, mark_released, pick_closest_pre, read_signal,
-    scan_pre_candidates, signal_path, write_pending, write_signal, PostMetrics, PreCandidate,
-    RecordSignal, SignalError, SignalStatus, ACK_TIMEOUT_SECONDS, SIGNAL_FILENAME,
+    scan_pre_candidates, scan_signals_dir, signal_path, signals_dir, write_pending, write_signal,
+    PostMetrics, PreCandidate, RecordSignal, SignalError, SignalStatus, ACK_TIMEOUT_SECONDS,
+    SIGNALS_SUBDIR, SIGNAL_FILENAME,
 };
 pub use storage::{
-    load_installation_id_safe, load_or_recover, read_identity, write_both,
-    write_identity_atomic, IdentityCache, LoadStatus, LoadedIdentity, StorageError,
-    StoragePaths,
+    cleanup_legacy_v1, load_installation_id_safe, load_or_recover, read_identity, write_both,
+    write_identity_atomic, CleanupReport, IdentityCache, LoadStatus, LoadedIdentity, StorageError,
+    StoragePaths, CLEANUP_V1_DONE_FILENAME,
 };
 pub use watchdog::{spawn_watchdog, WatchdogParams};
 
 use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::{Arc, OnceLock, RwLock};
 
 // ── 共有定数 ────────────────────────────────────────────────────────────────
 
@@ -81,15 +83,138 @@ pub const RING_BUFFER_SECONDS: usize = 2;
 /// 対応チャンネル数（ステレオ固定）。
 pub const N_CHANNELS: usize = 2;
 
-// ── Phase 1.0 固定パラメータ（U-3 未検証のため DAW プロジェクトパス取得は保留）──
+// ── プロセス単位識別子（B-020 / γ-3 chunk-persistent UUID 後）─────────────
+//
+// 履歴:
+// - Phase 1.0: `PROJECT_HASH_PHASE1="default"` 固定値で全インスタンス共有 →
+//   複数 Bus / 複数プロジェクトで衝突（致命級 A-3 / A-2）
+// - A-3 中間策: プロセス単位 OnceLock<String> で起動時 1 度だけ生成 →
+//   DAW 再起動で path が変わるためバウンス再計測の比較が困難
+// - B-020 / γ-3 (本実装): nih-plug `#[persist = "project_uuid"]` でプロジェクト
+//   chunk に UUID を保存。再オープンで同一値が復元され、PRE/POST が共有する
+//
+// 値は `OnceLock<Arc<RwLock<String>>>` セルにキャッシュされ、Plugin の
+// `initialize()` から chunk-persist 値で `set_project_uuid()` / `set_daw_session_id()`
+// により更新される。ファイル階層は `plugin_data/{project_uuid}/{instance_id}/{pre|post}/`
+// で区切られる（bus 概念は path から削除済）。
 
-/// Phase 1.0 の project_hash 固定値。
-/// U-3「nih-plug から DAW プロジェクトパスが取得できるか」が未検証のため、
-/// 全インスタンス共通の `"default"` を使う。将来検証成功後に動的化。
-pub const PROJECT_HASH_PHASE1: &str = "default";
+fn project_uuid_cell() -> &'static Arc<RwLock<String>> {
+    static CELL: OnceLock<Arc<RwLock<String>>> = OnceLock::new();
+    CELL.get_or_init(|| Arc::new(RwLock::new(String::new())))
+}
 
-/// Phase 1.0 の bus 名固定値（MIX bus 前提）。
-pub const BUS_PHASE1: &str = "MIX";
+fn daw_session_id_cell() -> &'static Arc<RwLock<String>> {
+    static CELL: OnceLock<Arc<RwLock<String>>> = OnceLock::new();
+    CELL.get_or_init(|| Arc::new(RwLock::new(String::new())))
+}
+
+/// 新規 project_uuid を生成する（UUID v4 の文字列形式）。
+///
+/// chunk-persist 機構に保存される値の初期値として使用。Plugin が
+/// `Default::default()` で `RwLock<String>` field を初期化する際の
+/// fallback。プロジェクト保存後は chunk-persist 値が常に優先される。
+pub fn generate_project_hash() -> String {
+    uuid::Uuid::new_v4().to_string()
+}
+
+/// プロセス単位 `project_uuid` の現在値を読み取る。
+///
+/// セル空のときは lazy fallback で生成 UUID を返す（テスト・diagnostics 用途）。
+/// 通常運用では Plugin の `initialize()` が `set_project_uuid()` で
+/// chunk-persist 値をセットした直後に呼ばれる。
+///
+/// 関数名は backward compat のため `process_project_hash` のまま。値の
+/// セマンティクスは「chunk-persistent project UUID」へ変わった。
+pub fn process_project_hash() -> String {
+    let cell = project_uuid_cell();
+    let current = cell.read().map(|g| g.clone()).unwrap_or_default();
+    if current.is_empty() {
+        let fresh = generate_project_hash();
+        if let Ok(mut g) = cell.write() {
+            if g.is_empty() {
+                *g = fresh.clone();
+            }
+            g.clone()
+        } else {
+            fresh
+        }
+    } else {
+        current
+    }
+}
+
+/// プロセス単位 `project_uuid` セルを上書きする（chunk-persist 値の反映用）。
+///
+/// Plugin の `initialize()` が `params.project_uuid`（`#[persist = "project_uuid"]`）
+/// から取得した値で本関数を呼ぶ想定。空文字列を渡してもセルを空にする
+/// （次回 `process_project_hash()` 呼び出しで lazy fallback が走る）。
+pub fn set_project_uuid(uuid: String) {
+    if let Ok(mut g) = project_uuid_cell().write() {
+        *g = uuid;
+    }
+}
+
+/// セル現在値を peek する（lazy fallback なし）。
+///
+/// `process_project_hash` と異なり、セルが空（誰も `set_project_uuid` を
+/// 呼んでいない状態）であれば空文字列を返す。POST 側の
+/// `sync_project_uuid_from_pre` で「PRE が既に値をセットしたか」を判定する
+/// のに使う。lazy fallback されると POST 自身が cell を初期化してしまい、
+/// PRE 後発時に上書きされる race の起点になるため、明示的に区別する。
+pub fn peek_project_uuid() -> String {
+    project_uuid_cell()
+        .read()
+        .map(|g| g.clone())
+        .unwrap_or_default()
+}
+
+/// プロセス単位 `daw_session_id` の現在値を読み取る。
+///
+/// B-020 以降は `#[persist = "daw_session_uuid"]` で chunk に保存される
+/// 値が `set_daw_session_id()` 経由でセルに反映される。`record_signal.json`
+/// の content に同梱され、別 DAW プロセス起源の signal を PRE が誤って
+/// ack することを防ぐ cross-process 防壁として使う。
+pub fn daw_session_id() -> String {
+    let cell = daw_session_id_cell();
+    let current = cell.read().map(|g| g.clone()).unwrap_or_default();
+    if current.is_empty() {
+        let fresh = uuid::Uuid::new_v4().to_string();
+        if let Ok(mut g) = cell.write() {
+            if g.is_empty() {
+                *g = fresh.clone();
+            }
+            g.clone()
+        } else {
+            fresh
+        }
+    } else {
+        current
+    }
+}
+
+/// プロセス単位 `daw_session_id` セルを上書きする（chunk-persist 値の反映用）。
+pub fn set_daw_session_id(uuid: String) {
+    if let Ok(mut g) = daw_session_id_cell().write() {
+        *g = uuid;
+    }
+}
+
+/// プロセス起動後 1 回だけ旧構造（`default/MIX/`）の cleanup を実行する。
+///
+/// `Plugin::default()` から呼び出す想定。OnceLock で 1 度きりの実行を保証。
+/// 既に `.cleanup_v1_done` flag が立っていれば中身はノーオペ（再 cleanup なし）。
+pub fn ensure_legacy_cleanup_done() {
+    static DONE: OnceLock<()> = OnceLock::new();
+    DONE.get_or_init(|| {
+        if let Ok(paths) = storage::StoragePaths::default_macos() {
+            let report = storage::cleanup_legacy_v1(&paths);
+            log::info!(
+                "[startup] cleanup_v1: ran={} removed={} errors={}",
+                report.ran, report.removed, report.errors
+            );
+        }
+    });
+}
 
 // ── SignalState（advisor_signal_state_spec SS-1）──────────────────────────
 

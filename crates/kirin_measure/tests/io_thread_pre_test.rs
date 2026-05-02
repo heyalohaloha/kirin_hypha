@@ -32,7 +32,8 @@ fn test_json_format_all_values() {
     assert!(json.contains(r#""v":2"#), "version field missing: {}", json);
     assert!(json.contains(r#""role":"PRE""#), "role field: {}", json);
     assert!(json.contains(r#""instance_id":"test-uuid-1234""#), "instance_id: {}", json);
-    assert!(json.contains(r#""bus":"MIX""#), "bus field: {}", json);
+    // A-3 修正後: bus フィールドは削除済（path に instance_id が入るため不要）
+    assert!(!json.contains(r#""bus""#), "bus field must be removed: {}", json);
     assert!(json.contains(r#""t":"#), "timestamp field: {}", json);
 
     // 数値フォーマット: 小数 3 桁（JSON は精度保持。GUI が 1 桁丸め担当）
@@ -104,7 +105,10 @@ fn test_json_timestamp_format() {
 /// guardian_53 判断基準 1（書き込み）と 3（クリーンアップ）を検証。
 #[test]
 fn test_io_thread_writes_and_cleans_up() {
-    let instance_id = format!("test-io-{}", uuid_v4_simple());
+    let suffix = uuid_v4_simple();
+    let instance_id = format!("test-io-{}", suffix);
+    let project_hash = format!("test-proj-{}", suffix);
+    let daw_session_id = format!("test-daw-{}", suffix);
     let result = Arc::new(Mutex::new(MeasureResult {
         lufs_m: Some(-14.2),
         true_peak: Some(-1.1),
@@ -123,6 +127,8 @@ fn test_io_thread_writes_and_cleans_up() {
     let license = Arc::new(License::Unknown);
     let handle = spawn_io_thread_pre(
         instance_id.clone(),
+        project_hash.clone(),
+        daw_session_id.clone(),
         48000,
         Arc::clone(&record_sm),
         Arc::clone(&recording),
@@ -136,8 +142,8 @@ fn test_io_thread_writes_and_cleans_up() {
     // 200ms 待てばファイルが生成されるはず（100ms 間隔）
     std::thread::sleep(Duration::from_millis(250));
 
-    let dir = std::env::temp_dir().join("kirin").join("default").join("MIX");
-    let file_path = dir.join(format!("pre_{}.json", instance_id));
+    let dir = std::env::temp_dir().join("kirin").join(&project_hash).join(&instance_id);
+    let file_path = dir.join("pre.json");
 
     // ── ファイルが存在すること ──
     assert!(file_path.exists(), "JSON file should exist: {:?}", file_path);
@@ -162,7 +168,10 @@ fn test_io_thread_writes_and_cleans_up() {
 /// エラーパス: 計測値が更新されたとき、次の 100ms ループで新しい値が書き込まれること。
 #[test]
 fn test_io_thread_updates_on_result_change() {
-    let instance_id = format!("test-update-{}", uuid_v4_simple());
+    let suffix = uuid_v4_simple();
+    let instance_id = format!("test-update-{}", suffix);
+    let project_hash = format!("test-proj-{}", suffix);
+    let daw_session_id = format!("test-daw-{}", suffix);
     let result = Arc::new(Mutex::new(MeasureResult {
         lufs_m: Some(-20.0),
         ..Default::default()
@@ -176,6 +185,8 @@ fn test_io_thread_updates_on_result_change() {
     let license = Arc::new(License::Unknown);
     let handle = spawn_io_thread_pre(
         instance_id.clone(),
+        project_hash.clone(),
+        daw_session_id.clone(),
         48000,
         Arc::clone(&record_sm),
         Arc::clone(&recording),
@@ -189,8 +200,8 @@ fn test_io_thread_updates_on_result_change() {
     // 1 回目の書き込みを待つ
     std::thread::sleep(Duration::from_millis(200));
 
-    let dir = std::env::temp_dir().join("kirin").join("default").join("MIX");
-    let file_path = dir.join(format!("pre_{}.json", instance_id));
+    let dir = std::env::temp_dir().join("kirin").join(&project_hash).join(&instance_id);
+    let file_path = dir.join("pre.json");
     let first = std::fs::read_to_string(&file_path).expect("first read");
     assert!(first.contains(r#""lufs_m":-20.000"#), "first value: {}", first);
 

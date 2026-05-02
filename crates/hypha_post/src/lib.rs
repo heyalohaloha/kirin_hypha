@@ -2,9 +2,10 @@ mod editor;
 
 use kirin_measure::{
     daw_session_id, ensure_legacy_cleanup_done, load_installation_id_safe, load_license_safe,
-    process_project_hash, spawn_io_thread_post, spawn_measure_thread, spawn_watchdog,
-    store_signal_state, DeltaResult, License, MeasureResult, RecordStateMachine, SignalState,
-    WatchdogParams, N_CHANNELS, RING_BUFFER_SECONDS,
+    peek_project_uuid, process_project_hash, set_daw_session_id, set_project_uuid,
+    spawn_io_thread_post, spawn_measure_thread, spawn_watchdog, store_signal_state, DeltaResult,
+    License, MeasureResult, RecordStateMachine, SignalState, WatchdogParams, N_CHANNELS,
+    RING_BUFFER_SECONDS,
 };
 use nih_plug::prelude::*;
 use nih_plug_egui::EguiState;
@@ -23,10 +24,18 @@ use uuid::Uuid;
 /// Watchdog Thread — Measure / IO の is_finished() 監視・自動再起動（T-8）
 /// ```
 ///
-/// # A-3 修正後の識別子モデル
-/// - `params.instance_id`: 永続 UUID（`#[persist]`）。project save に同梱され、再オープンで復元
-/// - `project_hash`       : DAW プロセス起動時に 1 度だけ生成（OnceLock 経由で PRE/POST 共有）
-/// - `daw_session_id`     : DAW プロセス UUID（cross-process 防壁。record_signal content に同梱）
+/// # B-020 / γ-3 後の識別子モデル
+/// - `params.instance_id`     : 永続 UUID（`#[persist]`）。plugin instance ごと
+/// - `params.project_uuid`    : 永続 UUID（`#[persist]`）。プロジェクト chunk 共有
+/// - `params.daw_session_uuid`: 永続 UUID（`#[persist]`）。プロジェクト chunk 共有
+/// - `project_hash` field     : `process_project_hash()` 経由で cell から読む chunk-persistent 値
+/// - `daw_session_id` field   : `daw_session_id()` 経由で cell から読む chunk-persistent 値
+///
+/// # PRE/POST sync
+/// POST の `initialize()` は [`sync_project_uuid_from_pre`] でセルから PRE 側の
+/// project_uuid を取り込み、自身の `params.project_uuid` を上書きする。これに
+/// より「同一プロジェクトに新規 POST を後から挿入」したケースでも path が
+/// PRE と一致する。順序依存（PRE が先に initialize 済の前提）は §S2 の既知制約。
 pub struct HyphaPost {
     params: Arc<HyphaPostParams>,
     editor_state: Arc<EguiState>,
@@ -88,6 +97,18 @@ struct HyphaPostParams {
     /// の path 構築と record_signal の target_pre_instance_id 識別に使う。
     #[persist = "instance_id"]
     pub instance_id: RwLock<String>,
+
+    /// プロジェクト chunk に永続化される project UUID（B-020 / γ-3）。
+    /// PRE 側の値を `sync_project_uuid_from_pre()` でセルから取り込んだ後、
+    /// 次回 project save で同じ値が chunk に書かれる。
+    #[persist = "project_uuid"]
+    pub project_uuid: RwLock<String>,
+
+    /// プロジェクト chunk に永続化される daw session UUID（B-020 / γ-3）。
+    /// `record_signal.json` の content に同梱され、別 DAW プロセス起源の
+    /// signal を PRE が誤って ack することを防ぐ cross-process 防壁。
+    #[persist = "daw_session_uuid"]
+    pub daw_session_uuid: RwLock<String>,
 }
 
 impl Default for HyphaPostParams {
@@ -98,6 +119,8 @@ impl Default for HyphaPostParams {
                 .with_value_to_string(formatters::v2s_bool_bypass())
                 .with_string_to_value(formatters::s2v_bool_bypass()),
             instance_id: RwLock::new(Uuid::new_v4().to_string()),
+            project_uuid: RwLock::new(Uuid::new_v4().to_string()),
+            daw_session_uuid: RwLock::new(Uuid::new_v4().to_string()),
         }
     }
 }
@@ -150,6 +173,38 @@ fn read_instance_id(params: &HyphaPostParams) -> String {
         .ok()
         .map(|g| g.clone())
         .unwrap_or_default()
+}
+
+/// `RwLock<String>` 永続フィールドから現在値を読む（panic-safe）。
+fn read_persisted_string(field: &RwLock<String>) -> String {
+    field.read().ok().map(|g| g.clone()).unwrap_or_default()
+}
+
+/// POST 側の `params.project_uuid` を PRE が cell に書いた値に合わせる。
+///
+/// 呼び出しタイミング: POST `initialize()` の冒頭。PRE が先に initialize 済
+/// であれば cell に PRE の chunk-persistent UUID が入っている。POST 側の
+/// `params.project_uuid`（chunk-restored または Default 生成値）と異なれば
+/// cell 値を採用し、`params.project_uuid` を上書きする（次回 project save で
+/// PRE と同じ値が chunk に書かれる）。
+///
+/// 順序依存 (POST が先に initialize されると cell が空 → POST が cell をセット
+/// → PRE が後で上書き) は §S2 既知制約として受容。
+///
+/// `peek_project_uuid()` を使い lazy fallback を避ける。POST 側で cell を
+/// 自動初期化すると、PRE 後発時に cell が POST 値に「占拠」されてしまい、
+/// PRE の `set_project_uuid()` で上書きされても POST はもう adopt しない。
+fn sync_project_uuid_from_pre(params: &HyphaPostParams) {
+    let cell_value = peek_project_uuid();
+    if cell_value.is_empty() {
+        return;
+    }
+    let own_value = read_persisted_string(&params.project_uuid);
+    if own_value != cell_value {
+        if let Ok(mut g) = params.project_uuid.write() {
+            *g = cell_value;
+        }
+    }
 }
 
 impl Drop for HyphaPost {
@@ -219,6 +274,23 @@ impl Plugin for HyphaPost {
         context: &mut impl InitContext<Self>,
     ) -> bool {
         context.set_latency_samples(0);
+
+        // chunk-persist 値（params.project_uuid / params.daw_session_uuid）を
+        // プロセス cell に反映。POST は PRE の cell 値を優先する authority 順序。
+        // 1. PRE が既に initialize 済なら cell に PRE_uuid → POST adopt して params 上書き
+        // 2. PRE 未 initialize なら cell 空 → 自身の値で cell をセット（PRE 後発時に
+        //    PRE が overwrite するが POST はもう adopt しない既知制約）
+        sync_project_uuid_from_pre(&self.params);
+        let persisted_project_uuid = read_persisted_string(&self.params.project_uuid);
+        let persisted_session_uuid = read_persisted_string(&self.params.daw_session_uuid);
+        if !persisted_project_uuid.is_empty() {
+            set_project_uuid(persisted_project_uuid);
+        }
+        if !persisted_session_uuid.is_empty() {
+            set_daw_session_id(persisted_session_uuid);
+        }
+        self.project_hash = process_project_hash();
+        self.daw_session_id = daw_session_id();
 
         // ── 既存 Watchdog を停止 ─────────────────────────────────────
         self.watchdog_shutdown.store(true, Ordering::Relaxed);

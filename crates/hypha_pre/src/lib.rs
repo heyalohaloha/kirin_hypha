@@ -1,86 +1,87 @@
 mod editor;
 
 use kirin_measure::{
-    load_license_safe, spawn_io_thread_pre, spawn_measure_thread, spawn_watchdog,
-    store_signal_state, License, MeasureResult, RecordStateMachine, SignalState, WatchdogParams,
-    N_CHANNELS, RING_BUFFER_SECONDS,
+    daw_session_id, ensure_legacy_cleanup_done, load_license_safe, process_project_hash,
+    set_daw_session_id, set_project_uuid, spawn_io_thread_pre, spawn_measure_thread,
+    spawn_watchdog, store_signal_state, License, MeasureResult, RecordStateMachine, SignalState,
+    WatchdogParams, N_CHANNELS, RING_BUFFER_SECONDS,
 };
 use nih_plug::prelude::*;
 use nih_plug_egui::EguiState;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::thread::JoinHandle;
 use uuid::Uuid;
 
 /// Kirin Hypha PRE — マスタリングチェイン前段計測プラグイン。
 ///
-/// # 4層隔離（guardian_53 T-8 追加後）
+/// # 4層隔離
 /// ```text
 /// Audio Thread    — process(): バッファコピーのみ（R-12）。絶対に止まらない
 /// Measure Thread  — 4項目計測（ebur128 + スライディングウィンドウ）
-/// IO Thread       — $TMPDIR/kirin/default/MIX/pre_{id}.json にアトミック書き込み
+/// IO Thread       — $TMPDIR/kirin/{project_hash}/{instance_id}/pre.json にアトミック書込
 /// Watchdog Thread — Measure / IO の is_finished() 監視・自動再起動（T-8）
 /// ```
+///
+/// # B-020 / γ-3 後の識別子モデル
+/// - `params.instance_id`     : 永続 UUID（`#[persist]`）。plugin instance ごと
+/// - `params.project_uuid`    : 永続 UUID（`#[persist]`）。プロジェクト chunk 共有
+/// - `params.daw_session_uuid`: 永続 UUID（`#[persist]`）。プロジェクト chunk 共有
+/// - `project_hash` field     : `process_project_hash()` 経由で cell から読む chunk-persistent 値
+/// - `daw_session_id` field   : `daw_session_id()` 経由で cell から読む chunk-persistent 値
 pub struct HyphaPre {
     params: Arc<HyphaPreParams>,
     editor_state: Arc<EguiState>,
-    instance_id: String,
 
-    /// Audio Thread → Measure Thread へのロックフリーリングバッファ（Producer 側）
+    /// プロセス単位 `project_hash`（plugin_data path のルートセグメント）。
+    project_hash: String,
+    /// プロセス単位 `daw_session_id`（POST signal の cross-process 防壁 filter）。
+    daw_session_id: String,
+
     ring_producer: Option<rtrb::Producer<f32>>,
     measure_result: Arc<Mutex<MeasureResult>>,
 
-    /// Measure Thread 停止フラグ（Watchdog が再起動時に reset → true 再利用）
     measure_shutdown: Arc<AtomicBool>,
-    /// IO Thread 停止フラグ
     io_shutdown: Arc<AtomicBool>,
 
-    // ── T-8: Watchdog ────────────────────────────────────────────────
-    /// Watchdog Thread 停止フラグ
     watchdog_shutdown: Arc<AtomicBool>,
-    /// Watchdog Thread JoinHandle。Watchdog が Measure / IO Handle も所有する。
     watchdog_handle: Option<JoinHandle<()>>,
-    /// Watchdog → Audio Thread: 再起動後の新 Producer を渡すスロット
     pending_producer: Arc<Mutex<Option<rtrb::Producer<f32>>>>,
-    /// Measure Thread 生存フラグ（false=停止中→LED 黄、true=稼働中→LED 青）
     measure_alive: Arc<AtomicBool>,
-    /// process() 間引きカウンタ（pending_producer チェック）
     process_counter: u32,
 
-    // ── SignalState（SS-1）────────────────────────────────────────────
-    /// Audio Thread → Measure/IO Thread 共有。毎 process() で書き込み。
     signal_state: Arc<AtomicU8>,
-
-    // ── Heartbeat（SS-3 代替: process() 停止検出）────────────────────
-    /// Audio Thread が毎 process() でインクリメント。Measure Thread が監視し、
-    /// 200ms 以上変化なしなら process() 停止と判定して signal_state を Inactive に上書き。
-    /// DAW がバイパス時に process() を停止するケース（Studio One 等）に対応。
     heartbeat: Arc<AtomicU32>,
 
-    // ── Record モード（サブ3-B で実配線） ────────────────────────────
-    /// Record 状態機械（POST と共通。IO Thread が record_signal.json poller から駆動）。
-    /// license 二重 gate 付き: Os 以外は try_enter_record が LicenseDenied を返す。
     record_sm: Arc<RecordStateMachine>,
-    /// Record モード中か（editor 表示用のミラー。IO Thread が record_sm から反映）。
     recording: Arc<AtomicBool>,
-    /// PRE が record_signal を acknowledged したか（GUI 表示用）。
     record_acknowledged: Arc<AtomicBool>,
-    /// Identity.json から読んだライセンス値。
-    /// - Os: record_signal 追従参加
-    /// - Sense / Unknown: pending を検出してもログのみ。writer 生成しない
     license: Arc<License>,
 
-    /// サブ3-C: preset/*.json が 1 件以上存在するか。POST IO Thread が更新、
-    /// PRE は LED 6番目状態（PresetAvailable）用に読むだけ。
     preset_available: Arc<AtomicBool>,
 }
 
 #[derive(Params)]
 struct HyphaPreParams {
-    /// DAW バイパスパラメータ（SS-3: nih-plug `kIsBypass` フラグ）。
-    /// ホストがバイパスボタンを操作するとこの値が自動同期される。
     #[id = "bypass"]
     pub bypass: BoolParam,
+
+    /// プロジェクト保存時に永続化される instance UUID（A-3 修正後）。
+    /// POST が pending を立てる際の `target_pre_instance_id` 識別子として使われる。
+    #[persist = "instance_id"]
+    pub instance_id: RwLock<String>,
+
+    /// プロジェクト chunk に永続化される project UUID（B-020 / γ-3）。
+    /// 同一プロジェクト内の PRE/POST instances 全てが同じ値を共有する。
+    /// plugin_data path の `{project_uuid}/` セグメントとして使う。
+    #[persist = "project_uuid"]
+    pub project_uuid: RwLock<String>,
+
+    /// プロジェクト chunk に永続化される daw session UUID（B-020 / γ-3）。
+    /// `record_signal.json` の content に同梱され、別 DAW プロセス起源の
+    /// signal を PRE が誤って ack することを防ぐ cross-process 防壁。
+    #[persist = "daw_session_uuid"]
+    pub daw_session_uuid: RwLock<String>,
 }
 
 impl Default for HyphaPreParams {
@@ -90,16 +91,22 @@ impl Default for HyphaPreParams {
                 .make_bypass()
                 .with_value_to_string(formatters::v2s_bool_bypass())
                 .with_string_to_value(formatters::s2v_bool_bypass()),
+            instance_id: RwLock::new(Uuid::new_v4().to_string()),
+            project_uuid: RwLock::new(Uuid::new_v4().to_string()),
+            daw_session_uuid: RwLock::new(Uuid::new_v4().to_string()),
         }
     }
 }
 
 impl Default for HyphaPre {
     fn default() -> Self {
+        ensure_legacy_cleanup_done();
+
         Self {
             params: Arc::new(HyphaPreParams::default()),
             editor_state: EguiState::from_size(300, 200),
-            instance_id: Uuid::new_v4().to_string(),
+            project_hash: process_project_hash(),
+            daw_session_id: daw_session_id(),
             ring_producer: None,
             measure_result: Arc::new(Mutex::new(MeasureResult::default())),
             measure_shutdown: Arc::new(AtomicBool::new(false)),
@@ -120,22 +127,31 @@ impl Default for HyphaPre {
     }
 }
 
+fn read_instance_id(params: &HyphaPreParams) -> String {
+    params
+        .instance_id
+        .read()
+        .ok()
+        .map(|g| g.clone())
+        .unwrap_or_default()
+}
+
+/// `RwLock<String>` 永続フィールドから現在値を読む（panic-safe）。
+fn read_persisted_string(field: &RwLock<String>) -> String {
+    field.read().ok().map(|g| g.clone()).unwrap_or_default()
+}
+
 impl Drop for HyphaPre {
     fn drop(&mut self) {
-        // Record 中の場合は Watch へ戻す（plugin_data/ 書込停止。POST T-7 と同形）
         self.record_sm.exit_record();
 
-        // 全スレッドに停止信号（Watchdog が 50ms 以内に終了。Measure / IO も終了する）
         self.watchdog_shutdown.store(true, Ordering::Relaxed);
         self.measure_shutdown.store(true, Ordering::Relaxed);
         self.io_shutdown.store(true, Ordering::Relaxed);
 
-        // Watchdog を join（measure / io の handle は watchdog が所有している）
         if let Some(h) = self.watchdog_handle.take() {
             let _ = h.join();
         }
-        // Measure / IO Thread は shutdown フラグで終了し /tmp/ ファイルを削除する。
-        // Watchdog join 後 ~100ms 以内に完了する（join は行わない設計）。
     }
 }
 
@@ -183,7 +199,23 @@ impl Plugin for HyphaPre {
     ) -> bool {
         context.set_latency_samples(0);
 
-        // ── 既存 Watchdog を停止（最大 50ms で応答） ─────────────────
+        // chunk-persist 値（params.project_uuid / params.daw_session_uuid）を
+        // プロセス cell に反映。PRE は authority として無条件に上書きする。
+        // params 側は nih-plug の persist 機構が initialize() より前に
+        // chunk から復元済み（新規プロジェクトの場合は Default::default() の
+        // 値がそのまま残る）。
+        let persisted_project_uuid = read_persisted_string(&self.params.project_uuid);
+        let persisted_session_uuid = read_persisted_string(&self.params.daw_session_uuid);
+        if !persisted_project_uuid.is_empty() {
+            set_project_uuid(persisted_project_uuid);
+        }
+        if !persisted_session_uuid.is_empty() {
+            set_daw_session_id(persisted_session_uuid);
+        }
+        // セル更新後に struct field を再読込（IO/Editor が参照する値）。
+        self.project_hash = process_project_hash();
+        self.daw_session_id = daw_session_id();
+
         self.watchdog_shutdown.store(true, Ordering::Relaxed);
         self.measure_shutdown.store(true, Ordering::Relaxed);
         self.io_shutdown.store(true, Ordering::Relaxed);
@@ -191,7 +223,6 @@ impl Plugin for HyphaPre {
             let _ = h.join();
         }
 
-        // ── フラグリセット ───────────────────────────────────────────
         self.watchdog_shutdown.store(false, Ordering::Relaxed);
         self.measure_shutdown.store(false, Ordering::Relaxed);
         self.io_shutdown.store(false, Ordering::Relaxed);
@@ -201,16 +232,13 @@ impl Plugin for HyphaPre {
         }
         self.process_counter = 0;
 
-        // ── リングバッファ再生成 ─────────────────────────────────────
         let capacity =
             (buffer_config.sample_rate as usize) * RING_BUFFER_SECONDS * N_CHANNELS;
         let (producer, consumer) = rtrb::RingBuffer::new(capacity);
         self.ring_producer = Some(producer);
 
-        // ── Heartbeat リセット ────────────────────────────────────────
         self.heartbeat.store(0, Ordering::Relaxed);
 
-        // ── Measure Thread 起動（handle は Watchdog に渡す） ─────────
         let measure_handle = spawn_measure_thread(
             consumer,
             buffer_config.sample_rate as u32,
@@ -220,10 +248,14 @@ impl Plugin for HyphaPre {
             Arc::clone(&self.heartbeat),
         );
 
-        // ── IO Thread 起動（handle は Watchdog に渡す） ───────────────
         let sample_rate = buffer_config.sample_rate as u32;
+        let instance_id = read_instance_id(&self.params);
+        let project_hash = self.project_hash.clone();
+        let daw_session_id = self.daw_session_id.clone();
         let io_handle = spawn_io_thread_pre(
-            self.instance_id.clone(),
+            instance_id.clone(),
+            project_hash.clone(),
+            daw_session_id.clone(),
             sample_rate,
             Arc::clone(&self.record_sm),
             Arc::clone(&self.recording),
@@ -234,9 +266,10 @@ impl Plugin for HyphaPre {
             Arc::clone(&self.io_shutdown),
         );
 
-        // ── Watchdog Thread 起動（T-8） ──────────────────────────────
         let restart_io = {
-            let instance_id = self.instance_id.clone();
+            let instance_id = instance_id.clone();
+            let project_hash = project_hash.clone();
+            let daw_session_id = daw_session_id.clone();
             let record_sm = Arc::clone(&self.record_sm);
             let recording = Arc::clone(&self.recording);
             let record_acknowledged = Arc::clone(&self.record_acknowledged);
@@ -246,6 +279,8 @@ impl Plugin for HyphaPre {
             move |new_shutdown: Arc<AtomicBool>| {
                 spawn_io_thread_pre(
                     instance_id.clone(),
+                    project_hash.clone(),
+                    daw_session_id.clone(),
                     sample_rate,
                     Arc::clone(&record_sm),
                     Arc::clone(&recording),
@@ -285,10 +320,8 @@ impl Plugin for HyphaPre {
         _aux: &mut AuxiliaryBuffers,
         context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
-        // ── Heartbeat: process() が呼ばれていることを Measure Thread に通知 ──
         self.heartbeat.fetch_add(1, Ordering::Relaxed);
 
-        // ── SS-2/SS-3: SignalState 判定（process() 先頭）──────────────
         let bypass_val = self.params.bypass.value();
         let transport = context.transport();
         let playing = transport.playing;
@@ -303,8 +336,6 @@ impl Plugin for HyphaPre {
         };
         store_signal_state(&self.signal_state, state);
 
-        // R-12: バッファを変更しない（in-place 素通し）
-        // Active 時のみリングバッファに push（Bypassed/Inactive 時は計測不要）
         if state == SignalState::Active {
             if let Some(producer) = &mut self.ring_producer {
                 for channel_samples in buffer.iter_samples() {
@@ -315,11 +346,8 @@ impl Plugin for HyphaPre {
             }
         }
 
-        // T-8: Watchdog が差し込んだ新 Producer を低頻度でスワップ。
-        // try_lock() で非ブロッキング。失敗時は次の機会に再試行（~40ms 後）。
         self.process_counter = self.process_counter.wrapping_add(1);
         if self.process_counter & 0xFF == 0 {
-            // ── SS-9 診断ログ（低頻度: ~5秒に1回）──────────────────
             log::info!(
                 "[PRE diag] state={:?} bypass={} playing={} silent={} buf_len={}",
                 state, bypass_val, playing, silent,
@@ -344,10 +372,6 @@ impl Vst3Plugin for HyphaPre {
         &[Vst3SubCategory::Fx, Vst3SubCategory::Analyzer];
 }
 
-/// 入力バッファが全ゼロ（無音）かを判定する。
-///
-/// nih-plug の `Buffer` はチャンネル × サンプル。全サンプルが 0.0 なら true。
-/// Audio Thread 内で毎 process() 呼ばれるため、early return で高速化。
 fn buffer_is_silent(buffer: &mut Buffer) -> bool {
     for channel in buffer.as_slice() {
         for &sample in channel.iter() {

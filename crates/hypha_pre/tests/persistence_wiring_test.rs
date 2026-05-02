@@ -1,0 +1,59 @@
+//! A-3 修正: HyphaPre 側の instance_id 永続化と project_hash / daw_session_id
+//! 配線が src/lib.rs 上に残っていることを構造的に固定する。配線が落ちると
+//! DAW 再起動後に PRE/POST のペアリングが切れ、record_signal の
+//! `target_pre_instance_id` 一致判定が崩れる（致命級）。
+
+use std::fs;
+use std::path::PathBuf;
+
+fn read_lib_rs() -> String {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs");
+    fs::read_to_string(&path).unwrap_or_else(|e| panic!("read src/lib.rs: {e}"))
+}
+
+#[test]
+fn lib_rs_persists_instance_id_via_rwlock_string() {
+    let src = read_lib_rs();
+    assert!(
+        src.contains(r#"#[persist = "instance_id"]"#),
+        "HyphaPreParams must annotate instance_id with `#[persist = \"instance_id\"]`"
+    );
+    assert!(
+        src.contains("instance_id: RwLock<String>"),
+        "instance_id must be `RwLock<String>` (PersistentField for nih-plug)"
+    );
+}
+
+#[test]
+fn lib_rs_carries_project_hash_and_daw_session_id() {
+    let src = read_lib_rs();
+    assert!(
+        src.contains("project_hash"),
+        "HyphaPre must carry process-shared project_hash"
+    );
+    assert!(
+        src.contains("daw_session_id"),
+        "HyphaPre must carry process-shared daw_session_id (cross-process barrier)"
+    );
+}
+
+/// IO Thread spawn 呼び出しが新シグネチャ（11 引数）に追従していること。
+#[test]
+fn lib_rs_spawn_io_thread_pre_passes_project_hash_and_daw_session_id() {
+    let src = read_lib_rs();
+    let call_idx = src
+        .find("spawn_io_thread_pre(")
+        .expect("spawn_io_thread_pre must be invoked from initialize()");
+    // 呼び出し直後の数百文字を見て、project_hash / daw_session_id が引数として
+    // 渡されていることを確認する（クローン経由で渡る）。
+    let window_end = (call_idx + 1500).min(src.len());
+    let window = &src[call_idx..window_end];
+    assert!(
+        window.contains("project_hash"),
+        "spawn_io_thread_pre must receive project_hash"
+    );
+    assert!(
+        window.contains("daw_session_id"),
+        "spawn_io_thread_pre must receive daw_session_id"
+    );
+}

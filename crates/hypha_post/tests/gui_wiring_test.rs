@@ -138,3 +138,84 @@ fn editor_rs_caps_rendered_cards() {
         "editor.rs must bound the rendered card list (300x200px budget)"
     );
 }
+
+// ── A-3 修正: instance_id 永続化 + pair_label 配線 ───────────────────────
+
+/// HyphaPostParams に instance_id が `#[persist = "instance_id"]` で
+/// `RwLock<String>` 型で永続化されていること。これが無いと DAW 再保存→
+/// 再起動で PRE/POST のペアリングが切れ、record_signal の target_pre_instance_id
+/// 一致判定が崩れる（A-3 致命級）。
+#[test]
+fn lib_rs_persists_instance_id_via_rwlock_string() {
+    let src = read("src/lib.rs");
+    assert!(
+        src.contains(r#"#[persist = "instance_id"]"#),
+        "HyphaPostParams must annotate instance_id with `#[persist = \"instance_id\"]`"
+    );
+    assert!(
+        src.contains("instance_id: RwLock<String>"),
+        "instance_id must be `RwLock<String>` (PersistentField for nih-plug)"
+    );
+}
+
+/// HyphaPost には project_hash と daw_session_id が新しく載っていること。
+#[test]
+fn lib_rs_carries_project_hash_and_daw_session_id() {
+    let src = read("src/lib.rs");
+    assert!(
+        src.contains("project_hash"),
+        "HyphaPost must carry process-shared project_hash"
+    );
+    assert!(
+        src.contains("daw_session_id"),
+        "HyphaPost must carry process-shared daw_session_id (cross-process barrier)"
+    );
+}
+
+/// pair_label の Arc<Mutex<String>> が POST 側で生成され editor へ渡されること。
+#[test]
+fn lib_rs_wires_pair_label_to_editor() {
+    let src = read("src/lib.rs");
+    assert!(
+        src.contains("pair_label: Arc<Mutex<String>>"),
+        "HyphaPost must hold pair_label as Arc<Mutex<String>> for sub-3 visibility"
+    );
+}
+
+/// editor.rs に format_pair_label / set_pair_label / clear_pair_label の
+/// 3 ヘルパーが揃っていること（pair: PRE_xxxxxxxx 表示の単一定義点）。
+#[test]
+fn editor_rs_has_pair_label_helpers() {
+    let src = read("src/editor.rs");
+    for needle in [
+        "fn format_pair_label",
+        "fn set_pair_label",
+        "fn clear_pair_label",
+    ] {
+        assert!(
+            src.contains(needle),
+            "editor.rs must define helper `{needle}` (A-3 pair_label trio)"
+        );
+    }
+    assert!(
+        src.contains(r#""pair: PRE_""#) || src.contains(r#"pair: PRE_{}""#),
+        "format_pair_label must produce literal prefix `pair: PRE_`"
+    );
+}
+
+/// pairing_label の描画が `if recording { ... }` で gate されていること。
+/// Watch 中はラベル自体が非表示なので、空文字でも空行が出ない。
+#[test]
+fn editor_rs_gates_pairing_label_with_recording_flag() {
+    let src = read("src/editor.rs");
+    let pairing_call_idx = src
+        .find("pairing_label(ui, pair)")
+        .expect("pairing_label call must exist in editor.rs");
+    // 直前 200 文字以内に `if recording` があれば gate されているとみなす。
+    let window_start = pairing_call_idx.saturating_sub(200);
+    let window = &src[window_start..pairing_call_idx];
+    assert!(
+        window.contains("if recording"),
+        "pairing_label call must be wrapped in `if recording {{ ... }}` (Watch 中は描画省略)"
+    );
+}

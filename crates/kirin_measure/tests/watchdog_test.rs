@@ -20,6 +20,8 @@ use std::time::Duration;
 
 /// watchdog_test 全体で共通の PRE IO Thread 起動ヘルパー。
 /// 新しい spawn_io_thread_pre シグネチャの引数数を吸収する。
+/// `project_hash` / `daw_session_id` はテスト内では検証対象外なので
+/// instance_id ベースで決定論的に派生させる。
 #[allow(clippy::too_many_arguments)]
 fn spawn_pre_io(
     instance_id: String,
@@ -27,8 +29,12 @@ fn spawn_pre_io(
     signal_state: Arc<AtomicU8>,
     io_shutdown: Arc<AtomicBool>,
 ) -> JoinHandle<()> {
+    let project_hash = format!("test-proj-{}", instance_id);
+    let daw_session_id = format!("test-daw-{}", instance_id);
     spawn_io_thread_pre(
         instance_id,
+        project_hash,
+        daw_session_id,
         48000,
         Arc::new(RecordStateMachine::new()),
         Arc::new(AtomicBool::new(false)),
