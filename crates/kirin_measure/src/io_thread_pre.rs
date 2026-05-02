@@ -138,8 +138,23 @@ pub fn spawn_io_thread_pre(
 
             // B-022 段階 2: 1 秒 throttle で POST 側 project_uuid を再走査。
             // 結果が cache されるので、各 tick での fs::read_dir コストは抑制。
+            //
+            // B-022 段階 4: Record 中 (partner=Some) は discovery を skip。
+            // 理由: PRE が一度 ack して partner を確定した後、POST 側は signal を
+            // 触らない (heartbeat 不在 / record_signal.rs:511-512 で Acknowledged
+            // signal はスキップ) ため、signal の mtime は ack 時点で固定。
+            // discovery の stale 閾値 (DISCOVERY_STALE_SECS=10s) を超えると
+            // `discover_pair_post_project_dir` が None を返し、cached_post_project_dir
+            // が None にリセットされる。すると effective_project_hash_ref が
+            // PRE 自身の project_hash に fallback (line 167-169) し、
+            // poll_record_signal が誤った dir を scan して matching=empty →
+            // partner.current=None → exit_record() が誤発火する (Keep 解除)。
+            //
+            // 修正: partner.is_some() の間は discovery 呼出を skip し、
+            // cached_post_project_dir を保持し続ける。partner=None (Record 終了
+            // または signal 消失検出) 後の次 tick から discovery 再開。
             let now_instant = Instant::now();
-            if discovery.should_rescan(now_instant) {
+            if partner.is_none() && discovery.should_rescan(now_instant) {
                 let plugin_data_root = StoragePaths::default_macos()
                     .ok()
                     .map(|paths| paths.plugin_data_dir());
@@ -860,5 +875,151 @@ mod tests {
         let loaded = record_signal::read_signal(&base, TEST_PH, "post-x").unwrap();
         assert_eq!(loaded.started_at, "2026-04-19T11:59:30Z");
         assert_eq!(loaded.daw_session_id, "daw-uuid-explicit");
+    }
+
+    // ── B-022 段階 4: discovery skip while partner=Some ──────────────────
+    //
+    // io_thread_pre.rs 主ループの discovery 呼出ガード:
+    //   if partner.is_none() && discovery.should_rescan(now) { ... }
+    // を直接 spawn せず、ガード式の不変条件をテストで構造的に固定する。
+    //
+    // 真因 (R-9 確定): POST 側 signal heartbeat 不在で signal mtime が ack 時点で
+    // 固定 → DISCOVERY_STALE_SECS=10s 経過後に discover_pair_post_project_dir が
+    // None を返す → cached_post_project_dir リセット → effective_project_hash_ref
+    // が PRE 自身の project_hash に fallback → poll_record_signal が誤った dir を
+    // scan → matching=empty → partner.current=None → exit_record() 誤発火。
+    //
+    // 段階 4 修正 (案 a): partner=Some の間 discovery 呼出を skip し
+    // cached_post_project_dir を保持。これにより stale 判定経路が走らない。
+
+    /// T1: partner=Some の間、discovery を呼ぶゲートが閉じることを構造的に固定。
+    ///
+    /// `partner.is_none() && discovery.should_rescan(now)` という主ループの
+    /// ガード式に対し、partner=Some なら **時間がいくら経っても** ゲートが
+    /// 開かないこと、cached_post_project_dir が初期値で固定されることを検証。
+    #[test]
+    fn discovery_skipped_while_partner_is_some() {
+        let mut discovery = PreSelfDiscoveryState::new();
+
+        // 初期 scan: partner=None / 一致 signal を発見した想定
+        let t0 = Instant::now();
+        let initial_post_dir = PathBuf::from("/tmp/kirin_test/post-uuid-X");
+        discovery.record_scan(
+            t0,
+            Some((initial_post_dir.clone(), "daw-test".to_string())),
+        );
+
+        // 直後に partner=Some になった想定 (PRE が ack して Record 入場)
+        let mut partner: Option<PartnerInfo> = Some(PartnerInfo {
+            post_instance_id: "post-1".to_string(),
+            last_seen_status: SignalStatus::Acknowledged,
+        });
+
+        // 主ループのガード式を直接評価。partner=Some の間は **何度試しても**
+        // ゲートが開かない (= record_scan が呼ばれない) こと。
+        for delta_ms in [1500u64, 5000, 11_000, 60_000] {
+            let now = t0 + Duration::from_millis(delta_ms);
+            let gate_open = partner.is_none() && discovery.should_rescan(now);
+            assert!(
+                !gate_open,
+                "partner=Some の間 discovery ゲートは閉じる必要がある (delta={}ms)",
+                delta_ms
+            );
+            // ガードが閉じている = record_scan が呼ばれない = 状態不変
+            assert_eq!(
+                discovery.cached_post_project_dir(),
+                Some(initial_post_dir.as_path()),
+                "partner=Some 中 cached_post_project_dir は初期値を保持する \
+                 (delta={}ms)",
+                delta_ms
+            );
+            assert_eq!(
+                discovery.cached_daw_session_id(),
+                Some("daw-test"),
+                "partner=Some 中 cached_daw_session_id も初期値を保持する \
+                 (delta={}ms)",
+                delta_ms
+            );
+        }
+
+        // partner を強制的に変えても (= ステータス変化シミュレーション)、
+        // is_some() のまま → ゲート閉のまま。
+        if let Some(p) = partner.as_mut() {
+            p.last_seen_status = SignalStatus::Pending;
+        }
+        let now = t0 + Duration::from_secs(120);
+        assert!(
+            !(partner.is_none() && discovery.should_rescan(now)),
+            "partner.last_seen_status を変えても is_some() なので gate 閉のまま"
+        );
+    }
+
+    /// T2: partner=None 復帰後 discovery が再開し、新しい POST project_dir を
+    /// 取得できることを構造的に固定。
+    ///
+    /// 受入基準 4-3 に対応: Record 終了 (Released / signal 消失検出) で
+    /// partner=None になった次 tick から discovery 呼出が解禁される。
+    #[test]
+    fn discovery_resumed_after_partner_cleared() {
+        let mut discovery = PreSelfDiscoveryState::new();
+        let t0 = Instant::now();
+
+        // 初期 scan: 旧 partner 用の project_dir を cache
+        let old_post_dir = PathBuf::from("/tmp/kirin_test/post-uuid-OLD");
+        discovery.record_scan(t0, Some((old_post_dir.clone(), "daw-OLD".to_string())));
+        let mut partner: Option<PartnerInfo> = Some(PartnerInfo {
+            post_instance_id: "post-old".to_string(),
+            last_seen_status: SignalStatus::Acknowledged,
+        });
+
+        // 1.5 秒経過 (本来なら rescan 可) — partner=Some なのでゲート閉
+        let t1 = t0 + Duration::from_millis(1500);
+        assert!(
+            !(partner.is_none() && discovery.should_rescan(t1)),
+            "partner=Some の間は rescan ゲート閉 (再確認)"
+        );
+
+        // ── poll_record_signal が partner を None に戻した想定 ──
+        //    (Released 検出 / signal 消失検出のいずれの経路でも結果は同じ)
+        partner = None;
+
+        // partner=None かつ should_rescan=true → ゲート開
+        let t2 = t0 + Duration::from_secs(3);
+        assert!(
+            partner.is_none() && discovery.should_rescan(t2),
+            "partner=None 復帰後はゲート開 (discovery 再開)"
+        );
+
+        // 主ループはここで discovery を呼び record_scan する。
+        // 新しい POST instance に切り替わったシナリオを模擬。
+        let new_post_dir = PathBuf::from("/tmp/kirin_test/post-uuid-NEW");
+        discovery.record_scan(t2, Some((new_post_dir.clone(), "daw-NEW".to_string())));
+
+        assert_eq!(
+            discovery.cached_post_project_dir(),
+            Some(new_post_dir.as_path()),
+            "partner=None 復帰後の record_scan で cached_post_project_dir が更新される"
+        );
+        assert_eq!(
+            discovery.cached_daw_session_id(),
+            Some("daw-NEW"),
+            "partner=None 復帰後の record_scan で cached_daw_session_id も更新される"
+        );
+
+        // 新 partner を ack 後にゲート再閉鎖を確認
+        partner = Some(PartnerInfo {
+            post_instance_id: "post-new".to_string(),
+            last_seen_status: SignalStatus::Acknowledged,
+        });
+        let t3 = t2 + Duration::from_secs(15);
+        assert!(
+            !(partner.is_none() && discovery.should_rescan(t3)),
+            "新 partner 確定後は再びゲート閉 (cached_post_project_dir 保護)"
+        );
+        assert_eq!(
+            discovery.cached_post_project_dir(),
+            Some(new_post_dir.as_path()),
+            "新 partner 中も cached_post_project_dir は保持される"
+        );
     }
 }
