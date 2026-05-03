@@ -84,7 +84,15 @@ fn editor_rs_calls_draw_proposals_block_from_draw_post() {
         .find("fn draw_post(")
         .expect("draw_post function must exist");
     // Look for the invocation within a reasonable window of draw_post body.
-    let window = &src[draw_post_start..(draw_post_start + 4000).min(src.len())];
+    // 5000 byte 上限は B-027 段階 2 で Name 入力欄追加に伴う body 増を吸収
+    // (元 4000 では draw_proposals_block 呼出 byte index がぎりぎり外に出る)。
+    // UTF-8 char boundary を跨がないよう boundary まで walk-back する
+    // (Japanese comments が raw byte index 上で multi-byte char の途中に当たる)。
+    let mut safe_end = (draw_post_start + 5000).min(src.len());
+    while safe_end > draw_post_start && !src.is_char_boundary(safe_end) {
+        safe_end -= 1;
+    }
+    let window = &src[draw_post_start..safe_end];
     assert!(
         window.contains("draw_proposals_block(ui, state, now)"),
         "draw_post must invoke draw_proposals_block (T-E + T-F)"

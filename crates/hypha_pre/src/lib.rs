@@ -112,16 +112,12 @@ impl Default for HyphaPreParams {
     }
 }
 
-/// Name 入力値を ASCII 0x20-0x7E + 最大 16 文字に正規化 (R-28 機能的沈黙)。
+/// B-027 段階 2: `kirin_measure::sanitize_name` への re-export (DRY 統合)。
 ///
-/// chunk restore 時 / GUI 入力時の両方で使う。違反値は無言で正規化し
-/// UI エラーは出さない (制御文字 / 非 ASCII / 17 文字目以降を strip)。
-pub fn sanitize_name(raw: &str) -> String {
-    raw.chars()
-        .filter(|c| c.is_ascii_graphic() || *c == ' ')
-        .take(16)
-        .collect()
-}
+/// 旧実装 (B-023 段階 1) は kirin_measure crate に移動し hypha_pre / hypha_post の
+/// 両 cdylib から共通参照される単一情報源となった。本 re-export は既存の
+/// `editor.rs` / `name_persist_tests` / 外部参照を破壊しないために維持する。
+pub use kirin_measure::sanitize_name;
 
 impl Default for HyphaPre {
     fn default() -> Self {

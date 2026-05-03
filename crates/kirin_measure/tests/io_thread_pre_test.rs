@@ -26,7 +26,7 @@ fn test_json_format_all_values() {
         psr: Some(8.7),
         ..Default::default()
     };
-    let json = serialize_pre_json("test-uuid-1234", SignalState::Active, &result);
+    let json = serialize_pre_json("test-uuid-1234", "", SignalState::Active, &result);
 
     // 必須フィールド存在確認
     assert!(json.contains(r#""v":2"#), "version field missing: {}", json);
@@ -51,7 +51,7 @@ fn test_json_format_all_values() {
 #[test]
 fn test_json_format_null_values() {
     let result = MeasureResult::default(); // 全 None
-    let json = serialize_pre_json("test-uuid-null", SignalState::Active, &result);
+    let json = serialize_pre_json("test-uuid-null", "", SignalState::Active, &result);
 
     assert!(json.contains(r#""lufs_m":null"#), "lufs_m null: {}", json);
     assert!(json.contains(r#""true_peak":null"#), "true_peak null: {}", json);
@@ -69,7 +69,7 @@ fn test_json_rounding_three_decimals() {
         psr: None,
         ..Default::default()
     };
-    let json = serialize_pre_json("test-round", SignalState::Active, &result);
+    let json = serialize_pre_json("test-round", "", SignalState::Active, &result);
 
     // format!("{:.3}", x) の動作を確認
     // -14.25678 → "-14.257"
@@ -85,7 +85,7 @@ fn test_json_rounding_three_decimals() {
 #[test]
 fn test_json_timestamp_format() {
     let result = MeasureResult::default();
-    let json = serialize_pre_json("test-ts", SignalState::Active, &result);
+    let json = serialize_pre_json("test-ts", "", SignalState::Active, &result);
 
     // "t":"2026-..." の形式
     assert!(json.contains(r#""t":""#), "timestamp present: {}", json);

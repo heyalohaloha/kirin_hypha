@@ -2,7 +2,7 @@ mod editor;
 
 use kirin_measure::{
     daw_session_id, ensure_legacy_cleanup_done, load_installation_id_safe, load_license_safe,
-    peek_project_uuid, process_project_hash, set_daw_session_id, set_project_uuid,
+    peek_project_uuid, process_project_hash, sanitize_name, set_daw_session_id, set_project_uuid,
     spawn_io_thread_post, spawn_measure_thread, spawn_watchdog, store_signal_state, DeltaResult,
     License, MeasureResult, RecordStateMachine, SignalState, WatchdogParams, N_CHANNELS,
     RING_BUFFER_SECONDS,
@@ -116,6 +116,16 @@ struct HyphaPostParams {
     /// signal を PRE が誤って ack することを防ぐ cross-process 防壁。
     #[persist = "daw_session_uuid"]
     pub daw_session_uuid: RwLock<String>,
+
+    /// B-027 段階 2: pair PRE Name (G-115-43 論点 2 (b))。
+    /// 同 project_uuid 配下に複数 PRE が存在する場合の explicit pair 指定。
+    /// ASCII 0x20-0x7E のみ / 16 文字以内 / 空文字許容 (空 = filter 適用なし →
+    /// 従来 `pick_closest_pre` 単独経路 = B-027 段階 1 受入維持)。
+    /// PRE 側 `name` (B-023 段階 1 / `params.name`) と完全対称構造。
+    /// POST 自身の identity ではなく、どの PRE と pair したいかを示す filter 入力
+    /// (B-023 論点 4 (c) POST 独自命名禁止と整合)。
+    #[persist = "pair_pre_name"]
+    pub pair_pre_name: Arc<RwLock<String>>,
 }
 
 impl Default for HyphaPostParams {
@@ -128,6 +138,7 @@ impl Default for HyphaPostParams {
             instance_id: Arc::new(RwLock::new(Uuid::new_v4().to_string())),
             project_uuid: RwLock::new(Uuid::new_v4().to_string()),
             daw_session_uuid: RwLock::new(Uuid::new_v4().to_string()),
+            pair_pre_name: Arc::new(RwLock::new(String::new())),
         }
     }
 }
@@ -275,6 +286,9 @@ impl Plugin for HyphaPost {
             installation_id: Arc::clone(&self.installation_id),
             playback_pos_samples: Arc::clone(&self.playback_pos_samples),
             playback_sample_rate: Arc::clone(&self.playback_sample_rate),
+            // B-027 段階 2: POST GUI に pair_pre_name 入力欄を追加。trigger_keep
+            // で `filter_candidates_by_name` の引数として読み出す。
+            pair_pre_name: Arc::clone(&self.params.pair_pre_name),
         })
     }
 
@@ -302,6 +316,25 @@ impl Plugin for HyphaPost {
         }
         self.project_hash = process_project_hash();
         self.daw_session_id = daw_session_id();
+
+        // B-027 段階 2: chunk-restored pair_pre_name の正規化補助 (経路 1)。
+        // 主の正規化は editor 入力時 / GUI sanitize で都度かかるが、
+        // 永続化されている値自体を正規化済に保つため initialize() 後に 1 度だけ
+        // 書き戻す (PRE 側 lib.rs の B-023 段階 1 同パターン)。
+        // R-28 機能的沈黙: 違反値の検出で UI エラーを出さない。
+        let restored_pair_name = self
+            .params
+            .pair_pre_name
+            .read()
+            .ok()
+            .map(|g| g.clone())
+            .unwrap_or_default();
+        let sanitized_pair_name = sanitize_name(&restored_pair_name);
+        if sanitized_pair_name != restored_pair_name {
+            if let Ok(mut g) = self.params.pair_pre_name.write() {
+                *g = sanitized_pair_name;
+            }
+        }
 
         // ── 既存 Watchdog を停止 ─────────────────────────────────────
         self.watchdog_shutdown.store(true, Ordering::Relaxed);
@@ -491,3 +524,67 @@ fn buffer_is_silent(buffer: &mut Buffer) -> bool {
 }
 
 nih_export_vst3!(HyphaPost);
+
+// ── B-027 段階 2: pair_pre_name chunk persist + 正規化テスト ───────────────
+//
+// hypha_post crate は cdylib のみのため外部 tests/ から直接 import 不可。
+// hypha_pre `name_persist_tests` (lib.rs:454-515 / B-023 段階 1) と完全同パターン
+// で 5 件の必須テストを揃える。chunk roundtrip は nih-plug `params/persist.rs`
+// の pub re-export (`serialize_field` / `deserialize_field`) 経由で固定する。
+#[cfg(test)]
+mod pair_pre_name_persist_tests {
+    use kirin_measure::sanitize_name;
+    use nih_plug::params::persist::{deserialize_field, serialize_field};
+    use std::sync::RwLock;
+
+    /// Test 1: 空文字保存・復元。pair_pre_name 未設定の Default::default() 状態
+    /// (空文字) が chunk persist と同経路を経ても空文字のまま戻ることを構造的に固定する。
+    #[test]
+    fn pair_pre_name_roundtrip_empty() {
+        let rw: RwLock<String> = RwLock::new(String::new());
+        let json = serialize_field(&*rw.read().unwrap()).expect("serialize empty");
+        assert_eq!(json, r#""""#);
+        let restored: String = deserialize_field(&json).expect("deserialize empty");
+        let rw2: RwLock<String> = RwLock::new(restored);
+        assert_eq!(*rw2.read().unwrap(), "");
+    }
+
+    /// Test 2: ASCII 16 文字保存・復元。境界値が完全一致で戻ることを固定。
+    #[test]
+    fn pair_pre_name_roundtrip_ascii_16() {
+        let original = "AbcDefGhi1234567"; // 16 文字
+        assert_eq!(original.len(), 16);
+        let rw: RwLock<String> = RwLock::new(original.to_string());
+        let json =
+            serialize_field(&*rw.read().unwrap()).expect("serialize ascii_16");
+        let restored: String =
+            deserialize_field(&json).expect("deserialize ascii_16");
+        let rw2: RwLock<String> = RwLock::new(restored);
+        assert_eq!(*rw2.read().unwrap(), original);
+    }
+
+    /// Test 3: sanitize_name が 17 文字目以降を truncate する。
+    #[test]
+    fn pair_pre_name_sanitize_truncates_over_16() {
+        let raw = "a".repeat(20);
+        let sanitized = sanitize_name(&raw);
+        assert_eq!(sanitized.len(), 16);
+        assert_eq!(sanitized, "a".repeat(16));
+    }
+
+    /// Test 4: sanitize_name が非 ASCII 文字を strip する。
+    #[test]
+    fn pair_pre_name_sanitize_strips_non_ascii() {
+        let raw = "日本語Snare";
+        let sanitized = sanitize_name(raw);
+        assert_eq!(sanitized, "Snare");
+    }
+
+    /// Test 5: sanitize_name が制御文字を strip する。
+    #[test]
+    fn pair_pre_name_sanitize_strips_control_chars() {
+        let raw = "\x01Snare\x7f";
+        let sanitized = sanitize_name(raw);
+        assert_eq!(sanitized, "Snare");
+    }
+}

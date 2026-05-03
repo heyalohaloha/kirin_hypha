@@ -410,13 +410,18 @@ pub struct PreCandidate {
     pub true_peak: Option<f64>,
     pub crest: Option<f64>,
     pub path: PathBuf,
+    /// B-027 段階 2: PRE 表示用 Name (PRE GUI で入力 / chunk-persist)。
+    /// 旧 schema (`name` field 不在の PRE 出力) では `None`。
+    /// POST `pair_pre_name` filter で照合する識別子。
+    pub name: Option<String>,
 }
 
 /// pre tmp JSON の抜粋（distance 計算 + signal_state filter に必要なフィールドのみ）。
 ///
 /// B-024: `signal_state` を追加。
-/// B-027: `scan_pre_candidates_in` は `"bypassed"` のみ除外する (Bypass 防御)。
+/// B-027 段階 1: `scan_pre_candidates_in` は `"bypassed"` のみ除外する (Bypass 防御)。
 /// `"active"` / `"inactive"` / 旧 schema 不在 (=None) は pair 候補化される。
+/// B-027 段階 2: `name` 追加。POST `pair_pre_name` filter で照合する識別子。
 /// pre.json schema バージョン (`v`) は変更しない (旧 PRE 出力との互換維持)。
 #[derive(Debug, Deserialize)]
 struct PreTmpJson {
@@ -429,6 +434,8 @@ struct PreTmpJson {
     crest: Option<f64>,
     #[serde(default)]
     signal_state: Option<String>,
+    #[serde(default)]
+    name: Option<String>,
 }
 
 /// `/tmp/kirin/{project_hash}/{instance_id}/pre.json` を全 instance_id 横断で走査。
@@ -482,10 +489,33 @@ pub fn scan_pre_candidates_in(project_dir: &Path) -> Vec<PreCandidate> {
             true_peak: parsed.true_peak,
             crest: parsed.crest,
             path: pre_file,
+            name: parsed.name,
         });
     }
     out.sort_by(|a, b| a.instance_id.cmp(&b.instance_id));
     out
+}
+
+/// B-027 段階 2: POST 側 `pair_pre_name` で候補を filter する。
+///
+/// `pair_pre_name` が空文字の場合は filter を適用せず候補をそのまま返す
+/// (後方互換 = 従来 `pick_closest_pre` 単独経路)。
+/// 非空の場合は `candidate.name == Some(pair_pre_name)` のみ通過させる。
+///
+/// 同一 Name の PRE が複数残った場合は呼出側 `pick_closest_pre` で距離最小を選ぶ。
+/// 旧 schema (`name = None`) の PRE は非空 filter 時に必ず除外される
+/// (新 POST + 旧 PRE 混在環境では filter 不一致 → 0 件)。
+pub fn filter_candidates_by_name(
+    candidates: Vec<PreCandidate>,
+    pair_pre_name: &str,
+) -> Vec<PreCandidate> {
+    if pair_pre_name.is_empty() {
+        return candidates;
+    }
+    candidates
+        .into_iter()
+        .filter(|c| c.name.as_deref() == Some(pair_pre_name))
+        .collect()
 }
 
 /// POST 側計測値。距離計算用。
@@ -1042,6 +1072,99 @@ mod tests {
             2,
             "signal_state 不在 (旧 schema) も Active 新 schema も候補化される"
         );
+    }
+
+    // ── B-027 段階 2: name field + filter_candidates_by_name ────────────
+
+    /// pre.json に `name` 任意指定で書く helper (B-027 段階 2)。
+    fn write_pre_tmp_with_name(
+        tmp_base: &Path,
+        ph: &str,
+        instance_id: &str,
+        state: &str,
+        name: &str,
+    ) {
+        let dir = tmp_base.join(ph).join(instance_id);
+        fs::create_dir_all(&dir).unwrap();
+        let json = format!(
+            r#"{{"v":2,"role":"PRE","instance_id":"{instance_id}","signal_state":"{state}","t":"now","lufs_m":-14.0,"true_peak":-1.0,"crest":12.0,"psr":8.0,"name":"{name}"}}"#
+        );
+        fs::write(dir.join("pre.json"), json).unwrap();
+    }
+
+    /// pre.json に `name` field がある場合 PreCandidate.name に反映される。
+    #[test]
+    fn pre_candidate_includes_name_field() {
+        let base = isolated_dir();
+        write_pre_tmp_with_name(&base, "ph", "iid-1", "active", "Snare");
+        let v = scan_pre_candidates(&base, "ph");
+        assert_eq!(v.len(), 1);
+        assert_eq!(v[0].name.as_deref(), Some("Snare"));
+    }
+
+    /// 旧 schema (`name` field 不在) は PreCandidate.name == None。
+    #[test]
+    fn pre_candidate_name_legacy_schema_is_none() {
+        let base = isolated_dir();
+        write_pre_tmp_with_state(&base, "ph", "legacy-no-name", "active");
+        let v = scan_pre_candidates(&base, "ph");
+        assert_eq!(v.len(), 1);
+        assert!(v[0].name.is_none(), "name field 不在は None");
+    }
+
+    /// filter_candidates_by_name: 一致 1 件のみ通過。
+    #[test]
+    fn filter_candidates_by_name_keeps_match() {
+        let base = isolated_dir();
+        write_pre_tmp_with_name(&base, "ph", "iid-a", "active", "Snare");
+        write_pre_tmp_with_name(&base, "ph", "iid-b", "active", "Kick");
+        let v = scan_pre_candidates(&base, "ph");
+        let filtered = filter_candidates_by_name(v, "Snare");
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].instance_id, "iid-a");
+    }
+
+    /// filter_candidates_by_name: 不一致は 0 件。
+    #[test]
+    fn filter_candidates_by_name_drops_mismatch() {
+        let base = isolated_dir();
+        write_pre_tmp_with_name(&base, "ph", "iid-a", "active", "Snare");
+        write_pre_tmp_with_name(&base, "ph", "iid-b", "active", "Kick");
+        let v = scan_pre_candidates(&base, "ph");
+        let filtered = filter_candidates_by_name(v, "Hat");
+        assert!(filtered.is_empty(), "存在しない Name 指定で 0 件");
+    }
+
+    /// filter_candidates_by_name: 空文字 pair_pre_name は filter しない (pass-through)。
+    /// B-027 段階 1 受入 (停止中 1/2 セット紐付け) 維持の構造保証。
+    #[test]
+    fn filter_candidates_by_name_empty_passes_through() {
+        let base = isolated_dir();
+        write_pre_tmp_with_name(&base, "ph", "iid-a", "active", "Snare");
+        write_pre_tmp_with_state(&base, "ph", "iid-legacy", "active");
+        let v = scan_pre_candidates(&base, "ph");
+        assert_eq!(v.len(), 2);
+        let filtered = filter_candidates_by_name(v, "");
+        assert_eq!(
+            filtered.len(),
+            2,
+            "空文字は filter 不適用 (legacy schema 含め全候補通過)"
+        );
+    }
+
+    /// filter_candidates_by_name: 同 Name 複数 PRE は全件通過 (pick_closest_pre 委譲)。
+    #[test]
+    fn filter_candidates_by_name_keeps_multiple_matches() {
+        let base = isolated_dir();
+        write_pre_tmp_with_name(&base, "ph", "iid-a", "active", "Snare");
+        write_pre_tmp_with_name(&base, "ph", "iid-b", "active", "Snare");
+        write_pre_tmp_with_name(&base, "ph", "iid-c", "active", "Kick");
+        let v = scan_pre_candidates(&base, "ph");
+        let filtered = filter_candidates_by_name(v, "Snare");
+        assert_eq!(filtered.len(), 2, "同 Name 複数は全件通過 (距離選定は呼出側)");
+        let ids: Vec<&str> = filtered.iter().map(|c| c.instance_id.as_str()).collect();
+        assert!(ids.contains(&"iid-a"));
+        assert!(ids.contains(&"iid-b"));
     }
 
     // ── シーケンス統合 ──────────────────────────────────────

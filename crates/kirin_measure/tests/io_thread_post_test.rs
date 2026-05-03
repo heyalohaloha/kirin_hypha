@@ -60,7 +60,7 @@ fn test_io_thread_post_active_delta() {
         psr: Some(8.0),
         ..Default::default()
     };
-    let pre_json = serialize_pre_json(&pre_instance_id, SignalState::Active, &pre_result);
+    let pre_json = serialize_pre_json(&pre_instance_id, "", SignalState::Active, &pre_result);
     let pre_path = pre_instance_dir.join("pre.json");
     std::fs::write(&pre_path, pre_json.as_bytes()).unwrap();
 
@@ -233,7 +233,7 @@ fn test_selects_latest_pre_by_timestamp() {
         psr: None,
         ..Default::default()
     };
-    let new_json = serialize_pre_json("new-pre-001", SignalState::Active, &new_pre);
+    let new_json = serialize_pre_json("new-pre-001", "", SignalState::Active, &new_pre);
     std::fs::write(new_dir.join("pre.json"), new_json.as_bytes()).unwrap();
 
     let post = MeasureResult {

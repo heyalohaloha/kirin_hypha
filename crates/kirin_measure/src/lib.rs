@@ -66,10 +66,10 @@ pub use preset_v2::{
 };
 pub use record::{RecordState, RecordStateMachine, TransitionError};
 pub use record_signal::{
-    delete_signal, is_timed_out, mark_acknowledged, mark_released, pick_closest_pre, read_signal,
-    scan_pre_candidates, scan_pre_candidates_in, scan_signals_dir, signal_path, signals_dir,
-    write_pending, write_signal, PostMetrics, PreCandidate, RecordSignal, SignalError,
-    SignalStatus, ACK_TIMEOUT_SECONDS, SIGNALS_SUBDIR, SIGNAL_FILENAME,
+    delete_signal, filter_candidates_by_name, is_timed_out, mark_acknowledged, mark_released,
+    pick_closest_pre, read_signal, scan_pre_candidates, scan_pre_candidates_in, scan_signals_dir,
+    signal_path, signals_dir, write_pending, write_signal, PostMetrics, PreCandidate,
+    RecordSignal, SignalError, SignalStatus, ACK_TIMEOUT_SECONDS, SIGNALS_SUBDIR, SIGNAL_FILENAME,
 };
 pub use storage::{
     cleanup_legacy_v1, load_installation_id_safe, load_or_recover, read_identity, write_both,
@@ -80,6 +80,25 @@ pub use watchdog::{spawn_watchdog, WatchdogParams};
 
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, OnceLock, RwLock};
+
+// ── B-027 段階 2: PRE/POST 共通の Name 正規化 ────────────────────────────
+
+/// Name 入力値を ASCII 0x20-0x7E + 最大 16 文字に正規化 (R-28 機能的沈黙)。
+///
+/// chunk restore 時 / GUI 入力時の両方で使う。違反値は無言で正規化し
+/// UI エラーは出さない (制御文字 / 非 ASCII / 17 文字目以降を strip)。
+///
+/// 用途:
+/// - PRE 側 `params.name` (B-023 段階 1)
+/// - POST 側 `params.pair_pre_name` (B-027 段階 2)
+///
+/// hypha_pre / hypha_post の両 cdylib から共通参照する単一情報源。
+pub fn sanitize_name(raw: &str) -> String {
+    raw.chars()
+        .filter(|c| c.is_ascii_graphic() || *c == ' ')
+        .take(16)
+        .collect()
+}
 
 // ── 共有定数 ────────────────────────────────────────────────────────────────
 

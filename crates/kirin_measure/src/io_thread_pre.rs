@@ -135,8 +135,10 @@ pub fn spawn_io_thread_pre(
             // POST 側 io_thread と同パターン。`Arc<RwLock<String>>` は plugin
             // params と同実体を共有するため、`set_state_inner` 経由の
             // chunk-restored 値を次 tick で拾う。
+            // B-027 段階 2: name も同パターンで lazy-read し pre.json に出力。
             let instance_id_owned = read_instance_id_arc(&instance_id);
             let instance_id_ref = instance_id_owned.as_str();
+            let name_owned_for_write = read_instance_id_arc(&name);
             let dir = io_dir(&project_hash, instance_id_ref);
             let file_path = dir.join("pre.json");
             let tmp_path = dir.join("pre.json.tmp");
@@ -152,6 +154,7 @@ pub fn spawn_io_thread_pre(
                 &tmp_path,
                 &file_path,
                 instance_id_ref,
+                name_owned_for_write.as_str(),
                 &result,
                 &signal_state,
             ) {
@@ -577,6 +580,7 @@ fn write_json(
     tmp_path: &Path,
     file_path: &Path,
     instance_id: &str,
+    name: &str,
     result: &Arc<Mutex<MeasureResult>>,
     signal_state: &Arc<AtomicU8>,
 ) -> Result<(), String> {
@@ -589,9 +593,9 @@ fn write_json(
             .lock()
             .map_err(|e| format!("Mutex poisoned: {e}"))?
             .clone();
-        serialize_pre_json(instance_id, state, &measure)
+        serialize_pre_json(instance_id, name, state, &measure)
     } else {
-        serialize_pre_json_minimal(instance_id, state)
+        serialize_pre_json_minimal(instance_id, name, state)
     };
 
     fs::write(tmp_path, json.as_bytes()).map_err(|e| format!("write tmp: {e}"))?;
@@ -603,15 +607,20 @@ fn write_json(
 /// guardian_53 T-4 + SS-5 の JSON v2 フォーマットに変換する（Active 時）。
 ///
 /// A-3 修正後: bus フィールドは削除（path に instance_id が入るため不要）。
+/// B-027 段階 2: `name` field を追加 (POST `pair_pre_name` filter 用)。
+/// pre.json schema バージョン (`v=2`) は据置き。読込側 (`PreTmpJson`) は
+/// `#[serde(default)]` で旧 schema 互換を維持する。
 pub fn serialize_pre_json(
     instance_id: &str,
+    name: &str,
     state: SignalState,
     result: &MeasureResult,
 ) -> String {
     let t = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ");
     format!(
-        r#"{{"v":2,"role":"PRE","instance_id":"{instance_id}","signal_state":"{signal_state}","t":"{t}","lufs_m":{lufs_m},"true_peak":{true_peak},"crest":{crest},"psr":{psr}{phase_d}}}"#,
+        r#"{{"v":2,"role":"PRE","instance_id":"{instance_id}","name":"{name}","signal_state":"{signal_state}","t":"{t}","lufs_m":{lufs_m},"true_peak":{true_peak},"crest":{crest},"psr":{psr}{phase_d}}}"#,
         instance_id = instance_id,
+        name = name,
         signal_state = state.as_str(),
         t = t,
         lufs_m = opt_f64(result.lufs_m),
@@ -623,11 +632,15 @@ pub fn serialize_pre_json(
 }
 
 /// Bypassed / Inactive 時の最小 JSON。
-fn serialize_pre_json_minimal(instance_id: &str, state: SignalState) -> String {
+///
+/// B-027 段階 2: `name` field を追加 (Bypassed / Inactive でも候補化されるため
+/// filter 照合に必要。pre.json schema バージョン据置き)。
+fn serialize_pre_json_minimal(instance_id: &str, name: &str, state: SignalState) -> String {
     let t = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ");
     format!(
-        r#"{{"v":2,"role":"PRE","instance_id":"{instance_id}","signal_state":"{signal_state}","t":"{t}"}}"#,
+        r#"{{"v":2,"role":"PRE","instance_id":"{instance_id}","name":"{name}","signal_state":"{signal_state}","t":"{t}"}}"#,
         instance_id = instance_id,
+        name = name,
         signal_state = state.as_str(),
         t = t,
     )
@@ -1158,9 +1171,10 @@ mod tests {
             lufs_m: Some(-14.0),
             ..Default::default()
         };
-        let json = serialize_pre_json("pre-xyz", SignalState::Active, &r);
+        let json = serialize_pre_json("pre-xyz", "Snare", SignalState::Active, &r);
         assert!(json.contains(r#""role":"PRE""#));
         assert!(json.contains(r#""instance_id":"pre-xyz""#));
+        assert!(json.contains(r#""name":"Snare""#));
         assert!(json.contains(r#""lufs_m":-14.000"#));
         // bus フィールドは削除済（A-3 修正後）
         assert!(!json.contains(r#""bus""#));
@@ -1168,10 +1182,38 @@ mod tests {
 
     #[test]
     fn serialize_pre_json_minimal_omits_measure_fields() {
-        let json = serialize_pre_json_minimal("pre-xyz", SignalState::Bypassed);
+        let json = serialize_pre_json_minimal("pre-xyz", "", SignalState::Bypassed);
         assert!(json.contains(r#""signal_state":"bypassed""#));
         assert!(!json.contains("lufs_m"));
         assert!(!json.contains(r#""bus""#));
+    }
+
+    /// B-027 段階 2: serialize_pre_json は空文字 name でも `"name":""` を出力する
+    /// (POST 側 PreTmpJson は `#[serde(default)]` で空文字 / 不在を区別なく扱う)。
+    #[test]
+    fn serialize_pre_json_active_with_empty_name() {
+        let r = MeasureResult::default();
+        let json = serialize_pre_json("pre-xyz", "", SignalState::Active, &r);
+        assert!(json.contains(r#""name":"""#));
+    }
+
+    /// B-027 段階 2: minimal でも `name` を出力する (Bypassed / Inactive でも
+    /// 候補化される構造 / B-027 段階 1 緩和維持)。
+    #[test]
+    fn serialize_pre_json_minimal_includes_name() {
+        let json = serialize_pre_json_minimal("pre-xyz", "Kick", SignalState::Inactive);
+        assert!(json.contains(r#""name":"Kick""#));
+        assert!(json.contains(r#""signal_state":"inactive""#));
+    }
+
+    /// B-027 段階 2: serialize → PreTmpJson 経由 → PreCandidate.name の roundtrip。
+    #[test]
+    fn serialize_pre_json_roundtrip_to_pre_candidate_name() {
+        let r = MeasureResult::default();
+        let json = serialize_pre_json("pre-xyz", "Snare", SignalState::Active, &r);
+        // pre.json の "name" field が serde で読み戻せること (PreTmpJson と等価構造)。
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["name"].as_str(), Some("Snare"));
     }
 
     /// 直接 write_signal で daw_session_id 明示指定 + 読み戻し

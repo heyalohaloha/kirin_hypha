@@ -33,21 +33,36 @@ use hypha_gui::{
 };
 use kirin_measure::{
     append_annotation_to_latest, check_record_exclusion, discover_active_pre_dir,
-    format_pair_label, load_signal_state, lookup_section_label, mark_released, pick_closest_pre,
-    scan_latest_v2_preset, scan_pre_candidates_in, show_note_button, show_save_button,
-    show_stop_record_button, write_pending, DeltaMode, DeltaResult, ExclusionResult, License,
-    MeasureResult, PluginDataRole, PostMetrics, PresetFileV2, RecordStateMachine, SignalState,
-    StoragePaths, TransitionError, SENSE_RECORD_HINT, SENSE_UPSELL_URL,
+    filter_candidates_by_name, format_pair_label, load_signal_state, lookup_section_label,
+    mark_released, pick_closest_pre, sanitize_name, scan_latest_v2_preset, scan_pre_candidates_in,
+    show_note_button, show_save_button, show_stop_record_button, write_pending, DeltaMode,
+    DeltaResult, ExclusionResult, License, MeasureResult, PluginDataRole, PostMetrics,
+    PresetFileV2, RecordStateMachine, SignalState, StoragePaths, TransitionError,
+    SENSE_RECORD_HINT, SENSE_UPSELL_URL,
 };
 use nih_plug::prelude::Editor;
 use nih_plug_egui::{
     create_egui_editor,
-    egui::{self, Grid, RichText, Stroke, Vec2},
+    egui::{self, Grid, Key, Label, RichText, Sense, Stroke, TextEdit, TextStyle, Vec2},
     EguiState,
 };
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU8, Ordering};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, LazyLock, Mutex, RwLock};
 use std::time::Duration;
+
+/// B-027 段階 2: pair PRE Name 編集 TextEdit の egui focus ID。
+///
+/// PRE 側 `editor.rs:36-41 NAME_FOCUS_ID` と完全対称の静的定義。
+/// id 文字列は POST 用に独立 (`hypha_post_pair_pre_name_edit`)。
+static PAIR_PRE_NAME_FOCUS_ID: LazyLock<egui::Id> =
+    LazyLock::new(|| egui::Id::new("hypha_post_pair_pre_name_edit"));
+
+/// B-027 段階 2: pair_pre_name 編集モード判定 (egui memory ベース)。
+///
+/// PRE 側 `editor.rs:47-49 name_edit_active` と完全同パターン。
+fn pair_pre_name_edit_active(ui: &egui::Ui) -> bool {
+    ui.memory(|mem| mem.has_focus(*PAIR_PRE_NAME_FOCUS_ID))
+}
 
 use crate::read_instance_id_arc;
 
@@ -123,6 +138,11 @@ pub struct PostEditorState {
     /// process() が initialize() でキャッシュしたサンプルレート。0 = 未初期化。
     pub playback_sample_rate: Arc<AtomicU32>,
 
+    /// B-027 段階 2: pair PRE Name (HyphaPostParams.pair_pre_name と Arc 共有)。
+    /// 編集確定時に `write()` で sanitize 後の値を書き込み、trigger_keep で
+    /// `read()` した値を `filter_candidates_by_name` の引数に渡す。
+    pub pair_pre_name: Arc<RwLock<String>>,
+
     // ── エディタローカル ───────────────────────────────────────────────
     bg: BackgroundTexture,
     prev_ack: bool,
@@ -142,6 +162,9 @@ pub struct PostEditorState {
     /// T-F fallback: Record 開始時の wall-clock（秒）。transport.pos_samples
     /// が `None` 時に `now - record_start_wall_time` で経過時間を代替。
     record_start_wall_time: Option<f64>,
+    /// B-027 段階 2: pair_pre_name 編集モードの入力 buffer。
+    /// PRE 側 PreEditorState.edit_buffer (editor.rs:82-85) と同パターン。
+    pair_pre_name_edit_buffer: String,
 }
 
 impl PostEditorState {
@@ -163,6 +186,7 @@ impl PostEditorState {
             installation_id: args.installation_id,
             playback_pos_samples: args.playback_pos_samples,
             playback_sample_rate: args.playback_sample_rate,
+            pair_pre_name: args.pair_pre_name,
             bg: BackgroundTexture::new(),
             prev_ack: false,
             banner_until: None,
@@ -173,6 +197,7 @@ impl PostEditorState {
             proposals_scan_last: None,
             cards_expanded: false,
             record_start_wall_time: None,
+            pair_pre_name_edit_buffer: String::new(),
         }
     }
 }
@@ -201,6 +226,8 @@ pub struct PostEditorArgs {
     pub installation_id: Arc<String>,
     pub playback_pos_samples: Arc<AtomicI64>,
     pub playback_sample_rate: Arc<AtomicU32>,
+    /// B-027 段階 2: pair PRE Name の Arc 共有 (HyphaPostParams.pair_pre_name)。
+    pub pair_pre_name: Arc<RwLock<String>>,
 }
 
 // ── 公開エントリポイント ─────────────────────────────────────────────────
@@ -311,6 +338,13 @@ fn draw_post(
                     ui.add_space(10.0);
                     draw_led(ui, led_col);
                 });
+            });
+            ui.add_space(4.0);
+
+            // B-027 段階 2: タイトル行直下に pair PRE Name 入力欄 (PRE 同パターン)。
+            ui.horizontal(|ui| {
+                ui.add_space(10.0);
+                draw_pair_pre_name_field(ui, state);
             });
             ui.add_space(4.0);
 
@@ -526,6 +560,69 @@ fn row_pair(
     ui.end_row();
 }
 
+/// B-027 段階 2: pair PRE Name フィールド描画（クリック起動編集）。
+///
+/// PRE 側 `editor.rs:268-314 draw_name_field` と完全対称構造:
+/// 通常モード: `Label::new(...).sense(Sense::click())` で表示。クリックで `request_focus`。
+/// 編集モード (`pair_pre_name_edit_active` = `memory.has_focus(*PAIR_PRE_NAME_FOCUS_ID)`):
+///   - `TextEdit::singleline(&mut state.pair_pre_name_edit_buffer).id(*PAIR_PRE_NAME_FOCUS_ID)`
+///   - `changed()` 時にリアルタイム sanitize（不正入力を即座に剥がす）
+///   - `Enter` (lost_focus + key_pressed) で sanitize 後 `pair_pre_name.write()` 確定
+///   - `Escape` で discard（buffer 反映せず focus 解除）
+///
+/// 空 + 通常モード時の fallback は **空表示** (PRE 側のような UUID8 fallback は出さない)。
+/// 理由: POST 自身の identity ではないため fallback 識別子は概念的に存在しない
+/// (B-023 論点 4 (c) POST 独自命名禁止 と整合)。空文字時は trigger_keep の
+/// filter も pass-through (B-027 段階 1 受入維持)。
+fn draw_pair_pre_name_field(ui: &mut egui::Ui, state: &mut PostEditorState) {
+    if pair_pre_name_edit_active(ui) {
+        let response = ui.add(
+            TextEdit::singleline(&mut state.pair_pre_name_edit_buffer)
+                .id(*PAIR_PRE_NAME_FOCUS_ID)
+                .desired_width(120.0)
+                .font(TextStyle::Monospace),
+        );
+        if ui.input(|i| i.key_pressed(Key::Escape)) {
+            ui.memory_mut(|mem| mem.surrender_focus(*PAIR_PRE_NAME_FOCUS_ID));
+        } else if response.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
+            let sanitized = sanitize_name(&state.pair_pre_name_edit_buffer);
+            if let Ok(mut g) = state.pair_pre_name.write() {
+                *g = sanitized;
+            }
+            ui.memory_mut(|mem| mem.surrender_focus(*PAIR_PRE_NAME_FOCUS_ID));
+        } else if response.changed() {
+            state.pair_pre_name_edit_buffer = sanitize_name(&state.pair_pre_name_edit_buffer);
+        }
+    } else {
+        let raw_name = state
+            .pair_pre_name
+            .read()
+            .ok()
+            .map(|g| g.clone())
+            .unwrap_or_default();
+        // 空時の表示: PRE 側 (UUID8 fallback) と異なり、POST は識別子を持たないため
+        // 「pair: ___」プレースホルダで「未指定 = filter 無効」を視覚化する。
+        let display = if raw_name.is_empty() {
+            "pair: ___".to_string()
+        } else {
+            format!("pair: {}", raw_name)
+        };
+        let label = ui.add(
+            Label::new(
+                RichText::new(&display)
+                    .size(14.0)
+                    .color(COL_FLORA)
+                    .monospace(),
+            )
+            .sense(Sense::click()),
+        );
+        if label.clicked() {
+            state.pair_pre_name_edit_buffer = raw_name;
+            ui.memory_mut(|mem| mem.request_focus(*PAIR_PRE_NAME_FOCUS_ID));
+        }
+    }
+}
+
 // ── ボタン行 ──────────────────────────────────────────────────────────────
 
 fn draw_button_row(
@@ -585,6 +682,15 @@ fn draw_button_row(
             if show_save_button(license) {
                 if ui.button("Keep").clicked() {
                     log::info!("[hypha-fork] button clicked: Keep");
+                    // B-027 段階 2: 押下時点の pair_pre_name を lazy-read。
+                    // 編集モード途中で Keep 押下されても直前の確定値を使う
+                    // (編集中の `edit_buffer` は未確定として扱う)。
+                    let pair_pre_name_snapshot = state
+                        .pair_pre_name
+                        .read()
+                        .ok()
+                        .map(|g| g.clone())
+                        .unwrap_or_default();
                     trigger_keep(
                         license,
                         &state.record_sm,
@@ -596,6 +702,7 @@ fn draw_button_row(
                         m,
                         &mut state.toast,
                         now,
+                        &pair_pre_name_snapshot,
                     );
                 }
             } else if license == License::Sense {
@@ -640,6 +747,9 @@ fn set_pair_label(pair_label: &Arc<Mutex<String>>, paired_pre_name: &str, target
 /// 成功時は pair_label を `pair: PRE_xxxxxxxx` で設定する（POST GUI 表示用）。
 /// 同時に `paired_pre_target` に `target_id` を保存し、IO Thread が次回の writer_start で
 /// plugin_data の `paired_pre_instance_id` field に書き込めるようにする（v1.2 (a)）。
+///
+/// B-027 段階 2: `pair_pre_name` 非空時は `filter_candidates_by_name` で候補を
+/// 絞り込む。空文字時は filter pass-through (B-027 段階 1 受入維持)。
 #[allow(clippy::too_many_arguments)]
 fn trigger_keep(
     license: License,
@@ -652,6 +762,7 @@ fn trigger_keep(
     m: &MeasureResult,
     toast: &mut Option<Toast>,
     now: f64,
+    pair_pre_name: &str,
 ) {
     // 1. ストレージパス解決
     let paths = match StoragePaths::default_macos() {
@@ -689,6 +800,19 @@ fn trigger_keep(
             pre_project_dir.display()
         );
         *toast = Some(Toast::new("No PRE plugin found", now));
+        return;
+    }
+
+    // B-027 段階 2: pair_pre_name 非空時は Name で filter。空文字は pass-through
+    // (filter_candidates_by_name 内部で判定 / B-027 段階 1 受入維持)。
+    let candidates = filter_candidates_by_name(candidates, pair_pre_name);
+    if candidates.is_empty() {
+        log::info!(
+            "[POST keep] no PRE matches pair_pre_name=\"{}\" (project_dir={})",
+            pair_pre_name,
+            pre_project_dir.display()
+        );
+        *toast = Some(Toast::new("No matching PRE", now));
         return;
     }
 
