@@ -591,30 +591,55 @@ unsafe fn install_local_event_monitor(this: &Object) {
                     }
                 }
 
-                // ── Keyboard arm (B-025 / S105 案 A) ─────────────────────────
+                // ── Keyboard arm (B-025 / S106 真因対応 / 案 (ii) first-responder 判定) ──
                 // Two-route design:
-                //   * is_key_window = true  → AppKit will deliver keyDown:/keyUp:/
-                //                              flagsChanged: through the responder
-                //                              chain to add_simple_keyboard_class_method!
-                //                              Defer here to avoid double-forwarding.
-                //   * is_key_window = false → AppKit suppresses keyDown: per
-                //                              NSResponder/NSWindow.sendEvent: docs.
-                //                              Synthesize Event::Keyboard from the
-                //                              raw NSEvent so egui-baseview still
-                //                              receives keystrokes for TextEdit etc.
+                //   * Defer condition: is_key_window=true AND first_responder==self
+                //                       → AppKit will deliver keyDown:/keyUp:/
+                //                         flagsChanged: through the responder chain
+                //                         to add_simple_keyboard_class_method!
+                //                         (per https://developer.apple.com/documentation/appkit/nsresponder/keydown(with:)
+                //                         — first responder + key window both required).
+                //                         Defer here to avoid double-forwarding.
+                //   * Synth condition: any other case
+                //                       → AppKit suppresses keyDown: delivery to this
+                //                         NSView (window not key, OR another NSView is
+                //                         first responder — observed in S106: adding a
+                //                         POST instance moved first responder away from
+                //                         the PRE view, so is_key_window=true but
+                //                         keyDown: never fires for the PRE NSView).
+                //                         Synthesize Event::Keyboard from the raw
+                //                         NSEvent so egui-baseview still receives
+                //                         keystrokes for TextEdit etc.
+                //
+                // Multiple monitors: when several plugin instances are loaded as
+                // subviews of the same host NSWindow, every install_local_event_monitor
+                // attaches its own monitor; AppKit invokes ALL matching monitors for
+                // each event (empirical — Apple Cocoa Conceptual EventOverview docs
+                // do not explicitly specify this). Each handler operates on its own
+                // captured view_ptr, so the first-responder check correctly routes
+                // the event to whichever NSView owns first responder, while the
+                // synth route serves instances whose NSView is *not* the first
+                // responder (their egui Context will accept the keystroke only if
+                // a TextEdit there is focused — independent egui state per instance).
                 10 | 11 | 12 => {
                     let is_key: BOOL = msg_send![view_window, isKeyWindow];
-                    if is_key == YES {
+                    let first_responder: id = msg_send![view_window, firstResponder];
+                    let view_id: id = view as *const Object as id;
+                    let is_self_first: BOOL = msg_send![first_responder, isEqual: view_id];
+
+                    if is_key == YES && is_self_first == YES {
                         log::info!(
-                            "[hypha-fork] localMonitor: key event_type={} but is_key_window=true, deferring to keyDown:/keyUp: macros",
+                            "[hypha-fork] localMonitor: key event_type={} (defer: is_key=true, first_responder=self)",
                             event_type
                         );
                         return event;
                     }
 
                     log::info!(
-                        "[hypha-fork] localMonitor: key event_type={} (non-key window route)",
-                        event_type
+                        "[hypha-fork] localMonitor: key event_type={} (synth route / is_key={}, first_responder_is_self={})",
+                        event_type,
+                        is_key == YES,
+                        is_self_first == YES
                     );
 
                     let state = WindowState::from_view(view);
