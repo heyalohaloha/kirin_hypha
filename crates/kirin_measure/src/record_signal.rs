@@ -412,7 +412,11 @@ pub struct PreCandidate {
     pub path: PathBuf,
 }
 
-/// pre tmp JSON の抜粋（distance 計算に必要なフィールドのみ）。
+/// pre tmp JSON の抜粋（distance 計算 + signal_state filter に必要なフィールドのみ）。
+///
+/// B-024: `signal_state` を追加。`scan_pre_candidates_in` は `"active"` 以外
+/// (`"bypassed"` / `"inactive"` / 旧 schema 不在=None) の候補を除外する。
+/// pre.json schema バージョン (`v`) は変更しない (旧 PRE 出力との互換維持)。
 #[derive(Debug, Deserialize)]
 struct PreTmpJson {
     instance_id: String,
@@ -422,6 +426,8 @@ struct PreTmpJson {
     true_peak: Option<f64>,
     #[serde(default)]
     crest: Option<f64>,
+    #[serde(default)]
+    signal_state: Option<String>,
 }
 
 /// `/tmp/kirin/{project_hash}/{instance_id}/pre.json` を全 instance_id 横断で走査。
@@ -462,6 +468,12 @@ pub fn scan_pre_candidates_in(project_dir: &Path) -> Vec<PreCandidate> {
         let Ok(parsed): Result<PreTmpJson, _> = serde_json::from_slice(&bytes) else {
             continue;
         };
+        // B-024: Bypassed / Inactive / 旧 schema (signal_state 不在) の PRE は
+        // pair 候補から除外。読込側 filter (二重防御の片側)。書込側 guard は
+        // io_thread_pre.rs::poll_record_signal の signal_state チェックで担保。
+        if parsed.signal_state.as_deref() != Some("active") {
+            continue;
+        }
         out.push(PreCandidate {
             instance_id: parsed.instance_id,
             lufs_m: parsed.lufs_m,
@@ -813,6 +825,10 @@ mod tests {
         instance_id: &str,
         metrics: Option<(f64, f64, f64)>,
     ) -> PathBuf {
+        // B-024: metrics=None ブランチは「Active だが ebur128 がまだ十分な
+        // サンプルを積んでいない瞬間」(= signal_state="active" + 計測値 None)
+        // を表現する。signal_state="inactive" は別 helper write_pre_tmp_inactive
+        // でテストする (scan_pre_candidates_in の filter 動作)。
         let dir = tmp_base.join(ph).join(instance_id);
         fs::create_dir_all(&dir).unwrap();
         let path = dir.join("pre.json");
@@ -822,7 +838,7 @@ mod tests {
             )
         } else {
             format!(
-                r#"{{"v":2,"role":"PRE","instance_id":"{instance_id}","signal_state":"inactive","t":"now"}}"#
+                r#"{{"v":2,"role":"PRE","instance_id":"{instance_id}","signal_state":"active","t":"now"}}"#
             )
         };
         fs::write(&path, json).unwrap();
@@ -953,6 +969,76 @@ mod tests {
             },
         );
         assert_eq!(r.unwrap().instance_id, "b");
+    }
+
+    // ── B-024: signal_state filter (読込側 / 二重防御の片側) ─────────────
+
+    /// 任意の signal_state 文字列で pre.json を書く helper。
+    /// `state` には "active" / "bypassed" / "inactive" のいずれかを渡す。
+    fn write_pre_tmp_with_state(
+        tmp_base: &Path,
+        ph: &str,
+        instance_id: &str,
+        state: &str,
+    ) {
+        let dir = tmp_base.join(ph).join(instance_id);
+        fs::create_dir_all(&dir).unwrap();
+        let json = format!(
+            r#"{{"v":2,"role":"PRE","instance_id":"{instance_id}","signal_state":"{state}","t":"now","lufs_m":-14.0,"true_peak":-1.0,"crest":12.0,"psr":8.0}}"#
+        );
+        fs::write(dir.join("pre.json"), json).unwrap();
+    }
+
+    /// signal_state="active" の PRE は scan で返却される (regression 防止)。
+    #[test]
+    fn scan_pre_candidates_in_keeps_active() {
+        let base = isolated_dir();
+        write_pre_tmp_with_state(&base, "ph", "active-a", "active");
+        write_pre_tmp_with_state(&base, "ph", "active-b", "active");
+        let v = scan_pre_candidates(&base, "ph");
+        assert_eq!(v.len(), 2, "Active な PRE 2 件を返すこと");
+        let ids: Vec<&str> = v.iter().map(|c| c.instance_id.as_str()).collect();
+        assert!(ids.contains(&"active-a"));
+        assert!(ids.contains(&"active-b"));
+    }
+
+    /// signal_state="bypassed" / "inactive" の PRE は除外される。
+    /// active 1 件 + bypassed 1 件 + inactive 1 件 → active 1 件のみ返却。
+    #[test]
+    fn scan_pre_candidates_in_filters_bypassed_and_inactive() {
+        let base = isolated_dir();
+        write_pre_tmp_with_state(&base, "ph", "alive", "active");
+        write_pre_tmp_with_state(&base, "ph", "off-bypass", "bypassed");
+        write_pre_tmp_with_state(&base, "ph", "off-inactive", "inactive");
+        let v = scan_pre_candidates(&base, "ph");
+        assert_eq!(
+            v.len(),
+            1,
+            "Bypassed / Inactive の PRE は除外され、Active のみ残ること"
+        );
+        assert_eq!(v[0].instance_id, "alive");
+    }
+
+    /// 旧 schema (signal_state フィールド不在) は除外される。
+    /// 新 PRE バイナリのみ pair に参加可能 (旧 OFF PRE が紛れ込む経路を遮断)。
+    #[test]
+    fn scan_pre_candidates_in_filters_legacy_no_signal_state() {
+        let base = isolated_dir();
+        // 旧 schema: signal_state フィールドが存在しない pre.json
+        let dir = base.join("ph").join("legacy");
+        fs::create_dir_all(&dir).unwrap();
+        let legacy_json =
+            r#"{"v":2,"role":"PRE","instance_id":"legacy","t":"now","lufs_m":-14.0,"true_peak":-1.0,"crest":12.0,"psr":8.0}"#;
+        fs::write(dir.join("pre.json"), legacy_json).unwrap();
+        write_pre_tmp_with_state(&base, "ph", "new-active", "active");
+
+        let v = scan_pre_candidates(&base, "ph");
+        assert_eq!(
+            v.len(),
+            1,
+            "signal_state 不在 (旧 schema) は除外、Active 新 schema のみ残る"
+        );
+        assert_eq!(v[0].instance_id, "new-active");
     }
 
     // ── シーケンス統合 ──────────────────────────────────────

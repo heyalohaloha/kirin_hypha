@@ -250,6 +250,7 @@ pub fn spawn_io_thread_pre(
                     &license,
                     &mut partner,
                     name_owned.as_str(),
+                    &signal_state,
                 );
             }
 
@@ -356,6 +357,7 @@ fn poll_record_signal(
     license: &Arc<License>,
     partner: &mut Option<PartnerInfo>,
     paired_pre_name: &str,
+    signal_state: &Arc<AtomicU8>,
 ) {
     let base = match StoragePaths::default_macos() {
         Ok(paths) => paths.plugin_data_dir(),
@@ -474,6 +476,19 @@ fn poll_record_signal(
     let Some((post_iid, _)) = new_pending else {
         return;
     };
+
+    // B-024: 書込側 guard。PRE が Bypassed / Inactive の間は ack しない。
+    // 二重防御の片側 (POST 側読込 filter は record_signal::scan_pre_candidates_in
+    // で同等動作)。両方を入れることで 200ms heartbeat 周期に依存せず
+    // 「OFF PRE が POST の pair: 表示に出る」レースを排除する。
+    let current_state = load_signal_state(signal_state);
+    if current_state != SignalState::Active {
+        log::info!(
+            "[signal] pending detected (partner={}), ignored (PRE signal_state: {:?})",
+            post_iid, current_state
+        );
+        return;
+    }
 
     if !is_os_license(license) {
         log::info!(
@@ -667,9 +682,13 @@ mod tests {
     }
 
     /// poll_record_signal の挙動を検証するため、tmp_kirin_base に依存しない薄いラッパー。
-    /// 実装と同じロジック（scan_signals_dir + target_pre_instance_id 単一 filter）を直接回す。
+    /// 実装と同じロジック（scan_signals_dir + target_pre_instance_id 単一 filter
+    /// + B-024 signal_state guard）を直接回す。
     ///
     /// B-022 段階 3: daw_session_id filter 撤廃に追従。
+    /// B-024: signal_state guard を追加。既存テストは `SignalState::Active` を
+    /// 渡す `poll_with_base` に集約。signal_state ガードのテストは
+    /// `poll_with_base_state` 経由で `Bypassed` / `Inactive` を渡す。
     #[allow(clippy::too_many_arguments)]
     fn poll_with_base(
         base: &Path,
@@ -679,6 +698,31 @@ mod tests {
         license: &Arc<License>,
         partner: &mut Option<PartnerInfo>,
         instance_id: &str,
+    ) {
+        poll_with_base_state(
+            base,
+            record_sm,
+            recording,
+            record_acknowledged,
+            license,
+            partner,
+            instance_id,
+            SignalState::Active,
+        );
+    }
+
+    /// signal_state を明示指定する版。B-024 の signal_state guard をテスト
+    /// するために用意する (production の poll_record_signal と等価動作)。
+    #[allow(clippy::too_many_arguments)]
+    fn poll_with_base_state(
+        base: &Path,
+        record_sm: &Arc<RecordStateMachine>,
+        recording: &Arc<AtomicBool>,
+        record_acknowledged: &Arc<AtomicBool>,
+        license: &Arc<License>,
+        partner: &mut Option<PartnerInfo>,
+        instance_id: &str,
+        signal_state: SignalState,
     ) {
         let signals = record_signal::scan_signals_dir(base, TEST_PH);
         let matching: Vec<_> = signals
@@ -735,6 +779,11 @@ mod tests {
         let Some((post_iid, _)) = new_pending else {
             return;
         };
+
+        // B-024: signal_state guard。Active 以外なら ack しない。
+        if signal_state != SignalState::Active {
+            return;
+        }
 
         if !is_os_license(license) {
             return;
@@ -950,6 +999,120 @@ mod tests {
 
         assert_eq!(sm.current(), RecordState::Watch);
         assert!(partner.is_none());
+    }
+
+    // ── B-024: signal_state guard (書込側 / 二重防御の片側) ─────────────
+
+    /// SignalState::Bypassed の間 pending を検出しても ack しない (regression 防止)。
+    /// signal は Pending のまま残り、partner も None のまま。
+    #[test]
+    fn poll_record_signal_skips_when_bypassed() {
+        let base = isolated_base();
+        write_matching_pending(&base, "post-1");
+
+        let sm = Arc::new(RecordStateMachine::new());
+        let recording = Arc::new(AtomicBool::new(false));
+        let ack = Arc::new(AtomicBool::new(false));
+        let license = Arc::new(License::Os);
+        let mut partner = None;
+
+        poll_with_base_state(
+            &base,
+            &sm,
+            &recording,
+            &ack,
+            &license,
+            &mut partner,
+            TEST_PRE_IID,
+            SignalState::Bypassed,
+        );
+
+        assert_eq!(
+            sm.current(),
+            RecordState::Watch,
+            "Bypassed の間 PRE は ack せず Watch のまま"
+        );
+        assert!(!recording.load(Ordering::Relaxed));
+        assert!(!ack.load(Ordering::Relaxed));
+        assert!(partner.is_none());
+        let sig = record_signal::read_signal(&base, TEST_PH, "post-1").unwrap();
+        assert_eq!(
+            sig.status,
+            SignalStatus::Pending,
+            "Bypassed の間 signal は Pending のまま (POST 側で別 PRE に切替可)"
+        );
+    }
+
+    /// SignalState::Inactive の間 pending を検出しても ack しない。
+    #[test]
+    fn poll_record_signal_skips_when_inactive() {
+        let base = isolated_base();
+        write_matching_pending(&base, "post-1");
+
+        let sm = Arc::new(RecordStateMachine::new());
+        let recording = Arc::new(AtomicBool::new(false));
+        let ack = Arc::new(AtomicBool::new(false));
+        let license = Arc::new(License::Os);
+        let mut partner = None;
+
+        poll_with_base_state(
+            &base,
+            &sm,
+            &recording,
+            &ack,
+            &license,
+            &mut partner,
+            TEST_PRE_IID,
+            SignalState::Inactive,
+        );
+
+        assert_eq!(
+            sm.current(),
+            RecordState::Watch,
+            "Inactive の間 PRE は ack せず Watch のまま"
+        );
+        assert!(!recording.load(Ordering::Relaxed));
+        assert!(!ack.load(Ordering::Relaxed));
+        assert!(partner.is_none());
+        let sig = record_signal::read_signal(&base, TEST_PH, "post-1").unwrap();
+        assert_eq!(sig.status, SignalStatus::Pending);
+    }
+
+    /// SignalState::Active なら通常通り ack される (regression 防止)。
+    /// poll_with_base 経由の既存テスト群と同じ判定軸を、明示 Active 引数で固定。
+    #[test]
+    fn poll_record_signal_acks_when_active() {
+        let base = isolated_base();
+        write_matching_pending(&base, "post-1");
+
+        let sm = Arc::new(RecordStateMachine::new());
+        let recording = Arc::new(AtomicBool::new(false));
+        let ack = Arc::new(AtomicBool::new(false));
+        let license = Arc::new(License::Os);
+        let mut partner = None;
+
+        poll_with_base_state(
+            &base,
+            &sm,
+            &recording,
+            &ack,
+            &license,
+            &mut partner,
+            TEST_PRE_IID,
+            SignalState::Active,
+        );
+
+        assert_eq!(
+            sm.current(),
+            RecordState::Record,
+            "Active なら通常通り Record に入る"
+        );
+        assert!(recording.load(Ordering::Relaxed));
+        assert!(ack.load(Ordering::Relaxed));
+        let sig = record_signal::read_signal(&base, TEST_PH, "post-1").unwrap();
+        assert_eq!(sig.status, SignalStatus::Acknowledged);
+        assert!(partner.is_some());
+        assert_eq!(partner.as_ref().unwrap().post_instance_id, "post-1");
     }
 
     #[test]
