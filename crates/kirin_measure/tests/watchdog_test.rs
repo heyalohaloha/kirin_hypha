@@ -45,6 +45,7 @@ fn spawn_pre_io(
         measure_result,
         signal_state,
         io_shutdown,
+        Arc::new(RwLock::new(String::new())),
     )
 }
 

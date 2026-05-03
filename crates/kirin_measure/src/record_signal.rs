@@ -96,6 +96,11 @@ pub struct RecordSignal {
     /// 旧バージョン互換のため `#[serde(default)]`（不在で空文字）。
     #[serde(default)]
     pub started_at: String,
+    /// PRE 側 ack 時に書き込む PRE 表示用 Name (B-023 段階 3 / G-115-40 案 A-3)。
+    /// 旧 schema からの読込 / POST write_pending 時は空文字で defaulted。
+    /// 空 = POST GUI 側で UUID 短縮 8 文字 fallback 表示。
+    #[serde(default)]
+    pub paired_pre_name: String,
 }
 
 impl RecordSignal {
@@ -114,6 +119,7 @@ impl RecordSignal {
             daw_session_id,
             t: now.clone(),
             started_at: now,
+            paired_pre_name: String::new(),
         }
     }
 }
@@ -217,17 +223,38 @@ pub fn read_signal(
 /// 状態遷移: pending → acknowledged。`t` は現在時刻に更新。
 ///
 /// 既存シグナルが無い / 読込失敗時は `Ok(false)` を返す。
+///
+/// B-023 段階 3: 既存シグネチャは [`mark_acknowledged_with_name`] への薄い wrapper。
+/// PRE Name を渡さない呼出 (テスト等) では空文字が書き込まれ、POST GUI 側で
+/// UUID 短縮 8 文字 fallback 表示が適用される (R-28 機能的沈黙)。
 pub fn mark_acknowledged(
     base_dir: &Path,
     project_hash: &str,
     post_instance_id: &str,
 ) -> Result<bool, SignalError> {
-    transition_status(
-        base_dir,
-        project_hash,
-        post_instance_id,
-        SignalStatus::Acknowledged,
-    )
+    mark_acknowledged_with_name(base_dir, project_hash, post_instance_id, "")
+}
+
+/// 状態遷移: pending → acknowledged + `paired_pre_name` を書込。
+///
+/// PRE 側 IO Thread が ack 時に呼ぶ正規経路 (B-023 段階 3)。`paired_pre_name`
+/// は params.name の lazy-read 値 (sanitize 済 / ASCII 16 文字以内 / 空文字許容)
+/// を透過コピーする。空文字渡しは [`mark_acknowledged`] 経由で起きる
+/// (PRE 未設定 / 旧テスト経路)。
+pub fn mark_acknowledged_with_name(
+    base_dir: &Path,
+    project_hash: &str,
+    post_instance_id: &str,
+    paired_pre_name: &str,
+) -> Result<bool, SignalError> {
+    let Some(mut signal) = read_signal(base_dir, project_hash, post_instance_id) else {
+        return Ok(false);
+    };
+    signal.status = SignalStatus::Acknowledged;
+    signal.t = now_iso8601();
+    signal.paired_pre_name = paired_pre_name.to_string();
+    write_signal(base_dir, project_hash, post_instance_id, &signal)?;
+    Ok(true)
 }
 
 /// 状態遷移: * → released。
@@ -621,6 +648,47 @@ mod tests {
         fs::write(dir.join("post-1.json"), legacy).unwrap();
         let loaded = read_signal(&base, "ph", "post-1").unwrap();
         assert_eq!(loaded.daw_session_id, "");
+    }
+
+    /// B-023 段階 3: paired_pre_name 不在の旧 schema 読込で空文字 default に
+    /// なること (daw_session_id / started_at と同パターン / R-28 機能的沈黙)。
+    #[test]
+    fn legacy_schema_without_paired_pre_name_defaults_to_empty() {
+        let base = isolated_dir();
+        let dir = signals_dir(&base, "ph");
+        fs::create_dir_all(&dir).unwrap();
+        let legacy = r#"{"status":"acknowledged","requested_by":"post-1","target_pre_instance_id":"pre-1","daw_session_id":"daw-1","t":"2026-01-01T00:00:00Z","started_at":"2026-01-01T00:00:00Z"}"#;
+        fs::write(dir.join("post-1.json"), legacy).unwrap();
+        let loaded = read_signal(&base, "ph", "post-1").unwrap();
+        assert_eq!(loaded.paired_pre_name, "");
+        assert_eq!(loaded.status, SignalStatus::Acknowledged);
+    }
+
+    /// B-023 段階 3: mark_acknowledged_with_name で渡した name が
+    /// signal.paired_pre_name に永続化されること。
+    #[test]
+    fn mark_acknowledged_with_name_persists_name() {
+        let base = isolated_dir();
+        write_pending(&base, "ph", "post-1", "pre-1".into(), "daw-1".into()).unwrap();
+        let changed =
+            mark_acknowledged_with_name(&base, "ph", "post-1", "Studio Mix").unwrap();
+        assert!(changed);
+        let loaded = read_signal(&base, "ph", "post-1").unwrap();
+        assert_eq!(loaded.status, SignalStatus::Acknowledged);
+        assert_eq!(loaded.paired_pre_name, "Studio Mix");
+    }
+
+    /// B-023 段階 3: 既存 mark_acknowledged 呼出 (= wrapper) は paired_pre_name
+    /// を空文字で書く (新旧呼出共存の確認)。
+    #[test]
+    fn mark_acknowledged_legacy_calls_with_name_empty() {
+        let base = isolated_dir();
+        write_pending(&base, "ph", "post-1", "pre-1".into(), "daw-1".into()).unwrap();
+        let changed = mark_acknowledged(&base, "ph", "post-1").unwrap();
+        assert!(changed);
+        let loaded = read_signal(&base, "ph", "post-1").unwrap();
+        assert_eq!(loaded.status, SignalStatus::Acknowledged);
+        assert_eq!(loaded.paired_pre_name, "");
     }
 
     #[test]

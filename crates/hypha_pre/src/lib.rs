@@ -297,6 +297,10 @@ impl Plugin for HyphaPre {
         let instance_id_arc = Arc::clone(&self.params.instance_id);
         let project_hash = self.project_hash.clone();
         let daw_session_id = self.daw_session_id.clone();
+        // B-023 段階 3: PRE Name を IO Thread に共有 (Arc<RwLock<String>>)。
+        // ack 時に signal.paired_pre_name に書く。chunk-restore 後の最新値を
+        // tick ごと lazy-read。
+        let name_arc = Arc::clone(&self.params.name);
         let io_handle = spawn_io_thread_pre(
             Arc::clone(&instance_id_arc),
             project_hash.clone(),
@@ -309,6 +313,7 @@ impl Plugin for HyphaPre {
             Arc::clone(&self.measure_result),
             Arc::clone(&self.signal_state),
             Arc::clone(&self.io_shutdown),
+            Arc::clone(&name_arc),
         );
 
         let restart_io = {
@@ -321,6 +326,7 @@ impl Plugin for HyphaPre {
             let license = Arc::clone(&self.license);
             let measure_result = Arc::clone(&self.measure_result);
             let signal_state = Arc::clone(&self.signal_state);
+            let name_arc = Arc::clone(&name_arc);
             move |new_shutdown: Arc<AtomicBool>| {
                 spawn_io_thread_pre(
                     Arc::clone(&instance_id_arc),
@@ -334,6 +340,7 @@ impl Plugin for HyphaPre {
                     Arc::clone(&measure_result),
                     Arc::clone(&signal_state),
                     new_shutdown,
+                    Arc::clone(&name_arc),
                 )
             }
         };

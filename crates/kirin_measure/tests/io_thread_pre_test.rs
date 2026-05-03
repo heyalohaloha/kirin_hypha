@@ -137,6 +137,7 @@ fn test_io_thread_writes_and_cleans_up() {
         Arc::clone(&result),
         Arc::clone(&signal_state),
         Arc::clone(&shutdown),
+        Arc::new(RwLock::new(String::new())),
     );
 
     // 200ms 待てばファイルが生成されるはず（100ms 間隔）
@@ -195,6 +196,7 @@ fn test_io_thread_updates_on_result_change() {
         Arc::clone(&result),
         Arc::clone(&signal_state),
         Arc::clone(&shutdown),
+        Arc::new(RwLock::new(String::new())),
     );
 
     // 1 回目の書き込みを待つ

@@ -86,6 +86,10 @@ struct PartnerInfo {
 /// - `result`              : Measure Thread が更新する計測結果
 /// - `signal_state`        : SS-1 シグナル状態
 /// - `shutdown`            : `true` になったらループ終了
+/// - `name`                : PRE 表示用 Name (`Arc<RwLock<String>>` で plugin
+///   params と共有 / B-023 段階 3)。各 ack 呼出時に lazy-read して
+///   `record_signal::mark_acknowledged_with_name` の `paired_pre_name` 引数に
+///   渡す。空文字許容 (POST 側で UUID 短縮 8 文字 fallback 表示)。
 #[allow(clippy::too_many_arguments)]
 pub fn spawn_io_thread_pre(
     instance_id: Arc<RwLock<String>>,
@@ -99,6 +103,7 @@ pub fn spawn_io_thread_pre(
     result: Arc<Mutex<MeasureResult>>,
     signal_state: Arc<AtomicU8>,
     shutdown: Arc<AtomicBool>,
+    name: Arc<RwLock<String>>,
 ) -> JoinHandle<()> {
     thread::spawn(move || {
         log::info!(
@@ -233,6 +238,9 @@ pub fn spawn_io_thread_pre(
             let should_poll = last_poll.is_none_or(|t| now.duration_since(t) >= SIGNAL_POLL_INTERVAL);
             if should_poll {
                 last_poll = Some(now);
+                // B-023 段階 3: ack 直前に name を lazy-read して poll に渡す。
+                // instance_id と同パターン (chunk-restore 後の最新値追従)。
+                let name_owned = read_instance_id_arc(&name);
                 poll_record_signal(
                     effective_project_hash_ref,
                     instance_id_ref,
@@ -241,6 +249,7 @@ pub fn spawn_io_thread_pre(
                     &record_acknowledged,
                     &license,
                     &mut partner,
+                    name_owned.as_str(),
                 );
             }
 
@@ -346,6 +355,7 @@ fn poll_record_signal(
     record_acknowledged: &Arc<AtomicBool>,
     license: &Arc<License>,
     partner: &mut Option<PartnerInfo>,
+    paired_pre_name: &str,
 ) {
     let base = match StoragePaths::default_macos() {
         Ok(paths) => paths.plugin_data_dir(),
@@ -476,8 +486,15 @@ fn poll_record_signal(
     match record_sm.try_enter_record(**license) {
         Ok(()) => {
             recording.store(true, Ordering::Relaxed);
-            if let Err(e) = record_signal::mark_acknowledged(&base, project_hash, &post_iid) {
-                log::warn!("[signal] mark_acknowledged failed: {}", e);
+            // B-023 段階 3: ack 時に PRE Name を signal.paired_pre_name に書込。
+            // 空文字許容 (POST 側で UUID 短縮 8 文字 fallback 表示)。
+            if let Err(e) = record_signal::mark_acknowledged_with_name(
+                &base,
+                project_hash,
+                &post_iid,
+                paired_pre_name,
+            ) {
+                log::warn!("[signal] mark_acknowledged_with_name failed: {}", e);
                 record_sm.exit_record();
                 recording.store(false, Ordering::Relaxed);
             } else {
@@ -1005,6 +1022,7 @@ mod tests {
             daw_session_id: "daw-uuid-explicit".into(),
             t: "2026-04-19T12:00:00Z".into(),
             started_at: "2026-04-19T11:59:30Z".into(),
+            paired_pre_name: String::new(),
         };
         record_signal::write_signal(&base, TEST_PH, "post-x", &sig).unwrap();
         let loaded = record_signal::read_signal(&base, TEST_PH, "post-x").unwrap();
