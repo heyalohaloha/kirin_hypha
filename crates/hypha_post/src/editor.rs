@@ -32,7 +32,7 @@ use hypha_gui::{
     BackgroundTexture, BG, COL_FLORA, COL_FLORA_BRIGHT, COL_MUTED, COL_NORMAL,
 };
 use kirin_measure::{
-    append_annotation_to_latest, check_record_exclusion, discover_active_pre_dir,
+    append_annotation_to_latest, check_record_exclusion, discover_active_pre_dirs,
     filter_candidates_by_name, format_pair_label, load_signal_state, lookup_section_label,
     mark_released, pick_closest_pre, sanitize_name, scan_latest_v2_preset, scan_pre_candidates_in,
     show_note_button, show_save_button, show_stop_record_button, write_pending, DeltaMode,
@@ -418,11 +418,18 @@ fn draw_post(
                     ui.add_space(4.0);
                     ui.horizontal(|ui| {
                         ui.add_space(10.0);
-                        ui.label(
-                            RichText::new(&t.message)
-                                .size(11.0)
-                                .color(COL_MUTED)
-                                .monospace(),
+                        // B-027 段階 2 fix (NG-3): `Label::extend()` で wrap せず
+                        // 親 Ui を必要に応じ広げる (egui 0.31.1 公式 API)。
+                        // 既定 wrap 挙動だと 300×200px GUI 内 horizontal で
+                        // toast 文字列が途中切れする ("No matchin" 等)。
+                        ui.add(
+                            Label::new(
+                                RichText::new(&t.message)
+                                    .size(11.0)
+                                    .color(COL_MUTED)
+                                    .monospace(),
+                            )
+                            .extend(),
                         );
                     });
                 }
@@ -776,28 +783,30 @@ fn trigger_keep(
     let plugin_data_dir = paths.plugin_data_dir();
     let tmp_base = std::env::temp_dir().join("kirin");
 
-    // 2. PRE 候補スキャン（B-021 Phase 1A 追加修正）
+    // 2. PRE 候補スキャン（B-027 段階 2 fix: 多 PRE 環境対応 / NG-1 + NG-2）
     //
-    // 旧: `scan_pre_candidates(&tmp_base, project_hash)` で POST 自身の
-    //     `project_hash` 配下のみ scan。cdylib 隔離下で PRE と project_uuid が
-    //     乖離しているため空 → 「No PRE plugin found」誤表示の根本。
-    // 新: `discover_active_pre_dir` で kirin_root 横断走査して active な
-    //     `{project_uuid}/` dir を採用 → そこを `scan_pre_candidates_in` で読む。
-    //     Δ 計算経路 (io_thread_post::run_tick) と同じ discovery を使うため、
-    //     単一 PRE 前提 (guardian_50 §G-50-35) では同一 PRE が選ばれる。
-    let pre_project_dir = match discover_active_pre_dir(&tmp_base) {
-        Some(p) => p,
-        None => {
-            log::info!("[POST keep] no PRE candidate (discovery returned None)");
-            *toast = Some(Toast::new("No PRE plugin found", now));
-            return;
-        }
-    };
-    let candidates = scan_pre_candidates_in(&pre_project_dir);
+    // 旧: `discover_active_pre_dir` で **mtime 最新 1 件** project_uuid のみ採用。
+    //     2 セット環境 (PRE A + POST A + PRE B + POST B) で他 project_uuid 配下の
+    //     目的 PRE が完全に視界外 → 別 PRE 誤紐付け / "No matching PRE" 誤表示。
+    // 新: `discover_active_pre_dirs` で fresh な全 project_uuid を Vec で取得し、
+    //     全 dir 配下の `pre.json` を flatten して 1 つの候補リストに統合する。
+    //     Δ 経路 (io_thread_post::compute_delta_with_state) は引き続き
+    //     `discover_active_pre_dir` (単一最新) で「最新 1 PRE で Δ 計算」セマン
+    //     ティクス維持。本変更は trigger_keep のみ。
+    let pre_project_dirs = discover_active_pre_dirs(&tmp_base);
+    if pre_project_dirs.is_empty() {
+        log::info!("[POST keep] no PRE candidate (discovery returned empty)");
+        *toast = Some(Toast::new("No PRE plugin found", now));
+        return;
+    }
+    let candidates: Vec<_> = pre_project_dirs
+        .iter()
+        .flat_map(|d| scan_pre_candidates_in(d))
+        .collect();
     if candidates.is_empty() {
         log::info!(
-            "[POST keep] no PRE candidate (project_dir={} empty)",
-            pre_project_dir.display()
+            "[POST keep] no PRE candidate (project_dirs={} all empty)",
+            pre_project_dirs.len()
         );
         *toast = Some(Toast::new("No PRE plugin found", now));
         return;
@@ -808,9 +817,9 @@ fn trigger_keep(
     let candidates = filter_candidates_by_name(candidates, pair_pre_name);
     if candidates.is_empty() {
         log::info!(
-            "[POST keep] no PRE matches pair_pre_name=\"{}\" (project_dir={})",
+            "[POST keep] no PRE matches pair_pre_name=\"{}\" (project_dirs={})",
             pair_pre_name,
-            pre_project_dir.display()
+            pre_project_dirs.len()
         );
         *toast = Some(Toast::new("No matching PRE", now));
         return;

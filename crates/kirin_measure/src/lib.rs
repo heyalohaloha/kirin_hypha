@@ -46,7 +46,9 @@ pub use plugin_data::{
     Frame, PluginDataFile, PluginDataWriter, PsbSnapshot, Role as PluginDataRole,
     Status as PluginDataStatus, WriterError as PluginDataWriterError, WriterPaths,
 };
-pub use pre_discovery::{discover_active_pre_dir, PostDiscoveryState, DISCOVERY_STALE_SECS};
+pub use pre_discovery::{
+    discover_active_pre_dir, discover_active_pre_dirs, PostDiscoveryState, DISCOVERY_STALE_SECS,
+};
 pub use pre_self_discovery::{
     discover_pair_post_project_dir, PreSelfDiscoveryState,
     DISCOVERY_STALE_SECS as PRE_SELF_DISCOVERY_STALE_SECS,

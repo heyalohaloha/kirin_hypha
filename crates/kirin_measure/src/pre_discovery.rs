@@ -80,7 +80,11 @@ impl PostDiscoveryState {
 ///
 /// 戻り値は `{kirin_root}/{project_uuid}/` path (instance_id レベルでなく、その
 /// 親 dir)。POST IO Thread はこれを `compute_delta_with_state(project_dir, ...)`
-/// に渡す。
+/// に渡す。複数 project_uuid 候補がある場合は **mtime 最新 1 件のみ返す**
+/// (単一 PRE 前提 / guardian_50 §G-50-35 / Δ 経路で使用)。
+///
+/// 多 PRE 環境 (複数 project_uuid に PRE が分散する) で全候補が必要な場合は
+/// [`discover_active_pre_dirs`] を使う (B-027 段階 2 fix)。
 ///
 /// 詳細は module doc 参照。
 pub fn discover_active_pre_dir(kirin_root: &Path) -> Option<PathBuf> {
@@ -147,6 +151,83 @@ pub fn discover_active_pre_dir(kirin_root: &Path) -> Option<PathBuf> {
     // mtime 降順。先頭が最新。
     candidates.sort_by(|a, b| b.1.cmp(&a.1));
     candidates.into_iter().next().map(|(p, _)| p)
+}
+
+/// B-027 段階 2 fix (NG-1 + NG-2): `kirin_root` 配下を scan して **mtime fresh の
+/// 全 active PRE dir** を返す。
+///
+/// [`discover_active_pre_dir`] が単一 project_uuid 前提で「mtime 最新 1 件」のみ
+/// 返すのに対し、本関数は複数 project_uuid に PRE が分散する多 PRE 環境向けに
+/// **全候補を mtime 降順 Vec で返す**。
+///
+/// 用途: POST `trigger_keep` で全 PRE dir を flatten scan して `pair_pre_name`
+/// filter で目的 PRE を見つける (B-027 段階 2)。
+///
+/// stale 判定 (`now - mtime > DISCOVERY_STALE_SECS`) と非 dir スキップは
+/// `discover_active_pre_dir` と同一ロジック。空入力 / 全 stale なら空 Vec。
+pub fn discover_active_pre_dirs(kirin_root: &Path) -> Vec<PathBuf> {
+    let now = SystemTime::now();
+    let stale_threshold = Duration::from_secs(DISCOVERY_STALE_SECS);
+
+    let project_entries = match fs::read_dir(kirin_root) {
+        Ok(e) => e,
+        Err(_) => return Vec::new(),
+    };
+
+    let mut candidates: Vec<(PathBuf, SystemTime)> = Vec::new();
+
+    for project_entry in project_entries.flatten() {
+        let project_dir = project_entry.path();
+        if !project_dir.is_dir() {
+            continue;
+        }
+
+        let instance_entries = match fs::read_dir(&project_dir) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+
+        let mut latest_in_project: Option<SystemTime> = None;
+        for instance_entry in instance_entries.flatten() {
+            let instance_dir = instance_entry.path();
+            if !instance_dir.is_dir() {
+                continue;
+            }
+
+            let pre_json = instance_dir.join("pre.json");
+            let meta = match fs::metadata(&pre_json) {
+                Ok(m) => m,
+                Err(_) => continue,
+            };
+            if !meta.is_file() {
+                continue;
+            }
+
+            let mtime = match meta.modified() {
+                Ok(t) => t,
+                Err(_) => continue,
+            };
+
+            if let Ok(age) = now.duration_since(mtime) {
+                if age > stale_threshold {
+                    continue;
+                }
+            }
+
+            latest_in_project = Some(match latest_in_project {
+                Some(prev) if prev > mtime => prev,
+                _ => mtime,
+            });
+        }
+
+        if let Some(t) = latest_in_project {
+            candidates.push((project_dir, t));
+        }
+    }
+
+    // mtime 降順 sort で安定化 (多 PRE 環境で先頭が最新 PRE dir)。
+    candidates.sort_by(|a, b| b.1.cmp(&a.1));
+    candidates.into_iter().map(|(p, _)| p).collect()
 }
 
 #[cfg(test)]
@@ -279,6 +360,93 @@ mod tests {
         // 候補に入る。mtime は project 内最新 (= new_pre) で評価される。
         let result = discover_active_pre_dir(&root);
         assert_eq!(result, Some(root.join("uuid_p")));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    // ── B-027 段階 2 fix: discover_active_pre_dirs (NG-1 + NG-2) ─────────
+
+    /// 複数 project_uuid 配下の PRE が **全件 mtime 降順 Vec で返る**。
+    #[test]
+    fn discover_active_pre_dirs_returns_all_fresh() {
+        let root = unique_tmp_root("multi_dirs_fresh");
+        let pre_a = touch_pre(&root, "uuid_a", "iid_a");
+        let pre_b = touch_pre(&root, "uuid_b", "iid_b");
+        let now = SystemTime::now();
+        set_mtime(&pre_a, now - Duration::from_secs(3)); // 古い
+        set_mtime(&pre_b, now - Duration::from_secs(1)); // 新しい
+
+        let result = discover_active_pre_dirs(&root);
+        assert_eq!(result.len(), 2, "fresh な 2 project_uuid 両方返却");
+        // mtime 降順なので新しい方が先頭
+        assert_eq!(result[0], root.join("uuid_b"));
+        assert_eq!(result[1], root.join("uuid_a"));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// stale (`> DISCOVERY_STALE_SECS`) は除外され、fresh のみ返る。
+    #[test]
+    fn discover_active_pre_dirs_excludes_stale() {
+        let root = unique_tmp_root("multi_dirs_stale");
+        let fresh = touch_pre(&root, "uuid_fresh", "iid_f");
+        let stale = touch_pre(&root, "uuid_stale", "iid_s");
+        let now = SystemTime::now();
+        set_mtime(&fresh, now - Duration::from_secs(2));
+        set_mtime(&stale, now - Duration::from_secs(DISCOVERY_STALE_SECS + 1));
+
+        let result = discover_active_pre_dirs(&root);
+        assert_eq!(result.len(), 1, "stale は除外され fresh のみ");
+        assert_eq!(result[0], root.join("uuid_fresh"));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// kirin_root が空 / 不在 → 空 Vec。
+    #[test]
+    fn discover_active_pre_dirs_empty_when_no_pre() {
+        let root = unique_tmp_root("multi_dirs_empty");
+        // pre.json なしの空 instance dir のみ
+        fs::create_dir_all(root.join("uuid_x").join("iid_x")).unwrap();
+
+        let result = discover_active_pre_dirs(&root);
+        assert!(result.is_empty(), "pre.json 不在で空 Vec");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// flatten 経路の単体テスト (B-027 段階 2 fix / cdylib 外検証):
+    /// 2 project_uuid 配下に PRE 1 ずつ配置 → discover_active_pre_dirs +
+    /// scan_pre_candidates_in flatten で 2 候補返る → filter_candidates_by_name
+    /// で目的 Name 1 件絞れる。NG-2 構造の修正経路を担保。
+    #[test]
+    fn discover_active_pre_dirs_then_scan_flatten() {
+        use crate::record_signal::{
+            filter_candidates_by_name, scan_pre_candidates_in,
+        };
+        let root = unique_tmp_root("flatten");
+        // 2 つの project_uuid 配下にそれぞれ PRE 1 つ
+        let pre_a_dir = root.join("uuid_a").join("iid_a");
+        fs::create_dir_all(&pre_a_dir).unwrap();
+        let json_a = r#"{"v":2,"role":"PRE","instance_id":"iid_a","name":"snare","signal_state":"active","t":"2026-05-04T00:00:00.000Z","lufs_m":-14.0,"true_peak":-1.0,"crest":12.0,"psr":8.0}"#;
+        fs::write(pre_a_dir.join("pre.json"), json_a).unwrap();
+
+        let pre_b_dir = root.join("uuid_b").join("iid_b");
+        fs::create_dir_all(&pre_b_dir).unwrap();
+        let json_b = r#"{"v":2,"role":"PRE","instance_id":"iid_b","name":"kick","signal_state":"active","t":"2026-05-04T00:00:00.000Z","lufs_m":-15.0,"true_peak":-2.0,"crest":11.0,"psr":7.0}"#;
+        fs::write(pre_b_dir.join("pre.json"), json_b).unwrap();
+
+        // discover で 2 dir 取得
+        let dirs = discover_active_pre_dirs(&root);
+        assert_eq!(dirs.len(), 2, "2 project_uuid 両方候補化");
+
+        // flatten で 2 候補統合
+        let candidates: Vec<_> = dirs
+            .iter()
+            .flat_map(|d| scan_pre_candidates_in(d))
+            .collect();
+        assert_eq!(candidates.len(), 2, "flatten で 2 PRE 候補");
+
+        // Name filter で目的 1 件
+        let filtered = filter_candidates_by_name(candidates, "snare");
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].instance_id, "iid_a");
         let _ = fs::remove_dir_all(&root);
     }
 
