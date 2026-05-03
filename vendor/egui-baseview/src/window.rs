@@ -408,6 +408,27 @@ where
     }
 
     fn on_event(&mut self, _window: &mut Window, event: Event) -> EventStatus {
+        // Kirin Hypha fork (2026-05-01, D-5 unconditional observability): record every
+        // event reaching this method to determine whether baseview is delivering anything
+        // when the AppKit mouseDown: log is silent. Remove once the dispatch path is
+        // localised. Compact formatter to avoid spamming with full Debug payloads.
+        let event_kind = match &event {
+            baseview::Event::Mouse(e) => match e {
+                baseview::MouseEvent::ButtonPressed { button, .. } => {
+                    format!("Mouse(ButtonPressed({:?}))", button)
+                }
+                baseview::MouseEvent::ButtonReleased { button, .. } => {
+                    format!("Mouse(ButtonReleased({:?}))", button)
+                }
+                baseview::MouseEvent::CursorMoved { .. } => "Mouse(CursorMoved)".to_string(),
+                baseview::MouseEvent::WheelScrolled { .. } => "Mouse(WheelScrolled)".to_string(),
+                _ => format!("Mouse(other:{:?})", e),
+            },
+            baseview::Event::Keyboard(_) => "Keyboard".to_string(),
+            baseview::Event::Window(_) => "Window".to_string(),
+        };
+        log::info!("[hypha-fork] on_event: {}", event_kind);
+
         // Kirin Hypha fork (2026-04-18): report keyboard events as Ignored when egui does not
         // want keyboard input, so baseview forwards them to the DAW responder chain (space →
         // play, etc.). Upstream returns Captured unconditionally, swallowing host shortcuts.

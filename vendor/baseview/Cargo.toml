@@ -37,6 +37,11 @@ cocoa = "0.24.0"
 core-foundation = "0.9.1"
 objc = "0.2.7"
 uuid = { version = "0.8", features = ["v4"] }
+# Kirin Hypha fork (2026-05-01, cause 2 case-4): NSEvent
+# addLocalMonitorForEventsMatchingMask:handler: requires an Objective-C block
+# for the handler argument. The `block` crate is the standard Rust wrapper for
+# constructing/copying retained ObjC blocks.
+block = "0.1"
 
 [dev-dependencies]
 rtrb = "0.2"

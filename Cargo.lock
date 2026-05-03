@@ -203,6 +203,7 @@ dependencies = [
 name = "baseview"
 version = "0.1.0"
 dependencies = [
+ "block",
  "cocoa",
  "core-foundation",
  "keyboard-types",
