@@ -477,15 +477,14 @@ fn poll_record_signal(
         return;
     };
 
-    // B-024: 書込側 guard。PRE が Bypassed / Inactive の間は ack しない。
-    // 二重防御の片側 (POST 側読込 filter は record_signal::scan_pre_candidates_in
-    // で同等動作)。両方を入れることで 200ms heartbeat 周期に依存せず
-    // 「OFF PRE が POST の pair: 表示に出る」レースを排除する。
+    // B-027: 書込側 guard を Bypassed のみに緩和。停止中 (Inactive) PRE も
+    // pair 候補として ack する。二重防御の片側 (POST 側読込 filter は
+    // record_signal::scan_pre_candidates_in で同等動作)。
     let current_state = load_signal_state(signal_state);
-    if current_state != SignalState::Active {
+    if current_state == SignalState::Bypassed {
         log::info!(
-            "[signal] pending detected (partner={}), ignored (PRE signal_state: {:?})",
-            post_iid, current_state
+            "[signal] pending detected (partner={}), ignored (PRE bypassed)",
+            post_iid
         );
         return;
     }
@@ -780,8 +779,8 @@ mod tests {
             return;
         };
 
-        // B-024: signal_state guard。Active 以外なら ack しない。
-        if signal_state != SignalState::Active {
+        // B-027: signal_state guard。Bypassed のみ ack を抑止。
+        if signal_state == SignalState::Bypassed {
             return;
         }
 
@@ -1043,9 +1042,10 @@ mod tests {
         );
     }
 
-    /// SignalState::Inactive の間 pending を検出しても ack しない。
+    /// B-027: SignalState::Inactive でも pending を検出すれば ack する (緩和後)。
+    /// 停止中 (transport 停止 / 無音) PRE も pair 候補として機能する。
     #[test]
-    fn poll_record_signal_skips_when_inactive() {
+    fn poll_record_signal_acks_when_inactive() {
         let base = isolated_base();
         write_matching_pending(&base, "post-1");
 
@@ -1068,14 +1068,14 @@ mod tests {
 
         assert_eq!(
             sm.current(),
-            RecordState::Watch,
-            "Inactive の間 PRE は ack せず Watch のまま"
+            RecordState::Record,
+            "Inactive でも ack して Record に入る (B-027 緩和後)"
         );
-        assert!(!recording.load(Ordering::Relaxed));
-        assert!(!ack.load(Ordering::Relaxed));
-        assert!(partner.is_none());
+        assert!(recording.load(Ordering::Relaxed));
+        assert!(ack.load(Ordering::Relaxed));
+        assert!(partner.is_some());
         let sig = record_signal::read_signal(&base, TEST_PH, "post-1").unwrap();
-        assert_eq!(sig.status, SignalStatus::Pending);
+        assert_eq!(sig.status, SignalStatus::Acknowledged);
     }
 
     /// SignalState::Active なら通常通り ack される (regression 防止)。
