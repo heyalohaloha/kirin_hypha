@@ -14,6 +14,7 @@
 //! Record ACK 成立時に「記録開始」バナーを 3 秒一時表示。
 //! サブ1-C 時点では recording / record_acknowledged は default false（サブ2/3 で実配線）。
 
+use crate::sanitize_name;
 use hypha_gui::{
     derive_led_state, fmt_val, led_color, tp_color, val_color, value_row, BackgroundTexture,
     BG, COL_FLORA, COL_MUTED, COL_NORMAL,
@@ -22,15 +23,30 @@ use kirin_measure::{load_signal_state, MeasureResult, SignalState};
 use nih_plug::prelude::Editor;
 use nih_plug_egui::{
     create_egui_editor,
-    egui::{self, Grid, RichText, Stroke, Vec2},
+    egui::{self, Grid, Key, Label, RichText, Sense, Stroke, TextEdit, TextStyle, Vec2},
     EguiState,
 };
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex, RwLock};
 use std::time::Duration;
 
 /// 記録開始バナーの表示時間（秒）。
 const RECORD_BANNER_DURATION_SECS: f64 = 3.0;
+
+/// B-023 段階 2: Name 編集 TextEdit の egui focus ID。
+///
+/// `param_slider.rs:17-20` 同パターンで `LazyLock<egui::Id>` 静的定義
+/// (毎フレーム `Id::new(...)` を呼ばない / 同一 ID で memory 経由 focus 状態を判定)。
+static NAME_FOCUS_ID: LazyLock<egui::Id> =
+    LazyLock::new(|| egui::Id::new("hypha_pre_name_edit"));
+
+/// B-023 段階 2: Name 編集モード判定 (egui memory ベース)。
+///
+/// `editing: bool` フィールドを別管理せず egui memory `has_focus(id)` に委ねる
+/// (param_slider.rs:96-98 `keyboard_entry_active` 同パターン)。
+fn name_edit_active(ui: &egui::Ui) -> bool {
+    ui.memory(|mem| mem.has_focus(*NAME_FOCUS_ID))
+}
 
 // ── エディタ状態（user_state） ───────────────────────────────────────────
 
@@ -46,6 +62,14 @@ pub struct PreEditorState {
     /// preset/*.json が 1 件以上存在するか（POST IO Thread が更新、PRE は読むだけ）。
     pub preset_available: Arc<AtomicBool>,
 
+    /// B-023 段階 2: ユーザー定義 Name (HyphaPreParams.name と Arc 共有)。
+    /// editor 描画時に毎フレーム `read()` で最新値を取り、編集確定時に
+    /// `write()` で sanitize 後の値を書き込む。
+    pub name: Arc<RwLock<String>>,
+    /// B-023 段階 2: PRE instance UUID (HyphaPreParams.instance_id と Arc 共有)。
+    /// Name 未設定時の表示 fallback として「先頭 8 文字」を出す (論点 2 (a))。
+    pub instance_id: Arc<RwLock<String>>,
+
     // ── エディタローカル（egui state 内で保持） ──────────────────────
     /// 背景テクスチャの遅延 decode キャッシュ
     bg: BackgroundTexture,
@@ -55,9 +79,14 @@ pub struct PreEditorState {
     banner_until: Option<f64>,
     /// 直前フレームの LED 状態（edge-triggered log 用）。
     prev_led: Option<hypha_gui::LedState>,
+    /// B-023 段階 2: クリック起動編集モードの入力 buffer。
+    /// 編集モード開始時に現在 Name を copy、changed() で sanitize_name 適用、
+    /// Enter で `name.write()` に書き戻し、Escape で discard。
+    edit_buffer: String,
 }
 
 impl PreEditorState {
+    #[allow(clippy::too_many_arguments)]
     fn new(
         measure: Arc<Mutex<MeasureResult>>,
         measure_alive: Arc<AtomicBool>,
@@ -65,6 +94,8 @@ impl PreEditorState {
         recording: Arc<AtomicBool>,
         record_acknowledged: Arc<AtomicBool>,
         preset_available: Arc<AtomicBool>,
+        name: Arc<RwLock<String>>,
+        instance_id: Arc<RwLock<String>>,
     ) -> Self {
         Self {
             measure,
@@ -73,10 +104,13 @@ impl PreEditorState {
             recording,
             record_acknowledged,
             preset_available,
+            name,
+            instance_id,
             bg: BackgroundTexture::new(),
             prev_ack: false,
             banner_until: None,
             prev_led: None,
+            edit_buffer: String::new(),
         }
     }
 }
@@ -93,6 +127,8 @@ pub fn create_pre_editor(
     recording: Arc<AtomicBool>,
     record_acknowledged: Arc<AtomicBool>,
     preset_available: Arc<AtomicBool>,
+    name: Arc<RwLock<String>>,
+    instance_id: Arc<RwLock<String>>,
 ) -> Option<Box<dyn Editor>> {
     create_egui_editor(
         egui_state,
@@ -103,6 +139,8 @@ pub fn create_pre_editor(
             recording,
             record_acknowledged,
             preset_available,
+            name,
+            instance_id,
         ),
         |ctx, state| {
             let mut visuals = ctx.style().visuals.clone();
@@ -140,7 +178,7 @@ pub fn create_pre_editor(
             }
             let led_col = led_color(led, now);
 
-            draw_pre(ctx, &mut state.bg, &m, recording, sig, led_col, show_banner);
+            draw_pre(ctx, state, &m, recording, sig, led_col, show_banner);
         },
     )
 }
@@ -149,10 +187,10 @@ pub fn create_pre_editor(
 
 fn draw_pre(
     ctx: &egui::Context,
-    bg: &mut BackgroundTexture,
+    state: &mut PreEditorState,
     m: &MeasureResult,
     recording: bool,
-    state: SignalState,
+    signal_state: SignalState,
     led_col: egui::Color32,
     show_banner: bool,
 ) {
@@ -160,14 +198,16 @@ fn draw_pre(
         .frame(egui::Frame::NONE.fill(BG))
         .show(ctx, |ui| {
             // 背景テクスチャ（panel_fill の上に重ねて敷く）
-            bg.paint(ctx, ui);
+            state.bg.paint(ctx, ui);
 
             ui.add_space(8.0);
 
-            // タイトル行: 左に「PRE」、右に LED
+            // タイトル行: 左に「PRE」+ Name (クリック起動編集) / 右端に LED
             ui.horizontal(|ui| {
                 ui.add_space(10.0);
                 ui.label(RichText::new("PRE").size(20.0).color(COL_NORMAL));
+                ui.add_space(6.0);
+                draw_name_field(ui, state);
                 // 右端まで伸ばして LED を右寄せ
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.add_space(10.0);
@@ -186,7 +226,7 @@ fn draw_pre(
             ui.add_space(6.0);
 
             // SS-7: SignalState に基づく表示切替
-            let show_values = state == SignalState::Active;
+            let show_values = signal_state == SignalState::Active;
 
             // Record モード or Watch モードで表示項目を切替
             if recording {
@@ -213,6 +253,64 @@ fn draw_pre(
             let repaint_ms = if show_banner { 33 } else { 100 };
             ctx.request_repaint_after(Duration::from_millis(repaint_ms));
         });
+}
+
+/// B-023 段階 2: Name フィールド描画（クリック起動編集 / Enter 確定 / Escape 破棄）。
+///
+/// 通常モード: `Label::new(...).sense(Sense::click())` で表示。クリックで `request_focus`。
+/// 編集モード (`name_edit_active` = `memory.has_focus(*NAME_FOCUS_ID)`):
+///   - `TextEdit::singleline(&mut state.edit_buffer).id(*NAME_FOCUS_ID)`
+///   - `changed()` 時にリアルタイム sanitize（不正入力を即座に剥がす）
+///   - `Enter` (lost_focus + key_pressed) で sanitize 後 `name.write()` 確定
+///   - `Escape` で discard（buffer 反映せず focus 解除）
+///
+/// Name 空 + 通常モード時は instance_id 先頭 8 文字を fallback 表示。
+fn draw_name_field(ui: &mut egui::Ui, state: &mut PreEditorState) {
+    if name_edit_active(ui) {
+        let response = ui.add(
+            TextEdit::singleline(&mut state.edit_buffer)
+                .id(*NAME_FOCUS_ID)
+                .desired_width(120.0)
+                .font(TextStyle::Monospace),
+        );
+        if ui.input(|i| i.key_pressed(Key::Escape)) {
+            ui.memory_mut(|mem| mem.surrender_focus(*NAME_FOCUS_ID));
+        } else if response.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
+            let sanitized = sanitize_name(&state.edit_buffer);
+            if let Ok(mut g) = state.name.write() {
+                *g = sanitized;
+            }
+            ui.memory_mut(|mem| mem.surrender_focus(*NAME_FOCUS_ID));
+        } else if response.changed() {
+            state.edit_buffer = sanitize_name(&state.edit_buffer);
+        }
+    } else {
+        let raw_name = state.name.read().ok().map(|g| g.clone()).unwrap_or_default();
+        let display = if raw_name.is_empty() {
+            let iid = state
+                .instance_id
+                .read()
+                .ok()
+                .map(|g| g.clone())
+                .unwrap_or_default();
+            iid.chars().take(8).collect::<String>()
+        } else {
+            raw_name.clone()
+        };
+        let label = ui.add(
+            Label::new(
+                RichText::new(&display)
+                    .size(14.0)
+                    .color(COL_FLORA)
+                    .monospace(),
+            )
+            .sense(Sense::click()),
+        );
+        if label.clicked() {
+            state.edit_buffer = raw_name;
+            ui.memory_mut(|mem| mem.request_focus(*NAME_FOCUS_ID));
+        }
+    }
 }
 
 /// Watch モード: 3 項目（LUFS-M / TP / Crest）。

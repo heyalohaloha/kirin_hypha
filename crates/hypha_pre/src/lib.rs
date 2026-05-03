@@ -209,6 +209,8 @@ impl Plugin for HyphaPre {
             Arc::clone(&self.recording),
             Arc::clone(&self.record_acknowledged),
             Arc::clone(&self.preset_available),
+            Arc::clone(&self.params.name),
+            Arc::clone(&self.params.instance_id),
         )
     }
 
