@@ -45,6 +45,11 @@ const PRESET_POLL_INTERVAL: Duration = Duration::from_secs(1);
 /// record_signal.json ACK タイムアウト監視間隔（G-60-02: 1 秒）。
 const ACK_TIMEOUT_POLL_INTERVAL: Duration = Duration::from_secs(1);
 
+/// B-023 段階 4: pair_label 更新 polling 間隔。
+/// PRE 側 ack 後 `paired_pre_name` 取得 → POST GUI へ反映する間隔。
+/// 100ms tick で毎回 disk read は heavy なので 1 秒間隔（ack 検出遅延の体感差は無視可能）。
+const PAIR_LABEL_POLL_INTERVAL: Duration = Duration::from_secs(1);
+
 /// POST 用 IO Thread を起動して JoinHandle を返す。
 ///
 /// # 引数
@@ -60,6 +65,10 @@ const ACK_TIMEOUT_POLL_INTERVAL: Duration = Duration::from_secs(1);
 /// - `paired_pre_target`  : trigger_keep が選定した PRE instance_id（v1.2 (a)
 ///   cross-instance pair 復元キー）。Watch 中は None、Keep 成功直後に Some、Stop で None
 /// - `shutdown`           : `true` になったらループ終了
+/// - `pair_label`         : POST GUI 表示用 pair ラベル（B-023 段階 4）。
+///   PRE 側 ack 後の `paired_pre_name` を 1 秒 throttle で読出 → 形式
+///   `pair: <name>` または `pair: <UUID8>` （[`format_pair_label`]）で書込。
+///   `record_sm.is_recording()` でガードし Stop 直後の復活を防ぐ。
 #[allow(clippy::too_many_arguments)]
 pub fn spawn_io_thread_post(
     instance_id: Arc<RwLock<String>>,
@@ -72,6 +81,7 @@ pub fn spawn_io_thread_post(
     preset_available: Arc<AtomicBool>,
     paired_pre_target: Arc<Mutex<Option<String>>>,
     shutdown: Arc<AtomicBool>,
+    pair_label: Arc<Mutex<String>>,
 ) -> JoinHandle<()> {
     thread::spawn(move || {
         // B-021 Phase 1A: PRE scan の起点は `kirin_root` (= $TMPDIR/kirin/) で、
@@ -91,6 +101,7 @@ pub fn spawn_io_thread_post(
         let mut last_preset_count: Option<usize> = None;
         let mut next_preset_poll = Instant::now();
         let mut next_ack_timeout_poll = Instant::now();
+        let mut next_pair_label_poll = Instant::now();
         let mut discovery = PostDiscoveryState::new();
 
         loop {
@@ -164,6 +175,19 @@ pub fn spawn_io_thread_post(
             if Instant::now() >= next_ack_timeout_poll {
                 poll_ack_timeout(&project_hash, instance_id_ref, &record_sm);
                 next_ack_timeout_poll = Instant::now() + ACK_TIMEOUT_POLL_INTERVAL;
+            }
+
+            // B-023 段階 4: PRE 側 ack 後の paired_pre_name を読み出して pair_label
+            // を更新（1 秒 throttle / record_sm.is_recording() ガードで Stop 直後の
+            // 復活窓を構造的に防止）。
+            if Instant::now() >= next_pair_label_poll {
+                poll_record_signal_ack(
+                    &project_hash,
+                    instance_id_ref,
+                    &record_sm,
+                    &pair_label,
+                );
+                next_pair_label_poll = Instant::now() + PAIR_LABEL_POLL_INTERVAL;
             }
 
             thread::sleep(LOOP_SLEEP);
@@ -524,6 +548,69 @@ fn poll_ack_timeout_with_base(
         Err(e) => log::warn!("[IOThread POST] mark_released failed: {}", e),
     }
     record_sm.exit_record();
+}
+
+/// B-023 段階 4: pair_label 表示文字列を組み立てる（POST GUI / PRE Name 反映）。
+///
+/// 単一情報源（`kirin_measure::format_pair_label` 経由で hypha_post から再利用）。
+/// drift 防止のため Keep 時 / poll 時 / Stop 時 の全パスから本関数を経由して
+/// 同一フォーマットを生成する。
+///
+/// - `paired_pre_name` 非空 → `pair: <name>`
+/// - `paired_pre_name` 空   → `pair: <target_id 先頭 8 文字>`（PRE_ プレフィックス無し）
+pub fn format_pair_label(paired_pre_name: &str, target_id: &str) -> String {
+    if !paired_pre_name.is_empty() {
+        format!("pair: {}", paired_pre_name)
+    } else {
+        let short: String = target_id.chars().take(8).collect();
+        format!("pair: {}", short)
+    }
+}
+
+/// B-023 段階 4: record_signal の Acknowledged を検知して pair_label を更新。
+///
+/// `record_sm.is_recording()` でガードし、Stop 後の poll で削除前の Acknowledged
+/// signal を読んで pair_label が復活する race を構造的に防ぐ。
+/// 値変化時のみ書込（無音 idempotent / R-28 機能的沈黙）。
+fn poll_record_signal_ack(
+    project_hash: &str,
+    instance_id: &str,
+    record_sm: &Arc<RecordStateMachine>,
+    pair_label: &Arc<Mutex<String>>,
+) {
+    if !record_sm.is_recording() {
+        return;
+    }
+    let base = match StoragePaths::default_macos() {
+        Ok(paths) => paths.plugin_data_dir(),
+        Err(_) => return,
+    };
+    poll_record_signal_ack_with_base(&base, project_hash, instance_id, pair_label);
+}
+
+fn poll_record_signal_ack_with_base(
+    base: &Path,
+    project_hash: &str,
+    instance_id: &str,
+    pair_label: &Arc<Mutex<String>>,
+) {
+    let Some(signal) = record_signal::read_signal(base, project_hash, instance_id) else {
+        return;
+    };
+    if signal.status != SignalStatus::Acknowledged {
+        return;
+    }
+    let new_label = format_pair_label(&signal.paired_pre_name, &signal.target_pre_instance_id);
+    if let Ok(mut g) = pair_label.lock() {
+        if *g != new_label {
+            log::info!(
+                "[IOThread POST] pair_label updated: {} (paired_pre_name={:?})",
+                new_label,
+                signal.paired_pre_name
+            );
+            *g = new_label;
+        }
+    }
 }
 
 // ── preset/ poller ──────────────────────────────────────────────────────────

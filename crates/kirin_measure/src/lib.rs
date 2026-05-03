@@ -34,7 +34,7 @@ pub use exclusion::{
 };
 pub use hardware::{HardwareComponents, Match};
 pub use identity::{Identity, License};
-pub use io_thread_post::{serialize_post_json, spawn_io_thread_post};
+pub use io_thread_post::{format_pair_label, serialize_post_json, spawn_io_thread_post};
 pub use io_thread_pre::{serialize_pre_json, spawn_io_thread_pre};
 pub use license::{
     can_enter_record, can_read_preset, can_write_plugin_data, load_license_safe, show_note_button,

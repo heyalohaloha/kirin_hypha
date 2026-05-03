@@ -33,7 +33,7 @@ use hypha_gui::{
 };
 use kirin_measure::{
     append_annotation_to_latest, check_record_exclusion, discover_active_pre_dir,
-    load_signal_state, lookup_section_label, mark_released, pick_closest_pre,
+    format_pair_label, load_signal_state, lookup_section_label, mark_released, pick_closest_pre,
     scan_latest_v2_preset, scan_pre_candidates_in, show_note_button, show_save_button,
     show_stop_record_button, write_pending, DeltaMode, DeltaResult, ExclusionResult, License,
     MeasureResult, PluginDataRole, PostMetrics, PresetFileV2, RecordStateMachine, SignalState,
@@ -617,13 +617,6 @@ fn draw_button_row(
 
 // ── ボタンアクション ──────────────────────────────────────────────────────
 
-/// pair_label を `format!("pair: PRE_{}", &target_id[..8])` 形式で生成。
-/// instance_id が 8 文字未満の場合（テスト等）は丸ごと使う。
-fn format_pair_label(target_id: &str) -> String {
-    let short: String = target_id.chars().take(8).collect();
-    format!("pair: PRE_{}", short)
-}
-
 /// pair_label をクリア（Watch 復帰時 / Record 失敗時）。
 fn clear_pair_label(pair_label: &Arc<Mutex<String>>) {
     if let Ok(mut g) = pair_label.lock() {
@@ -632,9 +625,14 @@ fn clear_pair_label(pair_label: &Arc<Mutex<String>>) {
 }
 
 /// pair_label を設定（Record 開始成功時）。
-fn set_pair_label(pair_label: &Arc<Mutex<String>>, target_id: &str) {
+///
+/// B-023 段階 4: 2 引数化（paired_pre_name, target_id）。Keep 時は
+/// PRE Name 不明（IO Thread 経由で後刻取得）なので空文字を渡し、
+/// `format_pair_label` の UUID8 fallback で `pair: <8 文字>` を表示する。
+/// `format_pair_label` は `kirin_measure` re-export（単一情報源）。
+fn set_pair_label(pair_label: &Arc<Mutex<String>>, paired_pre_name: &str, target_id: &str) {
     if let Ok(mut g) = pair_label.lock() {
-        *g = format_pair_label(target_id);
+        *g = format_pair_label(paired_pre_name, target_id);
     }
 }
 
@@ -749,8 +747,10 @@ fn trigger_keep(
                 "[POST keep] write_pending ok: requested_by={} target={} daw={}",
                 instance_id, target_id, daw_session_id
             );
-            // 7. pair_label を表示用に設定
-            set_pair_label(pair_label, &target_id);
+            // 7. pair_label を表示用に設定（Keep 時は PRE Name 不明 → UUID8 fallback）
+            // B-023 段階 4: PRE 側 ack 後 IO Thread の poll が paired_pre_name を
+            // 取得して同 Arc を `pair: <name>` に上書きする（最大 1 秒遅延）。
+            set_pair_label(pair_label, "", &target_id);
             // 8. v1.2 (a): paired_pre_target を保存（IO Thread が writer_start 時に消費）
             if let Ok(mut g) = paired_pre_target.lock() {
                 *g = Some(target_id.clone());
@@ -1012,28 +1012,50 @@ mod tests {
     use super::*;
     use std::sync::{Arc, Mutex};
 
-    /// A-3 仕様: format_pair_label は target_id の先頭 8 文字を抜き出して
-    /// `pair: PRE_xxxxxxxx` 形式に整形する。
+    /// B-023 段階 4: format_pair_label は paired_pre_name 非空時に
+    /// `pair: <name>` を返す（Name 優先表示 / 判断 2 / G-115-40 案 A-3）。
     #[test]
-    fn format_pair_label_takes_first_eight_chars() {
-        let id = "abcdefghijklmnop";
-        assert_eq!(format_pair_label(id), "pair: PRE_abcdefgh");
+    fn format_pair_label_with_name() {
+        assert_eq!(
+            format_pair_label("Studio Mix", "abcdefghijklmnop"),
+            "pair: Studio Mix"
+        );
+    }
+
+    /// B-023 段階 4: paired_pre_name 空時は target_id 先頭 8 文字 fallback。
+    /// PRE_ プレフィックス無し（判断 2 / 段階 2 PRE 側 fallback と整合）。
+    #[test]
+    fn format_pair_label_empty_name_fallback() {
+        assert_eq!(
+            format_pair_label("", "abcdefghijklmnop"),
+            "pair: abcdefgh"
+        );
     }
 
     /// 8 文字未満（短い ID）でも切り捨てではなくそのまま全文を入れること。
     #[test]
     fn format_pair_label_shorter_than_eight_keeps_all_chars() {
-        let id = "abc";
-        assert_eq!(format_pair_label(id), "pair: PRE_abc");
+        assert_eq!(format_pair_label("", "abc"), "pair: abc");
     }
 
     /// set_pair_label / clear_pair_label が Mutex 越しに正しく値を出し入れすること。
     #[test]
     fn set_then_clear_pair_label_round_trip() {
         let label = Arc::new(Mutex::new(String::new()));
-        set_pair_label(&label, "deadbeefcafef00d");
-        assert_eq!(label.lock().unwrap().as_str(), "pair: PRE_deadbeef");
+        set_pair_label(&label, "", "deadbeefcafef00d");
+        assert_eq!(label.lock().unwrap().as_str(), "pair: deadbeef");
         clear_pair_label(&label);
         assert!(label.lock().unwrap().is_empty());
+    }
+
+    /// B-023 段階 4: set_pair_label に PRE Name を渡すと name 表示に切替わる
+    /// （poll_record_signal_ack 経路の上書きをエミュレート）。
+    #[test]
+    fn set_pair_label_overwrites_with_name() {
+        let label = Arc::new(Mutex::new(String::new()));
+        set_pair_label(&label, "", "deadbeefcafef00d");
+        assert_eq!(label.lock().unwrap().as_str(), "pair: deadbeef");
+        set_pair_label(&label, "Studio Mix", "deadbeefcafef00d");
+        assert_eq!(label.lock().unwrap().as_str(), "pair: Studio Mix");
     }
 }

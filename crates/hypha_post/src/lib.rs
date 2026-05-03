@@ -352,6 +352,9 @@ impl Plugin for HyphaPost {
         let sample_rate = buffer_config.sample_rate as u32;
         let instance_id_arc = Arc::clone(&self.params.instance_id);
         let project_hash = self.project_hash.clone();
+        // B-023 段階 4: POST IO Thread に pair_label Arc を共有。PRE 側 ack 後の
+        // paired_pre_name を 1 秒間隔で読出して GUI 表示を更新する。
+        let pair_label_arc = Arc::clone(&self.pair_label);
         let io_handle = spawn_io_thread_post(
             Arc::clone(&instance_id_arc),
             project_hash.clone(),
@@ -363,6 +366,7 @@ impl Plugin for HyphaPost {
             Arc::clone(&self.preset_available),
             Arc::clone(&self.paired_pre_target),
             Arc::clone(&self.io_shutdown),
+            Arc::clone(&pair_label_arc),
         );
 
         // ── Watchdog Thread 起動 ──────────────────────────────────────
@@ -375,6 +379,7 @@ impl Plugin for HyphaPost {
             let signal_state = Arc::clone(&self.signal_state);
             let preset_available = Arc::clone(&self.preset_available);
             let paired_pre_target = Arc::clone(&self.paired_pre_target);
+            let pair_label_arc = Arc::clone(&pair_label_arc);
             move |new_shutdown: Arc<AtomicBool>| {
                 spawn_io_thread_post(
                     Arc::clone(&instance_id_arc),
@@ -387,6 +392,7 @@ impl Plugin for HyphaPost {
                     Arc::clone(&preset_available),
                     Arc::clone(&paired_pre_target),
                     new_shutdown,
+                    Arc::clone(&pair_label_arc),
                 )
             }
         };

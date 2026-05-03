@@ -187,24 +187,27 @@ fn lib_rs_wires_pair_label_to_editor() {
     );
 }
 
-/// editor.rs に format_pair_label / set_pair_label / clear_pair_label の
-/// 3 ヘルパーが揃っていること（pair: PRE_xxxxxxxx 表示の単一定義点）。
+/// editor.rs に set_pair_label / clear_pair_label が定義されており、
+/// format_pair_label は kirin_measure から import されていること（B-023 段階 4）。
+/// `format_pair_label` の単一定義点は kirin_measure::io_thread_post に移動した
+/// ため、editor.rs はそれを `use kirin_measure::format_pair_label;` で取り込む。
 #[test]
 fn editor_rs_has_pair_label_helpers() {
     let src = read("src/editor.rs");
-    for needle in [
-        "fn format_pair_label",
-        "fn set_pair_label",
-        "fn clear_pair_label",
-    ] {
+    for needle in ["fn set_pair_label", "fn clear_pair_label"] {
         assert!(
             src.contains(needle),
-            "editor.rs must define helper `{needle}` (A-3 pair_label trio)"
+            "editor.rs must define helper `{needle}` (B-023 段階 4 pair_label pair)"
         );
     }
     assert!(
-        src.contains(r#""pair: PRE_""#) || src.contains(r#"pair: PRE_{}""#),
-        "format_pair_label must produce literal prefix `pair: PRE_`"
+        src.contains("format_pair_label"),
+        "editor.rs must reference format_pair_label (imported from kirin_measure)"
+    );
+    // B-023 段階 4 (判断 2): PRE_ プレフィックスは完全廃止
+    assert!(
+        !src.contains(r#""pair: PRE_""#) && !src.contains("pair: PRE_{}"),
+        "PRE_ prefix must be removed in B-023 段階 4 (decision 2)"
     );
 }
 

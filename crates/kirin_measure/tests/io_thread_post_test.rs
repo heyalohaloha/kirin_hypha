@@ -190,6 +190,7 @@ fn test_io_thread_post_file_cleanup() {
         Arc::clone(&preset_available),
         Arc::clone(&paired_pre_target),
         Arc::clone(&shutdown),
+        Arc::new(Mutex::new(String::new())),
     );
 
     std::thread::sleep(Duration::from_millis(250));
