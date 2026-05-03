@@ -628,6 +628,18 @@ where
             },
         }
 
+        // Kirin Hypha fork (B-023 段階 5-A 観測ログ): track 未選択時の PRE GUI 入力
+        // リグレッション真因切分け用。Keyboard event 受信時に gate が見ている値を
+        // 1 行で出す。仮説 X (event 自体届かない) なら log 出ず、仮説 Y (focus 失効)
+        // なら log 出て wants_kb_input=false を確認できる。
+        if is_keyboard {
+            log::info!(
+                "[hypha-fork] keyboard gate: wants_kb_input={} focused={:?}",
+                self.egui_ctx.wants_keyboard_input(),
+                self.egui_ctx.memory(|m| m.focused())
+            );
+        }
+
         if is_keyboard && !self.egui_ctx.wants_keyboard_input() {
             EventStatus::Ignored
         } else {
