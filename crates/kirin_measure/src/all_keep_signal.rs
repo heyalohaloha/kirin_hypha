@@ -1,0 +1,559 @@
+//! all_keep_signal.json — POST → 同 project_hash 全 POST broadcast (G-115-46 / α-7)。
+//!
+//! # ファイル構造 (案 2 / DEV INBOX §6)
+//! ```text
+//! plugin_data/{project_hash}/all_keep_signal/{originator_post_instance_id}.json
+//! ```
+//! originator (= All Keep を押した POST) ごとに別ファイル。並列 originator 共存可
+//! (β-3 衝突許容)。同一 originator が連打しても同 path に atomic rename で last-wins。
+//!
+//! # スキーマ
+//! ```json
+//! {
+//!   "v": 1,
+//!   "originator_post_instance_id": "POST 永続 instance_id (= filename stem)",
+//!   "daw_session_id": "DAW プロセス UUID (cross-process 防壁)",
+//!   "started_at": "ISO 8601 (broadcast 配置時刻 / 重複処理回避 key)",
+//!   "heartbeat": "ISO 8601 (将来 throttled re-publish 用 / 当面は started_at と同値)"
+//! }
+//! ```
+//!
+//! `started_at` は originator が `now_iso8601()` で書き込み、受信側は文字列等価比較
+//! のみで「同 originator + 同 broadcast」を判別する (clock-skew 完全耐性 / Q-A8-6)。
+//!
+//! # 受信 POST 側 polling (Q-A8-3 / S117 判断)
+//! 1. [`scan_broadcasts_dir`] で `{project_hash}/all_keep_signal/*.json` を全件読込
+//! 2. `broadcast.daw_session_id == self.daw_session_id` で filter (cross-process 防壁)
+//! 3. memory cache `HashMap<originator_iid, started_at>` を引いて
+//!    - 未登録 / 値が異なる → 新 broadcast → 自身の `trigger_keep_internal(toast=None)` 発火
+//!    - 登録済 + 値が一致 → 既処理 skip (file mutation race を構造的に回避)
+//!
+//! # originator 側ライフサイクル
+//! 1. ComboBox 先頭行 "All Keep ({N} ready)" 押下 → [`write_broadcast`] で配置
+//! 2. originator 自身の `trigger_keep_internal` も同 frame で発火 (cache に self seed)
+//! 3. `record_sm.exit_record()` / `Drop` / IO Thread shutdown のいずれかで
+//!    [`delete_broadcast`] 呼出 (S117 判断 2 (P) 統合点 #2+#3+#4)
+//! 4. orphan broadcast は受信側 cache 30 秒 stale fallback で ignore (即時 delete は
+//!    受信側 1 秒 polling との race のため不採用)
+//!
+//! # cdylib 越境通信制約
+//! filesystem 経由のみ (`OnceLock` 不触 / 申し送り #22 適合)。同 OS process 内の
+//! 別 cdylib (PRE.vst3 / POST.vst3) も `$HOME` 共有で `plugin_data_dir` の値が一致
+//! するため、filesystem path レベルで cross-instance 通信が成立する (G-115-49 撤回
+//! 根拠と整合)。
+
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use std::fs;
+use std::io;
+use std::path::{Path, PathBuf};
+
+/// `all_keep_signal/` ディレクトリ名。`exclusion::check_record_exclusion_at` の
+/// 予約名 list に追加して instance_id dir 走査から除外する (α-7-4-B)。
+pub const ALL_KEEP_SIGNAL_SUBDIR: &str = "all_keep_signal";
+
+/// broadcast schema 現行 version (S117 判断: v=1 から開始 / 将来拡張時の serde
+/// migration は `#[serde(default)]` で旧 schema 互換維持)。
+pub const ALL_KEEP_SCHEMA_VERSION: u32 = 1;
+
+/// broadcast の stale 判定閾値 (秒)。30 秒経過 broadcast は受信側 cache 検出時
+/// `trigger_keep_internal` 非発火 (S117 判断 2 (P) stale fallback)。`record_signal::
+/// ACK_TIMEOUT_SECONDS` (= 30) と同値で対称性を維持。
+pub const ALL_KEEP_BROADCAST_STALE_SECS: i64 = 30;
+
+// ── スキーマ ─────────────────────────────────────────────────────────────────
+
+/// all_keep_signal.json ルート構造 (5 field)。
+///
+/// # フィールド
+/// - `v`: schema version (現行 1)
+/// - `originator_post_instance_id`: filename stem と同値 / check 用
+/// - `daw_session_id`: 別 DAW process からの誤受信防止 (record_signal と同位相)
+/// - `started_at`: 重複処理回避の key (受信側 cache 値比較対象 / clock-skew 完全耐性)
+/// - `heartbeat`: 将来 throttled re-publish 用 / 当面は `started_at` と同値で書込
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AllKeepBroadcast {
+    pub v: u32,
+    pub originator_post_instance_id: String,
+    pub daw_session_id: String,
+    pub started_at: String,
+    /// 旧 schema 互換のため `#[serde(default)]`（不在で空文字）。
+    /// 当面は `started_at` と同値で書込される。
+    #[serde(default)]
+    pub heartbeat: String,
+}
+
+impl AllKeepBroadcast {
+    /// 新規 broadcast を生成。`started_at` / `heartbeat` は現在時刻、`v=1`、
+    /// `originator_post_instance_id` / `daw_session_id` は呼び出し側責任。
+    pub fn new(originator_post_instance_id: String, daw_session_id: String) -> Self {
+        let now = now_iso8601();
+        Self {
+            v: ALL_KEEP_SCHEMA_VERSION,
+            originator_post_instance_id,
+            daw_session_id,
+            started_at: now.clone(),
+            heartbeat: now,
+        }
+    }
+}
+
+// ── パス構築 ─────────────────────────────────────────────────────────────────
+
+/// `{base}/{project_hash}/all_keep_signal/` ディレクトリ。
+pub fn signals_dir(base_dir: &Path, project_hash: &str) -> PathBuf {
+    base_dir.join(project_hash).join(ALL_KEEP_SIGNAL_SUBDIR)
+}
+
+/// `{base}/{project_hash}/all_keep_signal/{originator_post_instance_id}.json`。
+pub fn signal_path(base_dir: &Path, project_hash: &str, originator_post_instance_id: &str) -> PathBuf {
+    signals_dir(base_dir, project_hash).join(format!("{originator_post_instance_id}.json"))
+}
+
+fn tmp_path(final_path: &Path) -> PathBuf {
+    let mut s = final_path.as_os_str().to_os_string();
+    s.push(".tmp");
+    PathBuf::from(s)
+}
+
+// ── I/O ──────────────────────────────────────────────────────────────────────
+
+/// I/O / serde エラー (record_signal::SignalError と同パターン)。
+#[derive(Debug)]
+pub enum AllKeepError {
+    Io(io::Error),
+    Serde(serde_json::Error),
+}
+
+impl std::fmt::Display for AllKeepError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Io(e) => write!(f, "IO error: {e}"),
+            Self::Serde(e) => write!(f, "JSON error: {e}"),
+        }
+    }
+}
+
+impl std::error::Error for AllKeepError {}
+
+impl From<io::Error> for AllKeepError {
+    fn from(e: io::Error) -> Self {
+        Self::Io(e)
+    }
+}
+
+impl From<serde_json::Error> for AllKeepError {
+    fn from(e: serde_json::Error) -> Self {
+        Self::Serde(e)
+    }
+}
+
+/// broadcast を atomic 書込 (`.tmp` → rename)。親ディレクトリが無ければ作成。
+///
+/// originator 側 `trigger_all_keep_broadcast` から 1 回だけ呼ぶ。同一 originator が
+/// 連打した場合は同 path に atomic rename で上書き (last-wins / 受信側 cache の
+/// `started_at` 値が更新されて新 broadcast として正しく検出される / Q-A8-6)。
+pub fn write_broadcast(
+    base_dir: &Path,
+    project_hash: &str,
+    originator_post_instance_id: &str,
+    daw_session_id: String,
+) -> Result<AllKeepBroadcast, AllKeepError> {
+    let broadcast = AllKeepBroadcast::new(
+        originator_post_instance_id.to_string(),
+        daw_session_id,
+    );
+    write_broadcast_signal(base_dir, project_hash, originator_post_instance_id, &broadcast)?;
+    Ok(broadcast)
+}
+
+/// 任意の broadcast を atomic 書込 (`.tmp` → rename)。
+pub fn write_broadcast_signal(
+    base_dir: &Path,
+    project_hash: &str,
+    originator_post_instance_id: &str,
+    broadcast: &AllKeepBroadcast,
+) -> Result<(), AllKeepError> {
+    let final_path = signal_path(base_dir, project_hash, originator_post_instance_id);
+    if let Some(parent) = final_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let tmp = tmp_path(&final_path);
+    let json = serde_json::to_vec(broadcast)?;
+    fs::write(&tmp, json)?;
+    fs::rename(&tmp, &final_path)?;
+    Ok(())
+}
+
+/// broadcast 読込。存在しない / パース失敗時は None。
+pub fn read_broadcast(
+    base_dir: &Path,
+    project_hash: &str,
+    originator_post_instance_id: &str,
+) -> Option<AllKeepBroadcast> {
+    let path = signal_path(base_dir, project_hash, originator_post_instance_id);
+    let bytes = fs::read(&path).ok()?;
+    serde_json::from_slice(&bytes).ok()
+}
+
+/// broadcast file を削除。不在は成功扱い (R-28 機能的沈黙)。
+///
+/// 統合点 (S117 判断 2 (P)):
+/// - #2 `trigger_stop` (`record_sm.exit_record()` 直後)
+/// - #3 `HyphaPost::drop` (`record_sm.exit_record()` 直後)
+/// - #4 IO Thread shutdown (`fs::remove_file(post.json)` 直後)
+pub fn delete_broadcast(
+    base_dir: &Path,
+    project_hash: &str,
+    originator_post_instance_id: &str,
+) -> Result<(), AllKeepError> {
+    let path = signal_path(base_dir, project_hash, originator_post_instance_id);
+    match fs::remove_file(&path) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(AllKeepError::Io(e)),
+    }
+}
+
+/// `{project_hash}/all_keep_signal/` 配下の `*.json` を全件読み込んで返す。
+///
+/// 各要素は `(originator_post_instance_id, AllKeepBroadcast)`。filename stem を
+/// originator_post_instance_id として返す (record_signal::scan_signals_dir と同位相)。
+///
+/// パース不能 / I/O 失敗ファイルは silently skip。返値は originator_post_instance_id
+/// 辞書順 (受信側多重 broadcast 処理順序の決定論性 / Q-A8-6)。
+///
+/// 旧 plugin (本変更前 / dir 不在) 互換は `read_dir` Err → empty Vec で構造保証
+/// (`pre_discovery::discover_active_pre_dirs` :181-184 と同位相)。
+pub fn scan_broadcasts_dir(
+    base_dir: &Path,
+    project_hash: &str,
+) -> Vec<(String, AllKeepBroadcast)> {
+    let dir = signals_dir(base_dir, project_hash);
+    let entries = match fs::read_dir(&dir) {
+        Ok(e) => e,
+        Err(e) => {
+            // ENOENT (dir 不存在) は通常状態 (誰も All Keep を押していない) なので debug。
+            // それ以外 (権限・FS lock 等の transient 失敗) のみ WARN で出す。
+            if e.kind() == io::ErrorKind::NotFound {
+                log::debug!(
+                    "[scan_broadcasts_dir] dir not found: {} (kind={:?})",
+                    dir.display(),
+                    e.kind()
+                );
+            } else {
+                log::warn!(
+                    "[scan_broadcasts_dir] read_dir failed: {} (kind={:?}, err={})",
+                    dir.display(),
+                    e.kind(),
+                    e
+                );
+            }
+            return Vec::new();
+        }
+    };
+    let mut out: Vec<(String, AllKeepBroadcast)> = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|s| s.to_str()) != Some("json") {
+            continue;
+        }
+        let Some(stem) = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .map(str::to_string)
+        else {
+            continue;
+        };
+        let bytes = match fs::read(&path) {
+            Ok(b) => b,
+            Err(e) => {
+                log::warn!(
+                    "[scan_broadcasts_dir] file read failed: {} (kind={:?}, err={})",
+                    path.display(),
+                    e.kind(),
+                    e
+                );
+                continue;
+            }
+        };
+        match serde_json::from_slice::<AllKeepBroadcast>(&bytes) {
+            Ok(broadcast) => out.push((stem, broadcast)),
+            Err(e) => {
+                log::warn!(
+                    "[scan_broadcasts_dir] parse failed: {} (err={})",
+                    path.display(),
+                    e
+                );
+                continue;
+            }
+        }
+    }
+    out.sort_by(|a, b| a.0.cmp(&b.0));
+    out
+}
+
+/// `started_at` から `now` まで `stale_secs` 秒以上経過していれば true。
+///
+/// パース失敗 / 未来時刻の場合は false (= 新鮮扱い / 安全側で誤 skip を避ける)。
+/// 受信側 cache 検出時、`true` なら cache 登録のみ + `trigger_keep_internal` 非発火
+/// (S117 判断 2 (P) stale fallback)。
+pub fn is_broadcast_stale(
+    broadcast: &AllKeepBroadcast,
+    now: DateTime<Utc>,
+    stale_secs: i64,
+) -> bool {
+    let started = match DateTime::parse_from_rfc3339(&broadcast.started_at) {
+        Ok(d) => d.with_timezone(&Utc),
+        Err(_) => return false,
+    };
+    let age = now.signed_duration_since(started).num_seconds();
+    if age < 0 {
+        return false;
+    }
+    age > stale_secs
+}
+
+// ── ヘルパ ────────────────────────────────────────────────────────────────────
+
+fn now_iso8601() -> String {
+    chrono::Utc::now()
+        .format("%Y-%m-%dT%H:%M:%SZ")
+        .to_string()
+}
+
+// ── Tests ────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    fn isolated_dir() -> PathBuf {
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let pid = std::process::id();
+        let dir = std::env::temp_dir().join(format!("kirin_all_keep_test_{pid}_{n}"));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn signals_dir_path_format() {
+        let base = PathBuf::from("/base");
+        let dir = signals_dir(&base, "ph-A");
+        assert_eq!(dir, PathBuf::from("/base/ph-A/all_keep_signal"));
+    }
+
+    #[test]
+    fn signal_path_format() {
+        let base = PathBuf::from("/base");
+        let path = signal_path(&base, "ph-A", "iid-X");
+        assert_eq!(
+            path,
+            PathBuf::from("/base/ph-A/all_keep_signal/iid-X.json")
+        );
+    }
+
+    #[test]
+    fn write_broadcast_creates_atomic_file() {
+        let base = isolated_dir();
+        let result =
+            write_broadcast(&base, "ph", "originator-1", "session-A".to_string()).unwrap();
+        assert_eq!(result.v, ALL_KEEP_SCHEMA_VERSION);
+        assert_eq!(result.originator_post_instance_id, "originator-1");
+        assert_eq!(result.daw_session_id, "session-A");
+        assert!(!result.started_at.is_empty());
+        assert_eq!(result.heartbeat, result.started_at);
+
+        let path = signal_path(&base, "ph", "originator-1");
+        assert!(path.exists(), "broadcast file should exist");
+        let tmp = tmp_path(&path);
+        assert!(!tmp.exists(), ".tmp should be removed after rename");
+    }
+
+    #[test]
+    fn read_broadcast_roundtrip() {
+        let base = isolated_dir();
+        let written =
+            write_broadcast(&base, "ph", "originator-1", "session-A".to_string()).unwrap();
+        let read = read_broadcast(&base, "ph", "originator-1").unwrap();
+        assert_eq!(read, written);
+    }
+
+    #[test]
+    fn read_broadcast_missing_returns_none() {
+        let base = isolated_dir();
+        assert!(read_broadcast(&base, "ph", "no-such-originator").is_none());
+    }
+
+    #[test]
+    fn delete_broadcast_removes_file() {
+        let base = isolated_dir();
+        write_broadcast(&base, "ph", "originator-1", "session-A".to_string()).unwrap();
+        let path = signal_path(&base, "ph", "originator-1");
+        assert!(path.exists());
+        delete_broadcast(&base, "ph", "originator-1").unwrap();
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn delete_broadcast_missing_is_ok() {
+        let base = isolated_dir();
+        // 不在でも Ok が返る (R-28 機能的沈黙)
+        assert!(delete_broadcast(&base, "ph", "no-such-originator").is_ok());
+    }
+
+    #[test]
+    fn scan_broadcasts_dir_empty_when_dir_missing() {
+        let base = isolated_dir();
+        let v = scan_broadcasts_dir(&base, "no-such-ph");
+        assert!(v.is_empty());
+    }
+
+    #[test]
+    fn scan_broadcasts_dir_returns_all_valid() {
+        let base = isolated_dir();
+        write_broadcast(&base, "ph", "originator-A", "session-A".to_string()).unwrap();
+        write_broadcast(&base, "ph", "originator-B", "session-A".to_string()).unwrap();
+        write_broadcast(&base, "ph", "originator-C", "session-B".to_string()).unwrap();
+        let v = scan_broadcasts_dir(&base, "ph");
+        assert_eq!(v.len(), 3);
+        // 辞書順
+        assert_eq!(v[0].0, "originator-A");
+        assert_eq!(v[1].0, "originator-B");
+        assert_eq!(v[2].0, "originator-C");
+        assert_eq!(v[2].1.daw_session_id, "session-B");
+    }
+
+    #[test]
+    fn scan_broadcasts_dir_skips_corrupt_json() {
+        let base = isolated_dir();
+        let dir = signals_dir(&base, "ph");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("corrupt.json"), b"{ not valid json").unwrap();
+        write_broadcast(&base, "ph", "originator-A", "session-A".to_string()).unwrap();
+        let v = scan_broadcasts_dir(&base, "ph");
+        // corrupt は skip / valid 1 件のみ返る
+        assert_eq!(v.len(), 1);
+        assert_eq!(v[0].0, "originator-A");
+    }
+
+    #[test]
+    fn scan_broadcasts_dir_skips_non_json_files() {
+        let base = isolated_dir();
+        let dir = signals_dir(&base, "ph");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("note.txt"), b"hello").unwrap();
+        fs::write(dir.join("README.md"), b"docs").unwrap();
+        write_broadcast(&base, "ph", "originator-A", "session-A".to_string()).unwrap();
+        let v = scan_broadcasts_dir(&base, "ph");
+        assert_eq!(v.len(), 1);
+        assert_eq!(v[0].0, "originator-A");
+    }
+
+    #[test]
+    fn write_broadcast_overwrites_same_originator() {
+        // 同一 originator の連打 → atomic rename で last-wins (Q-A8-6)
+        let base = isolated_dir();
+        let first =
+            write_broadcast(&base, "ph", "originator-A", "session-A".to_string()).unwrap();
+        // started_at が確実に進むよう 1 秒待機 (秒精度 ISO 8601)
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        let second =
+            write_broadcast(&base, "ph", "originator-A", "session-A".to_string()).unwrap();
+        assert_ne!(first.started_at, second.started_at);
+        let read = read_broadcast(&base, "ph", "originator-A").unwrap();
+        assert_eq!(read.started_at, second.started_at);
+    }
+
+    #[test]
+    fn is_broadcast_stale_detects_30s_threshold() {
+        let now = Utc::now();
+        let fresh = AllKeepBroadcast {
+            v: 1,
+            originator_post_instance_id: "x".to_string(),
+            daw_session_id: "y".to_string(),
+            started_at: (now - chrono::Duration::seconds(10))
+                .format("%Y-%m-%dT%H:%M:%SZ")
+                .to_string(),
+            heartbeat: String::new(),
+        };
+        let stale = AllKeepBroadcast {
+            v: 1,
+            originator_post_instance_id: "x".to_string(),
+            daw_session_id: "y".to_string(),
+            started_at: (now - chrono::Duration::seconds(45))
+                .format("%Y-%m-%dT%H:%M:%SZ")
+                .to_string(),
+            heartbeat: String::new(),
+        };
+        assert!(!is_broadcast_stale(&fresh, now, ALL_KEEP_BROADCAST_STALE_SECS));
+        assert!(is_broadcast_stale(&stale, now, ALL_KEEP_BROADCAST_STALE_SECS));
+    }
+
+    #[test]
+    fn is_broadcast_stale_invalid_iso_returns_false() {
+        // パース失敗 → 安全側で false (= 新鮮扱い / 誤 skip 防止)
+        let now = Utc::now();
+        let bad = AllKeepBroadcast {
+            v: 1,
+            originator_post_instance_id: "x".to_string(),
+            daw_session_id: "y".to_string(),
+            started_at: "not-an-iso".to_string(),
+            heartbeat: String::new(),
+        };
+        assert!(!is_broadcast_stale(&bad, now, ALL_KEEP_BROADCAST_STALE_SECS));
+    }
+
+    #[test]
+    fn is_broadcast_stale_future_time_is_fresh() {
+        // 未来時刻 (clock-skew 等) → 安全側で false (= 新鮮扱い)
+        let now = Utc::now();
+        let future = AllKeepBroadcast {
+            v: 1,
+            originator_post_instance_id: "x".to_string(),
+            daw_session_id: "y".to_string(),
+            started_at: (now + chrono::Duration::seconds(60))
+                .format("%Y-%m-%dT%H:%M:%SZ")
+                .to_string(),
+            heartbeat: String::new(),
+        };
+        assert!(!is_broadcast_stale(&future, now, ALL_KEEP_BROADCAST_STALE_SECS));
+    }
+
+    #[test]
+    fn schema_version_is_1() {
+        assert_eq!(ALL_KEEP_SCHEMA_VERSION, 1);
+    }
+
+    #[test]
+    fn old_schema_without_heartbeat_parses() {
+        // 旧 schema (heartbeat 不在) → serde default で空文字
+        let json = r#"{
+            "v": 1,
+            "originator_post_instance_id": "iid-A",
+            "daw_session_id": "sess-A",
+            "started_at": "2026-05-04T12:00:00Z"
+        }"#;
+        let parsed: AllKeepBroadcast = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.heartbeat, "");
+        assert_eq!(parsed.started_at, "2026-05-04T12:00:00Z");
+    }
+
+    #[test]
+    fn cross_session_broadcasts_distinguished_by_daw_session_id() {
+        let base = isolated_dir();
+        write_broadcast(&base, "ph", "originator-X", "session-OLD".to_string()).unwrap();
+        write_broadcast(&base, "ph", "originator-Y", "session-NEW".to_string()).unwrap();
+        let v = scan_broadcasts_dir(&base, "ph");
+        assert_eq!(v.len(), 2);
+        let map: std::collections::HashMap<_, _> = v
+            .iter()
+            .map(|(k, b)| (k.clone(), b.daw_session_id.clone()))
+            .collect();
+        assert_eq!(map.get("originator-X"), Some(&"session-OLD".to_string()));
+        assert_eq!(map.get("originator-Y"), Some(&"session-NEW".to_string()));
+    }
+}

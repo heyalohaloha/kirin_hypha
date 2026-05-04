@@ -1,11 +1,12 @@
 mod editor;
 
 use kirin_measure::{
-    daw_session_id, ensure_legacy_cleanup_done, load_installation_id_safe, load_license_safe,
-    peek_project_uuid, process_project_hash, sanitize_name, set_daw_session_id, set_project_uuid,
-    spawn_io_thread_post, spawn_measure_thread, spawn_watchdog, store_signal_state, DeltaResult,
-    License, MeasureResult, RecordStateMachine, SignalState, WatchdogParams, N_CHANNELS,
-    RING_BUFFER_SECONDS,
+    daw_session_id, delete_broadcast, delete_signal, ensure_legacy_cleanup_done,
+    load_installation_id_safe, load_license_safe, peek_project_uuid, process_project_hash,
+    sanitize_name, set_daw_session_id, set_project_uuid, spawn_io_thread_post,
+    spawn_measure_thread, spawn_watchdog, store_signal_state, DeltaResult, License, MeasureResult,
+    RecordStateMachine, SignalState, StoragePaths, TriggerPairResolutionFn, WatchdogParams,
+    N_CHANNELS, RING_BUFFER_SECONDS,
 };
 use nih_plug::prelude::*;
 use nih_plug_egui::EguiState;
@@ -236,6 +237,61 @@ impl Drop for HyphaPost {
         if let Some(h) = self.watchdog_handle.take() {
             let _ = h.join();
         }
+
+        // B-027 段階 3-B α-7 / Group 2 統合点 #3 (Gap-6 局所対処):
+        // POST 消失時 (DAW 終了 / instance unload / Undo) に self_post_iid の
+        // record_signal/{POST_iid}.json を削除する。POST 自身が writer =
+        // cleanup 責任を持つ (cdylib 越境通信媒体の lifecycle 管理原則 /
+        // 設計判断 #5)。
+        //
+        // 順序: record_sm.exit_record() → shutdown flags → watchdog join →
+        //       delete_signal の順。watchdog join 内で IO Thread terminate が
+        //       走り、統合点 #4 でも delete_signal が呼ばれるため file は既に
+        //       消えている可能性が高いが、delete_signal は冪等 (NotFound→Ok /
+        //       record_signal.rs:289-301) で安全。両方ある方が watchdog 経路
+        //       から外れた直接 Drop ケースをカバーできる。
+        //
+        // 失敗時 warn のみ (設計判断 #8): Drop 内 panic は abort のため避ける。
+        let instance_id_owned = read_instance_id_arc(&self.params.instance_id);
+        match StoragePaths::default_macos() {
+            Ok(paths) => {
+                match delete_signal(
+                    &paths.plugin_data_dir(),
+                    &self.project_hash,
+                    &instance_id_owned,
+                ) {
+                    Ok(()) => log::info!(
+                        "[POST cleanup #3] record_signal deleted: {}",
+                        instance_id_owned
+                    ),
+                    Err(e) => log::warn!(
+                        "[POST cleanup #3] delete_signal failed: {:?}",
+                        e
+                    ),
+                }
+
+                // B-027 段階 3-B α-7-4-D / Step 12-B 統合点 #3 (DEV INBOX §9-3 / S117 判断 2 (P)):
+                // originator として配置した all_keep_signal/{POST_iid}.json broadcast を削除。
+                // delete_broadcast は冪等 (NotFound→Ok)。統合点 #2 (trigger_stop) / #4 (IO Thread
+                // terminate) と重複呼出されても安全。失敗時 warn のみ (Drop 内 panic は abort /
+                // 設計判断 #8 / 既存 delete_signal と同規範)。
+                match delete_broadcast(
+                    &paths.plugin_data_dir(),
+                    &self.project_hash,
+                    &instance_id_owned,
+                ) {
+                    Ok(()) => {}
+                    Err(e) => log::warn!(
+                        "[POST drop #3 broadcast] delete_broadcast failed: {:?}",
+                        e
+                    ),
+                }
+            }
+            Err(e) => log::warn!(
+                "[POST cleanup #3] StoragePaths error: {:?}",
+                e
+            ),
+        }
     }
 }
 
@@ -388,6 +444,58 @@ impl Plugin for HyphaPost {
         // B-023 段階 4: POST IO Thread に pair_label Arc を共有。PRE 側 ack 後の
         // paired_pre_name を 1 秒間隔で読出して GUI 表示を更新する。
         let pair_label_arc = Arc::clone(&self.pair_label);
+
+        // B-027 段階 3-B α-7-4-D / Step 11: trigger_pair_resolution closure 構築。
+        // IO Thread sub-tick (io_thread_post.rs / Step 10 sub-tick L289 area) で broadcast
+        // 新規検出時のみ呼出され、editor::trigger_keep_internal を toast=None / now=0.0 で
+        // 実行する。crate 構造制約 (kirin_measure → hypha_post 逆依存不可) の回避経路:
+        //   - kirin_measure 側 spawn_io_thread_post は Arc<dyn Fn> を引数受領のみ
+        //   - closure 構築 (Arc capture 9 件) は本 lib.rs 側で完結
+        //   - editor::trigger_keep_internal は Step 11 で pub(crate) 昇格 (Q-11-D 案 (a))
+        // 申し送り #31 遅延約束追跡: license は Step 6 で IO Thread 引数追加 (実 use 待ち)
+        // → Step 11 で closure capture に直接移行 + spawn_io_thread_post 引数から撤去。
+        let trigger_pair_resolution: TriggerPairResolutionFn = {
+            let license_for_closure = Arc::clone(&self.license);
+            let record_sm_for_closure = Arc::clone(&self.record_sm);
+            let instance_id_for_closure = Arc::clone(&self.params.instance_id);
+            let project_hash_for_closure = self.project_hash.clone();
+            let daw_session_id_for_closure = self.daw_session_id.clone();
+            let pair_label_for_closure = Arc::clone(&self.pair_label);
+            let paired_pre_target_for_closure = Arc::clone(&self.paired_pre_target);
+            let pair_pre_name_for_closure = Arc::clone(&self.params.pair_pre_name);
+            let measure_result_for_closure = Arc::clone(&self.measure_result);
+            Arc::new(move |originator_iid: &str, started_at: &str| {
+                let iid_snapshot = read_instance_id_arc(&instance_id_for_closure);
+                let pair_pre_name_snapshot = pair_pre_name_for_closure
+                    .read()
+                    .ok()
+                    .map(|g| g.clone())
+                    .unwrap_or_default();
+                let m_snapshot = match measure_result_for_closure.lock() {
+                    Ok(g) => g.clone(),
+                    Err(poisoned) => poisoned.into_inner().clone(),
+                };
+                editor::trigger_keep_internal(
+                    *license_for_closure,
+                    &record_sm_for_closure,
+                    &iid_snapshot,
+                    &project_hash_for_closure,
+                    &daw_session_id_for_closure,
+                    &pair_label_for_closure,
+                    &paired_pre_target_for_closure,
+                    &m_snapshot,
+                    None,
+                    0.0,
+                    &pair_pre_name_snapshot,
+                );
+                log::debug!(
+                    "[all_keep] trigger_keep_internal invoked: originator={} started_at={}",
+                    originator_iid,
+                    started_at
+                );
+            })
+        };
+
         let io_handle = spawn_io_thread_post(
             Arc::clone(&instance_id_arc),
             project_hash.clone(),
@@ -400,6 +508,11 @@ impl Plugin for HyphaPost {
             Arc::clone(&self.paired_pre_target),
             Arc::clone(&self.io_shutdown),
             Arc::clone(&pair_label_arc),
+            // B-027 段階 3-B α-7-4-D / Step 11: license 引数撤去 (Q-11-C 案 (i)) /
+            // 末尾 trigger_pair_resolution 追加 (Q-11-D 案 (a)) / 引数 count = 14 不変。
+            self.daw_session_id.clone(),
+            Arc::clone(&self.params.pair_pre_name),
+            Arc::clone(&trigger_pair_resolution),
         );
 
         // ── Watchdog Thread 起動 ──────────────────────────────────────
@@ -413,6 +526,11 @@ impl Plugin for HyphaPost {
             let preset_available = Arc::clone(&self.preset_available);
             let paired_pre_target = Arc::clone(&self.paired_pre_target);
             let pair_label_arc = Arc::clone(&pair_label_arc);
+            // Step 11: license capture 撤去 (closure 経由 / Q-11-C 案 (i)) /
+            // trigger_pair_resolution Arc capture 追加 (initial 経路と完全対称)。
+            let daw_session_id = self.daw_session_id.clone();
+            let pair_pre_name_arc = Arc::clone(&self.params.pair_pre_name);
+            let trigger_pair_resolution = Arc::clone(&trigger_pair_resolution);
             move |new_shutdown: Arc<AtomicBool>| {
                 spawn_io_thread_post(
                     Arc::clone(&instance_id_arc),
@@ -426,6 +544,9 @@ impl Plugin for HyphaPost {
                     Arc::clone(&paired_pre_target),
                     new_shutdown,
                     Arc::clone(&pair_label_arc),
+                    daw_session_id.clone(),
+                    Arc::clone(&pair_pre_name_arc),
+                    Arc::clone(&trigger_pair_resolution),
                 )
             }
         };

@@ -25,7 +25,13 @@ fn test_post_json_format() {
         psr: Some(7.0),
         ..Default::default()
     };
-    let json = serialize_post_json("post-instance-001", SignalState::Active, Some(SignalState::Active), &result);
+    let json = serialize_post_json(
+        "post-instance-001",
+        SignalState::Active,
+        Some(SignalState::Active),
+        &result,
+        "PRE-A",
+    );
 
     assert!(json.contains(r#""v":2"#), "version: {}", json);
     assert!(json.contains(r#""role":"POST""#), "role: {}", json);
@@ -33,6 +39,12 @@ fn test_post_json_format() {
     // A-3 修正後: bus フィールドは削除済み
     assert!(!json.contains(r#""bus""#), "bus field must be removed: {}", json);
     assert!(json.contains(r#""lufs_m":-12.000"#), "lufs_m: {}", json);
+    // B-027 段階 3-B α-7-1: pair_pre_name field
+    assert!(
+        json.contains(r#""pair_pre_name":"PRE-A""#),
+        "pair_pre_name field: {}",
+        json
+    );
     assert!(json.starts_with('{'), "starts with {{");
     assert!(json.ends_with('}'), "ends with }}");
 }
@@ -179,6 +191,10 @@ fn test_io_thread_post_file_cleanup() {
     let record_sm = Arc::new(RecordStateMachine::new());
     let preset_available = Arc::new(AtomicBool::new(false));
     let paired_pre_target = Arc::new(Mutex::new(None));
+    // Step 11: trigger_pair_resolution は本テストで触らない (broadcast 受信は別経路) →
+    // no-op closure を渡す。
+    let trigger_pair_resolution: kirin_measure::TriggerPairResolutionFn =
+        Arc::new(|_, _| {});
     let handle = spawn_io_thread_post(
         Arc::new(RwLock::new(instance_id.clone())),
         project_hash.clone(),
@@ -191,6 +207,10 @@ fn test_io_thread_post_file_cleanup() {
         Arc::clone(&paired_pre_target),
         Arc::clone(&shutdown),
         Arc::new(Mutex::new(String::new())),
+        // Step 11: license 引数撤去 / 末尾 trigger_pair_resolution 追加 (count 14 不変)
+        String::new(),
+        Arc::new(RwLock::new(String::new())),
+        trigger_pair_resolution,
     );
 
     std::thread::sleep(Duration::from_millis(250));
@@ -208,6 +228,68 @@ fn test_io_thread_post_file_cleanup() {
         "POST file should be deleted after shutdown: {:?}",
         post_path
     );
+}
+
+/// B-027 段階 3-B α-7-1 / Step 6: pair_pre_name `Arc<RwLock<String>>` を設定
+/// → IO Thread tick → post.json の `pair_pre_name` field に反映 (Q-A7 採用案 A
+/// 完成 / cross-instance 公開機構 roundtrip)。
+#[test]
+fn test_pair_pre_name_arc_roundtrip_to_post_json() {
+    let suffix = ts_id();
+    let instance_id = format!("post-roundtrip-{}", suffix);
+    let project_hash = format!("test-proj-rt-{}", suffix);
+
+    let post_result = Arc::new(Mutex::new(MeasureResult {
+        lufs_m: Some(-12.0),
+        true_peak: Some(-0.5),
+        crest: Some(10.0),
+        psr: Some(7.0),
+        ..Default::default()
+    }));
+    let delta_result = Arc::new(Mutex::new(DeltaResult::default()));
+    let shutdown = Arc::new(AtomicBool::new(false));
+
+    let signal_state = Arc::new(AtomicU8::new(SignalState::Active as u8));
+    let record_sm = Arc::new(RecordStateMachine::new());
+    let preset_available = Arc::new(AtomicBool::new(false));
+    let paired_pre_target = Arc::new(Mutex::new(None));
+    // pair_pre_name に明示値を設定。
+    let pair_pre_name_arc = Arc::new(RwLock::new(String::from("PRE-Master")));
+
+    let trigger_pair_resolution: kirin_measure::TriggerPairResolutionFn =
+        Arc::new(|_, _| {});
+    let handle = spawn_io_thread_post(
+        Arc::new(RwLock::new(instance_id.clone())),
+        project_hash.clone(),
+        48000,
+        Arc::clone(&record_sm),
+        Arc::clone(&post_result),
+        Arc::clone(&delta_result),
+        Arc::clone(&signal_state),
+        Arc::clone(&preset_available),
+        Arc::clone(&paired_pre_target),
+        Arc::clone(&shutdown),
+        Arc::new(Mutex::new(String::new())),
+        String::new(),
+        Arc::clone(&pair_pre_name_arc),
+        trigger_pair_resolution,
+    );
+
+    std::thread::sleep(Duration::from_millis(250));
+
+    let dir = std::env::temp_dir().join("kirin").join(&project_hash).join(&instance_id);
+    let post_path = dir.join("post.json");
+    assert!(post_path.exists(), "POST file should exist: {:?}", post_path);
+
+    let content = std::fs::read_to_string(&post_path).expect("read post.json");
+    assert!(
+        content.contains(r#""pair_pre_name":"PRE-Master""#),
+        "post.json must contain pair_pre_name=PRE-Master: {}",
+        content
+    );
+
+    shutdown.store(true, Ordering::Relaxed);
+    handle.join().unwrap();
 }
 
 /// 複数 PRE ファイルがある場合、最新 t を持つものが選ばれること。

@@ -219,6 +219,43 @@ fn editor_rs_has_pair_label_helpers() {
     );
 }
 
+/// B-027 段階 3 (a) 仮説 2 (G-115-53): ComboBox 候補ループが
+/// `ui.push_id(cand.instance_id.as_str(), |ui| { ... })` でラップされていること。
+/// instance_id (UUID v4) を ID 種に使うことで、sort 順入替で label_text が
+/// 同 index 位置で変動しても widget identity が固定される (#5-A-3 異常 2 防止)。
+/// auto-ID 依存だと press/release フレーム間で ID 不一致 → clicked() 喪失。
+#[test]
+fn editor_rs_wraps_combo_entries_with_push_id() {
+    let src = read("src/editor.rs");
+    let combo_fn_idx = src
+        .find("fn draw_pair_pre_combo(")
+        .expect("draw_pair_pre_combo must exist (B-027 段階 3-A)");
+    // draw_pair_pre_combo 内に push_id ラップが含まれていること。
+    // walk-back で UTF-8 char boundary を跨がない上限を取る。
+    // window 5000: B-027 段階 3-B α-7-3 / Step 9 で All Keep 行 + click handler 追加に
+    // より関数が legitimately 拡大したため広げる (push_id invariant 自体は維持)。
+    let mut safe_end = (combo_fn_idx + 5000).min(src.len());
+    while safe_end > combo_fn_idx && !src.is_char_boundary(safe_end) {
+        safe_end -= 1;
+    }
+    let body = &src[combo_fn_idx..safe_end];
+    assert!(
+        body.contains("ui.push_id(cand.instance_id.as_str()"),
+        "draw_pair_pre_combo must wrap each entry with `ui.push_id(cand.instance_id.as_str(), ...)` (B-027 段階 3 (a) 仮説 2)"
+    );
+    // selectable_label 呼出は push_id クロージャ内に居ること (順序確認)。
+    let push_idx = body
+        .find("ui.push_id(cand.instance_id.as_str()")
+        .expect("push_id wrap must precede selectable_label");
+    let select_idx = body
+        .find("ui.selectable_label(false, label_text)")
+        .expect("selectable_label call must remain in draw_pair_pre_combo");
+    assert!(
+        push_idx < select_idx,
+        "push_id wrap must precede selectable_label call (push_id={push_idx}, select={select_idx})"
+    );
+}
+
 /// pairing_label の描画が `if recording { ... }` で gate されていること。
 /// Watch 中はラベル自体が非表示なので、空文字でも空行が出ない。
 #[test]
@@ -233,5 +270,104 @@ fn editor_rs_gates_pairing_label_with_recording_flag() {
     assert!(
         window.contains("if recording"),
         "pairing_label call must be wrapped in `if recording {{ ... }}` (Watch 中は描画省略)"
+    );
+}
+
+// ── B-027 段階 3-B α-7 / Group 2 (Gap-6 局所対処) 配線確証 ────────────────
+//
+// POST 側 record_signal/{POST_iid}.json の cleanup 責任を構造的に保証する。
+// 統合点 #2 (trigger_stop) と #3 (HyphaPost::drop) で `delete_signal` 呼出が
+// 落ちると orphan signal が残留し、PRE 側で偽の Pending を観測する事故が
+// 静音再発する (Gap-6)。runtime テストは cdylib + global state の壁で困難な
+// ため、ソース文字列上で固定する (gui_wiring_test と同じ R-22 配線回帰枠)。
+
+/// 統合点 #2: trigger_stop 内で mark_released の後に delete_signal が呼ばれる。
+/// 順序が逆 (delete → mark_released) だと PRE 側 1 秒 polling との race で
+/// mark_released 結果が常に観測不能になり、設計判断 #9 (i) の「PRE 側 file
+/// removed 経路」と二重防御が崩れる。
+#[test]
+fn editor_rs_trigger_stop_calls_delete_signal_after_mark_released() {
+    let src = read("src/editor.rs");
+    let mark_idx = src
+        .find("mark_released(&plugin_data_dir, project_hash, instance_id)")
+        .expect("trigger_stop must call mark_released (B-027 段階 3-B α-7)");
+    let delete_idx = src
+        .find("delete_signal(&plugin_data_dir, project_hash, instance_id)")
+        .expect("trigger_stop must call delete_signal (Group 2 統合点 #2)");
+    assert!(
+        mark_idx < delete_idx,
+        "delete_signal must be called AFTER mark_released in trigger_stop \
+         (mark={mark_idx}, delete={delete_idx}); reversal breaks PRE-side \
+         polling observation (設計判断 #9 (i))"
+    );
+    // 失敗時は warn のみ (panic 禁止 / 設計判断 #8)
+    assert!(
+        src.contains("[POST cleanup #2] delete_signal failed"),
+        "trigger_stop delete_signal failure must log warn only (no panic)"
+    );
+}
+
+/// 統合点 #2 broadcast (B-027 段階 3-B α-7-4-D / Step 12-A): trigger_stop 内で
+/// 既存 delete_signal の **後** に delete_broadcast が呼ばれる。順序が逆だと
+/// originator 自身が broadcast 削除 → 受信側 cache に未登録の orphan が残留する
+/// 構造障害が起きる (DEV INBOX §9-3 / S117 判断 2 (P))。delete_broadcast は冪等
+/// (NotFound→Ok) のため統合点 #3 (Drop) / #4 (IO Thread terminate) との重複呼出
+/// は安全。失敗時 warn のみ (設計判断 #8 / 既存 delete_signal と同規範)。
+#[test]
+fn editor_rs_trigger_stop_calls_delete_broadcast_after_delete_signal() {
+    let src = read("src/editor.rs");
+    let delete_signal_idx = src
+        .find("delete_signal(&plugin_data_dir, project_hash, instance_id)")
+        .expect("trigger_stop must call delete_signal (Group 2 統合点 #2)");
+    let delete_broadcast_idx = src
+        .find("delete_broadcast(&plugin_data_dir, project_hash, instance_id)")
+        .expect("trigger_stop must call delete_broadcast (Step 12-A 統合点 #2 broadcast)");
+    assert!(
+        delete_signal_idx < delete_broadcast_idx,
+        "delete_broadcast must be called AFTER delete_signal in trigger_stop \
+         (delete_signal={delete_signal_idx}, delete_broadcast={delete_broadcast_idx}); \
+         reversal breaks orphan broadcast cleanup (DEV INBOX §9-3)"
+    );
+    // 失敗時は warn のみ (panic 禁止 / 設計判断 #8)
+    assert!(
+        src.contains("[POST cleanup #2 broadcast] delete_broadcast failed"),
+        "trigger_stop delete_broadcast failure must log warn only (no panic)"
+    );
+}
+
+/// 統合点 #3: HyphaPost::drop 内 watchdog join 後に delete_signal が呼ばれる。
+/// 順序: record_sm.exit_record() → shutdown flags → watchdog join →
+///       delete_signal。
+/// watchdog join を待たずに delete を先行すると、IO Thread terminate (#4) の
+/// 完了前に file が消え、log 上で「先に消えた」のような race 痕跡が出るが
+/// 冪等のため動作正常。順序固定は設計意図 (lib.rs:246-251) を保つため。
+#[test]
+fn lib_rs_drop_calls_delete_signal_after_watchdog_join() {
+    let src = read("src/lib.rs");
+    let drop_start = src
+        .find("impl Drop for HyphaPost")
+        .expect("HyphaPost Drop impl must exist");
+    // Drop 本体は最大 4000 byte 以内に収まる想定 (B-027 段階 3-B 時点)。
+    // UTF-8 char boundary を walk-back する (gui_wiring_test と同一規約)。
+    let mut safe_end = (drop_start + 4000).min(src.len());
+    while safe_end > drop_start && !src.is_char_boundary(safe_end) {
+        safe_end -= 1;
+    }
+    let body = &src[drop_start..safe_end];
+
+    let join_idx = body
+        .find("watchdog_handle.take()")
+        .expect("Drop must join watchdog (existing behavior)");
+    let delete_idx = body
+        .find("delete_signal(")
+        .expect("Drop must call delete_signal (Group 2 統合点 #3)");
+    assert!(
+        join_idx < delete_idx,
+        "delete_signal must be called AFTER watchdog join in HyphaPost::drop \
+         (join={join_idx}, delete={delete_idx}); design 判断 lib.rs:246-251"
+    );
+    assert!(
+        body.contains("[POST cleanup #3] delete_signal failed"),
+        "Drop delete_signal failure must log warn only (Drop 内 panic = abort)"
     );
 }

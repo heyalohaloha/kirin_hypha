@@ -395,6 +395,30 @@ fn poll_record_signal(
                         *partner = None;
                         return;
                     }
+                    // B-027 段階 3-B α-7 / Group 3 (Gap-21 局所対処 / 設計判断 #15 (α) B 案):
+                    // Acknowledged → Pending 直接遷移 = Stop+Keep 1 秒以内連打で Released
+                    // を経由せずに status が再 Pending になる race 経路 (1:N record file
+                    // 崩壊真因)。Released branch と完全対称に exit_record + state クリア +
+                    // partner=None を実行し、新 generation の Pending として次 tick の
+                    // Group 1 経路 (filter / N 並列 ack / L485-565) に流す。
+                    //
+                    // writer_close は run_record_tick の (true→false) arm
+                    // (record_writer.rs:281-285) で次 tick (≤LOOP_SLEEP=100ms 後) に
+                    // 自動実行されるため、ここで明示呼出は不要 (B 案採用 / Group 1 改修
+                    // 不変原則 / Pass 15)。
+                    SignalStatus::Pending
+                        if p.last_seen_status == SignalStatus::Acknowledged =>
+                    {
+                        record_sm.exit_record();
+                        recording.store(false, Ordering::Relaxed);
+                        record_acknowledged.store(false, Ordering::Relaxed);
+                        log::info!(
+                            "[signal] B-027 Group 3: direct A→P transition, PRE exiting Record (partner={})",
+                            p.post_instance_id
+                        );
+                        *partner = None;
+                        return;
+                    }
                     _ => {
                         // pending → acknowledged 等は Record 継続
                         p.last_seen_status = new_status;
@@ -472,13 +496,23 @@ fn poll_record_signal(
         }
     }
 
-    // partner 未設定 → 新規 pending を探す
-    let new_pending = matching
+    // partner 未設定 → 同 instance_id 配下 Pending を全件列挙
+    //
+    // B-027 段階 3-B α-7 / Group 1 (G-115-XX 申し送り #24 broadcast/multi-target):
+    // 旧版は `find` で先頭 1 件のみ ack していた (Gap-4 / Gap-11)。All Keep で
+    // N POST が同時に同 PRE 宛 write_pending を発行すると、N-1 件は
+    // ACK_TIMEOUT_SECONDS=30 経路に流れて silent fail していた。
+    // 本改修で同 tick 内 Vec 全件並列 ack に拡張する。
+    //
+    // 順序: scan_signals_dir が post_instance_id 辞書順を返す (record_signal.rs:327
+    // doc 仕様) ため、本 filter 後も同順を維持。決定論性確保。
+    let pending_signals: Vec<(String, record_signal::RecordSignal)> = matching
         .into_iter()
-        .find(|(_, s)| s.status == SignalStatus::Pending);
-    let Some((post_iid, _)) = new_pending else {
+        .filter(|(_, s)| s.status == SignalStatus::Pending)
+        .collect();
+    if pending_signals.is_empty() {
         return;
-    };
+    }
 
     // B-027: 書込側 guard を Bypassed のみに緩和。停止中 (Inactive) PRE も
     // pair 候補として ack する。二重防御の片側 (POST 側読込 filter は
@@ -486,49 +520,90 @@ fn poll_record_signal(
     let current_state = load_signal_state(signal_state);
     if current_state == SignalState::Bypassed {
         log::info!(
-            "[signal] pending detected (partner={}), ignored (PRE bypassed)",
-            post_iid
+            "[signal] {} pending detected, ignored (PRE bypassed)",
+            pending_signals.len()
         );
         return;
     }
 
     if !is_os_license(license) {
         log::info!(
-            "[signal] pending detected (partner={}), ignored (license: {:?})",
-            post_iid, **license
+            "[signal] {} pending detected, ignored (license: {:?})",
+            pending_signals.len(),
+            **license
         );
         return;
     }
 
-    match record_sm.try_enter_record(**license) {
-        Ok(()) => {
-            recording.store(true, Ordering::Relaxed);
-            // B-023 段階 3: ack 時に PRE Name を signal.paired_pre_name に書込。
-            // 空文字許容 (POST 側で UUID 短縮 8 文字 fallback 表示)。
-            if let Err(e) = record_signal::mark_acknowledged_with_name(
-                &base,
-                project_hash,
-                &post_iid,
-                paired_pre_name,
-            ) {
-                log::warn!("[signal] mark_acknowledged_with_name failed: {}", e);
-                record_sm.exit_record();
-                recording.store(false, Ordering::Relaxed);
-            } else {
-                record_acknowledged.store(true, Ordering::Relaxed);
-                log::info!(
-                    "[signal] PRE acknowledged Record request (partner={})",
-                    post_iid
-                );
-                *partner = Some(PartnerInfo {
-                    post_instance_id: post_iid,
-                    last_seen_status: SignalStatus::Acknowledged,
-                });
-            }
-        }
+    // state machine 遷移: 1 度だけ (record_sm.try_enter_record は compare_exchange
+    // で冪等 / record.rs:111-125)。N 件 ack の前に Watch→Record 遷移を確定する。
+    let entered_now = match record_sm.try_enter_record(**license) {
+        Ok(()) => true,
         Err(e) => {
             log::warn!("[signal] try_enter_record rejected: {:?}", e);
+            return;
         }
+    };
+    recording.store(true, Ordering::Relaxed);
+
+    // N 件並列 ack。各 ack は独立 atomic rename (record_signal::write_signal /
+    // L195-203 既存パターン)。1 件失敗しても他 N-1 件は継続 (Vec 全件処理 / Gap-11
+    // 構造解消)。
+    //
+    // partner state は IO Thread ローカルの 1 件保持構造を維持 (Group 1 スコープ /
+    // POST 側 paired_pre_name + PAIR_LABEL_POLL_INTERVAL=1s 経路に同期を委ねる /
+    // 設計判断 #4 (i))。最後に ack 成功した POST_iid を保持し、次 tick 以降の
+    // partner=Some 経路 (L378) で Released 観測の起点とする。
+    let total = pending_signals.len();
+    let mut last_acked: Option<String> = None;
+    let mut ack_ok: usize = 0;
+    for (post_iid, _) in &pending_signals {
+        match record_signal::mark_acknowledged_with_name(
+            &base,
+            project_hash,
+            post_iid,
+            paired_pre_name,
+        ) {
+            Ok(_) => {
+                log::info!(
+                    "[signal] PRE acknowledged Record request (partner={}, pair_pre_name={})",
+                    post_iid,
+                    paired_pre_name
+                );
+                last_acked = Some(post_iid.clone());
+                ack_ok += 1;
+            }
+            Err(e) => {
+                log::warn!(
+                    "[signal] mark_acknowledged_with_name failed for {}: {}",
+                    post_iid,
+                    e
+                );
+            }
+        }
+    }
+
+    if let Some(post_iid) = last_acked {
+        record_acknowledged.store(true, Ordering::Relaxed);
+        *partner = Some(PartnerInfo {
+            post_instance_id: post_iid,
+            last_seen_status: SignalStatus::Acknowledged,
+        });
+        log::info!(
+            "[signal] B-027 Group 1: ack_count={}/{} (partner={:?})",
+            ack_ok,
+            total,
+            partner.as_ref().map(|p| p.post_instance_id.as_str())
+        );
+    } else if entered_now {
+        // 全 ack 失敗 + 本 tick で Watch→Record した場合は state machine を巻き戻す。
+        // (既存 Record 中の場合は触らない / 冪等性を保つ)
+        record_sm.exit_record();
+        recording.store(false, Ordering::Relaxed);
+        log::warn!(
+            "[signal] all {} pending ack failed; reverted to Watch",
+            total
+        );
     }
 }
 
@@ -756,6 +831,19 @@ mod tests {
                         *partner = None;
                         return;
                     }
+                    // B-027 段階 3-B α-7 / Group 3 (Gap-21 / 設計判断 #15 (α) B 案):
+                    // production poll_record_signal の Acknowledged → Pending 直接遷移
+                    // branch をテスト helper にも mirror。production と test helper の
+                    // 構造的同期を維持する (Group 1 の find→filter 同期と同方針)。
+                    if sig.status == SignalStatus::Pending
+                        && p.last_seen_status == SignalStatus::Acknowledged
+                    {
+                        record_sm.exit_record();
+                        recording.store(false, Ordering::Relaxed);
+                        record_acknowledged.store(false, Ordering::Relaxed);
+                        *partner = None;
+                        return;
+                    }
                     p.last_seen_status = sig.status;
                     return;
                 }
@@ -785,12 +873,15 @@ mod tests {
             }
         }
 
-        let new_pending = matching
+        // B-027 段階 3-B α-7 / Group 1: production 改修 (find→filter / Vec 全件 ack)
+        // と同期。Vec 列挙 + 順次 ack で N Pending 並列処理を再現する。
+        let pending_signals: Vec<(String, RecordSignal)> = matching
             .into_iter()
-            .find(|(_, s)| s.status == SignalStatus::Pending);
-        let Some((post_iid, _)) = new_pending else {
+            .filter(|(_, s)| s.status == SignalStatus::Pending)
+            .collect();
+        if pending_signals.is_empty() {
             return;
-        };
+        }
 
         // B-027: signal_state guard。Bypassed のみ ack を抑止。
         if signal_state == SignalState::Bypassed {
@@ -801,15 +892,27 @@ mod tests {
             return;
         }
 
-        if record_sm.try_enter_record(**license).is_ok() {
-            recording.store(true, Ordering::Relaxed);
-            if record_signal::mark_acknowledged(base, TEST_PH, &post_iid).is_ok() {
-                record_acknowledged.store(true, Ordering::Relaxed);
-                *partner = Some(PartnerInfo {
-                    post_instance_id: post_iid,
-                    last_seen_status: SignalStatus::Acknowledged,
-                });
+        let entered_now = record_sm.try_enter_record(**license).is_ok();
+        if !entered_now {
+            return;
+        }
+        recording.store(true, Ordering::Relaxed);
+
+        let mut last_acked: Option<String> = None;
+        for (post_iid, _) in &pending_signals {
+            if record_signal::mark_acknowledged(base, TEST_PH, post_iid).is_ok() {
+                last_acked = Some(post_iid.clone());
             }
+        }
+        if let Some(post_iid) = last_acked {
+            record_acknowledged.store(true, Ordering::Relaxed);
+            *partner = Some(PartnerInfo {
+                post_instance_id: post_iid,
+                last_seen_status: SignalStatus::Acknowledged,
+            });
+        } else if entered_now {
+            record_sm.exit_record();
+            recording.store(false, Ordering::Relaxed);
         }
     }
 
@@ -1128,6 +1231,166 @@ mod tests {
         assert_eq!(partner.as_ref().unwrap().post_instance_id, "post-1");
     }
 
+    // ── B-027 段階 3-B α-7 / Group 1: N Pending 並列 ack (Gap-4 + Gap-11) ─────
+
+    /// 同 instance_id 配下 N Pending (N=2/5/12) を 1 tick で全件 ack する。
+    /// MAX_ACTIVE_PER_PROJECT=12 (exclusion.rs:34) を上限境界として検証。
+    #[test]
+    fn n_pending_all_acked_in_single_tick() {
+        for n in [2usize, 5, 12] {
+            let base = isolated_base();
+            for i in 0..n {
+                write_matching_pending(&base, &format!("post-{i:02}"));
+            }
+
+            let sm = Arc::new(RecordStateMachine::new());
+            let recording = Arc::new(AtomicBool::new(false));
+            let ack = Arc::new(AtomicBool::new(false));
+            let license = Arc::new(License::Os);
+            let mut partner = None;
+
+            poll_with_base(
+                &base, &sm, &recording, &ack, &license, &mut partner, TEST_PRE_IID,
+            );
+
+            assert_eq!(
+                sm.current(),
+                RecordState::Record,
+                "N={n}: state machine が Record に遷移する"
+            );
+            assert!(recording.load(Ordering::Relaxed), "N={n}: recording=true");
+            assert!(ack.load(Ordering::Relaxed), "N={n}: record_acknowledged=true");
+            assert!(partner.is_some(), "N={n}: partner = 最後に ack した POST_iid");
+            for i in 0..n {
+                let sig =
+                    record_signal::read_signal(&base, TEST_PH, &format!("post-{i:02}"))
+                        .unwrap();
+                assert_eq!(
+                    sig.status,
+                    SignalStatus::Acknowledged,
+                    "N={n}: post-{i:02} は同 tick 内で ack される (Gap-11 解消)"
+                );
+            }
+        }
+    }
+
+    /// 同 instance_id 配下 N Pending のうち 1 件が race で消失しても、他 N-1 件の
+    /// ack は継続する (fault injection 相当 / 各 ack は独立 atomic rename)。
+    /// `mark_acknowledged_with_name` は signal 不在で `Ok(false)` を返すため、
+    /// `last_acked` は更新されないが他件は正常 ack される。
+    #[test]
+    fn n_pending_one_removed_others_still_acked() {
+        let base = isolated_base();
+        for iid in &["post-A", "post-B", "post-C"] {
+            write_matching_pending(&base, iid);
+        }
+
+        // 1 件を scan 直前に削除 (race window 再現): scan 後に削除でも同等動作だが、
+        // ここでは scan で 3 件取れて ack ループ前に 1 件消えた状態を作る。
+        // poll_with_base 内で scan_signals_dir は 3 件返すが、ack ループで
+        // post-B の signal_path は読込失敗 → `Ok(false)` → スキップ。
+        record_signal::delete_signal(&base, TEST_PH, "post-B").unwrap();
+
+        let sm = Arc::new(RecordStateMachine::new());
+        let recording = Arc::new(AtomicBool::new(false));
+        let ack = Arc::new(AtomicBool::new(false));
+        let license = Arc::new(License::Os);
+        let mut partner = None;
+
+        poll_with_base(
+            &base, &sm, &recording, &ack, &license, &mut partner, TEST_PRE_IID,
+        );
+
+        assert_eq!(sm.current(), RecordState::Record, "他件 ack 成功で Record 維持");
+        let sig_a = record_signal::read_signal(&base, TEST_PH, "post-A").unwrap();
+        let sig_c = record_signal::read_signal(&base, TEST_PH, "post-C").unwrap();
+        assert_eq!(sig_a.status, SignalStatus::Acknowledged, "post-A 継続 ack");
+        assert_eq!(sig_c.status, SignalStatus::Acknowledged, "post-C 継続 ack");
+        assert!(
+            record_signal::read_signal(&base, TEST_PH, "post-B").is_none(),
+            "post-B は削除済 (signal は復活しない)"
+        );
+    }
+
+    /// 単独 1 Pending でも従来通り ack される (find→filter 改修の回帰防止)。
+    #[test]
+    fn single_pending_still_acks_after_filter_change() {
+        let base = isolated_base();
+        write_matching_pending(&base, "post-only");
+
+        let sm = Arc::new(RecordStateMachine::new());
+        let recording = Arc::new(AtomicBool::new(false));
+        let ack = Arc::new(AtomicBool::new(false));
+        let license = Arc::new(License::Os);
+        let mut partner = None;
+
+        poll_with_base(
+            &base, &sm, &recording, &ack, &license, &mut partner, TEST_PRE_IID,
+        );
+
+        assert_eq!(sm.current(), RecordState::Record);
+        assert!(recording.load(Ordering::Relaxed));
+        assert!(ack.load(Ordering::Relaxed));
+        let sig = record_signal::read_signal(&base, TEST_PH, "post-only").unwrap();
+        assert_eq!(sig.status, SignalStatus::Acknowledged);
+        assert_eq!(partner.as_ref().unwrap().post_instance_id, "post-only");
+    }
+
+    /// 自分宛 N Pending + 異 instance_id 宛 M Pending 混在時、自分宛のみ全件 ack
+    /// (filter 正確性 / target_pre_instance_id 経路保持)。
+    #[test]
+    fn mixed_target_pre_id_only_self_pending_acked() {
+        let base = isolated_base();
+        // 自分宛 3 件
+        for iid in &["post-self-A", "post-self-B", "post-self-C"] {
+            write_matching_pending(&base, iid);
+        }
+        // 別 PRE 宛 2 件
+        write_pending(
+            &base,
+            TEST_PH,
+            "post-other-1",
+            "pre-other-X".into(),
+            TEST_DAW.into(),
+        )
+        .unwrap();
+        write_pending(
+            &base,
+            TEST_PH,
+            "post-other-2",
+            "pre-other-Y".into(),
+            TEST_DAW.into(),
+        )
+        .unwrap();
+
+        let sm = Arc::new(RecordStateMachine::new());
+        let recording = Arc::new(AtomicBool::new(false));
+        let ack = Arc::new(AtomicBool::new(false));
+        let license = Arc::new(License::Os);
+        let mut partner = None;
+
+        poll_with_base(
+            &base, &sm, &recording, &ack, &license, &mut partner, TEST_PRE_IID,
+        );
+
+        for iid in &["post-self-A", "post-self-B", "post-self-C"] {
+            let sig = record_signal::read_signal(&base, TEST_PH, iid).unwrap();
+            assert_eq!(
+                sig.status,
+                SignalStatus::Acknowledged,
+                "自分宛 {iid} は ack される"
+            );
+        }
+        for iid in &["post-other-1", "post-other-2"] {
+            let sig = record_signal::read_signal(&base, TEST_PH, iid).unwrap();
+            assert_eq!(
+                sig.status,
+                SignalStatus::Pending,
+                "別 PRE 宛 {iid} は Pending のまま (filter 除外)"
+            );
+        }
+    }
+
     #[test]
     fn multiple_signals_only_matching_one_acked() {
         let base = isolated_base();
@@ -1161,6 +1424,129 @@ mod tests {
             SignalStatus::Pending,
             "他 PRE 向け signal は触らない"
         );
+    }
+
+    // ── B-027 段階 3-B α-7 / Group 3: A→P 直接遷移検出 (Gap-21 / 設計判断 #15 (α) B 案) ─────
+
+    /// last_seen_status=Acknowledged + 観測 status=Pending (Released 経由なし)
+    /// = Stop+Keep 1 秒以内連打の race window 再現。poll_record_signal は
+    /// exit_record / recording=false / record_acknowledged=false / partner=None
+    /// を実行し、新 generation の Pending として次 tick の Group 1 経路に流す
+    /// 準備をする。
+    #[test]
+    fn a_to_p_direct_transition_clears_state() {
+        let base = isolated_base();
+        // Stop+Keep race 後の signal: status=Pending (新 generation)
+        write_matching_pending(&base, "post-race");
+
+        let sm = Arc::new(RecordStateMachine::new());
+        // Recording 中だった想定
+        sm.try_enter_record(License::Os).unwrap();
+        let recording = Arc::new(AtomicBool::new(true));
+        let ack = Arc::new(AtomicBool::new(true));
+        let license = Arc::new(License::Os);
+        // 既存 partner は last_seen_status=Acknowledged (前 generation の ack 済 state)
+        let mut partner: Option<PartnerInfo> = Some(PartnerInfo {
+            post_instance_id: "post-race".to_string(),
+            last_seen_status: SignalStatus::Acknowledged,
+        });
+
+        poll_with_base(
+            &base, &sm, &recording, &ack, &license, &mut partner, TEST_PRE_IID,
+        );
+
+        assert_eq!(
+            sm.current(),
+            RecordState::Watch,
+            "Group 3 branch で record_sm は Watch に戻る"
+        );
+        assert!(
+            !recording.load(Ordering::Relaxed),
+            "Group 3 branch で recording=false"
+        );
+        assert!(
+            !ack.load(Ordering::Relaxed),
+            "Group 3 branch で record_acknowledged=false"
+        );
+        assert!(
+            partner.is_none(),
+            "Group 3 branch で partner=None (新 generation 扱い)"
+        );
+    }
+
+    /// last_seen_status=Pending + 観測 status=Pending は match new_status の早期
+    /// return (status==last_seen) で抜ける / last_seen_status=Released → Pending のような
+    /// 他遷移は default branch (last_seen_status 上書き) に流れて record_sm は不変。
+    /// = Group 3 branch の guard `p.last_seen_status == Acknowledged` が他経路を
+    /// 巻き込まないことの回帰防止。
+    #[test]
+    fn a_to_p_direct_transition_preserves_other_paths() {
+        // ケース 1: last_seen_status=Pending → 観測 Pending (= 早期 return)
+        {
+            let base = isolated_base();
+            write_matching_pending(&base, "post-keep");
+            let sm = Arc::new(RecordStateMachine::new());
+            sm.try_enter_record(License::Os).unwrap();
+            let recording = Arc::new(AtomicBool::new(true));
+            let ack = Arc::new(AtomicBool::new(true));
+            let license = Arc::new(License::Os);
+            let mut partner: Option<PartnerInfo> = Some(PartnerInfo {
+                post_instance_id: "post-keep".to_string(),
+                last_seen_status: SignalStatus::Pending,
+            });
+
+            poll_with_base(
+                &base, &sm, &recording, &ack, &license, &mut partner, TEST_PRE_IID,
+            );
+
+            assert_eq!(
+                sm.current(),
+                RecordState::Record,
+                "status==last_seen の早期 return / record_sm 不変"
+            );
+            assert!(recording.load(Ordering::Relaxed));
+            assert!(ack.load(Ordering::Relaxed));
+            assert!(partner.is_some(), "early return / partner 維持");
+        }
+
+        // ケース 2: last_seen_status=Pending → 観測 Acknowledged (= default branch)
+        {
+            let base = isolated_base();
+            write_matching_pending(&base, "post-ack");
+            // signal を Acknowledged に遷移させる (PRE 側 ack 済を fixture で再現)
+            record_signal::mark_acknowledged(&base, TEST_PH, "post-ack").unwrap();
+
+            let sm = Arc::new(RecordStateMachine::new());
+            sm.try_enter_record(License::Os).unwrap();
+            let recording = Arc::new(AtomicBool::new(true));
+            let ack = Arc::new(AtomicBool::new(true));
+            let license = Arc::new(License::Os);
+            let mut partner: Option<PartnerInfo> = Some(PartnerInfo {
+                post_instance_id: "post-ack".to_string(),
+                last_seen_status: SignalStatus::Pending,
+            });
+
+            poll_with_base(
+                &base, &sm, &recording, &ack, &license, &mut partner, TEST_PRE_IID,
+            );
+
+            assert_eq!(
+                sm.current(),
+                RecordState::Record,
+                "Pending → Acknowledged は default branch / record_sm 維持"
+            );
+            assert!(
+                recording.load(Ordering::Relaxed),
+                "default branch で recording 不変"
+            );
+            assert!(ack.load(Ordering::Relaxed), "default branch で ack 不変");
+            assert!(partner.is_some(), "default branch で partner 維持");
+            assert_eq!(
+                partner.as_ref().unwrap().last_seen_status,
+                SignalStatus::Acknowledged,
+                "default branch は last_seen_status を新 status に上書き"
+            );
+        }
     }
 
     // ── serialize_pre_json はそのまま動作 ────────────────────────

@@ -518,6 +518,40 @@ pub fn filter_candidates_by_name(
         .collect()
 }
 
+/// B-027 段階 3-A 修正 (G-115-49 / α-2 撤回): 全 active PRE dir を flatten 列挙する
+/// (POST GUI ComboBox dropdown 描画用)。
+///
+/// `kirin_root` 配下を [`crate::pre_discovery::discover_active_pre_dirs`] で fresh
+/// 全件 Vec として取得し、各 dir の `pre.json` を [`scan_pre_candidates_in`] で
+/// 候補化して flatten した `Vec<PreCandidate>` を返す。
+///
+/// # α-2 撤回根拠 (G-115-49)
+/// 旧 `enumerate_same_project_pair_candidates` は `file_name() == project_hash`
+/// で同 project_uuid 配下のみに絞っていたが、PRE.vst3 / POST.vst3 が cdylib 隔離
+/// (`kirin_measure::project_uuid_cell()` の `static OnceLock` が cdylib 単位で
+/// 別実体) のため、両 cdylib の `params.project_uuid` は構造的に乖離する。
+/// 結果として filter は常に 0 件しか返さず、ComboBox は永遠に "No candidates" を
+/// 表示する状態だった (実機検証 #5-A-3 / 2026-05-04 NG)。
+///
+/// 本関数は project_hash 引数を取らず、全 fresh dir を flatten する。POST 利用者は
+/// Name 識別 (B-027 段階 2 の `pair_pre_name` filter) で目的 PRE を選ぶ運用となる。
+///
+/// `trigger_keep` の Keep 経路 (B-027 段階 2 fix) も同じ flatten 経路で一貫する。
+///
+/// # 戻り順
+/// `discover_active_pre_dirs` の mtime 降順 dir 順 → 各 dir 内
+/// `scan_pre_candidates_in` の instance_id 辞書順。
+///
+/// # cdylib 越境通信
+/// 含まない (filesystem enumerate のみ)。`project_uuid_cell()` / `peek_project_uuid`
+/// / `set_project_uuid` のいずれも本関数からは触れない。
+pub fn enumerate_active_pre_pair_candidates(kirin_root: &Path) -> Vec<PreCandidate> {
+    crate::pre_discovery::discover_active_pre_dirs(kirin_root)
+        .into_iter()
+        .flat_map(|d| scan_pre_candidates_in(&d))
+        .collect()
+}
+
 /// POST 側計測値。距離計算用。
 #[derive(Debug, Clone, Copy)]
 pub struct PostMetrics {
@@ -763,6 +797,22 @@ mod tests {
     fn delete_signal_on_missing_is_ok() {
         let base = isolated_dir();
         delete_signal(&base, "ph", "post-x").unwrap();
+    }
+
+    /// B-027 段階 3-B α-7 / Group 2 (Gap-6 局所対処): 統合点 #2/#3/#4 の
+    /// 3 経路から重複呼出されても全て Ok で終わり、file が不在のまま安定する。
+    /// (#2 trigger_stop / #3 HyphaPost::drop / #4 IO Thread terminate)
+    #[test]
+    fn delete_signal_idempotent_under_repeated_calls() {
+        let base = isolated_dir();
+        write_pending(&base, "ph", "post-rep", "pre-1".into(), "daw-1".into()).unwrap();
+        // 1 回目: 実削除
+        delete_signal(&base, "ph", "post-rep").unwrap();
+        assert!(read_signal(&base, "ph", "post-rep").is_none());
+        // 2 回目以降: NotFound → Ok (冪等)
+        delete_signal(&base, "ph", "post-rep").unwrap();
+        delete_signal(&base, "ph", "post-rep").unwrap();
+        assert!(read_signal(&base, "ph", "post-rep").is_none());
     }
 
     #[test]
@@ -1165,6 +1215,41 @@ mod tests {
         let ids: Vec<&str> = filtered.iter().map(|c| c.instance_id.as_str()).collect();
         assert!(ids.contains(&"iid-a"));
         assert!(ids.contains(&"iid-b"));
+    }
+
+    // ── B-027 段階 3-A 修正 (G-115-49 / α-2 撤回):
+    //    enumerate_active_pre_pair_candidates ────────────────────────────────
+
+    /// 全 fresh PRE dir を flatten 列挙する。複数 project_uuid 配下の PRE が
+    /// 混在しても、project_hash filter なしで全件返却される (cdylib 隔離下の
+    /// 構造的整合)。
+    #[test]
+    fn enumerate_active_pre_pair_candidates_flattens_all_active_pre_dirs() {
+        let base = isolated_dir();
+        // project A 配下: 2 PRE
+        write_pre_tmp_with_name(&base, "uuid_a", "iid-a1", "active", "Snare");
+        write_pre_tmp_with_name(&base, "uuid_a", "iid-a2", "active", "Kick");
+        // project B 配下: 1 PRE (旧 enumerate_same_project_* なら除外されたが
+        // 新仕様では候補化される)
+        write_pre_tmp_with_name(&base, "uuid_b", "iid-b1", "active", "Hat");
+
+        let v = enumerate_active_pre_pair_candidates(&base);
+        let ids: Vec<&str> = v.iter().map(|c| c.instance_id.as_str()).collect();
+        assert_eq!(v.len(), 3, "全 project_uuid 配下を flatten: {ids:?}");
+        assert!(ids.contains(&"iid-a1"));
+        assert!(ids.contains(&"iid-a2"));
+        assert!(ids.contains(&"iid-b1"), "別 project_uuid 配下も候補化される (α-2 撤回)");
+    }
+
+    /// kirin_root 配下に active PRE dir が 1 件もない場合は空 Vec。
+    #[test]
+    fn enumerate_active_pre_pair_candidates_returns_empty_when_no_active_pre_dir() {
+        let base = isolated_dir();
+        // pre.json なしの空 instance dir のみ作成 (active PRE 不在)
+        std::fs::create_dir_all(base.join("uuid_x").join("iid_x")).unwrap();
+
+        let v = enumerate_active_pre_pair_candidates(&base);
+        assert!(v.is_empty(), "active PRE 不在 → 空 Vec");
     }
 
     // ── シーケンス統合 ──────────────────────────────────────

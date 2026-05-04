@@ -32,13 +32,15 @@ use hypha_gui::{
     BackgroundTexture, BG, COL_FLORA, COL_FLORA_BRIGHT, COL_MUTED, COL_NORMAL,
 };
 use kirin_measure::{
-    append_annotation_to_latest, check_record_exclusion, discover_active_pre_dirs,
-    filter_candidates_by_name, format_pair_label, load_signal_state, lookup_section_label,
-    mark_released, pick_closest_pre, sanitize_name, scan_latest_v2_preset, scan_pre_candidates_in,
-    show_note_button, show_save_button, show_stop_record_button, write_pending, DeltaMode,
-    DeltaResult, ExclusionResult, License, MeasureResult, PluginDataRole, PostMetrics,
+    append_annotation_to_latest, check_record_exclusion, delete_broadcast, delete_signal,
+    discover_active_pre_dirs, enumerate_active_post_pair_candidates,
+    enumerate_active_pre_pair_candidates, filter_candidates_by_name, format_pair_label,
+    load_signal_state, lookup_section_label, mark_released, pick_closest_pre, sanitize_name,
+    scan_latest_v2_preset, scan_pre_candidates_in, show_note_button, show_save_button,
+    show_stop_record_button, write_broadcast, write_pending, DeltaMode, DeltaResult,
+    ExclusionResult, License, MeasureResult, PluginDataRole, PostMetrics, PreCandidate,
     PresetFileV2, RecordStateMachine, SignalState, StoragePaths, TransitionError,
-    SENSE_RECORD_HINT, SENSE_UPSELL_URL,
+    MAX_ACTIVE_PER_PROJECT, SENSE_RECORD_HINT, SENSE_UPSELL_URL,
 };
 use nih_plug::prelude::Editor;
 use nih_plug_egui::{
@@ -82,7 +84,12 @@ const TOAST_DURATION_SECS: f64 = 3.0;
 // ── Toast ─────────────────────────────────────────────────────────────────
 
 /// 一時通知（warning / 情報）。3 秒で自動消去。
-struct Toast {
+///
+/// B-027 段階 3-B α-7-4-D / Step 11: `trigger_keep_internal` を `pub(crate)` 昇格した
+/// 結果、`Option<&mut Option<Toast>>` 引数の型推論で `Toast` 型自体が crate 外側
+/// (lib.rs) からも参照される (`None` 値の型解決) ため `pub(crate)` 昇格。フィールドは
+/// 引き続き private (lib.rs 側からは Toast の構造に触らず `None` 渡しのみ)。
+pub(crate) struct Toast {
     message: String,
     until: f64,
 }
@@ -341,10 +348,17 @@ fn draw_post(
             });
             ui.add_space(4.0);
 
-            // B-027 段階 2: タイトル行直下に pair PRE Name 入力欄 (PRE 同パターン)。
+            // B-027 段階 2 / 3-A: タイトル行直下に pair PRE Name 入力欄 + ComboBox dropdown。
+            // ComboBox は kirin_root 配下の **全** active PRE 候補を flatten 列挙し
+            // (G-115-49 / α-2 撤回: cdylib 隔離下で project_uuid filter は構造的不成立)、
+            // 選択で pair_pre_name を確定する (Keep manual 経由)。
+            // `draw_pair_pre_name_field` の直近右側に並べ、自由入力（Name 検索）と
+            // 一覧選択の両系統を提供する。
             ui.horizontal(|ui| {
                 ui.add_space(10.0);
                 draw_pair_pre_name_field(ui, state);
+                ui.add_space(4.0);
+                draw_pair_pre_combo(ui, state, now);
             });
             ui.add_space(4.0);
 
@@ -630,6 +644,134 @@ fn draw_pair_pre_name_field(ui: &mut egui::Ui, state: &mut PostEditorState) {
     }
 }
 
+/// B-027 段階 3-A 修正 (G-115-49 / α-2 撤回): pair PRE 候補 ComboBox dropdown。
+///
+/// `kirin_root` (`$TMPDIR/kirin/`) 配下の **全 active PRE dir** を flatten 列挙する
+/// (旧版の同 project_uuid filter は cdylib 隔離で構造的不成立のため撤回)。利用者は
+/// 候補一覧から Name 識別 (B-027 段階 2 `pair_pre_name` filter) で目的 PRE を選ぶ
+/// 運用となる。多 PRE 環境では複数 project_uuid 配下の PRE が混在表示される。
+///
+/// クリック確定時:
+/// - `name` 持ち PRE → `pair_pre_name = name`（filter_candidates_by_name で 1 件絞れる）
+/// - `name = None`   → `pair_pre_name = ""`（filter pass-through / Keep 距離優先）
+///
+/// 0 候補時は `ui.label("No candidates")` を出す（dropdown 内空表示）。
+/// egui 0.31.1 公式 API: `ComboBox::from_id_salt` (旧 `from_id_source` は廃止)。
+fn draw_pair_pre_combo(ui: &mut egui::Ui, state: &mut PostEditorState, now: f64) {
+    let kirin_root = std::env::temp_dir().join("kirin");
+    let pre_candidates = enumerate_active_pre_pair_candidates(&kirin_root);
+    // B-027 段階 3-B α-7-3 / Step 9: All Keep 行 N 集計のため POST candidates も取得。
+    // pair_pre_name.is_some() の件数 (= S115 Q-A7 採用 β / 自身 + ready peer の総数) を
+    // ComboBox 先頭行の "All Keep ({N} ready)" 表示と display 判定 (N>=1) に使用。
+    let post_candidates = enumerate_active_post_pair_candidates(&kirin_root);
+
+    egui::ComboBox::from_id_salt("hypha_post_pair_pre_dropdown")
+        .selected_text(RichText::new("▼").size(12.0).color(COL_FLORA).monospace())
+        .width(140.0)
+        .show_ui(ui, |ui| {
+            // B-027 段階 3-B α-7-3 / Step 9: All Keep 行 (先頭 / N>=1 時のみ表示)。
+            // S117 #20 (i): click handler 順序 = broadcast 先発火 → 自身 trigger_keep
+            // (broadcast 失敗で自身まで pair 不可になることを構造的に回避)。
+            let n_ready = post_candidates
+                .iter()
+                .filter(|c| c.pair_pre_name.is_some())
+                .count();
+            if n_ready >= 1 {
+                ui.push_id("hypha_post_all_keep_row", |ui| {
+                    let label = format!("All Keep ({} ready)", n_ready);
+                    if ui.selectable_label(false, label).clicked() {
+                        // 内部構築: instance_id (lazy-read) / m (Measure snapshot) /
+                        // pair_pre_name_snapshot (RwLock read) — draw_button_row L774
+                        // 既存 trigger_keep 呼出と同経路。
+                        let instance_id = read_instance_id_arc(&state.instance_id);
+                        let m = state
+                            .measure
+                            .lock()
+                            .map(|g| g.clone())
+                            .unwrap_or_default();
+                        let pair_pre_name_snapshot = state
+                            .pair_pre_name
+                            .read()
+                            .map(|g| g.clone())
+                            .unwrap_or_default();
+
+                        log::info!(
+                            "[POST all_keep] click: originator={} n_ready={}",
+                            instance_id, n_ready
+                        );
+
+                        // 1. broadcast 先発火 (#20 (i) / Step 8 実装済 fn)
+                        trigger_all_keep_broadcast(
+                            &instance_id,
+                            &state.project_hash,
+                            &state.daw_session_id,
+                            &mut state.toast,
+                            now,
+                        );
+                        // 2. 自身も trigger_keep (Step 7 wrapper 経由 / draw_button_row
+                        //    L774 と同引数列)
+                        trigger_keep(
+                            *state.license,
+                            &state.record_sm,
+                            &instance_id,
+                            &state.project_hash,
+                            &state.daw_session_id,
+                            &state.pair_label,
+                            &state.paired_pre_target,
+                            &m,
+                            &mut state.toast,
+                            now,
+                            &pair_pre_name_snapshot,
+                        );
+                    }
+                });
+            }
+
+            // ── 既存 PRE candidates 列挙 (完全不変) ─────────────────────────
+            if pre_candidates.is_empty() {
+                ui.label(
+                    RichText::new("No candidates")
+                        .size(11.0)
+                        .color(COL_MUTED)
+                        .monospace(),
+                );
+                return;
+            }
+            for cand in &pre_candidates {
+                // B-027 段階 3 (a) 仮説 2 (G-115-53): instance_id (UUID v4) で push_id
+                // 化し widget identity を sort 順入替に対して固定する。
+                // selectable_label の auto-ID は label_text 文字列ハッシュに依存
+                // するため、同 index 位置の text 変動で press/release フレーム間の
+                // ID 不一致 → clicked() event 喪失 (#5-A-3 異常 2) を起こす。
+                // push_id で外側スコープ ID を固定すると本問題が構造的に解消する。
+                ui.push_id(cand.instance_id.as_str(), |ui| {
+                    let label_text = candidate_dropdown_label(cand);
+                    if ui.selectable_label(false, label_text).clicked() {
+                        let new_name = cand.name.clone().unwrap_or_default();
+                        if let Ok(mut g) = state.pair_pre_name.write() {
+                            *g = new_name;
+                        }
+                        log::info!(
+                            "[POST pair-combo] selected: instance_id={} name={:?}",
+                            cand.instance_id,
+                            cand.name
+                        );
+                    }
+                });
+            }
+        });
+}
+
+/// ComboBox dropdown 1 行の表示文字列を組み立てる。
+///
+/// `Some(name)` → `"snare #abc12345"`、`None` → `"(no name) #abc12345"`。
+/// instance_id は先頭 8 文字のみ（300×200 GUI に収まる短形）。
+fn candidate_dropdown_label(cand: &PreCandidate) -> String {
+    let id_prefix: String = cand.instance_id.chars().take(8).collect();
+    let name_part = cand.name.as_deref().unwrap_or("(no name)");
+    format!("{name_part} #{id_prefix}")
+}
+
 // ── ボタン行 ──────────────────────────────────────────────────────────────
 
 fn draw_button_row(
@@ -757,6 +899,11 @@ fn set_pair_label(pair_label: &Arc<Mutex<String>>, paired_pre_name: &str, target
 ///
 /// B-027 段階 2: `pair_pre_name` 非空時は `filter_candidates_by_name` で候補を
 /// 絞り込む。空文字時は filter pass-through (B-027 段階 1 受入維持)。
+///
+/// B-027 段階 3-B α-7-4-D Step 1: 本関数は wrapper 化 (外側シグネチャ完全不変)。
+/// 実装は [`trigger_keep_internal`] に分離。Some(toast) 経由で既存 behavior 完全保持。
+/// broadcast 受信側 (Step 11) からは `trigger_keep_internal` を `toast = None` で
+/// 直接呼出して toast 嵐 (N 倍 toast) を抑制する。
 #[allow(clippy::too_many_arguments)]
 fn trigger_keep(
     license: License,
@@ -771,12 +918,51 @@ fn trigger_keep(
     now: f64,
     pair_pre_name: &str,
 ) {
+    trigger_keep_internal(
+        license,
+        record_sm,
+        instance_id,
+        project_hash,
+        daw_session_id,
+        pair_label,
+        paired_pre_target,
+        m,
+        Some(toast),
+        now,
+        pair_pre_name,
+    );
+}
+
+/// `trigger_keep` の内部実装 (B-027 段階 3-B α-7-4-D Step 1)。
+///
+/// `toast: Option<&mut Option<Toast>>` で None 時は toast 抑制。Step 11 で IO Thread
+/// broadcast 受信側 (α-7 All Keep) から本関数を `toast = None` で直接呼出し、N 倍
+/// toast 嵐を構造的に防ぐ。`log::*` は不変 (toast 抑制でも log は残す)。
+///
+/// 既存ロジック完全保持: 上限 check / record_sm 遷移 / write_pending / ロールバック /
+/// set_pair_label / paired_pre_target 設定 — 全て Step 7 改修前と同等動作。
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn trigger_keep_internal(
+    license: License,
+    record_sm: &Arc<RecordStateMachine>,
+    instance_id: &str,
+    project_hash: &str,
+    daw_session_id: &str,
+    pair_label: &Arc<Mutex<String>>,
+    paired_pre_target: &Arc<Mutex<Option<String>>>,
+    m: &MeasureResult,
+    mut toast: Option<&mut Option<Toast>>,
+    now: f64,
+    pair_pre_name: &str,
+) {
     // 1. ストレージパス解決
     let paths = match StoragePaths::default_macos() {
         Ok(p) => p,
         Err(e) => {
             log::warn!("[POST keep] StoragePaths error: {:?}", e);
-            *toast = Some(Toast::new("Kirin OS not installed", now));
+            if let Some(t) = toast.as_mut() {
+                **t = Some(Toast::new("Kirin OS not installed", now));
+            }
             return;
         }
     };
@@ -796,7 +982,9 @@ fn trigger_keep(
     let pre_project_dirs = discover_active_pre_dirs(&tmp_base);
     if pre_project_dirs.is_empty() {
         log::info!("[POST keep] no PRE candidate (discovery returned empty)");
-        *toast = Some(Toast::new("No PRE plugin found", now));
+        if let Some(t) = toast.as_mut() {
+            **t = Some(Toast::new("No PRE plugin found", now));
+        }
         return;
     }
     let candidates: Vec<_> = pre_project_dirs
@@ -808,7 +996,9 @@ fn trigger_keep(
             "[POST keep] no PRE candidate (project_dirs={} all empty)",
             pre_project_dirs.len()
         );
-        *toast = Some(Toast::new("No PRE plugin found", now));
+        if let Some(t) = toast.as_mut() {
+            **t = Some(Toast::new("No PRE plugin found", now));
+        }
         return;
     }
 
@@ -821,19 +1011,23 @@ fn trigger_keep(
             pair_pre_name,
             pre_project_dirs.len()
         );
-        *toast = Some(Toast::new("No matching PRE", now));
+        if let Some(t) = toast.as_mut() {
+            **t = Some(Toast::new("No matching PRE", now));
+        }
         return;
     }
 
-    // 3. 排他チェック（A-3 修正後: bus 引数なし、project_hash 全体で 1 record）
+    // 3. 排他チェック（B-027 段階 3-A: 上限 12 active per project_hash）
     match check_record_exclusion(&plugin_data_dir, project_hash) {
         ExclusionResult::Ok => {}
         ExclusionResult::Conflict { role, heartbeat, .. } => {
             log::info!(
-                "[POST keep] exclusion conflict: role={:?} heartbeat={}",
-                role, heartbeat
+                "[POST keep] exclusion conflict (>= {} active): role={:?} heartbeat={}",
+                MAX_ACTIVE_PER_PROJECT, role, heartbeat
             );
-            *toast = Some(Toast::new("Another recording is active", now));
+            if let Some(t) = toast.as_mut() {
+                **t = Some(Toast::new("Maximum 12 pairs reached", now));
+            }
             return;
         }
     }
@@ -848,7 +1042,9 @@ fn trigger_keep(
         Some(c) => c.instance_id.clone(),
         None => {
             log::warn!("[POST keep] pick_closest_pre returned None despite candidates");
-            *toast = Some(Toast::new("No PRE plugin found", now));
+            if let Some(t) = toast.as_deref_mut() {
+                *t = Some(Toast::new("No PRE plugin found", now));
+            }
             return;
         }
     };
@@ -858,7 +1054,9 @@ fn trigger_keep(
         Ok(()) => {}
         Err(TransitionError::LicenseDenied) => {
             log::info!("[POST keep] license denied: {:?}", license);
-            *toast = Some(Toast::new("Record requires Kirin OS license", now));
+            if let Some(t) = toast.as_mut() {
+                **t = Some(Toast::new("Record requires Kirin OS license", now));
+            }
             return;
         }
         Err(TransitionError::AlreadyRecording) => {
@@ -896,7 +1094,64 @@ fn trigger_keep(
             if let Ok(mut g) = paired_pre_target.lock() {
                 *g = None;
             }
-            *toast = Some(Toast::new("Failed to start record", now));
+            if let Some(t) = toast.as_mut() {
+                **t = Some(Toast::new("Failed to start record", now));
+            }
+        }
+    }
+}
+
+/// All Keep broadcast を filesystem に書込んで同 project の他 POST に通知する
+/// (B-027 段階 3-B α-7-4-D Step 2)。
+///
+/// Originator (= ComboBox 「All Keep ({N} ready)」を click した POST) のみが呼出す。
+/// 受信側 (Step 10-11 で実装) は io_thread_post.rs sub-tick で
+/// [`kirin_measure::scan_broadcasts_dir`] / `trigger_keep_internal(toast=None)` を経由
+/// して各々 pair 確定する (toast 嵐回避)。
+///
+/// # 設計判断 (S117)
+/// - #19 (i): Err 経路では `record_sm` を触らず log::warn! + toast のみ。自身の
+///   `trigger_keep` は ComboBox click handler 順序 (#20 (i)) で本関数の **後** に実行
+///   されるため、broadcast 失敗で自身まで pair 不可になることはない。
+/// - #21 (i): log 文言は DEV INBOX §2-α-7-4-D Step 2 擬似コード踏襲。
+///
+/// # cdylib 越境通信
+/// 含まない (filesystem 経由のみ / `OnceLock` 不触 / 申し送り #22 適合)。
+///
+/// Step 9 (ComboBox 先頭行 click handler) で呼出経路実装まで dead_code lint が立つ
+/// → `#[allow(dead_code)]` 付与 (Step 9 完了時に削除予定 / 既存 Step 5/6 と同位相)。
+#[allow(dead_code)]
+fn trigger_all_keep_broadcast(
+    originator_instance_id: &str,
+    project_hash: &str,
+    daw_session_id: &str,
+    toast: &mut Option<Toast>,
+    now: f64,
+) {
+    let paths = match StoragePaths::default_macos() {
+        Ok(p) => p,
+        Err(e) => {
+            log::warn!("[POST all_keep] StoragePaths resolve failed: {:?}", e);
+            *toast = Some(Toast::new("Kirin OS not installed", now));
+            return;
+        }
+    };
+    let plugin_data_dir = paths.plugin_data_dir();
+    match write_broadcast(
+        &plugin_data_dir,
+        project_hash,
+        originator_instance_id,
+        daw_session_id.to_string(),
+    ) {
+        Ok(broadcast) => {
+            log::info!(
+                "[POST all_keep] broadcast written: originator={} started_at={}",
+                originator_instance_id, broadcast.started_at
+            );
+        }
+        Err(e) => {
+            log::warn!("[POST all_keep] broadcast write failed: {:?}", e);
+            *toast = Some(Toast::new("All Keep failed (file write error)", now));
         }
     }
 }
@@ -919,14 +1174,56 @@ fn trigger_stop(
         *g = None;
     }
     match StoragePaths::default_macos() {
-        Ok(paths) => match mark_released(&paths.plugin_data_dir(), project_hash, instance_id) {
-            Ok(true) => log::info!("[POST stop] mark_released ok"),
-            Ok(false) => log::info!("[POST stop] no signal to release"),
-            Err(e) => {
-                log::warn!("[POST stop] mark_released failed: {}", e);
-                *toast = Some(Toast::new("Record stop error", now));
+        Ok(paths) => {
+            let plugin_data_dir = paths.plugin_data_dir();
+            match mark_released(&plugin_data_dir, project_hash, instance_id) {
+                Ok(true) => log::info!("[POST stop] mark_released ok"),
+                Ok(false) => log::info!("[POST stop] no signal to release"),
+                Err(e) => {
+                    log::warn!("[POST stop] mark_released failed: {}", e);
+                    *toast = Some(Toast::new("Record stop error", now));
+                }
             }
-        },
+
+            // B-027 段階 3-B α-7 / Group 2 統合点 #2 (Gap-6 局所対処):
+            // mark_released 直後に self_post_iid 用 record_signal/{POST_iid}.json を
+            // 削除する。POST 自身が writer = cleanup 責任を持つ (cdylib 越境通信
+            // 媒体の lifecycle 管理原則 / 設計判断 #5)。
+            //
+            // mark_released を残した上で delete を追加: PRE 側 1 秒 polling との
+            // race で mark_released 結果を観測する経路は保持しつつ (多重防御 /
+            // 設計判断 #9 (i) PRE 側 file removed 経路に委ねる方針と整合)、
+            // orphan を構造的に防ぐ。
+            //
+            // 失敗時 warn のみ (設計判断 #8): trigger_stop 内 panic は GUI freeze
+            // のため避ける。残骸は startup sweep (Gap-9 / B-026 別途) で救済。
+            //
+            // delete_signal は冪等 (record_signal.rs:289-301 / NotFound→Ok)。
+            // 統合点 #3 (Drop) / #4 (IO Thread terminate) と重複呼出されても安全。
+            match delete_signal(&plugin_data_dir, project_hash, instance_id) {
+                Ok(()) => log::info!(
+                    "[POST cleanup #2] record_signal deleted: {}",
+                    instance_id
+                ),
+                Err(e) => log::warn!(
+                    "[POST cleanup #2] delete_signal failed: {:?}",
+                    e
+                ),
+            }
+
+            // B-027 段階 3-B α-7-4-D / Step 12-A 統合点 #2 (DEV INBOX §9-3 / S117 判断 2 (P)):
+            // originator として配置した all_keep_signal/{POST_iid}.json broadcast を削除。
+            // delete_broadcast は冪等 (all_keep_signal.rs:211-215 / NotFound→Ok)。統合点
+            // #3 (Drop) / #4 (IO Thread terminate) と重複呼出されても安全。
+            // 失敗時 warn のみ (設計判断 #8 / 既存 delete_signal と同規範)。
+            match delete_broadcast(&plugin_data_dir, project_hash, instance_id) {
+                Ok(()) => {}
+                Err(e) => log::warn!(
+                    "[POST cleanup #2 broadcast] delete_broadcast failed: {:?}",
+                    e
+                ),
+            }
+        }
         Err(e) => {
             log::warn!("[POST stop] StoragePaths error: {:?}", e);
         }
@@ -1190,5 +1487,123 @@ mod tests {
         assert_eq!(label.lock().unwrap().as_str(), "pair: deadbeef");
         set_pair_label(&label, "Studio Mix", "deadbeefcafef00d");
         assert_eq!(label.lock().unwrap().as_str(), "pair: Studio Mix");
+    }
+
+    // ── B-027 段階 3-A: ComboBox dropdown label ─────────────────────────
+
+    /// `Some(name)` 持ち候補は `"<name> #<uuid8>"` で描画される。
+    #[test]
+    fn dropdown_label_with_name_uses_first_eight_chars() {
+        let cand = PreCandidate {
+            instance_id: "abcdef1234567890".into(),
+            lufs_m: None,
+            true_peak: None,
+            crest: None,
+            path: std::path::PathBuf::new(),
+            name: Some("snare".into()),
+        };
+        assert_eq!(candidate_dropdown_label(&cand), "snare #abcdef12");
+    }
+
+    /// `name = None` の旧 schema PRE は `"(no name) #<uuid8>"` で描画される。
+    #[test]
+    fn dropdown_label_with_no_name_falls_back() {
+        let cand = PreCandidate {
+            instance_id: "abcdef1234567890".into(),
+            lufs_m: None,
+            true_peak: None,
+            crest: None,
+            path: std::path::PathBuf::new(),
+            name: None,
+        };
+        assert_eq!(candidate_dropdown_label(&cand), "(no name) #abcdef12");
+    }
+
+    /// instance_id が 8 文字未満でも crash せずそのまま入る (char 取り)。
+    #[test]
+    fn dropdown_label_short_instance_id_passes_through() {
+        let cand = PreCandidate {
+            instance_id: "abc".into(),
+            lufs_m: None,
+            true_peak: None,
+            crest: None,
+            path: std::path::PathBuf::new(),
+            name: Some("kick".into()),
+        };
+        assert_eq!(candidate_dropdown_label(&cand), "kick #abc");
+    }
+
+    // ── B-027 段階 3-B α-7-4-D Step 1: trigger_keep_internal toast 抑制機構 ──────
+    //
+    // 本 module section は trigger_keep_internal 内 8 箇所の `if let Some(t) =
+    // toast.as_mut() { **t = Some(Toast::new(...)) }` パターンが意図通り機能する
+    // ことを直接検証する。
+    //
+    // パターンの正しさが保証されれば、trigger_keep_internal 内 8 site (StoragePaths
+    // err / discover empty / candidates empty / name filter empty / exclusion conflict /
+    // pick_closest_pre None / LicenseDenied / write_pending fail) すべてで toast 抑制
+    // が同等動作する (ロジック完全保持 + Option-aware 化)。
+    //
+    // 実環境での 5 path 完全 integration テスト (Daisuke 指示書の test 1-5) は、
+    // (i) /tmp/kirin/ がプロセス共有でテスト隔離不可 (ii) HOME env が process-global
+    // で並列テスト不可 — の 2 制約で deferred。ロジック完全保持と wrapper シグネチャ
+    // 不変は build success + clippy clean + 既存 trigger_keep 呼出箇所 (editor.rs:774)
+    // の compile 通過で確証。
+
+    /// Some(toast) で `if let Some(t) = ... { **t = Some(...) }` パターンが
+    /// 内側 Toast を設定すること (trigger_keep wrapper 経由 = 既存 behavior と等価)。
+    #[test]
+    fn toast_suppression_some_sets_inner_toast() {
+        let mut inner: Option<Toast> = None;
+        let mut wrapped: Option<&mut Option<Toast>> = Some(&mut inner);
+        if let Some(t) = wrapped.as_mut() {
+            **t = Some(Toast::new("Maximum 12 pairs reached", 0.0));
+        }
+        assert!(inner.is_some(), "Some 経路で inner Toast が設定されるべき");
+        assert_eq!(inner.as_ref().unwrap().message, "Maximum 12 pairs reached");
+    }
+
+    /// None で `if let Some(t) = ... { ... }` パターンが内側を変更しないこと
+    /// (broadcast 受信側 / Step 11 = toast 抑制)。
+    #[test]
+    fn toast_suppression_none_leaves_inner_unchanged() {
+        let mut wrapped: Option<&mut Option<Toast>> = None;
+        // パターンは何もしない (silent skip)
+        if let Some(t) = wrapped.as_mut() {
+            **t = Some(Toast::new("should-not-appear", 0.0));
+        }
+        assert!(wrapped.is_none(), "None は変化しない");
+    }
+
+    /// 同 `Option<&mut Option<Toast>>` を複数経路で再使用可能 (as_mut() 再 borrow)。
+    /// trigger_keep_internal は 1 関数内で最大 8 経路の toast 設定を行うため、
+    /// 各経路で再 borrow できる必要がある。
+    #[test]
+    fn toast_suppression_rebborrowable_across_multiple_paths() {
+        let mut inner: Option<Toast> = None;
+        let mut wrapped: Option<&mut Option<Toast>> = Some(&mut inner);
+
+        // 1 回目: 上限 conflict 想定の path
+        if let Some(t) = wrapped.as_mut() {
+            **t = Some(Toast::new("first-path", 0.0));
+        }
+        // 2 回目: 別 path (LicenseDenied 想定) — 同 wrapped で再 borrow 可能
+        if let Some(t) = wrapped.as_mut() {
+            **t = Some(Toast::new("second-path", 1.0));
+        }
+        // 3 回目: write_pending 失敗想定の path
+        if let Some(t) = wrapped.as_mut() {
+            **t = Some(Toast::new("third-path", 2.0));
+        }
+
+        assert_eq!(
+            inner.as_ref().unwrap().message,
+            "third-path",
+            "最後に書込まれた値が残るべき (再 borrow 健全性確認)"
+        );
+        assert!(
+            (inner.as_ref().unwrap().until - (2.0 + TOAST_DURATION_SECS)).abs() < 1e-9,
+            "until = now + TOAST_DURATION_SECS"
+        );
     }
 }

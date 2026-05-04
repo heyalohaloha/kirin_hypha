@@ -158,13 +158,22 @@ pub fn discover_active_pre_dir(kirin_root: &Path) -> Option<PathBuf> {
 ///
 /// [`discover_active_pre_dir`] が単一 project_uuid 前提で「mtime 最新 1 件」のみ
 /// 返すのに対し、本関数は複数 project_uuid に PRE が分散する多 PRE 環境向けに
-/// **全候補を mtime 降順 Vec で返す**。
+/// **全候補を Vec で返す**。
 ///
 /// 用途: POST `trigger_keep` で全 PRE dir を flatten scan して `pair_pre_name`
-/// filter で目的 PRE を見つける (B-027 段階 2)。
+/// filter で目的 PRE を見つける (B-027 段階 2)。POST GUI ComboBox dropdown で
+/// 候補順序を安定表示する (B-027 段階 3 (a) 仮説 1 / G-115-53)。
 ///
 /// stale 判定 (`now - mtime > DISCOVERY_STALE_SECS`) と非 dir スキップは
 /// `discover_active_pre_dir` と同一ロジック。空入力 / 全 stale なら空 Vec。
+///
+/// # B-027 段階 3 (a) 仮説 1 修正 (G-115-53)
+/// 戻り値の順序を **mtime 降順 → project_uuid (= file_name) 辞書順** に変更。
+/// 100ms 周期 mtime 書込 + 10 Hz 描画フレームレートで sort 結果が反転して
+/// ComboBox 候補順序が高速で入れ替わる構造的問題 (#5-A-3 異常 1) を排除する。
+/// project_uuid は UUID v4 文字列で session 不変・一意のため決定論的。
+/// 単数版 `discover_active_pre_dir` の Δ 経路 (`io_thread_post`) は「mtime 最新 1 件」
+/// セマンティクス保持のため本修正対象外。
 pub fn discover_active_pre_dirs(kirin_root: &Path) -> Vec<PathBuf> {
     let now = SystemTime::now();
     let stale_threshold = Duration::from_secs(DISCOVERY_STALE_SECS);
@@ -225,8 +234,11 @@ pub fn discover_active_pre_dirs(kirin_root: &Path) -> Vec<PathBuf> {
         }
     }
 
-    // mtime 降順 sort で安定化 (多 PRE 環境で先頭が最新 PRE dir)。
-    candidates.sort_by(|a, b| b.1.cmp(&a.1));
+    // B-027 段階 3 (a) 仮説 1 (G-115-53): project_uuid (= file_name) 辞書順固定。
+    // mtime 降順は 100ms tick 書込 / 10 Hz draw との race で順序反転する構造的
+    // 問題があった。file_name は UUID v4 文字列で session 不変・一意のため
+    // 決定論的順序を保証する。
+    candidates.sort_by(|a, b| a.0.file_name().cmp(&b.0.file_name()));
     candidates.into_iter().map(|(p, _)| p).collect()
 }
 
@@ -365,21 +377,63 @@ mod tests {
 
     // ── B-027 段階 2 fix: discover_active_pre_dirs (NG-1 + NG-2) ─────────
 
-    /// 複数 project_uuid 配下の PRE が **全件 mtime 降順 Vec で返る**。
+    /// 複数 project_uuid 配下の PRE が全件 **project_uuid 辞書順 Vec** で返る。
+    /// B-027 段階 3 (a) 仮説 1 (G-115-53): 旧版 mtime 降順 assert を辞書順に更新。
     #[test]
     fn discover_active_pre_dirs_returns_all_fresh() {
         let root = unique_tmp_root("multi_dirs_fresh");
         let pre_a = touch_pre(&root, "uuid_a", "iid_a");
         let pre_b = touch_pre(&root, "uuid_b", "iid_b");
         let now = SystemTime::now();
-        set_mtime(&pre_a, now - Duration::from_secs(3)); // 古い
-        set_mtime(&pre_b, now - Duration::from_secs(1)); // 新しい
+        set_mtime(&pre_a, now - Duration::from_secs(3)); // 旧 mtime (sort 結果に影響しない)
+        set_mtime(&pre_b, now - Duration::from_secs(1)); // 新 mtime (sort 結果に影響しない)
 
         let result = discover_active_pre_dirs(&root);
         assert_eq!(result.len(), 2, "fresh な 2 project_uuid 両方返却");
-        // mtime 降順なので新しい方が先頭
-        assert_eq!(result[0], root.join("uuid_b"));
-        assert_eq!(result[1], root.join("uuid_a"));
+        // project_uuid 辞書順 ("uuid_a" < "uuid_b") / mtime 非依存
+        assert_eq!(result[0], root.join("uuid_a"));
+        assert_eq!(result[1], root.join("uuid_b"));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// B-027 段階 3 (a) 仮説 1 (G-115-53): mtime jitter 下でも sort 結果が決定論的。
+    /// 同じ kirin_root を mtime を交互に更新した上で複数回 discover を呼び、
+    /// 全回で結果が完全一致することを assert (project_uuid 辞書順固定の構造保証)。
+    #[test]
+    fn discover_active_pre_dirs_sort_is_deterministic_under_mtime_jitter() {
+        let root = unique_tmp_root("deterministic");
+        let pre_a = touch_pre(&root, "uuid_aaaa", "iid_a");
+        let pre_b = touch_pre(&root, "uuid_bbbb", "iid_b");
+        let pre_c = touch_pre(&root, "uuid_cccc", "iid_c");
+
+        let expected = vec![
+            root.join("uuid_aaaa"),
+            root.join("uuid_bbbb"),
+            root.join("uuid_cccc"),
+        ];
+
+        // 1 回目: A → B → C 順で mtime 更新 (C が最新)
+        let now = SystemTime::now();
+        set_mtime(&pre_a, now - Duration::from_secs(3));
+        set_mtime(&pre_b, now - Duration::from_secs(2));
+        set_mtime(&pre_c, now - Duration::from_secs(1));
+        let r1 = discover_active_pre_dirs(&root);
+
+        // 2 回目: 逆順に mtime 更新 (A が最新)
+        set_mtime(&pre_c, now - Duration::from_secs(3));
+        set_mtime(&pre_b, now - Duration::from_secs(2));
+        set_mtime(&pre_a, now - Duration::from_secs(1));
+        let r2 = discover_active_pre_dirs(&root);
+
+        // 3 回目: B が最新
+        set_mtime(&pre_a, now - Duration::from_secs(3));
+        set_mtime(&pre_c, now - Duration::from_secs(2));
+        set_mtime(&pre_b, now - Duration::from_secs(1));
+        let r3 = discover_active_pre_dirs(&root);
+
+        assert_eq!(r1, expected, "1st call: project_uuid 辞書順");
+        assert_eq!(r2, expected, "2nd call: mtime 逆転しても順序不変");
+        assert_eq!(r3, expected, "3rd call: mtime jitter 中も順序不変");
         let _ = fs::remove_dir_all(&root);
     }
 

@@ -3,6 +3,7 @@
 //! napi-rs 依存を持たない純粋な Rust ライブラリ。
 //! nih-plug の Audio Thread から独立した Measure Thread / IO Thread で使用する。
 
+pub mod all_keep_signal;
 pub mod delta;
 pub mod engine;
 pub mod exclusion;
@@ -30,11 +31,14 @@ pub use delta::{DeltaMode, DeltaResult};
 pub use engine::MeasureEngine;
 pub use exclusion::{
     check_record_exclusion, check_record_exclusion_at, is_heartbeat_fresh, ExclusionResult,
-    STALE_SECONDS,
+    MAX_ACTIVE_PER_PROJECT, STALE_SECONDS,
 };
 pub use hardware::{HardwareComponents, Match};
 pub use identity::{Identity, License};
-pub use io_thread_post::{format_pair_label, serialize_post_json, spawn_io_thread_post};
+pub use io_thread_post::{
+    enumerate_active_post_pair_candidates, format_pair_label, serialize_post_json,
+    spawn_io_thread_post, PostCandidate, TriggerPairResolutionFn,
+};
 pub use io_thread_pre::{serialize_pre_json, spawn_io_thread_pre};
 pub use license::{
     can_enter_record, can_read_preset, can_write_plugin_data, load_license_safe, show_note_button,
@@ -66,12 +70,19 @@ pub use preset_v2::{
     verify_preset_v2, Card as PresetV2Card, PresetFileV2,
     SectionBoundary as PresetV2SectionBoundary, Summary as PresetV2Summary, VerifyErrorV2,
 };
+pub use all_keep_signal::{
+    delete_broadcast, is_broadcast_stale, read_broadcast, scan_broadcasts_dir,
+    signal_path as all_keep_signal_path, signals_dir as all_keep_signals_dir, write_broadcast,
+    write_broadcast_signal, AllKeepBroadcast, AllKeepError, ALL_KEEP_BROADCAST_STALE_SECS,
+    ALL_KEEP_SCHEMA_VERSION, ALL_KEEP_SIGNAL_SUBDIR,
+};
 pub use record::{RecordState, RecordStateMachine, TransitionError};
 pub use record_signal::{
-    delete_signal, filter_candidates_by_name, is_timed_out, mark_acknowledged, mark_released,
-    pick_closest_pre, read_signal, scan_pre_candidates, scan_pre_candidates_in, scan_signals_dir,
-    signal_path, signals_dir, write_pending, write_signal, PostMetrics, PreCandidate,
-    RecordSignal, SignalError, SignalStatus, ACK_TIMEOUT_SECONDS, SIGNALS_SUBDIR, SIGNAL_FILENAME,
+    delete_signal, enumerate_active_pre_pair_candidates, filter_candidates_by_name,
+    is_timed_out, mark_acknowledged, mark_released, pick_closest_pre, read_signal,
+    scan_pre_candidates, scan_pre_candidates_in, scan_signals_dir, signal_path, signals_dir,
+    write_pending, write_signal, PostMetrics, PreCandidate, RecordSignal, SignalError,
+    SignalStatus, ACK_TIMEOUT_SECONDS, SIGNALS_SUBDIR, SIGNAL_FILENAME,
 };
 pub use storage::{
     cleanup_legacy_v1, load_installation_id_safe, load_or_recover, read_identity, write_both,
