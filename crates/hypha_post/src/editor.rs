@@ -32,12 +32,13 @@ use hypha_gui::{
     BackgroundTexture, BG, COL_FLORA, COL_FLORA_BRIGHT, COL_MUTED, COL_NORMAL,
 };
 use kirin_measure::{
-    append_annotation_to_latest, check_record_exclusion, delete_broadcast, delete_signal,
-    discover_active_pre_dirs, enumerate_active_post_pair_candidates,
-    enumerate_active_pre_pair_candidates, filter_candidates_by_name, format_pair_label,
-    load_signal_state, lookup_section_label, mark_released, pick_closest_pre, sanitize_name,
-    scan_latest_v2_preset, scan_pre_candidates_in, show_note_button, show_save_button,
-    show_stop_record_button, write_broadcast, write_pending, DeltaMode, DeltaResult,
+    all_keep_signal_path, all_stop_signal_path, append_annotation_to_latest,
+    check_record_exclusion, delete_broadcast, delete_signal, discover_active_pre_dirs,
+    enumerate_active_post_pair_candidates, enumerate_active_pre_pair_candidates,
+    filter_candidates_by_name, format_pair_label, load_signal_state, lookup_section_label,
+    mark_released, pick_closest_pre, sanitize_name, scan_latest_v2_preset,
+    scan_pre_candidates_in, show_note_button, show_save_button, show_stop_record_button,
+    write_broadcast, write_pending, write_stop_broadcast, DeltaMode, DeltaResult,
     ExclusionResult, License, MeasureResult, PluginDataRole, PostMetrics, PreCandidate,
     PresetFileV2, RecordStateMachine, SignalState, StoragePaths, TransitionError,
     MAX_ACTIVE_PER_PROJECT, SENSE_RECORD_HINT, SENSE_UPSELL_URL,
@@ -66,7 +67,7 @@ fn pair_pre_name_edit_active(ui: &egui::Ui) -> bool {
     ui.memory(|mem| mem.has_focus(*PAIR_PRE_NAME_FOCUS_ID))
 }
 
-use crate::read_instance_id_arc;
+use crate::{read_daw_session_id_arc, read_instance_id_arc, read_project_hash_arc};
 
 /// T-E throttle: rescan `preset/` at most every 500 ms. proposals rarely
 /// change at sub-second cadence; avoids hitting FS every repaint (≈ 10 Hz).
@@ -113,9 +114,13 @@ pub struct PostEditorState {
     /// 呼び出してから渡す。
     pub instance_id: Arc<RwLock<String>>,
     /// プロセス単位 `project_hash`（plugin_data path のルートセグメント）。
-    pub project_hash: String,
+    /// §4-5 Step 1: B-022 段階 1 instance_id 同位相で `Arc<RwLock<String>>` 化。
+    /// 各 use site で `read_project_hash_arc(&self.project_hash)` を呼んで
+    /// chunk-restore + cell update 後の最新 cell 値を lazy-read する。
+    pub project_hash: Arc<RwLock<String>>,
     /// プロセス単位 `daw_session_id`（record_signal content の cross-process 防壁）。
-    pub daw_session_id: String,
+    /// §4-5 Step 1: 同位相で `Arc<RwLock<String>>` 化。
+    pub daw_session_id: Arc<RwLock<String>>,
     pub measure: Arc<Mutex<MeasureResult>>,
     pub delta: Arc<Mutex<DeltaResult>>,
     pub measure_alive: Arc<AtomicBool>,
@@ -216,9 +221,11 @@ pub struct PostEditorArgs {
     /// 渡す。chunk-restore 直後の最新値を use site で lazy-read するため。
     pub instance_id: Arc<RwLock<String>>,
     /// プロセス単位 `project_hash`（A-3 修正後）。
-    pub project_hash: String,
+    /// §4-5 Step 1: `Arc<RwLock<String>>` 化 (B-022 段階 1 instance_id 同位相)。
+    pub project_hash: Arc<RwLock<String>>,
     /// プロセス単位 `daw_session_id`（A-3 修正後 / Q1 補強）。
-    pub daw_session_id: String,
+    /// §4-5 Step 1: `Arc<RwLock<String>>` 化。
+    pub daw_session_id: Arc<RwLock<String>>,
     pub measure: Arc<Mutex<MeasureResult>>,
     pub delta: Arc<Mutex<DeltaResult>>,
     pub measure_alive: Arc<AtomicBool>,
@@ -664,26 +671,75 @@ fn draw_pair_pre_combo(ui: &mut egui::Ui, state: &mut PostEditorState, now: f64)
     // pair_pre_name.is_some() の件数 (= S115 Q-A7 採用 β / 自身 + ready peer の総数) を
     // ComboBox 先頭行の "All Keep ({N} ready)" 表示と display 判定 (N>=1) に使用。
     let post_candidates = enumerate_active_post_pair_candidates(&kirin_root);
+    // α-7' All Stop: 自身が recording=true (Record 中) なら All Stop 行を出す。
+    let recording = state.record_sm.is_recording();
 
     egui::ComboBox::from_id_salt("hypha_post_pair_pre_dropdown")
         .selected_text(RichText::new("▼").size(12.0).color(COL_FLORA).monospace())
         .width(140.0)
         .show_ui(ui, |ui| {
+            // α-7' All Stop 行 (recording=true 時のみ / All Keep と排他表示 / 琥珀明度色)。
+            // click handler 順序 = broadcast 先発火 → 自身 trigger_stop (Keep の対称形)。
+            if recording {
+                ui.push_id("hypha_post_all_stop_row", |ui| {
+                    let label = RichText::new("All Stop")
+                        .size(12.0)
+                        .color(COL_FLORA_BRIGHT)
+                        .monospace();
+                    if ui.selectable_label(false, label).clicked() {
+                        let instance_id = read_instance_id_arc(&state.instance_id);
+                        let project_hash_snapshot = read_project_hash_arc(&state.project_hash);
+                        let daw_session_id_snapshot =
+                            read_daw_session_id_arc(&state.daw_session_id);
+
+                        log::info!(
+                            "[POST all_stop] click: originator={}",
+                            instance_id
+                        );
+
+                        // 1. broadcast 先発火 (Keep と完全対称)。
+                        trigger_all_stop_broadcast(
+                            &instance_id,
+                            &project_hash_snapshot,
+                            &daw_session_id_snapshot,
+                            &mut state.toast,
+                            now,
+                        );
+                        // 2. 自身も trigger_stop (Stop button と同経路)。
+                        trigger_stop(
+                            &state.record_sm,
+                            &project_hash_snapshot,
+                            &instance_id,
+                            &state.pair_label,
+                            &state.paired_pre_target,
+                            &mut state.toast,
+                            now,
+                        );
+                    }
+                });
+            }
+
             // B-027 段階 3-B α-7-3 / Step 9: All Keep 行 (先頭 / N>=1 時のみ表示)。
             // S117 #20 (i): click handler 順序 = broadcast 先発火 → 自身 trigger_keep
             // (broadcast 失敗で自身まで pair 不可になることを構造的に回避)。
+            // α-7': recording=true 時は All Keep 行を非表示 (Record 中は Keep 不要)。
             let n_ready = post_candidates
                 .iter()
                 .filter(|c| c.pair_pre_name.is_some())
                 .count();
-            if n_ready >= 1 {
+            if !recording && n_ready >= 1 {
                 ui.push_id("hypha_post_all_keep_row", |ui| {
                     let label = format!("All Keep ({} ready)", n_ready);
                     if ui.selectable_label(false, label).clicked() {
                         // 内部構築: instance_id (lazy-read) / m (Measure snapshot) /
                         // pair_pre_name_snapshot (RwLock read) — draw_button_row L774
                         // 既存 trigger_keep 呼出と同経路。
+                        // §4-5 Step 1: project_hash / daw_session_id も同位相で
+                        // lazy-read snapshot (Arc 化済 / chunk-restore 後の最新 cell 値)。
                         let instance_id = read_instance_id_arc(&state.instance_id);
+                        let project_hash_snapshot = read_project_hash_arc(&state.project_hash);
+                        let daw_session_id_snapshot =
+                            read_daw_session_id_arc(&state.daw_session_id);
                         let m = state
                             .measure
                             .lock()
@@ -703,8 +759,8 @@ fn draw_pair_pre_combo(ui: &mut egui::Ui, state: &mut PostEditorState, now: f64)
                         // 1. broadcast 先発火 (#20 (i) / Step 8 実装済 fn)
                         trigger_all_keep_broadcast(
                             &instance_id,
-                            &state.project_hash,
-                            &state.daw_session_id,
+                            &project_hash_snapshot,
+                            &daw_session_id_snapshot,
                             &mut state.toast,
                             now,
                         );
@@ -714,8 +770,8 @@ fn draw_pair_pre_combo(ui: &mut egui::Ui, state: &mut PostEditorState, now: f64)
                             *state.license,
                             &state.record_sm,
                             &instance_id,
-                            &state.project_hash,
-                            &state.daw_session_id,
+                            &project_hash_snapshot,
+                            &daw_session_id_snapshot,
                             &state.pair_label,
                             &state.paired_pre_target,
                             &m,
@@ -723,6 +779,30 @@ fn draw_pair_pre_combo(ui: &mut egui::Ui, state: &mut PostEditorState, now: f64)
                             now,
                             &pair_pre_name_snapshot,
                         );
+
+                        // §4-5 Step 4 診断: click handler 後続処理 (trigger_keep →
+                        // write_pending → record_sm 遷移) を経た frame 末尾で broadcast
+                        // file が依然として存在することを確認。frame 内 ms 単位削除
+                        // (sandbox / OS / 内部の隠し経路) を切り分ける目的。
+                        if let Ok(paths) = StoragePaths::default_macos() {
+                            let bp = all_keep_signal_path(
+                                &paths.plugin_data_dir(),
+                                &project_hash_snapshot,
+                                &instance_id,
+                            );
+                            match std::fs::metadata(&bp) {
+                                Ok(meta) => log::info!(
+                                    "[POST all_keep] post-frame metadata ok: path={} len={}",
+                                    bp.display(),
+                                    meta.len()
+                                ),
+                                Err(e) => log::warn!(
+                                    "[POST all_keep] post-frame metadata FAILED: path={} err={}",
+                                    bp.display(),
+                                    e
+                                ),
+                            }
+                        }
                     }
                 });
             }
@@ -784,7 +864,10 @@ fn draw_button_row(
 ) {
     // B-022 段階 1: chunk-restore 後の最新値を 1 フレーム 1 回 lazy-read。
     // ボタン押下が同フレーム内で発火するため、各 trigger_* に同じ値を渡せる。
+    // §4-5 Step 1: project_hash / daw_session_id も同位相で 1 フレーム 1 回 lazy-read。
     let instance_id = read_instance_id_arc(&state.instance_id);
+    let project_hash_snapshot = read_project_hash_arc(&state.project_hash);
+    let daw_session_id_snapshot = read_daw_session_id_arc(&state.daw_session_id);
     ui.horizontal(|ui| {
         ui.add_space(10.0);
         if recording {
@@ -795,7 +878,7 @@ fn draw_button_row(
                         log::info!("[hypha-fork] button clicked: {}", tag);
                         trigger_note_save(
                             tag,
-                            &state.project_hash,
+                            &project_hash_snapshot,
                             &instance_id,
                             &mut state.toast,
                             now,
@@ -813,7 +896,7 @@ fn draw_button_row(
                     log::info!("[hypha-fork] button clicked: Stop");
                     trigger_stop(
                         &state.record_sm,
-                        &state.project_hash,
+                        &project_hash_snapshot,
                         &instance_id,
                         &state.pair_label,
                         &state.paired_pre_target,
@@ -844,8 +927,8 @@ fn draw_button_row(
                         license,
                         &state.record_sm,
                         &instance_id,
-                        &state.project_hash,
-                        &state.daw_session_id,
+                        &project_hash_snapshot,
+                        &daw_session_id_snapshot,
                         &state.pair_label,
                         &state.paired_pre_target,
                         m,
@@ -1144,10 +1227,31 @@ fn trigger_all_keep_broadcast(
         daw_session_id.to_string(),
     ) {
         Ok(broadcast) => {
+            let broadcast_path =
+                all_keep_signal_path(&plugin_data_dir, project_hash, originator_instance_id);
             log::info!(
-                "[POST all_keep] broadcast written: originator={} started_at={}",
-                originator_instance_id, broadcast.started_at
+                "[POST all_keep] broadcast written: originator={} started_at={} path={}",
+                originator_instance_id,
+                broadcast.started_at,
+                broadcast_path.display()
             );
+            // §4-5 Step 4 診断: write_broadcast Ok 直後に fs::metadata で
+            // 物理存在を確認 (sandbox 経由の path redirection / atomic rename
+            // 失敗した場合に Ok を返しているケースを切り分ける)。NIH_LOG 経由で
+            // metadata err が出れば「write は成功扱いだが file が path にない」
+            // = 内部削除以外の経路 (DAW sandbox / OS) が確定する。
+            match std::fs::metadata(&broadcast_path) {
+                Ok(meta) => log::info!(
+                    "[POST all_keep] post-write metadata ok: path={} len={}",
+                    broadcast_path.display(),
+                    meta.len()
+                ),
+                Err(e) => log::warn!(
+                    "[POST all_keep] post-write metadata FAILED: path={} err={}",
+                    broadcast_path.display(),
+                    e
+                ),
+            }
         }
         Err(e) => {
             log::warn!("[POST all_keep] broadcast write failed: {:?}", e);
@@ -1158,6 +1262,10 @@ fn trigger_all_keep_broadcast(
 
 /// Stop タップ: Watch へ戻し、record_signal を released に更新。pair_label をクリア。
 /// `paired_pre_target` も None に戻す（v1.2 (a) 次の Keep 待ち状態）。
+///
+/// α-7' All Stop: Some(toast) wrapper として `trigger_stop_internal` に委譲。
+/// broadcast 受信側 (lib.rs trigger_stop_resolution closure) からは toast=None で
+/// 直接呼出して toast 嵐を構造的に防ぐ (`trigger_keep` / `trigger_keep_internal` と同パターン)。
 #[allow(clippy::too_many_arguments)]
 fn trigger_stop(
     record_sm: &Arc<RecordStateMachine>,
@@ -1166,6 +1274,29 @@ fn trigger_stop(
     pair_label: &Arc<Mutex<String>>,
     paired_pre_target: &Arc<Mutex<Option<String>>>,
     toast: &mut Option<Toast>,
+    now: f64,
+) {
+    trigger_stop_internal(
+        record_sm,
+        project_hash,
+        instance_id,
+        pair_label,
+        paired_pre_target,
+        Some(toast),
+        now,
+    );
+}
+
+/// `trigger_stop` 内部実装 (α-7')。toast を Option 化し broadcast 受信側から
+/// `toast = None` で呼出可能にする (`trigger_keep_internal` と同パターン)。
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn trigger_stop_internal(
+    record_sm: &Arc<RecordStateMachine>,
+    project_hash: &str,
+    instance_id: &str,
+    pair_label: &Arc<Mutex<String>>,
+    paired_pre_target: &Arc<Mutex<Option<String>>>,
+    mut toast: Option<&mut Option<Toast>>,
     now: f64,
 ) {
     record_sm.exit_record();
@@ -1181,7 +1312,9 @@ fn trigger_stop(
                 Ok(false) => log::info!("[POST stop] no signal to release"),
                 Err(e) => {
                     log::warn!("[POST stop] mark_released failed: {}", e);
-                    *toast = Some(Toast::new("Record stop error", now));
+                    if let Some(t) = toast.as_mut() {
+                        **t = Some(Toast::new("Record stop error", now));
+                    }
                 }
             }
 
@@ -1217,15 +1350,77 @@ fn trigger_stop(
             // #3 (Drop) / #4 (IO Thread terminate) と重複呼出されても安全。
             // 失敗時 warn のみ (設計判断 #8 / 既存 delete_signal と同規範)。
             match delete_broadcast(&plugin_data_dir, project_hash, instance_id) {
-                Ok(()) => {}
+                Ok(()) => log::info!(
+                    "[POST cleanup #2 broadcast] delete_broadcast succeeded: instance={}",
+                    instance_id
+                ),
                 Err(e) => log::warn!(
                     "[POST cleanup #2 broadcast] delete_broadcast failed: {:?}",
                     e
                 ),
             }
+
+            // α-7' Step 6 (主バグ修正 / R-9 真因): all_stop_signal の #2 統合点 (trigger_stop)
+            // からの delete を **撤去**。理由: All Stop click handler は同 frame で
+            // `trigger_all_stop_broadcast` (write) → `trigger_stop` (cleanup) を呼ぶため、
+            // ここで delete_stop_broadcast を発火させると **originator が write した自身の
+            // all_stop_signal broadcast を ms 単位で自爆削除** し、受信側 1 秒 sub-tick が
+            // 構造的に scan 不能になる (Hpha0504 実機: 5/5 receivers all miss)。
+            //
+            // all_stop_signal の lifecycle は #3 (Drop) + #4 (IO Thread shutdown) のみで
+            // 管理する。orphan broadcast は 30-sec stale fallback (`is_stop_broadcast_stale`)
+            // で受信側が無視するため永久残存しない。
+            //
+            // 注: all_keep_signal の #2 delete (上の `delete_broadcast`) はそのまま保持
+            // (Record セッション中 broadcast 寿命 > 1 sec で安全 / Pass 15 既存破壊禁止)。
         }
         Err(e) => {
             log::warn!("[POST stop] StoragePaths error: {:?}", e);
+        }
+    }
+}
+
+/// All Stop broadcast を filesystem に書込 (α-7')。`trigger_all_keep_broadcast` と完全対称。
+///
+/// originator (= All Stop ボタンを押した POST) が 1 回だけ呼ぶ。受信側
+/// (`io_thread_post.rs` sub-tick) は同 project_hash の `all_stop_signal/*.json` を全件
+/// scan し、cross-process filter + self skip + 既処理 skip を経て新 broadcast 検出時に
+/// `trigger_stop_internal(toast=None)` を発火する。
+#[allow(dead_code)]
+fn trigger_all_stop_broadcast(
+    originator_instance_id: &str,
+    project_hash: &str,
+    daw_session_id: &str,
+    toast: &mut Option<Toast>,
+    now: f64,
+) {
+    let paths = match StoragePaths::default_macos() {
+        Ok(p) => p,
+        Err(e) => {
+            log::warn!("[POST all_stop] StoragePaths resolve failed: {:?}", e);
+            *toast = Some(Toast::new("Kirin OS not installed", now));
+            return;
+        }
+    };
+    let plugin_data_dir = paths.plugin_data_dir();
+    match write_stop_broadcast(
+        &plugin_data_dir,
+        project_hash,
+        originator_instance_id,
+        daw_session_id.to_string(),
+    ) {
+        Ok(broadcast) => {
+            let bp = all_stop_signal_path(&plugin_data_dir, project_hash, originator_instance_id);
+            log::info!(
+                "[POST all_stop] broadcast written: originator={} started_at={} path={}",
+                originator_instance_id,
+                broadcast.started_at,
+                bp.display()
+            );
+        }
+        Err(e) => {
+            log::warn!("[POST all_stop] broadcast write failed: {:?}", e);
+            *toast = Some(Toast::new("All Stop failed (file write error)", now));
         }
     }
 }
@@ -1311,9 +1506,12 @@ fn maybe_rescan_proposals(state: &mut PostEditorState, now: f64) {
         state.latest_proposals = None;
         return;
     };
+    // §4-5 Step 1: project_hash を use site で lazy-read (Arc 化済 / chunk-restore 後の
+    // 最新 cell 値を proposals scan の root に反映)。
+    let project_hash_snapshot = read_project_hash_arc(&state.project_hash);
     state.latest_proposals = scan_latest_v2_preset(
         &paths.plugin_data_dir(),
-        &state.project_hash,
+        &project_hash_snapshot,
         installation_id,
     );
 }

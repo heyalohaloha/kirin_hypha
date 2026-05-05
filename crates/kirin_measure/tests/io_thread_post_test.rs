@@ -195,9 +195,12 @@ fn test_io_thread_post_file_cleanup() {
     // no-op closure を渡す。
     let trigger_pair_resolution: kirin_measure::TriggerPairResolutionFn =
         Arc::new(|_, _| {});
+    let trigger_stop_resolution: kirin_measure::TriggerStopResolutionFn =
+        Arc::new(|_, _| {});
     let handle = spawn_io_thread_post(
         Arc::new(RwLock::new(instance_id.clone())),
-        project_hash.clone(),
+        // §4-5 Step 1: project_hash を Arc<RwLock<String>> 化 (instance_id 同位相)。
+        Arc::new(RwLock::new(project_hash.clone())),
         48000,
         Arc::clone(&record_sm),
         Arc::clone(&post_result),
@@ -207,10 +210,13 @@ fn test_io_thread_post_file_cleanup() {
         Arc::clone(&paired_pre_target),
         Arc::clone(&shutdown),
         Arc::new(Mutex::new(String::new())),
-        // Step 11: license 引数撤去 / 末尾 trigger_pair_resolution 追加 (count 14 不変)
-        String::new(),
+        // Step 11: license 引数撤去 / 末尾 trigger_pair_resolution 追加
+        // §4-5 Step 1: daw_session_id も Arc<RwLock<String>> 化。
+        // α-7': trigger_stop_resolution 引数追加 (count 15)。
+        Arc::new(RwLock::new(String::new())),
         Arc::new(RwLock::new(String::new())),
         trigger_pair_resolution,
+        trigger_stop_resolution,
     );
 
     std::thread::sleep(Duration::from_millis(250));
@@ -258,9 +264,13 @@ fn test_pair_pre_name_arc_roundtrip_to_post_json() {
 
     let trigger_pair_resolution: kirin_measure::TriggerPairResolutionFn =
         Arc::new(|_, _| {});
+    let trigger_stop_resolution: kirin_measure::TriggerStopResolutionFn =
+        Arc::new(|_, _| {});
     let handle = spawn_io_thread_post(
         Arc::new(RwLock::new(instance_id.clone())),
-        project_hash.clone(),
+        // §4-5 Step 1: project_hash / daw_session_id を Arc<RwLock<String>> 化。
+        // α-7': trigger_stop_resolution 引数追加。
+        Arc::new(RwLock::new(project_hash.clone())),
         48000,
         Arc::clone(&record_sm),
         Arc::clone(&post_result),
@@ -270,9 +280,10 @@ fn test_pair_pre_name_arc_roundtrip_to_post_json() {
         Arc::clone(&paired_pre_target),
         Arc::clone(&shutdown),
         Arc::new(Mutex::new(String::new())),
-        String::new(),
+        Arc::new(RwLock::new(String::new())),
         Arc::clone(&pair_pre_name_arc),
         trigger_pair_resolution,
+        trigger_stop_resolution,
     );
 
     std::thread::sleep(Duration::from_millis(250));

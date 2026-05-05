@@ -1,12 +1,13 @@
 mod editor;
 
 use kirin_measure::{
-    daw_session_id, delete_broadcast, delete_signal, ensure_legacy_cleanup_done,
-    load_installation_id_safe, load_license_safe, peek_project_uuid, process_project_hash,
-    sanitize_name, set_daw_session_id, set_project_uuid, spawn_io_thread_post,
-    spawn_measure_thread, spawn_watchdog, store_signal_state, DeltaResult, License, MeasureResult,
-    RecordStateMachine, SignalState, StoragePaths, TriggerPairResolutionFn, WatchdogParams,
-    N_CHANNELS, RING_BUFFER_SECONDS,
+    daw_session_id, delete_broadcast, delete_signal, delete_stop_broadcast,
+    ensure_legacy_cleanup_done, load_installation_id_safe, load_license_safe, peek_project_uuid,
+    process_project_hash, sanitize_name, set_daw_session_id, set_project_uuid,
+    spawn_io_thread_post, spawn_measure_thread, spawn_watchdog, store_signal_state, DeltaResult,
+    License, MeasureResult, RecordStateMachine, SignalState, StoragePaths,
+    TriggerPairResolutionFn, TriggerStopResolutionFn, WatchdogParams, N_CHANNELS,
+    RING_BUFFER_SECONDS,
 };
 use nih_plug::prelude::*;
 use nih_plug_egui::EguiState;
@@ -42,9 +43,14 @@ pub struct HyphaPost {
     editor_state: Arc<EguiState>,
 
     /// プロセス単位 `project_hash`（plugin_data path のルートセグメント）。
-    project_hash: String,
+    /// §4-5 Step 1: B-022 段階 1 instance_id 同位相で `Arc<RwLock<String>>` 化。
+    /// editor() / initialize() の snapshot timing 差で生じていた divergence
+    /// (§4-4 R-9) を構造的に解消する。各 use site では `read_project_hash_arc`
+    /// で lazy-read snapshot を取って `&str` 引数として下流に渡す。
+    project_hash: Arc<RwLock<String>>,
     /// プロセス単位 `daw_session_id`（record_signal content の cross-process 防壁）。
-    daw_session_id: String,
+    /// §4-5 Step 1: 同位相で `Arc<RwLock<String>>` 化 (`read_daw_session_id_arc`)。
+    daw_session_id: Arc<RwLock<String>>,
 
     ring_producer: Option<rtrb::Producer<f32>>,
     measure_result: Arc<Mutex<MeasureResult>>,
@@ -152,8 +158,8 @@ impl Default for HyphaPost {
         Self {
             params: Arc::new(HyphaPostParams::default()),
             editor_state: EguiState::from_size(300, 200),
-            project_hash: process_project_hash(),
-            daw_session_id: daw_session_id(),
+            project_hash: Arc::new(RwLock::new(process_project_hash())),
+            daw_session_id: Arc::new(RwLock::new(daw_session_id())),
             ring_producer: None,
             measure_result: Arc::new(Mutex::new(MeasureResult::default())),
             delta_result: Arc::new(Mutex::new(DeltaResult::default())),
@@ -192,6 +198,36 @@ fn load_installation_id_or_empty() -> String {
 /// 共有 Arc を渡し、各 use site で `read_instance_id_arc(&arc)` を呼ぶ。
 pub(crate) fn read_instance_id_arc(arc: &Arc<RwLock<String>>) -> String {
     arc.read().ok().map(|g| g.clone()).unwrap_or_default()
+}
+
+/// `Arc<RwLock<String>>` から `project_hash` を lazy-read（panic-safe）。
+///
+/// §4-5 Step 1: `read_instance_id_arc` と同位相。`HyphaPost.project_hash` を Arc 化した
+/// ことで、editor() snapshot と initialize() snapshot の divergence
+/// (§4-4 R-9 主因 a) を構造的に解消する。各 use site で本関数を呼んで snapshot を
+/// 取り、`&str` 引数として下流関数 (`trigger_keep_internal` 等) に渡す。
+pub(crate) fn read_project_hash_arc(arc: &Arc<RwLock<String>>) -> String {
+    arc.read().ok().map(|g| g.clone()).unwrap_or_default()
+}
+
+/// `daw_session_id` の現在値を取得（panic-safe）。
+///
+/// §4-5 Step 5 (instance scope divergence 是正):
+/// 引数 `_arc` は構造維持のため受け取るが内部では使わず、`kirin_measure::daw_session_id()`
+/// 経由で **process scope cell** を直読みする。`HyphaPost.daw_session_id` Arc field
+/// は initialize() 時点の cell 値を凍結するため、複数 plugin instance 環境では
+/// 後発 instance の `set_daw_session_id` 上書きを反映できず、6 POST で daw_session_id
+/// が divergence していた (Hpha0504 / sub-tick cross-process filter で全件 skip)。
+///
+/// `daw_session_id()` cell は process scope (lib.rs:145-148 daw_session_id_cell の
+/// static OnceLock) のため全 plugin instance で同一値を返し、broadcast filter
+/// (`broadcast.daw_session_id != snapshot`) が POST 同士で正しくマッチする。
+///
+/// callsite 引数の Arc 構造は維持 (editor / io_thread_post / lib.rs spawn closure 不変 /
+/// Pass 15 最小スコープ)。`§4-5 Step 1` の Arc 化はそのまま残し、本関数のみ
+/// 「Arc 凍結値を見ない」semantics に切替える 1 関数 body 修正。
+pub(crate) fn read_daw_session_id_arc(_arc: &Arc<RwLock<String>>) -> String {
+    daw_session_id()
 }
 
 /// `RwLock<String>` 永続フィールドから現在値を読む（panic-safe）。
@@ -253,11 +289,13 @@ impl Drop for HyphaPost {
         //
         // 失敗時 warn のみ (設計判断 #8): Drop 内 panic は abort のため避ける。
         let instance_id_owned = read_instance_id_arc(&self.params.instance_id);
+        // §4-5 Step 1: project_hash も lazy-read (Drop 時点の最新 cell 値を反映)。
+        let project_hash_owned = read_project_hash_arc(&self.project_hash);
         match StoragePaths::default_macos() {
             Ok(paths) => {
                 match delete_signal(
                     &paths.plugin_data_dir(),
-                    &self.project_hash,
+                    &project_hash_owned,
                     &instance_id_owned,
                 ) {
                     Ok(()) => log::info!(
@@ -277,12 +315,31 @@ impl Drop for HyphaPost {
                 // 設計判断 #8 / 既存 delete_signal と同規範)。
                 match delete_broadcast(
                     &paths.plugin_data_dir(),
-                    &self.project_hash,
+                    &project_hash_owned,
                     &instance_id_owned,
                 ) {
-                    Ok(()) => {}
+                    Ok(()) => log::info!(
+                        "[POST drop #3 broadcast] delete_broadcast succeeded: instance={}",
+                        instance_id_owned
+                    ),
                     Err(e) => log::warn!(
                         "[POST drop #3 broadcast] delete_broadcast failed: {:?}",
+                        e
+                    ),
+                }
+
+                // α-7' All Stop: own all_stop_signal/{POST_iid}.json も並列削除。
+                match delete_stop_broadcast(
+                    &paths.plugin_data_dir(),
+                    &project_hash_owned,
+                    &instance_id_owned,
+                ) {
+                    Ok(()) => log::info!(
+                        "[POST drop #3 stop_broadcast] delete_stop_broadcast succeeded: instance={}",
+                        instance_id_owned
+                    ),
+                    Err(e) => log::warn!(
+                        "[POST drop #3 stop_broadcast] delete_stop_broadcast failed: {:?}",
                         e
                     ),
                 }
@@ -327,8 +384,11 @@ impl Plugin for HyphaPost {
             // editor() 自体が WrapperInner::new() で 1 度だけ呼ばれ、Default UUID で
             // 凍結されてしまう問題があった）。
             instance_id: Arc::clone(&self.params.instance_id),
-            project_hash: self.project_hash.clone(),
-            daw_session_id: self.daw_session_id.clone(),
+            // §4-5 Step 1: B-022 段階 1 同位相で `Arc::clone` を渡す。editor() / 各
+            // use site で `read_project_hash_arc` / `read_daw_session_id_arc` を呼んで
+            // chunk-restore + cell update 後の最新値を lazy-read する。
+            project_hash: Arc::clone(&self.project_hash),
+            daw_session_id: Arc::clone(&self.daw_session_id),
             measure: Arc::clone(&self.measure_result),
             delta: Arc::clone(&self.delta_result),
             measure_alive: Arc::clone(&self.measure_alive),
@@ -370,8 +430,16 @@ impl Plugin for HyphaPost {
         if !persisted_session_uuid.is_empty() {
             set_daw_session_id(persisted_session_uuid);
         }
-        self.project_hash = process_project_hash();
-        self.daw_session_id = daw_session_id();
+        // §4-5 Step 1: Arc<RwLock<String>> 経由で cell 値を反映。Arc は editor()
+        // 経由で PostEditorState / IO Thread closure / Watchdog restart_io 全部
+        // と共有されており、全 use site の lazy-read で同 instance 内の divergence
+        // が消える (§4-4 R-9 主因 a / b の構造的解消)。
+        if let Ok(mut g) = self.project_hash.write() {
+            *g = process_project_hash();
+        }
+        if let Ok(mut g) = self.daw_session_id.write() {
+            *g = daw_session_id();
+        }
 
         // B-027 段階 2: chunk-restored pair_pre_name の正規化補助 (経路 1)。
         // 主の正規化は editor 入力時 / GUI sanitize で都度かかるが、
@@ -440,7 +508,11 @@ impl Plugin for HyphaPost {
         // 後続復元・再 initialize で値が変わったケースで instance_id が陳腐化していた。
         let sample_rate = buffer_config.sample_rate as u32;
         let instance_id_arc = Arc::clone(&self.params.instance_id);
-        let project_hash = self.project_hash.clone();
+        // §4-5 Step 1: `project_hash` は `Arc<RwLock<String>>` 経由で IO Thread と共有。
+        // `Arc::clone` で Arc 自体を複製し、内部 String への参照を共有する (use site
+        // で `read_project_hash_arc` lazy-read)。
+        let project_hash_arc = Arc::clone(&self.project_hash);
+        let daw_session_id_arc = Arc::clone(&self.daw_session_id);
         // B-023 段階 4: POST IO Thread に pair_label Arc を共有。PRE 側 ack 後の
         // paired_pre_name を 1 秒間隔で読出して GUI 表示を更新する。
         let pair_label_arc = Arc::clone(&self.pair_label);
@@ -458,14 +530,20 @@ impl Plugin for HyphaPost {
             let license_for_closure = Arc::clone(&self.license);
             let record_sm_for_closure = Arc::clone(&self.record_sm);
             let instance_id_for_closure = Arc::clone(&self.params.instance_id);
-            let project_hash_for_closure = self.project_hash.clone();
-            let daw_session_id_for_closure = self.daw_session_id.clone();
+            // §4-5 Step 1: project_hash / daw_session_id を Arc capture (closure body
+            // 内で lazy-read snapshot を取る / chunk-restore 後の最新 cell 値が
+            // broadcast 受信側 trigger_keep_internal に渡る経路を構造保証する)。
+            let project_hash_for_closure = Arc::clone(&self.project_hash);
+            let daw_session_id_for_closure = Arc::clone(&self.daw_session_id);
             let pair_label_for_closure = Arc::clone(&self.pair_label);
             let paired_pre_target_for_closure = Arc::clone(&self.paired_pre_target);
             let pair_pre_name_for_closure = Arc::clone(&self.params.pair_pre_name);
             let measure_result_for_closure = Arc::clone(&self.measure_result);
             Arc::new(move |originator_iid: &str, started_at: &str| {
                 let iid_snapshot = read_instance_id_arc(&instance_id_for_closure);
+                let project_hash_snapshot = read_project_hash_arc(&project_hash_for_closure);
+                let daw_session_id_snapshot =
+                    read_daw_session_id_arc(&daw_session_id_for_closure);
                 let pair_pre_name_snapshot = pair_pre_name_for_closure
                     .read()
                     .ok()
@@ -479,8 +557,8 @@ impl Plugin for HyphaPost {
                     *license_for_closure,
                     &record_sm_for_closure,
                     &iid_snapshot,
-                    &project_hash_for_closure,
-                    &daw_session_id_for_closure,
+                    &project_hash_snapshot,
+                    &daw_session_id_snapshot,
                     &pair_label_for_closure,
                     &paired_pre_target_for_closure,
                     &m_snapshot,
@@ -488,8 +566,36 @@ impl Plugin for HyphaPost {
                     0.0,
                     &pair_pre_name_snapshot,
                 );
-                log::debug!(
+                log::info!(
                     "[all_keep] trigger_keep_internal invoked: originator={} started_at={}",
+                    originator_iid,
+                    started_at
+                );
+            })
+        };
+
+        // α-7' All Stop: Stop broadcast 受信 closure。Keep と完全対称形 / toast=None /
+        // editor::trigger_stop_internal を呼出して record_sm.exit_record + cleanup 一式実行。
+        let trigger_stop_resolution: TriggerStopResolutionFn = {
+            let record_sm_for_closure = Arc::clone(&self.record_sm);
+            let instance_id_for_closure = Arc::clone(&self.params.instance_id);
+            let project_hash_for_closure = Arc::clone(&self.project_hash);
+            let pair_label_for_closure = Arc::clone(&self.pair_label);
+            let paired_pre_target_for_closure = Arc::clone(&self.paired_pre_target);
+            Arc::new(move |originator_iid: &str, started_at: &str| {
+                let iid_snapshot = read_instance_id_arc(&instance_id_for_closure);
+                let project_hash_snapshot = read_project_hash_arc(&project_hash_for_closure);
+                editor::trigger_stop_internal(
+                    &record_sm_for_closure,
+                    &project_hash_snapshot,
+                    &iid_snapshot,
+                    &pair_label_for_closure,
+                    &paired_pre_target_for_closure,
+                    None,
+                    0.0,
+                );
+                log::info!(
+                    "[all_stop] trigger_stop_internal invoked: originator={} started_at={}",
                     originator_iid,
                     started_at
                 );
@@ -498,7 +604,7 @@ impl Plugin for HyphaPost {
 
         let io_handle = spawn_io_thread_post(
             Arc::clone(&instance_id_arc),
-            project_hash.clone(),
+            Arc::clone(&project_hash_arc),
             sample_rate,
             Arc::clone(&self.record_sm),
             Arc::clone(&self.measure_result),
@@ -510,15 +616,22 @@ impl Plugin for HyphaPost {
             Arc::clone(&pair_label_arc),
             // B-027 段階 3-B α-7-4-D / Step 11: license 引数撤去 (Q-11-C 案 (i)) /
             // 末尾 trigger_pair_resolution 追加 (Q-11-D 案 (a)) / 引数 count = 14 不変。
-            self.daw_session_id.clone(),
+            // §4-5 Step 1: project_hash / daw_session_id 引数を Arc<RwLock<String>>
+            // 化 (B-022 段階 1 instance_id 同位相 / per-tick lazy-read で divergence
+            // 是正)。
+            Arc::clone(&daw_session_id_arc),
             Arc::clone(&self.params.pair_pre_name),
             Arc::clone(&trigger_pair_resolution),
+            // α-7' All Stop: 末尾に trigger_stop_resolution 引数追加 (count 15)。
+            Arc::clone(&trigger_stop_resolution),
         );
 
         // ── Watchdog Thread 起動 ──────────────────────────────────────
         let restart_io = {
             let instance_id_arc = Arc::clone(&instance_id_arc);
-            let project_hash = project_hash.clone();
+            // §4-5 Step 1: Watchdog restart 経路でも Arc を capture / 共有。initial
+            // 経路と完全対称 (snapshot timing divergence 是正範囲を全 spawn 経路で維持)。
+            let project_hash_arc = Arc::clone(&project_hash_arc);
             let record_sm = Arc::clone(&self.record_sm);
             let measure_result = Arc::clone(&self.measure_result);
             let delta_result = Arc::clone(&self.delta_result);
@@ -528,13 +641,15 @@ impl Plugin for HyphaPost {
             let pair_label_arc = Arc::clone(&pair_label_arc);
             // Step 11: license capture 撤去 (closure 経由 / Q-11-C 案 (i)) /
             // trigger_pair_resolution Arc capture 追加 (initial 経路と完全対称)。
-            let daw_session_id = self.daw_session_id.clone();
+            let daw_session_id_arc = Arc::clone(&daw_session_id_arc);
             let pair_pre_name_arc = Arc::clone(&self.params.pair_pre_name);
             let trigger_pair_resolution = Arc::clone(&trigger_pair_resolution);
+            // α-7' All Stop: Watchdog restart 経路でも trigger_stop_resolution capture。
+            let trigger_stop_resolution = Arc::clone(&trigger_stop_resolution);
             move |new_shutdown: Arc<AtomicBool>| {
                 spawn_io_thread_post(
                     Arc::clone(&instance_id_arc),
-                    project_hash.clone(),
+                    Arc::clone(&project_hash_arc),
                     sample_rate,
                     Arc::clone(&record_sm),
                     Arc::clone(&measure_result),
@@ -544,9 +659,10 @@ impl Plugin for HyphaPost {
                     Arc::clone(&paired_pre_target),
                     new_shutdown,
                     Arc::clone(&pair_label_arc),
-                    daw_session_id.clone(),
+                    Arc::clone(&daw_session_id_arc),
                     Arc::clone(&pair_pre_name_arc),
                     Arc::clone(&trigger_pair_resolution),
+                    Arc::clone(&trigger_stop_resolution),
                 )
             }
         };

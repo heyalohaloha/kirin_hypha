@@ -454,6 +454,35 @@ mod tests {
     }
 
     #[test]
+    fn broadcast_persists_across_scan_calls() {
+        // §4-5 Step 4: broadcast 寿命の正本仕様 (originator が Stop/Drop/Shutdown
+        // を実行するまで保持) を assert 化。write 後の repeated scan で file が
+        // 残存し続け、明示的 delete_broadcast を呼ぶまで消滅しないことを保証する。
+        let base = isolated_dir();
+        write_broadcast(&base, "ph", "originator-A", "session-A".to_string()).unwrap();
+        let path = signal_path(&base, "ph", "originator-A");
+        assert!(path.exists(), "write 直後 file 存在");
+
+        // scan を 5 回繰り返しても file は消滅しない (read-only semantics)
+        for i in 0..5 {
+            let v = scan_broadcasts_dir(&base, "ph");
+            assert_eq!(v.len(), 1, "scan #{} で 1 件残存", i);
+            assert!(path.exists(), "scan #{} 後も file 残存", i);
+        }
+
+        // read_broadcast も非破壊
+        for i in 0..3 {
+            let r = read_broadcast(&base, "ph", "originator-A");
+            assert!(r.is_some(), "read #{} は Some", i);
+            assert!(path.exists(), "read #{} 後も file 残存", i);
+        }
+
+        // 明示的 delete_broadcast 呼出時のみ消える
+        delete_broadcast(&base, "ph", "originator-A").unwrap();
+        assert!(!path.exists(), "delete_broadcast 後は不在");
+    }
+
+    #[test]
     fn write_broadcast_overwrites_same_originator() {
         // 同一 originator の連打 → atomic rename で last-wins (Q-A8-6)
         let base = isolated_dir();

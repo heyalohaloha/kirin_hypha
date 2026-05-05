@@ -232,9 +232,17 @@ fn editor_rs_wraps_combo_entries_with_push_id() {
         .expect("draw_pair_pre_combo must exist (B-027 段階 3-A)");
     // draw_pair_pre_combo 内に push_id ラップが含まれていること。
     // walk-back で UTF-8 char boundary を跨がない上限を取る。
-    // window 5000: B-027 段階 3-B α-7-3 / Step 9 で All Keep 行 + click handler 追加に
-    // より関数が legitimately 拡大したため広げる (push_id invariant 自体は維持)。
-    let mut safe_end = (combo_fn_idx + 5000).min(src.len());
+    // window 5000 → 6000: §4-5 Step 1 で click handler 内に project_hash /
+    // daw_session_id の lazy-read snapshot 追加 (B-022 段階 1 instance_id 同位相 /
+    // §4-4 R-9 主因 a / b 是正) で関数が legitimately さらに拡大した。push_id
+    // invariant 自体は維持。
+    // window 6000 → 7500: §4-5 Step 4 で click handler 末尾に fs::metadata
+    // 存在確認 log (broadcast 寿命診断) を追加 (削除経路特定不能時の fallback /
+    // ms 単位削除の境界切り分け目的)。push_id invariant 自体は維持。
+    // window 7500 → 9500: α-7' All Stop で recording 時の All Stop 行 click handler
+    // を ComboBox dropdown 先頭に追加 (Keep と完全対称形 / 琥珀色)。push_id invariant
+    // 自体は維持。
+    let mut safe_end = (combo_fn_idx + 9500).min(src.len());
     while safe_end > combo_fn_idx && !src.is_char_boundary(safe_end) {
         safe_end -= 1;
     }

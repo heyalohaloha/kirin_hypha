@@ -25,6 +25,7 @@ use std::time::{Duration, Instant, SystemTime};
 use serde::Deserialize;
 
 use crate::all_keep_signal::{self, ALL_KEEP_BROADCAST_STALE_SECS};
+use crate::all_stop_signal::{self, ALL_STOP_BROADCAST_STALE_SECS};
 use crate::delta::{DeltaMode, DeltaResult};
 use crate::plugin_data::Role as PluginDataRole;
 use crate::pre_discovery::{discover_active_pre_dir, PostDiscoveryState, DISCOVERY_STALE_SECS};
@@ -66,6 +67,11 @@ const ALL_KEEP_POLL_INTERVAL: Duration = Duration::from_secs(1);
 /// (rust-clippy 1.94) を type alias で抑制。
 pub type TriggerPairResolutionFn = Arc<dyn Fn(&str, &str) + Send + Sync>;
 
+/// α-7' All Stop: broadcast 受信時に発火する Stop trigger closure 型。
+/// `TriggerPairResolutionFn` と同シグネチャ (`(originator_iid, started_at)`) で
+/// hypha_post::editor::trigger_stop_internal を toast=None で呼出す。
+pub type TriggerStopResolutionFn = Arc<dyn Fn(&str, &str) + Send + Sync>;
+
 /// POST 用 IO Thread を起動して JoinHandle を返す。
 ///
 /// # 引数
@@ -99,7 +105,7 @@ pub type TriggerPairResolutionFn = Arc<dyn Fn(&str, &str) + Send + Sync>;
 #[allow(clippy::too_many_arguments)]
 pub fn spawn_io_thread_post(
     instance_id: Arc<RwLock<String>>,
-    project_hash: String,
+    project_hash: Arc<RwLock<String>>,
     sample_rate: u32,
     record_sm: Arc<RecordStateMachine>,
     post_result: Arc<Mutex<MeasureResult>>,
@@ -112,9 +118,14 @@ pub fn spawn_io_thread_post(
     // B-027 段階 3-B α-7-1 / Step 6: 末尾 2 引数 (daw_session_id / pair_pre_name) 追加。
     // Step 11 で license 引数撤去 (closure 経由案 / Q-11-C 案 (i)) + trigger_pair_resolution
     // 引数追加 (closure 経由 / Q-11-D 案 (a))。引数 count は Step 6 以降 14 で不変。
-    daw_session_id: String,
+    // §4-5 Step 1: `project_hash` / `daw_session_id` を `Arc<RwLock<String>>` 化
+    // (B-022 段階 1 instance_id 同位相 / lib.rs:325-328 コメント参照)。editor() と
+    // initialize() の snapshot timing 差で divergence していた構造異常を是正。
+    daw_session_id: Arc<RwLock<String>>,
     pair_pre_name: Arc<RwLock<String>>,
     trigger_pair_resolution: TriggerPairResolutionFn,
+    // α-7' All Stop: Stop broadcast 受信時 closure (Keep と完全対称)。
+    trigger_stop_resolution: TriggerStopResolutionFn,
 ) -> JoinHandle<()> {
     thread::spawn(move || {
         // B-021 Phase 1A: PRE scan の起点は `kirin_root` (= $TMPDIR/kirin/) で、
@@ -122,22 +133,32 @@ pub fn spawn_io_thread_post(
         // project_uuid から構築した fallback (PRE が見つからない場合のみ使う)。
         // POST 自身の post.json 書込先は instance_dir 固定 (POST 自分の project_uuid)。
         let kirin_root = std::env::temp_dir().join("kirin");
-        let project_dir_hint = kirin_root.join(&project_hash);
+        let initial_project_hash = read_project_hash_arc(&project_hash);
+        let initial_instance_id = read_instance_id_arc(&instance_id);
+        let plugin_data_dir_str = match StoragePaths::default_macos() {
+            Ok(paths) => paths.plugin_data_dir().display().to_string(),
+            Err(_) => "<unresolved>".to_string(),
+        };
 
         log::info!(
-            "[IOThread POST] started (lazy-read instance_id, project_dir_hint={}, kirin_root={})",
-            project_dir_hint.display(),
+            "[IOThread POST] started: instance_id={} project_hash={} plugin_data_dir={} (lazy-read instance_id/project_hash/daw_session_id, initial project_dir_hint={}, kirin_root={})",
+            initial_instance_id,
+            initial_project_hash,
+            plugin_data_dir_str,
+            kirin_root.join(&initial_project_hash).display(),
             kirin_root.display()
         );
 
         // B-027 段階 3-B α-7-1 / Step 6: 引数を closure scope に capture。
         // Step 11 で `license_for_thread` は撤去 (closure 経由案 / 呼出側 lib.rs で
         // `trigger_pair_resolution` closure に直接 capture / 申し送り #31 遅延約束追跡完了)。
-        // - `daw_session_id_for_thread`: Step 10 で all_keep sub-tick (cross-process 防壁
-        //   = `broadcast.daw_session_id != self.daw_session_id_for_thread` skip) で実 use 中。
+        // - `daw_session_id_arc` (§4-5 Step 1 Arc 化): Step 10 で all_keep sub-tick
+        //   (cross-process 防壁 = `broadcast.daw_session_id != snapshot` skip) で実 use 中。
+        //   per-tick lazy-read で chunk-restore 後の最新 cell 値を反映 (snapshot timing
+        //   divergence 是正 / §4-4 R-9)。
         // - `pair_pre_name_for_thread`: Step 6 で実 use (run_tick 内 100ms tick で snapshot
         //   取得 → serialize_post_json{,_minimal} に渡す / Q-A7 採用案 A)。
-        let daw_session_id_for_thread = daw_session_id;
+        let daw_session_id_arc = daw_session_id;
         let pair_pre_name_for_thread = pair_pre_name;
 
         let mut recording: Option<RecordingCtx> = None;
@@ -154,6 +175,8 @@ pub fn spawn_io_thread_post(
         //   削除 / 引数 #24 (ii) 採用 / 先例 io_thread_pre.rs:378-403 partner.last_seen_status
         //   cache パターンと同位相 / chrono 新規依存導入なし)。
         let mut processed_broadcasts: HashMap<String, (String, Instant)> = HashMap::new();
+        // α-7' All Stop: Stop broadcast 受信側 cache (Keep と並列 / 同型 HashMap)。
+        let mut processed_stop_broadcasts: HashMap<String, (String, Instant)> = HashMap::new();
         let mut next_all_keep_poll = Instant::now();
         let mut discovery = PostDiscoveryState::new();
 
@@ -166,8 +189,13 @@ pub fn spawn_io_thread_post(
             // `Arc<RwLock<String>>` は plugin params と同実体を共有するため、
             // `set_state_inner` 経由で chunk-restored 値が書かれた直後でも
             // 次 tick からは新値を拾う。
+            // §4-5 Step 1: 同位相で project_hash も毎 tick lazy-read。editor() と
+            // initialize() の snapshot timing 差で生じていた divergence を構造的に解消。
             let instance_id_owned = read_instance_id_arc(&instance_id);
             let instance_id_ref = instance_id_owned.as_str();
+            let project_hash_owned = read_project_hash_arc(&project_hash);
+            let project_hash_ref = project_hash_owned.as_str();
+            let project_dir_hint = kirin_root.join(project_hash_ref);
             let instance_dir = project_dir_hint.join(instance_id_ref);
             let post_file = instance_dir.join("post.json");
             let post_tmp = instance_dir.join("post.json.tmp");
@@ -196,7 +224,7 @@ pub fn spawn_io_thread_post(
 
             // plugin_data/.../post/*.json ライフサイクル
             // POST は自身の signal_path から started_at を resolve
-            let project_hash_ref = project_hash.as_str();
+            // §4-5 Step 1: project_hash_ref は tick 開始時の lazy-read snapshot を流用。
             let resolver = || match StoragePaths::default_macos() {
                 Ok(paths) => crate::record_writer::resolve_started_at_ms(
                     &paths.plugin_data_dir(),
@@ -227,12 +255,12 @@ pub fn spawn_io_thread_post(
             }
 
             if Instant::now() >= next_preset_poll {
-                poll_preset_availability(&project_hash, &preset_available, &mut last_preset_count);
+                poll_preset_availability(project_hash_ref, &preset_available, &mut last_preset_count);
                 next_preset_poll = Instant::now() + PRESET_POLL_INTERVAL;
             }
 
             if Instant::now() >= next_ack_timeout_poll {
-                poll_ack_timeout(&project_hash, instance_id_ref, &record_sm);
+                poll_ack_timeout(project_hash_ref, instance_id_ref, &record_sm);
                 next_ack_timeout_poll = Instant::now() + ACK_TIMEOUT_POLL_INTERVAL;
             }
 
@@ -241,12 +269,74 @@ pub fn spawn_io_thread_post(
             // 復活窓を構造的に防止）。
             if Instant::now() >= next_pair_label_poll {
                 poll_record_signal_ack(
-                    &project_hash,
+                    project_hash_ref,
                     instance_id_ref,
                     &record_sm,
                     &pair_label,
                 );
                 next_pair_label_poll = Instant::now() + PAIR_LABEL_POLL_INTERVAL;
+            }
+
+            // α-7' All Stop: Stop broadcast 受信 sub-tick (Keep より先に処理 / Stop 優先)。
+            // 1 秒 throttle で `plugin_data/{ph}/all_stop_signal/*.json` を全件 scan し、
+            // 新 broadcast を `processed_stop_broadcasts` cache に登録 + `trigger_stop_resolution`
+            // closure 発火。Keep と並列の同型ロジック (cross-process filter / self skip /
+            // 既処理 skip / stale fallback / GC)。
+            if Instant::now() >= next_all_keep_poll {
+                if let Ok(paths) = StoragePaths::default_macos() {
+                    let base_dir = paths.plugin_data_dir();
+                    let now_chrono = chrono::Utc::now();
+                    let daw_session_id_snapshot = read_daw_session_id_arc(&daw_session_id_arc);
+                    let stop_broadcasts =
+                        all_stop_signal::scan_stop_broadcasts_dir(&base_dir, project_hash_ref);
+                    for (originator_iid, broadcast) in stop_broadcasts {
+                        if broadcast.daw_session_id != daw_session_id_snapshot {
+                            continue;
+                        }
+                        if originator_iid == instance_id_ref {
+                            continue;
+                        }
+                        if let Some((cached_started_at, _)) =
+                            processed_stop_broadcasts.get(&originator_iid)
+                        {
+                            if cached_started_at == &broadcast.started_at {
+                                continue;
+                            }
+                        }
+                        if all_stop_signal::is_stop_broadcast_stale(
+                            &broadcast,
+                            now_chrono,
+                            ALL_STOP_BROADCAST_STALE_SECS,
+                        ) {
+                            processed_stop_broadcasts.insert(
+                                originator_iid.clone(),
+                                (broadcast.started_at.clone(), Instant::now()),
+                            );
+                            log::debug!(
+                                "[all_stop] stale broadcast cached without fire: originator={}",
+                                originator_iid
+                            );
+                            continue;
+                        }
+                        processed_stop_broadcasts.insert(
+                            originator_iid.clone(),
+                            (broadcast.started_at.clone(), Instant::now()),
+                        );
+                        let scan_dir =
+                            all_stop_signal::stop_signals_dir(&base_dir, project_hash_ref);
+                        log::info!(
+                            "[all_stop] new broadcast detected: originator={} started_at={} scan_dir={}",
+                            originator_iid,
+                            broadcast.started_at,
+                            scan_dir.display()
+                        );
+                        (trigger_stop_resolution)(&originator_iid, &broadcast.started_at);
+                    }
+                    let timeout = Duration::from_secs(ACK_TIMEOUT_SECONDS as u64);
+                    processed_stop_broadcasts.retain(|_, (_, last_seen)| last_seen.elapsed() < timeout);
+                }
+                // 注: next_all_keep_poll は Keep sub-tick 末で reset されるため
+                // Stop は Keep と同 throttle (1 秒) で同 frame に動く。
             }
 
             // B-027 段階 3-B α-7-4-C / Step 10: all_keep_signal broadcast 受信 sub-tick。
@@ -269,10 +359,13 @@ pub fn spawn_io_thread_post(
                 if let Ok(paths) = StoragePaths::default_macos() {
                     let base_dir = paths.plugin_data_dir();
                     let now_chrono = chrono::Utc::now();
-                    let broadcasts = all_keep_signal::scan_broadcasts_dir(&base_dir, &project_hash);
+                    // §4-5 Step 1: cross-process 防壁用 daw_session_id を per-tick lazy-read。
+                    // editor() snapshot との divergence を是正 (§4-4 R-9 主因 b)。
+                    let daw_session_id_snapshot = read_daw_session_id_arc(&daw_session_id_arc);
+                    let broadcasts = all_keep_signal::scan_broadcasts_dir(&base_dir, project_hash_ref);
                     for (originator_iid, broadcast) in broadcasts {
                         // 1. cross-process 防壁
-                        if broadcast.daw_session_id != daw_session_id_for_thread {
+                        if broadcast.daw_session_id != daw_session_id_snapshot {
                             continue;
                         }
                         // 2. self skip
@@ -312,10 +405,12 @@ pub fn spawn_io_thread_post(
                             originator_iid.clone(),
                             (broadcast.started_at.clone(), Instant::now()),
                         );
+                        let scan_dir = all_keep_signal::signals_dir(&base_dir, project_hash_ref);
                         log::info!(
-                            "[all_keep] new broadcast detected: originator={}, started_at={}",
+                            "[all_keep] new broadcast detected: originator={} started_at={} scan_dir={}",
                             originator_iid,
-                            broadcast.started_at
+                            broadcast.started_at,
+                            scan_dir.display()
                         );
                         (trigger_pair_resolution)(&originator_iid, &broadcast.started_at);
                     }
@@ -339,8 +434,11 @@ pub fn spawn_io_thread_post(
             writer_close(ctx);
         }
 
+        // §4-5 Step 1: 終了処理時も project_hash を lazy-read で確定。
         let final_iid = read_instance_id_arc(&instance_id);
-        let final_instance_dir = project_dir_hint.join(&final_iid);
+        let final_project_hash = read_project_hash_arc(&project_hash);
+        let final_project_dir_hint = kirin_root.join(&final_project_hash);
+        let final_instance_dir = final_project_dir_hint.join(&final_iid);
         let final_post_file = final_instance_dir.join("post.json");
         let final_post_tmp = final_instance_dir.join("post.json.tmp");
         if let Err(e) = fs::remove_file(&final_post_file) {
@@ -373,7 +471,7 @@ pub fn spawn_io_thread_post(
             Ok(paths) => {
                 match record_signal::delete_signal(
                     &paths.plugin_data_dir(),
-                    &project_hash,
+                    &final_project_hash,
                     &final_iid,
                 ) {
                     Ok(()) => log::info!(
@@ -391,12 +489,31 @@ pub fn spawn_io_thread_post(
                 // (NotFound→Ok)。統合点 #2/#3 と重複呼出されても安全。失敗時 warn のみ。
                 match all_keep_signal::delete_broadcast(
                     &paths.plugin_data_dir(),
-                    &project_hash,
+                    &final_project_hash,
                     &final_iid,
                 ) {
-                    Ok(()) => {}
+                    Ok(()) => log::info!(
+                        "[POST shutdown #4 broadcast] delete_broadcast succeeded: instance={}",
+                        final_iid
+                    ),
                     Err(e) => log::warn!(
                         "[POST shutdown #4 broadcast] delete_broadcast failed: {:?}",
+                        e
+                    ),
+                }
+
+                // α-7' All Stop: own all_stop_signal/{POST_iid}.json も並列削除。
+                match all_stop_signal::delete_stop_broadcast(
+                    &paths.plugin_data_dir(),
+                    &final_project_hash,
+                    &final_iid,
+                ) {
+                    Ok(()) => log::info!(
+                        "[POST shutdown #4 stop_broadcast] delete_stop_broadcast succeeded: instance={}",
+                        final_iid
+                    ),
+                    Err(e) => log::warn!(
+                        "[POST shutdown #4 stop_broadcast] delete_stop_broadcast failed: {:?}",
                         e
                     ),
                 }
@@ -419,6 +536,35 @@ pub fn spawn_io_thread_post(
 /// 重複定義する。public は不要 (本ファイル + io_thread_pre.rs から使うのみ)。
 pub(crate) fn read_instance_id_arc(arc: &Arc<RwLock<String>>) -> String {
     arc.read().ok().map(|g| g.clone()).unwrap_or_default()
+}
+
+/// `Arc<RwLock<String>>` から `project_hash` を lazy-read（panic-safe）。
+///
+/// §4-5 Step 1: `read_instance_id_arc` と同位相。chunk-restore + cell update 後の
+/// 最新 `project_hash` を毎 tick / 各 use site で取得し、editor() snapshot と
+/// initialize() snapshot の divergence (§4-4 R-9 主因 a) を構造的に解消する。
+pub(crate) fn read_project_hash_arc(arc: &Arc<RwLock<String>>) -> String {
+    arc.read().ok().map(|g| g.clone()).unwrap_or_default()
+}
+
+/// `daw_session_id` の現在値を取得（panic-safe）。
+///
+/// §4-5 Step 5 (instance scope divergence 是正):
+/// 引数 `_arc` は構造維持のため受け取るが内部では使わず、`crate::daw_session_id()`
+/// 経由で **process scope cell** を直読みする。`HyphaPost.daw_session_id` Arc field
+/// は initialize() 時点の cell 値を凍結するため、複数 plugin instance 環境では
+/// 後発 instance の `set_daw_session_id` 上書きを反映できず、6 POST で daw_session_id
+/// が divergence していた (Hpha0504 / sub-tick cross-process filter で全件 skip)。
+///
+/// `daw_session_id()` cell は process scope (`lib.rs:145-148 daw_session_id_cell` の
+/// static OnceLock) のため全 plugin instance で同一値を返し、broadcast filter
+/// (`broadcast.daw_session_id != snapshot`) が POST 同士で正しくマッチする。
+///
+/// callsite 引数の Arc 構造は維持 (sub-tick `daw_session_id_arc` 不変 /
+/// Pass 15 最小スコープ)。`§4-5 Step 1` の Arc 化はそのまま残し、本関数のみ
+/// 「Arc 凍結値を見ない」semantics に切替える 1 関数 body 修正。
+pub(crate) fn read_daw_session_id_arc(_arc: &Arc<RwLock<String>>) -> String {
+    crate::daw_session_id()
 }
 
 /// `Arc<RwLock<String>>` から `pair_pre_name` を毎 tick snapshot で取得する
@@ -1981,3 +2127,4 @@ mod snapshot_pair_pre_name_tests {
         assert_eq!(snap, "", "poisoned lock must fall back to empty string");
     }
 }
+

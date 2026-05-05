@@ -23,6 +23,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::all_keep_signal::ALL_KEEP_SIGNAL_SUBDIR;
+use crate::all_stop_signal::ALL_STOP_SIGNAL_SUBDIR;
 use crate::plugin_data::{PluginDataFile, Role, Status};
 use crate::record_signal::SIGNALS_SUBDIR;
 use crate::preset::PRESET_SUBDIR;
@@ -94,12 +95,16 @@ pub fn check_record_exclusion_at(
         if !path.is_dir() {
             continue;
         }
-        // 予約サブディレクトリ（record_signal / preset / all_keep_signal）は instance_id ではない
-        // (B-027 段階 3-B α-7-4-B: all_keep_signal/ を予約名に追加)
+        // 予約サブディレクトリ（record_signal / preset / all_keep_signal / all_stop_signal）
+        // は instance_id ではない (α-7' All Stop で all_stop_signal/ を予約名に追加)
         let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
             continue;
         };
-        if name == SIGNALS_SUBDIR || name == PRESET_SUBDIR || name == ALL_KEEP_SIGNAL_SUBDIR {
+        if name == SIGNALS_SUBDIR
+            || name == PRESET_SUBDIR
+            || name == ALL_KEEP_SIGNAL_SUBDIR
+            || name == ALL_STOP_SIGNAL_SUBDIR
+        {
             continue;
         }
         for role in [Role::Pre, Role::Post] {

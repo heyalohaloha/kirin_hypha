@@ -4,6 +4,7 @@
 //! nih-plug の Audio Thread から独立した Measure Thread / IO Thread で使用する。
 
 pub mod all_keep_signal;
+pub mod all_stop_signal;
 pub mod delta;
 pub mod engine;
 pub mod exclusion;
@@ -37,7 +38,7 @@ pub use hardware::{HardwareComponents, Match};
 pub use identity::{Identity, License};
 pub use io_thread_post::{
     enumerate_active_post_pair_candidates, format_pair_label, serialize_post_json,
-    spawn_io_thread_post, PostCandidate, TriggerPairResolutionFn,
+    spawn_io_thread_post, PostCandidate, TriggerPairResolutionFn, TriggerStopResolutionFn,
 };
 pub use io_thread_pre::{serialize_pre_json, spawn_io_thread_pre};
 pub use license::{
@@ -75,6 +76,13 @@ pub use all_keep_signal::{
     signal_path as all_keep_signal_path, signals_dir as all_keep_signals_dir, write_broadcast,
     write_broadcast_signal, AllKeepBroadcast, AllKeepError, ALL_KEEP_BROADCAST_STALE_SECS,
     ALL_KEEP_SCHEMA_VERSION, ALL_KEEP_SIGNAL_SUBDIR,
+};
+pub use all_stop_signal::{
+    delete_stop_broadcast, is_stop_broadcast_stale, read_stop_broadcast,
+    scan_stop_broadcasts_dir, stop_signal_path as all_stop_signal_path,
+    stop_signals_dir as all_stop_signals_dir, write_stop_broadcast, write_stop_broadcast_signal,
+    AllStopBroadcast, AllStopError, ALL_STOP_BROADCAST_STALE_SECS, ALL_STOP_SCHEMA_VERSION,
+    ALL_STOP_SIGNAL_SUBDIR,
 };
 pub use record::{RecordState, RecordStateMachine, TransitionError};
 pub use record_signal::{
