@@ -38,3 +38,10 @@ hypha_fork_debug*.log
 
 # G-107-03: Notion stub cleanup artifact + 他の一時作業出力を除外
 tmp/
+
+# B-021/B-022/B-024 投稿物 (Notion 用 / 開発時調査メモ)
+B-021_phase1a_acceptance8_NG_investigation.md
+B-022_phase1b_preliminary_investigation.md
+B-024_phase1_report.md
+B-024_phase2_install_verification_R9.md
+hypha_first_click_repro_v2.md
