@@ -363,7 +363,10 @@ pub struct MeasureResult {
     /// 3 秒未満は `None`。
     pub psr: Option<f64>,
 
-    /// Phase D: Filtered total loudness N'(t) [sone]。
+    /// Phase D: Filtered total loudness N(t) [sone]。
+    /// ISO 532-1 Zwicker の総ラウドネス N (specific loudness N'(z) ではない)
+    /// を `temporal_weighting` LP IIR で時系列平滑化した値。GUI label は "N"。
+    /// field 名 `n_prime_total` は履歴互換維持 (Phase 2 で rename 候補)。
     /// Phase D 初期化中（起動直後数フレーム）は `None`。
     /// 48 kHz 以外は常に `None`。
     pub n_prime_total: Option<f64>,

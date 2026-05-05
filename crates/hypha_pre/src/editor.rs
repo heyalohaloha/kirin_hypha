@@ -10,7 +10,7 @@
 //! - Active → 数値表示
 //! - Bypassed / Inactive → 全項目 `---`（宣言ベース、即時切替）
 //!
-//! Record モード（recording=true）: 6 項目表示（LUFS-M/TP/Crest/PSR/N'/Sharpness）。
+//! Record モード（recording=true）: 6 項目表示（LUFS-M/TP/Crest/PSR/N/Sharpness）。
 //! Record ACK 成立時に「記録開始」バナーを 3 秒一時表示。
 //! サブ1-C 時点では recording / record_acknowledged は default false（サブ2/3 で実配線）。
 
@@ -364,7 +364,7 @@ fn draw_watch_grid(ui: &mut egui::Ui, m: &MeasureResult, show_values: bool) {
     });
 }
 
-/// Record モード: 6 項目（LUFS-M / TP / Crest / PSR / N' / Sharpness）。
+/// Record モード: 6 項目（LUFS-M / TP / Crest / PSR / N / Sharpness）。
 /// 2 列 × 3 行で配置。
 fn draw_record_grid(ui: &mut egui::Ui, m: &MeasureResult, show_values: bool) {
     ui.horizontal(|ui| {
@@ -382,7 +382,7 @@ fn draw_record_grid(ui: &mut egui::Ui, m: &MeasureResult, show_values: bool) {
                     );
                     row_pair(ui,
                         ("TP", fmt_val(m.true_peak), "dBTP", tp_color(m.true_peak)),
-                        ("N'", fmt_val(m.n_prime_total), "sone", val_color(m.n_prime_total)),
+                        ("N", fmt_val(m.n_prime_total), "sone", val_color(m.n_prime_total)),
                     );
                     row_pair(ui,
                         ("Crest", fmt_val(m.crest), "dB", val_color(m.crest)),
@@ -395,7 +395,7 @@ fn draw_record_grid(ui: &mut egui::Ui, m: &MeasureResult, show_values: bool) {
                     );
                     row_pair(ui,
                         ("TP", "---".to_string(), "dBTP", COL_MUTED),
-                        ("N'", "---".to_string(), "sone", COL_MUTED),
+                        ("N", "---".to_string(), "sone", COL_MUTED),
                     );
                     row_pair(ui,
                         ("Crest", "---".to_string(), "dB", COL_MUTED),

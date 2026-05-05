@@ -560,8 +560,17 @@ fn draw_watch_absolute_grid(ui: &mut egui::Ui, m: &MeasureResult) {
     });
 }
 
-/// Record: 2 列 × 3 行。左=Δ 3 項目 / 右=絶対値 3 項目（LUFS-M / TP / Crest）。
-/// NoPre 時は Δ 列が自動的に `---`（d.lufs/tp/crest が None）、右列は POST 絶対値で埋める。
+/// Record: 2 列 × 3 行。Δ 6 項目（ΔLUFS / ΔPSR / ΔTP / ΔN / ΔCrest / ΔSharp）。
+/// S131 Daisuke 確定方針: POST = 処理量モニタリング (Δ) に専念。絶対値判定は Lens 側へ
+/// 分離 (分離原則)。Watch 中の絶対値表示は `draw_watch_absolute_grid` 側で温存
+/// (本指示 §3-4 / 対象外)。
+///
+/// 各 Δ セルの色:
+/// - `delta_col` = mode (Active=COL_NORMAL / Stale=COL_MUTED / NoPre=COL_MUTED)
+/// - `Δ.X` が None なら `COL_MUTED` で `---`
+/// - ΔTP のみ POST 絶対 TP が 0 dBTP 超 (tp_warn) のとき `COL_FLORA_BRIGHT` (旧仕様維持)
+///
+/// `m: &MeasureResult` は ΔTP の tp_warn 判定にだけ使う (POST 絶対 true peak 参照)。
 fn draw_record_section(ui: &mut egui::Ui, m: &MeasureResult, d: &DeltaResult) {
     let delta_col = match d.mode {
         DeltaMode::Active => COL_NORMAL,
@@ -569,11 +578,6 @@ fn draw_record_section(ui: &mut egui::Ui, m: &MeasureResult, d: &DeltaResult) {
         DeltaMode::NoPre => COL_MUTED,
     };
     let tp_warn = tp_over(m.true_peak);
-    let tp_abs_col = if tp_warn {
-        COL_FLORA_BRIGHT
-    } else {
-        val_color(m.true_peak)
-    };
     ui.horizontal(|ui| {
         ui.add_space(10.0);
         Grid::new("post_record_vals")
@@ -582,26 +586,29 @@ fn draw_record_section(ui: &mut egui::Ui, m: &MeasureResult, d: &DeltaResult) {
             .spacing([6.0, 4.0])
             .show(ui, |ui| {
                 let lufs_col = if d.lufs.is_some() { delta_col } else { COL_MUTED };
+                let psr_col = if d.psr.is_some() { delta_col } else { COL_MUTED };
                 row_pair(
                     ui,
                     ("ΔLUFS", fmt_delta(d.lufs), "LU", lufs_col),
-                    ("LUFS-M", fmt_val(m.lufs_m), "LUFS", val_color(m.lufs_m)),
+                    ("ΔPSR", fmt_delta(d.psr), "dB", psr_col),
                 );
                 let tp_col = if d.tp.is_some() {
                     if tp_warn { COL_FLORA_BRIGHT } else { delta_col }
                 } else {
                     COL_MUTED
                 };
+                let n_col = if d.n_prime_total.is_some() { delta_col } else { COL_MUTED };
                 row_pair(
                     ui,
                     ("ΔTP", fmt_delta(d.tp), "dB", tp_col),
-                    ("TP", fmt_val(m.true_peak), "dBTP", tp_abs_col),
+                    ("ΔN", fmt_delta(d.n_prime_total), "sone", n_col),
                 );
                 let crest_col = if d.crest.is_some() { delta_col } else { COL_MUTED };
+                let sharp_col = if d.sharpness.is_some() { delta_col } else { COL_MUTED };
                 row_pair(
                     ui,
                     ("ΔCrest", fmt_delta(d.crest), "dB", crest_col),
-                    ("Crest", fmt_val(m.crest), "dB", val_color(m.crest)),
+                    ("ΔSharp", fmt_delta(d.sharpness), "acum", sharp_col),
                 );
             });
     });

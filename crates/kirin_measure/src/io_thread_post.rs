@@ -788,8 +788,11 @@ fn compute_delta_with_state(
         return Ok((
             DeltaResult {
                 lufs: None,
+                psr: None,
                 tp: None,
+                n_prime_total: None,
                 crest: None,
+                sharpness: None,
                 mode: DeltaMode::NoPre,
             },
             pre_signal_state,
@@ -808,18 +811,33 @@ fn compute_delta_with_state(
     }
 
     let pre_lufs = parsed["lufs_m"].as_f64();
+    let pre_psr = parsed["psr"].as_f64();
     let pre_tp = parsed["true_peak"].as_f64();
+    // S131 (b)+(B): pre.json の Phase D field は `Some` のときのみ書込まれるため
+    // (io_thread_pre.rs:856-862 / opt_f64 ではなく conditional concat)、欠落時の
+    // `serde_json::Value::Null` も `as_f64() == None` で素直に Δ=None になる。
+    let pre_n_prime_total = parsed["n_prime_total"].as_f64();
     let pre_crest = parsed["crest"].as_f64();
+    let pre_sharpness = parsed["sharpness"].as_f64();
 
     let delta_lufs = post.lufs_m.zip(pre_lufs).map(|(p, r)| p - r);
+    let delta_psr = post.psr.zip(pre_psr).map(|(p, r)| p - r);
     let delta_tp = post.true_peak.zip(pre_tp).map(|(p, r)| p - r);
+    let delta_n = post
+        .n_prime_total
+        .zip(pre_n_prime_total)
+        .map(|(p, r)| p - r);
     let delta_crest = post.crest.zip(pre_crest).map(|(p, r)| p - r);
+    let delta_sharpness = post.sharpness.zip(pre_sharpness).map(|(p, r)| p - r);
 
     Ok((
         DeltaResult {
             lufs: delta_lufs,
+            psr: delta_psr,
             tp: delta_tp,
+            n_prime_total: delta_n,
             crest: delta_crest,
+            sharpness: delta_sharpness,
             mode,
         },
         pre_signal_state,
