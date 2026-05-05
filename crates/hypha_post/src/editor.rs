@@ -155,6 +155,11 @@ pub struct PostEditorState {
     /// `read()` した値を `filter_candidates_by_name` の引数に渡す。
     pub pair_pre_name: Arc<RwLock<String>>,
 
+    /// B-025 Group B-2/B-3 / Gap-19/20: io_thread が連続失敗 (Directory missing /
+    /// Write failed) で record exit したとき書込まれる UI 通知文字列。`None` =
+    /// 通常 / `Some` のとき GUI 末尾にステータス行表示 (R-26 沈黙ゲート / 通常時非表示)。
+    pub record_error_message: Arc<RwLock<Option<String>>>,
+
     // ── エディタローカル ───────────────────────────────────────────────
     bg: BackgroundTexture,
     prev_ack: bool,
@@ -199,6 +204,7 @@ impl PostEditorState {
             playback_pos_samples: args.playback_pos_samples,
             playback_sample_rate: args.playback_sample_rate,
             pair_pre_name: args.pair_pre_name,
+            record_error_message: args.record_error_message,
             bg: BackgroundTexture::new(),
             prev_ack: false,
             banner_until: None,
@@ -242,6 +248,8 @@ pub struct PostEditorArgs {
     pub playback_sample_rate: Arc<AtomicU32>,
     /// B-027 段階 2: pair PRE Name の Arc 共有 (HyphaPostParams.pair_pre_name)。
     pub pair_pre_name: Arc<RwLock<String>>,
+    /// B-025 Group B-2/B-3 / Gap-19/20: io_thread → GUI ステータス行通知 Arc。
+    pub record_error_message: Arc<RwLock<Option<String>>>,
 }
 
 // ── 公開エントリポイント ─────────────────────────────────────────────────
@@ -454,6 +462,31 @@ fn draw_post(
                         );
                     });
                 }
+            }
+
+            // B-025 Group B-2/B-3 / Gap-19/20: io_thread が連続失敗で record exit
+            // した時のステータス行 (R-26 沈黙ゲート: 通常時 None なので非表示)。
+            // G-115-29 準拠の英語固定文言を `RecordError::ui_message()` 経由で受け取る。
+            // toast と独立 (toast 寿命と無関係 / Some の間は表示し続ける)。
+            let err_msg = state
+                .record_error_message
+                .read()
+                .ok()
+                .and_then(|g| g.clone());
+            if let Some(msg) = err_msg {
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
+                    ui.add_space(10.0);
+                    ui.add(
+                        Label::new(
+                            RichText::new(&msg)
+                                .size(11.0)
+                                .color(COL_MUTED)
+                                .monospace(),
+                        )
+                        .extend(),
+                    );
+                });
             }
 
             let toast_alive = state.toast.as_ref().is_some_and(|t| t.is_alive(now));

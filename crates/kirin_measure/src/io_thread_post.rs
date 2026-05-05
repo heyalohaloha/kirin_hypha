@@ -137,6 +137,11 @@ pub fn spawn_io_thread_post(
     trigger_pair_resolution: TriggerPairResolutionFn,
     // α-7' All Stop: Stop broadcast 受信時 closure (Keep と完全対称)。
     trigger_stop_resolution: TriggerStopResolutionFn,
+    // B-025 Group B-2/B-3 / Gap-19/20: io_thread → GUI ステータス行への通知 channel。
+    // None = 通常 / Some = "Record stopped: ..." 文言。`run_record_tick` が
+    // `RecordingCtx::exit_requested` に sentinel をセットしたら本 io_thread が
+    // `record_sm.exit_record()` 後に書き込む。editor 側は次描画で表示する。
+    record_error_message: Arc<RwLock<Option<String>>>,
 ) -> JoinHandle<()> {
     thread::spawn(move || {
         // B-021 Phase 1A: PRE scan の起点は `kirin_root` (= $TMPDIR/kirin/) で、
@@ -159,6 +164,13 @@ pub fn spawn_io_thread_post(
             kirin_root.join(&initial_project_hash).display(),
             kirin_root.display()
         );
+
+        // B-025 Group B-1 / Gap-8: 30 秒 flush 周期中の DAW crash で残った
+        // `*.json.tmp` を整合 verify (HMAC-SHA256) → `.json` に atomic rename で救出。
+        // 不整合 .tmp は warn ログのみで残置 (削除しない / 約束 5 原則)。loop 前 1 回。
+        if let Ok(paths) = StoragePaths::default_macos() {
+            let _ = crate::record_writer::recover_orphan_tmps(&paths.plugin_data_dir());
+        }
 
         // B-027 段階 3-B α-7-1 / Step 6: 引数を closure scope に capture。
         // Step 11 で `license_for_thread` は撤去 (closure 経由案 / 呼出側 lib.rs で
@@ -265,6 +277,28 @@ pub fn spawn_io_thread_post(
                 &mut recording,
             ) {
                 log::warn!("[writer] tick error: {}", e);
+            }
+
+            // B-025 Group B-2/B-3 / Gap-19/20: run_record_tick が連続失敗閾値を
+            // 検知して `exit_requested` に sentinel をセットしたら、本 tick で
+            // writer_close + record_sm.exit_record + UI 通知文字列書込。
+            // 1 record session 内で 1 回のみ発火 (`Option::take` で消費)。
+            let exit_reason = recording
+                .as_mut()
+                .and_then(|ctx| ctx.exit_requested.take());
+            if let Some(reason) = exit_reason {
+                if let Some(ctx) = recording.take() {
+                    writer_close(ctx);
+                }
+                record_sm.exit_record();
+                if let Ok(mut g) = record_error_message.write() {
+                    *g = Some(reason.ui_message().to_string());
+                }
+                log::warn!(
+                    "[IOThread POST] record exit: {} (post_iid={})",
+                    reason,
+                    instance_id_ref
+                );
             }
 
             if Instant::now() >= next_preset_poll {

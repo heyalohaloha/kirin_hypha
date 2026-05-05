@@ -190,6 +190,9 @@ pub fn spawn_io_thread_pre(
     signal_state: Arc<AtomicU8>,
     shutdown: Arc<AtomicBool>,
     name: Arc<RwLock<String>>,
+    // B-025 Group B-2/B-3 / Gap-19/20: io_thread → GUI ステータス行への通知 channel。
+    // io_thread_post.rs と完全対称 (writer_close + record_sm.exit_record + 文字列書込)。
+    record_error_message: Arc<RwLock<Option<String>>>,
 ) -> JoinHandle<()> {
     thread::spawn(move || {
         log::info!(
@@ -202,6 +205,13 @@ pub fn spawn_io_thread_pre(
         // (Daisuke 判断 α / guardian_50 G-50-32 Watch リセット仕様)
         let initial_self_iid = read_instance_id_arc(&instance_id);
         clear_stale_self_acks_at_startup(&initial_self_iid);
+
+        // B-025 Group B-1 / Gap-8: 30 秒 flush 周期中の DAW crash で残った
+        // `*.json.tmp` を整合 verify (HMAC-SHA256) → `.json` に atomic rename で救出。
+        // 不整合 .tmp は warn ログのみで残置 (削除しない / 約束 5 原則)。loop 前 1 回。
+        if let Ok(paths) = StoragePaths::default_macos() {
+            let _ = crate::record_writer::recover_orphan_tmps(&paths.plugin_data_dir());
+        }
 
         let mut writer_ctx: Option<RecordingCtx> = None;
         let mut last_poll: Option<Instant> = None;
@@ -388,6 +398,28 @@ pub fn spawn_io_thread_pre(
                 &mut writer_ctx,
             ) {
                 log::warn!("[writer] tick error: {}", e);
+            }
+
+            // B-025 Group B-2/B-3 / Gap-19/20: run_record_tick が連続失敗閾値を
+            // 検知して `exit_requested` に sentinel をセットしたら、本 tick で
+            // writer_close + record_sm.exit_record + UI 通知文字列書込。io_thread_post と対称。
+            let exit_reason = writer_ctx
+                .as_mut()
+                .and_then(|ctx| ctx.exit_requested.take());
+            if let Some(reason) = exit_reason {
+                if let Some(ctx) = writer_ctx.take() {
+                    writer_close(ctx);
+                }
+                record_sm.exit_record();
+                record_acknowledged.store(false, Ordering::Relaxed);
+                if let Ok(mut g) = record_error_message.write() {
+                    *g = Some(reason.ui_message().to_string());
+                }
+                log::warn!(
+                    "[IOThread PRE] record exit: {} (pre_iid={})",
+                    reason,
+                    instance_id_ref
+                );
             }
 
             recording.store(record_sm.is_recording(), Ordering::Relaxed);

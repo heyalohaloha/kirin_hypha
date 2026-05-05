@@ -217,6 +217,7 @@ fn test_io_thread_post_file_cleanup() {
         Arc::new(RwLock::new(String::new())),
         trigger_pair_resolution,
         trigger_stop_resolution,
+        Arc::new(RwLock::new(None)),
     );
 
     std::thread::sleep(Duration::from_millis(250));
@@ -284,6 +285,7 @@ fn test_pair_pre_name_arc_roundtrip_to_post_json() {
         Arc::clone(&pair_pre_name_arc),
         trigger_pair_resolution,
         trigger_stop_resolution,
+        Arc::new(RwLock::new(None)),
     );
 
     std::thread::sleep(Duration::from_millis(250));

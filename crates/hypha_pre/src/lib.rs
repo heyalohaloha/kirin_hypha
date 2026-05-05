@@ -59,6 +59,10 @@ pub struct HyphaPre {
     license: Arc<License>,
 
     preset_available: Arc<AtomicBool>,
+
+    /// B-025 Group B-2/B-3 / Gap-19/20: io_thread → editor のステータス行通知。
+    /// `None` = 通常 / `Some("Record stopped: ...")` = 連続失敗閾値到達後の文言。
+    record_error_message: Arc<RwLock<Option<String>>>,
 }
 
 #[derive(Params)]
@@ -144,6 +148,7 @@ impl Default for HyphaPre {
             record_acknowledged: Arc::new(AtomicBool::new(false)),
             license: Arc::new(load_license_safe()),
             preset_available: Arc::new(AtomicBool::new(false)),
+            record_error_message: Arc::new(RwLock::new(None)),
         }
     }
 }
@@ -207,6 +212,7 @@ impl Plugin for HyphaPre {
             Arc::clone(&self.preset_available),
             Arc::clone(&self.params.name),
             Arc::clone(&self.params.instance_id),
+            Arc::clone(&self.record_error_message),
         )
     }
 
@@ -310,6 +316,7 @@ impl Plugin for HyphaPre {
             Arc::clone(&self.signal_state),
             Arc::clone(&self.io_shutdown),
             Arc::clone(&name_arc),
+            Arc::clone(&self.record_error_message),
         );
 
         let restart_io = {
@@ -323,6 +330,7 @@ impl Plugin for HyphaPre {
             let measure_result = Arc::clone(&self.measure_result);
             let signal_state = Arc::clone(&self.signal_state);
             let name_arc = Arc::clone(&name_arc);
+            let record_error_message = Arc::clone(&self.record_error_message);
             move |new_shutdown: Arc<AtomicBool>| {
                 spawn_io_thread_pre(
                     Arc::clone(&instance_id_arc),
@@ -337,6 +345,7 @@ impl Plugin for HyphaPre {
                     Arc::clone(&signal_state),
                     new_shutdown,
                     Arc::clone(&name_arc),
+                    Arc::clone(&record_error_message),
                 )
             }
         };

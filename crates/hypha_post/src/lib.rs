@@ -90,6 +90,13 @@ pub struct HyphaPost {
     installation_id: Arc<String>,
     playback_pos_samples: Arc<AtomicI64>,
     playback_sample_rate: Arc<AtomicU32>,
+
+    /// B-025 Group B-2/B-3 / Gap-19/20: io_thread が連続失敗 (Directory missing /
+    /// Write failed) で record exit したとき GUI に表示する英語 1 行ステータス
+    /// (G-115-29 準拠)。`None` = 通常 (R-26 沈黙ゲート / 非表示) / `Some` = エラー
+    /// 文言保持中。editor は毎フレーム `read()` で値を取り、TP メーター下に出す。
+    /// io_thread (initial / restart_io 双方) と editor の間で Arc 共有。
+    record_error_message: Arc<RwLock<Option<String>>>,
 }
 
 #[derive(Params)]
@@ -181,6 +188,7 @@ impl Default for HyphaPost {
             installation_id: Arc::new(load_installation_id_or_empty()),
             playback_pos_samples: Arc::new(AtomicI64::new(i64::MIN)),
             playback_sample_rate: Arc::new(AtomicU32::new(0)),
+            record_error_message: Arc::new(RwLock::new(None)),
         }
     }
 }
@@ -405,6 +413,8 @@ impl Plugin for HyphaPost {
             // B-027 段階 2: POST GUI に pair_pre_name 入力欄を追加。trigger_keep
             // で `filter_candidates_by_name` の引数として読み出す。
             pair_pre_name: Arc::clone(&self.params.pair_pre_name),
+            // B-025 Group B-2/B-3 / Gap-19/20: io_thread → GUI ステータス行通知 Arc。
+            record_error_message: Arc::clone(&self.record_error_message),
         })
     }
 
@@ -624,6 +634,8 @@ impl Plugin for HyphaPost {
             Arc::clone(&trigger_pair_resolution),
             // α-7' All Stop: 末尾に trigger_stop_resolution 引数追加 (count 15)。
             Arc::clone(&trigger_stop_resolution),
+            // B-025 Group B-2/B-3 / Gap-19/20: GUI ステータス行通知 Arc。
+            Arc::clone(&self.record_error_message),
         );
 
         // ── Watchdog Thread 起動 ──────────────────────────────────────
@@ -646,6 +658,9 @@ impl Plugin for HyphaPost {
             let trigger_pair_resolution = Arc::clone(&trigger_pair_resolution);
             // α-7' All Stop: Watchdog restart 経路でも trigger_stop_resolution capture。
             let trigger_stop_resolution = Arc::clone(&trigger_stop_resolution);
+            // B-025 Group B-2/B-3 / Gap-19/20: restart 経路も GUI 通知 Arc を共有
+            // (initial 経路と完全対称 / restart 後も連続失敗→exit 通知が GUI に届く)。
+            let record_error_message = Arc::clone(&self.record_error_message);
             move |new_shutdown: Arc<AtomicBool>| {
                 spawn_io_thread_post(
                     Arc::clone(&instance_id_arc),
@@ -663,6 +678,7 @@ impl Plugin for HyphaPost {
                     Arc::clone(&pair_pre_name_arc),
                     Arc::clone(&trigger_pair_resolution),
                     Arc::clone(&trigger_stop_resolution),
+                    Arc::clone(&record_error_message),
                 )
             }
         };

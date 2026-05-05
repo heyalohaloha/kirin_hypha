@@ -69,6 +69,10 @@ pub struct PreEditorState {
     /// B-023 段階 2: PRE instance UUID (HyphaPreParams.instance_id と Arc 共有)。
     /// Name 未設定時の表示 fallback として「先頭 8 文字」を出す (論点 2 (a))。
     pub instance_id: Arc<RwLock<String>>,
+    /// B-025 Group B-2/B-3 / Gap-19/20: io_thread が連続失敗 (Directory missing /
+    /// Write failed) で record exit したとき書込まれる UI 通知文字列。`None` =
+    /// 通常 / `Some` のとき GUI 末尾にステータス行表示 (R-26 沈黙ゲート / 通常時非表示)。
+    pub record_error_message: Arc<RwLock<Option<String>>>,
 
     // ── エディタローカル（egui state 内で保持） ──────────────────────
     /// 背景テクスチャの遅延 decode キャッシュ
@@ -96,6 +100,7 @@ impl PreEditorState {
         preset_available: Arc<AtomicBool>,
         name: Arc<RwLock<String>>,
         instance_id: Arc<RwLock<String>>,
+        record_error_message: Arc<RwLock<Option<String>>>,
     ) -> Self {
         Self {
             measure,
@@ -106,6 +111,7 @@ impl PreEditorState {
             preset_available,
             name,
             instance_id,
+            record_error_message,
             bg: BackgroundTexture::new(),
             prev_ack: false,
             banner_until: None,
@@ -129,6 +135,7 @@ pub fn create_pre_editor(
     preset_available: Arc<AtomicBool>,
     name: Arc<RwLock<String>>,
     instance_id: Arc<RwLock<String>>,
+    record_error_message: Arc<RwLock<Option<String>>>,
 ) -> Option<Box<dyn Editor>> {
     create_egui_editor(
         egui_state,
@@ -141,6 +148,7 @@ pub fn create_pre_editor(
             preset_available,
             name,
             instance_id,
+            record_error_message,
         ),
         |ctx, state| {
             let mut visuals = ctx.style().visuals.clone();
@@ -244,6 +252,27 @@ fn draw_pre(
                         RichText::new("Keeping")
                             .size(13.0)
                             .color(COL_FLORA)
+                            .monospace(),
+                    );
+                });
+            }
+
+            // B-025 Group B-2/B-3 / Gap-19/20: io_thread が連続失敗で record exit
+            // した時のステータス行 (R-26 沈黙ゲート: 通常時 None なので非表示)。
+            // G-115-29 準拠の英語固定文言を `RecordError::ui_message()` 経由で受け取る。
+            let err_msg = state
+                .record_error_message
+                .read()
+                .ok()
+                .and_then(|g| g.clone());
+            if let Some(msg) = err_msg {
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
+                    ui.add_space(10.0);
+                    ui.label(
+                        RichText::new(msg)
+                            .size(11.0)
+                            .color(COL_MUTED)
                             .monospace(),
                     );
                 });
