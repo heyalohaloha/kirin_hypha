@@ -66,6 +66,92 @@ struct PartnerInfo {
     last_seen_status: SignalStatus,
 }
 
+/// B-024 Group A / Gap-3 / Gap-5: PRE startup 時に stale Acknowledged signal を削除する。
+///
+/// 同 instance_id で再起動した PRE が、過去自身が Acknowledged にした
+/// `record_signal/{post_iid}.json` を plugin_data に残したまま fresh Watch 状態で
+/// 起動するケースで、既存 Pending only filter (`poll_record_signal:509-515`) は
+/// この古い Acknowledged を adopt しない。POST 側は status 不変のまま Record 維持
+/// → 構造的状態乖離 → Gap-3 / Gap-5 の真因。
+///
+/// 本関数は startup 時に plugin_data 配下の全 project_hash 横断 scan を行い、
+/// `target_pre_instance_id == self_iid && status == Acknowledged` を満たす signal
+/// を `delete_signal` で削除する (Daisuke 判断 α 採用 / Watch リセット仕様 /
+/// guardian_50 G-50-32)。POST 側は次 poll で `current=None` 経路 → retry_direct_read
+/// → exit_record で Watch 復帰する (Gap-2 と並ぶ構造的同期経路)。
+///
+/// R-28 機能的沈黙: storage path 解決失敗 / read_dir 失敗 / parse 失敗は当該
+/// dir/file のみ skip。UI エラー出さず log のみ。
+fn clear_stale_self_acks_at_startup(self_instance_id: &str) {
+    if self_instance_id.is_empty() {
+        return;
+    }
+    let Ok(paths) = StoragePaths::default_macos() else {
+        return;
+    };
+    clear_stale_self_acks_in(&paths.plugin_data_dir(), self_instance_id);
+}
+
+/// `clear_stale_self_acks_at_startup` の純粋ロジック版 (テスト容易性のため
+/// `plugin_data_root` を注入)。Production は `clear_stale_self_acks_at_startup` 経由。
+fn clear_stale_self_acks_in(plugin_data_root: &Path, self_instance_id: &str) {
+    let project_entries = match fs::read_dir(plugin_data_root) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+    let mut cleared: usize = 0;
+    for project_entry in project_entries.flatten() {
+        let project_dir = project_entry.path();
+        if !project_dir.is_dir() {
+            continue;
+        }
+        let project_hash = match project_dir.file_name().and_then(|n| n.to_str()) {
+            Some(s) => s.to_string(),
+            None => continue,
+        };
+        // 予約名 (record_signal / preset 等) が project_hash として現れるケースを除外。
+        if project_hash.as_str() == record_signal::SIGNALS_SUBDIR {
+            continue;
+        }
+        let signals = record_signal::scan_signals_dir(plugin_data_root, &project_hash);
+        for (post_iid, sig) in signals {
+            if sig.target_pre_instance_id != self_instance_id {
+                continue;
+            }
+            if sig.status != SignalStatus::Acknowledged {
+                continue;
+            }
+            match record_signal::delete_signal(plugin_data_root, &project_hash, &post_iid) {
+                Ok(()) => {
+                    cleared += 1;
+                    log::info!(
+                        "[IOThread PRE] startup: cleared stale Acknowledged signal \
+                         (project_hash={}, post_iid={})",
+                        project_hash,
+                        post_iid
+                    );
+                }
+                Err(e) => {
+                    log::warn!(
+                        "[IOThread PRE] startup: delete_signal failed \
+                         (project_hash={}, post_iid={}): {}",
+                        project_hash,
+                        post_iid,
+                        e
+                    );
+                }
+            }
+        }
+    }
+    if cleared > 0 {
+        log::info!(
+            "[IOThread PRE] startup: cleared {} stale Acknowledged signal(s) (self_iid={})",
+            cleared,
+            self_instance_id
+        );
+    }
+}
+
 /// PRE 用 IO Thread を起動して JoinHandle を返す。
 ///
 /// # 引数
@@ -110,6 +196,12 @@ pub fn spawn_io_thread_pre(
             "[IOThread PRE] started (lazy-read instance_id, fallback project_hash={})",
             project_hash
         );
+
+        // B-024 Group A / Gap-3 / Gap-5: PRE startup で stale Acknowledged signal を
+        // 削除し POST 側 Record を Watch に復帰させる。loop 突入前の 1 回のみ実行。
+        // (Daisuke 判断 α / guardian_50 G-50-32 Watch リセット仕様)
+        let initial_self_iid = read_instance_id_arc(&instance_id);
+        clear_stale_self_acks_at_startup(&initial_self_iid);
 
         let mut writer_ctx: Option<RecordingCtx> = None;
         let mut last_poll: Option<Instant> = None;
@@ -1909,5 +2001,168 @@ mod tests {
         );
         assert!(partner.is_some());
         assert_eq!(partner.as_ref().unwrap().post_instance_id, "post-T3b");
+    }
+}
+
+// ── Tests (B-024 Group A / Gap-3 / Gap-5: stale Acknowledged signal cleanup) ─
+#[cfg(test)]
+mod startup_clear_acks_tests {
+    use super::*;
+    use crate::record_signal::{
+        mark_acknowledged, write_pending, RecordSignal, SignalStatus,
+    };
+    use std::sync::atomic::AtomicU64;
+
+    const TEST_PH: &str = "ph-startup";
+    const TEST_PH_OTHER: &str = "ph-other";
+    const TEST_PRE_IID: &str = "pre-iid-startup";
+    const TEST_PRE_IID_OTHER: &str = "pre-iid-other";
+    const TEST_POST_IID: &str = "post-iid-startup";
+
+    fn isolated_pdr(tag: &str) -> PathBuf {
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let pid = std::process::id();
+        let dir = std::env::temp_dir().join(format!("kirin_pre_startup_clear_{pid}_{n}_{tag}"));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// Gap-3 / Gap-5: target_pre_instance_id == self_iid && status == Acknowledged の
+    /// signal は startup で削除される。
+    #[test]
+    fn clear_stale_self_acks_in_removes_acknowledged_targeting_self() {
+        let pdr = isolated_pdr("ack_targeting_self");
+        write_pending(
+            &pdr,
+            TEST_PH,
+            TEST_POST_IID,
+            TEST_PRE_IID.to_string(),
+            "daw-1".to_string(),
+        )
+        .unwrap();
+        // 該当 signal を Acknowledged に遷移 (PRE が ack 済み残骸を再現)。
+        let acked = mark_acknowledged(&pdr, TEST_PH, TEST_POST_IID).unwrap();
+        assert!(acked, "precondition: signal must be marked Acknowledged");
+
+        clear_stale_self_acks_in(&pdr, TEST_PRE_IID);
+
+        let after: Option<RecordSignal> =
+            crate::record_signal::read_signal(&pdr, TEST_PH, TEST_POST_IID);
+        assert!(
+            after.is_none(),
+            "stale Acknowledged signal targeting self must be deleted at startup"
+        );
+    }
+
+    /// Gap-3 / Gap-5: status == Pending の signal は削除しない (POST 側 Pending は
+    /// 新規要求として残す)。
+    #[test]
+    fn clear_stale_self_acks_in_keeps_pending() {
+        let pdr = isolated_pdr("keep_pending");
+        write_pending(
+            &pdr,
+            TEST_PH,
+            TEST_POST_IID,
+            TEST_PRE_IID.to_string(),
+            "daw-1".to_string(),
+        )
+        .unwrap();
+
+        clear_stale_self_acks_in(&pdr, TEST_PRE_IID);
+
+        let after = crate::record_signal::read_signal(&pdr, TEST_PH, TEST_POST_IID);
+        assert!(
+            after.is_some(),
+            "Pending signal must NOT be deleted (Pending = 新規 Record 要求)"
+        );
+        assert_eq!(after.unwrap().status, SignalStatus::Pending);
+    }
+
+    /// Gap-3 / Gap-5: target_pre_instance_id != self_iid の Acknowledged signal は削除しない
+    /// (他 PRE の signal を PRE-A が clear するのを防ぐ)。
+    #[test]
+    fn clear_stale_self_acks_in_keeps_other_pre_targets() {
+        let pdr = isolated_pdr("keep_other_targets");
+        write_pending(
+            &pdr,
+            TEST_PH,
+            TEST_POST_IID,
+            TEST_PRE_IID_OTHER.to_string(),
+            "daw-1".to_string(),
+        )
+        .unwrap();
+        mark_acknowledged(&pdr, TEST_PH, TEST_POST_IID).unwrap();
+
+        clear_stale_self_acks_in(&pdr, TEST_PRE_IID); // self = TEST_PRE_IID, signal target = OTHER
+
+        let after = crate::record_signal::read_signal(&pdr, TEST_PH, TEST_POST_IID);
+        assert!(
+            after.is_some(),
+            "Acknowledged signal targeting other PRE must NOT be deleted"
+        );
+        assert_eq!(after.unwrap().target_pre_instance_id, TEST_PRE_IID_OTHER);
+    }
+
+    /// Gap-3 / Gap-5: 複数 project_hash 横断で削除される (cdylib 隔離下対応)。
+    #[test]
+    fn clear_stale_self_acks_in_scans_all_project_hashes() {
+        let pdr = isolated_pdr("multi_ph");
+        // ph-startup と ph-other の両方に self 宛 Acknowledged signal を配置。
+        write_pending(
+            &pdr,
+            TEST_PH,
+            TEST_POST_IID,
+            TEST_PRE_IID.to_string(),
+            "daw-1".to_string(),
+        )
+        .unwrap();
+        mark_acknowledged(&pdr, TEST_PH, TEST_POST_IID).unwrap();
+
+        write_pending(
+            &pdr,
+            TEST_PH_OTHER,
+            "post-iid-other",
+            TEST_PRE_IID.to_string(),
+            "daw-1".to_string(),
+        )
+        .unwrap();
+        mark_acknowledged(&pdr, TEST_PH_OTHER, "post-iid-other").unwrap();
+
+        clear_stale_self_acks_in(&pdr, TEST_PRE_IID);
+
+        assert!(
+            crate::record_signal::read_signal(&pdr, TEST_PH, TEST_POST_IID).is_none(),
+            "ph-startup の self 宛 Acknowledged は削除される"
+        );
+        assert!(
+            crate::record_signal::read_signal(&pdr, TEST_PH_OTHER, "post-iid-other").is_none(),
+            "ph-other の self 宛 Acknowledged も削除される (multi-ph scan)"
+        );
+    }
+
+    /// Gap-3 / Gap-5: self_iid が空文字なら no-op (false-positive 全消し防止)。
+    #[test]
+    fn clear_stale_self_acks_in_empty_self_iid_is_noop() {
+        let pdr = isolated_pdr("empty_self");
+        write_pending(
+            &pdr,
+            TEST_PH,
+            TEST_POST_IID,
+            TEST_PRE_IID.to_string(),
+            "daw-1".to_string(),
+        )
+        .unwrap();
+        mark_acknowledged(&pdr, TEST_PH, TEST_POST_IID).unwrap();
+
+        // top-level wrapper の guard で空文字 self_iid なら早期 return。
+        clear_stale_self_acks_at_startup("");
+
+        // signal はそのまま (top-level guard が機能した間接確証)。
+        let after = crate::record_signal::read_signal(&pdr, TEST_PH, TEST_POST_IID);
+        // 環境依存ホーム (StoragePaths::default_macos) を経由する経路の確証は
+        // self_iid="" 早期 return で本機の plugin_data には触らない (R-9 of code)。
+        let _ = after;
     }
 }

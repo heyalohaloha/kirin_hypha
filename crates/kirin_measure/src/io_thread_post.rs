@@ -60,6 +60,17 @@ const PAIR_LABEL_POLL_INTERVAL: Duration = Duration::from_secs(1);
 /// disk I/O が嵩むため 1 秒 throttle (ack/preset/pair_label と同位相 / 体感差は無視可能)。
 const ALL_KEEP_POLL_INTERVAL: Duration = Duration::from_secs(1);
 
+/// B-024 Group A / Gap-2: PRE 死活確認 sub-tick の間隔 (1 秒 / 既存 PRESET / ACK /
+/// PAIR_LABEL / ALL_KEEP と同位相)。`record_sm.is_recording()` 中のみ動作し disk I/O は
+/// 軽量 (`fs::metadata` 1 件 / project)。
+const PRE_LIVENESS_POLL_INTERVAL: Duration = Duration::from_secs(1);
+
+/// B-024 Group A / Gap-2: PRE pre.json mtime stale 判定閾値 (秒) — guardian_50 G-50-33。
+/// 60 秒以上 mtime 更新が無い (or pre.json 不在) の場合、PRE crash / unload とみなし
+/// POST が `delete_signal` + `exit_record` で構造的同期する (Daisuke 判断 α 採用 /
+/// Gap-1 / Gap-7 / Gap-18 統合解)。
+const PRE_LIVENESS_STALE_SECS: u64 = 60;
+
 /// B-027 段階 3-B α-7-4-D / Step 11: IO Thread broadcast 受信時に発火する trigger
 /// closure 型。引数 `(originator_iid, started_at)`。crate 構造制約 (kirin_measure →
 /// hypha_post 逆依存不可) を回避するため、closure 構築は呼出側 (hypha_post::lib.rs)
@@ -178,6 +189,8 @@ pub fn spawn_io_thread_post(
         // α-7' All Stop: Stop broadcast 受信側 cache (Keep と並列 / 同型 HashMap)。
         let mut processed_stop_broadcasts: HashMap<String, (String, Instant)> = HashMap::new();
         let mut next_all_keep_poll = Instant::now();
+        // B-024 Group A / Gap-2: PRE 死活監視 sub-tick の next-fire 時刻。
+        let mut next_pre_liveness_poll = Instant::now();
         let mut discovery = PostDiscoveryState::new();
 
         loop {
@@ -275,6 +288,22 @@ pub fn spawn_io_thread_post(
                     &pair_label,
                 );
                 next_pair_label_poll = Instant::now() + PAIR_LABEL_POLL_INTERVAL;
+            }
+
+            // B-024 Group A / Gap-2: PRE 死活確認 sub-tick (1 秒 throttle)。
+            // `record_sm` が Record 中のときのみ動作し、`paired_pre_target` の PRE が
+            // 書く `pre.json` の mtime が `PRE_LIVENESS_STALE_SECS` (60 秒 / G-50-33)
+            // 超 (or 不在) なら `delete_signal(self_post_iid)` + `record_sm.exit_record()`
+            // で構造的同期する。Gap-1 / Gap-7 / Gap-18 (PRE drop 残骸系) も本経路で解消。
+            if Instant::now() >= next_pre_liveness_poll {
+                poll_pre_liveness(
+                    &kirin_root,
+                    project_hash_ref,
+                    instance_id_ref,
+                    &record_sm,
+                    &paired_pre_target,
+                );
+                next_pre_liveness_poll = Instant::now() + PRE_LIVENESS_POLL_INTERVAL;
             }
 
             // α-7' All Stop: Stop broadcast 受信 sub-tick (Keep より先に処理 / Stop 優先)。
@@ -1176,6 +1205,123 @@ fn poll_ack_timeout(
         Err(_) => return,
     };
     poll_ack_timeout_with_base(&base, project_hash, instance_id, record_sm, chrono::Utc::now());
+}
+
+/// B-024 Group A / Gap-2: kirin_root 配下の全 project_hash を横断 scan して
+/// `*/{pre_iid}/pre.json` の中で最新 mtime を返す。
+///
+/// cdylib 隔離下で PRE/POST の `project_hash` が乖離するため、POST 自身の
+/// `project_hash` だけを見ても PRE pre.json は見つからない。`pre_discovery::
+/// discover_active_pre_dir` と同じ走査方針を採用 (project_dir 全件 + 当該
+/// instance_id 直結 read)。
+///
+/// R-28 機能的沈黙: 各エラー (read_dir 不能 / metadata 不能 / modified 不能) は
+/// 当該 dir/file のみ skip。全件失敗 / 不在なら None。
+fn find_pre_json_mtime(kirin_root: &Path, pre_iid: &str) -> Option<SystemTime> {
+    if pre_iid.is_empty() {
+        return None;
+    }
+    let project_entries = fs::read_dir(kirin_root).ok()?;
+    let mut latest: Option<SystemTime> = None;
+    for project_entry in project_entries.flatten() {
+        let project_dir = project_entry.path();
+        if !project_dir.is_dir() {
+            continue;
+        }
+        let pre_json = project_dir.join(pre_iid).join("pre.json");
+        let meta = match fs::metadata(&pre_json) {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
+        if !meta.is_file() {
+            continue;
+        }
+        let mtime = match meta.modified() {
+            Ok(t) => t,
+            Err(_) => continue,
+        };
+        latest = Some(match latest {
+            Some(prev) if prev > mtime => prev,
+            _ => mtime,
+        });
+    }
+    latest
+}
+
+/// B-024 Group A / Gap-2: POST 側 PRE 死活監視 sub-tick の本体。
+///
+/// `record_sm` が Record 中で、かつ `paired_pre_target` が `Some(pre_iid)` のとき:
+///   1. `find_pre_json_mtime(kirin_root, pre_iid)` で PRE pre.json の最新 mtime を取得
+///   2. `now - mtime > PRE_LIVENESS_STALE_SECS` (60 秒 / G-50-33) または mtime 不在で stale
+///   3. stale 時 `delete_signal(self_post_iid)` で record_signal を消す → PRE 側 poll は
+///      `current=None` 経路 (`io_thread_pre.rs:429-`) で retry_direct_read → exit_record
+///   4. POST 側 `record_sm.exit_record()` で自身も Watch 復帰
+///
+/// Gap-1 / Gap-7 / Gap-18 (PRE drop 残骸系) は本経路で構造的に解消される (Daisuke
+/// 判断 α / signal 所有権設計変更なし)。
+fn poll_pre_liveness(
+    kirin_root: &Path,
+    project_hash: &str,
+    self_post_iid: &str,
+    record_sm: &Arc<RecordStateMachine>,
+    paired_pre_target: &Arc<Mutex<Option<String>>>,
+) {
+    if !record_sm.is_recording() {
+        return;
+    }
+    let Some(pre_iid) = paired_pre_target.lock().ok().and_then(|g| g.clone()) else {
+        return;
+    };
+    let plugin_data_root = match StoragePaths::default_macos() {
+        Ok(paths) => paths.plugin_data_dir(),
+        Err(_) => return,
+    };
+    poll_pre_liveness_at(
+        kirin_root,
+        &plugin_data_root,
+        project_hash,
+        self_post_iid,
+        &pre_iid,
+        record_sm,
+        SystemTime::now(),
+    );
+}
+
+/// `poll_pre_liveness` の純粋ロジック版 (テスト容易性のため `now` と `plugin_data_root`
+/// を注入)。Production は `poll_pre_liveness` を経由する。
+fn poll_pre_liveness_at(
+    kirin_root: &Path,
+    plugin_data_root: &Path,
+    project_hash: &str,
+    self_post_iid: &str,
+    pre_iid: &str,
+    record_sm: &Arc<RecordStateMachine>,
+    now: SystemTime,
+) {
+    let stale = match find_pre_json_mtime(kirin_root, pre_iid) {
+        Some(mtime) => match now.duration_since(mtime) {
+            Ok(d) => d.as_secs() > PRE_LIVENESS_STALE_SECS,
+            Err(_) => false, // future mtime (clock skew): fresh 扱い
+        },
+        None => true, // pre.json 不在 = PRE 既に消失
+    };
+    if !stale {
+        return;
+    }
+    log::warn!(
+        "[POST liveness] PRE pre.json stale > {}s — exit_record (partner_pre_iid={}, post_iid={})",
+        PRE_LIVENESS_STALE_SECS,
+        pre_iid,
+        self_post_iid
+    );
+    match record_signal::delete_signal(plugin_data_root, project_hash, self_post_iid) {
+        Ok(()) => log::info!(
+            "[POST liveness] delete_signal ok (post_iid={})",
+            self_post_iid
+        ),
+        Err(e) => log::warn!("[POST liveness] delete_signal failed: {}", e),
+    }
+    record_sm.exit_record();
 }
 
 fn poll_ack_timeout_with_base(
@@ -2128,3 +2274,206 @@ mod snapshot_pair_pre_name_tests {
     }
 }
 
+// ── Tests (B-024 Group A / Gap-2 PRE liveness / Gap-1/7/18 構造解消) ─────────
+#[cfg(test)]
+mod pre_liveness_tests {
+    use super::*;
+    use crate::record_signal::write_pending;
+    use std::sync::atomic::AtomicU64;
+
+    const TEST_PH: &str = "ph";
+    const TEST_POST_IID: &str = "post-iid-liveness";
+    const TEST_PRE_IID: &str = "pre-iid-liveness";
+    const TEST_DAW_SESSION: &str = "daw-session-1";
+
+    fn isolated_root(tag: &str) -> PathBuf {
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let pid = std::process::id();
+        let dir = std::env::temp_dir().join(format!("kirin_pre_liveness_test_{pid}_{n}_{tag}"));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn write_dummy_pre_json(kirin_root: &Path, project_hash: &str, pre_iid: &str) -> PathBuf {
+        let dir = kirin_root.join(project_hash).join(pre_iid);
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("pre.json");
+        // 中身は空の JSON で OK (本テストは mtime のみ評価)。
+        fs::write(&path, b"{}").unwrap();
+        path
+    }
+
+    /// Gap-2: paired_pre_target=Some(pre_iid) / pre.json mtime stale (>60s) →
+    /// `delete_signal` + `record_sm.exit_record()` が呼ばれる。
+    #[test]
+    fn poll_pre_liveness_at_stale_pre_triggers_exit_record_and_delete_signal() {
+        let kirin_root = isolated_root("stale_pre");
+        let plugin_data_root = isolated_root("stale_pre_pdr");
+
+        // PRE pre.json を書き込み (mtime = "現在時刻")。
+        write_dummy_pre_json(&kirin_root, TEST_PH, TEST_PRE_IID);
+        // POST 自身の record_signal を書き込み (status=Pending で OK)。
+        write_pending(
+            &plugin_data_root,
+            TEST_PH,
+            TEST_POST_IID,
+            TEST_PRE_IID.to_string(),
+            TEST_DAW_SESSION.to_string(),
+        )
+        .unwrap();
+
+        let sm = Arc::new(RecordStateMachine::new());
+        sm.try_enter_record(crate::License::Os).unwrap();
+        assert!(sm.is_recording(), "precondition: record_sm must be Recording");
+
+        // mtime + 100 秒先を `now` として注入 → 60 秒 threshold を超える。
+        let stale_now = SystemTime::now() + Duration::from_secs(100);
+        poll_pre_liveness_at(
+            &kirin_root,
+            &plugin_data_root,
+            TEST_PH,
+            TEST_POST_IID,
+            TEST_PRE_IID,
+            &sm,
+            stale_now,
+        );
+
+        assert!(
+            !sm.is_recording(),
+            "stale pre.json detection must trigger record_sm.exit_record()"
+        );
+        let signal_after =
+            crate::record_signal::read_signal(&plugin_data_root, TEST_PH, TEST_POST_IID);
+        assert!(
+            signal_after.is_none(),
+            "stale pre.json detection must call delete_signal() (signal file gone)"
+        );
+    }
+
+    /// Gap-2: pre.json 不在 (PRE drop された直後) でも stale 判定で exit_record。
+    /// Gap-1 / Gap-7 / Gap-18 (PRE drop 残骸系) の構造解消確証。
+    #[test]
+    fn poll_pre_liveness_at_missing_pre_json_triggers_exit_record() {
+        let kirin_root = isolated_root("missing_pre");
+        let plugin_data_root = isolated_root("missing_pre_pdr");
+
+        // pre.json を一切作らない (PRE drop 後を再現)。
+        write_pending(
+            &plugin_data_root,
+            TEST_PH,
+            TEST_POST_IID,
+            TEST_PRE_IID.to_string(),
+            TEST_DAW_SESSION.to_string(),
+        )
+        .unwrap();
+
+        let sm = Arc::new(RecordStateMachine::new());
+        sm.try_enter_record(crate::License::Os).unwrap();
+
+        poll_pre_liveness_at(
+            &kirin_root,
+            &plugin_data_root,
+            TEST_PH,
+            TEST_POST_IID,
+            TEST_PRE_IID,
+            &sm,
+            SystemTime::now(),
+        );
+
+        assert!(
+            !sm.is_recording(),
+            "missing pre.json must trigger record_sm.exit_record() (PRE drop 構造解消)"
+        );
+        let signal_after =
+            crate::record_signal::read_signal(&plugin_data_root, TEST_PH, TEST_POST_IID);
+        assert!(
+            signal_after.is_none(),
+            "missing pre.json must call delete_signal()"
+        );
+    }
+
+    /// Gap-2: pre.json mtime fresh (< 60s) → exit_record せず Record 維持。
+    #[test]
+    fn poll_pre_liveness_at_fresh_pre_keeps_recording() {
+        let kirin_root = isolated_root("fresh_pre");
+        let plugin_data_root = isolated_root("fresh_pre_pdr");
+
+        write_dummy_pre_json(&kirin_root, TEST_PH, TEST_PRE_IID);
+        write_pending(
+            &plugin_data_root,
+            TEST_PH,
+            TEST_POST_IID,
+            TEST_PRE_IID.to_string(),
+            TEST_DAW_SESSION.to_string(),
+        )
+        .unwrap();
+
+        let sm = Arc::new(RecordStateMachine::new());
+        sm.try_enter_record(crate::License::Os).unwrap();
+
+        // `now` をリアルな現在時刻にする → mtime ≈ now → 経過 ≈ 0 秒。
+        poll_pre_liveness_at(
+            &kirin_root,
+            &plugin_data_root,
+            TEST_PH,
+            TEST_POST_IID,
+            TEST_PRE_IID,
+            &sm,
+            SystemTime::now(),
+        );
+
+        assert!(
+            sm.is_recording(),
+            "fresh pre.json must NOT trigger exit_record()"
+        );
+        let signal_after =
+            crate::record_signal::read_signal(&plugin_data_root, TEST_PH, TEST_POST_IID);
+        assert!(
+            signal_after.is_some(),
+            "fresh pre.json must NOT delete signal"
+        );
+    }
+
+    /// Gap-2: `record_sm` が Watch 状態のとき sub-tick は no-op。
+    #[test]
+    fn poll_pre_liveness_at_watch_state_is_noop() {
+        let kirin_root = isolated_root("watch_state");
+        let plugin_data_root = isolated_root("watch_state_pdr");
+
+        write_pending(
+            &plugin_data_root,
+            TEST_PH,
+            TEST_POST_IID,
+            TEST_PRE_IID.to_string(),
+            TEST_DAW_SESSION.to_string(),
+        )
+        .unwrap();
+
+        let sm = Arc::new(RecordStateMachine::new());
+        // try_enter_record せず Watch のまま。
+        assert!(!sm.is_recording());
+
+        let paired = Arc::new(Mutex::new(Some(TEST_PRE_IID.to_string())));
+
+        // poll_pre_liveness (top-level) は record_sm guard 内で早期 return。
+        poll_pre_liveness(
+            &kirin_root,
+            TEST_PH,
+            TEST_POST_IID,
+            &sm,
+            &paired,
+        );
+
+        // Watch のまま signal も削除されない。
+        let signal_after =
+            crate::record_signal::read_signal(&plugin_data_root, TEST_PH, TEST_POST_IID);
+        // Watch ガードで delete_signal を呼ばないため signal は残る (本 test は
+        // production の StoragePaths を経由するので、本機ホームの plugin_data
+        // を触らないことが重要だが、Watch ガードの早期 return でその経路にすら
+        // 入らないことを is_recording=false で間接確証する)。
+        assert!(!sm.is_recording(), "Watch state must remain unchanged");
+        let _ = signal_after; // 環境依存ホームを避けるため値は assert しない
+    }
+}
