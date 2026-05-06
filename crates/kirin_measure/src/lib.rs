@@ -5,6 +5,7 @@
 
 pub mod all_keep_signal;
 pub mod all_stop_signal;
+pub mod cleanup;
 pub mod delta;
 pub mod engine;
 pub mod exclusion;
@@ -84,6 +85,7 @@ pub use all_stop_signal::{
     AllStopBroadcast, AllStopError, ALL_STOP_BROADCAST_STALE_SECS, ALL_STOP_SCHEMA_VERSION,
     ALL_STOP_SIGNAL_SUBDIR,
 };
+pub use cleanup::{clear_pair_label, exit_record_full};
 pub use record::{RecordState, RecordStateMachine, TransitionError};
 pub use record_signal::{
     delete_signal, enumerate_active_pre_pair_candidates, filter_candidates_by_name,

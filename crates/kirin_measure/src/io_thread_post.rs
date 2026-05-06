@@ -26,12 +26,13 @@ use serde::Deserialize;
 
 use crate::all_keep_signal::{self, ALL_KEEP_BROADCAST_STALE_SECS};
 use crate::all_stop_signal::{self, ALL_STOP_BROADCAST_STALE_SECS};
+use crate::cleanup::exit_record_full;
 use crate::delta::{DeltaMode, DeltaResult};
 use crate::plugin_data::Role as PluginDataRole;
 use crate::pre_discovery::{discover_active_pre_dir, PostDiscoveryState, DISCOVERY_STALE_SECS};
 use crate::record::RecordStateMachine;
 use crate::record_signal::{self, SignalStatus, ACK_TIMEOUT_SECONDS, SIGNALS_SUBDIR};
-use crate::record_writer::{run_record_tick, writer_close, RecordingCtx};
+use crate::record_writer::{run_record_tick, writer_close, RecordError, RecordingCtx};
 use crate::storage::StoragePaths;
 use crate::{load_signal_state, MeasureResult, SignalState};
 
@@ -279,25 +280,23 @@ pub fn spawn_io_thread_post(
                 log::warn!("[writer] tick error: {}", e);
             }
 
-            // B-025 Group B-2/B-3 / Gap-19/20: run_record_tick が連続失敗閾値を
-            // 検知して `exit_requested` に sentinel をセットしたら、本 tick で
-            // writer_close + record_sm.exit_record + UI 通知文字列書込。
+            // B-025 Group B-2/B-3 / Gap-19/20 + G-115-64 (番人 #137 確定):
+            // run_record_tick が連続失敗閾値を検知して `exit_requested` に sentinel
+            // をセットしたら、本 tick で `handle_exit_reason` 経由で
+            // writer_close + exit_record_full + UI 通知文字列書込を 1 単位で行う。
             // 1 record session 内で 1 回のみ発火 (`Option::take` で消費)。
             let exit_reason = recording
                 .as_mut()
                 .and_then(|ctx| ctx.exit_requested.take());
             if let Some(reason) = exit_reason {
-                if let Some(ctx) = recording.take() {
-                    writer_close(ctx);
-                }
-                record_sm.exit_record();
-                if let Ok(mut g) = record_error_message.write() {
-                    *g = Some(reason.ui_message().to_string());
-                }
-                log::warn!(
-                    "[IOThread POST] record exit: {} (post_iid={})",
+                handle_exit_reason(
                     reason,
-                    instance_id_ref
+                    &mut recording,
+                    &record_sm,
+                    &pair_label,
+                    &paired_pre_target,
+                    &record_error_message,
+                    instance_id_ref,
                 );
             }
 
@@ -307,7 +306,13 @@ pub fn spawn_io_thread_post(
             }
 
             if Instant::now() >= next_ack_timeout_poll {
-                poll_ack_timeout(project_hash_ref, instance_id_ref, &record_sm);
+                poll_ack_timeout(
+                    project_hash_ref,
+                    instance_id_ref,
+                    &record_sm,
+                    &pair_label,
+                    &paired_pre_target,
+                );
                 next_ack_timeout_poll = Instant::now() + ACK_TIMEOUT_POLL_INTERVAL;
             }
 
@@ -335,6 +340,7 @@ pub fn spawn_io_thread_post(
                     project_hash_ref,
                     instance_id_ref,
                     &record_sm,
+                    &pair_label,
                     &paired_pre_target,
                 );
                 next_pre_liveness_poll = Instant::now() + PRE_LIVENESS_POLL_INTERVAL;
@@ -1245,18 +1251,68 @@ fn phase_d_fragment(result: &MeasureResult) -> String {
     s
 }
 
+// ── B-025 Group B-2/B-3 + G-115-64: exit_reason cleanup helper ────────────────
+
+/// `RecordingCtx::exit_requested` sentinel が立ったときの cleanup を 1 単位で実行する
+/// (G-115-64 / 番人 #137 確定 / B-025 Group B-2/B-3 / Gap-19/20).
+///
+/// `run_record_tick` が連続失敗閾値 (`CONSECUTIVE_FAILURE_THRESHOLD` = 3) を検知して
+/// `exit_requested` に sentinel をセットしたら、IO Thread main loop は本関数を呼び出し:
+///   1. `writer_close(ctx)` — flush 中の writer を status=closed で確定 + 検証
+///   2. `exit_record_full(...)` — record_sm + pair_label + paired_pre_target を一括 cleanup
+///   3. `record_error_message` に GUI 通知文言を書込
+///   4. `log::warn!` で診断ログ
+///
+/// editor 側 `trigger_stop_internal` と完全対称な構造的契約を成立させる
+/// (Watch 状態 ⟹ pair_label 空 / paired_pre_target = None).
+///
+/// unit test 容易性のため main loop から切り出した。
+#[allow(clippy::too_many_arguments)]
+fn handle_exit_reason(
+    reason: RecordError,
+    recording: &mut Option<RecordingCtx>,
+    record_sm: &Arc<RecordStateMachine>,
+    pair_label: &Arc<Mutex<String>>,
+    paired_pre_target: &Arc<Mutex<Option<String>>>,
+    record_error_message: &Arc<RwLock<Option<String>>>,
+    instance_id: &str,
+) {
+    if let Some(ctx) = recording.take() {
+        writer_close(ctx);
+    }
+    exit_record_full(record_sm, pair_label, paired_pre_target);
+    if let Ok(mut g) = record_error_message.write() {
+        *g = Some(reason.ui_message().to_string());
+    }
+    log::warn!(
+        "[IOThread POST] record exit: {} (post_iid={})",
+        reason,
+        instance_id
+    );
+}
+
 // ── ACK タイムアウト監視（G-60-02 / B-7）──────────────────────────────────
 
 fn poll_ack_timeout(
     project_hash: &str,
     instance_id: &str,
     record_sm: &Arc<RecordStateMachine>,
+    pair_label: &Arc<Mutex<String>>,
+    paired_pre_target: &Arc<Mutex<Option<String>>>,
 ) {
     let base = match StoragePaths::default_macos() {
         Ok(paths) => paths.plugin_data_dir(),
         Err(_) => return,
     };
-    poll_ack_timeout_with_base(&base, project_hash, instance_id, record_sm, chrono::Utc::now());
+    poll_ack_timeout_with_base(
+        &base,
+        project_hash,
+        instance_id,
+        record_sm,
+        pair_label,
+        paired_pre_target,
+        chrono::Utc::now(),
+    );
 }
 
 /// B-024 Group A / Gap-2: kirin_root 配下の全 project_hash を横断 scan して
@@ -1316,6 +1372,7 @@ fn poll_pre_liveness(
     project_hash: &str,
     self_post_iid: &str,
     record_sm: &Arc<RecordStateMachine>,
+    pair_label: &Arc<Mutex<String>>,
     paired_pre_target: &Arc<Mutex<Option<String>>>,
 ) {
     if !record_sm.is_recording() {
@@ -1335,12 +1392,15 @@ fn poll_pre_liveness(
         self_post_iid,
         &pre_iid,
         record_sm,
+        pair_label,
+        paired_pre_target,
         SystemTime::now(),
     );
 }
 
 /// `poll_pre_liveness` の純粋ロジック版 (テスト容易性のため `now` と `plugin_data_root`
 /// を注入)。Production は `poll_pre_liveness` を経由する。
+#[allow(clippy::too_many_arguments)]
 fn poll_pre_liveness_at(
     kirin_root: &Path,
     plugin_data_root: &Path,
@@ -1348,6 +1408,8 @@ fn poll_pre_liveness_at(
     self_post_iid: &str,
     pre_iid: &str,
     record_sm: &Arc<RecordStateMachine>,
+    pair_label: &Arc<Mutex<String>>,
+    paired_pre_target: &Arc<Mutex<Option<String>>>,
     now: SystemTime,
 ) {
     let stale = match find_pre_json_mtime(kirin_root, pre_iid) {
@@ -1373,7 +1435,9 @@ fn poll_pre_liveness_at(
         ),
         Err(e) => log::warn!("[POST liveness] delete_signal failed: {}", e),
     }
-    record_sm.exit_record();
+    // G-115-64 (番人 #137 確定): 構造的契約 "Watch ⟹ pair_label 空 / paired_pre_target = None"
+    // を成立させるため、editor 側 trigger_stop_internal と同じ 3 ステップを通過させる。
+    exit_record_full(record_sm, pair_label, paired_pre_target);
 }
 
 fn poll_ack_timeout_with_base(
@@ -1381,6 +1445,8 @@ fn poll_ack_timeout_with_base(
     project_hash: &str,
     instance_id: &str,
     record_sm: &Arc<RecordStateMachine>,
+    pair_label: &Arc<Mutex<String>>,
+    paired_pre_target: &Arc<Mutex<Option<String>>>,
     now: chrono::DateTime<chrono::Utc>,
 ) {
     let Some(signal) = record_signal::read_signal(base, project_hash, instance_id) else {
@@ -1401,7 +1467,9 @@ fn poll_ack_timeout_with_base(
         Ok(false) => log::debug!("[IOThread POST] signal already gone"),
         Err(e) => log::warn!("[IOThread POST] mark_released failed: {}", e),
     }
-    record_sm.exit_record();
+    // G-115-64 (番人 #137 確定): 構造的契約 "Watch ⟹ pair_label 空 / paired_pre_target = None"
+    // を成立させるため、editor 側 trigger_stop_internal と同じ 3 ステップを通過させる。
+    exit_record_full(record_sm, pair_label, paired_pre_target);
 }
 
 /// B-023 段階 4: pair_label 表示文字列を組み立てる（POST GUI / PRE Name 反映）。
@@ -1681,11 +1749,14 @@ mod ack_timeout_tests {
         dir
     }
 
+    /// G-115-64: ACK timeout 経路でも `exit_record_full` で 3 ステップ cleanup される.
     #[test]
-    fn pending_over_30s_is_auto_released() {
+    fn pending_over_30s_is_auto_released_with_full_cleanup() {
         let base = isolated_base("stale");
         let sm = Arc::new(RecordStateMachine::new());
         sm.try_enter_record(crate::License::Os).unwrap();
+        let pair_label = Arc::new(Mutex::new("pair: deadbeef".to_string()));
+        let paired_pre_target = Arc::new(Mutex::new(Some("pre-1".to_string())));
 
         write_pending(
             &base,
@@ -1697,11 +1768,27 @@ mod ack_timeout_tests {
         .unwrap();
         let future_now = chrono::Utc::now() + chrono::Duration::seconds(31);
 
-        poll_ack_timeout_with_base(&base, TEST_PH, TEST_POST_IID, &sm, future_now);
+        poll_ack_timeout_with_base(
+            &base,
+            TEST_PH,
+            TEST_POST_IID,
+            &sm,
+            &pair_label,
+            &paired_pre_target,
+            future_now,
+        );
 
         let after = record_signal::read_signal(&base, TEST_PH, TEST_POST_IID).unwrap();
         assert_eq!(after.status, SignalStatus::Released);
         assert_eq!(sm.current(), RecordState::Watch);
+        assert!(
+            pair_label.lock().unwrap().is_empty(),
+            "G-115-64: ACK timeout must clear pair_label"
+        );
+        assert!(
+            paired_pre_target.lock().unwrap().is_none(),
+            "G-115-64: ACK timeout must reset paired_pre_target to None"
+        );
     }
 
     #[test]
@@ -1709,6 +1796,8 @@ mod ack_timeout_tests {
         let base = isolated_base("fresh");
         let sm = Arc::new(RecordStateMachine::new());
         sm.try_enter_record(crate::License::Os).unwrap();
+        let pair_label = Arc::new(Mutex::new("pair: deadbeef".to_string()));
+        let paired_pre_target = Arc::new(Mutex::new(Some("pre-1".to_string())));
 
         write_pending(
             &base,
@@ -1718,11 +1807,29 @@ mod ack_timeout_tests {
             "daw-1".into(),
         )
         .unwrap();
-        poll_ack_timeout_with_base(&base, TEST_PH, TEST_POST_IID, &sm, chrono::Utc::now());
+        poll_ack_timeout_with_base(
+            &base,
+            TEST_PH,
+            TEST_POST_IID,
+            &sm,
+            &pair_label,
+            &paired_pre_target,
+            chrono::Utc::now(),
+        );
 
         let after = record_signal::read_signal(&base, TEST_PH, TEST_POST_IID).unwrap();
         assert_eq!(after.status, SignalStatus::Pending);
         assert_eq!(sm.current(), RecordState::Record);
+        assert_eq!(
+            pair_label.lock().unwrap().as_str(),
+            "pair: deadbeef",
+            "G-115-64: within-window must NOT clear pair_label"
+        );
+        assert_eq!(
+            paired_pre_target.lock().unwrap().as_deref(),
+            Some("pre-1"),
+            "G-115-64: within-window must NOT clear paired_pre_target"
+        );
     }
 
     #[test]
@@ -1730,6 +1837,8 @@ mod ack_timeout_tests {
         let base = isolated_base("acked");
         let sm = Arc::new(RecordStateMachine::new());
         sm.try_enter_record(crate::License::Os).unwrap();
+        let pair_label = Arc::new(Mutex::new("pair: deadbeef".to_string()));
+        let paired_pre_target = Arc::new(Mutex::new(Some("pre-1".to_string())));
 
         write_pending(
             &base,
@@ -1742,21 +1851,51 @@ mod ack_timeout_tests {
         mark_acknowledged(&base, TEST_PH, TEST_POST_IID).unwrap();
 
         let future_now = chrono::Utc::now() + chrono::Duration::seconds(300);
-        poll_ack_timeout_with_base(&base, TEST_PH, TEST_POST_IID, &sm, future_now);
+        poll_ack_timeout_with_base(
+            &base,
+            TEST_PH,
+            TEST_POST_IID,
+            &sm,
+            &pair_label,
+            &paired_pre_target,
+            future_now,
+        );
 
         let after = record_signal::read_signal(&base, TEST_PH, TEST_POST_IID).unwrap();
         assert_eq!(after.status, SignalStatus::Acknowledged);
         assert_eq!(sm.current(), RecordState::Record);
+        assert_eq!(
+            pair_label.lock().unwrap().as_str(),
+            "pair: deadbeef",
+            "G-115-64: Acknowledged must NOT clear pair_label"
+        );
+        assert_eq!(
+            paired_pre_target.lock().unwrap().as_deref(),
+            Some("pre-1"),
+            "G-115-64: Acknowledged must NOT clear paired_pre_target"
+        );
     }
 
     #[test]
     fn missing_signal_is_noop() {
         let base = isolated_base("missing");
         let sm = Arc::new(RecordStateMachine::new());
+        let pair_label = Arc::new(Mutex::new(String::new()));
+        let paired_pre_target = Arc::new(Mutex::new(None));
 
-        poll_ack_timeout_with_base(&base, TEST_PH, TEST_POST_IID, &sm, chrono::Utc::now());
+        poll_ack_timeout_with_base(
+            &base,
+            TEST_PH,
+            TEST_POST_IID,
+            &sm,
+            &pair_label,
+            &paired_pre_target,
+            chrono::Utc::now(),
+        );
 
         assert_eq!(sm.current(), RecordState::Watch);
+        assert!(pair_label.lock().unwrap().is_empty());
+        assert!(paired_pre_target.lock().unwrap().is_none());
     }
 }
 
@@ -2357,10 +2496,11 @@ mod pre_liveness_tests {
         path
     }
 
-    /// Gap-2: paired_pre_target=Some(pre_iid) / pre.json mtime stale (>60s) →
-    /// `delete_signal` + `record_sm.exit_record()` が呼ばれる。
+    /// Gap-2 + G-115-64: paired_pre_target=Some(pre_iid) / pre.json mtime stale
+    /// (>60s) → `delete_signal` + `exit_record_full` (record_sm Watch /
+    /// pair_label 空 / paired_pre_target=None) が呼ばれる.
     #[test]
-    fn poll_pre_liveness_at_stale_pre_triggers_exit_record_and_delete_signal() {
+    fn poll_pre_liveness_at_stale_pre_triggers_full_cleanup_and_delete_signal() {
         let kirin_root = isolated_root("stale_pre");
         let plugin_data_root = isolated_root("stale_pre_pdr");
 
@@ -2379,6 +2519,11 @@ mod pre_liveness_tests {
         let sm = Arc::new(RecordStateMachine::new());
         sm.try_enter_record(crate::License::Os).unwrap();
         assert!(sm.is_recording(), "precondition: record_sm must be Recording");
+        // G-115-64: cleanup 後に空文字 / None になることを assert する前提として
+        // 「設定済み」状態を入力にする (editor の Keep 経由 = trigger_keep_internal
+        // が set_pair_label + paired_pre_target=Some を実施した後の状態を再現)。
+        let pair_label = Arc::new(Mutex::new(format!("pair: {}", TEST_PRE_IID)));
+        let paired_pre_target = Arc::new(Mutex::new(Some(TEST_PRE_IID.to_string())));
 
         // mtime + 100 秒先を `now` として注入 → 60 秒 threshold を超える。
         let stale_now = SystemTime::now() + Duration::from_secs(100);
@@ -2389,12 +2534,22 @@ mod pre_liveness_tests {
             TEST_POST_IID,
             TEST_PRE_IID,
             &sm,
+            &pair_label,
+            &paired_pre_target,
             stale_now,
         );
 
         assert!(
             !sm.is_recording(),
-            "stale pre.json detection must trigger record_sm.exit_record()"
+            "stale pre.json detection must trigger exit_record_full() (record_sm)"
+        );
+        assert!(
+            pair_label.lock().unwrap().is_empty(),
+            "G-115-64: pair_label must be cleared on stale pre.json"
+        );
+        assert!(
+            paired_pre_target.lock().unwrap().is_none(),
+            "G-115-64: paired_pre_target must be None on stale pre.json"
         );
         let signal_after =
             crate::record_signal::read_signal(&plugin_data_root, TEST_PH, TEST_POST_IID);
@@ -2404,10 +2559,10 @@ mod pre_liveness_tests {
         );
     }
 
-    /// Gap-2: pre.json 不在 (PRE drop された直後) でも stale 判定で exit_record。
-    /// Gap-1 / Gap-7 / Gap-18 (PRE drop 残骸系) の構造解消確証。
+    /// Gap-2 + G-115-64: pre.json 不在 (PRE drop された直後) でも stale 判定で
+    /// `exit_record_full`. Gap-1 / Gap-7 / Gap-18 (PRE drop 残骸系) の構造解消確証.
     #[test]
-    fn poll_pre_liveness_at_missing_pre_json_triggers_exit_record() {
+    fn poll_pre_liveness_at_missing_pre_json_triggers_full_cleanup() {
         let kirin_root = isolated_root("missing_pre");
         let plugin_data_root = isolated_root("missing_pre_pdr");
 
@@ -2423,6 +2578,8 @@ mod pre_liveness_tests {
 
         let sm = Arc::new(RecordStateMachine::new());
         sm.try_enter_record(crate::License::Os).unwrap();
+        let pair_label = Arc::new(Mutex::new(format!("pair: {}", TEST_PRE_IID)));
+        let paired_pre_target = Arc::new(Mutex::new(Some(TEST_PRE_IID.to_string())));
 
         poll_pre_liveness_at(
             &kirin_root,
@@ -2431,12 +2588,22 @@ mod pre_liveness_tests {
             TEST_POST_IID,
             TEST_PRE_IID,
             &sm,
+            &pair_label,
+            &paired_pre_target,
             SystemTime::now(),
         );
 
         assert!(
             !sm.is_recording(),
-            "missing pre.json must trigger record_sm.exit_record() (PRE drop 構造解消)"
+            "missing pre.json must trigger exit_record_full() (PRE drop 構造解消)"
+        );
+        assert!(
+            pair_label.lock().unwrap().is_empty(),
+            "G-115-64: pair_label must be cleared on missing pre.json"
+        );
+        assert!(
+            paired_pre_target.lock().unwrap().is_none(),
+            "G-115-64: paired_pre_target must be None on missing pre.json"
         );
         let signal_after =
             crate::record_signal::read_signal(&plugin_data_root, TEST_PH, TEST_POST_IID);
@@ -2446,7 +2613,8 @@ mod pre_liveness_tests {
         );
     }
 
-    /// Gap-2: pre.json mtime fresh (< 60s) → exit_record せず Record 維持。
+    /// Gap-2 + G-115-64: pre.json mtime fresh (< 60s) → exit_record せず Record 維持.
+    /// pair_label / paired_pre_target も保持される (cleanup は走らない).
     #[test]
     fn poll_pre_liveness_at_fresh_pre_keeps_recording() {
         let kirin_root = isolated_root("fresh_pre");
@@ -2464,6 +2632,8 @@ mod pre_liveness_tests {
 
         let sm = Arc::new(RecordStateMachine::new());
         sm.try_enter_record(crate::License::Os).unwrap();
+        let pair_label = Arc::new(Mutex::new(format!("pair: {}", TEST_PRE_IID)));
+        let paired_pre_target = Arc::new(Mutex::new(Some(TEST_PRE_IID.to_string())));
 
         // `now` をリアルな現在時刻にする → mtime ≈ now → 経過 ≈ 0 秒。
         poll_pre_liveness_at(
@@ -2473,12 +2643,24 @@ mod pre_liveness_tests {
             TEST_POST_IID,
             TEST_PRE_IID,
             &sm,
+            &pair_label,
+            &paired_pre_target,
             SystemTime::now(),
         );
 
         assert!(
             sm.is_recording(),
             "fresh pre.json must NOT trigger exit_record()"
+        );
+        assert_eq!(
+            pair_label.lock().unwrap().as_str(),
+            format!("pair: {}", TEST_PRE_IID).as_str(),
+            "G-115-64: fresh pre.json must NOT clear pair_label"
+        );
+        assert_eq!(
+            paired_pre_target.lock().unwrap().as_deref(),
+            Some(TEST_PRE_IID),
+            "G-115-64: fresh pre.json must NOT clear paired_pre_target"
         );
         let signal_after =
             crate::record_signal::read_signal(&plugin_data_root, TEST_PH, TEST_POST_IID);
@@ -2507,6 +2689,7 @@ mod pre_liveness_tests {
         // try_enter_record せず Watch のまま。
         assert!(!sm.is_recording());
 
+        let pair_label = Arc::new(Mutex::new(String::new()));
         let paired = Arc::new(Mutex::new(Some(TEST_PRE_IID.to_string())));
 
         // poll_pre_liveness (top-level) は record_sm guard 内で早期 return。
@@ -2515,6 +2698,7 @@ mod pre_liveness_tests {
             TEST_PH,
             TEST_POST_IID,
             &sm,
+            &pair_label,
             &paired,
         );
 
@@ -2527,5 +2711,74 @@ mod pre_liveness_tests {
         // 入らないことを is_recording=false で間接確証する)。
         assert!(!sm.is_recording(), "Watch state must remain unchanged");
         let _ = signal_after; // 環境依存ホームを避けるため値は assert しない
+    }
+}
+
+// ── G-115-64 (番人 #137 確定): handle_exit_reason 単体テスト ───────────────────
+#[cfg(test)]
+mod handle_exit_reason_tests {
+    use super::*;
+    use crate::record::{RecordState, RecordStateMachine};
+
+    /// `RecordingCtx` 無し (= writer 未確立 / Watch 直前で連続失敗閾値到達は通常起こらないが
+    /// 防御的に検証) でも 3 ステップ cleanup が動く. `exit_record_full` 経由で
+    /// pair_label / paired_pre_target が完全 cleanup される.
+    #[test]
+    fn handle_exit_reason_runs_full_cleanup_without_recording() {
+        let sm = Arc::new(RecordStateMachine::new());
+        sm.try_enter_record(crate::License::Os).unwrap();
+        let pair_label = Arc::new(Mutex::new("pair: deadbeef".to_string()));
+        let paired_pre_target = Arc::new(Mutex::new(Some("pre-iid-x".to_string())));
+        let record_error_message: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
+        let mut recording: Option<RecordingCtx> = None;
+
+        handle_exit_reason(
+            RecordError::DirectoryMissing,
+            &mut recording,
+            &sm,
+            &pair_label,
+            &paired_pre_target,
+            &record_error_message,
+            "post-iid-test",
+        );
+
+        assert_eq!(sm.current(), RecordState::Watch);
+        assert!(
+            pair_label.lock().unwrap().is_empty(),
+            "G-115-64: pair_label must be cleared by handle_exit_reason"
+        );
+        assert!(
+            paired_pre_target.lock().unwrap().is_none(),
+            "G-115-64: paired_pre_target must be reset by handle_exit_reason"
+        );
+        let msg = record_error_message.read().unwrap().clone();
+        assert_eq!(msg.as_deref(), Some("Record stopped: storage missing"));
+    }
+
+    /// `WriteFailureExceeded` 経路でも完全 cleanup + 文言が固定 (G-115-29).
+    #[test]
+    fn handle_exit_reason_write_failure_message_is_fixed() {
+        let sm = Arc::new(RecordStateMachine::new());
+        sm.try_enter_record(crate::License::Os).unwrap();
+        let pair_label = Arc::new(Mutex::new("pair: cafef00d".to_string()));
+        let paired_pre_target = Arc::new(Mutex::new(Some("pre-iid-y".to_string())));
+        let record_error_message: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
+        let mut recording: Option<RecordingCtx> = None;
+
+        handle_exit_reason(
+            RecordError::WriteFailureExceeded,
+            &mut recording,
+            &sm,
+            &pair_label,
+            &paired_pre_target,
+            &record_error_message,
+            "post-iid-test",
+        );
+
+        assert_eq!(sm.current(), RecordState::Watch);
+        assert!(pair_label.lock().unwrap().is_empty());
+        assert!(paired_pre_target.lock().unwrap().is_none());
+        let msg = record_error_message.read().unwrap().clone();
+        assert_eq!(msg.as_deref(), Some("Record stopped: write failed"));
     }
 }

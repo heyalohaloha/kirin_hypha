@@ -195,19 +195,38 @@ fn lib_rs_wires_pair_label_to_editor() {
     );
 }
 
-/// editor.rs に set_pair_label / clear_pair_label が定義されており、
-/// format_pair_label は kirin_measure から import されていること（B-023 段階 4）。
-/// `format_pair_label` の単一定義点は kirin_measure::io_thread_post に移動した
-/// ため、editor.rs はそれを `use kirin_measure::format_pair_label;` で取り込む。
+/// editor.rs に set_pair_label が定義されており、`clear_pair_label` /
+/// `exit_record_full` は kirin_measure から import されていること
+/// (B-023 段階 4 + G-115-64 / 番人 #137 確定).
+///
+/// G-115-64 構造的修正: clear_pair_label の定義は `kirin_measure::cleanup` に
+/// 集約された (editor 側 / IO Thread 側で同一関数を共有 / 構造的契約一点生成).
+/// editor.rs では production 経路で `exit_record_full` のみ呼び、
+/// `clear_pair_label` は test mod から `use kirin_measure::clear_pair_label;` で
+/// 取り込む (本ファイルでも assert).
 #[test]
 fn editor_rs_has_pair_label_helpers() {
     let src = read("src/editor.rs");
-    for needle in ["fn set_pair_label", "fn clear_pair_label"] {
-        assert!(
-            src.contains(needle),
-            "editor.rs must define helper `{needle}` (B-023 段階 4 pair_label pair)"
-        );
-    }
+    // set_pair_label は editor 固有 (Record 開始時の format_pair_label 経由).
+    assert!(
+        src.contains("fn set_pair_label"),
+        "editor.rs must define helper `fn set_pair_label` (B-023 段階 4 pair_label pair)"
+    );
+    // G-115-64: clear_pair_label の **ローカル定義は禁止** (kirin_measure に集約).
+    assert!(
+        !src.contains("fn clear_pair_label"),
+        "G-115-64: editor.rs must NOT define `fn clear_pair_label` locally — it is centralized in kirin_measure::cleanup"
+    );
+    // G-115-64: exit_record_full を import + Record→Watch 遷移で使用していること.
+    assert!(
+        src.contains("exit_record_full"),
+        "G-115-64: editor.rs must use kirin_measure::exit_record_full for Record→Watch cleanup symmetry"
+    );
+    // G-115-64: test mod から clear_pair_label を kirin_measure 経由で取り込むこと.
+    assert!(
+        src.contains("use kirin_measure::clear_pair_label"),
+        "G-115-64: editor.rs test mod must import clear_pair_label from kirin_measure (single source)"
+    );
     assert!(
         src.contains("format_pair_label"),
         "editor.rs must reference format_pair_label (imported from kirin_measure)"

@@ -35,13 +35,13 @@ use kirin_measure::{
     all_keep_signal_path, all_stop_signal_path, append_annotation_to_latest,
     check_record_exclusion, delete_broadcast, delete_signal, discover_active_pre_dirs,
     enumerate_active_post_pair_candidates, enumerate_active_pre_pair_candidates,
-    filter_candidates_by_name, format_pair_label, load_signal_state, lookup_section_label,
-    mark_released, pick_closest_pre, sanitize_name, scan_latest_v2_preset,
-    scan_pre_candidates_in, show_note_button, show_save_button, show_stop_record_button,
-    write_broadcast, write_pending, write_stop_broadcast, DeltaMode, DeltaResult,
-    ExclusionResult, License, MeasureResult, PluginDataRole, PostMetrics, PreCandidate,
-    PresetFileV2, RecordStateMachine, SignalState, StoragePaths, TransitionError,
-    MAX_ACTIVE_PER_PROJECT, SENSE_RECORD_HINT, SENSE_UPSELL_URL,
+    exit_record_full, filter_candidates_by_name, format_pair_label, load_signal_state,
+    lookup_section_label, mark_released, pick_closest_pre, sanitize_name,
+    scan_latest_v2_preset, scan_pre_candidates_in, show_note_button, show_save_button,
+    show_stop_record_button, write_broadcast, write_pending, write_stop_broadcast,
+    DeltaMode, DeltaResult, ExclusionResult, License, MeasureResult, PluginDataRole,
+    PostMetrics, PreCandidate, PresetFileV2, RecordStateMachine, SignalState, StoragePaths,
+    TransitionError, MAX_ACTIVE_PER_PROJECT, SENSE_RECORD_HINT, SENSE_UPSELL_URL,
 };
 use nih_plug::prelude::Editor;
 use nih_plug_egui::{
@@ -996,12 +996,8 @@ fn draw_button_row(
 
 // ── ボタンアクション ──────────────────────────────────────────────────────
 
-/// pair_label をクリア（Watch 復帰時 / Record 失敗時）。
-fn clear_pair_label(pair_label: &Arc<Mutex<String>>) {
-    if let Ok(mut g) = pair_label.lock() {
-        g.clear();
-    }
-}
+// G-115-64 (番人 #137 確定): pair_label クリアは kirin_measure::clear_pair_label を使用.
+// 本 crate からは re-export 経由で参照する (use 文上部 / 単一情報源).
 
 /// pair_label を設定（Record 開始成功時）。
 ///
@@ -1212,11 +1208,10 @@ pub(crate) fn trigger_keep_internal(
         }
         Err(e) => {
             log::warn!("[POST keep] write_pending failed: {}", e);
-            record_sm.exit_record();
-            clear_pair_label(pair_label);
-            if let Ok(mut g) = paired_pre_target.lock() {
-                *g = None;
-            }
+            // G-115-64 (番人 #137 確定): write_pending 失敗時のロールバックは
+            // try_enter_record 成功後の "部分 commit" 状態のため、Record→Watch
+            // と同じ 3 ステップ cleanup を必ず通過させる (構造的契約成立).
+            exit_record_full(record_sm, pair_label, paired_pre_target);
             if let Some(t) = toast.as_mut() {
                 **t = Some(Toast::new("Failed to start record", now));
             }
@@ -1339,11 +1334,10 @@ pub(crate) fn trigger_stop_internal(
     mut toast: Option<&mut Option<Toast>>,
     now: f64,
 ) {
-    record_sm.exit_record();
-    clear_pair_label(pair_label);
-    if let Ok(mut g) = paired_pre_target.lock() {
-        *g = None;
-    }
+    // G-115-64 (番人 #137 確定): Stop タップ時の Record→Watch 遷移を
+    // exit_record_full で 3 ステップ一括化. IO Thread 自然終了経路 (poll_pre_liveness_at /
+    // poll_ack_timeout_with_base / handle_exit_reason) と完全対称な契約を成立させる.
+    exit_record_full(record_sm, pair_label, paired_pre_target);
     match StoragePaths::default_macos() {
         Ok(paths) => {
             let plugin_data_dir = paths.plugin_data_dir();
@@ -1678,6 +1672,10 @@ fn draw_proposals_block(ui: &mut egui::Ui, state: &mut PostEditorState, now: f64
 #[cfg(test)]
 mod tests {
     use super::*;
+    // G-115-64: clear_pair_label は production 経路では exit_record_full 内で
+    // 呼ばれる (kirin_measure::cleanup) ため editor 本体では未参照. 既存テスト
+    // (set_then_clear_pair_label_round_trip) のためだけに本 mod に明示 import.
+    use kirin_measure::clear_pair_label;
     use std::sync::{Arc, Mutex};
 
     /// B-023 段階 4: format_pair_label は paired_pre_name 非空時に
