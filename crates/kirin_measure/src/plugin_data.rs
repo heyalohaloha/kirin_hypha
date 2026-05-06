@@ -621,7 +621,11 @@ fn round2(v: f64) -> f64 {
 }
 
 /// `checksum=""` にした状態の JSON バイト列に対して HMAC-SHA256 を計算。
-fn compute_checksum(data: &PluginDataFile) -> Result<String, serde_json::Error> {
+///
+/// B-026 / Gap-9: 同 crate 内の `record_writer::sweep_stale_active_at_startup`
+/// が startup sweep 時に再計算で利用する。HMAC 鍵 (`hmac_key`) は plugin_data
+/// 内で閉じたままにしたいため `pub` ではなく `pub(crate)`。
+pub(crate) fn compute_checksum(data: &PluginDataFile) -> Result<String, serde_json::Error> {
     let mut clone = data.clone();
     clone.checksum = String::new();
     let bytes = serde_json::to_vec(&clone)?;

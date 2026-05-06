@@ -173,6 +173,15 @@ pub fn spawn_io_thread_post(
             let _ = crate::record_writer::recover_orphan_tmps(&paths.plugin_data_dir());
         }
 
+        // B-026 / Gap-9: crash 残骸 `pre/{compact}.json` / `post/{compact}.json`
+        // のうち status=Active かつ mtime > 60s のファイルを status=Closed に
+        // 書換 (Lens 側「進行中 Record」誤認の構造的解消)。loop 前 1 回。
+        if let Ok(paths) = StoragePaths::default_macos() {
+            let _ = crate::record_writer::sweep_stale_active_at_startup(
+                &paths.plugin_data_dir(),
+            );
+        }
+
         // B-027 段階 3-B α-7-1 / Step 6: 引数を closure scope に capture。
         // Step 11 で `license_for_thread` は撤去 (closure 経由案 / 呼出側 lib.rs で
         // `trigger_pair_resolution` closure に直接 capture / 申し送り #31 遅延約束追跡完了)。

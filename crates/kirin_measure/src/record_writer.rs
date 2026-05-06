@@ -21,10 +21,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use crate::plugin_data::{
-    verify_checksum, PluginDataFile, PluginDataWriter, Role, WriterPaths,
+    compute_checksum, verify_checksum, PluginDataFile, PluginDataWriter, Role, Status,
+    WriterPaths,
 };
 use crate::record::RecordStateMachine;
 use crate::record_signal;
@@ -542,6 +543,218 @@ fn strip_tmp_suffix(tmp_path: &Path) -> PathBuf {
     PathBuf::from(trimmed.to_string())
 }
 
+// ── B-026 / Gap-9: Startup stale active sweep ───────────────────────────────
+
+/// `sweep_stale_active_at_startup` の stale 判定閾値 (秒)。
+/// `io_thread_post::PRE_LIVENESS_STALE_SECS` (per-tick mtime 判定 / G-50-33) と
+/// 同値。crate 跨ぎ重複定義を避ける独立宣言だが、両者は同じ意味論
+/// ("PRE/POST が 60s 以上 mtime を更新できなかった = crash 残骸") を共有する。
+pub const STALE_ACTIVE_SWEEP_SECS: u64 = 60;
+
+/// `sweep_stale_active_at_startup` の集計。GUI 通知不要 (起動時 R-28 機能的沈黙)。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct StaleSweepReport {
+    /// `status=Active && mtime>60s` の `.json` を `status=Closed` に書換成功した件数。
+    pub closed: usize,
+    /// 判定対象だが metadata / read / parse / write / rename いずれかに失敗して
+    /// 残置した件数 (R-28 機能的沈黙でログのみ)。
+    pub skipped: usize,
+}
+
+/// B-026 / Gap-9: Hypha 起動時に plugin_data 配下の crash 残骸 PluginDataFile
+/// (`status=Active && mtime > STALE_ACTIVE_SWEEP_SECS`) を `status=Closed` に
+/// 書き換える。Lens 側が「進行中 Record」と誤認するのを startup 時点で構造的に
+/// 解消する (Daisuke Gap-9 仕様)。
+///
+/// # 対象スコープ
+/// `plugin_data_root` を再帰 walk し、以下を全て満たすファイルのみ対象:
+/// 1. 親ディレクトリ名が `pre` または `post` (= `Role::dir_name()`)
+/// 2. ファイル拡張子が `.json` (`.tmp` は除外 / Gap-8 `recover_orphan_tmps`
+///    と非重複)
+/// 3. mtime 経過 > `STALE_ACTIVE_SWEEP_SECS`
+/// 4. parse 成功かつ `status == Status::Active`
+///
+/// # 動作
+/// `status` を `Closed` に書換 → `compute_checksum` で HMAC-SHA256 再計算 →
+/// `{path}.tmp` に書込 → atomic `rename` で `{path}` 上書き。
+/// 既存の append / flush 経路と同じ atomic rename パターン。
+///
+/// # 呼出位置
+/// PRE / POST 両 IO Thread の `thread::spawn` 直後 1 回のみ
+/// (`recover_orphan_tmps` と同位相)。loop 内で繰り返さない。
+///
+/// # 触れない領域 (B-026 Pass 15)
+/// - `record_signal` / `all_keep_signal` / `all_stop_signal`: 別スコープ
+/// - `*.json.tmp`: `recover_orphan_tmps` (Gap-8) の対象
+/// - per-tick PRE liveness 判定 (`PRE_LIVENESS_STALE_SECS`): loop 内専用
+/// - `cleanup::exit_record_full`: per-Record cleanup 専用
+/// - `PluginDataFile.heartbeat` フィールド: 読まず mtime のみ使用
+///
+/// # R-28 機能的沈黙
+/// `read_dir` / `metadata` / `read` / `parse` / `write` / `rename` 失敗は
+/// `report.skipped += 1` + warn ログのみ。UI エラーは出さない。
+pub fn sweep_stale_active_at_startup(plugin_data_root: &Path) -> StaleSweepReport {
+    let mut report = StaleSweepReport::default();
+    if !plugin_data_root.is_dir() {
+        return report;
+    }
+    walk_stale_sweep(plugin_data_root, &mut report);
+    if report.closed > 0 || report.skipped > 0 {
+        log::info!(
+            "[Gap-9] startup stale sweep: closed={} skipped={} root={}",
+            report.closed,
+            report.skipped,
+            plugin_data_root.display()
+        );
+    }
+    report
+}
+
+/// `sweep_stale_active_at_startup` の実走査。`fs::read_dir` 失敗は当該 dir のみ skip。
+fn walk_stale_sweep(dir: &Path, report: &mut StaleSweepReport) {
+    let entries = match fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let ftype = match entry.file_type() {
+            Ok(t) => t,
+            Err(_) => continue,
+        };
+        if ftype.is_dir() {
+            walk_stale_sweep(&path, report);
+            continue;
+        }
+        if !ftype.is_file() {
+            continue;
+        }
+        // 拡張子 .json (`.tmp` は対象外 / Gap-8 と非重複)
+        let Some(ext) = path.extension().and_then(|s| s.to_str()) else {
+            continue;
+        };
+        if ext != "json" {
+            continue;
+        }
+        // 親ディレクトリ名が "pre" または "post" (= `Role::dir_name()`)
+        let Some(parent_name) = path
+            .parent()
+            .and_then(|p| p.file_name())
+            .and_then(|s| s.to_str())
+        else {
+            continue;
+        };
+        if parent_name != "pre" && parent_name != "post" {
+            continue;
+        }
+        try_close_one_stale(&path, report);
+    }
+}
+
+/// 1 ファイルの sweep 試行。stale 判定 (mtime / status) → atomic rewrite。
+///
+/// fresh / Closed / mtime 取得不能 (将来時刻含む) は **skipped にも数えず** 静かに
+/// スキップする (touch 不要の対象は report に現れないことが「正常」)。
+/// metadata / read / parse / write / rename 失敗は warn ログ + `skipped += 1`。
+fn try_close_one_stale(path: &Path, report: &mut StaleSweepReport) {
+    let metadata = match fs::metadata(path) {
+        Ok(m) => m,
+        Err(e) => {
+            log::warn!("[Gap-9] metadata failed (skip): {} ({})", path.display(), e);
+            report.skipped += 1;
+            return;
+        }
+    };
+    let mtime = match metadata.modified() {
+        Ok(t) => t,
+        Err(e) => {
+            log::warn!(
+                "[Gap-9] mtime unavailable (skip): {} ({})",
+                path.display(),
+                e
+            );
+            report.skipped += 1;
+            return;
+        }
+    };
+    let elapsed = match SystemTime::now().duration_since(mtime) {
+        Ok(d) => d,
+        // mtime が future (時計巻戻し / NFS 時刻ズレ) → fresh とみなし対象外。
+        Err(_) => return,
+    };
+    if elapsed <= Duration::from_secs(STALE_ACTIVE_SWEEP_SECS) {
+        return;
+    }
+    let bytes = match fs::read(path) {
+        Ok(b) => b,
+        Err(e) => {
+            log::warn!("[Gap-9] read failed (skip): {} ({})", path.display(), e);
+            report.skipped += 1;
+            return;
+        }
+    };
+    let mut data: PluginDataFile = match serde_json::from_slice(&bytes) {
+        Ok(d) => d,
+        Err(e) => {
+            log::warn!("[Gap-9] parse failed (skip): {} ({})", path.display(), e);
+            report.skipped += 1;
+            return;
+        }
+    };
+    if data.status != Status::Active {
+        // Closed は対象外 (二重 close を回避)。
+        return;
+    }
+    data.status = Status::Closed;
+    data.checksum = match compute_checksum(&data) {
+        Ok(c) => c,
+        Err(e) => {
+            log::warn!(
+                "[Gap-9] checksum recompute failed (skip): {} ({})",
+                path.display(),
+                e
+            );
+            report.skipped += 1;
+            return;
+        }
+    };
+    let json = match serde_json::to_vec(&data) {
+        Ok(v) => v,
+        Err(e) => {
+            log::warn!(
+                "[Gap-9] serialize failed (skip): {} ({})",
+                path.display(),
+                e
+            );
+            report.skipped += 1;
+            return;
+        }
+    };
+    let mut tmp_os = path.as_os_str().to_os_string();
+    tmp_os.push(".tmp");
+    let tmp = PathBuf::from(tmp_os);
+    if let Err(e) = fs::write(&tmp, &json) {
+        log::warn!(
+            "[Gap-9] tmp write failed (skip): {} ({})",
+            path.display(),
+            e
+        );
+        report.skipped += 1;
+        return;
+    }
+    if let Err(e) = fs::rename(&tmp, path) {
+        log::warn!(
+            "[Gap-9] rename failed (skip): {} ({})",
+            path.display(),
+            e
+        );
+        report.skipped += 1;
+        return;
+    }
+    log::info!("[Gap-9] closed stale Active: {}", path.display());
+    report.closed += 1;
+}
+
 /// 別スレッドで Record 停止シグナルを受けたときに writer を即座に閉じる。
 pub fn drain_on_shutdown(
     shutdown: &Arc<AtomicBool>,
@@ -987,6 +1200,100 @@ mod tests {
         let report = recover_orphan_tmps(&nonexistent);
         assert_eq!(report.recovered, 0);
         assert_eq!(report.orphaned, 0);
+    }
+
+    // ── B-026 / Gap-9 (sweep_stale_active_at_startup) ─────────────────────
+
+    /// status=Active かつ mtime > 60s (= STALE_ACTIVE_SWEEP_SECS) のファイルは
+    /// status=Closed に書き換えられ checksum が再計算される (verify_checksum 通過)。
+    #[test]
+    fn sweep_stale_active_closes_stale_file() {
+        let base = isolated_base();
+        let mut ctx = make_ctx(&base, Role::Pre, now_epoch_ms());
+        ctx.writer.flush().unwrap();
+        let final_path = ctx.final_path.clone();
+        drop(ctx);
+
+        // mtime を 61 秒過去に巻き戻す。
+        let stale = SystemTime::now() - Duration::from_secs(STALE_ACTIVE_SWEEP_SECS + 1);
+        let f = std::fs::File::open(&final_path).unwrap();
+        f.set_modified(stale).unwrap();
+        drop(f);
+
+        let report = sweep_stale_active_at_startup(&base);
+        assert_eq!(report.closed, 1, "stale Active file must be closed");
+        assert_eq!(report.skipped, 0);
+
+        let bytes = fs::read(&final_path).unwrap();
+        let data: PluginDataFile = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(
+            data.status,
+            Status::Closed,
+            "status must flip Active → Closed"
+        );
+        assert!(
+            verify_checksum(&data),
+            "checksum must be recomputed and verify successfully"
+        );
+    }
+
+    /// fresh (mtime=now) は touch されない (closed=0, skipped=0)。
+    /// fresh は per-tick 経路 (PRE_LIVENESS_STALE_SECS) の範囲なので startup
+    /// sweep が干渉しないことを構造的に保証する。
+    #[test]
+    fn sweep_stale_active_ignores_fresh_file() {
+        let base = isolated_base();
+        let mut ctx = make_ctx(&base, Role::Pre, now_epoch_ms());
+        ctx.writer.flush().unwrap();
+        let final_path = ctx.final_path.clone();
+        drop(ctx);
+
+        let report = sweep_stale_active_at_startup(&base);
+        assert_eq!(report.closed, 0, "fresh file must not be closed");
+        assert_eq!(
+            report.skipped, 0,
+            "fresh file must be silently passed (not counted as skipped)"
+        );
+
+        let bytes = fs::read(&final_path).unwrap();
+        let data: PluginDataFile = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(
+            data.status,
+            Status::Active,
+            "fresh file must remain Active"
+        );
+    }
+
+    /// 既に status=Closed のファイルは mtime > 60s でも対象外 (二重 close 回避)。
+    #[test]
+    fn sweep_stale_active_ignores_closed_file() {
+        let base = isolated_base();
+        let mut ctx = make_ctx(&base, Role::Post, now_epoch_ms());
+        ctx.writer.flush().unwrap();
+        let final_path = ctx.final_path.clone();
+        drop(ctx);
+
+        // 直接 status を Closed に書換 + checksum 再計算 (close() consumption 回避)。
+        let bytes = fs::read(&final_path).unwrap();
+        let mut data: PluginDataFile = serde_json::from_slice(&bytes).unwrap();
+        data.status = Status::Closed;
+        data.checksum = compute_checksum(&data).unwrap();
+        let json = serde_json::to_vec(&data).unwrap();
+        fs::write(&final_path, &json).unwrap();
+
+        // mtime を 61 秒過去に巻き戻す。
+        let stale = SystemTime::now() - Duration::from_secs(STALE_ACTIVE_SWEEP_SECS + 1);
+        let f = std::fs::File::open(&final_path).unwrap();
+        f.set_modified(stale).unwrap();
+        drop(f);
+
+        let report = sweep_stale_active_at_startup(&base);
+        assert_eq!(report.closed, 0, "Closed file must not be re-closed");
+        assert_eq!(report.skipped, 0);
+
+        let bytes = fs::read(&final_path).unwrap();
+        let data2: PluginDataFile = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(data2.status, Status::Closed);
     }
 
     // ── B-025 Group B-2 / Gap-19 + Group B-3 / Gap-20 ────────────────────

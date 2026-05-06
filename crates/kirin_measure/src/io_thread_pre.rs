@@ -213,6 +213,15 @@ pub fn spawn_io_thread_pre(
             let _ = crate::record_writer::recover_orphan_tmps(&paths.plugin_data_dir());
         }
 
+        // B-026 / Gap-9: crash 残骸 `pre/{compact}.json` / `post/{compact}.json`
+        // のうち status=Active かつ mtime > 60s のファイルを status=Closed に
+        // 書換 (Lens 側「進行中 Record」誤認の構造的解消)。loop 前 1 回。
+        if let Ok(paths) = StoragePaths::default_macos() {
+            let _ = crate::record_writer::sweep_stale_active_at_startup(
+                &paths.plugin_data_dir(),
+            );
+        }
+
         let mut writer_ctx: Option<RecordingCtx> = None;
         let mut last_poll: Option<Instant> = None;
         let mut partner: Option<PartnerInfo> = None;
