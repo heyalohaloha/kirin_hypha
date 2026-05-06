@@ -16,8 +16,8 @@
 
 use crate::sanitize_name;
 use hypha_gui::{
-    derive_led_state, fmt_val, led_color, tp_color, val_color, value_row, BackgroundTexture,
-    BG, COL_FLORA, COL_MUTED, COL_NORMAL,
+    derive_led_state, fmt_val, led_color, tp_color, val_color, BackgroundTexture, BG, COL_FLORA,
+    COL_MUTED, COL_NORMAL,
 };
 use kirin_measure::{load_signal_state, MeasureResult, SignalState};
 use nih_plug::prelude::Editor;
@@ -32,6 +32,19 @@ use std::time::Duration;
 
 /// 記録開始バナーの表示時間（秒）。
 const RECORD_BANNER_DURATION_SECS: f64 = 3.0;
+
+// ── B-032: 知覚説明 tooltip 文言（S122-S123 / Daisuke 凍結 / 修正禁止）────────
+//
+// Watch 3 項目 + Record 6 項目のラベル / 値 / 単位 3 セルに同一 hover を張る
+// ことで、マウス位置による表示揺れを排除する（案 A2）。英文に続いて改行で
+// 日本語短縮形を併記する固定 schema（S123 採否確定）。
+
+const HELP_LUFS_M: &str = "Momentary Loudness — ITU BS.1770 (LUFS)\n瞬時ラウドネス";
+const HELP_TP: &str = "True Peak — inter-sample peak, ITU BS.1770 (dBTP)\nトゥルーピーク (サンプル間補間ピーク)";
+const HELP_CREST: &str = "Crest Factor — peak vs RMS difference (dB)\nクレストファクター (ピーク対 RMS 比)";
+const HELP_PSR: &str = "Peak to Short-term Loudness Ratio (dB)\nピーク対短時間ラウドネス比";
+const HELP_N: &str = "Loudness — Zwicker model, ISO 532-1 (sone)\nラウドネス (ツヴィッカー方式)";
+const HELP_SHARP: &str = "Sharpness — high-frequency content weighting, DIN 45692 (acum)\nシャープネス (高域成分の重み付け)";
 
 /// B-023 段階 2: Name 編集 TextEdit の egui focus ID。
 ///
@@ -343,6 +356,8 @@ fn draw_name_field(ui: &mut egui::Ui, state: &mut PreEditorState) {
 }
 
 /// Watch モード: 3 項目（LUFS-M / TP / Crest）。
+///
+/// B-032: 各セル（label / value / unit）に S122-S123 凍結文言の hover を張る。
 fn draw_watch_grid(ui: &mut egui::Ui, m: &MeasureResult, show_values: bool) {
     ui.horizontal(|ui| {
         ui.add_space(10.0);
@@ -352,13 +367,28 @@ fn draw_watch_grid(ui: &mut egui::Ui, m: &MeasureResult, show_values: bool) {
             .spacing([6.0, 6.0])
             .show(ui, |ui| {
                 if show_values {
-                    value_row(ui, "LUFS-M", fmt_val(m.lufs_m), "LUFS", val_color(m.lufs_m));
-                    value_row(ui, "TP", fmt_val(m.true_peak), "dBTP", tp_color(m.true_peak));
-                    value_row(ui, "Crest", fmt_val(m.crest), "dB", val_color(m.crest));
+                    value_row_with_hover(
+                        ui, "LUFS-M", fmt_val(m.lufs_m), "LUFS",
+                        val_color(m.lufs_m), HELP_LUFS_M,
+                    );
+                    value_row_with_hover(
+                        ui, "TP", fmt_val(m.true_peak), "dBTP",
+                        tp_color(m.true_peak), HELP_TP,
+                    );
+                    value_row_with_hover(
+                        ui, "Crest", fmt_val(m.crest), "dB",
+                        val_color(m.crest), HELP_CREST,
+                    );
                 } else {
-                    value_row(ui, "LUFS-M", "---".to_string(), "LUFS", COL_MUTED);
-                    value_row(ui, "TP", "---".to_string(), "dBTP", COL_MUTED);
-                    value_row(ui, "Crest", "---".to_string(), "dB", COL_MUTED);
+                    value_row_with_hover(
+                        ui, "LUFS-M", "---".to_string(), "LUFS", COL_MUTED, HELP_LUFS_M,
+                    );
+                    value_row_with_hover(
+                        ui, "TP", "---".to_string(), "dBTP", COL_MUTED, HELP_TP,
+                    );
+                    value_row_with_hover(
+                        ui, "Crest", "---".to_string(), "dB", COL_MUTED, HELP_CREST,
+                    );
                 }
             });
     });
@@ -366,6 +396,8 @@ fn draw_watch_grid(ui: &mut egui::Ui, m: &MeasureResult, show_values: bool) {
 
 /// Record モード: 6 項目（LUFS-M / TP / Crest / PSR / N / Sharpness）。
 /// 2 列 × 3 行で配置。
+///
+/// B-032: 各セル（label / value / unit）に S122-S123 凍結文言の hover を張る。
 fn draw_record_grid(ui: &mut egui::Ui, m: &MeasureResult, show_values: bool) {
     ui.horizontal(|ui| {
         ui.add_space(10.0);
@@ -374,52 +406,84 @@ fn draw_record_grid(ui: &mut egui::Ui, m: &MeasureResult, show_values: bool) {
             .min_col_width(40.0)
             .spacing([6.0, 4.0])
             .show(ui, |ui| {
-                // 行1: LUFS-M | PSR
                 if show_values {
                     row_pair(ui,
-                        ("LUFS-M", fmt_val(m.lufs_m), "LUFS", val_color(m.lufs_m)),
-                        ("PSR", fmt_val(m.psr), "dB", val_color(m.psr)),
+                        ("LUFS-M", fmt_val(m.lufs_m), "LUFS", val_color(m.lufs_m), HELP_LUFS_M),
+                        ("PSR", fmt_val(m.psr), "dB", val_color(m.psr), HELP_PSR),
                     );
                     row_pair(ui,
-                        ("TP", fmt_val(m.true_peak), "dBTP", tp_color(m.true_peak)),
-                        ("N", fmt_val(m.n_prime_total), "sone", val_color(m.n_prime_total)),
+                        ("TP", fmt_val(m.true_peak), "dBTP", tp_color(m.true_peak), HELP_TP),
+                        ("N", fmt_val(m.n_prime_total), "sone", val_color(m.n_prime_total), HELP_N),
                     );
                     row_pair(ui,
-                        ("Crest", fmt_val(m.crest), "dB", val_color(m.crest)),
-                        ("Sharp", fmt_val(m.sharpness), "acum", val_color(m.sharpness)),
+                        ("Crest", fmt_val(m.crest), "dB", val_color(m.crest), HELP_CREST),
+                        ("Sharp", fmt_val(m.sharpness), "acum", val_color(m.sharpness), HELP_SHARP),
                     );
                 } else {
                     row_pair(ui,
-                        ("LUFS-M", "---".to_string(), "LUFS", COL_MUTED),
-                        ("PSR", "---".to_string(), "dB", COL_MUTED),
+                        ("LUFS-M", "---".to_string(), "LUFS", COL_MUTED, HELP_LUFS_M),
+                        ("PSR", "---".to_string(), "dB", COL_MUTED, HELP_PSR),
                     );
                     row_pair(ui,
-                        ("TP", "---".to_string(), "dBTP", COL_MUTED),
-                        ("N", "---".to_string(), "sone", COL_MUTED),
+                        ("TP", "---".to_string(), "dBTP", COL_MUTED, HELP_TP),
+                        ("N", "---".to_string(), "sone", COL_MUTED, HELP_N),
                     );
                     row_pair(ui,
-                        ("Crest", "---".to_string(), "dB", COL_MUTED),
-                        ("Sharp", "---".to_string(), "acum", COL_MUTED),
+                        ("Crest", "---".to_string(), "dB", COL_MUTED, HELP_CREST),
+                        ("Sharp", "---".to_string(), "acum", COL_MUTED, HELP_SHARP),
                     );
                 }
             });
     });
 }
 
-/// 2 つの (label, value, unit, color) をグリッド 1 行に流し込む。
+/// B-032: PRE Watch 用の hover 付き value_row（PRE 内 private）。
+///
+/// `hypha_gui::common::value_row` (pub API) は POST editor からも参照されており、
+/// crate 外 pub API シグネチャ不変（申し送り #32）の制約下で hover を追加する
+/// ため、PRE editor 内に同型 helper を新設する（POST 側は B-032 スコープ外）。
+/// ラベル / 値 / 単位の 3 セル全部に同一 hover を張り、マウス位置による表示
+/// 揺れを排除する。
+fn value_row_with_hover(
+    ui: &mut egui::Ui,
+    label: &str,
+    value: String,
+    unit: &str,
+    color: egui::Color32,
+    hover_text: &str,
+) {
+    ui.label(RichText::new(label).size(13.0).color(COL_MUTED))
+        .on_hover_text(hover_text);
+    ui.label(RichText::new(value).size(16.0).color(color).monospace())
+        .on_hover_text(hover_text);
+    ui.label(RichText::new(unit).size(11.0).color(COL_MUTED))
+        .on_hover_text(hover_text);
+    ui.end_row();
+}
+
+/// 2 つの (label, value, unit, color, hover_text) をグリッド 1 行に流し込む。
+///
+/// B-032: タプル末尾に `hover_text: &str` を追加。各セル（左右計 6 セル）に
+/// 同一 hover を張ることでマウス位置による表示揺れを排除する。
 fn row_pair(
     ui: &mut egui::Ui,
-    left: (&str, String, &str, egui::Color32),
-    right: (&str, String, &str, egui::Color32),
+    left: (&str, String, &str, egui::Color32, &str),
+    right: (&str, String, &str, egui::Color32, &str),
 ) {
     // 左
-    ui.label(RichText::new(left.0).size(11.0).color(COL_MUTED));
-    ui.label(RichText::new(left.1).size(14.0).color(left.3).monospace());
-    ui.label(RichText::new(left.2).size(10.0).color(COL_MUTED));
+    ui.label(RichText::new(left.0).size(11.0).color(COL_MUTED))
+        .on_hover_text(left.4);
+    ui.label(RichText::new(left.1).size(14.0).color(left.3).monospace())
+        .on_hover_text(left.4);
+    ui.label(RichText::new(left.2).size(10.0).color(COL_MUTED))
+        .on_hover_text(left.4);
     // 右
-    ui.label(RichText::new(right.0).size(11.0).color(COL_MUTED));
-    ui.label(RichText::new(right.1).size(14.0).color(right.3).monospace());
-    ui.label(RichText::new(right.2).size(10.0).color(COL_MUTED));
+    ui.label(RichText::new(right.0).size(11.0).color(COL_MUTED))
+        .on_hover_text(right.4);
+    ui.label(RichText::new(right.1).size(14.0).color(right.3).monospace())
+        .on_hover_text(right.4);
+    ui.label(RichText::new(right.2).size(10.0).color(COL_MUTED))
+        .on_hover_text(right.4);
     ui.end_row();
 }
 
