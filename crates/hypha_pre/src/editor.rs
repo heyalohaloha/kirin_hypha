@@ -39,12 +39,12 @@ const RECORD_BANNER_DURATION_SECS: f64 = 3.0;
 // ことで、マウス位置による表示揺れを排除する（案 A2）。英文に続いて改行で
 // 日本語短縮形を併記する固定 schema（S123 採否確定）。
 
-const HELP_LUFS_M: &str = "Momentary Loudness — ITU BS.1770 (LUFS)\n瞬時ラウドネス";
-const HELP_TP: &str = "True Peak — inter-sample peak, ITU BS.1770 (dBTP)\nトゥルーピーク (サンプル間補間ピーク)";
-const HELP_CREST: &str = "Crest Factor — peak vs RMS difference (dB)\nクレストファクター (ピーク対 RMS 比)";
-const HELP_PSR: &str = "Peak to Short-term Loudness Ratio (dB)\nピーク対短時間ラウドネス比";
-const HELP_N: &str = "Loudness — Zwicker model, ISO 532-1 (sone)\nラウドネス (ツヴィッカー方式)";
-const HELP_SHARP: &str = "Sharpness — high-frequency content weighting, DIN 45692 (acum)\nシャープネス (高域成分の重み付け)";
+const HELP_LUFS_M: &str = "Momentary Loudness — ITU BS.1770 (LUFS)";
+const HELP_TP: &str = "True Peak — inter-sample peak, ITU BS.1770 (dBTP)";
+const HELP_CREST: &str = "Crest Factor — peak vs RMS difference (dB)";
+const HELP_PSR: &str = "Peak to Short-term Loudness Ratio (dB)";
+const HELP_N: &str = "Loudness — Zwicker model, ISO 532-1 (sone)";
+const HELP_SHARP: &str = "Sharpness — high-frequency content weighting,\nDIN 45692 (acum)";
 
 /// B-023 段階 2: Name 編集 TextEdit の egui focus ID。
 ///

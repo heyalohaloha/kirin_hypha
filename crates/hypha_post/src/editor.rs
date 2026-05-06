@@ -1131,7 +1131,7 @@ pub(crate) fn trigger_keep_internal(
             pre_project_dirs.len()
         );
         if let Some(t) = toast.as_mut() {
-            **t = Some(Toast::new("No matching PRE", now));
+            **t = Some(Toast::new("No PRE Paired", now));
         }
         return;
     }
