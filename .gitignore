@@ -45,3 +45,17 @@ B-022_phase1b_preliminary_investigation.md
 B-024_phase1_report.md
 B-024_phase2_install_verification_R9.md
 hypha_first_click_repro_v2.md
+
+# Defensive: secret / credential patterns
+*.pem
+*.key
+*.p12
+*.pfx
+*.cer
+*.crt
+.env
+.env.*
+!.env.example
+secrets.toml
+*_secret.txt
+*_api_key.txt
