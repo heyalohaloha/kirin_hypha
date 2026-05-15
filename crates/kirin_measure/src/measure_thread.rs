@@ -1,6 +1,6 @@
 //! Measure Thread 起動モジュール。
 //!
-//! guardian_53 3層隔離:
+//!  3層隔離:
 //! - Audio Thread は ring buffer Producer に書くだけ（このファイルに触れない）
 //! - Measure Thread（このファイル）はクラッシュしても Audio Thread を止めない
 //! - IO Thread（T-4/T-5）は measure_result を読むだけ
@@ -10,7 +10,7 @@ use crate::phase_d::tables::FieldType;
 use crate::resampler::ResamplerTo48k;
 use crate::{load_signal_state, store_signal_state, MeasureEngine, MeasureResult, PsbSummary, SignalState, N_CHANNELS};
 
-/// guardian_101 v2: Phase D / EBU R128 を回す内部処理 SR は常に 48 kHz。
+///  v2: Phase D / EBU R128 を回す内部処理 SR は常に 48 kHz。
 /// 入力 SR が 48000 でない場合は Measure Thread 入口で `ResamplerTo48k` を介して
 /// 48 kHz に変換してから engine / phase_d に渡す。
 const ENGINE_SR: u32 = 48_000;
@@ -19,7 +19,7 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-/// Measure Thread のループ間隔（guardian_53: 推奨 100ms）。
+/// Measure Thread のループ間隔（ 推奨 100ms）。
 const LOOP_SLEEP: Duration = Duration::from_millis(100);
 
 /// heartbeat が何回連続で変化しなければ process() 停止と判定するか。
@@ -51,7 +51,7 @@ pub fn spawn_measure_thread(
     heartbeat: Arc<AtomicU32>,
 ) -> JoinHandle<()> {
     thread::spawn(move || {
-        // guardian_101 v2: 内部処理は 48 kHz 固定。入力 SR が異なる場合のみ
+        //  v2: 内部処理は 48 kHz 固定。入力 SR が異なる場合のみ
         // ResamplerTo48k で変換して engine / phase_d に渡す。
         let mut engine = match MeasureEngine::new(ENGINE_SR, N_CHANNELS) {
             Ok(e) => e,
@@ -84,7 +84,7 @@ pub fn spawn_measure_thread(
             None
         };
 
-        // Phase D streaming processor（guardian_101 v2: 全 SR 対応のため常に Some 相当）。
+        // Phase D streaming processor（ v2: 全 SR 対応のため常に Some 相当）。
         let mut phase_d = PhaseDStream::new(FieldType::Free);
         // Phase D stereo→mono 変換バッファ（48 kHz 1 秒分の余裕で確保）。
         let mut mono_buf: Vec<f64> = Vec::with_capacity(ENGINE_SR as usize / N_CHANNELS);
@@ -180,7 +180,7 @@ pub fn spawn_measure_thread(
                     }
                 }
 
-                // guardian_101 v2: 入力 SR が 48 kHz でない場合のみリサンプリング。
+                //  v2: 入力 SR が 48 kHz でない場合のみリサンプリング。
                 // resampler 経由では 48 kHz interleaved f64 が `resampled_buf` に追記される。
                 // 端数フレームは ResamplerTo48k 内部の pending に保持され次回呼出で消費。
                 let chunk_48k: &[f64] = if let Some(rs) = resampler.as_mut() {
@@ -231,7 +231,7 @@ pub fn spawn_measure_thread(
                 }
             }
 
-            // 100ms スリープ（guardian_53 推奨間隔）
+            // 100ms スリープ（ 推奨間隔）
             thread::sleep(LOOP_SLEEP);
         }
 
@@ -241,7 +241,7 @@ pub fn spawn_measure_thread(
 
 /// PSB low / mid / high を集約して dB 表現にする。
 ///
-/// guardian_61 C-3 (Daisuke 判断 経路A、破壊的変更):
+///  C-3 (Daisuke 判断 経路A、破壊的変更):
 /// - low : Bark 1–8   ISO 532-1 specific loudness (sone/Bark)         → dB
 /// - mid : Bark 9–16  ISO 532-1 specific loudness (sone/Bark)         → dB
 /// - high: Bark 21–24 + 15.5k–20kHz FFT energy (linear power)         → dB
@@ -256,7 +256,7 @@ fn compute_psb_summary(
 ) -> PsbSummary {
     let low: f64 = psb[0..8].iter().sum();
     let mid: f64 = psb[8..16].iter().sum();
-    // guardian_61 C-3: Bark 21–24 FFT power + 15.5k–20kHz 補完。
+    //  C-3: Bark 21–24 FFT power + 15.5k–20kHz 補完。
     // FFT 経路は別単位 (linear power) のため log10 で dB 化するのは
     // low/mid と同じ「対数スケール」に揃えるためのみで、絶対値の
     // 比較可能性を保証するものではない（PsbSummary doc 参照）。
@@ -283,7 +283,7 @@ pub mod tests {
         compute_psb_summary(psb, psb_bark21_24, psb_high_ext_15_5k_20k)
     }
 
-    /// guardian_61 C-3 ガード: PsbSummary.low / .mid は ISO 532-1 由来の
+    ///  C-3 ガード: PsbSummary.low / .mid は ISO 532-1 由来の
     /// psb[0..16] のみを使い、Bark 21–24 / 15.5k–20k FFT 値の影響を一切
     /// 受けないこと。
     #[test]

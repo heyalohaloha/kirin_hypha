@@ -6,7 +6,7 @@
 //! |----------------|-----------------------------------|
 //! | `"1.1"`        | [`crate::preset::verify_preset`]   |
 //! | `"2.0"`        | [`crate::preset_v2::verify_preset_v2`] |
-//! | anything else  | logged error + skip (§8bis **silent skip 絶対禁止**) |
+//! | anything else  | logged error + skip (bis **silent skip 絶対禁止**) |
 //!
 //! Unknown `schema_version` values must NOT be silently dropped. They go
 //! through [`log_unknown_schema`] so operators can diagnose producer drift.
@@ -14,7 +14,7 @@
 //! for *valid-but-null* states; unknown schema_version is an operational
 //! anomaly that demands visibility.
 //!
-//! # 保護境界 (§8bis.3)
+//! # 保護境界 (bis.3)
 //! - 既存 v1.1 reader (`preset.rs`) を呼び出すのみ。改変しない。
 //! - Audio Thread / Measure Thread / IO Thread / 計測エンジン / 書込 / 排他 /
 //!   record_signal / close / identity.json には手を入れない。
@@ -47,7 +47,7 @@ impl PresetVariant {
     }
 }
 
-/// Failure reason for a single file.  `Unknown` is the §8bis non-silence case.
+/// Failure reason for a single file.  `Unknown` is the bis non-silence case.
 #[derive(Debug, Clone, PartialEq)]
 pub enum DispatchError {
     Io(String),
@@ -127,7 +127,7 @@ fn log_unknown_schema(path: &Path, version: &str) {
     );
     log::warn!("{msg}");
     // Also surface on stderr so dev / CI runs see it without configuring
-    // log output. §8bis requires this to be non-silent.
+    // log output. bis requires this to be non-silent.
     eprintln!("{msg}");
 }
 

@@ -1,6 +1,6 @@
 //! Record mode 状態機械 — Watch ↔ Record の状態遷移。
 //!
-//! guardian_58_hypha_step5_record_plugin_data.md T-1 対応。
+//! .md T-1 対応。
 //!
 //! # 状態
 //! | State | 計測 | 書込先 | LED |
@@ -106,7 +106,7 @@ impl RecordStateMachine {
 
     /// Record へ遷移を試みる。license 二重 gate + 冪等性チェック。
     ///
-    /// 排他制御（T-3）は呼び出し元が事前に実施する責務。本メソッドは
+    /// 排他制御は呼び出し元が事前に実施する責務。本メソッドは
     /// license のみ判定する。
     pub fn try_enter_record(&self, license: License) -> Result<(), TransitionError> {
         if !matches!(license, License::Os) {

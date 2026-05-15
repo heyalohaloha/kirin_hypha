@@ -1,4 +1,4 @@
-//! IO Thread — PRE 側（A-3 修正後）。
+//! IO Thread — PRE 側。
 //!
 //! 100ms ループで:
 //! 1. `$TMPDIR/kirin/{project_hash}/{instance_id}/pre.json` にアトミック書込（Watch 値）
@@ -7,12 +7,12 @@
 //!    の signal にだけ追従（Q1 (b) 厳格化 + cross-process 防壁）
 //! 3. Record 中: `plugin_data/{project_hash}/{instance_id}/pre/*.json` に Frame / PSB を追記
 //!
-//! 3層隔離（guardian_53）:
+//! 3層隔離（）:
 //! - このスレッドが panic / 権限エラーで止まっても Audio Thread / Measure Thread は継続。
 //! - Drop 時（プラグインアンロード）に自分の pre.json と instance ディレクトリを削除する。
 //! - Record 中にループ終了した場合、writer は status=closed で flush してから閉じる。
 //!
-//! # license 分岐（guardian_53 Q4 K1）
+//! # license 分岐（ Q4 K1）
 //! - `License::Os`: 条件一致 pending 検出で `try_enter_record` + `mark_acknowledged`、writer 起動
 //! - それ以外: pending 検出でログのみ。state machine を触らず、writer も生成しない。
 //!   `record_signal.json` は POST 側が消す（PRE は削除しない）。
@@ -31,7 +31,7 @@ use crate::record_writer::{run_record_tick, writer_close, RecordingCtx};
 use crate::storage::StoragePaths;
 use crate::{load_signal_state, License, MeasureResult, SignalState};
 
-/// IO Thread ループ間隔（guardian_53: 100ms = 10fps）
+/// IO Thread ループ間隔（ 100ms = 10fps）
 const LOOP_SLEEP: Duration = Duration::from_millis(100);
 
 /// record_signal poll 間隔（1 秒）。
@@ -336,7 +336,7 @@ fn write_json(
     Ok(())
 }
 
-/// guardian_53 T-4 + SS-5 の JSON v2 フォーマットに変換する（Active 時）。
+///  T-4 + SS-5 の JSON v2 フォーマットに変換する（Active 時）。
 ///
 /// A-3 修正後: bus フィールドは削除（path に instance_id が入るため不要）。
 pub fn serialize_pre_json(
@@ -721,7 +721,7 @@ mod tests {
         assert!(json.contains(r#""role":"PRE""#));
         assert!(json.contains(r#""instance_id":"pre-xyz""#));
         assert!(json.contains(r#""lufs_m":-14.000"#));
-        // bus フィールドは削除済（A-3 修正後）
+        // bus フィールドは削除済
         assert!(!json.contains(r#""bus""#));
     }
 

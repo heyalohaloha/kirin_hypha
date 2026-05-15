@@ -1,6 +1,6 @@
 //! record_signal.json — POST → PRE 自動追従シグナル（G-50-34 / G-50-35）。
 //!
-//! # ファイル構造（A-3 修正後 / Q2 平坦化）
+//! # ファイル構造
 //! ```text
 //! plugin_data/{project_hash}/record_signal/{post_instance_id}.json
 //! ```
@@ -330,7 +330,7 @@ pub fn scan_signals_dir(
     out
 }
 
-// ── PRE ペアリング（A-3 後: instance_id 横断走査）─────────────────────────────
+// ── PRE ペアリング─────────────────────────────
 
 /// `/tmp/kirin/{ph}/{instance_id}/pre.json` 1 件分のパース結果。
 #[derive(Debug, Clone, PartialEq)]

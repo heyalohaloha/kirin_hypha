@@ -1,6 +1,6 @@
 //! Δ算出型 — POST側 IO Thread が PRE ファイルを読んで算出した差分結果。
 
-/// PRE ファイルの鮮度状態（guardian_53 T-5 Δ鮮度判定）。
+/// PRE ファイルの鮮度状態（ T-5 Δ鮮度判定）。
 #[derive(Debug, Clone, PartialEq, Default)]
 pub enum DeltaMode {
     /// PRE ファイルなし（Δ非表示モード）
