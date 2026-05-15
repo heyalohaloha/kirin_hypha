@@ -36,7 +36,12 @@ hypha_fork_debug*.log
 # pinning stays reproducible)
 # .cargo/config.toml
 
-# G-107-03: Notion stub cleanup artifact + 他の一時作業出力を除外
+# Internal investigation reports & ad-hoc audits (must not be published to public repo)
+B-*.md
+hypha_first_click_repro*.md
+hypha_phase*_completeness_audit*.md
+
+# Notion stub cleanup artifact + 他の一時作業出力を除外
 tmp/
 
 # Defensive: secret / credential patterns

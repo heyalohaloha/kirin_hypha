@@ -13,14 +13,14 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::thread::JoinHandle;
 use uuid::Uuid;
 
-/// Kirin Hypha PRE — マスタリングチェイン前段計測プラグイン。
+/// Kirin Hypha PRE — upstream measurement plugin.
 ///
 /// # 4層隔離
 /// ```text
-/// Audio Thread    — process(): バッファコピーのみ（R-12）。絶対に止まらない
+/// Audio Thread    — process(): buffer copy only. Never blocks.
 /// Measure Thread  — 4項目計測（ebur128 + スライディングウィンドウ）
 /// IO Thread       — $TMPDIR/kirin/{project_hash}/{instance_id}/pre.json にアトミック書込
-/// Watchdog Thread — Measure / IO の is_finished() 監視・自動再起動（T-8）
+/// Watchdog Thread — Measure / IO thread health monitoring with auto-restart
 /// ```
 ///
 /// # B-020 / γ-3 後の識別子モデル
@@ -66,7 +66,7 @@ struct HyphaPreParams {
     #[id = "bypass"]
     pub bypass: BoolParam,
 
-    /// プロジェクト保存時に永続化される instance UUID（A-3 修正後）。
+    /// プロジェクト保存時に永続化される instance UUID。
     /// POST が pending を立てる際の `target_pre_instance_id` 識別子として使われる。
     #[persist = "instance_id"]
     pub instance_id: RwLock<String>,
