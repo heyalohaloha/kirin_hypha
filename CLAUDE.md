@@ -1,5 +1,17 @@
 # Kirin Hypha — 計測プラグイン開発
 
+## Notion操作 全面禁止
+Claude Codeセッションは Notion へのいかなる書き込みも行わない。
+- 📍現在地 SECTION:DEV 更新 → 禁止
+- ログDB エントリ作成 → 禁止
+- Daily Brief 更新 → 禁止
+- その他あらゆる Notion ページへの write → 禁止
+
+## 完了時の出力形式（チャット出力のみ）
+- Commit hash / B番号 / 変更ファイル数 (+N / -N)
+- Test: pass/fail/skip
+- 未処理申し送り（番人裁定待ち等）
+
 ## プロジェクト概要
 Kirin Hypha は Kirin OS の計測プラグイン。VST3。DAW内で音声を一切加工せず、計測のみ行う。
 PRE/POST の2バイナリでマスタリングチェインの前後を計測し、差分（Δ）を表示する。
