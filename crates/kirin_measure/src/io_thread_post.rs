@@ -1,4 +1,4 @@
-//! IO Thread — POST 側（A-3 修正後）。
+//! IO Thread — POST 側。
 //!
 //! 100ms ループで:
 //! 1. `$TMPDIR/kirin/{project_hash}/*/pre.json` を全 instance_id 横断で走査
@@ -9,7 +9,7 @@
 //! 6. Record mode 時: `plugin_data/{project_hash}/{instance_id}/post/*.json` に
 //!    Frame (10 fps) / PSB (2 fps) を追記、30 秒毎に flush
 //!
-//! 3層隔離（guardian_53）:
+//! 3層隔離（）:
 //! - このスレッドが panic / 権限エラーで止まっても Audio Thread / Measure Thread は継続
 //! - Drop 時に自分の post.json と instance ディレクトリを削除する
 //! - Record 中に終了した場合、保留中の writer は status=closed で flush してから閉じる
@@ -29,7 +29,7 @@ use crate::record_writer::{run_record_tick, writer_close, RecordingCtx};
 use crate::storage::StoragePaths;
 use crate::{load_signal_state, MeasureResult, SignalState};
 
-/// IO Thread ループ間隔（guardian_53: 100ms = 10fps）
+/// IO Thread ループ間隔（ 100ms = 10fps）
 const LOOP_SLEEP: Duration = Duration::from_millis(100);
 
 /// PRE ファイルが Active とみなされる最大経過時間（秒）
@@ -367,7 +367,7 @@ fn freshness_mode(parsed: &serde_json::Value) -> Result<DeltaMode, String> {
     })
 }
 
-/// POST JSON v2 フォーマット（Active 時。SS-5 + SS-6）。bus フィールドは削除済（A-3 修正後）。
+/// POST JSON v2 フォーマット（Active 時。SS-5 + SS-6）。bus フィールドは削除済。
 pub fn serialize_post_json(
     instance_id: &str,
     state: SignalState,

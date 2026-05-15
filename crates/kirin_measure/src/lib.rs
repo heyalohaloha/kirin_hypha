@@ -77,20 +77,20 @@ use std::sync::{Arc, OnceLock, RwLock};
 // ── 共有定数 ────────────────────────────────────────────────────────────────
 
 /// Audio Thread → Measure Thread リングバッファの保持長（秒）。
-/// 2 秒: Measure Thread 再起動時の空白を吸収できる余裕（guardian_53 T-2）。
+/// 2 秒: Measure Thread 再起動時の空白を吸収できる余裕（ T-2）。
 pub const RING_BUFFER_SECONDS: usize = 2;
 
 /// 対応チャンネル数（ステレオ固定）。
 pub const N_CHANNELS: usize = 2;
 
-// ── プロセス単位識別子（B-020 / γ-3 chunk-persistent UUID 後）─────────────
+// ── プロセス単位識別子（ /  chunk-persistent UUID 後）─────────────
 //
 // 履歴:
 // - Phase 1.0: `PROJECT_HASH_PHASE1="default"` 固定値で全インスタンス共有 →
 //   複数 Bus / 複数プロジェクトで衝突（致命級 A-3 / A-2）
 // - A-3 中間策: プロセス単位 OnceLock<String> で起動時 1 度だけ生成 →
 //   DAW 再起動で path が変わるためバウンス再計測の比較が困難
-// - B-020 / γ-3 (本実装): nih-plug `#[persist = "project_uuid"]` でプロジェクト
+// -  /  (本実装): nih-plug `#[persist = "project_uuid"]` でプロジェクト
 //   chunk に UUID を保存。再オープンで同一値が復元され、PRE/POST が共有する
 //
 // 値は `OnceLock<Arc<RwLock<String>>>` セルにキャッシュされ、Plugin の
@@ -170,7 +170,7 @@ pub fn peek_project_uuid() -> String {
 
 /// プロセス単位 `daw_session_id` の現在値を読み取る。
 ///
-/// B-020 以降は `#[persist = "daw_session_uuid"]` で chunk に保存される
+///  以降は `#[persist = "daw_session_uuid"]` で chunk に保存される
 /// 値が `set_daw_session_id()` 経由でセルに反映される。`record_signal.json`
 /// の content に同梱され、別 DAW プロセス起源の signal を PRE が誤って
 /// ack することを防ぐ cross-process 防壁として使う。
@@ -270,7 +270,7 @@ pub fn store_signal_state(atom: &AtomicU8, state: SignalState) {
 ///
 /// Kirin-original metric。
 ///
-/// guardian_61 C-3 (Daisuke 判断 経路A、破壊的変更):
+///  C-3 (Daisuke 判断 経路A、破壊的変更):
 /// - low  : Bark 1–8   ISO 532-1 specific loudness 由来 [dB]   (~20 Hz–920 Hz)
 /// - mid  : Bark 9–16  ISO 532-1 specific loudness 由来 [dB]   (~920 Hz–3400 Hz)
 /// - high : Bark 21–24 + 15.5k–20kHz **FFT エネルギー由来** [dB] (5800 Hz–20000 Hz)

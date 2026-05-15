@@ -1,6 +1,6 @@
 //! Identity schema — `identity.json` の型・生成・HMAC-SHA256 署名検証。
 //!
-//! guardian_58_hypha_step4_identity_license.md T-1 / T-7 対応。
+//! .md T-1 / T-7 対応。
 //!
 //! # スキーマ（schema_version 1.0）
 //! ```json
@@ -22,14 +22,14 @@
 //! }
 //! ```
 //!
-//! `updated_at` / `os_version` は guardian_59 Step 5 Additive（G-60-03）で
+//! `updated_at` / `os_version` は  Step 5 Additive（G-60-03）で
 //! 追加されたフィールド。旧 identity.json（既存ファイル）との互換のため
 //! `#[serde(default)]` を付与、欠けていれば空文字で読み込む。
 //!
 //! `hardware_components` は 2-of-3 判定用に 3 要素を個別保持する内部フィールド。
 //! `hardware_id` は 3 要素を結合した SHA-256 ハッシュ（外部参照用）。
 //!
-//! # HMAC 鍵（T-7）
+//! # HMAC 鍵
 //! Phase 1.0 は (a) ビルド時埋め込み固定鍵。GPLv3 公開前提のため「改ざん検出の
 //! 抑止力」レベル。`KIRIN_HYPHA_HMAC_KEY` 環境変数でビルド時上書き可能。
 

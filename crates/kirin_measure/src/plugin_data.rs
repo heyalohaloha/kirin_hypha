@@ -1,9 +1,9 @@
 //! plugin_data v1.1 writer — Record mode 計測結果の永続化。
 //!
-//! guardian_58_hypha_step5_record_plugin_data.md T-2 対応（A-3 修正後）。
-//! スキーマ正本: `guardian_50_plugin_design_complete_v3.md` 行357-402。
+//! .md T-2 対応。
+//! スキーマ正本: `.md` 行357-402。
 //!
-//! # ファイル命名（A-3 修正後）
+//! # ファイル命名
 //! ```text
 //! plugin_data/{project_hash}/{instance_id}/pre/{compact_wall_clock}.json
 //! plugin_data/{project_hash}/{instance_id}/post/{compact_wall_clock}.json
@@ -96,7 +96,7 @@ pub enum Status {
 /// n_prime は **20 Bark 帯域別** のフィルタ後 N'(t,z)（sone）。
 /// sharpness は **スカラー**（acum）。
 ///
-/// guardian_101 v2 (G-100-02): 全ての主要 SR (44.1k / 48k / 88.2k / 96k / 176.4k /
+///  v2 (G-100-02): 全ての主要 SR (44.1k / 48k / 88.2k / 96k / 176.4k /
 /// 192kHz) で Phase D を計測する。Measure Thread 側で 48kHz へリサンプリング後に
 /// PhaseDStream に投入されるため、本フィールドは常に `Some` で書き出される。
 /// `Option` 型は将来の Phase D 取得失敗時のフォールバック余地として温存する。
@@ -140,7 +140,7 @@ pub struct BounceMarker {
 
 /// plugin_data/ 1 ファイル分のルート（v1.2）。
 ///
-/// v1.2 (A-3 (a)): `instance_id` field 追加 + `paired_pre_instance_id` /
+/// v1.2 ): `instance_id` field 追加 + `paired_pre_instance_id` /
 /// `paired_post_instance_id` field 追加（cross-instance pair 復元の決定論的キー）。
 /// schema_version "1.2"。
 ///
@@ -153,7 +153,7 @@ pub struct PluginDataFile {
     /// Plugin Default 起動時に `Uuid::new_v4` で生成され、VST3 state として
     /// 永続化される plugin インスタンス UUID。同一 plugin instance の PRE/POST
     /// ペア復元の一次キー。Lens reader.js で `paired_*_instance_id` との一致比較に
-    /// 使用される（A-3 (a) v1.2）。
+    /// 使用される v1.2）。
     pub instance_id: String,
     pub timestamp: String,
     pub role: Role,
@@ -175,12 +175,12 @@ pub struct PluginDataFile {
     pub psb_snapshots: Option<Vec<PsbSnapshot>>,
     pub annotations: Vec<Annotation>,
     /// POST 側でのみ書き込み: Keep タップ時に選定した PRE 候補の instance_id。
-    /// 不在時 None。Lens 側 cross-instance pair 復元の決定論的キー（A-3 (a) v1.2）。
+    /// 不在時 None。Lens 側 cross-instance pair 復元の決定論的キー v1.2）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub paired_pre_instance_id: Option<String>,
     /// PRE 側でのみ書き込み: Record 開始時に受信した record_signal の
     /// `requested_by`（POST 側 instance_id）。不在時 None。
-    /// Lens 側 cross-instance pair 復元の決定論的キー（A-3 (a) v1.2）。
+    /// Lens 側 cross-instance pair 復元の決定論的キー v1.2）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub paired_post_instance_id: Option<String>,
     pub validity: bool,
@@ -196,12 +196,12 @@ impl PluginDataFile {
     /// Hz 単位の DAW 入力サンプルレート。0 = 取得失敗（fallback）。
     /// リサンプリング前の監査トレイル用。
     /// 値は `sample_rate` と同一値で書き込まれる（plugin_data.rs L204）。
-    /// 仕様書根拠（guardian_100 S-1 / G-79 §2.3 / G-100-02）はコード
+    /// 仕様書根拠（ S-1 / G-79 .3 / G-100-02）はコード
     /// コメントから前方参照されているのみで、Hypha リポジトリ内に
     /// 実体 md は未配置（番人マター並行確認中）。
     ///
     /// # bus
-    /// Phase 1 では `None` を渡す（A-3 修正後 / Lens schema optional）。
+    /// Phase 1 では `None` を渡す。
     ///
     /// # instance_id（v1.2 (a)）
     /// Plugin Default 起動時に `Uuid::new_v4` で生成され、VST3 state として
@@ -252,7 +252,7 @@ impl PluginDataFile {
             heartbeat: now,
             status: Status::Active,
             frames: Vec::new(),
-            // guardian_101 v2: 全 SR で Phase D を計測するため初期値は常に Some。
+            //  v2: 全 SR で Phase D を計測するため初期値は常に Some。
             psb_snapshots: Some(Vec::new()),
             annotations: Vec::new(),
             paired_pre_instance_id,
@@ -359,7 +359,7 @@ impl WriterPaths {
 impl PluginDataWriter {
     /// tmp ディレクトリを作成して Writer を起動。最初の flush で空ファイルが rename される。
     ///
-    /// `bus` は Phase 1 では `None` を渡す（A-3 修正後）。将来 bus メタデータが復活
+    /// `bus` は Phase 1 では `None` を渡す。将来 bus メタデータが復活
     /// したら `Some(bus_name)` で content にだけ書き込む（path には影響しない）。
     ///
     /// `instance_id` / `paired_*_instance_id` は v1.2 (a) cross-instance pair 復元用。
@@ -422,7 +422,7 @@ impl PluginDataWriter {
 
     /// 1 frame を追加。数値を精度表に従って丸める。
     ///
-    /// guardian_101 v2 (G-100-02): Measure Thread 側で全 SR を 48kHz にリサンプリングして
+    ///  v2 (G-100-02): Measure Thread 側で全 SR を 48kHz にリサンプリングして
     /// Phase D を計測するため、`n_prime` / `sharpness` は常に `Some` で記録される。
     /// `Option` 型は将来 Phase D 取得失敗時のフォールバック余地として温存。
     pub fn append_frame(
@@ -450,7 +450,7 @@ impl PluginDataWriter {
 
     /// 1 PSB スナップショットを追加。
     ///
-    /// guardian_101 v2 (G-100-02): `psb_snapshots` は常に `Some(Vec)` で初期化されている
+    ///  v2 (G-100-02): `psb_snapshots` は常に `Some(Vec)` で初期化されている
     /// ため本メソッドは無条件で push する。
     pub fn append_psb(&mut self, t_ms: u64, psb: [f64; 20], interpolatable: bool) {
         let snapshots = self
@@ -793,7 +793,7 @@ mod tests {
         w.append_frame(123, n, 1.2345, -14.2345, -1.1234, 12.3456);
         let frame = &w.data().frames[0];
         assert_eq!(frame.t_ms, 123);
-        // 48000Hz: Phase D 値 Some (guardian_100 S-2)
+        // 48000Hz: Phase D 値 Some 
         assert_eq!(frame.n_prime.unwrap()[0], 1.2); // round1
         assert_eq!(frame.sharpness.unwrap(), 1.23); // round2
         assert_eq!(frame.lufs_m, -14.2);
@@ -1112,10 +1112,10 @@ mod tests {
         assert!(err.is_err(), "corrupt JSON should yield error");
     }
 
-    // ── guardian_100 S-1 / guardian_101 v2 (G-100-02): source_format & Phase D ──
+    // ──  S-1 /  v2 (G-100-02): source_format & Phase D ──
 
     /// 48kHz: source_format=48000 / Phase D 値が JSON に通常通り書き込まれる。
-    /// guardian_101 v2 でも同等の挙動を確認する。
+    ///  v2 でも同等の挙動を確認する。
     #[test]
     fn source_format_48000_writes_phase_d_values() {
         let base = isolated_dir();
@@ -1132,7 +1132,7 @@ mod tests {
         let loaded: PluginDataFile = serde_json::from_slice(&bytes).unwrap();
         // source_format が JSON に出力されている (S-1)
         assert_eq!(loaded.source_format, 48000);
-        // Phase D 値が Some で書き出されている (guardian_101 v2)
+        // Phase D 値が Some で書き出されている 
         assert!(loaded.frames[0].n_prime.is_some());
         assert!(loaded.frames[0].sharpness.is_some());
         assert!(loaded.psb_snapshots.is_some());

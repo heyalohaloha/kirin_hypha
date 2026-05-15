@@ -13,7 +13,7 @@ use crate::MeasureResult;
 /// True Peak スライディング窓の幅。
 ///
 /// Active 状態中のスレッドスケジューリング揺らぎで push() が 100ms 以上遅れても
-/// TP が一瞬 --- に落ちないようにする猶予。2秒は Measure Thread 再起動（T-8）の
+/// TP が一瞬 --- に落ちないようにする猶予。2秒は Measure Thread 再起動の
 /// 復帰時間をカバーする。
 /// transport 停止時は SignalState=Inactive が即座に --- を宣言するため、
 /// この窓は Active 中の安定性のみに寄与する。
@@ -26,7 +26,7 @@ pub struct MeasureEngine {
 
     /// 400ms スライディングウィンドウ（インターリーブ f64）。
     /// Crest Factor と PSR の peak_dBFS / RMS_dBFS 計算に使う。
-    /// guardian_53: "peak = サンプルピーク（True Peakではない。PSR計算との整合性のため）"
+    ///  "peak = サンプルピーク（True Peakではない。PSR計算との整合性のため）"
     window_400ms: VecDeque<f64>,
     /// 400ms ウィンドウの上限要素数（sample_rate × 0.4 × n_channels）
     window_400ms_cap: usize,
@@ -171,7 +171,7 @@ impl MeasureEngine {
     /// - Crest = peak_dBFS - RMS_dBFS（400ms, サンプルピーク）
     /// - PSR   = peak_dBFS - LUFS_S（3s Short-term）
     ///
-    /// guardian_53: "peak = サンプルピーク（True Peakではない）"
+    ///  "peak = サンプルピーク（True Peakではない）"
     fn compute_crest_psr(&self) -> (Option<f64>, Option<f64>) {
         if self.window_400ms.is_empty() {
             return (None, None);
