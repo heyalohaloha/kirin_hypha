@@ -14,14 +14,14 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::thread::JoinHandle;
 use uuid::Uuid;
 
-/// Kirin Hypha POST — マスタリングチェイン後段計測プラグイン。
+/// Kirin Hypha POST — downstream measurement plugin.
 ///
 /// # 4層隔離
 /// ```text
-/// Audio Thread    — process(): バッファコピーのみ（R-12）。絶対に止まらない
+/// Audio Thread    — process(): buffer copy only. Never blocks.
 /// Measure Thread  — 4項目計測（ebur128 + スライディングウィンドウ）
 /// IO Thread       — PRE ファイル読み + Δ算出 + post.json アトミック書き込み
-/// Watchdog Thread — Measure / IO の is_finished() 監視・自動再起動（T-8）
+/// Watchdog Thread — Measure / IO thread health monitoring with auto-restart
 /// ```
 ///
 /// # B-020 / γ-3 後の識別子モデル
@@ -79,7 +79,7 @@ pub struct HyphaPost {
     /// preset/*.json が 1 件以上存在するか。
     preset_available: Arc<AtomicBool>,
 
-    // ── T-E/T-F 追加（guardian_77 v3 §9 / §10）────────────────────────
+    // ────────────────────────
     installation_id: Arc<String>,
     playback_pos_samples: Arc<AtomicI64>,
     playback_sample_rate: Arc<AtomicU32>,
@@ -91,7 +91,7 @@ struct HyphaPostParams {
     #[id = "bypass"]
     pub bypass: BoolParam,
 
-    /// プロジェクト保存時に永続化される instance UUID（A-3 修正後）。
+    /// プロジェクト保存時に永続化される instance UUID。
     /// 初回挿入時に Default::default() で生成、project 再オープン時には
     /// nih-plug の persist 機構が同じ値を復元する。Watch / Record / plugin_data
     /// の path 構築と record_signal の target_pre_instance_id 識別に使う。
@@ -189,7 +189,7 @@ fn read_persisted_string(field: &RwLock<String>) -> String {
 /// PRE と同じ値が chunk に書かれる）。
 ///
 /// 順序依存 (POST が先に initialize されると cell が空 → POST が cell をセット
-/// → PRE が後で上書き) は §S2 既知制約として受容。
+/// → PRE が後で上書き) 
 ///
 /// `peek_project_uuid()` を使い lazy fallback を避ける。POST 側で cell を
 /// 自動初期化すると、PRE 後発時に cell が POST 値に「占拠」されてしまい、
