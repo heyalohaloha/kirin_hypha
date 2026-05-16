@@ -8,7 +8,7 @@
 
 use kirin_measure::{
     serialize_post_json, serialize_pre_json, spawn_io_thread_post, DeltaMode, DeltaResult,
-    MeasureResult, RecordStateMachine, SignalState,
+    DeltaSnapshot, MeasureResult, RecordStateMachine, SignalState,
 };
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
@@ -353,6 +353,108 @@ fn test_selects_latest_pre_by_timestamp() {
     );
 
     let _ = std::fs::remove_dir_all(&isolated_dir);
+}
+
+// ── B-048 / G-115-245 Last Known Good merge ロジック単体テスト ─────────────
+//
+// `run_tick` 内で実際に呼ばれる pure 関数 `merge_last_active` を直接呼んで
+// 3 種の遷移 (Active→Active / Active→NoPre / NoPre→Active) で last_active が
+// 仕様通りに更新/保持されることを保証する。Mutex / fs 副作用なしの unit test。
+
+/// Helper: 指定 mode + 値で `DeltaResult` を構築するテスト専用 builder。
+/// `last_active` は呼び出し側で `merge_last_active` の `prev_last_active` に
+/// 別途渡すため、ここでは常に None。
+fn make_delta(mode: DeltaMode, lufs: Option<f64>, psr: Option<f64>) -> DeltaResult {
+    DeltaResult {
+        lufs,
+        psr,
+        tp: None,
+        n_prime_total: None,
+        crest: None,
+        sharpness: None,
+        mode,
+        last_active: None,
+    }
+}
+
+/// (3) `Active → Active` 遷移で `last_active` が **新 6 field 値で上書き** される。
+#[test]
+fn test_merge_last_active_active_to_active_updates_snapshot() {
+    use kirin_measure::io_thread_post::merge_last_active;
+
+    // 前回 Active 結果 (prev_last_active に渡す snapshot)
+    let prev_snap = DeltaSnapshot {
+        lufs: Some(-1.0),
+        psr: Some(2.0),
+        tp: None,
+        n_prime_total: None,
+        crest: None,
+        sharpness: None,
+    };
+
+    // 新 Active 結果
+    let new_delta = make_delta(DeltaMode::Active, Some(-3.0), Some(4.0));
+
+    let merged = merge_last_active(Some(prev_snap), new_delta);
+
+    // mode は Active のまま継承
+    assert_eq!(merged.mode, DeltaMode::Active);
+    // 新値が表示用 field に
+    assert_eq!(merged.lufs, Some(-3.0));
+    assert_eq!(merged.psr, Some(4.0));
+    // last_active は **新値 snapshot** で上書き (前回値 -1.0/2.0 は破棄)
+    let snap = merged.last_active.expect("last_active must be Some after Active");
+    assert_eq!(snap.lufs, Some(-3.0));
+    assert_eq!(snap.psr, Some(4.0));
+}
+
+/// (4) `Active → NoPre` 遷移で `last_active` が **前回 Active 値を保持** する。
+#[test]
+fn test_merge_last_active_active_to_nopre_preserves_snapshot() {
+    use kirin_measure::io_thread_post::merge_last_active;
+
+    let prev_snap = DeltaSnapshot {
+        lufs: Some(-5.5),
+        psr: Some(7.7),
+        tp: Some(-0.3),
+        n_prime_total: None,
+        crest: None,
+        sharpness: None,
+    };
+
+    let new_delta = make_delta(DeltaMode::NoPre, None, None);
+    let merged = merge_last_active(Some(prev_snap), new_delta);
+
+    // mode は NoPre
+    assert_eq!(merged.mode, DeltaMode::NoPre);
+    // 表示用 field は None (新 NoPre 値)
+    assert!(merged.lufs.is_none());
+    assert!(merged.psr.is_none());
+    // last_active は **前回 Active 値** で保持されている
+    let snap = merged.last_active.expect("last_active must be preserved across NoPre");
+    assert_eq!(snap.lufs, Some(-5.5));
+    assert_eq!(snap.psr, Some(7.7));
+    assert_eq!(snap.tp, Some(-0.3));
+}
+
+/// (5) `NoPre → Active` 遷移で `last_active` が **新 Active 値で更新** される。
+/// 初回 Active 検出経路 (prev_last_active = None) を網羅。
+#[test]
+fn test_merge_last_active_nopre_to_active_creates_snapshot() {
+    use kirin_measure::io_thread_post::merge_last_active;
+
+    // 前回 last_active なし (初回 PRE 検出ケース)
+    let prev_last_active: Option<DeltaSnapshot> = None;
+
+    let new_delta = make_delta(DeltaMode::Active, Some(-8.0), Some(9.0));
+    let merged = merge_last_active(prev_last_active, new_delta);
+
+    assert_eq!(merged.mode, DeltaMode::Active);
+    assert_eq!(merged.lufs, Some(-8.0));
+    // last_active が新規 Some(snapshot) に
+    let snap = merged.last_active.expect("last_active must be Some after NoPre→Active");
+    assert_eq!(snap.lufs, Some(-8.0));
+    assert_eq!(snap.psr, Some(9.0));
 }
 
 // ── ヘルパー ────────────────────────────────────────────────────────────────

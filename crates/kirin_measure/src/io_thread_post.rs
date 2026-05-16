@@ -27,7 +27,7 @@ use serde::Deserialize;
 use crate::all_keep_signal::{self, ALL_KEEP_BROADCAST_STALE_SECS};
 use crate::all_stop_signal::{self, ALL_STOP_BROADCAST_STALE_SECS};
 use crate::cleanup::exit_record_full;
-use crate::delta::{DeltaMode, DeltaResult};
+use crate::delta::{DeltaMode, DeltaResult, DeltaSnapshot};
 use crate::plugin_data::Role as PluginDataRole;
 use crate::pre_discovery::{discover_active_pre_dir, PostDiscoveryState, DISCOVERY_STALE_SECS};
 use crate::record::RecordStateMachine;
@@ -718,11 +718,18 @@ fn run_tick(
         .map_err(|e| format!("post Mutex poisoned: {e}"))?
         .clone();
 
-    let (delta, pre_signal_state) = compute_delta_with_state(project_dir, &post)?;
+    let (new_delta, pre_signal_state) = compute_delta_with_state(project_dir, &post)?;
 
-    *delta_result
+    // B-048 / G-115-245 Last Known Good: Active 時に Δ 6 軸を snapshot として
+    // `last_active` に保存し、Stale/NoPre 時は前回 `last_active` を保持する。
+    // Mutex lock 1 回で前回値を read → merge → write back (案 B / §3.3)。
+    // merge ロジック自体は pure 関数 `merge_last_active` に切り出し済 (unit test 可能化)。
+    let mut delta_locked = delta_result
         .lock()
-        .map_err(|e| format!("delta Mutex poisoned: {e}"))? = delta;
+        .map_err(|e| format!("delta Mutex poisoned: {e}"))?;
+    let prev_last_active = delta_locked.last_active.clone();
+    *delta_locked = merge_last_active(prev_last_active, new_delta);
+    drop(delta_locked);
 
     // B-027 段階 3-B α-7-1 / Step 6: pair_pre_name は閉路 1 tick の snapshot
     // (Q-A7 採用案 A 完成 / cross-instance 公開機構)。
@@ -737,6 +744,48 @@ fn run_tick(
 #[doc(hidden)]
 pub fn compute_delta(project_dir: &Path, post: &MeasureResult) -> Result<DeltaResult, String> {
     compute_delta_with_state(project_dir, post).map(|(delta, _)| delta)
+}
+
+/// B-048 / G-115-245 Last Known Good: 新 `DeltaResult` と前回 `last_active` を
+/// マージする pure 関数。`run_tick` 内で Mutex lock 取得後に呼ばれる。
+///
+/// セマンティクス:
+/// - `new_delta.mode == Active` → 新 6 field 値で `DeltaSnapshot` 作成 →
+///   `last_active = Some(snapshot)`。`prev_last_active` は破棄。
+/// - `new_delta.mode == Stale | NoPre` → `prev_last_active` をそのまま保持。
+///   新値を `last_active` に書き込まない (PRE pre.json 不在/古い区間で「直近の
+///   Active 時の凍結値」を GUI に保持させ続けるため)。
+///
+/// 純関数のため Mutex / fs 副作用なし → unit test 容易。
+/// `run_tick` (Mutex / fs / spawn 副作用あり) は本関数を呼ぶだけのアダプタ。
+///
+/// 可視性: `pub` は `tests/io_thread_post_test.rs` (kirin_measure crate 外扱いの
+/// integration test) から呼ぶための公開。外部 crate consumer (hypha_post 等) は
+/// 本関数を直接使う想定無し (`DeltaResult::last_active` を読むのは GUI 側のみ)。
+pub fn merge_last_active(
+    prev_last_active: Option<DeltaSnapshot>,
+    new_delta: DeltaResult,
+) -> DeltaResult {
+    match new_delta.mode {
+        DeltaMode::Active => {
+            let snapshot = DeltaSnapshot {
+                lufs: new_delta.lufs,
+                psr: new_delta.psr,
+                tp: new_delta.tp,
+                n_prime_total: new_delta.n_prime_total,
+                crest: new_delta.crest,
+                sharpness: new_delta.sharpness,
+            };
+            DeltaResult {
+                last_active: Some(snapshot),
+                ..new_delta
+            }
+        }
+        DeltaMode::Stale | DeltaMode::NoPre => DeltaResult {
+            last_active: prev_last_active,
+            ..new_delta
+        },
+    }
 }
 
 /// `$TMPDIR/kirin/{project_hash}/` 配下の全 instance_id サブディレクトリを走査して
@@ -809,6 +858,7 @@ fn compute_delta_with_state(
                 crest: None,
                 sharpness: None,
                 mode: DeltaMode::NoPre,
+                last_active: None, // B-048 §4-2: run_tick で merge する責務分業
             },
             pre_signal_state,
         ));
@@ -854,6 +904,7 @@ fn compute_delta_with_state(
             crest: delta_crest,
             sharpness: delta_sharpness,
             mode,
+            last_active: None, // B-048 §4-2: run_tick で merge する責務分業
         },
         pre_signal_state,
     ))

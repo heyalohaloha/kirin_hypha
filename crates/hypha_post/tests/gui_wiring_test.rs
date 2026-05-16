@@ -86,9 +86,11 @@ fn editor_rs_calls_draw_proposals_block_from_draw_post() {
     // Look for the invocation within a reasonable window of draw_post body.
     // 5000 byte 上限は B-027 段階 2 で Name 入力欄追加に伴う body 増を吸収
     // (元 4000 では draw_proposals_block 呼出 byte index がぎりぎり外に出る)。
+    // window 5000 → 6000: B-048 / G-115-245 NoPre 分岐に Last Known Good if-let
+    // 追加 (draw_post body 5587 byte 計測 / 6000 確保)。
     // UTF-8 char boundary を跨がないよう boundary まで walk-back する
     // (Japanese comments が raw byte index 上で multi-byte char の途中に当たる)。
-    let mut safe_end = (draw_post_start + 5000).min(src.len());
+    let mut safe_end = (draw_post_start + 6000).min(src.len());
     while safe_end > draw_post_start && !src.is_char_boundary(safe_end) {
         safe_end -= 1;
     }
@@ -396,5 +398,40 @@ fn lib_rs_drop_calls_delete_signal_after_watchdog_join() {
     assert!(
         body.contains("[POST cleanup #3] delete_signal failed"),
         "Drop delete_signal failure must log warn only (Drop 内 panic = abort)"
+    );
+}
+
+/// B-048 / G-115-245 Last Known Good: editor.rs `DeltaMode::NoPre` 分岐に
+/// 以下 2 パターンが共存することを source-string で保証する。
+///
+/// - `if let Some(snap) = &d.last_active` (凍結値表示経路 / B-048 主機能)
+/// - `draw_watch_absolute_grid(ui, m)` (初回 PRE 検出前フォールバック / 既存挙動)
+///
+/// どちらか欠けるとサイレント機能停止になる:
+/// - 前者欠落 = 常に絶対値経路 / Last Known Good 失効
+/// - 後者欠落 = 初回 PRE 検出前に panic or 描画失敗
+#[test]
+fn editor_rs_no_pre_branch_has_last_known_good_and_fallback() {
+    let src = read("src/editor.rs");
+    let draw_post_start = src
+        .find("fn draw_post(")
+        .expect("draw_post function must exist");
+    // window 6000 は editor_rs_calls_draw_proposals_block_from_draw_post と同位相
+    // (B-048 NoPre 分岐 if-let 追加で body 増 5587 byte / 6000 で 413 byte 余裕)。
+    let mut safe_end = (draw_post_start + 6000).min(src.len());
+    while safe_end > draw_post_start && !src.is_char_boundary(safe_end) {
+        safe_end -= 1;
+    }
+    let window = &src[draw_post_start..safe_end];
+
+    assert!(
+        window.contains("if let Some(snap) = &d.last_active"),
+        "draw_post NoPre branch must contain `if let Some(snap) = &d.last_active` \
+         (B-048 / G-115-245 Last Known Good display path)"
+    );
+    assert!(
+        window.contains("draw_watch_absolute_grid(ui, m)"),
+        "draw_post NoPre branch must contain `draw_watch_absolute_grid(ui, m)` \
+         (B-048 fallback for initial PRE detection / 既存挙動)"
     );
 }

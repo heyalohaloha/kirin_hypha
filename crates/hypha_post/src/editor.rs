@@ -39,7 +39,7 @@ use kirin_measure::{
     lookup_section_label, mark_released, pick_closest_pre, sanitize_name,
     scan_latest_v2_preset, scan_pre_candidates_in, show_note_button, show_save_button,
     show_stop_record_button, write_broadcast, write_pending, write_stop_broadcast,
-    DeltaMode, DeltaResult, ExclusionResult, License, MeasureResult, PluginDataRole,
+    DeltaMode, DeltaResult, DeltaSnapshot, ExclusionResult, License, MeasureResult, PluginDataRole,
     PostMetrics, PreCandidate, PresetFileV2, RecordStateMachine, SignalState, StoragePaths,
     TransitionError, MAX_ACTIVE_PER_PROJECT, SENSE_RECORD_HINT, SENSE_UPSELL_URL,
 };
@@ -414,7 +414,19 @@ fn draw_post(
                                 draw_delta_grid(ui, d, delta_col, tp_warn);
                             }
                             DeltaMode::NoPre => {
-                                draw_watch_absolute_grid(ui, m);
+                                // B-048 / G-115-245 Last Known Good: 直近 Active 時の
+                                // Δ 6 軸 snapshot があれば凍結値を COL_MUTED で表示。
+                                // None (初回 PRE 検出前) は既存フォールバック (POST 絶対値)。
+                                if let Some(snap) = &d.last_active {
+                                    // tp_warn は signature 安定性のため算出して渡す
+                                    // (B-051 鮮度ドット導入時の修正範囲最小化 / 採用案 Y)。
+                                    // draw_delta_grid_frozen 側では _tp_warn で受けて
+                                    // 凍結値表示中の COL_FLORA_BRIGHT 強調は意図的に抑制。
+                                    let tp_warn = tp_over(m.true_peak);
+                                    draw_delta_grid_frozen(ui, snap, tp_warn);
+                                } else {
+                                    draw_watch_absolute_grid(ui, m);
+                                }
                             }
                         }
                         ui.add_space(4.0);
@@ -537,6 +549,34 @@ fn draw_delta_grid(ui: &mut egui::Ui, d: &DeltaResult, delta_col: egui::Color32,
     });
 }
 
+/// Watch + DeltaMode::NoPre + 凍結値あり: Last Known Good 表示 (B-048 / G-115-245)。
+///
+/// `editor.rs` の `DeltaMode::NoPre` 分岐で `d.last_active = Some(snap)` のときに呼ばれる。
+/// 全 cell 色を `COL_MUTED` 固定にして「鮮度が落ちた凍結値」であることを示す
+/// (Dark Cockpit 整合 / 純白 #FFFFFF 不使用 / G-72-10)。
+///
+/// `_tp_warn` は signature 安定性のため受け取るが未使用 (B-051 鮮度ドット導入時の
+/// 修正範囲を最小化するため引数だけは残す)。凍結値は過去の計測値であり現在の
+/// True Peak 警告 (`COL_FLORA_BRIGHT`) を点灯させるのは意味的に誤りなので、
+/// 凍結表示中は意図的に強調を抑制する。
+///
+/// レイアウトは `draw_delta_grid` と対称 (Watch 3 項目: ΔLUFS / ΔTP / ΔCrest)。
+/// `Grid::new` の id だけは `"post_delta_frozen"` で別 widget identity を持つ。
+fn draw_delta_grid_frozen(ui: &mut egui::Ui, snap: &DeltaSnapshot, _tp_warn: bool) {
+    ui.horizontal(|ui| {
+        ui.add_space(10.0);
+        Grid::new("post_delta_frozen")
+            .num_columns(3)
+            .min_col_width(58.0)
+            .spacing([6.0, 6.0])
+            .show(ui, |ui| {
+                value_row(ui, "ΔLUFS", fmt_delta(snap.lufs), "LU", COL_MUTED);
+                value_row(ui, "ΔTP", fmt_delta(snap.tp), "dB", COL_MUTED);
+                value_row(ui, "ΔCrest", fmt_delta(snap.crest), "dB", COL_MUTED);
+            });
+    });
+}
+
 /// Watch + PRE 不在 or Bypassed（DeltaMode::NoPre）: POST 絶対値 3 項目（LUFS-M / TP / Crest）。
 /// guardian_64 による旧仕様復活。Record の右列と同じ値源だが Watch 用の単列レイアウト。
 fn draw_watch_absolute_grid(ui: &mut egui::Ui, m: &MeasureResult) {
@@ -578,6 +618,48 @@ fn draw_record_section(ui: &mut egui::Ui, m: &MeasureResult, d: &DeltaResult) {
         DeltaMode::NoPre => COL_MUTED,
     };
     let tp_warn = tp_over(m.true_peak);
+
+    // B-048 / G-115-245 Last Known Good (advisor 判断 1 案 X 条件付き):
+    // `current` が None かつ `d.mode != Active` のとき `snap` (凍結値) で fallback する。
+    // Active 時は §4-4 不変条件遵守 = 既存挙動完全維持 (current Some なら delta_col / None なら COL_MUTED で `---`)。
+    // 戻り値 `(表示値 Option<f64>, 表示色 Color32)`。fmt_delta で None → "---" 既存パターン踏襲。
+    let is_active = d.mode == DeltaMode::Active;
+    let resolve = |current: Option<f64>, snap: Option<f64>| -> (Option<f64>, egui::Color32) {
+        if is_active {
+            // Active: 既存挙動完全維持 (last_active 参照しない)
+            match current {
+                Some(v) => (Some(v), delta_col),
+                None => (None, COL_MUTED),
+            }
+        } else {
+            // Stale/NoPre: 現値 → 凍結値 fallback → ---
+            match (current, snap) {
+                (Some(v), _) => (Some(v), delta_col),
+                (None, Some(frozen)) => (Some(frozen), COL_MUTED),
+                (None, None) => (None, COL_MUTED),
+            }
+        }
+    };
+
+    let snap = d.last_active.as_ref();
+    let (lufs_v, lufs_col) = resolve(d.lufs, snap.and_then(|s| s.lufs));
+    let (psr_v, psr_col) = resolve(d.psr, snap.and_then(|s| s.psr));
+    let (n_v, n_col) = resolve(d.n_prime_total, snap.and_then(|s| s.n_prime_total));
+    let (crest_v, crest_col) = resolve(d.crest, snap.and_then(|s| s.crest));
+    let (sharp_v, sharp_col) = resolve(d.sharpness, snap.and_then(|s| s.sharpness));
+
+    // ΔTP 特例: 現値 Some && tp_warn のときのみ COL_FLORA_BRIGHT 上書き (既存挙動維持)。
+    // 凍結 tp (d.tp=None && snap.tp=Some) は COL_MUTED 固定 (過去の警告を現在の警告として
+    // 強調しない / draw_delta_grid_frozen と整合)。
+    let (tp_v, tp_col) = {
+        let (v, c) = resolve(d.tp, snap.and_then(|s| s.tp));
+        if d.tp.is_some() && tp_warn {
+            (v, COL_FLORA_BRIGHT)
+        } else {
+            (v, c)
+        }
+    };
+
     ui.horizontal(|ui| {
         ui.add_space(10.0);
         Grid::new("post_record_vals")
@@ -585,30 +667,20 @@ fn draw_record_section(ui: &mut egui::Ui, m: &MeasureResult, d: &DeltaResult) {
             .min_col_width(40.0)
             .spacing([6.0, 4.0])
             .show(ui, |ui| {
-                let lufs_col = if d.lufs.is_some() { delta_col } else { COL_MUTED };
-                let psr_col = if d.psr.is_some() { delta_col } else { COL_MUTED };
                 row_pair(
                     ui,
-                    ("ΔLUFS", fmt_delta(d.lufs), "LU", lufs_col),
-                    ("ΔPSR", fmt_delta(d.psr), "dB", psr_col),
+                    ("ΔLUFS", fmt_delta(lufs_v), "LU", lufs_col),
+                    ("ΔPSR", fmt_delta(psr_v), "dB", psr_col),
                 );
-                let tp_col = if d.tp.is_some() {
-                    if tp_warn { COL_FLORA_BRIGHT } else { delta_col }
-                } else {
-                    COL_MUTED
-                };
-                let n_col = if d.n_prime_total.is_some() { delta_col } else { COL_MUTED };
                 row_pair(
                     ui,
-                    ("ΔTP", fmt_delta(d.tp), "dB", tp_col),
-                    ("ΔN", fmt_delta(d.n_prime_total), "sone", n_col),
+                    ("ΔTP", fmt_delta(tp_v), "dB", tp_col),
+                    ("ΔN", fmt_delta(n_v), "sone", n_col),
                 );
-                let crest_col = if d.crest.is_some() { delta_col } else { COL_MUTED };
-                let sharp_col = if d.sharpness.is_some() { delta_col } else { COL_MUTED };
                 row_pair(
                     ui,
-                    ("ΔCrest", fmt_delta(d.crest), "dB", crest_col),
-                    ("ΔSharp", fmt_delta(d.sharpness), "acum", sharp_col),
+                    ("ΔCrest", fmt_delta(crest_v), "dB", crest_col),
+                    ("ΔSharp", fmt_delta(sharp_v), "acum", sharp_col),
                 );
             });
     });
