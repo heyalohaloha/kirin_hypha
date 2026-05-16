@@ -799,7 +799,15 @@ fn write_json(
     let json = if state == SignalState::Active {
         let measure = result
             .lock()
-            .map_err(|e| format!("Mutex poisoned: {e}"))?
+            .map_err(|e| {
+                // B-047 / G-115-247: Mutex poison は Measure Thread panic 後の永続障害。
+                // pre.json の `t` field 更新が止まり、POST 側で DeltaMode::Stale/NoPre 化する真因。
+                log::error!(
+                    "[PRE write_json] Mutex poisoned — t field NOT updated (instance_id={}, err={})",
+                    instance_id, e
+                );
+                format!("Mutex poisoned: {e}")
+            })?
             .clone();
         serialize_pre_json(instance_id, name, state, &measure)
     } else {

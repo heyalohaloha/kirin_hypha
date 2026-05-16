@@ -898,13 +898,31 @@ fn freshness_mode(parsed: &serde_json::Value) -> Result<DeltaMode, String> {
     let now = chrono::Utc::now();
     let age_secs = (now - pre_time.with_timezone(&chrono::Utc)).num_seconds();
 
-    Ok(if age_secs >= NO_PRE_SECS {
+    let mode = if age_secs >= NO_PRE_SECS {
         DeltaMode::NoPre
     } else if age_secs >= STALE_SECS {
         DeltaMode::Stale
     } else {
         DeltaMode::Active
-    })
+    };
+
+    // B-047 / G-115-247: NoPre / Stale 観測ログ (UI 異常診断用)。
+    // instance_id は PRE 側 serialize_pre_json が書き込む "instance_id" field を引く。
+    // freshness_mode は io_thread_post tick (100ms) ごとに呼ばれるため、
+    // Stale/NoPre 継続中はログが洪水になる。Phase 1 観察フェーズ後は edge-triggered
+    // (前回 mode との比較) または log level 引き下げを別 commit で検討する。
+    if mode != DeltaMode::Active {
+        let iid = parsed
+            .get("instance_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("?");
+        log::warn!(
+            "[freshness] PRE pre.json {:?}: age_secs={} instance_id={}",
+            mode, age_secs, iid
+        );
+    }
+
+    Ok(mode)
 }
 
 /// POST JSON v2 フォーマット（Active 時。SS-5 + SS-6）。bus フィールドは削除済（A-3 修正後）。

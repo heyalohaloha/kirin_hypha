@@ -116,19 +116,19 @@ impl PreSelfDiscoveryState {
     /// scan 結果を記録する。`should_rescan(now)` が true だった直後に呼ぶ。
     ///
     /// # 入力
-    /// `result`: `Some((project_dir, daw_session_id))` で発見成功、`None` で
-    /// 不在 (cache を両方クリア)。
+    /// `result`: `Some((project_dir, daw_session_id))` で発見成功、`None` で不在。
+    ///
+    /// B-047 / G-115-247: `None` でも cache はクリアしない。「一度 Some を
+    /// 見つけたら以降 None で上書きしない」セマンティクス。Watch mode
+    /// (partner=None) 中に discover が miss → cache クリア →
+    /// `effective_project_hash_ref` が PRE 自身に flip back → pre.json
+    /// 書込先切替で POST 側 ▼ 消失 / DISCOVERY_STALE_SECS 脱落が起きる
+    /// 構造的 flipping を抑止する。
     pub fn record_scan(&mut self, now: Instant, result: Option<(PathBuf, String)>) {
         self.last_scan = Some(now);
-        match result {
-            Some((path, session_id)) => {
-                self.cached_post_project_dir = Some(path);
-                self.cached_daw_session_id = Some(session_id);
-            }
-            None => {
-                self.cached_post_project_dir = None;
-                self.cached_daw_session_id = None;
-            }
+        if let Some((path, session_id)) = result {
+            self.cached_post_project_dir = Some(path);
+            self.cached_daw_session_id = Some(session_id);
         }
     }
 }
@@ -486,7 +486,9 @@ mod tests {
     }
 
     #[test]
-    fn state_cached_value_returned_until_rescan() {
+    fn state_cached_value_preserved_across_none_rescan() {
+        // B-047 / G-115-247: 一度 Some を見つけたら以降 None で上書きしない。
+        // Watch mode (partner=None) で discover miss しても cache を捨てない。
         let mut s = PreSelfDiscoveryState::new();
         let t0 = Instant::now();
         let dir = PathBuf::from("/tmp/post-A");
@@ -494,7 +496,7 @@ mod tests {
         assert_eq!(s.cached_post_project_dir(), Some(dir.as_path()));
         assert_eq!(s.cached_daw_session_id(), Some("daw-test"));
         s.record_scan(t0 + Duration::from_secs(1), None);
-        assert!(s.cached_post_project_dir().is_none());
-        assert!(s.cached_daw_session_id().is_none());
+        assert_eq!(s.cached_post_project_dir(), Some(dir.as_path()));
+        assert_eq!(s.cached_daw_session_id(), Some("daw-test"));
     }
 }
