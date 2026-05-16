@@ -25,7 +25,7 @@ const LOOP_SLEEP: Duration = Duration::from_millis(100);
 /// heartbeat が何回連続で変化しなければ process() 停止と判定するか。
 /// 2 回 × 100ms = 200ms。48kHz/512 で ~93 回/100ms の process() が呼ばれるため、
 /// 200ms 無変化は確実に停止。
-const HEARTBEAT_STALE_THRESHOLD: u32 = 2;
+const HEARTBEAT_STALE_THRESHOLD: u32 = 30; // B-045: 200ms→3s (DAW stall 吸収 / G-115-245)
 
 /// Measure Thread を起動し、JoinHandle を返す。
 ///
