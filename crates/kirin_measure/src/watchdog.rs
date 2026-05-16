@@ -16,6 +16,8 @@
 //! Audio Thread は process() で pending_producer を低頻度チェックし、
 //! Some なら ring_producer を差し替える。
 
+use crate::engine::SessionSummary;
+use crate::record::RecordStateMachine;
 use crate::{spawn_measure_thread, MeasureResult};
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
@@ -59,6 +61,10 @@ pub struct WatchdogParams {
     pub restart_io: Box<dyn Fn(Arc<AtomicBool>) -> JoinHandle<()> + Send + 'static>,
     /// Watchdog 自身の停止フラグ
     pub watchdog_shutdown: Arc<AtomicBool>,
+    /// B-043: Record mode 状態機械（再起動した Measure Thread に渡す）
+    pub record_sm: Arc<RecordStateMachine>,
+    /// B-043: Record セッション集計値共有スロット（再起動した Measure Thread に渡す）
+    pub session_summary: Arc<Mutex<Option<SessionSummary>>>,
 }
 
 /// Watchdog Thread を起動して JoinHandle を返す。
@@ -78,6 +84,8 @@ pub fn spawn_watchdog(params: WatchdogParams) -> JoinHandle<()> {
             io_handle: initial_io,
             restart_io,
             watchdog_shutdown,
+            record_sm,
+            session_summary,
         } = params;
 
         let mut cur_measure = initial_m;
@@ -118,6 +126,8 @@ pub fn spawn_watchdog(params: WatchdogParams) -> JoinHandle<()> {
                     Arc::clone(&signal_state),
                     Arc::clone(&measure_shutdown),
                     Arc::clone(&heartbeat),
+                    Arc::clone(&record_sm),
+                    Arc::clone(&session_summary),
                 );
 
                 // Audio Thread に新しい Producer を渡す（process() が取り出す）

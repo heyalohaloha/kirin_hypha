@@ -22,10 +22,11 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use crate::delta::{DeltaMode, DeltaResult};
+use crate::engine::SessionSummary;
 use crate::plugin_data::Role as PluginDataRole;
 use crate::record::RecordStateMachine;
 use crate::record_signal::{self, SignalStatus, ACK_TIMEOUT_SECONDS, SIGNALS_SUBDIR};
-use crate::record_writer::{run_record_tick, writer_close, RecordingCtx};
+use crate::record_writer::{run_record_tick, take_session_summary, writer_close, RecordingCtx};
 use crate::storage::StoragePaths;
 use crate::{load_signal_state, MeasureResult, SignalState};
 
@@ -64,6 +65,7 @@ pub fn spawn_io_thread_post(
     sample_rate: u32,
     record_sm: Arc<RecordStateMachine>,
     post_result: Arc<Mutex<MeasureResult>>,
+    session_summary: Arc<Mutex<Option<SessionSummary>>>,
     delta_result: Arc<Mutex<DeltaResult>>,
     signal_state: Arc<AtomicU8>,
     preset_available: Arc<AtomicBool>,
@@ -130,6 +132,7 @@ pub fn spawn_io_thread_post(
                 paired_pre_resolver,
                 paired_post_resolver,
                 &post_result,
+                &session_summary,
                 &mut recording,
             ) {
                 log::warn!("[writer] tick error: {}", e);
@@ -149,7 +152,8 @@ pub fn spawn_io_thread_post(
         }
 
         if let Some(ctx) = recording.take() {
-            writer_close(ctx);
+            let summary = take_session_summary(&session_summary);
+            writer_close(ctx, summary);
         }
 
         if let Err(e) = fs::remove_file(&post_file) {

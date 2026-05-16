@@ -25,7 +25,7 @@ pub mod storage;
 pub mod watchdog;
 
 pub use delta::{DeltaMode, DeltaResult};
-pub use engine::MeasureEngine;
+pub use engine::{MeasureEngine, SessionSummary};
 pub use exclusion::{
     check_record_exclusion, check_record_exclusion_at, is_heartbeat_fresh, ExclusionResult,
     STALE_SECONDS,

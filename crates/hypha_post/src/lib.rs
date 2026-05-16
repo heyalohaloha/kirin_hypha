@@ -4,8 +4,8 @@ use kirin_measure::{
     daw_session_id, ensure_legacy_cleanup_done, load_installation_id_safe, load_license_safe,
     peek_project_uuid, process_project_hash, set_daw_session_id, set_project_uuid,
     spawn_io_thread_post, spawn_measure_thread, spawn_watchdog, store_signal_state, DeltaResult,
-    License, MeasureResult, RecordStateMachine, SignalState, WatchdogParams, N_CHANNELS,
-    RING_BUFFER_SECONDS,
+    License, MeasureResult, RecordStateMachine, SessionSummary, SignalState, WatchdogParams,
+    N_CHANNELS, RING_BUFFER_SECONDS,
 };
 use nih_plug::prelude::*;
 use nih_plug_egui::EguiState;
@@ -47,6 +47,8 @@ pub struct HyphaPost {
 
     ring_producer: Option<rtrb::Producer<f32>>,
     measure_result: Arc<Mutex<MeasureResult>>,
+    /// B-043: Record セッション集計値共有スロット（Measure → IO Thread）。
+    session_summary: Arc<Mutex<Option<SessionSummary>>>,
     delta_result: Arc<Mutex<DeltaResult>>,
 
     measure_shutdown: Arc<AtomicBool>,
@@ -137,6 +139,7 @@ impl Default for HyphaPost {
             daw_session_id: daw_session_id(),
             ring_producer: None,
             measure_result: Arc::new(Mutex::new(MeasureResult::default())),
+            session_summary: Arc::new(Mutex::new(None)),
             delta_result: Arc::new(Mutex::new(DeltaResult::default())),
             measure_shutdown: Arc::new(AtomicBool::new(false)),
             io_shutdown: Arc::new(AtomicBool::new(false)),
@@ -332,6 +335,8 @@ impl Plugin for HyphaPost {
             Arc::clone(&self.signal_state),
             Arc::clone(&self.measure_shutdown),
             Arc::clone(&self.heartbeat),
+            Arc::clone(&self.record_sm),
+            Arc::clone(&self.session_summary),
         );
 
         // ── IO Thread 起動 ───────────────────────────────────────────
@@ -344,6 +349,7 @@ impl Plugin for HyphaPost {
             sample_rate,
             Arc::clone(&self.record_sm),
             Arc::clone(&self.measure_result),
+            Arc::clone(&self.session_summary),
             Arc::clone(&self.delta_result),
             Arc::clone(&self.signal_state),
             Arc::clone(&self.preset_available),
@@ -357,6 +363,7 @@ impl Plugin for HyphaPost {
             let project_hash = project_hash.clone();
             let record_sm = Arc::clone(&self.record_sm);
             let measure_result = Arc::clone(&self.measure_result);
+            let session_summary = Arc::clone(&self.session_summary);
             let delta_result = Arc::clone(&self.delta_result);
             let signal_state = Arc::clone(&self.signal_state);
             let preset_available = Arc::clone(&self.preset_available);
@@ -368,6 +375,7 @@ impl Plugin for HyphaPost {
                     sample_rate,
                     Arc::clone(&record_sm),
                     Arc::clone(&measure_result),
+                    Arc::clone(&session_summary),
                     Arc::clone(&delta_result),
                     Arc::clone(&signal_state),
                     Arc::clone(&preset_available),
@@ -391,6 +399,8 @@ impl Plugin for HyphaPost {
             io_handle,
             restart_io: Box::new(restart_io),
             watchdog_shutdown: Arc::clone(&self.watchdog_shutdown),
+            record_sm: Arc::clone(&self.record_sm),
+            session_summary: Arc::clone(&self.session_summary),
         }));
 
         true

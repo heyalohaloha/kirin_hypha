@@ -75,8 +75,8 @@ fn cross_instance_pair_struct_roundtrip() {
 }
 
 #[test]
-fn schema_version_v12() {
-    assert_eq!(PluginDataFile::SCHEMA_VERSION, "1.2");
+fn schema_version_v13() {
+    assert_eq!(PluginDataFile::SCHEMA_VERSION, "1.3");
 }
 
 #[test]

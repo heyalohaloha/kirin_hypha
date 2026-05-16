@@ -108,6 +108,10 @@ pub struct Frame {
     pub lufs_m: f64,
     pub true_peak: f64,
     pub crest: f64,
+    /// PSR: peak_dBFS − LUFS_S（B-043 / Bob email 言及指標）。
+    /// 3 秒未満は `MeasureResult.psr = None` のためここも `None`。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub psr: Option<f64>,
 }
 
 /// PSB スナップショット（2 fps 別ブロック）。
@@ -138,11 +142,15 @@ pub struct BounceMarker {
     pub last_block_hash: String,
 }
 
-/// plugin_data/ 1 ファイル分のルート（v1.2）。
+/// plugin_data/ 1 ファイル分のルート（v1.3）。
+///
+/// v1.3 (B-043): セッション集計 `lufs_i` / `lra` / `plr` field 追加。
+/// `MeasureEngine::finalize()` → IO Thread `set_session_aggregates()` 経由で
+/// `close()` 前に注入する。Frame には `psr` field 追加。
+/// schema_version "1.3"。
 ///
 /// v1.2 ): `instance_id` field 追加 + `paired_pre_instance_id` /
 /// `paired_post_instance_id` field 追加（cross-instance pair 復元の決定論的キー）。
-/// schema_version "1.2"。
 ///
 /// 各 field の詳細仕様は [`PluginDataFile::new`] の doc コメント参照。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -174,6 +182,17 @@ pub struct PluginDataFile {
     pub frames: Vec<Frame>,
     pub psb_snapshots: Option<Vec<PsbSnapshot>>,
     pub annotations: Vec<Annotation>,
+    /// EBU R128 Integrated Loudness [LUFS]（B-043 / セッション集計）。
+    /// `close()` 直前に `set_session_aggregates` で注入。値が無い場合は省略。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lufs_i: Option<f64>,
+    /// EBU R128 Loudness Range [LU]（B-043 / セッション集計）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lra: Option<f64>,
+    /// PLR = max_true_peak − lufs_i [dB]（B-043 / セッション集計）。
+    /// `lufs_i` か `max_true_peak` のどちらかが欠ければ `None`。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plr: Option<f64>,
     /// POST 側でのみ書き込み: Keep タップ時に選定した PRE 候補の instance_id。
     /// 不在時 None。Lens 側 cross-instance pair 復元の決定論的キー v1.2）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -188,7 +207,7 @@ pub struct PluginDataFile {
 }
 
 impl PluginDataFile {
-    pub const SCHEMA_VERSION: &'static str = "1.2";
+    pub const SCHEMA_VERSION: &'static str = "1.3";
 
     /// 空の v1.2 ファイルを生成（heartbeat = timestamp = now, status=active, checksum=空）。
     ///
@@ -255,6 +274,10 @@ impl PluginDataFile {
             //  v2: 全 SR で  を計測するため初期値は常に Some。
             psb_snapshots: Some(Vec::new()),
             annotations: Vec::new(),
+            // B-043: セッション集計値。`close()` 前に `set_session_aggregates` で注入。
+            lufs_i: None,
+            lra: None,
+            plr: None,
             paired_pre_instance_id,
             paired_post_instance_id,
             validity: true,
@@ -425,6 +448,7 @@ impl PluginDataWriter {
     ///  v2 (G-100-02): Measure Thread 側で全 SR を 48kHz にリサンプリングして
     ///  を計測するため、`n_prime` / `sharpness` は常に `Some` で記録される。
     /// `Option` 型は将来  取得失敗時のフォールバック余地として温存。
+    #[allow(clippy::too_many_arguments)]
     pub fn append_frame(
         &mut self,
         t_ms: u64,
@@ -433,6 +457,7 @@ impl PluginDataWriter {
         lufs_m: f64,
         true_peak: f64,
         crest: f64,
+        psr: Option<f64>,
     ) {
         let mut rounded_n = [0.0; 20];
         for (i, v) in n_prime.iter().enumerate() {
@@ -445,7 +470,23 @@ impl PluginDataWriter {
             lufs_m: round1(lufs_m),
             true_peak: round1(true_peak),
             crest: round1(crest),
+            psr: psr.filter(|v| v.is_finite()).map(round1),
         });
+    }
+
+    /// Record セッション集計値を JSON に注入する（B-043）。
+    ///
+    /// IO Thread が `close()` を呼ぶ直前に Measure Thread から受け取った
+    /// `SessionSummary` を渡す。PLR = max_true_peak − lufs_i を内部計算する。
+    /// いずれかの集計値が `None` のときは `plr` も `None` になる。
+    pub fn set_session_aggregates(&mut self, summary: crate::engine::SessionSummary) {
+        self.data.lufs_i = summary.lufs_i.map(round1);
+        self.data.lra = summary.lra.map(round1);
+        self.data.plr = summary
+            .lufs_i
+            .and_then(|i| summary.max_true_peak.map(|tp| tp - i))
+            .filter(|v| v.is_finite())
+            .map(round1);
     }
 
     /// 1 PSB スナップショットを追加。
@@ -738,7 +779,7 @@ mod tests {
             None,
             None,
         );
-        assert_eq!(f.schema_version, "1.2");
+        assert_eq!(f.schema_version, "1.3");
         assert_eq!(f.role, Role::Post);
         assert_eq!(f.instance_id, TEST_INSTANCE_ID);
         assert!(f.bus.is_none(), "Phase 1: bus must be None");
@@ -790,7 +831,7 @@ mod tests {
         let base = isolated_dir();
         let mut w = sample_writer(&base, Role::Pre);
         let n = [1.2345; 20];
-        w.append_frame(123, n, 1.2345, -14.2345, -1.1234, 12.3456);
+        w.append_frame(123, n, 1.2345, -14.2345, -1.1234, 12.3456, Some(8.7654));
         let frame = &w.data().frames[0];
         assert_eq!(frame.t_ms, 123);
         // 48000Hz:  値 Some 
@@ -838,7 +879,7 @@ mod tests {
     fn flush_writes_final_file_atomically() {
         let base = isolated_dir();
         let mut w = sample_writer(&base, Role::Pre);
-        w.append_frame(0, [0.5; 20], 1.0, -20.0, -3.0, 10.0);
+        w.append_frame(0, [0.5; 20], 1.0, -20.0, -3.0, 10.0, None);
         w.flush().unwrap();
         let final_path = &w.paths.final_path;
         let tmp_path = &w.paths.tmp_path;
@@ -850,13 +891,13 @@ mod tests {
     fn flush_produces_valid_checksum_roundtrip() {
         let base = isolated_dir();
         let mut w = sample_writer(&base, Role::Pre);
-        w.append_frame(0, [1.0; 20], 1.5, -14.0, -1.0, 12.0);
+        w.append_frame(0, [1.0; 20], 1.5, -14.0, -1.0, 12.0, None);
         w.append_psb(0, [-10.0; 20], false);
         w.flush().unwrap();
         let bytes = fs::read(&w.paths.final_path).unwrap();
         let loaded: PluginDataFile = serde_json::from_slice(&bytes).unwrap();
         assert!(verify_checksum(&loaded), "checksum must round-trip");
-        assert_eq!(loaded.schema_version, "1.2");
+        assert_eq!(loaded.schema_version, "1.3");
         assert_eq!(loaded.frames.len(), 1);
     }
 
@@ -864,7 +905,7 @@ mod tests {
     fn tampered_frame_fails_checksum() {
         let base = isolated_dir();
         let mut w = sample_writer(&base, Role::Pre);
-        w.append_frame(0, [1.0; 20], 1.5, -14.0, -1.0, 12.0);
+        w.append_frame(0, [1.0; 20], 1.5, -14.0, -1.0, 12.0, None);
         w.flush().unwrap();
         let bytes = fs::read(&w.paths.final_path).unwrap();
         let mut loaded: PluginDataFile = serde_json::from_slice(&bytes).unwrap();
@@ -877,7 +918,7 @@ mod tests {
     fn close_marks_status_closed_and_flushes() {
         let base = isolated_dir();
         let mut w = sample_writer(&base, Role::Pre);
-        w.append_frame(0, [1.0; 20], 1.0, -14.0, -1.0, 12.0);
+        w.append_frame(0, [1.0; 20], 1.0, -14.0, -1.0, 12.0, None);
         let final_path = w.paths.final_path.clone();
         w.close().unwrap();
         let bytes = fs::read(&final_path).unwrap();
@@ -941,9 +982,9 @@ mod tests {
     fn multiple_flushes_keep_consistency() {
         let base = isolated_dir();
         let mut w = sample_writer(&base, Role::Pre);
-        w.append_frame(0, [1.0; 20], 1.0, -14.0, -1.0, 12.0);
+        w.append_frame(0, [1.0; 20], 1.0, -14.0, -1.0, 12.0, None);
         w.flush().unwrap();
-        w.append_frame(100, [1.5; 20], 1.2, -13.0, -0.5, 11.0);
+        w.append_frame(100, [1.5; 20], 1.2, -13.0, -0.5, 11.0, None);
         w.flush().unwrap();
         let bytes = fs::read(&w.paths.final_path).unwrap();
         let loaded: PluginDataFile = serde_json::from_slice(&bytes).unwrap();
@@ -1004,7 +1045,7 @@ mod tests {
     fn append_annotation_to_latest_updates_file_and_checksum() {
         let base = isolated_dir();
         let mut w = sample_writer(&base, Role::Post);
-        w.append_frame(0, [1.0; 20], 1.0, -14.0, -1.0, 12.0);
+        w.append_frame(0, [1.0; 20], 1.0, -14.0, -1.0, 12.0, None);
         w.flush().unwrap();
         let path = w.paths.final_path.clone();
 
@@ -1123,7 +1164,7 @@ mod tests {
         assert_eq!(w.data().source_format, 48000);
 
         //  値を持つ frame を書き込み
-        w.append_frame(0, [1.5; 20], 1.5, -14.0, -1.0, 12.0);
+        w.append_frame(0, [1.5; 20], 1.5, -14.0, -1.0, 12.0, None);
         // PSB スナップショットも書き込み
         w.append_psb(0, [-10.0; 20], true);
         w.flush().unwrap();
