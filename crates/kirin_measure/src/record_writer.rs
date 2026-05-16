@@ -22,6 +22,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use crate::engine::SessionSummary;
 use crate::plugin_data::{PluginDataWriter, Role, WriterPaths};
 use crate::record::RecordStateMachine;
 use crate::record_signal;
@@ -190,12 +191,31 @@ pub fn writer_start(
     })
 }
 
-/// Record 終了: status=closed で最終 flush、ログ出力。
-pub fn writer_close(ctx: RecordingCtx) {
+/// Record 終了: status=closed で最終 flush、ログ出力（B-043: セッション集計を注入）。
+///
+/// `summary` が `Some` の場合、`set_session_aggregates()` で
+/// LUFS-I / LRA / PLR を JSON に焼き込んでから close する。
+/// Measure Thread が Record 中に共有スロットに書いた最新値を呼出側が読んで渡す。
+pub fn writer_close(mut ctx: RecordingCtx, summary: Option<SessionSummary>) {
+    if let Some(s) = summary {
+        ctx.writer.set_session_aggregates(s);
+    }
     let final_path = ctx.final_path.clone();
     match ctx.writer.close() {
         Ok(()) => log::info!("[writer] released: {}", final_path.display()),
         Err(e) => log::warn!("[writer] close failed ({}): {}", final_path.display(), e),
+    }
+}
+
+/// `Arc<Mutex<Option<SessionSummary>>>` から最新値を取り出して `None` でクリアする。
+///
+/// IO Thread が Record→Watch 遷移時に呼ぶ。次の Record セッションは
+/// Measure Thread の Watch→Record 遷移ハンドラが上書き None するため、
+/// ここでも一応クリアして冪等性を担保する。
+pub fn take_session_summary(slot: &Arc<Mutex<Option<SessionSummary>>>) -> Option<SessionSummary> {
+    match slot.lock() {
+        Ok(mut g) => g.take(),
+        Err(_) => None,
     }
 }
 
@@ -212,7 +232,7 @@ pub fn writer_append_frame(ctx: &mut RecordingCtx, t_ms: u64, m: &MeasureResult)
         return false;
     };
     ctx.writer
-        .append_frame(t_ms, n_prime, sharpness, lufs_m, true_peak, crest);
+        .append_frame(t_ms, n_prime, sharpness, lufs_m, true_peak, crest, m.psr);
     if !ctx.first_frame_logged {
         log::info!(
             "[writer] frame written: t_ms={}, n_prime[0]={:.3}",
@@ -258,6 +278,7 @@ pub fn run_record_tick(
     paired_pre_resolver: impl FnOnce() -> Option<String>,
     paired_post_resolver: impl FnOnce() -> Option<String>,
     measure_result: &Arc<Mutex<MeasureResult>>,
+    session_summary: &Arc<Mutex<Option<SessionSummary>>>,
     recording: &mut Option<RecordingCtx>,
 ) -> Result<(), String> {
     let is_recording = record_sm.is_recording();
@@ -280,7 +301,9 @@ pub fn run_record_tick(
         }
         (false, true) => {
             if let Some(ctx) = recording.take() {
-                writer_close(ctx);
+                // B-043: Record→Watch 遷移時に Measure Thread の最新集計を取り出して注入。
+                let summary = take_session_summary(session_summary);
+                writer_close(ctx, summary);
             }
         }
         (true, true) => {
@@ -314,12 +337,14 @@ pub fn run_record_tick(
 /// 別スレッドで Record 停止シグナルを受けたときに writer を即座に閉じる。
 pub fn drain_on_shutdown(
     shutdown: &Arc<AtomicBool>,
+    session_summary: &Arc<Mutex<Option<SessionSummary>>>,
     recording: &mut Option<RecordingCtx>,
 ) -> bool {
     use std::sync::atomic::Ordering;
     if shutdown.load(Ordering::Relaxed) {
         if let Some(ctx) = recording.take() {
-            writer_close(ctx);
+            let summary = take_session_summary(session_summary);
+            writer_close(ctx, summary);
         }
         return true;
     }
@@ -503,7 +528,7 @@ mod tests {
         let m = full_measure_result();
         assert!(writer_append_frame(&mut ctx, 100, &m));
         let final_path = ctx.final_path.clone();
-        writer_close(ctx);
+        writer_close(ctx, None);
 
         let bytes = fs::read(&final_path).unwrap();
         let loaded: PluginDataFile = serde_json::from_slice(&bytes).unwrap();
@@ -512,10 +537,15 @@ mod tests {
         assert!(crate::plugin_data::verify_checksum(&loaded));
     }
 
+    fn empty_summary_slot() -> Arc<Mutex<Option<SessionSummary>>> {
+        Arc::new(Mutex::new(None))
+    }
+
     #[test]
     fn run_record_tick_watch_keeps_none() {
         let sm = Arc::new(RecordStateMachine::new());
         let m = Arc::new(Mutex::new(full_measure_result()));
+        let summary = empty_summary_slot();
         let mut rec: Option<RecordingCtx> = None;
         run_record_tick(
             &sm,
@@ -527,6 +557,7 @@ mod tests {
             || None,
             || None,
             &m,
+            &summary,
             &mut rec,
         )
         .unwrap();
@@ -541,6 +572,7 @@ mod tests {
         let sm = Arc::new(RecordStateMachine::new());
         sm.try_enter_record(License::Os).unwrap();
         let m = Arc::new(Mutex::new(full_measure_result()));
+        let summary = empty_summary_slot();
         let mut rec: Option<RecordingCtx> = Some(ctx);
 
         sm.exit_record();
@@ -554,6 +586,7 @@ mod tests {
             || None,
             || None,
             &m,
+            &summary,
             &mut rec,
         )
         .unwrap();
@@ -565,6 +598,48 @@ mod tests {
     }
 
     #[test]
+    fn run_record_tick_record_to_watch_injects_session_summary() {
+        // B-043: Record→Watch 遷移時に session_summary が JSON に焼き込まれる。
+        let base = isolated_base();
+        let ctx = make_ctx(&base, Role::Post, now_epoch_ms());
+        let final_path = ctx.final_path.clone();
+        let sm = Arc::new(RecordStateMachine::new());
+        sm.try_enter_record(License::Os).unwrap();
+        let m = Arc::new(Mutex::new(full_measure_result()));
+        let summary = Arc::new(Mutex::new(Some(SessionSummary {
+            lufs_i: Some(-14.3),
+            lra: Some(7.5),
+            max_true_peak: Some(-1.2),
+        })));
+        let mut rec: Option<RecordingCtx> = Some(ctx);
+
+        sm.exit_record();
+        run_record_tick(
+            &sm,
+            Role::Post,
+            48000,
+            TEST_PH,
+            TEST_IID,
+            now_epoch_ms,
+            || None,
+            || None,
+            &m,
+            &summary,
+            &mut rec,
+        )
+        .unwrap();
+
+        let bytes = fs::read(&final_path).unwrap();
+        let loaded: PluginDataFile = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(loaded.lufs_i, Some(-14.3));
+        assert_eq!(loaded.lra, Some(7.5));
+        // PLR = max_true_peak - lufs_i = -1.2 - (-14.3) = 13.1
+        assert_eq!(loaded.plr, Some(13.1));
+        // 注入後に slot は取り出し済み
+        assert!(summary.lock().unwrap().is_none());
+    }
+
+    #[test]
     fn run_record_tick_record_active_appends_frame_and_psb() {
         let base = isolated_base();
         let started = now_epoch_ms() - 600;
@@ -572,6 +647,7 @@ mod tests {
         let sm = Arc::new(RecordStateMachine::new());
         sm.try_enter_record(License::Os).unwrap();
         let m = Arc::new(Mutex::new(full_measure_result()));
+        let summary = empty_summary_slot();
         let mut rec: Option<RecordingCtx> = Some(ctx);
 
         run_record_tick(
@@ -584,6 +660,7 @@ mod tests {
             || None,
             || None,
             &m,
+            &summary,
             &mut rec,
         )
         .unwrap();
@@ -609,6 +686,7 @@ mod tests {
         m0.n_prime = None;
         m0.psb_bark = None;
         let m = Arc::new(Mutex::new(m0));
+        let summary = empty_summary_slot();
         let mut rec: Option<RecordingCtx> = Some(ctx);
 
         run_record_tick(
@@ -621,6 +699,7 @@ mod tests {
             || None,
             || None,
             &m,
+            &summary,
             &mut rec,
         )
         .unwrap();

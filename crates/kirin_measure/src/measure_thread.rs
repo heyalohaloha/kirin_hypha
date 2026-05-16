@@ -7,8 +7,12 @@
 
 use crate::phase_d::stream::PhaseDStream;
 use crate::phase_d::tables::FieldType;
+use crate::record::RecordStateMachine;
 use crate::resampler::ResamplerTo48k;
-use crate::{load_signal_state, store_signal_state, MeasureEngine, MeasureResult, PsbSummary, SignalState, N_CHANNELS};
+use crate::{
+    engine::SessionSummary, load_signal_state, store_signal_state, MeasureEngine, MeasureResult,
+    PsbSummary, SignalState, N_CHANNELS,
+};
 
 ///  v2:  / EBU R128 を回す内部処理 SR は常に 48 kHz。
 /// 入力 SR が 48000 でない場合は Measure Thread 入口で `ResamplerTo48k` を介して
@@ -42,6 +46,16 @@ const HEARTBEAT_STALE_THRESHOLD: u32 = 2;
 /// # 3層隔離保証
 /// このスレッドが panic しても Audio Thread は継続する。
 /// panic → JoinHandle::is_finished() で検出 → T-8 で自動再起動する。
+///
+/// # B-043 (LUFS-I / LRA / PLR)
+/// - `record_sm`       : Record mode 中の SS-8 reset 抑止判定に使う（案I-a）。
+///   Watch→Record 遷移時は engine.reset() を明示実行してセッション開始時点で
+///   ebur128 内部状態をクリアする。Record 中は SS-8 reset をスキップすることで
+///   transport 停止/再開を跨いだ LUFS-I / LRA の通算性を確保する。
+/// - `session_summary` : Record 中の各ループで `engine.finalize()` の最新値を
+///   注入する共有スロット。IO Thread が Record→Watch 遷移時に読み出して
+///   `PluginDataWriter::set_session_aggregates()` 経由で JSON に焼き込む。
+#[allow(clippy::too_many_arguments)]
 pub fn spawn_measure_thread(
     mut consumer: rtrb::Consumer<f32>,
     sample_rate: u32,
@@ -49,6 +63,8 @@ pub fn spawn_measure_thread(
     signal_state: Arc<AtomicU8>,
     shutdown: Arc<AtomicBool>,
     heartbeat: Arc<AtomicU32>,
+    record_sm: Arc<RecordStateMachine>,
+    session_summary: Arc<Mutex<Option<SessionSummary>>>,
 ) -> JoinHandle<()> {
     thread::spawn(move || {
         //  v2: 内部処理は 48 kHz 固定。入力 SR が異なる場合のみ
@@ -100,6 +116,10 @@ pub fn spawn_measure_thread(
         // 前回ループの SignalState を保持し、非Active→Active 遷移を検出する（SS-8）。
         let mut prev_active = false;
 
+        // B-043: Record mode 遷移を検出し、Watch→Record 開始時に engine をリセットする。
+        // Record 中の SS-8 reset 抑止と組み合わせて、LUFS-I / LRA のセッション通算性を確保する。
+        let mut prev_recording = false;
+
         // heartbeat stall detection: process() が停止したことを検出する。
         // Studio One 等、バイパス時に process() を呼ばなくなる DAW に対応。
         let mut last_heartbeat: u32 = heartbeat.load(Ordering::Relaxed);
@@ -112,6 +132,27 @@ pub fn spawn_measure_thread(
             if shutdown.load(Ordering::Relaxed) {
                 break;
             }
+
+            // ── B-043: Record mode 遷移ハンドリング ──────────────────
+            // Watch→Record: engine を明示リセットして新セッション開始。
+            //   - 前 Watch 期間で accumulate された LUFS-I / LRA / TP の running max
+            //     を捨て、セッション通算値を 0 から積み直す。
+            // Record→Watch: 共有 session_summary は IO Thread が読んだ後にクリア
+            //   される（次の Watch→Record でここで上書き None する）。
+            let is_recording = record_sm.is_recording();
+            if !prev_recording && is_recording {
+                engine.reset();
+                phase_d.reset();
+                if let Some(rs) = &mut resampler {
+                    rs.reset();
+                }
+                latest_pd = None;
+                if let Ok(mut g) = session_summary.lock() {
+                    *g = None;
+                }
+                log::info!("[MeasureThread] engine reset on Watch→Record transition");
+            }
+            prev_recording = is_recording;
 
             // ── Heartbeat stall detection ──────────────────────────
             // process() が 200ms 以上呼ばれていなければ Inactive に上書きする。
@@ -155,18 +196,31 @@ pub fn spawn_measure_thread(
             }
 
             // ── SS-8: 非Active→Active 遷移時にエンジンリセット ──────
-            // 前セッションの ebur128 FIR 遅延ライン / tp_window / window_400ms / 
+            // 前セッションの ebur128 FIR 遅延ライン / tp_window / window_400ms /
             // / リサンプラ FFT overlap / pending 入力 をすべてクリアして、新セッション
             // 最初のチャンクが汚染されるのを防ぐ。
+            //
+            // B-043 (案I-a): Record mode 中は engine.reset() をスキップする。
+            // transport 停止/再開を跨いだ LUFS-I / LRA / TP running max のセッション
+            // 通算性を確保するため。Watch 中は従来通り reset する。
+            // phase_d / resampler / latest_pd は Record 中でも reset してよい
+            // （セッション集計に影響しないため）。
             if !prev_active {
-                engine.reset();
+                if !is_recording {
+                    engine.reset();
+                } else {
+                    log::info!("[MeasureThread] SS-8 reset suppressed in Record mode (B-043)");
+                }
                 phase_d.reset();
                 if let Some(rs) = &mut resampler {
                     rs.reset();
                 }
                 latest_pd = None;
                 prev_active = true;
-                log::info!("[MeasureThread] engine reset on Active transition");
+                log::info!(
+                    "[MeasureThread] Active transition handled (is_recording={})",
+                    is_recording
+                );
             }
 
             // ── Active: リングバッファから全サンプルを取得して計測 ────
@@ -227,6 +281,16 @@ pub fn spawn_measure_thread(
                         Err(e) => {
                             log::warn!("[MeasureThread] result Mutex poisoned: {}", e);
                         }
+                    }
+                }
+
+                // B-043: Record 中は session_summary に毎ループの最新 finalize() を反映。
+                // IO Thread が Record→Watch 遷移時に直近の値を読み出して JSON に焼く。
+                // engine.push() 後に呼ぶことで最新チャンク反映後の値を取れる。
+                if is_recording {
+                    let summary = engine.finalize();
+                    if let Ok(mut g) = session_summary.lock() {
+                        *g = Some(summary);
                     }
                 }
             }

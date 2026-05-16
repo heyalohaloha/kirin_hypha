@@ -3,8 +3,8 @@ mod editor;
 use kirin_measure::{
     daw_session_id, ensure_legacy_cleanup_done, load_license_safe, process_project_hash,
     set_daw_session_id, set_project_uuid, spawn_io_thread_pre, spawn_measure_thread,
-    spawn_watchdog, store_signal_state, License, MeasureResult, RecordStateMachine, SignalState,
-    WatchdogParams, N_CHANNELS, RING_BUFFER_SECONDS,
+    spawn_watchdog, store_signal_state, License, MeasureResult, RecordStateMachine,
+    SessionSummary, SignalState, WatchdogParams, N_CHANNELS, RING_BUFFER_SECONDS,
 };
 use nih_plug::prelude::*;
 use nih_plug_egui::EguiState;
@@ -40,6 +40,8 @@ pub struct HyphaPre {
 
     ring_producer: Option<rtrb::Producer<f32>>,
     measure_result: Arc<Mutex<MeasureResult>>,
+    /// B-043: Record セッション集計値共有スロット（Measure → IO Thread）。
+    session_summary: Arc<Mutex<Option<SessionSummary>>>,
 
     measure_shutdown: Arc<AtomicBool>,
     io_shutdown: Arc<AtomicBool>,
@@ -109,6 +111,7 @@ impl Default for HyphaPre {
             daw_session_id: daw_session_id(),
             ring_producer: None,
             measure_result: Arc::new(Mutex::new(MeasureResult::default())),
+            session_summary: Arc::new(Mutex::new(None)),
             measure_shutdown: Arc::new(AtomicBool::new(false)),
             io_shutdown: Arc::new(AtomicBool::new(false)),
             watchdog_shutdown: Arc::new(AtomicBool::new(false)),
@@ -246,6 +249,8 @@ impl Plugin for HyphaPre {
             Arc::clone(&self.signal_state),
             Arc::clone(&self.measure_shutdown),
             Arc::clone(&self.heartbeat),
+            Arc::clone(&self.record_sm),
+            Arc::clone(&self.session_summary),
         );
 
         let sample_rate = buffer_config.sample_rate as u32;
@@ -262,6 +267,7 @@ impl Plugin for HyphaPre {
             Arc::clone(&self.record_acknowledged),
             Arc::clone(&self.license),
             Arc::clone(&self.measure_result),
+            Arc::clone(&self.session_summary),
             Arc::clone(&self.signal_state),
             Arc::clone(&self.io_shutdown),
         );
@@ -275,6 +281,7 @@ impl Plugin for HyphaPre {
             let record_acknowledged = Arc::clone(&self.record_acknowledged);
             let license = Arc::clone(&self.license);
             let measure_result = Arc::clone(&self.measure_result);
+            let session_summary = Arc::clone(&self.session_summary);
             let signal_state = Arc::clone(&self.signal_state);
             move |new_shutdown: Arc<AtomicBool>| {
                 spawn_io_thread_pre(
@@ -287,6 +294,7 @@ impl Plugin for HyphaPre {
                     Arc::clone(&record_acknowledged),
                     Arc::clone(&license),
                     Arc::clone(&measure_result),
+                    Arc::clone(&session_summary),
                     Arc::clone(&signal_state),
                     new_shutdown,
                 )
@@ -307,6 +315,8 @@ impl Plugin for HyphaPre {
             io_handle,
             restart_io: Box::new(restart_io),
             watchdog_shutdown: Arc::clone(&self.watchdog_shutdown),
+            record_sm: Arc::clone(&self.record_sm),
+            session_summary: Arc::clone(&self.session_summary),
         }));
 
         true

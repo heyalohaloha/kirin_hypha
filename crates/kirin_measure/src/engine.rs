@@ -10,6 +10,24 @@ use std::time::{Duration, Instant};
 
 use crate::MeasureResult;
 
+/// Record セッション終了時の集計値（B-043）。
+///
+/// `MeasureEngine::finalize()` が `EbuR128` から抽出して返す。
+/// 3層隔離維持のため IO Thread（`PluginDataWriter`）は `EbuR128` を直接持たない。
+/// Measure Thread が finalize() を呼び、`Arc<Mutex<Option<SessionSummary>>>` 経由で
+/// IO Thread に渡し、IO Thread が `PluginDataWriter::set_session_aggregates()` で
+/// JSON に注入する。
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SessionSummary {
+    /// EBU R128 Integrated Loudness [LUFS]。`loudness_global()` の結果。
+    pub lufs_i: Option<f64>,
+    /// EBU R128 Loudness Range [LU]。`loudness_range()` の結果。
+    pub lra: Option<f64>,
+    /// セッション内 True Peak 全チャンネル最大値 [dBTP]。
+    /// `ebu.true_peak(ch)` は init 以降の running max（linear）。20·log10 で dBTP 化済。
+    pub max_true_peak: Option<f64>,
+}
+
 /// True Peak スライディング窓の幅。
 ///
 /// Active 状態中のスレッドスケジューリング揺らぎで push() が 100ms 以上遅れても
@@ -55,9 +73,11 @@ impl MeasureEngine {
     /// ebur128 の初期化失敗時に Err を返す。
     pub fn new(sample_rate: u32, n_channels: usize) -> Result<Self, String> {
 
-        // LUFS-M (Mode::M) + LUFS-S(PSR用, Mode::S) + True Peak (Mode::TRUE_PEAK)
-        // Integrated / LRA は Watch 段階では不要
-        let mode = Mode::M | Mode::S | Mode::TRUE_PEAK;
+        // LUFS-M (Mode::M) + LUFS-S(PSR用, Mode::S) + Integrated (Mode::I)
+        // + LRA (Mode::LRA) + True Peak (Mode::TRUE_PEAK)
+        // B-043: Integrated / LRA は Record 終了時に finalize() で集計
+        // （loudness_global / loudness_range）。Watch 中は読み出さない。
+        let mode = Mode::M | Mode::S | Mode::I | Mode::LRA | Mode::TRUE_PEAK;
         let ebu = EbuR128::new(n_channels as u32, sample_rate, mode)
             .map_err(|e| format!("EbuR128::new: {:?}", e))?;
 
@@ -129,6 +149,34 @@ impl MeasureEngine {
             result = Some(self.compute());
         }
         result
+    }
+
+    /// Record セッション終了時に呼び、ebur128 から LUFS-I / LRA / max TP を抽出（B-043）。
+    ///
+    /// - LUFS-I: `loudness_global()` の結果（10s 以上の素材が必要）
+    /// - LRA: `loudness_range()` の結果（60s 以上の素材が推奨）
+    /// - max_true_peak: 全チャンネル `true_peak(ch)` の linear running max を 20·log10 dB 化
+    ///
+    /// いずれも `is_finite()` でないものは `None` にして返す。
+    /// 3層隔離: 呼ぶのは Measure Thread のみ。IO Thread からは直接呼ばない。
+    pub fn finalize(&self) -> SessionSummary {
+        let lufs_i = self.ebu.loudness_global().ok().filter(|v| v.is_finite());
+        let lra = self.ebu.loudness_range().ok().filter(|v| v.is_finite());
+
+        let max_tp_lin = (0..self.n_channels as u32)
+            .filter_map(|ch| self.ebu.true_peak(ch).ok())
+            .filter(|v| v.is_finite())
+            .fold(None::<f64>, |acc, v| Some(acc.map_or(v, |a| a.max(v))));
+
+        let max_true_peak = max_tp_lin.and_then(|v| {
+            if v > 0.0 {
+                Some(20.0 * v.log10())
+            } else {
+                None
+            }
+        });
+
+        SessionSummary { lufs_i, lra, max_true_peak }
     }
 
     fn compute(&self) -> MeasureResult {

@@ -24,10 +24,11 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
+use crate::engine::SessionSummary;
 use crate::plugin_data::Role as PluginDataRole;
 use crate::record::RecordStateMachine;
 use crate::record_signal::{self, SignalStatus};
-use crate::record_writer::{run_record_tick, writer_close, RecordingCtx};
+use crate::record_writer::{run_record_tick, take_session_summary, writer_close, RecordingCtx};
 use crate::storage::StoragePaths;
 use crate::{load_signal_state, License, MeasureResult, SignalState};
 
@@ -68,6 +69,7 @@ pub fn spawn_io_thread_pre(
     record_acknowledged: Arc<AtomicBool>,
     license: Arc<License>,
     result: Arc<Mutex<MeasureResult>>,
+    session_summary: Arc<Mutex<Option<SessionSummary>>>,
     signal_state: Arc<AtomicU8>,
     shutdown: Arc<AtomicBool>,
 ) -> JoinHandle<()> {
@@ -148,6 +150,7 @@ pub fn spawn_io_thread_pre(
                 paired_pre_resolver,
                 paired_post_resolver,
                 &result,
+                &session_summary,
                 &mut writer_ctx,
             ) {
                 log::warn!("[writer] tick error: {}", e);
@@ -160,7 +163,8 @@ pub fn spawn_io_thread_pre(
 
         // ── Record 中に shutdown された場合: writer を閉じる ─────────────
         if let Some(ctx) = writer_ctx.take() {
-            writer_close(ctx);
+            let summary = take_session_summary(&session_summary);
+            writer_close(ctx, summary);
         }
         record_sm.exit_record();
         recording.store(false, Ordering::Relaxed);
