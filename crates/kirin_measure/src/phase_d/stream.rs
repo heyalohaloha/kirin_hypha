@@ -1,4 +1,4 @@
-//! Phase D ISO 532-1 streaming adapter.
+//!  ISO 532-1 streaming adapter.
 //!
 //! Wraps the batch modules with persistent IIR state for continuous
 //! chunk-by-chunk input from the Measure Thread.
@@ -15,13 +15,13 @@ use super::stft::{StftProcessor, STFT_FFT_SIZE};
 use super::tables::*;
 use super::{core_loudness, calc_slopes, sharpness, spectral_balance};
 
-/// Phase D stream が前提とする mono サンプリングレート (Hz)。
+///  stream が前提とする mono サンプリングレート (Hz)。
 /// STFT のビン→周波数変換で使用。
 const PHASE_D_SAMPLE_RATE: f64 = 48000.0;
 
 // ── Result ──────────────────────────────────────────────────────
 
-/// Per-frame Phase D output at 2 kHz rate.
+/// Per-frame  output at 2 kHz rate.
 #[derive(Clone)]
 pub struct PhaseDResult {
     /// Filtered total loudness N(t) in sone
@@ -47,7 +47,7 @@ pub struct PhaseDResult {
 
 // ── Streaming Processor ─────────────────────────────────────────
 
-/// Streaming Phase D processor.
+/// Streaming  processor.
 ///
 /// Accepts mono 48 kHz chunks of arbitrary size. Returns per-frame results
 /// at 2 kHz rate (one frame per 24 input samples).
@@ -84,7 +84,7 @@ impl PhaseDStream {
         }
     }
 
-    /// Feed mono 48 kHz samples. Returns Phase D results for each output frame.
+    /// Feed mono 48 kHz samples. Returns  results for each output frame.
     ///
     /// Output count = number of decimation boundaries crossed in this chunk.
     /// May return empty Vec if fewer than DEC_FACTOR samples accumulated.

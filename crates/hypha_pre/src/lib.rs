@@ -23,7 +23,7 @@ use uuid::Uuid;
 /// Watchdog Thread — Measure / IO thread health monitoring with auto-restart
 /// ```
 ///
-/// # B-020 / γ-3 後の識別子モデル
+/// #  /  後の識別子モデル
 /// - `params.instance_id`     : 永続 UUID（`#[persist]`）。plugin instance ごと
 /// - `params.project_uuid`    : 永続 UUID（`#[persist]`）。プロジェクト chunk 共有
 /// - `params.daw_session_uuid`: 永続 UUID（`#[persist]`）。プロジェクト chunk 共有
@@ -71,13 +71,13 @@ struct HyphaPreParams {
     #[persist = "instance_id"]
     pub instance_id: RwLock<String>,
 
-    /// プロジェクト chunk に永続化される project UUID（B-020 / γ-3）。
+    /// プロジェクト chunk に永続化される project UUID（ / ）。
     /// 同一プロジェクト内の PRE/POST instances 全てが同じ値を共有する。
     /// plugin_data path の `{project_uuid}/` セグメントとして使う。
     #[persist = "project_uuid"]
     pub project_uuid: RwLock<String>,
 
-    /// プロジェクト chunk に永続化される daw session UUID（B-020 / γ-3）。
+    /// プロジェクト chunk に永続化される daw session UUID（ / ）。
     /// `record_signal.json` の content に同梱され、別 DAW プロセス起源の
     /// signal を PRE が誤って ack することを防ぐ cross-process 防壁。
     #[persist = "daw_session_uuid"]

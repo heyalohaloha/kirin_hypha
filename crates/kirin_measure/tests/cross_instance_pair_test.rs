@@ -1,4 +1,4 @@
-//! A-3 (a) v1.2: cross-instance pair 復元の決定論的構造テスト。
+//! 
 //!
 //! - PluginDataFile::new が instance_id / paired_*_instance_id を保持する
 //! - Some / None の serialize 挙動 (#[serde(skip_serializing_if = "Option::is_none")])

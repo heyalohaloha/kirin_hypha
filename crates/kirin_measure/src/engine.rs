@@ -139,12 +139,10 @@ impl MeasureEngine {
 
         // ── True Peak (ITU-R BS.1770-4 Annex 2, 4× oversampling) ────────
         // 実時間 400ms 以内のエントリのみを使って最大値を算出する。
-        //
         // この実時間フィルタにより:
         // - 通常再生中: LUFS-M と同じ 400ms 窓を実現
         // - transport 停止 → 再開: 前のセッションのピークが 400ms 経過後に自動失効
         //   （process() が止まれば push() も止まり、古いエントリは時刻で自然に消える）
-        //
         // 有効エントリが 0 件の場合は明示的に None（---）を返す。
         // これは transport 停止後に tp_window が全て失効した状態に対応する。
         let now = Instant::now();

@@ -1,4 +1,4 @@
-//! PRE GUI — 300×200px（guardian_53 T-6 / サブ1-C）。
+//! PRE GUI — 300×200px（ T-6 / サブ1-C）。
 //!
 //! hypha_gui 共有プリミティブを使用:
 //! - 5状態 LED（Error/WatchBreathing/RecordStandby/RecordActive/Idle）

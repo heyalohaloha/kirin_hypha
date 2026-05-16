@@ -10,7 +10,7 @@ use crate::phase_d::tables::FieldType;
 use crate::resampler::ResamplerTo48k;
 use crate::{load_signal_state, store_signal_state, MeasureEngine, MeasureResult, PsbSummary, SignalState, N_CHANNELS};
 
-///  v2: Phase D / EBU R128 を回す内部処理 SR は常に 48 kHz。
+///  v2:  / EBU R128 を回す内部処理 SR は常に 48 kHz。
 /// 入力 SR が 48000 でない場合は Measure Thread 入口で `ResamplerTo48k` を介して
 /// 48 kHz に変換してから engine / phase_d に渡す。
 const ENGINE_SR: u32 = 48_000;
@@ -84,11 +84,11 @@ pub fn spawn_measure_thread(
             None
         };
 
-        // Phase D streaming processor（ v2: 全 SR 対応のため常に Some 相当）。
+        //  streaming processor（ v2: 全 SR 対応のため常に Some 相当）。
         let mut phase_d = PhaseDStream::new(FieldType::Free);
-        // Phase D stereo→mono 変換バッファ（48 kHz 1 秒分の余裕で確保）。
+        //  stereo→mono 変換バッファ（48 kHz 1 秒分の余裕で確保）。
         let mut mono_buf: Vec<f64> = Vec::with_capacity(ENGINE_SR as usize / N_CHANNELS);
-        // Phase D 最新結果（ループをまたいで保持。engine が結果を返した時にマージ）
+        //  最新結果（ループをまたいで保持。engine が結果を返した時にマージ）
         let mut latest_pd: Option<crate::phase_d::stream::PhaseDResult> = None;
 
         // f32 → f64 変換バッファ（ループをまたいで再利用。再アロケーションを避ける）
@@ -155,7 +155,7 @@ pub fn spawn_measure_thread(
             }
 
             // ── SS-8: 非Active→Active 遷移時にエンジンリセット ──────
-            // 前セッションの ebur128 FIR 遅延ライン / tp_window / window_400ms / Phase D
+            // 前セッションの ebur128 FIR 遅延ライン / tp_window / window_400ms / 
             // / リサンプラ FFT overlap / pending 入力 をすべてクリアして、新セッション
             // 最初のチャンクが汚染されるのを防ぐ。
             if !prev_active {
@@ -198,7 +198,7 @@ pub fn spawn_measure_thread(
                     &chunk_f64
                 };
 
-                // Phase D: stereo→mono 変換 + push（常に 48 kHz データに対して実行）
+                // : stereo→mono 変換 + push（常に 48 kHz データに対して実行）
                 mono_buf.clear();
                 for ch in chunk_48k.chunks_exact(N_CHANNELS) {
                     mono_buf.push((ch[0] + ch[1]) * 0.5);
@@ -210,7 +210,7 @@ pub fn spawn_measure_thread(
 
                 // 100ms チャンク単位で計測し、揃ったら結果を共有領域に書き込む
                 if let Some(mut new_result) = engine.push(chunk_48k) {
-                    // Phase D 結果をマージ（初期化中は None のまま）
+                    //  結果をマージ（初期化中は None のまま）
                     if let Some(ref pd_r) = latest_pd {
                         new_result.n_prime_total = Some(pd_r.loudness);
                         new_result.sharpness = Some(pd_r.sharpness);

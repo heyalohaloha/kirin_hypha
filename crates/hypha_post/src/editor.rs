@@ -1,4 +1,4 @@
-//! POST GUI — 300×200px（guardian_53 T-6 / サブ2-B）。
+//! POST GUI — 300×200px（ T-6 / サブ2-B）。
 //!
 //! hypha_gui 共有プリミティブを使用:
 //! - 5状態 LED（Error/WatchBreathing/RecordStandby/RecordActive/Idle）
@@ -6,7 +6,7 @@
 //! - flora_color 横線（#d4a043 暫定）
 //! - 共通ウィジェット（value_row / fmt_val / fmt_delta / tp_color）
 //!
-//! SS-7: SignalState に基づく表示切替（guardian_64: PRE 不在時 絶対値表示復活）。
+//! SS-7: SignalState に基づく表示切替（: PRE 不在時 絶対値表示復活）。
 //! - POST Active + PRE Active（DeltaMode::Active / Stale）→ Δ 3 項目表示
 //! - POST Active + PRE 不在 or Bypassed（DeltaMode::NoPre）→ 絶対値 3 項目表示
 //!   （LUFS-M / TP / Crest。POST 単独挿入での計測動作を目視確認する経路）
@@ -17,14 +17,14 @@
 //! NoPre 時は Δ 列が自動的に `---`、右列は POST 絶対値で埋める。
 //! ペアリング表示は pair_label から取得（サブ3 で IO Thread から配信）。
 //!
-//! # サブ2-B: ボタン実配線（guardian_58 T-6 Q1〜Q7 承認仕様）
+//! # サブ2-B: ボタン実配線（ T-6 Q1〜Q7 承認仕様）
 //! - `Keep` → PRE 候補 0 件 → toast / 排他違反 → toast /
 //!   `try_enter_record(license)` → `write_pending`
 //! - `Stop` → `record_sm.exit_record()` + `mark_released`
 //! - `Note` → スタブ維持（U-16 は サブ2-C）
 //! - Sense hint → `open::that(SENSE_UPSELL_URL)` でブラウザ起動
 //!
-//! 色ルール（guardian_54-16 修正）: TP 警戒域（> -1.0 dBTP）は COL_FLORA_BRIGHT
+//! 色ルール（ 修正）: TP 警戒域（> -1.0 dBTP）は COL_FLORA_BRIGHT
 //! （赤系禁止。色相同一・明度増）。
 
 use hypha_gui::{
@@ -109,7 +109,7 @@ pub struct PostEditorState {
     /// preset/*.json が 1 件以上存在するか（サブ3-C-2: POST IO Thread が更新）。
     pub preset_available: Arc<AtomicBool>,
 
-    // ── T-E / T-F 追加（guardian_77 v3 §9 / §10）──────────────────────
+    // ── T-E / T-F 追加（ v3 §9 / §10）──────────────────────
     /// installation_id フィルタ用（empty → proposals scan 全 skip / R-28）。
     pub installation_id: Arc<String>,
     /// process() が書いた再生位置（サンプル）。i64::MIN = 不明 → fallback。
@@ -329,7 +329,7 @@ fn draw_post(
                         ui.add_space(4.0);
                         draw_button_row(ui, true, license, state, m, now);
                     } else {
-                        // guardian_64: Watch + PRE 不在/Bypassed → 絶対値 3 項目表示。
+                        // : Watch + PRE 不在/Bypassed → 絶対値 3 項目表示。
                         // io_thread_post::compute_delta_with_state が PRE 不在 or
                         // pre_signal_state != Active のとき DeltaMode::NoPre を立てる。
                         match d.mode {
@@ -352,7 +352,7 @@ fn draw_post(
                 }
             }
 
-            // ── T-E / T-F 行（guardian_77 v3 §9 / §10）────────────────
+            // ── T-E / T-F 行（ v3 §9 / §10）────────────────
             // draw_proposals_block は R-28 沈黙: 表示対象がなければ何も描かず、
             // ここで allocate した add_space ぶんだけが残る。allocate は関数
             // 側が行い、必要なければ空で return する。
@@ -409,7 +409,7 @@ fn draw_inactive_grid(ui: &mut egui::Ui) {
 }
 
 /// Watch + PRE Active（DeltaMode::Active / Stale）: Δ 3 項目表示。
-/// NoPre は `draw_watch_absolute_grid` にルーティングされるのでここには到達しない（guardian_64）。
+/// NoPre は `draw_watch_absolute_grid` にルーティングされるのでここには到達しない（）。
 fn draw_delta_grid(ui: &mut egui::Ui, d: &DeltaResult, delta_col: egui::Color32, tp_warn: bool) {
     ui.horizontal(|ui| {
         ui.add_space(10.0);
@@ -435,7 +435,7 @@ fn draw_delta_grid(ui: &mut egui::Ui, d: &DeltaResult, delta_col: egui::Color32,
 }
 
 /// Watch + PRE 不在 or Bypassed（DeltaMode::NoPre）: POST 絶対値 3 項目（LUFS-M / TP / Crest）。
-/// guardian_64 による旧仕様復活。Record の右列と同じ値源だが Watch 用の単列レイアウト。
+///  による旧仕様復活。Record の右列と同じ値源だが Watch 用の単列レイアウト。
 fn draw_watch_absolute_grid(ui: &mut egui::Ui, m: &MeasureResult) {
     let tp_warn = tp_over(m.true_peak);
     let tp_col = if tp_warn {
@@ -824,7 +824,7 @@ fn draw_led(ui: &mut egui::Ui, color: egui::Color32) {
     ui.painter().circle_filled(rect.center(), 5.0, color);
 }
 
-// ── T-E / T-F helpers (guardian_77 v3 §9 / §10) ─────────────────────────
+// ── T-E / T-F helpers ( v3 §9 / §10) ─────────────────────────
 
 /// Throttle-guarded proposals rescan. Reads `plugin_data/{ph}/preset/` once
 /// per 500 ms and caches the newest v2.0 file in the editor-local state.
