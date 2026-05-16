@@ -84,7 +84,6 @@ pub const RING_BUFFER_SECONDS: usize = 2;
 pub const N_CHANNELS: usize = 2;
 
 // ── プロセス単位識別子（ /  chunk-persistent UUID 後）─────────────
-//
 // 履歴:
 // - Phase 1.0: `PROJECT_HASH_PHASE1="default"` 固定値で全インスタンス共有 →
 //   複数 Bus / 複数プロジェクトで衝突（致命級 A-3 / A-2）
@@ -92,7 +91,6 @@ pub const N_CHANNELS: usize = 2;
 //   DAW 再起動で path が変わるためバウンス再計測の比較が困難
 // -  /  (本実装): nih-plug `#[persist = "project_uuid"]` でプロジェクト
 //   chunk に UUID を保存。再オープンで同一値が復元され、PRE/POST が共有する
-//
 // 値は `OnceLock<Arc<RwLock<String>>>` セルにキャッシュされ、Plugin の
 // `initialize()` から chunk-persist 値で `set_project_uuid()` / `set_daw_session_id()`
 // により更新される。ファイル階層は `plugin_data/{project_uuid}/{instance_id}/{pre|post}/`
@@ -216,7 +214,7 @@ pub fn ensure_legacy_cleanup_done() {
     });
 }
 
-// ── SignalState（advisor_signal_state_spec SS-1）──────────────────────────
+// ── SignalState（ SS-1）──────────────────────────
 
 /// Audio Thread が宣言する信号状態。パイプライン全体がこの値に従う。
 ///
@@ -292,7 +290,7 @@ pub struct PsbSummary {
     pub high: f64,
 }
 
-/// 7 項目計測結果（G-52-02 4項目 + Phase D 3項目）。
+/// 7 項目計測結果（G-52-02 4項目 +  3項目）。
 ///
 /// Measure Thread が更新し、IO Thread と GUI Thread が読む。
 /// `Arc<Mutex<MeasureResult>>` で共有する。
@@ -316,23 +314,23 @@ pub struct MeasureResult {
     /// 3 秒未満は `None`。
     pub psr: Option<f64>,
 
-    /// Phase D: Filtered total loudness N'(t) [sone]。
-    /// Phase D 初期化中（起動直後数フレーム）は `None`。
+    /// : Filtered total loudness N'(t) [sone]。
+    ///  初期化中（起動直後数フレーム）は `None`。
     /// 48 kHz 以外は常に `None`。
     pub n_prime_total: Option<f64>,
 
-    /// Phase D: DIN 45692 Sharpness S(t) [acum]。
+    /// : DIN 45692 Sharpness S(t) [acum]。
     pub sharpness: Option<f64>,
 
-    /// Phase D: PSB 要約（low / mid / high）[dB]。
+    /// : PSB 要約（low / mid / high）[dB]。
     pub psb_summary: Option<PsbSummary>,
 
-    /// Phase D: 20-Bark 帯域別 N'(t,z) [sone/Bark]（サブ3-A-1）。
+    /// : 20-Bark 帯域別 N'(t,z) [sone/Bark]（サブ3-A-1）。
     /// plugin_data/.../post/*.json `Frame.n_prime[20]` に直接書き込む値。
-    /// Phase D 初期化中 / 48 kHz 以外は `None`。
+    ///  初期化中 / 48 kHz 以外は `None`。
     pub n_prime: Option<[f64; 20]>,
 
-    /// Phase D: 20-Bark 帯域別 PSB 比率（サブ3-A）。
+    /// : 20-Bark 帯域別 PSB 比率（サブ3-A）。
     /// plugin_data/.../post/*.json `psb_snapshots[].psb` に直接書き込む値。
     /// 3 帯域集約 (low/mid/high, dB) は `psb_summary` 側。
     pub psb_bark: Option<[f64; 20]>,

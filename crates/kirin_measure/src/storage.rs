@@ -424,14 +424,12 @@ pub struct CleanupReport {
 }
 
 // ── installation_id loose reader（サブ3-A-2 / Adv-実装 承認 β 案）──────
-//
 // PluginDataWriter が Frame.installation_id を埋めるための最小読取り。
 // HMAC 検証・2-of-3 判定は行わず、identity JSON の `installation_id` フィールド
 // のみを loose に抽出する。license.rs `load_license_safe` と同位相:
 // - 本番パス: `~/Library/Application Support/Kirin OS/identity.json`
 // - $HOME 不在 / ファイル不在 / 不正 JSON / フィールド欠落 → `None`
 // - 書込は行わない（`load_or_recover` と分離）
-//
 // ログ分岐は以下の 5 系統:
 // - `[installation_id] loaded: <uuid>` — 正常
 // - `[installation_id] loaded: None (no $HOME)` — $HOME 解決不能

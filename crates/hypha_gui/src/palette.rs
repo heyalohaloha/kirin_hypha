@@ -21,7 +21,7 @@ pub const COL_FLORA: Color32 = Color32::from_rgb(0xD4, 0xA0, 0x43);
 
 /// flora_color 輝度増強版（amber #ffe0a0）。
 ///
-/// guardian_54-16 修正: True Peak が -1.0 dBTP を超えた時の「光が強まった」
+///  修正: True Peak が -1.0 dBTP を超えた時の「光が強まった」
 /// 環境型表現。色相は COL_FLORA と同一（0度）、明度のみ増加。
 /// 赤系・ネオン・純白の禁止（G-54-16）を避けるための代替表現。
 pub const COL_FLORA_BRIGHT: Color32 = Color32::from_rgb(0xFF, 0xE0, 0xA0);

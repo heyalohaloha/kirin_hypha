@@ -1,6 +1,6 @@
 //! ISO 532-1:2017 constant tables
 //!
-//! All values extracted from MoSQITo v1.2.1 (Apache 2.0)
+//! All values extracted from  v1.2.1 (Apache 2.0)
 //! which implements ISO 532-1:2017 Annex A tables.
 //!
 //! Lens `native/src/psychoacoustic/tables.rs` からアルゴリズム同一移植。
@@ -332,7 +332,7 @@ pub const USL: [[f64; 8]; 18] = [
 ];
 
 /// Get USL value for a given range index and critical band index.
-/// For band >= 8, uses column 7 (extended per MoSQITo).
+/// For band >= 8, uses column 7 (extended per ).
 #[inline]
 pub fn usl_value(range_idx: usize, band_idx: usize) -> f64 {
     let col = if band_idx >= 8 { 7 } else { band_idx };
@@ -412,29 +412,24 @@ pub const BARK_CENTER_HZ: [f64; N_BARK] = [
 // ============================================================
 // PSB Bark Band Extension (Zwicker 1961 — 24 bands)
 // ============================================================
-//
 // PSB 出力専用の Bark バンド定義。ISO 532-1 Zwicker loudness
 // (N_BARK = 20) とは独立した定数として分離する。
-//
 // Bark 21-24 (5800-15500 Hz) は specific loudness パイプライン
 // では扱えない。ISO 532-1 の LTQ / A0 / DDF / DCB は 20 バンド
-// までしか規格化されていないため (MoSQITo v1.2.1 reference
+// までしか規格化されていないため ( v1.2.1 reference
 // implementation `_main_loudness.py` で LTQ/A0/DDF/DCB 全て 20
 // エントリであることを確認済み)、Bark 21-24 は FFT ビニングで
 // 直接エネルギーを取得する。
-//
 // Sources:
 // - Zwicker, E. (1961). "Subdivision of the audible frequency
 //   range into critical bands (Frequenzgruppen)". JASA 33(2):248.
 // - ISO 532-1:2017 (specific loudness pipeline — 20 bands only).
-// - MoSQITo v1.2.1 `mosqito/sq_metrics/loudness/loudness_zwst/_main_loudness.py`
+// -  v1.2.1 `mosqito/sq_metrics/loudness/loudness_zwst/_main_loudness.py`
 //   (LTQ/A0/DDF/DCB 全配列 20 entry を確認)。
 // -  .1
-//
 // PsbSummary.high 意味論変更 :
 //   旧: Bark 17-20 specific loudness 由来 (3400-5800 Hz)
 //   新: Bark 21-24 FFT energy 由来 (5800-15500 Hz) + 15.5k-20kHz FFT 補完
-//
 // 警告: Bark 1-20 (specific loudness, sone/Bark) と Bark 21-24
 // (FFT energy, linear power) は単位も由来も異なる。PsbSummary
 // 内でも両者を素朴に加算・比較しないこと。

@@ -3,7 +3,7 @@
 //! S(t) = 0.11 * sum[N'(z) * g(z) * z * 0.1] / N(t)
 //!
 //! Kirin Hypha 移植版（Lens `native/src/psychoacoustic/sharpness.rs` からアルゴリズム同一移植）。
-//! Reference: MoSQITo sharpness_din/sharpness_din_from_loudness.py
+//! Reference:  sharpness_din/sharpness_din_from_loudness.py
 
 use super::tables::*;
 

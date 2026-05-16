@@ -6,7 +6,7 @@
 //! N_filtered = 0.47 * LP1(N) + 0.53 * LP2(N)
 //!
 //! Kirin Hypha 移植版（Lens `native/src/psychoacoustic/temporal_weighting.rs` からアルゴリズム同一移植）。
-//! Reference: MoSQITo loudness_zwtv/_temporal_weighting.py + _lowpass_intp.py
+//! Reference:  loudness_zwtv/_temporal_weighting.py + _lowpass_intp.py
 
 use super::tables::*;
 
@@ -48,7 +48,7 @@ fn lowpass_interp(loudness: &[f64], tau: f64) -> Vec<f64> {
     for i in 0..n - 1 {
         delta[i] = (loudness[i + 1] - loudness[i]) / lp_iter as f64;
     }
-    // Last delta: (0 - last) / lp_iter (MoSQITo rolls and sets last to 0)
+    // Last delta: (0 - last) / lp_iter ( rolls and sets last to 0)
     delta[n - 1] = -loudness[n - 1] / lp_iter as f64;
 
     // Virtual upsample + filter

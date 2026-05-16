@@ -6,7 +6,7 @@
 //! | State | 計測 | 書込先 | LED |
 //! |-------|------|--------|-----|
 //! | `Watch`  | 4項目（LUFS-M / TP / Crest / PSR）| `$TMPDIR/kirin/...` | 青の淡い発光 |
-//! | `Record` | + Phase D 3項目 | `plugin_data/...` | 緑の脈動 |
+//! | `Record` | +  3項目 | `plugin_data/...` | 緑の脈動 |
 //!
 //! # 遷移
 //! ```text

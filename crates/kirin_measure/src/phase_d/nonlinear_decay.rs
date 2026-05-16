@@ -1,13 +1,13 @@
 //! ISO 532-1 Nonlinear Temporal Decay
 //!
 //! Simulates the nonlinear temporal decay of the hearing system.
-//! Applied to core loudness BEFORE calc_slopes (MoSQITo order).
+//! Applied to core loudness BEFORE calc_slopes ( order).
 //!
 //! 24x virtual upsampling with 2-state (uo, u2) system.
 //! Time constants: t_short=5ms, t_long=15ms, t_var=75ms
 //!
 //! Kirin Hypha 移植版（Lens `native/src/psychoacoustic/nonlinear_decay.rs` からアルゴリズム同一移植）。
-//! Reference: MoSQITo loudness_zwtv/_nonlinear_decay.py
+//! Reference:  loudness_zwtv/_nonlinear_decay.py
 
 use super::tables::*;
 
@@ -57,7 +57,7 @@ pub fn compute(core: &[[f64; N_CORE]]) -> Vec<[f64; N_CORE]> {
         for i in 0..n_frames - 1 {
             delta[i] = (input[i + 1] - input[i]) / NL_ITER as f64;
         }
-        // Last delta = (0 - last) / NL_ITER (MoSQITo rolls and sets last to 0)
+        // Last delta = (0 - last) / NL_ITER ( rolls and sets last to 0)
         delta[n_frames - 1] = -input[n_frames - 1] / NL_ITER as f64;
 
         // Virtual upsampling: create NL_ITER sub-samples per frame

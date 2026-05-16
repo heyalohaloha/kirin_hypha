@@ -4,7 +4,7 @@
 //! Plus 1 zero-padded band = 21 total.
 //!
 //! Kirin Hypha 移植版（Lens `native/src/psychoacoustic/core_loudness.rs` からアルゴリズム同一移植）。
-//! Reference: MoSQITo loudness_zwst/_main_loudness.py
+//! Reference:  loudness_zwst/_main_loudness.py
 
 use super::tables::*;
 
@@ -35,7 +35,7 @@ fn compute_frame(spec: &[f64; N_BANDS], field_type: FieldType) -> [f64; N_CORE] 
     let mut xp = [0.0f64; 11]; // corrected levels for bands 0-10
     for band in 0..11 {
         let level = spec[band];
-        // MoSQITo vectorized logic:
+        //  vectorized logic:
         // Find highest range index where spec > (rap - dll), use that dll value
         let mut correction = DLL[0][band]; // default
         for r in 0..7 {

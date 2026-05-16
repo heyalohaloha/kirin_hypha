@@ -1,4 +1,4 @@
-//! B-020 / γ-3 chunk-persistent UUID: プロセス cell + setter の決定論的構造テスト。
+//!  /  chunk-persistent UUID: プロセス cell + setter の決定論的構造テスト。
 //!
 //! - `process_project_hash` / `daw_session_id` の cell が空のとき lazy fallback が
 //!   非空文字列を返す

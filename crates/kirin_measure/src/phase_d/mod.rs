@@ -1,7 +1,7 @@
-//! Phase D: ISO 532-1 Psychoacoustic Analysis Engine
+//! : ISO 532-1 Psychoacoustic Analysis Engine
 //!
 //! Kirin Hypha 移植版（Lens `native/src/psychoacoustic/` からアルゴリズム同一移植）。
-//! napi-rs / symphonia 依存なし。定数テーブル・フィルタ係数は MoSQITo bit-identical。
+//! napi-rs / symphonia 依存なし。定数テーブル・フィルタ係数は  bit-identical。
 //!
 //! パイプライン:
 //! ```text

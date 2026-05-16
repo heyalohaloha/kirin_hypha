@@ -1,6 +1,6 @@
-//! Phase A-04 True Peak オフライン基準値計算
+//!  True Peak オフライン基準値計算
 //!
-//! Lensエンジンと同一の手法（symphonia decode + ebur128 true_peak running max）で
+//! と同一の手法（symphonia decode + ebur128 true_peak running max）で
 //! テスト信号06-10のオフラインTP値を計算し、Hypha実機値との比較基準を作る。
 //!
 //! 実行方法:
@@ -18,7 +18,7 @@ use symphonia::core::probe::Hint;
 
 const SIGNALS_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../test_signals");
 
-/// Lensエンジンと同一ロジック：ebur128 true_peak(ch) = ファイル全体の running max
+/// と同一ロジック：ebur128 true_peak(ch) = ファイル全体の running max
 #[allow(non_snake_case)]
 fn offline_true_peak_dBTP(path: &str) -> Result<f64, String> {
     // decode
@@ -129,7 +129,7 @@ fn offline_true_peak_dBTP(path: &str) -> Result<f64, String> {
 
 #[test]
 fn tp_offline_phase_a04() {
-    // Phase A-04 テスト信号 5本（manifest 06-10）
+    //  テスト信号 5本（manifest 06-10）
     let signals: &[(&str, f64, &str)] = &[
         ("06_truepeak_phase0.wav",    0.0,  "997Hz 0dBFS phase0"),
         ("07_truepeak_phase1.wav",    0.0,  "997Hz 0dBFS phase1"),
@@ -140,7 +140,7 @@ fn tp_offline_phase_a04() {
 
     println!();
     println!("╔═══════════════════════════════════════════════════════════════════════════════╗");
-    println!("║          Phase A-04: True Peak オフライン基準値 (Lens同等エンジン)            ║");
+    println!("║              True Peak オフライン基準値 (リファレンスエンジン)                ║");
     println!("╠════════════════════════════════╦══════════╦══════════╦══════════╦═════════════╣");
     println!("║ ファイル                       ║ 期待値   ║ 計算値   ║ 誤差     ║ Hypha実機値 ║");
     println!("╠════════════════════════════════╬══════════╬══════════╬══════════╬═════════════╣");

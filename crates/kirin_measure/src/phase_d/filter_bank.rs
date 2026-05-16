@@ -4,7 +4,7 @@
 //! Output: SPL matrix [28 bands × Ntime] at 2 kHz temporal resolution
 //!
 //! Kirin Hypha 移植版（Lens `native/src/psychoacoustic/filter_bank.rs` からアルゴリズム同一移植）。
-//! Reference: MoSQITo loudness_zwtv/_third_octave_levels.py + _square_and_smooth.py
+//! Reference:  loudness_zwtv/_third_octave_levels.py + _square_and_smooth.py
 
 use super::tables::*;
 
@@ -119,7 +119,7 @@ pub fn compute(signal: &[f64]) -> FilterBankResult {
             }
 
             // Decimation: take sample at i=0, DEC_FACTOR, 2*DEC_FACTOR, ...
-            // Matches MoSQITo's sig[::dec_factor] indexing
+            // Matches 's sig[::dec_factor] indexing
             if i % DEC_FACTOR == 0 && frame_idx < n_frames {
                 // SPL conversion: 10 * log10((y + tiny) / I_ref)
                 spl[frame_idx][band] = 10.0 * ((y + TINY) / I_REF).log10();

@@ -1,4 +1,4 @@
-//! 5状態 LED — Watch LED のロジック（guardian_53 T-6）。
+//! 5状態 LED — Watch LED のロジック（ T-6）。
 //!
 //! 状態決定は純粋関数 `derive_led_state` に集約。時間依存の色計算は
 //! `led_color(state, time_secs)` で行う。egui の描画コードとは独立して
