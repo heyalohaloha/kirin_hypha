@@ -40,7 +40,7 @@ use crate::{load_signal_state, MeasureResult, SignalState};
 const LOOP_SLEEP: Duration = Duration::from_millis(100);
 
 /// PRE ファイルが Active とみなされる最大経過時間（秒）
-const STALE_SECS: i64 = 2;
+const STALE_SECS: i64 = 5; // B-046: 2→5 (fs I/O backpressure 吸収 / G-115-246)
 
 /// PRE ファイルが NoPre とみなされる最大経過時間（秒）
 const NO_PRE_SECS: i64 = 10;

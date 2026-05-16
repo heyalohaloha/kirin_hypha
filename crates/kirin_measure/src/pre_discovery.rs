@@ -35,7 +35,7 @@ use std::time::{Duration, Instant, SystemTime};
 /// いなければ inactive とみなす。`io_thread_post` の freshness_mode と整合させる
 /// ことで「discovery で見つけた dir が compute_delta で即座に NoPre 判定」になる
 /// 不整合を避ける。
-pub const DISCOVERY_STALE_SECS: u64 = 10;
+pub const DISCOVERY_STALE_SECS: u64 = 30; // B-046: 10→30 (▼ 候補保持時間延長 / G-115-246)
 
 /// `discover_active_pre_dir` を呼ぶ最低間隔。100ms tick で毎回 fs::read_dir すると
 /// I/O コストが上がるため、1 秒に 1 回まで制限する。
