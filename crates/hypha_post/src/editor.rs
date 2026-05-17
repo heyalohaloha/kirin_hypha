@@ -804,6 +804,14 @@ fn draw_pair_pre_name_field(ui: &mut egui::Ui, state: &mut PostEditorState, is_p
                 if let Ok(mut c) = state.pair_claimed_at.write() {
                     *c = new_claimed_at;
                 }
+                // W-282 / G-115-250 / B-1: 手動空文字クリア時 Δ 表示完全リセット
+                // (判断 2 / 番人裁定 / A 経路 IO Thread release と一貫性)。
+                // 非空 (新 PRE に pair 続行) では reset しない / Δ 計測継続。
+                if new_claimed_at == 0.0 {
+                    if let Ok(mut d) = state.delta.lock() {
+                        *d = DeltaResult::default();
+                    }
+                }
                 ui.memory_mut(|mem| mem.surrender_focus(*PAIR_PRE_NAME_FOCUS_ID));
             } else if response.changed() {
                 state.pair_pre_name_edit_buffer = sanitize_name(&state.pair_pre_name_edit_buffer);
@@ -1038,6 +1046,13 @@ fn draw_pair_pre_combo(ui: &mut egui::Ui, state: &mut PostEditorState, now: f64,
                             }
                             if let Ok(mut c) = state.pair_claimed_at.write() {
                                 *c = new_claimed_at;
+                            }
+                            // W-282 / G-115-250 / B-2: 手動空文字クリア時 (PRE name None
+                            // 候補 click) は Δ 表示完全リセット (判断 2 / B-1 と一貫)。
+                            if new_claimed_at == 0.0 {
+                                if let Ok(mut d) = state.delta.lock() {
+                                    *d = DeltaResult::default();
+                                }
                             }
                             log::info!(
                                 "[POST pair-combo] selected: instance_id={} name={:?}",

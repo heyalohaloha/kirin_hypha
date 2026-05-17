@@ -574,3 +574,73 @@ fn editor_rs_pair_widgets_wrapped_in_add_enabled_ui_not_is_playing() {
          (判断 2 / All Stop / All Keep 機能保護)"
     );
 }
+
+// ── W-282 / G-115-250: pair 解放時 Δ 表示完全リセット 配線回帰テスト (C-3) ────
+
+/// W-282 C-3: editor.rs TextEdit Enter `sanitized.is_empty()` 経路 (B-1) で
+/// `state.delta.lock()` reset が走る配線を invariant 化。配線が落ちると手動
+/// 空文字クリア時に B-048 LKG が古い Δ 凍結値を残し続ける regression。
+#[test]
+fn editor_rs_text_edit_clear_pair_resets_delta_result() {
+    let src = read("src/editor.rs");
+    // sanitized.is_empty() 経路 (TextEdit) の write 直後に state.delta.lock() reset。
+    // `if new_claimed_at == 0.0 {` から始まる block が `state.delta.lock()` +
+    // `*d = DeltaResult::default();` を含むこと。
+    let text_edit_idx = src
+        .find("let sanitized = sanitize_name(&state.pair_pre_name_edit_buffer);")
+        .expect("draw_pair_pre_name_field sanitize entry missing");
+    // 当該 sanitize から 1500 byte 以内 (W-281 B-2 + W-282 B-1 の write block 範囲 /
+    // Japanese 注釈が UTF-8 で 1 char=3 byte となるため余裕を持つ)。
+    let window = &src[text_edit_idx..text_edit_idx + 1500.min(src.len() - text_edit_idx)];
+    assert!(
+        window.contains("if new_claimed_at == 0.0"),
+        "W-282 B-1: TextEdit 分岐に `if new_claimed_at == 0.0` 判定がない"
+    );
+    assert!(
+        window.contains("state.delta.lock()") && window.contains("DeltaResult::default()"),
+        "W-282 B-1: TextEdit sanitized.is_empty() 経路に state.delta = DeltaResult::default() の reset がない"
+    );
+}
+
+/// W-282 C-3: editor.rs ComboBox PRE 候補 click `new_name.is_empty()` 経路 (B-2) で
+/// `state.delta.lock()` reset が走る配線を invariant 化。
+#[test]
+fn editor_rs_combobox_clear_pair_resets_delta_result() {
+    let src = read("src/editor.rs");
+    let combo_idx = src
+        .find("let new_name = cand.name.clone().unwrap_or_default();")
+        .expect("draw_pair_pre_combo new_name entry missing");
+    let window = &src[combo_idx..combo_idx + 1200.min(src.len() - combo_idx)];
+    assert!(
+        window.contains("if new_claimed_at == 0.0"),
+        "W-282 B-2: ComboBox 分岐に `if new_claimed_at == 0.0` 判定がない"
+    );
+    assert!(
+        window.contains("state.delta.lock()") && window.contains("DeltaResult::default()"),
+        "W-282 B-2: ComboBox new_name.is_empty() 経路に state.delta = DeltaResult::default() の reset がない"
+    );
+}
+
+/// W-282 C-3: io_thread_post.rs W-281 C-4 release block (A-1) で
+/// `delta_result.lock()` + `DeltaResult::default()` reset が走る配線を invariant 化。
+#[test]
+fn io_thread_post_release_block_clears_delta_result() {
+    let src = fs::read_to_string(
+        crate_root()
+            .parent()
+            .expect("hypha_post -> crates parent")
+            .join("kirin_measure/src/io_thread_post.rs"),
+    )
+    .expect("read io_thread_post.rs");
+    // release 経路の起点 = pair_release_notice.write() = Some("Released ...")
+    let release_idx = src
+        .find(r#"*n = Some("Released (paired elsewhere)".to_string());"#)
+        .expect("W-281 C-4 release marker not found");
+    // 当該 release write から 1000 byte 以内に delta_result.lock() + DeltaResult::default()
+    // (UTF-8 Japanese 注釈 byte 膨張を考慮)。
+    let window = &src[release_idx..release_idx + 1000.min(src.len() - release_idx)];
+    assert!(
+        window.contains("delta_result.lock()") && window.contains("DeltaResult::default()"),
+        "W-282 A-1: IO Thread C-4 release block に delta_result = DeltaResult::default() の reset がない"
+    );
+}
