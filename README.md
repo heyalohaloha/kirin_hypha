@@ -24,7 +24,7 @@ It operates as paired instances — a **PRE** plugin and a **POST** plugin — t
 | LUFS-I | Integrated loudness |
 | LRA | Loudness Range |
 | PLR | Peak-to-Loudness Ratio |
-| PSR | Peak-to-Short-term loudness Ratio |
+| PSR | Peak-to-Short-term Loudness Ratio |
 
 The POST plugin displays Δ (difference) values relative to the paired PRE instance.
 
