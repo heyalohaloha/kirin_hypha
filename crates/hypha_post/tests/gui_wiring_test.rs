@@ -91,9 +91,12 @@ fn editor_rs_calls_draw_proposals_block_from_draw_post() {
     // window 6000 → 7000: B-049 / G-115-247 Inactive 分岐に if-let 追加で
     // draw_proposals_block 呼出が rel 5967 byte → 文字列終端 6003 byte で
     // 6000 window から 3 byte はみ出す (contains 不成立)。1000 byte 余裕を確保。
+    // window 7000 → 9000: W-283 / G-115-251 で draw_post 直下 pair_pre_name
+    // snapshot + Active arm 内 pair_empty wrap + Keep gate (UTF-8 注釈付) を追加
+    // して body が ~845 byte 増 (Python rb 計測 rel 7845 byte / 余裕含み 9000)。
     // UTF-8 char boundary を跨がないよう boundary まで walk-back する
     // (Japanese comments が raw byte index 上で multi-byte char の途中に当たる)。
-    let mut safe_end = (draw_post_start + 7000).min(src.len());
+    let mut safe_end = (draw_post_start + 9000).min(src.len());
     while safe_end > draw_post_start && !src.is_char_boundary(safe_end) {
         safe_end -= 1;
     }
@@ -642,5 +645,58 @@ fn io_thread_post_release_block_clears_delta_result() {
     assert!(
         window.contains("delta_result.lock()") && window.contains("DeltaResult::default()"),
         "W-282 A-1: IO Thread C-4 release block に delta_result = DeltaResult::default() の reset がない"
+    );
+}
+
+// ── W-283 / G-115-251: pair_pre_name="" 時 GUI draw 強制 absolute + Keep gate 配線テスト
+// (W-282 で IO Thread の delta_result clear を実装したが、次 tick の pass-through Δ
+// 再計算で last_active が復活する根本問題が残った。GUI draw 分岐で pair_pre_name=""
+// を直接判定して構造的に解決する。配線が落ちると pair 解放後も Δ 凍結値が残る regression)。
+
+/// W-283 W-2: editor.rs SignalState::Active + !recording 分岐内で `if pair_empty {`
+/// → `draw_watch_absolute_grid(ui, m);` の強制経路が存在し、かつその true 枝に
+/// `draw_delta_grid_frozen` (B-048 LKG 凍結経路) が含まれないことを invariant 化。
+#[test]
+fn editor_rs_pair_empty_draws_watch_absolute_not_delta_frozen() {
+    let src = read("src/editor.rs");
+    let anchor_idx = src
+        .find("if pair_empty {")
+        .expect("W-283 W-2: `if pair_empty {` anchor not found in draw_post Active arm");
+    // 真枝 (true branch) のみを抽出: `if pair_empty {` から最初の `} else {` まで。
+    let from_anchor = &src[anchor_idx..];
+    let else_offset = from_anchor
+        .find("} else {")
+        .expect("W-283 W-2: matching `} else {` not found after `if pair_empty {`");
+    let true_branch = &from_anchor[..else_offset];
+    assert!(
+        true_branch.contains("draw_watch_absolute_grid(ui, m)"),
+        "W-283 W-2: pair_empty=true 真枝に draw_watch_absolute_grid(ui, m) が無い (強制経路欠落)"
+    );
+    assert!(
+        !true_branch.contains("draw_delta_grid_frozen"),
+        "W-283 W-2: pair_empty=true 真枝に draw_delta_grid_frozen が混入 (B-048 LKG 凍結経路混入 regression)"
+    );
+    assert!(
+        !true_branch.contains("draw_delta_grid("),
+        "W-283 W-2: pair_empty=true 真枝に draw_delta_grid (Active/Stale 表示) が混入 (Δ 表示残り regression)"
+    );
+}
+
+/// W-283 W-3: editor.rs SignalState::Active + !recording 分岐内で
+/// `if !pair_empty { draw_button_row(ui, false, ...) }` の Keep ボタン gate
+/// 配線が残っていることを invariant 化。pair_pre_name="" で Keep ボタンが
+/// 表示されると pair 未設定 trigger_keep が走る regression を防ぐ。
+#[test]
+fn editor_rs_keep_button_gated_when_pair_empty() {
+    let src = read("src/editor.rs");
+    let anchor_idx = src
+        .find("if !pair_empty {")
+        .expect("W-283 W-3: `if !pair_empty {` anchor not found in draw_post Active arm");
+    // anchor から 300 byte 以内 (gate block 本体 + 余裕 / UTF-8 注釈なし純コード)。
+    let window_end = (anchor_idx + 300).min(src.len());
+    let window = &src[anchor_idx..window_end];
+    assert!(
+        window.contains("draw_button_row(ui, false"),
+        "W-283 W-3: `if !pair_empty {{` gate に draw_button_row(ui, false, ...) が含まれない (Keep gate 欠落)"
     );
 }

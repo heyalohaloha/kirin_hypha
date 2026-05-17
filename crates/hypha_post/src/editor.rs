@@ -440,6 +440,18 @@ fn draw_post(
             });
             ui.add_space(4.0);
 
+            // W-283 / G-115-251 / W-1: pair_pre_name snapshot。
+            // pair_empty=true (pair_pre_name="") のとき GUI 側で draw_watch_absolute_grid
+            // を強制し、IO Thread `delta_result` の状態 (W-282 reset 後の次 tick run_tick
+            // pass-through Δ 再計算で last_active 復活) に依らず確実に絶対値表示にする。
+            let pair_pre_name_snapshot = state
+                .pair_pre_name
+                .read()
+                .ok()
+                .map(|g| g.clone())
+                .unwrap_or_default();
+            let pair_empty = pair_pre_name_snapshot.is_empty();
+
             match sig {
                 SignalState::Bypassed => {
                     draw_inactive_grid(ui);
@@ -464,34 +476,46 @@ fn draw_post(
                         // guardian_64: Watch + PRE 不在/Bypassed → 絶対値 3 項目表示。
                         // io_thread_post::compute_delta_with_state が PRE 不在 or
                         // pre_signal_state != Active のとき DeltaMode::NoPre を立てる。
-                        match d.mode {
-                            DeltaMode::Active | DeltaMode::Stale => {
-                                let delta_col = if d.mode == DeltaMode::Active {
-                                    COL_NORMAL
-                                } else {
-                                    COL_MUTED
-                                };
-                                let tp_warn = tp_over(m.true_peak);
-                                draw_delta_grid(ui, d, delta_col, tp_warn);
-                            }
-                            DeltaMode::NoPre => {
-                                // B-048 / G-115-245 Last Known Good: 直近 Active 時の
-                                // Δ 6 軸 snapshot があれば凍結値を COL_MUTED で表示。
-                                // None (初回 PRE 検出前) は既存フォールバック (POST 絶対値)。
-                                if let Some(snap) = &d.last_active {
-                                    // tp_warn は signature 安定性のため算出して渡す
-                                    // (B-051 鮮度ドット導入時の修正範囲最小化 / 採用案 Y)。
-                                    // draw_delta_grid_frozen 側では _tp_warn で受けて
-                                    // 凍結値表示中の COL_FLORA_BRIGHT 強調は意図的に抑制。
+                        // W-283 / G-115-251 / W-2: pair_empty 時は IO Thread の Δ 状態に
+                        // 依らず draw_watch_absolute_grid を強制 (B-048 LKG 凍結経路 bypass)。
+                        if pair_empty {
+                            draw_watch_absolute_grid(ui, m);
+                        } else {
+                            match d.mode {
+                                DeltaMode::Active | DeltaMode::Stale => {
+                                    let delta_col = if d.mode == DeltaMode::Active {
+                                        COL_NORMAL
+                                    } else {
+                                        COL_MUTED
+                                    };
                                     let tp_warn = tp_over(m.true_peak);
-                                    draw_delta_grid_frozen(ui, snap, tp_warn);
-                                } else {
-                                    draw_watch_absolute_grid(ui, m);
+                                    draw_delta_grid(ui, d, delta_col, tp_warn);
+                                }
+                                DeltaMode::NoPre => {
+                                    // B-048 / G-115-245 Last Known Good: 直近 Active 時の
+                                    // Δ 6 軸 snapshot があれば凍結値を COL_MUTED で表示。
+                                    // None (初回 PRE 検出前) は既存フォールバック (POST 絶対値)。
+                                    if let Some(snap) = &d.last_active {
+                                        // tp_warn は signature 安定性のため算出して渡す
+                                        // (B-051 鮮度ドット導入時の修正範囲最小化 / 採用案 Y)。
+                                        // draw_delta_grid_frozen 側では _tp_warn で受けて
+                                        // 凍結値表示中の COL_FLORA_BRIGHT 強調は意図的に抑制。
+                                        let tp_warn = tp_over(m.true_peak);
+                                        draw_delta_grid_frozen(ui, snap, tp_warn);
+                                    } else {
+                                        draw_watch_absolute_grid(ui, m);
+                                    }
                                 }
                             }
                         }
                         ui.add_space(4.0);
-                        draw_button_row(ui, false, license, state, m, now);
+                        // W-283 / G-115-251 / W-3: pair_empty 時は Keep ボタンを表示しない
+                        // (pair 未設定で Keep 押下しても pair_pre_name 空文字で trigger_keep
+                        // 経由保存される問題を構造的に防ぐ / Active arm 内限定 / Inactive
+                        // arm の draw_button_row は変更なし)。
+                        if !pair_empty {
+                            draw_button_row(ui, false, license, state, m, now);
+                        }
                     }
                 }
             }
