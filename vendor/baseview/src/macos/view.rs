@@ -1,5 +1,6 @@
 use std::ffi::c_void;
 
+use block::ConcreteBlock;
 use cocoa::appkit::{NSEvent, NSFilenamesPboardType, NSView, NSWindow};
 use cocoa::base::{id, nil, BOOL, NO, YES};
 use cocoa::foundation::{NSArray, NSPoint, NSRect, NSSize, NSUInteger};
@@ -401,6 +402,11 @@ extern "C" fn view_will_move_to_window(this: &Object, _self: Sel, new_window: id
         let tracking_area_count = NSArray::count(tracking_areas);
 
         if new_window == nil {
+            // Kirin Hypha fork (2026-05-01, cause 2 case-4): drop the local-monitor
+            // BEFORE the NSView is detached from its window so AppKit does not invoke
+            // the captured handler block on a soon-to-be-stale view pointer.
+            remove_local_event_monitor(this);
+
             if tracking_area_count != 0 {
                 let tracking_area = NSArray::objectAtIndex(tracking_areas, 0);
 
@@ -437,11 +443,240 @@ extern "C" fn view_did_move_to_window(this: &Object, _self: Sel) {
         if window != nil {
             let _: () = msg_send![window, setAcceptsMouseMovedEvents: YES];
             let _: () = msg_send![window, makeFirstResponder: this];
+
+            // Kirin Hypha fork (2026-05-01, cause 2 case-4): install the
+            // application-level local event monitor only after the view is in a
+            // valid window hierarchy. Items 3/4/5 cover the responder/tracking
+            // path; this monitor covers the case where the host's NSWindow
+            // sendEvent: never reaches mouseDown: on this view (observed in
+            // Studio One and Reaper, regardless of acceptsFirstMouse=YES).
+            install_local_event_monitor(this);
         }
 
         let superclass = msg_send![this, superclass];
 
         let () = msg_send![super(this, superclass), viewDidMoveToWindow];
+    }
+}
+
+// Kirin Hypha fork (2026-05-01, cause 2 case-4 / B-025 keyboard extension):
+// NSEvent local monitor install / remove. The monitor catches mouse and key
+// events at the application dispatch level, before the host's NSWindow.sendEvent:
+// gets a chance to absorb them. The handler runs synchronously on the main
+// thread (AppKit guarantees NSEvent dispatch is main-thread, so calling
+// `WindowState::trigger_event` from the handler body is allowed without
+// additional synchronisation).
+//
+// keeps the plugin window as a non-key NSWindow, AppKit never delivers
+// keyDown:/keyUp:/flagsChanged: to our NSView (per
+// https://developer.apple.com/documentation/appkit/nsresponder/keydown(with:)
+// — first responder + key window are both required). We extend the mask so
+// the local monitor synthesises Event::Keyboard for non-key window cases,
+// while leaving the existing add_simple_keyboard_class_method! macros in place
+// for the standard key-window route. The handler defers to those macros when
+// is_key_window=true to avoid double-forwarding the same event.
+//
+// NSEventMask values are confirmed against the macOS SDK header
+// `AppKit.framework/Headers/NSEvent.h`:
+//   NSEventTypeLeftMouseDown = 1   → NSEventMaskLeftMouseDown = 1<<1  = 0x002
+//   NSEventTypeLeftMouseUp   = 2   → NSEventMaskLeftMouseUp   = 1<<2  = 0x004
+//   NSEventTypeKeyDown       = 10  → NSEventMaskKeyDown       = 1<<10 = 0x400
+//   NSEventTypeKeyUp         = 11  → NSEventMaskKeyUp         = 1<<11 = 0x800
+//   NSEventTypeFlagsChanged  = 12  → NSEventMaskFlagsChanged  = 1<<12 = 0x1000
+unsafe fn install_local_event_monitor(this: &Object) {
+    let state = WindowState::from_view(this);
+    if state.local_event_monitor.get() != nil {
+        // Already installed (e.g. window was reparented without intervening nil).
+        return;
+    }
+
+    // Capture the NSView as a raw pointer. The block is removed in
+    // `view_will_move_to_window:nil` and `WindowState::Drop` before the view is
+    // deallocated, so the captured pointer is valid for the lifetime of the
+    // monitor.
+    let view_ptr: *const Object = this as *const Object;
+
+    // Per macOS SDK header (AppKit/NSEvent.h):
+    //   NSEventMask{LeftMouseDown,LeftMouseUp} = 1ULL << NSEventType{LeftMouseDown,LeftMouseUp}
+    //   NSEventMask{KeyDown,KeyUp,FlagsChanged} = 1ULL << NSEventType{KeyDown,KeyUp,FlagsChanged}
+    const NS_EVENT_MASK_LEFT_MOUSE_DOWN: u64 = 1 << 1;
+    const NS_EVENT_MASK_LEFT_MOUSE_UP: u64 = 1 << 2;
+    const NS_EVENT_MASK_KEY_DOWN: u64 = 1 << 10;
+    const NS_EVENT_MASK_KEY_UP: u64 = 1 << 11;
+    const NS_EVENT_MASK_FLAGS_CHANGED: u64 = 1 << 12;
+    let mask: u64 = NS_EVENT_MASK_LEFT_MOUSE_DOWN
+        | NS_EVENT_MASK_LEFT_MOUSE_UP
+        | NS_EVENT_MASK_KEY_DOWN
+        | NS_EVENT_MASK_KEY_UP
+        | NS_EVENT_MASK_FLAGS_CHANGED;
+
+    let block = ConcreteBlock::new(move |event: id| -> id {
+        // Handler runs on the main thread (AppKit dispatch invariant).
+        // Pass-through semantics: always return the original event so the host
+        // and any other monitor downstream still see it. We only *also* trigger
+        // a baseview-level event when the criteria below are met.
+        unsafe {
+            let view = &*view_ptr;
+            // Guard: view's window may be nil during reparent / close. R-3 of
+            // the design notes — never deref a nil window.
+            let view_window: id = msg_send![view, window];
+            if view_window == nil {
+                return event;
+            }
+            // Guard: ignore events targeted at a different NSWindow (other
+            // plugin instance, host UI, floating panel).
+            let event_window: id = msg_send![event, window];
+            if event_window != view_window {
+                return event;
+            }
+
+            let event_type: u64 = msg_send![event, type];
+
+            match event_type {
+                // ── Mouse arm (existing behaviour, unchanged) ────────────────
+                1 | 2 => {
+                    // Translate event location into view-local coordinates.
+                    let location: NSPoint = msg_send![event, locationInWindow];
+                    let local_point: NSPoint =
+                        msg_send![view, convertPoint:location fromView:nil];
+                    let bounds: NSRect = msg_send![view, bounds];
+                    let in_view = local_point.x >= 0.0
+                        && local_point.y >= 0.0
+                        && local_point.x < bounds.size.width
+                        && local_point.y < bounds.size.height;
+
+                    let kind = match event_type {
+                        1 => "ButtonPressed",
+                        2 => "ButtonReleased",
+                        _ => "Unknown",
+                    };
+                    log::info!(
+                        "[hypha-fork] localMonitor: {} at pos=({}, {}) (in_view={})",
+                        kind,
+                        local_point.x,
+                        local_point.y,
+                        in_view
+                    );
+
+                    if in_view {
+                        let modifiers = NSEvent::modifierFlags(event);
+                        let mods = make_modifiers(modifiers);
+                        let synth_position = Point { x: local_point.x, y: local_point.y };
+                        let state = WindowState::from_view(view);
+
+                        // Synthesize CursorMoved first so egui-baseview's
+                        // pointer_pos_in_points is set before the ButtonPressed/Released
+                        // is forwarded (mirrors `add_mouse_button_class_method!`).
+                        state.trigger_event(Event::Mouse(MouseEvent::CursorMoved {
+                            position: synth_position,
+                            modifiers: mods,
+                        }));
+
+                        match event_type {
+                            1 => {
+                                state.trigger_event(Event::Mouse(ButtonPressed {
+                                    button: MouseButton::Left,
+                                    modifiers: mods,
+                                }));
+                            }
+                            2 => {
+                                state.trigger_event(Event::Mouse(ButtonReleased {
+                                    button: MouseButton::Left,
+                                    modifiers: mods,
+                                }));
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+
+                // Two-route design:
+                //   * Defer condition: is_key_window=true AND first_responder==self
+                //                       → AppKit will deliver keyDown:/keyUp:/
+                //                         flagsChanged: through the responder chain
+                //                         to add_simple_keyboard_class_method!
+                //                         (per https://developer.apple.com/documentation/appkit/nsresponder/keydown(with:)
+                //                         — first responder + key window both required).
+                //                         Defer here to avoid double-forwarding.
+                //   * Synth condition: any other case
+                //                       → AppKit suppresses keyDown: delivery to this
+                //                         NSView (window not key, OR another NSView is
+                //                         POST instance moved first responder away from
+                //                         the PRE view, so is_key_window=true but
+                //                         keyDown: never fires for the PRE NSView).
+                //                         Synthesize Event::Keyboard from the raw
+                //                         NSEvent so egui-baseview still receives
+                //                         keystrokes for TextEdit etc.
+                //
+                // Multiple monitors: when several plugin instances are loaded as
+                // subviews of the same host NSWindow, every install_local_event_monitor
+                // attaches its own monitor; AppKit invokes ALL matching monitors for
+                // each event (empirical — Apple Cocoa Conceptual EventOverview docs
+                // do not explicitly specify this). Each handler operates on its own
+                // captured view_ptr, so the first-responder check correctly routes
+                // the event to whichever NSView owns first responder, while the
+                // synth route serves instances whose NSView is *not* the first
+                // responder (their egui Context will accept the keystroke only if
+                // a TextEdit there is focused — independent egui state per instance).
+                10 | 11 | 12 => {
+                    let is_key: BOOL = msg_send![view_window, isKeyWindow];
+                    let first_responder: id = msg_send![view_window, firstResponder];
+                    let view_id: id = view as *const Object as id;
+                    let is_self_first: BOOL = msg_send![first_responder, isEqual: view_id];
+
+                    if is_key == YES && is_self_first == YES {
+                        log::info!(
+                            "[hypha-fork] localMonitor: key event_type={} (defer: is_key=true, first_responder=self)",
+                            event_type
+                        );
+                        return event;
+                    }
+
+                    log::info!(
+                        "[hypha-fork] localMonitor: key event_type={} (synth route / is_key={}, first_responder_is_self={})",
+                        event_type,
+                        is_key == YES,
+                        is_self_first == YES
+                    );
+
+                    let state = WindowState::from_view(view);
+                    if let Some(key_event) = state.process_native_key_event(event) {
+                        state.trigger_event(Event::Keyboard(key_event));
+                    }
+                    // process_native_key_event may return None for flagsChanged
+                    // when the changed bit is not a modifier code (keyboard.rs L311).
+                    // In that case we simply skip the trigger and pass the event through.
+                }
+
+                // ── Defensive: mask should not produce other event types ─────
+                _ => {
+                    log::debug!(
+                        "[hypha-fork] localMonitor: unexpected event_type={} (ignored)",
+                        event_type
+                    );
+                }
+            }
+        }
+        event
+    });
+    let block = block.copy();
+
+    let monitor: id = msg_send![class!(NSEvent),
+        addLocalMonitorForEventsMatchingMask: mask
+        handler: &*block];
+
+    state.local_event_monitor.set(monitor);
+    log::info!(
+        "[hypha-fork] localMonitor: installed (mask=LeftMouseDown|LeftMouseUp|KeyDown|KeyUp|FlagsChanged)"
+    );
+}
+
+unsafe fn remove_local_event_monitor(this: &Object) {
+    let state = WindowState::from_view(this);
+    let monitor = state.local_event_monitor.replace(nil);
+    if monitor != nil {
+        let _: () = msg_send![class!(NSEvent), removeMonitor: monitor];
+        log::info!("[hypha-fork] localMonitor: removed via view_will_move_to_window");
     }
 }
 

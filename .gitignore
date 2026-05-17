@@ -6,44 +6,34 @@
 
 # Bundled plugin outputs (re-generated via `cargo xtask bundle`)
 /target/bundled
-
 # Runtime-generated plugin data (structure belongs in code / docs, not in git)
 /plugin_data
 **/plugin_data/
-
 # /tmp/ IPC directory mirrors — never commit runtime measurement state
 /tmp/kirin
-
 # Debug/diagnostic log captures (fork-debug + generic catchall)
 hypha_fork_debug*.log
 *.log
-
 # macOS
 .DS_Store
-
 # Editors
 .idea/
 .vscode/
 *.swp
 *~
-
 # Per-machine local tool settings (Claude Code's "local" suffix follows
 # the same convention as .vscode/settings.local.json)
 .claude/settings.local.json
-
 # Cargo local overrides (if Daisuke adds a local .cargo/config.toml,
 # uncomment the line below; leave tracked by default so toolchain
 # pinning stays reproducible)
 # .cargo/config.toml
-
 # Internal investigation reports & ad-hoc audits (must not be published to public repo)
 B-*.md
 hypha_first_click_repro*.md
 hypha_phase*_completeness_audit*.md
-
 # Notion stub cleanup artifact + 他の一時作業出力を除外
 tmp/
-
 # Defensive: secret / credential patterns
 *.pem
 *.key
@@ -57,3 +47,10 @@ tmp/
 secrets.toml
 *_secret.txt
 *_api_key.txt
+# G-107-03: Notion stub cleanup artifact + 他の一時作業出力を除外
+# B-021/B-022/B-024 投稿物 (Notion 用 / 開発時調査メモ)
+B-021_phase1a_acceptance8_NG_investigation.md
+B-022_phase1b_preliminary_investigation.md
+B-024_phase1_report.md
+B-024_phase2_install_verification_R9.md
+hypha_first_click_repro_v2.md

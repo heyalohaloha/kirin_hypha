@@ -269,6 +269,7 @@ impl<'a> Window<'a> {
             frame_timer: Cell::new(None),
             window_info: Cell::new(window_info),
             deferred_events: RefCell::default(),
+            local_event_monitor: Cell::new(nil),
         });
 
         let window_state_ptr = Rc::into_raw(Rc::clone(&window_state));
@@ -365,6 +366,12 @@ pub(super) struct WindowState {
 
     /// Events that will be triggered at the end of `window_handler`'s borrow.
     deferred_events: RefCell<VecDeque<Event>>,
+
+    /// Kirin Hypha fork (2026-05-01, cause 2 case-4): token returned by
+    /// `NSEvent addLocalMonitorForEventsMatchingMask:handler:`. `nil` when no
+    /// monitor is installed. Set in `view_did_move_to_window`, cleared in
+    /// `view_will_move_to_window:nil`. Also cleared in `Drop` as a safety net.
+    pub(super) local_event_monitor: Cell<id>,
 }
 
 impl WindowState {
@@ -453,6 +460,22 @@ impl WindowState {
                 window_handler.on_event(&mut window, event);
             } else {
                 break;
+            }
+        }
+    }
+}
+
+// Kirin Hypha fork (2026-05-01, cause 2 case-4): Safety net — `view_will_move_to_window:nil`
+// and `Drop` (when `WindowInner::close()` runs `Rc::from_raw + drop`) both call
+// removeMonitor: + nil-clear, so a leftover `local_event_monitor` here means an
+// abnormal teardown path. Best-effort cleanup only; no-op if already cleared.
+impl Drop for WindowState {
+    fn drop(&mut self) {
+        let monitor = self.local_event_monitor.replace(nil);
+        if monitor != nil {
+            log::info!("[hypha-fork] localMonitor: removed via WindowState::drop");
+            unsafe {
+                let _: () = msg_send![class!(NSEvent), removeMonitor: monitor];
             }
         }
     }

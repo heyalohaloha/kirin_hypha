@@ -1,18 +1,18 @@
-//! Record エントリ時の排他制御 — G-50-10 / G-50-33。
+//! Record エントリ時の排他制御 — G-50-10 / G-50-33（A-3 修正後 / B-027 段階 3-A 緩和）。
 //!
-//! # 排他ルール
-//! 同一 `project_hash` 内で 1 つの Record セッションだけを許可する。
-//! 旧実装は `{project_hash}/{bus}/{role}/...` を bus 単位で見ていたが、bus 概念を
-//! path から外した A-3 修正後は `{project_hash}/{instance_id}/{role}/...` を
-//! 全 instance_id 横断で走査して、`status="active"` かつ heartbeat 60 秒以内の
-//! ファイルが 1 つでもあれば違反として返す。
+//! # 排他ルール (B-027 段階 3-A / G-115-47)
+//! 同一 `project_hash` 内で **最大 [`MAX_ACTIVE_PER_PROJECT`] = 12 件** の active
+//! Record セッションを許容する。Daisuke 確認 (2026-05-04)。12 件以上で Conflict。
+//!
+//! 旧実装 (B-027 段階 2 まで) は「1 active で即 Conflict」だったが、Stage 3-A で
+//! 多 PRE / 多 POST 環境を正式サポートするため count ベースに緩和。
 //!
 //! # チェック手順
 //! 1. `{base}/{project_hash}/` 配下のサブディレクトリを列挙（`record_signal/` /
 //!    `preset/` などの予約名は除外）
 //! 2. 各 `{instance_id}/pre/` と `{instance_id}/post/` 配下の `*.json` を読み、
-//!    `status="active"` かつ `heartbeat` が現在から 60 秒以内のファイルがあれば
-//!    Conflict として返す（最初に見つかったものを返す）
+//!    `status="active"` かつ `heartbeat` が現在から 60 秒以内のファイルを **数える**
+//! 3. 合計が `MAX_ACTIVE_PER_PROJECT` 以上で Conflict（最後に観測した active を holder に）
 //!
 //! # クラッシュ残骸
 //! `heartbeat > 60 秒古い` ファイルはクラッシュ残骸として扱い、**削除せず放置**。
@@ -22,12 +22,19 @@ use chrono::{DateTime, Utc};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::all_keep_signal::ALL_KEEP_SIGNAL_SUBDIR;
+use crate::all_stop_signal::ALL_STOP_SIGNAL_SUBDIR;
 use crate::plugin_data::{PluginDataFile, Role, Status};
 use crate::record_signal::SIGNALS_SUBDIR;
 use crate::preset::PRESET_SUBDIR;
 
 /// heartbeat 新鮮判定の閾値（秒）。これ以内なら排他保持、超過でクラッシュ残骸扱い。
 pub const STALE_SECONDS: i64 = 60;
+
+/// 同一 `project_hash` 内に同時存在を許す active Record の上限。
+///
+// 上限 12 (Daisuke 2026-05-04 確定)
+pub const MAX_ACTIVE_PER_PROJECT: usize = 12;
 
 /// 排他チェック結果。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -64,6 +71,10 @@ pub fn check_record_exclusion(base_dir: &Path, project_hash: &str) -> ExclusionR
 }
 
 /// 排他チェック（現在時刻を外部注入）。テスト用。
+///
+/// B-027 段階 3-A: count ベース。`active_count >= MAX_ACTIVE_PER_PROJECT` で
+/// Conflict。`holder` には最後に観測した active のパスを入れる（ログ向け識別、
+/// GUI には出さない）。
 pub fn check_record_exclusion_at(
     base_dir: &Path,
     project_hash: &str,
@@ -77,33 +88,53 @@ pub fn check_record_exclusion_at(
         Ok(e) => e,
         Err(_) => return ExclusionResult::Ok,
     };
+    let mut active_count: usize = 0;
+    let mut latest_active: Option<(PathBuf, String, Role)> = None;
     for entry in instance_entries.flatten() {
         let path = entry.path();
         if !path.is_dir() {
             continue;
         }
-        // 予約サブディレクトリ（record_signal / preset）は instance_id ではない
+        // 予約サブディレクトリ（record_signal / preset / all_keep_signal / all_stop_signal）
+        // は instance_id ではない (α-7' All Stop で all_stop_signal/ を予約名に追加)
         let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
             continue;
         };
-        if name == SIGNALS_SUBDIR || name == PRESET_SUBDIR {
+        if name == SIGNALS_SUBDIR
+            || name == PRESET_SUBDIR
+            || name == ALL_KEEP_SIGNAL_SUBDIR
+            || name == ALL_STOP_SIGNAL_SUBDIR
+        {
             continue;
         }
         for role in [Role::Pre, Role::Post] {
             let role_dir = path.join(role.dir_name());
-            if let Some(conflict) = scan_role_dir(&role_dir, now, role) {
-                return conflict;
-            }
+            count_active_in_role_dir(&role_dir, now, role, &mut active_count, &mut latest_active);
+        }
+    }
+    if active_count >= MAX_ACTIVE_PER_PROJECT {
+        if let Some((holder, heartbeat, role)) = latest_active {
+            return ExclusionResult::Conflict { holder, heartbeat, role };
         }
     }
     ExclusionResult::Ok
 }
 
-/// 単一の `pre/` または `post/` ディレクトリを走査。
-fn scan_role_dir(dir: &Path, now: DateTime<Utc>, role: Role) -> Option<ExclusionResult> {
+/// 単一の `pre/` または `post/` ディレクトリを走査して active 件数を加算。
+///
+/// B-027 段階 3-A: 早期 return せずに **同一 project_hash 内全 active を数える**
+/// 構造に変更。最後に観測した active を `latest_active` に格納（12 件超過時の
+/// `Conflict` に holder として詰める）。
+fn count_active_in_role_dir(
+    dir: &Path,
+    now: DateTime<Utc>,
+    role: Role,
+    active_count: &mut usize,
+    latest_active: &mut Option<(PathBuf, String, Role)>,
+) {
     let entries = match fs::read_dir(dir) {
         Ok(e) => e,
-        Err(_) => return None,
+        Err(_) => return,
     };
     for entry in entries.flatten() {
         let path = entry.path();
@@ -114,15 +145,11 @@ fn scan_role_dir(dir: &Path, now: DateTime<Utc>, role: Role) -> Option<Exclusion
             if file.status == Status::Active
                 && is_heartbeat_fresh(&file.heartbeat, now, STALE_SECONDS)
             {
-                return Some(ExclusionResult::Conflict {
-                    holder: path,
-                    heartbeat: file.heartbeat,
-                    role,
-                });
+                *active_count += 1;
+                *latest_active = Some((path, file.heartbeat, role));
             }
         }
     }
-    None
 }
 
 /// `*.json` のみ対象（`.tmp` は除外）。
@@ -225,8 +252,10 @@ mod tests {
         assert_eq!(r, ExclusionResult::Ok);
     }
 
+    /// B-027 段階 3-A: 1 active PRE は閾値 (12) 未満なので Ok。
+    /// 旧 (B-027 段階 2 まで) の "1 件で即 Conflict" 仕様から差し替え。
     #[test]
-    fn active_with_fresh_heartbeat_on_pre_conflicts() {
+    fn single_active_pre_under_threshold_is_ok() {
         let base = isolated_dir();
         let now = Utc::now();
         write_record_file(
@@ -239,14 +268,12 @@ mod tests {
             false,
         );
         let r = check_record_exclusion_at(&base, "ph", now);
-        match r {
-            ExclusionResult::Conflict { role, .. } => assert_eq!(role, Role::Pre),
-            _ => panic!("expected Conflict: {r:?}"),
-        }
+        assert_eq!(r, ExclusionResult::Ok, "1 active < 12 threshold");
     }
 
+    /// B-027 段階 3-A: 1 active POST は閾値 (12) 未満なので Ok。
     #[test]
-    fn active_with_fresh_heartbeat_on_post_conflicts() {
+    fn single_active_post_under_threshold_is_ok() {
         let base = isolated_dir();
         let now = Utc::now();
         write_record_file(
@@ -259,7 +286,7 @@ mod tests {
             false,
         );
         let r = check_record_exclusion_at(&base, "ph", now);
-        assert!(r.is_conflict());
+        assert_eq!(r, ExclusionResult::Ok, "1 active < 12 threshold");
     }
 
     #[test]
@@ -303,10 +330,11 @@ mod tests {
         assert_eq!(r, ExclusionResult::Ok);
     }
 
-    /// 同一 project_hash 内で別 instance_id でも Record 中ならば違反扱い
-    /// （新仕様: bus 単位ではなく project_hash 単位の排他）。
+    /// B-027 段階 3-A: 同一 project_hash 内に 1 active が居ても閾値未満なので Ok。
+    /// 旧 (B-027 段階 2 まで) の "別 instance でも同 project で即 Conflict" 仕様から
+    /// 差し替え。閾値到達は `twelve_active_records_conflicts` で別途検証。
     #[test]
-    fn different_instance_same_project_blocks_record() {
+    fn different_instance_same_project_under_threshold_is_ok() {
         let base = isolated_dir();
         let now = Utc::now();
         write_record_file(
@@ -318,9 +346,8 @@ mod tests {
             &iso(5, now),
             false,
         );
-        // 別 instance_id でも同 project_hash → conflict
         let r = check_record_exclusion_at(&base, "ph", now);
-        assert!(r.is_conflict());
+        assert_eq!(r, ExclusionResult::Ok, "1 active in same project still under 12 limit");
     }
 
     #[test]
@@ -359,6 +386,18 @@ mod tests {
         let preset_dir = base.join("ph").join(PRESET_SUBDIR);
         fs::create_dir_all(&preset_dir).unwrap();
         fs::write(preset_dir.join("p.json"), b"{}").unwrap();
+        let r = check_record_exclusion_at(&base, "ph", now);
+        assert_eq!(r, ExclusionResult::Ok);
+    }
+
+    /// B-027 段階 3-B α-7-4-B: all_keep_signal/ も instance_id ではないので走査対象外。
+    #[test]
+    fn all_keep_signal_subdir_is_not_treated_as_instance() {
+        let base = isolated_dir();
+        let now = Utc::now();
+        let dir = base.join("ph").join(ALL_KEEP_SIGNAL_SUBDIR);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("originator-A.json"), b"{}").unwrap();
         let r = check_record_exclusion_at(&base, "ph", now);
         assert_eq!(r, ExclusionResult::Ok);
     }
@@ -420,5 +459,151 @@ mod tests {
         );
         let r = check_record_exclusion_at(&base, "ph", now);
         assert_eq!(r, ExclusionResult::Ok);
+    }
+
+    // ── B-027 段階 3-A: 12-active 上限の境界テスト (G-115-47) ─────────────────
+
+    /// `MAX_ACTIVE_PER_PROJECT` 直前 (11) は Ok。
+    #[test]
+    fn eleven_active_records_under_threshold_is_ok() {
+        let base = isolated_dir();
+        let now = Utc::now();
+        for i in 0..11 {
+            let role = if i % 2 == 0 { Role::Pre } else { Role::Post };
+            write_record_file(
+                &base,
+                "ph",
+                &format!("iid-{i:02}"),
+                role,
+                "2026-04-17T14:32:08Z",
+                &iso(5, now),
+                false,
+            );
+        }
+        let r = check_record_exclusion_at(&base, "ph", now);
+        assert_eq!(r, ExclusionResult::Ok, "11 < 12 → Ok");
+    }
+
+    /// `MAX_ACTIVE_PER_PROJECT` ちょうど (12) で Conflict。
+    #[test]
+    fn twelve_active_records_conflicts() {
+        let base = isolated_dir();
+        let now = Utc::now();
+        for i in 0..MAX_ACTIVE_PER_PROJECT {
+            let role = if i % 2 == 0 { Role::Pre } else { Role::Post };
+            write_record_file(
+                &base,
+                "ph",
+                &format!("iid-{i:02}"),
+                role,
+                "2026-04-17T14:32:08Z",
+                &iso(5, now),
+                false,
+            );
+        }
+        let r = check_record_exclusion_at(&base, "ph", now);
+        assert!(
+            r.is_conflict(),
+            "{} active records should conflict, got {:?}",
+            MAX_ACTIVE_PER_PROJECT,
+            r,
+        );
+    }
+
+    /// PRE と POST が混ざって合計 12 でも Conflict（合計でカウント / role 別ではない）。
+    #[test]
+    fn mixed_pre_post_count_to_twelve_conflicts() {
+        let base = isolated_dir();
+        let now = Utc::now();
+        // 6 PRE + 6 POST = 12
+        for i in 0..6 {
+            write_record_file(
+                &base,
+                "ph",
+                &format!("iid-pre-{i:02}"),
+                Role::Pre,
+                "2026-04-17T14:32:08Z",
+                &iso(5, now),
+                false,
+            );
+        }
+        for i in 0..6 {
+            write_record_file(
+                &base,
+                "ph",
+                &format!("iid-post-{i:02}"),
+                Role::Post,
+                "2026-04-17T14:32:08Z",
+                &iso(5, now),
+                false,
+            );
+        }
+        let r = check_record_exclusion_at(&base, "ph", now);
+        assert!(r.is_conflict(), "6+6 = 12 mixed PRE/POST → Conflict");
+    }
+
+    /// stale (heartbeat > 60s) はカウント対象外。fresh 11 + stale 5 = 計 16 でも Ok。
+    #[test]
+    fn stale_records_not_counted_toward_threshold() {
+        let base = isolated_dir();
+        let now = Utc::now();
+        // fresh 11 件
+        for i in 0..11 {
+            write_record_file(
+                &base,
+                "ph",
+                &format!("iid-fresh-{i:02}"),
+                Role::Pre,
+                "2026-04-17T14:32:08Z",
+                &iso(5, now),
+                false,
+            );
+        }
+        // stale 5 件 (count されない)
+        for i in 0..5 {
+            write_record_file(
+                &base,
+                "ph",
+                &format!("iid-stale-{i:02}"),
+                Role::Pre,
+                "2026-04-17T14:32:08Z",
+                &iso(120, now),
+                false,
+            );
+        }
+        let r = check_record_exclusion_at(&base, "ph", now);
+        assert_eq!(r, ExclusionResult::Ok, "11 fresh + 5 stale = 11 effective → Ok");
+    }
+
+    /// 異なる project_hash 配下で各 12 件 active でも、対象 project_hash 側の
+    /// active が閾値未満なら Ok（project 隔離維持）。
+    #[test]
+    fn other_projects_do_not_count_toward_target_threshold() {
+        let base = isolated_dir();
+        let now = Utc::now();
+        // 別 project に 12 件 (= 排他保持中) 配置
+        for i in 0..MAX_ACTIVE_PER_PROJECT {
+            write_record_file(
+                &base,
+                "other_ph",
+                &format!("iid-{i:02}"),
+                Role::Pre,
+                "2026-04-17T14:32:08Z",
+                &iso(5, now),
+                false,
+            );
+        }
+        // 対象 project には 1 件のみ
+        write_record_file(
+            &base,
+            "ph",
+            "iid-target",
+            Role::Post,
+            "2026-04-17T14:32:08Z",
+            &iso(5, now),
+            false,
+        );
+        let r = check_record_exclusion_at(&base, "ph", now);
+        assert_eq!(r, ExclusionResult::Ok, "別 project の 12 件は対象に影響しない");
     }
 }

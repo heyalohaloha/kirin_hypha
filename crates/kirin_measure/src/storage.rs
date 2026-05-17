@@ -1,6 +1,5 @@
 //! Identity storage — 2 箇所保存 + 4 段階復旧。
 //!
-//! .md T-2 / T-4 対応。
 //!
 //! # 保存先
 //! | 種別 | パス | 管理者 |
@@ -136,7 +135,7 @@ impl std::fmt::Display for StorageError {
 
 impl std::error::Error for StorageError {}
 
-// ── 個別の保存 / 読込 操作 ─────────────────────────────────────────
+// ── 個別の保存 / 読込 操作（T-2） ─────────────────────────────────────────
 
 /// Identity を指定パスに atomic write する（`.tmp` → rename）。
 pub fn write_identity_atomic(path: &Path, identity: &Identity) -> Result<(), StorageError> {
@@ -163,7 +162,7 @@ pub fn write_both(paths: &StoragePaths, identity: &Identity) -> Result<(), Stora
     Ok(())
 }
 
-// ── 4 段階復旧フロー ──────────────────────────────────────────────
+// ── 4 段階復旧フロー（T-4） ──────────────────────────────────────────────
 
 /// 起動時に Identity を取得する。4 段階復旧 + 2-of-3 判定を実行。
 ///
@@ -253,7 +252,7 @@ pub fn load_or_recover(
 }
 
 /// `plugin_data/{project_hash}/{instance_id}/pre/*.json` を走査して最新ファイルから
-/// `installation_id` を抽出する。
+/// `installation_id` を抽出する（A-3 修正後の階層）。
 ///
 /// # PRE 専用前提（A H-4 / 受入基準 #4）
 /// 本関数は `pre/` ディレクトリ固定で走査する。POST 側の `installation_id` は読まない。
@@ -424,12 +423,14 @@ pub struct CleanupReport {
 }
 
 // ── installation_id loose reader（サブ3-A-2 / Adv-実装 承認 β 案）──────
+//
 // PluginDataWriter が Frame.installation_id を埋めるための最小読取り。
 // HMAC 検証・2-of-3 判定は行わず、identity JSON の `installation_id` フィールド
 // のみを loose に抽出する。license.rs `load_license_safe` と同位相:
 // - 本番パス: `~/Library/Application Support/Kirin OS/identity.json`
 // - $HOME 不在 / ファイル不在 / 不正 JSON / フィールド欠落 → `None`
 // - 書込は行わない（`load_or_recover` と分離）
+//
 // ログ分岐は以下の 5 系統:
 // - `[installation_id] loaded: <uuid>` — 正常
 // - `[installation_id] loaded: None (no $HOME)` — $HOME 解決不能

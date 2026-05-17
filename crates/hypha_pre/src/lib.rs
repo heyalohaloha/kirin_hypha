@@ -61,6 +61,10 @@ pub struct HyphaPre {
     license: Arc<License>,
 
     preset_available: Arc<AtomicBool>,
+
+    /// B-025 Group B-2/B-3 / Gap-19/20: io_thread → editor のステータス行通知。
+    /// `None` = 通常 / `Some("Record stopped: ...")` = 連続失敗閾値到達後の文言。
+    record_error_message: Arc<RwLock<Option<String>>>,
 }
 
 #[derive(Params)]
@@ -70,8 +74,14 @@ struct HyphaPreParams {
 
     /// プロジェクト保存時に永続化される instance UUID。
     /// POST が pending を立てる際の `target_pre_instance_id` 識別子として使われる。
+    ///
+    /// B-022 段階 1: chunk-restore タイミングで host が `set_state` を発行した
+    /// 直後の最新値を io_thread が lazy-read で拾えるよう `Arc<RwLock<String>>`
+    /// にする。`#[persist]` は `Arc<RwLock<String>>` も RwLock<String> 同様に
+    /// 扱う（nih-plug `params/persist.rs` `impl_persistent_arc!` 経由 / chunk
+    /// JSON 形式は変わらない / 既存プロジェクト互換）。
     #[persist = "instance_id"]
-    pub instance_id: RwLock<String>,
+    pub instance_id: Arc<RwLock<String>>,
 
     /// プロジェクト chunk に永続化される project UUID（ / ）。
     /// 同一プロジェクト内の PRE/POST instances 全てが同じ値を共有する。
@@ -84,6 +94,13 @@ struct HyphaPreParams {
     /// signal を PRE が誤って ack することを防ぐ cross-process 防壁。
     #[persist = "daw_session_uuid"]
     pub daw_session_uuid: RwLock<String>,
+
+    /// ユーザー定義 Name (B-023 / G-115-40 案 A-3)。
+    /// ASCII 0x20-0x7E のみ / 16 文字以内 / 空文字許容 (UUID 短縮 fallback)。
+    /// 既存 instance_id / project_uuid と同じ Arc<RwLock<String>> パターンで
+    /// editor / io_thread と共有 (B-022 段階 1 lazy-read 経路に乗せる)。
+    #[persist = "name"]
+    pub name: Arc<RwLock<String>>,
 }
 
 impl Default for HyphaPreParams {
@@ -93,12 +110,20 @@ impl Default for HyphaPreParams {
                 .make_bypass()
                 .with_value_to_string(formatters::v2s_bool_bypass())
                 .with_string_to_value(formatters::s2v_bool_bypass()),
-            instance_id: RwLock::new(Uuid::new_v4().to_string()),
+            instance_id: Arc::new(RwLock::new(Uuid::new_v4().to_string())),
             project_uuid: RwLock::new(Uuid::new_v4().to_string()),
             daw_session_uuid: RwLock::new(Uuid::new_v4().to_string()),
+            name: Arc::new(RwLock::new(String::new())),
         }
     }
 }
+
+/// B-027 段階 2: `kirin_measure::sanitize_name` への re-export (DRY 統合)。
+///
+/// 旧実装 (B-023 段階 1) は kirin_measure crate に移動し hypha_pre / hypha_post の
+/// 両 cdylib から共通参照される単一情報源となった。本 re-export は既存の
+/// `editor.rs` / `name_persist_tests` / 外部参照を破壊しないために維持する。
+pub use kirin_measure::sanitize_name;
 
 impl Default for HyphaPre {
     fn default() -> Self {
@@ -126,20 +151,17 @@ impl Default for HyphaPre {
             record_acknowledged: Arc::new(AtomicBool::new(false)),
             license: Arc::new(load_license_safe()),
             preset_available: Arc::new(AtomicBool::new(false)),
+            record_error_message: Arc::new(RwLock::new(None)),
         }
     }
 }
 
-fn read_instance_id(params: &HyphaPreParams) -> String {
-    params
-        .instance_id
-        .read()
-        .ok()
-        .map(|g| g.clone())
-        .unwrap_or_default()
-}
-
 /// `RwLock<String>` 永続フィールドから現在値を読む（panic-safe）。
+///
+/// B-022 段階 1: `instance_id` は `Arc<RwLock<String>>` 化されたが、project_uuid
+/// / daw_session_uuid の `RwLock<String>` 経路（chunk-restored 値の cell 反映）
+/// では引き続き本ヘルパを使う。`instance_id` の lazy-read は io_thread_post の
+/// `read_instance_id_arc` を再利用する。
 fn read_persisted_string(field: &RwLock<String>) -> String {
     field.read().ok().map(|g| g.clone()).unwrap_or_default()
 }
@@ -191,6 +213,9 @@ impl Plugin for HyphaPre {
             Arc::clone(&self.recording),
             Arc::clone(&self.record_acknowledged),
             Arc::clone(&self.preset_available),
+            Arc::clone(&self.params.name),
+            Arc::clone(&self.params.instance_id),
+            Arc::clone(&self.record_error_message),
         )
     }
 
@@ -218,6 +243,25 @@ impl Plugin for HyphaPre {
         // セル更新後に struct field を再読込（IO/Editor が参照する値）。
         self.project_hash = process_project_hash();
         self.daw_session_id = daw_session_id();
+
+        // B-023 段階 1: chunk-restored Name の正規化補助 (経路 1)。
+        // 主の正規化は読み取り側 lazy-read で `sanitize_name` を毎回かける
+        // 経路 2 が担う。本ブロックは「永続化されている値自体を正規化済に
+        // 保つ」念のための片付けで、initialize() 後に 1 度だけ書き戻す。
+        // R-28 機能的沈黙: 違反値の検出で UI エラーを出さない。
+        let restored_name = self
+            .params
+            .name
+            .read()
+            .ok()
+            .map(|g| g.clone())
+            .unwrap_or_default();
+        let sanitized = sanitize_name(&restored_name);
+        if sanitized != restored_name {
+            if let Ok(mut g) = self.params.name.write() {
+                *g = sanitized;
+            }
+        }
 
         self.watchdog_shutdown.store(true, Ordering::Relaxed);
         self.measure_shutdown.store(true, Ordering::Relaxed);
@@ -253,12 +297,19 @@ impl Plugin for HyphaPre {
             Arc::clone(&self.session_summary),
         );
 
+        // B-022 段階 1: io_thread には Arc<RwLock<String>> 共有 → tick ごと lazy-read。
+        // 旧 String snapshot は initialize() 時点で凍結されるため、setState 経由の
+        // 後続復元・再 initialize で値が変わったケースで instance_id が陳腐化していた。
         let sample_rate = buffer_config.sample_rate as u32;
-        let instance_id = read_instance_id(&self.params);
+        let instance_id_arc = Arc::clone(&self.params.instance_id);
         let project_hash = self.project_hash.clone();
         let daw_session_id = self.daw_session_id.clone();
+        // B-023 段階 3: PRE Name を IO Thread に共有 (Arc<RwLock<String>>)。
+        // ack 時に signal.paired_pre_name に書く。chunk-restore 後の最新値を
+        // tick ごと lazy-read。
+        let name_arc = Arc::clone(&self.params.name);
         let io_handle = spawn_io_thread_pre(
-            instance_id.clone(),
+            Arc::clone(&instance_id_arc),
             project_hash.clone(),
             daw_session_id.clone(),
             sample_rate,
@@ -267,13 +318,15 @@ impl Plugin for HyphaPre {
             Arc::clone(&self.record_acknowledged),
             Arc::clone(&self.license),
             Arc::clone(&self.measure_result),
-            Arc::clone(&self.session_summary),
             Arc::clone(&self.signal_state),
             Arc::clone(&self.io_shutdown),
+            Arc::clone(&name_arc),
+            Arc::clone(&self.record_error_message),
+            Arc::clone(&self.session_summary),
         );
 
         let restart_io = {
-            let instance_id = instance_id.clone();
+            let instance_id_arc = Arc::clone(&instance_id_arc);
             let project_hash = project_hash.clone();
             let daw_session_id = daw_session_id.clone();
             let record_sm = Arc::clone(&self.record_sm);
@@ -281,11 +334,13 @@ impl Plugin for HyphaPre {
             let record_acknowledged = Arc::clone(&self.record_acknowledged);
             let license = Arc::clone(&self.license);
             let measure_result = Arc::clone(&self.measure_result);
-            let session_summary = Arc::clone(&self.session_summary);
             let signal_state = Arc::clone(&self.signal_state);
+            let name_arc = Arc::clone(&name_arc);
+            let record_error_message = Arc::clone(&self.record_error_message);
+            let session_summary = Arc::clone(&self.session_summary);
             move |new_shutdown: Arc<AtomicBool>| {
                 spawn_io_thread_pre(
-                    instance_id.clone(),
+                    Arc::clone(&instance_id_arc),
                     project_hash.clone(),
                     daw_session_id.clone(),
                     sample_rate,
@@ -294,9 +349,11 @@ impl Plugin for HyphaPre {
                     Arc::clone(&record_acknowledged),
                     Arc::clone(&license),
                     Arc::clone(&measure_result),
-                    Arc::clone(&session_summary),
                     Arc::clone(&signal_state),
                     new_shutdown,
+                    Arc::clone(&name_arc),
+                    Arc::clone(&record_error_message),
+                    Arc::clone(&session_summary),
                 )
             }
         };
@@ -394,3 +451,80 @@ fn buffer_is_silent(buffer: &mut Buffer) -> bool {
 }
 
 nih_export_vst3!(HyphaPre);
+
+// ── B-023 段階 1: Name フィールド chunk persist + 正規化テスト ─────────────
+//
+// hypha_pre crate は cdylib のみ (Cargo.toml:7) のため外部 tests/ から
+// 直接 import 不可。kirin_measure と同パターンで `#[cfg(test)] mod` 内部配置
+// で 5 件の必須テストを揃える。
+//
+// テスト方針:
+// - chunk roundtrip (1-2): nih-plug の `params/persist.rs:5-9` で
+//   `serialize_field = serde_json::to_string` / `deserialize_field =
+//   serde_json::from_str` を pub re-export している。本テストはその re-export
+//   経由 (`nih_plug::params::persist::{serialize_field, deserialize_field}`) で
+//   `RwLock<String>` の値を roundtrip し、chunk persist と同経路で値が保たれる
+//   ことを構造的に固定する
+// - sanitize_name 正規化 (3-5): truncate / 非 ASCII strip / 制御文字 strip
+#[cfg(test)]
+mod name_persist_tests {
+    use super::sanitize_name;
+    use nih_plug::params::persist::{deserialize_field, serialize_field};
+    use std::sync::RwLock;
+
+    /// Test 1: 空文字保存・復元。Name 未設定の Default::default() 状態 (空文字)
+    /// が nih-plug chunk persist と同経路 (serialize_field / deserialize_field)
+    /// を経ても空文字のまま戻ることを構造的に固定する。
+    #[test]
+    fn name_roundtrip_empty() {
+        let rw: RwLock<String> = RwLock::new(String::new());
+        let json = serialize_field(&*rw.read().unwrap()).expect("serialize empty");
+        assert_eq!(json, r#""""#);
+        let restored: String = deserialize_field(&json).expect("deserialize empty");
+        let rw2: RwLock<String> = RwLock::new(restored);
+        assert_eq!(*rw2.read().unwrap(), "");
+    }
+
+    /// Test 2: ASCII 16 文字保存・復元。論点 5 (c) 上限 16 文字の境界値が
+    /// chunk persist と同経路を経ても完全一致で戻ることを構造的に固定する。
+    #[test]
+    fn name_roundtrip_ascii_16() {
+        let original = "AbcDefGhi1234567"; // 16 文字 (上限)
+        assert_eq!(original.len(), 16);
+        let rw: RwLock<String> = RwLock::new(original.to_string());
+        let json =
+            serialize_field(&*rw.read().unwrap()).expect("serialize ascii_16");
+        let restored: String =
+            deserialize_field(&json).expect("deserialize ascii_16");
+        let rw2: RwLock<String> = RwLock::new(restored);
+        assert_eq!(*rw2.read().unwrap(), original);
+    }
+
+    /// Test 3: sanitize_name が 17 文字目以降を truncate する。
+    /// 入力 "a" * 20 → "a" * 16。
+    #[test]
+    fn name_sanitize_truncates_over_16() {
+        let raw = "a".repeat(20);
+        let sanitized = sanitize_name(&raw);
+        assert_eq!(sanitized.len(), 16);
+        assert_eq!(sanitized, "a".repeat(16));
+    }
+
+    /// Test 4: sanitize_name が非 ASCII 文字を strip する。
+    /// 入力 "日本語Snare" → "Snare" (日本語 3 文字を除去)。
+    #[test]
+    fn name_sanitize_strips_non_ascii() {
+        let raw = "日本語Snare";
+        let sanitized = sanitize_name(raw);
+        assert_eq!(sanitized, "Snare");
+    }
+
+    /// Test 5: sanitize_name が制御文字 (0x00-0x1F / 0x7F) を strip する。
+    /// 入力 "\x01Snare\x7f" → "Snare" (SOH と DEL を除去)。
+    #[test]
+    fn name_sanitize_strips_control_chars() {
+        let raw = "\x01Snare\x7f";
+        let sanitized = sanitize_name(raw);
+        assert_eq!(sanitized, "Snare");
+    }
+}

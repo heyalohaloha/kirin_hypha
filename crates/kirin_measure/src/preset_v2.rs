@@ -1,10 +1,9 @@
 //! preset v2.0 reader — G-77-01 / G-77-03.
 //!
-//!  v3  の proposals schema v2.0 を読む。Lens / OS 側が
 //! `plugin_data/{project_hash}/preset/{bounce_id}.json` に書き出したものを、
 //! Hypha の LED / GUI (T-E/T-F) が消費する経路。
 //!
-//! # 保護境界 (bis.3)
+//! # 保護境界 (§8bis.3)
 //! - v1.1 reader (`preset.rs`) は**不変更**。
 //! - 音声信号処理経路 (Audio/Measure/IO Thread / 計測エンジン / 書込 / 排他
 //!   / record_signal / close / identity.json) は触らない。
@@ -17,7 +16,6 @@
 //! # HMAC
 //! トップレベル `"hmac_checksum"` フィールド。`hmac_checksum=""` で JSON 化した
 //! 全バイトに対する HMAC-SHA256 hex。鍵は [`crate::identity`] と同じ（v1.1 と同値
-//! 54 bytes ASCII —  v3 .3）。
 
 use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
@@ -80,7 +78,6 @@ fn default_empty_object() -> serde_json::Value {
 }
 
 /// section_boundaries[] 1 件。`section_context.schema.json` の sections[] 7
-/// 必須フィールドをそのまま継承（ v3 .2 訂正6）。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SectionBoundary {
     pub section_id: String,
@@ -166,7 +163,6 @@ fn hmac_key() -> &'static [u8] {
     }
 }
 
-//  v3 .3: Lens `src/config/hmac.js::DEFAULT_HMAC_KEY` と同一。
 // 54 bytes ASCII printable。v1.1 (preset.rs:153) と同値（同一 Hypha 鍵）。
 const DEFAULT_HMAC_KEY: &[u8] =
     b"kirin-hypha-phase1.0-hmac-key-deterrent-level-20260417";
@@ -355,7 +351,7 @@ mod tests {
     #[test]
     fn preset_v2_field_order_matches_lens_proposals_js() {
         // Field insertion order controls HMAC determinism. The expected
-        // byte ordering mirrors proposals.js .2 literal.
+        // byte ordering mirrors proposals.js §8.2 literal.
         let p = new_preset_v2_template("iid-own");
         let json = serde_json::to_string(&p).unwrap();
         let expected_prefix = r#"{"schema_version":"2.0","installation_id":"iid-own","session_id":"20260417T143208","bounce_id":"00000000-0000-4000-8000-000000000000","work_id":"work-42","generated_at":"2026-04-23T10:00:00Z","cards":[{"card_type":"observation","slot":"lufs_m","confidence":"MEASURED","message_key":"obs_lufs_m_delta","message_params":{"delta":4.0},"severity":"info","section_ref":null}],"section_boundaries":[{"section_id":"s01","label":"intro","start_sec":0.0,"end_sec":12.0,"duration_sec":12.0,"metrics":{"lufs_integrated":-14.0},"deviation_from_track":null}],"summary":{"total_generated":1,"silenced_by_gate":0,"delivered":1,"observations":1,"suggestions":0},"hmac_checksum":""}"#;
@@ -538,7 +534,6 @@ mod tests {
 
     #[test]
     fn hmac_key_matches_v1_1() {
-        //  v3 .3 / G-77-03: v1.1 と v2.0 で同一バイト列。
         use crate::preset::compute_preset_checksum;
         use crate::preset::PresetFile;
         // v1.1 HMAC over empty preset-like snippet should use the same

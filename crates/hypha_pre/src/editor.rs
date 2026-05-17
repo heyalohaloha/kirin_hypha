@@ -1,4 +1,3 @@
-//! PRE GUI — 300×200px（ T-6 / サブ1-C）。
 //!
 //! hypha_gui 共有プリミティブを使用:
 //! - 5状態 LED（Error/WatchBreathing/RecordStandby/RecordActive/Idle）
@@ -10,27 +9,54 @@
 //! - Active → 数値表示
 //! - Bypassed / Inactive → 全項目 `---`（宣言ベース、即時切替）
 //!
-//! Record モード（recording=true）: 6 項目表示（LUFS-M/TP/Crest/PSR/N'/Sharpness）。
+//! Record モード（recording=true）: 6 項目表示（LUFS-M/TP/Crest/PSR/N/Sharpness）。
 //! Record ACK 成立時に「記録開始」バナーを 3 秒一時表示。
 //! サブ1-C 時点では recording / record_acknowledged は default false（サブ2/3 で実配線）。
 
+use crate::sanitize_name;
 use hypha_gui::{
-    derive_led_state, fmt_val, led_color, tp_color, val_color, value_row, BackgroundTexture,
-    BG, COL_FLORA, COL_MUTED, COL_NORMAL,
+    derive_led_state, fmt_val, led_color, tp_color, val_color, BackgroundTexture, BG, COL_FLORA,
+    COL_MUTED, COL_NORMAL,
 };
 use kirin_measure::{load_signal_state, MeasureResult, SignalState};
 use nih_plug::prelude::Editor;
 use nih_plug_egui::{
     create_egui_editor,
-    egui::{self, Grid, RichText, Stroke, Vec2},
+    egui::{self, Grid, Key, Label, RichText, Sense, Stroke, TextEdit, TextStyle, Vec2},
     EguiState,
 };
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex, RwLock};
 use std::time::Duration;
 
 /// 記録開始バナーの表示時間（秒）。
 const RECORD_BANNER_DURATION_SECS: f64 = 3.0;
+
+//
+// Watch 3 項目 + Record 6 項目のラベル / 値 / 単位 3 セルに同一 hover を張る
+// ことで、マウス位置による表示揺れを排除する（案 A2）。英文に続いて改行で
+
+const HELP_LUFS_M: &str = "Momentary Loudness — ITU BS.1770 (LUFS)";
+const HELP_TP: &str = "True Peak — inter-sample peak, ITU BS.1770 (dBTP)";
+const HELP_CREST: &str = "Crest Factor — peak vs RMS difference (dB)";
+const HELP_PSR: &str = "Peak to Short-term Loudness Ratio (dB)";
+const HELP_N: &str = "Loudness — Zwicker model, ISO 532-1 (sone)";
+const HELP_SHARP: &str = "Sharpness — high-frequency content weighting,\nDIN 45692 (acum)";
+
+/// B-023 段階 2: Name 編集 TextEdit の egui focus ID。
+///
+/// `param_slider.rs:17-20` 同パターンで `LazyLock<egui::Id>` 静的定義
+/// (毎フレーム `Id::new(...)` を呼ばない / 同一 ID で memory 経由 focus 状態を判定)。
+static NAME_FOCUS_ID: LazyLock<egui::Id> =
+    LazyLock::new(|| egui::Id::new("hypha_pre_name_edit"));
+
+/// B-023 段階 2: Name 編集モード判定 (egui memory ベース)。
+///
+/// `editing: bool` フィールドを別管理せず egui memory `has_focus(id)` に委ねる
+/// (param_slider.rs:96-98 `keyboard_entry_active` 同パターン)。
+fn name_edit_active(ui: &egui::Ui) -> bool {
+    ui.memory(|mem| mem.has_focus(*NAME_FOCUS_ID))
+}
 
 // ── エディタ状態（user_state） ───────────────────────────────────────────
 
@@ -46,6 +72,18 @@ pub struct PreEditorState {
     /// preset/*.json が 1 件以上存在するか（POST IO Thread が更新、PRE は読むだけ）。
     pub preset_available: Arc<AtomicBool>,
 
+    /// B-023 段階 2: ユーザー定義 Name (HyphaPreParams.name と Arc 共有)。
+    /// editor 描画時に毎フレーム `read()` で最新値を取り、編集確定時に
+    /// `write()` で sanitize 後の値を書き込む。
+    pub name: Arc<RwLock<String>>,
+    /// B-023 段階 2: PRE instance UUID (HyphaPreParams.instance_id と Arc 共有)。
+    /// Name 未設定時の表示 fallback として「先頭 8 文字」を出す (論点 2 (a))。
+    pub instance_id: Arc<RwLock<String>>,
+    /// B-025 Group B-2/B-3 / Gap-19/20: io_thread が連続失敗 (Directory missing /
+    /// Write failed) で record exit したとき書込まれる UI 通知文字列。`None` =
+    /// 通常 / `Some` のとき GUI 末尾にステータス行表示 (R-26 沈黙ゲート / 通常時非表示)。
+    pub record_error_message: Arc<RwLock<Option<String>>>,
+
     // ── エディタローカル（egui state 内で保持） ──────────────────────
     /// 背景テクスチャの遅延 decode キャッシュ
     bg: BackgroundTexture,
@@ -55,9 +93,14 @@ pub struct PreEditorState {
     banner_until: Option<f64>,
     /// 直前フレームの LED 状態（edge-triggered log 用）。
     prev_led: Option<hypha_gui::LedState>,
+    /// B-023 段階 2: クリック起動編集モードの入力 buffer。
+    /// 編集モード開始時に現在 Name を copy、changed() で sanitize_name 適用、
+    /// Enter で `name.write()` に書き戻し、Escape で discard。
+    edit_buffer: String,
 }
 
 impl PreEditorState {
+    #[allow(clippy::too_many_arguments)]
     fn new(
         measure: Arc<Mutex<MeasureResult>>,
         measure_alive: Arc<AtomicBool>,
@@ -65,6 +108,9 @@ impl PreEditorState {
         recording: Arc<AtomicBool>,
         record_acknowledged: Arc<AtomicBool>,
         preset_available: Arc<AtomicBool>,
+        name: Arc<RwLock<String>>,
+        instance_id: Arc<RwLock<String>>,
+        record_error_message: Arc<RwLock<Option<String>>>,
     ) -> Self {
         Self {
             measure,
@@ -73,10 +119,14 @@ impl PreEditorState {
             recording,
             record_acknowledged,
             preset_available,
+            name,
+            instance_id,
+            record_error_message,
             bg: BackgroundTexture::new(),
             prev_ack: false,
             banner_until: None,
             prev_led: None,
+            edit_buffer: String::new(),
         }
     }
 }
@@ -93,6 +143,9 @@ pub fn create_pre_editor(
     recording: Arc<AtomicBool>,
     record_acknowledged: Arc<AtomicBool>,
     preset_available: Arc<AtomicBool>,
+    name: Arc<RwLock<String>>,
+    instance_id: Arc<RwLock<String>>,
+    record_error_message: Arc<RwLock<Option<String>>>,
 ) -> Option<Box<dyn Editor>> {
     create_egui_editor(
         egui_state,
@@ -103,6 +156,9 @@ pub fn create_pre_editor(
             recording,
             record_acknowledged,
             preset_available,
+            name,
+            instance_id,
+            record_error_message,
         ),
         |ctx, state| {
             let mut visuals = ctx.style().visuals.clone();
@@ -140,7 +196,7 @@ pub fn create_pre_editor(
             }
             let led_col = led_color(led, now);
 
-            draw_pre(ctx, &mut state.bg, &m, recording, sig, led_col, show_banner);
+            draw_pre(ctx, state, &m, recording, sig, led_col, show_banner);
         },
     )
 }
@@ -149,10 +205,10 @@ pub fn create_pre_editor(
 
 fn draw_pre(
     ctx: &egui::Context,
-    bg: &mut BackgroundTexture,
+    state: &mut PreEditorState,
     m: &MeasureResult,
     recording: bool,
-    state: SignalState,
+    signal_state: SignalState,
     led_col: egui::Color32,
     show_banner: bool,
 ) {
@@ -160,14 +216,16 @@ fn draw_pre(
         .frame(egui::Frame::NONE.fill(BG))
         .show(ctx, |ui| {
             // 背景テクスチャ（panel_fill の上に重ねて敷く）
-            bg.paint(ctx, ui);
+            state.bg.paint(ctx, ui);
 
             ui.add_space(8.0);
 
-            // タイトル行: 左に「PRE」、右に LED
+            // タイトル行: 左に「PRE」+ Name (クリック起動編集) / 右端に LED
             ui.horizontal(|ui| {
                 ui.add_space(10.0);
                 ui.label(RichText::new("PRE").size(20.0).color(COL_NORMAL));
+                ui.add_space(6.0);
+                draw_name_field(ui, state);
                 // 右端まで伸ばして LED を右寄せ
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.add_space(10.0);
@@ -186,7 +244,7 @@ fn draw_pre(
             ui.add_space(6.0);
 
             // SS-7: SignalState に基づく表示切替
-            let show_values = state == SignalState::Active;
+            let show_values = signal_state == SignalState::Active;
 
             // Record モード or Watch モードで表示項目を切替
             if recording {
@@ -209,13 +267,93 @@ fn draw_pre(
                 });
             }
 
+            // B-025 Group B-2/B-3 / Gap-19/20: io_thread が連続失敗で record exit
+            // した時のステータス行 (R-26 沈黙ゲート: 通常時 None なので非表示)。
+            // G-115-29 準拠の英語固定文言を `RecordError::ui_message()` 経由で受け取る。
+            let err_msg = state
+                .record_error_message
+                .read()
+                .ok()
+                .and_then(|g| g.clone());
+            if let Some(msg) = err_msg {
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
+                    ui.add_space(10.0);
+                    ui.label(
+                        RichText::new(msg)
+                            .size(11.0)
+                            .color(COL_MUTED)
+                            .monospace(),
+                    );
+                });
+            }
+
             // 100ms ごとに再描画（10fps）。呼吸アニメのため banner 表示中は 30fps に引き上げ。
             let repaint_ms = if show_banner { 33 } else { 100 };
             ctx.request_repaint_after(Duration::from_millis(repaint_ms));
         });
 }
 
+/// B-023 段階 2: Name フィールド描画（クリック起動編集 / Enter 確定 / Escape 破棄）。
+///
+/// 通常モード: `Label::new(...).sense(Sense::click())` で表示。クリックで `request_focus`。
+/// 編集モード (`name_edit_active` = `memory.has_focus(*NAME_FOCUS_ID)`):
+///   - `TextEdit::singleline(&mut state.edit_buffer).id(*NAME_FOCUS_ID)`
+///   - `changed()` 時にリアルタイム sanitize（不正入力を即座に剥がす）
+///   - `Enter` (lost_focus + key_pressed) で sanitize 後 `name.write()` 確定
+///   - `Escape` で discard（buffer 反映せず focus 解除）
+///
+/// Name 空 + 通常モード時は instance_id 先頭 8 文字を fallback 表示。
+fn draw_name_field(ui: &mut egui::Ui, state: &mut PreEditorState) {
+    if name_edit_active(ui) {
+        let response = ui.add(
+            TextEdit::singleline(&mut state.edit_buffer)
+                .id(*NAME_FOCUS_ID)
+                .desired_width(120.0)
+                .font(TextStyle::Monospace),
+        );
+        if ui.input(|i| i.key_pressed(Key::Escape)) {
+            ui.memory_mut(|mem| mem.surrender_focus(*NAME_FOCUS_ID));
+        } else if response.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
+            let sanitized = sanitize_name(&state.edit_buffer);
+            if let Ok(mut g) = state.name.write() {
+                *g = sanitized;
+            }
+            ui.memory_mut(|mem| mem.surrender_focus(*NAME_FOCUS_ID));
+        } else if response.changed() {
+            state.edit_buffer = sanitize_name(&state.edit_buffer);
+        }
+    } else {
+        let raw_name = state.name.read().ok().map(|g| g.clone()).unwrap_or_default();
+        let display = if raw_name.is_empty() {
+            let iid = state
+                .instance_id
+                .read()
+                .ok()
+                .map(|g| g.clone())
+                .unwrap_or_default();
+            iid.chars().take(8).collect::<String>()
+        } else {
+            raw_name.clone()
+        };
+        let label = ui.add(
+            Label::new(
+                RichText::new(&display)
+                    .size(14.0)
+                    .color(COL_FLORA)
+                    .monospace(),
+            )
+            .sense(Sense::click()),
+        );
+        if label.clicked() {
+            state.edit_buffer = raw_name;
+            ui.memory_mut(|mem| mem.request_focus(*NAME_FOCUS_ID));
+        }
+    }
+}
+
 /// Watch モード: 3 項目（LUFS-M / TP / Crest）。
+///
 fn draw_watch_grid(ui: &mut egui::Ui, m: &MeasureResult, show_values: bool) {
     ui.horizontal(|ui| {
         ui.add_space(10.0);
@@ -225,20 +363,36 @@ fn draw_watch_grid(ui: &mut egui::Ui, m: &MeasureResult, show_values: bool) {
             .spacing([6.0, 6.0])
             .show(ui, |ui| {
                 if show_values {
-                    value_row(ui, "LUFS-M", fmt_val(m.lufs_m), "LUFS", val_color(m.lufs_m));
-                    value_row(ui, "TP", fmt_val(m.true_peak), "dBTP", tp_color(m.true_peak));
-                    value_row(ui, "Crest", fmt_val(m.crest), "dB", val_color(m.crest));
+                    value_row_with_hover(
+                        ui, "LUFS-M", fmt_val(m.lufs_m), "LUFS",
+                        val_color(m.lufs_m), HELP_LUFS_M,
+                    );
+                    value_row_with_hover(
+                        ui, "TP", fmt_val(m.true_peak), "dBTP",
+                        tp_color(m.true_peak), HELP_TP,
+                    );
+                    value_row_with_hover(
+                        ui, "Crest", fmt_val(m.crest), "dB",
+                        val_color(m.crest), HELP_CREST,
+                    );
                 } else {
-                    value_row(ui, "LUFS-M", "---".to_string(), "LUFS", COL_MUTED);
-                    value_row(ui, "TP", "---".to_string(), "dBTP", COL_MUTED);
-                    value_row(ui, "Crest", "---".to_string(), "dB", COL_MUTED);
+                    value_row_with_hover(
+                        ui, "LUFS-M", "---".to_string(), "LUFS", COL_MUTED, HELP_LUFS_M,
+                    );
+                    value_row_with_hover(
+                        ui, "TP", "---".to_string(), "dBTP", COL_MUTED, HELP_TP,
+                    );
+                    value_row_with_hover(
+                        ui, "Crest", "---".to_string(), "dB", COL_MUTED, HELP_CREST,
+                    );
                 }
             });
     });
 }
 
-/// Record モード: 6 項目（LUFS-M / TP / Crest / PSR / N' / Sharpness）。
+/// Record モード: 6 項目（LUFS-M / TP / Crest / PSR / N / Sharpness）。
 /// 2 列 × 3 行で配置。
+///
 fn draw_record_grid(ui: &mut egui::Ui, m: &MeasureResult, show_values: bool) {
     ui.horizontal(|ui| {
         ui.add_space(10.0);
@@ -247,52 +401,84 @@ fn draw_record_grid(ui: &mut egui::Ui, m: &MeasureResult, show_values: bool) {
             .min_col_width(40.0)
             .spacing([6.0, 4.0])
             .show(ui, |ui| {
-                // 行1: LUFS-M | PSR
                 if show_values {
                     row_pair(ui,
-                        ("LUFS-M", fmt_val(m.lufs_m), "LUFS", val_color(m.lufs_m)),
-                        ("PSR", fmt_val(m.psr), "dB", val_color(m.psr)),
+                        ("LUFS-M", fmt_val(m.lufs_m), "LUFS", val_color(m.lufs_m), HELP_LUFS_M),
+                        ("PSR", fmt_val(m.psr), "dB", val_color(m.psr), HELP_PSR),
                     );
                     row_pair(ui,
-                        ("TP", fmt_val(m.true_peak), "dBTP", tp_color(m.true_peak)),
-                        ("N'", fmt_val(m.n_prime_total), "sone", val_color(m.n_prime_total)),
+                        ("TP", fmt_val(m.true_peak), "dBTP", tp_color(m.true_peak), HELP_TP),
+                        ("N", fmt_val(m.n_prime_total), "sone", val_color(m.n_prime_total), HELP_N),
                     );
                     row_pair(ui,
-                        ("Crest", fmt_val(m.crest), "dB", val_color(m.crest)),
-                        ("Sharp", fmt_val(m.sharpness), "acum", val_color(m.sharpness)),
+                        ("Crest", fmt_val(m.crest), "dB", val_color(m.crest), HELP_CREST),
+                        ("Sharp", fmt_val(m.sharpness), "acum", val_color(m.sharpness), HELP_SHARP),
                     );
                 } else {
                     row_pair(ui,
-                        ("LUFS-M", "---".to_string(), "LUFS", COL_MUTED),
-                        ("PSR", "---".to_string(), "dB", COL_MUTED),
+                        ("LUFS-M", "---".to_string(), "LUFS", COL_MUTED, HELP_LUFS_M),
+                        ("PSR", "---".to_string(), "dB", COL_MUTED, HELP_PSR),
                     );
                     row_pair(ui,
-                        ("TP", "---".to_string(), "dBTP", COL_MUTED),
-                        ("N'", "---".to_string(), "sone", COL_MUTED),
+                        ("TP", "---".to_string(), "dBTP", COL_MUTED, HELP_TP),
+                        ("N", "---".to_string(), "sone", COL_MUTED, HELP_N),
                     );
                     row_pair(ui,
-                        ("Crest", "---".to_string(), "dB", COL_MUTED),
-                        ("Sharp", "---".to_string(), "acum", COL_MUTED),
+                        ("Crest", "---".to_string(), "dB", COL_MUTED, HELP_CREST),
+                        ("Sharp", "---".to_string(), "acum", COL_MUTED, HELP_SHARP),
                     );
                 }
             });
     });
 }
 
-/// 2 つの (label, value, unit, color) をグリッド 1 行に流し込む。
+/// B-032: PRE Watch 用の hover 付き value_row（PRE 内 private）。
+///
+/// `hypha_gui::common::value_row` (pub API) は POST editor からも参照されており、
+/// crate 外 pub API シグネチャ不変（申し送り #32）の制約下で hover を追加する
+/// ため、PRE editor 内に同型 helper を新設する（POST 側は B-032 スコープ外）。
+/// ラベル / 値 / 単位の 3 セル全部に同一 hover を張り、マウス位置による表示
+/// 揺れを排除する。
+fn value_row_with_hover(
+    ui: &mut egui::Ui,
+    label: &str,
+    value: String,
+    unit: &str,
+    color: egui::Color32,
+    hover_text: &str,
+) {
+    ui.label(RichText::new(label).size(13.0).color(COL_MUTED))
+        .on_hover_text(hover_text);
+    ui.label(RichText::new(value).size(16.0).color(color).monospace())
+        .on_hover_text(hover_text);
+    ui.label(RichText::new(unit).size(11.0).color(COL_MUTED))
+        .on_hover_text(hover_text);
+    ui.end_row();
+}
+
+/// 2 つの (label, value, unit, color, hover_text) をグリッド 1 行に流し込む。
+///
+/// B-032: タプル末尾に `hover_text: &str` を追加。各セル（左右計 6 セル）に
+/// 同一 hover を張ることでマウス位置による表示揺れを排除する。
 fn row_pair(
     ui: &mut egui::Ui,
-    left: (&str, String, &str, egui::Color32),
-    right: (&str, String, &str, egui::Color32),
+    left: (&str, String, &str, egui::Color32, &str),
+    right: (&str, String, &str, egui::Color32, &str),
 ) {
     // 左
-    ui.label(RichText::new(left.0).size(11.0).color(COL_MUTED));
-    ui.label(RichText::new(left.1).size(14.0).color(left.3).monospace());
-    ui.label(RichText::new(left.2).size(10.0).color(COL_MUTED));
+    ui.label(RichText::new(left.0).size(11.0).color(COL_MUTED))
+        .on_hover_text(left.4);
+    ui.label(RichText::new(left.1).size(14.0).color(left.3).monospace())
+        .on_hover_text(left.4);
+    ui.label(RichText::new(left.2).size(10.0).color(COL_MUTED))
+        .on_hover_text(left.4);
     // 右
-    ui.label(RichText::new(right.0).size(11.0).color(COL_MUTED));
-    ui.label(RichText::new(right.1).size(14.0).color(right.3).monospace());
-    ui.label(RichText::new(right.2).size(10.0).color(COL_MUTED));
+    ui.label(RichText::new(right.0).size(11.0).color(COL_MUTED))
+        .on_hover_text(right.4);
+    ui.label(RichText::new(right.1).size(14.0).color(right.3).monospace())
+        .on_hover_text(right.4);
+    ui.label(RichText::new(right.2).size(10.0).color(COL_MUTED))
+        .on_hover_text(right.4);
     ui.end_row();
 }
 

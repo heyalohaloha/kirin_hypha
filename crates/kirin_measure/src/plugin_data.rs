@@ -1,9 +1,7 @@
 //! plugin_data v1.1 writer — Record mode 計測結果の永続化。
 //!
-//! .md T-2 対応。
-//! スキーマ正本: `.md` 行357-402。
 //!
-//! # ファイル命名
+//! # ファイル命名（A-3 修正後）
 //! ```text
 //! plugin_data/{project_hash}/{instance_id}/pre/{compact_wall_clock}.json
 //! plugin_data/{project_hash}/{instance_id}/post/{compact_wall_clock}.json
@@ -40,7 +38,6 @@
 //! - スキーマ型定義（serde 相互変換）
 //! - `PluginDataWriter`（append / heartbeat / flush / close / compact filename）
 //!
-//! T-6 の Plugin 統合で実際に  / Step-1 計測値を流し込む。
 
 use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
@@ -91,15 +88,11 @@ pub enum Status {
 
 // ── Schema 型 ────────────────────────────────────────────────────────────────
 
-/// 1 frame = Step-1 4 項目 +  2 項目（PSB は別ブロック）。
 ///
 /// n_prime は **20 Bark 帯域別** のフィルタ後 N'(t,z)（sone）。
 /// sharpness は **スカラー**（acum）。
 ///
-///  v2 (G-100-02): 全ての主要 SR (44.1k / 48k / 88.2k / 96k / 176.4k /
-/// 192kHz) で  を計測する。Measure Thread 側で 48kHz へリサンプリング後に
 /// PhaseDStream に投入されるため、本フィールドは常に `Some` で書き出される。
-/// `Option` 型は将来の  取得失敗時のフォールバック余地として温存する。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Frame {
     pub t_ms: u64,
@@ -108,7 +101,7 @@ pub struct Frame {
     pub lufs_m: f64,
     pub true_peak: f64,
     pub crest: f64,
-    /// PSR: peak_dBFS − LUFS_S（B-043 / Bob email 言及指標）。
+    /// PSR: peak_dBFS − LUFS_S（B-043）。
     /// 3 秒未満は `MeasureResult.psr = None` のためここも `None`。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub psr: Option<f64>,
@@ -142,15 +135,11 @@ pub struct BounceMarker {
     pub last_block_hash: String,
 }
 
-/// plugin_data/ 1 ファイル分のルート（v1.3）。
+/// plugin_data/ 1 ファイル分のルート（v1.2）。
 ///
-/// v1.3 (B-043): セッション集計 `lufs_i` / `lra` / `plr` field 追加。
-/// `MeasureEngine::finalize()` → IO Thread `set_session_aggregates()` 経由で
-/// `close()` 前に注入する。Frame には `psr` field 追加。
-/// schema_version "1.3"。
-///
-/// v1.2 ): `instance_id` field 追加 + `paired_pre_instance_id` /
+/// v1.2 (A-3 (a)): `instance_id` field 追加 + `paired_pre_instance_id` /
 /// `paired_post_instance_id` field 追加（cross-instance pair 復元の決定論的キー）。
+/// schema_version "1.2"。
 ///
 /// 各 field の詳細仕様は [`PluginDataFile::new`] の doc コメント参照。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -161,7 +150,7 @@ pub struct PluginDataFile {
     /// Plugin Default 起動時に `Uuid::new_v4` で生成され、VST3 state として
     /// 永続化される plugin インスタンス UUID。同一 plugin instance の PRE/POST
     /// ペア復元の一次キー。Lens reader.js で `paired_*_instance_id` との一致比較に
-    /// 使用される v1.2）。
+    /// 使用される（A-3 (a) v1.2）。
     pub instance_id: String,
     pub timestamp: String,
     pub role: Role,
@@ -182,24 +171,24 @@ pub struct PluginDataFile {
     pub frames: Vec<Frame>,
     pub psb_snapshots: Option<Vec<PsbSnapshot>>,
     pub annotations: Vec<Annotation>,
-    /// EBU R128 Integrated Loudness [LUFS]（B-043 / セッション集計）。
+    /// EBU R128 Integrated Loudness [LUFS] (B-043 / セッション集計)。
     /// `close()` 直前に `set_session_aggregates` で注入。値が無い場合は省略。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lufs_i: Option<f64>,
-    /// EBU R128 Loudness Range [LU]（B-043 / セッション集計）。
+    /// EBU R128 Loudness Range [LU] (B-043 / セッション集計)。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lra: Option<f64>,
-    /// PLR = max_true_peak − lufs_i [dB]（B-043 / セッション集計）。
+    /// PLR = max_true_peak − lufs_i [dB] (B-043 / セッション集計)。
     /// `lufs_i` か `max_true_peak` のどちらかが欠ければ `None`。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plr: Option<f64>,
     /// POST 側でのみ書き込み: Keep タップ時に選定した PRE 候補の instance_id。
-    /// 不在時 None。Lens 側 cross-instance pair 復元の決定論的キー v1.2）。
+    /// 不在時 None。Lens 側 cross-instance pair 復元の決定論的キー（A-3 (a) v1.2）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub paired_pre_instance_id: Option<String>,
     /// PRE 側でのみ書き込み: Record 開始時に受信した record_signal の
     /// `requested_by`（POST 側 instance_id）。不在時 None。
-    /// Lens 側 cross-instance pair 復元の決定論的キー v1.2）。
+    /// Lens 側 cross-instance pair 復元の決定論的キー（A-3 (a) v1.2）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub paired_post_instance_id: Option<String>,
     pub validity: bool,
@@ -215,12 +204,10 @@ impl PluginDataFile {
     /// Hz 単位の DAW 入力サンプルレート。0 = 取得失敗（fallback）。
     /// リサンプリング前の監査トレイル用。
     /// 値は `sample_rate` と同一値で書き込まれる（plugin_data.rs L204）。
-    /// 仕様書根拠（ S-1 / G-79 .3 / G-100-02）はコード
     /// コメントから前方参照されているのみで、Hypha リポジトリ内に
-    /// 実体 md は未配置（マター並行確認中）。
     ///
     /// # bus
-    /// Phase 1 では `None` を渡す。
+    /// Phase 1 では `None` を渡す（A-3 修正後 / Lens schema optional）。
     ///
     /// # instance_id（v1.2 (a)）
     /// Plugin Default 起動時に `Uuid::new_v4` で生成され、VST3 state として
@@ -230,14 +217,15 @@ impl PluginDataFile {
     /// # paired_*_instance_id（v1.2 (a)）
     /// Record 開始時に既知なら Some を渡す。
     /// - PRE: `paired_post_instance_id` = record_signal の `requested_by` を Some で渡す
-    ///        `paired_pre_instance_id` = None（自分が PRE なので相手 PRE は無い）
+    ///   `paired_pre_instance_id` = None（自分が PRE なので相手 PRE は無い）
     /// - POST: `paired_pre_instance_id` = trigger_keep の `target_id` を Some で渡す
-    ///         `paired_post_instance_id` = None（自分が POST）
+    ///   `paired_post_instance_id` = None（自分が POST）
     ///
     /// # sample_rate
     /// Record 開始時に ProcessContext から取得した値。本フィールドは
     /// JSON `sample_rate` および `source_format` 両方に同一値で記録される。
     /// 取得失敗時は 0 を渡す（fallback 仕様）。
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         installation_id: String,
         project_hash: String,
@@ -271,7 +259,6 @@ impl PluginDataFile {
             heartbeat: now,
             status: Status::Active,
             frames: Vec::new(),
-            //  v2: 全 SR で  を計測するため初期値は常に Some。
             psb_snapshots: Some(Vec::new()),
             annotations: Vec::new(),
             // B-043: セッション集計値。`close()` 前に `set_session_aggregates` で注入。
@@ -293,6 +280,13 @@ impl PluginDataFile {
 pub enum WriterError {
     Io(io::Error),
     Serde(serde_json::Error),
+    /// B-025 Group B-2 / Gap-19: flush() 呼出時に親ディレクトリ (例:
+    /// `plugin_data/{ph}/{iid}/{role}/`) が消えている (= ユーザーが
+    /// `plugin_data/` を全削除 / iCloud Drive 退避 等)。`fs::write` を
+    /// 試行する前に親 dir 不在を検出し、`Io` とは別 variant で返す。
+    /// caller (run_record_tick) は本 variant を `consecutive_dir_missing`
+    /// 計上経路に分岐させる (Io variant とは独立 / 計上機構共有しない)。
+    DirectoryMissing,
 }
 
 impl std::fmt::Display for WriterError {
@@ -300,6 +294,7 @@ impl std::fmt::Display for WriterError {
         match self {
             Self::Io(e) => write!(f, "IO error: {e}"),
             Self::Serde(e) => write!(f, "JSON error: {e}"),
+            Self::DirectoryMissing => write!(f, "parent directory missing"),
         }
     }
 }
@@ -382,7 +377,7 @@ impl WriterPaths {
 impl PluginDataWriter {
     /// tmp ディレクトリを作成して Writer を起動。最初の flush で空ファイルが rename される。
     ///
-    /// `bus` は Phase 1 では `None` を渡す。将来 bus メタデータが復活
+    /// `bus` は Phase 1 では `None` を渡す（A-3 修正後）。将来 bus メタデータが復活
     /// したら `Some(bus_name)` で content にだけ書き込む（path には影響しない）。
     ///
     /// `instance_id` / `paired_*_instance_id` は v1.2 (a) cross-instance pair 復元用。
@@ -445,9 +440,6 @@ impl PluginDataWriter {
 
     /// 1 frame を追加。数値を精度表に従って丸める。
     ///
-    ///  v2 (G-100-02): Measure Thread 側で全 SR を 48kHz にリサンプリングして
-    ///  を計測するため、`n_prime` / `sharpness` は常に `Some` で記録される。
-    /// `Option` 型は将来  取得失敗時のフォールバック余地として温存。
     #[allow(clippy::too_many_arguments)]
     pub fn append_frame(
         &mut self,
@@ -474,7 +466,7 @@ impl PluginDataWriter {
         });
     }
 
-    /// Record セッション集計値を JSON に注入する（B-043）。
+    /// Record セッション集計値を JSON に注入する (B-043)。
     ///
     /// IO Thread が `close()` を呼ぶ直前に Measure Thread から受け取った
     /// `SessionSummary` を渡す。PLR = max_true_peak − lufs_i を内部計算する。
@@ -491,7 +483,6 @@ impl PluginDataWriter {
 
     /// 1 PSB スナップショットを追加。
     ///
-    ///  v2 (G-100-02): `psb_snapshots` は常に `Some(Vec)` で初期化されている
     /// ため本メソッドは無条件で push する。
     pub fn append_psb(&mut self, t_ms: u64, psb: [f64; 20], interpolatable: bool) {
         let snapshots = self
@@ -531,7 +522,16 @@ impl PluginDataWriter {
     ///
     /// rename は POSIX では同一 FS 内で atomic。途中クラッシュ時も最終ファイルは
     /// 旧状態 or 新状態のどちらかにしかならない（D-1 対策）。
+    ///
+    /// B-025 Group B-2 / Gap-19: 書込前に親 dir 不在を検査。`plugin_data/` が
+    /// ユーザーにより全削除された場合、`fs::write` の前に `DirectoryMissing` を
+    /// 返して caller (run_record_tick) に通知する (warn ループ無限回避 / counter 経路)。
     pub fn flush(&mut self) -> Result<(), WriterError> {
+        if let Some(parent) = self.paths.final_path.parent() {
+            if !parent.is_dir() {
+                return Err(WriterError::DirectoryMissing);
+            }
+        }
         self.data.checksum = compute_checksum(&self.data)?;
         let json = serde_json::to_string(&self.data)?;
         // `.tmp` へ書込
@@ -644,7 +644,11 @@ fn round2(v: f64) -> f64 {
 }
 
 /// `checksum=""` にした状態の JSON バイト列に対して HMAC-SHA256 を計算。
-fn compute_checksum(data: &PluginDataFile) -> Result<String, serde_json::Error> {
+///
+/// B-026 / Gap-9: 同 crate 内の `record_writer::sweep_stale_active_at_startup`
+/// が startup sweep 時に再計算で利用する。HMAC 鍵 (`hmac_key`) は plugin_data
+/// 内で閉じたままにしたいため `pub` ではなく `pub(crate)`。
+pub(crate) fn compute_checksum(data: &PluginDataFile) -> Result<String, serde_json::Error> {
     let mut clone = data.clone();
     clone.checksum = String::new();
     let bytes = serde_json::to_vec(&clone)?;
@@ -831,10 +835,9 @@ mod tests {
         let base = isolated_dir();
         let mut w = sample_writer(&base, Role::Pre);
         let n = [1.2345; 20];
-        w.append_frame(123, n, 1.2345, -14.2345, -1.1234, 12.3456, Some(8.7654));
+        w.append_frame(123, n, 1.2345, -14.2345, -1.1234, 12.3456, None);
         let frame = &w.data().frames[0];
         assert_eq!(frame.t_ms, 123);
-        // 48000Hz:  値 Some 
         assert_eq!(frame.n_prime.unwrap()[0], 1.2); // round1
         assert_eq!(frame.sharpness.unwrap(), 1.23); // round2
         assert_eq!(frame.lufs_m, -14.2);
@@ -1153,17 +1156,13 @@ mod tests {
         assert!(err.is_err(), "corrupt JSON should yield error");
     }
 
-    // ──  S-1 /  v2 (G-100-02): source_format &  ──
 
-    /// 48kHz: source_format=48000 /  値が JSON に通常通り書き込まれる。
-    ///  v2 でも同等の挙動を確認する。
     #[test]
     fn source_format_48000_writes_phase_d_values() {
         let base = isolated_dir();
         let mut w = sample_writer(&base, Role::Pre); // sample_writer は 48000 で create
         assert_eq!(w.data().source_format, 48000);
 
-        //  値を持つ frame を書き込み
         w.append_frame(0, [1.5; 20], 1.5, -14.0, -1.0, 12.0, None);
         // PSB スナップショットも書き込み
         w.append_psb(0, [-10.0; 20], true);
@@ -1173,7 +1172,6 @@ mod tests {
         let loaded: PluginDataFile = serde_json::from_slice(&bytes).unwrap();
         // source_format が JSON に出力されている (S-1)
         assert_eq!(loaded.source_format, 48000);
-        //  値が Some で書き出されている 
         assert!(loaded.frames[0].n_prime.is_some());
         assert!(loaded.frames[0].sharpness.is_some());
         assert!(loaded.psb_snapshots.is_some());

@@ -96,6 +96,11 @@ pub struct RecordSignal {
     /// 旧バージョン互換のため `#[serde(default)]`（不在で空文字）。
     #[serde(default)]
     pub started_at: String,
+    /// PRE 側 ack 時に書き込む PRE 表示用 Name (B-023 段階 3 / G-115-40 案 A-3)。
+    /// 旧 schema からの読込 / POST write_pending 時は空文字で defaulted。
+    /// 空 = POST GUI 側で UUID 短縮 8 文字 fallback 表示。
+    #[serde(default)]
+    pub paired_pre_name: String,
 }
 
 impl RecordSignal {
@@ -114,6 +119,7 @@ impl RecordSignal {
             daw_session_id,
             t: now.clone(),
             started_at: now,
+            paired_pre_name: String::new(),
         }
     }
 }
@@ -217,17 +223,38 @@ pub fn read_signal(
 /// 状態遷移: pending → acknowledged。`t` は現在時刻に更新。
 ///
 /// 既存シグナルが無い / 読込失敗時は `Ok(false)` を返す。
+///
+/// B-023 段階 3: 既存シグネチャは [`mark_acknowledged_with_name`] への薄い wrapper。
+/// PRE Name を渡さない呼出 (テスト等) では空文字が書き込まれ、POST GUI 側で
+/// UUID 短縮 8 文字 fallback 表示が適用される (R-28 機能的沈黙)。
 pub fn mark_acknowledged(
     base_dir: &Path,
     project_hash: &str,
     post_instance_id: &str,
 ) -> Result<bool, SignalError> {
-    transition_status(
-        base_dir,
-        project_hash,
-        post_instance_id,
-        SignalStatus::Acknowledged,
-    )
+    mark_acknowledged_with_name(base_dir, project_hash, post_instance_id, "")
+}
+
+/// 状態遷移: pending → acknowledged + `paired_pre_name` を書込。
+///
+/// PRE 側 IO Thread が ack 時に呼ぶ正規経路 (B-023 段階 3)。`paired_pre_name`
+/// は params.name の lazy-read 値 (sanitize 済 / ASCII 16 文字以内 / 空文字許容)
+/// を透過コピーする。空文字渡しは [`mark_acknowledged`] 経由で起きる
+/// (PRE 未設定 / 旧テスト経路)。
+pub fn mark_acknowledged_with_name(
+    base_dir: &Path,
+    project_hash: &str,
+    post_instance_id: &str,
+    paired_pre_name: &str,
+) -> Result<bool, SignalError> {
+    let Some(mut signal) = read_signal(base_dir, project_hash, post_instance_id) else {
+        return Ok(false);
+    };
+    signal.status = SignalStatus::Acknowledged;
+    signal.t = now_iso8601();
+    signal.paired_pre_name = paired_pre_name.to_string();
+    write_signal(base_dir, project_hash, post_instance_id, &signal)?;
+    Ok(true)
 }
 
 /// 状態遷移: * → released。
@@ -305,7 +332,27 @@ pub fn scan_signals_dir(
     let dir = signals_dir(base_dir, project_hash);
     let entries = match fs::read_dir(&dir) {
         Ok(e) => e,
-        Err(_) => return Vec::new(),
+        // B-022 段階 5 P-1 #2: read_dir Err を WARN ログ (沈黙撤回)。
+        // ENOENT (dir 不存在) は Watch 中の通常状態なので debug に落とし、
+        // それ以外 (権限・FS lock 等の transient 失敗) のみ WARN で出す。
+        // P-3 直接 read リトライの起点となるシグナルでもある。
+        Err(e) => {
+            if e.kind() == io::ErrorKind::NotFound {
+                log::debug!(
+                    "[scan_signals_dir] dir not found: {} (kind={:?})",
+                    dir.display(),
+                    e.kind()
+                );
+            } else {
+                log::warn!(
+                    "[scan_signals_dir] read_dir failed: {} (kind={:?}, err={})",
+                    dir.display(),
+                    e.kind(),
+                    e
+                );
+            }
+            return Vec::new();
+        }
     };
     let mut out: Vec<(String, RecordSignal)> = Vec::new();
     for entry in entries.flatten() {
@@ -320,11 +367,34 @@ pub fn scan_signals_dir(
         else {
             continue;
         };
-        let Ok(bytes) = fs::read(&path) else { continue };
-        let Ok(signal): Result<RecordSignal, _> = serde_json::from_slice(&bytes) else {
-            continue;
+        let bytes = match fs::read(&path) {
+            Ok(b) => b,
+            // B-022 段階 5 P-1 #2 (補): 個別ファイル read 失敗も WARN。
+            // atomic rename と read の race で transient に起こり得る。
+            Err(e) => {
+                log::warn!(
+                    "[scan_signals_dir] file read failed: {} (kind={:?}, err={})",
+                    path.display(),
+                    e.kind(),
+                    e
+                );
+                continue;
+            }
         };
-        out.push((stem, signal));
+        match serde_json::from_slice::<RecordSignal>(&bytes) {
+            Ok(signal) => out.push((stem, signal)),
+            // B-022 段階 5 P-1 #3: serde parse 失敗を WARN ログ。
+            // atomic rename と read の race で空ファイル / 部分書込を読むと
+            // ここに落ちる (仮説 γ)。P-3 直接 read リトライの起点候補。
+            Err(e) => {
+                log::warn!(
+                    "[scan_signals_dir] parse failed: {} (err={})",
+                    path.display(),
+                    e
+                );
+                continue;
+            }
+        }
     }
     out.sort_by(|a, b| a.0.cmp(&b.0));
     out
@@ -340,9 +410,19 @@ pub struct PreCandidate {
     pub true_peak: Option<f64>,
     pub crest: Option<f64>,
     pub path: PathBuf,
+    /// B-027 段階 2: PRE 表示用 Name (PRE GUI で入力 / chunk-persist)。
+    /// 旧 schema (`name` field 不在の PRE 出力) では `None`。
+    /// POST `pair_pre_name` filter で照合する識別子。
+    pub name: Option<String>,
 }
 
-/// pre tmp JSON の抜粋（distance 計算に必要なフィールドのみ）。
+/// pre tmp JSON の抜粋（distance 計算 + signal_state filter に必要なフィールドのみ）。
+///
+/// B-024: `signal_state` を追加。
+/// B-027 段階 1: `scan_pre_candidates_in` は `"bypassed"` のみ除外する (Bypass 防御)。
+/// `"active"` / `"inactive"` / 旧 schema 不在 (=None) は pair 候補化される。
+/// B-027 段階 2: `name` 追加。POST `pair_pre_name` filter で照合する識別子。
+/// pre.json schema バージョン (`v`) は変更しない (旧 PRE 出力との互換維持)。
 #[derive(Debug, Deserialize)]
 struct PreTmpJson {
     instance_id: String,
@@ -352,15 +432,32 @@ struct PreTmpJson {
     true_peak: Option<f64>,
     #[serde(default)]
     crest: Option<f64>,
+    #[serde(default)]
+    signal_state: Option<String>,
+    #[serde(default)]
+    name: Option<String>,
 }
 
 /// `/tmp/kirin/{project_hash}/{instance_id}/pre.json` を全 instance_id 横断で走査。
 ///
 /// `tmp_base` は通常 `std::env::temp_dir().join("kirin")`。走査失敗・パース失敗は
 /// silently skip。返値は instance_id 辞書順（再現性確保）。
+///
+/// B-021 補足: 本関数は `tmp_base.join(project_hash)` 配下のみ scan する。
+/// cdylib 隔離下で POST の `project_hash` が PRE と一致しない場合、結果は空に
+/// なる。新コードでは `pre_discovery::discover_active_pre_dir` で project_dir
+/// を動的検出してから [`scan_pre_candidates_in`] を直接呼ぶこと。
 pub fn scan_pre_candidates(tmp_base: &Path, project_hash: &str) -> Vec<PreCandidate> {
-    let project_dir = tmp_base.join(project_hash);
-    let entries = match fs::read_dir(&project_dir) {
+    scan_pre_candidates_in(&tmp_base.join(project_hash))
+}
+
+/// 指定された `{project_uuid}/` dir 配下の `pre.json` を走査する。
+///
+/// `scan_pre_candidates` 内部実装かつ B-021 Phase 1A の Keep ハンドラ修正用 API。
+/// `project_dir` は `pre_discovery::discover_active_pre_dir` の戻り値（または
+/// 同等 path）を渡す。`record_signal/` 予約名 dir は除外する。
+pub fn scan_pre_candidates_in(project_dir: &Path) -> Vec<PreCandidate> {
+    let entries = match fs::read_dir(project_dir) {
         Ok(e) => e,
         Err(_) => return Vec::new(),
     };
@@ -379,16 +476,80 @@ pub fn scan_pre_candidates(tmp_base: &Path, project_hash: &str) -> Vec<PreCandid
         let Ok(parsed): Result<PreTmpJson, _> = serde_json::from_slice(&bytes) else {
             continue;
         };
+        // B-027: Bypassed の PRE のみ pair 候補から除外。
+        // Active / Inactive / 旧 schema (signal_state 不在) は候補化する。
+        // 読込側 filter (二重防御の片側)。書込側 guard は
+        // io_thread_pre.rs::poll_record_signal の signal_state チェックで担保。
+        if parsed.signal_state.as_deref() == Some("bypassed") {
+            continue;
+        }
         out.push(PreCandidate {
             instance_id: parsed.instance_id,
             lufs_m: parsed.lufs_m,
             true_peak: parsed.true_peak,
             crest: parsed.crest,
             path: pre_file,
+            name: parsed.name,
         });
     }
     out.sort_by(|a, b| a.instance_id.cmp(&b.instance_id));
     out
+}
+
+/// B-027 段階 2: POST 側 `pair_pre_name` で候補を filter する。
+///
+/// `pair_pre_name` が空文字の場合は filter を適用せず候補をそのまま返す
+/// (後方互換 = 従来 `pick_closest_pre` 単独経路)。
+/// 非空の場合は `candidate.name == Some(pair_pre_name)` のみ通過させる。
+///
+/// 同一 Name の PRE が複数残った場合は呼出側 `pick_closest_pre` で距離最小を選ぶ。
+/// 旧 schema (`name = None`) の PRE は非空 filter 時に必ず除外される
+/// (新 POST + 旧 PRE 混在環境では filter 不一致 → 0 件)。
+pub fn filter_candidates_by_name(
+    candidates: Vec<PreCandidate>,
+    pair_pre_name: &str,
+) -> Vec<PreCandidate> {
+    if pair_pre_name.is_empty() {
+        return candidates;
+    }
+    candidates
+        .into_iter()
+        .filter(|c| c.name.as_deref() == Some(pair_pre_name))
+        .collect()
+}
+
+/// B-027 段階 3-A 修正 (G-115-49 / α-2 撤回): 全 active PRE dir を flatten 列挙する
+/// (POST GUI ComboBox dropdown 描画用)。
+///
+/// `kirin_root` 配下を [`crate::pre_discovery::discover_active_pre_dirs`] で fresh
+/// 全件 Vec として取得し、各 dir の `pre.json` を [`scan_pre_candidates_in`] で
+/// 候補化して flatten した `Vec<PreCandidate>` を返す。
+///
+/// # α-2 撤回根拠 (G-115-49)
+/// 旧 `enumerate_same_project_pair_candidates` は `file_name() == project_hash`
+/// で同 project_uuid 配下のみに絞っていたが、PRE.vst3 / POST.vst3 が cdylib 隔離
+/// (`kirin_measure::project_uuid_cell()` の `static OnceLock` が cdylib 単位で
+/// 別実体) のため、両 cdylib の `params.project_uuid` は構造的に乖離する。
+/// 結果として filter は常に 0 件しか返さず、ComboBox は永遠に "No candidates" を
+/// 表示する状態だった (実機検証 #5-A-3 / 2026-05-04 NG)。
+///
+/// 本関数は project_hash 引数を取らず、全 fresh dir を flatten する。POST 利用者は
+/// Name 識別 (B-027 段階 2 の `pair_pre_name` filter) で目的 PRE を選ぶ運用となる。
+///
+/// `trigger_keep` の Keep 経路 (B-027 段階 2 fix) も同じ flatten 経路で一貫する。
+///
+/// # 戻り順
+/// `discover_active_pre_dirs` の mtime 降順 dir 順 → 各 dir 内
+/// `scan_pre_candidates_in` の instance_id 辞書順。
+///
+/// # cdylib 越境通信
+/// 含まない (filesystem enumerate のみ)。`project_uuid_cell()` / `peek_project_uuid`
+/// / `set_project_uuid` のいずれも本関数からは触れない。
+pub fn enumerate_active_pre_pair_candidates(kirin_root: &Path) -> Vec<PreCandidate> {
+    crate::pre_discovery::discover_active_pre_dirs(kirin_root)
+        .into_iter()
+        .flat_map(|d| scan_pre_candidates_in(&d))
+        .collect()
 }
 
 /// POST 側計測値。距離計算用。
@@ -567,6 +728,47 @@ mod tests {
         assert_eq!(loaded.daw_session_id, "");
     }
 
+    /// B-023 段階 3: paired_pre_name 不在の旧 schema 読込で空文字 default に
+    /// なること (daw_session_id / started_at と同パターン / R-28 機能的沈黙)。
+    #[test]
+    fn legacy_schema_without_paired_pre_name_defaults_to_empty() {
+        let base = isolated_dir();
+        let dir = signals_dir(&base, "ph");
+        fs::create_dir_all(&dir).unwrap();
+        let legacy = r#"{"status":"acknowledged","requested_by":"post-1","target_pre_instance_id":"pre-1","daw_session_id":"daw-1","t":"2026-01-01T00:00:00Z","started_at":"2026-01-01T00:00:00Z"}"#;
+        fs::write(dir.join("post-1.json"), legacy).unwrap();
+        let loaded = read_signal(&base, "ph", "post-1").unwrap();
+        assert_eq!(loaded.paired_pre_name, "");
+        assert_eq!(loaded.status, SignalStatus::Acknowledged);
+    }
+
+    /// B-023 段階 3: mark_acknowledged_with_name で渡した name が
+    /// signal.paired_pre_name に永続化されること。
+    #[test]
+    fn mark_acknowledged_with_name_persists_name() {
+        let base = isolated_dir();
+        write_pending(&base, "ph", "post-1", "pre-1".into(), "daw-1".into()).unwrap();
+        let changed =
+            mark_acknowledged_with_name(&base, "ph", "post-1", "Studio Mix").unwrap();
+        assert!(changed);
+        let loaded = read_signal(&base, "ph", "post-1").unwrap();
+        assert_eq!(loaded.status, SignalStatus::Acknowledged);
+        assert_eq!(loaded.paired_pre_name, "Studio Mix");
+    }
+
+    /// B-023 段階 3: 既存 mark_acknowledged 呼出 (= wrapper) は paired_pre_name
+    /// を空文字で書く (新旧呼出共存の確認)。
+    #[test]
+    fn mark_acknowledged_legacy_calls_with_name_empty() {
+        let base = isolated_dir();
+        write_pending(&base, "ph", "post-1", "pre-1".into(), "daw-1".into()).unwrap();
+        let changed = mark_acknowledged(&base, "ph", "post-1").unwrap();
+        assert!(changed);
+        let loaded = read_signal(&base, "ph", "post-1").unwrap();
+        assert_eq!(loaded.status, SignalStatus::Acknowledged);
+        assert_eq!(loaded.paired_pre_name, "");
+    }
+
     #[test]
     fn mark_released_updates_status() {
         let base = isolated_dir();
@@ -595,6 +797,22 @@ mod tests {
     fn delete_signal_on_missing_is_ok() {
         let base = isolated_dir();
         delete_signal(&base, "ph", "post-x").unwrap();
+    }
+
+    /// B-027 段階 3-B α-7 / Group 2 (Gap-6 局所対処): 統合点 #2/#3/#4 の
+    /// 3 経路から重複呼出されても全て Ok で終わり、file が不在のまま安定する。
+    /// (#2 trigger_stop / #3 HyphaPost::drop / #4 IO Thread terminate)
+    #[test]
+    fn delete_signal_idempotent_under_repeated_calls() {
+        let base = isolated_dir();
+        write_pending(&base, "ph", "post-rep", "pre-1".into(), "daw-1".into()).unwrap();
+        // 1 回目: 実削除
+        delete_signal(&base, "ph", "post-rep").unwrap();
+        assert!(read_signal(&base, "ph", "post-rep").is_none());
+        // 2 回目以降: NotFound → Ok (冪等)
+        delete_signal(&base, "ph", "post-rep").unwrap();
+        delete_signal(&base, "ph", "post-rep").unwrap();
+        assert!(read_signal(&base, "ph", "post-rep").is_none());
     }
 
     #[test]
@@ -689,6 +907,10 @@ mod tests {
         instance_id: &str,
         metrics: Option<(f64, f64, f64)>,
     ) -> PathBuf {
+        // B-024: metrics=None ブランチは「Active だが ebur128 がまだ十分な
+        // サンプルを積んでいない瞬間」(= signal_state="active" + 計測値 None)
+        // を表現する。signal_state="inactive" は別 helper write_pre_tmp_inactive
+        // でテストする (scan_pre_candidates_in の filter 動作)。
         let dir = tmp_base.join(ph).join(instance_id);
         fs::create_dir_all(&dir).unwrap();
         let path = dir.join("pre.json");
@@ -698,7 +920,7 @@ mod tests {
             )
         } else {
             format!(
-                r#"{{"v":2,"role":"PRE","instance_id":"{instance_id}","signal_state":"inactive","t":"now"}}"#
+                r#"{{"v":2,"role":"PRE","instance_id":"{instance_id}","signal_state":"active","t":"now"}}"#
             )
         };
         fs::write(&path, json).unwrap();
@@ -733,6 +955,38 @@ mod tests {
         let v = scan_pre_candidates(&base, "ph");
         assert_eq!(v.len(), 1);
         assert_eq!(v[0].instance_id, "ok-pre");
+    }
+
+    /// B-021 Phase 1A 追加修正: Keep ハンドラ経路の cross-project シナリオ。
+    ///
+    /// cdylib 隔離下で PRE と POST が別 `project_uuid` 配下に書く状況を再現。
+    /// 旧 `scan_pre_candidates(&base, post_ph)` は POST の project_hash 配下のみ
+    /// 走査するため空 Vec を返してしまう（= 実機 NG #8 の根本）。
+    /// 新 `scan_pre_candidates_in(pre_project_dir)` は discovery で得た PRE 側
+    /// dir を直接受け取るため、project_uuid が乖離していても候補を返す。
+    #[test]
+    fn scan_pre_candidates_in_works_across_project_uuids() {
+        let base = isolated_dir();
+        // PRE 側: project_uuid="pre-proj", POST 側: project_uuid="post-proj"
+        write_pre_tmp(&base, "pre-proj", "pre-A", Some((-14.0, -1.0, 12.0)));
+
+        // 旧 API (POST の project_hash で scan) → 空（cdylib 隔離下の誤動作再現）
+        let old_path_result = scan_pre_candidates(&base, "post-proj");
+        assert!(
+            old_path_result.is_empty(),
+            "scan_pre_candidates(post_ph) must return empty when PRE is under different project_uuid"
+        );
+
+        // 新 API (discovery が返した PRE dir を直接渡す) → 1 件返る
+        let pre_project_dir = base.join("pre-proj");
+        let new_path_result = scan_pre_candidates_in(&pre_project_dir);
+        assert_eq!(
+            new_path_result.len(),
+            1,
+            "scan_pre_candidates_in(pre_project_dir) must find PRE across project_uuid boundaries"
+        );
+        assert_eq!(new_path_result[0].instance_id, "pre-A");
+        assert_eq!(new_path_result[0].lufs_m, Some(-14.0));
     }
 
     #[test]
@@ -797,6 +1051,205 @@ mod tests {
             },
         );
         assert_eq!(r.unwrap().instance_id, "b");
+    }
+
+    // ── B-024: signal_state filter (読込側 / 二重防御の片側) ─────────────
+
+    /// 任意の signal_state 文字列で pre.json を書く helper。
+    /// `state` には "active" / "bypassed" / "inactive" のいずれかを渡す。
+    fn write_pre_tmp_with_state(
+        tmp_base: &Path,
+        ph: &str,
+        instance_id: &str,
+        state: &str,
+    ) {
+        let dir = tmp_base.join(ph).join(instance_id);
+        fs::create_dir_all(&dir).unwrap();
+        let json = format!(
+            r#"{{"v":2,"role":"PRE","instance_id":"{instance_id}","signal_state":"{state}","t":"now","lufs_m":-14.0,"true_peak":-1.0,"crest":12.0,"psr":8.0}}"#
+        );
+        fs::write(dir.join("pre.json"), json).unwrap();
+    }
+
+    /// signal_state="active" の PRE は scan で返却される (regression 防止)。
+    #[test]
+    fn scan_pre_candidates_in_keeps_active() {
+        let base = isolated_dir();
+        write_pre_tmp_with_state(&base, "ph", "active-a", "active");
+        write_pre_tmp_with_state(&base, "ph", "active-b", "active");
+        let v = scan_pre_candidates(&base, "ph");
+        assert_eq!(v.len(), 2, "Active な PRE 2 件を返すこと");
+        let ids: Vec<&str> = v.iter().map(|c| c.instance_id.as_str()).collect();
+        assert!(ids.contains(&"active-a"));
+        assert!(ids.contains(&"active-b"));
+    }
+
+    /// B-027: signal_state="bypassed" のみ除外される (緩和後)。
+    /// active 1 件 + bypassed 1 件 + inactive 1 件 → active + inactive の 2 件返却。
+    #[test]
+    fn scan_pre_candidates_in_filters_only_bypassed() {
+        let base = isolated_dir();
+        write_pre_tmp_with_state(&base, "ph", "alive", "active");
+        write_pre_tmp_with_state(&base, "ph", "off-bypass", "bypassed");
+        write_pre_tmp_with_state(&base, "ph", "off-inactive", "inactive");
+        let v = scan_pre_candidates(&base, "ph");
+        assert_eq!(
+            v.len(),
+            2,
+            "Bypassed のみ除外され、Active / Inactive は候補化されること"
+        );
+        let ids: Vec<&str> = v.iter().map(|c| c.instance_id.as_str()).collect();
+        assert!(ids.contains(&"alive"));
+        assert!(ids.contains(&"off-inactive"));
+    }
+
+    /// B-027: 旧 schema (signal_state フィールド不在) も候補化される (緩和後)。
+    /// Bypassed のみ除外する filter のため、None (旧 schema) は通過する。
+    #[test]
+    fn scan_pre_candidates_in_keeps_legacy_no_signal_state() {
+        let base = isolated_dir();
+        // 旧 schema: signal_state フィールドが存在しない pre.json
+        let dir = base.join("ph").join("legacy");
+        fs::create_dir_all(&dir).unwrap();
+        let legacy_json =
+            r#"{"v":2,"role":"PRE","instance_id":"legacy","t":"now","lufs_m":-14.0,"true_peak":-1.0,"crest":12.0,"psr":8.0}"#;
+        fs::write(dir.join("pre.json"), legacy_json).unwrap();
+        write_pre_tmp_with_state(&base, "ph", "new-active", "active");
+
+        let v = scan_pre_candidates(&base, "ph");
+        assert_eq!(
+            v.len(),
+            2,
+            "signal_state 不在 (旧 schema) も Active 新 schema も候補化される"
+        );
+    }
+
+    // ── B-027 段階 2: name field + filter_candidates_by_name ────────────
+
+    /// pre.json に `name` 任意指定で書く helper (B-027 段階 2)。
+    fn write_pre_tmp_with_name(
+        tmp_base: &Path,
+        ph: &str,
+        instance_id: &str,
+        state: &str,
+        name: &str,
+    ) {
+        let dir = tmp_base.join(ph).join(instance_id);
+        fs::create_dir_all(&dir).unwrap();
+        let json = format!(
+            r#"{{"v":2,"role":"PRE","instance_id":"{instance_id}","signal_state":"{state}","t":"now","lufs_m":-14.0,"true_peak":-1.0,"crest":12.0,"psr":8.0,"name":"{name}"}}"#
+        );
+        fs::write(dir.join("pre.json"), json).unwrap();
+    }
+
+    /// pre.json に `name` field がある場合 PreCandidate.name に反映される。
+    #[test]
+    fn pre_candidate_includes_name_field() {
+        let base = isolated_dir();
+        write_pre_tmp_with_name(&base, "ph", "iid-1", "active", "Snare");
+        let v = scan_pre_candidates(&base, "ph");
+        assert_eq!(v.len(), 1);
+        assert_eq!(v[0].name.as_deref(), Some("Snare"));
+    }
+
+    /// 旧 schema (`name` field 不在) は PreCandidate.name == None。
+    #[test]
+    fn pre_candidate_name_legacy_schema_is_none() {
+        let base = isolated_dir();
+        write_pre_tmp_with_state(&base, "ph", "legacy-no-name", "active");
+        let v = scan_pre_candidates(&base, "ph");
+        assert_eq!(v.len(), 1);
+        assert!(v[0].name.is_none(), "name field 不在は None");
+    }
+
+    /// filter_candidates_by_name: 一致 1 件のみ通過。
+    #[test]
+    fn filter_candidates_by_name_keeps_match() {
+        let base = isolated_dir();
+        write_pre_tmp_with_name(&base, "ph", "iid-a", "active", "Snare");
+        write_pre_tmp_with_name(&base, "ph", "iid-b", "active", "Kick");
+        let v = scan_pre_candidates(&base, "ph");
+        let filtered = filter_candidates_by_name(v, "Snare");
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].instance_id, "iid-a");
+    }
+
+    /// filter_candidates_by_name: 不一致は 0 件。
+    #[test]
+    fn filter_candidates_by_name_drops_mismatch() {
+        let base = isolated_dir();
+        write_pre_tmp_with_name(&base, "ph", "iid-a", "active", "Snare");
+        write_pre_tmp_with_name(&base, "ph", "iid-b", "active", "Kick");
+        let v = scan_pre_candidates(&base, "ph");
+        let filtered = filter_candidates_by_name(v, "Hat");
+        assert!(filtered.is_empty(), "存在しない Name 指定で 0 件");
+    }
+
+    /// filter_candidates_by_name: 空文字 pair_pre_name は filter しない (pass-through)。
+    /// B-027 段階 1 受入 (停止中 1/2 セット紐付け) 維持の構造保証。
+    #[test]
+    fn filter_candidates_by_name_empty_passes_through() {
+        let base = isolated_dir();
+        write_pre_tmp_with_name(&base, "ph", "iid-a", "active", "Snare");
+        write_pre_tmp_with_state(&base, "ph", "iid-legacy", "active");
+        let v = scan_pre_candidates(&base, "ph");
+        assert_eq!(v.len(), 2);
+        let filtered = filter_candidates_by_name(v, "");
+        assert_eq!(
+            filtered.len(),
+            2,
+            "空文字は filter 不適用 (legacy schema 含め全候補通過)"
+        );
+    }
+
+    /// filter_candidates_by_name: 同 Name 複数 PRE は全件通過 (pick_closest_pre 委譲)。
+    #[test]
+    fn filter_candidates_by_name_keeps_multiple_matches() {
+        let base = isolated_dir();
+        write_pre_tmp_with_name(&base, "ph", "iid-a", "active", "Snare");
+        write_pre_tmp_with_name(&base, "ph", "iid-b", "active", "Snare");
+        write_pre_tmp_with_name(&base, "ph", "iid-c", "active", "Kick");
+        let v = scan_pre_candidates(&base, "ph");
+        let filtered = filter_candidates_by_name(v, "Snare");
+        assert_eq!(filtered.len(), 2, "同 Name 複数は全件通過 (距離選定は呼出側)");
+        let ids: Vec<&str> = filtered.iter().map(|c| c.instance_id.as_str()).collect();
+        assert!(ids.contains(&"iid-a"));
+        assert!(ids.contains(&"iid-b"));
+    }
+
+    // ── B-027 段階 3-A 修正 (G-115-49 / α-2 撤回):
+    //    enumerate_active_pre_pair_candidates ────────────────────────────────
+
+    /// 全 fresh PRE dir を flatten 列挙する。複数 project_uuid 配下の PRE が
+    /// 混在しても、project_hash filter なしで全件返却される (cdylib 隔離下の
+    /// 構造的整合)。
+    #[test]
+    fn enumerate_active_pre_pair_candidates_flattens_all_active_pre_dirs() {
+        let base = isolated_dir();
+        // project A 配下: 2 PRE
+        write_pre_tmp_with_name(&base, "uuid_a", "iid-a1", "active", "Snare");
+        write_pre_tmp_with_name(&base, "uuid_a", "iid-a2", "active", "Kick");
+        // project B 配下: 1 PRE (旧 enumerate_same_project_* なら除外されたが
+        // 新仕様では候補化される)
+        write_pre_tmp_with_name(&base, "uuid_b", "iid-b1", "active", "Hat");
+
+        let v = enumerate_active_pre_pair_candidates(&base);
+        let ids: Vec<&str> = v.iter().map(|c| c.instance_id.as_str()).collect();
+        assert_eq!(v.len(), 3, "全 project_uuid 配下を flatten: {ids:?}");
+        assert!(ids.contains(&"iid-a1"));
+        assert!(ids.contains(&"iid-a2"));
+        assert!(ids.contains(&"iid-b1"), "別 project_uuid 配下も候補化される (α-2 撤回)");
+    }
+
+    /// kirin_root 配下に active PRE dir が 1 件もない場合は空 Vec。
+    #[test]
+    fn enumerate_active_pre_pair_candidates_returns_empty_when_no_active_pre_dir() {
+        let base = isolated_dir();
+        // pre.json なしの空 instance dir のみ作成 (active PRE 不在)
+        std::fs::create_dir_all(base.join("uuid_x").join("iid_x")).unwrap();
+
+        let v = enumerate_active_pre_pair_candidates(&base);
+        assert!(v.is_empty(), "active PRE 不在 → 空 Vec");
     }
 
     // ── シーケンス統合 ──────────────────────────────────────

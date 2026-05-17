@@ -3,6 +3,9 @@
 //! napi-rs 依存を持たない純粋な Rust ライブラリ。
 //! nih-plug の Audio Thread から独立した Measure Thread / IO Thread で使用する。
 
+pub mod all_keep_signal;
+pub mod all_stop_signal;
+pub mod cleanup;
 pub mod delta;
 pub mod engine;
 pub mod exclusion;
@@ -14,6 +17,8 @@ pub mod license;
 pub mod measure_thread;
 pub mod phase_d;
 pub mod plugin_data;
+pub mod pre_discovery;
+pub mod pre_self_discovery;
 pub mod preset;
 pub mod preset_dispatch;
 pub mod preset_v2;
@@ -24,15 +29,18 @@ pub mod resampler;
 pub mod storage;
 pub mod watchdog;
 
-pub use delta::{DeltaMode, DeltaResult};
+pub use delta::{DeltaMode, DeltaResult, DeltaSnapshot};
 pub use engine::{MeasureEngine, SessionSummary};
 pub use exclusion::{
     check_record_exclusion, check_record_exclusion_at, is_heartbeat_fresh, ExclusionResult,
-    STALE_SECONDS,
+    MAX_ACTIVE_PER_PROJECT, STALE_SECONDS,
 };
 pub use hardware::{HardwareComponents, Match};
 pub use identity::{Identity, License};
-pub use io_thread_post::{serialize_post_json, spawn_io_thread_post};
+pub use io_thread_post::{
+    enumerate_active_post_pair_candidates, format_pair_label, serialize_post_json,
+    spawn_io_thread_post, PostCandidate, TriggerPairResolutionFn, TriggerStopResolutionFn,
+};
 pub use io_thread_pre::{serialize_pre_json, spawn_io_thread_pre};
 pub use license::{
     can_enter_record, can_read_preset, can_write_plugin_data, load_license_safe, show_note_button,
@@ -43,6 +51,14 @@ pub use plugin_data::{
     append_annotation_to_latest, compact_wall_clock, verify_checksum, Annotation, BounceMarker,
     Frame, PluginDataFile, PluginDataWriter, PsbSnapshot, Role as PluginDataRole,
     Status as PluginDataStatus, WriterError as PluginDataWriterError, WriterPaths,
+};
+pub use pre_discovery::{
+    discover_active_pre_dir_for_pair, discover_active_pre_dirs, PostDiscoveryState,
+    DISCOVERY_STALE_SECS,
+};
+pub use pre_self_discovery::{
+    discover_pair_post_project_dir, PreSelfDiscoveryState,
+    DISCOVERY_STALE_SECS as PRE_SELF_DISCOVERY_STALE_SECS,
 };
 pub use preset::{
     compute_preset_checksum, preset_dir, region_resolved, scan_valid_presets, verify_preset,
@@ -57,12 +73,27 @@ pub use preset_v2::{
     verify_preset_v2, Card as PresetV2Card, PresetFileV2,
     SectionBoundary as PresetV2SectionBoundary, Summary as PresetV2Summary, VerifyErrorV2,
 };
+pub use all_keep_signal::{
+    delete_broadcast, is_broadcast_stale, read_broadcast, scan_broadcasts_dir,
+    signal_path as all_keep_signal_path, signals_dir as all_keep_signals_dir, write_broadcast,
+    write_broadcast_signal, AllKeepBroadcast, AllKeepError, ALL_KEEP_BROADCAST_STALE_SECS,
+    ALL_KEEP_SCHEMA_VERSION, ALL_KEEP_SIGNAL_SUBDIR,
+};
+pub use all_stop_signal::{
+    delete_stop_broadcast, is_stop_broadcast_stale, read_stop_broadcast,
+    scan_stop_broadcasts_dir, stop_signal_path as all_stop_signal_path,
+    stop_signals_dir as all_stop_signals_dir, write_stop_broadcast, write_stop_broadcast_signal,
+    AllStopBroadcast, AllStopError, ALL_STOP_BROADCAST_STALE_SECS, ALL_STOP_SCHEMA_VERSION,
+    ALL_STOP_SIGNAL_SUBDIR,
+};
+pub use cleanup::{clear_pair_label, exit_record_full};
 pub use record::{RecordState, RecordStateMachine, TransitionError};
 pub use record_signal::{
-    delete_signal, is_timed_out, mark_acknowledged, mark_released, pick_closest_pre, read_signal,
-    scan_pre_candidates, scan_signals_dir, signal_path, signals_dir, write_pending, write_signal,
-    PostMetrics, PreCandidate, RecordSignal, SignalError, SignalStatus, ACK_TIMEOUT_SECONDS,
-    SIGNALS_SUBDIR, SIGNAL_FILENAME,
+    delete_signal, enumerate_active_pre_pair_candidates, filter_candidates_by_name,
+    is_timed_out, mark_acknowledged, mark_released, pick_closest_pre, read_signal,
+    scan_pre_candidates, scan_pre_candidates_in, scan_signals_dir, signal_path, signals_dir,
+    write_pending, write_signal, PostMetrics, PreCandidate, RecordSignal, SignalError,
+    SignalStatus, ACK_TIMEOUT_SECONDS, SIGNALS_SUBDIR, SIGNAL_FILENAME,
 };
 pub use storage::{
     cleanup_legacy_v1, load_installation_id_safe, load_or_recover, read_identity, write_both,
@@ -74,23 +105,43 @@ pub use watchdog::{spawn_watchdog, WatchdogParams};
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, OnceLock, RwLock};
 
+// ── B-027 段階 2: PRE/POST 共通の Name 正規化 ────────────────────────────
+
+/// Name 入力値を ASCII 0x20-0x7E + 最大 16 文字に正規化 (R-28 機能的沈黙)。
+///
+/// chunk restore 時 / GUI 入力時の両方で使う。違反値は無言で正規化し
+/// UI エラーは出さない (制御文字 / 非 ASCII / 17 文字目以降を strip)。
+///
+/// 用途:
+/// - PRE 側 `params.name` (B-023 段階 1)
+/// - POST 側 `params.pair_pre_name` (B-027 段階 2)
+///
+/// hypha_pre / hypha_post の両 cdylib から共通参照する単一情報源。
+pub fn sanitize_name(raw: &str) -> String {
+    raw.chars()
+        .filter(|c| c.is_ascii_graphic() || *c == ' ')
+        .take(16)
+        .collect()
+}
+
 // ── 共有定数 ────────────────────────────────────────────────────────────────
 
 /// Audio Thread → Measure Thread リングバッファの保持長（秒）。
-/// 2 秒: Measure Thread 再起動時の空白を吸収できる余裕（ T-2）。
 pub const RING_BUFFER_SECONDS: usize = 2;
 
 /// 対応チャンネル数（ステレオ固定）。
 pub const N_CHANNELS: usize = 2;
 
-// ── プロセス単位識別子（ /  chunk-persistent UUID 後）─────────────
+// ── プロセス単位識別子（B-020 / γ-3 chunk-persistent UUID 後）─────────────
+//
 // 履歴:
 // - Phase 1.0: `PROJECT_HASH_PHASE1="default"` 固定値で全インスタンス共有 →
 //   複数 Bus / 複数プロジェクトで衝突（致命級 A-3 / A-2）
 // - A-3 中間策: プロセス単位 OnceLock<String> で起動時 1 度だけ生成 →
 //   DAW 再起動で path が変わるためバウンス再計測の比較が困難
-// -  /  (本実装): nih-plug `#[persist = "project_uuid"]` でプロジェクト
+// - B-020 / γ-3 (本実装): nih-plug `#[persist = "project_uuid"]` でプロジェクト
 //   chunk に UUID を保存。再オープンで同一値が復元され、PRE/POST が共有する
+//
 // 値は `OnceLock<Arc<RwLock<String>>>` セルにキャッシュされ、Plugin の
 // `initialize()` から chunk-persist 値で `set_project_uuid()` / `set_daw_session_id()`
 // により更新される。ファイル階層は `plugin_data/{project_uuid}/{instance_id}/{pre|post}/`
@@ -168,7 +219,7 @@ pub fn peek_project_uuid() -> String {
 
 /// プロセス単位 `daw_session_id` の現在値を読み取る。
 ///
-///  以降は `#[persist = "daw_session_uuid"]` で chunk に保存される
+/// B-020 以降は `#[persist = "daw_session_uuid"]` で chunk に保存される
 /// 値が `set_daw_session_id()` 経由でセルに反映される。`record_signal.json`
 /// の content に同梱され、別 DAW プロセス起源の signal を PRE が誤って
 /// ack することを防ぐ cross-process 防壁として使う。
@@ -214,7 +265,7 @@ pub fn ensure_legacy_cleanup_done() {
     });
 }
 
-// ── SignalState（ SS-1）──────────────────────────
+// ── SignalState（advisor_signal_state_spec SS-1）──────────────────────────
 
 /// Audio Thread が宣言する信号状態。パイプライン全体がこの値に従う。
 ///
@@ -268,7 +319,6 @@ pub fn store_signal_state(atom: &AtomicU8, state: SignalState) {
 ///
 /// Kirin-original metric。
 ///
-///  C-3 (Daisuke 判断 経路A、破壊的変更):
 /// - low  : Bark 1–8   ISO 532-1 specific loudness 由来 [dB]   (~20 Hz–920 Hz)
 /// - mid  : Bark 9–16  ISO 532-1 specific loudness 由来 [dB]   (~920 Hz–3400 Hz)
 /// - high : Bark 21–24 + 15.5k–20kHz **FFT エネルギー由来** [dB] (5800 Hz–20000 Hz)
@@ -290,7 +340,6 @@ pub struct PsbSummary {
     pub high: f64,
 }
 
-/// 7 項目計測結果（G-52-02 4項目 +  3項目）。
 ///
 /// Measure Thread が更新し、IO Thread と GUI Thread が読む。
 /// `Arc<Mutex<MeasureResult>>` で共有する。
@@ -314,23 +363,19 @@ pub struct MeasureResult {
     /// 3 秒未満は `None`。
     pub psr: Option<f64>,
 
-    /// : Filtered total loudness N'(t) [sone]。
-    ///  初期化中（起動直後数フレーム）は `None`。
+    /// ISO 532-1 Zwicker の総ラウドネス N (specific loudness N'(z) ではない)
+    /// を `temporal_weighting` LP IIR で時系列平滑化した値。GUI label は "N"。
+    /// field 名 `n_prime_total` は履歴互換維持 (Phase 2 で rename 候補)。
     /// 48 kHz 以外は常に `None`。
     pub n_prime_total: Option<f64>,
 
-    /// : DIN 45692 Sharpness S(t) [acum]。
     pub sharpness: Option<f64>,
 
-    /// : PSB 要約（low / mid / high）[dB]。
     pub psb_summary: Option<PsbSummary>,
 
-    /// : 20-Bark 帯域別 N'(t,z) [sone/Bark]（サブ3-A-1）。
     /// plugin_data/.../post/*.json `Frame.n_prime[20]` に直接書き込む値。
-    ///  初期化中 / 48 kHz 以外は `None`。
     pub n_prime: Option<[f64; 20]>,
 
-    /// : 20-Bark 帯域別 PSB 比率（サブ3-A）。
     /// plugin_data/.../post/*.json `psb_snapshots[].psb` に直接書き込む値。
     /// 3 帯域集約 (low/mid/high, dB) は `psb_summary` 側。
     pub psb_bark: Option<[f64; 20]>,

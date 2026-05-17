@@ -408,6 +408,27 @@ where
     }
 
     fn on_event(&mut self, _window: &mut Window, event: Event) -> EventStatus {
+        // Kirin Hypha fork (2026-05-01, D-5 unconditional observability): record every
+        // event reaching this method to determine whether baseview is delivering anything
+        // when the AppKit mouseDown: log is silent. Remove once the dispatch path is
+        // localised. Compact formatter to avoid spamming with full Debug payloads.
+        let event_kind = match &event {
+            baseview::Event::Mouse(e) => match e {
+                baseview::MouseEvent::ButtonPressed { button, .. } => {
+                    format!("Mouse(ButtonPressed({:?}))", button)
+                }
+                baseview::MouseEvent::ButtonReleased { button, .. } => {
+                    format!("Mouse(ButtonReleased({:?}))", button)
+                }
+                baseview::MouseEvent::CursorMoved { .. } => "Mouse(CursorMoved)".to_string(),
+                baseview::MouseEvent::WheelScrolled { .. } => "Mouse(WheelScrolled)".to_string(),
+                _ => format!("Mouse(other:{:?})", e),
+            },
+            baseview::Event::Keyboard(_) => "Keyboard".to_string(),
+            baseview::Event::Window(_) => "Window".to_string(),
+        };
+        log::info!("[hypha-fork] on_event: {}", event_kind);
+
         // Kirin Hypha fork (2026-04-18): report keyboard events as Ignored when egui does not
         // want keyboard input, so baseview forwards them to the DAW responder chain (space →
         // play, etc.). Upstream returns Captured unconditionally, swallowing host shortcuts.
@@ -628,7 +649,28 @@ where
             },
         }
 
-        if is_keyboard && !self.egui_ctx.wants_keyboard_input() {
+        // Kirin Hypha fork (B-023 段階 5-A 観測ログ): track 未選択時の PRE GUI 入力
+        // リグレッション真因切分け用。Keyboard event 受信時に gate が見ている値を
+        // 1 行で出す。仮説 X (event 自体届かない) なら log 出ず、仮説 Y (focus 失効)
+        // なら log 出て wants_kb_input=false を確認できる。
+        //
+        // B-027 段階 3 (a) 仮説 3 (G-115-53 / 方法 A'): ComboBox / Menu 等の popup
+        // open 中でも keyboard を独占するため `any_popup_open` を gate に追加する。
+        // selectable_label は keyboard focus を取らないため `wants_keyboard_input`
+        // のみだと popup open 中の Backspace/Delete が DAW にフォールバックして
+        // トラックを巻き込む (#5-A-3 異常 3)。`Memory::any_popup_open` は egui 0.31.1
+        // 公式 API (memory/mod.rs:1077-1079)。
+        let any_popup_open = self.egui_ctx.memory(|m| m.any_popup_open());
+        if is_keyboard {
+            log::info!(
+                "[hypha-fork] keyboard gate: wants_kb_input={} any_popup_open={} focused={:?}",
+                self.egui_ctx.wants_keyboard_input(),
+                any_popup_open,
+                self.egui_ctx.memory(|m| m.focused())
+            );
+        }
+
+        if is_keyboard && !self.egui_ctx.wants_keyboard_input() && !any_popup_open {
             EventStatus::Ignored
         } else {
             EventStatus::Captured
@@ -664,4 +706,99 @@ fn calculate_screen_rect(physical_size: PhySize, points_per_pixel: f32) -> Rect 
         physical_size.height as f32 * points_per_pixel,
     );
     Rect::from_min_size(Pos2::new(0f32, 0f32), vec2(logical_size.0, logical_size.1))
+}
+
+#[cfg(test)]
+mod hypha_fork_tests {
+    //! Kirin Hypha fork test (B-027 段階 3 (a) 仮説 3 / G-115-53):
+    //! keyboard gate が ComboBox / Menu 等の popup open 中に
+    //! `EventStatus::Captured` を返す経路に入ることを、egui 0.31.1 公式 API
+    //! `Memory::any_popup_open` / `Memory::open_popup` / `Memory::close_popup`
+    //! の挙動から構造的に確証する。
+    //!
+    //! 実 `on_event` 呼出は baseview ハンドラ + ConcreteBlock + NSEvent と
+    //! 連動するため単体ユニットでは動かせない。本テストは「gate 判定式」と
+    //! 「popup state 観測 API」の前提が egui 0.31.1 で成立することのみを assert。
+    //!
+    //! 前提が崩れた (egui アップグレード / API シグネチャ変更) 場合は本テストが
+    //! 失敗するため、retainer (regression sentinel) として機能する。
+    use egui::Id;
+
+    /// gate 判定式 `is_keyboard && !wants_kb && !any_popup_open` を再現した
+    /// 純粋ヘルパ。on_event 内 inline 式と完全同形。
+    fn would_ignore_keyboard(is_keyboard: bool, wants_kb: bool, any_popup_open: bool) -> bool {
+        is_keyboard && !wants_kb && !any_popup_open
+    }
+
+    #[test]
+    fn egui_baseview_keyboard_gate_captures_when_popup_open() {
+        let ctx = egui::Context::default();
+        // 初期: popup なし
+        assert!(
+            !ctx.memory(|m| m.any_popup_open()),
+            "default Context: no popup open"
+        );
+
+        // popup を open し any_popup_open == true を確認
+        let popup_id = Id::new("hypha_test_popup_id");
+        ctx.memory_mut(|m| m.open_popup(popup_id));
+        assert!(
+            ctx.memory(|m| m.any_popup_open()),
+            "open_popup → any_popup_open == true"
+        );
+
+        // gate: keyboard event + wants_kb=false でも any_popup_open=true なら
+        // Ignored 経路に入らない (= Captured で独占)
+        let any_popup = ctx.memory(|m| m.any_popup_open());
+        assert!(
+            !would_ignore_keyboard(true, false, any_popup),
+            "popup open 中: keyboard gate は Ignored に入らず Captured 経路に到達 (#5-A-3 異常 3 防止)"
+        );
+
+        // popup close 後は wants_kb=false で Ignored 経路 (既存挙動)
+        ctx.memory_mut(|m| m.close_popup());
+        assert!(!ctx.memory(|m| m.any_popup_open()));
+        let any_popup_after = ctx.memory(|m| m.any_popup_open());
+        assert!(
+            would_ignore_keyboard(true, false, any_popup_after),
+            "popup close 後 + wants_kb=false: 既存挙動どおり Ignored で host (DAW) に転送"
+        );
+    }
+
+    #[test]
+    fn egui_baseview_keyboard_gate_passes_through_when_no_popup_and_no_focus() {
+        // 両 gate 条件 false (popup なし / wants_kb なし) → Ignored で DAW 受信
+        // (B-025 既存挙動 / track 未選択時の standard pass-through 経路)
+        assert!(
+            would_ignore_keyboard(true, false, false),
+            "popup なし + wants_kb=false: 既存どおり Ignored"
+        );
+    }
+
+    #[test]
+    fn egui_baseview_keyboard_gate_captures_when_textedit_focused() {
+        // wants_kb=true (TextEdit 等が focus 持ち) → Captured 経路 (popup 状態に依らず)
+        assert!(
+            !would_ignore_keyboard(true, true, false),
+            "wants_kb=true: 既存どおり Captured (TextEdit focused 中)"
+        );
+        assert!(
+            !would_ignore_keyboard(true, true, true),
+            "wants_kb=true + popup=true: Captured 経路維持"
+        );
+    }
+
+    #[test]
+    fn egui_baseview_keyboard_gate_does_not_block_non_keyboard_events() {
+        // is_keyboard=false (mouse 等) は popup / wants_kb に関わらず Ignored に
+        // 入らない (Captured 経路 = 既存挙動 / mouse は always Captured)
+        assert!(
+            !would_ignore_keyboard(false, false, false),
+            "is_keyboard=false: Ignored に入らない (mouse 等 always Captured)"
+        );
+        assert!(
+            !would_ignore_keyboard(false, false, true),
+            "is_keyboard=false + popup=true: Captured"
+        );
+    }
 }
