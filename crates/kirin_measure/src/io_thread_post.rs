@@ -145,6 +145,13 @@ pub fn spawn_io_thread_post(
     // `RecordingCtx::exit_requested` に sentinel をセットしたら本 io_thread が
     // `record_sm.exit_record()` 後に書き込む。editor 側は次描画で表示する。
     record_error_message: Arc<RwLock<Option<String>>>,
+    // W-281 / G-115-249: pair_claimed_at (Unix epoch sec) Arc 共有 (HyphaPostParams /
+    // editor / IO Thread 全 thread で同実体)。chunk 永続化済の値を IO Thread が
+    // per-tick snapshot して serialize_post_json{,_minimal} に渡す。
+    pair_claimed_at: Arc<RwLock<f64>>,
+    // W-281 / G-115-249 / D-1: pair release toast 通知 channel (IO Thread → GUI)。
+    // None = 通常 / Some(msg) = GUI 側 update closure 入口で take() → Toast 化。
+    pair_release_notice: Arc<RwLock<Option<String>>>,
 ) -> JoinHandle<()> {
     thread::spawn(move || {
         // B-021 Phase 1A: PRE scan の起点は `kirin_root` (= $TMPDIR/kirin/) で、
@@ -195,6 +202,12 @@ pub fn spawn_io_thread_post(
         //   取得 → serialize_post_json{,_minimal} に渡す / Q-A7 採用案 A)。
         let daw_session_id_arc = daw_session_id;
         let pair_pre_name_for_thread = pair_pre_name;
+        // W-281: pair_claimed_at + pair_release_notice の Arc を thread scope に capture。
+        let pair_claimed_at_for_thread = pair_claimed_at;
+        let pair_release_notice_for_thread = pair_release_notice;
+        // W-281 / C-3: self check 周期 (1 sec interval / Daisuke 確定 判断 3)。
+        // 毎 tick 100ms はコスト過大のため tick state 局所変数で last 時刻を保持。
+        let mut last_self_check_at: Instant = Instant::now() - Duration::from_secs(2);
 
         let mut recording: Option<RecordingCtx> = None;
         let mut last_preset_count: Option<usize> = None;
@@ -241,6 +254,51 @@ pub fn spawn_io_thread_post(
             // RwLock read guard 寿命を tick 内に閉じる (closure スコープから外で
             // guard を保持しない)。poison error 時は空文字 fallback (旧 schema 互換)。
             let pair_pre_name_snapshot = snapshot_pair_pre_name(&pair_pre_name_for_thread);
+            // W-281: pair_claimed_at snapshot per tick (同位相 / poison は 0.0 fallback)。
+            let pair_claimed_at_snapshot = pair_claimed_at_for_thread
+                .read()
+                .map(|g| *g)
+                .unwrap_or(0.0);
+
+            // W-281 / C-3: 1 sec interval で後着優先 self check を発火。
+            // pair_pre_name が空 or 自身が唯一の claim 者 → release 不要。
+            // 解放対象 → C-4 経路で pair_pre_name="" / pair_claimed_at=0.0 + Toast 通知。
+            let tick_now = Instant::now();
+            if !pair_pre_name_snapshot.is_empty()
+                && tick_now.duration_since(last_self_check_at) >= Duration::from_secs(1)
+            {
+                last_self_check_at = tick_now;
+                if self_check_pair_claim(
+                    &project_dir_hint,
+                    instance_id_ref,
+                    &pair_pre_name_snapshot,
+                    pair_claimed_at_snapshot,
+                ) {
+                    // C-4: 自身の claim を解放。
+                    log::info!(
+                        "[POST self_check] release pair: instance_id={} pair_pre_name={} (newer claim detected)",
+                        instance_id_ref,
+                        pair_pre_name_snapshot
+                    );
+                    if let Ok(mut g) = pair_pre_name_for_thread.write() {
+                        g.clear();
+                    }
+                    if let Ok(mut c) = pair_claimed_at_for_thread.write() {
+                        *c = 0.0;
+                    }
+                    if let Ok(mut n) = pair_release_notice_for_thread.write() {
+                        *n = Some("Released (paired elsewhere)".to_string());
+                    }
+                }
+            }
+
+            // C-4 直後 / 通常 tick: 解放後の最新値を再 snapshot して run_tick へ渡す
+            // (1 tick 内に解放 → 書込まで完結 / 次 tick 待ちでの一過性矛盾を排除)。
+            let pair_pre_name_snapshot = snapshot_pair_pre_name(&pair_pre_name_for_thread);
+            let pair_claimed_at_snapshot = pair_claimed_at_for_thread
+                .read()
+                .map(|g| *g)
+                .unwrap_or(0.0);
 
             match run_tick(
                 &project_dir_hint,
@@ -254,6 +312,7 @@ pub fn spawn_io_thread_post(
                 &delta_result,
                 &signal_state,
                 &pair_pre_name_snapshot,
+                pair_claimed_at_snapshot,
             ) {
                 Ok(()) => {}
                 Err(e) => log::warn!("[IOThread POST] tick error: {}", e),
@@ -687,6 +746,7 @@ fn run_tick(
     delta_result: &Arc<Mutex<DeltaResult>>,
     signal_state_atom: &Arc<AtomicU8>,
     pair_pre_name: &str,
+    pair_claimed_at: f64,
 ) -> Result<(), String> {
     let state = load_signal_state(signal_state_atom);
 
@@ -699,7 +759,8 @@ fn run_tick(
 
         // B-027 段階 3-B α-7-1 / Step 6: pair_pre_name は閉路 1 tick の snapshot。
         // Q-A7 採用案 A (post.json schema 拡張による cross-instance 公開)。
-        let json = serialize_post_json_minimal(instance_id, state, pair_pre_name);
+        // W-281: pair_claimed_at も同 tick snapshot を書き出す (後着優先 self check 軸)。
+        let json = serialize_post_json_minimal(instance_id, state, pair_pre_name, pair_claimed_at);
         fs::write(post_tmp, json.as_bytes()).map_err(|e| format!("write tmp: {e}"))?;
         fs::rename(post_tmp, post_file).map_err(|e| format!("rename: {e}"))?;
         return Ok(());
@@ -739,7 +800,15 @@ fn run_tick(
 
     // B-027 段階 3-B α-7-1 / Step 6: pair_pre_name は閉路 1 tick の snapshot
     // (Q-A7 採用案 A 完成 / cross-instance 公開機構)。
-    let json = serialize_post_json(instance_id, state, pre_signal_state, &post, pair_pre_name);
+    // W-281: pair_claimed_at も同 tick snapshot (後着優先 self check 判定軸)。
+    let json = serialize_post_json(
+        instance_id,
+        state,
+        pre_signal_state,
+        &post,
+        pair_pre_name,
+        pair_claimed_at,
+    );
     fs::write(post_tmp, json.as_bytes()).map_err(|e| format!("write tmp: {e}"))?;
     fs::rename(post_tmp, post_file).map_err(|e| format!("rename: {e}"))?;
 
@@ -1042,18 +1111,20 @@ pub fn serialize_post_json(
     pre_signal_state: Option<SignalState>,
     result: &MeasureResult,
     pair_pre_name: &str,
+    pair_claimed_at: f64,
 ) -> String {
     let t = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ");
     let pre_state_str = pre_signal_state
         .map(|s| format!(r#""{}""#, s.as_str()))
         .unwrap_or_else(|| "null".to_string());
     format!(
-        r#"{{"v":2,"role":"POST","instance_id":"{instance_id}","signal_state":"{signal_state}","pre_signal_state":{pre_signal_state},"t":"{t}","pair_pre_name":"{pair_pre_name}","lufs_m":{lufs_m},"true_peak":{true_peak},"crest":{crest},"psr":{psr}{phase_d}}}"#,
+        r#"{{"v":2,"role":"POST","instance_id":"{instance_id}","signal_state":"{signal_state}","pre_signal_state":{pre_signal_state},"t":"{t}","pair_pre_name":"{pair_pre_name}","pair_claimed_at":{pair_claimed_at},"lufs_m":{lufs_m},"true_peak":{true_peak},"crest":{crest},"psr":{psr}{phase_d}}}"#,
         instance_id = instance_id,
         signal_state = state.as_str(),
         pre_signal_state = pre_state_str,
         t = t,
         pair_pre_name = pair_pre_name,
+        pair_claimed_at = pair_claimed_at,
         lufs_m = opt_f64(result.lufs_m),
         true_peak = opt_f64(result.true_peak),
         crest = opt_f64(result.crest),
@@ -1066,14 +1137,21 @@ pub fn serialize_post_json(
 ///
 /// B-027 段階 3-B α-7-1: `pair_pre_name` field を追加 (Bypassed/Inactive でも候補化
 /// される / All Keep N 計算で参照されるため filter 照合に必要)。
-fn serialize_post_json_minimal(instance_id: &str, state: SignalState, pair_pre_name: &str) -> String {
+/// W-281 / G-115-249: `pair_claimed_at` field 追加 (後着優先 self check 判定軸)。
+fn serialize_post_json_minimal(
+    instance_id: &str,
+    state: SignalState,
+    pair_pre_name: &str,
+    pair_claimed_at: f64,
+) -> String {
     let t = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ");
     format!(
-        r#"{{"v":2,"role":"POST","instance_id":"{instance_id}","signal_state":"{signal_state}","t":"{t}","pair_pre_name":"{pair_pre_name}"}}"#,
+        r#"{{"v":2,"role":"POST","instance_id":"{instance_id}","signal_state":"{signal_state}","t":"{t}","pair_pre_name":"{pair_pre_name}","pair_claimed_at":{pair_claimed_at}}}"#,
         instance_id = instance_id,
         signal_state = state.as_str(),
         t = t,
         pair_pre_name = pair_pre_name,
+        pair_claimed_at = pair_claimed_at,
     )
 }
 
@@ -1123,6 +1201,12 @@ pub(crate) struct PostTmpJson {
     /// 旧 schema (本変更前 plugin) には不在 → 空文字 fallback。
     #[serde(default)]
     pub pair_pre_name: String,
+    /// W-281 / G-115-249: pair claim 時刻 (Unix epoch sec / f64 / `pair_pre_name`
+    /// 設定操作時のみ更新)。後着優先 1対1 強制の判定軸 (`self_check_pair_claim`)。
+    /// 旧 schema (本変更前 plugin) は不在 → `#[serde(default)]` で 0.0 fallback。
+    /// claim 解放時 (空文字書換) は 0.0 / 計測値更新では更新しない (Daisuke 確定 / 判断 2)。
+    #[serde(default)]
+    pub pair_claimed_at: f64,
     /// Active 時の計測値 (null 許容で `Option<f64>`)。Minimal で field 不在 → None。
     #[serde(default)]
     pub lufs_m: Option<f64>,
@@ -1187,6 +1271,9 @@ pub struct PostCandidate {
     pub instance_id: String,
     pub project_uuid: String,
     pub pair_pre_name: Option<String>,
+    /// W-281 / G-115-249: post.json から read した pair claim 時刻 (Unix epoch sec)。
+    /// `self_check_pair_claim` の後着優先比較で使う。旧 schema は 0.0 fallback。
+    pub pair_claimed_at: f64,
     pub path: PathBuf,
 }
 
@@ -1203,7 +1290,7 @@ pub struct PostCandidate {
 ///
 /// 戻り順: instance_id 辞書順 (PRE 版と同じ / 再現性確保)。
 #[allow(dead_code)]
-pub(crate) fn scan_post_candidates_in(project_dir: &Path) -> Vec<PostCandidate> {
+pub fn scan_post_candidates_in(project_dir: &Path) -> Vec<PostCandidate> {
     let project_uuid = project_dir
         .file_name()
         .and_then(|n| n.to_str())
@@ -1242,6 +1329,9 @@ pub(crate) fn scan_post_candidates_in(project_dir: &Path) -> Vec<PostCandidate> 
             instance_id: parsed.instance_id,
             project_uuid: project_uuid.clone(),
             pair_pre_name,
+            // W-281 / G-115-249: PostTmpJson.pair_claimed_at (旧 schema は default 0.0)
+            // をそのまま詰め替える。
+            pair_claimed_at: parsed.pair_claimed_at,
             path: post_file,
         });
     }
@@ -1352,6 +1442,54 @@ pub(crate) fn discover_active_post_dirs(kirin_root: &Path) -> Vec<PathBuf> {
 /// 遅延履行)。hypha_post crate (editor.rs / `draw_pair_pre_combo` の N 集計) から
 /// 直接呼出される。`scan_post_candidates_in` / `discover_active_post_dirs` は本関数
 /// 経由で内部利用されるため `pub(crate)` 維持。
+/// W-281 / G-115-249 / C-2: 後着優先 1対1 強制の self check 純関数。
+///
+/// 自 instance が「同 project_dir 配下の他 POST と pair_pre_name を共有 + 自身より新しい
+/// claim が存在」の状態にあるなら release 必要 (`true`) を返す。
+///
+/// # 判定ロジック (Daisuke 確定 判断 1 + 番人裁定 判断 4)
+/// 1. `self_pair_pre_name.is_empty()` → `false` (claim 未保持 / release 不要)
+/// 2. `scan_post_candidates_in` で同 project_dir 配下の全 POST 候補列挙
+/// 3. 各 candidate につき:
+///    - `candidate.instance_id == self_instance_id` → skip (自身)
+///    - `candidate.pair_pre_name != Some(self_pair_pre_name)` → skip (別 PRE)
+///    - `candidate.pair_claimed_at > self_pair_claimed_at` → return `true` (後着が他者)
+///    - tie-break (`==`): `candidate.instance_id < self_instance_id` → return `true`
+///      (lex 順で自 id 大 → 自身が release)
+/// 4. 一件も該当なし → `false` (自身が唯一の claim 者 / 後着なし)
+///
+/// # 純関数性
+/// `scan_post_candidates_in` 経由で fs::read のみ。書込・lock 取得・thread 通信なし。
+/// unit test 容易。`io_thread_post::run_tick` 内 1 sec interval で呼ばれる。
+pub fn self_check_pair_claim(
+    project_dir: &Path,
+    self_instance_id: &str,
+    self_pair_pre_name: &str,
+    self_pair_claimed_at: f64,
+) -> bool {
+    if self_pair_pre_name.is_empty() {
+        return false;
+    }
+    let candidates = scan_post_candidates_in(project_dir);
+    for cand in &candidates {
+        if cand.instance_id == self_instance_id {
+            continue;
+        }
+        if cand.pair_pre_name.as_deref() != Some(self_pair_pre_name) {
+            continue;
+        }
+        if cand.pair_claimed_at > self_pair_claimed_at {
+            return true;
+        }
+        if cand.pair_claimed_at == self_pair_claimed_at
+            && cand.instance_id.as_str() < self_instance_id
+        {
+            return true;
+        }
+    }
+    false
+}
+
 pub fn enumerate_active_post_pair_candidates(kirin_root: &Path) -> Vec<PostCandidate> {
     discover_active_post_dirs(kirin_root)
         .into_iter()
@@ -2175,6 +2313,7 @@ mod post_tmp_json_tests {
             Some(SignalState::Active),
             &result,
             "PRE-Master",
+            123.456,
         );
         let parsed: PostTmpJson = serde_json::from_str(&json).expect("deserialize ok");
 
@@ -2189,6 +2328,7 @@ mod post_tmp_json_tests {
             parsed.t
         );
         assert_eq!(parsed.pair_pre_name, "PRE-Master");
+        assert!((parsed.pair_claimed_at - 123.456).abs() < 1e-6);
         assert_eq!(parsed.lufs_m, Some(-12.0));
         assert_eq!(parsed.true_peak, Some(-0.5));
         assert_eq!(parsed.crest, Some(10.0));
@@ -2202,7 +2342,8 @@ mod post_tmp_json_tests {
     /// pre_signal_state / 計測値系は不在 → Option::None で defaulted。
     #[test]
     fn deserialize_minimal_roundtrip() {
-        let json = serialize_post_json_minimal("post-iid-B", SignalState::Bypassed, "PRE-Mix");
+        let json =
+            serialize_post_json_minimal("post-iid-B", SignalState::Bypassed, "PRE-Mix", 99.5);
         let parsed: PostTmpJson = serde_json::from_str(&json).expect("deserialize ok");
 
         assert_eq!(parsed.instance_id, "post-iid-B");
@@ -2240,10 +2381,12 @@ mod post_tmp_json_tests {
             Some(SignalState::Active),
             &result,
             "",
+            0.0,
         );
         let parsed: PostTmpJson = serde_json::from_str(&json).expect("deserialize ok");
 
         assert_eq!(parsed.pair_pre_name, "");
+        assert_eq!(parsed.pair_claimed_at, 0.0);
         assert_eq!(parsed.signal_state, "active");
         assert!(parsed.lufs_m.is_none());
     }
@@ -2271,6 +2414,7 @@ mod post_tmp_json_tests {
             Some(SignalState::Active),
             &result,
             "PRE-D",
+            555.0,
         );
         let parsed: PostTmpJson = serde_json::from_str(&json).expect("deserialize ok");
 
@@ -2289,6 +2433,47 @@ mod post_tmp_json_tests {
         let bad = r#"{"v":2,"role":"POST","signal_state":"active","t":"2026-05-04T10:00:00.000Z"}"#;
         let res: Result<PostTmpJson, _> = serde_json::from_str(bad);
         assert!(res.is_err(), "instance_id 不在は err");
+    }
+
+    // ── W-281 / G-115-249 / A-5: pair_claimed_at schema 拡張 テスト ─────────
+
+    /// (A-5 i) serialize 出力 (full + minimal) に "pair_claimed_at" リテラル含有。
+    #[test]
+    fn post_json_serialize_includes_pair_claimed_at() {
+        let json_full = serialize_post_json(
+            "post-iid",
+            SignalState::Active,
+            Some(SignalState::Active),
+            &MeasureResult::default(),
+            "PRE-X",
+            42.0,
+        );
+        assert!(
+            json_full.contains(r#""pair_claimed_at":42"#),
+            "full: {}",
+            json_full
+        );
+
+        let json_min =
+            serialize_post_json_minimal("post-iid", SignalState::Bypassed, "PRE-X", 0.0);
+        assert!(
+            json_min.contains(r#""pair_claimed_at":0"#),
+            "min: {}",
+            json_min
+        );
+    }
+
+    /// (A-5 ii) 旧 schema (pair_claimed_at field 不在) deserialize → default=0.0。
+    #[test]
+    fn post_json_deserialize_legacy_without_pair_claimed_at() {
+        let legacy = r#"{"v":2,"role":"POST","instance_id":"legacy-iid","signal_state":"active","pre_signal_state":"active","t":"2026-05-04T10:00:00.000Z","pair_pre_name":"PRE-Legacy","lufs_m":-14.0,"true_peak":-1.0,"crest":12.0,"psr":8.0}"#;
+        let parsed: PostTmpJson = serde_json::from_str(legacy).expect("legacy deserialize ok");
+
+        assert_eq!(parsed.pair_pre_name, "PRE-Legacy");
+        assert_eq!(
+            parsed.pair_claimed_at, 0.0,
+            "pair_claimed_at must default to 0.0 for legacy schema"
+        );
     }
 }
 
@@ -2330,8 +2515,9 @@ mod post_candidate_tests {
                 pre_signal_state,
                 &MeasureResult::default(),
                 pair_pre_name,
+                0.0,
             ),
-            _ => serialize_post_json_minimal(instance_id, signal_state, pair_pre_name),
+            _ => serialize_post_json_minimal(instance_id, signal_state, pair_pre_name, 0.0),
         };
         fs::write(&post_file, json.as_bytes()).unwrap();
         post_file
@@ -2678,6 +2864,97 @@ mod post_candidate_tests {
             .unwrap();
         assert_eq!(with_name.pair_pre_name.as_deref(), Some("PRE-Hello"));
         assert!(no_name.pair_pre_name.is_none());
+    }
+
+    // ── W-281 / G-115-249 / C-5: self_check_pair_claim テスト 5 件 ─────────
+
+    /// write_post_json の拡張版: pair_claimed_at 値を指定して post.json を書く。
+    fn write_post_json_with_claim(
+        kirin_root: &Path,
+        project_uuid: &str,
+        instance_id: &str,
+        pair_pre_name: &str,
+        pair_claimed_at: f64,
+    ) -> PathBuf {
+        let dir = kirin_root.join(project_uuid).join(instance_id);
+        fs::create_dir_all(&dir).unwrap();
+        let post_file = dir.join("post.json");
+        let json = serialize_post_json(
+            instance_id,
+            SignalState::Active,
+            Some(SignalState::Active),
+            &MeasureResult::default(),
+            pair_pre_name,
+            pair_claimed_at,
+        );
+        fs::write(&post_file, json.as_bytes()).unwrap();
+        post_file
+    }
+
+    /// (C-5 i) 他 POST が自分より新しい claim → release 必要 (true)。
+    #[test]
+    fn self_check_returns_true_when_other_post_has_newer_claim() {
+        let root = unique_root("self_check_newer");
+        let project_uuid = "pj-X";
+        write_post_json_with_claim(&root, project_uuid, "post-self", "PRE-A", 100.0);
+        write_post_json_with_claim(&root, project_uuid, "post-other", "PRE-A", 200.0);
+        let project_dir = root.join(project_uuid);
+        assert!(self_check_pair_claim(&project_dir, "post-self", "PRE-A", 100.0));
+    }
+
+    /// (C-5 ii) 他 POST が別 PRE / 該当なし → release 不要 (false)。
+    #[test]
+    fn self_check_returns_false_when_no_overlap() {
+        let root = unique_root("self_check_no_overlap");
+        let project_uuid = "pj-X";
+        write_post_json_with_claim(&root, project_uuid, "post-self", "PRE-A", 100.0);
+        write_post_json_with_claim(&root, project_uuid, "post-other", "PRE-B", 200.0);
+        let project_dir = root.join(project_uuid);
+        assert!(!self_check_pair_claim(
+            &project_dir,
+            "post-self",
+            "PRE-A",
+            100.0
+        ));
+    }
+
+    /// (C-5 iii) tie-break: pair_claimed_at 同値 + 自 id 大 → release 必要 (true)。
+    #[test]
+    fn self_check_returns_true_on_tiebreak_when_self_id_is_larger() {
+        let root = unique_root("self_check_tie_larger");
+        let project_uuid = "pj-X";
+        // 自 id = "post-Z" (lex 大) / other id = "post-A" (lex 小)
+        write_post_json_with_claim(&root, project_uuid, "post-Z", "PRE-A", 100.0);
+        write_post_json_with_claim(&root, project_uuid, "post-A", "PRE-A", 100.0);
+        let project_dir = root.join(project_uuid);
+        assert!(self_check_pair_claim(&project_dir, "post-Z", "PRE-A", 100.0));
+    }
+
+    /// (C-5 iv) tie-break: pair_claimed_at 同値 + 自 id 小 → release 不要 (false)。
+    #[test]
+    fn self_check_returns_false_on_tiebreak_when_self_id_is_smaller() {
+        let root = unique_root("self_check_tie_smaller");
+        let project_uuid = "pj-X";
+        write_post_json_with_claim(&root, project_uuid, "post-A", "PRE-A", 100.0);
+        write_post_json_with_claim(&root, project_uuid, "post-Z", "PRE-A", 100.0);
+        let project_dir = root.join(project_uuid);
+        assert!(!self_check_pair_claim(
+            &project_dir,
+            "post-A",
+            "PRE-A",
+            100.0
+        ));
+    }
+
+    /// (C-5 v) 自 pair_pre_name 空 → release 不要 (false / 即 return)。
+    #[test]
+    fn self_check_returns_false_when_self_pair_pre_name_is_empty() {
+        let root = unique_root("self_check_empty");
+        let project_uuid = "pj-X";
+        // 他 POST が pair claim 中でも自身が pair 未設定なら不要。
+        write_post_json_with_claim(&root, project_uuid, "post-other", "PRE-A", 200.0);
+        let project_dir = root.join(project_uuid);
+        assert!(!self_check_pair_claim(&project_dir, "post-self", "", 0.0));
     }
 }
 

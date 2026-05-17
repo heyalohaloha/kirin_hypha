@@ -31,6 +31,7 @@ fn test_post_json_format() {
         Some(SignalState::Active),
         &result,
         "PRE-A",
+        1_700_000_000.5,
     );
 
     assert!(json.contains(r#""v":2"#), "version: {}", json);
@@ -45,9 +46,16 @@ fn test_post_json_format() {
         "pair_pre_name field: {}",
         json
     );
+    // W-281 / G-115-249: pair_claimed_at field
+    assert!(
+        json.contains(r#""pair_claimed_at":1700000000.5"#),
+        "pair_claimed_at field: {}",
+        json
+    );
     assert!(json.starts_with('{'), "starts with {{");
     assert!(json.ends_with('}'), "ends with }}");
 }
+
 
 // ── IO Thread POST 統合テスト ─────────────────────────────────────────────
 
@@ -218,6 +226,9 @@ fn test_io_thread_post_file_cleanup() {
         trigger_pair_resolution,
         trigger_stop_resolution,
         Arc::new(RwLock::new(None)),
+        // W-281 / G-115-249: pair_claimed_at + pair_release_notice 引数 (末尾 2 個追加)。
+        Arc::new(RwLock::new(0.0)),
+        Arc::new(RwLock::new(None)),
     );
 
     std::thread::sleep(Duration::from_millis(250));
@@ -285,6 +296,9 @@ fn test_pair_pre_name_arc_roundtrip_to_post_json() {
         Arc::clone(&pair_pre_name_arc),
         trigger_pair_resolution,
         trigger_stop_resolution,
+        Arc::new(RwLock::new(None)),
+        // W-281 / G-115-249: pair_claimed_at + pair_release_notice 引数 (末尾 2 個追加)。
+        Arc::new(RwLock::new(0.0)),
         Arc::new(RwLock::new(None)),
     );
 

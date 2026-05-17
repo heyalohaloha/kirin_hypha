@@ -98,6 +98,14 @@ pub struct HyphaPost {
     /// 無音区間で Inactive 落ちする → 代用不可。本 atomic は silent / bypass と直交。
     is_playing: Arc<AtomicBool>,
 
+    /// W-281 / G-115-249 / D-1: pair release toast 通知 channel (IO Thread → GUI Thread)。
+    /// non-persist。`None` = 通常 / `Some(msg)` = 次 GUI 描画で `Toast::new(msg, now)` 化。
+    /// 既存 `record_error_message` (上記 record_error_message field) と同パターン。
+    /// IO Thread の `self_check_pair_claim` が後着優先で自身を release したとき
+    /// "Released (paired elsewhere)" を書き込み、GUI 側 update closure 入口で
+    /// `take()` で読出+クリアし `state.toast` に詰める。
+    pair_release_notice: Arc<RwLock<Option<String>>>,
+
     /// B-025 Group B-2/B-3 / Gap-19/20: io_thread が連続失敗 (Directory missing /
     /// Write failed) で record exit したとき GUI に表示する英語 1 行ステータス
     /// (G-115-29 準拠)。`None` = 通常 (R-26 沈黙ゲート / 非表示) / `Some` = エラー
@@ -147,6 +155,15 @@ struct HyphaPostParams {
     /// (B-023 論点 4 (c) POST 独自命名禁止と整合)。
     #[persist = "pair_pre_name"]
     pub pair_pre_name: Arc<RwLock<String>>,
+
+    /// W-281 / G-115-249 / B-1: pair claim 時刻 (Unix epoch sec / f64)。
+    /// `pair_pre_name` 設定操作 (TextEdit Enter / ComboBox PRE 選択) のときのみ
+    /// 値が `epoch_secs_now()` で更新される。空文字書換 (手動クリア / IO Thread release)
+    /// 時は 0.0。post.json `pair_claimed_at` field に毎 tick snapshot 書込まれ、
+    /// 後着優先 1対1 強制 (`self_check_pair_claim`) の判定軸となる。
+    /// nih-plug `impl_persistent_arc!` 経由で `Arc<RwLock<f64>>` も chunk 永続化対応。
+    #[persist = "pair_claimed_at"]
+    pub pair_claimed_at: Arc<RwLock<f64>>,
 }
 
 impl Default for HyphaPostParams {
@@ -160,6 +177,8 @@ impl Default for HyphaPostParams {
             project_uuid: RwLock::new(Uuid::new_v4().to_string()),
             daw_session_uuid: RwLock::new(Uuid::new_v4().to_string()),
             pair_pre_name: Arc::new(RwLock::new(String::new())),
+            // W-281 / G-115-249: 初期値 0.0 (Default::default() / pair 未確立)。
+            pair_claimed_at: Arc::new(RwLock::new(0.0)),
         }
     }
 }
@@ -197,6 +216,8 @@ impl Default for HyphaPost {
             playback_sample_rate: Arc::new(AtomicU32::new(0)),
             is_playing: Arc::new(AtomicBool::new(false)),
             record_error_message: Arc::new(RwLock::new(None)),
+            // W-281 / G-115-249 / D-1: pair release toast channel (non-persist)。
+            pair_release_notice: Arc::new(RwLock::new(None)),
         }
     }
 }
@@ -423,6 +444,10 @@ impl Plugin for HyphaPost {
             // B-027 段階 2: POST GUI に pair_pre_name 入力欄を追加。trigger_keep
             // で `filter_candidates_by_name` の引数として読み出す。
             pair_pre_name: Arc::clone(&self.params.pair_pre_name),
+            // W-281 / G-115-249: pair_claimed_at 共有 (editor write / IO Thread read)。
+            pair_claimed_at: Arc::clone(&self.params.pair_claimed_at),
+            // W-281 / G-115-249 / D-2: pair release toast 通知 channel 共有。
+            pair_release_notice: Arc::clone(&self.pair_release_notice),
             // B-025 Group B-2/B-3 / Gap-19/20: io_thread → GUI ステータス行通知 Arc。
             record_error_message: Arc::clone(&self.record_error_message),
         })
@@ -646,6 +671,9 @@ impl Plugin for HyphaPost {
             Arc::clone(&trigger_stop_resolution),
             // B-025 Group B-2/B-3 / Gap-19/20: GUI ステータス行通知 Arc。
             Arc::clone(&self.record_error_message),
+            // W-281 / G-115-249: pair_claimed_at + pair_release_notice 共有。
+            Arc::clone(&self.params.pair_claimed_at),
+            Arc::clone(&self.pair_release_notice),
         );
 
         // ── Watchdog Thread 起動 ──────────────────────────────────────
@@ -671,6 +699,10 @@ impl Plugin for HyphaPost {
             // B-025 Group B-2/B-3 / Gap-19/20: restart 経路も GUI 通知 Arc を共有
             // (initial 経路と完全対称 / restart 後も連続失敗→exit 通知が GUI に届く)。
             let record_error_message = Arc::clone(&self.record_error_message);
+            // W-281 / G-115-249: restart 経路でも pair_claimed_at + pair_release_notice
+            // を共有 (initial と完全対称 / restart 後も後着 self check 継続)。
+            let pair_claimed_at_arc = Arc::clone(&self.params.pair_claimed_at);
+            let pair_release_notice_arc = Arc::clone(&self.pair_release_notice);
             move |new_shutdown: Arc<AtomicBool>| {
                 spawn_io_thread_post(
                     Arc::clone(&instance_id_arc),
@@ -689,6 +721,8 @@ impl Plugin for HyphaPost {
                     Arc::clone(&trigger_pair_resolution),
                     Arc::clone(&trigger_stop_resolution),
                     Arc::clone(&record_error_message),
+                    Arc::clone(&pair_claimed_at_arc),
+                    Arc::clone(&pair_release_notice_arc),
                 )
             }
         };

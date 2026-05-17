@@ -76,6 +76,17 @@ const PROPOSALS_SCAN_INTERVAL_SECS: f64 = 0.5;
 /// W-280 / G-115-248: 再生中 pair 変更を block 中に表示する tooltip 文言。
 /// R-22 中立的事実説明 (価値判断語なし)。Daisuke 確定 (判断 4) のため変更禁止。
 const PAIR_LOCKED_TOOLTIP: &str = "Pair selection is locked during playback";
+
+/// W-281 / G-115-249: pair_claimed_at に書込む Unix epoch sec (f64) を取得する。
+/// `SystemTime::now().duration_since(UNIX_EPOCH)` の `Err` (clock 巻戻り) 時は
+/// 0.0 fallback (claim 未確立扱い / R-28 機能的沈黙)。
+fn epoch_secs_now() -> f64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs_f64())
+        .unwrap_or(0.0)
+}
 /// T-E: cap rendered cards to keep the 300×200 GUI bounded.  Beyond this,
 /// the user sees "+ N more" (or just truncates — see draw_proposals_block).
 const MAX_CARDS_RENDERED: usize = 8;
@@ -164,6 +175,14 @@ pub struct PostEditorState {
     /// `read()` した値を `filter_candidates_by_name` の引数に渡す。
     pub pair_pre_name: Arc<RwLock<String>>,
 
+    /// W-281 / G-115-249: pair_claimed_at (Unix epoch sec) Arc 共有。
+    /// editor.rs TextEdit Enter / ComboBox PRE click で write、IO Thread が read。
+    pub pair_claimed_at: Arc<RwLock<f64>>,
+
+    /// W-281 / G-115-249 / D-2: pair release toast 通知 channel (IO Thread → GUI)。
+    /// update closure 入口で `take()` して `state.toast` 化する。
+    pub pair_release_notice: Arc<RwLock<Option<String>>>,
+
     /// B-025 Group B-2/B-3 / Gap-19/20: io_thread が連続失敗 (Directory missing /
     /// Write failed) で record exit したとき書込まれる UI 通知文字列。`None` =
     /// 通常 / `Some` のとき GUI 末尾にステータス行表示 (R-26 沈黙ゲート / 通常時非表示)。
@@ -214,6 +233,8 @@ impl PostEditorState {
             playback_sample_rate: args.playback_sample_rate,
             is_playing: args.is_playing,
             pair_pre_name: args.pair_pre_name,
+            pair_claimed_at: args.pair_claimed_at,
+            pair_release_notice: args.pair_release_notice,
             record_error_message: args.record_error_message,
             bg: BackgroundTexture::new(),
             prev_ack: false,
@@ -260,6 +281,10 @@ pub struct PostEditorArgs {
     pub is_playing: Arc<AtomicBool>,
     /// B-027 段階 2: pair PRE Name の Arc 共有 (HyphaPostParams.pair_pre_name)。
     pub pair_pre_name: Arc<RwLock<String>>,
+    /// W-281 / G-115-249: pair claim 時刻 Arc 共有。
+    pub pair_claimed_at: Arc<RwLock<f64>>,
+    /// W-281 / G-115-249 / D-2: pair release toast 通知 channel 共有。
+    pub pair_release_notice: Arc<RwLock<Option<String>>>,
     /// B-025 Group B-2/B-3 / Gap-19/20: io_thread → GUI ステータス行通知 Arc。
     pub record_error_message: Arc<RwLock<Option<String>>>,
 }
@@ -297,6 +322,15 @@ pub fn create_post_editor(args: PostEditorArgs) -> Option<Box<dyn Editor>> {
             let license = *state.license;
 
             let now = ctx.input(|i| i.time);
+
+            // W-281 / G-115-249 / D-3: pair release toast 通知 channel を frame 入口で
+            // take。IO Thread `self_check_pair_claim` が解放を判定した直後 frame で
+            // Toast 化される (R-22 中立的事実説明 / 3 秒 fade は既存 TOAST_DURATION_SECS)。
+            if let Ok(mut g) = state.pair_release_notice.write() {
+                if let Some(msg) = g.take() {
+                    state.toast = Some(Toast::new(msg, now));
+                }
+            }
 
             // T-F fallback anchor: Record 開始 wall-clock を 1 度だけ記録し、
             // Watch 復帰時にクリア。
@@ -757,8 +791,18 @@ fn draw_pair_pre_name_field(ui: &mut egui::Ui, state: &mut PostEditorState, is_p
                 ui.memory_mut(|mem| mem.surrender_focus(*PAIR_PRE_NAME_FOCUS_ID));
             } else if response.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
                 let sanitized = sanitize_name(&state.pair_pre_name_edit_buffer);
+                // W-281 / G-115-249 / B-2: 非空 claim → epoch_secs_now() / 空文字 (手動
+                // クリア) → 0.0 (claim 解放扱い / 後着判定対象外)。
+                let new_claimed_at = if !sanitized.is_empty() {
+                    epoch_secs_now()
+                } else {
+                    0.0
+                };
                 if let Ok(mut g) = state.pair_pre_name.write() {
                     *g = sanitized;
+                }
+                if let Ok(mut c) = state.pair_claimed_at.write() {
+                    *c = new_claimed_at;
                 }
                 ui.memory_mut(|mem| mem.surrender_focus(*PAIR_PRE_NAME_FOCUS_ID));
             } else if response.changed() {
@@ -982,8 +1026,18 @@ fn draw_pair_pre_combo(ui: &mut egui::Ui, state: &mut PostEditorState, now: f64,
                         let label_text = candidate_dropdown_label(cand);
                         if ui.selectable_label(false, label_text).clicked() {
                             let new_name = cand.name.clone().unwrap_or_default();
+                            // W-281 / G-115-249 / B-2: 非空 claim → epoch_secs_now() /
+                            // 空文字 (PRE name が None だった候補 click) → 0.0。
+                            let new_claimed_at = if !new_name.is_empty() {
+                                epoch_secs_now()
+                            } else {
+                                0.0
+                            };
                             if let Ok(mut g) = state.pair_pre_name.write() {
                                 *g = new_name;
+                            }
+                            if let Ok(mut c) = state.pair_claimed_at.write() {
+                                *c = new_claimed_at;
                             }
                             log::info!(
                                 "[POST pair-combo] selected: instance_id={} name={:?}",
