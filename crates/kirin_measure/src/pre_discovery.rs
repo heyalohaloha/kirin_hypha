@@ -92,7 +92,6 @@ impl PostDiscoveryState {
 ///   後方互換 (single PRE 環境 / pair_pre_name 未設定時)。
 ///
 /// 複数 project_uuid 候補がある場合は **mtime 最新 1 件のみ返す** (単一 PRE 前提 /
-/// guardian_50 §G-50-35 / Δ 経路で使用)。
 ///
 /// 多 PRE 環境 (複数 project_uuid に PRE が分散する) で全候補が必要な場合は
 /// [`discover_active_pre_dirs`] を使う (B-027 段階 2 fix)。

@@ -14,12 +14,10 @@
 //! 3. Record 中: `plugin_data/{effective_project_hash}/{instance_id}/pre/*.json`
 //!    に Frame / PSB を追記
 //!
-//! 3層隔離（guardian_53）:
 //! - このスレッドが panic / 権限エラーで止まっても Audio Thread / Measure Thread は継続。
 //! - Drop 時（プラグインアンロード）に自分の pre.json と instance ディレクトリを削除する。
 //! - Record 中にループ終了した場合、writer は status=closed で flush してから閉じる。
 //!
-//! # license 分岐（guardian_53 Q4 K1）
 //! - `License::Os`: 条件一致 pending 検出で `try_enter_record` + `mark_acknowledged`、writer 起動
 //! - それ以外: pending 検出でログのみ。state machine を触らず、writer も生成しない。
 //!   `record_signal.json` は POST 側が消す（PRE は削除しない）。
@@ -40,7 +38,6 @@ use crate::record_writer::{run_record_tick, writer_close, RecordingCtx};
 use crate::storage::StoragePaths;
 use crate::{load_signal_state, License, MeasureResult, SignalState};
 
-/// IO Thread ループ間隔（guardian_53: 100ms = 10fps）
 const LOOP_SLEEP: Duration = Duration::from_millis(100);
 
 /// record_signal poll 間隔（1 秒）。
@@ -77,7 +74,6 @@ struct PartnerInfo {
 /// 本関数は startup 時に plugin_data 配下の全 project_hash 横断 scan を行い、
 /// `target_pre_instance_id == self_iid && status == Acknowledged` を満たす signal
 /// を `delete_signal` で削除する (Daisuke 判断 α 採用 / Watch リセット仕様 /
-/// guardian_50 G-50-32)。POST 側は次 poll で `current=None` 経路 → retry_direct_read
 /// → exit_record で Watch 復帰する (Gap-2 と並ぶ構造的同期経路)。
 ///
 /// R-28 機能的沈黙: storage path 解決失敗 / read_dir 失敗 / parse 失敗は当該
@@ -202,7 +198,6 @@ pub fn spawn_io_thread_pre(
 
         // B-024 Group A / Gap-3 / Gap-5: PRE startup で stale Acknowledged signal を
         // 削除し POST 側 Record を Watch に復帰させる。loop 突入前の 1 回のみ実行。
-        // (Daisuke 判断 α / guardian_50 G-50-32 Watch リセット仕様)
         let initial_self_iid = read_instance_id_arc(&instance_id);
         clear_stale_self_acks_at_startup(&initial_self_iid);
 
@@ -820,7 +815,6 @@ fn write_json(
     Ok(())
 }
 
-/// guardian_53 T-4 + SS-5 の JSON v2 フォーマットに変換する（Active 時）。
 ///
 /// A-3 修正後: bus フィールドは削除（path に instance_id が入るため不要）。
 /// B-027 段階 2: `name` field を追加 (POST `pair_pre_name` filter 用)。

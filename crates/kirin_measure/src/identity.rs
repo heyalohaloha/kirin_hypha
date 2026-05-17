@@ -1,6 +1,5 @@
 //! Identity schema — `identity.json` の型・生成・HMAC-SHA256 署名検証。
 //!
-//! guardian_58_hypha_step4_identity_license.md T-1 / T-7 対応。
 //!
 //! # スキーマ（schema_version 1.0）
 //! ```json
@@ -22,7 +21,6 @@
 //! }
 //! ```
 //!
-//! `updated_at` / `os_version` は guardian_59 Step 5 Additive（G-60-03）で
 //! 追加されたフィールド。旧 identity.json（既存ファイル）との互換のため
 //! `#[serde(default)]` を付与、欠けていれば空文字で読み込む。
 //!

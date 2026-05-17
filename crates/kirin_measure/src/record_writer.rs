@@ -2,7 +2,6 @@
 //!
 //! 責務:
 //! - Watch↔Record 遷移に合わせた writer の生成・破棄
-//! - Phase D 計測結果を frame (10 fps) / PSB (2 fps) で追記
 //! - 30 秒間隔で heartbeat + atomic flush
 //!
 //! PRE / POST どちらも同じロジックで動く。違いは Role の指定と、
@@ -253,7 +252,6 @@ pub fn writer_close(ctx: RecordingCtx) {
 }
 
 /// 必要な 5 フィールドが Some のときのみ 1 frame を追記。
-/// Phase D warm-up 中はスキップ。戻り値: 追記=true / スキップ=false。
 pub fn writer_append_frame(ctx: &mut RecordingCtx, t_ms: u64, m: &MeasureResult) -> bool {
     let (Some(n_prime), Some(sharpness), Some(lufs_m), Some(true_peak), Some(crest)) = (
         m.n_prime,

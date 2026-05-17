@@ -429,9 +429,7 @@ pub const BARK_CENTER_HZ: [f64; N_BARK] = [
 // - ISO 532-1:2017 (specific loudness pipeline — 20 bands only).
 // - MoSQITo v1.2.1 `mosqito/sq_metrics/loudness/loudness_zwst/_main_loudness.py`
 //   (LTQ/A0/DDF/DCB 全配列 20 entry を確認)。
-// - guardian_61_hypha_phase_d_24bark_extension §3.1
 //
-// PsbSummary.high 意味論変更 (guardian_61, Daisuke 判断 経路A):
 //   旧: Bark 17-20 specific loudness 由来 (3400-5800 Hz)
 //   新: Bark 21-24 FFT energy 由来 (5800-15500 Hz) + 15.5k-20kHz FFT 補完
 //

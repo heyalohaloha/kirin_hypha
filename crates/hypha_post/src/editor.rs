@@ -1,4 +1,3 @@
-//! POST GUI — 300×200px（guardian_53 T-6 / サブ2-B）。
 //!
 //! hypha_gui 共有プリミティブを使用:
 //! - 5状態 LED（Error/WatchBreathing/RecordStandby/RecordActive/Idle）
@@ -6,7 +5,6 @@
 //! - flora_color 横線（#d4a043 暫定）
 //! - 共通ウィジェット（value_row / fmt_val / fmt_delta / tp_color）
 //!
-//! SS-7: SignalState に基づく表示切替（guardian_64: PRE 不在時 絶対値表示復活）。
 //! - POST Active + PRE Active（DeltaMode::Active / Stale）→ Δ 3 項目表示
 //! - POST Active + PRE 不在 or Bypassed（DeltaMode::NoPre）→ 絶対値 3 項目表示
 //!   （LUFS-M / TP / Crest。POST 単独挿入での計測動作を目視確認する経路）
@@ -17,14 +15,12 @@
 //! NoPre 時は Δ 列が自動的に `---`、右列は POST 絶対値で埋める。
 //! ペアリング表示は pair_label から取得（サブ3 で IO Thread から配信）。
 //!
-//! # サブ2-B: ボタン実配線（guardian_58 T-6 Q1〜Q7 承認仕様）
 //! - `Keep` → PRE 候補 0 件 → toast / 排他違反 → toast /
 //!   `try_enter_record(license)` → `write_pending`
 //! - `Stop` → `record_sm.exit_record()` + `mark_released`
 //! - `Note` → スタブ維持（U-16 は サブ2-C）
 //! - Sense hint → `open::that(SENSE_UPSELL_URL)` でブラウザ起動
 //!
-//! 色ルール（guardian_54-16 修正）: TP 警戒域（> -1.0 dBTP）は COL_FLORA_BRIGHT
 //! （赤系禁止。色相同一・明度増）。
 
 use hypha_gui::{
@@ -157,7 +153,6 @@ pub struct PostEditorState {
     /// preset/*.json が 1 件以上存在するか（サブ3-C-2: POST IO Thread が更新）。
     pub preset_available: Arc<AtomicBool>,
 
-    // ── T-E / T-F 追加（guardian_77 v3 §9 / §10）──────────────────────
     /// installation_id フィルタ用（empty → proposals scan 全 skip / R-28）。
     pub installation_id: Arc<String>,
     /// process() が書いた再生位置（サンプル）。i64::MIN = 不明 → fallback。
@@ -473,7 +468,6 @@ fn draw_post(
                         ui.add_space(4.0);
                         draw_button_row(ui, true, license, state, m, now);
                     } else {
-                        // guardian_64: Watch + PRE 不在/Bypassed → 絶対値 3 項目表示。
                         // io_thread_post::compute_delta_with_state が PRE 不在 or
                         // pre_signal_state != Active のとき DeltaMode::NoPre を立てる。
                         // W-283 / G-115-251 / W-2: pair_empty 時は IO Thread の Δ 状態に
@@ -520,7 +514,6 @@ fn draw_post(
                 }
             }
 
-            // ── T-E / T-F 行（guardian_77 v3 §9 / §10）────────────────
             // draw_proposals_block は R-28 沈黙: 表示対象がなければ何も描かず、
             // ここで allocate した add_space ぶんだけが残る。allocate は関数
             // 側が行い、必要なければ空で return する。
@@ -609,7 +602,6 @@ fn draw_inactive_grid(ui: &mut egui::Ui) {
 }
 
 /// Watch + PRE Active（DeltaMode::Active / Stale）: Δ 3 項目表示。
-/// NoPre は `draw_watch_absolute_grid` にルーティングされるのでここには到達しない（guardian_64）。
 fn draw_delta_grid(ui: &mut egui::Ui, d: &DeltaResult, delta_col: egui::Color32, tp_warn: bool) {
     ui.horizontal(|ui| {
         ui.add_space(10.0);
@@ -663,7 +655,6 @@ fn draw_delta_grid_frozen(ui: &mut egui::Ui, snap: &DeltaSnapshot, _tp_warn: boo
 }
 
 /// Watch + PRE 不在 or Bypassed（DeltaMode::NoPre）: POST 絶対値 3 項目（LUFS-M / TP / Crest）。
-/// guardian_64 による旧仕様復活。Record の右列と同じ値源だが Watch 用の単列レイアウト。
 fn draw_watch_absolute_grid(ui: &mut egui::Ui, m: &MeasureResult) {
     let tp_warn = tp_over(m.true_peak);
     let tp_col = if tp_warn {
@@ -686,7 +677,6 @@ fn draw_watch_absolute_grid(ui: &mut egui::Ui, m: &MeasureResult) {
 }
 
 /// Record: 2 列 × 3 行。Δ 6 項目（ΔLUFS / ΔPSR / ΔTP / ΔN / ΔCrest / ΔSharp）。
-/// S131 Daisuke 確定方針: POST = 処理量モニタリング (Δ) に専念。絶対値判定は Lens 側へ
 /// 分離 (分離原則)。Watch 中の絶対値表示は `draw_watch_absolute_grid` 側で温存
 /// (本指示 §3-4 / 対象外)。
 ///
@@ -894,7 +884,6 @@ fn draw_pair_pre_combo(ui: &mut egui::Ui, state: &mut PostEditorState, now: f64,
     let kirin_root = std::env::temp_dir().join("kirin");
     let pre_candidates = enumerate_active_pre_pair_candidates(&kirin_root);
     // B-027 段階 3-B α-7-3 / Step 9: All Keep 行 N 集計のため POST candidates も取得。
-    // pair_pre_name.is_some() の件数 (= S115 Q-A7 採用 β / 自身 + ready peer の総数) を
     // ComboBox 先頭行の "All Keep ({N} ready)" 表示と display 判定 (N>=1) に使用。
     let post_candidates = enumerate_active_post_pair_candidates(&kirin_root);
     // α-7' All Stop: 自身が recording=true (Record 中) なら All Stop 行を出す。
@@ -946,7 +935,6 @@ fn draw_pair_pre_combo(ui: &mut egui::Ui, state: &mut PostEditorState, now: f64,
             }
 
             // B-027 段階 3-B α-7-3 / Step 9: All Keep 行 (先頭 / N>=1 時のみ表示)。
-            // S117 #20 (i): click handler 順序 = broadcast 先発火 → 自身 trigger_keep
             // (broadcast 失敗で自身まで pair 不可になることを構造的に回避)。
             // α-7': recording=true 時は All Keep 行を非表示 (Record 中は Keep 不要)。
             let n_ready = post_candidates
@@ -1448,7 +1436,6 @@ pub(crate) fn trigger_keep_internal(
 /// [`kirin_measure::scan_broadcasts_dir`] / `trigger_keep_internal(toast=None)` を経由
 /// して各々 pair 確定する (toast 嵐回避)。
 ///
-/// # 設計判断 (S117)
 /// - #19 (i): Err 経路では `record_sm` を触らず log::warn! + toast のみ。自身の
 ///   `trigger_keep` は ComboBox click handler 順序 (#20 (i)) で本関数の **後** に実行
 ///   されるため、broadcast 失敗で自身まで pair 不可になることはない。
@@ -1599,7 +1586,6 @@ pub(crate) fn trigger_stop_internal(
                 ),
             }
 
-            // B-027 段階 3-B α-7-4-D / Step 12-A 統合点 #2 (DEV INBOX §9-3 / S117 判断 2 (P)):
             // originator として配置した all_keep_signal/{POST_iid}.json broadcast を削除。
             // delete_broadcast は冪等 (all_keep_signal.rs:211-215 / NotFound→Ok)。統合点
             // #3 (Drop) / #4 (IO Thread terminate) と重複呼出されても安全。
@@ -1734,7 +1720,6 @@ fn draw_led(ui: &mut egui::Ui, color: egui::Color32) {
     ui.painter().circle_filled(rect.center(), 5.0, color);
 }
 
-// ── T-E / T-F helpers (guardian_77 v3 §9 / §10) ─────────────────────────
 
 /// Throttle-guarded proposals rescan. Reads `plugin_data/{ph}/preset/` once
 /// per 500 ms and caches the newest v2.0 file in the editor-local state.

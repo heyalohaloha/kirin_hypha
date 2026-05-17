@@ -1,6 +1,4 @@
-//! kirin_measure engine 精度テスト（guardian_53 T-3 判断基準）。
 //!
-//! テスト信号定義（guardian_53 §8）:
 //! - S-1: 1kHz sine, -6dBFS, 48kHz, stereo, 10秒
 //! - S-4: 1kHz sine, -6dBFS, 48kHz, stereo, 48000サンプル（1秒）
 //!   Crest 理論値: 3.01 ± 0.05 dB（サンプル点一致条件）
@@ -72,7 +70,6 @@ fn test_lufs_m_returns_finite_for_1khz_sine() {
 // ── T-3 合格基準: Crest Factor ──────────────────────────────────────────────
 
 /// S-4: 1kHz sine -6dBFS 48000サンプル（1秒）。
-/// 理論値: 3.01 ± 0.05 dB（guardian_53 G-53-03）。
 ///
 /// 正弦波の Crest Factor 理論値:
 ///   peak = A, RMS = A / sqrt(2)
@@ -81,7 +78,6 @@ fn test_lufs_m_returns_finite_for_1khz_sine() {
 fn test_crest_factor_1khz_sine_1sec() {
     let mut engine = MeasureEngine::new(SAMPLE_RATE, N_CHANNELS).expect("init");
     let amp = amplitude_minus_6dbfs();
-    // 1秒（guardian_53 S-4: 48000 サンプル、サンプル点一致条件）
     // 整数周期で切り出す: 1kHz @ 48kHz → 48サンプル/周期 → 1000周期 = 48000サンプル
     let samples = gen_sine_interleaved(1000.0, amp, 48000, SAMPLE_RATE);
     let result = feed_and_get_last(&mut engine, &samples).expect("should get result");
@@ -118,7 +114,6 @@ fn test_true_peak_returns_finite() {
 }
 
 /// True Peak 精度診断: -6dBFS sine の TP が ±0.5 dBTP 以内であることを確認。
-/// guardian_53 T-3 精度要件の検証用。実際の値を eprintln で出力する。
 #[test]
 fn test_true_peak_accuracy_1khz_minus6dbfs() {
     let mut engine = MeasureEngine::new(SAMPLE_RATE, N_CHANNELS).expect("init");
@@ -266,7 +261,6 @@ fn test_silence_returns_none() {
 
 // ── サンプルレート変化テスト ────────────────────────────────────────────────
 
-/// 44.1kHz でも初期化・計測できることを確認（guardian_53 T-3 判断基準）。
 #[test]
 fn test_sample_rate_44100() {
     let sr = 44100u32;

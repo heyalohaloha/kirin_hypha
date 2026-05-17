@@ -26,7 +26,6 @@ pub struct MeasureEngine {
 
     /// 400ms スライディングウィンドウ（インターリーブ f64）。
     /// Crest Factor と PSR の peak_dBFS / RMS_dBFS 計算に使う。
-    /// guardian_53: "peak = サンプルピーク（True Peakではない。PSR計算との整合性のため）"
     window_400ms: VecDeque<f64>,
     /// 400ms ウィンドウの上限要素数（sample_rate × 0.4 × n_channels）
     window_400ms_cap: usize,
@@ -171,7 +170,6 @@ impl MeasureEngine {
     /// - Crest = peak_dBFS - RMS_dBFS（400ms, サンプルピーク）
     /// - PSR   = peak_dBFS - LUFS_S（3s Short-term）
     ///
-    /// guardian_53: "peak = サンプルピーク（True Peakではない）"
     fn compute_crest_psr(&self) -> (Option<f64>, Option<f64>) {
         if self.window_400ms.is_empty() {
             return (None, None);

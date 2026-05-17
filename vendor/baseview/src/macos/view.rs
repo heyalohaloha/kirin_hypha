@@ -467,7 +467,6 @@ extern "C" fn view_did_move_to_window(this: &Object, _self: Sel) {
 // `WindowState::trigger_event` from the handler body is allowed without
 // additional synchronisation).
 //
-// B-025 (S105 R-9 詳細設計確定 / 案 A): when the host (Studio One 7)
 // keeps the plugin window as a non-key NSWindow, AppKit never delivers
 // keyDown:/keyUp:/flagsChanged: to our NSView (per
 // https://developer.apple.com/documentation/appkit/nsresponder/keydown(with:)
@@ -591,7 +590,6 @@ unsafe fn install_local_event_monitor(this: &Object) {
                     }
                 }
 
-                // ── Keyboard arm (B-025 / S106 真因対応 / 案 (ii) first-responder 判定) ──
                 // Two-route design:
                 //   * Defer condition: is_key_window=true AND first_responder==self
                 //                       → AppKit will deliver keyDown:/keyUp:/
@@ -603,7 +601,6 @@ unsafe fn install_local_event_monitor(this: &Object) {
                 //   * Synth condition: any other case
                 //                       → AppKit suppresses keyDown: delivery to this
                 //                         NSView (window not key, OR another NSView is
-                //                         first responder — observed in S106: adding a
                 //                         POST instance moved first responder away from
                 //                         the PRE view, so is_key_window=true but
                 //                         keyDown: never fires for the PRE NSView).

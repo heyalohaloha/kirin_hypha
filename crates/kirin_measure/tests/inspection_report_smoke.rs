@@ -1,4 +1,3 @@
-//! guardian_61 C-3 検証用 inspection_report.json サンプル生成。
 //!
 //! S-1 (1 kHz sine -6 dBFS) と S-2 (pink noise -23 LUFS) を PhaseDStream に通し、
 //! PsbSummary を含む JSON を `/tmp/kirin_hypha_inspection/` に書き出す。
@@ -9,7 +8,6 @@
 //!    - S-1 (1 kHz sine): 高域はほぼ無音 → high は floor 近く (極小 dB)
 //!    - S-2 (pink noise): 高域にエネルギーあり → high は実質的な dB 値
 //! 3. Bark 1-16 由来 (low/mid) と Bark 21-24 由来 (high) は単位が異なるため、
-//!    数値の order だけで素朴に比較しない（仕様書 guardian_61 §3, G-62-02 整合）。
 //!
 //! 実行:
 //!   cargo test -p kirin_measure --test inspection_report_smoke -- --nocapture

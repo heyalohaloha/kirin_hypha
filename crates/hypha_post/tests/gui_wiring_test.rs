@@ -1,4 +1,3 @@
-//! T-E / T-F 配線の構造回帰テスト（guardian_77 v3 §9 / §10）。
 //!
 //! egui 描画ループは cargo test から直接回せないため、editor.rs / lib.rs の
 //! ソース文字列上で配線が残っていることを固定する。配線が落ちると
@@ -348,7 +347,6 @@ fn editor_rs_trigger_stop_calls_delete_signal_after_mark_released() {
 /// 統合点 #2 broadcast (B-027 段階 3-B α-7-4-D / Step 12-A): trigger_stop 内で
 /// 既存 delete_signal の **後** に delete_broadcast が呼ばれる。順序が逆だと
 /// originator 自身が broadcast 削除 → 受信側 cache に未登録の orphan が残留する
-/// 構造障害が起きる (DEV INBOX §9-3 / S117 判断 2 (P))。delete_broadcast は冪等
 /// (NotFound→Ok) のため統合点 #3 (Drop) / #4 (IO Thread terminate) との重複呼出
 /// は安全。失敗時 warn のみ (設計判断 #8 / 既存 delete_signal と同規範)。
 #[test]
@@ -695,9 +693,14 @@ fn editor_rs_keep_button_gated_when_pair_empty() {
     let anchor_idx = src
         .find("if !pair_empty {")
         .expect("W-283 W-3: `if !pair_empty {` anchor not found in draw_post Active arm");
-    // anchor から 300 byte 以内 (gate block 本体 + 余裕 / UTF-8 注釈なし純コード)。
-    let window_end = (anchor_idx + 300).min(src.len());
-    let window = &src[anchor_idx..window_end];
+    // anchor から 300 byte 以内 (gate block 本体 + 余裕)。
+    // UTF-8 char boundary walk-back (前後のコメント変動で byte 300 が
+    // multi-byte char の途中に当たる場合に panic 回避)。
+    let mut safe_end = (anchor_idx + 300).min(src.len());
+    while safe_end > anchor_idx && !src.is_char_boundary(safe_end) {
+        safe_end -= 1;
+    }
+    let window = &src[anchor_idx..safe_end];
     assert!(
         window.contains("draw_button_row(ui, false"),
         "W-283 W-3: `if !pair_empty {{` gate に draw_button_row(ui, false, ...) が含まれない (Keep gate 欠落)"

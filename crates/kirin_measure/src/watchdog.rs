@@ -1,4 +1,3 @@
-//! Watchdog Thread — Measure Thread / IO Thread の自動再起動（guardian_53 T-8）。
 //!
 //! # 再起動フロー
 //! ```text

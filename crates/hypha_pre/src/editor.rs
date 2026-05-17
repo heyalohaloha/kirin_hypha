@@ -1,4 +1,3 @@
-//! PRE GUI — 300×200px（guardian_53 T-6 / サブ1-C）。
 //!
 //! hypha_gui 共有プリミティブを使用:
 //! - 5状態 LED（Error/WatchBreathing/RecordStandby/RecordActive/Idle）
@@ -33,11 +32,9 @@ use std::time::Duration;
 /// 記録開始バナーの表示時間（秒）。
 const RECORD_BANNER_DURATION_SECS: f64 = 3.0;
 
-// ── B-032: 知覚説明 tooltip 文言（S122-S123 / Daisuke 凍結 / 修正禁止）────────
 //
 // Watch 3 項目 + Record 6 項目のラベル / 値 / 単位 3 セルに同一 hover を張る
 // ことで、マウス位置による表示揺れを排除する（案 A2）。英文に続いて改行で
-// 日本語短縮形を併記する固定 schema（S123 採否確定）。
 
 const HELP_LUFS_M: &str = "Momentary Loudness — ITU BS.1770 (LUFS)";
 const HELP_TP: &str = "True Peak — inter-sample peak, ITU BS.1770 (dBTP)";
@@ -357,7 +354,6 @@ fn draw_name_field(ui: &mut egui::Ui, state: &mut PreEditorState) {
 
 /// Watch モード: 3 項目（LUFS-M / TP / Crest）。
 ///
-/// B-032: 各セル（label / value / unit）に S122-S123 凍結文言の hover を張る。
 fn draw_watch_grid(ui: &mut egui::Ui, m: &MeasureResult, show_values: bool) {
     ui.horizontal(|ui| {
         ui.add_space(10.0);
@@ -397,7 +393,6 @@ fn draw_watch_grid(ui: &mut egui::Ui, m: &MeasureResult, show_values: bool) {
 /// Record モード: 6 項目（LUFS-M / TP / Crest / PSR / N / Sharpness）。
 /// 2 列 × 3 行で配置。
 ///
-/// B-032: 各セル（label / value / unit）に S122-S123 凍結文言の hover を張る。
 fn draw_record_grid(ui: &mut egui::Ui, m: &MeasureResult, show_values: bool) {
     ui.horizontal(|ui| {
         ui.add_space(10.0);

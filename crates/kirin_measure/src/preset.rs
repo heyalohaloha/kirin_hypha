@@ -1,7 +1,5 @@
 //! preset/ 読込 — OS 側が生成するプリセット提案の検証と R-28 沈黙ゲート。
 //!
-//! guardian_58_hypha_step5_record_plugin_data.md T-5 対応。
-//! スキーマ正本: `guardian_50_plugin_design_complete_v3.md` 行443-465（preset v1.1）。
 //!
 //! # ディレクトリ
 //! ```text
@@ -10,7 +8,6 @@
 //!
 //! # R-28 沈黙ゲート（G-50-04 / G-50-05 / G-50-36 改善I）
 //! 以下 **2 段 gate 両方通過** したファイルのみ受理:
-//! 1. HMAC-SHA256 検証（OS 側が署名。guardian_50 A-3 改ざん対策）
 //! 2. `installation_id` 一致（5 層照合 層 1）
 //!
 //! いずれか NG → 無視・無言（LED 点灯させない）。
@@ -40,7 +37,6 @@ pub const PRESET_SUBDIR: &str = "preset";
 
 // ── スキーマ v1.1 ────────────────────────────────────────────────────────────
 
-/// preset ルート（OS 側生成。guardian_50 行443-465）。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct PresetFile {
     pub schema_version: String,

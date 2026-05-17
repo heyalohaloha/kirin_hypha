@@ -1,6 +1,5 @@
 //! License gating — `identity.license` による機能分岐（G-50-46 / G-50-47）。
 //!
-//! guardian_58_hypha_step4_identity_license.md T-5 対応。
 //!
 //! # 機能マトリクス
 //! | 機能 | `os` | `sense` | `unknown` |

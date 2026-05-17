@@ -1,6 +1,4 @@
-//! Phase D MoSQITo tolerance assertions — G-79-01 (Daisuke approved 2026-04-24).
 //!
-//! guardian_79_hypha_phase_d_verification_spec §2.5 C が定める tolerance 値を
 //! 単体テストで消費可能な形式で固定する。G-79-01 判断 DB:
 //!   `34c59d4f-6faf-81ef-9477-e69af30721dc` (max_relative = 1e-3 確定)
 //!

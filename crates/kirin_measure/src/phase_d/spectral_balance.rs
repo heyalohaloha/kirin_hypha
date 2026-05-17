@@ -7,7 +7,6 @@
 //!
 //! Kirin Hypha 移植版（Lens `native/src/psychoacoustic/spectral_balance.rs` からアルゴリズム同一移植）。
 //!
-//! guardian_61 C-2 追加 (この module 末尾):
 //! Bark 21-24 (5800-15500 Hz) を FFT パワースペクトルから直接ビニングで
 //! 算出する関数と、15.5k-20kHz 補完帯域の関数を追加。これらは
 //! ISO 532-1 specific loudness パイプライン (Bark 1-20) とは独立で、
@@ -70,7 +69,6 @@ pub fn compute_n_prime(n_specific: &[[f64; N_SPEC_BINS]]) -> Vec<[f64; N_BARK]> 
 }
 
 // ============================================================
-// guardian_61 C-2: PSB High FFT 経路 (Bark 21-24 + 15.5k-20kHz 補完)
 // ============================================================
 //
 // ISO 532-1 側 (上記 `compute` / `compute_n_prime`) とは独立。
@@ -122,7 +120,6 @@ pub fn compute_psb_bark21_24_from_fft(
 
 /// FFT 片側パワースペクトルから 15.5k-20kHz 補完帯域のエネルギーを集計する。
 ///
-/// guardian_61 §3.1 の PSB High 補完帯域。Bark 24 upper (15500 Hz) から
 /// 20000 Hz まで。Nyquist を超える場合は Nyquist までで打ち切り。
 ///
 /// # Returns
@@ -207,7 +204,6 @@ mod tests {
         }
     }
 
-    // ── guardian_61 C-2: FFT → Bark 21-24 ビニングのフィルタ応答テスト ──
     //
     // アプローチ: FFT 片側パワースペクトルを直接合成し
     // (ある bin に単位パワーを立てる)、その bin が対応する周波数が

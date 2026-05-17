@@ -1,4 +1,3 @@
-//! Watchdog Thread テスト（guardian_53 T-8 判断基準）
 //!
 //! 判断基準:
 //! 1. Measure Thread 終了を検出 → 2秒以内に measure_alive=false
@@ -123,7 +122,6 @@ fn test_watchdog_starts_and_stops() {
 // ── Measure Thread 再起動 ─────────────────────────────────────────────────
 
 /// Measure Thread が終了したとき Watchdog が検出・再起動し、
-/// pending_producer に新しい Producer が入ること（guardian_53 T-8 判断基準）
 #[test]
 fn test_watchdog_detects_and_restarts_measure_thread() {
     let measure_result = Arc::new(Mutex::new(MeasureResult::default()));

@@ -1,4 +1,3 @@
-//! IO Thread PRE テスト（guardian_53 T-4 判断基準）
 //!
 //! 判断基準:
 //! 1. 100ms 間隔で /tmp/ に JSON が更新される
@@ -102,7 +101,6 @@ fn test_json_timestamp_format() {
 // ── IO Thread 書き込みテスト ────────────────────────────────────────────────
 
 /// IO Thread が $TMPDIR にファイルを書き込み、シャットダウン後にファイルが消えること。
-/// guardian_53 判断基準 1（書き込み）と 3（クリーンアップ）を検証。
 #[test]
 fn test_io_thread_writes_and_cleans_up() {
     let suffix = uuid_v4_simple();

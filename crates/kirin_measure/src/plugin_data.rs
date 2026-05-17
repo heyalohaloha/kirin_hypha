@@ -1,7 +1,5 @@
 //! plugin_data v1.1 writer — Record mode 計測結果の永続化。
 //!
-//! guardian_58_hypha_step5_record_plugin_data.md T-2 対応（A-3 修正後）。
-//! スキーマ正本: `guardian_50_plugin_design_complete_v3.md` 行357-402。
 //!
 //! # ファイル命名（A-3 修正後）
 //! ```text
@@ -40,7 +38,6 @@
 //! - スキーマ型定義（serde 相互変換）
 //! - `PluginDataWriter`（append / heartbeat / flush / close / compact filename）
 //!
-//! T-6 の Plugin 統合で実際に Phase D / Step-1 計測値を流し込む。
 
 use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
@@ -91,15 +88,11 @@ pub enum Status {
 
 // ── Schema 型 ────────────────────────────────────────────────────────────────
 
-/// 1 frame = Step-1 4 項目 + Phase D 2 項目（PSB は別ブロック）。
 ///
 /// n_prime は **20 Bark 帯域別** のフィルタ後 N'(t,z)（sone）。
 /// sharpness は **スカラー**（acum）。
 ///
-/// guardian_101 v2 (G-100-02): 全ての主要 SR (44.1k / 48k / 88.2k / 96k / 176.4k /
-/// 192kHz) で Phase D を計測する。Measure Thread 側で 48kHz へリサンプリング後に
 /// PhaseDStream に投入されるため、本フィールドは常に `Some` で書き出される。
-/// `Option` 型は将来の Phase D 取得失敗時のフォールバック余地として温存する。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Frame {
     pub t_ms: u64,
@@ -196,7 +189,6 @@ impl PluginDataFile {
     /// Hz 単位の DAW 入力サンプルレート。0 = 取得失敗（fallback）。
     /// リサンプリング前の監査トレイル用。
     /// 値は `sample_rate` と同一値で書き込まれる（plugin_data.rs L204）。
-    /// 仕様書根拠（guardian_100 S-1 / G-79 §2.3 / G-100-02）はコード
     /// コメントから前方参照されているのみで、Hypha リポジトリ内に
     /// 実体 md は未配置（番人マター並行確認中）。
     ///
@@ -253,7 +245,6 @@ impl PluginDataFile {
             heartbeat: now,
             status: Status::Active,
             frames: Vec::new(),
-            // guardian_101 v2: 全 SR で Phase D を計測するため初期値は常に Some。
             psb_snapshots: Some(Vec::new()),
             annotations: Vec::new(),
             paired_pre_instance_id,
@@ -431,9 +422,6 @@ impl PluginDataWriter {
 
     /// 1 frame を追加。数値を精度表に従って丸める。
     ///
-    /// guardian_101 v2 (G-100-02): Measure Thread 側で全 SR を 48kHz にリサンプリングして
-    /// Phase D を計測するため、`n_prime` / `sharpness` は常に `Some` で記録される。
-    /// `Option` 型は将来 Phase D 取得失敗時のフォールバック余地として温存。
     pub fn append_frame(
         &mut self,
         t_ms: u64,
@@ -459,7 +447,6 @@ impl PluginDataWriter {
 
     /// 1 PSB スナップショットを追加。
     ///
-    /// guardian_101 v2 (G-100-02): `psb_snapshots` は常に `Some(Vec)` で初期化されている
     /// ため本メソッドは無条件で push する。
     pub fn append_psb(&mut self, t_ms: u64, psb: [f64; 20], interpolatable: bool) {
         let snapshots = self
@@ -815,7 +802,6 @@ mod tests {
         w.append_frame(123, n, 1.2345, -14.2345, -1.1234, 12.3456);
         let frame = &w.data().frames[0];
         assert_eq!(frame.t_ms, 123);
-        // 48000Hz: Phase D 値 Some (guardian_100 S-2)
         assert_eq!(frame.n_prime.unwrap()[0], 1.2); // round1
         assert_eq!(frame.sharpness.unwrap(), 1.23); // round2
         assert_eq!(frame.lufs_m, -14.2);
@@ -1134,17 +1120,13 @@ mod tests {
         assert!(err.is_err(), "corrupt JSON should yield error");
     }
 
-    // ── guardian_100 S-1 / guardian_101 v2 (G-100-02): source_format & Phase D ──
 
-    /// 48kHz: source_format=48000 / Phase D 値が JSON に通常通り書き込まれる。
-    /// guardian_101 v2 でも同等の挙動を確認する。
     #[test]
     fn source_format_48000_writes_phase_d_values() {
         let base = isolated_dir();
         let mut w = sample_writer(&base, Role::Pre); // sample_writer は 48000 で create
         assert_eq!(w.data().source_format, 48000);
 
-        // Phase D 値を持つ frame を書き込み
         w.append_frame(0, [1.5; 20], 1.5, -14.0, -1.0, 12.0);
         // PSB スナップショットも書き込み
         w.append_psb(0, [-10.0; 20], true);
@@ -1154,7 +1136,6 @@ mod tests {
         let loaded: PluginDataFile = serde_json::from_slice(&bytes).unwrap();
         // source_format が JSON に出力されている (S-1)
         assert_eq!(loaded.source_format, 48000);
-        // Phase D 値が Some で書き出されている (guardian_101 v2)
         assert!(loaded.frames[0].n_prime.is_some());
         assert!(loaded.frames[0].sharpness.is_some());
         assert!(loaded.psb_snapshots.is_some());

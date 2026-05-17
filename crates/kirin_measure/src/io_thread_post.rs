@@ -9,7 +9,6 @@
 //! 6. Record mode 時: `plugin_data/{project_hash}/{instance_id}/post/*.json` に
 //!    Frame (10 fps) / PSB (2 fps) を追記、30 秒毎に flush
 //!
-//! 3層隔離（guardian_53）:
 //! - このスレッドが panic / 権限エラーで止まっても Audio Thread / Measure Thread は継続
 //! - Drop 時に自分の post.json と instance ディレクトリを削除する
 //! - Record 中に終了した場合、保留中の writer は status=closed で flush してから閉じる
@@ -38,7 +37,6 @@ use crate::record_writer::{run_record_tick, writer_close, RecordError, Recording
 use crate::storage::StoragePaths;
 use crate::{load_signal_state, MeasureResult, SignalState};
 
-/// IO Thread ループ間隔（guardian_53: 100ms = 10fps）
 const LOOP_SLEEP: Duration = Duration::from_millis(100);
 
 /// PRE ファイルが Active とみなされる最大経過時間（秒）
@@ -68,7 +66,6 @@ const ALL_KEEP_POLL_INTERVAL: Duration = Duration::from_secs(1);
 /// 軽量 (`fs::metadata` 1 件 / project)。
 const PRE_LIVENESS_POLL_INTERVAL: Duration = Duration::from_secs(1);
 
-/// B-024 Group A / Gap-2: PRE pre.json mtime stale 判定閾値 (秒) — guardian_50 G-50-33。
 /// 60 秒以上 mtime 更新が無い (or pre.json 不在) の場合、PRE crash / unload とみなし
 /// POST が `delete_signal` + `exit_record` で構造的同期する (Daisuke 判断 α 採用 /
 /// Gap-1 / Gap-7 / Gap-18 統合解)。
@@ -115,7 +112,6 @@ pub type TriggerStopResolutionFn = Arc<dyn Fn(&str, &str) + Send + Sync>;
 ///   ラップで構築した closure を受領。引数は `(originator_iid, started_at)`。
 ///   sub-tick で broadcast 新規検出時のみ発火 (toast=None / now=0.0)。crate 構造制約
 ///   (kirin_measure → hypha_post 逆依存不可) 回避と `trigger_keep_internal` シグネチャ
-///   完全不変 (S114-S115 §2-3) を両立する設計判断 (Q-11-D 案 (a))。
 #[allow(clippy::too_many_arguments)]
 pub fn spawn_io_thread_post(
     instance_id: Arc<RwLock<String>>,
@@ -499,13 +495,11 @@ pub fn spawn_io_thread_post(
             // 新 broadcast を `processed_broadcasts` cache に登録する (検出 + cache + log
             // のみ / `trigger_keep_internal` 発火は Step 11 で本箇所に追加予定)。
             //
-            // 受信側ロジック (S117 判断 / DEV INBOX §6 / 設計判断 #16-#24):
             //  1. cross-process 防壁: `broadcast.daw_session_id != self_daw_session_id` skip
             //  2. self skip: `originator_iid == self_instance_id` skip (#16 (iii))
             //  3. 既処理 skip: cache 内の `started_at` と一致 → 同 broadcast 既処理 skip
             //     (clock-skew 完全耐性 / Q-A8-6)
             //  4. stale fallback: `is_broadcast_stale` (≥30 秒経過) → cache 登録のみ +
-            //     非発火 (S117 判断 2 (P) / orphan broadcast の構造的無視)
             //  5. 新 broadcast: cache 更新 + log::info! (Step 11 で trigger_keep_internal 発火)
             //  6. GC: `last_seen.elapsed() >= ACK_TIMEOUT_SECONDS` の entry を retain で削除
             //     (先例 io_thread_pre.rs:378-403 partner.last_seen_status cache 同位相 /
@@ -620,7 +614,6 @@ pub fn spawn_io_thread_post(
         // record_signal.rs:289-301) で重複呼出 (統合点 #2/#3) と同居安全。
         // B-027 段階 3-B α-7-4-D / Step 12-C: Ok(paths) arm を block 化 (single match arm
         // → sequential block) し、delete_signal の直後に delete_broadcast 呼出を追加する
-        // (統合点 #4 / DEV INBOX §9-3 / S117 判断 2 (P))。`paths` は同 scope 内で 2 度
         // 利用 (二重 resolve 回避)。機能的差異なし / panic 回避規範 (warn のみ) は両者で同等。
         match StoragePaths::default_macos() {
             Ok(paths) => {
@@ -1017,7 +1010,6 @@ fn compute_delta_with_state(
     let pre_lufs = parsed["lufs_m"].as_f64();
     let pre_psr = parsed["psr"].as_f64();
     let pre_tp = parsed["true_peak"].as_f64();
-    // S131 (b)+(B): pre.json の Phase D field は `Some` のときのみ書込まれるため
     // (io_thread_pre.rs:856-862 / opt_f64 ではなく conditional concat)、欠落時の
     // `serde_json::Value::Null` も `as_f64() == None` で素直に Δ=None になる。
     let pre_n_prime_total = parsed["n_prime_total"].as_f64();
@@ -1232,7 +1224,6 @@ pub(crate) struct PostTmpJson {
     pub crest: Option<f64>,
     #[serde(default)]
     pub psr: Option<f64>,
-    /// Phase D 拡張 (Active 時 + 値が Some(_) の場合のみ書込)。
     #[serde(default)]
     pub n_prime_total: Option<f64>,
     #[serde(default)]
@@ -1241,7 +1232,6 @@ pub(crate) struct PostTmpJson {
     pub psb_summary: Option<PostPsbSummary>,
 }
 
-/// `post.json` の `psb_summary` object (Phase D)。
 ///
 /// 本 struct は serde deserialize 経由でのみ構築されるため、Step 5 で
 /// `scan_post_candidates_in` 等の read 経路から実利用されるまで dead_code lint
@@ -1278,7 +1268,6 @@ pub(crate) struct PostPsbSummary {
 /// `pair_pre_name` は `Option<String>` (PRE 版 `name` と同位相)。post.json の
 /// `pair_pre_name` field が空文字 → `None` / 非空 → `Some(...)` に変換する。
 ///
-/// B-027 段階 3-B α-7-4-D Step 3 (S119 設計判断 #23 (A)): visibility を `pub(crate)` →
 /// `pub` に昇格 (Phase B Step 5 H 報告の「Step 6 で削除予定」遅延履行)。
 /// hypha_post crate (editor.rs) からの呼出経路 (`enumerate_active_post_pair_candidates`)
 /// で利用される。
@@ -1453,7 +1442,6 @@ pub(crate) fn discover_active_post_dirs(kirin_root: &Path) -> Vec<PathBuf> {
 /// 含まない (filesystem enumerate のみ)。`project_uuid_cell()` /
 /// `peek_project_uuid` / `set_project_uuid` のいずれも本関数からは触れない。
 ///
-/// # B-027 段階 3-B α-7-4-D Step 3 (S119 設計判断 #23 (A))
 /// visibility を `pub(crate)` → `pub` に昇格 (Phase B Step 5 H 報告の「Step 6 で削除予定」
 /// 遅延履行)。hypha_post crate (editor.rs / `draw_pair_pre_combo` の N 集計) から
 /// 直接呼出される。`scan_post_candidates_in` / `discover_active_post_dirs` は本関数
@@ -2407,7 +2395,6 @@ mod post_tmp_json_tests {
         assert!(parsed.lufs_m.is_none());
     }
 
-    /// Phase D 拡張 field (n_prime_total / sharpness / psb_summary) を含む JSON の deserialize。
     #[test]
     fn deserialize_active_with_phase_d_fields() {
         let result = MeasureResult {

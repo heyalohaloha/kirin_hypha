@@ -86,7 +86,6 @@ pub struct HyphaPost {
     /// preset/*.json が 1 件以上存在するか。
     preset_available: Arc<AtomicBool>,
 
-    // ── T-E/T-F 追加（guardian_77 v3 §9 / §10）────────────────────────
     installation_id: Arc<String>,
     playback_pos_samples: Arc<AtomicI64>,
     playback_sample_rate: Arc<AtomicU32>,
@@ -345,7 +344,6 @@ impl Drop for HyphaPost {
                     ),
                 }
 
-                // B-027 段階 3-B α-7-4-D / Step 12-B 統合点 #3 (DEV INBOX §9-3 / S117 判断 2 (P)):
                 // originator として配置した all_keep_signal/{POST_iid}.json broadcast を削除。
                 // delete_broadcast は冪等 (NotFound→Ok)。統合点 #2 (trigger_stop) / #4 (IO Thread
                 // terminate) と重複呼出されても安全。失敗時 warn のみ (Drop 内 panic は abort /

@@ -1,6 +1,5 @@
 //! Identity storage — 2 箇所保存 + 4 段階復旧。
 //!
-//! guardian_58_hypha_step4_identity_license.md T-2 / T-4 対応。
 //!
 //! # 保存先
 //! | 種別 | パス | 管理者 |

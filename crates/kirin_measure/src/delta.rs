@@ -1,6 +1,5 @@
 //! Δ算出型 — POST側 IO Thread が PRE ファイルを読んで算出した差分結果。
 
-/// PRE ファイルの鮮度状態（guardian_53 T-5 Δ鮮度判定）。
 #[derive(Debug, Clone, PartialEq, Default)]
 pub enum DeltaMode {
     /// PRE ファイルなし（Δ非表示モード）
@@ -38,7 +37,6 @@ pub struct DeltaSnapshot {
 /// IO Thread POST が更新し、GUI Thread が読む。
 /// `Arc<Mutex<DeltaResult>>` で共有する。
 ///
-/// S131 Daisuke 確定方針: POST は処理量モニタリング (= Δ 6 軸) に専念し、絶対値判定は
 /// Lens 側へ分離。本 struct はそれに合わせ Δ 6 軸を網羅する (lufs / psr / tp /
 /// n_prime_total / crest / sharpness)。`mode` は鮮度判定で全 Δ フィールド共有。
 #[derive(Debug, Clone, Default)]

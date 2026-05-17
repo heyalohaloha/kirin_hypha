@@ -1,6 +1,5 @@
 //! Streaming STFT for PSB High extension (Bark 21-24 + 15.5k-20kHz 補完).
 //!
-//! guardian_61 §3.1: Bark 21-24 (5800-15500 Hz) は ISO 532-1
 //! specific loudness パイプラインでは扱えない (LTQ/A0/DDF/DCB が
 //! 20 バンドまでしか規格化されていない)。本モジュールは FFT による
 //! 独立経路で Bark 21-24 + 15.5k-20kHz 帯域のエネルギーを取得する。
@@ -29,7 +28,6 @@ pub const STFT_SPEC_LEN: usize = STFT_FFT_SIZE / 2 + 1;
 /// PSB High 補完帯域の下限 (Hz)。Bark 24 upper と一致。
 pub const PSB_HIGH_EXT_LOWER_HZ: f64 = 15500.0;
 
-/// PSB High 補完帯域の上限 (Hz)。guardian_61 §3.1 で 20 kHz 指定。
 pub const PSB_HIGH_EXT_UPPER_HZ: f64 = 20000.0;
 
 /// ストリーミング STFT プロセッサ。

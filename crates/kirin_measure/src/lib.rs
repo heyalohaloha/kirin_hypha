@@ -127,7 +127,6 @@ pub fn sanitize_name(raw: &str) -> String {
 // ── 共有定数 ────────────────────────────────────────────────────────────────
 
 /// Audio Thread → Measure Thread リングバッファの保持長（秒）。
-/// 2 秒: Measure Thread 再起動時の空白を吸収できる余裕（guardian_53 T-2）。
 pub const RING_BUFFER_SECONDS: usize = 2;
 
 /// 対応チャンネル数（ステレオ固定）。
@@ -320,7 +319,6 @@ pub fn store_signal_state(atom: &AtomicU8, state: SignalState) {
 ///
 /// Kirin-original metric。
 ///
-/// guardian_61 C-3 (Daisuke 判断 経路A、破壊的変更):
 /// - low  : Bark 1–8   ISO 532-1 specific loudness 由来 [dB]   (~20 Hz–920 Hz)
 /// - mid  : Bark 9–16  ISO 532-1 specific loudness 由来 [dB]   (~920 Hz–3400 Hz)
 /// - high : Bark 21–24 + 15.5k–20kHz **FFT エネルギー由来** [dB] (5800 Hz–20000 Hz)
@@ -342,7 +340,6 @@ pub struct PsbSummary {
     pub high: f64,
 }
 
-/// 7 項目計測結果（G-52-02 4項目 + Phase D 3項目）。
 ///
 /// Measure Thread が更新し、IO Thread と GUI Thread が読む。
 /// `Arc<Mutex<MeasureResult>>` で共有する。
@@ -366,26 +363,19 @@ pub struct MeasureResult {
     /// 3 秒未満は `None`。
     pub psr: Option<f64>,
 
-    /// Phase D: Filtered total loudness N(t) [sone]。
     /// ISO 532-1 Zwicker の総ラウドネス N (specific loudness N'(z) ではない)
     /// を `temporal_weighting` LP IIR で時系列平滑化した値。GUI label は "N"。
     /// field 名 `n_prime_total` は履歴互換維持 (Phase 2 で rename 候補)。
-    /// Phase D 初期化中（起動直後数フレーム）は `None`。
     /// 48 kHz 以外は常に `None`。
     pub n_prime_total: Option<f64>,
 
-    /// Phase D: DIN 45692 Sharpness S(t) [acum]。
     pub sharpness: Option<f64>,
 
-    /// Phase D: PSB 要約（low / mid / high）[dB]。
     pub psb_summary: Option<PsbSummary>,
 
-    /// Phase D: 20-Bark 帯域別 N'(t,z) [sone/Bark]（サブ3-A-1）。
     /// plugin_data/.../post/*.json `Frame.n_prime[20]` に直接書き込む値。
-    /// Phase D 初期化中 / 48 kHz 以外は `None`。
     pub n_prime: Option<[f64; 20]>,
 
-    /// Phase D: 20-Bark 帯域別 PSB 比率（サブ3-A）。
     /// plugin_data/.../post/*.json `psb_snapshots[].psb` に直接書き込む値。
     /// 3 帯域集約 (low/mid/high, dB) は `psb_summary` 側。
     pub psb_bark: Option<[f64; 20]>,

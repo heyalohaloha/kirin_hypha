@@ -1,6 +1,5 @@
 //! Hardware identification — 3 要素取得と hardware_id 計算。
 //!
-//! guardian_58_hypha_step4_identity_license.md T-3 対応。
 //!
 //! # 3 要素
 //! | 要素 | 取得コマンド |
@@ -14,7 +13,6 @@
 //!
 //! # 取得失敗時のフォールバック
 //! いずれかの要素が取得できない場合、その要素を空文字列として扱い、
-//! 残り 2 要素で判定する（permissive 方針。guardian_50 E-25）。
 //!
 //! # T-1 との分担
 //! 本モジュールは `HardwareComponents` 構造体 + macOS コマンド呼び出し。
@@ -166,7 +164,6 @@ fn fetch_serial_number() -> Option<String> {
 ///    Volume UUID:               AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE
 /// ```
 ///
-/// APFS 暗号化環境では代わりに `Disk / Partition UUID` が返ることがある（guardian_58 U-21）。
 /// どちらか先に見つかった方を採用する。
 fn fetch_boot_disk_uuid() -> Option<String> {
     let out = Command::new("diskutil").args(["info", "/"]).output().ok()?;

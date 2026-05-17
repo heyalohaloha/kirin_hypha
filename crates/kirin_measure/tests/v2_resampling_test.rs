@@ -1,7 +1,5 @@
-//! guardian_101 v2 / G-100-02 適合テスト V2-01〜V2-06。
 //!
 //! 各主要 SR で `PluginDataWriter` が次の v2 仕様を満たすことを構造的に確認する:
-//! 1. `source_format` フィールドが入力 SR の実値を保持する (Phase D の有効/無効に
 //!    関わらず常にメタ情報として残す)
 //! 2. `Frame.n_prime` / `Frame.sharpness` が `Some` で書き出される (silent skip 撤去)
 //! 3. `psb_snapshots` が `Some(Vec)` で初期化され、`append_psb` 後にスナップショット
@@ -64,7 +62,6 @@ fn run_v2_assertion(sample_rate: u32, label: &str) {
         "psb_snapshots must be Some(empty Vec) on init"
     );
 
-    // Phase D 値の append_frame と append_psb
     w.append_frame(0, [1.5; 20], 1.5, -14.0, -1.0, 12.0);
     w.append_psb(0, [-10.0; 20], true);
     w.flush().expect("flush");

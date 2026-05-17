@@ -21,7 +21,6 @@
 //! `started_at` は originator が `now_iso8601()` で書き込み、受信側は文字列等価比較
 //! のみで「同 originator + 同 broadcast」を判別する (clock-skew 完全耐性 / Q-A8-6)。
 //!
-//! # 受信 POST 側 polling (Q-A8-3 / S117 判断)
 //! 1. [`scan_broadcasts_dir`] で `{project_hash}/all_keep_signal/*.json` を全件読込
 //! 2. `broadcast.daw_session_id == self.daw_session_id` で filter (cross-process 防壁)
 //! 3. memory cache `HashMap<originator_iid, started_at>` を引いて
@@ -32,7 +31,6 @@
 //! 1. ComboBox 先頭行 "All Keep ({N} ready)" 押下 → [`write_broadcast`] で配置
 //! 2. originator 自身の `trigger_keep_internal` も同 frame で発火 (cache に self seed)
 //! 3. `record_sm.exit_record()` / `Drop` / IO Thread shutdown のいずれかで
-//!    [`delete_broadcast`] 呼出 (S117 判断 2 (P) 統合点 #2+#3+#4)
 //! 4. orphan broadcast は受信側 cache 30 秒 stale fallback で ignore (即時 delete は
 //!    受信側 1 秒 polling との race のため不採用)
 //!
@@ -52,12 +50,10 @@ use std::path::{Path, PathBuf};
 /// 予約名 list に追加して instance_id dir 走査から除外する (α-7-4-B)。
 pub const ALL_KEEP_SIGNAL_SUBDIR: &str = "all_keep_signal";
 
-/// broadcast schema 現行 version (S117 判断: v=1 から開始 / 将来拡張時の serde
 /// migration は `#[serde(default)]` で旧 schema 互換維持)。
 pub const ALL_KEEP_SCHEMA_VERSION: u32 = 1;
 
 /// broadcast の stale 判定閾値 (秒)。30 秒経過 broadcast は受信側 cache 検出時
-/// `trigger_keep_internal` 非発火 (S117 判断 2 (P) stale fallback)。`record_signal::
 /// ACK_TIMEOUT_SECONDS` (= 30) と同値で対称性を維持。
 pub const ALL_KEEP_BROADCAST_STALE_SECS: i64 = 30;
 
@@ -198,7 +194,6 @@ pub fn read_broadcast(
 
 /// broadcast file を削除。不在は成功扱い (R-28 機能的沈黙)。
 ///
-/// 統合点 (S117 判断 2 (P)):
 /// - #2 `trigger_stop` (`record_sm.exit_record()` 直後)
 /// - #3 `HyphaPost::drop` (`record_sm.exit_record()` 直後)
 /// - #4 IO Thread shutdown (`fs::remove_file(post.json)` 直後)
@@ -297,7 +292,6 @@ pub fn scan_broadcasts_dir(
 ///
 /// パース失敗 / 未来時刻の場合は false (= 新鮮扱い / 安全側で誤 skip を避ける)。
 /// 受信側 cache 検出時、`true` なら cache 登録のみ + `trigger_keep_internal` 非発火
-/// (S117 判断 2 (P) stale fallback)。
 pub fn is_broadcast_stale(
     broadcast: &AllKeepBroadcast,
     now: DateTime<Utc>,

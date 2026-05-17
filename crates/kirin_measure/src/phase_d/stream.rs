@@ -1,4 +1,3 @@
-//! Phase D ISO 532-1 streaming adapter.
 //!
 //! Wraps the batch modules with persistent IIR state for continuous
 //! chunk-by-chunk input from the Measure Thread.
@@ -15,13 +14,11 @@ use super::stft::{StftProcessor, STFT_FFT_SIZE};
 use super::tables::*;
 use super::{core_loudness, calc_slopes, sharpness, spectral_balance};
 
-/// Phase D stream が前提とする mono サンプリングレート (Hz)。
 /// STFT のビン→周波数変換で使用。
 const PHASE_D_SAMPLE_RATE: f64 = 48000.0;
 
 // ── Result ──────────────────────────────────────────────────────
 
-/// Per-frame Phase D output at 2 kHz rate.
 #[derive(Clone)]
 pub struct PhaseDResult {
     /// Filtered total loudness N(t) in sone
@@ -35,26 +32,22 @@ pub struct PhaseDResult {
     /// 20-Bark aggregated specific loudness N'(t) in sone/Bark (サブ3-A-1).
     /// Mean of 12 bins per Bark band; used for Frame.n_prime[20] persistence.
     pub n_prime: [f64; N_BARK],
-    /// guardian_61 C-2: Bark 21-24 (5800-15500 Hz) FFT エネルギー (linear power)。
     /// ISO 532-1 specific loudness (N_BARK=20) とは独立経路で、
     /// STFT の最新完了フレームから取得。STFT 未完了時は `[0.0; 4]`。
     /// **単位が異なる** ため `psb` や `n_prime` と素朴に加算・比較してはならない。
     pub psb_bark21_24: [f64; 4],
-    /// guardian_61 C-2: 15.5k-20kHz FFT 補完帯域のエネルギー (linear power)。
     /// Bark 24 upper (15500 Hz) より上の余剰帯域。同じく STFT 最新フレーム由来。
     pub psb_high_ext_15_5k_20k: f64,
 }
 
 // ── Streaming Processor ─────────────────────────────────────────
 
-/// Streaming Phase D processor.
 ///
 /// Accepts mono 48 kHz chunks of arbitrary size. Returns per-frame results
 /// at 2 kHz rate (one frame per 24 input samples).
 ///
 /// Call `reset()` on SS-8 Active transition to clear all filter state.
 ///
-/// guardian_61 C-2: ISO 532-1 パイプラインと並列に STFT 経路を保持し、
 /// Bark 21-24 + 15.5k-20kHz 補完帯域のエネルギーを `PhaseDResult` に
 /// 添付する。両経路は相互独立で、STFT 側は同じ 48 kHz mono 入力を
 /// 受けるが ISO 532-1 の数値には一切影響しない。
@@ -84,12 +77,10 @@ impl PhaseDStream {
         }
     }
 
-    /// Feed mono 48 kHz samples. Returns Phase D results for each output frame.
     ///
     /// Output count = number of decimation boundaries crossed in this chunk.
     /// May return empty Vec if fewer than DEC_FACTOR samples accumulated.
     pub fn push(&mut self, mono_48k: &[f64]) -> Vec<PhaseDResult> {
-        // guardian_61 C-2: STFT 経路を先に回す。ISO 532-1 パイプラインとは
         // 独立で、同じ mono サンプルを入力とするが結果は別フィールドに格納。
         // STFT は hop=512 で発火するため、複数フレーム or 0 フレームが返る。
         // 最新完了フレームを保持して後続の 2 kHz 出力に添付する。
@@ -164,7 +155,6 @@ impl PhaseDStream {
         self.fb.reset();
         self.decay.reset();
         self.tw.reset();
-        // guardian_61 C-2: STFT 経路も同時にリセット。
         self.stft.reset();
         self.latest_psb_bark21_24 = [0.0; 4];
         self.latest_psb_high_ext = 0.0;
@@ -583,7 +573,6 @@ mod tests {
         }
     }
 
-    // ── guardian_61 C-2: STFT 経路の end-to-end テスト ──
 
     /// 48 kHz の正弦波信号を生成 (ピーク値 1.0)。
     fn gen_sine(freq_hz: f64, duration_s: f64) -> Vec<f64> {
@@ -705,14 +694,12 @@ mod tests {
         }
     }
 
-    // ── guardian_61 C-2 回帰保証: ISO 532-1 側に影響がないこと ──
 
     #[test]
     fn test_iso_532_1_fields_unchanged_by_stft_integration() {
         // STFT 経路追加後も、ISO 532-1 由来のフィールド
         // (loudness / sharpness / n_specific / psb / n_prime) は batch と bit-identical。
         // これは既存の test_batch_vs_stream_equivalence と同等だが、
-        // guardian_61 C-2 のガードとして明示的に再確認する。
         use super::super::{filter_bank, nonlinear_decay, temporal_weighting};
         let signal = gen_1khz_94db(0.5);
         let fb = filter_bank::compute(&signal);

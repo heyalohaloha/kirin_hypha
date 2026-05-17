@@ -1,4 +1,3 @@
-//! IO Thread POST テスト（guardian_53 T-5 判断基準）
 //!
 //! 判断基準:
 //! 1. PRE ファイルあり → Active モードで Δ が算出される

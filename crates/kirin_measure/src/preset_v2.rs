@@ -1,6 +1,5 @@
 //! preset v2.0 reader — G-77-01 / G-77-03.
 //!
-//! guardian_77 v3 §8 の proposals schema v2.0 を読む。Lens / OS 側が
 //! `plugin_data/{project_hash}/preset/{bounce_id}.json` に書き出したものを、
 //! Hypha の LED / GUI (T-E/T-F) が消費する経路。
 //!
@@ -17,7 +16,6 @@
 //! # HMAC
 //! トップレベル `"hmac_checksum"` フィールド。`hmac_checksum=""` で JSON 化した
 //! 全バイトに対する HMAC-SHA256 hex。鍵は [`crate::identity`] と同じ（v1.1 と同値
-//! 54 bytes ASCII — guardian_77 v3 §8.3）。
 
 use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
@@ -80,7 +78,6 @@ fn default_empty_object() -> serde_json::Value {
 }
 
 /// section_boundaries[] 1 件。`section_context.schema.json` の sections[] 7
-/// 必須フィールドをそのまま継承（guardian_77 v3 §8.2 訂正6）。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SectionBoundary {
     pub section_id: String,
@@ -166,7 +163,6 @@ fn hmac_key() -> &'static [u8] {
     }
 }
 
-// guardian_77 v3 §8.3: Lens `src/config/hmac.js::DEFAULT_HMAC_KEY` と同一。
 // 54 bytes ASCII printable。v1.1 (preset.rs:153) と同値（同一 Hypha 鍵）。
 const DEFAULT_HMAC_KEY: &[u8] =
     b"kirin-hypha-phase1.0-hmac-key-deterrent-level-20260417";
@@ -538,7 +534,6 @@ mod tests {
 
     #[test]
     fn hmac_key_matches_v1_1() {
-        // guardian_77 v3 §8.3 / G-77-03: v1.1 と v2.0 で同一バイト列。
         use crate::preset::compute_preset_checksum;
         use crate::preset::PresetFile;
         // v1.1 HMAC over empty preset-like snippet should use the same

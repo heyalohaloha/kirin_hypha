@@ -1,4 +1,3 @@
-//! guardian_101 v2: 入力サンプルレートを 48 kHz に整形する Measure Thread 用ラッパー。
 //!
 //! 設計原則:
 //! - **Audio Thread 不可侵 (R-12)**: 本モジュールは Measure Thread でのみ呼ばれる
@@ -116,7 +115,6 @@ mod tests {
     use super::*;
 
     /// 既存 SR 列でリサンプラが構築でき、48kHz output が得られることを最低限確認。
-    /// guardian_101 v2 V2-01〜V2-06 と独立したスモークテスト。
     #[test]
     fn resampler_constructs_for_supported_rates() {
         for sr in [44_100u32, 88_200, 96_000, 176_400, 192_000] {

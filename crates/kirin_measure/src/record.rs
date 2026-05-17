@@ -1,12 +1,10 @@
 //! Record mode 状態機械 — Watch ↔ Record の状態遷移。
 //!
-//! guardian_58_hypha_step5_record_plugin_data.md T-1 対応。
 //!
 //! # 状態
 //! | State | 計測 | 書込先 | LED |
 //! |-------|------|--------|-----|
 //! | `Watch`  | 4項目（LUFS-M / TP / Crest / PSR）| `$TMPDIR/kirin/...` | 青の淡い発光 |
-//! | `Record` | + Phase D 3項目 | `plugin_data/...` | 緑の脈動 |
 //!
 //! # 遷移
 //! ```text

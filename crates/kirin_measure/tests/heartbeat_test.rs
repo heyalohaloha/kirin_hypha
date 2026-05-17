@@ -1,12 +1,10 @@
 //! Heartbeat 200ms × 2 → Inactive override の挙動テスト。
 //!
-//! guardian_53 / SS-8 の heartbeat stall detection は Studio One 等
 //! バイパス時に process() を停止する DAW に対応するための機構。
 //! Measure Thread が `HEARTBEAT_STALE_THRESHOLD = 2` 回連続で
 //! 同一 heartbeat を読み続けたら（= 200ms 無更新）、SignalState を
 //! 強制的に Inactive に書き戻す。
 //!
-//! guardian_61 C-4: STFT 統合 (PhaseDStream) 後も heartbeat 機構が
 //! 正しく動作することを直接検証する。
 //!
 //! 注意: このテストは並列 CPU contention の影響を受けにくい設計
