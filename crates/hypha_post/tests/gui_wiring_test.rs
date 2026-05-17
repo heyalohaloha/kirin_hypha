@@ -700,3 +700,40 @@ fn editor_rs_keep_button_gated_when_pair_empty() {
         "W-283 W-3: `if !pair_empty {{` gate に draw_button_row(ui, false, ...) が含まれない (Keep gate 欠落)"
     );
 }
+
+/// W-284 / G-115-252: io_thread_post.rs main loop の self_check_pair_claim 発火条件
+/// に `!record_sm.is_recording()` gate が含まれることを invariant 化。Record 中の
+/// self_check release が pair_pre_name="" / delta_result clear / pair_label 切替で
+/// Record 継続を破綻させる regression を防ぐ (Daisuke 2026-05-17 報告)。
+#[test]
+fn io_thread_post_self_check_gated_when_recording() {
+    let src = fs::read_to_string(
+        crate_root()
+            .parent()
+            .expect("hypha_post -> crates parent")
+            .join("kirin_measure/src/io_thread_post.rs"),
+    )
+    .expect("read io_thread_post.rs");
+    // W-281 C-3 self_check 発火条件 block (W-284 で Record gate 追加)。
+    // anchor = `&& tick_now.duration_since(last_self_check_at)` (条件式末尾の throttle 句)。
+    let anchor_idx = src
+        .find("&& tick_now.duration_since(last_self_check_at)")
+        .expect("W-281 C-3 self_check throttle anchor not found");
+    // anchor から 200 byte 前後 (条件式全体を含む) で gate を確認。
+    let start = anchor_idx.saturating_sub(300);
+    let end = (anchor_idx + 200).min(src.len());
+    // UTF-8 char boundary walk-back (Japanese 注釈の途中で切れないように)。
+    let mut safe_start = start;
+    while safe_start < src.len() && !src.is_char_boundary(safe_start) {
+        safe_start += 1;
+    }
+    let mut safe_end = end;
+    while safe_end > 0 && !src.is_char_boundary(safe_end) {
+        safe_end -= 1;
+    }
+    let window = &src[safe_start..safe_end];
+    assert!(
+        window.contains("!record_sm.is_recording()"),
+        "W-284 G-115-252: self_check 発火条件 block に `!record_sm.is_recording()` gate が無い (Record 中 release で pair 破綻する regression)"
+    );
+}

@@ -263,8 +263,14 @@ pub fn spawn_io_thread_post(
             // W-281 / C-3: 1 sec interval で後着優先 self check を発火。
             // pair_pre_name が空 or 自身が唯一の claim 者 → release 不要。
             // 解放対象 → C-4 経路で pair_pre_name="" / pair_claimed_at=0.0 + Toast 通知。
+            // W-284 / G-115-252: Record 中は self_check を skip。Record 中に self_check
+            // が release を発火すると pair_pre_name="" + delta_result clear (W-282)
+            // + pair_label 切替で Record 継続が破綻する (Daisuke 2026-05-17 報告)。
+            // Record 開始時点で確定した pair は Stop まで保持する仕様。Watch 中のみ
+            // 後着優先 release を許容する。
             let tick_now = Instant::now();
             if !pair_pre_name_snapshot.is_empty()
+                && !record_sm.is_recording()
                 && tick_now.duration_since(last_self_check_at) >= Duration::from_secs(1)
             {
                 last_self_check_at = tick_now;
