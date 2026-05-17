@@ -88,9 +88,12 @@ fn editor_rs_calls_draw_proposals_block_from_draw_post() {
     // (元 4000 では draw_proposals_block 呼出 byte index がぎりぎり外に出る)。
     // window 5000 → 6000: B-048 / G-115-245 NoPre 分岐に Last Known Good if-let
     // 追加 (draw_post body 5587 byte 計測 / 6000 確保)。
+    // window 6000 → 7000: B-049 / G-115-247 Inactive 分岐に if-let 追加で
+    // draw_proposals_block 呼出が rel 5967 byte → 文字列終端 6003 byte で
+    // 6000 window から 3 byte はみ出す (contains 不成立)。1000 byte 余裕を確保。
     // UTF-8 char boundary を跨がないよう boundary まで walk-back する
     // (Japanese comments が raw byte index 上で multi-byte char の途中に当たる)。
-    let mut safe_end = (draw_post_start + 6000).min(src.len());
+    let mut safe_end = (draw_post_start + 7000).min(src.len());
     while safe_end > draw_post_start && !src.is_char_boundary(safe_end) {
         safe_end -= 1;
     }
@@ -416,9 +419,9 @@ fn editor_rs_no_pre_branch_has_last_known_good_and_fallback() {
     let draw_post_start = src
         .find("fn draw_post(")
         .expect("draw_post function must exist");
-    // window 6000 は editor_rs_calls_draw_proposals_block_from_draw_post と同位相
-    // (B-048 NoPre 分岐 if-let 追加で body 増 5587 byte / 6000 で 413 byte 余裕)。
-    let mut safe_end = (draw_post_start + 6000).min(src.len());
+    // window 7000 は editor_rs_calls_draw_proposals_block_from_draw_post と同位相
+    // (B-049 Inactive 分岐 if-let 追加で draw_post body 増 / B-048 6000 → B-049 7000)。
+    let mut safe_end = (draw_post_start + 7000).min(src.len());
     while safe_end > draw_post_start && !src.is_char_boundary(safe_end) {
         safe_end -= 1;
     }
