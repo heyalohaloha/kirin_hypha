@@ -508,3 +508,69 @@ fn editor_rs_bypassed_branch_unchanged_no_last_active_ref() {
         "B-049 invariant #1: SignalState::Bypassed arm must NOT call draw_delta_grid_frozen"
     );
 }
+
+// ── W-280 / G-115-248: 再生中 pair 変更 block の配線回帰テスト (B-12) ─────────
+
+/// W-280 B-12 (iii): Audio Thread `process()` が `transport.playing` を
+/// `is_playing` AtomicBool に store する経路を固定する。
+/// 配線が落ちると GUI が「再生中」を検出できず block が解除される。
+#[test]
+fn lib_rs_process_stores_transport_playing_to_is_playing_atomic() {
+    let src = read("src/lib.rs");
+    assert!(
+        src.contains("self.is_playing.store(playing"),
+        "lib.rs process() must store transport.playing into is_playing AtomicBool (W-280 B-4)"
+    );
+    assert!(
+        src.contains("is_playing: Arc<AtomicBool>"),
+        "lib.rs HyphaPost must declare `is_playing: Arc<AtomicBool>` field (W-280 B-1)"
+    );
+}
+
+/// W-280 B-12 (ii): GUI Thread `update` closure 入口で `is_playing` を
+/// snapshot する経路を固定する。配線が落ちると frame 毎の load が消える。
+#[test]
+fn editor_rs_update_closure_loads_is_playing() {
+    let src = read("src/editor.rs");
+    assert!(
+        src.contains("state.is_playing.load(Ordering::Relaxed)"),
+        "editor.rs update closure must snapshot is_playing at frame entry (W-280 B-7)"
+    );
+    assert!(
+        src.contains("pub is_playing: Arc<AtomicBool>"),
+        "editor.rs PostEditorArgs / PostEditorState must declare `is_playing` field (W-280 B-5/B-6)"
+    );
+}
+
+/// W-280 B-12 (i): draw_pair_pre_name_field / draw_pair_pre_combo の
+/// PRE 候補行ループが `add_enabled_ui(!is_playing` で囲まれていることを固定する。
+/// 配線が落ちると再生中の pair 変更 block が解除される。
+#[test]
+fn editor_rs_pair_widgets_wrapped_in_add_enabled_ui_not_is_playing() {
+    let src = read("src/editor.rs");
+    let n = src.matches("add_enabled_ui(!is_playing").count();
+    assert!(
+        n >= 2,
+        "editor.rs must wrap pair widgets with `add_enabled_ui(!is_playing` at least 2 times \
+         (W-280 B-9 draw_pair_pre_name_field + B-10 draw_pair_pre_combo PRE candidates), got {}",
+        n
+    );
+    // PAIR_LOCKED_TOOLTIP const が存在し、tooltip 文言が Daisuke 確定 (判断 4) と一致する。
+    assert!(
+        src.contains(r#"const PAIR_LOCKED_TOOLTIP: &str = "Pair selection is locked during playback""#),
+        "editor.rs must declare PAIR_LOCKED_TOOLTIP with Daisuke-confirmed string (W-280 B-11)"
+    );
+    // ComboBox 全体を add_enabled_ui で囲っていないこと (判断 2 / All Stop / All Keep 保護)。
+    // ComboBox::from_id_salt の直前行に add_enabled_ui がないことの簡易チェック。
+    let combo_idx = src
+        .find("ComboBox::from_id_salt(\"hypha_post_pair_pre_dropdown\")")
+        .expect("draw_pair_pre_combo ComboBox::from_id_salt entry missing");
+    // 直前 300 byte に add_enabled_ui が含まれていないこと (判断 2)。
+    let before_start = combo_idx.saturating_sub(300);
+    let before_window = &src[before_start..combo_idx];
+    assert!(
+        !before_window.contains("add_enabled_ui"),
+        "W-280 invariant: ComboBox 全体は add_enabled_ui で囲ってはならない \
+         (判断 2 / All Stop / All Keep 機能保護)"
+    );
+}

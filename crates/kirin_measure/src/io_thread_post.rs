@@ -29,7 +29,9 @@ use crate::all_stop_signal::{self, ALL_STOP_BROADCAST_STALE_SECS};
 use crate::cleanup::exit_record_full;
 use crate::delta::{DeltaMode, DeltaResult, DeltaSnapshot};
 use crate::plugin_data::Role as PluginDataRole;
-use crate::pre_discovery::{discover_active_pre_dir, PostDiscoveryState, DISCOVERY_STALE_SECS};
+use crate::pre_discovery::{
+    discover_active_pre_dir_for_pair, PostDiscoveryState, DISCOVERY_STALE_SECS,
+};
 use crate::record::RecordStateMachine;
 use crate::record_signal::{self, SignalStatus, ACK_TIMEOUT_SECONDS, SIGNALS_SUBDIR};
 use crate::record_writer::{run_record_tick, writer_close, RecordError, RecordingCtx};
@@ -704,9 +706,13 @@ fn run_tick(
     }
 
     // B-021 Phase 1A: PRE discovery (1 秒 throttle)。
+    // W-280 / G-115-248: pair-aware 版に切替。pair_pre_name (本 tick の snapshot) を
+    // discovery / Δ 計算双方に流し、2 セット環境で他 PRE の mtime に引っ張られて
+    // 誤 dir 採用される事を防ぐ。
+    let pair_opt = Some(pair_pre_name).filter(|s| !s.is_empty());
     let now = Instant::now();
     if discovery.should_rescan(now) {
-        let found = discover_active_pre_dir(kirin_root);
+        let found = discover_active_pre_dir_for_pair(kirin_root, pair_opt);
         discovery.record_scan(now, found);
     }
     let project_dir: &Path = discovery
@@ -718,7 +724,7 @@ fn run_tick(
         .map_err(|e| format!("post Mutex poisoned: {e}"))?
         .clone();
 
-    let (new_delta, pre_signal_state) = compute_delta_with_state(project_dir, &post)?;
+    let (new_delta, pre_signal_state) = compute_delta_with_state(project_dir, &post, pair_opt)?;
 
     // B-048 / G-115-245 Last Known Good: Active 時に Δ 6 軸を snapshot として
     // `last_active` に保存し、Stale/NoPre 時は前回 `last_active` を保持する。
@@ -740,10 +746,13 @@ fn run_tick(
     Ok(())
 }
 
-/// PRE ファイルをスキャンして Δ を算出する（後方互換ラッパー）。
+/// PRE ファイルをスキャンして Δ を算出する（後方互換ラッパー / 既存 integration test 用）。
+///
+/// W-280: pair filter なし版。本ラッパーは `pair_pre_name = None` 相当で呼ぶ。
+/// 新規プロダクションコードは `compute_delta_with_state(..., pair_pre_name)` を直接呼ぶこと。
 #[doc(hidden)]
 pub fn compute_delta(project_dir: &Path, post: &MeasureResult) -> Result<DeltaResult, String> {
-    compute_delta_with_state(project_dir, post).map(|(delta, _)| delta)
+    compute_delta_with_state(project_dir, post, None).map(|(delta, _)| delta)
 }
 
 /// B-048 / G-115-245 Last Known Good: 新 `DeltaResult` と前回 `last_active` を
@@ -789,14 +798,25 @@ pub fn merge_last_active(
 }
 
 /// `$TMPDIR/kirin/{project_hash}/` 配下の全 instance_id サブディレクトリを走査して
-/// `pre.json` を集め、Δ を算出する。
+/// `pre.json` を集め、Δ を算出する (W-280: pair filter 対応)。
 ///
+/// # pair_pre_name セマンティクス (W-280 / G-115-248)
+/// - `Some(target)` (非空文字): 各 pre.json を read → `parsed["name"].as_str()` が
+///   `target` に一致するものだけ候補に push する。pair 確立後の Δ 計算経路で
+///   2 セット環境の交互 pick 症状を解消する根本対処。
+/// - `None` または `Some("")` (filter なし):
+///   - project_dir 配下 instance 数が **1 件**なら従来通り pass-through (ZSA: single-PRE
+///     後方互換 / pair_pre_name 未設定時の挙動維持)。
+///   - **2 件以上**は曖昧として `DeltaMode::NoPre` (R-7 / R-26 沈黙ゲート / 推測でない)。
+///
+/// # 戻り値
 /// - 0 個 → `DeltaMode::NoPre`, `None`
-/// - 複数 → 最新 `t` を選択（ISO 8601 は文字列比較で最新判定可）
+/// - 複数 → 最新 `t` を選択（ISO 8601 は文字列比較で最新判定可 / A-2 上流 filter 済前提）
 /// - 鮮度判定 → `Active` / `Stale` / `NoPre`
 fn compute_delta_with_state(
     project_dir: &Path,
     post: &MeasureResult,
+    pair_pre_name: Option<&str>,
 ) -> Result<(DeltaResult, Option<SignalState>), String> {
     if !project_dir.exists() {
         return Ok((
@@ -808,7 +828,12 @@ fn compute_delta_with_state(
         ));
     }
 
-    let mut pre_files: Vec<PathBuf> = Vec::new();
+    // W-280: 空文字は filter 適用なし扱い (B-027 段階 1 pass-through セマンティクス継承)。
+    let pair_target = pair_pre_name.filter(|s| !s.is_empty());
+
+    // W-280: 1 回目の walk で「project_dir 配下の instance 候補 (pre.json 持ち)」を
+    // 列挙し、その後 pair filter / pass-through 判定を行う。
+    let mut candidates: Vec<PathBuf> = Vec::new();
     let project_entries = fs::read_dir(project_dir).map_err(|e| format!("read_dir: {e}"))?;
     for entry in project_entries.flatten() {
         let path = entry.path();
@@ -821,9 +846,38 @@ fn compute_delta_with_state(
         }
         let candidate = path.join("pre.json");
         if candidate.is_file() {
-            pre_files.push(candidate);
+            candidates.push(candidate);
         }
     }
+
+    // W-280: pair filter — Some(target) なら name 一致のみ / None なら 1 件 pass-through。
+    let mut pre_files: Vec<PathBuf> = match pair_target {
+        Some(target) => {
+            let mut matched = Vec::new();
+            for cand in candidates {
+                let content = match fs::read_to_string(&cand) {
+                    Ok(s) => s,
+                    Err(_) => continue,
+                };
+                let parsed: serde_json::Value = match serde_json::from_str(&content) {
+                    Ok(v) => v,
+                    Err(_) => continue,
+                };
+                if parsed.get("name").and_then(|v| v.as_str()) == Some(target) {
+                    matched.push(cand);
+                }
+            }
+            matched
+        }
+        None => {
+            // pair 未指定: 1 件のみ pass-through / 2 件以上は曖昧として 0 件 (NoPre 落ち)。
+            if candidates.len() == 1 {
+                candidates
+            } else {
+                Vec::new()
+            }
+        }
+    };
 
     if pre_files.is_empty() {
         return Ok((
@@ -1746,6 +1800,16 @@ mod compute_delta_tests {
         fs::write(dir.join("pre.json"), json).unwrap();
     }
 
+    /// W-280: pair filter テスト用 — `name` field 付き pre.json を書き出す。
+    fn write_pre_named(project_dir: &Path, instance_id: &str, name: &str, t: &str, lufs: f64) {
+        let dir = project_dir.join(instance_id);
+        fs::create_dir_all(&dir).unwrap();
+        let json = format!(
+            r#"{{"v":2,"role":"PRE","instance_id":"{instance_id}","name":"{name}","signal_state":"active","t":"{t}","lufs_m":{lufs},"true_peak":-1.0,"crest":12.0,"psr":8.0}}"#
+        );
+        fs::write(dir.join("pre.json"), json).unwrap();
+    }
+
     #[test]
     fn no_pre_dir_returns_no_pre_mode() {
         let pd = isolated_project_dir();
@@ -1757,17 +1821,18 @@ mod compute_delta_tests {
                 crest: Some(12.0),
                 ..Default::default()
             },
+            None,
         )
         .unwrap();
         assert_eq!(r.0.mode, DeltaMode::NoPre);
     }
 
     #[test]
-    fn scans_across_instance_ids() {
+    fn single_instance_pass_through_when_no_pair() {
+        // W-280: pair=None かつ instance 1 件のみ → 後方互換で pass-through (Active 算出可)。
         let pd = isolated_project_dir();
         let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
         write_pre(&pd, "iid-A", &now, -14.0);
-        write_pre(&pd, "iid-B", &now, -15.0);
 
         let r = compute_delta_with_state(
             &pd,
@@ -1777,9 +1842,9 @@ mod compute_delta_tests {
                 crest: Some(12.0),
                 ..Default::default()
             },
+            None,
         )
         .unwrap();
-        // Δ が算出される（mode が Active）
         assert_eq!(r.0.mode, DeltaMode::Active);
         assert!(r.0.lufs.is_some());
     }
@@ -1799,10 +1864,122 @@ mod compute_delta_tests {
                 crest: Some(12.0),
                 ..Default::default()
             },
+            None,
         )
         .unwrap();
         // record_signal/ 以外に pre が無いので NoPre
         assert_eq!(r.0.mode, DeltaMode::NoPre);
+    }
+
+    // ── W-280 / G-115-248: pair filter 経路テスト (A-6) ─────────────────────
+
+    /// (i) pair filter で name 不一致の pre.json は無視される。
+    #[test]
+    fn pair_filter_skips_non_matching_name() {
+        let pd = isolated_project_dir();
+        let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+        write_pre_named(&pd, "iid-A", "snare", &now, -14.0);
+        write_pre_named(&pd, "iid-B", "kick", &now, -15.0);
+
+        // pair_pre_name = "snare" を指定 → iid-A のみ採用 → Active で iid-A の Δ
+        let r = compute_delta_with_state(
+            &pd,
+            &MeasureResult {
+                lufs_m: Some(-10.0),
+                true_peak: Some(-1.0),
+                crest: Some(12.0),
+                ..Default::default()
+            },
+            Some("snare"),
+        )
+        .unwrap();
+        assert_eq!(r.0.mode, DeltaMode::Active);
+        // Δ = POST(-10) - PRE(-14) = +4.0 (iid-A 採用確認 / iid-B の -15 ではない)
+        let delta_lufs = r.0.lufs.expect("delta.lufs should be Some");
+        assert!(
+            (delta_lufs - 4.0).abs() < 0.01,
+            "expected Δ from iid-A (snare) ~+4.0, got {}",
+            delta_lufs
+        );
+    }
+
+    /// (ii) 2 セット環境で select_best_pre が pair 内 max t を選ぶ。
+    #[test]
+    fn pair_filter_picks_max_t_within_pair() {
+        let pd = isolated_project_dir();
+        // 同じ name "snare" を持つ pre.json 2 件 + 別 name "kick" 1 件。
+        // t は ISO 8601 文字列比較で snare-NEW > snare-OLD > kick。
+        write_pre_named(&pd, "iid-snare-old", "snare", "2026-05-17T10:00:00.000Z", -14.0);
+        write_pre_named(&pd, "iid-snare-new", "snare", "2026-05-17T10:00:01.000Z", -16.0);
+        write_pre_named(&pd, "iid-kick", "kick", "2026-05-17T10:00:02.000Z", -12.0);
+
+        let r = compute_delta_with_state(
+            &pd,
+            &MeasureResult {
+                lufs_m: Some(-10.0),
+                true_peak: Some(-1.0),
+                crest: Some(12.0),
+                ..Default::default()
+            },
+            Some("snare"),
+        )
+        .unwrap();
+        assert_eq!(r.0.mode, DeltaMode::Active);
+        // snare 内 max t = iid-snare-new (lufs=-16) / Δ = -10 - (-16) = +6.0
+        let delta_lufs = r.0.lufs.expect("delta.lufs should be Some");
+        assert!(
+            (delta_lufs - 6.0).abs() < 0.01,
+            "expected Δ from snare-new ~+6.0, got {} (kick (latest t) must not be picked)",
+            delta_lufs
+        );
+    }
+
+    /// (iii) pair filter 後 0 件で DeltaMode::NoPre に落ちる。
+    #[test]
+    fn pair_filter_zero_match_falls_to_no_pre() {
+        let pd = isolated_project_dir();
+        let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+        write_pre_named(&pd, "iid-A", "snare", &now, -14.0);
+        write_pre_named(&pd, "iid-B", "kick", &now, -15.0);
+
+        // pair_pre_name = "vocal" を指定 → どれも一致せず → 0 件 → NoPre
+        let r = compute_delta_with_state(
+            &pd,
+            &MeasureResult {
+                lufs_m: Some(-10.0),
+                true_peak: Some(-1.0),
+                crest: Some(12.0),
+                ..Default::default()
+            },
+            Some("vocal"),
+        )
+        .unwrap();
+        assert_eq!(r.0.mode, DeltaMode::NoPre);
+        assert!(r.0.lufs.is_none());
+    }
+
+    /// W-280 補強: pair=None かつ 2 件以上 → 曖昧として NoPre (R-7/R-26 沈黙ゲート)。
+    /// 元の `scans_across_instance_ids` テストが期待していた挙動の反転を明示する。
+    #[test]
+    fn no_pair_with_multiple_instances_falls_to_no_pre() {
+        let pd = isolated_project_dir();
+        let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+        write_pre(&pd, "iid-A", &now, -14.0);
+        write_pre(&pd, "iid-B", &now, -15.0);
+
+        let r = compute_delta_with_state(
+            &pd,
+            &MeasureResult {
+                lufs_m: Some(-10.0),
+                true_peak: Some(-1.0),
+                crest: Some(12.0),
+                ..Default::default()
+            },
+            None,
+        )
+        .unwrap();
+        assert_eq!(r.0.mode, DeltaMode::NoPre);
+        assert!(r.0.lufs.is_none());
     }
 }
 

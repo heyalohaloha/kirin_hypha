@@ -72,6 +72,10 @@ use crate::{read_daw_session_id_arc, read_instance_id_arc, read_project_hash_arc
 /// T-E throttle: rescan `preset/` at most every 500 ms. proposals rarely
 /// change at sub-second cadence; avoids hitting FS every repaint (≈ 10 Hz).
 const PROPOSALS_SCAN_INTERVAL_SECS: f64 = 0.5;
+
+/// W-280 / G-115-248: 再生中 pair 変更を block 中に表示する tooltip 文言。
+/// R-22 中立的事実説明 (価値判断語なし)。Daisuke 確定 (判断 4) のため変更禁止。
+const PAIR_LOCKED_TOOLTIP: &str = "Pair selection is locked during playback";
 /// T-E: cap rendered cards to keep the 300×200 GUI bounded.  Beyond this,
 /// the user sees "+ N more" (or just truncates — see draw_proposals_block).
 const MAX_CARDS_RENDERED: usize = 8;
@@ -150,6 +154,11 @@ pub struct PostEditorState {
     /// process() が initialize() でキャッシュしたサンプルレート。0 = 未初期化。
     pub playback_sample_rate: Arc<AtomicU32>,
 
+    /// W-280 / G-115-248: transport.playing 独立 AtomicBool。
+    /// `process()` が毎 frame `Ordering::Relaxed` で書込、`update` closure 入口で
+    /// load して再生中 pair 変更 (Name field + ComboBox PRE 候補行) を block する。
+    pub is_playing: Arc<AtomicBool>,
+
     /// B-027 段階 2: pair PRE Name (HyphaPostParams.pair_pre_name と Arc 共有)。
     /// 編集確定時に `write()` で sanitize 後の値を書き込み、trigger_keep で
     /// `read()` した値を `filter_candidates_by_name` の引数に渡す。
@@ -203,6 +212,7 @@ impl PostEditorState {
             installation_id: args.installation_id,
             playback_pos_samples: args.playback_pos_samples,
             playback_sample_rate: args.playback_sample_rate,
+            is_playing: args.is_playing,
             pair_pre_name: args.pair_pre_name,
             record_error_message: args.record_error_message,
             bg: BackgroundTexture::new(),
@@ -246,6 +256,8 @@ pub struct PostEditorArgs {
     pub installation_id: Arc<String>,
     pub playback_pos_samples: Arc<AtomicI64>,
     pub playback_sample_rate: Arc<AtomicU32>,
+    /// W-280 / G-115-248: transport.playing 独立 AtomicBool。再生中 pair 変更 block 用。
+    pub is_playing: Arc<AtomicBool>,
     /// B-027 段階 2: pair PRE Name の Arc 共有 (HyphaPostParams.pair_pre_name)。
     pub pair_pre_name: Arc<RwLock<String>>,
     /// B-025 Group B-2/B-3 / Gap-19/20: io_thread → GUI ステータス行通知 Arc。
@@ -268,6 +280,10 @@ pub fn create_post_editor(args: PostEditorArgs) -> Option<Box<dyn Editor>> {
         },
         |ctx, _setter, state| {
             let sig = load_signal_state(&state.signal_state);
+            // W-280 / G-115-248: frame 入口で transport.playing snapshot。
+            // 再生中 pair 変更 block の判定軸 (draw_pair_pre_name_field /
+            // draw_pair_pre_combo PRE 候補行)。
+            let is_playing = state.is_playing.load(Ordering::Relaxed);
             let m = state.measure.lock().map(|g| g.clone()).unwrap_or_default();
             let d = state.delta.lock().map(|g| g.clone()).unwrap_or_default();
             let alive = state.measure_alive.load(Ordering::Relaxed);
@@ -313,7 +329,7 @@ pub fn create_post_editor(args: PostEditorArgs) -> Option<Box<dyn Editor>> {
             }
             let led_col = led_color(led, now);
 
-            draw_post(ctx, state, &m, &d, sig, recording, &pair, led_col, show_banner, license, now);
+            draw_post(ctx, state, &m, &d, sig, recording, &pair, led_col, show_banner, license, now, is_playing);
 
             // Toast の寿命切れはこのフレームで掃除
             if state.toast.as_ref().is_some_and(|t| !t.is_alive(now)) {
@@ -338,6 +354,7 @@ fn draw_post(
     show_banner: bool,
     license: License,
     now: f64,
+    is_playing: bool,
 ) {
     egui::CentralPanel::default()
         .frame(egui::Frame::NONE.fill(BG))
@@ -369,11 +386,15 @@ fn draw_post(
             // 選択で pair_pre_name を確定する (Keep manual 経由)。
             // `draw_pair_pre_name_field` の直近右側に並べ、自由入力（Name 検索）と
             // 一覧選択の両系統を提供する。
+            //
+            // W-280 / G-115-248: is_playing を 2 関数に伝播し、再生中 pair 変更を
+            // block する。ComboBox 全体は囲わない (All Stop / All Keep は機能性維持 /
+            // 判断 2 / 約束5原則 #5)。
             ui.horizontal(|ui| {
                 ui.add_space(10.0);
-                draw_pair_pre_name_field(ui, state);
+                draw_pair_pre_name_field(ui, state, is_playing);
                 ui.add_space(4.0);
-                draw_pair_pre_combo(ui, state, now);
+                draw_pair_pre_combo(ui, state, now, is_playing);
             });
             ui.add_space(4.0);
 
@@ -720,52 +741,63 @@ fn row_pair(
 /// 理由: POST 自身の identity ではないため fallback 識別子は概念的に存在しない
 /// (B-023 論点 4 (c) POST 独自命名禁止 と整合)。空文字時は trigger_keep の
 /// filter も pass-through (B-027 段階 1 受入維持)。
-fn draw_pair_pre_name_field(ui: &mut egui::Ui, state: &mut PostEditorState) {
-    if pair_pre_name_edit_active(ui) {
-        let response = ui.add(
-            TextEdit::singleline(&mut state.pair_pre_name_edit_buffer)
-                .id(*PAIR_PRE_NAME_FOCUS_ID)
-                .desired_width(120.0)
-                .font(TextStyle::Monospace),
-        );
-        if ui.input(|i| i.key_pressed(Key::Escape)) {
-            ui.memory_mut(|mem| mem.surrender_focus(*PAIR_PRE_NAME_FOCUS_ID));
-        } else if response.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
-            let sanitized = sanitize_name(&state.pair_pre_name_edit_buffer);
-            if let Ok(mut g) = state.pair_pre_name.write() {
-                *g = sanitized;
+fn draw_pair_pre_name_field(ui: &mut egui::Ui, state: &mut PostEditorState, is_playing: bool) {
+    // W-280 / G-115-248: is_playing=true で全体 disable + tooltip。
+    // TextEdit / Label / focus 関連全て囲い込みの内側で発火するため、
+    // 再生中は入力・編集モード遷移ともに block される。
+    let inner = ui.add_enabled_ui(!is_playing, |ui| {
+        if pair_pre_name_edit_active(ui) {
+            let response = ui.add(
+                TextEdit::singleline(&mut state.pair_pre_name_edit_buffer)
+                    .id(*PAIR_PRE_NAME_FOCUS_ID)
+                    .desired_width(120.0)
+                    .font(TextStyle::Monospace),
+            );
+            if ui.input(|i| i.key_pressed(Key::Escape)) {
+                ui.memory_mut(|mem| mem.surrender_focus(*PAIR_PRE_NAME_FOCUS_ID));
+            } else if response.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
+                let sanitized = sanitize_name(&state.pair_pre_name_edit_buffer);
+                if let Ok(mut g) = state.pair_pre_name.write() {
+                    *g = sanitized;
+                }
+                ui.memory_mut(|mem| mem.surrender_focus(*PAIR_PRE_NAME_FOCUS_ID));
+            } else if response.changed() {
+                state.pair_pre_name_edit_buffer = sanitize_name(&state.pair_pre_name_edit_buffer);
             }
-            ui.memory_mut(|mem| mem.surrender_focus(*PAIR_PRE_NAME_FOCUS_ID));
-        } else if response.changed() {
-            state.pair_pre_name_edit_buffer = sanitize_name(&state.pair_pre_name_edit_buffer);
-        }
-    } else {
-        let raw_name = state
-            .pair_pre_name
-            .read()
-            .ok()
-            .map(|g| g.clone())
-            .unwrap_or_default();
-        // 空時の表示: PRE 側 (UUID8 fallback) と異なり、POST は識別子を持たないため
-        // 「pair: ___」プレースホルダで「未指定 = filter 無効」を視覚化する。
-        let display = if raw_name.is_empty() {
-            "pair: ___".to_string()
         } else {
-            format!("pair: {}", raw_name)
-        };
-        let label = ui.add(
-            Label::new(
-                RichText::new(&display)
-                    .size(14.0)
-                    .color(COL_FLORA)
-                    .monospace(),
-            )
-            .sense(Sense::click()),
-        );
-        if label.clicked() {
-            state.pair_pre_name_edit_buffer = raw_name;
-            ui.memory_mut(|mem| mem.request_focus(*PAIR_PRE_NAME_FOCUS_ID));
+            let raw_name = state
+                .pair_pre_name
+                .read()
+                .ok()
+                .map(|g| g.clone())
+                .unwrap_or_default();
+            // 空時の表示: PRE 側 (UUID8 fallback) と異なり、POST は識別子を持たないため
+            // 「pair: ___」プレースホルダで「未指定 = filter 無効」を視覚化する。
+            let display = if raw_name.is_empty() {
+                "pair: ___".to_string()
+            } else {
+                format!("pair: {}", raw_name)
+            };
+            let label = ui.add(
+                Label::new(
+                    RichText::new(&display)
+                        .size(14.0)
+                        .color(COL_FLORA)
+                        .monospace(),
+                )
+                .sense(Sense::click()),
+            );
+            if label.clicked() {
+                state.pair_pre_name_edit_buffer = raw_name;
+                ui.memory_mut(|mem| mem.request_focus(*PAIR_PRE_NAME_FOCUS_ID));
+            }
         }
+    });
+    // W-280: 囲んだ scope の InnerResponse.response に on_hover_text を貼る。
+    // disabled scope 内側で hover でも tooltip が出る (egui 0.31.1 add_enabled_ui の
+    // public 動作 / R-11 確認済)。
+    if is_playing {
+        inner.response.on_hover_text(PAIR_LOCKED_TOOLTIP);
     }
 }
 
@@ -782,7 +814,7 @@ fn draw_pair_pre_name_field(ui: &mut egui::Ui, state: &mut PostEditorState) {
 ///
 /// 0 候補時は `ui.label("No candidates")` を出す（dropdown 内空表示）。
 /// egui 0.31.1 公式 API: `ComboBox::from_id_salt` (旧 `from_id_source` は廃止)。
-fn draw_pair_pre_combo(ui: &mut egui::Ui, state: &mut PostEditorState, now: f64) {
+fn draw_pair_pre_combo(ui: &mut egui::Ui, state: &mut PostEditorState, now: f64, is_playing: bool) {
     let kirin_root = std::env::temp_dir().join("kirin");
     let pre_candidates = enumerate_active_pre_pair_candidates(&kirin_root);
     // B-027 段階 3-B α-7-3 / Step 9: All Keep 行 N 集計のため POST candidates も取得。
@@ -925,37 +957,46 @@ fn draw_pair_pre_combo(ui: &mut egui::Ui, state: &mut PostEditorState, now: f64)
                 });
             }
 
-            // ── 既存 PRE candidates 列挙 (完全不変) ─────────────────────────
-            if pre_candidates.is_empty() {
-                ui.label(
-                    RichText::new("No candidates")
-                        .size(11.0)
-                        .color(COL_MUTED)
-                        .monospace(),
-                );
-                return;
-            }
-            for cand in &pre_candidates {
-                // B-027 段階 3 (a) 仮説 2 (G-115-53): instance_id (UUID v4) で push_id
-                // 化し widget identity を sort 順入替に対して固定する。
-                // selectable_label の auto-ID は label_text 文字列ハッシュに依存
-                // するため、同 index 位置の text 変動で press/release フレーム間の
-                // ID 不一致 → clicked() event 喪失 (#5-A-3 異常 2) を起こす。
-                // push_id で外側スコープ ID を固定すると本問題が構造的に解消する。
-                ui.push_id(cand.instance_id.as_str(), |ui| {
-                    let label_text = candidate_dropdown_label(cand);
-                    if ui.selectable_label(false, label_text).clicked() {
-                        let new_name = cand.name.clone().unwrap_or_default();
-                        if let Ok(mut g) = state.pair_pre_name.write() {
-                            *g = new_name;
+            // ── 既存 PRE candidates 列挙 ───────────────────────────────────
+            // W-280 / G-115-248: PRE 候補行ループのみ add_enabled_ui で囲う。
+            // All Stop / All Keep 行 (上記) は囲いの外で機能維持 (判断 2 / 約束5原則 #5)。
+            // ComboBox 全体は囲わない (再生中も Stop/All Keep は機能性必要)。
+            let pre_inner = ui.add_enabled_ui(!is_playing, |ui| {
+                if pre_candidates.is_empty() {
+                    ui.label(
+                        RichText::new("No candidates")
+                            .size(11.0)
+                            .color(COL_MUTED)
+                            .monospace(),
+                    );
+                    return;
+                }
+                for cand in &pre_candidates {
+                    // B-027 段階 3 (a) 仮説 2 (G-115-53): instance_id (UUID v4) で push_id
+                    // 化し widget identity を sort 順入替に対して固定する。
+                    // selectable_label の auto-ID は label_text 文字列ハッシュに依存
+                    // するため、同 index 位置の text 変動で press/release フレーム間の
+                    // ID 不一致 → clicked() event 喪失 (#5-A-3 異常 2) を起こす。
+                    // push_id で外側スコープ ID を固定すると本問題が構造的に解消する。
+                    ui.push_id(cand.instance_id.as_str(), |ui| {
+                        let label_text = candidate_dropdown_label(cand);
+                        if ui.selectable_label(false, label_text).clicked() {
+                            let new_name = cand.name.clone().unwrap_or_default();
+                            if let Ok(mut g) = state.pair_pre_name.write() {
+                                *g = new_name;
+                            }
+                            log::info!(
+                                "[POST pair-combo] selected: instance_id={} name={:?}",
+                                cand.instance_id,
+                                cand.name
+                            );
                         }
-                        log::info!(
-                            "[POST pair-combo] selected: instance_id={} name={:?}",
-                            cand.instance_id,
-                            cand.name
-                        );
-                    }
-                });
+                    });
+                }
+            });
+            // W-280: 再生中は PRE 候補 scope に locked tooltip を貼る。
+            if is_playing {
+                pre_inner.response.on_hover_text(PAIR_LOCKED_TOOLTIP);
             }
         });
 }

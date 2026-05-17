@@ -53,7 +53,8 @@ pub use plugin_data::{
     Status as PluginDataStatus, WriterError as PluginDataWriterError, WriterPaths,
 };
 pub use pre_discovery::{
-    discover_active_pre_dir, discover_active_pre_dirs, PostDiscoveryState, DISCOVERY_STALE_SECS,
+    discover_active_pre_dir_for_pair, discover_active_pre_dirs, PostDiscoveryState,
+    DISCOVERY_STALE_SECS,
 };
 pub use pre_self_discovery::{
     discover_pair_post_project_dir, PreSelfDiscoveryState,

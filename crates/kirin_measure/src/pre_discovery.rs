@@ -76,18 +76,35 @@ impl PostDiscoveryState {
     }
 }
 
-/// `kirin_root` (= `$TMPDIR/kirin/`) 配下を scan して active な PRE dir を返す。
+/// `kirin_root` (= `$TMPDIR/kirin/`) 配下を scan して active な PRE dir を返す
+/// (W-280 / G-115-248: pair-aware 版)。
 ///
 /// 戻り値は `{kirin_root}/{project_uuid}/` path (instance_id レベルでなく、その
-/// 親 dir)。POST IO Thread はこれを `compute_delta_with_state(project_dir, ...)`
-/// に渡す。複数 project_uuid 候補がある場合は **mtime 最新 1 件のみ返す**
-/// (単一 PRE 前提 / guardian_50 §G-50-35 / Δ 経路で使用)。
+/// 親 dir)。POST IO Thread はこれを `compute_delta_with_state(project_dir, ...,
+/// pair_pre_name)` に渡す。
+///
+/// # pair_pre_name セマンティクス (W-280)
+/// - `Some(target)` (非空文字): 各 project_dir 内で **name 一致 `pre.json`** の
+///   mtime のみを採用する。pre.json の `name` field を読み出して `target` と
+///   照合し、不一致は候補から除外する。これにより 2 セット環境 (PRE A + PRE B)
+///   で他 PRE の mtime に引っ張られて誤 dir 採用される事を防ぐ。
+/// - `None` または `Some("")`: 既存挙動 (mtime fresh + project 内 mtime 最新)。
+///   後方互換 (single PRE 環境 / pair_pre_name 未設定時)。
+///
+/// 複数 project_uuid 候補がある場合は **mtime 最新 1 件のみ返す** (単一 PRE 前提 /
+/// guardian_50 §G-50-35 / Δ 経路で使用)。
 ///
 /// 多 PRE 環境 (複数 project_uuid に PRE が分散する) で全候補が必要な場合は
 /// [`discover_active_pre_dirs`] を使う (B-027 段階 2 fix)。
 ///
 /// 詳細は module doc 参照。
-pub fn discover_active_pre_dir(kirin_root: &Path) -> Option<PathBuf> {
+pub fn discover_active_pre_dir_for_pair(
+    kirin_root: &Path,
+    pair_pre_name: Option<&str>,
+) -> Option<PathBuf> {
+    // W-280: 空文字は filter 適用なし扱い (B-027 段階 1 pass-through セマンティクス継承)。
+    let pair_target = pair_pre_name.filter(|s| !s.is_empty());
+
     let now = SystemTime::now();
     let stale_threshold = Duration::from_secs(DISCOVERY_STALE_SECS);
 
@@ -132,6 +149,22 @@ pub fn discover_active_pre_dir(kirin_root: &Path) -> Option<PathBuf> {
             // Err。安全側で「fresh」扱いとして候補に残す。
             if let Ok(age) = now.duration_since(mtime) {
                 if age > stale_threshold {
+                    continue;
+                }
+            }
+
+            // W-280: pair filter — Some(target) のときは pre.json の name field を
+            // 読み出して一致のみ採用する。read / parse 失敗は機能的沈黙 (R-28) で skip。
+            if let Some(target) = pair_target {
+                let content = match fs::read_to_string(&pre_json) {
+                    Ok(s) => s,
+                    Err(_) => continue,
+                };
+                let parsed: serde_json::Value = match serde_json::from_str(&content) {
+                    Ok(v) => v,
+                    Err(_) => continue,
+                };
+                if parsed.get("name").and_then(|v| v.as_str()) != Some(target) {
                     continue;
                 }
             }
@@ -283,13 +316,13 @@ mod tests {
                     .duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
         // root 作らない → 不在
         assert!(!root.exists());
-        assert!(discover_active_pre_dir(&root).is_none());
+        assert!(discover_active_pre_dir_for_pair(&root, None).is_none());
     }
 
     #[test]
     fn discover_returns_none_for_empty_root() {
         let root = unique_tmp_root("empty");
-        assert!(discover_active_pre_dir(&root).is_none());
+        assert!(discover_active_pre_dir_for_pair(&root, None).is_none());
         let _ = fs::remove_dir_all(&root);
     }
 
@@ -297,7 +330,7 @@ mod tests {
     fn discover_finds_single_pre() {
         let root = unique_tmp_root("single");
         touch_pre(&root, "uuid_p1", "iid_p1");
-        let result = discover_active_pre_dir(&root);
+        let result = discover_active_pre_dir_for_pair(&root, None);
         assert_eq!(result, Some(root.join("uuid_p1")));
         let _ = fs::remove_dir_all(&root);
     }
@@ -311,7 +344,7 @@ mod tests {
         set_mtime(&old_pre, now - Duration::from_secs(5));
         set_mtime(&new_pre, now - Duration::from_secs(1));
 
-        let result = discover_active_pre_dir(&root);
+        let result = discover_active_pre_dir_for_pair(&root, None);
         assert_eq!(result, Some(root.join("uuid_new")));
         let _ = fs::remove_dir_all(&root);
     }
@@ -323,7 +356,7 @@ mod tests {
         let stale_time = SystemTime::now() - Duration::from_secs(DISCOVERY_STALE_SECS + 1);
         set_mtime(&stale_pre, stale_time);
 
-        let result = discover_active_pre_dir(&root);
+        let result = discover_active_pre_dir_for_pair(&root, None);
         assert!(
             result.is_none(),
             "stale pre.json (>{}s old) must be excluded, got {:?}",
@@ -342,7 +375,7 @@ mod tests {
         // pre.json 持ち
         touch_pre(&root, "uuid_real", "iid_real");
 
-        let result = discover_active_pre_dir(&root);
+        let result = discover_active_pre_dir_for_pair(&root, None);
         assert_eq!(result, Some(root.join("uuid_real")));
         let _ = fs::remove_dir_all(&root);
     }
@@ -354,7 +387,7 @@ mod tests {
         fs::write(root.join("a_file.txt"), "x").unwrap();
         touch_pre(&root, "uuid_real", "iid_real");
 
-        let result = discover_active_pre_dir(&root);
+        let result = discover_active_pre_dir_for_pair(&root, None);
         assert_eq!(result, Some(root.join("uuid_real")));
         let _ = fs::remove_dir_all(&root);
     }
@@ -370,7 +403,7 @@ mod tests {
 
         // どちらの instance も同じ project 配下なので、project_dir は 1 つだけ
         // 候補に入る。mtime は project 内最新 (= new_pre) で評価される。
-        let result = discover_active_pre_dir(&root);
+        let result = discover_active_pre_dir_for_pair(&root, None);
         assert_eq!(result, Some(root.join("uuid_p")));
         let _ = fs::remove_dir_all(&root);
     }

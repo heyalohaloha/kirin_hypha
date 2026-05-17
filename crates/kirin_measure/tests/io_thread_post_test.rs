@@ -305,9 +305,16 @@ fn test_pair_pre_name_arc_roundtrip_to_post_json() {
     handle.join().unwrap();
 }
 
-/// 複数 PRE ファイルがある場合、最新 t を持つものが選ばれること。
+/// W-280 / G-115-248 (旧 `test_selects_latest_pre_by_timestamp`):
+/// `compute_delta` wrapper は pair_pre_name=None 相当で呼ぶ。複数 PRE 候補が
+/// 存在する場合は曖昧として `DeltaMode::NoPre` (R-7 / R-26 沈黙ゲート / ZSA)。
+///
+/// 旧契約 (W-279 まで): 複数 PRE → 最新 t で選択 → Active。
+/// 新契約 (W-280): pair_pre_name=None かつ複数 PRE → NoPre。
+/// "pair 内 max t を選ぶ" 挙動は `io_thread_post.rs` inline test
+/// `pair_filter_picks_max_t_within_pair` で別途網羅。
 #[test]
-fn test_selects_latest_pre_by_timestamp() {
+fn test_multiple_pre_without_pair_filter_falls_to_no_pre() {
     use kirin_measure::io_thread_post::compute_delta;
 
     let isolated_dir = std::env::temp_dir().join(format!("kirin_test_multi_{}", ts_id()));
@@ -341,16 +348,13 @@ fn test_selects_latest_pre_by_timestamp() {
 
     let result = compute_delta(&isolated_dir, &post).expect("compute_delta should not error");
 
-    // 新しい PRE が選ばれるので Active
-    assert_eq!(result.mode, DeltaMode::Active, "should select newest PRE → Active");
-
-    // Δ = -12.0 - (-14.0) = +2.0（新しい PRE から算出）
-    let delta_lufs = result.lufs.expect("delta.lufs");
-    assert!(
-        (delta_lufs - 2.0).abs() < 0.01,
-        "delta_lufs from new PRE: expected ~2.0, got {}",
-        delta_lufs
+    // W-280: pair_pre_name=None + 複数 instance → NoPre (曖昧)
+    assert_eq!(
+        result.mode,
+        DeltaMode::NoPre,
+        "W-280 contract: ambiguous PRE without pair filter must fall to NoPre"
     );
+    assert!(result.lufs.is_none(), "W-280: NoPre mode must zero out delta fields");
 
     let _ = std::fs::remove_dir_all(&isolated_dir);
 }

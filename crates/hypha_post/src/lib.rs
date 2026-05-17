@@ -91,6 +91,13 @@ pub struct HyphaPost {
     playback_pos_samples: Arc<AtomicI64>,
     playback_sample_rate: Arc<AtomicU32>,
 
+    /// W-280 / G-115-248: transport.playing 独立 AtomicBool (Audio Thread → GUI Thread)。
+    /// `process()` で `transport.playing` を store / GUI が `update` 入口で load して
+    /// 再生中の pair 変更 (draw_pair_pre_name_field / draw_pair_pre_combo PRE 候補行)
+    /// を block する。SignalState::Active は `!silent` と論理積されるため再生中の
+    /// 無音区間で Inactive 落ちする → 代用不可。本 atomic は silent / bypass と直交。
+    is_playing: Arc<AtomicBool>,
+
     /// B-025 Group B-2/B-3 / Gap-19/20: io_thread が連続失敗 (Directory missing /
     /// Write failed) で record exit したとき GUI に表示する英語 1 行ステータス
     /// (G-115-29 準拠)。`None` = 通常 (R-26 沈黙ゲート / 非表示) / `Some` = エラー
@@ -188,6 +195,7 @@ impl Default for HyphaPost {
             installation_id: Arc::new(load_installation_id_or_empty()),
             playback_pos_samples: Arc::new(AtomicI64::new(i64::MIN)),
             playback_sample_rate: Arc::new(AtomicU32::new(0)),
+            is_playing: Arc::new(AtomicBool::new(false)),
             record_error_message: Arc::new(RwLock::new(None)),
         }
     }
@@ -410,6 +418,8 @@ impl Plugin for HyphaPost {
             installation_id: Arc::clone(&self.installation_id),
             playback_pos_samples: Arc::clone(&self.playback_pos_samples),
             playback_sample_rate: Arc::clone(&self.playback_sample_rate),
+            // W-280 / G-115-248: transport.playing 共有 (再生中 pair 変更 block)。
+            is_playing: Arc::clone(&self.is_playing),
             // B-027 段階 2: POST GUI に pair_pre_name 入力欄を追加。trigger_keep
             // で `filter_candidates_by_name` の引数として読み出す。
             pair_pre_name: Arc::clone(&self.params.pair_pre_name),
@@ -715,6 +725,9 @@ impl Plugin for HyphaPost {
         let bypass_val = self.params.bypass.value();
         let transport = context.transport();
         let playing = transport.playing;
+        // W-280 / G-115-248: GUI Thread に純粋な transport.playing を公開する
+        // (silent / bypass と直交)。Relaxed store ~1ns / lock-free / R-12 違反なし。
+        self.is_playing.store(playing, Ordering::Relaxed);
         let silent = buffer_is_silent(buffer);
 
         let pos = transport.pos_samples().unwrap_or(i64::MIN);
