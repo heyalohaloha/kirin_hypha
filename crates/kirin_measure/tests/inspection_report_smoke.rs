@@ -139,7 +139,7 @@ fn write_inspection_json(rec: &InspectionRecord) -> std::io::Result<()> {
     s.push_str(&format!("  \"source\": \"{}\",\n", rec.source_path));
     s.push_str(&format!("  \"duration_seconds\": {:.3},\n", rec.duration_s));
     s.push_str(
-        "  \"guardian_61_path\": \"C-3 (PsbSummary.high = Bark 21-24 + 15.5k-20k FFT power)\",\n",
+        "  \"analysis_path\": \"PsbSummary.high = Bark 21-24 + 15.5k-20k FFT power\",\n",
     );
     s.push_str(&format!("  \"loudness_n_t_sone\": {:.4},\n", rec.loudness));
     s.push_str(&format!("  \"sharpness_acum\": {:.4},\n", rec.sharpness));
@@ -216,7 +216,7 @@ fn run_signal(filename: &str, duration_s: f64, label: &str) -> Result<(f64, f64,
 fn inspection_report_smoke_two_signals() {
     println!();
     println!("╔══════════════════════════════════════════════════════════════╗");
-    println!("║  guardian_61 C-3: inspection_report.json サンプル生成          ║");
+    println!("║  inspection_report.json sample generation                      ║");
     println!("║   PsbSummary.high = Bark 21-24 + 15.5k-20k FFT power           ║");
     println!("╚══════════════════════════════════════════════════════════════╝");
 
