@@ -1048,6 +1048,15 @@ fn draw_pair_pre_combo(ui: &mut egui::Ui, state: &mut PostEditorState, now: f64,
                     return;
                 }
                 for cand in &pre_candidates {
+                    // W-285 / G-115-253: PRE name="" (空文字 / 旧 schema 不在 None) の
+                    // 候補は dropdown から除外する。dropdown 表示文字 `candidate_dropdown_label`
+                    // は UUID8 fallback を含むため、Daisuke が fallback 文字を見て pair_pre_name
+                    // に手入力 → pair filter 永久不一致 NoPre 化する誤導を構造的に防止する
+                    // 表示・選択のみ抑止 / single pass-through (pair_pre_name="" 時の
+                    // 1 件環境) など他経路は無影響。
+                    if cand.name.as_deref().unwrap_or("").is_empty() {
+                        continue;
+                    }
                     // B-027 段階 3 (a) 仮説 2 (G-115-53): instance_id (UUID v4) で push_id
                     // 化し widget identity を sort 順入替に対して固定する。
                     // selectable_label の auto-ID は label_text 文字列ハッシュに依存

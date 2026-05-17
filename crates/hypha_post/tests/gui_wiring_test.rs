@@ -269,7 +269,10 @@ fn editor_rs_wraps_combo_entries_with_push_id() {
     // window 7500 → 9500: α-7' All Stop で recording 時の All Stop 行 click handler
     // を ComboBox dropdown 先頭に追加 (Keep と完全対称形 / 琥珀色)。push_id invariant
     // 自体は維持。
-    let mut safe_end = (combo_fn_idx + 9500).min(src.len());
+    // window 9500 → 11000: W-285 / G-115-253 で dropdown loop 内に name="" 候補
+    // exclusion gate (UTF-8 Japanese 注釈付) を追加 / push_id 呼出が rel 9968 byte に
+    // 後退 (Python rb 計測 / 余裕含み 11000)。invariant 自体は維持。
+    let mut safe_end = (combo_fn_idx + 11000).min(src.len());
     while safe_end > combo_fn_idx && !src.is_char_boundary(safe_end) {
         safe_end -= 1;
     }
@@ -698,6 +701,34 @@ fn editor_rs_keep_button_gated_when_pair_empty() {
     assert!(
         window.contains("draw_button_row(ui, false"),
         "W-283 W-3: `if !pair_empty {{` gate に draw_button_row(ui, false, ...) が含まれない (Keep gate 欠落)"
+    );
+}
+
+/// W-285 / G-115-253: editor.rs draw_pair_pre_combo dropdown loop で PRE name=""
+/// (空文字 / 旧 schema 不在 None) の候補が gate されることを invariant 化。
+/// dropdown 表示文字に UUID8 fallback が含まれるため、name="" の候補を残すと
+/// Daisuke が UUID8 文字を見て pair_pre_name に手入力 → pair filter 永久不一致 NoPre
+#[test]
+fn editor_rs_dropdown_excludes_empty_name_pre() {
+    let src = read("src/editor.rs");
+    let anchor_idx = src
+        .find("for cand in &pre_candidates {")
+        .expect("W-285: `for cand in &pre_candidates {` dropdown loop anchor not found");
+    // anchor から 1000 byte 以内に gate (UTF-8 Japanese 注釈で gate 自体は ~750 byte 先)。
+    let window_end = (anchor_idx + 1500).min(src.len());
+    // UTF-8 char boundary walk-back
+    let mut safe_end = window_end;
+    while safe_end > anchor_idx && !src.is_char_boundary(safe_end) {
+        safe_end -= 1;
+    }
+    let window = &src[anchor_idx..safe_end];
+    assert!(
+        window.contains("if cand.name.as_deref().unwrap_or(\"\").is_empty()"),
+        "W-285 G-115-253: dropdown loop で PRE name=\"\" 候補を除外する gate が無い (UUID8 fallback 誤導 regression)"
+    );
+    assert!(
+        window.contains("continue;"),
+        "W-285 G-115-253: dropdown loop gate に continue; が無い (gate 動作不全)"
     );
 }
 
