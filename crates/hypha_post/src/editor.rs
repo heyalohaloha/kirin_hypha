@@ -390,7 +390,13 @@ fn draw_post(
                     draw_inactive_grid(ui);
                 }
                 SignalState::Inactive => {
-                    draw_inactive_grid(ui);
+                    if let Some(snap) = &d.last_active {
+                        // B-049: POST 自身が Inactive でも過去 Active Δ 値を凍結保持表示
+                        draw_delta_grid_frozen(ui, snap, false);
+                    } else {
+                        // last_active=None (初回起動 / Active 未経験) は既存 fallback
+                        draw_inactive_grid(ui);
+                    }
                     ui.add_space(4.0);
                     draw_button_row(ui, recording, license, state, m, now);
                 }

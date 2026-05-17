@@ -435,3 +435,73 @@ fn editor_rs_no_pre_branch_has_last_known_good_and_fallback() {
          (B-048 fallback for initial PRE detection / 既存挙動)"
     );
 }
+
+/// B-049 / G-115-247: SignalState::Inactive 分岐に Last Known Good を追加。
+/// editor.rs の SignalState::Inactive 分岐内で以下 3 パターンが共存することを保証:
+/// - `if let Some(snap) = &d.last_active` (凍結値経路)
+/// - `draw_delta_grid_frozen(ui, snap, false)` (B-048 関数再利用)
+/// - else 分岐に `draw_inactive_grid(ui)` (既存 fallback / 初回起動)
+#[test]
+fn editor_rs_inactive_branch_has_last_known_good_and_fallback() {
+    let src = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src")
+            .join("editor.rs"),
+    )
+    .expect("read editor.rs");
+
+    // Inactive arm の開始位置から、次の arm (SignalState::Active) までを抽出。
+    let inactive_idx = src
+        .find("SignalState::Inactive =>")
+        .expect("SignalState::Inactive arm not found");
+    let after = &src[inactive_idx..];
+    let end_marker = after
+        .find("SignalState::Active =>")
+        .expect("SignalState::Active arm must follow Inactive arm");
+    let block = &after[..end_marker];
+
+    assert!(
+        block.contains("if let Some(snap) = &d.last_active"),
+        "B-049: SignalState::Inactive arm must contain `if let Some(snap) = &d.last_active`"
+    );
+    assert!(
+        block.contains("draw_delta_grid_frozen(ui, snap, false)"),
+        "B-049: SignalState::Inactive arm must call draw_delta_grid_frozen(ui, snap, false)"
+    );
+    assert!(
+        block.contains("draw_inactive_grid(ui)"),
+        "B-049: SignalState::Inactive arm must keep draw_inactive_grid(ui) as fallback"
+    );
+}
+
+/// B-049 不変条件 #1: SignalState::Bypassed 分岐は完全不変。
+/// Bypassed arm 開始から次の arm (SignalState::Inactive) までの範囲内に
+/// `last_active` / `draw_delta_grid_frozen` 参照が無いことを確認する。
+#[test]
+fn editor_rs_bypassed_branch_unchanged_no_last_active_ref() {
+    let src = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src")
+            .join("editor.rs"),
+    )
+    .expect("read editor.rs");
+
+    let bypassed_idx = src
+        .find("SignalState::Bypassed =>")
+        .expect("SignalState::Bypassed arm not found");
+    let after = &src[bypassed_idx..];
+    // Bypassed arm の境界 = 次 arm `SignalState::Inactive =>` までを Bypassed 範囲とみなす
+    let end_marker = after
+        .find("SignalState::Inactive =>")
+        .expect("SignalState::Inactive arm must follow Bypassed arm");
+    let block = &after[..end_marker];
+
+    assert!(
+        !block.contains("last_active"),
+        "B-049 invariant #1: SignalState::Bypassed arm must NOT reference last_active"
+    );
+    assert!(
+        !block.contains("draw_delta_grid_frozen"),
+        "B-049 invariant #1: SignalState::Bypassed arm must NOT call draw_delta_grid_frozen"
+    );
+}
