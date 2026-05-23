@@ -55,7 +55,13 @@ PRE displays all six values. POST displays Δ values for all six. POST values fr
 
 ## Screenshots
 
+![Kirin Hypha in Watch mode](docs/images/hypha_watch_mode.jpg)
 
+*Watch mode — real-time measurement. PRE shows absolute values, POST shows Δ relative to the paired PRE.*
+
+![Kirin Hypha in Record mode](docs/images/hypha_record_mode.jpg)
+
+*Record mode — POST Δ values freeze on Stop and hold until the next session (Kirin OS required).*
 
 ---
 
