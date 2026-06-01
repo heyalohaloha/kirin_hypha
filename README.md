@@ -123,7 +123,7 @@ Kirin Hypha is one piece of a larger ecosystem. With Kirin OS, session data is w
 
 Hypha itself remains **standalone and free** — Kirin OS is not required to use Watch mode.
 
-Kirin OS launches June 3, 2026. More at [kirinmastering.com](https://kirinmastering.com).
+Kirin OS launches June 6, 2026. More at [kirinmastering.com](https://kirinmastering.com).
 
 ---
 
