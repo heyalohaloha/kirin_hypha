@@ -590,7 +590,9 @@ impl KirinHyphaEngine {
     /// 2. interleaved サンプルを rtrb に push（満杯時は drop。本番 process() の
     ///    `let _ = producer.push(*sample)` と同挙動 / hypha_pre.rs:410）。
     ///
-    /// stereo 前提（`num_channels` ≠ 2 のブロックは push しない＝R-28 機能的沈黙）。
+    /// stereo 前提（`num_channels` ≠ 2 のブロックは push しない＝防御ガード）。
+    /// 殻が stereo bus のみ受理する（PluginProcessor::isBusesLayoutSupported）ため
+    /// 非 stereo は到達しない。FFI 契約の防御として残す（到達時は無音 skip）。
     /// `interleaved.len()` は `num_frames * num_channels` を想定。
     pub fn push_samples(&self, interleaved: &[f32], num_channels: u32) {
         // (1) heartbeat は常に進める（空ブロック keepalive でも Active を維持できる）。

@@ -61,8 +61,11 @@ bool KirinHyphaPREProcessor::isBusesLayoutSupported (const BusesLayout& layouts)
     if (mainIn != mainOut)
         return false;
 
-    return mainOut == juce::AudioChannelSet::mono()
-        || mainOut == juce::AudioChannelSet::stereo();
+    // Stereo only. The measurement engine consumes 2ch interleaved (kirin_measure),
+    // so a mono layout would be accepted by the host and then dropped by the FFI
+    // guard, producing audio passthrough with no measurement. Reject it at the bus
+    // level instead so only a measurable layout can be negotiated.
+    return mainOut == juce::AudioChannelSet::stereo();
 }
 
 void KirinHyphaPREProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
