@@ -507,10 +507,34 @@ impl KirinHyphaEngine {
         }
         let base = match StoragePaths::default_macos() {
             Ok(p) => p.plugin_data_dir(),
-            Err(_) => return false,
+            Err(_) => {
+                // B-066/F2: try_enter_record 成功後の失敗 → 本 keep の Record 遷移と
+                // linkage を巻き戻す（keep()=false で Record/Some を残さない）。
+                self.revert_after_enter();
+                return false;
+            }
         };
         // target_pre_instance_id = 選定 PRE の instance_id。PRE が自宛て signal を発見し ack する。
-        write_pending(&base, &project_hash, &post_iid, target, daw).is_ok()
+        if write_pending(&base, &project_hash, &post_iid, target, daw).is_ok() {
+            true
+        } else {
+            self.revert_after_enter(); // write 失敗 → 巻き戻し（Record/Some を残さない）。
+            false
+        }
+    }
+
+    /// keep() が `try_enter_record` 成功**後**（StoragePaths / write_pending）で失敗した時の
+    /// 巻き戻し（B-066 / F2）。本 keep が行った Record 遷移（Watch→Record）と linkage 代入
+    /// （paired_pre_target=Some）を戻し、keep()=false 時に内部状態が Record / Some で残らない
+    /// ことを保証する。`try_enter_record` 成功＝本 keep が Watch→Record した直後なので、
+    /// `exit_record`（record.rs:132-135 の副作用なし atomic store / finalize は Measure Thread
+    /// 専管）で本 keep の遷移のみを正しく戻す。AlreadyRecording（④）経路では呼ばない
+    /// （他セッションの Record を誤って止めないため）。
+    fn revert_after_enter(&self) {
+        self.record_sm.exit_record();
+        if let Ok(mut g) = self.paired_pre_target.lock() {
+            *g = None;
+        }
     }
 
     /// POST「Stop」: pair を解除（record_signal released）し Watch へ戻す（B-061 3d-b）。

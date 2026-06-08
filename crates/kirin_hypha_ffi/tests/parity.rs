@@ -981,3 +981,100 @@ fn capstone_paired_record_output_and_linkage() {
 
     let _ = std::fs::remove_dir_all(&test_root);
 }
+
+// ── B-066 / F2: keep() が try_enter_record 成功後に失敗した時の rollback ───────────
+
+/// keep() が PRE 選定 + try_enter_record 成功の**後**で StoragePaths 解決に失敗した時、
+/// 本 keep が行った Record 遷移を巻き戻して false を返す（record_sm が Record で残らない）。
+/// HOME を一時的に外して StoragePaths::default_macos() を強制失敗させる（⑤経路）。
+/// positive control（HOME 復帰で同 PRE が keep 成功）により、失敗時に select=Some まで
+/// 到達していた＝②の select-None 早期 return ではなく⑤の post-enter 失敗だったことを立証。
+#[test]
+#[ignore = "slow: PRE+POST co-located; forces StoragePaths failure to test keep() rollback (sets HOME/TMPDIR)"]
+fn keep_failure_after_enter_reverts_record_state() {
+    let test_root = std::env::temp_dir()
+        .join("kirin_b066_test")
+        .join(format!("pid{}", std::process::id()));
+    let home = test_root.join("home");
+    let tmp = test_root.join("tmp");
+    let _ = std::fs::remove_dir_all(&test_root);
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::env::set_var("HOME", &home);
+    std::env::set_var("TMPDIR", &tmp);
+    let kirin_os = home.join("Library/Application Support/Kirin OS");
+    std::fs::create_dir_all(&kirin_os).unwrap();
+    std::fs::write(
+        kirin_os.join("identity.json"),
+        r#"{"schema_version":"1.0","installation_id":"b066-test","hardware_id":"hw","hardware_components":{"iop":"a","sn":"b","bd":"c"},"machine_signature":"sig","license":"os","created_at":"2026-06-09T00:00:00Z","last_verified_at":"2026-06-09T00:00:00Z"}"#,
+    )
+    .unwrap();
+    let watch_root = tmp.join("kirin");
+
+    {
+        let pre = KirinHyphaEngine::new(SR, 2);
+        pre.set_license(0);
+        pre.set_identity("iid-pre".into(), "puid-pre".into(), "".into(), "mix".into());
+        pre.enable_pre_writes();
+        pre.set_signal_state(1);
+
+        let post = KirinHyphaEngine::new(SR, 2);
+        post.set_license(0);
+        post.set_identity("iid-post".into(), "puid-post".into(), "".into(), "mix".into());
+        post.enable_post_writes();
+        post.set_signal_state(1);
+        post.set_pair_target("mix".into());
+
+        // PRE pre.json を active+fresh にする（POST が select_target_pre できる状態）。
+        let sig = gen_stereo_f32(1.5);
+        let bf = SR as usize / 10;
+        let bl = bf * 2;
+        let dt = Duration::from_secs_f64(bf as f64 / SR as f64);
+        let mut i = 0;
+        while i < sig.len() {
+            let e = (i + bl).min(sig.len());
+            pre.push_samples(&sig[i..e], 2);
+            post.push_samples(&sig[i..e], 2);
+            i = e;
+            sleep(dt);
+        }
+        // PRE が pre.json を実際に書くまで待つ（select 可能を保証）。pushはここで止め、
+        // 直後に keep を撃つので heartbeat は fresh（Inactive 化前）。
+        for _ in 0..30 {
+            if find_json_under(&watch_root, "", "pre.json").is_some() {
+                break;
+            }
+            pre.push_samples(&[], 2);
+            sleep(Duration::from_millis(50));
+        }
+        assert!(
+            find_json_under(&watch_root, "", "pre.json").is_some(),
+            "PRE pre.json が書かれていること（select 前提）"
+        );
+        // 直前に PRE を押して Active/heartbeat を確実に保つ。
+        pre.push_samples(&[], 2);
+
+        // ── 失敗ケース: HOME を外して StoragePaths::default_macos() を強制失敗（⑤経路）──
+        std::env::remove_var("HOME");
+        let kept_fail = post.keep();
+        std::env::set_var("HOME", &home); // 後続/cleanup 用に即復帰。
+
+        assert!(!kept_fail, "StoragePaths 失敗 → keep()=false");
+        assert!(
+            !post.is_recording(),
+            "F2 fix: keep() 失敗時に record_sm を Watch へ巻き戻す（Record で残さない）"
+        );
+
+        // ── positive control: HOME 復帰で同 PRE が keep 成功 → 上の失敗は select=Some 後
+        //    （= ⑤ post-enter 失敗）だったと立証。失敗とこの control の間に sleep を挟まない。
+        assert!(
+            post.keep(),
+            "HOME 復帰: 同 PRE が選定可 → keep()=true（失敗経路が select 到達済を立証）"
+        );
+        assert!(post.is_recording(), "成功 keep で Record 開始");
+        post.stop();
+        assert!(!post.is_recording(), "stop で Watch へ");
+    }
+
+    let _ = std::fs::remove_dir_all(&test_root);
+}
