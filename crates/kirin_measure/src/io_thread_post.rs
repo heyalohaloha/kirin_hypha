@@ -2056,10 +2056,20 @@ mod compute_delta_tests {
     fn pair_filter_picks_max_t_within_pair() {
         let pd = isolated_project_dir();
         // 同じ name "snare" を持つ pre.json 2 件 + 別 name "kick" 1 件。
-        // t は ISO 8601 文字列比較で snare-NEW > snare-OLD > kick。
-        write_pre_named(&pd, "iid-snare-old", "snare", "2026-05-17T10:00:00.000Z", -14.0);
-        write_pre_named(&pd, "iid-snare-new", "snare", "2026-05-17T10:00:01.000Z", -16.0);
-        write_pre_named(&pd, "iid-kick", "kick", "2026-05-17T10:00:02.000Z", -12.0);
+        // t は ISO 8601 文字列比較で kick(最新) > snare-NEW > snare-OLD の順序を保ち、
+        // 「name filter 後に pair 内 max t = snare-new」を検証する。
+        // 固定日付 (旧: 2026-05-17) は freshness_mode の NO_PRE_SECS(10s) 窓を実行日に
+        // 抜けて NoPre 化する time-bomb のため、now() 基準の相対オフセットで生成する
+        // (選択される snare-new を STALE_SECS(5s) 内に収め Active 判定にする / B-054)。
+        let base = chrono::Utc::now();
+        let fmt_t = |secs_ago: i64| {
+            (base - chrono::Duration::seconds(secs_ago))
+                .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+                .to_string()
+        };
+        write_pre_named(&pd, "iid-snare-old", "snare", &fmt_t(2), -14.0);
+        write_pre_named(&pd, "iid-snare-new", "snare", &fmt_t(1), -16.0);
+        write_pre_named(&pd, "iid-kick", "kick", &fmt_t(0), -12.0);
 
         let r = compute_delta_with_state(
             &pd,

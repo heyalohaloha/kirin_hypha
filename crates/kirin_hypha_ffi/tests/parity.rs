@@ -138,14 +138,14 @@ fn parity_phase_d_metrics_ffi_vs_direct() {
 
     // ── n_prime[20] : MoSQITo N tolerance（band 毎）──
     let np = res.n_prime.unwrap();
-    for k in 0..20 {
-        assert_relative_eq!(np[k], direct.n_prime[k], max_relative = N_MAX_REL, epsilon = PSB_ABS_FLOOR);
+    for (k, &np_k) in np.iter().enumerate() {
+        assert_relative_eq!(np_k, direct.n_prime[k], max_relative = N_MAX_REL, epsilon = PSB_ABS_FLOOR);
     }
 
     // ── psb_bark[20] (= PhaseDResult.psb) : 同一コード経路なので tight ──
     let pb = res.psb_bark.unwrap();
-    for k in 0..20 {
-        assert_relative_eq!(pb[k], direct.psb[k], max_relative = N_MAX_REL, epsilon = PSB_ABS_FLOOR);
+    for (k, &pb_k) in pb.iter().enumerate() {
+        assert_relative_eq!(pb_k, direct.psb[k], max_relative = N_MAX_REL, epsilon = PSB_ABS_FLOOR);
     }
 
     // ── PSB low/mid/high : compute_psb_summary 再現と一致 ──
