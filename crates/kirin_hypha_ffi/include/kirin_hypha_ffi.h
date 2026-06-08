@@ -59,6 +59,17 @@ typedef struct {
   char name[64];
 } KirinIdentity;
 
+/* POST の Δ（3d-b）. 各 double の「値なし」は NaN. mode: 0=Active 1=Stale 2=NoPre. */
+typedef struct {
+  uint8_t mode;
+  double lufs;
+  double true_peak;
+  double crest;
+  double psr;
+  double n_prime_total;
+  double sharpness;
+} KirinDelta;
+
 /* ランタイム生成. sample_rate!=48000 は内部で 48k 変換. num_channels は stereo(2) 前提. */
 KirinHypha* kirin_hypha_create(uint32_t sample_rate, uint32_t num_channels);
 
@@ -94,8 +105,24 @@ void kirin_hypha_enable_pre_writes(KirinHypha* handle);
 
 /* POST のランタイム（post.json の Δ を厳格選定 select_target_pre 経由で書く）を有効化（3d-a）.
  * enable_pre_writes と対・同一 engine では排他（片方のみ・冪等）. pair_pre_name は
- * identity.name（同名 PRE と対）. Keep/ack（write_pending）は配線しない（3d-b）. */
+ * 既定 identity.name（set_pair_target で上書き可）. */
 void kirin_hypha_enable_post_writes(KirinHypha* handle);
+
+/* POST の対 PRE 名（pair target）を設定（3d-b / identity.name 結合を解く）. NULL=空文字.
+ * enable_post_writes 後でも live 反映（io_thread と Arc 共有）. */
+void kirin_hypha_set_pair_target(KirinHypha* handle, const char* name);
+
+/* POST「Keep」: 厳格選定で対 PRE を一意決定し record_signal(pending) を書く（3d-b）.
+ * PRE 側 io_thread が autonomous に discover→ack する. Os かつ一意 PRE のとき true /
+ * 選定 None（空名/不在/曖昧/Inactive/古t）・非 Os・AlreadyRecording は false. */
+bool kirin_hypha_keep(KirinHypha* handle);
+
+/* POST「Stop」: pair 解除（record_signal released）+ Watch へ戻す（3d-b）. */
+void kirin_hypha_stop(KirinHypha* handle);
+
+/* POST の Δ を out へ（3d-b / GUI 表示用）. 値あり=true / 競合・未計測=false（UI Thread）.
+ * post.json には Δ でなく POST 生メトリクスが入る（Δ はこの API で公開）. */
+bool kirin_hypha_poll_delta(KirinHypha* handle, KirinDelta* out);
 
 /* Record の最新 plugin_data .json に利用者メモを追記する（Note / 方式A）.
  * Os かつ enable 済かつ対象 .json 存在のとき true / それ以外 false（gate は既存ロジック）. */

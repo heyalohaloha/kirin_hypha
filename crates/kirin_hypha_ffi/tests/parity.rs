@@ -760,3 +760,111 @@ fn post_writes_delta_against_colocated_pre() {
 
     let _ = std::fs::remove_dir_all(&test_root);
 }
+
+// ── Phase 3d-b: POST Keep/ack ペアリング実働（PRE 同居 end-to-end）──────────────
+
+/// PRE+POST 同居（同名 "mix" / 別 project_uuid）で POST「Keep」→ write_pending(target=PRE)
+/// → PRE が cross-uuid で discover→ack（record_signal status: pending→acknowledged）を実証。
+/// 厳格: 不一致名は keep=false（write_pending しない）。Stop で released。
+#[test]
+#[ignore = "slow: PRE+POST co-located Keep/ack realtime + io_thread filesystem (sets HOME/TMPDIR)"]
+fn post_keep_acked_by_colocated_pre() {
+    use kirin_measure::{read_signal, SignalStatus};
+
+    let test_root = std::env::temp_dir()
+        .join("kirin_b061_test")
+        .join(format!("pid{}", std::process::id()));
+    let home = test_root.join("home");
+    let tmp = test_root.join("tmp");
+    let _ = std::fs::remove_dir_all(&test_root);
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::env::set_var("HOME", &home);
+    std::env::set_var("TMPDIR", &tmp);
+    let kirin_os = home.join("Library/Application Support/Kirin OS");
+    std::fs::create_dir_all(&kirin_os).unwrap();
+    std::fs::write(
+        kirin_os.join("identity.json"),
+        r#"{"schema_version":"1.0","installation_id":"b061-test","hardware_id":"hw","hardware_components":{"iop":"a","sn":"b","bd":"c"},"machine_signature":"sig","license":"os","created_at":"2026-06-09T00:00:00Z","last_verified_at":"2026-06-09T00:00:00Z"}"#,
+    )
+    .unwrap();
+    let plugin_data_root = home.join("Library/Application Support/Kirin OS/plugin_data");
+
+    {
+        // PRE: 同名 "mix" / project_uuid "puid-pre"（io_thread が autonomous に ack する）。
+        let pre = KirinHyphaEngine::new(SR, 2);
+        pre.set_license(0);
+        pre.set_identity("iid-pre".into(), "puid-pre".into(), "".into(), "mix".into());
+        pre.enable_pre_writes();
+        pre.set_signal_state(1);
+
+        // POST: 同名 "mix" / project_uuid "puid-post"（別 uuid = cross-uuid ack の肝）。
+        let post = KirinHyphaEngine::new(SR, 2);
+        post.set_license(0);
+        post.set_identity("iid-post".into(), "puid-post".into(), "".into(), "mix".into());
+        post.enable_post_writes();
+        post.set_signal_state(1);
+
+        // ~1.5s 駆動して PRE pre.json を active+fresh にする（POST が select できる状態）。
+        let sig = gen_stereo_f32(1.5);
+        let bf = SR as usize / 10;
+        let bl = bf * 2;
+        let dt = Duration::from_secs_f64(bf as f64 / SR as f64);
+        let mut i = 0;
+        while i < sig.len() {
+            let e = (i + bl).min(sig.len());
+            pre.push_samples(&sig[i..e], 2);
+            post.push_samples(&sig[i..e], 2);
+            i = e;
+            sleep(dt);
+        }
+        for _ in 0..8 {
+            pre.push_samples(&[], 2);
+            post.push_samples(&[], 2);
+            sleep(Duration::from_millis(50));
+        }
+
+        // 厳格: 不一致名 → keep false（select None / write_pending しない）。
+        post.set_pair_target("nonexistent".into());
+        assert!(!post.keep(), "不一致名は keep=false（write_pending しない）");
+        assert!(!post.is_recording(), "keep false で Record しない");
+
+        // 成功: "mix"（pair target setter で別名選択が効く）→ keep true。
+        post.set_pair_target("mix".into());
+        assert!(post.keep(), "一意 PRE 'mix' で keep=true");
+        assert!(post.is_recording(), "keep 成功で POST Record 開始");
+
+        // poll_delta は Δ を返す（PRE active）。
+        let d = post.poll_delta().expect("poll_delta Some");
+        eprintln!("[3d-b] post-keep delta mode={:?} lufs={:?}", d.mode, d.lufs);
+
+        // PRE が cross-uuid で discover→ack するまで待つ（1s discover + 1s poll throttle）。
+        let mut acked = false;
+        for _ in 0..50 {
+            pre.push_samples(&[], 2);
+            post.push_samples(&[], 2);
+            sleep(Duration::from_millis(100));
+            if let Some(s) = read_signal(&plugin_data_root, "puid-post", "iid-post") {
+                if s.status == SignalStatus::Acknowledged {
+                    assert_eq!(s.target_pre_instance_id, "iid-pre", "target は選定 PRE");
+                    acked = true;
+                    break;
+                }
+            }
+        }
+        assert!(
+            acked,
+            "PRE が別 uuid の record_signal(puid-post/record_signal/iid-post.json) を ack"
+        );
+
+        // Stop → released。
+        post.stop();
+        assert!(!post.is_recording(), "Stop で Watch へ");
+        sleep(Duration::from_millis(300));
+        if let Some(s) = read_signal(&plugin_data_root, "puid-post", "iid-post") {
+            assert_eq!(s.status, SignalStatus::Released, "Stop で record_signal=released");
+        }
+    }
+
+    let _ = std::fs::remove_dir_all(&test_root);
+}
