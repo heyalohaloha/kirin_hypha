@@ -68,6 +68,11 @@ bool kirin_hypha_enter_record(KirinHypha* handle);
  * poll_session で取得できる（finalize は Measure Thread のみ・FFI は呼ばない）. */
 void kirin_hypha_exit_record(KirinHypha* handle);
 
+/* PRE の plugin_data 書込（Watch pre.json + Record frames/PSB）を有効化する（3b）.
+ * set_license の後に 1 度呼ぶ（呼んだ時点の license をスナップショット）. 2 度目以降 no-op.
+ * filesystem 書込は kirin_measure の io_thread_pre 内に閉じる（FFI は spawn のみ）. */
+void kirin_hypha_enable_pre_writes(KirinHypha* handle);
+
 /* interleaved f32 を供給（Audio Thread 単独・RT-safe）. num_frames==0 は keepalive 可. */
 void kirin_hypha_push_samples(KirinHypha* handle, const float* interleaved,
                               size_t num_frames, uint32_t num_channels);

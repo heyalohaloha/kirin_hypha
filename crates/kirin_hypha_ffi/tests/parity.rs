@@ -271,7 +271,9 @@ fn drive_ffi_session(stereo_f32: &[f32]) -> (SessionSummary, u64, bool) {
 
 /// FFI の poll_session（Record finalize）が、同一サンプルを直接 MeasureEngine に通した
 /// finalize と一致することを示す（殻が精度を変えない / abs≈0）。
+/// realtime 駆動で遅いため既定 `cargo test` から除外（`--ignored` で実行）。
 #[test]
+#[ignore = "slow: realtime ~12s record drive"]
 fn session_finalize_ffi_matches_direct_engine() {
     // 12 秒（loudness_global の最小窓 ~10s 超）の定常マルチトーン（L==R）。
     let signal = gen_stereo_f32(12.0);
@@ -350,4 +352,146 @@ fn license_demotion_forces_watch() {
         !engine.is_recording(),
         "Os 以外への降格で Record が強制 Watch されること（E-21）"
     );
+}
+
+// ── Phase 3b: enable_pre_writes → io_thread_pre が plugin_data を書く ──────────
+
+/// `parent_name/*.{suffix}` を再帰探索し最初の 1 件を返す（parent dir 名で絞る）。
+fn find_json_under(root: &std::path::Path, parent_name: &str, file_name: &str) -> Option<std::path::PathBuf> {
+    let rd = std::fs::read_dir(root).ok()?;
+    for e in rd.flatten() {
+        let p = e.path();
+        if p.is_dir() {
+            if let Some(found) = find_json_under(&p, parent_name, file_name) {
+                return Some(found);
+            }
+        } else {
+            let fname = p.file_name().and_then(|n| n.to_str());
+            let pname = p.parent().and_then(|pp| pp.file_name()).and_then(|n| n.to_str());
+            let name_ok = if file_name == "*.json" {
+                fname.map(|n| n.ends_with(".json")).unwrap_or(false)
+            } else {
+                fname == Some(file_name)
+            };
+            if name_ok && (parent_name.is_empty() || pname == Some(parent_name)) {
+                return Some(p);
+            }
+        }
+    }
+    None
+}
+
+/// enable_pre_writes → Record セッションで `{ph}/{iid}/pre/{wall}.json`（永続）と
+/// Watch `pre.json`（揮発）が io_thread_pre により書かれることを検証する。
+/// HOME/TMPDIR を temp に差し替えて分離（io_thread spawn 前に設定し、テスト中変更しない）。
+/// realtime 駆動で遅いため既定 `cargo test` から除外（`--ignored` で実行）。
+#[test]
+#[ignore = "slow: realtime ~12s record + io_thread filesystem writes (sets HOME/TMPDIR)"]
+fn pre_writes_records_plugin_data_json() {
+    use kirin_measure::plugin_data::{PluginDataFile, Role, Status};
+
+    // 分離: HOME(plugin_data root) と TMPDIR(Watch pre.json root) を temp へ。
+    let test_root = std::env::temp_dir()
+        .join("kirin_b057_test")
+        .join(format!("pid{}", std::process::id()));
+    let home = test_root.join("home");
+    let tmp = test_root.join("tmp");
+    let _ = std::fs::remove_dir_all(&test_root);
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::create_dir_all(&tmp).unwrap();
+    // io_thread spawn 前に設定（default_macos/temp_dir は呼出毎に env を読む）。
+    std::env::set_var("HOME", &home);
+    std::env::set_var("TMPDIR", &tmp);
+
+    // identity.json fixture: writer_start が load_installation_id_safe で
+    // installation_id を要求する（record_writer.rs:191）。実機は Kirin OS が作る。
+    let kirin_os = home.join("Library/Application Support/Kirin OS");
+    std::fs::create_dir_all(&kirin_os).unwrap();
+    std::fs::write(
+        kirin_os.join("identity.json"),
+        r#"{"schema_version":"1.0","installation_id":"b057-test-install","hardware_id":"hw","hardware_components":{"iop":"a","sn":"b","bd":"c"},"machine_signature":"sig","license":"os","created_at":"2026-06-08T00:00:00Z","last_verified_at":"2026-06-08T00:00:00Z"}"#,
+    )
+    .unwrap();
+
+    let plugin_data_root = home.join("Library/Application Support/Kirin OS/plugin_data");
+    let watch_root = tmp.join("kirin");
+
+    let aggregates;
+    let watch_pre_exists;
+    {
+        let engine = KirinHyphaEngine::new(SR, 2);
+        engine.set_license(0); // Os（enable より前）
+        engine.enable_pre_writes(); // io_thread_pre 起動
+        engine.set_signal_state(1); // Active
+        assert!(engine.enter_record(), "Os で enter_record true");
+
+        // reset 待ち keepalive（heartbeat 維持で Active を保つ）。
+        for _ in 0..6 {
+            engine.push_samples(&[], 2);
+            sleep(Duration::from_millis(40));
+        }
+
+        // realtime push 12s（loudness_global 最小窓 > 10s / overflow 回避）。
+        let signal = gen_stereo_f32(12.0);
+        let block_frames = SR as usize / 10;
+        let block_len = block_frames * 2;
+        let block_dt = Duration::from_secs_f64(block_frames as f64 / SR as f64);
+        let mut i = 0;
+        while i < signal.len() {
+            let end = (i + block_len).min(signal.len());
+            engine.push_samples(&signal[i..end], 2);
+            i = end;
+            sleep(block_dt);
+        }
+
+        // session 安定化（全サンプル finalize 済）。
+        let mut prev: Option<f64> = None;
+        for _ in 0..120 {
+            engine.push_samples(&[], 2);
+            sleep(Duration::from_millis(50));
+            if let Some(s) = engine.poll_session() {
+                if s.lufs_i.is_some() && s.lufs_i == prev {
+                    break;
+                }
+                prev = s.lufs_i;
+            }
+        }
+        aggregates = engine.poll_session().expect("poll_session Some after record");
+
+        // Watch pre.json は engine 生存中に存在（Drop で削除される前に確認）。
+        watch_pre_exists = find_json_under(&watch_root, "", "pre.json").is_some();
+
+        // exit → io_thread が Record→Watch を検出し writer_close(status=closed) するのを待つ。
+        engine.exit_record();
+        sleep(Duration::from_millis(900));
+
+        // Record 永続 .json（{ph}/{iid}/pre/{wall}.json）を読み戻す。
+        let rec = find_json_under(&plugin_data_root, "pre", "*.json")
+            .expect("Record pre/{wall}.json must exist after record");
+        eprintln!("[pre write] record file = {}", rec.display());
+        let content = std::fs::read_to_string(&rec).unwrap();
+        let pd: PluginDataFile =
+            serde_json::from_str(&content).expect("written file deserializes as PluginDataFile");
+
+        // schema 検証（SCHEMA_VERSION 1.3 / role=PRE / status active→closed）。
+        assert_eq!(pd.schema_version, "1.3", "schema_version");
+        assert_eq!(pd.role, Role::Pre, "role must be PRE");
+        assert_eq!(pd.status, Status::Closed, "exit+flush 後は status=closed");
+        assert!(!pd.frames.is_empty(), "frames[] non-empty");
+        let f0 = &pd.frames[0];
+        assert!(f0.lufs_m.is_finite() && f0.true_peak.is_finite() && f0.crest.is_finite(),
+            "Frame.{{lufs_m,true_peak,crest}} finite");
+
+        // aggregates 一致: io_thread の set_session_aggregates(=poll_session と同じ
+        // session_summary 経路) で焼いた lufs_i が、poll_session の値と 1 桁丸め内で一致。
+        let pd_li = pd.lufs_i.expect("json lufs_i present");
+        let a_li = aggregates.lufs_i.expect("poll lufs_i present");
+        eprintln!("[pre write] aggregates lufs_i json={pd_li} poll={a_li} | lra={:?} plr={:?}", pd.lra, pd.plr);
+        assert!((pd_li - a_li).abs() < 0.06, "lufs_i json={pd_li} vs poll={a_li}（1 桁丸め内）");
+    } // engine Drop → io_thread shutdown→join（Watch pre.json/instance dir 後始末）。
+
+    assert!(watch_pre_exists, "Watch pre.json が稼働中に書かれること");
+
+    // 後始末（panic 経路でも temp を残さない）。
+    let _ = std::fs::remove_dir_all(&test_root);
 }

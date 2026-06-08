@@ -1219,6 +1219,8 @@ dependencies = [
  "approx",
  "kirin_measure",
  "rtrb",
+ "serde_json",
+ "uuid 1.23.0",
 ]
 
 [[package]]

@@ -30,14 +30,24 @@ use std::cell::UnsafeCell;
 use std::os::raw::c_void;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicU32, AtomicU64, AtomicU8, AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::thread::JoinHandle;
+
+use uuid::Uuid;
 
 use kirin_measure::engine::SessionSummary;
 use kirin_measure::{
-    spawn_measure_thread, store_signal_state, License, MeasureResult, PsbSummary,
-    RecordStateMachine, SignalState, N_CHANNELS, RING_BUFFER_SECONDS,
+    process_project_hash, set_project_uuid, spawn_io_thread_pre, spawn_measure_thread,
+    store_signal_state, License, MeasureResult, PsbSummary, RecordStateMachine, SignalState,
+    N_CHANNELS, RING_BUFFER_SECONDS,
 };
+
+/// PRE plugin_data 書込スレッド（io_thread_pre）のハンドル＋停止フラグ。
+/// `enable_pre_writes` で spawn し、Drop で shutdown→join する。
+struct PreIoThread {
+    shutdown: Arc<AtomicBool>,
+    handle: JoinHandle<()>,
+}
 
 // `set_license` の C ABI コード。identity.rs:46 の enum 宣言順に一致させる:
 //   License { Os, Sense, Unknown } → 0=Os / 1=Sense / 2=Unknown。
@@ -81,6 +91,11 @@ pub struct KirinHyphaEngine {
     /// 現ライセンス（C ABI コード: 0=Os 1=Sense 2=Unknown）。`enter_record` の
     /// 二重 gate（E-21）に使う。既定は Unknown（Record 不可）。
     license: AtomicU8,
+    /// `spawn_io_thread_pre` に渡す入力サンプルレート（create 時に保持）。
+    sample_rate: u32,
+    /// PRE plugin_data 書込スレッド（B-057 3b）。`enable_pre_writes` で 1 度だけ起動。
+    /// 内部可変のため `Mutex`（C ABI は `&self` 経由・engine は Sync 共有）。
+    pre_io: Mutex<Option<PreIoThread>>,
     /// Measure Thread の JoinHandle（drop で join）。
     measure_handle: Option<JoinHandle<()>>,
     /// ring 満杯で push できなかった回数（§8 RT-safety 検証用 / FFI 側のみ）。
@@ -135,6 +150,8 @@ impl KirinHyphaEngine {
             record_sm,
             // 既定 Unknown（set_license(Os) されるまで Record 不可・安全側）。
             license: AtomicU8::new(LICENSE_UNKNOWN),
+            sample_rate,
+            pre_io: Mutex::new(None),
             measure_handle: Some(measure_handle),
             push_overflow: AtomicU64::new(0),
         }
@@ -185,6 +202,66 @@ impl KirinHyphaEngine {
     /// Record 中かどうか（read-only オブザーバ）。C ABI には公開しない（3a surface 厳守）。
     pub fn is_recording(&self) -> bool {
         self.record_sm.is_recording()
+    }
+
+    /// PRE の plugin_data 書込（Watch pre.json + Record frames/PSB）を有効化する（B-057 3b）。
+    ///
+    /// `kirin_measure::spawn_io_thread_pre`（io_thread_pre.rs:179）を engine 既存の共有
+    /// 状態（record_sm / measure_result / signal_state / session_summary）に繋いで起動する。
+    /// io_thread ロジック自体は kirin_measure のまま（呼ぶだけ）。filesystem 書込は全て
+    /// その Rust スレッド内に閉じる（FFI は spawn と識別子注入のみ・B2 分離原則）。
+    ///
+    /// 前提・割り切り（3b）:
+    /// - **`set_license` の後に呼ぶこと**。呼んだ時点の license を `Arc<License>` に
+    ///   スナップショットする（A）。enable 後の license 変更は反映されない（3c）。
+    /// - `instance_id` / `project_uuid` は `Uuid::new_v4` 生成（永続は 3c）。`project_uuid`
+    ///   は `set_project_uuid` で **プロセスグローバル** セルに反映され `process_project_hash`
+    ///   で path のルートになる（単一 PRE/プロセス前提・C / multi-instance は番人案件）。
+    /// - 2 度目以降の呼出は no-op（冪等）。
+    ///
+    /// PRE-POST discovery は POST 不在のとき inert（record_signal が無く ack 対象なし /
+    /// io_thread_pre.rs:294-312）。pairing 実働は 3d。
+    pub fn enable_pre_writes(&self) {
+        let mut slot = match self.pre_io.lock() {
+            Ok(g) => g,
+            Err(_) => return,
+        };
+        if slot.is_some() {
+            return; // 冪等: 既に起動済み。
+        }
+
+        // 識別子生成（永続は 3c）。project_uuid → プロセスグローバルセル → project_hash。
+        let instance_id = Arc::new(RwLock::new(Uuid::new_v4().to_string()));
+        set_project_uuid(Uuid::new_v4().to_string());
+        let project_hash = process_project_hash();
+
+        // io_thread_pre が内部で set/管理する共有フラグ（FFI は false で生成して渡すだけ）。
+        let recording = Arc::new(AtomicBool::new(false));
+        let record_acknowledged = Arc::new(AtomicBool::new(false));
+        let name = Arc::new(RwLock::new(String::new())); // 空 → instance_id 先頭8字 fallback
+        let record_error_message = Arc::new(RwLock::new(None));
+        // A: enable 時点の license をスナップショット（immutable）。
+        let license = Arc::new(self.current_license());
+        let io_shutdown = Arc::new(AtomicBool::new(false));
+
+        let handle = spawn_io_thread_pre(
+            instance_id,
+            project_hash,
+            String::new(), // _daw_session_id（io_thread_pre では未使用）
+            self.sample_rate,
+            Arc::clone(&self.record_sm),
+            recording,
+            record_acknowledged,
+            license,
+            Arc::clone(&self.measure_result),
+            Arc::clone(&self.signal_state),
+            Arc::clone(&io_shutdown),
+            name,
+            record_error_message,
+            Arc::clone(&self.session_summary),
+        );
+
+        *slot = Some(PreIoThread { shutdown: io_shutdown, handle });
     }
 
     /// interleaved f32 サンプルを供給する（Audio Thread 単独・RT-safe）。
@@ -242,6 +319,15 @@ impl KirinHyphaEngine {
 
 impl Drop for KirinHyphaEngine {
     fn drop(&mut self) {
+        // PRE io_thread を先に止める（Record 中なら status=closed flush + Watch pre.json /
+        // instance dir 後始末を自前で行う / io_thread_pre.rs:18,449-463）。共有 Arc を読む
+        // ため Measure Thread より先に join する。
+        if let Ok(mut slot) = self.pre_io.lock() {
+            if let Some(io) = slot.take() {
+                io.shutdown.store(true, Ordering::Relaxed);
+                let _ = io.handle.join();
+            }
+        }
         self.shutdown.store(true, Ordering::Relaxed);
         if let Some(h) = self.measure_handle.take() {
             let _ = h.join();
@@ -386,6 +472,22 @@ pub unsafe extern "C" fn kirin_hypha_exit_record(handle: *mut KirinHyphaEngine) 
             return;
         }
         unsafe { (*handle).exit_record() };
+    }));
+}
+
+/// PRE の plugin_data 書込（Watch pre.json + Record frames/PSB）を有効化する（3b）。
+/// **`set_license` の後に 1 度呼ぶ**こと（呼んだ時点の license をスナップショット）。
+/// 2 度目以降は no-op。filesystem 書込は kirin_measure の io_thread_pre 内に閉じる。
+///
+/// # Safety
+/// `handle` は `kirin_hypha_create` の戻り値（非 null・未解放）であること。
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_enable_pre_writes(handle: *mut KirinHyphaEngine) {
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() {
+            return;
+        }
+        unsafe { (*handle).enable_pre_writes() };
     }));
 }
 

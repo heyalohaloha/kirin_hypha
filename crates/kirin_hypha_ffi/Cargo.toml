@@ -16,7 +16,11 @@ crate-type = ["staticlib", "rlib"]
 [dependencies]
 kirin_measure = { workspace = true }
 rtrb = { workspace = true }
+# instance_id / project_uuid 生成（io_thread_pre 配線 / B-057 3b）。永続は 3c。
+uuid = { workspace = true }
 
 [dev-dependencies]
 # kirin_measure の MoSQITo tolerance テストと同一の比較マクロ（同許容誤差で assert する）。
 approx = "0.5"
+# B-057 3b: 書かれた PluginDataFile(.json) を読み戻して schema 検証する。
+serde_json = { workspace = true }
