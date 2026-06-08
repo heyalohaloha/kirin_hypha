@@ -13,6 +13,7 @@ KirinHyphaPREProcessor::KirinHyphaPREProcessor()
 
 KirinHyphaPREProcessor::~KirinHyphaPREProcessor()
 {
+    cancelPendingUpdate(); // B-070: ensure no deferred enable fires during teardown.
     const juce::ScopedLock sl (handleLock);
     if (hyphaHandle != nullptr)
     {
@@ -40,6 +41,16 @@ void KirinHyphaPREProcessor::prepareToPlay (double sampleRate, int samplesPerBlo
 
     // num_channels: pass the actual negotiated input channel count (stereo expected).
     hyphaHandle = kirin_hypha_create ((uint32_t) sampleRate, (uint32_t) numCh);
+
+    // B-070: a fresh handle needs license applied and (re-)enabling. License is read once
+    // from identity.json (single source). set_identity + enable_pre_writes are deferred to
+    // the first processBlock (handleAsyncUpdate) so any setStateInformation restore is
+    // applied before enable (JUCE does not order setStateInformation vs prepareToPlay).
+    if (hyphaHandle != nullptr)
+    {
+        kirin_hypha_set_license (hyphaHandle, kirin_hypha_load_license());
+        writesEnabled.store (false, std::memory_order_release);
+    }
     // A null handle (create failure) is tolerated; processBlock / pollMeasureResult guard on it.
 }
 
@@ -85,6 +96,12 @@ void KirinHyphaPREProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
     // so hyphaHandle is stable here. (The editor poll and create/destroy use handleLock.)
     if (hyphaHandle == nullptr)
         return;
+
+    // B-070: enable PRE writes once, deferred to here so any setStateInformation (identity
+    // restore) has already run. triggerAsyncUpdate is safe from the audio thread and
+    // coalesces; the actual enable runs on the message thread (handleAsyncUpdate).
+    if (! writesEnabled.load (std::memory_order_acquire))
+        triggerAsyncUpdate();
 
     // --- Signal state derivation (parity: hypha_pre.rs:397-403) -------------------
     const bool bypassed = (bypassParam != nullptr && bypassParam->get());
@@ -179,14 +196,65 @@ void KirinHyphaPREProcessor::setCurrentProgram (int)    {}
 const juce::String KirinHyphaPREProcessor::getProgramName (int) { return {}; }
 void KirinHyphaPREProcessor::changeProgramName (int, const juce::String&) {}
 
-void KirinHyphaPREProcessor::getStateInformation (juce::MemoryBlock&)
+void KirinHyphaPREProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
-    // 段A: no persisted state (state永続化 is out of scope for 後段).
+    // B-069: serialize the 4 identity keys as a JUCE-native XML chunk. The persist members
+    // are kept in sync with the FFI identity at enable time (B-070 handleAsyncUpdate).
+    juce::XmlElement xml ("KirinHyphaState");
+    xml.setAttribute ("instance_id",      persistInstanceId);
+    xml.setAttribute ("project_uuid",     persistProjectUuid);
+    xml.setAttribute ("daw_session_uuid", persistDawSessionUuid);
+    xml.setAttribute ("name",             persistName);
+    copyXmlToBinary (xml, destData);
 }
 
-void KirinHyphaPREProcessor::setStateInformation (const void*, int)
+void KirinHyphaPREProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
-    // 段A: no persisted state.
+    // B-069: restore the 4 identity keys into the persist members. May run before or after
+    // prepareToPlay (JUCE does not guarantee ordering); the FFI receives these at enable
+    // time via set_identity (B-070), deferred to the first processBlock so both have run.
+    if (auto xml = getXmlFromBinary (data, sizeInBytes))
+    {
+        if (xml->hasTagName ("KirinHyphaState"))
+        {
+            persistInstanceId     = xml->getStringAttribute ("instance_id");
+            persistProjectUuid    = xml->getStringAttribute ("project_uuid");
+            persistDawSessionUuid = xml->getStringAttribute ("daw_session_uuid");
+            persistName           = xml->getStringAttribute ("name");
+        }
+    }
+}
+
+void KirinHyphaPREProcessor::handleAsyncUpdate()
+{
+    // B-070: message-thread one-shot. Applies the FFI contract order create -> set_license
+    // (done in prepareToPlay) -> set_identity -> enable_pre_writes, once both prepareToPlay
+    // and any setStateInformation have run (guaranteed by triggering from the first
+    // processBlock).
+    const juce::ScopedLock sl (handleLock);
+    if (hyphaHandle == nullptr || writesEnabled.load (std::memory_order_acquire))
+        return;
+
+    // set_identity BEFORE enable: empty keys -> the FFI generates fresh UUIDs and writes
+    // them back; restored keys -> reused. A set_identity after enable would not propagate
+    // (the io_thread snapshots identity at enable), hence this single ordered point.
+    kirin_hypha_set_identity (hyphaHandle,
+                              persistInstanceId.toRawUTF8(),
+                              persistProjectUuid.toRawUTF8(),
+                              persistDawSessionUuid.toRawUTF8(),
+                              persistName.toRawUTF8());
+    kirin_hypha_enable_pre_writes (hyphaHandle);
+
+    // Read back the final (restored or freshly generated) identity so getStateInformation
+    // persists it across DAW save/load.
+    KirinIdentity id;
+    kirin_hypha_get_identity (hyphaHandle, &id);
+    persistInstanceId     = juce::String::fromUTF8 (id.instance_id);
+    persistProjectUuid    = juce::String::fromUTF8 (id.project_uuid);
+    persistDawSessionUuid = juce::String::fromUTF8 (id.daw_session_uuid);
+    persistName           = juce::String::fromUTF8 (id.name);
+
+    writesEnabled.store (true, std::memory_order_release);
 }
 
 // Plugin factory entry point required by JUCE wrappers.

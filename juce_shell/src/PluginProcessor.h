@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <vector>
 
 #include <juce_audio_processors/juce_audio_processors.h>
@@ -10,7 +11,8 @@
 // that derives signal state and feeds kirin_hypha_push_samples; a minimal Watch editor
 // polls kirin_hypha_poll_result for LUFS-M / True Peak / Crest. Mirrors the existing
 // nih-plug PRE (crates/hypha_pre) behaviour without reimplementing any measurement.
-class KirinHyphaPREProcessor : public juce::AudioProcessor
+class KirinHyphaPREProcessor : public juce::AudioProcessor,
+                               private juce::AsyncUpdater
 {
 public:
     KirinHyphaPREProcessor();
@@ -47,11 +49,24 @@ public:
 private:
     static bool bufferIsSilent (const juce::AudioBuffer<float>& buffer); // strict all-zero (parity)
 
+    // B-070: enable PRE plugin_data writes exactly once, on the message thread, after both
+    // prepareToPlay (create + set_license) and any setStateInformation (identity restore)
+    // have run. Triggered from the first processBlock via AsyncUpdater because JUCE does not
+    // guarantee setStateInformation precedes prepareToPlay, and enable_pre_writes spawns an
+    // io_thread (not RT-safe, so it must not run on the audio thread).
+    void handleAsyncUpdate() override;
+    std::atomic<bool> writesEnabled { false };         // PRE writes enabled (idempotent guard)
+
     juce::AudioParameterBool* bypassParam = nullptr;   // owned by AudioProcessor (addParameter)
     std::vector<float> interleaveScratch;              // pre-allocated in prepareToPlay (RT-safe; no alloc in processBlock)
 
     juce::CriticalSection handleLock;                  // guards hyphaHandle vs editor poll / create / destroy
     KirinHypha* hyphaHandle = nullptr;                 // owned; created in prepareToPlay, destroyed in releaseResources/dtor
+
+    // B-069: persisted identity (4 keys) round-tripped via get/setStateInformation as a
+    // JUCE-native XML chunk. Source of truth for the chunk; synced from the FFI at enable
+    // (B-070 handleAsyncUpdate get_identity readback). Empty until restored or generated.
+    juce::String persistInstanceId, persistProjectUuid, persistDawSessionUuid, persistName;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (KirinHyphaPREProcessor)
 };
