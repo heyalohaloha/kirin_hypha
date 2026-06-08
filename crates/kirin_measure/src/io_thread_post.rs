@@ -28,11 +28,11 @@ use crate::all_stop_signal::{self, ALL_STOP_BROADCAST_STALE_SECS};
 use crate::cleanup::exit_record_full;
 use crate::delta::{DeltaMode, DeltaResult, DeltaSnapshot};
 use crate::plugin_data::Role as PluginDataRole;
-use crate::pre_discovery::{
-    discover_active_pre_dir_for_pair, PostDiscoveryState, DISCOVERY_STALE_SECS,
-};
+use crate::pre_discovery::{PostDiscoveryState, DISCOVERY_STALE_SECS};
 use crate::record::RecordStateMachine;
-use crate::record_signal::{self, SignalStatus, ACK_TIMEOUT_SECONDS, SIGNALS_SUBDIR};
+use crate::record_signal::{
+    self, select_target_pre, SignalStatus, ACK_TIMEOUT_SECONDS, SIGNALS_SUBDIR,
+};
 use crate::engine::SessionSummary;
 use crate::record_writer::{
     run_record_tick, take_session_summary, writer_close, writer_close_with_summary, RecordError,
@@ -47,7 +47,8 @@ const LOOP_SLEEP: Duration = Duration::from_millis(100);
 const STALE_SECS: i64 = 5; // B-046: 2→5 (fs I/O backpressure 吸収 / G-115-246)
 
 /// PRE ファイルが NoPre とみなされる最大経過時間（秒）
-const NO_PRE_SECS: i64 = 10;
+/// B-059: `record_signal::select_target_pre` の freshness gate でも単一ソースとして参照。
+pub(crate) const NO_PRE_SECS: i64 = 10;
 
 /// preset/ ポーリング間隔（サブ3-C-2: 1 秒）。
 const PRESET_POLL_INTERVAL: Duration = Duration::from_secs(1);
@@ -754,9 +755,11 @@ pub(crate) fn snapshot_pair_pre_name(arc: &Arc<RwLock<String>>) -> String {
 /// `project_uuid` で構築された path のままで、検出された PRE dir とは独立。
 #[allow(clippy::too_many_arguments)]
 fn run_tick(
-    project_dir_hint: &Path,
+    // B-059: PRE 選定は select_target_pre(kirin_root) に一本化。project_dir_hint / discovery
+    // (単一最新 dir の throttle/cache) は不要化（caller は据え置きで `_` 受け）。
+    _project_dir_hint: &Path,
     kirin_root: &Path,
-    discovery: &mut PostDiscoveryState,
+    _discovery: &mut PostDiscoveryState,
     instance_dir: &Path,
     post_tmp: &Path,
     post_file: &Path,
@@ -785,37 +788,40 @@ fn run_tick(
         return Ok(());
     }
 
-    // B-021 Phase 1A: PRE discovery (1 秒 throttle)。
-    // W-280 / G-115-248: pair-aware 版に切替。pair_pre_name (本 tick の snapshot) を
-    // discovery / Δ 計算双方に流し、2 セット環境で他 PRE の mtime に引っ張られて
-    // 誤 dir 採用される事を防ぐ。
+    // B-059: 表示=commit 一本化。commit (trigger_keep_internal) と同一の
+    // `select_target_pre` で PRE を選定する。pair_pre_name 空 / 同名複数 / 不在 /
+    // Inactive / 古t は None (= 表示 NoPre 沈黙 = commit 拒否)。
     let pair_opt = Some(pair_pre_name).filter(|s| !s.is_empty());
-    let now = Instant::now();
-    if discovery.should_rescan(now) {
-        let found = discover_active_pre_dir_for_pair(kirin_root, pair_opt);
-        discovery.record_scan(now, found);
-    }
-    let project_dir: &Path = discovery
-        .cached_pre_dir()
-        .unwrap_or(project_dir_hint);
 
     let post = post_result
         .lock()
         .map_err(|e| format!("post Mutex poisoned: {e}"))?
         .clone();
 
-    let (new_delta, pre_signal_state) = compute_delta_with_state(project_dir, &post, pair_opt)?;
+    let (new_delta, pre_signal_state) = match select_target_pre(kirin_root, pair_pre_name) {
+        // 選定 PRE の `{project_uuid}` dir で Δ 計算（name 一意は select 済 → 同一 PRE）。
+        Some(sel) => compute_delta_with_state(&sel.project_dir, &post, pair_opt)?,
+        // 有効ペアなし → NoPre。
+        None => (
+            DeltaResult {
+                mode: DeltaMode::NoPre,
+                ..Default::default()
+            },
+            None,
+        ),
+    };
 
-    // B-048 / G-115-245 Last Known Good: Active 時に Δ 6 軸を snapshot として
-    // `last_active` に保存し、Stale/NoPre 時は前回 `last_active` を保持する。
-    // Mutex lock 1 回で前回値を read → merge → write back (案 B / §3.3)。
-    // merge ロジック自体は pure 関数 `merge_last_active` に切り出し済 (unit test 可能化)。
-    let mut delta_locked = delta_result
-        .lock()
-        .map_err(|e| format!("delta Mutex poisoned: {e}"))?;
-    let prev_last_active = delta_locked.last_active.clone();
-    *delta_locked = merge_last_active(prev_last_active, new_delta);
-    drop(delta_locked);
+    // last_active マージ:
+    // - Active → 新 6 軸 snapshot 保存 / Stale(5-10s・同一有効 pair) → 前回保持（B-048 維持）。
+    // - NoPre → **last_active クリア**（B-059 / G-115-245 置換: 選定 None で「見えないのに
+    //   凍結 Δ が残る」のを防ぐ。merge_last_active を経由せず None を書く）。
+    {
+        let mut delta_locked = delta_result
+            .lock()
+            .map_err(|e| format!("delta Mutex poisoned: {e}"))?;
+        let prev_last_active = delta_locked.last_active.clone();
+        *delta_locked = resolve_delta_for_store(new_delta, prev_last_active);
+    }
 
     // B-027 段階 3-B α-7-1 / Step 6: pair_pre_name は閉路 1 tick の snapshot
     // (Q-A7 採用案 A 完成 / cross-instance 公開機構)。
@@ -882,6 +888,26 @@ pub fn merge_last_active(
             last_active: prev_last_active,
             ..new_delta
         },
+    }
+}
+
+/// B-059 / G-115-245 置換: `run_tick` が delta_result に書く値を決める pure 関数。
+///
+/// - `mode == NoPre`（= `select_target_pre` が有効ペアなし）→ **`new_delta` をそのまま**
+///   （`DeltaResult::default()` 由来で `last_active = None` ＝ クリア）。表示=commit 一本化で
+///   「選定 None なのに直近 Δ が凍結表示される」のを防ぐ（B-048 の NoPre 保持を廃止）。
+/// - `mode == Active | Stale`（= 一意有効 PRE を選定）→ `merge_last_active`（Active 保存 /
+///   Stale 5-10s は同一有効 pair の凍結値保持＝B-048 維持）。
+///
+/// 純関数（Mutex/fs 副作用なし）→ unit test 容易。
+pub(crate) fn resolve_delta_for_store(
+    new_delta: DeltaResult,
+    prev_last_active: Option<DeltaSnapshot>,
+) -> DeltaResult {
+    if new_delta.mode == DeltaMode::NoPre {
+        new_delta
+    } else {
+        merge_last_active(prev_last_active, new_delta)
     }
 }
 
@@ -3411,5 +3437,52 @@ mod release_delta_reset_tests {
             "merge with prev=None + NoPre must keep last_active=None"
         );
         assert_eq!(merged.mode, DeltaMode::NoPre);
+    }
+}
+
+// ── B-059: resolve_delta_for_store（last_active 置換 / G-115-245 廃止）─────────
+#[cfg(test)]
+mod resolve_delta_for_store_tests {
+    use super::*;
+
+    fn snap(lufs: f64) -> DeltaSnapshot {
+        DeltaSnapshot {
+            lufs: Some(lufs),
+            psr: None,
+            tp: None,
+            n_prime_total: None,
+            crest: None,
+            sharpness: None,
+        }
+    }
+
+    /// B-059: NoPre（select_target_pre が None）→ **last_active クリア**（B-048 の保持を廃止）。
+    /// 「見えないのに直近 Δ が凍結表示される」のを防ぐ＝表示=commit 一本化の核。
+    #[test]
+    fn nopre_clears_last_active() {
+        let prev = Some(snap(1.0));
+        let nopre = DeltaResult { mode: DeltaMode::NoPre, ..Default::default() };
+        let r = resolve_delta_for_store(nopre, prev);
+        assert_eq!(r.mode, DeltaMode::NoPre);
+        assert!(r.last_active.is_none(), "NoPre は last_active をクリア（凍結 Δ を残さない）");
+    }
+
+    /// Stale（一意有効 pair の 5-10s）→ 前回 last_active 保持（B-048 維持）。
+    #[test]
+    fn stale_keeps_last_active() {
+        let prev = Some(snap(2.0));
+        let stale = DeltaResult { mode: DeltaMode::Stale, ..Default::default() };
+        let r = resolve_delta_for_store(stale, prev);
+        assert!(r.last_active.is_some(), "Stale は同一有効 pair の last_active を保持");
+        assert_eq!(r.last_active.unwrap().lufs, Some(2.0));
+    }
+
+    /// Active → 新 snapshot 保存。
+    #[test]
+    fn active_stores_snapshot() {
+        let active = DeltaResult { mode: DeltaMode::Active, lufs: Some(3.0), ..Default::default() };
+        let r = resolve_delta_for_store(active, None);
+        assert!(r.last_active.is_some(), "Active は新 snapshot を保存");
+        assert_eq!(r.last_active.unwrap().lufs, Some(3.0));
     }
 }

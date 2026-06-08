@@ -29,15 +29,14 @@ use hypha_gui::{
 };
 use kirin_measure::{
     all_keep_signal_path, all_stop_signal_path, append_annotation_to_latest,
-    check_record_exclusion, delete_broadcast, delete_signal, discover_active_pre_dirs,
-    enumerate_active_post_pair_candidates, enumerate_active_pre_pair_candidates,
-    exit_record_full, filter_candidates_by_name, format_pair_label, load_signal_state,
-    lookup_section_label, mark_released, pick_closest_pre, sanitize_name,
-    scan_latest_v2_preset, scan_pre_candidates_in, show_note_button, show_save_button,
-    show_stop_record_button, write_broadcast, write_pending, write_stop_broadcast,
-    DeltaMode, DeltaResult, DeltaSnapshot, ExclusionResult, License, MeasureResult, PluginDataRole,
-    PostMetrics, PreCandidate, PresetFileV2, RecordStateMachine, SignalState, StoragePaths,
-    TransitionError, MAX_ACTIVE_PER_PROJECT, SENSE_RECORD_HINT, SENSE_UPSELL_URL,
+    check_record_exclusion, delete_broadcast, delete_signal,
+    enumerate_active_post_pair_candidates, enumerate_active_pre_pair_candidates, exit_record_full,
+    format_pair_label, load_signal_state, lookup_section_label, mark_released, sanitize_name,
+    scan_latest_v2_preset, select_target_pre, show_note_button, show_save_button,
+    show_stop_record_button, write_broadcast, write_pending, write_stop_broadcast, DeltaMode,
+    DeltaResult, DeltaSnapshot, ExclusionResult, License, MeasureResult, PluginDataRole,
+    PreCandidate, PresetFileV2, RecordStateMachine, SignalState, StoragePaths, TransitionError,
+    MAX_ACTIVE_PER_PROJECT, SENSE_RECORD_HINT, SENSE_UPSELL_URL,
 };
 use nih_plug::prelude::Editor;
 use nih_plug_egui::{
@@ -1276,7 +1275,9 @@ pub(crate) fn trigger_keep_internal(
     daw_session_id: &str,
     pair_label: &Arc<Mutex<String>>,
     paired_pre_target: &Arc<Mutex<Option<String>>>,
-    m: &MeasureResult,
+    // B-059: 距離 auto-pick 廃止により POST メトリクスは選定に不要（select_target_pre は
+    // name + Active + freshness のみで一意選定）。caller 据え置きのため `_` 受け。
+    _m: &MeasureResult,
     mut toast: Option<&mut Option<Toast>>,
     now: f64,
     pair_pre_name: &str,
@@ -1295,55 +1296,27 @@ pub(crate) fn trigger_keep_internal(
     let plugin_data_dir = paths.plugin_data_dir();
     let tmp_base = std::env::temp_dir().join("kirin");
 
-    // 2. PRE 候補スキャン（B-027 段階 2 fix: 多 PRE 環境対応 / NG-1 + NG-2）
+    // 2 + 4. PRE 選定（B-059: 表示=commit 一本化）
     //
-    // 旧: `discover_active_pre_dir` で **mtime 最新 1 件** project_uuid のみ採用。
-    //     2 セット環境 (PRE A + POST A + PRE B + POST B) で他 project_uuid 配下の
-    //     目的 PRE が完全に視界外 → 別 PRE 誤紐付け / "No matching PRE" 誤表示。
-    // 新: `discover_active_pre_dirs` で fresh な全 project_uuid を Vec で取得し、
-    //     全 dir 配下の `pre.json` を flatten して 1 つの候補リストに統合する。
-    //     Δ 経路 (io_thread_post::compute_delta_with_state) は引き続き
-    //     `discover_active_pre_dir` (単一最新) で「最新 1 PRE で Δ 計算」セマン
-    //     ティクス維持。本変更は trigger_keep のみ。
-    let pre_project_dirs = discover_active_pre_dirs(&tmp_base);
-    if pre_project_dirs.is_empty() {
-        log::info!("[POST keep] no PRE candidate (discovery returned empty)");
-        if let Some(t) = toast.as_mut() {
-            **t = Some(Toast::new("No PRE plugin found", now));
+    // 表示Δ (io_thread_post::run_tick) と **同一の `select_target_pre`** で target を決める。
+    // 全 fresh project_uuid を flatten + Active + t<NO_PRE_SECS gate + Name 一致で、
+    // **一意 1 件のみ Some**。pair_pre_name 空 / 同名複数 / 不在 / Inactive / 古t は None
+    // → "No PRE Paired"（距離 auto-pick は廃止 = 曖昧時に勝手に 1 件選ばない）。
+    let target_id = match select_target_pre(&tmp_base, pair_pre_name) {
+        Some(sel) => sel.instance_id,
+        None => {
+            log::info!(
+                "[POST keep] no unique active PRE for pair_pre_name=\"{}\" (none/ambiguous/inactive/stale)",
+                pair_pre_name
+            );
+            if let Some(t) = toast.as_mut() {
+                **t = Some(Toast::new("No PRE Paired", now));
+            }
+            return;
         }
-        return;
-    }
-    let candidates: Vec<_> = pre_project_dirs
-        .iter()
-        .flat_map(|d| scan_pre_candidates_in(d))
-        .collect();
-    if candidates.is_empty() {
-        log::info!(
-            "[POST keep] no PRE candidate (project_dirs={} all empty)",
-            pre_project_dirs.len()
-        );
-        if let Some(t) = toast.as_mut() {
-            **t = Some(Toast::new("No PRE plugin found", now));
-        }
-        return;
-    }
+    };
 
-    // B-027 段階 2: pair_pre_name 非空時は Name で filter。空文字は pass-through
-    // (filter_candidates_by_name 内部で判定 / B-027 段階 1 受入維持)。
-    let candidates = filter_candidates_by_name(candidates, pair_pre_name);
-    if candidates.is_empty() {
-        log::info!(
-            "[POST keep] no PRE matches pair_pre_name=\"{}\" (project_dirs={})",
-            pair_pre_name,
-            pre_project_dirs.len()
-        );
-        if let Some(t) = toast.as_mut() {
-            **t = Some(Toast::new("No PRE Paired", now));
-        }
-        return;
-    }
-
-    // 3. 排他チェック（B-027 段階 3-A: 上限 12 active per project_hash）
+    // 3. 排他チェック（B-027 段階 3-A: 上限 12 active per project_hash / commit 専用ゲート）
     match check_record_exclusion(&plugin_data_dir, project_hash) {
         ExclusionResult::Ok => {}
         ExclusionResult::Conflict { role, heartbeat, .. } => {
@@ -1357,23 +1330,6 @@ pub(crate) fn trigger_keep_internal(
             return;
         }
     }
-
-    // 4. 最近 PRE 選定
-    let post_metrics = PostMetrics {
-        lufs_m: m.lufs_m,
-        true_peak: m.true_peak,
-        crest: m.crest,
-    };
-    let target_id = match pick_closest_pre(&candidates, post_metrics) {
-        Some(c) => c.instance_id.clone(),
-        None => {
-            log::warn!("[POST keep] pick_closest_pre returned None despite candidates");
-            if let Some(t) = toast.as_deref_mut() {
-                *t = Some(Toast::new("No PRE plugin found", now));
-            }
-            return;
-        }
-    };
 
     // 5. RecordStateMachine 遷移（license 二重 gate）
     match record_sm.try_enter_record(license) {

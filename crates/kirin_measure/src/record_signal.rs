@@ -560,12 +560,17 @@ pub struct PostMetrics {
     pub crest: Option<f64>,
 }
 
-/// PRE 候補から最近 PRE を選ぶ。
+/// PRE 候補から最近 PRE を選ぶ（距離ベース）。
+///
+/// **B-059: production 非経路。** 表示=commit 一本化（厳格）により距離 auto-pick は
+/// 廃止された（曖昧は沈黙＝選定しない）。本関数は単体テスト保持のため温存する。
+/// production 選定は [`select_target_pre`] を使うこと。
 ///
 /// - 0 件 → None
 /// - 1 件 → その 1 つを返す（計測値無くても自動確定。G-50-35）
 /// - 複数 + POST/PRE 双方に全 3 メトリック有 → distance 最小を返す
 /// - 複数 + いずれかメトリック不在 → 最初の候補を返す（ソート済みで安定）
+#[doc(hidden)]
 pub fn pick_closest_pre(
     candidates: &[PreCandidate],
     post: PostMetrics,
@@ -592,6 +597,82 @@ pub fn pick_closest_pre(
             }
             best.map(|(c, _)| c).or_else(|| candidates.first())
         }
+    }
+}
+
+/// 表示Δ・commit 両経路が共有する単一選定結果（B-059）。
+pub struct SelectedPre {
+    pub instance_id: String,
+    /// 選定 PRE の `pre.json`（`{kirin_root}/{project_uuid}/{instance_id}/pre.json`）。
+    pub pre_json: PathBuf,
+    /// `compute_delta_with_state` に渡す `{project_uuid}` ディレクトリ。
+    pub project_dir: PathBuf,
+}
+
+/// 表示Δ（`compute_delta_with_state`）と commit（`trigger_keep_internal`）が共有する
+/// **厳格 PRE 選定**（B-059 / 表示=commit 一本化）。両経路が本関数で同一 PRE を選ぶ。
+///
+/// 1. `pair_pre_name` 空 → `None`（明示名必須。距離 auto-pick は廃止）。
+/// 2. 全 fresh project_dir（mtime stale > `DISCOVERY_STALE_SECS` 除外 /
+///    [`crate::pre_discovery::discover_active_pre_dirs`]）を flatten → [`scan_pre_candidates_in`]
+///    （Bypassed 除外・既存）。
+/// 3. 妥当 gate（両経路共通）: 各候補 `pre.json` の `signal_state == "active"` かつ
+///    `t`(content timestamp) age < [`crate::io_thread_post::NO_PRE_SECS`]（10s）。
+///    Inactive・古 t を除外。scan は Bypassed のみ除外のため Active 再判定する。
+/// 4. name 一致（`candidate.name == pair_pre_name`）。
+/// 5. **ちょうど 1 件 → `Some` / 0 件 or 2 件以上 → `None`**（曖昧は沈黙）。
+pub fn select_target_pre(kirin_root: &Path, pair_pre_name: &str) -> Option<SelectedPre> {
+    if pair_pre_name.is_empty() {
+        return None;
+    }
+    let dirs = crate::pre_discovery::discover_active_pre_dirs(kirin_root);
+    let candidates: Vec<PreCandidate> =
+        dirs.iter().flat_map(|d| scan_pre_candidates_in(d)).collect();
+    let named = filter_candidates_by_name(candidates, pair_pre_name);
+
+    let mut valid: Vec<SelectedPre> = Vec::new();
+    for c in named {
+        let Ok(content) = fs::read_to_string(&c.path) else {
+            continue;
+        };
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(&content) else {
+            continue;
+        };
+        // gate (Active のみ): scan は Bypassed のみ除外なので Inactive を弾くため再判定。
+        if v.get("signal_state").and_then(|x| x.as_str()) != Some("active") {
+            continue;
+        }
+        // gate (freshness): t age < NO_PRE_SECS。
+        let Some(t_str) = v.get("t").and_then(|x| x.as_str()) else {
+            continue;
+        };
+        if !t_age_within(t_str, crate::io_thread_post::NO_PRE_SECS) {
+            continue;
+        }
+        let Some(project_dir) = c.path.parent().and_then(|p| p.parent()).map(Path::to_path_buf)
+        else {
+            continue;
+        };
+        valid.push(SelectedPre {
+            instance_id: c.instance_id,
+            pre_json: c.path,
+            project_dir,
+        });
+    }
+
+    if valid.len() == 1 {
+        valid.pop()
+    } else {
+        None // 0 件 or 2 件以上 = 曖昧 → 沈黙（表示 NoPre / commit 拒否）。
+    }
+}
+
+/// `t`(RFC3339) が現在から `max_secs` 秒以内か。parse 失敗は false（安全側で除外）。
+/// `io_thread_post::freshness_mode` と同一の age 算出（`now - t` の秒）。
+fn t_age_within(t_str: &str, max_secs: i64) -> bool {
+    match chrono::DateTime::parse_from_rfc3339(t_str) {
+        Ok(t) => (chrono::Utc::now() - t.with_timezone(&chrono::Utc)).num_seconds() < max_secs,
+        Err(_) => false,
     }
 }
 
@@ -1273,5 +1354,90 @@ mod tests {
         assert_eq!(after.status, SignalStatus::Released);
         delete_signal(&base, "ph", "post-1").unwrap();
         assert!(read_signal(&base, "ph", "post-1").is_none());
+    }
+
+    // ── B-059: select_target_pre 厳格選定（表示=commit 一本化）─────────────────
+
+    /// RFC3339 の正規 `t` を持つ pre.json fixture（select_target_pre の freshness gate 対応）。
+    fn write_pre_for_select(
+        kirin_root: &Path,
+        project_uuid: &str,
+        instance_id: &str,
+        name: &str,
+        signal_state: &str,
+        t_rfc3339: &str,
+    ) {
+        let dir = kirin_root.join(project_uuid).join(instance_id);
+        fs::create_dir_all(&dir).unwrap();
+        let json = format!(
+            r#"{{"v":2,"role":"PRE","instance_id":"{instance_id}","name":"{name}","signal_state":"{signal_state}","t":"{t_rfc3339}","lufs_m":-14.0,"true_peak":-1.0,"crest":12.0}}"#
+        );
+        fs::write(dir.join("pre.json"), json).unwrap();
+    }
+
+    fn now_rfc3339() -> String {
+        Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()
+    }
+    fn old_rfc3339(secs_ago: i64) -> String {
+        (Utc::now() - chrono::Duration::seconds(secs_ago))
+            .format("%Y-%m-%dT%H:%M:%SZ")
+            .to_string()
+    }
+
+    /// (d) 一意・Active・fresh → Some(その instance_id)。
+    #[test]
+    fn select_target_pre_unique_active_fresh_returns_some() {
+        let root = isolated_dir();
+        write_pre_for_select(&root, "puid-1", "iid-A", "snare", "active", &now_rfc3339());
+        let sel = select_target_pre(&root, "snare").expect("unique active fresh → Some");
+        assert_eq!(sel.instance_id, "iid-A");
+        assert!(sel.pre_json.ends_with("pre.json"));
+    }
+
+    /// (a) 同名 2 件（Active/fresh・別 project_uuid）→ 曖昧 → None。
+    #[test]
+    fn select_target_pre_ambiguous_same_name_returns_none() {
+        let root = isolated_dir();
+        let now = now_rfc3339();
+        write_pre_for_select(&root, "puid-1", "iid-A", "snare", "active", &now);
+        write_pre_for_select(&root, "puid-2", "iid-B", "snare", "active", &now);
+        assert!(select_target_pre(&root, "snare").is_none(), "同名 2 件は None（曖昧沈黙）");
+    }
+
+    /// (b) pair_pre_name 空 → None（距離 auto-pick 廃止）。
+    #[test]
+    fn select_target_pre_empty_name_returns_none() {
+        let root = isolated_dir();
+        write_pre_for_select(&root, "puid-1", "iid-A", "snare", "active", &now_rfc3339());
+        assert!(select_target_pre(&root, "").is_none(), "空名は None");
+    }
+
+    /// (c1) Inactive → 除外 → None。
+    #[test]
+    fn select_target_pre_inactive_excluded() {
+        let root = isolated_dir();
+        write_pre_for_select(&root, "puid-1", "iid-A", "snare", "inactive", &now_rfc3339());
+        assert!(select_target_pre(&root, "snare").is_none(), "Inactive は除外");
+    }
+
+    /// (c2) t age ≥ NO_PRE_SECS(10s) → 除外 → None。
+    #[test]
+    fn select_target_pre_stale_t_excluded() {
+        let root = isolated_dir();
+        write_pre_for_select(&root, "puid-1", "iid-A", "snare", "active", &old_rfc3339(20));
+        assert!(select_target_pre(&root, "snare").is_none(), "古 t（≥10s）は除外");
+    }
+
+    /// display==commit: 両経路は同一 select_target_pre を呼ぶため、同一 fixture に対し
+    /// 同一 instance_id を返す（commit target == 表示 Δ 対象 / name で一意分離）。
+    #[test]
+    fn select_target_pre_display_equals_commit() {
+        let root = isolated_dir();
+        let now = now_rfc3339();
+        write_pre_for_select(&root, "puid-1", "iid-snare", "snare", "active", &now);
+        write_pre_for_select(&root, "puid-2", "iid-kick", "kick", "active", &now);
+        assert_eq!(select_target_pre(&root, "snare").unwrap().instance_id, "iid-snare");
+        assert_eq!(select_target_pre(&root, "kick").unwrap().instance_id, "iid-kick");
+        assert!(select_target_pre(&root, "vocal").is_none(), "不在 name は両経路 None");
     }
 }
