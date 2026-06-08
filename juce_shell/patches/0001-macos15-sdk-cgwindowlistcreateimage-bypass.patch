@@ -1,0 +1,51 @@
+diff --git a/modules/juce_gui_basics/native/juce_Windowing_mac.mm b/modules/juce_gui_basics/native/juce_Windowing_mac.mm
+index ad459d483e..bfc5b11703 100644
+--- a/modules/juce_gui_basics/native/juce_Windowing_mac.mm
++++ b/modules/juce_gui_basics/native/juce_Windowing_mac.mm
+@@ -520,24 +520,34 @@ static Image createNSWindowSnapshot (NSWindow* nsWindow)
+ {
+     JUCE_AUTORELEASEPOOL
+     {
++       #if defined (__MAC_OS_X_VERSION_MAX_ALLOWED) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 150000
++        // Kirin patch (Phase 2 後段 / kirin_hypha): CGWindowListCreateImage is obsoleted
++        // (unavailable -> hard error) in the macOS 15.0 SDK. JUCE 7.0.12 has no backport
++        // (fixed only in JUCE 8.0.x). The Watch audio plugin never snapshots native windows,
++        // so we bypass the obsoleted path and return an empty Image when built against a
++        // 15.0+ SDK. Scope: this GUI snapshot utility only; audio/measurement/plugin/UI paths
++        // are untouched. See juce_shell/PATCHES.md.
++        ignoreUnused (nsWindow);
++        return {};
++       #else
+         // CGWindowListCreateImage is replaced by functions in the ScreenCaptureKit framework, but
+         // that framework is only available from macOS 12.3 onwards.
+         // A suitable @available check should be added once the minimum build OS is 12.3 or greater,
+         // so that ScreenCaptureKit can be weak-linked.
+-       #if defined (MAC_OS_VERSION_14_0) && MAC_OS_X_VERSION_MAX_ALLOWED >= MAC_OS_VERSION_14_0
++        #if defined (MAC_OS_VERSION_14_0) && MAC_OS_X_VERSION_MAX_ALLOWED >= MAC_OS_VERSION_14_0
+         JUCE_BEGIN_IGNORE_WARNINGS_GCC_LIKE ("-Wdeprecated-declarations")
+         #define JUCE_DEPRECATION_IGNORED 1
+-       #endif
++        #endif
+ 
+         CGImageRef screenShot = CGWindowListCreateImage (CGRectNull,
+                                                          kCGWindowListOptionIncludingWindow,
+                                                          (CGWindowID) [nsWindow windowNumber],
+                                                          kCGWindowImageBoundsIgnoreFraming);
+ 
+-       #if JUCE_DEPRECATION_IGNORED
++        #if JUCE_DEPRECATION_IGNORED
+         JUCE_END_IGNORE_WARNINGS_GCC_LIKE
+         #undef JUCE_DEPRECATION_IGNORED
+-       #endif
++        #endif
+ 
+         NSBitmapImageRep* bitmapRep = [[NSBitmapImageRep alloc] initWithCGImage: screenShot];
+ 
+@@ -551,6 +561,7 @@ static Image createNSWindowSnapshot (NSWindow* nsWindow)
+         CGImageRelease (screenShot);
+ 
+         return result;
++       #endif
+     }
+ }
+ 

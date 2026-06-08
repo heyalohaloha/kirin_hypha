@@ -1,0 +1,2 @@
+# CMake build tree + plugin artefacts (段E: never commit build output)
+build/

@@ -1,0 +1,195 @@
+#include "PluginProcessor.h"
+#include "PluginEditor.h"
+
+KirinHyphaPREProcessor::KirinHyphaPREProcessor()
+    : juce::AudioProcessor (BusesProperties()
+          .withInput  ("Input",  juce::AudioChannelSet::stereo(), true)
+          .withOutput ("Output", juce::AudioChannelSet::stereo(), true))
+{
+    // Host bypass routed through this parameter; processBlock reads it to set the
+    // Bypassed signal state while still passing audio through (parity with hypha_pre).
+    addParameter (bypassParam = new juce::AudioParameterBool ({ "bypass", 1 }, "Bypass", false));
+}
+
+KirinHyphaPREProcessor::~KirinHyphaPREProcessor()
+{
+    const juce::ScopedLock sl (handleLock);
+    if (hyphaHandle != nullptr)
+    {
+        kirin_hypha_destroy (hyphaHandle);
+        hyphaHandle = nullptr;
+    }
+}
+
+void KirinHyphaPREProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
+{
+    const int numCh = getTotalNumInputChannels();
+
+    // Pre-allocate the interleave scratch so processBlock never allocates (RT-safe).
+    interleaveScratch.assign ((size_t) juce::jmax (0, samplesPerBlock)
+                                  * (size_t) juce::jmax (1, numCh),
+                              0.0f);
+
+    const juce::ScopedLock sl (handleLock);
+    // Re-prepare is allowed: drop any prior handle before creating a fresh one.
+    if (hyphaHandle != nullptr)
+    {
+        kirin_hypha_destroy (hyphaHandle);
+        hyphaHandle = nullptr;
+    }
+
+    // num_channels: pass the actual negotiated input channel count (stereo expected).
+    hyphaHandle = kirin_hypha_create ((uint32_t) sampleRate, (uint32_t) numCh);
+    // A null handle (create failure) is tolerated; processBlock / pollMeasureResult guard on it.
+}
+
+void KirinHyphaPREProcessor::releaseResources()
+{
+    const juce::ScopedLock sl (handleLock);
+    if (hyphaHandle != nullptr)
+    {
+        kirin_hypha_destroy (hyphaHandle);
+        hyphaHandle = nullptr;
+    }
+}
+
+bool KirinHyphaPREProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
+{
+    const auto& mainIn  = layouts.getMainInputChannelSet();
+    const auto& mainOut = layouts.getMainOutputChannelSet();
+
+    if (mainIn != mainOut)
+        return false;
+
+    return mainOut == juce::AudioChannelSet::mono()
+        || mainOut == juce::AudioChannelSet::stereo();
+}
+
+void KirinHyphaPREProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
+{
+    juce::ScopedNoDenormals noDenormals;
+
+    const int numCh     = getTotalNumInputChannels();
+    const int numOut    = getTotalNumOutputChannels();
+    const int numFrames = buffer.getNumSamples();
+
+    // R-12: read-only passthrough. Never write to signal channels; only clear surplus
+    // output channels with no matching input (no-op when in == out).
+    for (int ch = numCh; ch < numOut; ++ch)
+        buffer.clear (ch, 0, numFrames);
+
+    // Not locked on the audio thread: JUCE suspends processing around prepare/release,
+    // so hyphaHandle is stable here. (The editor poll and create/destroy use handleLock.)
+    if (hyphaHandle == nullptr)
+        return;
+
+    // --- Signal state derivation (parity: hypha_pre.rs:397-403) -------------------
+    const bool bypassed = (bypassParam != nullptr && bypassParam->get());
+
+    bool playing = false;
+    if (auto* ph = getPlayHead())
+        if (const auto pos = ph->getPosition())
+            playing = pos->getIsPlaying();
+
+    const bool silent = bufferIsSilent (buffer);
+
+    // C ABI signal-state codes: 0 = Inactive, 1 = Active, 2 = Bypassed.
+    uint8_t stateCode;
+    if (bypassed)                 stateCode = 2; // Bypassed
+    else if (! playing || silent) stateCode = 0; // Inactive
+    else                          stateCode = 1; // Active
+    kirin_hypha_set_signal_state (hyphaHandle, stateCode);
+
+    // --- Feed the engine ---------------------------------------------------------
+    // Parity with nih-plug: ring push only when Active; heartbeat advances every block.
+    // push_samples advances heartbeat internally, so a 0-frame call is a heartbeat-only
+    // keepalive (no ring push) for the Inactive / Bypassed case.
+    if (stateCode == 1)
+    {
+        const size_t needed = (size_t) numFrames * (size_t) numCh;
+        if (numCh > 0 && needed <= interleaveScratch.size())
+        {
+            // Interleave [c0f0, c1f0, c0f1, c1f1, ...] — same order as nih-plug iter_samples.
+            // getReadPointer only: the input buffer is never modified (R-12).
+            size_t idx = 0;
+            for (int f = 0; f < numFrames; ++f)
+                for (int ch = 0; ch < numCh; ++ch)
+                    interleaveScratch[idx++] = buffer.getReadPointer (ch)[f];
+
+            kirin_hypha_push_samples (hyphaHandle, interleaveScratch.data(),
+                                      (size_t) numFrames, (uint32_t) numCh);
+        }
+        else
+        {
+            kirin_hypha_push_samples (hyphaHandle, nullptr, 0, (uint32_t) numCh);
+        }
+    }
+    else
+    {
+        kirin_hypha_push_samples (hyphaHandle, nullptr, 0, (uint32_t) numCh);
+    }
+}
+
+bool KirinHyphaPREProcessor::bufferIsSilent (const juce::AudioBuffer<float>& buffer)
+{
+    // Parity with hypha_pre.rs:442-451: true iff every sample in every channel is exactly 0.
+    for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+    {
+        const float* p = buffer.getReadPointer (ch);
+        for (int i = 0; i < buffer.getNumSamples(); ++i)
+            if (p[i] != 0.0f)
+                return false;
+    }
+    return true;
+}
+
+juce::AudioProcessorEditor* KirinHyphaPREProcessor::createEditor()
+{
+    return new KirinHyphaPREEditor (*this);
+}
+
+bool KirinHyphaPREProcessor::hasEditor() const          { return true; }
+
+juce::AudioProcessorParameter* KirinHyphaPREProcessor::getBypassParameter() const
+{
+    return bypassParam;
+}
+
+bool KirinHyphaPREProcessor::pollMeasureResult (KirinMeasureResult& out) const
+{
+    const juce::ScopedLock sl (handleLock);
+    if (hyphaHandle == nullptr)
+        return false;
+    return kirin_hypha_poll_result (hyphaHandle, &out);
+}
+
+const juce::String KirinHyphaPREProcessor::getName() const { return "Kirin Hypha PRE"; }
+
+bool KirinHyphaPREProcessor::acceptsMidi() const        { return false; }
+bool KirinHyphaPREProcessor::producesMidi() const       { return false; }
+bool KirinHyphaPREProcessor::isMidiEffect() const       { return false; }
+double KirinHyphaPREProcessor::getTailLengthSeconds() const { return 0.0; }
+
+int KirinHyphaPREProcessor::getNumPrograms()            { return 1; }
+int KirinHyphaPREProcessor::getCurrentProgram()         { return 0; }
+void KirinHyphaPREProcessor::setCurrentProgram (int)    {}
+const juce::String KirinHyphaPREProcessor::getProgramName (int) { return {}; }
+void KirinHyphaPREProcessor::changeProgramName (int, const juce::String&) {}
+
+void KirinHyphaPREProcessor::getStateInformation (juce::MemoryBlock&)
+{
+    // 段A: no persisted state (state永続化 is out of scope for 後段).
+}
+
+void KirinHyphaPREProcessor::setStateInformation (const void*, int)
+{
+    // 段A: no persisted state.
+}
+
+// Plugin factory entry point required by JUCE wrappers.
+// JUCE 7.0.12 calls ::createPluginFilter() (global scope, no juce_ prefix) from
+// detail/juce_CreatePluginFilter.h.
+juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
+{
+    return new KirinHyphaPREProcessor();
+}
