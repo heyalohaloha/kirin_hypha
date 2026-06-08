@@ -19,6 +19,7 @@ use std::time::Duration;
 use approx::assert_relative_eq;
 
 use kirin_hypha_ffi::KirinHyphaEngine;
+use kirin_measure::engine::{MeasureEngine, SessionSummary};
 use kirin_measure::phase_d::stream::{PhaseDResult, PhaseDStream};
 use kirin_measure::phase_d::tables::FieldType;
 
@@ -194,4 +195,159 @@ fn rt_safety_no_overflow_at_juce_block_sizes() {
             engine.overflow_count()
         );
     }
+}
+
+// ── Phase 3a: Record 遷移 + license gate + poll_session 実体化のパリティ ──────
+
+/// 参照: measure_thread が `engine.push` に渡すのと同一の f64 列（ring f32 を `as f64`・
+/// stereo interleaved・48k で resample なし / measure_thread.rs:232,266）を直接
+/// `MeasureEngine` に通して finalize する。
+fn direct_session(stereo_f32: &[f32]) -> SessionSummary {
+    let mut engine = MeasureEngine::new(SR, 2).expect("MeasureEngine init");
+    let f64buf: Vec<f64> = stereo_f32.iter().map(|&s| s as f64).collect();
+    let chunk = (SR as usize / 10) * 2; // 100ms stereo interleaved
+    for c in f64buf.chunks(chunk) {
+        let _ = engine.push(c);
+    }
+    engine.finalize()
+}
+
+/// FFI で Record セッションを駆動して poll_session を取得する。
+/// 駆動ペースは `drive_ffi`（phase_d parity）と同じ 0.1s/30ms（ring 2s で overflow=0）。
+fn drive_ffi_session(stereo_f32: &[f32]) -> (SessionSummary, u64, bool) {
+    let engine = KirinHyphaEngine::new(SR, 2);
+    engine.set_license(0); // Os
+    engine.set_signal_state(1); // Active
+    assert!(engine.enter_record(), "Os + Watch なら enter_record は true");
+    assert!(engine.is_recording(), "enter_record 成功後は Record 中");
+
+    // Measure Thread が is_recording を観測して engine.reset() するのを ring 空のまま待つ。
+    // 待機中も keepalive で heartbeat を進め signal_state Active を維持する
+    // （無音待機すると heartbeat stall override で Inactive に落ち計測がスキップされる
+    //   / measure_thread.rs:160-169。実プラグインは毎ブロック set_signal_state する）。
+    for _ in 0..6 {
+        engine.push_samples(&[], 2); // 0-frame keepalive（ring 空のまま heartbeat++）
+        sleep(Duration::from_millis(40));
+    }
+
+    // 0.1s ブロックを realtime ペース（100ms 間隔）で投入する。
+    // Record 中は Measure Thread が毎ループ finalize() も走らせ処理が重くなるため、
+    // 3.3x ペース（phase_d parity の 30ms）では追いつかず overflow する。realtime なら
+    // 消費が追いつき overflow=0（rt_safety_no_overflow_at_juce_block_sizes と同方針）。
+    let block_frames = SR as usize / 10;
+    let block_len = block_frames * 2;
+    let block_dt = Duration::from_secs_f64(block_frames as f64 / SR as f64); // 0.1s
+    let mut i = 0;
+    while i < stereo_f32.len() {
+        let end = (i + block_len).min(stereo_f32.len());
+        engine.push_samples(&stereo_f32[i..end], 2);
+        i = end;
+        sleep(block_dt);
+    }
+
+    // drain + 安定化: lufs_i が 2 回連続一致 = ring 全消費 = 参照と同一サンプル集合。
+    let mut prev: Option<f64> = None;
+    let mut stable: Option<SessionSummary> = None;
+    for _ in 0..120 {
+        engine.push_samples(&[], 2); // keepalive（is_recording 維持・heartbeat）
+        sleep(Duration::from_millis(50));
+        if let Some(s) = engine.poll_session() {
+            if s.lufs_i.is_some() && s.lufs_i == prev {
+                stable = Some(s);
+                break;
+            }
+            prev = s.lufs_i;
+        }
+    }
+    let overflow = engine.overflow_count();
+    let was_recording = engine.is_recording();
+    engine.exit_record(); // Watch へ。直近 finalize 値は保持される。
+    (
+        stable.expect("poll_session の lufs_i が安定すること（全サンプル finalize 済）"),
+        overflow,
+        was_recording,
+    )
+}
+
+/// FFI の poll_session（Record finalize）が、同一サンプルを直接 MeasureEngine に通した
+/// finalize と一致することを示す（殻が精度を変えない / abs≈0）。
+#[test]
+fn session_finalize_ffi_matches_direct_engine() {
+    // 12 秒（loudness_global の最小窓 ~10s 超）の定常マルチトーン（L==R）。
+    let signal = gen_stereo_f32(12.0);
+
+    let (ffi, overflow, was_recording) = drive_ffi_session(&signal);
+    assert_eq!(overflow, 0, "ring overflow: FFI が全サンプルを処理していない (of={overflow})");
+    assert!(was_recording, "exit 直前まで Record 中であること");
+    let direct = direct_session(&signal);
+
+    // 値域の妥当性（lra_plr_session_test と同基準の広め）。
+    let li = ffi.lufs_i.expect("lufs_i must be Some after 12s");
+    let tp = ffi.max_true_peak.expect("max_true_peak must be Some");
+    assert!((-30.0..0.0).contains(&li), "lufs_i out of range: {li}");
+    assert!((-20.0..3.0).contains(&tp), "max_true_peak out of range: {tp}");
+
+    // FFI vs direct engine: 同一 f32→f64 サンプル列 → 同一 ebur128 → 一致（abs≈0）。
+    let d_li = direct.lufs_i.expect("direct lufs_i");
+    let d_tp = direct.max_true_peak.expect("direct max_true_peak");
+    let abs_li = (li - d_li).abs();
+    let abs_tp = (tp - d_tp).abs();
+    eprintln!(
+        "[session parity] lufs_i ffi={li:.10} direct={d_li:.10} abs={abs_li:.3e} | \
+         max_tp ffi={tp:.10} direct={d_tp:.10} abs={abs_tp:.3e} | lra ffi={:?} direct={:?}",
+        ffi.lra, direct.lra
+    );
+    // ebur128 integrated はチャンク非依存だが、加算順差で ~1e-12 が出得るため floor。
+    assert!(abs_li < 1e-6, "lufs_i FFI vs direct diff too large: {abs_li}");
+    assert!(abs_tp < 1e-6, "max_true_peak FFI vs direct diff too large: {abs_tp}");
+    if let (Some(l), Some(dl)) = (ffi.lra, direct.lra) {
+        assert!((l - dl).abs() < 1e-6, "lra FFI vs direct diff too large");
+    }
+}
+
+/// license gate: Os 以外（Sense / Unknown）では enter_record=false・Record されず
+/// poll_session は None（二重 gate / E-21 / record.rs:110）。
+#[test]
+fn license_gate_blocks_record_when_not_os() {
+    for code in [1u8 /* Sense */, 2u8 /* Unknown */] {
+        let engine = KirinHyphaEngine::new(SR, 2);
+        engine.set_license(code);
+        engine.set_signal_state(1);
+        assert!(
+            !engine.enter_record(),
+            "license code {code}（非 Os）で enter_record は false であるべき"
+        );
+        assert!(!engine.is_recording(), "非 Os では Record されない（code {code}）");
+        // Record されないので push しても finalize されず poll_session は None。
+        let signal = gen_stereo_f32(0.5);
+        engine.push_samples(&signal, 2);
+        sleep(Duration::from_millis(250));
+        assert!(
+            engine.poll_session().is_none(),
+            "非 Os では poll_session は None（code {code}）"
+        );
+    }
+}
+
+/// 既定（set_license 前）は Unknown 安全側で Record 不可。
+#[test]
+fn default_license_is_unknown_record_denied() {
+    let engine = KirinHyphaEngine::new(SR, 2);
+    engine.set_signal_state(1);
+    assert!(!engine.enter_record(), "既定 license（Unknown）では enter_record false");
+    assert!(!engine.is_recording());
+}
+
+/// E-21 降格保険: Os で Record 開始 → Sense へ降格すると強制 Watch（enforce_license）。
+#[test]
+fn license_demotion_forces_watch() {
+    let engine = KirinHyphaEngine::new(SR, 2);
+    engine.set_license(0); // Os
+    assert!(engine.enter_record(), "Os で enter_record は true");
+    assert!(engine.is_recording(), "Record 中");
+    engine.set_license(1); // Sense へ降格 → enforce_license で強制 Watch
+    assert!(
+        !engine.is_recording(),
+        "Os 以外への降格で Record が強制 Watch されること（E-21）"
+    );
 }

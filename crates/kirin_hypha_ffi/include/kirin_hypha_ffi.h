@@ -56,6 +56,18 @@ KirinHypha* kirin_hypha_create(uint32_t sample_rate, uint32_t num_channels);
 /* 信号状態（0=Inactive 1=Active 2=Bypassed）. */
 void kirin_hypha_set_signal_state(KirinHypha* handle, uint8_t state);
 
+/* ライセンス設定（0=Os 1=Sense 2=Unknown / 未知値は安全側 Unknown）.
+ * identity.rs:46 の enum 宣言順に一致. Os 以外へ降格時 Record 中なら強制 Watch（E-21）. */
+void kirin_hypha_set_license(KirinHypha* handle, uint8_t license);
+
+/* Record 遷移を試みる. Os かつ Watch のとき true / それ以外 false（二重 gate・冪等）.
+ * 成功後は Measure Thread が is_recording を見て自律的に finalize する. */
+bool kirin_hypha_enter_record(KirinHypha* handle);
+
+/* Record 終了（無条件 Watch・冪等）. 直近 finalize 値は session_summary に保持され
+ * poll_session で取得できる（finalize は Measure Thread のみ・FFI は呼ばない）. */
+void kirin_hypha_exit_record(KirinHypha* handle);
+
 /* interleaved f32 を供給（Audio Thread 単独・RT-safe）. num_frames==0 は keepalive 可. */
 void kirin_hypha_push_samples(KirinHypha* handle, const float* interleaved,
                               size_t num_frames, uint32_t num_channels);
@@ -63,7 +75,8 @@ void kirin_hypha_push_samples(KirinHypha* handle, const float* interleaved,
 /* 最新 RT 計測結果を out へ. 値あり=true / 未計測・競合=false（UI Thread）. */
 bool kirin_hypha_poll_result(KirinHypha* handle, KirinMeasureResult* out);
 
-/* セッション集計を out へ. Phase 1 では常に false（symbol のみ）. */
+/* セッション集計を out へ. Record finalize 後に値あり=true / 未 Record・競合=false（UI Thread）.
+ * ABI signature は Phase 1 と不変（Record 前は false のまま）. */
 bool kirin_hypha_poll_session(KirinHypha* handle, KirinSessionSummary* out);
 
 /* 破棄（shutdown -> Measure Thread join）. */

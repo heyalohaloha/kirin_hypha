@@ -1,22 +1,25 @@
-//! kirin_hypha_ffi — Kirin Hypha JUCE 移植 Phase 1 の C ABI ラッパ。
+//! kirin_hypha_ffi — Kirin Hypha JUCE 移植の C ABI ラッパ。
 //!
 //! 方式 B2: 検証済み Rust ランタイム(`kirin_measure`)を **無変更** で C ABI に包む。
 //! C++/JUCE 側に DSP・計測ロジックを一切移さない（計測器は精度が製品そのもの）。
 //!
-//! # Phase 1 スコープ（Daisuke 確定 / 選択肢1）
-//! - 実装: `create` / `set_signal_state` / `push_samples` / `poll_result`（RT メトリクス）/ `destroy`。
-//! - `poll_session`(LUFS-I/LRA/max_true_peak) は **symbol のみ・常に false**。SessionSummary は
-//!   `engine.finalize()` 由来で Record(=Phase 3) があって初めて成立する量のため、Phase 1 では
-//!   埋めない（ABI を Phase 3 で壊さないため symbol は残す）。
-//! - 触れない: Record / plugin_data / preset / license / PRE/POST ペアリング / IO(pre|post.json) /
-//!   state chunk。これらに依存する関数を足さない。
+//! # スコープ
+//! - Phase 1: `create` / `set_signal_state` / `push_samples` / `poll_result`（RT メトリクス）/ `destroy`。
+//! - Phase 3a（本コミット）: `set_license` / `enter_record` / `exit_record` を追加し、
+//!   `poll_session`(LUFS-I/LRA/max_true_peak) を実体化。SessionSummary は `engine.finalize()`
+//!   由来で Record 中にのみ成立する量で、Measure Thread が **自律的に** finalize して
+//!   `session_summary` を充填する（measure_thread.rs:290-295）。FFI は RecordStateMachine を
+//!   flip するだけ（exit で finalize を呼ばない＝finalize は Measure Thread のみ / engine.rs:161）。
+//!   `poll_session` の ABI signature は Phase 1 と不変（Record 前は false のまま）。
+//! - まだ触れない（3b 以降）: plugin_data/preset export / state chunk / PRE-POST ペアリング /
+//!   IO(pre|post.json) / Note。これらに依存する関数を足さない。
 //!
 //! # スレッドモデル（本番 hypha_pre/post と同一の入口を使う）
 //! `create` は本番の実運用入口 `kirin_measure::spawn_measure_thread`(measure_thread.rs:59) で
-//! Measure Thread を起動する。Phase 1 では IO Thread / Watchdog は立てない（RT 計測に不要）。
+//! Measure Thread を起動する。IO Thread / Watchdog は立てない（RT 計測に不要）。
 //! - `push_samples`: **Audio Thread 単独**。rtrb Producer への lock-free push + heartbeat++。
-//!   アロケーション/lock/syscall なし（RT-safe）。
-//! - `poll_result` : **UI Thread**。`Arc<Mutex<MeasureResult>>` を `try_lock`（非ブロッキング）。
+//!   アロケーション/lock/syscall なし（RT-safe）。Record 中も読むだけ（R-12）。
+//! - `poll_result` / `poll_session` : **UI Thread**。`try_lock`（非ブロッキング）。
 //!
 //! ## heartbeat（必須配線）
 //! Measure Thread は heartbeat が ~200ms 変化しないと signal_state を Inactive に上書きし結果を
@@ -32,9 +35,25 @@ use std::thread::JoinHandle;
 
 use kirin_measure::engine::SessionSummary;
 use kirin_measure::{
-    spawn_measure_thread, store_signal_state, MeasureResult, PsbSummary, RecordStateMachine,
-    SignalState, N_CHANNELS, RING_BUFFER_SECONDS,
+    spawn_measure_thread, store_signal_state, License, MeasureResult, PsbSummary,
+    RecordStateMachine, SignalState, N_CHANNELS, RING_BUFFER_SECONDS,
 };
+
+// `set_license` の C ABI コード。identity.rs:46 の enum 宣言順に一致させる:
+//   License { Os, Sense, Unknown } → 0=Os / 1=Sense / 2=Unknown。
+// 未知値は安全側 Unknown（Record 不可）に倒す（License::parse_loose と同じ安全側設計）。
+const LICENSE_OS: u8 = 0;
+const LICENSE_SENSE: u8 = 1;
+const LICENSE_UNKNOWN: u8 = 2;
+
+/// C ABI コード → `License`（未知は安全側 Unknown）。
+fn license_from_abi(abi: u8) -> License {
+    match abi {
+        LICENSE_OS => License::Os,
+        LICENSE_SENSE => License::Sense,
+        _ => License::Unknown,
+    }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Rust-safe core（tests/parity.rs はこの API 経由で FFI を駆動する）
@@ -47,7 +66,8 @@ pub struct KirinHyphaEngine {
     ring_producer: UnsafeCell<rtrb::Producer<f32>>,
     /// Measure Thread が 100ms cadence で更新、UI Thread が読む。
     measure_result: Arc<Mutex<MeasureResult>>,
-    /// Phase 1 では never written（Record 非依存 → 常に None）。
+    /// Record 中、Measure Thread が毎ループ `engine.finalize()` を書き込む
+    /// （measure_thread.rs:290-295）。Watch では未更新（Record→Watch で直近値を保持）。
     session_summary: Arc<Mutex<Option<SessionSummary>>>,
     /// Audio Thread が宣言する信号状態（Measure Thread が読む）。
     signal_state: Arc<AtomicU8>,
@@ -55,8 +75,12 @@ pub struct KirinHyphaEngine {
     shutdown: Arc<AtomicBool>,
     /// process() 相当の heartbeat（push_samples が進める）。
     heartbeat: Arc<AtomicU32>,
-    /// Record 状態機械。Phase 1 では Watch 固定（never recording）のダミー。
-    _record_sm: Arc<RecordStateMachine>,
+    /// Record 状態機械。`enter_record`/`exit_record` で flip し、Measure Thread が
+    /// `is_recording()` を見て自律 finalize する（Phase 3a で実配線）。
+    record_sm: Arc<RecordStateMachine>,
+    /// 現ライセンス（C ABI コード: 0=Os 1=Sense 2=Unknown）。`enter_record` の
+    /// 二重 gate（E-21）に使う。既定は Unknown（Record 不可）。
+    license: AtomicU8,
     /// Measure Thread の JoinHandle（drop で join）。
     measure_handle: Option<JoinHandle<()>>,
     /// ring 満杯で push できなかった回数（§8 RT-safety 検証用 / FFI 側のみ）。
@@ -65,8 +89,8 @@ pub struct KirinHyphaEngine {
 
 // SAFETY: `ring_producer`(UnsafeCell<rtrb::Producer>) は push_samples からのみ触れ、
 // その push_samples は「Audio Thread 単独」という FFI 契約で単一スレッドアクセスに限定される。
-// 他の全フィールドは Arc<Mutex>/Arc<Atomic>/AtomicU64 で Sync。よって `&KirinHyphaEngine` を
-// Audio/UI 2 スレッドで共有しても（契約を守る限り）健全。
+// 他の全フィールドは Arc<Mutex>/Arc<Atomic>/AtomicU64/AtomicU8 で Sync。よって
+// `&KirinHyphaEngine` を Audio/UI 2 スレッドで共有しても（契約を守る限り）健全。
 unsafe impl Sync for KirinHyphaEngine {}
 // SAFETY: 内部状態はスレッド間移動可能（Producer/Arc は Send）。
 unsafe impl Send for KirinHyphaEngine {}
@@ -87,7 +111,7 @@ impl KirinHyphaEngine {
         let signal_state = Arc::new(AtomicU8::new(SignalState::Inactive as u8));
         let shutdown = Arc::new(AtomicBool::new(false));
         let heartbeat = Arc::new(AtomicU32::new(0));
-        // Watch 固定のダミー（Record に遷移させない → finalize() は呼ばれない）。
+        // 実 RecordStateMachine（既定 Watch）。FFI が enter/exit で flip する。
         let record_sm = Arc::new(RecordStateMachine::new());
 
         let measure_handle = spawn_measure_thread(
@@ -108,7 +132,9 @@ impl KirinHyphaEngine {
             signal_state,
             shutdown,
             heartbeat,
-            _record_sm: record_sm,
+            record_sm,
+            // 既定 Unknown（set_license(Os) されるまで Record 不可・安全側）。
+            license: AtomicU8::new(LICENSE_UNKNOWN),
             measure_handle: Some(measure_handle),
             push_overflow: AtomicU64::new(0),
         }
@@ -123,6 +149,42 @@ impl KirinHyphaEngine {
             _ => SignalState::Inactive,
         };
         store_signal_state(&self.signal_state, s);
+    }
+
+    /// ライセンスを設定（C ABI コード: 0=Os 1=Sense 2=Unknown / 未知は Unknown）。
+    /// 降格（Os 以外）かつ Record 中なら強制 Watch（E-21 保険 / record.rs:141）。
+    pub fn set_license(&self, abi: u8) {
+        let code = match abi {
+            LICENSE_OS => LICENSE_OS,
+            LICENSE_SENSE => LICENSE_SENSE,
+            _ => LICENSE_UNKNOWN,
+        };
+        self.license.store(code, Ordering::Relaxed);
+        self.record_sm.enforce_license(license_from_abi(code));
+    }
+
+    /// 現ライセンスを取得。
+    fn current_license(&self) -> License {
+        license_from_abi(self.license.load(Ordering::Relaxed))
+    }
+
+    /// Record へ遷移を試みる。`License::Os` かつ Watch のとき `true`、それ以外 `false`。
+    /// license 二重 gate（E-21）: `try_enter_record` が内部で `License::Os` を再判定する
+    /// （record.rs:109-123）。`AlreadyRecording` / `LicenseDenied` は `false`。
+    pub fn enter_record(&self) -> bool {
+        self.record_sm.try_enter_record(self.current_license()).is_ok()
+    }
+
+    /// Record を終了し Watch へ戻す（無条件・冪等 / record.rs:132）。
+    /// finalize は Measure Thread が自律実行・直近値を `session_summary` に保持するため
+    /// ここでは呼ばない（B2 / finalize は Measure Thread のみ / engine.rs:161）。
+    pub fn exit_record(&self) {
+        self.record_sm.exit_record();
+    }
+
+    /// Record 中かどうか（read-only オブザーバ）。C ABI には公開しない（3a surface 厳守）。
+    pub fn is_recording(&self) -> bool {
+        self.record_sm.is_recording()
     }
 
     /// interleaved f32 サンプルを供給する（Audio Thread 単独・RT-safe）。
@@ -162,8 +224,9 @@ impl KirinHyphaEngine {
         }
     }
 
-    /// セッション集計の取得。**Phase 1 では常に `None`**（SessionSummary は Record 経路でのみ
-    /// 充填され、Phase 1 は Record 非依存）。Phase 3 で Record を contract に足した時に有効化する。
+    /// セッション集計の取得（UI Thread / try_lock 非ブロッキング）。
+    /// Record 中に Measure Thread が finalize した値、または Record→Watch 後の直近値。
+    /// 未 Record・ロック競合時は `None`。
     pub fn poll_session(&self) -> Option<SessionSummary> {
         match self.session_summary.try_lock() {
             Ok(g) => *g,
@@ -206,7 +269,7 @@ pub struct KirinMeasureResult {
     pub psb_bark: [f64; 20],
 }
 
-/// `KirinSessionSummary` — セッション集計（C struct）。Phase 1 では未充填。
+/// `KirinSessionSummary` — セッション集計（C struct）。Option は NaN で表す。
 #[repr(C)]
 pub struct KirinSessionSummary {
     pub lufs_i: f64,
@@ -244,6 +307,14 @@ fn to_c_result(r: &MeasureResult) -> KirinMeasureResult {
     }
 }
 
+fn to_c_session(s: &SessionSummary) -> KirinSessionSummary {
+    KirinSessionSummary {
+        lufs_i: opt_f64(s.lufs_i),
+        lra: opt_f64(s.lra),
+        max_true_peak: opt_f64(s.max_true_peak),
+    }
+}
+
 /// ランタイムを生成して不透明ポインタを返す（失敗時 null は返さない）。
 ///
 /// # Safety
@@ -269,6 +340,52 @@ pub unsafe extern "C" fn kirin_hypha_set_signal_state(handle: *mut KirinHyphaEng
             return;
         }
         unsafe { (*handle).set_signal_state(state) };
+    }));
+}
+
+/// ライセンスを設定（0=Os 1=Sense 2=Unknown / 未知値は安全側 Unknown）。
+/// Os 以外へ降格すると Record 中なら強制 Watch（E-21 保険）。
+///
+/// # Safety
+/// `handle` は `kirin_hypha_create` の戻り値（非 null・未解放）であること。
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_set_license(handle: *mut KirinHyphaEngine, license: u8) {
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() {
+            return;
+        }
+        unsafe { (*handle).set_license(license) };
+    }));
+}
+
+/// Record 遷移を試みる。`License::Os` かつ Watch のとき `true`、それ以外 `false`
+/// （二重 gate / 冪等。AlreadyRecording / LicenseDenied は false）。
+///
+/// # Safety
+/// `handle` は有効なハンドル。
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_enter_record(handle: *mut KirinHyphaEngine) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() {
+            return false;
+        }
+        unsafe { (*handle).enter_record() }
+    }))
+    .unwrap_or(false)
+}
+
+/// Record を終了し Watch へ戻す（無条件・冪等）。SessionSummary は Measure Thread が
+/// 直近 finalize 値を `session_summary` に保持済み（`poll_session` で取得）。
+///
+/// # Safety
+/// `handle` は有効なハンドル。
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_exit_record(handle: *mut KirinHyphaEngine) {
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() {
+            return;
+        }
+        unsafe { (*handle).exit_record() };
     }));
 }
 
@@ -326,24 +443,28 @@ pub unsafe extern "C" fn kirin_hypha_poll_result(
     .unwrap_or(false)
 }
 
-/// セッション集計を `out` に書く。**Phase 1 では常に false**（symbol のみ）。
+/// セッション集計を `out` に書く。Record 終了後（Measure Thread が finalize 済）に値が
+/// あれば true、未 Record・未計測・競合なら false。ABI signature は Phase 1 と不変。
 ///
 /// # Safety
-/// `handle`/`out` は有効。Phase 1 では `out` を書かず false を返す（Phase 3 で有効化）。
+/// `handle`/`out` は有効。UI Thread から呼ぶこと。
 #[no_mangle]
 pub unsafe extern "C" fn kirin_hypha_poll_session(
     handle: *mut KirinHyphaEngine,
     out: *mut KirinSessionSummary,
 ) -> bool {
-    let _ = out;
-    // panic 捕捉時も false。
+    // panic 捕捉時も false（out は書かない）。
     catch_unwind(AssertUnwindSafe(|| {
-        if handle.is_null() {
+        if handle.is_null() || out.is_null() {
             return false;
         }
-        // Phase 1: SessionSummary は Record 経路でのみ充填されるため常に None → false。
-        debug_assert!(unsafe { (*handle).poll_session() }.is_none());
-        false
+        match unsafe { (*handle).poll_session() } {
+            Some(s) => {
+                unsafe { *out = to_c_session(&s) };
+                true
+            }
+            None => false,
+        }
     }))
     .unwrap_or(false)
 }
