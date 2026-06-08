@@ -80,6 +80,7 @@ Audio Thread が止まる = DAWの再生が止まる = 利用者の作業が全�
 ### コード品質
 - ファイルは500行以下
 - Rust: `cargo clippy` + `cargo test` を毎回実行
+- **kirin_hypha_ffi の検証ゲート**: `cargo test --workspace` の green だけでは Record/pairing を検証しない（Record finalize・PRE-POST ペアリング・plugin_data 実出力のテストは realtime で遅いため全て `#[ignore]`）。kirin_hypha_ffi を変更したら `cargo test -p kirin_hypha_ffi --test parity -- --ignored --test-threads=1`（#[ignore] スイート）の pass も検証ゲートに含める。
 - エラーログは作業前に必ず読む
 - 同じアプローチは最大2回。3回目は別手法
 - テスト: 正常系 + エラーパス + 境界値
