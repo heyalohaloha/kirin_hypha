@@ -3,16 +3,21 @@
 //! 方式 B2: 検証済み Rust ランタイム(`kirin_measure`)を **無変更** で C ABI に包む。
 //! C++/JUCE 側に DSP・計測ロジックを一切移さない（計測器は精度が製品そのもの）。
 //!
-//! # スコープ
-//! - Phase 1: `create` / `set_signal_state` / `push_samples` / `poll_result`（RT メトリクス）/ `destroy`。
-//! - Phase 3a（本コミット）: `set_license` / `enter_record` / `exit_record` を追加し、
-//!   `poll_session`(LUFS-I/LRA/max_true_peak) を実体化。SessionSummary は `engine.finalize()`
-//!   由来で Record 中にのみ成立する量で、Measure Thread が **自律的に** finalize して
-//!   `session_summary` を充填する（measure_thread.rs:290-295）。FFI は RecordStateMachine を
-//!   flip するだけ（exit で finalize を呼ばない＝finalize は Measure Thread のみ / engine.rs:161）。
-//!   `poll_session` の ABI signature は Phase 1 と不変（Record 前は false のまま）。
-//! - まだ触れない（3b 以降）: plugin_data/preset export / state chunk / PRE-POST ペアリング /
-//!   IO(pre|post.json) / Note。これらに依存する関数を足さない。
+//! # C ABI surface（すべて実装済み）
+//! - RT 計測: `create` / `set_signal_state` / `push_samples` / `poll_result` / `destroy`。
+//! - Record: `set_license` / `enter_record` / `exit_record` と `poll_session`
+//!   (LUFS-I/LRA/max_true_peak)。SessionSummary は `engine.finalize()` 由来で Record 中にのみ
+//!   成立する量で、Measure Thread が **自律的に** finalize して `session_summary` を充填する
+//!   （measure_thread.rs:290-295）。FFI は RecordStateMachine を flip するだけ（exit で finalize
+//!   を呼ばない＝finalize は Measure Thread のみ / engine.rs:161）。`poll_session` は Record
+//!   finalize 後に値を返す（Record 前は false）。
+//! - state chunk 識別子: `set_identity` / `get_identity`（方式A）。
+//! - plugin_data IO: `enable_pre_writes`（PRE: Watch pre.json + Record frames/PSB）/
+//!   `enable_post_writes`（POST: post.json の生メトリクス + Δ を select_target_pre 経由で算出）。
+//!   filesystem 書込は kirin_measure の io_thread 内に閉じる（FFI は spawn と識別子注入のみ）。
+//! - PRE-POST ペアリング: `set_pair_target` / `keep` / `stop` / `poll_delta`
+//!   （POST Keep → PRE が record_signal を ack して自律的に Record に入る）。
+//! - Note: `add_annotation`（Record の最新 plugin_data .json に利用者メモを追記）。
 //!
 //! # スレッドモデル（本番 hypha_pre/post と同一の入口を使う）
 //! `create` は本番の実運用入口 `kirin_measure::spawn_measure_thread`(measure_thread.rs:59) で

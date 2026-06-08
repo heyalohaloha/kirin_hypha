@@ -3,7 +3,7 @@ name = "kirin_hypha_ffi"
 version = "0.1.0"
 edition = "2021"
 
-# JUCE 移植 Phase 1 — RT 計測パスの C ABI ラッパ。
+# JUCE 移植 — C ABI ラッパ（RT 計測 / Record / plugin_data IO / PRE-POST ペアリング）。
 # kirin_measure を無変更で包む（DSP/計測ロジックは一切 C++ 側へ移さない）。
 #
 # crate-type:

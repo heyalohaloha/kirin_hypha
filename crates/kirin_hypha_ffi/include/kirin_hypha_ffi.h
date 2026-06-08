@@ -1,12 +1,17 @@
 /*
- * kirin_hypha_ffi.h — Kirin Hypha JUCE 移植 Phase 1 の C ABI（正本・手書き）.
+ * kirin_hypha_ffi.h — Kirin Hypha JUCE 移植の C ABI（正本・手書き）.
  *
  * 対応 staticlib: target/{debug,release}/libkirin_hypha_ffi.a
  * 実装:           crates/kirin_hypha_ffi/src/lib.rs（このヘッダと常に一致させること）.
  *
- * Phase 1 スコープ:
- *   - 実装: create / set_signal_state / push_samples / poll_result / destroy（RT 計測パス）.
- *   - poll_session: symbol のみ・常に false（SessionSummary は Record=Phase 3 でのみ成立）.
+ * C ABI surface（すべて実装済み）:
+ *   - RT 計測: create / set_signal_state / push_samples / poll_result / destroy.
+ *   - Record:  set_license / enter_record / exit_record / poll_session
+ *              （SessionSummary は Record finalize 後に成立。finalize は Measure Thread のみ）.
+ *   - 識別子:  set_identity / get_identity（state chunk 方式A）.
+ *   - IO:      enable_pre_writes（PRE）/ enable_post_writes（POST）.
+ *   - ペアリング: set_pair_target / keep / stop / poll_delta（POST Keep → PRE ack）.
+ *   - Note:    add_annotation.
  *   - Option<f64> は NaN sentinel で表す（C 側は isnan() で「値なし」を判定）.
  *
  * スレッド契約:
@@ -43,7 +48,7 @@ typedef struct {
   double psb_bark[20];  /* 20-band PSB (psb) */
 } KirinMeasureResult;
 
-/* セッション集計（Phase 1 では未充填）. */
+/* セッション集計（Record finalize 後に充填・Record 前は未充填）. */
 typedef struct {
   double lufs_i;        /* EBU R128 Integrated [LUFS] */
   double lra;           /* EBU R128 Loudness Range [LU] */
