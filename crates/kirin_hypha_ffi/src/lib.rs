@@ -43,11 +43,11 @@ use uuid::Uuid;
 
 use kirin_measure::engine::SessionSummary;
 use kirin_measure::{
-    append_annotation_to_latest, can_write_plugin_data, mark_released, process_project_hash,
-    select_target_pre, set_daw_session_id, set_project_uuid, spawn_io_thread_post,
-    spawn_io_thread_pre, spawn_measure_thread, store_signal_state, write_pending, DeltaMode,
-    DeltaResult, License, MeasureResult, PluginDataRole, PsbSummary, RecordStateMachine,
-    SignalState, StoragePaths, N_CHANNELS, RING_BUFFER_SECONDS,
+    append_annotation_to_latest, can_write_plugin_data, load_license_safe, mark_released,
+    process_project_hash, select_target_pre, set_daw_session_id, set_project_uuid,
+    spawn_io_thread_post, spawn_io_thread_pre, spawn_measure_thread, store_signal_state,
+    write_pending, DeltaMode, DeltaResult, License, MeasureResult, PluginDataRole, PsbSummary,
+    RecordStateMachine, SignalState, StoragePaths, N_CHANNELS, RING_BUFFER_SECONDS,
 };
 
 /// state chunk 往復する識別子（方式A: JUCE が chunk bytes を所有・FFI は文字列 get/set のみ）。
@@ -107,6 +107,15 @@ fn license_from_abi(abi: u8) -> License {
         LICENSE_OS => License::Os,
         LICENSE_SENSE => License::Sense,
         _ => License::Unknown,
+    }
+}
+
+/// `License` → C ABI コード（`load_license` の戻り値）。
+fn license_to_abi(license: License) -> u8 {
+    match license {
+        License::Os => LICENSE_OS,
+        License::Sense => LICENSE_SENSE,
+        License::Unknown => LICENSE_UNKNOWN,
     }
 }
 
@@ -840,6 +849,15 @@ pub unsafe extern "C" fn kirin_hypha_set_signal_state(handle: *mut KirinHyphaEng
         }
         unsafe { (*handle).set_signal_state(state) };
     }));
+}
+
+/// identity.json からライセンスコードを読む（0=Os 1=Sense 2=Unknown）。ハンドル不要。
+/// `~/Library/Application Support/Kirin OS/identity.json` の `"license"` を loose 抽出する
+/// `kirin_measure::load_license_safe` を包む。ファイル不在・parse 失敗・$HOME 不在は 2=Unknown
+/// （安全側＝Record 不可）。殻はこの戻り値を `set_license` に渡す（出所一本化）。
+#[no_mangle]
+pub extern "C" fn kirin_hypha_load_license() -> u8 {
+    catch_unwind(|| license_to_abi(load_license_safe())).unwrap_or(LICENSE_UNKNOWN)
 }
 
 /// ライセンスを設定（0=Os 1=Sense 2=Unknown / 未知値は安全側 Unknown）。

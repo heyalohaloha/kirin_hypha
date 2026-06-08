@@ -1172,3 +1172,48 @@ fn post_add_annotation_targets_post_role() {
 
     let _ = std::fs::remove_dir_all(&test_root);
 }
+
+// ── B-068: kirin_hypha_load_license が identity.json の license を読む ──────────────
+
+/// load_license が identity.json の "license" を読み Os=0/Sense=1/Unknown=2 を返す。
+/// ファイル不在・$HOME 不在は 2=Unknown（安全側）。
+#[test]
+#[ignore = "slow: mutates HOME/identity.json (run with --test-threads=1)"]
+fn load_license_reads_identity_json() {
+    let test_root = std::env::temp_dir()
+        .join("kirin_b068_test")
+        .join(format!("pid{}", std::process::id()));
+    let home = test_root.join("home");
+    let _ = std::fs::remove_dir_all(&test_root);
+    std::fs::create_dir_all(&home).unwrap();
+    std::env::set_var("HOME", &home);
+    let kirin_os = home.join("Library/Application Support/Kirin OS");
+    std::fs::create_dir_all(&kirin_os).unwrap();
+    let id_path = kirin_os.join("identity.json");
+
+    let write_license = |lic: &str| {
+        std::fs::write(
+            &id_path,
+            format!(
+                r#"{{"schema_version":"1.0","installation_id":"b068","hardware_id":"hw","hardware_components":{{"iop":"a","sn":"b","bd":"c"}},"machine_signature":"sig","license":"{lic}","created_at":"2026-06-09T00:00:00Z","last_verified_at":"2026-06-09T00:00:00Z"}}"#
+            ),
+        )
+        .unwrap();
+    };
+
+    write_license("os");
+    assert_eq!(kirin_hypha_ffi::kirin_hypha_load_license(), 0, "license=os → 0");
+
+    write_license("sense");
+    assert_eq!(kirin_hypha_ffi::kirin_hypha_load_license(), 1, "license=sense → 1");
+
+    // 不明値 → Unknown(2)。
+    write_license("bogus");
+    assert_eq!(kirin_hypha_ffi::kirin_hypha_load_license(), 2, "unknown value → 2");
+
+    // ファイル不在 → Unknown(2)。
+    std::fs::remove_file(&id_path).unwrap();
+    assert_eq!(kirin_hypha_ffi::kirin_hypha_load_license(), 2, "missing file → 2");
+
+    let _ = std::fs::remove_dir_all(&test_root);
+}

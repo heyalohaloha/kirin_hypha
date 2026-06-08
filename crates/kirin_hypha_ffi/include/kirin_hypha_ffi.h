@@ -81,6 +81,11 @@ KirinHypha* kirin_hypha_create(uint32_t sample_rate, uint32_t num_channels);
 /* 信号状態（0=Inactive 1=Active 2=Bypassed）. */
 void kirin_hypha_set_signal_state(KirinHypha* handle, uint8_t state);
 
+/* identity.json からライセンスコードを読む（0=Os 1=Sense 2=Unknown）. ハンドル不要.
+ * ~/Library/Application Support/Kirin OS/identity.json の "license" を loose 抽出.
+ * ファイル不在・parse 失敗・$HOME 不在は 2=Unknown（安全側）. 殻は戻り値を set_license に渡す. */
+uint8_t kirin_hypha_load_license(void);
+
 /* ライセンス設定（0=Os 1=Sense 2=Unknown / 未知値は安全側 Unknown）.
  * identity.rs:46 の enum 宣言順に一致. Os 以外へ降格時 Record 中なら強制 Watch（E-21）. */
 void kirin_hypha_set_license(KirinHypha* handle, uint8_t license);
