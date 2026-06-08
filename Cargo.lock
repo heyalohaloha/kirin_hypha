@@ -1213,6 +1213,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "kirin_hypha_ffi"
+version = "0.1.0"
+dependencies = [
+ "approx",
+ "kirin_measure",
+ "rtrb",
+]
+
+[[package]]
 name = "kirin_measure"
 version = "0.1.0"
 dependencies = [

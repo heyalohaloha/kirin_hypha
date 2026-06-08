@@ -4,6 +4,7 @@ members = [
     "crates/hypha_pre",
     "crates/hypha_post",
     "crates/kirin_measure",
+    "crates/kirin_hypha_ffi",
     "xtask",
 ]
 resolver = "2"
