@@ -1078,3 +1078,97 @@ fn keep_failure_after_enter_reverts_record_state() {
 
     let _ = std::fs::remove_dir_all(&test_root);
 }
+
+// ── B-067 / F3: annotation がこの engine の role を対象にする ─────────────────────
+
+/// enable していない engine（write_role 未確定）は Os でも add_annotation を no-op にする。
+#[test]
+fn add_annotation_noop_without_role() {
+    let engine = KirinHyphaEngine::new(SR, 2);
+    engine.set_license(0); // Os
+    assert!(
+        !engine.add_annotation("x".into()),
+        "未 enable（role None）は add_annotation=false（既定 ::Pre で勝手に書かない）"
+    );
+}
+
+/// POST engine の add_annotation が POST role（post/ の Record .json）を対象にすることを実証。
+/// 修正前: ハードコード role=Pre で {puid}/{iid-post}/pre/（POST 自身の空 subdir）を見て false。
+/// 修正後: 保持 role=Post で {puid}/{iid-post}/post/ の Record .json に追記。
+#[test]
+#[ignore = "slow: paired PRE+POST record then POST annotation by role (sets HOME/TMPDIR)"]
+fn post_add_annotation_targets_post_role() {
+    use kirin_measure::plugin_data::PluginDataFile;
+
+    let test_root = std::env::temp_dir()
+        .join("kirin_b067_test")
+        .join(format!("pid{}", std::process::id()));
+    let home = test_root.join("home");
+    let tmp = test_root.join("tmp");
+    let _ = std::fs::remove_dir_all(&test_root);
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::env::set_var("HOME", &home);
+    std::env::set_var("TMPDIR", &tmp);
+    let kirin_os = home.join("Library/Application Support/Kirin OS");
+    std::fs::create_dir_all(&kirin_os).unwrap();
+    std::fs::write(
+        kirin_os.join("identity.json"),
+        r#"{"schema_version":"1.0","installation_id":"b067-test","hardware_id":"hw","hardware_components":{"iop":"a","sn":"b","bd":"c"},"machine_signature":"sig","license":"os","created_at":"2026-06-09T00:00:00Z","last_verified_at":"2026-06-09T00:00:00Z"}"#,
+    )
+    .unwrap();
+    let plugin_data_root = home.join("Library/Application Support/Kirin OS/plugin_data");
+
+    {
+        let pre = KirinHyphaEngine::new(SR, 2);
+        pre.set_license(0);
+        pre.set_identity("iid-pre".into(), "puid-pre".into(), "".into(), "mix".into());
+        pre.enable_pre_writes();
+        pre.set_signal_state(1);
+
+        let post = KirinHyphaEngine::new(SR, 2);
+        post.set_license(0);
+        post.set_identity("iid-post".into(), "puid-post".into(), "".into(), "mix".into());
+        post.enable_post_writes();
+        post.set_signal_state(1);
+        post.set_pair_target("mix".into());
+
+        let bf = SR as usize / 10;
+        let bl = bf * 2;
+        let dt = Duration::from_secs_f64(bf as f64 / SR as f64);
+        let blk = gen_stereo_f32(0.1);
+        let drive = |secs: f64| {
+            for _ in 0..((secs / 0.1) as usize) {
+                pre.push_samples(&blk, 2);
+                post.push_samples(&blk, 2);
+                sleep(dt);
+            }
+        };
+        let _ = bl;
+
+        drive(1.5); // PRE pre.json active
+        assert!(post.keep(), "keep true");
+        drive(4.0); // PRE acks + both record frames
+        post.stop();
+        drive(2.0); // PRE closes; both Record .json status=closed
+
+        // Record close 後に POST へ注釈（header 注: 確実なのは close 後）。
+        assert!(
+            post.add_annotation("post-note".into()),
+            "F3 fix: POST add_annotation が POST role の Record .json を見つけて true"
+        );
+    }
+
+    // POST .json（post/）に注釈が入ったこと。
+    let post_json =
+        find_json_under(&plugin_data_root, "post", "*.json").expect("POST Record post/.json");
+    eprintln!("[B-067] POST = {}", post_json.display());
+    let post_pd: PluginDataFile =
+        serde_json::from_str(&std::fs::read_to_string(&post_json).unwrap()).unwrap();
+    assert!(
+        post_pd.annotations.iter().any(|a| a.memo == "post-note"),
+        "annotation が POST role(.json) に入る（PRE 固定をやめた）"
+    );
+
+    let _ = std::fs::remove_dir_all(&test_root);
+}

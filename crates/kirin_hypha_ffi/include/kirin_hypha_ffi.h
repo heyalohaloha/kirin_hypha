@@ -130,7 +130,8 @@ void kirin_hypha_stop(KirinHypha* handle);
 bool kirin_hypha_poll_delta(KirinHypha* handle, KirinDelta* out);
 
 /* Record の最新 plugin_data .json に利用者メモを追記する（Note / 方式A）.
- * Os かつ enable 済かつ対象 .json 存在のとき true / それ以外 false（gate は既存ロジック）. */
+ * 書込先はこの engine の役割（enable_pre_writes=PRE / enable_post_writes=POST）の .json.
+ * Os かつ enable 済（role 確定）かつ対象 .json 存在のとき true / それ以外（未 enable 含む）false. */
 bool kirin_hypha_add_annotation(KirinHypha* handle, const char* memo);
 
 /* interleaved f32 を供給（Audio Thread 単独・RT-safe）. num_frames==0 は keepalive 可. */

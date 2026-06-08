@@ -154,6 +154,10 @@ pub struct KirinHyphaEngine {
     /// keep() が選定した対 PRE instance_id（B-062）。io_thread と Arc 共有し、POST Record の
     /// `paired_pre_instance_id`（plugin_data linkage）に焼かれる。stop() で None に戻す。
     paired_pre_target: Arc<Mutex<Option<String>>>,
+    /// この engine の plugin_data 書込 role（B-067 / F3）。`enable_pre_writes`→Pre /
+    /// `enable_post_writes`→Post で 1 度だけ確定する（io_thread slot と同じ first-wins）。
+    /// `add_annotation` はこの role に書く。未 enable（None）時は add_annotation を no-op にする。
+    write_role: Mutex<Option<PluginDataRole>>,
     /// Measure Thread の JoinHandle（drop で join）。
     measure_handle: Option<JoinHandle<()>>,
     /// ring 満杯で push できなかった回数（§8 RT-safety 検証用 / FFI 側のみ）。
@@ -215,6 +219,7 @@ impl KirinHyphaEngine {
             identity: Mutex::new(IdentityState::default()),
             pair_target: Arc::new(RwLock::new(String::new())),
             paired_pre_target: Arc::new(Mutex::new(None)),
+            write_role: Mutex::new(None),
             measure_handle: Some(measure_handle),
             push_overflow: AtomicU64::new(0),
         }
@@ -291,6 +296,10 @@ impl KirinHyphaEngine {
         };
         if slot.is_some() {
             return; // 冪等: 既に PRE/POST io_thread 起動済み。
+        }
+        // B-067/F3: この engine の書込 role を PRE に確定（add_annotation が使う / 単一 role）。
+        if let Ok(mut r) = self.write_role.lock() {
+            *r = Some(PluginDataRole::Pre);
         }
 
         // 識別子: set_identity 済みなら復元値を使い、未設定はここで生成（3b フォールバック）。
@@ -371,6 +380,10 @@ impl KirinHyphaEngine {
         };
         if slot.is_some() {
             return; // 冪等。
+        }
+        // B-067/F3: この engine の書込 role を POST に確定（add_annotation が使う / 単一 role）。
+        if let Ok(mut r) = self.write_role.lock() {
+            *r = Some(PluginDataRole::Post);
         }
 
         let (iid_str, name_str, project_hash, daw_uuid) = {
@@ -594,6 +607,15 @@ impl KirinHyphaEngine {
         if !can_write_plugin_data(self.current_license()) {
             return false; // 二重 gate: Os 以外は不可（license.rs:88）。
         }
+        // B-067/F3: 書込 role はこの engine の有効化時に確定（PRE/POST）。未 enable は no-op。
+        // ハードコード ::Pre をやめ、保持 role に書く（POST engine は POST role に追記）。
+        let role = match self.write_role.lock() {
+            Ok(g) => match *g {
+                Some(r) => r, // Role は Copy（plugin_data.rs:54）。
+                None => return false,
+            },
+            Err(_) => return false,
+        };
         let (project_hash, instance_id) = {
             let id = match self.identity.lock() {
                 Ok(g) => g,
@@ -608,7 +630,7 @@ impl KirinHyphaEngine {
             Ok(p) => p.plugin_data_dir(),
             Err(_) => return false,
         };
-        append_annotation_to_latest(&base, &project_hash, &instance_id, PluginDataRole::Pre, memo)
+        append_annotation_to_latest(&base, &project_hash, &instance_id, role, memo)
             .unwrap_or(false)
     }
 
