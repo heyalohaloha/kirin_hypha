@@ -146,6 +146,9 @@ pub struct KirinHyphaEngine {
     /// `enable_post_writes` 時に空なら identity.name で seed し、io_thread と Arc 共有する
     /// （run_tick の select / keep() の write_pending target 解決に使う・live 反映）。
     pair_target: Arc<RwLock<String>>,
+    /// keep() が選定した対 PRE instance_id（B-062）。io_thread と Arc 共有し、POST Record の
+    /// `paired_pre_instance_id`（plugin_data linkage）に焼かれる。stop() で None に戻す。
+    paired_pre_target: Arc<Mutex<Option<String>>>,
     /// Measure Thread の JoinHandle（drop で join）。
     measure_handle: Option<JoinHandle<()>>,
     /// ring 満杯で push できなかった回数（§8 RT-safety 検証用 / FFI 側のみ）。
@@ -206,6 +209,7 @@ impl KirinHyphaEngine {
             io_thread: Mutex::new(None),
             identity: Mutex::new(IdentityState::default()),
             pair_target: Arc::new(RwLock::new(String::new())),
+            paired_pre_target: Arc::new(Mutex::new(None)),
             measure_handle: Some(measure_handle),
             push_overflow: AtomicU64::new(0),
         }
@@ -392,7 +396,8 @@ impl KirinHyphaEngine {
         let instance_id = Arc::new(RwLock::new(iid_str));
         let project_hash_arc = Arc::new(RwLock::new(project_hash)); // POST は Arc<RwLock<String>>
         let preset_available = Arc::new(AtomicBool::new(false));
-        let paired_pre_target = Arc::new(Mutex::new(None));
+        // paired_pre_target は engine と共有（keep() が set → POST Record の linkage に焼く）。
+        let paired_pre_target = Arc::clone(&self.paired_pre_target);
         let pair_label = Arc::new(Mutex::new(String::new()));
         let daw_session_id = Arc::new(RwLock::new(daw_uuid));
         // pair_pre_name = self.pair_target（set_pair_target 優先 / 空なら identity.name で seed）。
@@ -482,8 +487,17 @@ impl KirinHyphaEngine {
         let Some(sel) = select_target_pre(&kirin_root, &pair) else {
             return false; // No PRE Paired（厳格: 空名/不在/曖昧/Inactive/古t）
         };
+        let target = sel.instance_id;
+        // linkage（B-062）: POST Record の paired_pre_instance_id に焼く。record_sm を Record に
+        // flip する前に set し、io_thread が writer を開く時に反映されるようにする。
+        if let Ok(mut g) = self.paired_pre_target.lock() {
+            *g = Some(target.clone());
+        }
         // license 二重 gate（record.rs try_enter_record / E-21）。
         if self.record_sm.try_enter_record(self.current_license()).is_err() {
+            if let Ok(mut g) = self.paired_pre_target.lock() {
+                *g = None; // 巻き戻し
+            }
             return false; // 非 Os / AlreadyRecording
         }
         let base = match StoragePaths::default_macos() {
@@ -491,13 +505,16 @@ impl KirinHyphaEngine {
             Err(_) => return false,
         };
         // target_pre_instance_id = 選定 PRE の instance_id。PRE が自宛て signal を発見し ack する。
-        write_pending(&base, &project_hash, &post_iid, sel.instance_id, daw).is_ok()
+        write_pending(&base, &project_hash, &post_iid, target, daw).is_ok()
     }
 
     /// POST「Stop」: pair を解除（record_signal released）し Watch へ戻す（B-061 3d-b）。
     /// PRE 側は released を検出して自身も Record を抜ける（io_thread_pre）。
     pub fn stop(&self) {
         self.record_sm.exit_record();
+        if let Ok(mut g) = self.paired_pre_target.lock() {
+            *g = None; // linkage クリア（次 Keep まで）。
+        }
         let (project_hash, post_iid) = {
             let id = match self.identity.lock() {
                 Ok(g) => g,

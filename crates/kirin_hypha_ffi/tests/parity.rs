@@ -868,3 +868,116 @@ fn post_keep_acked_by_colocated_pre() {
 
     let _ = std::fs::remove_dir_all(&test_root);
 }
+
+// ── B-062 capstone: ペア録音の実出力 end-to-end ─────────────────────────────────
+
+/// PRE+POST 同居（同名 "mix" / 別 project_uuid）でペア録音を end-to-end 検証する:
+/// POST Keep → PRE が ack & **自動 Record** → 両者の Record plugin_data .json が
+/// 同一 project_uuid(=POST の) 配下に書かれ、paired linkage で対として辿れることを実証。
+#[test]
+#[ignore = "slow: paired PRE+POST record session realtime + io_thread filesystem (sets HOME/TMPDIR)"]
+fn capstone_paired_record_output_and_linkage() {
+    use kirin_measure::plugin_data::{PluginDataFile, Role, Status};
+
+    let test_root = std::env::temp_dir()
+        .join("kirin_b062_test")
+        .join(format!("pid{}", std::process::id()));
+    let home = test_root.join("home");
+    let tmp = test_root.join("tmp");
+    let _ = std::fs::remove_dir_all(&test_root);
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::env::set_var("HOME", &home);
+    std::env::set_var("TMPDIR", &tmp);
+    let kirin_os = home.join("Library/Application Support/Kirin OS");
+    std::fs::create_dir_all(&kirin_os).unwrap();
+    std::fs::write(
+        kirin_os.join("identity.json"),
+        r#"{"schema_version":"1.0","installation_id":"b062-test","hardware_id":"hw","hardware_components":{"iop":"a","sn":"b","bd":"c"},"machine_signature":"sig","license":"os","created_at":"2026-06-09T00:00:00Z","last_verified_at":"2026-06-09T00:00:00Z"}"#,
+    )
+    .unwrap();
+    let plugin_data_root = home.join("Library/Application Support/Kirin OS/plugin_data");
+
+    let bf = SR as usize / 10;
+    let dt = Duration::from_secs_f64(bf as f64 / SR as f64);
+    let pre_block = gen_stereo_f32(0.1); // 0.1s フル振幅
+    let post_block: Vec<f32> = pre_block.iter().map(|&s| s * 0.5).collect(); // 半振幅(-6dB)
+
+    let delta_lufs: f64;
+    {
+        let pre = KirinHyphaEngine::new(SR, 2);
+        pre.set_license(0);
+        pre.set_identity("iid-pre".into(), "puid-pre".into(), "".into(), "mix".into());
+        pre.enable_pre_writes();
+        pre.set_signal_state(1);
+
+        let post = KirinHyphaEngine::new(SR, 2);
+        post.set_license(0);
+        post.set_identity("iid-post".into(), "puid-post".into(), "".into(), "mix".into());
+        post.enable_post_writes();
+        post.set_signal_state(1);
+        post.set_pair_target("mix".into());
+
+        // realtime ブロック投入ヘルパ（PRE フル / POST 半）。
+        let drive = |secs: f64| {
+            let ticks = (secs / 0.1) as usize;
+            for _ in 0..ticks {
+                pre.push_samples(&pre_block, 2);
+                post.push_samples(&post_block, 2);
+                sleep(dt);
+            }
+        };
+
+        // 1) PRE pre.json を active+fresh にする（POST が select できる状態）。
+        drive(1.5);
+
+        // 2) POST Keep → PRE が discover→ack→自動 Record（1s discover + 1s poll throttle）。
+        assert!(post.keep(), "一意 PRE 'mix' で keep=true");
+        assert!(post.is_recording(), "POST Record 開始");
+
+        // 3) ペア録音セッション（PRE が ack して Record に入り、両者 frames を書く）。
+        drive(4.0);
+        let d = post.poll_delta().expect("poll_delta Some");
+        delta_lufs = d.lufs.expect("delta lufs Some");
+        eprintln!("[capstone] mid-record delta lufs={delta_lufs}");
+
+        // 4) POST Stop → released → PRE が検出して exit_record + writer_close。
+        post.stop();
+        assert!(!post.is_recording());
+        drive(2.0); // PRE が released を検出して閉じるのを待つ + 両 writer close。
+    } // engines Drop → io_thread join（残り writer は status=closed flush）。
+
+    // 5) 両 Record .json を読み戻す（PRE は effective_project_hash=puid-post を adopt）。
+    let pre_json = find_json_under(&plugin_data_root, "pre", "*.json")
+        .expect("PRE Record pre/{wall}.json exists");
+    let post_json = find_json_under(&plugin_data_root, "post", "*.json")
+        .expect("POST Record post/{wall}.json exists");
+    eprintln!("[capstone] PRE  = {}", pre_json.display());
+    eprintln!("[capstone] POST = {}", post_json.display());
+
+    // 両者が同一 project_uuid(=POST の puid-post) 配下に揃う（PRE が adopt）。
+    assert!(pre_json.to_string_lossy().contains("puid-post"), "PRE は POST の uuid 配下に Record: {}", pre_json.display());
+    assert!(post_json.to_string_lossy().contains("puid-post"), "POST は自 uuid 配下: {}", post_json.display());
+
+    let pre_pd: PluginDataFile = serde_json::from_str(&std::fs::read_to_string(&pre_json).unwrap()).unwrap();
+    let post_pd: PluginDataFile = serde_json::from_str(&std::fs::read_to_string(&post_json).unwrap()).unwrap();
+
+    // schema / status / frames。
+    assert_eq!(pre_pd.schema_version, "1.3");
+    assert_eq!(post_pd.schema_version, "1.3");
+    assert_eq!(pre_pd.role, Role::Pre);
+    assert_eq!(post_pd.role, Role::Post);
+    assert_eq!(pre_pd.status, Status::Closed, "PRE status=closed");
+    assert_eq!(post_pd.status, Status::Closed, "POST status=closed");
+    assert!(!pre_pd.frames.is_empty(), "PRE frames 非空");
+    assert!(!post_pd.frames.is_empty(), "POST frames 非空");
+
+    // ★ paired linkage: 双方向で対として辿れる。
+    assert_eq!(pre_pd.paired_post_instance_id.as_deref(), Some("iid-post"), "PRE.paired_post_instance_id == POST");
+    assert_eq!(post_pd.paired_pre_instance_id.as_deref(), Some("iid-pre"), "POST.paired_pre_instance_id == PRE");
+
+    // Δ 物理妥当: POST 半振幅 → -6.02dB 相当。
+    assert!((-8.0..-4.0).contains(&delta_lufs), "Δ_lufs ≈ -6（POST 半振幅）, got {delta_lufs}");
+
+    let _ = std::fs::remove_dir_all(&test_root);
+}
