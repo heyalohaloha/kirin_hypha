@@ -495,3 +495,159 @@ fn pre_writes_records_plugin_data_json() {
     // 後始末（panic 経路でも temp を残さない）。
     let _ = std::fs::remove_dir_all(&test_root);
 }
+
+// ── Phase 3c: state chunk identity get/set + annotation ──────────────────────
+
+/// C 文字列バッファ（null 終端）を Rust String へ。
+fn cbuf_to_string(buf: &[std::os::raw::c_char]) -> String {
+    let bytes: Vec<u8> = buf.iter().take_while(|&&c| c != 0).map(|&c| c as u8).collect();
+    String::from_utf8_lossy(&bytes).into_owned()
+}
+
+/// C ABI set_identity → get_identity の 4 キー往復 + 別エンジン同一値の決定性
+/// （= 同一 chunk 復元で同一識別子 = 同一 plugin_data path の基礎）。
+#[test]
+fn identity_round_trip_via_c_abi() {
+    use kirin_hypha_ffi::{kirin_hypha_get_identity, kirin_hypha_set_identity, KirinIdentity};
+    use std::ffi::CString;
+
+    let read_back = |iid: &str, puid: &str, dsid: &str, nm: &str| {
+        let mut engine = KirinHyphaEngine::new(SR, 2);
+        let ptr = &mut engine as *mut KirinHyphaEngine;
+        let (c_iid, c_puid, c_dsid, c_nm) = (
+            CString::new(iid).unwrap(),
+            CString::new(puid).unwrap(),
+            CString::new(dsid).unwrap(),
+            CString::new(nm).unwrap(),
+        );
+        unsafe {
+            kirin_hypha_set_identity(
+                ptr,
+                c_iid.as_ptr(),
+                c_puid.as_ptr(),
+                c_dsid.as_ptr(),
+                c_nm.as_ptr(),
+            );
+        }
+        let mut out: KirinIdentity = unsafe { std::mem::zeroed() };
+        unsafe { kirin_hypha_get_identity(ptr, &mut out) };
+        (
+            cbuf_to_string(&out.instance_id),
+            cbuf_to_string(&out.project_uuid),
+            cbuf_to_string(&out.daw_session_uuid),
+            cbuf_to_string(&out.name),
+        )
+    };
+
+    let got = read_back("iid-x", "puid-y", "dsid-z", "mix1");
+    assert_eq!(
+        got,
+        ("iid-x".to_string(), "puid-y".to_string(), "dsid-z".to_string(), "mix1".to_string())
+    );
+    // 別エンジンに同一 set_identity → 同一 get_identity（決定性）。
+    assert_eq!(got, read_back("iid-x", "puid-y", "dsid-z", "mix1"));
+}
+
+/// add_annotation は Os 以外（既定 Unknown / Sense）で false（二重 gate / can_write_plugin_data）。
+#[test]
+fn add_annotation_denied_without_os() {
+    let engine = KirinHyphaEngine::new(SR, 2);
+    assert!(!engine.add_annotation("x".to_string()), "既定 Unknown では false");
+    engine.set_license(1); // Sense
+    assert!(!engine.add_annotation("x".to_string()), "Sense でも false");
+}
+
+/// set_identity の project_uuid/instance_id が plugin_data path を決める（復元再現）こと、
+/// add_annotation が Record の .json に memo を追記し、非 Os では追記されないこと（gate）。
+#[test]
+#[ignore = "slow: realtime ~12s record + io_thread filesystem writes (sets HOME/TMPDIR)"]
+fn set_identity_drives_path_and_annotation() {
+    use kirin_measure::plugin_data::PluginDataFile;
+
+    let test_root = std::env::temp_dir()
+        .join("kirin_b058_test")
+        .join(format!("pid{}", std::process::id()));
+    let home = test_root.join("home");
+    let tmp = test_root.join("tmp");
+    let _ = std::fs::remove_dir_all(&test_root);
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::env::set_var("HOME", &home);
+    std::env::set_var("TMPDIR", &tmp);
+    let kirin_os = home.join("Library/Application Support/Kirin OS");
+    std::fs::create_dir_all(&kirin_os).unwrap();
+    std::fs::write(
+        kirin_os.join("identity.json"),
+        r#"{"schema_version":"1.0","installation_id":"b058-test","hardware_id":"hw","hardware_components":{"iop":"a","sn":"b","bd":"c"},"machine_signature":"sig","license":"os","created_at":"2026-06-08T00:00:00Z","last_verified_at":"2026-06-08T00:00:00Z"}"#,
+    )
+    .unwrap();
+
+    let plugin_data_root = home.join("Library/Application Support/Kirin OS/plugin_data");
+    let known_iid = "iid-b058-fixed";
+    let known_puid = "puid-b058-fixed";
+
+    {
+        let engine = KirinHyphaEngine::new(SR, 2);
+        engine.set_license(0); // Os
+        engine.set_identity(
+            known_iid.to_string(),
+            known_puid.to_string(),
+            "dsid-b058".to_string(),
+            "mix-b058".to_string(),
+        );
+        engine.enable_pre_writes();
+        engine.set_signal_state(1);
+        assert!(engine.enter_record());
+        for _ in 0..6 {
+            engine.push_samples(&[], 2);
+            sleep(Duration::from_millis(40));
+        }
+        let signal = gen_stereo_f32(12.0);
+        let bf = SR as usize / 10;
+        let bl = bf * 2;
+        let dt = Duration::from_secs_f64(bf as f64 / SR as f64);
+        let mut i = 0;
+        while i < signal.len() {
+            let e = (i + bl).min(signal.len());
+            engine.push_samples(&signal[i..e], 2);
+            i = e;
+            sleep(dt);
+        }
+        let mut prev: Option<f64> = None;
+        for _ in 0..120 {
+            engine.push_samples(&[], 2);
+            sleep(Duration::from_millis(50));
+            if let Some(s) = engine.poll_session() {
+                if s.lufs_i.is_some() && s.lufs_i == prev {
+                    break;
+                }
+                prev = s.lufs_i;
+            }
+        }
+        engine.exit_record();
+        sleep(Duration::from_millis(900));
+
+        // path = {known_puid}/{known_iid}/pre/ （set_identity が path を決める = 復元再現）。
+        let rec = find_json_under(&plugin_data_root, "pre", "*.json").expect("record .json exists");
+        let rec_s = rec.to_string_lossy().to_string();
+        eprintln!("[3c] record path = {rec_s}");
+        assert!(rec_s.contains(known_puid), "path に set した project_uuid を使う: {rec_s}");
+        assert!(rec_s.contains(known_iid), "path に set した instance_id を使う: {rec_s}");
+
+        // Note: Os + Record close 後に add_annotation → annotations[] に memo。
+        assert!(engine.add_annotation("note-A".to_string()), "Os の add_annotation は true");
+        let pd: PluginDataFile =
+            serde_json::from_str(&std::fs::read_to_string(&rec).unwrap()).unwrap();
+        assert_eq!(pd.annotations.len(), 1, "annotation が 1 件追記される");
+        assert_eq!(pd.annotations[0].memo, "note-A");
+
+        // gate: Sense へ降格 → add_annotation false・annotations 不変。
+        engine.set_license(1);
+        assert!(!engine.add_annotation("note-B".to_string()), "Sense の add_annotation は false");
+        let pd2: PluginDataFile =
+            serde_json::from_str(&std::fs::read_to_string(&rec).unwrap()).unwrap();
+        assert_eq!(pd2.annotations.len(), 1, "Sense では追記されない（gate）");
+    }
+
+    let _ = std::fs::remove_dir_all(&test_root);
+}

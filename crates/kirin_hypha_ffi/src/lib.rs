@@ -27,7 +27,8 @@
 //! していた(hypha_pre.rs:390)。本 FFI では **`push_samples` が heartbeat を進める**。
 
 use std::cell::UnsafeCell;
-use std::os::raw::c_void;
+use std::ffi::CStr;
+use std::os::raw::{c_char, c_void};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicU32, AtomicU64, AtomicU8, AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
@@ -37,10 +38,47 @@ use uuid::Uuid;
 
 use kirin_measure::engine::SessionSummary;
 use kirin_measure::{
-    process_project_hash, set_project_uuid, spawn_io_thread_pre, spawn_measure_thread,
-    store_signal_state, License, MeasureResult, PsbSummary, RecordStateMachine, SignalState,
+    append_annotation_to_latest, can_write_plugin_data, process_project_hash, set_daw_session_id,
+    set_project_uuid, spawn_io_thread_pre, spawn_measure_thread, store_signal_state, License,
+    MeasureResult, PluginDataRole, PsbSummary, RecordStateMachine, SignalState, StoragePaths,
     N_CHANNELS, RING_BUFFER_SECONDS,
 };
+
+/// state chunk 往復する識別子（方式A: JUCE が chunk bytes を所有・FFI は文字列 get/set のみ）。
+/// `project_hash` は派生値（`process_project_hash` = project_uuid セル値）で永続対象外。
+#[derive(Default, Clone)]
+struct IdentityState {
+    instance_id: String,
+    project_uuid: String,
+    daw_session_uuid: String,
+    name: String,
+    /// enable 時に確定する派生 project_hash（= project_uuid）。add_annotation の path に使う。
+    project_hash: String,
+}
+
+/// C ABI 識別子バッファ長（UUID 36 + null に十分）。
+const ID_BUF_LEN: usize = 64;
+
+/// Rust `&str` を C 文字列バッファへ書く（truncate + null 終端）。
+fn write_c_buf(dst: &mut [c_char; ID_BUF_LEN], src: &str) {
+    let bytes = src.as_bytes();
+    let n = bytes.len().min(ID_BUF_LEN - 1);
+    for (i, b) in bytes.iter().take(n).enumerate() {
+        dst[i] = *b as c_char;
+    }
+    dst[n] = 0;
+}
+
+/// C 文字列ポインタを Rust `String` に読む（null/不正は空文字）。
+///
+/// # Safety
+/// `p` は null または有効な null 終端 C 文字列であること。
+unsafe fn read_c_str(p: *const c_char) -> String {
+    if p.is_null() {
+        return String::new();
+    }
+    unsafe { CStr::from_ptr(p) }.to_string_lossy().into_owned()
+}
 
 /// PRE plugin_data 書込スレッド（io_thread_pre）のハンドル＋停止フラグ。
 /// `enable_pre_writes` で spawn し、Drop で shutdown→join する。
@@ -96,6 +134,9 @@ pub struct KirinHyphaEngine {
     /// PRE plugin_data 書込スレッド（B-057 3b）。`enable_pre_writes` で 1 度だけ起動。
     /// 内部可変のため `Mutex`（C ABI は `&self` 経由・engine は Sync 共有）。
     pre_io: Mutex<Option<PreIoThread>>,
+    /// state chunk 往復する識別子（B-058 3c / 方式A）。`set_identity` で復元値を入れ、
+    /// 未設定なら `enable_pre_writes` が生成する。`get_identity` で JUCE が読み戻す。
+    identity: Mutex<IdentityState>,
     /// Measure Thread の JoinHandle（drop で join）。
     measure_handle: Option<JoinHandle<()>>,
     /// ring 満杯で push できなかった回数（§8 RT-safety 検証用 / FFI 側のみ）。
@@ -152,6 +193,7 @@ impl KirinHyphaEngine {
             license: AtomicU8::new(LICENSE_UNKNOWN),
             sample_rate,
             pre_io: Mutex::new(None),
+            identity: Mutex::new(IdentityState::default()),
             measure_handle: Some(measure_handle),
             push_overflow: AtomicU64::new(0),
         }
@@ -230,15 +272,38 @@ impl KirinHyphaEngine {
             return; // 冪等: 既に起動済み。
         }
 
-        // 識別子生成（永続は 3c）。project_uuid → プロセスグローバルセル → project_hash。
-        let instance_id = Arc::new(RwLock::new(Uuid::new_v4().to_string()));
-        set_project_uuid(Uuid::new_v4().to_string());
-        let project_hash = process_project_hash();
+        // 識別子: set_identity 済みなら復元値を使い、未設定はここで生成（3b フォールバック）。
+        // project_uuid → プロセスグローバルセル → project_hash（= project_uuid）を確定。
+        // 確定値を identity に書き戻し、get_identity が JUCE chunk へ返せるようにする。
+        let (iid_str, name_str, project_hash, daw_uuid) = {
+            let mut id = match self.identity.lock() {
+                Ok(g) => g,
+                Err(_) => return,
+            };
+            if id.instance_id.is_empty() {
+                id.instance_id = Uuid::new_v4().to_string();
+            }
+            if id.project_uuid.is_empty() {
+                id.project_uuid = Uuid::new_v4().to_string();
+            }
+            set_project_uuid(id.project_uuid.clone());
+            id.project_hash = process_project_hash(); // = project_uuid（cell 値）
+            if !id.daw_session_uuid.is_empty() {
+                set_daw_session_id(id.daw_session_uuid.clone());
+            }
+            (
+                id.instance_id.clone(),
+                id.name.clone(),
+                id.project_hash.clone(),
+                id.daw_session_uuid.clone(),
+            )
+        };
 
+        let instance_id = Arc::new(RwLock::new(iid_str));
         // io_thread_pre が内部で set/管理する共有フラグ（FFI は false で生成して渡すだけ）。
         let recording = Arc::new(AtomicBool::new(false));
         let record_acknowledged = Arc::new(AtomicBool::new(false));
-        let name = Arc::new(RwLock::new(String::new())); // 空 → instance_id 先頭8字 fallback
+        let name = Arc::new(RwLock::new(name_str)); // 空 → instance_id 先頭8字 fallback
         let record_error_message = Arc::new(RwLock::new(None));
         // A: enable 時点の license をスナップショット（immutable）。
         let license = Arc::new(self.current_license());
@@ -247,7 +312,7 @@ impl KirinHyphaEngine {
         let handle = spawn_io_thread_pre(
             instance_id,
             project_hash,
-            String::new(), // _daw_session_id（io_thread_pre では未使用）
+            daw_uuid, // _daw_session_id（io_thread_pre では未使用 / 念のため復元値を渡す）
             self.sample_rate,
             Arc::clone(&self.record_sm),
             recording,
@@ -262,6 +327,59 @@ impl KirinHyphaEngine {
         );
 
         *slot = Some(PreIoThread { shutdown: io_shutdown, handle });
+    }
+
+    /// state chunk から復元した識別子を設定する（方式A / B-058 3c）。
+    /// **`enable_pre_writes` の前**に呼ぶこと（復元順: create→set_license→set_identity→enable）。
+    /// 空文字を渡したキーは `enable_pre_writes` で生成される（instance_id / project_uuid）。
+    pub fn set_identity(
+        &self,
+        instance_id: String,
+        project_uuid: String,
+        daw_session_uuid: String,
+        name: String,
+    ) {
+        if let Ok(mut id) = self.identity.lock() {
+            id.instance_id = instance_id;
+            id.project_uuid = project_uuid;
+            id.daw_session_uuid = daw_session_uuid;
+            id.name = name;
+        }
+    }
+
+    /// 現在の識別子スナップショット（JUCE が getStateInformation で chunk へ保存）。
+    fn identity_snapshot(&self) -> IdentityState {
+        self.identity.lock().map(|g| g.clone()).unwrap_or_default()
+    }
+
+    /// Record の最新 plugin_data .json に利用者メモ（Annotation）を追記する（Note / 方式A）。
+    ///
+    /// gate: `License::Os`（`can_write_plugin_data`）のみ通る。`enable_pre_writes` 後で
+    /// 対象 .json が存在するとき `true`。それ以外（非 Os / 未 enable / .json 不在）は `false`。
+    /// filesystem 操作は `kirin_measure::append_annotation_to_latest` に委譲（FFI は呼ぶだけ）。
+    ///
+    /// 注意（3c）: active record 中は io_thread の writer が 30s flush で .json を上書きする
+    /// ため、確実なのは Record close 後の最新 .json への追記。
+    pub fn add_annotation(&self, memo: String) -> bool {
+        if !can_write_plugin_data(self.current_license()) {
+            return false; // 二重 gate: Os 以外は不可（license.rs:88）。
+        }
+        let (project_hash, instance_id) = {
+            let id = match self.identity.lock() {
+                Ok(g) => g,
+                Err(_) => return false,
+            };
+            if id.project_hash.is_empty() || id.instance_id.is_empty() {
+                return false; // 未 enable。
+            }
+            (id.project_hash.clone(), id.instance_id.clone())
+        };
+        let base = match StoragePaths::default_macos() {
+            Ok(p) => p.plugin_data_dir(),
+            Err(_) => return false,
+        };
+        append_annotation_to_latest(&base, &project_hash, &instance_id, PluginDataRole::Pre, memo)
+            .unwrap_or(false)
     }
 
     /// interleaved f32 サンプルを供給する（Audio Thread 単独・RT-safe）。
@@ -361,6 +479,18 @@ pub struct KirinSessionSummary {
     pub lufs_i: f64,
     pub lra: f64,
     pub max_true_peak: f64,
+}
+
+/// `KirinIdentity` — state chunk 往復する識別子（C struct / 方式A）。
+/// 各フィールドは null 終端 C 文字列（最大 63 文字 + null）。`project_hash` は派生値の
+/// ため含めない（JUCE は instance_id / project_uuid / daw_session_uuid / name の 4 キーを
+/// chunk に保存する）。
+#[repr(C)]
+pub struct KirinIdentity {
+    pub instance_id: [c_char; ID_BUF_LEN],
+    pub project_uuid: [c_char; ID_BUF_LEN],
+    pub daw_session_uuid: [c_char; ID_BUF_LEN],
+    pub name: [c_char; ID_BUF_LEN],
 }
 
 #[inline]
@@ -489,6 +619,74 @@ pub unsafe extern "C" fn kirin_hypha_enable_pre_writes(handle: *mut KirinHyphaEn
         }
         unsafe { (*handle).enable_pre_writes() };
     }));
+}
+
+/// state chunk から復元した識別子を設定する（方式A / 3c）。**`enable_pre_writes` の前**に呼ぶ。
+/// 各引数は null 終端 C 文字列（null 可＝空文字扱い）。空のキーは enable 時に生成される。
+///
+/// # Safety
+/// `handle` は有効なハンドル。各文字列ポインタは null か有効な null 終端 C 文字列であること。
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_set_identity(
+    handle: *mut KirinHyphaEngine,
+    instance_id: *const c_char,
+    project_uuid: *const c_char,
+    daw_session_uuid: *const c_char,
+    name: *const c_char,
+) {
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() {
+            return;
+        }
+        let iid = unsafe { read_c_str(instance_id) };
+        let puid = unsafe { read_c_str(project_uuid) };
+        let dsid = unsafe { read_c_str(daw_session_uuid) };
+        let nm = unsafe { read_c_str(name) };
+        unsafe { (*handle).set_identity(iid, puid, dsid, nm) };
+    }));
+}
+
+/// 現在の識別子を `out` に書く（JUCE が getStateInformation で chunk へ保存）。
+/// 各フィールドは null 終端 C 文字列（最大 63 文字）。
+///
+/// # Safety
+/// `handle`/`out` は有効。`out` は書込可能な `KirinIdentity`。
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_get_identity(
+    handle: *mut KirinHyphaEngine,
+    out: *mut KirinIdentity,
+) {
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() || out.is_null() {
+            return;
+        }
+        let id = unsafe { (*handle).identity_snapshot() };
+        let out = unsafe { &mut *out };
+        write_c_buf(&mut out.instance_id, &id.instance_id);
+        write_c_buf(&mut out.project_uuid, &id.project_uuid);
+        write_c_buf(&mut out.daw_session_uuid, &id.daw_session_uuid);
+        write_c_buf(&mut out.name, &id.name);
+    }));
+}
+
+/// Record の最新 plugin_data .json に利用者メモを追記する（Note / 方式A）。
+/// `License::Os` かつ enable 済かつ対象 .json 存在のとき `true`、それ以外 `false`。
+///
+/// # Safety
+/// `handle` は有効なハンドル。`memo` は null か有効な null 終端 C 文字列であること。
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_add_annotation(
+    handle: *mut KirinHyphaEngine,
+    memo: *const c_char,
+) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() {
+            return false;
+        }
+        let memo = unsafe { read_c_str(memo) };
+        unsafe { (*handle).add_annotation(memo) }
+    }))
+    .unwrap_or(false)
 }
 
 /// interleaved f32 サンプルを供給（Audio Thread 単独・RT-safe）。

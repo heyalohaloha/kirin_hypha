@@ -50,6 +50,15 @@ typedef struct {
   double max_true_peak; /* セッション内 True Peak 最大 [dBTP] */
 } KirinSessionSummary;
 
+/* state chunk 往復する識別子（方式A）. 各フィールドは null 終端 C 文字列（最大 63 + null）.
+ * project_hash は派生値のため含めない（JUCE は下記 4 キーを chunk に保存する）. */
+typedef struct {
+  char instance_id[64];
+  char project_uuid[64];
+  char daw_session_uuid[64];
+  char name[64];
+} KirinIdentity;
+
 /* ランタイム生成. sample_rate!=48000 は内部で 48k 変換. num_channels は stereo(2) 前提. */
 KirinHypha* kirin_hypha_create(uint32_t sample_rate, uint32_t num_channels);
 
@@ -68,10 +77,24 @@ bool kirin_hypha_enter_record(KirinHypha* handle);
  * poll_session で取得できる（finalize は Measure Thread のみ・FFI は呼ばない）. */
 void kirin_hypha_exit_record(KirinHypha* handle);
 
+/* state chunk から復元した識別子を設定する（方式A / 3c）. enable_pre_writes の前に呼ぶ.
+ * 各引数は null 終端 C 文字列（NULL 可＝空文字）. 空のキーは enable 時に生成される.
+ * 復元順: create → set_license → set_identity → enable_pre_writes. */
+void kirin_hypha_set_identity(KirinHypha* handle, const char* instance_id,
+                              const char* project_uuid, const char* daw_session_uuid,
+                              const char* name);
+
+/* 現在の識別子を out へ（JUCE が getStateInformation で chunk へ保存する 4 キー）. */
+void kirin_hypha_get_identity(KirinHypha* handle, KirinIdentity* out);
+
 /* PRE の plugin_data 書込（Watch pre.json + Record frames/PSB）を有効化する（3b）.
  * set_license の後に 1 度呼ぶ（呼んだ時点の license をスナップショット）. 2 度目以降 no-op.
  * filesystem 書込は kirin_measure の io_thread_pre 内に閉じる（FFI は spawn のみ）. */
 void kirin_hypha_enable_pre_writes(KirinHypha* handle);
+
+/* Record の最新 plugin_data .json に利用者メモを追記する（Note / 方式A）.
+ * Os かつ enable 済かつ対象 .json 存在のとき true / それ以外 false（gate は既存ロジック）. */
+bool kirin_hypha_add_annotation(KirinHypha* handle, const char* memo);
 
 /* interleaved f32 を供給（Audio Thread 単独・RT-safe）. num_frames==0 は keepalive 可. */
 void kirin_hypha_push_samples(KirinHypha* handle, const float* interleaved,
