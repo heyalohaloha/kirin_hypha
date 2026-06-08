@@ -25,6 +25,7 @@
 
 use std::cell::UnsafeCell;
 use std::os::raw::c_void;
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicU32, AtomicU64, AtomicU8, AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
@@ -249,7 +250,11 @@ fn to_c_result(r: &MeasureResult) -> KirinMeasureResult {
 /// 返り値は `kirin_hypha_destroy` でのみ解放すること。
 #[no_mangle]
 pub extern "C" fn kirin_hypha_create(sample_rate: u32, num_channels: u32) -> *mut KirinHyphaEngine {
-    Box::into_raw(Box::new(KirinHyphaEngine::new(sample_rate, num_channels)))
+    // panic を C ABI 境界で止める。panic 時は null を返す（UB 回避）。論理は変えない。
+    catch_unwind(AssertUnwindSafe(|| {
+        Box::into_raw(Box::new(KirinHyphaEngine::new(sample_rate, num_channels)))
+    }))
+    .unwrap_or(std::ptr::null_mut())
 }
 
 /// 信号状態を設定（0=Inactive 1=Active 2=Bypassed）。
@@ -258,10 +263,13 @@ pub extern "C" fn kirin_hypha_create(sample_rate: u32, num_channels: u32) -> *mu
 /// `handle` は `kirin_hypha_create` の戻り値（非 null・未解放）であること。
 #[no_mangle]
 pub unsafe extern "C" fn kirin_hypha_set_signal_state(handle: *mut KirinHyphaEngine, state: u8) {
-    if handle.is_null() {
-        return;
-    }
-    (*handle).set_signal_state(state);
+    // panic 捕捉時は no-op（音声経路に影響させない）。
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() {
+            return;
+        }
+        unsafe { (*handle).set_signal_state(state) };
+    }));
 }
 
 /// interleaved f32 サンプルを供給（Audio Thread 単独・RT-safe）。
@@ -276,18 +284,21 @@ pub unsafe extern "C" fn kirin_hypha_push_samples(
     num_frames: usize,
     num_channels: u32,
 ) {
-    if handle.is_null() {
-        return;
-    }
-    let engine = &*handle;
-    let len = num_frames.saturating_mul(num_channels as usize);
-    if len == 0 || interleaved.is_null() {
-        // 0-frame keepalive（heartbeat のみ進める）。
-        engine.push_samples(&[], num_channels);
-        return;
-    }
-    let slice = std::slice::from_raw_parts(interleaved, len);
-    engine.push_samples(slice, num_channels);
+    // panic 捕捉時は no-op（Audio Thread / 音声素通しに影響させない）。
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() {
+            return;
+        }
+        let engine = unsafe { &*handle };
+        let len = num_frames.saturating_mul(num_channels as usize);
+        if len == 0 || interleaved.is_null() {
+            // 0-frame keepalive（heartbeat のみ進める）。
+            engine.push_samples(&[], num_channels);
+            return;
+        }
+        let slice = unsafe { std::slice::from_raw_parts(interleaved, len) };
+        engine.push_samples(slice, num_channels);
+    }));
 }
 
 /// 最新 RT 計測結果を `out` に書く。値があれば true、未計測/競合なら false。
@@ -299,16 +310,20 @@ pub unsafe extern "C" fn kirin_hypha_poll_result(
     handle: *mut KirinHyphaEngine,
     out: *mut KirinMeasureResult,
 ) -> bool {
-    if handle.is_null() || out.is_null() {
-        return false;
-    }
-    match (*handle).poll_result() {
-        Some(r) => {
-            *out = to_c_result(&r);
-            true
+    // panic 捕捉時は false（out は書かない）。
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() || out.is_null() {
+            return false;
         }
-        None => false,
-    }
+        match unsafe { (*handle).poll_result() } {
+            Some(r) => {
+                unsafe { *out = to_c_result(&r) };
+                true
+            }
+            None => false,
+        }
+    }))
+    .unwrap_or(false)
 }
 
 /// セッション集計を `out` に書く。**Phase 1 では常に false**（symbol のみ）。
@@ -321,12 +336,16 @@ pub unsafe extern "C" fn kirin_hypha_poll_session(
     out: *mut KirinSessionSummary,
 ) -> bool {
     let _ = out;
-    if handle.is_null() {
-        return false;
-    }
-    // Phase 1: SessionSummary は Record 経路でのみ充填されるため常に None → false。
-    debug_assert!((*handle).poll_session().is_none());
-    false
+    // panic 捕捉時も false。
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() {
+            return false;
+        }
+        // Phase 1: SessionSummary は Record 経路でのみ充填されるため常に None → false。
+        debug_assert!(unsafe { (*handle).poll_session() }.is_none());
+        false
+    }))
+    .unwrap_or(false)
 }
 
 /// ランタイムを破棄（shutdown → Measure Thread join）。
@@ -335,10 +354,13 @@ pub unsafe extern "C" fn kirin_hypha_poll_session(
 /// `handle` は `kirin_hypha_create` の戻り値で、以後二重解放しないこと。null 可。
 #[no_mangle]
 pub unsafe extern "C" fn kirin_hypha_destroy(handle: *mut KirinHyphaEngine) {
-    if handle.is_null() {
-        return;
-    }
-    drop(Box::from_raw(handle));
+    // panic 捕捉時は no-op（二重解放はしない）。
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() {
+            return;
+        }
+        drop(unsafe { Box::from_raw(handle) });
+    }));
 }
 
 // `c_void` を未使用警告なく保持（将来 opaque alias 用の置き場）。
