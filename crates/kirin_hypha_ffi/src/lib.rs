@@ -39,9 +39,9 @@ use uuid::Uuid;
 use kirin_measure::engine::SessionSummary;
 use kirin_measure::{
     append_annotation_to_latest, can_write_plugin_data, process_project_hash, set_daw_session_id,
-    set_project_uuid, spawn_io_thread_pre, spawn_measure_thread, store_signal_state, License,
-    MeasureResult, PluginDataRole, PsbSummary, RecordStateMachine, SignalState, StoragePaths,
-    N_CHANNELS, RING_BUFFER_SECONDS,
+    set_project_uuid, spawn_io_thread_post, spawn_io_thread_pre, spawn_measure_thread,
+    store_signal_state, DeltaResult, License, MeasureResult, PluginDataRole, PsbSummary,
+    RecordStateMachine, SignalState, StoragePaths, N_CHANNELS, RING_BUFFER_SECONDS,
 };
 
 /// state chunk 往復する識別子（方式A: JUCE が chunk bytes を所有・FFI は文字列 get/set のみ）。
@@ -80,9 +80,10 @@ unsafe fn read_c_str(p: *const c_char) -> String {
     unsafe { CStr::from_ptr(p) }.to_string_lossy().into_owned()
 }
 
-/// PRE plugin_data 書込スレッド（io_thread_pre）のハンドル＋停止フラグ。
-/// `enable_pre_writes` で spawn し、Drop で shutdown→join する。
-struct PreIoThread {
+/// PRE/POST の io_thread ハンドル＋停止フラグ。`enable_pre_writes`（PRE）/
+/// `enable_post_writes`（POST）が spawn し、Drop で shutdown→join する。
+/// PRE/POST は同一 engine では排他（片方のみ enable する想定・冪等）。
+struct IoThreadHandle {
     shutdown: Arc<AtomicBool>,
     handle: JoinHandle<()>,
 }
@@ -114,6 +115,9 @@ pub struct KirinHyphaEngine {
     ring_producer: UnsafeCell<rtrb::Producer<f32>>,
     /// Measure Thread が 100ms cadence で更新、UI Thread が読む。
     measure_result: Arc<Mutex<MeasureResult>>,
+    /// POST の Δ 結果（B-060 3d-a）。POST io_thread の run_tick が select_target_pre で
+    /// 選んだ PRE との差分を書き、`poll_delta` が読む（GUI 表示用）。PRE では未更新。
+    delta_result: Arc<Mutex<DeltaResult>>,
     /// Record 中、Measure Thread が毎ループ `engine.finalize()` を書き込む
     /// （measure_thread.rs:290-295）。Watch では未更新（Record→Watch で直近値を保持）。
     session_summary: Arc<Mutex<Option<SessionSummary>>>,
@@ -131,9 +135,9 @@ pub struct KirinHyphaEngine {
     license: AtomicU8,
     /// `spawn_io_thread_pre` に渡す入力サンプルレート（create 時に保持）。
     sample_rate: u32,
-    /// PRE plugin_data 書込スレッド（B-057 3b）。`enable_pre_writes` で 1 度だけ起動。
-    /// 内部可変のため `Mutex`（C ABI は `&self` 経由・engine は Sync 共有）。
-    pre_io: Mutex<Option<PreIoThread>>,
+    /// PRE/POST io_thread（B-057 3b / B-060 3d-a）。`enable_pre_writes` or
+    /// `enable_post_writes` で 1 度だけ起動。内部可変のため `Mutex`（C ABI は `&self` 経由）。
+    io_thread: Mutex<Option<IoThreadHandle>>,
     /// state chunk 往復する識別子（B-058 3c / 方式A）。`set_identity` で復元値を入れ、
     /// 未設定なら `enable_pre_writes` が生成する。`get_identity` で JUCE が読み戻す。
     identity: Mutex<IdentityState>,
@@ -163,6 +167,7 @@ impl KirinHyphaEngine {
         let (producer, consumer) = rtrb::RingBuffer::new(capacity);
 
         let measure_result = Arc::new(Mutex::new(MeasureResult::default()));
+        let delta_result = Arc::new(Mutex::new(DeltaResult::default()));
         let session_summary: Arc<Mutex<Option<SessionSummary>>> = Arc::new(Mutex::new(None));
         let signal_state = Arc::new(AtomicU8::new(SignalState::Inactive as u8));
         let shutdown = Arc::new(AtomicBool::new(false));
@@ -184,6 +189,7 @@ impl KirinHyphaEngine {
         Self {
             ring_producer: UnsafeCell::new(producer),
             measure_result,
+            delta_result,
             session_summary,
             signal_state,
             shutdown,
@@ -192,7 +198,7 @@ impl KirinHyphaEngine {
             // 既定 Unknown（set_license(Os) されるまで Record 不可・安全側）。
             license: AtomicU8::new(LICENSE_UNKNOWN),
             sample_rate,
-            pre_io: Mutex::new(None),
+            io_thread: Mutex::new(None),
             identity: Mutex::new(IdentityState::default()),
             measure_handle: Some(measure_handle),
             push_overflow: AtomicU64::new(0),
@@ -264,12 +270,12 @@ impl KirinHyphaEngine {
     /// PRE-POST discovery は POST 不在のとき inert（record_signal が無く ack 対象なし /
     /// io_thread_pre.rs:294-312）。pairing 実働は 3d。
     pub fn enable_pre_writes(&self) {
-        let mut slot = match self.pre_io.lock() {
+        let mut slot = match self.io_thread.lock() {
             Ok(g) => g,
             Err(_) => return,
         };
         if slot.is_some() {
-            return; // 冪等: 既に起動済み。
+            return; // 冪等: 既に PRE/POST io_thread 起動済み。
         }
 
         // 識別子: set_identity 済みなら復元値を使い、未設定はここで生成（3b フォールバック）。
@@ -326,7 +332,110 @@ impl KirinHyphaEngine {
             Arc::clone(&self.session_summary),
         );
 
-        *slot = Some(PreIoThread { shutdown: io_shutdown, handle });
+        *slot = Some(IoThreadHandle { shutdown: io_shutdown, handle });
+    }
+
+    /// POST の plugin_data 書込（post.json の Δ・select_target_pre 経由＝厳格選定）を
+    /// 有効化する（B-060 3d-a）。`enable_pre_writes` と対。同一 engine では排他（片方のみ）。
+    ///
+    /// `kirin_measure::spawn_io_thread_post` を engine 既存の共有状態（record_sm /
+    /// measure_result / signal_state / session_summary）+ POST 固有 Arc に繋いで起動する。
+    /// io_thread の run_tick が `select_target_pre`（B-059 厳格）で PRE を選び post.json に
+    /// Δ を書く。**Keep/ack（write_pending）は配線しない**（trigger closures は no-op = 3d-a）。
+    ///
+    /// 前提・割り切り（3d-a）:
+    /// - `set_license` の後に呼ぶ（io_thread の license スナップショットは PRE と同様 / 但し
+    ///   POST run_tick の Δ 表示は license gate なし）。
+    /// - `set_identity` 済みなら復元値、未設定は生成（PRE と同経路 / 永続は 3c）。
+    /// - **pair_pre_name（対 PRE 名）= identity.name** を使う（同名の PRE と対になる規約）。
+    /// - 2 度目以降の呼出は no-op（冪等）。
+    pub fn enable_post_writes(&self) {
+        let mut slot = match self.io_thread.lock() {
+            Ok(g) => g,
+            Err(_) => return,
+        };
+        if slot.is_some() {
+            return; // 冪等。
+        }
+
+        let (iid_str, name_str, project_hash, daw_uuid) = {
+            let mut id = match self.identity.lock() {
+                Ok(g) => g,
+                Err(_) => return,
+            };
+            if id.instance_id.is_empty() {
+                id.instance_id = Uuid::new_v4().to_string();
+            }
+            if id.project_uuid.is_empty() {
+                id.project_uuid = Uuid::new_v4().to_string();
+            }
+            set_project_uuid(id.project_uuid.clone());
+            id.project_hash = process_project_hash();
+            if !id.daw_session_uuid.is_empty() {
+                set_daw_session_id(id.daw_session_uuid.clone());
+            }
+            (
+                id.instance_id.clone(),
+                id.name.clone(),
+                id.project_hash.clone(),
+                id.daw_session_uuid.clone(),
+            )
+        };
+
+        // POST 固有の共有 Arc（hypha_post params と同型）。
+        let instance_id = Arc::new(RwLock::new(iid_str));
+        let project_hash_arc = Arc::new(RwLock::new(project_hash)); // POST は Arc<RwLock<String>>
+        let preset_available = Arc::new(AtomicBool::new(false));
+        let paired_pre_target = Arc::new(Mutex::new(None));
+        let pair_label = Arc::new(Mutex::new(String::new()));
+        let daw_session_id = Arc::new(RwLock::new(daw_uuid));
+        // pair_pre_name = 対 PRE 名（identity.name）。同名 PRE と select_target_pre で対になる。
+        let pair_pre_name = Arc::new(RwLock::new(name_str));
+        // 3d-a: Keep/Stop 解決は配線しない（broadcast 受信時 no-op）。write_pending は 3d-b。
+        let trigger_pair_resolution: kirin_measure::TriggerPairResolutionFn =
+            Arc::new(|_pre: &str, _post: &str| {});
+        let trigger_stop_resolution: kirin_measure::TriggerStopResolutionFn =
+            Arc::new(|_pre: &str, _post: &str| {});
+        let record_error_message = Arc::new(RwLock::new(None));
+        let pair_claimed_at = Arc::new(RwLock::new(0.0));
+        let pair_release_notice = Arc::new(RwLock::new(None));
+        let io_shutdown = Arc::new(AtomicBool::new(false));
+
+        let handle = spawn_io_thread_post(
+            instance_id,
+            project_hash_arc,
+            self.sample_rate,
+            Arc::clone(&self.record_sm),
+            Arc::clone(&self.measure_result),
+            Arc::clone(&self.delta_result),
+            Arc::clone(&self.signal_state),
+            preset_available,
+            paired_pre_target,
+            Arc::clone(&io_shutdown),
+            pair_label,
+            daw_session_id,
+            pair_pre_name,
+            trigger_pair_resolution,
+            trigger_stop_resolution,
+            record_error_message,
+            pair_claimed_at,
+            pair_release_notice,
+            Arc::clone(&self.session_summary),
+        );
+
+        *slot = Some(IoThreadHandle { shutdown: io_shutdown, handle });
+    }
+
+    /// POST の Δ 結果を取得する（B-060 3d-a / GUI 表示用・read-only / try_lock 非ブロッキング）。
+    /// `enable_post_writes` 後、POST io_thread が select_target_pre で選んだ PRE との差分。
+    /// PRE engine / 未 enable / ロック競合・未計測時は `DeltaResult::default()`（mode=Active
+    /// だが全 Δ None / B-059 で NoPre は last_active クリア）。`post.json` には Δ でなく POST
+    /// 生メトリクスが入る（serialize_post_json）。Δ はこの in-memory 経路で公開する。
+    pub fn poll_delta(&self) -> Option<DeltaResult> {
+        match self.delta_result.try_lock() {
+            Ok(g) => Some(g.clone()),
+            Err(_) => None,
+        }
     }
 
     /// state chunk から復元した識別子を設定する（方式A / B-058 3c）。
@@ -437,10 +546,10 @@ impl KirinHyphaEngine {
 
 impl Drop for KirinHyphaEngine {
     fn drop(&mut self) {
-        // PRE io_thread を先に止める（Record 中なら status=closed flush + Watch pre.json /
-        // instance dir 後始末を自前で行う / io_thread_pre.rs:18,449-463）。共有 Arc を読む
-        // ため Measure Thread より先に join する。
-        if let Ok(mut slot) = self.pre_io.lock() {
+        // PRE/POST io_thread を先に止める（PRE: status=closed flush + pre.json/instance dir
+        // 後始末 / POST: post.json/instance dir 後始末・record_signal 削除を自前で行う）。
+        // 共有 Arc を読むため Measure Thread より先に join する。
+        if let Ok(mut slot) = self.io_thread.lock() {
             if let Some(io) = slot.take() {
                 io.shutdown.store(true, Ordering::Relaxed);
                 let _ = io.handle.join();
@@ -618,6 +727,22 @@ pub unsafe extern "C" fn kirin_hypha_enable_pre_writes(handle: *mut KirinHyphaEn
             return;
         }
         unsafe { (*handle).enable_pre_writes() };
+    }));
+}
+
+/// POST のランタイム（post.json の Δ を select_target_pre 経由＝厳格選定で書く）を有効化する
+/// （3d-a）。`enable_pre_writes` と対・同一 engine では排他（片方のみ・冪等）。
+/// Keep/ack（write_pending）は配線しない（3d-b）。set_license / set_identity の後に呼ぶ。
+///
+/// # Safety
+/// `handle` は `kirin_hypha_create` の戻り値（非 null・未解放）であること。
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_enable_post_writes(handle: *mut KirinHyphaEngine) {
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() {
+            return;
+        }
+        unsafe { (*handle).enable_post_writes() };
     }));
 }
 

@@ -92,6 +92,11 @@ void kirin_hypha_get_identity(KirinHypha* handle, KirinIdentity* out);
  * filesystem 書込は kirin_measure の io_thread_pre 内に閉じる（FFI は spawn のみ）. */
 void kirin_hypha_enable_pre_writes(KirinHypha* handle);
 
+/* POST のランタイム（post.json の Δ を厳格選定 select_target_pre 経由で書く）を有効化（3d-a）.
+ * enable_pre_writes と対・同一 engine では排他（片方のみ・冪等）. pair_pre_name は
+ * identity.name（同名 PRE と対）. Keep/ack（write_pending）は配線しない（3d-b）. */
+void kirin_hypha_enable_post_writes(KirinHypha* handle);
+
 /* Record の最新 plugin_data .json に利用者メモを追記する（Note / 方式A）.
  * Os かつ enable 済かつ対象 .json 存在のとき true / それ以外 false（gate は既存ロジック）. */
 bool kirin_hypha_add_annotation(KirinHypha* handle, const char* memo);

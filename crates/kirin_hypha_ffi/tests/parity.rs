@@ -651,3 +651,112 @@ fn set_identity_drives_path_and_annotation() {
 
     let _ = std::fs::remove_dir_all(&test_root);
 }
+
+// ── Phase 3d-a: POST ランタイム（enable_post_writes）+ Δ（PRE 同居 end-to-end）────
+
+/// 単一 FFI プロセスに PRE engine + POST engine を同居させ、POST が PRE を
+/// `select_target_pre`（B-059 厳格）で見つけ Δ を算出することを実証する。
+/// PRE をフル振幅、POST を半振幅(-6dB)で駆動 → Δ_lufs ≈ -6（POST − PRE）。
+/// 併せて project_uuid_cell 共有が選定/path に影響しないこと（cross-uuid flatten）を確認。
+#[test]
+#[ignore = "slow: PRE+POST co-located realtime + io_thread filesystem (sets HOME/TMPDIR)"]
+fn post_writes_delta_against_colocated_pre() {
+    use kirin_measure::{DeltaMode, DeltaResult};
+
+    // 分離: HOME(plugin_data) + TMPDIR(Watch pre/post.json root)。
+    let test_root = std::env::temp_dir()
+        .join("kirin_b060_test")
+        .join(format!("pid{}", std::process::id()));
+    let home = test_root.join("home");
+    let tmp = test_root.join("tmp");
+    let _ = std::fs::remove_dir_all(&test_root);
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::env::set_var("HOME", &home);
+    std::env::set_var("TMPDIR", &tmp);
+    let kirin_os = home.join("Library/Application Support/Kirin OS");
+    std::fs::create_dir_all(&kirin_os).unwrap();
+    std::fs::write(
+        kirin_os.join("identity.json"),
+        r#"{"schema_version":"1.0","installation_id":"b060-test","hardware_id":"hw","hardware_components":{"iop":"a","sn":"b","bd":"c"},"machine_signature":"sig","license":"os","created_at":"2026-06-09T00:00:00Z","last_verified_at":"2026-06-09T00:00:00Z"}"#,
+    )
+    .unwrap();
+
+    let watch_root = tmp.join("kirin");
+    let delta: DeltaResult;
+    let post_pre_state_found: bool;
+    {
+        // PRE engine: 同名 "mix"、別 project_uuid "puid-pre"。Watch（録音不要）。
+        let pre = KirinHyphaEngine::new(SR, 2);
+        pre.set_license(0);
+        pre.set_identity("iid-pre".into(), "puid-pre".into(), "".into(), "mix".into());
+        pre.enable_pre_writes();
+        pre.set_signal_state(1); // Active
+
+        // POST engine: 同名 "mix"（= 対 PRE 名）、別 project_uuid "puid-post"。
+        let post = KirinHyphaEngine::new(SR, 2);
+        post.set_license(0);
+        post.set_identity("iid-post".into(), "puid-post".into(), "".into(), "mix".into());
+        post.enable_post_writes();
+        post.set_signal_state(1); // Active
+
+        // reset/observe 待ち keepalive（両 io_thread が is_recording=false=Watch で起動）。
+        for _ in 0..6 {
+            pre.push_samples(&[], 2);
+            post.push_samples(&[], 2);
+            sleep(Duration::from_millis(40));
+        }
+
+        // realtime ~3s: PRE フル振幅 / POST 半振幅(-6dB)。lufs_m は momentary(400ms) で速く収束。
+        let pre_sig = gen_stereo_f32(3.0);
+        let post_sig: Vec<f32> = pre_sig.iter().map(|&s| s * 0.5).collect();
+        let bf = SR as usize / 10;
+        let bl = bf * 2;
+        let dt = Duration::from_secs_f64(bf as f64 / SR as f64);
+        let mut i = 0;
+        while i < pre_sig.len() {
+            let e = (i + bl).min(pre_sig.len());
+            pre.push_samples(&pre_sig[i..e], 2);
+            post.push_samples(&post_sig[i..e], 2);
+            i = e;
+            sleep(dt);
+        }
+        // settle: keepalive しつつ POST の Δ(lufs) が安定するまで待つ。
+        let mut prev: Option<f64> = None;
+        for _ in 0..60 {
+            pre.push_samples(&[], 2);
+            post.push_samples(&[], 2);
+            sleep(Duration::from_millis(50));
+            if let Some(d) = post.poll_delta() {
+                if d.mode == DeltaMode::Active && d.lufs.is_some() && d.lufs == prev {
+                    break;
+                }
+                prev = d.lufs;
+            }
+        }
+        delta = post.poll_delta().expect("poll_delta Some");
+
+        // POST の post.json が書かれ、pre_signal_state に PRE の active が反映されること
+        // （= POST が PRE を発見した観測可能な証拠）。
+        let post_json = find_json_under(&watch_root, "", "post.json").expect("post.json exists");
+        let content = std::fs::read_to_string(&post_json).unwrap();
+        eprintln!("[3d-a] post.json = {content}");
+        post_pre_state_found = content.contains(r#""pre_signal_state":"active""#);
+
+        // post.json は POST 自身の project_uuid(puid-post) 配下（cell 共有でも自分の path）。
+        assert!(
+            post_json.to_string_lossy().contains("puid-post"),
+            "POST post.json は自 project_uuid 配下: {}",
+            post_json.display()
+        );
+    } // engines Drop → io_thread join。
+
+    // Δ 検証: POST(半振幅) − PRE(フル) ≈ -6.02 dB（lufs は 20log10(0.5)）。
+    eprintln!("[3d-a] delta mode={:?} lufs={:?} tp={:?} crest={:?}", delta.mode, delta.lufs, delta.tp, delta.crest);
+    assert_eq!(delta.mode, DeltaMode::Active, "PRE 一意・Active・fresh → Δ Active");
+    let dl = delta.lufs.expect("delta lufs Some");
+    assert!((-8.0..-4.0).contains(&dl), "Δ_lufs ≈ -6（POST 半振幅）, got {dl}");
+    assert!(post_pre_state_found, "post.json pre_signal_state=active（PRE 発見の観測証拠）");
+
+    let _ = std::fs::remove_dir_all(&test_root);
+}
