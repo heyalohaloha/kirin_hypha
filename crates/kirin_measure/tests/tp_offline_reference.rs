@@ -3,6 +3,12 @@
 //! と同一の手法（symphonia decode + ebur128 true_peak running max）で
 //! テスト信号06-10のオフラインTP値を計算し、Hypha実機値との比較基準を作る。
 //!
+//! B-074: `ebur128 true_peak(ch) = running max` は **tp_session_max（正本）と同一定義**。
+//! 期待値は信号定義からの理論値: 帯域制限正弦の連続ピーク = 振幅なので
+//! 0dBFS→0.0 dBTP / -6dBFS→-6.0 dBTP。許容 0.5 dBTP は ITU-R BS.1770 の 4× oversample
+//! TP 推定の固有誤差（特に near-Nyquist）に対応する境界で、これ以上は締めない。
+//! tp_recent（直近 400ms）は steady 信号では tp_session_max と同値（窓非依存）。
+//!
 //! 実行方法:
 //!   cargo test -p kirin_measure tp_offline -- --nocapture
 

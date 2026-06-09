@@ -36,7 +36,7 @@ typedef struct KirinHypha KirinHypha;
 /* RT 計測結果. 各 double の「値なし」は NaN. */
 typedef struct {
   double lufs_m;        /* LUFS-M (ITU-R BS.1770-4 Momentary, 400ms) */
-  double true_peak;     /* True Peak [dBTP] (400ms 実時間窓) */
+  double true_peak;     /* tp_recent: True Peak 直近 400ms (frame基準, LUFS-M と同窓 / B-074) [dBTP] */
   double crest;         /* Crest Factor [dB] (400ms) */
   double psr;           /* PSR = peak_dBFS - LUFS-S(3s) */
   double n_prime_total; /* Zwicker N (ISO 532-1) [sone] */
@@ -46,6 +46,8 @@ typedef struct {
   double psb_high;      /* Perceptual Spectral Balance high [dB] */
   double n_prime[20];   /* 20-Bark aggregated specific loudness [sone/Bark] */
   double psb_bark[20];  /* 20-band PSB (psb) */
+  double tp_session_max;/* tp_session_max: init 以降の inter-sample running max [dBTP]
+                           (Record 正本と同定義 / B-074: 末尾追加で既存 offset 不変) */
 } KirinMeasureResult;
 
 /* セッション集計（Record finalize 後に充填・Record 前は未充填）. */

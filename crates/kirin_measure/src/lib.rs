@@ -349,10 +349,16 @@ pub struct MeasureResult {
     /// 信号なし・ウィンドウ未満は `None`（GUI 表示 `---`）。
     pub lufs_m: Option<f64>,
 
-    /// True Peak: ITU-R BS.1770-4 Annex 2（4× oversampling, dBTP）。
-    /// プレイバック開始からの累積最大値（running max）。
+    /// True Peak「直近」tp_recent: ITU-R BS.1770-4 Annex 2（4× oversampling, dBTP）。
+    /// 直近 400ms（LUFS-M と同窓・フレーム基準）の inter-sample 最大値（B-074）。Watch 表示用。
+    /// （B-074 以前: wall-clock 2 秒窓を「400ms 累積max」と誤記していた。実体を 400ms に統一）。
     /// 0 dBTP 超 → GUI で赤表示（G-53-02）。
     pub true_peak: Option<f64>,
+
+    /// True Peak「セッション最大」tp_session_max: init（reset）以降の inter-sample running
+    /// max（dBTP / B-074）。Record/.kirin の正本（`SessionSummary.max_true_peak` と同一定義）。
+    /// Watch でも live に算出される（compute 毎）。
+    pub tp_session_max: Option<f64>,
 
     /// Crest Factor: peak_dBFS − RMS_dBFS（400ms window）。
     /// peak はサンプルピーク（True Peak ではない。PSR 計算との整合）。

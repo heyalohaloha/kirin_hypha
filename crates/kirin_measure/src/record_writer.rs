@@ -854,6 +854,7 @@ mod tests {
         MeasureResult {
             lufs_m: Some(-14.2),
             true_peak: Some(-1.1),
+            tp_session_max: Some(-1.0), // B-074: session max ≥ recent
             crest: Some(12.3),
             psr: Some(8.0),
             n_prime_total: Some(5.0),

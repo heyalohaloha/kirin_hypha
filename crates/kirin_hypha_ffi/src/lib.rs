@@ -743,7 +743,7 @@ impl Drop for KirinHyphaEngine {
 #[repr(C)]
 pub struct KirinMeasureResult {
     pub lufs_m: f64,
-    pub true_peak: f64,
+    pub true_peak: f64,       // tp_recent: 直近 400ms（B-074）
     pub crest: f64,
     pub psr: f64,
     pub n_prime_total: f64,
@@ -753,6 +753,9 @@ pub struct KirinMeasureResult {
     pub psb_high: f64,
     pub n_prime: [f64; 20],
     pub psb_bark: [f64; 20],
+    // B-074: 末尾追加で既存フィールド offset を不変に保つ。
+    // tp_session_max: init 以降の inter-sample running max [dBTP]（Record 正本と同定義）。
+    pub tp_session_max: f64,
 }
 
 /// `KirinSessionSummary` — セッション集計（C struct）。Option は NaN で表す。
@@ -815,6 +818,7 @@ fn to_c_result(r: &MeasureResult) -> KirinMeasureResult {
         psb_high: high,
         n_prime: opt_arr20(r.n_prime),
         psb_bark: opt_arr20(r.psb_bark),
+        tp_session_max: opt_f64(r.tp_session_max), // B-074: 末尾
     }
 }
 
