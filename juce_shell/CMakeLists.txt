@@ -1,5 +1,13 @@
 cmake_minimum_required(VERSION 3.22)
 
+# B-092: minimum macOS deployment target for the shipped JUCE bundles (judgment A-1: next
+# Release = JUCE universal AU+VST3). Set BEFORE project() so compiler/SDK detection uses it.
+# Single source of truth: scripts/build_juce_universal.sh and .github/workflows/ci.yml inherit
+# this via a fresh configure (no per-script -D). The Rust staticlib's own per-arch defaults
+# (x86_64 10.12 / aarch64 11.0) are below 12.0, so the linked binary's LC_BUILD_VERSION minos
+# is governed by this value.
+set(CMAKE_OSX_DEPLOYMENT_TARGET "12.0" CACHE STRING "Minimum macOS deployment target")
+
 project(KirinHypha VERSION 0.1.0 LANGUAGES C CXX)
 
 # B-082: arch は cache 変数化（FORCE 撤去）。dev は x86_64 単独（既存 build dir / 高速）、
