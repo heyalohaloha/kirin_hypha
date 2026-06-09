@@ -103,6 +103,9 @@ pub struct RecordingCtx {
     /// B-025 Gap-19/20: 連続失敗が閾値に達した時の sentinel。io_thread が次 tick で
     /// `writer_close` + `record_sm.exit_record()` + UI 通知文字列書込を実施する。
     pub exit_requested: Option<RecordError>,
+    /// B-076: Record 開始時の overflow snapshot（累積 push_overflow）。close 時に
+    /// 現在値との差で per-Record dropped_samples を算出する（累積を持ち越さない）。
+    pub overflow_start: u64,
 }
 
 impl RecordingCtx {
@@ -240,6 +243,7 @@ pub fn writer_start(
         consecutive_dir_missing: 0,
         consecutive_write_error: 0,
         exit_requested: None,
+        overflow_start: 0, // B-076: run_record_tick が Record 開始時に snapshot を入れる
     })
 }
 
@@ -336,6 +340,9 @@ pub fn run_record_tick(
     measure_result: &Arc<Mutex<MeasureResult>>,
     recording: &mut Option<RecordingCtx>,
     session_summary: Option<&Arc<Mutex<Option<SessionSummary>>>>,
+    // B-076: 累積 push_overflow（Audio Thread が ring 満杯時に積む）。Record 開始で snapshot し、
+    // close 時に差分を per-Record dropped_samples として JSON に焼き込む。
+    overflow: &Arc<std::sync::atomic::AtomicU64>,
 ) -> Result<(), String> {
     let is_recording = record_sm.is_recording();
     match (is_recording, recording.is_some()) {
@@ -343,7 +350,7 @@ pub fn run_record_tick(
             let started_at_ms = started_at_resolver();
             let paired_pre = paired_pre_resolver();
             let paired_post = paired_post_resolver();
-            if let Some(ctx) = writer_start(
+            if let Some(mut ctx) = writer_start(
                 role,
                 sample_rate,
                 started_at_ms,
@@ -352,13 +359,20 @@ pub fn run_record_tick(
                 paired_pre,
                 paired_post,
             ) {
+                // B-076: Record 開始時点の累積 overflow を記録（per-Record 差分の基点）。
+                ctx.overflow_start = overflow.load(std::sync::atomic::Ordering::Relaxed);
                 *recording = Some(ctx);
             }
         }
         (false, true) => {
-            if let Some(ctx) = recording.take() {
+            if let Some(mut ctx) = recording.take() {
                 // B-043: Record→Watch 遷移時に Measure Thread の最新セッション集計を取り出して注入。
                 let summary = session_summary.and_then(take_session_summary);
+                // B-076: この Record 中に落ちたサンプル数 = 現在の累積 - 開始時 snapshot。
+                let dropped = overflow
+                    .load(std::sync::atomic::Ordering::Relaxed)
+                    .saturating_sub(ctx.overflow_start);
+                ctx.writer.set_integrity(dropped);
                 writer_close_with_summary(ctx, summary);
             }
         }
@@ -820,6 +834,11 @@ mod tests {
         dir
     }
 
+    /// B-076: テスト用の overflow=0 カウンタ（欠落なし）。`&no_overflow()` で run_record_tick へ。
+    fn no_overflow() -> Arc<std::sync::atomic::AtomicU64> {
+        Arc::new(std::sync::atomic::AtomicU64::new(0))
+    }
+
     fn make_ctx(base: &std::path::Path, role: Role, started_at_ms: i64) -> RecordingCtx {
         let paths = WriterPaths::build(base, TEST_PH, TEST_IID, role, "2026-04-19T12:00:00Z");
         let final_path = paths.final_path.clone();
@@ -847,6 +866,7 @@ mod tests {
             consecutive_dir_missing: 0,
             consecutive_write_error: 0,
             exit_requested: None,
+            overflow_start: 0,
         }
     }
 
@@ -1003,6 +1023,7 @@ mod tests {
             &m,
             &mut rec,
             None,
+            &no_overflow(),
         )
         .unwrap();
         assert!(rec.is_none());
@@ -1031,6 +1052,7 @@ mod tests {
             &m,
             &mut rec,
             None,
+            &no_overflow(),
         )
         .unwrap();
 
@@ -1062,6 +1084,7 @@ mod tests {
             &m,
             &mut rec,
             None,
+            &no_overflow(),
         )
         .unwrap();
 
@@ -1100,6 +1123,7 @@ mod tests {
             &m,
             &mut rec,
             None,
+            &no_overflow(),
         )
         .unwrap();
 
@@ -1360,6 +1384,7 @@ mod tests {
                 &m,
                 &mut rec,
                 None,
+                &no_overflow(),
             )
             .unwrap();
             let ctx_ref = rec.as_ref().unwrap();
@@ -1410,6 +1435,7 @@ mod tests {
                 &m,
                 &mut rec,
                 None,
+                &no_overflow(),
             )
             .unwrap();
             let ctx_ref = rec.as_ref().unwrap();
@@ -1450,6 +1476,7 @@ mod tests {
             &sm, Role::Post, 48000, TEST_PH, TEST_IID, now_epoch_ms,
             || None, || None, &m, &mut rec,
             None,
+            &no_overflow(),
         )
         .unwrap();
         assert_eq!(rec.as_ref().unwrap().consecutive_dir_missing, 1);
@@ -1462,10 +1489,75 @@ mod tests {
             &sm, Role::Post, 48000, TEST_PH, TEST_IID, now_epoch_ms,
             || None, || None, &m, &mut rec,
             None,
+            &no_overflow(),
         )
         .unwrap();
         assert_eq!(rec.as_ref().unwrap().consecutive_dir_missing, 0);
         assert_eq!(rec.as_ref().unwrap().consecutive_write_error, 0);
         assert!(rec.as_ref().unwrap().exit_requested.is_none());
+    }
+
+    /// B-076: per-Record dropped_samples が .kirin JSON に出る + 複数 Record で累積を持ち越さない。
+    #[test]
+    fn dropped_samples_per_record_isolated_in_kirin_json() {
+        use std::sync::atomic::Ordering;
+        let base = isolated_base();
+        let overflow = no_overflow(); // 累積 push_overflow を共有（Audio Thread 模擬）
+        let m = Arc::new(Mutex::new(full_measure_result()));
+
+        // ── Record 1: overflow_start=0、Record 中に 5 drop、close → dropped_samples=5。
+        let ctx1 = make_ctx(&base, Role::Post, now_epoch_ms()); // overflow_start=0
+        let path1 = ctx1.final_path.clone();
+        let sm1 = Arc::new(RecordStateMachine::new());
+        sm1.try_enter_record(License::Os).unwrap();
+        let mut rec1 = Some(ctx1);
+        overflow.fetch_add(5, Ordering::Relaxed); // この Record 中に 5 サンプル drop
+        sm1.exit_record();
+        run_record_tick(
+            &sm1, Role::Post, 48000, TEST_PH, TEST_IID, now_epoch_ms,
+            || None, || None, &m, &mut rec1,
+            None,
+            &overflow,
+        )
+        .unwrap();
+        let f1: PluginDataFile = serde_json::from_slice(&fs::read(&path1).unwrap()).unwrap();
+        assert_eq!(f1.dropped_samples, 5, "Record 1 の欠落数が .kirin に出る");
+        assert!(f1.integrity_degraded, "dropped>0 → integrity_degraded");
+
+        // ── Record 2: overflow_start=現累積(5) を snapshot、drop なし、close → dropped_samples=0。
+        //    前 Record の累積 5 を持ち越さない（per-Record 差分）。read(f1) は ctx2 生成より前。
+        let mut ctx2 = make_ctx(&base, Role::Post, now_epoch_ms());
+        ctx2.overflow_start = overflow.load(Ordering::Relaxed); // Record 2 開始 snapshot = 5
+        let path2 = ctx2.final_path.clone();
+        let sm2 = Arc::new(RecordStateMachine::new());
+        sm2.try_enter_record(License::Os).unwrap();
+        let mut rec2 = Some(ctx2);
+        // この Record 中は drop なし（overflow 据置 5）
+        sm2.exit_record();
+        run_record_tick(
+            &sm2, Role::Post, 48000, TEST_PH, TEST_IID, now_epoch_ms,
+            || None, || None, &m, &mut rec2,
+            None,
+            &overflow,
+        )
+        .unwrap();
+        let f2: PluginDataFile = serde_json::from_slice(&fs::read(&path2).unwrap()).unwrap();
+        assert_eq!(f2.dropped_samples, 0, "per-Record: 前 Record の累積 5 を持ち越さない");
+        assert!(!f2.integrity_degraded, "drop なし → integrity_degraded=false");
+    }
+
+    /// B-076: dropped_samples / integrity_degraded を持たない旧 .kirin を #[serde(default)] で読める。
+    #[test]
+    fn old_kirin_without_integrity_fields_reads_via_serde_default() {
+        let base = isolated_base();
+        let f = make_ctx(&base, Role::Post, now_epoch_ms()).data().clone();
+        let mut v = serde_json::to_value(&f).unwrap();
+        let obj = v.as_object_mut().unwrap();
+        // 旧 .kirin を模擬（新 field を除去）
+        obj.remove("dropped_samples");
+        obj.remove("integrity_degraded");
+        let back: PluginDataFile = serde_json::from_value(v).unwrap();
+        assert_eq!(back.dropped_samples, 0, "旧 .kirin → serde default 0");
+        assert!(!back.integrity_degraded, "旧 .kirin → serde default false");
     }
 }

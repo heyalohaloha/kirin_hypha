@@ -169,8 +169,9 @@ pub struct KirinHyphaEngine {
     write_role: Mutex<Option<PluginDataRole>>,
     /// Measure Thread の JoinHandle（drop で join）。
     measure_handle: Option<JoinHandle<()>>,
-    /// ring 満杯で push できなかった回数（§8 RT-safety 検証用 / FFI 側のみ）。
-    push_overflow: AtomicU64,
+    /// ring 満杯で push できなかった累積回数（§8 RT-safety 検証 + B-075 live 露出）。
+    /// B-076: io_thread と共有し per-Record dropped_samples を .kirin に焼き込むため Arc 化。
+    push_overflow: Arc<AtomicU64>,
 }
 
 // SAFETY: `ring_producer`(UnsafeCell<rtrb::Producer>) は push_samples からのみ触れ、
@@ -230,7 +231,7 @@ impl KirinHyphaEngine {
             paired_pre_target: Arc::new(Mutex::new(None)),
             write_role: Mutex::new(None),
             measure_handle: Some(measure_handle),
-            push_overflow: AtomicU64::new(0),
+            push_overflow: Arc::new(AtomicU64::new(0)),
         }
     }
 
@@ -363,6 +364,7 @@ impl KirinHyphaEngine {
             name,
             record_error_message,
             Arc::clone(&self.session_summary),
+            Arc::clone(&self.push_overflow), // B-076: per-Record dropped_samples
         );
 
         *slot = Some(IoThreadHandle { shutdown: io_shutdown, handle });
@@ -465,6 +467,7 @@ impl KirinHyphaEngine {
             pair_claimed_at,
             pair_release_notice,
             Arc::clone(&self.session_summary),
+            Arc::clone(&self.push_overflow), // B-076: per-Record dropped_samples
         );
 
         *slot = Some(IoThreadHandle { shutdown: io_shutdown, handle });

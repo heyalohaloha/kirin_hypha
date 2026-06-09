@@ -11,7 +11,7 @@ use kirin_measure::{
 };
 use nih_plug::prelude::*;
 use nih_plug_egui::EguiState;
-use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread::JoinHandle;
 use uuid::Uuid;
@@ -56,6 +56,9 @@ pub struct HyphaPost {
     measure_result: Arc<Mutex<MeasureResult>>,
     /// B-043: Record セッション集計値共有スロット (Measure → IO Thread)。
     session_summary: Arc<Mutex<Option<SessionSummary>>>,
+    /// B-076: ring 満杯で測定 ring に push できなかった累積サンプル数。Audio Thread が
+    /// 計数し、io_thread が per-Record dropped_samples を .kirin に焼き込む。
+    overflow: Arc<AtomicU64>,
     delta_result: Arc<Mutex<DeltaResult>>,
 
     measure_shutdown: Arc<AtomicBool>,
@@ -197,6 +200,7 @@ impl Default for HyphaPost {
             ring_producer: None,
             measure_result: Arc::new(Mutex::new(MeasureResult::default())),
             session_summary: Arc::new(Mutex::new(None)),
+            overflow: Arc::new(AtomicU64::new(0)),
             delta_result: Arc::new(Mutex::new(DeltaResult::default())),
             measure_shutdown: Arc::new(AtomicBool::new(false)),
             io_shutdown: Arc::new(AtomicBool::new(false)),
@@ -679,6 +683,7 @@ impl Plugin for HyphaPost {
             Arc::clone(&self.pair_release_notice),
             // B-043: session_summary 共有 (Measure → IO Thread / Record→Watch 注入)。
             Arc::clone(&self.session_summary),
+            Arc::clone(&self.overflow), // B-076: per-Record dropped_samples
         );
 
         // ── Watchdog Thread 起動 ──────────────────────────────────────
@@ -710,6 +715,7 @@ impl Plugin for HyphaPost {
             let pair_release_notice_arc = Arc::clone(&self.pair_release_notice);
             // B-043: restart 経路でも session_summary を共有 (initial と完全対称)。
             let session_summary = Arc::clone(&self.session_summary);
+            let overflow = Arc::clone(&self.overflow); // B-076
             move |new_shutdown: Arc<AtomicBool>| {
                 spawn_io_thread_post(
                     Arc::clone(&instance_id_arc),
@@ -731,6 +737,7 @@ impl Plugin for HyphaPost {
                     Arc::clone(&pair_claimed_at_arc),
                     Arc::clone(&pair_release_notice_arc),
                     Arc::clone(&session_summary),
+                    Arc::clone(&overflow), // B-076: per-Record dropped_samples
                 )
             }
         };
@@ -790,7 +797,10 @@ impl Plugin for HyphaPost {
             if let Some(producer) = &mut self.ring_producer {
                 for channel_samples in buffer.iter_samples() {
                     for sample in channel_samples {
-                        let _ = producer.push(*sample);
+                        // B-076: ring 満杯時は無言で捨てず累積計数（per-Record で .kirin に露出）。
+                        if producer.push(*sample).is_err() {
+                            self.overflow.fetch_add(1, Ordering::Relaxed);
+                        }
                     }
                 }
             }

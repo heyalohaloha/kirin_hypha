@@ -195,6 +195,9 @@ pub fn spawn_io_thread_pre(
     // B-043: Record セッション集計値共有スロット (Measure Thread → IO Thread)。
     // Record→Watch 遷移時に take して PluginDataWriter::set_session_aggregates に渡す。
     session_summary: Arc<Mutex<Option<SessionSummary>>>,
+    // B-076: 累積 push_overflow（Audio Thread が ring 満杯時に積む）。run_record_tick が
+    // Record 開始で snapshot し close 時に差分を per-Record dropped_samples として焼き込む。
+    overflow: Arc<std::sync::atomic::AtomicU64>,
 ) -> JoinHandle<()> {
     thread::spawn(move || {
         log::info!(
@@ -407,6 +410,7 @@ pub fn spawn_io_thread_pre(
                 &result,
                 &mut writer_ctx,
                 Some(&session_summary),
+                &overflow, // B-076: per-Record dropped_samples 算出用
             ) {
                 log::warn!("[writer] tick error: {}", e);
             }

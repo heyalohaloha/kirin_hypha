@@ -191,6 +191,15 @@ pub struct PluginDataFile {
     /// Lens 側 cross-instance pair 復元の決定論的キー（A-3 (a) v1.2）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub paired_post_instance_id: Option<String>,
+    /// B-076: この Record 中に ring 満杯で測定 ring に push できなかったサンプル数
+    /// （per-Record 差分 = Record 開始時 overflow snapshot との差）。計測値は汚さない露出のみ。
+    /// 旧 .kirin 互換のため `#[serde(default)]`（schema_version "1.3" 維持・additive）。
+    #[serde(default)]
+    pub dropped_samples: u64,
+    /// B-076: `dropped_samples > 0` → true（1 sample でも立てる・閾値なし）。count を併記し
+    /// 程度を透明化する（隠さない / ZSA / integrity）。旧 .kirin 互換のため `#[serde(default)]`。
+    #[serde(default)]
+    pub integrity_degraded: bool,
     pub validity: bool,
     pub checksum: String,
 }
@@ -267,6 +276,8 @@ impl PluginDataFile {
             plr: None,
             paired_pre_instance_id,
             paired_post_instance_id,
+            dropped_samples: 0,
+            integrity_degraded: false,
             validity: true,
             checksum: String::new(),
         }
@@ -479,6 +490,15 @@ impl PluginDataWriter {
             .and_then(|i| summary.max_true_peak.map(|tp| tp - i))
             .filter(|v| v.is_finite())
             .map(round1);
+    }
+
+    /// B-076: この Record の欠落サンプル数を JSON に焼き込む。`close()` 直前に呼ぶ。
+    /// `dropped` は per-Record 差分（Record 開始時 overflow snapshot との差）。
+    /// `integrity_degraded` は `dropped > 0`（閾値なし・1 sample でも立てる / ZSA）。
+    /// 計測値（LUFS/TP/PSR/PSB）には一切触れない。
+    pub fn set_integrity(&mut self, dropped: u64) {
+        self.data.dropped_samples = dropped;
+        self.data.integrity_degraded = dropped > 0;
     }
 
     /// 1 PSB スナップショットを追加。
