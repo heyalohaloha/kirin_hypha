@@ -13,7 +13,8 @@
 // The Role selects enable_pre_writes vs enable_post_writes and the display name; the two
 // plugin targets differ solely by the Role passed in their createPluginFilter()
 // (src/PluginMainPRE.cpp / src/PluginMainPOST.cpp). POST also exposes the pairing surface
-// (B-072: set_pair_target / keep / stop / is_recording); the editor only uses it for POST.
+// (B-072: set_pair_target / keep / stop / is_recording) and the Δ readout (B-073:
+// poll_delta + cached signal state); the editor uses those only for POST.
 class KirinHyphaProcessorBase : public juce::AudioProcessor,
                                 private juce::AsyncUpdater
 {
@@ -44,6 +45,10 @@ public:
     void setPairName (const juce::String& name);       // persist + set_pair_target (sanitized in FFI)
     bool keepPair();                                    // kirin_hypha_keep (Os + unique PRE)
     void stopPair();                                    // kirin_hypha_stop
+
+    // --- B-073: POST Δ readout (editor display branching) --------------------------------
+    int  signalState() const { return lastSignalState.load (std::memory_order_acquire); } // 0=Inactive 1=Active 2=Bypassed
+    bool pollDelta (KirinDelta& out) const;            // FFI kirin_hypha_poll_delta (mode + Δ values)
 
     const juce::String getName() const override;
     bool acceptsMidi() const override;
@@ -85,6 +90,7 @@ private:
     juce::String persistPairName;                      // POST pair target (B-072)
 
     std::atomic<int>  cachedLicenseCode { 2 };         // B-072: license read once in prepareToPlay (0=Os)
+    std::atomic<int>  lastSignalState { 0 };           // B-073: last signal code set in processBlock (0/1/2)
     std::atomic<bool> writesEnabled { false };         // plugin_data writes enabled (idempotent guard)
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (KirinHyphaProcessorBase)

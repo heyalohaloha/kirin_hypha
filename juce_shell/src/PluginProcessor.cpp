@@ -122,6 +122,7 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
     else if (! playing || silent) stateCode = 0; // Inactive
     else                          stateCode = 1; // Active
     kirin_hypha_set_signal_state (hyphaHandle, stateCode);
+    lastSignalState.store ((int) stateCode, std::memory_order_release); // B-073: editor display branching
 
     // --- Feed the engine ---------------------------------------------------------
     // Parity with nih-plug: ring push only when Active; heartbeat advances every block.
@@ -217,6 +218,16 @@ void KirinHyphaProcessorBase::stopPair()
     const juce::ScopedLock sl (handleLock);
     if (hyphaHandle != nullptr)
         kirin_hypha_stop (hyphaHandle);
+}
+
+// --- B-073: POST Δ readout ---------------------------------------------------------------
+
+bool KirinHyphaProcessorBase::pollDelta (KirinDelta& out) const
+{
+    const juce::ScopedLock sl (handleLock);
+    if (hyphaHandle == nullptr)
+        return false;
+    return kirin_hypha_poll_delta (hyphaHandle, &out);
 }
 
 const juce::String KirinHyphaProcessorBase::getName() const

@@ -6,10 +6,10 @@ namespace
 {
     // Biophilic / Dark Cockpit palette. No pure #ffffff (G-72-10), no red (品位原則), no neon.
     const juce::Colour kBg    (0xff141a16); // deep green-black
-    const juce::Colour kValue (0xffb4c9ab); // muted sage — active values
+    const juce::Colour kValue (0xffb4c9ab); // muted sage — active values (COL_NORMAL equiv)
     const juce::Colour kLabel (0xff8a9a82); // dimmer sage — labels
     const juce::Colour kUnit  (0xff66735f); // muted — units
-    const juce::Colour kMuted (0xff5f6b59); // muted — "---" / disabled
+    const juce::Colour kMuted (0xff5f6b59); // muted — "---" / Stale Δ / disabled (COL_MUTED equiv)
     const juce::Colour kField (0xff1c241e); // slightly lifted green-black — input/button fill
     const juce::Colour kEdge  (0xff3a463c); // muted edge — outlines
 
@@ -75,23 +75,61 @@ juce::String KirinHyphaEditor::fmtVal (double v)
 
 void KirinHyphaEditor::timerCallback()
 {
-    KirinMeasureResult r;
-    if (processorRef.pollMeasureResult (r))
+    const double kNaN = std::numeric_limits<double>::quiet_NaN();
+
+    auto showAbsolute = [this, kNaN]
     {
-        lufsM    = r.lufs_m;     // NaN sentinel preserved -> "---" when no value
-        truePeak = r.true_peak;
-        crest    = r.crest;
+        showDelta = false;
+        deltaMuted = false;
+        KirinMeasureResult r;
+        if (processorRef.pollMeasureResult (r))
+        {
+            lufsM = r.lufs_m; truePeak = r.true_peak; crest = r.crest; // NaN sentinel preserved
+        }
+        else
+        {
+            lufsM = truePeak = crest = kNaN; // null handle / lock contention -> "---"
+        }
+    };
+
+    if (! isPost)
+    {
+        // PRE: always the absolute three values (poll_result NaN on non-Active -> "---").
+        showAbsolute();
     }
     else
     {
-        // poll failed (null handle / lock contention): show "---" (does not crash).
-        lufsM = truePeak = crest = std::numeric_limits<double>::quiet_NaN();
-    }
+        // B-073 POST display branching (no freeze — see header):
+        //   Bypassed / Inactive               -> "---"           (editor.rs:450-460 equiv)
+        //   Active + pair empty               -> POST absolute   (editor.rs:474-475)
+        //   Active + pair set + Active/Stale  -> Δ (Stale muted) (editor.rs:477-486)
+        //   Active + pair set + NoPre         -> POST absolute   (editor.rs:498-499; last_active cleared)
+        const int sig = processorRef.signalState(); // 0=Inactive 1=Active 2=Bypassed
+        if (sig != 1)
+        {
+            showDelta = false;
+            deltaMuted = false;
+            lufsM = truePeak = crest = kNaN; // Bypassed / Inactive -> "---"
+        }
+        else
+        {
+            const bool pairEmpty = processorRef.pairName().isEmpty();
+            KirinDelta d;
+            const bool haveDelta = processorRef.pollDelta (d);
+            // KirinDelta.mode: 0=Active 1=Stale 2=NoPre.
+            if (! pairEmpty && haveDelta && (d.mode == 0 || d.mode == 1))
+            {
+                showDelta = true;
+                deltaMuted = (d.mode == 1); // Stale -> muted (COL_MUTED equiv)
+                lufsM = d.lufs; truePeak = d.true_peak; crest = d.crest; // NaN sentinel preserved
+            }
+            else
+            {
+                showAbsolute(); // pair empty / NoPre / no delta -> POST absolute
+            }
+        }
 
-    if (isPost)
-    {
-        // Keep on Watch (Os + a pair name set); Stop on Record. Pairing is locked while
-        // recording. The FFI re-validates (keep is a no-op if not Os / not unique PRE).
+        // B-072 pairing controls: Keep on Watch (Os + name); Stop on Record; name locked while recording.
         const bool rec     = processorRef.isRecording();
         const bool os      = (processorRef.licenseCode() == 0);
         const bool hasName = nameEditor.getText().isNotEmpty();
@@ -116,12 +154,17 @@ void KirinHyphaEditor::paint (juce::Graphics& g)
     g.drawText (processorRef.getName(), area.removeFromTop (22), juce::Justification::centredLeft);
     area.removeFromTop (8);
 
-    struct Row { const char* label; double val; const char* unit; };
+    // Δ (U+0394) built from its codepoint to avoid non-ASCII source/escape issues.
+    const juce::String dlt = juce::String::charToString ((juce::juce_wchar) 0x0394);
+    struct Row { juce::String label; double val; const char* unit; };
     const Row rows[] = {
-        { "LUFS-M", lufsM,    "LUFS" },
-        { "TP",     truePeak, "dBTP" },
-        { "Crest",  crest,    "dB"   },
+        { showDelta ? dlt + "LUFS"  : juce::String ("LUFS-M"), lufsM,    "LUFS" },
+        { showDelta ? dlt + "TP"    : juce::String ("TP"),     truePeak, "dBTP" },
+        { showDelta ? dlt + "Crest" : juce::String ("Crest"),  crest,    "dB"   },
     };
+
+    // Stale Δ shows every value muted; otherwise active values are sage, "---" is muted.
+    const bool allMuted = (showDelta && deltaMuted);
 
     const int rowH = 30;
     for (const auto& r : rows)
@@ -137,7 +180,7 @@ void KirinHyphaEditor::paint (juce::Graphics& g)
         const juce::String text = fmtVal (r.val);
         const bool hasVal = (text != "---");
 
-        g.setColour (hasVal ? kValue : kMuted);
+        g.setColour ((hasVal && ! allMuted) ? kValue : kMuted);
         g.setFont (juce::Font (juce::Font::getDefaultMonospacedFontName(), 18.0f, juce::Font::plain));
         g.drawText (text, row, juce::Justification::centredRight);
 
