@@ -60,6 +60,11 @@ pub struct MeasureEngine {
     /// 100ms 分の要素数（sample_rate / 10 × n_channels）
     accum_target: usize,
 
+    /// B-078: ebur128 投入用の再利用バッファ（事前確保）。100ms チャンクごとの
+    /// `drain().collect()` 新 Vec 確保を排し、`clear()` + `extend` で使い回す。
+    /// Measure Thread 上の alloc churn を除去（処理データ列は同一＝計測値 byte-identical）。
+    chunk_buf: Vec<f64>,
+
     /// add_frames 済みの累積フレーム数（per-channel）。`tp_window` の失効判定に使う
     /// サンプル基準の時刻（B-074: wall-clock `Instant` を置換）。reset() では維持し、
     /// 相対距離で窓を判定する（窓側は reset() でクリアされる）。
@@ -102,6 +107,7 @@ impl MeasureEngine {
             window_400ms_cap,
             accum: Vec::with_capacity(accum_target * 2),
             accum_target,
+            chunk_buf: Vec::with_capacity(accum_target),
             total_frames: 0,
             // 最大 4 エントリ（400ms / 100ms）。フレーム基準で失効するので容量は余裕を持つ。
             tp_window: VecDeque::with_capacity(8),
@@ -142,9 +148,19 @@ impl MeasureEngine {
         let chunk_frames = (self.accum_target / self.n_channels) as u64;
         let mut result: Option<MeasureResult> = None;
         while self.accum.len() >= self.accum_target {
-            let chunk: Vec<f64> = self.accum.drain(..self.accum_target).collect();
-            // add_frames_f64 のエラーは無視（積算不足は ebur128 が内部処理する）
-            let _ = self.ebu.add_frames_f64(&chunk);
+            // B-078: 再利用バッファへ drain（per-chunk の新 Vec 確保を排す / Measure Thread）。
+            // 処理する f64 列は drain().collect() と同一順・同一値 → 計測 byte-identical。
+            self.chunk_buf.clear();
+            self.chunk_buf.extend(self.accum.drain(..self.accum_target));
+            // B-078: add_frames_f64 失敗を沈黙させない。正常運用では frames が n_channels で
+            // 割り切れ mode も有効なので発生しないが、NoMem 等で失敗した場合この 100ms チャンクは
+            // 計測に入らない（欠落相当）。UI には出さず log で可視化する（R-28 / integrity 思想）。
+            if let Err(e) = self.ebu.add_frames_f64(&self.chunk_buf) {
+                log::warn!(
+                    "[engine] add_frames_f64 failed ({:?}): this 100ms chunk is not measured (frames lost)",
+                    e
+                );
+            }
 
             // フレーム基準の時刻を進めてから、prev_true_peak をタイムスタンプ付きで窓に追加。
             // prev_true_peak は直近 add_frames チャンク内のピークのみを返す（running max でない）。
@@ -395,5 +411,26 @@ mod tp_recent_golden {
                 _ => panic!("tp_recent None mismatch by block size @ {i}: {x:?} vs {y:?}"),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod add_frames_integrity {
+    //! B-078: add_frames_f64 失敗を沈黙させず log 化した（旧: `let _`）。ここでは ebur128 が
+    //! 実際に Err を返す条件（n_channels で割り切れない frame 長 = Interleaved::new が NoMem）を
+    //! 確認し、その Err が観測可能（沈黙でなく検出対象）であることを実証する。engine.push は
+    //! accum_target（常に n_channels の倍数）のみ投入するため通常運用では発生しない。
+    use ebur128::{EbuR128, Mode};
+
+    #[test]
+    fn add_frames_f64_errors_on_misaligned_frame_count_is_observable() {
+        let mut ebu = EbuR128::new(2, 48_000, Mode::M).unwrap();
+        // 2ch で 3 要素 = 割り切れない → Err（B-078 はこれをログ化 / 旧 let _ は沈黙）。
+        assert!(
+            ebu.add_frames_f64(&[0.0_f64; 3]).is_err(),
+            "misaligned frame count must be an observable Err (now logged, not silently dropped)"
+        );
+        // 整列長（4 要素 = 2 frames）は Ok。
+        assert!(ebu.add_frames_f64(&[0.0_f64; 4]).is_ok());
     }
 }
