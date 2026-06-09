@@ -24,6 +24,21 @@ lipo -create \
   -output "target/universal/libkirin_hypha_ffi.a"
 lipo -info "target/universal/libkirin_hypha_ffi.a"
 
+# B-091: apply juce_shell/patches/0001 (macOS 15 SDK CGWindowListCreateImage bypass) before cmake.
+# Idempotent: on a tree where it is already applied (dev), the reverse-check passes and we skip;
+# on a fresh checkout (no patch) we apply it. The submodule is never committed (PATCHES.md
+# discipline); the patch is applied at build time only. Subshell keeps the outer cwd unchanged.
+echo "==> apply juce_shell/patches/0001 (idempotent)"
+(
+  cd juce_shell/JUCE
+  if git apply --reverse --check ../patches/0001-macos15-sdk-cgwindowlistcreateimage-bypass.patch 2>/dev/null; then
+    echo "patches/0001 already applied — skipping"
+  else
+    git apply ../patches/0001-macos15-sdk-cgwindowlistcreateimage-bypass.patch
+    echo "patches/0001 applied"
+  fi
+)
+
 echo "==> cmake configure (universal: x86_64;arm64 + universal staticlib)"
 cmake -S juce_shell -B juce_shell/build-universal \
   -DCMAKE_BUILD_TYPE=Release \

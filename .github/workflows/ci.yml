@@ -51,6 +51,22 @@ jobs:
       - name: Build kirin_hypha_ffi staticlib (arm64 native)
         run: cargo build --release -p kirin_hypha_ffi --locked
 
+      # B-091: the JUCE submodule is pinned pristine; patches/0001 (macOS 15 SDK
+      # CGWindowListCreateImage bypass) is applied at build time per juce_shell/PATCHES.md, never
+      # committed into the submodule. A fresh CI checkout has no patch, so without this the cmake
+      # build fails on a macOS 15 SDK runner. Idempotent: skip if already applied.
+      - name: Apply JUCE macOS 15 SDK patch (patches/0001)
+        run: |
+          (
+            cd juce_shell/JUCE
+            if git apply --reverse --check ../patches/0001-macos15-sdk-cgwindowlistcreateimage-bypass.patch 2>/dev/null; then
+              echo "patches/0001 already applied — skipping"
+            else
+              git apply ../patches/0001-macos15-sdk-cgwindowlistcreateimage-bypass.patch
+              echo "patches/0001 applied"
+            fi
+          )
+
       - name: Configure + build JUCE shells (arm64)
         run: |
           cmake -S juce_shell -B juce_shell/build-arm64 \
