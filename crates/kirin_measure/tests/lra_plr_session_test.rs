@@ -82,14 +82,17 @@ fn engine_finalize_returns_session_summary_with_lufs_i_lra_tp() {
     let lra = summary.lra; // 単一トーンでは LRA が極めて狭いか None になり得る
     let max_tp = summary.max_true_peak.expect("max_true_peak must be Some");
 
-    // 0.7 amp の正弦波: peak_dBFS ≒ -3.1, LUFS_I は -3 〜 -10 LU 程度
+    // B-079: 緩い range (-20..0) を理論値基準へ締める。dual-mono 0.7 amp 正弦:
+    // peak_dBFS = 20·log10(0.7) = -3.10。LUFS-I = peak - 0.691 + G_k(1kHz)（正弦 RMS -3.01 と
+    // ITU stereo 合算 +3.01 が相殺。0.691=ITU 校正定数）≈ -3.10 + 0.70 - 0.691 ≈ -3.10 LUFS。
+    // G_k(1kHz)≈0.70 dB（golden_psr_crest で実証）。許容 ±1.5。
     assert!(
-        (-20.0..0.0).contains(&lufs_i),
-        "lufs_i out of range: {lufs_i}"
+        (-4.6..-1.6).contains(&lufs_i),
+        "lufs_i={lufs_i} expected ≈ -3.10 (peak -3.10 dBFS - 0.691 + G_k(1kHz))"
     );
-    // 単一トーンのため LRA は値が無いか < 5 LU 程度
+    // 定常トーンはロードネス変動なし → LRA ≈ 0（None もあり得る）。緩い 0..5 を < 1.5 へ。
     if let Some(lra) = lra {
-        assert!((0.0..5.0).contains(&lra), "lra out of range: {lra}");
+        assert!(lra < 1.5, "steady-tone lra={lra} expected ≈ 0");
     }
     // max_true_peak は dBTP。0.7 amp の sine → 真ピーク ≒ -3 dBTP 付近
     assert!(
