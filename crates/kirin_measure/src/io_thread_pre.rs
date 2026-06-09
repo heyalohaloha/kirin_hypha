@@ -841,10 +841,13 @@ pub fn serialize_pre_json(
     result: &MeasureResult,
 ) -> String {
     let t = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ");
+    // B-077: name は利用者入力。serde で JSON 文字列化し " \ 制御文字・日本語を安全に escape する
+    // （旧: 生補間で " \ を含む名が不正 JSON を生成 → POST parse 失敗）。正常 ASCII 名は不変。
+    let name_json = serde_json::to_string(name).unwrap_or_else(|_| "\"\"".to_string());
     format!(
-        r#"{{"v":2,"role":"PRE","instance_id":"{instance_id}","name":"{name}","signal_state":"{signal_state}","t":"{t}","lufs_m":{lufs_m},"true_peak":{true_peak},"crest":{crest},"psr":{psr}{phase_d}}}"#,
+        r#"{{"v":2,"role":"PRE","instance_id":"{instance_id}","name":{name_json},"signal_state":"{signal_state}","t":"{t}","lufs_m":{lufs_m},"true_peak":{true_peak},"crest":{crest},"psr":{psr}{phase_d}}}"#,
         instance_id = instance_id,
-        name = name,
+        name_json = name_json,
         signal_state = state.as_str(),
         t = t,
         lufs_m = opt_f64(result.lufs_m),
@@ -861,10 +864,12 @@ pub fn serialize_pre_json(
 /// filter 照合に必要。pre.json schema バージョン据置き)。
 fn serialize_pre_json_minimal(instance_id: &str, name: &str, state: SignalState) -> String {
     let t = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ");
+    // B-077: name を serde で JSON escape（serialize_pre_json と同一。" \ 制御文字・日本語を安全に）。
+    let name_json = serde_json::to_string(name).unwrap_or_else(|_| "\"\"".to_string());
     format!(
-        r#"{{"v":2,"role":"PRE","instance_id":"{instance_id}","name":"{name}","signal_state":"{signal_state}","t":"{t}"}}"#,
+        r#"{{"v":2,"role":"PRE","instance_id":"{instance_id}","name":{name_json},"signal_state":"{signal_state}","t":"{t}"}}"#,
         instance_id = instance_id,
-        name = name,
+        name_json = name_json,
         signal_state = state.as_str(),
         t = t,
     )
@@ -1749,6 +1754,26 @@ mod tests {
         // pre.json の "name" field が serde で読み戻せること (PreTmpJson と等価構造)。
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed["name"].as_str(), Some("Snare"));
+    }
+
+    /// B-077: " や \ を含む name が serde escape され valid JSON になり値が往復する
+    /// （旧手組み生補間では不正 JSON を生成し POST parse 失敗していた回帰）。
+    #[test]
+    fn serialize_pre_json_escapes_quotes_and_backslash() {
+        let r = MeasureResult::default();
+        let name = "Snare\"x\\y";
+        let json = serialize_pre_json("pre-xyz", name, SignalState::Active, &r);
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["name"].as_str(), Some(name));
+    }
+
+    /// B-077: 日本語 name が strip されず JSON で保持され読み戻せる。
+    #[test]
+    fn serialize_pre_json_keeps_japanese_name() {
+        let r = MeasureResult::default();
+        let json = serialize_pre_json("pre-xyz", "日本語Snare", SignalState::Active, &r);
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["name"].as_str(), Some("日本語Snare"));
     }
 
     /// 直接 write_signal で daw_session_id 明示指定 + 読み戻し

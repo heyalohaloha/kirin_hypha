@@ -892,12 +892,12 @@ mod pair_pre_name_persist_tests {
         assert_eq!(sanitized, "a".repeat(16));
     }
 
-    /// Test 4: sanitize_name が非 ASCII 文字を strip する。
+    /// B-077 Test 4: sanitize_name が非 ASCII（日本語）を **保持**する（旧: strip）。
     #[test]
-    fn pair_pre_name_sanitize_strips_non_ascii() {
+    fn pair_pre_name_sanitize_keeps_non_ascii() {
         let raw = "日本語Snare";
         let sanitized = sanitize_name(raw);
-        assert_eq!(sanitized, "Snare");
+        assert_eq!(sanitized, "日本語Snare");
     }
 
     /// Test 5: sanitize_name が制御文字を strip する。

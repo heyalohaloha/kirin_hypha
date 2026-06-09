@@ -520,13 +520,13 @@ mod name_persist_tests {
         assert_eq!(sanitized, "a".repeat(16));
     }
 
-    /// Test 4: sanitize_name が非 ASCII 文字を strip する。
-    /// 入力 "日本語Snare" → "Snare" (日本語 3 文字を除去)。
+    /// B-077 Test 4: sanitize_name が非 ASCII（日本語）を **保持**する（旧: strip）。
+    /// 入力 "日本語Snare" → "日本語Snare"（日本語を残す）。
     #[test]
-    fn name_sanitize_strips_non_ascii() {
+    fn name_sanitize_keeps_non_ascii() {
         let raw = "日本語Snare";
         let sanitized = sanitize_name(raw);
-        assert_eq!(sanitized, "Snare");
+        assert_eq!(sanitized, "日本語Snare");
     }
 
     /// Test 5: sanitize_name が制御文字 (0x00-0x1F / 0x7F) を strip する。

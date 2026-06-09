@@ -107,21 +107,25 @@ use std::sync::{Arc, OnceLock, RwLock};
 
 // ── B-027 段階 2: PRE/POST 共通の Name 正規化 ────────────────────────────
 
-/// Name 入力値を ASCII 0x20-0x7E + 最大 16 文字に正規化 (R-28 機能的沈黙)。
+/// Name 入力値を正規化 (R-28 機能的沈黙)。最大 16 文字。
 ///
-/// chunk restore 時 / GUI 入力時の両方で使う。違反値は無言で正規化し
-/// UI エラーは出さない (制御文字 / 非 ASCII / 17 文字目以降を strip)。
+/// B-077: 非 ASCII（日本語等 UTF-8 印字可能文字）を **保持**する。実害のある文字＝
+/// 制御文字（`char::is_control`: 0x00-0x1F / 0x7F-0x9F 等）のみ除去し、先頭末尾の
+/// 空白を trim する。`/` `\` `:` `"` 等は保持する: name はファイルシステムパスに
+/// 使われず（pre.json 内容 + editor 表示のみ / WriterPaths は instance_id で構築）、
+/// JSON 出力は `serialize_pre_json` が serde で escape するため安全。
+///
+/// chunk restore 時 / GUI 入力時の両方で使う。違反値は無言で正規化し UI エラーは出さない。
 ///
 /// 用途:
 /// - PRE 側 `params.name` (B-023 段階 1)
 /// - POST 側 `params.pair_pre_name` (B-027 段階 2)
 ///
+/// pairing 照合は両側が本関数で同一正規化するため、UTF-8 name でも exact 一致で当たる。
 /// hypha_pre / hypha_post の両 cdylib から共通参照する単一情報源。
 pub fn sanitize_name(raw: &str) -> String {
-    raw.chars()
-        .filter(|c| c.is_ascii_graphic() || *c == ' ')
-        .take(16)
-        .collect()
+    let cleaned: String = raw.chars().filter(|c| !c.is_control()).collect();
+    cleaned.trim().chars().take(16).collect()
 }
 
 // ── 共有定数 ────────────────────────────────────────────────────────────────

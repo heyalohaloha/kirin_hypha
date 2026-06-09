@@ -473,8 +473,14 @@ pub fn scan_pre_candidates_in(project_dir: &Path) -> Vec<PreCandidate> {
         }
         let pre_file = path.join("pre.json");
         let Ok(bytes) = fs::read(&pre_file) else { continue };
-        let Ok(parsed): Result<PreTmpJson, _> = serde_json::from_slice(&bytes) else {
-            continue;
+        // B-077: serde 失敗（破損 / 旧形式 pre.json）を無言 skip せずログに残す（沈黙をやめる）。
+        // UI には出さない（R-28: 他 instance の pre.json 不整合は利用者操作と非紐づき / log のみ可視化）。
+        let parsed: PreTmpJson = match serde_json::from_slice(&bytes) {
+            Ok(p) => p,
+            Err(e) => {
+                log::warn!("[pairing] skip unparseable pre.json {}: {}", pre_file.display(), e);
+                continue;
+            }
         };
         // B-027: Bypassed の PRE のみ pair 候補から除外。
         // Active / Inactive / 旧 schema (signal_state 不在) は候補化する。
@@ -1253,6 +1259,18 @@ mod tests {
         let filtered = filter_candidates_by_name(v, "Snare");
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].instance_id, "iid-a");
+    }
+
+    /// B-077: 日本語 name で pairing 照合（UTF-8 exact 一致）が当たる。
+    #[test]
+    fn filter_candidates_by_name_matches_japanese() {
+        let base = isolated_dir();
+        write_pre_tmp_with_name(&base, "ph", "iid-jp", "active", "日本語Snare");
+        write_pre_tmp_with_name(&base, "ph", "iid-other", "active", "Kick");
+        let v = scan_pre_candidates(&base, "ph");
+        let filtered = filter_candidates_by_name(v, "日本語Snare");
+        assert_eq!(filtered.len(), 1, "日本語 name が exact 一致で 1 件通過");
+        assert_eq!(filtered[0].instance_id, "iid-jp");
     }
 
     /// filter_candidates_by_name: 不一致は 0 件。
