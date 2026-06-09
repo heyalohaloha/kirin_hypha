@@ -44,12 +44,14 @@ void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBl
     hyphaHandle = kirin_hypha_create ((uint32_t) sampleRate, (uint32_t) numCh);
 
     // B-070: a fresh handle needs license applied and (re-)enabling. License is read once
-    // from identity.json (single source). set_identity + enable_*_writes are deferred to
-    // the first processBlock (handleAsyncUpdate) so any setStateInformation restore is
-    // applied before enable (JUCE does not order setStateInformation vs prepareToPlay).
+    // from identity.json (single source) and cached for the editor's Os-gate (B-072).
+    // set_identity + enable_*_writes are deferred to the first processBlock
+    // (handleAsyncUpdate) so any setStateInformation restore is applied before enable.
     if (hyphaHandle != nullptr)
     {
-        kirin_hypha_set_license (hyphaHandle, kirin_hypha_load_license());
+        const uint8_t lic = kirin_hypha_load_license();
+        cachedLicenseCode.store ((int) lic, std::memory_order_release);
+        kirin_hypha_set_license (hyphaHandle, lic);
         writesEnabled.store (false, std::memory_order_release);
     }
     // A null handle (create failure) is tolerated; processBlock / pollMeasureResult guard on it.
@@ -98,9 +100,9 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
     if (hyphaHandle == nullptr)
         return;
 
-    // B-070: enable writes once, deferred to here so any setStateInformation (identity
-    // restore) has already run. triggerAsyncUpdate is safe from the audio thread and
-    // coalesces; the actual enable runs on the message thread (handleAsyncUpdate).
+    // B-070: enable writes once, deferred to here so any setStateInformation (identity /
+    // pair name restore) has already run. triggerAsyncUpdate is safe from the audio thread
+    // and coalesces; the actual enable runs on the message thread (handleAsyncUpdate).
     if (! writesEnabled.load (std::memory_order_acquire))
         triggerAsyncUpdate();
 
@@ -184,6 +186,39 @@ bool KirinHyphaProcessorBase::pollMeasureResult (KirinMeasureResult& out) const
     return kirin_hypha_poll_result (hyphaHandle, &out);
 }
 
+// --- B-072: POST pairing surface ---------------------------------------------------------
+
+bool KirinHyphaProcessorBase::isRecording() const
+{
+    const juce::ScopedLock sl (handleLock);
+    if (hyphaHandle == nullptr)
+        return false;
+    return kirin_hypha_is_recording (hyphaHandle);
+}
+
+void KirinHyphaProcessorBase::setPairName (const juce::String& name)
+{
+    persistPairName = name; // persisted; the FFI sanitizes its own copy (ASCII graphic + space, 16).
+    const juce::ScopedLock sl (handleLock);
+    if (hyphaHandle != nullptr)
+        kirin_hypha_set_pair_target (hyphaHandle, name.toRawUTF8());
+}
+
+bool KirinHyphaProcessorBase::keepPair()
+{
+    const juce::ScopedLock sl (handleLock);
+    if (hyphaHandle == nullptr)
+        return false;
+    return kirin_hypha_keep (hyphaHandle);
+}
+
+void KirinHyphaProcessorBase::stopPair()
+{
+    const juce::ScopedLock sl (handleLock);
+    if (hyphaHandle != nullptr)
+        kirin_hypha_stop (hyphaHandle);
+}
+
 const juce::String KirinHyphaProcessorBase::getName() const
 {
     return role == Role::Post ? "Kirin Hypha POST" : "Kirin Hypha PRE";
@@ -202,21 +237,22 @@ void KirinHyphaProcessorBase::changeProgramName (int, const juce::String&) {}
 
 void KirinHyphaProcessorBase::getStateInformation (juce::MemoryBlock& destData)
 {
-    // B-069: serialize the 4 identity keys as a JUCE-native XML chunk. The persist members
-    // are kept in sync with the FFI identity at enable time (B-070 handleAsyncUpdate).
+    // B-069/B-072: serialize the 4 identity keys + POST pair target as a JUCE-native XML
+    // chunk. The persist members are kept in sync with the FFI at enable time.
     juce::XmlElement xml ("KirinHyphaState");
     xml.setAttribute ("instance_id",      persistInstanceId);
     xml.setAttribute ("project_uuid",     persistProjectUuid);
     xml.setAttribute ("daw_session_uuid", persistDawSessionUuid);
     xml.setAttribute ("name",             persistName);
+    xml.setAttribute ("pair_pre_name",    persistPairName);
     copyXmlToBinary (xml, destData);
 }
 
 void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInBytes)
 {
-    // B-069: restore the 4 identity keys into the persist members. May run before or after
-    // prepareToPlay (JUCE does not guarantee ordering); the FFI receives these at enable
-    // time via set_identity (B-070), deferred to the first processBlock so both have run.
+    // B-069/B-072: restore the 4 identity keys + pair target into the persist members. May
+    // run before or after prepareToPlay (JUCE does not guarantee ordering); the FFI receives
+    // these at enable time (handleAsyncUpdate), deferred to the first processBlock.
     if (auto xml = getXmlFromBinary (data, sizeInBytes))
     {
         if (xml->hasTagName ("KirinHyphaState"))
@@ -225,6 +261,7 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
             persistProjectUuid    = xml->getStringAttribute ("project_uuid");
             persistDawSessionUuid = xml->getStringAttribute ("daw_session_uuid");
             persistName           = xml->getStringAttribute ("name");
+            persistPairName       = xml->getStringAttribute ("pair_pre_name");
         }
     }
 }
@@ -252,9 +289,15 @@ void KirinHyphaProcessorBase::handleAsyncUpdate()
     // Δ via select_target_pre). enable_pre_writes / enable_post_writes are mutually
     // exclusive and idempotent in the FFI.
     if (role == Role::Post)
+    {
         kirin_hypha_enable_post_writes (hyphaHandle);
+        // B-072: apply the restored/current pair target after enable (contract order).
+        kirin_hypha_set_pair_target (hyphaHandle, persistPairName.toRawUTF8());
+    }
     else
+    {
         kirin_hypha_enable_pre_writes (hyphaHandle);
+    }
 
     // Read back the final (restored or freshly generated) identity so getStateInformation
     // persists it across DAW save/load.
