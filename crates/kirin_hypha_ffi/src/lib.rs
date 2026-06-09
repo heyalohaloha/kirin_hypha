@@ -44,7 +44,7 @@ use uuid::Uuid;
 use kirin_measure::engine::SessionSummary;
 use kirin_measure::{
     append_annotation_to_latest, can_write_plugin_data, load_license_safe, mark_released,
-    process_project_hash, select_target_pre, set_daw_session_id, set_project_uuid,
+    process_project_hash, sanitize_name, select_target_pre, set_daw_session_id, set_project_uuid,
     spawn_io_thread_post, spawn_io_thread_pre, spawn_measure_thread, store_signal_state,
     write_pending, DeltaMode, DeltaResult, License, MeasureResult, PluginDataRole, PsbSummary,
     RecordStateMachine, SignalState, StoragePaths, N_CHANNELS, RING_BUFFER_SECONDS,
@@ -485,9 +485,20 @@ impl KirinHyphaEngine {
     /// 対 PRE 名（pair target）を設定する（B-061 3d-b / identity.name 結合を解く）。
     /// io_thread と Arc 共有のため `enable_post_writes` 後でも live に反映される。
     pub fn set_pair_target(&self, name: String) {
+        // B-071: sanitize（ASCII graphic + space / max 16）で PRE 名と同一語彙に正規化する
+        // 単一情報源（kirin_measure::sanitize_name）。select_target_pre は sanitized な PRE 名と
+        // 照合するため、pair target も同じ正規化を通す。
+        let sanitized = sanitize_name(&name);
         if let Ok(mut pt) = self.pair_target.write() {
-            *pt = name;
+            *pt = sanitized;
         }
+    }
+
+    /// テスト専用: paired_pre_target（POST Record linkage）の現在値スナップショット。
+    /// B-071 double-keep 検証で「2 回目 keep が linkage を None 化しない」ことを assert する。
+    #[doc(hidden)]
+    pub fn paired_pre_target_snapshot(&self) -> Option<String> {
+        self.paired_pre_target.lock().ok().and_then(|g| g.clone())
     }
 
     /// POST「Keep」: 厳格選定（select_target_pre）で対 PRE を一意決定し record_signal(pending)
@@ -509,6 +520,12 @@ impl KirinHyphaEngine {
                 id.daw_session_uuid.clone(),
             )
         };
+        // B-071 double-keep guard: 既に Record 中（先行 keep 済）なら本 keep は no-op。
+        // 既存 paired_pre_target linkage を温存するため、下の投機的 set より前に early-return
+        // する（投機的 set は AlreadyRecording 経路で None クリアされ linkage を壊していた）。
+        if self.record_sm.is_recording() {
+            return false;
+        }
         let kirin_root = std::env::temp_dir().join("kirin");
         let pair = self.pair_target.read().map(|g| g.clone()).unwrap_or_default();
         let Some(sel) = select_target_pre(&kirin_root, &pair) else {
@@ -520,12 +537,14 @@ impl KirinHyphaEngine {
         if let Ok(mut g) = self.paired_pre_target.lock() {
             *g = Some(target.clone());
         }
-        // license 二重 gate（record.rs try_enter_record / E-21）。
+        // license 二重 gate（record.rs try_enter_record / E-21）。AlreadyRecording は上の
+        // is_recording guard で early-return 済なので、ここは LicenseDenied（非 Os）のみ到達。
+        // 本 keep が set した投機的 linkage を巻き戻す（録音していない fresh POST → None でよい）。
         if self.record_sm.try_enter_record(self.current_license()).is_err() {
             if let Ok(mut g) = self.paired_pre_target.lock() {
-                *g = None; // 巻き戻し
+                *g = None; // 投機的 set の巻き戻し（非 Os）
             }
-            return false; // 非 Os / AlreadyRecording
+            return false;
         }
         let base = match StoragePaths::default_macos() {
             Ok(p) => p.plugin_data_dir(),
@@ -969,6 +988,22 @@ pub unsafe extern "C" fn kirin_hypha_keep(handle: *mut KirinHyphaEngine) -> bool
             return false;
         }
         unsafe { (*handle).keep() }
+    }))
+    .unwrap_or(false)
+}
+
+/// POST が Record 中か（true=Record / false=Watch）。pairing UI が Keep(Watch)/Stop(Record)
+/// を出し分けるための読み取り（3d-b）。null は false。
+///
+/// # Safety
+/// `handle` は有効なハンドル。
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_is_recording(handle: *mut KirinHyphaEngine) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() {
+            return false;
+        }
+        unsafe { (*handle).is_recording() }
     }))
     .unwrap_or(false)
 }

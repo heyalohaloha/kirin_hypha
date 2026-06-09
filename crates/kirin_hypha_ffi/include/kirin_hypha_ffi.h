@@ -119,13 +119,17 @@ void kirin_hypha_enable_pre_writes(KirinHypha* handle);
 void kirin_hypha_enable_post_writes(KirinHypha* handle);
 
 /* POST の対 PRE 名（pair target）を設定（3d-b / identity.name 結合を解く）. NULL=空文字.
+ * 値は内部で sanitize される（ASCII graphic + space / 最大 16 文字）. PRE 名と同一語彙.
  * enable_post_writes 後でも live 反映（io_thread と Arc 共有）. */
 void kirin_hypha_set_pair_target(KirinHypha* handle, const char* name);
 
 /* POST「Keep」: 厳格選定で対 PRE を一意決定し record_signal(pending) を書く（3d-b）.
  * PRE 側 io_thread が autonomous に discover→ack する. Os かつ一意 PRE のとき true /
- * 選定 None（空名/不在/曖昧/Inactive/古t）・非 Os・AlreadyRecording は false. */
+ * 選定 None（空名/不在/曖昧/Inactive/古t）・非 Os・既 Record(no-op) は false. */
 bool kirin_hypha_keep(KirinHypha* handle);
+
+/* POST が Record 中か（true=Record / false=Watch）. pairing UI の Keep/Stop 出し分け用. */
+bool kirin_hypha_is_recording(KirinHypha* handle);
 
 /* POST「Stop」: pair 解除（record_signal released）+ Watch へ戻す（3d-b）. */
 void kirin_hypha_stop(KirinHypha* handle);

@@ -1217,3 +1217,90 @@ fn load_license_reads_identity_json() {
 
     let _ = std::fs::remove_dir_all(&test_root);
 }
+
+// ── B-071 / F2 follow-up: double-keep が既存 linkage を温存（clobber しない）─────────
+
+/// 同一 POST が keep を 2 回呼んだとき、2 回目（既に Record 中）は no-op で false を返し、
+/// 1 回目に確定した paired_pre_target linkage を温存する（None 化＝clobber しない）。
+/// 修正前: 2 回目は投機的 set→AlreadyRecording→None クリアで linkage を壊していた。
+#[test]
+#[ignore = "slow: PRE+POST co-located double-keep linkage (sets HOME/TMPDIR)"]
+fn double_keep_preserves_linkage() {
+    let test_root = std::env::temp_dir()
+        .join("kirin_b071_test")
+        .join(format!("pid{}", std::process::id()));
+    let home = test_root.join("home");
+    let tmp = test_root.join("tmp");
+    let _ = std::fs::remove_dir_all(&test_root);
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::env::set_var("HOME", &home);
+    std::env::set_var("TMPDIR", &tmp);
+    let kirin_os = home.join("Library/Application Support/Kirin OS");
+    std::fs::create_dir_all(&kirin_os).unwrap();
+    std::fs::write(
+        kirin_os.join("identity.json"),
+        r#"{"schema_version":"1.0","installation_id":"b071","hardware_id":"hw","hardware_components":{"iop":"a","sn":"b","bd":"c"},"machine_signature":"sig","license":"os","created_at":"2026-06-09T00:00:00Z","last_verified_at":"2026-06-09T00:00:00Z"}"#,
+    )
+    .unwrap();
+    let watch_root = tmp.join("kirin");
+
+    {
+        let pre = KirinHyphaEngine::new(SR, 2);
+        pre.set_license(0);
+        pre.set_identity("iid-pre".into(), "puid-pre".into(), "".into(), "mix".into());
+        pre.enable_pre_writes();
+        pre.set_signal_state(1);
+
+        let post = KirinHyphaEngine::new(SR, 2);
+        post.set_license(0);
+        post.set_identity("iid-post".into(), "puid-post".into(), "".into(), "mix".into());
+        post.enable_post_writes();
+        post.set_signal_state(1);
+        post.set_pair_target("mix".into());
+
+        let sig = gen_stereo_f32(1.5);
+        let bf = SR as usize / 10;
+        let bl = bf * 2;
+        let dt = Duration::from_secs_f64(bf as f64 / SR as f64);
+        let mut i = 0;
+        while i < sig.len() {
+            let e = (i + bl).min(sig.len());
+            pre.push_samples(&sig[i..e], 2);
+            post.push_samples(&sig[i..e], 2);
+            i = e;
+            sleep(dt);
+        }
+        for _ in 0..20 {
+            if find_json_under(&watch_root, "", "pre.json").is_some() {
+                break;
+            }
+            pre.push_samples(&[], 2);
+            sleep(Duration::from_millis(50));
+        }
+        pre.push_samples(&[], 2);
+
+        // 1 回目 keep: 成功 → Record + linkage Some(iid-pre)。
+        assert!(post.keep(), "1st keep true");
+        assert!(post.is_recording(), "1st keep enters Record");
+        assert_eq!(
+            post.paired_pre_target_snapshot().as_deref(),
+            Some("iid-pre"),
+            "1st keep sets linkage to selected PRE"
+        );
+
+        // 2 回目 keep: 既に Record 中 → no-op false。linkage は温存（None 化しない）。
+        assert!(!post.keep(), "2nd keep is no-op (already recording) -> false");
+        assert!(post.is_recording(), "2nd keep does not drop out of Record");
+        assert_eq!(
+            post.paired_pre_target_snapshot().as_deref(),
+            Some("iid-pre"),
+            "B-071: 2nd keep must PRESERVE the linkage (not clobber to None)"
+        );
+
+        post.stop();
+        assert!(!post.is_recording(), "stop -> Watch");
+    }
+
+    let _ = std::fs::remove_dir_all(&test_root);
+}
