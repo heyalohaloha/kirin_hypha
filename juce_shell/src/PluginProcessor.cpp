@@ -1,17 +1,18 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 
-KirinHyphaPREProcessor::KirinHyphaPREProcessor()
+KirinHyphaProcessorBase::KirinHyphaProcessorBase (Role roleIn)
     : juce::AudioProcessor (BusesProperties()
           .withInput  ("Input",  juce::AudioChannelSet::stereo(), true)
-          .withOutput ("Output", juce::AudioChannelSet::stereo(), true))
+          .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
+      role (roleIn)
 {
     // Host bypass routed through this parameter; processBlock reads it to set the
     // Bypassed signal state while still passing audio through (parity with hypha_pre).
     addParameter (bypassParam = new juce::AudioParameterBool ({ "bypass", 1 }, "Bypass", false));
 }
 
-KirinHyphaPREProcessor::~KirinHyphaPREProcessor()
+KirinHyphaProcessorBase::~KirinHyphaProcessorBase()
 {
     cancelPendingUpdate(); // B-070: ensure no deferred enable fires during teardown.
     const juce::ScopedLock sl (handleLock);
@@ -22,7 +23,7 @@ KirinHyphaPREProcessor::~KirinHyphaPREProcessor()
     }
 }
 
-void KirinHyphaPREProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
+void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
     const int numCh = getTotalNumInputChannels();
 
@@ -43,7 +44,7 @@ void KirinHyphaPREProcessor::prepareToPlay (double sampleRate, int samplesPerBlo
     hyphaHandle = kirin_hypha_create ((uint32_t) sampleRate, (uint32_t) numCh);
 
     // B-070: a fresh handle needs license applied and (re-)enabling. License is read once
-    // from identity.json (single source). set_identity + enable_pre_writes are deferred to
+    // from identity.json (single source). set_identity + enable_*_writes are deferred to
     // the first processBlock (handleAsyncUpdate) so any setStateInformation restore is
     // applied before enable (JUCE does not order setStateInformation vs prepareToPlay).
     if (hyphaHandle != nullptr)
@@ -54,7 +55,7 @@ void KirinHyphaPREProcessor::prepareToPlay (double sampleRate, int samplesPerBlo
     // A null handle (create failure) is tolerated; processBlock / pollMeasureResult guard on it.
 }
 
-void KirinHyphaPREProcessor::releaseResources()
+void KirinHyphaProcessorBase::releaseResources()
 {
     const juce::ScopedLock sl (handleLock);
     if (hyphaHandle != nullptr)
@@ -64,7 +65,7 @@ void KirinHyphaPREProcessor::releaseResources()
     }
 }
 
-bool KirinHyphaPREProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
+bool KirinHyphaProcessorBase::isBusesLayoutSupported (const BusesLayout& layouts) const
 {
     const auto& mainIn  = layouts.getMainInputChannelSet();
     const auto& mainOut = layouts.getMainOutputChannelSet();
@@ -79,7 +80,7 @@ bool KirinHyphaPREProcessor::isBusesLayoutSupported (const BusesLayout& layouts)
     return mainOut == juce::AudioChannelSet::stereo();
 }
 
-void KirinHyphaPREProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
+void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
 {
     juce::ScopedNoDenormals noDenormals;
 
@@ -97,7 +98,7 @@ void KirinHyphaPREProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
     if (hyphaHandle == nullptr)
         return;
 
-    // B-070: enable PRE writes once, deferred to here so any setStateInformation (identity
+    // B-070: enable writes once, deferred to here so any setStateInformation (identity
     // restore) has already run. triggerAsyncUpdate is safe from the audio thread and
     // coalesces; the actual enable runs on the message thread (handleAsyncUpdate).
     if (! writesEnabled.load (std::memory_order_acquire))
@@ -150,7 +151,7 @@ void KirinHyphaPREProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
     }
 }
 
-bool KirinHyphaPREProcessor::bufferIsSilent (const juce::AudioBuffer<float>& buffer)
+bool KirinHyphaProcessorBase::bufferIsSilent (const juce::AudioBuffer<float>& buffer)
 {
     // Parity with hypha_pre.rs:442-451: true iff every sample in every channel is exactly 0.
     for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
@@ -163,19 +164,19 @@ bool KirinHyphaPREProcessor::bufferIsSilent (const juce::AudioBuffer<float>& buf
     return true;
 }
 
-juce::AudioProcessorEditor* KirinHyphaPREProcessor::createEditor()
+juce::AudioProcessorEditor* KirinHyphaProcessorBase::createEditor()
 {
-    return new KirinHyphaPREEditor (*this);
+    return new KirinHyphaEditor (*this);
 }
 
-bool KirinHyphaPREProcessor::hasEditor() const          { return true; }
+bool KirinHyphaProcessorBase::hasEditor() const          { return true; }
 
-juce::AudioProcessorParameter* KirinHyphaPREProcessor::getBypassParameter() const
+juce::AudioProcessorParameter* KirinHyphaProcessorBase::getBypassParameter() const
 {
     return bypassParam;
 }
 
-bool KirinHyphaPREProcessor::pollMeasureResult (KirinMeasureResult& out) const
+bool KirinHyphaProcessorBase::pollMeasureResult (KirinMeasureResult& out) const
 {
     const juce::ScopedLock sl (handleLock);
     if (hyphaHandle == nullptr)
@@ -183,20 +184,23 @@ bool KirinHyphaPREProcessor::pollMeasureResult (KirinMeasureResult& out) const
     return kirin_hypha_poll_result (hyphaHandle, &out);
 }
 
-const juce::String KirinHyphaPREProcessor::getName() const { return "Kirin Hypha PRE"; }
+const juce::String KirinHyphaProcessorBase::getName() const
+{
+    return role == Role::Post ? "Kirin Hypha POST" : "Kirin Hypha PRE";
+}
 
-bool KirinHyphaPREProcessor::acceptsMidi() const        { return false; }
-bool KirinHyphaPREProcessor::producesMidi() const       { return false; }
-bool KirinHyphaPREProcessor::isMidiEffect() const       { return false; }
-double KirinHyphaPREProcessor::getTailLengthSeconds() const { return 0.0; }
+bool KirinHyphaProcessorBase::acceptsMidi() const        { return false; }
+bool KirinHyphaProcessorBase::producesMidi() const       { return false; }
+bool KirinHyphaProcessorBase::isMidiEffect() const       { return false; }
+double KirinHyphaProcessorBase::getTailLengthSeconds() const { return 0.0; }
 
-int KirinHyphaPREProcessor::getNumPrograms()            { return 1; }
-int KirinHyphaPREProcessor::getCurrentProgram()         { return 0; }
-void KirinHyphaPREProcessor::setCurrentProgram (int)    {}
-const juce::String KirinHyphaPREProcessor::getProgramName (int) { return {}; }
-void KirinHyphaPREProcessor::changeProgramName (int, const juce::String&) {}
+int KirinHyphaProcessorBase::getNumPrograms()            { return 1; }
+int KirinHyphaProcessorBase::getCurrentProgram()         { return 0; }
+void KirinHyphaProcessorBase::setCurrentProgram (int)    {}
+const juce::String KirinHyphaProcessorBase::getProgramName (int) { return {}; }
+void KirinHyphaProcessorBase::changeProgramName (int, const juce::String&) {}
 
-void KirinHyphaPREProcessor::getStateInformation (juce::MemoryBlock& destData)
+void KirinHyphaProcessorBase::getStateInformation (juce::MemoryBlock& destData)
 {
     // B-069: serialize the 4 identity keys as a JUCE-native XML chunk. The persist members
     // are kept in sync with the FFI identity at enable time (B-070 handleAsyncUpdate).
@@ -208,7 +212,7 @@ void KirinHyphaPREProcessor::getStateInformation (juce::MemoryBlock& destData)
     copyXmlToBinary (xml, destData);
 }
 
-void KirinHyphaPREProcessor::setStateInformation (const void* data, int sizeInBytes)
+void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInBytes)
 {
     // B-069: restore the 4 identity keys into the persist members. May run before or after
     // prepareToPlay (JUCE does not guarantee ordering); the FFI receives these at enable
@@ -225,10 +229,10 @@ void KirinHyphaPREProcessor::setStateInformation (const void* data, int sizeInBy
     }
 }
 
-void KirinHyphaPREProcessor::handleAsyncUpdate()
+void KirinHyphaProcessorBase::handleAsyncUpdate()
 {
     // B-070: message-thread one-shot. Applies the FFI contract order create -> set_license
-    // (done in prepareToPlay) -> set_identity -> enable_pre_writes, once both prepareToPlay
+    // (done in prepareToPlay) -> set_identity -> enable_*_writes, once both prepareToPlay
     // and any setStateInformation have run (guaranteed by triggering from the first
     // processBlock).
     const juce::ScopedLock sl (handleLock);
@@ -243,7 +247,14 @@ void KirinHyphaPREProcessor::handleAsyncUpdate()
                               persistProjectUuid.toRawUTF8(),
                               persistDawSessionUuid.toRawUTF8(),
                               persistName.toRawUTF8());
-    kirin_hypha_enable_pre_writes (hyphaHandle);
+
+    // Role selects the plugin_data role: PRE (Watch pre.json + Record) vs POST (post.json
+    // Δ via select_target_pre). enable_pre_writes / enable_post_writes are mutually
+    // exclusive and idempotent in the FFI.
+    if (role == Role::Post)
+        kirin_hypha_enable_post_writes (hyphaHandle);
+    else
+        kirin_hypha_enable_pre_writes (hyphaHandle);
 
     // Read back the final (restored or freshly generated) identity so getStateInformation
     // persists it across DAW save/load.
@@ -255,12 +266,4 @@ void KirinHyphaPREProcessor::handleAsyncUpdate()
     persistName           = juce::String::fromUTF8 (id.name);
 
     writesEnabled.store (true, std::memory_order_release);
-}
-
-// Plugin factory entry point required by JUCE wrappers.
-// JUCE 7.0.12 calls ::createPluginFilter() (global scope, no juce_ prefix) from
-// detail/juce_CreatePluginFilter.h.
-juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
-{
-    return new KirinHyphaPREProcessor();
 }

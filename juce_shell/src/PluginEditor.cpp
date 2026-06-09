@@ -12,26 +12,26 @@ namespace
     const juce::Colour kMuted (0xff5f6b59); // muted — "---"
 }
 
-KirinHyphaPREEditor::KirinHyphaPREEditor (KirinHyphaPREProcessor& p)
+KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
     : juce::AudioProcessorEditor (&p), processorRef (p)
 {
     setSize (220, 150);
     startTimerHz (10); // ~10fps, parity with editor.rs:292 (100ms repaint)
 }
 
-KirinHyphaPREEditor::~KirinHyphaPREEditor()
+KirinHyphaEditor::~KirinHyphaEditor()
 {
     stopTimer();
 }
 
-juce::String KirinHyphaPREEditor::fmtVal (double v)
+juce::String KirinHyphaEditor::fmtVal (double v)
 {
     if (std::isnan (v))
         return "---";
     return juce::String (v, 1); // 1 decimal place (hypha_gui::fmt_val)
 }
 
-void KirinHyphaPREEditor::timerCallback()
+void KirinHyphaEditor::timerCallback()
 {
     KirinMeasureResult r;
     if (processorRef.pollMeasureResult (r))
@@ -49,7 +49,7 @@ void KirinHyphaPREEditor::timerCallback()
     repaint();
 }
 
-void KirinHyphaPREEditor::paint (juce::Graphics& g)
+void KirinHyphaEditor::paint (juce::Graphics& g)
 {
     g.fillAll (kBg);
 
@@ -57,7 +57,8 @@ void KirinHyphaPREEditor::paint (juce::Graphics& g)
 
     g.setColour (kLabel);
     g.setFont (juce::Font (13.0f, juce::Font::bold));
-    g.drawText ("Kirin Hypha PRE", area.removeFromTop (22), juce::Justification::centredLeft);
+    // Role-aware title: "Kirin Hypha PRE" / "Kirin Hypha POST" from the processor.
+    g.drawText (processorRef.getName(), area.removeFromTop (22), juce::Justification::centredLeft);
     area.removeFromTop (8);
 
     struct Row { const char* label; double val; const char* unit; };
@@ -91,7 +92,7 @@ void KirinHyphaPREEditor::paint (juce::Graphics& g)
     }
 }
 
-void KirinHyphaPREEditor::resized()
+void KirinHyphaEditor::resized()
 {
     // Fixed layout computed in paint().
 }

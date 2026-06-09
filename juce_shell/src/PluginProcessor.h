@@ -7,16 +7,20 @@
 
 #include "kirin_hypha_ffi.h" // C ABI to the Rust RT-measure engine (Phase 1 / B-052)
 
-// Phase 2 後段 段C: PRE implementation. processBlock is a read-only passthrough (R-12)
-// that derives signal state and feeds kirin_hypha_push_samples; a minimal Watch editor
-// polls kirin_hypha_poll_result for LUFS-M / True Peak / Crest. Mirrors the existing
-// nih-plug PRE (crates/hypha_pre) behaviour without reimplementing any measurement.
-class KirinHyphaPREProcessor : public juce::AudioProcessor,
-                               private juce::AsyncUpdater
+// Role-parameterized base for both the Kirin Hypha PRE and POST JUCE shells (B-070).
+// All FFI wiring (create / set_license / push_samples / poll_result), the identity state
+// chunk, the deferred enable (AsyncUpdater), and the R-12 read-only passthrough live here.
+// The Role only selects enable_pre_writes vs enable_post_writes and the display name; the
+// two plugin targets differ solely by the Role passed in their createPluginFilter()
+// (src/PluginMainPRE.cpp / src/PluginMainPOST.cpp). This keeps PRE and POST from diverging.
+class KirinHyphaProcessorBase : public juce::AudioProcessor,
+                                private juce::AsyncUpdater
 {
 public:
-    KirinHyphaPREProcessor();
-    ~KirinHyphaPREProcessor() override;
+    enum class Role { Pre, Post };
+
+    explicit KirinHyphaProcessorBase (Role role);
+    ~KirinHyphaProcessorBase() override;
 
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
     void releaseResources() override;
@@ -49,13 +53,15 @@ public:
 private:
     static bool bufferIsSilent (const juce::AudioBuffer<float>& buffer); // strict all-zero (parity)
 
-    // B-070: enable PRE plugin_data writes exactly once, on the message thread, after both
+    // B-070: enable plugin_data writes exactly once, on the message thread, after both
     // prepareToPlay (create + set_license) and any setStateInformation (identity restore)
     // have run. Triggered from the first processBlock via AsyncUpdater because JUCE does not
-    // guarantee setStateInformation precedes prepareToPlay, and enable_pre_writes spawns an
-    // io_thread (not RT-safe, so it must not run on the audio thread).
+    // guarantee setStateInformation precedes prepareToPlay, and enable_*_writes spawns an
+    // io_thread (not RT-safe, so it must not run on the audio thread). The Role selects PRE
+    // (enable_pre_writes) or POST (enable_post_writes).
     void handleAsyncUpdate() override;
-    std::atomic<bool> writesEnabled { false };         // PRE writes enabled (idempotent guard)
+
+    const Role role;                                   // Pre or Post (selects enable + display name)
 
     juce::AudioParameterBool* bypassParam = nullptr;   // owned by AudioProcessor (addParameter)
     std::vector<float> interleaveScratch;              // pre-allocated in prepareToPlay (RT-safe; no alloc in processBlock)
@@ -63,10 +69,12 @@ private:
     juce::CriticalSection handleLock;                  // guards hyphaHandle vs editor poll / create / destroy
     KirinHypha* hyphaHandle = nullptr;                 // owned; created in prepareToPlay, destroyed in releaseResources/dtor
 
-    // B-069: persisted identity (4 keys) round-tripped via get/setStateInformation as a
-    // JUCE-native XML chunk. Source of truth for the chunk; synced from the FFI at enable
-    // (B-070 handleAsyncUpdate get_identity readback). Empty until restored or generated.
+    // Persisted identity (4 keys) round-tripped via get/setStateInformation as a JUCE-native
+    // XML chunk. Source of truth for the chunk; synced from the FFI at enable (B-070
+    // handleAsyncUpdate get_identity readback). Empty until restored or generated.
     juce::String persistInstanceId, persistProjectUuid, persistDawSessionUuid, persistName;
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (KirinHyphaPREProcessor)
+    std::atomic<bool> writesEnabled { false };         // plugin_data writes enabled (idempotent guard)
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (KirinHyphaProcessorBase)
 };
