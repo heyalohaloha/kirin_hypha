@@ -28,3 +28,57 @@ jobs:
 
       - name: cargo test
         run: cargo test --all --locked
+
+  auval-arm64:
+    name: auval arm64 (AU validation)
+    # macos-14 is an Apple Silicon (arm64) runner: builds arm64-native and validates the AU on
+    # the same arch the ship universal binary's arm64 slice runs on (B-082/B-084). engine
+    # (kirin_measure) calculation is unchanged -- this is CI / packaging validation only.
+    runs-on: macos-14
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive # JUCE is a pinned submodule (juce_shell/JUCE)
+
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      # arm64-native: macos-14 host is aarch64, so `cargo build` produces the arm64 staticlib at
+      # target/release (the CMake KIRIN_FFI_LIB default path).
+      - name: Build kirin_hypha_ffi staticlib (arm64 native)
+        run: cargo build --release -p kirin_hypha_ffi --locked
+
+      - name: Configure + build JUCE shells (arm64)
+        run: |
+          cmake -S juce_shell -B juce_shell/build-arm64 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_ARCHITECTURES=arm64
+          cmake --build juce_shell/build-arm64 --config Release
+
+      - name: Install AU components + re-register
+        run: |
+          DST="$HOME/Library/Audio/Plug-Ins/Components"
+          mkdir -p "$DST"
+          for r in PRE POST; do
+            rm -rf "$DST/Kirin Hypha $r.component"
+            cp -R "juce_shell/build-arm64/KirinHypha${r}_artefacts/Release/AU/Kirin Hypha $r.component" "$DST/"
+          done
+          lipo -info "$DST/Kirin Hypha PRE.component/Contents/MacOS/Kirin Hypha PRE"
+          # Force AudioComponentRegistrar to rescan the freshly-copied components.
+          killall -9 AudioComponentRegistrar 2>/dev/null || true
+          sleep 8
+
+      # Individual auval per AU (NOT `auval -a`: that scans every AU on the system and can crash
+      # on unrelated third-party AUs, e.g. iZotope). Gate on "AU VALIDATION SUCCEEDED".
+      - name: auval PRE (aufx Khpr Kirn)
+        run: |
+          auval -v aufx Khpr Kirn | tee /tmp/auval-pre.log
+          grep -q "AU VALIDATION SUCCEEDED" /tmp/auval-pre.log
+
+      - name: auval POST (aufx Khpo Kirn)
+        run: |
+          auval -v aufx Khpo Kirn | tee /tmp/auval-post.log
+          grep -q "AU VALIDATION SUCCEEDED" /tmp/auval-post.log
