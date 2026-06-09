@@ -15,8 +15,10 @@
 //!   RMS(peak より -3.01 dB)と **相殺**する。よって
 //!   LUFS(dual-mono sine) = peak_dBFS - 0.691 + G_k(1kHz) （0.691 = ITU LUFS 校正定数）、
 //!   PSR = peak_dBFS - LUFS_S = 0.691 - G_k(1kHz)。
-//!   閉形式で出ないのは K-weight gain G_k(1kHz)(≈+0.7 dB) のみ。S-1(-6 dBFS) では
-//!   LUFS-I ≈ -6.69 + G_k ≈ -6.0、PSR ≈ 0.691 - G_k ≈ 0.0（観測 -0.007 が G_k≈0.7 を裏付ける）。
+//!   唯一 K-weight gain G_k(1kHz) のみ閉形式で出ないが、B-080 で ITU-R BS.1770 規定の K-weighting
+//!   係数から `kweight_gain_db()` で独立算出し（観測非依存）、PSR/LUFS-I(sine) を point 照合する。
+//!   S-1(-6 dBFS): LUFS-I = -6.0 - 0.691 + G_k、PSR = 0.691 - G_k。一致は engine の K-weighting
+//!   が ITU 準拠であることの実証。
 //! - LRA(定常トーン) ≈ 0（ロードネス変動なし）。
 
 use kirin_measure::engine::{MeasureEngine, SessionSummary};
@@ -101,8 +103,8 @@ fn decode_wav(path: &str) -> (Vec<f64>, u32, usize) {
     (inter, sample_rate, channels)
 }
 
-/// 信号を MeasureEngine に 100ms チャンクで流し、最後の MeasureResult と finalize() を返す。
-fn run_engine(filename: &str) -> (MeasureResult, SessionSummary) {
+/// 信号を MeasureEngine に 100ms チャンクで流し、最後の MeasureResult / finalize() / sample_rate。
+fn run_engine(filename: &str) -> (MeasureResult, SessionSummary, u32) {
     let path = format!("{SIGNALS_DIR}/{filename}");
     let (inter, sr, ch) = decode_wav(&path);
     let mut eng = MeasureEngine::new(sr, ch).expect("engine init");
@@ -114,14 +116,56 @@ fn run_engine(filename: &str) -> (MeasureResult, SessionSummary) {
         }
     }
     let summary = eng.finalize();
-    (last, summary)
+    (last, summary, sr)
+}
+
+/// ITU-R BS.1770-4 K-weighting の `freq` における gain [dB] を **規定パラメータから独立算出**する
+/// （観測からの逆算ではない）。2 段カスケード:
+/// - Stage 1 high-shelf pre-filter: f0=1681.974450955533, G=+3.999843853973347 dB, Q=0.7071752369554196
+/// - Stage 2 RLB high-pass:         f0=38.13547087602444,  Q=0.5003270373238773
+///
+/// 各段を ITU 規定の双一次変換式で biquad 化し、z=e^(jω) を代入して |H(e^jω)| を求め dB 化する。
+/// この規定パラメータは ebur128 0.1.10 `filter.rs::filter_coefficients` と同一（= engine が使う係数）。
+/// 一致すれば engine の K-weighting が ITU 準拠であることの実証になる。
+fn kweight_gain_db(freq: f64, rate: f64) -> f64 {
+    // 単一 biquad の |H(e^jω)| = |Σ b_k e^{-jkω}| / |Σ a_k e^{-jkω}|。
+    fn biquad_mag(b: [f64; 3], a: [f64; 3], w: f64) -> f64 {
+        let (c1, s1) = ((-w).cos(), (-w).sin()); // e^{-jω}
+        let (c2, s2) = ((-2.0 * w).cos(), (-2.0 * w).sin()); // e^{-j2ω}
+        let nr = b[0] + b[1] * c1 + b[2] * c2;
+        let ni = b[1] * s1 + b[2] * s2;
+        let dr = a[0] + a[1] * c1 + a[2] * c2;
+        let di = a[1] * s1 + a[2] * s2;
+        (nr * nr + ni * ni).sqrt() / (dr * dr + di * di).sqrt()
+    }
+    // Stage 1: high-shelf
+    let (f0, g, q) = (1681.974450955533_f64, 3.999843853973347_f64, 0.7071752369554196_f64);
+    let k = (std::f64::consts::PI * f0 / rate).tan();
+    let vh = 10.0_f64.powf(g / 20.0);
+    let vb = vh.powf(0.4996667741545416);
+    let a0 = 1.0 + k / q + k * k;
+    let b1 = [
+        (vh + vb * k / q + k * k) / a0,
+        2.0 * (k * k - vh) / a0,
+        (vh - vb * k / q + k * k) / a0,
+    ];
+    let a1 = [1.0, 2.0 * (k * k - 1.0) / a0, (1.0 - k / q + k * k) / a0];
+    // Stage 2: RLB high-pass
+    let (f0, q) = (38.13547087602444_f64, 0.5003270373238773_f64);
+    let k = (std::f64::consts::PI * f0 / rate).tan();
+    let d = 1.0 + k / q + k * k;
+    let b2 = [1.0, -2.0, 1.0];
+    let a2 = [1.0, 2.0 * (k * k - 1.0) / d, (1.0 - k / q + k * k) / d];
+
+    let w = 2.0 * std::f64::consts::PI * freq / rate;
+    20.0 * (biquad_mag(b1, a1, w) * biquad_mag(b2, a2, w)).log10()
 }
 
 /// Crest: 正弦の peak/RMS 比 = 20·log10(√2) = 3.0103 dB（exact / K-weight 非依存）。
 #[test]
 fn golden_crest_sine_is_3dot01_db() {
     for f in ["S-1_1kHz_sine_m6dBFS_10s.wav", "S-4_1kHz_sine_m6dBFS_1s.wav"] {
-        let (last, _) = run_engine(f);
+        let (last, _, _) = run_engine(f);
         let crest = last.crest.unwrap_or_else(|| panic!("{f}: crest None"));
         println!("[golden] {f}: crest = {crest:.4} dB (理論 3.0103)");
         assert!(
@@ -140,7 +184,7 @@ fn golden_lufs_i_pink_matches_calibrated_target() {
         ("S-3_pinknoise_m33LUFS_60s.wav", -33.0),
         ("S-5_pinknoise_m14LUFS_60s.wav", -14.0),
     ] {
-        let (_, s) = run_engine(f);
+        let (_, s, _) = run_engine(f);
         let lufs = s.lufs_i.unwrap_or_else(|| panic!("{f}: lufs_i None"));
         println!("[golden] {f}: lufs_i = {lufs:.3} LUFS (校正 target {target})");
         assert!(
@@ -150,27 +194,36 @@ fn golden_lufs_i_pink_matches_calibrated_target() {
     }
 }
 
-/// PSR / LUFS-I / LRA(sine): K-weighting を含むため帯域照合（締められない理由は report）。
+/// PSR / LUFS-I / LRA(sine): K-weight G_k(1kHz) を ITU 規定係数から独立算出し **point 照合**する
+/// （B-080: B-079 の帯域照合を point へ締める）。一致は engine の K-weighting が ITU 準拠である実証。
 #[test]
-fn golden_psr_lufs_lra_sine_within_derived_bands() {
-    let (last, s) = run_engine("S-1_1kHz_sine_m6dBFS_10s.wav");
+fn golden_psr_lufs_sine_point_via_itu_kweight() {
+    let (last, s, sr) = run_engine("S-1_1kHz_sine_m6dBFS_10s.wav");
 
-    // PSR = peak_dBFS - LUFS_S = 0.691 - G_k(1kHz)。dual-mono 正弦では sine RMS(-3.01) と
-    // ITU stereo 合算(+3.01) が相殺し ≈0（観測 -0.007 → G_k(1kHz)≈0.7）。K-weight 厳密値が
-    // 閉形式で出ないため帯域 [-1.0, 1.5]（G_k ∈ 約 -0.8..1.7 を許容）。
+    // ITU-R BS.1770 規定係数から算出した 1kHz の K-weight gain（観測非依存）。
+    let g_k = kweight_gain_db(1000.0, sr as f64);
+    println!("[golden] G_k(1kHz @ {sr}Hz) = {g_k:.4} dB (ITU 規定係数から独立算出)");
+
+    // S-1 peak = -6.0 dBFS（gen_sine: amp = 10^(-6/20)）。dual-mono 正弦で正弦 RMS(-3.01) と
+    // ITU stereo 合算(+3.01) が相殺するため:
+    //   PSR    = peak - LUFS_S = 0.691 - G_k
+    //   LUFS-I = peak - 0.691 + G_k
+    let peak_dbfs = -6.0_f64;
+    let psr_theory = 0.691 - g_k;
+    let lufs_theory = peak_dbfs - 0.691 + g_k;
+
     let psr = last.psr.unwrap_or_else(|| panic!("S-1: psr None (10s ≥ 3s short-term)"));
-    println!("[golden] S-1 psr = {psr:.3} LU (理論 0.691 - K-weight(1kHz) ≈ 0)");
+    println!("[golden] S-1 psr = {psr:.4} LU  (理論 {psr_theory:.4} = 0.691 - G_k / 残差 {:.4})", psr - psr_theory);
     assert!(
-        (-1.0..1.5).contains(&psr),
-        "S-1: psr={psr} expected 0.691 - G_k(1kHz) ≈ 0 (dual-mono sine: RMS と stereo 合算が相殺)"
+        (psr - psr_theory).abs() < 0.2,
+        "S-1: psr={psr} vs ITU theory {psr_theory} (0.691 - G_k(1kHz)); residual too large"
     );
 
-    // LUFS-I = peak_dBFS - 0.691 + G_k(1kHz) ≈ -6.69 + G_k ≈ -6.0（S-1 peak -6 dBFS）。帯域 [-7.5, -5.5]。
     let lufs = s.lufs_i.expect("S-1: lufs_i");
-    println!("[golden] S-1 lufs_i = {lufs:.3} LUFS (理論 -6.69 + K-weight(1kHz) ≈ -6.0)");
+    println!("[golden] S-1 lufs_i = {lufs:.4} LUFS (理論 {lufs_theory:.4} = peak - 0.691 + G_k / 残差 {:.4})", lufs - lufs_theory);
     assert!(
-        (-7.5..-5.5).contains(&lufs),
-        "S-1: lufs_i={lufs} expected -6.69 + G_k(1kHz) ≈ -6.0"
+        (lufs - lufs_theory).abs() < 0.2,
+        "S-1: lufs_i={lufs} vs ITU theory {lufs_theory} (peak - 0.691 + G_k(1kHz)); residual too large"
     );
 
     // LRA: 定常トーン → ロードネス変動なし → ≈0（None もあり得る）。
