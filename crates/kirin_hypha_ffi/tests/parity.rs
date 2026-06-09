@@ -1304,3 +1304,43 @@ fn double_keep_preserves_linkage() {
 
     let _ = std::fs::remove_dir_all(&test_root);
 }
+
+// ── B-075: ring overflow → dropped_samples を C ABI に露出（欠落の沈黙解消・data 層）──
+
+/// ring 満杯を強制（>2s 分のバーストを一括 push）→ poll_result の dropped_samples が >0 で
+/// 露出されることを実証。計測式は不変（露出のみ）— 計測 parity は既存テストが担保。
+#[test]
+fn dropped_samples_surfaced_via_c_abi_on_ring_overflow() {
+    use kirin_hypha_ffi::{
+        kirin_hypha_create, kirin_hypha_destroy, kirin_hypha_poll_result,
+        kirin_hypha_push_samples, kirin_hypha_set_signal_state, KirinMeasureResult,
+    };
+    unsafe {
+        let h = kirin_hypha_create(SR, 2);
+        assert!(!h.is_null(), "create");
+        kirin_hypha_set_signal_state(h, 1); // Active
+
+        // ring 容量 = SR * 2s * 2ch = 192000 interleaved。それを大きく超えるバーストを一括 push
+        // → Audio Thread 側で push 失敗が起き push_overflow が積み上がる。
+        let burst = vec![0.05f32; 600_000];
+        kirin_hypha_push_samples(h, burst.as_ptr(), burst.len() / 2, 2);
+
+        // Measure Thread が結果を出すまで keepalive しつつ poll。
+        let mut out: KirinMeasureResult = std::mem::zeroed();
+        let mut got = false;
+        for _ in 0..12 {
+            kirin_hypha_push_samples(h, std::ptr::null(), 0, 2);
+            sleep(Duration::from_millis(50));
+            if kirin_hypha_poll_result(h, &mut out) {
+                got = true;
+            }
+        }
+        assert!(got, "measure result should be produced");
+        assert!(
+            out.dropped_samples > 0,
+            "ring overflow must surface as dropped_samples (got {})",
+            out.dropped_samples
+        );
+        kirin_hypha_destroy(h);
+    }
+}

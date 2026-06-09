@@ -48,6 +48,8 @@ typedef struct {
   double psb_bark[20];  /* 20-band PSB (psb) */
   double tp_session_max;/* tp_session_max: init 以降の inter-sample running max [dBTP]
                            (Record 正本と同定義 / B-074: 末尾追加で既存 offset 不変) */
+  uint64_t dropped_samples;/* ring 満杯で測定 ring に push できなかった累積サンプル数
+                              (>0 = integrity 低下 / B-075: 計測値は不変・欠落の露出のみ) */
 } KirinMeasureResult;
 
 /* セッション集計（Record finalize 後に充填・Record 前は未充填）. */

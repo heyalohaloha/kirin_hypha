@@ -756,6 +756,9 @@ pub struct KirinMeasureResult {
     // B-074: 末尾追加で既存フィールド offset を不変に保つ。
     // tp_session_max: init 以降の inter-sample running max [dBTP]（Record 正本と同定義）。
     pub tp_session_max: f64,
+    // B-075: ring 満杯で測定 ring に push できなかった累積サンプル数（>0 = integrity 低下）。
+    // 計測値は汚さない「欠落の露出」のみ。poll_result が engine の overflow_count() から注入する。
+    pub dropped_samples: u64,
 }
 
 /// `KirinSessionSummary` — セッション集計（C struct）。Option は NaN で表す。
@@ -819,6 +822,7 @@ fn to_c_result(r: &MeasureResult) -> KirinMeasureResult {
         n_prime: opt_arr20(r.n_prime),
         psb_bark: opt_arr20(r.psb_bark),
         tp_session_max: opt_f64(r.tp_session_max), // B-074: 末尾
+        dropped_samples: 0, // B-075: poll_result wrapper が engine の overflow_count() で上書きする
     }
 }
 
@@ -1164,7 +1168,11 @@ pub unsafe extern "C" fn kirin_hypha_poll_result(
         }
         match unsafe { (*handle).poll_result() } {
             Some(r) => {
-                unsafe { *out = to_c_result(&r) };
+                unsafe {
+                    *out = to_c_result(&r);
+                    // B-075: 欠落サンプル累積数を engine から注入（MeasureResult には持たない）。
+                    (*out).dropped_samples = (*handle).overflow_count();
+                }
                 true
             }
             None => false,
