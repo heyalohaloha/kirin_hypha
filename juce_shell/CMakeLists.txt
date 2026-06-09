@@ -2,8 +2,14 @@ cmake_minimum_required(VERSION 3.22)
 
 project(KirinHypha VERSION 0.1.0 LANGUAGES C CXX)
 
-# Phase 2 後段: Intel native only. universal(lipo) is out of scope (Phase 2 後半/Phase 4).
-set(CMAKE_OSX_ARCHITECTURES "x86_64" CACHE STRING "Build architectures for macOS" FORCE)
+# B-082: arch は cache 変数化（FORCE 撤去）。dev は x86_64 単独（既存 build dir / 高速）、
+# 出荷は -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" で universal（scripts/build_juce_universal.sh）。
+set(CMAKE_OSX_ARCHITECTURES "x86_64" CACHE STRING "Build architectures (set 'x86_64;arm64' for universal ship build)")
+
+# B-082: リンクする kirin_hypha_ffi staticlib のパス。dev は host single-arch
+# (target/release/...a)、universal 出荷時は lipo 済 universal .a を -DKIRIN_FFI_LIB で渡す。
+set(KIRIN_FFI_LIB "${CMAKE_CURRENT_SOURCE_DIR}/../target/release/libkirin_hypha_ffi.a"
+    CACHE FILEPATH "Path to the kirin_hypha_ffi staticlib (universal lipo for ship)")
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -39,8 +45,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT MAIN_SRC)
     target_include_directories(${TARGET} PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/../crates/kirin_hypha_ffi/include)
 
-    target_link_libraries(${TARGET} PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/../target/release/libkirin_hypha_ffi.a)
+    target_link_libraries(${TARGET} PRIVATE ${KIRIN_FFI_LIB})
 
     target_compile_definitions(${TARGET} PUBLIC
         JUCE_WEB_BROWSER=0

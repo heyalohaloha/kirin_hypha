@@ -1,2 +1,4 @@
 # CMake build tree + plugin artefacts (段E: never commit build output)
 build/
+# B-082: universal (x86_64;arm64) ship build tree (scripts/build_juce_universal.sh)
+build-universal/
