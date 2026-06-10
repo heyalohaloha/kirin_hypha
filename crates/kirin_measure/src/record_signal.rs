@@ -615,19 +615,27 @@ pub struct SelectedPre {
     pub project_dir: PathBuf,
 }
 
-/// 表示Δ（`compute_delta_with_state`）と commit（`trigger_keep_internal`）が共有する
-/// **厳格 PRE 選定**（B-059 / 表示=commit 一本化）。両経路が本関数で同一 PRE を選ぶ。
+/// 表示Δ（`compute_delta_with_state`）と Arm（`trigger_keep_internal`）が共有する**厳格 PRE 選定**
+/// の共通コア（B-059 / 表示=Arm 一本化・B-104 で用途別 gate 化）。`require_active`:
+/// - **Display（Δ計算）= `true`**: `signal_state == "active"` + fresh + name 一致ちょうど1件（ZSA・不変）。
+/// - **Arm（keep/trigger_keep/broadcast 受信/keep_all）= `false`**: 非Bypassed（`scan_pre_candidates_in`
+///   で Bypassed 除外済）+ fresh + name 一致ちょうど1件。Active 要求を外し、v1.0.0 の「アーム→
+///   再生」（停止中・無音でもアーム可）を復元する（B-104）。auto-pick 廃止・一意性・**単一コア**
+///   という B-059 の骨格は維持する。
 ///
-/// 1. `pair_pre_name` 空 → `None`（明示名必須。距離 auto-pick は廃止）。
-/// 2. 全 fresh project_dir（mtime stale > `DISCOVERY_STALE_SECS` 除外 /
-///    [`crate::pre_discovery::discover_active_pre_dirs`]）を flatten → [`scan_pre_candidates_in`]
-///    （Bypassed 除外・既存）。
-/// 3. 妥当 gate（両経路共通）: 各候補 `pre.json` の `signal_state == "active"` かつ
-///    `t`(content timestamp) age < [`crate::io_thread_post::NO_PRE_SECS`]（10s）。
-///    Inactive・古 t を除外。scan は Bypassed のみ除外のため Active 再判定する。
+/// 1. `pair_pre_name` 空 → `None`（明示名必須）。
+/// 2. fresh project_dir（[`crate::pre_discovery::discover_active_pre_dirs`]）→ [`scan_pre_candidates_in`]
+///    （Bypassed 除外）を flatten。
+/// 3. gate: Display のみ `signal_state == "active"` を要求。両経路とも `t` age <
+///    [`crate::io_thread_post::NO_PRE_SECS`]（10s）。停止中 PRE も io_thread が毎 tick `t` を更新する
+///    ため fresh 判定は維持される（io_thread_pre::serialize_pre_json_minimal）。
 /// 4. name 一致（`candidate.name == pair_pre_name`）。
 /// 5. **ちょうど 1 件 → `Some` / 0 件 or 2 件以上 → `None`**（曖昧は沈黙）。
-pub fn select_target_pre(kirin_root: &Path, pair_pre_name: &str) -> Option<SelectedPre> {
+fn select_target_pre_core(
+    kirin_root: &Path,
+    pair_pre_name: &str,
+    require_active: bool,
+) -> Option<SelectedPre> {
     if pair_pre_name.is_empty() {
         return None;
     }
@@ -644,11 +652,12 @@ pub fn select_target_pre(kirin_root: &Path, pair_pre_name: &str) -> Option<Selec
         let Ok(v) = serde_json::from_str::<serde_json::Value>(&content) else {
             continue;
         };
-        // gate (Active のみ): scan は Bypassed のみ除外なので Inactive を弾くため再判定。
-        if v.get("signal_state").and_then(|x| x.as_str()) != Some("active") {
+        // gate (Active): Display のみ。Arm は scan で Bypassed 除外済の非Bypassed（Active+Inactive）
+        // を許容する（B-104 / v1.0.0 アーム意味論の復元）。
+        if require_active && v.get("signal_state").and_then(|x| x.as_str()) != Some("active") {
             continue;
         }
-        // gate (freshness): t age < NO_PRE_SECS。
+        // gate (freshness): t age < NO_PRE_SECS（両経路共通）。
         let Some(t_str) = v.get("t").and_then(|x| x.as_str()) else {
             continue;
         };
@@ -669,8 +678,20 @@ pub fn select_target_pre(kirin_root: &Path, pair_pre_name: &str) -> Option<Selec
     if valid.len() == 1 {
         valid.pop()
     } else {
-        None // 0 件 or 2 件以上 = 曖昧 → 沈黙（表示 NoPre / commit 拒否）。
+        None // 0 件 or 2 件以上 = 曖昧 → 沈黙（表示 NoPre / Arm 拒否）。
     }
+}
+
+/// 表示Δ用の厳格 PRE 選定（Active + fresh + 一意 / B-059・ZSA 不変）。`run_tick` の Δ が呼ぶ。
+pub fn select_target_pre(kirin_root: &Path, pair_pre_name: &str) -> Option<SelectedPre> {
+    select_target_pre_core(kirin_root, pair_pre_name, true)
+}
+
+/// Arm 用の厳格 PRE 選定（非Bypassed + fresh + 一意 / Active 要求なし・B-104）。`keep` /
+/// `trigger_keep_internal` / broadcast 受信 / `keep_all` が呼ぶ。v1.0.0 の「アーム→再生」
+/// （停止中・無音でもアーム可）を復元する。Display（[`select_target_pre`]）は変更しない。
+pub fn select_target_pre_for_arm(kirin_root: &Path, pair_pre_name: &str) -> Option<SelectedPre> {
+    select_target_pre_core(kirin_root, pair_pre_name, false)
 }
 
 /// `t`(RFC3339) が現在から `max_secs` 秒以内か。parse 失敗は false（安全側で除外）。
@@ -1457,5 +1478,62 @@ mod tests {
         assert_eq!(select_target_pre(&root, "snare").unwrap().instance_id, "iid-snare");
         assert_eq!(select_target_pre(&root, "kick").unwrap().instance_id, "iid-kick");
         assert!(select_target_pre(&root, "vocal").is_none(), "不在 name は両経路 None");
+    }
+
+    // ── B-104: Arm 経路（select_target_pre_for_arm）は Active 要求を外す ─────────────────
+
+    /// 核: Inactive + fresh + 一意 → Arm=Some（v1.0.0 アーム→再生）/ Display=None（不変）。
+    #[test]
+    fn select_target_pre_for_arm_inactive_fresh_returns_some() {
+        let root = isolated_dir();
+        write_pre_for_select(&root, "puid-1", "iid-A", "snare", "inactive", &now_rfc3339());
+        // Display は Active 要求のまま除外（B-059 / ZSA 不変）。
+        assert!(select_target_pre(&root, "snare").is_none(), "Display: Inactive は除外（不変）");
+        // Arm は Inactive を許容（B-104 / 停止中アーム）。
+        let sel = select_target_pre_for_arm(&root, "snare").expect("Arm: Inactive+fresh+一意 → Some");
+        assert_eq!(sel.instance_id, "iid-A");
+    }
+
+    /// Arm でも Bypassed は除外（scan_pre_candidates_in が Bypassed のみ落とす）。
+    #[test]
+    fn select_target_pre_for_arm_bypassed_excluded() {
+        let root = isolated_dir();
+        write_pre_for_select(&root, "puid-1", "iid-A", "snare", "bypassed", &now_rfc3339());
+        assert!(
+            select_target_pre_for_arm(&root, "snare").is_none(),
+            "Arm: Bypassed は除外（非Bypassed 要求）"
+        );
+    }
+
+    /// Arm でも freshness は維持（古 t は除外）。
+    #[test]
+    fn select_target_pre_for_arm_stale_t_excluded() {
+        let root = isolated_dir();
+        write_pre_for_select(&root, "puid-1", "iid-A", "snare", "inactive", &old_rfc3339(20));
+        assert!(
+            select_target_pre_for_arm(&root, "snare").is_none(),
+            "Arm: 古 t（≥10s）は除外（fresh 要求は維持）"
+        );
+    }
+
+    /// Arm でも一意性は維持（同名 2 件は曖昧沈黙）。Inactive 同士でも None。
+    #[test]
+    fn select_target_pre_for_arm_ambiguous_returns_none() {
+        let root = isolated_dir();
+        let now = now_rfc3339();
+        write_pre_for_select(&root, "puid-1", "iid-A", "snare", "inactive", &now);
+        write_pre_for_select(&root, "puid-2", "iid-B", "snare", "inactive", &now);
+        assert!(
+            select_target_pre_for_arm(&root, "snare").is_none(),
+            "Arm: 同名 2 件は None（曖昧沈黙・一意性維持）"
+        );
+    }
+
+    /// Arm でも空名は None。
+    #[test]
+    fn select_target_pre_for_arm_empty_name_returns_none() {
+        let root = isolated_dir();
+        write_pre_for_select(&root, "puid-1", "iid-A", "snare", "inactive", &now_rfc3339());
+        assert!(select_target_pre_for_arm(&root, "").is_none(), "Arm: 空名は None");
     }
 }

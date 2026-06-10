@@ -91,7 +91,8 @@ pub use record::{RecordState, RecordStateMachine, TransitionError};
 pub use record_signal::{
     delete_signal, enumerate_active_pre_pair_candidates, filter_candidates_by_name,
     is_timed_out, mark_acknowledged, mark_released, pick_closest_pre, read_signal,
-    scan_pre_candidates, scan_pre_candidates_in, scan_signals_dir, select_target_pre, signal_path,
+    scan_pre_candidates, scan_pre_candidates_in, scan_signals_dir, select_target_pre,
+    select_target_pre_for_arm, signal_path,
     signals_dir, write_pending, write_signal, PostMetrics, PreCandidate, RecordSignal,
     SelectedPre, SignalError, SignalStatus, ACK_TIMEOUT_SECONDS, SIGNALS_SUBDIR, SIGNAL_FILENAME,
 };

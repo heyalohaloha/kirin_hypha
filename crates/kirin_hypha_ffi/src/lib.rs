@@ -46,7 +46,8 @@ use kirin_measure::{
     append_annotation_to_latest, can_write_plugin_data, daw_session_id,
     enumerate_active_post_pair_candidates, enumerate_active_pre_pair_candidates, load_license_safe,
     mark_released, process_project_hash,
-    sanitize_name, select_target_pre, set_daw_session_id, set_project_uuid, spawn_io_thread_post,
+    sanitize_name, select_target_pre_for_arm, set_daw_session_id, set_project_uuid,
+    spawn_io_thread_post,
     spawn_io_thread_pre, spawn_measure_thread, store_signal_state, write_broadcast, write_pending,
     write_stop_broadcast, DeltaMode, DeltaResult, License, MeasureResult, PluginDataRole,
     PsbSummary, RecordStateMachine, SignalState, StoragePaths, N_CHANNELS, RING_BUFFER_SECONDS,
@@ -219,8 +220,10 @@ fn resolve_and_enter_keep(
     }
     let kirin_root = std::env::temp_dir().join("kirin");
     let pair = pair_target.read().map(|g| g.clone()).unwrap_or_default();
-    let Some(sel) = select_target_pre(&kirin_root, &pair) else {
-        return false; // 厳格: 空名/不在/曖昧/Inactive/古t
+    // B-104: Arm 経路は select_target_pre_for_arm（非Bypassed + fresh + 一意 / Active 要求なし）。
+    // v1.0.0 の「アーム→再生」を復元する。Display(run_tick Δ) は select_target_pre のまま。
+    let Some(sel) = select_target_pre_for_arm(&kirin_root, &pair) else {
+        return false; // 厳格: 空名/不在/曖昧/Bypassed/古t（Inactive は許容）
     };
     let target = sel.instance_id;
     // linkage（B-062）: record_sm を Record に flip する前に set。

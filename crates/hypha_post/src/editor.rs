@@ -32,7 +32,7 @@ use kirin_measure::{
     check_record_exclusion, delete_broadcast, delete_signal,
     enumerate_active_post_pair_candidates, enumerate_active_pre_pair_candidates, exit_record_full,
     format_pair_label, load_signal_state, lookup_section_label, mark_released, sanitize_name,
-    scan_latest_v2_preset, select_target_pre, show_note_button, show_save_button,
+    scan_latest_v2_preset, select_target_pre_for_arm, show_note_button, show_save_button,
     show_stop_record_button, write_broadcast, write_pending, write_stop_broadcast, DeltaMode,
     DeltaResult, DeltaSnapshot, ExclusionResult, License, MeasureResult, PluginDataRole,
     PreCandidate, PresetFileV2, RecordStateMachine, SignalState, StoragePaths, TransitionError,
@@ -1298,11 +1298,11 @@ pub(crate) fn trigger_keep_internal(
 
     // 2 + 4. PRE 選定（B-059: 表示=commit 一本化）
     //
-    // 表示Δ (io_thread_post::run_tick) と **同一の `select_target_pre`** で target を決める。
-    // 全 fresh project_uuid を flatten + Active + t<NO_PRE_SECS gate + Name 一致で、
-    // **一意 1 件のみ Some**。pair_pre_name 空 / 同名複数 / 不在 / Inactive / 古t は None
-    // → "No PRE Paired"（距離 auto-pick は廃止 = 曖昧時に勝手に 1 件選ばない）。
-    let target_id = match select_target_pre(&tmp_base, pair_pre_name) {
+    // B-104: Arm 経路は `select_target_pre_for_arm`（非Bypassed + t<NO_PRE_SECS + Name 一致で
+    // **一意 1 件のみ Some** / Active 要求なし）。停止中・無音の PRE もアーム可（v1.0.0 復元）。
+    // pair_pre_name 空 / 同名複数 / 不在 / Bypassed / 古t は None → "No PRE Paired"。表示Δ
+    // (io_thread_post::run_tick) は `select_target_pre`（Active 維持）のまま。
+    let target_id = match select_target_pre_for_arm(&tmp_base, pair_pre_name) {
         Some(sel) => sel.instance_id,
         None => {
             log::info!(
