@@ -113,6 +113,7 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
     if (auto* ph = getPlayHead())
         if (const auto pos = ph->getPosition())
             playing = pos->getIsPlaying();
+    lastPlaying.store (playing, std::memory_order_release); // B-054: POST pair lock reads this
 
     const bool silent = bufferIsSilent (buffer);
 
@@ -228,6 +229,51 @@ bool KirinHyphaProcessorBase::pollDelta (KirinDelta& out) const
     if (hyphaHandle == nullptr)
         return false;
     return kirin_hypha_poll_delta (hyphaHandle, &out);
+}
+
+// --- B-054: PRE live name + LED pollers ---------------------------------------------------
+
+void KirinHyphaProcessorBase::setPreName (const juce::String& name)
+{
+    // PRE self name == identity.name: persist it (chunk round-trip) AND push it live to the
+    // io_thread via the FFI (sanitized to ASCII graphic + space / 16 there). Mirrors how the
+    // egui PRE writes its shared name Arc; persistName keeps DAW save/load consistent.
+    persistName = name;
+    const juce::ScopedLock sl (handleLock);
+    if (hyphaHandle != nullptr)
+        kirin_hypha_set_pre_name (hyphaHandle, name.toRawUTF8());
+}
+
+bool KirinHyphaProcessorBase::measureAlive() const
+{
+    const juce::ScopedLock sl (handleLock);
+    if (hyphaHandle == nullptr)
+        return false;
+    return kirin_hypha_measure_alive (hyphaHandle);
+}
+
+bool KirinHyphaProcessorBase::recordAcknowledged() const
+{
+    const juce::ScopedLock sl (handleLock);
+    if (hyphaHandle == nullptr)
+        return false;
+    return kirin_hypha_record_acknowledged (hyphaHandle);
+}
+
+bool KirinHyphaProcessorBase::presetAvailable() const
+{
+    const juce::ScopedLock sl (handleLock);
+    if (hyphaHandle == nullptr)
+        return false;
+    return kirin_hypha_preset_available (hyphaHandle);
+}
+
+bool KirinHyphaProcessorBase::addAnnotation (const juce::String& memo)
+{
+    const juce::ScopedLock sl (handleLock);
+    if (hyphaHandle == nullptr)
+        return false;
+    return kirin_hypha_add_annotation (hyphaHandle, memo.toRawUTF8());
 }
 
 const juce::String KirinHyphaProcessorBase::getName() const

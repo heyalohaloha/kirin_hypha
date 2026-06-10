@@ -25,6 +25,12 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # JUCE 7.0.12 (GPLv3 option), pinned as submodule. Does not touch crates/ or xtask.
 add_subdirectory(JUCE)
 
+# B-054: embed the mycelium background PNG (the same GPLv3 asset egui uses:
+# crates/hypha_gui/assets/bg_mycelium.png, 300×200, brightness ~15%) as BinaryData so the
+# editor can draw it without a runtime file dependency. Shared by both plugin targets.
+juce_add_binary_data(KirinHyphaData
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../crates/hypha_gui/assets/bg_mycelium.png)
+
 # B-070: PRE and POST are two plugin targets sharing one role-parameterized base
 # (KirinHyphaProcessorBase). They link the same kirin_hypha_ffi staticlib and compile the
 # same PluginProcessor.cpp / PluginEditor.cpp; only the per-target PluginMain{PRE,POST}.cpp
@@ -51,13 +57,16 @@ function(add_kirin_plugin TARGET CODE PRODUCT MAIN_SRC BUNDLE_ID)
     target_sources(${TARGET} PRIVATE
         src/PluginProcessor.cpp
         src/PluginEditor.cpp
+        src/HyphaWidgets.cpp     # B-054: LED / mycelium bg / metric cells / editable name
+        src/PostControls.cpp     # B-054: POST Keep/Stop/Note/Sense button row
         ${MAIN_SRC})
 
     # kirin_hypha_ffi: C ABI header + Rust staticlib (B-052 boundary, unchanged).
     target_include_directories(${TARGET} PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/../crates/kirin_hypha_ffi/include)
 
-    target_link_libraries(${TARGET} PRIVATE ${KIRIN_FFI_LIB})
+    # B-054: link the embedded mycelium PNG (provides BinaryData.h to the editor).
+    target_link_libraries(${TARGET} PRIVATE ${KIRIN_FFI_LIB} KirinHyphaData)
 
     target_compile_definitions(${TARGET} PUBLIC
         JUCE_WEB_BROWSER=0

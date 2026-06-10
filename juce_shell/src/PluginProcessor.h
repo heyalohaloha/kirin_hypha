@@ -49,6 +49,17 @@ public:
     // --- B-073: POST Δ readout (editor display branching) --------------------------------
     int  signalState() const { return lastSignalState.load (std::memory_order_acquire); } // 0=Inactive 1=Active 2=Bypassed
     bool pollDelta (KirinDelta& out) const;            // FFI kirin_hypha_poll_delta (mode + Δ values)
+    bool isPlaying() const { return lastPlaying.load (std::memory_order_acquire); } // transport (POST pair lock)
+
+    // --- B-054: PRE live name + LED pollers (egui parity) --------------------------------
+    juce::String preName() const   { return persistName; }       // PRE self name (= identity.name)
+    juce::String instanceId() const { return persistInstanceId; } // for the empty-name 8-char fallback
+    void setPreName (const juce::String& name);                   // persist + kirin_hypha_set_pre_name (live, sanitized in FFI)
+    // (isRecording() is declared in the B-072 block above; record_sm reflects PRE autonomous record too.)
+    bool measureAlive() const;      // FFI kirin_hypha_measure_alive (LED Error state)
+    bool recordAcknowledged() const;// FFI kirin_hypha_record_acknowledged (PRE Keeping banner / RecordActive LED)
+    bool presetAvailable() const;   // FFI kirin_hypha_preset_available (PresetAvailable LED)
+    bool addAnnotation (const juce::String& memo); // FFI kirin_hypha_add_annotation (POST Note → Good/Fix/Hold)
 
     const juce::String getName() const override;
     bool acceptsMidi() const override;
@@ -91,6 +102,7 @@ private:
 
     std::atomic<int>  cachedLicenseCode { 2 };         // B-072: license read once in prepareToPlay (0=Os)
     std::atomic<int>  lastSignalState { 0 };           // B-073: last signal code set in processBlock (0/1/2)
+    std::atomic<bool> lastPlaying { false };           // B-054: transport playing (POST pair lock during playback)
     std::atomic<bool> writesEnabled { false };         // plugin_data writes enabled (idempotent guard)
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (KirinHyphaProcessorBase)

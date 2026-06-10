@@ -1,22 +1,26 @@
 #pragma once
 
-#include <limits>
+#include <array>
+#include <memory>
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
 #include "PluginProcessor.h"
+#include "HyphaTheme.h"
+#include "HyphaWidgets.h"
+#include "PostControls.h"
 
-// 段C minimal Watch UI: polls kirin_hypha_poll_result at ~10fps and shows three values.
-// No measurement logic lives here — it only formats values the Rust engine produces (R-12 /
-// R-22). NaN (= no value, or non-Active signal state cleared by the measure thread) renders
-// as "---" (parity: editor.rs SS-7). Role-agnostic (B-070): the title row uses getName().
+// B-054: full UI rebuild to egui parity (crates/hypha_pre/editor.rs + hypha_post/editor.rs +
+// hypha_gui). 300×200 mycelium-textured panel. No measurement logic lives here (R-12 / R-22):
+// the editor only formats values the Rust engine produces. palette.rs is the colour source of
+// truth (no new colours hardcoded). No red / pure white (#ffffff) / neon (品位原則 / G-72-10).
 //
-// B-072: POST also shows a pairing row (name field + Keep/Stop, Os-gated). PRE shows none.
-// B-073: POST shows Δ instead of the absolute three values when paired and Active with a
-// fresh delta (DeltaMode Active/Stale); otherwise the POST absolute three values or "---".
-// No freeze (B-048/B-049): kirin_measure clears last_active in exactly the inactive / NoPre
-// states, so the editor never has a frozen value to show — it falls back to absolute / "---".
-// No red / pure white / neon (品位原則 / G-72-10) — Biophilic / Dark Cockpit palette only.
+// PRE: title "PRE" + click-to-edit Name (→ kirin_hypha_set_pre_name) + flora line + Watch(3)/
+//      Record(6) metric grid (per-cell hover help) + Keeping banner + 5-state breathing LED.
+// POST: title "POST" + Record pair label + click-to-edit pair name (→ set_pair_target) + flora +
+//      display-branch grid (Bypassed/Inactive→"---" ; pair-empty→absolute ; Δ Active/Stale ;
+//      Record→Δ6) + Keep/Stop/Note→[Good][Fix][Hold][Cancel]/Sense hint + Toast + playback pair
+//      lock + LED. (Out of scope A: candidate ComboBox, All Keep/All Stop, proposals cards.)
 class KirinHyphaEditor : public juce::AudioProcessorEditor,
                          private juce::Timer
 {
@@ -29,24 +33,42 @@ public:
 
 private:
     void timerCallback() override;
-    static juce::String fmtVal (double v); // parity with hypha_gui fmt_val: {:.1} / "---"
+    void updatePre();
+    void updatePost();
+
+    // Which metric grid is configured (label/unit/font set). Abs* uses absolute labels
+    // (LUFS-M/TP/…); Delta* uses Δ labels (ΔLUFS/…). 3 = Watch/3-up, 6 = Record/2×3.
+    enum class Kind { Abs3, Delta3, Abs6, Delta6 };
+    void configureForKind (Kind);
+    void layoutMetrics (bool six);
+    void fillAbs (int cell, double v, bool isTp);
+    void fillDelta (int cell, double v, bool isTp, juce::Colour deltaBase, bool tpWarn);
+    void showToast (const juce::String& msg);
+    juce::String instanceId8() const; // first 8 chars of instance_id (empty-name fallback)
+    double nowSecs() const { return juce::Time::getMillisecondCounterHiRes() * 0.001; }
 
     KirinHyphaProcessorBase& processorRef;
-    const bool isPost;                     // pairing controls + Δ shown only for POST
+    const bool isPost;
 
-    // POST pairing controls (constructed always; only added/wired when isPost).
-    juce::Label      pairLabel;
-    juce::TextEditor nameEditor;
-    juce::TextButton keepButton { "Keep" };
-    juce::TextButton stopButton { "Stop" };
+    hypha::MyceliumBackground bg;
+    hypha::StatusLed          led;
+    hypha::EditableName       nameField;                  // PRE name / POST pair name
+    juce::Label               pairRecLabel;               // POST: "pair: …" shown during Record
+    std::array<hypha::MetricCell, 6> cells;
+    juce::Label               bannerLabel;                // "Keeping" (ACK edge, 3s) — PRE
+    juce::Label               toastLabel;                 // POST transient messages (3s)
+    std::unique_ptr<hypha::PostControls> postControls;    // POST button row
+    juce::TooltipWindow       tooltip { this };           // drives per-cell hover help
 
-    // Latest displayed values (absolute LUFS-M/TP/Crest, or Δ when showDelta). NaN -> "---".
-    double lufsM    = std::numeric_limits<double>::quiet_NaN();
-    double truePeak = std::numeric_limits<double>::quiet_NaN();
-    double crest    = std::numeric_limits<double>::quiet_NaN();
+    Kind   currentKind = Kind::Abs3;
+    bool   currentSix  = false;
+    int    metricTop   = 0;       // y of the first metric row (set in resized())
+    int    floraY      = 0;       // y of the flora separator line
+    juce::Rectangle<int> titleArea;
 
-    bool showDelta  = false;               // B-073: the three values are Δ (ΔLUFS/ΔTP/ΔCrest)
-    bool deltaMuted = false;               // B-073: Stale Δ -> muted colour
+    bool   prevAck     = false;
+    double bannerUntil = 0.0;
+    double toastUntil  = 0.0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (KirinHyphaEditor)
 };

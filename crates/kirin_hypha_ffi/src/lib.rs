@@ -172,6 +172,20 @@ pub struct KirinHyphaEngine {
     /// ring 満杯で push できなかった累積回数（§8 RT-safety 検証 + B-075 live 露出）。
     /// B-076: io_thread と共有し per-Record dropped_samples を .kirin に焼き込むため Arc 化。
     push_overflow: Arc<AtomicU64>,
+    /// PRE の自名（B-054 / `set_pair_target` と完全対称）。`enable_pre_writes` 時に空なら
+    /// identity.name で seed し io_thread_pre と Arc 共有する（pre.json の name に live 反映）。
+    /// `set_pre_name` で enable 後でも上書き可。空のときは pre.json の name にそのまま空が書かれる
+    /// （io_thread_pre は値を加工しない）。空名の instance_id 先頭8字 fallback は表示専用で、PRE
+    /// editor の name 欄と POST 側 format_pair_label のレンダリングが担う。POST engine では未使用。
+    pre_name: Arc<RwLock<String>>,
+    /// PRE が POST の record_signal を discover→ack 済みか（B-054 LED poller）。`enable_pre_writes`
+    /// で io_thread_pre と Arc 共有する。PRE の Keeping バナー（false→true エッジ）と RecordActive
+    /// LED の判定に使う。POST engine では io_thread に渡らないため常に false（egui POST と一致）。
+    record_acknowledged: Arc<AtomicBool>,
+    /// POST に pair 可能な PRE preset（record_signal）が居るか（B-054 LED poller）。
+    /// `enable_post_writes` で io_thread_post と Arc 共有する。PresetAvailable LED の判定に使う。
+    /// PRE engine では io_thread に渡らないため常に false（egui PRE と一致）。
+    preset_available: Arc<AtomicBool>,
 }
 
 // SAFETY: `ring_producer`(UnsafeCell<rtrb::Producer>) は push_samples からのみ触れ、
@@ -232,6 +246,10 @@ impl KirinHyphaEngine {
             write_role: Mutex::new(None),
             measure_handle: Some(measure_handle),
             push_overflow: Arc::new(AtomicU64::new(0)),
+            // B-054: 既定空 / 既定 false。enable_*_writes が io_thread と Arc 共有する。
+            pre_name: Arc::new(RwLock::new(String::new())),
+            record_acknowledged: Arc::new(AtomicBool::new(false)),
+            preset_available: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -342,8 +360,17 @@ impl KirinHyphaEngine {
         let instance_id = Arc::new(RwLock::new(iid_str));
         // io_thread_pre が内部で set/管理する共有フラグ（FFI は false で生成して渡すだけ）。
         let recording = Arc::new(AtomicBool::new(false));
-        let record_acknowledged = Arc::new(AtomicBool::new(false));
-        let name = Arc::new(RwLock::new(name_str)); // 空 → instance_id 先頭8字 fallback
+        // B-054: record_acknowledged は engine と共有（PRE Keeping バナー / RecordActive LED が poll）。
+        let record_acknowledged = Arc::clone(&self.record_acknowledged);
+        // B-054: PRE 名は engine.pre_name と Arc 共有（set_pair_target と完全対称・enable 後 live）。
+        // 空のときのみ identity.name で seed（pre-enable の set_pre_name を温存）。空のままなら
+        // pre.json には空 name が書かれる（io_thread_pre は加工しない / instance_id 先頭8字は表示専用）。
+        if let Ok(mut pn) = self.pre_name.write() {
+            if pn.is_empty() {
+                *pn = name_str;
+            }
+        }
+        let name = Arc::clone(&self.pre_name);
         let record_error_message = Arc::new(RwLock::new(None));
         // A: enable 時点の license をスナップショット（immutable）。
         let license = Arc::new(self.current_license());
@@ -424,7 +451,8 @@ impl KirinHyphaEngine {
         // POST 固有の共有 Arc（hypha_post params と同型）。
         let instance_id = Arc::new(RwLock::new(iid_str));
         let project_hash_arc = Arc::new(RwLock::new(project_hash)); // POST は Arc<RwLock<String>>
-        let preset_available = Arc::new(AtomicBool::new(false));
+        // B-054: preset_available は engine と共有（PresetAvailable LED が poll）。
+        let preset_available = Arc::clone(&self.preset_available);
         // paired_pre_target は engine と共有（keep() が set → POST Record の linkage に焼く）。
         let paired_pre_target = Arc::clone(&self.paired_pre_target);
         let pair_label = Arc::new(Mutex::new(String::new()));
@@ -495,6 +523,41 @@ impl KirinHyphaEngine {
         if let Ok(mut pt) = self.pair_target.write() {
             *pt = sanitized;
         }
+    }
+
+    /// PRE の自名を設定する（B-054 / `set_pair_target` と完全対称）。
+    /// io_thread_pre と Arc 共有のため `enable_pre_writes` 後でも live に反映される
+    /// （pre.json の name に書かれ、POST 側 pair target と同一語彙で照合される）。
+    /// 空文字はそのまま空 name として書かれる（instance_id 先頭8字 fallback は GUI 表示専用）。
+    pub fn set_pre_name(&self, name: String) {
+        // pair target と同一情報源（kirin_measure::sanitize_name / ASCII graphic + space / max 16）。
+        let sanitized = sanitize_name(&name);
+        if let Ok(mut pn) = self.pre_name.write() {
+            *pn = sanitized;
+        }
+    }
+
+    /// Measure Thread が生存しているか（B-054 LED Error 状態 / read-only poller）。
+    /// 所有する JoinHandle の `is_finished()` を反転して返す（exit/panic を検出）。
+    /// kirin_measure 無変更で観測できる最小実装。watchdog 方式の hang 検出（measure_alive
+    /// 連続停滞）は別軸（FFI が watchdog を spawn していないため scope A 外）。
+    pub fn measure_alive(&self) -> bool {
+        self.measure_handle
+            .as_ref()
+            .map(|h| !h.is_finished())
+            .unwrap_or(false)
+    }
+
+    /// PRE が POST の record_signal を ack 済みか（B-054 LED poller）。
+    /// enable_pre_writes 前 / POST engine は常に false。
+    pub fn record_acknowledged(&self) -> bool {
+        self.record_acknowledged.load(Ordering::Relaxed)
+    }
+
+    /// POST に pair 可能な PRE preset が居るか（B-054 LED poller）。
+    /// enable_post_writes 前 / PRE engine は常に false。
+    pub fn preset_available(&self) -> bool {
+        self.preset_available.load(Ordering::Relaxed)
     }
 
     /// テスト専用: paired_pre_target（POST Record linkage）の現在値スナップショット。
@@ -985,6 +1048,74 @@ pub unsafe extern "C" fn kirin_hypha_set_pair_target(
         let nm = unsafe { read_c_str(name) };
         unsafe { (*handle).set_pair_target(nm) };
     }));
+}
+
+/// PRE の自名（pre name）を設定する（B-054 / set_pair_target と完全対称）。
+/// io_thread_pre と Arc 共有のため enable_pre_writes 後でも live 反映。null は空文字扱い。
+/// 値は内部で sanitize される（ASCII graphic + space / 最大 16 文字）. POST 側 pair target と
+/// 同一語彙. 空文字はそのまま空 name として書かれる（instance_id 先頭8字 fallback は GUI 表示専用）.
+///
+/// # Safety
+/// `handle` は有効なハンドル。`name` は null か有効な null 終端 C 文字列であること。
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_set_pre_name(
+    handle: *mut KirinHyphaEngine,
+    name: *const c_char,
+) {
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() {
+            return;
+        }
+        let nm = unsafe { read_c_str(name) };
+        unsafe { (*handle).set_pre_name(nm) };
+    }));
+}
+
+/// Measure Thread が生存しているか（B-054 LED Error 状態 poller / UI Thread）。null は false。
+///
+/// # Safety
+/// `handle` は有効なハンドル。
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_measure_alive(handle: *mut KirinHyphaEngine) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() {
+            return false;
+        }
+        unsafe { (*handle).measure_alive() }
+    }))
+    .unwrap_or(false)
+}
+
+/// PRE が POST の record_signal を ack 済みか（B-054 LED / Keeping バナー poller / UI Thread）。
+/// enable_pre_writes 前 / POST engine / null は false。
+///
+/// # Safety
+/// `handle` は有効なハンドル。
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_record_acknowledged(handle: *mut KirinHyphaEngine) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() {
+            return false;
+        }
+        unsafe { (*handle).record_acknowledged() }
+    }))
+    .unwrap_or(false)
+}
+
+/// POST に pair 可能な PRE preset が居るか（B-054 PresetAvailable LED poller / UI Thread）。
+/// enable_post_writes 前 / PRE engine / null は false。
+///
+/// # Safety
+/// `handle` は有効なハンドル。
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_preset_available(handle: *mut KirinHyphaEngine) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() {
+            return false;
+        }
+        unsafe { (*handle).preset_available() }
+    }))
+    .unwrap_or(false)
 }
 
 /// POST「Keep」: 厳格選定で対 PRE を一意決定し record_signal(pending) を書く（3d-b）。

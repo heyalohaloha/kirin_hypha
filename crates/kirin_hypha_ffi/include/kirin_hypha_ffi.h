@@ -10,7 +10,8 @@
  *              （SessionSummary は Record finalize 後に成立。finalize は Measure Thread のみ）.
  *   - 識別子:  set_identity / get_identity（state chunk 方式A）.
  *   - IO:      enable_pre_writes（PRE）/ enable_post_writes（POST）.
- *   - ペアリング: set_pair_target / keep / stop / poll_delta（POST Keep → PRE ack）.
+ *   - ペアリング: set_pair_target / set_pre_name / keep / stop / poll_delta（POST Keep → PRE ack）.
+ *   - LED poller: measure_alive / record_acknowledged / preset_available（B-054 / read-only）.
  *   - Note:    add_annotation.
  *   - Option<f64> は NaN sentinel で表す（C 側は isnan() で「値なし」を判定）.
  *
@@ -126,6 +127,25 @@ void kirin_hypha_enable_post_writes(KirinHypha* handle);
  * 値は内部で sanitize される（ASCII graphic + space / 最大 16 文字）. PRE 名と同一語彙.
  * enable_post_writes 後でも live 反映（io_thread と Arc 共有）. */
 void kirin_hypha_set_pair_target(KirinHypha* handle, const char* name);
+
+/* PRE の自名（pre name）を設定（B-054 / set_pair_target と完全対称）. NULL=空文字.
+ * 値は内部で sanitize される（ASCII graphic + space / 最大 16 文字）. POST 側 pair target と
+ * 同一語彙. enable_pre_writes 後でも live 反映（io_thread と Arc 共有）. 空文字はそのまま空 name
+ * として pre.json に書かれる（instance_id 先頭8字 fallback は GUI 表示専用）. */
+void kirin_hypha_set_pre_name(KirinHypha* handle, const char* name);
+
+/* Measure Thread が生存しているか（B-054 LED Error 状態 / read-only poller・UI Thread）.
+ * JoinHandle::is_finished() の反転（exit/panic を検出）. null は false. watchdog 方式の hang
+ * 検出は別軸（FFI は watchdog を spawn しない）. */
+bool kirin_hypha_measure_alive(KirinHypha* handle);
+
+/* PRE が POST の record_signal を ack 済みか（B-054 LED / Keeping バナー poller・UI Thread）.
+ * enable_pre_writes 前 / POST engine / null は false. */
+bool kirin_hypha_record_acknowledged(KirinHypha* handle);
+
+/* POST に pair 可能な PRE preset（record_signal）が居るか（B-054 PresetAvailable LED poller・
+ * UI Thread）. enable_post_writes 前 / PRE engine / null は false. */
+bool kirin_hypha_preset_available(KirinHypha* handle);
 
 /* POST「Keep」: 厳格選定で対 PRE を一意決定し record_signal(pending) を書く（3d-b）.
  * PRE 側 io_thread が autonomous に discover→ack する. Os かつ一意 PRE のとき true /
