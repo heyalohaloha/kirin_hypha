@@ -41,6 +41,8 @@ private:
     enum class Kind { Abs3, Delta3, Abs6, Delta6 };
     void configureForKind (Kind);
     void layoutMetrics (bool six);
+    void showCandidateMenu();          // B-102: POST pair dropdown (All Keep/All Stop/candidates)
+    void handleCandidateMenu (int result);
     void fillAbs (int cell, double v, bool isTp);
     void fillDelta (int cell, double v, bool isTp, juce::Colour deltaBase, bool tpWarn);
     void showToast (const juce::String& msg);
@@ -58,6 +60,8 @@ private:
     juce::Label               bannerLabel;                // "Keeping" (ACK edge, 3s) — PRE
     juce::Label               toastLabel;                 // POST transient messages (3s)
     std::unique_ptr<hypha::PostControls> postControls;    // POST button row
+    juce::TextButton          pairDropdown;                // POST: ▼ candidate / All Keep / All Stop
+    juce::StringArray         menuCandidateNames;          // maps PopupMenu result -> candidate name
     juce::TooltipWindow       tooltip { this };           // drives per-cell hover help
 
     Kind   currentKind = Kind::Abs3;

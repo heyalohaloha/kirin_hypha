@@ -43,11 +43,13 @@ use uuid::Uuid;
 
 use kirin_measure::engine::SessionSummary;
 use kirin_measure::{
-    append_annotation_to_latest, can_write_plugin_data, load_license_safe, mark_released,
-    process_project_hash, sanitize_name, select_target_pre, set_daw_session_id, set_project_uuid,
-    spawn_io_thread_post, spawn_io_thread_pre, spawn_measure_thread, store_signal_state,
-    write_pending, DeltaMode, DeltaResult, License, MeasureResult, PluginDataRole, PsbSummary,
-    RecordStateMachine, SignalState, StoragePaths, N_CHANNELS, RING_BUFFER_SECONDS,
+    append_annotation_to_latest, can_write_plugin_data, daw_session_id,
+    enumerate_active_post_pair_candidates, enumerate_active_pre_pair_candidates, load_license_safe,
+    mark_released, process_project_hash,
+    sanitize_name, select_target_pre, set_daw_session_id, set_project_uuid, spawn_io_thread_post,
+    spawn_io_thread_pre, spawn_measure_thread, store_signal_state, write_broadcast, write_pending,
+    write_stop_broadcast, DeltaMode, DeltaResult, License, MeasureResult, PluginDataRole,
+    PsbSummary, RecordStateMachine, SignalState, StoragePaths, N_CHANNELS, RING_BUFFER_SECONDS,
 };
 
 /// state chunk 往復する識別子（方式A: JUCE が chunk bytes を所有・FFI は文字列 get/set のみ）。
@@ -147,7 +149,8 @@ pub struct KirinHyphaEngine {
     record_sm: Arc<RecordStateMachine>,
     /// 現ライセンス（C ABI コード: 0=Os 1=Sense 2=Unknown）。`enter_record` の
     /// 二重 gate（E-21）に使う。既定は Unknown（Record 不可）。
-    license: AtomicU8,
+    /// B-102: `Arc<AtomicU8>` 化（broadcast 受信 closure が live に読むため / keep と同一 gate）。
+    license: Arc<AtomicU8>,
     /// `spawn_io_thread_pre` に渡す入力サンプルレート（create 時に保持）。
     sample_rate: u32,
     /// PRE/POST io_thread（B-057 3b / B-060 3d-a）。`enable_pre_writes` or
@@ -196,6 +199,86 @@ unsafe impl Sync for KirinHyphaEngine {}
 // SAFETY: 内部状態はスレッド間移動可能（Producer/Arc は Send）。
 unsafe impl Send for KirinHyphaEngine {}
 
+/// B-102: keep の解決本体（`keep()` と broadcast 受信 closure が共有する単一実装）。
+/// 順序は従来 `keep()` と不変: double-keep guard → select_target_pre → linkage set →
+/// try_enter_record（license 二重 gate）→ write_pending。失敗時は遷移/linkage を巻き戻す。
+/// `None` 選定は `try_enter_record` 前に抜けるため、broadcast 起因の Record は有効ペア時のみ。
+#[allow(clippy::too_many_arguments)]
+fn resolve_and_enter_keep(
+    license: License,
+    record_sm: &RecordStateMachine,
+    pair_target: &RwLock<String>,
+    paired_pre_target: &Mutex<Option<String>>,
+    project_hash: &str,
+    post_iid: &str,
+    daw: &str,
+) -> bool {
+    // B-071 double-keep guard: 既に Record 中なら no-op（既存 linkage 温存）。
+    if record_sm.is_recording() {
+        return false;
+    }
+    let kirin_root = std::env::temp_dir().join("kirin");
+    let pair = pair_target.read().map(|g| g.clone()).unwrap_or_default();
+    let Some(sel) = select_target_pre(&kirin_root, &pair) else {
+        return false; // 厳格: 空名/不在/曖昧/Inactive/古t
+    };
+    let target = sel.instance_id;
+    // linkage（B-062）: record_sm を Record に flip する前に set。
+    if let Ok(mut g) = paired_pre_target.lock() {
+        *g = Some(target.clone());
+    }
+    // license 二重 gate（record.rs try_enter_record / E-21）。非 Os は投機的 linkage 巻き戻し。
+    if record_sm.try_enter_record(license).is_err() {
+        if let Ok(mut g) = paired_pre_target.lock() {
+            *g = None;
+        }
+        return false;
+    }
+    let base = match StoragePaths::default_macos() {
+        Ok(p) => p.plugin_data_dir(),
+        Err(_) => {
+            revert_after_enter(record_sm, paired_pre_target);
+            return false;
+        }
+    };
+    // target_pre_instance_id = 選定 PRE。PRE が自宛て signal を発見し ack する。
+    if write_pending(&base, project_hash, post_iid, target, daw.to_string()).is_ok() {
+        true
+    } else {
+        revert_after_enter(record_sm, paired_pre_target);
+        false
+    }
+}
+
+/// `resolve_and_enter_keep` が try_enter_record 成功**後**に失敗した時の巻き戻し（B-066 / F2）。
+/// 本 keep が行った Watch→Record 遷移と linkage 代入を戻す（副作用なし exit_record）。
+fn revert_after_enter(record_sm: &RecordStateMachine, paired_pre_target: &Mutex<Option<String>>) {
+    record_sm.exit_record();
+    if let Ok(mut g) = paired_pre_target.lock() {
+        *g = None;
+    }
+}
+
+/// B-102: stop の解決本体（`stop()` と broadcast 受信 closure が共有）。exit_record + linkage
+/// クリアは常に行い、`mark_released` は identity 非空のときだけ（元 `stop()` と同一）。
+fn resolve_and_exit_stop(
+    record_sm: &RecordStateMachine,
+    paired_pre_target: &Mutex<Option<String>>,
+    project_hash: &str,
+    post_iid: &str,
+) {
+    record_sm.exit_record();
+    if let Ok(mut g) = paired_pre_target.lock() {
+        *g = None; // linkage クリア（次 Keep まで）。
+    }
+    if project_hash.is_empty() || post_iid.is_empty() {
+        return; // 未 enable → released marker は書けない。
+    }
+    if let Ok(p) = StoragePaths::default_macos() {
+        let _ = mark_released(&p.plugin_data_dir(), project_hash, post_iid);
+    }
+}
+
 impl KirinHyphaEngine {
     /// ランタイムを生成し Measure Thread を起動する。
     ///
@@ -237,7 +320,7 @@ impl KirinHyphaEngine {
             heartbeat,
             record_sm,
             // 既定 Unknown（set_license(Os) されるまで Record 不可・安全側）。
-            license: AtomicU8::new(LICENSE_UNKNOWN),
+            license: Arc::new(AtomicU8::new(LICENSE_UNKNOWN)),
             sample_rate,
             io_thread: Mutex::new(None),
             identity: Mutex::new(IdentityState::default()),
@@ -346,9 +429,12 @@ impl KirinHyphaEngine {
             }
             set_project_uuid(id.project_uuid.clone());
             id.project_hash = process_project_hash(); // = project_uuid（cell 値）
-            if !id.daw_session_uuid.is_empty() {
-                set_daw_session_id(id.daw_session_uuid.clone());
+            // B-102: egui 鏡写し（hypha_post:182/481）— 空なら生成 → chunk 永続（get_identity
+            // 経由で殻が保存）→ プロセスセルへ seed。新↔新の broadcast daw_session_id を揃える。
+            if id.daw_session_uuid.is_empty() {
+                id.daw_session_uuid = Uuid::new_v4().to_string();
             }
+            set_daw_session_id(id.daw_session_uuid.clone());
             (
                 id.instance_id.clone(),
                 id.name.clone(),
@@ -437,9 +523,12 @@ impl KirinHyphaEngine {
             }
             set_project_uuid(id.project_uuid.clone());
             id.project_hash = process_project_hash();
-            if !id.daw_session_uuid.is_empty() {
-                set_daw_session_id(id.daw_session_uuid.clone());
+            // B-102: egui 鏡写し（hypha_post:182/481）— 空なら生成 → chunk 永続（get_identity
+            // 経由で殻が保存）→ プロセスセルへ seed。新↔新の broadcast daw_session_id を揃える。
+            if id.daw_session_uuid.is_empty() {
+                id.daw_session_uuid = Uuid::new_v4().to_string();
             }
+            set_daw_session_id(id.daw_session_uuid.clone());
             (
                 id.instance_id.clone(),
                 id.name.clone(),
@@ -447,6 +536,12 @@ impl KirinHyphaEngine {
                 id.daw_session_uuid.clone(),
             )
         };
+
+        // B-102: broadcast 受信 closure 用に enable-resolved 値を clone しておく（以降の Arc
+        // move より前に確保）。project_hash / instance_id / daw は enable 後不変。
+        let cb_project_hash = project_hash.clone();
+        let cb_post_iid = iid_str.clone();
+        let cb_daw = daw_uuid.clone();
 
         // POST 固有の共有 Arc（hypha_post params と同型）。
         let instance_id = Arc::new(RwLock::new(iid_str));
@@ -465,11 +560,35 @@ impl KirinHyphaEngine {
             }
         }
         let pair_pre_name = Arc::clone(&self.pair_target);
-        // 3d-a: Keep/Stop 解決は配線しない（broadcast 受信時 no-op）。write_pending は 3d-b。
-        let trigger_pair_resolution: kirin_measure::TriggerPairResolutionFn =
-            Arc::new(|_pre: &str, _post: &str| {});
-        let trigger_stop_resolution: kirin_measure::TriggerStopResolutionFn =
-            Arc::new(|_pre: &str, _post: &str| {});
+        // B-102: broadcast 受信 → 自身の keep/stop を発火する本物の closure（egui hypha_post と
+        // 同一経路 / scope = 新↔新）。closure は Box 所有の engine を借用できないため、keep()/stop()
+        // と同一の共有 free 関数 resolve_and_enter_keep / resolve_and_exit_stop を捕捉 Arc + enable
+        // 値で呼ぶ。license は Arc<AtomicU8> を live 読み（keep と同一 gate）。args (pre/post) は
+        // 各 POST が自分の pair_target を再選定するため無視する。
+        let trigger_pair_resolution: kirin_measure::TriggerPairResolutionFn = {
+            let record_sm = Arc::clone(&self.record_sm);
+            let pair_target = Arc::clone(&self.pair_target);
+            let paired = Arc::clone(&self.paired_pre_target);
+            let license = Arc::clone(&self.license);
+            let project_hash = cb_project_hash.clone();
+            let post_iid = cb_post_iid.clone();
+            let daw = cb_daw.clone();
+            Arc::new(move |_pre: &str, _post: &str| {
+                let lic = license_from_abi(license.load(Ordering::Relaxed));
+                let _ = resolve_and_enter_keep(
+                    lic, &record_sm, &pair_target, &paired, &project_hash, &post_iid, &daw,
+                );
+            })
+        };
+        let trigger_stop_resolution: kirin_measure::TriggerStopResolutionFn = {
+            let record_sm = Arc::clone(&self.record_sm);
+            let paired = Arc::clone(&self.paired_pre_target);
+            let project_hash = cb_project_hash;
+            let post_iid = cb_post_iid;
+            Arc::new(move |_pre: &str, _post: &str| {
+                resolve_and_exit_stop(&record_sm, &paired, &project_hash, &post_iid);
+            })
+        };
         let record_error_message = Arc::new(RwLock::new(None));
         let pair_claimed_at = Arc::new(RwLock::new(0.0));
         let pair_release_notice = Arc::new(RwLock::new(None));
@@ -586,84 +705,91 @@ impl KirinHyphaEngine {
                 id.daw_session_uuid.clone(),
             )
         };
-        // B-071 double-keep guard: 既に Record 中（先行 keep 済）なら本 keep は no-op。
-        // 既存 paired_pre_target linkage を温存するため、下の投機的 set より前に early-return
-        // する（投機的 set は AlreadyRecording 経路で None クリアされ linkage を壊していた）。
-        if self.record_sm.is_recording() {
-            return false;
-        }
-        let kirin_root = std::env::temp_dir().join("kirin");
-        let pair = self.pair_target.read().map(|g| g.clone()).unwrap_or_default();
-        let Some(sel) = select_target_pre(&kirin_root, &pair) else {
-            return false; // No PRE Paired（厳格: 空名/不在/曖昧/Inactive/古t）
-        };
-        let target = sel.instance_id;
-        // linkage（B-062）: POST Record の paired_pre_instance_id に焼く。record_sm を Record に
-        // flip する前に set し、io_thread が writer を開く時に反映されるようにする。
-        if let Ok(mut g) = self.paired_pre_target.lock() {
-            *g = Some(target.clone());
-        }
-        // license 二重 gate（record.rs try_enter_record / E-21）。AlreadyRecording は上の
-        // is_recording guard で early-return 済なので、ここは LicenseDenied（非 Os）のみ到達。
-        // 本 keep が set した投機的 linkage を巻き戻す（録音していない fresh POST → None でよい）。
-        if self.record_sm.try_enter_record(self.current_license()).is_err() {
-            if let Ok(mut g) = self.paired_pre_target.lock() {
-                *g = None; // 投機的 set の巻き戻し（非 Os）
-            }
-            return false;
-        }
-        let base = match StoragePaths::default_macos() {
-            Ok(p) => p.plugin_data_dir(),
-            Err(_) => {
-                // B-066/F2: try_enter_record 成功後の失敗 → 本 keep の Record 遷移と
-                // linkage を巻き戻す（keep()=false で Record/Some を残さない）。
-                self.revert_after_enter();
-                return false;
-            }
-        };
-        // target_pre_instance_id = 選定 PRE の instance_id。PRE が自宛て signal を発見し ack する。
-        if write_pending(&base, &project_hash, &post_iid, target, daw).is_ok() {
-            true
-        } else {
-            self.revert_after_enter(); // write 失敗 → 巻き戻し（Record/Some を残さない）。
-            false
-        }
+        // B-102: 解決本体は共有 free 関数 resolve_and_enter_keep（broadcast 受信 closure と同一
+        // 経路）。選定→linkage→try_enter_record→write_pending の順序は従来 keep() と不変。
+        resolve_and_enter_keep(
+            self.current_license(),
+            &self.record_sm,
+            &self.pair_target,
+            &self.paired_pre_target,
+            &project_hash,
+            &post_iid,
+            &daw,
+        )
     }
 
-    /// keep() が `try_enter_record` 成功**後**（StoragePaths / write_pending）で失敗した時の
-    /// 巻き戻し（B-066 / F2）。本 keep が行った Record 遷移（Watch→Record）と linkage 代入
-    /// （paired_pre_target=Some）を戻し、keep()=false 時に内部状態が Record / Some で残らない
-    /// ことを保証する。`try_enter_record` 成功＝本 keep が Watch→Record した直後なので、
-    /// `exit_record`（record.rs:132-135 の副作用なし atomic store / finalize は Measure Thread
-    /// 専管）で本 keep の遷移のみを正しく戻す。AlreadyRecording（④）経路では呼ばない
-    /// （他セッションの Record を誤って止めないため）。
-    fn revert_after_enter(&self) {
-        self.record_sm.exit_record();
-        if let Ok(mut g) = self.paired_pre_target.lock() {
-            *g = None;
+    /// POST「All Keep」: all_keep broadcast を書いてから自身の keep を発火する（B-102 /
+    /// egui ComboBox 先頭行と同一ライフサイクル: broadcast → self keep）。broadcast の
+    /// `daw_session_id` は **プロセスセル値**（`daw_session_id()`）を使う（受信側 filter と一致）。
+    /// 自 keep の結果（有効ペアありなら true）を返す。broadcast 書込失敗は best-effort（無視）。
+    pub fn keep_all(&self) -> bool {
+        let (project_hash, post_iid) = {
+            let id = match self.identity.lock() {
+                Ok(g) => g,
+                Err(_) => return false,
+            };
+            if id.project_hash.is_empty() || id.instance_id.is_empty() {
+                return false; // 未 enable_post_writes
+            }
+            (id.project_hash.clone(), id.instance_id.clone())
+        };
+        if let Ok(p) = StoragePaths::default_macos() {
+            let _ = write_broadcast(&p.plugin_data_dir(), &project_hash, &post_iid, daw_session_id());
         }
+        self.keep()
     }
 
     /// POST「Stop」: pair を解除（record_signal released）し Watch へ戻す（B-061 3d-b）。
     /// PRE 側は released を検出して自身も Record を抜ける（io_thread_pre）。
     pub fn stop(&self) {
-        self.record_sm.exit_record();
-        if let Ok(mut g) = self.paired_pre_target.lock() {
-            *g = None; // linkage クリア（次 Keep まで）。
-        }
-        let (project_hash, post_iid) = {
-            let id = match self.identity.lock() {
-                Ok(g) => g,
-                Err(_) => return,
-            };
-            if id.project_hash.is_empty() || id.instance_id.is_empty() {
-                return;
-            }
-            (id.project_hash.clone(), id.instance_id.clone())
+        // 元 stop() と同一: exit_record + linkage クリアは常に行い、mark_released は enable 済
+        // （identity 非空）のときだけ。共有 free 関数で broadcast 受信 closure と同一経路にする。
+        let (project_hash, post_iid) = match self.identity.lock() {
+            Ok(id) => (id.project_hash.clone(), id.instance_id.clone()),
+            Err(_) => (String::new(), String::new()),
         };
-        if let Ok(p) = StoragePaths::default_macos() {
-            let _ = mark_released(&p.plugin_data_dir(), &project_hash, &post_iid);
+        resolve_and_exit_stop(&self.record_sm, &self.paired_pre_target, &project_hash, &post_iid);
+    }
+
+    /// POST「All Stop」: all_stop broadcast を書いてから自身の stop を発火する（B-102 /
+    /// egui ComboBox 先頭行と同一ライフサイクル: broadcast → self stop）。
+    pub fn stop_all(&self) {
+        let (project_hash, post_iid) = match self.identity.lock() {
+            Ok(id) => (id.project_hash.clone(), id.instance_id.clone()),
+            Err(_) => (String::new(), String::new()),
+        };
+        if !project_hash.is_empty() && !post_iid.is_empty() {
+            if let Ok(p) = StoragePaths::default_macos() {
+                let _ = write_stop_broadcast(
+                    &p.plugin_data_dir(),
+                    &project_hash,
+                    &post_iid,
+                    daw_session_id(),
+                );
+            }
         }
+        self.stop();
+    }
+
+    /// pair 候補（Active な PRE）を列挙する（B-102 / GUI ドロップダウン用・read-only）。
+    /// `$TMPDIR/kirin/` 配下の Active PRE を走査し (instance_id, name) で返す。
+    pub fn enumerate_pre_candidates(&self) -> Vec<(String, Option<String>)> {
+        let kirin_root = std::env::temp_dir().join("kirin");
+        enumerate_active_pre_pair_candidates(&kirin_root)
+            .into_iter()
+            .map(|c| (c.instance_id, c.name))
+            .collect()
+    }
+
+    /// All Keep の「N ready」= pair 設定済の Active POST 数（B-102 / egui n_ready と同一・
+    /// hypha_post editor.rs:938-944）。`enumerate_active_post_pair_candidates`（解決済み機構）を
+    /// 再利用し `pair_pre_name.is_some()` を数える read-only カウント（GUI ラベル表示用）。
+    pub fn count_keep_ready(&self) -> usize {
+        let kirin_root = std::env::temp_dir().join("kirin");
+        enumerate_active_post_pair_candidates(&kirin_root)
+            .into_iter()
+            .filter(|c| c.pair_pre_name.is_some())
+            .count()
     }
 
     /// state chunk から復元した識別子を設定する（方式A / B-058 3c）。
@@ -845,6 +971,16 @@ pub struct KirinIdentity {
     pub project_uuid: [c_char; ID_BUF_LEN],
     pub daw_session_uuid: [c_char; ID_BUF_LEN],
     pub name: [c_char; ID_BUF_LEN],
+}
+
+/// `KirinPreCandidate` — pair 候補 1 件（C struct / B-102 ドロップダウン用）。
+/// `instance_id` は null 終端 C 文字列（最大 63 文字）。`name` は PRE 表示名（旧 schema /
+/// 未設定は `has_name=0` で `name` 内容は不定）。固定長 out-param で marshalling する。
+#[repr(C)]
+pub struct KirinPreCandidate {
+    pub instance_id: [c_char; ID_BUF_LEN],
+    pub name: [c_char; ID_BUF_LEN],
+    pub has_name: u8,
 }
 
 /// `KirinDelta` — POST の Δ（C struct / B-061 3d-b）。各 double の「値なし」は NaN。
@@ -1162,6 +1298,89 @@ pub unsafe extern "C" fn kirin_hypha_stop(handle: *mut KirinHyphaEngine) {
         }
         unsafe { (*handle).stop() };
     }));
+}
+
+/// POST「All Keep」: all_keep broadcast を書いてから自身の keep を発火する（B-102 / 新↔新）。
+/// 同一 DAW セッションの他 POST が自分の pair を keep する。自 keep 成功（有効ペアあり）で true。
+///
+/// # Safety
+/// `handle` は有効なハンドル。
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_keep_all(handle: *mut KirinHyphaEngine) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() {
+            return false;
+        }
+        unsafe { (*handle).keep_all() }
+    }))
+    .unwrap_or(false)
+}
+
+/// POST「All Stop」: all_stop broadcast を書いてから自身の stop を発火する（B-102 / 新↔新）。
+///
+/// # Safety
+/// `handle` は有効なハンドル。
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_stop_all(handle: *mut KirinHyphaEngine) {
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() {
+            return;
+        }
+        unsafe { (*handle).stop_all() };
+    }));
+}
+
+/// All Keep の「N ready」= pair 設定済の Active POST 数（B-102 / egui n_ready と同一・UI Thread）。
+/// null は 0。
+///
+/// # Safety
+/// `handle` は有効なハンドル。
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_count_keep_ready(handle: *mut KirinHyphaEngine) -> usize {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() {
+            return 0;
+        }
+        unsafe { (*handle).count_keep_ready() }
+    }))
+    .unwrap_or(0)
+}
+
+/// pair 候補（Active な PRE）を `out`（最大 `cap` 件）へ書き、書いた件数を返す（B-102 / UI Thread）。
+/// `out` は呼び出し側が確保した `KirinPreCandidate[cap]`。`cap` を超える候補は切り捨てる。
+/// null / `cap==0` は 0。各 `instance_id` / `name` は null 終端（最大 63 文字 / `has_name` で名前有無）。
+///
+/// # Safety
+/// `handle` は有効なハンドル。`out` は `cap` 要素以上の書込可能 `KirinPreCandidate` 配列であること。
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_enumerate_pre_candidates(
+    handle: *mut KirinHyphaEngine,
+    out: *mut KirinPreCandidate,
+    cap: usize,
+) -> usize {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() || out.is_null() || cap == 0 {
+            return 0;
+        }
+        let cands = unsafe { (*handle).enumerate_pre_candidates() };
+        let n = cands.len().min(cap);
+        let slice = unsafe { std::slice::from_raw_parts_mut(out, n) };
+        for (dst, (iid, name)) in slice.iter_mut().zip(cands.into_iter().take(n)) {
+            write_c_buf(&mut dst.instance_id, &iid);
+            match name {
+                Some(nm) => {
+                    write_c_buf(&mut dst.name, &nm);
+                    dst.has_name = 1;
+                }
+                None => {
+                    write_c_buf(&mut dst.name, "");
+                    dst.has_name = 0;
+                }
+            }
+        }
+        n
+    }))
+    .unwrap_or(0)
 }
 
 /// POST の Δ を `out` に書く（3d-b / GUI 表示用）。値があれば true、競合/未計測なら false。

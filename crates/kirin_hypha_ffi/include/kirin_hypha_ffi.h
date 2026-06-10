@@ -11,6 +11,7 @@
  *   - 識別子:  set_identity / get_identity（state chunk 方式A）.
  *   - IO:      enable_pre_writes（PRE）/ enable_post_writes（POST）.
  *   - ペアリング: set_pair_target / set_pre_name / keep / stop / poll_delta（POST Keep → PRE ack）.
+ *   - 一斉操作: keep_all / stop_all（broadcast + self）/ enumerate_pre_candidates（B-102 / 新↔新）.
  *   - LED poller: measure_alive / record_acknowledged / preset_available（B-054 / read-only）.
  *   - Note:    add_annotation.
  *   - Option<f64> は NaN sentinel で表す（C 側は isnan() で「値なし」を判定）.
@@ -79,6 +80,14 @@ typedef struct {
   double n_prime_total;
   double sharpness;
 } KirinDelta;
+
+/* pair 候補 1 件（B-102 / GUI ドロップダウン用）. instance_id は null 終端（最大 63 文字）.
+ * name は PRE 表示名（has_name=0 のとき内容不定）. enumerate_pre_candidates が固定長配列へ書く. */
+typedef struct {
+  char instance_id[64];
+  char name[64];
+  uint8_t has_name;
+} KirinPreCandidate;
 
 /* ランタイム生成. sample_rate!=48000 は内部で 48k 変換. num_channels は stereo(2) 前提. */
 KirinHypha* kirin_hypha_create(uint32_t sample_rate, uint32_t num_channels);
@@ -157,6 +166,21 @@ bool kirin_hypha_is_recording(KirinHypha* handle);
 
 /* POST「Stop」: pair 解除（record_signal released）+ Watch へ戻す（3d-b）. */
 void kirin_hypha_stop(KirinHypha* handle);
+
+/* POST「All Keep」: all_keep broadcast を書いてから自身の keep を発火（B-102 / 新↔新）.
+ * 同一 DAW セッションの他 POST が各自の pair を keep する. 自 keep 成功（有効ペアあり）で true. */
+bool kirin_hypha_keep_all(KirinHypha* handle);
+
+/* POST「All Stop」: all_stop broadcast を書いてから自身の stop を発火（B-102 / 新↔新）. */
+void kirin_hypha_stop_all(KirinHypha* handle);
+
+/* pair 候補（Active な PRE）を out（最大 cap 件）へ書き、書いた件数を返す（B-102 / UI Thread）.
+ * out は呼び出し側確保の KirinPreCandidate[cap]. cap 超過は切り捨て. null / cap==0 は 0. */
+size_t kirin_hypha_enumerate_pre_candidates(KirinHypha* handle, KirinPreCandidate* out, size_t cap);
+
+/* All Keep の「N ready」= pair 設定済の Active POST 数（B-102 / egui n_ready と同一・UI Thread）.
+ * null は 0. */
+size_t kirin_hypha_count_keep_ready(KirinHypha* handle);
 
 /* POST の Δ を out へ（3d-b / GUI 表示用）. 値あり=true / 競合・未計測=false（UI Thread）.
  * post.json には Δ でなく POST 生メトリクスが入る（Δ はこの API で公開）. */

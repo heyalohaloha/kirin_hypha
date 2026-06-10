@@ -61,6 +61,13 @@ public:
     bool presetAvailable() const;   // FFI kirin_hypha_preset_available (PresetAvailable LED)
     bool addAnnotation (const juce::String& memo); // FFI kirin_hypha_add_annotation (POST Note → Good/Fix/Hold)
 
+    // --- B-102: POST broadcast (All Keep / All Stop) + candidate enumeration (new↔new) -----
+    struct PreCandidate { juce::String instanceId; juce::String name; bool hasName = false; };
+    bool keepAll();                                       // FFI kirin_hypha_keep_all (broadcast + self keep)
+    void stopAll();                                       // FFI kirin_hypha_stop_all (broadcast + self stop)
+    juce::Array<PreCandidate> enumeratePreCandidates() const; // FFI kirin_hypha_enumerate_pre_candidates
+    int keepReadyCount() const;                               // FFI kirin_hypha_count_keep_ready (egui n_ready)
+
     const juce::String getName() const override;
     bool acceptsMidi() const override;
     bool producesMidi() const override;

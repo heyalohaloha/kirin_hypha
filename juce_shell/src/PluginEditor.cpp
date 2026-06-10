@@ -60,6 +60,15 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
             if (! juce::URL ("https://kirinmastering.com").launchInDefaultBrowser())
                 showToast ("Could not open browser");
         };
+
+        // B-102: ▼ dropdown beside the pair field — All Keep / All Stop / candidate list.
+        // The free-text pair field (nameField) is retained; this only adds the egui ComboBox.
+        pairDropdown.setButtonText (juce::String::charToString ((juce::juce_wchar) 0x25BC)); // ▼
+        pairDropdown.setColour (juce::TextButton::buttonColourId, hypha::kFieldFill);
+        pairDropdown.setColour (juce::TextButton::textColourOnId,  COL_FLORA);
+        pairDropdown.setColour (juce::TextButton::textColourOffId, COL_FLORA);
+        pairDropdown.onClick = [this] { showCandidateMenu(); };
+        addAndMakeVisible (pairDropdown);
     }
     else
     {
@@ -121,7 +130,9 @@ void KirinHyphaEditor::resized()
     {
         pairRecLabel.setBounds (fieldLeft, kTopSpace, juce::jmax (0, fieldRight - fieldLeft), kTitleH);
         const int nameY = kTopSpace + kTitleH + 4;      // 38
-        nameField.setBounds (kMargin, nameY, w - 2 * kMargin, 22);
+        const int ddW = 22;                             // ▼ dropdown width (B-102)
+        nameField.setBounds (kMargin, nameY, w - 2 * kMargin - ddW - 4, 22);
+        pairDropdown.setBounds (w - kMargin - ddW, nameY, ddW, 22);
         floraY    = nameY + 22 + 8;                     // 68
         metricTop = floraY + 1 + 6;                     // 75
     }
@@ -227,6 +238,63 @@ void KirinHyphaEditor::showToast (const juce::String& msg)
     toastUntil = nowSecs() + 3.0; // TOAST_DURATION_SECS
     toastLabel.setText (msg, juce::dontSendNotification);
     toastLabel.setVisible (true);
+}
+
+void KirinHyphaEditor::showCandidateMenu()
+{
+    // B-102: egui draw_pair_pre_combo parity (scope = new↔new). Built on click (no per-tick FFI):
+    //   [All Keep (N ready)] (Watch, N>=1) / [All Stop] (Record) / candidate rows ("name #id8").
+    // select_target_pre matches by name, so only named candidates are offered (egui skips empty).
+    const bool rec = processorRef.isRecording();
+    const bool playing = processorRef.isPlaying(); // W-280: pair change locked during playback
+    const auto cands = processorRef.enumeratePreCandidates();
+
+    menuCandidateNames.clearQuick();
+    juce::StringArray labels;
+    for (const auto& c : cands)
+        if (c.hasName && c.name.isNotEmpty())
+        {
+            menuCandidateNames.add (c.name);
+            labels.add (c.name + "  #" + c.instanceId.substring (0, 8));
+        }
+
+    // egui parity: "N ready" = pair-set POST instances (keepReadyCount), NOT the PRE candidate
+    // count — the All Keep broadcast acts on POSTs (hypha_post editor.rs:938-944). Candidate rows
+    // below are the PRE list (menuCandidateNames), matching egui's separate pre_candidates source.
+    const int nReady = processorRef.keepReadyCount();
+    juce::PopupMenu menu;
+    if (! rec && nReady >= 1)
+        menu.addItem (1, "All Keep (" + juce::String (nReady) + " ready)");
+    if (rec)
+        menu.addItem (2, "All Stop");
+    if (menu.getNumItems() > 0)
+        menu.addSeparator();
+    if (menuCandidateNames.isEmpty())
+        menu.addItem (3, "No candidates", false, false); // disabled (R-26: silent when nothing)
+    else
+        for (int i = 0; i < labels.size(); ++i)
+            menu.addItem (100 + i, labels[i], ! playing, false); // candidates locked while playing
+
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&pairDropdown),
+                        [this] (int result) { handleCandidateMenu (result); });
+}
+
+void KirinHyphaEditor::handleCandidateMenu (int result)
+{
+    if (result == 1)
+        processorRef.keepAll();
+    else if (result == 2)
+        processorRef.stopAll();
+    else if (result >= 100)
+    {
+        const int idx = result - 100;
+        if (idx >= 0 && idx < menuCandidateNames.size())
+        {
+            const juce::String name = menuCandidateNames[idx];
+            processorRef.setPairName (name);     // -> kirin_hypha_set_pair_target
+            nameField.setModelName (name);       // reflect immediately in the field
+        }
+    }
 }
 
 void KirinHyphaEditor::timerCallback()

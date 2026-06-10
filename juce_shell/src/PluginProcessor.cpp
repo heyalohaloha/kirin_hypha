@@ -276,6 +276,52 @@ bool KirinHyphaProcessorBase::addAnnotation (const juce::String& memo)
     return kirin_hypha_add_annotation (hyphaHandle, memo.toRawUTF8());
 }
 
+// --- B-102: POST broadcast + candidate enumeration -----------------------------------------
+
+bool KirinHyphaProcessorBase::keepAll()
+{
+    const juce::ScopedLock sl (handleLock);
+    if (hyphaHandle == nullptr)
+        return false;
+    return kirin_hypha_keep_all (hyphaHandle);
+}
+
+void KirinHyphaProcessorBase::stopAll()
+{
+    const juce::ScopedLock sl (handleLock);
+    if (hyphaHandle != nullptr)
+        kirin_hypha_stop_all (hyphaHandle);
+}
+
+juce::Array<KirinHyphaProcessorBase::PreCandidate> KirinHyphaProcessorBase::enumeratePreCandidates() const
+{
+    juce::Array<PreCandidate> out;
+    const juce::ScopedLock sl (handleLock);
+    if (hyphaHandle == nullptr)
+        return out;
+
+    constexpr size_t kCap = 32; // generous; FFI truncates beyond this
+    KirinPreCandidate buf[kCap];
+    const size_t n = kirin_hypha_enumerate_pre_candidates (hyphaHandle, buf, kCap);
+    for (size_t i = 0; i < n; ++i)
+    {
+        PreCandidate c;
+        c.instanceId = juce::String::fromUTF8 (buf[i].instance_id);
+        c.name       = juce::String::fromUTF8 (buf[i].name);
+        c.hasName    = (buf[i].has_name != 0);
+        out.add (c);
+    }
+    return out;
+}
+
+int KirinHyphaProcessorBase::keepReadyCount() const
+{
+    const juce::ScopedLock sl (handleLock);
+    if (hyphaHandle == nullptr)
+        return 0;
+    return (int) kirin_hypha_count_keep_ready (hyphaHandle);
+}
+
 const juce::String KirinHyphaProcessorBase::getName() const
 {
     return role == Role::Post ? "Kirin Hypha POST" : "Kirin Hypha PRE";
