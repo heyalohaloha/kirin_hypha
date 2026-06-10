@@ -29,13 +29,17 @@ add_subdirectory(JUCE)
 # (KirinHyphaProcessorBase). They link the same kirin_hypha_ffi staticlib and compile the
 # same PluginProcessor.cpp / PluginEditor.cpp; only the per-target PluginMain{PRE,POST}.cpp
 # (the createPluginFilter Role) and the AU/VST3 identifiers differ.
-function(add_kirin_plugin TARGET CODE PRODUCT MAIN_SRC)
+# B-094: BUNDLE_ID is the canonical CFBundleIdentifier (com.kirinmastering.hypha.{pre,post})
+# matching the published v1.0.0 — set explicitly so it is not the JUCE default com.<company>.<target>.
+# AU identity (PLUGIN_MANUFACTURER_CODE Kirn / PLUGIN_CODE Khpr|Khpo / AU_MAIN_TYPE aufx) is unchanged.
+function(add_kirin_plugin TARGET CODE PRODUCT MAIN_SRC BUNDLE_ID)
     juce_add_plugin(${TARGET}
         PLUGIN_MANUFACTURER_CODE Kirn          # newly assigned (>=1 uppercase)
         PLUGIN_CODE ${CODE}                    # Khpr (PRE) / Khpo (POST); exactly 1 uppercase
         FORMATS AU VST3
         PRODUCT_NAME ${PRODUCT}
         COMPANY_NAME "Kirin"
+        BUNDLE_ID ${BUNDLE_ID}                 # B-094: canonical com.kirinmastering.hypha.{pre,post}
         AU_MAIN_TYPE kAudioUnitType_Effect
         VST3_CATEGORIES Fx Analyzer
         IS_SYNTH FALSE
@@ -69,5 +73,5 @@ function(add_kirin_plugin TARGET CODE PRODUCT MAIN_SRC)
             juce::juce_recommended_warning_flags)
 endfunction()
 
-add_kirin_plugin(KirinHyphaPRE  Khpr "Kirin Hypha PRE"  src/PluginMainPRE.cpp)
-add_kirin_plugin(KirinHyphaPOST Khpo "Kirin Hypha POST" src/PluginMainPOST.cpp)
+add_kirin_plugin(KirinHyphaPRE  Khpr "Kirin Hypha PRE"  src/PluginMainPRE.cpp  "com.kirinmastering.hypha.pre")
+add_kirin_plugin(KirinHyphaPOST Khpo "Kirin Hypha POST" src/PluginMainPOST.cpp "com.kirinmastering.hypha.post")
