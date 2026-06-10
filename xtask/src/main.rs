@@ -1,4 +1,5 @@
 mod gen_signals;
+mod install;
 mod notarize;
 
 fn main() -> nih_plug_xtask::Result<()> {
@@ -7,6 +8,10 @@ fn main() -> nih_plug_xtask::Result<()> {
         Some("gen-signals") => {
             args.remove(0);
             gen_signals::run(args)
+        }
+        Some("install") => {
+            args.remove(0);
+            install::run(args)
         }
         Some("notarize") => {
             args.remove(0);
