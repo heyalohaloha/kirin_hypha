@@ -32,9 +32,9 @@ use kirin_measure::{
     check_record_exclusion, delete_broadcast, delete_signal,
     enumerate_active_post_pair_candidates, enumerate_active_pre_pair_candidates, exit_record_full,
     format_pair_label, load_signal_state, lookup_section_label, mark_released, sanitize_name,
-    scan_latest_v2_preset, select_target_pre_for_arm, show_note_button, show_save_button,
+    resolve_arm_target, scan_latest_v2_preset, show_note_button, show_save_button,
     show_stop_record_button, write_broadcast, write_pending, write_stop_broadcast, DeltaMode,
-    DeltaResult, DeltaSnapshot, ExclusionResult, License, MeasureResult, PluginDataRole,
+    DeltaResult, DeltaSnapshot, ExclusionResult, LatchedPre, License, MeasureResult, PluginDataRole,
     PreCandidate, PresetFileV2, RecordStateMachine, SignalState, StoragePaths, TransitionError,
     MAX_ACTIVE_PER_PROJECT, SENSE_RECORD_HINT, SENSE_UPSELL_URL,
 };
@@ -169,6 +169,9 @@ pub struct PostEditorState {
     /// `read()` した値を `filter_candidates_by_name` の引数に渡す。
     pub pair_pre_name: Arc<RwLock<String>>,
 
+    /// B-108: display/keep 共有ラッチ。trigger_keep が `resolve_arm_target` で読む（io_thread と同実体）。
+    pub latched_pre: Arc<Mutex<Option<LatchedPre>>>,
+
     /// W-281 / G-115-249: pair_claimed_at (Unix epoch sec) Arc 共有。
     /// editor.rs TextEdit Enter / ComboBox PRE click で write、IO Thread が read。
     pub pair_claimed_at: Arc<RwLock<f64>>,
@@ -230,6 +233,7 @@ impl PostEditorState {
             pair_claimed_at: args.pair_claimed_at,
             pair_release_notice: args.pair_release_notice,
             record_error_message: args.record_error_message,
+            latched_pre: args.latched_pre,
             bg: BackgroundTexture::new(),
             prev_ack: false,
             banner_until: None,
@@ -281,6 +285,8 @@ pub struct PostEditorArgs {
     pub pair_release_notice: Arc<RwLock<Option<String>>>,
     /// B-025 Group B-2/B-3 / Gap-19/20: io_thread → GUI ステータス行通知 Arc。
     pub record_error_message: Arc<RwLock<Option<String>>>,
+    /// B-108: display/keep 共有ラッチ。
+    pub latched_pre: Arc<Mutex<Option<LatchedPre>>>,
 }
 
 // ── 公開エントリポイント ─────────────────────────────────────────────────
@@ -990,6 +996,7 @@ fn draw_pair_pre_combo(ui: &mut egui::Ui, state: &mut PostEditorState, now: f64,
                             &mut state.toast,
                             now,
                             &pair_pre_name_snapshot,
+                            &state.latched_pre, // B-108: ラッチ先を直接 target に使う
                         );
 
                         // §4-5 Step 4 診断: click handler 後続処理 (trigger_keep →
@@ -1182,6 +1189,7 @@ fn draw_button_row(
                         &mut state.toast,
                         now,
                         &pair_pre_name_snapshot,
+                        &state.latched_pre, // B-108: ラッチ先を直接 target に使う
                     );
                 }
             } else if license == License::Sense {
@@ -1242,6 +1250,8 @@ fn trigger_keep(
     toast: &mut Option<Toast>,
     now: f64,
     pair_pre_name: &str,
+    // B-108: ラッチ済みならラッチ先を直接 Arm target に使う（resolve_arm_target 内で分岐）。
+    latched: &Mutex<Option<LatchedPre>>,
 ) {
     trigger_keep_internal(
         license,
@@ -1255,6 +1265,7 @@ fn trigger_keep(
         Some(toast),
         now,
         pair_pre_name,
+        latched,
     );
 }
 
@@ -1281,6 +1292,9 @@ pub(crate) fn trigger_keep_internal(
     mut toast: Option<&mut Option<Toast>>,
     now: f64,
     pair_pre_name: &str,
+    // B-108: ラッチ済みならラッチ先を直接 Arm target に使う（同名2台目でも結合不変）。未ラッチ時のみ
+    // select_target_pre_for_arm にフォールバック（resolve_arm_target 内で分岐）。
+    latched: &Mutex<Option<LatchedPre>>,
 ) {
     // 1. ストレージパス解決
     let paths = match StoragePaths::default_macos() {
@@ -1302,7 +1316,7 @@ pub(crate) fn trigger_keep_internal(
     // **一意 1 件のみ Some** / Active 要求なし）。停止中・無音の PRE もアーム可（v1.0.0 復元）。
     // pair_pre_name 空 / 同名複数 / 不在 / Bypassed / 古t は None → "No PRE Paired"。表示Δ
     // (io_thread_post::run_tick) は `select_target_pre`（Active 維持）のまま。
-    let target_id = match select_target_pre_for_arm(&tmp_base, pair_pre_name) {
+    let target_id = match resolve_arm_target(&tmp_base, pair_pre_name, latched) {
         Some(sel) => sel.instance_id,
         None => {
             log::info!(

@@ -46,10 +46,10 @@ use kirin_measure::{
     append_annotation_to_latest, can_write_plugin_data,
     enumerate_active_post_pair_candidates, enumerate_active_pre_pair_candidates, load_license_safe,
     mark_released,
-    sanitize_name, select_target_pre_for_arm, set_daw_session_id, set_project_uuid,
+    resolve_arm_target, sanitize_name, set_daw_session_id, set_project_uuid,
     spawn_io_thread_post,
     spawn_io_thread_pre, spawn_measure_thread, store_signal_state, write_broadcast, write_pending,
-    write_stop_broadcast, DeltaMode, DeltaResult, License, MeasureResult, PluginDataRole,
+    write_stop_broadcast, DeltaMode, DeltaResult, LatchedPre, License, MeasureResult, PluginDataRole,
     PsbSummary, RecordStateMachine, SignalState, StoragePaths, N_CHANNELS, RING_BUFFER_SECONDS,
 };
 
@@ -190,6 +190,10 @@ pub struct KirinHyphaEngine {
     /// `enable_post_writes` で io_thread_post と Arc 共有する。PresetAvailable LED の判定に使う。
     /// PRE engine では io_thread に渡らないため常に false（egui PRE と一致）。
     preset_available: Arc<AtomicBool>,
+    /// B-108: display と keep/Arm が共有する単一ラッチ。`enable_post_writes` で io_thread_post と
+    /// Arc 共有し、keep/keep_all/broadcast 受信が `resolve_arm_target` で読む。一度成立した PRE 結合を
+    /// 保持し、解除は pair 名変更/クリアと PRE 実消滅のみ（B-108）。
+    latched_pre: Arc<Mutex<Option<LatchedPre>>>,
 }
 
 // SAFETY: `ring_producer`(UnsafeCell<rtrb::Producer>) は push_samples からのみ触れ、
@@ -306,6 +310,9 @@ fn resolve_and_enter_keep(
     project_hash: &str,
     post_iid: &str,
     daw: &str,
+    // B-108: ラッチ済みならラッチ先を直接 Arm target に使う（同名2台目でも結合不変）。未ラッチ時のみ
+    // select_target_pre_for_arm にフォールバックする（resolve_arm_target 内で分岐）。
+    latched: &Mutex<Option<LatchedPre>>,
 ) -> bool {
     // B-071 double-keep guard: 既に Record 中なら no-op（既存 linkage 温存）。
     if record_sm.is_recording() {
@@ -313,10 +320,10 @@ fn resolve_and_enter_keep(
     }
     let kirin_root = std::env::temp_dir().join("kirin");
     let pair = pair_target.read().map(|g| g.clone()).unwrap_or_default();
-    // B-104: Arm 経路は select_target_pre_for_arm（非Bypassed + fresh + 一意 / Active 要求なし）。
-    // v1.0.0 の「アーム→再生」を復元する。Display(run_tick Δ) は select_target_pre のまま。
-    let Some(sel) = select_target_pre_for_arm(&kirin_root, &pair) else {
-        return false; // 厳格: 空名/不在/曖昧/Bypassed/古t（Inactive は許容）
+    // B-108: ラッチ済み（名前一致+fresh）はラッチ先を直接使用、未ラッチは B-104 Arm ゲート
+    // （非Bypassed + fresh + 一意 / Active 要求なし）。v1.0.0 の「アーム→再生」を維持する。
+    let Some(sel) = resolve_arm_target(&kirin_root, &pair, latched) else {
+        return false; // 未ラッチ時の厳格選定 None: 空名/不在/曖昧/Bypassed/古t（Inactive は許容）。
     };
     let target = sel.instance_id;
     // linkage（B-062）: record_sm を Record に flip する前に set。
@@ -429,6 +436,8 @@ impl KirinHyphaEngine {
             pre_name: Arc::new(RwLock::new(String::new())),
             record_acknowledged: Arc::new(AtomicBool::new(false)),
             preset_available: Arc::new(AtomicBool::new(false)),
+            // B-108: 未ラッチで起動。enable_post_writes で io_thread_post と Arc 共有する。
+            latched_pre: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -675,10 +684,12 @@ impl KirinHyphaEngine {
             let project_hash = cb_project_hash.clone();
             let post_iid = cb_post_iid.clone();
             let daw = cb_daw.clone();
+            let latched = Arc::clone(&self.latched_pre);
             Arc::new(move |_pre: &str, _post: &str| {
                 let lic = license_from_abi(license.load(Ordering::Relaxed));
                 let _ = resolve_and_enter_keep(
                     lic, &record_sm, &pair_target, &paired, &project_hash, &post_iid, &daw,
+                    &latched,
                 );
             })
         };
@@ -717,6 +728,7 @@ impl KirinHyphaEngine {
             pair_release_notice,
             Arc::clone(&self.session_summary),
             Arc::clone(&self.push_overflow), // B-076: per-Record dropped_samples
+            Arc::clone(&self.latched_pre), // B-108: display/keep 共有ラッチ
         );
 
         *slot = Some(IoThreadHandle { shutdown: io_shutdown, handle });
@@ -817,6 +829,7 @@ impl KirinHyphaEngine {
             &project_hash,
             &post_iid,
             &daw,
+            &self.latched_pre, // B-108: ラッチ済みならラッチ先を直接 target に使う
         )
     }
 

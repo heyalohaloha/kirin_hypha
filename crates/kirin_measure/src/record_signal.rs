@@ -46,6 +46,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 /// pending → acknowledged タイムアウト（秒）。
 pub const ACK_TIMEOUT_SECONDS: i64 = 30;
@@ -692,6 +693,76 @@ pub fn select_target_pre(kirin_root: &Path, pair_pre_name: &str) -> Option<Selec
 /// （停止中・無音でもアーム可）を復元する。Display（[`select_target_pre`]）は変更しない。
 pub fn select_target_pre_for_arm(kirin_root: &Path, pair_pre_name: &str) -> Option<SelectedPre> {
     select_target_pre_core(kirin_root, pair_pre_name, false)
+}
+
+/// B-108: 一度成立した PRE↔POST 結合（ラッチ）。display tick と keep/Arm が共有する単一実体。
+/// 解除は (a) 利用者が pair 名を変更/クリア、(b) ラッチ先 PRE の実消滅（pre.json 削除 or
+/// stale > `NO_PRE_SECS`）のみ。無音・停止・一時的鮮度揺らぎ・同名2台目では解除しない
+/// （B-108 / B-059「display previews commit」の改訂）。曖昧性（同名複数）は初回ラッチ時のみ評価。
+#[derive(Clone, Debug)]
+pub struct LatchedPre {
+    /// ラッチ時の pair 名（POST の pair_pre_name と一致する間だけ保持）。
+    pub name: String,
+    /// ラッチ先 PRE の永続 instance_id（keep の record_signal target）。
+    pub instance_id: String,
+    /// `compute_delta_with_state` に渡す `{project_uuid}` ディレクトリ。
+    pub project_dir: PathBuf,
+    /// ラッチ先 PRE の `pre.json` 絶対パス（毎 tick 直読する固定先）。
+    pub pre_json: PathBuf,
+}
+
+/// B-108: ラッチ先 `pre.json` の単一直読結果。`None` = ファイル不在/読込不可/parse 不可
+/// （= PRE 実消滅 → アンラッチ）。
+pub struct LatchedPreState {
+    /// `pre.json` の `name` field（ラッチ名と一致するか判定 / renamed → アンラッチ）。
+    pub name: Option<String>,
+    /// `signal_state == "active"`（true→Δ 計算 / false→latched-idle = Stale+NaN）。
+    pub active: bool,
+    /// `t` age < `NO_PRE_SECS`（10s）= fresh（プラグイン生存）。stale → アンラッチ。
+    pub fresh: bool,
+}
+
+/// B-108: ラッチ先の **1 個**の `pre.json` を直読し、ラッチ判定に必要な状態を返す。
+/// `select_target_pre` のような全棚 scan / 曖昧性評価は行わない（ラッチ後は再選定しない）。
+/// 計測エンジン非依存・schema 0 変更（既存 `name`/`signal_state`/`t` field のみ読む）。
+pub fn read_pre_at(pre_json: &Path) -> Option<LatchedPreState> {
+    let content = fs::read_to_string(pre_json).ok()?;
+    let v: serde_json::Value = serde_json::from_str(&content).ok()?;
+    let name = v.get("name").and_then(|x| x.as_str()).map(str::to_string);
+    let active = v.get("signal_state").and_then(|x| x.as_str()) == Some("active");
+    let fresh = v
+        .get("t")
+        .and_then(|x| x.as_str())
+        .map(|t| t_age_within(t, crate::io_thread_post::NO_PRE_SECS))
+        .unwrap_or(false);
+    Some(LatchedPreState { name, active, fresh })
+}
+
+/// B-108: keep/Arm の target 解決。**ラッチ済み**（名前一致 & ラッチ先 pre.json が fresh & 同名）
+/// ならラッチ先を直接返す（同名2台目が現れても結合不変）。未ラッチ時のみ
+/// [`select_target_pre_for_arm`] にフォールバックする。`keep` / `trigger_keep_internal` /
+/// broadcast 受信 / `keep_all`（egui/JUCE 両殻）が select_target_pre_for_arm の代わりに呼ぶ。
+pub fn resolve_arm_target(
+    kirin_root: &Path,
+    pair_pre_name: &str,
+    latched: &Mutex<Option<LatchedPre>>,
+) -> Option<SelectedPre> {
+    if let Ok(g) = latched.lock() {
+        if let Some(l) = g.as_ref() {
+            if l.name == pair_pre_name {
+                if let Some(st) = read_pre_at(&l.pre_json) {
+                    if st.fresh && st.name.as_deref() == Some(pair_pre_name) {
+                        return Some(SelectedPre {
+                            instance_id: l.instance_id.clone(),
+                            pre_json: l.pre_json.clone(),
+                            project_dir: l.project_dir.clone(),
+                        });
+                    }
+                }
+            }
+        }
+    }
+    select_target_pre_for_arm(kirin_root, pair_pre_name)
 }
 
 /// `t`(RFC3339) が現在から `max_secs` 秒以内か。parse 失敗は false（安全側で除外）。
@@ -1491,6 +1562,68 @@ mod tests {
         assert!(select_target_pre(&root, "snare").is_none(), "Display: Inactive は除外（不変）");
         // Arm は Inactive を許容（B-104 / 停止中アーム）。
         let sel = select_target_pre_for_arm(&root, "snare").expect("Arm: Inactive+fresh+一意 → Some");
+        assert_eq!(sel.instance_id, "iid-A");
+    }
+
+    // ── B-108: read_pre_at / resolve_arm_target（ラッチ keep 経路）─────────────────
+
+    #[test]
+    fn read_pre_at_fresh_active() {
+        let root = isolated_dir();
+        write_pre_for_select(&root, "puid-1", "iid-A", "snare", "active", &now_rfc3339());
+        let p = root.join("puid-1").join("iid-A").join("pre.json");
+        let st = read_pre_at(&p).expect("fresh active → Some");
+        assert_eq!(st.name.as_deref(), Some("snare"));
+        assert!(st.active && st.fresh);
+    }
+
+    #[test]
+    fn read_pre_at_idle_stale_gone() {
+        let root = isolated_dir();
+        let p = root.join("puid-1").join("iid-A").join("pre.json");
+        // idle: fresh だが signal_state!=active。
+        write_pre_for_select(&root, "puid-1", "iid-A", "snare", "inactive", &now_rfc3339());
+        let st = read_pre_at(&p).unwrap();
+        assert!(!st.active && st.fresh, "idle: active=false fresh=true");
+        // stale: t age > NO_PRE_SECS。
+        write_pre_for_select(&root, "puid-1", "iid-A", "snare", "active", &old_rfc3339(20));
+        assert!(!read_pre_at(&p).unwrap().fresh, "stale>10s → fresh=false");
+        // gone。
+        fs::remove_file(&p).unwrap();
+        assert!(read_pre_at(&p).is_none(), "不在 → None");
+    }
+
+    /// T6 系: ラッチ済みなら同名 2 台目（曖昧）が居ても resolve_arm_target はラッチ先 instance_id を返す
+    /// （素の select_target_pre_for_arm は曖昧で None になるところを、ラッチが結合を保持する）。
+    #[test]
+    fn resolve_arm_target_uses_latch_over_ambiguous() {
+        let root = isolated_dir();
+        let now = now_rfc3339();
+        write_pre_for_select(&root, "puid-1", "iid-A", "snare", "active", &now);
+        let pre_json = root.join("puid-1").join("iid-A").join("pre.json");
+        let latched = std::sync::Mutex::new(Some(LatchedPre {
+            name: "snare".to_string(),
+            instance_id: "iid-A".to_string(),
+            project_dir: root.join("puid-1"),
+            pre_json,
+        }));
+        // 同名 2 台目（曖昧）。
+        write_pre_for_select(&root, "puid-2", "iid-B", "snare", "active", &now);
+        assert!(
+            select_target_pre_for_arm(&root, "snare").is_none(),
+            "曖昧（同名2件）→ 素の Arm 選定は None"
+        );
+        let sel = resolve_arm_target(&root, "snare", &latched).expect("ラッチ済み → Some");
+        assert_eq!(sel.instance_id, "iid-A", "ラッチ先を直接返す（曖昧を無視）");
+    }
+
+    /// 未ラッチ時は select_target_pre_for_arm にフォールバックする。
+    #[test]
+    fn resolve_arm_target_falls_back_when_unlatched() {
+        let root = isolated_dir();
+        write_pre_for_select(&root, "puid-1", "iid-A", "snare", "active", &now_rfc3339());
+        let latched = std::sync::Mutex::new(None);
+        let sel = resolve_arm_target(&root, "snare", &latched).expect("未ラッチ → fallback Some");
         assert_eq!(sel.instance_id, "iid-A");
     }
 

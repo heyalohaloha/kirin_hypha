@@ -31,7 +31,8 @@ use crate::plugin_data::Role as PluginDataRole;
 use crate::pre_discovery::{PostDiscoveryState, DISCOVERY_STALE_SECS};
 use crate::record::RecordStateMachine;
 use crate::record_signal::{
-    self, select_target_pre, SignalStatus, ACK_TIMEOUT_SECONDS, SIGNALS_SUBDIR,
+    self, read_pre_at, select_target_pre_for_arm, LatchedPre, SignalStatus, ACK_TIMEOUT_SECONDS,
+    SIGNALS_SUBDIR,
 };
 use crate::engine::SessionSummary;
 use crate::record_writer::{
@@ -159,6 +160,9 @@ pub fn spawn_io_thread_post(
     // B-076: 累積 push_overflow（Audio Thread が ring 満杯時に積む）。run_record_tick が
     // Record 開始で snapshot し close 時に差分を per-Record dropped_samples として焼き込む。
     overflow: Arc<std::sync::atomic::AtomicU64>,
+    // B-108: display と keep/Arm が共有する単一ラッチ。io_thread が毎 tick 維持し、shell 側の
+    // keep/keep_all/broadcast 受信が `resolve_arm_target` で読む（egui/JUCE 両殻が同実体を渡す）。
+    latched_pre: Arc<Mutex<Option<LatchedPre>>>,
 ) -> JoinHandle<()> {
     thread::spawn(move || {
         // B-021 Phase 1A: PRE scan の起点は `kirin_root` (= $TMPDIR/kirin/) で、
@@ -336,6 +340,9 @@ pub fn spawn_io_thread_post(
                 &signal_state,
                 &pair_pre_name_snapshot,
                 pair_claimed_at_snapshot,
+                // B-108: Record 中はラッチ凍結（W-284 self_check-skip と同型）。latched は共有実体。
+                record_sm.is_recording(),
+                &latched_pre,
             ) {
                 Ok(()) => {}
                 Err(e) => log::warn!("[IOThread POST] tick error: {}", e),
@@ -758,6 +765,138 @@ pub(crate) fn snapshot_pair_pre_name(arc: &Arc<RwLock<String>>) -> String {
 /// `instance_dir` (POST 自身の post.json 書込先) は変更しない。POST 自身の
 /// `project_uuid` で構築された path のままで、検出された PRE dir とは独立。
 #[allow(clippy::too_many_arguments)]
+/// B-108: latched-idle 表示値（Stale + 全Δ None + `last_active` クリア / 凍結値なし）。
+fn delta_latched_idle() -> (DeltaResult, bool, Option<SignalState>) {
+    (
+        DeltaResult {
+            mode: DeltaMode::Stale,
+            ..Default::default()
+        },
+        true,
+        None,
+    )
+}
+
+/// B-108: 未ラッチ・ペアなし表示値（NoPre / `last_active` は resolve_delta_for_store がクリア）。
+fn delta_no_pre() -> (DeltaResult, bool, Option<SignalState>) {
+    (
+        DeltaResult {
+            mode: DeltaMode::NoPre,
+            ..Default::default()
+        },
+        false,
+        None,
+    )
+}
+
+/// B-108: ラッチ意味論で表示Δを決める単一実装（`run_tick` の POST=Active 表示経路が呼ぶ）。
+///
+/// 戻り `(delta, store_directly, pre_signal_state)`:
+/// - `store_directly = true` は **latched-idle**（Stale + 全Δ None + `last_active = None`）。
+///   `run_tick` は `resolve_delta_for_store` を経由せずそのまま格納し凍結値の復活を防ぐ（--- のみ
+///   / B-048・B-049 維持）。
+/// - `false` は従来どおり `resolve_delta_for_store`（Active は last_active 保存、active-pair の
+///   fs-lag Stale は B-048 凍結保持、NoPre は last_active クリア）。
+///
+/// ラッチ規律（B-108）:
+/// - Record 中はラッチ凍結（アンラッチ/再選定しない / W-284 self_check-skip と同型）。真の PRE 実消滅は
+///   `poll_pre_liveness`(60s) が `exit_record_full` で処理（G-115-56/64 不変）。
+/// - Watch 中: pair 名変更/クリアで即アンラッチ。ラッチ先 pre.json を直読し、実消滅（不在/stale>TTL/
+///   rename）でアンラッチ → 同 tick で名前が残れば Arm ゲート（B-104）で再ラッチ（DAW 再開で自動復元）。
+///   未ラッチ時は Arm ゲートで初回解決（成立でラッチ）。同名2台目が現れてもラッチ済みなら再選定しない。
+fn compute_latched_display(
+    kirin_root: &Path,
+    pair_pre_name: &str,
+    post: &MeasureResult,
+    pair_opt: Option<&str>,
+    recording: bool,
+    latched: &Mutex<Option<LatchedPre>>,
+) -> Result<(DeltaResult, bool, Option<SignalState>), String> {
+    let current = latched.lock().ok().and_then(|g| g.clone());
+
+    if recording {
+        // Record 中: ラッチ凍結（再解決/アンラッチしない）。
+        let Some(l) = current else {
+            return Ok(delta_no_pre()); // ラッチ無しで Record（理論上稀）→ 従来 NoPre。
+        };
+        return match read_pre_at(&l.pre_json) {
+            Some(st) if st.fresh && st.active => {
+                let (d, ss) = compute_delta_with_state(&l.project_dir, post, pair_opt)?;
+                Ok((d, false, ss))
+            }
+            // 一時 idle / 一時消失(<60s) → latched-idle 表示（真消滅は poll_pre_liveness 管轄）。
+            _ => Ok(delta_latched_idle()),
+        };
+    }
+
+    // Watch 中。
+    // (1) 名前変更/クリア → 即アンラッチ。
+    let keep = current
+        .as_ref()
+        .is_some_and(|l| !pair_pre_name.is_empty() && l.name == pair_pre_name);
+    if current.is_some() && !keep {
+        if let Ok(mut g) = latched.lock() {
+            *g = None;
+        }
+    }
+
+    // (2) ラッチ維持中 → ラッチ先 pre.json 直読で維持/アンラッチ判定。
+    if keep {
+        let l = current.expect("keep implies current is Some");
+        match read_pre_at(&l.pre_json) {
+            // 実消滅（不在/読込不可）→ アンラッチし (3) の再ラッチへ落とす。
+            None => {
+                if let Ok(mut g) = latched.lock() {
+                    *g = None;
+                }
+            }
+            // stale>TTL or rename → アンラッチ。
+            Some(st) if !st.fresh || st.name.as_deref() != Some(pair_pre_name) => {
+                if let Ok(mut g) = latched.lock() {
+                    *g = None;
+                }
+            }
+            // fresh + active → 通常 Δ（現行どおり）。
+            Some(st) if st.active => {
+                let (d, ss) = compute_delta_with_state(&l.project_dir, post, pair_opt)?;
+                return Ok((d, false, ss));
+            }
+            // fresh + idle/silent → latched-idle（Stale + NaN / 凍結なし）。NoPre には落とさない。
+            Some(_) => return Ok(delta_latched_idle()),
+        }
+    }
+
+    // (3) 未ラッチ（含む直前アンラッチ）→ pair 名があれば Arm ゲートで初回/再ラッチ。
+    if pair_pre_name.is_empty() {
+        return Ok(delta_no_pre());
+    }
+    match select_target_pre_for_arm(kirin_root, pair_pre_name) {
+        Some(sel) => {
+            let pre_json = sel.pre_json.clone();
+            let project_dir = sel.project_dir.clone();
+            if let Ok(mut g) = latched.lock() {
+                *g = Some(LatchedPre {
+                    name: pair_pre_name.to_string(),
+                    instance_id: sel.instance_id,
+                    project_dir: project_dir.clone(),
+                    pre_json: pre_json.clone(),
+                });
+            }
+            // 初回ラッチ直後の同 tick 表示。
+            match read_pre_at(&pre_json) {
+                Some(st) if st.active => {
+                    let (d, ss) = compute_delta_with_state(&project_dir, post, pair_opt)?;
+                    Ok((d, false, ss))
+                }
+                _ => Ok(delta_latched_idle()),
+            }
+        }
+        // 0 件 or 曖昧(2+) → 沈黙（NoPre）。
+        None => Ok(delta_no_pre()),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 fn run_tick(
     // B-059: PRE 選定は select_target_pre(kirin_root) に一本化。project_dir_hint / discovery
     // (単一最新 dir の throttle/cache) は不要化（caller は据え置きで `_` 受け）。
@@ -773,6 +912,10 @@ fn run_tick(
     signal_state_atom: &Arc<AtomicU8>,
     pair_pre_name: &str,
     pair_claimed_at: f64,
+    // B-108: recording=Record 中はラッチ凍結（アンラッチ/再選定しない）。latched=display と
+    // keep/Arm が共有する単一ラッチ（io_thread が毎 tick 維持、keep が resolve_arm_target で読む）。
+    recording: bool,
+    latched: &Mutex<Option<LatchedPre>>,
 ) -> Result<(), String> {
     let state = load_signal_state(signal_state_atom);
 
@@ -802,29 +945,26 @@ fn run_tick(
         .map_err(|e| format!("post Mutex poisoned: {e}"))?
         .clone();
 
-    let (new_delta, pre_signal_state) = match select_target_pre(kirin_root, pair_pre_name) {
-        // 選定 PRE の `{project_uuid}` dir で Δ 計算（name 一意は select 済 → 同一 PRE）。
-        Some(sel) => compute_delta_with_state(&sel.project_dir, &post, pair_opt)?,
-        // 有効ペアなし → NoPre。
-        None => (
-            DeltaResult {
-                mode: DeltaMode::NoPre,
-                ..Default::default()
-            },
-            None,
-        ),
-    };
+    // B-108: ラッチ意味論で表示Δを決める（select_target_pre 直呼びを廃止）。一度成立した結合は
+    // 無音/停止/一時鮮度揺らぎ/同名2台目では NoPre に落とさず、解除は名前変更/クリアと PRE 実消滅のみ。
+    let (new_delta, store_directly, pre_signal_state) =
+        compute_latched_display(kirin_root, pair_pre_name, &post, pair_opt, recording, latched)?;
 
-    // last_active マージ:
-    // - Active → 新 6 軸 snapshot 保存 / Stale(5-10s・同一有効 pair) → 前回保持（B-048 維持）。
-    // - NoPre → **last_active クリア**（B-059 / G-115-245 置換: 選定 None で「見えないのに
-    //   凍結 Δ が残る」のを防ぐ。merge_last_active を経由せず None を書く）。
+    // last_active 規律:
+    // - store_directly（latched-idle）→ Stale + last_active=None をそのまま格納（凍結値復活禁止
+    //   / B-048・B-049 維持）。merge_last_active を経由しない。
+    // - それ以外 → resolve_delta_for_store（Active 保存 / active-pair fs-lag Stale は B-048 凍結保持
+    //   / NoPre は last_active クリア）。
     {
         let mut delta_locked = delta_result
             .lock()
             .map_err(|e| format!("delta Mutex poisoned: {e}"))?;
         let prev_last_active = delta_locked.last_active.clone();
-        *delta_locked = resolve_delta_for_store(new_delta, prev_last_active);
+        *delta_locked = if store_directly {
+            new_delta
+        } else {
+            resolve_delta_for_store(new_delta, prev_last_active)
+        };
     }
 
     // B-027 段階 3-B α-7-1 / Step 6: pair_pre_name は閉路 1 tick の snapshot
@@ -2003,6 +2143,193 @@ mod compute_delta_tests {
         )
         .unwrap();
         assert_eq!(r.0.mode, DeltaMode::NoPre);
+    }
+
+    // ── B-108: pairing latch（compute_latched_display）─────────────────────────
+
+    /// kirin_root（`{puid}` の親）を一意な temp に作る。
+    fn isolated_dir(tag: &str) -> PathBuf {
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let pid = std::process::id();
+        let dir = std::env::temp_dir().join(format!("kirin_{tag}_{pid}_{n}"));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// kirin_root に `{puid}/{iid}/pre.json`（signal_state/t 可変）を書き、pre.json パスを返す。
+    fn write_pre_latch(
+        kirin_root: &Path,
+        puid: &str,
+        iid: &str,
+        name: &str,
+        signal_state: &str,
+        t: &str,
+    ) -> PathBuf {
+        let dir = kirin_root.join(puid).join(iid);
+        fs::create_dir_all(&dir).unwrap();
+        let json = format!(
+            r#"{{"v":2,"role":"PRE","instance_id":"{iid}","name":"{name}","signal_state":"{signal_state}","t":"{t}","lufs_m":-14.0,"true_peak":-1.0,"crest":12.0,"psr":8.0}}"#
+        );
+        let p = dir.join("pre.json");
+        fs::write(&p, json).unwrap();
+        p
+    }
+    fn latch_now() -> String {
+        chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()
+    }
+    fn latch_old(secs: i64) -> String {
+        (chrono::Utc::now() - chrono::Duration::seconds(secs))
+            .format("%Y-%m-%dT%H:%M:%SZ")
+            .to_string()
+    }
+    fn latch_post() -> MeasureResult {
+        MeasureResult {
+            lufs_m: Some(-10.0),
+            true_peak: Some(-1.0),
+            crest: Some(12.0),
+            ..Default::default()
+        }
+    }
+
+    /// T1: ラッチ後、PRE が silence/idle（signal_state=inactive・fresh）でも Stale（NoPre でない）+
+    /// 全Δ None + last_active クリア。ラッチは保持される。
+    #[test]
+    fn latch_idle_stays_stale_not_nopre() {
+        let root = isolated_dir("latch_idle");
+        write_pre_latch(&root, "puid-1", "iid-A", "snare", "active", &latch_now());
+        let latched = std::sync::Mutex::new(None);
+        let (d0, sd0, _) =
+            compute_latched_display(&root, "snare", &latch_post(), Some("snare"), false, &latched)
+                .unwrap();
+        assert_eq!(d0.mode, DeltaMode::Active, "active で初回 Δ");
+        assert!(!sd0);
+        assert!(latched.lock().unwrap().is_some(), "active で初回ラッチ成立");
+        // PRE が idle（fresh のまま signal_state=inactive）。
+        write_pre_latch(&root, "puid-1", "iid-A", "snare", "inactive", &latch_now());
+        let (d1, sd1, _) =
+            compute_latched_display(&root, "snare", &latch_post(), Some("snare"), false, &latched)
+                .unwrap();
+        assert_eq!(d1.mode, DeltaMode::Stale, "idle はラッチ維持で Stale（NoPre でない）");
+        assert!(sd1, "latched-idle は store_directly（last_active クリア）");
+        assert!(d1.lufs.is_none() && d1.last_active.is_none(), "全Δ None + 凍結なし");
+        assert!(latched.lock().unwrap().is_some(), "idle でラッチは外れない");
+    }
+
+    /// T2: ラッチ後に同名 2 台目 PRE が現れてもラッチ先 instance_id 不変（再選定しない）。
+    #[test]
+    fn latch_invariant_to_second_same_name() {
+        let root = isolated_dir("latch_2nd");
+        write_pre_latch(&root, "puid-1", "iid-A", "snare", "active", &latch_now());
+        let latched = std::sync::Mutex::new(None);
+        let _ =
+            compute_latched_display(&root, "snare", &latch_post(), Some("snare"), false, &latched)
+                .unwrap();
+        assert_eq!(latched.lock().unwrap().as_ref().unwrap().instance_id, "iid-A");
+        // 同名 2 台目出現（曖昧 → 素の Arm 選定なら None）。
+        write_pre_latch(&root, "puid-2", "iid-B", "snare", "active", &latch_now());
+        let _ =
+            compute_latched_display(&root, "snare", &latch_post(), Some("snare"), false, &latched)
+                .unwrap();
+        assert_eq!(
+            latched.lock().unwrap().as_ref().unwrap().instance_id,
+            "iid-A",
+            "同名2台目でもラッチ先不変（再選定しない）"
+        );
+    }
+
+    /// T3: pair 名変更/クリアで即アンラッチ（Watch 中）。
+    #[test]
+    fn latch_name_change_unlatches() {
+        let root = isolated_dir("latch_rename");
+        write_pre_latch(&root, "puid-1", "iid-A", "snare", "active", &latch_now());
+        let latched = std::sync::Mutex::new(None);
+        let _ =
+            compute_latched_display(&root, "snare", &latch_post(), Some("snare"), false, &latched)
+                .unwrap();
+        assert!(latched.lock().unwrap().is_some());
+        // 名前変更（"kick" 不在）→ アンラッチ + NoPre。
+        let (d, _, _) =
+            compute_latched_display(&root, "kick", &latch_post(), Some("kick"), false, &latched)
+                .unwrap();
+        assert!(latched.lock().unwrap().is_none(), "名前変更で即アンラッチ");
+        assert_eq!(d.mode, DeltaMode::NoPre);
+        // クリア（空）→ アンラッチ + NoPre。
+        let _ =
+            compute_latched_display(&root, "snare", &latch_post(), Some("snare"), false, &latched)
+                .unwrap();
+        assert!(latched.lock().unwrap().is_some());
+        let (d2, _, _) =
+            compute_latched_display(&root, "", &latch_post(), None, false, &latched).unwrap();
+        assert!(latched.lock().unwrap().is_none(), "クリアで即アンラッチ");
+        assert_eq!(d2.mode, DeltaMode::NoPre);
+    }
+
+    /// T4: pre.json 削除でアンラッチ → 同名 fresh PRE 再出現で自動再ラッチ（DAW 再開復元）。
+    #[test]
+    fn latch_delete_then_relatch() {
+        let root = isolated_dir("latch_delete");
+        let p = write_pre_latch(&root, "puid-1", "iid-A", "snare", "active", &latch_now());
+        let latched = std::sync::Mutex::new(None);
+        let _ =
+            compute_latched_display(&root, "snare", &latch_post(), Some("snare"), false, &latched)
+                .unwrap();
+        assert!(latched.lock().unwrap().is_some());
+        // 削除 → アンラッチ（再ラッチ先も無く NoPre）。
+        fs::remove_file(&p).unwrap();
+        let (d, _, _) =
+            compute_latched_display(&root, "snare", &latch_post(), Some("snare"), false, &latched)
+                .unwrap();
+        assert!(latched.lock().unwrap().is_none(), "pre.json 削除でアンラッチ");
+        assert_eq!(d.mode, DeltaMode::NoPre);
+        // 同名 fresh PRE 再出現 → 自動再ラッチ。
+        write_pre_latch(&root, "puid-1", "iid-A", "snare", "active", &latch_now());
+        let _ =
+            compute_latched_display(&root, "snare", &latch_post(), Some("snare"), false, &latched)
+                .unwrap();
+        assert!(latched.lock().unwrap().is_some(), "再出現で自動再ラッチ");
+    }
+
+    /// T5: ラッチ先 pre.json が stale > NO_PRE_SECS(10s) でアンラッチ（実消滅扱い）。
+    #[test]
+    fn latch_stale_beyond_ttl_unlatches() {
+        let root = isolated_dir("latch_stale");
+        write_pre_latch(&root, "puid-1", "iid-A", "snare", "active", &latch_now());
+        let latched = std::sync::Mutex::new(None);
+        let _ =
+            compute_latched_display(&root, "snare", &latch_post(), Some("snare"), false, &latched)
+                .unwrap();
+        assert!(latched.lock().unwrap().is_some());
+        // t を 20s 古く（> NO_PRE_SECS=10）→ アンラッチ + 再ラッチも stale 不可 → NoPre。
+        write_pre_latch(&root, "puid-1", "iid-A", "snare", "active", &latch_old(20));
+        let (d, _, _) =
+            compute_latched_display(&root, "snare", &latch_post(), Some("snare"), false, &latched)
+                .unwrap();
+        assert!(latched.lock().unwrap().is_none(), "stale>TTL でアンラッチ");
+        assert_eq!(d.mode, DeltaMode::NoPre);
+    }
+
+    /// T7: Record 中（recording=true）はラッチ凍結 — 名前変更でもアンラッチしない（W-284 同型）。
+    #[test]
+    fn latch_frozen_during_record() {
+        let root = isolated_dir("latch_record");
+        write_pre_latch(&root, "puid-1", "iid-A", "snare", "active", &latch_now());
+        let latched = std::sync::Mutex::new(None);
+        // Watch で初回ラッチ。
+        let _ =
+            compute_latched_display(&root, "snare", &latch_post(), Some("snare"), false, &latched)
+                .unwrap();
+        assert!(latched.lock().unwrap().is_some());
+        // Record 中に名前変更（別名）→ アンラッチしない（凍結）。
+        let _ =
+            compute_latched_display(&root, "kick", &latch_post(), Some("kick"), true, &latched)
+                .unwrap();
+        assert_eq!(
+            latched.lock().unwrap().as_ref().unwrap().instance_id,
+            "iid-A",
+            "Record 中は名前変更でもラッチ凍結"
+        );
     }
 
     #[test]

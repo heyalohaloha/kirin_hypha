@@ -5,7 +5,7 @@ use kirin_measure::{
     ensure_legacy_cleanup_done, load_installation_id_safe, load_license_safe, peek_project_uuid,
     process_project_hash, sanitize_name, set_daw_session_id, set_project_uuid,
     spawn_io_thread_post, spawn_measure_thread, spawn_watchdog, store_signal_state, DeltaResult,
-    License, MeasureResult, RecordStateMachine, SessionSummary, SignalState, StoragePaths,
+    LatchedPre, License, MeasureResult, RecordStateMachine, SessionSummary, SignalState, StoragePaths,
     TriggerPairResolutionFn, TriggerStopResolutionFn, WatchdogParams, N_CHANNELS,
     RING_BUFFER_SECONDS,
 };
@@ -51,6 +51,9 @@ pub struct HyphaPost {
     /// プロセス単位 `daw_session_id`（record_signal content の cross-process 防壁）。
     /// §4-5 Step 1: 同位相で `Arc<RwLock<String>>` 化 (`read_daw_session_id_arc`)。
     daw_session_id: Arc<RwLock<String>>,
+    /// B-108: display と keep/Arm が共有する単一ラッチ。`spawn_io_thread_post` に渡して io_thread が
+    /// 毎 tick 維持し、editor の trigger_keep / broadcast 受信 closure が `resolve_arm_target` で読む。
+    latched_pre: Arc<Mutex<Option<LatchedPre>>>,
 
     ring_producer: Option<rtrb::Producer<f32>>,
     measure_result: Arc<Mutex<MeasureResult>>,
@@ -197,6 +200,8 @@ impl Default for HyphaPost {
             editor_state: EguiState::from_size(300, 200),
             project_hash: Arc::new(RwLock::new(process_project_hash())),
             daw_session_id: Arc::new(RwLock::new(daw_session_id())),
+            // B-108: 未ラッチで起動。editor()/initialize() で io_thread と Arc 共有する。
+            latched_pre: Arc::new(Mutex::new(None)),
             ring_producer: None,
             measure_result: Arc::new(Mutex::new(MeasureResult::default())),
             session_summary: Arc::new(Mutex::new(None)),
@@ -455,6 +460,8 @@ impl Plugin for HyphaPost {
             pair_release_notice: Arc::clone(&self.pair_release_notice),
             // B-025 Group B-2/B-3 / Gap-19/20: io_thread → GUI ステータス行通知 Arc。
             record_error_message: Arc::clone(&self.record_error_message),
+            // B-108: display/keep 共有ラッチ。trigger_keep が resolve_arm_target で読む。
+            latched_pre: Arc::clone(&self.latched_pre),
         })
     }
 
@@ -591,6 +598,7 @@ impl Plugin for HyphaPost {
             let paired_pre_target_for_closure = Arc::clone(&self.paired_pre_target);
             let pair_pre_name_for_closure = Arc::clone(&self.params.pair_pre_name);
             let measure_result_for_closure = Arc::clone(&self.measure_result);
+            let latched_for_closure = Arc::clone(&self.latched_pre);
             Arc::new(move |originator_iid: &str, started_at: &str| {
                 let iid_snapshot = read_instance_id_arc(&instance_id_for_closure);
                 let project_hash_snapshot = read_project_hash_arc(&project_hash_for_closure);
@@ -617,6 +625,7 @@ impl Plugin for HyphaPost {
                     None,
                     0.0,
                     &pair_pre_name_snapshot,
+                    &latched_for_closure, // B-108: ラッチ済みならラッチ先を直接 target に使う
                 );
                 log::info!(
                     "[all_keep] trigger_keep_internal invoked: originator={} started_at={}",
@@ -684,6 +693,7 @@ impl Plugin for HyphaPost {
             // B-043: session_summary 共有 (Measure → IO Thread / Record→Watch 注入)。
             Arc::clone(&self.session_summary),
             Arc::clone(&self.overflow), // B-076: per-Record dropped_samples
+            Arc::clone(&self.latched_pre), // B-108: display/keep 共有ラッチ
         );
 
         // ── Watchdog Thread 起動 ──────────────────────────────────────
@@ -716,6 +726,7 @@ impl Plugin for HyphaPost {
             // B-043: restart 経路でも session_summary を共有 (initial と完全対称)。
             let session_summary = Arc::clone(&self.session_summary);
             let overflow = Arc::clone(&self.overflow); // B-076
+            let latched_pre = Arc::clone(&self.latched_pre); // B-108
             move |new_shutdown: Arc<AtomicBool>| {
                 spawn_io_thread_post(
                     Arc::clone(&instance_id_arc),
@@ -738,6 +749,7 @@ impl Plugin for HyphaPost {
                     Arc::clone(&pair_release_notice_arc),
                     Arc::clone(&session_summary),
                     Arc::clone(&overflow), // B-076: per-Record dropped_samples
+                    Arc::clone(&latched_pre), // B-108: display/keep 共有ラッチ
                 )
             }
         };
