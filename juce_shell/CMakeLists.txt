@@ -8,7 +8,7 @@ cmake_minimum_required(VERSION 3.22)
 # is governed by this value.
 set(CMAKE_OSX_DEPLOYMENT_TARGET "12.0" CACHE STRING "Minimum macOS deployment target")
 
-project(KirinHypha VERSION 0.1.0 LANGUAGES C CXX)
+project(KirinHypha VERSION 1.1.0 LANGUAGES C CXX)
 
 # B-082: arch は cache 変数化（FORCE 撤去）。dev は x86_64 単独（既存 build dir / 高速）、
 # 出荷は -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" で universal（scripts/build_juce_universal.sh）。
