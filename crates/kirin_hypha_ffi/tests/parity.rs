@@ -402,6 +402,9 @@ fn pre_writes_records_plugin_data_json() {
     // io_thread spawn 前に設定（default_macos/temp_dir は呼出毎に env を読む）。
     std::env::set_var("HOME", &home);
     std::env::set_var("TMPDIR", &tmp);
+    // B-106: role-scoped 共有セルを reset してテスト間 first-wins 汚染を排除する（旧 overwrite
+    // 隔離の代替）。各テストは自分の set_identity project_uuid を first-wins で seed できる。
+    kirin_hypha_ffi::__reset_shared_ids_for_tests();
 
     // identity.json fixture: writer_start が load_installation_id_safe で
     // installation_id を要求する（record_writer.rs:191）。実機は Kirin OS が作る。
@@ -574,6 +577,9 @@ fn set_identity_drives_path_and_annotation() {
     std::fs::create_dir_all(&tmp).unwrap();
     std::env::set_var("HOME", &home);
     std::env::set_var("TMPDIR", &tmp);
+    // B-106: role-scoped 共有セルを reset してテスト間 first-wins 汚染を排除する（旧 overwrite
+    // 隔離の代替）。各テストは自分の set_identity project_uuid を first-wins で seed できる。
+    kirin_hypha_ffi::__reset_shared_ids_for_tests();
     let kirin_os = home.join("Library/Application Support/Kirin OS");
     std::fs::create_dir_all(&kirin_os).unwrap();
     std::fs::write(
@@ -674,6 +680,9 @@ fn post_writes_delta_against_colocated_pre() {
     std::fs::create_dir_all(&tmp).unwrap();
     std::env::set_var("HOME", &home);
     std::env::set_var("TMPDIR", &tmp);
+    // B-106: role-scoped 共有セルを reset してテスト間 first-wins 汚染を排除する（旧 overwrite
+    // 隔離の代替）。各テストは自分の set_identity project_uuid を first-wins で seed できる。
+    kirin_hypha_ffi::__reset_shared_ids_for_tests();
     let kirin_os = home.join("Library/Application Support/Kirin OS");
     std::fs::create_dir_all(&kirin_os).unwrap();
     std::fs::write(
@@ -781,6 +790,9 @@ fn post_keep_acked_by_colocated_pre() {
     std::fs::create_dir_all(&tmp).unwrap();
     std::env::set_var("HOME", &home);
     std::env::set_var("TMPDIR", &tmp);
+    // B-106: role-scoped 共有セルを reset してテスト間 first-wins 汚染を排除する（旧 overwrite
+    // 隔離の代替）。各テストは自分の set_identity project_uuid を first-wins で seed できる。
+    kirin_hypha_ffi::__reset_shared_ids_for_tests();
     let kirin_os = home.join("Library/Application Support/Kirin OS");
     std::fs::create_dir_all(&kirin_os).unwrap();
     std::fs::write(
@@ -889,6 +901,9 @@ fn capstone_paired_record_output_and_linkage() {
     std::fs::create_dir_all(&tmp).unwrap();
     std::env::set_var("HOME", &home);
     std::env::set_var("TMPDIR", &tmp);
+    // B-106: role-scoped 共有セルを reset してテスト間 first-wins 汚染を排除する（旧 overwrite
+    // 隔離の代替）。各テストは自分の set_identity project_uuid を first-wins で seed できる。
+    kirin_hypha_ffi::__reset_shared_ids_for_tests();
     let kirin_os = home.join("Library/Application Support/Kirin OS");
     std::fs::create_dir_all(&kirin_os).unwrap();
     std::fs::write(
@@ -1002,6 +1017,9 @@ fn keep_failure_after_enter_reverts_record_state() {
     std::fs::create_dir_all(&tmp).unwrap();
     std::env::set_var("HOME", &home);
     std::env::set_var("TMPDIR", &tmp);
+    // B-106: role-scoped 共有セルを reset してテスト間 first-wins 汚染を排除する（旧 overwrite
+    // 隔離の代替）。各テストは自分の set_identity project_uuid を first-wins で seed できる。
+    kirin_hypha_ffi::__reset_shared_ids_for_tests();
     let kirin_os = home.join("Library/Application Support/Kirin OS");
     std::fs::create_dir_all(&kirin_os).unwrap();
     std::fs::write(
@@ -1110,6 +1128,9 @@ fn post_add_annotation_targets_post_role() {
     std::fs::create_dir_all(&tmp).unwrap();
     std::env::set_var("HOME", &home);
     std::env::set_var("TMPDIR", &tmp);
+    // B-106: role-scoped 共有セルを reset してテスト間 first-wins 汚染を排除する（旧 overwrite
+    // 隔離の代替）。各テストは自分の set_identity project_uuid を first-wins で seed できる。
+    kirin_hypha_ffi::__reset_shared_ids_for_tests();
     let kirin_os = home.join("Library/Application Support/Kirin OS");
     std::fs::create_dir_all(&kirin_os).unwrap();
     std::fs::write(
@@ -1236,6 +1257,9 @@ fn double_keep_preserves_linkage() {
     std::fs::create_dir_all(&tmp).unwrap();
     std::env::set_var("HOME", &home);
     std::env::set_var("TMPDIR", &tmp);
+    // B-106: role-scoped 共有セルを reset してテスト間 first-wins 汚染を排除する（旧 overwrite
+    // 隔離の代替）。各テストは自分の set_identity project_uuid を first-wins で seed できる。
+    kirin_hypha_ffi::__reset_shared_ids_for_tests();
     let kirin_os = home.join("Library/Application Support/Kirin OS");
     std::fs::create_dir_all(&kirin_os).unwrap();
     std::fs::write(
@@ -1343,4 +1367,73 @@ fn dropped_samples_surfaced_via_c_abi_on_ring_overflow() {
         );
         kirin_hypha_destroy(h);
     }
+}
+
+// ── B-106: 2 POST instance が同一 dylib 共有セルで同一棚に first-wins 収束する（棚分裂修正）──
+
+/// 単一プロセスに POST engine を 2 つ enable し、別々の set_identity project_uuid を渡しても
+/// FFI dylib 共有セル（`shared_post_project_hash_cell`）が first-wins で 1 つの値に収束する
+/// ＝両 POST の io_thread broadcast scan 棚が一致することを、**実 module statics 経由**で検証する
+/// （B-105 で判明した「押したペアだけ Record」棚分裂の直接の回帰ガード）。b106_shared_id_tests は
+/// 局所 Arc で resolve_shared_id を叩くのみで実 enable_post_writes 経路を通らないため本テストで補完。
+/// enable は io_thread spawn + filesystem 触り + global HOME/TMPDIR set のため #[ignore]（--test-threads=1）。
+#[test]
+#[ignore = "B-106: 2 POST convergence; sets HOME/TMPDIR + spawns io_threads (run with --test-threads=1)"]
+fn two_post_instances_converge_on_one_shelf() {
+    use kirin_hypha_ffi::{kirin_hypha_get_identity, KirinIdentity};
+
+    let test_root = std::env::temp_dir()
+        .join("kirin_b106_test")
+        .join(format!("pid{}", std::process::id()));
+    let home = test_root.join("home");
+    let tmp = test_root.join("tmp");
+    let _ = std::fs::remove_dir_all(&test_root);
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::env::set_var("HOME", &home);
+    std::env::set_var("TMPDIR", &tmp);
+    // B-106: 他テストの first-wins seed を引き継がないよう reset（旧 overwrite 隔離の代替）。
+    kirin_hypha_ffi::__reset_shared_ids_for_tests();
+    let kirin_os = home.join("Library/Application Support/Kirin OS");
+    std::fs::create_dir_all(&kirin_os).unwrap();
+    std::fs::write(
+        kirin_os.join("identity.json"),
+        r#"{"schema_version":"1.0","installation_id":"b106-test","hardware_id":"hw","hardware_components":{"iop":"a","sn":"b","bd":"c"},"machine_signature":"sig","license":"os","created_at":"2026-06-11T00:00:00Z","last_verified_at":"2026-06-11T00:00:00Z"}"#,
+    )
+    .unwrap();
+
+    let read_puid = |e: &mut KirinHyphaEngine| -> String {
+        let ptr = e as *mut KirinHyphaEngine;
+        let mut out: KirinIdentity = unsafe { std::mem::zeroed() };
+        unsafe { kirin_hypha_get_identity(ptr, &mut out) };
+        cbuf_to_string(&out.project_uuid)
+    };
+
+    {
+        // POST A: 自分の project_uuid "puid-a" を持ち最初に enable → 共有 POST セルを seed。
+        let mut post_a = KirinHyphaEngine::new(SR, 2);
+        post_a.set_license(0);
+        post_a.set_identity("iid-a".into(), "puid-a".into(), "".into(), "mix".into());
+        post_a.enable_post_writes();
+
+        // POST B: 別の project_uuid "puid-b" を持つが、enable で共有 POST セル既値を採用（first-wins）。
+        let mut post_b = KirinHyphaEngine::new(SR, 2);
+        post_b.set_license(0);
+        post_b.set_identity("iid-b".into(), "puid-b".into(), "".into(), "mix".into());
+        post_b.enable_post_writes();
+
+        let puid_a = read_puid(&mut post_a);
+        let puid_b = read_puid(&mut post_b);
+
+        // 旧実装（per-instance 生成・凍結）では puid_a="puid-a" / puid_b="puid-b" で棚分裂し、
+        // B のクロスインスタンス broadcast が A の棚に届かなかった（症状の根因）。
+        // B-106 では両者が 1st POST の値に収束する＝同一 broadcast 棚。
+        assert_eq!(puid_a, "puid-a", "1st POST が共有 POST セルを seed する");
+        assert_eq!(
+            puid_b, "puid-a",
+            "B-106: 2nd POST は 1st の棚を採用（first-wins / 上書きせず）= 棚分裂しない"
+        );
+    } // engines Drop → io_thread join。
+
+    let _ = std::fs::remove_dir_all(&test_root);
 }

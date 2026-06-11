@@ -36,16 +36,16 @@ use std::ffi::CStr;
 use std::os::raw::{c_char, c_void};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicU32, AtomicU64, AtomicU8, AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::thread::JoinHandle;
 
 use uuid::Uuid;
 
 use kirin_measure::engine::SessionSummary;
 use kirin_measure::{
-    append_annotation_to_latest, can_write_plugin_data, daw_session_id,
+    append_annotation_to_latest, can_write_plugin_data,
     enumerate_active_post_pair_candidates, enumerate_active_pre_pair_candidates, load_license_safe,
-    mark_released, process_project_hash,
+    mark_released,
     sanitize_name, select_target_pre_for_arm, set_daw_session_id, set_project_uuid,
     spawn_io_thread_post,
     spawn_io_thread_pre, spawn_measure_thread, store_signal_state, write_broadcast, write_pending,
@@ -54,7 +54,7 @@ use kirin_measure::{
 };
 
 /// state chunk 往復する識別子（方式A: JUCE が chunk bytes を所有・FFI は文字列 get/set のみ）。
-/// `project_hash` は派生値（`process_project_hash` = project_uuid セル値）で永続対象外。
+/// `project_hash` は派生値（= 確定後の `project_uuid` / B-106 共有セル解決値）で永続対象外。
 #[derive(Default, Clone)]
 struct IdentityState {
     instance_id: String,
@@ -199,6 +199,99 @@ pub struct KirinHyphaEngine {
 unsafe impl Sync for KirinHyphaEngine {}
 // SAFETY: 内部状態はスレッド間移動可能（Producer/Arc は Send）。
 unsafe impl Send for KirinHyphaEngine {}
+
+// ── B-106: FFI dylib 内で全 engine instance が共有する project_hash / daw_session_id ──
+//
+// egui の不変条件「project_hash / daw_session_id は per-instance コピーではなく、dylib に
+// 1 つの共有値を全員が使用時に live-read」を FFI でも成立させるためのセル。kirin_measure の
+// `project_uuid_cell` / `daw_session_id_cell` は pub な Arc を公開しない（kirin_measure 無変更
+// 制約）ため、`spawn_io_thread_post`（`Arc<RwLock<String>>` を受領し io_thread が毎 tick
+// `read_project_hash_arc` で deref する）に渡す clonable Arc を FFI 側で保持する。これにより
+// enable 順・上書きに依らず全 POST instance が同一の broadcast 棚に収束する（B-105 で判明した
+// project_uuid 棚分裂 = io_thread_post.rs:526 の自棚限定 scan の解消）。
+//
+// **PRE / POST で別セル**（role-scoped）にする理由: 本番では PRE と POST は別 cdylib
+// （KirinHyphaPRE.dylib / KirinHyphaPOST.dylib / juce_shell CMakeLists.txt）として linkage され、
+// 各々が staticlib の statics を 1 部ずつ持つ = dylib 境界 ⇔ role 境界。よって PRE 群は PRE 値に、
+// POST 群は POST 値に独立収束し、PRE↔POST は別値のまま filesystem discovery（B-021/B-022 /
+// PRE が POST の signal の project_hash を adopt）で橋渡しされる。role でセルを分けることで
+// 単一テストバイナリ（parity.rs に PRE+POST 同居）でもこの本番境界を忠実に再現する。
+
+fn shared_pre_project_hash_cell() -> &'static Arc<RwLock<String>> {
+    static CELL: OnceLock<Arc<RwLock<String>>> = OnceLock::new();
+    CELL.get_or_init(|| Arc::new(RwLock::new(String::new())))
+}
+
+fn shared_pre_daw_session_id_cell() -> &'static Arc<RwLock<String>> {
+    static CELL: OnceLock<Arc<RwLock<String>>> = OnceLock::new();
+    CELL.get_or_init(|| Arc::new(RwLock::new(String::new())))
+}
+
+fn shared_post_project_hash_cell() -> &'static Arc<RwLock<String>> {
+    static CELL: OnceLock<Arc<RwLock<String>>> = OnceLock::new();
+    CELL.get_or_init(|| Arc::new(RwLock::new(String::new())))
+}
+
+fn shared_post_daw_session_id_cell() -> &'static Arc<RwLock<String>> {
+    static CELL: OnceLock<Arc<RwLock<String>>> = OnceLock::new();
+    CELL.get_or_init(|| Arc::new(RwLock::new(String::new())))
+}
+
+/// 共有セルを **first-wins** で解決する（egui の lazy-once seeding と同位相）。
+///
+/// - 共有セルが空: `candidate`（chunk 復元値）が非空ならそれで seed、空なら新規生成して seed。
+/// - 共有セルが既に非空: その値を採用（**上書きしない** = 毎回生成・上書きの全廃）。
+///
+/// 戻り値 = 採用された共有値。これが broadcast の write 棚パスであり、`spawn_io_thread_*` に
+/// 渡す共有 Arc が live-read する scan 棚パスでもある（両者は同一実体なので恒等的に一致）。
+fn resolve_shared_id(cell: &Arc<RwLock<String>>, candidate: &str) -> String {
+    match cell.write() {
+        Ok(mut g) => {
+            if g.is_empty() {
+                *g = if candidate.is_empty() {
+                    Uuid::new_v4().to_string()
+                } else {
+                    candidate.to_string()
+                };
+            }
+            g.clone()
+        }
+        // poison fallback（R-28 機能的沈黙）: 収束は諦め candidate/生成値で前進する。
+        Err(_) => {
+            if candidate.is_empty() {
+                Uuid::new_v4().to_string()
+            } else {
+                candidate.to_string()
+            }
+        }
+    }
+}
+
+/// 共有セルの現在値を読む（panic-safe / poison は空文字 fallback）。
+fn read_shared_id(cell: &Arc<RwLock<String>>) -> String {
+    cell.read().map(|g| g.clone()).unwrap_or_default()
+}
+
+/// テスト専用: role-scoped 共有セルを全クリアして first-wins 状態を初期化する。
+///
+/// 本番は単一 DAW プロセス = 単一セッションで「最初の 1 回だけ seed」が正しいが、統合テスト
+/// （`tests/parity.rs`）は 1 バイナリで多数のシナリオを連続実行し、各々が独自の project_uuid を
+/// 期待する。旧実装は enable 毎に `set_project_uuid` で**上書き**していたため各テストが隔離されて
+/// いたが、B-106 は first-wins（上書き廃止）に変えたため、テストは開始時に本関数で共有セルを
+/// reset して隔離する（kirin_measure cell は enable 内の `set_*` が毎回上書きするので別途 reset 不要）。
+#[doc(hidden)]
+pub fn __reset_shared_ids_for_tests() {
+    for cell in [
+        shared_pre_project_hash_cell(),
+        shared_pre_daw_session_id_cell(),
+        shared_post_project_hash_cell(),
+        shared_post_daw_session_id_cell(),
+    ] {
+        if let Ok(mut g) = cell.write() {
+            g.clear();
+        }
+    }
+}
 
 /// B-102: keep の解決本体（`keep()` と broadcast 受信 closure が共有する単一実装）。
 /// 順序は従来 `keep()` と不変: double-keep guard → select_target_pre → linkage set →
@@ -396,9 +489,11 @@ impl KirinHyphaEngine {
     /// 前提・割り切り（3b）:
     /// - **`set_license` の後に呼ぶこと**。呼んだ時点の license を `Arc<License>` に
     ///   スナップショットする（A）。enable 後の license 変更は反映されない（3c）。
-    /// - `instance_id` / `project_uuid` は `Uuid::new_v4` 生成（永続は 3c）。`project_uuid`
-    ///   は `set_project_uuid` で **プロセスグローバル** セルに反映され `process_project_hash`
-    ///   で path のルートになる（単一 PRE/プロセス前提・C / multi-instance は番人案件）。
+    /// - `instance_id` は `Uuid::new_v4` 生成（永続は 3c）。`project_uuid` / `daw_session_id`
+    ///   は B-106 で FFI dylib の **role-scoped** 共有セル（PRE は [`shared_pre_project_hash_cell`] /
+    ///   [`shared_pre_daw_session_id_cell`]）で **first-wins** 解決し（[`resolve_shared_id`]）、
+    ///   `set_project_uuid` で kirin_measure セルへも反映、path のルートになる。同一 dylib の全
+    ///   instance が同一棚に収束する（旧「単一 PRE/プロセス前提」を解消 / B-105 で判明した棚分裂の修正）。
     /// - 2 度目以降の呼出は no-op（冪等）。
     ///
     /// PRE-POST discovery は POST 不在のとき inert（record_signal が無く ack 対象なし /
@@ -416,9 +511,9 @@ impl KirinHyphaEngine {
             *r = Some(PluginDataRole::Pre);
         }
 
-        // 識別子: set_identity 済みなら復元値を使い、未設定はここで生成（3b フォールバック）。
-        // project_uuid → プロセスグローバルセル → project_hash（= project_uuid）を確定。
-        // 確定値を identity に書き戻し、get_identity が JUCE chunk へ返せるようにする。
+        // 識別子: instance_id は set_identity 復元値、未設定はここで生成（3b フォールバック）。
+        // project_uuid / daw_session_id は下記 B-106 共有セル解決（first-wins）で確定し、
+        // identity に書き戻して get_identity が JUCE chunk へ返せるようにする。
         let (iid_str, name_str, project_hash, daw_uuid) = {
             let mut id = match self.identity.lock() {
                 Ok(g) => g,
@@ -427,17 +522,19 @@ impl KirinHyphaEngine {
             if id.instance_id.is_empty() {
                 id.instance_id = Uuid::new_v4().to_string();
             }
-            if id.project_uuid.is_empty() {
-                id.project_uuid = Uuid::new_v4().to_string();
-            }
-            set_project_uuid(id.project_uuid.clone());
-            id.project_hash = process_project_hash(); // = project_uuid（cell 値）
-            // B-102: egui 鏡写し（hypha_post:182/481）— 空なら生成 → chunk 永続（get_identity
-            // 経由で殻が保存）→ プロセスセルへ seed。新↔新の broadcast daw_session_id を揃える。
-            if id.daw_session_uuid.is_empty() {
-                id.daw_session_uuid = Uuid::new_v4().to_string();
-            }
-            set_daw_session_id(id.daw_session_uuid.clone());
+            // B-106: project_uuid / daw_session_id を FFI dylib 共有セルで first-wins 解決する。
+            // chunk 復元値（id.*）を candidate に渡し、共有セルが空のときだけ seed（毎回生成・
+            // 上書きを廃止）。同一 dylib の全 instance が同一棚に収束し、broadcast write 棚 ==
+            // 全 io_thread scan 棚 が一致する。解決値を identity に書き戻し get_identity 経由で
+            // chunk 永続。kirin_measure cell への反映（set_*）は現状維持（受信 filter / 既存読出と整合）。
+            // PRE role セル（本番 KirinHyphaPRE.dylib スコープ相当）。
+            let resolved_project = resolve_shared_id(shared_pre_project_hash_cell(), &id.project_uuid);
+            let resolved_daw = resolve_shared_id(shared_pre_daw_session_id_cell(), &id.daw_session_uuid);
+            id.project_uuid = resolved_project.clone();
+            id.project_hash = resolved_project.clone();
+            id.daw_session_uuid = resolved_daw.clone();
+            set_project_uuid(resolved_project);
+            set_daw_session_id(resolved_daw);
             (
                 id.instance_id.clone(),
                 id.name.clone(),
@@ -521,17 +618,15 @@ impl KirinHyphaEngine {
             if id.instance_id.is_empty() {
                 id.instance_id = Uuid::new_v4().to_string();
             }
-            if id.project_uuid.is_empty() {
-                id.project_uuid = Uuid::new_v4().to_string();
-            }
-            set_project_uuid(id.project_uuid.clone());
-            id.project_hash = process_project_hash();
-            // B-102: egui 鏡写し（hypha_post:182/481）— 空なら生成 → chunk 永続（get_identity
-            // 経由で殻が保存）→ プロセスセルへ seed。新↔新の broadcast daw_session_id を揃える。
-            if id.daw_session_uuid.is_empty() {
-                id.daw_session_uuid = Uuid::new_v4().to_string();
-            }
-            set_daw_session_id(id.daw_session_uuid.clone());
+            // B-106: project_uuid / daw_session_id を FFI dylib 共有セルで first-wins 解決する
+            // （enable_pre_writes と同一規約）。毎回生成・上書きを廃止し全 instance を同一棚に収束。
+            let resolved_project = resolve_shared_id(shared_post_project_hash_cell(), &id.project_uuid);
+            let resolved_daw = resolve_shared_id(shared_post_daw_session_id_cell(), &id.daw_session_uuid);
+            id.project_uuid = resolved_project.clone();
+            id.project_hash = resolved_project.clone();
+            id.daw_session_uuid = resolved_daw.clone();
+            set_project_uuid(resolved_project);
+            set_daw_session_id(resolved_daw);
             (
                 id.instance_id.clone(),
                 id.name.clone(),
@@ -548,13 +643,17 @@ impl KirinHyphaEngine {
 
         // POST 固有の共有 Arc（hypha_post params と同型）。
         let instance_id = Arc::new(RwLock::new(iid_str));
-        let project_hash_arc = Arc::new(RwLock::new(project_hash)); // POST は Arc<RwLock<String>>
+        // B-106: per-instance Arc::new を廃し、dylib 共有セルの clone を渡す。io_thread が
+        // 毎 tick read_project_hash_arc で deref する scan 棚が全 POST で同一実体に収束する。
+        let project_hash_arc = Arc::clone(shared_post_project_hash_cell());
         // B-054: preset_available は engine と共有（PresetAvailable LED が poll）。
         let preset_available = Arc::clone(&self.preset_available);
         // paired_pre_target は engine と共有（keep() が set → POST Record の linkage に焼く）。
         let paired_pre_target = Arc::clone(&self.paired_pre_target);
         let pair_label = Arc::new(Mutex::new(String::new()));
-        let daw_session_id = Arc::new(RwLock::new(daw_uuid));
+        // B-106: daw も共有セルの clone を渡す（per-instance Arc::new 全廃）。受信 filter は
+        // read_daw_session_id_arc が kirin_measure cell を直読するが、enable で共有値を反映済。
+        let daw_session_id = Arc::clone(shared_post_daw_session_id_cell());
         // pair_pre_name = self.pair_target（set_pair_target 優先 / 空なら identity.name で seed）。
         // io_thread と Arc 共有 → set_pair_target の live 反映 + keep() の select と同一値。
         if let Ok(mut pt) = self.pair_target.write() {
@@ -722,11 +821,12 @@ impl KirinHyphaEngine {
     }
 
     /// POST「All Keep」: all_keep broadcast を書いてから自身の keep を発火する（B-102 /
-    /// egui ComboBox 先頭行と同一ライフサイクル: broadcast → self keep）。broadcast の
-    /// `daw_session_id` は **プロセスセル値**（`daw_session_id()`）を使う（受信側 filter と一致）。
+    /// egui ComboBox 先頭行と同一ライフサイクル: broadcast → self keep）。broadcast の棚パス
+    /// （`project_hash`）と `daw_session_id` は B-106 で **FFI dylib 共有セルを呼び出し時に
+    /// live-read** する（全 io_thread の scan 棚 = 共有 Arc と同一実体なので恒等的に一致）。
     /// 自 keep の結果（有効ペアありなら true）を返す。broadcast 書込失敗は best-effort（無視）。
     pub fn keep_all(&self) -> bool {
-        let (project_hash, post_iid) = {
+        let post_iid = {
             let id = match self.identity.lock() {
                 Ok(g) => g,
                 Err(_) => return false,
@@ -734,10 +834,15 @@ impl KirinHyphaEngine {
             if id.project_hash.is_empty() || id.instance_id.is_empty() {
                 return false; // 未 enable_post_writes
             }
-            (id.project_hash.clone(), id.instance_id.clone())
+            id.instance_id.clone()
         };
-        if let Ok(p) = StoragePaths::default_macos() {
-            let _ = write_broadcast(&p.plugin_data_dir(), &project_hash, &post_iid, daw_session_id());
+        // B-106: 棚パス・daw は共有セルを live-read（id.* と一致するが共有セルが単一正本）。
+        let project_hash = read_shared_id(shared_post_project_hash_cell());
+        let daw = read_shared_id(shared_post_daw_session_id_cell());
+        if !project_hash.is_empty() {
+            if let Ok(p) = StoragePaths::default_macos() {
+                let _ = write_broadcast(&p.plugin_data_dir(), &project_hash, &post_iid, daw);
+            }
         }
         self.keep()
     }
@@ -757,17 +862,20 @@ impl KirinHyphaEngine {
     /// POST「All Stop」: all_stop broadcast を書いてから自身の stop を発火する（B-102 /
     /// egui ComboBox 先頭行と同一ライフサイクル: broadcast → self stop）。
     pub fn stop_all(&self) {
-        let (project_hash, post_iid) = match self.identity.lock() {
-            Ok(id) => (id.project_hash.clone(), id.instance_id.clone()),
-            Err(_) => (String::new(), String::new()),
+        let post_iid = match self.identity.lock() {
+            Ok(id) => id.instance_id.clone(),
+            Err(_) => String::new(),
         };
+        // B-106: 棚パス・daw は共有セルを live-read（keep_all と対称）。
+        let project_hash = read_shared_id(shared_post_project_hash_cell());
+        let daw = read_shared_id(shared_post_daw_session_id_cell());
         if !project_hash.is_empty() && !post_iid.is_empty() {
             if let Ok(p) = StoragePaths::default_macos() {
                 let _ = write_stop_broadcast(
                     &p.plugin_data_dir(),
                     &project_hash,
                     &post_iid,
-                    daw_session_id(),
+                    daw,
                 );
             }
         }
@@ -1581,3 +1689,66 @@ pub unsafe extern "C" fn kirin_hypha_destroy(handle: *mut KirinHyphaEngine) {
 // `c_void` を未使用警告なく保持（将来 opaque alias 用の置き場）。
 #[doc(hidden)]
 pub type _KirinHyphaOpaque = c_void;
+
+#[cfg(test)]
+mod b106_shared_id_tests {
+    //! B-106: project_hash / daw_session_id の「dylib 共有・first-wins・live-read」不変条件の
+    //! 単体テスト。`resolve_shared_id` は共有セルを引数で受けるため（モジュール global static
+    //! を触らない）、ローカル `Arc<RwLock<String>>` で「2 インスタンス相当（enable 2 回・2 つ目が
+    //! 別値）」を模し、broadcast write 棚（resolve 戻り値）== 全 io_thread の scan 棚（共有 Arc
+    //! clone の read）が一致し続けることを確認する。
+    use super::{read_shared_id, resolve_shared_id};
+    use std::sync::{Arc, RwLock};
+
+    #[test]
+    fn second_instance_adopts_shared_value_never_overwrites() {
+        let cell = Arc::new(RwLock::new(String::new()));
+        // instance A enable: 自分の chunk uuid で seed。
+        let a = resolve_shared_id(&cell, "proj-A");
+        // instance B enable: 別 chunk uuid を渡しても上書きせず A の値を採用。
+        let b = resolve_shared_id(&cell, "proj-B");
+        assert_eq!(a, "proj-A");
+        assert_eq!(b, "proj-A", "2 つ目は共有値を採用（毎回生成・上書きの全廃）");
+        assert_eq!(read_shared_id(&cell), "proj-A");
+    }
+
+    #[test]
+    fn write_shelf_equals_all_io_thread_scan_shelves_even_when_overwritten_midway() {
+        let cell = Arc::new(RwLock::new(String::new()));
+        // spawn 相当: 各 io_thread は共有 Arc の clone を持ち、毎 tick live-read する。
+        let scan_clone_a = Arc::clone(&cell);
+        let scan_clone_b = Arc::clone(&cell);
+        // A enable → broadcast write 棚（keep_all が live-read する値と同一経路）。
+        let write_shelf = resolve_shared_id(&cell, "proj-1");
+        // B enable が「途中で値を変える」（2 つ目が別 candidate）。
+        let _ = resolve_shared_id(&cell, "proj-2");
+        // write 棚 == 全 io_thread scan 棚 が一致し続ける（同一実体 = 恒等）。
+        assert_eq!(write_shelf, "proj-1");
+        assert_eq!(read_shared_id(&scan_clone_a), write_shelf);
+        assert_eq!(read_shared_id(&scan_clone_b), write_shelf);
+        assert_eq!(read_shared_id(&cell), write_shelf);
+    }
+
+    #[test]
+    fn empty_candidate_generates_once_then_all_share() {
+        let cell = Arc::new(RwLock::new(String::new()));
+        // 空ソング / 新規: chunk 空 → 生成して seed。
+        let a = resolve_shared_id(&cell, "");
+        assert!(!a.is_empty(), "空 candidate は生成して seed する");
+        // 2 つ目も chunk 空だが、生成済み共有値を採用（毎回生成しない）。
+        let b = resolve_shared_id(&cell, "");
+        assert_eq!(a, b, "2 つ目は生成済み共有値を採用");
+        // 別 io_thread の scan 棚とも一致。
+        let scan = Arc::clone(&cell);
+        assert_eq!(read_shared_id(&scan), a);
+    }
+
+    #[test]
+    fn empty_cell_seeds_from_nonempty_chunk_candidate() {
+        // chunk 復元値（非空）があれば、それで seed する（生成しない）。
+        let cell = Arc::new(RwLock::new(String::new()));
+        let resolved = resolve_shared_id(&cell, "restored-uuid");
+        assert_eq!(resolved, "restored-uuid");
+        assert_eq!(read_shared_id(&cell), "restored-uuid");
+    }
+}
