@@ -8,7 +8,16 @@ cmake_minimum_required(VERSION 3.22)
 # is governed by this value.
 set(CMAKE_OSX_DEPLOYMENT_TARGET "12.0" CACHE STRING "Minimum macOS deployment target")
 
-project(KirinHypha VERSION 1.1.0 LANGUAGES C CXX)
+# B-114: version は Cargo.toml を単一ソースとする（CMake へのハードコード廃止）。
+# crates/hypha_pre/Cargo.toml の [package] version (3 部 semver) を configure 時に抽出し、
+# JUCE バンドルの PROJECT_VERSION（= CFBundleShortVersionString 由来）に流す。egui VST3 も同 Cargo
+# version（B-109 stamp）なので、出荷4物の版は Cargo.toml 1 箇所で決まる。
+file(READ "${CMAKE_CURRENT_LIST_DIR}/../crates/hypha_pre/Cargo.toml" KIRIN_CARGO_TOML)
+string(REGEX MATCH "version[ \t]*=[ \t]*\"([0-9]+\\.[0-9]+\\.[0-9]+)\"" _KIRIN_VER_MATCH "${KIRIN_CARGO_TOML}")
+if(NOT CMAKE_MATCH_1)
+    message(FATAL_ERROR "B-114: failed to parse [package] version from crates/hypha_pre/Cargo.toml")
+endif()
+project(KirinHypha VERSION ${CMAKE_MATCH_1} LANGUAGES C CXX)
 
 # B-082: arch は cache 変数化（FORCE 撤去）。dev は x86_64 単独（既存 build dir / 高速）、
 # 出荷は -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" で universal（scripts/build_juce_universal.sh）。
