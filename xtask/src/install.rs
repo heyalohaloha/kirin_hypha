@@ -188,6 +188,9 @@ fn verify_signed(bundle: &Path) -> Result<()> {
             info.trim()
         );
     }
+    // B-116: `-dvv` は署名情報の**表示**に過ぎない。封緘 (seal) が実際に有効か（cp -R / sudo で
+    // 破損していないか・改ざんがないか）を `codesign --verify --deep --strict` で暗号検証する。
+    verify_codesign_seal(bundle)?;
     let stapled = Command::new("xcrun")
         .args(["stapler", "validate"])
         .arg(bundle)
@@ -197,6 +200,54 @@ fn verify_signed(bundle: &Path) -> Result<()> {
         bail!(
             "{} is not stapled (stapler validate failed). Re-notarize + staple before install.",
             bundle.display()
+        );
+    }
+    Ok(())
+}
+
+/// B-116: 署名封緘 (seal) の暗号検証。`codesign -dvv` は署名情報の表示に過ぎないため、別途
+/// `codesign --verify --deep --strict --verbose=2` で封緘が有効か（改ざん・cp -R 破損がないか）を
+/// 検証する。非破壊（読み取りのみ）。source guard と destination 検証の両方から呼ぶ。
+fn verify_codesign_seal(bundle: &Path) -> Result<()> {
+    let out = Command::new("codesign")
+        .args(["--verify", "--deep", "--strict", "--verbose=2"])
+        .arg(bundle)
+        .output()
+        .with_context(|| format!("spawn codesign --verify for {}", bundle.display()))?;
+    if !out.status.success() {
+        bail!(
+            "{} failed codesign --verify --deep --strict (seal invalid / tampered / cp 破損). \
+             Re-sign + notarize before install.\ncodesign --verify --deep --strict --verbose=2:\n{}",
+            bundle.display(),
+            String::from_utf8_lossy(&out.stderr).trim()
+        );
+    }
+    Ok(())
+}
+
+/// B-116: 配置物が universal（x86_64 + arm64）であることを `lipo -archs` で実確認する。
+/// どちらかの arch 欠落（single-arch ビルド混入）は明示エラーで停止。非破壊。
+fn verify_universal(bin: &Path) -> Result<()> {
+    let out = Command::new("lipo")
+        .arg("-archs")
+        .arg(bin)
+        .output()
+        .with_context(|| format!("spawn lipo -archs for {}", bin.display()))?;
+    if !out.status.success() {
+        bail!(
+            "lipo -archs failed for {} (not a Mach-O binary?).\n{}",
+            bin.display(),
+            String::from_utf8_lossy(&out.stderr).trim()
+        );
+    }
+    let archs = String::from_utf8_lossy(&out.stdout);
+    let has_x86 = archs.split_whitespace().any(|a| a == "x86_64");
+    let has_arm = archs.split_whitespace().any(|a| a == "arm64");
+    if !(has_x86 && has_arm) {
+        bail!(
+            "{} is not universal (need x86_64 + arm64). lipo -archs = `{}` (single-arch build mixed in?).",
+            bin.display(),
+            archs.trim()
         );
     }
     Ok(())
@@ -256,6 +307,13 @@ fn verify_deployment(b: &Bundle) -> Result<()> {
         );
     }
     eprintln!("[install]   verified {}: size={} bytes (src=dst)", b.file(), src_size);
+    // B-116: source / 配置物の両バイナリが universal (x86_64 + arm64) であることを lipo -archs で
+    // 実確認する（single-arch ビルド混入の検出 / 非破壊）。
+    verify_universal(&src_bin)
+        .with_context(|| format!("B-116: source binary not universal: {}", src_bin.display()))?;
+    verify_universal(&dst_bin)
+        .with_context(|| format!("B-116: installed binary not universal: {}", dst_bin.display()))?;
+    eprintln!("[install]   verified {}: lipo -archs = x86_64 + arm64 (src + dst)", b.file());
     // B-112: destination 側も Developer-ID 署名 + stapled を検証する（cp -R / sudo で署名や
     // staple ticket が破損していないこと、配置後に Gatekeeper が通る状態であることを確認）。
     // 検証失敗（codesign TeamIdentifier 不一致 / stapler validate 失敗）は明示エラーで停止する。
