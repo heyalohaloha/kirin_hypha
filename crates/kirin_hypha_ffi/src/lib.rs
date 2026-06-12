@@ -43,7 +43,8 @@ use uuid::Uuid;
 
 use kirin_measure::engine::SessionSummary;
 use kirin_measure::{
-    append_annotation_to_latest, can_write_plugin_data,
+    append_annotation_to_latest, can_write_plugin_data, identity_instance_attach,
+    identity_instance_detach,
     enumerate_active_post_pair_candidates, enumerate_active_pre_pair_candidates, load_license_safe,
     load_signal_state, mark_released,
     resolve_arm_target, sanitize_name, set_daw_session_id, set_project_uuid,
@@ -276,15 +277,12 @@ fn read_shared_id(cell: &Arc<RwLock<String>>) -> String {
     cell.read().map(|g| g.clone()).unwrap_or_default()
 }
 
-/// テスト専用: role-scoped 共有セルを全クリアして first-wins 状態を初期化する。
+/// role-scoped 共有セル 4 つ（PRE/POST × project_hash/daw_session_id）の内側 `String` を空にする。
 ///
-/// 本番は単一 DAW プロセス = 単一セッションで「最初の 1 回だけ seed」が正しいが、統合テスト
-/// （`tests/parity.rs`）は 1 バイナリで多数のシナリオを連続実行し、各々が独自の project_uuid を
-/// 期待する。旧実装は enable 毎に `set_project_uuid` で**上書き**していたため各テストが隔離されて
-/// いたが、B-106 は first-wins（上書き廃止）に変えたため、テストは開始時に本関数で共有セルを
-/// reset して隔離する（kirin_measure cell は enable 内の `set_*` が毎回上書きするので別途 reset 不要）。
-#[doc(hidden)]
-pub fn __reset_shared_ids_for_tests() {
+/// セル handle（`Arc<RwLock<String>>`）は不変のまま中身だけ空にするため、`spawn_io_thread_*` に
+/// 渡した Arc clone の live-read 契約を壊さない。B-110 の refcount 0 detach（io_thread join 後）と、
+/// テスト隔離（`__reset_shared_ids_for_tests`）の両方から使う。
+fn clear_role_scoped_cells() {
     for cell in [
         shared_pre_project_hash_cell(),
         shared_pre_daw_session_id_cell(),
@@ -295,6 +293,18 @@ pub fn __reset_shared_ids_for_tests() {
             g.clear();
         }
     }
+}
+
+/// テスト専用: role-scoped 共有セルを全クリアして first-wins 状態を初期化する。
+///
+/// 本番は単一 DAW プロセス = 単一セッションで「最初の 1 回だけ seed」が正しいが、統合テスト
+/// （`tests/parity.rs`）は 1 バイナリで多数のシナリオを連続実行し、各々が独自の project_uuid を
+/// 期待する。旧実装は enable 毎に `set_project_uuid` で**上書き**していたため各テストが隔離されて
+/// いたが、B-106 は first-wins（上書き廃止）に変えたため、テストは開始時に本関数で共有セルを
+/// reset して隔離する（kirin_measure cell は enable 内の `set_*` が毎回上書きするので別途 reset 不要）。
+#[doc(hidden)]
+pub fn __reset_shared_ids_for_tests() {
+    clear_role_scoped_cells();
 }
 
 /// B-102: keep の解決本体（`keep()` と broadcast 受信 closure が共有する単一実装）。
@@ -423,6 +433,10 @@ impl KirinHyphaEngine {
             Arc::clone(&record_sm),
             Arc::clone(&session_summary),
         );
+
+        // B-110: live インスタンス refcount +1（破棄は Drop で −1）。enable ではなく create に置く
+        // （enable は冪等 early-return のため）。
+        identity_instance_attach();
 
         Self {
             ring_producer: UnsafeCell::new(producer),
@@ -1067,6 +1081,10 @@ impl Drop for KirinHyphaEngine {
         if let Some(h) = self.measure_handle.take() {
             let _ = h.join();
         }
+        // B-110: live インスタンス refcount −1。io/measure thread を join した**後**に呼ぶことで、
+        // refcount 0 到達時の共有セル clear が生存 io_thread の Arc clone live-read と競合しない。
+        // 0 到達時は kirin_measure の 2 セルに続き、本 dylib の role-scoped 4 セルも同一 lock 下で clear。
+        identity_instance_detach(clear_role_scoped_cells);
     }
 }
 

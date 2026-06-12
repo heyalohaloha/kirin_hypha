@@ -2,7 +2,8 @@ mod editor;
 
 use kirin_measure::{
     daw_session_id, delete_broadcast, delete_signal, delete_stop_broadcast,
-    ensure_legacy_cleanup_done, load_installation_id_safe, load_license_safe, peek_project_uuid,
+    ensure_legacy_cleanup_done, identity_instance_attach, identity_instance_detach,
+    load_installation_id_safe, load_license_safe, peek_project_uuid,
     process_project_hash, sanitize_name, set_daw_session_id, set_project_uuid,
     spawn_io_thread_post, spawn_measure_thread, spawn_watchdog, store_signal_state, DeltaResult,
     LatchedPre, License, MeasureResult, RecordStateMachine, SessionSummary, SignalState, StoragePaths,
@@ -192,6 +193,9 @@ impl Default for HyphaPostParams {
 
 impl Default for HyphaPost {
     fn default() -> Self {
+        // B-110: live インスタンス refcount +1（破棄は Drop で −1）。下の project_hash /
+        // daw_session_id seed より前に置き、seed 時点で refcount>0 を保証する。
+        identity_instance_attach();
         // 起動時 1 回限りの旧構造 cleanup（OnceLock 内側で flag-guarded）。
         ensure_legacy_cleanup_done();
 
@@ -396,6 +400,12 @@ impl Drop for HyphaPost {
                 e
             ),
         }
+
+        // B-110: live インスタンス refcount −1。0 到達で共有 identity セル（project_uuid /
+        // daw_session_id）を clear し、次プロジェクトの再 seed を許す。egui 殻は role-scoped 追加
+        // セルを持たないので clear_extra は no-op。POST io_thread はインスタンス固有の
+        // `Arc<RwLock<String>>` field を読む（global 非参照）ため、未 join でも clear と非競合（A-3）。
+        identity_instance_detach(|| {});
     }
 }
 

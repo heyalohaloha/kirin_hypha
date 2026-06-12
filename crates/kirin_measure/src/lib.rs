@@ -104,8 +104,8 @@ pub use storage::{
 };
 pub use watchdog::{spawn_watchdog, WatchdogParams};
 
-use std::sync::atomic::{AtomicU8, Ordering};
-use std::sync::{Arc, OnceLock, RwLock};
+use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 // ── B-027 段階 2: PRE/POST 共通の Name 正規化 ────────────────────────────
 
@@ -254,6 +254,119 @@ pub fn set_daw_session_id(uuid: String) {
     }
 }
 
+// ── B-110: 共有 identity セルの本番リセット（番人裁定 a / grace なし）─────────
+//
+// 問題: 1 つの DAW プロセスが複数プロジェクトを順次開くと、上記 `OnceLock` セルが
+// 前プロジェクトの project_uuid / daw_session_id を保持し続け、新プロジェクトが
+// 古い棚へ書く leak（全インスタンス破棄後も stale 値が残る / refcount・clear 不在）。
+//
+// 解: live インスタンス数の refcount を持ち、最後の 1 個が消えた（refcount 0）瞬間に
+// 共有セルを clear する。次プロジェクトの最初のインスタンスが通常の seed 規則
+// （egui: initialize の set_project_uuid / FFI: enable の first-wins resolve）で
+// 新しい値を入れ直す。番人裁定 a = grace なし: 全削除→即追加は新 UUID を seed する。
+//
+// A-1 判定（otool -L / crate-type 実測）: kirin_measure は rlib（静的リンク）で、
+// PRE/POST × egui/JUCE の各バンドルが自前の static コピーを持つ（**per-binary**）。
+// したがって refcount もセルも per-binary。各バイナリは自分の leak を自分で解消し、
+// 横断整合は既存の filesystem 経路（/tmp・plugin_data）が担う（ZSA / 意味論は同一）。
+//
+// clear が live io_thread の読みと競合しない理由（A-3 実測）:
+// - egui PRE io_thread は `project_hash: String`（spawn 時 snapshot）を持つ＝セル非参照。
+// - egui POST io_thread はインスタンス固有の `Arc<RwLock<String>>` field を読む＝global 非参照。
+// - FFI POST io_thread は role-scoped セルの Arc clone を読むが、`Drop` が io_thread を
+//   **join した後**に detach するため、refcount 0 時には生存 io_thread が無い。
+// セル handle（`Arc<RwLock<String>>`）は io_thread の live-read 契約のため不変に保ち、
+// 「clear」は内側 `String` を空にする（空 = 未 seed は既存 lazy-fallback 規約と一致）。
+
+/// 共有 identity セルの本番リセットを駆動する refcount + lock。
+///
+/// `attach`（インスタンス生成）/`detach`（破棄）は **非 RT 経路**専用（create/Default・
+/// destroy/Drop）。`detach` が refcount 0 へ遷移したときだけ、渡された `clear` を **lock 下**で
+/// 実行する。lock は attach の +1 と detach の −1+clear を直列化し、「破棄→0→clear」と
+/// 「生成→seed」のレースで新 seed が消える事故を防ぐ（B-3）。`processBlock` には一切持ち込まない。
+///
+/// `clear` closure に共有セルへの参照を閉じ込めることで、global static を触らずに単体テスト
+/// できる（B-106 `resolve_shared_id` と同方針）。
+struct IdentityLifecycle {
+    refcount: AtomicUsize,
+    lock: Mutex<()>,
+}
+
+impl IdentityLifecycle {
+    const fn new() -> Self {
+        Self {
+            refcount: AtomicUsize::new(0),
+            lock: Mutex::new(()),
+        }
+    }
+
+    /// インスタンス生成。refcount を +1 し、遷移後の値を返す。
+    fn attach(&self) -> usize {
+        let _guard = self.lock.lock().unwrap_or_else(|e| e.into_inner());
+        self.refcount.fetch_add(1, Ordering::SeqCst) + 1
+    }
+
+    /// インスタンス破棄。refcount を −1 し、0 到達時のみ `clear` を lock 下で実行する。
+    /// 既に 0 のときは何もしない（過剰 destroy の underflow 防御 / 再 clear なし）。遷移後の値を返す。
+    fn detach<F: FnOnce()>(&self, clear: F) -> usize {
+        let _guard = self.lock.lock().unwrap_or_else(|e| e.into_inner());
+        let prev = self.refcount.load(Ordering::SeqCst);
+        if prev == 0 {
+            return 0;
+        }
+        let now = prev - 1;
+        self.refcount.store(now, Ordering::SeqCst);
+        if now == 0 {
+            clear();
+        }
+        now
+    }
+
+    fn count(&self) -> usize {
+        self.refcount.load(Ordering::SeqCst)
+    }
+}
+
+static IDENTITY_LIFECYCLE: IdentityLifecycle = IdentityLifecycle::new();
+
+/// project_uuid / daw_session_id セルを空に戻す（内側 `String` を clear）。
+///
+/// セル handle（`Arc<RwLock<String>>`）は不変のまま中身だけ空にするため、io_thread の Arc clone
+/// live-read 契約を壊さない。空セルは次 seed で `set_project_uuid` / first-wins resolve / lazy
+/// 生成のいずれかにより埋め直される。
+pub fn clear_shared_identity_cells() {
+    if let Ok(mut g) = project_uuid_cell().write() {
+        g.clear();
+    }
+    if let Ok(mut g) = daw_session_id_cell().write() {
+        g.clear();
+    }
+}
+
+/// プラグインインスタンス生成時に呼ぶ（refcount +1）。create / `Default` フックから。
+/// `enable` には置かない（冪等 early-return で増減が崩れるため / A-3）。
+pub fn identity_instance_attach() {
+    IDENTITY_LIFECYCLE.attach();
+}
+
+/// プラグインインスタンス破棄時に呼ぶ（refcount −1）。destroy / `Drop` フックから、
+/// かつ当該インスタンスの io/measure thread 停止（FFI は join）後に呼ぶこと。
+///
+/// refcount 0 到達時に kirin_measure 共有セル（project_uuid / daw_session_id）を clear し、
+/// 続けて `clear_extra`（呼び出し側バイナリ固有のセル clear。FFI の role-scoped 4 セル等。
+/// egui は追加セルが無いので no-op closure）を **同一 lock 下**で実行する。
+pub fn identity_instance_detach<F: FnOnce()>(clear_extra: F) {
+    IDENTITY_LIFECYCLE.detach(|| {
+        clear_shared_identity_cells();
+        clear_extra();
+    });
+}
+
+/// 現在の live インスタンス refcount（テスト・diagnostics 用）。
+pub fn identity_refcount() -> usize {
+    IDENTITY_LIFECYCLE.count()
+}
+
 /// プロセス起動後 1 回だけ旧構造（`default/MIX/`）の cleanup を実行する。
 ///
 /// `Plugin::default()` から呼び出す想定。OnceLock で 1 度きりの実行を保証。
@@ -391,4 +504,205 @@ pub struct MeasureResult {
     /// plugin_data/.../post/*.json `psb_snapshots[].psb` に直接書き込む値。
     /// 3 帯域集約 (low/mid/high, dB) は `psb_summary` 側。
     pub psb_bark: Option<[f64; 20]>,
+}
+
+// ── B-110: 共有セル本番リセットの単体テスト（C-1〜C-5 / 全て非実機）─────────
+//
+// A-1 判定が **per-binary**（rlib 静的リンク・各バンドルが自前 static）のため、C-1〜C-5 は
+// 単一バイナリ内の意味論として記述する（横断整合は filesystem 経路）。C-1〜C-5 はローカル
+// `IdentityLifecycle` + ローカルセルで駆動し、global static を触らない（並列テスト安全 /
+// B-106 と同方針）。global path（`clear_shared_identity_cells` が実セルを空にする）は専用 1
+// テストで検証する（この 1 件のみが global セルを触る）。
+#[cfg(test)]
+mod b110_identity_reset_tests {
+    use super::{
+        clear_shared_identity_cells, daw_session_id_cell, peek_project_uuid, project_uuid_cell,
+        set_daw_session_id, set_project_uuid, IdentityLifecycle,
+    };
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, RwLock};
+
+    type Cell = Arc<RwLock<String>>;
+
+    fn new_cell() -> Cell {
+        Arc::new(RwLock::new(String::new()))
+    }
+    fn read(cell: &Cell) -> String {
+        cell.read().unwrap().clone()
+    }
+    fn clear(cell: &Cell) {
+        cell.write().unwrap().clear();
+    }
+    /// `set_project_uuid` 相当: 上書き seed（egui initialize の chunk-persist 反映）。
+    fn set_value(cell: &Cell, v: &str) {
+        *cell.write().unwrap() = v.to_string();
+    }
+    /// `resolve_shared_id` 相当: first-wins set-if-empty（FFI enable の seed）。
+    fn seed_if_empty(cell: &Cell, candidate: &str) -> String {
+        let mut g = cell.write().unwrap();
+        if g.is_empty() {
+            *g = candidate.to_string();
+        }
+        g.clone()
+    }
+    /// `process_project_hash` 相当: 空なら一意値を生成、非空なら現値（lazy fallback）。
+    fn seed_or_generate(cell: &Cell, gen: &str) -> String {
+        let mut g = cell.write().unwrap();
+        if g.is_empty() {
+            *g = gen.to_string();
+        }
+        g.clone()
+    }
+
+    // C-1 [番人固定 i]: 全削除→即追加 = 新 UUID（grace なし / 裁定 a のエッジ仕様化）。
+    #[test]
+    fn c1_delete_all_then_immediate_add_seeds_new_uuid() {
+        let lc = IdentityLifecycle::new();
+        let cell = new_cell();
+        // インスタンス 1 生成 → lazy 生成で seed。
+        lc.attach();
+        let uuid1 = seed_or_generate(&cell, "uuid-gen-1");
+        // 全削除（refcount 0）→ clear。
+        lc.detach(|| clear(&cell));
+        assert_eq!(lc.count(), 0);
+        assert!(read(&cell).is_empty(), "refcount 0 で共有セルが clear される");
+        // 即追加（新インスタンス）→ 空セルなので新しい値を生成。
+        lc.attach();
+        let uuid2 = seed_or_generate(&cell, "uuid-gen-2");
+        assert_ne!(
+            uuid1, uuid2,
+            "全削除→即追加は前 UUID を引き継がず新 UUID を seed する（grace なし）"
+        );
+    }
+
+    // C-2 [番人固定 ii]: プロジェクト切替で clear（P1 回帰: 0→0 遷移後の enable が
+    // 前プロジェクト値を引き継がない）。
+    #[test]
+    fn c2_project_switch_does_not_inherit_previous_value() {
+        let lc = IdentityLifecycle::new();
+        let cell = new_cell();
+        // プロジェクト 1: initialize が chunk-persist 値を set。
+        lc.attach();
+        set_value(&cell, "project-1-uuid");
+        assert_eq!(read(&cell), "project-1-uuid");
+        // プロジェクト 1 を閉じる（全インスタンス破棄）→ clear。
+        lc.detach(|| clear(&cell));
+        // プロジェクト 2（chunk に project_uuid 未保存＝空）: lazy 生成。
+        lc.attach();
+        let v = seed_or_generate(&cell, "project-2-fresh");
+        assert_ne!(
+            v, "project-1-uuid",
+            "次プロジェクトは前プロジェクトの project_uuid を引き継がない（leak 解消）"
+        );
+    }
+
+    // C-3 [番人固定 iii]: 同一 chunk 復元で同値に再収束。
+    #[test]
+    fn c3_chunk_restore_reconverges_to_same_value() {
+        let lc = IdentityLifecycle::new();
+        let cell = new_cell();
+        lc.attach();
+        set_value(&cell, "chunk-uuid-X");
+        lc.detach(|| clear(&cell));
+        assert!(read(&cell).is_empty(), "clear 後は空");
+        // 同一プロジェクトを再オープン: chunk が同 UUID を復元 → set。
+        lc.attach();
+        set_value(&cell, "chunk-uuid-X");
+        assert_eq!(
+            read(&cell),
+            "chunk-uuid-X",
+            "同一 chunk の復元値で同値に再収束する"
+        );
+    }
+
+    // C-4: destroy×create レース。0 遷移 clear と並行 create seed が lock で相互排除され、
+    // 生存インスタンスの seed が消されない（生存 refcount のセルは決して空でない）。
+    #[test]
+    fn c4_destroy_create_race_preserves_surviving_seed() {
+        use std::thread;
+        for i in 0..400 {
+            let lc = Arc::new(IdentityLifecycle::new());
+            let cell = new_cell();
+            // 初期状態: インスタンス 1 が生存・seed 済み。
+            lc.attach();
+            set_value(&cell, "old");
+
+            // 破棄側: 旧インスタンスを detach（refcount 0 へ落ちれば clear）。
+            let lc_d = Arc::clone(&lc);
+            let cell_d = cell.clone();
+            let d = thread::spawn(move || {
+                lc_d.detach(move || clear(&cell_d));
+            });
+            // 生成側: 新インスタンスを attach し first-wins で seed。
+            let lc_c = Arc::clone(&lc);
+            let cell_c = cell.clone();
+            let c = thread::spawn(move || {
+                lc_c.attach();
+                seed_if_empty(&cell_c, "new");
+            });
+            d.join().unwrap();
+            c.join().unwrap();
+
+            // attach 1（old）+ attach 1（new）− detach 1 = refcount 1（new が生存）。
+            assert_eq!(lc.count(), 1, "iter {i}: 生存インスタンスは 1");
+            assert!(
+                !read(&cell).is_empty(),
+                "iter {i}: 生存インスタンスのセルが空になってはならない（new seed が clear に消されない）"
+            );
+        }
+    }
+
+    // C-5: refcount 増減の単体（create/destroy で正しく増減・0 でのみ clear・二重 destroy 防御）。
+    #[test]
+    fn c5_refcount_inc_dec_and_double_detach_is_noop() {
+        let lc = IdentityLifecycle::new();
+        let cleared = AtomicUsize::new(0);
+        let bump = || {
+            cleared.fetch_add(1, Ordering::SeqCst);
+        };
+        assert_eq!(lc.count(), 0);
+        assert_eq!(lc.attach(), 1);
+        assert_eq!(lc.attach(), 2);
+        assert_eq!(lc.detach(bump), 1);
+        assert_eq!(cleared.load(Ordering::SeqCst), 0, "0 でないので clear しない");
+        assert_eq!(lc.detach(bump), 0);
+        assert_eq!(
+            cleared.load(Ordering::SeqCst),
+            1,
+            "0 到達でちょうど 1 度 clear する"
+        );
+        // 過剰 destroy: underflow させず・再 clear もしない。
+        assert_eq!(lc.detach(bump), 0);
+        assert_eq!(lc.count(), 0);
+        assert_eq!(
+            cleared.load(Ordering::SeqCst),
+            1,
+            "二重 detach は no-op（再 clear なし / underflow なし）"
+        );
+    }
+
+    // global path: `clear_shared_identity_cells` が実 global セルを空に戻す。
+    // ※ 本テストのみが global project_uuid / daw_session_id セルを触る（並列衝突回避）。
+    #[test]
+    fn global_clear_empties_real_identity_cells() {
+        set_project_uuid("global-proj".to_string());
+        set_daw_session_id("global-daw".to_string());
+        assert_eq!(peek_project_uuid(), "global-proj");
+        assert_eq!(daw_session_id_cell().read().unwrap().clone(), "global-daw");
+
+        clear_shared_identity_cells();
+
+        assert!(
+            peek_project_uuid().is_empty(),
+            "clear 後 project_uuid セルは空（次 seed で埋め直し）"
+        );
+        assert!(
+            project_uuid_cell().read().unwrap().is_empty(),
+            "project_uuid セル内側が空"
+        );
+        assert!(
+            daw_session_id_cell().read().unwrap().is_empty(),
+            "clear 後 daw_session_id セルは空"
+        );
+    }
 }

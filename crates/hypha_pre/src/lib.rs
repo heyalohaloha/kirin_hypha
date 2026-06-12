@@ -1,7 +1,8 @@
 mod editor;
 
 use kirin_measure::{
-    daw_session_id, ensure_legacy_cleanup_done, load_license_safe, process_project_hash,
+    daw_session_id, ensure_legacy_cleanup_done, identity_instance_attach, identity_instance_detach,
+    load_license_safe, process_project_hash,
     set_daw_session_id, set_project_uuid, spawn_io_thread_pre, spawn_measure_thread,
     spawn_watchdog, store_signal_state, License, MeasureResult, RecordStateMachine,
     SessionSummary, SignalState, WatchdogParams, N_CHANNELS, RING_BUFFER_SECONDS,
@@ -130,6 +131,9 @@ pub use kirin_measure::sanitize_name;
 
 impl Default for HyphaPre {
     fn default() -> Self {
+        // B-110: live インスタンス refcount +1（破棄は Drop で −1）。下の project_hash /
+        // daw_session_id seed より前に置き、seed 時点で refcount>0 を保証する。
+        identity_instance_attach();
         ensure_legacy_cleanup_done();
 
         Self {
@@ -181,6 +185,12 @@ impl Drop for HyphaPre {
         if let Some(h) = self.watchdog_handle.take() {
             let _ = h.join();
         }
+
+        // B-110: live インスタンス refcount −1。0 到達で共有 identity セル（project_uuid /
+        // daw_session_id）を clear し、次プロジェクトの再 seed を許す。egui 殻は role-scoped 追加
+        // セルを持たないので clear_extra は no-op。PRE io_thread は spawn 時 snapshot
+        // （`project_hash: String`）でセル非参照のため、未 join でも clear と非競合（A-3）。
+        identity_instance_detach(|| {});
     }
 }
 
