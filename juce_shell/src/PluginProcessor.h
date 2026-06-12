@@ -84,7 +84,7 @@ public:
     void setStateInformation (const void* data, int sizeInBytes) override;
 
 private:
-    static bool bufferIsSilent (const juce::AudioBuffer<float>& buffer); // strict all-zero (parity)
+    static bool bufferIsSilent (const juce::AudioBuffer<float>& buffer); // B-107: peak < -140 dBFS (parity)
 
     // B-070: enable plugin_data writes exactly once, on the message thread, after both
     // prepareToPlay (create + set_license) and any setStateInformation (identity + pair name

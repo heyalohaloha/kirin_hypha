@@ -449,10 +449,20 @@ impl Vst3Plugin for HyphaPre {
         &[Vst3SubCategory::Fx, Vst3SubCategory::Analyzer];
 }
 
+/// B-107: 無音床のピーク線形しきい値 = -140 dBFS = 10^(-140/20) = 1e-7。
+/// Audio Thread で log10 を避けるため線形で比較する（RT 安全 / R-12 精緻化と整合）。
+const SILENCE_PEAK_LINEAR: f32 = 1e-7;
+
+/// B-107: 1 サンプルが無音床（|s| < -140 dBFS）か（旧: 厳密 0 比較）。純粋・境界テスト可能。
+#[inline]
+fn sample_is_silent(sample: f32) -> bool {
+    sample.abs() < SILENCE_PEAK_LINEAR
+}
+
 fn buffer_is_silent(buffer: &mut Buffer) -> bool {
     for channel in buffer.as_slice() {
         for &sample in channel.iter() {
-            if sample != 0.0 {
+            if !sample_is_silent(sample) {
                 return false;
             }
         }
@@ -476,6 +486,24 @@ nih_export_vst3!(HyphaPre);
 //   `RwLock<String>` の値を roundtrip し、chunk persist と同経路で値が保たれる
 //   ことを構造的に固定する
 // - sanitize_name 正規化 (3-5): truncate / 非 ASCII strip / 制御文字 strip
+#[cfg(test)]
+mod b107_silence_tests {
+    use super::{sample_is_silent, SILENCE_PEAK_LINEAR};
+
+    /// B-107: 無音判定の境界（厳密0 / -141dBFS / -139dBFS）。silent iff peak < -140 dBFS。
+    #[test]
+    fn silence_threshold_boundary() {
+        let lin = |dbfs: f32| 10f32.powf(dbfs / 20.0);
+        assert!(sample_is_silent(0.0), "厳密0 は無音");
+        assert!(sample_is_silent(lin(-141.0)), "-141 dBFS は無音 (< -140)");
+        assert!(sample_is_silent(-lin(-141.0)), "-141 dBFS 負符号も無音 (abs)");
+        assert!(!sample_is_silent(lin(-139.0)), "-139 dBFS は非無音 (> -140)");
+        assert!(!sample_is_silent(-lin(-139.0)), "-139 dBFS 負符号も非無音 (abs)");
+        // ちょうど -140 dBFS = SILENCE_PEAK_LINEAR は >= しきい値 → 非無音（peak < -140 のみ無音）。
+        assert!(!sample_is_silent(SILENCE_PEAK_LINEAR), "ちょうど -140 dBFS は非無音（境界）");
+    }
+}
+
 #[cfg(test)]
 mod name_persist_tests {
     use super::sanitize_name;

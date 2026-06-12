@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include <cmath> // B-107: std::abs(float) for the silence peak threshold
 
 KirinHyphaProcessorBase::KirinHyphaProcessorBase (Role roleIn)
     : juce::AudioProcessor (BusesProperties()
@@ -157,12 +158,14 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
 
 bool KirinHyphaProcessorBase::bufferIsSilent (const juce::AudioBuffer<float>& buffer)
 {
-    // Parity with hypha_pre.rs:442-451: true iff every sample in every channel is exactly 0.
+    // B-107: silent iff peak < -140 dBFS. Parity with hypha_pre/hypha_post sample_is_silent:
+    // linear threshold 10^(-140/20) = 1e-7, compared without log10 (RT-safe on the audio thread).
+    static constexpr float kSilencePeakLinear = 1.0e-7f; // -140 dBFS
     for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
     {
         const float* p = buffer.getReadPointer (ch);
         for (int i = 0; i < buffer.getNumSamples(); ++i)
-            if (p[i] != 0.0f)
+            if (std::abs (p[i]) >= kSilencePeakLinear)
                 return false;
     }
     return true;
