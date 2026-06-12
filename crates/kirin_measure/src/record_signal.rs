@@ -319,6 +319,78 @@ pub fn is_timed_out(
     now.signed_duration_since(t).num_seconds() > timeout_secs
 }
 
+/// B-103: 起動時に掃除する dead Pending record_signal のしきい値（秒）。
+///
+/// 生きている POST は `ACK_TIMEOUT_SECONDS`(30s) で自身の Pending を `mark_released` する
+/// （io_thread_post の poll_ack_timeout）。よってそれを大きく超えて Pending のまま残るファイルは
+/// 書込 POST の消失（クラッシュ / DAW 終了 / target PRE 不在のまま放置）とみなせる。生記録の
+/// 誤掃除を避けるため、自 release(30s) の 4 倍を保守的しきい値とする。
+pub const STALE_PENDING_SECS: i64 = ACK_TIMEOUT_SECONDS * 4;
+
+/// B-103: `plugin_data_root` 配下の全 project の `record_signal/` を走査し、status==Pending
+/// かつ age(`now` - `t`) > `stale_secs` のファイルだけを削除する（起動時 dead-pending 掃除）。
+///
+/// 保守条件: **Pending のみ**（Acknowledged / Released は対象外）かつ **`stale_secs` 超過のみ**
+/// （fresh Pending = 進行中の Keep は保持）。`t` が parse 不能なものは安全側で保持。戻り = 削除件数。
+/// テスト容易性のため `plugin_data_root` / `now` を注入する純粋ロジック版。
+pub fn sweep_stale_pending_in(
+    plugin_data_root: &Path,
+    now: DateTime<Utc>,
+    stale_secs: i64,
+) -> usize {
+    let project_entries = match fs::read_dir(plugin_data_root) {
+        Ok(e) => e,
+        Err(_) => return 0,
+    };
+    let mut cleared: usize = 0;
+    for project_entry in project_entries.flatten() {
+        let project_dir = project_entry.path();
+        if !project_dir.is_dir() {
+            continue;
+        }
+        let project_hash = match project_dir.file_name().and_then(|n| n.to_str()) {
+            Some(s) => s.to_string(),
+            None => continue,
+        };
+        if project_hash.as_str() == SIGNALS_SUBDIR {
+            continue;
+        }
+        for (post_iid, sig) in scan_signals_dir(plugin_data_root, &project_hash) {
+            if sig.status != SignalStatus::Pending {
+                continue;
+            }
+            let stale = match DateTime::parse_from_rfc3339(&sig.t) {
+                Ok(t) => now.signed_duration_since(t.with_timezone(&Utc)).num_seconds() > stale_secs,
+                Err(_) => false, // 安全側: parse 不能は保持
+            };
+            if !stale {
+                continue;
+            }
+            if delete_signal(plugin_data_root, &project_hash, &post_iid).is_ok() {
+                cleared += 1;
+                log::info!(
+                    "[record_signal] startup: swept stale Pending (project_hash={}, post_iid={})",
+                    project_hash,
+                    post_iid
+                );
+            }
+        }
+    }
+    cleared
+}
+
+/// B-103: 起動時 dead-pending 掃除の production ラッパー（StoragePaths / now を解決）。
+/// PRE / POST 両 io_thread の起動時に呼ぶ（age ベースなので role 非依存・冪等）。
+pub fn sweep_stale_pending_at_startup() {
+    let Ok(paths) = crate::storage::StoragePaths::default_macos() else {
+        return;
+    };
+    let n = sweep_stale_pending_in(&paths.plugin_data_dir(), Utc::now(), STALE_PENDING_SECS);
+    if n > 0 {
+        log::info!("[record_signal] startup: swept {} stale Pending signal(s)", n);
+    }
+}
+
 /// `{project_hash}/record_signal/` 配下の `*.json` を全件読み込んで返す。
 ///
 /// 各要素は `(post_instance_id, RecordSignal)`。filename stem を post_instance_id
@@ -1668,5 +1740,48 @@ mod tests {
         let root = isolated_dir();
         write_pre_for_select(&root, "puid-1", "iid-A", "snare", "inactive", &now_rfc3339());
         assert!(select_target_pre_for_arm(&root, "").is_none(), "Arm: 空名は None");
+    }
+
+    // ── B-103: sweep_stale_pending_in（起動時 dead Pending 掃除）─────────────────────
+
+    /// status を保ったまま `t` を `secs_ago` 古くする（stale fixture 作成）。`now` 共有で境界を厳密化。
+    fn backdate_signal_t(base: &Path, ph: &str, post_iid: &str, now: DateTime<Utc>, secs_ago: i64) {
+        let mut sig = read_signal(base, ph, post_iid).expect("signal exists");
+        sig.t = iso_ago(secs_ago, now);
+        write_signal(base, ph, post_iid, &sig).unwrap();
+    }
+
+    /// 古い Pending（age > STALE_PENDING_SECS）だけ掃除し、fresh Pending と Acknowledged は保持。
+    #[test]
+    fn sweep_stale_pending_removes_only_dead_pending() {
+        let base = isolated_dir();
+        let now = Utc::now();
+        // (a) stale Pending（書込 POST 消失相当）: t を STALE_PENDING_SECS+10 古く。
+        write_pending(&base, "ph", "post-stale", "pre-x".into(), "daw".into()).unwrap();
+        backdate_signal_t(&base, "ph", "post-stale", now, STALE_PENDING_SECS + 10);
+        // (b) fresh Pending（進行中 Keep）: t=now。
+        write_pending(&base, "ph", "post-fresh", "pre-x".into(), "daw".into()).unwrap();
+        // (c) Acknowledged（古くても対象外＝生記録扱い）。
+        write_pending(&base, "ph", "post-ack", "pre-y".into(), "daw".into()).unwrap();
+        mark_acknowledged(&base, "ph", "post-ack").unwrap();
+        backdate_signal_t(&base, "ph", "post-ack", now, STALE_PENDING_SECS + 10);
+
+        let cleared = sweep_stale_pending_in(&base, now, STALE_PENDING_SECS);
+        assert_eq!(cleared, 1, "stale Pending 1 件のみ掃除");
+        assert!(read_signal(&base, "ph", "post-stale").is_none(), "stale Pending は削除");
+        assert!(read_signal(&base, "ph", "post-fresh").is_some(), "fresh Pending は保持");
+        assert!(read_signal(&base, "ph", "post-ack").is_some(), "Acknowledged は保持（age 無関係）");
+    }
+
+    /// しきい値ちょうど(=stale_secs)は保持、超過(+1)で掃除（is_timed_out と同じ strict-greater 境界）。
+    #[test]
+    fn sweep_stale_pending_boundary() {
+        let base = isolated_dir();
+        let now = Utc::now();
+        write_pending(&base, "ph", "post-edge", "pre".into(), "daw".into()).unwrap();
+        backdate_signal_t(&base, "ph", "post-edge", now, STALE_PENDING_SECS);
+        assert_eq!(sweep_stale_pending_in(&base, now, STALE_PENDING_SECS), 0, "境界ちょうど = 保持");
+        backdate_signal_t(&base, "ph", "post-edge", now, STALE_PENDING_SECS + 1);
+        assert_eq!(sweep_stale_pending_in(&base, now, STALE_PENDING_SECS), 1, "超過 = 掃除");
     }
 }
