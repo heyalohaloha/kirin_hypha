@@ -312,7 +312,7 @@ void KirinHyphaEditor::timerCallback()
 void KirinHyphaEditor::updatePre()
 {
     const bool alive  = processorRef.measureAlive();
-    const int  sig    = processorRef.signalState();    // 0=Inactive 1=Active 2=Bypassed
+    const int  sig    = processorRef.signalStateLive(); // 0=Inactive 1=Active 2=Bypassed (B-113: heartbeat-aware)
     const bool rec    = processorRef.isRecording();    // record_sm (PRE autonomous record too)
     const bool ack    = processorRef.recordAcknowledged();
     const bool preset = processorRef.presetAvailable(); // PRE: always false
@@ -357,7 +357,7 @@ void KirinHyphaEditor::updatePre()
 void KirinHyphaEditor::updatePost()
 {
     const bool alive  = processorRef.measureAlive();
-    const int  sig    = processorRef.signalState();
+    const int  sig    = processorRef.signalStateLive(); // B-113: heartbeat-aware (no stale Active)
     const bool rec    = processorRef.isRecording();
     const bool ack    = processorRef.recordAcknowledged(); // POST: always false (egui parity)
     const bool preset = processorRef.presetAvailable();

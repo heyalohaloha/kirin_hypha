@@ -45,7 +45,7 @@ use kirin_measure::engine::SessionSummary;
 use kirin_measure::{
     append_annotation_to_latest, can_write_plugin_data,
     enumerate_active_post_pair_candidates, enumerate_active_pre_pair_candidates, load_license_safe,
-    mark_released,
+    load_signal_state, mark_released,
     resolve_arm_target, sanitize_name, set_daw_session_id, set_project_uuid,
     spawn_io_thread_post,
     spawn_io_thread_pre, spawn_measure_thread, store_signal_state, write_broadcast, write_pending,
@@ -382,6 +382,17 @@ fn resolve_and_exit_stop(
     }
 }
 
+/// 内部 `SignalState` を C ABI コード（0=Inactive 1=Active 2=Bypassed）へ写像する。
+/// `set_signal_state` の逆。純粋関数（Measure Thread 非依存）なので決定的にテストできる（B-113）。
+#[inline]
+fn signal_state_to_abi(state: SignalState) -> u8 {
+    match state {
+        SignalState::Inactive => 0,
+        SignalState::Active => 1,
+        SignalState::Bypassed => 2,
+    }
+}
+
 impl KirinHyphaEngine {
     /// ランタイムを生成し Measure Thread を起動する。
     ///
@@ -450,6 +461,14 @@ impl KirinHyphaEngine {
             _ => SignalState::Inactive,
         };
         store_signal_state(&self.signal_state, s);
+    }
+
+    /// 現在の信号状態を **C ABI コード**（0=Inactive 1=Active 2=Bypassed）で返す。
+    /// `set_signal_state` の逆写像（写像本体は純粋関数 `signal_state_to_abi`）。`self.signal_state` は
+    /// Measure Thread が heartbeat 停止検出時に `Inactive` へ上書きするため、processBlock 停止後は
+    /// stale な Active を返さない（B-113）。
+    pub fn signal_state_abi(&self) -> u8 {
+        signal_state_to_abi(load_signal_state(&self.signal_state))
     }
 
     /// ライセンスを設定（C ABI コード: 0=Os 1=Sense 2=Unknown / 未知は Unknown）。
@@ -1204,6 +1223,24 @@ pub unsafe extern "C" fn kirin_hypha_set_signal_state(handle: *mut KirinHyphaEng
     }));
 }
 
+/// 現在の信号状態を読む（0=Inactive 1=Active 2=Bypassed）。LED poller 系（read-only）。
+/// Measure Thread の heartbeat 停止検出で `Inactive` へ上書きされた値も反映する（B-113）。
+/// 殻 editor はこの値で表示分岐し、processBlock 停止後に stale な Active を表示しない。
+///
+/// # Safety
+/// `handle` は `kirin_hypha_create` の戻り値（非 null・未解放）であること。
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_get_signal_state(handle: *mut KirinHyphaEngine) -> u8 {
+    // panic / null は 0=Inactive（安全側＝表示は `---`）。
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() {
+            return 0u8;
+        }
+        unsafe { (*handle).signal_state_abi() }
+    }))
+    .unwrap_or(0)
+}
+
 /// identity.json からライセンスコードを読む（0=Os 1=Sense 2=Unknown）。ハンドル不要。
 /// `~/Library/Application Support/Kirin OS/identity.json` の `"license"` を loose 抽出する
 /// `kirin_measure::load_license_safe` を包む。ファイル不在・parse 失敗・$HOME 不在は 2=Unknown
@@ -1763,5 +1800,24 @@ mod b106_shared_id_tests {
         let resolved = resolve_shared_id(&cell, "restored-uuid");
         assert_eq!(resolved, "restored-uuid");
         assert_eq!(read_shared_id(&cell), "restored-uuid");
+    }
+}
+
+#[cfg(test)]
+mod b113_signal_state_tests {
+    //! B-113: editor の表示状態源を Rust の signal_state 直読に統一する getter
+    //! （`kirin_hypha_get_signal_state` → `signal_state_abi` → `signal_state_to_abi`）の
+    //! 写像不変条件を決定的に検証する。`signal_state_to_abi` は純粋関数（Measure Thread の
+    //! heartbeat 上書きと独立）なので、engine を構築せずに `set_signal_state` の逆写像である
+    //! ことを確認できる（heartbeat 停止 → Inactive 上書きの反映そのものは DAW 実測 / kirin_measure
+    //! 側 load_signal_state テストで担保）。
+    use super::{signal_state_to_abi, SignalState};
+
+    #[test]
+    fn signal_state_to_abi_is_inverse_of_set_signal_state() {
+        // set_signal_state の写像: 1→Active / 2→Bypassed / _→Inactive。その厳密な逆。
+        assert_eq!(signal_state_to_abi(SignalState::Inactive), 0, "Inactive → 0");
+        assert_eq!(signal_state_to_abi(SignalState::Active), 1, "Active → 1");
+        assert_eq!(signal_state_to_abi(SignalState::Bypassed), 2, "Bypassed → 2");
     }
 }

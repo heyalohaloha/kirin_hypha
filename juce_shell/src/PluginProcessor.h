@@ -47,7 +47,7 @@ public:
     void stopPair();                                    // kirin_hypha_stop
 
     // --- B-073: POST Δ readout (editor display branching) --------------------------------
-    int  signalState() const { return lastSignalState.load (std::memory_order_acquire); } // 0=Inactive 1=Active 2=Bypassed
+    int  signalStateLive() const;                      // B-113: FFI kirin_hypha_get_signal_state (heartbeat-aware, no stale Active)
     bool pollDelta (KirinDelta& out) const;            // FFI kirin_hypha_poll_delta (mode + Δ values)
     bool isPlaying() const { return lastPlaying.load (std::memory_order_acquire); } // transport (POST pair lock)
 
@@ -108,7 +108,6 @@ private:
     juce::String persistPairName;                      // POST pair target (B-072)
 
     std::atomic<int>  cachedLicenseCode { 2 };         // B-072: license read once in prepareToPlay (0=Os)
-    std::atomic<int>  lastSignalState { 0 };           // B-073: last signal code set in processBlock (0/1/2)
     std::atomic<bool> lastPlaying { false };           // B-054: transport playing (POST pair lock during playback)
     std::atomic<bool> writesEnabled { false };         // plugin_data writes enabled (idempotent guard)
 

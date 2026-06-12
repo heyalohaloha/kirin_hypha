@@ -124,7 +124,7 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
     else if (! playing || silent) stateCode = 0; // Inactive
     else                          stateCode = 1; // Active
     kirin_hypha_set_signal_state (hyphaHandle, stateCode);
-    lastSignalState.store ((int) stateCode, std::memory_order_release); // B-073: editor display branching
+    // B-113: 旧 lastSignalState キャッシュは廃止。editor は signalStateLive()（FFI 直読 / heartbeat-aware）で表示分岐する。
 
     // --- Feed the engine ---------------------------------------------------------
     // Parity with nih-plug: ring push only when Active; heartbeat advances every block.
@@ -261,6 +261,17 @@ bool KirinHyphaProcessorBase::recordAcknowledged() const
     if (hyphaHandle == nullptr)
         return false;
     return kirin_hypha_record_acknowledged (hyphaHandle);
+}
+
+int KirinHyphaProcessorBase::signalStateLive() const
+{
+    // B-113: editor の表示分岐は Rust の signal_state を直読する。Measure Thread が heartbeat
+    // 停止検出で Inactive へ上書きするため、processBlock 停止後に stale な Active を表示しない
+    // （旧 B-073 lastSignalState キャッシュを置換）。
+    const juce::ScopedLock sl (handleLock);
+    if (hyphaHandle == nullptr)
+        return 0; // Inactive（安全側 = ---）
+    return (int) kirin_hypha_get_signal_state (hyphaHandle);
 }
 
 bool KirinHyphaProcessorBase::presetAvailable() const

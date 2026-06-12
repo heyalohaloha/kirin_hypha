@@ -95,6 +95,10 @@ KirinHypha* kirin_hypha_create(uint32_t sample_rate, uint32_t num_channels);
 /* 信号状態（0=Inactive 1=Active 2=Bypassed）. */
 void kirin_hypha_set_signal_state(KirinHypha* handle, uint8_t state);
 
+/* 現在の信号状態を読む（0=Inactive 1=Active 2=Bypassed）. LED poller 系（read-only）.
+ * Measure Thread の heartbeat 停止検出で Inactive へ上書きされた値も反映する（B-113）. */
+uint8_t kirin_hypha_get_signal_state(KirinHypha* handle);
+
 /* identity.json からライセンスコードを読む（0=Os 1=Sense 2=Unknown）. ハンドル不要.
  * ~/Library/Application Support/Kirin OS/identity.json の "license" を loose 抽出.
  * ファイル不在・parse 失敗・$HOME 不在は 2=Unknown（安全側）. 殻は戻り値を set_license に渡す. */
