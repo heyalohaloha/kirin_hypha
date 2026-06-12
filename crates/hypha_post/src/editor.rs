@@ -1648,26 +1648,30 @@ fn trigger_note_save(
             return;
         }
     };
-    match append_annotation_to_latest(
+    let result = append_annotation_to_latest(
         &paths.plugin_data_dir(),
         project_hash,
         instance_id,
         PluginDataRole::Post,
         tag.to_string(),
-    ) {
-        Ok(true) => {
-            log::info!("[note] appended to latest post record: {}", tag);
-            *toast = Some(Toast::new(format!("Note saved: {tag}"), now));
-        }
-        Ok(false) => {
-            log::warn!("[note] no active record file");
-            *toast = Some(Toast::new(format!("Note saved: {tag}"), now));
-        }
-        Err(e) => {
-            log::warn!("[note] append failed: {}", e);
-            *toast = Some(Toast::new("Note save failed", now));
-        }
+    );
+    match &result {
+        Ok(true) => log::info!("[note] appended to latest post record: {}", tag),
+        Ok(false) => log::warn!("[note] no active record file (nothing to append to)"),
+        Err(e) => log::warn!("[note] append failed: {}", e),
     }
+    // B-111: Ok(true) のみ成功表示。Ok(false)(記録不在) / Err(IO) は失敗表示にする（旧実装は
+    // Ok(false) でも「Note saved」と偽表示していた）。JUCE 殻と parity（onNote も bool を分岐）。
+    if note_append_succeeded(&result) {
+        *toast = Some(Toast::new(format!("Note saved: {tag}"), now));
+    } else {
+        *toast = Some(Toast::new("Note save failed", now));
+    }
+}
+
+/// B-111: Note 追記が成功か。Ok(true) のみ成功 / Ok(false)（記録不在）・Err（IO）は失敗。純粋・テスト可能。
+fn note_append_succeeded<E>(result: &Result<bool, E>) -> bool {
+    matches!(result, Ok(true))
 }
 
 /// Sense hint タップ: ブラウザで URL を開く。
@@ -1849,6 +1853,18 @@ mod tests {
     // (set_then_clear_pair_label_round_trip) のためだけに本 mod に明示 import.
     use kirin_measure::clear_pair_label;
     use std::sync::{Arc, Mutex};
+
+    /// B-111: Note 追記の成功判定（失敗系の回帰固定）。Ok(true) のみ成功、Ok(false)(記録不在)・
+    /// Err(IO) は失敗＝失敗表示。旧 egui は Ok(false) を「Note saved」と偽表示していた。
+    #[test]
+    fn note_append_succeeded_only_on_ok_true() {
+        let ok_true: Result<bool, ()> = Ok(true);
+        let ok_false: Result<bool, ()> = Ok(false);
+        let err: Result<bool, ()> = Err(());
+        assert!(note_append_succeeded(&ok_true), "Ok(true) = 成功");
+        assert!(!note_append_succeeded(&ok_false), "Ok(false)(記録不在) = 失敗");
+        assert!(!note_append_succeeded(&err), "Err(IO) = 失敗");
+    }
 
     /// B-023 段階 4: format_pair_label は paired_pre_name 非空時に
     /// `pair: <name>` を返す（Name 優先表示 / 判断 2 / G-115-40 案 A-3）。

@@ -52,8 +52,12 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         postControls->onStop = [this] { processorRef.stopPair(); };
         postControls->onNote = [this] (const juce::String& tag)
         {
-            processorRef.addAnnotation (tag);
-            showToast ("Note saved: " + tag);
+            // B-111: addAnnotation の bool 戻り値を分岐（onKeep と同様）。失敗（非Os / 未 enable /
+            // 追記先 .json 不在）時は成功偽装せず明示エラーを出す。egui 殻と parity。
+            if (processorRef.addAnnotation (tag))
+                showToast ("Note saved: " + tag);
+            else
+                showToast ("Note save failed");
         };
         postControls->onSenseHint = [this]
         {
