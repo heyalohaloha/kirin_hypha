@@ -2,9 +2,9 @@ mod editor;
 
 use kirin_measure::{
     daw_session_id, ensure_legacy_cleanup_done, identity_instance_attach, identity_instance_detach,
-    load_license_safe, process_project_hash,
+    live_window, load_license_safe, process_project_hash,
     set_daw_session_id, set_project_uuid, spawn_io_thread_pre, spawn_measure_thread,
-    spawn_watchdog, store_signal_state, License, MeasureResult, RecordStateMachine,
+    spawn_watchdog, store_signal_state, License, LivenessEvaluator, MeasureResult, RecordStateMachine,
     SessionSummary, SignalState, WatchdogParams, N_CHANNELS, RING_BUFFER_SECONDS,
 };
 use nih_plug::prelude::*;
@@ -58,9 +58,9 @@ pub struct HyphaPre {
 
     signal_state: Arc<AtomicU8>,
     heartbeat: Arc<AtomicU32>,
-    /// B-115: heartbeat 鮮度フラグ（Measure Thread が publish）。PRE は pair lock を持たないため
-    /// editor では消費しないが、spawn_measure_thread / watchdog 再起動に渡す（signature 統一）。
-    heartbeat_live: Arc<AtomicBool>,
+    /// B-118: 単一鮮度評価器。PRE は pair lock を持たないため editor では消費しないが、
+    /// spawn_measure_thread / watchdog 再起動に渡す（signature 統一）。
+    liveness: Arc<LivenessEvaluator>,
 
     record_sm: Arc<RecordStateMachine>,
     recording: Arc<AtomicBool>,
@@ -139,6 +139,10 @@ impl Default for HyphaPre {
         identity_instance_attach();
         ensure_legacy_cleanup_done();
 
+        // B-118: heartbeat を先に作り、同一 Arc を観測する単一鮮度評価器を構築する。
+        let heartbeat = Arc::new(AtomicU32::new(0));
+        let liveness = Arc::new(LivenessEvaluator::new(Arc::clone(&heartbeat), live_window()));
+
         Self {
             params: Arc::new(HyphaPreParams::default()),
             editor_state: EguiState::from_size(300, 200),
@@ -156,8 +160,8 @@ impl Default for HyphaPre {
             measure_alive: Arc::new(AtomicBool::new(true)),
             process_counter: 0,
             signal_state: Arc::new(AtomicU8::new(SignalState::Inactive as u8)),
-            heartbeat: Arc::new(AtomicU32::new(0)),
-            heartbeat_live: Arc::new(AtomicBool::new(false)),
+            heartbeat,
+            liveness,
             record_sm: Arc::new(RecordStateMachine::new()),
             recording: Arc::new(AtomicBool::new(false)),
             record_acknowledged: Arc::new(AtomicBool::new(false)),
@@ -310,8 +314,7 @@ impl Plugin for HyphaPre {
             Arc::clone(&self.measure_result),
             Arc::clone(&self.signal_state),
             Arc::clone(&self.measure_shutdown),
-            Arc::clone(&self.heartbeat),
-            Arc::clone(&self.heartbeat_live),
+            Arc::clone(&self.liveness),
             Arc::clone(&self.record_sm),
             Arc::clone(&self.session_summary),
         );
@@ -385,8 +388,7 @@ impl Plugin for HyphaPre {
             ring_capacity: capacity,
             measure_result: Arc::clone(&self.measure_result),
             signal_state: Arc::clone(&self.signal_state),
-            heartbeat: Arc::clone(&self.heartbeat),
-            live: Arc::clone(&self.heartbeat_live),
+            evaluator: Arc::clone(&self.liveness),
             measure_shutdown: Arc::clone(&self.measure_shutdown),
             measure_alive: Arc::clone(&self.measure_alive),
             pending_producer: Arc::clone(&self.pending_producer),

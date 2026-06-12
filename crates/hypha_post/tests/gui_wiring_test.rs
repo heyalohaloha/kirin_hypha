@@ -566,12 +566,12 @@ fn editor_rs_pair_widgets_wrapped_in_add_enabled_ui_not_is_playing() {
         "editor.rs must compute pair_locked = pair_lock_active(is_playing, live) (B-115 live 軸配線)"
     );
     assert!(
-        src.contains("state.live.load(Ordering::Relaxed)"),
-        "editor.rs update closure must snapshot live (heartbeat 鮮度) at frame entry (B-115)"
+        src.contains("state.liveness.is_live()"),
+        "editor.rs update closure must read evaluator is_live() at frame entry (B-118 単一鮮度源)"
     );
     assert!(
-        src.contains("pub live: Arc<AtomicBool>"),
-        "editor.rs PostEditorArgs / PostEditorState must declare `live` field (B-115)"
+        src.contains("pub liveness: Arc<LivenessEvaluator>"),
+        "editor.rs PostEditorArgs / PostEditorState must declare `liveness` evaluator field (B-118)"
     );
     // PAIR_LOCKED_TOOLTIP const が存在し、tooltip 文言が Daisuke 確定 (判断 4) と一致する。
     assert!(

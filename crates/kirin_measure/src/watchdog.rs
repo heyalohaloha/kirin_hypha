@@ -18,8 +18,8 @@
 
 use crate::engine::SessionSummary;
 use crate::record::RecordStateMachine;
-use crate::{spawn_measure_thread, MeasureResult};
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering};
+use crate::{spawn_measure_thread, LivenessEvaluator, MeasureResult};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
@@ -41,10 +41,9 @@ pub struct WatchdogParams {
     pub measure_result: Arc<Mutex<MeasureResult>>,
     /// SignalState 共有（再起動した Measure Thread に渡す）
     pub signal_state: Arc<AtomicU8>,
-    /// Audio Thread heartbeat カウンタ（再起動した Measure Thread に渡す）
-    pub heartbeat: Arc<AtomicU32>,
-    /// B-115: heartbeat 鮮度フラグ（再起動した Measure Thread が publish を継続する）。
-    pub live: Arc<AtomicBool>,
+    /// B-118: 単一鮮度評価器（再起動した Measure Thread が同一評価器を読み続ける）。
+    /// heartbeat は評価器が内部で観測するため、再 spawn 引数としては評価器のみ渡す。
+    pub evaluator: Arc<LivenessEvaluator>,
     /// Measure Thread 停止フラグ（再起動時にリセット）
     pub measure_shutdown: Arc<AtomicBool>,
     /// Measure Thread 生存フラグ。false=停止中（LED 黄）、true=稼働中（LED 青）
@@ -77,8 +76,7 @@ pub fn spawn_watchdog(params: WatchdogParams) -> JoinHandle<()> {
             ring_capacity,
             measure_result,
             signal_state,
-            heartbeat,
-            live,
+            evaluator,
             measure_shutdown,
             measure_alive,
             pending_producer,
@@ -128,8 +126,7 @@ pub fn spawn_watchdog(params: WatchdogParams) -> JoinHandle<()> {
                     Arc::clone(&measure_result),
                     Arc::clone(&signal_state),
                     Arc::clone(&measure_shutdown),
-                    Arc::clone(&heartbeat),
-                    Arc::clone(&live),
+                    Arc::clone(&evaluator),
                     Arc::clone(&record_sm),
                     Arc::clone(&session_summary),
                 );

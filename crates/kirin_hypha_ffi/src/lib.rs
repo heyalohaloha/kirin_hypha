@@ -46,12 +46,13 @@ use kirin_measure::{
     append_annotation_to_latest, can_write_plugin_data, identity_instance_attach,
     identity_instance_detach,
     enumerate_active_post_pair_candidates, enumerate_active_pre_pair_candidates, load_license_safe,
-    load_signal_state, mark_released,
+    live_window, load_signal_state, mark_released,
     resolve_arm_target, sanitize_name, set_daw_session_id, set_project_uuid,
     spawn_io_thread_post,
     spawn_io_thread_pre, spawn_measure_thread, store_signal_state, write_broadcast, write_pending,
     write_stop_broadcast, DeltaMode, DeltaResult, LatchedPre, License, MeasureResult, PluginDataRole,
-    PsbSummary, RecordStateMachine, SignalState, StoragePaths, N_CHANNELS, RING_BUFFER_SECONDS,
+    LivenessEvaluator, PsbSummary, RecordStateMachine, SignalState, StoragePaths, N_CHANNELS,
+    RING_BUFFER_SECONDS,
 };
 
 /// state chunk 往復する識別子（方式A: JUCE が chunk bytes を所有・FFI は文字列 get/set のみ）。
@@ -146,9 +147,9 @@ pub struct KirinHyphaEngine {
     shutdown: Arc<AtomicBool>,
     /// process() 相当の heartbeat（push_samples が進める）。
     heartbeat: Arc<AtomicU32>,
-    /// B-115: heartbeat 鮮度フラグ（Measure Thread が publish）。editor が POST pair lock の
-    /// live 述語として読む（`kirin_hypha_heartbeat_live` getter / signal_state とは別軸）。
-    heartbeat_live: Arc<AtomicBool>,
+    /// B-118: 単一鮮度評価器。editor が POST pair lock の live 述語として読み（`kirin_hypha_heartbeat_live`
+    /// getter 経由）、Measure Thread / watchdog も同一評価器を読む（signal_state とは別軸）。
+    liveness: Arc<LivenessEvaluator>,
     /// Record 状態機械。`enter_record`/`exit_record` で flip し、Measure Thread が
     /// `is_recording()` を見て自律 finalize する（Phase 3a で実配線）。
     record_sm: Arc<RecordStateMachine>,
@@ -423,9 +424,9 @@ impl KirinHyphaEngine {
         let signal_state = Arc::new(AtomicU8::new(SignalState::Inactive as u8));
         let shutdown = Arc::new(AtomicBool::new(false));
         let heartbeat = Arc::new(AtomicU32::new(0));
-        // B-115: heartbeat 鮮度フラグ。Measure Thread が publish し、editor が POST pair lock の
-        // live 述語として読む（read-only getter kirin_hypha_heartbeat_live 経由）。
-        let heartbeat_live = Arc::new(AtomicBool::new(false));
+        // B-118: 単一鮮度評価器。heartbeat を内部観測し is_live()（G-115-245: 3s window）を返す。
+        // Measure Thread / editor pair lock / FFI getter / watchdog が同一評価器を読む。
+        let liveness = Arc::new(LivenessEvaluator::new(Arc::clone(&heartbeat), live_window()));
         // 実 RecordStateMachine（既定 Watch）。FFI が enter/exit で flip する。
         let record_sm = Arc::new(RecordStateMachine::new());
 
@@ -435,8 +436,7 @@ impl KirinHyphaEngine {
             Arc::clone(&measure_result),
             Arc::clone(&signal_state),
             Arc::clone(&shutdown),
-            Arc::clone(&heartbeat),
-            Arc::clone(&heartbeat_live),
+            Arc::clone(&liveness),
             Arc::clone(&record_sm),
             Arc::clone(&session_summary),
         );
@@ -453,7 +453,7 @@ impl KirinHyphaEngine {
             signal_state,
             shutdown,
             heartbeat,
-            heartbeat_live,
+            liveness,
             record_sm,
             // 既定 Unknown（set_license(Os) されるまで Record 不可・安全側）。
             license: Arc::new(AtomicU8::new(LICENSE_UNKNOWN)),
@@ -822,12 +822,12 @@ impl KirinHyphaEngine {
             .unwrap_or(false)
     }
 
-    /// B-115: heartbeat 鮮度（processBlock が呼ばれている事実 / read-only poller）。
-    /// Measure Thread が `heartbeat_is_live(hb_stale_count)` を publish した値。signal_state とは
-    /// 別軸（B-107 で無音再生中も state=Inactive になるため state を live の代用にしない）。
+    /// B-118: heartbeat 鮮度（processBlock が呼ばれている事実 / read-only poller・非 RT）。
+    /// 単一評価器 `is_live()`（G-115-245: 最終 heartbeat 変化から 3s window 以内）を返す。
+    /// signal_state とは別軸（B-107 で無音再生中も state=Inactive になるため state を代用しない）。
     /// editor が POST pair 変更ロックの live 述語として読む（`playing かつ live` でロック）。
     pub fn heartbeat_live(&self) -> bool {
-        self.heartbeat_live.load(Ordering::Relaxed)
+        self.liveness.is_live()
     }
 
     /// PRE が POST の record_signal を ack 済みか（B-054 LED poller）。

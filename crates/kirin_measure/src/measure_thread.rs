@@ -18,26 +18,24 @@ use crate::{
 /// 入力 SR が 48000 でない場合は Measure Thread 入口で `ResamplerTo48k` を介して
 /// 48 kHz に変換してから engine / phase_d に渡す。
 const ENGINE_SR: u32 = 48_000;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// Measure Thread のループ間隔（ 推奨 100ms）。
 const LOOP_SLEEP: Duration = Duration::from_millis(100);
 
-/// heartbeat が何回連続で変化しなければ process() 停止と判定するか。
-/// 2 回 × 100ms = 200ms。48kHz/512 で ~93 回/100ms の process() が呼ばれるため、
-/// 200ms 無変化は確実に停止。
-const HEARTBEAT_STALE_THRESHOLD: u32 = 2;
+/// G-115-245 決定文言: heartbeat が変化しないまま何 tick 経過したら process() 停止と判定するか。
+/// **30 tick** × **TICK(=LOOP_SLEEP=100ms)** = **3s**（DAW の一時 stall を吸収）。30 / 100ms を
+/// literal に保持し、live ウィンドウ Duration を `live_window()` で導出する。
+const HEARTBEAT_STALE_TICKS: u32 = 30;
+const TICK: Duration = LOOP_SLEEP; // 100ms
 
-/// B-115: heartbeat 鮮度判定。`hb_stale_count`（heartbeat 無変化の連続回数）が
-/// `HEARTBEAT_STALE_THRESHOLD` 未満なら **live**（processBlock が呼ばれている事実）。
-/// 既存しきい値を再利用し新規しきい値を作らない（番人条件1）。`hb_stale_count < THRESHOLD` の
-/// 範囲では live が落ちない＝callback が 1 回欠けても false-release しない。
-#[inline]
-pub fn heartbeat_is_live(hb_stale_count: u32) -> bool {
-    hb_stale_count < HEARTBEAT_STALE_THRESHOLD
+/// B-118 / G-115-245 執行: 鮮度の live ウィンドウ = 30 tick × 100ms = 3s。製品はこの導出値、
+/// テストは `LivenessEvaluator::new` に任意 Duration を注入する。
+pub fn live_window() -> Duration {
+    TICK * HEARTBEAT_STALE_TICKS
 }
 
 /// B-115: POST pair 変更ロックの述語。**実再生中（playing）かつ live**（processBlock 進行中）の
@@ -49,6 +47,61 @@ pub fn pair_lock_active(playing: bool, live: bool) -> bool {
     playing && live
 }
 
+/// B-118: 単一鮮度評価器（per-instance）。heartbeat counter の `last_seen` と最終変化時刻
+/// （単調時計 `Instant`）を保持し、`is_live()` =「heartbeat の最終変化から live ウィンドウ
+/// （G-115-245: 30×100ms=3s）以内」を返す。
+///
+/// **単一源**: 表示（measure loop の signal_state→Inactive 上書き）/ POST pair lock 述語 /
+/// FFI getter / watchdog が全てこの 1 評価器を読む。**非 RT 読み手専用**（measure loop /
+/// editor timer / watchdog / FFI getter）。Audio Thread からは呼ばない。アロケーションなし
+/// （atomic + `Instant` 読みのみ）。複数 reader の並行 `is_live()` は benign（heartbeat 変化を
+/// 最初に観測した reader が `last_change` を更新し、他 reader はその共有値で判定）。
+pub struct LivenessEvaluator {
+    /// 観測対象 heartbeat（Audio Thread が毎ブロック +1 / 評価器は読むだけ）。
+    heartbeat: Arc<AtomicU32>,
+    /// 直近に観測した heartbeat 値。
+    last_seen: AtomicU32,
+    /// heartbeat が最後に変化した `epoch` からの経過 ns（生成時 0 = epoch 起点）。
+    last_change_nanos: AtomicU64,
+    /// live ウィンドウ（ns）。製品 = `live_window()`、テスト = 注入値。
+    window_nanos: u64,
+    /// 単調時計の基点（生成時刻）。`is_live` は `epoch.elapsed()` で now を取る。
+    epoch: Instant,
+}
+
+impl LivenessEvaluator {
+    /// `heartbeat` は engine の共有カウンタ。`window` は製品 `live_window()`（3s）/ テスト任意。
+    /// 生成直後は `last_change=0`（epoch 起点）なので、生成から window 内は live（既存 measure
+    /// loop の「生成直後は live」意味論と一致）。
+    pub fn new(heartbeat: Arc<AtomicU32>, window: Duration) -> Self {
+        let last_seen = heartbeat.load(Ordering::Relaxed);
+        Self {
+            heartbeat,
+            last_seen: AtomicU32::new(last_seen),
+            last_change_nanos: AtomicU64::new(0),
+            window_nanos: window.as_nanos() as u64,
+            epoch: Instant::now(),
+        }
+    }
+
+    /// 製品 reader 用: 内部 `epoch` で now を取り、heartbeat を観測して鮮度を返す。
+    pub fn is_live(&self) -> bool {
+        self.is_live_at(self.epoch.elapsed().as_nanos() as u64)
+    }
+
+    /// 実体（テストは `elapsed_nanos`＝epoch からの経過 ns を注入）。heartbeat 変化を観測したら
+    /// `last_change` を更新し live。無変化なら `(now - last_change) < window` で判定。
+    pub fn is_live_at(&self, elapsed_nanos: u64) -> bool {
+        let cur = self.heartbeat.load(Ordering::Relaxed);
+        let prev = self.last_seen.swap(cur, Ordering::Relaxed);
+        if prev != cur {
+            self.last_change_nanos.store(elapsed_nanos, Ordering::Relaxed);
+            return true;
+        }
+        elapsed_nanos.saturating_sub(self.last_change_nanos.load(Ordering::Relaxed)) < self.window_nanos
+    }
+}
+
 /// Measure Thread を起動し、JoinHandle を返す。
 ///
 /// # 引数
@@ -57,11 +110,10 @@ pub fn pair_lock_active(playing: bool, live: bool) -> bool {
 /// - `result`      : IO Thread / GUI と共有する計測結果（Arc<Mutex<MeasureResult>>）
 /// - `signal_state`: Audio Thread が書き込む信号状態
 /// - `shutdown`    : `true` に設定されたらループを終了するフラグ
-/// - `heartbeat`   : Audio Thread が毎 process() でインクリメントするカウンタ。
-///   200ms 以上変化なし → process() 停止と判定し signal_state を Inactive に上書き。
-///   DAW がバイパス時に process() を停止するケース（Studio One 等）に対応。
-/// - `live`        : B-115 heartbeat 鮮度フラグ。毎ループで `heartbeat_is_live(hb_stale_count)`
-///   を publish する（signal_state とは別軸＝editor の POST pair lock 述語用 / read-only）。
+/// - `evaluator`   : B-118 単一鮮度評価器（`LivenessEvaluator`）。measure loop は毎ループ
+///   `evaluator.is_live()` を読み、not live（process() が live ウィンドウ=3s 変化なし）なら
+///   signal_state を Inactive に上書きする consumer に徹する（独自 stale 計数は撤去）。同一
+///   評価器を editor pair lock / FFI getter / watchdog も読む（単一源）。
 ///
 /// # 3層隔離保証
 /// このスレッドが panic しても Audio Thread は継続する。
@@ -82,8 +134,7 @@ pub fn spawn_measure_thread(
     result: Arc<Mutex<MeasureResult>>,
     signal_state: Arc<AtomicU8>,
     shutdown: Arc<AtomicBool>,
-    heartbeat: Arc<AtomicU32>,
-    live: Arc<AtomicBool>,
+    evaluator: Arc<LivenessEvaluator>,
     record_sm: Arc<RecordStateMachine>,
     session_summary: Arc<Mutex<Option<SessionSummary>>>,
 ) -> JoinHandle<()> {
@@ -143,8 +194,10 @@ pub fn spawn_measure_thread(
 
         // heartbeat stall detection: process() が停止したことを検出する。
         // Studio One 等、バイパス時に process() を呼ばなくなる DAW に対応。
-        let mut last_heartbeat: u32 = heartbeat.load(Ordering::Relaxed);
-        let mut hb_stale_count: u32 = 0;
+        // B-118: 鮮度は単一評価器 `evaluator.is_live()` が判定する。measure loop は独自 stale
+        // 計数を持たず、評価器の consumer として signal_state→Inactive 上書きを適用する。
+        // `prev_live` はログのエッジ（stale 突入 / resumed）検出専用。生成直後は live。
+        let mut prev_live = true;
 
         log::info!("[MeasureThread] started (sample_rate={})", sample_rate);
 
@@ -175,30 +228,23 @@ pub fn spawn_measure_thread(
             }
             prev_recording = is_recording;
 
-            // ── Heartbeat stall detection ──────────────────────────
-            // process() が 200ms 以上呼ばれていなければ Inactive に上書きする。
-            // process() 再開時に Audio Thread が即座に正しい state を書き戻す。
-            let current_hb = heartbeat.load(Ordering::Relaxed);
-            if current_hb == last_heartbeat {
-                hb_stale_count += 1;
-                if hb_stale_count == HEARTBEAT_STALE_THRESHOLD {
+            // ── B-118: 単一鮮度評価器による stall detection（G-115-245: 3s）──────
+            // measure loop は評価器の consumer。process() が live ウィンドウ(3s)変化しなければ
+            // signal_state を Inactive に上書きする（process() 再開時に Audio Thread が即座に
+            // 正しい state を書き戻す）。評価器は heartbeat を内部観測する（独自計数なし）。
+            let live = evaluator.is_live();
+            if !live {
+                if prev_live {
                     log::info!(
-                        "[MeasureThread] heartbeat stale ({}x{}ms) — process() stopped, overriding to Inactive",
-                        HEARTBEAT_STALE_THRESHOLD, LOOP_SLEEP.as_millis()
+                        "[MeasureThread] heartbeat stale (>{}s) — process() stopped, overriding to Inactive",
+                        live_window().as_secs()
                     );
-                    store_signal_state(&signal_state, SignalState::Inactive);
                 }
-            } else {
-                if hb_stale_count >= HEARTBEAT_STALE_THRESHOLD {
-                    log::info!("[MeasureThread] heartbeat resumed — process() restarted");
-                }
-                hb_stale_count = 0;
-                last_heartbeat = current_hb;
+                store_signal_state(&signal_state, SignalState::Inactive);
+            } else if !prev_live {
+                log::info!("[MeasureThread] heartbeat resumed — process() restarted");
             }
-
-            // B-115: heartbeat 鮮度を live フラグへ publish（signal_state とは別軸 / editor の
-            // POST pair lock 述語用 / 既存 HEARTBEAT_STALE_THRESHOLD 再利用）。
-            live.store(heartbeat_is_live(hb_stale_count), Ordering::Relaxed);
+            prev_live = live;
 
             // ── SS-4: SignalState チェック ──────────────────────────
             let state = load_signal_state(&signal_state);
@@ -398,24 +444,66 @@ pub mod tests {
             "(c) playing=false → unlocked（live 無関係）"
         );
     }
-    // (d) false-release 防止: 鮮度しきい値未満の callback ギャップでは live が落ちない
-    //     （既存 HEARTBEAT_STALE_THRESHOLD の再利用を固定）。
+    // (i) B-118 評価器単体: 連続 beat→live / 停止→window(3s) 経過で false / 再開→true。
+    //     duration（elapsed ns）注入で決定的に検証する。
     #[test]
-    fn b115_pair_lock_d_live_holds_below_stale_threshold() {
-        assert!(super::heartbeat_is_live(0), "0 回欠け → live");
-        for n in 1..super::HEARTBEAT_STALE_THRESHOLD {
-            assert!(
-                super::heartbeat_is_live(n),
-                "{n} 回欠け（<しきい値）→ live 維持（false-release 防止）"
-            );
-        }
+    fn b118_evaluator_beat_then_stale_after_window_then_resume() {
+        use std::sync::atomic::{AtomicU32, Ordering};
+        use std::sync::Arc;
+        let hb = Arc::new(AtomicU32::new(0));
+        let win = std::time::Duration::from_secs(3);
+        let ev = super::LivenessEvaluator::new(Arc::clone(&hb), win);
+        let w = win.as_nanos() as u64;
+        // beat: heartbeat 前進 → live
+        hb.fetch_add(1, Ordering::Relaxed);
+        assert!(ev.is_live_at(1_000), "beat 直後は live");
+        // 停止: heartbeat 不変。window 未満は live 維持 / window 到達・超過は not live
+        assert!(ev.is_live_at(1_000 + w - 1), "停止後 window 未満は live（<3s）");
+        assert!(!ev.is_live_at(1_000 + w), "停止後 window 到達で not live（=3s）");
         assert!(
-            !super::heartbeat_is_live(super::HEARTBEAT_STALE_THRESHOLD),
-            "しきい値到達 → not live"
+            !ev.is_live_at(1_000 + w + 1_000_000_000),
+            "window 超過も not live"
         );
+        // 再開: heartbeat 前進 → live 復帰
+        hb.fetch_add(1, Ordering::Relaxed);
         assert!(
-            !super::heartbeat_is_live(super::HEARTBEAT_STALE_THRESHOLD + 1),
-            "しきい値超 → not live"
+            ev.is_live_at(1_000 + w + 2_000_000_000),
+            "再 beat で live 復帰"
+        );
+    }
+
+    // (ii) B-115 回帰の 3s 化: 3s 未満のギャップで pair lock が false-release しない。
+    #[test]
+    fn b118_pair_lock_no_false_release_below_3s() {
+        use std::sync::atomic::{AtomicU32, Ordering};
+        use std::sync::Arc;
+        let hb = Arc::new(AtomicU32::new(0));
+        let win = std::time::Duration::from_secs(3);
+        let ev = super::LivenessEvaluator::new(Arc::clone(&hb), win);
+        let w = win.as_nanos() as u64;
+        hb.fetch_add(1, Ordering::Relaxed);
+        assert!(ev.is_live_at(0), "beat → live");
+        // playing 凍結 + 3s 未満ギャップ: live 維持 → pair_lock_active(true, live)=true（lock 維持）
+        assert!(
+            super::pair_lock_active(true, ev.is_live_at(w - 1)),
+            "3s 未満は lock 維持（false-release しない）"
+        );
+        // 3s 到達: not live → pair lock 解除
+        assert!(
+            !super::pair_lock_active(true, ev.is_live_at(w)),
+            "3s 到達で lock 解除"
+        );
+    }
+
+    // 製品定数の値検証: live_window = 30 tick × 100ms = 3s（G-115-245 決定文言）。
+    #[test]
+    fn b118_live_window_is_30_ticks_100ms_3s() {
+        assert_eq!(super::HEARTBEAT_STALE_TICKS, 30, "G-115-245: 30 tick");
+        assert_eq!(super::TICK, std::time::Duration::from_millis(100), "TICK = 100ms");
+        assert_eq!(
+            super::live_window(),
+            std::time::Duration::from_secs(3),
+            "30 × 100ms = 3s"
         );
     }
 

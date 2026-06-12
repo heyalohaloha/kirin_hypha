@@ -35,7 +35,8 @@ use kirin_measure::{
     sanitize_name,
     resolve_arm_target, scan_latest_v2_preset, show_note_button, show_save_button,
     show_stop_record_button, write_broadcast, write_pending, write_stop_broadcast, DeltaMode,
-    DeltaResult, DeltaSnapshot, ExclusionResult, LatchedPre, License, MeasureResult, PluginDataRole,
+    DeltaResult, DeltaSnapshot, ExclusionResult, LatchedPre, License, LivenessEvaluator,
+    MeasureResult, PluginDataRole,
     PreCandidate, PresetFileV2, RecordStateMachine, SignalState, StoragePaths, TransitionError,
     MAX_ACTIVE_PER_PROJECT, SENSE_RECORD_HINT, SENSE_UPSELL_URL,
 };
@@ -165,10 +166,10 @@ pub struct PostEditorState {
     /// load して再生中 pair 変更 (Name field + ComboBox PRE 候補行) を block する。
     pub is_playing: Arc<AtomicBool>,
 
-    /// B-115: heartbeat 鮮度フラグ（Measure Thread が publish）。`update` 入口で load し、
-    /// `pair_lock_active(is_playing, live)` で pair 変更ロックを判定する（playing 凍結値の
-    /// false-release 防止 / signal_state とは別軸）。
-    pub live: Arc<AtomicBool>,
+    /// B-118: 単一鮮度評価器。`update` 入口で `is_live()` を読み、`pair_lock_active(is_playing, live)`
+    /// で pair 変更ロックを判定する（playing 凍結値の false-release 防止 / signal_state とは別軸 /
+    /// G-115-245: 3s window）。
+    pub liveness: Arc<LivenessEvaluator>,
 
     /// B-027 段階 2: pair PRE Name (HyphaPostParams.pair_pre_name と Arc 共有)。
     /// 編集確定時に `write()` で sanitize 後の値を書き込み、trigger_keep で
@@ -235,7 +236,7 @@ impl PostEditorState {
             playback_pos_samples: args.playback_pos_samples,
             playback_sample_rate: args.playback_sample_rate,
             is_playing: args.is_playing,
-            live: args.live,
+            liveness: args.liveness,
             pair_pre_name: args.pair_pre_name,
             pair_claimed_at: args.pair_claimed_at,
             pair_release_notice: args.pair_release_notice,
@@ -284,8 +285,8 @@ pub struct PostEditorArgs {
     pub playback_sample_rate: Arc<AtomicU32>,
     /// W-280 / G-115-248: transport.playing 独立 AtomicBool。再生中 pair 変更 block 用。
     pub is_playing: Arc<AtomicBool>,
-    /// B-115: heartbeat 鮮度フラグ。`pair_lock_active(is_playing, live)` の live 軸。
-    pub live: Arc<AtomicBool>,
+    /// B-118: 単一鮮度評価器。`pair_lock_active(is_playing, is_live())` の live 軸。
+    pub liveness: Arc<LivenessEvaluator>,
     /// B-027 段階 2: pair PRE Name の Arc 共有 (HyphaPostParams.pair_pre_name)。
     pub pair_pre_name: Arc<RwLock<String>>,
     /// W-281 / G-115-249: pair claim 時刻 Arc 共有。
@@ -320,7 +321,7 @@ pub fn create_post_editor(args: PostEditorArgs) -> Option<Box<dyn Editor>> {
             let is_playing = state.is_playing.load(Ordering::Relaxed);
             // B-115: 述語を「playing かつ live」へ。heartbeat 鮮度（processBlock 進行中）も snapshot し、
             // playing 凍結値でも live=false ならロックしない（false-release 防止 / signal_state 非代用）。
-            let live = state.live.load(Ordering::Relaxed);
+            let live = state.liveness.is_live();
             let pair_locked = pair_lock_active(is_playing, live);
             let m = state.measure.lock().map(|g| g.clone()).unwrap_or_default();
             let d = state.delta.lock().map(|g| g.clone()).unwrap_or_default();
