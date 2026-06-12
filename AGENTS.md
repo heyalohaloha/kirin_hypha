@@ -29,14 +29,14 @@ PRE/POST の2バイナリでマスタリングチェインの前後を計測し�
 
 ### R-12 製造境界（不変）
 Kirin Hypha は音声信号を生成・加工しない。計測・分析・制御信号の送信のみ。
-Audio Thread では入力バッファを出力バッファにコピーするだけ。それ以外の処理を Audio Thread に入れない。
+Audio Thread（processBlock）は読み取り・コピー・通知のみを行う。信号の変更・生成・遅延導入は禁止。アロケーション・ロック・ブロッキング I/O も禁止（RT 安全）。
 
 ### R-13（Hub & Spoke）
 `work.json`（schema: `work.schema.json`）が全システムの接続点。各モジュール間はこの接続点を通じて連携する。売り切り。サーバー・アカウント不要。
 
 ### 3層隔離
 ```
-Audio Thread   — バッファコピーのみ。絶対に落ちない
+Audio Thread   — 読み取り・コピー・通知のみ（変更/生成/遅延・alloc/lock/IO 禁止＝RT 安全）。絶対に落ちない
 Measure Thread — 計測。クラッシュ → Audio Threadが検出 → 自動再起動
 IO Thread      — /tmp/ 書き込み。クラッシュ → Audio Threadが検出 → 自動再起動
 ```
