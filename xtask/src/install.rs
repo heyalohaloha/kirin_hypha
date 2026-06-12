@@ -256,6 +256,16 @@ fn verify_deployment(b: &Bundle) -> Result<()> {
         );
     }
     eprintln!("[install]   verified {}: size={} bytes (src=dst)", b.file(), src_size);
+    // B-112: destination 側も Developer-ID 署名 + stapled を検証する（cp -R / sudo で署名や
+    // staple ticket が破損していないこと、配置後に Gatekeeper が通る状態であることを確認）。
+    // 検証失敗（codesign TeamIdentifier 不一致 / stapler validate 失敗）は明示エラーで停止する。
+    verify_signed(&b.system_dest()).with_context(|| {
+        format!(
+            "B-112: destination verify failed for {} (installed copy not Developer-ID signed + stapled)",
+            b.system_dest().display()
+        )
+    })?;
+    eprintln!("[install]   verified {}: destination codesign + stapled OK", b.file());
     Ok(())
 }
 
