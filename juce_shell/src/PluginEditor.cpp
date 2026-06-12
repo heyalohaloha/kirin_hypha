@@ -251,6 +251,9 @@ void KirinHyphaEditor::showCandidateMenu()
     // select_target_pre matches by name, so only named candidates are offered (egui skips empty).
     const bool rec = processorRef.isRecording();
     const bool playing = processorRef.isPlaying(); // W-280: pair change locked during playback
+    // B-115: lock only when playing AND live (processBlock running). A frozen `playing` with a
+    // stalled heartbeat does not lock (false-release prevention; signal_state is silence-conflated).
+    const bool pairLocked = playing && processorRef.heartbeatLive();
     const auto cands = processorRef.enumeratePreCandidates();
 
     menuCandidateNames.clearQuick();
@@ -277,7 +280,7 @@ void KirinHyphaEditor::showCandidateMenu()
         menu.addItem (3, "No candidates", false, false); // disabled (R-26: silent when nothing)
     else
         for (int i = 0; i < labels.size(); ++i)
-            menu.addItem (100 + i, labels[i], ! playing, false); // candidates locked while playing
+            menu.addItem (100 + i, labels[i], ! pairLocked, false); // B-115: locked while playing AND live
 
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&pairDropdown),
                         [this] (int result) { handleCandidateMenu (result); });
@@ -362,6 +365,8 @@ void KirinHyphaEditor::updatePost()
     const bool ack    = processorRef.recordAcknowledged(); // POST: always false (egui parity)
     const bool preset = processorRef.presetAvailable();
     const bool playing = processorRef.isPlaying();
+    // B-115: lock only when playing AND live (processBlock running) — false-release prevention.
+    const bool pairLocked = playing && processorRef.heartbeatLive();
 
     led.setState (hypha::deriveLedState (alive, sig, rec, ack, preset));
 
@@ -369,7 +374,7 @@ void KirinHyphaEditor::updatePost()
     const bool pairNonEmpty = pairName.isNotEmpty();
 
     nameField.setModelName (pairName);
-    nameField.setEditingEnabled (! playing); // W-280 playback pair lock
+    nameField.setEditingEnabled (! pairLocked); // W-280 + B-115 playback pair lock (playing AND live)
 
     pairRecLabel.setVisible (rec);
     if (rec)

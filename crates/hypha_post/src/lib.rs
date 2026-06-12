@@ -80,6 +80,9 @@ pub struct HyphaPost {
 
     // ── Heartbeat（SS-3 代替: process() 停止検出）────────────────────
     heartbeat: Arc<AtomicU32>,
+    /// B-115: heartbeat 鮮度フラグ（Measure Thread が publish）。editor が POST pair 変更ロックの
+    /// live 述語として読む（`playing かつ live` でロック / signal_state とは別軸）。
+    heartbeat_live: Arc<AtomicBool>,
 
     // ── Record モード ─────────────────────────────────────────────────
     record_sm: Arc<RecordStateMachine>,
@@ -220,6 +223,7 @@ impl Default for HyphaPost {
             process_counter: 0,
             signal_state: Arc::new(AtomicU8::new(SignalState::Inactive as u8)),
             heartbeat: Arc::new(AtomicU32::new(0)),
+            heartbeat_live: Arc::new(AtomicBool::new(false)),
             record_sm: Arc::new(RecordStateMachine::new()),
             record_acknowledged: Arc::new(AtomicBool::new(false)),
             pair_label: Arc::new(Mutex::new(String::new())),
@@ -461,6 +465,9 @@ impl Plugin for HyphaPost {
             playback_sample_rate: Arc::clone(&self.playback_sample_rate),
             // W-280 / G-115-248: transport.playing 共有 (再生中 pair 変更 block)。
             is_playing: Arc::clone(&self.is_playing),
+            // B-115: heartbeat 鮮度共有。editor は `playing かつ live` で pair 変更をロックする
+            // （playing 凍結値の false-release 防止 / processing 停止中は解除）。
+            live: Arc::clone(&self.heartbeat_live),
             // B-027 段階 2: POST GUI に pair_pre_name 入力欄を追加。trigger_keep
             // で `filter_candidates_by_name` の引数として読み出す。
             pair_pre_name: Arc::clone(&self.params.pair_pre_name),
@@ -567,6 +574,7 @@ impl Plugin for HyphaPost {
             Arc::clone(&self.signal_state),
             Arc::clone(&self.measure_shutdown),
             Arc::clone(&self.heartbeat),
+            Arc::clone(&self.heartbeat_live),
             Arc::clone(&self.record_sm),
             Arc::clone(&self.session_summary),
         );
@@ -770,6 +778,7 @@ impl Plugin for HyphaPost {
             measure_result: Arc::clone(&self.measure_result),
             signal_state: Arc::clone(&self.signal_state),
             heartbeat: Arc::clone(&self.heartbeat),
+            live: Arc::clone(&self.heartbeat_live),
             measure_shutdown: Arc::clone(&self.measure_shutdown),
             measure_alive: Arc::clone(&self.measure_alive),
             pending_producer: Arc::clone(&self.pending_producer),

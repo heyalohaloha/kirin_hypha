@@ -152,6 +152,11 @@ void kirin_hypha_set_pre_name(KirinHypha* handle, const char* name);
  * 検出は別軸（FFI は watchdog を spawn しない）. */
 bool kirin_hypha_measure_alive(KirinHypha* handle);
 
+/* B-115: heartbeat 鮮度（processBlock が呼ばれている事実 / read-only poller・UI Thread）.
+ * signal_state とは別軸（無音再生中も state=Inactive のため state を live の代用にしない）.
+ * 殻は「playing かつ live」で POST pair 変更をロックする. null / panic は false. */
+bool kirin_hypha_heartbeat_live(KirinHypha* handle);
+
 /* PRE が POST の record_signal を ack 済みか（B-054 LED / Keeping バナー poller・UI Thread）.
  * enable_pre_writes 前 / POST engine / null は false. */
 bool kirin_hypha_record_acknowledged(KirinHypha* handle);

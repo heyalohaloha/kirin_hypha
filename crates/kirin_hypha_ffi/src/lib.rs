@@ -146,6 +146,9 @@ pub struct KirinHyphaEngine {
     shutdown: Arc<AtomicBool>,
     /// process() 相当の heartbeat（push_samples が進める）。
     heartbeat: Arc<AtomicU32>,
+    /// B-115: heartbeat 鮮度フラグ（Measure Thread が publish）。editor が POST pair lock の
+    /// live 述語として読む（`kirin_hypha_heartbeat_live` getter / signal_state とは別軸）。
+    heartbeat_live: Arc<AtomicBool>,
     /// Record 状態機械。`enter_record`/`exit_record` で flip し、Measure Thread が
     /// `is_recording()` を見て自律 finalize する（Phase 3a で実配線）。
     record_sm: Arc<RecordStateMachine>,
@@ -420,6 +423,9 @@ impl KirinHyphaEngine {
         let signal_state = Arc::new(AtomicU8::new(SignalState::Inactive as u8));
         let shutdown = Arc::new(AtomicBool::new(false));
         let heartbeat = Arc::new(AtomicU32::new(0));
+        // B-115: heartbeat 鮮度フラグ。Measure Thread が publish し、editor が POST pair lock の
+        // live 述語として読む（read-only getter kirin_hypha_heartbeat_live 経由）。
+        let heartbeat_live = Arc::new(AtomicBool::new(false));
         // 実 RecordStateMachine（既定 Watch）。FFI が enter/exit で flip する。
         let record_sm = Arc::new(RecordStateMachine::new());
 
@@ -430,6 +436,7 @@ impl KirinHyphaEngine {
             Arc::clone(&signal_state),
             Arc::clone(&shutdown),
             Arc::clone(&heartbeat),
+            Arc::clone(&heartbeat_live),
             Arc::clone(&record_sm),
             Arc::clone(&session_summary),
         );
@@ -446,6 +453,7 @@ impl KirinHyphaEngine {
             signal_state,
             shutdown,
             heartbeat,
+            heartbeat_live,
             record_sm,
             // 既定 Unknown（set_license(Os) されるまで Record 不可・安全側）。
             license: Arc::new(AtomicU8::new(LICENSE_UNKNOWN)),
@@ -812,6 +820,14 @@ impl KirinHyphaEngine {
             .as_ref()
             .map(|h| !h.is_finished())
             .unwrap_or(false)
+    }
+
+    /// B-115: heartbeat 鮮度（processBlock が呼ばれている事実 / read-only poller）。
+    /// Measure Thread が `heartbeat_is_live(hb_stale_count)` を publish した値。signal_state とは
+    /// 別軸（B-107 で無音再生中も state=Inactive になるため state を live の代用にしない）。
+    /// editor が POST pair 変更ロックの live 述語として読む（`playing かつ live` でロック）。
+    pub fn heartbeat_live(&self) -> bool {
+        self.heartbeat_live.load(Ordering::Relaxed)
     }
 
     /// PRE が POST の record_signal を ack 済みか（B-054 LED poller）。
@@ -1397,6 +1413,23 @@ pub unsafe extern "C" fn kirin_hypha_measure_alive(handle: *mut KirinHyphaEngine
             return false;
         }
         unsafe { (*handle).measure_alive() }
+    }))
+    .unwrap_or(false)
+}
+
+/// B-115: heartbeat 鮮度を読む（processBlock が呼ばれている事実 / read-only poller / UI Thread）。
+/// signal_state とは別軸。殻は `playing かつ live` で POST pair 変更をロックする。null / panic は
+/// false（安全側＝ロックしない＝false-release より誤ロックを避ける）。
+///
+/// # Safety
+/// `handle` は有効なハンドル。
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_heartbeat_live(handle: *mut KirinHyphaEngine) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() {
+            return false;
+        }
+        unsafe { (*handle).heartbeat_live() }
     }))
     .unwrap_or(false)
 }

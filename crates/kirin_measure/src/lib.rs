@@ -46,7 +46,7 @@ pub use license::{
     can_enter_record, can_read_preset, can_write_plugin_data, load_license_safe, show_note_button,
     show_save_button, show_stop_record_button, SENSE_RECORD_HINT, SENSE_UPSELL_URL,
 };
-pub use measure_thread::spawn_measure_thread;
+pub use measure_thread::{heartbeat_is_live, pair_lock_active, spawn_measure_thread};
 pub use plugin_data::{
     append_annotation_to_latest, compact_wall_clock, verify_checksum, Annotation, BounceMarker,
     Frame, PluginDataFile, PluginDataWriter, PsbSnapshot, Role as PluginDataRole,

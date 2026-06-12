@@ -43,6 +43,8 @@ pub struct WatchdogParams {
     pub signal_state: Arc<AtomicU8>,
     /// Audio Thread heartbeat カウンタ（再起動した Measure Thread に渡す）
     pub heartbeat: Arc<AtomicU32>,
+    /// B-115: heartbeat 鮮度フラグ（再起動した Measure Thread が publish を継続する）。
+    pub live: Arc<AtomicBool>,
     /// Measure Thread 停止フラグ（再起動時にリセット）
     pub measure_shutdown: Arc<AtomicBool>,
     /// Measure Thread 生存フラグ。false=停止中（LED 黄）、true=稼働中（LED 青）
@@ -76,6 +78,7 @@ pub fn spawn_watchdog(params: WatchdogParams) -> JoinHandle<()> {
             measure_result,
             signal_state,
             heartbeat,
+            live,
             measure_shutdown,
             measure_alive,
             pending_producer,
@@ -126,6 +129,7 @@ pub fn spawn_watchdog(params: WatchdogParams) -> JoinHandle<()> {
                     Arc::clone(&signal_state),
                     Arc::clone(&measure_shutdown),
                     Arc::clone(&heartbeat),
+                    Arc::clone(&live),
                     Arc::clone(&record_sm),
                     Arc::clone(&session_summary),
                 );

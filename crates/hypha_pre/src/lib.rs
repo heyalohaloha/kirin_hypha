@@ -58,6 +58,9 @@ pub struct HyphaPre {
 
     signal_state: Arc<AtomicU8>,
     heartbeat: Arc<AtomicU32>,
+    /// B-115: heartbeat 鮮度フラグ（Measure Thread が publish）。PRE は pair lock を持たないため
+    /// editor では消費しないが、spawn_measure_thread / watchdog 再起動に渡す（signature 統一）。
+    heartbeat_live: Arc<AtomicBool>,
 
     record_sm: Arc<RecordStateMachine>,
     recording: Arc<AtomicBool>,
@@ -154,6 +157,7 @@ impl Default for HyphaPre {
             process_counter: 0,
             signal_state: Arc::new(AtomicU8::new(SignalState::Inactive as u8)),
             heartbeat: Arc::new(AtomicU32::new(0)),
+            heartbeat_live: Arc::new(AtomicBool::new(false)),
             record_sm: Arc::new(RecordStateMachine::new()),
             recording: Arc::new(AtomicBool::new(false)),
             record_acknowledged: Arc::new(AtomicBool::new(false)),
@@ -307,6 +311,7 @@ impl Plugin for HyphaPre {
             Arc::clone(&self.signal_state),
             Arc::clone(&self.measure_shutdown),
             Arc::clone(&self.heartbeat),
+            Arc::clone(&self.heartbeat_live),
             Arc::clone(&self.record_sm),
             Arc::clone(&self.session_summary),
         );
@@ -381,6 +386,7 @@ impl Plugin for HyphaPre {
             measure_result: Arc::clone(&self.measure_result),
             signal_state: Arc::clone(&self.signal_state),
             heartbeat: Arc::clone(&self.heartbeat),
+            live: Arc::clone(&self.heartbeat_live),
             measure_shutdown: Arc::clone(&self.measure_shutdown),
             measure_alive: Arc::clone(&self.measure_alive),
             pending_producer: Arc::clone(&self.pending_producer),

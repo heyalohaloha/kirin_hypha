@@ -274,6 +274,17 @@ int KirinHyphaProcessorBase::signalStateLive() const
     return (int) kirin_hypha_get_signal_state (hyphaHandle);
 }
 
+bool KirinHyphaProcessorBase::heartbeatLive() const
+{
+    // B-115: heartbeat 鮮度（processBlock が呼ばれている事実 / Measure Thread が publish）。
+    // editor は `playing かつ live` で POST pair 変更をロックする（playing 凍結値の false-release
+    // 防止 / signal_state とは別軸＝無音再生中も state=Inactive のため state を live の代用にしない）。
+    const juce::ScopedLock sl (handleLock);
+    if (hyphaHandle == nullptr)
+        return false; // 安全側 = live でない = ロックしない
+    return kirin_hypha_heartbeat_live (hyphaHandle);
+}
+
 bool KirinHyphaProcessorBase::presetAvailable() const
 {
     const juce::ScopedLock sl (handleLock);

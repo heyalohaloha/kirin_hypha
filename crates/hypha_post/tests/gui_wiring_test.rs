@@ -545,18 +545,33 @@ fn editor_rs_update_closure_loads_is_playing() {
     );
 }
 
-/// W-280 B-12 (i): draw_pair_pre_name_field / draw_pair_pre_combo の
-/// PRE 候補行ループが `add_enabled_ui(!is_playing` で囲まれていることを固定する。
-/// 配線が落ちると再生中の pair 変更 block が解除される。
+/// W-280 B-12 (i) + B-115: draw_pair_pre_name_field / draw_pair_pre_combo の PRE 候補行ループが
+/// `add_enabled_ui(!pair_locked` で囲まれ、pair_locked = pair_lock_active(is_playing, live)
+/// （playing かつ live）で算出されることを固定する。配線が落ちると実再生中の pair 変更 block が
+/// 解除され、live 軸が落ちると凍結 playing で false-release する。
 #[test]
 fn editor_rs_pair_widgets_wrapped_in_add_enabled_ui_not_is_playing() {
     let src = read("src/editor.rs");
-    let n = src.matches("add_enabled_ui(!is_playing").count();
+    let n = src.matches("add_enabled_ui(!pair_locked").count();
     assert!(
         n >= 2,
-        "editor.rs must wrap pair widgets with `add_enabled_ui(!is_playing` at least 2 times \
+        "editor.rs must wrap pair widgets with `add_enabled_ui(!pair_locked` at least 2 times \
          (W-280 B-9 draw_pair_pre_name_field + B-10 draw_pair_pre_combo PRE candidates), got {}",
         n
+    );
+    // B-115: pair_locked は playing かつ live（heartbeat 鮮度）で算出する。live 軸が落ちると
+    // 凍結 playing で false-release / signal_state を live の代用にしない。
+    assert!(
+        src.contains("pair_lock_active(is_playing, live)"),
+        "editor.rs must compute pair_locked = pair_lock_active(is_playing, live) (B-115 live 軸配線)"
+    );
+    assert!(
+        src.contains("state.live.load(Ordering::Relaxed)"),
+        "editor.rs update closure must snapshot live (heartbeat 鮮度) at frame entry (B-115)"
+    );
+    assert!(
+        src.contains("pub live: Arc<AtomicBool>"),
+        "editor.rs PostEditorArgs / PostEditorState must declare `live` field (B-115)"
     );
     // PAIR_LOCKED_TOOLTIP const が存在し、tooltip 文言が Daisuke 確定 (判断 4) と一致する。
     assert!(

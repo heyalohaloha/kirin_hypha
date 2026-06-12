@@ -31,6 +31,24 @@ const LOOP_SLEEP: Duration = Duration::from_millis(100);
 /// 200ms 無変化は確実に停止。
 const HEARTBEAT_STALE_THRESHOLD: u32 = 2;
 
+/// B-115: heartbeat 鮮度判定。`hb_stale_count`（heartbeat 無変化の連続回数）が
+/// `HEARTBEAT_STALE_THRESHOLD` 未満なら **live**（processBlock が呼ばれている事実）。
+/// 既存しきい値を再利用し新規しきい値を作らない（番人条件1）。`hb_stale_count < THRESHOLD` の
+/// 範囲では live が落ちない＝callback が 1 回欠けても false-release しない。
+#[inline]
+pub fn heartbeat_is_live(hb_stale_count: u32) -> bool {
+    hb_stale_count < HEARTBEAT_STALE_THRESHOLD
+}
+
+/// B-115: POST pair 変更ロックの述語。**実再生中（playing）かつ live**（processBlock 進行中）の
+/// ときだけロックする。playing が凍結値でも live=false ならロックしない（false-release 防止 /
+/// G-115-248「実再生中は lock 維持・processing 停止中は解除」の精緻化。SignalState とは別軸＝
+/// B-107 で無音再生中も state=Inactive になるため state を live の代用にしない）。
+#[inline]
+pub fn pair_lock_active(playing: bool, live: bool) -> bool {
+    playing && live
+}
+
 /// Measure Thread を起動し、JoinHandle を返す。
 ///
 /// # 引数
@@ -42,6 +60,8 @@ const HEARTBEAT_STALE_THRESHOLD: u32 = 2;
 /// - `heartbeat`   : Audio Thread が毎 process() でインクリメントするカウンタ。
 ///   200ms 以上変化なし → process() 停止と判定し signal_state を Inactive に上書き。
 ///   DAW がバイパス時に process() を停止するケース（Studio One 等）に対応。
+/// - `live`        : B-115 heartbeat 鮮度フラグ。毎ループで `heartbeat_is_live(hb_stale_count)`
+///   を publish する（signal_state とは別軸＝editor の POST pair lock 述語用 / read-only）。
 ///
 /// # 3層隔離保証
 /// このスレッドが panic しても Audio Thread は継続する。
@@ -63,6 +83,7 @@ pub fn spawn_measure_thread(
     signal_state: Arc<AtomicU8>,
     shutdown: Arc<AtomicBool>,
     heartbeat: Arc<AtomicU32>,
+    live: Arc<AtomicBool>,
     record_sm: Arc<RecordStateMachine>,
     session_summary: Arc<Mutex<Option<SessionSummary>>>,
 ) -> JoinHandle<()> {
@@ -174,6 +195,10 @@ pub fn spawn_measure_thread(
                 hb_stale_count = 0;
                 last_heartbeat = current_hb;
             }
+
+            // B-115: heartbeat 鮮度を live フラグへ publish（signal_state とは別軸 / editor の
+            // POST pair lock 述語用 / 既存 HEARTBEAT_STALE_THRESHOLD 再利用）。
+            live.store(heartbeat_is_live(hb_stale_count), Ordering::Relaxed);
 
             // ── SS-4: SignalState チェック ──────────────────────────
             let state = load_signal_state(&signal_state);
@@ -345,6 +370,53 @@ pub mod tests {
         psb_high_ext_15_5k_20k: f64,
     ) -> crate::PsbSummary {
         compute_psb_summary(psb, psb_bark21_24, psb_high_ext_15_5k_20k)
+    }
+
+    // ── B-115: POST pair lock 述語（playing かつ live）+ heartbeat 鮮度の単体 ──
+    // (a) playing=true + 鮮度内 → locked
+    #[test]
+    fn b115_pair_lock_a_playing_and_live_locks() {
+        assert!(
+            super::pair_lock_active(true, true),
+            "(a) playing かつ live → locked"
+        );
+    }
+    // (b) playing=true（凍結値）+ 鮮度切れ → unlocked（false-release）
+    #[test]
+    fn b115_pair_lock_b_frozen_playing_stale_unlocks() {
+        assert!(
+            !super::pair_lock_active(true, false),
+            "(b) playing(凍結) かつ live=false → unlocked"
+        );
+    }
+    // (c) playing=false → unlocked（live 値に依らず）
+    #[test]
+    fn b115_pair_lock_c_not_playing_unlocks() {
+        assert!(!super::pair_lock_active(false, true), "(c) playing=false → unlocked");
+        assert!(
+            !super::pair_lock_active(false, false),
+            "(c) playing=false → unlocked（live 無関係）"
+        );
+    }
+    // (d) false-release 防止: 鮮度しきい値未満の callback ギャップでは live が落ちない
+    //     （既存 HEARTBEAT_STALE_THRESHOLD の再利用を固定）。
+    #[test]
+    fn b115_pair_lock_d_live_holds_below_stale_threshold() {
+        assert!(super::heartbeat_is_live(0), "0 回欠け → live");
+        for n in 1..super::HEARTBEAT_STALE_THRESHOLD {
+            assert!(
+                super::heartbeat_is_live(n),
+                "{n} 回欠け（<しきい値）→ live 維持（false-release 防止）"
+            );
+        }
+        assert!(
+            !super::heartbeat_is_live(super::HEARTBEAT_STALE_THRESHOLD),
+            "しきい値到達 → not live"
+        );
+        assert!(
+            !super::heartbeat_is_live(super::HEARTBEAT_STALE_THRESHOLD + 1),
+            "しきい値超 → not live"
+        );
     }
 
     ///  C-3 ガード: PsbSummary.low / .mid は ISO 532-1 由来の

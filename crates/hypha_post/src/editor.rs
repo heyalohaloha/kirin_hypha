@@ -31,7 +31,8 @@ use kirin_measure::{
     all_keep_signal_path, all_stop_signal_path, append_annotation_to_latest,
     check_record_exclusion, delete_broadcast, delete_signal,
     enumerate_active_post_pair_candidates, enumerate_active_pre_pair_candidates, exit_record_full,
-    format_pair_label, load_signal_state, lookup_section_label, mark_released, sanitize_name,
+    format_pair_label, load_signal_state, lookup_section_label, mark_released, pair_lock_active,
+    sanitize_name,
     resolve_arm_target, scan_latest_v2_preset, show_note_button, show_save_button,
     show_stop_record_button, write_broadcast, write_pending, write_stop_broadcast, DeltaMode,
     DeltaResult, DeltaSnapshot, ExclusionResult, LatchedPre, License, MeasureResult, PluginDataRole,
@@ -164,6 +165,11 @@ pub struct PostEditorState {
     /// load して再生中 pair 変更 (Name field + ComboBox PRE 候補行) を block する。
     pub is_playing: Arc<AtomicBool>,
 
+    /// B-115: heartbeat 鮮度フラグ（Measure Thread が publish）。`update` 入口で load し、
+    /// `pair_lock_active(is_playing, live)` で pair 変更ロックを判定する（playing 凍結値の
+    /// false-release 防止 / signal_state とは別軸）。
+    pub live: Arc<AtomicBool>,
+
     /// B-027 段階 2: pair PRE Name (HyphaPostParams.pair_pre_name と Arc 共有)。
     /// 編集確定時に `write()` で sanitize 後の値を書き込み、trigger_keep で
     /// `read()` した値を `filter_candidates_by_name` の引数に渡す。
@@ -229,6 +235,7 @@ impl PostEditorState {
             playback_pos_samples: args.playback_pos_samples,
             playback_sample_rate: args.playback_sample_rate,
             is_playing: args.is_playing,
+            live: args.live,
             pair_pre_name: args.pair_pre_name,
             pair_claimed_at: args.pair_claimed_at,
             pair_release_notice: args.pair_release_notice,
@@ -277,6 +284,8 @@ pub struct PostEditorArgs {
     pub playback_sample_rate: Arc<AtomicU32>,
     /// W-280 / G-115-248: transport.playing 独立 AtomicBool。再生中 pair 変更 block 用。
     pub is_playing: Arc<AtomicBool>,
+    /// B-115: heartbeat 鮮度フラグ。`pair_lock_active(is_playing, live)` の live 軸。
+    pub live: Arc<AtomicBool>,
     /// B-027 段階 2: pair PRE Name の Arc 共有 (HyphaPostParams.pair_pre_name)。
     pub pair_pre_name: Arc<RwLock<String>>,
     /// W-281 / G-115-249: pair claim 時刻 Arc 共有。
@@ -309,6 +318,10 @@ pub fn create_post_editor(args: PostEditorArgs) -> Option<Box<dyn Editor>> {
             // 再生中 pair 変更 block の判定軸 (draw_pair_pre_name_field /
             // draw_pair_pre_combo PRE 候補行)。
             let is_playing = state.is_playing.load(Ordering::Relaxed);
+            // B-115: 述語を「playing かつ live」へ。heartbeat 鮮度（processBlock 進行中）も snapshot し、
+            // playing 凍結値でも live=false ならロックしない（false-release 防止 / signal_state 非代用）。
+            let live = state.live.load(Ordering::Relaxed);
+            let pair_locked = pair_lock_active(is_playing, live);
             let m = state.measure.lock().map(|g| g.clone()).unwrap_or_default();
             let d = state.delta.lock().map(|g| g.clone()).unwrap_or_default();
             let alive = state.measure_alive.load(Ordering::Relaxed);
@@ -363,7 +376,7 @@ pub fn create_post_editor(args: PostEditorArgs) -> Option<Box<dyn Editor>> {
             }
             let led_col = led_color(led, now);
 
-            draw_post(ctx, state, &m, &d, sig, recording, &pair, led_col, show_banner, license, now, is_playing);
+            draw_post(ctx, state, &m, &d, sig, recording, &pair, led_col, show_banner, license, now, pair_locked);
 
             // Toast の寿命切れはこのフレームで掃除
             if state.toast.as_ref().is_some_and(|t| !t.is_alive(now)) {
@@ -388,7 +401,7 @@ fn draw_post(
     show_banner: bool,
     license: License,
     now: f64,
-    is_playing: bool,
+    pair_locked: bool,
 ) {
     egui::CentralPanel::default()
         .frame(egui::Frame::NONE.fill(BG))
@@ -421,14 +434,14 @@ fn draw_post(
             // `draw_pair_pre_name_field` の直近右側に並べ、自由入力（Name 検索）と
             // 一覧選択の両系統を提供する。
             //
-            // W-280 / G-115-248: is_playing を 2 関数に伝播し、再生中 pair 変更を
-            // block する。ComboBox 全体は囲わない (All Stop / All Keep は機能性維持 /
-            // 判断 2 / 約束5原則 #5)。
+            // W-280 / G-115-248 + B-115: pair_locked（playing かつ live）を 2 関数に伝播し、
+            // 実再生中（processBlock 進行中）の pair 変更を block する。ComboBox 全体は囲わない
+            // (All Stop / All Keep は機能性維持 / 判断 2 / 約束5原則 #5)。
             ui.horizontal(|ui| {
                 ui.add_space(10.0);
-                draw_pair_pre_name_field(ui, state, is_playing);
+                draw_pair_pre_name_field(ui, state, pair_locked);
                 ui.add_space(4.0);
-                draw_pair_pre_combo(ui, state, now, is_playing);
+                draw_pair_pre_combo(ui, state, now, pair_locked);
             });
             ui.add_space(4.0);
 
@@ -794,11 +807,11 @@ fn row_pair(
 /// 理由: POST 自身の identity ではないため fallback 識別子は概念的に存在しない
 /// (B-023 論点 4 (c) POST 独自命名禁止 と整合)。空文字時は trigger_keep の
 /// filter も pass-through (B-027 段階 1 受入維持)。
-fn draw_pair_pre_name_field(ui: &mut egui::Ui, state: &mut PostEditorState, is_playing: bool) {
-    // W-280 / G-115-248: is_playing=true で全体 disable + tooltip。
+fn draw_pair_pre_name_field(ui: &mut egui::Ui, state: &mut PostEditorState, pair_locked: bool) {
+    // W-280 / G-115-248 + B-115: pair_locked=true（playing かつ live）で全体 disable + tooltip。
     // TextEdit / Label / focus 関連全て囲い込みの内側で発火するため、
     // 再生中は入力・編集モード遷移ともに block される。
-    let inner = ui.add_enabled_ui(!is_playing, |ui| {
+    let inner = ui.add_enabled_ui(!pair_locked, |ui| {
         if pair_pre_name_edit_active(ui) {
             let response = ui.add(
                 TextEdit::singleline(&mut state.pair_pre_name_edit_buffer)
@@ -866,7 +879,7 @@ fn draw_pair_pre_name_field(ui: &mut egui::Ui, state: &mut PostEditorState, is_p
     // W-280: 囲んだ scope の InnerResponse.response に on_hover_text を貼る。
     // disabled scope 内側で hover でも tooltip が出る (egui 0.31.1 add_enabled_ui の
     // public 動作 / R-11 確認済)。
-    if is_playing {
+    if pair_locked {
         inner.response.on_hover_text(PAIR_LOCKED_TOOLTIP);
     }
 }
@@ -884,7 +897,7 @@ fn draw_pair_pre_name_field(ui: &mut egui::Ui, state: &mut PostEditorState, is_p
 ///
 /// 0 候補時は `ui.label("No candidates")` を出す（dropdown 内空表示）。
 /// egui 0.31.1 公式 API: `ComboBox::from_id_salt` (旧 `from_id_source` は廃止)。
-fn draw_pair_pre_combo(ui: &mut egui::Ui, state: &mut PostEditorState, now: f64, is_playing: bool) {
+fn draw_pair_pre_combo(ui: &mut egui::Ui, state: &mut PostEditorState, now: f64, pair_locked: bool) {
     let kirin_root = std::env::temp_dir().join("kirin");
     let pre_candidates = enumerate_active_pre_pair_candidates(&kirin_root);
     // B-027 段階 3-B α-7-3 / Step 9: All Keep 行 N 集計のため POST candidates も取得。
@@ -1030,7 +1043,7 @@ fn draw_pair_pre_combo(ui: &mut egui::Ui, state: &mut PostEditorState, now: f64,
             // W-280 / G-115-248: PRE 候補行ループのみ add_enabled_ui で囲う。
             // All Stop / All Keep 行 (上記) は囲いの外で機能維持 (判断 2 / 約束5原則 #5)。
             // ComboBox 全体は囲わない (再生中も Stop/All Keep は機能性必要)。
-            let pre_inner = ui.add_enabled_ui(!is_playing, |ui| {
+            let pre_inner = ui.add_enabled_ui(!pair_locked, |ui| {
                 if pre_candidates.is_empty() {
                     ui.label(
                         RichText::new("No candidates")
@@ -1090,7 +1103,7 @@ fn draw_pair_pre_combo(ui: &mut egui::Ui, state: &mut PostEditorState, now: f64,
                 }
             });
             // W-280: 再生中は PRE 候補 scope に locked tooltip を貼る。
-            if is_playing {
+            if pair_locked {
                 pre_inner.response.on_hover_text(PAIR_LOCKED_TOOLTIP);
             }
         });

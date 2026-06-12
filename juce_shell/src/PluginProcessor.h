@@ -57,6 +57,7 @@ public:
     void setPreName (const juce::String& name);                   // persist + kirin_hypha_set_pre_name (live, sanitized in FFI)
     // (isRecording() is declared in the B-072 block above; record_sm reflects PRE autonomous record too.)
     bool measureAlive() const;      // FFI kirin_hypha_measure_alive (LED Error state)
+    bool heartbeatLive() const;     // B-115: FFI kirin_hypha_heartbeat_live (processBlock liveness / POST pair lock)
     bool recordAcknowledged() const;// FFI kirin_hypha_record_acknowledged (PRE Keeping banner / RecordActive LED)
     bool presetAvailable() const;   // FFI kirin_hypha_preset_available (PresetAvailable LED)
     bool addAnnotation (const juce::String& memo); // FFI kirin_hypha_add_annotation (POST Note → Good/Fix/Hold)
