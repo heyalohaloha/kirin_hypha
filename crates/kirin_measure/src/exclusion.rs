@@ -1,22 +1,23 @@
-//! Record エントリ時の排他制御 — G-50-10 / G-50-33（A-3 修正後 / B-027 段階 3-A 緩和）。
+//! Record エントリ時の排他制御 — G-50-10 / G-50-33（B-027 段階 3-A / G-115-365/366）。
 //!
-//! # 排他ルール (B-027 段階 3-A / G-115-47)
-//! 同一 `project_hash` 内で **最大 [`MAX_ACTIVE_PER_PROJECT`] = 12 件** の active
-//! Record セッションを許容する。Daisuke 確認 (2026-05-04)。12 件以上で Conflict。
+//! # 排他ルール (B-027 段階 3-A / G-115-47 / G-115-364)
+//! 同一 `project_hash` 内で **最大 [`MAX_ACTIVE_PER_PROJECT`] = 12 distinct pairing** の Record を
+//! 許容する。Daisuke 確認 (2026-05-04 / 値 12 不変・意味は「12 pairs」)。超過で Conflict。
 //!
-//! 旧実装 (B-027 段階 2 まで) は「1 active で即 Conflict」だったが、Stage 3-A で
-//! 多 PRE / 多 POST 環境を正式サポートするため count ベースに緩和。
+//! # cap の真実源（G-115-365/366）
+//! count は **`{base}/{project_hash}/record_reservation/*.json`（tempfile+hard_link で atomic claim
+//! された枠）の物理存在数のみ**で数える（[`reservation::count_frames`]）。
+//! - active marker JSON は **参照しない**（第二の独立 count を持たない）。
+//! - 枠は **parse しない**（壊れ枠 / 0-byte も「存在」側で数える＝under-count しない）。
+//! - **TTL を count から引かない**（古い枠も存在すれば数える）。孤児回収は [`reservation`] sweep の
+//!   責務（reserved_at age / mtime grace）であって count ではない。
 //!
-//! # チェック手順
-//! 1. `{base}/{project_hash}/` 配下のサブディレクトリを列挙（`record_signal/` /
-//!    `preset/` などの予約名は除外）
-//! 2. 各 `{instance_id}/pre/` と `{instance_id}/post/` 配下の `*.json` を読み、
-//!    `status="active"` かつ `heartbeat` が現在から 60 秒以内のファイルを **数える**
-//! 3. 合計が `MAX_ACTIVE_PER_PROJECT` 以上で Conflict（最後に観測した active を holder に）
+//! lifecycle（keep で 1 枠 atomic claim / stop で明示解放 / 孤児は grace sweep）が枠数を決め、
+//! 本モジュールはそれを読むだけ。
 //!
 //! # クラッシュ残骸
-//! `heartbeat > 60 秒古い` ファイルはクラッシュ残骸として扱い、**削除せず放置**。
-//! OS 側で 90 日超自動アーカイブ（F-1）。Hypha 側は削除しない。
+//! active marker（`{instance_id}/{pre,post}/*.json`）は排他 count に使わない（G-115-365 以降）。
+//! 残骸 marker は Hypha 側で削除せず、OS 側 90 日超自動アーカイブ（F-1）に委ねる。
 
 use chrono::{DateTime, Utc};
 use std::path::{Path, PathBuf};
@@ -30,11 +31,10 @@ pub const STALE_SECONDS: i64 = 60;
 /// 同一 `project_hash` 内に同時存在を許す **distinct pairing** の上限（G-115-364）。
 ///
 /// B-127 是正: 旧実装は active marker を個別に数え PRE+POST 合算 12（=6 pair）で Conflict と
-/// していた（pair 単位と marker 単位の不一致 bug）。現在は active+fresh marker を pairing key
-/// （`(pre_iid, post_iid)` 正規化 / 双方向一致なら 2 marker=1 pairing・片側 None/不一致/相手
-/// stale は各 lone=1）に畳み込み、`record_reservation/` の有効 reservation も同じ pairing key
-/// 集合へ入れて **distinct pairing 数**を数える。12 pairing 以上で Conflict（13 ペア目を hard
-/// reject）。値は 12 のまま（Daisuke 2026-05-04 確定）だが意味は「12 pairs」。
+/// していた（pair 単位と marker 単位の不一致 bug）。現在は **`record_reservation/` の atomic claim
+/// 枠ファイル（tempfile+hard_link）の物理存在数のみ**を distinct pairing 数として数える
+/// （G-115-365/366 / marker は畳み込まない・parse しない・TTL を引かない）。枠数が本値を **超えたら**
+/// 13 ペア目として hard reject。値は 12 のまま（Daisuke 2026-05-04 確定）だが意味は「12 pairs」。
 pub const MAX_ACTIVE_PER_PROJECT: usize = 12;
 
 /// 排他チェック結果。
@@ -81,7 +81,7 @@ pub fn check_record_exclusion_at(
     project_hash: &str,
     _now: DateTime<Utc>,
 ) -> ExclusionResult {
-    // G-115-365: cap 真実源 = O_EXCL 枠ファイルの**物理的存在のみ**（marker JSON を数えない /
+    // G-115-365/366: cap 真実源 = atomic claim 枠ファイルの**物理的存在のみ**（marker JSON を数えない /
     // 第二の独立 count を持たない）。advisory 用は **既存**枠数 >= MAX で満杯（新規 keep は 13 ペア目）。
     // engine の authoritative 強制は reservation を先に作ってから `count_distinct_pairings(...) > MAX`
     // で判定する（resolve_and_enter_keep）。`now` は枠存在ベースのため不使用。
@@ -96,7 +96,7 @@ pub fn check_record_exclusion_at(
     ExclusionResult::Ok
 }
 
-/// G-115-365: 同一 project_hash 内の **distinct pairing 数 = O_EXCL 枠ファイルの物理存在数**。
+/// G-115-365/366: 同一 project_hash 内の **distinct pairing 数 = atomic claim 枠ファイルの物理存在数**。
 /// 真実源は枠存在のみ（[`reservation::count_frames`] / parse 失敗枠も存在側で数える・TTL を引かない）。
 /// engine が reservation を作った**後**にこの値が `MAX_ACTIVE_PER_PROJECT` を **超えたら** 13 ペア目
 /// （= reject）と判定するために使う。lifecycle（lone=1枠 / 双方向 pair=1枠共有 / 不活性 stale で解放）が
@@ -141,7 +141,7 @@ mod tests {
         dir
     }
 
-    /// G-115-365: cap 真実源 = O_EXCL 枠存在。N 個の distinct pairing 枠を作る。
+    /// G-115-365/366: cap 真実源 = atomic claim 枠存在。N 個の distinct pairing 枠を作る。
     fn make_frames(base: &std::path::Path, ph: &str, n: usize, now: DateTime<Utc>) {
         for i in 0..n {
             reserve_pairing_at(base, ph, &format!("pre-{i:02}"), &format!("post-{i:02}"), now).unwrap();

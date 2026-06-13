@@ -1,21 +1,21 @@
-//! B-127 (G-115-364): per-pairing reservation — cross-process safe O_EXCL atomic-create。
+//! B-127 (G-115-364/365/366): per-pairing reservation — cross-process safe atomic claim。
 //!
 //! 記録 cap は **distinct pairing** 単位（[`crate::exclusion`]）。active marker が io_thread に
 //! よって書かれるのは keep 確定の **後** であり、その間（keep→writer_start）に複数の keep が
 //! 同じ count を読んで cap を超過する TOCTOU 窓があった（B-127 1309b9d が自認）。reservation は
-//! keep 確定時に同期的に枠ファイルを **O_EXCL atomic-create**（`create_new(true)`）し、その窓を
-//! cross-process（同一 `~/Library/Application Support/Kirin OS/plugin_data/` を共有する別 DAW/
-//! 別プロセス含む）で閉じる。
+//! keep 確定時に同期的に枠ファイルを **atomic claim**（tempfile + `hard_link` の EEXIST 排他 /
+//! G-115-366 (A)）し、その窓を cross-process（同一 `~/Library/Application Support/Kirin OS/
+//! plugin_data/` を共有する別 DAW/別プロセス含む）で閉じる。final 枠は link するまで dir entry を
+//! 持たないため、reserve 進行中に sweep/count が「0-byte/incomplete な final」を観測する窓が無い。
 //!
 //! - 枠ファイル: `{plugin_data}/{project_hash}/record_reservation/{pairing_key}.json`
 //! - `pairing_key` = `{pre_instance_id}__{post_instance_id}`（active marker の pairing key と一致）
-//! - exclusion count は marker の pairing key と reservation の pairing key を **同一集合**に入れて
-//!   重複排除する（同じ pairing は marker と reservation の双方があっても 1 枠）。
-//! - reservation は [`RESERVATION_TTL_SECS`] 以内のみ count に含める。active marker（fresh
-//!   heartbeat）が現れた後は marker が同一 pairing key を保持するため、reservation の失効は枠に
-//!   影響しない。TTL 超過の reservation は孤児（keep が writer_start 前にクラッシュ等）として
-//!   count から除外し sweep で削除する（B-103/B-119 合流）。
-//! - 解放: POST stop（[`crate::record_signal`] 経路）で明示削除 + 孤児は age-based sweep。
+//! - cap count（[`count_frames`]）は **`record_reservation/*.json` の物理存在数のみ**で数える。
+//!   marker JSON は参照しない（第二の独立 count を持たない）/ parse もしない（壊れ枠も存在側で
+//!   数える＝under-count しない）/ TTL を count から引かない（古い枠も存在すれば数える）。
+//! - 孤児回収（grace 超過）は **sweep の責務**であって count ではない。keep が writer_start 前に
+//!   クラッシュした枠は age（reserved_at）/ mtime grace 超過で sweep が削除する（B-103/B-119 合流）。
+//! - 解放: POST stop（[`crate::record_signal`] 経路）で明示削除 + 孤児は grace-based sweep。
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -31,6 +31,9 @@ pub const RESERVATION_SUBDIR: &str = "record_reservation";
 /// reservation が枠を保持できる最大秒数。active marker が現れる窓（keep→writer_start, 通常 1 tick
 /// =100ms 程度）を十分覆う保守値。超過は孤児として count 除外 + sweep 対象。`STALE_SECONDS` と同値。
 pub const RESERVATION_TTL_SECS: i64 = 60;
+
+/// G-115-366 (A): atomic claim の temp 名一意化用 process 内連番（pid と併用で並行/別プロセス衝突回避）。
+static TEMP_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// pairing を一意識別する正規化キー（`pre_instance_id__post_instance_id`）。
 /// active marker 側（POST→`(paired_pre, self)` / PRE→`(self, paired_post)`）と同じ規則で作る。
@@ -63,11 +66,11 @@ fn reservation_path(base_dir: &Path, project_hash: &str, pre_iid: &str, post_iid
     reservation_dir(base_dir, project_hash).join(format!("{}.json", pairing_key(pre_iid, post_iid)))
 }
 
-/// pairing 枠を **O_EXCL atomic-create** で予約する（cross-process safe）。
+/// pairing 枠を **atomic claim**（tempfile + `hard_link` / G-115-366 A）で予約する（cross-process safe）。
 ///
-/// 既に同 pairing の枠があれば [`ReserveOutcome::AlreadyReserved`]（`create_new` の EEXIST）。
-/// 新規作成できれば [`ReserveOutcome::Created`]。create 後の metadata 書込失敗は best-effort
-/// （枠の存在＝atomic-create 自体は成立済なので無視する。reserved_at 不在は sweep が age 不明として扱う）。
+/// 既に同 pairing の枠があれば [`ReserveOutcome::AlreadyReserved`]（`hard_link` の EEXIST）。
+/// 新規作成できれば [`ReserveOutcome::Created`]。final 枠は link した時点で必ず完全 JSON を指す
+/// （temp に write_all + sync_all してから link するため・0-byte/incomplete な final は出現しない）。
 pub fn reserve_pairing(
     base_dir: &Path,
     project_hash: &str,
@@ -88,27 +91,70 @@ pub fn reserve_pairing_at(
     let dir = reservation_dir(base_dir, project_hash);
     fs::create_dir_all(&dir)?;
     let path = reservation_path(base_dir, project_hash, pre_iid, post_iid);
-    match OpenOptions::new().write(true).create_new(true).open(&path) {
-        Ok(mut f) => {
-            // G-115-365 (3): 枠 metadata（pre/post/reserved_at — sweep の marker 照合 + age 用）を
-            // 書く。serde / write_all 失敗 = 不完全枠 → unlink して Err を返す（Created を返さない＝
-            // 枠を claim したことにしない）。呼び出し側は Err を reject 扱いする。
-            let bytes = serde_json::to_vec(&ReservationFile {
-                pre_instance_id: pre_iid.to_string(),
-                post_instance_id: post_iid.to_string(),
-                reserved_at: now.to_rfc3339(),
-            })
-            .map_err(std::io::Error::other)?;
-            if let Err(e) = f.write_all(&bytes) {
-                drop(f);
-                let _ = fs::remove_file(&path);
-                return Err(e);
-            }
-            Ok(ReserveOutcome::Created)
+
+    // G-115-366 (A): atomic claim = tempfile + hard_link。final(枠) は link するまで dir entry を
+    // 持たない → reserve 進行中に sweep / count が final を観測できない（0-byte/incomplete が final に
+    // 出る窓が消滅）。link は EEXIST で原子的に排他（cross-process safe / O_EXCL 同等プリミティブ）。
+    // link 後の final は常に完全 JSON を指す inode（parse 必ず成功）。rename は使わない（上書きで
+    // 既存 claim を奪うため）。temp は全経路で掃除（orphan temp を残さない）。
+    let bytes = serde_json::to_vec(&ReservationFile {
+        pre_instance_id: pre_iid.to_string(),
+        post_instance_id: post_iid.to_string(),
+        reserved_at: now.to_rfc3339(),
+    })
+    .map_err(std::io::Error::other)?;
+    // step 1-2: temp に完全 JSON を write_all → sync_all（fsync）。失敗は temp 掃除して Err（reject）。
+    let temp = reserve_build_temp(&dir, pre_iid, post_iid, &bytes)?;
+    // step 3: hard_link(temp → final) で原子 claim（temp は内部で全経路掃除）。
+    reserve_link_claim(&temp, &path)
+}
+
+/// G-115-366 (A) step 1-2: temp に完全 JSON を write_all → sync_all（fsync）し、temp path を返す。
+/// temp は final と同一 dir（= 同一 fs / hard_link 制約クリア）。名は `.{pair_key}.tmp.{pid}.{seq}`
+/// （process 内 atomic 連番 + pid で並行・別プロセスと衝突しない / 拡張子が `.json` でない＝sweep/
+/// count が無視する）。write / sync 失敗時は temp を best-effort 掃除して Err（orphan temp を残さない）。
+fn reserve_build_temp(
+    dir: &Path,
+    pre_iid: &str,
+    post_iid: &str,
+    bytes: &[u8],
+) -> std::io::Result<PathBuf> {
+    let seq = TEMP_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let temp = dir.join(format!(
+        ".{}.tmp.{}.{}",
+        pairing_key(pre_iid, post_iid),
+        std::process::id(),
+        seq
+    ));
+    let res = (|| -> std::io::Result<()> {
+        let mut f = OpenOptions::new().write(true).create_new(true).open(&temp)?;
+        f.write_all(bytes)?;
+        f.sync_all()?;
+        Ok(())
+    })();
+    match res {
+        Ok(()) => Ok(temp),
+        Err(e) => {
+            let _ = fs::remove_file(&temp);
+            Err(e)
         }
+    }
+}
+
+/// G-115-366 (A) step 3: `hard_link(temp → final)` で原子 claim。
+/// - Ok → 本呼び出しが枠を作った（final は完全内容 inode）→ [`ReserveOutcome::Created`]。
+/// - EEXIST → 既占有 → [`ReserveOutcome::AlreadyReserved`]。
+/// - その他 Err → reject（Created を返さない）。
+///
+/// temp は全経路で unlink（final は link 済＝temp 削除に影響されない / 未 link でも orphan を残さない）。
+fn reserve_link_claim(temp: &Path, final_path: &Path) -> std::io::Result<ReserveOutcome> {
+    let outcome = match fs::hard_link(temp, final_path) {
+        Ok(()) => Ok(ReserveOutcome::Created),
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(ReserveOutcome::AlreadyReserved),
         Err(e) => Err(e),
-    }
+    };
+    let _ = fs::remove_file(temp);
+    outcome
 }
 
 /// pairing 枠を解放する（ファイル削除）。不在は成功扱い（冪等）。
@@ -145,6 +191,21 @@ fn read_frame_pair(path: &Path) -> Option<(String, String)> {
     let bytes = fs::read(path).ok()?;
     let rf: ReservationFile = serde_json::from_slice(&bytes).ok()?;
     Some((rf.pre_instance_id, rf.post_instance_id))
+}
+
+/// G-115-366 (B): 枠ファイルの mtime が `now` から [`RESERVATION_TTL_SECS`] を超えて古いか。
+/// parse 不能枠の grace 判定に使う（reserved_at が読めないため mtime を age 代理にする）。
+/// mtime 取得不能 / 未来 mtime（負 age）は保守側 false（= 回収しない / 保持）。grace 窓は Some
+/// アームの `age > RESERVATION_TTL_SECS` と同一に揃える。
+fn frame_mtime_age_exceeds_grace(path: &Path, now: DateTime<Utc>) -> bool {
+    let Ok(meta) = fs::metadata(path) else {
+        return false;
+    };
+    let Ok(modified) = meta.modified() else {
+        return false;
+    };
+    let modified: DateTime<Utc> = modified.into();
+    now.signed_duration_since(modified).num_seconds() > RESERVATION_TTL_SECS
 }
 
 /// pairing に対応する active+fresh marker（PRE か POST のどちらか）が存在するか。
@@ -185,10 +246,11 @@ fn role_dir_has_fresh_marker(dir: &Path, now: DateTime<Utc>) -> bool {
 }
 
 /// 孤児 reservation 枠を `base_dir` 全 project_hash 横断で回収する（B-103/B-119 startup sweep 合流）。
-/// G-115-365: 回収条件 = 枠 age > [`RESERVATION_TTL_SECS`]（keep→writer_start 窓の grace）**かつ**
+/// G-115-365/366: 回収条件 = 枠 age > [`RESERVATION_TTL_SECS`]（keep→writer_start 窓の grace）**かつ**
 /// その pairing に fresh active marker が無い（= 録音継続していない / crash・終了）。長時間 Record
 /// （marker fresh）は age 超過でも保持する（pure-age 回収による誤剥がしを防ぐ）。reserved_at parse
-/// 不能の枠は不完全/破損孤児として回収する。**live count（[`count_frames`]）には一切干渉しない。**
+/// 不能の枠は **mtime grace 超過のときのみ**回収する（G-115-366 (B) / 最近 mtime の枠は保持）。
+/// **live count（[`count_frames`]）には一切干渉しない。**
 pub fn sweep_stale_reservations_in(base_dir: &Path, now: DateTime<Utc>) -> usize {
     let mut removed = 0usize;
     let Ok(projects) = fs::read_dir(base_dir) else {
@@ -221,8 +283,11 @@ pub fn sweep_stale_reservations_in(base_dir: &Path, now: DateTime<Utc>) -> usize
                             None => true,
                         }
                 }
-                // reserved_at parse 不能 = 不完全/破損孤児 → 回収。
-                None => true,
+                // G-115-366 (B): reserved_at parse 不能枠は mtime grace 超過のときだけ回収する。
+                // atomic claim 後の final は常に parse 可（A）。それでも parse 不能な final が出るのは
+                // 旧形式残骸 / FS 破損のみ。最近 mtime のもの（万一の生成途中等）は保守的に保持し、
+                // grace 超過のものだけ孤児として回収する。
+                None => frame_mtime_age_exceeds_grace(&path, now),
             };
             if reclaim && fs::remove_file(&path).is_ok() {
                 removed += 1;
@@ -333,9 +398,129 @@ mod tests {
         assert_eq!(count_frames(&base, "ph"), 2, "fresh 枠 + marker 裏付け枠は残る");
     }
 
-    /// (iii) O_EXCL atomic-create cross-process safety: 同一 pairing key を多スレッドが同時に
-    /// reserve しても **ちょうど 1 つだけ** Created（残りは AlreadyReserved）。`create_new(true)` の
-    /// 原子性（OS が保証・cross-process でも同一プリミティブ）を並行 race で実証する。
+    // ── G-115-366 (e): parse 不可枠の mtime grace ──────────────────────────────
+    /// 最近 mtime の parse 不可（0-byte）枠は grace 内 → 保持（生成途中の取り違え防止）。
+    #[test]
+    fn sweep_grace_protects_recent_unparseable_frame() {
+        let base = isolated_dir();
+        let now = Utc::now();
+        let dir = reservation_dir(&base, "ph");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("recent__frame.json"), b"").unwrap(); // parse 不可・mtime=now
+        let removed = sweep_stale_reservations_in(&base, now);
+        assert_eq!(removed, 0, "最近 mtime の parse 不可枠は mtime grace で保護（回収しない）");
+        assert_eq!(count_frames(&base, "ph"), 1, "枠は残る");
+    }
+
+    /// mtime-stale な parse 不可枠は孤児として回収（now を grace 超過の未来に進めて評価）。
+    #[test]
+    fn sweep_reclaims_mtime_stale_unparseable_frame() {
+        let base = isolated_dir();
+        let dir = reservation_dir(&base, "ph");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("stale__frame.json"), b"").unwrap(); // parse 不可・mtime≈now
+        // sweep の now を mtime から grace 超過だけ未来へ（filetime 改変不要で mtime-stale を再現）。
+        let future = Utc::now() + chrono::Duration::seconds(RESERVATION_TTL_SECS + 30);
+        let removed = sweep_stale_reservations_in(&base, future);
+        assert_eq!(removed, 1, "mtime grace 超過の parse 不可枠は孤児回収");
+        assert_eq!(count_frames(&base, "ph"), 0);
+    }
+
+    // ── G-115-366 (d): sweep × in-progress reserve 並行安全 ────────────────────
+    /// reserve をステップ分割（temp 書込後・link 前 / link 後）し各段で sweep を走らせる:
+    /// - link 前: final 未生成 → sweep は当該枠を消せない（temp は非 .json で count/sweep が無視）。
+    /// - link 後: final は完全枠（parse 必ず OK）・reserved_at fresh → age grace で保護。
+    #[test]
+    fn sweep_does_not_delete_in_progress_or_claimed_reservation() {
+        let base = isolated_dir();
+        let now = Utc::now();
+        let dir = reservation_dir(&base, "ph");
+        fs::create_dir_all(&dir).unwrap();
+        let final_path = reservation_path(&base, "ph", "x", "y");
+        let bytes = serde_json::to_vec(&ReservationFile {
+            pre_instance_id: "x".to_string(),
+            post_instance_id: "y".to_string(),
+            reserved_at: now.to_rfc3339(),
+        })
+        .unwrap();
+
+        // step: temp 書込後・link 前。
+        let temp = reserve_build_temp(&dir, "x", "y", &bytes).unwrap();
+        assert!(!final_path.exists(), "link 前: final は dir entry を持たない（sweep 非観測）");
+        assert_eq!(count_frames(&base, "ph"), 0, "link 前は count 0（final 未生成 / temp は非 .json）");
+        let removed_before = sweep_stale_reservations_in(&base, now);
+        assert_eq!(removed_before, 0, "link 前 sweep: final 不在で当該枠は消せない");
+        assert!(temp.exists(), "temp(.tmp) は非 .json のため sweep は無視（消さない）");
+
+        // step: link 後。
+        assert_eq!(
+            reserve_link_claim(&temp, &final_path).unwrap(),
+            ReserveOutcome::Created
+        );
+        assert!(final_path.exists());
+        assert!(!temp.exists(), "temp は link 後に掃除済（orphan 無し）");
+        assert!(read_frame_pair(&final_path).is_some(), "link 後 final は必ず parse 可（完全 JSON）");
+        assert_eq!(count_frames(&base, "ph"), 1, "link 後は完全枠 1（count 反映）");
+        let removed_after = sweep_stale_reservations_in(&base, now);
+        assert_eq!(removed_after, 0, "link 後 sweep: 完全枠・age fresh で保護");
+        assert_eq!(count_frames(&base, "ph"), 1, "保護され枠は残る");
+    }
+
+    /// 12 枠満杯 + 並行 sweep 連打の下でも 13 本目は全 reject（race 下で cap=12 維持）。
+    #[test]
+    fn thirteenth_rejected_under_concurrent_sweep() {
+        let base = isolated_dir();
+        let now = Utc::now();
+        for i in 0..crate::exclusion::MAX_ACTIVE_PER_PROJECT {
+            reserve_pairing_at(&base, "ph", &format!("p{i}"), &format!("q{i}"), now).unwrap();
+        }
+        let base_arc = Arc::new(base.clone());
+        let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        // sweep を別スレッドで連打（create→link 間の race を誘発）。
+        let sweeper = {
+            let base = Arc::clone(&base_arc);
+            let stop = Arc::clone(&stop);
+            std::thread::spawn(move || {
+                while !stop.load(Ordering::Relaxed) {
+                    let _ = sweep_stale_reservations_in(&base, Utc::now());
+                }
+            })
+        };
+        // 13 本目を 16 スレッドで試行（各別 pairing / gate = reserve→count>MAX→release）。
+        let succeeded = Arc::new(AtomicU64::new(0));
+        let handles: Vec<_> = (0..16)
+            .map(|t| {
+                let base = Arc::clone(&base_arc);
+                let succeeded = Arc::clone(&succeeded);
+                std::thread::spawn(move || {
+                    let pre = format!("new-pre-{t}");
+                    let post = format!("new-post-{t}");
+                    if try_claim_via_gate(&base, "ph", &pre, &post) {
+                        succeeded.fetch_add(1, Ordering::Relaxed);
+                    }
+                })
+            })
+            .collect();
+        for h in handles {
+            h.join().unwrap();
+        }
+        stop.store(true, Ordering::Relaxed);
+        sweeper.join().unwrap();
+        assert_eq!(
+            succeeded.load(Ordering::Relaxed),
+            0,
+            "race 下でも 13 本目（全 16 並行試行）は全 reject"
+        );
+        assert_eq!(
+            count_frames(&base, "ph"),
+            crate::exclusion::MAX_ACTIVE_PER_PROJECT,
+            "cap=12 維持（over-cap も leak も無い）"
+        );
+    }
+
+    /// (iii) atomic claim cross-process safety: 同一 pairing key を多スレッドが同時に reserve しても
+    /// **ちょうど 1 つだけ** Created（残りは AlreadyReserved）。`hard_link` の EEXIST 原子性
+    /// （OS が保証・cross-process でも同一プリミティブ / G-115-366 A）を並行 race で実証する。
     #[test]
     fn concurrent_reserve_exactly_one_wins() {
         let base = isolated_dir();
@@ -363,7 +548,7 @@ mod tests {
         assert_eq!(
             created.load(Ordering::Relaxed),
             1,
-            "O_EXCL: 同一 pairing 枠は並行 race でちょうど 1 つだけ Created"
+            "atomic claim (hard_link): 同一 pairing 枠は並行 race でちょうど 1 つだけ Created"
         );
         assert_eq!(already.load(Ordering::Relaxed), 15, "残り 15 は AlreadyReserved");
     }
