@@ -142,7 +142,9 @@ pub fn spawn_watchdog(params: WatchdogParams) -> JoinHandle<()> {
             }
 
             // ── Measure Thread チェック ─────────────────────────────
-            if cur_measure.is_finished() {
+            // B-118: シャットダウン中は再起動しない（join_on_shutdown の post-loop join が
+            // 復活した thread で hang するのを防ぐ）。
+            if cur_measure.is_finished() && !watchdog_shutdown.load(Ordering::Relaxed) {
                 log::warn!("[Watchdog] Measure Thread terminated unexpectedly. Restarting...");
 
                 // LED 黄
@@ -186,7 +188,7 @@ pub fn spawn_watchdog(params: WatchdogParams) -> JoinHandle<()> {
                     io_handle,
                     restart_io,
                 } => {
-                    if io_handle.is_finished() {
+                    if io_handle.is_finished() && !watchdog_shutdown.load(Ordering::Relaxed) {
                         log::warn!(
                             "[Watchdog] IO Thread terminated unexpectedly. Restarting (eager)..."
                         );
@@ -206,7 +208,7 @@ pub fn spawn_watchdog(params: WatchdogParams) -> JoinHandle<()> {
                             .as_ref()
                             .map(|h| h.handle.is_finished())
                             .unwrap_or(false);
-                        if dead {
+                        if dead && !watchdog_shutdown.load(Ordering::Relaxed) {
                             log::warn!(
                                 "[Watchdog] IO Thread terminated unexpectedly. Restarting (lazy)..."
                             );

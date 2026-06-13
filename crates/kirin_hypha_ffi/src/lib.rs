@@ -21,7 +21,8 @@
 //!
 //! # スレッドモデル（本番 hypha_pre/post と同一の入口を使う）
 //! `create` は本番の実運用入口 `kirin_measure::spawn_measure_thread`(measure_thread.rs:59) で
-//! Measure Thread を起動する。IO Thread / Watchdog は立てない（RT 計測に不要）。
+//! Measure Thread を起動し、B-118 で T-8 Watchdog を再採用する（Measure crash の自動再起動 +
+//! io は Lazy 監視 / B-056 opt-out 撤回）。IO Thread は enable_*_writes で後発 spawn する。
 //! - `push_samples`: **Audio Thread 単独**。rtrb Producer への lock-free push + heartbeat++。
 //!   アロケーション/lock/syscall なし（RT-safe）。Record 中も読むだけ（R-12）。
 //! - `poll_result` / `poll_session` : **UI Thread**。`try_lock`（非ブロッキング）。
@@ -49,10 +50,10 @@ use kirin_measure::{
     live_window, load_signal_state, mark_released,
     resolve_arm_target, sanitize_name, set_daw_session_id, set_project_uuid,
     spawn_io_thread_post,
-    spawn_io_thread_pre, spawn_measure_thread, store_signal_state, write_broadcast, write_pending,
-    write_stop_broadcast, DeltaMode, DeltaResult, LatchedPre, License, MeasureResult, PluginDataRole,
-    LivenessEvaluator, PsbSummary, RecordStateMachine, SignalState, StoragePaths, N_CHANNELS,
-    RING_BUFFER_SECONDS,
+    spawn_io_thread_pre, spawn_measure_thread, spawn_watchdog, store_signal_state, write_broadcast,
+    write_pending, write_stop_broadcast, DeltaMode, DeltaResult, IoThreadHandle, LatchedPre, License,
+    LivenessEvaluator, MeasureResult, PluginDataRole, PsbSummary, RecordStateMachine, RestartIoFn,
+    SignalState, StoragePaths, WatchdogIo, WatchdogParams, N_CHANNELS, RING_BUFFER_SECONDS,
 };
 
 /// state chunk 往復する識別子（方式A: JUCE が chunk bytes を所有・FFI は文字列 get/set のみ）。
@@ -91,13 +92,7 @@ unsafe fn read_c_str(p: *const c_char) -> String {
     unsafe { CStr::from_ptr(p) }.to_string_lossy().into_owned()
 }
 
-/// PRE/POST の io_thread ハンドル＋停止フラグ。`enable_pre_writes`（PRE）/
-/// `enable_post_writes`（POST）が spawn し、Drop で shutdown→join する。
-/// PRE/POST は同一 engine では排他（片方のみ enable する想定・冪等）。
-struct IoThreadHandle {
-    shutdown: Arc<AtomicBool>,
-    handle: JoinHandle<()>,
-}
+// B-118: IoThreadHandle は kirin_measure に移動（watchdog の Lazy slot 共有型）。FFI は import する。
 
 // `set_license` の C ABI コード。identity.rs:46 の enum 宣言順に一致させる:
 //   License { Os, Sense, Unknown } → 0=Os / 1=Sense / 2=Unknown。
@@ -160,8 +155,19 @@ pub struct KirinHyphaEngine {
     /// `spawn_io_thread_pre` に渡す入力サンプルレート（create 時に保持）。
     sample_rate: u32,
     /// PRE/POST io_thread（B-057 3b / B-060 3d-a）。`enable_pre_writes` or
-    /// `enable_post_writes` で 1 度だけ起動。内部可変のため `Mutex`（C ABI は `&self` 経由）。
-    io_thread: Mutex<Option<IoThreadHandle>>,
+    /// `enable_post_writes` で 1 度だけ起動。B-118: watchdog（Lazy）と Arc 共有し、watchdog が
+    /// is_finished 監視・crash 時 re-spawn・shutdown 時 join する。
+    io_thread: Arc<Mutex<Option<IoThreadHandle>>>,
+    /// B-118: io 再起動クロージャ（enable が全 spawn 引数 capture でセット）。watchdog が io crash 時に呼ぶ。
+    io_restart_slot: Arc<Mutex<Option<RestartIoFn>>>,
+    /// B-118: watchdog の measure 再起動が新 Producer を投函するスロット（push_samples が低頻度 take）。
+    pending_producer: Arc<Mutex<Option<rtrb::Producer<f32>>>>,
+    /// B-118: Measure Thread 生存フラグ（watchdog が crash で false / 復帰で true）。measure_alive() が読む。
+    measure_alive: Arc<AtomicBool>,
+    /// B-118: watchdog 自身の停止フラグ（Drop でセット）。
+    watchdog_shutdown: Arc<AtomicBool>,
+    /// B-118: watchdog Thread の JoinHandle（Drop で shutdown→join / 内部で io→measure を join）。
+    watchdog_handle: Mutex<Option<JoinHandle<()>>>,
     /// state chunk 往復する識別子（B-058 3c / 方式A）。`set_identity` で復元値を入れ、
     /// 未設定なら `enable_pre_writes` が生成する。`get_identity` で JUCE が読み戻す。
     identity: Mutex<IdentityState>,
@@ -176,8 +182,6 @@ pub struct KirinHyphaEngine {
     /// `enable_post_writes`→Post で 1 度だけ確定する（io_thread slot と同じ first-wins）。
     /// `add_annotation` はこの role に書く。未 enable（None）時は add_annotation を no-op にする。
     write_role: Mutex<Option<PluginDataRole>>,
-    /// Measure Thread の JoinHandle（drop で join）。
-    measure_handle: Option<JoinHandle<()>>,
     /// ring 満杯で push できなかった累積回数（§8 RT-safety 検証 + B-075 live 露出）。
     /// B-076: io_thread と共有し per-Record dropped_samples を .kirin に焼き込むため Arc 化。
     push_overflow: Arc<AtomicU64>,
@@ -430,6 +434,13 @@ impl KirinHyphaEngine {
         // 実 RecordStateMachine（既定 Watch）。FFI が enter/exit で flip する。
         let record_sm = Arc::new(RecordStateMachine::new());
 
+        // B-118: watchdog（Lazy）と共有する slot / フラグ群。
+        let io_thread: Arc<Mutex<Option<IoThreadHandle>>> = Arc::new(Mutex::new(None));
+        let io_restart_slot: Arc<Mutex<Option<RestartIoFn>>> = Arc::new(Mutex::new(None));
+        let pending_producer: Arc<Mutex<Option<rtrb::Producer<f32>>>> = Arc::new(Mutex::new(None));
+        let measure_alive = Arc::new(AtomicBool::new(true));
+        let watchdog_shutdown = Arc::new(AtomicBool::new(false));
+
         let measure_handle = spawn_measure_thread(
             consumer,
             sample_rate,
@@ -440,6 +451,29 @@ impl KirinHyphaEngine {
             Arc::clone(&record_sm),
             Arc::clone(&session_summary),
         );
+
+        // B-118: T-8 watchdog 再採用（B-056 opt-out 撤回）。Measure Thread crash を再起動し、io は
+        // Lazy（enable で後発 spawn → 共有 slot）で監視・再起動する。FFI は free 前に全 thread を
+        // join するため join_on_shutdown=true（io→measure 順 / 共有 Arc UAF 回避）。
+        let watchdog_handle = spawn_watchdog(WatchdogParams {
+            sample_rate,
+            ring_capacity: capacity,
+            measure_result: Arc::clone(&measure_result),
+            signal_state: Arc::clone(&signal_state),
+            evaluator: Arc::clone(&liveness),
+            measure_shutdown: Arc::clone(&shutdown),
+            measure_alive: Arc::clone(&measure_alive),
+            pending_producer: Arc::clone(&pending_producer),
+            measure_handle,
+            io: WatchdogIo::Lazy {
+                io_slot: Arc::clone(&io_thread),
+                io_restart_slot: Arc::clone(&io_restart_slot),
+            },
+            watchdog_shutdown: Arc::clone(&watchdog_shutdown),
+            join_on_shutdown: true,
+            record_sm: Arc::clone(&record_sm),
+            session_summary: Arc::clone(&session_summary),
+        });
 
         // B-110: live インスタンス refcount +1（破棄は Drop で −1）。enable ではなく create に置く
         // （enable は冪等 early-return のため）。
@@ -458,12 +492,16 @@ impl KirinHyphaEngine {
             // 既定 Unknown（set_license(Os) されるまで Record 不可・安全側）。
             license: Arc::new(AtomicU8::new(LICENSE_UNKNOWN)),
             sample_rate,
-            io_thread: Mutex::new(None),
+            io_thread,
+            io_restart_slot,
+            pending_producer,
+            measure_alive,
+            watchdog_shutdown,
+            watchdog_handle: Mutex::new(Some(watchdog_handle)),
             identity: Mutex::new(IdentityState::default()),
             pair_target: Arc::new(RwLock::new(String::new())),
             paired_pre_target: Arc::new(Mutex::new(None)),
             write_role: Mutex::new(None),
-            measure_handle: Some(measure_handle),
             push_overflow: Arc::new(AtomicU64::new(0)),
             // B-054: 既定空 / 既定 false。enable_*_writes が io_thread と Arc 共有する。
             pre_name: Arc::new(RwLock::new(String::new())),
@@ -610,27 +648,50 @@ impl KirinHyphaEngine {
         let record_error_message = Arc::new(RwLock::new(None));
         // A: enable 時点の license をスナップショット（immutable）。
         let license = Arc::new(self.current_license());
-        let io_shutdown = Arc::new(AtomicBool::new(false));
 
-        let handle = spawn_io_thread_pre(
-            instance_id,
-            project_hash,
-            daw_uuid, // _daw_session_id（io_thread_pre では未使用 / 念のため復元値を渡す）
-            self.sample_rate,
-            Arc::clone(&self.record_sm),
-            recording,
-            record_acknowledged,
-            license,
-            Arc::clone(&self.measure_result),
-            Arc::clone(&self.signal_state),
-            Arc::clone(&io_shutdown),
-            name,
-            record_error_message,
-            Arc::clone(&self.session_summary),
-            Arc::clone(&self.push_overflow), // B-076: per-Record dropped_samples
-        );
+        // B-118: io spawn を restart-closure に包む（初回 spawn も watchdog 再起動も同一経路）。
+        // 継続性（最重要）: 共有状態 Arc（record_error_message / recording / record_acknowledged /
+        // name / record_sm / measure_result / signal_state / session_summary / push_overflow）は
+        // 同一実体を capture し、再起動後も同じ Arc を指す（closure 内での再生成・新規 Arc 化は禁止）。
+        // io_shutdown のみ世代毎に新規生成する。
+        let restart: RestartIoFn = {
+            let record_sm = Arc::clone(&self.record_sm);
+            let measure_result = Arc::clone(&self.measure_result);
+            let signal_state = Arc::clone(&self.signal_state);
+            let session_summary = Arc::clone(&self.session_summary);
+            let push_overflow = Arc::clone(&self.push_overflow);
+            let sample_rate = self.sample_rate;
+            Box::new(move || {
+                let io_shutdown = Arc::new(AtomicBool::new(false));
+                let handle = spawn_io_thread_pre(
+                    Arc::clone(&instance_id),
+                    project_hash.clone(),
+                    daw_uuid.clone(), // _daw_session_id（io_thread_pre では未使用 / 復元値）
+                    sample_rate,
+                    Arc::clone(&record_sm),
+                    Arc::clone(&recording),
+                    Arc::clone(&record_acknowledged),
+                    Arc::clone(&license),
+                    Arc::clone(&measure_result),
+                    Arc::clone(&signal_state),
+                    Arc::clone(&io_shutdown),
+                    Arc::clone(&name),
+                    Arc::clone(&record_error_message),
+                    Arc::clone(&session_summary),
+                    Arc::clone(&push_overflow), // B-076: per-Record dropped_samples
+                );
+                IoThreadHandle {
+                    shutdown: io_shutdown,
+                    handle,
+                }
+            })
+        };
 
-        *slot = Some(IoThreadHandle { shutdown: io_shutdown, handle });
+        // 初回 io spawn = closure 実行 → 共有 slot に置き watchdog が監視。restart を closure slot へ。
+        *slot = Some(restart());
+        if let Ok(mut rs) = self.io_restart_slot.lock() {
+            *rs = Some(restart);
+        }
     }
 
     /// POST の plugin_data 書込（post.json の Δ・select_target_pre 経由＝厳格選定）を
@@ -746,33 +807,57 @@ impl KirinHyphaEngine {
         let record_error_message = Arc::new(RwLock::new(None));
         let pair_claimed_at = Arc::new(RwLock::new(0.0));
         let pair_release_notice = Arc::new(RwLock::new(None));
-        let io_shutdown = Arc::new(AtomicBool::new(false));
+        // B-118: io spawn を restart-closure に包む（初回 spawn も watchdog 再起動も同一経路）。
+        // 継続性（最重要）: 共有状態 Arc（pair_label / pair_claimed_at / pair_release_notice /
+        // record_error_message / paired_pre_target / pair_pre_name / trigger 群 / latched_pre / 各 self.*）
+        // は同一実体を capture し再起動後も同じ Arc を指す（closure 内での再生成禁止）。io_shutdown のみ
+        // 世代毎に新規生成。
+        let restart: RestartIoFn = {
+            let record_sm = Arc::clone(&self.record_sm);
+            let measure_result = Arc::clone(&self.measure_result);
+            let delta_result = Arc::clone(&self.delta_result);
+            let signal_state = Arc::clone(&self.signal_state);
+            let session_summary = Arc::clone(&self.session_summary);
+            let push_overflow = Arc::clone(&self.push_overflow);
+            let latched_pre = Arc::clone(&self.latched_pre);
+            let sample_rate = self.sample_rate;
+            Box::new(move || {
+                let io_shutdown = Arc::new(AtomicBool::new(false));
+                let handle = spawn_io_thread_post(
+                    Arc::clone(&instance_id),
+                    Arc::clone(&project_hash_arc),
+                    sample_rate,
+                    Arc::clone(&record_sm),
+                    Arc::clone(&measure_result),
+                    Arc::clone(&delta_result),
+                    Arc::clone(&signal_state),
+                    Arc::clone(&preset_available),
+                    Arc::clone(&paired_pre_target),
+                    Arc::clone(&io_shutdown),
+                    Arc::clone(&pair_label),
+                    Arc::clone(&daw_session_id),
+                    Arc::clone(&pair_pre_name),
+                    Arc::clone(&trigger_pair_resolution),
+                    Arc::clone(&trigger_stop_resolution),
+                    Arc::clone(&record_error_message),
+                    Arc::clone(&pair_claimed_at),
+                    Arc::clone(&pair_release_notice),
+                    Arc::clone(&session_summary),
+                    Arc::clone(&push_overflow), // B-076: per-Record dropped_samples
+                    Arc::clone(&latched_pre),   // B-108: display/keep 共有ラッチ
+                );
+                IoThreadHandle {
+                    shutdown: io_shutdown,
+                    handle,
+                }
+            })
+        };
 
-        let handle = spawn_io_thread_post(
-            instance_id,
-            project_hash_arc,
-            self.sample_rate,
-            Arc::clone(&self.record_sm),
-            Arc::clone(&self.measure_result),
-            Arc::clone(&self.delta_result),
-            Arc::clone(&self.signal_state),
-            preset_available,
-            paired_pre_target,
-            Arc::clone(&io_shutdown),
-            pair_label,
-            daw_session_id,
-            pair_pre_name,
-            trigger_pair_resolution,
-            trigger_stop_resolution,
-            record_error_message,
-            pair_claimed_at,
-            pair_release_notice,
-            Arc::clone(&self.session_summary),
-            Arc::clone(&self.push_overflow), // B-076: per-Record dropped_samples
-            Arc::clone(&self.latched_pre), // B-108: display/keep 共有ラッチ
-        );
-
-        *slot = Some(IoThreadHandle { shutdown: io_shutdown, handle });
+        // 初回 io spawn = closure 実行 → 共有 slot に置き watchdog が監視。restart を closure slot へ。
+        *slot = Some(restart());
+        if let Ok(mut rs) = self.io_restart_slot.lock() {
+            *rs = Some(restart);
+        }
     }
 
     /// POST の Δ 結果を取得する（B-060 3d-a / GUI 表示用・read-only / try_lock 非ブロッキング）。
@@ -812,14 +897,11 @@ impl KirinHyphaEngine {
     }
 
     /// Measure Thread が生存しているか（B-054 LED Error 状態 / read-only poller）。
-    /// 所有する JoinHandle の `is_finished()` を反転して返す（exit/panic を検出）。
-    /// kirin_measure 無変更で観測できる最小実装。watchdog 方式の hang 検出（measure_alive
-    /// 連続停滞）は別軸（FFI が watchdog を spawn していないため scope A 外）。
+    /// B-118: T-8 watchdog が crash 検出で false / 復帰で true を書く `measure_alive` フラグを読む
+    /// （FFI も watchdog を spawn するようになったため B-056 の「scope A 外」を撤回）。JUCE LED は
+    /// `kirin_hypha_measure_alive` getter 経由でこれを読み Error 状態に落とす（既配線）。
     pub fn measure_alive(&self) -> bool {
-        self.measure_handle
-            .as_ref()
-            .map(|h| !h.is_finished())
-            .unwrap_or(false)
+        self.measure_alive.load(Ordering::Relaxed)
     }
 
     /// B-118: heartbeat 鮮度（processBlock が呼ばれている事実 / read-only poller・非 RT）。
@@ -1040,7 +1122,21 @@ impl KirinHyphaEngine {
     /// `interleaved.len()` は `num_frames * num_channels` を想定。
     pub fn push_samples(&self, interleaved: &[f32], num_channels: u32) {
         // (1) heartbeat は常に進める（空ブロック keepalive でも Active を維持できる）。
-        self.heartbeat.fetch_add(1, Ordering::Relaxed);
+        let hb = self.heartbeat.fetch_add(1, Ordering::Relaxed);
+
+        // B-118: watchdog が Measure Thread を再起動したとき pending_producer に新 Producer が来る。
+        // 256 ブロック毎に try_lock（非ブロッキング）で取り出して ring_producer を差し替える
+        // （hypha_pre:450 同型 / alloc・lock 待ちなし＝RT 安全）。
+        if hb & 0xFF == 0 {
+            if let Ok(mut slot) = self.pending_producer.try_lock() {
+                if let Some(new_producer) = slot.take() {
+                    // SAFETY: push_samples は Audio Thread 単独（SPSC）。Producer 差し替えも同契約内。
+                    unsafe {
+                        *self.ring_producer.get() = new_producer;
+                    }
+                }
+            }
+        }
 
         // (2) stereo 以外は既存 Rust の前提（2ch interleaved）に合わないため push しない。
         if num_channels != N_CHANNELS as u32 {
@@ -1084,22 +1180,26 @@ impl KirinHyphaEngine {
 
 impl Drop for KirinHyphaEngine {
     fn drop(&mut self) {
-        // PRE/POST io_thread を先に止める（PRE: status=closed flush + pre.json/instance dir
-        // 後始末 / POST: post.json/instance dir 後始末・record_signal 削除を自前で行う）。
-        // 共有 Arc を読むため Measure Thread より先に join する。
-        if let Ok(mut slot) = self.io_thread.lock() {
-            if let Some(io) = slot.take() {
+        // B-118: io/measure は watchdog（join_on_shutdown=true）が所有・join する。
+        // 順序: ① watchdog_shutdown=true（再起動ガードを先に立て、shutdown 中の re-spawn を抑止）
+        //       ② measure(self.shutdown) + 現世代 io の shutdown=true（各 thread を停止させる）
+        //       ③ watchdog join（loop break → 内部で io→measure 順に join＝free 前に全 thread 停止）
+        //       ④ identity refcount −1（B-110・全 thread join 後なので共有セル clear と非競合）
+        // io_thread lock は watchdog の post-loop join も取るため、③ の前に必ず解放する（deadlock 回避）。
+        self.watchdog_shutdown.store(true, Ordering::Relaxed);
+        self.shutdown.store(true, Ordering::Relaxed);
+        if let Ok(slot) = self.io_thread.lock() {
+            if let Some(io) = slot.as_ref() {
                 io.shutdown.store(true, Ordering::Relaxed);
-                let _ = io.handle.join();
             }
         }
-        self.shutdown.store(true, Ordering::Relaxed);
-        if let Some(h) = self.measure_handle.take() {
-            let _ = h.join();
+        if let Ok(mut wh) = self.watchdog_handle.lock() {
+            if let Some(h) = wh.take() {
+                let _ = h.join(); // watchdog が io→measure を join してから終了
+            }
         }
-        // B-110: live インスタンス refcount −1。io/measure thread を join した**後**に呼ぶことで、
-        // refcount 0 到達時の共有セル clear が生存 io_thread の Arc clone live-read と競合しない。
-        // 0 到達時は kirin_measure の 2 セルに続き、本 dylib の role-scoped 4 セルも同一 lock 下で clear。
+        // B-110: live インスタンス refcount −1。watchdog が全世代の io→measure を join した後なので、
+        // refcount 0 到達時の共有セル clear が生存 thread の Arc live-read と競合しない。
         identity_instance_detach(clear_role_scoped_cells);
     }
 }
