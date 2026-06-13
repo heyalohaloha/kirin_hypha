@@ -5,7 +5,7 @@ use kirin_measure::{
     live_window, load_license_safe, process_project_hash,
     set_daw_session_id, set_project_uuid, spawn_io_thread_pre, spawn_measure_thread,
     spawn_watchdog, store_signal_state, License, LivenessEvaluator, MeasureResult, RecordStateMachine,
-    SessionSummary, SignalState, WatchdogParams, N_CHANNELS, RING_BUFFER_SECONDS,
+    SessionSummary, SignalState, WatchdogIo, WatchdogParams, N_CHANNELS, RING_BUFFER_SECONDS,
 };
 use nih_plug::prelude::*;
 use nih_plug_egui::EguiState;
@@ -393,10 +393,14 @@ impl Plugin for HyphaPre {
             measure_alive: Arc::clone(&self.measure_alive),
             pending_producer: Arc::clone(&self.pending_producer),
             measure_handle,
-            io_shutdown: Arc::clone(&self.io_shutdown),
-            io_handle,
-            restart_io: Box::new(restart_io),
+            // B-118: egui は io を eager spawn 済み handle で渡す（既存挙動）。
+            io: WatchdogIo::Eager {
+                io_shutdown: Arc::clone(&self.io_shutdown),
+                io_handle,
+                restart_io: Box::new(restart_io),
+            },
             watchdog_shutdown: Arc::clone(&self.watchdog_shutdown),
+            join_on_shutdown: false, // egui=detach（既存挙動・default 不変）
             record_sm: Arc::clone(&self.record_sm),
             session_summary: Arc::clone(&self.session_summary),
         }));

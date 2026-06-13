@@ -102,7 +102,9 @@ pub use storage::{
     write_identity_atomic, CleanupReport, IdentityCache, LoadStatus, LoadedIdentity, StorageError,
     StoragePaths, CLEANUP_V1_DONE_FILENAME,
 };
-pub use watchdog::{spawn_watchdog, WatchdogParams};
+pub use watchdog::{
+    spawn_watchdog, IoThreadHandle, RestartIoFn, WatchdogIo, WatchdogParams,
+};
 
 use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};

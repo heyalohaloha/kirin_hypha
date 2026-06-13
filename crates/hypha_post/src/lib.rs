@@ -8,7 +8,7 @@ use kirin_measure::{
     spawn_io_thread_post, spawn_measure_thread, spawn_watchdog, store_signal_state, DeltaResult,
     LatchedPre, License, LivenessEvaluator, MeasureResult, RecordStateMachine, SessionSummary,
     SignalState, StoragePaths,
-    TriggerPairResolutionFn, TriggerStopResolutionFn, WatchdogParams, N_CHANNELS,
+    TriggerPairResolutionFn, TriggerStopResolutionFn, WatchdogIo, WatchdogParams, N_CHANNELS,
     RING_BUFFER_SECONDS,
 };
 use nih_plug::prelude::*;
@@ -786,10 +786,14 @@ impl Plugin for HyphaPost {
             measure_alive: Arc::clone(&self.measure_alive),
             pending_producer: Arc::clone(&self.pending_producer),
             measure_handle,
-            io_shutdown: Arc::clone(&self.io_shutdown),
-            io_handle,
-            restart_io: Box::new(restart_io),
+            // B-118: egui は io を eager spawn 済み handle で渡す（既存挙動）。
+            io: WatchdogIo::Eager {
+                io_shutdown: Arc::clone(&self.io_shutdown),
+                io_handle,
+                restart_io: Box::new(restart_io),
+            },
             watchdog_shutdown: Arc::clone(&self.watchdog_shutdown),
+            join_on_shutdown: false, // egui=detach（既存挙動・default 不変）
             record_sm: Arc::clone(&self.record_sm),
             session_summary: Arc::clone(&self.session_summary),
         }));

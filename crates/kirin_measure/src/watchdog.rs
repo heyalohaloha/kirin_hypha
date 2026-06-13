@@ -31,6 +31,42 @@ const TICK: Duration = Duration::from_millis(50);
 /// 何ティック毎にスレッドを検査するか（50ms × 20 = 1秒）
 const TICKS_PER_CHECK: u32 = 20;
 
+/// IO Thread のハンドル束（停止フラグ + JoinHandle）。
+///
+/// B-118: FFI が共有 slot（`Arc<Mutex<Option<IoThreadHandle>>>`）越しに watchdog へ io を
+/// 受け渡すための型を kirin_measure に置く（watchdog が FFI 固有型を知れないため）。各 io 世代は
+/// 自分の `shutdown` を持ち、再起動は新世代を生成して slot を差し替える。
+pub struct IoThreadHandle {
+    pub shutdown: Arc<AtomicBool>,
+    pub handle: JoinHandle<()>,
+}
+
+/// IO Thread を再起動するクロージャ。新しい `IoThreadHandle`（新 shutdown を内包）を返す。
+pub type RestartIoFn = Box<dyn Fn() -> IoThreadHandle + Send + 'static>;
+
+/// IO Thread 再起動クロージャ（eager 用 / 既存 io_shutdown Arc を受けて JoinHandle を返す）。
+pub type RestartIoEagerFn = Box<dyn Fn(Arc<AtomicBool>) -> JoinHandle<()> + Send + 'static>;
+
+/// Watchdog が管理する IO Thread の所有モード。
+///
+/// B-118: egui は `initialize` で io を eager spawn し handle を直接渡す（既存挙動）。FFI は
+/// `enable_*_writes` で io を後発 spawn するため、engine の io_thread slot を共有し、enable が
+/// restart-closure slot をセットする（lazy）。
+pub enum WatchdogIo {
+    /// egui: spawn 済み io handle を直接所有。`io_shutdown` を共有して restart で再利用。
+    Eager {
+        io_shutdown: Arc<AtomicBool>,
+        io_handle: JoinHandle<()>,
+        restart_io: RestartIoEagerFn,
+    },
+    /// FFI: io は後発 spawn。watchdog は共有 slot を監視し、restart-closure slot 経由で再生成。
+    /// 両 slot とも engine 側と Arc 共有（Drop / enable が触る）。
+    Lazy {
+        io_slot: Arc<Mutex<Option<IoThreadHandle>>>,
+        io_restart_slot: Arc<Mutex<Option<RestartIoFn>>>,
+    },
+}
+
 /// Watchdog Thread の起動パラメータ。
 pub struct WatchdogParams {
     /// 計測スレッドのサンプルレート（再起動時の ring buffer 再生成に使う）
@@ -53,15 +89,13 @@ pub struct WatchdogParams {
     pub pending_producer: Arc<Mutex<Option<rtrb::Producer<f32>>>>,
     /// 最初の Measure Thread の JoinHandle（watchdog が所有・管理する）
     pub measure_handle: JoinHandle<()>,
-    /// IO Thread 停止フラグ（再起動時にリセット）
-    pub io_shutdown: Arc<AtomicBool>,
-    /// 最初の IO Thread の JoinHandle（watchdog が所有・管理する）
-    pub io_handle: JoinHandle<()>,
-    /// IO Thread 再起動クロージャ（PRE / POST で異なる実装を capture）
-    /// 新しい io_shutdown Arc を受け取り、JoinHandle を返す。
-    pub restart_io: Box<dyn Fn(Arc<AtomicBool>) -> JoinHandle<()> + Send + 'static>,
+    /// B-118: IO Thread の所有モード（egui=Eager / FFI=Lazy）。
+    pub io: WatchdogIo,
     /// Watchdog 自身の停止フラグ
     pub watchdog_shutdown: Arc<AtomicBool>,
+    /// B-118: シャットダウン時に io→measure を join するか。
+    /// egui=false（既存どおり detach）/ FFI=true（free 前に全 thread join＝共有 Arc UAF 回避）。
+    pub join_on_shutdown: bool,
     /// B-043: Record mode 状態機械（再起動した Measure Thread に渡す）
     pub record_sm: Arc<RecordStateMachine>,
     /// B-043: Record セッション集計値共有スロット（再起動した Measure Thread に渡す）
@@ -81,16 +115,15 @@ pub fn spawn_watchdog(params: WatchdogParams) -> JoinHandle<()> {
             measure_alive,
             pending_producer,
             measure_handle: initial_m,
-            io_shutdown,
-            io_handle: initial_io,
-            restart_io,
+            io,
             watchdog_shutdown,
+            join_on_shutdown,
             record_sm,
             session_summary,
         } = params;
 
         let mut cur_measure = initial_m;
-        let mut cur_io = initial_io;
+        let mut io = io; // io 世代を更新するため mutable
         let mut tick: u32 = 0;
 
         log::info!("[Watchdog] started");
@@ -146,20 +179,65 @@ pub fn spawn_watchdog(params: WatchdogParams) -> JoinHandle<()> {
                 log::info!("[Watchdog] Measure Thread restarted successfully");
             }
 
-            // ── IO Thread チェック ──────────────────────────────────
-            if cur_io.is_finished() {
-                log::warn!("[Watchdog] IO Thread terminated unexpectedly. Restarting...");
-
-                // 新しい shutdown フラグを生成（古い Arc は以前のスレッドが保持済み）
-                let new_io_shutdown = Arc::new(AtomicBool::new(false));
-
-                // shutdown Arc を plugin 側と共有するため、既存の io_shutdown を再利用する
-                io_shutdown.store(false, Ordering::Relaxed);
-                cur_io = restart_io(Arc::clone(&io_shutdown));
-                let _ = new_io_shutdown; // 未使用 lint 抑制
-
-                log::info!("[Watchdog] IO Thread restarted successfully");
+            // ── IO Thread チェック（B-118: Eager=egui / Lazy=FFI）──
+            match &mut io {
+                WatchdogIo::Eager {
+                    io_shutdown,
+                    io_handle,
+                    restart_io,
+                } => {
+                    if io_handle.is_finished() {
+                        log::warn!(
+                            "[Watchdog] IO Thread terminated unexpectedly. Restarting (eager)..."
+                        );
+                        // shutdown Arc を plugin 側と共有するため既存 io_shutdown を再利用。
+                        io_shutdown.store(false, Ordering::Relaxed);
+                        *io_handle = restart_io(Arc::clone(io_shutdown));
+                        log::info!("[Watchdog] IO Thread restarted successfully");
+                    }
+                }
+                WatchdogIo::Lazy {
+                    io_slot,
+                    io_restart_slot,
+                } => {
+                    // enable がまだ io を slot に置いていなければ None（監視対象なし）。
+                    if let Ok(mut slot) = io_slot.lock() {
+                        let dead = slot
+                            .as_ref()
+                            .map(|h| h.handle.is_finished())
+                            .unwrap_or(false);
+                        if dead {
+                            log::warn!(
+                                "[Watchdog] IO Thread terminated unexpectedly. Restarting (lazy)..."
+                            );
+                            if let Ok(rs) = io_restart_slot.lock() {
+                                if let Some(restart) = rs.as_ref() {
+                                    *slot = Some(restart()); // 新世代（新 shutdown 内包）
+                                    log::info!("[Watchdog] IO Thread restarted successfully");
+                                }
+                            }
+                        }
+                    }
+                }
             }
+        }
+
+        // B-118: join_on_shutdown=true（FFI）は free 前に io→measure 順で join する
+        // （io が共有 Arc を読むため先 / その後 engine が安全に解放）。egui=false は detach（既存）。
+        if join_on_shutdown {
+            match io {
+                WatchdogIo::Eager { io_handle, .. } => {
+                    let _ = io_handle.join();
+                }
+                WatchdogIo::Lazy { io_slot, .. } => {
+                    if let Ok(mut slot) = io_slot.lock() {
+                        if let Some(h) = slot.take() {
+                            let _ = h.handle.join();
+                        }
+                    }
+                }
+            }
+            let _ = cur_measure.join();
         }
 
         log::info!("[Watchdog] terminated");
