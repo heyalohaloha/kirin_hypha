@@ -25,11 +25,18 @@ KirinHyphaProcessorBase::KirinHyphaProcessorBase (Role roleIn)
     // Host bypass routed through this parameter; processBlock reads it to set the
     // Bypassed signal state while still passing audio through (parity with hypha_pre).
     addParameter (bypassParam = new juce::AudioParameterBool ({ "bypass", 1 }, "Bypass", false));
+
+    // B-126: start the non-RT enable poll. The constructor runs on the message thread (plugin
+    // instantiation), so starting the Timer here is safe. It ticks at a low rate and no-ops once
+    // writesEnabled is true (re-prepare resets the flags and it re-enables). This replaces the
+    // audio-thread triggerAsyncUpdate (which JUCE warns may block — juce_AsyncUpdater.h). 50ms keeps
+    // enable latency ~one buffer after the first processBlock while costing one atomic load per tick.
+    startTimer (50);
 }
 
 KirinHyphaProcessorBase::~KirinHyphaProcessorBase()
 {
-    cancelPendingUpdate(); // B-070: ensure no deferred enable fires during teardown.
+    stopTimer(); // B-126: stop the non-RT enable poll before teardown (was cancelPendingUpdate / B-070).
     const juce::ScopedLock sl (handleLock);
     if (hyphaHandle != nullptr)
     {
@@ -66,13 +73,17 @@ void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBl
     // B-070: a fresh handle needs license applied and (re-)enabling. License is read once
     // from identity.json (single source) and cached for the editor's Os-gate (B-072).
     // set_identity + enable_*_writes are deferred to the first processBlock
-    // (handleAsyncUpdate) so any setStateInformation restore is applied before enable.
+    // (enableWritesNow) so any setStateInformation restore is applied before enable.
     if (hyphaHandle != nullptr)
     {
         const uint8_t lic = kirin_hypha_load_license();
         cachedLicenseCode.store ((int) lic, std::memory_order_release);
         kirin_hypha_set_license (hyphaHandle, lic);
         writesEnabled.store (false, std::memory_order_release);
+        // B-126: re-prepare needs a fresh enable. Clear enablePending so the Timer waits for the
+        // NEXT first processBlock (preserving the B-070 "after both prepareToPlay and any setState"
+        // ordering) rather than re-enabling on a stale flag.
+        enablePending.store (false, std::memory_order_release);
     }
     // A null handle (create failure) is tolerated; processBlock / pollMeasureResult guard on it.
 }
@@ -120,11 +131,12 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
     if (hyphaHandle == nullptr)
         return;
 
-    // B-070: enable writes once, deferred to here so any setStateInformation (identity /
-    // pair name restore) has already run. triggerAsyncUpdate is safe from the audio thread
-    // and coalesces; the actual enable runs on the message thread (handleAsyncUpdate).
+    // B-070/B-126: enable writes once, deferred to here so any setStateInformation (identity /
+    // pair name restore) has already run. The audio thread does ONLY a lock-free atomic store
+    // (no alloc/lock/syscall) — the may-block triggerAsyncUpdate is gone (B-126). The non-RT
+    // message-thread Timer observes enablePending and runs enableWritesNow().
     if (! writesEnabled.load (std::memory_order_acquire))
-        triggerAsyncUpdate();
+        enablePending.store (true, std::memory_order_release);
 
     // --- Signal state derivation (parity: hypha_pre.rs:397-403) -------------------
     const bool bypassed = (bypassParam != nullptr && bypassParam->get());
@@ -434,7 +446,7 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
 {
     // B-069/B-072: restore the 4 identity keys + pair target into the persist members. May
     // run before or after prepareToPlay (JUCE does not guarantee ordering); the FFI receives
-    // these at enable time (handleAsyncUpdate), deferred to the first processBlock.
+    // these at enable time (enableWritesNow), deferred to the first processBlock.
     if (auto xml = getXmlFromBinary (data, sizeInBytes))
     {
         if (xml->hasTagName ("KirinHyphaState"))
@@ -448,12 +460,25 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
     }
 }
 
-void KirinHyphaProcessorBase::handleAsyncUpdate()
+void KirinHyphaProcessorBase::timerCallback()
+{
+    // B-126: non-RT enable poll on the message thread. No-op once enabled (cheap atomic load);
+    // waits for the first processBlock to set enablePending (the B-070 ordering signal) before
+    // running the enable. The Timer keeps running and re-enables after a re-prepare (which clears
+    // both flags); it is stopped in the destructor.
+    if (writesEnabled.load (std::memory_order_acquire))
+        return;
+    if (! enablePending.load (std::memory_order_acquire))
+        return;
+    enableWritesNow();
+}
+
+void KirinHyphaProcessorBase::enableWritesNow()
 {
     // B-070: message-thread one-shot. Applies the FFI contract order create -> set_license
     // (done in prepareToPlay) -> set_identity -> enable_*_writes, once both prepareToPlay
-    // and any setStateInformation have run (guaranteed by triggering from the first
-    // processBlock).
+    // and any setStateInformation have run (guaranteed by enablePending being set from the
+    // first processBlock — B-126).
     const juce::ScopedLock sl (handleLock);
     if (hyphaHandle == nullptr || writesEnabled.load (std::memory_order_acquire))
         return;

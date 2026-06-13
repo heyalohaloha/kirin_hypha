@@ -9,14 +9,15 @@
 
 // Role-parameterized base for both the Kirin Hypha PRE and POST JUCE shells (B-070).
 // All FFI wiring (create / set_license / push_samples / poll_result), the identity state
-// chunk, the deferred enable (AsyncUpdater), and the R-12 read-only passthrough live here.
+// chunk, the deferred enable (B-126: lock-free flag + non-RT Timer), and the R-12 read-only
+// passthrough live here.
 // The Role selects enable_pre_writes vs enable_post_writes and the display name; the two
 // plugin targets differ solely by the Role passed in their createPluginFilter()
 // (src/PluginMainPRE.cpp / src/PluginMainPOST.cpp). POST also exposes the pairing surface
 // (B-072: set_pair_target / keep / stop / is_recording) and the Δ readout (B-073:
 // poll_delta + cached signal state); the editor uses those only for POST.
 class KirinHyphaProcessorBase : public juce::AudioProcessor,
-                                private juce::AsyncUpdater
+                                private juce::Timer
 {
 public:
     enum class Role { Pre, Post };
@@ -90,12 +91,17 @@ public:
 private:
     static bool bufferIsSilent (const juce::AudioBuffer<float>& buffer); // B-107: peak < -140 dBFS (parity)
 
-    // B-070: enable plugin_data writes exactly once, on the message thread, after both
+    // B-070/B-126: enable plugin_data writes exactly once, on the message thread, after both
     // prepareToPlay (create + set_license) and any setStateInformation (identity + pair name
-    // restore) have run. Triggered from the first processBlock via AsyncUpdater because JUCE
-    // does not guarantee setStateInformation precedes prepareToPlay, and enable_*_writes
-    // spawns an io_thread (not RT-safe). The Role selects PRE/POST.
-    void handleAsyncUpdate() override;
+    // restore) have run. The first processBlock only sets the lock-free `enablePending` flag
+    // (no may-block triggerAsyncUpdate from the audio thread, B-126); the non-RT message-thread
+    // Timer below observes the flag and runs enableWritesNow(). processBlock remains the trigger
+    // point because it is the single moment guaranteed to follow BOTH prepareToPlay and any
+    // setStateInformation (JUCE does not guarantee setState precedes prepareToPlay; and a fresh
+    // instance never receives setState, so a state_restored flag could not gate it). enable_*_writes
+    // spawns an io_thread (not RT-safe), hence the deferral off the audio thread. Role selects PRE/POST.
+    void timerCallback() override;        // B-126: non-RT poll (message thread) — observes enablePending
+    void enableWritesNow();               // B-070 enable body (set_identity -> enable_*_writes -> readback)
 
     const Role role;                                   // Pre or Post (selects enable + display name)
 
@@ -108,13 +114,14 @@ private:
 
     // Persisted identity (4 keys) + POST pair target name, round-tripped via get/setState as a
     // JUCE-native XML chunk. Source of truth for the chunk; synced from the FFI at enable
-    // (B-070/B-072 handleAsyncUpdate). Empty until restored or generated.
+    // (B-070/B-072 enableWritesNow). Empty until restored or generated.
     juce::String persistInstanceId, persistProjectUuid, persistDawSessionUuid, persistName;
     juce::String persistPairName;                      // POST pair target (B-072)
 
     std::atomic<int>  cachedLicenseCode { 2 };         // B-072: license read once in prepareToPlay (0=Os)
     std::atomic<bool> lastPlaying { false };           // B-054: transport playing (POST pair lock during playback)
     std::atomic<bool> writesEnabled { false };         // plugin_data writes enabled (idempotent guard)
+    std::atomic<bool> enablePending { false };         // B-126: set by processBlock (lock-free), observed by the Timer to enable off the audio thread
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (KirinHyphaProcessorBase)
 };
