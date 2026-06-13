@@ -190,6 +190,11 @@ pub struct KirinHyphaEngine {
     /// ring 満杯で push できなかった累積回数（§8 RT-safety 検証 + B-075 live 露出）。
     /// B-076: io_thread と共有し per-Record dropped_samples を .kirin に焼き込むため Arc 化。
     push_overflow: Arc<AtomicU64>,
+    /// B-125: prealloc-max 超の病的 block で測定 ring に渡せず drop した interleaved sample の
+    /// 累積数（JUCE 殻が `kirin_hypha_note_oversized_drop` 経由で Audio Thread から積む）。
+    /// `push_overflow` とは別カウンタ（混ぜない＝metric truthfulness）。io_thread と共有し
+    /// run_record_tick が per-Record 差分を取り、push_overflow 差分と合算して integrity に反映する。
+    oversized_drop: Arc<AtomicU64>,
     /// PRE の自名（B-054 / `set_pair_target` と完全対称）。`enable_pre_writes` 時に空なら
     /// identity.name で seed し io_thread_pre と Arc 共有する（pre.json の name に live 反映）。
     /// `set_pre_name` で enable 後でも上書き可。空のときは pre.json の name にそのまま空が書かれる
@@ -509,6 +514,7 @@ impl KirinHyphaEngine {
             paired_pre_target: Arc::new(Mutex::new(None)),
             write_role: Mutex::new(None),
             push_overflow: Arc::new(AtomicU64::new(0)),
+            oversized_drop: Arc::new(AtomicU64::new(0)), // B-125: JUCE oversized block drop 専用
             // B-054: 既定空 / 既定 false。enable_*_writes が io_thread と Arc 共有する。
             pre_name: Arc::new(RwLock::new(String::new())),
             record_acknowledged: Arc::new(AtomicBool::new(false)),
@@ -667,6 +673,7 @@ impl KirinHyphaEngine {
             let signal_state = Arc::clone(&self.signal_state);
             let session_summary = Arc::clone(&self.session_summary);
             let push_overflow = Arc::clone(&self.push_overflow);
+            let oversized_drop = Arc::clone(&self.oversized_drop); // B-125
             let sample_rate = self.sample_rate;
             Box::new(move || {
                 let io_shutdown = Arc::new(AtomicBool::new(false));
@@ -686,6 +693,7 @@ impl KirinHyphaEngine {
                     Arc::clone(&record_error_message),
                     Arc::clone(&session_summary),
                     Arc::clone(&push_overflow), // B-076: per-Record dropped_samples
+                    Arc::clone(&oversized_drop), // B-125: per-Record oversized block drop
                 );
                 IoThreadHandle {
                     shutdown: io_shutdown,
@@ -827,6 +835,7 @@ impl KirinHyphaEngine {
             let signal_state = Arc::clone(&self.signal_state);
             let session_summary = Arc::clone(&self.session_summary);
             let push_overflow = Arc::clone(&self.push_overflow);
+            let oversized_drop = Arc::clone(&self.oversized_drop); // B-125
             let latched_pre = Arc::clone(&self.latched_pre);
             let sample_rate = self.sample_rate;
             Box::new(move || {
@@ -852,6 +861,7 @@ impl KirinHyphaEngine {
                     Arc::clone(&pair_release_notice),
                     Arc::clone(&session_summary),
                     Arc::clone(&push_overflow), // B-076: per-Record dropped_samples
+                    Arc::clone(&oversized_drop), // B-125: per-Record oversized block drop
                     Arc::clone(&latched_pre),   // B-108: display/keep 共有ラッチ
                 );
                 IoThreadHandle {
@@ -1219,6 +1229,19 @@ impl KirinHyphaEngine {
     /// ring 満杯で drop した push 数（§8 RT-safety 検証用）。
     pub fn overflow_count(&self) -> u64 {
         self.push_overflow.load(Ordering::Relaxed)
+    }
+
+    /// B-125: oversized block drop を計上する（Audio Thread から呼ばれる）。
+    /// `kirin_hypha_note_oversized_drop` C-ABI の本体。`dropped_samples` は当該 block の
+    /// interleaved sample 数（= num_frames * num_channels）。RT 安全のため `fetch_add` のみ
+    /// （alloc/lock/syscall なし）。push_overflow とは別カウンタ（混ぜない）。
+    pub fn note_oversized_drop(&self, dropped_samples: u64) {
+        self.oversized_drop.fetch_add(dropped_samples, Ordering::Relaxed);
+    }
+
+    /// B-125: oversized block で drop した累積 interleaved sample 数（読み取り専用）。
+    pub fn oversized_drop_count(&self) -> u64 {
+        self.oversized_drop.load(Ordering::Relaxed)
     }
 }
 
@@ -1910,6 +1933,27 @@ pub unsafe extern "C" fn kirin_hypha_push_samples(
     }));
 }
 
+/// B-125: prealloc-max 超の病的 block を drop した interleaved sample 数を計上（Audio Thread 単独）。
+/// JUCE 殻が oversized 分岐（scratch 容量超）で push_samples(null,0) keepalive と並べて呼ぶ。
+/// 本体は `oversized_drop.fetch_add` のみ（alloc/lock/syscall なし＝R-12 / RT-safe）。
+/// `dropped_samples` は当該 block の num_frames * num_channels。push_overflow とは別カウンタ。
+///
+/// # Safety
+/// `handle` は有効なハンドル（非 null・未解放）。Audio Thread からのみ呼ぶこと。
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_note_oversized_drop(
+    handle: *mut KirinHyphaEngine,
+    dropped_samples: u64,
+) {
+    // panic 捕捉時は no-op（Audio Thread / 音声素通しに影響させない）。push_samples と同型。
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() {
+            return;
+        }
+        unsafe { (*handle).note_oversized_drop(dropped_samples) };
+    }));
+}
+
 /// 最新 RT 計測結果を `out` に書く。値があれば true、未計測/競合なら false。
 ///
 /// # Safety
@@ -1928,8 +1972,11 @@ pub unsafe extern "C" fn kirin_hypha_poll_result(
             Some(r) => {
                 unsafe {
                     *out = to_c_result(&r);
-                    // B-075: 欠落サンプル累積数を engine から注入（MeasureResult には持たない）。
-                    (*out).dropped_samples = (*handle).overflow_count();
+                    // B-075 / B-125: 欠落サンプル累積数を engine から注入（MeasureResult には持たない）。
+                    // ring 満杯 drop（push_overflow）と oversized block drop（oversized_drop）の合算。
+                    // 2 カウンタは別計数だが live 露出は合算（無記録欠落の解消＝ZSA）。
+                    (*out).dropped_samples =
+                        (*handle).overflow_count().saturating_add((*handle).oversized_drop_count());
                 }
                 true
             }

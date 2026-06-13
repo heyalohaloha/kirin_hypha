@@ -1369,6 +1369,85 @@ fn dropped_samples_surfaced_via_c_abi_on_ring_overflow() {
     }
 }
 
+// ── B-125: oversized block drop を push_overflow とは別カウンタで計数し dropped_samples に合算 ──
+
+/// (ii) push_overflow と oversized_drop が独立に計数される（混ざらない）。
+/// note_oversized_drop は oversized_drop のみ・ring overflow は push_overflow のみを動かす。
+#[test]
+fn b125_overflow_and_oversized_drop_are_independent_counters() {
+    // note_oversized_drop だけ → oversized_drop_count のみ増え overflow_count は 0 のまま。
+    let engine = KirinHyphaEngine::new(SR, 2);
+    assert_eq!(engine.overflow_count(), 0);
+    assert_eq!(engine.oversized_drop_count(), 0);
+    engine.note_oversized_drop(100);
+    engine.note_oversized_drop(50);
+    assert_eq!(engine.oversized_drop_count(), 150, "oversized のみ積算");
+    assert_eq!(
+        engine.overflow_count(),
+        0,
+        "push_overflow は note_oversized_drop で増えない（別カウンタ＝混ざらない）"
+    );
+
+    // 逆: ring 満杯 burst だけ → overflow_count のみ増え oversized_drop_count は 0 のまま。
+    let engine2 = KirinHyphaEngine::new(SR, 2);
+    engine2.set_signal_state(1);
+    let burst = vec![0.05f32; 600_000]; // ring 容量 192000 interleaved を超過
+    engine2.push_samples(&burst, 2);
+    assert!(
+        engine2.overflow_count() > 0,
+        "ring overflow は push_overflow を積む"
+    );
+    assert_eq!(
+        engine2.oversized_drop_count(),
+        0,
+        "oversized_drop は ring overflow では増えない（別カウンタ＝混ざらない）"
+    );
+}
+
+/// (iv-FFI) prealloc-max 超の病的 block の drop（JUCE 殻が kirin_hypha_note_oversized_drop で計上）が
+/// ring overflow ゼロでも C ABI dropped_samples に合算露出される（無記録欠落の解消＝ZSA）。
+/// JUCE 側の `needed <= scratchCapacitySamples` 算術境界自体は C++（PluginProcessor.cpp）で、
+/// repo に C++ 単体ハーネスが無いため build + コードレビューで担保（report 参照）。本テストは
+/// その fallback が呼ぶ FFI 経路（note → dropped_samples 合算）を実値で検証する。
+#[test]
+fn b125_oversized_drop_surfaces_in_c_abi_dropped_samples() {
+    use kirin_hypha_ffi::{
+        kirin_hypha_create, kirin_hypha_destroy, kirin_hypha_note_oversized_drop,
+        kirin_hypha_poll_result, kirin_hypha_push_samples, kirin_hypha_set_signal_state,
+        KirinMeasureResult,
+    };
+    unsafe {
+        let h = kirin_hypha_create(SR, 2);
+        assert!(!h.is_null(), "create");
+        kirin_hypha_set_signal_state(h, 1); // Active
+
+        // 1 病的 block 相当（例: 2048 frames × 2ch）を JUCE oversized 分岐と同じ note で計上。
+        // ring overflow は意図的に起こさない（容量内の小ブロックのみを流す）。
+        const OVERSIZED: u64 = 4096;
+        kirin_hypha_note_oversized_drop(h, OVERSIZED);
+
+        let mut out: KirinMeasureResult = std::mem::zeroed();
+        let mut got = false;
+        for _ in 0..20 {
+            // 容量内（256 frames × 2ch）= overflow を起こさず measure result を生成。
+            let blk = [0.01f32; 512];
+            kirin_hypha_push_samples(h, blk.as_ptr(), 256, 2);
+            sleep(Duration::from_millis(30));
+            if kirin_hypha_poll_result(h, &mut out) {
+                got = true;
+            }
+        }
+        assert!(got, "measure result should be produced");
+        // dropped_samples = overflow_count(0) + oversized_drop_count(OVERSIZED)（合算注入）。
+        assert_eq!(
+            out.dropped_samples, OVERSIZED,
+            "oversized drop must surface in dropped_samples with no ring overflow (got {})",
+            out.dropped_samples
+        );
+        kirin_hypha_destroy(h);
+    }
+}
+
 // ── B-106: 2 POST instance が同一 dylib 共有セルで同一棚に first-wins 収束する（棚分裂修正）──
 
 /// 単一プロセスに POST engine を 2 つ enable し、別々の set_identity project_uuid を渡しても

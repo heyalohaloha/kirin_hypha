@@ -685,6 +685,9 @@ impl Plugin for HyphaPost {
             })
         };
 
+        // B-125: egui POST は oversized 経路を持たない（全 frame を per-sample で overflow に計上済）。
+        // spawn 契約を満たすため常に 0 の専用ゼロカウンタを渡す（io 再起動跨ぎで同実体を共有）。
+        let oversized_drop = Arc::new(std::sync::atomic::AtomicU64::new(0));
         let io_handle = spawn_io_thread_post(
             Arc::clone(&instance_id_arc),
             Arc::clone(&project_hash_arc),
@@ -715,6 +718,7 @@ impl Plugin for HyphaPost {
             // B-043: session_summary 共有 (Measure → IO Thread / Record→Watch 注入)。
             Arc::clone(&self.session_summary),
             Arc::clone(&self.overflow), // B-076: per-Record dropped_samples
+            Arc::clone(&oversized_drop), // B-125: egui は常に 0（per-sample で overflow に計上済）
             Arc::clone(&self.latched_pre), // B-108: display/keep 共有ラッチ
         );
 
@@ -748,6 +752,7 @@ impl Plugin for HyphaPost {
             // B-043: restart 経路でも session_summary を共有 (initial と完全対称)。
             let session_summary = Arc::clone(&self.session_summary);
             let overflow = Arc::clone(&self.overflow); // B-076
+            let oversized_drop = Arc::clone(&oversized_drop); // B-125: egui ゼロカウンタを再起動跨ぎ共有
             let latched_pre = Arc::clone(&self.latched_pre); // B-108
             move |new_shutdown: Arc<AtomicBool>| {
                 spawn_io_thread_post(
@@ -771,6 +776,7 @@ impl Plugin for HyphaPost {
                     Arc::clone(&pair_release_notice_arc),
                     Arc::clone(&session_summary),
                     Arc::clone(&overflow), // B-076: per-Record dropped_samples
+                    Arc::clone(&oversized_drop), // B-125: egui は常に 0
                     Arc::clone(&latched_pre), // B-108: display/keep 共有ラッチ
                 )
             }

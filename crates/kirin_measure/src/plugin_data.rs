@@ -492,13 +492,17 @@ impl PluginDataWriter {
             .map(round1);
     }
 
-    /// B-076: この Record の欠落サンプル数を JSON に焼き込む。`close()` 直前に呼ぶ。
-    /// `dropped` は per-Record 差分（Record 開始時 overflow snapshot との差）。
-    /// `integrity_degraded` は `dropped > 0`（閾値なし・1 sample でも立てる / ZSA）。
-    /// 計測値（LUFS/TP/PSR/PSB）には一切触れない。
-    pub fn set_integrity(&mut self, dropped: u64) {
-        self.data.dropped_samples = dropped;
-        self.data.integrity_degraded = dropped > 0;
+    /// B-076 / B-125: この Record の欠落サンプル数を JSON に焼き込む。`close()` 直前に呼ぶ。
+    /// 2 つの独立カウンタの per-Record 差分を受ける（混ぜずに別計数＝metric truthfulness）。
+    /// `push_dropped` = ring 満杯 drop（push_overflow 差分 / B-076）、`oversized_dropped` =
+    /// prealloc-max 超の病的 block で測定 ring に渡せなかった interleaved sample 数（B-125 専用
+    /// カウンタ oversized_drop 差分）。JSON へは合算を焼く（無記録欠落の解消＝ZSA）。
+    /// `integrity_degraded` は合算 > 0（閾値なし・1 sample でも立てる）。計測値（LUFS/TP/PSR/PSB）
+    /// には一切触れない。
+    pub fn set_integrity(&mut self, push_dropped: u64, oversized_dropped: u64) {
+        let total = push_dropped.saturating_add(oversized_dropped);
+        self.data.dropped_samples = total;
+        self.data.integrity_degraded = total > 0;
     }
 
     /// 1 PSB スナップショットを追加。
@@ -863,6 +867,37 @@ mod tests {
         assert_eq!(frame.lufs_m, -14.2);
         assert_eq!(frame.true_peak, -1.1);
         assert_eq!(frame.crest, 12.3);
+    }
+
+    // ── B-125: set_integrity（push_overflow と oversized_drop の合算）──────────────
+    #[test]
+    fn set_integrity_raises_degraded_on_oversized_drop_only() {
+        // (i): push_overflow=0 でも oversized_drop>0 なら integrity_degraded が立つ。
+        let base = isolated_dir();
+        let mut w = sample_writer(&base, Role::Pre);
+        assert!(!w.data().integrity_degraded); // 既定 false
+        w.set_integrity(0, 7); // push=0, oversized=7
+        assert!(w.data().integrity_degraded, "oversized_drop>0 で degraded");
+        assert_eq!(w.data().dropped_samples, 7);
+    }
+
+    #[test]
+    fn set_integrity_dropped_samples_is_sum_of_both_counters() {
+        // (iii): dropped_samples = push_dropped + oversized_dropped（合算）。
+        let base = isolated_dir();
+        let mut w = sample_writer(&base, Role::Pre);
+
+        w.set_integrity(0, 0); // 両者 0 → 欠落なし
+        assert_eq!(w.data().dropped_samples, 0);
+        assert!(!w.data().integrity_degraded);
+
+        w.set_integrity(5, 11); // 5 + 11 = 16
+        assert_eq!(w.data().dropped_samples, 16, "両カウンタの合算");
+        assert!(w.data().integrity_degraded);
+
+        w.set_integrity(3, 0); // push のみ（B-076 既存経路の不変性）
+        assert_eq!(w.data().dropped_samples, 3);
+        assert!(w.data().integrity_degraded);
     }
 
     #[test]

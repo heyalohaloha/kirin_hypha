@@ -2,6 +2,20 @@
 #include "PluginEditor.h"
 #include <cmath> // B-107: std::abs(float) for the silence peak threshold
 
+namespace
+{
+    // B-125 (b): prealloc-max headroom (frames). The interleave scratch is sized in
+    // prepareToPlay to max(maximumExpectedSamplesPerBlock, this) frames so that realistic
+    // variable / offline-render blocks larger than the realtime-declared block are still
+    // measured without a (non-RT-safe) reallocation on the audio thread. Hosts can deliver
+    // offline / freeze / bounce blocks well above the realtime maximum; 65536 frames
+    // (~1.36 s @ 48 kHz) is a conservative ceiling. The one-time, non-RT prepareToPlay
+    // allocation is bounded at 65536 * numCh * sizeof(float) (≈512 KB stereo). Pathological
+    // blocks beyond this ceiling are not reallocated; their frames are counted as oversized
+    // drops (B-125 (c) / kirin_hypha_note_oversized_drop) while audio keeps passing through.
+    constexpr int kOversizeHeadroomFrames = 65536;
+}
+
 KirinHyphaProcessorBase::KirinHyphaProcessorBase (Role roleIn)
     : juce::AudioProcessor (BusesProperties()
           .withInput  ("Input",  juce::AudioChannelSet::stereo(), true)
@@ -29,9 +43,14 @@ void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBl
     const int numCh = getTotalNumInputChannels();
 
     // Pre-allocate the interleave scratch so processBlock never allocates (RT-safe).
-    interleaveScratch.assign ((size_t) juce::jmax (0, samplesPerBlock)
-                                  * (size_t) juce::jmax (1, numCh),
-                              0.0f);
+    // B-125 (b): prealloc-max — size to max(declared block, kOversizeHeadroomFrames) frames
+    // so realistic variable / offline-render blocks above the realtime maximum are absorbed
+    // without an audio-thread realloc. This .assign runs in prepareToPlay (non-RT) — allowed.
+    const int   maxFrames = juce::jmax (juce::jmax (0, samplesPerBlock), kOversizeHeadroomFrames);
+    interleaveScratch.assign ((size_t) maxFrames * (size_t) juce::jmax (1, numCh), 0.0f);
+    // B-125: cache the prepared capacity so processBlock re-checks against it (the oversized
+    // fallback fires only for blocks beyond this) without re-deriving from samplesPerBlock.
+    scratchCapacitySamples = interleaveScratch.size();
 
     const juce::ScopedLock sl (handleLock);
     // Re-prepare is allowed: drop any prior handle before creating a fresh one.
@@ -133,7 +152,7 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
     if (stateCode == 1)
     {
         const size_t needed = (size_t) numFrames * (size_t) numCh;
-        if (numCh > 0 && needed <= interleaveScratch.size())
+        if (numCh > 0 && needed <= scratchCapacitySamples)
         {
             // Interleave [c0f0, c1f0, c0f1, c1f1, ...] — same order as nih-plug iter_samples.
             // getReadPointer only: the input buffer is never modified (R-12).
@@ -147,6 +166,14 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
         }
         else
         {
+            // B-125 (c): a pathological block beyond prealloc-max (needed > scratch capacity).
+            // We do NOT reallocate on the audio thread — instead the dropped frames are recorded
+            // so the gap surfaces in dropped_samples / integrity_degraded (ZSA, no silent loss).
+            // The note call is fetch_add-only (RT-safe; alloc/lock/syscall-free). The keepalive
+            // push (nullptr,0) still advances the heartbeat; audio keeps passing through (R-12).
+            if (numCh > 0 && needed > scratchCapacitySamples)
+                kirin_hypha_note_oversized_drop (hyphaHandle, (uint64_t) needed);
+
             kirin_hypha_push_samples (hyphaHandle, nullptr, 0, (uint32_t) numCh);
         }
     }

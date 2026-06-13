@@ -198,6 +198,9 @@ pub fn spawn_io_thread_pre(
     // B-076: 累積 push_overflow（Audio Thread が ring 満杯時に積む）。run_record_tick が
     // Record 開始で snapshot し close 時に差分を per-Record dropped_samples として焼き込む。
     overflow: Arc<std::sync::atomic::AtomicU64>,
+    // B-125: 累積 oversized_drop（JUCE 殻のみ計上 / egui は常に 0）。overflow とは別カウンタ。
+    // run_record_tick が同位相で snapshot/差分し、合算を dropped_samples へ焼く。
+    oversized_drop: Arc<std::sync::atomic::AtomicU64>,
 ) -> JoinHandle<()> {
     thread::spawn(move || {
         log::info!(
@@ -415,6 +418,7 @@ pub fn spawn_io_thread_pre(
                 &mut writer_ctx,
                 Some(&session_summary),
                 &overflow, // B-076: per-Record dropped_samples 算出用
+                &oversized_drop, // B-125: per-Record oversized block drop 算出用
             ) {
                 log::warn!("[writer] tick error: {}", e);
             }

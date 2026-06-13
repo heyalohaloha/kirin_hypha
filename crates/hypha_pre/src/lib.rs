@@ -330,6 +330,9 @@ impl Plugin for HyphaPre {
         // ack 時に signal.paired_pre_name に書く。chunk-restore 後の最新値を
         // tick ごと lazy-read。
         let name_arc = Arc::clone(&self.params.name);
+        // B-125: egui PRE は oversized 経路を持たない（全 frame を per-sample で overflow に計上済）。
+        // spawn 契約を満たすため常に 0 の専用ゼロカウンタを渡す（io 再起動跨ぎで同実体を共有）。
+        let oversized_drop = Arc::new(std::sync::atomic::AtomicU64::new(0));
         let io_handle = spawn_io_thread_pre(
             Arc::clone(&instance_id_arc),
             project_hash.clone(),
@@ -346,6 +349,7 @@ impl Plugin for HyphaPre {
             Arc::clone(&self.record_error_message),
             Arc::clone(&self.session_summary),
             Arc::clone(&self.overflow), // B-076: per-Record dropped_samples
+            Arc::clone(&oversized_drop), // B-125: egui は常に 0（per-sample で overflow に計上済）
         );
 
         let restart_io = {
@@ -362,6 +366,7 @@ impl Plugin for HyphaPre {
             let record_error_message = Arc::clone(&self.record_error_message);
             let session_summary = Arc::clone(&self.session_summary);
             let overflow = Arc::clone(&self.overflow); // B-076
+            let oversized_drop = Arc::clone(&oversized_drop); // B-125: egui ゼロカウンタを再起動跨ぎ共有
             move |new_shutdown: Arc<AtomicBool>| {
                 spawn_io_thread_pre(
                     Arc::clone(&instance_id_arc),
@@ -379,6 +384,7 @@ impl Plugin for HyphaPre {
                     Arc::clone(&record_error_message),
                     Arc::clone(&session_summary),
                     Arc::clone(&overflow), // B-076: per-Record dropped_samples
+                    Arc::clone(&oversized_drop), // B-125: egui は常に 0
                 )
             }
         };

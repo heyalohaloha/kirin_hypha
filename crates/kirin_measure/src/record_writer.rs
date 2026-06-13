@@ -106,6 +106,9 @@ pub struct RecordingCtx {
     /// B-076: Record 開始時の overflow snapshot（累積 push_overflow）。close 時に
     /// 現在値との差で per-Record dropped_samples を算出する（累積を持ち越さない）。
     pub overflow_start: u64,
+    /// B-125: Record 開始時の oversized_drop snapshot（累積 oversized block drop）。
+    /// overflow とは独立カウンタ（metric truthfulness）。close 時に差分を取り合算する。
+    pub oversized_drop_start: u64,
 }
 
 impl RecordingCtx {
@@ -244,6 +247,7 @@ pub fn writer_start(
         consecutive_write_error: 0,
         exit_requested: None,
         overflow_start: 0, // B-076: run_record_tick が Record 開始時に snapshot を入れる
+        oversized_drop_start: 0, // B-125: 同上（oversized_drop の Record 開始 snapshot）
     })
 }
 
@@ -343,6 +347,9 @@ pub fn run_record_tick(
     // B-076: 累積 push_overflow（Audio Thread が ring 満杯時に積む）。Record 開始で snapshot し、
     // close 時に差分を per-Record dropped_samples として JSON に焼き込む。
     overflow: &Arc<std::sync::atomic::AtomicU64>,
+    // B-125: 累積 oversized_drop（JUCE 殻が prealloc-max 超の病的 block を drop した interleaved
+    // sample 数）。overflow とは別カウンタ（混ぜない）。同様に Record 開始 snapshot → close 差分。
+    oversized_drop: &Arc<std::sync::atomic::AtomicU64>,
 ) -> Result<(), String> {
     let is_recording = record_sm.is_recording();
     match (is_recording, recording.is_some()) {
@@ -361,6 +368,9 @@ pub fn run_record_tick(
             ) {
                 // B-076: Record 開始時点の累積 overflow を記録（per-Record 差分の基点）。
                 ctx.overflow_start = overflow.load(std::sync::atomic::Ordering::Relaxed);
+                // B-125: oversized_drop も同位相で snapshot（別カウンタ・同じ差分方式）。
+                ctx.oversized_drop_start =
+                    oversized_drop.load(std::sync::atomic::Ordering::Relaxed);
                 *recording = Some(ctx);
             }
         }
@@ -368,11 +378,16 @@ pub fn run_record_tick(
             if let Some(mut ctx) = recording.take() {
                 // B-043: Record→Watch 遷移時に Measure Thread の最新セッション集計を取り出して注入。
                 let summary = session_summary.and_then(take_session_summary);
-                // B-076: この Record 中に落ちたサンプル数 = 現在の累積 - 開始時 snapshot。
-                let dropped = overflow
+                // B-076: この Record 中に ring 満杯で落ちたサンプル数 = 現在の累積 - 開始時 snapshot。
+                let push_dropped = overflow
                     .load(std::sync::atomic::Ordering::Relaxed)
                     .saturating_sub(ctx.overflow_start);
-                ctx.writer.set_integrity(dropped);
+                // B-125: oversized block で落ちたサンプル数（別カウンタの per-Record 差分）。
+                let oversized_dropped = oversized_drop
+                    .load(std::sync::atomic::Ordering::Relaxed)
+                    .saturating_sub(ctx.oversized_drop_start);
+                // 別計数のまま set_integrity に渡し、JSON へは合算を焼く（ZSA / B-125 裁定）。
+                ctx.writer.set_integrity(push_dropped, oversized_dropped);
                 writer_close_with_summary(ctx, summary);
             }
         }
@@ -867,6 +882,7 @@ mod tests {
             consecutive_write_error: 0,
             exit_requested: None,
             overflow_start: 0,
+            oversized_drop_start: 0, // B-125
         }
     }
 
@@ -1024,6 +1040,7 @@ mod tests {
             &mut rec,
             None,
             &no_overflow(),
+            &no_overflow(), // B-125: oversized_drop（テストは欠落なし=0）
         )
         .unwrap();
         assert!(rec.is_none());
@@ -1053,6 +1070,7 @@ mod tests {
             &mut rec,
             None,
             &no_overflow(),
+            &no_overflow(), // B-125: oversized_drop（テストは欠落なし=0）
         )
         .unwrap();
 
@@ -1085,6 +1103,7 @@ mod tests {
             &mut rec,
             None,
             &no_overflow(),
+            &no_overflow(), // B-125: oversized_drop（テストは欠落なし=0）
         )
         .unwrap();
 
@@ -1124,6 +1143,7 @@ mod tests {
             &mut rec,
             None,
             &no_overflow(),
+            &no_overflow(), // B-125: oversized_drop（テストは欠落なし=0）
         )
         .unwrap();
 
@@ -1385,6 +1405,7 @@ mod tests {
                 &mut rec,
                 None,
                 &no_overflow(),
+                &no_overflow(), // B-125: oversized_drop（テストは欠落なし=0）
             )
             .unwrap();
             let ctx_ref = rec.as_ref().unwrap();
@@ -1436,6 +1457,7 @@ mod tests {
                 &mut rec,
                 None,
                 &no_overflow(),
+                &no_overflow(), // B-125: oversized_drop（テストは欠落なし=0）
             )
             .unwrap();
             let ctx_ref = rec.as_ref().unwrap();
@@ -1477,6 +1499,7 @@ mod tests {
             || None, || None, &m, &mut rec,
             None,
             &no_overflow(),
+            &no_overflow(), // B-125: oversized_drop（テストは欠落なし=0）
         )
         .unwrap();
         assert_eq!(rec.as_ref().unwrap().consecutive_dir_missing, 1);
@@ -1490,6 +1513,7 @@ mod tests {
             || None, || None, &m, &mut rec,
             None,
             &no_overflow(),
+            &no_overflow(), // B-125: oversized_drop（テストは欠落なし=0）
         )
         .unwrap();
         assert_eq!(rec.as_ref().unwrap().consecutive_dir_missing, 0);
@@ -1518,6 +1542,7 @@ mod tests {
             || None, || None, &m, &mut rec1,
             None,
             &overflow,
+            &no_overflow(), // B-125: oversized_drop なし（push_overflow 経路のみ検証）
         )
         .unwrap();
         let f1: PluginDataFile = serde_json::from_slice(&fs::read(&path1).unwrap()).unwrap();
@@ -1539,6 +1564,7 @@ mod tests {
             || None, || None, &m, &mut rec2,
             None,
             &overflow,
+            &no_overflow(), // B-125: oversized_drop なし（push_overflow 経路のみ検証）
         )
         .unwrap();
         let f2: PluginDataFile = serde_json::from_slice(&fs::read(&path2).unwrap()).unwrap();

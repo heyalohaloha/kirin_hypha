@@ -213,6 +213,11 @@ bool kirin_hypha_add_annotation(KirinHypha* handle, const char* memo);
 void kirin_hypha_push_samples(KirinHypha* handle, const float* interleaved,
                               size_t num_frames, uint32_t num_channels);
 
+/* B-125: prealloc-max 超の病的 block を drop した interleaved sample 数を計上（Audio Thread 単独）.
+ * dropped_samples = num_frames * num_channels. 本体は fetch_add のみ（alloc/lock/syscall なし）.
+ * push_overflow とは別カウンタ（混ぜない）が dropped_samples / integrity_degraded には合算反映. */
+void kirin_hypha_note_oversized_drop(KirinHypha* handle, uint64_t dropped_samples);
+
 /* 最新 RT 計測結果を out へ. 値あり=true / 未計測・競合=false（UI Thread）. */
 bool kirin_hypha_poll_result(KirinHypha* handle, KirinMeasureResult* out);
 

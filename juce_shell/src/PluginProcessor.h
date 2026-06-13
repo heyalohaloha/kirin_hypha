@@ -101,6 +101,7 @@ private:
 
     juce::AudioParameterBool* bypassParam = nullptr;   // owned by AudioProcessor (addParameter)
     std::vector<float> interleaveScratch;              // pre-allocated in prepareToPlay (RT-safe; no alloc in processBlock)
+    size_t scratchCapacitySamples = 0;                 // B-125: cached interleaveScratch capacity (prealloc-max); processBlock's oversized guard
 
     juce::CriticalSection handleLock;                  // guards hyphaHandle vs editor poll / create / destroy
     KirinHypha* hyphaHandle = nullptr;                 // owned; created in prepareToPlay, destroyed in releaseResources/dtor
