@@ -48,7 +48,13 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
 
         postControls = std::make_unique<hypha::PostControls>();
         addAndMakeVisible (*postControls);
-        postControls->onKeep = [this] { if (! processorRef.keepPair()) showToast ("No PRE paired"); };
+        postControls->onKeep = [this] {
+            // B-118 (②): exclusion を keep より先に pre-check（engine keep は 12-limit 非強制 / egui UI 専管）。
+            if (processorRef.recordExclusionConflict()) { showToast ("Maximum 12 pairs reached"); return; }
+            if (processorRef.keepPair()) return;
+            // B-118 (①): keep 失敗 = 非Os か no-PRE（egui trigger_keep の LicenseDenied / None と同文言）。
+            showToast (processorRef.licenseIsOs() ? "No PRE Paired" : "Record requires Kirin OS license");
+        };
         postControls->onStop = [this] { processorRef.stopPair(); };
         postControls->onNote = [this] (const juce::String& tag)
         {
@@ -92,6 +98,13 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
     toastLabel.setJustificationType (juce::Justification::centredLeft);
     toastLabel.setInterceptsMouseClicks (false, false);
     addChildComponent (toastLabel);
+
+    // B-118 (③): io_thread 連続失敗の永続 status label（toast とは別・R-26 で文言ありの間表示）。
+    recordErrorLabel.setFont (hypha::monoFont (11.0f));
+    recordErrorLabel.setColour (juce::Label::textColourId, COL_MUTED);
+    recordErrorLabel.setJustificationType (juce::Justification::centredLeft);
+    recordErrorLabel.setInterceptsMouseClicks (false, false);
+    addChildComponent (recordErrorLabel);
 
     configureForKind (Kind::Abs3); // initial grid (3 absolute cells)
     resized();                     // finalise positions now that postControls exists
@@ -158,6 +171,7 @@ void KirinHyphaEditor::resized()
     }
     bannerLabel.setBounds (kMargin, bannerY, w - 2 * kMargin, 16);
     toastLabel .setBounds (kMargin, bannerY, w - 2 * kMargin, 16); // same slot (per-role only one shows)
+    recordErrorLabel.setBounds (kMargin, bannerY + 18, w - 2 * kMargin, 16); // B-118 (③): 永続 status row（toast の下）
 }
 
 void KirinHyphaEditor::layoutMetrics (bool six)
@@ -386,6 +400,12 @@ void KirinHyphaEditor::updatePost()
     prevAck = ack;
     bannerLabel.setVisible (t < bannerUntil);
     toastLabel.setVisible (t < toastUntil);
+
+    // B-118 (③): io_thread 連続失敗の固定文言を永続表示（R-26: 文言ありの間のみ表示・toast とは独立寿命）。
+    const juce::String recErr = processorRef.recordErrorMessage();
+    recordErrorLabel.setVisible (recErr.isNotEmpty());
+    if (recErr.isNotEmpty())
+        recordErrorLabel.setText (recErr, juce::dontSendNotification);
 
     postControls->update (rec, processorRef.licenseCode(), pairNonEmpty);
 

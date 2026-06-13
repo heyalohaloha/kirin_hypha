@@ -1488,3 +1488,20 @@ fn b118_drop_after_measure_restart_no_uaf() {
     };
     assert!(completed, "再起動跨ぎの Drop が hang せず完了（UAF なし）");
 }
+
+/// B-118 Phase 3 (② getter): 未 enable（project_hash 空）では排他 conflict は false（保守側）。
+#[test]
+fn b118_record_exclusion_conflict_false_before_enable() {
+    let engine = KirinHyphaEngine::new(SR, 2);
+    assert!(
+        !engine.record_exclusion_conflict(),
+        "未 enable は exclusion 非 conflict（ブロックしない）"
+    );
+}
+
+/// B-118 Phase 3 (③ getter): io 失敗が無ければ record_error_message は None（R-26 沈黙）。
+#[test]
+fn b118_record_error_message_none_initially() {
+    let engine = KirinHyphaEngine::new(SR, 2);
+    assert_eq!(engine.record_error_message(), None, "通常時は None");
+}

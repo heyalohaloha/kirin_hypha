@@ -19,7 +19,7 @@
  * スレッド契約:
  *   - push_samples: Audio Thread 単独・RT-safe（内部は rtrb push + heartbeat++ のみ）.
  *   - poll_result : UI Thread（内部は try_lock 非ブロッキング）.
- *   - push_samples は毎オーディオブロック呼ぶこと（~200ms 呼ばないと計測が Inactive に落ちる）.
+ *   - push_samples は毎オーディオブロック呼ぶこと（B-118/G-115-245: ~3s 呼ばないと計測が Inactive に落ちる）.
  */
 #ifndef KIRIN_HYPHA_FFI_H
 #define KIRIN_HYPHA_FFI_H
@@ -148,14 +148,23 @@ void kirin_hypha_set_pair_target(KirinHypha* handle, const char* name);
 void kirin_hypha_set_pre_name(KirinHypha* handle, const char* name);
 
 /* Measure Thread が生存しているか（B-054 LED Error 状態 / read-only poller・UI Thread）.
- * JoinHandle::is_finished() の反転（exit/panic を検出）. null は false. watchdog 方式の hang
- * 検出は別軸（FFI は watchdog を spawn しない）. */
+ * B-118: FFI も T-8 watchdog を spawn する（B-056 opt-out 撤回）. 本値は watchdog が Measure crash
+ * 検出で false / 再 spawn 復帰で true を書くフラグ. null は false. */
 bool kirin_hypha_measure_alive(KirinHypha* handle);
 
 /* B-115: heartbeat 鮮度（processBlock が呼ばれている事実 / read-only poller・UI Thread）.
  * signal_state とは別軸（無音再生中も state=Inactive のため state を live の代用にしない）.
  * 殻は「playing かつ live」で POST pair 変更をロックする. null / panic は false. */
 bool kirin_hypha_heartbeat_live(KirinHypha* handle);
+
+/* B-118 Phase 3 (②): 現プロジェクトが Record 排他上限（12）に達しているか（read-only poller・UI Thread）.
+ * engine keep() は 12-limit を強制しないため、殻は keep 前に本 getter で pre-check し
+ * "Maximum 12 pairs reached" を出す. null / panic は false. */
+bool kirin_hypha_record_exclusion_conflict(KirinHypha* handle);
+
+/* B-118 Phase 3 (③): io_thread 連続失敗の固定文言（G-115-29）を out（最大 out_len-1 + null 終端）へ書く.
+ * 文言あり=true / 通常(None)・null・panic=false（out 不変）. read-only poller・UI Thread. */
+bool kirin_hypha_record_error_message(KirinHypha* handle, char* out, size_t out_len);
 
 /* PRE が POST の record_signal を ack 済みか（B-054 LED / Keeping バナー poller・UI Thread）.
  * enable_pre_writes 前 / POST engine / null は false. */

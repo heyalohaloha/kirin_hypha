@@ -44,6 +44,9 @@ public:
     juce::String pairName() const { return persistPairName; }
     void setPairName (const juce::String& name);       // persist + set_pair_target (sanitized in FFI)
     bool keepPair();                                    // kirin_hypha_keep (Os + unique PRE)
+    bool recordExclusionConflict() const;               // B-118 (②): kirin_hypha_record_exclusion_conflict (keep pre-check)
+    juce::String recordErrorMessage() const;            // B-118 (③): kirin_hypha_record_error_message (io fail status / G-115-29)
+    bool licenseIsOs() const;                           // B-118 (①): kirin_hypha_load_license()==Os
     void stopPair();                                    // kirin_hypha_stop
 
     // --- B-073: POST Δ readout (editor display branching) --------------------------------

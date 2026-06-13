@@ -28,8 +28,9 @@
 //! - `poll_result` / `poll_session` : **UI Thread**。`try_lock`（非ブロッキング）。
 //!
 //! ## heartbeat（必須配線）
-//! Measure Thread は heartbeat が ~200ms 変化しないと signal_state を Inactive に上書きし結果を
-//! clear する(measure_thread.rs:160-169)。本番は host の `process()` が毎回 `heartbeat.fetch_add(1)`
+//! Measure Thread は heartbeat が ~3s 変化しないと（B-118/G-115-245: LivenessEvaluator の
+//! live window）signal_state を Inactive に上書きし結果を clear する。本番は host の `process()`
+//! が毎回 `heartbeat.fetch_add(1)`
 //! していた(hypha_pre.rs:390)。本 FFI では **`push_samples` が heartbeat を進める**。
 
 use std::cell::UnsafeCell;
@@ -44,14 +45,15 @@ use uuid::Uuid;
 
 use kirin_measure::engine::SessionSummary;
 use kirin_measure::{
-    append_annotation_to_latest, can_write_plugin_data, identity_instance_attach,
-    identity_instance_detach,
+    append_annotation_to_latest, can_write_plugin_data, check_record_exclusion,
+    identity_instance_attach, identity_instance_detach,
     enumerate_active_post_pair_candidates, enumerate_active_pre_pair_candidates, load_license_safe,
     live_window, load_signal_state, mark_released,
     resolve_arm_target, sanitize_name, set_daw_session_id, set_project_uuid,
     spawn_io_thread_post,
     spawn_io_thread_pre, spawn_measure_thread, spawn_watchdog, store_signal_state, write_broadcast,
-    write_pending, write_stop_broadcast, DeltaMode, DeltaResult, IoThreadHandle, LatchedPre, License,
+    write_pending, write_stop_broadcast, DeltaMode, DeltaResult, ExclusionResult, IoThreadHandle,
+    LatchedPre, License,
     LivenessEvaluator, MeasureResult, PluginDataRole, PsbSummary, RecordStateMachine, RestartIoFn,
     SignalState, StoragePaths, WatchdogIo, WatchdogParams, N_CHANNELS, RING_BUFFER_SECONDS,
 };
@@ -168,6 +170,9 @@ pub struct KirinHyphaEngine {
     watchdog_shutdown: Arc<AtomicBool>,
     /// B-118: watchdog Thread の JoinHandle（Drop で shutdown→join / 内部で io→measure を join）。
     watchdog_handle: Mutex<Option<JoinHandle<()>>>,
+    /// B-118 Phase 3 (③): io_thread 連続失敗時の固定文言（RecordError::ui_message / G-115-29）。
+    /// enable_*_writes で io と Arc 共有し、`record_error_message()` getter（JUCE status label）が読む。
+    record_error_message: Arc<RwLock<Option<String>>>,
     /// state chunk 往復する識別子（B-058 3c / 方式A）。`set_identity` で復元値を入れ、
     /// 未設定なら `enable_pre_writes` が生成する。`get_identity` で JUCE が読み戻す。
     identity: Mutex<IdentityState>,
@@ -498,6 +503,7 @@ impl KirinHyphaEngine {
             measure_alive,
             watchdog_shutdown,
             watchdog_handle: Mutex::new(Some(watchdog_handle)),
+            record_error_message: Arc::new(RwLock::new(None)),
             identity: Mutex::new(IdentityState::default()),
             pair_target: Arc::new(RwLock::new(String::new())),
             paired_pre_target: Arc::new(Mutex::new(None)),
@@ -645,7 +651,8 @@ impl KirinHyphaEngine {
             }
         }
         let name = Arc::clone(&self.pre_name);
-        let record_error_message = Arc::new(RwLock::new(None));
+        // B-118 Phase 3 (③): engine 保持の Arc を共有（io が書き JUCE getter が読む / 世代跨ぎ継続）。
+        let record_error_message = Arc::clone(&self.record_error_message);
         // A: enable 時点の license をスナップショット（immutable）。
         let license = Arc::new(self.current_license());
 
@@ -804,7 +811,8 @@ impl KirinHyphaEngine {
                 resolve_and_exit_stop(&record_sm, &paired, &project_hash, &post_iid);
             })
         };
-        let record_error_message = Arc::new(RwLock::new(None));
+        // B-118 Phase 3 (③): engine 保持の Arc を共有（io が書き JUCE getter が読む / 世代跨ぎ継続）。
+        let record_error_message = Arc::clone(&self.record_error_message);
         let pair_claimed_at = Arc::new(RwLock::new(0.0));
         let pair_release_notice = Arc::new(RwLock::new(None));
         // B-118: io spawn を restart-closure に包む（初回 spawn も watchdog 再起動も同一経路）。
@@ -910,6 +918,34 @@ impl KirinHyphaEngine {
     #[doc(hidden)]
     pub fn __force_measure_restart_for_test(&self) {
         self.shutdown.store(true, Ordering::Relaxed);
+    }
+
+    /// B-118 Phase 3 (②): 現プロジェクトが Record 排他上限（MAX_ACTIVE_PER_PROJECT=12）に達しているか。
+    /// engine keep() は 12-limit を強制しない（egui UI 専管）ため、JUCE が keep 前に本 read-only getter で
+    /// pre-check し "Maximum 12 pairs reached" を出すための露出。未 enable（project_hash 空）/ StoragePaths
+    /// 不能は false（保守側＝ブロックしない）。
+    pub fn record_exclusion_conflict(&self) -> bool {
+        let project_hash = match self.identity.lock() {
+            Ok(id) => id.project_hash.clone(),
+            Err(_) => return false,
+        };
+        if project_hash.is_empty() {
+            return false;
+        }
+        let base = match StoragePaths::default_macos() {
+            Ok(p) => p.plugin_data_dir(),
+            Err(_) => return false,
+        };
+        matches!(
+            check_record_exclusion(&base, &project_hash),
+            ExclusionResult::Conflict { .. }
+        )
+    }
+
+    /// B-118 Phase 3 (③): io_thread 連続失敗時の固定文言（RecordError::ui_message / G-115-29）。
+    /// None=通常（R-26 沈黙）。JUCE 永続 status label が Some の間表示する。
+    pub fn record_error_message(&self) -> Option<String> {
+        self.record_error_message.read().ok().and_then(|g| g.clone())
     }
 
     /// B-118: heartbeat 鮮度（processBlock が呼ばれている事実 / read-only poller・非 RT）。
@@ -1120,7 +1156,7 @@ impl KirinHyphaEngine {
     /// interleaved f32 サンプルを供給する（Audio Thread 単独・RT-safe）。
     ///
     /// 責務はこの 2 つのみ:
-    /// 1. heartbeat を進める（200ms stall override 回避）。
+    /// 1. heartbeat を進める（B-118/G-115-245: ~3s stall override 回避）。
     /// 2. interleaved サンプルを rtrb に push（満杯時は drop。本番 process() の
     ///    `let _ = producer.push(*sample)` と同挙動 / hypha_pre.rs:410）。
     ///
@@ -1538,6 +1574,55 @@ pub unsafe extern "C" fn kirin_hypha_heartbeat_live(handle: *mut KirinHyphaEngin
             return false;
         }
         unsafe { (*handle).heartbeat_live() }
+    }))
+    .unwrap_or(false)
+}
+
+/// B-118 Phase 3 (②): 現プロジェクトが Record 排他上限（12）に達しているか（read-only poller / UI Thread）。
+/// 殻は keep 前に本 getter で pre-check し "Maximum 12 pairs reached" を出す（engine keep は非強制）。
+/// null / panic は false。
+///
+/// # Safety
+/// `handle` は有効なハンドル。
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_record_exclusion_conflict(
+    handle: *mut KirinHyphaEngine,
+) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() {
+            return false;
+        }
+        unsafe { (*handle).record_exclusion_conflict() }
+    }))
+    .unwrap_or(false)
+}
+
+/// B-118 Phase 3 (③): io_thread 連続失敗の固定文言を `out`（最大 `out_len-1` バイト + null 終端）へ書く。
+/// 文言あり=true / 通常（None）・null・panic=false（out 不変）。read-only poller / UI Thread。
+///
+/// # Safety
+/// `handle` は有効なハンドル。`out` は `out_len` バイト以上の有効バッファ。
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_record_error_message(
+    handle: *mut KirinHyphaEngine,
+    out: *mut c_char,
+    out_len: usize,
+) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() || out.is_null() || out_len == 0 {
+            return false;
+        }
+        match unsafe { (*handle).record_error_message() } {
+            Some(msg) => {
+                let bytes = msg.as_bytes();
+                let n = bytes.len().min(out_len - 1);
+                let dst = unsafe { std::slice::from_raw_parts_mut(out as *mut u8, out_len) };
+                dst[..n].copy_from_slice(&bytes[..n]);
+                dst[n] = 0; // null 終端
+                true
+            }
+            None => false,
+        }
     }))
     .unwrap_or(false)
 }

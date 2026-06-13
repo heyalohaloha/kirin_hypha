@@ -217,6 +217,33 @@ bool KirinHyphaProcessorBase::keepPair()
     return kirin_hypha_keep (hyphaHandle);
 }
 
+bool KirinHyphaProcessorBase::recordExclusionConflict() const
+{
+    // B-118 (②): engine keep は 12-limit 非強制（egui UI 専管）。keep 前の pre-check 用 read-only。
+    const juce::ScopedLock sl (handleLock);
+    if (hyphaHandle == nullptr)
+        return false;
+    return kirin_hypha_record_exclusion_conflict (hyphaHandle);
+}
+
+juce::String KirinHyphaProcessorBase::recordErrorMessage() const
+{
+    // B-118 (③): io_thread 連続失敗の固定文言（G-115-29）。None は空 String（R-26 沈黙）。
+    const juce::ScopedLock sl (handleLock);
+    if (hyphaHandle == nullptr)
+        return {};
+    char buf[128] = { 0 };
+    if (kirin_hypha_record_error_message (hyphaHandle, buf, sizeof (buf)))
+        return juce::String::fromUTF8 (buf);
+    return {};
+}
+
+bool KirinHyphaProcessorBase::licenseIsOs() const
+{
+    // B-118 (①): identity.json の license（0=Os / 1=Sense / 2=Unknown）。handle 不要。
+    return kirin_hypha_load_license() == 0;
+}
+
 void KirinHyphaProcessorBase::stopPair()
 {
     const juce::ScopedLock sl (handleLock);
