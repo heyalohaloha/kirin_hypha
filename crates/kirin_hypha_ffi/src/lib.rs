@@ -904,6 +904,14 @@ impl KirinHyphaEngine {
         self.measure_alive.load(Ordering::Relaxed)
     }
 
+    /// テスト専用: Measure Thread を強制終了させ watchdog の再起動経路を駆動する（B-118 test iii/iv）。
+    /// `shutdown` をセットすると measure loop が抜けて exit → watchdog が is_finished を検出し
+    /// （watchdog_shutdown は false のため）再 spawn して shutdown を false へ戻す。本番経路は使わない。
+    #[doc(hidden)]
+    pub fn __force_measure_restart_for_test(&self) {
+        self.shutdown.store(true, Ordering::Relaxed);
+    }
+
     /// B-118: heartbeat 鮮度（processBlock が呼ばれている事実 / read-only poller・非 RT）。
     /// 単一評価器 `is_live()`（G-115-245: 最終 heartbeat 変化から 3s window 以内）を返す。
     /// signal_state とは別軸（B-107 で無音再生中も state=Inactive になるため state を代用しない）。

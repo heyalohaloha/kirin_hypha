@@ -1437,3 +1437,54 @@ fn two_post_instances_converge_on_one_shelf() {
 
     let _ = std::fs::remove_dir_all(&test_root);
 }
+
+// ── B-118: FFI watchdog（T-8 再採用）再起動・UAF 検証（realtime / #[ignore]）─────
+
+/// B-118 (iii): Measure Thread 死 → watchdog 再 spawn → 計測再開（FFI 経路）。
+/// `__force_measure_restart_for_test` で measure を強制終了し、watchdog（1s 検査）が
+/// is_finished を検出して再 spawn → measure_alive 復帰 + poll_result 再開を観測する。
+#[test]
+#[ignore]
+fn b118_measure_restart_recovers_via_watchdog() {
+    let engine = KirinHyphaEngine::new(SR, 2);
+    engine.set_signal_state(1); // Active
+    assert!(engine.measure_alive(), "起動直後は measure 生存");
+
+    // Measure Thread を強制終了（watchdog が再 spawn するはず）。
+    engine.__force_measure_restart_for_test();
+
+    // watchdog の 1s 検査で再 spawn。新 producer は pending_producer → push_samples が swap。
+    let block = vec![0.05f32; (SR as usize / 10) * 2]; // 0.1s stereo
+    let mut recovered = false;
+    for _ in 0..100 {
+        // ~5s 上限
+        engine.push_samples(&block, 2);
+        sleep(Duration::from_millis(50));
+        if engine.measure_alive() && engine.poll_result().is_some() {
+            recovered = true;
+            break;
+        }
+    }
+    assert!(
+        recovered,
+        "watchdog 再 spawn 後に measure_alive 復帰 + 計測再開（poll_result Some）"
+    );
+}
+
+/// B-118 (iv): 再起動を跨いだ Drop で UAF/hang なし。force restart で再起動世代を作り、
+/// scope 終端の Drop（watchdog_shutdown → watchdog join[io→measure] → identity_detach）が
+/// 完了することを観測する（hang すれば本テストが harness timeout で落ちる）。
+#[test]
+#[ignore]
+fn b118_drop_after_measure_restart_no_uaf() {
+    let completed = {
+        let engine = KirinHyphaEngine::new(SR, 2);
+        engine.set_signal_state(1);
+        engine.__force_measure_restart_for_test();
+        sleep(Duration::from_millis(1500)); // watchdog 再 spawn（再起動世代を確定）
+        assert!(engine.measure_alive(), "Drop 前に再 spawn 済み");
+        true
+        // engine が scope を抜けて Drop → 全世代 join。hang/UAF があればここで止まる。
+    };
+    assert!(completed, "再起動跨ぎの Drop が hang せず完了（UAF なし）");
+}

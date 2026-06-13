@@ -507,6 +507,56 @@ pub mod tests {
         );
     }
 
+    // (vi) 並行読者: beat 供給スレッド + 複数 poll スレッドで is_live() が発散しない（panic / 不整合なし）。
+    //      heartbeat が回り続ける間（< window）は全 reader が live を返し続ける（swap の競合が benign）。
+    #[test]
+    fn b118_evaluator_concurrent_readers_no_divergence() {
+        use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+        use std::sync::Arc;
+        use std::thread;
+        let hb = Arc::new(AtomicU32::new(0));
+        // window=3s。テストは 50ms しか回さないので beat 中は常に window 内 = live。
+        let ev = Arc::new(super::LivenessEvaluator::new(
+            Arc::clone(&hb),
+            std::time::Duration::from_secs(3),
+        ));
+        let stop = Arc::new(AtomicBool::new(false));
+        // beat スレッド: heartbeat を高速 increment（再生中相当）。
+        let beat = {
+            let hb = Arc::clone(&hb);
+            let stop = Arc::clone(&stop);
+            thread::spawn(move || {
+                while !stop.load(Ordering::Relaxed) {
+                    hb.fetch_add(1, Ordering::Relaxed);
+                }
+            })
+        };
+        // 4 reader スレッド: is_live() を叩き続ける。beat 中は live が落ちてはならない。
+        let mut readers = vec![];
+        for _ in 0..4 {
+            let ev = Arc::clone(&ev);
+            let stop = Arc::clone(&stop);
+            readers.push(thread::spawn(move || {
+                let mut all_live = true;
+                while !stop.load(Ordering::Relaxed) {
+                    if !ev.is_live() {
+                        all_live = false;
+                    }
+                }
+                all_live
+            }));
+        }
+        thread::sleep(std::time::Duration::from_millis(50));
+        stop.store(true, Ordering::Relaxed);
+        let _ = beat.join();
+        for r in readers {
+            assert!(
+                r.join().unwrap(),
+                "beat 中（< window）は並行 reader 全てが live を返す（divergence/panic なし）"
+            );
+        }
+    }
+
     ///  C-3 ガード: PsbSummary.low / .mid は ISO 532-1 由来の
     /// psb[0..16] のみを使い、Bark 21–24 / 15.5k–20k FFT 値の影響を一切
     /// 受けないこと。
