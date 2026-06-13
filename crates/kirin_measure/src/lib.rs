@@ -25,6 +25,7 @@ pub mod preset_v2;
 pub mod record;
 pub mod record_signal;
 pub mod record_writer;
+pub mod reservation;
 pub mod resampler;
 pub mod storage;
 pub mod watchdog;
@@ -32,8 +33,9 @@ pub mod watchdog;
 pub use delta::{DeltaMode, DeltaResult, DeltaSnapshot};
 pub use engine::{MeasureEngine, SessionSummary};
 pub use exclusion::{
-    check_record_exclusion, check_record_exclusion_at, is_heartbeat_fresh, ExclusionResult,
-    MAX_ACTIVE_PER_PROJECT, STALE_SECONDS,
+    check_record_exclusion, check_record_exclusion_at, count_distinct_pairings,
+    count_distinct_pairings_at, is_heartbeat_fresh, ExclusionResult, MAX_ACTIVE_PER_PROJECT,
+    STALE_SECONDS,
 };
 pub use hardware::{HardwareComponents, Match};
 pub use identity::{Identity, License};

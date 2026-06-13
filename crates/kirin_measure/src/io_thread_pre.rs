@@ -217,6 +217,14 @@ pub fn spawn_io_thread_pre(
         // age ベース・保守しきい値（STALE_PENDING_SECS=120s）で生記録は誤掃除しない。loop 前 1 回。
         record_signal::sweep_stale_pending_at_startup();
 
+        // B-127 (G-115-364): 孤児 reservation 枠を起動時掃除（POST 経路と冪等・age ベース）。
+        if let Ok(paths) = StoragePaths::default_macos() {
+            let _ = crate::reservation::sweep_stale_reservations_in(
+                &paths.plugin_data_dir(),
+                chrono::Utc::now(),
+            );
+        }
+
         // B-025 Group B-1 / Gap-8: 30 秒 flush 周期中の DAW crash で残った
         // `*.json.tmp` を整合 verify (HMAC-SHA256) → `.json` に atomic rename で救出。
         // 不整合 .tmp は warn ログのみで残置 (削除しない / 約束 5 原則)。loop 前 1 回。

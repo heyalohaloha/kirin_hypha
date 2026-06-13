@@ -1656,11 +1656,117 @@ fn b127_spawn_pre(puid: &str, tmp: &std::path::Path) -> KirinHyphaEngine {
     pre
 }
 
-/// (i)+(ii): active=12（cap ちょうど）で 13 本目の keep が engine で拒否され、Record に入らず、
-/// R-28 通知（record_error_message）に出る（silent でない）。keep_all / 単一 keep / broadcast 受信は
-/// 全て resolve_and_enter_keep を通るため、本テストは engine 強制（authoritative cap）を実証する。
+/// base/<ph>/<iid>/<role>/ に paired_pre/paired_post を設定した active marker を 1 件書く。
+fn b127_write_paired_marker(
+    base: &std::path::Path,
+    ph: &str,
+    iid: &str,
+    role: kirin_measure::PluginDataRole,
+    paired_pre: Option<&str>,
+    paired_post: Option<&str>,
+) {
+    use kirin_measure::{PluginDataWriter, WriterPaths};
+    let paths = WriterPaths::build(base, ph, iid, role, "2026-06-13T00:00:00Z");
+    let mut w = PluginDataWriter::create(
+        paths,
+        "b127-install".to_string(),
+        ph.to_string(),
+        iid.to_string(),
+        role,
+        None,
+        SR,
+        paired_pre.map(|s| s.to_string()),
+        paired_post.map(|s| s.to_string()),
+    )
+    .unwrap();
+    w.flush().unwrap();
+}
+
+/// `n` 個の双方向 pairing（PRE: paired_post=post / POST: paired_pre=pre・各 active）を書く（=2n marker）。
+fn b127_write_bidi_pairs(base: &std::path::Path, ph: &str, n: usize) {
+    use kirin_measure::PluginDataRole;
+    for i in 0..n {
+        let pre = format!("bidi-pre-{i}");
+        let post = format!("bidi-post-{i}");
+        b127_write_paired_marker(base, ph, &pre, PluginDataRole::Pre, None, Some(&post));
+        b127_write_paired_marker(base, ph, &post, PluginDataRole::Post, Some(&pre), None);
+    }
+}
+
+/// (i) bug fix（engine 端到端）: 6 双方向 pairing = **12 active marker** だが **6 pairing**。新規
+/// (7 ペア目) keep は通る。旧実装は marker 個別計数で 12 marker = cap 到達と誤判定し reject していた。
 #[test]
-#[ignore = "slow: HOME/TMPDIR + io_thread filesystem; engine 12-cap enforcement (sets env)"]
+#[ignore = "slow: HOME/TMPDIR + io_thread filesystem; engine counts pairings not markers (sets env)"]
+fn b127_engine_counts_pairings_not_markers() {
+    let (home, tmp) = b127_isolate("bidi6");
+    let puid = "puid-b127-bidi";
+    let base = home.join("Library/Application Support/Kirin OS/plugin_data");
+
+    let _pre = b127_spawn_pre(puid, &tmp);
+    b127_write_bidi_pairs(&base, puid, 6); // 12 marker = 6 pairing
+
+    let post = KirinHyphaEngine::new(SR, 2);
+    post.set_license(0);
+    post.set_identity("iid-7th".into(), puid.into(), "".into(), "mix".into());
+    post.enable_post_writes();
+    post.set_signal_state(1);
+    post.set_pair_target("mix".to_string());
+    for _ in 0..8 {
+        post.push_samples(&[], 2);
+        sleep(Duration::from_millis(40));
+    }
+
+    let entered = post.keep();
+    assert!(
+        entered,
+        "7th pairing must succeed (6 existing bidi pairs = 6 pairings < 12; 旧 bug は 12 markers で reject)"
+    );
+    assert!(post.is_recording(), "engine enters Record (pairing-counted, not marker-counted)");
+
+    drop(post);
+    let _ = std::fs::remove_dir_all(home.parent().unwrap());
+}
+
+/// (v) reservation 解放: keep で O_EXCL 枠が作られ、stop で解放される（再予約可になる）。
+#[test]
+#[ignore = "slow: HOME/TMPDIR + io_thread filesystem; reservation lifecycle (sets env)"]
+fn b127_reservation_released_on_stop() {
+    let (home, tmp) = b127_isolate("release");
+    let puid = "puid-b127-rel";
+    let base = home.join("Library/Application Support/Kirin OS/plugin_data");
+
+    let _pre = b127_spawn_pre(puid, &tmp); // PRE "mix" = "iid-pre"
+
+    let post = KirinHyphaEngine::new(SR, 2);
+    post.set_license(0);
+    post.set_identity("iid-rel".into(), puid.into(), "".into(), "mix".into());
+    post.enable_post_writes();
+    post.set_signal_state(1);
+    post.set_pair_target("mix".to_string());
+    for _ in 0..8 {
+        post.push_samples(&[], 2);
+        sleep(Duration::from_millis(40));
+    }
+
+    // pairing key = (resolved PRE iid "iid-pre", POST iid "iid-rel")。
+    let res_path = base
+        .join(puid)
+        .join("record_reservation")
+        .join("iid-pre__iid-rel.json");
+    assert!(post.keep(), "keep succeeds");
+    assert!(res_path.exists(), "keep が O_EXCL reservation 枠を作る");
+    post.stop();
+    assert!(!res_path.exists(), "stop が reservation 枠を解放する（再予約可）");
+
+    drop(post);
+    let _ = std::fs::remove_dir_all(home.parent().unwrap());
+}
+
+/// (iv): 12 distinct pairing（ここでは 12 lone POST marker = 12 lone pairing）で 13 ペア目の keep が
+/// engine で hard reject され、Record に入らず R-28 通知（record_error_message）に出る（silent でない）。
+/// keep_all / 単一 keep / broadcast 受信は全て resolve_and_enter_keep を通るため authoritative cap を実証。
+#[test]
+#[ignore = "slow: HOME/TMPDIR + io_thread filesystem; engine 12-pair enforcement (sets env)"]
 fn b127_engine_caps_at_twelve_and_notifies() {
     let (home, tmp) = b127_isolate("cap12");
     let puid = "puid-b127-cap";
@@ -1693,7 +1799,8 @@ fn b127_engine_caps_at_twelve_and_notifies() {
     let _ = std::fs::remove_dir_all(home.parent().unwrap());
 }
 
-/// active=11（< cap）では 12 本目の keep が通り Record に入る。成功 enter は stale 通知を消す。
+/// 11 distinct pairing（< cap）では 12 ペア目の keep が通り Record に入る（`> MAX` 判定で 12 は許容・
+/// 13 で reject）。成功 enter は stale 通知を消す。
 #[test]
 #[ignore = "slow: HOME/TMPDIR + io_thread filesystem; under-cap keep succeeds (sets env)"]
 fn b127_engine_allows_keep_under_cap() {

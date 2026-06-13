@@ -44,9 +44,11 @@ use std::thread::JoinHandle;
 use uuid::Uuid;
 
 use kirin_measure::engine::SessionSummary;
+use kirin_measure::reservation; // B-127 (G-115-364): per-pairing O_EXCL reservation
 use kirin_measure::{
     append_annotation_to_latest, can_write_plugin_data, check_record_exclusion,
-    identity_instance_attach, identity_instance_detach,
+    count_distinct_pairings, identity_instance_attach, identity_instance_detach,
+    MAX_ACTIVE_PER_PROJECT,
     enumerate_active_post_pair_candidates, enumerate_active_pre_pair_candidates, load_license_safe,
     live_window, load_signal_state, mark_released,
     resolve_arm_target, sanitize_name, set_daw_session_id, set_project_uuid,
@@ -375,12 +377,24 @@ fn resolve_and_enter_keep(
             return false;
         }
     };
-    // B-127: 12-active cap を engine で atomic 強制（UI pre-check は advisory・authoritative でない）。
-    // try_enter_record でこの engine の Watch→Record を確定した後・write_pending 直前に最終確認し、
-    // active count 読みと自身の書込みの間の TOCTOU 窓を最小化する（compare-and-enter）。keep() /
-    // keep_all() / broadcast 受信 closure は全て本関数を通るため、両殻で同一の cap が必ず強制される。
-    // cap 到達時は enter せず巻き戻し、R-28 で UI 通知（silent drop 禁止 / 既存文言流用）。
-    if check_record_exclusion(&base, project_hash).is_conflict() {
+    // B-127 (G-115-364): per-pairing O_EXCL reservation で cross-process atomic に枠を確保する
+    // （1309b9d の in-process compare-and-enter を置換・二重機構にしない）。pairing key =
+    // (target=PRE iid, post_iid=POST iid)。reservation を先に atomic-create してから distinct
+    // pairing 数（marker + reservation を pairing key で重複排除）を数えることで、active marker が
+    // io_thread に書かれる前の TOCTOU 窓を cross-process で閉じる。cap は 12 pairs。keep() /
+    // keep_all() / broadcast 受信 closure は全て本関数を通るため両殻で同一 cap が強制される。
+    let reservation_created = matches!(
+        reservation::reserve_pairing(&base, project_hash, &target, post_iid),
+        Ok(reservation::ReserveOutcome::Created)
+    );
+    // count は自 reservation を含む distinct pairing 数。自 reservation で 13 枠目になれば（`> MAX`）
+    // reject。既存 pairing（自 reservation が AlreadyReserved / 同 pairing の active marker 既存で
+    // dedup）なら枠数は不変なので 12 枠目まで通る（`> MAX` であって `>= MAX` ではない）。
+    if count_distinct_pairings(&base, project_hash) > MAX_ACTIVE_PER_PROJECT {
+        if reservation_created {
+            reservation::release_pairing(&base, project_hash, &target, post_iid);
+        }
+        // R-28: 13 ペア目を hard reject し silent drop しない（既存文言流用）。
         if let Ok(mut g) = record_error_message.write() {
             *g = Some("Maximum 12 pairs reached".to_string());
         }
@@ -388,13 +402,17 @@ fn resolve_and_enter_keep(
         return false;
     }
     // target_pre_instance_id = 選定 PRE。PRE が自宛て signal を発見し ack する。
-    if write_pending(&base, project_hash, post_iid, target, daw.to_string()).is_ok() {
+    if write_pending(&base, project_hash, post_iid, target.clone(), daw.to_string()).is_ok() {
         // B-127: 正常 enter で stale な cap/io-fail 通知を消す（新しい健全な Record が開始した）。
         if let Ok(mut g) = record_error_message.write() {
             *g = None;
         }
         true
     } else {
+        // write_pending 失敗時も予約枠を戻す（自分が作った場合のみ）。
+        if reservation_created {
+            reservation::release_pairing(&base, project_hash, &target, post_iid);
+        }
         revert_after_enter(record_sm, paired_pre_target);
         false
     }
@@ -418,6 +436,9 @@ fn resolve_and_exit_stop(
     post_iid: &str,
 ) {
     record_sm.exit_record();
+    // B-127: linkage クリア前に対 PRE iid を捕捉し、本 pairing の O_EXCL reservation 枠を解放する
+    // （両 marker が Closed/stale になる前でも stop で明示解放。孤児は sweep が age-based で回収）。
+    let released_pre = paired_pre_target.lock().ok().and_then(|g| g.clone());
     if let Ok(mut g) = paired_pre_target.lock() {
         *g = None; // linkage クリア（次 Keep まで）。
     }
@@ -425,7 +446,11 @@ fn resolve_and_exit_stop(
         return; // 未 enable → released marker は書けない。
     }
     if let Ok(p) = StoragePaths::default_macos() {
-        let _ = mark_released(&p.plugin_data_dir(), project_hash, post_iid);
+        let base = p.plugin_data_dir();
+        if let Some(pre) = released_pre.as_deref() {
+            reservation::release_pairing(&base, project_hash, pre, post_iid);
+        }
+        let _ = mark_released(&base, project_hash, post_iid);
     }
 }
 

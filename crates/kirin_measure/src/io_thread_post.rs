@@ -199,6 +199,15 @@ pub fn spawn_io_thread_post(
         // B-103: dead Pending record_signal を起動時掃除（PRE 経路と冪等・age ベース保守条件）。
         record_signal::sweep_stale_pending_at_startup();
 
+        // B-127 (G-115-364): 孤児 reservation 枠（keep が active marker 生成前にクラッシュ等 /
+        // age > RESERVATION_TTL_SECS）を起動時掃除（B-103 と合流・age ベース・冪等）。
+        if let Ok(paths) = StoragePaths::default_macos() {
+            let _ = crate::reservation::sweep_stale_reservations_in(
+                &paths.plugin_data_dir(),
+                chrono::Utc::now(),
+            );
+        }
+
         // B-026 / Gap-9: crash 残骸 `pre/{compact}.json` / `post/{compact}.json`
         // のうち status=Active かつ mtime > 60s のファイルを status=Closed に
         // 書換 (Lens 側「進行中 Record」誤認の構造的解消)。loop 前 1 回。

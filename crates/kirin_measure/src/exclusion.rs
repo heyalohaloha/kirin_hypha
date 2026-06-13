@@ -19,6 +19,7 @@
 //! OS 側で 90 日超自動アーカイブ（F-1）。Hypha 側は削除しない。
 
 use chrono::{DateTime, Utc};
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -27,13 +28,19 @@ use crate::all_stop_signal::ALL_STOP_SIGNAL_SUBDIR;
 use crate::plugin_data::{PluginDataFile, Role, Status};
 use crate::record_signal::SIGNALS_SUBDIR;
 use crate::preset::PRESET_SUBDIR;
+use crate::reservation::{self, RESERVATION_SUBDIR};
 
 /// heartbeat 新鮮判定の閾値（秒）。これ以内なら排他保持、超過でクラッシュ残骸扱い。
 pub const STALE_SECONDS: i64 = 60;
 
-/// 同一 `project_hash` 内に同時存在を許す active Record の上限。
+/// 同一 `project_hash` 内に同時存在を許す **distinct pairing** の上限（G-115-364）。
 ///
-// 上限 12 (Daisuke 2026-05-04 確定)
+/// B-127 是正: 旧実装は active marker を個別に数え PRE+POST 合算 12（=6 pair）で Conflict と
+/// していた（pair 単位と marker 単位の不一致 bug）。現在は active+fresh marker を pairing key
+/// （`(pre_iid, post_iid)` 正規化 / 双方向一致なら 2 marker=1 pairing・片側 None/不一致/相手
+/// stale は各 lone=1）に畳み込み、`record_reservation/` の有効 reservation も同じ pairing key
+/// 集合へ入れて **distinct pairing 数**を数える。12 pairing 以上で Conflict（13 ペア目を hard
+/// reject）。値は 12 のまま（Daisuke 2026-05-04 確定）だが意味は「12 pairs」。
 pub const MAX_ACTIVE_PER_PROJECT: usize = 12;
 
 /// 排他チェック結果。
@@ -80,56 +87,91 @@ pub fn check_record_exclusion_at(
     project_hash: &str,
     now: DateTime<Utc>,
 ) -> ExclusionResult {
-    let project_dir = base_dir.join(project_hash);
-    if !project_dir.exists() {
-        return ExclusionResult::Ok;
-    }
-    let instance_entries = match fs::read_dir(&project_dir) {
-        Ok(e) => e,
-        Err(_) => return ExclusionResult::Ok,
-    };
-    let mut active_count: usize = 0;
-    let mut latest_active: Option<(PathBuf, String, Role)> = None;
-    for entry in instance_entries.flatten() {
-        let path = entry.path();
-        if !path.is_dir() {
-            continue;
-        }
-        // 予約サブディレクトリ（record_signal / preset / all_keep_signal / all_stop_signal）
-        // は instance_id ではない (α-7' All Stop で all_stop_signal/ を予約名に追加)
-        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
-            continue;
-        };
-        if name == SIGNALS_SUBDIR
-            || name == PRESET_SUBDIR
-            || name == ALL_KEEP_SIGNAL_SUBDIR
-            || name == ALL_STOP_SIGNAL_SUBDIR
-        {
-            continue;
-        }
-        for role in [Role::Pre, Role::Post] {
-            let role_dir = path.join(role.dir_name());
-            count_active_in_role_dir(&role_dir, now, role, &mut active_count, &mut latest_active);
-        }
-    }
-    if active_count >= MAX_ACTIVE_PER_PROJECT {
+    // advisory / 既存呼び出し点の意味: **既存** distinct pairing 数が MAX 以上 = 満杯（新規 keep は
+    // 13 ペア目）。`>= MAX`。engine の authoritative 強制は reservation を先に作ってから
+    // `count_distinct_pairings(...) > MAX` で判定する（resolve_and_enter_keep）。
+    let (slots, latest_active) = distinct_pairing_slots(base_dir, project_hash, now);
+    if slots.len() >= MAX_ACTIVE_PER_PROJECT {
+        // holder は debug ログ専用（GUI 非表示）。marker 由来があればそれを、無ければ
+        // （reservation のみで cap 到達した稀ケース）合成 holder を返す。
         if let Some((holder, heartbeat, role)) = latest_active {
             return ExclusionResult::Conflict { holder, heartbeat, role };
         }
+        return ExclusionResult::Conflict {
+            holder: base_dir.join(project_hash).join(RESERVATION_SUBDIR),
+            heartbeat: "(reservation)".to_string(),
+            role: Role::Post,
+        };
     }
     ExclusionResult::Ok
 }
 
-/// 単一の `pre/` または `post/` ディレクトリを走査して active 件数を加算。
+/// B-127 (G-115-364): 同一 project_hash 内の **distinct pairing 数**（現在時刻）。
+/// engine が reservation を作った**後**にこの値が `MAX_ACTIVE_PER_PROJECT` を **超えたら**
+/// 自分が 13 ペア目（= reject）と判定するために使う。
+pub fn count_distinct_pairings(base_dir: &Path, project_hash: &str) -> usize {
+    count_distinct_pairings_at(base_dir, project_hash, Utc::now())
+}
+
+/// [`count_distinct_pairings`] の時刻注入版（テスト用）。
+pub fn count_distinct_pairings_at(base_dir: &Path, project_hash: &str, now: DateTime<Utc>) -> usize {
+    distinct_pairing_slots(base_dir, project_hash, now).0.len()
+}
+
+/// active+fresh marker と有効 reservation を distinct pairing key 集合に畳み込む（B-127 中核）。
+/// 同じ pairing は marker と reservation の双方があっても 1 枠 / 双方向一致した PRE+POST 2 marker も
+/// 1 枠 / 片側 None・不一致・相手 stale は各 lone=1 枠。`latest_active` は Conflict ログ holder 用。
+fn distinct_pairing_slots(
+    base_dir: &Path,
+    project_hash: &str,
+    now: DateTime<Utc>,
+) -> (HashSet<String>, Option<(PathBuf, String, Role)>) {
+    let mut slots: HashSet<String> = HashSet::new();
+    let mut latest_active: Option<(PathBuf, String, Role)> = None;
+    let project_dir = base_dir.join(project_hash);
+    if let Ok(instance_entries) = fs::read_dir(&project_dir) {
+        for entry in instance_entries.flatten() {
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+            // 予約サブディレクトリ（record_signal / record_reservation / preset / all_keep_signal /
+            // all_stop_signal）は instance_id ではない。
+            let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+                continue;
+            };
+            if name == SIGNALS_SUBDIR
+                || name == RESERVATION_SUBDIR
+                || name == PRESET_SUBDIR
+                || name == ALL_KEEP_SIGNAL_SUBDIR
+                || name == ALL_STOP_SIGNAL_SUBDIR
+            {
+                continue;
+            }
+            for role in [Role::Pre, Role::Post] {
+                let role_dir = path.join(role.dir_name());
+                collect_marker_keys(&role_dir, now, role, &mut slots, &mut latest_active);
+            }
+        }
+    }
+    // 有効 reservation（active marker 出現前の窓を保持する枠）も同じ pairing key 集合へ。
+    for key in reservation::scan_active_reservation_keys(base_dir, project_hash, now) {
+        slots.insert(key);
+    }
+    (slots, latest_active)
+}
+
+/// 単一の `pre/` または `post/` ディレクトリを走査し、active+fresh marker の pairing key を
+/// `slots` に挿入する（B-127: 個別 count ではなく pairing key 集合へ畳み込む）。
 ///
-/// B-027 段階 3-A: 早期 return せずに **同一 project_hash 内全 active を数える**
-/// 構造に変更。最後に観測した active を `latest_active` に格納（12 件超過時の
-/// `Conflict` に holder として詰める）。
-fn count_active_in_role_dir(
+/// 双方向一致（POST `paired_pre`==PRE.iid かつ PRE `paired_post`==POST.iid）の 2 marker は同一
+/// pairing key（`(pre_iid, post_iid)`）を生成し集合内で 1 枠に重複排除される。片側 None / 不一致 /
+/// 相手 stale は各々 lone key（`lone-post:` / `lone-pre:`）となり個別に 1 枠（G-115-364 裁定 1/2）。
+fn collect_marker_keys(
     dir: &Path,
     now: DateTime<Utc>,
     role: Role,
-    active_count: &mut usize,
+    slots: &mut HashSet<String>,
     latest_active: &mut Option<(PathBuf, String, Role)>,
 ) {
     let entries = match fs::read_dir(dir) {
@@ -145,10 +187,27 @@ fn count_active_in_role_dir(
             if file.status == Status::Active
                 && is_heartbeat_fresh(&file.heartbeat, now, STALE_SECONDS)
             {
-                *active_count += 1;
+                slots.insert(marker_pairing_key(role, &file));
                 *latest_active = Some((path, file.heartbeat, role));
             }
         }
+    }
+}
+
+/// active marker から pairing key を作る。POST は相手 PRE の instance_id（`paired_pre_instance_id`）、
+/// PRE は相手 POST の instance_id（`paired_post_instance_id`）と自身の instance_id を `(pre, post)`
+/// 順に正規化（[`reservation::pairing_key`] と同一規則 = reservation/marker/双方向で同 key に収束）。
+/// 相手 None は lone key（marker 個別に 1 枠）。
+fn marker_pairing_key(role: Role, file: &PluginDataFile) -> String {
+    match role {
+        Role::Post => match file.paired_pre_instance_id.as_deref() {
+            Some(pre) => reservation::pairing_key(pre, &file.instance_id),
+            None => format!("lone-post:{}", file.instance_id),
+        },
+        Role::Pre => match file.paired_post_instance_id.as_deref() {
+            Some(post) => reservation::pairing_key(&file.instance_id, post),
+            None => format!("lone-pre:{}", file.instance_id),
+        },
     }
 }
 
@@ -231,6 +290,44 @@ mod tests {
         let json = serde_json::to_vec(&file).unwrap();
         fs::write(&paths.final_path, json).unwrap();
         paths.final_path
+    }
+
+    /// B-127: paired_pre / paired_post を設定した active marker を書く（pairing key 検証用）。
+    fn write_paired_record(
+        base: &Path,
+        project_hash: &str,
+        instance_id: &str,
+        role: Role,
+        heartbeat_iso: &str,
+        paired_pre: Option<&str>,
+        paired_post: Option<&str>,
+    ) {
+        let paths = WriterPaths::build(base, project_hash, instance_id, role, "2026-04-17T14:32:08Z");
+        let mut w = PluginDataWriter::create(
+            paths.clone(),
+            "iid".to_string(),
+            project_hash.to_string(),
+            instance_id.to_string(),
+            role,
+            None,
+            48000,
+            paired_pre.map(|s| s.to_string()),
+            paired_post.map(|s| s.to_string()),
+        )
+        .unwrap();
+        w.flush().unwrap();
+        let bytes = fs::read(&paths.final_path).unwrap();
+        let mut file: PluginDataFile = serde_json::from_slice(&bytes).unwrap();
+        file.heartbeat = heartbeat_iso.to_string();
+        let json = serde_json::to_vec(&file).unwrap();
+        fs::write(&paths.final_path, json).unwrap();
+    }
+
+    /// B-127: 双方向一致した 1 pairing を書く（PRE: paired_post=post_iid / POST: paired_pre=pre_iid・
+    /// 両 active+fresh）。exclusion は 2 marker を 1 pairing key に畳む。
+    fn write_bidi_pairing(base: &Path, ph: &str, pre_iid: &str, post_iid: &str, now: DateTime<Utc>) {
+        write_paired_record(base, ph, pre_iid, Role::Pre, &iso(0, now), None, Some(post_iid));
+        write_paired_record(base, ph, post_iid, Role::Post, &iso(0, now), Some(pre_iid), None);
     }
 
     fn iso(secs_ago: i64, now: DateTime<Utc>) -> String {
@@ -484,29 +581,116 @@ mod tests {
         assert_eq!(r, ExclusionResult::Ok, "11 < 12 → Ok");
     }
 
-    /// `MAX_ACTIVE_PER_PROJECT` ちょうど (12) で Conflict。
+    /// B-127 是正: `MAX_ACTIVE_PER_PROJECT` = 12 **pairings** ちょうどで Conflict。
+    /// 12 双方向 pairing = 24 marker（12 PRE + 12 POST）が distinct pairing 12 に畳まれて Conflict。
     #[test]
     fn twelve_active_records_conflicts() {
         let base = isolated_dir();
         let now = Utc::now();
         for i in 0..MAX_ACTIVE_PER_PROJECT {
-            let role = if i % 2 == 0 { Role::Pre } else { Role::Post };
-            write_record_file(
-                &base,
-                "ph",
-                &format!("iid-{i:02}"),
-                role,
-                "2026-04-17T14:32:08Z",
-                &iso(5, now),
-                false,
-            );
+            write_bidi_pairing(&base, "ph", &format!("pre-{i:02}"), &format!("post-{i:02}"), now);
         }
         let r = check_record_exclusion_at(&base, "ph", now);
         assert!(
             r.is_conflict(),
-            "{} active records should conflict, got {:?}",
+            "{} distinct pairings (={} markers) should conflict, got {:?}",
             MAX_ACTIVE_PER_PROJECT,
+            MAX_ACTIVE_PER_PROJECT * 2,
             r,
+        );
+    }
+
+    /// B-127 bug fix: 6 双方向 pairing = 12 marker は **6 pairing** に畳まれ Ok（旧実装は
+    /// marker 個別計数で 12 marker = Conflict と誤判定していた / G-115-363 bug）。
+    #[test]
+    fn six_pairings_under_cap_is_ok() {
+        let base = isolated_dir();
+        let now = Utc::now();
+        for i in 0..6 {
+            write_bidi_pairing(&base, "ph", &format!("pre-{i:02}"), &format!("post-{i:02}"), now);
+        }
+        let r = check_record_exclusion_at(&base, "ph", now);
+        assert_eq!(r, ExclusionResult::Ok, "6 pairings (12 markers) < 12 pairs → Ok (旧 bug は Conflict)");
+    }
+
+    /// B-127 裁定1: 双方向一致した PRE+POST 2 marker は 1 pairing に畳まれる（distinct count=1）。
+    #[test]
+    fn bidirectional_pair_counts_as_one() {
+        let base = isolated_dir();
+        let now = Utc::now();
+        write_bidi_pairing(&base, "ph", "pre-A", "post-A", now);
+        // 2 marker(PRE+POST) だが 1 pairing → 11 個の lone を足してちょうど 12 で Conflict。
+        for i in 0..11 {
+            write_paired_record(&base, "ph", &format!("lone-{i:02}"), Role::Post, &iso(0, now), None, None);
+        }
+        assert!(
+            check_record_exclusion_at(&base, "ph", now).is_conflict(),
+            "1 pairing + 11 lone = 12 → Conflict",
+        );
+        // bidi pairing を除けば 11 lone のみ = Ok（pairing が 1 枠であることの裏取り）。
+        let base2 = isolated_dir();
+        for i in 0..11 {
+            write_paired_record(&base2, "ph", &format!("lone-{i:02}"), Role::Post, &iso(0, now), None, None);
+        }
+        assert_eq!(check_record_exclusion_at(&base2, "ph", now), ExclusionResult::Ok, "11 lone < 12");
+    }
+
+    /// B-127: 有効 reservation も distinct pairing count に含む（active marker 出現前の枠保持）。
+    #[test]
+    fn reservation_counts_toward_cap() {
+        let base = isolated_dir();
+        let now = Utc::now();
+        for i in 0..11 {
+            write_paired_record(&base, "ph", &format!("lone-{i:02}"), Role::Post, &iso(0, now), None, None);
+        }
+        // 11 lone marker のみ = Ok。
+        assert_eq!(check_record_exclusion_at(&base, "ph", now), ExclusionResult::Ok);
+        // + 1 reservation（別 pairing）= 12 → Conflict。
+        crate::reservation::reserve_pairing_at(&base, "ph", "pre-R", "post-R", now).unwrap();
+        assert!(
+            check_record_exclusion_at(&base, "ph", now).is_conflict(),
+            "11 marker + 1 reservation = 12 → Conflict",
+        );
+    }
+
+    /// B-127: 同一 pairing の reservation と active marker は同一 key で 1 枠に重複排除される。
+    #[test]
+    fn reservation_and_marker_same_pairing_dedup() {
+        let base = isolated_dir();
+        let now = Utc::now();
+        write_bidi_pairing(&base, "ph", "pre-A", "post-A", now); // 1 pairing(2 marker)
+        crate::reservation::reserve_pairing_at(&base, "ph", "pre-A", "post-A", now).unwrap(); // 同 pairing
+        // marker(1 枠) + 同 pairing reservation(dedup) = 依然 1 枠。11 lone 追加で 12 → Conflict。
+        for i in 0..11 {
+            write_paired_record(&base, "ph", &format!("lone-{i:02}"), Role::Post, &iso(0, now), None, None);
+        }
+        assert!(
+            check_record_exclusion_at(&base, "ph", now).is_conflict(),
+            "1 pairing(marker+同 reservation を dedup) + 11 lone = 12 → Conflict",
+        );
+        assert_eq!(
+            count_distinct_pairings_at(&base, "ph", now),
+            12,
+            "二重計上なし（marker と同 pairing reservation で 13 にならない）",
+        );
+    }
+
+    /// B-127 裁定1/2: 片側 None / 不一致は各々 lone=1 枠（over-count 安全側）。
+    /// POST→PRE 片方向（PRE が back-reference しない）= 2 marker が 2 枠（畳まれない）。
+    #[test]
+    fn one_directional_mismatch_counts_as_two() {
+        let base = isolated_dir();
+        let now = Utc::now();
+        // POST は pre-X を指すが、PRE-X は post を指し返さない（paired_post=None）= 不一致。
+        write_paired_record(&base, "ph", "post-Y", Role::Post, &iso(0, now), Some("pre-X"), None);
+        write_paired_record(&base, "ph", "pre-X", Role::Pre, &iso(0, now), None, None);
+        // 2 枠（lone-pre:pre-X と pre-X__post-Y）→ 10 lone 追加で 12 → Conflict。
+        for i in 0..10 {
+            write_paired_record(&base, "ph", &format!("lone-{i:02}"), Role::Post, &iso(0, now), None, None);
+        }
+        assert!(
+            check_record_exclusion_at(&base, "ph", now).is_conflict(),
+            "2 (片方向不一致) + 10 lone = 12 → Conflict（畳まれない=over-count 安全側）",
         );
     }
 
