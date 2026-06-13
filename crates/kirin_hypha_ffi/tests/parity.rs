@@ -1584,3 +1584,142 @@ fn b118_record_error_message_none_initially() {
     let engine = KirinHyphaEngine::new(SR, 2);
     assert_eq!(engine.record_error_message(), None, "通常時は None");
 }
+
+// ── B-127: All Keep 12 cap を engine の resolve_and_enter_keep で atomic 強制（両殻 parity）──
+
+/// `base/<project_hash>/<iid>/post/*.json` に status=Active・fresh heartbeat の POST Record
+/// marker を `n` 件書く（check_record_exclusion が active として数える形）。PluginDataWriter::
+/// create+flush は既定 status=Active・heartbeat=now（STALE_SECONDS=60 以内＝fresh）。
+fn b127_write_active_post_markers(base: &std::path::Path, project_hash: &str, n: usize) {
+    use kirin_measure::{PluginDataRole, PluginDataWriter, WriterPaths};
+    for i in 0..n {
+        let iid = format!("iid-cap-{i}");
+        let paths =
+            WriterPaths::build(base, project_hash, &iid, PluginDataRole::Post, "2026-06-13T00:00:00Z");
+        let mut w = PluginDataWriter::create(
+            paths,
+            "b127-install".to_string(),
+            project_hash.to_string(),
+            iid.clone(),
+            PluginDataRole::Post,
+            None,
+            SR,
+            None,
+            None,
+        )
+        .unwrap();
+        w.flush().unwrap();
+    }
+}
+
+/// HOME/TMPDIR を temp へ分離し Os identity.json を置く（既存 #[ignore] 群と同手順）。
+/// グローバル env を触るため --test-threads=1（FFI gate と同じ）。戻り値 (home, tmp)。
+fn b127_isolate(tag: &str) -> (std::path::PathBuf, std::path::PathBuf) {
+    let test_root = std::env::temp_dir().join("kirin_b127").join(format!("{tag}_pid{}", std::process::id()));
+    let home = test_root.join("home");
+    let tmp = test_root.join("tmp");
+    let _ = std::fs::remove_dir_all(&test_root);
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::env::set_var("HOME", &home);
+    std::env::set_var("TMPDIR", &tmp);
+    kirin_hypha_ffi::__reset_shared_ids_for_tests();
+    let kirin_os = home.join("Library/Application Support/Kirin OS");
+    std::fs::create_dir_all(&kirin_os).unwrap();
+    std::fs::write(
+        kirin_os.join("identity.json"),
+        r#"{"schema_version":"1.0","installation_id":"b127-test","hardware_id":"hw","hardware_components":{"iop":"a","sn":"b","bd":"c"},"machine_signature":"sig","license":"os","created_at":"2026-06-09T00:00:00Z","last_verified_at":"2026-06-09T00:00:00Z"}"#,
+    )
+    .unwrap();
+    (home, tmp)
+}
+
+/// "mix" の fresh pre.json が TMPDIR/kirin に書かれるまで待つ PRE engine（POST の arm 先）。
+/// 返す engine は生かし続けること（drop すると io_thread 停止で pre.json が stale 化する）。
+fn b127_spawn_pre(puid: &str, tmp: &std::path::Path) -> KirinHyphaEngine {
+    let pre = KirinHyphaEngine::new(SR, 2);
+    pre.set_license(0);
+    pre.set_identity("iid-pre".into(), puid.into(), "".into(), "mix".into());
+    pre.enable_pre_writes();
+    pre.set_signal_state(1); // Active
+    let watch_root = tmp.join("kirin");
+    let mut found = false;
+    for _ in 0..40 {
+        pre.push_samples(&[], 2);
+        sleep(Duration::from_millis(50));
+        if find_json_under(&watch_root, "", "pre.json").is_some() {
+            found = true;
+            break;
+        }
+    }
+    assert!(found, "PRE pre.json must be written (arm target)");
+    pre
+}
+
+/// (i)+(ii): active=12（cap ちょうど）で 13 本目の keep が engine で拒否され、Record に入らず、
+/// R-28 通知（record_error_message）に出る（silent でない）。keep_all / 単一 keep / broadcast 受信は
+/// 全て resolve_and_enter_keep を通るため、本テストは engine 強制（authoritative cap）を実証する。
+#[test]
+#[ignore = "slow: HOME/TMPDIR + io_thread filesystem; engine 12-cap enforcement (sets env)"]
+fn b127_engine_caps_at_twelve_and_notifies() {
+    let (home, tmp) = b127_isolate("cap12");
+    let puid = "puid-b127-cap";
+    let base = home.join("Library/Application Support/Kirin OS/plugin_data");
+
+    let _pre = b127_spawn_pre(puid, &tmp); // 生かし続ける（arm 先 "mix"）。
+    b127_write_active_post_markers(&base, puid, 12); // cap ちょうど。
+
+    let post = KirinHyphaEngine::new(SR, 2);
+    post.set_license(0);
+    post.set_identity("iid-13".into(), puid.into(), "".into(), "mix".into());
+    post.enable_post_writes();
+    post.set_signal_state(1);
+    post.set_pair_target("mix".to_string());
+    for _ in 0..8 {
+        post.push_samples(&[], 2);
+        sleep(Duration::from_millis(40));
+    }
+
+    let entered = post.keep();
+    assert!(!entered, "13th keep must be rejected at the 12-cap (engine-enforced)");
+    assert!(!post.is_recording(), "engine must NOT enter Record at cap");
+    assert_eq!(
+        post.record_error_message().as_deref(),
+        Some("Maximum 12 pairs reached"),
+        "cap rejection must notify (R-28: not silent)"
+    );
+
+    drop(post);
+    let _ = std::fs::remove_dir_all(home.parent().unwrap());
+}
+
+/// active=11（< cap）では 12 本目の keep が通り Record に入る。成功 enter は stale 通知を消す。
+#[test]
+#[ignore = "slow: HOME/TMPDIR + io_thread filesystem; under-cap keep succeeds (sets env)"]
+fn b127_engine_allows_keep_under_cap() {
+    let (home, tmp) = b127_isolate("under11");
+    let puid = "puid-b127-under";
+    let base = home.join("Library/Application Support/Kirin OS/plugin_data");
+
+    let _pre = b127_spawn_pre(puid, &tmp);
+    b127_write_active_post_markers(&base, puid, 11); // < cap。
+
+    let post = KirinHyphaEngine::new(SR, 2);
+    post.set_license(0);
+    post.set_identity("iid-12".into(), puid.into(), "".into(), "mix".into());
+    post.enable_post_writes();
+    post.set_signal_state(1);
+    post.set_pair_target("mix".to_string());
+    for _ in 0..8 {
+        post.push_samples(&[], 2);
+        sleep(Duration::from_millis(40));
+    }
+
+    let entered = post.keep();
+    assert!(entered, "12th keep (< cap) must succeed");
+    assert!(post.is_recording(), "engine enters Record under cap");
+    assert_eq!(post.record_error_message(), None, "successful enter clears any stale notice");
+
+    drop(post);
+    let _ = std::fs::remove_dir_all(home.parent().unwrap());
+}

@@ -341,6 +341,9 @@ fn resolve_and_enter_keep(
     // B-108: ラッチ済みならラッチ先を直接 Arm target に使う（同名2台目でも結合不変）。未ラッチ時のみ
     // select_target_pre_for_arm にフォールバックする（resolve_arm_target 内で分岐）。
     latched: &Mutex<Option<LatchedPre>>,
+    // B-127: cap 到達拒否を UI に通知する永続ステータス（両殻が B-118 で表示）。cap 到達時に
+    // "Maximum 12 pairs reached" を書く（R-28: silent drop 禁止）。正常 enter で None に消す。
+    record_error_message: &RwLock<Option<String>>,
 ) -> bool {
     // B-071 double-keep guard: 既に Record 中なら no-op（既存 linkage 温存）。
     if record_sm.is_recording() {
@@ -372,8 +375,24 @@ fn resolve_and_enter_keep(
             return false;
         }
     };
+    // B-127: 12-active cap を engine で atomic 強制（UI pre-check は advisory・authoritative でない）。
+    // try_enter_record でこの engine の Watch→Record を確定した後・write_pending 直前に最終確認し、
+    // active count 読みと自身の書込みの間の TOCTOU 窓を最小化する（compare-and-enter）。keep() /
+    // keep_all() / broadcast 受信 closure は全て本関数を通るため、両殻で同一の cap が必ず強制される。
+    // cap 到達時は enter せず巻き戻し、R-28 で UI 通知（silent drop 禁止 / 既存文言流用）。
+    if check_record_exclusion(&base, project_hash).is_conflict() {
+        if let Ok(mut g) = record_error_message.write() {
+            *g = Some("Maximum 12 pairs reached".to_string());
+        }
+        revert_after_enter(record_sm, paired_pre_target);
+        return false;
+    }
     // target_pre_instance_id = 選定 PRE。PRE が自宛て signal を発見し ack する。
     if write_pending(&base, project_hash, post_iid, target, daw.to_string()).is_ok() {
+        // B-127: 正常 enter で stale な cap/io-fail 通知を消す（新しい健全な Record が開始した）。
+        if let Ok(mut g) = record_error_message.write() {
+            *g = None;
+        }
         true
     } else {
         revert_after_enter(record_sm, paired_pre_target);
@@ -802,11 +821,13 @@ impl KirinHyphaEngine {
             let post_iid = cb_post_iid.clone();
             let daw = cb_daw.clone();
             let latched = Arc::clone(&self.latched_pre);
+            // B-127: broadcast 受信 keep も engine cap を通す。cap 到達通知の宛先 Arc を capture。
+            let record_error_message = Arc::clone(&self.record_error_message);
             Arc::new(move |_pre: &str, _post: &str| {
                 let lic = license_from_abi(license.load(Ordering::Relaxed));
                 let _ = resolve_and_enter_keep(
                     lic, &record_sm, &pair_target, &paired, &project_hash, &post_iid, &daw,
-                    &latched,
+                    &latched, &record_error_message,
                 );
             })
         };
@@ -1015,6 +1036,7 @@ impl KirinHyphaEngine {
             &post_iid,
             &daw,
             &self.latched_pre, // B-108: ラッチ済みならラッチ先を直接 target に使う
+            &self.record_error_message, // B-127: cap 到達通知の宛先（両殻 B-118 表示）
         )
     }
 
