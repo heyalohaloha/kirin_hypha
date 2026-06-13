@@ -1585,30 +1585,18 @@ fn b118_record_error_message_none_initially() {
     assert_eq!(engine.record_error_message(), None, "通常時は None");
 }
 
-// ── B-127: All Keep 12 cap を engine の resolve_and_enter_keep で atomic 強制（両殻 parity）──
+// ── B-127 (G-115-365): cap 真実源 = O_EXCL 枠存在。engine resolve_and_enter_keep（両殻 parity）──
 
-/// `base/<project_hash>/<iid>/post/*.json` に status=Active・fresh heartbeat の POST Record
-/// marker を `n` 件書く（check_record_exclusion が active として数える形）。PluginDataWriter::
-/// create+flush は既定 status=Active・heartbeat=now（STALE_SECONDS=60 以内＝fresh）。
-fn b127_write_active_post_markers(base: &std::path::Path, project_hash: &str, n: usize) {
-    use kirin_measure::{PluginDataRole, PluginDataWriter, WriterPaths};
+/// G-115-365: cap 真実源 = O_EXCL 枠存在。`n` 個の distinct pairing 枠を作る（reserve_pairing）。
+fn b127_make_frames(base: &std::path::Path, project_hash: &str, n: usize) {
     for i in 0..n {
-        let iid = format!("iid-cap-{i}");
-        let paths =
-            WriterPaths::build(base, project_hash, &iid, PluginDataRole::Post, "2026-06-13T00:00:00Z");
-        let mut w = PluginDataWriter::create(
-            paths,
-            "b127-install".to_string(),
-            project_hash.to_string(),
-            iid.clone(),
-            PluginDataRole::Post,
-            None,
-            SR,
-            None,
-            None,
+        kirin_measure::reservation::reserve_pairing(
+            base,
+            project_hash,
+            &format!("cap-pre-{i}"),
+            &format!("cap-post-{i}"),
         )
         .unwrap();
-        w.flush().unwrap();
     }
 }
 
@@ -1693,21 +1681,22 @@ fn b127_write_bidi_pairs(base: &std::path::Path, ph: &str, n: usize) {
     }
 }
 
-/// (i) bug fix（engine 端到端）: 6 双方向 pairing = **12 active marker** だが **6 pairing**。新規
-/// (7 ペア目) keep は通る。旧実装は marker 個別計数で 12 marker = cap 到達と誤判定し reject していた。
+/// (i) G-115-365 端到端: cap 真実源 = O_EXCL **枠存在のみ**。active marker は数えない。12 双方向
+/// pairing = **24 active marker** を置いても **枠が 0** なら keep は通る（旧 marker 計数なら 24
+/// marker で即 cap 超過 reject していた）。markers でなく frames を数える是正の実証。
 #[test]
-#[ignore = "slow: HOME/TMPDIR + io_thread filesystem; engine counts pairings not markers (sets env)"]
+#[ignore = "slow: HOME/TMPDIR + io_thread filesystem; cap counts frames not markers (sets env)"]
 fn b127_engine_counts_pairings_not_markers() {
-    let (home, tmp) = b127_isolate("bidi6");
+    let (home, tmp) = b127_isolate("bidi12");
     let puid = "puid-b127-bidi";
     let base = home.join("Library/Application Support/Kirin OS/plugin_data");
 
     let _pre = b127_spawn_pre(puid, &tmp);
-    b127_write_bidi_pairs(&base, puid, 6); // 12 marker = 6 pairing
+    b127_write_bidi_pairs(&base, puid, 12); // 24 active marker・**枠は 0**
 
     let post = KirinHyphaEngine::new(SR, 2);
     post.set_license(0);
-    post.set_identity("iid-7th".into(), puid.into(), "".into(), "mix".into());
+    post.set_identity("iid-frame".into(), puid.into(), "".into(), "mix".into());
     post.enable_post_writes();
     post.set_signal_state(1);
     post.set_pair_target("mix".to_string());
@@ -1719,9 +1708,9 @@ fn b127_engine_counts_pairings_not_markers() {
     let entered = post.keep();
     assert!(
         entered,
-        "7th pairing must succeed (6 existing bidi pairs = 6 pairings < 12; 旧 bug は 12 markers で reject)"
+        "keep must succeed despite 24 active markers (枠=0 / cap 真実源は marker でなく O_EXCL 枠存在)"
     );
-    assert!(post.is_recording(), "engine enters Record (pairing-counted, not marker-counted)");
+    assert!(post.is_recording(), "engine enters Record (frame-counted, markers ignored)");
 
     drop(post);
     let _ = std::fs::remove_dir_all(home.parent().unwrap());
@@ -1773,7 +1762,7 @@ fn b127_engine_caps_at_twelve_and_notifies() {
     let base = home.join("Library/Application Support/Kirin OS/plugin_data");
 
     let _pre = b127_spawn_pre(puid, &tmp); // 生かし続ける（arm 先 "mix"）。
-    b127_write_active_post_markers(&base, puid, 12); // cap ちょうど。
+    b127_make_frames(&base, puid, 12); // cap ちょうど（12 枠 = 12 pairing / 真実源 = 枠存在）。
 
     let post = KirinHyphaEngine::new(SR, 2);
     post.set_license(0);
@@ -1809,7 +1798,7 @@ fn b127_engine_allows_keep_under_cap() {
     let base = home.join("Library/Application Support/Kirin OS/plugin_data");
 
     let _pre = b127_spawn_pre(puid, &tmp);
-    b127_write_active_post_markers(&base, puid, 11); // < cap。
+    b127_make_frames(&base, puid, 11); // < cap（11 枠 = 11 pairing）。
 
     let post = KirinHyphaEngine::new(SR, 2);
     post.set_license(0);

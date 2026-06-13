@@ -27,9 +27,10 @@ use hypha_gui::{
     derive_led_state, fmt_delta, fmt_val, led_color, pairing_label, tp_over, val_color, value_row,
     BackgroundTexture, BG, COL_FLORA, COL_FLORA_BRIGHT, COL_MUTED, COL_NORMAL,
 };
+use kirin_measure::reservation; // B-127 (G-115-365): egui parity — per-pairing O_EXCL frame
 use kirin_measure::{
     all_keep_signal_path, all_stop_signal_path, append_annotation_to_latest,
-    check_record_exclusion, delete_broadcast, delete_signal,
+    check_record_exclusion, count_distinct_pairings, delete_broadcast, delete_signal,
     enumerate_active_post_pair_candidates, enumerate_active_pre_pair_candidates, exit_record_full,
     format_pair_label, load_signal_state, lookup_section_label, mark_released, pair_lock_active,
     sanitize_name,
@@ -1375,6 +1376,33 @@ pub(crate) fn trigger_keep_internal(
         }
     }
 
+    // 5b. G-115-365: per-pairing O_EXCL 枠を確保（cross-process atomic / FFI resolve_and_enter_keep
+    // と同一 parity）。pairing key = (target_id=PRE iid, instance_id=POST iid)。cap 真実源は枠の
+    // 物理存在のみ（count_distinct_pairings = reservation::count_frames）。reserve→枠数>MAX で
+    // 13 ペア目を hard reject（R-28 通知）。reserve Err（write_all 失敗等）= 枠取れず = reject。
+    let reservation_created =
+        match reservation::reserve_pairing(&plugin_data_dir, project_hash, &target_id, instance_id) {
+            Ok(reservation::ReserveOutcome::Created) => true,
+            Ok(reservation::ReserveOutcome::AlreadyReserved) => false,
+            Err(_) => {
+                exit_record_full(record_sm, pair_label, paired_pre_target);
+                if let Some(t) = toast.as_mut() {
+                    **t = Some(Toast::new("Maximum 12 pairs reached", now));
+                }
+                return;
+            }
+        };
+    if count_distinct_pairings(&plugin_data_dir, project_hash) > MAX_ACTIVE_PER_PROJECT {
+        if reservation_created {
+            reservation::release_pairing(&plugin_data_dir, project_hash, &target_id, instance_id);
+        }
+        exit_record_full(record_sm, pair_label, paired_pre_target);
+        if let Some(t) = toast.as_mut() {
+            **t = Some(Toast::new("Maximum 12 pairs reached", now));
+        }
+        return;
+    }
+
     // 6. record_signal を pending で書き込み（A-3 修正後: post_instance_id を path 識別子に）
     match write_pending(
         &plugin_data_dir,
@@ -1399,6 +1427,10 @@ pub(crate) fn trigger_keep_internal(
         }
         Err(e) => {
             log::warn!("[POST keep] write_pending failed: {}", e);
+            // G-115-365: write_pending 失敗時も自分で取った枠を戻す（孤児を残さない）。
+            if reservation_created {
+                reservation::release_pairing(&plugin_data_dir, project_hash, &target_id, instance_id);
+            }
             // try_enter_record 成功後の "部分 commit" 状態のため、Record→Watch
             // と同じ 3 ステップ cleanup を必ず通過させる (構造的契約成立).
             exit_record_full(record_sm, pair_label, paired_pre_target);
@@ -1523,12 +1555,19 @@ pub(crate) fn trigger_stop_internal(
     mut toast: Option<&mut Option<Toast>>,
     now: f64,
 ) {
+    // G-115-365: exit_record_full は paired_pre_target を None にするため、枠解放用に対 PRE iid を
+    // 先に捕捉する（FFI resolve_and_exit_stop と同一 parity）。
+    let released_pre = paired_pre_target.lock().ok().and_then(|g| g.clone());
     // exit_record_full で 3 ステップ一括化. IO Thread 自然終了経路 (poll_pre_liveness_at /
     // poll_ack_timeout_with_base / handle_exit_reason) と完全対称な契約を成立させる.
     exit_record_full(record_sm, pair_label, paired_pre_target);
     match StoragePaths::default_macos() {
         Ok(paths) => {
             let plugin_data_dir = paths.plugin_data_dir();
+            // G-115-365: 本 pairing の O_EXCL 枠を解放（再予約可に / 孤児は sweep がバックストップ）。
+            if let Some(pre) = released_pre.as_deref() {
+                reservation::release_pairing(&plugin_data_dir, project_hash, pre, instance_id);
+            }
             match mark_released(&plugin_data_dir, project_hash, instance_id) {
                 Ok(true) => log::info!("[POST stop] mark_released ok"),
                 Ok(false) => log::info!("[POST stop] no signal to release"),

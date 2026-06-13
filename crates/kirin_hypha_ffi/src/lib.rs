@@ -377,19 +377,28 @@ fn resolve_and_enter_keep(
             return false;
         }
     };
-    // B-127 (G-115-364): per-pairing O_EXCL reservation で cross-process atomic に枠を確保する
-    // （1309b9d の in-process compare-and-enter を置換・二重機構にしない）。pairing key =
-    // (target=PRE iid, post_iid=POST iid)。reservation を先に atomic-create してから distinct
-    // pairing 数（marker + reservation を pairing key で重複排除）を数えることで、active marker が
-    // io_thread に書かれる前の TOCTOU 窓を cross-process で閉じる。cap は 12 pairs。keep() /
-    // keep_all() / broadcast 受信 closure は全て本関数を通るため両殻で同一 cap が強制される。
-    let reservation_created = matches!(
-        reservation::reserve_pairing(&base, project_hash, &target, post_iid),
-        Ok(reservation::ReserveOutcome::Created)
-    );
-    // count は自 reservation を含む distinct pairing 数。自 reservation で 13 枠目になれば（`> MAX`）
-    // reject。既存 pairing（自 reservation が AlreadyReserved / 同 pairing の active marker 既存で
-    // dedup）なら枠数は不変なので 12 枠目まで通る（`> MAX` であって `>= MAX` ではない）。
+    // B-127 (G-115-365): per-pairing O_EXCL reservation で cross-process atomic に枠を確保する。
+    // pairing key = (target=PRE iid, post_iid=POST iid)。cap の真実源は枠ファイルの**物理存在のみ**
+    // （count_distinct_pairings = reservation::count_frames）。reservation を先に atomic-create
+    // してから枠数を数えることで、active marker 出現前の TOCTOU 窓を cross-process で閉じる。cap は
+    // 12 pairs。keep() / keep_all() / broadcast 受信 closure は全て本関数を通る（JUCE 殻 parity）。
+    // reserve は 1 回だけ呼ぶ。Created = 本呼び出しが枠を作った（reject 時に解放する責務）。
+    let reservation_created = match reservation::reserve_pairing(&base, project_hash, &target, post_iid) {
+        Ok(reservation::ReserveOutcome::Created) => true,
+        Ok(reservation::ReserveOutcome::AlreadyReserved) => false,
+        // G-115-365 (3): 枠が取れない（write_all 失敗等の Err / 不完全枠は内部で unlink 済）= reject。
+        // 枠なしで keep に入らない。
+        Err(_) => {
+            if let Ok(mut g) = record_error_message.write() {
+                *g = Some("Maximum 12 pairs reached".to_string());
+            }
+            revert_after_enter(record_sm, paired_pre_target);
+            return false;
+        }
+    };
+    // count は自 reservation を含む枠数。自 reservation で 13 枠目になれば（`> MAX`）reject。既存 pairing
+    // （自 reservation が AlreadyReserved）なら枠数は不変なので 12 枠目まで通る（`> MAX` であって `>= MAX`
+    // ではない）。
     if count_distinct_pairings(&base, project_hash) > MAX_ACTIVE_PER_PROJECT {
         if reservation_created {
             reservation::release_pairing(&base, project_hash, &target, post_iid);
