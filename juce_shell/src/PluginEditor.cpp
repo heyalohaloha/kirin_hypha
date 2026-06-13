@@ -150,8 +150,8 @@ void KirinHyphaEditor::resized()
         const int ddW = 22;                             // ▼ dropdown width (B-102)
         nameField.setBounds (kMargin, nameY, w - 2 * kMargin - ddW - 4, 22);
         pairDropdown.setBounds (w - kMargin - ddW, nameY, ddW, 22);
-        floraY    = nameY + 22 + 8;                     // 68
-        metricTop = floraY + 1 + 6;                     // 75
+        floraY    = nameY + 22 + 4;                     // 64 (B-118 追補 2-2: POST を 6px 引上げ recordErrorLabel を 200px 内へ)
+        metricTop = floraY + 1 + 4;                     // 69
     }
     else
     {
@@ -167,11 +167,12 @@ void KirinHyphaEditor::resized()
     if (isPost && postControls != nullptr)
     {
         postControls->setBounds (kMargin, afterMetric + 4, w - 2 * kMargin, 26);
-        bannerY = afterMetric + 4 + 26 + 2;
+        bannerY = afterMetric + 4 + 26 + 1;             // B-118 追補 2-2: +1 gap（recordErrorLabel 行ぶん詰め）
     }
     bannerLabel.setBounds (kMargin, bannerY, w - 2 * kMargin, 16);
     toastLabel .setBounds (kMargin, bannerY, w - 2 * kMargin, 16); // same slot (per-role only one shows)
-    recordErrorLabel.setBounds (kMargin, bannerY + 18, w - 2 * kMargin, 16); // B-118 (③): 永続 status row（toast の下）
+    // B-118 (③/追補 2-2): 永続 status row（toast の直下）。h14 で POST=186..200 / PRE=135..149 に収め画面外を解消。
+    recordErrorLabel.setBounds (kMargin, bannerY + 16, w - 2 * kMargin, 14);
 }
 
 void KirinHyphaEditor::layoutMetrics (bool six)
@@ -303,7 +304,14 @@ void KirinHyphaEditor::showCandidateMenu()
 void KirinHyphaEditor::handleCandidateMenu (int result)
 {
     if (result == 1)
+    {
+        // B-118 追補 (2-1): egui All Keep は broadcast 後に自身を trigger_keep 経由で keep する
+        // （editor.rs:1001）＝ exclusion ゲート対象（>=12 active で "Maximum 12 pairs reached" 全体拒否）。
+        // engine keep_all() は 12-limit 非強制（resolve_and_enter_keep に exclusion なし）のため、
+        // onKeep と同じく UI 側で pre-check し egui と parity を取る（個別スキップではなく全体拒否＝同文言 toast）。
+        if (processorRef.recordExclusionConflict()) { showToast ("Maximum 12 pairs reached"); return; }
         processorRef.keepAll();
+    }
     else if (result == 2)
         processorRef.stopAll();
     else if (result >= 100)
@@ -345,6 +353,14 @@ void KirinHyphaEditor::updatePre()
         bannerUntil = t + 3.0; // RECORD_BANNER_DURATION_SECS
     prevAck = ack;
     bannerLabel.setVisible (t < bannerUntil);
+
+    // B-118 追補 (2-2): PRE 殻も io_thread 連続失敗の固定文言を永続表示（egui hypha_pre editor.rs:278
+    // と parity / R-26: 文言ありの間のみ・"Keeping" banner の下）。従来 updatePre は recordErrorLabel を
+    // refresh しておらず PRE では不可視だった（POST のみ wired のバグ）。
+    const juce::String recErr = processorRef.recordErrorMessage();
+    recordErrorLabel.setVisible (recErr.isNotEmpty());
+    if (recErr.isNotEmpty())
+        recordErrorLabel.setText (recErr, juce::dontSendNotification);
 
     const Kind want = rec ? Kind::Abs6 : Kind::Abs3;
     if (want != currentKind)

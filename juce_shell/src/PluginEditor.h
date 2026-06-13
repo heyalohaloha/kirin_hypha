@@ -59,7 +59,7 @@ private:
     std::array<hypha::MetricCell, 6> cells;
     juce::Label               bannerLabel;                // "Keeping" (ACK edge, 3s) — PRE
     juce::Label               toastLabel;                 // POST transient messages (3s)
-    juce::Label               recordErrorLabel;           // B-118 (③): POST io-fail status (persistent / G-115-29)
+    juce::Label               recordErrorLabel;           // B-118 (③/追補): PRE+POST io-fail status (persistent / G-115-29)
     std::unique_ptr<hypha::PostControls> postControls;    // POST button row
     juce::TextButton          pairDropdown;                // POST: ▼ candidate / All Keep / All Stop
     juce::StringArray         menuCandidateNames;          // maps PopupMenu result -> candidate name
