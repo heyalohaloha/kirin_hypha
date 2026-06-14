@@ -1175,14 +1175,23 @@ impl KirinHyphaEngine {
         name: String,
     ) {
         if let Ok(mut id) = self.identity.lock() {
-            id.instance_id =
-                kirin_measure::materialize_restore_field(&instance_id, "ffi.set_identity.instance_id");
+            // B-128 (G-115-373 / D3): instance_id を先に materialize し、その結果を tag に project_uuid /
+            // daw の anomaly を per-instance routing する（当該 instance の editor が drain → UI へ）。
+            // instance_id 自体の anomaly は確定前ゆえ tag なし（global wall 扱い・honest）。
+            let iid = kirin_measure::materialize_restore_field(
+                &instance_id,
+                "ffi.set_identity.instance_id",
+                None,
+            );
+            let tag = if iid.is_empty() { None } else { Some(iid.as_str()) };
             id.project_uuid =
-                kirin_measure::materialize_restore_field(&project_uuid, "ffi.set_identity.project_uuid");
+                kirin_measure::materialize_restore_field(&project_uuid, "ffi.set_identity.project_uuid", tag);
             id.daw_session_uuid = kirin_measure::materialize_restore_field(
                 &daw_session_uuid,
                 "ffi.set_identity.daw_session_uuid",
+                tag,
             );
+            id.instance_id = iid;
             id.name = name; // name は path component でない（traversal 非該当・scope 外）。
         }
     }
@@ -1952,19 +1961,35 @@ pub unsafe extern "C" fn kirin_hypha_get_identity(
     }));
 }
 
-/// B-128 (G-115-371 / D3): restore identity の anomaly（path-unsafe を materialize / wall が quarantine）
-/// を 1 件 `out` に drain する（殻 status 表示用）。event があれば `true` + 文言、無ければ `false`。
-/// sink は process-global（kirin_measure path_identity）。殻は毎描画 / timer で poll して surface する。
+/// B-128 (G-115-373 / D3): restore identity の anomaly を **当該 instance の分だけ** 1 件 `out` に drain
+/// する（per-instance routing）。`handle` の instance_id に tag された materialize event か、instance
+/// context のない wall event（global）を返す。他 instance の event は返さない（false attribution 防止）。
+/// event があれば `true` + 文言、無ければ `false`。殻は毎描画 / timer で poll して surface する。
 ///
 /// # Safety
-/// `out` は `len` バイト書込可能な領域であること。
+/// `handle` は有効なハンドル（null 可＝global event のみ）。`out` は `len` バイト書込可能な領域であること。
 #[no_mangle]
-pub unsafe extern "C" fn kirin_hypha_drain_path_event(out: *mut c_char, len: usize) -> bool {
+pub unsafe extern "C" fn kirin_hypha_drain_path_event(
+    handle: *mut KirinHyphaEngine,
+    out: *mut c_char,
+    len: usize,
+) -> bool {
     catch_unwind(AssertUnwindSafe(|| {
         if out.is_null() || len == 0 {
             return false;
         }
-        match kirin_measure::take_path_event() {
+        // 自 instance_id（materialize 済 self.identity）で per-instance filter。null handle は global のみ。
+        let my_instance = if handle.is_null() {
+            None
+        } else {
+            let iid = unsafe { (*handle).identity_snapshot() }.instance_id;
+            if iid.is_empty() {
+                None
+            } else {
+                Some(iid)
+            }
+        };
+        match kirin_measure::take_path_event(my_instance.as_deref()) {
             Some(msg) => {
                 let bytes = msg.as_bytes();
                 let n = bytes.len().min(len - 1);

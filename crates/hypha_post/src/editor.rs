@@ -347,10 +347,11 @@ pub fn create_post_editor(args: PostEditorArgs) -> Option<Box<dyn Editor>> {
                 }
             }
 
-            // B-128 (G-115-371 / D3): restore identity anomaly（path-unsafe を materialize / wall が
-            // quarantine）を process-global sink から drain して toast 化（silent swap 禁止 / R-28）。
-            // sink は両殻共有ゆえ開いている editor がまとめて surface する。
-            if let Some(msg) = kirin_measure::take_path_event() {
+            // B-128 (G-115-373 / D3): restore identity anomaly を **当該 instance の分だけ** drain して
+            // toast 化（per-instance routing / silent swap 禁止 / R-28）。自 instance の materialize event
+            // か instance context のない wall event（global）のみ surface し、他 instance の event は出さない。
+            let my_iid = read_instance_id_arc(&state.instance_id);
+            if let Some(msg) = kirin_measure::take_path_event(Some(&my_iid)) {
                 state.toast = Some(Toast::new(msg, now));
             }
 

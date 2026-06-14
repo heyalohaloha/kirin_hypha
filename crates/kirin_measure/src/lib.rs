@@ -52,8 +52,8 @@ pub use license::{
 pub use measure_thread::{live_window, pair_lock_active, spawn_measure_thread, LivenessEvaluator};
 pub use path_identity::{
     drain_path_events, guard_path_component, is_path_safe_component, materialize_observation_id,
-    materialize_restore_field, normalize_restore_cell, surface_path_event, take_path_event,
-    MAX_COMPONENT_LEN,
+    materialize_restore_field, normalize_restore_cell, surface_path_event, surface_path_event_for,
+    take_path_event, MAX_COMPONENT_LEN,
 };
 pub use plugin_data::{
     append_annotation_to_latest, compact_wall_clock, verify_checksum, Annotation, BounceMarker,

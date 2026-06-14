@@ -504,9 +504,12 @@ impl Plugin for HyphaPost {
         // B-128 (G-115-371 / D2): restore 受領点（egui）の同期 materialize（FFI set_identity と対称）。
         // io_thread spawn / GUI keep より前に params の path-unsafe identity を new_v4 へ畳み、async な
         // io_thread normalize が走る前の窓で uncounted-quarantine Record に入る経路を閉じる（両殻 D2 統一）。
-        kirin_measure::normalize_restore_cell(&self.params.instance_id, "egui_post.initialize.instance_id");
-        kirin_measure::normalize_restore_cell(&self.params.project_uuid, "egui_post.initialize.project_uuid");
-        kirin_measure::normalize_restore_cell(&self.params.daw_session_uuid, "egui_post.initialize.daw_session_uuid");
+        kirin_measure::normalize_restore_cell(&self.params.instance_id, "egui_post.initialize.instance_id", None);
+        // D3: materialize 済 instance_id を tag に project_uuid / daw の anomaly を per-instance routing。
+        let iid_tag = self.params.instance_id.read().ok().map(|g| g.clone()).unwrap_or_default();
+        let tag = if iid_tag.is_empty() { None } else { Some(iid_tag.as_str()) };
+        kirin_measure::normalize_restore_cell(&self.params.project_uuid, "egui_post.initialize.project_uuid", tag);
+        kirin_measure::normalize_restore_cell(&self.params.daw_session_uuid, "egui_post.initialize.daw_session_uuid", tag);
         let persisted_project_uuid = read_persisted_string(&self.params.project_uuid);
         let persisted_session_uuid = read_persisted_string(&self.params.daw_session_uuid);
         if !persisted_project_uuid.is_empty() {

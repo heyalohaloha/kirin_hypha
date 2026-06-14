@@ -279,10 +279,11 @@ juce::String KirinHyphaProcessorBase::recordErrorMessage() const
 
 juce::String KirinHyphaProcessorBase::pathAnomalyMessage() const
 {
-    // B-128 (G-115-371 / D3): restore identity anomaly を process-global sink から 1 件 drain。
-    // handle 非依存（sink は kirin_measure path_identity）。文言あり=Some / 無し=空。
+    // B-128 (G-115-373 / D3): 当該 instance（hyphaHandle の instance_id）の anomaly を per-instance で
+    // drain（materialize event は自 instance のみ / wall event は global）。文言あり=Some / 無し=空。
+    const juce::ScopedLock sl (handleLock);
     char buf[256] = { 0 };
-    if (kirin_hypha_drain_path_event (buf, sizeof (buf)))
+    if (kirin_hypha_drain_path_event (hyphaHandle, buf, sizeof (buf)))
         return juce::String::fromUTF8 (buf);
     return {};
 }

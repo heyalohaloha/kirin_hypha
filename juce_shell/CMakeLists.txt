@@ -61,6 +61,10 @@ function(add_kirin_plugin TARGET CODE PRODUCT MAIN_SRC BUNDLE_ID)
         NEEDS_MIDI_INPUT FALSE
         NEEDS_MIDI_OUTPUT FALSE
         IS_MIDI_EFFECT FALSE
+        # B-130 (G-115-373 / §7): JUCE 既定の AU resourceUsage（network.client +
+        # temporary-exception.files.all.read-write）を抑止し、下の POST_BUILD で自前最小
+        # （files.all のみ・network.client なし）を宣言する。Hypha は通信せず plugin_data 書込のみ。
+        SUPPRESS_AU_PLIST_RESOURCE_USAGE TRUE
         COPY_PLUGIN_AFTER_BUILD FALSE)
 
     target_sources(${TARGET} PRIVATE
@@ -83,12 +87,28 @@ function(add_kirin_plugin TARGET CODE PRODUCT MAIN_SRC BUNDLE_ID)
         JUCE_VST3_CAN_REPLACE_VST2=0
         JUCE_DISPLAY_SPLASH_SCREEN=0)          # permitted: built under GPLv3
 
+    # B-130 (G-115-373): juce_audio_utils（AudioThumbnail/CD/DeviceSelector 用・実使用 grep 0）を
+    # plugin に必要な最小モジュールへ差し替え。これで juce_audio_utils 由来の DiscRecording.framework
+    # link を落とす。AudioProcessor(Editor) は juce_audio_processors、widget は juce_gui_basics。
+    # （注: WebKit.framework は juce_gui_extra ← juce_audio_processors の必須依存ゆえ config では落ちない。）
     target_link_libraries(${TARGET}
         PRIVATE
-            juce::juce_audio_utils
+            juce::juce_audio_processors
+            juce::juce_gui_basics
         PUBLIC
             juce::juce_recommended_config_flags
             juce::juce_recommended_warning_flags)
+
+    # B-130 (G-115-373 / §7): SUPPRESS で消えた AU resourceUsage に、自前最小（files.all のみ・
+    # network.client なし）を AU bundle の Info.plist へ POST_BUILD で付与する。AU sandbox（GarageBand 等）
+    # で plugin_data（bundle 外）書込に files exception が要るため files.all は保持。network.client は §7 で除去。
+    add_custom_command(TARGET ${TARGET}_AU POST_BUILD
+        COMMAND /usr/libexec/PlistBuddy
+            -c "Add :AudioComponents:0:resourceUsage dict"
+            -c "Add :AudioComponents:0:resourceUsage:temporary-exception.files.all.read-write bool true"
+            "$<TARGET_FILE_DIR:${TARGET}_AU>/../Info.plist"
+        VERBATIM
+        COMMENT "B-130: AU resourceUsage = files.all only (no network.client)")
 endfunction()
 
 add_kirin_plugin(KirinHyphaPRE  Khpr "Kirin Hypha PRE"  src/PluginMainPRE.cpp  "com.kirinmastering.hypha.pre")

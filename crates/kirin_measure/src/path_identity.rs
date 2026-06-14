@@ -36,38 +36,64 @@ pub const QUARANTINE_PREFIX: &str = "_q_";
 /// FFI C ABI 識別子バッファ（64）とも整合。超過は unsafe 扱い→quarantine（DoS 級の overlength 拒否）。
 pub const MAX_COMPONENT_LEN: usize = 64;
 
-fn event_sink() -> &'static Mutex<Vec<String>> {
-    static SINK: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
+/// surface された path-identity anomaly（B-128 G-115-373 / D3）。
+/// `instance` が `Some` = 当該 instance の **materialize event**（per-instance routing / set_identity・
+/// normalize_restore_cell で instance_id 既知）。`None` = instance context のない **wall event**
+/// （engine 深部の builder / global・honest under-specify＝特定 instance を偽らない）。
+/// 本番は PRE/POST が別 cdylib ＝ sink は role 毎に別（role 分離は構造的）。
+struct PathEvent {
+    instance: Option<String>,
+    msg: String,
+}
+
+fn event_sink() -> &'static Mutex<Vec<PathEvent>> {
+    static SINK: OnceLock<Mutex<Vec<PathEvent>>> = OnceLock::new();
     SINK.get_or_init(|| Mutex::new(Vec::new()))
 }
 
-/// invalid-identity / invalid-path event を surface する（log + 観測可能 sink）。
-/// R-28: 信頼境界の異常は silent swap せず必ず可視化する。
+/// instance context **なし**の anomaly（wall event 等）を **global** に surface する。
+/// global event は最初に drain した editor（同 role の任意 instance）が surface する
+/// （honest under-specify: 特定 instance を偽らない・R-28 silent swap 禁止）。
 pub fn surface_path_event(msg: impl Into<String>) {
+    surface_path_event_for(None, msg);
+}
+
+/// instance context **つき**の anomaly（materialize event）を surface する。
+/// `instance=Some(id)` で当該 instance の editor のみが drain する（per-instance routing / D3）。
+pub fn surface_path_event_for(instance: Option<&str>, msg: impl Into<String>) {
     let msg = msg.into();
-    log::warn!("[path-identity] {msg}");
+    match instance {
+        Some(id) => log::warn!("[path-identity instance={id}] {msg}"),
+        None => log::warn!("[path-identity] {msg}"),
+    }
     if let Ok(mut g) = event_sink().lock() {
-        g.push(msg);
+        g.push(PathEvent {
+            instance: instance.map(str::to_string),
+            msg,
+        });
     }
 }
 
-/// surface 済み event を drain する（テスト検証 / GUI 表示用）。
+/// surface 済み event を全て drain する（テスト検証用・instance 問わず msg のみ）。
 pub fn drain_path_events() -> Vec<String> {
     event_sink()
         .lock()
-        .map(|mut g| std::mem::take(&mut *g))
+        .map(|mut g| std::mem::take(&mut *g).into_iter().map(|e| e.msg).collect())
         .unwrap_or_default()
 }
 
-/// surface 済み event を 1 件だけ pop する（FFI C ABI getter / JUCE status 用・無ければ None）。
-pub fn take_path_event() -> Option<String> {
-    event_sink().lock().ok().and_then(|mut g| {
-        if g.is_empty() {
-            None
-        } else {
-            Some(g.remove(0))
-        }
-    })
+/// surface 済み event を 1 件 pop する（殻 UI 用 / D3 per-instance routing）。
+/// `my_instance=Some(id)`: 当該 instance の materialize event（`instance==Some(id)`）か wall event
+/// （`instance==None`）の最初の 1 件。`my_instance=None`: wall event（global）のみ。
+/// **他 instance の tagged event は返さない**（false instance attribution 防止）。
+pub fn take_path_event(my_instance: Option<&str>) -> Option<String> {
+    let mut g = event_sink().lock().ok()?;
+    let pos = g.iter().position(|e| match (e.instance.as_deref(), my_instance) {
+        (None, _) => true,                    // global wall event は誰でも surface
+        (Some(ev), Some(mine)) => ev == mine, // 自 instance の materialize event
+        (Some(_), None) => false,             // 他 instance 専用 → None caller には返さない
+    })?;
+    Some(g.remove(pos).msg)
 }
 
 /// path component が安全か（traversal / 絶対パス / 区切り / 空 を排除）。
@@ -151,7 +177,9 @@ pub fn materialize_observation_id(raw: &str, ctx: &str) -> String {
 /// - **empty は空のまま返す**（「未設定→enable で生成」契約を保つ・materialize_observation_id と異なる）。
 /// - path-safe な非空値（valid UUID / 無害な literal）→ 無改変（parity literal-id テスト不変）。
 /// - path-unsafe → fresh new_v4 + invalid-identity event（D2/D3）。
-pub fn materialize_restore_field(raw: &str, ctx: &str) -> String {
+///
+/// `instance_tag` で anomaly を per-instance routing する（D3 / 当該 instance の UI へ）。
+pub fn materialize_restore_field(raw: &str, ctx: &str, instance_tag: Option<&str>) -> String {
     if raw.is_empty() {
         return String::new();
     }
@@ -159,10 +187,13 @@ pub fn materialize_restore_field(raw: &str, ctx: &str) -> String {
         return raw.to_string();
     }
     let fresh = Uuid::new_v4().to_string();
-    surface_path_event(format!(
-        "invalid-identity: path-unsafe {ctx} substituted with fresh {fresh} (len={})",
-        raw.len()
-    ));
+    surface_path_event_for(
+        instance_tag,
+        format!(
+            "invalid-identity: path-unsafe {ctx} substituted with fresh {fresh} (len={})",
+            raw.len()
+        ),
+    );
     fresh
 }
 
@@ -171,12 +202,12 @@ pub fn materialize_restore_field(raw: &str, ctx: &str) -> String {
 /// 「未設定→生成」契約保持）。egui は params(`Arc<RwLock<String>>`)を editor keep と io_thread が共有
 /// するため、**io_thread spawn / GUI keep より前**に本関数で params を畳めば、async な io_thread
 /// normalize が走る前の窓で uncounted-quarantine Record に入る経路を閉じる（両殻 D2 統一）。
-pub fn normalize_restore_cell(cell: &RwLock<String>, ctx: &str) {
+pub fn normalize_restore_cell(cell: &RwLock<String>, ctx: &str, instance_tag: Option<&str>) {
     let current = match cell.read() {
         Ok(g) => g.clone(),
         Err(_) => return,
     };
-    let materialized = materialize_restore_field(&current, ctx);
+    let materialized = materialize_restore_field(&current, ctx, instance_tag);
     if materialized != current {
         if let Ok(mut g) = cell.write() {
             *g = materialized;
@@ -282,13 +313,13 @@ mod tests {
     fn materialize_restore_field_preserves_empty_and_safe() {
         fresh_events();
         // empty は空のまま（「未設定→enable 生成」契約）。event なし。
-        assert_eq!(materialize_restore_field("", "t"), "");
+        assert_eq!(materialize_restore_field("", "t", None), "");
         assert!(drain_path_events().is_empty(), "empty は silent");
         // safe literal は不変（parity）。
-        assert_eq!(materialize_restore_field("iid-b058-fixed", "t"), "iid-b058-fixed");
+        assert_eq!(materialize_restore_field("iid-b058-fixed", "t", None), "iid-b058-fixed");
         assert!(drain_path_events().is_empty());
         // unsafe → fresh new_v4 + event。
-        let m = materialize_restore_field("/tmp/x", "t");
+        let m = materialize_restore_field("/tmp/x", "t", None);
         assert!(Uuid::parse_str(&m).is_ok(), "unsafe → new_v4: {m}");
         assert!(!drain_path_events().is_empty(), "unsafe は event surface");
     }
@@ -298,15 +329,15 @@ mod tests {
         fresh_events();
         // unsafe → new_v4 を書き戻し + event。
         let unsafe_cell = RwLock::new("/tmp/x".to_string());
-        normalize_restore_cell(&unsafe_cell, "t");
+        normalize_restore_cell(&unsafe_cell, "t", None);
         assert!(Uuid::parse_str(&unsafe_cell.read().unwrap()).is_ok(), "unsafe → new_v4 書き戻し");
         assert!(!drain_path_events().is_empty(), "event surface");
         // safe → 不変（parity）/ empty → 不変（"" / 未設定→生成契約）。
         let safe_cell = RwLock::new("iid-b058-fixed".to_string());
-        normalize_restore_cell(&safe_cell, "t");
+        normalize_restore_cell(&safe_cell, "t", None);
         assert_eq!(*safe_cell.read().unwrap(), "iid-b058-fixed");
         let empty_cell = RwLock::new(String::new());
-        normalize_restore_cell(&empty_cell, "t");
+        normalize_restore_cell(&empty_cell, "t", None);
         assert_eq!(*empty_cell.read().unwrap(), "");
         assert!(drain_path_events().is_empty(), "safe/empty は event なし");
     }
@@ -314,11 +345,32 @@ mod tests {
     #[test]
     fn take_path_event_pops_one() {
         fresh_events();
-        surface_path_event("e1");
+        surface_path_event("e1"); // global (instance=None)
         surface_path_event("e2");
-        assert_eq!(take_path_event().as_deref(), Some("e1"));
-        assert_eq!(take_path_event().as_deref(), Some("e2"));
-        assert_eq!(take_path_event(), None);
+        assert_eq!(take_path_event(None).as_deref(), Some("e1"));
+        assert_eq!(take_path_event(None).as_deref(), Some("e2"));
+        assert_eq!(take_path_event(None), None);
+    }
+
+    // ── D3: per-instance routing（materialize event は当該 instance のみ・wall は global）──────
+    #[test]
+    fn take_path_event_routes_per_instance() {
+        fresh_events();
+        surface_path_event_for(Some("inst-A"), "materialize-A"); // A の materialize event
+        surface_path_event_for(Some("inst-B"), "materialize-B"); // B の materialize event
+        surface_path_event("wall-global"); // wall event（instance=None）
+
+        // A は自分の event + global を取れる。B の event は取れない（false attribution 防止）。
+        let a1 = take_path_event(Some("inst-A"));
+        let a2 = take_path_event(Some("inst-A"));
+        let mut a = [a1, a2].into_iter().flatten().collect::<Vec<_>>();
+        a.sort();
+        assert_eq!(a, vec!["materialize-A".to_string(), "wall-global".to_string()]);
+        // B は自分の event のみ残っている（global は A が drain 済）。
+        assert_eq!(take_path_event(Some("inst-B")).as_deref(), Some("materialize-B"));
+        assert_eq!(take_path_event(Some("inst-B")), None);
+        // 他 instance の tagged event は None caller には出ない。
+        assert_eq!(take_path_event(None), None);
     }
 
     #[test]
