@@ -230,10 +230,15 @@ fn drive_ffi_session(stereo_f32: &[f32]) -> (SessionSummary, u64, bool) {
         sleep(Duration::from_millis(40));
     }
 
-    // 0.1s ブロックを realtime ペース（100ms 間隔）で投入する。
-    // Record 中は Measure Thread が毎ループ finalize() も走らせ処理が重くなるため、
-    // 3.3x ペース（phase_d parity の 30ms）では追いつかず overflow する。realtime なら
-    // 消費が追いつき overflow=0（rt_safety_no_overflow_at_juce_block_sizes と同方針）。
+    // B-129 (G-115-372): consumer-paced（slower-than-realtime）駆動で ring overflow を決定化する。
+    // 旧: realtime（100ms/0.1s block）は Record 中の重い finalize 消費とギリギリで、machine load 下で
+    // consumer が追いつかず overflow → flaky（trust anchor が溶ける）。
+    // 新: 各 block 投入後に realtime の DRAIN_MARGIN 倍の猶予を keepalive 付きで与え（heartbeat/Active
+    // 維持）、consumer が ring を確実に drain しきってから次 block を押す。ring は常に near-empty となり
+    // overflow を構造的に 0 化（最大 DRAIN_MARGIN×realtime の consumer slowdown まで吸収・2s ring slack 併用）。
+    // 投入する音声 sample は不変（keepalive は 0-frame）ゆえ finalize 一致＝parity abs=0/rel=0 は不変。
+    // 本番 finalize ロジック / engine.rs / FFI 数値サーフェスは一切変えない（test 駆動の決定化のみ）。
+    const DRAIN_MARGIN: usize = 3;
     let block_frames = SR as usize / 10;
     let block_len = block_frames * 2;
     let block_dt = Duration::from_secs_f64(block_frames as f64 / SR as f64); // 0.1s
@@ -242,7 +247,10 @@ fn drive_ffi_session(stereo_f32: &[f32]) -> (SessionSummary, u64, bool) {
         let end = (i + block_len).min(stereo_f32.len());
         engine.push_samples(&stereo_f32[i..end], 2);
         i = end;
-        sleep(block_dt);
+        for _ in 0..DRAIN_MARGIN {
+            engine.push_samples(&[], 2); // 0-frame keepalive（heartbeat / Active 維持・ring 投入なし）
+            sleep(block_dt);
+        }
     }
 
     // drain + 安定化: lufs_i が 2 回連続一致 = ring 全消費 = 参照と同一サンプル集合。
