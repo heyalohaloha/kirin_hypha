@@ -594,6 +594,14 @@ fn set_identity_materializes_unsafe_restore_value() {
     assert!(uuid::Uuid::parse_str(&iid).is_ok(), "instance_id は fresh new_v4: {iid}");
     assert!(uuid::Uuid::parse_str(&puid).is_ok(), "project_uuid は fresh new_v4: {puid}");
 
+    // D1（単一 source 強化）: get_identity を再取得しても同一値 = materialize 済値が self.identity に
+    // **1 度だけ**格納される単一 source（per-read 再 materialize で new_v4 が毎回変わる「第二系統」がない）。
+    // keep / record / 永続化 / io_thread は全てこの self.identity（= get_identity が返す値）を読む。
+    let mut out2: KirinIdentity = unsafe { std::mem::zeroed() };
+    unsafe { kirin_hypha_get_identity(ptr, &mut out2) };
+    assert_eq!(cbuf_to_string(&out2.instance_id), iid, "再取得で同一＝単一格納 source（分裂なし）");
+    assert_eq!(cbuf_to_string(&out2.project_uuid), puid);
+
     // D3: invalid-identity event surface（silent swap 禁止）。
     assert!(!drain_path_events().is_empty(), "invalid 注入で event surface");
 

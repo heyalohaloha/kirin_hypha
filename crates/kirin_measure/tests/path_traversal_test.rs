@@ -19,6 +19,7 @@ use kirin_measure::{materialize_observation_id, process_project_hash, set_projec
 /// 3 攻撃ケース（§7）: (i)絶対パス (ii)../traversal (iii)非UUID。
 const ABS: &str = "/tmp/x";
 const TRAVERSAL: &str = "../../../../tmp/x";
+const CONTROL: &str = "a\nb"; // 制御文字混入（newline）= D4/D5 拒否対象
 const NON_UUID: &str = "not-a-uuid";
 /// 真の traversal（絶対 / ..）のみ。non-UUID(safe) は traversal でないため別扱い。
 const TRAVERSAL_ATTACKS: [&str; 2] = [ABS, TRAVERSAL];
@@ -88,6 +89,32 @@ fn s7_non_uuid_safe_value_stays_within_base() {
     );
     // 観測 family materialize も safe 値は不変（parity 不変の肝）。
     assert_eq!(materialize_observation_id(NON_UUID, "t"), NON_UUID);
+}
+
+// ── D5: 代表 3 攻撃（絶対 / ../ / 制御文字）を egui 経路 end-to-end で base 内に封じる ──────
+#[test]
+fn d5_three_attacks_egui_end_to_end_within_base() {
+    let kirin_root = std::env::temp_dir().join("kirin");
+    for atk in [ABS, TRAVERSAL, CONTROL] {
+        // D4: is_path_safe_component が 3 攻撃すべて reject（絶対 / `..` / 制御文字）。
+        assert!(!is_path_safe_component(atk), "{atk:?} は unsafe（D4 入力検証）");
+
+        // egui restore 入口: params.project_uuid → set_project_uuid(cell) → io_thread が
+        // process_project_hash() を builder へ。攻撃値を set しても構築 path は wall で base 内。
+        set_project_uuid(atk.to_string());
+        let ph = process_project_hash(); // io_thread に渡る project_hash（egui 経路）
+
+        // 全 builder（Watch io_dir / Record WriterPaths / coordination record_signal）が base 内。
+        assert_within_base(&io_dir(&ph, atk), &kirin_root);
+        let base = isolated_base();
+        let wp = WriterPaths::build(&base, &ph, atk, Role::Pre, "2026-06-14T00:00:00Z");
+        assert_within_base(&wp.final_path, &base);
+        assert_within_base(&record_signal::signal_path(&base, &ph, atk), &base);
+
+        // 観測 family（io_thread）materialize は 3 攻撃すべて fresh new_v4 で継続（§7②）。
+        let m = materialize_observation_id(atk, "d5.egui");
+        assert!(uuid::Uuid::parse_str(&m).is_ok(), "{atk:?} → 観測継続 new_v4: {m}");
+    }
 }
 
 // ── §7 egui 経路 end-to-end: set_project_uuid（egui restore 入口）→ builder が base 内 ──────
