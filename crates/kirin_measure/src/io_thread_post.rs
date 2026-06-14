@@ -628,8 +628,16 @@ pub fn spawn_io_thread_post(
         // 同じ Default UUID を踏むことは無いため自然消失する (R-28 機能的沈黙)。
         // B-043: Record 中に thread shutdown された場合も Measure Thread の最新
         // session_summary を取り出して JSON に焼き込む (Daisuke 抜去シナリオ救済)。
-        if let Some(ctx) = recording.take() {
+        if let Some(mut ctx) = recording.take() {
+            // B-132 (G-115-382): shutdown-during-record（抜去 / アンロード）。Measure Thread は自身の
+            // teardown 中（shutdown フラグで loop 冒頭 break）で seal を進めないため instant check
+            // （wait なし = bounded 0 / teardown deadlock 無縁）。seal 未前進 = graceful な
+            // Record→Watch tight-drain を経ていない＝ tail 不確定 → 不完全と記録（共通B / R-28）。
+            let sealed = record_sm.seal() > ctx.seal_at_start;
             let summary = take_session_summary(&session_summary);
+            if !sealed {
+                ctx.writer.mark_integrity_degraded();
+            }
             writer_close_with_summary(ctx, summary);
         }
 

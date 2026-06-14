@@ -28,7 +28,7 @@
 //! Watch 時の既存 Step 1 挙動への副作用をゼロに保つため。
 
 use crate::identity::License;
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
 
 /// Record mode の状態。
 #[repr(u8)]
@@ -84,12 +84,33 @@ pub enum TransitionError {
 #[derive(Debug)]
 pub struct RecordStateMachine {
     state: AtomicU8,
+    /// B-132 (G-115-382): drain-completion seal。Record→Watch エッジで Measure Thread が
+    /// 残量 ring を tight-drain → 最終 finalize → session_summary 書込を**完了した後**に
+    /// 1 度だけ前進させる単調カウンタ。IO/record_writer の bake arm は Record 開始時に
+    /// `seal()` を snapshot し、close 時に前進を lock-free bounded wait で待ってから
+    /// session_summary を take する（post-drain の確定スナップショットのみ焼く保証）。
+    /// timeout（measure 死/shutdown/stall で finalize 不能）時は integrity_degraded に倒す。
+    seal: AtomicU64,
 }
 
 impl RecordStateMachine {
     /// Watch で初期化。
     pub fn new() -> Self {
-        Self { state: AtomicU8::new(RecordState::Watch as u8) }
+        Self {
+            state: AtomicU8::new(RecordState::Watch as u8),
+            seal: AtomicU64::new(0),
+        }
+    }
+
+    /// B-132: 現在の drain-completion seal 値（IO 側 reader 用 / lock-free）。
+    pub fn seal(&self) -> u64 {
+        self.seal.load(Ordering::Acquire)
+    }
+
+    /// B-132: drain-completion seal を 1 前進させる（Measure Thread writer 用）。
+    /// **必ず** session_summary 書込が完了した後にのみ呼ぶこと（post-drain 確定の合図）。
+    pub fn bump_seal(&self) {
+        self.seal.fetch_add(1, Ordering::Release);
     }
 
     /// 現在の状態を取得。
@@ -307,5 +328,21 @@ mod tests {
         }
         assert_eq!(success_count.load(Ordering::Relaxed), 1);
         assert_eq!(sm.current(), RecordState::Record);
+    }
+
+    /// B-132 (G-115-382): seal は 0 開始・bump で単調前進・state とは独立。
+    #[test]
+    fn b132_seal_starts_zero_and_bumps_monotonic() {
+        let sm = RecordStateMachine::new();
+        assert_eq!(sm.seal(), 0, "seal は 0 開始");
+        sm.bump_seal();
+        assert_eq!(sm.seal(), 1);
+        sm.bump_seal();
+        assert_eq!(sm.seal(), 2, "bump は単調前進");
+        // state 遷移は seal を動かさない（独立軸）。
+        let before = sm.seal();
+        sm.try_enter_record(License::Os).unwrap();
+        sm.exit_record();
+        assert_eq!(sm.seal(), before, "Record↔Watch 遷移は seal を変えない");
     }
 }

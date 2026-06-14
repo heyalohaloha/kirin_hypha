@@ -41,6 +41,43 @@ pub const PSB_INTERVAL_MS: u64 = 500;
 /// heartbeat + atomic flush 間隔（正本 30 秒）。
 pub const FLUSH_INTERVAL: Duration = Duration::from_secs(30);
 
+/// B-132 (G-115-382 共通B): bake arm が Measure Thread の drain-completion seal 前進を待つ
+/// **上限**。RING_BUFFER_SECONDS=2 + measure loop 100ms を踏まえ、健全時は ~1 loop（≤100ms）で
+/// seal が前進する。本値は measure 死 / shutdown / stall で finalize 不能なときの天井で、
+/// 超過したら integrity_degraded に倒す（共通B / silent truncation を残さない）。
+pub const SEAL_WAIT_TIMEOUT: Duration = Duration::from_millis(500);
+
+/// B-132: seal wait のポーリング間隔（lock-free / atomic load のみ）。
+pub const SEAL_WAIT_POLL: Duration = Duration::from_millis(10);
+
+/// B-132 (G-115-382 共通B): Record→Watch close 時に Measure Thread の post-drain seal が
+/// `seal_at_start` を超えるまで **lock-free bounded** に待つ。
+///
+/// 返値 `true`: seal が前進した（= measure が tight-drain + 最終 finalize + session_summary 書込を
+/// 完了）→ bake arm は post-drain 確定スナップショットを take してよい。
+/// 返値 `false`: `SEAL_WAIT_TIMEOUT` 超過（measure 死 / shutdown / stall）→ 呼出側は
+/// integrity_degraded を立てる。
+///
+/// teardown 安全性: atomic load のみで lock を跨がない・timeout 有限。Drop が
+/// measure.shutdown を立てて join する順序（watchdog IO→measure）と循環しない
+/// （measure が seal を進めなくても最大 `SEAL_WAIT_TIMEOUT` で抜ける）。
+pub fn wait_for_seal(
+    record_sm: &RecordStateMachine,
+    seal_at_start: u64,
+    timeout: Duration,
+) -> bool {
+    let deadline = Instant::now() + timeout;
+    loop {
+        if record_sm.seal() > seal_at_start {
+            return true;
+        }
+        if Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(SEAL_WAIT_POLL);
+    }
+}
+
 /// B-025 Group B-2 / Gap-19 + Group B-3 / Gap-20: flush 連続失敗の許容回数。
 /// 値は `FLUSH_INTERVAL` (= 30 秒) × 3 = 90 秒 grace period (B25-2 推奨根拠)。
 /// ネットワーク FS / iCloud Drive の一時的失敗 (sync 中 / token refresh 中) を
@@ -109,6 +146,9 @@ pub struct RecordingCtx {
     /// B-125: Record 開始時の oversized_drop snapshot（累積 oversized block drop）。
     /// overflow とは独立カウンタ（metric truthfulness）。close 時に差分を取り合算する。
     pub oversized_drop_start: u64,
+    /// B-132 (G-115-382): Record 開始時の drain-completion seal snapshot。close 時に
+    /// `wait_for_seal` がこの値の前進を bounded 待ちして post-drain 確定を確認する。
+    pub seal_at_start: u64,
 }
 
 impl RecordingCtx {
@@ -248,6 +288,7 @@ pub fn writer_start(
         exit_requested: None,
         overflow_start: 0, // B-076: run_record_tick が Record 開始時に snapshot を入れる
         oversized_drop_start: 0, // B-125: 同上（oversized_drop の Record 開始 snapshot）
+        seal_at_start: 0, // B-132: run_record_tick が Record 開始時に seal を snapshot する
     })
 }
 
@@ -371,11 +412,19 @@ pub fn run_record_tick(
                 // B-125: oversized_drop も同位相で snapshot（別カウンタ・同じ差分方式）。
                 ctx.oversized_drop_start =
                     oversized_drop.load(std::sync::atomic::Ordering::Relaxed);
+                // B-132 (G-115-382): drain-completion seal の基点を snapshot。close 時に
+                // この値の前進（measure の post-drain finalize 完了）を bounded 待ちする。
+                ctx.seal_at_start = record_sm.seal();
                 *recording = Some(ctx);
             }
         }
         (false, true) => {
             if let Some(mut ctx) = recording.take() {
+                // ── B-132 (G-115-382) P1/共通B: drain-completion barrier ──────────────
+                // Measure Thread が Record→Watch エッジで ring 残量を tight-drain → 最終 finalize →
+                // session_summary 書込を完了し seal を前進させるのを **bounded** に待ってから取り出す。
+                // これで「post-drain の確定スナップショット」のみ焼く（live meter は元々別スロット）。
+                let sealed = wait_for_seal(record_sm, ctx.seal_at_start, SEAL_WAIT_TIMEOUT);
                 // B-043: Record→Watch 遷移時に Measure Thread の最新セッション集計を取り出して注入。
                 let summary = session_summary.and_then(take_session_summary);
                 // B-076: この Record 中に ring 満杯で落ちたサンプル数 = 現在の累積 - 開始時 snapshot。
@@ -388,6 +437,15 @@ pub fn run_record_tick(
                     .saturating_sub(ctx.oversized_drop_start);
                 // 別計数のまま set_integrity に渡し、JSON へは合算を焼く（ZSA / B-125 裁定）。
                 ctx.writer.set_integrity(push_dropped, oversized_dropped);
+                // B-132 共通B: seal が timeout（measure 死 / shutdown / stall で finalize 不能）なら
+                // 「不完全を不完全と記録」する（set_integrity の後に OR で立てる / silent truncation 排除）。
+                if !sealed {
+                    log::warn!(
+                        "[writer] drain seal not observed within {:?} — marking integrity_degraded (incomplete tail)",
+                        SEAL_WAIT_TIMEOUT
+                    );
+                    ctx.writer.mark_integrity_degraded();
+                }
                 writer_close_with_summary(ctx, summary);
             }
         }
@@ -883,6 +941,7 @@ mod tests {
             exit_requested: None,
             overflow_start: 0,
             oversized_drop_start: 0, // B-125
+            seal_at_start: 0,        // B-132
         }
     }
 
@@ -1057,6 +1116,9 @@ mod tests {
         let mut rec: Option<RecordingCtx> = Some(ctx);
 
         sm.exit_record();
+        // B-132: Measure Thread の Record→Watch tight-drain 完了を模擬（seal 前進）。
+        // これで IO 側 close arm の bounded seal-wait が即 true を返す（実機ハンドシェイク再現）。
+        sm.bump_seal();
         run_record_tick(
             &sm,
             Role::Post,
@@ -1537,6 +1599,7 @@ mod tests {
         let mut rec1 = Some(ctx1);
         overflow.fetch_add(5, Ordering::Relaxed); // この Record 中に 5 サンプル drop
         sm1.exit_record();
+        sm1.bump_seal(); // B-132: measure の tight-drain 完了模擬（seal 前進 → close arm 即 true）
         run_record_tick(
             &sm1, Role::Post, 48000, TEST_PH, TEST_IID, now_epoch_ms,
             || None, || None, &m, &mut rec1,
@@ -1559,6 +1622,7 @@ mod tests {
         let mut rec2 = Some(ctx2);
         // この Record 中は drop なし（overflow 据置 5）
         sm2.exit_record();
+        sm2.bump_seal(); // B-132: measure の tight-drain 完了模擬（seal 前進 → close arm 即 true）
         run_record_tick(
             &sm2, Role::Post, 48000, TEST_PH, TEST_IID, now_epoch_ms,
             || None, || None, &m, &mut rec2,
@@ -1585,5 +1649,45 @@ mod tests {
         let back: PluginDataFile = serde_json::from_value(v).unwrap();
         assert_eq!(back.dropped_samples, 0, "旧 .kirin → serde default 0");
         assert!(!back.integrity_degraded, "旧 .kirin → serde default false");
+    }
+
+    // ── B-132 (G-115-382 共通B): bounded seal wait ──────────────────────────────
+    use std::time::Duration;
+
+    /// seal が前進すれば wait は true を返す（measure が post-drain finalize 完了を通知）。
+    #[test]
+    fn b132_wait_for_seal_true_when_seal_advances() {
+        let sm = RecordStateMachine::new();
+        let start = sm.seal();
+        sm.bump_seal(); // measure 側 drain 完了相当
+        assert!(super::wait_for_seal(&sm, start, Duration::from_millis(200)));
+    }
+
+    /// seal が前進しなければ wait は **bounded** に false を返す（measure 死/stall）。
+    /// = deadlock 回帰防止: 待ちは必ず有限時間で抜ける（unbounded wait なら teardown deadlock）。
+    #[test]
+    fn b132_wait_for_seal_times_out_bounded_when_stalled() {
+        let sm = RecordStateMachine::new();
+        let start = sm.seal();
+        let t0 = Instant::now();
+        let sealed = super::wait_for_seal(&sm, start, Duration::from_millis(120));
+        let elapsed = t0.elapsed();
+        assert!(!sealed, "seal 不前進 → false（timeout）");
+        assert!(
+            elapsed >= Duration::from_millis(120) && elapsed < Duration::from_millis(2000),
+            "bounded: timeout 近傍で抜ける（elapsed={elapsed:?}）"
+        );
+    }
+
+    /// 先行 session の seal を今回 session の barrier が誤検出しない（seal_at_start で識別）。
+    #[test]
+    fn b132_wait_for_seal_ignores_prior_session_seal() {
+        let sm = RecordStateMachine::new();
+        sm.bump_seal(); // 先行 session の seal
+        let start = sm.seal(); // 今回 session 開始 snapshot（= 1）
+        // 今回 session はまだ drain していない → 前進なし → timeout false。
+        assert!(!super::wait_for_seal(&sm, start, Duration::from_millis(60)));
+        sm.bump_seal(); // 今回 session の drain 完了
+        assert!(super::wait_for_seal(&sm, start, Duration::from_millis(200)));
     }
 }

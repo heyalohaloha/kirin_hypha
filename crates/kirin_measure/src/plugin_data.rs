@@ -505,6 +505,15 @@ impl PluginDataWriter {
         self.data.integrity_degraded = total > 0;
     }
 
+    /// B-132 (G-115-382 共通B): drain-completion seal の bounded wait が timeout した
+    /// （Measure Thread の死 / shutdown / stall で post-drain finalize が確定できなかった）場合に
+    /// 「不完全を不完全と記録」するため `integrity_degraded` を **OR で立てる**（dropped_samples の
+    /// 計数とは独立 / set_integrity の後に呼んで上書きされない）。silent truncation を残さない（R-28 /
+    /// README:139）。計測値（LUFS/TP/PSR/PSB）には一切触れない。
+    pub fn mark_integrity_degraded(&mut self) {
+        self.data.integrity_degraded = true;
+    }
+
     /// 1 PSB スナップショットを追加。
     ///
     /// ため本メソッドは無条件で push する。
@@ -1239,5 +1248,20 @@ mod tests {
         // JSON 文字列上で `"source_format":48000` が含まれることも確認
         let json_str = std::str::from_utf8(&bytes).unwrap();
         assert!(json_str.contains("\"source_format\":48000"));
+    }
+
+    /// B-132 (G-115-382 共通B): mark_integrity_degraded は dropped_samples=0 でも degraded を立て、
+    /// set_integrity(0,0) の後に呼んでも上書きされず true を保つ（drain timeout → 不完全と記録）。
+    #[test]
+    fn b132_mark_integrity_degraded_ors_on_top_of_set_integrity() {
+        let base = isolated_dir();
+        let mut w = sample_writer(&base, Role::Pre);
+        // 欠落カウント 0（clean）→ set_integrity は degraded=false。
+        w.set_integrity(0, 0);
+        assert!(!w.data().integrity_degraded, "clean は degraded=false");
+        // drain timeout 相当 → 強制 degraded。dropped_samples は 0 のまま（独立軸）。
+        w.mark_integrity_degraded();
+        assert!(w.data().integrity_degraded, "timeout で degraded=true（OR）");
+        assert_eq!(w.data().dropped_samples, 0, "degraded は dropped_samples を動かさない");
     }
 }

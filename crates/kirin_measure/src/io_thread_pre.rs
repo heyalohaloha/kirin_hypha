@@ -468,8 +468,15 @@ pub fn spawn_io_thread_pre(
         // ── Record 中に shutdown された場合: writer を閉じる ─────────────
         // B-043: Record 中の shutdown 時も Measure Thread の最新 session_summary を
         // 取り出して JSON に焼き込む (Daisuke 抜去シナリオ救済 / POST 側と対称)。
-        if let Some(ctx) = writer_ctx.take() {
+        if let Some(mut ctx) = writer_ctx.take() {
+            // B-132 (G-115-382): shutdown-during-record。Measure Thread は teardown 中で seal を
+            // 進めないため instant check（bounded 0 / deadlock 無縁）。seal 未前進 = graceful な
+            // Record→Watch tight-drain を経ていない＝ tail 不確定 → 不完全と記録（共通B / POST と対称）。
+            let sealed = record_sm.seal() > ctx.seal_at_start;
             let summary = take_session_summary(&session_summary);
+            if !sealed {
+                ctx.writer.mark_integrity_degraded();
+            }
             writer_close_with_summary(ctx, summary);
         }
         record_sm.exit_record();

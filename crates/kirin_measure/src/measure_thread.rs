@@ -225,6 +225,29 @@ pub fn spawn_measure_thread(
                     *g = None;
                 }
                 log::info!("[MeasureThread] engine reset on Watch→Record transition");
+            } else if prev_recording && !is_recording {
+                // ── B-132 (G-115-382) P1: Record→Watch エッジ drain-completion barrier ──
+                // is_recording gate（下方 line ~361）が閉じる前の最後の 1 pass で、ring 残量を
+                // tight-drain → 最終 finalize → session_summary 書込（この pass のみ gate を跨ぐ）。
+                // 「停止前に drain 済み」の clean 録音では ring 空 → finalize は同一サンプル集合を
+                // 再抽出するだけ（parity abs=0 維持）。完了後に seal を 1 前進させ、IO の bake arm が
+                // post-drain 確定スナップショットを読む handshake を成立させる（共通B）。
+                let drained = drain_ring_into_session(
+                    &mut consumer,
+                    &mut resampler,
+                    &mut engine,
+                    &session_summary,
+                    &mut chunk_f64,
+                    &mut resampled_buf,
+                );
+                if drained {
+                    record_sm.bump_seal();
+                    log::info!("[MeasureThread] Record→Watch tight-drain complete (seal bumped)");
+                } else {
+                    log::warn!(
+                        "[MeasureThread] Record→Watch drain incomplete — seal NOT bumped (IO bake → integrity_degraded)"
+                    );
+                }
             }
             prev_recording = is_recording;
 
@@ -250,8 +273,26 @@ pub fn spawn_measure_thread(
             let state = load_signal_state(&signal_state);
             if state != SignalState::Active {
                 prev_active = false;
+                // ── B-132 (G-115-382) 共通A: finalize-before-discard ──────────────
+                // 録音継続中（is_recording）に transport stop / DAW stall で Inactive に落ちた場合、
+                // ring 残量を破棄する前に finalize して session_summary に算入する。これで
+                // (ii)① 自然 Inactive discard と (ii)② heartbeat-stale override（line ~243 で
+                // state=Inactive に畳んで本ブロックに合流）の両経路をカバーする。純 Watch（非録音）の
+                // silent 破棄は is_recording gate で従来通り維持。seal は進めない（セッション継続中 /
+                // seal は Record→Watch エッジのみ）。`slots()>0` が冪等 latch（drain 後 ring 空 →
+                // 後続ループは skip / 長時間 stall でも再 finalize しない）。
+                if is_recording && consumer.slots() > 0 {
+                    let _ = drain_ring_into_session(
+                        &mut consumer,
+                        &mut resampler,
+                        &mut engine,
+                        &session_summary,
+                        &mut chunk_f64,
+                        &mut resampled_buf,
+                    );
+                }
                 // Bypassed / Inactive → compute() スキップ。
-                // リングバッファに残っているサンプルは破棄する
+                // リングバッファに残っているサンプルは破棄する（共通A で drain 済なら no-op）。
                 // （Active に戻ったとき古いデータで計測しないため）。
                 let stale = consumer.slots();
                 for _ in 0..stale {
@@ -372,6 +413,63 @@ pub fn spawn_measure_thread(
 
         log::info!("[MeasureThread] terminated");
     })
+}
+
+/// B-132 (G-115-382): 残量 ring を **Active ループ本体と同一**の convert/resample/engine.push
+/// パイプラインに通して engine に算入し、最終 `engine.finalize()` を `session_summary` に書く。
+///
+/// 取りこぼし tail（transport-stop / DAW-stall で ring に残ったサンプル）を確定値に算入するための
+/// 唯一の drain 経路。Common-A（mid-session Inactive discard 前）と P1（Record→Watch エッジ）の
+/// 両方から呼ぶ。live meter（`result`）/ phase_d は触らない: `SessionSummary` は engine の
+/// lufs_i/lra/max_true_peak のみで、per-sample DSP は engine.push/finalize 内で不変（R-12 / 変わるのは
+/// 消費サンプル集合のみ）。
+///
+/// 戻り値: `engine.finalize()` を `session_summary` に書けたら `true`。resampler error /
+/// Mutex poison で `false`（= drain 不能 → 呼び出し側は seal を進めず、IO 側 bounded wait が
+/// timeout → integrity_degraded に倒れる / 共通B）。
+fn drain_ring_into_session(
+    consumer: &mut rtrb::Consumer<f32>,
+    resampler: &mut Option<ResamplerTo48k>,
+    engine: &mut MeasureEngine,
+    session_summary: &Arc<Mutex<Option<SessionSummary>>>,
+    chunk_f64: &mut Vec<f64>,
+    resampled_buf: &mut Vec<f64>,
+) -> bool {
+    let available = consumer.slots();
+    if available > 0 {
+        chunk_f64.clear();
+        for _ in 0..available {
+            match consumer.pop() {
+                Ok(s) => chunk_f64.push(s as f64),
+                Err(_) => break,
+            }
+        }
+        let chunk_48k: &[f64] = if let Some(rs) = resampler.as_mut() {
+            resampled_buf.clear();
+            if let Err(e) = rs.process(chunk_f64, resampled_buf) {
+                log::warn!(
+                    "[MeasureThread] drain resample error: {:?} — tail finalize skipped",
+                    e
+                );
+                return false;
+            }
+            resampled_buf
+        } else {
+            chunk_f64
+        };
+        let _ = engine.push(chunk_48k);
+    }
+    let summary = engine.finalize();
+    match session_summary.lock() {
+        Ok(mut g) => {
+            *g = Some(summary);
+            true
+        }
+        Err(e) => {
+            log::warn!("[MeasureThread] drain session_summary Mutex poisoned: {}", e);
+            false
+        }
+    }
 }
 
 /// PSB low / mid / high を集約して dB 表現にする。
@@ -604,5 +702,117 @@ pub mod tests {
         let psb = [0.0; 20];
         let s = compute_psb_summary(&psb, &[0.0; 4], 0.0);
         assert!(s.high < -100.0, "high should floor near -120 dB, got {}", s.high);
+    }
+}
+
+// ── B-132 (G-115-382): drain-completion barrier 感度確証 ──────────────────────────
+#[cfg(test)]
+mod b132_drain_tests {
+    use super::drain_ring_into_session;
+    use crate::engine::MeasureEngine;
+    use std::sync::{Arc, Mutex};
+
+    const SR: u32 = 48_000;
+
+    /// interleaved stereo f32 を `n_frames` 分・振幅 `amp` の 1kHz 正弦で生成。
+    fn sine_stereo(n_frames: usize, amp: f32) -> Vec<f32> {
+        let mut v = Vec::with_capacity(n_frames * 2);
+        for i in 0..n_frames {
+            let s = amp * (2.0 * std::f32::consts::PI * 1000.0 * (i as f32) / SR as f32).sin();
+            v.push(s); // L
+            v.push(s); // R
+        }
+        v
+    }
+
+    fn to_f64(f32s: &[f32]) -> Vec<f64> {
+        f32s.iter().map(|&s| s as f64).collect()
+    }
+
+    /// 感度確証（barrier OFF vs ON）: 録音末尾に **より大きい peak を持つ tail** を残した状態で
+    /// transport-stop 相当を起こす。
+    /// - OFF（旧挙動 = ring を finalize せず破棄）: max_true_peak が body だけになり full と乖離（abs≠0 / 取りこぼし再現）。
+    /// - ON（drain_ring_into_session = barrier）: tail を engine に算入して finalize → full と一致（abs<1e-6）。
+    ///
+    /// これは「変えるのは finalize の消費サンプル集合（tail 算入）」であり per-sample DSP 不変
+    /// （engine.push/finalize は同一）であることの直接確証（G-115-381②(i)/(iii)）。
+    #[test]
+    fn drain_includes_tail_off_undercounts_on_matches_full() {
+        // body: 1.0s @ 0.1（静か）/ tail: 0.5s @ 0.5（大きい = peak は tail にある）
+        let body = sine_stereo(SR as usize, 0.1);
+        let tail = sine_stereo(SR as usize / 2, 0.5);
+        let body_f64 = to_f64(&body);
+        let tail_f64 = to_f64(&tail); // ON 側 drain と同じ f32→f64 経路を full にも適用（精度対称）
+
+        // full 参照: body + tail を直接 push。
+        let mut eng_full = MeasureEngine::new(SR, 2).unwrap();
+        let _ = eng_full.push(&body_f64);
+        let _ = eng_full.push(&tail_f64);
+        let full = eng_full.finalize();
+
+        // OFF（旧 discard）: body のみ。tail は破棄され finalize に入らない。
+        let mut eng_off = MeasureEngine::new(SR, 2).unwrap();
+        let _ = eng_off.push(&body_f64);
+        let off = eng_off.finalize();
+
+        // ON（barrier）: body push 済 + tail を ring に入れて drain。
+        let mut eng_on = MeasureEngine::new(SR, 2).unwrap();
+        let _ = eng_on.push(&body_f64);
+        let (mut prod, mut cons) = rtrb::RingBuffer::<f32>::new(tail.len() + 16);
+        for &s in &tail {
+            prod.push(s).unwrap();
+        }
+        let ss: Arc<Mutex<Option<crate::engine::SessionSummary>>> = Arc::new(Mutex::new(None));
+        let mut chunk = Vec::new();
+        let mut resampled = Vec::new();
+        let mut resampler = None;
+        let ok =
+            drain_ring_into_session(&mut cons, &mut resampler, &mut eng_on, &ss, &mut chunk, &mut resampled);
+        assert!(ok, "drain must succeed");
+        let on = (*ss.lock().unwrap()).expect("session_summary written by drain");
+
+        let fp = full.max_true_peak.expect("full tp");
+        let offp = off.max_true_peak.expect("off tp");
+        let onp = on.max_true_peak.expect("on tp");
+
+        // OFF: tail の peak を取りこぼして max_true_peak が大きく過小（0.5→0.1 amp で ~14 dB）。
+        assert!(
+            (fp - offp).abs() > 1.0,
+            "OFF must undercount max_true_peak (full={fp:.4} off={offp:.4})"
+        );
+        // ON（barrier）: tail 算入で full と一致（chunk 順序差 ~1e-12 のみ）。
+        assert!(
+            (fp - onp).abs() < 1e-6,
+            "ON (drain) must match full within 1e-6 (full={fp:.9} on={onp:.9})"
+        );
+    }
+
+    /// clean path（steady-no-residual）: ring が空のとき drain は engine の現値を
+    /// そのまま finalize して session_summary に書くだけで、値を乱さない（parity 不乱の保証）。
+    #[test]
+    fn drain_empty_ring_preserves_finalize_value() {
+        let body = sine_stereo(SR as usize, 0.2);
+        let body_f64 = to_f64(&body);
+        let mut eng = MeasureEngine::new(SR, 2).unwrap();
+        let _ = eng.push(&body_f64);
+        let reference = eng.finalize();
+
+        let (_prod, mut cons) = rtrb::RingBuffer::<f32>::new(16); // 空
+        let ss: Arc<Mutex<Option<crate::engine::SessionSummary>>> = Arc::new(Mutex::new(None));
+        let mut chunk = Vec::new();
+        let mut resampled = Vec::new();
+        let mut resampler = None;
+        let ok =
+            drain_ring_into_session(&mut cons, &mut resampler, &mut eng, &ss, &mut chunk, &mut resampled);
+        assert!(ok);
+        let drained = (*ss.lock().unwrap()).unwrap();
+        assert!(
+            (reference.max_true_peak.unwrap() - drained.max_true_peak.unwrap()).abs() < 1e-9,
+            "empty-ring drain must not disturb max_true_peak"
+        );
+        assert!(
+            (reference.lufs_i.unwrap() - drained.lufs_i.unwrap()).abs() < 1e-9,
+            "empty-ring drain must not disturb lufs_i"
+        );
     }
 }
