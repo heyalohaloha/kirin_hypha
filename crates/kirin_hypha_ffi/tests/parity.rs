@@ -253,25 +253,44 @@ fn drive_ffi_session(stereo_f32: &[f32]) -> (SessionSummary, u64, bool) {
         }
     }
 
-    // drain + 安定化: lufs_i が 2 回連続一致 = ring 全消費 = 参照と同一サンプル集合。
-    let mut prev: Option<f64> = None;
+    // drain 直接確認（B-129 reopen / G-115-380）: lufs_i の値プラトーで finalize タイミングを決めない。
+    // 旧版は「lufs_i が 2 回連続一致 = ring 全消費」と仮定したが、定常信号では integrated LUFS が ring
+    // 未空でも早期にプラトーするため、FFI が direct より少ないサンプル集合で finalize し 1e-7〜1e-5 乖離する
+    // flaky の原因だった。新版は ring が実際に空であること（__ring_drained_for_test = producer.slots()==capacity
+    // ⟺ consumer が全 pop 済）かつ overflow_count()==0（push 失敗 0 ⟹ 投入は全て ring 経由）で、
+    // 「push 済み全サンプルを measure thread が pop→engine.push()→finalize() 済」を直接確認する。
+    // ring 空を 3 回連続（3×50ms=150ms > measure LOOP_SLEEP=100ms）観測してから poll_session を読み、
+    // 最後の実 pop と同一ループ内の finalize→session_summary 書込が完了した後の値を取る。0-frame keepalive は
+    // ring に投入しない（is_recording/heartbeat 維持のみ）ので、一度空になった ring は空のまま保たれ、
+    // session_summary は最後の実 pop 後の finalize 値で安定する（値比較なしで決定的）。
+    let mut drained_streak = 0u32;
     let mut stable: Option<SessionSummary> = None;
-    for _ in 0..120 {
-        engine.push_samples(&[], 2); // keepalive（is_recording 維持・heartbeat）
+    for _ in 0..240 {
+        engine.push_samples(&[], 2); // keepalive（is_recording 維持・heartbeat / ring 投入なし）
         sleep(Duration::from_millis(50));
-        if let Some(s) = engine.poll_session() {
-            if s.lufs_i.is_some() && s.lufs_i == prev {
-                stable = Some(s);
-                break;
+        if engine.__ring_drained_for_test() && engine.overflow_count() == 0 {
+            drained_streak += 1;
+            if drained_streak >= 3 {
+                if let Some(s) = engine.poll_session() {
+                    stable = Some(s);
+                    break;
+                }
             }
-            prev = s.lufs_i;
+        } else {
+            drained_streak = 0; // ring に未消費サンプル / push 失敗あり → 全消費ではない
         }
     }
     let overflow = engine.overflow_count();
     let was_recording = engine.is_recording();
     engine.exit_record(); // Watch へ。直近 finalize 値は保持される。
     (
-        stable.expect("poll_session の lufs_i が安定すること（全サンプル finalize 済）"),
+        // STOP 条項（B-132）: ring 全消費を確認できない場合は value 比較で誤魔化さず、ここで panic させ
+        // test を FAIL させる。production の (b) drain 不全（ring が空にならない / 消費数が合わない）を
+        // 踏んだ証跡として報告する（test を緩めて production 欠陥を隠さない）。
+        stable.expect(
+            "ring 全消費（__ring_drained_for_test）+ overflow==0 を確認後に poll_session が Some を返すこと\
+             （未達なら production drain 不全 = B-132 の証跡。test を緩めて隠さない）",
+        ),
         overflow,
         was_recording,
     )

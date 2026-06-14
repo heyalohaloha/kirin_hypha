@@ -1320,6 +1320,27 @@ impl KirinHyphaEngine {
     pub fn oversized_drop_count(&self) -> u64 {
         self.oversized_drop.load(Ordering::Relaxed)
     }
+
+    /// B-129 reopen (G-115-380): **test-only** — Audio→Measure ring が全消費されたか。
+    /// `producer.slots()`（書込可能空きスロット数）== ring 容量 ⟺ consumer が push 済み全サンプルを
+    /// pop しきった状態。parity の session_finalize gate が「lufs_i 値プラトー」でなく ring 全消費を
+    /// 直接確認するための read-only introspection。**計測数値サーフェスではない**（bool を返すのみ・
+    /// engine.rs / 本番 finalize / FFI 計測数値は不変）。容量は `new()` の構築式
+    /// （sample_rate * RING_BUFFER_SECONDS * N_CHANNELS）と同一に算出するため、watchdog の
+    /// Producer 差し替え後も不変。
+    ///
+    /// SAFETY: `ring_producer`(UnsafeCell<rtrb::Producer>) は SPSC 契約で「Audio/test 単独スレッド」
+    /// からのみ触れる（struct の `unsafe impl Sync` 根拠と同一）。本メソッドも push_samples と同一
+    /// スレッドから順次呼ばれ時間的に重ならない（&mut と & の同時生成なし）。`Producer::slots()` は
+    /// `&self` の read-only で head（consumer 位置）を Acquire load するのみで、consumer 側の pop と
+    /// 並行しても rtrb SPSC 設計上健全。
+    #[doc(hidden)]
+    pub fn __ring_drained_for_test(&self) -> bool {
+        let capacity = (self.sample_rate as usize) * RING_BUFFER_SECONDS * N_CHANNELS;
+        // SAFETY: 上記参照（SPSC・push_samples と同一スレッド・read-only slots()）。
+        let producer = unsafe { &*self.ring_producer.get() };
+        producer.slots() == capacity
+    }
 }
 
 impl Drop for KirinHyphaEngine {
