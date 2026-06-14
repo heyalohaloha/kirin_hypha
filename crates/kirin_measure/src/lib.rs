@@ -15,6 +15,7 @@ pub mod io_thread_post;
 pub mod io_thread_pre;
 pub mod license;
 pub mod measure_thread;
+pub mod path_identity;
 pub mod phase_d;
 pub mod plugin_data;
 pub mod pre_discovery;
@@ -49,6 +50,10 @@ pub use license::{
     show_save_button, show_stop_record_button, SENSE_RECORD_HINT, SENSE_UPSELL_URL,
 };
 pub use measure_thread::{live_window, pair_lock_active, spawn_measure_thread, LivenessEvaluator};
+pub use path_identity::{
+    drain_path_events, guard_path_component, is_path_safe_component, materialize_observation_id,
+    surface_path_event,
+};
 pub use plugin_data::{
     append_annotation_to_latest, compact_wall_clock, verify_checksum, Annotation, BounceMarker,
     Frame, PluginDataFile, PluginDataWriter, PsbSnapshot, Role as PluginDataRole,

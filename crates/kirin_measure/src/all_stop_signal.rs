@@ -74,7 +74,9 @@ impl AllStopBroadcast {
 
 /// `{base}/{project_hash}/all_stop_signal/` ディレクトリ。
 pub fn stop_signals_dir(base_dir: &Path, project_hash: &str) -> PathBuf {
-    base_dir.join(project_hash).join(ALL_STOP_SIGNAL_SUBDIR)
+    // B-128 (G-115-370): within-base wall。stop_signal_path も本関数経由で project_hash を guard。
+    let ph = crate::path_identity::guard_path_component(project_hash, "all_stop_signal.stop_signals_dir.project_hash");
+    base_dir.join(&*ph).join(ALL_STOP_SIGNAL_SUBDIR)
 }
 
 /// `{base}/{project_hash}/all_stop_signal/{originator_post_instance_id}.json`。
@@ -83,7 +85,8 @@ pub fn stop_signal_path(
     project_hash: &str,
     originator_post_instance_id: &str,
 ) -> PathBuf {
-    stop_signals_dir(base_dir, project_hash).join(format!("{originator_post_instance_id}.json"))
+    let iid = crate::path_identity::guard_path_component(originator_post_instance_id, "all_stop_signal.stop_signal_path.originator");
+    stop_signals_dir(base_dir, project_hash).join(format!("{iid}.json"))
 }
 
 fn tmp_path(final_path: &Path) -> PathBuf {

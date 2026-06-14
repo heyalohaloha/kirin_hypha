@@ -203,6 +203,13 @@ pub fn spawn_io_thread_pre(
     oversized_drop: Arc<std::sync::atomic::AtomicU64>,
 ) -> JoinHandle<()> {
     thread::spawn(move || {
+        // B-128 (G-115-370): 観測 family（io_thread）入口の identity materialize（唯一の検証点）。
+        // restore 由来の path-unsafe な project_hash は fresh new_v4 へ差し替え、instance_id セルも
+        // 同様に正規化する（§7② 観測継続）。path-safe な値（valid UUID / 無害な literal）は無改変＝
+        // parity の literal id path テスト不変。下流の builder wall は materialize 後の DiD backstop。
+        let project_hash =
+            crate::path_identity::materialize_observation_id(&project_hash, "io_thread_pre.project_hash");
+        crate::path_identity::normalize_observation_cell(&instance_id, "io_thread_pre.instance_id");
         log::info!(
             "[IOThread PRE] started (lazy-read instance_id, fallback project_hash={})",
             project_hash
@@ -490,10 +497,10 @@ pub fn spawn_io_thread_pre(
 
 /// `$TMPDIR/kirin/{project_hash}/{instance_id}/` パスを返す（pre.json / Watch 用）。
 pub fn io_dir(project_hash: &str, instance_id: &str) -> PathBuf {
-    std::env::temp_dir()
-        .join("kirin")
-        .join(project_hash)
-        .join(instance_id)
+    // B-128 (G-115-370): within-base wall（Watch pre.json の path builder）。
+    let ph = crate::path_identity::guard_path_component(project_hash, "io_dir.project_hash");
+    let iid = crate::path_identity::guard_path_component(instance_id, "io_dir.instance_id");
+    std::env::temp_dir().join("kirin").join(&*ph).join(&*iid)
 }
 
 /// record_signal を 1 度だけ poll し、PRE 側の record state を同期する。

@@ -129,12 +129,15 @@ impl RecordSignal {
 
 /// `{base}/{project_hash}/record_signal/` ディレクトリ。
 pub fn signals_dir(base_dir: &Path, project_hash: &str) -> PathBuf {
-    base_dir.join(project_hash).join(SIGNALS_SUBDIR)
+    // B-128 (G-115-370): within-base wall。signal_path も本関数経由で project_hash を guard。
+    let ph = crate::path_identity::guard_path_component(project_hash, "record_signal.signals_dir.project_hash");
+    base_dir.join(&*ph).join(SIGNALS_SUBDIR)
 }
 
 /// `{base}/{project_hash}/record_signal/{post_instance_id}.json`。
 pub fn signal_path(base_dir: &Path, project_hash: &str, post_instance_id: &str) -> PathBuf {
-    signals_dir(base_dir, project_hash).join(format!("{post_instance_id}.json"))
+    let iid = crate::path_identity::guard_path_component(post_instance_id, "record_signal.signal_path.post_instance_id");
+    signals_dir(base_dir, project_hash).join(format!("{iid}.json"))
 }
 
 fn tmp_path(final_path: &Path) -> PathBuf {

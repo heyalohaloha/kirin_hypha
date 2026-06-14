@@ -168,6 +168,13 @@ pub fn spawn_io_thread_post(
     latched_pre: Arc<Mutex<Option<LatchedPre>>>,
 ) -> JoinHandle<()> {
     thread::spawn(move || {
+        // B-128 (G-115-370): 観測 family（io_thread）入口の identity materialize（唯一の検証点）。
+        // restore 由来の path-unsafe な project_hash / instance_id / daw_session_id セルを正規化し、
+        // path-unsafe なら fresh new_v4 へ差し替える（§7② 観測継続 / daw は drift 防止で同経路）。
+        // path-safe な値は無改変＝parity の literal id path テスト不変。下流 builder wall が DiD backstop。
+        crate::path_identity::normalize_observation_cell(&instance_id, "io_thread_post.instance_id");
+        crate::path_identity::normalize_observation_cell(&project_hash, "io_thread_post.project_hash");
+        crate::path_identity::normalize_observation_cell(&daw_session_id, "io_thread_post.daw_session_id");
         // B-021 Phase 1A: PRE scan の起点は `kirin_root` (= $TMPDIR/kirin/) で、
         // POST IO Thread が動的に discover する。`project_dir_hint` は POST 自身の
         // project_uuid から構築した fallback (PRE が見つからない場合のみ使う)。
@@ -271,8 +278,13 @@ pub fn spawn_io_thread_post(
             let instance_id_ref = instance_id_owned.as_str();
             let project_hash_owned = read_project_hash_arc(&project_hash);
             let project_hash_ref = project_hash_owned.as_str();
-            let project_dir_hint = kirin_root.join(project_hash_ref);
-            let instance_dir = project_dir_hint.join(instance_id_ref);
+            // B-128 (G-115-370): within-base wall。POST post.json は inline writer ゆえ builder 関数を
+            // 通らない。spawn 時 normalize_observation_cell に加え、ここでも guard して PRE(io_dir 毎回
+            // guard)との DiD parity を取る（cell が spawn 後に path-unsafe 化しても base 内に留める）。
+            let ph_guard = crate::path_identity::guard_path_component(project_hash_ref, "io_thread_post.post_json.project_hash");
+            let iid_guard = crate::path_identity::guard_path_component(instance_id_ref, "io_thread_post.post_json.instance_id");
+            let project_dir_hint = kirin_root.join(&*ph_guard);
+            let instance_dir = project_dir_hint.join(&*iid_guard);
             let post_file = instance_dir.join("post.json");
             let post_tmp = instance_dir.join("post.json.tmp");
 
@@ -624,8 +636,11 @@ pub fn spawn_io_thread_post(
         // §4-5 Step 1: 終了処理時も project_hash を lazy-read で確定。
         let final_iid = read_instance_id_arc(&instance_id);
         let final_project_hash = read_project_hash_arc(&project_hash);
-        let final_project_dir_hint = kirin_root.join(&final_project_hash);
-        let final_instance_dir = final_project_dir_hint.join(&final_iid);
+        // B-128 (G-115-370): within-base wall（POST post.json cleanup builder / DiD parity）。
+        let final_ph_guard = crate::path_identity::guard_path_component(&final_project_hash, "io_thread_post.cleanup.project_hash");
+        let final_iid_guard = crate::path_identity::guard_path_component(&final_iid, "io_thread_post.cleanup.instance_id");
+        let final_project_dir_hint = kirin_root.join(&*final_ph_guard);
+        let final_instance_dir = final_project_dir_hint.join(&*final_iid_guard);
         let final_post_file = final_instance_dir.join("post.json");
         let final_post_tmp = final_instance_dir.join("post.json.tmp");
         if let Err(e) = fs::remove_file(&final_post_file) {
@@ -2025,9 +2040,10 @@ fn poll_preset_availability(
     last_seen: &mut Option<usize>,
 ) {
     let preset_dir = match StoragePaths::default_macos() {
+        // B-128 (G-115-370): within-base wall（preset availability read。preset_dir 同等の inline 構築）。
         Ok(paths) => paths
             .plugin_data_dir()
-            .join(project_hash)
+            .join(&*crate::path_identity::guard_path_component(project_hash, "io_thread_post.poll_preset.project_hash"))
             .join(crate::preset::PRESET_SUBDIR),
         Err(_) => {
             if *last_seen != Some(0) {

@@ -38,7 +38,12 @@ static TEMP_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::ne
 /// pairing を一意識別する正規化キー（`pre_instance_id__post_instance_id`）。
 /// active marker 側（POST→`(paired_pre, self)` / PRE→`(self, paired_post)`）と同じ規則で作る。
 pub fn pairing_key(pre_instance_id: &str, post_instance_id: &str) -> String {
-    format!("{pre_instance_id}__{post_instance_id}")
+    // B-128 (G-115-370): within-base wall。reservation_path / reserve_build_temp の両 path builder が
+    // 本キーを使うため、ここで pre/post を guard すれば枠ファイル名は常に base 内 path-safe。
+    // 正常運用（valid UUID / 安全な literal）は無改変＝既存 pairing 契約・B-127 テスト不変。
+    let pre = crate::path_identity::guard_path_component(pre_instance_id, "reservation.pairing_key.pre");
+    let post = crate::path_identity::guard_path_component(post_instance_id, "reservation.pairing_key.post");
+    format!("{pre}__{post}")
 }
 
 #[derive(Serialize, Deserialize)]
@@ -59,7 +64,9 @@ pub enum ReserveOutcome {
 }
 
 fn reservation_dir(base_dir: &Path, project_hash: &str) -> PathBuf {
-    base_dir.join(project_hash).join(RESERVATION_SUBDIR)
+    // B-128 (G-115-370): within-base wall（project_hash 成分）。
+    let ph = crate::path_identity::guard_path_component(project_hash, "reservation.dir.project_hash");
+    base_dir.join(&*ph).join(RESERVATION_SUBDIR)
 }
 
 fn reservation_path(base_dir: &Path, project_hash: &str, pre_iid: &str, post_iid: &str) -> PathBuf {
@@ -166,6 +173,8 @@ pub fn release_pairing(base_dir: &Path, project_hash: &str, pre_iid: &str, post_
 /// 枠ファイル（`.json`）の数を数える（= distinct pairing 数 / 第二の独立 count を持たない）。
 /// **parse は一切しない**ため、内容が壊れた/書込途中の枠も「存在」側で数える（under-count しない）。
 /// **TTL を差し引かない**（古い枠も存在すれば数える）。孤児回収は sweep の責務であって count ではない。
+/// B-128 (G-115-370 / C3): quarantine 枠（`_q_` を含む / restore 攻撃値の wall 畳み込み結果）は
+/// **正規 cap に数えない**。攻撃者が traversal 値で cap を消費（DoS）/ bypass することを構造的に防ぐ。
 pub fn count_frames(base_dir: &Path, project_hash: &str) -> usize {
     let dir = reservation_dir(base_dir, project_hash);
     let Ok(entries) = fs::read_dir(&dir) else {
@@ -174,6 +183,14 @@ pub fn count_frames(base_dir: &Path, project_hash: &str) -> usize {
     entries
         .flatten()
         .filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("json"))
+        .filter(|e| {
+            // quarantine 枠（攻撃値）は cap 対象外。valid UUID 枠名は `_q_` を含まないため誤除外しない。
+            e.path()
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .map(|stem| !crate::path_identity::is_quarantine_component(stem))
+                .unwrap_or(true)
+        })
         .count()
 }
 
@@ -218,9 +235,14 @@ fn pairing_has_fresh_marker(
     post_iid: &str,
     now: DateTime<Utc>,
 ) -> bool {
-    let proj = base_dir.join(project_hash);
-    role_dir_has_fresh_marker(&proj.join(pre_iid).join(PluginDataRole::Pre.dir_name()), now)
-        || role_dir_has_fresh_marker(&proj.join(post_iid).join(PluginDataRole::Post.dir_name()), now)
+    // B-128 (G-115-370): within-base wall。pre_iid/post_iid は枠ファイル**内容**（raw）由来のため、
+    // marker 探索 path に出る前に guard する（攻撃値枠の read-traversal 防止）。valid/safe 値は無改変。
+    let ph = crate::path_identity::guard_path_component(project_hash, "reservation.marker.project_hash");
+    let pre = crate::path_identity::guard_path_component(pre_iid, "reservation.marker.pre");
+    let post = crate::path_identity::guard_path_component(post_iid, "reservation.marker.post");
+    let proj = base_dir.join(&*ph);
+    role_dir_has_fresh_marker(&proj.join(&*pre).join(PluginDataRole::Pre.dir_name()), now)
+        || role_dir_has_fresh_marker(&proj.join(&*post).join(PluginDataRole::Post.dir_name()), now)
 }
 
 fn role_dir_has_fresh_marker(dir: &Path, now: DateTime<Utc>) -> bool {

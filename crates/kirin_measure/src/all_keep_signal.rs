@@ -98,12 +98,15 @@ impl AllKeepBroadcast {
 
 /// `{base}/{project_hash}/all_keep_signal/` ディレクトリ。
 pub fn signals_dir(base_dir: &Path, project_hash: &str) -> PathBuf {
-    base_dir.join(project_hash).join(ALL_KEEP_SIGNAL_SUBDIR)
+    // B-128 (G-115-370): within-base wall。signal_path も本関数経由で project_hash を guard。
+    let ph = crate::path_identity::guard_path_component(project_hash, "all_keep_signal.signals_dir.project_hash");
+    base_dir.join(&*ph).join(ALL_KEEP_SIGNAL_SUBDIR)
 }
 
 /// `{base}/{project_hash}/all_keep_signal/{originator_post_instance_id}.json`。
 pub fn signal_path(base_dir: &Path, project_hash: &str, originator_post_instance_id: &str) -> PathBuf {
-    signals_dir(base_dir, project_hash).join(format!("{originator_post_instance_id}.json"))
+    let iid = crate::path_identity::guard_path_component(originator_post_instance_id, "all_keep_signal.signal_path.originator");
+    signals_dir(base_dir, project_hash).join(format!("{iid}.json"))
 }
 
 fn tmp_path(final_path: &Path) -> PathBuf {

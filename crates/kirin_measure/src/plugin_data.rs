@@ -375,10 +375,10 @@ impl WriterPaths {
         wall_clock_start_iso: &str,
     ) -> Self {
         let compact = compact_wall_clock(wall_clock_start_iso);
-        let dir = base_dir
-            .join(project_hash)
-            .join(instance_id)
-            .join(role.dir_name());
+        // B-128 (G-115-370): within-base wall。restore 由来の path-unsafe な identity を base 内へ畳む。
+        let ph = crate::path_identity::guard_path_component(project_hash, "WriterPaths.build.project_hash");
+        let iid = crate::path_identity::guard_path_component(instance_id, "WriterPaths.build.instance_id");
+        let dir = base_dir.join(&*ph).join(&*iid).join(role.dir_name());
         let final_path = dir.join(format!("{compact}.json"));
         let tmp_path = dir.join(format!("{compact}.json.tmp"));
         Self { final_path, tmp_path }
@@ -595,10 +595,10 @@ pub fn append_annotation_to_latest(
     role: Role,
     memo: String,
 ) -> Result<bool, WriterError> {
-    let dir = base_dir
-        .join(project_hash)
-        .join(instance_id)
-        .join(role.dir_name());
+    // B-128 (G-115-370): within-base wall（annotation も path builder の一つ）。
+    let ph = crate::path_identity::guard_path_component(project_hash, "append_annotation.project_hash");
+    let iid = crate::path_identity::guard_path_component(instance_id, "append_annotation.instance_id");
+    let dir = base_dir.join(&*ph).join(&*iid).join(role.dir_name());
     let Some(latest) = find_latest_json(&dir) else {
         return Ok(false);
     };

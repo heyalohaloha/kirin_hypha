@@ -247,7 +247,9 @@ pub fn scan_valid_presets_v2(
 
 /// v1.1 と同じパス規約。
 pub fn preset_dir_v2(base: &Path, project_hash: &str) -> PathBuf {
-    base.join(project_hash).join(PRESET_SUBDIR)
+    // B-128 (G-115-370): within-base wall（restore project_uuid 由来の preset path）。
+    let ph = crate::path_identity::guard_path_component(project_hash, "preset_v2.preset_dir_v2.project_hash");
+    base.join(&*ph).join(PRESET_SUBDIR)
 }
 
 fn is_preset_json(path: &Path) -> bool {

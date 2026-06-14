@@ -164,7 +164,9 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 
 /// `{base}/{project_hash}/preset/` を返す。
 pub fn preset_dir(base: &Path, project_hash: &str) -> PathBuf {
-    base.join(project_hash).join(PRESET_SUBDIR)
+    // B-128 (G-115-370): within-base wall（restore project_uuid 由来の preset path）。
+    let ph = crate::path_identity::guard_path_component(project_hash, "preset.preset_dir.project_hash");
+    base.join(&*ph).join(PRESET_SUBDIR)
 }
 
 /// preset/ 配下の `.json` を走査し、検証通過分のみ返す。
