@@ -32,6 +32,10 @@ use uuid::Uuid;
 /// pairing から quarantine 枠を確実に識別・除外できる（C3）。
 pub const QUARANTINE_PREFIX: &str = "_q_";
 
+/// path component の最大長（B-128 G-115-371 D4）。UUID(36) / 既存 literal id は十分収まり、
+/// FFI C ABI 識別子バッファ（64）とも整合。超過は unsafe 扱い→quarantine（DoS 級の overlength 拒否）。
+pub const MAX_COMPONENT_LEN: usize = 64;
+
 fn event_sink() -> &'static Mutex<Vec<String>> {
     static SINK: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
     SINK.get_or_init(|| Mutex::new(Vec::new()))
@@ -55,6 +59,17 @@ pub fn drain_path_events() -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// surface 済み event を 1 件だけ pop する（FFI C ABI getter / JUCE status 用・無ければ None）。
+pub fn take_path_event() -> Option<String> {
+    event_sink().lock().ok().and_then(|mut g| {
+        if g.is_empty() {
+            None
+        } else {
+            Some(g.remove(0))
+        }
+    })
+}
+
 /// path component が安全か（traversal / 絶対パス / 区切り / 空 を排除）。
 ///
 /// B-128 cap-bypass 封止: [`QUARANTINE_PREFIX`]（`_q_`）は wall 専用の **予約 marker**。これを含む値は
@@ -64,11 +79,12 @@ pub fn drain_path_events() -> Vec<String> {
 /// を含まないため影響なし）。これで「`_q_` を含む枠 = 必ず wall 由来の真の quarantine」が不変条件になる。
 pub fn is_path_safe_component(s: &str) -> bool {
     !s.is_empty()
+        && s.len() <= MAX_COMPONENT_LEN // D4: overlength 拒否
         && s != "."
         && s != ".."
         && !s.contains('/')
         && !s.contains('\\')
-        && !s.contains('\0')
+        && !s.chars().any(|c| c.is_control()) // D4: null byte 含む全制御文字を拒否
         && !s.contains(QUARANTINE_PREFIX)
         && !Path::new(s).is_absolute()
 }
@@ -126,6 +142,46 @@ pub fn materialize_observation_id(raw: &str, ctx: &str) -> String {
         raw.len()
     ));
     fresh
+}
+
+/// **restore 受領点（FFI set_identity）用の単一 materialize**（B-128 G-115-371）。
+/// FFI `self.identity` を本関数で materialize すれば keep / record / 永続化 / io_thread が全て
+/// materialize 済 self.identity を読み、family 間分裂（raw 第二源）と uncounted-Record-bypass が
+/// 1 点で構造的に消える（unsafe→counted 正規 reservation の new_v4）。
+/// - **empty は空のまま返す**（「未設定→enable で生成」契約を保つ・materialize_observation_id と異なる）。
+/// - path-safe な非空値（valid UUID / 無害な literal）→ 無改変（parity literal-id テスト不変）。
+/// - path-unsafe → fresh new_v4 + invalid-identity event（D2/D3）。
+pub fn materialize_restore_field(raw: &str, ctx: &str) -> String {
+    if raw.is_empty() {
+        return String::new();
+    }
+    if is_path_safe_component(raw) {
+        return raw.to_string();
+    }
+    let fresh = Uuid::new_v4().to_string();
+    surface_path_event(format!(
+        "invalid-identity: path-unsafe {ctx} substituted with fresh {fresh} (len={})",
+        raw.len()
+    ));
+    fresh
+}
+
+/// **restore 受領点（egui `initialize`）用の同期 cell materialize**（B-128 G-115-371 / D2）。
+/// FFI の `set_identity` materialize と対称。`materialize_restore_field` を使う（empty は空のまま＝
+/// 「未設定→生成」契約保持）。egui は params(`Arc<RwLock<String>>`)を editor keep と io_thread が共有
+/// するため、**io_thread spawn / GUI keep より前**に本関数で params を畳めば、async な io_thread
+/// normalize が走る前の窓で uncounted-quarantine Record に入る経路を閉じる（両殻 D2 統一）。
+pub fn normalize_restore_cell(cell: &RwLock<String>, ctx: &str) {
+    let current = match cell.read() {
+        Ok(g) => g.clone(),
+        Err(_) => return,
+    };
+    let materialized = materialize_restore_field(&current, ctx);
+    if materialized != current {
+        if let Ok(mut g) = cell.write() {
+            *g = materialized;
+        }
+    }
 }
 
 /// io_thread が共有する `Arc<RwLock<String>>` 識別子セルを観測 family として materialize する。
@@ -202,6 +258,67 @@ mod tests {
         assert!(Uuid::parse_str(&m).is_ok(), "unsafe → valid new uuid (§7② 観測継続)");
         assert!(!is_quarantine_component(&m), "観測 family は quarantine でなく clean new uuid");
         assert!(!drain_path_events().is_empty(), "unsafe は invalid-identity event surface");
+    }
+
+    // ── D4: 長さ上限 + 制御文字 ───────────────────────────────────────────────
+    #[test]
+    fn d4_overlength_and_control_chars_rejected() {
+        // valid UUID（36 / printable）は通過。
+        assert!(is_path_safe_component("a1b2c3d4-0000-4000-8000-000000000000"));
+        // 境界: ちょうど MAX は safe / MAX+1 は unsafe。
+        assert!(is_path_safe_component(&"a".repeat(MAX_COMPONENT_LEN)));
+        let long = "a".repeat(MAX_COMPONENT_LEN + 1);
+        assert!(!is_path_safe_component(&long), "overlength は unsafe");
+        assert!(guard_path_component(&long, "t").starts_with(QUARANTINE_PREFIX));
+        // 制御文字（改行/タブ/null/bell）→ unsafe → quarantine。
+        for s in ["a\nb", "a\tb", "a\0b", "\u{7}bell"] {
+            assert!(!is_path_safe_component(s), "{s:?} は制御文字含み unsafe");
+            assert!(guard_path_component(s, "t").starts_with(QUARANTINE_PREFIX));
+        }
+    }
+
+    // ── restore 受領点 materialize（empty 保持）──────────────────────────────
+    #[test]
+    fn materialize_restore_field_preserves_empty_and_safe() {
+        fresh_events();
+        // empty は空のまま（「未設定→enable 生成」契約）。event なし。
+        assert_eq!(materialize_restore_field("", "t"), "");
+        assert!(drain_path_events().is_empty(), "empty は silent");
+        // safe literal は不変（parity）。
+        assert_eq!(materialize_restore_field("iid-b058-fixed", "t"), "iid-b058-fixed");
+        assert!(drain_path_events().is_empty());
+        // unsafe → fresh new_v4 + event。
+        let m = materialize_restore_field("/tmp/x", "t");
+        assert!(Uuid::parse_str(&m).is_ok(), "unsafe → new_v4: {m}");
+        assert!(!drain_path_events().is_empty(), "unsafe は event surface");
+    }
+
+    #[test]
+    fn normalize_restore_cell_materializes_unsafe_preserves_safe_empty() {
+        fresh_events();
+        // unsafe → new_v4 を書き戻し + event。
+        let unsafe_cell = RwLock::new("/tmp/x".to_string());
+        normalize_restore_cell(&unsafe_cell, "t");
+        assert!(Uuid::parse_str(&unsafe_cell.read().unwrap()).is_ok(), "unsafe → new_v4 書き戻し");
+        assert!(!drain_path_events().is_empty(), "event surface");
+        // safe → 不変（parity）/ empty → 不変（"" / 未設定→生成契約）。
+        let safe_cell = RwLock::new("iid-b058-fixed".to_string());
+        normalize_restore_cell(&safe_cell, "t");
+        assert_eq!(*safe_cell.read().unwrap(), "iid-b058-fixed");
+        let empty_cell = RwLock::new(String::new());
+        normalize_restore_cell(&empty_cell, "t");
+        assert_eq!(*empty_cell.read().unwrap(), "");
+        assert!(drain_path_events().is_empty(), "safe/empty は event なし");
+    }
+
+    #[test]
+    fn take_path_event_pops_one() {
+        fresh_events();
+        surface_path_event("e1");
+        surface_path_event("e2");
+        assert_eq!(take_path_event().as_deref(), Some("e1"));
+        assert_eq!(take_path_event().as_deref(), Some("e2"));
+        assert_eq!(take_path_event(), None);
     }
 
     #[test]

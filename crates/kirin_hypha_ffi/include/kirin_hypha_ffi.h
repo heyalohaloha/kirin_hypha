@@ -166,6 +166,11 @@ bool kirin_hypha_record_exclusion_conflict(KirinHypha* handle);
  * 文言あり=true / 通常(None)・null・panic=false（out 不変）. read-only poller・UI Thread. */
 bool kirin_hypha_record_error_message(KirinHypha* handle, char* out, size_t out_len);
 
+/* B-128 (G-115-371 / D3): restore identity の anomaly（path-unsafe を materialize / wall が quarantine）
+ * を 1 件 out（最大 len-1 + null 終端）へ drain する. event あり=true / 無し・null・panic=false.
+ * sink は process-global（handle 非依存）. 殻は毎描画 / timer で poll して status surface する. */
+bool kirin_hypha_drain_path_event(char* out, size_t len);
+
 /* PRE が POST の record_signal を ack 済みか（B-054 LED / Keeping バナー poller・UI Thread）.
  * enable_pre_writes 前 / POST engine / null は false. */
 bool kirin_hypha_record_acknowledged(KirinHypha* handle);

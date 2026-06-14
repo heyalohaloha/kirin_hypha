@@ -551,6 +551,60 @@ fn identity_round_trip_via_c_abi() {
     assert_eq!(got, read_back("iid-x", "puid-y", "dsid-z", "mix1"));
 }
 
+/// B-128 (G-115-371 / D1+D2+D3): set_identity が path-unsafe な restore 値を materialize し、
+/// self.identity（get_identity 往復）が fresh new_v4 になる（raw 第二源なし=分裂消滅 D1）。
+/// その値で reservation は counted（quarantine でない=uncounted bypass 消滅 D2）。
+/// invalid-identity event が surface される（D3）。
+#[test]
+fn set_identity_materializes_unsafe_restore_value() {
+    use kirin_hypha_ffi::{kirin_hypha_get_identity, kirin_hypha_set_identity, KirinIdentity};
+    use kirin_measure::path_identity::drain_path_events;
+    use kirin_measure::reservation::{count_frames, reserve_pairing, ReserveOutcome};
+    use std::ffi::CString;
+
+    let _ = drain_path_events(); // sink clean
+
+    let mut engine = KirinHyphaEngine::new(SR, 2);
+    let ptr = &mut engine as *mut KirinHyphaEngine;
+    let (c_iid, c_puid, c_dsid, c_nm) = (
+        CString::new("/tmp/x").unwrap(),          // 絶対パス（§7 i）
+        CString::new("../../../../etc").unwrap(), // ../traversal（§7 ii）
+        CString::new("").unwrap(),
+        CString::new("name").unwrap(),
+    );
+    unsafe {
+        kirin_hypha_set_identity(ptr, c_iid.as_ptr(), c_puid.as_ptr(), c_dsid.as_ptr(), c_nm.as_ptr());
+    }
+    let mut out: KirinIdentity = unsafe { std::mem::zeroed() };
+    unsafe { kirin_hypha_get_identity(ptr, &mut out) };
+    let iid = cbuf_to_string(&out.instance_id);
+    let puid = cbuf_to_string(&out.project_uuid);
+
+    // D1: self.identity が materialize 済 new_v4（raw "/tmp/x" は残らない＝第二源なし）。
+    assert_ne!(iid, "/tmp/x", "unsafe instance_id は materialize される（raw 残存なし）");
+    assert_ne!(puid, "../../../../etc");
+    assert!(uuid::Uuid::parse_str(&iid).is_ok(), "instance_id は fresh new_v4: {iid}");
+    assert!(uuid::Uuid::parse_str(&puid).is_ok(), "project_uuid は fresh new_v4: {puid}");
+
+    // D3: invalid-identity event surface（silent swap 禁止）。
+    assert!(!drain_path_events().is_empty(), "invalid 注入で event surface");
+
+    // D2: materialize 済 new_v4 値での reservation は counted（quarantine `_q_` でない）。
+    let base = std::env::temp_dir().join(format!("kirin_d2_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    std::fs::create_dir_all(&base).unwrap();
+    assert!(matches!(
+        reserve_pairing(&base, &puid, &iid, &iid).unwrap(),
+        ReserveOutcome::Created
+    ));
+    assert_eq!(
+        count_frames(&base, &puid),
+        1,
+        "materialize 済 new_v4 reservation は counted（uncounted bypass なし=D2）"
+    );
+    let _ = std::fs::remove_dir_all(&base);
+}
+
 /// add_annotation は Os 以外（既定 Unknown / Sense）で false（二重 gate / can_write_plugin_data）。
 #[test]
 fn add_annotation_denied_without_os() {

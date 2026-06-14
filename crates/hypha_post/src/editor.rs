@@ -347,6 +347,13 @@ pub fn create_post_editor(args: PostEditorArgs) -> Option<Box<dyn Editor>> {
                 }
             }
 
+            // B-128 (G-115-371 / D3): restore identity anomaly（path-unsafe を materialize / wall が
+            // quarantine）を process-global sink から drain して toast 化（silent swap 禁止 / R-28）。
+            // sink は両殻共有ゆえ開いている editor がまとめて surface する。
+            if let Some(msg) = kirin_measure::take_path_event() {
+                state.toast = Some(Toast::new(msg, now));
+            }
+
             // T-F fallback anchor: Record 開始 wall-clock を 1 度だけ記録し、
             // Watch 復帰時にクリア。
             if recording {

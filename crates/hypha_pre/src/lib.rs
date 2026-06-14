@@ -254,6 +254,11 @@ impl Plugin for HyphaPre {
         // params 側は nih-plug の persist 機構が initialize() より前に
         // chunk から復元済み（新規プロジェクトの場合は Default::default() の
         // 値がそのまま残る）。
+        // B-128 (G-115-371 / D2): restore 受領点（egui）の同期 materialize（FFI set_identity と対称）。
+        // io_thread spawn より前に params の path-unsafe identity を new_v4 へ畳む（両殻 D2 統一）。
+        kirin_measure::normalize_restore_cell(&self.params.instance_id, "egui_pre.initialize.instance_id");
+        kirin_measure::normalize_restore_cell(&self.params.project_uuid, "egui_pre.initialize.project_uuid");
+        kirin_measure::normalize_restore_cell(&self.params.daw_session_uuid, "egui_pre.initialize.daw_session_uuid");
         let persisted_project_uuid = read_persisted_string(&self.params.project_uuid);
         let persisted_session_uuid = read_persisted_string(&self.params.daw_session_uuid);
         if !persisted_project_uuid.is_empty() {

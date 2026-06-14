@@ -277,6 +277,16 @@ juce::String KirinHyphaProcessorBase::recordErrorMessage() const
     return {};
 }
 
+juce::String KirinHyphaProcessorBase::pathAnomalyMessage() const
+{
+    // B-128 (G-115-371 / D3): restore identity anomaly を process-global sink から 1 件 drain。
+    // handle 非依存（sink は kirin_measure path_identity）。文言あり=Some / 無し=空。
+    char buf[256] = { 0 };
+    if (kirin_hypha_drain_path_event (buf, sizeof (buf)))
+        return juce::String::fromUTF8 (buf);
+    return {};
+}
+
 bool KirinHyphaProcessorBase::licenseIsOs() const
 {
     // B-118 (①): identity.json の license（0=Os / 1=Sense / 2=Unknown）。handle 不要。

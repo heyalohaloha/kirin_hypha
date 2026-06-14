@@ -354,13 +354,19 @@ void KirinHyphaEditor::updatePre()
     prevAck = ack;
     bannerLabel.setVisible (t < bannerUntil);
 
+    // B-128 (G-115-371 D3): restore identity anomaly を drain して 5s latch（toast 相当の寿命）。
+    const juce::String anomaly = processorRef.pathAnomalyMessage();
+    if (anomaly.isNotEmpty()) { pathAnomalyText = anomaly; pathAnomalyUntil = t + 5.0; }
+    const bool anomalyActive = (t < pathAnomalyUntil) && pathAnomalyText.isNotEmpty();
+
     // B-118 追補 (2-2): PRE 殻も io_thread 連続失敗の固定文言を永続表示（egui hypha_pre editor.rs:278
     // と parity / R-26: 文言ありの間のみ・"Keeping" banner の下）。従来 updatePre は recordErrorLabel を
-    // refresh しておらず PRE では不可視だった（POST のみ wired のバグ）。
+    // refresh しておらず PRE では不可視だった（POST のみ wired のバグ）。anomaly 在中は anomaly を優先表示。
     const juce::String recErr = processorRef.recordErrorMessage();
-    recordErrorLabel.setVisible (recErr.isNotEmpty());
-    if (recErr.isNotEmpty())
-        recordErrorLabel.setText (recErr, juce::dontSendNotification);
+    const juce::String status = anomalyActive ? pathAnomalyText : recErr;
+    recordErrorLabel.setVisible (status.isNotEmpty());
+    if (status.isNotEmpty())
+        recordErrorLabel.setText (status, juce::dontSendNotification);
 
     const Kind want = rec ? Kind::Abs6 : Kind::Abs3;
     if (want != currentKind)
@@ -417,11 +423,17 @@ void KirinHyphaEditor::updatePost()
     bannerLabel.setVisible (t < bannerUntil);
     toastLabel.setVisible (t < toastUntil);
 
+    // B-128 (G-115-371 D3): restore identity anomaly を drain して 5s latch。
+    const juce::String anomaly = processorRef.pathAnomalyMessage();
+    if (anomaly.isNotEmpty()) { pathAnomalyText = anomaly; pathAnomalyUntil = t + 5.0; }
+    const bool anomalyActive = (t < pathAnomalyUntil) && pathAnomalyText.isNotEmpty();
+
     // B-118 (③): io_thread 連続失敗の固定文言を永続表示（R-26: 文言ありの間のみ表示・toast とは独立寿命）。
     const juce::String recErr = processorRef.recordErrorMessage();
-    recordErrorLabel.setVisible (recErr.isNotEmpty());
-    if (recErr.isNotEmpty())
-        recordErrorLabel.setText (recErr, juce::dontSendNotification);
+    const juce::String status = anomalyActive ? pathAnomalyText : recErr;
+    recordErrorLabel.setVisible (status.isNotEmpty());
+    if (status.isNotEmpty())
+        recordErrorLabel.setText (status, juce::dontSendNotification);
 
     postControls->update (rec, processorRef.licenseCode(), pairNonEmpty);
 

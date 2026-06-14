@@ -74,6 +74,8 @@ private:
     bool   prevAck     = false;
     double bannerUntil = 0.0;
     double toastUntil  = 0.0;
+    double pathAnomalyUntil = 0.0;        // B-128 (G-115-371 D3): restore identity anomaly latch
+    juce::String pathAnomalyText;         //   drained 文言を fade まで保持
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (KirinHyphaEditor)
 };

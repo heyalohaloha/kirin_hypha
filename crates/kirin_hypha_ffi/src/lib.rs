@@ -1160,6 +1160,13 @@ impl KirinHyphaEngine {
     /// state chunk から復元した識別子を設定する（方式A / B-058 3c）。
     /// **`enable_pre_writes` の前**に呼ぶこと（復元順: create→set_license→set_identity→enable）。
     /// 空文字を渡したキーは `enable_pre_writes` で生成される（instance_id / project_uuid）。
+    ///
+    /// B-128 (G-115-371): restore 受領の**単一 materialize 点**。`self.identity` に格納する前に
+    /// `materialize_restore_field` を通し、path-unsafe な値（絶対/`..`/区切り/制御文字/overlength/
+    /// 予約 marker）を fresh new_v4 に差し替える（safe / empty は不変）。これにより keep / record /
+    /// 永続化(get_identity) / enable→io_thread が**全て同一 materialize 済 self.identity** を読み、
+    /// family 間分裂（raw 第二源）と uncounted-Record-bypass が構造的に消える。kirin_measure の
+    /// path builder wall は DiD backstop として維持。invalid 時は invalid-identity event を surface。
     pub fn set_identity(
         &self,
         instance_id: String,
@@ -1168,10 +1175,15 @@ impl KirinHyphaEngine {
         name: String,
     ) {
         if let Ok(mut id) = self.identity.lock() {
-            id.instance_id = instance_id;
-            id.project_uuid = project_uuid;
-            id.daw_session_uuid = daw_session_uuid;
-            id.name = name;
+            id.instance_id =
+                kirin_measure::materialize_restore_field(&instance_id, "ffi.set_identity.instance_id");
+            id.project_uuid =
+                kirin_measure::materialize_restore_field(&project_uuid, "ffi.set_identity.project_uuid");
+            id.daw_session_uuid = kirin_measure::materialize_restore_field(
+                &daw_session_uuid,
+                "ffi.set_identity.daw_session_uuid",
+            );
+            id.name = name; // name は path component でない（traversal 非該当・scope 外）。
         }
     }
 
@@ -1938,6 +1950,33 @@ pub unsafe extern "C" fn kirin_hypha_get_identity(
         write_c_buf(&mut out.daw_session_uuid, &id.daw_session_uuid);
         write_c_buf(&mut out.name, &id.name);
     }));
+}
+
+/// B-128 (G-115-371 / D3): restore identity の anomaly（path-unsafe を materialize / wall が quarantine）
+/// を 1 件 `out` に drain する（殻 status 表示用）。event があれば `true` + 文言、無ければ `false`。
+/// sink は process-global（kirin_measure path_identity）。殻は毎描画 / timer で poll して surface する。
+///
+/// # Safety
+/// `out` は `len` バイト書込可能な領域であること。
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_drain_path_event(out: *mut c_char, len: usize) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        if out.is_null() || len == 0 {
+            return false;
+        }
+        match kirin_measure::take_path_event() {
+            Some(msg) => {
+                let bytes = msg.as_bytes();
+                let n = bytes.len().min(len - 1);
+                let dst = unsafe { std::slice::from_raw_parts_mut(out as *mut u8, len) };
+                dst[..n].copy_from_slice(&bytes[..n]);
+                dst[n] = 0;
+                true
+            }
+            None => false,
+        }
+    }))
+    .unwrap_or(false)
 }
 
 /// Record の最新 plugin_data .json に利用者メモを追記する（Note / 方式A）。
