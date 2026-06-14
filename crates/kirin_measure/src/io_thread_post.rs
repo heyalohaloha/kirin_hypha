@@ -1336,13 +1336,27 @@ pub fn serialize_post_json(
     let pre_state_str = pre_signal_state
         .map(|s| format!(r#""{}""#, s.as_str()))
         .unwrap_or_else(|| "null".to_string());
+    // B-131 (G-115-380): hand-built JSON に生補間される外部由来の文字列 field を serde で escape する。
+    // 旧: 生補間で `"` `\` を含む値が不正 JSON を生成 → 他 POST の scan_post_candidates_in が parse
+    // 失敗で無言 skip → pairing 消失していた R-28 欠陥。PRE serialize_pre_json と対称。正常 ASCII /
+    // UUID では byte 不変（既存 wire / parity literal-id 不変）。
+    //   - pair_pre_name: 利用者 GUI 入力（set_pair_target / 対 PRE の Name）。
+    //   - instance_id  : restore で host 由来になりうる。gate の is_path_safe_component
+    //     (path_identity.rs) は `/` `\` 制御文字は拒否するが **`"` を拒否しない** ため、`"` 入りの
+    //     restore instance_id が materialize wall を素通って同一 R-28 を起こす（census で検出）。
+    //     根本封止（wall 側で `"` を quarantine）は B-128 領域につき番人へ別途上申。本 commit は
+    //     JSON 出力層で同種一括 escape する。
+    let instance_id_json =
+        serde_json::to_string(instance_id).unwrap_or_else(|_| "\"\"".to_string());
+    let pair_pre_name_json =
+        serde_json::to_string(pair_pre_name).unwrap_or_else(|_| "\"\"".to_string());
     format!(
-        r#"{{"v":2,"role":"POST","instance_id":"{instance_id}","signal_state":"{signal_state}","pre_signal_state":{pre_signal_state},"t":"{t}","pair_pre_name":"{pair_pre_name}","pair_claimed_at":{pair_claimed_at},"lufs_m":{lufs_m},"true_peak":{true_peak},"crest":{crest},"psr":{psr}{phase_d}}}"#,
-        instance_id = instance_id,
+        r#"{{"v":2,"role":"POST","instance_id":{instance_id_json},"signal_state":"{signal_state}","pre_signal_state":{pre_signal_state},"t":"{t}","pair_pre_name":{pair_pre_name},"pair_claimed_at":{pair_claimed_at},"lufs_m":{lufs_m},"true_peak":{true_peak},"crest":{crest},"psr":{psr}{phase_d}}}"#,
+        instance_id_json = instance_id_json,
         signal_state = state.as_str(),
         pre_signal_state = pre_state_str,
         t = t,
-        pair_pre_name = pair_pre_name,
+        pair_pre_name = pair_pre_name_json,
         pair_claimed_at = pair_claimed_at,
         lufs_m = opt_f64(result.lufs_m),
         true_peak = opt_f64(result.true_peak),
@@ -1364,12 +1378,17 @@ fn serialize_post_json_minimal(
     pair_claimed_at: f64,
 ) -> String {
     let t = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ");
+    // B-131 (G-115-380): instance_id / pair_pre_name を serde で JSON escape（serialize_post_json と同一契約）。
+    let instance_id_json =
+        serde_json::to_string(instance_id).unwrap_or_else(|_| "\"\"".to_string());
+    let pair_pre_name_json =
+        serde_json::to_string(pair_pre_name).unwrap_or_else(|_| "\"\"".to_string());
     format!(
-        r#"{{"v":2,"role":"POST","instance_id":"{instance_id}","signal_state":"{signal_state}","t":"{t}","pair_pre_name":"{pair_pre_name}","pair_claimed_at":{pair_claimed_at}}}"#,
-        instance_id = instance_id,
+        r#"{{"v":2,"role":"POST","instance_id":{instance_id_json},"signal_state":"{signal_state}","t":"{t}","pair_pre_name":{pair_pre_name},"pair_claimed_at":{pair_claimed_at}}}"#,
+        instance_id_json = instance_id_json,
         signal_state = state.as_str(),
         t = t,
-        pair_pre_name = pair_pre_name,
+        pair_pre_name = pair_pre_name_json,
         pair_claimed_at = pair_claimed_at,
     )
 }
@@ -1528,8 +1547,19 @@ pub fn scan_post_candidates_in(project_dir: &Path) -> Vec<PostCandidate> {
         }
         let post_file = path.join("post.json");
         let Ok(bytes) = fs::read(&post_file) else { continue };
-        let Ok(parsed): Result<PostTmpJson, _> = serde_json::from_slice(&bytes) else {
-            continue;
+        // B-131 (G-115-380): serde 失敗（破損 / 旧形式 / 不正 escape の post.json）を無言 skip せず
+        // ログに残す（沈黙をやめる）。UI には出さない（R-28: 他 instance の post.json 不整合は利用者
+        // 操作と非紐づき / log のみ可視化）。PRE 側 scan_pre_candidates_in (B-077) の surface と対称。
+        let parsed: PostTmpJson = match serde_json::from_slice(&bytes) {
+            Ok(p) => p,
+            Err(e) => {
+                log::warn!(
+                    "[pairing] skip unparseable post.json {}: {}",
+                    post_file.display(),
+                    e
+                );
+                continue;
+            }
         };
         // Bypassed の POST は候補から除外 (PRE 版 Bypass 防御対称 / 二重防御の片側)。
         // Active / Inactive / 旧 schema は候補化する。
@@ -2759,6 +2789,86 @@ mod post_tmp_json_tests {
         assert!(parsed.psb_summary.is_none());
     }
 
+    /// B-131 (G-115-380): `"` / `\` を含む pair_pre_name が serde escape され valid JSON に
+    /// なり値が往復する（旧手組み生補間では不正 JSON を生成し、他 POST の
+    /// `scan_post_candidates_in` が parse 失敗で無言 skip → pairing 消失していた回帰）。
+    /// PRE 側 `serialize_pre_json_escapes_quotes_and_backslash` (B-077) と対称。
+    #[test]
+    fn serialize_post_json_escapes_quotes_and_backslash() {
+        let result = MeasureResult::default();
+        let name = "PRE\"x\\y";
+        let json = serialize_post_json(
+            "post-iid",
+            SignalState::Active,
+            Some(SignalState::Active),
+            &result,
+            name,
+            1.0,
+        );
+        let parsed: serde_json::Value = serde_json::from_str(&json)
+            .expect("B-131: special-char pair_pre_name must produce valid JSON");
+        assert_eq!(parsed["pair_pre_name"].as_str(), Some(name));
+    }
+
+    /// B-131 (G-115-380): minimal でも `"` / `\` を含む pair_pre_name を serde escape する
+    /// (`serialize_post_json` と対称 / Bypassed・Inactive でも候補化されるため必須)。
+    #[test]
+    fn serialize_post_json_minimal_escapes_quotes_and_backslash() {
+        let name = "PRE\"x\\y";
+        let json = serialize_post_json_minimal("post-iid", SignalState::Bypassed, name, 0.0);
+        let parsed: serde_json::Value = serde_json::from_str(&json)
+            .expect("B-131: special-char pair_pre_name must produce valid JSON (minimal)");
+        assert_eq!(parsed["pair_pre_name"].as_str(), Some(name));
+    }
+
+    /// B-131 (G-115-380): 日本語 pair_pre_name が JSON で保持され読み戻せる
+    /// (PRE 側 `serialize_pre_json_keeps_japanese_name` と対称 / serde が UTF-8 を維持)。
+    #[test]
+    fn serialize_post_json_keeps_japanese_pair_pre_name() {
+        let result = MeasureResult::default();
+        let name = "日本語PRE";
+        let json = serialize_post_json(
+            "post-iid",
+            SignalState::Active,
+            Some(SignalState::Active),
+            &result,
+            name,
+            0.0,
+        );
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["pair_pre_name"].as_str(), Some(name));
+    }
+
+    /// B-131 (G-115-380) census-twin: instance_id も serde escape される。restore で `"` を含む
+    /// instance_id が materialize wall（is_path_safe_component は `"` を拒否しない）を素通っても
+    /// valid JSON になり、他 POST の scan が parse 失敗 → pairing 消失する同種 R-28 を防ぐ。
+    #[test]
+    fn serialize_post_json_escapes_instance_id_quote() {
+        let result = MeasureResult::default();
+        let iid = "post\"evil\\id";
+        let json = serialize_post_json(
+            iid,
+            SignalState::Active,
+            Some(SignalState::Active),
+            &result,
+            "PRE-Master",
+            0.0,
+        );
+        let parsed: serde_json::Value = serde_json::from_str(&json)
+            .expect("B-131: special-char instance_id must produce valid JSON");
+        assert_eq!(parsed["instance_id"].as_str(), Some(iid));
+    }
+
+    /// B-131 (G-115-380) census-twin: minimal でも instance_id を serde escape する。
+    #[test]
+    fn serialize_post_json_minimal_escapes_instance_id_quote() {
+        let iid = "post\"evil\\id";
+        let json = serialize_post_json_minimal(iid, SignalState::Bypassed, "PRE-Mix", 0.0);
+        let parsed: serde_json::Value = serde_json::from_str(&json)
+            .expect("B-131: special-char instance_id must produce valid JSON (minimal)");
+        assert_eq!(parsed["instance_id"].as_str(), Some(iid));
+    }
+
     /// Minimal (`serialize_post_json_minimal` 出力 / Bypassed) → PostTmpJson roundtrip。
     /// pre_signal_state / 計測値系は不在 → Option::None で defaulted。
     #[test]
@@ -2965,6 +3075,59 @@ mod post_candidate_tests {
         assert_eq!(c.project_uuid, project_uuid);
         assert_eq!(c.pair_pre_name.as_deref(), Some("PRE-Master"));
         assert!(c.path.ends_with("post.json"));
+    }
+
+    /// B-131 (G-115-380) 感度確証: `"` / `\` を含む pair_pre_name の POST が
+    /// serialize → scan の往復で pairing 候補から **消えない**。
+    /// 旧: 生補間 → 不正 JSON → `scan_post_candidates_in` が無言 skip → pairing 消失
+    /// （PRE 選択済でも対 POST が候補から欠落し All Keep / pair が成立しない R-28 欠陥）。
+    #[test]
+    fn scan_in_survives_special_char_pair_pre_name() {
+        let root = unique_root("scan_special");
+        let project_uuid = "pj-SPECIAL";
+        let name = "PRE\"x\\y";
+        let _ = write_post_json(
+            &root,
+            project_uuid,
+            "post-iid-1",
+            SignalState::Active,
+            Some(SignalState::Active),
+            name,
+        );
+        let project_dir = root.join(project_uuid);
+        let cands = scan_post_candidates_in(&project_dir);
+        assert_eq!(
+            cands.len(),
+            1,
+            "special-char pair_pre_name POST must survive scan (not silently skipped)"
+        );
+        assert_eq!(cands[0].pair_pre_name.as_deref(), Some(name));
+    }
+
+    /// B-131 (G-115-380): 真に壊れた post.json は無言 skip されず log surface され、かつ
+    /// 同 dir の valid POST 候補は返る（不正 1 件が sibling を巻き込まない / R-28 sweep 継続）。
+    /// PRE 側 scan_pre_candidates_in (B-077) の log::warn surface と対称。
+    #[test]
+    fn scan_in_skips_corrupt_but_keeps_valid_sibling() {
+        let root = unique_root("scan_corrupt");
+        let project_uuid = "pj-CORRUPT";
+        let _ = write_post_json(
+            &root,
+            project_uuid,
+            "post-good",
+            SignalState::Active,
+            Some(SignalState::Active),
+            "PRE-Good",
+        );
+        // 故意に壊した post.json（不正 JSON）。
+        let bad_dir = root.join(project_uuid).join("post-bad");
+        fs::create_dir_all(&bad_dir).unwrap();
+        fs::write(bad_dir.join("post.json"), b"{ not valid json").unwrap();
+
+        let project_dir = root.join(project_uuid);
+        let cands = scan_post_candidates_in(&project_dir);
+        assert_eq!(cands.len(), 1, "corrupt skipped, valid sibling kept");
+        assert_eq!(cands[0].instance_id, "post-good");
     }
 
     /// pair_pre_name が空文字 → PostCandidate.pair_pre_name == None (PRE 版 name None

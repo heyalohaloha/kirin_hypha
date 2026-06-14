@@ -866,10 +866,15 @@ pub fn serialize_pre_json(
     let t = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ");
     // B-077: name は利用者入力。serde で JSON 文字列化し " \ 制御文字・日本語を安全に escape する
     // （旧: 生補間で " \ を含む名が不正 JSON を生成 → POST parse 失敗）。正常 ASCII 名は不変。
+    // B-131 (G-115-380): instance_id も同様に serde escape する。restore で host 由来になりうる値を
+    // gate する is_path_safe_component (path_identity.rs) は `"` を拒否しないため、`"` 入り
+    // instance_id が materialize wall を素通り不正 JSON → pairing 消失を起こす同種欠陥（census 検出）。
+    // 正常 UUID では byte 不変（parity literal-id 不変）。根本封止（wall 側 `"` quarantine）は番人へ上申。
     let name_json = serde_json::to_string(name).unwrap_or_else(|_| "\"\"".to_string());
+    let instance_id_json = serde_json::to_string(instance_id).unwrap_or_else(|_| "\"\"".to_string());
     format!(
-        r#"{{"v":2,"role":"PRE","instance_id":"{instance_id}","name":{name_json},"signal_state":"{signal_state}","t":"{t}","lufs_m":{lufs_m},"true_peak":{true_peak},"crest":{crest},"psr":{psr}{phase_d}}}"#,
-        instance_id = instance_id,
+        r#"{{"v":2,"role":"PRE","instance_id":{instance_id_json},"name":{name_json},"signal_state":"{signal_state}","t":"{t}","lufs_m":{lufs_m},"true_peak":{true_peak},"crest":{crest},"psr":{psr}{phase_d}}}"#,
+        instance_id_json = instance_id_json,
         name_json = name_json,
         signal_state = state.as_str(),
         t = t,
@@ -888,10 +893,12 @@ pub fn serialize_pre_json(
 fn serialize_pre_json_minimal(instance_id: &str, name: &str, state: SignalState) -> String {
     let t = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ");
     // B-077: name を serde で JSON escape（serialize_pre_json と同一。" \ 制御文字・日本語を安全に）。
+    // B-131 (G-115-380): instance_id も serde escape（serialize_pre_json と同一契約）。
     let name_json = serde_json::to_string(name).unwrap_or_else(|_| "\"\"".to_string());
+    let instance_id_json = serde_json::to_string(instance_id).unwrap_or_else(|_| "\"\"".to_string());
     format!(
-        r#"{{"v":2,"role":"PRE","instance_id":"{instance_id}","name":{name_json},"signal_state":"{signal_state}","t":"{t}"}}"#,
-        instance_id = instance_id,
+        r#"{{"v":2,"role":"PRE","instance_id":{instance_id_json},"name":{name_json},"signal_state":"{signal_state}","t":"{t}"}}"#,
+        instance_id_json = instance_id_json,
         name_json = name_json,
         signal_state = state.as_str(),
         t = t,
@@ -1797,6 +1804,29 @@ mod tests {
         let json = serialize_pre_json("pre-xyz", "日本語Snare", SignalState::Active, &r);
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed["name"].as_str(), Some("日本語Snare"));
+    }
+
+    /// B-131 (G-115-380) census-twin: instance_id も serde escape される（PRE 側）。restore で `"` を
+    /// 含む instance_id が materialize wall（is_path_safe_component は `"` を拒否しない）を素通っても
+    /// valid JSON になり、POST の scan_pre_candidates_in が parse 失敗 → pairing 消失する同種 R-28 を防ぐ。
+    #[test]
+    fn serialize_pre_json_escapes_instance_id_quote() {
+        let r = MeasureResult::default();
+        let iid = "pre\"evil\\id";
+        let json = serialize_pre_json(iid, "Snare", SignalState::Active, &r);
+        let parsed: serde_json::Value = serde_json::from_str(&json)
+            .expect("B-131: special-char instance_id must produce valid JSON");
+        assert_eq!(parsed["instance_id"].as_str(), Some(iid));
+    }
+
+    /// B-131 (G-115-380) census-twin: minimal でも instance_id を serde escape する（PRE 側）。
+    #[test]
+    fn serialize_pre_json_minimal_escapes_instance_id_quote() {
+        let iid = "pre\"evil\\id";
+        let json = serialize_pre_json_minimal(iid, "Snare", SignalState::Inactive);
+        let parsed: serde_json::Value = serde_json::from_str(&json)
+            .expect("B-131: special-char instance_id must produce valid JSON (minimal)");
+        assert_eq!(parsed["instance_id"].as_str(), Some(iid));
     }
 
     /// 直接 write_signal で daw_session_id 明示指定 + 読み戻し
