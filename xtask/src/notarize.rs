@@ -1,19 +1,18 @@
 // B-042 / B-083: macOS codesign + notarization pipeline.
 //
-// B-083: reworked from a single nih-plug VST3 (target/bundled/{name}.vst3) to the four JUCE
-// universal bundles produced by scripts/build_juce_universal.sh (B-082):
-//   KirinHypha{PRE,POST}_artefacts/Release/AU/Kirin Hypha {PRE,POST}.component
-//   KirinHypha{PRE,POST}_artefacts/Release/VST3/Kirin Hypha {PRE,POST}.vst3
-// under --build-dir (default juce_shell/build-universal). Both AU (.component) and VST3 bundles
-// are signed/notarized/stapled; the pipeline loops over all four.
+// B-083/B-137: reworked from a single nih-plug VST3 to construction-C:
+//   - JUCE AU: juce_shell/build-universal/.../Release/AU/*.component
+//   - egui VST3: target/bundled/*.vst3
+// JUCE VST3 bundles under build-universal/.../Release/VST3 are intentionally excluded.
 //
 // B-137 (G-115-344): construction-C ship set = egui VST3 (PRE/POST, target/bundled) + JUCE AU
 // (PRE/POST, build-universal). JUCE VST3 (PRE/POST) is EXCLUDED from the ship set (GUID continuity /
 // existing+Peach session protection). dual-root: --build-dir = JUCE AU root, --egui-dir = egui VST3
 // root (default target/bundled). The per-bundle codesign/notarytool/staple flow (notarize_one) is
 // bundle-type agnostic and unchanged. Build order: build_juce_universal.sh (JUCE AU, patches 0001+0002)
-// and `cargo xtask bundle-universal hypha_pre/hypha_post --release` + stamp-egui-version (egui VST3)
-// must both run before notarize.
+// and `cargo xtask bundle-universal hypha_pre --release` /
+// `cargo xtask bundle-universal hypha_post --release` + stamp-egui-version (egui VST3) must all run
+// before notarize.
 //
 // Pipeline per bundle (R-11 verified against `man codesign` / `man notarytool` / `man stapler`):
 //   1. codesign --sign <identity> --options runtime --timestamp --deep --force <bundle>
@@ -40,6 +39,9 @@ use std::process::Command;
 /// - egui VST3 = `cargo xtask bundle-universal … + stamp-egui-version` 出力。
 const DEFAULT_JUCE_DIR: &str = "juce_shell/build-universal";
 const DEFAULT_EGUI_DIR: &str = "target/bundled";
+const DEFAULT_IDENTITY: &str = "Developer ID Application: daisuke nishio (7N8BSMA684)";
+const DEFAULT_TEAM_ID: &str = "7N8BSMA684";
+const DEFAULT_KEYCHAIN_PROFILE: &str = "kirin-notarize";
 
 /// 構成C bundle の source root 種別（dual-root）。
 #[derive(Clone, Copy)]
@@ -52,8 +54,16 @@ enum Root {
 /// JUCE AU（PRE/POST, build-universal）。**JUCE VST3（PRE/POST）は出荷除外**
 /// （GUID 破壊回避・既存/Peach セッション保護）。
 const BUNDLES_C: [(&str, Root, &str); 4] = [
-    ("PRE  AU  ", Root::Juce, "KirinHyphaPRE_artefacts/Release/AU/Kirin Hypha PRE.component"),
-    ("POST AU  ", Root::Juce, "KirinHyphaPOST_artefacts/Release/AU/Kirin Hypha POST.component"),
+    (
+        "PRE  AU  ",
+        Root::Juce,
+        "KirinHyphaPRE_artefacts/Release/AU/Kirin Hypha PRE.component",
+    ),
+    (
+        "POST AU  ",
+        Root::Juce,
+        "KirinHyphaPOST_artefacts/Release/AU/Kirin Hypha POST.component",
+    ),
     ("PRE  VST3", Root::Egui, "Kirin Hypha PRE.vst3"),
     ("POST VST3", Root::Egui, "Kirin Hypha POST.vst3"),
 ];
@@ -128,16 +138,17 @@ pub fn run(args: Vec<String>) -> Result<()> {
     let egui_dir = PathBuf::from(egui_dir.unwrap_or_else(|| DEFAULT_EGUI_DIR.to_string()));
     let bundles = resolve_bundles(&juce_dir, &egui_dir);
 
+    let identity = identity.unwrap_or_else(|| DEFAULT_IDENTITY.to_string());
+    let team_id = team_id.unwrap_or_else(|| DEFAULT_TEAM_ID.to_string());
+    if keychain_profile.is_none() && password.is_none() {
+        keychain_profile = Some(DEFAULT_KEYCHAIN_PROFILE.to_string());
+    }
+
     if dry_run {
-        return dry_run_report(&bundles, identity.as_deref(), keychain_profile.as_deref());
+        return dry_run_report(&bundles, &identity, keychain_profile.as_deref());
     }
 
     // ── 実署名モード: credential 必須（Daisuke 専管） ──────────────────────
-    let identity = identity.context(
-        "--identity is required \
-         (e.g. 'Developer ID Application: Your Name (TEAMID)')",
-    )?;
-    let team_id = team_id.context("--team-id is required")?;
     match (&password, &keychain_profile) {
         (Some(_), Some(_)) => bail!("--password and --keychain-profile are mutually exclusive"),
         (None, None) => bail!("either --password or --keychain-profile is required"),
@@ -156,8 +167,18 @@ pub fn run(args: Vec<String>) -> Result<()> {
                 b.path.display()
             );
         }
-        eprintln!("==================== {} ====================", b.label.trim());
-        notarize_one(&b.path, &identity, &team_id, apple_id.as_deref(), password.as_deref(), keychain_profile.as_deref())?;
+        eprintln!(
+            "==================== {} ====================",
+            b.label.trim()
+        );
+        notarize_one(
+            &b.path,
+            &identity,
+            &team_id,
+            apple_id.as_deref(),
+            password.as_deref(),
+            keychain_profile.as_deref(),
+        )?;
     }
 
     eprintln!();
@@ -226,14 +247,18 @@ fn notarize_one(
     // Step 4: stapler staple.
     eprintln!("==> xcrun stapler staple");
     run_status(
-        Command::new("xcrun").args(["stapler", "staple"]).arg(bundle),
+        Command::new("xcrun")
+            .args(["stapler", "staple"])
+            .arg(bundle),
         "stapler staple",
     )?;
 
     // Step 5: stapler validate (R-11: spctl has no 'plugin' type).
     eprintln!("==> xcrun stapler validate");
     run_status(
-        Command::new("xcrun").args(["stapler", "validate"]).arg(bundle),
+        Command::new("xcrun")
+            .args(["stapler", "validate"])
+            .arg(bundle),
         "stapler validate",
     )?;
     Ok(())
@@ -249,10 +274,9 @@ fn zip_path_for(bundle: &Path) -> PathBuf {
 /// --dry-run: 4 bundle の解決パス・存在・実行されるコマンド構成を表示する（署名/通信なし）。
 fn dry_run_report(
     bundles: &[Bundle],
-    identity: Option<&str>,
+    identity: &str,
     keychain_profile: Option<&str>,
 ) -> Result<()> {
-    let id = identity.unwrap_or("<IDENTITY>");
     let cred = match keychain_profile {
         Some(p) => format!("--keychain-profile {p}"),
         None => "--apple-id <EMAIL> --team-id <TEAM> --password <PW>".to_string(),
@@ -266,11 +290,25 @@ fn dry_run_report(
         }
         let zip = zip_path_for(&b.path);
         eprintln!();
-        eprintln!("[{}] {}", b.label.trim(), if exists { "FOUND" } else { "MISSING" });
+        eprintln!(
+            "[{}] {}",
+            b.label.trim(),
+            if exists { "FOUND" } else { "MISSING" }
+        );
         eprintln!("  bundle: {}", b.path.display());
-        eprintln!("  1. codesign --sign {id} --timestamp --options runtime --deep --force \"{}\"", b.path.display());
-        eprintln!("  2. ditto -c -k --keepParent \"{}\" \"{}\"", b.path.display(), zip.display());
-        eprintln!("  3. xcrun notarytool submit \"{}\" {cred} --wait", zip.display());
+        eprintln!(
+            "  1. codesign --sign \"{identity}\" --timestamp --options runtime --deep --force \"{}\"",
+            b.path.display()
+        );
+        eprintln!(
+            "  2. ditto -c -k --keepParent \"{}\" \"{}\"",
+            b.path.display(),
+            zip.display()
+        );
+        eprintln!(
+            "  3. xcrun notarytool submit \"{}\" {cred} --wait",
+            zip.display()
+        );
         eprintln!("  4. xcrun stapler staple \"{}\"", b.path.display());
         eprintln!("  5. xcrun stapler validate \"{}\"", b.path.display());
     }
@@ -293,8 +331,8 @@ fn run_status(cmd: &mut Command, label: &str) -> Result<()> {
 
 fn print_help() {
     println!("Usage: cargo xtask notarize \\");
-    println!("         --identity <CERT> --team-id <TEAM> \\");
-    println!("         (--password <PW> --apple-id <EMAIL> | --keychain-profile <PROF>) \\");
+    println!("         [--identity <CERT>] [--team-id <TEAM>] \\");
+    println!("         [(--password <PW> --apple-id <EMAIL>) | --keychain-profile <PROF>] \\");
     println!("         [--build-dir <DIR>] [--dry-run]");
     println!();
     println!("Signs/notarizes/staples the 4 construction-C ship bundles (G-115-344):");
@@ -302,14 +340,20 @@ fn print_help() {
     println!("  egui VST3 : Kirin Hypha {{PRE,POST}}.vst3 (--egui-dir)");
     println!("JUCE VST3 is EXCLUDED from the ship set (GUID continuity).");
     println!("Build both first: scripts/build_juce_universal.sh (JUCE AU) and");
-    println!("  `cargo xtask bundle-universal hypha_pre/hypha_post --release` + stamp-egui-version (egui VST3).");
+    println!("  `cargo xtask bundle-universal hypha_pre --release`");
+    println!("  `cargo xtask bundle-universal hypha_post --release`");
+    println!("  `cargo xtask stamp-egui-version`");
     println!();
-    println!("Required (real run):");
-    println!("  --identity <CERT>          codesign identity, e.g.");
-    println!("                               'Developer ID Application: Your Name (TEAMID)'");
-    println!("  --team-id  <TEAM>          Apple Developer Team ID (10 chars)");
+    println!("Defaults for Daisuke's release machine:");
+    println!("  identity           {DEFAULT_IDENTITY}");
+    println!("  team-id            {DEFAULT_TEAM_ID}");
+    println!("  keychain-profile   {DEFAULT_KEYCHAIN_PROFILE}");
     println!();
-    println!("Credentials (choose ONE, real run):");
+    println!("Credential setup:");
+    println!("  xcrun notarytool store-credentials \"{DEFAULT_KEYCHAIN_PROFILE}\" \\");
+    println!("    --apple-id \"<APPLE_ID>\" --team-id \"{DEFAULT_TEAM_ID}\"");
+    println!();
+    println!("Credential overrides (choose ONE, real run):");
     println!("  --password <PW> --apple-id <EMAIL>   App-specific password + Apple ID");
     println!("  --keychain-profile <PROF>            xcrun notarytool store-credentials profile");
     println!();

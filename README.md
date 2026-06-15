@@ -81,19 +81,18 @@ Binaries are signed with an Apple Developer ID and notarized by Apple, so Gateke
 
 ```bash
 # Inspect the code signature
-codesign -dv --verbose=4 "Kirin Hypha PRE.vst3"
-codesign -dv --verbose=4 "Kirin Hypha PRE.component"
+codesign -dv --verbose=4 "VST3/Kirin Hypha PRE.vst3"
+codesign -dv --verbose=4 "Audio Unit/Kirin Hypha PRE.component"
 
 # Verify the download against the SHA-256 shown on the Releases page
-shasum -a 256 Kirin.Hypha.PRE.vst3.zip
-shasum -a 256 Kirin.Hypha.PRE.component.zip
+shasum -a 256 "Kirin-Hypha-<version>-macOS-Universal.zip"
 
 # Remove the quarantine attribute if macOS blocks the bundle
-xattr -dr com.apple.quarantine "Kirin Hypha PRE.vst3"
-xattr -dr com.apple.quarantine "Kirin Hypha PRE.component"
+xattr -dr com.apple.quarantine "VST3/Kirin Hypha PRE.vst3"
+xattr -dr com.apple.quarantine "Audio Unit/Kirin Hypha PRE.component"
 ```
 
-Each release asset shows its SHA-256 digest on the Releases page.
+The release zip has companion `.zip.sha256` and `release-manifest.json` assets on the Releases page.
 
 ---
 
@@ -101,8 +100,8 @@ Each release asset shows its SHA-256 digest on the Releases page.
 
 1. Download the latest release archive from the [Releases page](https://github.com/heyalohaloha/kirin_hypha/releases).
 2. Unzip, then install the format you use:
-   - **VST3** — copy `Kirin Hypha PRE.vst3` and `Kirin Hypha POST.vst3` to `~/Library/Audio/Plug-Ins/VST3/`, replacing any existing `Kirin Hypha *.vst3` at that path (leaving an old copy can cause stale loading).
-   - **Audio Unit** — copy `Kirin Hypha PRE.component` and `Kirin Hypha POST.component` to `~/Library/Audio/Plug-Ins/Components/`.
+   - **VST3** — copy `VST3/Kirin Hypha PRE.vst3` and `VST3/Kirin Hypha POST.vst3` to `~/Library/Audio/Plug-Ins/VST3/`, replacing any existing `Kirin Hypha *.vst3` at that path. Remove older system-level copies in `/Library/Audio/Plug-Ins/VST3/` if your DAW still loads stale binaries.
+   - **Audio Unit** — copy `Audio Unit/Kirin Hypha PRE.component` and `Audio Unit/Kirin Hypha POST.component` to `~/Library/Audio/Plug-Ins/Components/`, replacing any existing `Kirin Hypha *.component` at that path. Remove older system-level copies in `/Library/Audio/Plug-Ins/Components/` if needed.
 3. Rescan plugins in your DAW.
 4. Insert **Kirin Hypha PRE** before your processing chain.
 5. Insert **Kirin Hypha POST** after your processing chain.
@@ -176,11 +175,25 @@ Tested on macOS 14 (Sonoma).
 ```bash
 git clone https://github.com/heyalohaloha/kirin_hypha.git
 cd kirin_hypha
-cargo run --package xtask -- bundle hypha_pre --release
-cargo run --package xtask -- bundle hypha_post --release
+cargo run --package xtask -- bundle-universal hypha_pre --release
+cargo run --package xtask -- bundle-universal hypha_post --release
+cargo run --package xtask -- stamp-egui-version
+scripts/build_juce_universal.sh
 ```
 
-Requires Rust stable toolchain. Built bundles are written to `target/bundled/`.
+Requires Rust stable toolchain, CMake, Xcode command line tools, and the pinned JUCE submodule.
+The release ship set is construction-C: egui VST3 bundles from `target/bundled/` plus JUCE Audio Unit bundles from `juce_shell/build-universal/`. JUCE VST3 bundles are not release artifacts.
+
+## Maintainer release packaging
+
+On the release machine, after signing and notarizing with `cargo run --package xtask -- notarize`, build the upload file with:
+
+```bash
+cargo run --package xtask -- release-package
+```
+
+Unsigned smoke-test packages are intentionally marked `UNSIGNED-DO-NOT-UPLOAD` and must be written under `/tmp`.
+Upload only `Kirin-Hypha-<version>-macOS-Universal.zip` to Lemon Squeezy after the command passes without `--allow-unsigned`. Publish the companion `.zip.sha256` and `release-manifest.json` with the GitHub Release.
 
 ---
 

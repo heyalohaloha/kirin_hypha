@@ -25,7 +25,7 @@ pub fn run(_args: Vec<String>) -> Result<()> {
         let plist = format!("target/bundled/{name}.vst3/Contents/Info.plist");
         if !Path::new(&plist).exists() {
             bail!(
-                "{plist} not found — run `cargo run -p xtask -- bundle-universal hypha_pre/hypha_post --release` first"
+                "{plist} not found — run `cargo run -p xtask -- bundle-universal hypha_pre --release` and `cargo run -p xtask -- bundle-universal hypha_post --release` first"
             );
         }
         set_plist_string(&plist, "CFBundleShortVersionString", &version)?;

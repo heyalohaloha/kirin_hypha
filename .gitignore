@@ -6,6 +6,8 @@
 
 # Bundled plugin outputs (re-generated via `cargo xtask bundle`)
 /target/bundled
+# Release package outputs (zip/sha/manifest; publish as release assets, never commit)
+/dist
 # Runtime-generated plugin data (structure belongs in code / docs, not in git)
 /plugin_data
 **/plugin_data/

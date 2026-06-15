@@ -1,6 +1,8 @@
 mod gen_signals;
 mod install;
 mod notarize;
+mod release_gate;
+mod release_package;
 mod stamp_version;
 
 fn main() -> nih_plug_xtask::Result<()> {
@@ -17,6 +19,10 @@ fn main() -> nih_plug_xtask::Result<()> {
         Some("notarize") => {
             args.remove(0);
             notarize::run(args)
+        }
+        Some("release-package") => {
+            args.remove(0);
+            release_package::run(args)
         }
         // B-109: nih_plug_xtask が Info.plist 版を 1.0.0 固定で出力するため、bundle 後に egui VST3
         // の版を crate 版へ stamp する（版統一 / G-115-345）。プラグイン挙動・計測は無変更。

@@ -55,7 +55,7 @@ jobs:
       # CGWindowListCreateImage bypass) is applied at build time per juce_shell/PATCHES.md, never
       # committed into the submodule. A fresh CI checkout has no patch, so without this the cmake
       # build fails on a macOS 15 SDK runner. Idempotent: skip if already applied.
-      - name: Apply JUCE macOS 15 SDK patch (patches/0001)
+      - name: Apply JUCE patches (patches/0001 + 0002)
         run: |
           (
             cd juce_shell/JUCE
@@ -64,6 +64,12 @@ jobs:
             else
               git apply ../patches/0001-macos15-sdk-cgwindowlistcreateimage-bypass.patch
               echo "patches/0001 applied"
+            fi
+            if git apply --reverse --check ../patches/0002-drop-webkit-osxframework-from-juce-gui-extra.patch 2>/dev/null; then
+              echo "patches/0002 already applied — skipping"
+            else
+              git apply ../patches/0002-drop-webkit-osxframework-from-juce-gui-extra.patch
+              echo "patches/0002 applied"
             fi
           )
 
