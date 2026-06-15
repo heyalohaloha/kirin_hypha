@@ -36,7 +36,8 @@ use crate::record::RecordStateMachine;
 use crate::record_signal::{self, SignalStatus};
 use crate::engine::SessionSummary;
 use crate::record_writer::{
-    run_record_tick, take_session_summary, writer_close, writer_close_with_summary, RecordingCtx,
+    run_record_tick, take_session_summary, writer_close_degraded, writer_close_with_summary,
+    RecordingCtx,
 };
 use crate::storage::StoragePaths;
 use crate::{load_signal_state, License, MeasureResult, SignalState};
@@ -446,7 +447,10 @@ pub fn spawn_io_thread_pre(
                 .and_then(|ctx| ctx.exit_requested.take());
             if let Some(reason) = exit_reason {
                 if let Some(ctx) = writer_ctx.take() {
-                    writer_close(ctx);
+                    // B-134 (G-115-391): auto-stop（data-loss 異常終了）は best-effort で
+                    // integrity_degraded を立ててから close（書ければ file flag / 書けねば下の
+                    // record_error_message が UI backstop）。
+                    writer_close_degraded(ctx);
                 }
                 record_sm.exit_record();
                 record_acknowledged.store(false, Ordering::Relaxed);

@@ -313,6 +313,24 @@ pub fn writer_close_with_summary(mut ctx: RecordingCtx, summary: Option<SessionS
     writer_close(ctx);
 }
 
+/// B-134 (G-115-391): auto-stop（flush/write 失敗閾値超過 = `RecordError::DirectoryMissing` /
+/// `WriteFailureExceeded`）専用 close。**best-effort** で `integrity_degraded` を立ててから close する。
+///
+/// - storage 書込可 → file flag が永続し README:139「incomplete measurement is recorded as incomplete」を
+///   auto-stop 経路でも真にする（JD-README139 Path1 / 過少申告 gap 解消）。
+/// - storage-loss（dir 喪失 / disk full）→ 最終 flush が失敗し flag は永続しないが、呼出側の
+///   `record_error_message`（UI 通知 / io_thread_post:1805・io_thread_pre:453）が backstop（option-2 /
+///   G-115-391）。
+///
+/// auto-stop の exit reason は 2 variant（DirectoryMissing / WriteFailureExceeded）とも data-loss 異常終了
+/// ゆえ **unconditional** に degraded で正（benign reason 不在）。clean stop は `run_record_tick` の
+/// `(false,true)` arm の `writer_close_with_summary` を通り本関数を経由しない（over-flag なし）。通常
+/// close 経路の挙動は不変。`mark_integrity_degraded` は data field のみ・計測値（LUFS/TP/PSR/PSB）非接触。
+pub fn writer_close_degraded(mut ctx: RecordingCtx) {
+    ctx.writer.mark_integrity_degraded();
+    writer_close(ctx);
+}
+
 /// `Arc<Mutex<Option<SessionSummary>>>` から最新値を取り出して `None` でクリアする (B-043)。
 ///
 /// IO Thread が Record→Watch 遷移時に呼ぶ。次の Record セッションは
@@ -1079,6 +1097,57 @@ mod tests {
         assert_eq!(loaded.status, crate::plugin_data::Status::Closed);
         assert_eq!(loaded.frames.len(), 1);
         assert!(crate::plugin_data::verify_checksum(&loaded));
+    }
+
+    // ── B-134 (G-115-391): auto-stop close best-effort persistent integrity_degraded ──
+    #[test]
+    fn b134_auto_stop_close_persists_integrity_degraded_when_writable() {
+        // storage 書込可 → auto-stop 専用 close は integrity_degraded を file flag として永続させる
+        // （README:139 Path1 / 過少申告 gap 解消）。通常録音 1 frame 後に writer_close_degraded →
+        // 読み戻して integrity_degraded==true / status=Closed / checksum OK を確認。
+        let base = isolated_base();
+        let mut ctx = make_ctx(&base, Role::Post, now_epoch_ms());
+        let m = full_measure_result();
+        assert!(writer_append_frame(&mut ctx, 100, &m));
+        let final_path = ctx.final_path.clone();
+        writer_close_degraded(ctx);
+
+        let bytes = fs::read(&final_path).unwrap();
+        let loaded: PluginDataFile = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(loaded.status, crate::plugin_data::Status::Closed, "auto-stop でも status=Closed");
+        assert!(
+            loaded.integrity_degraded,
+            "B-134: storage 書込可 → integrity_degraded file flag が立つ"
+        );
+        assert!(crate::plugin_data::verify_checksum(&loaded));
+        eprintln!(
+            "[b134] writable auto-stop close → status={:?} integrity_degraded={} (file flag 永続 / :139 Path1)",
+            loaded.status, loaded.integrity_degraded
+        );
+    }
+
+    #[test]
+    fn b134_auto_stop_close_storage_loss_does_not_persist_flag() {
+        // best-effort 限界: storage-loss（plugin_data dir 全削除 = DirectoryMissing 相当）では最終
+        // flush が失敗し file flag を永続できない（final file 不在）。この場合は呼出側
+        // record_error_message（UI 通知 / io_thread_post:1805・io_thread_pre:453）が backstop。
+        let base = isolated_base();
+        let mut ctx = make_ctx(&base, Role::Post, now_epoch_ms());
+        let m = full_measure_result();
+        assert!(writer_append_frame(&mut ctx, 100, &m));
+        let final_path = ctx.final_path.clone();
+        // storage 消失を注入（dir 全削除）。mark_integrity_degraded は in-memory で立つが
+        // close→flush が DirectoryMissing で失敗し永続しない。
+        fs::remove_dir_all(&base).unwrap();
+        writer_close_degraded(ctx);
+
+        assert!(
+            !final_path.exists(),
+            "B-134: storage-loss では file flag を永続できない（final 不在）= best-effort 限界 → UI backstop に degrade"
+        );
+        eprintln!(
+            "[b134] storage-loss auto-stop close → final file 不在（flag 未永続）→ UI backstop（record_error_message）が信頼チャネル"
+        );
     }
 
     #[test]

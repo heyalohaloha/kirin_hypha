@@ -36,8 +36,8 @@ use crate::record_signal::{
 };
 use crate::engine::SessionSummary;
 use crate::record_writer::{
-    run_record_tick, take_session_summary, writer_close, writer_close_with_summary, RecordError,
-    RecordingCtx,
+    run_record_tick, take_session_summary, writer_close_degraded, writer_close_with_summary,
+    RecordError, RecordingCtx,
 };
 use crate::storage::StoragePaths;
 use crate::{load_signal_state, MeasureResult, SignalState};
@@ -1779,7 +1779,8 @@ fn phase_d_fragment(result: &MeasureResult) -> String {
 ///
 /// `run_record_tick` が連続失敗閾値 (`CONSECUTIVE_FAILURE_THRESHOLD` = 3) を検知して
 /// `exit_requested` に sentinel をセットしたら、IO Thread main loop は本関数を呼び出し:
-///   1. `writer_close(ctx)` — flush 中の writer を status=closed で確定 + 検証
+///   1. `writer_close_degraded(ctx)` — B-134: best-effort で integrity_degraded を立ててから
+///      status=closed 確定（書ければ file flag / storage-loss は下記 3 の record_error_message が UI backstop）
 ///   2. `exit_record_full(...)` — record_sm + pair_label + paired_pre_target を一括 cleanup
 ///   3. `record_error_message` に GUI 通知文言を書込
 ///   4. `log::warn!` で診断ログ
@@ -1799,7 +1800,9 @@ fn handle_exit_reason(
     instance_id: &str,
 ) {
     if let Some(ctx) = recording.take() {
-        writer_close(ctx);
+        // B-134 (G-115-391): auto-stop（data-loss 異常終了）は best-effort で integrity_degraded を
+        // 立ててから close（書ければ file flag / 書けねば下の record_error_message が UI backstop）。
+        writer_close_degraded(ctx);
     }
     exit_record_full(record_sm, pair_label, paired_pre_target);
     if let Ok(mut g) = record_error_message.write() {
