@@ -1,6 +1,6 @@
 # Kirin Hypha
 
-**A free, open-source audio measurement plugin for macOS (VST3).**
+**A free, open-source audio measurement plugin for macOS (VST3 and Audio Unit).**
 
 Kirin Hypha operates as paired instances — a **PRE** plugin and a **POST** plugin — to measure signal states before and after a processing chain and display the difference.
 
@@ -82,12 +82,15 @@ Binaries are signed with an Apple Developer ID and notarized by Apple, so Gateke
 ```bash
 # Inspect the code signature
 codesign -dv --verbose=4 "Kirin Hypha PRE.vst3"
+codesign -dv --verbose=4 "Kirin Hypha PRE.component"
 
 # Verify the download against the SHA-256 shown on the Releases page
 shasum -a 256 Kirin.Hypha.PRE.vst3.zip
+shasum -a 256 Kirin.Hypha.PRE.component.zip
 
 # Remove the quarantine attribute if macOS blocks the bundle
 xattr -dr com.apple.quarantine "Kirin Hypha PRE.vst3"
+xattr -dr com.apple.quarantine "Kirin Hypha PRE.component"
 ```
 
 Each release asset shows its SHA-256 digest on the Releases page.
@@ -97,11 +100,18 @@ Each release asset shows its SHA-256 digest on the Releases page.
 ## Installation
 
 1. Download the latest release archive from the [Releases page](https://github.com/heyalohaloha/kirin_hypha/releases).
-2. Unzip and copy both bundles to:
-   `~/Library/Audio/Plug-Ins/VST3/`
+2. Unzip, then install the format you use:
+   - **VST3** — copy `Kirin Hypha PRE.vst3` and `Kirin Hypha POST.vst3` to `~/Library/Audio/Plug-Ins/VST3/`, replacing any existing `Kirin Hypha *.vst3` at that path (leaving an old copy can cause stale loading).
+   - **Audio Unit** — copy `Kirin Hypha PRE.component` and `Kirin Hypha POST.component` to `~/Library/Audio/Plug-Ins/Components/`.
 3. Rescan plugins in your DAW.
 4. Insert **Kirin Hypha PRE** before your processing chain.
 5. Insert **Kirin Hypha POST** after your processing chain.
+
+---
+
+## Sandbox & privacy (Audio Unit)
+
+The Audio Unit declares a broad file-access entitlement (`temporary-exception.files.all.read-write`), which the AU sandbox requires for the plug-in to persist its session data (`.kirin` and plug-in data) on disk. The build declares no network entitlement and links no networking or web frameworks — you can confirm this with `codesign -d --entitlements - "Kirin Hypha PRE.component"` and `otool -L "Kirin Hypha PRE.component"`.
 
 ---
 
@@ -153,11 +163,11 @@ Kirin OS is available now. More at [kirinmastering.com](https://kirinmastering.c
 ## Requirements
 
 - macOS 12 or later (Apple Silicon and Intel)
-- VST3-compatible DAW
+- VST3- or Audio Unit-compatible DAW
 
 Tested on macOS 14 (Sonoma).
 
-**Not currently supported:** Windows · Linux · CLAP · AU
+**Not currently supported:** Windows · Linux · CLAP
 
 ---
 
