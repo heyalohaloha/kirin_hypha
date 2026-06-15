@@ -23,7 +23,6 @@
 //! （R-28: silent swap 禁止）。
 
 use std::borrow::Cow;
-use std::path::Path;
 use std::sync::{Mutex, OnceLock, RwLock};
 
 use uuid::Uuid;
@@ -96,23 +95,27 @@ pub fn take_path_event(my_instance: Option<&str>) -> Option<String> {
     Some(g.remove(pos).msg)
 }
 
-/// path component が安全か（traversal / 絶対パス / 区切り / 空 を排除）。
+/// canonical path-component char policy（**単一定義** / B-133 G-115-383）: ASCII 英数字 + `-`。
+/// UUID v4（hex+hyphen）/ parity literal（`iid-b058-fixed` 等）は全て充足。この allowlist は旧 denylist を
+/// **subsume** する: `/` `\` / 制御文字（null 含む）/ `.`（→ `.`/`..` 自動拒否）/ 絶対パス（`/`・`:`・`\`）/
+/// `_`（→ QUARANTINE_PREFIX `_q_`）。hardening 本体 = 旧 denylist が許していた `"` `<` `>` `&` `;` `|` `$`
+/// 空白 `.` `_` 非ASCII を一貫拒否し、**文字方針を本関数 1 点に集約**する（散在 denylist の正規化 /
+/// 個別 char patch でない）。within-base 不変は HOLDS（traversal でない・DiD）。
+fn is_path_safe_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '-'
+}
+
+/// path component が安全か（B-133: allowlist 1 点正規化）。
 ///
-/// B-128 cap-bypass 封止: [`QUARANTINE_PREFIX`]（`_q_`）は wall 専用の **予約 marker**。これを含む値は
-/// 「safe だが quarantine 名を詐称」できてしまい、`count_frames` の `_q_` 除外（C3）を悪用して 12-pair
-/// cap を bypass できる（攻撃者 instance_id が `_q_evil` 等を持つと real 枠が cap 未計数になる）。よって
-/// `_q_` を含む値は **unsafe 扱い**にして決定的に quarantine へ畳む（正規 UUID / parity literal は `_q_`
-/// を含まないため影響なし）。これで「`_q_` を含む枠 = 必ず wall 由来の真の quarantine」が不変条件になる。
+/// B-128 cap-bypass 封止: [`QUARANTINE_PREFIX`]（`_q_`）は wall 専用の **予約 marker**。`_` が allowlist
+/// 外のため `_q_` を含む値は allowlist で既に unsafe だが、cap-bypass 不変（`count_frames` の C3 `_q_`
+/// 除外）が allowlist の `_` 除外に **暗黙依存しない**よう explicit guard を残す（DiD / 正規 UUID・parity
+/// literal は `_q_` を含まないため影響なし）。「`_q_` を含む枠 = 必ず wall 由来の真の quarantine」が不変。
 pub fn is_path_safe_component(s: &str) -> bool {
     !s.is_empty()
         && s.len() <= MAX_COMPONENT_LEN // D4: overlength 拒否
-        && s != "."
-        && s != ".."
-        && !s.contains('/')
-        && !s.contains('\\')
-        && !s.chars().any(|c| c.is_control()) // D4: null byte 含む全制御文字を拒否
-        && !s.contains(QUARANTINE_PREFIX)
-        && !Path::new(s).is_absolute()
+        && s.chars().all(is_path_safe_char) // B-133: 文字方針を allowlist 1 点に正規化（'/' '\' 制御 '.'/'..' 絶対 を subsume）
+        && !s.contains(QUARANTINE_PREFIX) // B-128 C3 不変を明示保持（'_' 除外で subsume 済だが DiD）
 }
 
 /// quarantine 名か（`_q_` を含む）。cap count / pairing から quarantine 枠を除外する判定に使う。
@@ -233,6 +236,7 @@ pub fn normalize_observation_cell(cell: &RwLock<String>, ctx: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path; // B-133: absolute 検査を production から外したため test 局所 import に移動
 
     fn fresh_events() {
         let _ = drain_path_events();
@@ -264,6 +268,54 @@ mod tests {
             assert_eq!(g.len(), QUARANTINE_PREFIX.len() + 16, "quarantine 名は正準長: {g}");
             assert!(g[QUARANTINE_PREFIX.len()..].bytes().all(|b| b.is_ascii_hexdigit()));
         }
+    }
+
+    // ── B-133 (G-115-383): allowlist char-policy hardening ──────────────────
+    #[test]
+    fn b133_newly_rejected_chars_are_quarantined() {
+        // 旧 denylist が許していた shell / HTML / display メタ文字・'.'・'_'・空白・非ASCII は
+        // allowlist（[A-Za-z0-9-] 1 点）で一貫拒否され、guard で base 内・正準長の quarantine へ畳まれる。
+        // いずれも旧 denylist（'/' '\\' 制御 '.' '..' '_q_' 絶対のみ拒否）では safe 扱いだった = hardening 本体。
+        for s in [
+            "a\"b", "a<b", "a>b", "a&b", "a;b", "a|b", "a$b", "a b", "a.b", "a_b",
+            "a`b", "a'b", "a(b", "a)b", "a#b", "a%b", "a=b", "日本語Snare",
+        ] {
+            assert!(!is_path_safe_component(s), "{s:?} は B-133 allowlist で unsafe であるべき");
+            let g = guard_path_component(s, "b133");
+            assert!(g.starts_with(QUARANTINE_PREFIX), "{s:?} → quarantine: {g}");
+            assert_eq!(g.len(), QUARANTINE_PREFIX.len() + 16, "quarantine は正準長: {g}");
+            assert!(
+                g[QUARANTINE_PREFIX.len()..].bytes().all(|b| b.is_ascii_hexdigit()),
+                "quarantine 名は _q_ + 16 hex: {g}"
+            );
+        }
+    }
+
+    #[test]
+    fn b133_legitimate_ids_not_false_rejected() {
+        // false-rejection ガード: 正規 Uuid v4 由来 instance_id は allowlist を素通し（誤拒否しない）。
+        // guard は借用無改変・materialize は不変。32 本の fresh UUID で誤拒否ゼロを確認。
+        let mut n = 0u32;
+        for _ in 0..32 {
+            let uuid = Uuid::new_v4().to_string();
+            assert!(is_path_safe_component(&uuid), "正規 UUID は safe: {uuid}");
+            assert_eq!(
+                guard_path_component(&uuid, "b133"),
+                Cow::Borrowed(uuid.as_str()),
+                "正規 UUID は wall 素通し（誤拒否なし）: {uuid}"
+            );
+            assert_eq!(materialize_observation_id(&uuid, "b133"), uuid, "正規 UUID は materialize 不変: {uuid}");
+            if n == 0 {
+                eprintln!("[b133 false-rejection guard] sample fresh uuid={uuid} → is_path_safe=true / guard=Borrowed / materialize 不変");
+            }
+            n += 1;
+        }
+        // parity literal id（hex+hyphen でない英数+hyphen literal）も素通し（既存 id テスト不変）。
+        for s in ["iid-b058-fixed", "pre", "ph-A", "not-a-uuid", "a1b2c3d4-0000-4000-8000-000000000000"] {
+            assert!(is_path_safe_component(s), "parity literal は safe: {s}");
+            assert_eq!(guard_path_component(s, "b133"), Cow::Borrowed(s), "parity literal 素通し: {s}");
+        }
+        eprintln!("[b133 false-rejection guard] {n}/32 fresh Uuid::new_v4 pass-through（誤拒否ゼロ）+ parity literal 5 種 pass-through OK");
     }
 
     #[test]
