@@ -1,0 +1,12 @@
+diff --git a/modules/juce_gui_extra/juce_gui_extra.h b/modules/juce_gui_extra/juce_gui_extra.h
+index 59c4b97937..7ac216488a 100644
+--- a/modules/juce_gui_extra/juce_gui_extra.h
++++ b/modules/juce_gui_extra/juce_gui_extra.h
+@@ -43,7 +43,6 @@
+   minimumCppStandard:     17
+ 
+   dependencies:           juce_gui_basics
+-  OSXFrameworks:          WebKit
+   iOSFrameworks:          WebKit
+   WeakiOSFrameworks:      UserNotifications
+   WeakMacOSFrameworks:    UserNotifications

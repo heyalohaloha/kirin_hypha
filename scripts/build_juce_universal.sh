@@ -39,6 +39,22 @@ echo "==> apply juce_shell/patches/0001 (idempotent)"
   fi
 )
 
+# B-135 (G-115-392): apply juce_shell/patches/0002 (drop WebKit OSXFramework from juce_gui_extra)
+# before cmake. Same idempotent discipline as 0001. Removes the unconditional WebKit.framework
+# link inherited via juce_audio_processors -> juce_gui_extra (JUCE_WEB_BROWSER=0 already disables
+# the WebBrowserComponent class, so no WebKit symbol is referenced). The submodule is never
+# committed; the patch is applied at build time only.
+echo "==> apply juce_shell/patches/0002 (idempotent)"
+(
+  cd juce_shell/JUCE
+  if git apply --reverse --check ../patches/0002-drop-webkit-osxframework-from-juce-gui-extra.patch 2>/dev/null; then
+    echo "patches/0002 already applied — skipping"
+  else
+    git apply ../patches/0002-drop-webkit-osxframework-from-juce-gui-extra.patch
+    echo "patches/0002 applied"
+  fi
+)
+
 echo "==> cmake configure (universal: x86_64;arm64 + universal staticlib)"
 cmake -S juce_shell -B juce_shell/build-universal \
   -DCMAKE_BUILD_TYPE=Release \
