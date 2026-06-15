@@ -7,6 +7,14 @@
 // under --build-dir (default juce_shell/build-universal). Both AU (.component) and VST3 bundles
 // are signed/notarized/stapled; the pipeline loops over all four.
 //
+// B-137 (G-115-344): construction-C ship set = egui VST3 (PRE/POST, target/bundled) + JUCE AU
+// (PRE/POST, build-universal). JUCE VST3 (PRE/POST) is EXCLUDED from the ship set (GUID continuity /
+// existing+Peach session protection). dual-root: --build-dir = JUCE AU root, --egui-dir = egui VST3
+// root (default target/bundled). The per-bundle codesign/notarytool/staple flow (notarize_one) is
+// bundle-type agnostic and unchanged. Build order: build_juce_universal.sh (JUCE AU, patches 0001+0002)
+// and `cargo xtask bundle-universal hypha_pre/hypha_post --release` + stamp-egui-version (egui VST3)
+// must both run before notarize.
+//
 // Pipeline per bundle (R-11 verified against `man codesign` / `man notarytool` / `man stapler`):
 //   1. codesign --sign <identity> --options runtime --timestamp --deep --force <bundle>
 //   2. ditto -c -k --keepParent <bundle> <bundle>.zip
@@ -27,15 +35,27 @@ use anyhow::{bail, Context, Result};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// 既定の universal ビルド出力ルート（scripts/build_juce_universal.sh の出力先 / B-082）。
-const DEFAULT_BUILD_DIR: &str = "juce_shell/build-universal";
+/// 構成C (G-115-344) source root（dual-root）。
+/// - JUCE AU = `scripts/build_juce_universal.sh` 出力（B-082）。
+/// - egui VST3 = `cargo xtask bundle-universal … + stamp-egui-version` 出力。
+const DEFAULT_JUCE_DIR: &str = "juce_shell/build-universal";
+const DEFAULT_EGUI_DIR: &str = "target/bundled";
 
-/// 出荷対象の 4 bundle（PRE/POST × AU(.component)/VST3）の `--build-dir` 相対パス。
-const BUNDLE_RELPATHS: [(&str, &str); 4] = [
-    ("PRE  AU  ", "KirinHyphaPRE_artefacts/Release/AU/Kirin Hypha PRE.component"),
-    ("PRE  VST3", "KirinHyphaPRE_artefacts/Release/VST3/Kirin Hypha PRE.vst3"),
-    ("POST AU  ", "KirinHyphaPOST_artefacts/Release/AU/Kirin Hypha POST.component"),
-    ("POST VST3", "KirinHyphaPOST_artefacts/Release/VST3/Kirin Hypha POST.vst3"),
+/// 構成C bundle の source root 種別（dual-root）。
+#[derive(Clone, Copy)]
+enum Root {
+    Juce,
+    Egui,
+}
+
+/// 出荷対象の 4 bundle（構成C / G-115-344）: egui VST3（PRE/POST, target/bundled）と
+/// JUCE AU（PRE/POST, build-universal）。**JUCE VST3（PRE/POST）は出荷除外**
+/// （GUID 破壊回避・既存/Peach セッション保護）。
+const BUNDLES_C: [(&str, Root, &str); 4] = [
+    ("PRE  AU  ", Root::Juce, "KirinHyphaPRE_artefacts/Release/AU/Kirin Hypha PRE.component"),
+    ("POST AU  ", Root::Juce, "KirinHyphaPOST_artefacts/Release/AU/Kirin Hypha POST.component"),
+    ("PRE  VST3", Root::Egui, "Kirin Hypha PRE.vst3"),
+    ("POST VST3", Root::Egui, "Kirin Hypha POST.vst3"),
 ];
 
 struct Bundle {
@@ -43,18 +63,26 @@ struct Bundle {
     path: PathBuf,
 }
 
-fn resolve_bundles(build_dir: &Path) -> Vec<Bundle> {
-    BUNDLE_RELPATHS
+/// dual-root 解決: `Root::Juce` → juce_dir、`Root::Egui` → egui_dir に relpath を join。
+fn resolve_bundles(juce_dir: &Path, egui_dir: &Path) -> Vec<Bundle> {
+    BUNDLES_C
         .iter()
-        .map(|(label, rel)| Bundle {
-            label: (*label).to_string(),
-            path: build_dir.join(rel),
+        .map(|(label, root, rel)| {
+            let base = match root {
+                Root::Juce => juce_dir,
+                Root::Egui => egui_dir,
+            };
+            Bundle {
+                label: (*label).to_string(),
+                path: base.join(rel),
+            }
         })
         .collect()
 }
 
 pub fn run(args: Vec<String>) -> Result<()> {
     let mut build_dir: Option<String> = None;
+    let mut egui_dir: Option<String> = None;
     let mut identity: Option<String> = None;
     let mut team_id: Option<String> = None;
     let mut apple_id: Option<String> = None;
@@ -67,6 +95,9 @@ pub fn run(args: Vec<String>) -> Result<()> {
         match arg.as_str() {
             "--build-dir" => {
                 build_dir = Some(iter.next().context("--build-dir requires a value")?);
+            }
+            "--egui-dir" => {
+                egui_dir = Some(iter.next().context("--egui-dir requires a value")?);
             }
             "--identity" => {
                 identity = Some(iter.next().context("--identity requires a value")?);
@@ -93,8 +124,9 @@ pub fn run(args: Vec<String>) -> Result<()> {
         }
     }
 
-    let build_dir = PathBuf::from(build_dir.unwrap_or_else(|| DEFAULT_BUILD_DIR.to_string()));
-    let bundles = resolve_bundles(&build_dir);
+    let juce_dir = PathBuf::from(build_dir.unwrap_or_else(|| DEFAULT_JUCE_DIR.to_string()));
+    let egui_dir = PathBuf::from(egui_dir.unwrap_or_else(|| DEFAULT_EGUI_DIR.to_string()));
+    let bundles = resolve_bundles(&juce_dir, &egui_dir);
 
     if dry_run {
         return dry_run_report(&bundles, identity.as_deref(), keychain_profile.as_deref());
@@ -129,7 +161,12 @@ pub fn run(args: Vec<String>) -> Result<()> {
     }
 
     eprintln!();
-    eprintln!("notarize complete: {} bundle(s) under {}", bundles.len(), build_dir.display());
+    eprintln!(
+        "notarize complete: {} bundle(s) (構成C: JUCE AU under {}, egui VST3 under {}; JUCE VST3 excluded)",
+        bundles.len(),
+        juce_dir.display(),
+        egui_dir.display()
+    );
     Ok(())
 }
 
@@ -260,10 +297,12 @@ fn print_help() {
     println!("         (--password <PW> --apple-id <EMAIL> | --keychain-profile <PROF>) \\");
     println!("         [--build-dir <DIR>] [--dry-run]");
     println!();
-    println!("Signs/notarizes/staples the 4 JUCE universal bundles (B-082/B-083):");
-    println!("  KirinHypha{{PRE,POST}}_artefacts/Release/AU/*.component");
-    println!("  KirinHypha{{PRE,POST}}_artefacts/Release/VST3/*.vst3");
-    println!("under --build-dir (default {DEFAULT_BUILD_DIR}).");
+    println!("Signs/notarizes/staples the 4 construction-C ship bundles (G-115-344):");
+    println!("  JUCE AU   : KirinHypha{{PRE,POST}}_artefacts/Release/AU/*.component (--build-dir)");
+    println!("  egui VST3 : Kirin Hypha {{PRE,POST}}.vst3 (--egui-dir)");
+    println!("JUCE VST3 is EXCLUDED from the ship set (GUID continuity).");
+    println!("Build both first: scripts/build_juce_universal.sh (JUCE AU) and");
+    println!("  `cargo xtask bundle-universal hypha_pre/hypha_post --release` + stamp-egui-version (egui VST3).");
     println!();
     println!("Required (real run):");
     println!("  --identity <CERT>          codesign identity, e.g.");
@@ -275,7 +314,8 @@ fn print_help() {
     println!("  --keychain-profile <PROF>            xcrun notarytool store-credentials profile");
     println!();
     println!("Optional:");
-    println!("  --build-dir <DIR>          Universal build root (default {DEFAULT_BUILD_DIR})");
+    println!("  --build-dir <DIR>          JUCE AU build root (default {DEFAULT_JUCE_DIR})");
+    println!("  --egui-dir  <DIR>          egui VST3 bundle root (default {DEFAULT_EGUI_DIR})");
     println!("  --dry-run                  Resolve paths + print commands; no signing, no");
     println!("                               credentials required.");
     println!();

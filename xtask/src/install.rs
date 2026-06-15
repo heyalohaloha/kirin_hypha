@@ -1,5 +1,5 @@
-//! `cargo xtask install --release` — deploy the SIGNED universal JUCE bundles (AU + VST3) to the
-//! system-level plugin folders.
+//! `cargo xtask install --release` — deploy the SIGNED construction-C ship bundles
+//! (egui VST3 + JUCE AU; JUCE VST3 excluded) to the system-level plugin folders.
 //!
 //! # B-099 rewrite
 //! Rewritten from the B-022 nih-plug VST3-only installer (source `target/bundled/*.vst3`,
@@ -9,9 +9,12 @@
 //! because a stale user-level binary makes a DAW load the wrong plugin (the original B-022
 //! finding for Studio One). user-level is never the install target.
 //!
-//! # Source (B-098 signed)
-//! `juce_shell/build-universal/KirinHypha{PRE,POST}_artefacts/Release/{AU/*.component,
-//! VST3/*.vst3}` — the Developer-ID-signed + notarized + stapled bundles.
+//! # Source (B-098 signed / B-137 construction-C / G-115-344)
+//! egui VST3: `target/bundled/Kirin Hypha {PRE,POST}.vst3` (bundle-universal + stamp-egui-version).
+//! JUCE AU:   `juce_shell/build-universal/KirinHypha{PRE,POST}_artefacts/Release/AU/*.component`.
+//! JUCE VST3 (`build-universal/.../Release/VST3/*.vst3`) is EXCLUDED from the ship set
+//! (GUID continuity / existing+Peach session protection). All sources must be Developer-ID
+//! signed + notarized + stapled.
 //!
 //! # Signed-source guard (B-099, required)
 //! Each source bundle MUST be Developer-ID signed (`codesign` `TeamIdentifier=7N8BSMA684`, not
@@ -34,8 +37,11 @@ use std::process::Command;
 /// Developer ID team. Source bundles must be signed by this team (not ad-hoc / unsigned).
 const TEAM_ID: &str = "7N8BSMA684";
 
-/// universal ship build root (scripts/build_juce_universal.sh output).
+/// universal ship build root (scripts/build_juce_universal.sh output) — JUCE AU の source。
 const BUILD_UNIVERSAL: &str = "juce_shell/build-universal";
+
+/// 構成C (G-115-344): egui VST3 の source root（cargo xtask bundle-universal + stamp-egui-version 出力）。
+const EGUI_BUNDLED: &str = "target/bundled";
 
 /// system-level plugin dirs (root-owned / sudo required).
 const SYSTEM_AU_DIR: &str = "/Library/Audio/Plug-Ins/Components";
@@ -74,30 +80,32 @@ impl Bundle {
     }
 }
 
-/// The 4 ship bundles with source paths under `root` (workspace root, normally ".").
+/// The 4 construction-C ship bundles (G-115-344): egui VST3 (PRE/POST, target/bundled) +
+/// JUCE AU (PRE/POST, build-universal). JUCE VST3 (PRE/POST) は **出荷除外**（GUID 破壊回避・
+/// 既存/Peach セッション保護）。dual-root: AU=build-universal/Release/AU、VST3=target/bundled。
 fn bundles(root: &Path) -> Vec<Bundle> {
-    const SPECS: [(&str, &str, &str, &str); 4] = [
-        ("PRE", "AU", "component", SYSTEM_AU_DIR),
-        ("PRE", "VST3", "vst3", SYSTEM_VST3_DIR),
-        ("POST", "AU", "component", SYSTEM_AU_DIR),
-        ("POST", "VST3", "vst3", SYSTEM_VST3_DIR),
-    ];
-    SPECS
-        .iter()
-        .map(|(role, fmt_dir, ext, system_dir)| {
-            let name = format!("Kirin Hypha {role}");
-            let src = root
+    let mut out = Vec::with_capacity(4);
+    for role in ["PRE", "POST"] {
+        let name = format!("Kirin Hypha {role}");
+        // JUCE AU — build-universal/Release/AU → /Library/Audio/Plug-Ins/Components
+        out.push(Bundle {
+            src: root
                 .join(BUILD_UNIVERSAL)
-                .join(format!("KirinHypha{role}_artefacts/Release/{fmt_dir}"))
-                .join(format!("{name}.{ext}"));
-            Bundle {
-                name,
-                ext,
-                src,
-                system_dir,
-            }
-        })
-        .collect()
+                .join(format!("KirinHypha{role}_artefacts/Release/AU"))
+                .join(format!("{name}.component")),
+            name: name.clone(),
+            ext: "component",
+            system_dir: SYSTEM_AU_DIR,
+        });
+        // egui VST3 — target/bundled → /Library/Audio/Plug-Ins/VST3（JUCE VST3 は出荷しない）
+        out.push(Bundle {
+            src: root.join(EGUI_BUNDLED).join(format!("{name}.vst3")),
+            name,
+            ext: "vst3",
+            system_dir: SYSTEM_VST3_DIR,
+        });
+    }
+    out
 }
 
 /// `cargo xtask install --release` のエントリポイント。
@@ -160,13 +168,14 @@ pub fn run(args: Vec<String>) -> Result<()> {
 fn print_usage() {
     eprintln!(
         "Usage: cargo run --package xtask -- install --release\n\n\
-         Deploys the SIGNED universal JUCE bundles to the system plugin folders:\n\
-         \x20 AU  -> /Library/Audio/Plug-Ins/Components/Kirin Hypha {{PRE,POST}}.component\n\
-         \x20 VST3-> /Library/Audio/Plug-Ins/VST3/Kirin Hypha {{PRE,POST}}.vst3\n\n\
-         Source: juce_shell/build-universal/KirinHypha{{PRE,POST}}_artefacts/Release/\n\
+         Deploys the SIGNED construction-C ship bundles to the system plugin folders:\n\
+         \x20 AU  -> /Library/Audio/Plug-Ins/Components/Kirin Hypha {{PRE,POST}}.component (JUCE)\n\
+         \x20 VST3-> /Library/Audio/Plug-Ins/VST3/Kirin Hypha {{PRE,POST}}.vst3 (egui)\n\n\
+         Source: JUCE AU = juce_shell/build-universal/.../Release/AU; egui VST3 = target/bundled/.\n\
+         JUCE VST3 is EXCLUDED from the ship set (GUID continuity).\n\
          Each source must be Developer-ID signed ({TEAM_ID}) + stapled (B-098), else install\n\
          aborts. user-level copies are removed first (sudo prompt for the system deploy).\n\n\
-         Run scripts/build_juce_universal.sh + `cargo xtask notarize ...` beforehand."
+         Build both shells + `cargo xtask notarize ...` beforehand."
     );
 }
 
@@ -371,11 +380,25 @@ mod tests {
     }
 
     #[test]
-    fn source_paths_under_build_universal_release() {
+    fn source_paths_construction_c_dual_root() {
+        // 構成C (G-115-344): AU=build-universal/Release/AU、egui VST3=target/bundled。
+        // JUCE VST3 (build-universal/Release/VST3) は出荷除外＝どの src にも現れない。
         for x in bundles(Path::new(".")) {
             let s = x.src.to_string_lossy();
-            assert!(s.contains("juce_shell/build-universal/"), "src not under build-universal: {s}");
-            assert!(s.contains("/Release/"), "src not Release: {s}");
+            match x.ext {
+                "component" => {
+                    assert!(s.contains("juce_shell/build-universal/"), "AU src not under build-universal: {s}");
+                    assert!(s.contains("/Release/AU/"), "AU src not Release/AU: {s}");
+                }
+                "vst3" => {
+                    assert!(s.contains("target/bundled/"), "egui VST3 src not under target/bundled: {s}");
+                    assert!(
+                        !s.contains("build-universal"),
+                        "VST3 must NOT be the JUCE build-universal copy (構成C excludes JUCE VST3): {s}"
+                    );
+                }
+                other => panic!("unexpected ext {other}"),
+            }
         }
     }
 
