@@ -3,6 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use crate::macos_codesign;
 use crate::release_gate::{git_dirty_for_manifest, verify_package_mode, UNSIGNED_SUFFIX};
 
 const TEAM_ID: &str = "7N8BSMA684";
@@ -290,8 +291,8 @@ fn verify_au_resource_usage(bundle: &Path) -> Result<()> {
 }
 
 fn verify_signed_and_notarized(bundle: &Path) -> Result<()> {
-    run_status(
-        Command::new("codesign")
+    macos_codesign::run_status(
+        macos_codesign::command()
             .args(["--verify", "--deep", "--strict", "--verbose=2"])
             .arg(bundle),
         "codesign verify",
@@ -300,8 +301,8 @@ fn verify_signed_and_notarized(bundle: &Path) -> Result<()> {
     // supported stapler target on macOS 15. `codesign --check-notarization` is the per-bundle
     // release gate for the notarization ticket; any outer `.dmg` / `.pkg` container may still be
     // stapled separately if we introduce one later.
-    run_status(
-        Command::new("codesign")
+    macos_codesign::run_status(
+        macos_codesign::command()
             .args([
                 "--verify",
                 "--deep",
@@ -312,7 +313,7 @@ fn verify_signed_and_notarized(bundle: &Path) -> Result<()> {
             .arg(bundle),
         "codesign --check-notarization",
     )?;
-    let out = Command::new("codesign")
+    let out = macos_codesign::command()
         .arg("-dvv")
         .arg(bundle)
         .output()

@@ -93,11 +93,11 @@ private:
     static bool bufferIsSilent (const juce::AudioBuffer<float>& buffer); // B-107: peak < -140 dBFS (parity)
 
     // B-070/B-126 + Logic stopped-state fix: enable plugin_data writes exactly once, on the message thread, after
-    // prepareToPlay (create + set_license). processBlock still provides the fastest ordered trigger
-    // and only sets lock-free flags, but hosts such as Logic may not call it while stopped. In that
-    // case a short prepareToPlay fallback delay gives setStateInformation a restore window, then
-    // publishes Inactive PRE/POST presence without waiting for audible playback. enable_*_writes
-    // spawns an io_thread (not RT-safe), hence the deferral off the audio thread. Role selects PRE/POST.
+    // prepareToPlay (create + set_license). processBlock only sets lock-free flags; it no longer
+    // short-circuits the state-restore grace window, because enable_*_writes snapshots the path
+    // identity into the io_thread. Hosts such as Logic may not call processBlock while stopped, so
+    // the Timer publishes Inactive PRE/POST presence after either setStateInformation arrives or the
+    // restore grace expires. enable_*_writes spawns an io_thread (not RT-safe), hence the deferral.
     void timerCallback() override;        // B-126: non-RT poll (message thread) — observes enablePending
     void enableWritesNow();               // B-070 enable body (set_identity -> enable_*_writes -> readback)
 
@@ -120,7 +120,8 @@ private:
     std::atomic<bool> lastPlaying { false };           // B-054: transport playing (POST pair lock during playback)
     std::atomic<bool> writesEnabled { false };         // plugin_data writes enabled (idempotent guard)
     std::atomic<bool> enablePending { false };         // B-126: set by prepare/processBlock, observed by the Timer
-    std::atomic<int>  enableDelayTicks { 0 };          // prepare fallback restore grace; processBlock clears it
+    std::atomic<int>  enableDelayTicks { 0 };          // prepare fallback restore grace; setState clears it
+    std::atomic<bool> stateInformationSeen { false };  // setStateInformation reached this instance at least once
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (KirinHyphaProcessorBase)
 };

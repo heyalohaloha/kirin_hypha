@@ -34,6 +34,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use crate::macos_codesign;
+
 /// Developer ID team. Source bundles must be signed by this team (not ad-hoc / unsigned).
 const TEAM_ID: &str = "7N8BSMA684";
 
@@ -194,7 +196,7 @@ fn verify_signed(bundle: &Path) -> Result<()> {
     verify_notarization_ticket(bundle)?;
 
     // codesign -dvv writes the signing info to stderr.
-    let out = Command::new("codesign")
+    let out = macos_codesign::command()
         .arg("-dvv")
         .arg(bundle)
         .output()
@@ -216,7 +218,7 @@ fn verify_signed(bundle: &Path) -> Result<()> {
 /// bundles it reports EX_NOINPUT / kLSDataUnavailableErr even when the Developer-ID seal is valid.
 /// For source/destination install guards, use codesign's online notarization-ticket check instead.
 fn verify_notarization_ticket(bundle: &Path) -> Result<()> {
-    let out = Command::new("codesign")
+    let out = macos_codesign::command()
         .args([
             "--verify",
             "--deep",
@@ -237,7 +239,7 @@ fn verify_notarization_ticket(bundle: &Path) -> Result<()> {
             "{} failed codesign --check-notarization (not notarized / ticket unavailable). \
              Re-run `cargo xtask notarize ...` before install.\n{}",
             bundle.display(),
-            String::from_utf8_lossy(&out.stderr).trim()
+            macos_codesign::failure_message("codesign --check-notarization", &out)
         );
     }
     Ok(())
@@ -247,7 +249,7 @@ fn verify_notarization_ticket(bundle: &Path) -> Result<()> {
 /// `codesign --verify --deep --strict --verbose=2` で封緘が有効か（改ざん・cp -R 破損がないか）を
 /// 検証する。非破壊（読み取りのみ）。source guard と destination 検証の両方から呼ぶ。
 fn verify_codesign_seal(bundle: &Path) -> Result<()> {
-    let out = Command::new("codesign")
+    let out = macos_codesign::command()
         .args(["--verify", "--deep", "--strict", "--verbose=2"])
         .arg(bundle)
         .output()
@@ -257,7 +259,7 @@ fn verify_codesign_seal(bundle: &Path) -> Result<()> {
             "{} failed codesign --verify --deep --strict (seal invalid / tampered / cp 破損). \
              Re-sign + notarize before install.\ncodesign --verify --deep --strict --verbose=2:\n{}",
             bundle.display(),
-            String::from_utf8_lossy(&out.stderr).trim()
+            macos_codesign::failure_message("codesign --verify", &out)
         );
     }
     Ok(())

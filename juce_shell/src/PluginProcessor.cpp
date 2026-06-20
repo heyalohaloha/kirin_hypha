@@ -5,7 +5,7 @@
 namespace
 {
     // Logic stopped-state fix: expose Inactive PRE/POST presence without waiting for the first audio callback.
-    // The 50 ms Timer grants a short state-restore window before enabling from prepareToPlay.
+    // The 50 ms Timer grants a bounded state-restore window before enabling from prepareToPlay.
     constexpr int kPrepareEnableDelayTicks = 10;
 
     // B-125 (b): prealloc-max headroom (frames). The interleave scratch is sized in
@@ -77,7 +77,7 @@ void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBl
 
     // B-070: a fresh handle needs license applied and (re-)enabling. License is read once
     // from identity.json (single source) and cached for the editor's Os-gate (B-072).
-    // set_identity + enable_*_writes are deferred to the first processBlock
+    // set_identity + enable_*_writes are deferred to the message-thread Timer
     // (enableWritesNow) so any setStateInformation restore is applied before enable.
     if (hyphaHandle != nullptr)
     {
@@ -87,8 +87,11 @@ void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBl
         writesEnabled.store (false, std::memory_order_release);
         // Logic stopped-state fix: re-prepare needs a fresh enable, but Logic may not call processBlock until
         // playback. Start a message-thread fallback so Inactive presence/candidates are published
-        // even while stopped; a first processBlock clears the delay and preserves the old fast path.
-        enableDelayTicks.store (kPrepareEnableDelayTicks, std::memory_order_release);
+        // even while stopped. If setStateInformation already arrived for this instance, skip the
+        // grace delay; otherwise keep the window so project recall can restore identity before the
+        // io_thread snapshots it.
+        const int restoreDelay = stateInformationSeen.load (std::memory_order_acquire) ? 0 : kPrepareEnableDelayTicks;
+        enableDelayTicks.store (restoreDelay, std::memory_order_release);
         enablePending.store (true, std::memory_order_release);
     }
     // A null handle (create failure) is tolerated; processBlock / pollMeasureResult guard on it.
@@ -134,13 +137,13 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
     if (hyphaHandle == nullptr)
         return;
 
-    // B-070/B-126: enable writes once, deferred to here so any setStateInformation (identity /
-    // pair name restore) has already run. The audio thread does ONLY a lock-free atomic store
-    // (no alloc/lock/syscall) — the may-block triggerAsyncUpdate is gone (B-126). The non-RT
-    // message-thread Timer observes enablePending and runs enableWritesNow().
+    // B-070/B-126: enable writes once, deferred to the message-thread Timer so any
+    // setStateInformation (identity / pair name restore) can win before the io_thread snapshots
+    // path identity. The audio thread does ONLY lock-free atomics (no alloc/lock/syscall).
     if (! writesEnabled.load (std::memory_order_acquire))
     {
-        enableDelayTicks.store (0, std::memory_order_release);
+        if (stateInformationSeen.load (std::memory_order_acquire))
+            enableDelayTicks.store (0, std::memory_order_release);
         enablePending.store (true, std::memory_order_release);
     }
 
@@ -463,17 +466,51 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
 {
     // B-069/B-072: restore the 4 identity keys + pair target into the persist members. May
     // run before or after prepareToPlay (JUCE does not guarantee ordering); the FFI receives
-    // these at enable time (enableWritesNow), deferred to the first processBlock.
+    // these at enable time (enableWritesNow), deferred to the message-thread Timer.
+    stateInformationSeen.store (true, std::memory_order_release);
+
     if (auto xml = getXmlFromBinary (data, sizeInBytes))
     {
         if (xml->hasTagName ("KirinHyphaState"))
         {
-            persistInstanceId     = xml->getStringAttribute ("instance_id");
-            persistProjectUuid    = xml->getStringAttribute ("project_uuid");
-            persistDawSessionUuid = xml->getStringAttribute ("daw_session_uuid");
-            persistName           = xml->getStringAttribute ("name");
-            persistPairName       = xml->getStringAttribute ("pair_pre_name");
+            const auto restoredInstanceId     = xml->getStringAttribute ("instance_id");
+            const auto restoredProjectUuid    = xml->getStringAttribute ("project_uuid");
+            const auto restoredDawSessionUuid = xml->getStringAttribute ("daw_session_uuid");
+            const auto restoredName           = xml->getStringAttribute ("name");
+            const auto restoredPairName       = xml->getStringAttribute ("pair_pre_name");
+
+            // Once writes are enabled, the io_thread has already snapshotted the path identity
+            // (instance/project/session). Replacing those persisted keys now would split the DAW
+            // chunk from the active writer. Live-editable fields are safe to restore and push
+            // through their dedicated FFI setters.
+            if (writesEnabled.load (std::memory_order_acquire))
+            {
+                persistName     = restoredName;
+                persistPairName = restoredPairName;
+
+                const juce::ScopedLock sl (handleLock);
+                if (hyphaHandle != nullptr)
+                {
+                    if (role == Role::Post)
+                        kirin_hypha_set_pair_target (hyphaHandle, persistPairName.toRawUTF8());
+                    else
+                        kirin_hypha_set_pre_name (hyphaHandle, persistName.toRawUTF8());
+                }
+                return;
+            }
+
+            persistInstanceId     = restoredInstanceId;
+            persistProjectUuid    = restoredProjectUuid;
+            persistDawSessionUuid = restoredDawSessionUuid;
+            persistName           = restoredName;
+            persistPairName       = restoredPairName;
         }
+    }
+
+    if (! writesEnabled.load (std::memory_order_acquire))
+    {
+        enableDelayTicks.store (0, std::memory_order_release);
+        enablePending.store (true, std::memory_order_release);
     }
 }
 

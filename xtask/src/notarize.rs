@@ -37,6 +37,8 @@ use anyhow::{bail, Context, Result};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use crate::macos_codesign;
+
 /// 構成C (G-115-344) source root（dual-root）。
 /// - JUCE AU = `scripts/build_juce_universal.sh` 出力（B-082）。
 /// - egui VST3 = `cargo xtask bundle-universal … + stamp-egui-version` 出力。
@@ -205,8 +207,8 @@ fn notarize_one(
 ) -> Result<()> {
     // Step 1: codesign (hardened runtime, deep, timestamp).
     eprintln!("==> codesign --options runtime --timestamp --deep --force");
-    run_status(
-        Command::new("codesign")
+    macos_codesign::run_status(
+        macos_codesign::command()
             .args(["--sign", identity])
             .args(["--timestamp", "--options", "runtime", "--deep", "--force"])
             .arg(bundle),
@@ -249,8 +251,8 @@ fn notarize_one(
 
     // Step 4: plugin bundles are not stapler targets; verify the online notary ticket instead.
     eprintln!("==> codesign --check-notarization");
-    run_status(
-        Command::new("codesign")
+    macos_codesign::run_status(
+        macos_codesign::command()
             .args([
                 "--verify",
                 "--deep",

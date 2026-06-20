@@ -24,51 +24,8 @@ lipo -create \
   -output "target/universal/libkirin_hypha_ffi.a"
 lipo -info "target/universal/libkirin_hypha_ffi.a"
 
-# B-091: apply juce_shell/patches/0001 (macOS 15 SDK CGWindowListCreateImage bypass) before cmake.
-# Idempotent: on a tree where it is already applied (dev), the reverse-check passes and we skip;
-# on a fresh checkout (no patch) we apply it. The submodule is never committed (PATCHES.md
-# discipline); the patch is applied at build time only. Subshell keeps the outer cwd unchanged.
-echo "==> apply juce_shell/patches/0001 (idempotent)"
-(
-  cd juce_shell/JUCE
-  if git apply --reverse --check ../patches/0001-macos15-sdk-cgwindowlistcreateimage-bypass.patch 2>/dev/null; then
-    echo "patches/0001 already applied — skipping"
-  else
-    git apply ../patches/0001-macos15-sdk-cgwindowlistcreateimage-bypass.patch
-    echo "patches/0001 applied"
-  fi
-)
-
-# B-135 (G-115-392): apply juce_shell/patches/0002 (drop WebKit OSXFramework from juce_gui_extra)
-# before cmake. Same idempotent discipline as 0001. Removes the unconditional WebKit.framework
-# link inherited via juce_audio_processors -> juce_gui_extra (JUCE_WEB_BROWSER=0 already disables
-# the WebBrowserComponent class, so no WebKit symbol is referenced). The submodule is never
-# committed; the patch is applied at build time only.
-echo "==> apply juce_shell/patches/0002 (idempotent)"
-(
-  cd juce_shell/JUCE
-  if git apply --reverse --check ../patches/0002-drop-webkit-osxframework-from-juce-gui-extra.patch 2>/dev/null; then
-    echo "patches/0002 already applied — skipping"
-  else
-    git apply ../patches/0002-drop-webkit-osxframework-from-juce-gui-extra.patch
-    echo "patches/0002 applied"
-  fi
-)
-
-# B-139: apply juce_shell/patches/0003 (AU preferred channel layout tags for Logic mono menu).
-# JUCE 7's AU wrapper skips explicit layout tags when PreferredChannelConfigurations is used.
-# Logic relies on those tags for mono/stereo menu variants, so this patch publishes Mono/Stereo
-# tags from the existing {1,1}, {2,2} map. Same idempotent discipline as 0001/0002.
-echo "==> apply juce_shell/patches/0003 (idempotent)"
-(
-  cd juce_shell/JUCE
-  if git apply --unidiff-zero --ignore-whitespace --reverse --check ../patches/0003-au-preferred-channel-layout-tags-for-logic-mono.patch 2>/dev/null; then
-    echo "patches/0003 already applied — skipping"
-  else
-    git apply --unidiff-zero --ignore-whitespace ../patches/0003-au-preferred-channel-layout-tags-for-logic-mono.patch
-    echo "patches/0003 applied"
-  fi
-)
+# B-091/B-135/B-139: apply local JUCE patches with the exact same flags used by CI.
+bash scripts/apply_juce_patches.sh
 
 echo "==> cmake configure (universal: x86_64;arm64 + universal staticlib)"
 cmake -S juce_shell -B juce_shell/build-universal \

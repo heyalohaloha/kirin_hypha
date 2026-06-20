@@ -29,6 +29,9 @@ jobs:
       - name: cargo test
         run: cargo test --all --locked
 
+      - name: kirin_hypha_ffi ignored parity tests
+        run: cargo test -p kirin_hypha_ffi --test parity --locked -- --ignored --test-threads=1
+
   auval-arm64:
     name: auval arm64 (AU validation)
     # macos-14 is an Apple Silicon (arm64) runner: builds arm64-native and validates the AU on
@@ -51,33 +54,10 @@ jobs:
       - name: Build kirin_hypha_ffi staticlib (arm64 native)
         run: cargo build --release -p kirin_hypha_ffi --locked
 
-      # B-091: the JUCE submodule is pinned pristine; patches/0001 (macOS 15 SDK
-      # CGWindowListCreateImage bypass) is applied at build time per juce_shell/PATCHES.md, never
-      # committed into the submodule. A fresh CI checkout has no patch, so without this the cmake
-      # build fails on a macOS 15 SDK runner. Idempotent: skip if already applied.
+      # The JUCE submodule is pinned pristine; local patches are applied at build time only.
+      # Keep CI and scripts/build_juce_universal.sh on the same patch flags.
       - name: Apply JUCE patches (patches/0001 + 0002 + 0003)
-        run: |
-          (
-            cd juce_shell/JUCE
-            if git apply --reverse --check ../patches/0001-macos15-sdk-cgwindowlistcreateimage-bypass.patch 2>/dev/null; then
-              echo "patches/0001 already applied — skipping"
-            else
-              git apply ../patches/0001-macos15-sdk-cgwindowlistcreateimage-bypass.patch
-              echo "patches/0001 applied"
-            fi
-            if git apply --reverse --check ../patches/0002-drop-webkit-osxframework-from-juce-gui-extra.patch 2>/dev/null; then
-              echo "patches/0002 already applied — skipping"
-            else
-              git apply ../patches/0002-drop-webkit-osxframework-from-juce-gui-extra.patch
-              echo "patches/0002 applied"
-            fi
-            if git apply --reverse --check ../patches/0003-au-preferred-channel-layout-tags-for-logic-mono.patch 2>/dev/null; then
-              echo "patches/0003 already applied — skipping"
-            else
-              git apply ../patches/0003-au-preferred-channel-layout-tags-for-logic-mono.patch
-              echo "patches/0003 applied"
-            fi
-          )
+        run: bash scripts/apply_juce_patches.sh
 
       - name: Configure + build JUCE shells (arm64)
         run: |

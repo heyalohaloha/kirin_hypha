@@ -186,13 +186,14 @@ The release ship set is construction-C: egui VST3 bundles from `target/bundled/`
 
 ## Maintainer release packaging
 
-On the release machine, after signing and notarizing with `cargo run --package xtask -- notarize`, build the upload file with:
+On the release machine, after signing and notarizing with `cargo run --package xtask -- notarize`, build the upload file from an unsandboxed Terminal session with:
 
 ```bash
 cargo run --package xtask -- release-package
 ```
 
 Unsigned smoke-test packages are intentionally marked `UNSIGNED-DO-NOT-UPLOAD` and must be written under `/tmp`.
+Do not run the signed release checks inside a sandboxed child process; macOS `codesign` can report a false `invalid signature` for valid notarized plugin bundles in that context.
 Upload only `Kirin-Hypha-<version>-macOS-Universal.zip` to Lemon Squeezy after the command passes without `--allow-unsigned`. Publish the companion `.zip.sha256` and `release-manifest.json` with the GitHub Release.
 
 ---
