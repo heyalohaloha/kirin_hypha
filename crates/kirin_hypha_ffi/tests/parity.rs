@@ -2010,6 +2010,98 @@ fn b127_spawn_pre(puid: &str, tmp: &std::path::Path) -> KirinHyphaEngine {
     pre
 }
 
+/// B-140: 無音/停止中に Keep した POST が、Record 中に PRE ラッチ無しのまま NoPre 固着しないこと。
+///
+/// 再現条件:
+/// 1. PRE/POST とも Inactive のまま PRE pre.json だけ fresh にする。
+/// 2. POST Keep（Arm は Inactive PRE を許容）で Record に入る。
+/// 3. その後に両者を Active にして音を入れる。
+///
+/// 旧挙動では Keep 時に display ラッチが空のまま Record 中の「ラッチ凍結」に入り、音が来ても
+/// `poll_delta()` が NoPre/None のままだった。Keep 成功時に選定 PRE をラッチへ焼くことで、
+/// 再生後に同じ PRE から Δ が出る。
+#[test]
+#[ignore = "slow: HOME/TMPDIR + io_thread filesystem; inactive Keep must latch for later delta (sets env)"]
+fn b140_inactive_keep_latches_pre_for_delta_after_audio() {
+    use kirin_measure::DeltaMode;
+
+    let (_home, tmp) = b127_isolate("inactive-keep-latch");
+    let puid = "puid-b140-inactive";
+    let watch_root = tmp.join("kirin");
+
+    let pre = KirinHyphaEngine::new(SR, 2);
+    pre.set_license(0);
+    pre.set_identity("iid-pre-b140".into(), puid.into(), "".into(), "mix".into());
+    pre.enable_pre_writes();
+    pre.set_signal_state(0); // Inactive ABI
+
+    let mut found_inactive = false;
+    for _ in 0..40 {
+        pre.push_samples(&[], 2);
+        sleep(Duration::from_millis(50));
+        if let Some(path) = find_json_under(&watch_root, "", "pre.json") {
+            let content = std::fs::read_to_string(path).unwrap();
+            if content.contains(r#""name":"mix""#)
+                && content.contains(r#""signal_state":"inactive""#)
+            {
+                found_inactive = true;
+                break;
+            }
+        }
+    }
+    assert!(
+        found_inactive,
+        "Inactive PRE pre.json must be fresh and arm-selectable"
+    );
+
+    let post = KirinHyphaEngine::new(SR, 2);
+    post.set_license(0);
+    post.set_identity("iid-post-b140".into(), puid.into(), "".into(), "mix".into());
+    post.enable_post_writes();
+    post.set_signal_state(0); // Inactive ABI
+    post.set_pair_target("mix".to_string());
+    for _ in 0..8 {
+        pre.push_samples(&[], 2);
+        post.push_samples(&[], 2);
+        sleep(Duration::from_millis(50));
+    }
+
+    assert!(post.keep(), "Inactive but fresh PRE should be armable");
+    assert!(
+        post.is_recording(),
+        "POST enters Record while still inactive"
+    );
+
+    pre.set_signal_state(1); // Active ABI
+    post.set_signal_state(1);
+    let pre_block = gen_stereo_f32(0.1);
+    let post_block: Vec<f32> = pre_block.iter().map(|&s| s * 0.5).collect();
+    let dt = Duration::from_millis(100);
+
+    let mut delta_active = None;
+    for _ in 0..60 {
+        pre.push_samples(&pre_block, 2);
+        post.push_samples(&post_block, 2);
+        sleep(dt);
+        if let Some(d) = post.poll_delta() {
+            if d.mode == DeltaMode::Active && d.lufs.is_some() {
+                delta_active = d.lufs;
+                break;
+            }
+        }
+    }
+
+    let dl = delta_active.expect("delta should become Active after audio starts");
+    assert!(
+        (-8.0..-4.0).contains(&dl),
+        "Δ_lufs should track POST half-amplitude vs PRE full-amplitude, got {dl}"
+    );
+
+    drop(post);
+    drop(pre);
+    let _ = std::fs::remove_dir_all(tmp.parent().unwrap());
+}
+
 /// base/<ph>/<iid>/<role>/ に paired_pre/paired_post を設定した active marker を 1 件書く。
 fn b127_write_paired_marker(
     base: &std::path::Path,

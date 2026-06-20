@@ -365,7 +365,7 @@ fn resolve_and_enter_keep(
     let Some(sel) = resolve_arm_target(&kirin_root, &pair, latched) else {
         return false; // 未ラッチ時の厳格選定 None: 空名/不在/曖昧/Bypassed/古t（Inactive は許容）。
     };
-    let target = sel.instance_id;
+    let target = sel.instance_id.clone();
     // linkage（B-062）: record_sm を Record に flip する前に set。
     if let Ok(mut g) = paired_pre_target.lock() {
         *g = Some(target.clone());
@@ -431,6 +431,18 @@ fn resolve_and_enter_keep(
         // B-127: 正常 enter で stale な cap/io-fail 通知を消す（新しい健全な Record が開始した）。
         if let Ok(mut g) = record_error_message.write() {
             *g = None;
+        }
+        // B-140: 無音/停止中に Keep した場合、Record 開始時点では Watch 表示側のラッチが未成立な
+        // ことがある。Record 中の Δ 表示は「ラッチ凍結」なので再探索しないため、keep が実際に
+        // 選んだ PRE をここで display/Arm 共有ラッチへ確定させる。これにより無音でアーム→再生後も
+        // 同じ PRE から Δ が出る（同名 PRE の後発出現では再選定しない）。
+        if let Ok(mut g) = latched.lock() {
+            *g = Some(LatchedPre {
+                name: pair.clone(),
+                instance_id: target,
+                project_dir: sel.project_dir,
+                pre_json: sel.pre_json,
+            });
         }
         true
     } else {
@@ -1081,7 +1093,7 @@ impl KirinHyphaEngine {
 
     /// POST「Keep」: 厳格選定（select_target_pre）で対 PRE を一意決定し record_signal(pending)
     /// を書く（B-061 3d-b）。PRE 側 io_thread が autonomous に discover→ack する。
-    /// `License::Os` かつ一意 PRE のとき `true`。選定 None（空名/不在/曖昧/Inactive/古t）/
+    /// `License::Os` かつ一意 PRE のとき `true`。選定 None（空名/不在/曖昧/Bypassed/古t）/
     /// 非 Os / AlreadyRecording は `false`（write_pending しない）。
     pub fn keep(&self) -> bool {
         let (project_hash, post_iid, daw) = {
