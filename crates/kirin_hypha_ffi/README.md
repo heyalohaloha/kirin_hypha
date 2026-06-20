@@ -58,7 +58,7 @@ cargo test -p kirin_hypha_ffi
 `create` は本番と同一の実運用入口 `kirin_measure::spawn_measure_thread`（measure_thread.rs:59）で
 Measure Thread を起動する（IO Thread / Watchdog は RT 計測に不要なため Phase 1 では立てない）。
 
-- ring 容量 = `sample_rate × RING_BUFFER_SECONDS(2) × N_CHANNELS(2)`（本番 hypha_pre.rs:282-284 と同一）。
+- ring 容量 = `sample_rate × RING_BUFFER_SECONDS(2) × num_channels`。JUCE AU 経路は 1=mono / 2=stereo を渡す。
 - `sample_rate ≠ 48000` の 48k 変換は Measure Thread 内 `ResamplerTo48k` が既存どおり担う（新規変換コードなし）。
 - `record_sm` は Watch 固定ダミー（never recording）/ `session_summary` は None のまま。
 

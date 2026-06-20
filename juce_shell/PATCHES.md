@@ -15,9 +15,10 @@ To re-apply after a fresh submodule checkout:
 cd juce_shell/JUCE
 git apply ../patches/0001-macos15-sdk-cgwindowlistcreateimage-bypass.patch
 git apply ../patches/0002-drop-webkit-osxframework-from-juce-gui-extra.patch
+git apply ../patches/0003-au-preferred-channel-layout-tags-for-logic-mono.patch
 ```
 
-(`scripts/build_juce_universal.sh` applies both idempotently at build time.)
+(`scripts/build_juce_universal.sh` applies all three idempotently at build time.)
 
 ---
 
@@ -74,3 +75,30 @@ git apply ../patches/0002-drop-webkit-osxframework-from-juce-gui-extra.patch
   FFI, plugin-format, or Watch-UI path is touched.**
 - **Upstream ref:** JUCE 7.0.12 (`4f43011b96`); `juce_gui_extra` declares WebKit as a
   non-weak OSXFramework and no upstream config gates this on macOS in 7.x.
+
+---
+
+## 0003 — AU preferred channel layout tags for Logic mono menu
+
+- **File:** `modules/juce_audio_plugin_client/juce_audio_plugin_client_AU_1.mm`
+  (`GetChannelLayoutTags`)
+- **Patch:** `patches/0003-au-preferred-channel-layout-tags-for-logic-mono.patch`
+- **Why:** Kirin Hypha AU declares the preferred map `{1,1}, {2,2}` so the same
+  PRE/POST components can run as mono or stereo. JUCE 7.0.12's AU wrapper reports
+  those channel counts through `SupportedNumChannels`, but `GetChannelLayoutTags`
+  falls through the bus-layout path and may omit explicit `Mono`/`Stereo` layout
+  tags when preferred channel configurations are used. Apple's `auval` can still
+  pass the count map, but Logic uses the layout-tag metadata for its AU menu and
+  can cache the component as stereo-only.
+- **Change:** When `JucePlugin_PreferredChannelConfigurations` is defined, derive
+  `kAudioChannelLayoutTag_Mono` and `kAudioChannelLayoutTag_Stereo` from the
+  existing preferred channel map after checking `AudioUnitHelpers::isLayoutSupported`.
+  Non-1/2 channel configurations fall back to discrete-in-order tags. The existing
+  bus-layout code remains for builds without preferred channel configurations.
+- **Scope / impact:** AU metadata only. Audio processing, bypass, latency, FFI,
+  and measurement code are untouched. Verified on Logic Pro with Kirin Hypha PRE
+  and POST: `ChannelConfigurations = (1,1), (2,2)`, layout tags `6553601` (Mono)
+  and `6619138` (Stereo), `auval -v aufx Khpr/Khpo Kirn` pass.
+- **Upstream ref:** JUCE 7.0.12 (`4f43011b96`). This patch is intentionally small
+  and local to AU v2 metadata because replacing the JUCE wrapper or changing AU
+  identifiers would break existing project recall.

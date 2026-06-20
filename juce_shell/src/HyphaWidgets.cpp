@@ -146,7 +146,10 @@ namespace hypha
     // ── EditableName ─────────────────────────────────────────────────────────────────────
     EditableName::EditableName()
     {
+        setWantsKeyboardFocus (true);
+
         editor = std::make_unique<juce::TextEditor>();
+        editor->setWantsKeyboardFocus (true);
         editor->setMultiLine (false);
         editor->setReturnKeyStartsNewLine (false);
         editor->setInputRestrictions (16, allowedNameChars()); // parity with sanitize_name (≤16)
@@ -187,6 +190,7 @@ namespace hypha
         editor->setText (rawName, juce::dontSendNotification); // edit the RAW name (not display/fallback)
         editor->setBounds (getLocalBounds());
         editor->setVisible (true);
+        editor->toFront (false);
         editor->grabKeyboardFocus();
         editor->selectAll();
         repaint();

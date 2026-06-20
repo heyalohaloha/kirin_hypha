@@ -75,7 +75,10 @@ impl AllStopBroadcast {
 /// `{base}/{project_hash}/all_stop_signal/` ディレクトリ。
 pub fn stop_signals_dir(base_dir: &Path, project_hash: &str) -> PathBuf {
     // B-128 (G-115-370): within-base wall。stop_signal_path も本関数経由で project_hash を guard。
-    let ph = crate::path_identity::guard_path_component(project_hash, "all_stop_signal.stop_signals_dir.project_hash");
+    let ph = crate::path_identity::guard_path_component(
+        project_hash,
+        "all_stop_signal.stop_signals_dir.project_hash",
+    );
     base_dir.join(&*ph).join(ALL_STOP_SIGNAL_SUBDIR)
 }
 
@@ -85,7 +88,10 @@ pub fn stop_signal_path(
     project_hash: &str,
     originator_post_instance_id: &str,
 ) -> PathBuf {
-    let iid = crate::path_identity::guard_path_component(originator_post_instance_id, "all_stop_signal.stop_signal_path.originator");
+    let iid = crate::path_identity::guard_path_component(
+        originator_post_instance_id,
+        "all_stop_signal.stop_signal_path.originator",
+    );
     stop_signals_dir(base_dir, project_hash).join(format!("{iid}.json"))
 }
 
@@ -133,9 +139,13 @@ pub fn write_stop_broadcast(
     originator_post_instance_id: &str,
     daw_session_id: String,
 ) -> Result<AllStopBroadcast, AllStopError> {
-    let broadcast =
-        AllStopBroadcast::new(originator_post_instance_id.to_string(), daw_session_id);
-    write_stop_broadcast_signal(base_dir, project_hash, originator_post_instance_id, &broadcast)?;
+    let broadcast = AllStopBroadcast::new(originator_post_instance_id.to_string(), daw_session_id);
+    write_stop_broadcast_signal(
+        base_dir,
+        project_hash,
+        originator_post_instance_id,
+        &broadcast,
+    )?;
     Ok(broadcast)
 }
 
@@ -270,9 +280,7 @@ pub fn is_stop_broadcast_stale(
 }
 
 fn now_iso8601() -> String {
-    chrono::Utc::now()
-        .format("%Y-%m-%dT%H:%M:%SZ")
-        .to_string()
+    chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────
@@ -303,10 +311,7 @@ mod tests {
     fn stop_signal_path_format() {
         let base = PathBuf::from("/base");
         let path = stop_signal_path(&base, "ph-A", "iid-X");
-        assert_eq!(
-            path,
-            PathBuf::from("/base/ph-A/all_stop_signal/iid-X.json")
-        );
+        assert_eq!(path, PathBuf::from("/base/ph-A/all_stop_signal/iid-X.json"));
     }
 
     #[test]
@@ -382,7 +387,10 @@ mod tests {
         // #2 (trigger_stop) は all_keep_signal::delete_broadcast のみ呼ぶ → all_stop_signal 不触
         all_keep_signal::delete_broadcast(&base, "ph", "originator-A").unwrap();
         assert!(!keep_path.exists(), "keep broadcast deleted (#2)");
-        assert!(stop_path.exists(), "stop broadcast preserved (主バグ修正後)");
+        assert!(
+            stop_path.exists(),
+            "stop broadcast preserved (主バグ修正後)"
+        );
 
         // #3/#4 で初めて all_stop_signal が削除される
         delete_stop_broadcast(&base, "ph", "originator-A").unwrap();

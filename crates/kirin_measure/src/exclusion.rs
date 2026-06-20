@@ -106,7 +106,11 @@ pub fn count_distinct_pairings(base_dir: &Path, project_hash: &str) -> usize {
 }
 
 /// [`count_distinct_pairings`] の時刻注入版（テスト互換のため `now` を受けるが、枠存在は時刻非依存）。
-pub fn count_distinct_pairings_at(base_dir: &Path, project_hash: &str, _now: DateTime<Utc>) -> usize {
+pub fn count_distinct_pairings_at(
+    base_dir: &Path,
+    project_hash: &str,
+    _now: DateTime<Utc>,
+) -> usize {
     reservation::count_frames(base_dir, project_hash)
 }
 
@@ -144,7 +148,14 @@ mod tests {
     /// G-115-365/366: cap 真実源 = atomic claim 枠存在。N 個の distinct pairing 枠を作る。
     fn make_frames(base: &std::path::Path, ph: &str, n: usize, now: DateTime<Utc>) {
         for i in 0..n {
-            reserve_pairing_at(base, ph, &format!("pre-{i:02}"), &format!("post-{i:02}"), now).unwrap();
+            reserve_pairing_at(
+                base,
+                ph,
+                &format!("pre-{i:02}"),
+                &format!("post-{i:02}"),
+                now,
+            )
+            .unwrap();
         }
     }
 
@@ -157,7 +168,10 @@ mod tests {
     #[test]
     fn missing_project_returns_ok() {
         let base = isolated_dir();
-        assert_eq!(check_record_exclusion(&base, "no_such_ph"), ExclusionResult::Ok);
+        assert_eq!(
+            check_record_exclusion(&base, "no_such_ph"),
+            ExclusionResult::Ok
+        );
     }
 
     #[test]
@@ -217,8 +231,14 @@ mod tests {
         let now = Utc::now();
         let old = now - chrono::Duration::seconds(RESERVATION_TTL_SECS + 100);
         for i in 0..11 {
-            reserve_pairing_at(&base, "ph", &format!("old-pre-{i}"), &format!("old-post-{i}"), old)
-                .unwrap();
+            reserve_pairing_at(
+                &base,
+                "ph",
+                &format!("old-pre-{i}"),
+                &format!("old-post-{i}"),
+                old,
+            )
+            .unwrap();
         }
         reserve_pairing_at(&base, "ph", "fresh-pre", "fresh-post", now).unwrap();
         assert_eq!(
@@ -239,7 +259,11 @@ mod tests {
         std::fs::write(base.join("ph").join("record_signal").join("x.json"), b"{}").unwrap();
         // active marker 相当の instance dir を作っても count には入らない（枠存在のみが真実源）。
         std::fs::create_dir_all(base.join("ph").join("some-iid").join("post")).unwrap();
-        std::fs::write(base.join("ph").join("some-iid").join("post").join("m.json"), b"{}").unwrap();
+        std::fs::write(
+            base.join("ph").join("some-iid").join("post").join("m.json"),
+            b"{}",
+        )
+        .unwrap();
         assert_eq!(
             count_distinct_pairings(&base, "ph"),
             1,
@@ -266,8 +290,14 @@ mod tests {
         let now = Utc::now();
         let iso60 = (now - chrono::Duration::seconds(60)).to_rfc3339();
         let iso61 = (now - chrono::Duration::seconds(61)).to_rfc3339();
-        assert!(is_heartbeat_fresh(&iso60, now, STALE_SECONDS), "60s = fresh");
-        assert!(!is_heartbeat_fresh(&iso61, now, STALE_SECONDS), "61s = stale");
+        assert!(
+            is_heartbeat_fresh(&iso60, now, STALE_SECONDS),
+            "60s = fresh"
+        );
+        assert!(
+            !is_heartbeat_fresh(&iso61, now, STALE_SECONDS),
+            "61s = stale"
+        );
     }
 
     #[test]
@@ -279,6 +309,9 @@ mod tests {
     fn future_heartbeat_is_treated_as_fresh() {
         let now = Utc::now();
         let future = (now + chrono::Duration::seconds(10)).to_rfc3339();
-        assert!(is_heartbeat_fresh(&future, now, STALE_SECONDS), "未来時刻は安全側 fresh");
+        assert!(
+            is_heartbeat_fresh(&future, now, STALE_SECONDS),
+            "未来時刻は安全側 fresh"
+        );
     }
 }

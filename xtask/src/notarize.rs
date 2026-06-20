@@ -8,25 +8,28 @@
 // B-137 (G-115-344): construction-C ship set = egui VST3 (PRE/POST, target/bundled) + JUCE AU
 // (PRE/POST, build-universal). JUCE VST3 (PRE/POST) is EXCLUDED from the ship set (GUID continuity /
 // existing+Peach session protection). dual-root: --build-dir = JUCE AU root, --egui-dir = egui VST3
-// root (default target/bundled). The per-bundle codesign/notarytool/staple flow (notarize_one) is
-// bundle-type agnostic and unchanged. Build order: build_juce_universal.sh (JUCE AU, patches 0001+0002)
+// root (default target/bundled). The per-bundle codesign/notarytool/ticket-check flow
+// (notarize_one) is bundle-type agnostic and unchanged. Build order: build_juce_universal.sh
+// (JUCE AU, patches 0001+0002+0003)
 // and `cargo xtask bundle-universal hypha_pre --release` /
 // `cargo xtask bundle-universal hypha_post --release` + stamp-egui-version (egui VST3) must all run
 // before notarize.
 //
-// Pipeline per bundle (R-11 verified against `man codesign` / `man notarytool` / `man stapler`):
+// Pipeline per bundle (B-139 verified against `man codesign` / `man notarytool` / `man stapler`):
 //   1. codesign --sign <identity> --options runtime --timestamp --deep --force <bundle>
 //   2. ditto -c -k --keepParent <bundle> <bundle>.zip
 //   3. xcrun notarytool submit <zip> --wait  (--keychain-profile, or --apple-id/--team-id/--password)
-//   4. xcrun stapler staple <bundle>
-//   5. xcrun stapler validate <bundle>
+//   4. codesign --verify --check-notarization <bundle>
 //
 // Notes:
 //   - `spctl -t plugin` is NOT a valid type (`man spctl` allows only execute|install|open). For
-//     notarized non-app bundles the authoritative check is `xcrun stapler validate`.
+//     notarized plugin bundles the release gate uses codesign's online ticket check.
+//   - `stapler(1)` supports UDIF disk images, signed flat packages, and certain executable
+//     bundles such as `.app`. `.component` / `.vst3` plugin bundles are `BNDL` and are not
+//     valid stapler targets on macOS 15 (EX_NOINPUT / kLSDataUnavailableErr).
 //   - `--password` and `--keychain-profile` are mutually exclusive; the latter is preferred when
 //     credentials are pre-stored via `xcrun notarytool store-credentials`.
-//   - The actual codesign/notarytool/staple steps need an Apple Developer identity + credentials
+//   - The actual codesign/notarytool steps need an Apple Developer identity + credentials
 //     (Daisuke). `--dry-run` resolves the four bundle paths and prints the exact commands that
 //     would run, WITHOUT signing or contacting Apple (no credentials required).
 
@@ -191,7 +194,7 @@ pub fn run(args: Vec<String>) -> Result<()> {
     Ok(())
 }
 
-/// 1 bundle に対する codesign → zip → notarytool submit → staple → validate。
+/// 1 bundle に対する codesign → zip → notarytool submit → codesign ticket check。
 fn notarize_one(
     bundle: &Path,
     identity: &str,
@@ -244,22 +247,19 @@ fn notarize_one(
     cmd.arg("--wait");
     run_status(&mut cmd, "notarytool submit")?;
 
-    // Step 4: stapler staple.
-    eprintln!("==> xcrun stapler staple");
+    // Step 4: plugin bundles are not stapler targets; verify the online notary ticket instead.
+    eprintln!("==> codesign --check-notarization");
     run_status(
-        Command::new("xcrun")
-            .args(["stapler", "staple"])
+        Command::new("codesign")
+            .args([
+                "--verify",
+                "--deep",
+                "--strict",
+                "--check-notarization",
+                "--verbose=2",
+            ])
             .arg(bundle),
-        "stapler staple",
-    )?;
-
-    // Step 5: stapler validate (R-11: spctl has no 'plugin' type).
-    eprintln!("==> xcrun stapler validate");
-    run_status(
-        Command::new("xcrun")
-            .args(["stapler", "validate"])
-            .arg(bundle),
-        "stapler validate",
+        "codesign --check-notarization",
     )?;
     Ok(())
 }
@@ -309,8 +309,10 @@ fn dry_run_report(
             "  3. xcrun notarytool submit \"{}\" {cred} --wait",
             zip.display()
         );
-        eprintln!("  4. xcrun stapler staple \"{}\"", b.path.display());
-        eprintln!("  5. xcrun stapler validate \"{}\"", b.path.display());
+        eprintln!(
+            "  4. codesign --verify --deep --strict --check-notarization --verbose=2 \"{}\"",
+            b.path.display()
+        );
     }
     eprintln!();
     eprintln!(
@@ -335,7 +337,7 @@ fn print_help() {
     println!("         [(--password <PW> --apple-id <EMAIL>) | --keychain-profile <PROF>] \\");
     println!("         [--build-dir <DIR>] [--dry-run]");
     println!();
-    println!("Signs/notarizes/staples the 4 construction-C ship bundles (G-115-344):");
+    println!("Signs/notarizes the 4 construction-C ship bundles (G-115-344):");
     println!("  JUCE AU   : KirinHypha{{PRE,POST}}_artefacts/Release/AU/*.component (--build-dir)");
     println!("  egui VST3 : Kirin Hypha {{PRE,POST}}.vst3 (--egui-dir)");
     println!("JUCE VST3 is EXCLUDED from the ship set (GUID continuity).");
@@ -367,6 +369,5 @@ fn print_help() {
     println!("  1. codesign --sign <CERT> --timestamp --options runtime --deep --force <bundle>");
     println!("  2. ditto -c -k --keepParent <bundle> <bundle>.zip");
     println!("  3. xcrun notarytool submit <zip> ... --wait");
-    println!("  4. xcrun stapler staple <bundle>");
-    println!("  5. xcrun stapler validate <bundle>");
+    println!("  4. codesign --verify --deep --strict --check-notarization --verbose=2 <bundle>");
 }

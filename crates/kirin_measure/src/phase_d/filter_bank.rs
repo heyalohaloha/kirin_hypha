@@ -97,7 +97,11 @@ pub fn compute(signal: &[f64]) -> FilterBankResult {
         let b0_lp = 1.0 - a1_lp;
 
         // Initialize filter states
-        let mut sos_states = [SosState::default(), SosState::default(), SosState::default()];
+        let mut sos_states = [
+            SosState::default(),
+            SosState::default(),
+            SosState::default(),
+        ];
         let mut lp_states = [LpState::default(), LpState::default(), LpState::default()];
 
         // Process signal sample by sample
@@ -171,7 +175,10 @@ mod tests {
             .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
             .unwrap()
             .0;
-        assert_eq!(max_band, 16, "1kHz should peak at band 16 (1000 Hz), got band {max_band}");
+        assert_eq!(
+            max_band, 16,
+            "1kHz should peak at band 16 (1000 Hz), got band {max_band}"
+        );
     }
 
     #[test]

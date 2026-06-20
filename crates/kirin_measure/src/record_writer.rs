@@ -24,8 +24,7 @@ use std::time::{Duration, Instant, SystemTime};
 
 use crate::engine::SessionSummary;
 use crate::plugin_data::{
-    compute_checksum, verify_checksum, PluginDataFile, PluginDataWriter, Role, Status,
-    WriterPaths,
+    compute_checksum, verify_checksum, PluginDataFile, PluginDataWriter, Role, Status, WriterPaths,
 };
 use crate::record::RecordStateMachine;
 use crate::record_signal;
@@ -237,16 +236,8 @@ pub fn writer_start(
     };
     let base = paths.plugin_data_dir();
     let installation_id = load_installation_id_safe()?;
-    let wall_clock_iso = chrono::Utc::now()
-        .format("%Y-%m-%dT%H:%M:%SZ")
-        .to_string();
-    let writer_paths = WriterPaths::build(
-        &base,
-        project_hash,
-        instance_id,
-        role,
-        &wall_clock_iso,
-    );
+    let wall_clock_iso = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+    let writer_paths = WriterPaths::build(&base, project_hash, instance_id, role, &wall_clock_iso);
     let final_path = writer_paths.final_path.clone();
     let mut w = match PluginDataWriter::create(
         writer_paths,
@@ -288,7 +279,7 @@ pub fn writer_start(
         exit_requested: None,
         overflow_start: 0, // B-076: run_record_tick が Record 開始時に snapshot を入れる
         oversized_drop_start: 0, // B-125: 同上（oversized_drop の Record 開始 snapshot）
-        seal_at_start: 0, // B-132: run_record_tick が Record 開始時に seal を snapshot する
+        seal_at_start: 0,  // B-132: run_record_tick が Record 開始時に seal を snapshot する
     })
 }
 
@@ -345,13 +336,9 @@ pub fn take_session_summary(slot: &Arc<Mutex<Option<SessionSummary>>>) -> Option
 
 /// 必要な 5 フィールドが Some のときのみ 1 frame を追記。
 pub fn writer_append_frame(ctx: &mut RecordingCtx, t_ms: u64, m: &MeasureResult) -> bool {
-    let (Some(n_prime), Some(sharpness), Some(lufs_m), Some(true_peak), Some(crest)) = (
-        m.n_prime,
-        m.sharpness,
-        m.lufs_m,
-        m.true_peak,
-        m.crest,
-    ) else {
+    let (Some(n_prime), Some(sharpness), Some(lufs_m), Some(true_peak), Some(crest)) =
+        (m.n_prime, m.sharpness, m.lufs_m, m.true_peak, m.crest)
+    else {
         return false;
     };
     ctx.writer
@@ -359,7 +346,8 @@ pub fn writer_append_frame(ctx: &mut RecordingCtx, t_ms: u64, m: &MeasureResult)
     if !ctx.first_frame_logged {
         log::info!(
             "[writer] frame written: t_ms={}, n_prime[0]={:.3}",
-            t_ms, n_prime[0]
+            t_ms,
+            n_prime[0]
         );
         ctx.first_frame_logged = true;
     }
@@ -491,8 +479,7 @@ pub fn run_record_tick(
                         ctx.consecutive_write_error = 0;
                     }
                     Err(crate::plugin_data::WriterError::DirectoryMissing) => {
-                        ctx.consecutive_dir_missing =
-                            ctx.consecutive_dir_missing.saturating_add(1);
+                        ctx.consecutive_dir_missing = ctx.consecutive_dir_missing.saturating_add(1);
                         log::warn!(
                             "[writer] flush failed: parent directory missing (count={}/{})",
                             ctx.consecutive_dir_missing,
@@ -505,8 +492,7 @@ pub fn run_record_tick(
                         }
                     }
                     Err(e) => {
-                        ctx.consecutive_write_error =
-                            ctx.consecutive_write_error.saturating_add(1);
+                        ctx.consecutive_write_error = ctx.consecutive_write_error.saturating_add(1);
                         log::warn!(
                             "[writer] flush failed: {} (count={}/{})",
                             e,
@@ -874,11 +860,7 @@ fn try_close_one_stale(path: &Path, report: &mut StaleSweepReport) {
         return;
     }
     if let Err(e) = fs::rename(&tmp, path) {
-        log::warn!(
-            "[Gap-9] rename failed (skip): {} ({})",
-            path.display(),
-            e
-        );
+        log::warn!("[Gap-9] rename failed (skip): {} ({})", path.display(), e);
         report.skipped += 1;
         return;
     }
@@ -887,10 +869,7 @@ fn try_close_one_stale(path: &Path, report: &mut StaleSweepReport) {
 }
 
 /// 別スレッドで Record 停止シグナルを受けたときに writer を即座に閉じる。
-pub fn drain_on_shutdown(
-    shutdown: &Arc<AtomicBool>,
-    recording: &mut Option<RecordingCtx>,
-) -> bool {
+pub fn drain_on_shutdown(shutdown: &Arc<AtomicBool>, recording: &mut Option<RecordingCtx>) -> bool {
     use std::sync::atomic::Ordering;
     if shutdown.load(Ordering::Relaxed) {
         if let Some(ctx) = recording.take() {
@@ -1002,14 +981,8 @@ mod tests {
     #[test]
     fn resolve_started_at_ms_reads_signal_file() {
         let base = isolated_base();
-        record_signal::write_pending(
-            &base,
-            TEST_PH,
-            "post-1",
-            "pre-1".into(),
-            "daw-1".into(),
-        )
-        .unwrap();
+        record_signal::write_pending(&base, TEST_PH, "post-1", "pre-1".into(), "daw-1".into())
+            .unwrap();
         let ms = resolve_started_at_ms(&base, TEST_PH, "post-1");
         let now = now_epoch_ms();
         assert!((now - ms).abs() < 5_000, "ms={}, now={}", ms, now);
@@ -1065,10 +1038,7 @@ mod tests {
         let mut m = full_measure_result();
         m.psb_bark = None;
         assert!(!writer_append_psb(&mut ctx, 500, &m));
-        assert_eq!(
-            ctx.data().psb_snapshots.as_ref().map(|v| v.len()),
-            Some(0)
-        );
+        assert_eq!(ctx.data().psb_snapshots.as_ref().map(|v| v.len()), Some(0));
     }
 
     #[test]
@@ -1114,7 +1084,11 @@ mod tests {
 
         let bytes = fs::read(&final_path).unwrap();
         let loaded: PluginDataFile = serde_json::from_slice(&bytes).unwrap();
-        assert_eq!(loaded.status, crate::plugin_data::Status::Closed, "auto-stop でも status=Closed");
+        assert_eq!(
+            loaded.status,
+            crate::plugin_data::Status::Closed,
+            "auto-stop でも status=Closed"
+        );
         assert!(
             loaded.integrity_degraded,
             "B-134: storage 書込可 → integrity_degraded file flag が立つ"
@@ -1400,8 +1374,8 @@ mod tests {
     /// plugin_data root 自体が不在の場合は no-op で安全に終わる (R-28 機能的沈黙)。
     #[test]
     fn recover_orphan_tmps_missing_root_no_op() {
-        let nonexistent = std::env::temp_dir()
-            .join(format!("kirin_recover_missing_{}", std::process::id()));
+        let nonexistent =
+            std::env::temp_dir().join(format!("kirin_recover_missing_{}", std::process::id()));
         let _ = fs::remove_dir_all(&nonexistent);
         let report = recover_orphan_tmps(&nonexistent);
         assert_eq!(report.recovered, 0);
@@ -1463,11 +1437,7 @@ mod tests {
 
         let bytes = fs::read(&final_path).unwrap();
         let data: PluginDataFile = serde_json::from_slice(&bytes).unwrap();
-        assert_eq!(
-            data.status,
-            Status::Active,
-            "fresh file must remain Active"
-        );
+        assert_eq!(data.status, Status::Active, "fresh file must remain Active");
     }
 
     /// 既に status=Closed のファイルは mtime > 60s でも対象外 (二重 close 回避)。
@@ -1626,8 +1596,16 @@ mod tests {
 
         // 1 回失敗 (DirectoryMissing) → counter=1。
         run_record_tick(
-            &sm, Role::Post, 48000, TEST_PH, TEST_IID, now_epoch_ms,
-            || None, || None, &m, &mut rec,
+            &sm,
+            Role::Post,
+            48000,
+            TEST_PH,
+            TEST_IID,
+            now_epoch_ms,
+            || None,
+            || None,
+            &m,
+            &mut rec,
             None,
             &no_overflow(),
             &no_overflow(), // B-125: oversized_drop（テストは欠落なし=0）
@@ -1640,8 +1618,16 @@ mod tests {
         fs::create_dir_all(&parent).unwrap();
         rec.as_mut().unwrap().next_flush = Instant::now() - Duration::from_secs(1);
         run_record_tick(
-            &sm, Role::Post, 48000, TEST_PH, TEST_IID, now_epoch_ms,
-            || None, || None, &m, &mut rec,
+            &sm,
+            Role::Post,
+            48000,
+            TEST_PH,
+            TEST_IID,
+            now_epoch_ms,
+            || None,
+            || None,
+            &m,
+            &mut rec,
             None,
             &no_overflow(),
             &no_overflow(), // B-125: oversized_drop（テストは欠落なし=0）
@@ -1670,8 +1656,16 @@ mod tests {
         sm1.exit_record();
         sm1.bump_seal(); // B-132: measure の tight-drain 完了模擬（seal 前進 → close arm 即 true）
         run_record_tick(
-            &sm1, Role::Post, 48000, TEST_PH, TEST_IID, now_epoch_ms,
-            || None, || None, &m, &mut rec1,
+            &sm1,
+            Role::Post,
+            48000,
+            TEST_PH,
+            TEST_IID,
+            now_epoch_ms,
+            || None,
+            || None,
+            &m,
+            &mut rec1,
             None,
             &overflow,
             &no_overflow(), // B-125: oversized_drop なし（push_overflow 経路のみ検証）
@@ -1693,16 +1687,30 @@ mod tests {
         sm2.exit_record();
         sm2.bump_seal(); // B-132: measure の tight-drain 完了模擬（seal 前進 → close arm 即 true）
         run_record_tick(
-            &sm2, Role::Post, 48000, TEST_PH, TEST_IID, now_epoch_ms,
-            || None, || None, &m, &mut rec2,
+            &sm2,
+            Role::Post,
+            48000,
+            TEST_PH,
+            TEST_IID,
+            now_epoch_ms,
+            || None,
+            || None,
+            &m,
+            &mut rec2,
             None,
             &overflow,
             &no_overflow(), // B-125: oversized_drop なし（push_overflow 経路のみ検証）
         )
         .unwrap();
         let f2: PluginDataFile = serde_json::from_slice(&fs::read(&path2).unwrap()).unwrap();
-        assert_eq!(f2.dropped_samples, 0, "per-Record: 前 Record の累積 5 を持ち越さない");
-        assert!(!f2.integrity_degraded, "drop なし → integrity_degraded=false");
+        assert_eq!(
+            f2.dropped_samples, 0,
+            "per-Record: 前 Record の累積 5 を持ち越さない"
+        );
+        assert!(
+            !f2.integrity_degraded,
+            "drop なし → integrity_degraded=false"
+        );
     }
 
     /// B-076: dropped_samples / integrity_degraded を持たない旧 .kirin を #[serde(default)] で読める。
@@ -1754,7 +1762,7 @@ mod tests {
         let sm = RecordStateMachine::new();
         sm.bump_seal(); // 先行 session の seal
         let start = sm.seal(); // 今回 session 開始 snapshot（= 1）
-        // 今回 session はまだ drain していない → 前進なし → timeout false。
+                               // 今回 session はまだ drain していない → 前進なし → timeout false。
         assert!(!super::wait_for_seal(&sm, start, Duration::from_millis(60)));
         sm.bump_seal(); // 今回 session の drain 完了
         assert!(super::wait_for_seal(&sm, start, Duration::from_millis(200)));

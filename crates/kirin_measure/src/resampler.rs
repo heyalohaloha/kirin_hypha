@@ -76,9 +76,12 @@ impl ResamplerTo48k {
             self.scratch_in.copy_from_slice(&self.pending[..need]);
             self.pending.drain(..need);
 
-            let in_adapter =
-                InterleavedSlice::new(&self.scratch_in[..need], self.channels, self.in_frames_fixed)
-                    .expect("in_adapter size invariant");
+            let in_adapter = InterleavedSlice::new(
+                &self.scratch_in[..need],
+                self.channels,
+                self.in_frames_fixed,
+            )
+            .expect("in_adapter size invariant");
             let mut out_adapter = InterleavedSlice::new_mut(
                 &mut self.scratch_out[..out_max_samples],
                 self.channels,

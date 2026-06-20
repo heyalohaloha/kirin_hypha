@@ -133,8 +133,8 @@ pub fn compute_preset_checksum(preset: &PresetFile) -> String {
     let mut clone = preset.clone();
     clone.checksum = String::new();
     let bytes = serde_json::to_vec(&clone).expect("serializable");
-    let mut mac = HmacSha256::new_from_slice(hmac_key())
-        .expect("HMAC-SHA256 accepts any key length");
+    let mut mac =
+        HmacSha256::new_from_slice(hmac_key()).expect("HMAC-SHA256 accepts any key length");
     mac.update(&bytes);
     hex::encode(mac.finalize().into_bytes())
 }
@@ -146,8 +146,7 @@ fn hmac_key() -> &'static [u8] {
     }
 }
 
-const DEFAULT_HMAC_KEY: &[u8] =
-    b"kirin-hypha-phase1.0-hmac-key-deterrent-level-20260417";
+const DEFAULT_HMAC_KEY: &[u8] = b"kirin-hypha-phase1.0-hmac-key-deterrent-level-20260417";
 
 fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     if a.len() != b.len() {
@@ -165,7 +164,8 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 /// `{base}/{project_hash}/preset/` を返す。
 pub fn preset_dir(base: &Path, project_hash: &str) -> PathBuf {
     // B-128 (G-115-370): within-base wall（restore project_uuid 由来の preset path）。
-    let ph = crate::path_identity::guard_path_component(project_hash, "preset.preset_dir.project_hash");
+    let ph =
+        crate::path_identity::guard_path_component(project_hash, "preset.preset_dir.project_hash");
     base.join(&*ph).join(PRESET_SUBDIR)
 }
 
@@ -522,11 +522,7 @@ mod tests {
         let mut tampered = signed_preset("iid-own");
         tampered.checksum = "0".repeat(64);
         write_preset_file(&base, "ph", "b.json", &tampered);
-        fs::write(
-            preset_dir(&base, "ph").join("c.json"),
-            b"garbage",
-        )
-        .unwrap();
+        fs::write(preset_dir(&base, "ph").join("c.json"), b"garbage").unwrap();
 
         let v = scan_valid_presets(&base, "ph", "iid-own");
         assert!(v.is_empty(), "silence gate must reject all");

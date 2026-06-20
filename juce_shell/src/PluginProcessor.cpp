@@ -4,6 +4,10 @@
 
 namespace
 {
+    // Logic stopped-state fix: expose Inactive PRE/POST presence without waiting for the first audio callback.
+    // The 50 ms Timer grants a short state-restore window before enabling from prepareToPlay.
+    constexpr int kPrepareEnableDelayTicks = 10;
+
     // B-125 (b): prealloc-max headroom (frames). The interleave scratch is sized in
     // prepareToPlay to max(maximumExpectedSamplesPerBlock, this) frames so that realistic
     // variable / offline-render blocks larger than the realtime-declared block are still
@@ -18,8 +22,8 @@ namespace
 
 KirinHyphaProcessorBase::KirinHyphaProcessorBase (Role roleIn)
     : juce::AudioProcessor (BusesProperties()
-          .withInput  ("Input",  juce::AudioChannelSet::stereo(), true)
-          .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
+          .withInput  ("Input",  juce::AudioChannelSet::mono(), true)
+          .withOutput ("Output", juce::AudioChannelSet::mono(), true)),
       role (roleIn)
 {
     // Host bypass routed through this parameter; processBlock reads it to set the
@@ -67,7 +71,8 @@ void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBl
         hyphaHandle = nullptr;
     }
 
-    // num_channels: pass the actual negotiated input channel count (stereo expected).
+    // num_channels: pass the actual negotiated input channel count. Mono must remain 1ch
+    // all the way into the meter; duplicating to stereo would bias loudness by +3.01 dB.
     hyphaHandle = kirin_hypha_create ((uint32_t) sampleRate, (uint32_t) numCh);
 
     // B-070: a fresh handle needs license applied and (re-)enabling. License is read once
@@ -80,10 +85,11 @@ void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBl
         cachedLicenseCode.store ((int) lic, std::memory_order_release);
         kirin_hypha_set_license (hyphaHandle, lic);
         writesEnabled.store (false, std::memory_order_release);
-        // B-126: re-prepare needs a fresh enable. Clear enablePending so the Timer waits for the
-        // NEXT first processBlock (preserving the B-070 "after both prepareToPlay and any setState"
-        // ordering) rather than re-enabling on a stale flag.
-        enablePending.store (false, std::memory_order_release);
+        // Logic stopped-state fix: re-prepare needs a fresh enable, but Logic may not call processBlock until
+        // playback. Start a message-thread fallback so Inactive presence/candidates are published
+        // even while stopped; a first processBlock clears the delay and preserves the old fast path.
+        enableDelayTicks.store (kPrepareEnableDelayTicks, std::memory_order_release);
+        enablePending.store (true, std::memory_order_release);
     }
     // A null handle (create failure) is tolerated; processBlock / pollMeasureResult guard on it.
 }
@@ -106,11 +112,8 @@ bool KirinHyphaProcessorBase::isBusesLayoutSupported (const BusesLayout& layouts
     if (mainIn != mainOut)
         return false;
 
-    // Stereo only. The measurement engine consumes 2ch interleaved (kirin_measure),
-    // so a mono layout would be accepted by the host and then dropped by the FFI
-    // guard, producing audio passthrough with no measurement. Reject it at the bus
-    // level instead so only a measurable layout can be negotiated.
-    return mainOut == juce::AudioChannelSet::stereo();
+    return mainOut == juce::AudioChannelSet::mono()
+        || mainOut == juce::AudioChannelSet::stereo();
 }
 
 void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
@@ -136,7 +139,10 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
     // (no alloc/lock/syscall) — the may-block triggerAsyncUpdate is gone (B-126). The non-RT
     // message-thread Timer observes enablePending and runs enableWritesNow().
     if (! writesEnabled.load (std::memory_order_acquire))
+    {
+        enableDelayTicks.store (0, std::memory_order_release);
         enablePending.store (true, std::memory_order_release);
+    }
 
     // --- Signal state derivation (parity: hypha_pre.rs:397-403) -------------------
     const bool bypassed = (bypassParam != nullptr && bypassParam->get());
@@ -473,23 +479,29 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
 
 void KirinHyphaProcessorBase::timerCallback()
 {
-    // B-126: non-RT enable poll on the message thread. No-op once enabled (cheap atomic load);
-    // waits for the first processBlock to set enablePending (the B-070 ordering signal) before
-    // running the enable. The Timer keeps running and re-enables after a re-prepare (which clears
-    // both flags); it is stopped in the destructor.
+    // B-126 + Logic stopped-state fix: non-RT enable poll on the message thread. No-op once enabled (cheap atomic
+    // load). Normally processBlock clears the prepare fallback delay and enables promptly; if the
+    // host does not call processBlock while stopped, the prepare fallback publishes Inactive
+    // presence after a short state-restore grace period.
     if (writesEnabled.load (std::memory_order_acquire))
         return;
     if (! enablePending.load (std::memory_order_acquire))
         return;
+    const int ticks = enableDelayTicks.load (std::memory_order_acquire);
+    if (ticks > 0)
+    {
+        enableDelayTicks.store (ticks - 1, std::memory_order_release);
+        return;
+    }
     enableWritesNow();
 }
 
 void KirinHyphaProcessorBase::enableWritesNow()
 {
-    // B-070: message-thread one-shot. Applies the FFI contract order create -> set_license
-    // (done in prepareToPlay) -> set_identity -> enable_*_writes, once both prepareToPlay
-    // and any setStateInformation have run (guaranteed by enablePending being set from the
-    // first processBlock — B-126).
+    // B-070 + Logic stopped-state fix: message-thread one-shot. Applies the FFI contract order create -> set_license
+    // (done in prepareToPlay) -> set_identity -> enable_*_writes. processBlock still takes the
+    // fast path; when the host is stopped, prepareToPlay enables after a short state-restore grace
+    // period so PRE/POST discovery does not depend on audible playback.
     const juce::ScopedLock sl (handleLock);
     if (hyphaHandle == nullptr || writesEnabled.load (std::memory_order_acquire))
         return;

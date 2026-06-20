@@ -37,12 +37,12 @@ pub fn compute(core: &[[f64; N_CORE]]) -> Vec<[f64; N_CORE]> {
     let e2 = (lambda_2 * delta_t).exp();
 
     let b = [
-        (e1 - e2) / den,                                                    // B[0]
+        (e1 - e2) / den,                                                             // B[0]
         ((NL_T_VAR * lambda_2 + 1.0) * e1 - (NL_T_VAR * lambda_1 + 1.0) * e2) / den, // B[1]
         ((NL_T_VAR * lambda_1 + 1.0) * e1 - (NL_T_VAR * lambda_2 + 1.0) * e2) / den, // B[2]
         (NL_T_VAR * lambda_1 + 1.0) * (NL_T_VAR * lambda_2 + 1.0) * (e1 - e2) / den, // B[3]
-        (-delta_t / NL_T_LONG).exp(),                                       // B[4]
-        (-delta_t / NL_T_VAR).exp(),                                        // B[5]
+        (-delta_t / NL_T_LONG).exp(),                                                // B[4]
+        (-delta_t / NL_T_VAR).exp(),                                                 // B[5]
     ];
 
     let mut result = vec![[0.0f64; N_CORE]; n_frames];
@@ -141,7 +141,10 @@ mod tests {
         let result = compute(&core);
         // After settling, output should approach input
         let last = result[n - 1][8];
-        assert!((last - 5.0).abs() < 0.5, "Constant input should approach 5.0, got {last}");
+        assert!(
+            (last - 5.0).abs() < 0.5,
+            "Constant input should approach 5.0, got {last}"
+        );
     }
 
     #[test]

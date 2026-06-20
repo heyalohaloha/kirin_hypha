@@ -150,8 +150,8 @@ pub fn compute_preset_v2_checksum(preset: &PresetFileV2) -> String {
     let mut clone = preset.clone();
     clone.hmac_checksum = String::new();
     let bytes = serde_json::to_vec(&clone).expect("serializable");
-    let mut mac = HmacSha256::new_from_slice(hmac_key())
-        .expect("HMAC-SHA256 accepts any key length");
+    let mut mac =
+        HmacSha256::new_from_slice(hmac_key()).expect("HMAC-SHA256 accepts any key length");
     mac.update(&bytes);
     hex::encode(mac.finalize().into_bytes())
 }
@@ -164,8 +164,7 @@ fn hmac_key() -> &'static [u8] {
 }
 
 // 54 bytes ASCII printable。v1.1 (preset.rs:153) と同値（同一 Hypha 鍵）。
-const DEFAULT_HMAC_KEY: &[u8] =
-    b"kirin-hypha-phase1.0-hmac-key-deterrent-level-20260417";
+const DEFAULT_HMAC_KEY: &[u8] = b"kirin-hypha-phase1.0-hmac-key-deterrent-level-20260417";
 
 fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     if a.len() != b.len() {
@@ -248,7 +247,10 @@ pub fn scan_valid_presets_v2(
 /// v1.1 と同じパス規約。
 pub fn preset_dir_v2(base: &Path, project_hash: &str) -> PathBuf {
     // B-128 (G-115-370): within-base wall（restore project_uuid 由来の preset path）。
-    let ph = crate::path_identity::guard_path_component(project_hash, "preset_v2.preset_dir_v2.project_hash");
+    let ph = crate::path_identity::guard_path_component(
+        project_hash,
+        "preset_v2.preset_dir_v2.project_hash",
+    );
     base.join(&*ph).join(PRESET_SUBDIR)
 }
 
@@ -365,7 +367,10 @@ mod tests {
         let mut p = new_preset_v2_template("iid-own");
         p.cards[0].confidence = None;
         let json = serde_json::to_string(&p).unwrap();
-        assert!(json.contains(r#""confidence":null"#), "null confidence: {json}");
+        assert!(
+            json.contains(r#""confidence":null"#),
+            "null confidence: {json}"
+        );
     }
 
     // ── 検証 ────────────────────────────────────────────────

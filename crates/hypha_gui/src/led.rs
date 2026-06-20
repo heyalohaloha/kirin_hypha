@@ -96,7 +96,13 @@ fn dim(c: Color32, factor: f64) -> Color32 {
 ///
 /// - `period_secs`: 呼吸 1 周期の秒数
 /// - `min_factor`, `max_factor`: 明度の最小 / 最大（0.0–1.0）
-fn breathe(c: Color32, time_secs: f64, period_secs: f64, min_factor: f64, max_factor: f64) -> Color32 {
+fn breathe(
+    c: Color32,
+    time_secs: f64,
+    period_secs: f64,
+    min_factor: f64,
+    max_factor: f64,
+) -> Color32 {
     let two_pi = std::f64::consts::TAU;
     let phase = (time_secs / period_secs) * two_pi;
     let sin_01 = (phase.sin() + 1.0) * 0.5; // 0.0–1.0
@@ -113,14 +119,15 @@ mod tests {
     #[test]
     fn measure_dead_always_error() {
         // measure_alive=false は他の入力を無視して Error
-        for &sig in &[SignalState::Active, SignalState::Bypassed, SignalState::Inactive] {
+        for &sig in &[
+            SignalState::Active,
+            SignalState::Bypassed,
+            SignalState::Inactive,
+        ] {
             for &rec in &[true, false] {
                 for &ack in &[true, false] {
                     for &pa in &[true, false] {
-                        assert_eq!(
-                            derive_led_state(false, sig, rec, ack, pa),
-                            LedState::Error,
-                        );
+                        assert_eq!(derive_led_state(false, sig, rec, ack, pa), LedState::Error,);
                     }
                 }
             }
@@ -130,7 +137,11 @@ mod tests {
     #[test]
     fn recording_not_ack_is_standby() {
         // Record 要求済だが ACK 未取得 → Standby（信号状態に関わらず）
-        for &sig in &[SignalState::Active, SignalState::Bypassed, SignalState::Inactive] {
+        for &sig in &[
+            SignalState::Active,
+            SignalState::Bypassed,
+            SignalState::Inactive,
+        ] {
             assert_eq!(
                 derive_led_state(true, sig, true, false, false),
                 LedState::RecordStandby
@@ -274,7 +285,12 @@ mod tests {
             let c = led_color(LedState::PresetAvailable, t);
             // 各チャネルは base の 0.55..=1.00 範囲内（±1 の丸め誤差を許容）
             let min_r = (base.r() as f64 * 0.55).round() as u8;
-            assert!(c.r() >= min_r.saturating_sub(1), "r={} min_r={}", c.r(), min_r);
+            assert!(
+                c.r() >= min_r.saturating_sub(1),
+                "r={} min_r={}",
+                c.r(),
+                min_r
+            );
             assert!(c.r() <= base.r(), "r={} base_r={}", c.r(), base.r());
         }
     }

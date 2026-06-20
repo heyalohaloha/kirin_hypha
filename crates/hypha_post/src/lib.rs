@@ -2,14 +2,13 @@ mod editor;
 
 use kirin_measure::{
     daw_session_id, delete_broadcast, delete_signal, delete_stop_broadcast,
-    ensure_legacy_cleanup_done, identity_instance_attach, identity_instance_detach,
-    live_window, load_installation_id_safe, load_license_safe, peek_project_uuid,
-    process_project_hash, sanitize_name, set_daw_session_id, set_project_uuid,
-    spawn_io_thread_post, spawn_measure_thread, spawn_watchdog, store_signal_state, DeltaResult,
-    LatchedPre, License, LivenessEvaluator, MeasureResult, RecordStateMachine, SessionSummary,
-    SignalState, StoragePaths,
-    TriggerPairResolutionFn, TriggerStopResolutionFn, WatchdogIo, WatchdogParams, N_CHANNELS,
-    RING_BUFFER_SECONDS,
+    ensure_legacy_cleanup_done, identity_instance_attach, identity_instance_detach, live_window,
+    load_installation_id_safe, load_license_safe, peek_project_uuid, process_project_hash,
+    sanitize_name, set_daw_session_id, set_project_uuid, spawn_io_thread_post,
+    spawn_measure_thread, spawn_watchdog, store_signal_state, DeltaResult, LatchedPre, License,
+    LivenessEvaluator, MeasureResult, RecordStateMachine, SessionSummary, SignalState,
+    StoragePaths, TriggerPairResolutionFn, TriggerStopResolutionFn, WatchdogIo, WatchdogParams,
+    N_CHANNELS, RING_BUFFER_SECONDS,
 };
 use nih_plug::prelude::*;
 use nih_plug_egui::EguiState;
@@ -205,7 +204,10 @@ impl Default for HyphaPost {
 
         // B-118: heartbeat を先に作り、同一 Arc を観測する単一鮮度評価器を構築する。
         let heartbeat = Arc::new(AtomicU32::new(0));
-        let liveness = Arc::new(LivenessEvaluator::new(Arc::clone(&heartbeat), live_window()));
+        let liveness = Arc::new(LivenessEvaluator::new(
+            Arc::clone(&heartbeat),
+            live_window(),
+        ));
 
         Self {
             params: Arc::new(HyphaPostParams::default()),
@@ -363,10 +365,7 @@ impl Drop for HyphaPost {
                         "[POST cleanup #3] record_signal deleted: {}",
                         instance_id_owned
                     ),
-                    Err(e) => log::warn!(
-                        "[POST cleanup #3] delete_signal failed: {:?}",
-                        e
-                    ),
+                    Err(e) => log::warn!("[POST cleanup #3] delete_signal failed: {:?}", e),
                 }
 
                 // originator として配置した all_keep_signal/{POST_iid}.json broadcast を削除。
@@ -382,10 +381,9 @@ impl Drop for HyphaPost {
                         "[POST drop #3 broadcast] delete_broadcast succeeded: instance={}",
                         instance_id_owned
                     ),
-                    Err(e) => log::warn!(
-                        "[POST drop #3 broadcast] delete_broadcast failed: {:?}",
-                        e
-                    ),
+                    Err(e) => {
+                        log::warn!("[POST drop #3 broadcast] delete_broadcast failed: {:?}", e)
+                    }
                 }
 
                 // α-7' All Stop: own all_stop_signal/{POST_iid}.json も並列削除。
@@ -404,10 +402,7 @@ impl Drop for HyphaPost {
                     ),
                 }
             }
-            Err(e) => log::warn!(
-                "[POST cleanup #3] StoragePaths error: {:?}",
-                e
-            ),
+            Err(e) => log::warn!("[POST cleanup #3] StoragePaths error: {:?}", e),
         }
 
         // B-110: live インスタンス refcount −1。0 到達で共有 identity セル（project_uuid /
@@ -504,12 +499,34 @@ impl Plugin for HyphaPost {
         // B-128 (G-115-371 / D2): restore 受領点（egui）の同期 materialize（FFI set_identity と対称）。
         // io_thread spawn / GUI keep より前に params の path-unsafe identity を new_v4 へ畳み、async な
         // io_thread normalize が走る前の窓で uncounted-quarantine Record に入る経路を閉じる（両殻 D2 統一）。
-        kirin_measure::normalize_restore_cell(&self.params.instance_id, "egui_post.initialize.instance_id", None);
+        kirin_measure::normalize_restore_cell(
+            &self.params.instance_id,
+            "egui_post.initialize.instance_id",
+            None,
+        );
         // D3: materialize 済 instance_id を tag に project_uuid / daw の anomaly を per-instance routing。
-        let iid_tag = self.params.instance_id.read().ok().map(|g| g.clone()).unwrap_or_default();
-        let tag = if iid_tag.is_empty() { None } else { Some(iid_tag.as_str()) };
-        kirin_measure::normalize_restore_cell(&self.params.project_uuid, "egui_post.initialize.project_uuid", tag);
-        kirin_measure::normalize_restore_cell(&self.params.daw_session_uuid, "egui_post.initialize.daw_session_uuid", tag);
+        let iid_tag = self
+            .params
+            .instance_id
+            .read()
+            .ok()
+            .map(|g| g.clone())
+            .unwrap_or_default();
+        let tag = if iid_tag.is_empty() {
+            None
+        } else {
+            Some(iid_tag.as_str())
+        };
+        kirin_measure::normalize_restore_cell(
+            &self.params.project_uuid,
+            "egui_post.initialize.project_uuid",
+            tag,
+        );
+        kirin_measure::normalize_restore_cell(
+            &self.params.daw_session_uuid,
+            "egui_post.initialize.daw_session_uuid",
+            tag,
+        );
         let persisted_project_uuid = read_persisted_string(&self.params.project_uuid);
         let persisted_session_uuid = read_persisted_string(&self.params.daw_session_uuid);
         if !persisted_project_uuid.is_empty() {
@@ -567,8 +584,7 @@ impl Plugin for HyphaPost {
         self.process_counter = 0;
 
         // ── リングバッファ再生成 ─────────────────────────────────────
-        let capacity =
-            (buffer_config.sample_rate as usize) * RING_BUFFER_SECONDS * N_CHANNELS;
+        let capacity = (buffer_config.sample_rate as usize) * RING_BUFFER_SECONDS * N_CHANNELS;
         let (producer, consumer) = rtrb::RingBuffer::new(capacity);
         self.ring_producer = Some(producer);
 
@@ -584,6 +600,7 @@ impl Plugin for HyphaPost {
         let measure_handle = spawn_measure_thread(
             consumer,
             buffer_config.sample_rate as u32,
+            N_CHANNELS,
             Arc::clone(&self.measure_result),
             Arc::clone(&self.signal_state),
             Arc::clone(&self.measure_shutdown),
@@ -633,8 +650,7 @@ impl Plugin for HyphaPost {
             Arc::new(move |originator_iid: &str, started_at: &str| {
                 let iid_snapshot = read_instance_id_arc(&instance_id_for_closure);
                 let project_hash_snapshot = read_project_hash_arc(&project_hash_for_closure);
-                let daw_session_id_snapshot =
-                    read_daw_session_id_arc(&daw_session_id_for_closure);
+                let daw_session_id_snapshot = read_daw_session_id_arc(&daw_session_id_for_closure);
                 let pair_pre_name_snapshot = pair_pre_name_for_closure
                     .read()
                     .ok()
@@ -793,6 +809,7 @@ impl Plugin for HyphaPost {
 
         self.watchdog_handle = Some(spawn_watchdog(WatchdogParams {
             sample_rate: buffer_config.sample_rate as u32,
+            n_channels: N_CHANNELS,
             ring_capacity: capacity,
             measure_result: Arc::clone(&self.measure_result),
             signal_state: Arc::clone(&self.signal_state),
@@ -863,7 +880,10 @@ impl Plugin for HyphaPost {
         if self.process_counter & 0xFF == 0 {
             log::info!(
                 "[POST diag] state={:?} bypass={} playing={} silent={} buf_len={}",
-                state, bypass_val, playing, silent,
+                state,
+                bypass_val,
+                playing,
+                silent,
                 buffer.samples()
             );
 
@@ -924,11 +944,23 @@ mod b107_silence_tests {
         let lin = |dbfs: f32| 10f32.powf(dbfs / 20.0);
         assert!(sample_is_silent(0.0), "厳密0 は無音");
         assert!(sample_is_silent(lin(-141.0)), "-141 dBFS は無音 (< -140)");
-        assert!(sample_is_silent(-lin(-141.0)), "-141 dBFS 負符号も無音 (abs)");
-        assert!(!sample_is_silent(lin(-139.0)), "-139 dBFS は非無音 (> -140)");
-        assert!(!sample_is_silent(-lin(-139.0)), "-139 dBFS 負符号も非無音 (abs)");
+        assert!(
+            sample_is_silent(-lin(-141.0)),
+            "-141 dBFS 負符号も無音 (abs)"
+        );
+        assert!(
+            !sample_is_silent(lin(-139.0)),
+            "-139 dBFS は非無音 (> -140)"
+        );
+        assert!(
+            !sample_is_silent(-lin(-139.0)),
+            "-139 dBFS 負符号も非無音 (abs)"
+        );
         // ちょうど -140 dBFS = SILENCE_PEAK_LINEAR は >= しきい値 → 非無音（peak < -140 のみ無音）。
-        assert!(!sample_is_silent(SILENCE_PEAK_LINEAR), "ちょうど -140 dBFS は非無音（境界）");
+        assert!(
+            !sample_is_silent(SILENCE_PEAK_LINEAR),
+            "ちょうど -140 dBFS は非無音（境界）"
+        );
     }
 }
 
@@ -956,10 +988,8 @@ mod pair_pre_name_persist_tests {
         let original = "AbcDefGhi1234567"; // 16 文字
         assert_eq!(original.len(), 16);
         let rw: RwLock<String> = RwLock::new(original.to_string());
-        let json =
-            serialize_field(&*rw.read().unwrap()).expect("serialize ascii_16");
-        let restored: String =
-            deserialize_field(&json).expect("deserialize ascii_16");
+        let json = serialize_field(&*rw.read().unwrap()).expect("serialize ascii_16");
+        let restored: String = deserialize_field(&json).expect("deserialize ascii_16");
         let rw2: RwLock<String> = RwLock::new(restored);
         assert_eq!(*rw2.read().unwrap(), original);
     }

@@ -41,8 +41,7 @@ pub fn run(args: Vec<String>) -> Result<()> {
             .join("..")
             .join("test_signals")
     });
-    std::fs::create_dir_all(&dir)
-        .with_context(|| format!("create dir {}", dir.display()))?;
+    std::fs::create_dir_all(&dir).with_context(|| format!("create dir {}", dir.display()))?;
 
     let mut rng = StdRng::seed_from_u64(seed);
 
@@ -110,8 +109,8 @@ fn write_wav_f32_stereo(path: &Path, samples_lr: &[(f32, f32)], sample_rate: u32
         bits_per_sample: 32,
         sample_format: SampleFormat::Float,
     };
-    let mut writer = WavWriter::create(path, spec)
-        .with_context(|| format!("create wav {}", path.display()))?;
+    let mut writer =
+        WavWriter::create(path, spec).with_context(|| format!("create wav {}", path.display()))?;
     for &(l, r) in samples_lr {
         writer.write_sample(l)?;
         writer.write_sample(r)?;

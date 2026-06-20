@@ -175,7 +175,10 @@ mod tests {
         }
         let result = compute_n_prime(&input);
         for &band in result[0].iter() {
-            assert!((band - 2.5).abs() < 1e-12, "expected 2.5 sone/Bark, got {band}");
+            assert!(
+                (band - 2.5).abs() < 1e-12,
+                "expected 2.5 sone/Bark, got {band}"
+            );
         }
     }
 
@@ -186,7 +189,11 @@ mod tests {
         let mut input = [[0.0f64; N_SPEC_BINS]; 1];
         input[0][0] = 12.0;
         let result = compute_n_prime(&input);
-        assert!((result[0][0] - 1.0).abs() < 1e-12, "Bark 0 should be mean=1.0, got {}", result[0][0]);
+        assert!(
+            (result[0][0] - 1.0).abs() < 1e-12,
+            "Bark 0 should be mean=1.0, got {}",
+            result[0][0]
+        );
         for &v in result[0].iter().skip(1) {
             assert_eq!(v, 0.0);
         }

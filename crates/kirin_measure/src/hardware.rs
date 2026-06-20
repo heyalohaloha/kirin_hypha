@@ -357,7 +357,9 @@ mod tests {
         assert!(
             non_empty >= 1,
             "expected at least 1 component fetched, got iop={:?} sn={:?} bd={:?}",
-            hc.iop, hc.sn, hc.bd
+            hc.iop,
+            hc.sn,
+            hc.bd
         );
     }
 }

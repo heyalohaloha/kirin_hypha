@@ -44,7 +44,12 @@ fn decode_wav(path: &str) -> (Vec<f64>, u32, usize) {
         hint.with_extension(ext);
     }
     let probed = symphonia::default::get_probe()
-        .format(&hint, mss, &FormatOptions::default(), &MetadataOptions::default())
+        .format(
+            &hint,
+            mss,
+            &FormatOptions::default(),
+            &MetadataOptions::default(),
+        )
         .expect("probe");
     let mut format = probed.format;
     let track = format
@@ -54,7 +59,11 @@ fn decode_wav(path: &str) -> (Vec<f64>, u32, usize) {
         .expect("audio track");
     let track_id = track.id;
     let sample_rate = track.codec_params.sample_rate.expect("sample_rate");
-    let channels = track.codec_params.channels.map(|c| c.count()).expect("channels");
+    let channels = track
+        .codec_params
+        .channels
+        .map(|c| c.count())
+        .expect("channels");
 
     let mut decoder = symphonia::default::get_codecs()
         .make(&track.codec_params, &DecoderOptions::default())
@@ -139,7 +148,11 @@ fn kweight_gain_db(freq: f64, rate: f64) -> f64 {
         (nr * nr + ni * ni).sqrt() / (dr * dr + di * di).sqrt()
     }
     // Stage 1: high-shelf
-    let (f0, g, q) = (1681.974450955533_f64, 3.999843853973347_f64, 0.7071752369554196_f64);
+    let (f0, g, q) = (
+        1681.974450955533_f64,
+        3.999843853973347_f64,
+        0.7071752369554196_f64,
+    );
     let k = (std::f64::consts::PI * f0 / rate).tan();
     let vh = 10.0_f64.powf(g / 20.0);
     let vb = vh.powf(0.4996667741545416);
@@ -164,7 +177,10 @@ fn kweight_gain_db(freq: f64, rate: f64) -> f64 {
 /// Crest: 正弦の peak/RMS 比 = 20·log10(√2) = 3.0103 dB（exact / K-weight 非依存）。
 #[test]
 fn golden_crest_sine_is_3dot01_db() {
-    for f in ["S-1_1kHz_sine_m6dBFS_10s.wav", "S-4_1kHz_sine_m6dBFS_1s.wav"] {
+    for f in [
+        "S-1_1kHz_sine_m6dBFS_10s.wav",
+        "S-4_1kHz_sine_m6dBFS_1s.wav",
+    ] {
         let (last, _, _) = run_engine(f);
         let crest = last.crest.unwrap_or_else(|| panic!("{f}: crest None"));
         println!("[golden] {f}: crest = {crest:.4} dB (理論 3.0103)");
@@ -212,8 +228,13 @@ fn golden_psr_lufs_sine_point_via_itu_kweight() {
     let psr_theory = 0.691 - g_k;
     let lufs_theory = peak_dbfs - 0.691 + g_k;
 
-    let psr = last.psr.unwrap_or_else(|| panic!("S-1: psr None (10s ≥ 3s short-term)"));
-    println!("[golden] S-1 psr = {psr:.4} LU  (理論 {psr_theory:.4} = 0.691 - G_k / 残差 {:.4})", psr - psr_theory);
+    let psr = last
+        .psr
+        .unwrap_or_else(|| panic!("S-1: psr None (10s ≥ 3s short-term)"));
+    println!(
+        "[golden] S-1 psr = {psr:.4} LU  (理論 {psr_theory:.4} = 0.691 - G_k / 残差 {:.4})",
+        psr - psr_theory
+    );
     assert!(
         (psr - psr_theory).abs() < 0.2,
         "S-1: psr={psr} vs ITU theory {psr_theory} (0.691 - G_k(1kHz)); residual too large"

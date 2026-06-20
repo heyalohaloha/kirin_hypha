@@ -24,9 +24,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::preset::{self, verify_preset, PresetFile, VerifyError};
-use crate::preset_v2::{
-    self, verify_preset_v2, PresetFileV2, VerifyErrorV2,
-};
+use crate::preset_v2::{self, verify_preset_v2, PresetFileV2, VerifyErrorV2};
 
 // ── dispatched variant ───────────────────────────────────────────────────────
 
@@ -78,8 +76,8 @@ struct SchemaEnvelope {
 
 /// Read `schema_version` out of JSON bytes without fully decoding the payload.
 fn peek_schema_version(bytes: &[u8]) -> Result<String, DispatchError> {
-    let env: SchemaEnvelope = serde_json::from_slice(bytes)
-        .map_err(|e| DispatchError::Parse(e.to_string()))?;
+    let env: SchemaEnvelope =
+        serde_json::from_slice(bytes).map_err(|e| DispatchError::Parse(e.to_string()))?;
     Ok(env.schema_version)
 }
 
@@ -97,17 +95,15 @@ pub fn dispatch_one(
     let version = peek_schema_version(&bytes)?;
     match version.as_str() {
         "1.1" => {
-            let preset: PresetFile = serde_json::from_slice(&bytes)
-                .map_err(|e| DispatchError::Parse(e.to_string()))?;
-            verify_preset(&preset, own_installation_id)
-                .map_err(DispatchError::V1_1)?;
+            let preset: PresetFile =
+                serde_json::from_slice(&bytes).map_err(|e| DispatchError::Parse(e.to_string()))?;
+            verify_preset(&preset, own_installation_id).map_err(DispatchError::V1_1)?;
             Ok(PresetVariant::V1_1(preset))
         }
         "2.0" => {
-            let preset: PresetFileV2 = serde_json::from_slice(&bytes)
-                .map_err(|e| DispatchError::Parse(e.to_string()))?;
-            verify_preset_v2(&preset, own_installation_id)
-                .map_err(DispatchError::V2_0)?;
+            let preset: PresetFileV2 =
+                serde_json::from_slice(&bytes).map_err(|e| DispatchError::Parse(e.to_string()))?;
+            verify_preset_v2(&preset, own_installation_id).map_err(DispatchError::V2_0)?;
             Ok(PresetVariant::V2_0(preset))
         }
         other => {
@@ -234,10 +230,13 @@ mod tests {
             bounce_id: "b".to_string(),
             checksum: String::new(),
             regions: vec![Region {
-                start_sec: 0.0, end_sec: 1.0,
+                start_sec: 0.0,
+                end_sec: 1.0,
                 metric: "sharpness".to_string(),
                 bark_band: None,
-                value: 3.2, delta: 0.6, threshold: 2.5,
+                value: 3.2,
+                delta: 0.6,
+                threshold: 2.5,
                 threshold_type: "absolute".to_string(),
                 threshold_source: "severity_L3".to_string(),
                 confidence: "ESTIMATED".to_string(),

@@ -36,7 +36,9 @@ struct Segment {
 fn find_rns_index(value: f64) -> usize {
     let mut count = 0usize;
     for &r in RNS.iter() {
-        if value < r { count += 1; }
+        if value < r {
+            count += 1;
+        }
     }
     count.min(17)
 }
@@ -46,7 +48,9 @@ fn find_rns_index(value: f64) -> usize {
 fn find_rns_index_eq(value: f64) -> usize {
     let mut count = 0usize;
     for &r in RNS.iter() {
-        if value <= r { count += 1; }
+        if value <= r {
+            count += 1;
+        }
     }
     count.min(17)
 }
@@ -63,7 +67,10 @@ pub fn compute(core_decayed: &[[f64; N_CORE]]) -> SlopesResult {
         n_specific[t] = ns;
     }
 
-    SlopesResult { n_total, n_specific }
+    SlopesResult {
+        n_total,
+        n_specific,
+    }
 }
 
 /// Compute specific loudness for a single frame using Zwicker algorithm.
@@ -93,7 +100,11 @@ fn compute_frame(nm: &[f64; N_CORE]) -> (f64, [f64; N_SPEC_BINS]) {
             }
             n_total += dz * (n1 + n2) / 2.0;
             segments.push(Segment {
-                z_start: z1, z_end: z2, n_start: n1, slope: sl, is_flat: false,
+                z_start: z1,
+                z_end: z2,
+                n_start: n1,
+                slope: sl,
+                is_flat: false,
             });
 
             // Continue slope while z2 < zup_i
@@ -120,8 +131,11 @@ fn compute_frame(nm: &[f64; N_CORE]) -> (f64, [f64; N_SPEC_BINS]) {
                     let remaining = zup_i - z1;
                     n_total += nm_i * remaining;
                     segments.push(Segment {
-                        z_start: z1, z_end: zup_i,
-                        n_start: nm_i, slope: 0.0, is_flat: true,
+                        z_start: z1,
+                        z_end: zup_i,
+                        n_start: nm_i,
+                        slope: 0.0,
+                        is_flat: true,
                     });
                     n2 = nm_i;
                     z2 = zup_i;
@@ -130,7 +144,11 @@ fn compute_frame(nm: &[f64; N_CORE]) -> (f64, [f64; N_SPEC_BINS]) {
 
                 n_total += dz * (n1 + n2) / 2.0;
                 segments.push(Segment {
-                    z_start: z1, z_end: z2, n_start: n1, slope: sl, is_flat: false,
+                    z_start: z1,
+                    z_end: z2,
+                    n_start: n1,
+                    slope: sl,
+                    is_flat: false,
                 });
 
                 if z2 <= prev_z2 + 1e-10 {
@@ -144,8 +162,11 @@ fn compute_frame(nm: &[f64; N_CORE]) -> (f64, [f64; N_SPEC_BINS]) {
             // === FLAT CASE: n1 <= nm_i ===
             n_total += nm_i * (zup_i - z1);
             segments.push(Segment {
-                z_start: z1, z_end: zup_i,
-                n_start: nm_i, slope: 0.0, is_flat: true,
+                z_start: z1,
+                z_end: zup_i,
+                n_start: nm_i,
+                slope: 0.0,
+                is_flat: true,
             });
             n1 = nm_i;
             z1 = zup_i;

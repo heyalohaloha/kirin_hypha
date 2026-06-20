@@ -14,11 +14,11 @@
 //! JUCE AU:   `juce_shell/build-universal/KirinHypha{PRE,POST}_artefacts/Release/AU/*.component`.
 //! JUCE VST3 (`build-universal/.../Release/VST3/*.vst3`) is EXCLUDED from the ship set
 //! (GUID continuity / existing+Peach session protection). All sources must be Developer-ID
-//! signed + notarized + stapled.
+//! signed + notarized.
 //!
 //! # Signed-source guard (B-099, required)
 //! Each source bundle MUST be Developer-ID signed (`codesign` `TeamIdentifier=7N8BSMA684`, not
-//! ad-hoc / unsigned) **and** stapled, or install aborts. `build_juce_universal.sh` re-signs
+//! ad-hoc / unsigned) **and** notarized, or install aborts. `build_juce_universal.sh` re-signs
 //! ad-hoc during a fresh build, so this guard refuses to deploy an unsigned/ad-hoc rebuild.
 //!
 //! # sudo
@@ -130,7 +130,7 @@ pub fn run(args: Vec<String>) -> Result<()> {
 
     let bundles = bundles(Path::new("."));
 
-    // 1. all 4 sources must exist and be Developer-ID signed + stapled (B-099 guard).
+    // 1. all 4 sources must exist and be Developer-ID signed + notarized (B-099 guard).
     for b in &bundles {
         if !b.src.is_dir() {
             bail!(
@@ -143,7 +143,7 @@ pub fn run(args: Vec<String>) -> Result<()> {
     for b in &bundles {
         verify_signed(&b.src)?;
     }
-    eprintln!("[install] all 4 source bundles are Developer-ID signed ({TEAM_ID}) + stapled");
+    eprintln!("[install] all 4 source bundles are Developer-ID signed ({TEAM_ID}) + notarized");
 
     // 2. remove user-level copies first (B-022: a stale user-level binary makes a DAW load the
     //    wrong plugin; the canonical install target is system-level only).
@@ -173,15 +173,26 @@ fn print_usage() {
          \x20 VST3-> /Library/Audio/Plug-Ins/VST3/Kirin Hypha {{PRE,POST}}.vst3 (egui)\n\n\
          Source: JUCE AU = juce_shell/build-universal/.../Release/AU; egui VST3 = target/bundled/.\n\
          JUCE VST3 is EXCLUDED from the ship set (GUID continuity).\n\
-         Each source must be Developer-ID signed ({TEAM_ID}) + stapled (B-098), else install\n\
+         Each source must be Developer-ID signed ({TEAM_ID}) + notarized (B-098), else install\n\
          aborts. user-level copies are removed first (sudo prompt for the system deploy).\n\n\
          Build both shells + `cargo xtask notarize ...` beforehand."
     );
 }
 
 /// Signed-source guard: the bundle must be Developer-ID signed by [`TEAM_ID`] (not ad-hoc /
-/// unsigned) and stapled, or this errors (so an unsigned/ad-hoc rebuild is never deployed).
+/// unsigned) and notarized, or this errors (so an unsigned/ad-hoc rebuild is never deployed).
 fn verify_signed(bundle: &Path) -> Result<()> {
+    // B-116/B-139: first verify the cryptographic seal and notarization ticket. On macOS 15,
+    // querying display metadata (`codesign -dvv`) before verification can produce unstable
+    // x86_64 bundle-level results for AU BNDL plugins, while the executable seal is valid.
+    verify_codesign_seal(bundle).with_context(|| {
+        format!(
+            "{} is not Developer-ID signed by team {TEAM_ID}, or its seal is invalid",
+            bundle.display()
+        )
+    })?;
+    verify_notarization_ticket(bundle)?;
+
     // codesign -dvv writes the signing info to stderr.
     let out = Command::new("codesign")
         .arg("-dvv")
@@ -197,18 +208,36 @@ fn verify_signed(bundle: &Path) -> Result<()> {
             info.trim()
         );
     }
-    // B-116: `-dvv` は署名情報の**表示**に過ぎない。封緘 (seal) が実際に有効か（cp -R / sudo で
-    // 破損していないか・改ざんがないか）を `codesign --verify --deep --strict` で暗号検証する。
-    verify_codesign_seal(bundle)?;
-    let stapled = Command::new("xcrun")
-        .args(["stapler", "validate"])
+    Ok(())
+}
+
+/// B-139: `.component` / `.vst3` are `BNDL` plugin bundles. `stapler(1)` supports UDIF
+/// disk images, signed flat packages, and certain executable bundles such as `.app`; on plugin
+/// bundles it reports EX_NOINPUT / kLSDataUnavailableErr even when the Developer-ID seal is valid.
+/// For source/destination install guards, use codesign's online notarization-ticket check instead.
+fn verify_notarization_ticket(bundle: &Path) -> Result<()> {
+    let out = Command::new("codesign")
+        .args([
+            "--verify",
+            "--deep",
+            "--strict",
+            "--check-notarization",
+            "--verbose=2",
+        ])
         .arg(bundle)
-        .status()
-        .with_context(|| format!("spawn stapler validate for {}", bundle.display()))?;
-    if !stapled.success() {
+        .output()
+        .with_context(|| {
+            format!(
+                "spawn codesign --check-notarization for {}",
+                bundle.display()
+            )
+        })?;
+    if !out.status.success() {
         bail!(
-            "{} is not stapled (stapler validate failed). Re-notarize + staple before install.",
-            bundle.display()
+            "{} failed codesign --check-notarization (not notarized / ticket unavailable). \
+             Re-run `cargo xtask notarize ...` before install.\n{}",
+            bundle.display(),
+            String::from_utf8_lossy(&out.stderr).trim()
         );
     }
     Ok(())
@@ -285,15 +314,27 @@ fn remove_user_level(path: &Path) -> Result<()> {
 fn deploy_system_level(b: &Bundle) -> Result<()> {
     let sys_dir = Path::new(b.system_dir);
     if !sys_dir.exists() {
-        bail!("{} does not exist on this system. Cannot install.", sys_dir.display());
+        bail!(
+            "{} does not exist on this system. Cannot install.",
+            sys_dir.display()
+        );
     }
     let dst = b.system_dest();
     eprintln!("[install]   sudo rm -rf {}", dst.display());
     run_sudo(&["rm", "-rf", path_str(&dst)?])
         .with_context(|| format!("sudo rm -rf failed for {}", dst.display()))?;
-    eprintln!("[install]   sudo cp -R {} {}", b.src.display(), dst.display());
-    run_sudo(&["cp", "-R", path_str(&b.src)?, path_str(&dst)?])
-        .with_context(|| format!("sudo cp -R failed for {} -> {}", b.src.display(), dst.display()))?;
+    eprintln!(
+        "[install]   sudo cp -R {} {}",
+        b.src.display(),
+        dst.display()
+    );
+    run_sudo(&["cp", "-R", path_str(&b.src)?, path_str(&dst)?]).with_context(|| {
+        format!(
+            "sudo cp -R failed for {} -> {}",
+            b.src.display(),
+            dst.display()
+        )
+    })?;
     Ok(())
 }
 
@@ -315,30 +356,45 @@ fn verify_deployment(b: &Bundle) -> Result<()> {
             dst_size
         );
     }
-    eprintln!("[install]   verified {}: size={} bytes (src=dst)", b.file(), src_size);
+    eprintln!(
+        "[install]   verified {}: size={} bytes (src=dst)",
+        b.file(),
+        src_size
+    );
     // B-116: source / 配置物の両バイナリが universal (x86_64 + arm64) であることを lipo -archs で
     // 実確認する（single-arch ビルド混入の検出 / 非破壊）。
     verify_universal(&src_bin)
         .with_context(|| format!("B-116: source binary not universal: {}", src_bin.display()))?;
-    verify_universal(&dst_bin)
-        .with_context(|| format!("B-116: installed binary not universal: {}", dst_bin.display()))?;
-    eprintln!("[install]   verified {}: lipo -archs = x86_64 + arm64 (src + dst)", b.file());
-    // B-112: destination 側も Developer-ID 署名 + stapled を検証する（cp -R / sudo で署名や
-    // staple ticket が破損していないこと、配置後に Gatekeeper が通る状態であることを確認）。
-    // 検証失敗（codesign TeamIdentifier 不一致 / stapler validate 失敗）は明示エラーで停止する。
+    verify_universal(&dst_bin).with_context(|| {
+        format!(
+            "B-116: installed binary not universal: {}",
+            dst_bin.display()
+        )
+    })?;
+    eprintln!(
+        "[install]   verified {}: lipo -archs = x86_64 + arm64 (src + dst)",
+        b.file()
+    );
+    // B-112/B-139: destination 側も Developer-ID 署名 + notarized を検証する（cp -R / sudo で署名や
+    // notarization ticket 参照が破損していないこと、配置後に Gatekeeper が通る状態であることを確認）。
+    // 検証失敗（codesign TeamIdentifier 不一致 / notarization ticket 不在）は明示エラーで停止する。
     verify_signed(&b.system_dest()).with_context(|| {
         format!(
-            "B-112: destination verify failed for {} (installed copy not Developer-ID signed + stapled)",
+            "B-112/B-139: destination verify failed for {} (installed copy not Developer-ID signed + notarized)",
             b.system_dest().display()
         )
     })?;
-    eprintln!("[install]   verified {}: destination codesign + stapled OK", b.file());
+    eprintln!(
+        "[install]   verified {}: destination codesign + notarization OK",
+        b.file()
+    );
     Ok(())
 }
 
 /// `Path::to_str` の Error 変換ヘルパ (sudo args は &str 必須)。
 fn path_str(p: &Path) -> Result<&str> {
-    p.to_str().ok_or_else(|| anyhow!("non-UTF8 path: {}", p.display()))
+    p.to_str()
+        .ok_or_else(|| anyhow!("non-UTF8 path: {}", p.display()))
 }
 
 /// sudo を spawn して同期実行。non-zero exit は Err。
@@ -387,11 +443,17 @@ mod tests {
             let s = x.src.to_string_lossy();
             match x.ext {
                 "component" => {
-                    assert!(s.contains("juce_shell/build-universal/"), "AU src not under build-universal: {s}");
+                    assert!(
+                        s.contains("juce_shell/build-universal/"),
+                        "AU src not under build-universal: {s}"
+                    );
                     assert!(s.contains("/Release/AU/"), "AU src not Release/AU: {s}");
                 }
                 "vst3" => {
-                    assert!(s.contains("target/bundled/"), "egui VST3 src not under target/bundled: {s}");
+                    assert!(
+                        s.contains("target/bundled/"),
+                        "egui VST3 src not under target/bundled: {s}"
+                    );
                     assert!(
                         !s.contains("build-universal"),
                         "VST3 must NOT be the JUCE build-universal copy (構成C excludes JUCE VST3): {s}"
@@ -423,7 +485,18 @@ mod tests {
             let ud = x.user_dest().expect("HOME set");
             let s = ud.to_string_lossy();
             if x.ext == "component" {
-                assert_eq!(s, "/tmp/fake-home/Library/Audio/Plug-Ins/Components/Kirin Hypha {}.component".replace("{}", if x.name.ends_with("PRE") {"PRE"} else {"POST"}));
+                assert_eq!(
+                    s,
+                    "/tmp/fake-home/Library/Audio/Plug-Ins/Components/Kirin Hypha {}.component"
+                        .replace(
+                            "{}",
+                            if x.name.ends_with("PRE") {
+                                "PRE"
+                            } else {
+                                "POST"
+                            }
+                        )
+                );
             } else {
                 assert!(s.contains("/tmp/fake-home/Library/Audio/Plug-Ins/VST3/"));
             }
@@ -453,7 +526,8 @@ mod tests {
     fn verify_signed_bails_on_unsigned() {
         // An unsigned plain directory: codesign -dvv reports "not signed", no TeamIdentifier ->
         // the guard must error (this is what protects against deploying an ad-hoc/unsigned rebuild).
-        let tmp = std::env::temp_dir().join(format!("kirin_install_unsigned_{}", std::process::id()));
+        let tmp =
+            std::env::temp_dir().join(format!("kirin_install_unsigned_{}", std::process::id()));
         let _ = fs::remove_dir_all(&tmp);
         fs::create_dir_all(&tmp).unwrap();
         let err = verify_signed(&tmp).expect_err("unsigned must be rejected");

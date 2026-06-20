@@ -29,12 +29,12 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
+use crate::engine::SessionSummary;
 use crate::io_thread_post::read_instance_id_arc;
 use crate::plugin_data::Role as PluginDataRole;
 use crate::pre_self_discovery::{discover_pair_post_project_dir, PreSelfDiscoveryState};
 use crate::record::RecordStateMachine;
 use crate::record_signal::{self, SignalStatus};
-use crate::engine::SessionSummary;
 use crate::record_writer::{
     run_record_tick, take_session_summary, writer_close_degraded, writer_close_with_summary,
     RecordingCtx,
@@ -208,8 +208,10 @@ pub fn spawn_io_thread_pre(
         // restore 由来の path-unsafe な project_hash は fresh new_v4 へ差し替え、instance_id セルも
         // 同様に正規化する（§7② 観測継続）。path-safe な値（valid UUID / 無害な literal）は無改変＝
         // parity の literal id path テスト不変。下流の builder wall は materialize 後の DiD backstop。
-        let project_hash =
-            crate::path_identity::materialize_observation_id(&project_hash, "io_thread_pre.project_hash");
+        let project_hash = crate::path_identity::materialize_observation_id(
+            &project_hash,
+            "io_thread_pre.project_hash",
+        );
         crate::path_identity::normalize_observation_cell(&instance_id, "io_thread_pre.instance_id");
         log::info!(
             "[IOThread PRE] started (lazy-read instance_id, fallback project_hash={})",
@@ -244,9 +246,7 @@ pub fn spawn_io_thread_pre(
         // のうち status=Active かつ mtime > 60s のファイルを status=Closed に
         // 書換 (Lens 側「進行中 Record」誤認の構造的解消)。loop 前 1 回。
         if let Ok(paths) = StoragePaths::default_macos() {
-            let _ = crate::record_writer::sweep_stale_active_at_startup(
-                &paths.plugin_data_dir(),
-            );
+            let _ = crate::record_writer::sweep_stale_active_at_startup(&paths.plugin_data_dir());
         }
 
         let mut writer_ctx: Option<RecordingCtx> = None;
@@ -337,11 +337,7 @@ pub fn spawn_io_thread_pre(
             // 書いてしまう」 cdylib 隔離問題を回避する。
             let effective_project_hash_owned: Option<String> = discovery
                 .cached_post_project_dir()
-                .and_then(|p| {
-                    p.file_name()
-                        .and_then(|n| n.to_str())
-                        .map(str::to_string)
-                });
+                .and_then(|p| p.file_name().and_then(|n| n.to_str()).map(str::to_string));
             let effective_project_hash_ref: &str = effective_project_hash_owned
                 .as_deref()
                 .unwrap_or(project_hash.as_str());
@@ -376,7 +372,8 @@ pub fn spawn_io_thread_pre(
             // B-022 段階 3: filter から daw_session_id 比較を撤廃。
             // target_pre_instance_id (UUID v4) のみで PRE 自身宛て signal を識別。
             let now = Instant::now();
-            let should_poll = last_poll.is_none_or(|t| now.duration_since(t) >= SIGNAL_POLL_INTERVAL);
+            let should_poll =
+                last_poll.is_none_or(|t| now.duration_since(t) >= SIGNAL_POLL_INTERVAL);
             if should_poll {
                 last_poll = Some(now);
                 // B-023 段階 3: ack 直前に name を lazy-read して poll に渡す。
@@ -433,7 +430,7 @@ pub fn spawn_io_thread_pre(
                 &result,
                 &mut writer_ctx,
                 Some(&session_summary),
-                &overflow, // B-076: per-Record dropped_samples 算出用
+                &overflow,       // B-076: per-Record dropped_samples 算出用
                 &oversized_drop, // B-125: per-Record oversized block drop 算出用
             ) {
                 log::warn!("[writer] tick error: {}", e);
@@ -582,9 +579,7 @@ fn poll_record_signal(
                     // (record_writer.rs:281-285) で次 tick (≤LOOP_SLEEP=100ms 後) に
                     // 自動実行されるため、ここで明示呼出は不要 (B 案採用 / Group 1 改修
                     // 不変原則 / Pass 15)。
-                    SignalStatus::Pending
-                        if p.last_seen_status == SignalStatus::Acknowledged =>
-                    {
+                    SignalStatus::Pending if p.last_seen_status == SignalStatus::Acknowledged => {
                         record_sm.exit_record();
                         recording.store(false, Ordering::Relaxed);
                         record_acknowledged.store(false, Ordering::Relaxed);
@@ -882,7 +877,8 @@ pub fn serialize_pre_json(
     // instance_id が materialize wall を素通り不正 JSON → pairing 消失を起こす同種欠陥（census 検出）。
     // 正常 UUID では byte 不変（parity literal-id 不変）。根本封止（wall 側 `"` quarantine）は番人へ上申。
     let name_json = serde_json::to_string(name).unwrap_or_else(|_| "\"\"".to_string());
-    let instance_id_json = serde_json::to_string(instance_id).unwrap_or_else(|_| "\"\"".to_string());
+    let instance_id_json =
+        serde_json::to_string(instance_id).unwrap_or_else(|_| "\"\"".to_string());
     format!(
         r#"{{"v":2,"role":"PRE","instance_id":{instance_id_json},"name":{name_json},"signal_state":"{signal_state}","t":"{t}","lufs_m":{lufs_m},"true_peak":{true_peak},"crest":{crest},"psr":{psr}{phase_d}}}"#,
         instance_id_json = instance_id_json,
@@ -906,7 +902,8 @@ fn serialize_pre_json_minimal(instance_id: &str, name: &str, state: SignalState)
     // B-077: name を serde で JSON escape（serialize_pre_json と同一。" \ 制御文字・日本語を安全に）。
     // B-131 (G-115-380): instance_id も serde escape（serialize_pre_json と同一契約）。
     let name_json = serde_json::to_string(name).unwrap_or_else(|_| "\"\"".to_string());
-    let instance_id_json = serde_json::to_string(instance_id).unwrap_or_else(|_| "\"\"".to_string());
+    let instance_id_json =
+        serde_json::to_string(instance_id).unwrap_or_else(|_| "\"\"".to_string());
     format!(
         r#"{{"v":2,"role":"PRE","instance_id":{instance_id_json},"name":{name_json},"signal_state":"{signal_state}","t":"{t}"}}"#,
         instance_id_json = instance_id_json,
@@ -1044,8 +1041,7 @@ mod tests {
                 }
                 None => {
                     // B-022 段階 5 P-3: 直接 read リトライ救済 (production と同一ロジック)。
-                    let recovered =
-                        retry_direct_read(base, TEST_PH, &p.post_instance_id);
+                    let recovered = retry_direct_read(base, TEST_PH, &p.post_instance_id);
                     if let Some(sig) = recovered {
                         if sig.status == SignalStatus::Released {
                             record_sm.exit_record();
@@ -1112,8 +1108,14 @@ mod tests {
     }
 
     fn write_matching_pending(base: &Path, post_iid: &str) {
-        write_pending(base, TEST_PH, post_iid, TEST_PRE_IID.into(), TEST_DAW.into())
-            .unwrap();
+        write_pending(
+            base,
+            TEST_PH,
+            post_iid,
+            TEST_PRE_IID.into(),
+            TEST_DAW.into(),
+        )
+        .unwrap();
     }
 
     // ── poll_record_signal ───────────────────────────────────────
@@ -1130,7 +1132,13 @@ mod tests {
         let mut partner = None;
 
         poll_with_base(
-            &base, &sm, &recording, &ack, &license, &mut partner, TEST_PRE_IID,
+            &base,
+            &sm,
+            &recording,
+            &ack,
+            &license,
+            &mut partner,
+            TEST_PRE_IID,
         );
 
         assert_eq!(sm.current(), RecordState::Record);
@@ -1163,7 +1171,13 @@ mod tests {
         let mut partner = None;
 
         poll_with_base(
-            &base, &sm, &recording, &ack, &license, &mut partner, TEST_PRE_IID,
+            &base,
+            &sm,
+            &recording,
+            &ack,
+            &license,
+            &mut partner,
+            TEST_PRE_IID,
         );
 
         // 自分宛てではないので Record に入らない
@@ -1205,7 +1219,13 @@ mod tests {
         // poll_with_base は instance_id だけ受け取り、daw_session_id 比較は
         // しない（段階 3 実装に同期）。
         poll_with_base(
-            &base, &sm, &recording, &ack, &license, &mut partner, TEST_PRE_IID,
+            &base,
+            &sm,
+            &recording,
+            &ack,
+            &license,
+            &mut partner,
+            TEST_PRE_IID,
         );
 
         assert_eq!(
@@ -1236,7 +1256,13 @@ mod tests {
         let mut partner = None;
 
         poll_with_base(
-            &base, &sm, &recording, &ack, &license, &mut partner, TEST_PRE_IID,
+            &base,
+            &sm,
+            &recording,
+            &ack,
+            &license,
+            &mut partner,
+            TEST_PRE_IID,
         );
 
         assert_eq!(sm.current(), RecordState::Watch);
@@ -1256,13 +1282,25 @@ mod tests {
         let license = Arc::new(License::Os);
         let mut partner = None;
         poll_with_base(
-            &base, &sm, &recording, &ack, &license, &mut partner, TEST_PRE_IID,
+            &base,
+            &sm,
+            &recording,
+            &ack,
+            &license,
+            &mut partner,
+            TEST_PRE_IID,
         );
         assert!(sm.is_recording());
 
         record_signal::mark_released(&base, TEST_PH, "post-1").unwrap();
         poll_with_base(
-            &base, &sm, &recording, &ack, &license, &mut partner, TEST_PRE_IID,
+            &base,
+            &sm,
+            &recording,
+            &ack,
+            &license,
+            &mut partner,
+            TEST_PRE_IID,
         );
 
         assert_eq!(sm.current(), RecordState::Watch);
@@ -1281,13 +1319,25 @@ mod tests {
         let license = Arc::new(License::Os);
         let mut partner = None;
         poll_with_base(
-            &base, &sm, &recording, &ack, &license, &mut partner, TEST_PRE_IID,
+            &base,
+            &sm,
+            &recording,
+            &ack,
+            &license,
+            &mut partner,
+            TEST_PRE_IID,
         );
         assert!(sm.is_recording());
 
         record_signal::delete_signal(&base, TEST_PH, "post-1").unwrap();
         poll_with_base(
-            &base, &sm, &recording, &ack, &license, &mut partner, TEST_PRE_IID,
+            &base,
+            &sm,
+            &recording,
+            &ack,
+            &license,
+            &mut partner,
+            TEST_PRE_IID,
         );
 
         assert_eq!(sm.current(), RecordState::Watch);
@@ -1304,7 +1354,13 @@ mod tests {
         let mut partner = None;
 
         poll_with_base(
-            &base, &sm, &recording, &ack, &license, &mut partner, TEST_PRE_IID,
+            &base,
+            &sm,
+            &recording,
+            &ack,
+            &license,
+            &mut partner,
+            TEST_PRE_IID,
         );
 
         assert_eq!(sm.current(), RecordState::Watch);
@@ -1445,7 +1501,13 @@ mod tests {
             let mut partner = None;
 
             poll_with_base(
-                &base, &sm, &recording, &ack, &license, &mut partner, TEST_PRE_IID,
+                &base,
+                &sm,
+                &recording,
+                &ack,
+                &license,
+                &mut partner,
+                TEST_PRE_IID,
             );
 
             assert_eq!(
@@ -1454,12 +1516,17 @@ mod tests {
                 "N={n}: state machine が Record に遷移する"
             );
             assert!(recording.load(Ordering::Relaxed), "N={n}: recording=true");
-            assert!(ack.load(Ordering::Relaxed), "N={n}: record_acknowledged=true");
-            assert!(partner.is_some(), "N={n}: partner = 最後に ack した POST_iid");
+            assert!(
+                ack.load(Ordering::Relaxed),
+                "N={n}: record_acknowledged=true"
+            );
+            assert!(
+                partner.is_some(),
+                "N={n}: partner = 最後に ack した POST_iid"
+            );
             for i in 0..n {
                 let sig =
-                    record_signal::read_signal(&base, TEST_PH, &format!("post-{i:02}"))
-                        .unwrap();
+                    record_signal::read_signal(&base, TEST_PH, &format!("post-{i:02}")).unwrap();
                 assert_eq!(
                     sig.status,
                     SignalStatus::Acknowledged,
@@ -1493,10 +1560,20 @@ mod tests {
         let mut partner = None;
 
         poll_with_base(
-            &base, &sm, &recording, &ack, &license, &mut partner, TEST_PRE_IID,
+            &base,
+            &sm,
+            &recording,
+            &ack,
+            &license,
+            &mut partner,
+            TEST_PRE_IID,
         );
 
-        assert_eq!(sm.current(), RecordState::Record, "他件 ack 成功で Record 維持");
+        assert_eq!(
+            sm.current(),
+            RecordState::Record,
+            "他件 ack 成功で Record 維持"
+        );
         let sig_a = record_signal::read_signal(&base, TEST_PH, "post-A").unwrap();
         let sig_c = record_signal::read_signal(&base, TEST_PH, "post-C").unwrap();
         assert_eq!(sig_a.status, SignalStatus::Acknowledged, "post-A 継続 ack");
@@ -1520,7 +1597,13 @@ mod tests {
         let mut partner = None;
 
         poll_with_base(
-            &base, &sm, &recording, &ack, &license, &mut partner, TEST_PRE_IID,
+            &base,
+            &sm,
+            &recording,
+            &ack,
+            &license,
+            &mut partner,
+            TEST_PRE_IID,
         );
 
         assert_eq!(sm.current(), RecordState::Record);
@@ -1565,7 +1648,13 @@ mod tests {
         let mut partner = None;
 
         poll_with_base(
-            &base, &sm, &recording, &ack, &license, &mut partner, TEST_PRE_IID,
+            &base,
+            &sm,
+            &recording,
+            &ack,
+            &license,
+            &mut partner,
+            TEST_PRE_IID,
         );
 
         for iid in &["post-self-A", "post-self-B", "post-self-C"] {
@@ -1608,7 +1697,13 @@ mod tests {
         let mut partner = None;
 
         poll_with_base(
-            &base, &sm, &recording, &ack, &license, &mut partner, TEST_PRE_IID,
+            &base,
+            &sm,
+            &recording,
+            &ack,
+            &license,
+            &mut partner,
+            TEST_PRE_IID,
         );
 
         assert!(sm.is_recording());
@@ -1647,7 +1742,13 @@ mod tests {
         });
 
         poll_with_base(
-            &base, &sm, &recording, &ack, &license, &mut partner, TEST_PRE_IID,
+            &base,
+            &sm,
+            &recording,
+            &ack,
+            &license,
+            &mut partner,
+            TEST_PRE_IID,
         );
 
         assert_eq!(
@@ -1691,7 +1792,13 @@ mod tests {
             });
 
             poll_with_base(
-                &base, &sm, &recording, &ack, &license, &mut partner, TEST_PRE_IID,
+                &base,
+                &sm,
+                &recording,
+                &ack,
+                &license,
+                &mut partner,
+                TEST_PRE_IID,
             );
 
             assert_eq!(
@@ -1722,7 +1829,13 @@ mod tests {
             });
 
             poll_with_base(
-                &base, &sm, &recording, &ack, &license, &mut partner, TEST_PRE_IID,
+                &base,
+                &sm,
+                &recording,
+                &ack,
+                &license,
+                &mut partner,
+                TEST_PRE_IID,
             );
 
             assert_eq!(
@@ -1886,10 +1999,7 @@ mod tests {
         // 初期 scan: partner=None / 一致 signal を発見した想定
         let t0 = Instant::now();
         let initial_post_dir = PathBuf::from("/tmp/kirin_test/post-uuid-X");
-        discovery.record_scan(
-            t0,
-            Some((initial_post_dir.clone(), "daw-test".to_string())),
-        );
+        discovery.record_scan(t0, Some((initial_post_dir.clone(), "daw-test".to_string())));
 
         // 直後に partner=Some になった想定 (PRE が ack して Record 入場)
         let mut partner: Option<PartnerInfo> = Some(PartnerInfo {
@@ -2091,7 +2201,13 @@ mod tests {
         // base には何も無い → scan_signals_dir 空 → matching=空 → current=None
         // → retry_direct_read も None → exit_record。
         poll_with_base(
-            &base, &sm, &recording, &ack, &license, &mut partner, TEST_PRE_IID,
+            &base,
+            &sm,
+            &recording,
+            &ack,
+            &license,
+            &mut partner,
+            TEST_PRE_IID,
         );
 
         assert_eq!(
@@ -2137,7 +2253,13 @@ mod tests {
         });
 
         poll_with_base(
-            &base, &sm, &recording, &ack, &license, &mut partner, TEST_PRE_IID,
+            &base,
+            &sm,
+            &recording,
+            &ack,
+            &license,
+            &mut partner,
+            TEST_PRE_IID,
         );
 
         assert_eq!(
@@ -2154,9 +2276,7 @@ mod tests {
 #[cfg(test)]
 mod startup_clear_acks_tests {
     use super::*;
-    use crate::record_signal::{
-        mark_acknowledged, write_pending, RecordSignal, SignalStatus,
-    };
+    use crate::record_signal::{mark_acknowledged, write_pending, RecordSignal, SignalStatus};
     use std::sync::atomic::AtomicU64;
 
     const TEST_PH: &str = "ph-startup";

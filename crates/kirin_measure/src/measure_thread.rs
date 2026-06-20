@@ -95,10 +95,12 @@ impl LivenessEvaluator {
         let cur = self.heartbeat.load(Ordering::Relaxed);
         let prev = self.last_seen.swap(cur, Ordering::Relaxed);
         if prev != cur {
-            self.last_change_nanos.store(elapsed_nanos, Ordering::Relaxed);
+            self.last_change_nanos
+                .store(elapsed_nanos, Ordering::Relaxed);
             return true;
         }
-        elapsed_nanos.saturating_sub(self.last_change_nanos.load(Ordering::Relaxed)) < self.window_nanos
+        elapsed_nanos.saturating_sub(self.last_change_nanos.load(Ordering::Relaxed))
+            < self.window_nanos
     }
 }
 
@@ -131,6 +133,7 @@ impl LivenessEvaluator {
 pub fn spawn_measure_thread(
     mut consumer: rtrb::Consumer<f32>,
     sample_rate: u32,
+    n_channels: usize,
     result: Arc<Mutex<MeasureResult>>,
     signal_state: Arc<AtomicU8>,
     shutdown: Arc<AtomicBool>,
@@ -139,9 +142,14 @@ pub fn spawn_measure_thread(
     session_summary: Arc<Mutex<Option<SessionSummary>>>,
 ) -> JoinHandle<()> {
     thread::spawn(move || {
+        let n_channels = match n_channels {
+            1 | 2 => n_channels,
+            _ => N_CHANNELS,
+        };
+
         //  v2: 内部処理は 48 kHz 固定。入力 SR が異なる場合のみ
         // ResamplerTo48k で変換して engine / phase_d に渡す。
-        let mut engine = match MeasureEngine::new(ENGINE_SR, N_CHANNELS) {
+        let mut engine = match MeasureEngine::new(ENGINE_SR, n_channels) {
             Ok(e) => e,
             Err(e) => {
                 log::error!("[MeasureThread] MeasureEngine::new failed: {}", e);
@@ -152,18 +160,21 @@ pub fn spawn_measure_thread(
         // 入力 SR が 48 kHz の場合はバイパス（ゼロオーバーヘッド経路を維持）。
         // 異なる場合のみ rubato Fft リサンプラを構築する。失敗時は Measure Thread のみ終了。
         let mut resampler: Option<ResamplerTo48k> = if sample_rate != ENGINE_SR {
-            match ResamplerTo48k::new(sample_rate, N_CHANNELS) {
+            match ResamplerTo48k::new(sample_rate, n_channels) {
                 Ok(r) => {
                     log::info!(
-                        "[MeasureThread] Resampler {}->{} Hz constructed",
-                        sample_rate, ENGINE_SR
+                        "[MeasureThread] Resampler {}->{} Hz constructed (channels={})",
+                        sample_rate,
+                        ENGINE_SR,
+                        n_channels
                     );
                     Some(r)
                 }
                 Err(e) => {
                     log::error!(
                         "[MeasureThread] ResamplerTo48k::new({}) failed: {:?}",
-                        sample_rate, e
+                        sample_rate,
+                        e
                     );
                     return;
                 }
@@ -174,16 +185,15 @@ pub fn spawn_measure_thread(
 
         //  streaming processor（ v2: 全 SR 対応のため常に Some 相当）。
         let mut phase_d = PhaseDStream::new(FieldType::Free);
-        //  stereo→mono 変換バッファ（48 kHz 1 秒分の余裕で確保）。
-        let mut mono_buf: Vec<f64> = Vec::with_capacity(ENGINE_SR as usize / N_CHANNELS);
+        // Phase D は mono stream 入力。mono はそのまま、stereo は (L+R)/2 に落とす。
+        let mut phase_d_mono_buf: Vec<f64> = Vec::with_capacity(ENGINE_SR as usize);
         //  最新結果（ループをまたいで保持。engine が結果を返した時にマージ）
         let mut latest_pd: Option<crate::phase_d::stream::PhaseDResult> = None;
 
         // f32 → f64 変換バッファ（ループをまたいで再利用。再アロケーションを避ける）
         let mut chunk_f64: Vec<f64> = Vec::with_capacity(sample_rate as usize);
         // リサンプル後 48kHz interleaved バッファ（resampler が Some のときのみ使う）
-        let mut resampled_buf: Vec<f64> =
-            Vec::with_capacity(ENGINE_SR as usize * N_CHANNELS / 4);
+        let mut resampled_buf: Vec<f64> = Vec::with_capacity(ENGINE_SR as usize * n_channels / 4);
 
         // 前回ループの SignalState を保持し、非Active→Active 遷移を検出する（SS-8）。
         let mut prev_active = false;
@@ -354,7 +364,8 @@ pub fn spawn_measure_thread(
                     if let Err(e) = rs.process(&chunk_f64, &mut resampled_buf) {
                         log::warn!(
                             "[MeasureThread] Resampler error ({}->48000): {:?}, dropping chunk",
-                            sample_rate, e
+                            sample_rate,
+                            e
                         );
                         thread::sleep(LOOP_SLEEP);
                         continue;
@@ -364,12 +375,11 @@ pub fn spawn_measure_thread(
                     &chunk_f64
                 };
 
-                // : stereo→mono 変換 + push（常に 48 kHz データに対して実行）
-                mono_buf.clear();
-                for ch in chunk_48k.chunks_exact(N_CHANNELS) {
-                    mono_buf.push((ch[0] + ch[1]) * 0.5);
-                }
-                let pd_results = phase_d.push(&mono_buf);
+                // Phase D: mono is identity; stereo is averaged to mono. Do not duplicate mono
+                // into two channels, because that would also bias EBU loudness by +3 dB.
+                phase_d_mono_buf.clear();
+                append_phase_d_mono(chunk_48k, n_channels, &mut phase_d_mono_buf);
+                let pd_results = phase_d.push(&phase_d_mono_buf);
                 if let Some(last) = pd_results.last() {
                     latest_pd = Some(last.clone());
                 }
@@ -413,6 +423,22 @@ pub fn spawn_measure_thread(
 
         log::info!("[MeasureThread] terminated");
     })
+}
+
+fn append_phase_d_mono(input_interleaved: &[f64], n_channels: usize, out: &mut Vec<f64>) {
+    match n_channels {
+        1 => out.extend_from_slice(input_interleaved),
+        2 => {
+            for frame in input_interleaved.chunks_exact(2) {
+                out.push((frame[0] + frame[1]) * 0.5);
+            }
+        }
+        _ => {
+            for frame in input_interleaved.chunks_exact(n_channels) {
+                out.push(frame.iter().sum::<f64>() / n_channels as f64);
+            }
+        }
+    }
 }
 
 /// B-132 (G-115-382): 残量 ring を **Active ループ本体と同一**の convert/resample/engine.push
@@ -466,7 +492,10 @@ fn drain_ring_into_session(
             true
         }
         Err(e) => {
-            log::warn!("[MeasureThread] drain session_summary Mutex poisoned: {}", e);
+            log::warn!(
+                "[MeasureThread] drain session_summary Mutex poisoned: {}",
+                e
+            );
             false
         }
     }
@@ -536,7 +565,10 @@ pub mod tests {
     // (c) playing=false → unlocked（live 値に依らず）
     #[test]
     fn b115_pair_lock_c_not_playing_unlocks() {
-        assert!(!super::pair_lock_active(false, true), "(c) playing=false → unlocked");
+        assert!(
+            !super::pair_lock_active(false, true),
+            "(c) playing=false → unlocked"
+        );
         assert!(
             !super::pair_lock_active(false, false),
             "(c) playing=false → unlocked（live 無関係）"
@@ -556,8 +588,14 @@ pub mod tests {
         hb.fetch_add(1, Ordering::Relaxed);
         assert!(ev.is_live_at(1_000), "beat 直後は live");
         // 停止: heartbeat 不変。window 未満は live 維持 / window 到達・超過は not live
-        assert!(ev.is_live_at(1_000 + w - 1), "停止後 window 未満は live（<3s）");
-        assert!(!ev.is_live_at(1_000 + w), "停止後 window 到達で not live（=3s）");
+        assert!(
+            ev.is_live_at(1_000 + w - 1),
+            "停止後 window 未満は live（<3s）"
+        );
+        assert!(
+            !ev.is_live_at(1_000 + w),
+            "停止後 window 到達で not live（=3s）"
+        );
         assert!(
             !ev.is_live_at(1_000 + w + 1_000_000_000),
             "window 超過も not live"
@@ -597,7 +635,11 @@ pub mod tests {
     #[test]
     fn b118_live_window_is_30_ticks_100ms_3s() {
         assert_eq!(super::HEARTBEAT_STALE_TICKS, 30, "G-115-245: 30 tick");
-        assert_eq!(super::TICK, std::time::Duration::from_millis(100), "TICK = 100ms");
+        assert_eq!(
+            super::TICK,
+            std::time::Duration::from_millis(100),
+            "TICK = 100ms"
+        );
         assert_eq!(
             super::live_window(),
             std::time::Duration::from_secs(3),
@@ -663,7 +705,7 @@ pub mod tests {
         let psb = [
             0.10, 0.12, 0.11, 0.13, 0.09, 0.10, 0.10, 0.10, // low (Bark 1-8)
             0.05, 0.06, 0.05, 0.04, 0.05, 0.05, 0.06, 0.05, // mid (Bark 9-16)
-            0.20, 0.25, 0.22, 0.18,                         // 旧 high 帯域（C-3 で未使用）
+            0.20, 0.25, 0.22, 0.18, // 旧 high 帯域（C-3 で未使用）
         ];
         let s_a = compute_psb_summary(&psb, &[0.0; 4], 0.0);
         let s_b = compute_psb_summary(&psb, &[1.0e3, 2.0e3, 3.0e3, 4.0e3], 5.0e3);
@@ -691,7 +733,8 @@ pub mod tests {
         assert!(
             (s_a.high - expected).abs() < 1e-9,
             "high = {} expected ≈ {}",
-            s_a.high, expected
+            s_a.high,
+            expected
         );
     }
 
@@ -701,7 +744,11 @@ pub mod tests {
     fn psb_summary_high_floor_when_no_fft_energy() {
         let psb = [0.0; 20];
         let s = compute_psb_summary(&psb, &[0.0; 4], 0.0);
-        assert!(s.high < -100.0, "high should floor near -120 dB, got {}", s.high);
+        assert!(
+            s.high < -100.0,
+            "high should floor near -120 dB, got {}",
+            s.high
+        );
     }
 }
 
@@ -766,8 +813,14 @@ mod b132_drain_tests {
         let mut chunk = Vec::new();
         let mut resampled = Vec::new();
         let mut resampler = None;
-        let ok =
-            drain_ring_into_session(&mut cons, &mut resampler, &mut eng_on, &ss, &mut chunk, &mut resampled);
+        let ok = drain_ring_into_session(
+            &mut cons,
+            &mut resampler,
+            &mut eng_on,
+            &ss,
+            &mut chunk,
+            &mut resampled,
+        );
         assert!(ok, "drain must succeed");
         let on = (*ss.lock().unwrap()).expect("session_summary written by drain");
 
@@ -802,8 +855,14 @@ mod b132_drain_tests {
         let mut chunk = Vec::new();
         let mut resampled = Vec::new();
         let mut resampler = None;
-        let ok =
-            drain_ring_into_session(&mut cons, &mut resampler, &mut eng, &ss, &mut chunk, &mut resampled);
+        let ok = drain_ring_into_session(
+            &mut cons,
+            &mut resampler,
+            &mut eng,
+            &ss,
+            &mut chunk,
+            &mut resampled,
+        );
         assert!(ok);
         let drained = (*ss.lock().unwrap()).unwrap();
         assert!(

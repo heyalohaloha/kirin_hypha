@@ -99,13 +99,23 @@ impl AllKeepBroadcast {
 /// `{base}/{project_hash}/all_keep_signal/` ディレクトリ。
 pub fn signals_dir(base_dir: &Path, project_hash: &str) -> PathBuf {
     // B-128 (G-115-370): within-base wall。signal_path も本関数経由で project_hash を guard。
-    let ph = crate::path_identity::guard_path_component(project_hash, "all_keep_signal.signals_dir.project_hash");
+    let ph = crate::path_identity::guard_path_component(
+        project_hash,
+        "all_keep_signal.signals_dir.project_hash",
+    );
     base_dir.join(&*ph).join(ALL_KEEP_SIGNAL_SUBDIR)
 }
 
 /// `{base}/{project_hash}/all_keep_signal/{originator_post_instance_id}.json`。
-pub fn signal_path(base_dir: &Path, project_hash: &str, originator_post_instance_id: &str) -> PathBuf {
-    let iid = crate::path_identity::guard_path_component(originator_post_instance_id, "all_keep_signal.signal_path.originator");
+pub fn signal_path(
+    base_dir: &Path,
+    project_hash: &str,
+    originator_post_instance_id: &str,
+) -> PathBuf {
+    let iid = crate::path_identity::guard_path_component(
+        originator_post_instance_id,
+        "all_keep_signal.signal_path.originator",
+    );
     signals_dir(base_dir, project_hash).join(format!("{iid}.json"))
 }
 
@@ -158,11 +168,13 @@ pub fn write_broadcast(
     originator_post_instance_id: &str,
     daw_session_id: String,
 ) -> Result<AllKeepBroadcast, AllKeepError> {
-    let broadcast = AllKeepBroadcast::new(
-        originator_post_instance_id.to_string(),
-        daw_session_id,
-    );
-    write_broadcast_signal(base_dir, project_hash, originator_post_instance_id, &broadcast)?;
+    let broadcast = AllKeepBroadcast::new(originator_post_instance_id.to_string(), daw_session_id);
+    write_broadcast_signal(
+        base_dir,
+        project_hash,
+        originator_post_instance_id,
+        &broadcast,
+    )?;
     Ok(broadcast)
 }
 
@@ -223,10 +235,7 @@ pub fn delete_broadcast(
 ///
 /// 旧 plugin (本変更前 / dir 不在) 互換は `read_dir` Err → empty Vec で構造保証
 /// (`pre_discovery::discover_active_pre_dirs` :181-184 と同位相)。
-pub fn scan_broadcasts_dir(
-    base_dir: &Path,
-    project_hash: &str,
-) -> Vec<(String, AllKeepBroadcast)> {
+pub fn scan_broadcasts_dir(base_dir: &Path, project_hash: &str) -> Vec<(String, AllKeepBroadcast)> {
     let dir = signals_dir(base_dir, project_hash);
     let entries = match fs::read_dir(&dir) {
         Ok(e) => e,
@@ -314,9 +323,7 @@ pub fn is_broadcast_stale(
 // ── ヘルパ ────────────────────────────────────────────────────────────────────
 
 fn now_iso8601() -> String {
-    chrono::Utc::now()
-        .format("%Y-%m-%dT%H:%M:%SZ")
-        .to_string()
+    chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────
@@ -347,17 +354,13 @@ mod tests {
     fn signal_path_format() {
         let base = PathBuf::from("/base");
         let path = signal_path(&base, "ph-A", "iid-X");
-        assert_eq!(
-            path,
-            PathBuf::from("/base/ph-A/all_keep_signal/iid-X.json")
-        );
+        assert_eq!(path, PathBuf::from("/base/ph-A/all_keep_signal/iid-X.json"));
     }
 
     #[test]
     fn write_broadcast_creates_atomic_file() {
         let base = isolated_dir();
-        let result =
-            write_broadcast(&base, "ph", "originator-1", "session-A".to_string()).unwrap();
+        let result = write_broadcast(&base, "ph", "originator-1", "session-A".to_string()).unwrap();
         assert_eq!(result.v, ALL_KEEP_SCHEMA_VERSION);
         assert_eq!(result.originator_post_instance_id, "originator-1");
         assert_eq!(result.daw_session_id, "session-A");
@@ -483,12 +486,10 @@ mod tests {
     fn write_broadcast_overwrites_same_originator() {
         // 同一 originator の連打 → atomic rename で last-wins (Q-A8-6)
         let base = isolated_dir();
-        let first =
-            write_broadcast(&base, "ph", "originator-A", "session-A".to_string()).unwrap();
+        let first = write_broadcast(&base, "ph", "originator-A", "session-A".to_string()).unwrap();
         // started_at が確実に進むよう 1 秒待機 (秒精度 ISO 8601)
         std::thread::sleep(std::time::Duration::from_millis(1100));
-        let second =
-            write_broadcast(&base, "ph", "originator-A", "session-A".to_string()).unwrap();
+        let second = write_broadcast(&base, "ph", "originator-A", "session-A".to_string()).unwrap();
         assert_ne!(first.started_at, second.started_at);
         let read = read_broadcast(&base, "ph", "originator-A").unwrap();
         assert_eq!(read.started_at, second.started_at);
@@ -515,8 +516,16 @@ mod tests {
                 .to_string(),
             heartbeat: String::new(),
         };
-        assert!(!is_broadcast_stale(&fresh, now, ALL_KEEP_BROADCAST_STALE_SECS));
-        assert!(is_broadcast_stale(&stale, now, ALL_KEEP_BROADCAST_STALE_SECS));
+        assert!(!is_broadcast_stale(
+            &fresh,
+            now,
+            ALL_KEEP_BROADCAST_STALE_SECS
+        ));
+        assert!(is_broadcast_stale(
+            &stale,
+            now,
+            ALL_KEEP_BROADCAST_STALE_SECS
+        ));
     }
 
     #[test]
@@ -530,7 +539,11 @@ mod tests {
             started_at: "not-an-iso".to_string(),
             heartbeat: String::new(),
         };
-        assert!(!is_broadcast_stale(&bad, now, ALL_KEEP_BROADCAST_STALE_SECS));
+        assert!(!is_broadcast_stale(
+            &bad,
+            now,
+            ALL_KEEP_BROADCAST_STALE_SECS
+        ));
     }
 
     #[test]
@@ -546,7 +559,11 @@ mod tests {
                 .to_string(),
             heartbeat: String::new(),
         };
-        assert!(!is_broadcast_stale(&future, now, ALL_KEEP_BROADCAST_STALE_SECS));
+        assert!(!is_broadcast_stale(
+            &future,
+            now,
+            ALL_KEEP_BROADCAST_STALE_SECS
+        ));
     }
 
     #[test]

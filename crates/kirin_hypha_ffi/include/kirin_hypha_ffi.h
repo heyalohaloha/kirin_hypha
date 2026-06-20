@@ -89,7 +89,7 @@ typedef struct {
   uint8_t has_name;
 } KirinPreCandidate;
 
-/* ランタイム生成. sample_rate!=48000 は内部で 48k 変換. num_channels は stereo(2) 前提. */
+/* ランタイム生成. sample_rate!=48000 は内部で 48k 変換. num_channels は 1=mono / 2=stereo. */
 KirinHypha* kirin_hypha_create(uint32_t sample_rate, uint32_t num_channels);
 
 /* 信号状態（0=Inactive 1=Active 2=Bypassed）. */

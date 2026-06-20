@@ -376,12 +376,21 @@ impl WriterPaths {
     ) -> Self {
         let compact = compact_wall_clock(wall_clock_start_iso);
         // B-128 (G-115-370): within-base wall。restore 由来の path-unsafe な identity を base 内へ畳む。
-        let ph = crate::path_identity::guard_path_component(project_hash, "WriterPaths.build.project_hash");
-        let iid = crate::path_identity::guard_path_component(instance_id, "WriterPaths.build.instance_id");
+        let ph = crate::path_identity::guard_path_component(
+            project_hash,
+            "WriterPaths.build.project_hash",
+        );
+        let iid = crate::path_identity::guard_path_component(
+            instance_id,
+            "WriterPaths.build.instance_id",
+        );
         let dir = base_dir.join(&*ph).join(&*iid).join(role.dir_name());
         let final_path = dir.join(format!("{compact}.json"));
         let tmp_path = dir.join(format!("{compact}.json.tmp"));
-        Self { final_path, tmp_path }
+        Self {
+            final_path,
+            tmp_path,
+        }
     }
 }
 
@@ -518,10 +527,7 @@ impl PluginDataWriter {
     ///
     /// ため本メソッドは無条件で push する。
     pub fn append_psb(&mut self, t_ms: u64, psb: [f64; 20], interpolatable: bool) {
-        let snapshots = self
-            .data
-            .psb_snapshots
-            .get_or_insert_with(Vec::new);
+        let snapshots = self.data.psb_snapshots.get_or_insert_with(Vec::new);
         let mut rounded = [0.0; 20];
         for (i, v) in psb.iter().enumerate() {
             rounded[i] = round1(*v);
@@ -605,8 +611,10 @@ pub fn append_annotation_to_latest(
     memo: String,
 ) -> Result<bool, WriterError> {
     // B-128 (G-115-370): within-base wall（annotation も path builder の一つ）。
-    let ph = crate::path_identity::guard_path_component(project_hash, "append_annotation.project_hash");
-    let iid = crate::path_identity::guard_path_component(instance_id, "append_annotation.instance_id");
+    let ph =
+        crate::path_identity::guard_path_component(project_hash, "append_annotation.project_hash");
+    let iid =
+        crate::path_identity::guard_path_component(instance_id, "append_annotation.instance_id");
     let dir = base_dir.join(&*ph).join(&*iid).join(role.dir_name());
     let Some(latest) = find_latest_json(&dir) else {
         return Ok(false);
@@ -642,9 +650,7 @@ fn find_latest_json(dir: &Path) -> Option<PathBuf> {
 
 /// ISO 8601（秒精度・UTC）。
 fn now_iso8601() -> String {
-    chrono::Utc::now()
-        .format("%Y-%m-%dT%H:%M:%SZ")
-        .to_string()
+    chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()
 }
 
 /// ISO 8601 (`2026-04-17T14:32:08Z`) → compact (`20260417T143208`).
@@ -685,8 +691,8 @@ pub(crate) fn compute_checksum(data: &PluginDataFile) -> Result<String, serde_js
     let mut clone = data.clone();
     clone.checksum = String::new();
     let bytes = serde_json::to_vec(&clone)?;
-    let mut mac = HmacSha256::new_from_slice(hmac_key())
-        .expect("HMAC-SHA256 accepts any key length");
+    let mut mac =
+        HmacSha256::new_from_slice(hmac_key()).expect("HMAC-SHA256 accepts any key length");
     mac.update(&bytes);
     Ok(hex::encode(mac.finalize().into_bytes()))
 }
@@ -699,8 +705,7 @@ fn hmac_key() -> &'static [u8] {
     }
 }
 
-const DEFAULT_HMAC_KEY: &[u8] =
-    b"kirin-hypha-phase1.0-hmac-key-deterrent-level-20260417";
+const DEFAULT_HMAC_KEY: &[u8] = b"kirin-hypha-phase1.0-hmac-key-deterrent-level-20260417";
 
 /// 検証用: 読み込んだ `PluginDataFile` の `checksum` が整合するか。
 pub fn verify_checksum(data: &PluginDataFile) -> bool {
@@ -834,7 +839,10 @@ mod tests {
 
         // JSON 出力に "bus" field が含まれない（skip_serializing_if）
         let json = serde_json::to_string(&f).unwrap();
-        assert!(!json.contains("\"bus\""), "bus must be omitted when None: {json}");
+        assert!(
+            !json.contains("\"bus\""),
+            "bus must be omitted when None: {json}"
+        );
         // paired_*_instance_id も None の時は出ない（skip_serializing_if）
         assert!(
             !json.contains("paired_pre_instance_id"),
@@ -860,7 +868,10 @@ mod tests {
             None,
         );
         let json = serde_json::to_string(&f).unwrap();
-        assert!(json.contains("\"bus\":\"DRUM\""), "bus included when Some: {json}");
+        assert!(
+            json.contains("\"bus\":\"DRUM\""),
+            "bus included when Some: {json}"
+        );
     }
 
     #[test]
@@ -1016,7 +1027,10 @@ mod tests {
         w.flush().unwrap();
         let bytes = fs::read(&w.paths.final_path).unwrap();
         let loaded: PluginDataFile = serde_json::from_slice(&bytes).unwrap();
-        assert_eq!(loaded.bounce_marker.wall_clock_start, "2026-04-17T14:32:08Z");
+        assert_eq!(
+            loaded.bounce_marker.wall_clock_start,
+            "2026-04-17T14:32:08Z"
+        );
         assert_eq!(loaded.bounce_marker.duration_samples, 14_400_000);
         assert_eq!(loaded.bounce_marker.first_block_hash, "hash_first");
         assert_eq!(loaded.bounce_marker.last_block_hash, "hash_last");
@@ -1131,7 +1145,10 @@ mod tests {
         assert_eq!(loaded.annotations.len(), 1);
         assert_eq!(loaded.annotations[0].memo, "Fix");
         assert!(!loaded.annotations[0].t.is_empty());
-        assert!(verify_checksum(&loaded), "checksum must re-sign after append");
+        assert!(
+            verify_checksum(&loaded),
+            "checksum must re-sign after append"
+        );
     }
 
     #[test]
@@ -1220,7 +1237,6 @@ mod tests {
         assert!(err.is_err(), "corrupt JSON should yield error");
     }
 
-
     #[test]
     fn source_format_48000_writes_phase_d_values() {
         let base = isolated_dir();
@@ -1261,7 +1277,14 @@ mod tests {
         assert!(!w.data().integrity_degraded, "clean は degraded=false");
         // drain timeout 相当 → 強制 degraded。dropped_samples は 0 のまま（独立軸）。
         w.mark_integrity_degraded();
-        assert!(w.data().integrity_degraded, "timeout で degraded=true（OR）");
-        assert_eq!(w.data().dropped_samples, 0, "degraded は dropped_samples を動かさない");
+        assert!(
+            w.data().integrity_degraded,
+            "timeout で degraded=true（OR）"
+        );
+        assert_eq!(
+            w.data().dropped_samples,
+            0,
+            "degraded は dropped_samples を動かさない"
+        );
     }
 }

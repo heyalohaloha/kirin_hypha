@@ -27,6 +27,7 @@ use crate::all_keep_signal::{self, ALL_KEEP_BROADCAST_STALE_SECS};
 use crate::all_stop_signal::{self, ALL_STOP_BROADCAST_STALE_SECS};
 use crate::cleanup::exit_record_full;
 use crate::delta::{DeltaMode, DeltaResult, DeltaSnapshot};
+use crate::engine::SessionSummary;
 use crate::plugin_data::Role as PluginDataRole;
 use crate::pre_discovery::{PostDiscoveryState, DISCOVERY_STALE_SECS};
 use crate::record::RecordStateMachine;
@@ -34,7 +35,6 @@ use crate::record_signal::{
     self, read_pre_at, select_target_pre_for_arm, LatchedPre, SignalStatus, ACK_TIMEOUT_SECONDS,
     SIGNALS_SUBDIR,
 };
-use crate::engine::SessionSummary;
 use crate::record_writer::{
     run_record_tick, take_session_summary, writer_close_degraded, writer_close_with_summary,
     RecordError, RecordingCtx,
@@ -172,9 +172,18 @@ pub fn spawn_io_thread_post(
         // restore 由来の path-unsafe な project_hash / instance_id / daw_session_id セルを正規化し、
         // path-unsafe なら fresh new_v4 へ差し替える（§7② 観測継続 / daw は drift 防止で同経路）。
         // path-safe な値は無改変＝parity の literal id path テスト不変。下流 builder wall が DiD backstop。
-        crate::path_identity::normalize_observation_cell(&instance_id, "io_thread_post.instance_id");
-        crate::path_identity::normalize_observation_cell(&project_hash, "io_thread_post.project_hash");
-        crate::path_identity::normalize_observation_cell(&daw_session_id, "io_thread_post.daw_session_id");
+        crate::path_identity::normalize_observation_cell(
+            &instance_id,
+            "io_thread_post.instance_id",
+        );
+        crate::path_identity::normalize_observation_cell(
+            &project_hash,
+            "io_thread_post.project_hash",
+        );
+        crate::path_identity::normalize_observation_cell(
+            &daw_session_id,
+            "io_thread_post.daw_session_id",
+        );
         // B-021 Phase 1A: PRE scan の起点は `kirin_root` (= $TMPDIR/kirin/) で、
         // POST IO Thread が動的に discover する。`project_dir_hint` は POST 自身の
         // project_uuid から構築した fallback (PRE が見つからない場合のみ使う)。
@@ -219,9 +228,7 @@ pub fn spawn_io_thread_post(
         // のうち status=Active かつ mtime > 60s のファイルを status=Closed に
         // 書換 (Lens 側「進行中 Record」誤認の構造的解消)。loop 前 1 回。
         if let Ok(paths) = StoragePaths::default_macos() {
-            let _ = crate::record_writer::sweep_stale_active_at_startup(
-                &paths.plugin_data_dir(),
-            );
+            let _ = crate::record_writer::sweep_stale_active_at_startup(&paths.plugin_data_dir());
         }
 
         // B-027 段階 3-B α-7-1 / Step 6: 引数を closure scope に capture。
@@ -281,8 +288,14 @@ pub fn spawn_io_thread_post(
             // B-128 (G-115-370): within-base wall。POST post.json は inline writer ゆえ builder 関数を
             // 通らない。spawn 時 normalize_observation_cell に加え、ここでも guard して PRE(io_dir 毎回
             // guard)との DiD parity を取る（cell が spawn 後に path-unsafe 化しても base 内に留める）。
-            let ph_guard = crate::path_identity::guard_path_component(project_hash_ref, "io_thread_post.post_json.project_hash");
-            let iid_guard = crate::path_identity::guard_path_component(instance_id_ref, "io_thread_post.post_json.instance_id");
+            let ph_guard = crate::path_identity::guard_path_component(
+                project_hash_ref,
+                "io_thread_post.post_json.project_hash",
+            );
+            let iid_guard = crate::path_identity::guard_path_component(
+                instance_id_ref,
+                "io_thread_post.post_json.instance_id",
+            );
             let project_dir_hint = kirin_root.join(&*ph_guard);
             let instance_dir = project_dir_hint.join(&*iid_guard);
             let post_file = instance_dir.join("post.json");
@@ -293,10 +306,8 @@ pub fn spawn_io_thread_post(
             // guard を保持しない)。poison error 時は空文字 fallback (旧 schema 互換)。
             let pair_pre_name_snapshot = snapshot_pair_pre_name(&pair_pre_name_for_thread);
             // W-281: pair_claimed_at snapshot per tick (同位相 / poison は 0.0 fallback)。
-            let pair_claimed_at_snapshot = pair_claimed_at_for_thread
-                .read()
-                .map(|g| *g)
-                .unwrap_or(0.0);
+            let pair_claimed_at_snapshot =
+                pair_claimed_at_for_thread.read().map(|g| *g).unwrap_or(0.0);
 
             // W-281 / C-3: 1 sec interval で後着優先 self check を発火。
             // pair_pre_name が空 or 自身が唯一の claim 者 → release 不要。
@@ -349,10 +360,8 @@ pub fn spawn_io_thread_post(
             // C-4 直後 / 通常 tick: 解放後の最新値を再 snapshot して run_tick へ渡す
             // (1 tick 内に解放 → 書込まで完結 / 次 tick 待ちでの一過性矛盾を排除)。
             let pair_pre_name_snapshot = snapshot_pair_pre_name(&pair_pre_name_for_thread);
-            let pair_claimed_at_snapshot = pair_claimed_at_for_thread
-                .read()
-                .map(|g| *g)
-                .unwrap_or(0.0);
+            let pair_claimed_at_snapshot =
+                pair_claimed_at_for_thread.read().map(|g| *g).unwrap_or(0.0);
 
             match run_tick(
                 &project_dir_hint,
@@ -389,8 +398,7 @@ pub fn spawn_io_thread_post(
             // v1.2 (a): POST 側は paired_pre_instance_id に trigger_keep が保存した
             // target_id を渡す。paired_post は常に None（POST 自身が POST なので相手 POST は無い）。
             let paired_pre_arc = Arc::clone(&paired_pre_target);
-            let paired_pre_resolver =
-                move || paired_pre_arc.lock().ok().and_then(|g| g.clone());
+            let paired_pre_resolver = move || paired_pre_arc.lock().ok().and_then(|g| g.clone());
             let paired_post_resolver = || None::<String>;
             if let Err(e) = run_record_tick(
                 &record_sm,
@@ -404,7 +412,7 @@ pub fn spawn_io_thread_post(
                 &post_result,
                 &mut recording,
                 Some(&session_summary),
-                &overflow, // B-076: per-Record dropped_samples 算出用
+                &overflow,       // B-076: per-Record dropped_samples 算出用
                 &oversized_drop, // B-125: per-Record oversized block drop 算出用
             ) {
                 log::warn!("[writer] tick error: {}", e);
@@ -414,9 +422,7 @@ pub fn spawn_io_thread_post(
             // をセットしたら、本 tick で `handle_exit_reason` 経由で
             // writer_close + exit_record_full + UI 通知文字列書込を 1 単位で行う。
             // 1 record session 内で 1 回のみ発火 (`Option::take` で消費)。
-            let exit_reason = recording
-                .as_mut()
-                .and_then(|ctx| ctx.exit_requested.take());
+            let exit_reason = recording.as_mut().and_then(|ctx| ctx.exit_requested.take());
             if let Some(reason) = exit_reason {
                 handle_exit_reason(
                     reason,
@@ -430,7 +436,11 @@ pub fn spawn_io_thread_post(
             }
 
             if Instant::now() >= next_preset_poll {
-                poll_preset_availability(project_hash_ref, &preset_available, &mut last_preset_count);
+                poll_preset_availability(
+                    project_hash_ref,
+                    &preset_available,
+                    &mut last_preset_count,
+                );
                 next_preset_poll = Instant::now() + PRESET_POLL_INTERVAL;
             }
 
@@ -449,12 +459,7 @@ pub fn spawn_io_thread_post(
             // を更新（1 秒 throttle / record_sm.is_recording() ガードで Stop 直後の
             // 復活窓を構造的に防止）。
             if Instant::now() >= next_pair_label_poll {
-                poll_record_signal_ack(
-                    project_hash_ref,
-                    instance_id_ref,
-                    &record_sm,
-                    &pair_label,
-                );
+                poll_record_signal_ack(project_hash_ref, instance_id_ref, &record_sm, &pair_label);
                 next_pair_label_poll = Instant::now() + PAIR_LABEL_POLL_INTERVAL;
             }
 
@@ -531,7 +536,8 @@ pub fn spawn_io_thread_post(
                         (trigger_stop_resolution)(&originator_iid, &broadcast.started_at);
                     }
                     let timeout = Duration::from_secs(ACK_TIMEOUT_SECONDS as u64);
-                    processed_stop_broadcasts.retain(|_, (_, last_seen)| last_seen.elapsed() < timeout);
+                    processed_stop_broadcasts
+                        .retain(|_, (_, last_seen)| last_seen.elapsed() < timeout);
                 }
                 // 注: next_all_keep_poll は Keep sub-tick 末で reset されるため
                 // Stop は Keep と同 throttle (1 秒) で同 frame に動く。
@@ -558,7 +564,8 @@ pub fn spawn_io_thread_post(
                     // §4-5 Step 1: cross-process 防壁用 daw_session_id を per-tick lazy-read。
                     // editor() snapshot との divergence を是正 (§4-4 R-9 主因 b)。
                     let daw_session_id_snapshot = read_daw_session_id_arc(&daw_session_id_arc);
-                    let broadcasts = all_keep_signal::scan_broadcasts_dir(&base_dir, project_hash_ref);
+                    let broadcasts =
+                        all_keep_signal::scan_broadcasts_dir(&base_dir, project_hash_ref);
                     for (originator_iid, broadcast) in broadcasts {
                         // 1. cross-process 防壁
                         if broadcast.daw_session_id != daw_session_id_snapshot {
@@ -645,8 +652,14 @@ pub fn spawn_io_thread_post(
         let final_iid = read_instance_id_arc(&instance_id);
         let final_project_hash = read_project_hash_arc(&project_hash);
         // B-128 (G-115-370): within-base wall（POST post.json cleanup builder / DiD parity）。
-        let final_ph_guard = crate::path_identity::guard_path_component(&final_project_hash, "io_thread_post.cleanup.project_hash");
-        let final_iid_guard = crate::path_identity::guard_path_component(&final_iid, "io_thread_post.cleanup.instance_id");
+        let final_ph_guard = crate::path_identity::guard_path_component(
+            &final_project_hash,
+            "io_thread_post.cleanup.project_hash",
+        );
+        let final_iid_guard = crate::path_identity::guard_path_component(
+            &final_iid,
+            "io_thread_post.cleanup.instance_id",
+        );
         let final_project_dir_hint = kirin_root.join(&*final_ph_guard);
         let final_instance_dir = final_project_dir_hint.join(&*final_iid_guard);
         let final_post_file = final_instance_dir.join("post.json");
@@ -683,14 +696,8 @@ pub fn spawn_io_thread_post(
                     &final_project_hash,
                     &final_iid,
                 ) {
-                    Ok(()) => log::info!(
-                        "[POST cleanup #4] record_signal deleted: {}",
-                        final_iid
-                    ),
-                    Err(e) => log::warn!(
-                        "[POST cleanup #4] delete_signal failed: {:?}",
-                        e
-                    ),
+                    Ok(()) => log::info!("[POST cleanup #4] record_signal deleted: {}", final_iid),
+                    Err(e) => log::warn!("[POST cleanup #4] delete_signal failed: {:?}", e),
                 }
 
                 // Step 12-C 統合点 #4 broadcast: originator として配置した
@@ -727,10 +734,7 @@ pub fn spawn_io_thread_post(
                     ),
                 }
             }
-            Err(e) => log::warn!(
-                "[POST cleanup #4] StoragePaths error: {:?}",
-                e
-            ),
+            Err(e) => log::warn!("[POST cleanup #4] StoragePaths error: {:?}", e),
         }
 
         log::info!("[IOThread POST] terminated");
@@ -986,8 +990,14 @@ fn run_tick(
 
     // B-108: ラッチ意味論で表示Δを決める（select_target_pre 直呼びを廃止）。一度成立した結合は
     // 無音/停止/一時鮮度揺らぎ/同名2台目では NoPre に落とさず、解除は名前変更/クリアと PRE 実消滅のみ。
-    let (new_delta, store_directly, pre_signal_state) =
-        compute_latched_display(kirin_root, pair_pre_name, &post, pair_opt, recording, latched)?;
+    let (new_delta, store_directly, pre_signal_state) = compute_latched_display(
+        kirin_root,
+        pair_pre_name,
+        &post,
+        pair_opt,
+        recording,
+        latched,
+    )?;
 
     // last_active 規律:
     // - store_directly（latched-idle）→ Stale + last_active=None をそのまま格納（凍結値復活禁止
@@ -1191,13 +1201,11 @@ fn compute_delta_with_state(
     let parsed: serde_json::Value =
         serde_json::from_str(&content).map_err(|e| format!("parse PRE JSON: {e}"))?;
 
-    let pre_signal_state = parsed["signal_state"]
-        .as_str()
-        .map(|s| match s {
-            "active" => SignalState::Active,
-            "bypassed" => SignalState::Bypassed,
-            _ => SignalState::Inactive,
-        });
+    let pre_signal_state = parsed["signal_state"].as_str().map(|s| match s {
+        "active" => SignalState::Active,
+        "bypassed" => SignalState::Bypassed,
+        _ => SignalState::Inactive,
+    });
 
     if pre_signal_state != Some(SignalState::Active) {
         return Ok((
@@ -1319,7 +1327,9 @@ fn freshness_mode(parsed: &serde_json::Value) -> Result<DeltaMode, String> {
             .unwrap_or("?");
         log::warn!(
             "[freshness] PRE pre.json {:?}: age_secs={} instance_id={}",
-            mode, age_secs, iid
+            mode,
+            age_secs,
+            iid
         );
     }
 
@@ -1554,7 +1564,9 @@ pub fn scan_post_candidates_in(project_dir: &Path) -> Vec<PostCandidate> {
             continue;
         }
         let post_file = path.join("post.json");
-        let Ok(bytes) = fs::read(&post_file) else { continue };
+        let Ok(bytes) = fs::read(&post_file) else {
+            continue;
+        };
         // B-131 (G-115-380): serde 失敗（破損 / 旧形式 / 不正 escape の post.json）を無言 skip せず
         // ログに残す（沈黙をやめる）。UI には出さない（R-28: 他 instance の post.json 不整合は利用者
         // 操作と非紐づき / log のみ可視化）。PRE 側 scan_pre_candidates_in (B-077) の surface と対称。
@@ -2096,7 +2108,10 @@ fn poll_preset_availability(
         // B-128 (G-115-370): within-base wall（preset availability read。preset_dir 同等の inline 構築）。
         Ok(paths) => paths
             .plugin_data_dir()
-            .join(&*crate::path_identity::guard_path_component(project_hash, "io_thread_post.poll_preset.project_hash"))
+            .join(&*crate::path_identity::guard_path_component(
+                project_hash,
+                "io_thread_post.poll_preset.project_hash",
+            ))
             .join(crate::preset::PRESET_SUBDIR),
         Err(_) => {
             if *last_seen != Some(0) {
@@ -2285,20 +2300,39 @@ mod compute_delta_tests {
         let root = isolated_dir("latch_idle");
         write_pre_latch(&root, "puid-1", "iid-A", "snare", "active", &latch_now());
         let latched = std::sync::Mutex::new(None);
-        let (d0, sd0, _) =
-            compute_latched_display(&root, "snare", &latch_post(), Some("snare"), false, &latched)
-                .unwrap();
+        let (d0, sd0, _) = compute_latched_display(
+            &root,
+            "snare",
+            &latch_post(),
+            Some("snare"),
+            false,
+            &latched,
+        )
+        .unwrap();
         assert_eq!(d0.mode, DeltaMode::Active, "active で初回 Δ");
         assert!(!sd0);
         assert!(latched.lock().unwrap().is_some(), "active で初回ラッチ成立");
         // PRE が idle（fresh のまま signal_state=inactive）。
         write_pre_latch(&root, "puid-1", "iid-A", "snare", "inactive", &latch_now());
-        let (d1, sd1, _) =
-            compute_latched_display(&root, "snare", &latch_post(), Some("snare"), false, &latched)
-                .unwrap();
-        assert_eq!(d1.mode, DeltaMode::Stale, "idle はラッチ維持で Stale（NoPre でない）");
+        let (d1, sd1, _) = compute_latched_display(
+            &root,
+            "snare",
+            &latch_post(),
+            Some("snare"),
+            false,
+            &latched,
+        )
+        .unwrap();
+        assert_eq!(
+            d1.mode,
+            DeltaMode::Stale,
+            "idle はラッチ維持で Stale（NoPre でない）"
+        );
         assert!(sd1, "latched-idle は store_directly（last_active クリア）");
-        assert!(d1.lufs.is_none() && d1.last_active.is_none(), "全Δ None + 凍結なし");
+        assert!(
+            d1.lufs.is_none() && d1.last_active.is_none(),
+            "全Δ None + 凍結なし"
+        );
         assert!(latched.lock().unwrap().is_some(), "idle でラッチは外れない");
     }
 
@@ -2308,15 +2342,30 @@ mod compute_delta_tests {
         let root = isolated_dir("latch_2nd");
         write_pre_latch(&root, "puid-1", "iid-A", "snare", "active", &latch_now());
         let latched = std::sync::Mutex::new(None);
-        let _ =
-            compute_latched_display(&root, "snare", &latch_post(), Some("snare"), false, &latched)
-                .unwrap();
-        assert_eq!(latched.lock().unwrap().as_ref().unwrap().instance_id, "iid-A");
+        let _ = compute_latched_display(
+            &root,
+            "snare",
+            &latch_post(),
+            Some("snare"),
+            false,
+            &latched,
+        )
+        .unwrap();
+        assert_eq!(
+            latched.lock().unwrap().as_ref().unwrap().instance_id,
+            "iid-A"
+        );
         // 同名 2 台目出現（曖昧 → 素の Arm 選定なら None）。
         write_pre_latch(&root, "puid-2", "iid-B", "snare", "active", &latch_now());
-        let _ =
-            compute_latched_display(&root, "snare", &latch_post(), Some("snare"), false, &latched)
-                .unwrap();
+        let _ = compute_latched_display(
+            &root,
+            "snare",
+            &latch_post(),
+            Some("snare"),
+            false,
+            &latched,
+        )
+        .unwrap();
         assert_eq!(
             latched.lock().unwrap().as_ref().unwrap().instance_id,
             "iid-A",
@@ -2330,9 +2379,15 @@ mod compute_delta_tests {
         let root = isolated_dir("latch_rename");
         write_pre_latch(&root, "puid-1", "iid-A", "snare", "active", &latch_now());
         let latched = std::sync::Mutex::new(None);
-        let _ =
-            compute_latched_display(&root, "snare", &latch_post(), Some("snare"), false, &latched)
-                .unwrap();
+        let _ = compute_latched_display(
+            &root,
+            "snare",
+            &latch_post(),
+            Some("snare"),
+            false,
+            &latched,
+        )
+        .unwrap();
         assert!(latched.lock().unwrap().is_some());
         // 名前変更（"kick" 不在）→ アンラッチ + NoPre。
         let (d, _, _) =
@@ -2341,9 +2396,15 @@ mod compute_delta_tests {
         assert!(latched.lock().unwrap().is_none(), "名前変更で即アンラッチ");
         assert_eq!(d.mode, DeltaMode::NoPre);
         // クリア（空）→ アンラッチ + NoPre。
-        let _ =
-            compute_latched_display(&root, "snare", &latch_post(), Some("snare"), false, &latched)
-                .unwrap();
+        let _ = compute_latched_display(
+            &root,
+            "snare",
+            &latch_post(),
+            Some("snare"),
+            false,
+            &latched,
+        )
+        .unwrap();
         assert!(latched.lock().unwrap().is_some());
         let (d2, _, _) =
             compute_latched_display(&root, "", &latch_post(), None, false, &latched).unwrap();
@@ -2357,22 +2418,43 @@ mod compute_delta_tests {
         let root = isolated_dir("latch_delete");
         let p = write_pre_latch(&root, "puid-1", "iid-A", "snare", "active", &latch_now());
         let latched = std::sync::Mutex::new(None);
-        let _ =
-            compute_latched_display(&root, "snare", &latch_post(), Some("snare"), false, &latched)
-                .unwrap();
+        let _ = compute_latched_display(
+            &root,
+            "snare",
+            &latch_post(),
+            Some("snare"),
+            false,
+            &latched,
+        )
+        .unwrap();
         assert!(latched.lock().unwrap().is_some());
         // 削除 → アンラッチ（再ラッチ先も無く NoPre）。
         fs::remove_file(&p).unwrap();
-        let (d, _, _) =
-            compute_latched_display(&root, "snare", &latch_post(), Some("snare"), false, &latched)
-                .unwrap();
-        assert!(latched.lock().unwrap().is_none(), "pre.json 削除でアンラッチ");
+        let (d, _, _) = compute_latched_display(
+            &root,
+            "snare",
+            &latch_post(),
+            Some("snare"),
+            false,
+            &latched,
+        )
+        .unwrap();
+        assert!(
+            latched.lock().unwrap().is_none(),
+            "pre.json 削除でアンラッチ"
+        );
         assert_eq!(d.mode, DeltaMode::NoPre);
         // 同名 fresh PRE 再出現 → 自動再ラッチ。
         write_pre_latch(&root, "puid-1", "iid-A", "snare", "active", &latch_now());
-        let _ =
-            compute_latched_display(&root, "snare", &latch_post(), Some("snare"), false, &latched)
-                .unwrap();
+        let _ = compute_latched_display(
+            &root,
+            "snare",
+            &latch_post(),
+            Some("snare"),
+            false,
+            &latched,
+        )
+        .unwrap();
         assert!(latched.lock().unwrap().is_some(), "再出現で自動再ラッチ");
     }
 
@@ -2382,15 +2464,27 @@ mod compute_delta_tests {
         let root = isolated_dir("latch_stale");
         write_pre_latch(&root, "puid-1", "iid-A", "snare", "active", &latch_now());
         let latched = std::sync::Mutex::new(None);
-        let _ =
-            compute_latched_display(&root, "snare", &latch_post(), Some("snare"), false, &latched)
-                .unwrap();
+        let _ = compute_latched_display(
+            &root,
+            "snare",
+            &latch_post(),
+            Some("snare"),
+            false,
+            &latched,
+        )
+        .unwrap();
         assert!(latched.lock().unwrap().is_some());
         // t を 20s 古く（> NO_PRE_SECS=10）→ アンラッチ + 再ラッチも stale 不可 → NoPre。
         write_pre_latch(&root, "puid-1", "iid-A", "snare", "active", &latch_old(20));
-        let (d, _, _) =
-            compute_latched_display(&root, "snare", &latch_post(), Some("snare"), false, &latched)
-                .unwrap();
+        let (d, _, _) = compute_latched_display(
+            &root,
+            "snare",
+            &latch_post(),
+            Some("snare"),
+            false,
+            &latched,
+        )
+        .unwrap();
         assert!(latched.lock().unwrap().is_none(), "stale>TTL でアンラッチ");
         assert_eq!(d.mode, DeltaMode::NoPre);
     }
@@ -2402,14 +2496,19 @@ mod compute_delta_tests {
         write_pre_latch(&root, "puid-1", "iid-A", "snare", "active", &latch_now());
         let latched = std::sync::Mutex::new(None);
         // Watch で初回ラッチ。
-        let _ =
-            compute_latched_display(&root, "snare", &latch_post(), Some("snare"), false, &latched)
-                .unwrap();
+        let _ = compute_latched_display(
+            &root,
+            "snare",
+            &latch_post(),
+            Some("snare"),
+            false,
+            &latched,
+        )
+        .unwrap();
         assert!(latched.lock().unwrap().is_some());
         // Record 中に名前変更（別名）→ アンラッチしない（凍結）。
-        let _ =
-            compute_latched_display(&root, "kick", &latch_post(), Some("kick"), true, &latched)
-                .unwrap();
+        let _ = compute_latched_display(&root, "kick", &latch_post(), Some("kick"), true, &latched)
+            .unwrap();
         assert_eq!(
             latched.lock().unwrap().as_ref().unwrap().instance_id,
             "iid-A",
@@ -2421,7 +2520,9 @@ mod compute_delta_tests {
     fn single_instance_pass_through_when_no_pair() {
         // W-280: pair=None かつ instance 1 件のみ → 後方互換で pass-through (Active 算出可)。
         let pd = isolated_project_dir();
-        let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+        let now = chrono::Utc::now()
+            .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+            .to_string();
         write_pre(&pd, "iid-A", &now, -14.0);
 
         let r = compute_delta_with_state(
@@ -2467,7 +2568,9 @@ mod compute_delta_tests {
     #[test]
     fn pair_filter_skips_non_matching_name() {
         let pd = isolated_project_dir();
-        let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+        let now = chrono::Utc::now()
+            .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+            .to_string();
         write_pre_named(&pd, "iid-A", "snare", &now, -14.0);
         write_pre_named(&pd, "iid-B", "kick", &now, -15.0);
 
@@ -2538,7 +2641,9 @@ mod compute_delta_tests {
     #[test]
     fn pair_filter_zero_match_falls_to_no_pre() {
         let pd = isolated_project_dir();
-        let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+        let now = chrono::Utc::now()
+            .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+            .to_string();
         write_pre_named(&pd, "iid-A", "snare", &now, -14.0);
         write_pre_named(&pd, "iid-B", "kick", &now, -15.0);
 
@@ -2563,7 +2668,9 @@ mod compute_delta_tests {
     #[test]
     fn no_pair_with_multiple_instances_falls_to_no_pre() {
         let pd = isolated_project_dir();
-        let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+        let now = chrono::Utc::now()
+            .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+            .to_string();
         write_pre(&pd, "iid-A", &now, -14.0);
         write_pre(&pd, "iid-B", &now, -15.0);
 
@@ -2995,8 +3102,7 @@ mod post_tmp_json_tests {
             json_full
         );
 
-        let json_min =
-            serialize_post_json_minimal("post-iid", SignalState::Bypassed, "PRE-X", 0.0);
+        let json_min = serialize_post_json_minimal("post-iid", SignalState::Bypassed, "PRE-X", 0.0);
         assert!(
             json_min.contains(r#""pair_claimed_at":0"#),
             "min: {}",
@@ -3493,7 +3599,12 @@ mod post_candidate_tests {
         write_post_json_with_claim(&root, project_uuid, "post-self", "PRE-A", 100.0);
         write_post_json_with_claim(&root, project_uuid, "post-other", "PRE-A", 200.0);
         let project_dir = root.join(project_uuid);
-        assert!(self_check_pair_claim(&project_dir, "post-self", "PRE-A", 100.0));
+        assert!(self_check_pair_claim(
+            &project_dir,
+            "post-self",
+            "PRE-A",
+            100.0
+        ));
     }
 
     /// (C-5 ii) 他 POST が別 PRE / 該当なし → release 不要 (false)。
@@ -3521,7 +3632,12 @@ mod post_candidate_tests {
         write_post_json_with_claim(&root, project_uuid, "post-Z", "PRE-A", 100.0);
         write_post_json_with_claim(&root, project_uuid, "post-A", "PRE-A", 100.0);
         let project_dir = root.join(project_uuid);
-        assert!(self_check_pair_claim(&project_dir, "post-Z", "PRE-A", 100.0));
+        assert!(self_check_pair_claim(
+            &project_dir,
+            "post-Z",
+            "PRE-A",
+            100.0
+        ));
     }
 
     /// (C-5 iv) tie-break: pair_claimed_at 同値 + 自 id 小 → release 不要 (false)。
@@ -3644,7 +3760,10 @@ mod pre_liveness_tests {
 
         let sm = Arc::new(RecordStateMachine::new());
         sm.try_enter_record(crate::License::Os).unwrap();
-        assert!(sm.is_recording(), "precondition: record_sm must be Recording");
+        assert!(
+            sm.is_recording(),
+            "precondition: record_sm must be Recording"
+        );
         // G-115-64: cleanup 後に空文字 / None になることを assert する前提として
         // 「設定済み」状態を入力にする (editor の Keep 経由 = trigger_keep_internal
         // が set_pair_label + paired_pre_target=Some を実施した後の状態を再現)。
@@ -3918,8 +4037,8 @@ mod handle_exit_reason_tests {
     /// 本 test は fail する (= guard 感度の確証)。
     #[test]
     fn find_pre_json_mtime_rejects_path_unsafe_pre_iid_no_external_stat() {
-        let base = std::env::temp_dir()
-            .join(format!("kirin_b128_mtime_oracle_{}", std::process::id()));
+        let base =
+            std::env::temp_dir().join(format!("kirin_b128_mtime_oracle_{}", std::process::id()));
         let _ = fs::remove_dir_all(&base);
         fs::create_dir_all(&base).unwrap();
         let kirin_root = base.join("kirin");
@@ -3945,7 +4064,12 @@ mod handle_exit_reason_tests {
         fs::write(secret_dir.join("pre.json"), b"{}").unwrap();
         // traversal target が実在し project_dir から到達可能であることを test 自身で確認。
         assert!(
-            project_dir.join("..").join("..").join("SECRET").join("pre.json").exists(),
+            project_dir
+                .join("..")
+                .join("..")
+                .join("SECRET")
+                .join("pre.json")
+                .exists(),
             "precondition: traversal target base/SECRET/pre.json は project_dir から到達可能"
         );
 
@@ -4080,26 +4204,42 @@ mod resolve_delta_for_store_tests {
     #[test]
     fn nopre_clears_last_active() {
         let prev = Some(snap(1.0));
-        let nopre = DeltaResult { mode: DeltaMode::NoPre, ..Default::default() };
+        let nopre = DeltaResult {
+            mode: DeltaMode::NoPre,
+            ..Default::default()
+        };
         let r = resolve_delta_for_store(nopre, prev);
         assert_eq!(r.mode, DeltaMode::NoPre);
-        assert!(r.last_active.is_none(), "NoPre は last_active をクリア（凍結 Δ を残さない）");
+        assert!(
+            r.last_active.is_none(),
+            "NoPre は last_active をクリア（凍結 Δ を残さない）"
+        );
     }
 
     /// Stale（一意有効 pair の 5-10s）→ 前回 last_active 保持（B-048 維持）。
     #[test]
     fn stale_keeps_last_active() {
         let prev = Some(snap(2.0));
-        let stale = DeltaResult { mode: DeltaMode::Stale, ..Default::default() };
+        let stale = DeltaResult {
+            mode: DeltaMode::Stale,
+            ..Default::default()
+        };
         let r = resolve_delta_for_store(stale, prev);
-        assert!(r.last_active.is_some(), "Stale は同一有効 pair の last_active を保持");
+        assert!(
+            r.last_active.is_some(),
+            "Stale は同一有効 pair の last_active を保持"
+        );
         assert_eq!(r.last_active.unwrap().lufs, Some(2.0));
     }
 
     /// Active → 新 snapshot 保存。
     #[test]
     fn active_stores_snapshot() {
-        let active = DeltaResult { mode: DeltaMode::Active, lufs: Some(3.0), ..Default::default() };
+        let active = DeltaResult {
+            mode: DeltaMode::Active,
+            lufs: Some(3.0),
+            ..Default::default()
+        };
         let r = resolve_delta_for_store(active, None);
         assert!(r.last_active.is_some(), "Active は新 snapshot を保存");
         assert_eq!(r.last_active.unwrap().lufs, Some(3.0));

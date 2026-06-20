@@ -92,14 +92,11 @@ public:
 private:
     static bool bufferIsSilent (const juce::AudioBuffer<float>& buffer); // B-107: peak < -140 dBFS (parity)
 
-    // B-070/B-126: enable plugin_data writes exactly once, on the message thread, after both
-    // prepareToPlay (create + set_license) and any setStateInformation (identity + pair name
-    // restore) have run. The first processBlock only sets the lock-free `enablePending` flag
-    // (no may-block triggerAsyncUpdate from the audio thread, B-126); the non-RT message-thread
-    // Timer below observes the flag and runs enableWritesNow(). processBlock remains the trigger
-    // point because it is the single moment guaranteed to follow BOTH prepareToPlay and any
-    // setStateInformation (JUCE does not guarantee setState precedes prepareToPlay; and a fresh
-    // instance never receives setState, so a state_restored flag could not gate it). enable_*_writes
+    // B-070/B-126 + Logic stopped-state fix: enable plugin_data writes exactly once, on the message thread, after
+    // prepareToPlay (create + set_license). processBlock still provides the fastest ordered trigger
+    // and only sets lock-free flags, but hosts such as Logic may not call it while stopped. In that
+    // case a short prepareToPlay fallback delay gives setStateInformation a restore window, then
+    // publishes Inactive PRE/POST presence without waiting for audible playback. enable_*_writes
     // spawns an io_thread (not RT-safe), hence the deferral off the audio thread. Role selects PRE/POST.
     void timerCallback() override;        // B-126: non-RT poll (message thread) — observes enablePending
     void enableWritesNow();               // B-070 enable body (set_identity -> enable_*_writes -> readback)
@@ -122,7 +119,8 @@ private:
     std::atomic<int>  cachedLicenseCode { 2 };         // B-072: license read once in prepareToPlay (0=Os)
     std::atomic<bool> lastPlaying { false };           // B-054: transport playing (POST pair lock during playback)
     std::atomic<bool> writesEnabled { false };         // plugin_data writes enabled (idempotent guard)
-    std::atomic<bool> enablePending { false };         // B-126: set by processBlock (lock-free), observed by the Timer to enable off the audio thread
+    std::atomic<bool> enablePending { false };         // B-126: set by prepare/processBlock, observed by the Timer
+    std::atomic<int>  enableDelayTicks { 0 };          // prepare fallback restore grace; processBlock clears it
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (KirinHyphaProcessorBase)
 };

@@ -176,8 +176,8 @@ impl Identity {
 
 /// `installation_id + hardware_id` の HMAC-SHA256 hex 文字列。
 fn compute_signature(installation_id: &str, hardware_id: &str) -> String {
-    let mut mac = HmacSha256::new_from_slice(hmac_key())
-        .expect("HMAC-SHA256 accepts any key length");
+    let mut mac =
+        HmacSha256::new_from_slice(hmac_key()).expect("HMAC-SHA256 accepts any key length");
     mac.update(installation_id.as_bytes());
     mac.update(b"|");
     mac.update(hardware_id.as_bytes());
@@ -199,8 +199,7 @@ fn hmac_key() -> &'static [u8] {
     }
 }
 
-const DEFAULT_HMAC_KEY: &[u8] =
-    b"kirin-hypha-phase1.0-hmac-key-deterrent-level-20260417";
+const DEFAULT_HMAC_KEY: &[u8] = b"kirin-hypha-phase1.0-hmac-key-deterrent-level-20260417";
 
 /// 定数時間比較（タイミング攻撃耐性。HMAC 比較で使用）。
 fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
@@ -216,9 +215,7 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 
 /// 現在時刻を ISO 8601（秒精度 + UTC）で返す。
 fn now_iso8601() -> String {
-    chrono::Utc::now()
-        .format("%Y-%m-%dT%H:%M:%SZ")
-        .to_string()
+    chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()
 }
 
 /// macOS バージョンを `sw_vers -productVersion` から取得する。
@@ -230,9 +227,7 @@ fn detect_os_version() -> String {
         .arg("-productVersion")
         .output()
     {
-        Ok(out) if out.status.success() => {
-            String::from_utf8_lossy(&out.stdout).trim().to_string()
-        }
+        Ok(out) if out.status.success() => String::from_utf8_lossy(&out.stdout).trim().to_string(),
         _ => String::new(),
     }
 }
@@ -355,7 +350,10 @@ mod tests {
     #[test]
     fn new_populates_updated_at_and_os_version_fields_exist() {
         let id = Identity::new(sample_components(), License::Os);
-        assert!(!id.updated_at.is_empty(), "updated_at should be set at creation");
+        assert!(
+            !id.updated_at.is_empty(),
+            "updated_at should be set at creation"
+        );
         assert_eq!(
             id.updated_at, id.created_at,
             "updated_at should equal created_at on fresh creation"

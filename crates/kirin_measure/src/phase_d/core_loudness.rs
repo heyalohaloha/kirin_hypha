@@ -62,9 +62,15 @@ fn compute_frame(spec: &[f64; N_BANDS], field_type: FieldType) -> [f64; N_CORE] 
     let gi0: f64 = ti[0..6].iter().sum();
     let gi1: f64 = ti[6..9].iter().sum();
     let gi2: f64 = ti[9..11].iter().sum();
-    if gi0 > 0.0 { lcb[0] = 10.0 * gi0.log10(); }
-    if gi1 > 0.0 { lcb[1] = 10.0 * gi1.log10(); }
-    if gi2 > 0.0 { lcb[2] = 10.0 * gi2.log10(); }
+    if gi0 > 0.0 {
+        lcb[0] = 10.0 * gi0.log10();
+    }
+    if gi1 > 0.0 {
+        lcb[1] = 10.0 * gi1.log10();
+    }
+    if gi2 > 0.0 {
+        lcb[2] = 10.0 * gi2.log10();
+    }
 
     // Step 3: Build 20-band level array
     // le[0..3] = lcb[0..3], le[3..20] = spec[11..28]

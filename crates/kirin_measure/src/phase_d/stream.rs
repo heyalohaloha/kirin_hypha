@@ -10,10 +10,10 @@
 //!
 //! Kirin Hypha T-2: ストリーミングアダプタ。
 
-use super::filter_bank::{sos_process, lp_process, SosState, LpState};
+use super::filter_bank::{lp_process, sos_process, LpState, SosState};
 use super::stft::{StftProcessor, STFT_FFT_SIZE};
 use super::tables::*;
-use super::{core_loudness, calc_slopes, sharpness, spectral_balance};
+use super::{calc_slopes, core_loudness, sharpness, spectral_balance};
 
 ///  stream が前提とする mono サンプリングレート (Hz)。
 /// STFT のビン→周波数変換で使用。
@@ -283,16 +283,9 @@ impl DecayState {
         DecayState {
             b: [
                 (e1 - e2) / den,
-                ((NL_T_VAR * lambda_2 + 1.0) * e1
-                    - (NL_T_VAR * lambda_1 + 1.0) * e2)
-                    / den,
-                ((NL_T_VAR * lambda_1 + 1.0) * e1
-                    - (NL_T_VAR * lambda_2 + 1.0) * e2)
-                    / den,
-                (NL_T_VAR * lambda_1 + 1.0)
-                    * (NL_T_VAR * lambda_2 + 1.0)
-                    * (e1 - e2)
-                    / den,
+                ((NL_T_VAR * lambda_2 + 1.0) * e1 - (NL_T_VAR * lambda_1 + 1.0) * e2) / den,
+                ((NL_T_VAR * lambda_1 + 1.0) * e1 - (NL_T_VAR * lambda_2 + 1.0) * e2) / den,
+                (NL_T_VAR * lambda_1 + 1.0) * (NL_T_VAR * lambda_2 + 1.0) * (e1 - e2) / den,
                 (-delta_t / NL_T_LONG).exp(),
                 (-delta_t / NL_T_VAR).exp(),
             ],
@@ -432,11 +425,12 @@ impl TwState {
             return vec![];
         }
         let lp_s = lowpass_stream(
-            loudness, self.a1_short, self.b0_short, &mut self.y_prev_short,
+            loudness,
+            self.a1_short,
+            self.b0_short,
+            &mut self.y_prev_short,
         );
-        let lp_l = lowpass_stream(
-            loudness, self.a1_long, self.b0_long, &mut self.y_prev_long,
-        );
+        let lp_l = lowpass_stream(loudness, self.a1_long, self.b0_long, &mut self.y_prev_long);
         lp_s.iter()
             .zip(lp_l.iter())
             .map(|(&s, &l)| TW_WEIGHT_SHORT * s + TW_WEIGHT_LONG * l)
@@ -500,7 +494,10 @@ mod tests {
         let results = stream.push(&signal);
         assert_eq!(results.len(), 200, "4800/24 = 200 frames");
         for r in &results[10..] {
-            assert!(r.loudness > 0.0, "94dB tone should produce positive loudness");
+            assert!(
+                r.loudness > 0.0,
+                "94dB tone should produce positive loudness"
+            );
         }
     }
 
@@ -535,9 +532,7 @@ mod tests {
 
     #[test]
     fn test_batch_vs_stream_equivalence() {
-        use super::super::{
-            filter_bank, nonlinear_decay, temporal_weighting,
-        };
+        use super::super::{filter_bank, nonlinear_decay, temporal_weighting};
 
         let signal = gen_1khz_94db(0.5);
 
@@ -597,7 +592,10 @@ mod tests {
     /// `target_idx` は 0=Bark21, 1=Bark22, 2=Bark23, 3=Bark24。
     fn assert_dominated_by(psb_bark21_24: [f64; 4], target_idx: usize, min_ratio: f64) {
         let total: f64 = psb_bark21_24.iter().sum();
-        assert!(total > 0.0, "total energy must be positive: {psb_bark21_24:?}");
+        assert!(
+            total > 0.0,
+            "total energy must be positive: {psb_bark21_24:?}"
+        );
         let ratio = psb_bark21_24[target_idx] / total;
         assert!(
             ratio >= min_ratio,
@@ -766,7 +764,8 @@ mod tests {
             assert!(
                 diff < 0.5,
                 "Frame {i}: single={:.4}, split={:.4}, diff={diff:.6}",
-                single[i].loudness, split[i].loudness,
+                single[i].loudness,
+                split[i].loudness,
             );
         }
     }
@@ -789,7 +788,9 @@ mod tests {
         let mut b6 = 0.0f64;
 
         for _ in 0..n_samples {
-            rng_state = rng_state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            rng_state = rng_state
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             let white = (rng_state >> 33) as f64 / (1u64 << 31) as f64 - 1.0;
 
             // Paul Kellet's pinking filter (-3.01 dB/octave, accurate 40 Hz–20 kHz)
@@ -822,23 +823,22 @@ mod tests {
 
         // Use last result (steady-state after STFT has fired multiple times)
         let last = results.last().unwrap();
-        let psb_summary = compute_psb_summary_pub(
-            &last.psb,
-            &last.psb_bark21_24,
-            last.psb_high_ext_15_5k_20k,
-        );
+        let psb_summary =
+            compute_psb_summary_pub(&last.psb, &last.psb_bark21_24, last.psb_high_ext_15_5k_20k);
 
         // For pink noise: low/mid should be > high
         // (1/f means less energy at higher frequencies)
         assert!(
             psb_summary.high < psb_summary.low,
             "Pink noise: high ({:.3}) must be < low ({:.3})",
-            psb_summary.high, psb_summary.low
+            psb_summary.high,
+            psb_summary.low
         );
         assert!(
             psb_summary.high < psb_summary.mid,
             "Pink noise: high ({:.3}) must be < mid ({:.3})",
-            psb_summary.high, psb_summary.mid
+            psb_summary.high,
+            psb_summary.mid
         );
         // Sanity: high should be negative dB (fraction < 1.0)
         assert!(

@@ -46,6 +46,25 @@ fn gen_stereo_f32(seconds: f64) -> Vec<f32> {
     v
 }
 
+fn gen_mono_f32(seconds: f64) -> Vec<f32> {
+    let n = (SR as f64 * seconds) as usize;
+    let mut v = Vec::with_capacity(n);
+    for i in 0..n {
+        let t = i as f64 / SR as f64;
+        v.push((0.2 * (2.0 * PI * 1000.0 * t).sin()) as f32);
+    }
+    v
+}
+
+fn duplicate_mono_to_stereo(mono: &[f32]) -> Vec<f32> {
+    let mut v = Vec::with_capacity(mono.len() * 2);
+    for &s in mono {
+        v.push(s);
+        v.push(s);
+    }
+    v
+}
+
 /// direct 参照: measure_thread の phase_d 経路を再現（f32→f64→(L+R)*0.5→PhaseDStream）。
 fn direct_phase_d(stereo_f32: &[f32]) -> PhaseDResult {
     let mut stream = PhaseDStream::new(FieldType::Free);
@@ -58,6 +77,48 @@ fn direct_phase_d(stereo_f32: &[f32]) -> PhaseDResult {
         .last()
         .cloned()
         .expect("PhaseDStream should emit at least one frame for multi-second input")
+}
+
+fn direct_last_lufs(samples: &[f32], channels: usize) -> f64 {
+    let mut engine = MeasureEngine::new(SR, channels).expect("MeasureEngine init");
+    let f64buf: Vec<f64> = samples.iter().map(|&s| s as f64).collect();
+    let chunk = (SR as usize / 10) * channels;
+    let mut last = None;
+    for c in f64buf.chunks(chunk) {
+        if let Some(r) = engine.push(c) {
+            if let Some(lufs) = r.lufs_m {
+                last = Some(lufs);
+            }
+        }
+    }
+    last.expect("direct engine should produce LUFS-M")
+}
+
+fn drive_ffi_lufs(samples: &[f32], channels: u32) -> f64 {
+    let engine = KirinHyphaEngine::new(SR, channels);
+    engine.set_signal_state(1); // Active (ABI code)
+
+    let block_frames = SR as usize / 10;
+    let block_len = block_frames * channels as usize;
+    let mut i = 0;
+    while i < samples.len() {
+        let end = (i + block_len).min(samples.len());
+        engine.push_samples(&samples[i..end], channels);
+        i = end;
+        sleep(Duration::from_millis(30));
+    }
+
+    let mut last = None;
+    for _ in 0..40 {
+        engine.push_samples(&[], channels);
+        sleep(Duration::from_millis(50));
+        if let Some(r) = engine.poll_result() {
+            if let Some(lufs) = r.lufs_m {
+                last = Some(lufs);
+            }
+        }
+    }
+    last.expect("FFI should produce LUFS-M")
 }
 
 /// measure_thread::compute_psb_summary（measure_thread.rs:316-334）の再現。
@@ -120,18 +181,29 @@ fn parity_phase_d_metrics_ffi_vs_direct() {
 
     // direct 参照
     let direct = direct_phase_d(&signal);
-    let (ref_low, ref_mid, ref_high) =
-        psb_summary_ref(&direct.psb, &direct.psb_bark21_24, direct.psb_high_ext_15_5k_20k);
+    let (ref_low, ref_mid, ref_high) = psb_summary_ref(
+        &direct.psb,
+        &direct.psb_bark21_24,
+        direct.psb_high_ext_15_5k_20k,
+    );
 
     // FFI 経由
     let (res, overflow) = drive_ffi(&signal);
 
     // パリティ駆動でサンプルが落ちていない（= 同一サンプル列を処理した）ことを確認。
-    assert_eq!(overflow, 0, "parity push dropped samples (ring overflow={overflow})");
+    assert_eq!(
+        overflow, 0,
+        "parity push dropped samples (ring overflow={overflow})"
+    );
 
     // ── Zwicker N (n_prime_total) : MoSQITo N tolerance ──
     let n_ffi = res.n_prime_total.unwrap();
-    assert_relative_eq!(n_ffi, direct.loudness, max_relative = N_MAX_REL, epsilon = PSB_ABS_FLOOR);
+    assert_relative_eq!(
+        n_ffi,
+        direct.loudness,
+        max_relative = N_MAX_REL,
+        epsilon = PSB_ABS_FLOOR
+    );
 
     // ── Sharpness : MoSQITo sharpness tolerance ──
     let sh_ffi = res.sharpness.unwrap();
@@ -140,13 +212,23 @@ fn parity_phase_d_metrics_ffi_vs_direct() {
     // ── n_prime[20] : MoSQITo N tolerance（band 毎）──
     let np = res.n_prime.unwrap();
     for (k, &np_k) in np.iter().enumerate() {
-        assert_relative_eq!(np_k, direct.n_prime[k], max_relative = N_MAX_REL, epsilon = PSB_ABS_FLOOR);
+        assert_relative_eq!(
+            np_k,
+            direct.n_prime[k],
+            max_relative = N_MAX_REL,
+            epsilon = PSB_ABS_FLOOR
+        );
     }
 
     // ── psb_bark[20] (= PhaseDResult.psb) : 同一コード経路なので tight ──
     let pb = res.psb_bark.unwrap();
     for (k, &pb_k) in pb.iter().enumerate() {
-        assert_relative_eq!(pb_k, direct.psb[k], max_relative = N_MAX_REL, epsilon = PSB_ABS_FLOOR);
+        assert_relative_eq!(
+            pb_k,
+            direct.psb[k],
+            max_relative = N_MAX_REL,
+            epsilon = PSB_ABS_FLOOR
+        );
     }
 
     // ── PSB low/mid/high : compute_psb_summary 再現と一致 ──
@@ -154,6 +236,25 @@ fn parity_phase_d_metrics_ffi_vs_direct() {
     assert_relative_eq!(s.low, ref_low, max_relative = N_MAX_REL, epsilon = 1e-6);
     assert_relative_eq!(s.mid, ref_mid, max_relative = N_MAX_REL, epsilon = 1e-6);
     assert_relative_eq!(s.high, ref_high, max_relative = N_MAX_REL, epsilon = 1e-6);
+}
+
+#[test]
+fn mono_ffi_is_one_channel_not_dual_mono_plus_3db() {
+    let mono = gen_mono_f32(2.0);
+    let dual_mono = duplicate_mono_to_stereo(&mono);
+
+    let direct_mono = direct_last_lufs(&mono, 1);
+    let direct_dual_mono = direct_last_lufs(&dual_mono, 2);
+    let ffi_mono = drive_ffi_lufs(&mono, 1);
+
+    approx::assert_abs_diff_eq!(ffi_mono, direct_mono, epsilon = 0.2);
+
+    let dual_mono_bias = direct_dual_mono - direct_mono;
+    approx::assert_abs_diff_eq!(dual_mono_bias, 3.0103, epsilon = 0.2);
+    assert!(
+        (direct_dual_mono - ffi_mono) > 2.5,
+        "mono FFI must not be measured as dual-mono stereo (+3 dB bias)"
+    );
 }
 
 #[test]
@@ -218,7 +319,10 @@ fn drive_ffi_session(stereo_f32: &[f32]) -> (SessionSummary, u64, bool) {
     let engine = KirinHyphaEngine::new(SR, 2);
     engine.set_license(0); // Os
     engine.set_signal_state(1); // Active
-    assert!(engine.enter_record(), "Os + Watch なら enter_record は true");
+    assert!(
+        engine.enter_record(),
+        "Os + Watch なら enter_record は true"
+    );
     assert!(engine.is_recording(), "enter_record 成功後は Record 中");
 
     // Measure Thread が is_recording を観測して engine.reset() するのを ring 空のまま待つ。
@@ -306,7 +410,10 @@ fn session_finalize_ffi_matches_direct_engine() {
     let signal = gen_stereo_f32(12.0);
 
     let (ffi, overflow, was_recording) = drive_ffi_session(&signal);
-    assert_eq!(overflow, 0, "ring overflow: FFI が全サンプルを処理していない (of={overflow})");
+    assert_eq!(
+        overflow, 0,
+        "ring overflow: FFI が全サンプルを処理していない (of={overflow})"
+    );
     assert!(was_recording, "exit 直前まで Record 中であること");
     let direct = direct_session(&signal);
 
@@ -314,7 +421,10 @@ fn session_finalize_ffi_matches_direct_engine() {
     let li = ffi.lufs_i.expect("lufs_i must be Some after 12s");
     let tp = ffi.max_true_peak.expect("max_true_peak must be Some");
     assert!((-30.0..0.0).contains(&li), "lufs_i out of range: {li}");
-    assert!((-20.0..3.0).contains(&tp), "max_true_peak out of range: {tp}");
+    assert!(
+        (-20.0..3.0).contains(&tp),
+        "max_true_peak out of range: {tp}"
+    );
 
     // FFI vs direct engine: 同一 f32→f64 サンプル列 → 同一 ebur128 → 一致（abs≈0）。
     let d_li = direct.lufs_i.expect("direct lufs_i");
@@ -327,8 +437,14 @@ fn session_finalize_ffi_matches_direct_engine() {
         ffi.lra, direct.lra
     );
     // ebur128 integrated はチャンク非依存だが、加算順差で ~1e-12 が出得るため floor。
-    assert!(abs_li < 1e-6, "lufs_i FFI vs direct diff too large: {abs_li}");
-    assert!(abs_tp < 1e-6, "max_true_peak FFI vs direct diff too large: {abs_tp}");
+    assert!(
+        abs_li < 1e-6,
+        "lufs_i FFI vs direct diff too large: {abs_li}"
+    );
+    assert!(
+        abs_tp < 1e-6,
+        "max_true_peak FFI vs direct diff too large: {abs_tp}"
+    );
     if let (Some(l), Some(dl)) = (ffi.lra, direct.lra) {
         assert!((l - dl).abs() < 1e-6, "lra FFI vs direct diff too large");
     }
@@ -346,7 +462,10 @@ fn license_gate_blocks_record_when_not_os() {
             !engine.enter_record(),
             "license code {code}（非 Os）で enter_record は false であるべき"
         );
-        assert!(!engine.is_recording(), "非 Os では Record されない（code {code}）");
+        assert!(
+            !engine.is_recording(),
+            "非 Os では Record されない（code {code}）"
+        );
         // Record されないので push しても finalize されず poll_session は None。
         let signal = gen_stereo_f32(0.5);
         engine.push_samples(&signal, 2);
@@ -363,7 +482,10 @@ fn license_gate_blocks_record_when_not_os() {
 fn default_license_is_unknown_record_denied() {
     let engine = KirinHyphaEngine::new(SR, 2);
     engine.set_signal_state(1);
-    assert!(!engine.enter_record(), "既定 license（Unknown）では enter_record false");
+    assert!(
+        !engine.enter_record(),
+        "既定 license（Unknown）では enter_record false"
+    );
     assert!(!engine.is_recording());
 }
 
@@ -384,7 +506,11 @@ fn license_demotion_forces_watch() {
 // ── Phase 3b: enable_pre_writes → io_thread_pre が plugin_data を書く ──────────
 
 /// `parent_name/*.{suffix}` を再帰探索し最初の 1 件を返す（parent dir 名で絞る）。
-fn find_json_under(root: &std::path::Path, parent_name: &str, file_name: &str) -> Option<std::path::PathBuf> {
+fn find_json_under(
+    root: &std::path::Path,
+    parent_name: &str,
+    file_name: &str,
+) -> Option<std::path::PathBuf> {
     let rd = std::fs::read_dir(root).ok()?;
     for e in rd.flatten() {
         let p = e.path();
@@ -394,7 +520,10 @@ fn find_json_under(root: &std::path::Path, parent_name: &str, file_name: &str) -
             }
         } else {
             let fname = p.file_name().and_then(|n| n.to_str());
-            let pname = p.parent().and_then(|pp| pp.file_name()).and_then(|n| n.to_str());
+            let pname = p
+                .parent()
+                .and_then(|pp| pp.file_name())
+                .and_then(|n| n.to_str());
             let name_ok = if file_name == "*.json" {
                 fname.map(|n| n.ends_with(".json")).unwrap_or(false)
             } else {
@@ -486,7 +615,9 @@ fn pre_writes_records_plugin_data_json() {
                 prev = s.lufs_i;
             }
         }
-        aggregates = engine.poll_session().expect("poll_session Some after record");
+        aggregates = engine
+            .poll_session()
+            .expect("poll_session Some after record");
 
         // Watch pre.json は engine 生存中に存在（Drop で削除される前に確認）。
         watch_pre_exists = find_json_under(&watch_root, "", "pre.json").is_some();
@@ -509,15 +640,23 @@ fn pre_writes_records_plugin_data_json() {
         assert_eq!(pd.status, Status::Closed, "exit+flush 後は status=closed");
         assert!(!pd.frames.is_empty(), "frames[] non-empty");
         let f0 = &pd.frames[0];
-        assert!(f0.lufs_m.is_finite() && f0.true_peak.is_finite() && f0.crest.is_finite(),
-            "Frame.{{lufs_m,true_peak,crest}} finite");
+        assert!(
+            f0.lufs_m.is_finite() && f0.true_peak.is_finite() && f0.crest.is_finite(),
+            "Frame.{{lufs_m,true_peak,crest}} finite"
+        );
 
         // aggregates 一致: io_thread の set_session_aggregates(=poll_session と同じ
         // session_summary 経路) で焼いた lufs_i が、poll_session の値と 1 桁丸め内で一致。
         let pd_li = pd.lufs_i.expect("json lufs_i present");
         let a_li = aggregates.lufs_i.expect("poll lufs_i present");
-        eprintln!("[pre write] aggregates lufs_i json={pd_li} poll={a_li} | lra={:?} plr={:?}", pd.lra, pd.plr);
-        assert!((pd_li - a_li).abs() < 0.06, "lufs_i json={pd_li} vs poll={a_li}（1 桁丸め内）");
+        eprintln!(
+            "[pre write] aggregates lufs_i json={pd_li} poll={a_li} | lra={:?} plr={:?}",
+            pd.lra, pd.plr
+        );
+        assert!(
+            (pd_li - a_li).abs() < 0.06,
+            "lufs_i json={pd_li} vs poll={a_li}（1 桁丸め内）"
+        );
     } // engine Drop → io_thread shutdown→join（Watch pre.json/instance dir 後始末）。
 
     assert!(watch_pre_exists, "Watch pre.json が稼働中に書かれること");
@@ -530,7 +669,11 @@ fn pre_writes_records_plugin_data_json() {
 
 /// C 文字列バッファ（null 終端）を Rust String へ。
 fn cbuf_to_string(buf: &[std::os::raw::c_char]) -> String {
-    let bytes: Vec<u8> = buf.iter().take_while(|&&c| c != 0).map(|&c| c as u8).collect();
+    let bytes: Vec<u8> = buf
+        .iter()
+        .take_while(|&&c| c != 0)
+        .map(|&c| c as u8)
+        .collect();
     String::from_utf8_lossy(&bytes).into_owned()
 }
 
@@ -572,7 +715,12 @@ fn identity_round_trip_via_c_abi() {
     let got = read_back("iid-x", "puid-y", "dsid-z", "mix1");
     assert_eq!(
         got,
-        ("iid-x".to_string(), "puid-y".to_string(), "dsid-z".to_string(), "mix1".to_string())
+        (
+            "iid-x".to_string(),
+            "puid-y".to_string(),
+            "dsid-z".to_string(),
+            "mix1".to_string()
+        )
     );
     // 別エンジンに同一 set_identity → 同一 get_identity（決定性）。
     assert_eq!(got, read_back("iid-x", "puid-y", "dsid-z", "mix1"));
@@ -600,7 +748,13 @@ fn set_identity_materializes_unsafe_restore_value() {
         CString::new("name").unwrap(),
     );
     unsafe {
-        kirin_hypha_set_identity(ptr, c_iid.as_ptr(), c_puid.as_ptr(), c_dsid.as_ptr(), c_nm.as_ptr());
+        kirin_hypha_set_identity(
+            ptr,
+            c_iid.as_ptr(),
+            c_puid.as_ptr(),
+            c_dsid.as_ptr(),
+            c_nm.as_ptr(),
+        );
     }
     let mut out: KirinIdentity = unsafe { std::mem::zeroed() };
     unsafe { kirin_hypha_get_identity(ptr, &mut out) };
@@ -608,21 +762,37 @@ fn set_identity_materializes_unsafe_restore_value() {
     let puid = cbuf_to_string(&out.project_uuid);
 
     // D1: self.identity が materialize 済 new_v4（raw "/tmp/x" は残らない＝第二源なし）。
-    assert_ne!(iid, "/tmp/x", "unsafe instance_id は materialize される（raw 残存なし）");
+    assert_ne!(
+        iid, "/tmp/x",
+        "unsafe instance_id は materialize される（raw 残存なし）"
+    );
     assert_ne!(puid, "../../../../etc");
-    assert!(uuid::Uuid::parse_str(&iid).is_ok(), "instance_id は fresh new_v4: {iid}");
-    assert!(uuid::Uuid::parse_str(&puid).is_ok(), "project_uuid は fresh new_v4: {puid}");
+    assert!(
+        uuid::Uuid::parse_str(&iid).is_ok(),
+        "instance_id は fresh new_v4: {iid}"
+    );
+    assert!(
+        uuid::Uuid::parse_str(&puid).is_ok(),
+        "project_uuid は fresh new_v4: {puid}"
+    );
 
     // D1（単一 source 強化）: get_identity を再取得しても同一値 = materialize 済値が self.identity に
     // **1 度だけ**格納される単一 source（per-read 再 materialize で new_v4 が毎回変わる「第二系統」がない）。
     // keep / record / 永続化 / io_thread は全てこの self.identity（= get_identity が返す値）を読む。
     let mut out2: KirinIdentity = unsafe { std::mem::zeroed() };
     unsafe { kirin_hypha_get_identity(ptr, &mut out2) };
-    assert_eq!(cbuf_to_string(&out2.instance_id), iid, "再取得で同一＝単一格納 source（分裂なし）");
+    assert_eq!(
+        cbuf_to_string(&out2.instance_id),
+        iid,
+        "再取得で同一＝単一格納 source（分裂なし）"
+    );
     assert_eq!(cbuf_to_string(&out2.project_uuid), puid);
 
     // D3: invalid-identity event surface（silent swap 禁止）。
-    assert!(!drain_path_events().is_empty(), "invalid 注入で event surface");
+    assert!(
+        !drain_path_events().is_empty(),
+        "invalid 注入で event surface"
+    );
 
     // D2: materialize 済 new_v4 値での reservation は counted（quarantine `_q_` でない）。
     let base = std::env::temp_dir().join(format!("kirin_d2_{}", std::process::id()));
@@ -644,7 +814,10 @@ fn set_identity_materializes_unsafe_restore_value() {
 #[test]
 fn add_annotation_denied_without_os() {
     let engine = KirinHyphaEngine::new(SR, 2);
-    assert!(!engine.add_annotation("x".to_string()), "既定 Unknown では false");
+    assert!(
+        !engine.add_annotation("x".to_string()),
+        "既定 Unknown では false"
+    );
     engine.set_license(1); // Sense
     assert!(!engine.add_annotation("x".to_string()), "Sense でも false");
 }
@@ -726,11 +899,20 @@ fn set_identity_drives_path_and_annotation() {
         let rec = find_json_under(&plugin_data_root, "pre", "*.json").expect("record .json exists");
         let rec_s = rec.to_string_lossy().to_string();
         eprintln!("[3c] record path = {rec_s}");
-        assert!(rec_s.contains(known_puid), "path に set した project_uuid を使う: {rec_s}");
-        assert!(rec_s.contains(known_iid), "path に set した instance_id を使う: {rec_s}");
+        assert!(
+            rec_s.contains(known_puid),
+            "path に set した project_uuid を使う: {rec_s}"
+        );
+        assert!(
+            rec_s.contains(known_iid),
+            "path に set した instance_id を使う: {rec_s}"
+        );
 
         // Note: Os + Record close 後に add_annotation → annotations[] に memo。
-        assert!(engine.add_annotation("note-A".to_string()), "Os の add_annotation は true");
+        assert!(
+            engine.add_annotation("note-A".to_string()),
+            "Os の add_annotation は true"
+        );
         let pd: PluginDataFile =
             serde_json::from_str(&std::fs::read_to_string(&rec).unwrap()).unwrap();
         assert_eq!(pd.annotations.len(), 1, "annotation が 1 件追記される");
@@ -738,7 +920,10 @@ fn set_identity_drives_path_and_annotation() {
 
         // gate: Sense へ降格 → add_annotation false・annotations 不変。
         engine.set_license(1);
-        assert!(!engine.add_annotation("note-B".to_string()), "Sense の add_annotation は false");
+        assert!(
+            !engine.add_annotation("note-B".to_string()),
+            "Sense の add_annotation は false"
+        );
         let pd2: PluginDataFile =
             serde_json::from_str(&std::fs::read_to_string(&rec).unwrap()).unwrap();
         assert_eq!(pd2.annotations.len(), 1, "Sense では追記されない（gate）");
@@ -794,7 +979,12 @@ fn post_writes_delta_against_colocated_pre() {
         // POST engine: 同名 "mix"（= 対 PRE 名）、別 project_uuid "puid-post"。
         let post = KirinHyphaEngine::new(SR, 2);
         post.set_license(0);
-        post.set_identity("iid-post".into(), "puid-post".into(), "".into(), "mix".into());
+        post.set_identity(
+            "iid-post".into(),
+            "puid-post".into(),
+            "".into(),
+            "mix".into(),
+        );
         post.enable_post_writes();
         post.set_signal_state(1); // Active
 
@@ -850,11 +1040,24 @@ fn post_writes_delta_against_colocated_pre() {
     } // engines Drop → io_thread join。
 
     // Δ 検証: POST(半振幅) − PRE(フル) ≈ -6.02 dB（lufs は 20log10(0.5)）。
-    eprintln!("[3d-a] delta mode={:?} lufs={:?} tp={:?} crest={:?}", delta.mode, delta.lufs, delta.tp, delta.crest);
-    assert_eq!(delta.mode, DeltaMode::Active, "PRE 一意・Active・fresh → Δ Active");
+    eprintln!(
+        "[3d-a] delta mode={:?} lufs={:?} tp={:?} crest={:?}",
+        delta.mode, delta.lufs, delta.tp, delta.crest
+    );
+    assert_eq!(
+        delta.mode,
+        DeltaMode::Active,
+        "PRE 一意・Active・fresh → Δ Active"
+    );
     let dl = delta.lufs.expect("delta lufs Some");
-    assert!((-8.0..-4.0).contains(&dl), "Δ_lufs ≈ -6（POST 半振幅）, got {dl}");
-    assert!(post_pre_state_found, "post.json pre_signal_state=active（PRE 発見の観測証拠）");
+    assert!(
+        (-8.0..-4.0).contains(&dl),
+        "Δ_lufs ≈ -6（POST 半振幅）, got {dl}"
+    );
+    assert!(
+        post_pre_state_found,
+        "post.json pre_signal_state=active（PRE 発見の観測証拠）"
+    );
 
     let _ = std::fs::remove_dir_all(&test_root);
 }
@@ -902,7 +1105,12 @@ fn post_keep_acked_by_colocated_pre() {
         // POST: 同名 "mix" / project_uuid "puid-post"（別 uuid = cross-uuid ack の肝）。
         let post = KirinHyphaEngine::new(SR, 2);
         post.set_license(0);
-        post.set_identity("iid-post".into(), "puid-post".into(), "".into(), "mix".into());
+        post.set_identity(
+            "iid-post".into(),
+            "puid-post".into(),
+            "".into(),
+            "mix".into(),
+        );
         post.enable_post_writes();
         post.set_signal_state(1);
 
@@ -927,7 +1135,10 @@ fn post_keep_acked_by_colocated_pre() {
 
         // 厳格: 不一致名 → keep false（select None / write_pending しない）。
         post.set_pair_target("nonexistent".into());
-        assert!(!post.keep(), "不一致名は keep=false（write_pending しない）");
+        assert!(
+            !post.keep(),
+            "不一致名は keep=false（write_pending しない）"
+        );
         assert!(!post.is_recording(), "keep false で Record しない");
 
         // 成功: "mix"（pair target setter で別名選択が効く）→ keep true。
@@ -963,7 +1174,11 @@ fn post_keep_acked_by_colocated_pre() {
         assert!(!post.is_recording(), "Stop で Watch へ");
         sleep(Duration::from_millis(300));
         if let Some(s) = read_signal(&plugin_data_root, "puid-post", "iid-post") {
-            assert_eq!(s.status, SignalStatus::Released, "Stop で record_signal=released");
+            assert_eq!(
+                s.status,
+                SignalStatus::Released,
+                "Stop で record_signal=released"
+            );
         }
     }
 
@@ -1017,7 +1232,12 @@ fn capstone_paired_record_output_and_linkage() {
 
         let post = KirinHyphaEngine::new(SR, 2);
         post.set_license(0);
-        post.set_identity("iid-post".into(), "puid-post".into(), "".into(), "mix".into());
+        post.set_identity(
+            "iid-post".into(),
+            "puid-post".into(),
+            "".into(),
+            "mix".into(),
+        );
         post.enable_post_writes();
         post.set_signal_state(1);
         post.set_pair_target("mix".into());
@@ -1060,11 +1280,21 @@ fn capstone_paired_record_output_and_linkage() {
     eprintln!("[capstone] POST = {}", post_json.display());
 
     // 両者が同一 project_uuid(=POST の puid-post) 配下に揃う（PRE が adopt）。
-    assert!(pre_json.to_string_lossy().contains("puid-post"), "PRE は POST の uuid 配下に Record: {}", pre_json.display());
-    assert!(post_json.to_string_lossy().contains("puid-post"), "POST は自 uuid 配下: {}", post_json.display());
+    assert!(
+        pre_json.to_string_lossy().contains("puid-post"),
+        "PRE は POST の uuid 配下に Record: {}",
+        pre_json.display()
+    );
+    assert!(
+        post_json.to_string_lossy().contains("puid-post"),
+        "POST は自 uuid 配下: {}",
+        post_json.display()
+    );
 
-    let pre_pd: PluginDataFile = serde_json::from_str(&std::fs::read_to_string(&pre_json).unwrap()).unwrap();
-    let post_pd: PluginDataFile = serde_json::from_str(&std::fs::read_to_string(&post_json).unwrap()).unwrap();
+    let pre_pd: PluginDataFile =
+        serde_json::from_str(&std::fs::read_to_string(&pre_json).unwrap()).unwrap();
+    let post_pd: PluginDataFile =
+        serde_json::from_str(&std::fs::read_to_string(&post_json).unwrap()).unwrap();
 
     // schema / status / frames。
     assert_eq!(pre_pd.schema_version, "1.3");
@@ -1077,11 +1307,22 @@ fn capstone_paired_record_output_and_linkage() {
     assert!(!post_pd.frames.is_empty(), "POST frames 非空");
 
     // ★ paired linkage: 双方向で対として辿れる。
-    assert_eq!(pre_pd.paired_post_instance_id.as_deref(), Some("iid-post"), "PRE.paired_post_instance_id == POST");
-    assert_eq!(post_pd.paired_pre_instance_id.as_deref(), Some("iid-pre"), "POST.paired_pre_instance_id == PRE");
+    assert_eq!(
+        pre_pd.paired_post_instance_id.as_deref(),
+        Some("iid-post"),
+        "PRE.paired_post_instance_id == POST"
+    );
+    assert_eq!(
+        post_pd.paired_pre_instance_id.as_deref(),
+        Some("iid-pre"),
+        "POST.paired_pre_instance_id == PRE"
+    );
 
     // Δ 物理妥当: POST 半振幅 → -6.02dB 相当。
-    assert!((-8.0..-4.0).contains(&delta_lufs), "Δ_lufs ≈ -6（POST 半振幅）, got {delta_lufs}");
+    assert!(
+        (-8.0..-4.0).contains(&delta_lufs),
+        "Δ_lufs ≈ -6（POST 半振幅）, got {delta_lufs}"
+    );
 
     let _ = std::fs::remove_dir_all(&test_root);
 }
@@ -1127,7 +1368,12 @@ fn keep_failure_after_enter_reverts_record_state() {
 
         let post = KirinHyphaEngine::new(SR, 2);
         post.set_license(0);
-        post.set_identity("iid-post".into(), "puid-post".into(), "".into(), "mix".into());
+        post.set_identity(
+            "iid-post".into(),
+            "puid-post".into(),
+            "".into(),
+            "mix".into(),
+        );
         post.enable_post_writes();
         post.set_signal_state(1);
         post.set_pair_target("mix".into());
@@ -1238,7 +1484,12 @@ fn post_add_annotation_targets_post_role() {
 
         let post = KirinHyphaEngine::new(SR, 2);
         post.set_license(0);
-        post.set_identity("iid-post".into(), "puid-post".into(), "".into(), "mix".into());
+        post.set_identity(
+            "iid-post".into(),
+            "puid-post".into(),
+            "".into(),
+            "mix".into(),
+        );
         post.enable_post_writes();
         post.set_signal_state(1);
         post.set_pair_target("mix".into());
@@ -1312,18 +1563,34 @@ fn load_license_reads_identity_json() {
     };
 
     write_license("os");
-    assert_eq!(kirin_hypha_ffi::kirin_hypha_load_license(), 0, "license=os → 0");
+    assert_eq!(
+        kirin_hypha_ffi::kirin_hypha_load_license(),
+        0,
+        "license=os → 0"
+    );
 
     write_license("sense");
-    assert_eq!(kirin_hypha_ffi::kirin_hypha_load_license(), 1, "license=sense → 1");
+    assert_eq!(
+        kirin_hypha_ffi::kirin_hypha_load_license(),
+        1,
+        "license=sense → 1"
+    );
 
     // 不明値 → Unknown(2)。
     write_license("bogus");
-    assert_eq!(kirin_hypha_ffi::kirin_hypha_load_license(), 2, "unknown value → 2");
+    assert_eq!(
+        kirin_hypha_ffi::kirin_hypha_load_license(),
+        2,
+        "unknown value → 2"
+    );
 
     // ファイル不在 → Unknown(2)。
     std::fs::remove_file(&id_path).unwrap();
-    assert_eq!(kirin_hypha_ffi::kirin_hypha_load_license(), 2, "missing file → 2");
+    assert_eq!(
+        kirin_hypha_ffi::kirin_hypha_load_license(),
+        2,
+        "missing file → 2"
+    );
 
     let _ = std::fs::remove_dir_all(&test_root);
 }
@@ -1367,7 +1634,12 @@ fn double_keep_preserves_linkage() {
 
         let post = KirinHyphaEngine::new(SR, 2);
         post.set_license(0);
-        post.set_identity("iid-post".into(), "puid-post".into(), "".into(), "mix".into());
+        post.set_identity(
+            "iid-post".into(),
+            "puid-post".into(),
+            "".into(),
+            "mix".into(),
+        );
         post.enable_post_writes();
         post.set_signal_state(1);
         post.set_pair_target("mix".into());
@@ -1403,7 +1675,10 @@ fn double_keep_preserves_linkage() {
         );
 
         // 2 回目 keep: 既に Record 中 → no-op false。linkage は温存（None 化しない）。
-        assert!(!post.keep(), "2nd keep is no-op (already recording) -> false");
+        assert!(
+            !post.keep(),
+            "2nd keep is no-op (already recording) -> false"
+        );
         assert!(post.is_recording(), "2nd keep does not drop out of Record");
         assert_eq!(
             post.paired_pre_target_snapshot().as_deref(),
@@ -1425,8 +1700,8 @@ fn double_keep_preserves_linkage() {
 #[test]
 fn dropped_samples_surfaced_via_c_abi_on_ring_overflow() {
     use kirin_hypha_ffi::{
-        kirin_hypha_create, kirin_hypha_destroy, kirin_hypha_poll_result,
-        kirin_hypha_push_samples, kirin_hypha_set_signal_state, KirinMeasureResult,
+        kirin_hypha_create, kirin_hypha_destroy, kirin_hypha_poll_result, kirin_hypha_push_samples,
+        kirin_hypha_set_signal_state, KirinMeasureResult,
     };
     unsafe {
         let h = kirin_hypha_create(SR, 2);
@@ -1692,7 +1967,9 @@ fn b127_make_frames(base: &std::path::Path, project_hash: &str, n: usize) {
 /// HOME/TMPDIR を temp へ分離し Os identity.json を置く（既存 #[ignore] 群と同手順）。
 /// グローバル env を触るため --test-threads=1（FFI gate と同じ）。戻り値 (home, tmp)。
 fn b127_isolate(tag: &str) -> (std::path::PathBuf, std::path::PathBuf) {
-    let test_root = std::env::temp_dir().join("kirin_b127").join(format!("{tag}_pid{}", std::process::id()));
+    let test_root = std::env::temp_dir()
+        .join("kirin_b127")
+        .join(format!("{tag}_pid{}", std::process::id()));
     let home = test_root.join("home");
     let tmp = test_root.join("tmp");
     let _ = std::fs::remove_dir_all(&test_root);
@@ -1799,7 +2076,10 @@ fn b127_engine_counts_pairings_not_markers() {
         entered,
         "keep must succeed despite 24 active markers (枠=0 / cap 真実源は marker でなく O_EXCL 枠存在)"
     );
-    assert!(post.is_recording(), "engine enters Record (frame-counted, markers ignored)");
+    assert!(
+        post.is_recording(),
+        "engine enters Record (frame-counted, markers ignored)"
+    );
 
     drop(post);
     let _ = std::fs::remove_dir_all(home.parent().unwrap());
@@ -1834,7 +2114,10 @@ fn b127_reservation_released_on_stop() {
     assert!(post.keep(), "keep succeeds");
     assert!(res_path.exists(), "keep が O_EXCL reservation 枠を作る");
     post.stop();
-    assert!(!res_path.exists(), "stop が reservation 枠を解放する（再予約可）");
+    assert!(
+        !res_path.exists(),
+        "stop が reservation 枠を解放する（再予約可）"
+    );
 
     drop(post);
     let _ = std::fs::remove_dir_all(home.parent().unwrap());
@@ -1865,7 +2148,10 @@ fn b127_engine_caps_at_twelve_and_notifies() {
     }
 
     let entered = post.keep();
-    assert!(!entered, "13th keep must be rejected at the 12-cap (engine-enforced)");
+    assert!(
+        !entered,
+        "13th keep must be rejected at the 12-cap (engine-enforced)"
+    );
     assert!(!post.is_recording(), "engine must NOT enter Record at cap");
     assert_eq!(
         post.record_error_message().as_deref(),
@@ -1903,7 +2189,11 @@ fn b127_engine_allows_keep_under_cap() {
     let entered = post.keep();
     assert!(entered, "12th keep (< cap) must succeed");
     assert!(post.is_recording(), "engine enters Record under cap");
-    assert_eq!(post.record_error_message(), None, "successful enter clears any stale notice");
+    assert_eq!(
+        post.record_error_message(),
+        None,
+        "successful enter clears any stale notice"
+    );
 
     drop(post);
     let _ = std::fs::remove_dir_all(home.parent().unwrap());

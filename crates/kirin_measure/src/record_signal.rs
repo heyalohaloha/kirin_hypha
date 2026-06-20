@@ -130,13 +130,19 @@ impl RecordSignal {
 /// `{base}/{project_hash}/record_signal/` ディレクトリ。
 pub fn signals_dir(base_dir: &Path, project_hash: &str) -> PathBuf {
     // B-128 (G-115-370): within-base wall。signal_path も本関数経由で project_hash を guard。
-    let ph = crate::path_identity::guard_path_component(project_hash, "record_signal.signals_dir.project_hash");
+    let ph = crate::path_identity::guard_path_component(
+        project_hash,
+        "record_signal.signals_dir.project_hash",
+    );
     base_dir.join(&*ph).join(SIGNALS_SUBDIR)
 }
 
 /// `{base}/{project_hash}/record_signal/{post_instance_id}.json`。
 pub fn signal_path(base_dir: &Path, project_hash: &str, post_instance_id: &str) -> PathBuf {
-    let iid = crate::path_identity::guard_path_component(post_instance_id, "record_signal.signal_path.post_instance_id");
+    let iid = crate::path_identity::guard_path_component(
+        post_instance_id,
+        "record_signal.signal_path.post_instance_id",
+    );
     signals_dir(base_dir, project_hash).join(format!("{iid}.json"))
 }
 
@@ -307,11 +313,7 @@ pub fn delete_signal(
 /// pending 状態で `t` から `timeout_secs` 秒以上経過していれば true。
 ///
 /// pending 以外 / t パース失敗時は false（タイムアウト扱いしない）。
-pub fn is_timed_out(
-    signal: &RecordSignal,
-    now: DateTime<Utc>,
-    timeout_secs: i64,
-) -> bool {
+pub fn is_timed_out(signal: &RecordSignal, now: DateTime<Utc>, timeout_secs: i64) -> bool {
     if signal.status != SignalStatus::Pending {
         return false;
     }
@@ -363,7 +365,11 @@ pub fn sweep_stale_pending_in(
                 continue;
             }
             let stale = match DateTime::parse_from_rfc3339(&sig.t) {
-                Ok(t) => now.signed_duration_since(t.with_timezone(&Utc)).num_seconds() > stale_secs,
+                Ok(t) => {
+                    now.signed_duration_since(t.with_timezone(&Utc))
+                        .num_seconds()
+                        > stale_secs
+                }
                 Err(_) => false, // 安全側: parse 不能は保持
             };
             if !stale {
@@ -390,7 +396,10 @@ pub fn sweep_stale_pending_at_startup() {
     };
     let n = sweep_stale_pending_in(&paths.plugin_data_dir(), Utc::now(), STALE_PENDING_SECS);
     if n > 0 {
-        log::info!("[record_signal] startup: swept {} stale Pending signal(s)", n);
+        log::info!(
+            "[record_signal] startup: swept {} stale Pending signal(s)",
+            n
+        );
     }
 }
 
@@ -401,10 +410,7 @@ pub fn sweep_stale_pending_at_startup() {
 /// を別途確認しなくてよい。
 ///
 /// パース不能・I/O 失敗ファイルは silently skip。返値は post_instance_id 辞書順。
-pub fn scan_signals_dir(
-    base_dir: &Path,
-    project_hash: &str,
-) -> Vec<(String, RecordSignal)> {
+pub fn scan_signals_dir(base_dir: &Path, project_hash: &str) -> Vec<(String, RecordSignal)> {
     let dir = signals_dir(base_dir, project_hash);
     let entries = match fs::read_dir(&dir) {
         Ok(e) => e,
@@ -548,13 +554,19 @@ pub fn scan_pre_candidates_in(project_dir: &Path) -> Vec<PreCandidate> {
             continue;
         }
         let pre_file = path.join("pre.json");
-        let Ok(bytes) = fs::read(&pre_file) else { continue };
+        let Ok(bytes) = fs::read(&pre_file) else {
+            continue;
+        };
         // B-077: serde 失敗（破損 / 旧形式 pre.json）を無言 skip せずログに残す（沈黙をやめる）。
         // UI には出さない（R-28: 他 instance の pre.json 不整合は利用者操作と非紐づき / log のみ可視化）。
         let parsed: PreTmpJson = match serde_json::from_slice(&bytes) {
             Ok(p) => p,
             Err(e) => {
-                log::warn!("[pairing] skip unparseable pre.json {}: {}", pre_file.display(), e);
+                log::warn!(
+                    "[pairing] skip unparseable pre.json {}: {}",
+                    pre_file.display(),
+                    e
+                );
                 continue;
             }
         };
@@ -653,16 +665,12 @@ pub struct PostMetrics {
 /// - 複数 + POST/PRE 双方に全 3 メトリック有 → distance 最小を返す
 /// - 複数 + いずれかメトリック不在 → 最初の候補を返す（ソート済みで安定）
 #[doc(hidden)]
-pub fn pick_closest_pre(
-    candidates: &[PreCandidate],
-    post: PostMetrics,
-) -> Option<&PreCandidate> {
+pub fn pick_closest_pre(candidates: &[PreCandidate], post: PostMetrics) -> Option<&PreCandidate> {
     match candidates.len() {
         0 => None,
         1 => candidates.first(),
         _ => {
-            let (Some(pl), Some(pt), Some(pc)) = (post.lufs_m, post.true_peak, post.crest)
-            else {
+            let (Some(pl), Some(pt), Some(pc)) = (post.lufs_m, post.true_peak, post.crest) else {
                 return candidates.first();
             };
             let mut best: Option<(&PreCandidate, f64)> = None;
@@ -716,8 +724,10 @@ fn select_target_pre_core(
         return None;
     }
     let dirs = crate::pre_discovery::discover_active_pre_dirs(kirin_root);
-    let candidates: Vec<PreCandidate> =
-        dirs.iter().flat_map(|d| scan_pre_candidates_in(d)).collect();
+    let candidates: Vec<PreCandidate> = dirs
+        .iter()
+        .flat_map(|d| scan_pre_candidates_in(d))
+        .collect();
     let named = filter_candidates_by_name(candidates, pair_pre_name);
 
     let mut valid: Vec<SelectedPre> = Vec::new();
@@ -740,7 +750,11 @@ fn select_target_pre_core(
         if !t_age_within(t_str, crate::io_thread_post::NO_PRE_SECS) {
             continue;
         }
-        let Some(project_dir) = c.path.parent().and_then(|p| p.parent()).map(Path::to_path_buf)
+        let Some(project_dir) = c
+            .path
+            .parent()
+            .and_then(|p| p.parent())
+            .map(Path::to_path_buf)
         else {
             continue;
         };
@@ -810,7 +824,11 @@ pub fn read_pre_at(pre_json: &Path) -> Option<LatchedPreState> {
         .and_then(|x| x.as_str())
         .map(|t| t_age_within(t, crate::io_thread_post::NO_PRE_SECS))
         .unwrap_or(false);
-    Some(LatchedPreState { name, active, fresh })
+    Some(LatchedPreState {
+        name,
+        active,
+        fresh,
+    })
 }
 
 /// B-108: keep/Arm の target 解決。**ラッチ済み**（名前一致 & ラッチ先 pre.json が fresh & 同名）
@@ -852,9 +870,7 @@ fn t_age_within(t_str: &str, max_secs: i64) -> bool {
 // ── ヘルパ ────────────────────────────────────────────────────────────────────
 
 fn now_iso8601() -> String {
-    chrono::Utc::now()
-        .format("%Y-%m-%dT%H:%M:%SZ")
-        .to_string()
+    chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────
@@ -888,11 +904,7 @@ mod tests {
 
     #[test]
     fn signal_roundtrip_preserves_all_fields() {
-        let s = RecordSignal::new_pending(
-            "post-001".into(),
-            "pre-xyz".into(),
-            "daw-uuid-1".into(),
-        );
+        let s = RecordSignal::new_pending("post-001".into(), "pre-xyz".into(), "daw-uuid-1".into());
         let json = serde_json::to_string(&s).unwrap();
         let back: RecordSignal = serde_json::from_str(&json).unwrap();
         assert_eq!(s, back);
@@ -901,10 +913,7 @@ mod tests {
     #[test]
     fn signal_path_uses_post_instance_id_as_filename() {
         let p = signal_path(Path::new("/tmp/kb"), "phash", "post-uuid-A");
-        assert_eq!(
-            p,
-            Path::new("/tmp/kb/phash/record_signal/post-uuid-A.json")
-        );
+        assert_eq!(p, Path::new("/tmp/kb/phash/record_signal/post-uuid-A.json"));
     }
 
     // ── I/O ─────────────────────────────────────────────────
@@ -912,14 +921,7 @@ mod tests {
     #[test]
     fn write_pending_creates_file_with_pending_status() {
         let base = isolated_dir();
-        let s = write_pending(
-            &base,
-            "ph",
-            "post-1",
-            "pre-1".into(),
-            "daw-1".into(),
-        )
-        .unwrap();
+        let s = write_pending(&base, "ph", "post-1", "pre-1".into(), "daw-1".into()).unwrap();
         assert_eq!(s.status, SignalStatus::Pending);
         assert_eq!(s.requested_by, "post-1");
         assert_eq!(s.target_pre_instance_id, "pre-1");
@@ -951,14 +953,16 @@ mod tests {
         assert!(changed);
         let loaded = read_signal(&base, "ph", "post-1").unwrap();
         assert_eq!(loaded.status, SignalStatus::Acknowledged);
-        assert_eq!(loaded.daw_session_id, "daw-1", "daw_session_id preserved on transition");
+        assert_eq!(
+            loaded.daw_session_id, "daw-1",
+            "daw_session_id preserved on transition"
+        );
     }
 
     #[test]
     fn started_at_preserved_across_transitions() {
         let base = isolated_dir();
-        let initial =
-            write_pending(&base, "ph", "post-1", "pre-1".into(), "daw-1".into()).unwrap();
+        let initial = write_pending(&base, "ph", "post-1", "pre-1".into(), "daw-1".into()).unwrap();
         let first_started = initial.started_at.clone();
         assert!(!first_started.is_empty(), "started_at must be set");
         std::thread::sleep(std::time::Duration::from_millis(1100));
@@ -1002,8 +1006,7 @@ mod tests {
     fn mark_acknowledged_with_name_persists_name() {
         let base = isolated_dir();
         write_pending(&base, "ph", "post-1", "pre-1".into(), "daw-1".into()).unwrap();
-        let changed =
-            mark_acknowledged_with_name(&base, "ph", "post-1", "Studio Mix").unwrap();
+        let changed = mark_acknowledged_with_name(&base, "ph", "post-1", "Studio Mix").unwrap();
         assert!(changed);
         let loaded = read_signal(&base, "ph", "post-1").unwrap();
         assert_eq!(loaded.status, SignalStatus::Acknowledged);
@@ -1124,8 +1127,7 @@ mod tests {
     #[test]
     fn timeout_fires_strictly_after_30s() {
         let now = Utc::now();
-        let mut sig =
-            RecordSignal::new_pending("p".into(), "r".into(), "d".into());
+        let mut sig = RecordSignal::new_pending("p".into(), "r".into(), "d".into());
         sig.t = iso_ago(30, now);
         assert!(!is_timed_out(&sig, now, ACK_TIMEOUT_SECONDS));
         sig.t = iso_ago(31, now);
@@ -1135,8 +1137,7 @@ mod tests {
     #[test]
     fn timeout_not_considered_for_non_pending() {
         let now = Utc::now();
-        let mut sig =
-            RecordSignal::new_pending("p".into(), "r".into(), "d".into());
+        let mut sig = RecordSignal::new_pending("p".into(), "r".into(), "d".into());
         sig.t = iso_ago(3600, now);
         sig.status = SignalStatus::Acknowledged;
         assert!(!is_timed_out(&sig, now, ACK_TIMEOUT_SECONDS));
@@ -1147,8 +1148,7 @@ mod tests {
     #[test]
     fn timeout_invalid_iso_is_false() {
         let now = Utc::now();
-        let mut sig =
-            RecordSignal::new_pending("p".into(), "r".into(), "d".into());
+        let mut sig = RecordSignal::new_pending("p".into(), "r".into(), "d".into());
         sig.t = "not-iso".to_string();
         assert!(!is_timed_out(&sig, now, ACK_TIMEOUT_SECONDS));
     }
@@ -1311,12 +1311,7 @@ mod tests {
 
     /// 任意の signal_state 文字列で pre.json を書く helper。
     /// `state` には "active" / "bypassed" / "inactive" のいずれかを渡す。
-    fn write_pre_tmp_with_state(
-        tmp_base: &Path,
-        ph: &str,
-        instance_id: &str,
-        state: &str,
-    ) {
+    fn write_pre_tmp_with_state(tmp_base: &Path, ph: &str, instance_id: &str, state: &str) {
         let dir = tmp_base.join(ph).join(instance_id);
         fs::create_dir_all(&dir).unwrap();
         let json = format!(
@@ -1365,8 +1360,7 @@ mod tests {
         // 旧 schema: signal_state フィールドが存在しない pre.json
         let dir = base.join("ph").join("legacy");
         fs::create_dir_all(&dir).unwrap();
-        let legacy_json =
-            r#"{"v":2,"role":"PRE","instance_id":"legacy","t":"now","lufs_m":-14.0,"true_peak":-1.0,"crest":12.0,"psr":8.0}"#;
+        let legacy_json = r#"{"v":2,"role":"PRE","instance_id":"legacy","t":"now","lufs_m":-14.0,"true_peak":-1.0,"crest":12.0,"psr":8.0}"#;
         fs::write(dir.join("pre.json"), legacy_json).unwrap();
         write_pre_tmp_with_state(&base, "ph", "new-active", "active");
 
@@ -1477,7 +1471,11 @@ mod tests {
         write_pre_tmp_with_name(&base, "ph", "iid-c", "active", "Kick");
         let v = scan_pre_candidates(&base, "ph");
         let filtered = filter_candidates_by_name(v, "Snare");
-        assert_eq!(filtered.len(), 2, "同 Name 複数は全件通過 (距離選定は呼出側)");
+        assert_eq!(
+            filtered.len(),
+            2,
+            "同 Name 複数は全件通過 (距離選定は呼出側)"
+        );
         let ids: Vec<&str> = filtered.iter().map(|c| c.instance_id.as_str()).collect();
         assert!(ids.contains(&"iid-a"));
         assert!(ids.contains(&"iid-b"));
@@ -1504,7 +1502,10 @@ mod tests {
         assert_eq!(v.len(), 3, "全 project_uuid 配下を flatten: {ids:?}");
         assert!(ids.contains(&"iid-a1"));
         assert!(ids.contains(&"iid-a2"));
-        assert!(ids.contains(&"iid-b1"), "別 project_uuid 配下も候補化される (α-2 撤回)");
+        assert!(
+            ids.contains(&"iid-b1"),
+            "別 project_uuid 配下も候補化される (α-2 撤回)"
+        );
     }
 
     /// kirin_root 配下に active PRE dir が 1 件もない場合は空 Vec。
@@ -1523,8 +1524,7 @@ mod tests {
     #[test]
     fn full_post_to_pre_handshake_sequence() {
         let base = isolated_dir();
-        let sig =
-            write_pending(&base, "ph", "post-1", "pre-1".into(), "daw-1".into()).unwrap();
+        let sig = write_pending(&base, "ph", "post-1", "pre-1".into(), "daw-1".into()).unwrap();
         assert_eq!(sig.status, SignalStatus::Pending);
         assert_eq!(sig.daw_session_id, "daw-1");
 
@@ -1586,7 +1586,10 @@ mod tests {
         let now = now_rfc3339();
         write_pre_for_select(&root, "puid-1", "iid-A", "snare", "active", &now);
         write_pre_for_select(&root, "puid-2", "iid-B", "snare", "active", &now);
-        assert!(select_target_pre(&root, "snare").is_none(), "同名 2 件は None（曖昧沈黙）");
+        assert!(
+            select_target_pre(&root, "snare").is_none(),
+            "同名 2 件は None（曖昧沈黙）"
+        );
     }
 
     /// (b) pair_pre_name 空 → None（距離 auto-pick 廃止）。
@@ -1601,16 +1604,36 @@ mod tests {
     #[test]
     fn select_target_pre_inactive_excluded() {
         let root = isolated_dir();
-        write_pre_for_select(&root, "puid-1", "iid-A", "snare", "inactive", &now_rfc3339());
-        assert!(select_target_pre(&root, "snare").is_none(), "Inactive は除外");
+        write_pre_for_select(
+            &root,
+            "puid-1",
+            "iid-A",
+            "snare",
+            "inactive",
+            &now_rfc3339(),
+        );
+        assert!(
+            select_target_pre(&root, "snare").is_none(),
+            "Inactive は除外"
+        );
     }
 
     /// (c2) t age ≥ NO_PRE_SECS(10s) → 除外 → None。
     #[test]
     fn select_target_pre_stale_t_excluded() {
         let root = isolated_dir();
-        write_pre_for_select(&root, "puid-1", "iid-A", "snare", "active", &old_rfc3339(20));
-        assert!(select_target_pre(&root, "snare").is_none(), "古 t（≥10s）は除外");
+        write_pre_for_select(
+            &root,
+            "puid-1",
+            "iid-A",
+            "snare",
+            "active",
+            &old_rfc3339(20),
+        );
+        assert!(
+            select_target_pre(&root, "snare").is_none(),
+            "古 t（≥10s）は除外"
+        );
     }
 
     /// display==commit: 両経路は同一 select_target_pre を呼ぶため、同一 fixture に対し
@@ -1621,9 +1644,18 @@ mod tests {
         let now = now_rfc3339();
         write_pre_for_select(&root, "puid-1", "iid-snare", "snare", "active", &now);
         write_pre_for_select(&root, "puid-2", "iid-kick", "kick", "active", &now);
-        assert_eq!(select_target_pre(&root, "snare").unwrap().instance_id, "iid-snare");
-        assert_eq!(select_target_pre(&root, "kick").unwrap().instance_id, "iid-kick");
-        assert!(select_target_pre(&root, "vocal").is_none(), "不在 name は両経路 None");
+        assert_eq!(
+            select_target_pre(&root, "snare").unwrap().instance_id,
+            "iid-snare"
+        );
+        assert_eq!(
+            select_target_pre(&root, "kick").unwrap().instance_id,
+            "iid-kick"
+        );
+        assert!(
+            select_target_pre(&root, "vocal").is_none(),
+            "不在 name は両経路 None"
+        );
     }
 
     // ── B-104: Arm 経路（select_target_pre_for_arm）は Active 要求を外す ─────────────────
@@ -1632,11 +1664,22 @@ mod tests {
     #[test]
     fn select_target_pre_for_arm_inactive_fresh_returns_some() {
         let root = isolated_dir();
-        write_pre_for_select(&root, "puid-1", "iid-A", "snare", "inactive", &now_rfc3339());
+        write_pre_for_select(
+            &root,
+            "puid-1",
+            "iid-A",
+            "snare",
+            "inactive",
+            &now_rfc3339(),
+        );
         // Display は Active 要求のまま除外（B-059 / ZSA 不変）。
-        assert!(select_target_pre(&root, "snare").is_none(), "Display: Inactive は除外（不変）");
+        assert!(
+            select_target_pre(&root, "snare").is_none(),
+            "Display: Inactive は除外（不変）"
+        );
         // Arm は Inactive を許容（B-104 / 停止中アーム）。
-        let sel = select_target_pre_for_arm(&root, "snare").expect("Arm: Inactive+fresh+一意 → Some");
+        let sel =
+            select_target_pre_for_arm(&root, "snare").expect("Arm: Inactive+fresh+一意 → Some");
         assert_eq!(sel.instance_id, "iid-A");
     }
 
@@ -1657,11 +1700,25 @@ mod tests {
         let root = isolated_dir();
         let p = root.join("puid-1").join("iid-A").join("pre.json");
         // idle: fresh だが signal_state!=active。
-        write_pre_for_select(&root, "puid-1", "iid-A", "snare", "inactive", &now_rfc3339());
+        write_pre_for_select(
+            &root,
+            "puid-1",
+            "iid-A",
+            "snare",
+            "inactive",
+            &now_rfc3339(),
+        );
         let st = read_pre_at(&p).unwrap();
         assert!(!st.active && st.fresh, "idle: active=false fresh=true");
         // stale: t age > NO_PRE_SECS。
-        write_pre_for_select(&root, "puid-1", "iid-A", "snare", "active", &old_rfc3339(20));
+        write_pre_for_select(
+            &root,
+            "puid-1",
+            "iid-A",
+            "snare",
+            "active",
+            &old_rfc3339(20),
+        );
         assert!(!read_pre_at(&p).unwrap().fresh, "stale>10s → fresh=false");
         // gone。
         fs::remove_file(&p).unwrap();
@@ -1706,7 +1763,14 @@ mod tests {
     #[test]
     fn select_target_pre_for_arm_bypassed_excluded() {
         let root = isolated_dir();
-        write_pre_for_select(&root, "puid-1", "iid-A", "snare", "bypassed", &now_rfc3339());
+        write_pre_for_select(
+            &root,
+            "puid-1",
+            "iid-A",
+            "snare",
+            "bypassed",
+            &now_rfc3339(),
+        );
         assert!(
             select_target_pre_for_arm(&root, "snare").is_none(),
             "Arm: Bypassed は除外（非Bypassed 要求）"
@@ -1717,7 +1781,14 @@ mod tests {
     #[test]
     fn select_target_pre_for_arm_stale_t_excluded() {
         let root = isolated_dir();
-        write_pre_for_select(&root, "puid-1", "iid-A", "snare", "inactive", &old_rfc3339(20));
+        write_pre_for_select(
+            &root,
+            "puid-1",
+            "iid-A",
+            "snare",
+            "inactive",
+            &old_rfc3339(20),
+        );
         assert!(
             select_target_pre_for_arm(&root, "snare").is_none(),
             "Arm: 古 t（≥10s）は除外（fresh 要求は維持）"
@@ -1741,8 +1812,18 @@ mod tests {
     #[test]
     fn select_target_pre_for_arm_empty_name_returns_none() {
         let root = isolated_dir();
-        write_pre_for_select(&root, "puid-1", "iid-A", "snare", "inactive", &now_rfc3339());
-        assert!(select_target_pre_for_arm(&root, "").is_none(), "Arm: 空名は None");
+        write_pre_for_select(
+            &root,
+            "puid-1",
+            "iid-A",
+            "snare",
+            "inactive",
+            &now_rfc3339(),
+        );
+        assert!(
+            select_target_pre_for_arm(&root, "").is_none(),
+            "Arm: 空名は None"
+        );
     }
 
     // ── B-103: sweep_stale_pending_in（起動時 dead Pending 掃除）─────────────────────
@@ -1771,9 +1852,18 @@ mod tests {
 
         let cleared = sweep_stale_pending_in(&base, now, STALE_PENDING_SECS);
         assert_eq!(cleared, 1, "stale Pending 1 件のみ掃除");
-        assert!(read_signal(&base, "ph", "post-stale").is_none(), "stale Pending は削除");
-        assert!(read_signal(&base, "ph", "post-fresh").is_some(), "fresh Pending は保持");
-        assert!(read_signal(&base, "ph", "post-ack").is_some(), "Acknowledged は保持（age 無関係）");
+        assert!(
+            read_signal(&base, "ph", "post-stale").is_none(),
+            "stale Pending は削除"
+        );
+        assert!(
+            read_signal(&base, "ph", "post-fresh").is_some(),
+            "fresh Pending は保持"
+        );
+        assert!(
+            read_signal(&base, "ph", "post-ack").is_some(),
+            "Acknowledged は保持（age 無関係）"
+        );
     }
 
     /// しきい値ちょうど(=stale_secs)は保持、超過(+1)で掃除（is_timed_out と同じ strict-greater 境界）。
@@ -1783,8 +1873,16 @@ mod tests {
         let now = Utc::now();
         write_pending(&base, "ph", "post-edge", "pre".into(), "daw".into()).unwrap();
         backdate_signal_t(&base, "ph", "post-edge", now, STALE_PENDING_SECS);
-        assert_eq!(sweep_stale_pending_in(&base, now, STALE_PENDING_SECS), 0, "境界ちょうど = 保持");
+        assert_eq!(
+            sweep_stale_pending_in(&base, now, STALE_PENDING_SECS),
+            0,
+            "境界ちょうど = 保持"
+        );
         backdate_signal_t(&base, "ph", "post-edge", now, STALE_PENDING_SECS + 1);
-        assert_eq!(sweep_stale_pending_in(&base, now, STALE_PENDING_SECS), 1, "超過 = 掃除");
+        assert_eq!(
+            sweep_stale_pending_in(&base, now, STALE_PENDING_SECS),
+            1,
+            "超過 = 掃除"
+        );
     }
 }

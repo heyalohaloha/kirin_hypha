@@ -9,7 +9,8 @@
 
 use kirin_hypha_ffi::{
     kirin_hypha_create, kirin_hypha_destroy, kirin_hypha_poll_result, kirin_hypha_poll_session,
-    kirin_hypha_push_samples, kirin_hypha_set_signal_state, KirinMeasureResult, KirinSessionSummary,
+    kirin_hypha_push_samples, kirin_hypha_set_signal_state, KirinMeasureResult,
+    KirinSessionSummary,
 };
 
 #[test]
@@ -64,7 +65,10 @@ fn normal_lifecycle_intact_through_c_abi() {
 
         // poll_session は Phase 1 で常に false。
         let mut ss = std::mem::zeroed::<KirinSessionSummary>();
-        assert!(!kirin_hypha_poll_session(h, &mut ss), "poll_session is false in Phase 1");
+        assert!(
+            !kirin_hypha_poll_session(h, &mut ss),
+            "poll_session is false in Phase 1"
+        );
 
         kirin_hypha_destroy(h);
     }

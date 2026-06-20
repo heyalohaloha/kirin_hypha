@@ -2,10 +2,10 @@ mod editor;
 
 use kirin_measure::{
     daw_session_id, ensure_legacy_cleanup_done, identity_instance_attach, identity_instance_detach,
-    live_window, load_license_safe, process_project_hash,
-    set_daw_session_id, set_project_uuid, spawn_io_thread_pre, spawn_measure_thread,
-    spawn_watchdog, store_signal_state, License, LivenessEvaluator, MeasureResult, RecordStateMachine,
-    SessionSummary, SignalState, WatchdogIo, WatchdogParams, N_CHANNELS, RING_BUFFER_SECONDS,
+    live_window, load_license_safe, process_project_hash, set_daw_session_id, set_project_uuid,
+    spawn_io_thread_pre, spawn_measure_thread, spawn_watchdog, store_signal_state, License,
+    LivenessEvaluator, MeasureResult, RecordStateMachine, SessionSummary, SignalState, WatchdogIo,
+    WatchdogParams, N_CHANNELS, RING_BUFFER_SECONDS,
 };
 use nih_plug::prelude::*;
 use nih_plug_egui::EguiState;
@@ -141,7 +141,10 @@ impl Default for HyphaPre {
 
         // B-118: heartbeat を先に作り、同一 Arc を観測する単一鮮度評価器を構築する。
         let heartbeat = Arc::new(AtomicU32::new(0));
-        let liveness = Arc::new(LivenessEvaluator::new(Arc::clone(&heartbeat), live_window()));
+        let liveness = Arc::new(LivenessEvaluator::new(
+            Arc::clone(&heartbeat),
+            live_window(),
+        ));
 
         Self {
             params: Arc::new(HyphaPreParams::default()),
@@ -256,12 +259,34 @@ impl Plugin for HyphaPre {
         // 値がそのまま残る）。
         // B-128 (G-115-371 / D2): restore 受領点（egui）の同期 materialize（FFI set_identity と対称）。
         // io_thread spawn より前に params の path-unsafe identity を new_v4 へ畳む（両殻 D2 統一）。
-        kirin_measure::normalize_restore_cell(&self.params.instance_id, "egui_pre.initialize.instance_id", None);
+        kirin_measure::normalize_restore_cell(
+            &self.params.instance_id,
+            "egui_pre.initialize.instance_id",
+            None,
+        );
         // D3: materialize 済 instance_id を tag に project_uuid / daw の anomaly を per-instance routing。
-        let iid_tag = self.params.instance_id.read().ok().map(|g| g.clone()).unwrap_or_default();
-        let tag = if iid_tag.is_empty() { None } else { Some(iid_tag.as_str()) };
-        kirin_measure::normalize_restore_cell(&self.params.project_uuid, "egui_pre.initialize.project_uuid", tag);
-        kirin_measure::normalize_restore_cell(&self.params.daw_session_uuid, "egui_pre.initialize.daw_session_uuid", tag);
+        let iid_tag = self
+            .params
+            .instance_id
+            .read()
+            .ok()
+            .map(|g| g.clone())
+            .unwrap_or_default();
+        let tag = if iid_tag.is_empty() {
+            None
+        } else {
+            Some(iid_tag.as_str())
+        };
+        kirin_measure::normalize_restore_cell(
+            &self.params.project_uuid,
+            "egui_pre.initialize.project_uuid",
+            tag,
+        );
+        kirin_measure::normalize_restore_cell(
+            &self.params.daw_session_uuid,
+            "egui_pre.initialize.daw_session_uuid",
+            tag,
+        );
         let persisted_project_uuid = read_persisted_string(&self.params.project_uuid);
         let persisted_session_uuid = read_persisted_string(&self.params.daw_session_uuid);
         if !persisted_project_uuid.is_empty() {
@@ -309,8 +334,7 @@ impl Plugin for HyphaPre {
         }
         self.process_counter = 0;
 
-        let capacity =
-            (buffer_config.sample_rate as usize) * RING_BUFFER_SECONDS * N_CHANNELS;
+        let capacity = (buffer_config.sample_rate as usize) * RING_BUFFER_SECONDS * N_CHANNELS;
         let (producer, consumer) = rtrb::RingBuffer::new(capacity);
         self.ring_producer = Some(producer);
 
@@ -319,6 +343,7 @@ impl Plugin for HyphaPre {
         let measure_handle = spawn_measure_thread(
             consumer,
             buffer_config.sample_rate as u32,
+            N_CHANNELS,
             Arc::clone(&self.measure_result),
             Arc::clone(&self.signal_state),
             Arc::clone(&self.measure_shutdown),
@@ -399,6 +424,7 @@ impl Plugin for HyphaPre {
 
         self.watchdog_handle = Some(spawn_watchdog(WatchdogParams {
             sample_rate: buffer_config.sample_rate as u32,
+            n_channels: N_CHANNELS,
             ring_capacity: capacity,
             measure_result: Arc::clone(&self.measure_result),
             signal_state: Arc::clone(&self.signal_state),
@@ -463,7 +489,10 @@ impl Plugin for HyphaPre {
         if self.process_counter & 0xFF == 0 {
             log::info!(
                 "[PRE diag] state={:?} bypass={} playing={} silent={} buf_len={}",
-                state, bypass_val, playing, silent,
+                state,
+                bypass_val,
+                playing,
+                silent,
                 buffer.samples()
             );
 
@@ -532,11 +561,23 @@ mod b107_silence_tests {
         let lin = |dbfs: f32| 10f32.powf(dbfs / 20.0);
         assert!(sample_is_silent(0.0), "厳密0 は無音");
         assert!(sample_is_silent(lin(-141.0)), "-141 dBFS は無音 (< -140)");
-        assert!(sample_is_silent(-lin(-141.0)), "-141 dBFS 負符号も無音 (abs)");
-        assert!(!sample_is_silent(lin(-139.0)), "-139 dBFS は非無音 (> -140)");
-        assert!(!sample_is_silent(-lin(-139.0)), "-139 dBFS 負符号も非無音 (abs)");
+        assert!(
+            sample_is_silent(-lin(-141.0)),
+            "-141 dBFS 負符号も無音 (abs)"
+        );
+        assert!(
+            !sample_is_silent(lin(-139.0)),
+            "-139 dBFS は非無音 (> -140)"
+        );
+        assert!(
+            !sample_is_silent(-lin(-139.0)),
+            "-139 dBFS 負符号も非無音 (abs)"
+        );
         // ちょうど -140 dBFS = SILENCE_PEAK_LINEAR は >= しきい値 → 非無音（peak < -140 のみ無音）。
-        assert!(!sample_is_silent(SILENCE_PEAK_LINEAR), "ちょうど -140 dBFS は非無音（境界）");
+        assert!(
+            !sample_is_silent(SILENCE_PEAK_LINEAR),
+            "ちょうど -140 dBFS は非無音（境界）"
+        );
     }
 }
 
@@ -566,10 +607,8 @@ mod name_persist_tests {
         let original = "AbcDefGhi1234567"; // 16 文字 (上限)
         assert_eq!(original.len(), 16);
         let rw: RwLock<String> = RwLock::new(original.to_string());
-        let json =
-            serialize_field(&*rw.read().unwrap()).expect("serialize ascii_16");
-        let restored: String =
-            deserialize_field(&json).expect("deserialize ascii_16");
+        let json = serialize_field(&*rw.read().unwrap()).expect("serialize ascii_16");
+        let restored: String = deserialize_field(&json).expect("deserialize ascii_16");
         let rw2: RwLock<String> = RwLock::new(restored);
         assert_eq!(*rw2.read().unwrap(), original);
     }

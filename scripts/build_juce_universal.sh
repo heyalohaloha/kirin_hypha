@@ -55,6 +55,21 @@ echo "==> apply juce_shell/patches/0002 (idempotent)"
   fi
 )
 
+# B-139: apply juce_shell/patches/0003 (AU preferred channel layout tags for Logic mono menu).
+# JUCE 7's AU wrapper skips explicit layout tags when PreferredChannelConfigurations is used.
+# Logic relies on those tags for mono/stereo menu variants, so this patch publishes Mono/Stereo
+# tags from the existing {1,1}, {2,2} map. Same idempotent discipline as 0001/0002.
+echo "==> apply juce_shell/patches/0003 (idempotent)"
+(
+  cd juce_shell/JUCE
+  if git apply --unidiff-zero --ignore-whitespace --reverse --check ../patches/0003-au-preferred-channel-layout-tags-for-logic-mono.patch 2>/dev/null; then
+    echo "patches/0003 already applied — skipping"
+  else
+    git apply --unidiff-zero --ignore-whitespace ../patches/0003-au-preferred-channel-layout-tags-for-logic-mono.patch
+    echo "patches/0003 applied"
+  fi
+)
+
 echo "==> cmake configure (universal: x86_64;arm64 + universal staticlib)"
 cmake -S juce_shell -B juce_shell/build-universal \
   -DCMAKE_BUILD_TYPE=Release \

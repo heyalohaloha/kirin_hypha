@@ -75,7 +75,9 @@ impl BackgroundTexture {
         // 3. 描画（`ctx.screen_rect()` で常にウィンドウ全体を取得。
         //   `ui.max_rect()` は CentralPanel 初回 frame のレイアウト計算が
         //   確定する前に呼ばれると縮退したサイズを返す場合がある）
-        let Some(handle) = self.handle.as_ref() else { return };
+        let Some(handle) = self.handle.as_ref() else {
+            return;
+        };
         let rect = ctx.screen_rect();
         ui.painter().image(
             handle.id(),

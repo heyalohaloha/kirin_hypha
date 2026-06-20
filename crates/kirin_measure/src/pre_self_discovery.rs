@@ -264,9 +264,7 @@ mod tests {
         static COUNTER: AtomicU64 = AtomicU64::new(0);
         let n = COUNTER.fetch_add(1, Ordering::Relaxed);
         let pid = std::process::id();
-        let root = std::env::temp_dir().join(format!(
-            "kirin_pre_self_discovery_{label}_{pid}_{n}"
-        ));
+        let root = std::env::temp_dir().join(format!("kirin_pre_self_discovery_{label}_{pid}_{n}"));
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(&root).unwrap();
         root
@@ -447,8 +445,7 @@ mod tests {
         touch_signal(&root, "post-proj-X", "post-X-1", "pre-target");
 
         let result = discover_pair_post_project_dir(&root, "pre-target");
-        let (project_dir, session_id) =
-            result.expect("一致 signal が 1 件あれば必ず Some を返す");
+        let (project_dir, session_id) = result.expect("一致 signal が 1 件あれば必ず Some を返す");
         assert_eq!(project_dir, root.join("post-proj-X"));
         assert_eq!(
             session_id, "daw-test",

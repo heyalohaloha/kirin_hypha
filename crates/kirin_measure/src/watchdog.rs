@@ -71,6 +71,8 @@ pub enum WatchdogIo {
 pub struct WatchdogParams {
     /// 計測スレッドのサンプルレート（再起動時の ring buffer 再生成に使う）
     pub sample_rate: u32,
+    /// 計測スレッドの入力チャンネル数（1=mono / 2=stereo）。再起動後も同じ layout を維持する。
+    pub n_channels: usize,
     /// ring buffer 容量（samples）
     pub ring_capacity: usize,
     /// 計測結果共有（再起動した Measure Thread に渡す）
@@ -107,6 +109,7 @@ pub fn spawn_watchdog(params: WatchdogParams) -> JoinHandle<()> {
     thread::spawn(move || {
         let WatchdogParams {
             sample_rate,
+            n_channels,
             ring_capacity,
             measure_result,
             signal_state,
@@ -158,6 +161,7 @@ pub fn spawn_watchdog(params: WatchdogParams) -> JoinHandle<()> {
                 cur_measure = spawn_measure_thread(
                     consumer,
                     sample_rate,
+                    n_channels,
                     Arc::clone(&measure_result),
                     Arc::clone(&signal_state),
                     Arc::clone(&measure_shutdown),

@@ -83,7 +83,11 @@ impl StftProcessor {
             self.ring_write = (self.ring_write + 1) % STFT_FFT_SIZE;
             self.samples_since_last_frame += 1;
 
-            let boundary = if self.first_frame { STFT_FFT_SIZE } else { STFT_HOP_SIZE };
+            let boundary = if self.first_frame {
+                STFT_FFT_SIZE
+            } else {
+                STFT_HOP_SIZE
+            };
             if self.samples_since_last_frame >= boundary {
                 self.samples_since_last_frame = 0;
                 self.first_frame = false;

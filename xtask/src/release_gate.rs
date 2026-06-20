@@ -85,7 +85,10 @@ fn normalized_absolute(path: &Path) -> Result<PathBuf> {
             Component::CurDir => {}
             Component::ParentDir => {
                 if !normalized.pop() {
-                    bail!("dist path escapes above filesystem root: {}", path.display());
+                    bail!(
+                        "dist path escapes above filesystem root: {}",
+                        path.display()
+                    );
                 }
             }
             Component::Normal(part) => normalized.push(part),

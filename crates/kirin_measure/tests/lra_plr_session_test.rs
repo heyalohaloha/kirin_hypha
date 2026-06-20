@@ -120,8 +120,8 @@ fn set_session_aggregates_writes_lufs_i_lra_plr_to_json() {
         // close() は self を消費するので path は事前にコピー
         let path = w.data() as *const _;
         let _ = path; // unused; we'll use a fresh path via flush+close below
-        // 取得しやすい方法: writer 内部の final_path を見るには公開メソッドが無いため
-        // ここでは flush 後に WriterPaths から構築した path を再利用する。
+                      // 取得しやすい方法: writer 内部の final_path を見るには公開メソッドが無いため
+                      // ここでは flush 後に WriterPaths から構築した path を再利用する。
         WriterPaths::build(
             &base,
             "b043_ph",
@@ -160,7 +160,10 @@ fn plr_omitted_when_lufs_i_is_none() {
 
     // 注入後の json で lufs_i / lra / plr が省略されること
     let json = serde_json::to_string(w.data()).unwrap();
-    assert!(!json.contains("\"lufs_i\""), "lufs_i must be omitted: {json}");
+    assert!(
+        !json.contains("\"lufs_i\""),
+        "lufs_i must be omitted: {json}"
+    );
     assert!(!json.contains("\"lra\""), "lra must be omitted: {json}");
     assert!(!json.contains("\"plr\""), "plr must be omitted: {json}");
 }
@@ -173,7 +176,10 @@ fn frame_psr_none_is_omitted_from_json() {
     w.append_frame(0, [1.0; 20], 1.0, -14.0, -1.0, 12.0, None);
     let json = serde_json::to_string(w.data()).unwrap();
     // schema 1.3 で psr は skip_serializing_if = Option::is_none
-    assert!(!json.contains("\"psr\""), "psr=None must be omitted: {json}");
+    assert!(
+        !json.contains("\"psr\""),
+        "psr=None must be omitted: {json}"
+    );
 }
 
 #[test]

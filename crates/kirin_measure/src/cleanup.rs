@@ -54,7 +54,9 @@ pub fn exit_record_full(
 ) {
     record_sm.exit_record();
     clear_pair_label(pair_label);
-    *paired_pre_target.lock().expect("paired_pre_target poisoned") = None;
+    *paired_pre_target
+        .lock()
+        .expect("paired_pre_target poisoned") = None;
 }
 
 #[cfg(test)]
@@ -64,7 +66,11 @@ mod tests {
     use crate::record::{RecordState, RecordStateMachine};
 
     #[allow(clippy::type_complexity)]
-    fn fresh_state() -> (Arc<RecordStateMachine>, Arc<Mutex<String>>, Arc<Mutex<Option<String>>>) {
+    fn fresh_state() -> (
+        Arc<RecordStateMachine>,
+        Arc<Mutex<String>>,
+        Arc<Mutex<Option<String>>>,
+    ) {
         let sm = Arc::new(RecordStateMachine::new());
         sm.try_enter_record(License::Os).unwrap();
         let label = Arc::new(Mutex::new("pair: deadbeef".to_string()));
@@ -84,7 +90,10 @@ mod tests {
 
         assert_eq!(sm.current(), RecordState::Watch, "exit_record() must run");
         assert!(label.lock().unwrap().is_empty(), "pair_label must be empty");
-        assert!(target.lock().unwrap().is_none(), "paired_pre_target must be None");
+        assert!(
+            target.lock().unwrap().is_none(),
+            "paired_pre_target must be None"
+        );
     }
 
     /// 冪等性: 既に Watch / 空文字 / None でも何も壊さない.

@@ -26,11 +26,24 @@ pub mod preset_v2;
 pub mod record;
 pub mod record_signal;
 pub mod record_writer;
-pub mod reservation;
 pub mod resampler;
+pub mod reservation;
 pub mod storage;
 pub mod watchdog;
 
+pub use all_keep_signal::{
+    delete_broadcast, is_broadcast_stale, read_broadcast, scan_broadcasts_dir,
+    signal_path as all_keep_signal_path, signals_dir as all_keep_signals_dir, write_broadcast,
+    write_broadcast_signal, AllKeepBroadcast, AllKeepError, ALL_KEEP_BROADCAST_STALE_SECS,
+    ALL_KEEP_SCHEMA_VERSION, ALL_KEEP_SIGNAL_SUBDIR,
+};
+pub use all_stop_signal::{
+    delete_stop_broadcast, is_stop_broadcast_stale, read_stop_broadcast, scan_stop_broadcasts_dir,
+    stop_signal_path as all_stop_signal_path, stop_signals_dir as all_stop_signals_dir,
+    write_stop_broadcast, write_stop_broadcast_signal, AllStopBroadcast, AllStopError,
+    ALL_STOP_BROADCAST_STALE_SECS, ALL_STOP_SCHEMA_VERSION, ALL_STOP_SIGNAL_SUBDIR,
+};
+pub use cleanup::{clear_pair_label, exit_record_full};
 pub use delta::{DeltaMode, DeltaResult, DeltaSnapshot};
 pub use engine::{MeasureEngine, SessionSummary};
 pub use exclusion::{
@@ -81,28 +94,13 @@ pub use preset_v2::{
     verify_preset_v2, Card as PresetV2Card, PresetFileV2,
     SectionBoundary as PresetV2SectionBoundary, Summary as PresetV2Summary, VerifyErrorV2,
 };
-pub use all_keep_signal::{
-    delete_broadcast, is_broadcast_stale, read_broadcast, scan_broadcasts_dir,
-    signal_path as all_keep_signal_path, signals_dir as all_keep_signals_dir, write_broadcast,
-    write_broadcast_signal, AllKeepBroadcast, AllKeepError, ALL_KEEP_BROADCAST_STALE_SECS,
-    ALL_KEEP_SCHEMA_VERSION, ALL_KEEP_SIGNAL_SUBDIR,
-};
-pub use all_stop_signal::{
-    delete_stop_broadcast, is_stop_broadcast_stale, read_stop_broadcast,
-    scan_stop_broadcasts_dir, stop_signal_path as all_stop_signal_path,
-    stop_signals_dir as all_stop_signals_dir, write_stop_broadcast, write_stop_broadcast_signal,
-    AllStopBroadcast, AllStopError, ALL_STOP_BROADCAST_STALE_SECS, ALL_STOP_SCHEMA_VERSION,
-    ALL_STOP_SIGNAL_SUBDIR,
-};
-pub use cleanup::{clear_pair_label, exit_record_full};
 pub use record::{RecordState, RecordStateMachine, TransitionError};
 pub use record_signal::{
-    delete_signal, enumerate_active_pre_pair_candidates, filter_candidates_by_name,
-    is_timed_out, mark_acknowledged, mark_released, pick_closest_pre, read_pre_at, read_signal,
+    delete_signal, enumerate_active_pre_pair_candidates, filter_candidates_by_name, is_timed_out,
+    mark_acknowledged, mark_released, pick_closest_pre, read_pre_at, read_signal,
     resolve_arm_target, scan_pre_candidates, scan_pre_candidates_in, scan_signals_dir,
-    select_target_pre, select_target_pre_for_arm, signal_path,
-    signals_dir, write_pending, write_signal, LatchedPre, LatchedPreState, PostMetrics,
-    PreCandidate, RecordSignal,
+    select_target_pre, select_target_pre_for_arm, signal_path, signals_dir, write_pending,
+    write_signal, LatchedPre, LatchedPreState, PostMetrics, PreCandidate, RecordSignal,
     SelectedPre, SignalError, SignalStatus, ACK_TIMEOUT_SECONDS, SIGNALS_SUBDIR, SIGNAL_FILENAME,
 };
 pub use storage::{
@@ -110,9 +108,7 @@ pub use storage::{
     write_identity_atomic, CleanupReport, IdentityCache, LoadStatus, LoadedIdentity, StorageError,
     StoragePaths, CLEANUP_V1_DONE_FILENAME,
 };
-pub use watchdog::{
-    spawn_watchdog, IoThreadHandle, RestartIoFn, WatchdogIo, WatchdogParams,
-};
+pub use watchdog::{spawn_watchdog, IoThreadHandle, RestartIoFn, WatchdogIo, WatchdogParams};
 
 use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
@@ -388,7 +384,9 @@ pub fn ensure_legacy_cleanup_done() {
             let report = storage::cleanup_legacy_v1(&paths);
             log::info!(
                 "[startup] cleanup_v1: ran={} removed={} errors={}",
-                report.ran, report.removed, report.errors
+                report.ran,
+                report.removed,
+                report.errors
             );
         }
     });
@@ -575,7 +573,10 @@ mod b110_identity_reset_tests {
         // 全削除（refcount 0）→ clear。
         lc.detach(|| clear(&cell));
         assert_eq!(lc.count(), 0);
-        assert!(read(&cell).is_empty(), "refcount 0 で共有セルが clear される");
+        assert!(
+            read(&cell).is_empty(),
+            "refcount 0 で共有セルが clear される"
+        );
         // 即追加（新インスタンス）→ 空セルなので新しい値を生成。
         lc.attach();
         let uuid2 = seed_or_generate(&cell, "uuid-gen-2");
@@ -674,7 +675,11 @@ mod b110_identity_reset_tests {
         assert_eq!(lc.attach(), 1);
         assert_eq!(lc.attach(), 2);
         assert_eq!(lc.detach(bump), 1);
-        assert_eq!(cleared.load(Ordering::SeqCst), 0, "0 でないので clear しない");
+        assert_eq!(
+            cleared.load(Ordering::SeqCst),
+            0,
+            "0 でないので clear しない"
+        );
         assert_eq!(lc.detach(bump), 0);
         assert_eq!(
             cleared.load(Ordering::SeqCst),

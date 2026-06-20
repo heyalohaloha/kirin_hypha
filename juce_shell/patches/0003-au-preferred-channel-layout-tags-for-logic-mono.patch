@@ -1,0 +1,59 @@
+diff --git a/modules/juce_audio_plugin_client/juce_audio_plugin_client_AU_1.mm b/modules/juce_audio_plugin_client/juce_audio_plugin_client_AU_1.mm
+index c1ed41aa97..8c03d595c7 100644
+--- a/modules/juce_audio_plugin_client/juce_audio_plugin_client_AU_1.mm
++++ b/modules/juce_audio_plugin_client/juce_audio_plugin_client_AU_1.mm
+@@ -913,12 +913,42 @@ UInt32 GetAudioChannelLayout (AudioUnitScope scope,
+-    std::vector<AudioChannelLayoutTag> GetChannelLayoutTags (AudioUnitScope inScope, AudioUnitElement inElement) override
+-    {
+-        const auto info = getElementInfo (inScope, inElement);
+-
+-        if (info.error != noErr)
+-            return {};
+-
+-        if (busIgnoresLayout (info.isInput, info.busNr))
+-            return {};
+-
+-        return getSupportedBusLayouts (info.isInput, info.busNr);
+-    }
++    std::vector<AudioChannelLayoutTag> GetChannelLayoutTags (AudioUnitScope inScope, AudioUnitElement inElement) override
++    {
++       #if KIRIN_AU_SUPPRESS_SUPPORTED_CHANNEL_LAYOUT_TAGS
++        ignoreUnused (inScope, inElement);
++        return {};
++       #else
++        const auto info = getElementInfo (inScope, inElement);
++
++        if (info.error != noErr)
++            return {};
++
++       #ifdef JucePlugin_PreferredChannelConfigurations
++        std::set<AudioChannelLayoutTag> tags;
++        const short configs[][2] = { JucePlugin_PreferredChannelConfigurations };
++
++        for (const auto& config : configs)
++        {
++            const int numChannels = info.isInput ? config[0] : config[1];
++
++            if (numChannels <= 0)
++                continue;
++
++            if (! AudioUnitHelpers::isLayoutSupported (*juceFilter, info.isInput, info.busNr, numChannels, configs))
++                continue;
++
++            if (numChannels == 1)
++                tags.insert (kAudioChannelLayoutTag_Mono);
++            else if (numChannels == 2)
++                tags.insert (kAudioChannelLayoutTag_Stereo);
++            else
++                tags.insert (static_cast<AudioChannelLayoutTag> ((int) kAudioChannelLayoutTag_DiscreteInOrder | numChannels));
++        }
++
++        return std::vector<AudioChannelLayoutTag> (tags.begin(), tags.end());
++       #else
++        if (busIgnoresLayout (info.isInput, info.busNr))
++            return {};
++
++        return getSupportedBusLayouts (info.isInput, info.busNr);
++       #endif
++       #endif
++    }

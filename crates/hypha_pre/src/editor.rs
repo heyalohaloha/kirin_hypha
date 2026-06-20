@@ -47,8 +47,7 @@ const HELP_SHARP: &str = "Sharpness — high-frequency content weighting,\nDIN 4
 ///
 /// `param_slider.rs:17-20` 同パターンで `LazyLock<egui::Id>` 静的定義
 /// (毎フレーム `Id::new(...)` を呼ばない / 同一 ID で memory 経由 focus 状態を判定)。
-static NAME_FOCUS_ID: LazyLock<egui::Id> =
-    LazyLock::new(|| egui::Id::new("hypha_pre_name_edit"));
+static NAME_FOCUS_ID: LazyLock<egui::Id> = LazyLock::new(|| egui::Id::new("hypha_pre_name_edit"));
 
 /// B-023 段階 2: Name 編集モード判定 (egui memory ベース)。
 ///
@@ -239,7 +238,8 @@ fn draw_pre(
                 ui.add_space(10.0);
                 let w = ui.available_width() - 10.0;
                 let (rect, _) = ui.allocate_exact_size(Vec2::new(w, 1.0), egui::Sense::hover());
-                ui.painter().hline(rect.x_range(), rect.center().y, Stroke::new(1.0, COL_FLORA));
+                ui.painter()
+                    .hline(rect.x_range(), rect.center().y, Stroke::new(1.0, COL_FLORA));
             });
             ui.add_space(6.0);
 
@@ -279,12 +279,7 @@ fn draw_pre(
                 ui.add_space(4.0);
                 ui.horizontal(|ui| {
                     ui.add_space(10.0);
-                    ui.label(
-                        RichText::new(msg)
-                            .size(11.0)
-                            .color(COL_MUTED)
-                            .monospace(),
-                    );
+                    ui.label(RichText::new(msg).size(11.0).color(COL_MUTED).monospace());
                 });
             }
 
@@ -324,7 +319,12 @@ fn draw_name_field(ui: &mut egui::Ui, state: &mut PreEditorState) {
             state.edit_buffer = sanitize_name(&state.edit_buffer);
         }
     } else {
-        let raw_name = state.name.read().ok().map(|g| g.clone()).unwrap_or_default();
+        let raw_name = state
+            .name
+            .read()
+            .ok()
+            .map(|g| g.clone())
+            .unwrap_or_default();
         let display = if raw_name.is_empty() {
             let iid = state
                 .instance_id
@@ -364,26 +364,46 @@ fn draw_watch_grid(ui: &mut egui::Ui, m: &MeasureResult, show_values: bool) {
             .show(ui, |ui| {
                 if show_values {
                     value_row_with_hover(
-                        ui, "LUFS-M", fmt_val(m.lufs_m), "LUFS",
-                        val_color(m.lufs_m), HELP_LUFS_M,
+                        ui,
+                        "LUFS-M",
+                        fmt_val(m.lufs_m),
+                        "LUFS",
+                        val_color(m.lufs_m),
+                        HELP_LUFS_M,
                     );
                     value_row_with_hover(
-                        ui, "TP", fmt_val(m.true_peak), "dBTP",
-                        tp_color(m.true_peak), HELP_TP,
+                        ui,
+                        "TP",
+                        fmt_val(m.true_peak),
+                        "dBTP",
+                        tp_color(m.true_peak),
+                        HELP_TP,
                     );
                     value_row_with_hover(
-                        ui, "Crest", fmt_val(m.crest), "dB",
-                        val_color(m.crest), HELP_CREST,
+                        ui,
+                        "Crest",
+                        fmt_val(m.crest),
+                        "dB",
+                        val_color(m.crest),
+                        HELP_CREST,
                     );
                 } else {
                     value_row_with_hover(
-                        ui, "LUFS-M", "---".to_string(), "LUFS", COL_MUTED, HELP_LUFS_M,
+                        ui,
+                        "LUFS-M",
+                        "---".to_string(),
+                        "LUFS",
+                        COL_MUTED,
+                        HELP_LUFS_M,
                     );
+                    value_row_with_hover(ui, "TP", "---".to_string(), "dBTP", COL_MUTED, HELP_TP);
                     value_row_with_hover(
-                        ui, "TP", "---".to_string(), "dBTP", COL_MUTED, HELP_TP,
-                    );
-                    value_row_with_hover(
-                        ui, "Crest", "---".to_string(), "dB", COL_MUTED, HELP_CREST,
+                        ui,
+                        "Crest",
+                        "---".to_string(),
+                        "dB",
+                        COL_MUTED,
+                        HELP_CREST,
                     );
                 }
             });
@@ -402,28 +422,64 @@ fn draw_record_grid(ui: &mut egui::Ui, m: &MeasureResult, show_values: bool) {
             .spacing([6.0, 4.0])
             .show(ui, |ui| {
                 if show_values {
-                    row_pair(ui,
-                        ("LUFS-M", fmt_val(m.lufs_m), "LUFS", val_color(m.lufs_m), HELP_LUFS_M),
+                    row_pair(
+                        ui,
+                        (
+                            "LUFS-M",
+                            fmt_val(m.lufs_m),
+                            "LUFS",
+                            val_color(m.lufs_m),
+                            HELP_LUFS_M,
+                        ),
                         ("PSR", fmt_val(m.psr), "dB", val_color(m.psr), HELP_PSR),
                     );
-                    row_pair(ui,
-                        ("TP", fmt_val(m.true_peak), "dBTP", tp_color(m.true_peak), HELP_TP),
-                        ("N", fmt_val(m.n_prime_total), "sone", val_color(m.n_prime_total), HELP_N),
+                    row_pair(
+                        ui,
+                        (
+                            "TP",
+                            fmt_val(m.true_peak),
+                            "dBTP",
+                            tp_color(m.true_peak),
+                            HELP_TP,
+                        ),
+                        (
+                            "N",
+                            fmt_val(m.n_prime_total),
+                            "sone",
+                            val_color(m.n_prime_total),
+                            HELP_N,
+                        ),
                     );
-                    row_pair(ui,
-                        ("Crest", fmt_val(m.crest), "dB", val_color(m.crest), HELP_CREST),
-                        ("Sharp", fmt_val(m.sharpness), "acum", val_color(m.sharpness), HELP_SHARP),
+                    row_pair(
+                        ui,
+                        (
+                            "Crest",
+                            fmt_val(m.crest),
+                            "dB",
+                            val_color(m.crest),
+                            HELP_CREST,
+                        ),
+                        (
+                            "Sharp",
+                            fmt_val(m.sharpness),
+                            "acum",
+                            val_color(m.sharpness),
+                            HELP_SHARP,
+                        ),
                     );
                 } else {
-                    row_pair(ui,
+                    row_pair(
+                        ui,
                         ("LUFS-M", "---".to_string(), "LUFS", COL_MUTED, HELP_LUFS_M),
                         ("PSR", "---".to_string(), "dB", COL_MUTED, HELP_PSR),
                     );
-                    row_pair(ui,
+                    row_pair(
+                        ui,
                         ("TP", "---".to_string(), "dBTP", COL_MUTED, HELP_TP),
                         ("N", "---".to_string(), "sone", COL_MUTED, HELP_N),
                     );
-                    row_pair(ui,
+                    row_pair(
+                        ui,
                         ("Crest", "---".to_string(), "dB", COL_MUTED, HELP_CREST),
                         ("Sharp", "---".to_string(), "acum", COL_MUTED, HELP_SHARP),
                     );

@@ -21,6 +21,8 @@ namespace
 KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
     : juce::AudioProcessorEditor (&p), processorRef (p), isPost (p.isPostRole())
 {
+    setWantsKeyboardFocus (true);
+    setFocusContainerType (juce::Component::FocusContainerType::keyboardFocusContainer);
     setSize (300, 200); // egui EguiState::from_size(300, 200) — identical for PRE and POST
 
     addAndMakeVisible (led);

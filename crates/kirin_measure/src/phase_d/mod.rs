@@ -17,13 +17,13 @@
 //! T-1: バッチ処理インターフェース（Lens 互換テスト用）。
 //! T-2 でストリーミングアダプタを追加する。
 
-pub mod tables;
-pub mod filter_bank;
-pub mod core_loudness;
-pub mod nonlinear_decay;
 pub mod calc_slopes;
-pub mod temporal_weighting;
+pub mod core_loudness;
+pub mod filter_bank;
+pub mod nonlinear_decay;
 pub mod sharpness;
 pub mod spectral_balance;
 pub mod stft;
 pub mod stream;
+pub mod tables;
+pub mod temporal_weighting;

@@ -62,13 +62,18 @@ pub fn tp_over(tp: Option<f64>) -> bool {
 pub fn flora_line(ui: &mut egui::Ui) {
     let w = ui.available_width();
     let (rect, _) = ui.allocate_exact_size(Vec2::new(w, 1.0), egui::Sense::hover());
-    ui.painter().hline(rect.x_range(), rect.center().y, Stroke::new(1.0, COL_FLORA));
+    ui.painter()
+        .hline(rect.x_range(), rect.center().y, Stroke::new(1.0, COL_FLORA));
 }
 
 /// PRE/POST ペアリング表示。
 ///
 /// `pair_label` は空文字なら `"---"` を描画。長い文字列は省略しない（300px 幅に収まる想定）。
 pub fn pairing_label(ui: &mut egui::Ui, pair_label: &str) {
-    let text = if pair_label.is_empty() { "---" } else { pair_label };
+    let text = if pair_label.is_empty() {
+        "---"
+    } else {
+        pair_label
+    };
     ui.label(RichText::new(text).size(11.0).color(COL_MUTED).monospace());
 }

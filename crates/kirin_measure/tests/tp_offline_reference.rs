@@ -35,7 +35,12 @@ fn offline_true_peak_dBTP(path: &str) -> Result<f64, String> {
         hint.with_extension(ext);
     }
     let probed = symphonia::default::get_probe()
-        .format(&hint, mss, &FormatOptions::default(), &MetadataOptions::default())
+        .format(
+            &hint,
+            mss,
+            &FormatOptions::default(),
+            &MetadataOptions::default(),
+        )
         .map_err(|e| format!("probe: {}", e))?;
     let mut format = probed.format;
 
@@ -137,11 +142,15 @@ fn offline_true_peak_dBTP(path: &str) -> Result<f64, String> {
 fn tp_offline_phase_a04() {
     //  テスト信号 5本（manifest 06-10）
     let signals: &[(&str, f64, &str)] = &[
-        ("06_truepeak_phase0.wav",    0.0,  "997Hz 0dBFS phase0"),
-        ("07_truepeak_phase1.wav",    0.0,  "997Hz 0dBFS phase1"),
-        ("08_truepeak_phase2.wav",    0.0,  "997Hz 0dBFS phase2"),
-        ("09_truepeak_phase3.wav",    0.0,  "997Hz 0dBFS phase3"),
-        ("10_truepeak_near_nyquist.wav", -6.0, "11760Hz -6dBFS near-Nyquist"),
+        ("06_truepeak_phase0.wav", 0.0, "997Hz 0dBFS phase0"),
+        ("07_truepeak_phase1.wav", 0.0, "997Hz 0dBFS phase1"),
+        ("08_truepeak_phase2.wav", 0.0, "997Hz 0dBFS phase2"),
+        ("09_truepeak_phase3.wav", 0.0, "997Hz 0dBFS phase3"),
+        (
+            "10_truepeak_near_nyquist.wav",
+            -6.0,
+            "11760Hz -6dBFS near-Nyquist",
+        ),
     ];
 
     println!();
@@ -158,7 +167,9 @@ fn tp_offline_phase_a04() {
             Ok(tp) => {
                 let diff = tp - expected;
                 let ok = diff.abs() < 0.5;
-                if !ok { all_pass = false; }
+                if !ok {
+                    all_pass = false;
+                }
                 println!(
                     "║ {:<30} ║ {:>+7.3}  ║ {:>+7.3}  ║ {:>+7.3}  ║ 未測定      ║",
                     label, expected, tp, diff
@@ -166,7 +177,10 @@ fn tp_offline_phase_a04() {
             }
             Err(e) => {
                 all_pass = false;
-                println!("║ {:<30} ║ {:>+7.3}  ║ ERROR    ║ ---      ║ 未測定      ║", label, expected);
+                println!(
+                    "║ {:<30} ║ {:>+7.3}  ║ ERROR    ║ ---      ║ 未測定      ║",
+                    label, expected
+                );
                 eprintln!("  ERROR {}: {}", filename, e);
             }
         }

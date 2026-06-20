@@ -114,7 +114,14 @@ pub fn run(args: Vec<String>) -> Result<()> {
         .with_context(|| format!("write {}", sha_path.display()))?;
     fs::write(
         &manifest_path,
-        manifest_json(&version, &package_leaf, &sha, allow_unsigned, &source_git_dirty, &bundles)?,
+        manifest_json(
+            &version,
+            &package_leaf,
+            &sha,
+            allow_unsigned,
+            &source_git_dirty,
+            &bundles,
+        )?,
     )
     .with_context(|| format!("write {}", manifest_path.display()))?;
 
@@ -127,7 +134,7 @@ fn print_help() {
     eprintln!(
         "Usage: cargo run -p xtask -- release-package [--dist-dir dist] [--dry-run] [--allow-unsigned]\n\n\
          Builds the Lemon Squeezy upload zip from construction-C only: JUCE AU + egui VST3.\n\
-         Default checks: clean source worktree, Developer-ID team {TEAM_ID}, stapled, universal,\n\
+         Default checks: clean source worktree, Developer-ID team {TEAM_ID}, notarized, universal,\n\
          version-matched, no WebKit/DiscRecording. --allow-unsigned is forced to /tmp and marks\n\
          the zip as {UNSIGNED_SUFFIX}."
     );
@@ -185,7 +192,7 @@ fn verify_sources(bundles: &[ShipBundle], version: &str, allow_unsigned: bool) -
                 .with_context(|| format!("{} AU resourceUsage check failed", b.label))?;
         }
         if !allow_unsigned {
-            verify_signed_and_stapled(&b.src)
+            verify_signed_and_notarized(&b.src)
                 .with_context(|| format!("{} signing/notarization check failed", b.label))?;
         }
         eprintln!(
@@ -282,7 +289,29 @@ fn verify_au_resource_usage(bundle: &Path) -> Result<()> {
     Ok(())
 }
 
-fn verify_signed_and_stapled(bundle: &Path) -> Result<()> {
+fn verify_signed_and_notarized(bundle: &Path) -> Result<()> {
+    run_status(
+        Command::new("codesign")
+            .args(["--verify", "--deep", "--strict", "--verbose=2"])
+            .arg(bundle),
+        "codesign verify",
+    )?;
+    // B-139: plugin bundles (`.component` / `.vst3`, CFBundlePackageType=BNDL) are not a
+    // supported stapler target on macOS 15. `codesign --check-notarization` is the per-bundle
+    // release gate for the notarization ticket; any outer `.dmg` / `.pkg` container may still be
+    // stapled separately if we introduce one later.
+    run_status(
+        Command::new("codesign")
+            .args([
+                "--verify",
+                "--deep",
+                "--strict",
+                "--check-notarization",
+                "--verbose=2",
+            ])
+            .arg(bundle),
+        "codesign --check-notarization",
+    )?;
     let out = Command::new("codesign")
         .arg("-dvv")
         .arg(bundle)
@@ -296,18 +325,6 @@ fn verify_signed_and_stapled(bundle: &Path) -> Result<()> {
             info.trim()
         );
     }
-    run_status(
-        Command::new("codesign")
-            .args(["--verify", "--deep", "--strict", "--verbose=2"])
-            .arg(bundle),
-        "codesign verify",
-    )?;
-    run_status(
-        Command::new("xcrun")
-            .args(["stapler", "validate"])
-            .arg(bundle),
-        "stapler validate",
-    )?;
     Ok(())
 }
 

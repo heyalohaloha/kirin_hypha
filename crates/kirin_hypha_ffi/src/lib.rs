@@ -37,7 +37,7 @@ use std::cell::UnsafeCell;
 use std::ffi::CStr;
 use std::os::raw::{c_char, c_void};
 use std::panic::{catch_unwind, AssertUnwindSafe};
-use std::sync::atomic::{AtomicU32, AtomicU64, AtomicU8, AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::thread::JoinHandle;
 
@@ -47,17 +47,15 @@ use kirin_measure::engine::SessionSummary;
 use kirin_measure::reservation; // B-127 (G-115-364): per-pairing O_EXCL reservation
 use kirin_measure::{
     append_annotation_to_latest, can_write_plugin_data, check_record_exclusion,
-    count_distinct_pairings, identity_instance_attach, identity_instance_detach,
-    MAX_ACTIVE_PER_PROJECT,
-    enumerate_active_post_pair_candidates, enumerate_active_pre_pair_candidates, load_license_safe,
-    live_window, load_signal_state, mark_released,
-    resolve_arm_target, sanitize_name, set_daw_session_id, set_project_uuid,
-    spawn_io_thread_post,
-    spawn_io_thread_pre, spawn_measure_thread, spawn_watchdog, store_signal_state, write_broadcast,
-    write_pending, write_stop_broadcast, DeltaMode, DeltaResult, ExclusionResult, IoThreadHandle,
-    LatchedPre, License,
-    LivenessEvaluator, MeasureResult, PluginDataRole, PsbSummary, RecordStateMachine, RestartIoFn,
-    SignalState, StoragePaths, WatchdogIo, WatchdogParams, N_CHANNELS, RING_BUFFER_SECONDS,
+    count_distinct_pairings, enumerate_active_post_pair_candidates,
+    enumerate_active_pre_pair_candidates, identity_instance_attach, identity_instance_detach,
+    live_window, load_license_safe, load_signal_state, mark_released, resolve_arm_target,
+    sanitize_name, set_daw_session_id, set_project_uuid, spawn_io_thread_post, spawn_io_thread_pre,
+    spawn_measure_thread, spawn_watchdog, store_signal_state, write_broadcast, write_pending,
+    write_stop_broadcast, DeltaMode, DeltaResult, ExclusionResult, IoThreadHandle, LatchedPre,
+    License, LivenessEvaluator, MeasureResult, PluginDataRole, PsbSummary, RecordStateMachine,
+    RestartIoFn, SignalState, StoragePaths, WatchdogIo, WatchdogParams, MAX_ACTIVE_PER_PROJECT,
+    N_CHANNELS, RING_BUFFER_SECONDS,
 };
 
 /// state chunk 往復する識別子（方式A: JUCE が chunk bytes を所有・FFI は文字列 get/set のみ）。
@@ -70,6 +68,13 @@ struct IdentityState {
     name: String,
     /// enable 時に確定する派生 project_hash（= project_uuid）。add_annotation の path に使う。
     project_hash: String,
+}
+
+fn supported_channel_count(num_channels: u32) -> usize {
+    match num_channels {
+        1 | 2 => num_channels as usize,
+        _ => N_CHANNELS,
+    }
 }
 
 /// C ABI 識別子バッファ長（UUID 36 + null に十分）。
@@ -158,6 +163,8 @@ pub struct KirinHyphaEngine {
     license: Arc<AtomicU8>,
     /// `spawn_io_thread_pre` に渡す入力サンプルレート（create 時に保持）。
     sample_rate: u32,
+    /// create 時に確定した入力チャンネル数。1=mono / 2=stereo。
+    num_channels: usize,
     /// PRE/POST io_thread（B-057 3b / B-060 3d-a）。`enable_pre_writes` or
     /// `enable_post_writes` で 1 度だけ起動。B-118: watchdog（Lazy）と Arc 共有し、watchdog が
     /// is_finished 監視・crash 時 re-spawn・shutdown 時 join する。
@@ -383,19 +390,20 @@ fn resolve_and_enter_keep(
     // してから枠数を数えることで、active marker 出現前の TOCTOU 窓を cross-process で閉じる。cap は
     // 12 pairs。keep() / keep_all() / broadcast 受信 closure は全て本関数を通る（JUCE 殻 parity）。
     // reserve は 1 回だけ呼ぶ。Created = 本呼び出しが枠を作った（reject 時に解放する責務）。
-    let reservation_created = match reservation::reserve_pairing(&base, project_hash, &target, post_iid) {
-        Ok(reservation::ReserveOutcome::Created) => true,
-        Ok(reservation::ReserveOutcome::AlreadyReserved) => false,
-        // G-115-365 (3): 枠が取れない（write_all 失敗等の Err / 不完全枠は内部で unlink 済）= reject。
-        // 枠なしで keep に入らない。
-        Err(_) => {
-            if let Ok(mut g) = record_error_message.write() {
-                *g = Some("Maximum 12 pairs reached".to_string());
+    let reservation_created =
+        match reservation::reserve_pairing(&base, project_hash, &target, post_iid) {
+            Ok(reservation::ReserveOutcome::Created) => true,
+            Ok(reservation::ReserveOutcome::AlreadyReserved) => false,
+            // G-115-365 (3): 枠が取れない（write_all 失敗等の Err / 不完全枠は内部で unlink 済）= reject。
+            // 枠なしで keep に入らない。
+            Err(_) => {
+                if let Ok(mut g) = record_error_message.write() {
+                    *g = Some("Maximum 12 pairs reached".to_string());
+                }
+                revert_after_enter(record_sm, paired_pre_target);
+                return false;
             }
-            revert_after_enter(record_sm, paired_pre_target);
-            return false;
-        }
-    };
+        };
     // count は自 reservation を含む枠数。自 reservation で 13 枠目になれば（`> MAX`）reject。既存 pairing
     // （自 reservation が AlreadyReserved）なら枠数は不変なので 12 枠目まで通る（`> MAX` であって `>= MAX`
     // ではない）。
@@ -411,7 +419,15 @@ fn resolve_and_enter_keep(
         return false;
     }
     // target_pre_instance_id = 選定 PRE。PRE が自宛て signal を発見し ack する。
-    if write_pending(&base, project_hash, post_iid, target.clone(), daw.to_string()).is_ok() {
+    if write_pending(
+        &base,
+        project_hash,
+        post_iid,
+        target.clone(),
+        daw.to_string(),
+    )
+    .is_ok()
+    {
         // B-127: 正常 enter で stale な cap/io-fail 通知を消す（新しい健全な Record が開始した）。
         if let Ok(mut g) = record_error_message.write() {
             *g = None;
@@ -479,10 +495,11 @@ impl KirinHyphaEngine {
     ///
     /// `sample_rate` ≠ 48000 のときの 48k 変換は Measure Thread 内 `ResamplerTo48k` が
     /// 既存どおり担う（新規変換コードは書かない / measure_thread.rs:82-101）。
-    /// `num_channels` は stereo 前提（N_CHANNELS=2）。
-    pub fn new(sample_rate: u32, _num_channels: u32) -> Self {
-        // 本番 hypha_pre.rs:282-284 と同一の容量計算。
-        let capacity = (sample_rate as usize) * RING_BUFFER_SECONDS * N_CHANNELS;
+    /// `num_channels` は 1=mono / 2=stereo を受ける。mono は1chとして計測し、
+    /// dual-mono 化による loudness +3.01 dB バイアスを入れない。
+    pub fn new(sample_rate: u32, num_channels: u32) -> Self {
+        let num_channels = supported_channel_count(num_channels);
+        let capacity = (sample_rate as usize) * RING_BUFFER_SECONDS * num_channels;
         let (producer, consumer) = rtrb::RingBuffer::new(capacity);
 
         let measure_result = Arc::new(Mutex::new(MeasureResult::default()));
@@ -493,7 +510,10 @@ impl KirinHyphaEngine {
         let heartbeat = Arc::new(AtomicU32::new(0));
         // B-118: 単一鮮度評価器。heartbeat を内部観測し is_live()（G-115-245: 3s window）を返す。
         // Measure Thread / editor pair lock / FFI getter / watchdog が同一評価器を読む。
-        let liveness = Arc::new(LivenessEvaluator::new(Arc::clone(&heartbeat), live_window()));
+        let liveness = Arc::new(LivenessEvaluator::new(
+            Arc::clone(&heartbeat),
+            live_window(),
+        ));
         // 実 RecordStateMachine（既定 Watch）。FFI が enter/exit で flip する。
         let record_sm = Arc::new(RecordStateMachine::new());
 
@@ -507,6 +527,7 @@ impl KirinHyphaEngine {
         let measure_handle = spawn_measure_thread(
             consumer,
             sample_rate,
+            num_channels,
             Arc::clone(&measure_result),
             Arc::clone(&signal_state),
             Arc::clone(&shutdown),
@@ -520,6 +541,7 @@ impl KirinHyphaEngine {
         // join するため join_on_shutdown=true（io→measure 順 / 共有 Arc UAF 回避）。
         let watchdog_handle = spawn_watchdog(WatchdogParams {
             sample_rate,
+            n_channels: num_channels,
             ring_capacity: capacity,
             measure_result: Arc::clone(&measure_result),
             signal_state: Arc::clone(&signal_state),
@@ -555,6 +577,7 @@ impl KirinHyphaEngine {
             // 既定 Unknown（set_license(Os) されるまで Record 不可・安全側）。
             license: Arc::new(AtomicU8::new(LICENSE_UNKNOWN)),
             sample_rate,
+            num_channels,
             io_thread,
             io_restart_slot,
             pending_producer,
@@ -617,7 +640,9 @@ impl KirinHyphaEngine {
     /// license 二重 gate（E-21）: `try_enter_record` が内部で `License::Os` を再判定する
     /// （record.rs:109-123）。`AlreadyRecording` / `LicenseDenied` は `false`。
     pub fn enter_record(&self) -> bool {
-        self.record_sm.try_enter_record(self.current_license()).is_ok()
+        self.record_sm
+            .try_enter_record(self.current_license())
+            .is_ok()
     }
 
     /// Record を終了し Watch へ戻す（無条件・冪等 / record.rs:132）。
@@ -681,8 +706,10 @@ impl KirinHyphaEngine {
             // 全 io_thread scan 棚 が一致する。解決値を identity に書き戻し get_identity 経由で
             // chunk 永続。kirin_measure cell への反映（set_*）は現状維持（受信 filter / 既存読出と整合）。
             // PRE role セル（本番 KirinHyphaPRE.dylib スコープ相当）。
-            let resolved_project = resolve_shared_id(shared_pre_project_hash_cell(), &id.project_uuid);
-            let resolved_daw = resolve_shared_id(shared_pre_daw_session_id_cell(), &id.daw_session_uuid);
+            let resolved_project =
+                resolve_shared_id(shared_pre_project_hash_cell(), &id.project_uuid);
+            let resolved_daw =
+                resolve_shared_id(shared_pre_daw_session_id_cell(), &id.daw_session_uuid);
             id.project_uuid = resolved_project.clone();
             id.project_hash = resolved_project.clone();
             id.daw_session_uuid = resolved_daw.clone();
@@ -799,8 +826,10 @@ impl KirinHyphaEngine {
             }
             // B-106: project_uuid / daw_session_id を FFI dylib 共有セルで first-wins 解決する
             // （enable_pre_writes と同一規約）。毎回生成・上書きを廃止し全 instance を同一棚に収束。
-            let resolved_project = resolve_shared_id(shared_post_project_hash_cell(), &id.project_uuid);
-            let resolved_daw = resolve_shared_id(shared_post_daw_session_id_cell(), &id.daw_session_uuid);
+            let resolved_project =
+                resolve_shared_id(shared_post_project_hash_cell(), &id.project_uuid);
+            let resolved_daw =
+                resolve_shared_id(shared_post_daw_session_id_cell(), &id.daw_session_uuid);
             id.project_uuid = resolved_project.clone();
             id.project_hash = resolved_project.clone();
             id.daw_session_uuid = resolved_daw.clone();
@@ -860,8 +889,15 @@ impl KirinHyphaEngine {
             Arc::new(move |_pre: &str, _post: &str| {
                 let lic = license_from_abi(license.load(Ordering::Relaxed));
                 let _ = resolve_and_enter_keep(
-                    lic, &record_sm, &pair_target, &paired, &project_hash, &post_iid, &daw,
-                    &latched, &record_error_message,
+                    lic,
+                    &record_sm,
+                    &pair_target,
+                    &paired,
+                    &project_hash,
+                    &post_iid,
+                    &daw,
+                    &latched,
+                    &record_error_message,
                 );
             })
         };
@@ -1010,7 +1046,10 @@ impl KirinHyphaEngine {
     /// B-118 Phase 3 (③): io_thread 連続失敗時の固定文言（RecordError::ui_message / G-115-29）。
     /// None=通常（R-26 沈黙）。JUCE 永続 status label が Some の間表示する。
     pub fn record_error_message(&self) -> Option<String> {
-        self.record_error_message.read().ok().and_then(|g| g.clone())
+        self.record_error_message
+            .read()
+            .ok()
+            .and_then(|g| g.clone())
     }
 
     /// B-118: heartbeat 鮮度（processBlock が呼ばれている事実 / read-only poller・非 RT）。
@@ -1110,7 +1149,12 @@ impl KirinHyphaEngine {
             Ok(id) => (id.project_hash.clone(), id.instance_id.clone()),
             Err(_) => (String::new(), String::new()),
         };
-        resolve_and_exit_stop(&self.record_sm, &self.paired_pre_target, &project_hash, &post_iid);
+        resolve_and_exit_stop(
+            &self.record_sm,
+            &self.paired_pre_target,
+            &project_hash,
+            &post_iid,
+        );
     }
 
     /// POST「All Stop」: all_stop broadcast を書いてから自身の stop を発火する（B-102 /
@@ -1125,12 +1169,7 @@ impl KirinHyphaEngine {
         let daw = read_shared_id(shared_post_daw_session_id_cell());
         if !project_hash.is_empty() && !post_iid.is_empty() {
             if let Ok(p) = StoragePaths::default_macos() {
-                let _ = write_stop_broadcast(
-                    &p.plugin_data_dir(),
-                    &project_hash,
-                    &post_iid,
-                    daw,
-                );
+                let _ = write_stop_broadcast(&p.plugin_data_dir(), &project_hash, &post_iid, daw);
             }
         }
         self.stop();
@@ -1183,9 +1222,16 @@ impl KirinHyphaEngine {
                 "ffi.set_identity.instance_id",
                 None,
             );
-            let tag = if iid.is_empty() { None } else { Some(iid.as_str()) };
-            id.project_uuid =
-                kirin_measure::materialize_restore_field(&project_uuid, "ffi.set_identity.project_uuid", tag);
+            let tag = if iid.is_empty() {
+                None
+            } else {
+                Some(iid.as_str())
+            };
+            id.project_uuid = kirin_measure::materialize_restore_field(
+                &project_uuid,
+                "ffi.set_identity.project_uuid",
+                tag,
+            );
             id.daw_session_uuid = kirin_measure::materialize_restore_field(
                 &daw_session_uuid,
                 "ffi.set_identity.daw_session_uuid",
@@ -1236,8 +1282,7 @@ impl KirinHyphaEngine {
             Ok(p) => p.plugin_data_dir(),
             Err(_) => return false,
         };
-        append_annotation_to_latest(&base, &project_hash, &instance_id, role, memo)
-            .unwrap_or(false)
+        append_annotation_to_latest(&base, &project_hash, &instance_id, role, memo).unwrap_or(false)
     }
 
     /// interleaved f32 サンプルを供給する（Audio Thread 単独・RT-safe）。
@@ -1247,9 +1292,8 @@ impl KirinHyphaEngine {
     /// 2. interleaved サンプルを rtrb に push（満杯時は drop。本番 process() の
     ///    `let _ = producer.push(*sample)` と同挙動 / hypha_pre.rs:410）。
     ///
-    /// stereo 前提（`num_channels` ≠ 2 のブロックは push しない＝防御ガード）。
-    /// 殻が stereo bus のみ受理する（PluginProcessor::isBusesLayoutSupported）ため
-    /// 非 stereo は到達しない。FFI 契約の防御として残す（到達時は無音 skip）。
+    /// `num_channels` は create 時の channel count と一致している必要がある。
+    /// 不一致ブロックは heartbeat だけ進め、測定 ring には入れない（防御ガード）。
     /// `interleaved.len()` は `num_frames * num_channels` を想定。
     pub fn push_samples(&self, interleaved: &[f32], num_channels: u32) {
         // (1) heartbeat は常に進める（空ブロック keepalive でも Active を維持できる）。
@@ -1269,8 +1313,8 @@ impl KirinHyphaEngine {
             }
         }
 
-        // (2) stereo 以外は既存 Rust の前提（2ch interleaved）に合わないため push しない。
-        if num_channels != N_CHANNELS as u32 {
+        // (2) create 時の layout と異なるブロックは測定に入れない。
+        if num_channels as usize != self.num_channels {
             return;
         }
 
@@ -1313,7 +1357,8 @@ impl KirinHyphaEngine {
     /// interleaved sample 数（= num_frames * num_channels）。RT 安全のため `fetch_add` のみ
     /// （alloc/lock/syscall なし）。push_overflow とは別カウンタ（混ぜない）。
     pub fn note_oversized_drop(&self, dropped_samples: u64) {
-        self.oversized_drop.fetch_add(dropped_samples, Ordering::Relaxed);
+        self.oversized_drop
+            .fetch_add(dropped_samples, Ordering::Relaxed);
     }
 
     /// B-125: oversized block で drop した累積 interleaved sample 数（読み取り専用）。
@@ -1326,7 +1371,7 @@ impl KirinHyphaEngine {
     /// pop しきった状態。parity の session_finalize gate が「lufs_i 値プラトー」でなく ring 全消費を
     /// 直接確認するための read-only introspection。**計測数値サーフェスではない**（bool を返すのみ・
     /// engine.rs / 本番 finalize / FFI 計測数値は不変）。容量は `new()` の構築式
-    /// （sample_rate * RING_BUFFER_SECONDS * N_CHANNELS）と同一に算出するため、watchdog の
+    /// （sample_rate * RING_BUFFER_SECONDS * num_channels）と同一に算出するため、watchdog の
     /// Producer 差し替え後も不変。
     ///
     /// SAFETY: `ring_producer`(UnsafeCell<rtrb::Producer>) は SPSC 契約で「Audio/test 単独スレッド」
@@ -1336,7 +1381,7 @@ impl KirinHyphaEngine {
     /// 並行しても rtrb SPSC 設計上健全。
     #[doc(hidden)]
     pub fn __ring_drained_for_test(&self) -> bool {
-        let capacity = (self.sample_rate as usize) * RING_BUFFER_SECONDS * N_CHANNELS;
+        let capacity = (self.sample_rate as usize) * RING_BUFFER_SECONDS * self.num_channels;
         // SAFETY: 上記参照（SPSC・push_samples と同一スレッド・read-only slots()）。
         let producer = unsafe { &*self.ring_producer.get() };
         producer.slots() == capacity
@@ -1377,7 +1422,7 @@ impl Drop for KirinHyphaEngine {
 #[repr(C)]
 pub struct KirinMeasureResult {
     pub lufs_m: f64,
-    pub true_peak: f64,       // tp_recent: 直近 400ms（B-074）
+    pub true_peak: f64, // tp_recent: 直近 400ms（B-074）
     pub crest: f64,
     pub psr: f64,
     pub n_prime_total: f64,
@@ -2116,8 +2161,9 @@ pub unsafe extern "C" fn kirin_hypha_poll_result(
                     // B-075 / B-125: 欠落サンプル累積数を engine から注入（MeasureResult には持たない）。
                     // ring 満杯 drop（push_overflow）と oversized block drop（oversized_drop）の合算。
                     // 2 カウンタは別計数だが live 露出は合算（無記録欠落の解消＝ZSA）。
-                    (*out).dropped_samples =
-                        (*handle).overflow_count().saturating_add((*handle).oversized_drop_count());
+                    (*out).dropped_samples = (*handle)
+                        .overflow_count()
+                        .saturating_add((*handle).oversized_drop_count());
                 }
                 true
             }
@@ -2190,7 +2236,10 @@ mod b106_shared_id_tests {
         // instance B enable: 別 chunk uuid を渡しても上書きせず A の値を採用。
         let b = resolve_shared_id(&cell, "proj-B");
         assert_eq!(a, "proj-A");
-        assert_eq!(b, "proj-A", "2 つ目は共有値を採用（毎回生成・上書きの全廃）");
+        assert_eq!(
+            b, "proj-A",
+            "2 つ目は共有値を採用（毎回生成・上書きの全廃）"
+        );
         assert_eq!(read_shared_id(&cell), "proj-A");
     }
 
@@ -2248,8 +2297,16 @@ mod b113_signal_state_tests {
     #[test]
     fn signal_state_to_abi_is_inverse_of_set_signal_state() {
         // set_signal_state の写像: 1→Active / 2→Bypassed / _→Inactive。その厳密な逆。
-        assert_eq!(signal_state_to_abi(SignalState::Inactive), 0, "Inactive → 0");
+        assert_eq!(
+            signal_state_to_abi(SignalState::Inactive),
+            0,
+            "Inactive → 0"
+        );
         assert_eq!(signal_state_to_abi(SignalState::Active), 1, "Active → 1");
-        assert_eq!(signal_state_to_abi(SignalState::Bypassed), 2, "Bypassed → 2");
+        assert_eq!(
+            signal_state_to_abi(SignalState::Bypassed),
+            2,
+            "Bypassed → 2"
+        );
     }
 }

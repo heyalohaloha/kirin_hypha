@@ -197,7 +197,11 @@ impl MeasureEngine {
         let lufs_i = self.ebu.loudness_global().ok().filter(|v| v.is_finite());
         let lra = self.ebu.loudness_range().ok().filter(|v| v.is_finite());
         let max_true_peak = self.session_true_peak_dbtp();
-        SessionSummary { lufs_i, lra, max_true_peak }
+        SessionSummary {
+            lufs_i,
+            lra,
+            max_true_peak,
+        }
     }
 
     /// init（reset）以降の inter-sample running max（dBTP）= tp_session_max。
@@ -209,7 +213,13 @@ impl MeasureEngine {
             .filter(|v| v.is_finite())
             .fold(None::<f64>, |acc, v| Some(acc.map_or(v, |a| a.max(v))));
 
-        max_tp_lin.and_then(|v| if v > 0.0 { Some(20.0 * v.log10()) } else { None })
+        max_tp_lin.and_then(|v| {
+            if v > 0.0 {
+                Some(20.0 * v.log10())
+            } else {
+                None
+            }
+        })
     }
 
     fn compute(&self) -> MeasureResult {
@@ -224,7 +234,8 @@ impl MeasureEngine {
         // - 高速/offline bounce: 窓は処理済みフレーム基準なので音声時間と一致（wall-clock 依存なし）
         // - transport 停止 → 再開: reset() が tp_window をクリアし停止前ピークを持ち越さない
         // 有効エントリ 0 件（無音 / reset 直後）は明示的に None（---）を返す。
-        let valid_tp: f64 = self.tp_window
+        let valid_tp: f64 = self
+            .tp_window
             .iter()
             .filter(|(_, f)| self.total_frames - f < self.tp_window_frames)
             .map(|(v, _)| *v)
@@ -264,7 +275,11 @@ impl MeasureEngine {
             return (None, None);
         }
 
-        let peak = self.window_400ms.iter().map(|s| s.abs()).fold(0.0_f64, f64::max);
+        let peak = self
+            .window_400ms
+            .iter()
+            .map(|s| s.abs())
+            .fold(0.0_f64, f64::max);
         let sum_sq: f64 = self.window_400ms.iter().map(|s| s * s).sum();
         let rms = (sum_sq / self.window_400ms.len() as f64).sqrt();
 
@@ -273,14 +288,17 @@ impl MeasureEngine {
         }
 
         let peak_db = 20.0 * peak.log10(); // dBFS
-        let rms_db = 20.0 * rms.log10();   // dBFS
+        let rms_db = 20.0 * rms.log10(); // dBFS
 
         // Crest Factor
         let crest = Some(peak_db - rms_db);
 
         // PSR: peak_dBFS - LUFS_S。
         // LUFS_S は 3 秒ウィンドウが揃うまで -inf を返す → None になる。
-        let psr = self.ebu.loudness_shortterm().ok()
+        let psr = self
+            .ebu
+            .loudness_shortterm()
+            .ok()
             .filter(|v| v.is_finite())
             .map(|lufs_s| peak_db - lufs_s);
 
@@ -400,7 +418,11 @@ mod tp_recent_golden {
 
         let a = drive(4800); // 100ms blocks (1 chunk per push)
         let b = drive(1200); // 25ms blocks (4 pushes per 100ms chunk)
-        assert_eq!(a.len(), b.len(), "same number of 100ms results regardless of push block size");
+        assert_eq!(
+            a.len(),
+            b.len(),
+            "same number of 100ms results regardless of push block size"
+        );
         for (i, (x, y)) in a.iter().zip(b.iter()).enumerate() {
             match (x, y) {
                 (Some(xv), Some(yv)) => assert!(

@@ -87,7 +87,9 @@ impl StoragePaths {
 
     /// テスト用に任意ルートを指定。
     pub fn with_root(root: impl Into<PathBuf>) -> Self {
-        Self { kirin_os_root: root.into() }
+        Self {
+            kirin_os_root: root.into(),
+        }
     }
 
     pub fn primary_path(&self) -> PathBuf {
@@ -184,24 +186,31 @@ pub fn load_or_recover(
                     identity.touch_verified();
                     let _ = write_identity_atomic(&paths.primary_path(), &identity);
                     let _ = write_identity_atomic(&paths.secondary_path(), &identity);
-                    return Ok(LoadedIdentity { identity, status: LoadStatus::PrimaryOk });
+                    return Ok(LoadedIdentity {
+                        identity,
+                        status: LoadStatus::PrimaryOk,
+                    });
                 }
                 Match::Different => {
-                    return Ok(LoadedIdentity { identity, status: LoadStatus::DifferentMachine });
+                    return Ok(LoadedIdentity {
+                        identity,
+                        status: LoadStatus::DifferentMachine,
+                    });
                 }
                 Match::Insufficient => {
                     // 3 要素取得困難 → permissive に継続
                     identity.touch_verified();
                     let _ = write_identity_atomic(&paths.primary_path(), &identity);
                     let _ = write_identity_atomic(&paths.secondary_path(), &identity);
-                    return Ok(LoadedIdentity { identity, status: LoadStatus::Insufficient });
+                    return Ok(LoadedIdentity {
+                        identity,
+                        status: LoadStatus::Insufficient,
+                    });
                 }
             }
         }
         // HMAC 検証失敗 → 改ざん。段階 2 へ進む（permissive: 二次から回復試行）
-        log::warn!(
-            "[identity] primary HMAC verification failed; falling through to secondary"
-        );
+        log::warn!("[identity] primary HMAC verification failed; falling through to secondary");
     }
 
     // ── 段階 2: 二次から復元 ─────────────────────────────────────────
@@ -219,7 +228,10 @@ pub fn load_or_recover(
                     });
                 }
                 Match::Different => {
-                    return Ok(LoadedIdentity { identity, status: LoadStatus::DifferentMachine });
+                    return Ok(LoadedIdentity {
+                        identity,
+                        status: LoadStatus::DifferentMachine,
+                    });
                 }
                 Match::Insufficient => {
                     identity.touch_verified();
@@ -248,7 +260,10 @@ pub fn load_or_recover(
     // ── 段階 4: 新規生成 ─────────────────────────────────────────────
     let identity = Identity::new(current_hw, default_license);
     write_both(paths, &identity)?;
-    Ok(LoadedIdentity { identity, status: LoadStatus::FreshlyGenerated })
+    Ok(LoadedIdentity {
+        identity,
+        status: LoadStatus::FreshlyGenerated,
+    })
 }
 
 /// `plugin_data/{project_hash}/{instance_id}/pre/*.json` を走査して最新ファイルから
@@ -363,7 +378,10 @@ pub fn cleanup_legacy_v1(paths: &StoragePaths) -> CleanupReport {
     let pd = paths.plugin_data_dir();
     let legacy_mix = pd.join("default").join("MIX");
     let legacy_preset = pd.join("default").join("preset");
-    let legacy_tmp = std::env::temp_dir().join("kirin").join("default").join("MIX");
+    let legacy_tmp = std::env::temp_dir()
+        .join("kirin")
+        .join("default")
+        .join("MIX");
 
     for target in [&legacy_mix, &legacy_preset, &legacy_tmp] {
         if !target.exists() {
@@ -501,7 +519,11 @@ impl IdentityCache {
         let primary_mtime = fs::metadata(paths.primary_path())
             .and_then(|m| m.modified())
             .ok();
-        Self { cached: initial, primary_mtime, paths }
+        Self {
+            cached: initial,
+            primary_mtime,
+            paths,
+        }
     }
 
     /// 現在の cached Identity を取得（mtime チェックで必要時のみ再読込）。
@@ -560,8 +582,7 @@ mod tests {
     #[test]
     fn stage4_fresh_generation_writes_both() {
         let (paths, root) = isolated_paths();
-        let loaded =
-            load_or_recover(&paths, hc("A", "B", "C"), License::Os).unwrap();
+        let loaded = load_or_recover(&paths, hc("A", "B", "C"), License::Os).unwrap();
         assert_eq!(loaded.status, LoadStatus::FreshlyGenerated);
         assert_eq!(loaded.identity.license, License::Os);
         assert!(paths.primary_path().exists());
@@ -575,10 +596,8 @@ mod tests {
     #[test]
     fn stage1_primary_ok_returns_same_identity() {
         let (paths, root) = isolated_paths();
-        let first =
-            load_or_recover(&paths, hc("A", "B", "C"), License::Os).unwrap();
-        let second =
-            load_or_recover(&paths, hc("A", "B", "C"), License::Os).unwrap();
+        let first = load_or_recover(&paths, hc("A", "B", "C"), License::Os).unwrap();
+        let second = load_or_recover(&paths, hc("A", "B", "C"), License::Os).unwrap();
         assert_eq!(second.status, LoadStatus::PrimaryOk);
         assert_eq!(
             first.identity.installation_id,
@@ -590,12 +609,10 @@ mod tests {
     #[test]
     fn stage2_secondary_restores_primary() {
         let (paths, root) = isolated_paths();
-        let first =
-            load_or_recover(&paths, hc("A", "B", "C"), License::Os).unwrap();
+        let first = load_or_recover(&paths, hc("A", "B", "C"), License::Os).unwrap();
         // 一次削除
         fs::remove_file(paths.primary_path()).unwrap();
-        let second =
-            load_or_recover(&paths, hc("A", "B", "C"), License::Os).unwrap();
+        let second = load_or_recover(&paths, hc("A", "B", "C"), License::Os).unwrap();
         assert_eq!(second.status, LoadStatus::RecoveredFromSecondary);
         assert_eq!(
             first.identity.installation_id,
@@ -609,8 +626,7 @@ mod tests {
     #[test]
     fn stage3_plugin_data_extracts_installation_id() {
         let (paths, root) = isolated_paths();
-        let first =
-            load_or_recover(&paths, hc("A", "B", "C"), License::Os).unwrap();
+        let first = load_or_recover(&paths, hc("A", "B", "C"), License::Os).unwrap();
         let original_id = first.identity.installation_id.clone();
 
         // 新構造: plugin_data/{project_hash}/{instance_id}/pre/*.json
@@ -628,8 +644,7 @@ mod tests {
         fs::remove_file(paths.primary_path()).unwrap();
         fs::remove_file(paths.secondary_path()).unwrap();
 
-        let second =
-            load_or_recover(&paths, hc("A", "B", "C"), License::Os).unwrap();
+        let second = load_or_recover(&paths, hc("A", "B", "C"), License::Os).unwrap();
         assert_eq!(second.status, LoadStatus::RecoveredFromPluginData);
         assert_eq!(second.identity.installation_id, original_id);
         // 一次・二次が復元済み
@@ -653,8 +668,7 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(50));
         fs::write(&new_file, r#"{"installation_id":"new-id"}"#).unwrap();
 
-        let loaded =
-            load_or_recover(&paths, hc("A", "B", "C"), License::Os).unwrap();
+        let loaded = load_or_recover(&paths, hc("A", "B", "C"), License::Os).unwrap();
         assert_eq!(loaded.status, LoadStatus::RecoveredFromPluginData);
         assert_eq!(loaded.identity.installation_id, "new-id");
         let _ = fs::remove_dir_all(root);
@@ -663,11 +677,9 @@ mod tests {
     #[test]
     fn different_machine_detected() {
         let (paths, root) = isolated_paths();
-        let _ =
-            load_or_recover(&paths, hc("A", "B", "C"), License::Os).unwrap();
+        let _ = load_or_recover(&paths, hc("A", "B", "C"), License::Os).unwrap();
         // 別マシンの 3 要素で再起動
-        let second =
-            load_or_recover(&paths, hc("X", "Y", "Z"), License::Os).unwrap();
+        let second = load_or_recover(&paths, hc("X", "Y", "Z"), License::Os).unwrap();
         assert_eq!(second.status, LoadStatus::DifferentMachine);
         assert!(!second.status.allow_measurement());
         let _ = fs::remove_dir_all(root);
@@ -676,11 +688,9 @@ mod tests {
     #[test]
     fn two_of_three_matches_counts_as_same() {
         let (paths, root) = isolated_paths();
-        let _ =
-            load_or_recover(&paths, hc("A", "B", "C"), License::Os).unwrap();
+        let _ = load_or_recover(&paths, hc("A", "B", "C"), License::Os).unwrap();
         // 2 要素一致 (bd のみ変化) → Same
-        let second =
-            load_or_recover(&paths, hc("A", "B", "CHANGED"), License::Os).unwrap();
+        let second = load_or_recover(&paths, hc("A", "B", "CHANGED"), License::Os).unwrap();
         assert_eq!(second.status, LoadStatus::PrimaryOk);
         assert!(second.status.allow_measurement());
         let _ = fs::remove_dir_all(root);
@@ -692,8 +702,7 @@ mod tests {
         // 1 要素のみで登録
         let _ = load_or_recover(&paths, hc("A", "", ""), License::Os).unwrap();
         // 同じ 1 要素で再起動 → Insufficient
-        let second =
-            load_or_recover(&paths, hc("A", "", ""), License::Os).unwrap();
+        let second = load_or_recover(&paths, hc("A", "", ""), License::Os).unwrap();
         assert_eq!(second.status, LoadStatus::Insufficient);
         assert!(second.status.allow_measurement());
         let _ = fs::remove_dir_all(root);
@@ -702,8 +711,7 @@ mod tests {
     #[test]
     fn atomic_write_does_not_leave_tmp() {
         let (paths, root) = isolated_paths();
-        let _ =
-            load_or_recover(&paths, hc("A", "B", "C"), License::Os).unwrap();
+        let _ = load_or_recover(&paths, hc("A", "B", "C"), License::Os).unwrap();
         let tmp = paths.primary_path().with_extension("json.tmp");
         assert!(!tmp.exists(), ".tmp should be removed after rename");
         let _ = fs::remove_dir_all(root);
@@ -712,8 +720,7 @@ mod tests {
     #[test]
     fn identity_cache_detects_mtime_change() {
         let (paths, root) = isolated_paths();
-        let loaded =
-            load_or_recover(&paths, hc("A", "B", "C"), License::Os).unwrap();
+        let loaded = load_or_recover(&paths, hc("A", "B", "C"), License::Os).unwrap();
         assert_eq!(loaded.identity.license, License::Os);
 
         let mut cache = IdentityCache::new(paths.clone(), loaded.identity.clone());
@@ -733,12 +740,10 @@ mod tests {
     #[test]
     fn stage2_corrupt_primary_falls_through() {
         let (paths, root) = isolated_paths();
-        let first =
-            load_or_recover(&paths, hc("A", "B", "C"), License::Os).unwrap();
+        let first = load_or_recover(&paths, hc("A", "B", "C"), License::Os).unwrap();
         // 一次を壊す
         fs::write(paths.primary_path(), "not a json").unwrap();
-        let second =
-            load_or_recover(&paths, hc("A", "B", "C"), License::Os).unwrap();
+        let second = load_or_recover(&paths, hc("A", "B", "C"), License::Os).unwrap();
         assert_eq!(second.status, LoadStatus::RecoveredFromSecondary);
         assert_eq!(
             first.identity.installation_id,
@@ -849,7 +854,10 @@ mod tests {
         let report = cleanup_legacy_v1(&paths);
         assert!(report.ran);
         assert_eq!(report.errors, 0);
-        assert!(report.removed >= 2, "MIX + preset must be removed: {report:?}");
+        assert!(
+            report.removed >= 2,
+            "MIX + preset must be removed: {report:?}"
+        );
 
         // 旧構造が消えている
         assert!(!pd.join("default").join("MIX").exists());
@@ -888,7 +896,10 @@ mod tests {
 
         cleanup_legacy_v1(&paths);
 
-        assert!(new_pre.join("keep.json").exists(), "new structure preserved");
+        assert!(
+            new_pre.join("keep.json").exists(),
+            "new structure preserved"
+        );
         assert!(!legacy.exists(), "legacy structure removed");
         let _ = fs::remove_dir_all(root);
     }

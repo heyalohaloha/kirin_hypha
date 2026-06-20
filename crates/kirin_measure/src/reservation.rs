@@ -41,8 +41,12 @@ pub fn pairing_key(pre_instance_id: &str, post_instance_id: &str) -> String {
     // B-128 (G-115-370): within-base wall。reservation_path / reserve_build_temp の両 path builder が
     // 本キーを使うため、ここで pre/post を guard すれば枠ファイル名は常に base 内 path-safe。
     // 正常運用（valid UUID / 安全な literal）は無改変＝既存 pairing 契約・B-127 テスト不変。
-    let pre = crate::path_identity::guard_path_component(pre_instance_id, "reservation.pairing_key.pre");
-    let post = crate::path_identity::guard_path_component(post_instance_id, "reservation.pairing_key.post");
+    let pre =
+        crate::path_identity::guard_path_component(pre_instance_id, "reservation.pairing_key.pre");
+    let post = crate::path_identity::guard_path_component(
+        post_instance_id,
+        "reservation.pairing_key.post",
+    );
     format!("{pre}__{post}")
 }
 
@@ -65,7 +69,8 @@ pub enum ReserveOutcome {
 
 fn reservation_dir(base_dir: &Path, project_hash: &str) -> PathBuf {
     // B-128 (G-115-370): within-base wall（project_hash 成分）。
-    let ph = crate::path_identity::guard_path_component(project_hash, "reservation.dir.project_hash");
+    let ph =
+        crate::path_identity::guard_path_component(project_hash, "reservation.dir.project_hash");
     base_dir.join(&*ph).join(RESERVATION_SUBDIR)
 }
 
@@ -134,7 +139,10 @@ fn reserve_build_temp(
         seq
     ));
     let res = (|| -> std::io::Result<()> {
-        let mut f = OpenOptions::new().write(true).create_new(true).open(&temp)?;
+        let mut f = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temp)?;
         f.write_all(bytes)?;
         f.sync_all()?;
         Ok(())
@@ -157,7 +165,9 @@ fn reserve_build_temp(
 fn reserve_link_claim(temp: &Path, final_path: &Path) -> std::io::Result<ReserveOutcome> {
     let outcome = match fs::hard_link(temp, final_path) {
         Ok(()) => Ok(ReserveOutcome::Created),
-        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(ReserveOutcome::AlreadyReserved),
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+            Ok(ReserveOutcome::AlreadyReserved)
+        }
         Err(e) => Err(e),
     };
     let _ = fs::remove_file(temp);
@@ -237,12 +247,16 @@ fn pairing_has_fresh_marker(
 ) -> bool {
     // B-128 (G-115-370): within-base wall。pre_iid/post_iid は枠ファイル**内容**（raw）由来のため、
     // marker 探索 path に出る前に guard する（攻撃値枠の read-traversal 防止）。valid/safe 値は無改変。
-    let ph = crate::path_identity::guard_path_component(project_hash, "reservation.marker.project_hash");
+    let ph =
+        crate::path_identity::guard_path_component(project_hash, "reservation.marker.project_hash");
     let pre = crate::path_identity::guard_path_component(pre_iid, "reservation.marker.pre");
     let post = crate::path_identity::guard_path_component(post_iid, "reservation.marker.post");
     let proj = base_dir.join(&*ph);
     role_dir_has_fresh_marker(&proj.join(&*pre).join(PluginDataRole::Pre.dir_name()), now)
-        || role_dir_has_fresh_marker(&proj.join(&*post).join(PluginDataRole::Post.dir_name()), now)
+        || role_dir_has_fresh_marker(
+            &proj.join(&*post).join(PluginDataRole::Post.dir_name()),
+            now,
+        )
 }
 
 fn role_dir_has_fresh_marker(dir: &Path, now: DateTime<Utc>) -> bool {
@@ -257,7 +271,11 @@ fn role_dir_has_fresh_marker(dir: &Path, now: DateTime<Utc>) -> bool {
         if let Ok(bytes) = fs::read(&path) {
             if let Ok(file) = serde_json::from_slice::<PluginDataFile>(&bytes) {
                 if file.status == Status::Active
-                    && crate::exclusion::is_heartbeat_fresh(&file.heartbeat, now, RESERVATION_TTL_SECS)
+                    && crate::exclusion::is_heartbeat_fresh(
+                        &file.heartbeat,
+                        now,
+                        RESERVATION_TTL_SECS,
+                    )
                 {
                     return true;
                 }
@@ -369,7 +387,13 @@ mod tests {
     /// fresh active marker（録音継続中）を `{base}/{ph}/{post}/post/` に書く（sweep 保護テスト用）。
     fn write_active_post_marker(base: &Path, ph: &str, post_iid: &str) {
         use crate::plugin_data::{PluginDataWriter, WriterPaths};
-        let paths = WriterPaths::build(base, ph, post_iid, PluginDataRole::Post, "2026-06-14T00:00:00Z");
+        let paths = WriterPaths::build(
+            base,
+            ph,
+            post_iid,
+            PluginDataRole::Post,
+            "2026-06-14T00:00:00Z",
+        );
         let mut w = PluginDataWriter::create(
             paths,
             "i".to_string(),
@@ -392,12 +416,22 @@ mod tests {
         let now = Utc::now();
         reserve_pairing_at(&base, "ph", "a", "b", now).unwrap();
         // 古い枠（TTL 超過）も数える。
-        reserve_pairing_at(&base, "ph", "c", "d", now - chrono::Duration::seconds(RESERVATION_TTL_SECS + 50))
-            .unwrap();
+        reserve_pairing_at(
+            &base,
+            "ph",
+            "c",
+            "d",
+            now - chrono::Duration::seconds(RESERVATION_TTL_SECS + 50),
+        )
+        .unwrap();
         // 0byte（parse 不能）の枠も存在として数える。
         let dir = reservation_dir(&base, "ph");
         std::fs::write(dir.join("e__f.json"), b"").unwrap();
-        assert_eq!(count_frames(&base, "ph"), 3, "新/旧/壊れ いずれも存在として数える");
+        assert_eq!(
+            count_frames(&base, "ph"),
+            3,
+            "新/旧/壊れ いずれも存在として数える"
+        );
     }
 
     /// G-115-365 sweep: 孤児（age>TTL かつ fresh marker 無し）を回収。fresh 枠（grace 内）と
@@ -417,7 +451,11 @@ mod tests {
 
         let removed = sweep_stale_reservations_in(&base, now);
         assert_eq!(removed, 1, "孤児 1 件のみ回収");
-        assert_eq!(count_frames(&base, "ph"), 2, "fresh 枠 + marker 裏付け枠は残る");
+        assert_eq!(
+            count_frames(&base, "ph"),
+            2,
+            "fresh 枠 + marker 裏付け枠は残る"
+        );
     }
 
     // ── G-115-366 (e): parse 不可枠の mtime grace ──────────────────────────────
@@ -430,7 +468,10 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         fs::write(dir.join("recent__frame.json"), b"").unwrap(); // parse 不可・mtime=now
         let removed = sweep_stale_reservations_in(&base, now);
-        assert_eq!(removed, 0, "最近 mtime の parse 不可枠は mtime grace で保護（回収しない）");
+        assert_eq!(
+            removed, 0,
+            "最近 mtime の parse 不可枠は mtime grace で保護（回収しない）"
+        );
         assert_eq!(count_frames(&base, "ph"), 1, "枠は残る");
     }
 
@@ -441,7 +482,7 @@ mod tests {
         let dir = reservation_dir(&base, "ph");
         fs::create_dir_all(&dir).unwrap();
         fs::write(dir.join("stale__frame.json"), b"").unwrap(); // parse 不可・mtime≈now
-        // sweep の now を mtime から grace 超過だけ未来へ（filetime 改変不要で mtime-stale を再現）。
+                                                                // sweep の now を mtime から grace 超過だけ未来へ（filetime 改変不要で mtime-stale を再現）。
         let future = Utc::now() + chrono::Duration::seconds(RESERVATION_TTL_SECS + 30);
         let removed = sweep_stale_reservations_in(&base, future);
         assert_eq!(removed, 1, "mtime grace 超過の parse 不可枠は孤児回収");
@@ -468,11 +509,24 @@ mod tests {
 
         // step: temp 書込後・link 前。
         let temp = reserve_build_temp(&dir, "x", "y", &bytes).unwrap();
-        assert!(!final_path.exists(), "link 前: final は dir entry を持たない（sweep 非観測）");
-        assert_eq!(count_frames(&base, "ph"), 0, "link 前は count 0（final 未生成 / temp は非 .json）");
+        assert!(
+            !final_path.exists(),
+            "link 前: final は dir entry を持たない（sweep 非観測）"
+        );
+        assert_eq!(
+            count_frames(&base, "ph"),
+            0,
+            "link 前は count 0（final 未生成 / temp は非 .json）"
+        );
         let removed_before = sweep_stale_reservations_in(&base, now);
-        assert_eq!(removed_before, 0, "link 前 sweep: final 不在で当該枠は消せない");
-        assert!(temp.exists(), "temp(.tmp) は非 .json のため sweep は無視（消さない）");
+        assert_eq!(
+            removed_before, 0,
+            "link 前 sweep: final 不在で当該枠は消せない"
+        );
+        assert!(
+            temp.exists(),
+            "temp(.tmp) は非 .json のため sweep は無視（消さない）"
+        );
 
         // step: link 後。
         assert_eq!(
@@ -481,8 +535,15 @@ mod tests {
         );
         assert!(final_path.exists());
         assert!(!temp.exists(), "temp は link 後に掃除済（orphan 無し）");
-        assert!(read_frame_pair(&final_path).is_some(), "link 後 final は必ず parse 可（完全 JSON）");
-        assert_eq!(count_frames(&base, "ph"), 1, "link 後は完全枠 1（count 反映）");
+        assert!(
+            read_frame_pair(&final_path).is_some(),
+            "link 後 final は必ず parse 可（完全 JSON）"
+        );
+        assert_eq!(
+            count_frames(&base, "ph"),
+            1,
+            "link 後は完全枠 1（count 反映）"
+        );
         let removed_after = sweep_stale_reservations_in(&base, now);
         assert_eq!(removed_after, 0, "link 後 sweep: 完全枠・age fresh で保護");
         assert_eq!(count_frames(&base, "ph"), 1, "保護され枠は残る");
@@ -572,7 +633,11 @@ mod tests {
             1,
             "atomic claim (hard_link): 同一 pairing 枠は並行 race でちょうど 1 つだけ Created"
         );
-        assert_eq!(already.load(Ordering::Relaxed), 15, "残り 15 は AlreadyReserved");
+        assert_eq!(
+            already.load(Ordering::Relaxed),
+            15,
+            "残り 15 は AlreadyReserved"
+        );
     }
 
     /// engine gate と同型: reserve → 枠数 > MAX なら release して false（13 本目 reject）。

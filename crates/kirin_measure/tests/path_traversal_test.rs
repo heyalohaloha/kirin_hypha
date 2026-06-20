@@ -10,11 +10,15 @@ use std::path::{Path, PathBuf};
 use kirin_measure::all_keep_signal;
 use kirin_measure::all_stop_signal;
 use kirin_measure::io_thread_pre::io_dir;
-use kirin_measure::path_identity::{drain_path_events, is_path_safe_component, is_quarantine_component};
+use kirin_measure::path_identity::{
+    drain_path_events, is_path_safe_component, is_quarantine_component,
+};
 use kirin_measure::plugin_data::{Role, WriterPaths};
 use kirin_measure::record_signal;
 use kirin_measure::reservation::{count_frames, reserve_pairing_at, ReserveOutcome};
-use kirin_measure::{materialize_observation_id, process_project_hash, set_project_uuid, MAX_ACTIVE_PER_PROJECT};
+use kirin_measure::{
+    materialize_observation_id, process_project_hash, set_project_uuid, MAX_ACTIVE_PER_PROJECT,
+};
 
 /// 3 攻撃ケース（§7）: (i)絶対パス (ii)../traversal (iii)非UUID。
 const ABS: &str = "/tmp/x";
@@ -36,7 +40,10 @@ fn isolated_base() -> PathBuf {
 
 /// 構築 path が base を **構造的に逸脱しない**ことを検証する（lexical な `..`/絶対も含めて）。
 fn assert_within_base(path: &Path, base: &Path) {
-    assert!(path.starts_with(base), "path が base を逸脱: path={path:?} base={base:?}");
+    assert!(
+        path.starts_with(base),
+        "path が base を逸脱: path={path:?} base={base:?}"
+    );
     // 念のため component に `..` / RootDir（先頭以外）が混入しないこと。
     for c in path.strip_prefix(base).unwrap().components() {
         assert!(
@@ -79,7 +86,10 @@ fn c2_all_builders_quarantine_traversal_within_base() {
 #[test]
 fn s7_non_uuid_safe_value_stays_within_base() {
     let base = isolated_base();
-    assert!(is_path_safe_component(NON_UUID), "not-a-uuid は path-safe（traversal でない）");
+    assert!(
+        is_path_safe_component(NON_UUID),
+        "not-a-uuid は path-safe（traversal でない）"
+    );
     // builder は素通し（base/not-a-uuid/...）= within base・観測は当該値で継続。
     let wp = WriterPaths::build(&base, NON_UUID, NON_UUID, Role::Pre, "2026-06-14T00:00:00Z");
     assert_within_base(&wp.final_path, &base);
@@ -97,7 +107,10 @@ fn d5_three_attacks_egui_end_to_end_within_base() {
     let kirin_root = std::env::temp_dir().join("kirin");
     for atk in [ABS, TRAVERSAL, CONTROL] {
         // D4: is_path_safe_component が 3 攻撃すべて reject（絶対 / `..` / 制御文字）。
-        assert!(!is_path_safe_component(atk), "{atk:?} は unsafe（D4 入力検証）");
+        assert!(
+            !is_path_safe_component(atk),
+            "{atk:?} は unsafe（D4 入力検証）"
+        );
 
         // egui restore 入口: params.project_uuid → set_project_uuid(cell) → io_thread が
         // process_project_hash() を builder へ。攻撃値を set しても構築 path は wall で base 内。
@@ -113,7 +126,10 @@ fn d5_three_attacks_egui_end_to_end_within_base() {
 
         // 観測 family（io_thread）materialize は 3 攻撃すべて fresh new_v4 で継続（§7②）。
         let m = materialize_observation_id(atk, "d5.egui");
-        assert!(uuid::Uuid::parse_str(&m).is_ok(), "{atk:?} → 観測継続 new_v4: {m}");
+        assert!(
+            uuid::Uuid::parse_str(&m).is_ok(),
+            "{atk:?} → 観測継続 new_v4: {m}"
+        );
     }
 }
 
@@ -130,7 +146,10 @@ fn s7_egui_set_project_uuid_path_is_within_base() {
     assert_within_base(&p, &kirin_root);
     // io_thread 観測 family は materialize で絶対パスを fresh new_v4 に差し替え（§7② 観測継続）。
     let m = materialize_observation_id(ABS, "egui.project_uuid");
-    assert!(uuid::Uuid::parse_str(&m).is_ok(), "観測 family は new_v4 で継続: {m}");
+    assert!(
+        uuid::Uuid::parse_str(&m).is_ok(),
+        "観測 family は new_v4 で継続: {m}"
+    );
 }
 
 // ── C1: valid UUID は全 builder で同一 canonical（family 間分岐ゼロ）──────────────────
@@ -143,14 +162,25 @@ fn c1_valid_uuid_is_identical_canonical_across_families() {
     // io_thread path（観測）/ record_signal / all_keep / reservation のいずれも uuid を無改変で含む。
     let wp = WriterPaths::build(&base, uuid, uuid, Role::Pre, "2026-06-14T00:00:00Z");
     assert!(wp.final_path.to_string_lossy().contains(uuid));
-    assert!(record_signal::signal_path(&base, uuid, uuid).to_string_lossy().contains(uuid));
-    assert!(all_keep_signal::signal_path(&base, uuid, uuid).to_string_lossy().contains(uuid));
+    assert!(record_signal::signal_path(&base, uuid, uuid)
+        .to_string_lossy()
+        .contains(uuid));
+    assert!(all_keep_signal::signal_path(&base, uuid, uuid)
+        .to_string_lossy()
+        .contains(uuid));
     // reservation: valid UUID pairing は quarantine されず正規 cap に数える。
     reserve_pairing_at(&base, uuid, uuid, uuid, chrono::Utc::now()).unwrap();
-    assert_eq!(count_frames(&base, uuid), 1, "valid UUID 枠は正規 cap に数える");
+    assert_eq!(
+        count_frames(&base, uuid),
+        1,
+        "valid UUID 枠は正規 cap に数える"
+    );
     // 観測 family materialize も valid UUID を無改変（= path / pairing 同一値）。
     assert_eq!(materialize_observation_id(uuid, "t"), uuid);
-    assert!(drain_path_events().is_empty(), "valid UUID は event を出さない（分岐ゼロ）");
+    assert!(
+        drain_path_events().is_empty(),
+        "valid UUID は event を出さない（分岐ゼロ）"
+    );
 }
 
 // ── C3: traversal 注入が正規 12-pair cap を消費/汚染しない（bypass/DoS 不可）+ 決定性 ──────
@@ -165,7 +195,11 @@ fn c3_quarantine_does_not_pollute_cap_and_is_deterministic() {
         let id = format!("aaaaaaaa-0000-4000-8000-{i:012x}");
         reserve_pairing_at(&base, ph, &id, &id, now).unwrap();
     }
-    assert_eq!(count_frames(&base, ph), MAX_ACTIVE_PER_PROJECT, "正規 12 で満杯");
+    assert_eq!(
+        count_frames(&base, ph),
+        MAX_ACTIVE_PER_PROJECT,
+        "正規 12 で満杯"
+    );
 
     // 攻撃者が traversal 値で多数 reserve → quarantine 枠は cap に数えない（DoS 不可）。
     for atk in TRAVERSAL_ATTACKS {
@@ -194,7 +228,10 @@ fn c3_quarantine_does_not_pollute_cap_and_is_deterministic() {
             assert_within_base(&e.path(), &base);
         }
     }
-    assert!(quarantined >= TRAVERSAL_ATTACKS.len(), "traversal 値は quarantine 枠として base 内に隔離");
+    assert!(
+        quarantined >= TRAVERSAL_ATTACKS.len(),
+        "traversal 値は quarantine 枠として base 内に隔離"
+    );
 }
 
 // ── C3 cap-bypass 封止: 予約 marker `_q_` を含む値で cap を bypass できない ───────────────
@@ -210,7 +247,11 @@ fn c3_reserved_marker_literal_cannot_bypass_cap() {
         let id = format!("bbbbbbbb-0000-4000-8000-{i:012x}");
         reserve_pairing_at(&base, ph, &id, &id, now).unwrap();
     }
-    assert_eq!(count_frames(&base, ph), MAX_ACTIVE_PER_PROJECT, "正規 12 で満杯");
+    assert_eq!(
+        count_frames(&base, ph),
+        MAX_ACTIVE_PER_PROJECT,
+        "正規 12 で満杯"
+    );
     // marker を詐称する 50 個の値で reserve しても正規 cap は不変（全て quarantine 化）。
     for i in 0..50 {
         let atk = format!("_q_attacker_{i}");
@@ -229,6 +270,9 @@ fn c3_reserved_marker_literal_cannot_bypass_cap() {
     let res_dir = base.join(ph).join("record_reservation");
     for e in std::fs::read_dir(&res_dir).unwrap().flatten() {
         let name = e.file_name().to_string_lossy().to_string();
-        assert!(!name.contains("attacker"), "攻撃 literal は枠名に現れない: {name}");
+        assert!(
+            !name.contains("attacker"),
+            "攻撃 literal は枠名に現れない: {name}"
+        );
     }
 }

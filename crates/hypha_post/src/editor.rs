@@ -33,13 +33,11 @@ use kirin_measure::{
     check_record_exclusion, count_distinct_pairings, delete_broadcast, delete_signal,
     enumerate_active_post_pair_candidates, enumerate_active_pre_pair_candidates, exit_record_full,
     format_pair_label, load_signal_state, lookup_section_label, mark_released, pair_lock_active,
-    sanitize_name,
-    resolve_arm_target, scan_latest_v2_preset, show_note_button, show_save_button,
+    resolve_arm_target, sanitize_name, scan_latest_v2_preset, show_note_button, show_save_button,
     show_stop_record_button, write_broadcast, write_pending, write_stop_broadcast, DeltaMode,
     DeltaResult, DeltaSnapshot, ExclusionResult, LatchedPre, License, LivenessEvaluator,
-    MeasureResult, PluginDataRole,
-    PreCandidate, PresetFileV2, RecordStateMachine, SignalState, StoragePaths, TransitionError,
-    MAX_ACTIVE_PER_PROJECT, SENSE_RECORD_HINT, SENSE_UPSELL_URL,
+    MeasureResult, PluginDataRole, PreCandidate, PresetFileV2, RecordStateMachine, SignalState,
+    StoragePaths, TransitionError, MAX_ACTIVE_PER_PROJECT, SENSE_RECORD_HINT, SENSE_UPSELL_URL,
 };
 use nih_plug::prelude::Editor;
 use nih_plug_egui::{
@@ -110,7 +108,10 @@ pub(crate) struct Toast {
 
 impl Toast {
     fn new(message: impl Into<String>, now: f64) -> Self {
-        Self { message: message.into(), until: now + TOAST_DURATION_SECS }
+        Self {
+            message: message.into(),
+            until: now + TOAST_DURATION_SECS,
+        }
     }
 
     fn is_alive(&self, now: f64) -> bool {
@@ -333,7 +334,11 @@ pub fn create_post_editor(args: PostEditorArgs) -> Option<Box<dyn Editor>> {
                 state.note_picker_open = false;
             }
             let ack = state.record_acknowledged.load(Ordering::Relaxed);
-            let pair = state.pair_label.lock().map(|g| g.clone()).unwrap_or_default();
+            let pair = state
+                .pair_label
+                .lock()
+                .map(|g| g.clone())
+                .unwrap_or_default();
             let license = *state.license;
 
             let now = ctx.input(|i| i.time);
@@ -386,7 +391,20 @@ pub fn create_post_editor(args: PostEditorArgs) -> Option<Box<dyn Editor>> {
             }
             let led_col = led_color(led, now);
 
-            draw_post(ctx, state, &m, &d, sig, recording, &pair, led_col, show_banner, license, now, pair_locked);
+            draw_post(
+                ctx,
+                state,
+                &m,
+                &d,
+                sig,
+                recording,
+                &pair,
+                led_col,
+                show_banner,
+                license,
+                now,
+                pair_locked,
+            );
 
             // Toast の寿命切れはこのフレームで掃除
             if state.toast.as_ref().is_some_and(|t| !t.is_alive(now)) {
@@ -459,7 +477,8 @@ fn draw_post(
                 ui.add_space(10.0);
                 let w = ui.available_width() - 10.0;
                 let (rect, _) = ui.allocate_exact_size(Vec2::new(w, 1.0), egui::Sense::hover());
-                ui.painter().hline(rect.x_range(), rect.center().y, Stroke::new(1.0, COL_FLORA));
+                ui.painter()
+                    .hline(rect.x_range(), rect.center().y, Stroke::new(1.0, COL_FLORA));
             });
             ui.add_space(4.0);
 
@@ -596,13 +615,8 @@ fn draw_post(
                 ui.horizontal(|ui| {
                     ui.add_space(10.0);
                     ui.add(
-                        Label::new(
-                            RichText::new(&msg)
-                                .size(11.0)
-                                .color(COL_MUTED)
-                                .monospace(),
-                        )
-                        .extend(),
+                        Label::new(RichText::new(&msg).size(11.0).color(COL_MUTED).monospace())
+                            .extend(),
                     );
                 });
             }
@@ -638,17 +652,29 @@ fn draw_delta_grid(ui: &mut egui::Ui, d: &DeltaResult, delta_col: egui::Color32,
             .min_col_width(58.0)
             .spacing([6.0, 6.0])
             .show(ui, |ui| {
-                let lufs_col = if d.lufs.is_some() { delta_col } else { COL_MUTED };
+                let lufs_col = if d.lufs.is_some() {
+                    delta_col
+                } else {
+                    COL_MUTED
+                };
                 value_row(ui, "ΔLUFS", fmt_delta(d.lufs), "LU", lufs_col);
 
                 let tp_col = if d.tp.is_some() {
-                    if tp_warn { COL_FLORA_BRIGHT } else { delta_col }
+                    if tp_warn {
+                        COL_FLORA_BRIGHT
+                    } else {
+                        delta_col
+                    }
                 } else {
                     COL_MUTED
                 };
                 value_row(ui, "ΔTP", fmt_delta(d.tp), "dB", tp_col);
 
-                let crest_col = if d.crest.is_some() { delta_col } else { COL_MUTED };
+                let crest_col = if d.crest.is_some() {
+                    delta_col
+                } else {
+                    COL_MUTED
+                };
                 value_row(ui, "ΔCrest", fmt_delta(d.crest), "dB", crest_col);
             });
     });
@@ -907,7 +933,12 @@ fn draw_pair_pre_name_field(ui: &mut egui::Ui, state: &mut PostEditorState, pair
 ///
 /// 0 候補時は `ui.label("No candidates")` を出す（dropdown 内空表示）。
 /// egui 0.31.1 公式 API: `ComboBox::from_id_salt` (旧 `from_id_source` は廃止)。
-fn draw_pair_pre_combo(ui: &mut egui::Ui, state: &mut PostEditorState, now: f64, pair_locked: bool) {
+fn draw_pair_pre_combo(
+    ui: &mut egui::Ui,
+    state: &mut PostEditorState,
+    now: f64,
+    pair_locked: bool,
+) {
     let kirin_root = std::env::temp_dir().join("kirin");
     let pre_candidates = enumerate_active_pre_pair_candidates(&kirin_root);
     // B-027 段階 3-B α-7-3 / Step 9: All Keep 行 N 集計のため POST candidates も取得。
@@ -934,10 +965,7 @@ fn draw_pair_pre_combo(ui: &mut egui::Ui, state: &mut PostEditorState, now: f64,
                         let daw_session_id_snapshot =
                             read_daw_session_id_arc(&state.daw_session_id);
 
-                        log::info!(
-                            "[POST all_stop] click: originator={}",
-                            instance_id
-                        );
+                        log::info!("[POST all_stop] click: originator={}", instance_id);
 
                         // 1. broadcast 先発火 (Keep と完全対称)。
                         trigger_all_stop_broadcast(
@@ -981,11 +1009,7 @@ fn draw_pair_pre_combo(ui: &mut egui::Ui, state: &mut PostEditorState, now: f64,
                         let project_hash_snapshot = read_project_hash_arc(&state.project_hash);
                         let daw_session_id_snapshot =
                             read_daw_session_id_arc(&state.daw_session_id);
-                        let m = state
-                            .measure
-                            .lock()
-                            .map(|g| g.clone())
-                            .unwrap_or_default();
+                        let m = state.measure.lock().map(|g| g.clone()).unwrap_or_default();
                         let pair_pre_name_snapshot = state
                             .pair_pre_name
                             .read()
@@ -994,7 +1018,8 @@ fn draw_pair_pre_combo(ui: &mut egui::Ui, state: &mut PostEditorState, now: f64,
 
                         log::info!(
                             "[POST all_keep] click: originator={} n_ready={}",
-                            instance_id, n_ready
+                            instance_id,
+                            n_ready
                         );
 
                         // 1. broadcast 先発火 (#20 (i) / Step 8 実装済 fn)
@@ -1217,10 +1242,8 @@ fn draw_button_row(
                 }
             } else if license == License::Sense {
                 let resp = ui.add(
-                    egui::Button::new(
-                        RichText::new(SENSE_RECORD_HINT).size(11.0).color(COL_FLORA),
-                    )
-                    .frame(false),
+                    egui::Button::new(RichText::new(SENSE_RECORD_HINT).size(11.0).color(COL_FLORA))
+                        .frame(false),
                 );
                 if resp.clicked() {
                     log::info!("[hypha-fork] button clicked: SenseHint");
@@ -1356,10 +1379,14 @@ pub(crate) fn trigger_keep_internal(
     // 3. 排他チェック（B-027 段階 3-A: 上限 12 active per project_hash / commit 専用ゲート）
     match check_record_exclusion(&plugin_data_dir, project_hash) {
         ExclusionResult::Ok => {}
-        ExclusionResult::Conflict { role, heartbeat, .. } => {
+        ExclusionResult::Conflict {
+            role, heartbeat, ..
+        } => {
             log::info!(
                 "[POST keep] exclusion conflict (>= {} active): role={:?} heartbeat={}",
-                MAX_ACTIVE_PER_PROJECT, role, heartbeat
+                MAX_ACTIVE_PER_PROJECT,
+                role,
+                heartbeat
             );
             if let Some(t) = toast.as_mut() {
                 **t = Some(Toast::new("Maximum 12 pairs reached", now));
@@ -1389,7 +1416,8 @@ pub(crate) fn trigger_keep_internal(
     // 物理存在のみ（count_distinct_pairings = reservation::count_frames）。reserve→枠数>MAX で
     // 13 ペア目を hard reject（R-28 通知）。reserve Err（write_all 失敗等）= 枠取れず = reject。
     let reservation_created =
-        match reservation::reserve_pairing(&plugin_data_dir, project_hash, &target_id, instance_id) {
+        match reservation::reserve_pairing(&plugin_data_dir, project_hash, &target_id, instance_id)
+        {
             Ok(reservation::ReserveOutcome::Created) => true,
             Ok(reservation::ReserveOutcome::AlreadyReserved) => false,
             Err(_) => {
@@ -1422,7 +1450,9 @@ pub(crate) fn trigger_keep_internal(
         Ok(_) => {
             log::info!(
                 "[POST keep] write_pending ok: requested_by={} target={} daw={}",
-                instance_id, target_id, daw_session_id
+                instance_id,
+                target_id,
+                daw_session_id
             );
             // 7. pair_label を表示用に設定（Keep 時は PRE Name 不明 → UUID8 fallback）
             // B-023 段階 4: PRE 側 ack 後 IO Thread の poll が paired_pre_name を
@@ -1437,7 +1467,12 @@ pub(crate) fn trigger_keep_internal(
             log::warn!("[POST keep] write_pending failed: {}", e);
             // G-115-365: write_pending 失敗時も自分で取った枠を戻す（孤児を残さない）。
             if reservation_created {
-                reservation::release_pairing(&plugin_data_dir, project_hash, &target_id, instance_id);
+                reservation::release_pairing(
+                    &plugin_data_dir,
+                    project_hash,
+                    &target_id,
+                    instance_id,
+                );
             }
             // try_enter_record 成功後の "部分 commit" 状態のため、Record→Watch
             // と同じ 3 ステップ cleanup を必ず通過させる (構造的契約成立).
@@ -1603,14 +1638,8 @@ pub(crate) fn trigger_stop_internal(
             // delete_signal は冪等 (record_signal.rs:289-301 / NotFound→Ok)。
             // 統合点 #3 (Drop) / #4 (IO Thread terminate) と重複呼出されても安全。
             match delete_signal(&plugin_data_dir, project_hash, instance_id) {
-                Ok(()) => log::info!(
-                    "[POST cleanup #2] record_signal deleted: {}",
-                    instance_id
-                ),
-                Err(e) => log::warn!(
-                    "[POST cleanup #2] delete_signal failed: {:?}",
-                    e
-                ),
+                Ok(()) => log::info!("[POST cleanup #2] record_signal deleted: {}", instance_id),
+                Err(e) => log::warn!("[POST cleanup #2] delete_signal failed: {:?}", e),
             }
 
             // originator として配置した all_keep_signal/{POST_iid}.json broadcast を削除。
@@ -1751,7 +1780,6 @@ fn draw_led(ui: &mut egui::Ui, color: egui::Color32) {
     ui.painter().circle_filled(rect.center(), 5.0, color);
 }
 
-
 /// Throttle-guarded proposals rescan. Reads `plugin_data/{ph}/preset/` once
 /// per 500 ms and caches the newest v2.0 file in the editor-local state.
 ///
@@ -1855,7 +1883,10 @@ fn draw_proposals_block(ui: &mut egui::Ui, state: &mut PostEditorState, now: f64
                 let btn_text = format!("Cards {} {}", n, toggle);
                 let resp = ui.add(
                     egui::Button::new(
-                        RichText::new(&btn_text).size(11.0).color(COL_NORMAL).monospace(),
+                        RichText::new(&btn_text)
+                            .size(11.0)
+                            .color(COL_NORMAL)
+                            .monospace(),
                     )
                     .frame(false),
                 );
@@ -1923,7 +1954,10 @@ mod tests {
         let ok_false: Result<bool, ()> = Ok(false);
         let err: Result<bool, ()> = Err(());
         assert!(note_append_succeeded(&ok_true), "Ok(true) = 成功");
-        assert!(!note_append_succeeded(&ok_false), "Ok(false)(記録不在) = 失敗");
+        assert!(
+            !note_append_succeeded(&ok_false),
+            "Ok(false)(記録不在) = 失敗"
+        );
         assert!(!note_append_succeeded(&err), "Err(IO) = 失敗");
     }
 
@@ -1941,10 +1975,7 @@ mod tests {
     /// PRE_ プレフィックス無し（判断 2 / 段階 2 PRE 側 fallback と整合）。
     #[test]
     fn format_pair_label_empty_name_fallback() {
-        assert_eq!(
-            format_pair_label("", "abcdefghijklmnop"),
-            "pair: abcdefgh"
-        );
+        assert_eq!(format_pair_label("", "abcdefghijklmnop"), "pair: abcdefgh");
     }
 
     /// 8 文字未満（短い ID）でも切り捨てではなくそのまま全文を入れること。
