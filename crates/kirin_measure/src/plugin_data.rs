@@ -135,11 +135,12 @@ pub struct BounceMarker {
     pub last_block_hash: String,
 }
 
-/// plugin_data/ 1 ファイル分のルート（v1.2）。
+/// plugin_data/ 1 ファイル分のルート（現行 v1.3）。
 ///
 /// v1.2 (A-3 (a)): `instance_id` field 追加 + `paired_pre_instance_id` /
 /// `paired_post_instance_id` field 追加（cross-instance pair 復元の決定論的キー）。
-/// schema_version "1.2"。
+/// v1.3 (B-043 / B-076): session aggregate と integrity field を additive 追加。
+/// B-141: `started_at_ms` を additive 追加（schema_version は 1.3 維持）。
 ///
 /// 各 field の詳細仕様は [`PluginDataFile::new`] の doc コメント参照。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -191,6 +192,12 @@ pub struct PluginDataFile {
     /// Lens 側 cross-instance pair 復元の決定論的キー（A-3 (a) v1.2）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub paired_post_instance_id: Option<String>,
+    /// Record 開始 wall-clock（epoch ms）。frame t_ms の原点。
+    /// PRE=相手 POST の started_at、POST=自身の started_at を epoch ms 化（同一原点）。
+    /// signal 不在/壊れ時の fallback では PRE/POST で異なり得る。
+    /// 旧 .kirin 互換のため `#[serde(default)]`（0 = 未記録/旧版センチネル）。
+    #[serde(default)]
+    pub started_at_ms: i64,
     /// B-076: この Record 中に ring 満杯で測定 ring に push できなかったサンプル数
     /// （per-Record 差分 = Record 開始時 overflow snapshot との差）。計測値は汚さない露出のみ。
     /// 旧 .kirin 互換のため `#[serde(default)]`（schema_version "1.3" 維持・additive）。
@@ -207,7 +214,7 @@ pub struct PluginDataFile {
 impl PluginDataFile {
     pub const SCHEMA_VERSION: &'static str = "1.3";
 
-    /// 空の v1.2 ファイルを生成（heartbeat = timestamp = now, status=active, checksum=空）。
+    /// 空の v1.3 ファイルを生成（heartbeat = timestamp = now, status=active, checksum=空）。
     ///
     /// # source_format（v1.2 (α) 文言 / Daisuke 判断 2026-05-01）
     /// Hz 単位の DAW 入力サンプルレート。0 = 取得失敗（fallback）。
@@ -276,6 +283,7 @@ impl PluginDataFile {
             plr: None,
             paired_pre_instance_id,
             paired_post_instance_id,
+            started_at_ms: 0,
             dropped_samples: 0,
             integrity_degraded: false,
             validity: true,
@@ -557,6 +565,12 @@ impl PluginDataWriter {
         self.data.validity = valid;
     }
 
+    /// B-141: TRACE 側の PRE/POST time-origin 検証用に Record 開始 epoch ms を公開する。
+    /// 既存 .kirin 互換の sentinel は 0。writer_start だけが初回 flush 前に実値へ更新する。
+    pub fn set_started_at_ms(&mut self, started_at_ms: i64) {
+        self.data.started_at_ms = started_at_ms;
+    }
+
     /// atomic flush: checksum 計算 → `.tmp` 書込 → `rename()` で最終パスに置換。
     ///
     /// rename は POSIX では同一 FS 内で atomic。途中クラッシュ時も最終ファイルは
@@ -809,7 +823,7 @@ mod tests {
     }
 
     #[test]
-    fn new_file_has_schema_1_2_defaults_with_optional_bus() {
+    fn new_file_has_schema_1_3_defaults_with_optional_bus() {
         // Phase 1: bus = None → JSON では field omitted（skip_serializing_if）
         let f = PluginDataFile::new(
             "iid".to_string(),
@@ -832,6 +846,7 @@ mod tests {
         assert!(f.annotations.is_empty());
         assert!(f.paired_pre_instance_id.is_none());
         assert!(f.paired_post_instance_id.is_none());
+        assert_eq!(f.started_at_ms, 0);
         assert_eq!(f.sample_rate, 48000);
         assert_eq!(f.source_format, 48000);
         assert!(f.validity);
@@ -1057,6 +1072,66 @@ mod tests {
         let bytes = fs::read(&w.paths.final_path).unwrap();
         let loaded: PluginDataFile = serde_json::from_slice(&bytes).unwrap();
         assert!(!loaded.validity);
+    }
+
+    #[test]
+    fn started_at_ms_serializes_and_checksum_roundtrips() {
+        let base = isolated_dir();
+        let mut w = sample_writer(&base, Role::Pre);
+        let started_at_ms = 1_781_234_567_890;
+        w.set_started_at_ms(started_at_ms);
+        w.flush().unwrap();
+
+        let bytes = fs::read(&w.paths.final_path).unwrap();
+        let json = String::from_utf8(bytes.clone()).unwrap();
+        assert!(
+            json.contains("\"started_at_ms\":1781234567890"),
+            "started_at_ms must be serialized: {json}"
+        );
+        let loaded: PluginDataFile = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(loaded.started_at_ms, started_at_ms);
+        assert!(verify_checksum(&loaded));
+    }
+
+    #[test]
+    fn pre_post_started_at_ms_can_share_one_origin() {
+        let base = isolated_dir();
+        let started_at_ms = 1_781_000_000_123;
+        let mut pre = sample_writer(&base, Role::Pre);
+        let mut post = sample_writer(&base, Role::Post);
+        pre.set_started_at_ms(started_at_ms);
+        post.set_started_at_ms(started_at_ms);
+        pre.flush().unwrap();
+        post.flush().unwrap();
+
+        let pre_data: PluginDataFile =
+            serde_json::from_slice(&fs::read(&pre.paths.final_path).unwrap()).unwrap();
+        let post_data: PluginDataFile =
+            serde_json::from_slice(&fs::read(&post.paths.final_path).unwrap()).unwrap();
+        assert_eq!(pre_data.started_at_ms, started_at_ms);
+        assert_eq!(post_data.started_at_ms, started_at_ms);
+        assert_eq!(pre_data.started_at_ms, post_data.started_at_ms);
+        assert!(verify_checksum(&pre_data));
+        assert!(verify_checksum(&post_data));
+    }
+
+    #[test]
+    fn fallback_started_at_ms_may_differ_between_pre_and_post() {
+        let base = isolated_dir();
+        let mut pre = sample_writer(&base, Role::Pre);
+        let mut post = sample_writer(&base, Role::Post);
+        pre.set_started_at_ms(1_781_000_010_000);
+        post.set_started_at_ms(1_781_000_012_500);
+        pre.flush().unwrap();
+        post.flush().unwrap();
+
+        let pre_data: PluginDataFile =
+            serde_json::from_slice(&fs::read(&pre.paths.final_path).unwrap()).unwrap();
+        let post_data: PluginDataFile =
+            serde_json::from_slice(&fs::read(&post.paths.final_path).unwrap()).unwrap();
+        assert_ne!(pre_data.started_at_ms, post_data.started_at_ms);
+        assert!(verify_checksum(&pre_data));
+        assert!(verify_checksum(&post_data));
     }
 
     #[test]

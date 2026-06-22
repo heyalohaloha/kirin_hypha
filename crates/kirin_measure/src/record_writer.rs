@@ -256,6 +256,7 @@ pub fn writer_start(
             return None;
         }
     };
+    w.set_started_at_ms(started_at_ms);
     if let Err(e) = w.flush() {
         log::warn!("[writer] initial flush failed: {}", e);
         return None;
@@ -924,6 +925,7 @@ mod tests {
             None,
         )
         .unwrap();
+        writer.set_started_at_ms(started_at_ms);
         writer.flush().unwrap();
         RecordingCtx {
             writer,
@@ -1056,7 +1058,8 @@ mod tests {
     #[test]
     fn writer_close_writes_status_closed_and_verifies_checksum() {
         let base = isolated_base();
-        let mut ctx = make_ctx(&base, Role::Post, now_epoch_ms());
+        let started_at_ms = 1_781_234_000_000;
+        let mut ctx = make_ctx(&base, Role::Post, started_at_ms);
         let m = full_measure_result();
         assert!(writer_append_frame(&mut ctx, 100, &m));
         let final_path = ctx.final_path.clone();
@@ -1065,6 +1068,7 @@ mod tests {
         let bytes = fs::read(&final_path).unwrap();
         let loaded: PluginDataFile = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(loaded.status, crate::plugin_data::Status::Closed);
+        assert_eq!(loaded.started_at_ms, started_at_ms);
         assert_eq!(loaded.frames.len(), 1);
         assert!(crate::plugin_data::verify_checksum(&loaded));
     }
@@ -1713,7 +1717,7 @@ mod tests {
         );
     }
 
-    /// B-076: dropped_samples / integrity_degraded を持たない旧 .kirin を #[serde(default)] で読める。
+    /// B-076 / B-141: additive field を持たない旧 .kirin を #[serde(default)] で読める。
     #[test]
     fn old_kirin_without_integrity_fields_reads_via_serde_default() {
         let base = isolated_base();
@@ -1721,9 +1725,11 @@ mod tests {
         let mut v = serde_json::to_value(&f).unwrap();
         let obj = v.as_object_mut().unwrap();
         // 旧 .kirin を模擬（新 field を除去）
+        obj.remove("started_at_ms");
         obj.remove("dropped_samples");
         obj.remove("integrity_degraded");
         let back: PluginDataFile = serde_json::from_value(v).unwrap();
+        assert_eq!(back.started_at_ms, 0, "旧 .kirin → serde default 0");
         assert_eq!(back.dropped_samples, 0, "旧 .kirin → serde default 0");
         assert!(!back.integrity_degraded, "旧 .kirin → serde default false");
     }
