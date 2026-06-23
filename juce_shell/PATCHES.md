@@ -20,6 +20,19 @@ git apply ../patches/0003-au-preferred-channel-layout-tags-for-logic-mono.patch
 
 (`scripts/build_juce_universal.sh` applies all three idempotently at build time.)
 
+To verify that a dirty `juce_shell/JUCE` checkout is **only** this tracked patch
+stack and nothing else:
+
+```sh
+bash scripts/verify_juce_patch_state.sh
+```
+
+`cargo run --package xtask -- release-package` also runs this verifier before it
+allows an uploadable zip. A dirty submodule is acceptable only when it matches
+the pinned JUCE commit plus these three patch files byte-for-byte; unexpected
+JUCE edits, staged files, untracked files, or a moved submodule HEAD fail the
+release gate.
+
 ---
 
 ## 0001 — macOS 15 SDK: bypass obsoleted `CGWindowListCreateImage`

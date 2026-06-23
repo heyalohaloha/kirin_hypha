@@ -26,6 +26,7 @@ lipo -info "target/universal/libkirin_hypha_ffi.a"
 
 # B-091/B-135/B-139: apply local JUCE patches with the exact same flags used by CI.
 bash scripts/apply_juce_patches.sh
+bash scripts/verify_juce_patch_state.sh
 
 echo "==> cmake configure (universal: x86_64;arm64 + universal staticlib)"
 cmake -S juce_shell -B juce_shell/build-universal \

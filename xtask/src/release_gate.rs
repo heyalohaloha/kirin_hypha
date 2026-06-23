@@ -56,17 +56,42 @@ fn git_dirty_entries() -> Result<Vec<String>> {
         );
     }
 
-    Ok(String::from_utf8_lossy(&out.stdout)
-        .lines()
-        .filter_map(|line| {
-            let path = line.get(3..).unwrap_or(line).trim();
-            if path == "juce_shell/JUCE" {
-                None
-            } else {
-                Some(line.to_string())
-            }
-        })
-        .collect())
+    let mut entries = Vec::new();
+    let mut juce_submodule_dirty = false;
+
+    for line in String::from_utf8_lossy(&out.stdout).lines() {
+        let path = line.get(3..).unwrap_or(line).trim();
+        if path == "juce_shell/JUCE" {
+            juce_submodule_dirty = true;
+        } else {
+            entries.push(line.to_string());
+        }
+    }
+
+    if juce_submodule_dirty {
+        verify_tracked_juce_patch_state()?;
+    }
+
+    Ok(entries)
+}
+
+fn verify_tracked_juce_patch_state() -> Result<()> {
+    let out = Command::new("bash")
+        .arg("scripts/verify_juce_patch_state.sh")
+        .output()
+        .context("spawn JUCE patch-state verifier")?;
+
+    if !out.status.success() {
+        bail!(
+            "juce_shell/JUCE is dirty, but it does not match the tracked Kirin JUCE patch stack.\n\
+             stdout:\n{}\n\
+             stderr:\n{}",
+            String::from_utf8_lossy(&out.stdout).trim(),
+            String::from_utf8_lossy(&out.stderr).trim()
+        );
+    }
+
+    Ok(())
 }
 
 fn normalized_absolute(path: &Path) -> Result<PathBuf> {
