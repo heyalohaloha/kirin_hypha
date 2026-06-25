@@ -10,7 +10,28 @@ Codexセッションは Notion へのいかなる書き込みも行わない。
 ## 完了時の出力形式（チャット出力のみ）
 - Commit hash / B番号 / 変更ファイル数 (+N / -N)
 - Test: pass/fail/skip
+- LSアップ用: ready/blocker/skip（リリース・配置・notarizeを行った場合は原則 ready まで作る）
 - 未処理申し送り（番人裁定待ち等）
+
+## LSアップ用パッケージ準備（リリース作業では必須）
+Hyphaを release build / notarize / install したセッションでは、作業完了前に必ず Kirin OS 式の
+Lemon Squeezy 用 `.pkg` まで準備する。
+
+```bash
+node scripts/ls_release/build_kirin_hypha_pkg.mjs
+node scripts/ls_release/kirin_hypha_ls_dry_run.mjs \
+  --state release_state/kirin_hypha_1.1.1_ls.state.json \
+  --with-apple-verification
+```
+
+成果物:
+- `dist/LS_UPLOAD/Kirin-Hypha-1.1.1-macOS-Universal.pkg`
+- `dist/LS_UPLOAD/Kirin-Hypha-1.1.1-macOS-Universal.pkg.sha256`
+- `dist/LS_UPLOAD/Kirin-Hypha-1.1.1-macOS-Universal.pkg.json`
+
+`Developer ID Installer` 証明書が無く signed `.pkg` を作れない場合は、LSアップ用を ready と言わない。
+`blocker: Developer ID Installer certificate missing` と明記する。`UNSIGNED-DO-NOT-UPLOAD.pkg`
+は payload smoke test 用のみで、LSには絶対にアップロードしない。
 
 ## プロジェクト概要
 Kirin Hypha は Kirin OS の計測プラグイン。VST3。DAW内で音声を一切加工せず、計測のみ行う。
@@ -226,5 +247,4 @@ BoolParam bypass は残存（対応 DAW では即時 Bypassed 検出に使える
 
 ### テスト
 30テスト全通過、clippy clean。
-
 
