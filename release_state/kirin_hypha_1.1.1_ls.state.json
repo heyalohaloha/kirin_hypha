@@ -1,0 +1,48 @@
+{
+  "schema": "kirin-release-ls-state-v1",
+  "generatedAt": "2026-06-25T11:01:10Z",
+  "product": {
+    "name": "Kirin Hypha",
+    "version": "1.1.1"
+  },
+  "local": {
+    "releaseDir": "dist/LS_UPLOAD"
+  },
+  "artifacts": [
+    {
+      "label": "Universal Installer",
+      "type": "pkg",
+      "fileName": "Kirin-Hypha-1.1.1-macOS-Universal.pkg",
+      "path": "dist/LS_UPLOAD/Kirin-Hypha-1.1.1-macOS-Universal.pkg",
+      "size": null,
+      "sha512": null,
+      "sha256": null,
+      "lsDisplaySize": null
+    }
+  ],
+  "expectedPayloads": [
+    "Library/Audio/Plug-Ins/Components/Kirin Hypha PRE.component",
+    "Library/Audio/Plug-Ins/Components/Kirin Hypha POST.component",
+    "Library/Audio/Plug-Ins/VST3/Kirin Hypha PRE.vst3",
+    "Library/Audio/Plug-Ins/VST3/Kirin Hypha POST.vst3"
+  ],
+  "lemonSqueezy": {
+    "storeName": "Kirin Mastering",
+    "productName": "Kirin Hypha",
+    "productId": null,
+    "variantId": null,
+    "productAdminUrl": null,
+    "expectedStatus": "Published",
+    "expectedFilesCount": null,
+    "notes": [
+      "Kirin Hypha product id was not found in the local Kirin OS/Sense release state.",
+      "Set productAdminUrl before using --with-ls-chrome.",
+      "Lemon Squeezy displays rounded MiB labels, not raw byte counts."
+    ]
+  },
+  "handoff": {
+    "runbook": "docs/ls_release/kirin_hypha_ls_runbook.md",
+    "buildScript": "scripts/ls_release/build_kirin_hypha_pkg.mjs",
+    "dryRunScript": "scripts/ls_release/kirin_hypha_ls_dry_run.mjs"
+  }
+}
