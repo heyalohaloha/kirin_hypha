@@ -704,18 +704,21 @@ pub fn discover_pre_dirs_for_post_project(
         .collect()
 }
 
-/// POST project_uuid でスコープした PRE 候補列挙（GUI/JUCE dropdown 用）。
+/// POST project_uuid 入口の PRE 候補列挙（GUI/JUCE dropdown 用）。
 ///
-/// `post_project_hash` から current session を推定できる場合は他セッションの PRE 名を出さない。
-/// 推定材料（POST 側 pair_pre_name）が無い初期状態では既存の全件列挙に fallback する。
+/// 候補メニューは「次に選べる PRE」を出す場所なので、既存 POST の `pair_pre_name`
+/// との重なりでは絞らない。VST3 PRE は instance ごとに別 project_uuid へ書くことがあり、
+/// 既に `Drum` が pair 済みの POST project で `Mix` を追加すると、overlap 絞り込みでは
+/// `Mix` が候補から消えるため。
+///
+/// Keep/Δ の確定側は [`select_target_pre_for_post_project`] /
+/// [`select_target_pre_for_arm_for_post_project`] で name 一意性を検証し、同名衝突時のみ
+/// POST project overlap を tie-break に使う。
 pub fn enumerate_active_pre_pair_candidates_for_post_project(
     kirin_root: &Path,
-    post_project_hash: &str,
+    _post_project_hash: &str,
 ) -> Vec<PreCandidate> {
-    discover_pre_dirs_for_post_project(kirin_root, post_project_hash)
-        .into_iter()
-        .flat_map(|d| scan_pre_candidates_in(&d))
-        .collect()
+    enumerate_active_pre_pair_candidates(kirin_root)
 }
 
 /// POST 側計測値。距離計算用。
@@ -796,13 +799,13 @@ fn select_target_pre_core(
     select_target_pre_core_from_dirs(&dirs, pair_pre_name, require_active)
 }
 
-fn select_target_pre_core_from_dirs(
+fn collect_selected_pre_from_dirs(
     dirs: &[PathBuf],
     pair_pre_name: &str,
     require_active: bool,
-) -> Option<SelectedPre> {
+) -> Vec<SelectedPre> {
     if pair_pre_name.is_empty() {
-        return None;
+        return Vec::new();
     }
     let candidates: Vec<PreCandidate> = dirs
         .iter()
@@ -844,11 +847,40 @@ fn select_target_pre_core_from_dirs(
             project_dir,
         });
     }
+    valid
+}
+
+fn select_target_pre_core_from_dirs(
+    dirs: &[PathBuf],
+    pair_pre_name: &str,
+    require_active: bool,
+) -> Option<SelectedPre> {
+    let mut valid = collect_selected_pre_from_dirs(dirs, pair_pre_name, require_active);
 
     if valid.len() == 1 {
         valid.pop()
     } else {
         None // 0 件 or 2 件以上 = 曖昧 → 沈黙（表示 NoPre / Arm 拒否）。
+    }
+}
+
+fn select_target_pre_core_for_post_project(
+    kirin_root: &Path,
+    pair_pre_name: &str,
+    post_project_hash: &str,
+    require_active: bool,
+) -> Option<SelectedPre> {
+    let all_dirs = crate::pre_discovery::discover_active_pre_dirs(kirin_root);
+    let mut all_valid = collect_selected_pre_from_dirs(&all_dirs, pair_pre_name, require_active);
+    match all_valid.len() {
+        0 => None,
+        1 => all_valid.pop(),
+        _ => {
+            // 同名が複数ある場合だけ、既存 POST project の pair 名集合で session 推定する。
+            // ここで絞れなければ曖昧として拒否し、別セッションの同名 PRE へ流さない。
+            let scoped_dirs = discover_pre_dirs_for_post_project(kirin_root, post_project_hash);
+            select_target_pre_core_from_dirs(&scoped_dirs, pair_pre_name, require_active)
+        }
     }
 }
 
@@ -870,8 +902,7 @@ pub fn select_target_pre_for_post_project(
     pair_pre_name: &str,
     post_project_hash: &str,
 ) -> Option<SelectedPre> {
-    let dirs = discover_pre_dirs_for_post_project(kirin_root, post_project_hash);
-    select_target_pre_core_from_dirs(&dirs, pair_pre_name, true)
+    select_target_pre_core_for_post_project(kirin_root, pair_pre_name, post_project_hash, true)
 }
 
 /// POST project_uuid でスコープした Arm 用 PRE 選定。
@@ -880,8 +911,7 @@ pub fn select_target_pre_for_arm_for_post_project(
     pair_pre_name: &str,
     post_project_hash: &str,
 ) -> Option<SelectedPre> {
-    let dirs = discover_pre_dirs_for_post_project(kirin_root, post_project_hash);
-    select_target_pre_core_from_dirs(&dirs, pair_pre_name, false)
+    select_target_pre_core_for_post_project(kirin_root, pair_pre_name, post_project_hash, false)
 }
 
 /// B-108: 一度成立した PRE↔POST 結合（ラッチ）。display tick と keep/Arm が共有する単一実体。
@@ -960,18 +990,19 @@ pub fn resolve_arm_target(
 
 /// POST project_uuid でスコープした keep/Arm target 解決。
 ///
-/// ラッチ済みでも、現在 POST セッションから推定した PRE scope 外のラッチは採用しない。
-/// これにより別セッション由来の同名 PRE へ Keep が流れる事故を防ぐ。
+/// ラッチ済みなら、fresh な PRE dir に残っていて同名である限り採用する。POST project
+/// overlap は初回選定時の同名衝突 tie-break にだけ使い、ラッチ後は既に決めた
+/// PRE との結合を project-scope 推定で落とさない。
 pub fn resolve_arm_target_for_post_project(
     kirin_root: &Path,
     pair_pre_name: &str,
     post_project_hash: &str,
     latched: &Mutex<Option<LatchedPre>>,
 ) -> Option<SelectedPre> {
-    let dirs = discover_pre_dirs_for_post_project(kirin_root, post_project_hash);
+    let all_dirs = crate::pre_discovery::discover_active_pre_dirs(kirin_root);
     if let Ok(g) = latched.lock() {
         if let Some(l) = g.as_ref() {
-            if l.name == pair_pre_name && dirs.iter().any(|d| d == &l.project_dir) {
+            if l.name == pair_pre_name && all_dirs.iter().any(|d| d == &l.project_dir) {
                 if let Some(st) = read_pre_at(&l.pre_json) {
                     if st.fresh && st.name.as_deref() == Some(pair_pre_name) {
                         return Some(SelectedPre {
@@ -984,7 +1015,7 @@ pub fn resolve_arm_target_for_post_project(
             }
         }
     }
-    select_target_pre_core_from_dirs(&dirs, pair_pre_name, false)
+    select_target_pre_core_for_post_project(kirin_root, pair_pre_name, post_project_hash, false)
 }
 
 /// `t`(RFC3339) が現在から `max_secs` 秒以内か。parse 失敗は false（安全側で除外）。
@@ -1807,10 +1838,10 @@ mod tests {
         );
     }
 
-    /// POST 側 project_uuid と PRE 側 project_uuid は直接一致しないため、現在 POST 群の
-    /// pair_pre_name 集合と最も重なる PRE 群だけを候補化する。
+    /// 候補表示は次に選べる PRE を隠さない。POST 側 project に既存 pair 名があっても、
+    /// fresh PRE は全 project_uuid から flatten して返す。
     #[test]
-    fn enumerate_active_pre_pair_candidates_for_post_project_picks_best_name_overlap() {
+    fn enumerate_active_pre_pair_candidates_for_post_project_lists_all_fresh_pre_dirs() {
         let root = isolated_dir();
         let now = now_rfc3339();
         write_pre_for_select(&root, "pre-old", "iid-old-snare", "Snare", "inactive", &now);
@@ -1836,7 +1867,37 @@ mod tests {
 
         let v = enumerate_active_pre_pair_candidates_for_post_project(&root, "post-current");
         let ids: Vec<&str> = v.iter().map(|c| c.instance_id.as_str()).collect();
-        assert_eq!(ids, vec!["iid-current-bass", "iid-current-vocal"]);
+        assert_eq!(
+            ids,
+            vec![
+                "iid-current-bass",
+                "iid-current-vocal",
+                "iid-old-kick",
+                "iid-old-snare"
+            ]
+        );
+    }
+
+    /// 実機回帰: 1 組目 Drum が同じ POST project に存在していても、2 組目 Mix を
+    /// 候補から消さず、Arm/Keep 側では Mix が一意なら確定できる。
+    #[test]
+    fn post_project_with_existing_drum_still_lists_and_selects_second_mix() {
+        let root = isolated_dir();
+        let now = now_rfc3339();
+        write_pre_for_select(&root, "pre-drum", "iid-drum", "Drum", "inactive", &now);
+        write_pre_for_select(&root, "pre-mix", "iid-mix", "Mix", "inactive", &now);
+        write_post_for_scope(&root, "post-current", "post-drum", "Drum");
+
+        let v = enumerate_active_pre_pair_candidates_for_post_project(&root, "post-current");
+        let names: Vec<&str> = v.iter().filter_map(|c| c.name.as_deref()).collect();
+        assert!(
+            names.contains(&"Mix"),
+            "既存 Drum overlap で 2 組目 Mix を候補から隠さない: {names:?}"
+        );
+
+        let sel = select_target_pre_for_arm_for_post_project(&root, "Mix", "post-current")
+            .expect("Mix が全体で一意なら既存 Drum scope に遮られず Arm できる");
+        assert_eq!(sel.instance_id, "iid-mix");
     }
 
     /// 別セッション側に同じ Name が残っていても、現在 POST 群の name 集合で PRE 群を
