@@ -464,10 +464,8 @@ pub fn spawn_io_thread_post(
             }
 
             // B-024 Group A / Gap-2: PRE 死活確認 sub-tick (1 秒 throttle)。
-            // `record_sm` が Record 中のときのみ動作し、`paired_pre_target` の PRE が
-            // 書く `pre.json` の mtime が `PRE_LIVENESS_STALE_SECS` (60 秒 / G-50-33)
-            // 超 (or 不在) なら `delete_signal(self_post_iid)` + `record_sm.exit_record()`
-            // で構造的同期する。Gap-1 / Gap-7 / Gap-18 (PRE drop 残骸系) も本経路で解消。
+            // Record 中でも stem/offline export 後は PRE pre.json の mtime が止まるため、
+            // ここで Record を自動解除しない。Keep は利用者の Stop 操作まで保持する。
             if Instant::now() >= next_pre_liveness_poll {
                 poll_pre_liveness(
                     &kirin_root,
@@ -1908,13 +1906,9 @@ fn find_pre_json_mtime(kirin_root: &Path, pre_iid: &str) -> Option<SystemTime> {
 ///
 /// `record_sm` が Record 中で、かつ `paired_pre_target` が `Some(pre_iid)` のとき:
 ///   1. `find_pre_json_mtime(kirin_root, pre_iid)` で PRE pre.json の最新 mtime を取得
-///   2. `now - mtime > PRE_LIVENESS_STALE_SECS` (60 秒 / G-50-33) または mtime 不在で stale
-///   3. stale 時 `delete_signal(self_post_iid)` で record_signal を消す → PRE 側 poll は
-///      `current=None` 経路 (`io_thread_pre.rs:429-`) で retry_direct_read → exit_record
-///   4. POST 側 `record_sm.exit_record()` で自身も Watch 復帰
-///
-/// Gap-1 / Gap-7 / Gap-18 (PRE drop 残骸系) は本経路で構造的に解消される (Daisuke
-/// 判断 α / signal 所有権設計変更なし)。
+///   2. `now - mtime > PRE_LIVENESS_STALE_SECS` (60 秒 / G-50-33) または mtime 不在を検出
+///   3. 検出時も Record は維持する。stem/offline export 後は DAW が process 更新を止めるため、
+///      ここで `exit_record_full` すると Keep が利用者の Stop 前に消える。
 fn poll_pre_liveness(
     kirin_root: &Path,
     project_hash: &str,
@@ -1951,13 +1945,13 @@ fn poll_pre_liveness(
 #[allow(clippy::too_many_arguments)]
 fn poll_pre_liveness_at(
     kirin_root: &Path,
-    plugin_data_root: &Path,
-    project_hash: &str,
+    _plugin_data_root: &Path,
+    _project_hash: &str,
     self_post_iid: &str,
     pre_iid: &str,
-    record_sm: &Arc<RecordStateMachine>,
-    pair_label: &Arc<Mutex<String>>,
-    paired_pre_target: &Arc<Mutex<Option<String>>>,
+    _record_sm: &Arc<RecordStateMachine>,
+    _pair_label: &Arc<Mutex<String>>,
+    _paired_pre_target: &Arc<Mutex<Option<String>>>,
     now: SystemTime,
 ) {
     let stale = match find_pre_json_mtime(kirin_root, pre_iid) {
@@ -1971,20 +1965,11 @@ fn poll_pre_liveness_at(
         return;
     }
     log::warn!(
-        "[POST liveness] PRE pre.json stale > {}s — exit_record (partner_pre_iid={}, post_iid={})",
+        "[POST liveness] PRE pre.json stale > {}s — keeping record armed (partner_pre_iid={}, post_iid={})",
         PRE_LIVENESS_STALE_SECS,
         pre_iid,
         self_post_iid
     );
-    match record_signal::delete_signal(plugin_data_root, project_hash, self_post_iid) {
-        Ok(()) => log::info!(
-            "[POST liveness] delete_signal ok (post_iid={})",
-            self_post_iid
-        ),
-        Err(e) => log::warn!("[POST liveness] delete_signal failed: {}", e),
-    }
-    // を成立させるため、editor 側 trigger_stop_internal と同じ 3 ステップを通過させる。
-    exit_record_full(record_sm, pair_label, paired_pre_target);
 }
 
 fn poll_ack_timeout_with_base(
@@ -3738,11 +3723,10 @@ mod pre_liveness_tests {
         path
     }
 
-    /// Gap-2 + G-115-64: paired_pre_target=Some(pre_iid) / pre.json mtime stale
-    /// (>60s) → `delete_signal` + `exit_record_full` (record_sm Watch /
-    /// pair_label 空 / paired_pre_target=None) が呼ばれる.
+    /// stem/offline export 後は PRE pre.json の mtime が止まり得る。
+    /// stale 検出時も Keep は利用者の Stop まで保持する。
     #[test]
-    fn poll_pre_liveness_at_stale_pre_triggers_full_cleanup_and_delete_signal() {
+    fn poll_pre_liveness_at_stale_pre_keeps_recording_and_signal() {
         let kirin_root = isolated_root("stale_pre");
         let plugin_data_root = isolated_root("stale_pre_pdr");
 
@@ -3784,30 +3768,28 @@ mod pre_liveness_tests {
             stale_now,
         );
 
-        assert!(
-            !sm.is_recording(),
-            "stale pre.json detection must trigger exit_record_full() (record_sm)"
+        assert!(sm.is_recording(), "stale pre.json must keep Record armed");
+        assert_eq!(
+            pair_label.lock().unwrap().as_str(),
+            format!("pair: {}", TEST_PRE_IID).as_str(),
+            "stale pre.json must keep pair_label for manual Stop"
         );
-        assert!(
-            pair_label.lock().unwrap().is_empty(),
-            "G-115-64: pair_label must be cleared on stale pre.json"
-        );
-        assert!(
-            paired_pre_target.lock().unwrap().is_none(),
-            "G-115-64: paired_pre_target must be None on stale pre.json"
+        assert_eq!(
+            paired_pre_target.lock().unwrap().as_deref(),
+            Some(TEST_PRE_IID),
+            "stale pre.json must keep paired_pre_target for manual Stop"
         );
         let signal_after =
             crate::record_signal::read_signal(&plugin_data_root, TEST_PH, TEST_POST_IID);
         assert!(
-            signal_after.is_none(),
-            "stale pre.json detection must call delete_signal() (signal file gone)"
+            signal_after.is_some(),
+            "stale pre.json must not delete record_signal"
         );
     }
 
-    /// Gap-2 + G-115-64: pre.json 不在 (PRE drop された直後) でも stale 判定で
-    /// `exit_record_full`. Gap-1 / Gap-7 / Gap-18 (PRE drop 残骸系) の構造解消確証.
+    /// pre.json 不在でも Keep は利用者の Stop まで保持する。
     #[test]
-    fn poll_pre_liveness_at_missing_pre_json_triggers_full_cleanup() {
+    fn poll_pre_liveness_at_missing_pre_json_keeps_recording() {
         let kirin_root = isolated_root("missing_pre");
         let plugin_data_root = isolated_root("missing_pre_pdr");
 
@@ -3838,23 +3820,22 @@ mod pre_liveness_tests {
             SystemTime::now(),
         );
 
-        assert!(
-            !sm.is_recording(),
-            "missing pre.json must trigger exit_record_full() (PRE drop 構造解消)"
+        assert!(sm.is_recording(), "missing pre.json must keep Record armed");
+        assert_eq!(
+            pair_label.lock().unwrap().as_str(),
+            format!("pair: {}", TEST_PRE_IID).as_str(),
+            "missing pre.json must keep pair_label for manual Stop"
         );
-        assert!(
-            pair_label.lock().unwrap().is_empty(),
-            "G-115-64: pair_label must be cleared on missing pre.json"
-        );
-        assert!(
-            paired_pre_target.lock().unwrap().is_none(),
-            "G-115-64: paired_pre_target must be None on missing pre.json"
+        assert_eq!(
+            paired_pre_target.lock().unwrap().as_deref(),
+            Some(TEST_PRE_IID),
+            "missing pre.json must keep paired_pre_target for manual Stop"
         );
         let signal_after =
             crate::record_signal::read_signal(&plugin_data_root, TEST_PH, TEST_POST_IID);
         assert!(
-            signal_after.is_none(),
-            "missing pre.json must call delete_signal()"
+            signal_after.is_some(),
+            "missing pre.json must not delete record_signal"
         );
     }
 

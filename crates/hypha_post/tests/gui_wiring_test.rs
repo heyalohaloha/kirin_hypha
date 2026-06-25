@@ -723,6 +723,37 @@ fn editor_rs_keep_button_gated_when_pair_empty() {
     );
 }
 
+/// POST Record 表示は左列=Δ 3項目 / 右列=POST絶対値 3項目。
+#[test]
+fn editor_rs_record_grid_keeps_right_absolute_values() {
+    let src = read("src/editor.rs");
+    let anchor = src
+        .find("fn draw_record_section(")
+        .expect("draw_record_section must exist");
+    let mut safe_end = (anchor + 4500).min(src.len());
+    while safe_end > anchor && !src.is_char_boundary(safe_end) {
+        safe_end -= 1;
+    }
+    let block = &src[anchor..safe_end];
+
+    for label in ["\"ΔLUFS\"", "\"ΔTP\"", "\"ΔCrest\""] {
+        assert!(
+            block.contains(label),
+            "Record left Δ label missing: {label}"
+        );
+    }
+    for label in ["\"LUFS-M\"", "\"TP\"", "\"Crest\""] {
+        assert!(
+            block.contains(label),
+            "Record right absolute label missing: {label}"
+        );
+    }
+    assert!(
+        !block.contains("\"ΔPSR\"") && !block.contains("\"ΔN\"") && !block.contains("\"ΔSharp\""),
+        "Record right column must not be consumed by Phase D delta labels"
+    );
+}
+
 /// W-285 / G-115-253: editor.rs draw_pair_pre_combo dropdown loop で PRE name=""
 /// (空文字 / 旧 schema 不在 None) の候補が gate されることを invariant 化。
 /// dropdown 表示文字に UUID8 fallback が含まれるため、name="" の候補を残すと

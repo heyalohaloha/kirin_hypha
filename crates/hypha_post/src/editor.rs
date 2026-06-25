@@ -730,16 +730,13 @@ fn draw_watch_absolute_grid(ui: &mut egui::Ui, m: &MeasureResult) {
     });
 }
 
-/// Record: 2 列 × 3 行。Δ 6 項目（ΔLUFS / ΔPSR / ΔTP / ΔN / ΔCrest / ΔSharp）。
-/// 分離 (分離原則)。Watch 中の絶対値表示は `draw_watch_absolute_grid` 側で温存
-/// (本指示 §3-4 / 対象外)。
+/// Record: 左列=Δ 3項目 / 右列=POST絶対値 3項目。
+/// Watch 中の絶対値表示は `draw_watch_absolute_grid` 側で温存する。
 ///
 /// 各 Δ セルの色:
 /// - `delta_col` = mode (Active=COL_NORMAL / Stale=COL_MUTED / NoPre=COL_MUTED)
 /// - `Δ.X` が None なら `COL_MUTED` で `---`
 /// - ΔTP のみ POST 絶対 TP が 0 dBTP 超 (tp_warn) のとき `COL_FLORA_BRIGHT` (旧仕様維持)
-///
-/// `m: &MeasureResult` は ΔTP の tp_warn 判定にだけ使う (POST 絶対 true peak 参照)。
 fn draw_record_section(ui: &mut egui::Ui, m: &MeasureResult, d: &DeltaResult) {
     let delta_col = match d.mode {
         DeltaMode::Active => COL_NORMAL,
@@ -772,10 +769,7 @@ fn draw_record_section(ui: &mut egui::Ui, m: &MeasureResult, d: &DeltaResult) {
 
     let snap = d.last_active.as_ref();
     let (lufs_v, lufs_col) = resolve(d.lufs, snap.and_then(|s| s.lufs));
-    let (psr_v, psr_col) = resolve(d.psr, snap.and_then(|s| s.psr));
-    let (n_v, n_col) = resolve(d.n_prime_total, snap.and_then(|s| s.n_prime_total));
     let (crest_v, crest_col) = resolve(d.crest, snap.and_then(|s| s.crest));
-    let (sharp_v, sharp_col) = resolve(d.sharpness, snap.and_then(|s| s.sharpness));
 
     // ΔTP 特例: 現値 Some && tp_warn のときのみ COL_FLORA_BRIGHT 上書き (既存挙動維持)。
     // 凍結 tp (d.tp=None && snap.tp=Some) は COL_MUTED 固定 (過去の警告を現在の警告として
@@ -788,6 +782,11 @@ fn draw_record_section(ui: &mut egui::Ui, m: &MeasureResult, d: &DeltaResult) {
             (v, c)
         }
     };
+    let tp_abs_col = if tp_warn {
+        COL_FLORA_BRIGHT
+    } else {
+        val_color(m.true_peak)
+    };
 
     ui.horizontal(|ui| {
         ui.add_space(10.0);
@@ -799,17 +798,17 @@ fn draw_record_section(ui: &mut egui::Ui, m: &MeasureResult, d: &DeltaResult) {
                 row_pair(
                     ui,
                     ("ΔLUFS", fmt_delta(lufs_v), "LU", lufs_col),
-                    ("ΔPSR", fmt_delta(psr_v), "dB", psr_col),
+                    ("LUFS-M", fmt_val(m.lufs_m), "LUFS", val_color(m.lufs_m)),
                 );
                 row_pair(
                     ui,
                     ("ΔTP", fmt_delta(tp_v), "dB", tp_col),
-                    ("ΔN", fmt_delta(n_v), "sone", n_col),
+                    ("TP", fmt_val(m.true_peak), "dBTP", tp_abs_col),
                 );
                 row_pair(
                     ui,
                     ("ΔCrest", fmt_delta(crest_v), "dB", crest_col),
-                    ("ΔSharp", fmt_delta(sharp_v), "acum", sharp_col),
+                    ("Crest", fmt_val(m.crest), "dB", val_color(m.crest)),
                 );
             });
     });

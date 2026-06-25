@@ -448,6 +448,17 @@ impl PluginDataWriter {
         self.data.chain_memo = memo;
     }
 
+    /// Record 開始時刻を単一原点として焼く。
+    ///
+    /// `timestamp` と bounce start/end の初期値を record_signal.started_at 由来の
+    /// wall-clock に揃え、PRE/POST の session_id と JSON メタが同じ開始時刻を参照する。
+    pub fn set_record_start_wall_clock(&mut self, wall_clock: String) {
+        self.data.timestamp = wall_clock.clone();
+        self.data.heartbeat = wall_clock.clone();
+        self.data.bounce_marker.wall_clock_start = wall_clock.clone();
+        self.data.bounce_marker.wall_clock_end = wall_clock;
+    }
+
     /// バウンス開始時情報を記録（最初のブロックハッシュ等）。
     pub fn set_bounce_start(&mut self, wall_clock: String, first_block_hash: String) {
         self.data.bounce_marker.wall_clock_start = wall_clock;
@@ -479,14 +490,40 @@ impl PluginDataWriter {
         crest: f64,
         psr: Option<f64>,
     ) {
-        let mut rounded_n = [0.0; 20];
-        for (i, v) in n_prime.iter().enumerate() {
-            rounded_n[i] = round1(*v);
-        }
+        self.append_frame_optional(
+            t_ms,
+            Some(n_prime),
+            Some(sharpness),
+            lufs_m,
+            true_peak,
+            crest,
+            psr,
+        );
+    }
+
+    /// 1 frame を追加。Phase D の値が未ウォームアップでも LUFS/TP/Crest の TRACE を残す。
+    #[allow(clippy::too_many_arguments)]
+    pub fn append_frame_optional(
+        &mut self,
+        t_ms: u64,
+        n_prime: Option<[f64; 20]>,
+        sharpness: Option<f64>,
+        lufs_m: f64,
+        true_peak: f64,
+        crest: f64,
+        psr: Option<f64>,
+    ) {
+        let rounded_n = n_prime.map(|arr| {
+            let mut rounded = [0.0; 20];
+            for (i, v) in arr.iter().enumerate() {
+                rounded[i] = round1(*v);
+            }
+            rounded
+        });
         self.data.frames.push(Frame {
             t_ms,
-            n_prime: Some(rounded_n),
-            sharpness: Some(round2(sharpness)),
+            n_prime: rounded_n,
+            sharpness: sharpness.filter(|v| v.is_finite()).map(round2),
             lufs_m: round1(lufs_m),
             true_peak: round1(true_peak),
             crest: round1(crest),
@@ -667,11 +704,19 @@ fn now_iso8601() -> String {
     chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()
 }
 
-/// ISO 8601 (`2026-04-17T14:32:08Z`) → compact (`20260417T143208`).
+/// ISO 8601 (`2026-04-17T14:32:08Z`) → local compact (`YYYYMMDDTHHMMSS`).
 ///
-/// タイムゾーン記号（`Z` / `+09:00`）と区切り（`-` / `:`）を除去するだけ。
-/// 秒未満（`.123`）も除去。書式が想定と違えば「非数字・非 T を除去」の安全側に倒す。
+/// plugin_data の session_id は G-50-30 により local wall clock。ISO/RFC3339
+/// 入力はローカルタイムゾーンへ変換してから compact 化する。書式が想定と違えば
+/// 旧実装と同じ「非数字・非 T を除去」の安全側に倒す。
 pub fn compact_wall_clock(iso: &str) -> String {
+    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(iso) {
+        return dt
+            .with_timezone(&chrono::Local)
+            .format("%Y%m%dT%H%M%S")
+            .to_string();
+    }
+
     iso.chars()
         .take_while(|c| c.is_ascii_digit() || matches!(*c, '-' | ':' | 'T'))
         .filter(|c| c.is_ascii_digit() || *c == 'T')
@@ -792,33 +837,47 @@ mod tests {
         assert_eq!(Role::Post.dir_name(), "post");
     }
 
+    fn local_compact(input: &str) -> String {
+        chrono::DateTime::parse_from_rfc3339(input)
+            .unwrap()
+            .with_timezone(&chrono::Local)
+            .format("%Y%m%dT%H%M%S")
+            .to_string()
+    }
+
     #[test]
-    fn compact_wall_clock_strips_separators() {
+    fn compact_wall_clock_uses_local_wall_clock_for_rfc3339() {
         assert_eq!(
             compact_wall_clock("2026-04-17T14:32:08Z"),
-            "20260417T143208"
+            local_compact("2026-04-17T14:32:08Z")
         );
         assert_eq!(
             compact_wall_clock("2026-04-17T14:32:08.123Z"),
-            "20260417T143208"
+            local_compact("2026-04-17T14:32:08.123Z")
         );
         assert_eq!(
             compact_wall_clock("2026-04-17T14:32:08+09:00"),
-            "20260417T143208"
+            local_compact("2026-04-17T14:32:08+09:00")
         );
+    }
+
+    #[test]
+    fn compact_wall_clock_falls_back_to_separator_strip_for_non_rfc3339() {
+        assert_eq!(compact_wall_clock("20260417T143208"), "20260417T143208");
     }
 
     #[test]
     fn writer_paths_build_hierarchy() {
         let base = Path::new("/tmp/kirin_base");
         let p = WriterPaths::build(base, "ph", "iid-1", Role::Pre, "2026-04-17T14:32:08Z");
+        let compact = local_compact("2026-04-17T14:32:08Z");
         assert_eq!(
             p.final_path,
-            Path::new("/tmp/kirin_base/ph/iid-1/pre/20260417T143208.json")
+            Path::new(&format!("/tmp/kirin_base/ph/iid-1/pre/{compact}.json"))
         );
         assert_eq!(
             p.tmp_path,
-            Path::new("/tmp/kirin_base/ph/iid-1/pre/20260417T143208.json.tmp")
+            Path::new(&format!("/tmp/kirin_base/ph/iid-1/pre/{compact}.json.tmp"))
         );
     }
 

@@ -30,6 +30,7 @@ use crate::record::RecordStateMachine;
 use crate::record_signal;
 use crate::storage::{load_installation_id_safe, StoragePaths};
 use crate::MeasureResult;
+use chrono::TimeZone;
 
 /// Frame サンプリング間隔（10 fps / G-50-17 リアルタイム Record）。
 pub const FRAME_INTERVAL_MS: u64 = 100;
@@ -162,6 +163,16 @@ pub fn now_epoch_ms() -> i64 {
     chrono::Utc::now().timestamp_millis()
 }
 
+/// epoch ms を UTC ISO 8601（秒精度）へ変換する。
+pub fn epoch_ms_to_iso8601(ms: i64) -> String {
+    chrono::Utc
+        .timestamp_millis_opt(ms)
+        .single()
+        .unwrap_or_else(chrono::Utc::now)
+        .format("%Y-%m-%dT%H:%M:%SZ")
+        .to_string()
+}
+
 /// ISO 8601 / RFC 3339 文字列を epoch ms に変換。パース失敗時は `None`。
 pub fn parse_iso8601_to_epoch_ms(s: &str) -> Option<i64> {
     if s.is_empty() {
@@ -236,7 +247,7 @@ pub fn writer_start(
     };
     let base = paths.plugin_data_dir();
     let installation_id = load_installation_id_safe()?;
-    let wall_clock_iso = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+    let wall_clock_iso = epoch_ms_to_iso8601(started_at_ms);
     let writer_paths = WriterPaths::build(&base, project_hash, instance_id, role, &wall_clock_iso);
     let final_path = writer_paths.final_path.clone();
     let mut w = match PluginDataWriter::create(
@@ -256,6 +267,7 @@ pub fn writer_start(
             return None;
         }
     };
+    w.set_record_start_wall_clock(wall_clock_iso);
     w.set_started_at_ms(started_at_ms);
     if let Err(e) = w.flush() {
         log::warn!("[writer] initial flush failed: {}", e);
@@ -285,12 +297,26 @@ pub fn writer_start(
 }
 
 /// Record 終了: status=closed で最終 flush、ログ出力。
-pub fn writer_close(ctx: RecordingCtx) {
+pub fn writer_close(mut ctx: RecordingCtx) {
     let final_path = ctx.final_path.clone();
+    seal_bounce_marker(&mut ctx);
     match ctx.writer.close() {
         Ok(()) => log::info!("[writer] released: {}", final_path.display()),
         Err(e) => log::warn!("[writer] close failed ({}): {}", final_path.display(), e),
     }
+}
+
+fn seal_bounce_marker(ctx: &mut RecordingCtx) {
+    let end_ms = now_epoch_ms();
+    let elapsed_ms = if ctx.started_at_ms > 0 {
+        end_ms.saturating_sub(ctx.started_at_ms).max(0) as u64
+    } else {
+        0
+    };
+    let sample_rate = ctx.writer.data().sample_rate as u64;
+    let duration_samples = elapsed_ms.saturating_mul(sample_rate) / 1_000;
+    ctx.writer
+        .set_bounce_end(epoch_ms_to_iso8601(end_ms), duration_samples, String::new());
 }
 
 /// Record 終了 (B-043 セッション集計注入版)。
@@ -335,21 +361,30 @@ pub fn take_session_summary(slot: &Arc<Mutex<Option<SessionSummary>>>) -> Option
     }
 }
 
-/// 必要な 5 フィールドが Some のときのみ 1 frame を追記。
+/// TRACE の主要 3 フィールドが揃ったとき 1 frame を追記する。
+/// Phase D は未ウォームアップでも optional のまま残し、core trace を欠落させない。
 pub fn writer_append_frame(ctx: &mut RecordingCtx, t_ms: u64, m: &MeasureResult) -> bool {
-    let (Some(n_prime), Some(sharpness), Some(lufs_m), Some(true_peak), Some(crest)) =
-        (m.n_prime, m.sharpness, m.lufs_m, m.true_peak, m.crest)
-    else {
+    let (Some(lufs_m), Some(true_peak), Some(crest)) = (m.lufs_m, m.true_peak, m.crest) else {
         return false;
     };
-    ctx.writer
-        .append_frame(t_ms, n_prime, sharpness, lufs_m, true_peak, crest, m.psr);
+    ctx.writer.append_frame_optional(
+        t_ms,
+        m.n_prime,
+        m.sharpness,
+        lufs_m,
+        true_peak,
+        crest,
+        m.psr,
+    );
     if !ctx.first_frame_logged {
-        log::info!(
-            "[writer] frame written: t_ms={}, n_prime[0]={:.3}",
-            t_ms,
-            n_prime[0]
-        );
+        match m.n_prime {
+            Some(n_prime) => log::info!(
+                "[writer] frame written: t_ms={}, n_prime[0]={:.3}",
+                t_ms,
+                n_prime[0]
+            ),
+            None => log::info!("[writer] frame written: t_ms={}, phase_d=pending", t_ms),
+        }
         ctx.first_frame_logged = true;
     }
     true
@@ -911,7 +946,8 @@ mod tests {
     }
 
     fn make_ctx(base: &std::path::Path, role: Role, started_at_ms: i64) -> RecordingCtx {
-        let paths = WriterPaths::build(base, TEST_PH, TEST_IID, role, "2026-04-19T12:00:00Z");
+        let start_iso = epoch_ms_to_iso8601(started_at_ms);
+        let paths = WriterPaths::build(base, TEST_PH, TEST_IID, role, &start_iso);
         let final_path = paths.final_path.clone();
         let mut writer = PluginDataWriter::create(
             paths,
@@ -925,6 +961,7 @@ mod tests {
             None,
         )
         .unwrap();
+        writer.set_record_start_wall_clock(start_iso);
         writer.set_started_at_ms(started_at_ms);
         writer.flush().unwrap();
         RecordingCtx {
@@ -971,6 +1008,12 @@ mod tests {
     }
 
     #[test]
+    fn epoch_ms_to_iso8601_basic() {
+        let ms = parse_iso8601_to_epoch_ms("2026-04-19T12:00:00Z").unwrap();
+        assert_eq!(epoch_ms_to_iso8601(ms), "2026-04-19T12:00:00Z");
+    }
+
+    #[test]
     fn parse_iso8601_to_epoch_ms_empty_returns_none() {
         assert!(parse_iso8601_to_epoch_ms("").is_none());
     }
@@ -1009,14 +1052,18 @@ mod tests {
     }
 
     #[test]
-    fn append_frame_skips_when_n_prime_missing() {
+    fn append_frame_writes_core_metrics_when_phase_d_missing() {
         let base = isolated_base();
         let mut ctx = make_ctx(&base, Role::Post, now_epoch_ms());
         let mut m = full_measure_result();
         m.n_prime = None;
-        assert!(!writer_append_frame(&mut ctx, 100, &m));
-        assert_eq!(ctx.data().frames.len(), 0);
-        assert!(!ctx.first_frame_logged);
+        m.sharpness = None;
+        assert!(writer_append_frame(&mut ctx, 100, &m));
+        assert_eq!(ctx.data().frames.len(), 1);
+        assert!(ctx.data().frames[0].n_prime.is_none());
+        assert!(ctx.data().frames[0].sharpness.is_none());
+        assert_eq!(ctx.data().frames[0].lufs_m, -14.2);
+        assert!(ctx.first_frame_logged);
     }
 
     #[test]
@@ -1070,6 +1117,11 @@ mod tests {
         assert_eq!(loaded.status, crate::plugin_data::Status::Closed);
         assert_eq!(loaded.started_at_ms, started_at_ms);
         assert_eq!(loaded.frames.len(), 1);
+        assert!(loaded.bounce_marker.duration_samples > 0);
+        assert_ne!(
+            loaded.bounce_marker.wall_clock_start,
+            loaded.bounce_marker.wall_clock_end
+        );
         assert!(crate::plugin_data::verify_checksum(&loaded));
     }
 
@@ -1227,7 +1279,7 @@ mod tests {
     }
 
     #[test]
-    fn run_record_tick_record_warmup_skips_frame() {
+    fn run_record_tick_record_phase_d_warmup_keeps_core_frame() {
         let base = isolated_base();
         let started = now_epoch_ms() - 200;
         let ctx = make_ctx(&base, Role::Post, started);
@@ -1235,6 +1287,7 @@ mod tests {
         sm.try_enter_record(License::Os).unwrap();
         let mut m0 = full_measure_result();
         m0.n_prime = None;
+        m0.sharpness = None;
         m0.psb_bark = None;
         let m = Arc::new(Mutex::new(m0));
         let mut rec: Option<RecordingCtx> = Some(ctx);
@@ -1257,7 +1310,9 @@ mod tests {
         .unwrap();
 
         let ctx_ref = rec.as_ref().unwrap();
-        assert_eq!(ctx_ref.data().frames.len(), 0);
+        assert_eq!(ctx_ref.data().frames.len(), 1);
+        assert!(ctx_ref.data().frames[0].n_prime.is_none());
+        assert!(ctx_ref.data().frames[0].sharpness.is_none());
         assert_eq!(
             ctx_ref.data().psb_snapshots.as_ref().map(|v| v.len()),
             Some(0)
