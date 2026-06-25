@@ -8,6 +8,10 @@
 use crate::phase_d::stream::PhaseDStream;
 use crate::phase_d::tables::FieldType;
 use crate::record::RecordStateMachine;
+use crate::record_writer::{
+    clear_record_trace_queue, push_record_trace_sample, RecordTraceQueue, RecordTraceSample,
+    FRAME_INTERVAL_MS, PSB_INTERVAL_MS,
+};
 use crate::resampler::ResamplerTo48k;
 use crate::{
     engine::SessionSummary, load_signal_state, store_signal_state, MeasureEngine, MeasureResult,
@@ -140,6 +144,7 @@ pub fn spawn_measure_thread(
     evaluator: Arc<LivenessEvaluator>,
     record_sm: Arc<RecordStateMachine>,
     session_summary: Arc<Mutex<Option<SessionSummary>>>,
+    record_trace_queue: RecordTraceQueue,
 ) -> JoinHandle<()> {
     thread::spawn(move || {
         let n_channels = match n_channels {
@@ -201,6 +206,9 @@ pub fn spawn_measure_thread(
         // B-043: Record mode 遷移を検出し、Watch→Record 開始時に engine をリセットする。
         // Record 中の SS-8 reset 抑止と組み合わせて、LUFS-I / LRA のセッション通算性を確保する。
         let mut prev_recording = false;
+        let mut record_origin_frames = engine.total_frames();
+        let mut next_record_trace_ms = 0_u64;
+        let mut next_record_psb_ms = 0_u64;
 
         // heartbeat stall detection: process() が停止したことを検出する。
         // Studio One 等、バイパス時に process() を呼ばなくなる DAW に対応。
@@ -231,6 +239,10 @@ pub fn spawn_measure_thread(
                     rs.reset();
                 }
                 latest_pd = None;
+                record_origin_frames = engine.total_frames();
+                next_record_trace_ms = 0;
+                next_record_psb_ms = 0;
+                clear_record_trace_queue(&record_trace_queue);
                 if let Ok(mut g) = session_summary.lock() {
                     *g = None;
                 }
@@ -249,6 +261,12 @@ pub fn spawn_measure_thread(
                     &session_summary,
                     &mut chunk_f64,
                     &mut resampled_buf,
+                    Some(RecordTraceDrain {
+                        queue: &record_trace_queue,
+                        record_origin_frames,
+                        next_trace_ms: &mut next_record_trace_ms,
+                        next_psb_ms: &mut next_record_psb_ms,
+                    }),
                 );
                 if drained {
                     record_sm.bump_seal();
@@ -299,6 +317,12 @@ pub fn spawn_measure_thread(
                         &session_summary,
                         &mut chunk_f64,
                         &mut resampled_buf,
+                        Some(RecordTraceDrain {
+                            queue: &record_trace_queue,
+                            record_origin_frames,
+                            next_trace_ms: &mut next_record_trace_ms,
+                            next_psb_ms: &mut next_record_psb_ms,
+                        }),
                     );
                 }
                 // Bypassed / Inactive → compute() スキップ。
@@ -384,20 +408,27 @@ pub fn spawn_measure_thread(
                     latest_pd = Some(last.clone());
                 }
 
-                // 100ms チャンク単位で計測し、揃ったら結果を共有領域に書き込む
-                if let Some(mut new_result) = engine.push(chunk_48k) {
-                    //  結果をマージ（初期化中は None のまま）
-                    if let Some(ref pd_r) = latest_pd {
-                        new_result.n_prime_total = Some(pd_r.loudness);
-                        new_result.sharpness = Some(pd_r.sharpness);
-                        new_result.psb_summary = Some(compute_psb_summary(
-                            &pd_r.psb,
-                            &pd_r.psb_bark21_24,
-                            pd_r.psb_high_ext_15_5k_20k,
-                        ));
-                        new_result.n_prime = Some(pd_r.n_prime);
-                        new_result.psb_bark = Some(pd_r.psb);
+                // 100ms チャンク単位で計測し、揃ったら結果を共有領域に書き込む。
+                // Offline bounce では 1 drain 内で複数結果が出るため、observer で全件を
+                // audio-time TRACE queue に渡す。
+                let mut last_result = None;
+                let latest_pd_snapshot = latest_pd.clone();
+                let _ = engine.push_observed(chunk_48k, |frames_48k, base_result| {
+                    let mut new_result = base_result.clone();
+                    merge_phase_d_fields(&mut new_result, latest_pd_snapshot.as_ref());
+                    if is_recording {
+                        maybe_push_record_trace(
+                            &record_trace_queue,
+                            record_origin_frames,
+                            &mut next_record_trace_ms,
+                            &mut next_record_psb_ms,
+                            frames_48k,
+                            &new_result,
+                        );
                     }
+                    last_result = Some(new_result);
+                });
+                if let Some(new_result) = last_result {
                     match result.lock() {
                         Ok(mut guard) => *guard = new_result,
                         Err(e) => {
@@ -417,8 +448,11 @@ pub fn spawn_measure_thread(
                 }
             }
 
-            // 100ms スリープ（ 推奨間隔）
-            thread::sleep(LOOP_SLEEP);
+            if consumer.slots() > 0 {
+                thread::yield_now();
+            } else {
+                thread::sleep(LOOP_SLEEP);
+            }
         }
 
         log::info!("[MeasureThread] terminated");
@@ -441,6 +475,57 @@ fn append_phase_d_mono(input_interleaved: &[f64], n_channels: usize, out: &mut V
     }
 }
 
+fn merge_phase_d_fields(
+    result: &mut MeasureResult,
+    pd: Option<&crate::phase_d::stream::PhaseDResult>,
+) {
+    if let Some(pd_r) = pd {
+        result.n_prime_total = Some(pd_r.loudness);
+        result.sharpness = Some(pd_r.sharpness);
+        result.psb_summary = Some(compute_psb_summary(
+            &pd_r.psb,
+            &pd_r.psb_bark21_24,
+            pd_r.psb_high_ext_15_5k_20k,
+        ));
+        result.n_prime = Some(pd_r.n_prime);
+        result.psb_bark = Some(pd_r.psb);
+    }
+}
+
+fn maybe_push_record_trace(
+    queue: &RecordTraceQueue,
+    record_origin_frames: u64,
+    next_trace_ms: &mut u64,
+    next_psb_ms: &mut u64,
+    frames_48k: u64,
+    result: &MeasureResult,
+) {
+    let t_ms = frames_48k.saturating_sub(record_origin_frames) * 1_000 / ENGINE_SR as u64;
+    if t_ms < *next_trace_ms {
+        return;
+    }
+    let include_psb = t_ms >= *next_psb_ms;
+    push_record_trace_sample(
+        queue,
+        RecordTraceSample {
+            t_ms,
+            result: result.clone(),
+            include_psb,
+        },
+    );
+    *next_trace_ms = (t_ms / FRAME_INTERVAL_MS + 1) * FRAME_INTERVAL_MS;
+    if include_psb {
+        *next_psb_ms = (t_ms / PSB_INTERVAL_MS + 1) * PSB_INTERVAL_MS;
+    }
+}
+
+struct RecordTraceDrain<'a> {
+    queue: &'a RecordTraceQueue,
+    record_origin_frames: u64,
+    next_trace_ms: &'a mut u64,
+    next_psb_ms: &'a mut u64,
+}
+
 /// B-132 (G-115-382): 残量 ring を **Active ループ本体と同一**の convert/resample/engine.push
 /// パイプラインに通して engine に算入し、最終 `engine.finalize()` を `session_summary` に書く。
 ///
@@ -460,6 +545,7 @@ fn drain_ring_into_session(
     session_summary: &Arc<Mutex<Option<SessionSummary>>>,
     chunk_f64: &mut Vec<f64>,
     resampled_buf: &mut Vec<f64>,
+    mut record_trace: Option<RecordTraceDrain<'_>>,
 ) -> bool {
     let available = consumer.slots();
     if available > 0 {
@@ -483,7 +569,20 @@ fn drain_ring_into_session(
         } else {
             chunk_f64
         };
-        let _ = engine.push(chunk_48k);
+        if let Some(trace) = record_trace.as_mut() {
+            let _ = engine.push_observed(chunk_48k, |frames_48k, result| {
+                maybe_push_record_trace(
+                    trace.queue,
+                    trace.record_origin_frames,
+                    trace.next_trace_ms,
+                    trace.next_psb_ms,
+                    frames_48k,
+                    result,
+                );
+            });
+        } else {
+            let _ = engine.push(chunk_48k);
+        }
     }
     let summary = engine.finalize();
     match session_summary.lock() {
@@ -820,6 +919,7 @@ mod b132_drain_tests {
             &ss,
             &mut chunk,
             &mut resampled,
+            None,
         );
         assert!(ok, "drain must succeed");
         let on = (*ss.lock().unwrap()).expect("session_summary written by drain");
@@ -862,6 +962,7 @@ mod b132_drain_tests {
             &ss,
             &mut chunk,
             &mut resampled,
+            None,
         );
         assert!(ok);
         let drained = (*ss.lock().unwrap()).unwrap();

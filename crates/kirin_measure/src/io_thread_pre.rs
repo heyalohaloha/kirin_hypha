@@ -40,7 +40,7 @@ use crate::record_writer::{
     RecordingCtx,
 };
 use crate::storage::StoragePaths;
-use crate::{load_signal_state, License, MeasureResult, SignalState};
+use crate::{load_signal_state, License, MeasureResult, RecordTraceQueue, SignalState};
 
 const LOOP_SLEEP: Duration = Duration::from_millis(100);
 
@@ -196,6 +196,8 @@ pub fn spawn_io_thread_pre(
     // B-043: Record セッション集計値共有スロット (Measure Thread → IO Thread)。
     // Record→Watch 遷移時に take して PluginDataWriter::set_session_aggregates に渡す。
     session_summary: Arc<Mutex<Option<SessionSummary>>>,
+    // Offline bounce 用 TRACE queue (Measure Thread → IO Thread)。
+    record_trace_queue: RecordTraceQueue,
     // B-076: 累積 push_overflow（Audio Thread が ring 満杯時に積む）。run_record_tick が
     // Record 開始で snapshot し close 時に差分を per-Record dropped_samples として焼き込む。
     overflow: Arc<std::sync::atomic::AtomicU64>,
@@ -432,6 +434,7 @@ pub fn spawn_io_thread_pre(
                 Some(&session_summary),
                 &overflow,       // B-076: per-Record dropped_samples 算出用
                 &oversized_drop, // B-125: per-Record oversized block drop 算出用
+                Some(&record_trace_queue),
             ) {
                 log::warn!("[writer] tick error: {}", e);
             }

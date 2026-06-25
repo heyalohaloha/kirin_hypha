@@ -16,6 +16,7 @@
 //! POST / PRE が同じ軸上で frame を並べるため、record_signal を単一真実として参照する。
 //! 不在・パース失敗時は現在時刻にフォールバック（defensive）。
 
+use std::collections::VecDeque;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
@@ -40,6 +41,42 @@ pub const PSB_INTERVAL_MS: u64 = 500;
 
 /// heartbeat + atomic flush 間隔（正本 30 秒）。
 pub const FLUSH_INTERVAL: Duration = Duration::from_secs(30);
+
+/// Measure Thread → IO Thread の Record TRACE サンプル。
+///
+/// `t_ms` は壁時計ではなく、MeasureEngine が処理した音声フレーム数から作る音声時間。
+/// Offline bounce では壁時計がほとんど進まないため、このキューを正本にして TRACE を焼く。
+#[derive(Debug, Clone)]
+pub struct RecordTraceSample {
+    pub t_ms: u64,
+    pub result: MeasureResult,
+    pub include_psb: bool,
+}
+
+pub type RecordTraceQueue = Arc<Mutex<VecDeque<RecordTraceSample>>>;
+
+pub fn new_record_trace_queue() -> RecordTraceQueue {
+    Arc::new(Mutex::new(VecDeque::new()))
+}
+
+pub fn clear_record_trace_queue(queue: &RecordTraceQueue) {
+    if let Ok(mut q) = queue.lock() {
+        q.clear();
+    }
+}
+
+pub fn push_record_trace_sample(queue: &RecordTraceQueue, sample: RecordTraceSample) {
+    if let Ok(mut q) = queue.lock() {
+        q.push_back(sample);
+    }
+}
+
+pub fn drain_record_trace_queue(queue: &RecordTraceQueue) -> Vec<RecordTraceSample> {
+    match queue.lock() {
+        Ok(mut q) => q.drain(..).collect(),
+        Err(_) => Vec::new(),
+    }
+}
 
 /// B-132 (G-115-382 共通B): bake arm が Measure Thread の drain-completion seal 前進を待つ
 /// **上限**。RING_BUFFER_SECONDS=2 + measure loop 100ms を踏まえ、健全時は ~1 loop（≤100ms）で
@@ -149,6 +186,9 @@ pub struct RecordingCtx {
     /// B-132 (G-115-382): Record 開始時の drain-completion seal snapshot。close 時に
     /// `wait_for_seal` がこの値の前進を bounded 待ちして post-drain 確定を確認する。
     pub seal_at_start: u64,
+    /// 最後に TRACE frame を書いた音声時間。offline bounce では壁時計ではなくこの値から
+    /// bounce duration を焼く。
+    pub last_trace_t_ms: Option<u64>,
 }
 
 impl RecordingCtx {
@@ -293,6 +333,7 @@ pub fn writer_start(
         overflow_start: 0, // B-076: run_record_tick が Record 開始時に snapshot を入れる
         oversized_drop_start: 0, // B-125: 同上（oversized_drop の Record 開始 snapshot）
         seal_at_start: 0,  // B-132: run_record_tick が Record 開始時に seal を snapshot する
+        last_trace_t_ms: None,
     })
 }
 
@@ -314,7 +355,8 @@ fn seal_bounce_marker(ctx: &mut RecordingCtx) {
         0
     };
     let sample_rate = ctx.writer.data().sample_rate as u64;
-    let duration_samples = elapsed_ms.saturating_mul(sample_rate) / 1_000;
+    let duration_ms = ctx.last_trace_t_ms.unwrap_or(elapsed_ms);
+    let duration_samples = duration_ms.saturating_mul(sample_rate) / 1_000;
     ctx.writer
         .set_bounce_end(epoch_ms_to_iso8601(end_ms), duration_samples, String::new());
 }
@@ -387,6 +429,7 @@ pub fn writer_append_frame(ctx: &mut RecordingCtx, t_ms: u64, m: &MeasureResult)
         }
         ctx.first_frame_logged = true;
     }
+    ctx.last_trace_t_ms = Some(ctx.last_trace_t_ms.map_or(t_ms, |prev| prev.max(t_ms)));
     true
 }
 
@@ -433,6 +476,7 @@ pub fn run_record_tick(
     // B-125: 累積 oversized_drop（JUCE 殻が prealloc-max 超の病的 block を drop した interleaved
     // sample 数）。overflow とは別カウンタ（混ぜない）。同様に Record 開始 snapshot → close 差分。
     oversized_drop: &Arc<std::sync::atomic::AtomicU64>,
+    record_trace_queue: Option<&RecordTraceQueue>,
 ) -> Result<(), String> {
     let is_recording = record_sm.is_recording();
     match (is_recording, recording.is_some()) {
@@ -488,23 +532,30 @@ pub fn run_record_tick(
                     );
                     ctx.writer.mark_integrity_degraded();
                 }
+                if let Some(queue) = record_trace_queue {
+                    drain_trace_queue_into_writer(&mut ctx, queue);
+                }
                 writer_close_with_summary(ctx, summary);
             }
         }
         (true, true) => {
             let ctx = recording.as_mut().expect("some because of match arm");
-            let m = measure_result
-                .lock()
-                .map_err(|e| format!("measure Mutex poisoned: {e}"))?
-                .clone();
-            let now_ms = now_epoch_ms();
-            let t_ms = now_ms.saturating_sub(ctx.started_at_ms).max(0) as u64;
+            if let Some(queue) = record_trace_queue {
+                drain_trace_queue_into_writer(ctx, queue);
+            } else {
+                let m = measure_result
+                    .lock()
+                    .map_err(|e| format!("measure Mutex poisoned: {e}"))?
+                    .clone();
+                let now_ms = now_epoch_ms();
+                let t_ms = now_ms.saturating_sub(ctx.started_at_ms).max(0) as u64;
 
-            if t_ms >= ctx.next_frame_ms && writer_append_frame(ctx, t_ms, &m) {
-                ctx.next_frame_ms = (t_ms / FRAME_INTERVAL_MS + 1) * FRAME_INTERVAL_MS;
-            }
-            if t_ms >= ctx.next_psb_ms && writer_append_psb(ctx, t_ms, &m) {
-                ctx.next_psb_ms = (t_ms / PSB_INTERVAL_MS + 1) * PSB_INTERVAL_MS;
+                if t_ms >= ctx.next_frame_ms && writer_append_frame(ctx, t_ms, &m) {
+                    ctx.next_frame_ms = (t_ms / FRAME_INTERVAL_MS + 1) * FRAME_INTERVAL_MS;
+                }
+                if t_ms >= ctx.next_psb_ms && writer_append_psb(ctx, t_ms, &m) {
+                    ctx.next_psb_ms = (t_ms / PSB_INTERVAL_MS + 1) * PSB_INTERVAL_MS;
+                }
             }
             if Instant::now() >= ctx.next_flush {
                 ctx.writer.heartbeat_now();
@@ -548,6 +599,21 @@ pub fn run_record_tick(
         (false, false) => {}
     }
     Ok(())
+}
+
+fn drain_trace_queue_into_writer(ctx: &mut RecordingCtx, queue: &RecordTraceQueue) {
+    for sample in drain_record_trace_queue(queue) {
+        let t_ms = sample.t_ms;
+        if t_ms >= ctx.next_frame_ms && writer_append_frame(ctx, t_ms, &sample.result) {
+            ctx.next_frame_ms = (t_ms / FRAME_INTERVAL_MS + 1) * FRAME_INTERVAL_MS;
+        }
+        if sample.include_psb
+            && t_ms >= ctx.next_psb_ms
+            && writer_append_psb(ctx, t_ms, &sample.result)
+        {
+            ctx.next_psb_ms = (t_ms / PSB_INTERVAL_MS + 1) * PSB_INTERVAL_MS;
+        }
+    }
 }
 
 // ── B-025 Group B-1 / Gap-8: Startup orphan .tmp recovery ───────────────────
@@ -978,6 +1044,7 @@ mod tests {
             overflow_start: 0,
             oversized_drop_start: 0, // B-125
             seal_at_start: 0,        // B-132
+            last_trace_t_ms: None,
         }
     }
 
@@ -1199,6 +1266,7 @@ mod tests {
             None,
             &no_overflow(),
             &no_overflow(), // B-125: oversized_drop（テストは欠落なし=0）
+            None,
         )
         .unwrap();
         assert!(rec.is_none());
@@ -1232,6 +1300,7 @@ mod tests {
             None,
             &no_overflow(),
             &no_overflow(), // B-125: oversized_drop（テストは欠落なし=0）
+            None,
         )
         .unwrap();
 
@@ -1265,6 +1334,7 @@ mod tests {
             None,
             &no_overflow(),
             &no_overflow(), // B-125: oversized_drop（テストは欠落なし=0）
+            None,
         )
         .unwrap();
 
@@ -1276,6 +1346,61 @@ mod tests {
         );
         assert!(ctx_ref.next_frame_ms >= 600);
         assert!(ctx_ref.next_psb_ms >= 1000);
+    }
+
+    #[test]
+    fn run_record_tick_drains_audio_time_trace_queue_for_offline_bounce() {
+        let base = isolated_base();
+        let ctx = make_ctx(&base, Role::Post, now_epoch_ms());
+        let sm = Arc::new(RecordStateMachine::new());
+        sm.try_enter_record(License::Os).unwrap();
+        let m = Arc::new(Mutex::new(MeasureResult::default()));
+        let mut rec: Option<RecordingCtx> = Some(ctx);
+        let queue = new_record_trace_queue();
+        push_record_trace_sample(
+            &queue,
+            RecordTraceSample {
+                t_ms: 100,
+                result: full_measure_result(),
+                include_psb: true,
+            },
+        );
+        push_record_trace_sample(
+            &queue,
+            RecordTraceSample {
+                t_ms: 200,
+                result: full_measure_result(),
+                include_psb: false,
+            },
+        );
+
+        run_record_tick(
+            &sm,
+            Role::Post,
+            48000,
+            TEST_PH,
+            TEST_IID,
+            now_epoch_ms,
+            || None,
+            || None,
+            &m,
+            &mut rec,
+            None,
+            &no_overflow(),
+            &no_overflow(),
+            Some(&queue),
+        )
+        .unwrap();
+
+        let ctx_ref = rec.as_ref().unwrap();
+        assert_eq!(ctx_ref.data().frames.len(), 2);
+        assert_eq!(ctx_ref.data().frames[0].t_ms, 100);
+        assert_eq!(ctx_ref.data().frames[1].t_ms, 200);
+        assert_eq!(
+            ctx_ref.data().psb_snapshots.as_ref().map(|v| v.len()),
+            Some(1)
+        );
+        assert!(drain_record_trace_queue(&queue).is_empty());
     }
 
     #[test]
@@ -1306,6 +1431,7 @@ mod tests {
             None,
             &no_overflow(),
             &no_overflow(), // B-125: oversized_drop（テストは欠落なし=0）
+            None,
         )
         .unwrap();
 
@@ -1566,6 +1692,7 @@ mod tests {
                 None,
                 &no_overflow(),
                 &no_overflow(), // B-125: oversized_drop（テストは欠落なし=0）
+                None,
             )
             .unwrap();
             let ctx_ref = rec.as_ref().unwrap();
@@ -1618,6 +1745,7 @@ mod tests {
                 None,
                 &no_overflow(),
                 &no_overflow(), // B-125: oversized_drop（テストは欠落なし=0）
+                None,
             )
             .unwrap();
             let ctx_ref = rec.as_ref().unwrap();
@@ -1668,6 +1796,7 @@ mod tests {
             None,
             &no_overflow(),
             &no_overflow(), // B-125: oversized_drop（テストは欠落なし=0）
+            None,
         )
         .unwrap();
         assert_eq!(rec.as_ref().unwrap().consecutive_dir_missing, 1);
@@ -1690,6 +1819,7 @@ mod tests {
             None,
             &no_overflow(),
             &no_overflow(), // B-125: oversized_drop（テストは欠落なし=0）
+            None,
         )
         .unwrap();
         assert_eq!(rec.as_ref().unwrap().consecutive_dir_missing, 0);
@@ -1728,6 +1858,7 @@ mod tests {
             None,
             &overflow,
             &no_overflow(), // B-125: oversized_drop なし（push_overflow 経路のみ検証）
+            None,
         )
         .unwrap();
         let f1: PluginDataFile = serde_json::from_slice(&fs::read(&path1).unwrap()).unwrap();
@@ -1759,6 +1890,7 @@ mod tests {
             None,
             &overflow,
             &no_overflow(), // B-125: oversized_drop なし（push_overflow 経路のみ検証）
+            None,
         )
         .unwrap();
         let f2: PluginDataFile = serde_json::from_slice(&fs::read(&path2).unwrap()).unwrap();

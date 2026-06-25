@@ -103,6 +103,7 @@ pub use record_signal::{
     write_signal, LatchedPre, LatchedPreState, PostMetrics, PreCandidate, RecordSignal,
     SelectedPre, SignalError, SignalStatus, ACK_TIMEOUT_SECONDS, SIGNALS_SUBDIR, SIGNAL_FILENAME,
 };
+pub use record_writer::{new_record_trace_queue, RecordTraceQueue, RecordTraceSample};
 pub use storage::{
     cleanup_legacy_v1, load_installation_id_safe, load_or_recover, read_identity, write_both,
     write_identity_atomic, CleanupReport, IdentityCache, LoadStatus, LoadedIdentity, StorageError,
