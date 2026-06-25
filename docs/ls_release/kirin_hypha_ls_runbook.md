@@ -17,7 +17,10 @@ This follows the Kirin OS release style: state JSON is the handoff source, the d
 - Do not upload unsigned packages to Lemon Squeezy.
 - The signed package requires a `Developer ID Installer` certificate. `Developer ID Application` is sufficient for the plug-in bundles, but not for the installer package.
 - Lemon Squeezy displays file sizes as rounded MiB labels. Compare local bytes to `bytes / 1024 / 1024`, rounded to 2 decimals.
-- Kirin Hypha product id / variant id were not found locally. Fill `lemonSqueezy.productAdminUrl` in the state before running `--with-ls-chrome`.
+- Kirin Hypha is delivered through the existing Kirin OS and Kirin Sense products, not through a standalone Hypha product for this release:
+  - Kirin OS: product `1115751`, variant `1746981`
+  - Kirin Sense: product `1120268`, variant `1753806`
+- The release operator builds and verifies the package. Daisuke only needs to provide/install the Apple `Developer ID Installer` certificate when missing and perform the Lemon Squeezy browser upload if no authenticated automation is available.
 
 ## Phase 0: Read State
 
@@ -109,11 +112,16 @@ The local verification checks:
 - `spctl -t install` accepts the package.
 - `xcrun stapler validate` passes.
 
-## Phase 5: Daisuke Uploads To Lemon Squeezy
+## Phase 5: Upload To Lemon Squeezy
 
-Daisuke uploads only:
+Daisuke, or the release operator using Daisuke's authenticated Lemon Squeezy browser session, uploads only:
 
 - `dist/LS_UPLOAD/Kirin-Hypha-1.1.1-macOS-Universal.pkg`
+
+Upload the same package to both existing products:
+
+- Kirin OS: `https://app.lemonsqueezy.com/products/1115751`
+- Kirin Sense: `https://app.lemonsqueezy.com/products/1120268`
 
 Do not upload:
 
@@ -123,7 +131,7 @@ Do not upload:
 
 ## Phase 6: Verify Lemon Squeezy After Upload
 
-After Daisuke uploads the file, Chrome must be logged into Lemon Squeezy and `lemonSqueezy.productAdminUrl` must be set in the state JSON.
+After the upload, Chrome must be logged into Lemon Squeezy. The state JSON contains the Kirin OS and Kirin Sense product admin URLs under `lemonSqueezy.products[]`.
 
 ```bash
 node scripts/ls_release/kirin_hypha_ls_dry_run.mjs \
@@ -133,8 +141,8 @@ node scripts/ls_release/kirin_hypha_ls_dry_run.mjs \
 
 The Lemon Squeezy check verifies:
 
-- Product page includes `Kirin Hypha`.
-- Product page includes `Published`.
+- Product pages include `Kirin OS` and `Kirin Sense`.
+- Product pages include `Published`.
 - Product page includes the installer file name.
 - Product page includes the rounded Lemon Squeezy display size from state.
 

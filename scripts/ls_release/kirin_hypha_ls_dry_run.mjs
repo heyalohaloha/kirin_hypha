@@ -120,6 +120,32 @@ function commandCheck(checks, id, commandResult) {
   });
 }
 
+function lemonSqueezyTargets(state) {
+  const ls = state.lemonSqueezy || {};
+  if (Array.isArray(ls.products)) {
+    return ls.products.map((product) => ({
+      storeName: product.storeName || ls.storeName,
+      expectedStatus: product.expectedStatus || ls.expectedStatus,
+      expectedFilesCount: product.expectedFilesCount ?? ls.expectedFilesCount,
+      ...product,
+    })).filter((product) => product.productName || product.productId || product.productAdminUrl);
+  }
+  if (ls.productName || ls.productId || ls.productAdminUrl) {
+    return [ls];
+  }
+  return [];
+}
+
+function lemonSqueezyProductUrl(product) {
+  if (typeof product.productAdminUrl === 'string' && product.productAdminUrl.length > 0) {
+    return product.productAdminUrl;
+  }
+  if (Number.isFinite(product.productId)) {
+    return `https://app.lemonsqueezy.com/products/${product.productId}`;
+  }
+  return null;
+}
+
 function collectArtifact(artifact) {
   const filePath = resolveRoot(artifact.path);
   const stat = fs.statSync(filePath);
@@ -205,31 +231,60 @@ function verifyAppleArtifacts(state, checks) {
   }
 }
 
-async function verifyLsChrome(state, checks) {
-  const ls = state.lemonSqueezy || {};
-  if (!ls.productAdminUrl) {
-    addCheck(checks, 'Lemon Squeezy product URL configured', false, {
-      expected: 'state.lemonSqueezy.productAdminUrl',
-      actual: null,
+function verifyLsTargetsState(state, checks) {
+  const products = lemonSqueezyTargets(state);
+  addCheck(checks, 'Lemon Squeezy target products configured', products.length > 0, {
+    expected: 'state.lemonSqueezy.products[] or state.lemonSqueezy',
+    actual: products.length,
+  });
+
+  for (const product of products) {
+    const label = product.productName || `Product ${product.productId || 'unknown'}`;
+    const productUrl = lemonSqueezyProductUrl(product);
+    const hasProductName = typeof product.productName === 'string' && product.productName.length > 0;
+
+    addCheck(checks, `${label} Lemon Squeezy product name configured`, hasProductName, {
+      expected: 'productName',
+      actual: product.productName,
     });
-    return;
+    addCheck(checks, `${label} Lemon Squeezy product id configured`, Number.isFinite(product.productId), {
+      expected: 'productId',
+      actual: product.productId,
+    });
+    addCheck(checks, `${label} Lemon Squeezy variant id configured`, Number.isFinite(product.variantId), {
+      expected: 'variantId',
+      actual: product.variantId,
+    });
+    addCheck(checks, `${label} Lemon Squeezy product URL configured`, Boolean(productUrl), {
+      expected: 'productAdminUrl or productId',
+      actual: productUrl,
+    });
   }
 
-  const openScript = `
+  return products;
+}
+
+async function verifyLsChrome(checks, products, artifacts) {
+  for (const product of products) {
+    const label = product.productName || `Product ${product.productId || 'unknown'}`;
+    const productUrl = lemonSqueezyProductUrl(product);
+    if (!productUrl) continue;
+
+    const openScript = `
 tell application "Google Chrome"
   if (count of windows) = 0 then make new window
-  set URL of active tab of front window to "${ls.productAdminUrl}"
+  set URL of active tab of front window to "${productUrl}"
 end tell
 `;
-  const openResult = runOsascript(openScript);
-  addCheck(checks, 'Chrome opened Lemon Squeezy product URL', openResult.ok, {
-    url: ls.productAdminUrl,
-    output: `${openResult.stdout}${openResult.stderr}`.trim(),
-  });
-  if (!openResult.ok) return;
+    const openResult = runOsascript(openScript);
+    addCheck(checks, `${label} Chrome opened Lemon Squeezy product URL`, openResult.ok, {
+      url: productUrl,
+      output: `${openResult.stdout}${openResult.stderr}`.trim(),
+    });
+    if (!openResult.ok) continue;
 
-  await new Promise((resolve) => setTimeout(resolve, 5000));
-  const readScript = `
+    await new Promise((resolve) => setTimeout(resolve, 5000));
+    const readScript = `
 tell application "Google Chrome"
   if (count of windows) = 0 then return "NO_CHROME_WINDOWS"
   set pageUrl to URL of active tab of front window
@@ -238,33 +293,45 @@ tell application "Google Chrome"
   return "URL=" & pageUrl & linefeed & "TITLE=" & pageTitle & linefeed & pageText
 end tell
 `;
-  const readResult = runOsascript(readScript);
-  addCheck(checks, 'Chrome Lemon Squeezy page text readable', readResult.ok, {
-    output: readResult.ok ? '' : `${readResult.stdout}${readResult.stderr}`.trim(),
-  });
-  if (!readResult.ok) return;
+    const readResult = runOsascript(readScript);
+    addCheck(checks, `${label} Chrome Lemon Squeezy page text readable`, readResult.ok, {
+      output: readResult.ok ? '' : `${readResult.stdout}${readResult.stderr}`.trim(),
+    });
+    if (!readResult.ok) continue;
 
-  const text = readResult.stdout;
-  addCheck(checks, 'Lemon Squeezy product name visible', text.includes(ls.productName), {
-    expected: ls.productName,
-  });
-  if (ls.expectedStatus) {
-    addCheck(checks, 'Lemon Squeezy product status visible', text.includes(ls.expectedStatus), {
-      expected: ls.expectedStatus,
-    });
-  }
-  if (Number.isFinite(ls.expectedFilesCount)) {
-    addCheck(checks, 'Lemon Squeezy files count visible', text.includes(`Files (${ls.expectedFilesCount})`), {
-      expected: `Files (${ls.expectedFilesCount})`,
-    });
-  }
-  for (const artifact of state.artifacts) {
-    addCheck(checks, `Lemon Squeezy has ${artifact.label} file name`, text.includes(artifact.fileName), {
-      expected: artifact.fileName,
-    });
-    addCheck(checks, `Lemon Squeezy has ${artifact.label} display size`, text.includes(artifact.lsDisplaySize), {
-      expected: artifact.lsDisplaySize,
-    });
+    const text = readResult.stdout;
+    const hasProductName = typeof product.productName === 'string' && product.productName.length > 0;
+    if (hasProductName) {
+      addCheck(checks, `${label} Lemon Squeezy product name visible`, text.includes(product.productName), {
+        expected: product.productName,
+      });
+    }
+    if (product.expectedStatus) {
+      addCheck(checks, `${label} Lemon Squeezy product status visible`, text.includes(product.expectedStatus), {
+        expected: product.expectedStatus,
+      });
+    }
+    if (Number.isFinite(product.expectedFilesCount)) {
+      addCheck(checks, `${label} Lemon Squeezy files count visible`, text.includes(`Files (${product.expectedFilesCount})`), {
+        expected: `Files (${product.expectedFilesCount})`,
+      });
+    }
+
+    for (const artifact of artifacts) {
+      addCheck(checks, `${label} Lemon Squeezy has ${artifact.label} file name`, text.includes(artifact.fileName), {
+        expected: artifact.fileName,
+      });
+      const hasDisplaySize = typeof artifact.lsDisplaySize === 'string' && artifact.lsDisplaySize.length > 0;
+      addCheck(checks, `${label} ${artifact.label} state display size is ready for Lemon Squeezy check`, hasDisplaySize, {
+        expected: 'artifact.lsDisplaySize',
+        actual: artifact.lsDisplaySize,
+      });
+      if (hasDisplaySize) {
+        addCheck(checks, `${label} Lemon Squeezy has ${artifact.label} display size`, text.includes(artifact.lsDisplaySize), {
+          expected: artifact.lsDisplaySize,
+        });
+      }
+    }
   }
 }
 
@@ -315,7 +382,8 @@ async function main() {
 
   const currentArtifacts = verifyLocal(state, checks);
   if (opts.withAppleVerification) verifyAppleArtifacts(state, checks);
-  if (opts.withLsChrome) await verifyLsChrome(state, checks);
+  const lsProducts = verifyLsTargetsState(state, checks);
+  if (opts.withLsChrome) await verifyLsChrome(checks, lsProducts, state.artifacts);
   if (opts.printArtifactsJson) console.log(JSON.stringify(currentArtifacts, null, 2));
 
   const result = {
