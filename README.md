@@ -210,7 +210,7 @@ cargo run --package xtask -- release-package
 ```
 
 Do not run the signed release checks inside a sandboxed child process; macOS `codesign` can report a false `invalid signature` for valid notarized plugin bundles in that context.
-Upload only `Kirin-Hypha-<version>-macOS-Universal.pkg` to Lemon Squeezy after local verification passes. Publish the companion `.pkg.sha256` and artifact JSON with the GitHub Release.
+Upload only `Kirin-Hypha-<version>-macOS-Universal.pkg` to the existing Kirin OS and Kirin Sense Lemon Squeezy products after local verification passes. Publish the companion `.pkg.sha256` and artifact JSON with the GitHub Release.
 
 ---
 
