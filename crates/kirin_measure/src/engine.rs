@@ -130,9 +130,26 @@ impl MeasureEngine {
         self.accum.clear();
     }
 
+    /// add_frames 済みの累積フレーム数（48k/engine sample time）。
+    pub fn total_frames(&self) -> u64 {
+        self.total_frames
+    }
+
     /// インターリーブ f64 サンプルを受け取り、100ms チャンクが揃うたびに
     /// MeasureResult を返す。チャンク未満の場合は None を返す。
     pub fn push(&mut self, samples: &[f64]) -> Option<MeasureResult> {
+        self.push_observed(samples, |_, _| {})
+    }
+
+    /// `push()` と同じ処理を行い、100ms チャンクごとの結果を observer に渡す。
+    ///
+    /// Offline bounce では 1 回の drain で複数 100ms チャンクが処理されるため、最後の
+    /// 1 件だけでなく中間結果も Record TRACE に渡す。
+    pub fn push_observed(
+        &mut self,
+        samples: &[f64],
+        mut observe: impl FnMut(u64, &MeasureResult),
+    ) -> Option<MeasureResult> {
         for &s in samples {
             self.window_400ms.push_back(s);
             self.accum.push(s);
@@ -179,7 +196,9 @@ impl MeasureEngine {
                 }
             }
 
-            result = Some(self.compute());
+            let computed = self.compute();
+            observe(self.total_frames, &computed);
+            result = Some(computed);
         }
         result
     }

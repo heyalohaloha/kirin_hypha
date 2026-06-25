@@ -49,13 +49,13 @@ use kirin_measure::{
     append_annotation_to_latest, can_write_plugin_data, check_record_exclusion,
     count_distinct_pairings, enumerate_active_post_pair_candidates,
     enumerate_active_pre_pair_candidates, identity_instance_attach, identity_instance_detach,
-    live_window, load_license_safe, load_signal_state, mark_released, resolve_arm_target,
-    sanitize_name, set_daw_session_id, set_project_uuid, spawn_io_thread_post, spawn_io_thread_pre,
-    spawn_measure_thread, spawn_watchdog, store_signal_state, write_broadcast, write_pending,
-    write_stop_broadcast, DeltaMode, DeltaResult, ExclusionResult, IoThreadHandle, LatchedPre,
-    License, LivenessEvaluator, MeasureResult, PluginDataRole, PsbSummary, RecordStateMachine,
-    RestartIoFn, SignalState, StoragePaths, WatchdogIo, WatchdogParams, MAX_ACTIVE_PER_PROJECT,
-    N_CHANNELS, RING_BUFFER_SECONDS,
+    live_window, load_license_safe, load_signal_state, mark_released, new_record_trace_queue,
+    resolve_arm_target, sanitize_name, set_daw_session_id, set_project_uuid, spawn_io_thread_post,
+    spawn_io_thread_pre, spawn_measure_thread, spawn_watchdog, store_signal_state, write_broadcast,
+    write_pending, write_stop_broadcast, DeltaMode, DeltaResult, ExclusionResult, IoThreadHandle,
+    LatchedPre, License, LivenessEvaluator, MeasureResult, PluginDataRole, PsbSummary,
+    RecordStateMachine, RecordTraceQueue, RestartIoFn, SignalState, StoragePaths, WatchdogIo,
+    WatchdogParams, MAX_ACTIVE_PER_PROJECT, N_CHANNELS, RING_BUFFER_SECONDS,
 };
 
 /// state chunk 往復する識別子（方式A: JUCE が chunk bytes を所有・FFI は文字列 get/set のみ）。
@@ -145,6 +145,8 @@ pub struct KirinHyphaEngine {
     /// Record 中、Measure Thread が毎ループ `engine.finalize()` を書き込む
     /// （measure_thread.rs:290-295）。Watch では未更新（Record→Watch で直近値を保持）。
     session_summary: Arc<Mutex<Option<SessionSummary>>>,
+    /// Offline bounce 用 TRACE queue（Measure → IO）。
+    record_trace_queue: RecordTraceQueue,
     /// Audio Thread が宣言する信号状態（Measure Thread が読む）。
     signal_state: Arc<AtomicU8>,
     /// Measure Thread 停止フラグ（destroy でセット → join）。
@@ -517,6 +519,7 @@ impl KirinHyphaEngine {
         let measure_result = Arc::new(Mutex::new(MeasureResult::default()));
         let delta_result = Arc::new(Mutex::new(DeltaResult::default()));
         let session_summary: Arc<Mutex<Option<SessionSummary>>> = Arc::new(Mutex::new(None));
+        let record_trace_queue = new_record_trace_queue();
         let signal_state = Arc::new(AtomicU8::new(SignalState::Inactive as u8));
         let shutdown = Arc::new(AtomicBool::new(false));
         let heartbeat = Arc::new(AtomicU32::new(0));
@@ -546,6 +549,7 @@ impl KirinHyphaEngine {
             Arc::clone(&liveness),
             Arc::clone(&record_sm),
             Arc::clone(&session_summary),
+            Arc::clone(&record_trace_queue),
         );
 
         // B-118: T-8 watchdog 再採用（B-056 opt-out 撤回）。Measure Thread crash を再起動し、io は
@@ -570,6 +574,7 @@ impl KirinHyphaEngine {
             join_on_shutdown: true,
             record_sm: Arc::clone(&record_sm),
             session_summary: Arc::clone(&session_summary),
+            record_trace_queue: Arc::clone(&record_trace_queue),
         });
 
         // B-110: live インスタンス refcount +1（破棄は Drop で −1）。enable ではなく create に置く
@@ -581,6 +586,7 @@ impl KirinHyphaEngine {
             measure_result,
             delta_result,
             session_summary,
+            record_trace_queue,
             signal_state,
             shutdown,
             heartbeat,
@@ -764,6 +770,7 @@ impl KirinHyphaEngine {
             let measure_result = Arc::clone(&self.measure_result);
             let signal_state = Arc::clone(&self.signal_state);
             let session_summary = Arc::clone(&self.session_summary);
+            let record_trace_queue = Arc::clone(&self.record_trace_queue);
             let push_overflow = Arc::clone(&self.push_overflow);
             let oversized_drop = Arc::clone(&self.oversized_drop); // B-125
             let sample_rate = self.sample_rate;
@@ -784,6 +791,7 @@ impl KirinHyphaEngine {
                     Arc::clone(&name),
                     Arc::clone(&record_error_message),
                     Arc::clone(&session_summary),
+                    Arc::clone(&record_trace_queue),
                     Arc::clone(&push_overflow), // B-076: per-Record dropped_samples
                     Arc::clone(&oversized_drop), // B-125: per-Record oversized block drop
                 );
@@ -937,6 +945,7 @@ impl KirinHyphaEngine {
             let delta_result = Arc::clone(&self.delta_result);
             let signal_state = Arc::clone(&self.signal_state);
             let session_summary = Arc::clone(&self.session_summary);
+            let record_trace_queue = Arc::clone(&self.record_trace_queue);
             let push_overflow = Arc::clone(&self.push_overflow);
             let oversized_drop = Arc::clone(&self.oversized_drop); // B-125
             let latched_pre = Arc::clone(&self.latched_pre);
@@ -963,6 +972,7 @@ impl KirinHyphaEngine {
                     Arc::clone(&pair_claimed_at),
                     Arc::clone(&pair_release_notice),
                     Arc::clone(&session_summary),
+                    Arc::clone(&record_trace_queue),
                     Arc::clone(&push_overflow), // B-076: per-Record dropped_samples
                     Arc::clone(&oversized_drop), // B-125: per-Record oversized block drop
                     Arc::clone(&latched_pre),   // B-108: display/keep 共有ラッチ

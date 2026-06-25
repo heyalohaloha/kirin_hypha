@@ -3,12 +3,12 @@ mod editor;
 use kirin_measure::{
     daw_session_id, delete_broadcast, delete_signal, delete_stop_broadcast,
     ensure_legacy_cleanup_done, identity_instance_attach, identity_instance_detach, live_window,
-    load_installation_id_safe, load_license_safe, peek_project_uuid, process_project_hash,
-    sanitize_name, set_daw_session_id, set_project_uuid, spawn_io_thread_post,
-    spawn_measure_thread, spawn_watchdog, store_signal_state, DeltaResult, LatchedPre, License,
-    LivenessEvaluator, MeasureResult, RecordStateMachine, SessionSummary, SignalState,
-    StoragePaths, TriggerPairResolutionFn, TriggerStopResolutionFn, WatchdogIo, WatchdogParams,
-    N_CHANNELS, RING_BUFFER_SECONDS,
+    load_installation_id_safe, load_license_safe, new_record_trace_queue, peek_project_uuid,
+    process_project_hash, sanitize_name, set_daw_session_id, set_project_uuid,
+    spawn_io_thread_post, spawn_measure_thread, spawn_watchdog, store_signal_state, DeltaResult,
+    LatchedPre, License, LivenessEvaluator, MeasureResult, RecordStateMachine, RecordTraceQueue,
+    SessionSummary, SignalState, StoragePaths, TriggerPairResolutionFn, TriggerStopResolutionFn,
+    WatchdogIo, WatchdogParams, N_CHANNELS, RING_BUFFER_SECONDS,
 };
 use nih_plug::prelude::*;
 use nih_plug_egui::EguiState;
@@ -60,6 +60,8 @@ pub struct HyphaPost {
     measure_result: Arc<Mutex<MeasureResult>>,
     /// B-043: Record セッション集計値共有スロット (Measure → IO Thread)。
     session_summary: Arc<Mutex<Option<SessionSummary>>>,
+    /// Offline bounce 用 TRACE queue（Measure → IO）。
+    record_trace_queue: RecordTraceQueue,
     /// B-076: ring 満杯で測定 ring に push できなかった累積サンプル数。Audio Thread が
     /// 計数し、io_thread が per-Record dropped_samples を .kirin に焼き込む。
     overflow: Arc<AtomicU64>,
@@ -219,6 +221,7 @@ impl Default for HyphaPost {
             ring_producer: None,
             measure_result: Arc::new(Mutex::new(MeasureResult::default())),
             session_summary: Arc::new(Mutex::new(None)),
+            record_trace_queue: new_record_trace_queue(),
             overflow: Arc::new(AtomicU64::new(0)),
             delta_result: Arc::new(Mutex::new(DeltaResult::default())),
             measure_shutdown: Arc::new(AtomicBool::new(false)),
@@ -607,6 +610,7 @@ impl Plugin for HyphaPost {
             Arc::clone(&self.liveness),
             Arc::clone(&self.record_sm),
             Arc::clone(&self.session_summary),
+            Arc::clone(&self.record_trace_queue),
         );
 
         // ── IO Thread 起動 ───────────────────────────────────────────
@@ -742,6 +746,7 @@ impl Plugin for HyphaPost {
             Arc::clone(&self.pair_release_notice),
             // B-043: session_summary 共有 (Measure → IO Thread / Record→Watch 注入)。
             Arc::clone(&self.session_summary),
+            Arc::clone(&self.record_trace_queue),
             Arc::clone(&self.overflow), // B-076: per-Record dropped_samples
             Arc::clone(&oversized_drop), // B-125: egui は常に 0（per-sample で overflow に計上済）
             Arc::clone(&self.latched_pre), // B-108: display/keep 共有ラッチ
@@ -776,6 +781,7 @@ impl Plugin for HyphaPost {
             let pair_release_notice_arc = Arc::clone(&self.pair_release_notice);
             // B-043: restart 経路でも session_summary を共有 (initial と完全対称)。
             let session_summary = Arc::clone(&self.session_summary);
+            let record_trace_queue = Arc::clone(&self.record_trace_queue);
             let overflow = Arc::clone(&self.overflow); // B-076
             let oversized_drop = Arc::clone(&oversized_drop); // B-125: egui ゼロカウンタを再起動跨ぎ共有
             let latched_pre = Arc::clone(&self.latched_pre); // B-108
@@ -800,6 +806,7 @@ impl Plugin for HyphaPost {
                     Arc::clone(&pair_claimed_at_arc),
                     Arc::clone(&pair_release_notice_arc),
                     Arc::clone(&session_summary),
+                    Arc::clone(&record_trace_queue),
                     Arc::clone(&overflow), // B-076: per-Record dropped_samples
                     Arc::clone(&oversized_drop), // B-125: egui は常に 0
                     Arc::clone(&latched_pre), // B-108: display/keep 共有ラッチ
@@ -828,6 +835,7 @@ impl Plugin for HyphaPost {
             join_on_shutdown: false, // egui=detach（既存挙動・default 不変）
             record_sm: Arc::clone(&self.record_sm),
             session_summary: Arc::clone(&self.session_summary),
+            record_trace_queue: Arc::clone(&self.record_trace_queue),
         }));
 
         true

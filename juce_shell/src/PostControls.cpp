@@ -2,6 +2,44 @@
 
 namespace hypha
 {
+    HyphaTextButton::HyphaTextButton (const juce::String& text, bool shouldDrawFrame)
+        : juce::TextButton (text),
+          framed (shouldDrawFrame)
+    {
+        setWantsKeyboardFocus (false);
+    }
+
+    void HyphaTextButton::paintButton (juce::Graphics& g,
+                                       bool shouldDrawButtonAsHighlighted,
+                                       bool shouldDrawButtonAsDown)
+    {
+        auto area = getLocalBounds().toFloat().reduced (0.5f);
+        const auto fill = findColour (juce::TextButton::buttonColourId, true);
+        const auto text = findColour (getToggleState()
+                                          ? juce::TextButton::textColourOnId
+                                          : juce::TextButton::textColourOffId,
+                                      true);
+
+        if (framed)
+        {
+            auto buttonFill = fill;
+            if (shouldDrawButtonAsHighlighted)
+                buttonFill = buttonFill.brighter (0.06f);
+            if (shouldDrawButtonAsDown)
+                buttonFill = buttonFill.darker (0.08f);
+
+            g.setColour (buttonFill);
+            g.fillRoundedRectangle (area, 3.0f);
+            g.setColour (COL_MUTED.withAlpha (shouldDrawButtonAsHighlighted ? 0.65f : 0.45f));
+            g.drawRoundedRectangle (area, 3.0f, 1.0f);
+        }
+
+        g.setColour (isEnabled() ? text : COL_MUTED);
+        g.setFont (monoFont (framed ? 15.0f : 13.0f));
+        g.drawFittedText (getButtonText(), getLocalBounds().reduced (6, 2),
+                          juce::Justification::centred, 1, 0.85f);
+    }
+
     PostControls::PostControls()
     {
         auto styleButton = [this] (juce::TextButton& b)

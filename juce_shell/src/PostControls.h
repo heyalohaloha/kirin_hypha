@@ -15,6 +15,19 @@
 // back to the processor via the callbacks; no measurement logic lives here (R-12 / R-22).
 namespace hypha
 {
+    class HyphaTextButton : public juce::TextButton
+    {
+    public:
+        explicit HyphaTextButton (const juce::String& text, bool framed = true);
+
+        void paintButton (juce::Graphics& g,
+                          bool shouldDrawButtonAsHighlighted,
+                          bool shouldDrawButtonAsDown) override;
+
+    private:
+        bool framed = true;
+    };
+
     class PostControls : public juce::Component
     {
     public:
@@ -33,14 +46,14 @@ namespace hypha
     private:
         void layoutVisible();
 
-        juce::TextButton keepBtn   { "Keep" };
-        juce::TextButton stopBtn   { "Stop" };
-        juce::TextButton noteBtn   { "Note" };
-        juce::TextButton goodBtn   { "Good" };
-        juce::TextButton fixBtn    { "Fix" };
-        juce::TextButton holdBtn   { "Hold" };
-        juce::TextButton cancelBtn { "Cancel" };
-        juce::TextButton senseBtn  { juce::CharPointer_UTF8 ("Record mode available in Kirin OS") };
+        HyphaTextButton keepBtn   { "Keep" };
+        HyphaTextButton stopBtn   { "Stop" };
+        HyphaTextButton noteBtn   { "Note" };
+        HyphaTextButton goodBtn   { "Good" };
+        HyphaTextButton fixBtn    { "Fix" };
+        HyphaTextButton holdBtn   { "Hold" };
+        HyphaTextButton cancelBtn { "Cancel" };
+        HyphaTextButton senseBtn  { juce::CharPointer_UTF8 ("Record mode available in Kirin OS"), false };
 
         bool notePickerOpen = false;
 
