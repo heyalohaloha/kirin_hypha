@@ -18,6 +18,16 @@ namespace
     // blocks beyond this ceiling are not reallocated; their frames are counted as oversized
     // drops (B-125 (c) / kirin_hypha_note_oversized_drop) while audio keeps passing through.
     constexpr int kOversizeHeadroomFrames = 65536;
+
+    // C ABI signal-state codes: 0 = Inactive, 1 = Active, 2 = Bypassed.
+    uint8_t resolveSignalStateCode (bool bypassed, bool playing, bool silent, bool recording)
+    {
+        if (bypassed)
+            return 2;
+        if (recording || (playing && ! silent))
+            return 1;
+        return 0;
+    }
 }
 
 KirinHyphaProcessorBase::KirinHyphaProcessorBase (Role roleIn)
@@ -157,12 +167,10 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
     lastPlaying.store (playing, std::memory_order_release); // B-054: POST pair lock reads this
 
     const bool silent = bufferIsSilent (buffer);
+    const bool recording = kirin_hypha_is_recording (hyphaHandle);
 
     // C ABI signal-state codes: 0 = Inactive, 1 = Active, 2 = Bypassed.
-    uint8_t stateCode;
-    if (bypassed)                 stateCode = 2; // Bypassed
-    else if (! playing || silent) stateCode = 0; // Inactive
-    else                          stateCode = 1; // Active
+    const uint8_t stateCode = resolveSignalStateCode (bypassed, playing, silent, recording);
     kirin_hypha_set_signal_state (hyphaHandle, stateCode);
     // B-113: 旧 lastSignalState キャッシュは廃止。editor は signalStateLive()（FFI 直読 / heartbeat-aware）で表示分岐する。
 

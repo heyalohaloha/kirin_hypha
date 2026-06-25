@@ -48,14 +48,15 @@ use kirin_measure::reservation; // B-127 (G-115-364): per-pairing O_EXCL reserva
 use kirin_measure::{
     append_annotation_to_latest, can_write_plugin_data, check_record_exclusion,
     count_distinct_pairings, enumerate_active_post_pair_candidates,
-    enumerate_active_pre_pair_candidates, identity_instance_attach, identity_instance_detach,
-    live_window, load_license_safe, load_signal_state, mark_released, new_record_trace_queue,
-    resolve_arm_target, sanitize_name, set_daw_session_id, set_project_uuid, spawn_io_thread_post,
-    spawn_io_thread_pre, spawn_measure_thread, spawn_watchdog, store_signal_state, write_broadcast,
-    write_pending, write_stop_broadcast, DeltaMode, DeltaResult, ExclusionResult, IoThreadHandle,
-    LatchedPre, License, LivenessEvaluator, MeasureResult, PluginDataRole, PsbSummary,
-    RecordStateMachine, RecordTraceQueue, RestartIoFn, SignalState, StoragePaths, WatchdogIo,
-    WatchdogParams, MAX_ACTIVE_PER_PROJECT, N_CHANNELS, RING_BUFFER_SECONDS,
+    enumerate_active_pre_pair_candidates_for_post_project, identity_instance_attach,
+    identity_instance_detach, live_window, load_license_safe, load_signal_state, mark_released,
+    new_record_trace_queue, resolve_arm_target_for_post_project, sanitize_name, set_daw_session_id,
+    set_project_uuid, spawn_io_thread_post, spawn_io_thread_pre, spawn_measure_thread,
+    spawn_watchdog, store_signal_state, write_broadcast, write_pending, write_stop_broadcast,
+    DeltaMode, DeltaResult, ExclusionResult, IoThreadHandle, LatchedPre, License,
+    LivenessEvaluator, MeasureResult, PluginDataRole, PsbSummary, RecordStateMachine,
+    RecordTraceQueue, RestartIoFn, SignalState, StoragePaths, WatchdogIo, WatchdogParams,
+    MAX_ACTIVE_PER_PROJECT, N_CHANNELS, RING_BUFFER_SECONDS,
 };
 
 /// state chunk 往復する識別子（方式A: JUCE が chunk bytes を所有・FFI は文字列 get/set のみ）。
@@ -364,7 +365,8 @@ fn resolve_and_enter_keep(
     let pair = pair_target.read().map(|g| g.clone()).unwrap_or_default();
     // B-108: ラッチ済み（名前一致+fresh）はラッチ先を直接使用、未ラッチは B-104 Arm ゲート
     // （非Bypassed + fresh + 一意 / Active 要求なし）。v1.0.0 の「アーム→再生」を維持する。
-    let Some(sel) = resolve_arm_target(&kirin_root, &pair, latched) else {
+    let Some(sel) = resolve_arm_target_for_post_project(&kirin_root, &pair, project_hash, latched)
+    else {
         return false; // 未ラッチ時の厳格選定 None: 空名/不在/曖昧/Bypassed/古t（Inactive は許容）。
     };
     let target = sel.instance_id.clone();
@@ -1201,7 +1203,8 @@ impl KirinHyphaEngine {
     /// `$TMPDIR/kirin/` 配下の Active PRE を走査し (instance_id, name) で返す。
     pub fn enumerate_pre_candidates(&self) -> Vec<(String, Option<String>)> {
         let kirin_root = std::env::temp_dir().join("kirin");
-        enumerate_active_pre_pair_candidates(&kirin_root)
+        let project_hash = read_shared_id(shared_post_project_hash_cell());
+        enumerate_active_pre_pair_candidates_for_post_project(&kirin_root, &project_hash)
             .into_iter()
             .map(|c| (c.instance_id, c.name))
             .collect()
@@ -1212,8 +1215,10 @@ impl KirinHyphaEngine {
     /// 再利用し `pair_pre_name.is_some()` を数える read-only カウント（GUI ラベル表示用）。
     pub fn count_keep_ready(&self) -> usize {
         let kirin_root = std::env::temp_dir().join("kirin");
+        let project_hash = read_shared_id(shared_post_project_hash_cell());
         enumerate_active_post_pair_candidates(&kirin_root)
             .into_iter()
+            .filter(|c| c.project_uuid == project_hash)
             .filter(|c| c.pair_pre_name.is_some())
             .count()
     }

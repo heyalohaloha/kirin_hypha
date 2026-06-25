@@ -23,7 +23,9 @@
 //!
 //! # sudo
 //! System dirs (`/Library/...`) need admin rights. The tool invokes `sudo` for the rm/cp steps
-//! only (running `cargo` as root corrupts the cargo cache). B-022 discipline, unchanged.
+//! only (running `cargo` as root corrupts the cargo cache). If `SUDO_ASKPASS` is set, those
+//! invocations use `sudo -A` so GUI/agent sessions without a visible terminal can still install.
+//! B-022 discipline, unchanged.
 //!
 //! # VST3 / AU search paths (R-11)
 //! - VST3: `/Library/Audio/Plug-Ins/VST3` (system) / `~/Library/Audio/Plug-Ins/VST3` (user)
@@ -401,14 +403,24 @@ fn path_str(p: &Path) -> Result<&str> {
 
 /// sudo を spawn して同期実行。non-zero exit は Err。
 fn run_sudo(args: &[&str]) -> Result<()> {
+    let sudo_args = sudo_args_for(args, std::env::var_os("SUDO_ASKPASS").is_some());
     let status = Command::new("sudo")
-        .args(args)
+        .args(&sudo_args)
         .status()
         .context("failed to spawn sudo (is sudo installed and on PATH?)")?;
     if !status.success() {
-        bail!("sudo {:?} exited with status {}", args, status);
+        bail!("sudo {:?} exited with status {}", sudo_args, status);
     }
     Ok(())
+}
+
+fn sudo_args_for<'a>(args: &'a [&'a str], use_askpass: bool) -> Vec<&'a str> {
+    let mut out = Vec::with_capacity(args.len() + usize::from(use_askpass));
+    if use_askpass {
+        out.push("-A");
+    }
+    out.extend_from_slice(args);
+    out
 }
 
 #[cfg(test)]
@@ -475,6 +487,18 @@ mod tests {
     fn system_dirs_are_macos_standard() {
         assert_eq!(SYSTEM_AU_DIR, "/Library/Audio/Plug-Ins/Components");
         assert_eq!(SYSTEM_VST3_DIR, "/Library/Audio/Plug-Ins/VST3");
+    }
+
+    #[test]
+    fn sudo_args_adds_askpass_flag_only_when_requested() {
+        assert_eq!(
+            sudo_args_for(&["rm", "-rf", "/tmp/x"], false),
+            vec!["rm", "-rf", "/tmp/x"]
+        );
+        assert_eq!(
+            sudo_args_for(&["rm", "-rf", "/tmp/x"], true),
+            vec!["-A", "rm", "-rf", "/tmp/x"]
+        );
     }
 
     #[test]

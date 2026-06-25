@@ -43,6 +43,7 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -646,6 +647,77 @@ pub fn enumerate_active_pre_pair_candidates(kirin_root: &Path) -> Vec<PreCandida
         .collect()
 }
 
+fn post_pair_names_in_project(kirin_root: &Path, post_project_hash: &str) -> HashSet<String> {
+    if post_project_hash.is_empty() {
+        return HashSet::new();
+    }
+    crate::io_thread_post::scan_post_candidates_in(&kirin_root.join(post_project_hash))
+        .into_iter()
+        .filter_map(|c| c.pair_pre_name)
+        .filter(|name| !name.is_empty())
+        .collect()
+}
+
+fn pre_names_in_project(project_dir: &Path) -> HashSet<String> {
+    scan_pre_candidates_in(project_dir)
+        .into_iter()
+        .filter_map(|c| c.name)
+        .filter(|name| !name.is_empty())
+        .collect()
+}
+
+/// 現在の POST project_uuid から見える POST 群の `pair_pre_name` と最も整合する PRE
+/// project_uuid 群だけを返す。
+///
+/// PRE.vst3 / POST.vst3 は別 cdylib のため project_uuid が直接一致しない。一方で同じ
+/// Studio One セッション内では POST 群が保持する `pair_pre_name` 集合と PRE 群の `name`
+/// 集合が対応するため、その重なりをセッション境界として使う。POST 側にまだ name 情報が
+/// 無い初期状態では従来互換として全 PRE dir に fallback する。
+///
+/// 同点が複数ある場合は全て返す。後段の name 一意選定が曖昧として拒否するため、誤った
+/// cross-session Keep を避けられる。
+pub fn discover_pre_dirs_for_post_project(
+    kirin_root: &Path,
+    post_project_hash: &str,
+) -> Vec<PathBuf> {
+    let dirs = crate::pre_discovery::discover_active_pre_dirs(kirin_root);
+    let post_names = post_pair_names_in_project(kirin_root, post_project_hash);
+    if post_names.is_empty() {
+        return dirs;
+    }
+
+    let scored: Vec<(PathBuf, usize)> = dirs
+        .into_iter()
+        .map(|dir| {
+            let pre_names = pre_names_in_project(&dir);
+            let score = pre_names.intersection(&post_names).count();
+            (dir, score)
+        })
+        .collect();
+    let best = scored.iter().map(|(_, score)| *score).max().unwrap_or(0);
+    if best == 0 {
+        return Vec::new();
+    }
+    scored
+        .into_iter()
+        .filter_map(|(dir, score)| (score == best).then_some(dir))
+        .collect()
+}
+
+/// POST project_uuid でスコープした PRE 候補列挙（GUI/JUCE dropdown 用）。
+///
+/// `post_project_hash` から current session を推定できる場合は他セッションの PRE 名を出さない。
+/// 推定材料（POST 側 pair_pre_name）が無い初期状態では既存の全件列挙に fallback する。
+pub fn enumerate_active_pre_pair_candidates_for_post_project(
+    kirin_root: &Path,
+    post_project_hash: &str,
+) -> Vec<PreCandidate> {
+    discover_pre_dirs_for_post_project(kirin_root, post_project_hash)
+        .into_iter()
+        .flat_map(|d| scan_pre_candidates_in(&d))
+        .collect()
+}
+
 /// POST 側計測値。距離計算用。
 #[derive(Debug, Clone, Copy)]
 pub struct PostMetrics {
@@ -720,10 +792,18 @@ fn select_target_pre_core(
     pair_pre_name: &str,
     require_active: bool,
 ) -> Option<SelectedPre> {
+    let dirs = crate::pre_discovery::discover_active_pre_dirs(kirin_root);
+    select_target_pre_core_from_dirs(&dirs, pair_pre_name, require_active)
+}
+
+fn select_target_pre_core_from_dirs(
+    dirs: &[PathBuf],
+    pair_pre_name: &str,
+    require_active: bool,
+) -> Option<SelectedPre> {
     if pair_pre_name.is_empty() {
         return None;
     }
-    let dirs = crate::pre_discovery::discover_active_pre_dirs(kirin_root);
     let candidates: Vec<PreCandidate> = dirs
         .iter()
         .flat_map(|d| scan_pre_candidates_in(d))
@@ -782,6 +862,26 @@ pub fn select_target_pre(kirin_root: &Path, pair_pre_name: &str) -> Option<Selec
 /// （停止中・無音でもアーム可）を復元する。Display（[`select_target_pre`]）は変更しない。
 pub fn select_target_pre_for_arm(kirin_root: &Path, pair_pre_name: &str) -> Option<SelectedPre> {
     select_target_pre_core(kirin_root, pair_pre_name, false)
+}
+
+/// POST project_uuid でスコープした表示Δ用 PRE 選定。
+pub fn select_target_pre_for_post_project(
+    kirin_root: &Path,
+    pair_pre_name: &str,
+    post_project_hash: &str,
+) -> Option<SelectedPre> {
+    let dirs = discover_pre_dirs_for_post_project(kirin_root, post_project_hash);
+    select_target_pre_core_from_dirs(&dirs, pair_pre_name, true)
+}
+
+/// POST project_uuid でスコープした Arm 用 PRE 選定。
+pub fn select_target_pre_for_arm_for_post_project(
+    kirin_root: &Path,
+    pair_pre_name: &str,
+    post_project_hash: &str,
+) -> Option<SelectedPre> {
+    let dirs = discover_pre_dirs_for_post_project(kirin_root, post_project_hash);
+    select_target_pre_core_from_dirs(&dirs, pair_pre_name, false)
 }
 
 /// B-108: 一度成立した PRE↔POST 結合（ラッチ）。display tick と keep/Arm が共有する単一実体。
@@ -856,6 +956,35 @@ pub fn resolve_arm_target(
         }
     }
     select_target_pre_for_arm(kirin_root, pair_pre_name)
+}
+
+/// POST project_uuid でスコープした keep/Arm target 解決。
+///
+/// ラッチ済みでも、現在 POST セッションから推定した PRE scope 外のラッチは採用しない。
+/// これにより別セッション由来の同名 PRE へ Keep が流れる事故を防ぐ。
+pub fn resolve_arm_target_for_post_project(
+    kirin_root: &Path,
+    pair_pre_name: &str,
+    post_project_hash: &str,
+    latched: &Mutex<Option<LatchedPre>>,
+) -> Option<SelectedPre> {
+    let dirs = discover_pre_dirs_for_post_project(kirin_root, post_project_hash);
+    if let Ok(g) = latched.lock() {
+        if let Some(l) = g.as_ref() {
+            if l.name == pair_pre_name && dirs.iter().any(|d| d == &l.project_dir) {
+                if let Some(st) = read_pre_at(&l.pre_json) {
+                    if st.fresh && st.name.as_deref() == Some(pair_pre_name) {
+                        return Some(SelectedPre {
+                            instance_id: l.instance_id.clone(),
+                            pre_json: l.pre_json.clone(),
+                            project_dir: l.project_dir.clone(),
+                        });
+                    }
+                }
+            }
+        }
+    }
+    select_target_pre_core_from_dirs(&dirs, pair_pre_name, false)
 }
 
 /// `t`(RFC3339) が現在から `max_secs` 秒以内か。parse 失敗は false（安全側で除外）。
@@ -1560,6 +1689,26 @@ mod tests {
         fs::write(dir.join("pre.json"), json).unwrap();
     }
 
+    fn write_post_for_scope(
+        kirin_root: &Path,
+        project_uuid: &str,
+        instance_id: &str,
+        pair_pre_name: &str,
+    ) {
+        let dir = kirin_root.join(project_uuid).join(instance_id);
+        fs::create_dir_all(&dir).unwrap();
+        let json = serde_json::json!({
+            "v": 2,
+            "role": "POST",
+            "instance_id": instance_id,
+            "signal_state": "inactive",
+            "t": now_rfc3339(),
+            "pair_pre_name": pair_pre_name,
+            "pair_claimed_at": 1.0
+        });
+        fs::write(dir.join("post.json"), json.to_string()).unwrap();
+    }
+
     fn now_rfc3339() -> String {
         Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()
     }
@@ -1655,6 +1804,106 @@ mod tests {
         assert!(
             select_target_pre(&root, "vocal").is_none(),
             "不在 name は両経路 None"
+        );
+    }
+
+    /// POST 側 project_uuid と PRE 側 project_uuid は直接一致しないため、現在 POST 群の
+    /// pair_pre_name 集合と最も重なる PRE 群だけを候補化する。
+    #[test]
+    fn enumerate_active_pre_pair_candidates_for_post_project_picks_best_name_overlap() {
+        let root = isolated_dir();
+        let now = now_rfc3339();
+        write_pre_for_select(&root, "pre-old", "iid-old-snare", "Snare", "inactive", &now);
+        write_pre_for_select(&root, "pre-old", "iid-old-kick", "Kick", "inactive", &now);
+        write_pre_for_select(
+            &root,
+            "pre-current",
+            "iid-current-vocal",
+            "Vocal",
+            "inactive",
+            &now,
+        );
+        write_pre_for_select(
+            &root,
+            "pre-current",
+            "iid-current-bass",
+            "Bass",
+            "inactive",
+            &now,
+        );
+        write_post_for_scope(&root, "post-current", "post-vocal", "Vocal");
+        write_post_for_scope(&root, "post-current", "post-bass", "Bass");
+
+        let v = enumerate_active_pre_pair_candidates_for_post_project(&root, "post-current");
+        let ids: Vec<&str> = v.iter().map(|c| c.instance_id.as_str()).collect();
+        assert_eq!(ids, vec!["iid-current-bass", "iid-current-vocal"]);
+    }
+
+    /// 別セッション側に同じ Name が残っていても、現在 POST 群の name 集合で PRE 群を
+    /// スコープできれば Arm 対象は現在側に決まる。
+    #[test]
+    fn select_target_pre_for_arm_for_post_project_avoids_other_session_same_name() {
+        let root = isolated_dir();
+        let now = now_rfc3339();
+        write_pre_for_select(&root, "pre-old", "iid-old-vocal", "Vocal", "inactive", &now);
+        write_pre_for_select(
+            &root,
+            "pre-current",
+            "iid-current-vocal",
+            "Vocal",
+            "inactive",
+            &now,
+        );
+        write_pre_for_select(
+            &root,
+            "pre-current",
+            "iid-current-bass",
+            "Bass",
+            "inactive",
+            &now,
+        );
+        write_post_for_scope(&root, "post-current", "post-vocal", "Vocal");
+        write_post_for_scope(&root, "post-current", "post-bass", "Bass");
+
+        assert!(
+            select_target_pre_for_arm(&root, "Vocal").is_none(),
+            "unscoped Arm は同名2件で曖昧"
+        );
+        let sel = select_target_pre_for_arm_for_post_project(&root, "Vocal", "post-current")
+            .expect("scoped Arm は現在 session 側の Vocal に決まる");
+        assert_eq!(sel.instance_id, "iid-current-vocal");
+    }
+
+    /// name 集合の overlap が同点なら、後段の name 一意選定で曖昧として拒否する。
+    #[test]
+    fn select_target_pre_for_arm_for_post_project_tie_remains_ambiguous() {
+        let root = isolated_dir();
+        let now = now_rfc3339();
+        write_pre_for_select(&root, "pre-a", "iid-a-vocal", "Vocal", "inactive", &now);
+        write_pre_for_select(&root, "pre-a", "iid-a-bass", "Bass", "inactive", &now);
+        write_pre_for_select(&root, "pre-b", "iid-b-vocal", "Vocal", "inactive", &now);
+        write_pre_for_select(&root, "pre-b", "iid-b-bass", "Bass", "inactive", &now);
+        write_post_for_scope(&root, "post-current", "post-vocal", "Vocal");
+        write_post_for_scope(&root, "post-current", "post-bass", "Bass");
+
+        assert!(
+            select_target_pre_for_arm_for_post_project(&root, "Vocal", "post-current").is_none(),
+            "同点 session は誤選択せず曖昧拒否"
+        );
+    }
+
+    /// POST 側に pair_pre_name があるのに一致する PRE 群が無い場合は、古い別セッションへ
+    /// fallback せず空候補にする。
+    #[test]
+    fn discover_pre_dirs_for_post_project_does_not_fallback_when_names_disagree() {
+        let root = isolated_dir();
+        let now = now_rfc3339();
+        write_pre_for_select(&root, "pre-old", "iid-old-snare", "Snare", "inactive", &now);
+        write_post_for_scope(&root, "post-current", "post-vocal", "Vocal");
+
+        assert!(
+            discover_pre_dirs_for_post_project(&root, "post-current").is_empty(),
+            "POST name がある状態で不一致なら cross-session fallback しない"
         );
     }
 

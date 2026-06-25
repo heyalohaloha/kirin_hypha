@@ -96,12 +96,15 @@ pub use preset_v2::{
 };
 pub use record::{RecordState, RecordStateMachine, TransitionError};
 pub use record_signal::{
-    delete_signal, enumerate_active_pre_pair_candidates, filter_candidates_by_name, is_timed_out,
+    delete_signal, discover_pre_dirs_for_post_project, enumerate_active_pre_pair_candidates,
+    enumerate_active_pre_pair_candidates_for_post_project, filter_candidates_by_name, is_timed_out,
     mark_acknowledged, mark_released, pick_closest_pre, read_pre_at, read_signal,
-    resolve_arm_target, scan_pre_candidates, scan_pre_candidates_in, scan_signals_dir,
-    select_target_pre, select_target_pre_for_arm, signal_path, signals_dir, write_pending,
-    write_signal, LatchedPre, LatchedPreState, PostMetrics, PreCandidate, RecordSignal,
-    SelectedPre, SignalError, SignalStatus, ACK_TIMEOUT_SECONDS, SIGNALS_SUBDIR, SIGNAL_FILENAME,
+    resolve_arm_target, resolve_arm_target_for_post_project, scan_pre_candidates,
+    scan_pre_candidates_in, scan_signals_dir, select_target_pre, select_target_pre_for_arm,
+    select_target_pre_for_arm_for_post_project, select_target_pre_for_post_project, signal_path,
+    signals_dir, write_pending, write_signal, LatchedPre, LatchedPreState, PostMetrics,
+    PreCandidate, RecordSignal, SelectedPre, SignalError, SignalStatus, ACK_TIMEOUT_SECONDS,
+    SIGNALS_SUBDIR, SIGNAL_FILENAME,
 };
 pub use record_writer::{new_record_trace_queue, RecordTraceQueue, RecordTraceSample};
 pub use storage::{

@@ -32,8 +32,8 @@ use crate::plugin_data::Role as PluginDataRole;
 use crate::pre_discovery::{PostDiscoveryState, DISCOVERY_STALE_SECS};
 use crate::record::RecordStateMachine;
 use crate::record_signal::{
-    self, read_pre_at, select_target_pre_for_arm, LatchedPre, SignalStatus, ACK_TIMEOUT_SECONDS,
-    SIGNALS_SUBDIR,
+    self, read_pre_at, select_target_pre_for_arm_for_post_project, LatchedPre, SignalStatus,
+    ACK_TIMEOUT_SECONDS, SIGNALS_SUBDIR,
 };
 use crate::record_writer::{
     run_record_tick, take_session_summary, writer_close_degraded, writer_close_with_summary,
@@ -378,6 +378,7 @@ pub fn spawn_io_thread_post(
                 &signal_state,
                 &pair_pre_name_snapshot,
                 pair_claimed_at_snapshot,
+                project_hash_ref,
                 // B-108: Record 中はラッチ凍結（W-284 self_check-skip と同型）。latched は共有実体。
                 record_sm.is_recording(),
                 &latched_pre,
@@ -848,9 +849,31 @@ fn delta_no_pre() -> (DeltaResult, bool, Option<SignalState>) {
 /// - Watch 中: pair 名変更/クリアで即アンラッチ。ラッチ先 pre.json を直読し、実消滅（不在/stale>TTL/
 ///   rename）でアンラッチ → 同 tick で名前が残れば Arm ゲート（B-104）で再ラッチ（DAW 再開で自動復元）。
 ///   未ラッチ時は Arm ゲートで初回解決（成立でラッチ）。同名2台目が現れてもラッチ済みなら再選定しない。
+#[cfg(test)]
 fn compute_latched_display(
     kirin_root: &Path,
     pair_pre_name: &str,
+    post: &MeasureResult,
+    pair_opt: Option<&str>,
+    recording: bool,
+    latched: &Mutex<Option<LatchedPre>>,
+) -> Result<(DeltaResult, bool, Option<SignalState>), String> {
+    compute_latched_display_for_post_project(
+        kirin_root,
+        pair_pre_name,
+        "",
+        post,
+        pair_opt,
+        recording,
+        latched,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn compute_latched_display_for_post_project(
+    kirin_root: &Path,
+    pair_pre_name: &str,
+    post_project_hash: &str,
     post: &MeasureResult,
     pair_opt: Option<&str>,
     recording: bool,
@@ -914,7 +937,7 @@ fn compute_latched_display(
     if pair_pre_name.is_empty() {
         return Ok(delta_no_pre());
     }
-    match select_target_pre_for_arm(kirin_root, pair_pre_name) {
+    match select_target_pre_for_arm_for_post_project(kirin_root, pair_pre_name, post_project_hash) {
         Some(sel) => {
             let pre_json = sel.pre_json.clone();
             let project_dir = sel.project_dir.clone();
@@ -956,6 +979,7 @@ fn run_tick(
     signal_state_atom: &Arc<AtomicU8>,
     pair_pre_name: &str,
     pair_claimed_at: f64,
+    post_project_hash: &str,
     // B-108: recording=Record 中はラッチ凍結（アンラッチ/再選定しない）。latched=display と
     // keep/Arm が共有する単一ラッチ（io_thread が毎 tick 維持、keep が resolve_arm_target で読む）。
     recording: bool,
@@ -991,9 +1015,10 @@ fn run_tick(
 
     // B-108: ラッチ意味論で表示Δを決める（select_target_pre 直呼びを廃止）。一度成立した結合は
     // 無音/停止/一時鮮度揺らぎ/同名2台目では NoPre に落とさず、解除は名前変更/クリアと PRE 実消滅のみ。
-    let (new_delta, store_directly, pre_signal_state) = compute_latched_display(
+    let (new_delta, store_directly, pre_signal_state) = compute_latched_display_for_post_project(
         kirin_root,
         pair_pre_name,
+        post_project_hash,
         &post,
         pair_opt,
         recording,
