@@ -31,13 +31,14 @@ use kirin_measure::reservation; // B-127 (G-115-365): egui parity — per-pairin
 use kirin_measure::{
     all_keep_signal_path, all_stop_signal_path, append_annotation_to_latest,
     check_record_exclusion, count_distinct_pairings, delete_broadcast, delete_signal,
-    enumerate_active_post_pair_candidates, enumerate_active_pre_pair_candidates, exit_record_full,
-    format_pair_label, load_signal_state, lookup_section_label, mark_released, pair_lock_active,
-    resolve_arm_target, sanitize_name, scan_latest_v2_preset, show_note_button, show_save_button,
-    show_stop_record_button, write_broadcast, write_pending, write_stop_broadcast, DeltaMode,
-    DeltaResult, DeltaSnapshot, ExclusionResult, LatchedPre, License, LivenessEvaluator,
-    MeasureResult, PluginDataRole, PreCandidate, PresetFileV2, RecordStateMachine, SignalState,
-    StoragePaths, TransitionError, MAX_ACTIVE_PER_PROJECT, SENSE_RECORD_HINT, SENSE_UPSELL_URL,
+    enumerate_active_post_pair_candidates, enumerate_active_pre_pair_candidates_for_post_project,
+    exit_record_full, format_pair_label, load_signal_state, lookup_section_label, mark_released,
+    pair_lock_active, resolve_arm_target_for_post_project, sanitize_name, scan_latest_v2_preset,
+    show_note_button, show_save_button, show_stop_record_button, write_broadcast, write_pending,
+    write_stop_broadcast, DeltaMode, DeltaResult, DeltaSnapshot, ExclusionResult, LatchedPre,
+    License, LivenessEvaluator, MeasureResult, PluginDataRole, PreCandidate, PresetFileV2,
+    RecordStateMachine, SignalState, StoragePaths, TransitionError, MAX_ACTIVE_PER_PROJECT,
+    SENSE_RECORD_HINT, SENSE_UPSELL_URL,
 };
 use nih_plug::prelude::Editor;
 use nih_plug_egui::{
@@ -939,10 +940,15 @@ fn draw_pair_pre_combo(
     pair_locked: bool,
 ) {
     let kirin_root = std::env::temp_dir().join("kirin");
-    let pre_candidates = enumerate_active_pre_pair_candidates(&kirin_root);
+    let current_project_hash = read_project_hash_arc(&state.project_hash);
+    let pre_candidates =
+        enumerate_active_pre_pair_candidates_for_post_project(&kirin_root, &current_project_hash);
     // B-027 段階 3-B α-7-3 / Step 9: All Keep 行 N 集計のため POST candidates も取得。
     // ComboBox 先頭行の "All Keep ({N} ready)" 表示と display 判定 (N>=1) に使用。
-    let post_candidates = enumerate_active_post_pair_candidates(&kirin_root);
+    let post_candidates: Vec<_> = enumerate_active_post_pair_candidates(&kirin_root)
+        .into_iter()
+        .filter(|c| c.project_uuid == current_project_hash)
+        .collect();
     // α-7' All Stop: 自身が recording=true (Record 中) なら All Stop 行を出す。
     let recording = state.record_sm.is_recording();
 
@@ -1361,7 +1367,12 @@ pub(crate) fn trigger_keep_internal(
     // **一意 1 件のみ Some** / Active 要求なし）。停止中・無音の PRE もアーム可（v1.0.0 復元）。
     // pair_pre_name 空 / 同名複数 / 不在 / Bypassed / 古t は None → "No PRE Paired"。表示Δ
     // (io_thread_post::run_tick) は `select_target_pre`（Active 維持）のまま。
-    let target_id = match resolve_arm_target(&tmp_base, pair_pre_name, latched) {
+    let target_id = match resolve_arm_target_for_post_project(
+        &tmp_base,
+        pair_pre_name,
+        project_hash,
+        latched,
+    ) {
         Some(sel) => sel.instance_id,
         None => {
             log::info!(

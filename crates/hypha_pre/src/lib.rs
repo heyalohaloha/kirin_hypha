@@ -471,14 +471,9 @@ impl Plugin for HyphaPre {
         let transport = context.transport();
         let playing = transport.playing;
         let silent = buffer_is_silent(buffer);
+        let recording = self.record_sm.is_recording();
 
-        let state = if bypass_val {
-            SignalState::Bypassed
-        } else if !playing || silent {
-            SignalState::Inactive
-        } else {
-            SignalState::Active
-        };
+        let state = resolve_process_signal_state(bypass_val, playing, silent, recording);
         store_signal_state(&self.signal_state, state);
 
         if state == SignalState::Active {
@@ -497,11 +492,12 @@ impl Plugin for HyphaPre {
         self.process_counter = self.process_counter.wrapping_add(1);
         if self.process_counter & 0xFF == 0 {
             log::info!(
-                "[PRE diag] state={:?} bypass={} playing={} silent={} buf_len={}",
+                "[PRE diag] state={:?} bypass={} playing={} silent={} recording={} buf_len={}",
                 state,
                 bypass_val,
                 playing,
                 silent,
+                recording,
                 buffer.samples()
             );
 
@@ -542,6 +538,22 @@ fn buffer_is_silent(buffer: &mut Buffer) -> bool {
         }
     }
     true
+}
+
+#[inline]
+fn resolve_process_signal_state(
+    bypassed: bool,
+    playing: bool,
+    silent: bool,
+    recording: bool,
+) -> SignalState {
+    if bypassed {
+        SignalState::Bypassed
+    } else if recording || (playing && !silent) {
+        SignalState::Active
+    } else {
+        SignalState::Inactive
+    }
 }
 
 nih_export_vst3!(HyphaPre);
@@ -586,6 +598,48 @@ mod b107_silence_tests {
         assert!(
             !sample_is_silent(SILENCE_PEAK_LINEAR),
             "ちょうど -140 dBFS は非無音（境界）"
+        );
+    }
+}
+
+#[cfg(test)]
+mod b147_record_state_tests {
+    use super::resolve_process_signal_state;
+    use kirin_measure::SignalState;
+
+    #[test]
+    fn watch_mode_keeps_previous_playing_and_silence_gate() {
+        assert_eq!(
+            resolve_process_signal_state(false, true, false, false),
+            SignalState::Active
+        );
+        assert_eq!(
+            resolve_process_signal_state(false, true, true, false),
+            SignalState::Inactive
+        );
+        assert_eq!(
+            resolve_process_signal_state(false, false, false, false),
+            SignalState::Inactive
+        );
+    }
+
+    #[test]
+    fn record_mode_captures_offline_and_silent_buffers() {
+        assert_eq!(
+            resolve_process_signal_state(false, false, false, true),
+            SignalState::Active
+        );
+        assert_eq!(
+            resolve_process_signal_state(false, false, true, true),
+            SignalState::Active
+        );
+    }
+
+    #[test]
+    fn bypass_overrides_record_mode() {
+        assert_eq!(
+            resolve_process_signal_state(true, false, false, true),
+            SignalState::Bypassed
         );
     }
 }

@@ -858,17 +858,12 @@ impl Plugin for HyphaPost {
         // (silent / bypass と直交)。Relaxed store ~1ns / lock-free / R-12 違反なし。
         self.is_playing.store(playing, Ordering::Relaxed);
         let silent = buffer_is_silent(buffer);
+        let recording = self.record_sm.is_recording();
 
         let pos = transport.pos_samples().unwrap_or(i64::MIN);
         self.playback_pos_samples.store(pos, Ordering::Relaxed);
 
-        let state = if bypass_val {
-            SignalState::Bypassed
-        } else if !playing || silent {
-            SignalState::Inactive
-        } else {
-            SignalState::Active
-        };
+        let state = resolve_process_signal_state(bypass_val, playing, silent, recording);
         store_signal_state(&self.signal_state, state);
 
         if state == SignalState::Active {
@@ -887,11 +882,12 @@ impl Plugin for HyphaPost {
         self.process_counter = self.process_counter.wrapping_add(1);
         if self.process_counter & 0xFF == 0 {
             log::info!(
-                "[POST diag] state={:?} bypass={} playing={} silent={} buf_len={}",
+                "[POST diag] state={:?} bypass={} playing={} silent={} recording={} buf_len={}",
                 state,
                 bypass_val,
                 playing,
                 silent,
+                recording,
                 buffer.samples()
             );
 
@@ -934,6 +930,22 @@ fn buffer_is_silent(buffer: &mut Buffer) -> bool {
     true
 }
 
+#[inline]
+fn resolve_process_signal_state(
+    bypassed: bool,
+    playing: bool,
+    silent: bool,
+    recording: bool,
+) -> SignalState {
+    if bypassed {
+        SignalState::Bypassed
+    } else if recording || (playing && !silent) {
+        SignalState::Active
+    } else {
+        SignalState::Inactive
+    }
+}
+
 nih_export_vst3!(HyphaPost);
 
 // ── B-027 段階 2: pair_pre_name chunk persist + 正規化テスト ───────────────
@@ -968,6 +980,48 @@ mod b107_silence_tests {
         assert!(
             !sample_is_silent(SILENCE_PEAK_LINEAR),
             "ちょうど -140 dBFS は非無音（境界）"
+        );
+    }
+}
+
+#[cfg(test)]
+mod b147_record_state_tests {
+    use super::resolve_process_signal_state;
+    use kirin_measure::SignalState;
+
+    #[test]
+    fn watch_mode_keeps_previous_playing_and_silence_gate() {
+        assert_eq!(
+            resolve_process_signal_state(false, true, false, false),
+            SignalState::Active
+        );
+        assert_eq!(
+            resolve_process_signal_state(false, true, true, false),
+            SignalState::Inactive
+        );
+        assert_eq!(
+            resolve_process_signal_state(false, false, false, false),
+            SignalState::Inactive
+        );
+    }
+
+    #[test]
+    fn record_mode_captures_offline_and_silent_buffers() {
+        assert_eq!(
+            resolve_process_signal_state(false, false, false, true),
+            SignalState::Active
+        );
+        assert_eq!(
+            resolve_process_signal_state(false, false, true, true),
+            SignalState::Active
+        );
+    }
+
+    #[test]
+    fn bypass_overrides_record_mode() {
+        assert_eq!(
+            resolve_process_signal_state(true, false, false, true),
+            SignalState::Bypassed
         );
     }
 }
