@@ -77,31 +77,30 @@ PRE displays all six values. POST displays Δ values for all six.
 
 Download the latest signed and notarized release from the [Releases page](https://github.com/heyalohaloha/kirin_hypha/releases).
 
-Binaries are signed with an Apple Developer ID and notarized by Apple, so Gatekeeper normally opens them without a warning. If a downloaded file is still flagged — for instance when the quarantine attribute persists — you can inspect it and clear the flag yourself:
+The macOS installer package and the plug-in bundles inside it are signed with Apple Developer ID certificates and notarized by Apple, so Gatekeeper normally opens them without a warning. If a downloaded file is still flagged — for instance when the quarantine attribute persists — you can inspect it and clear the flag yourself:
 
 ```bash
-# Inspect the code signature
-codesign -dv --verbose=4 "VST3/Kirin Hypha PRE.vst3"
-codesign -dv --verbose=4 "Audio Unit/Kirin Hypha PRE.component"
+# Inspect the installer signature
+pkgutil --check-signature "Kirin-Hypha-<version>-macOS-Universal.pkg"
 
 # Verify the download against the SHA-256 shown on the Releases page
-shasum -a 256 "Kirin-Hypha-<version>-macOS-Universal.zip"
+shasum -a 256 "Kirin-Hypha-<version>-macOS-Universal.pkg"
 
-# Remove the quarantine attribute if macOS blocks the bundle
-xattr -dr com.apple.quarantine "VST3/Kirin Hypha PRE.vst3"
-xattr -dr com.apple.quarantine "Audio Unit/Kirin Hypha PRE.component"
+# Remove the quarantine attribute if macOS blocks the installer
+xattr -d com.apple.quarantine "Kirin-Hypha-<version>-macOS-Universal.pkg"
 ```
 
-The release zip has companion `.zip.sha256` and `release-manifest.json` assets on the Releases page.
+The installer package has companion `.pkg.sha256` and artifact JSON assets on the Releases page. Older zip archives are manual-install fallback artifacts.
 
 ---
 
 ## Installation
 
-1. Download the latest release archive from the [Releases page](https://github.com/heyalohaloha/kirin_hypha/releases).
-2. Unzip, then install the format you use:
-   - **VST3** — copy `VST3/Kirin Hypha PRE.vst3` and `VST3/Kirin Hypha POST.vst3` to `~/Library/Audio/Plug-Ins/VST3/`, replacing any existing `Kirin Hypha *.vst3` at that path. Remove older system-level copies in `/Library/Audio/Plug-Ins/VST3/` if your DAW still loads stale binaries.
-   - **Audio Unit** — copy `Audio Unit/Kirin Hypha PRE.component` and `Audio Unit/Kirin Hypha POST.component` to `~/Library/Audio/Plug-Ins/Components/`, replacing any existing `Kirin Hypha *.component` at that path. Remove older system-level copies in `/Library/Audio/Plug-Ins/Components/` if needed.
+1. Download the latest `Kirin-Hypha-<version>-macOS-Universal.pkg` from the [Releases page](https://github.com/heyalohaloha/kirin_hypha/releases).
+2. Open the installer package and follow macOS Installer.
+   - The package installs **VST3** to `/Library/Audio/Plug-Ins/VST3/`.
+   - The package installs **Audio Unit** to `/Library/Audio/Plug-Ins/Components/`.
+   - The package removes old user-level and system-level Kirin Hypha PRE/POST copies before installing, so DAWs do not load stale bundles first.
 3. Rescan plugins in your DAW.
 4. Insert **Kirin Hypha PRE** before your processing chain.
 5. Insert **Kirin Hypha POST** after your processing chain.
@@ -186,15 +185,32 @@ The release ship set is construction-C: egui VST3 bundles from `target/bundled/`
 
 ## Maintainer release packaging
 
-On the release machine, after signing and notarizing with `cargo run --package xtask -- notarize`, build the upload file from an unsandboxed Terminal session with:
+On the release machine, after signing and notarizing the four source plug-in bundles with `cargo run --package xtask -- notarize`, build the Lemon Squeezy installer package with the Kirin OS-style release scripts:
+
+```bash
+node scripts/ls_release/build_kirin_hypha_pkg.mjs
+node scripts/ls_release/kirin_hypha_ls_dry_run.mjs \
+  --state release_state/kirin_hypha_1.1.1_ls.state.json \
+  --with-apple-verification
+```
+
+The installer package requires a `Developer ID Installer` certificate in the keychain. A `Developer ID Application` certificate signs the plug-in bundles, but it is not enough to sign the `.pkg`.
+
+Unsigned smoke-test packages are intentionally marked `UNSIGNED-DO-NOT-UPLOAD` and are written under `/tmp/kirin_hypha_pkg_smoke/`:
+
+```bash
+KIRIN_SKIP_PKG_SIGN=1 KIRIN_SKIP_PKG_NOTARIZE=1 \
+  node scripts/ls_release/build_kirin_hypha_pkg.mjs
+```
+
+The legacy manual-install zip can still be built with:
 
 ```bash
 cargo run --package xtask -- release-package
 ```
 
-Unsigned smoke-test packages are intentionally marked `UNSIGNED-DO-NOT-UPLOAD` and must be written under `/tmp`.
 Do not run the signed release checks inside a sandboxed child process; macOS `codesign` can report a false `invalid signature` for valid notarized plugin bundles in that context.
-Upload only `Kirin-Hypha-<version>-macOS-Universal.zip` to Lemon Squeezy after the command passes without `--allow-unsigned`. Publish the companion `.zip.sha256` and `release-manifest.json` with the GitHub Release.
+Upload only `Kirin-Hypha-<version>-macOS-Universal.pkg` to Lemon Squeezy after local verification passes. Publish the companion `.pkg.sha256` and artifact JSON with the GitHub Release.
 
 ---
 
