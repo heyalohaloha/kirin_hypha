@@ -171,6 +171,7 @@ Windows 着手条件:
 - `diagnose-watch` に Findings を追加し、stale / bypassed PRE、同名PRE曖昧、POST target 不成立、pending signal 滞留を原因コード付きで表示できるようにした。
 - `diagnose-watch --format json` を追加し、summary / Findings / watch rows / signal rows / plugin_data rows を共有・比較しやすい機械可読形式で出力できるようにした。
 - JUCE/AU POST が呼ぶ C ABI 候補列挙で、既存の名前付き POST claim があっても別名の2つ目 PRE が候補から消えないことを FFI integration test で固定した。`Drum` / `Mix` は fixture 名であり、名前そのものの特別扱いはしない。
+- `diagnose-watch` で POST の pair が未選択でも新鮮な PRE 候補が見えている場合を `POST_PAIR_NOT_SELECTED` として分類し、PRE不在と shell 選択/表示側の問題を切り分けられるようにした。
 
 ## 優先順位
 

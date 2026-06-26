@@ -137,6 +137,16 @@ fn add_post_target_findings(
                     subject: watch_subject(post),
                     detail: "POST has no selected pair name and no fresh non-bypassed PRE candidates are visible".to_string(),
                 });
+            } else {
+                rows.push(FindingRow {
+                    level: "info".to_string(),
+                    code: "POST_PAIR_NOT_SELECTED".to_string(),
+                    subject: watch_subject(post),
+                    detail: format!(
+                        "POST has no selected pair name; fresh non-bypassed PRE candidates are visible: {}",
+                        watch_subjects(eligible_pre_rows)
+                    ),
+                });
             }
             continue;
         };

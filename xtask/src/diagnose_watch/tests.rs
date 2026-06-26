@@ -272,6 +272,25 @@ fn findings_explain_ambiguous_duplicate_pre_names() {
 }
 
 #[test]
+fn findings_explain_unselected_post_when_pair_candidates_exist() {
+    let mut snapshot = Snapshot {
+        watch_rows: vec![
+            watch_pre("pre-project", "pre-mix", "Mix", "inactive", 1),
+            watch_post("post-project", "post-mix", "-", 1),
+        ],
+        ..Snapshot::default()
+    };
+
+    refresh_findings(&mut snapshot);
+    let out = render_snapshot(&snapshot, Some(40));
+
+    assert!(out.contains("eligible_pre:    1"));
+    assert!(out.contains("POST_PAIR_NOT_SELECTED"));
+    assert!(out.contains("fresh non-bypassed PRE candidates are visible"));
+    assert!(out.contains("PRE:pre-project/pre-mix"));
+}
+
+#[test]
 fn history_filter_keeps_pending_but_hides_old_released() {
     let mut snapshot = Snapshot::default();
     snapshot.signal_rows.push(SignalRow {
