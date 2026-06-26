@@ -875,7 +875,7 @@ fn compute_latched_display_for_post_project(
     pair_pre_name: &str,
     post_project_hash: &str,
     post: &MeasureResult,
-    pair_opt: Option<&str>,
+    _pair_opt: Option<&str>,
     recording: bool,
     latched: &Mutex<Option<LatchedPre>>,
 ) -> Result<(DeltaResult, bool, Option<SignalState>), String> {
@@ -888,7 +888,7 @@ fn compute_latched_display_for_post_project(
         };
         return match read_pre_at(&l.pre_json) {
             Some(st) if st.fresh && st.active => {
-                let (d, ss) = compute_delta_with_state(&l.project_dir, post, pair_opt)?;
+                let (d, ss) = compute_delta_for_pre_file(&l.pre_json, post)?;
                 Ok((d, false, ss))
             }
             // 一時 idle / 一時消失(<60s) → latched-idle 表示（真消滅は poll_pre_liveness 管轄）。
@@ -925,7 +925,7 @@ fn compute_latched_display_for_post_project(
             }
             // fresh + active → 通常 Δ（現行どおり）。
             Some(st) if st.active => {
-                let (d, ss) = compute_delta_with_state(&l.project_dir, post, pair_opt)?;
+                let (d, ss) = compute_delta_for_pre_file(&l.pre_json, post)?;
                 return Ok((d, false, ss));
             }
             // fresh + idle/silent → latched-idle（Stale + NaN / 凍結なし）。NoPre には落とさない。
@@ -952,7 +952,7 @@ fn compute_latched_display_for_post_project(
             // 初回ラッチ直後の同 tick 表示。
             match read_pre_at(&pre_json) {
                 Some(st) if st.active => {
-                    let (d, ss) = compute_delta_with_state(&project_dir, post, pair_opt)?;
+                    let (d, ss) = compute_delta_for_pre_file(&pre_json, post)?;
                     Ok((d, false, ss))
                 }
                 _ => Ok(delta_latched_idle()),
@@ -1223,7 +1223,19 @@ fn compute_delta_with_state(
     }
 
     let best = select_best_pre(&mut pre_files)?;
-    let content = fs::read_to_string(&best).map_err(|e| format!("read PRE file: {e}"))?;
+    compute_delta_for_pre_file(&best, post)
+}
+
+/// 選定済みの PRE `pre.json` だけを読んで Δ を算出する。
+///
+/// Pairing/Arm 側が決めた `LatchedPre::pre_json` を再スキャンで失わないための境界。
+/// `compute_delta_with_state` は棚から候補を選ぶ互換入口として残し、Record/ラッチ表示は
+/// 本関数へ直接入る。
+fn compute_delta_for_pre_file(
+    pre_json: &Path,
+    post: &MeasureResult,
+) -> Result<(DeltaResult, Option<SignalState>), String> {
+    let content = fs::read_to_string(pre_json).map_err(|e| format!("read PRE file: {e}"))?;
     let parsed: serde_json::Value =
         serde_json::from_str(&content).map_err(|e| format!("parse PRE JSON: {e}"))?;
 

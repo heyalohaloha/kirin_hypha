@@ -43,7 +43,6 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -647,25 +646,6 @@ pub fn enumerate_active_pre_pair_candidates(kirin_root: &Path) -> Vec<PreCandida
         .collect()
 }
 
-fn post_pair_names_in_project(kirin_root: &Path, post_project_hash: &str) -> HashSet<String> {
-    if post_project_hash.is_empty() {
-        return HashSet::new();
-    }
-    crate::io_thread_post::scan_post_candidates_in(&kirin_root.join(post_project_hash))
-        .into_iter()
-        .filter_map(|c| c.pair_pre_name)
-        .filter(|name| !name.is_empty())
-        .collect()
-}
-
-fn pre_names_in_project(project_dir: &Path) -> HashSet<String> {
-    scan_pre_candidates_in(project_dir)
-        .into_iter()
-        .filter_map(|c| c.name)
-        .filter(|name| !name.is_empty())
-        .collect()
-}
-
 /// 現在の POST project_uuid から見える POST 群の `pair_pre_name` と最も整合する PRE
 /// project_uuid 群だけを返す。
 ///
@@ -680,28 +660,7 @@ pub fn discover_pre_dirs_for_post_project(
     kirin_root: &Path,
     post_project_hash: &str,
 ) -> Vec<PathBuf> {
-    let dirs = crate::pre_discovery::discover_active_pre_dirs(kirin_root);
-    let post_names = post_pair_names_in_project(kirin_root, post_project_hash);
-    if post_names.is_empty() {
-        return dirs;
-    }
-
-    let scored: Vec<(PathBuf, usize)> = dirs
-        .into_iter()
-        .map(|dir| {
-            let pre_names = pre_names_in_project(&dir);
-            let score = pre_names.intersection(&post_names).count();
-            (dir, score)
-        })
-        .collect();
-    let best = scored.iter().map(|(_, score)| *score).max().unwrap_or(0);
-    if best == 0 {
-        return Vec::new();
-    }
-    scored
-        .into_iter()
-        .filter_map(|(dir, score)| (score == best).then_some(dir))
-        .collect()
+    crate::pairing_scope::discover_pre_dirs_for_post_project(kirin_root, post_project_hash)
 }
 
 /// POST project_uuid 入口の PRE 候補列挙（GUI/JUCE dropdown 用）。
@@ -716,9 +675,12 @@ pub fn discover_pre_dirs_for_post_project(
 /// POST project overlap を tie-break に使う。
 pub fn enumerate_active_pre_pair_candidates_for_post_project(
     kirin_root: &Path,
-    _post_project_hash: &str,
+    post_project_hash: &str,
 ) -> Vec<PreCandidate> {
-    enumerate_active_pre_pair_candidates(kirin_root)
+    crate::pairing_scope::enumerate_active_pre_pair_candidates_for_post_project(
+        kirin_root,
+        post_project_hash,
+    )
 }
 
 /// POST 側計測値。距離計算用。
