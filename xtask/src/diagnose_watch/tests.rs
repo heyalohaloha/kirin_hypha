@@ -1,4 +1,4 @@
-use super::render::{render_snapshot, render_table};
+use super::render::{render_snapshot, render_snapshot_json, render_table};
 use super::*;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -140,7 +140,7 @@ fn render_table_truncates_with_omitted_count() {
 
 #[test]
 fn render_snapshot_includes_operational_summary() {
-    let snapshot = Snapshot {
+    let mut snapshot = Snapshot {
         watch_rows: vec![
             watch_pre("p", "pre", "Mix", "active", 1),
             watch_post("p", "post", "Mix", 1),
@@ -173,6 +173,7 @@ fn render_snapshot_includes_operational_summary() {
         ..Snapshot::default()
     };
 
+    refresh_findings(&mut snapshot);
     let out = render_snapshot(&snapshot, Some(40));
 
     assert!(out.contains("Summary"));
@@ -182,6 +183,46 @@ fn render_snapshot_includes_operational_summary() {
     assert!(out.contains("paired_post:     1"));
     assert!(out.contains("pending_signals: 1"));
     assert!(out.contains("active_records:  1"));
+}
+
+#[test]
+fn render_snapshot_json_includes_summary_and_findings() {
+    let mut snapshot = Snapshot {
+        watch_rows: vec![
+            watch_pre(
+                "pre-project",
+                "pre-mix",
+                "Mix",
+                "active",
+                kirin_measure::DISCOVERY_STALE_SECS + 1,
+            ),
+            watch_post("post-project", "post-mix", "Mix", 1),
+        ],
+        ..Snapshot::default()
+    };
+
+    refresh_findings(&mut snapshot);
+    let json = render_snapshot_json(&snapshot).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+    assert_eq!(parsed["summary"]["live_pre"], 1);
+    assert_eq!(parsed["summary"]["eligible_pre"], 0);
+    assert_eq!(
+        parsed["finding_rows"][0]["code"],
+        serde_json::Value::String("POST_TARGET_UNAVAILABLE".to_string())
+    );
+    assert!(parsed["finding_rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|row| row["code"] == "STALE_PRE"));
+}
+
+#[test]
+fn parse_output_format_accepts_text_and_json_only() {
+    assert_eq!(parse_output_format("text").unwrap(), OutputFormat::Text);
+    assert_eq!(parse_output_format("json").unwrap(), OutputFormat::Json);
+    assert!(parse_output_format("yaml").is_err());
 }
 
 #[test]

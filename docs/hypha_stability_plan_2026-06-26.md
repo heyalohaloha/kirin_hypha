@@ -169,6 +169,7 @@ Windows 着手条件:
 - Watch 通信 root は `PlatformPaths::current_kirin_tmp_root()` に集約し、production source で直接 `$TMPDIR/kirin` を組み立てないガードを追加。
 - `cargo run -p xtask -- diagnose-watch` を追加し、PRE/POST watch JSON、record_signal / all_keep / all_stop、plugin_data record 数を1コマンドで snapshot できるようにした。既定は直近履歴を最新順・行数上限付きで表示し、必要時だけ `--all-history` / `--max-rows 0` で全量確認する。
 - `diagnose-watch` に Findings を追加し、stale / bypassed PRE、同名PRE曖昧、POST target 不成立、pending signal 滞留を原因コード付きで表示できるようにした。
+- `diagnose-watch --format json` を追加し、summary / Findings / watch rows / signal rows / plugin_data rows を共有・比較しやすい機械可読形式で出力できるようにした。
 
 ## 優先順位
 

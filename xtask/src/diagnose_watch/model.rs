@@ -1,9 +1,11 @@
+use serde::Serialize;
 use std::path::PathBuf;
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize)]
 pub(super) struct Snapshot {
     pub kirin_root: PathBuf,
     pub plugin_data_dir: Option<PathBuf>,
+    pub summary: Summary,
     pub watch_rows: Vec<WatchRow>,
     pub signal_rows: Vec<SignalRow>,
     pub record_rows: Vec<RecordRow>,
@@ -11,7 +13,17 @@ pub(super) struct Snapshot {
     pub warnings: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize)]
+pub(super) struct Summary {
+    pub live_pre: usize,
+    pub live_post: usize,
+    pub eligible_pre: usize,
+    pub paired_post: usize,
+    pub pending_signals: usize,
+    pub active_records: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub(super) struct WatchRow {
     pub role: String,
     pub project: String,
@@ -25,7 +37,7 @@ pub(super) struct WatchRow {
     pub path: PathBuf,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub(super) struct FindingRow {
     pub level: String,
     pub code: String,
@@ -33,7 +45,7 @@ pub(super) struct FindingRow {
     pub detail: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub(super) struct SignalRow {
     pub kind: String,
     pub project: String,
@@ -49,7 +61,7 @@ pub(super) struct SignalRow {
     pub path: PathBuf,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub(super) struct RecordRow {
     pub project: String,
     pub instance: String,
