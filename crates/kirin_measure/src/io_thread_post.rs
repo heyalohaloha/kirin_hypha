@@ -1530,8 +1530,8 @@ pub(crate) struct PostPsbSummary {
 
 // ── PostCandidate / scan / discover / enumerate (B-027 段階 3-B α-7-1 / Step 5) ─
 //
-// PRE 版 (`record_signal::PreCandidate` / `scan_pre_candidates_in` /
-// `pre_discovery::discover_active_pre_dirs` / `record_signal::enumerate_active_pre_pair_candidates`)
+// PRE 版 (`pre_candidates::PreCandidate` / `scan_pre_candidates_in` /
+// `pre_discovery::discover_active_pre_dirs` / `pre_candidates::enumerate_active_pre_pair_candidates`)
 // と完全対称形。POST 側 `pair_pre_name` cross-instance 公開機構 (Q-A7 採用案 A) と
 // α-7 All Keep broadcast (Q-A8 採用案 ii / iii) の peer enumerate 経路を提供する。
 //
@@ -1544,7 +1544,7 @@ pub(crate) struct PostPsbSummary {
 
 /// `/tmp/kirin/{project_uuid}/{instance_id}/post.json` 1 件分のパース結果。
 ///
-/// PRE 版 [`crate::record_signal::PreCandidate`] と対称形。
+/// PRE 版 [`crate::pre_candidates::PreCandidate`] と対称形。
 /// PRE 版が距離計算用の計測値 (`lufs_m` / `true_peak` / `crest`) を持つのに対し、
 /// POST 版は cross-project enumerate 用に `project_uuid` を持つ (cdylib 隔離環境で
 /// 各 candidate が所属する project_uuid を保持する目的 / G-115-49)。
@@ -1568,7 +1568,7 @@ pub struct PostCandidate {
 
 /// 指定された `{project_uuid}/` dir 配下の `post.json` を走査する。
 ///
-/// PRE 版 [`crate::record_signal::scan_pre_candidates_in`] と対称形。
+/// PRE 版 [`crate::pre_candidates::scan_pre_candidates_in`] と対称形。
 /// `record_signal/` 予約 dir は除外。`post.json` deserialize 失敗・ファイル不在は
 /// silently skip。`signal_state == "bypassed"` の POST は除外する (PRE 側 Bypass
 /// 防御と対称 / 二重防御の片側)。
@@ -3246,7 +3246,7 @@ mod post_candidate_tests {
 
     /// B-131 (G-115-380): 真に壊れた post.json は無言 skip されず log surface され、かつ
     /// 同 dir の valid POST 候補は返る（不正 1 件が sibling を巻き込まない / R-28 sweep 継続）。
-    /// PRE 側 scan_pre_candidates_in (B-077) の log::warn surface と対称。
+    /// PRE 側 pre_candidates scan (B-077) の log::warn surface と対称。
     #[test]
     fn scan_in_skips_corrupt_but_keeps_valid_sibling() {
         let root = unique_root("scan_corrupt");

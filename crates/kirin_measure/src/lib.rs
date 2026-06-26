@@ -19,6 +19,7 @@ pub mod pairing_scope;
 pub mod path_identity;
 pub mod phase_d;
 pub mod plugin_data;
+pub mod pre_candidates;
 pub mod pre_discovery;
 pub mod pre_self_discovery;
 pub mod preset;
@@ -80,6 +81,10 @@ pub use plugin_data::{
     Frame, PluginDataFile, PluginDataWriter, PsbSnapshot, Role as PluginDataRole,
     Status as PluginDataStatus, WriterError as PluginDataWriterError, WriterPaths,
 };
+pub use pre_candidates::{
+    enumerate_active_pre_pair_candidates, filter_candidates_by_name, pick_closest_pre,
+    scan_pre_candidates, scan_pre_candidates_in, PostMetrics, PreCandidate,
+};
 pub use pre_discovery::{
     discover_active_pre_dir_for_pair, discover_active_pre_dirs, PostDiscoveryState,
     DISCOVERY_STALE_SECS,
@@ -103,10 +108,8 @@ pub use preset_v2::{
 };
 pub use record::{RecordState, RecordStateMachine, TransitionError};
 pub use record_signal::{
-    delete_signal, enumerate_active_pre_pair_candidates, filter_candidates_by_name, is_timed_out,
-    mark_acknowledged, mark_released, pick_closest_pre, read_signal, scan_pre_candidates,
-    scan_pre_candidates_in, scan_signals_dir, signal_path, signals_dir, write_pending,
-    write_signal, PostMetrics, PreCandidate, RecordSignal, SignalError, SignalStatus,
+    delete_signal, is_timed_out, mark_acknowledged, mark_released, read_signal, scan_signals_dir,
+    signal_path, signals_dir, write_pending, write_signal, RecordSignal, SignalError, SignalStatus,
     ACK_TIMEOUT_SECONDS, SIGNALS_SUBDIR, SIGNAL_FILENAME,
 };
 pub use record_writer::{new_record_trace_queue, RecordTraceQueue, RecordTraceSample};

@@ -506,7 +506,7 @@ mod tests {
     /// で目的 Name 1 件絞れる。NG-2 構造の修正経路を担保。
     #[test]
     fn discover_active_pre_dirs_then_scan_flatten() {
-        use crate::record_signal::{filter_candidates_by_name, scan_pre_candidates_in};
+        use crate::pre_candidates::{filter_candidates_by_name, scan_pre_candidates_in};
         let root = unique_tmp_root("flatten");
         // 2 つの project_uuid 配下にそれぞれ PRE 1 つ
         let pre_a_dir = root.join("uuid_a").join("iid_a");
