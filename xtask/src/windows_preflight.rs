@@ -8,6 +8,18 @@ const CI_WORKFLOW: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../.github/workflows/ci.yml"
 ));
+const FFI_HEADER: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../crates/kirin_hypha_ffi/include/kirin_hypha_ffi.h"
+));
+const FFI_README: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../crates/kirin_hypha_ffi/README.md"
+));
+const FFI_CARGO_TOML: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../crates/kirin_hypha_ffi/Cargo.toml"
+));
 
 pub fn run(args: Vec<String>) -> Result<()> {
     match args.as_slice() {
@@ -22,6 +34,7 @@ pub fn run(args: Vec<String>) -> Result<()> {
 
     verify_cmake_platform_split(JUCE_CMAKE)?;
     verify_windows_ci_job(CI_WORKFLOW)?;
+    verify_ffi_staticlib_docs(FFI_HEADER, FFI_README, FFI_CARGO_TOML)?;
     eprintln!("[windows-preflight] OK: Windows VST3 path is separated from macOS release gates.");
     Ok(())
 }
@@ -113,6 +126,40 @@ fn verify_cmake_platform_split(cmake: &str) -> Result<()> {
         cmake,
         "add_custom_command(TARGET ${TARGET}_AU POST_BUILD",
         "macOS AU resourceUsage post-build step must remain present for macOS",
+    )?;
+    Ok(())
+}
+
+fn verify_ffi_staticlib_docs(header: &str, readme: &str, cargo_toml: &str) -> Result<()> {
+    require(
+        header,
+        "Windows/MSVC: target/{debug,release}/kirin_hypha_ffi.lib",
+        "C ABI header must document the Windows/MSVC .lib staticlib",
+    )?;
+    require(
+        header,
+        "macOS/Linux:  target/{debug,release}/libkirin_hypha_ffi.a",
+        "C ABI header must document the macOS/Linux .a staticlib",
+    )?;
+    require(
+        readme,
+        "Windows/MSVC: target/{debug,release}/kirin_hypha_ffi.lib",
+        "FFI README must document the Windows/MSVC .lib staticlib",
+    )?;
+    require(
+        readme,
+        "macOS/Linux:  target/{debug,release}/libkirin_hypha_ffi.a",
+        "FFI README must document the macOS/Linux .a staticlib",
+    )?;
+    require(
+        cargo_toml,
+        "kirin_hypha_ffi.lib on Windows/MSVC",
+        "FFI Cargo metadata must mention the Windows/MSVC .lib staticlib",
+    )?;
+    require(
+        cargo_toml,
+        "libkirin_hypha_ffi.a on macOS/Linux",
+        "FFI Cargo metadata must mention the macOS/Linux .a staticlib",
     )?;
     Ok(())
 }
@@ -271,6 +318,7 @@ mod tests {
         verify_cmake_platform_split(&crlf).unwrap();
         let crlf = CI_WORKFLOW.replace('\n', "\r\n");
         verify_windows_ci_job(&crlf).unwrap();
+        verify_ffi_staticlib_docs(FFI_HEADER, FFI_README, FFI_CARGO_TOML).unwrap();
     }
 
     #[test]
@@ -289,6 +337,42 @@ mod tests {
         assert!(err
             .to_string()
             .contains("Windows must default to the MSVC .lib"));
+    }
+
+    #[test]
+    fn preflight_requires_windows_staticlib_docs() {
+        let bad_header = FFI_HEADER.replace(
+            "Windows/MSVC: target/{debug,release}/kirin_hypha_ffi.lib",
+            "Windows/MSVC: target/{debug,release}/libkirin_hypha_ffi.a",
+        );
+        let err = verify_ffi_staticlib_docs(&bad_header, FFI_README, FFI_CARGO_TOML).unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("C ABI header must document the Windows/MSVC .lib"));
+    }
+
+    #[test]
+    fn preflight_requires_macos_staticlib_docs() {
+        let bad_readme = FFI_README.replace(
+            "macOS/Linux:  target/{debug,release}/libkirin_hypha_ffi.a",
+            "macOS/Linux:  target/{debug,release}/kirin_hypha_ffi.lib",
+        );
+        let err = verify_ffi_staticlib_docs(FFI_HEADER, &bad_readme, FFI_CARGO_TOML).unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("FFI README must document the macOS/Linux .a"));
+    }
+
+    #[test]
+    fn preflight_requires_cargo_staticlib_docs() {
+        let bad_cargo_toml = FFI_CARGO_TOML.replace(
+            "kirin_hypha_ffi.lib on Windows/MSVC",
+            "libkirin_hypha_ffi.a on Windows/MSVC",
+        );
+        let err = verify_ffi_staticlib_docs(FFI_HEADER, FFI_README, &bad_cargo_toml).unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("FFI Cargo metadata must mention the Windows/MSVC .lib"));
     }
 
     #[test]

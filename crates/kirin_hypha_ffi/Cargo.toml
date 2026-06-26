@@ -7,7 +7,8 @@ edition = "2021"
 # kirin_measure を無変更で包む（DSP/計測ロジックは一切 C++ 側へ移さない）。
 #
 # crate-type:
-#   - "staticlib": C/C++ (JUCE) からリンクする本番成果物 (libkirin_hypha_ffi.a)。
+#   - "staticlib": C/C++ (JUCE) からリンクする本番成果物
+#                  (kirin_hypha_ffi.lib on Windows/MSVC, libkirin_hypha_ffi.a on macOS/Linux)。
 #   - "rlib":      §5 の Rust 統合テスト (tests/parity.rs) が本クレートの Rust API を
 #                  使うために必要。C 成果物には影響しない。
 [lib]
