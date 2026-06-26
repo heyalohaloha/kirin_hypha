@@ -121,29 +121,30 @@ fn verify_windows_ci_job(workflow: &str) -> Result<()> {
     let workflow = normalize_newlines(workflow);
     let job = workflow_job(&workflow, "windows-vst3-preflight")?;
     let job_code = strip_yaml_comments(job);
+    let job_code = job_code.as_str();
 
     require(
-        job,
+        job_code,
         "runs-on: windows-latest",
         "Windows preflight job must run on windows-latest",
     )?;
     require(
-        job,
+        job_code,
         "Build kirin_hypha_ffi staticlib (MSVC)",
         "Windows preflight job must build the MSVC staticlib",
     )?;
     require(
-        job,
+        job_code,
         "cargo build --release -p kirin_hypha_ffi --locked",
         "Windows preflight job must build kirin_hypha_ffi with locked deps",
     )?;
     require(
-        job,
+        job_code,
         "cargo run -p xtask --locked -- windows-preflight",
         "Windows preflight job must run this static guard",
     )?;
     require(
-        job,
+        job_code,
         "KirinHyphaPRE_VST3 KirinHyphaPOST_VST3",
         "Windows preflight job must build PRE/POST VST3 targets",
     )?;
@@ -163,7 +164,7 @@ fn verify_windows_ci_job(workflow: &str) -> Result<()> {
         "Library/Audio/Plug-Ins",
     ] {
         reject(
-            &job_code,
+            job_code,
             forbidden,
             &format!("Windows preflight job must not contain macOS release step `{forbidden}`"),
         )?;
@@ -296,6 +297,18 @@ mod tests {
         let bad = CI_WORKFLOW.replace(
             "cargo run -p xtask --locked -- windows-preflight",
             "cargo run -p xtask --locked -- diagnose-watch",
+        );
+        let err = verify_windows_ci_job(&bad).unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("Windows preflight job must run this static guard"));
+    }
+
+    #[test]
+    fn preflight_rejects_static_guard_mentioned_only_in_comment() {
+        let bad = CI_WORKFLOW.replace(
+            "run: cargo run -p xtask --locked -- windows-preflight",
+            "# run: cargo run -p xtask --locked -- windows-preflight\n        run: cargo run -p xtask --locked -- diagnose-watch",
         );
         let err = verify_windows_ci_job(&bad).unwrap_err();
         assert!(err

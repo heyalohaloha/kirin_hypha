@@ -191,6 +191,7 @@ Windows 着手条件:
 - `xtask windows-preflight` を GitHub Actions の Windows job まで拡張し、Windows VST3 preflight に AU / codesign / notarize / LS packaging など macOS release 手順が混入しないことを固定した。
 - `xtask windows-readiness` を追加し、Pairing / restore / FFI ignored parity / Shell parity / RT safety / PlatformPaths / JUCE patch state / CI usage / Windows artifact layout / Windows VST3 preflight の 10 ゲートを Windows 着手前チェックとして一括監査できるようにした。
 - `xtask windows-vst3-layout` を追加し、Windows PRE/POST VST3 の build output と Steinberg 定義の user-dev / global install root を明示し、macOS AU / notarize / LS packaging と混線しないことを固定した。
+- B-187 review で CI usage / Windows preflight の静的ガードを厳格化し、コメント中の文字列・step-level `if`・plain push 逃げ条件では gate を通過できないようにした。
 
 ## 優先順位
 
