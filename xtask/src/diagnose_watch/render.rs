@@ -1,6 +1,6 @@
 use super::Snapshot;
 
-pub(super) fn render_snapshot(snapshot: &Snapshot) -> String {
+pub(super) fn render_snapshot(snapshot: &Snapshot, max_rows: Option<usize>) -> String {
     let mut out = String::new();
     out.push_str("Kirin Hypha Watch Snapshot\n");
     out.push_str(&format!("kirin_root: {}\n", snapshot.kirin_root.display()));
@@ -43,6 +43,7 @@ pub(super) fn render_snapshot(snapshot: &Snapshot) -> String {
                 ]
             })
             .collect(),
+        max_rows,
     ));
 
     out.push_str("\nSignals\n");
@@ -79,6 +80,7 @@ pub(super) fn render_snapshot(snapshot: &Snapshot) -> String {
                 ]
             })
             .collect(),
+        max_rows,
     ));
 
     out.push_str("\nplugin_data records\n");
@@ -109,6 +111,7 @@ pub(super) fn render_snapshot(snapshot: &Snapshot) -> String {
                 ]
             })
             .collect(),
+        max_rows,
     ));
 
     if !snapshot.warnings.is_empty() {
@@ -122,7 +125,11 @@ pub(super) fn render_snapshot(snapshot: &Snapshot) -> String {
     out
 }
 
-pub(super) fn render_table(headers: &[&str], rows: Vec<Vec<String>>) -> String {
+pub(super) fn render_table(
+    headers: &[&str],
+    rows: Vec<Vec<String>>,
+    max_rows: Option<usize>,
+) -> String {
     if rows.is_empty() {
         return "  (none)\n".to_string();
     }
@@ -137,8 +144,15 @@ pub(super) fn render_table(headers: &[&str], rows: Vec<Vec<String>>) -> String {
     let mut out = String::new();
     push_table_row(&mut out, headers.iter().map(|s| s.to_string()), &widths);
     push_table_rule(&mut out, &widths);
-    for row in rows {
+    let visible_len = max_rows.map_or(rows.len(), |limit| rows.len().min(limit));
+    let omitted_len = rows.len().saturating_sub(visible_len);
+    for row in rows.into_iter().take(visible_len) {
         push_table_row(&mut out, row, &widths);
+    }
+    if omitted_len > 0 {
+        out.push_str(&format!(
+            "  ... {omitted_len} more rows hidden; pass --max-rows 0 to show all\n"
+        ));
     }
     out
 }

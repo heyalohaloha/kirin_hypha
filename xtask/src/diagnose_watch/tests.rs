@@ -87,7 +87,25 @@ fn collect_snapshot_reports_plugin_data_signals_and_records() {
 
 #[test]
 fn render_table_handles_empty_rows() {
-    assert_eq!(render_table(&["a"], Vec::new()), "  (none)\n");
+    assert_eq!(render_table(&["a"], Vec::new(), Some(40)), "  (none)\n");
+}
+
+#[test]
+fn render_table_truncates_with_omitted_count() {
+    let out = render_table(
+        &["a"],
+        vec![
+            vec!["one".to_string()],
+            vec!["two".to_string()],
+            vec!["three".to_string()],
+        ],
+        Some(2),
+    );
+
+    assert!(out.contains("one"));
+    assert!(out.contains("two"));
+    assert!(!out.contains("three"));
+    assert!(out.contains("1 more rows hidden"));
 }
 
 #[test]
@@ -126,4 +144,40 @@ fn history_filter_keeps_pending_but_hides_old_released() {
 
     assert_eq!(snapshot.signal_rows.len(), 1);
     assert_eq!(snapshot.signal_rows[0].status, "pending");
+}
+
+#[test]
+fn sort_snapshot_orders_records_by_latest_age() {
+    let mut snapshot = Snapshot {
+        record_rows: vec![
+            RecordRow {
+                project: "p".to_string(),
+                instance: "old".to_string(),
+                pre_files: 0,
+                post_files: 1,
+                active_files: 0,
+                closed_files: 1,
+                latest_status: "closed".to_string(),
+                latest_age_secs: Some(20),
+                latest_path: "old.json".to_string(),
+            },
+            RecordRow {
+                project: "p".to_string(),
+                instance: "new".to_string(),
+                pre_files: 0,
+                post_files: 1,
+                active_files: 0,
+                closed_files: 1,
+                latest_status: "closed".to_string(),
+                latest_age_secs: Some(1),
+                latest_path: "new.json".to_string(),
+            },
+        ],
+        ..Snapshot::default()
+    };
+
+    apply_history_filter(&mut snapshot, 60);
+    sort_snapshot(&mut snapshot);
+
+    assert_eq!(snapshot.record_rows[0].instance, "new");
 }
