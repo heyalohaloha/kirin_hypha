@@ -150,12 +150,6 @@ pub fn signal_path(base_dir: &Path, project_hash: &str, post_instance_id: &str) 
     signals_dir(base_dir, project_hash).join(format!("{iid}.json"))
 }
 
-fn tmp_path(final_path: &Path) -> PathBuf {
-    let mut s = final_path.as_os_str().to_os_string();
-    s.push(".tmp");
-    PathBuf::from(s)
-}
-
 // ── I/O ──────────────────────────────────────────────────────────────────────
 
 /// I/O エラー。
@@ -205,7 +199,7 @@ pub fn write_pending(
     Ok(signal)
 }
 
-/// 任意のシグナルを atomic 書込（`.tmp` → rename）。
+/// 任意のシグナルを atomic 書込（unique tmp → rename）。
 pub fn write_signal(
     base_dir: &Path,
     project_hash: &str,
@@ -213,13 +207,8 @@ pub fn write_signal(
     signal: &RecordSignal,
 ) -> Result<(), SignalError> {
     let final_path = signal_path(base_dir, project_hash, post_instance_id);
-    if let Some(parent) = final_path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    let tmp = tmp_path(&final_path);
     let json = serde_json::to_vec(signal)?;
-    fs::write(&tmp, json)?;
-    fs::rename(&tmp, &final_path)?;
+    crate::atomic_file::write_bytes_atomic(&final_path, &json)?;
     Ok(())
 }
 

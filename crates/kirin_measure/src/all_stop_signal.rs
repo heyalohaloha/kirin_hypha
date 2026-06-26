@@ -95,12 +95,6 @@ pub fn stop_signal_path(
     stop_signals_dir(base_dir, project_hash).join(format!("{iid}.json"))
 }
 
-fn tmp_path(final_path: &Path) -> PathBuf {
-    let mut s = final_path.as_os_str().to_os_string();
-    s.push(".tmp");
-    PathBuf::from(s)
-}
-
 // ── I/O ──────────────────────────────────────────────────────────────────────
 
 #[derive(Debug)]
@@ -132,7 +126,7 @@ impl From<serde_json::Error> for AllStopError {
     }
 }
 
-/// broadcast を atomic 書込 (`.tmp` → rename)。親ディレクトリが無ければ作成。
+/// broadcast を atomic 書込 (unique tmp → rename)。親ディレクトリが無ければ作成。
 pub fn write_stop_broadcast(
     base_dir: &Path,
     project_hash: &str,
@@ -157,13 +151,8 @@ pub fn write_stop_broadcast_signal(
     broadcast: &AllStopBroadcast,
 ) -> Result<(), AllStopError> {
     let final_path = stop_signal_path(base_dir, project_hash, originator_post_instance_id);
-    if let Some(parent) = final_path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    let tmp = tmp_path(&final_path);
     let json = serde_json::to_vec(broadcast)?;
-    fs::write(&tmp, json)?;
-    fs::rename(&tmp, &final_path)?;
+    crate::atomic_file::write_bytes_atomic(&final_path, &json)?;
     Ok(())
 }
 
@@ -324,6 +313,7 @@ mod tests {
         assert_eq!(result.daw_session_id, "session-A");
         let path = stop_signal_path(&base, "ph", "originator-1");
         assert!(path.exists());
+        assert_eq!(crate::atomic_file::remove_temp_siblings(&path).unwrap(), 0);
     }
 
     #[test]
