@@ -2079,14 +2079,24 @@ fn b140_inactive_keep_latches_pre_for_delta_after_audio() {
     let dt = Duration::from_millis(100);
 
     let mut delta_active = None;
-    for _ in 0..60 {
+    let mut stable_hits = 0;
+    for _ in 0..80 {
         pre.push_samples(&pre_block, 2);
         post.push_samples(&post_block, 2);
         sleep(dt);
         if let Some(d) = post.poll_delta() {
-            if d.mode == DeltaMode::Active && d.lufs.is_some() {
-                delta_active = d.lufs;
-                break;
+            if d.mode == DeltaMode::Active {
+                if let Some(dl) = d.lufs {
+                    delta_active = Some(dl);
+                    if (-8.0..-4.0).contains(&dl) {
+                        stable_hits += 1;
+                        if stable_hits >= 2 {
+                            break;
+                        }
+                    } else {
+                        stable_hits = 0;
+                    }
+                }
             }
         }
     }

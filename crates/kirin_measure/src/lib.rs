@@ -15,6 +15,7 @@ pub mod io_thread_post;
 pub mod io_thread_pre;
 pub mod license;
 pub mod measure_thread;
+pub mod pairing_scope;
 pub mod path_identity;
 pub mod phase_d;
 pub mod plugin_data;
