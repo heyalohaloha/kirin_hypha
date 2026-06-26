@@ -183,6 +183,7 @@ Windows 着手条件:
 - Windows CI 初回で露出した CRLF checkout 差分を `xtask windows-preflight` 側で吸収し、preflight 自体が platform 改行差で誤検知しない fixture を追加した。
 - macOS CI で露出した非同期 Phase D parity の収束/overflow 条件を固定し、FFI parity test が並列実行中でも同一サンプル列を落とさず比較するようにした。
 - Windows VST3 link で露出した Rust staticlib native 依存を Windows-only CMake 変数へ分離し、`ntdll` / `userenv` 等を JUCE target へ明示 link する preflight を追加した。
+- B-178 CI で残った Phase D parity の publish 窓差を direct last-frame 固定ではなく direct tail-frame 照合へ変更し、許容値を緩めずに非同期 FFI 経路の実仕様へ合わせた。
 
 ## 優先順位
 
