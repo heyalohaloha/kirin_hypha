@@ -310,3 +310,6 @@ fn t_age_within(t_str: &str, max_secs: i64) -> bool {
         Err(_) => false,
     }
 }
+
+#[cfg(test)]
+mod tests;
