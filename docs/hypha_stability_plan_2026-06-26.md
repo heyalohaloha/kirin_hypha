@@ -175,6 +175,7 @@ Windows 着手条件:
 - JUCE/AU shell parity gate を `xtask` に追加し、候補メニューが現在の pair 名に依存せず PRE 候補を列挙すること、Keep 表示が選択済み pair にだけ依存すること、候補選択が processor と入力欄へ即反映されることを静的テストで固定した。
 - FFI ignored integration に restore-order fixture を追加し、PRE name / POST pair target が `enable_*_writes` の前後どちらで復元されても watch JSON に反映されることを固定した。
 - `xtask` に RT-safety gate を追加し、JUCE `processBlock` が呼べる C ABI を allowlist 化し、FFI `push_samples` に filesystem / blocking lock / allocation 系が再混入しないことを静的テストで監視するようにした。
+- PRE/POST watch JSON 書込を共有 `atomic_file` 経由へ寄せ、固定名 `pre.json.tmp` / `post.json.tmp` の競合で rename source が消える経路を潰した。
 
 ## 優先順位
 

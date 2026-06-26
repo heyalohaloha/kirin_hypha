@@ -5,6 +5,7 @@
 
 pub mod all_keep_signal;
 pub mod all_stop_signal;
+pub mod atomic_file;
 pub mod cleanup;
 pub mod delta;
 pub mod engine;
