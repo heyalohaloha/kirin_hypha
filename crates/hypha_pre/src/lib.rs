@@ -37,7 +37,7 @@ pub struct HyphaPre {
 
     /// プロセス単位 `project_hash`（plugin_data path のルートセグメント）。
     project_hash: String,
-    /// プロセス単位 `daw_session_id`（POST signal の cross-process 防壁 filter）。
+    /// プロセス単位 `daw_session_id`（chunk-persistent session id）。
     daw_session_id: String,
 
     ring_producer: Option<rtrb::Producer<f32>>,

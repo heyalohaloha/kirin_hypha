@@ -243,8 +243,9 @@ pub fn peek_project_uuid() -> String {
 ///
 /// B-020 以降は `#[persist = "daw_session_uuid"]` で chunk に保存される
 /// 値が `set_daw_session_id()` 経由でセルに反映される。`record_signal.json`
-/// の content に同梱され、別 DAW プロセス起源の signal を PRE が誤って
-/// ack することを防ぐ cross-process 防壁として使う。
+/// の content に同梱されるが、PRE 側 ack filter には使わない。AU/VST3 や別
+/// cdylib 境界で PRE/POST の static cell が一致しないため、record_signal の
+/// 正本は永続 `target_pre_instance_id` 一致に寄せる。
 pub fn daw_session_id() -> String {
     let cell = daw_session_id_cell();
     let current = cell.read().map(|g| g.clone()).unwrap_or_default();
