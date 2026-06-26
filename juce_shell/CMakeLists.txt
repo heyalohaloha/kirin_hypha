@@ -1,12 +1,14 @@
 cmake_minimum_required(VERSION 3.22)
 
-# B-092: minimum macOS deployment target for the shipped JUCE bundles (judgment A-1: next
-# Release = JUCE universal AU+VST3). Set BEFORE project() so compiler/SDK detection uses it.
-# Single source of truth: scripts/build_juce_universal.sh and .github/workflows/ci.yml inherit
-# this via a fresh configure (no per-script -D). The Rust staticlib's own per-arch defaults
-# (x86_64 10.12 / aarch64 11.0) are below 12.0, so the linked binary's LC_BUILD_VERSION minos
-# is governed by this value.
-set(CMAKE_OSX_DEPLOYMENT_TARGET "12.0" CACHE STRING "Minimum macOS deployment target")
+if(APPLE)
+    # B-092: minimum macOS deployment target for the shipped JUCE bundles (judgment A-1: next
+    # Release = JUCE universal AU+VST3). Set BEFORE project() so compiler/SDK detection uses it.
+    # Single source of truth: scripts/build_juce_universal.sh and .github/workflows/ci.yml inherit
+    # this via a fresh configure (no per-script -D). The Rust staticlib's own per-arch defaults
+    # (x86_64 10.12 / aarch64 11.0) are below 12.0, so the linked binary's LC_BUILD_VERSION minos
+    # is governed by this value.
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "12.0" CACHE STRING "Minimum macOS deployment target")
+endif()
 
 # B-114: version は Cargo.toml を単一ソースとする（CMake へのハードコード廃止）。
 # crates/hypha_pre/Cargo.toml の [package] version (3 部 semver) を configure 時に抽出し、
@@ -19,14 +21,30 @@ if(NOT CMAKE_MATCH_1)
 endif()
 project(KirinHypha VERSION ${CMAKE_MATCH_1} LANGUAGES C CXX)
 
-# B-082: arch は cache 変数化（FORCE 撤去）。dev は x86_64 単独（既存 build dir / 高速）、
-# 出荷は -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" で universal（scripts/build_juce_universal.sh）。
-set(CMAKE_OSX_ARCHITECTURES "x86_64" CACHE STRING "Build architectures (set 'x86_64;arm64' for universal ship build)")
+if(APPLE)
+    # B-082: arch は cache 変数化（FORCE 撤去）。dev は x86_64 単独（既存 build dir / 高速）、
+    # 出荷は -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" で universal（scripts/build_juce_universal.sh）。
+    set(CMAKE_OSX_ARCHITECTURES "x86_64" CACHE STRING "Build architectures (set 'x86_64;arm64' for universal ship build)")
+endif()
 
-# B-082: リンクする kirin_hypha_ffi staticlib のパス。dev は host single-arch
-# (target/release/...a)、universal 出荷時は lipo 済 universal .a を -DKIRIN_FFI_LIB で渡す。
-set(KIRIN_FFI_LIB "${CMAKE_CURRENT_SOURCE_DIR}/../target/release/libkirin_hypha_ffi.a"
-    CACHE FILEPATH "Path to the kirin_hypha_ffi staticlib (universal lipo for ship)")
+if(WIN32)
+    set(_KIRIN_FFI_DEFAULT "${CMAKE_CURRENT_SOURCE_DIR}/../target/release/kirin_hypha_ffi.lib")
+else()
+    set(_KIRIN_FFI_DEFAULT "${CMAKE_CURRENT_SOURCE_DIR}/../target/release/libkirin_hypha_ffi.a")
+endif()
+
+# B-082/B-174: リンクする kirin_hypha_ffi staticlib のパス。macOS/Linux は .a、Windows/MSVC は .lib。
+# universal macOS 出荷時は lipo 済 universal .a を -DKIRIN_FFI_LIB で渡す。
+set(KIRIN_FFI_LIB "${_KIRIN_FFI_DEFAULT}"
+    CACHE FILEPATH "Path to the kirin_hypha_ffi staticlib (.a on macOS/Linux, .lib on Windows/MSVC)")
+
+if(APPLE)
+    set(KIRIN_PLUGIN_FORMATS AU VST3)
+elseif(WIN32)
+    set(KIRIN_PLUGIN_FORMATS VST3)
+else()
+    set(KIRIN_PLUGIN_FORMATS VST3)
+endif()
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -51,7 +69,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT MAIN_SRC BUNDLE_ID)
     juce_add_plugin(${TARGET}
         PLUGIN_MANUFACTURER_CODE Kirn          # newly assigned (>=1 uppercase)
         PLUGIN_CODE ${CODE}                    # Khpr (PRE) / Khpo (POST); exactly 1 uppercase
-        FORMATS AU VST3
+        FORMATS ${KIRIN_PLUGIN_FORMATS}
         PRODUCT_NAME ${PRODUCT}
         COMPANY_NAME "Kirin"
         BUNDLE_ID ${BUNDLE_ID}                 # B-094: canonical com.kirinmastering.hypha.{pre,post}
@@ -103,16 +121,18 @@ function(add_kirin_plugin TARGET CODE PRODUCT MAIN_SRC BUNDLE_ID)
             juce::juce_recommended_config_flags
             juce::juce_recommended_warning_flags)
 
-    # B-130 (G-115-373 / §7): SUPPRESS で消えた AU resourceUsage に、自前最小（files.all のみ・
-    # network.client なし）を AU bundle の Info.plist へ POST_BUILD で付与する。AU sandbox（GarageBand 等）
-    # で plugin_data（bundle 外）書込に files exception が要るため files.all は保持。network.client は §7 で除去。
-    add_custom_command(TARGET ${TARGET}_AU POST_BUILD
-        COMMAND /bin/sh -c
-            "/usr/libexec/PlistBuddy -c 'Delete :AudioComponents:0:resourceUsage' \"$1\" >/dev/null 2>&1 || true; /usr/libexec/PlistBuddy -c 'Add :AudioComponents:0:resourceUsage dict' -c 'Add :AudioComponents:0:resourceUsage:temporary-exception.files.all.read-write bool true' \"$1\""
-            _
-            "$<TARGET_FILE_DIR:${TARGET}_AU>/../Info.plist"
-        VERBATIM
-        COMMENT "B-130: AU resourceUsage = files.all only (no network.client)")
+    if(APPLE)
+        # B-130 (G-115-373 / §7): SUPPRESS で消えた AU resourceUsage に、自前最小（files.all のみ・
+        # network.client なし）を AU bundle の Info.plist へ POST_BUILD で付与する。AU sandbox（GarageBand 等）
+        # で plugin_data（bundle 外）書込に files exception が要るため files.all は保持。network.client は §7 で除去。
+        add_custom_command(TARGET ${TARGET}_AU POST_BUILD
+            COMMAND /bin/sh -c
+                "/usr/libexec/PlistBuddy -c 'Delete :AudioComponents:0:resourceUsage' \"$1\" >/dev/null 2>&1 || true; /usr/libexec/PlistBuddy -c 'Add :AudioComponents:0:resourceUsage dict' -c 'Add :AudioComponents:0:resourceUsage:temporary-exception.files.all.read-write bool true' \"$1\""
+                _
+                "$<TARGET_FILE_DIR:${TARGET}_AU>/../Info.plist"
+            VERBATIM
+            COMMENT "B-130: AU resourceUsage = files.all only (no network.client)")
+    endif()
 endfunction()
 
 add_kirin_plugin(KirinHyphaPRE  Khpr "Kirin Hypha PRE"  src/PluginMainPRE.cpp  "com.kirinmastering.hypha.pre")

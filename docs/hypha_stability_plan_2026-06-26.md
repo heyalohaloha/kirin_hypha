@@ -177,6 +177,7 @@ Windows 着手条件:
 - `xtask` に RT-safety gate を追加し、JUCE `processBlock` が呼べる C ABI を allowlist 化し、FFI `push_samples` に filesystem / blocking lock / allocation 系が再混入しないことを静的テストで監視するようにした。
 - PRE/POST watch JSON 書込を共有 `atomic_file` 経由へ寄せ、固定名 `pre.json.tmp` / `post.json.tmp` の競合で rename source が消える経路を潰した。
 - `record_signal` / All Keep / All Stop / identity の atomic write も共有 `atomic_file` 経由へ寄せ、通信系JSONのtmp命名とcleanup規則を揃えた。
+- JUCE CMake を platform 分岐し、macOS は AU+VST3 / Windows は VST3-only + MSVC `.lib` 既定に分離し、`xtask windows-preflight` で崩れを検出できるようにした。
 
 ## 優先順位
 
