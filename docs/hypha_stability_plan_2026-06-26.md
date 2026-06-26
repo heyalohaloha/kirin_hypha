@@ -108,6 +108,11 @@ Windows 対応は、macOS/AU/VST3 の境界不具合を整理し、再発防止�
 - Bypassed PRE は候補・Keep から除外。
 - latch 後に同名2件目が現れても既存 pair を維持。
 
+進捗:
+- `crates/kirin_measure/src/pairing_scope.rs` を作成し、PRE scope 推定、候補列挙、厳格 target selection、latch/read/Arm 解決を集約。
+- `record_signal.rs` は互換 re-export を残しつつ、record_signal.json の読み書き責務へ縮小中。
+- ラッチ済み Delta は選定済み `pre.json` を直接読む境界に寄せ、再スキャンで別 PRE を拾う余地を削減。
+
 ### Step 3: Shell parity をゲート化する
 
 実施内容:
