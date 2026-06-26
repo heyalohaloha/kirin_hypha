@@ -5,6 +5,7 @@ mod macos_codesign;
 mod notarize;
 mod release_gate;
 mod release_package;
+mod shell_parity;
 mod stamp_version;
 
 fn main() -> nih_plug_xtask::Result<()> {
