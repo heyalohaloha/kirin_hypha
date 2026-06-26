@@ -1331,21 +1331,27 @@ fn capstone_paired_record_output_and_linkage() {
 
 /// keep() が PRE 選定 + try_enter_record 成功の**後**で StoragePaths 解決に失敗した時、
 /// 本 keep が行った Record 遷移を巻き戻して false を返す（record_sm が Record で残らない）。
-/// HOME を一時的に外して StoragePaths::default_macos() を強制失敗させる（⑤経路）。
-/// positive control（HOME 復帰で同 PRE が keep 成功）により、失敗時に select=Some まで
+/// platform storage env を一時的に外して StoragePaths::default_platform() を強制失敗させる（⑤経路）。
+/// positive control（platform env 復帰で同 PRE が keep 成功）により、失敗時に select=Some まで
 /// 到達していた＝②の select-None 早期 return ではなく⑤の post-enter 失敗だったことを立証。
 #[test]
-#[ignore = "slow: PRE+POST co-located; forces StoragePaths failure to test keep() rollback (sets HOME/TMPDIR)"]
+#[ignore = "slow: PRE+POST co-located; forces StoragePaths failure to test keep() rollback (sets HOME/APPDATA/LOCALAPPDATA/TMPDIR)"]
 fn keep_failure_after_enter_reverts_record_state() {
     let test_root = std::env::temp_dir()
         .join("kirin_b066_test")
         .join(format!("pid{}", std::process::id()));
     let home = test_root.join("home");
+    let appdata = home.join("AppData").join("Roaming");
+    let local_appdata = home.join("AppData").join("Local");
     let tmp = test_root.join("tmp");
     let _ = std::fs::remove_dir_all(&test_root);
     std::fs::create_dir_all(&home).unwrap();
+    std::fs::create_dir_all(&appdata).unwrap();
+    std::fs::create_dir_all(&local_appdata).unwrap();
     std::fs::create_dir_all(&tmp).unwrap();
     std::env::set_var("HOME", &home);
+    std::env::set_var("APPDATA", &appdata);
+    std::env::set_var("LOCALAPPDATA", &local_appdata);
     std::env::set_var("TMPDIR", &tmp);
     // B-106: role-scoped 共有セルを reset してテスト間 first-wins 汚染を排除する（旧 overwrite
     // 隔離の代替）。各テストは自分の set_identity project_uuid を first-wins で seed できる。
@@ -1407,10 +1413,14 @@ fn keep_failure_after_enter_reverts_record_state() {
         // 直前に PRE を押して Active/heartbeat を確実に保つ。
         pre.push_samples(&[], 2);
 
-        // ── 失敗ケース: HOME を外して StoragePaths::default_macos() を強制失敗（⑤経路）──
+        // ── 失敗ケース: platform storage env を外して StoragePaths::default_platform() を強制失敗（⑤経路）──
         std::env::remove_var("HOME");
+        std::env::remove_var("APPDATA");
+        std::env::remove_var("LOCALAPPDATA");
         let kept_fail = post.keep();
         std::env::set_var("HOME", &home); // 後続/cleanup 用に即復帰。
+        std::env::set_var("APPDATA", &appdata);
+        std::env::set_var("LOCALAPPDATA", &local_appdata);
 
         assert!(!kept_fail, "StoragePaths 失敗 → keep()=false");
         assert!(
@@ -1418,7 +1428,7 @@ fn keep_failure_after_enter_reverts_record_state() {
             "F2 fix: keep() 失敗時に record_sm を Watch へ巻き戻す（Record で残さない）"
         );
 
-        // ── positive control: HOME 復帰で同 PRE が keep 成功 → 上の失敗は select=Some 後
+        // ── positive control: platform env 復帰で同 PRE が keep 成功 → 上の失敗は select=Some 後
         //    （= ⑤ post-enter 失敗）だったと立証。失敗とこの control の間に sleep を挟まない。
         assert!(
             post.keep(),

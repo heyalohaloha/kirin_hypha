@@ -29,7 +29,7 @@ Windows 対応は、macOS/AU/VST3 の境界不具合を整理し、再発防止�
 - VST3 egui 経路と JUCE AU/FFI 経路で、同じ概念が別実装になっている箇所がある。
 - GUI 表示、Keep、All Keep、Delta、Record の選定ロジックが同じ不変条件を共有していない時期があった。
 - 通常ゲートだけでは `kirin_hypha_ffi` の重い parity 検証が走らず、AU 実運用の失敗を先に捕まえにくい。
-- `StoragePaths::default_macos()` が広範囲に散っていて、Windows 対応時に同種の漏れが出やすい。
+- `StoragePaths::default_macos()` が広範囲に散っていたため、Windows 対応時に同種の漏れが出やすかった。
 
 ### C. 修正不足・片側修正
 
@@ -165,6 +165,7 @@ Windows 着手条件:
 進捗:
 - `PlatformPaths` / `PlatformKind` を storage 境界へ導入し、macOS fixture は既存配置、Windows fixture は APPDATA(identity) / LOCALAPPDATA(plugin_data) 分離を固定。
 - `StoragePaths::default_macos()` は互換 wrapper として残し、呼び出し側移行前でも既存 macOS 挙動を維持。
+- production 呼び出し側を `StoragePaths::default_platform()` に移行し、`default_macos()` 直接参照は storage wrapper 内に限定。
 
 ## 優先順位
 

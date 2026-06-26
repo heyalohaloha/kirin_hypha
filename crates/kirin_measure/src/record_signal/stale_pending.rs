@@ -73,7 +73,7 @@ pub fn sweep_stale_pending_in(
 /// B-103: 起動時 dead-pending 掃除の production ラッパー（StoragePaths / now を解決）。
 /// PRE / POST 両 io_thread の起動時に呼ぶ（age ベースなので role 非依存・冪等）。
 pub fn sweep_stale_pending_at_startup() {
-    let Ok(paths) = crate::storage::StoragePaths::default_macos() else {
+    let Ok(paths) = crate::storage::StoragePaths::default_platform() else {
         return;
     };
     let n = sweep_stale_pending_in(&paths.plugin_data_dir(), Utc::now(), STALE_PENDING_SECS);

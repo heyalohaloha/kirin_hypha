@@ -381,7 +381,7 @@ fn resolve_and_enter_keep(
         }
         return false;
     }
-    let base = match StoragePaths::default_macos() {
+    let base = match StoragePaths::default_platform() {
         Ok(p) => p.plugin_data_dir(),
         Err(_) => {
             revert_after_enter(record_sm, paired_pre_target);
@@ -486,7 +486,7 @@ fn resolve_and_exit_stop(
     if project_hash.is_empty() || post_iid.is_empty() {
         return; // 未 enable → released marker は書けない。
     }
-    if let Ok(p) = StoragePaths::default_macos() {
+    if let Ok(p) = StoragePaths::default_platform() {
         let base = p.plugin_data_dir();
         if let Some(pre) = released_pre.as_deref() {
             reservation::release_pairing(&base, project_hash, pre, post_iid);
@@ -1057,7 +1057,7 @@ impl KirinHyphaEngine {
         if project_hash.is_empty() {
             return false;
         }
-        let base = match StoragePaths::default_macos() {
+        let base = match StoragePaths::default_platform() {
             Ok(p) => p.plugin_data_dir(),
             Err(_) => return false,
         };
@@ -1157,7 +1157,7 @@ impl KirinHyphaEngine {
         let project_hash = read_shared_id(shared_post_project_hash_cell());
         let daw = read_shared_id(shared_post_daw_session_id_cell());
         if !project_hash.is_empty() {
-            if let Ok(p) = StoragePaths::default_macos() {
+            if let Ok(p) = StoragePaths::default_platform() {
                 let _ = write_broadcast(&p.plugin_data_dir(), &project_hash, &post_iid, daw);
             }
         }
@@ -1192,7 +1192,7 @@ impl KirinHyphaEngine {
         let project_hash = read_shared_id(shared_post_project_hash_cell());
         let daw = read_shared_id(shared_post_daw_session_id_cell());
         if !project_hash.is_empty() && !post_iid.is_empty() {
-            if let Ok(p) = StoragePaths::default_macos() {
+            if let Ok(p) = StoragePaths::default_platform() {
                 let _ = write_stop_broadcast(&p.plugin_data_dir(), &project_hash, &post_iid, daw);
             }
         }
@@ -1305,7 +1305,7 @@ impl KirinHyphaEngine {
             }
             (id.project_hash.clone(), id.instance_id.clone())
         };
-        let base = match StoragePaths::default_macos() {
+        let base = match StoragePaths::default_platform() {
             Ok(p) => p.plugin_data_dir(),
             Err(_) => return false,
         };

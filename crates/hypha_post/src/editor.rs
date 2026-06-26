@@ -1056,7 +1056,7 @@ fn draw_pair_pre_combo(
                         // write_pending → record_sm 遷移) を経た frame 末尾で broadcast
                         // file が依然として存在することを確認。frame 内 ms 単位削除
                         // (sandbox / OS / 内部の隠し経路) を切り分ける目的。
-                        if let Ok(paths) = StoragePaths::default_macos() {
+                        if let Ok(paths) = StoragePaths::default_platform() {
                             let bp = all_keep_signal_path(
                                 &paths.plugin_data_dir(),
                                 &project_hash_snapshot,
@@ -1348,7 +1348,7 @@ pub(crate) fn trigger_keep_internal(
     latched: &Mutex<Option<LatchedPre>>,
 ) {
     // 1. ストレージパス解決
-    let paths = match StoragePaths::default_macos() {
+    let paths = match StoragePaths::default_platform() {
         Ok(p) => p,
         Err(e) => {
             log::warn!("[POST keep] StoragePaths error: {:?}", e);
@@ -1520,7 +1520,7 @@ fn trigger_all_keep_broadcast(
     toast: &mut Option<Toast>,
     now: f64,
 ) {
-    let paths = match StoragePaths::default_macos() {
+    let paths = match StoragePaths::default_platform() {
         Ok(p) => p,
         Err(e) => {
             log::warn!("[POST all_keep] StoragePaths resolve failed: {:?}", e);
@@ -1614,7 +1614,7 @@ pub(crate) fn trigger_stop_internal(
     // exit_record_full で 3 ステップ一括化. IO Thread 自然終了経路 (poll_pre_liveness_at /
     // poll_ack_timeout_with_base / handle_exit_reason) と完全対称な契約を成立させる.
     exit_record_full(record_sm, pair_label, paired_pre_target);
-    match StoragePaths::default_macos() {
+    match StoragePaths::default_platform() {
         Ok(paths) => {
             let plugin_data_dir = paths.plugin_data_dir();
             // G-115-365: 本 pairing の O_EXCL 枠を解放（再予約可に / 孤児は sweep がバックストップ）。
@@ -1701,7 +1701,7 @@ fn trigger_all_stop_broadcast(
     toast: &mut Option<Toast>,
     now: f64,
 ) {
-    let paths = match StoragePaths::default_macos() {
+    let paths = match StoragePaths::default_platform() {
         Ok(p) => p,
         Err(e) => {
             log::warn!("[POST all_stop] StoragePaths resolve failed: {:?}", e);
@@ -1740,7 +1740,7 @@ fn trigger_note_save(
     toast: &mut Option<Toast>,
     now: f64,
 ) {
-    let paths = match StoragePaths::default_macos() {
+    let paths = match StoragePaths::default_platform() {
         Ok(p) => p,
         Err(e) => {
             log::warn!("[note] StoragePaths error: {:?}", e);
@@ -1811,7 +1811,7 @@ fn maybe_rescan_proposals(state: &mut PostEditorState, now: f64) {
         state.latest_proposals = None;
         return;
     }
-    let Ok(paths) = StoragePaths::default_macos() else {
+    let Ok(paths) = StoragePaths::default_platform() else {
         state.latest_proposals = None;
         return;
     };

@@ -86,7 +86,7 @@ fn clear_stale_self_acks_at_startup(self_instance_id: &str) {
     if self_instance_id.is_empty() {
         return;
     }
-    let Ok(paths) = StoragePaths::default_macos() else {
+    let Ok(paths) = StoragePaths::default_platform() else {
         return;
     };
     clear_stale_self_acks_in(&paths.plugin_data_dir(), self_instance_id);
@@ -230,7 +230,7 @@ pub fn spawn_io_thread_pre(
         record_signal::sweep_stale_pending_at_startup();
 
         // B-127 (G-115-364): 孤児 reservation 枠を起動時掃除（POST 経路と冪等・age ベース）。
-        if let Ok(paths) = StoragePaths::default_macos() {
+        if let Ok(paths) = StoragePaths::default_platform() {
             let _ = crate::reservation::sweep_stale_reservations_in(
                 &paths.plugin_data_dir(),
                 chrono::Utc::now(),
@@ -240,14 +240,14 @@ pub fn spawn_io_thread_pre(
         // B-025 Group B-1 / Gap-8: 30 秒 flush 周期中の DAW crash で残った
         // `*.json.tmp` を整合 verify (HMAC-SHA256) → `.json` に atomic rename で救出。
         // 不整合 .tmp は warn ログのみで残置 (削除しない / 約束 5 原則)。loop 前 1 回。
-        if let Ok(paths) = StoragePaths::default_macos() {
+        if let Ok(paths) = StoragePaths::default_platform() {
             let _ = crate::record_writer::recover_orphan_tmps(&paths.plugin_data_dir());
         }
 
         // B-026 / Gap-9: crash 残骸 `pre/{compact}.json` / `post/{compact}.json`
         // のうち status=Active かつ mtime > 60s のファイルを status=Closed に
         // 書換 (Lens 側「進行中 Record」誤認の構造的解消)。loop 前 1 回。
-        if let Ok(paths) = StoragePaths::default_macos() {
+        if let Ok(paths) = StoragePaths::default_platform() {
             let _ = crate::record_writer::sweep_stale_active_at_startup(&paths.plugin_data_dir());
         }
 
@@ -320,7 +320,7 @@ pub fn spawn_io_thread_pre(
             // または signal 消失検出) 後の次 tick から discovery 再開。
             let now_instant = Instant::now();
             if partner.is_none() && discovery.should_rescan(now_instant) {
-                let plugin_data_root = StoragePaths::default_macos()
+                let plugin_data_root = StoragePaths::default_platform()
                     .ok()
                     .map(|paths| paths.plugin_data_dir());
                 let found = match plugin_data_root.as_ref() {
@@ -405,7 +405,7 @@ pub fn spawn_io_thread_pre(
             let partner_iid = partner.as_ref().map(|p| p.post_instance_id.clone());
             let started_resolver_iid = partner_iid.clone();
             let resolver = move || match started_resolver_iid {
-                Some(iid) => match StoragePaths::default_macos() {
+                Some(iid) => match StoragePaths::default_platform() {
                     Ok(paths) => crate::record_writer::resolve_started_at_ms(
                         &paths.plugin_data_dir(),
                         &project_hash_ref_for_resolver,
@@ -538,7 +538,7 @@ fn poll_record_signal(
     paired_pre_name: &str,
     signal_state: &Arc<AtomicU8>,
 ) {
-    let base = match StoragePaths::default_macos() {
+    let base = match StoragePaths::default_platform() {
         Ok(paths) => paths.plugin_data_dir(),
         Err(_) => return,
     };

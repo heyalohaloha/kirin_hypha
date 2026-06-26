@@ -278,7 +278,7 @@ pub fn writer_start(
     paired_pre_instance_id: Option<String>,
     paired_post_instance_id: Option<String>,
 ) -> Option<RecordingCtx> {
-    let paths = match StoragePaths::default_macos() {
+    let paths = match StoragePaths::default_platform() {
         Ok(p) => p,
         Err(e) => {
             log::warn!("[writer] StoragePaths error: {:?}", e);

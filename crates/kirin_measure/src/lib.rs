@@ -393,7 +393,7 @@ pub fn identity_refcount() -> usize {
 pub fn ensure_legacy_cleanup_done() {
     static DONE: OnceLock<()> = OnceLock::new();
     DONE.get_or_init(|| {
-        if let Ok(paths) = storage::StoragePaths::default_macos() {
+        if let Ok(paths) = storage::StoragePaths::default_platform() {
             let report = storage::cleanup_legacy_v1(&paths);
             log::info!(
                 "[startup] cleanup_v1: ran={} removed={} errors={}",
