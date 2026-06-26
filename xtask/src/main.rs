@@ -11,6 +11,7 @@ mod shell_parity;
 mod stamp_version;
 mod windows_preflight;
 mod windows_readiness;
+mod windows_vst3_layout;
 
 fn main() -> nih_plug_xtask::Result<()> {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
@@ -52,6 +53,10 @@ fn main() -> nih_plug_xtask::Result<()> {
         Some("windows-readiness") => {
             args.remove(0);
             windows_readiness::run(args)
+        }
+        Some("windows-vst3-layout") => {
+            args.remove(0);
+            windows_vst3_layout::run(args)
         }
         _ => nih_plug_xtask::main_with_args("cargo xtask", args),
     }

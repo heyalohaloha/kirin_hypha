@@ -189,7 +189,8 @@ Windows 着手条件:
 - Actions usage 上限到達を受け、full CI は `workflow_dispatch` / PR / `[ci full]` 明示コミットだけで走るようにし、通常 push はローカル厳格検証後の直列履歴積み上げに切り替えた。
 - `xtask ci-usage-guard` を追加し、full CI gate が外れて通常 push で macOS/AU/Windows job を再び消費し始めないことを静的テストで固定した。
 - `xtask windows-preflight` を GitHub Actions の Windows job まで拡張し、Windows VST3 preflight に AU / codesign / notarize / LS packaging など macOS release 手順が混入しないことを固定した。
-- `xtask windows-readiness` を追加し、Pairing / restore / FFI ignored parity / Shell parity / RT safety / PlatformPaths / JUCE patch state / CI usage / Windows VST3 preflight の 9 ゲートを Windows 着手前チェックとして一括監査できるようにした。
+- `xtask windows-readiness` を追加し、Pairing / restore / FFI ignored parity / Shell parity / RT safety / PlatformPaths / JUCE patch state / CI usage / Windows artifact layout / Windows VST3 preflight の 10 ゲートを Windows 着手前チェックとして一括監査できるようにした。
+- `xtask windows-vst3-layout` を追加し、Windows PRE/POST VST3 の build output と Steinberg 定義の user-dev / global install root を明示し、macOS AU / notarize / LS packaging と混線しないことを固定した。
 
 ## 優先順位
 
