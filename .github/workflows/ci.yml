@@ -130,3 +130,27 @@ jobs:
           --config Release
           --target KirinHyphaPRE_VST3 KirinHyphaPOST_VST3
           --parallel 2
+
+      - name: Verify Windows VST3 artifacts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $bundles = @(
+            "juce_shell/build-windows/KirinHyphaPRE_artefacts/Release/VST3/Kirin Hypha PRE.vst3",
+            "juce_shell/build-windows/KirinHyphaPOST_artefacts/Release/VST3/Kirin Hypha POST.vst3"
+          )
+          foreach ($bundle in $bundles) {
+            if (-not (Test-Path -LiteralPath $bundle)) {
+              throw "missing Windows VST3 bundle: $bundle"
+            }
+            Get-ChildItem -LiteralPath $bundle -Recurse | Select-Object -First 20 FullName,Length
+          }
+
+      - name: Upload Windows VST3 artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: kirin-hypha-windows-vst3
+          path: |
+            juce_shell/build-windows/KirinHyphaPRE_artefacts/Release/VST3/Kirin Hypha PRE.vst3
+            juce_shell/build-windows/KirinHyphaPOST_artefacts/Release/VST3/Kirin Hypha POST.vst3
+          if-no-files-found: error

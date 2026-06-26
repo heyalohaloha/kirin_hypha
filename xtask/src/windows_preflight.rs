@@ -148,6 +148,41 @@ fn verify_windows_ci_job(workflow: &str) -> Result<()> {
         "KirinHyphaPRE_VST3 KirinHyphaPOST_VST3",
         "Windows preflight job must build PRE/POST VST3 targets",
     )?;
+    require(
+        job_code,
+        "Verify Windows VST3 artifacts",
+        "Windows preflight job must verify built VST3 artifacts",
+    )?;
+    require(
+        job_code,
+        "Test-Path -LiteralPath $bundle",
+        "Windows preflight job must fail when a VST3 artifact path is missing",
+    )?;
+    require(
+        job_code,
+        "KirinHyphaPRE_artefacts/Release/VST3/Kirin Hypha PRE.vst3",
+        "Windows preflight job must verify the PRE VST3 artifact path",
+    )?;
+    require(
+        job_code,
+        "KirinHyphaPOST_artefacts/Release/VST3/Kirin Hypha POST.vst3",
+        "Windows preflight job must verify the POST VST3 artifact path",
+    )?;
+    require(
+        job_code,
+        "uses: actions/upload-artifact@v7",
+        "Windows preflight job must upload built VST3 artifacts",
+    )?;
+    require(
+        job_code,
+        "name: kirin-hypha-windows-vst3",
+        "Windows preflight artifact must use a stable artifact name",
+    )?;
+    require(
+        job_code,
+        "if-no-files-found: error",
+        "Windows preflight artifact upload must fail if bundles are missing",
+    )?;
 
     for forbidden in [
         "auval",
@@ -314,6 +349,36 @@ mod tests {
         assert!(err
             .to_string()
             .contains("Windows preflight job must run this static guard"));
+    }
+
+    #[test]
+    fn preflight_requires_windows_artifact_presence_check() {
+        let bad = CI_WORKFLOW.replace("Test-Path -LiteralPath $bundle", "Write-Host $bundle");
+        let err = verify_windows_ci_job(&bad).unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("must fail when a VST3 artifact path is missing"));
+    }
+
+    #[test]
+    fn preflight_requires_pre_and_post_artifact_paths() {
+        let bad = CI_WORKFLOW.replace(
+            "KirinHyphaPOST_artefacts/Release/VST3/Kirin Hypha POST.vst3",
+            "KirinHyphaPOST_artefacts/Release/VST3/Kirin Hypha WRONG.vst3",
+        );
+        let err = verify_windows_ci_job(&bad).unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("must verify the POST VST3 artifact path"));
+    }
+
+    #[test]
+    fn preflight_requires_windows_artifact_upload_error_on_missing_files() {
+        let bad = CI_WORKFLOW.replace("if-no-files-found: error", "if-no-files-found: warn");
+        let err = verify_windows_ci_job(&bad).unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("artifact upload must fail if bundles are missing"));
     }
 
     #[test]
