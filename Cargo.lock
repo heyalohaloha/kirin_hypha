@@ -3408,8 +3408,10 @@ dependencies = [
  "anyhow",
  "ebur128",
  "hound",
+ "kirin_measure",
  "nih_plug_xtask",
  "rand",
+ "serde_json",
 ]
 
 [[package]]

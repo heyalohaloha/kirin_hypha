@@ -167,6 +167,7 @@ Windows 着手条件:
 - `StoragePaths::default_macos()` は互換 wrapper として残し、呼び出し側移行前でも既存 macOS 挙動を維持。
 - production 呼び出し側を `StoragePaths::default_platform()` に移行し、`default_macos()` 直接参照は storage wrapper 内に限定。
 - Watch 通信 root は `PlatformPaths::current_kirin_tmp_root()` に集約し、production source で直接 `$TMPDIR/kirin` を組み立てないガードを追加。
+- `cargo run -p xtask -- diagnose-watch` を追加し、PRE/POST watch JSON、record_signal / all_keep / all_stop、plugin_data record 数を1コマンドで snapshot できるようにした。
 
 ## 優先順位
 
