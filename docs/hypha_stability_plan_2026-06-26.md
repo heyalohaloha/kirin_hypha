@@ -178,6 +178,7 @@ Windows 着手条件:
 - PRE/POST watch JSON 書込を共有 `atomic_file` 経由へ寄せ、固定名 `pre.json.tmp` / `post.json.tmp` の競合で rename source が消える経路を潰した。
 - `record_signal` / All Keep / All Stop / identity の atomic write も共有 `atomic_file` 経由へ寄せ、通信系JSONのtmp命名とcleanup規則を揃えた。
 - JUCE CMake を platform 分岐し、macOS は AU+VST3 / Windows は VST3-only + MSVC `.lib` 既定に分離し、`xtask windows-preflight` で崩れを検出できるようにした。
+- B-174 review で、Windows VST3 経路に残っていた clang/gcc 専用 `-include` を MSVC `/FI` 分岐へ修正し、preflight で再混入を検出するようにした。
 
 ## 優先順位
 

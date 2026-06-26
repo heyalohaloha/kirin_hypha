@@ -56,6 +56,16 @@ fn verify_cmake_platform_split(cmake: &str) -> Result<()> {
         "if(APPLE)\n    set(KIRIN_PLUGIN_FORMATS AU VST3)\nelseif(WIN32)\n    set(KIRIN_PLUGIN_FORMATS VST3)",
         "Windows plugin formats must be VST3-only",
     )?;
+    require(
+        cmake,
+        "if(MSVC)\n    set(KIRIN_FORCE_INCLUDE_ARGS \"/FI${CMAKE_CURRENT_LIST_DIR}/src/KirinJucePluginConfig.h\")",
+        "MSVC must use /FI for the forced include header",
+    )?;
+    require(
+        cmake,
+        "set(KIRIN_FORCE_INCLUDE_ARGS -include \"${CMAKE_CURRENT_LIST_DIR}/src/KirinJucePluginConfig.h\")",
+        "non-MSVC compilers must keep the existing -include forced header",
+    )?;
     reject(
         cmake,
         "        FORMATS AU VST3",
@@ -65,6 +75,16 @@ fn verify_cmake_platform_split(cmake: &str) -> Result<()> {
         cmake,
         "FORMATS ${KIRIN_PLUGIN_FORMATS}",
         "juce_add_plugin must consume the platform format variable",
+    )?;
+    reject(
+        cmake,
+        "target_compile_options(${TARGET} PUBLIC\n        -include",
+        "forced include must not be hardcoded to clang/gcc -include",
+    )?;
+    require(
+        cmake,
+        "target_compile_options(${TARGET} PUBLIC ${KIRIN_FORCE_INCLUDE_ARGS})",
+        "compile options must consume the platform forced-include variable",
     )?;
     require(
         cmake,
@@ -120,5 +140,29 @@ mod tests {
         assert!(err
             .to_string()
             .contains("Windows must default to the MSVC .lib"));
+    }
+
+    #[test]
+    fn preflight_requires_msvc_force_include_flag() {
+        let bad = JUCE_CMAKE.replace(
+            "/FI${CMAKE_CURRENT_LIST_DIR}/src/KirinJucePluginConfig.h",
+            "-include ${CMAKE_CURRENT_LIST_DIR}/src/KirinJucePluginConfig.h",
+        );
+        let err = verify_cmake_platform_split(&bad).unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("MSVC must use /FI for the forced include header"));
+    }
+
+    #[test]
+    fn preflight_rejects_unconditional_dash_include() {
+        let bad = JUCE_CMAKE.replace(
+            "target_compile_options(${TARGET} PUBLIC ${KIRIN_FORCE_INCLUDE_ARGS})",
+            "target_compile_options(${TARGET} PUBLIC\n        -include \"${CMAKE_CURRENT_LIST_DIR}/src/KirinJucePluginConfig.h\")",
+        );
+        let err = verify_cmake_platform_split(&bad).unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("forced include must not be hardcoded"));
     }
 }

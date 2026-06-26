@@ -46,6 +46,12 @@ else()
     set(KIRIN_PLUGIN_FORMATS VST3)
 endif()
 
+if(MSVC)
+    set(KIRIN_FORCE_INCLUDE_ARGS "/FI${CMAKE_CURRENT_LIST_DIR}/src/KirinJucePluginConfig.h")
+else()
+    set(KIRIN_FORCE_INCLUDE_ARGS -include "${CMAKE_CURRENT_LIST_DIR}/src/KirinJucePluginConfig.h")
+endif()
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -106,8 +112,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT MAIN_SRC BUNDLE_ID)
         JUCE_VST3_CAN_REPLACE_VST2=0
         JUCE_DISPLAY_SPLASH_SCREEN=0)          # permitted: built under GPLv3
 
-    target_compile_options(${TARGET} PUBLIC
-        -include "${CMAKE_CURRENT_LIST_DIR}/src/KirinJucePluginConfig.h")
+    target_compile_options(${TARGET} PUBLIC ${KIRIN_FORCE_INCLUDE_ARGS})
 
     # B-130 (G-115-373): juce_audio_utils（AudioThumbnail/CD/DeviceSelector 用・実使用 grep 0）を
     # plugin に必要な最小モジュールへ差し替え。これで juce_audio_utils 由来の DiscRecording.framework
