@@ -26,8 +26,8 @@ use std::path::Path;
 
 /// `identity.json` から license を安全に読み込む（GUI 起動時用）。
 ///
-/// - 本番パス: `~/Library/Application Support/Kirin OS/identity.json`
-/// - `$HOME` 不在 / ファイル不在 / 不正 JSON / license フィールド欠落 / 未知値 → `License::Unknown`
+/// - 本番パス: `StoragePaths::default_platform().primary_path()`
+/// - platform path 解決不能 / ファイル不在 / 不正 JSON / license フィールド欠落 / 未知値 → `License::Unknown`
 /// - 常に成功する（`Result` を返さない）。GUI が起動時に 1 回だけ呼ぶ想定。
 /// - 降格（例 Os → Sense）の即時反映は Step 4 T-6 で別途実装。
 ///
@@ -37,10 +37,10 @@ use std::path::Path;
 /// - GUI は HMAC 検証や 2-of-3 判定を行わない（本番検証は `storage::load_or_recover` で別途実施）
 /// - Phase 1.0 手動テストや Kirin OS 本体未完成時点でも license 値は独立して読める必要あり
 pub fn load_license_safe() -> License {
-    let paths = match crate::storage::StoragePaths::default_macos() {
+    let paths = match crate::storage::StoragePaths::default_platform() {
         Ok(p) => p,
         Err(_) => {
-            log::info!("[license] loaded: Unknown (no $HOME)");
+            log::info!("[license] loaded: Unknown (platform path unresolved)");
             return License::Unknown;
         }
     };

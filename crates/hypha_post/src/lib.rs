@@ -357,7 +357,7 @@ impl Drop for HyphaPost {
         let instance_id_owned = read_instance_id_arc(&self.params.instance_id);
         // §4-5 Step 1: project_hash も lazy-read (Drop 時点の最新 cell 値を反映)。
         let project_hash_owned = read_project_hash_arc(&self.project_hash);
-        match StoragePaths::default_macos() {
+        match StoragePaths::default_platform() {
             Ok(paths) => {
                 match delete_signal(
                     &paths.plugin_data_dir(),

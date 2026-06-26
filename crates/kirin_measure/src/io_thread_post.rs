@@ -197,7 +197,7 @@ pub fn spawn_io_thread_post(
         let kirin_root = std::env::temp_dir().join("kirin");
         let initial_project_hash = read_project_hash_arc(&project_hash);
         let initial_instance_id = read_instance_id_arc(&instance_id);
-        let plugin_data_dir_str = match StoragePaths::default_macos() {
+        let plugin_data_dir_str = match StoragePaths::default_platform() {
             Ok(paths) => paths.plugin_data_dir().display().to_string(),
             Err(_) => "<unresolved>".to_string(),
         };
@@ -214,7 +214,7 @@ pub fn spawn_io_thread_post(
         // B-025 Group B-1 / Gap-8: 30 秒 flush 周期中の DAW crash で残った
         // `*.json.tmp` を整合 verify (HMAC-SHA256) → `.json` に atomic rename で救出。
         // 不整合 .tmp は warn ログのみで残置 (削除しない / 約束 5 原則)。loop 前 1 回。
-        if let Ok(paths) = StoragePaths::default_macos() {
+        if let Ok(paths) = StoragePaths::default_platform() {
             let _ = crate::record_writer::recover_orphan_tmps(&paths.plugin_data_dir());
         }
 
@@ -223,7 +223,7 @@ pub fn spawn_io_thread_post(
 
         // B-127 (G-115-364): 孤児 reservation 枠（keep が active marker 生成前にクラッシュ等 /
         // age > RESERVATION_TTL_SECS）を起動時掃除（B-103 と合流・age ベース・冪等）。
-        if let Ok(paths) = StoragePaths::default_macos() {
+        if let Ok(paths) = StoragePaths::default_platform() {
             let _ = crate::reservation::sweep_stale_reservations_in(
                 &paths.plugin_data_dir(),
                 chrono::Utc::now(),
@@ -233,7 +233,7 @@ pub fn spawn_io_thread_post(
         // B-026 / Gap-9: crash 残骸 `pre/{compact}.json` / `post/{compact}.json`
         // のうち status=Active かつ mtime > 60s のファイルを status=Closed に
         // 書換 (Lens 側「進行中 Record」誤認の構造的解消)。loop 前 1 回。
-        if let Ok(paths) = StoragePaths::default_macos() {
+        if let Ok(paths) = StoragePaths::default_platform() {
             let _ = crate::record_writer::sweep_stale_active_at_startup(&paths.plugin_data_dir());
         }
 
@@ -394,7 +394,7 @@ pub fn spawn_io_thread_post(
             // plugin_data/.../post/*.json ライフサイクル
             // POST は自身の signal_path から started_at を resolve
             // §4-5 Step 1: project_hash_ref は tick 開始時の lazy-read snapshot を流用。
-            let resolver = || match StoragePaths::default_macos() {
+            let resolver = || match StoragePaths::default_platform() {
                 Ok(paths) => crate::record_writer::resolve_started_at_ms(
                     &paths.plugin_data_dir(),
                     project_hash_ref,
@@ -492,7 +492,7 @@ pub fn spawn_io_thread_post(
             // closure 発火。Keep と並列の同型ロジック (cross-process filter / self skip /
             // 既処理 skip / stale fallback / GC)。
             if Instant::now() >= next_all_keep_poll {
-                if let Ok(paths) = StoragePaths::default_macos() {
+                if let Ok(paths) = StoragePaths::default_platform() {
                     let base_dir = paths.plugin_data_dir();
                     let now_chrono = chrono::Utc::now();
                     let daw_session_id_snapshot = read_daw_session_id_arc(&daw_session_id_arc);
@@ -564,7 +564,7 @@ pub fn spawn_io_thread_post(
             //     (先例 io_thread_pre.rs:378-403 partner.last_seen_status cache 同位相 /
             //     chrono 新規依存なし / 申し送り #24 (ii))
             if Instant::now() >= next_all_keep_poll {
-                if let Ok(paths) = StoragePaths::default_macos() {
+                if let Ok(paths) = StoragePaths::default_platform() {
                     let base_dir = paths.plugin_data_dir();
                     let now_chrono = chrono::Utc::now();
                     // §4-5 Step 1: cross-process 防壁用 daw_session_id を per-tick lazy-read。
@@ -627,7 +627,7 @@ pub fn spawn_io_thread_post(
                     let timeout = Duration::from_secs(ACK_TIMEOUT_SECONDS as u64);
                     processed_broadcasts.retain(|_, (_, last_seen)| last_seen.elapsed() < timeout);
                 } else {
-                    log::warn!("[all_keep] StoragePaths::default_macos() failed; skipping tick");
+                    log::warn!("[all_keep] StoragePaths::default_platform() failed; skipping tick");
                 }
                 next_all_keep_poll = Instant::now() + ALL_KEEP_POLL_INTERVAL;
             }
@@ -695,7 +695,7 @@ pub fn spawn_io_thread_post(
         // B-027 段階 3-B α-7-4-D / Step 12-C: Ok(paths) arm を block 化 (single match arm
         // → sequential block) し、delete_signal の直後に delete_broadcast 呼出を追加する
         // 利用 (二重 resolve 回避)。機能的差異なし / panic 回避規範 (warn のみ) は両者で同等。
-        match StoragePaths::default_macos() {
+        match StoragePaths::default_platform() {
             Ok(paths) => {
                 match record_signal::delete_signal(
                     &paths.plugin_data_dir(),
@@ -1528,7 +1528,7 @@ fn poll_ack_timeout(
     pair_label: &Arc<Mutex<String>>,
     paired_pre_target: &Arc<Mutex<Option<String>>>,
 ) {
-    let base = match StoragePaths::default_macos() {
+    let base = match StoragePaths::default_platform() {
         Ok(paths) => paths.plugin_data_dir(),
         Err(_) => return,
     };
@@ -1617,7 +1617,7 @@ fn poll_pre_liveness(
     let Some(pre_iid) = paired_pre_target.lock().ok().and_then(|g| g.clone()) else {
         return;
     };
-    let plugin_data_root = match StoragePaths::default_macos() {
+    let plugin_data_root = match StoragePaths::default_platform() {
         Ok(paths) => paths.plugin_data_dir(),
         Err(_) => return,
     };
@@ -1728,7 +1728,7 @@ fn poll_record_signal_ack(
     if !record_sm.is_recording() {
         return;
     }
-    let base = match StoragePaths::default_macos() {
+    let base = match StoragePaths::default_platform() {
         Ok(paths) => paths.plugin_data_dir(),
         Err(_) => return,
     };
@@ -1783,7 +1783,7 @@ fn poll_preset_availability(
     preset_available: &Arc<AtomicBool>,
     last_seen: &mut Option<usize>,
 ) {
-    let preset_dir = match StoragePaths::default_macos() {
+    let preset_dir = match StoragePaths::default_platform() {
         // B-128 (G-115-370): within-base wall（preset availability read。preset_dir 同等の inline 構築）。
         Ok(paths) => paths
             .plugin_data_dir()

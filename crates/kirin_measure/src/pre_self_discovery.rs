@@ -139,7 +139,7 @@ impl PreSelfDiscoveryState {
 /// を返す。
 ///
 /// # 入力
-/// - `plugin_data_root`: 探索ルート (`StoragePaths::default_macos().plugin_data_dir()`
+/// - `plugin_data_root`: 探索ルート (`StoragePaths::default_platform().plugin_data_dir()`
 ///   の戻り値を呼出側で渡す)
 /// - `my_instance_id`: PRE 自身の永続 instance UUID。**呼出側で
 ///   `read_instance_id_arc(&self.params.instance_id)` 等で lazy-read 済みの

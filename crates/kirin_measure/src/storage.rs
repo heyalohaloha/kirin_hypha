@@ -265,7 +265,7 @@ pub fn write_both(paths: &StoragePaths, identity: &Identity) -> Result<(), Stora
 /// 起動時に Identity を取得する。4 段階復旧 + 2-of-3 判定を実行。
 ///
 /// # 引数
-/// - `paths` : ストレージパス（本番は `StoragePaths::default_macos()`）
+/// - `paths` : ストレージパス（本番は `StoragePaths::default_platform()`）
 /// - `current_hw` : 現在マシンの 3 要素（`HardwareComponents::current()`）
 /// - `default_license` : 新規生成時の license（OS 版配布は `License::Os`）
 pub fn load_or_recover(
@@ -541,8 +541,8 @@ pub struct CleanupReport {
 // PluginDataWriter が Frame.installation_id を埋めるための最小読取り。
 // HMAC 検証・2-of-3 判定は行わず、identity JSON の `installation_id` フィールド
 // のみを loose に抽出する。license.rs `load_license_safe` と同位相:
-// - 本番パス: `~/Library/Application Support/Kirin OS/identity.json`
-// - $HOME 不在 / ファイル不在 / 不正 JSON / フィールド欠落 → `None`
+// - 本番パス: `StoragePaths::default_platform().primary_path()`
+// - platform path 解決不能 / ファイル不在 / 不正 JSON / フィールド欠落 → `None`
 // - 書込は行わない（`load_or_recover` と分離）
 //
 // ログ分岐は以下の 5 系統:
@@ -558,10 +558,10 @@ pub struct CleanupReport {
 /// loose reader（Phase 1.0 手動テストや Kirin OS 本体未完成時点でも
 /// installation_id 値は独立して読める必要あり）。
 pub fn load_installation_id_safe() -> Option<String> {
-    let paths = match StoragePaths::default_macos() {
+    let paths = match StoragePaths::default_platform() {
         Ok(p) => p,
         Err(_) => {
-            log::info!("[installation_id] loaded: None (no $HOME)");
+            log::info!("[installation_id] loaded: None (platform path unresolved)");
             return None;
         }
     };
