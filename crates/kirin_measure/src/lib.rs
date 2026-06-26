@@ -64,6 +64,12 @@ pub use license::{
     show_save_button, show_stop_record_button, SENSE_RECORD_HINT, SENSE_UPSELL_URL,
 };
 pub use measure_thread::{live_window, pair_lock_active, spawn_measure_thread, LivenessEvaluator};
+pub use pairing_scope::{
+    discover_pre_dirs_for_post_project, enumerate_active_pre_pair_candidates_for_post_project,
+    read_pre_at, resolve_arm_target, resolve_arm_target_for_post_project, select_target_pre,
+    select_target_pre_for_arm, select_target_pre_for_arm_for_post_project,
+    select_target_pre_for_post_project, LatchedPre, LatchedPreState, SelectedPre,
+};
 pub use path_identity::{
     drain_path_events, guard_path_component, is_path_safe_component, materialize_observation_id,
     materialize_restore_field, normalize_restore_cell, surface_path_event, surface_path_event_for,
@@ -97,15 +103,11 @@ pub use preset_v2::{
 };
 pub use record::{RecordState, RecordStateMachine, TransitionError};
 pub use record_signal::{
-    delete_signal, discover_pre_dirs_for_post_project, enumerate_active_pre_pair_candidates,
-    enumerate_active_pre_pair_candidates_for_post_project, filter_candidates_by_name, is_timed_out,
-    mark_acknowledged, mark_released, pick_closest_pre, read_pre_at, read_signal,
-    resolve_arm_target, resolve_arm_target_for_post_project, scan_pre_candidates,
-    scan_pre_candidates_in, scan_signals_dir, select_target_pre, select_target_pre_for_arm,
-    select_target_pre_for_arm_for_post_project, select_target_pre_for_post_project, signal_path,
-    signals_dir, write_pending, write_signal, LatchedPre, LatchedPreState, PostMetrics,
-    PreCandidate, RecordSignal, SelectedPre, SignalError, SignalStatus, ACK_TIMEOUT_SECONDS,
-    SIGNALS_SUBDIR, SIGNAL_FILENAME,
+    delete_signal, enumerate_active_pre_pair_candidates, filter_candidates_by_name, is_timed_out,
+    mark_acknowledged, mark_released, pick_closest_pre, read_signal, scan_pre_candidates,
+    scan_pre_candidates_in, scan_signals_dir, signal_path, signals_dir, write_pending,
+    write_signal, PostMetrics, PreCandidate, RecordSignal, SignalError, SignalStatus,
+    ACK_TIMEOUT_SECONDS, SIGNALS_SUBDIR, SIGNAL_FILENAME,
 };
 pub use record_writer::{new_record_trace_queue, RecordTraceQueue, RecordTraceSample};
 pub use storage::{

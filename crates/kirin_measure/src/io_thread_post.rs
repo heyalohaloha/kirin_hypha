@@ -28,13 +28,11 @@ use crate::all_stop_signal::{self, ALL_STOP_BROADCAST_STALE_SECS};
 use crate::cleanup::exit_record_full;
 use crate::delta::{DeltaMode, DeltaResult, DeltaSnapshot};
 use crate::engine::SessionSummary;
+use crate::pairing_scope::{read_pre_at, select_target_pre_for_arm_for_post_project, LatchedPre};
 use crate::plugin_data::Role as PluginDataRole;
 use crate::pre_discovery::{PostDiscoveryState, DISCOVERY_STALE_SECS};
 use crate::record::RecordStateMachine;
-use crate::record_signal::{
-    self, read_pre_at, select_target_pre_for_arm_for_post_project, LatchedPre, SignalStatus,
-    ACK_TIMEOUT_SECONDS, SIGNALS_SUBDIR,
-};
+use crate::record_signal::{self, SignalStatus, ACK_TIMEOUT_SECONDS, SIGNALS_SUBDIR};
 use crate::record_writer::{
     run_record_tick, take_session_summary, writer_close_degraded, writer_close_with_summary,
     RecordError, RecordingCtx,
