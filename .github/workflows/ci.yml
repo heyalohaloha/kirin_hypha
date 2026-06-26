@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
   pull_request:
@@ -13,6 +14,7 @@ concurrency:
 jobs:
   test:
     name: cargo test (macos)
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || contains(github.event.head_commit.message, '[ci full]') }}
     runs-on: macos-14
     timeout-minutes: 30
     steps:
@@ -34,6 +36,7 @@ jobs:
 
   auval-arm64:
     name: auval arm64 (AU validation)
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || contains(github.event.head_commit.message, '[ci full]') }}
     # macos-14 is an Apple Silicon (arm64) runner: builds arm64-native and validates the AU on
     # the same arch the ship universal binary's arm64 slice runs on (B-082/B-084). engine
     # (kirin_measure) calculation is unchanged -- this is CI / packaging validation only.
@@ -93,6 +96,7 @@ jobs:
 
   windows-vst3-preflight:
     name: windows VST3 preflight
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || contains(github.event.head_commit.message, '[ci full]') }}
     runs-on: windows-latest
     timeout-minutes: 45
     steps:

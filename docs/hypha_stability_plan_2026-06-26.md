@@ -186,6 +186,7 @@ Windows 着手条件:
 - B-178 CI で残った Phase D parity の publish 窓差を direct last-frame 固定ではなく direct tail-frame 照合へ変更し、許容値を緩めずに非同期 FFI 経路の実仕様へ合わせた。
 - B-179 CI では tail 8 frame でも runner 負荷下の途中 publish を拾ったため、Phase D parity に ring-drain barrier を入れ、全サンプル消費後の publish を比較するようにした。
 - B-180 CI で ring drain 前に読んだ古い `MeasureResult` を保持できる穴が残っていたため、Phase D parity は drain 後に poll できた完全結果だけを採用するようにした。
+- Actions usage 上限到達を受け、full CI は `workflow_dispatch` / PR / `[ci full]` 明示コミットだけで走るようにし、通常 push はローカル厳格検証後の直列履歴積み上げに切り替えた。
 
 ## 優先順位
 
