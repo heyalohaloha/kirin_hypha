@@ -31,7 +31,6 @@ const SHARP_EPS: f64 = 0.05; // sharpness abs [acum]
 const PSB_ABS_FLOOR: f64 = 1e-9; // 同一コード経路の数値ノイズ吸収用の微小 abs floor
 const PHASE_D_PARITY_SECONDS: f64 = 6.0; // async FFI publication may lag one frame; use converged steady state
 const PHASE_D_PARITY_BLOCK_SLEEP_MS: u64 = 110; // keep below the 2s ring cap even under parallel tests
-const PHASE_D_PARITY_TAIL_FRAMES: usize = 8; // async FFI may publish any recent drained frame
 
 /// 定常マルチトーン（200/1000/5000 Hz）, L==R, f32 interleaved。
 fn gen_stereo_f32(seconds: f64) -> Vec<f32> {
@@ -69,7 +68,7 @@ fn duplicate_mono_to_stereo(mono: &[f32]) -> Vec<f32> {
 }
 
 /// direct 参照: measure_thread の phase_d 経路を再現（f32→f64→(L+R)*0.5→PhaseDStream）。
-fn direct_phase_d_tail(stereo_f32: &[f32], tail_len: usize) -> Vec<PhaseDResult> {
+fn direct_phase_d_frames(stereo_f32: &[f32]) -> Vec<PhaseDResult> {
     let mut stream = PhaseDStream::new(FieldType::Free);
     let mono: Vec<f64> = stereo_f32
         .chunks_exact(2)
@@ -80,8 +79,7 @@ fn direct_phase_d_tail(stereo_f32: &[f32], tail_len: usize) -> Vec<PhaseDResult>
         !frames.is_empty(),
         "PhaseDStream should emit at least one frame for multi-second input"
     );
-    let start = frames.len().saturating_sub(tail_len.max(1));
-    frames[start..].to_vec()
+    frames
 }
 
 fn direct_last_lufs(samples: &[f32], channels: usize) -> f64 {
@@ -140,108 +138,6 @@ fn psb_summary_ref(psb: &[f64; 20], psb_bark21_24: &[f64; 4], high_ext: f64) -> 
     )
 }
 
-fn phase_d_matches_result(
-    res: &kirin_measure::MeasureResult,
-    direct: &PhaseDResult,
-    ref_low: f64,
-    ref_mid: f64,
-    ref_high: f64,
-) -> bool {
-    let Some(n_ffi) = res.n_prime_total else {
-        return false;
-    };
-    if !approx::relative_eq!(
-        n_ffi,
-        direct.loudness,
-        max_relative = N_MAX_REL,
-        epsilon = PSB_ABS_FLOOR
-    ) {
-        return false;
-    }
-
-    let Some(sh_ffi) = res.sharpness else {
-        return false;
-    };
-    if !approx::abs_diff_eq!(sh_ffi, direct.sharpness, epsilon = SHARP_EPS) {
-        return false;
-    }
-
-    let Some(np) = res.n_prime.as_ref() else {
-        return false;
-    };
-    if !np.iter().enumerate().all(|(k, &np_k)| {
-        approx::relative_eq!(
-            np_k,
-            direct.n_prime[k],
-            max_relative = N_MAX_REL,
-            epsilon = PSB_ABS_FLOOR
-        )
-    }) {
-        return false;
-    }
-
-    let Some(pb) = res.psb_bark.as_ref() else {
-        return false;
-    };
-    if !pb.iter().enumerate().all(|(k, &pb_k)| {
-        approx::relative_eq!(
-            pb_k,
-            direct.psb[k],
-            max_relative = N_MAX_REL,
-            epsilon = PSB_ABS_FLOOR
-        )
-    }) {
-        return false;
-    }
-
-    let Some(s) = res.psb_summary.as_ref() else {
-        return false;
-    };
-    approx::relative_eq!(s.low, ref_low, max_relative = N_MAX_REL, epsilon = 1e-6)
-        && approx::relative_eq!(s.mid, ref_mid, max_relative = N_MAX_REL, epsilon = 1e-6)
-        && approx::relative_eq!(s.high, ref_high, max_relative = N_MAX_REL, epsilon = 1e-6)
-}
-
-fn select_matching_phase_d_tail<'a>(
-    res: &kirin_measure::MeasureResult,
-    direct_tail: &'a [PhaseDResult],
-) -> &'a PhaseDResult {
-    direct_tail
-        .iter()
-        .rev()
-        .find(|direct| {
-            let (ref_low, ref_mid, ref_high) = psb_summary_ref(
-                &direct.psb,
-                &direct.psb_bark21_24,
-                direct.psb_high_ext_15_5k_20k,
-            );
-            phase_d_matches_result(res, direct, ref_low, ref_mid, ref_high)
-        })
-        .unwrap_or_else(|| {
-            let ffi_high = res
-                .psb_summary
-                .as_ref()
-                .map(|s| s.high)
-                .unwrap_or(f64::NAN);
-            let best = direct_tail
-                .iter()
-                .enumerate()
-                .map(|(idx, direct)| {
-                    let (_, _, ref_high) = psb_summary_ref(
-                        &direct.psb,
-                        &direct.psb_bark21_24,
-                        direct.psb_high_ext_15_5k_20k,
-                    );
-                    (idx, ref_high, (ffi_high - ref_high).abs())
-                })
-                .min_by(|a, b| a.2.total_cmp(&b.2));
-            panic!(
-                "FFI Phase D result did not match any of the last {} direct frames; ffi_high={ffi_high:?}, best_high={best:?}",
-                direct_tail.len()
-            )
-        })
-}
-
 /// FFI を駆動して、phase_d 系が揃った最新 RT 結果を取得する。
 fn drive_ffi(stereo_f32: &[f32]) -> (kirin_measure::MeasureResult, u64) {
     let engine = KirinHyphaEngine::new(SR, 2);
@@ -259,10 +155,11 @@ fn drive_ffi(stereo_f32: &[f32]) -> (kirin_measure::MeasureResult, u64) {
         sleep(Duration::from_millis(PHASE_D_PARITY_BLOCK_SLEEP_MS));
     }
 
-    // keepalive（heartbeat を進めて Active 維持）しつつ、残サンプルが drain され結果が
-    // 安定するまでポーリング。定常入力なので後半フレームは収束している。
+    // keepalive（heartbeat を進めて Active 維持）しつつ、ring 全消費後の publish を読む。
+    // 値のプラトーではなく ring の実 drain を barrier にする（session parity と同じ考え方）。
     let mut last: Option<kirin_measure::MeasureResult> = None;
-    for _ in 0..40 {
+    let mut drained_streak = 0u32;
+    for _ in 0..240 {
         engine.push_samples(&[], 2); // 0-frame keepalive
         sleep(Duration::from_millis(50));
         if let Some(r) = engine.poll_result() {
@@ -274,6 +171,14 @@ fn drive_ffi(stereo_f32: &[f32]) -> (kirin_measure::MeasureResult, u64) {
             {
                 last = Some(r);
             }
+        }
+        if engine.__ring_drained_for_test() && engine.overflow_count() == 0 {
+            drained_streak += 1;
+            if drained_streak >= 3 && last.is_some() {
+                break;
+            }
+        } else {
+            drained_streak = 0;
         }
     }
     let overflow = engine.overflow_count();
@@ -287,9 +192,9 @@ fn drive_ffi(stereo_f32: &[f32]) -> (kirin_measure::MeasureResult, u64) {
 fn parity_phase_d_metrics_ffi_vs_direct() {
     let signal = gen_stereo_f32(PHASE_D_PARITY_SECONDS);
 
-    // direct 参照。FFI の measure thread は非同期 publish なので、最後の1フレーム固定ではなく
-    // drain 済み tail のどれかと既存 tolerance 内で一致することを確認する。
-    let direct_tail = direct_phase_d_tail(&signal, PHASE_D_PARITY_TAIL_FRAMES);
+    // direct 参照。FFI 側は ring-drain barrier 後の publish を読むため、
+    // 比較対象も同一サンプル列の最終 frame に固定する。
+    let direct_frames = direct_phase_d_frames(&signal);
 
     // FFI 経由
     let (res, overflow) = drive_ffi(&signal);
@@ -300,7 +205,9 @@ fn parity_phase_d_metrics_ffi_vs_direct() {
         "parity push dropped samples (ring overflow={overflow})"
     );
 
-    let direct = select_matching_phase_d_tail(&res, &direct_tail);
+    let direct = direct_frames
+        .last()
+        .expect("direct PhaseDStream should emit a final frame");
     let (ref_low, ref_mid, ref_high) = psb_summary_ref(
         &direct.psb,
         &direct.psb_bark21_24,
