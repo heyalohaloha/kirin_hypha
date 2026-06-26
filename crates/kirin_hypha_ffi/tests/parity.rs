@@ -157,25 +157,25 @@ fn drive_ffi(stereo_f32: &[f32]) -> (kirin_measure::MeasureResult, u64) {
 
     // keepalive（heartbeat を進めて Active 維持）しつつ、ring 全消費後の publish を読む。
     // 値のプラトーではなく ring の実 drain を barrier にする（session parity と同じ考え方）。
-    let mut last: Option<kirin_measure::MeasureResult> = None;
+    let mut stable: Option<kirin_measure::MeasureResult> = None;
     let mut drained_streak = 0u32;
     for _ in 0..240 {
         engine.push_samples(&[], 2); // 0-frame keepalive
         sleep(Duration::from_millis(50));
-        if let Some(r) = engine.poll_result() {
-            if r.n_prime_total.is_some()
-                && r.sharpness.is_some()
-                && r.psb_summary.is_some()
-                && r.n_prime.is_some()
-                && r.psb_bark.is_some()
-            {
-                last = Some(r);
-            }
-        }
         if engine.__ring_drained_for_test() && engine.overflow_count() == 0 {
             drained_streak += 1;
-            if drained_streak >= 3 && last.is_some() {
-                break;
+            if drained_streak >= 3 {
+                if let Some(r) = engine.poll_result() {
+                    if r.n_prime_total.is_some()
+                        && r.sharpness.is_some()
+                        && r.psb_summary.is_some()
+                        && r.n_prime.is_some()
+                        && r.psb_bark.is_some()
+                    {
+                        stable = Some(r);
+                        break;
+                    }
+                }
             }
         } else {
             drained_streak = 0;
@@ -183,7 +183,9 @@ fn drive_ffi(stereo_f32: &[f32]) -> (kirin_measure::MeasureResult, u64) {
     }
     let overflow = engine.overflow_count();
     (
-        last.expect("FFI should produce a fully-populated MeasureResult (phase_d merged)"),
+        stable.expect(
+            "FFI should publish a fully-populated MeasureResult after ring drain (phase_d merged)",
+        ),
         overflow,
     )
 }
