@@ -19,6 +19,7 @@ pub mod pairing_scope;
 pub mod path_identity;
 pub mod phase_d;
 pub mod plugin_data;
+pub mod post_candidates;
 pub mod pre_candidates;
 pub mod pre_discovery;
 pub mod pre_self_discovery;
@@ -56,8 +57,8 @@ pub use exclusion::{
 pub use hardware::{HardwareComponents, Match};
 pub use identity::{Identity, License};
 pub use io_thread_post::{
-    enumerate_active_post_pair_candidates, format_pair_label, serialize_post_json,
-    spawn_io_thread_post, PostCandidate, TriggerPairResolutionFn, TriggerStopResolutionFn,
+    format_pair_label, serialize_post_json, spawn_io_thread_post, TriggerPairResolutionFn,
+    TriggerStopResolutionFn,
 };
 pub use io_thread_pre::{serialize_pre_json, spawn_io_thread_pre};
 pub use license::{
@@ -81,6 +82,7 @@ pub use plugin_data::{
     Frame, PluginDataFile, PluginDataWriter, PsbSnapshot, Role as PluginDataRole,
     Status as PluginDataStatus, WriterError as PluginDataWriterError, WriterPaths,
 };
+pub use post_candidates::{enumerate_active_post_pair_candidates, PostCandidate};
 pub use pre_candidates::{
     enumerate_active_pre_pair_candidates, filter_candidates_by_name, pick_closest_pre,
     scan_pre_candidates, scan_pre_candidates_in, PostMetrics, PreCandidate,
