@@ -37,7 +37,7 @@ fn lib_rs_carries_project_hash_and_daw_session_id() {
     );
     assert!(
         src.contains("daw_session_id"),
-        "HyphaPre must carry process-shared daw_session_id (cross-process barrier)"
+        "HyphaPre must carry process-shared daw_session_id (chunk-persistent session id)"
     );
 }
 

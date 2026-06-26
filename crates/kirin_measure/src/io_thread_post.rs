@@ -46,7 +46,7 @@ const LOOP_SLEEP: Duration = Duration::from_millis(100);
 const STALE_SECS: i64 = 5; // B-046: 2→5 (fs I/O backpressure 吸収 / G-115-246)
 
 /// PRE ファイルが NoPre とみなされる最大経過時間（秒）
-/// B-059: `record_signal::select_target_pre` の freshness gate でも単一ソースとして参照。
+/// B-059: `pairing_scope::select_target_pre` の freshness gate でも単一ソースとして参照。
 pub(crate) const NO_PRE_SECS: i64 = 10;
 
 /// preset/ ポーリング間隔（サブ3-C-2: 1 秒）。
@@ -1727,7 +1727,7 @@ pub(crate) fn discover_active_post_dirs(kirin_root: &Path) -> Vec<PathBuf> {
 /// 全 active POST dir を flatten 列挙して `Vec<PostCandidate>` を返す
 /// (α-7 All Keep broadcast peer enumerate 用)。
 ///
-/// PRE 版 [`crate::record_signal::enumerate_active_pre_pair_candidates`] と対称形。
+/// PRE 版 [`crate::pre_candidates::enumerate_active_pre_pair_candidates`] と対称形。
 /// `discover_active_post_dirs` で fresh 全 project_uuid dir を取得し、各 dir の
 /// post.json を `scan_post_candidates_in` で候補化して flatten する。
 ///

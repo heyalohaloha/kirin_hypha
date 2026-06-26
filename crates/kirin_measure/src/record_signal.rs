@@ -21,15 +21,14 @@
 //! ```
 //!
 //! `t` は status の更新時刻、`started_at` は Record 開始時刻。
-//! `daw_session_id` は POST 側 [`crate::daw_session_id`] の値で、PRE 側で
-//! 自身の `daw_session_id` と一致しない signal は **必ず無視する** こと
-//! （別 DAW プロセスからの誤 ack 防止）。
+//! `daw_session_id` は POST 側 [`crate::daw_session_id`] の値を保存する。PRE/POST は
+//! AU/VST3 や別 cdylib 境界で `static` 状態が一致しないため、PRE 側 ack は
+//! `daw_session_id` では filter せず、永続 `target_pre_instance_id` 一致を正本にする。
 //!
 //! # PRE 側 polling（Q1 (b) 厳格化）
 //! 1. [`scan_signals_dir`] で `{project_hash}/record_signal/*.json` を全件読み込む
-//! 2. 各 signal について以下を **両方** 満たすもののみ処理:
+//! 2. 各 signal について以下を満たすもののみ処理:
 //!    - `signal.target_pre_instance_id == self.instance_id`
-//!    - `signal.daw_session_id == self.daw_session_id`
 //! 3. 1 つも条件一致がなければ Record 状態を維持（pending 検出なしと同義）
 //!
 //! # POST 側 ライフサイクル
@@ -39,23 +38,12 @@
 //!
 //! # ペアリング距離（G-50-35）
 //! PRE 候補の走査・距離選択は [`crate::pre_candidates`] が所有する。
-//! 本 module は旧呼び出し互換のため `PreCandidate` などを re-export する。
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-
-pub use crate::pairing_scope::{
-    read_pre_at, resolve_arm_target, resolve_arm_target_for_post_project, select_target_pre,
-    select_target_pre_for_arm, select_target_pre_for_arm_for_post_project,
-    select_target_pre_for_post_project, LatchedPre, LatchedPreState, SelectedPre,
-};
-pub use crate::pre_candidates::{
-    enumerate_active_pre_pair_candidates, filter_candidates_by_name, pick_closest_pre,
-    scan_pre_candidates, scan_pre_candidates_in, PostMetrics, PreCandidate,
-};
 
 mod stale_pending;
 
@@ -102,7 +90,8 @@ pub struct RecordSignal {
     pub requested_by: String,
     /// ペアリングで選ばれた PRE 永続 instance_id（PRE 側 ack 条件 1）。
     pub target_pre_instance_id: String,
-    /// POST 側の `daw_session_id`。PRE 側 ack 条件 2（cross-process 防壁）。
+    /// POST 側の `daw_session_id`。PRE 側 ack filter には使わず、
+    /// cross-format / cross-dylib 診断と PRE self-discovery の同期ヒントとして保持する。
     /// 旧 schema からの読込で欠落している場合は空文字で defaulted。
     #[serde(default)]
     pub daw_session_id: String,
@@ -416,43 +405,6 @@ pub fn scan_signals_dir(base_dir: &Path, project_hash: &str) -> Vec<(String, Rec
     }
     out.sort_by(|a, b| a.0.cmp(&b.0));
     out
-}
-
-/// 現在の POST project_uuid から見える POST 群の `pair_pre_name` と最も整合する PRE
-/// project_uuid 群だけを返す。
-///
-/// PRE.vst3 / POST.vst3 は別 cdylib のため project_uuid が直接一致しない。一方で同じ
-/// Studio One セッション内では POST 群が保持する `pair_pre_name` 集合と PRE 群の `name`
-/// 集合が対応するため、その重なりをセッション境界として使う。POST 側にまだ name 情報が
-/// 無い初期状態では従来互換として全 PRE dir に fallback する。
-///
-/// 同点が複数ある場合は全て返す。後段の name 一意選定が曖昧として拒否するため、誤った
-/// cross-session Keep を避けられる。
-pub fn discover_pre_dirs_for_post_project(
-    kirin_root: &Path,
-    post_project_hash: &str,
-) -> Vec<PathBuf> {
-    crate::pairing_scope::discover_pre_dirs_for_post_project(kirin_root, post_project_hash)
-}
-
-/// POST project_uuid 入口の PRE 候補列挙（GUI/JUCE dropdown 用）。
-///
-/// 候補メニューは「次に選べる PRE」を出す場所なので、既存 POST の `pair_pre_name`
-/// との重なりでは絞らない。VST3 PRE は instance ごとに別 project_uuid へ書くことがあり、
-/// 既に `Drum` が pair 済みの POST project で `Mix` を追加すると、overlap 絞り込みでは
-/// `Mix` が候補から消えるため。
-///
-/// Keep/Δ の確定側は [`select_target_pre_for_post_project`] /
-/// [`select_target_pre_for_arm_for_post_project`] で name 一意性を検証し、同名衝突時のみ
-/// POST project overlap を tie-break に使う。
-pub fn enumerate_active_pre_pair_candidates_for_post_project(
-    kirin_root: &Path,
-    post_project_hash: &str,
-) -> Vec<PreCandidate> {
-    crate::pairing_scope::enumerate_active_pre_pair_candidates_for_post_project(
-        kirin_root,
-        post_project_hash,
-    )
 }
 
 // ── ヘルパ ────────────────────────────────────────────────────────────────────
