@@ -4,6 +4,7 @@ const CI_WORKFLOW: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../.github/workflows/ci.yml"
 ));
+const FULL_CI_JOB_IF: &str = "if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || contains(github.event.head_commit.message, '[ci full]') }}";
 
 pub fn run(args: Vec<String>) -> Result<()> {
     match args.as_slice() {
@@ -34,18 +35,8 @@ fn verify_ci_usage_gate(source: &str) -> Result<()> {
     let source = normalize_newlines(source);
     require(
         &source,
-        "  workflow_dispatch:\n",
-        "full CI must be manually triggerable",
-    )?;
-    require(
-        &source,
-        "  push:\n    branches: [main]\n",
-        "push trigger must stay scoped to main",
-    )?;
-    require(
-        &source,
-        "  pull_request:\n    branches: [main]\n",
-        "PR trigger must stay scoped to main",
+        "on:\n  workflow_dispatch:\n  push:\n    branches: [main]\n  pull_request:\n    branches: [main]\n",
+        "workflow triggers must stay manual/PR/main-push scoped",
     )?;
 
     let jobs = job_blocks(&source)?;
@@ -57,29 +48,29 @@ fn verify_ci_usage_gate(source: &str) -> Result<()> {
         if !body.contains("runs-on:") {
             continue;
         }
-        require(
-            body,
-            "if: ${{",
-            &format!("job `{name}` must have a top-level usage gate"),
-        )?;
-        require(
-            body,
-            "github.event_name == 'workflow_dispatch'",
-            &format!("job `{name}` must allow manual full CI"),
-        )?;
-        require(
-            body,
-            "github.event_name == 'pull_request'",
-            &format!("job `{name}` must allow PR full CI"),
-        )?;
-        require(
-            body,
-            "contains(github.event.head_commit.message, '[ci full]')",
-            &format!("job `{name}` must require [ci full] for push full CI"),
-        )?;
+        require_exact_job_usage_gate(&name, body)?;
     }
 
     Ok(())
+}
+
+fn require_exact_job_usage_gate(name: &str, body: &str) -> Result<()> {
+    let expected = format!("    {FULL_CI_JOB_IF}");
+    let if_lines: Vec<_> = body
+        .lines()
+        .map(str::trim_end)
+        .filter(|line| line.starts_with("    if:"))
+        .collect();
+
+    match if_lines.as_slice() {
+        [line] if *line == expected => Ok(()),
+        [] => bail!("job `{name}` must use exact top-level usage gate `{FULL_CI_JOB_IF}`"),
+        [line] => bail!(
+            "job `{name}` must use exact top-level usage gate `{FULL_CI_JOB_IF}`; found `{}`",
+            line.trim()
+        ),
+        _ => bail!("job `{name}` must have exactly one top-level usage gate"),
+    }
 }
 
 fn job_blocks(source: &str) -> Result<Vec<(String, &str)>> {
@@ -150,7 +141,7 @@ mod tests {
         assert!(verify_ci_usage_gate(&bad)
             .unwrap_err()
             .to_string()
-            .contains("manually triggerable"));
+            .contains("workflow triggers"));
     }
 
     #[test]
@@ -172,6 +163,47 @@ mod tests {
         assert!(verify_ci_usage_gate(&bad)
             .unwrap_err()
             .to_string()
-            .contains("top-level usage gate"));
+            .contains("exact top-level usage gate"));
+    }
+
+    #[test]
+    fn guard_rejects_step_level_if_without_job_gate() {
+        let bad = CI_WORKFLOW
+            .replacen(&format!("    {FULL_CI_JOB_IF}\n"), "", 1)
+            .replacen(
+                "      - uses: actions/checkout@v4\n",
+                &format!("      - uses: actions/checkout@v4\n        {FULL_CI_JOB_IF}\n"),
+                1,
+            );
+        assert!(verify_ci_usage_gate(&bad)
+            .unwrap_err()
+            .to_string()
+            .contains("exact top-level usage gate"));
+    }
+
+    #[test]
+    fn guard_rejects_plain_push_escape_in_job_if() {
+        let bad = CI_WORKFLOW.replacen(
+            FULL_CI_JOB_IF,
+            "if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || github.event_name == 'push' || contains(github.event.head_commit.message, '[ci full]') }}",
+            1,
+        );
+        assert!(verify_ci_usage_gate(&bad)
+            .unwrap_err()
+            .to_string()
+            .contains("exact top-level usage gate"));
+    }
+
+    #[test]
+    fn guard_rejects_ci_full_token_only_in_comment() {
+        let bad = CI_WORKFLOW.replacen(
+            FULL_CI_JOB_IF,
+            "if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || contains(github.event.head_commit.message, '[ci]') }} # [ci full]",
+            1,
+        );
+        assert!(verify_ci_usage_gate(&bad)
+            .unwrap_err()
+            .to_string()
+            .contains("exact top-level usage gate"));
     }
 }
