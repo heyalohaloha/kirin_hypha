@@ -1,0 +1,316 @@
+use anyhow::{bail, Result};
+
+const CI_WORKFLOW: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../.github/workflows/ci.yml"
+));
+const STABILITY_PLAN: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../docs/hypha_stability_plan_2026-06-26.md"
+));
+const PAIRING_CANDIDATES_TEST: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../crates/kirin_hypha_ffi/tests/pairing_candidates.rs"
+));
+const PAIRING_SCOPE_TEST: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../crates/kirin_measure/tests/pairing_scope_separation_test.rs"
+));
+const RECORD_SIGNAL_SEPARATION_TEST: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../crates/kirin_measure/tests/record_signal_separation_test.rs"
+));
+const PLATFORM_STORAGE: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../crates/kirin_measure/src/storage.rs"
+));
+const PLATFORM_PATHS_TEST: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../crates/kirin_measure/tests/platform_paths_separation_test.rs"
+));
+const SHELL_PARITY: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../xtask/src/shell_parity.rs"
+));
+const RT_SAFETY: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../xtask/src/rt_safety.rs"
+));
+const WINDOWS_PREFLIGHT: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../xtask/src/windows_preflight.rs"
+));
+const CI_USAGE_GUARD: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../xtask/src/ci_usage_guard.rs"
+));
+const JUCE_PATCH_VERIFY: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../scripts/verify_juce_patch_state.sh"
+));
+const JUCE_PATCHES_MD: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../juce_shell/PATCHES.md"
+));
+
+pub fn run(args: Vec<String>) -> Result<()> {
+    match args.as_slice() {
+        [] => {}
+        [arg] if arg == "-h" || arg == "--help" => {
+            print_usage();
+            return Ok(());
+        }
+        [arg] => bail!("unknown argument: {arg}"),
+        _ => bail!("unknown arguments: {}", args.join(" ")),
+    }
+
+    let checks = readiness_checks();
+    let ready = checks.iter().filter(|check| check.ready).count();
+
+    for check in &checks {
+        let status = if check.ready { "ready" } else { "blocker" };
+        eprintln!("{status:>7}  {:<28} {}", check.id, check.evidence);
+        if let Some(detail) = &check.detail {
+            eprintln!("         -> {detail}");
+        }
+    }
+
+    if ready == checks.len() {
+        eprintln!(
+            "[windows-readiness] ready: {ready}/{} local structural gates for Windows VST3 are present.",
+            checks.len()
+        );
+        return Ok(());
+    }
+
+    bail!(
+        "Windows readiness blockers: {}/{} gates ready",
+        ready,
+        checks.len()
+    )
+}
+
+fn print_usage() {
+    eprintln!(
+        "Usage: cargo run -p xtask -- windows-readiness\n\n\
+         Static audit for the Windows VST3 handoff point. It verifies that the\n\
+         pairing, restore-order, shell parity, RT-safety, platform path, JUCE patch,\n\
+         CI usage, and Windows preflight gates are all represented in source."
+    );
+}
+
+#[derive(Debug)]
+struct Check {
+    id: &'static str,
+    evidence: &'static str,
+    ready: bool,
+    detail: Option<String>,
+}
+
+fn readiness_checks() -> Vec<Check> {
+    vec![
+        check_all(
+            "pairing-discovery",
+            "candidate visibility and pairing separation tests exist",
+            &[
+                (
+                    PAIRING_CANDIDATES_TEST,
+                    &[
+                        "juce_candidate_abi_keeps_second_pre_visible_after_first_ready_post",
+                        "not hide a second differently named PRE",
+                        "kirin_hypha_enumerate_pre_candidates",
+                    ][..],
+                ),
+                (
+                    PAIRING_SCOPE_TEST,
+                    &[
+                        "pairing_scope_uses_post_candidates_not_io_thread_post",
+                        "crate::post_candidates::scan_post_candidates_in",
+                    ][..],
+                ),
+                (
+                    RECORD_SIGNAL_SEPARATION_TEST,
+                    &["record_signal_does_not_reexport_pairing_or_pre_candidates"][..],
+                ),
+            ],
+        ),
+        check_all(
+            "restore-order",
+            "PRE/POST state chunk restore is covered before and after enable",
+            &[(
+                PAIRING_CANDIDATES_TEST,
+                &[
+                    "restored_pair_target_before_enable_is_written_to_post_watch_json",
+                    "restored_pair_target_after_enable_updates_post_watch_json",
+                    "restored_pre_name_before_enable_is_written_to_pre_watch_json",
+                    "restored_pre_name_after_enable_updates_pre_watch_json",
+                ][..],
+            )],
+        ),
+        check_all(
+            "ffi-ignored-parity",
+            "slow FFI parity suite is documented and present in CI full run",
+            &[
+                (
+                    CI_WORKFLOW,
+                    &["cargo test -p kirin_hypha_ffi --test parity --locked -- --ignored --test-threads=1"][..],
+                ),
+                (
+                    STABILITY_PLAN,
+                    &["cargo test -p kirin_hypha_ffi --test parity -- --ignored --test-threads=1"][..],
+                ),
+            ],
+        ),
+        check_all(
+            "shell-parity",
+            "JUCE POST menu and Keep visibility have static parity tests",
+            &[(
+                SHELL_PARITY,
+                &[
+                    "post_controls_keep_visibility_depends_on_selected_pair",
+                    "candidate_menu_enumerates_pre_candidates_independent_of_current_pair",
+                    "candidate_selection_commits_pair_name_to_processor_and_field",
+                ][..],
+            )],
+        ),
+        check_all(
+            "rt-safety",
+            "audio-thread FFI surface and blocking-operation bans are static gated",
+            &[(
+                RT_SAFETY,
+                &[
+                    "process_block_calls_only_rt_safe_ffi_surface",
+                    "process_block_keeps_audio_thread_free_of_blocking_work",
+                    "ffi_push_samples_core_avoids_io_allocation_and_blocking_locks",
+                    "audio_thread_c_abi_wrappers_remain_thin",
+                ][..],
+            )],
+        ),
+        check_all(
+            "platform-paths",
+            "macOS and Windows storage roots are split behind PlatformPaths",
+            &[
+                (
+                    PLATFORM_STORAGE,
+                    &[
+                        "pub fn default_platform()",
+                        "pub fn current_kirin_tmp_root()",
+                        "pub fn for_windows(",
+                        "PlatformKind::Windows",
+                    ][..],
+                ),
+                (
+                    PLATFORM_PATHS_TEST,
+                    &[
+                        "storage_default_macos_is_wrapper_only",
+                        "kirin_tmp_root_is_platform_helper_only_in_production_sources",
+                    ][..],
+                ),
+            ],
+        ),
+        check_all(
+            "juce-patch-state",
+            "dirty JUCE submodule state is explainable as tracked patch stack",
+            &[
+                (
+                    JUCE_PATCH_VERIFY,
+                    &[
+                        "EXPECTED_HEAD=\"4f43011b96eb0636104cb3e433894cda98243626\"",
+                        "0001-macos15-sdk-cgwindowlistcreateimage-bypass.patch",
+                        "0002-drop-webkit-osxframework-from-juce-gui-extra.patch",
+                        "0003-au-preferred-channel-layout-tags-for-logic-mono.patch",
+                    ][..],
+                ),
+                (
+                    JUCE_PATCHES_MD,
+                    &[
+                        "bash scripts/verify_juce_patch_state.sh",
+                        "dirty `juce_shell/JUCE` checkout is **only** this tracked patch",
+                    ][..],
+                ),
+            ],
+        ),
+        check_all(
+            "ci-usage",
+            "full CI cannot resume consuming runner minutes on plain push",
+            &[(
+                CI_USAGE_GUARD,
+                &[
+                    "ci_workflow_gates_all_runner_jobs",
+                    "github.event_name == 'workflow_dispatch'",
+                    "contains(github.event.head_commit.message, '[ci full]')",
+                ][..],
+            )],
+        ),
+        check_all(
+            "windows-vst3-preflight",
+            "Windows VST3 build path is separated from macOS release gates",
+            &[
+                (
+                    WINDOWS_PREFLIGHT,
+                    &[
+                        "verify_cmake_platform_split",
+                        "verify_windows_ci_job",
+                        "KirinHyphaPRE_VST3 KirinHyphaPOST_VST3",
+                        "preflight_rejects_macos_release_step_in_windows_ci_job",
+                    ][..],
+                ),
+                (
+                    CI_WORKFLOW,
+                    &[
+                        "windows-vst3-preflight",
+                        "runs-on: windows-latest",
+                        "cargo run -p xtask --locked -- windows-preflight",
+                    ][..],
+                ),
+            ],
+        ),
+    ]
+}
+
+fn check_all(id: &'static str, evidence: &'static str, groups: &[(&str, &[&str])]) -> Check {
+    let missing: Vec<&str> = groups
+        .iter()
+        .flat_map(|(source, needles)| {
+            needles
+                .iter()
+                .copied()
+                .filter(move |needle| !source.contains(needle))
+        })
+        .collect();
+
+    Check {
+        id,
+        evidence,
+        ready: missing.is_empty(),
+        detail: if missing.is_empty() {
+            None
+        } else {
+            Some(format!("missing {}", missing.join(", ")))
+        },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn windows_readiness_accepts_current_checkout() {
+        let checks = readiness_checks();
+        assert_eq!(checks.len(), 9);
+        let blockers: Vec<_> = checks
+            .iter()
+            .filter(|check| !check.ready)
+            .map(|check| check.id)
+            .collect();
+        assert!(blockers.is_empty(), "readiness blockers: {blockers:?}");
+    }
+
+    #[test]
+    fn check_all_reports_missing_evidence() {
+        let check = check_all("demo", "evidence", &[("abc", &["abc", "def"])]);
+        assert!(!check.ready);
+        assert!(check.detail.unwrap().contains("def"));
+    }
+}
