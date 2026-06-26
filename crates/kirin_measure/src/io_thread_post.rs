@@ -305,7 +305,6 @@ pub fn spawn_io_thread_post(
             let project_dir_hint = kirin_root.join(&*ph_guard);
             let instance_dir = project_dir_hint.join(&*iid_guard);
             let post_file = instance_dir.join("post.json");
-            let post_tmp = instance_dir.join("post.json.tmp");
 
             // B-027 段階 3-B α-7-1 / Step 6: pair_pre_name snapshot per tick。
             // RwLock read guard 寿命を tick 内に閉じる (closure スコープから外で
@@ -374,7 +373,6 @@ pub fn spawn_io_thread_post(
                 &kirin_root,
                 &mut discovery,
                 &instance_dir,
-                &post_tmp,
                 &post_file,
                 instance_id_ref,
                 &post_result,
@@ -669,11 +667,10 @@ pub fn spawn_io_thread_post(
         let final_project_dir_hint = kirin_root.join(&*final_ph_guard);
         let final_instance_dir = final_project_dir_hint.join(&*final_iid_guard);
         let final_post_file = final_instance_dir.join("post.json");
-        let final_post_tmp = final_instance_dir.join("post.json.tmp");
         if let Err(e) = fs::remove_file(&final_post_file) {
             log::debug!("[IOThread POST] cleanup post file: {}", e);
         }
-        if let Err(e) = fs::remove_file(&final_post_tmp) {
+        if let Err(e) = crate::atomic_file::remove_temp_siblings(&final_post_file) {
             log::debug!("[IOThread POST] cleanup post tmp: {}", e);
         }
         let _ = fs::remove_dir(&final_instance_dir);
@@ -975,7 +972,6 @@ fn run_tick(
     kirin_root: &Path,
     _discovery: &mut PostDiscoveryState,
     instance_dir: &Path,
-    post_tmp: &Path,
     post_file: &Path,
     instance_id: &str,
     post_result: &Arc<Mutex<MeasureResult>>,
@@ -1002,8 +998,8 @@ fn run_tick(
         // Q-A7 採用案 A (post.json schema 拡張による cross-instance 公開)。
         // W-281: pair_claimed_at も同 tick snapshot を書き出す (後着優先 self check 軸)。
         let json = serialize_post_json_minimal(instance_id, state, pair_pre_name, pair_claimed_at);
-        fs::write(post_tmp, json.as_bytes()).map_err(|e| format!("write tmp: {e}"))?;
-        fs::rename(post_tmp, post_file).map_err(|e| format!("rename: {e}"))?;
+        crate::atomic_file::write_bytes_atomic(post_file, json.as_bytes())
+            .map_err(|e| format!("atomic write: {e}"))?;
         return Ok(());
     }
 
@@ -1057,8 +1053,8 @@ fn run_tick(
         pair_pre_name,
         pair_claimed_at,
     );
-    fs::write(post_tmp, json.as_bytes()).map_err(|e| format!("write tmp: {e}"))?;
-    fs::rename(post_tmp, post_file).map_err(|e| format!("rename: {e}"))?;
+    crate::atomic_file::write_bytes_atomic(post_file, json.as_bytes())
+        .map_err(|e| format!("atomic write: {e}"))?;
 
     Ok(())
 }

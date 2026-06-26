@@ -281,7 +281,6 @@ pub fn spawn_io_thread_pre(
             let name_owned_for_write = read_instance_id_arc(&name);
             let dir = io_dir(&project_hash, instance_id_ref);
             let file_path = dir.join("pre.json");
-            let tmp_path = dir.join("pre.json.tmp");
 
             // ① pre.json（Watch 値）書き込み
             // path は PRE 自身の `project_hash` で構築する。POST 側 io_thread
@@ -291,7 +290,6 @@ pub fn spawn_io_thread_pre(
             // 拾える。本 path は B-022 では変更しない。
             if let Err(e) = write_json(
                 &dir,
-                &tmp_path,
                 &file_path,
                 instance_id_ref,
                 name_owned_for_write.as_str(),
@@ -493,11 +491,10 @@ pub fn spawn_io_thread_pre(
         let final_iid = read_instance_id_arc(&instance_id);
         let final_dir = io_dir(&project_hash, &final_iid);
         let final_file = final_dir.join("pre.json");
-        let final_tmp = final_dir.join("pre.json.tmp");
         if let Err(e) = fs::remove_file(&final_file) {
             log::debug!("[IOThread PRE] cleanup file: {}", e);
         }
-        if let Err(e) = fs::remove_file(&final_tmp) {
+        if let Err(e) = crate::atomic_file::remove_temp_siblings(&final_file) {
             log::debug!("[IOThread PRE] cleanup tmp: {}", e);
         }
         // instance ディレクトリ自体も空なら削除（残骸を残さない）
@@ -828,7 +825,6 @@ fn retry_direct_read(
 /// 計測結果を JSON に変換して アトミックに書き込む（Watch 値）。
 fn write_json(
     dir: &Path,
-    tmp_path: &Path,
     file_path: &Path,
     instance_id: &str,
     name: &str,
@@ -857,8 +853,8 @@ fn write_json(
         serialize_pre_json_minimal(instance_id, name, state)
     };
 
-    fs::write(tmp_path, json.as_bytes()).map_err(|e| format!("write tmp: {e}"))?;
-    fs::rename(tmp_path, file_path).map_err(|e| format!("rename: {e}"))?;
+    crate::atomic_file::write_bytes_atomic(file_path, json.as_bytes())
+        .map_err(|e| format!("atomic write: {e}"))?;
 
     Ok(())
 }
