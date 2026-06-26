@@ -1,7 +1,9 @@
 /*
  * kirin_hypha_ffi.h — Kirin Hypha JUCE 移植の C ABI（正本・手書き）.
  *
- * 対応 staticlib: target/{debug,release}/libkirin_hypha_ffi.a
+ * 対応 staticlib:
+ *   - Windows/MSVC: target/{debug,release}/kirin_hypha_ffi.lib
+ *   - macOS/Linux:  target/{debug,release}/libkirin_hypha_ffi.a
  * 実装:           crates/kirin_hypha_ffi/src/lib.rs（このヘッダと常に一致させること）.
  *
  * C ABI surface（すべて実装済み）:

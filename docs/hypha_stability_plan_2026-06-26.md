@@ -193,6 +193,7 @@ Windows 着手条件:
 - `xtask windows-vst3-layout` を追加し、Windows PRE/POST VST3 の build output と Steinberg 定義の user-dev / global install root を明示し、macOS AU / notarize / LS packaging と混線しないことを固定した。
 - B-187 review で CI usage / Windows preflight の静的ガードを厳格化し、コメント中の文字列・step-level `if`・plain push 逃げ条件では gate を通過できないようにした。
 - Windows preflight job に PRE/POST `.vst3` 実 artifact の存在確認と upload-artifact を追加し、runner 復活後に生成物を取得して inspect できる状態にした。
+- FFI 正本ヘッダ / README / Cargo metadata の staticlib 説明を Windows/MSVC `.lib` と macOS/Linux `.a` の両方に更新し、`xtask windows-preflight` で退行を検出するようにした。
 
 ## 優先順位
 

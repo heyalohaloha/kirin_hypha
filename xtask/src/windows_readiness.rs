@@ -256,7 +256,10 @@ fn readiness_checks() -> Vec<Check> {
                     &[
                         "verify_cmake_platform_split",
                         "verify_windows_ci_job",
+                        "verify_ffi_staticlib_docs",
                         "KirinHyphaPRE_VST3 KirinHyphaPOST_VST3",
+                        "preflight_requires_windows_staticlib_docs",
+                        "preflight_requires_cargo_staticlib_docs",
                         "preflight_requires_windows_artifact_presence_check",
                         "preflight_requires_windows_artifact_upload_error_on_missing_files",
                         "preflight_rejects_macos_release_step_in_windows_ci_job",

@@ -28,7 +28,9 @@ C ABI で包む。C++/JUCE 側に DSP・計測ロジックを一切移さない�
 ## ビルド
 
 ```sh
-# C 用 staticlib（本番成果物）: target/{debug,release}/libkirin_hypha_ffi.a
+# C 用 staticlib（本番成果物）
+# Windows/MSVC: target/{debug,release}/kirin_hypha_ffi.lib
+# macOS/Linux:  target/{debug,release}/libkirin_hypha_ffi.a
 cargo build -p kirin_hypha_ffi --release
 ```
 
