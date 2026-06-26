@@ -8,6 +8,7 @@ mod release_package;
 mod rt_safety;
 mod shell_parity;
 mod stamp_version;
+mod windows_preflight;
 
 fn main() -> nih_plug_xtask::Result<()> {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
@@ -37,6 +38,10 @@ fn main() -> nih_plug_xtask::Result<()> {
         Some("stamp-egui-version") => {
             args.remove(0);
             stamp_version::run(args)
+        }
+        Some("windows-preflight") => {
+            args.remove(0);
+            windows_preflight::run(args)
         }
         _ => nih_plug_xtask::main_with_args("cargo xtask", args),
     }
