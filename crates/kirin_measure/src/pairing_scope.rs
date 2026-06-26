@@ -9,7 +9,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use crate::record_signal::{
+use crate::pre_candidates::{
     enumerate_active_pre_pair_candidates, filter_candidates_by_name, scan_pre_candidates_in,
     PreCandidate,
 };

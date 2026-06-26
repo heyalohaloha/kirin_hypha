@@ -690,7 +690,7 @@ fn poll_record_signal(
 
     // B-027: 書込側 guard を Bypassed のみに緩和。停止中 (Inactive) PRE も
     // pair 候補として ack する。二重防御の片側 (POST 側読込 filter は
-    // record_signal::scan_pre_candidates_in で同等動作)。
+    // pre_candidates::scan_pre_candidates_in で同等動作)。
     let current_state = load_signal_state(signal_state);
     if current_state == SignalState::Bypassed {
         log::info!(
@@ -1935,7 +1935,7 @@ mod tests {
 
     /// B-131 (G-115-380) census-twin: instance_id も serde escape される（PRE 側）。restore で `"` を
     /// 含む instance_id が materialize wall（is_path_safe_component は `"` を拒否しない）を素通っても
-    /// valid JSON になり、POST の scan_pre_candidates_in が parse 失敗 → pairing 消失する同種 R-28 を防ぐ。
+    /// valid JSON になり、POST の pre_candidates scan が parse 失敗 → pairing 消失する同種 R-28 を防ぐ。
     #[test]
     fn serialize_pre_json_escapes_instance_id_quote() {
         let r = MeasureResult::default();
