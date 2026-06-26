@@ -10,6 +10,7 @@ mod rt_safety;
 mod shell_parity;
 mod stamp_version;
 mod windows_preflight;
+mod windows_readiness;
 
 fn main() -> nih_plug_xtask::Result<()> {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
@@ -47,6 +48,10 @@ fn main() -> nih_plug_xtask::Result<()> {
         Some("windows-preflight") => {
             args.remove(0);
             windows_preflight::run(args)
+        }
+        Some("windows-readiness") => {
+            args.remove(0);
+            windows_readiness::run(args)
         }
         _ => nih_plug_xtask::main_with_args("cargo xtask", args),
     }
