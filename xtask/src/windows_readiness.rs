@@ -249,7 +249,7 @@ fn readiness_checks() -> Vec<Check> {
         ),
         check_all(
             "windows-vst3-preflight",
-            "Windows VST3 build path is separated from macOS release gates",
+            "Windows VST3 build path and artifact capture are separated from macOS release gates",
             &[
                 (
                     WINDOWS_PREFLIGHT,
@@ -257,6 +257,8 @@ fn readiness_checks() -> Vec<Check> {
                         "verify_cmake_platform_split",
                         "verify_windows_ci_job",
                         "KirinHyphaPRE_VST3 KirinHyphaPOST_VST3",
+                        "preflight_requires_windows_artifact_presence_check",
+                        "preflight_requires_windows_artifact_upload_error_on_missing_files",
                         "preflight_rejects_macos_release_step_in_windows_ci_job",
                     ][..],
                 ),
@@ -266,6 +268,9 @@ fn readiness_checks() -> Vec<Check> {
                         "windows-vst3-preflight",
                         "runs-on: windows-latest",
                         "cargo run -p xtask --locked -- windows-preflight",
+                        "Verify Windows VST3 artifacts",
+                        "uses: actions/upload-artifact@v7",
+                        "if-no-files-found: error",
                     ][..],
                 ),
             ],
