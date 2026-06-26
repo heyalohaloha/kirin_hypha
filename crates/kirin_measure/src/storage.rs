@@ -239,15 +239,13 @@ impl std::error::Error for StorageError {}
 
 // ── 個別の保存 / 読込 操作（T-2） ─────────────────────────────────────────
 
-/// Identity を指定パスに atomic write する（`.tmp` → rename）。
+/// Identity を指定パスに atomic write する（unique tmp → rename）。
 pub fn write_identity_atomic(path: &Path, identity: &Identity) -> Result<(), StorageError> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(StorageError::CreateDir)?;
     }
-    let tmp = path.with_extension("json.tmp");
     let json = identity.to_json_pretty().map_err(StorageError::Parse)?;
-    fs::write(&tmp, json.as_bytes()).map_err(StorageError::Write)?;
-    fs::rename(&tmp, path).map_err(StorageError::Rename)?;
+    crate::atomic_file::write_bytes_atomic(path, json.as_bytes()).map_err(StorageError::Write)?;
     Ok(())
 }
 
@@ -862,8 +860,10 @@ mod tests {
     fn atomic_write_does_not_leave_tmp() {
         let (paths, root) = isolated_paths();
         let _ = load_or_recover(&paths, hc("A", "B", "C"), License::Os).unwrap();
-        let tmp = paths.primary_path().with_extension("json.tmp");
-        assert!(!tmp.exists(), ".tmp should be removed after rename");
+        assert_eq!(
+            crate::atomic_file::remove_temp_siblings(&paths.primary_path()).unwrap(),
+            0
+        );
         let _ = fs::remove_dir_all(root);
     }
 

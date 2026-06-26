@@ -119,12 +119,6 @@ pub fn signal_path(
     signals_dir(base_dir, project_hash).join(format!("{iid}.json"))
 }
 
-fn tmp_path(final_path: &Path) -> PathBuf {
-    let mut s = final_path.as_os_str().to_os_string();
-    s.push(".tmp");
-    PathBuf::from(s)
-}
-
 // ── I/O ──────────────────────────────────────────────────────────────────────
 
 /// I/O / serde エラー (record_signal::SignalError と同パターン)。
@@ -157,7 +151,7 @@ impl From<serde_json::Error> for AllKeepError {
     }
 }
 
-/// broadcast を atomic 書込 (`.tmp` → rename)。親ディレクトリが無ければ作成。
+/// broadcast を atomic 書込 (unique tmp → rename)。親ディレクトリが無ければ作成。
 ///
 /// originator 側 `trigger_all_keep_broadcast` から 1 回だけ呼ぶ。同一 originator が
 /// 連打した場合は同 path に atomic rename で上書き (last-wins / 受信側 cache の
@@ -178,7 +172,7 @@ pub fn write_broadcast(
     Ok(broadcast)
 }
 
-/// 任意の broadcast を atomic 書込 (`.tmp` → rename)。
+/// 任意の broadcast を atomic 書込 (unique tmp → rename)。
 pub fn write_broadcast_signal(
     base_dir: &Path,
     project_hash: &str,
@@ -186,13 +180,8 @@ pub fn write_broadcast_signal(
     broadcast: &AllKeepBroadcast,
 ) -> Result<(), AllKeepError> {
     let final_path = signal_path(base_dir, project_hash, originator_post_instance_id);
-    if let Some(parent) = final_path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    let tmp = tmp_path(&final_path);
     let json = serde_json::to_vec(broadcast)?;
-    fs::write(&tmp, json)?;
-    fs::rename(&tmp, &final_path)?;
+    crate::atomic_file::write_bytes_atomic(&final_path, &json)?;
     Ok(())
 }
 
@@ -369,8 +358,7 @@ mod tests {
 
         let path = signal_path(&base, "ph", "originator-1");
         assert!(path.exists(), "broadcast file should exist");
-        let tmp = tmp_path(&path);
-        assert!(!tmp.exists(), ".tmp should be removed after rename");
+        assert_eq!(crate::atomic_file::remove_temp_siblings(&path).unwrap(), 0);
     }
 
     #[test]

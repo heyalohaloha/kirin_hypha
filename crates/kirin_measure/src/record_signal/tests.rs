@@ -198,9 +198,11 @@ fn atomic_write_leaves_no_tmp_behind() {
     let base = isolated_dir();
     write_pending(&base, "ph", "post-1", "pre-1".into(), "daw-1".into()).unwrap();
     let final_path = signal_path(&base, "ph", "post-1");
-    let tmp = tmp_path(&final_path);
     assert!(final_path.exists());
-    assert!(!tmp.exists(), "tmp must be renamed away: {tmp:?}");
+    assert_eq!(
+        crate::atomic_file::remove_temp_siblings(&final_path).unwrap(),
+        0
+    );
 }
 
 // ── scan_signals_dir ────────────────────────────────────

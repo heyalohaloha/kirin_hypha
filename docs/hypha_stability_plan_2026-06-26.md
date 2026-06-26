@@ -176,6 +176,7 @@ Windows 着手条件:
 - FFI ignored integration に restore-order fixture を追加し、PRE name / POST pair target が `enable_*_writes` の前後どちらで復元されても watch JSON に反映されることを固定した。
 - `xtask` に RT-safety gate を追加し、JUCE `processBlock` が呼べる C ABI を allowlist 化し、FFI `push_samples` に filesystem / blocking lock / allocation 系が再混入しないことを静的テストで監視するようにした。
 - PRE/POST watch JSON 書込を共有 `atomic_file` 経由へ寄せ、固定名 `pre.json.tmp` / `post.json.tmp` の競合で rename source が消える経路を潰した。
+- `record_signal` / All Keep / All Stop / identity の atomic write も共有 `atomic_file` 経由へ寄せ、通信系JSONのtmp命名とcleanup規則を揃えた。
 
 ## 優先順位
 
