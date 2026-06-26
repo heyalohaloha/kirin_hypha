@@ -25,6 +25,19 @@ fn collect_rs_files(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
+fn collect_crate_src_rs_files(root: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    let crates_dir = root.join("crates");
+    let entries = fs::read_dir(&crates_dir).expect("read crates dir");
+    for entry in entries.flatten() {
+        let src = entry.path().join("src");
+        if src.is_dir() {
+            collect_rs_files(&src, &mut out);
+        }
+    }
+    out
+}
+
 #[test]
 fn storage_default_macos_is_wrapper_only() {
     let root = workspace_root();
@@ -53,5 +66,33 @@ fn storage_default_macos_is_wrapper_only() {
     assert!(
         offenders.is_empty(),
         "storage callers must use StoragePaths::default_platform(); offenders: {offenders:?}"
+    );
+}
+
+#[test]
+fn kirin_tmp_root_is_platform_helper_only_in_production_sources() {
+    let root = workspace_root();
+    let allowed = root.join("crates/kirin_measure/src/storage.rs");
+    let forbidden = ["std::env::temp_dir()", ".join(\"", "kirin", "\")"].concat();
+    let mut offenders = Vec::new();
+
+    for path in collect_crate_src_rs_files(&root) {
+        if path == allowed {
+            continue;
+        }
+        let src = fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {path:?}: {e}"));
+        if src.contains(&forbidden) {
+            offenders.push(
+                path.strip_prefix(&root)
+                    .unwrap_or(&path)
+                    .display()
+                    .to_string(),
+            );
+        }
+    }
+
+    assert!(
+        offenders.is_empty(),
+        "production watch root callers must use PlatformPaths::current_kirin_tmp_root(); offenders: {offenders:?}"
     );
 }

@@ -54,9 +54,9 @@ use kirin_measure::{
     set_project_uuid, spawn_io_thread_post, spawn_io_thread_pre, spawn_measure_thread,
     spawn_watchdog, store_signal_state, write_broadcast, write_pending, write_stop_broadcast,
     DeltaMode, DeltaResult, ExclusionResult, IoThreadHandle, LatchedPre, License,
-    LivenessEvaluator, MeasureResult, PluginDataRole, PsbSummary, RecordStateMachine,
-    RecordTraceQueue, RestartIoFn, SignalState, StoragePaths, WatchdogIo, WatchdogParams,
-    MAX_ACTIVE_PER_PROJECT, N_CHANNELS, RING_BUFFER_SECONDS,
+    LivenessEvaluator, MeasureResult, PlatformPaths, PluginDataRole, PsbSummary,
+    RecordStateMachine, RecordTraceQueue, RestartIoFn, SignalState, StoragePaths, WatchdogIo,
+    WatchdogParams, MAX_ACTIVE_PER_PROJECT, N_CHANNELS, RING_BUFFER_SECONDS,
 };
 
 /// state chunk 往復する識別子（方式A: JUCE が chunk bytes を所有・FFI は文字列 get/set のみ）。
@@ -361,7 +361,7 @@ fn resolve_and_enter_keep(
     if record_sm.is_recording() {
         return false;
     }
-    let kirin_root = std::env::temp_dir().join("kirin");
+    let kirin_root = PlatformPaths::current_kirin_tmp_root();
     let pair = pair_target.read().map(|g| g.clone()).unwrap_or_default();
     // B-108: ラッチ済み（名前一致+fresh）はラッチ先を直接使用、未ラッチは B-104 Arm ゲート
     // （非Bypassed + fresh + 一意 / Active 要求なし）。v1.0.0 の「アーム→再生」を維持する。
@@ -1202,7 +1202,7 @@ impl KirinHyphaEngine {
     /// pair 候補（Active な PRE）を列挙する（B-102 / GUI ドロップダウン用・read-only）。
     /// `$TMPDIR/kirin/` 配下の Active PRE を走査し (instance_id, name) で返す。
     pub fn enumerate_pre_candidates(&self) -> Vec<(String, Option<String>)> {
-        let kirin_root = std::env::temp_dir().join("kirin");
+        let kirin_root = PlatformPaths::current_kirin_tmp_root();
         let project_hash = read_shared_id(shared_post_project_hash_cell());
         enumerate_active_pre_pair_candidates_for_post_project(&kirin_root, &project_hash)
             .into_iter()
@@ -1214,7 +1214,7 @@ impl KirinHyphaEngine {
     /// hypha_post editor.rs:938-944）。`enumerate_active_post_pair_candidates`（解決済み機構）を
     /// 再利用し `pair_pre_name.is_some()` を数える read-only カウント（GUI ラベル表示用）。
     pub fn count_keep_ready(&self) -> usize {
-        let kirin_root = std::env::temp_dir().join("kirin");
+        let kirin_root = PlatformPaths::current_kirin_tmp_root();
         let project_hash = read_shared_id(shared_post_project_hash_cell());
         enumerate_active_post_pair_candidates(&kirin_root)
             .into_iter()

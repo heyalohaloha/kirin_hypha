@@ -137,6 +137,10 @@ impl StoragePaths {
 }
 
 impl PlatformPaths {
+    pub fn current_kirin_tmp_root() -> PathBuf {
+        std::env::temp_dir().join("kirin")
+    }
+
     pub fn for_macos(home: impl Into<PathBuf>, temp_dir: impl Into<PathBuf>) -> Self {
         let kirin_os_root = home
             .into()
@@ -474,8 +478,7 @@ pub fn cleanup_legacy_v1(paths: &StoragePaths) -> CleanupReport {
     let pd = paths.plugin_data_dir();
     let legacy_mix = pd.join("default").join("MIX");
     let legacy_preset = pd.join("default").join("preset");
-    let legacy_tmp = std::env::temp_dir()
-        .join("kirin")
+    let legacy_tmp = PlatformPaths::current_kirin_tmp_root()
         .join("default")
         .join("MIX");
 
@@ -500,7 +503,7 @@ pub fn cleanup_legacy_v1(paths: &StoragePaths) -> CleanupReport {
     if legacy_default.exists() {
         let _ = fs::remove_dir(&legacy_default);
     }
-    let legacy_tmp_default = std::env::temp_dir().join("kirin").join("default");
+    let legacy_tmp_default = PlatformPaths::current_kirin_tmp_root().join("default");
     if legacy_tmp_default.exists() {
         let _ = fs::remove_dir(&legacy_tmp_default);
     }
