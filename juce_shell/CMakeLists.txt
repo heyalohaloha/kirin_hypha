@@ -52,6 +52,12 @@ else()
     set(KIRIN_FORCE_INCLUDE_ARGS -include "${CMAKE_CURRENT_LIST_DIR}/src/KirinJucePluginConfig.h")
 endif()
 
+if(WIN32)
+    set(KIRIN_RUST_NATIVE_LIBS ntdll userenv bcrypt ws2_32 advapi32)
+else()
+    set(KIRIN_RUST_NATIVE_LIBS)
+endif()
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -104,7 +110,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT MAIN_SRC BUNDLE_ID)
         ${CMAKE_CURRENT_SOURCE_DIR}/../crates/kirin_hypha_ffi/include)
 
     # B-054: link the embedded mycelium PNG (provides BinaryData.h to the editor).
-    target_link_libraries(${TARGET} PRIVATE ${KIRIN_FFI_LIB} KirinHyphaData)
+    target_link_libraries(${TARGET} PRIVATE ${KIRIN_FFI_LIB} KirinHyphaData ${KIRIN_RUST_NATIVE_LIBS})
 
     target_compile_definitions(${TARGET} PUBLIC
         JUCE_WEB_BROWSER=0

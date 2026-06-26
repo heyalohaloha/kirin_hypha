@@ -29,6 +29,8 @@ const SR: u32 = 48_000;
 const N_MAX_REL: f64 = 1e-3; // N_spec relative
 const SHARP_EPS: f64 = 0.05; // sharpness abs [acum]
 const PSB_ABS_FLOOR: f64 = 1e-9; // 同一コード経路の数値ノイズ吸収用の微小 abs floor
+const PHASE_D_PARITY_SECONDS: f64 = 6.0; // async FFI publication may lag one frame; use converged steady state
+const PHASE_D_PARITY_BLOCK_SLEEP_MS: u64 = 110; // keep below the 2s ring cap even under parallel tests
 
 /// 定常マルチトーン（200/1000/5000 Hz）, L==R, f32 interleaved。
 fn gen_stereo_f32(seconds: f64) -> Vec<f32> {
@@ -140,7 +142,8 @@ fn drive_ffi(stereo_f32: &[f32]) -> (kirin_measure::MeasureResult, u64) {
     let engine = KirinHyphaEngine::new(SR, 2);
     engine.set_signal_state(1); // Active (ABI code)
 
-    // 0.1s ブロックを ~30ms 間隔で投入（consumer は 100ms ごとに全 drain → ring 2s に十分収まる）。
+    // 0.1s ブロックを実時間より少し遅く投入する。workspace test の並列実行中でも
+    // 2s ring を超えず、Phase D steady-state parity のサンプル列を落とさない。
     let block_frames = SR as usize / 10; // 0.1s
     let block_len = block_frames * 2; // stereo
     let mut i = 0;
@@ -148,7 +151,7 @@ fn drive_ffi(stereo_f32: &[f32]) -> (kirin_measure::MeasureResult, u64) {
         let end = (i + block_len).min(stereo_f32.len());
         engine.push_samples(&stereo_f32[i..end], 2);
         i = end;
-        sleep(Duration::from_millis(30));
+        sleep(Duration::from_millis(PHASE_D_PARITY_BLOCK_SLEEP_MS));
     }
 
     // keepalive（heartbeat を進めて Active 維持）しつつ、残サンプルが drain され結果が
@@ -177,7 +180,7 @@ fn drive_ffi(stereo_f32: &[f32]) -> (kirin_measure::MeasureResult, u64) {
 
 #[test]
 fn parity_phase_d_metrics_ffi_vs_direct() {
-    let signal = gen_stereo_f32(3.0);
+    let signal = gen_stereo_f32(PHASE_D_PARITY_SECONDS);
 
     // direct 参照
     let direct = direct_phase_d(&signal);

@@ -69,6 +69,16 @@ fn verify_cmake_platform_split(cmake: &str) -> Result<()> {
         "set(KIRIN_FORCE_INCLUDE_ARGS -include \"${CMAKE_CURRENT_LIST_DIR}/src/KirinJucePluginConfig.h\")",
         "non-MSVC compilers must keep the existing -include forced header",
     )?;
+    require(
+        cmake,
+        "if(WIN32)\n    set(KIRIN_RUST_NATIVE_LIBS ntdll userenv bcrypt ws2_32 advapi32)",
+        "Windows must link Rust staticlib native system libraries",
+    )?;
+    require(
+        cmake,
+        "target_link_libraries(${TARGET} PRIVATE ${KIRIN_FFI_LIB} KirinHyphaData ${KIRIN_RUST_NATIVE_LIBS})",
+        "plugin targets must link the Rust native library variable",
+    )?;
     reject(
         cmake,
         "        FORMATS AU VST3",
@@ -165,6 +175,18 @@ mod tests {
         assert!(err
             .to_string()
             .contains("MSVC must use /FI for the forced include header"));
+    }
+
+    #[test]
+    fn preflight_requires_windows_rust_native_libs() {
+        let bad = JUCE_CMAKE.replace(
+            "set(KIRIN_RUST_NATIVE_LIBS ntdll userenv bcrypt ws2_32 advapi32)",
+            "set(KIRIN_RUST_NATIVE_LIBS)",
+        );
+        let err = verify_cmake_platform_split(&bad).unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("Windows must link Rust staticlib native system libraries"));
     }
 
     #[test]
