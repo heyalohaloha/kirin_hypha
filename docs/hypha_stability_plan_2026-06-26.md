@@ -180,6 +180,7 @@ Windows 着手条件:
 - JUCE CMake を platform 分岐し、macOS は AU+VST3 / Windows は VST3-only + MSVC `.lib` 既定に分離し、`xtask windows-preflight` で崩れを検出できるようにした。
 - B-174 review で、Windows VST3 経路に残っていた clang/gcc 専用 `-include` を MSVC `/FI` 分岐へ修正し、preflight で再混入を検出するようにした。
 - CI に Windows VST3 preflight job を追加し、`windows-latest` 上で MSVC staticlib、`xtask windows-preflight`、JUCE PRE/POST VST3 target build を macOS AU release gate から分離して検証する入口を作った。
+- Windows CI 初回で露出した CRLF checkout 差分を `xtask windows-preflight` 側で吸収し、preflight 自体が platform 改行差で誤検知しない fixture を追加した。
 
 ## 優先順位
 

@@ -31,6 +31,9 @@ fn print_usage() {
 }
 
 fn verify_cmake_platform_split(cmake: &str) -> Result<()> {
+    let cmake = normalize_newlines(cmake);
+    let cmake = cmake.as_str();
+
     require(
         cmake,
         "if(APPLE)\n    # B-092",
@@ -99,6 +102,10 @@ fn verify_cmake_platform_split(cmake: &str) -> Result<()> {
     Ok(())
 }
 
+fn normalize_newlines(source: &str) -> String {
+    source.replace("\r\n", "\n").replace('\r', "\n")
+}
+
 fn require(source: &str, needle: &str, message: &str) -> Result<()> {
     if source.contains(needle) {
         Ok(())
@@ -122,6 +129,12 @@ mod tests {
     #[test]
     fn juce_cmake_keeps_windows_vst3_preflight_separate_from_macos_release() {
         verify_cmake_platform_split(JUCE_CMAKE).unwrap();
+    }
+
+    #[test]
+    fn preflight_accepts_crlf_checkout() {
+        let crlf = JUCE_CMAKE.replace('\n', "\r\n");
+        verify_cmake_platform_split(&crlf).unwrap();
     }
 
     #[test]
