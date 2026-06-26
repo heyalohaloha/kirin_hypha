@@ -8,6 +8,8 @@ use serde::Deserialize;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+const RECORD_SIGNAL_RESERVED_DIR: &str = "record_signal";
+
 /// `/tmp/kirin/{ph}/{instance_id}/pre.json` 1 件分のパース結果。
 #[derive(Debug, Clone, PartialEq)]
 pub struct PreCandidate {
@@ -74,7 +76,7 @@ pub fn scan_pre_candidates_in(project_dir: &Path) -> Vec<PreCandidate> {
             continue;
         }
         // record_signal/ ディレクトリは除外
-        if path.file_name().and_then(|n| n.to_str()) == Some(crate::record_signal::SIGNALS_SUBDIR) {
+        if path.file_name().and_then(|n| n.to_str()) == Some(RECORD_SIGNAL_RESERVED_DIR) {
             continue;
         }
         let pre_file = path.join("pre.json");
@@ -213,3 +215,6 @@ pub fn pick_closest_pre(candidates: &[PreCandidate], post: PostMetrics) -> Optio
         }
     }
 }
+
+#[cfg(test)]
+mod tests;
