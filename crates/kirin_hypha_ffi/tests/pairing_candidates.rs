@@ -1,0 +1,144 @@
+//! Shell-facing pairing candidate scenarios.
+//!
+//! These tests exercise the C ABI that the JUCE shell calls for the POST dropdown.
+
+use std::ffi::CStr;
+use std::thread::sleep;
+use std::time::Duration;
+
+use kirin_hypha_ffi::{
+    kirin_hypha_count_keep_ready, kirin_hypha_enumerate_pre_candidates, KirinHyphaEngine,
+    KirinPreCandidate,
+};
+
+const SR: u32 = 48_000;
+
+fn isolate_env(label: &str) -> (std::path::PathBuf, std::path::PathBuf) {
+    let root = std::env::temp_dir().join(format!(
+        "kirin_pairing_candidates_{label}_pid{}",
+        std::process::id()
+    ));
+    let home = root.join("home");
+    let tmp = root.join("tmp");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::env::set_var("HOME", &home);
+    std::env::set_var("TMPDIR", &tmp);
+    kirin_hypha_ffi::__reset_shared_ids_for_tests();
+
+    let kirin_os = home.join("Library/Application Support/Kirin OS");
+    std::fs::create_dir_all(&kirin_os).unwrap();
+    std::fs::write(
+        kirin_os.join("identity.json"),
+        r#"{"schema_version":"1.0","installation_id":"pairing-candidate-test","hardware_id":"hw","hardware_components":{"iop":"a","sn":"b","bd":"c"},"machine_signature":"sig","license":"os","created_at":"2026-06-26T00:00:00Z","last_verified_at":"2026-06-26T00:00:00Z"}"#,
+    )
+    .unwrap();
+
+    (home, tmp)
+}
+
+fn spawn_pre(instance_id: &str, project_uuid: &str, name: &str) -> KirinHyphaEngine {
+    let pre = KirinHyphaEngine::new(SR, 2);
+    pre.set_license(0);
+    pre.set_identity(
+        instance_id.to_string(),
+        project_uuid.to_string(),
+        "daw-pre".to_string(),
+        name.to_string(),
+    );
+    pre.enable_pre_writes();
+    pre.set_signal_state(0);
+    pre
+}
+
+fn spawn_post(instance_id: &str, project_uuid: &str, name: &str) -> KirinHyphaEngine {
+    let post = KirinHyphaEngine::new(SR, 2);
+    post.set_license(0);
+    post.set_identity(
+        instance_id.to_string(),
+        project_uuid.to_string(),
+        "daw-post".to_string(),
+        name.to_string(),
+    );
+    post.enable_post_writes();
+    post.set_signal_state(0);
+    post
+}
+
+fn read_candidate_names(post: &KirinHyphaEngine) -> Vec<String> {
+    let mut buf: [KirinPreCandidate; 8] = std::array::from_fn(|_| unsafe { std::mem::zeroed() });
+    let handle = (post as *const KirinHyphaEngine).cast_mut();
+    let n = unsafe { kirin_hypha_enumerate_pre_candidates(handle, buf.as_mut_ptr(), buf.len()) };
+    buf.iter()
+        .take(n)
+        .filter(|c| c.has_name != 0)
+        .map(|c| unsafe { CStr::from_ptr(c.name.as_ptr()) })
+        .map(|s| s.to_string_lossy().to_string())
+        .collect()
+}
+
+fn wait_for_candidate_names(post: &KirinHyphaEngine, expected: &[&str]) -> Vec<String> {
+    for _ in 0..60 {
+        let names = read_candidate_names(post);
+        if expected.iter().all(|name| names.iter().any(|n| n == name)) {
+            return names;
+        }
+        post.push_samples(&[], 2);
+        sleep(Duration::from_millis(50));
+    }
+    read_candidate_names(post)
+}
+
+/// AU/JUCE POST dropdown parity.
+///
+/// `Drum` / `Mix` are fixture labels only. The invariant is that an existing named POST claim must
+/// not hide a second differently named PRE from the same C ABI candidate list.
+#[test]
+#[ignore = "slow: C ABI candidate enumeration with PRE/POST io threads (sets HOME/TMPDIR)"]
+fn juce_candidate_abi_keeps_second_pre_visible_after_first_ready_post() {
+    let (home, tmp) = isolate_env("drum_then_mix");
+
+    let pre_drum = spawn_pre("iid-pre-drum", "puid-pre-drum", "Drum");
+    let pre_mix = spawn_pre("iid-pre-mix", "puid-pre-mix", "Mix");
+    let post_drum = spawn_post("iid-post-drum", "puid-post", "Drum");
+    post_drum.set_pair_target("Drum".to_string());
+    let post_mix = spawn_post("iid-post-mix", "puid-post", "");
+
+    for _ in 0..12 {
+        pre_drum.push_samples(&[], 2);
+        pre_mix.push_samples(&[], 2);
+        post_drum.push_samples(&[], 2);
+        post_mix.push_samples(&[], 2);
+        sleep(Duration::from_millis(50));
+    }
+
+    let ready = unsafe {
+        let handle = (&post_mix as *const KirinHyphaEngine).cast_mut();
+        kirin_hypha_count_keep_ready(handle)
+    };
+    assert_eq!(ready, 1, "Drum POST should be the single ready POST");
+
+    let names = wait_for_candidate_names(&post_mix, &["Drum", "Mix"]);
+    assert!(
+        names.iter().any(|n| n == "Drum"),
+        "Drum candidate missing from JUCE C ABI list: {names:?}"
+    );
+    assert!(
+        names.iter().any(|n| n == "Mix"),
+        "Mix candidate must remain visible after Drum is ready: {names:?}"
+    );
+
+    post_mix.set_pair_target("Mix".to_string());
+    assert!(
+        post_mix.keep(),
+        "Mix should be keepable once selected from the same C ABI candidate list"
+    );
+
+    drop(post_mix);
+    drop(post_drum);
+    drop(pre_mix);
+    drop(pre_drum);
+    let _ = std::fs::remove_dir_all(home.parent().unwrap_or(&home));
+    let _ = std::fs::remove_dir_all(tmp.parent().unwrap_or(&tmp));
+}
