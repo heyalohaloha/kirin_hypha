@@ -40,6 +40,10 @@ const WINDOWS_PREFLIGHT: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../xtask/src/windows_preflight.rs"
 ));
+const WINDOWS_VST3_LAYOUT: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../xtask/src/windows_vst3_layout.rs"
+));
 const CI_USAGE_GUARD: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../xtask/src/ci_usage_guard.rs"
@@ -95,7 +99,8 @@ fn print_usage() {
         "Usage: cargo run -p xtask -- windows-readiness\n\n\
          Static audit for the Windows VST3 handoff point. It verifies that the\n\
          pairing, restore-order, shell parity, RT-safety, platform path, JUCE patch,\n\
-         CI usage, and Windows preflight gates are all represented in source."
+         CI usage, Windows artifact layout, and Windows preflight gates are all represented\n\
+         in source."
     );
 }
 
@@ -265,6 +270,20 @@ fn readiness_checks() -> Vec<Check> {
                 ),
             ],
         ),
+        check_all(
+            "windows-vst3-layout",
+            "Windows PRE/POST VST3 artifact and install roots are explicit",
+            &[(
+                WINDOWS_VST3_LAYOUT,
+                &[
+                    "windows_layout_uses_steinberg_user_dev_folder",
+                    "windows_layout_uses_global_common_files_vst3",
+                    "windows_layout_excludes_macos_and_au_paths",
+                    "%LOCALAPPDATA%\\\\Programs\\\\Common\\\\VST3",
+                    "%ProgramFiles%\\\\Common Files\\\\VST3",
+                ][..],
+            )],
+        ),
     ]
 }
 
@@ -298,7 +317,7 @@ mod tests {
     #[test]
     fn windows_readiness_accepts_current_checkout() {
         let checks = readiness_checks();
-        assert_eq!(checks.len(), 9);
+        assert_eq!(checks.len(), 10);
         let blockers: Vec<_> = checks
             .iter()
             .filter(|check| !check.ready)
