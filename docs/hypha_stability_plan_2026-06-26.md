@@ -173,6 +173,7 @@ Windows 着手条件:
 - JUCE/AU POST が呼ぶ C ABI 候補列挙で、既存の名前付き POST claim があっても別名の2つ目 PRE が候補から消えないことを FFI integration test で固定した。`Drum` / `Mix` は fixture 名であり、名前そのものの特別扱いはしない。
 - `diagnose-watch` で POST の pair が未選択でも新鮮な PRE 候補が見えている場合を `POST_PAIR_NOT_SELECTED` として分類し、PRE不在と shell 選択/表示側の問題を切り分けられるようにした。
 - JUCE/AU shell parity gate を `xtask` に追加し、候補メニューが現在の pair 名に依存せず PRE 候補を列挙すること、Keep 表示が選択済み pair にだけ依存すること、候補選択が processor と入力欄へ即反映されることを静的テストで固定した。
+- FFI ignored integration に restore-order fixture を追加し、PRE name / POST pair target が `enable_*_writes` の前後どちらで復元されても watch JSON に反映されることを固定した。
 
 ## 優先順位
 
