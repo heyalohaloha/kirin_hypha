@@ -4,6 +4,10 @@ const JUCE_CMAKE: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../juce_shell/CMakeLists.txt"
 ));
+const CI_WORKFLOW: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../.github/workflows/ci.yml"
+));
 
 pub fn run(args: Vec<String>) -> Result<()> {
     match args.as_slice() {
@@ -17,7 +21,8 @@ pub fn run(args: Vec<String>) -> Result<()> {
     }
 
     verify_cmake_platform_split(JUCE_CMAKE)?;
-    eprintln!("[windows-preflight] OK: JUCE CMake is VST3-only on Windows and keeps macOS release gates under APPLE.");
+    verify_windows_ci_job(CI_WORKFLOW)?;
+    eprintln!("[windows-preflight] OK: Windows VST3 path is separated from macOS release gates.");
     Ok(())
 }
 
@@ -25,7 +30,7 @@ fn print_usage() {
     eprintln!(
         "Usage: cargo run -p xtask -- windows-preflight\n\n\
          Static preflight for starting Windows VST3 work. It verifies that JUCE CMake\n\
-         keeps macOS AU/codesign-era assumptions behind APPLE gates and exposes a\n\
+         and GitHub Actions keep macOS AU/codesign-era assumptions away from the\n\
          Windows path that builds VST3 only with the MSVC staticlib name."
     );
 }
@@ -112,6 +117,89 @@ fn verify_cmake_platform_split(cmake: &str) -> Result<()> {
     Ok(())
 }
 
+fn verify_windows_ci_job(workflow: &str) -> Result<()> {
+    let workflow = normalize_newlines(workflow);
+    let job = workflow_job(&workflow, "windows-vst3-preflight")?;
+    let job_code = strip_yaml_comments(job);
+
+    require(
+        job,
+        "runs-on: windows-latest",
+        "Windows preflight job must run on windows-latest",
+    )?;
+    require(
+        job,
+        "Build kirin_hypha_ffi staticlib (MSVC)",
+        "Windows preflight job must build the MSVC staticlib",
+    )?;
+    require(
+        job,
+        "cargo build --release -p kirin_hypha_ffi --locked",
+        "Windows preflight job must build kirin_hypha_ffi with locked deps",
+    )?;
+    require(
+        job,
+        "cargo run -p xtask --locked -- windows-preflight",
+        "Windows preflight job must run this static guard",
+    )?;
+    require(
+        job,
+        "KirinHyphaPRE_VST3 KirinHyphaPOST_VST3",
+        "Windows preflight job must build PRE/POST VST3 targets",
+    )?;
+
+    for forbidden in [
+        "auval",
+        "notarize",
+        "notarytool",
+        "codesign",
+        "xcrun",
+        "stapler",
+        ".component",
+        "Components",
+        "Developer ID",
+        "LS_UPLOAD",
+        "build_kirin_hypha_pkg",
+        "Library/Audio/Plug-Ins",
+    ] {
+        reject(
+            &job_code,
+            forbidden,
+            &format!("Windows preflight job must not contain macOS release step `{forbidden}`"),
+        )?;
+    }
+
+    Ok(())
+}
+
+fn strip_yaml_comments(source: &str) -> String {
+    source
+        .lines()
+        .map(|line| line.split_once('#').map_or(line, |(code, _)| code))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn workflow_job<'a>(workflow: &'a str, job_name: &str) -> Result<&'a str> {
+    let marker = format!("  {job_name}:\n");
+    let start = workflow
+        .find(&marker)
+        .ok_or_else(|| anyhow::anyhow!("CI workflow missing job `{job_name}`"))?
+        + marker.len();
+    let tail = &workflow[start..];
+    let mut end = tail.len();
+    let mut byte = 0usize;
+    for line in tail.split_inclusive('\n') {
+        let trimmed = line.trim_end_matches('\n');
+        if trimmed.starts_with("  ") && !trimmed.starts_with("    ") && trimmed.ends_with(':') {
+            end = byte;
+            break;
+        }
+        byte += line.len();
+    }
+    Ok(&tail[..end])
+}
+
 fn normalize_newlines(source: &str) -> String {
     source.replace("\r\n", "\n").replace('\r', "\n")
 }
@@ -145,6 +233,8 @@ mod tests {
     fn preflight_accepts_crlf_checkout() {
         let crlf = JUCE_CMAKE.replace('\n', "\r\n");
         verify_cmake_platform_split(&crlf).unwrap();
+        let crlf = CI_WORKFLOW.replace('\n', "\r\n");
+        verify_windows_ci_job(&crlf).unwrap();
     }
 
     #[test]
@@ -199,5 +289,29 @@ mod tests {
         assert!(err
             .to_string()
             .contains("forced include must not be hardcoded"));
+    }
+
+    #[test]
+    fn preflight_requires_windows_ci_job_static_guard() {
+        let bad = CI_WORKFLOW.replace(
+            "cargo run -p xtask --locked -- windows-preflight",
+            "cargo run -p xtask --locked -- diagnose-watch",
+        );
+        let err = verify_windows_ci_job(&bad).unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("Windows preflight job must run this static guard"));
+    }
+
+    #[test]
+    fn preflight_rejects_macos_release_step_in_windows_ci_job() {
+        let bad = CI_WORKFLOW.replace(
+            "Build JUCE VST3 shell (Windows)",
+            "Build JUCE VST3 shell (Windows)\n      - name: notarize",
+        );
+        let err = verify_windows_ci_job(&bad).unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("must not contain macOS release step"));
     }
 }
