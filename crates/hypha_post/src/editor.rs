@@ -36,9 +36,9 @@ use kirin_measure::{
     pair_lock_active, resolve_arm_target_for_post_project, sanitize_name, scan_latest_v2_preset,
     show_note_button, show_save_button, show_stop_record_button, write_broadcast, write_pending,
     write_stop_broadcast, DeltaMode, DeltaResult, DeltaSnapshot, ExclusionResult, LatchedPre,
-    License, LivenessEvaluator, MeasureResult, PluginDataRole, PreCandidate, PresetFileV2,
-    RecordStateMachine, SignalState, StoragePaths, TransitionError, MAX_ACTIVE_PER_PROJECT,
-    SENSE_RECORD_HINT, SENSE_UPSELL_URL,
+    License, LivenessEvaluator, MeasureResult, PlatformPaths, PluginDataRole, PreCandidate,
+    PresetFileV2, RecordStateMachine, SignalState, StoragePaths, TransitionError,
+    MAX_ACTIVE_PER_PROJECT, SENSE_RECORD_HINT, SENSE_UPSELL_URL,
 };
 use nih_plug::prelude::Editor;
 use nih_plug_egui::{
@@ -939,7 +939,7 @@ fn draw_pair_pre_combo(
     now: f64,
     pair_locked: bool,
 ) {
-    let kirin_root = std::env::temp_dir().join("kirin");
+    let kirin_root = PlatformPaths::current_kirin_tmp_root();
     let current_project_hash = read_project_hash_arc(&state.project_hash);
     let pre_candidates =
         enumerate_active_pre_pair_candidates_for_post_project(&kirin_root, &current_project_hash);
@@ -1359,7 +1359,7 @@ pub(crate) fn trigger_keep_internal(
         }
     };
     let plugin_data_dir = paths.plugin_data_dir();
-    let tmp_base = std::env::temp_dir().join("kirin");
+    let tmp_base = PlatformPaths::current_kirin_tmp_root();
 
     // 2 + 4. PRE 選定（B-059: 表示=commit 一本化）
     //

@@ -39,7 +39,7 @@ use crate::record_writer::{
     run_record_tick, take_session_summary, writer_close_degraded, writer_close_with_summary,
     RecordingCtx,
 };
-use crate::storage::StoragePaths;
+use crate::storage::{PlatformPaths, StoragePaths};
 use crate::{load_signal_state, License, MeasureResult, RecordTraceQueue, SignalState};
 
 const LOOP_SLEEP: Duration = Duration::from_millis(100);
@@ -511,7 +511,9 @@ pub fn io_dir(project_hash: &str, instance_id: &str) -> PathBuf {
     // B-128 (G-115-370): within-base wall（Watch pre.json の path builder）。
     let ph = crate::path_identity::guard_path_component(project_hash, "io_dir.project_hash");
     let iid = crate::path_identity::guard_path_component(instance_id, "io_dir.instance_id");
-    std::env::temp_dir().join("kirin").join(&*ph).join(&*iid)
+    PlatformPaths::current_kirin_tmp_root()
+        .join(&*ph)
+        .join(&*iid)
 }
 
 /// record_signal を 1 度だけ poll し、PRE 側の record state を同期する。

@@ -48,7 +48,7 @@ struct PreTmpJson {
 
 /// `/tmp/kirin/{project_hash}/{instance_id}/pre.json` を全 instance_id 横断で走査。
 ///
-/// `tmp_base` は通常 `std::env::temp_dir().join("kirin")`。走査失敗・パース失敗は
+/// `tmp_base` は通常 `PlatformPaths::current_kirin_tmp_root()`。走査失敗・パース失敗は
 /// silently skip。返値は instance_id 辞書順（再現性確保）。
 ///
 /// B-021 補足: 本関数は `tmp_base.join(project_hash)` 配下のみ scan する。

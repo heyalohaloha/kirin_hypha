@@ -43,7 +43,7 @@ use crate::record_writer::{
     run_record_tick, take_session_summary, writer_close_degraded, writer_close_with_summary,
     RecordError, RecordingCtx,
 };
-use crate::storage::StoragePaths;
+use crate::storage::{PlatformPaths, StoragePaths};
 use crate::{load_signal_state, MeasureResult, RecordTraceQueue, SignalState};
 
 const LOOP_SLEEP: Duration = Duration::from_millis(100);
@@ -194,7 +194,7 @@ pub fn spawn_io_thread_post(
         // POST IO Thread が動的に discover する。`project_dir_hint` は POST 自身の
         // project_uuid から構築した fallback (PRE が見つからない場合のみ使う)。
         // POST 自身の post.json 書込先は instance_dir 固定 (POST 自分の project_uuid)。
-        let kirin_root = std::env::temp_dir().join("kirin");
+        let kirin_root = PlatformPaths::current_kirin_tmp_root();
         let initial_project_hash = read_project_hash_arc(&project_hash);
         let initial_instance_id = read_instance_id_arc(&instance_id);
         let plugin_data_dir_str = match StoragePaths::default_platform() {
