@@ -18,7 +18,7 @@ fn post_pair_names_in_project(kirin_root: &Path, post_project_hash: &str) -> Has
     if post_project_hash.is_empty() {
         return HashSet::new();
     }
-    crate::io_thread_post::scan_post_candidates_in(&kirin_root.join(post_project_hash))
+    crate::post_candidates::scan_post_candidates_in(&kirin_root.join(post_project_hash))
         .into_iter()
         .filter_map(|c| c.pair_pre_name)
         .filter(|name| !name.is_empty())

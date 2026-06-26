@@ -110,6 +110,7 @@ Windows 対応は、macOS/AU/VST3 の境界不具合を整理し、再発防止�
 
 進捗:
 - `crates/kirin_measure/src/pairing_scope.rs` を作成し、PRE scope 推定、候補列挙、厳格 target selection、latch/read/Arm 解決を集約。
+- `crates/kirin_measure/src/post_candidates.rs` を作成し、POST candidate scan / peer enumerate / pair claim self-check を IO thread 実装から分離。
 - `record_signal.rs` は互換 re-export を外し、record_signal.json の読み書き責務へ縮小。
 - ラッチ済み Delta は選定済み `pre.json` を直接読む境界に寄せ、再スキャンで別 PRE を拾う余地を削減。
 
