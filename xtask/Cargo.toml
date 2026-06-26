@@ -10,4 +10,5 @@ anyhow = "1"
 ebur128 = "0.1"
 hound = "3.5"
 rand = "0.8"
+serde = { workspace = true }
 serde_json = { workspace = true }

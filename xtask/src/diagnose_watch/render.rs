@@ -1,4 +1,4 @@
-use super::{analyze::is_pair_candidate, Snapshot};
+use super::Snapshot;
 
 pub(super) fn render_snapshot(snapshot: &Snapshot, max_rows: Option<usize>) -> String {
     let mut out = String::new();
@@ -148,41 +148,22 @@ pub(super) fn render_snapshot(snapshot: &Snapshot, max_rows: Option<usize>) -> S
 }
 
 fn render_summary(snapshot: &Snapshot) -> String {
-    let pre_live = snapshot
-        .watch_rows
-        .iter()
-        .filter(|r| r.role == "PRE")
-        .count();
-    let post_live = snapshot
-        .watch_rows
-        .iter()
-        .filter(|r| r.role == "POST")
-        .count();
-    let paired_post = snapshot
-        .watch_rows
-        .iter()
-        .filter(|r| r.role == "POST" && r.pair_pre_name != "-")
-        .count();
-    let eligible_pre = snapshot
-        .watch_rows
-        .iter()
-        .filter(|r| is_pair_candidate(r))
-        .count();
-    let pending_signals = snapshot
-        .signal_rows
-        .iter()
-        .filter(|r| r.status == "pending")
-        .count();
-    let active_records: usize = snapshot.record_rows.iter().map(|r| r.active_files).sum();
-
+    let summary = &snapshot.summary;
     let mut out = String::new();
-    out.push_str(&format!("  live_pre:        {pre_live}\n"));
-    out.push_str(&format!("  live_post:       {post_live}\n"));
-    out.push_str(&format!("  eligible_pre:    {eligible_pre}\n"));
-    out.push_str(&format!("  paired_post:     {paired_post}\n"));
-    out.push_str(&format!("  pending_signals: {pending_signals}\n"));
-    out.push_str(&format!("  active_records:  {active_records}\n\n"));
+    out.push_str(&format!("  live_pre:        {}\n", summary.live_pre));
+    out.push_str(&format!("  live_post:       {}\n", summary.live_post));
+    out.push_str(&format!("  eligible_pre:    {}\n", summary.eligible_pre));
+    out.push_str(&format!("  paired_post:     {}\n", summary.paired_post));
+    out.push_str(&format!("  pending_signals: {}\n", summary.pending_signals));
+    out.push_str(&format!(
+        "  active_records:  {}\n\n",
+        summary.active_records
+    ));
     out
+}
+
+pub(super) fn render_snapshot_json(snapshot: &Snapshot) -> serde_json::Result<String> {
+    serde_json::to_string_pretty(snapshot)
 }
 
 pub(super) fn render_table(

@@ -12,8 +12,8 @@ mod render;
 mod tests;
 
 use analyze::refresh_findings;
-use model::{FindingRow, RecordRow, SignalRow, Snapshot, WatchRow};
-use render::render_snapshot;
+use model::{FindingRow, RecordRow, SignalRow, Snapshot, Summary, WatchRow};
+use render::{render_snapshot, render_snapshot_json};
 
 const RECORD_SIGNAL_DIR: &str = "record_signal";
 const ALL_KEEP_SIGNAL_DIR: &str = "all_keep_signal";
@@ -21,12 +21,19 @@ const ALL_STOP_SIGNAL_DIR: &str = "all_stop_signal";
 const DEFAULT_HISTORY_AGE_SECS: u64 = 24 * 60 * 60;
 const DEFAULT_MAX_ROWS: usize = 40;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum OutputFormat {
+    Text,
+    Json,
+}
+
 pub fn run(args: Vec<String>) -> Result<()> {
     let mut kirin_root: Option<PathBuf> = None;
     let mut plugin_data_dir: Option<PathBuf> = None;
     let mut all_history = false;
     let mut max_age_secs = DEFAULT_HISTORY_AGE_SECS;
     let mut max_rows = Some(DEFAULT_MAX_ROWS);
+    let mut output_format = OutputFormat::Text;
 
     let mut iter = args.into_iter();
     while let Some(arg) = iter.next() {
@@ -57,6 +64,10 @@ pub fn run(args: Vec<String>) -> Result<()> {
                     .context("--max-rows value must be usize")?;
                 max_rows = (value > 0).then_some(value);
             }
+            "--format" => {
+                output_format =
+                    parse_output_format(&iter.next().context("--format requires a value")?)?;
+            }
             "-h" | "--help" => {
                 print_help();
                 return Ok(());
@@ -76,16 +87,33 @@ pub fn run(args: Vec<String>) -> Result<()> {
     if !all_history {
         apply_history_filter(&mut snapshot, max_age_secs);
     }
-    print!("{}", render_snapshot(&snapshot, max_rows));
+    match output_format {
+        OutputFormat::Text => print!("{}", render_snapshot(&snapshot, max_rows)),
+        OutputFormat::Json => {
+            println!(
+                "{}",
+                render_snapshot_json(&snapshot).context("failed to render diagnose-watch JSON")?
+            );
+        }
+    }
     Ok(())
+}
+
+fn parse_output_format(value: &str) -> Result<OutputFormat> {
+    match value {
+        "text" => Ok(OutputFormat::Text),
+        "json" => Ok(OutputFormat::Json),
+        other => bail!("unknown --format value: {other}; expected text or json"),
+    }
 }
 
 fn print_help() {
     eprintln!(
-        "Usage: cargo run -p xtask -- diagnose-watch [--kirin-root PATH] [--plugin-data-dir PATH] [--all-history] [--max-age-secs N] [--max-rows N]\n\n\
+        "Usage: cargo run -p xtask -- diagnose-watch [--kirin-root PATH] [--plugin-data-dir PATH] [--all-history] [--max-age-secs N] [--max-rows N] [--format text|json]\n\n\
          Prints a read-only PRE/POST Watch snapshot from the platform temp root and plugin_data.\n\
          Default history filter keeps pending signals, active records, and rows newer than 24h.\n\
-         Default row cap is 40 per section; pass --max-rows 0 to show all rows.\n\
+         Default text row cap is 40 per section; pass --max-rows 0 to show all rows.\n\
+         JSON output always includes all rows after the history filter.\n\
          Use --kirin-root and --plugin-data-dir for isolated test captures."
     );
 }

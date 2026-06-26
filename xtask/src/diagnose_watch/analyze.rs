@@ -1,9 +1,41 @@
 use std::collections::HashMap;
 
-use super::{FindingRow, Snapshot, WatchRow};
+use super::{FindingRow, Snapshot, Summary, WatchRow};
 
 pub(super) fn refresh_findings(snapshot: &mut Snapshot) {
+    snapshot.summary = summarize(snapshot);
     snapshot.finding_rows = analyze(snapshot);
+}
+
+fn summarize(snapshot: &Snapshot) -> Summary {
+    Summary {
+        live_pre: snapshot
+            .watch_rows
+            .iter()
+            .filter(|r| r.role == "PRE")
+            .count(),
+        live_post: snapshot
+            .watch_rows
+            .iter()
+            .filter(|r| r.role == "POST")
+            .count(),
+        eligible_pre: snapshot
+            .watch_rows
+            .iter()
+            .filter(|r| is_pair_candidate(r))
+            .count(),
+        paired_post: snapshot
+            .watch_rows
+            .iter()
+            .filter(|r| r.role == "POST" && r.pair_pre_name != "-")
+            .count(),
+        pending_signals: snapshot
+            .signal_rows
+            .iter()
+            .filter(|r| r.status == "pending")
+            .count(),
+        active_records: snapshot.record_rows.iter().map(|r| r.active_files).sum(),
+    }
 }
 
 fn analyze(snapshot: &Snapshot) -> Vec<FindingRow> {

@@ -3411,6 +3411,7 @@ dependencies = [
  "kirin_measure",
  "nih_plug_xtask",
  "rand",
+ "serde",
  "serde_json",
 ]
 
