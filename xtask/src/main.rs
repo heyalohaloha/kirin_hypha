@@ -1,3 +1,4 @@
+mod ci_usage_guard;
 mod diagnose_watch;
 mod gen_signals;
 mod install;
@@ -20,6 +21,10 @@ fn main() -> nih_plug_xtask::Result<()> {
         Some("diagnose-watch") => {
             args.remove(0);
             diagnose_watch::run(args)
+        }
+        Some("ci-usage-guard") => {
+            args.remove(0);
+            ci_usage_guard::run(args)
         }
         Some("install") => {
             args.remove(0);
