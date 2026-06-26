@@ -1,3 +1,4 @@
+use crate::windows_vst3_layout;
 use anyhow::{bail, Result};
 
 const JUCE_CMAKE: &str = include_str!(concat!(
@@ -205,16 +206,7 @@ fn verify_windows_ci_job(workflow: &str) -> Result<()> {
         "Test-Path -LiteralPath $bundle",
         "Windows preflight job must fail when a VST3 artifact path is missing",
     )?;
-    require(
-        job_code,
-        "KirinHyphaPRE_artefacts/Release/VST3/Kirin Hypha PRE.vst3",
-        "Windows preflight job must verify the PRE VST3 artifact path",
-    )?;
-    require(
-        job_code,
-        "KirinHyphaPOST_artefacts/Release/VST3/Kirin Hypha POST.vst3",
-        "Windows preflight job must verify the POST VST3 artifact path",
-    )?;
+    verify_ci_uses_layout_artifact_paths(job_code)?;
     require(
         job_code,
         "uses: actions/upload-artifact@v7",
@@ -253,6 +245,44 @@ fn verify_windows_ci_job(workflow: &str) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn verify_ci_uses_layout_artifact_paths(job_code: &str) -> Result<()> {
+    let verify_step = section_between(
+        job_code,
+        "Verify Windows VST3 artifacts",
+        "Upload Windows VST3 artifacts",
+    )?;
+    let upload_step = section_after(job_code, "Upload Windows VST3 artifacts")?;
+
+    for path in windows_vst3_layout::windows_vst3_artifact_paths() {
+        require(
+            verify_step,
+            &path,
+            "Windows preflight job must verify the layout artifact path",
+        )?;
+        require(
+            upload_step,
+            &path,
+            "Windows preflight job must upload the layout artifact path",
+        )?;
+    }
+    Ok(())
+}
+
+fn section_between<'a>(source: &'a str, start_marker: &str, end_marker: &str) -> Result<&'a str> {
+    let after_start = section_after(source, start_marker)?;
+    let end = after_start
+        .find(end_marker)
+        .ok_or_else(|| anyhow::anyhow!("missing section marker `{end_marker}`"))?;
+    Ok(&after_start[..end])
+}
+
+fn section_after<'a>(source: &'a str, marker: &str) -> Result<&'a str> {
+    source
+        .split_once(marker)
+        .map(|(_, tail)| tail)
+        .ok_or_else(|| anyhow::anyhow!("missing section marker `{marker}`"))
 }
 
 fn strip_yaml_comments(source: &str) -> String {
@@ -453,7 +483,19 @@ mod tests {
         let err = verify_windows_ci_job(&bad).unwrap_err();
         assert!(err
             .to_string()
-            .contains("must verify the POST VST3 artifact path"));
+            .contains("must verify the layout artifact path"));
+    }
+
+    #[test]
+    fn preflight_requires_upload_paths_to_match_layout_paths() {
+        let bad = CI_WORKFLOW.replace(
+            "            juce_shell/build-windows/KirinHyphaPOST_artefacts/Release/VST3/Kirin Hypha POST.vst3",
+            "            juce_shell/build-windows/KirinHyphaPOST_artefacts/Release/VST3/Kirin Hypha WRONG.vst3",
+        );
+        let err = verify_windows_ci_job(&bad).unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("must upload the layout artifact path"));
     }
 
     #[test]

@@ -73,6 +73,25 @@ fn windows_vst3_bundles(
         .collect()
 }
 
+pub(crate) fn windows_vst3_artifact_paths() -> Vec<String> {
+    ["PRE", "POST"]
+        .into_iter()
+        .map(|role| {
+            repo_join(
+                "",
+                &[
+                    "juce_shell",
+                    "build-windows",
+                    &format!("KirinHypha{role}_artefacts"),
+                    "Release",
+                    "VST3",
+                    &plugin_file(role),
+                ],
+            )
+        })
+        .collect()
+}
+
 fn plugin_file(role: &str) -> String {
     format!("Kirin Hypha {role}.vst3")
 }
@@ -80,7 +99,9 @@ fn plugin_file(role: &str) -> String {
 fn repo_join(root: &str, segments: &[&str]) -> String {
     let mut out = root.trim_end_matches('/').to_string();
     for segment in segments {
-        out.push('/');
+        if !out.is_empty() {
+            out.push('/');
+        }
         out.push_str(segment.trim_matches('/'));
     }
     out
@@ -111,6 +132,17 @@ mod tests {
         assert!(bundles[1]
             .source
             .ends_with("KirinHyphaPOST_artefacts/Release/VST3/Kirin Hypha POST.vst3"));
+    }
+
+    #[test]
+    fn windows_layout_exports_ci_artifact_paths() {
+        assert_eq!(
+            windows_vst3_artifact_paths(),
+            vec![
+                "juce_shell/build-windows/KirinHyphaPRE_artefacts/Release/VST3/Kirin Hypha PRE.vst3",
+                "juce_shell/build-windows/KirinHyphaPOST_artefacts/Release/VST3/Kirin Hypha POST.vst3",
+            ]
+        );
     }
 
     #[test]
