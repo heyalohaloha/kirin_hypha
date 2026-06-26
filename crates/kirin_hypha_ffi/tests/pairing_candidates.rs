@@ -3,6 +3,7 @@
 //! These tests exercise the C ABI that the JUCE shell calls for the POST dropdown.
 
 use std::ffi::CStr;
+use std::path::Path;
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -90,6 +91,46 @@ fn wait_for_candidate_names(post: &KirinHyphaEngine, expected: &[&str]) -> Vec<S
     read_candidate_names(post)
 }
 
+fn read_watch_field(
+    tmp: &Path,
+    project_uuid: &str,
+    instance_id: &str,
+    file_name: &str,
+    field: &str,
+) -> Option<String> {
+    let path = tmp
+        .join("kirin")
+        .join(project_uuid)
+        .join(instance_id)
+        .join(file_name);
+    let text = std::fs::read_to_string(path).ok()?;
+    let json: serde_json::Value = serde_json::from_str(&text).ok()?;
+    json.get(field)?.as_str().map(ToOwned::to_owned)
+}
+
+fn wait_for_watch_field(
+    engine: &KirinHyphaEngine,
+    tmp: &Path,
+    project_uuid: &str,
+    instance_id: &str,
+    file_name: &str,
+    field: &str,
+    expected: &str,
+) -> String {
+    let mut last = None;
+    for _ in 0..80 {
+        if let Some(value) = read_watch_field(tmp, project_uuid, instance_id, file_name, field) {
+            if value == expected {
+                return value;
+            }
+            last = Some(value);
+        }
+        engine.push_samples(&[], 2);
+        sleep(Duration::from_millis(50));
+    }
+    panic!("{file_name}.{field} did not become {expected:?}; last={last:?}");
+}
+
 /// AU/JUCE POST dropdown parity.
 ///
 /// `Drum` / `Mix` are fixture labels only. The invariant is that an existing named POST claim must
@@ -141,4 +182,143 @@ fn juce_candidate_abi_keeps_second_pre_visible_after_first_ready_post() {
     drop(pre_drum);
     let _ = std::fs::remove_dir_all(home.parent().unwrap_or(&home));
     let _ = std::fs::remove_dir_all(tmp.parent().unwrap_or(&tmp));
+}
+
+/// AU/JUCE state chunk ordering parity.
+///
+/// `Mix` is a fixture label only. The invariant is that a pair target restored before
+/// `enable_post_writes` survives the enable boundary and appears in the POST watch JSON.
+#[test]
+#[ignore = "slow: C ABI restore order with POST io thread (sets HOME/TMPDIR)"]
+fn restored_pair_target_before_enable_is_written_to_post_watch_json() {
+    let (home, tmp) = isolate_env("restore_pair_before_enable");
+    let post = KirinHyphaEngine::new(SR, 2);
+    post.set_license(0);
+    post.set_identity(
+        "post-restore-a".to_string(),
+        "proj-restore-a".to_string(),
+        "daw-post-a".to_string(),
+        "IdentitySeed".to_string(),
+    );
+    post.set_pair_target("Mix".to_string());
+    post.enable_post_writes();
+    post.set_signal_state(0);
+
+    let pair = wait_for_watch_field(
+        &post,
+        &tmp,
+        "proj-restore-a",
+        "post-restore-a",
+        "post.json",
+        "pair_pre_name",
+        "Mix",
+    );
+    assert_eq!(pair, "Mix");
+
+    drop(post);
+    let _ = std::fs::remove_dir_all(home.parent().unwrap_or(&home));
+}
+
+/// AU/JUCE state chunk ordering parity.
+///
+/// `Mix` is a fixture label only. The invariant is that a pair target restored after
+/// `enable_post_writes` is pushed live into the already-running POST io thread.
+#[test]
+#[ignore = "slow: C ABI live restore with POST io thread (sets HOME/TMPDIR)"]
+fn restored_pair_target_after_enable_updates_post_watch_json() {
+    let (home, tmp) = isolate_env("restore_pair_after_enable");
+    let post = KirinHyphaEngine::new(SR, 2);
+    post.set_license(0);
+    post.set_identity(
+        "post-restore-b".to_string(),
+        "proj-restore-b".to_string(),
+        "daw-post-b".to_string(),
+        "IdentitySeed".to_string(),
+    );
+    post.enable_post_writes();
+    post.set_signal_state(0);
+    post.set_pair_target("Mix".to_string());
+
+    let pair = wait_for_watch_field(
+        &post,
+        &tmp,
+        "proj-restore-b",
+        "post-restore-b",
+        "post.json",
+        "pair_pre_name",
+        "Mix",
+    );
+    assert_eq!(pair, "Mix");
+
+    drop(post);
+    let _ = std::fs::remove_dir_all(home.parent().unwrap_or(&home));
+}
+
+/// AU/JUCE state chunk ordering parity.
+///
+/// `PRE A` is a fixture label only. The invariant is that a PRE name restored before
+/// `enable_pre_writes` seeds the PRE watch JSON.
+#[test]
+#[ignore = "slow: C ABI restore order with PRE io thread (sets HOME/TMPDIR)"]
+fn restored_pre_name_before_enable_is_written_to_pre_watch_json() {
+    let (home, tmp) = isolate_env("restore_pre_before_enable");
+    let pre = KirinHyphaEngine::new(SR, 2);
+    pre.set_license(0);
+    pre.set_identity(
+        "pre-restore-a".to_string(),
+        "proj-pre-a".to_string(),
+        "daw-pre-a".to_string(),
+        "PRE A".to_string(),
+    );
+    pre.enable_pre_writes();
+    pre.set_signal_state(0);
+
+    let name = wait_for_watch_field(
+        &pre,
+        &tmp,
+        "proj-pre-a",
+        "pre-restore-a",
+        "pre.json",
+        "name",
+        "PRE A",
+    );
+    assert_eq!(name, "PRE A");
+
+    drop(pre);
+    let _ = std::fs::remove_dir_all(home.parent().unwrap_or(&home));
+}
+
+/// AU/JUCE state chunk ordering parity.
+///
+/// `PRE B` is a fixture label only. The invariant is that a PRE name restored after
+/// `enable_pre_writes` is pushed live into the already-running PRE io thread.
+#[test]
+#[ignore = "slow: C ABI live restore with PRE io thread (sets HOME/TMPDIR)"]
+fn restored_pre_name_after_enable_updates_pre_watch_json() {
+    let (home, tmp) = isolate_env("restore_pre_after_enable");
+    let pre = KirinHyphaEngine::new(SR, 2);
+    pre.set_license(0);
+    pre.set_identity(
+        "pre-restore-b".to_string(),
+        "proj-pre-b".to_string(),
+        "daw-pre-b".to_string(),
+        "Initial".to_string(),
+    );
+    pre.enable_pre_writes();
+    pre.set_signal_state(0);
+    pre.set_pre_name("PRE B".to_string());
+
+    let name = wait_for_watch_field(
+        &pre,
+        &tmp,
+        "proj-pre-b",
+        "pre-restore-b",
+        "pre.json",
+        "name",
+        "PRE B",
+    );
+    assert_eq!(name, "PRE B");
+
+    drop(pre);
+    let _ = std::fs::remove_dir_all(home.parent().unwrap_or(&home));
 }
