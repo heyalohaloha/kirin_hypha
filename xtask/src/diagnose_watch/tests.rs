@@ -1,4 +1,4 @@
-use super::render::render_table;
+use super::render::{render_snapshot, render_table};
 use super::*;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -106,6 +106,71 @@ fn render_table_truncates_with_omitted_count() {
     assert!(out.contains("two"));
     assert!(!out.contains("three"));
     assert!(out.contains("1 more rows hidden"));
+}
+
+#[test]
+fn render_snapshot_includes_operational_summary() {
+    let snapshot = Snapshot {
+        watch_rows: vec![
+            WatchRow {
+                role: "PRE".to_string(),
+                project: "p".to_string(),
+                instance: "pre".to_string(),
+                name: "Mix".to_string(),
+                signal_state: "active".to_string(),
+                peer_state: "-".to_string(),
+                pair_pre_name: "-".to_string(),
+                age_s: "1s".to_string(),
+                path: PathBuf::from("pre.json"),
+            },
+            WatchRow {
+                role: "POST".to_string(),
+                project: "p".to_string(),
+                instance: "post".to_string(),
+                name: "-".to_string(),
+                signal_state: "active".to_string(),
+                peer_state: "active".to_string(),
+                pair_pre_name: "Mix".to_string(),
+                age_s: "1s".to_string(),
+                path: PathBuf::from("post.json"),
+            },
+        ],
+        signal_rows: vec![SignalRow {
+            kind: "record_signal".to_string(),
+            project: "p".to_string(),
+            file: "post.json".to_string(),
+            status: "pending".to_string(),
+            requested_by: "post".to_string(),
+            target_pre: "pre".to_string(),
+            pair_name: "Mix".to_string(),
+            daw_session: "daw".to_string(),
+            t: "t".to_string(),
+            age_secs: Some(1),
+            age_s: "1s".to_string(),
+            path: PathBuf::from("signal.json"),
+        }],
+        record_rows: vec![RecordRow {
+            project: "p".to_string(),
+            instance: "post".to_string(),
+            pre_files: 0,
+            post_files: 1,
+            active_files: 1,
+            closed_files: 0,
+            latest_status: "active".to_string(),
+            latest_age_secs: Some(1),
+            latest_path: "record.json".to_string(),
+        }],
+        ..Snapshot::default()
+    };
+
+    let out = render_snapshot(&snapshot, Some(40));
+
+    assert!(out.contains("Summary"));
+    assert!(out.contains("live_pre:        1"));
+    assert!(out.contains("live_post:       1"));
+    assert!(out.contains("paired_post:     1"));
+    assert!(out.contains("pending_signals: 1"));
+    assert!(out.contains("active_records:  1"));
 }
 
 #[test]

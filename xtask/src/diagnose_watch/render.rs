@@ -13,6 +13,9 @@ pub(super) fn render_snapshot(snapshot: &Snapshot, max_rows: Option<usize>) -> S
             .unwrap_or_else(|| "-".to_string())
     ));
 
+    out.push_str("Summary\n");
+    out.push_str(&render_summary(snapshot));
+
     out.push_str("Watch PRE/POST\n");
     out.push_str(&render_table(
         &[
@@ -122,6 +125,38 @@ pub(super) fn render_snapshot(snapshot: &Snapshot, max_rows: Option<usize>) -> S
             out.push('\n');
         }
     }
+    out
+}
+
+fn render_summary(snapshot: &Snapshot) -> String {
+    let pre_live = snapshot
+        .watch_rows
+        .iter()
+        .filter(|r| r.role == "PRE")
+        .count();
+    let post_live = snapshot
+        .watch_rows
+        .iter()
+        .filter(|r| r.role == "POST")
+        .count();
+    let paired_post = snapshot
+        .watch_rows
+        .iter()
+        .filter(|r| r.role == "POST" && r.pair_pre_name != "-")
+        .count();
+    let pending_signals = snapshot
+        .signal_rows
+        .iter()
+        .filter(|r| r.status == "pending")
+        .count();
+    let active_records: usize = snapshot.record_rows.iter().map(|r| r.active_files).sum();
+
+    let mut out = String::new();
+    out.push_str(&format!("  live_pre:        {pre_live}\n"));
+    out.push_str(&format!("  live_post:       {post_live}\n"));
+    out.push_str(&format!("  paired_post:     {paired_post}\n"));
+    out.push_str(&format!("  pending_signals: {pending_signals}\n"));
+    out.push_str(&format!("  active_records:  {active_records}\n\n"));
     out
 }
 

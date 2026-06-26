@@ -5,10 +5,12 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+mod model;
 mod render;
 #[cfg(test)]
 mod tests;
 
+use model::{RecordRow, SignalRow, Snapshot, WatchRow};
 use render::render_snapshot;
 
 const RECORD_SIGNAL_DIR: &str = "record_signal";
@@ -16,58 +18,6 @@ const ALL_KEEP_SIGNAL_DIR: &str = "all_keep_signal";
 const ALL_STOP_SIGNAL_DIR: &str = "all_stop_signal";
 const DEFAULT_HISTORY_AGE_SECS: u64 = 24 * 60 * 60;
 const DEFAULT_MAX_ROWS: usize = 40;
-
-#[derive(Debug, Default)]
-struct Snapshot {
-    kirin_root: PathBuf,
-    plugin_data_dir: Option<PathBuf>,
-    watch_rows: Vec<WatchRow>,
-    signal_rows: Vec<SignalRow>,
-    record_rows: Vec<RecordRow>,
-    warnings: Vec<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct WatchRow {
-    role: String,
-    project: String,
-    instance: String,
-    name: String,
-    signal_state: String,
-    peer_state: String,
-    pair_pre_name: String,
-    age_s: String,
-    path: PathBuf,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct SignalRow {
-    kind: String,
-    project: String,
-    file: String,
-    status: String,
-    requested_by: String,
-    target_pre: String,
-    pair_name: String,
-    daw_session: String,
-    t: String,
-    age_secs: Option<u64>,
-    age_s: String,
-    path: PathBuf,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct RecordRow {
-    project: String,
-    instance: String,
-    pre_files: usize,
-    post_files: usize,
-    active_files: usize,
-    closed_files: usize,
-    latest_status: String,
-    latest_age_secs: Option<u64>,
-    latest_path: String,
-}
 
 pub fn run(args: Vec<String>) -> Result<()> {
     let mut kirin_root: Option<PathBuf> = None;
