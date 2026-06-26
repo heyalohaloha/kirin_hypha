@@ -90,3 +90,39 @@ jobs:
         run: |
           auval -v aufx Khpo Kirn | tee /tmp/auval-post.log
           grep -q "AU VALIDATION SUCCEEDED" /tmp/auval-post.log
+
+  windows-vst3-preflight:
+    name: windows VST3 preflight
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive # JUCE is required for the Windows VST3 shell build.
+
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      # Windows starts as VST3-only. Keep AU, codesign, notarize, and LS packaging on the macOS
+      # release path so platform failures stay easy to classify.
+      - name: Build kirin_hypha_ffi staticlib (MSVC)
+        run: cargo build --release -p kirin_hypha_ffi --locked
+
+      - name: Windows preflight gate
+        run: cargo run -p xtask --locked -- windows-preflight
+
+      - name: Configure JUCE VST3 shell (Windows)
+        shell: pwsh
+        run: >
+          cmake -S juce_shell -B juce_shell/build-windows
+          -DCMAKE_BUILD_TYPE=Release
+          -DKIRIN_FFI_LIB="${{ github.workspace }}\target\release\kirin_hypha_ffi.lib"
+
+      - name: Build JUCE VST3 shell (Windows)
+        run: >
+          cmake --build juce_shell/build-windows
+          --config Release
+          --target KirinHyphaPRE_VST3 KirinHyphaPOST_VST3
+          --parallel 2
