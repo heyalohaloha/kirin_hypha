@@ -195,6 +195,7 @@ Windows 着手条件:
 - Windows preflight job に PRE/POST `.vst3` 実 artifact の存在確認と upload-artifact を追加し、runner 復活後に生成物を取得して inspect できる状態にした。
 - FFI 正本ヘッダ / README / Cargo metadata の staticlib 説明を Windows/MSVC `.lib` と macOS/Linux `.a` の両方に更新し、`xtask windows-preflight` で退行を検出するようにした。
 - `xtask windows-vst3-layout` の PRE/POST artifact path を CI preflight の正本として再利用し、YAML 側の検証・upload path が layout 監査から分岐しないようにした。
+- Windows VST3 artifact 検証を bundle directory だけでなく `Contents/x86_64-win/*.vst3` の実バイナリ存在・非空チェックまで拡張した。
 
 ## 優先順位
 

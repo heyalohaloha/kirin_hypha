@@ -92,6 +92,29 @@ pub(crate) fn windows_vst3_artifact_paths() -> Vec<String> {
         .collect()
 }
 
+pub(crate) fn windows_vst3_binary_paths() -> Vec<String> {
+    ["PRE", "POST"]
+        .into_iter()
+        .map(|role| {
+            let file = plugin_file(role);
+            repo_join(
+                "",
+                &[
+                    "juce_shell",
+                    "build-windows",
+                    &format!("KirinHypha{role}_artefacts"),
+                    "Release",
+                    "VST3",
+                    &file,
+                    "Contents",
+                    "x86_64-win",
+                    &file,
+                ],
+            )
+        })
+        .collect()
+}
+
 fn plugin_file(role: &str) -> String {
     format!("Kirin Hypha {role}.vst3")
 }
@@ -141,6 +164,17 @@ mod tests {
             vec![
                 "juce_shell/build-windows/KirinHyphaPRE_artefacts/Release/VST3/Kirin Hypha PRE.vst3",
                 "juce_shell/build-windows/KirinHyphaPOST_artefacts/Release/VST3/Kirin Hypha POST.vst3",
+            ]
+        );
+    }
+
+    #[test]
+    fn windows_layout_exports_vst3_binary_paths() {
+        assert_eq!(
+            windows_vst3_binary_paths(),
+            vec![
+                "juce_shell/build-windows/KirinHyphaPRE_artefacts/Release/VST3/Kirin Hypha PRE.vst3/Contents/x86_64-win/Kirin Hypha PRE.vst3",
+                "juce_shell/build-windows/KirinHyphaPOST_artefacts/Release/VST3/Kirin Hypha POST.vst3/Contents/x86_64-win/Kirin Hypha POST.vst3",
             ]
         );
     }

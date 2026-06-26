@@ -40,6 +40,10 @@ const WINDOWS_PREFLIGHT: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../xtask/src/windows_preflight.rs"
 ));
+const WINDOWS_PREFLIGHT_TESTS: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../xtask/src/windows_preflight/tests.rs"
+));
 const WINDOWS_VST3_LAYOUT: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../xtask/src/windows_vst3_layout.rs"
@@ -259,9 +263,16 @@ fn readiness_checks() -> Vec<Check> {
                         "verify_ffi_staticlib_docs",
                         "verify_ci_uses_layout_artifact_paths",
                         "KirinHyphaPRE_VST3 KirinHyphaPOST_VST3",
+                    ][..],
+                ),
+                (
+                    WINDOWS_PREFLIGHT_TESTS,
+                    &[
                         "preflight_requires_windows_staticlib_docs",
                         "preflight_requires_cargo_staticlib_docs",
                         "preflight_requires_windows_artifact_presence_check",
+                        "preflight_requires_windows_binary_presence_check",
+                        "preflight_requires_nonempty_windows_binary_check",
                         "preflight_requires_windows_artifact_upload_error_on_missing_files",
                         "preflight_requires_upload_paths_to_match_layout_paths",
                         "preflight_rejects_macos_release_step_in_windows_ci_job",
@@ -289,6 +300,7 @@ fn readiness_checks() -> Vec<Check> {
                     "windows_layout_uses_steinberg_user_dev_folder",
                     "windows_layout_uses_global_common_files_vst3",
                     "windows_layout_exports_ci_artifact_paths",
+                    "windows_layout_exports_vst3_binary_paths",
                     "windows_layout_excludes_macos_and_au_paths",
                     "%LOCALAPPDATA%\\\\Programs\\\\Common\\\\VST3",
                     "%ProgramFiles%\\\\Common Files\\\\VST3",
