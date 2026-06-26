@@ -15,6 +15,7 @@ const RECORD_SIGNAL_DIR: &str = "record_signal";
 const ALL_KEEP_SIGNAL_DIR: &str = "all_keep_signal";
 const ALL_STOP_SIGNAL_DIR: &str = "all_stop_signal";
 const DEFAULT_HISTORY_AGE_SECS: u64 = 24 * 60 * 60;
+const DEFAULT_MAX_ROWS: usize = 40;
 
 #[derive(Debug, Default)]
 struct Snapshot {
@@ -73,6 +74,7 @@ pub fn run(args: Vec<String>) -> Result<()> {
     let mut plugin_data_dir: Option<PathBuf> = None;
     let mut all_history = false;
     let mut max_age_secs = DEFAULT_HISTORY_AGE_SECS;
+    let mut max_rows = Some(DEFAULT_MAX_ROWS);
 
     let mut iter = args.into_iter();
     while let Some(arg) = iter.next() {
@@ -95,6 +97,14 @@ pub fn run(args: Vec<String>) -> Result<()> {
                     .parse()
                     .context("--max-age-secs value must be u64")?;
             }
+            "--max-rows" => {
+                let value: usize = iter
+                    .next()
+                    .context("--max-rows requires a value")?
+                    .parse()
+                    .context("--max-rows value must be usize")?;
+                max_rows = (value > 0).then_some(value);
+            }
             "-h" | "--help" => {
                 print_help();
                 return Ok(());
@@ -114,15 +124,16 @@ pub fn run(args: Vec<String>) -> Result<()> {
     if !all_history {
         apply_history_filter(&mut snapshot, max_age_secs);
     }
-    print!("{}", render_snapshot(&snapshot));
+    print!("{}", render_snapshot(&snapshot, max_rows));
     Ok(())
 }
 
 fn print_help() {
     eprintln!(
-        "Usage: cargo run -p xtask -- diagnose-watch [--kirin-root PATH] [--plugin-data-dir PATH] [--all-history] [--max-age-secs N]\n\n\
+        "Usage: cargo run -p xtask -- diagnose-watch [--kirin-root PATH] [--plugin-data-dir PATH] [--all-history] [--max-age-secs N] [--max-rows N]\n\n\
          Prints a read-only PRE/POST Watch snapshot from the platform temp root and plugin_data.\n\
          Default history filter keeps pending signals, active records, and rows newer than 24h.\n\
+         Default row cap is 40 per section; pass --max-rows 0 to show all rows.\n\
          Use --kirin-root and --plugin-data-dir for isolated test captures."
     );
 }
@@ -136,22 +147,34 @@ fn collect_snapshot(kirin_root: PathBuf, plugin_data_dir: Option<PathBuf>) -> Sn
 
     scan_watch_root(&mut snapshot);
     scan_plugin_data(&mut snapshot);
+    sort_snapshot(&mut snapshot);
+    snapshot
+}
+
+fn sort_snapshot(snapshot: &mut Snapshot) {
+    snapshot.signal_rows.sort_by(|a, b| {
+        a.age_secs
+            .unwrap_or(u64::MAX)
+            .cmp(&b.age_secs.unwrap_or(u64::MAX))
+            .then(
+                a.project
+                    .cmp(&b.project)
+                    .then(a.kind.cmp(&b.kind))
+                    .then(a.file.cmp(&b.file)),
+            )
+    });
+    snapshot.record_rows.sort_by(|a, b| {
+        a.latest_age_secs
+            .unwrap_or(u64::MAX)
+            .cmp(&b.latest_age_secs.unwrap_or(u64::MAX))
+            .then(a.project.cmp(&b.project).then(a.instance.cmp(&b.instance)))
+    });
     snapshot.watch_rows.sort_by(|a, b| {
         a.project
             .cmp(&b.project)
             .then(a.role.cmp(&b.role))
             .then(a.instance.cmp(&b.instance))
     });
-    snapshot.signal_rows.sort_by(|a, b| {
-        a.project
-            .cmp(&b.project)
-            .then(a.kind.cmp(&b.kind))
-            .then(a.file.cmp(&b.file))
-    });
-    snapshot
-        .record_rows
-        .sort_by(|a, b| a.project.cmp(&b.project).then(a.instance.cmp(&b.instance)));
-    snapshot
 }
 
 fn apply_history_filter(snapshot: &mut Snapshot, max_age_secs: u64) {
