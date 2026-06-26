@@ -194,6 +194,7 @@ Windows 着手条件:
 - B-187 review で CI usage / Windows preflight の静的ガードを厳格化し、コメント中の文字列・step-level `if`・plain push 逃げ条件では gate を通過できないようにした。
 - Windows preflight job に PRE/POST `.vst3` 実 artifact の存在確認と upload-artifact を追加し、runner 復活後に生成物を取得して inspect できる状態にした。
 - FFI 正本ヘッダ / README / Cargo metadata の staticlib 説明を Windows/MSVC `.lib` と macOS/Linux `.a` の両方に更新し、`xtask windows-preflight` で退行を検出するようにした。
+- `xtask windows-vst3-layout` の PRE/POST artifact path を CI preflight の正本として再利用し、YAML 側の検証・upload path が layout 監査から分岐しないようにした。
 
 ## 優先順位
 
