@@ -162,6 +162,10 @@ Windows 着手条件:
 - platform path の単体テストが macOS/Windows 両方の文字列 fixture で通る。
 - macOS出荷ゲートとWindows開発ゲートが混ざっていない。
 
+進捗:
+- `PlatformPaths` / `PlatformKind` を storage 境界へ導入し、macOS fixture は既存配置、Windows fixture は APPDATA(identity) / LOCALAPPDATA(plugin_data) 分離を固定。
+- `StoragePaths::default_macos()` は互換 wrapper として残し、呼び出し側移行前でも既存 macOS 挙動を維持。
+
 ## 優先順位
 
 1. Pairing / discovery の scenario test と小モジュール分離。

@@ -117,8 +117,8 @@ pub use record_signal::{
 pub use record_writer::{new_record_trace_queue, RecordTraceQueue, RecordTraceSample};
 pub use storage::{
     cleanup_legacy_v1, load_installation_id_safe, load_or_recover, read_identity, write_both,
-    write_identity_atomic, CleanupReport, IdentityCache, LoadStatus, LoadedIdentity, StorageError,
-    StoragePaths, CLEANUP_V1_DONE_FILENAME,
+    write_identity_atomic, CleanupReport, IdentityCache, LoadStatus, LoadedIdentity, PlatformKind,
+    PlatformPaths, StorageError, StoragePaths, CLEANUP_V1_DONE_FILENAME,
 };
 pub use watchdog::{spawn_watchdog, IoThreadHandle, RestartIoFn, WatchdogIo, WatchdogParams};
 

@@ -7,10 +7,10 @@
 //! | 一次 | `~/Library/Application Support/Kirin OS/identity.json` | Kirin OS 本体 |
 //! | 二次 | `~/Library/Application Support/Kirin OS/plugin_data/.identity_backup.json` | Hypha（自動同期） |
 //!
-//! **設計決定:** `plugin_data/` の絶対パスは仕様未明記のため、Phase 1.0 は
-//! `~/Library/Application Support/Kirin OS/plugin_data/` 配下固定とする。
-//! identity.json（一次）と同じ Kirin OS ディレクトリに集約することで、
-//! インストーラー実装時の権限設定が 1 ディレクトリで済む。
+//! **設計決定:** macOS では `plugin_data/` を
+//! `~/Library/Application Support/Kirin OS/plugin_data/` 配下に置く。
+//! Windows では `PlatformPaths` 経由で identity root と plugin_data root を分けられる
+//! ようにし、APPDATA / LOCALAPPDATA の差を storage 利用側へ漏らさない。
 //!
 //! # 4 段階復旧フロー
 //! ```text
@@ -67,28 +67,59 @@ impl LoadStatus {
 }
 
 /// storage 層のパス群。テスト時はカスタムルートで注入する。
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoragePaths {
     /// Kirin OS ディレクトリのルート（通常 `~/Library/Application Support/Kirin OS`）。
     pub kirin_os_root: PathBuf,
+    /// plugin_data のルート。macOS では `kirin_os_root/plugin_data`。
+    ///
+    /// Windows では identity と plugin_data の配置先を APPDATA / LOCALAPPDATA に
+    /// 分けられるよう、root から独立して保持する。
+    pub plugin_data_root: PathBuf,
+}
+
+/// Platform-specific path bundle used before crossing into storage / IO code.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlatformPaths {
+    pub kind: PlatformKind,
+    pub storage: StoragePaths,
+    pub kirin_tmp_root: PathBuf,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlatformKind {
+    MacOS,
+    Windows,
 }
 
 impl StoragePaths {
     /// 本番用のデフォルトパス。`$HOME` が取れない場合は `Err`。
     pub fn default_macos() -> Result<Self, StorageError> {
-        let home = std::env::var("HOME").map_err(|_| StorageError::NoHome)?;
-        Ok(Self {
-            kirin_os_root: PathBuf::from(home)
-                .join("Library")
-                .join("Application Support")
-                .join("Kirin OS"),
-        })
+        Ok(PlatformPaths::default_macos()?.storage)
+    }
+
+    /// 現在の build target に対応するデフォルトパス。
+    pub fn default_platform() -> Result<Self, StorageError> {
+        Ok(PlatformPaths::default_current()?.storage)
     }
 
     /// テスト用に任意ルートを指定。
     pub fn with_root(root: impl Into<PathBuf>) -> Self {
+        let root = root.into();
         Self {
-            kirin_os_root: root.into(),
+            plugin_data_root: root.join("plugin_data"),
+            kirin_os_root: root,
+        }
+    }
+
+    /// identity root と plugin_data root を別々に指定する。
+    pub fn with_roots(
+        kirin_os_root: impl Into<PathBuf>,
+        plugin_data_root: impl Into<PathBuf>,
+    ) -> Self {
+        Self {
+            kirin_os_root: kirin_os_root.into(),
+            plugin_data_root: plugin_data_root.into(),
         }
     }
 
@@ -97,11 +128,73 @@ impl StoragePaths {
     }
 
     pub fn plugin_data_dir(&self) -> PathBuf {
-        self.kirin_os_root.join("plugin_data")
+        self.plugin_data_root.clone()
     }
 
     pub fn secondary_path(&self) -> PathBuf {
         self.plugin_data_dir().join(".identity_backup.json")
+    }
+}
+
+impl PlatformPaths {
+    pub fn for_macos(home: impl Into<PathBuf>, temp_dir: impl Into<PathBuf>) -> Self {
+        let kirin_os_root = home
+            .into()
+            .join("Library")
+            .join("Application Support")
+            .join("Kirin OS");
+        let storage = StoragePaths::with_root(kirin_os_root);
+        Self {
+            kind: PlatformKind::MacOS,
+            storage,
+            kirin_tmp_root: temp_dir.into().join("kirin"),
+        }
+    }
+
+    pub fn for_windows(
+        appdata: impl Into<PathBuf>,
+        local_appdata: impl Into<PathBuf>,
+        temp_dir: impl Into<PathBuf>,
+    ) -> Self {
+        let kirin_os_root = appdata.into().join("Kirin OS");
+        let plugin_data_root = local_appdata.into().join("Kirin OS").join("plugin_data");
+        let storage = StoragePaths::with_roots(kirin_os_root, plugin_data_root);
+        Self {
+            kind: PlatformKind::Windows,
+            storage,
+            kirin_tmp_root: temp_dir.into().join("kirin"),
+        }
+    }
+
+    pub fn default_macos() -> Result<Self, StorageError> {
+        let home = std::env::var("HOME").map_err(|_| StorageError::NoHome)?;
+        Ok(Self::for_macos(home, std::env::temp_dir()))
+    }
+
+    pub fn default_windows() -> Result<Self, StorageError> {
+        let appdata = std::env::var("APPDATA").map_err(|_| StorageError::MissingEnv("APPDATA"))?;
+        let local_appdata =
+            std::env::var("LOCALAPPDATA").map_err(|_| StorageError::MissingEnv("LOCALAPPDATA"))?;
+        Ok(Self::for_windows(
+            appdata,
+            local_appdata,
+            std::env::temp_dir(),
+        ))
+    }
+
+    pub fn default_current() -> Result<Self, StorageError> {
+        #[cfg(target_os = "windows")]
+        {
+            Self::default_windows()
+        }
+        #[cfg(target_os = "macos")]
+        {
+            Self::default_macos()
+        }
+        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+        {
+            Self::default_macos()
+        }
     }
 }
 
@@ -110,6 +203,8 @@ impl StoragePaths {
 pub enum StorageError {
     /// `$HOME` 環境変数が取れない。
     NoHome,
+    /// Platform-specific environment variable is missing.
+    MissingEnv(&'static str),
     /// ディレクトリ作成失敗（権限等）。
     CreateDir(std::io::Error),
     /// 書き込み失敗。
@@ -126,6 +221,7 @@ impl std::fmt::Display for StorageError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::NoHome => write!(f, "HOME environment variable not set"),
+            Self::MissingEnv(name) => write!(f, "{} environment variable not set", name),
             Self::CreateDir(e) => write!(f, "create dir: {}", e),
             Self::Write(e) => write!(f, "write: {}", e),
             Self::Read(e) => write!(f, "read: {}", e),
@@ -577,6 +673,57 @@ mod tests {
             sn: b.to_string(),
             bd: c.to_string(),
         }
+    }
+
+    #[test]
+    fn platform_paths_macos_fixture_preserves_current_storage_layout() {
+        let paths = PlatformPaths::for_macos("/Users/daisuke", "/tmp");
+        let expected_root = PathBuf::from("/Users/daisuke")
+            .join("Library")
+            .join("Application Support")
+            .join("Kirin OS");
+
+        assert_eq!(paths.kind, PlatformKind::MacOS);
+        assert_eq!(paths.storage.kirin_os_root, expected_root);
+        assert_eq!(
+            paths.storage.plugin_data_dir(),
+            expected_root.join("plugin_data")
+        );
+        assert_eq!(
+            paths.storage.primary_path(),
+            expected_root.join("identity.json")
+        );
+        assert_eq!(
+            paths.storage.secondary_path(),
+            expected_root
+                .join("plugin_data")
+                .join(".identity_backup.json")
+        );
+        assert_eq!(paths.kirin_tmp_root, PathBuf::from("/tmp").join("kirin"));
+    }
+
+    #[test]
+    fn platform_paths_windows_fixture_splits_appdata_and_localappdata() {
+        let appdata = PathBuf::from(r"C:\Users\daisuke\AppData\Roaming");
+        let local_appdata = PathBuf::from(r"C:\Users\daisuke\AppData\Local");
+        let temp = PathBuf::from(r"C:\Users\daisuke\AppData\Local\Temp");
+        let paths =
+            PlatformPaths::for_windows(appdata.clone(), local_appdata.clone(), temp.clone());
+        let expected_identity_root = appdata.join("Kirin OS");
+        let expected_plugin_data = local_appdata.join("Kirin OS").join("plugin_data");
+
+        assert_eq!(paths.kind, PlatformKind::Windows);
+        assert_eq!(paths.storage.kirin_os_root, expected_identity_root);
+        assert_eq!(paths.storage.plugin_data_dir(), expected_plugin_data);
+        assert_eq!(
+            paths.storage.primary_path(),
+            expected_identity_root.join("identity.json")
+        );
+        assert_eq!(
+            paths.storage.secondary_path(),
+            expected_plugin_data.join(".identity_backup.json")
+        );
+        assert_eq!(paths.kirin_tmp_root, temp.join("kirin"));
     }
 
     #[test]
