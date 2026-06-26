@@ -16,6 +16,36 @@ fn temp_root(label: &str) -> PathBuf {
     root
 }
 
+fn watch_pre(project: &str, instance: &str, name: &str, state: &str, age_secs: u64) -> WatchRow {
+    WatchRow {
+        role: "PRE".to_string(),
+        project: project.to_string(),
+        instance: instance.to_string(),
+        name: name.to_string(),
+        signal_state: state.to_string(),
+        peer_state: "-".to_string(),
+        pair_pre_name: "-".to_string(),
+        age_secs: Some(age_secs),
+        age_s: format!("{age_secs}s"),
+        path: PathBuf::from(format!("{project}/{instance}/pre.json")),
+    }
+}
+
+fn watch_post(project: &str, instance: &str, pair_pre_name: &str, age_secs: u64) -> WatchRow {
+    WatchRow {
+        role: "POST".to_string(),
+        project: project.to_string(),
+        instance: instance.to_string(),
+        name: "-".to_string(),
+        signal_state: "active".to_string(),
+        peer_state: "active".to_string(),
+        pair_pre_name: pair_pre_name.to_string(),
+        age_secs: Some(age_secs),
+        age_s: format!("{age_secs}s"),
+        path: PathBuf::from(format!("{project}/{instance}/post.json")),
+    }
+}
+
 #[test]
 fn collect_snapshot_reports_watch_pre_and_post() {
     let root = temp_root("watch");
@@ -112,28 +142,8 @@ fn render_table_truncates_with_omitted_count() {
 fn render_snapshot_includes_operational_summary() {
     let snapshot = Snapshot {
         watch_rows: vec![
-            WatchRow {
-                role: "PRE".to_string(),
-                project: "p".to_string(),
-                instance: "pre".to_string(),
-                name: "Mix".to_string(),
-                signal_state: "active".to_string(),
-                peer_state: "-".to_string(),
-                pair_pre_name: "-".to_string(),
-                age_s: "1s".to_string(),
-                path: PathBuf::from("pre.json"),
-            },
-            WatchRow {
-                role: "POST".to_string(),
-                project: "p".to_string(),
-                instance: "post".to_string(),
-                name: "-".to_string(),
-                signal_state: "active".to_string(),
-                peer_state: "active".to_string(),
-                pair_pre_name: "Mix".to_string(),
-                age_s: "1s".to_string(),
-                path: PathBuf::from("post.json"),
-            },
+            watch_pre("p", "pre", "Mix", "active", 1),
+            watch_post("p", "post", "Mix", 1),
         ],
         signal_rows: vec![SignalRow {
             kind: "record_signal".to_string(),
@@ -168,9 +178,56 @@ fn render_snapshot_includes_operational_summary() {
     assert!(out.contains("Summary"));
     assert!(out.contains("live_pre:        1"));
     assert!(out.contains("live_post:       1"));
+    assert!(out.contains("eligible_pre:    1"));
     assert!(out.contains("paired_post:     1"));
     assert!(out.contains("pending_signals: 1"));
     assert!(out.contains("active_records:  1"));
+}
+
+#[test]
+fn findings_explain_stale_pre_hidden_from_pair_candidates() {
+    let mut snapshot = Snapshot {
+        watch_rows: vec![
+            watch_pre(
+                "pre-project",
+                "pre-mix",
+                "Mix",
+                "active",
+                kirin_measure::DISCOVERY_STALE_SECS + 1,
+            ),
+            watch_post("post-project", "post-mix", "Mix", 1),
+        ],
+        ..Snapshot::default()
+    };
+
+    refresh_findings(&mut snapshot);
+    let out = render_snapshot(&snapshot, Some(40));
+
+    assert!(out.contains("eligible_pre:    0"));
+    assert!(out.contains("Findings"));
+    assert!(out.contains("STALE_PRE"));
+    assert!(out.contains("POST_TARGET_UNAVAILABLE"));
+    assert!(out.contains("pair_pre_name \"Mix\" exists only as stale or bypassed PRE"));
+}
+
+#[test]
+fn findings_explain_ambiguous_duplicate_pre_names() {
+    let mut snapshot = Snapshot {
+        watch_rows: vec![
+            watch_pre("p1", "pre-a", "Mix", "active", 1),
+            watch_pre("p2", "pre-b", "Mix", "inactive", 1),
+            watch_post("post-project", "post-mix", "Mix", 1),
+        ],
+        ..Snapshot::default()
+    };
+
+    refresh_findings(&mut snapshot);
+    let out = render_snapshot(&snapshot, Some(40));
+
+    assert!(out.contains("eligible_pre:    2"));
+    assert!(out.contains("DUPLICATE_PRE_NAME"));
+    assert!(out.contains("POST_TARGET_AMBIGUOUS"));
+    assert!(out.contains("fresh non-bypassed PRE rows share this name"));
 }
 
 #[test]

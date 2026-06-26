@@ -1,4 +1,4 @@
-use super::Snapshot;
+use super::{analyze::is_pair_candidate, Snapshot};
 
 pub(super) fn render_snapshot(snapshot: &Snapshot, max_rows: Option<usize>) -> String {
     let mut out = String::new();
@@ -16,6 +16,25 @@ pub(super) fn render_snapshot(snapshot: &Snapshot, max_rows: Option<usize>) -> S
     out.push_str("Summary\n");
     out.push_str(&render_summary(snapshot));
 
+    out.push_str("Findings\n");
+    out.push_str(&render_table(
+        &["level", "code", "subject", "detail"],
+        snapshot
+            .finding_rows
+            .iter()
+            .map(|r| {
+                vec![
+                    r.level.clone(),
+                    r.code.clone(),
+                    r.subject.clone(),
+                    r.detail.clone(),
+                ]
+            })
+            .collect(),
+        max_rows,
+    ));
+
+    out.push('\n');
     out.push_str("Watch PRE/POST\n");
     out.push_str(&render_table(
         &[
@@ -144,6 +163,11 @@ fn render_summary(snapshot: &Snapshot) -> String {
         .iter()
         .filter(|r| r.role == "POST" && r.pair_pre_name != "-")
         .count();
+    let eligible_pre = snapshot
+        .watch_rows
+        .iter()
+        .filter(|r| is_pair_candidate(r))
+        .count();
     let pending_signals = snapshot
         .signal_rows
         .iter()
@@ -154,6 +178,7 @@ fn render_summary(snapshot: &Snapshot) -> String {
     let mut out = String::new();
     out.push_str(&format!("  live_pre:        {pre_live}\n"));
     out.push_str(&format!("  live_post:       {post_live}\n"));
+    out.push_str(&format!("  eligible_pre:    {eligible_pre}\n"));
     out.push_str(&format!("  paired_post:     {paired_post}\n"));
     out.push_str(&format!("  pending_signals: {pending_signals}\n"));
     out.push_str(&format!("  active_records:  {active_records}\n\n"));

@@ -5,12 +5,14 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+mod analyze;
 mod model;
 mod render;
 #[cfg(test)]
 mod tests;
 
-use model::{RecordRow, SignalRow, Snapshot, WatchRow};
+use analyze::refresh_findings;
+use model::{FindingRow, RecordRow, SignalRow, Snapshot, WatchRow};
 use render::render_snapshot;
 
 const RECORD_SIGNAL_DIR: &str = "record_signal";
@@ -98,6 +100,7 @@ fn collect_snapshot(kirin_root: PathBuf, plugin_data_dir: Option<PathBuf>) -> Sn
     scan_watch_root(&mut snapshot);
     scan_plugin_data(&mut snapshot);
     sort_snapshot(&mut snapshot);
+    refresh_findings(&mut snapshot);
     snapshot
 }
 
@@ -137,6 +140,7 @@ fn apply_history_filter(snapshot: &mut Snapshot, max_age_secs: u64) {
     snapshot.warnings.push(format!(
         "history filter applied: signals/records newer than {max_age_secs}s plus pending/active; pass --all-history to include old plugin_data"
     ));
+    refresh_findings(snapshot);
 }
 
 fn scan_watch_root(snapshot: &mut Snapshot) {
@@ -193,6 +197,7 @@ fn scan_watch_file(
         return;
     };
     let fallback_instance = file_name(instance_dir);
+    let age_secs = age_secs(&path);
     snapshot.watch_rows.push(WatchRow {
         role: role.to_string(),
         project: project.to_string(),
@@ -201,7 +206,8 @@ fn scan_watch_file(
         signal_state: field(&json, "signal_state").unwrap_or_else(|| "-".to_string()),
         peer_state: field(&json, "pre_signal_state").unwrap_or_else(|| "-".to_string()),
         pair_pre_name: field(&json, "pair_pre_name").unwrap_or_else(|| "-".to_string()),
-        age_s: age_s(&path),
+        age_secs,
+        age_s: format_age(age_secs),
         path,
     });
 }
@@ -411,7 +417,11 @@ fn field(json: &Value, key: &str) -> Option<String> {
 }
 
 fn age_s(path: &Path) -> String {
-    match age_secs(path) {
+    format_age(age_secs(path))
+}
+
+fn format_age(age_secs: Option<u64>) -> String {
+    match age_secs {
         Some(age) => format!("{age}s"),
         None => "-".to_string(),
     }

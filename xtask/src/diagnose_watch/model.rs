@@ -7,6 +7,7 @@ pub(super) struct Snapshot {
     pub watch_rows: Vec<WatchRow>,
     pub signal_rows: Vec<SignalRow>,
     pub record_rows: Vec<RecordRow>,
+    pub finding_rows: Vec<FindingRow>,
     pub warnings: Vec<String>,
 }
 
@@ -19,8 +20,17 @@ pub(super) struct WatchRow {
     pub signal_state: String,
     pub peer_state: String,
     pub pair_pre_name: String,
+    pub age_secs: Option<u64>,
     pub age_s: String,
     pub path: PathBuf,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct FindingRow {
+    pub level: String,
+    pub code: String,
+    pub subject: String,
+    pub detail: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
