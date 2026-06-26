@@ -1,3 +1,4 @@
+mod diagnose_watch;
 mod gen_signals;
 mod install;
 mod macos_codesign;
@@ -12,6 +13,10 @@ fn main() -> nih_plug_xtask::Result<()> {
         Some("gen-signals") => {
             args.remove(0);
             gen_signals::run(args)
+        }
+        Some("diagnose-watch") => {
+            args.remove(0);
+            diagnose_watch::run(args)
         }
         Some("install") => {
             args.remove(0);

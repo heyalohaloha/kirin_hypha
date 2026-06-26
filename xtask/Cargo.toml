@@ -5,7 +5,9 @@ edition = "2021"
 
 [dependencies]
 nih_plug_xtask = { workspace = true }
+kirin_measure = { workspace = true }
 anyhow = "1"
 ebur128 = "0.1"
 hound = "3.5"
 rand = "0.8"
+serde_json = { workspace = true }
