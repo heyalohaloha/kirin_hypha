@@ -444,18 +444,11 @@ void KirinHyphaEditor::updatePost()
     const bool haveM = processorRef.pollMeasureResult (m);
     const bool tpWarn = hypha::tpOver (haveM ? m.true_peak : kNaN);
 
-    if (sig != 1) // Bypassed / Inactive -> "---"
-    {
-        if (currentKind != Kind::Abs3) configureForKind (Kind::Abs3);
-        fillAbs (0, kNaN, false);
-        fillAbs (1, kNaN, true);
-        fillAbs (2, kNaN, false);
-    }
-    else if (rec) // Active + Record -> Δ6
+    if (rec) // Record owns the six-row layout even while the host is preparing/offline-stalling.
     {
         if (currentKind != Kind::Delta6) configureForKind (Kind::Delta6);
         KirinDelta d {};
-        const bool haveD = processorRef.pollDelta (d);
+        const bool haveD = (sig == 1) && processorRef.pollDelta (d);
         const juce::Colour base = (haveD && d.mode == 1) ? COL_MUTED : COL_NORMAL; // Stale -> muted
         auto D = [&] (double x) { return haveD ? x : kNaN; };
         fillDelta (0, D (d.lufs),          false, base, tpWarn);
@@ -464,6 +457,13 @@ void KirinHyphaEditor::updatePost()
         fillDelta (3, D (d.n_prime_total), false, base, tpWarn);
         fillDelta (4, D (d.crest),         false, base, tpWarn);
         fillDelta (5, D (d.sharpness),     false, base, tpWarn);
+    }
+    else if (sig != 1) // Bypassed / Inactive -> "---"
+    {
+        if (currentKind != Kind::Abs3) configureForKind (Kind::Abs3);
+        fillAbs (0, kNaN, false);
+        fillAbs (1, kNaN, true);
+        fillAbs (2, kNaN, false);
     }
     else // Active + Watch
     {

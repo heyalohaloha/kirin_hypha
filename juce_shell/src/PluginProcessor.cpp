@@ -42,9 +42,9 @@ KirinHyphaProcessorBase::KirinHyphaProcessorBase (Role roleIn)
 
     // B-126: start the non-RT enable poll. The constructor runs on the message thread (plugin
     // instantiation), so starting the Timer here is safe. It ticks at a low rate and no-ops once
-    // writesEnabled is true (re-prepare resets the flags and it re-enables). This replaces the
-    // audio-thread triggerAsyncUpdate (which JUCE warns may block — juce_AsyncUpdater.h). 50ms keeps
-    // enable latency ~one buffer after the first processBlock while costing one atomic load per tick.
+    // writesEnabled is true. This replaces the audio-thread triggerAsyncUpdate (which JUCE warns
+    // may block — juce_AsyncUpdater.h). 50ms keeps enable latency ~one buffer after the first
+    // processBlock while costing one atomic load per tick.
     startTimer (50);
 }
 
@@ -74,7 +74,16 @@ void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBl
     scratchCapacitySamples = interleaveScratch.size();
 
     const juce::ScopedLock sl (handleLock);
-    // Re-prepare is allowed: drop any prior handle before creating a fresh one.
+    // B-141: Studio One offline bounce can call prepareToPlay again after All Keep has entered
+    // Record. The maximumExpectedSamplesPerBlock may change for render, but the user-visible
+    // Record state must not be thrown away. Reuse the Rust engine when the audio format is the same;
+    // only rebuild when sample rate or channel count changes.
+    const bool needsNewHandle = hyphaHandle == nullptr
+                             || std::abs (preparedSampleRate - sampleRate) > 0.001
+                             || preparedInputChannels != numCh;
+    if (! needsNewHandle)
+        return;
+
     if (hyphaHandle != nullptr)
     {
         kirin_hypha_destroy (hyphaHandle);
@@ -84,6 +93,8 @@ void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBl
     // num_channels: pass the actual negotiated input channel count. Mono must remain 1ch
     // all the way into the meter; duplicating to stereo would bias loudness by +3.01 dB.
     hyphaHandle = kirin_hypha_create ((uint32_t) sampleRate, (uint32_t) numCh);
+    preparedSampleRate = hyphaHandle != nullptr ? sampleRate : 0.0;
+    preparedInputChannels = hyphaHandle != nullptr ? numCh : 0;
 
     // B-070: a fresh handle needs license applied and (re-)enabling. License is read once
     // from identity.json (single source) and cached for the editor's Os-gate (B-072).
@@ -109,12 +120,10 @@ void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBl
 
 void KirinHyphaProcessorBase::releaseResources()
 {
-    const juce::ScopedLock sl (handleLock);
-    if (hyphaHandle != nullptr)
-    {
-        kirin_hypha_destroy (hyphaHandle);
-        hyphaHandle = nullptr;
-    }
+    // B-141: releaseResources is an audio lifecycle callback, not user intent. Hosts may call it
+    // around offline bounce/freeze; destroying the engine here drops Record state and makes the
+    // editor fall back to Watch/Keep mid-bounce. Keep the handle alive until destructor or an
+    // incompatible prepareToPlay rebuild.
 }
 
 bool KirinHyphaProcessorBase::isBusesLayoutSupported (const BusesLayout& layouts) const

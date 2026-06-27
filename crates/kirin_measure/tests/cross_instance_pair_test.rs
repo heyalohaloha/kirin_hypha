@@ -3,7 +3,7 @@
 //! - PluginDataFile::new が instance_id / paired_*_instance_id を保持する
 //! - Some / None の serialize 挙動 (#[serde(skip_serializing_if = "Option::is_none")])
 //! - JSON roundtrip で field が保たれる
-//! - SCHEMA_VERSION が "1.2" である
+//! - SCHEMA_VERSION が "1.3" である
 
 use kirin_measure::{PluginDataFile, PluginDataRole as Role};
 
@@ -19,6 +19,8 @@ fn cross_instance_pair_struct_roundtrip() {
         48_000,
         None,
         Some("post_instance_bbbb".to_string()),
+        Some("Mix".to_string()),
+        Some("Mix".to_string()),
     );
     assert_eq!(pre_data.instance_id, "pre_instance_aaaa");
     assert_eq!(
@@ -26,6 +28,8 @@ fn cross_instance_pair_struct_roundtrip() {
         Some("post_instance_bbbb")
     );
     assert!(pre_data.paired_pre_instance_id.is_none());
+    assert_eq!(pre_data.pair_name.as_deref(), Some("Mix"));
+    assert_eq!(pre_data.pair_pre_name.as_deref(), Some("Mix"));
 
     // POST 側 plugin_data: paired_pre_instance_id を書き込む
     let post_data = PluginDataFile::new(
@@ -37,6 +41,8 @@ fn cross_instance_pair_struct_roundtrip() {
         48_000,
         Some("pre_instance_aaaa".to_string()),
         None,
+        Some("Mix".to_string()),
+        Some("Mix".to_string()),
     );
     assert_eq!(post_data.instance_id, "post_instance_bbbb");
     assert_eq!(
@@ -44,6 +50,8 @@ fn cross_instance_pair_struct_roundtrip() {
         Some("pre_instance_aaaa")
     );
     assert!(post_data.paired_post_instance_id.is_none());
+    assert_eq!(post_data.pair_name.as_deref(), Some("Mix"));
+    assert_eq!(post_data.pair_pre_name.as_deref(), Some("Mix"));
 
     // 双方向一致を確認
     assert_eq!(
@@ -59,11 +67,15 @@ fn cross_instance_pair_struct_roundtrip() {
     let pre_json = serde_json::to_string(&pre_data).unwrap();
     assert!(pre_json.contains("\"instance_id\":\"pre_instance_aaaa\""));
     assert!(pre_json.contains("\"paired_post_instance_id\":\"post_instance_bbbb\""));
+    assert!(pre_json.contains("\"pair_name\":\"Mix\""));
+    assert!(pre_json.contains("\"pair_pre_name\":\"Mix\""));
     // None は skip_serializing_if で省略
     assert!(!pre_json.contains("paired_pre_instance_id"));
 
     let post_json = serde_json::to_string(&post_data).unwrap();
     assert!(post_json.contains("\"paired_pre_instance_id\":\"pre_instance_aaaa\""));
+    assert!(post_json.contains("\"pair_name\":\"Mix\""));
+    assert!(post_json.contains("\"pair_pre_name\":\"Mix\""));
     assert!(!post_json.contains("paired_post_instance_id"));
 
     let pre_deserialized: PluginDataFile = serde_json::from_str(&pre_json).unwrap();
@@ -90,10 +102,14 @@ fn both_paired_fields_none_serialize_omits_both() {
         48_000,
         None,
         None,
+        None,
+        None,
     );
     let json = serde_json::to_string(&f).unwrap();
     assert!(!json.contains("paired_pre_instance_id"));
     assert!(!json.contains("paired_post_instance_id"));
+    assert!(!json.contains("pair_name"));
+    assert!(!json.contains("pair_pre_name"));
     // instance_id は required なので必ず出る
     assert!(json.contains("\"instance_id\":\"iid_solo\""));
 }

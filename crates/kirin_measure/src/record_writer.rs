@@ -262,6 +262,7 @@ pub fn resolve_started_at_ms(
 ///   （v1.2 (a) cross-instance pair 復元キー）
 /// - `paired_post_instance_id`: PRE 側でのみ Some。record_signal の requested_by
 ///   （v1.2 (a) cross-instance pair 復元キー）
+/// - `pair_name` / `pair_pre_name`: Lens 表示用の pair 名 snapshot（空なら省略）
 ///
 /// # 失敗要因（いずれも `None` を返してログ記録）
 /// - `$HOME` 未解決
@@ -277,6 +278,8 @@ pub fn writer_start(
     instance_id: &str,
     paired_pre_instance_id: Option<String>,
     paired_post_instance_id: Option<String>,
+    pair_name: Option<String>,
+    pair_pre_name: Option<String>,
 ) -> Option<RecordingCtx> {
     let paths = match StoragePaths::default_platform() {
         Ok(p) => p,
@@ -300,6 +303,8 @@ pub fn writer_start(
         sample_rate,
         paired_pre_instance_id,
         paired_post_instance_id,
+        pair_name,
+        pair_pre_name,
     ) {
         Ok(w) => w,
         Err(e) => {
@@ -478,12 +483,60 @@ pub fn run_record_tick(
     oversized_drop: &Arc<std::sync::atomic::AtomicU64>,
     record_trace_queue: Option<&RecordTraceQueue>,
 ) -> Result<(), String> {
+    run_record_tick_with_pair_names(
+        record_sm,
+        role,
+        sample_rate,
+        project_hash,
+        instance_id,
+        started_at_resolver,
+        paired_pre_resolver,
+        paired_post_resolver,
+        || None,
+        || None,
+        measure_result,
+        recording,
+        session_summary,
+        overflow,
+        oversized_drop,
+        record_trace_queue,
+    )
+}
+
+/// [`run_record_tick`] に Lens 表示用 pair 名 resolver を追加した Record tick。
+/// 既存 caller は名前なし wrapper を使えるが、PRE/POST IO Thread は Record 開始時の
+/// 人間可読名をここで焼く。
+#[allow(clippy::too_many_arguments)]
+pub fn run_record_tick_with_pair_names(
+    record_sm: &Arc<RecordStateMachine>,
+    role: Role,
+    sample_rate: u32,
+    project_hash: &str,
+    instance_id: &str,
+    started_at_resolver: impl FnOnce() -> i64,
+    paired_pre_resolver: impl FnOnce() -> Option<String>,
+    paired_post_resolver: impl FnOnce() -> Option<String>,
+    pair_name_resolver: impl FnOnce() -> Option<String>,
+    pair_pre_name_resolver: impl FnOnce() -> Option<String>,
+    measure_result: &Arc<Mutex<MeasureResult>>,
+    recording: &mut Option<RecordingCtx>,
+    session_summary: Option<&Arc<Mutex<Option<SessionSummary>>>>,
+    // B-076: 累積 push_overflow（Audio Thread が ring 満杯時に積む）。Record 開始で snapshot し、
+    // close 時に差分を per-Record dropped_samples として JSON に焼き込む。
+    overflow: &Arc<std::sync::atomic::AtomicU64>,
+    // B-125: 累積 oversized_drop（JUCE 殻が prealloc-max 超の病的 block を drop した interleaved
+    // sample 数）。overflow とは別カウンタ（混ぜない）。同様に Record 開始 snapshot → close 差分。
+    oversized_drop: &Arc<std::sync::atomic::AtomicU64>,
+    record_trace_queue: Option<&RecordTraceQueue>,
+) -> Result<(), String> {
     let is_recording = record_sm.is_recording();
     match (is_recording, recording.is_some()) {
         (true, false) => {
             let started_at_ms = started_at_resolver();
             let paired_pre = paired_pre_resolver();
             let paired_post = paired_post_resolver();
+            let pair_name = pair_name_resolver();
+            let pair_pre_name = pair_pre_name_resolver();
             if let Some(mut ctx) = writer_start(
                 role,
                 sample_rate,
@@ -492,6 +545,8 @@ pub fn run_record_tick(
                 instance_id,
                 paired_pre,
                 paired_post,
+                pair_name,
+                pair_pre_name,
             ) {
                 // B-076: Record 開始時点の累積 overflow を記録（per-Record 差分の基点）。
                 ctx.overflow_start = overflow.load(std::sync::atomic::Ordering::Relaxed);
@@ -1023,6 +1078,8 @@ mod tests {
             role,
             None,
             48000,
+            None,
+            None,
             None,
             None,
         )

@@ -40,8 +40,8 @@ use crate::pre_discovery::DISCOVERY_STALE_SECS;
 use crate::record::RecordStateMachine;
 use crate::record_signal::{self, SignalStatus, ACK_TIMEOUT_SECONDS, SIGNALS_SUBDIR};
 use crate::record_writer::{
-    run_record_tick, take_session_summary, writer_close_degraded, writer_close_with_summary,
-    RecordError, RecordingCtx,
+    run_record_tick_with_pair_names, take_session_summary, writer_close_degraded,
+    writer_close_with_summary, RecordError, RecordingCtx,
 };
 use crate::storage::{PlatformPaths, StoragePaths};
 use crate::{load_signal_state, MeasureResult, RecordTraceQueue, SignalState};
@@ -405,7 +405,11 @@ pub fn spawn_io_thread_post(
             let paired_pre_arc = Arc::clone(&paired_pre_target);
             let paired_pre_resolver = move || paired_pre_arc.lock().ok().and_then(|g| g.clone());
             let paired_post_resolver = || None::<String>;
-            if let Err(e) = run_record_tick(
+            let pair_name_for_writer = pair_pre_name_snapshot.clone();
+            let pair_pre_name_for_writer = pair_pre_name_snapshot.clone();
+            let pair_name_resolver = move || Some(pair_name_for_writer);
+            let pair_pre_name_resolver = move || Some(pair_pre_name_for_writer);
+            if let Err(e) = run_record_tick_with_pair_names(
                 &record_sm,
                 PluginDataRole::Post,
                 sample_rate,
@@ -414,6 +418,8 @@ pub fn spawn_io_thread_post(
                 resolver,
                 paired_pre_resolver,
                 paired_post_resolver,
+                pair_name_resolver,
+                pair_pre_name_resolver,
                 &post_result,
                 &mut recording,
                 Some(&session_summary),

@@ -36,8 +36,8 @@ use crate::pre_self_discovery::{discover_pair_post_project_dir, PreSelfDiscovery
 use crate::record::RecordStateMachine;
 use crate::record_signal::{self, SignalStatus};
 use crate::record_writer::{
-    run_record_tick, take_session_summary, writer_close_degraded, writer_close_with_summary,
-    RecordingCtx,
+    run_record_tick_with_pair_names, take_session_summary, writer_close_degraded,
+    writer_close_with_summary, RecordingCtx,
 };
 use crate::storage::{PlatformPaths, StoragePaths};
 use crate::{load_signal_state, License, MeasureResult, RecordTraceQueue, SignalState};
@@ -418,7 +418,12 @@ pub fn spawn_io_thread_pre(
             let paired_post_for_writer = partner_iid;
             let paired_pre_resolver = || None::<String>;
             let paired_post_resolver = move || paired_post_for_writer;
-            if let Err(e) = run_record_tick(
+            let pre_name_for_writer = read_instance_id_arc(&name);
+            let pair_name_for_writer = pre_name_for_writer.clone();
+            let pair_pre_name_for_writer = pre_name_for_writer;
+            let pair_name_resolver = move || Some(pair_name_for_writer);
+            let pair_pre_name_resolver = move || Some(pair_pre_name_for_writer);
+            if let Err(e) = run_record_tick_with_pair_names(
                 &record_sm,
                 PluginDataRole::Pre,
                 sample_rate,
@@ -427,6 +432,8 @@ pub fn spawn_io_thread_pre(
                 resolver,
                 paired_pre_resolver,
                 paired_post_resolver,
+                pair_name_resolver,
+                pair_pre_name_resolver,
                 &result,
                 &mut writer_ctx,
                 Some(&session_summary),
