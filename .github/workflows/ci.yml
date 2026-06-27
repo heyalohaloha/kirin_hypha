@@ -34,6 +34,9 @@ jobs:
       - name: kirin_hypha_ffi ignored parity tests
         run: cargo test -p kirin_hypha_ffi --test parity --locked -- --ignored --test-threads=1
 
+      - name: kirin_hypha_ffi ignored pairing tests
+        run: cargo test -p kirin_hypha_ffi --test pairing_candidates --locked -- --ignored --test-threads=1
+
   auval-arm64:
     name: auval arm64 (AU validation)
     if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || contains(github.event.head_commit.message, '[ci full]') }}
