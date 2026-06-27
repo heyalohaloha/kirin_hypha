@@ -31,6 +31,31 @@ mod tests {
         assert!(!POST_CONTROLS_CPP.contains("keepBtn  .setVisible (! recording && os);"));
     }
 
+    /// B-195 (Step3 監査ギャップ): PostControls::update の可視性式を **全行** 固定する。
+    /// これにより kirin_hypha_ffi の値レベル parity replica
+    /// (post_controls_parity_tests::post_controls_visibility_matches_rust_license_helpers) が
+    /// C++ ソースと一致したままであることを保証する。C++ の os/sense マッピングや
+    /// 各ボタン行が変われば本テストが落ち、replica を同時更新する必要があると分かる。
+    #[test]
+    fn post_controls_update_visibility_formula_is_pinned() {
+        let body = between(
+            POST_CONTROLS_CPP,
+            "void PostControls::update (bool recording, int license, bool pairNonEmpty)",
+            "void PostControls::resized()",
+        );
+        assert!(body.contains("const bool os    = (license == 0);"));
+        assert!(body.contains("const bool sense = (license == 1);"));
+        assert!(body.contains("keepBtn  .setVisible (! recording && os && pairNonEmpty);"));
+        assert!(body.contains("senseBtn .setVisible (! recording && sense);"));
+        assert!(body.contains("stopBtn  .setVisible (recording && os && ! notePickerOpen);"));
+        assert!(body.contains("noteBtn  .setVisible (recording && os && ! notePickerOpen);"));
+        assert!(body.contains("const bool picker = recording && os && notePickerOpen;"));
+        assert!(body.contains("goodBtn  .setVisible (picker);"));
+        assert!(body.contains("fixBtn   .setVisible (picker);"));
+        assert!(body.contains("holdBtn  .setVisible (picker);"));
+        assert!(body.contains("cancelBtn.setVisible (picker);"));
+    }
+
     #[test]
     fn candidate_menu_enumerates_pre_candidates_independent_of_current_pair() {
         let body = between(

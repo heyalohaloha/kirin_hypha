@@ -2366,3 +2366,88 @@ mod b113_signal_state_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod post_controls_parity_tests {
+    use super::*;
+    use kirin_measure::license::{show_note_button, show_save_button, show_stop_record_button};
+
+    /// juce_shell/src/PostControls.cpp `PostControls::update` のボタン可視性を Rust に写した replica。
+    /// 実 C++ ソースへの忠実性は xtask/src/shell_parity.rs::post_controls_update_visibility_formula_is_pinned
+    /// が文字列ゲートで固定する。本 replica は os ゲートを Rust license ヘルパと値レベルで突合するためのもの。
+    struct PostVis {
+        keep: bool,
+        sense: bool,
+        stop: bool,
+        note: bool,
+    }
+
+    /// PostControls.cpp:73-91 を厳密にミラーする（os=(code==0) / sense=(code==1)）。
+    fn cpp_post_controls_update(
+        recording: bool,
+        license_code: u8,
+        pair_non_empty: bool,
+        note_picker_open: bool,
+    ) -> PostVis {
+        let os = license_code == 0;
+        let sense = license_code == 1;
+        PostVis {
+            keep: !recording && os && pair_non_empty,
+            sense: !recording && sense,
+            stop: recording && os && !note_picker_open,
+            note: recording && os && !note_picker_open,
+        }
+    }
+
+    /// B-195 (Step3 監査ギャップ): 値レベル parity — C++ PostControls::update の os ゲートが
+    /// Rust license ヘルパ (show_save_button / show_stop_record_button / show_note_button) と
+    /// 全 (license × recording × pairNonEmpty × notePickerOpen) で一致する。実 License→abi
+    /// マッピング (license_to_abi) を経由するので、int マッピングかヘルパのどちらが乖離しても捕捉する。
+    #[test]
+    fn post_controls_visibility_matches_rust_license_helpers() {
+        for license in [License::Os, License::Sense, License::Unknown] {
+            let code = license_to_abi(license);
+            for &recording in &[false, true] {
+                for &pair in &[false, true] {
+                    for &picker_open in &[false, true] {
+                        let v = cpp_post_controls_update(recording, code, pair, picker_open);
+                        assert_eq!(
+                            v.keep,
+                            !recording && show_save_button(license) && pair,
+                            "keep parity: {license:?} rec={recording} pair={pair}"
+                        );
+                        assert_eq!(
+                            v.stop,
+                            recording && show_stop_record_button(license) && !picker_open,
+                            "stop parity: {license:?} rec={recording} picker={picker_open}"
+                        );
+                        assert_eq!(
+                            v.note,
+                            recording && show_note_button(license) && !picker_open,
+                            "note parity: {license:?} rec={recording} picker={picker_open}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// Sense ヒントは license==Sense かつ非 recording のときだけ表示され、Keep(Os) とは
+    /// 相互排他（同時に出ない）であることを値レベルで固定する。
+    #[test]
+    fn sense_hint_visibility_is_sense_only_and_exclusive_with_keep() {
+        for license in [License::Os, License::Sense, License::Unknown] {
+            let code = license_to_abi(license);
+            let v = cpp_post_controls_update(false, code, true, false);
+            assert_eq!(
+                v.sense,
+                license == License::Sense,
+                "sense-hint は Sense のときだけ: {license:?}"
+            );
+            assert!(
+                !(v.keep && v.sense),
+                "Keep と Sense ヒントは同時に出ない: {license:?}"
+            );
+        }
+    }
+}
