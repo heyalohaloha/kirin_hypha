@@ -202,6 +202,7 @@ Windows 着手条件:
 - `xtask windows-vst3-layout` の PRE/POST artifact path を CI preflight の正本として再利用し、YAML 側の検証・upload path が layout 監査から分岐しないようにした。
 - Windows VST3 artifact 検証を bundle directory だけでなく `Contents/x86_64-win/*.vst3` の実バイナリ存在・非空チェックまで拡張した。
 - B-202 review で HEAD の Windows VST3 job が build / artifact upload / pluginval まで通過したことを確認し、全体 CI を赤くしていた macOS Phase D parity test は drain 後に direct tail と一致する publish を待つ形へ直した。
+- B-203 review で B-202 の macOS CI 再赤を追跡し、Phase D parity の direct 参照を一括 stream ではなく 0.1s producer block 境界の GUI publish 候補へ合わせた。これにより STFT hold 値と Measure Thread の publish 観測点を一致させ、許容値を緩めずに CI 上の非同期差を吸収した。
 
 ## 優先順位
 

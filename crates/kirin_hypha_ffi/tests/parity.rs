@@ -31,7 +31,7 @@ const SHARP_EPS: f64 = 0.05; // sharpness abs [acum]
 const PSB_ABS_FLOOR: f64 = 1e-9; // 同一コード経路の数値ノイズ吸収用の微小 abs floor
 const PHASE_D_PARITY_SECONDS: f64 = 6.0; // async FFI publication may lag one frame; use converged steady state
 const PHASE_D_PARITY_BLOCK_SLEEP_MS: u64 = 110; // keep below the 2s ring cap even under parallel tests
-const PHASE_D_PARITY_DIRECT_TAIL_FRAMES: usize = 8; // direct candidates for the async publish tail frame
+const PHASE_D_PARITY_DIRECT_TAIL_CANDIDATES: usize = 16; // latest 0.1s publish candidates for async FFI
 
 /// 定常マルチトーン（200/1000/5000 Hz）, L==R, f32 interleaved。
 fn gen_stereo_f32(seconds: f64) -> Vec<f32> {
@@ -68,17 +68,27 @@ fn duplicate_mono_to_stereo(mono: &[f32]) -> Vec<f32> {
     v
 }
 
-/// direct 参照: measure_thread の phase_d 経路を再現（f32→f64→(L+R)*0.5→PhaseDStream）。
-fn direct_phase_d_frames(stereo_f32: &[f32]) -> Vec<PhaseDResult> {
+/// direct 参照: measure_thread の GUI publish 経路を再現。
+///
+/// Measure Thread は ring から取得した chunk ごとに `PhaseDStream::push()` し、その chunk の
+/// 最後の PhaseD frame だけを 100ms 計測結果へ merge する。一括 push だと STFT hold 値の
+/// chunk 境界が本番とずれるため、FFI と同じ 0.1s producer block 境界の publish 候補だけを作る。
+fn direct_phase_d_publish_candidates(stereo_f32: &[f32]) -> Vec<PhaseDResult> {
     let mut stream = PhaseDStream::new(FieldType::Free);
-    let mono: Vec<f64> = stereo_f32
-        .chunks_exact(2)
-        .map(|c| (c[0] as f64 + c[1] as f64) * 0.5)
-        .collect();
-    let frames = stream.push(&mono);
+    let block_len = (SR as usize / 10) * 2;
+    let mut frames = Vec::new();
+    for block in stereo_f32.chunks(block_len) {
+        let mono: Vec<f64> = block
+            .chunks_exact(2)
+            .map(|c| (c[0] as f64 + c[1] as f64) * 0.5)
+            .collect();
+        if let Some(last) = stream.push(&mono).last() {
+            frames.push(last.clone());
+        }
+    }
     assert!(
         !frames.is_empty(),
-        "PhaseDStream should emit at least one frame for multi-second input"
+        "PhaseDStream should emit at least one publish candidate for multi-second input"
     );
     frames
 }
@@ -218,14 +228,14 @@ fn select_direct_tail_frame<'a>(
         .iter()
         .enumerate()
         .rev()
-        .take(PHASE_D_PARITY_DIRECT_TAIL_FRAMES)
+        .take(PHASE_D_PARITY_DIRECT_TAIL_CANDIDATES)
         .find(|(_, direct)| phase_d_result_matches_direct_tail(res, direct))
 }
 
-/// FFI を駆動して、drain 後に direct tail と一致する phase_d publish を取得する。
+/// FFI を駆動して、drain 後に direct publish 候補と一致する phase_d publish を取得する。
 fn drive_ffi(
     stereo_f32: &[f32],
-    direct_frames: &[PhaseDResult],
+    direct_candidates: &[PhaseDResult],
 ) -> (kirin_measure::MeasureResult, usize, u64) {
     let engine = KirinHyphaEngine::new(SR, 2);
     engine.set_signal_state(1); // Active (ABI code)
@@ -259,7 +269,8 @@ fn drive_ffi(
                         && r.n_prime.is_some()
                         && r.psb_bark.is_some()
                     {
-                        if let Some((direct_index, _)) = select_direct_tail_frame(&r, direct_frames)
+                        if let Some((direct_index, _)) =
+                            select_direct_tail_frame(&r, direct_candidates)
                         {
                             let overflow = engine.overflow_count();
                             return (r, direct_index, overflow);
@@ -273,19 +284,19 @@ fn drive_ffi(
         }
     }
     let overflow = engine.overflow_count();
-    let final_frame = direct_frames
+    let final_frame = direct_candidates
         .last()
-        .expect("direct PhaseDStream should emit a final frame");
+        .expect("direct PhaseDStream should emit a final publish candidate");
     let (_, _, final_high) = psb_summary_ref(
         &final_frame.psb,
         &final_frame.psb_bark21_24,
         final_frame.psb_high_ext_15_5k_20k,
     );
     panic!(
-        "FFI should publish a fully-populated MeasureResult matching the direct tail after ring drain \
-         (direct_frames={}, tail={}, overflow={}, last_ffi_high={:?}, final_direct_high={final_high})",
-        direct_frames.len(),
-        PHASE_D_PARITY_DIRECT_TAIL_FRAMES,
+        "FFI should publish a fully-populated MeasureResult matching the direct publish-candidate tail after ring drain \
+         (direct_candidates={}, tail={}, overflow={}, last_ffi_high={:?}, final_direct_high={final_high})",
+        direct_candidates.len(),
+        PHASE_D_PARITY_DIRECT_TAIL_CANDIDATES,
         overflow,
         last_complete
             .as_ref()
@@ -298,13 +309,13 @@ fn parity_phase_d_metrics_ffi_vs_direct() {
     let signal = gen_stereo_f32(PHASE_D_PARITY_SECONDS);
 
     // direct 参照。FFI 側は ring-drain barrier 後の最新 publish を読むが、publish は
-    // MeasureEngine の 100ms 結果に Phase D の latest frame を merge する cadenced snapshot。
-    // 並列 workspace test では最後の PhaseD frame ではなく直近 tail frame が最新 publish として
-    // 残ることがあるため、同一サンプル列の tail 候補から strict tolerance で一致する frame を選ぶ。
-    let direct_frames = direct_phase_d_frames(&signal);
+    // MeasureEngine の 100ms 結果に Phase D の chunk-last frame を merge する cadenced snapshot。
+    // 並列 workspace test では最後の publish 候補ではなく直近候補が残ることがあるため、
+    // 同一サンプル列・同一0.1s producer block境界の tail 候補から strict tolerance で一致を選ぶ。
+    let direct_candidates = direct_phase_d_publish_candidates(&signal);
 
     // FFI 経由
-    let (res, direct_index, overflow) = drive_ffi(&signal, &direct_frames);
+    let (res, direct_index, overflow) = drive_ffi(&signal, &direct_candidates);
 
     // パリティ駆動でサンプルが落ちていない（= 同一サンプル列を処理した）ことを確認。
     assert_eq!(
@@ -312,10 +323,10 @@ fn parity_phase_d_metrics_ffi_vs_direct() {
         "parity push dropped samples (ring overflow={overflow})"
     );
 
-    let direct = &direct_frames[direct_index];
+    let direct = &direct_candidates[direct_index];
     assert!(
-        direct_index + PHASE_D_PARITY_DIRECT_TAIL_FRAMES >= direct_frames.len(),
-        "selected direct frame must come from the tail window"
+        direct_index + PHASE_D_PARITY_DIRECT_TAIL_CANDIDATES >= direct_candidates.len(),
+        "selected direct publish candidate must come from the tail window"
     );
     let (ref_low, ref_mid, ref_high) = psb_summary_ref(
         &direct.psb,
