@@ -222,8 +222,11 @@ fn select_direct_tail_frame<'a>(
         .find(|(_, direct)| phase_d_result_matches_direct_tail(res, direct))
 }
 
-/// FFI を駆動して、phase_d 系が揃った最新 RT 結果を取得する。
-fn drive_ffi(stereo_f32: &[f32]) -> (kirin_measure::MeasureResult, u64) {
+/// FFI を駆動して、drain 後に direct tail と一致する phase_d publish を取得する。
+fn drive_ffi(
+    stereo_f32: &[f32],
+    direct_frames: &[PhaseDResult],
+) -> (kirin_measure::MeasureResult, usize, u64) {
     let engine = KirinHyphaEngine::new(SR, 2);
     engine.set_signal_state(1); // Active (ABI code)
 
@@ -241,7 +244,7 @@ fn drive_ffi(stereo_f32: &[f32]) -> (kirin_measure::MeasureResult, u64) {
 
     // keepalive（heartbeat を進めて Active 維持）しつつ、ring 全消費後の publish を読む。
     // 値のプラトーではなく ring の実 drain を barrier にする（session parity と同じ考え方）。
-    let mut stable: Option<kirin_measure::MeasureResult> = None;
+    let mut last_complete: Option<kirin_measure::MeasureResult> = None;
     let mut drained_streak = 0u32;
     for _ in 0..240 {
         engine.push_samples(&[], 2); // 0-frame keepalive
@@ -256,8 +259,12 @@ fn drive_ffi(stereo_f32: &[f32]) -> (kirin_measure::MeasureResult, u64) {
                         && r.n_prime.is_some()
                         && r.psb_bark.is_some()
                     {
-                        stable = Some(r);
-                        break;
+                        if let Some((direct_index, _)) = select_direct_tail_frame(&r, direct_frames)
+                        {
+                            let overflow = engine.overflow_count();
+                            return (r, direct_index, overflow);
+                        }
+                        last_complete = Some(r);
                     }
                 }
             }
@@ -266,12 +273,24 @@ fn drive_ffi(stereo_f32: &[f32]) -> (kirin_measure::MeasureResult, u64) {
         }
     }
     let overflow = engine.overflow_count();
-    (
-        stable.expect(
-            "FFI should publish a fully-populated MeasureResult after ring drain (phase_d merged)",
-        ),
+    let final_frame = direct_frames
+        .last()
+        .expect("direct PhaseDStream should emit a final frame");
+    let (_, _, final_high) = psb_summary_ref(
+        &final_frame.psb,
+        &final_frame.psb_bark21_24,
+        final_frame.psb_high_ext_15_5k_20k,
+    );
+    panic!(
+        "FFI should publish a fully-populated MeasureResult matching the direct tail after ring drain \
+         (direct_frames={}, tail={}, overflow={}, last_ffi_high={:?}, final_direct_high={final_high})",
+        direct_frames.len(),
+        PHASE_D_PARITY_DIRECT_TAIL_FRAMES,
         overflow,
-    )
+        last_complete
+            .as_ref()
+            .and_then(|r| r.psb_summary.as_ref().map(|s| s.high))
+    );
 }
 
 #[test]
@@ -285,7 +304,7 @@ fn parity_phase_d_metrics_ffi_vs_direct() {
     let direct_frames = direct_phase_d_frames(&signal);
 
     // FFI 経由
-    let (res, overflow) = drive_ffi(&signal);
+    let (res, direct_index, overflow) = drive_ffi(&signal, &direct_frames);
 
     // パリティ駆動でサンプルが落ちていない（= 同一サンプル列を処理した）ことを確認。
     assert_eq!(
@@ -293,24 +312,7 @@ fn parity_phase_d_metrics_ffi_vs_direct() {
         "parity push dropped samples (ring overflow={overflow})"
     );
 
-    let (direct_index, direct) =
-        select_direct_tail_frame(&res, &direct_frames).unwrap_or_else(|| {
-            let final_frame = direct_frames
-                .last()
-                .expect("direct PhaseDStream should emit a final frame");
-            let (_, _, final_high) = psb_summary_ref(
-                &final_frame.psb,
-                &final_frame.psb_bark21_24,
-                final_frame.psb_high_ext_15_5k_20k,
-            );
-            panic!(
-                "FFI Phase D result did not match any of the last {} direct frames \
-             (direct_frames={}, ffi_high={:?}, final_direct_high={final_high})",
-                PHASE_D_PARITY_DIRECT_TAIL_FRAMES,
-                direct_frames.len(),
-                res.psb_summary.as_ref().map(|s| s.high)
-            );
-        });
+    let direct = &direct_frames[direct_index];
     assert!(
         direct_index + PHASE_D_PARITY_DIRECT_TAIL_FRAMES >= direct_frames.len(),
         "selected direct frame must come from the tail window"
