@@ -12,7 +12,7 @@ Windows 対応は、macOS/AU/VST3 の境界不具合を整理し、再発防止�
 - `main` と `origin/main` は一致しており、履歴の枝分かれはない。
 - 作業ツリーには既存の `juce_shell/JUCE` サブモジュール内変更だけが残っている。
 - 通常テストは 537 件あるが、Record / pairing / plugin_data の重要な FFI parity テストは `#[ignore]` 側にある。
-- `kirin_hypha_ffi --test parity -- --ignored --test-threads=1` は 18 件 pass。
+- `kirin_hypha_ffi --test parity -- --ignored --test-threads=1` の対象は parity.rs の `#[ignore]` テスト 23 件（2026-06-27 時点）。同種の FFI ignored テストが pairing_candidates.rs にも 5 件あるが、`--test parity` 指定では走らない点に注意。
 - 巨大ファイルが複数あるため、責務境界が読みづらく、片側修正・狭いテストが起きやすい。
 
 ## 原因分類
@@ -184,7 +184,7 @@ Windows 着手条件:
 - macOS CI で露出した非同期 Phase D parity の収束/overflow 条件を固定し、FFI parity test が並列実行中でも同一サンプル列を落とさず比較するようにした。
 - Windows VST3 link で露出した Rust staticlib native 依存を Windows-only CMake 変数へ分離し、`ntdll` / `userenv` 等を JUCE target へ明示 link する preflight を追加した。
 - B-178 CI で残った Phase D parity の publish 窓差を direct last-frame 固定ではなく direct tail-frame 照合へ変更し、許容値を緩めずに非同期 FFI 経路の実仕様へ合わせた。
-- B-179 CI では tail 8 frame でも runner 負荷下の途中 publish を拾ったため、Phase D parity に ring-drain barrier を入れ、全サンプル消費後の publish を比較するようにした。
+- B-179 CI では tail 8 frame でも runner 負荷下の途中 publish を拾ったため、Phase D parity に ring-drain barrier を入れ、全サンプル消費後の publish を比較するようにした。なおこの ring-drain barrier は parity テストハーネス側の判定ゲート（FFI の `#[doc(hidden)]` テスト専用フック `__ring_drained_for_test`）であり、production 計測エンジン `crates/kirin_measure/src/phase_d/` 側の経路ではない。
 - B-180 CI で ring drain 前に読んだ古い `MeasureResult` を保持できる穴が残っていたため、Phase D parity は drain 後に poll できた完全結果だけを採用するようにした。
 - Actions usage 上限到達を受け、full CI は `workflow_dispatch` / PR / `[ci full]` 明示コミットだけで走るようにし、通常 push はローカル厳格検証後の直列履歴積み上げに切り替えた。
 - `xtask ci-usage-guard` を追加し、full CI gate が外れて通常 push で macOS/AU/Windows job を再び消費し始めないことを静的テストで固定した。
