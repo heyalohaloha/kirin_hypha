@@ -45,7 +45,7 @@ public:
     juce::String pairName() const { return persistPairName; }
     void setPairName (const juce::String& name);       // persist + set_pair_target (sanitized in FFI)
     bool keepPair();                                    // kirin_hypha_keep (Os + unique PRE)
-    bool recordExclusionConflict() const;               // B-118 (②): kirin_hypha_record_exclusion_conflict (keep pre-check)
+    bool recordExclusionConflict() const;               // B-118 (②): kirin_hypha_record_exclusion_conflict (advisory only)
     juce::String recordErrorMessage() const;            // B-118 (③): kirin_hypha_record_error_message (io fail status / G-115-29)
     juce::String pathAnomalyMessage() const;            // B-128 (G-115-371 D3): kirin_hypha_drain_path_event (restore identity anomaly surface)
     bool licenseIsOs() const;                           // B-118 (①): kirin_hypha_load_license()==Os

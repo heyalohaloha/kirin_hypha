@@ -30,15 +30,15 @@ use hypha_gui::{
 use kirin_measure::reservation; // B-127 (G-115-365): egui parity — per-pairing O_EXCL frame
 use kirin_measure::{
     all_keep_signal_path, all_stop_signal_path, append_annotation_to_latest,
-    check_record_exclusion, count_distinct_pairings, delete_broadcast, delete_signal,
+    count_distinct_pairings, delete_broadcast, delete_signal,
     enumerate_active_post_pair_candidates, enumerate_active_pre_pair_candidates_for_post_project,
     exit_record_full, format_pair_label, load_signal_state, lookup_section_label, mark_released,
     pair_lock_active, resolve_arm_target_for_post_project, sanitize_name, scan_latest_v2_preset,
     show_note_button, show_save_button, show_stop_record_button, write_broadcast, write_pending,
-    write_stop_broadcast, DeltaMode, DeltaResult, DeltaSnapshot, ExclusionResult, LatchedPre,
-    License, LivenessEvaluator, MeasureResult, PlatformPaths, PluginDataRole, PreCandidate,
-    PresetFileV2, RecordStateMachine, SignalState, StoragePaths, TransitionError,
-    MAX_ACTIVE_PER_PROJECT, SENSE_RECORD_HINT, SENSE_UPSELL_URL,
+    write_stop_broadcast, DeltaMode, DeltaResult, DeltaSnapshot, LatchedPre, License,
+    LivenessEvaluator, MeasureResult, PlatformPaths, PluginDataRole, PreCandidate, PresetFileV2,
+    RecordStateMachine, SignalState, StoragePaths, TransitionError, MAX_ACTIVE_PER_PROJECT,
+    SENSE_RECORD_HINT, SENSE_UPSELL_URL,
 };
 use nih_plug::prelude::Editor;
 use nih_plug_egui::{
@@ -1326,7 +1326,7 @@ fn trigger_keep(
 /// broadcast 受信側 (α-7 All Keep) から本関数を `toast = None` で直接呼出し、N 倍
 /// toast 嵐を構造的に防ぐ。`log::*` は不変 (toast 抑制でも log は残す)。
 ///
-/// 既存ロジック完全保持: 上限 check / record_sm 遷移 / write_pending / ロールバック /
+/// 既存ロジック完全保持: record_sm 遷移 / reservation cap / write_pending / ロールバック /
 /// set_pair_label / paired_pre_target 設定 — 全て Step 7 改修前と同等動作。
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn trigger_keep_internal(
@@ -1360,6 +1360,7 @@ pub(crate) fn trigger_keep_internal(
     };
     let plugin_data_dir = paths.plugin_data_dir();
     let tmp_base = PlatformPaths::current_kirin_tmp_root();
+    let _ = reservation::sweep_stale_reservations(&plugin_data_dir);
 
     // 2 + 4. PRE 選定（B-059: 表示=commit 一本化）
     //
@@ -1385,25 +1386,6 @@ pub(crate) fn trigger_keep_internal(
             return;
         }
     };
-
-    // 3. 排他チェック（B-027 段階 3-A: 上限 12 active per project_hash / commit 専用ゲート）
-    match check_record_exclusion(&plugin_data_dir, project_hash) {
-        ExclusionResult::Ok => {}
-        ExclusionResult::Conflict {
-            role, heartbeat, ..
-        } => {
-            log::info!(
-                "[POST keep] exclusion conflict (>= {} active): role={:?} heartbeat={}",
-                MAX_ACTIVE_PER_PROJECT,
-                role,
-                heartbeat
-            );
-            if let Some(t) = toast.as_mut() {
-                **t = Some(Toast::new("Maximum 12 pairs reached", now));
-            }
-            return;
-        }
-    }
 
     // 5. RecordStateMachine 遷移（license 二重 gate）
     match record_sm.try_enter_record(license) {

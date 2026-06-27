@@ -54,4 +54,44 @@ mod tests {
         assert!(body.contains("processorRef.setPairName (name);"));
         assert!(body.contains("nameField.setModelName (name);"));
     }
+
+    #[test]
+    fn juce_keep_does_not_pre_reject_at_twelve_reservations() {
+        let ctor_body = between(
+            PLUGIN_EDITOR_CPP,
+            "KirinHyphaEditor::KirinHyphaEditor",
+            "KirinHyphaEditor::~KirinHyphaEditor",
+        );
+        let keep_body = between(ctor_body, "postControls->onKeep = [this] {", "};");
+
+        assert!(
+            !keep_body.contains("recordExclusionConflict()"),
+            "JUCE Keep must not pre-check the 12-cap; FFI reserve->count>MAX is authoritative"
+        );
+        assert!(keep_body.contains("processorRef.keepPair()"));
+        assert!(
+            keep_body.contains("processorRef.recordErrorMessage()"),
+            "Keep failure must surface the FFI cap/error message instead of falling through to No PRE"
+        );
+    }
+
+    #[test]
+    fn juce_all_keep_uses_authoritative_engine_result() {
+        let body = between(
+            PLUGIN_EDITOR_CPP,
+            "void KirinHyphaEditor::handleCandidateMenu (int result)",
+            "void KirinHyphaEditor::timerCallback()",
+        );
+        let all_keep_body = between(body, "if (result == 1)", "else if (result == 2)");
+
+        assert!(
+            !all_keep_body.contains("recordExclusionConflict()"),
+            "All Keep must not pre-check the 12-cap before the engine has resolved same-pair reservations"
+        );
+        assert!(all_keep_body.contains("processorRef.keepAll()"));
+        assert!(
+            all_keep_body.contains("processorRef.recordErrorMessage()"),
+            "All Keep cap failure must use the FFI record_error_message"
+        );
+    }
 }

@@ -51,9 +51,9 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         postControls = std::make_unique<hypha::PostControls>();
         addAndMakeVisible (*postControls);
         postControls->onKeep = [this] {
-            // B-118 (②): exclusion を keep より先に pre-check（engine keep は 12-limit 非強制 / egui UI 専管）。
-            if (processorRef.recordExclusionConflict()) { showToast ("Maximum 12 pairs reached"); return; }
             if (processorRef.keepPair()) return;
+            const juce::String err = processorRef.recordErrorMessage();
+            if (err.isNotEmpty()) { showToast (err); return; }
             // B-118 (①): keep 失敗 = 非Os か no-PRE（egui trigger_keep の LicenseDenied / None と同文言）。
             showToast (processorRef.licenseIsOs() ? "No PRE Paired" : "Record requires Kirin OS license");
         };
@@ -307,12 +307,11 @@ void KirinHyphaEditor::handleCandidateMenu (int result)
 {
     if (result == 1)
     {
-        // B-118 追補 (2-1): egui All Keep は broadcast 後に自身を trigger_keep 経由で keep する
-        // （editor.rs:1001）＝ exclusion ゲート対象（>=12 active で "Maximum 12 pairs reached" 全体拒否）。
-        // engine keep_all() は 12-limit 非強制（resolve_and_enter_keep に exclusion なし）のため、
-        // onKeep と同じく UI 側で pre-check し egui と parity を取る（個別スキップではなく全体拒否＝同文言 toast）。
-        if (processorRef.recordExclusionConflict()) { showToast ("Maximum 12 pairs reached"); return; }
-        processorRef.keepAll();
+        if (! processorRef.keepAll())
+        {
+            const juce::String err = processorRef.recordErrorMessage();
+            if (err.isNotEmpty()) showToast (err);
+        }
     }
     else if (result == 2)
         processorRef.stopAll();

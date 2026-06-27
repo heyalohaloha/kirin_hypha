@@ -430,9 +430,14 @@ pub fn spawn_io_thread_post(
             // 1 record session 内で 1 回のみ発火 (`Option::take` で消費)。
             let exit_reason = recording.as_mut().and_then(|ctx| ctx.exit_requested.take());
             if let Some(reason) = exit_reason {
+                let plugin_data_root = StoragePaths::default_platform()
+                    .ok()
+                    .map(|paths| paths.plugin_data_dir());
                 handle_exit_reason(
                     reason,
                     &mut recording,
+                    plugin_data_root.as_deref(),
+                    project_hash_ref,
                     &record_sm,
                     &pair_label,
                     &paired_pre_target,
@@ -694,6 +699,13 @@ pub fn spawn_io_thread_post(
         // 利用 (二重 resolve 回避)。機能的差異なし / panic 回避規範 (warn のみ) は両者で同等。
         match StoragePaths::default_platform() {
             Ok(paths) => {
+                release_record_reservation(
+                    &paths.plugin_data_dir(),
+                    &final_project_hash,
+                    &final_iid,
+                    &paired_pre_target,
+                    "cleanup #4",
+                );
                 match record_signal::delete_signal(
                     &paths.plugin_data_dir(),
                     &final_project_hash,
@@ -1493,6 +1505,8 @@ fn phase_d_fragment(result: &MeasureResult) -> String {
 fn handle_exit_reason(
     reason: RecordError,
     recording: &mut Option<RecordingCtx>,
+    plugin_data_root: Option<&Path>,
+    project_hash: &str,
     record_sm: &Arc<RecordStateMachine>,
     pair_label: &Arc<Mutex<String>>,
     paired_pre_target: &Arc<Mutex<Option<String>>>,
@@ -1503,6 +1517,15 @@ fn handle_exit_reason(
         // B-134 (G-115-391): auto-stop（data-loss 異常終了）は best-effort で integrity_degraded を
         // 立ててから close（書ければ file flag / 書けねば下の record_error_message が UI backstop）。
         writer_close_degraded(ctx);
+    }
+    if let Some(base) = plugin_data_root {
+        release_record_reservation(
+            base,
+            project_hash,
+            instance_id,
+            paired_pre_target,
+            "exit_reason",
+        );
     }
     exit_record_full(record_sm, pair_label, paired_pre_target);
     if let Ok(mut g) = record_error_message.write() {
@@ -1689,8 +1712,34 @@ fn poll_ack_timeout_with_base(
         Ok(false) => log::debug!("[IOThread POST] signal already gone"),
         Err(e) => log::warn!("[IOThread POST] mark_released failed: {}", e),
     }
+    release_record_reservation(
+        base,
+        project_hash,
+        instance_id,
+        paired_pre_target,
+        "ack_timeout",
+    );
     // を成立させるため、editor 側 trigger_stop_internal と同じ 3 ステップを通過させる。
     exit_record_full(record_sm, pair_label, paired_pre_target);
+}
+
+fn release_record_reservation(
+    base: &Path,
+    project_hash: &str,
+    post_iid: &str,
+    paired_pre_target: &Arc<Mutex<Option<String>>>,
+    reason: &str,
+) {
+    let released_pre = paired_pre_target.lock().ok().and_then(|g| g.clone());
+    if let Some(pre) = released_pre.as_deref() {
+        crate::reservation::release_pairing(base, project_hash, pre, post_iid);
+        log::info!(
+            "[IOThread POST] reservation released: reason={} pre={} post={}",
+            reason,
+            pre,
+            post_iid
+        );
+    }
 }
 
 /// B-023 段階 4: pair_label 表示文字列を組み立てる（POST GUI / PRE Name 反映）。
@@ -2403,6 +2452,8 @@ mod ack_timeout_tests {
             "daw-1".into(),
         )
         .unwrap();
+        crate::reservation::reserve_pairing(&base, TEST_PH, "pre-1", TEST_POST_IID).unwrap();
+        assert_eq!(crate::reservation::count_frames(&base, TEST_PH), 1);
         let future_now = chrono::Utc::now() + chrono::Duration::seconds(31);
 
         poll_ack_timeout_with_base(
@@ -2425,6 +2476,11 @@ mod ack_timeout_tests {
         assert!(
             paired_pre_target.lock().unwrap().is_none(),
             "G-115-64: ACK timeout must reset paired_pre_target to None"
+        );
+        assert_eq!(
+            crate::reservation::count_frames(&base, TEST_PH),
+            0,
+            "ACK timeout must release the O_EXCL reservation frame"
         );
     }
 
@@ -3635,6 +3691,8 @@ mod handle_exit_reason_tests {
     use super::*;
     use crate::record::{RecordState, RecordStateMachine};
 
+    const TEST_PH: &str = "ph";
+
     /// `RecordingCtx` 無し (= writer 未確立 / Watch 直前で連続失敗閾値到達は通常起こらないが
     /// 防御的に検証) でも 3 ステップ cleanup が動く. `exit_record_full` 経由で
     /// pair_label / paired_pre_target が完全 cleanup される.
@@ -3646,10 +3704,19 @@ mod handle_exit_reason_tests {
         let paired_pre_target = Arc::new(Mutex::new(Some("pre-iid-x".to_string())));
         let record_error_message: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
         let mut recording: Option<RecordingCtx> = None;
+        let base = std::env::temp_dir().join(format!(
+            "kirin_handle_exit_reason_release_{}_dir",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&base);
+        fs::create_dir_all(&base).unwrap();
+        crate::reservation::reserve_pairing(&base, TEST_PH, "pre-iid-x", "post-iid-test").unwrap();
 
         handle_exit_reason(
             RecordError::DirectoryMissing,
             &mut recording,
+            Some(&base),
+            TEST_PH,
             &sm,
             &pair_label,
             &paired_pre_target,
@@ -3668,6 +3735,12 @@ mod handle_exit_reason_tests {
         );
         let msg = record_error_message.read().unwrap().clone();
         assert_eq!(msg.as_deref(), Some("Record stopped: storage missing"));
+        assert_eq!(
+            crate::reservation::count_frames(&base, TEST_PH),
+            0,
+            "auto-stop must release the O_EXCL reservation frame"
+        );
+        let _ = fs::remove_dir_all(&base);
     }
 
     /// `WriteFailureExceeded` 経路でも完全 cleanup + 文言が固定 (G-115-29).
@@ -3683,6 +3756,8 @@ mod handle_exit_reason_tests {
         handle_exit_reason(
             RecordError::WriteFailureExceeded,
             &mut recording,
+            None,
+            TEST_PH,
             &sm,
             &pair_label,
             &paired_pre_target,

@@ -309,6 +309,38 @@ fn editor_rs_gates_pairing_label_with_recording_flag() {
     );
 }
 
+#[test]
+fn editor_rs_keep_uses_authoritative_reservation_cap() {
+    let src = read("src/editor.rs");
+    let start = src
+        .find("pub(crate) fn trigger_keep_internal(")
+        .expect("trigger_keep_internal must exist");
+    let end = src[start..]
+        .find("fn trigger_all_keep_broadcast(")
+        .map(|idx| start + idx)
+        .expect("trigger_all_keep_broadcast must follow trigger_keep_internal");
+    let body = &src[start..end];
+
+    assert!(
+        body.contains("reservation::sweep_stale_reservations"),
+        "Keep must sweep stale reservation frames before counting the cap"
+    );
+    assert!(
+        !body.contains("check_record_exclusion"),
+        "Keep must not pre-check >=12 before reserving; reserve->count>MAX is authoritative"
+    );
+    assert!(
+        body.contains("reservation::reserve_pairing"),
+        "Keep must reserve the concrete PRE/POST pairing before cap enforcement"
+    );
+    assert!(
+        body.contains(
+            "count_distinct_pairings(&plugin_data_dir, project_hash) > MAX_ACTIVE_PER_PROJECT"
+        ),
+        "Keep must reject only after the concrete reservation makes the count exceed MAX"
+    );
+}
+
 // ── B-027 段階 3-B α-7 / Group 2 (Gap-6 局所対処) 配線確証 ────────────────
 //
 // POST 側 record_signal/{POST_iid}.json の cleanup 責任を構造的に保証する。

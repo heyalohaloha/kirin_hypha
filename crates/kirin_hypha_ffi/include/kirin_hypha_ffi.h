@@ -159,9 +159,9 @@ bool kirin_hypha_measure_alive(KirinHypha* handle);
  * 殻は「playing かつ live」で POST pair 変更をロックする. null / panic は false. */
 bool kirin_hypha_heartbeat_live(KirinHypha* handle);
 
-/* B-118 Phase 3 (②): 現プロジェクトが Record 排他上限（12）に達しているか（read-only poller・UI Thread）.
- * engine keep() は 12-limit を強制しないため、殻は keep 前に本 getter で pre-check し
- * "Maximum 12 pairs reached" を出す. null / panic は false. */
+/* B-118 Phase 3 (②): 現プロジェクトが Record 排他上限（12）に達しているか（advisory / UI Thread）.
+ * keep 経路は reserve→count>MAX を正本にするため、同一 pairing の再Keepを 12 枠ちょうどで
+ * pre-reject しない. null / panic は false. */
 bool kirin_hypha_record_exclusion_conflict(KirinHypha* handle);
 
 /* B-118 Phase 3 (③): io_thread 連続失敗の固定文言（G-115-29）を out（最大 out_len-1 + null 終端）へ書く.
