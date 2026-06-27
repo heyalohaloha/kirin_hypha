@@ -2220,10 +2220,10 @@ mod compute_delta_tests {
     }
 
     /// T6: 停止中(inactive)の PRE を Arm でラッチでき、再生再開(active)で live Δ が出る。
-    /// Step2「stopped Inactive PRE を Keep でき、再生後 Delta が出る」(5c) の
-    /// inactive→active→`DeltaMode::Active` end-to-end 統合シナリオ。従来は「Arm が
-    /// inactive-fresh をラッチ許可」と「表示は active 要求」の 2 unit に分解されており、
-    /// 遷移して live Δ が出るまでを 1 本で通すテストが無かった (監査 2026-06-27)。
+    /// Step2「stopped Inactive PRE を Keep でき、再生後 Delta が出る」(5c) のシナリオ。
+    /// realtime end-to-end の `b140_inactive_keep_latches_pre_for_delta_after_audio`
+    /// (parity.rs, #[ignore], 遅い) が既に同経路を被覆しているが、本テストは
+    /// `compute_latched_display` 直叩きで決定的・高速な等価カバレッジを通常ゲートに足す。
     #[test]
     fn latch_inactive_then_active_yields_live_delta() {
         let root = isolated_dir("latch_inactive_to_active");

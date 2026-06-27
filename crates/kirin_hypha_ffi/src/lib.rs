@@ -2382,7 +2382,9 @@ mod post_controls_parity_tests {
         note: bool,
     }
 
-    /// PostControls.cpp:73-91 を厳密にミラーする（os=(code==0) / sense=(code==1)）。
+    /// PostControls.cpp:73-91 のうち keep/sense/stop/note の os/sense ゲートのみを Rust に写す
+    /// （picker 4 ボタンと 76-77 行 notePickerOpen reset は対象外＝string-gate
+    /// post_controls_update_visibility_formula_is_pinned で固定）。os=(code==0) / sense=(code==1)。
     fn cpp_post_controls_update(
         recording: bool,
         license_code: u8,
