@@ -388,6 +388,7 @@ fn resolve_and_enter_keep(
             return false;
         }
     };
+    let _ = reservation::sweep_stale_reservations(&base);
     // B-127 (G-115-365): per-pairing O_EXCL reservation で cross-process atomic に枠を確保する。
     // pairing key = (target=PRE iid, post_iid=POST iid)。cap の真実源は枠ファイルの**物理存在のみ**
     // （count_distinct_pairings = reservation::count_frames）。reservation を先に atomic-create
@@ -669,7 +670,21 @@ impl KirinHyphaEngine {
     /// finalize は Measure Thread が自律実行・直近値を `session_summary` に保持するため
     /// ここでは呼ばない（B2 / finalize は Measure Thread のみ / engine.rs:161）。
     pub fn exit_record(&self) {
-        self.record_sm.exit_record();
+        let is_post = self.write_role.lock().ok().and_then(|g| *g) == Some(PluginDataRole::Post);
+        if is_post {
+            let (project_hash, post_iid) = match self.identity.lock() {
+                Ok(id) => (id.project_hash.clone(), id.instance_id.clone()),
+                Err(_) => (String::new(), String::new()),
+            };
+            resolve_and_exit_stop(
+                &self.record_sm,
+                &self.paired_pre_target,
+                &project_hash,
+                &post_iid,
+            );
+        } else {
+            self.record_sm.exit_record();
+        }
     }
 
     /// Record 中かどうか（read-only オブザーバ）。C ABI には公開しない（3a surface 厳守）。
@@ -1046,9 +1061,9 @@ impl KirinHyphaEngine {
     }
 
     /// B-118 Phase 3 (②): 現プロジェクトが Record 排他上限（MAX_ACTIVE_PER_PROJECT=12）に達しているか。
-    /// engine keep() は 12-limit を強制しない（egui UI 専管）ため、JUCE が keep 前に本 read-only getter で
-    /// pre-check し "Maximum 12 pairs reached" を出すための露出。未 enable（project_hash 空）/ StoragePaths
-    /// 不能は false（保守側＝ブロックしない）。
+    /// これは表示用の advisory getter。Keep の正本判定は `resolve_and_enter_keep` の
+    /// reserve→count>MAX で行う（同一 pairing の再Keepを 12 枠ちょうどで誤拒否しないため）。
+    /// 未 enable（project_hash 空）/ StoragePaths 不能は false（保守側＝ブロックしない）。
     pub fn record_exclusion_conflict(&self) -> bool {
         let project_hash = match self.identity.lock() {
             Ok(id) => id.project_hash.clone(),
@@ -1061,6 +1076,7 @@ impl KirinHyphaEngine {
             Ok(p) => p.plugin_data_dir(),
             Err(_) => return false,
         };
+        let _ = reservation::sweep_stale_reservations(&base);
         matches!(
             check_record_exclusion(&base, &project_hash),
             ExclusionResult::Conflict { .. }
@@ -1417,6 +1433,19 @@ impl KirinHyphaEngine {
 
 impl Drop for KirinHyphaEngine {
     fn drop(&mut self) {
+        let is_post = self.write_role.lock().ok().and_then(|g| *g) == Some(PluginDataRole::Post);
+        if is_post {
+            let (project_hash, post_iid) = match self.identity.lock() {
+                Ok(id) => (id.project_hash.clone(), id.instance_id.clone()),
+                Err(_) => (String::new(), String::new()),
+            };
+            resolve_and_exit_stop(
+                &self.record_sm,
+                &self.paired_pre_target,
+                &project_hash,
+                &post_iid,
+            );
+        }
         // B-118: io/measure は watchdog（join_on_shutdown=true）が所有・join する。
         // 順序: ① watchdog_shutdown=true（再起動ガードを先に立て、shutdown 中の re-spawn を抑止）
         //       ② measure(self.shutdown) + 現世代 io の shutdown=true（各 thread を停止させる）
@@ -1771,8 +1800,8 @@ pub unsafe extern "C" fn kirin_hypha_heartbeat_live(handle: *mut KirinHyphaEngin
     .unwrap_or(false)
 }
 
-/// B-118 Phase 3 (②): 現プロジェクトが Record 排他上限（12）に達しているか（read-only poller / UI Thread）。
-/// 殻は keep 前に本 getter で pre-check し "Maximum 12 pairs reached" を出す（engine keep は非強制）。
+/// B-118 Phase 3 (②): 現プロジェクトが Record 排他上限（12）に達しているか（advisory poller / UI Thread）。
+/// keep 経路は `resolve_and_enter_keep` の reserve→count>MAX を正本にする。
 /// null / panic は false。
 ///
 /// # Safety

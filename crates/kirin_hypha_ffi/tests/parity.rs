@@ -2360,6 +2360,42 @@ fn b127_reservation_released_on_stop() {
     let _ = std::fs::remove_dir_all(home.parent().unwrap());
 }
 
+/// Drop / DAW unload / offline bounce 終了でも reservation 枠が残らない。
+#[test]
+#[ignore = "slow: HOME/TMPDIR + io_thread filesystem; reservation release on drop (sets env)"]
+fn b127_reservation_released_on_drop() {
+    let (home, tmp) = b127_isolate("release-drop");
+    let puid = "puid-b127-rel-drop";
+    let base = home.join("Library/Application Support/Kirin OS/plugin_data");
+
+    let _pre = b127_spawn_pre(puid, &tmp);
+
+    let post = KirinHyphaEngine::new(SR, 2);
+    post.set_license(0);
+    post.set_identity("iid-rel-drop".into(), puid.into(), "".into(), "mix".into());
+    post.enable_post_writes();
+    post.set_signal_state(1);
+    post.set_pair_target("mix".to_string());
+    for _ in 0..8 {
+        post.push_samples(&[], 2);
+        sleep(Duration::from_millis(40));
+    }
+
+    let res_path = base
+        .join(puid)
+        .join("record_reservation")
+        .join("iid-pre__iid-rel-drop.json");
+    assert!(post.keep(), "keep succeeds");
+    assert!(res_path.exists(), "keep creates the reservation frame");
+    drop(post);
+    assert!(
+        !res_path.exists(),
+        "Drop must release the reservation frame to avoid stale 12-cap lockout"
+    );
+
+    let _ = std::fs::remove_dir_all(home.parent().unwrap());
+}
+
 /// (iv): 12 distinct pairing（ここでは 12 lone POST marker = 12 lone pairing）で 13 ペア目の keep が
 /// engine で hard reject され、Record に入らず R-28 通知（record_error_message）に出る（silent でない）。
 /// keep_all / 単一 keep / broadcast 受信は全て resolve_and_enter_keep を通るため authoritative cap を実証。
@@ -2430,6 +2466,62 @@ fn b127_engine_allows_keep_under_cap() {
         post.record_error_message(),
         None,
         "successful enter clears any stale notice"
+    );
+
+    drop(post);
+    let _ = std::fs::remove_dir_all(home.parent().unwrap());
+}
+
+/// 12 個の古い孤児 reservation が残っていても、Keep 直前/起動時 sweep で回収してから
+/// concrete pairing を予約するため、実在ペアが 12 未満なら Keep は通る。
+#[test]
+#[ignore = "slow: HOME/TMPDIR + io_thread filesystem; stale 12 reservation sweep before keep (sets env)"]
+fn b127_keep_sweeps_stale_orphan_frames_before_cap() {
+    let (home, tmp) = b127_isolate("stale12");
+    let puid = "puid-b127-stale";
+    let base = home.join("Library/Application Support/Kirin OS/plugin_data");
+
+    let _pre = b127_spawn_pre(puid, &tmp);
+    let post = KirinHyphaEngine::new(SR, 2);
+    post.set_license(0);
+    post.set_identity(
+        "iid-stale-keep".into(),
+        puid.into(),
+        "".into(),
+        "mix".into(),
+    );
+    post.enable_post_writes();
+    post.set_signal_state(1);
+    post.set_pair_target("mix".to_string());
+    for _ in 0..8 {
+        post.push_samples(&[], 2);
+        sleep(Duration::from_millis(40));
+    }
+
+    let stale_dir = base.join(puid).join("record_reservation");
+    std::fs::create_dir_all(&stale_dir).unwrap();
+    for i in 0..12 {
+        let pre = format!("stale-pre-{i}");
+        let post_iid = format!("stale-post-{i}");
+        std::fs::write(
+            stale_dir.join(format!("{pre}__{post_iid}.json")),
+            format!(
+                r#"{{"pre_instance_id":"{pre}","post_instance_id":"{post_iid}","reserved_at":"2026-01-01T00:00:00Z"}}"#
+            ),
+        )
+        .unwrap();
+    }
+    assert_eq!(kirin_measure::reservation::count_frames(&base, puid), 12);
+
+    assert!(
+        post.keep(),
+        "stale orphan frames must not block a valid keep after sweep"
+    );
+    assert!(post.is_recording());
+    assert_eq!(
+        kirin_measure::reservation::count_frames(&base, puid),
+        1,
+        "sweep removes 12 stale orphans and keep leaves only the concrete current pairing"
     );
 
     drop(post);

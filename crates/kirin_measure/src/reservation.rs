@@ -337,6 +337,11 @@ pub fn sweep_stale_reservations_in(base_dir: &Path, now: DateTime<Utc>) -> usize
     removed
 }
 
+/// [`sweep_stale_reservations_in`] の本番用 wrapper（現在時刻で評価）。
+pub fn sweep_stale_reservations(base_dir: &Path) -> usize {
+    sweep_stale_reservations_in(base_dir, Utc::now())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

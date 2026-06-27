@@ -4,7 +4,7 @@ use kirin_measure::{
     daw_session_id, delete_broadcast, delete_signal, delete_stop_broadcast,
     ensure_legacy_cleanup_done, identity_instance_attach, identity_instance_detach, live_window,
     load_installation_id_safe, load_license_safe, new_record_trace_queue, peek_project_uuid,
-    process_project_hash, sanitize_name, set_daw_session_id, set_project_uuid,
+    process_project_hash, reservation, sanitize_name, set_daw_session_id, set_project_uuid,
     spawn_io_thread_post, spawn_measure_thread, spawn_watchdog, store_signal_state, DeltaResult,
     LatchedPre, License, LivenessEvaluator, MeasureResult, RecordStateMachine, RecordTraceQueue,
     SessionSummary, SignalState, StoragePaths, TriggerPairResolutionFn, TriggerStopResolutionFn,
@@ -330,6 +330,7 @@ fn sync_project_uuid_from_pre(params: &HyphaPostParams) {
 
 impl Drop for HyphaPost {
     fn drop(&mut self) {
+        let released_pre = self.paired_pre_target.lock().ok().and_then(|g| g.clone());
         self.record_sm.exit_record();
 
         self.watchdog_shutdown.store(true, Ordering::Relaxed);
@@ -359,6 +360,14 @@ impl Drop for HyphaPost {
         let project_hash_owned = read_project_hash_arc(&self.project_hash);
         match StoragePaths::default_platform() {
             Ok(paths) => {
+                if let Some(pre) = released_pre.as_deref() {
+                    reservation::release_pairing(
+                        &paths.plugin_data_dir(),
+                        &project_hash_owned,
+                        pre,
+                        &instance_id_owned,
+                    );
+                }
                 match delete_signal(
                     &paths.plugin_data_dir(),
                     &project_hash_owned,

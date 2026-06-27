@@ -275,7 +275,7 @@ bool KirinHyphaProcessorBase::keepPair()
 
 bool KirinHyphaProcessorBase::recordExclusionConflict() const
 {
-    // B-118 (②): engine keep は 12-limit 非強制（egui UI 専管）。keep 前の pre-check 用 read-only。
+    // B-118 (②): advisory only. keepPair()/keepAll() の reserve→count>MAX が正本。
     const juce::ScopedLock sl (handleLock);
     if (hyphaHandle == nullptr)
         return false;
