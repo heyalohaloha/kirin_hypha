@@ -31,10 +31,13 @@ jobs:
       - name: cargo test
         run: cargo test --all --locked
 
+      # if: always() so a flaky/failed `cargo test` above does not skip these gates (review 2026-06-28).
       - name: kirin_hypha_ffi ignored parity tests
+        if: always()
         run: cargo test -p kirin_hypha_ffi --test parity --locked -- --ignored --test-threads=1
 
       - name: kirin_hypha_ffi ignored pairing tests
+        if: always()
         run: cargo test -p kirin_hypha_ffi --test pairing_candidates --locked -- --ignored --test-threads=1
 
   auval-arm64:
@@ -176,8 +179,10 @@ jobs:
       # B-198: load-validate the built VST3 with Tracktion pluginval (headless). Runs after Upload
       # so the .vst3 artifacts are downloadable even if validation fails. This is the first step
       # that actually instantiates the plugin (the build/Verify steps only prove link + file presence).
-      # VST3 bundles are discovered dynamically (not hardcoded) so the path strings stay unique to the
-      # Upload block that windows-preflight statically audits.
+      # VST3 bundles are discovered dynamically (not hardcoded) to avoid duplicating the literal
+      # artifact path strings: windows-preflight's negative test replaces the POST path in the Upload
+      # block and expects the audit to fail, so the path must appear only there. (Note: that audit's
+      # section_after scan is unbounded and does NOT itself enforce uniqueness — see windows_preflight.rs.)
       - name: Validate Windows VST3 with pluginval
         shell: pwsh
         run: |
@@ -189,7 +194,7 @@ jobs:
           $exe = (Get-ChildItem -Path pluginval_bin -Recurse -Filter pluginval.exe | Select-Object -First 1).FullName
           if (-not $exe) { throw 'pluginval.exe not found in pluginval_Windows.zip' }
           $bundles = @(Get-ChildItem -Path juce_shell/build-windows -Recurse -Directory -Filter *.vst3)
-          if ($bundles.Count -lt 2) { throw "expected 2 VST3 bundles, found $($bundles.Count)" }
+          if ($bundles.Count -ne 2) { throw "expected exactly 2 VST3 bundles, found $($bundles.Count)" }
           foreach ($b in $bundles) {
             Write-Host "pluginval --strictness-level 5 $($b.FullName)"
             # pluginval.exe is a GUI-subsystem app: `& $exe` neither waits for it nor populates

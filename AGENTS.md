@@ -101,7 +101,7 @@ Audio Thread が止まる = DAWの再生が止まる = 利用者の作業が全�
 ### コード品質
 - ファイルは500行以下
 - Rust: `cargo clippy` + `cargo test` を毎回実行
-- **kirin_hypha_ffi の検証ゲート**: `cargo test --workspace` の green だけでは Record/pairing を検証しない（Record finalize・PRE-POST ペアリング・plugin_data 実出力のテストは realtime で遅いため全て `#[ignore]`）。kirin_hypha_ffi を変更したら `cargo test -p kirin_hypha_ffi --test parity -- --ignored --test-threads=1`（parity.rs 23 件）と `cargo test -p kirin_hypha_ffi --test pairing_candidates -- --ignored --test-threads=1`（pairing_candidates.rs 5 件）の #[ignore] スイート（計 28 件）の pass も検証ゲートに含める。CI（ci.yml）でも両ステップが走る。
+- **kirin_hypha_ffi の検証ゲート**: `cargo test --workspace` の green だけでは Record/pairing を検証しない（Record finalize・PRE-POST ペアリング・plugin_data 実出力のテストは realtime で遅いため全て `#[ignore]`）。kirin_hypha_ffi を変更したら `cargo test -p kirin_hypha_ffi --test parity -- --ignored --test-threads=1`（parity.rs 20 件）と `cargo test -p kirin_hypha_ffi --test pairing_candidates -- --ignored --test-threads=1`（pairing_candidates.rs 5 件）の #[ignore] スイート（計 25 件）の pass も検証ゲートに含める。件数は `-- --ignored --list | grep -c ': test'` で実測のこと（loose grep は散文中の `#[ignore]` を誤カウントする）。これらは CI（ci.yml）では PR / workflow_dispatch / `[ci full]` 時のみ走る（通常 push は test job ごとスキップ）。
 - エラーログは作業前に必ず読む
 - 同じアプローチは最大2回。3回目は別手法
 - テスト: 正常系 + エラーパス + 境界値

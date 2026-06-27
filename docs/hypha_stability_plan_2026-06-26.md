@@ -12,7 +12,7 @@ Windows 対応は、macOS/AU/VST3 の境界不具合を整理し、再発防止�
 - `main` と `origin/main` は一致しており、履歴の枝分かれはない。
 - 作業ツリーには既存の `juce_shell/JUCE` サブモジュール内変更だけが残っている。
 - 通常テストは 537 件あるが、Record / pairing / plugin_data の重要な FFI parity テストは `#[ignore]` 側にある。
-- `kirin_hypha_ffi --test parity -- --ignored --test-threads=1` の対象は parity.rs の `#[ignore]` テスト 23 件（2026-06-27 時点）。同種の FFI ignored テストが pairing_candidates.rs にも 5 件あるが、`--test parity` 指定では走らない点に注意。
+- `kirin_hypha_ffi --test parity -- --ignored --test-threads=1` の対象は parity.rs の `#[ignore]` テスト 20 件（2026-06-28 `--ignored --list` 実測）。同種の FFI ignored テストが pairing_candidates.rs にも 5 件（計 25 件）あるが、`--test parity` 指定では走らない点に注意。
 - 巨大ファイルが複数あるため、責務境界が読みづらく、片側修正・狭いテストが起きやすい。
 
 ## 原因分類
