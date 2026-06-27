@@ -57,6 +57,8 @@ fn make_writer(base: &std::path::Path, role: Role) -> PluginDataWriter {
         SR,
         None,
         None,
+        None,
+        None,
     )
     .unwrap()
 }

@@ -48,6 +48,12 @@ use std::path::{Path, PathBuf};
 
 type HmacSha256 = Hmac<Sha256>;
 
+fn non_empty_string(value: Option<String>) -> Option<String> {
+    value
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
 // ── Role ─────────────────────────────────────────────────────────────────────
 
 /// Plugin role（PRE / POST）。ファイルパス構築 + `role` フィールドに使用。
@@ -141,6 +147,7 @@ pub struct BounceMarker {
 /// `paired_post_instance_id` field 追加（cross-instance pair 復元の決定論的キー）。
 /// v1.3 (B-043 / B-076): session aggregate と integrity field を additive 追加。
 /// B-141: `started_at_ms` を additive 追加（schema_version は 1.3 維持）。
+/// B-142: `pair_name` / `pair_pre_name` を additive 追加（schema_version は 1.3 維持）。
 ///
 /// 各 field の詳細仕様は [`PluginDataFile::new`] の doc コメント参照。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -192,6 +199,14 @@ pub struct PluginDataFile {
     /// Lens 側 cross-instance pair 復元の決定論的キー（A-3 (a) v1.2）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub paired_post_instance_id: Option<String>,
+    /// Lens 表示用の pair 名。通常は対 PRE 名（POST）または自身の PRE 名（PRE）。
+    /// 空文字は書かない。Lens 側 reader が名前表示へ使える optional metadata。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pair_name: Option<String>,
+    /// Lens 表示用の PRE 名。POST は選択中の `pair_pre_name`、PRE は自身の Name。
+    /// 旧 JSON 互換のため optional。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pair_pre_name: Option<String>,
     /// Record 開始 wall-clock（epoch ms）。frame t_ms の原点。
     /// PRE=相手 POST の started_at、POST=自身の started_at を epoch ms 化（同一原点）。
     /// signal 不在/壊れ時の fallback では PRE/POST で異なり得る。
@@ -237,6 +252,11 @@ impl PluginDataFile {
     /// - POST: `paired_pre_instance_id` = trigger_keep の `target_id` を Some で渡す
     ///   `paired_post_instance_id` = None（自分が POST）
     ///
+    /// # pair_name / pair_pre_name（B-142）
+    /// Lens 表示用 metadata。PRE/POST の instance_id linkage は `paired_*_instance_id`
+    /// が正本だが、人間可読名は Lens 側では復元不能なため Record 開始時の snapshot を
+    /// optional field として焼き込む。
+    ///
     /// # sample_rate
     /// Record 開始時に ProcessContext から取得した値。本フィールドは
     /// JSON `sample_rate` および `source_format` 両方に同一値で記録される。
@@ -251,6 +271,8 @@ impl PluginDataFile {
         sample_rate: u32,
         paired_pre_instance_id: Option<String>,
         paired_post_instance_id: Option<String>,
+        pair_name: Option<String>,
+        pair_pre_name: Option<String>,
     ) -> Self {
         let now = now_iso8601();
         Self {
@@ -283,6 +305,8 @@ impl PluginDataFile {
             plr: None,
             paired_pre_instance_id,
             paired_post_instance_id,
+            pair_name: non_empty_string(pair_name),
+            pair_pre_name: non_empty_string(pair_pre_name),
             started_at_ms: 0,
             dropped_samples: 0,
             integrity_degraded: false,
@@ -409,6 +433,7 @@ impl PluginDataWriter {
     /// したら `Some(bus_name)` で content にだけ書き込む（path には影響しない）。
     ///
     /// `instance_id` / `paired_*_instance_id` は v1.2 (a) cross-instance pair 復元用。
+    /// `pair_name` / `pair_pre_name` は Lens 表示用の optional metadata。
     /// 詳細は [`PluginDataFile::new`] の doc コメント参照。
     #[allow(clippy::too_many_arguments)]
     pub fn create(
@@ -421,6 +446,8 @@ impl PluginDataWriter {
         sample_rate: u32,
         paired_pre_instance_id: Option<String>,
         paired_post_instance_id: Option<String>,
+        pair_name: Option<String>,
+        pair_pre_name: Option<String>,
     ) -> Result<Self, WriterError> {
         if let Some(parent) = paths.final_path.parent() {
             fs::create_dir_all(parent)?;
@@ -434,6 +461,8 @@ impl PluginDataWriter {
             sample_rate,
             paired_pre_instance_id,
             paired_post_instance_id,
+            pair_name,
+            pair_pre_name,
         );
         Ok(Self { paths, data })
     }
@@ -825,6 +854,8 @@ mod tests {
             48000,
             None,
             None,
+            None,
+            None,
         )
         .unwrap()
     }
@@ -893,6 +924,8 @@ mod tests {
             48000,
             None,
             None,
+            None,
+            None,
         );
         assert_eq!(f.schema_version, "1.3");
         assert_eq!(f.role, Role::Post);
@@ -905,6 +938,8 @@ mod tests {
         assert!(f.annotations.is_empty());
         assert!(f.paired_pre_instance_id.is_none());
         assert!(f.paired_post_instance_id.is_none());
+        assert!(f.pair_name.is_none());
+        assert!(f.pair_pre_name.is_none());
         assert_eq!(f.started_at_ms, 0);
         assert_eq!(f.sample_rate, 48000);
         assert_eq!(f.source_format, 48000);
@@ -926,6 +961,14 @@ mod tests {
             !json.contains("paired_post_instance_id"),
             "paired_post_instance_id omitted when None: {json}"
         );
+        assert!(
+            !json.contains("pair_name"),
+            "pair_name omitted when None: {json}"
+        );
+        assert!(
+            !json.contains("pair_pre_name"),
+            "pair_pre_name omitted when None: {json}"
+        );
     }
 
     #[test]
@@ -940,12 +983,57 @@ mod tests {
             48000,
             None,
             None,
+            None,
+            None,
         );
         let json = serde_json::to_string(&f).unwrap();
         assert!(
             json.contains("\"bus\":\"DRUM\""),
             "bus included when Some: {json}"
         );
+    }
+
+    #[test]
+    fn new_file_with_pair_names_includes_lens_labels() {
+        let f = PluginDataFile::new(
+            "iid".to_string(),
+            "ph".to_string(),
+            TEST_INSTANCE_ID.to_string(),
+            Role::Post,
+            None,
+            48000,
+            Some("pre-iid".to_string()),
+            None,
+            Some(" Mix ".to_string()),
+            Some(" Mix ".to_string()),
+        );
+        assert_eq!(f.pair_name.as_deref(), Some("Mix"));
+        assert_eq!(f.pair_pre_name.as_deref(), Some("Mix"));
+
+        let json = serde_json::to_string(&f).unwrap();
+        assert!(json.contains("\"pair_name\":\"Mix\""));
+        assert!(json.contains("\"pair_pre_name\":\"Mix\""));
+    }
+
+    #[test]
+    fn new_file_omits_blank_pair_names() {
+        let f = PluginDataFile::new(
+            "iid".to_string(),
+            "ph".to_string(),
+            TEST_INSTANCE_ID.to_string(),
+            Role::Post,
+            None,
+            48000,
+            Some("pre-iid".to_string()),
+            None,
+            Some("   ".to_string()),
+            Some(String::new()),
+        );
+        let json = serde_json::to_string(&f).unwrap();
+        assert!(f.pair_name.is_none());
+        assert!(f.pair_pre_name.is_none());
+        assert!(!json.contains("pair_name"));
+        assert!(!json.contains("pair_pre_name"));
     }
 
     #[test]
@@ -1304,6 +1392,8 @@ mod tests {
                 Role::Post,
                 None,
                 48000,
+                None,
+                None,
                 None,
                 None,
             )

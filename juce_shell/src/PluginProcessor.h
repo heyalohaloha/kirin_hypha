@@ -108,7 +108,9 @@ private:
     size_t scratchCapacitySamples = 0;                 // B-125: cached interleaveScratch capacity (prealloc-max); processBlock's oversized guard
 
     juce::CriticalSection handleLock;                  // guards hyphaHandle vs editor poll / create / destroy
-    KirinHypha* hyphaHandle = nullptr;                 // owned; created in prepareToPlay, destroyed in releaseResources/dtor
+    KirinHypha* hyphaHandle = nullptr;                 // owned; reused across same-format prepareToPlay; destroyed on incompatible reprepare/dtor
+    double preparedSampleRate = 0.0;                   // format bound to hyphaHandle
+    int preparedInputChannels = 0;                     // format bound to hyphaHandle
 
     // Persisted identity (4 keys) + POST pair target name, round-tripped via get/setState as a
     // JUCE-native XML chunk. Source of truth for the chunk; synced from the FFI at enable

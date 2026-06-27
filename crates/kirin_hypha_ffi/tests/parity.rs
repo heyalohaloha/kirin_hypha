@@ -1442,6 +1442,26 @@ fn capstone_paired_record_output_and_linkage() {
         Some("iid-pre"),
         "POST.paired_pre_instance_id == PRE"
     );
+    assert_eq!(
+        pre_pd.pair_name.as_deref(),
+        Some("mix"),
+        "PRE.pair_name carries the human pair label for Lens"
+    );
+    assert_eq!(
+        pre_pd.pair_pre_name.as_deref(),
+        Some("mix"),
+        "PRE.pair_pre_name carries the PRE name for Lens"
+    );
+    assert_eq!(
+        post_pd.pair_name.as_deref(),
+        Some("mix"),
+        "POST.pair_name carries the selected PRE label for Lens"
+    );
+    assert_eq!(
+        post_pd.pair_pre_name.as_deref(),
+        Some("mix"),
+        "POST.pair_pre_name carries the selected PRE name for Lens"
+    );
 
     // Δ 物理妥当: POST 半振幅 → -6.02dB 相当。
     assert!(
@@ -2268,6 +2288,8 @@ fn b127_write_paired_marker(
         SR,
         paired_pre.map(|s| s.to_string()),
         paired_post.map(|s| s.to_string()),
+        None,
+        None,
     )
     .unwrap();
     w.flush().unwrap();

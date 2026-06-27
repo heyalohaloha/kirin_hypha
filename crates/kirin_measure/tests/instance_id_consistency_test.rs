@@ -83,6 +83,8 @@ fn record_signal_and_plugin_data_share_instance_id_via_arc_rwlock() {
         48_000,
         Some(target_pre.clone()),
         None,
+        None,
+        None,
     );
 
     // 受入基準 #1-2 (Default UUID 状態でも整合)
@@ -119,6 +121,8 @@ fn record_signal_and_plugin_data_share_instance_id_via_arc_rwlock() {
         None,
         48_000,
         Some(target_pre),
+        None,
+        None,
         None,
     );
 

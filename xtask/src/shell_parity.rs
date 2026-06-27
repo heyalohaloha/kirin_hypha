@@ -8,6 +8,10 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/../juce_shell/src/PluginEditor.cpp"
     ));
+    const PLUGIN_PROCESSOR_CPP: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../juce_shell/src/PluginProcessor.cpp"
+    ));
 
     fn between<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
         let start_index = source.find(start).expect(start) + start.len();
@@ -93,5 +97,59 @@ mod tests {
             all_keep_body.contains("processorRef.recordErrorMessage()"),
             "All Keep cap failure must use the FFI record_error_message"
         );
+    }
+
+    #[test]
+    fn juce_prepare_to_play_reuses_record_engine_for_same_format() {
+        let body = between(
+            PLUGIN_PROCESSOR_CPP,
+            "void KirinHyphaProcessorBase::prepareToPlay",
+            "void KirinHyphaProcessorBase::releaseResources()",
+        );
+
+        assert!(body.contains("const bool needsNewHandle = hyphaHandle == nullptr"));
+        assert!(body.contains("std::abs (preparedSampleRate - sampleRate) > 0.001"));
+        assert!(body.contains("preparedInputChannels != numCh"));
+        assert!(
+            body.contains("if (! needsNewHandle)\n        return;"),
+            "same-format reprepare must not destroy the Rust engine or Record state"
+        );
+        let reuse_gate = body.find("if (! needsNewHandle)").expect("reuse gate");
+        let destroy = body.find("kirin_hypha_destroy").expect("destroy path");
+        assert!(
+            reuse_gate < destroy,
+            "reuse gate must precede any destroy path"
+        );
+    }
+
+    #[test]
+    fn juce_release_resources_does_not_drop_record_state() {
+        let body = between(
+            PLUGIN_PROCESSOR_CPP,
+            "void KirinHyphaProcessorBase::releaseResources()",
+            "bool KirinHyphaProcessorBase::isBusesLayoutSupported",
+        );
+
+        assert!(
+            !body.contains("kirin_hypha_destroy"),
+            "releaseResources can be called around offline bounce and must not exit Record"
+        );
+        assert!(body.contains("offline bounce/freeze"));
+    }
+
+    #[test]
+    fn juce_post_record_display_keeps_six_metrics_before_signal_fallback() {
+        let start = PLUGIN_EDITOR_CPP
+            .find("void KirinHyphaEditor::updatePost()")
+            .expect("updatePost");
+        let body = &PLUGIN_EDITOR_CPP[start..];
+        let record_branch = body.find("if (rec)").expect("record branch");
+        let signal_branch = body.find("else if (sig != 1)").expect("signal fallback");
+
+        assert!(
+            record_branch < signal_branch,
+            "POST Record must keep Delta6/N/Sharp visible even if the host goes inactive during bounce"
+        );
+        assert!(body.contains("const bool haveD = (sig == 1) && processorRef.pollDelta (d);"));
     }
 }

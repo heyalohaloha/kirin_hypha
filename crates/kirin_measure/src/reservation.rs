@@ -409,6 +409,8 @@ mod tests {
             48000,
             None,
             None,
+            None,
+            None,
         )
         .unwrap();
         w.flush().unwrap(); // status=Active, heartbeat=now（fresh）
