@@ -201,6 +201,7 @@ Windows 着手条件:
 - FFI 正本ヘッダ / README / Cargo metadata の staticlib 説明を Windows/MSVC `.lib` と macOS/Linux `.a` の両方に更新し、`xtask windows-preflight` で退行を検出するようにした。
 - `xtask windows-vst3-layout` の PRE/POST artifact path を CI preflight の正本として再利用し、YAML 側の検証・upload path が layout 監査から分岐しないようにした。
 - Windows VST3 artifact 検証を bundle directory だけでなく `Contents/x86_64-win/*.vst3` の実バイナリ存在・非空チェックまで拡張した。
+- B-202 review で HEAD の Windows VST3 job が build / artifact upload / pluginval まで通過したことを確認し、全体 CI を赤くしていた macOS Phase D parity test は drain 後に direct tail と一致する publish を待つ形へ直した。
 
 ## 優先順位
 

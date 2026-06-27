@@ -2261,7 +2261,10 @@ mod compute_delta_tests {
         )
         .unwrap();
         assert_eq!(d1.mode, DeltaMode::Active, "再生後は live Δ（Active）");
-        assert!(!sd1, "Active は store_directly でない（last_active 保存経路）");
+        assert!(
+            !sd1,
+            "Active は store_directly でない（last_active 保存経路）"
+        );
         assert_eq!(
             d1.lufs,
             Some(4.0),
