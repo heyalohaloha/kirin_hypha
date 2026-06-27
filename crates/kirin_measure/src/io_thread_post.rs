@@ -2219,6 +2219,60 @@ mod compute_delta_tests {
         assert_eq!(d.mode, DeltaMode::NoPre);
     }
 
+    /// T6: 停止中(inactive)の PRE を Arm でラッチでき、再生再開(active)で live Δ が出る。
+    /// Step2「stopped Inactive PRE を Keep でき、再生後 Delta が出る」(5c) の
+    /// inactive→active→`DeltaMode::Active` end-to-end 統合シナリオ。従来は「Arm が
+    /// inactive-fresh をラッチ許可」と「表示は active 要求」の 2 unit に分解されており、
+    /// 遷移して live Δ が出るまでを 1 本で通すテストが無かった (監査 2026-06-27)。
+    #[test]
+    fn latch_inactive_then_active_yields_live_delta() {
+        let root = isolated_dir("latch_inactive_to_active");
+        // 停止中: PRE は fresh だが signal_state=inactive。
+        write_pre_latch(&root, "puid-1", "iid-A", "snare", "inactive", &latch_now());
+        let latched = std::sync::Mutex::new(None);
+        let (d0, sd0, _) = compute_latched_display(
+            &root,
+            "snare",
+            &latch_post(),
+            Some("snare"),
+            false,
+            &latched,
+        )
+        .unwrap();
+        // Arm は inactive-fresh をラッチする（Keep 可）が、表示は active を要求するため
+        // latched-idle = Stale（NoPre には落とさない）。
+        assert!(
+            latched.lock().unwrap().is_some(),
+            "inactive-fresh でも Arm でラッチ成立（Keep 可）"
+        );
+        assert_eq!(d0.mode, DeltaMode::Stale, "停止中は latched-idle（Stale）");
+        assert!(sd0, "latched-idle は store_directly（last_active クリア）");
+        assert!(d0.lufs.is_none(), "停止中は Δ 非表示");
+
+        // 再生再開: 同 instance が active+fresh に遷移。
+        write_pre_latch(&root, "puid-1", "iid-A", "snare", "active", &latch_now());
+        let (d1, sd1, _) = compute_latched_display(
+            &root,
+            "snare",
+            &latch_post(),
+            Some("snare"),
+            false,
+            &latched,
+        )
+        .unwrap();
+        assert_eq!(d1.mode, DeltaMode::Active, "再生後は live Δ（Active）");
+        assert!(!sd1, "Active は store_directly でない（last_active 保存経路）");
+        assert_eq!(
+            d1.lufs,
+            Some(4.0),
+            "Δlufs = post(-10.0) − pre(-14.0) = 4.0（ラッチ先 pre.json 直読）"
+        );
+        assert!(
+            latched.lock().unwrap().is_some(),
+            "active 遷移後もラッチ維持"
+        );
+    }
+
     /// T7: Record 中（recording=true）はラッチ凍結 — 名前変更でもアンラッチしない（W-284 同型）。
     #[test]
     fn latch_frozen_during_record() {
