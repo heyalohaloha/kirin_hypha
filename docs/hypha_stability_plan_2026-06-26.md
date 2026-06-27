@@ -88,6 +88,11 @@ Windows 対応は、macOS/AU/VST3 の境界不具合を整理し、再発防止�
 - 「この不具合はどの不変条件違反か」を即答できる。
 - 追加修正時に、どのテストを増やすべきか迷わない。
 
+進捗:
+- `docs/hypha_invariants.md` を作成し、PRE 状態 × {表示/Keep/Delta/Record/All Keep} 統一表と、
+  pairing / 表示 / record / all-keep / identity / license / shell-parity の不変条件を実在テスト名へ
+  紐づけた（INV-P/D/R/A/I/L/S）。唯一の未紐づけは INV-D8（要追加）として明示。
+
 ### Step 2: Pairing / discovery を最優先で分離する
 
 現在の中心ファイル:
