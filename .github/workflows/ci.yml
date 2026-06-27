@@ -194,6 +194,8 @@ jobs:
             Write-Host "pluginval --strictness-level 5 $($b.FullName)"
             # pluginval.exe is a GUI-subsystem app: `& $exe` neither waits for it nor populates
             # $LASTEXITCODE, so the exit code must be read via Start-Process -Wait -PassThru (B-200).
-            $proc = Start-Process -FilePath $exe -ArgumentList '--strictness-level', '5', $b.FullName -NoNewWindow -Wait -PassThru
+            # The bundle path contains spaces ("Kirin Hypha POST.vst3"); -ArgumentList does not
+            # auto-quote, so the path MUST be wrapped in embedded double quotes or it is split (B-201).
+            $proc = Start-Process -FilePath $exe -ArgumentList "--strictness-level 5 `"$($b.FullName)`"" -NoNewWindow -Wait -PassThru
             if ($proc.ExitCode -ne 0) { throw "pluginval failed for $($b.FullName) (exit $($proc.ExitCode))" }
           }
