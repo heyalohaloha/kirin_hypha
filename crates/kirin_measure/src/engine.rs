@@ -9,6 +9,14 @@ use std::collections::VecDeque;
 
 use crate::MeasureResult;
 
+/// B-205: サブサイレンス・フロア。実プログラム素材（おおむね -60..0 LUFS / dBTP）の遥か下に置く。
+/// 無音ゲート（-140 dBFS / Audio Thread）を僅かに越える微小残渣（dither / denormal / fade tail）が
+/// momentary loudness / true peak を巨大負値（例: -180 LUFS）として描画するのを防ぐ。フロア未満は
+/// 「無信号」とみなし `None`（GUI `---`）にする。Measure Thread 単一点での floor なので JSON / IO /
+/// 両 GUI が一斉に `---` へ収束する（B-205 信号状態修正の defense-in-depth）。
+const LUFS_VALID_FLOOR_LUFS: f64 = -100.0;
+const TP_VALID_FLOOR_DBTP: f64 = -100.0;
+
 /// Record セッション終了時の集計値（B-043）。
 ///
 /// `MeasureEngine::finalize()` が `EbuR128` から抽出して返す。
@@ -232,20 +240,23 @@ impl MeasureEngine {
             .filter(|v| v.is_finite())
             .fold(None::<f64>, |acc, v| Some(acc.map_or(v, |a| a.max(v))));
 
-        max_tp_lin.and_then(|v| {
-            if v > 0.0 {
-                Some(20.0 * v.log10())
-            } else {
-                None
-            }
-        })
+        // B-205: 線形ピーク>0 を dBTP 化し、サブサイレンス・フロア未満は無信号扱い（None → ---）。
+        max_tp_lin
+            .filter(|v| *v > 0.0)
+            .map(|v| 20.0 * v.log10())
+            .filter(|db| *db > TP_VALID_FLOOR_DBTP)
     }
 
     fn compute(&self) -> MeasureResult {
         // ── LUFS-M (ITU-R BS.1770-4 Momentary, 400ms sliding) ───────────
         // ebur128 が内部で 400ms ウィンドウを管理する。
         // 400ms 未満の場合は -inf を返すので filter(is_finite) で None にする。
-        let lufs_m = self.ebu.loudness_momentary().ok().filter(|v| v.is_finite());
+        // B-205: is_finite に加えサブサイレンス・フロアを要求（フロア未満は無信号扱い → None → ---）。
+        let lufs_m = self
+            .ebu
+            .loudness_momentary()
+            .ok()
+            .filter(|v| v.is_finite() && *v > LUFS_VALID_FLOOR_LUFS);
 
         // ── True Peak「直近」tp_recent (ITU-R BS.1770-4 Annex 2, 4× oversampling) ──
         // フレーム基準で直近 400ms 以内（LUFS-M と同窓）のエントリのみを最大化する（B-074）。
@@ -261,7 +272,8 @@ impl MeasureEngine {
             .fold(f64::NEG_INFINITY, f64::max);
 
         let tp_recent = if valid_tp.is_finite() && valid_tp > 0.0 {
-            Some(20.0 * valid_tp.log10())
+            // B-205: dBTP 化後、サブサイレンス・フロア未満は無信号扱い（None → ---）。
+            Some(20.0 * valid_tp.log10()).filter(|db| *db > TP_VALID_FLOOR_DBTP)
         } else {
             None // 有効エントリ 0 件（失効済み）または無音 → ---
         };
@@ -349,6 +361,57 @@ mod tp_recent_golden {
 
     fn silence_100ms() -> Vec<f64> {
         vec![0.0; (SR / 10) as usize * 2]
+    }
+
+    /// B-205: サブサイレンス・フロア。通常レベル(-20 dBFS)は Some を保ち、無音ゲート(-140 dBFS)を
+    /// 越えるが極端に小さい -120 dBFS 級は LUFS-M / True Peak を巨大負値ではなく None(---) にする。
+    /// 信号状態修正(B-205)が無音そのものを Inactive に倒すのに対し、本フロアは「Active のまま残る
+    /// 微小残渣」の深い負値表示を塞ぐ defense-in-depth。
+    #[test]
+    fn subsilence_floor_collapses_to_none() {
+        let drive = |amp: f64| -> MeasureResult {
+            let mut eng = MeasureEngine::new(SR, 2).unwrap();
+            eng.reset();
+            let mut last: Option<MeasureResult> = None;
+            for _ in 0..6 {
+                // 600ms（momentary 400ms 窓が充填される）
+                if let Some(r) = eng.push(&sine_100ms(amp)) {
+                    last = Some(r);
+                }
+            }
+            last.expect("result after 600ms")
+        };
+
+        // 通常 -20 dBFS（peak 0.1）: フロア(-100)の遥か上 → Some。
+        let normal = drive(0.1);
+        assert!(
+            normal.lufs_m.is_some_and(|v| v > LUFS_VALID_FLOOR_LUFS),
+            "normal -20 dBFS LUFS-M must be Some above floor: {:?}",
+            normal.lufs_m
+        );
+        assert!(
+            normal.true_peak.is_some(),
+            "normal -20 dBFS true_peak must be Some: {:?}",
+            normal.true_peak
+        );
+
+        // 微小 -120 dBFS（peak 1e-6, 無音ゲート -140 は越える）: LUFS≈-123 / TP=-120 < -100 → None。
+        let tiny = drive(1e-6);
+        assert!(
+            tiny.lufs_m.is_none(),
+            "-120 dBFS LUFS-M must floor to None (was {:?})",
+            tiny.lufs_m
+        );
+        assert!(
+            tiny.true_peak.is_none(),
+            "-120 dBTP true_peak must floor to None (was {:?})",
+            tiny.true_peak
+        );
+        assert!(
+            tiny.tp_session_max.is_none(),
+            "-120 dBTP tp_session_max must floor to None (was {:?})",
+            tiny.tp_session_max
+        );
     }
 
     /// burst → 無音 で tp_recent が 400ms 窓で失効し、tp_session_max は hold し続ける。

@@ -946,9 +946,14 @@ fn resolve_process_signal_state(
     silent: bool,
     recording: bool,
 ) -> SignalState {
+    // B-205: Active 条件は「非無音」を必須にする。recording だけでは Active にしない。
+    // - transport 停止の Record 保持（playing=false, silent=true）→ Inactive（"---"）。
+    //   従来は recording 短絡で Active になり、残留ほぼ0状態を -400 LUFS/TP と誤表示していた。
+    // - 非無音のオフラインバウンス（playing=false, silent=false, recording=true）→ Active 維持
+    //   （B-147 の bounce 計測継続意図を保つ）。
     if bypassed {
         SignalState::Bypassed
-    } else if recording || (playing && !silent) {
+    } else if !silent && (recording || playing) {
         SignalState::Active
     } else {
         SignalState::Inactive
@@ -1014,15 +1019,34 @@ mod b147_record_state_tests {
         );
     }
 
+    /// B-205: 非無音のオフラインバウンス（playing=false, silent=false, recording=true）は
+    /// Active を維持する（offline render の実音計測継続 / B-147 意図）。
     #[test]
-    fn record_mode_captures_offline_and_silent_buffers() {
+    fn record_mode_captures_offline_bounce() {
         assert_eq!(
             resolve_process_signal_state(false, false, false, true),
             SignalState::Active
         );
+    }
+
+    /// B-205: Record 保持中に transport 停止（playing=false, silent=true）したら Inactive。
+    /// 停止＝無信号なので `---` を出す。残留ほぼ0状態を計測して -400 LUFS/TP を表示する
+    /// バグ（Record 中に停止 → -400）の回帰防止。
+    #[test]
+    fn record_mode_silent_transport_is_inactive() {
         assert_eq!(
             resolve_process_signal_state(false, false, true, true),
-            SignalState::Active
+            SignalState::Inactive
+        );
+    }
+
+    /// B-205: 再生中の無音ギャップも Record 中は Inactive（無音は計測せず -400 を出さない）。
+    /// engine.reset 抑制は recording 軸で別管理（B-043）のため信号復帰時の継続性は保たれる。
+    #[test]
+    fn record_mode_playing_silent_gap_is_inactive() {
+        assert_eq!(
+            resolve_process_signal_state(false, true, true, true),
+            SignalState::Inactive
         );
     }
 

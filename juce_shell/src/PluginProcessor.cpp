@@ -24,7 +24,12 @@ namespace
     {
         if (bypassed)
             return 2;
-        if (recording || (playing && ! silent))
+        // B-205: silence gates Active even during Record. A held Record session with the
+        // transport stopped (playing=false, silent=true) now reports Inactive ("---") instead
+        // of measuring stale near-zero residue as a bogus ~-400 LUFS/TP. A non-silent offline
+        // bounce (playing=false, silent=false, recording=true) still stays Active — parity with
+        // hypha_pre/hypha_post resolve_process_signal_state (B-147 capture / B-205 silence gate).
+        if (! silent && (recording || playing))
             return 1;
         return 0;
     }
