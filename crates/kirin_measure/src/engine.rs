@@ -252,11 +252,12 @@ impl MeasureEngine {
         // ebur128 が内部で 400ms ウィンドウを管理する。
         // 400ms 未満の場合は -inf を返すので filter(is_finite) で None にする。
         // B-205: is_finite に加えサブサイレンス・フロアを要求（フロア未満は無信号扱い → None → ---）。
-        let lufs_m = self
-            .ebu
-            .loudness_momentary()
-            .ok()
-            .filter(|v| v.is_finite() && *v > LUFS_VALID_FLOOR_LUFS);
+        let raw_momentary = self.ebu.loudness_momentary().ok().filter(|v| v.is_finite());
+        let lufs_m = raw_momentary.filter(|v| *v > LUFS_VALID_FLOOR_LUFS);
+        // B-207 #2: フロア未満（有限だが <= LUFS_VALID_FLOOR）= 残留エネルギーのみの near-silence。
+        // この帯では Crest/PSR（窓内の比）だけが有限値として残り「LUFS --- / Crest 3.0」の半埋まり行に
+        // なるため、行全体を一斉に --- へ収束させる。warmup の -inf（raw=None）は対象外＝Crest は通常表示。
+        let momentary_floored = raw_momentary.is_some_and(|v| v <= LUFS_VALID_FLOOR_LUFS);
 
         // ── True Peak「直近」tp_recent (ITU-R BS.1770-4 Annex 2, 4× oversampling) ──
         // フレーム基準で直近 400ms 以内（LUFS-M と同窓）のエントリのみを最大化する（B-074）。
@@ -283,7 +284,13 @@ impl MeasureEngine {
         let tp_session_max = self.session_true_peak_dbtp();
 
         // ── Crest Factor + PSR ───────────────────────────────────────────
-        let (crest, psr) = self.compute_crest_psr();
+        // B-207 #2: サブサイレンス・フロア帯では Crest/PSR も None に倒し、絶対値グリッドの行を
+        // 一斉に --- へ収束させる（半埋まり行の回避）。それ以外は通常算出。
+        let (crest, psr) = if momentary_floored {
+            (None, None)
+        } else {
+            self.compute_crest_psr()
+        };
 
         MeasureResult {
             lufs_m,
@@ -394,6 +401,12 @@ mod tp_recent_golden {
             "normal -20 dBFS true_peak must be Some: {:?}",
             normal.true_peak
         );
+        // B-207 #2: 通常レベルでは Crest は通常通り Some（行は埋まる）。
+        assert!(
+            normal.crest.is_some(),
+            "normal -20 dBFS crest must be Some: {:?}",
+            normal.crest
+        );
 
         // 微小 -120 dBFS（peak 1e-6, 無音ゲート -140 は越える）: LUFS≈-123 / TP=-120 < -100 → None。
         let tiny = drive(1e-6);
@@ -411,6 +424,17 @@ mod tp_recent_golden {
             tiny.tp_session_max.is_none(),
             "-120 dBTP tp_session_max must floor to None (was {:?})",
             tiny.tp_session_max
+        );
+        // B-207 #2: フロア帯では Crest/PSR も None に倒れ、行全体が --- に収束する（半埋まり回避）。
+        assert!(
+            tiny.crest.is_none(),
+            "sub-floor crest must collapse to None (was {:?})",
+            tiny.crest
+        );
+        assert!(
+            tiny.psr.is_none(),
+            "sub-floor psr must collapse to None (was {:?})",
+            tiny.psr
         );
     }
 

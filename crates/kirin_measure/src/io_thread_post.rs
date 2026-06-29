@@ -521,9 +521,25 @@ pub fn spawn_io_thread_post(
                     // PRE は released marker を見て Watch へ追従（手動 Stop と同じ伝播）。
                     let _ = record_signal::mark_released(&base, project_hash_ref, instance_id_ref);
                 }
+                // B-207 #3: writer が存在した（=テイクが録れた）ときだけ "Take saved." を付す。
+                // writer_start 失敗（record 開始時ディスクエラー）時は recording==None なので、
+                // 実体のないテイクを「保存済み」と誤通知しない。
+                let take_existed = recording.is_some();
                 exit_record_full(&record_sm, &pair_label, &paired_pre_target);
                 if let Ok(mut g) = record_error_message.write() {
-                    *g = Some("Auto-stopped after 10 min idle. Take saved.".to_string());
+                    // B-207 #3: しきい値を文言へ反映（env override 時も正確 / 既定 600s = "10 min"）。
+                    // 分割り切れなければ秒表記（テスト用の短い override でも 0 min と出さない）。
+                    let secs = idle_timeout.as_secs();
+                    let dur = if secs.is_multiple_of(60) {
+                        format!("{} min", secs / 60)
+                    } else {
+                        format!("{secs} sec")
+                    };
+                    *g = Some(if take_existed {
+                        format!("Auto-stopped after {dur} idle. Take saved.")
+                    } else {
+                        format!("Auto-stopped after {dur} idle.")
+                    });
                 }
                 idle_anchor = Instant::now();
             }
