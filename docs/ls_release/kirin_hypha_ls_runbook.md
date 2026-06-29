@@ -4,6 +4,15 @@ Purpose: build the Kirin Hypha macOS installer package safely, verify it locally
 
 This follows the Kirin OS release style: state JSON is the handoff source, the dry-run script verifies local artifact facts, and Lemon Squeezy upload is performed by Daisuke.
 
+## Distribution channels (BOTH updated every release)
+
+Kirin Hypha ships through TWO channels. Updating only one leaves the other on the old version.
+
+1. **Lemon Squeezy (paid)** — the signed/notarized installer `.pkg`, delivered inside the existing Kirin OS / Kirin Sense products. Phases 0–7 below.
+2. **HP free download** — `kirinmastering.com/hypha` → "Download for macOS — Free", which links to a GitHub Release `.zip` on `heyalohaloha/kirin_hypha`. See **"HP Free Download Channel"** below. If skipped, free-download users stay on the old (buggy) version.
+
+Both channels reuse the SAME signed+notarized universal bundles from Phase 1 (the `.pkg` and the `.zip` are two packagings of the same bundles).
+
 ## Files
 
 - Runbook: `docs/ls_release/kirin_hypha_ls_runbook.md`
@@ -145,6 +154,56 @@ The Lemon Squeezy check verifies:
 - Product pages include `Published`.
 - Product page includes the installer file name.
 - Product page includes the rounded Lemon Squeezy display size from state.
+
+## HP Free Download Channel (GitHub Release + Vercel)
+
+The homepage `kirinmastering.com/hypha` has a "Download for macOS — Free" button that links to a GitHub Release asset:
+`https://github.com/heyalohaloha/kirin_hypha/releases/download/vX.Y.Z/Kirin-Hypha-X.Y.Z-macOS-Universal.zip`
+
+This is a SEPARATE channel from Lemon Squeezy and MUST be updated on every release. Run these AFTER Phase 1 (the bundles are already signed+notarized — the `.zip` reuses them).
+
+### HP-1: Build the free `.zip` (signed bundles → universal zip)
+
+```bash
+cargo run --package xtask -- release-package
+# -> dist/Kirin-Hypha-X.Y.Z-macOS-Universal.zip (+ .zip.sha256, release-manifest.json)
+# verify_sources refuses ad-hoc/unsigned bundles, so this only succeeds after `notarize`.
+```
+
+### HP-2: Create the GitHub Release (the URL the HP links to)
+
+```bash
+gh release create vX.Y.Z --repo heyalohaloha/kirin_hypha --target main \
+  --title "Kirin Hypha X.Y.Z" \
+  --notes "..." \
+  dist/Kirin-Hypha-X.Y.Z-macOS-Universal.zip \
+  dist/Kirin-Hypha-X.Y.Z-macOS-Universal.zip.sha256
+
+# verify the asset URL resolves (must be HTTP 200 before the HP goes live):
+curl -sIL -o /dev/null -w '%{http_code}\n' \
+  "https://github.com/heyalohaloha/kirin_hypha/releases/download/vX.Y.Z/Kirin-Hypha-X.Y.Z-macOS-Universal.zip"
+```
+
+### HP-3: Bump the HP download links (repo `~/Dev/kirin_hp`)
+
+Update BOTH files (EN + JA) from the old `vN/...N...zip` to the new `vX.Y.Z/...X.Y.Z...zip`:
+
+- `hypha.html` (EN, the `Download for macOS — Free` link)
+- `ja/hypha.html` (JA, the `macOS版を無料ダウンロード` link)
+
+```bash
+cd ~/Dev/kirin_hp && git add hypha.html ja/hypha.html && git commit -m "hypha: bump free download link -> vX.Y.Z"
+```
+
+### HP-4: Deploy the HP (Daisuke)
+
+`kirin_hp` has no git remote — deploy is manual Vercel:
+
+```bash
+cd ~/Dev/kirin_hp && vercel --prod
+```
+
+**Order matters:** create the GitHub Release (HP-2) BEFORE deploying (HP-4) so the live page's link is not a 404.
 
 ## Phase 7: Report
 
