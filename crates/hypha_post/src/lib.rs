@@ -76,6 +76,10 @@ pub struct HyphaPost {
     pending_producer: Arc<Mutex<Option<rtrb::Producer<f32>>>>,
     measure_alive: Arc<AtomicBool>,
     process_counter: u32,
+    /// B-207 #1: 直近の process_mode。Offline→Realtime 遷移（host の再 initialize）を
+    /// 「オフラインレンダー終了」とみなし、KEEP 保持中なら自動 Stop する（AU の
+    /// maybeAutoStopOnOfflineEnd と対）。message/main-thread の initialize() のみが触る。
+    prev_process_mode: Option<ProcessMode>,
 
     // ── SignalState（SS-1）────────────────────────────────────────────
     signal_state: Arc<AtomicU8>,
@@ -231,6 +235,7 @@ impl Default for HyphaPost {
             pending_producer: Arc::new(Mutex::new(None)),
             measure_alive: Arc::new(AtomicBool::new(true)),
             process_counter: 0,
+            prev_process_mode: None,
             signal_state: Arc::new(AtomicU8::new(SignalState::Inactive as u8)),
             heartbeat,
             liveness,
@@ -274,6 +279,48 @@ pub(crate) fn read_instance_id_arc(arc: &Arc<RwLock<String>>) -> String {
 /// 取り、`&str` 引数として下流関数 (`trigger_keep_internal` 等) に渡す。
 pub(crate) fn read_project_hash_arc(arc: &Arc<RwLock<String>>) -> String {
     arc.read().ok().map(|g| g.clone()).unwrap_or_default()
+}
+
+/// B-207 #1: オフラインレンダー終了の検出（pure / テスト用に分離）。nih-plug は process_mode が
+/// 変わると plugin を再 initialize するため、`Offline → Realtime` 遷移を「オフラインバウンス完了」
+/// とみなす。`Buffered`（VST3 の先読み）は Offline と別扱いなので誤検知しない。
+fn offline_render_ended(prev: Option<ProcessMode>, current: ProcessMode) -> bool {
+    prev == Some(ProcessMode::Offline) && current == ProcessMode::Realtime
+}
+
+#[cfg(test)]
+mod b207_offline_render_tests {
+    use super::offline_render_ended;
+    use nih_plug::prelude::ProcessMode;
+
+    /// B-207 #1: Offline→Realtime のみを「終了」とみなす。開始/継続/churn/Buffered は対象外。
+    #[test]
+    fn offline_render_ended_edge() {
+        assert!(
+            offline_render_ended(Some(ProcessMode::Offline), ProcessMode::Realtime),
+            "Offline->Realtime = ended"
+        );
+        assert!(
+            !offline_render_ended(Some(ProcessMode::Realtime), ProcessMode::Offline),
+            "Realtime->Offline (start) is not end"
+        );
+        assert!(
+            !offline_render_ended(None, ProcessMode::Realtime),
+            "no prior mode = not end"
+        );
+        assert!(
+            !offline_render_ended(Some(ProcessMode::Offline), ProcessMode::Offline),
+            "still offline = not end"
+        );
+        assert!(
+            !offline_render_ended(Some(ProcessMode::Realtime), ProcessMode::Realtime),
+            "realtime churn = not end"
+        );
+        assert!(
+            !offline_render_ended(Some(ProcessMode::Buffered), ProcessMode::Realtime),
+            "Buffered (VST3 lookahead) is not offline end"
+        );
+    }
 }
 
 /// `daw_session_id` の現在値を取得（panic-safe）。
@@ -501,6 +548,30 @@ impl Plugin for HyphaPost {
         context: &mut impl InitContext<Self>,
     ) -> bool {
         context.set_latency_samples(0);
+
+        // B-207 #1: egui (VST3) オフラインレンダー終了の自動 Stop。host が process_mode を
+        // Offline→Realtime に戻して再 initialize したら（=オフラインバウンス完了）、KEEP 保持中の
+        // POST を手動 Stop と同経路（trigger_stop_internal: exit_record_full + reservation 解放 +
+        // mark_released → PRE 追従）で停止する。AU の maybeAutoStopOnOfflineEnd と対（バウンス毎に
+        // 1 テイク）。record_sm は Arc 永続なので reinit を跨いで Record 状態を保持している。
+        // host が reinit しない/エッジを出さない場合も B-206 idle-net が backstop（additive-safe）。
+        if offline_render_ended(self.prev_process_mode, buffer_config.process_mode)
+            && self.record_sm.is_recording()
+        {
+            let project_hash = read_project_hash_arc(&self.project_hash);
+            let instance_id = read_instance_id_arc(&self.params.instance_id);
+            nih_log!("[hypha_post] offline-end auto-stop (process_mode Offline->Realtime)");
+            crate::editor::trigger_stop_internal(
+                &self.record_sm,
+                &project_hash,
+                &instance_id,
+                &self.pair_label,
+                &self.paired_pre_target,
+                None,
+                0.0,
+            );
+        }
+        self.prev_process_mode = Some(buffer_config.process_mode);
 
         // chunk-persist 値（params.project_uuid / params.daw_session_uuid）を
         // プロセス cell に反映。POST は PRE の cell 値を優先する authority 順序。
