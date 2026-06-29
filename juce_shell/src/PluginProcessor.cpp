@@ -66,6 +66,11 @@ KirinHyphaProcessorBase::~KirinHyphaProcessorBase()
 
 void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
+    // B-206: offline render が終わった瞬間（isNonRealtime true→false）に KEEP 保持中の POST を
+    // 自動 Stop（バウンス毎に 1 テイク確定 / 観測スパイクで Studio One が単一パス遷移すると実証済み）。
+    // handleLock を取る前に呼ぶ（stopPair が自前で lock を取るため nest 回避）。message-thread / 非RT。
+    maybeAutoStopOnOfflineEnd();
+
     const int numCh = getTotalNumInputChannels();
 
     // Pre-allocate the interleave scratch so processBlock never allocates (RT-safe).
@@ -129,6 +134,10 @@ void KirinHyphaProcessorBase::releaseResources()
     // around offline bounce/freeze; destroying the engine here drops Record state and makes the
     // editor fall back to Watch/Keep mid-bounce. Keep the handle alive until destructor or an
     // incompatible prepareToPlay rebuild.
+
+    // B-206: offline render 終了境界も拾う（true→false エッジは通常 prepareToPlay 側で発火するが、
+    // host によっては releaseResources で先に現れるため両方で判定／エッジ集約で実発火は 1 回）。
+    maybeAutoStopOnOfflineEnd();
 }
 
 bool KirinHyphaProcessorBase::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -330,6 +339,30 @@ void KirinHyphaProcessorBase::stopPair()
     const juce::ScopedLock sl (handleLock);
     if (hyphaHandle != nullptr)
         kirin_hypha_stop (hyphaHandle);
+}
+
+// B-206: offline render 終了（isNonRealtime true→false エッジ）で KEEP 保持中の POST を自動 Stop。
+// 観測スパイク（offline_probe）で Studio One のオフラインバウンスが「false→true（開始）… true →
+// false（終了）」の単一パス遷移を示すことを実証済み。境界で prepareToPlay/releaseResources が連発
+// するため、prev からのエッジ判定で実発火は 1 回に集約する。POST 主導（PRE は stopPair 内の
+// mark_released で追従）。手動 Stop と同経路（graceful close + pairing cleanup）。
+// 呼出元（prepareToPlay/releaseResources）は message-thread / 非RT。
+void KirinHyphaProcessorBase::maybeAutoStopOnOfflineEnd()
+{
+    const bool nowNonRealtime = isNonRealtime();
+    const bool offlineJustEnded = prevNonRealtime && ! nowNonRealtime;
+    prevNonRealtime = nowNonRealtime;
+
+    if (! offlineJustEnded || ! isPostRole())
+        return; // 開始/継続/非エッジ、または PRE（POST 主導なので何もしない）
+
+    bool recording = false;
+    {
+        const juce::ScopedLock sl (handleLock);
+        recording = (hyphaHandle != nullptr) && kirin_hypha_is_recording (hyphaHandle);
+    }
+    if (recording)
+        stopPair(); // = 手動 Stop（kirin_hypha_stop）。次 io tick で graceful close。
 }
 
 // --- B-073: POST Δ readout ---------------------------------------------------------------
