@@ -50,6 +50,9 @@ public:
     juce::String pathAnomalyMessage() const;            // B-128 (G-115-371 D3): kirin_hypha_drain_path_event (restore identity anomaly surface)
     bool licenseIsOs() const;                           // B-118 (①): kirin_hypha_load_license()==Os
     void stopPair();                                    // kirin_hypha_stop
+    // B-206: offline render 終了（isNonRealtime true→false エッジ）で KEEP 保持中の POST を
+    // 自動 Stop する（手動 Stop と同経路 stopPair）。prepareToPlay/releaseResources から呼ぶ。
+    void maybeAutoStopOnOfflineEnd();
 
     // --- B-073: POST Δ readout (editor display branching) --------------------------------
     int  signalStateLive() const;                      // B-113: FFI kirin_hypha_get_signal_state (heartbeat-aware, no stale Active)
@@ -120,6 +123,7 @@ private:
 
     std::atomic<int>  cachedLicenseCode { 2 };         // B-072: license read once in prepareToPlay (0=Os)
     std::atomic<bool> lastPlaying { false };           // B-054: transport playing (POST pair lock during playback)
+    bool prevNonRealtime = false;                      // B-206: isNonRealtime edge state (message-thread only; offline-end detection)
     std::atomic<bool> writesEnabled { false };         // plugin_data writes enabled (idempotent guard)
     std::atomic<bool> enablePending { false };         // B-126: set by prepare/processBlock, observed by the Timer
     std::atomic<int>  enableDelayTicks { 0 };          // prepare fallback restore grace; setState clears it
