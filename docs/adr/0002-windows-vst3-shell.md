@@ -51,6 +51,13 @@ Windows には VST3 が要る。選択肢は2つ:
 4. **実 Windows ホストでロード + ペアリング検証**（Studio One/Cubase 等）。S-1〜S-5 で計測。
 5. コード署名（Authenticode）は後段。
 
+### Status 2026-07-01
+
+- B3/B2 は B-203 CI で green: Windows PRE/POST VST3 build, artifact upload, pluginval pass。
+- B1 は未実装: user/global VST3 install path は `xtask windows-vst3-layout` で定義済みだが、Windows installer / LS package は未作成。
+- 次ゲートは実 Windows ホスト検証。外部テスターには `docs/windows_external_validation.md` を渡し、DAW load / Watch files / Pairing / Keep / offline bounce / audio transparency を順に確認する。
+- LS upload は、実機検証と Windows 用 LS packaging/state/runbook が揃うまで blocker。
+
 ## Acceptance（第一弾 Windows VST3 の合格条件）
 
 - CI（windows-latest）で PRE/POST VST3 が緑ビルド＋ pluginval pass。
