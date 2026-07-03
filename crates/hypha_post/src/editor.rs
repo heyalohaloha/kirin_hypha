@@ -5,8 +5,8 @@
 //! - flora_color 横線（#d4a043 暫定）
 //! - 共通ウィジェット（value_row / fmt_val / fmt_delta / tp_color）
 //!
-//! - POST Active + PRE Active（DeltaMode::Active / Stale）→ Δ 3 項目表示
-//! - POST Active + PRE 不在 or Bypassed（DeltaMode::NoPre）→ 絶対値 3 項目表示
+//! - POST Active + PRE Active（DeltaMode::Active）→ Δ 3 項目表示
+//! - POST Active + PRE Stale / 不在 / Bypassed（DeltaMode::Stale / NoPre）→ 絶対値 3 項目表示
 //!   （LUFS-M / TP / Crest。POST 単独挿入での計測動作を目視確認する経路）
 //! - POST Bypassed → 全項目 `---` + ボタン非表示（プラグイン無効化中）
 //! - POST Inactive → 全項目 `---` + ボタン表示（信号待ちでも license 操作は可能）
@@ -516,37 +516,21 @@ fn draw_post(
                         ui.add_space(4.0);
                         draw_button_row(ui, true, license, state, m, now);
                     } else {
-                        // io_thread_post::compute_delta_with_state が PRE 不在 or
-                        // pre_signal_state != Active のとき DeltaMode::NoPre を立てる。
+                        // Watch 表示は PRE が Active のときだけ Δ 表示にする。
+                        // Stale は「ペアラッチは維持しているが PRE は計測相手として
+                        // 有効ではない」状態なので、POST 単体の絶対値表示へ戻す。
                         // W-283 / G-115-251 / W-2: pair_empty 時は IO Thread の Δ 状態に
                         // 依らず draw_watch_absolute_grid を強制 (B-048 LKG 凍結経路 bypass)。
                         if pair_empty {
                             draw_watch_absolute_grid(ui, m);
                         } else {
                             match d.mode {
-                                DeltaMode::Active | DeltaMode::Stale => {
-                                    let delta_col = if d.mode == DeltaMode::Active {
-                                        COL_NORMAL
-                                    } else {
-                                        COL_MUTED
-                                    };
+                                DeltaMode::Active => {
                                     let tp_warn = tp_over(m.true_peak);
-                                    draw_delta_grid(ui, d, delta_col, tp_warn);
+                                    draw_delta_grid(ui, d, COL_NORMAL, tp_warn);
                                 }
-                                DeltaMode::NoPre => {
-                                    // B-048 / G-115-245 Last Known Good: 直近 Active 時の
-                                    // Δ 6 軸 snapshot があれば凍結値を COL_MUTED で表示。
-                                    // None (初回 PRE 検出前) は既存フォールバック (POST 絶対値)。
-                                    if let Some(snap) = &d.last_active {
-                                        // tp_warn は signature 安定性のため算出して渡す
-                                        // (B-051 鮮度ドット導入時の修正範囲最小化 / 採用案 Y)。
-                                        // draw_delta_grid_frozen 側では _tp_warn で受けて
-                                        // 凍結値表示中の COL_FLORA_BRIGHT 強調は意図的に抑制。
-                                        let tp_warn = tp_over(m.true_peak);
-                                        draw_delta_grid_frozen(ui, snap, tp_warn);
-                                    } else {
-                                        draw_watch_absolute_grid(ui, m);
-                                    }
+                                DeltaMode::Stale | DeltaMode::NoPre => {
+                                    draw_watch_absolute_grid(ui, m);
                                 }
                             }
                         }
@@ -644,7 +628,7 @@ fn draw_inactive_grid(ui: &mut egui::Ui) {
     });
 }
 
-/// Watch + PRE Active（DeltaMode::Active / Stale）: Δ 3 項目表示。
+/// Watch + PRE Active（DeltaMode::Active）: Δ 3 項目表示。
 fn draw_delta_grid(ui: &mut egui::Ui, d: &DeltaResult, delta_col: egui::Color32, tp_warn: bool) {
     ui.horizontal(|ui| {
         ui.add_space(10.0);
@@ -681,9 +665,9 @@ fn draw_delta_grid(ui: &mut egui::Ui, d: &DeltaResult, delta_col: egui::Color32,
     });
 }
 
-/// Watch + DeltaMode::NoPre + 凍結値あり: Last Known Good 表示 (B-048 / G-115-245)。
+/// POST Inactive + 凍結値あり: Last Known Good 表示 (B-048 / G-115-245)。
 ///
-/// `editor.rs` の `DeltaMode::NoPre` 分岐で `d.last_active = Some(snap)` のときに呼ばれる。
+/// `editor.rs` の `SignalState::Inactive` 分岐で `d.last_active = Some(snap)` のときに呼ばれる。
 /// 全 cell 色を `COL_MUTED` 固定にして「鮮度が落ちた凍結値」であることを示す
 /// (Dark Cockpit 整合 / 純白 #FFFFFF 不使用 / G-72-10)。
 ///

@@ -439,7 +439,7 @@ void KirinHyphaEditor::updatePost()
     postControls->update (rec, processorRef.licenseCode(), pairNonEmpty);
 
     // ── display-branch tree (editor.rs:449-514, no last_active freeze: the FFI KirinDelta has
-    //    no snapshot field, matching the existing shell's B-048/B-049 stance — non-Active = "---").
+    //    no snapshot field; Watch shows delta only while the paired PRE is Active).
     KirinMeasureResult m {};
     const bool haveM = processorRef.pollMeasureResult (m);
     const bool tpWarn = hypha::tpOver (haveM ? m.true_peak : kNaN);
@@ -469,16 +469,15 @@ void KirinHyphaEditor::updatePost()
     {
         KirinDelta d {};
         const bool haveD = processorRef.pollDelta (d);
-        const bool showDelta = pairNonEmpty && haveD && (d.mode == 0 || d.mode == 1);
+        const bool showDelta = pairNonEmpty && haveD && d.mode == 0;
         if (showDelta)
         {
             if (currentKind != Kind::Delta3) configureForKind (Kind::Delta3);
-            const juce::Colour base = (d.mode == 1) ? COL_MUTED : COL_NORMAL;
-            fillDelta (0, d.lufs,      false, base, tpWarn);
-            fillDelta (1, d.true_peak, true,  base, tpWarn);
-            fillDelta (2, d.crest,     false, base, tpWarn);
+            fillDelta (0, d.lufs,      false, COL_NORMAL, tpWarn);
+            fillDelta (1, d.true_peak, true,  COL_NORMAL, tpWarn);
+            fillDelta (2, d.crest,     false, COL_NORMAL, tpWarn);
         }
-        else // pair empty / NoPre / no delta -> POST absolute
+        else // pair empty / Stale / NoPre / no delta -> POST absolute
         {
             if (currentKind != Kind::Abs3) configureForKind (Kind::Abs3);
             auto V = [&] (double x) { return haveM ? x : kNaN; };
