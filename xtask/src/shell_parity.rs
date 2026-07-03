@@ -177,4 +177,27 @@ mod tests {
         );
         assert!(body.contains("const bool haveD = (sig == 1) && processorRef.pollDelta (d);"));
     }
+
+    #[test]
+    fn juce_post_watch_delta_requires_active_pre_mode() {
+        let start = PLUGIN_EDITOR_CPP
+            .find("void KirinHyphaEditor::updatePost()")
+            .expect("updatePost");
+        let body = &PLUGIN_EDITOR_CPP[start..];
+        let watch_branch = body.find("else // Active + Watch").expect("watch branch");
+        let window = &body[watch_branch..body.len().min(watch_branch + 1400)];
+
+        assert!(
+            window.contains("const bool showDelta = pairNonEmpty && haveD && d.mode == 0;"),
+            "JUCE POST Watch must show delta only for DeltaMode::Active"
+        );
+        assert!(
+            !window.contains("d.mode == 1"),
+            "JUCE POST Watch must not treat DeltaMode::Stale as a delta display state"
+        );
+        assert!(
+            window.contains("pair empty / Stale / NoPre / no delta -> POST absolute"),
+            "JUCE POST Watch must document Stale fallback to POST absolute values"
+        );
+    }
 }

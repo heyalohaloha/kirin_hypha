@@ -439,17 +439,10 @@ fn lib_rs_drop_calls_delete_signal_after_watchdog_join() {
     );
 }
 
-/// B-048 / G-115-245 Last Known Good: editor.rs `DeltaMode::NoPre` 分岐に
-/// 以下 2 パターンが共存することを source-string で保証する。
-///
-/// - `if let Some(snap) = &d.last_active` (凍結値表示経路 / B-048 主機能)
-/// - `draw_watch_absolute_grid(ui, m)` (初回 PRE 検出前フォールバック / 既存挙動)
-///
-/// どちらか欠けるとサイレント機能停止になる:
-/// - 前者欠落 = 常に絶対値経路 / Last Known Good 失効
-/// - 後者欠落 = 初回 PRE 検出前に panic or 描画失敗
+/// B-209: Watch 表示は PRE が Active のときだけ Δ 表示。
+/// pair ラッチ維持中でも `DeltaMode::Stale | DeltaMode::NoPre` は POST 絶対値へ戻す。
 #[test]
-fn editor_rs_no_pre_branch_has_last_known_good_and_fallback() {
+fn editor_rs_watch_delta_requires_active_pre_mode() {
     let src = read("src/editor.rs");
     let draw_post_start = src
         .find("fn draw_post(")
@@ -463,14 +456,28 @@ fn editor_rs_no_pre_branch_has_last_known_good_and_fallback() {
     let window = &src[draw_post_start..safe_end];
 
     assert!(
-        window.contains("if let Some(snap) = &d.last_active"),
-        "draw_post NoPre branch must contain `if let Some(snap) = &d.last_active` \
-         (B-048 / G-115-245 Last Known Good display path)"
+        window.contains("DeltaMode::Active =>"),
+        "draw_post Watch branch must have an explicit DeltaMode::Active arm"
+    );
+    assert!(
+        window.contains("DeltaMode::Stale | DeltaMode::NoPre =>"),
+        "draw_post Watch branch must group Stale and NoPre as POST-absolute fallback"
     );
     assert!(
         window.contains("draw_watch_absolute_grid(ui, m)"),
-        "draw_post NoPre branch must contain `draw_watch_absolute_grid(ui, m)` \
-         (B-048 fallback for initial PRE detection / 既存挙動)"
+        "draw_post Watch branch must contain POST absolute fallback"
+    );
+    let stale_idx = window
+        .find("DeltaMode::Stale | DeltaMode::NoPre =>")
+        .expect("Stale/NoPre arm");
+    let stale_window = &window[stale_idx..(stale_idx + 240).min(window.len())];
+    assert!(
+        stale_window.contains("draw_watch_absolute_grid(ui, m)"),
+        "Stale/NoPre arm must draw POST absolute values"
+    );
+    assert!(
+        !stale_window.contains("draw_delta_grid"),
+        "Stale/NoPre arm must not draw delta or frozen delta in Watch mode"
     );
 }
 
