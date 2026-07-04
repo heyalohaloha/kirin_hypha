@@ -19,7 +19,7 @@
 //! を再度呼ぶと拒否される。
 //!
 //! # スレッド安全性
-//! `AtomicU8` で状態を保持。Audio / Measure / IO / GUI / Watchdog の各スレッドから
+//! `AtomicU64` で状態を保持。Audio / Measure / IO / GUI / Watchdog の各スレッドから
 //! ロックなしで読めるため、`Arc<RecordStateMachine>` で共有する。
 //!
 //! # T-1 のスコープ
