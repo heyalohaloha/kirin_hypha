@@ -1187,9 +1187,11 @@ fn run_tick(
     fs::create_dir_all(instance_dir).map_err(|e| format!("create_dir_all: {e}"))?;
 
     if state != SignalState::Active {
-        *delta_result
+        let mut delta_locked = delta_result
             .lock()
-            .map_err(|e| format!("delta Mutex poisoned: {e}"))? = DeltaResult::default();
+            .map_err(|e| format!("delta Mutex poisoned: {e}"))?;
+        let previous_delta = delta_locked.clone();
+        *delta_locked = resolve_delta_for_non_active_post(state, pair_pre_name, &previous_delta);
 
         // B-027 段階 3-B α-7-1 / Step 6: pair_pre_name は閉路 1 tick の snapshot。
         // Q-A7 採用案 A (post.json schema 拡張による cross-instance 公開)。
@@ -1313,6 +1315,46 @@ pub fn merge_last_active(
             ..new_delta
         },
         DeltaMode::Bypassed => new_delta,
+    }
+}
+
+fn snapshot_from_delta(d: &DeltaResult) -> Option<DeltaSnapshot> {
+    if d.lufs.is_none()
+        && d.psr.is_none()
+        && d.tp.is_none()
+        && d.n_prime_total.is_none()
+        && d.crest.is_none()
+        && d.sharpness.is_none()
+    {
+        None
+    } else {
+        Some(DeltaSnapshot {
+            lufs: d.lufs,
+            psr: d.psr,
+            tp: d.tp,
+            n_prime_total: d.n_prime_total,
+            crest: d.crest,
+            sharpness: d.sharpness,
+        })
+    }
+}
+
+fn resolve_delta_for_non_active_post(
+    state: SignalState,
+    pair_pre_name: &str,
+    previous: &DeltaResult,
+) -> DeltaResult {
+    if state != SignalState::Inactive || pair_pre_name.trim().is_empty() {
+        return DeltaResult::default();
+    }
+
+    DeltaResult {
+        mode: DeltaMode::Stale,
+        last_active: previous
+            .last_active
+            .clone()
+            .or_else(|| snapshot_from_delta(previous)),
+        ..DeltaResult::default()
     }
 }
 
@@ -4571,5 +4613,93 @@ mod resolve_delta_for_store_tests {
         let r = resolve_delta_for_store(active, None);
         assert!(r.last_active.is_some(), "Active は新 snapshot を保存");
         assert_eq!(r.last_active.unwrap().lufs, Some(3.0));
+    }
+}
+
+#[cfg(test)]
+mod non_active_delta_store_tests {
+    use super::*;
+
+    #[test]
+    fn inactive_with_pair_keeps_last_active_as_stale() {
+        let previous = DeltaResult {
+            mode: DeltaMode::Active,
+            lufs: Some(1.0),
+            tp: Some(2.0),
+            crest: Some(3.0),
+            last_active: Some(DeltaSnapshot {
+                lufs: Some(1.0),
+                psr: Some(4.0),
+                tp: Some(2.0),
+                n_prime_total: Some(5.0),
+                crest: Some(3.0),
+                sharpness: Some(6.0),
+            }),
+            ..Default::default()
+        };
+
+        let r = resolve_delta_for_non_active_post(SignalState::Inactive, "Drum", &previous);
+
+        assert_eq!(r.mode, DeltaMode::Stale);
+        let snap = r.last_active.expect("inactive pair must keep frozen delta");
+        assert_eq!(snap.lufs, Some(1.0));
+        assert_eq!(snap.tp, Some(2.0));
+        assert_eq!(snap.crest, Some(3.0));
+    }
+
+    #[test]
+    fn inactive_with_pair_snapshots_previous_core_values_if_needed() {
+        let previous = DeltaResult {
+            mode: DeltaMode::Active,
+            lufs: Some(-0.5),
+            tp: Some(0.2),
+            crest: Some(1.5),
+            last_active: None,
+            ..Default::default()
+        };
+
+        let r = resolve_delta_for_non_active_post(SignalState::Inactive, "Music", &previous);
+
+        assert_eq!(r.mode, DeltaMode::Stale);
+        let snap = r.last_active.expect("core delta should be recoverable");
+        assert_eq!(snap.lufs, Some(-0.5));
+        assert_eq!(snap.tp, Some(0.2));
+        assert_eq!(snap.crest, Some(1.5));
+    }
+
+    #[test]
+    fn inactive_without_pair_clears_delta() {
+        let previous = DeltaResult {
+            mode: DeltaMode::Active,
+            lufs: Some(1.0),
+            last_active: Some(DeltaSnapshot {
+                lufs: Some(1.0),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let r = resolve_delta_for_non_active_post(SignalState::Inactive, "", &previous);
+
+        assert_eq!(r.mode, DeltaMode::NoPre);
+        assert!(r.last_active.is_none());
+    }
+
+    #[test]
+    fn bypassed_clears_even_when_pair_is_selected() {
+        let previous = DeltaResult {
+            mode: DeltaMode::Active,
+            lufs: Some(1.0),
+            last_active: Some(DeltaSnapshot {
+                lufs: Some(1.0),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let r = resolve_delta_for_non_active_post(SignalState::Bypassed, "Drum", &previous);
+
+        assert_eq!(r.mode, DeltaMode::NoPre);
+        assert!(r.last_active.is_none());
     }
 }

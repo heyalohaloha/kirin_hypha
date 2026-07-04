@@ -99,6 +99,15 @@ const RECORD_BANNER_DURATION_SECS: f64 = 3.0;
 /// toast の表示時間（秒）。
 const TOAST_DURATION_SECS: f64 = 3.0;
 
+fn apply_pair_combo_dropdown_visuals(ui: &mut egui::Ui) {
+    let visuals = &mut ui.style_mut().visuals;
+    visuals.selection.bg_fill = egui::Color32::from_rgba_unmultiplied(212, 160, 67, 64);
+    visuals.selection.stroke = Stroke::new(1.0, COL_FLORA);
+    visuals.widgets.hovered.bg_fill = egui::Color32::from_rgba_unmultiplied(212, 160, 67, 36);
+    visuals.widgets.active.bg_fill = egui::Color32::from_rgba_unmultiplied(212, 160, 67, 56);
+    visuals.widgets.open.bg_fill = egui::Color32::from_rgba_unmultiplied(212, 160, 67, 32);
+}
+
 // ── Toast ─────────────────────────────────────────────────────────────────
 
 /// 一時通知（warning / 情報）。3 秒で自動消去。
@@ -1038,6 +1047,7 @@ fn draw_pair_pre_combo(
         .selected_text(RichText::new("▼").size(12.0).color(COL_FLORA).monospace())
         .width(140.0)
         .show_ui(ui, |ui| {
+            apply_pair_combo_dropdown_visuals(ui);
             // α-7' All Stop 行 (recording=true 時のみ / All Keep と排他表示 / 琥珀明度色)。
             // click handler 順序 = broadcast 先発火 → 自身 trigger_stop (Keep の対称形)。
             if recording {
