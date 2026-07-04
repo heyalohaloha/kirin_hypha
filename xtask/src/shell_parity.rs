@@ -193,13 +193,13 @@ mod tests {
         );
         assert!(
             body.contains("maybeAutoStopOnOfflineEnd();"),
-            "releaseResources must delegate offline-end auto-stop to the edge gate"
+            "releaseResources must delegate offline-end edge tracking without destroying the engine"
         );
         assert!(body.contains("offline bounce/freeze"));
     }
 
     #[test]
-    fn juce_offline_end_auto_stop_is_post_recording_edge_gated() {
+    fn juce_offline_end_auto_stop_is_opt_in_and_post_recording_edge_gated() {
         let prepare = between(
             PLUGIN_PROCESSOR_CPP,
             "void KirinHyphaProcessorBase::prepareToPlay",
@@ -207,7 +207,7 @@ mod tests {
         );
         assert!(
             prepare.contains("maybeAutoStopOnOfflineEnd();"),
-            "prepareToPlay must poll offline-end auto-stop before normal prepare work"
+            "prepareToPlay must poll offline-end edge state before normal prepare work"
         );
 
         let body = between(
@@ -219,11 +219,19 @@ mod tests {
         assert!(body.contains("prevNonRealtime = nowNonRealtime;"));
         assert!(
             body.contains("if (! offlineJustEnded || ! isPostRole())"),
-            "offline-end auto-stop must be edge-gated and POST-only"
+            "offline-end handling must be edge-gated and POST-only"
+        );
+        assert!(
+            body.contains("if (! offlineAutoStopEnabled())"),
+            "offline-end auto-stop must be disabled by default"
+        );
+        assert!(
+            PLUGIN_PROCESSOR_CPP.contains("std::getenv (\"KIRIN_HYPHA_OFFLINE_AUTOSTOP\")"),
+            "offline-end auto-stop must require explicit opt-in"
         );
         assert!(
             body.contains("kirin_hypha_is_recording"),
-            "offline-end auto-stop must only call Stop when Record/Keep is active"
+            "opt-in offline-end auto-stop must only call Stop when Record/Keep is active"
         );
         assert!(
             body.contains("offlineRenderedSamples.load"),

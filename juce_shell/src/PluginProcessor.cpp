@@ -1,6 +1,7 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include <cmath> // B-107: std::abs(float) for the silence peak threshold
+#include <cstdlib>
 
 namespace
 {
@@ -52,6 +53,20 @@ namespace
             return (uint64_t) std::llround ((sampleRate * kOfflineAutoStopMinRenderMs) / 1000.0);
         return 1;
     }
+
+    bool parseBoolEnvEnabled (const char* raw)
+    {
+        if (raw == nullptr)
+            return false;
+
+        const auto value = juce::String (raw).trim().toLowerCase();
+        return value == "1" || value == "true" || value == "yes" || value == "on";
+    }
+
+    bool offlineAutoStopEnabled()
+    {
+        return parseBoolEnvEnabled (std::getenv ("KIRIN_HYPHA_OFFLINE_AUTOSTOP"));
+    }
 }
 
 KirinHyphaProcessorBase::KirinHyphaProcessorBase (Role roleIn)
@@ -85,9 +100,9 @@ KirinHyphaProcessorBase::~KirinHyphaProcessorBase()
 
 void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
-    // B-206: offline render が終わった瞬間（isNonRealtime true→false）に KEEP 保持中の POST を
-    // 自動 Stop（バウンス毎に 1 テイク確定 / 観測スパイクで Studio One が単一パス遷移すると実証済み）。
-    // handleLock を取る前に呼ぶ（stopPair が自前で lock を取るため nest 回避）。message-thread / 非RT。
+    // B-225: offline render 終了 edge は観測するが、Record 信頼性優先のため自動 Stop は
+    // 既定 OFF。handleLock を取る前に呼ぶ（stopPair が自前で lock を取るため nest 回避）。
+    // message-thread / 非RT。
     maybeAutoStopOnOfflineEnd();
 
     const int numCh = getTotalNumInputChannels();
@@ -158,8 +173,8 @@ void KirinHyphaProcessorBase::releaseResources()
     // editor fall back to Watch/Keep mid-bounce. Keep the handle alive until destructor or an
     // incompatible prepareToPlay rebuild.
 
-    // B-206: offline render 終了境界も拾う（true→false エッジは通常 prepareToPlay 側で発火するが、
-    // host によっては releaseResources で先に現れるため両方で判定／エッジ集約で実発火は 1 回）。
+    // B-225: offline render 終了境界も拾うが、既定では Record を閉じない。
+    // 明示 opt-in 時だけ maybeAutoStopOnOfflineEnd() が Stop へ進む。
     maybeAutoStopOnOfflineEnd();
 }
 
@@ -396,10 +411,10 @@ void KirinHyphaProcessorBase::stopPair()
         kirin_hypha_stop (hyphaHandle);
 }
 
-// B-224: offline render 終了（isNonRealtime true→false エッジ）で KEEP 保持中の POST を自動 Stop。
-// Studio One は開始側/preflight でも mode churn を出すため、Record 中に実際の non-realtime
-// processBlock サンプルを十分に見た場合だけ Stop を許可する。POST 主導（PRE は stopPair 内の
-// mark_released で追従）。手動 Stop と同経路（graceful close + pairing cleanup）。
+// B-225: offline render 終了（isNonRealtime true→false エッジ）での自動 Stop は既定 OFF。
+// Hypha の信用境界では「勝手に Record を閉じない」を優先する。検証用に
+// KIRIN_HYPHA_OFFLINE_AUTOSTOP=1 を明示した場合だけ、B-224 の non-realtime process sample
+// gate を満たす POST が手動 Stop と同経路（graceful close + pairing cleanup）で閉じる。
 // 呼出元（prepareToPlay/releaseResources）は message-thread / 非RT。
 void KirinHyphaProcessorBase::maybeAutoStopOnOfflineEnd()
 {
@@ -409,6 +424,12 @@ void KirinHyphaProcessorBase::maybeAutoStopOnOfflineEnd()
 
     if (! offlineJustEnded || ! isPostRole())
         return; // 開始/継続/非エッジ、または PRE（POST 主導なので何もしない）
+
+    if (! offlineAutoStopEnabled())
+    {
+        offlineRenderedSamples.store (0, std::memory_order_release);
+        return;
+    }
 
     const uint64_t rendered = offlineRenderedSamples.load (std::memory_order_acquire);
     if (rendered < offlineAutoStopMinRenderSamples (preparedSampleRate))

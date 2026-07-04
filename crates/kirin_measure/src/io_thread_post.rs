@@ -48,10 +48,11 @@ use crate::{load_signal_state, MeasureResult, RecordTraceQueue, SignalState};
 
 const LOOP_SLEEP: Duration = Duration::from_millis(100);
 
-/// B-206: Record idle auto-stop の既定しきい値（秒）。Record 中に signal が連続でこの時間
-/// Active にならなければ（無音 / transport 停止が継続）、graceful に自動停止する（stop漏れ backstop）。
-/// 値は意図的に長め（離席相当）— バウンス終了の即時停止は将来の offline 検知が担い、本機構は最終保険。
+/// B-206/B-225: Record idle auto-stop の既定しきい値（秒）。B-225 以降は
+/// `KIRIN_RECORD_IDLE_AUTOSTOP=1` を明示した検証環境でのみ使う。通常運用では
+/// 「勝手に Record を閉じない」を優先し、手動 Stop / All Stop / 保存失敗時の安全停止だけを権威にする。
 const RECORD_IDLE_TIMEOUT_DEFAULT_SECS: u64 = 600; // 10 min
+const RECORD_IDLE_AUTOSTOP_ENV: &str = "KIRIN_RECORD_IDLE_AUTOSTOP";
 
 /// B-206: idle timeout を解決する（env override 対応 / pure・テスト用に分離）。
 /// `KIRIN_RECORD_IDLE_TIMEOUT_SECS` が有効な整数（>= 5）なら採用、それ以外は既定 600s。
@@ -65,8 +66,25 @@ fn parse_idle_timeout(raw: Option<String>) -> Duration {
 }
 
 /// B-206: io thread spawn 時に一度だけ env を読んで idle timeout を確定する。
-fn record_idle_timeout() -> Duration {
-    parse_idle_timeout(std::env::var("KIRIN_RECORD_IDLE_TIMEOUT_SECS").ok())
+fn parse_idle_autostop_enabled(raw: Option<String>) -> bool {
+    raw.map(|s| {
+        matches!(
+            s.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        )
+    })
+    .unwrap_or(false)
+}
+
+/// B-225: io thread spawn 時に一度だけ env を読んで idle auto-stop の有無を確定する。
+fn record_idle_timeout() -> Option<Duration> {
+    if parse_idle_autostop_enabled(std::env::var(RECORD_IDLE_AUTOSTOP_ENV).ok()) {
+        Some(parse_idle_timeout(
+            std::env::var("KIRIN_RECORD_IDLE_TIMEOUT_SECS").ok(),
+        ))
+    } else {
+        None
+    }
 }
 
 /// B-206: idle auto-stop すべきか（pure 判定 / テスト容易性のため分離）。
@@ -77,9 +95,9 @@ fn idle_autostop_due(
     is_recording: bool,
     is_active: bool,
     idle_elapsed: Duration,
-    timeout: Duration,
+    timeout: Option<Duration>,
 ) -> bool {
-    is_recording && !is_active && idle_elapsed >= timeout
+    timeout.is_some_and(|timeout| is_recording && !is_active && idle_elapsed >= timeout)
 }
 
 /// All Stop is a filesystem-level barrier for older All Keep broadcasts.
@@ -88,7 +106,7 @@ fn idle_autostop_due(
 /// IO thread and clears the in-memory "processed keep broadcast" cache, while
 /// the old all_keep_signal file can still be fresh. A fresh all_stop_signal with
 /// a later/equal `started_at` must therefore suppress that older Keep, otherwise
-/// POST instances can re-enter Record after auto-stop.
+/// POST instances can re-enter Record after Stop.
 #[inline]
 fn keep_broadcast_blocked_by_stop(
     keep_started_at: &str,
@@ -335,14 +353,14 @@ pub fn spawn_io_thread_post(
         // B-024 Group A / Gap-2: PRE 死活監視 sub-tick の next-fire 時刻。
         let mut next_pre_liveness_poll = Instant::now();
         let mut discovery = PostDiscoveryState::new();
-        // B-206: Record idle auto-stop の基点 + しきい値（env override は spawn 時に一度だけ解決）。
-        // Active 信号 / 非Record で基点更新し、Record 中に連続無Active がしきい値を超えたら graceful 停止。
+        // B-225: Record idle auto-stop は既定 OFF。Active 信号 / 非Record で基点更新し、
+        // 明示 opt-in 環境でのみ、Record 中に連続無Active がしきい値を超えたら graceful 停止。
         let mut idle_anchor = Instant::now();
         let idle_timeout = record_idle_timeout();
-        log::info!(
-            "[IOThread POST] idle auto-stop timeout = {:?}",
-            idle_timeout
-        );
+        match idle_timeout {
+            Some(timeout) => log::info!("[IOThread POST] idle auto-stop timeout = {:?}", timeout),
+            None => log::info!("[IOThread POST] idle auto-stop disabled"),
+        }
 
         loop {
             if shutdown.load(Ordering::Relaxed) {
@@ -523,10 +541,10 @@ pub fn spawn_io_thread_post(
                 );
             }
 
-            // ── B-206: Record idle auto-stop（stop漏れ backstop）──────────────────────
-            // KEEP は POST 側の操作なので、本機構は POST 主導。Record 中に signal が連続で
-            // RECORD_IDLE_TIMEOUT 無Active なら graceful 自動停止し、PRE は mark_released で
-            // 追従して Watch へ戻る（手動 Stop と同経路）。
+            // ── B-225: Record idle auto-stop（検証 opt-in のみ）──────────────────────
+            // KEEP は POST 側の操作なので、本機構は POST 主導。ただし通常運用では
+            // 「勝手に Record を閉じない」を優先し、KIRIN_RECORD_IDLE_AUTOSTOP=1 のときだけ
+            // 連続無Active timeout を graceful 停止に使う。
             // - 非Record: 基点を更新（次 Record で 0 から計時 / 過去の idle を持ち越さない）。
             // - Active: 基点リセット（録音中は決して発火しない）。
             // - 非Active 連続でしきい値超過: release reservation → mark_released → exit_record_full。
@@ -538,6 +556,8 @@ pub fn spawn_io_thread_post(
             {
                 idle_anchor = Instant::now();
             } else if idle_autostop_due(true, false, idle_anchor.elapsed(), idle_timeout) {
+                let idle_timeout =
+                    idle_timeout.expect("idle_autostop_due is false when timeout is None");
                 log::info!(
                     "[IOThread POST] idle auto-stop: no Active signal for {:?} (post_iid={})",
                     idle_timeout,
@@ -2063,10 +2083,24 @@ fn poll_preset_availability(
 
 #[cfg(test)]
 mod b206_idle_autostop_tests {
-    use super::{idle_autostop_due, parse_idle_timeout};
+    use super::{idle_autostop_due, parse_idle_autostop_enabled, parse_idle_timeout};
     use std::time::Duration;
 
-    /// B-206: env override パース。無効/欠落/下限未満は既定 600s、有効値は採用。
+    /// B-225: idle auto-stop は明示 opt-in のみ。
+    #[test]
+    fn parse_idle_autostop_enabled_is_opt_in_only() {
+        assert!(!parse_idle_autostop_enabled(None));
+        assert!(!parse_idle_autostop_enabled(Some("".into())));
+        assert!(!parse_idle_autostop_enabled(Some("0".into())));
+        assert!(!parse_idle_autostop_enabled(Some("false".into())));
+        assert!(!parse_idle_autostop_enabled(Some("auto".into())));
+        assert!(parse_idle_autostop_enabled(Some("1".into())));
+        assert!(parse_idle_autostop_enabled(Some(" true ".into())));
+        assert!(parse_idle_autostop_enabled(Some("YES".into())));
+        assert!(parse_idle_autostop_enabled(Some("on".into())));
+    }
+
+    /// B-206: timeout override パース。無効/欠落/下限未満は既定 600s、有効値は採用。
     #[test]
     fn parse_idle_timeout_override() {
         assert_eq!(
@@ -2110,28 +2144,32 @@ mod b206_idle_autostop_tests {
     #[test]
     fn idle_autostop_due_boundary() {
         let t = Duration::from_secs(600);
+        assert!(
+            !idle_autostop_due(true, false, Duration::from_secs(99_999), None),
+            "既定OFFでは何分無Activeでも停止しない"
+        );
         // 録音中・非Active・10分到達/超過 → 停止
         assert!(
-            idle_autostop_due(true, false, Duration::from_secs(600), t),
+            idle_autostop_due(true, false, Duration::from_secs(600), Some(t)),
             "ちょうど10分で停止"
         );
         assert!(
-            idle_autostop_due(true, false, Duration::from_secs(601), t),
+            idle_autostop_due(true, false, Duration::from_secs(601), Some(t)),
             "10分超で停止"
         );
         // 10分未満 → 停止しない
         assert!(
-            !idle_autostop_due(true, false, Duration::from_secs(599), t),
+            !idle_autostop_due(true, false, Duration::from_secs(599), Some(t)),
             "10分未満は停止しない"
         );
         // Active 中は経過に関わらず絶対に停止しない（録音継続中）
         assert!(
-            !idle_autostop_due(true, true, Duration::from_secs(99_999), t),
+            !idle_autostop_due(true, true, Duration::from_secs(99_999), Some(t)),
             "Active 中は停止しない"
         );
         // 非録音は停止対象外
         assert!(
-            !idle_autostop_due(false, false, Duration::from_secs(99_999), t),
+            !idle_autostop_due(false, false, Duration::from_secs(99_999), Some(t)),
             "非録音は対象外"
         );
     }
