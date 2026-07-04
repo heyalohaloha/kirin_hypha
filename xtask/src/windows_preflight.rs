@@ -216,6 +216,41 @@ fn verify_windows_ci_job(workflow: &str) -> Result<()> {
         "$binaryInfo.Length -le 0",
         "Windows preflight job must reject empty VST3 binaries",
     )?;
+    require(
+        job_code,
+        "Validate Windows VST3 with pluginval",
+        "Windows preflight job must validate built VST3 artifacts with pluginval",
+    )?;
+    require(
+        job_code,
+        "Package Windows VST3 LS candidate",
+        "Windows preflight job must package a release-candidate Windows VST3 zip",
+    )?;
+    require(
+        job_code,
+        "node scripts/ls_release/build_kirin_hypha_windows_vst3_zip.mjs",
+        "Windows preflight job must run the Windows VST3 release package script",
+    )?;
+    require(
+        job_code,
+        "--release-kind ci",
+        "Windows preflight job must mark CI-produced Windows packages as CI artifacts",
+    )?;
+    require(
+        job_code,
+        "Upload Windows VST3 LS package",
+        "Windows preflight job must upload the packaged Windows VST3 zip",
+    )?;
+    require(
+        job_code,
+        "name: kirin-hypha-windows-vst3-ls-package",
+        "Windows preflight package artifact must use a stable artifact name",
+    )?;
+    require(
+        job_code,
+        "dist/WINDOWS_CI/Kirin-Hypha-*-Windows-VST3-*.zip",
+        "Windows preflight package artifact must include the Windows VST3 zip",
+    )?;
     verify_ci_uses_layout_artifact_paths(job_code)?;
     require(
         job_code,

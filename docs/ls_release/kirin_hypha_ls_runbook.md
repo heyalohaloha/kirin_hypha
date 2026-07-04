@@ -4,14 +4,15 @@ Purpose: build the Kirin Hypha macOS installer package safely, verify it locally
 
 This follows the Kirin OS release style: state JSON is the handoff source, the dry-run script verifies local artifact facts, and Lemon Squeezy upload is performed by Daisuke.
 
-## Distribution channels (BOTH updated every release)
+## Distribution channels (ALL updated every release)
 
-Kirin Hypha ships through TWO channels. Updating only one leaves the other on the old version.
+Kirin Hypha ships through three release surfaces. Updating only one leaves the others on the old version.
 
 1. **Lemon Squeezy (paid)** — the signed/notarized installer `.pkg`, delivered inside the existing Kirin OS / Kirin Sense products. Phases 0–7 below.
 2. **HP free download** — `kirinmastering.com/hypha` → "Download for macOS — Free", which links to a GitHub Release `.zip` on `heyalohaloha/kirin_hypha`. See **"HP Free Download Channel"** below. If skipped, free-download users stay on the old (buggy) version.
+3. **Windows VST3** — a manual PRE/POST VST3 `.zip` built from the green `windows-latest` artifact. It is not a Windows installer and is not Authenticode-signed. See **"Windows VST3 Channel"** below.
 
-Both channels reuse the SAME signed+notarized universal bundles from Phase 1 (the `.pkg` and the `.zip` are two packagings of the same bundles).
+The macOS paid/free channels reuse the SAME signed+notarized universal bundles from Phase 1 (the `.pkg` and the `.zip` are two packagings of the same bundles). Windows uses the JUCE VST3 output from the Windows CI job.
 
 ## Files
 
@@ -19,6 +20,8 @@ Both channels reuse the SAME signed+notarized universal bundles from Phase 1 (th
 - State JSON: `release_state/kirin_hypha_1.1.1_ls.state.json`
 - Build script: `scripts/ls_release/build_kirin_hypha_pkg.mjs`
 - Dry-run script: `scripts/ls_release/kirin_hypha_ls_dry_run.mjs`
+- Full release set script: `scripts/ls_release/build_kirin_hypha_release_set.mjs`
+- Windows VST3 package script: `scripts/ls_release/build_kirin_hypha_windows_vst3_zip.mjs`
 
 ## Boundaries
 
@@ -30,6 +33,21 @@ Both channels reuse the SAME signed+notarized universal bundles from Phase 1 (th
   - Kirin OS: product `1115751`, variant `1746981`
   - Kirin Sense: product `1120268`, variant `1753806`
 - The release operator builds and verifies the package. Daisuke only needs to provide/install the Apple `Developer ID Installer` certificate when missing and perform the Lemon Squeezy browser upload if no authenticated automation is available.
+- Windows is part of the release set. If the current Windows artifact is not present, the release is blocked instead of silently shipping macOS only.
+
+## One Script Release Set
+
+After the macOS source bundles are built/notarized and the latest green Windows CI artifact `kirin-hypha-windows-vst3` has been downloaded, run:
+
+```bash
+node scripts/ls_release/build_kirin_hypha_release_set.mjs \
+  --windows-artifact-dir dist/WINDOWS_CI/kirin-hypha-windows-vst3 \
+  --windows-external-validation complete
+```
+
+This runs Windows readiness/preflight, builds the Windows VST3 zip/state, builds the macOS LS `.pkg`, and builds the macOS HP `.zip`.
+
+If the Windows artifact is missing, the script fails before reporting release ready. Do not use `--skip-windows-package` for a public release.
 
 ## Phase 0: Read State
 
@@ -204,6 +222,47 @@ cd ~/Dev/kirin_hp && vercel --prod
 ```
 
 **Order matters:** create the GitHub Release (HP-2) BEFORE deploying (HP-4) so the live page's link is not a 404.
+
+## Windows VST3 Channel
+
+The Windows package is built from the GitHub Actions artifact `kirin-hypha-windows-vst3` after the Windows job has passed build, artifact verification, and pluginval.
+
+### WIN-1: CI package artifact
+
+The Windows CI job now also runs:
+
+```bash
+node scripts/ls_release/build_kirin_hypha_windows_vst3_zip.mjs \
+  --artifact-dir juce_shell/build-windows \
+  --output-dir dist/WINDOWS_CI \
+  --release-kind ci \
+  --external-validation pending
+```
+
+It uploads:
+
+- `kirin-hypha-windows-vst3` — raw PRE/POST VST3 bundles
+- `kirin-hypha-windows-vst3-ls-package` — packaged Windows VST3 zip + `.sha256` + `.json`
+
+### WIN-2: Local LS candidate from downloaded artifact
+
+Download/extract `kirin-hypha-windows-vst3` to `dist/WINDOWS_CI/kirin-hypha-windows-vst3`, then run:
+
+```bash
+node scripts/ls_release/build_kirin_hypha_windows_vst3_zip.mjs \
+  --artifact-dir dist/WINDOWS_CI/kirin-hypha-windows-vst3 \
+  --release-kind ls \
+  --external-validation complete
+```
+
+This writes:
+
+- `dist/WINDOWS_LS/Kirin-Hypha-X.Y.Z-Windows-VST3-BNNN-<commit>.zip`
+- `dist/WINDOWS_LS/Kirin-Hypha-X.Y.Z-Windows-VST3-BNNN-<commit>.zip.sha256`
+- `dist/WINDOWS_LS/Kirin-Hypha-X.Y.Z-Windows-VST3-BNNN-<commit>.zip.json`
+- `release_state/kirin_hypha_X.Y.Z_windows_ls_bNNN.state.json`
+
+If Windows external validation is not complete, use `--external-validation pending`; the state will be generated as a blocker and must not be reported as LS-ready.
 
 ## Phase 7: Report
 

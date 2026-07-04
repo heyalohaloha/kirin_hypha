@@ -204,3 +204,22 @@ jobs:
             $proc = Start-Process -FilePath $exe -ArgumentList "--strictness-level 5 `"$($b.FullName)`"" -NoNewWindow -Wait -PassThru
             if ($proc.ExitCode -ne 0) { throw "pluginval failed for $($b.FullName) (exit $($proc.ExitCode))" }
           }
+
+      - name: Package Windows VST3 LS candidate
+        shell: pwsh
+        run: >
+          node scripts/ls_release/build_kirin_hypha_windows_vst3_zip.mjs
+          --artifact-dir juce_shell/build-windows
+          --output-dir dist/WINDOWS_CI
+          --release-kind ci
+          --external-validation pending
+
+      - name: Upload Windows VST3 LS package
+        uses: actions/upload-artifact@v7
+        with:
+          name: kirin-hypha-windows-vst3-ls-package
+          path: |
+            dist/WINDOWS_CI/Kirin-Hypha-*-Windows-VST3-*.zip
+            dist/WINDOWS_CI/Kirin-Hypha-*-Windows-VST3-*.zip.sha256
+            dist/WINDOWS_CI/Kirin-Hypha-*-Windows-VST3-*.zip.json
+          if-no-files-found: error

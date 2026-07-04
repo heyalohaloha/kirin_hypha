@@ -2,18 +2,19 @@
 
 Purpose: validate the first Windows JUCE VST3 build before any Lemon Squeezy upload.
 
-Status: external validation only. Do not upload this build to Lemon Squeezy until the pass/fail gates below are complete.
+Status: external validation gate. A Windows VST3 zip/state can be generated before validation, but it must stay blocked until the pass/fail gates below are complete.
 
 ## Current Boundary
 
 - Windows delivery target: JUCE VST3, PRE and POST.
-- Current proven state: GitHub Actions builds PRE/POST Windows VST3 and validates them with pluginval.
-- Not yet proven: real Windows DAW load, PRE/POST discovery, Keep, Record, offline bounce, and audio transparency.
-- Not included yet: Windows installer, Windows LS state JSON, Windows LS dry-run, Authenticode signing.
+- Current proven state: GitHub Actions builds PRE/POST Windows VST3, validates them with pluginval, and packages a Windows VST3 zip candidate.
+- Release packaging: `scripts/ls_release/build_kirin_hypha_windows_vst3_zip.mjs` creates the zip, SHA256 file, sidecar JSON, and LS state.
+- Validation gate: real Windows DAW load, PRE/POST discovery, Keep, Record, offline bounce, and audio transparency must be complete before LS-ready.
+- Not included yet: Windows installer and Authenticode signing.
 
 ## Artifact To Send
 
-Send a zip made from the latest green CI artifact named `kirin-hypha-windows-vst3`.
+Send a zip made from the latest green CI artifact named `kirin-hypha-windows-vst3`, or the packaged CI artifact named `kirin-hypha-windows-vst3-ls-package`.
 
 The handoff zip should include:
 
