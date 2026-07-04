@@ -55,6 +55,8 @@ const SYSTEM_VST3_DIR: &str = "/Library/Audio/Plug-Ins/VST3";
 struct Bundle {
     /// e.g. "Kirin Hypha PRE".
     name: String,
+    /// e.g. "PRE Kirin Hypha" — the role-first name DAWs/scanners must surface.
+    display_name: String,
     /// bundle extension: "component" (AU) | "vst3" (VST3).
     ext: &'static str,
     /// source bundle path under build-universal.
@@ -91,6 +93,7 @@ fn bundles(root: &Path) -> Vec<Bundle> {
     let mut out = Vec::with_capacity(4);
     for role in ["PRE", "POST"] {
         let name = format!("Kirin Hypha {role}");
+        let display_name = format!("{role} Kirin Hypha");
         // JUCE AU — build-universal/Release/AU → /Library/Audio/Plug-Ins/Components
         out.push(Bundle {
             src: root
@@ -98,6 +101,7 @@ fn bundles(root: &Path) -> Vec<Bundle> {
                 .join(format!("KirinHypha{role}_artefacts/Release/AU"))
                 .join(format!("{name}.component")),
             name: name.clone(),
+            display_name: display_name.clone(),
             ext: "component",
             system_dir: SYSTEM_AU_DIR,
         });
@@ -105,6 +109,7 @@ fn bundles(root: &Path) -> Vec<Bundle> {
         out.push(Bundle {
             src: root.join(EGUI_BUNDLED).join(format!("{name}.vst3")),
             name,
+            display_name,
             ext: "vst3",
             system_dir: SYSTEM_VST3_DIR,
         });
@@ -146,8 +151,11 @@ pub fn run(args: Vec<String>) -> Result<()> {
     }
     for b in &bundles {
         verify_signed(&b.src)?;
+        verify_display_metadata(&b.src, b)?;
     }
-    eprintln!("[install] all 4 source bundles are Developer-ID signed ({TEAM_ID}) + notarized");
+    eprintln!(
+        "[install] all 4 source bundles are Developer-ID signed ({TEAM_ID}) + notarized, display metadata OK"
+    );
 
     // 2. remove user-level copies first (B-022: a stale user-level binary makes a DAW load the
     //    wrong plugin; the canonical install target is system-level only).
@@ -388,10 +396,89 @@ fn verify_deployment(b: &Bundle) -> Result<()> {
             b.system_dest().display()
         )
     })?;
+    verify_display_metadata(&b.system_dest(), b).with_context(|| {
+        format!(
+            "B-213: destination display metadata mismatch for {}",
+            b.system_dest().display()
+        )
+    })?;
     eprintln!(
-        "[install]   verified {}: destination codesign + notarization OK",
+        "[install]   verified {}: destination codesign + notarization + display metadata OK",
         b.file()
     );
+    Ok(())
+}
+
+fn verify_display_metadata(bundle_path: &Path, bundle: &Bundle) -> Result<()> {
+    let plist = bundle_path.join("Contents/Info.plist");
+    if bundle.ext == "component" {
+        let expected = format!("Kirin: {}", bundle.display_name);
+        let actual = plist_value(&plist, "AudioComponents:0:name")?;
+        if actual != expected {
+            bail!(
+                "{} AudioComponents:0:name = {}, expected {}",
+                bundle_path.display(),
+                actual,
+                expected
+            );
+        }
+        return Ok(());
+    }
+
+    for key in ["CFBundleDisplayName", "CFBundleName"] {
+        let actual = plist_value(&plist, key)?;
+        if actual != bundle.display_name {
+            bail!(
+                "{} {} = {}, expected {}. Run `cargo run -p xtask -- stamp-egui-version` after bundling.",
+                bundle_path.display(),
+                key,
+                actual,
+                bundle.display_name
+            );
+        }
+    }
+    verify_binary_contains_display_name(
+        &bundle_path.join("Contents/MacOS").join(&bundle.name),
+        &bundle.display_name,
+    )
+}
+
+fn plist_value(plist: &Path, key: &str) -> Result<String> {
+    let out = Command::new("/usr/libexec/PlistBuddy")
+        .args(["-c", &format!("Print :{key}")])
+        .arg(plist)
+        .output()
+        .with_context(|| format!("spawn PlistBuddy for {}", plist.display()))?;
+    if !out.status.success() {
+        bail!(
+            "PlistBuddy failed for {}: {}",
+            plist.display(),
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+fn verify_binary_contains_display_name(binary: &Path, expected: &str) -> Result<()> {
+    let out = Command::new("strings")
+        .arg(binary)
+        .output()
+        .with_context(|| format!("spawn strings for {}", binary.display()))?;
+    if !out.status.success() {
+        bail!(
+            "strings failed for {}: {}",
+            binary.display(),
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+    let text = String::from_utf8_lossy(&out.stdout);
+    if !text.contains(expected) {
+        bail!(
+            "{} does not contain display name {}",
+            binary.display(),
+            expected
+        );
+    }
     Ok(())
 }
 

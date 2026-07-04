@@ -17,6 +17,7 @@ struct ShipBundle {
     src: PathBuf,
     file_name: &'static str,
     binary_name: &'static str,
+    display_name: &'static str,
     is_au: bool,
 }
 
@@ -142,22 +143,48 @@ fn print_help() {
 }
 
 fn ship_bundles() -> Vec<ShipBundle> {
-    [
-        ("PRE AU", "Audio Unit", "juce_shell/build-universal/KirinHyphaPRE_artefacts/Release/AU/Kirin Hypha PRE.component", "Kirin Hypha PRE.component", "Kirin Hypha PRE", true),
-        ("POST AU", "Audio Unit", "juce_shell/build-universal/KirinHyphaPOST_artefacts/Release/AU/Kirin Hypha POST.component", "Kirin Hypha POST.component", "Kirin Hypha POST", true),
-        ("PRE VST3", "VST3", "target/bundled/Kirin Hypha PRE.vst3", "Kirin Hypha PRE.vst3", "Kirin Hypha PRE", false),
-        ("POST VST3", "VST3", "target/bundled/Kirin Hypha POST.vst3", "Kirin Hypha POST.vst3", "Kirin Hypha POST", false),
+    vec![
+        ShipBundle {
+            label: "PRE AU",
+            format_dir: "Audio Unit",
+            src: PathBuf::from(
+                "juce_shell/build-universal/KirinHyphaPRE_artefacts/Release/AU/Kirin Hypha PRE.component",
+            ),
+            file_name: "Kirin Hypha PRE.component",
+            binary_name: "Kirin Hypha PRE",
+            display_name: "PRE Kirin Hypha",
+            is_au: true,
+        },
+        ShipBundle {
+            label: "POST AU",
+            format_dir: "Audio Unit",
+            src: PathBuf::from(
+                "juce_shell/build-universal/KirinHyphaPOST_artefacts/Release/AU/Kirin Hypha POST.component",
+            ),
+            file_name: "Kirin Hypha POST.component",
+            binary_name: "Kirin Hypha POST",
+            display_name: "POST Kirin Hypha",
+            is_au: true,
+        },
+        ShipBundle {
+            label: "PRE VST3",
+            format_dir: "VST3",
+            src: PathBuf::from("target/bundled/Kirin Hypha PRE.vst3"),
+            file_name: "Kirin Hypha PRE.vst3",
+            binary_name: "Kirin Hypha PRE",
+            display_name: "PRE Kirin Hypha",
+            is_au: false,
+        },
+        ShipBundle {
+            label: "POST VST3",
+            format_dir: "VST3",
+            src: PathBuf::from("target/bundled/Kirin Hypha POST.vst3"),
+            file_name: "Kirin Hypha POST.vst3",
+            binary_name: "Kirin Hypha POST",
+            display_name: "POST Kirin Hypha",
+            is_au: false,
+        },
     ]
-    .into_iter()
-    .map(|(label, format_dir, src, file_name, binary_name, is_au)| ShipBundle {
-        label,
-        format_dir,
-        src: PathBuf::from(src),
-        file_name,
-        binary_name,
-        is_au,
-    })
-    .collect()
 }
 
 fn verify_ship_set_shape(bundles: &[ShipBundle]) -> Result<()> {
@@ -188,6 +215,8 @@ fn verify_sources(bundles: &[ShipBundle], version: &str, allow_unsigned: bool) -
             .with_context(|| format!("{} forbidden framework check failed", b.label))?;
         verify_bundle_version(&b.src, version)
             .with_context(|| format!("{} version mismatch", b.label))?;
+        verify_display_metadata(b)
+            .with_context(|| format!("{} display metadata mismatch", b.label))?;
         if b.is_au {
             verify_au_resource_usage(&b.src)
                 .with_context(|| format!("{} AU resourceUsage check failed", b.label))?;
@@ -200,6 +229,63 @@ fn verify_sources(bundles: &[ShipBundle], version: &str, allow_unsigned: bool) -
             "[release-package] verified {} ({})",
             b.label,
             b.src.display()
+        );
+    }
+    Ok(())
+}
+
+fn verify_display_metadata(bundle: &ShipBundle) -> Result<()> {
+    let plist = bundle.src.join("Contents/Info.plist");
+    if bundle.is_au {
+        let expected = format!("Kirin: {}", bundle.display_name);
+        let actual = plist_value(&plist, "AudioComponents:0:name")?;
+        if actual != expected {
+            bail!(
+                "{} AudioComponents:0:name = {}, expected {}",
+                bundle.src.display(),
+                actual,
+                expected
+            );
+        }
+        return Ok(());
+    }
+
+    for key in ["CFBundleDisplayName", "CFBundleName"] {
+        let actual = plist_value(&plist, key)?;
+        if actual != bundle.display_name {
+            bail!(
+                "{} {} = {}, expected {}. Run `cargo run -p xtask -- stamp-egui-version` after bundling.",
+                bundle.src.display(),
+                key,
+                actual,
+                bundle.display_name
+            );
+        }
+    }
+    verify_binary_contains_display_name(
+        &bundle.src.join("Contents/MacOS").join(bundle.binary_name),
+        bundle.display_name,
+    )
+}
+
+fn verify_binary_contains_display_name(binary: &Path, expected: &str) -> Result<()> {
+    let out = Command::new("strings")
+        .arg(binary)
+        .output()
+        .with_context(|| format!("spawn strings for {}", binary.display()))?;
+    if !out.status.success() {
+        bail!(
+            "strings failed for {}: {}",
+            binary.display(),
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+    let text = String::from_utf8_lossy(&out.stdout);
+    if !text.contains(expected) {
+        bail!(
+            "{} does not contain display name {}",
+            binary.display(),
+            expected
         );
     }
     Ok(())

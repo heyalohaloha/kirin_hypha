@@ -16,6 +16,18 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/../juce_shell/src/PluginProcessor.cpp"
     ));
+    const STAMP_VERSION_RS: &str =
+        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/stamp_version.rs"));
+    const RELEASE_PACKAGE_RS: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src/release_package.rs"
+    ));
+    const INSTALL_RS: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/install.rs"));
+    const NOTARIZE_RS: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/notarize.rs"));
+    const LS_PKG_JS: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../scripts/ls_release/build_kirin_hypha_pkg.mjs"
+    ));
     const BUNDLER_TOML: &str =
         include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../bundler.toml"));
 
@@ -66,6 +78,48 @@ mod tests {
         assert!(
             BUNDLER_TOML.contains("name = \"Kirin Hypha POST\""),
             "bundler.toml must keep the existing POST bundle/file name"
+        );
+    }
+
+    #[test]
+    fn ship_tooling_stamps_and_gates_role_first_display_metadata() {
+        assert!(
+            STAMP_VERSION_RS.contains("display_name: \"PRE Kirin Hypha\"")
+                && STAMP_VERSION_RS.contains("display_name: \"POST Kirin Hypha\""),
+            "stamp-egui-version must know the role-first VST3 display names"
+        );
+        assert!(
+            STAMP_VERSION_RS.contains("\"CFBundleDisplayName\"")
+                && STAMP_VERSION_RS.contains("\"CFBundleName\""),
+            "stamp-egui-version must update bundle display metadata after nih-plug bundling"
+        );
+        assert!(
+            RELEASE_PACKAGE_RS.contains("verify_display_metadata")
+                && RELEASE_PACKAGE_RS.contains("\"AudioComponents:0:name\"")
+                && RELEASE_PACKAGE_RS.contains("\"CFBundleDisplayName\"")
+                && RELEASE_PACKAGE_RS.contains("\"CFBundleName\""),
+            "release-package must fail if ship bundles lose role-first display metadata"
+        );
+        assert!(
+            INSTALL_RS.contains("verify_display_metadata")
+                && INSTALL_RS.contains("\"AudioComponents:0:name\"")
+                && INSTALL_RS.contains("\"CFBundleDisplayName\"")
+                && INSTALL_RS.contains("\"CFBundleName\""),
+            "install must fail if DAW-bound bundles lose role-first display metadata"
+        );
+        assert!(
+            NOTARIZE_RS.contains("verify_display_metadata")
+                && NOTARIZE_RS.contains("\"AudioComponents:0:name\"")
+                && NOTARIZE_RS.contains("\"CFBundleDisplayName\"")
+                && NOTARIZE_RS.contains("\"CFBundleName\""),
+            "notarize must fail before signing if ship bundles lose role-first display metadata"
+        );
+        assert!(
+            LS_PKG_JS.contains("verifyDisplayMetadata")
+                && LS_PKG_JS.contains("'AudioComponents:0:name'")
+                && LS_PKG_JS.contains("'CFBundleDisplayName'")
+                && LS_PKG_JS.contains("'CFBundleName'"),
+            "LS pkg builder must fail if upload bundles lose role-first display metadata"
         );
     }
 }
