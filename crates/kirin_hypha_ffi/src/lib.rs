@@ -47,8 +47,9 @@ use uuid::Uuid;
 use kirin_measure::engine::SessionSummary;
 use kirin_measure::reservation; // B-127 (G-115-364): per-pairing O_EXCL reservation
 use kirin_measure::{
-    append_annotation_to_latest, can_write_plugin_data, check_record_exclusion,
-    count_distinct_pairings, enumerate_active_post_pair_candidates,
+    active_post_project_uuids_for_daw_session, append_annotation_to_latest, can_write_plugin_data,
+    check_record_exclusion, count_distinct_pairings, enumerate_active_post_pair_candidates,
+    enumerate_active_post_pair_candidates_for_daw_session,
     enumerate_active_pre_pair_candidates_for_post_project, identity_instance_attach,
     identity_instance_detach, live_window, load_license_safe, load_signal_state, mark_released,
     new_record_trace_queue, resolve_arm_target_for_post_project, sanitize_name, set_daw_session_id,
@@ -1175,7 +1176,18 @@ impl KirinHyphaEngine {
         let daw = read_shared_id(shared_post_daw_session_id_cell());
         if !project_hash.is_empty() {
             if let Ok(p) = StoragePaths::default_platform() {
-                let _ = write_broadcast(&p.plugin_data_dir(), &project_hash, &post_iid, daw);
+                let kirin_root = PlatformPaths::current_kirin_tmp_root();
+                let mut project_hashes = if daw.is_empty() {
+                    Vec::new()
+                } else {
+                    active_post_project_uuids_for_daw_session(&kirin_root, &daw)
+                };
+                if project_hashes.is_empty() {
+                    project_hashes.push(project_hash.clone());
+                }
+                for ph in project_hashes {
+                    let _ = write_broadcast(&p.plugin_data_dir(), &ph, &post_iid, daw.clone());
+                }
             }
         }
         self.keep()
@@ -1210,7 +1222,18 @@ impl KirinHyphaEngine {
         let daw = read_shared_id(shared_post_daw_session_id_cell());
         if !project_hash.is_empty() && !post_iid.is_empty() {
             if let Ok(p) = StoragePaths::default_platform() {
-                let _ = write_stop_broadcast(&p.plugin_data_dir(), &project_hash, &post_iid, daw);
+                let kirin_root = PlatformPaths::current_kirin_tmp_root();
+                let mut project_hashes = if daw.is_empty() {
+                    Vec::new()
+                } else {
+                    active_post_project_uuids_for_daw_session(&kirin_root, &daw)
+                };
+                if project_hashes.is_empty() {
+                    project_hashes.push(project_hash.clone());
+                }
+                for ph in project_hashes {
+                    let _ = write_stop_broadcast(&p.plugin_data_dir(), &ph, &post_iid, daw.clone());
+                }
             }
         }
         self.stop();
@@ -1227,28 +1250,43 @@ impl KirinHyphaEngine {
             .collect()
     }
 
-    /// All Keep の「N ready」= pair 設定済の Active POST 数（B-102 / egui n_ready と同一・
-    /// hypha_post editor.rs:938-944）。`enumerate_active_post_pair_candidates`（解決済み機構）を
-    /// 再利用し `pair_pre_name.is_some()` を数える read-only カウント（GUI ラベル表示用）。
+    /// All Keep の「N ready」= 同 DAW session 内で pair 設定済の Active POST 数。
+    /// AU/VST3 が別 project_hash 棚へ分裂しても `daw_session_id` で集約する。
     pub fn count_keep_ready(&self) -> usize {
         let kirin_root = PlatformPaths::current_kirin_tmp_root();
         let project_hash = read_shared_id(shared_post_project_hash_cell());
-        enumerate_active_post_pair_candidates(&kirin_root)
+        let daw = read_shared_id(shared_post_daw_session_id_cell());
+        let candidates = if daw.is_empty() {
+            enumerate_active_post_pair_candidates(&kirin_root)
+                .into_iter()
+                .filter(|c| c.project_uuid == project_hash)
+                .collect()
+        } else {
+            enumerate_active_post_pair_candidates_for_daw_session(&kirin_root, &daw)
+        };
+        candidates
             .into_iter()
-            .filter(|c| c.project_uuid == project_hash)
             .filter(|c| c.pair_pre_name.is_some())
             .count()
     }
 
     /// POST 側の pair claim 一覧（GUI dropdown の keepability 表示用）。
-    /// `count_keep_ready` と同じ resolved POST candidate source を使い、JUCE/egui の表示差を
+    /// `count_keep_ready` と同じ DAW-session-scoped source を使い、JUCE/egui の表示差を
     /// 生まないための read-only C ABI surface。
     pub fn enumerate_post_pair_claims(&self) -> Vec<(String, Option<String>)> {
         let kirin_root = PlatformPaths::current_kirin_tmp_root();
         let project_hash = read_shared_id(shared_post_project_hash_cell());
-        enumerate_active_post_pair_candidates(&kirin_root)
+        let daw = read_shared_id(shared_post_daw_session_id_cell());
+        let candidates = if daw.is_empty() {
+            enumerate_active_post_pair_candidates(&kirin_root)
+                .into_iter()
+                .filter(|c| c.project_uuid == project_hash)
+                .collect()
+        } else {
+            enumerate_active_post_pair_candidates_for_daw_session(&kirin_root, &daw)
+        };
+        candidates
             .into_iter()
-            .filter(|c| c.project_uuid == project_hash)
             .map(|c| (c.instance_id, c.pair_pre_name))
             .collect()
     }

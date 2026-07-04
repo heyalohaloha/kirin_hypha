@@ -83,7 +83,10 @@ pub use plugin_data::{
     Frame, PluginDataFile, PluginDataWriter, PsbSnapshot, Role as PluginDataRole,
     Status as PluginDataStatus, WriterError as PluginDataWriterError, WriterPaths,
 };
-pub use post_candidates::{enumerate_active_post_pair_candidates, PostCandidate};
+pub use post_candidates::{
+    active_post_project_uuids_for_daw_session, enumerate_active_post_pair_candidates,
+    enumerate_active_post_pair_candidates_for_daw_session, PostCandidate,
+};
 pub use pre_candidates::{
     enumerate_active_pre_pair_candidates, filter_candidates_by_name, pick_closest_pre,
     scan_pre_candidates, scan_pre_candidates_in, PostMetrics, PreCandidate,

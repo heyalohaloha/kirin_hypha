@@ -4,6 +4,7 @@
 //! written by the POST IO thread. It deliberately does not run the IO loop or write files.
 
 use serde::Deserialize;
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
@@ -31,6 +32,8 @@ pub(crate) struct PostTmpJson {
     #[serde(default)]
     pub pre_signal_state: Option<String>,
     pub t: String,
+    #[serde(default)]
+    pub daw_session_id: String,
     #[serde(default)]
     pub pair_pre_name: String,
     #[serde(default)]
@@ -64,6 +67,7 @@ pub(crate) struct PostPsbSummary {
 pub struct PostCandidate {
     pub instance_id: String,
     pub project_uuid: String,
+    pub daw_session_id: Option<String>,
     pub pair_pre_name: Option<String>,
     /// W-281 / G-115-249: post.json から read した pair claim 時刻 (Unix epoch sec)。
     /// `self_check_pair_claim` の後着優先比較で使う。旧 schema は 0.0 fallback。
@@ -117,9 +121,15 @@ pub fn scan_post_candidates_in(project_dir: &Path) -> Vec<PostCandidate> {
         } else {
             Some(parsed.pair_pre_name)
         };
+        let daw_session_id = if parsed.daw_session_id.is_empty() {
+            None
+        } else {
+            Some(parsed.daw_session_id)
+        };
         out.push(PostCandidate {
             instance_id: parsed.instance_id,
             project_uuid: project_uuid.clone(),
+            daw_session_id,
             pair_pre_name,
             pair_claimed_at: parsed.pair_claimed_at,
             path: post_file,
@@ -229,5 +239,40 @@ pub fn enumerate_active_post_pair_candidates(kirin_root: &Path) -> Vec<PostCandi
     discover_active_post_dirs(kirin_root)
         .into_iter()
         .flat_map(|d| scan_post_candidates_in(&d))
+        .collect()
+}
+
+fn daw_session_matches(candidate: &PostCandidate, daw_session_id: &str) -> bool {
+    !daw_session_id.is_empty()
+        && candidate
+            .daw_session_id
+            .as_deref()
+            .is_none_or(|candidate_daw| candidate_daw == daw_session_id)
+}
+
+/// Active POST candidates in the same DAW session, spanning AU/VST3 project UUID shelves.
+///
+/// Missing `daw_session_id` is accepted for rolling compatibility with already-running older
+/// plug-ins. Callers should fall back to project-local semantics when `daw_session_id` is empty.
+pub fn enumerate_active_post_pair_candidates_for_daw_session(
+    kirin_root: &Path,
+    daw_session_id: &str,
+) -> Vec<PostCandidate> {
+    enumerate_active_post_pair_candidates(kirin_root)
+        .into_iter()
+        .filter(|c| daw_session_matches(c, daw_session_id))
+        .collect()
+}
+
+/// Project UUID shelves containing active POSTs in the same DAW session.
+pub fn active_post_project_uuids_for_daw_session(
+    kirin_root: &Path,
+    daw_session_id: &str,
+) -> Vec<String> {
+    enumerate_active_post_pair_candidates_for_daw_session(kirin_root, daw_session_id)
+        .into_iter()
+        .map(|c| c.project_uuid)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
         .collect()
 }
