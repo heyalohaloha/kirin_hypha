@@ -82,6 +82,32 @@ fn idle_autostop_due(
     is_recording && !is_active && idle_elapsed >= timeout
 }
 
+/// All Stop is a filesystem-level barrier for older All Keep broadcasts.
+///
+/// Studio One can re-initialize plugins during offline bounce. That restarts the
+/// IO thread and clears the in-memory "processed keep broadcast" cache, while
+/// the old all_keep_signal file can still be fresh. A fresh all_stop_signal with
+/// a later/equal `started_at` must therefore suppress that older Keep, otherwise
+/// POST instances can re-enter Record after auto-stop.
+#[inline]
+fn keep_broadcast_blocked_by_stop(
+    keep_started_at: &str,
+    latest_stop_started_at: Option<&str>,
+) -> bool {
+    latest_stop_started_at.is_some_and(|stop_started_at| keep_started_at <= stop_started_at)
+}
+
+#[inline]
+fn remember_latest_started_at(latest: &mut Option<String>, candidate: &str) {
+    if latest
+        .as_deref()
+        .map(|existing| candidate > existing)
+        .unwrap_or(true)
+    {
+        *latest = Some(candidate.to_string());
+    }
+}
+
 /// PRE ファイルが Active とみなされる最大経過時間（秒）
 const STALE_SECS: i64 = 5; // B-046: 2→5 (fs I/O backpressure 吸収 / G-115-246)
 
@@ -602,6 +628,7 @@ pub fn spawn_io_thread_post(
             // 新 broadcast を `processed_stop_broadcasts` cache に登録 + `trigger_stop_resolution`
             // closure 発火。Keep と並列の同型ロジック (cross-process filter / self skip /
             // 既処理 skip / stale fallback / GC)。
+            let mut latest_fresh_stop_started_at: Option<String> = None;
             if Instant::now() >= next_all_keep_poll {
                 if let Ok(paths) = StoragePaths::default_platform() {
                     let base_dir = paths.plugin_data_dir();
@@ -612,16 +639,6 @@ pub fn spawn_io_thread_post(
                     for (originator_iid, broadcast) in stop_broadcasts {
                         if broadcast.daw_session_id != daw_session_id_snapshot {
                             continue;
-                        }
-                        if originator_iid == instance_id_ref {
-                            continue;
-                        }
-                        if let Some((cached_started_at, _)) =
-                            processed_stop_broadcasts.get(&originator_iid)
-                        {
-                            if cached_started_at == &broadcast.started_at {
-                                continue;
-                            }
                         }
                         if all_stop_signal::is_stop_broadcast_stale(
                             &broadcast,
@@ -637,6 +654,20 @@ pub fn spawn_io_thread_post(
                                 originator_iid
                             );
                             continue;
+                        }
+                        remember_latest_started_at(
+                            &mut latest_fresh_stop_started_at,
+                            &broadcast.started_at,
+                        );
+                        if originator_iid == instance_id_ref {
+                            continue;
+                        }
+                        if let Some((cached_started_at, _)) =
+                            processed_stop_broadcasts.get(&originator_iid)
+                        {
+                            if cached_started_at == &broadcast.started_at {
+                                continue;
+                            }
                         }
                         processed_stop_broadcasts.insert(
                             originator_iid.clone(),
@@ -714,6 +745,22 @@ pub fn spawn_io_thread_post(
                                 "[all_keep] stale broadcast cached without fire: originator={}, started_at={}",
                                 originator_iid,
                                 broadcast.started_at
+                            );
+                            continue;
+                        }
+                        if keep_broadcast_blocked_by_stop(
+                            &broadcast.started_at,
+                            latest_fresh_stop_started_at.as_deref(),
+                        ) {
+                            processed_broadcasts.insert(
+                                originator_iid.clone(),
+                                (broadcast.started_at.clone(), Instant::now()),
+                            );
+                            log::info!(
+                                "[all_keep] keep broadcast suppressed by newer/equal all_stop: originator={} keep_started_at={} stop_started_at={}",
+                                originator_iid,
+                                broadcast.started_at,
+                                latest_fresh_stop_started_at.as_deref().unwrap_or("")
                             );
                             continue;
                         }
@@ -2087,6 +2134,48 @@ mod b206_idle_autostop_tests {
             !idle_autostop_due(false, false, Duration::from_secs(99_999), t),
             "非録音は対象外"
         );
+    }
+}
+
+#[cfg(test)]
+mod b222_all_stop_keep_barrier_tests {
+    use super::{keep_broadcast_blocked_by_stop, remember_latest_started_at};
+
+    #[test]
+    fn stop_barrier_blocks_older_or_equal_keep_broadcast() {
+        let stop = Some("2026-07-04T07:57:31Z");
+
+        assert!(
+            keep_broadcast_blocked_by_stop("2026-07-04T07:56:58Z", stop),
+            "old all_keep_signal must not re-arm after all_stop_signal"
+        );
+        assert!(
+            keep_broadcast_blocked_by_stop("2026-07-04T07:57:31Z", stop),
+            "same-timestamp keep must lose to stop"
+        );
+    }
+
+    #[test]
+    fn stop_barrier_allows_new_keep_after_stop() {
+        assert!(
+            !keep_broadcast_blocked_by_stop("2026-07-04T07:57:32Z", Some("2026-07-04T07:57:31Z")),
+            "a deliberate new Keep after Stop must remain possible"
+        );
+        assert!(
+            !keep_broadcast_blocked_by_stop("2026-07-04T07:57:32Z", None),
+            "no stop barrier means normal keep handling"
+        );
+    }
+
+    #[test]
+    fn remember_latest_started_at_keeps_newest_iso_timestamp() {
+        let mut latest = None;
+
+        remember_latest_started_at(&mut latest, "2026-07-04T07:57:20Z");
+        remember_latest_started_at(&mut latest, "2026-07-04T07:57:19Z");
+        remember_latest_started_at(&mut latest, "2026-07-04T07:57:31Z");
+
+        assert_eq!(latest.as_deref(), Some("2026-07-04T07:57:31Z"));
     }
 }
 
