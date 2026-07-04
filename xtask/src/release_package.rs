@@ -105,7 +105,7 @@ pub fn run(args: Vec<String>) -> Result<()> {
 
     run_status(
         Command::new("ditto")
-            .args(["-c", "-k", "--keepParent"])
+            .args(["-c", "-k", "--norsrc", "--noqtn", "--keepParent"])
             .arg(&package_root)
             .arg(&zip_path),
         "ditto zip release package",
