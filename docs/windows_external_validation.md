@@ -84,8 +84,8 @@ Do not delete existing Kirin data on a machine where the tester relies on Kirin 
 1. Start the DAW.
 2. Rescan VST3 plug-ins if needed.
 3. Confirm both plug-ins are visible:
-   - `Kirin Hypha PRE`
-   - `Kirin Hypha POST`
+   - `PRE Kirin Hypha`
+   - `POST Kirin Hypha`
 4. Insert each plug-in on a stereo bus.
 5. Open each plug-in GUI.
 
@@ -204,4 +204,3 @@ If the tester cannot do a null test, this gate remains unresolved. Do not treat 
 - Any failure in Test 3 or Test 4: do not proceed to LS.
 - Test 5 missing: beta can continue, but LS release remains blocked.
 - All tests pass with artifacts attached: prepare Windows LS packaging and a separate Windows LS state/runbook.
-

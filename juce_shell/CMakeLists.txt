@@ -77,12 +77,13 @@ juce_add_binary_data(KirinHyphaData
 # B-094: BUNDLE_ID is the canonical CFBundleIdentifier (com.kirinmastering.hypha.{pre,post})
 # matching the published v1.0.0 — set explicitly so it is not the JUCE default com.<company>.<target>.
 # AU identity (PLUGIN_MANUFACTURER_CODE Kirn / PLUGIN_CODE Khpr|Khpo / AU_MAIN_TYPE aufx) is unchanged.
-function(add_kirin_plugin TARGET CODE PRODUCT MAIN_SRC BUNDLE_ID)
+function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
     juce_add_plugin(${TARGET}
         PLUGIN_MANUFACTURER_CODE Kirn          # newly assigned (>=1 uppercase)
         PLUGIN_CODE ${CODE}                    # Khpr (PRE) / Khpo (POST); exactly 1 uppercase
         FORMATS ${KIRIN_PLUGIN_FORMATS}
-        PRODUCT_NAME ${PRODUCT}
+        PRODUCT_NAME ${PRODUCT}                # physical bundle/file name; kept stable for release paths
+        PLUGIN_NAME ${DISPLAY_NAME}            # DAW insert display; role-first so truncation keeps PRE/POST
         COMPANY_NAME "Kirin"
         BUNDLE_ID ${BUNDLE_ID}                 # B-094: canonical com.kirinmastering.hypha.{pre,post}
         AU_MAIN_TYPE kAudioUnitType_Effect
@@ -146,5 +147,5 @@ function(add_kirin_plugin TARGET CODE PRODUCT MAIN_SRC BUNDLE_ID)
     endif()
 endfunction()
 
-add_kirin_plugin(KirinHyphaPRE  Khpr "Kirin Hypha PRE"  src/PluginMainPRE.cpp  "com.kirinmastering.hypha.pre")
-add_kirin_plugin(KirinHyphaPOST Khpo "Kirin Hypha POST" src/PluginMainPOST.cpp "com.kirinmastering.hypha.post")
+add_kirin_plugin(KirinHyphaPRE  Khpr "Kirin Hypha PRE"  "PRE Kirin Hypha"  src/PluginMainPRE.cpp  "com.kirinmastering.hypha.pre")
+add_kirin_plugin(KirinHyphaPOST Khpo "Kirin Hypha POST" "POST Kirin Hypha" src/PluginMainPOST.cpp "com.kirinmastering.hypha.post")

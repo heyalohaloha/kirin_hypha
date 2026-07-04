@@ -210,7 +210,7 @@ impl Drop for HyphaPre {
 }
 
 impl Plugin for HyphaPre {
-    const NAME: &'static str = "Kirin Hypha PRE";
+    const NAME: &'static str = "PRE Kirin Hypha";
     const VENDOR: &'static str = "Kirin";
     const URL: &'static str = "";
     const EMAIL: &'static str = "";
