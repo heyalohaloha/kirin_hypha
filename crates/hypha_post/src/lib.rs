@@ -1,9 +1,9 @@
 mod editor;
 
 use kirin_measure::{
-    daw_session_id, delete_broadcast, delete_signal, delete_stop_broadcast,
-    ensure_legacy_cleanup_done, identity_instance_attach, identity_instance_detach, live_window,
-    load_installation_id_safe, load_license_safe, new_record_trace_queue, peek_project_uuid,
+    daw_session_id, delete_broadcast, delete_stop_broadcast, ensure_legacy_cleanup_done,
+    identity_instance_attach, identity_instance_detach, live_window, load_installation_id_safe,
+    load_license_safe, mark_released, new_record_trace_queue, peek_project_uuid,
     process_project_hash, reservation, sanitize_name, set_daw_session_id, set_project_uuid,
     spawn_io_thread_post, spawn_measure_thread, spawn_watchdog, store_signal_state, DeltaResult,
     LatchedPre, License, LivenessEvaluator, MeasureResult, RecordStateMachine, RecordTraceQueue,
@@ -556,19 +556,8 @@ impl Drop for HyphaPost {
             let _ = h.join();
         }
 
-        // B-027 段階 3-B α-7 / Group 2 統合点 #3 (Gap-6 局所対処):
-        // POST 消失時 (DAW 終了 / instance unload / Undo) に self_post_iid の
-        // record_signal/{POST_iid}.json を削除する。POST 自身が writer =
-        // cleanup 責任を持つ (cdylib 越境通信媒体の lifecycle 管理原則 /
-        // 設計判断 #5)。
-        //
-        // 順序: record_sm.exit_record() → shutdown flags → watchdog join →
-        //       delete_signal の順。watchdog join 内で IO Thread terminate が
-        //       走り、統合点 #4 でも delete_signal が呼ばれるため file は既に
-        //       消えている可能性が高いが、delete_signal は冪等 (NotFound→Ok /
-        //       record_signal.rs:289-301) で安全。両方ある方が watchdog 経路
-        //       から外れた直接 Drop ケースをカバーできる。
-        //
+        // B-244: POST 消失時も record_signal を削除せず Released にする。
+        // PRE は missing を Stop 代替にしないため、lifecycle 終了も明示 Stop として観測可能にする。
         // 失敗時 warn のみ (設計判断 #8): Drop 内 panic は abort のため避ける。
         let instance_id_owned = read_instance_id_arc(&self.params.instance_id);
         // §4-5 Step 1: project_hash も lazy-read (Drop 時点の最新 cell 値を反映)。
@@ -583,22 +572,19 @@ impl Drop for HyphaPost {
                         &instance_id_owned,
                     );
                 }
-                match delete_signal(
+                match mark_released(
                     &paths.plugin_data_dir(),
                     &project_hash_owned,
                     &instance_id_owned,
                 ) {
-                    Ok(()) => log::info!(
-                        "[POST cleanup #3] record_signal deleted: {}",
-                        instance_id_owned
-                    ),
-                    Err(e) => log::warn!("[POST cleanup #3] delete_signal failed: {:?}", e),
+                    Ok(true) => log::info!("[POST cleanup #3] mark_released ok"),
+                    Ok(false) => log::info!("[POST cleanup #3] no signal to release"),
+                    Err(e) => log::warn!("[POST cleanup #3] mark_released failed: {:?}", e),
                 }
 
                 // originator として配置した all_keep_signal/{POST_iid}.json broadcast を削除。
                 // delete_broadcast は冪等 (NotFound→Ok)。統合点 #2 (trigger_stop) / #4 (IO Thread
-                // terminate) と重複呼出されても安全。失敗時 warn のみ (Drop 内 panic は abort /
-                // 設計判断 #8 / 既存 delete_signal と同規範)。
+                // terminate) と重複呼出されても安全。失敗時 warn のみ (Drop 内 panic は abort)。
                 match delete_broadcast(
                     &paths.plugin_data_dir(),
                     &project_hash_owned,
