@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-07-04T15:13:59.631Z",
+  "generated_at": "2026-07-04T15:16:52.316Z",
   "purpose": "windows_ls_vst3_zip",
   "release_status": "ls_candidate_manual_vst3_zip",
-    "ls_upload": "ready_manual_zip_after_ci_pluginval",
+  "ls_upload": "ready_manual_zip_after_ci_pluginval",
   "known_limitations": [
     "Windows installer is not implemented; package is a manual VST3 zip.",
     "Authenticode signing is not implemented for this Windows VST3 zip.",
@@ -12,8 +12,8 @@
   "package": {
     "name": "Kirin-Hypha-1.1.10-Windows-VST3-B-240-df7d21b.zip",
     "path": "dist/WINDOWS_LS/Kirin-Hypha-1.1.10-Windows-VST3-B-240-df7d21b.zip",
-    "size_bytes": 5999514,
-    "sha256": "85851d335d818cff0c942ffeeba0452af3fc0f434a597a54674d46a4b29a8678",
+    "size_bytes": 5999515,
+    "sha256": "2265c25e5373ba563e341958b381b908b8d70575462fdcfe007369cafd88f077",
     "format": "zip",
     "contains_top_level_folder": true
   },
@@ -21,7 +21,7 @@
     "source": "GitHub Actions artifact or windows-latest build output",
     "artifact_name": "kirin-hypha-windows-vst3",
     "run_url": "https://github.com/heyalohaloha/kirin_hypha/actions/runs/28710183676",
-    "commit": "df7d21bfb3c9c5b8cd0e2d38175ef0347fd84411",
+    "commit": "df7d21b9a479385b12933ec5c0b788e90045adb4",
     "b_number": "B-240",
     "ci_result": "windows_job_success_required",
     "windows_job": "windows VST3 preflight",
@@ -43,7 +43,7 @@
   "contents": [
     {
       "path": "COMMIT.txt",
-      "sha256": "047c992266185ebd7676cf137900f2557747b403f511f94be26c0fb37ef2634d"
+      "sha256": "93d01a4ef73bb59e88273905c8f1ace928334f261b64fc55a31d82df565de9f8"
     },
     {
       "path": "Kirin Hypha POST.vst3/Contents/Resources/moduleinfo.json",
@@ -67,7 +67,7 @@
     },
     {
       "path": "SHA256SUMS.txt",
-      "sha256": "e285dad9bf1e19ac29d5b48a1f6740138916a069ab4a1e56307e432dc6c33e99"
+      "sha256": "f20fad93b8acf78bb2f8fb51291983dd1b8ffaeb9f476c0ebedee566c4ecb466"
     },
     {
       "path": "WINDOWS_EXTERNAL_VALIDATION.md",
