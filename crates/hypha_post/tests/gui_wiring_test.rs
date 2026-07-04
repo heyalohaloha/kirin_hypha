@@ -885,18 +885,19 @@ fn editor_rs_pair_dropdown_distinguishes_keep_from_pair_choices() {
         "empty-name PRE candidates must not leave the pair-choice section blank"
     );
     assert!(
-        src.contains("format!(\"{prefix}: {name_part} #{id_prefix}\")"),
-        "PRE candidate rows must carry explicit keepability status"
+        src.contains("format!(\"{prefix}: {name_part}\")") && !src.contains("#{id_prefix}"),
+        "PRE candidate rows must carry explicit keepability status without exposing instance_id"
     );
     assert!(
         src.contains("CandidateKeepStatus::KeepReady")
             && src.contains("CandidateKeepStatus::InUseByOther")
-            && src.contains("CandidateKeepStatus::Available"),
-        "pair dropdown must distinguish current ready, already used, and available PRE choices"
+            && src.contains("CandidateKeepStatus::Available")
+            && src.contains("CandidateKeepStatus::DuplicateName"),
+        "pair dropdown must distinguish current ready, already used, duplicate, and available PRE choices"
     );
     assert!(
-        body.contains("let row_enabled = keep_status != CandidateKeepStatus::InUseByOther;"),
-        "already-used PRE choices must not be accidentally selectable"
+        body.contains("CandidateKeepStatus::InUseByOther | CandidateKeepStatus::DuplicateName"),
+        "already-used and duplicate PRE choices must not be accidentally selectable"
     );
 }
 

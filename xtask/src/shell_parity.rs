@@ -70,11 +70,20 @@ mod tests {
         assert!(body.contains("if (c.hasName && c.name.isNotEmpty())"));
         assert!(body.contains("const bool keepReady = (c.name == currentPairName);"));
         assert!(body.contains("const bool inUse = claimedByOtherPost"));
+        assert!(body.contains("const bool duplicateName = hasDuplicateCandidateName"));
         assert!(
-            body.contains("inUse ? \"In use: \" : (keepReady ? \"Keep ready: \" : \"Can Keep: \")")
+            body.contains("duplicateName ? \"Duplicate: \"")
+                && body.contains(
+                    "inUse ? \"In use: \" : (keepReady ? \"Keep ready: \" : \"Can Keep: \")"
+                )
         );
-        assert!(body.contains("labelEnabled.add (! inUse);"));
-        assert!(body.contains("labelChecked.add (keepReady && ! inUse);"));
+        assert!(body.contains("labels.add (prefix + c.name);"));
+        assert!(body.contains("labelEnabled.add (! duplicateName && ! inUse);"));
+        assert!(body.contains("labelChecked.add (! duplicateName && keepReady && ! inUse);"));
+        assert!(
+            !body.contains("instanceId.substring (0, 8)"),
+            "candidate rows must hide instance_id in normal POST menu display"
+        );
         assert!(body.contains("const int nReady = processorRef.keepReadyCount();"));
         assert!(body.contains("if (! rec && nReady >= 1)"));
         assert!(body.contains("menu.addItem (1, allKeepMenuLabel (nReady));"));
