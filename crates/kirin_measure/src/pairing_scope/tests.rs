@@ -316,6 +316,53 @@ fn resolve_arm_target_uses_latch_over_ambiguous() {
 }
 
 #[test]
+fn resolve_arm_target_uses_latch_even_when_pre_json_is_stale() {
+    let root = isolated_dir();
+    let old = old_rfc3339(20);
+    write_pre_for_select(&root, "puid-1", "iid-A", "snare", "active", &old);
+    let pre_json = root.join("puid-1").join("iid-A").join("pre.json");
+    let latched = Mutex::new(Some(LatchedPre {
+        name: "snare".to_string(),
+        instance_id: "iid-A".to_string(),
+        project_dir: root.join("puid-1"),
+        pre_json,
+    }));
+
+    assert!(select_target_pre_for_arm(&root, "snare").is_none());
+    let sel = resolve_arm_target(&root, "snare", &latched).expect("latched target wins");
+    assert_eq!(sel.instance_id, "iid-A");
+}
+
+#[test]
+fn resolve_arm_target_uses_latch_even_when_pre_json_is_missing() {
+    let root = isolated_dir();
+    let latched = Mutex::new(Some(LatchedPre {
+        name: "snare".to_string(),
+        instance_id: "iid-A".to_string(),
+        project_dir: root.join("puid-1"),
+        pre_json: root.join("puid-1").join("iid-A").join("pre.json"),
+    }));
+
+    let sel = resolve_arm_target(&root, "snare", &latched).expect("latched target wins");
+    assert_eq!(sel.instance_id, "iid-A");
+}
+
+#[test]
+fn resolve_arm_target_for_post_project_uses_latch_even_when_project_dir_not_discovered() {
+    let root = isolated_dir();
+    let latched = Mutex::new(Some(LatchedPre {
+        name: "snare".to_string(),
+        instance_id: "iid-A".to_string(),
+        project_dir: root.join("old-pre-project"),
+        pre_json: root.join("old-pre-project").join("iid-A").join("pre.json"),
+    }));
+
+    let sel = resolve_arm_target_for_post_project(&root, "snare", "post-current", &latched)
+        .expect("latched target wins");
+    assert_eq!(sel.instance_id, "iid-A");
+}
+
+#[test]
 fn resolve_arm_target_falls_back_when_unlatched() {
     let root = isolated_dir();
     write_pre_for_select(&root, "puid-1", "iid-A", "snare", "active", &now_rfc3339());

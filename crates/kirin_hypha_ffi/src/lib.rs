@@ -225,7 +225,7 @@ pub struct KirinHyphaEngine {
     preset_available: Arc<AtomicBool>,
     /// B-108: display と keep/Arm が共有する単一ラッチ。`enable_post_writes` で io_thread_post と
     /// Arc 共有し、keep/keep_all/broadcast 受信が `resolve_arm_target` で読む。一度成立した PRE 結合を
-    /// 保持し、解除は pair 名変更/クリアと PRE 実消滅のみ（B-108）。
+    /// 保持し、解除は pair 名変更/クリアのみ。PRE の stale/一時消失では解除しない（B-231）。
     latched_pre: Arc<Mutex<Option<LatchedPre>>>,
 }
 
@@ -365,8 +365,8 @@ fn resolve_and_enter_keep(
     }
     let kirin_root = PlatformPaths::current_kirin_tmp_root();
     let pair = pair_target.read().map(|g| g.clone()).unwrap_or_default();
-    // B-108: ラッチ済み（名前一致+fresh）はラッチ先を直接使用、未ラッチは B-104 Arm ゲート
-    // （非Bypassed + fresh + 一意 / Active 要求なし）。v1.0.0 の「アーム→再生」を維持する。
+    // B-108/B-231: ラッチ済み（pair 名一致）はラッチ先を直接使用、未ラッチは B-104 Arm
+    // ゲート（非Bypassed + fresh + 一意 / Active 要求なし）。v1.0.0 の「アーム→再生」を維持する。
     let Some(sel) = resolve_arm_target_for_post_project(&kirin_root, &pair, project_hash, latched)
     else {
         return false; // 未ラッチ時の厳格選定 None: 空名/不在/曖昧/Bypassed/古t（Inactive は許容）。
@@ -1587,7 +1587,7 @@ pub struct KirinPostPairClaim {
 }
 
 /// `KirinDelta` — POST の Δ（C struct / B-061 3d-b）。各 double の「値なし」は NaN。
-/// `mode`: 0=Active / 1=Stale / 2=NoPre。
+/// `mode`: 0=Active / 1=Stale / 2=NoPre / 3=Bypassed。
 #[repr(C)]
 pub struct KirinDelta {
     pub mode: u8,
@@ -1645,6 +1645,7 @@ fn to_c_delta(d: &DeltaResult) -> KirinDelta {
             DeltaMode::Active => 0,
             DeltaMode::Stale => 1,
             DeltaMode::NoPre => 2,
+            DeltaMode::Bypassed => 3,
         },
         lufs: opt_f64(d.lufs),
         true_peak: opt_f64(d.tp),

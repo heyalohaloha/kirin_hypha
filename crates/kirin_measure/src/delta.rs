@@ -6,6 +6,9 @@ pub enum DeltaMode {
     #[default]
     NoPre,
 
+    /// PRE が明示的にバイパス/OFF（POST 単独表示へ戻す）
+    Bypassed,
+
     /// PRE ファイルはあるが t が 2〜10 秒古い（GUI グレーアウト）
     Stale,
 
@@ -60,7 +63,7 @@ pub struct DeltaResult {
     /// Δ Sharpness = POST_sharpness − PRE_sharpness [acum]。PRE/POST どちらかが None → None。
     pub sharpness: Option<f64>,
 
-    /// PREファイルの鮮度状態。NoPre/Stale 時は全 Δ フィールドを表示しない。
+    /// PREファイルの鮮度状態。NoPre/Stale/Bypassed 時は全 Δ フィールドを表示しない。
     pub mode: DeltaMode,
 
     /// 直近 `DeltaMode::Active` 時の Δ 6 軸スナップショット (B-048 / G-115-245)。

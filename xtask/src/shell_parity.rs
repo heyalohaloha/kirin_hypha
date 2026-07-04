@@ -319,7 +319,7 @@ mod tests {
     }
 
     #[test]
-    fn juce_post_watch_delta_requires_active_pre_mode() {
+    fn juce_post_watch_keeps_delta_grid_for_paired_stale_delta() {
         let start = PLUGIN_EDITOR_CPP
             .find("void KirinHyphaEditor::updatePost()")
             .expect("updatePost");
@@ -328,16 +328,19 @@ mod tests {
         let window = &body[watch_branch..body.len().min(watch_branch + 1400)];
 
         assert!(
-            window.contains("const bool showDelta = pairNonEmpty && haveD && d.mode == 0;"),
-            "JUCE POST Watch must show delta only for DeltaMode::Active"
+            window.contains("if (pairNonEmpty && ! preExplicitBypassed)")
+                && window.contains("configureForKind (Kind::Delta3)")
+                && window.contains("const bool liveDelta = haveD && d.mode == 0 && ! staleD;"),
+            "JUCE POST Watch must keep the Delta3 grid while an explicit pair is selected"
         );
         assert!(
-            !window.contains("d.mode == 1"),
-            "JUCE POST Watch must not treat DeltaMode::Stale as a delta display state"
+            window.contains("else if (! preExplicitBypassed && pairNonEmpty && displaySmoother.heldDelta (d, t))")
+                && window.contains("const juce::Colour base = liveDelta ? COL_NORMAL : COL_MUTED;"),
+            "JUCE POST Watch must use held/muted delta values for transient stale PRE reads"
         );
         assert!(
-            window.contains("pair empty / Stale / NoPre / no delta -> POST absolute"),
-            "JUCE POST Watch must document Stale fallback to POST absolute values"
+            window.contains("else // pair empty or PRE explicitly bypassed -> POST absolute"),
+            "JUCE POST Watch may fall back to POST absolute values only when the pair is empty or PRE is explicitly bypassed"
         );
     }
 }
