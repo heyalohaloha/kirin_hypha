@@ -76,14 +76,14 @@ pub struct HyphaPost {
     pending_producer: Arc<Mutex<Option<rtrb::Producer<f32>>>>,
     measure_alive: Arc<AtomicBool>,
     process_counter: u32,
-    /// B-207 #1: 直近の process_mode。Offline→Realtime 遷移（host の再 initialize）を
-    /// 「オフラインレンダー終了」とみなし、KEEP 保持中なら自動 Stop する（AU の
-    /// maybeAutoStopOnOfflineEnd と対）。message/main-thread の initialize() のみが触る。
+    /// B-207 #1/B-225: 直近の process_mode。Offline→Realtime 遷移は観測するが、
+    /// Record 信頼性優先のため既定では自動 Stop には使わない。message/main-thread の
+    /// initialize() のみが触る。
     prev_process_mode: Option<ProcessMode>,
     /// 現在の process mode が Offline か。initialize() が非RTで書き、process() がRTで読む。
     process_mode_offline: AtomicBool,
-    /// B-224: Offline process サンプルを見た Record 世代。通常再生中の Active 音声と
-    /// offline-end auto-stop を混ぜないため、Stop 判定はこの Offline 専用カウンタだけを見る。
+    /// B-224/B-225: Offline process サンプルを見た Record 世代。通常再生中の Active 音声と
+    /// opt-in offline-end auto-stop を混ぜないため、Stop 判定はこの Offline 専用カウンタだけを見る。
     offline_render_sample_generation: AtomicU64,
     /// B-224: 現在 Record 世代で観測した Offline process フレーム数（channel 非依存）。
     offline_render_samples: AtomicU64,
@@ -300,7 +300,25 @@ fn offline_render_ended(prev: Option<ProcessMode>, current: ProcessMode) -> bool
     prev == Some(ProcessMode::Offline) && current == ProcessMode::Realtime
 }
 
-/// B-224: auto-stop を許可する最小 Offline process 量。通常再生中の Active 音声では
+/// B-225: offline-end auto-stop は Record 信頼性優先で既定 OFF。
+/// 検証用に明示 opt-in した場合だけ、B-224 の Offline process gate を有効化する。
+const OFFLINE_AUTOSTOP_ENV: &str = "KIRIN_HYPHA_OFFLINE_AUTOSTOP";
+
+fn parse_bool_env_enabled(raw: Option<&str>) -> bool {
+    raw.map(|s| {
+        matches!(
+            s.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        )
+    })
+    .unwrap_or(false)
+}
+
+fn offline_autostop_enabled() -> bool {
+    parse_bool_env_enabled(std::env::var(OFFLINE_AUTOSTOP_ENV).ok().as_deref())
+}
+
+/// B-224: opt-in auto-stop を許可する最小 Offline process 量。通常再生中の Active 音声では
 /// Stop を許可せず、100ms 未満の preflight / mode churn も閉じないための下限。
 const OFFLINE_AUTO_STOP_MIN_RENDER_MS: f32 = 100.0;
 
@@ -313,6 +331,7 @@ fn offline_auto_stop_min_render_samples(sample_rate: f32) -> u64 {
 }
 
 fn offline_render_auto_stop_due(
+    auto_stop_enabled: bool,
     prev: Option<ProcessMode>,
     current: ProcessMode,
     current_record_generation: u64,
@@ -320,7 +339,8 @@ fn offline_render_auto_stop_due(
     offline_samples: u64,
     sample_rate: f32,
 ) -> bool {
-    offline_render_ended(prev, current)
+    auto_stop_enabled
+        && offline_render_ended(prev, current)
         && current_record_generation > 0
         && offline_sample_generation == current_record_generation
         && offline_samples >= offline_auto_stop_min_render_samples(sample_rate)
@@ -330,6 +350,7 @@ fn offline_render_auto_stop_due(
 mod b207_offline_render_tests {
     use super::{
         offline_auto_stop_min_render_samples, offline_render_auto_stop_due, offline_render_ended,
+        parse_bool_env_enabled,
     };
     use nih_plug::prelude::ProcessMode;
 
@@ -363,11 +384,37 @@ mod b207_offline_render_tests {
     }
 
     #[test]
+    fn offline_autostop_is_opt_in_only() {
+        assert!(!parse_bool_env_enabled(None));
+        assert!(!parse_bool_env_enabled(Some("")));
+        assert!(!parse_bool_env_enabled(Some("0")));
+        assert!(!parse_bool_env_enabled(Some("false")));
+        assert!(!parse_bool_env_enabled(Some("auto")));
+        assert!(parse_bool_env_enabled(Some("1")));
+        assert!(parse_bool_env_enabled(Some(" true ")));
+        assert!(parse_bool_env_enabled(Some("YES")));
+        assert!(parse_bool_env_enabled(Some("on")));
+    }
+
+    #[test]
     fn offline_render_auto_stop_requires_current_record_offline_processing() {
         assert_eq!(offline_auto_stop_min_render_samples(48_000.0), 4_800);
 
         assert!(
             !offline_render_auto_stop_due(
+                false,
+                Some(ProcessMode::Offline),
+                ProcessMode::Realtime,
+                2,
+                2,
+                4_800,
+                48_000.0,
+            ),
+            "default policy must never close Record automatically"
+        );
+        assert!(
+            !offline_render_auto_stop_due(
+                true,
                 Some(ProcessMode::Offline),
                 ProcessMode::Realtime,
                 1,
@@ -379,6 +426,7 @@ mod b207_offline_render_tests {
         );
         assert!(
             !offline_render_auto_stop_due(
+                true,
                 Some(ProcessMode::Offline),
                 ProcessMode::Realtime,
                 2,
@@ -390,6 +438,7 @@ mod b207_offline_render_tests {
         );
         assert!(
             !offline_render_auto_stop_due(
+                true,
                 Some(ProcessMode::Offline),
                 ProcessMode::Realtime,
                 2,
@@ -401,6 +450,7 @@ mod b207_offline_render_tests {
         );
         assert!(
             offline_render_auto_stop_due(
+                true,
                 Some(ProcessMode::Offline),
                 ProcessMode::Realtime,
                 2,
@@ -412,6 +462,7 @@ mod b207_offline_render_tests {
         );
         assert!(
             !offline_render_auto_stop_due(
+                true,
                 Some(ProcessMode::Realtime),
                 ProcessMode::Offline,
                 2,
@@ -427,6 +478,7 @@ mod b207_offline_render_tests {
     fn realtime_audio_before_offline_preflight_does_not_authorize_stop() {
         assert!(
             !offline_render_auto_stop_due(
+                true,
                 Some(ProcessMode::Offline),
                 ProcessMode::Realtime,
                 7,
@@ -670,27 +722,28 @@ impl Plugin for HyphaPost {
             Ordering::Relaxed,
         );
 
-        // B-224: egui (VST3) オフラインレンダー終了の自動 Stop。host が process_mode を
-        // Offline→Realtime に戻して再 initialize したら（=オフラインバウンス完了）、KEEP 保持中の
-        // POST を手動 Stop と同経路で停止する。ただし Studio One はバウンス開始側の preflight でも
-        // 同じエッジを出すことがあるため、現在の Record 世代で 100ms 以上の Offline process を
-        // 実際に見てからだけ auto-stop する。通常再生の Active 音声は Stop 許可に使わない。
-        // host が reinit しない/エッジを出さない場合も B-206 idle-net が backstop。
+        // B-225: egui (VST3) オフラインレンダー終了の自動 Stop は既定 OFF。
+        // Hypha の信用境界では「勝手に Record を閉じない」を優先する。検証用に
+        // KIRIN_HYPHA_OFFLINE_AUTOSTOP=1 を明示した場合だけ、B-224 の Offline process gate
+        // （同一 Record 世代で 100ms 以上の実 offline process）を満たすと手動 Stop と同経路で閉じる。
         let recording_now = self.record_sm.is_recording();
         let record_generation = self.record_sm.generation();
         let offline_sample_generation = self
             .offline_render_sample_generation
             .load(Ordering::Relaxed);
         let offline_samples = self.offline_render_samples.load(Ordering::Relaxed);
-        if offline_render_auto_stop_due(
+        let offline_ended_now =
+            offline_render_ended(self.prev_process_mode, buffer_config.process_mode);
+        let auto_stop_due = offline_render_auto_stop_due(
+            offline_autostop_enabled(),
             self.prev_process_mode,
             buffer_config.process_mode,
             record_generation,
             offline_sample_generation,
             offline_samples,
             buffer_config.sample_rate,
-        ) && recording_now
-        {
+        );
+        if auto_stop_due && recording_now {
             let project_hash = read_project_hash_arc(&self.project_hash);
             let instance_id = read_instance_id_arc(&self.params.instance_id);
             nih_log!("[hypha_post] offline-end auto-stop (process_mode Offline->Realtime)");
@@ -703,10 +756,8 @@ impl Plugin for HyphaPost {
                 None,
                 0.0,
             );
-            self.offline_render_sample_generation
-                .store(0, Ordering::Relaxed);
-            self.offline_render_samples.store(0, Ordering::Relaxed);
-        } else if !recording_now {
+        }
+        if !recording_now || offline_ended_now {
             self.offline_render_sample_generation
                 .store(0, Ordering::Relaxed);
             self.offline_render_samples.store(0, Ordering::Relaxed);

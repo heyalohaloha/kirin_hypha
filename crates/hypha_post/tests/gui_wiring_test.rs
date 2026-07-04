@@ -86,8 +86,12 @@ fn lib_rs_offline_end_auto_stop_is_wired_from_initialize() {
         "initialize() must use the guarded offline auto-stop predicate"
     );
     assert!(
+        window.contains("offline_autostop_enabled()"),
+        "offline-end auto-stop must require explicit opt-in"
+    );
+    assert!(
         window.contains("self.offline_render_samples.load(Ordering::Relaxed)"),
-        "offline-end auto-stop must require current-record offline process samples"
+        "opt-in offline-end auto-stop must require current-record offline process samples"
     );
     assert!(
         window.contains(".offline_render_sample_generation"),
@@ -95,7 +99,7 @@ fn lib_rs_offline_end_auto_stop_is_wired_from_initialize() {
     );
     assert!(
         window.contains("&& recording_now"),
-        "offline-end auto-stop must only run while Keep/Record is active"
+        "opt-in offline-end auto-stop must only run while Keep/Record is active"
     );
     assert!(
         window.contains("crate::editor::trigger_stop_internal("),

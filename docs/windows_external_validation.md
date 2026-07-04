@@ -153,8 +153,8 @@ Fail data:
 1. Select the same PRE/POST pair.
 2. Press `Keep`.
 3. Run an offline bounce/export for at least 20 seconds.
-4. Confirm POST auto-stops Keep/Record after the bounce completes and returns to Watch (`Stop` disappears, `Keep` becomes available again). This is the offline-end edge gate.
-5. If POST remains in Keep/Record after the bounce, capture a screenshot, press `Stop` manually to close the take, and mark this test failed as "offline-end auto-stop not observed". Do not wait for the 10-minute idle backstop during beta validation unless explicitly requested.
+4. Confirm POST remains in Keep/Record after the bounce unless the tester explicitly opted into `KIRIN_HYPHA_OFFLINE_AUTOSTOP=1`. Default behavior must not close Record automatically.
+5. Press `Stop` manually to close the take.
 6. Check Record/plugin_data output:
 
 ```powershell
