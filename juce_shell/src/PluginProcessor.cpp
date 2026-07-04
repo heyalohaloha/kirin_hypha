@@ -480,6 +480,27 @@ juce::Array<KirinHyphaProcessorBase::PreCandidate> KirinHyphaProcessorBase::enum
     return out;
 }
 
+juce::Array<KirinHyphaProcessorBase::PostPairClaim> KirinHyphaProcessorBase::enumeratePostPairClaims() const
+{
+    juce::Array<PostPairClaim> out;
+    const juce::ScopedLock sl (handleLock);
+    if (hyphaHandle == nullptr)
+        return out;
+
+    constexpr size_t kCap = 32; // same cap as PRE candidates; FFI truncates beyond this
+    KirinPostPairClaim buf[kCap];
+    const size_t n = kirin_hypha_enumerate_post_pair_claims (hyphaHandle, buf, kCap);
+    for (size_t i = 0; i < n; ++i)
+    {
+        PostPairClaim c;
+        c.instanceId      = juce::String::fromUTF8 (buf[i].instance_id);
+        c.pairPreName     = juce::String::fromUTF8 (buf[i].pair_pre_name);
+        c.hasPairPreName  = (buf[i].has_pair_pre_name != 0);
+        out.add (c);
+    }
+    return out;
+}
+
 int KirinHyphaProcessorBase::keepReadyCount() const
 {
     const juce::ScopedLock sl (handleLock);
@@ -490,7 +511,7 @@ int KirinHyphaProcessorBase::keepReadyCount() const
 
 const juce::String KirinHyphaProcessorBase::getName() const
 {
-    return role == Role::Post ? "Kirin Hypha POST" : "Kirin Hypha PRE";
+    return role == Role::Post ? "POST Kirin Hypha" : "PRE Kirin Hypha";
 }
 
 bool KirinHyphaProcessorBase::acceptsMidi() const        { return false; }

@@ -8,8 +8,8 @@ use std::thread::sleep;
 use std::time::Duration;
 
 use kirin_hypha_ffi::{
-    kirin_hypha_count_keep_ready, kirin_hypha_enumerate_pre_candidates, KirinHyphaEngine,
-    KirinPreCandidate,
+    kirin_hypha_count_keep_ready, kirin_hypha_enumerate_post_pair_claims,
+    kirin_hypha_enumerate_pre_candidates, KirinHyphaEngine, KirinPostPairClaim, KirinPreCandidate,
 };
 
 const SR: u32 = 48_000;
@@ -76,6 +76,25 @@ fn read_candidate_names(post: &KirinHyphaEngine) -> Vec<String> {
         .filter(|c| c.has_name != 0)
         .map(|c| unsafe { CStr::from_ptr(c.name.as_ptr()) })
         .map(|s| s.to_string_lossy().to_string())
+        .collect()
+}
+
+fn read_pair_claims(post: &KirinHyphaEngine) -> Vec<(String, String)> {
+    let mut buf: [KirinPostPairClaim; 8] = std::array::from_fn(|_| unsafe { std::mem::zeroed() });
+    let handle = (post as *const KirinHyphaEngine).cast_mut();
+    let n = unsafe { kirin_hypha_enumerate_post_pair_claims(handle, buf.as_mut_ptr(), buf.len()) };
+    buf.iter()
+        .take(n)
+        .filter(|c| c.has_pair_pre_name != 0)
+        .map(|c| {
+            let iid = unsafe { CStr::from_ptr(c.instance_id.as_ptr()) }
+                .to_string_lossy()
+                .to_string();
+            let pair = unsafe { CStr::from_ptr(c.pair_pre_name.as_ptr()) }
+                .to_string_lossy()
+                .to_string();
+            (iid, pair)
+        })
         .collect()
 }
 
@@ -159,6 +178,13 @@ fn juce_candidate_abi_keeps_second_pre_visible_after_first_ready_post() {
         kirin_hypha_count_keep_ready(handle)
     };
     assert_eq!(ready, 1, "Drum POST should be the single ready POST");
+    let claims = read_pair_claims(&post_mix);
+    assert!(
+        claims
+            .iter()
+            .any(|(iid, pair)| iid == "iid-post-drum" && pair == "Drum"),
+        "POST pair claim list must expose the already ready Drum pair for JUCE menu status: {claims:?}"
+    );
 
     let names = wait_for_candidate_names(&post_mix, &["Drum", "Mix"]);
     assert!(

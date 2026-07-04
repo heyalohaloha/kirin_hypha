@@ -296,26 +296,11 @@ fn editor_rs_wraps_combo_entries_with_push_id() {
     let combo_fn_idx = src
         .find("fn draw_pair_pre_combo(")
         .expect("draw_pair_pre_combo must exist (B-027 段階 3-A)");
-    // draw_pair_pre_combo 内に push_id ラップが含まれていること。
-    // walk-back で UTF-8 char boundary を跨がない上限を取る。
-    // window 5000 → 6000: §4-5 Step 1 で click handler 内に project_hash /
-    // daw_session_id の lazy-read snapshot 追加 (B-022 段階 1 instance_id 同位相 /
-    // §4-4 R-9 主因 a / b 是正) で関数が legitimately さらに拡大した。push_id
-    // invariant 自体は維持。
-    // window 6000 → 7500: §4-5 Step 4 で click handler 末尾に fs::metadata
-    // 存在確認 log (broadcast 寿命診断) を追加 (削除経路特定不能時の fallback /
-    // ms 単位削除の境界切り分け目的)。push_id invariant 自体は維持。
-    // window 7500 → 9500: α-7' All Stop で recording 時の All Stop 行 click handler
-    // を ComboBox dropdown 先頭に追加 (Keep と完全対称形 / 琥珀色)。push_id invariant
-    // 自体は維持。
-    // window 9500 → 11000: W-285 / G-115-253 で dropdown loop 内に name="" 候補
-    // exclusion gate (UTF-8 Japanese 注釈付) を追加 / push_id 呼出が rel 9968 byte に
-    // 後退 (Python rb 計測 / 余裕含み 11000)。invariant 自体は維持。
-    let mut safe_end = (combo_fn_idx + 11000).min(src.len());
-    while safe_end > combo_fn_idx && !src.is_char_boundary(safe_end) {
-        safe_end -= 1;
-    }
-    let body = &src[combo_fn_idx..safe_end];
+    let combo_end = src[combo_fn_idx..]
+        .find("fn all_keep_dropdown_label(")
+        .map(|idx| combo_fn_idx + idx)
+        .expect("draw_pair_pre_combo should be followed by all_keep_dropdown_label");
+    let body = &src[combo_fn_idx..combo_end];
     assert!(
         body.contains("ui.push_id(cand.instance_id.as_str()"),
         "draw_pair_pre_combo must wrap each entry with `ui.push_id(cand.instance_id.as_str(), ...)` (B-027 段階 3 (a) 仮説 2)"
@@ -324,8 +309,9 @@ fn editor_rs_wraps_combo_entries_with_push_id() {
     let push_idx = body
         .find("ui.push_id(cand.instance_id.as_str()")
         .expect("push_id wrap must precede selectable_label");
-    let select_idx = body
-        .find("ui.selectable_label(false, label_text)")
+    let select_idx = body[push_idx..]
+        .find("ui.selectable_label(")
+        .map(|idx| push_idx + idx)
         .expect("selectable_label call must remain in draw_pair_pre_combo");
     assert!(
         push_idx < select_idx,
@@ -842,8 +828,8 @@ fn editor_rs_record_grid_keeps_right_absolute_values() {
 fn editor_rs_dropdown_excludes_empty_name_pre() {
     let src = read("src/editor.rs");
     let anchor_idx = src
-        .find("for cand in &pre_candidates {")
-        .expect("W-285: `for cand in &pre_candidates {` dropdown loop anchor not found");
+        .find("let named_candidates: Vec<_>")
+        .expect("W-285: named_candidates filter anchor not found");
     // anchor から 1000 byte 以内に gate (UTF-8 Japanese 注釈で gate 自体は ~750 byte 先)。
     let window_end = (anchor_idx + 1500).min(src.len());
     // UTF-8 char boundary walk-back
@@ -853,12 +839,60 @@ fn editor_rs_dropdown_excludes_empty_name_pre() {
     }
     let window = &src[anchor_idx..safe_end];
     assert!(
-        window.contains("if cand.name.as_deref().unwrap_or(\"\").is_empty()"),
-        "W-285 G-115-253: dropdown loop で PRE name=\"\" 候補を除外する gate が無い (UUID8 fallback 誤導 regression)"
+        window.contains("!cand.name.as_deref().unwrap_or(\"\").is_empty()"),
+        "W-285 G-115-253: dropdown loop 前に PRE name=\"\" 候補を除外する filter が無い (UUID8 fallback 誤導 regression)"
     );
     assert!(
-        window.contains("continue;"),
-        "W-285 G-115-253: dropdown loop gate に continue; が無い (gate 動作不全)"
+        window.contains("for cand in named_candidates"),
+        "W-285 G-115-253: dropdown loop must render the filtered named candidate set"
+    );
+}
+
+#[test]
+fn editor_rs_pair_dropdown_distinguishes_keep_from_pair_choices() {
+    let src = read("src/editor.rs");
+    let combo_fn_idx = src
+        .find("fn draw_pair_pre_combo(")
+        .expect("draw_pair_pre_combo must exist");
+    let mut safe_end = (combo_fn_idx + 12000).min(src.len());
+    while safe_end > combo_fn_idx && !src.is_char_boundary(safe_end) {
+        safe_end -= 1;
+    }
+    let body = &src[combo_fn_idx..safe_end];
+
+    assert!(
+        body.contains("all_keep_dropdown_label(n_ready)"),
+        "All Keep row must use a label that names ready POST count"
+    );
+    assert!(
+        body.contains("Pair choices (not Keep targets)"),
+        "pair candidate section must be visually separated from Keep actions"
+    );
+    assert!(
+        body.contains("All Stop: recording POSTs"),
+        "recording action must be labeled as POST-recording Stop, not a pair candidate"
+    );
+    assert!(
+        body.contains("No pair choices"),
+        "empty candidate state must not reuse the ambiguous `No candidates` text"
+    );
+    assert!(
+        body.contains("let named_candidates: Vec<_>"),
+        "empty-name PRE candidates must not leave the pair-choice section blank"
+    );
+    assert!(
+        src.contains("format!(\"{prefix}: {name_part} #{id_prefix}\")"),
+        "PRE candidate rows must carry explicit keepability status"
+    );
+    assert!(
+        src.contains("CandidateKeepStatus::KeepReady")
+            && src.contains("CandidateKeepStatus::InUseByOther")
+            && src.contains("CandidateKeepStatus::Available"),
+        "pair dropdown must distinguish current ready, already used, and available PRE choices"
+    );
+    assert!(
+        body.contains("let row_enabled = keep_status != CandidateKeepStatus::InUseByOther;"),
+        "already-used PRE choices must not be accidentally selectable"
     );
 }
 

@@ -72,9 +72,11 @@ public:
 
     // --- B-102: POST broadcast (All Keep / All Stop) + candidate enumeration (new↔new) -----
     struct PreCandidate { juce::String instanceId; juce::String name; bool hasName = false; };
+    struct PostPairClaim { juce::String instanceId; juce::String pairPreName; bool hasPairPreName = false; };
     bool keepAll();                                       // FFI kirin_hypha_keep_all (broadcast + self keep)
     void stopAll();                                       // FFI kirin_hypha_stop_all (broadcast + self stop)
     juce::Array<PreCandidate> enumeratePreCandidates() const; // FFI kirin_hypha_enumerate_pre_candidates
+    juce::Array<PostPairClaim> enumeratePostPairClaims() const; // FFI kirin_hypha_enumerate_post_pair_claims
     int keepReadyCount() const;                               // FFI kirin_hypha_count_keep_ready (egui n_ready)
 
     const juce::String getName() const override;

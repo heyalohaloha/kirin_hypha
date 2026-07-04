@@ -65,10 +65,33 @@ mod tests {
         );
 
         assert!(body.contains("const auto cands = processorRef.enumeratePreCandidates();"));
+        assert!(body.contains("const auto claims = processorRef.enumeratePostPairClaims();"));
+        assert!(body.contains("const juce::String currentPairName = processorRef.pairName();"));
         assert!(body.contains("if (c.hasName && c.name.isNotEmpty())"));
+        assert!(body.contains("const bool keepReady = (c.name == currentPairName);"));
+        assert!(body.contains("const bool inUse = claimedByOtherPost"));
+        assert!(
+            body.contains("inUse ? \"In use: \" : (keepReady ? \"Keep ready: \" : \"Can Keep: \")")
+        );
+        assert!(body.contains("labelEnabled.add (! inUse);"));
+        assert!(body.contains("labelChecked.add (keepReady && ! inUse);"));
         assert!(body.contains("const int nReady = processorRef.keepReadyCount();"));
         assert!(body.contains("if (! rec && nReady >= 1)"));
-        assert!(!body.contains("pairName"));
+        assert!(body.contains("menu.addItem (1, allKeepMenuLabel (nReady));"));
+        assert!(body.contains("menu.addItem (2, \"All Stop: recording POSTs\");"));
+        assert!(
+            body.contains("menu.addItem (4, \"Pair choices (not Keep targets)\", false, false);")
+        );
+        assert!(body.contains("menu.addItem (3, \"No pair choices\", false, false);"));
+        assert!(body.contains("! pairLocked && labelEnabled[i], labelChecked[i]"));
+        assert!(
+            !body.contains("All Keep ("),
+            "old ambiguous All Keep label must not remain in the JUCE menu"
+        );
+        assert!(
+            !body.contains("No candidates"),
+            "old ambiguous empty label must not remain in the JUCE menu"
+        );
         assert!(!body.contains("pairNonEmpty"));
     }
 

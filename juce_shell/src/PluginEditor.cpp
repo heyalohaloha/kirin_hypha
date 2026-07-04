@@ -16,6 +16,22 @@ namespace
     constexpr int   kLedPx    = 12;  // led 12×12 box (radius 5 circle)
     constexpr int   kMetricH  = 70;  // metric area reserve (3 rows of pitch 24)
     const double    kNaN = std::numeric_limits<double>::quiet_NaN();
+
+    juce::String allKeepMenuLabel (int nReady)
+    {
+        return juce::String ("All Keep: ") + juce::String (nReady) + " ready POST"
+             + (nReady == 1 ? "" : "s");
+    }
+
+    bool claimedByOtherPost (const juce::String& name,
+                             const juce::String& ownInstanceId,
+                             const juce::Array<KirinHyphaProcessorBase::PostPairClaim>& claims)
+    {
+        for (const auto& c : claims)
+            if (c.hasPairPreName && c.pairPreName == name && c.instanceId != ownInstanceId)
+                return true;
+        return false;
+    }
 }
 
 KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
@@ -264,7 +280,8 @@ void KirinHyphaEditor::showToast (const juce::String& msg)
 void KirinHyphaEditor::showCandidateMenu()
 {
     // B-102: egui draw_pair_pre_combo parity (scope = new↔new). Built on click (no per-tick FFI):
-    //   [All Keep (N ready)] (Watch, N>=1) / [All Stop] (Record) / candidate rows ("name #id8").
+    //   [All Keep: N ready POST(s)] (Watch, N>=1) / [All Stop: recording POSTs] (Record) /
+    //   candidate rows ("Can Keep/Keep ready/In use: name #id8").
     // select_target_pre matches by name, so only named candidates are offered (egui skips empty).
     const bool rec = processorRef.isRecording();
     const bool playing = processorRef.isPlaying(); // W-280: pair change locked during playback
@@ -272,14 +289,24 @@ void KirinHyphaEditor::showCandidateMenu()
     // stalled heartbeat does not lock (false-release prevention; signal_state is silence-conflated).
     const bool pairLocked = playing && processorRef.heartbeatLive();
     const auto cands = processorRef.enumeratePreCandidates();
+    const auto claims = processorRef.enumeratePostPairClaims();
+    const juce::String currentPairName = processorRef.pairName();
+    const juce::String ownInstanceId = processorRef.instanceId();
 
     menuCandidateNames.clearQuick();
     juce::StringArray labels;
+    juce::Array<bool> labelEnabled;
+    juce::Array<bool> labelChecked;
     for (const auto& c : cands)
         if (c.hasName && c.name.isNotEmpty())
         {
             menuCandidateNames.add (c.name);
-            labels.add (c.name + "  #" + c.instanceId.substring (0, 8));
+            const bool keepReady = (c.name == currentPairName);
+            const bool inUse = claimedByOtherPost (c.name, ownInstanceId, claims);
+            const juce::String prefix = inUse ? "In use: " : (keepReady ? "Keep ready: " : "Can Keep: ");
+            labels.add (prefix + c.name + "  #" + c.instanceId.substring (0, 8));
+            labelEnabled.add (! inUse);
+            labelChecked.add (keepReady && ! inUse);
         }
 
     // egui parity: "N ready" = pair-set POST instances (keepReadyCount), NOT the PRE candidate
@@ -288,16 +315,17 @@ void KirinHyphaEditor::showCandidateMenu()
     const int nReady = processorRef.keepReadyCount();
     juce::PopupMenu menu;
     if (! rec && nReady >= 1)
-        menu.addItem (1, "All Keep (" + juce::String (nReady) + " ready)");
+        menu.addItem (1, allKeepMenuLabel (nReady));
     if (rec)
-        menu.addItem (2, "All Stop");
+        menu.addItem (2, "All Stop: recording POSTs");
     if (menu.getNumItems() > 0)
         menu.addSeparator();
+    menu.addItem (4, "Pair choices (not Keep targets)", false, false);
     if (menuCandidateNames.isEmpty())
-        menu.addItem (3, "No candidates", false, false); // disabled (R-26: silent when nothing)
+        menu.addItem (3, "No pair choices", false, false); // disabled (R-26: silent when nothing)
     else
         for (int i = 0; i < labels.size(); ++i)
-            menu.addItem (100 + i, labels[i], ! pairLocked, false); // B-115: locked while playing AND live
+            menu.addItem (100 + i, labels[i], ! pairLocked && labelEnabled[i], labelChecked[i]);
 
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&pairDropdown),
                         [this] (int result) { handleCandidateMenu (result); });

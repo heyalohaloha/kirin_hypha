@@ -1,16 +1,16 @@
 //! FFI 境界の panic-safety / 堅牢性テスト。
 //!
 //! 全 extern "C" 関数は `catch_unwind` で包まれており、panic が C ABI 境界を越えて UB を
-//! 起こさないことを担保する（実装は src/lib.rs / コードレビューで全6関数の wrap を確認）。
+//! 起こさないことを担保する（実装は src/lib.rs / コードレビューで主要 C ABI の wrap を確認）。
 //!
 //! ZSA: 「どの入力が内部 panic を誘発するか」は実装依存であり、人工的な panic 経路は捏造しない。
 //! 本テストは (1) 境界/異常引数で **プロセスが abort せず呼び出しが安全な失敗値で戻る**、
 //! (2) 正常系が壊れていない、ことを確認する。
 
 use kirin_hypha_ffi::{
-    kirin_hypha_create, kirin_hypha_destroy, kirin_hypha_poll_result, kirin_hypha_poll_session,
-    kirin_hypha_push_samples, kirin_hypha_set_signal_state, KirinMeasureResult,
-    KirinSessionSummary,
+    kirin_hypha_create, kirin_hypha_destroy, kirin_hypha_enumerate_post_pair_claims,
+    kirin_hypha_poll_result, kirin_hypha_poll_session, kirin_hypha_push_samples,
+    kirin_hypha_set_signal_state, KirinMeasureResult, KirinPostPairClaim, KirinSessionSummary,
 };
 
 #[test]
@@ -30,6 +30,22 @@ fn null_handle_calls_are_safe_noops() {
         assert!(
             !kirin_hypha_poll_session(std::ptr::null_mut(), &mut ss),
             "poll_session(null) must be false"
+        );
+
+        let mut claims: [KirinPostPairClaim; 1] = std::array::from_fn(|_| std::mem::zeroed());
+        assert_eq!(
+            kirin_hypha_enumerate_post_pair_claims(
+                std::ptr::null_mut(),
+                claims.as_mut_ptr(),
+                claims.len()
+            ),
+            0,
+            "enumerate_post_pair_claims(null handle) must be 0"
+        );
+        assert_eq!(
+            kirin_hypha_enumerate_post_pair_claims(std::ptr::null_mut(), std::ptr::null_mut(), 1),
+            0,
+            "enumerate_post_pair_claims(null out) must be 0"
         );
 
         kirin_hypha_destroy(std::ptr::null_mut()); // null destroy = no-op

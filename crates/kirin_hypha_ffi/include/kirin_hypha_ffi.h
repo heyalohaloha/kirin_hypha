@@ -13,7 +13,8 @@
  *   - 識別子:  set_identity / get_identity（state chunk 方式A）.
  *   - IO:      enable_pre_writes（PRE）/ enable_post_writes（POST）.
  *   - ペアリング: set_pair_target / set_pre_name / keep / stop / poll_delta（POST Keep → PRE ack）.
- *   - 一斉操作: keep_all / stop_all（broadcast + self）/ enumerate_pre_candidates（B-102 / 新↔新）.
+ *   - 一斉操作: keep_all / stop_all（broadcast + self）/ enumerate_pre_candidates /
+ *              enumerate_post_pair_claims（B-102 / 新↔新）.
  *   - LED poller: measure_alive / record_acknowledged / preset_available（B-054 / read-only）.
  *   - Note:    add_annotation.
  *   - Option<f64> は NaN sentinel で表す（C 側は isnan() で「値なし」を判定）.
@@ -90,6 +91,14 @@ typedef struct {
   char name[64];
   uint8_t has_name;
 } KirinPreCandidate;
+
+/* POST pair claim 1 件（GUI ドロップダウンの keepability 表示用）.
+ * pair_pre_name は POST が選択中の PRE 名（has_pair_pre_name=0 のとき内容不定）. */
+typedef struct {
+  char instance_id[64];
+  char pair_pre_name[64];
+  uint8_t has_pair_pre_name;
+} KirinPostPairClaim;
 
 /* ランタイム生成. sample_rate!=48000 は内部で 48k 変換. num_channels は 1=mono / 2=stereo. */
 KirinHypha* kirin_hypha_create(uint32_t sample_rate, uint32_t num_channels);
@@ -207,6 +216,10 @@ size_t kirin_hypha_enumerate_pre_candidates(KirinHypha* handle, KirinPreCandidat
 /* All Keep の「N ready」= pair 設定済の Active POST 数（B-102 / egui n_ready と同一・UI Thread）.
  * null は 0. */
 size_t kirin_hypha_count_keep_ready(KirinHypha* handle);
+
+/* POST 側の pair claim を out（最大 cap 件）へ書き、書いた件数を返す（UI Thread）.
+ * GUI は PRE候補名と照合して "Can Keep" / "Keep ready" / "In use" を表示する. */
+size_t kirin_hypha_enumerate_post_pair_claims(KirinHypha* handle, KirinPostPairClaim* out, size_t cap);
 
 /* POST の Δ を out へ（3d-b / GUI 表示用）. 値あり=true / 競合・未計測=false（UI Thread）.
  * post.json には Δ でなく POST 生メトリクスが入る（Δ はこの API で公開）. */
