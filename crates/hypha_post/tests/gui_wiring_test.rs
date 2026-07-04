@@ -422,14 +422,12 @@ fn editor_rs_trigger_stop_calls_delete_broadcast_after_mark_released() {
     );
 }
 
-/// 統合点 #3: HyphaPost::drop 内 watchdog join 後に delete_signal が呼ばれる。
+/// 統合点 #3: HyphaPost::drop 内 watchdog join 後に mark_released が呼ばれる。
 /// 順序: record_sm.exit_record() → shutdown flags → watchdog join →
-///       delete_signal。
-/// watchdog join を待たずに delete を先行すると、IO Thread terminate (#4) の
-/// 完了前に file が消え、log 上で「先に消えた」のような race 痕跡が出るが
-/// 冪等のため動作正常。順序固定は設計意図 (lib.rs:246-251) を保つため。
+///       mark_released。
+/// missing ではPREを止めないため、Dropでも明示 Released を残す。
 #[test]
-fn lib_rs_drop_calls_delete_signal_after_watchdog_join() {
+fn lib_rs_drop_marks_released_after_watchdog_join() {
     let src = read("src/lib.rs");
     let drop_start = src
         .find("impl Drop for HyphaPost")
@@ -445,17 +443,17 @@ fn lib_rs_drop_calls_delete_signal_after_watchdog_join() {
     let join_idx = body
         .find("watchdog_handle.take()")
         .expect("Drop must join watchdog (existing behavior)");
-    let delete_idx = body
-        .find("delete_signal(")
-        .expect("Drop must call delete_signal (Group 2 統合点 #3)");
+    let release_idx = body
+        .find("mark_released(")
+        .expect("Drop must call mark_released (Group 2 統合点 #3)");
     assert!(
-        join_idx < delete_idx,
-        "delete_signal must be called AFTER watchdog join in HyphaPost::drop \
-         (join={join_idx}, delete={delete_idx}); design 判断 lib.rs:246-251"
+        join_idx < release_idx,
+        "mark_released must be called AFTER watchdog join in HyphaPost::drop \
+         (join={join_idx}, release={release_idx})"
     );
     assert!(
-        body.contains("[POST cleanup #3] delete_signal failed"),
-        "Drop delete_signal failure must log warn only (Drop 内 panic = abort)"
+        body.contains("[POST cleanup #3] mark_released failed"),
+        "Drop mark_released failure must log warn only (Drop 内 panic = abort)"
     );
 }
 

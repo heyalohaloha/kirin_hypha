@@ -70,12 +70,6 @@ const RETRY_INTERVAL: Duration = Duration::from_millis(50);
 /// IO Thread 側 barrier（Audio Thread には触れない）。
 const MEASURE_READY_TIMEOUT: Duration = Duration::from_millis(300);
 const MEASURE_READY_POLL: Duration = Duration::from_millis(5);
-/// PRE が ACK を返す前に、現 Record generation で実 TRACE が少なくとも 1 件入るのを待つ上限。
-/// Measure-ready だけでは 0 frame Record を READY 扱いできてしまうため、READY の意味を
-/// 「Kirin OS がTRACEとして読める実サンプルがある」まで引き上げる。
-const RECORD_TRACE_READY_TIMEOUT: Duration = Duration::from_millis(300);
-const RECORD_TRACE_READY_POLL: Duration = Duration::from_millis(5);
-
 /// PRE スレッドが追従中の partner POST 情報（IO Thread ローカル）。
 struct PartnerInfo {
     post_instance_id: String,
@@ -103,22 +97,6 @@ fn wait_for_measure_ready(record_sm: &RecordStateMachine, generation: u64) -> bo
             return false;
         }
         thread::sleep(MEASURE_READY_POLL);
-    }
-}
-
-fn wait_for_record_trace_ready(record_sm: &RecordStateMachine, generation: u64) -> bool {
-    if generation == 0 {
-        return false;
-    }
-    let deadline = Instant::now() + RECORD_TRACE_READY_TIMEOUT;
-    loop {
-        if record_sm.record_trace_ready_generation() >= generation {
-            return true;
-        }
-        if Instant::now() >= deadline {
-            return false;
-        }
-        thread::sleep(RECORD_TRACE_READY_POLL);
     }
 }
 
@@ -740,6 +718,35 @@ fn poll_record_signal(
         }
     }
 
+    // ACK 前に POST が Stop / All Stop した場合、PRE は partner をまだ持っていない。
+    // Pending だけを見ると Released を見落として Record が残留するため、同世代の
+    // Released だけは明示 Stop として先に拾う。古い Released 残骸で PRE 単体 Record を
+    // 止めないよう、record_started_at_ms 以降の signal に限定する。
+    if record_sm.is_recording() && partner.is_none() && !record_acknowledged.load(Ordering::Relaxed)
+    {
+        let started_at_ms = record_sm.record_started_at_ms();
+        let released_before_ack = (started_at_ms > 0)
+            .then(|| {
+                matching.iter().find(|(_, sig)| {
+                    sig.status == SignalStatus::Released
+                        && parse_iso8601_to_epoch_ms(&sig.started_at).is_some_and(
+                            |signal_started_at_ms| signal_started_at_ms >= started_at_ms,
+                        )
+                })
+            })
+            .flatten();
+        if let Some((post_iid, _)) = released_before_ack {
+            record_sm.exit_record();
+            recording.store(false, Ordering::Relaxed);
+            record_acknowledged.store(false, Ordering::Relaxed);
+            log::info!(
+                "[signal] released before ACK, PRE exiting Record (partner={})",
+                post_iid
+            );
+            return;
+        }
+    }
+
     // partner 未設定 → 同 instance_id 配下 Pending を全件列挙
     //
     // B-027 段階 3-B α-7 / Group 1 (G-115-XX 申し送り #24 broadcast/multi-target):
@@ -812,17 +819,6 @@ fn poll_record_signal(
         );
         return;
     }
-    if !wait_for_record_trace_ready(record_sm, target_generation) {
-        log::warn!(
-            "[signal] PRE Record TRACE-ready timeout; ACK withheld \
-             but Record remains armed (generation={}, pre_iid={}, pending_count={})",
-            target_generation,
-            instance_id,
-            pending_signals.len()
-        );
-        return;
-    }
-
     // N 件並列 ack。各 ack は独立 atomic rename (record_signal::write_signal /
     // L195-203 既存パターン)。1 件失敗しても他 N-1 件は継続 (Vec 全件処理 / Gap-11
     // 構造解消)。
@@ -1114,7 +1110,6 @@ mod tests {
             instance_id,
             signal_state,
             true,
-            true,
         );
     }
 
@@ -1131,7 +1126,6 @@ mod tests {
         instance_id: &str,
         signal_state: SignalState,
         measure_ready: bool,
-        trace_ready: bool,
     ) {
         let signals = record_signal::scan_signals_dir(base, TEST_PH);
         let matching: Vec<_> = signals
@@ -1188,6 +1182,26 @@ mod tests {
             }
         }
 
+        if record_sm.is_recording()
+            && partner.is_none()
+            && !record_acknowledged.load(Ordering::Relaxed)
+        {
+            let started_at_ms = record_sm.record_started_at_ms();
+            let released_before_ack = started_at_ms > 0
+                && matching.iter().any(|(_, sig)| {
+                    sig.status == SignalStatus::Released
+                        && parse_iso8601_to_epoch_ms(&sig.started_at).is_some_and(
+                            |signal_started_at_ms| signal_started_at_ms >= started_at_ms,
+                        )
+                });
+            if released_before_ack {
+                record_sm.exit_record();
+                recording.store(false, Ordering::Relaxed);
+                record_acknowledged.store(false, Ordering::Relaxed);
+                return;
+            }
+        }
+
         // B-027 段階 3-B α-7 / Group 1: production 改修 (find→filter / Vec 全件 ack)
         // と同期。Vec 列挙 + 順次 ack で N Pending 並列処理を再現する。
         let pending_signals: Vec<(String, RecordSignal)> = matching
@@ -1229,12 +1243,6 @@ mod tests {
             record_sm.mark_measure_ready(target_generation);
         }
         if !wait_for_measure_ready(record_sm, target_generation) {
-            return;
-        }
-        if trace_ready {
-            record_sm.mark_record_trace_ready(target_generation);
-        }
-        if !wait_for_record_trace_ready(record_sm, target_generation) {
             return;
         }
 
@@ -1319,7 +1327,6 @@ mod tests {
             TEST_PRE_IID,
             SignalState::Active,
             false,
-            false,
         );
 
         assert_eq!(sm.current(), RecordState::Record);
@@ -1331,7 +1338,7 @@ mod tests {
     }
 
     #[test]
-    fn pending_ack_is_withheld_until_record_trace_is_ready() {
+    fn pending_ack_does_not_wait_for_record_trace_sample() {
         let base = isolated_base();
         write_matching_pending(&base, "post-1");
 
@@ -1351,19 +1358,18 @@ mod tests {
             TEST_PRE_IID,
             SignalState::Active,
             true,
-            false,
         );
 
         assert_eq!(sm.current(), RecordState::Record);
         assert!(recording.load(Ordering::Relaxed));
-        assert!(!ack.load(Ordering::Relaxed));
-        assert!(partner.is_none());
+        assert!(ack.load(Ordering::Relaxed));
+        assert_eq!(partner.as_ref().unwrap().post_instance_id, "post-1");
         let sig = record_signal::read_signal(&base, TEST_PH, "post-1").unwrap();
-        assert_eq!(sig.status, SignalStatus::Pending);
+        assert_eq!(sig.status, SignalStatus::Acknowledged);
     }
 
     #[test]
-    fn pending_ack_retries_after_trace_becomes_ready_without_reentering_record() {
+    fn pending_ack_retries_after_measure_thread_becomes_ready_without_reentering_record() {
         let base = isolated_base();
         write_matching_pending(&base, "post-1");
 
@@ -1382,10 +1388,12 @@ mod tests {
             &mut partner,
             TEST_PRE_IID,
             SignalState::Active,
-            true,
             false,
         );
         let generation = sm.generation();
+        assert_eq!(sm.current(), RecordState::Record);
+        assert!(!ack.load(Ordering::Relaxed));
+        assert!(partner.is_none());
 
         poll_with_base_state_measure_ready(
             &base,
@@ -1396,7 +1404,6 @@ mod tests {
             &mut partner,
             TEST_PRE_IID,
             SignalState::Active,
-            true,
             true,
         );
 
@@ -1407,6 +1414,101 @@ mod tests {
         assert_eq!(partner.as_ref().unwrap().post_instance_id, "post-1");
         let sig = record_signal::read_signal(&base, TEST_PH, "post-1").unwrap();
         assert_eq!(sig.status, SignalStatus::Acknowledged);
+    }
+
+    #[test]
+    fn released_before_ack_exits_pending_pre_record() {
+        let base = isolated_base();
+        write_matching_pending(&base, "post-1");
+
+        let sm = Arc::new(RecordStateMachine::new());
+        let recording = Arc::new(AtomicBool::new(false));
+        let ack = Arc::new(AtomicBool::new(false));
+        let license = Arc::new(License::Os);
+        let mut partner = None;
+
+        poll_with_base_state_measure_ready(
+            &base,
+            &sm,
+            &recording,
+            &ack,
+            &license,
+            &mut partner,
+            TEST_PRE_IID,
+            SignalState::Active,
+            false,
+        );
+
+        assert_eq!(sm.current(), RecordState::Record);
+        assert!(recording.load(Ordering::Relaxed));
+        assert!(!ack.load(Ordering::Relaxed));
+        assert!(partner.is_none());
+
+        record_signal::mark_released(&base, TEST_PH, "post-1").unwrap();
+        poll_with_base_state_measure_ready(
+            &base,
+            &sm,
+            &recording,
+            &ack,
+            &license,
+            &mut partner,
+            TEST_PRE_IID,
+            SignalState::Active,
+            false,
+        );
+
+        assert_eq!(
+            sm.current(),
+            RecordState::Watch,
+            "explicit Released must stop PRE even before ACK assigns partner"
+        );
+        assert!(!recording.load(Ordering::Relaxed));
+        assert!(!ack.load(Ordering::Relaxed));
+        assert!(partner.is_none());
+        let sig = record_signal::read_signal(&base, TEST_PH, "post-1").unwrap();
+        assert_eq!(sig.status, SignalStatus::Released);
+    }
+
+    #[test]
+    fn old_released_signal_does_not_stop_pending_pre_record() {
+        let base = isolated_base();
+        let mut old = record_signal::RecordSignal::new_pending(
+            "post-old".to_string(),
+            TEST_PRE_IID.to_string(),
+            TEST_DAW.to_string(),
+        );
+        old.status = SignalStatus::Released;
+        old.started_at = "2026-01-01T00:00:00Z".to_string();
+        record_signal::write_signal(&base, TEST_PH, "post-old", &old).unwrap();
+
+        let sm = Arc::new(RecordStateMachine::new());
+        sm.try_enter_record_started_at(License::Os, 1_800_000_000_000)
+            .unwrap();
+        let recording = Arc::new(AtomicBool::new(true));
+        let ack = Arc::new(AtomicBool::new(false));
+        let license = Arc::new(License::Os);
+        let mut partner = None;
+
+        poll_with_base_state_measure_ready(
+            &base,
+            &sm,
+            &recording,
+            &ack,
+            &license,
+            &mut partner,
+            TEST_PRE_IID,
+            SignalState::Active,
+            true,
+        );
+
+        assert_eq!(
+            sm.current(),
+            RecordState::Record,
+            "stale Released from an older generation must not stop a current PRE Record"
+        );
+        assert!(recording.load(Ordering::Relaxed));
+        assert!(!ack.load(Ordering::Relaxed));
+        assert!(partner.is_none());
     }
 
     /// Q1 (b) 厳格化: target_pre_instance_id が異なる signal は無視される。

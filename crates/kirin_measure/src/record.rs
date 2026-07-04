@@ -115,9 +115,6 @@ pub struct RecordStateMachine {
     /// Measure Thread が Watch→Record 遷移を観測し、Record TRACE を受けられる状態に
     /// なった最新 generation。PRE はこの値を待ってから `record_signal` を Acknowledged にする。
     measure_ready_generation: AtomicU64,
-    /// Measure Thread が現 Record generation で実際の TRACE サンプルを生成した最新 generation。
-    /// PRE はこれを待ってから ACK し、READY が 0 frame 記録を意味しないようにする。
-    record_trace_ready_generation: AtomicU64,
 }
 
 impl RecordStateMachine {
@@ -130,7 +127,6 @@ impl RecordStateMachine {
             generation: AtomicU64::new(0),
             record_started_at_ms: AtomicI64::new(0),
             measure_ready_generation: AtomicU64::new(0),
-            record_trace_ready_generation: AtomicU64::new(0),
         }
     }
 
@@ -160,20 +156,9 @@ impl RecordStateMachine {
         self.measure_ready_generation.load(Ordering::Acquire)
     }
 
-    /// 現 Record generation で TRACE サンプルが生成済みかどうかを見る。
-    pub fn record_trace_ready_generation(&self) -> u64 {
-        self.record_trace_ready_generation.load(Ordering::Acquire)
-    }
-
     /// Measure Thread 側から、Record TRACE 受入準備ができた generation を公開する。
     pub fn mark_measure_ready(&self, generation: u64) {
         self.measure_ready_generation
-            .fetch_max(generation, Ordering::AcqRel);
-    }
-
-    /// Measure Thread 側から、Record TRACE サンプル生成済み generation を公開する。
-    pub fn mark_record_trace_ready(&self, generation: u64) {
-        self.record_trace_ready_generation
             .fetch_max(generation, Ordering::AcqRel);
     }
 
@@ -249,8 +234,6 @@ impl RecordStateMachine {
     pub fn exit_record(&self) {
         self.record_started_at_ms.store(0, Ordering::Release);
         self.measure_ready_generation.store(0, Ordering::Release);
-        self.record_trace_ready_generation
-            .store(0, Ordering::Release);
         self.state.store(STATE_WATCH, Ordering::Release);
     }
 
@@ -297,7 +280,6 @@ mod tests {
         let sm = RecordStateMachine::new();
         assert_eq!(sm.record_started_at_ms(), 0);
         assert_eq!(sm.measure_ready_generation(), 0);
-        assert_eq!(sm.record_trace_ready_generation(), 0);
         assert_eq!(
             sm.try_enter_record_started_at(License::Os, 1_725_000_123_456),
             Ok(())
@@ -305,12 +287,9 @@ mod tests {
         assert_eq!(sm.record_started_at_ms(), 1_725_000_123_456);
         sm.mark_measure_ready(sm.generation());
         assert_eq!(sm.measure_ready_generation(), sm.generation());
-        sm.mark_record_trace_ready(sm.generation());
-        assert_eq!(sm.record_trace_ready_generation(), sm.generation());
         sm.exit_record();
         assert_eq!(sm.record_started_at_ms(), 0);
         assert_eq!(sm.measure_ready_generation(), 0);
-        assert_eq!(sm.record_trace_ready_generation(), 0);
     }
 
     #[test]

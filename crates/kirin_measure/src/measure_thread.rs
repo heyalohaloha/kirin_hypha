@@ -310,9 +310,6 @@ pub fn spawn_measure_thread(
                     &mut next_record_trace_ms,
                     &mut next_record_psb_ms,
                 );
-                if next_record_trace_ms > 0 {
-                    record_sm.mark_record_trace_ready(record_sm.generation());
-                }
                 record_pre_roll.clear();
                 if let Ok(mut g) = session_summary.lock() {
                     *g = None;
@@ -493,7 +490,7 @@ pub fn spawn_measure_thread(
                     let mut new_result = base_result.clone();
                     merge_phase_d_fields(&mut new_result, latest_pd_snapshot.as_ref());
                     if is_recording {
-                        if maybe_push_record_trace(
+                        let _ = maybe_push_record_trace(
                             &record_trace_queue,
                             record_origin_frames,
                             record_trace_time_offset_ms,
@@ -501,9 +498,7 @@ pub fn spawn_measure_thread(
                             &mut next_record_psb_ms,
                             frames_48k,
                             &new_result,
-                        ) {
-                            record_sm.mark_record_trace_ready(record_sm.generation());
-                        }
+                        );
                     } else {
                         record_pre_roll.push(observed_at_ms, frames_48k, &new_result);
                     }

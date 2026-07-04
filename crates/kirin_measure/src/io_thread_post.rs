@@ -137,9 +137,8 @@ const ALL_KEEP_POLL_INTERVAL: Duration = Duration::from_secs(1);
 /// 軽量 (`fs::metadata` 1 件 / project)。
 const PRE_LIVENESS_POLL_INTERVAL: Duration = Duration::from_secs(1);
 
-/// 60 秒以上 mtime 更新が無い (or pre.json 不在) の場合、PRE crash / unload とみなし
-/// POST が `delete_signal` + `exit_record` で構造的同期する (Daisuke 判断 α 採用 /
-/// Gap-1 / Gap-7 / Gap-18 統合解)。
+/// 60 秒以上 mtime 更新が無い (or pre.json 不在) 場合の診断しきい値。
+/// B-243 以降、stale/missing 自体は Stop 権限を持たず Record は維持する。
 const PRE_LIVENESS_STALE_SECS: u64 = 60;
 
 /// B-027 段階 3-B α-7-4-D / Step 11: IO Thread broadcast 受信時に発火する trigger
@@ -837,23 +836,11 @@ pub fn spawn_io_thread_post(
         }
         let _ = fs::remove_dir(&final_instance_dir);
 
-        // B-027 段階 3-B α-7 / Group 2 統合点 #4 (Gap-6 局所対処):
-        // IO Thread terminate 終端で self_post_iid の record_signal/{POST_iid}.json
-        // を削除する。POST 自身が writer = cleanup 責任を持つ (cdylib 越境通信
-        // 媒体の lifecycle 管理原則 / 設計判断 #5)。
-        //
-        // 経路: shutdown=true で loop 抜けた直後 / watchdog restart 時にも発火。
-        // Watchdog restart シナリオでは新 IO Thread spawn 直前にこの delete が
-        // 走るため、新 thread は新たな record_signal 書込が発生するまで対象 file
-        // は不在 (= clean state)。Watchdog による自動回復は IO Thread panic 後
-        // の T-8 経路のため、通常運用では発生しない。
-        //
+        // B-244: IO Thread terminate 終端でも record_signal は削除せず Released にする。
+        // PRE は missing では止めないため、shutdown/watchdog restart/drop の lifecycle 終了も
+        // 明示 Stop として伝播させる。
         // 失敗時 warn のみ (設計判断 #8): IO Thread terminate 内 panic は thread
-        // crash の連鎖のため避ける。delete_signal は冪等 (NotFound→Ok /
-        // record_signal.rs:289-301) で重複呼出 (統合点 #2/#3) と同居安全。
-        // B-027 段階 3-B α-7-4-D / Step 12-C: Ok(paths) arm を block 化 (single match arm
-        // → sequential block) し、delete_signal の直後に delete_broadcast 呼出を追加する
-        // 利用 (二重 resolve 回避)。機能的差異なし / panic 回避規範 (warn のみ) は両者で同等。
+        // crash の連鎖のため避ける。NotFound は no signal として扱う。
         match StoragePaths::default_platform() {
             Ok(paths) => {
                 release_record_reservation(
@@ -863,13 +850,14 @@ pub fn spawn_io_thread_post(
                     &paired_pre_target,
                     "cleanup #4",
                 );
-                match record_signal::delete_signal(
+                match record_signal::mark_released(
                     &paths.plugin_data_dir(),
                     &final_project_hash,
                     &final_iid,
                 ) {
-                    Ok(()) => log::info!("[POST cleanup #4] record_signal deleted: {}", final_iid),
-                    Err(e) => log::warn!("[POST cleanup #4] delete_signal failed: {:?}", e),
+                    Ok(true) => log::info!("[POST cleanup #4] mark_released ok"),
+                    Ok(false) => log::info!("[POST cleanup #4] no signal to release"),
+                    Err(e) => log::warn!("[POST cleanup #4] mark_released failed: {:?}", e),
                 }
 
                 // Step 12-C 統合点 #4 broadcast: originator として配置した
