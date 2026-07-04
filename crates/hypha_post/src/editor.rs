@@ -33,7 +33,7 @@ use hypha_gui::{
 use kirin_measure::reservation; // B-127 (G-115-365): egui parity — per-pairing O_EXCL frame
 use kirin_measure::{
     active_post_project_uuids_for_daw_session, all_keep_signal_path, all_stop_signal_path,
-    append_annotation_to_latest, count_distinct_pairings, delete_broadcast, delete_signal,
+    append_annotation_to_latest, count_distinct_pairings, delete_broadcast,
     enumerate_active_post_pair_candidates, enumerate_active_post_pair_candidates_for_daw_session,
     enumerate_active_pre_pair_candidates_for_post_project, exit_record_full, format_pair_label,
     load_signal_state, lookup_section_label, mark_released, pair_lock_active,
@@ -1805,8 +1805,7 @@ pub(crate) fn trigger_stop_internal(
     // G-115-365: exit_record_full は paired_pre_target を None にするため、枠解放用に対 PRE iid を
     // 先に捕捉する（FFI resolve_and_exit_stop と同一 parity）。
     let released_pre = paired_pre_target.lock().ok().and_then(|g| g.clone());
-    // exit_record_full で 3 ステップ一括化. IO Thread 自然終了経路 (poll_pre_liveness_at /
-    // poll_ack_timeout_with_base / handle_exit_reason) と完全対称な契約を成立させる.
+    // 手動 Stop は exit_record_full で 3 ステップ一括 cleanup する。
     exit_record_full(record_sm, pair_label, paired_pre_target);
     match StoragePaths::default_platform() {
         Ok(paths) => {
@@ -1826,30 +1825,15 @@ pub(crate) fn trigger_stop_internal(
                 }
             }
 
-            // B-027 段階 3-B α-7 / Group 2 統合点 #2 (Gap-6 局所対処):
-            // mark_released 直後に self_post_iid 用 record_signal/{POST_iid}.json を
-            // 削除する。POST 自身が writer = cleanup 責任を持つ (cdylib 越境通信
-            // 媒体の lifecycle 管理原則 / 設計判断 #5)。
-            //
-            // mark_released を残した上で delete を追加: PRE 側 1 秒 polling との
-            // race で mark_released 結果を観測する経路は保持しつつ (多重防御 /
-            // 設計判断 #9 (i) PRE 側 file removed 経路に委ねる方針と整合)、
-            // orphan を構造的に防ぐ。
-            //
-            // 失敗時 warn のみ (設計判断 #8): trigger_stop 内 panic は GUI freeze
-            // のため避ける。残骸は startup sweep (Gap-9 / B-026 別途) で救済。
-            //
-            // delete_signal は冪等 (record_signal.rs:289-301 / NotFound→Ok)。
-            // 統合点 #3 (Drop) / #4 (IO Thread terminate) と重複呼出されても安全。
-            match delete_signal(&plugin_data_dir, project_hash, instance_id) {
-                Ok(()) => log::info!("[POST cleanup #2] record_signal deleted: {}", instance_id),
-                Err(e) => log::warn!("[POST cleanup #2] delete_signal failed: {:?}", e),
-            }
+            // B-243: trigger_stop では record_signal を即削除しない。
+            // PRE は `released` を明示 Stop 理由として観測してから Watch へ戻る。
+            // missing を Stop 代替にすると一時的な scan/read miss でも Record が閉じ得るため、
+            // lifecycle cleanup は Drop / IO Thread shutdown の冪等 delete に限定する。
 
             // originator として配置した all_keep_signal/{POST_iid}.json broadcast を削除。
             // delete_broadcast は冪等 (all_keep_signal.rs:211-215 / NotFound→Ok)。統合点
             // #3 (Drop) / #4 (IO Thread terminate) と重複呼出されても安全。
-            // 失敗時 warn のみ (設計判断 #8 / 既存 delete_signal と同規範)。
+            // 失敗時 warn のみ (設計判断 #8)。
             match delete_broadcast(&plugin_data_dir, project_hash, instance_id) {
                 Ok(()) => log::info!(
                     "[POST cleanup #2 broadcast] delete_broadcast succeeded: instance={}",

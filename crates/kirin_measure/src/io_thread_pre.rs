@@ -55,7 +55,7 @@ const SIGNAL_POLL_INTERVAL: Duration = LOOP_SLEEP;
 ///
 /// `scan_signals_dir` が transient 失敗 (read_dir Err / parse race) で
 /// `current=None` を返した場合、`read_signal` で直接 path を read し直す
-/// 最大回数。本値 + `RETRY_INTERVAL` の積が「Keep 解除を遅延させる最大時間」。
+/// 最大回数。本値 + `RETRY_INTERVAL` の積が scan miss 診断前の最大待機時間。
 const RETRY_MAX_ATTEMPTS: usize = 2;
 
 /// B-022 段階 5 P-3: 直接 read リトライ間隔。
@@ -70,6 +70,11 @@ const RETRY_INTERVAL: Duration = Duration::from_millis(50);
 /// IO Thread 側 barrier（Audio Thread には触れない）。
 const MEASURE_READY_TIMEOUT: Duration = Duration::from_millis(300);
 const MEASURE_READY_POLL: Duration = Duration::from_millis(5);
+/// PRE が ACK を返す前に、現 Record generation で実 TRACE が少なくとも 1 件入るのを待つ上限。
+/// Measure-ready だけでは 0 frame Record を READY 扱いできてしまうため、READY の意味を
+/// 「Kirin OS がTRACEとして読める実サンプルがある」まで引き上げる。
+const RECORD_TRACE_READY_TIMEOUT: Duration = Duration::from_millis(300);
+const RECORD_TRACE_READY_POLL: Duration = Duration::from_millis(5);
 
 /// PRE スレッドが追従中の partner POST 情報（IO Thread ローカル）。
 struct PartnerInfo {
@@ -98,6 +103,22 @@ fn wait_for_measure_ready(record_sm: &RecordStateMachine, generation: u64) -> bo
             return false;
         }
         thread::sleep(MEASURE_READY_POLL);
+    }
+}
+
+fn wait_for_record_trace_ready(record_sm: &RecordStateMachine, generation: u64) -> bool {
+    if generation == 0 {
+        return false;
+    }
+    let deadline = Instant::now() + RECORD_TRACE_READY_TIMEOUT;
+    loop {
+        if record_sm.record_trace_ready_generation() >= generation {
+            return true;
+        }
+        if Instant::now() >= deadline {
+            return false;
+        }
+        thread::sleep(RECORD_TRACE_READY_POLL);
     }
 }
 
@@ -344,12 +365,13 @@ pub fn spawn_io_thread_pre(
             // `discover_pair_post_project_dir` が None を返し、cached_post_project_dir
             // が None にリセットされる。すると effective_project_hash_ref が
             // PRE 自身の project_hash に fallback (line 167-169) し、
-            // poll_record_signal が誤った dir を scan して matching=empty →
-            // partner.current=None → exit_record() が誤発火する (Keep 解除)。
+            // poll_record_signal が誤った dir を scan して matching=empty になる。
+            // B-243 以降は current=None 自体では止めないが、cached path 保護は
+            // 不要な missing 診断と pair 不安定化を避けるため維持する。
             //
             // 修正: partner.is_some() の間は discovery 呼出を skip し、
-            // cached_post_project_dir を保持し続ける。partner=None (Record 終了
-            // または signal 消失検出) 後の次 tick から discovery 再開。
+            // cached_post_project_dir を保持し続ける。partner=None (Released / cleanup)
+            // 後の次 tick から discovery 再開。
             let now_instant = Instant::now();
             if partner.is_none() && discovery.should_rescan(now_instant) {
                 let plugin_data_root = StoragePaths::default_platform()
@@ -676,9 +698,8 @@ fn poll_record_signal(
                 // 50ms 待機で抜けやすい。
                 //
                 // 最大 RETRY_MAX_ATTEMPTS (= 2) 回、各 RETRY_INTERVAL (= 50ms) 間隔で
-                // read を試み、いずれかで Some が返れば transient 失敗扱いで
-                // exit_record をスキップして watch を維持。全試行で None なら
-                // 真の消失として従来通り exit_record。
+                // read を試み、いずれかで Some が返れば transient 失敗扱いで Record を維持。
+                // 全試行で None でも missing 自体には Stop 権限を持たせない。
                 let recovered = retry_direct_read(&base, project_hash, &p.post_instance_id);
 
                 if let Some(sig) = recovered {
@@ -706,17 +727,14 @@ fn poll_record_signal(
                     return;
                 }
 
-                // 直接 read も None → 真の消失 → 従来動作。
-                if record_sm.is_recording() {
-                    record_sm.exit_record();
-                    recording.store(false, Ordering::Relaxed);
-                    record_acknowledged.store(false, Ordering::Relaxed);
-                    log::info!(
-                        "[signal] file removed (confirmed by direct read), PRE exiting Record (partner={})",
-                        p.post_instance_id
-                    );
-                }
-                *partner = None;
+                // 直接 read も None。B-243: missing は Stop 権限を持たない。
+                // Stop は trigger_stop が残す Released を正本にする。一時的な read/scan miss や
+                // cleanup race で PRE Record を閉じない。
+                log::warn!(
+                    "[signal] file missing after direct read; keeping PRE Record armed \
+                     (partner={})",
+                    p.post_instance_id
+                );
                 return;
             }
         }
@@ -772,6 +790,11 @@ fn poll_record_signal(
     let entered_now =
         match record_sm.try_enter_record_started_at(**license, requested_started_at_ms) {
             Ok(()) => true,
+            Err(crate::record::TransitionError::AlreadyRecording)
+                if record_sm.is_recording() && partner.is_none() =>
+            {
+                false
+            }
             Err(e) => {
                 log::warn!("[signal] try_enter_record rejected: {:?}", e);
                 return;
@@ -780,11 +803,19 @@ fn poll_record_signal(
     recording.store(true, Ordering::Relaxed);
     let target_generation = record_sm.generation();
     if !wait_for_measure_ready(record_sm, target_generation) {
-        record_sm.exit_record();
-        recording.store(false, Ordering::Relaxed);
         log::warn!(
             "[signal] PRE Record measure-ready timeout; ACK withheld \
-             (generation={}, pre_iid={}, pending_count={})",
+             but Record remains armed (generation={}, pre_iid={}, pending_count={})",
+            target_generation,
+            instance_id,
+            pending_signals.len()
+        );
+        return;
+    }
+    if !wait_for_record_trace_ready(record_sm, target_generation) {
+        log::warn!(
+            "[signal] PRE Record TRACE-ready timeout; ACK withheld \
+             but Record remains armed (generation={}, pre_iid={}, pending_count={})",
             target_generation,
             instance_id,
             pending_signals.len()
@@ -842,12 +873,8 @@ fn poll_record_signal(
             partner.as_ref().map(|p| p.post_instance_id.as_str())
         );
     } else if entered_now {
-        // 全 ack 失敗 + 本 tick で Watch→Record した場合は state machine を巻き戻す。
-        // (既存 Record 中の場合は触らない / 冪等性を保つ)
-        record_sm.exit_record();
-        recording.store(false, Ordering::Relaxed);
         log::warn!(
-            "[signal] all {} pending ack failed; reverted to Watch",
+            "[signal] all {} pending ack failed; keeping Record armed for retry",
             total
         );
     }
@@ -866,9 +893,9 @@ fn is_os_license(license: &License) -> bool {
 ///
 /// # 戻り値
 /// - `Some(signal)` : いずれかの試行で読込成功。呼出側は scan の transient
-///   失敗とみなして exit_record を呼ばずに watch を維持する。
-/// - `None`         : 全試行で read 不能。真の消失 (unload / delete_signal) と
-///   みなして従来通り exit_record してよい。
+///   失敗とみなして Record を維持する。
+/// - `None`         : 全試行で read 不能。診断ログ対象だが、missing 単独では
+///   exit_record してはいけない。Stop は Released / idle timeout 等の明示理由に限定する。
 ///
 /// # 副作用
 /// IO Thread を最大 `RETRY_MAX_ATTEMPTS * RETRY_INTERVAL` 秒間 sleep する。
@@ -1087,6 +1114,7 @@ mod tests {
             instance_id,
             signal_state,
             true,
+            true,
         );
     }
 
@@ -1103,6 +1131,7 @@ mod tests {
         instance_id: &str,
         signal_state: SignalState,
         measure_ready: bool,
+        trace_ready: bool,
     ) {
         let signals = record_signal::scan_signals_dir(base, TEST_PH);
         let matching: Vec<_> = signals
@@ -1154,12 +1183,6 @@ mod tests {
                         }
                         return;
                     }
-                    if record_sm.is_recording() {
-                        record_sm.exit_record();
-                        recording.store(false, Ordering::Relaxed);
-                        record_acknowledged.store(false, Ordering::Relaxed);
-                    }
-                    *partner = None;
                     return;
                 }
             }
@@ -1190,20 +1213,28 @@ mod tests {
             .min()
             .unwrap_or(0);
 
-        let entered_now = record_sm
-            .try_enter_record_started_at(**license, requested_started_at_ms)
-            .is_ok();
-        if !entered_now {
-            return;
-        }
+        let entered_now =
+            match record_sm.try_enter_record_started_at(**license, requested_started_at_ms) {
+                Ok(()) => true,
+                Err(crate::record::TransitionError::AlreadyRecording)
+                    if record_sm.is_recording() && partner.is_none() =>
+                {
+                    false
+                }
+                Err(_) => return,
+            };
         recording.store(true, Ordering::Relaxed);
         let target_generation = record_sm.generation();
         if measure_ready {
             record_sm.mark_measure_ready(target_generation);
         }
         if !wait_for_measure_ready(record_sm, target_generation) {
-            record_sm.exit_record();
-            recording.store(false, Ordering::Relaxed);
+            return;
+        }
+        if trace_ready {
+            record_sm.mark_record_trace_ready(target_generation);
+        }
+        if !wait_for_record_trace_ready(record_sm, target_generation) {
             return;
         }
 
@@ -1220,8 +1251,7 @@ mod tests {
                 last_seen_status: SignalStatus::Acknowledged,
             });
         } else if entered_now {
-            record_sm.exit_record();
-            recording.store(false, Ordering::Relaxed);
+            // ACK write failures do not own Stop authority. Keep the Record armed and retry.
         }
     }
 
@@ -1289,14 +1319,94 @@ mod tests {
             TEST_PRE_IID,
             SignalState::Active,
             false,
+            false,
         );
 
-        assert_eq!(sm.current(), RecordState::Watch);
-        assert!(!recording.load(Ordering::Relaxed));
+        assert_eq!(sm.current(), RecordState::Record);
+        assert!(recording.load(Ordering::Relaxed));
         assert!(!ack.load(Ordering::Relaxed));
         assert!(partner.is_none());
         let sig = record_signal::read_signal(&base, TEST_PH, "post-1").unwrap();
         assert_eq!(sig.status, SignalStatus::Pending);
+    }
+
+    #[test]
+    fn pending_ack_is_withheld_until_record_trace_is_ready() {
+        let base = isolated_base();
+        write_matching_pending(&base, "post-1");
+
+        let sm = Arc::new(RecordStateMachine::new());
+        let recording = Arc::new(AtomicBool::new(false));
+        let ack = Arc::new(AtomicBool::new(false));
+        let license = Arc::new(License::Os);
+        let mut partner = None;
+
+        poll_with_base_state_measure_ready(
+            &base,
+            &sm,
+            &recording,
+            &ack,
+            &license,
+            &mut partner,
+            TEST_PRE_IID,
+            SignalState::Active,
+            true,
+            false,
+        );
+
+        assert_eq!(sm.current(), RecordState::Record);
+        assert!(recording.load(Ordering::Relaxed));
+        assert!(!ack.load(Ordering::Relaxed));
+        assert!(partner.is_none());
+        let sig = record_signal::read_signal(&base, TEST_PH, "post-1").unwrap();
+        assert_eq!(sig.status, SignalStatus::Pending);
+    }
+
+    #[test]
+    fn pending_ack_retries_after_trace_becomes_ready_without_reentering_record() {
+        let base = isolated_base();
+        write_matching_pending(&base, "post-1");
+
+        let sm = Arc::new(RecordStateMachine::new());
+        let recording = Arc::new(AtomicBool::new(false));
+        let ack = Arc::new(AtomicBool::new(false));
+        let license = Arc::new(License::Os);
+        let mut partner = None;
+
+        poll_with_base_state_measure_ready(
+            &base,
+            &sm,
+            &recording,
+            &ack,
+            &license,
+            &mut partner,
+            TEST_PRE_IID,
+            SignalState::Active,
+            true,
+            false,
+        );
+        let generation = sm.generation();
+
+        poll_with_base_state_measure_ready(
+            &base,
+            &sm,
+            &recording,
+            &ack,
+            &license,
+            &mut partner,
+            TEST_PRE_IID,
+            SignalState::Active,
+            true,
+            true,
+        );
+
+        assert_eq!(sm.current(), RecordState::Record);
+        assert_eq!(sm.generation(), generation);
+        assert!(recording.load(Ordering::Relaxed));
+        assert!(ack.load(Ordering::Relaxed));
+        assert_eq!(partner.as_ref().unwrap().post_instance_id, "post-1");
+        let sig = record_signal::read_signal(&base, TEST_PH, "post-1").unwrap();
+        assert_eq!(sig.status, SignalStatus::Acknowledged);
     }
 
     /// Q1 (b) 厳格化: target_pre_instance_id が異なる signal は無視される。
@@ -1459,7 +1569,7 @@ mod tests {
     }
 
     #[test]
-    fn signal_file_removed_transitions_back_to_watch() {
+    fn signal_file_removed_keeps_record_armed() {
         let base = isolated_base();
         write_matching_pending(&base, "post-1");
         let sm = Arc::new(RecordStateMachine::new());
@@ -1489,8 +1599,18 @@ mod tests {
             TEST_PRE_IID,
         );
 
-        assert_eq!(sm.current(), RecordState::Watch);
-        assert!(partner.is_none());
+        assert_eq!(
+            sm.current(),
+            RecordState::Record,
+            "missing record_signal alone must not stop PRE Record"
+        );
+        assert!(recording.load(Ordering::Relaxed));
+        assert!(ack.load(Ordering::Relaxed));
+        assert!(
+            partner.is_some(),
+            "partner is retained so Released can still be observed if the file reappears"
+        );
+        assert_eq!(partner.as_ref().unwrap().post_instance_id, "post-1");
     }
 
     #[test]
@@ -2218,7 +2338,8 @@ mod tests {
     // 固定 → DISCOVERY_STALE_SECS=10s 経過後に discover_pair_post_project_dir が
     // None を返す → cached_post_project_dir リセット → effective_project_hash_ref
     // が PRE 自身の project_hash に fallback → poll_record_signal が誤った dir を
-    // scan → matching=empty → partner.current=None → exit_record() 誤発火。
+    // scan → matching=empty。B-243 以降は missing で止めないが、不要な
+    // current=None 診断を避けるため discovery gate は維持する。
     //
     // 段階 4 修正 (案 a): partner=Some の間 discovery 呼出を skip し
     // cached_post_project_dir を保持。これにより stale 判定経路が走らない。
@@ -2282,11 +2403,11 @@ mod tests {
         );
     }
 
-    /// T2: partner=None 復帰後 discovery が再開し、新しい POST project_dir を
-    /// 取得できることを構造的に固定。
+    /// T2: explicit cleanup などで partner=None 復帰後 discovery が再開し、
+    /// 新しい POST project_dir を取得できることを構造的に固定。
     ///
-    /// 受入基準 4-3 に対応: Record 終了 (Released / signal 消失検出) で
-    /// partner=None になった次 tick から discovery 呼出が解禁される。
+    /// 受入基準 4-3 に対応: Released / lifecycle cleanup で partner=None に
+    /// なった次 tick から discovery 呼出が解禁される。
     #[test]
     fn discovery_resumed_after_partner_cleared() {
         let mut discovery = PreSelfDiscoveryState::new();
@@ -2307,8 +2428,7 @@ mod tests {
             "partner=Some の間は rescan ゲート閉 (再確認)"
         );
 
-        // ── poll_record_signal が partner を None に戻した想定 ──
-        //    (Released 検出 / signal 消失検出のいずれの経路でも結果は同じ)
+        // ── poll_record_signal が明示 Stop / cleanup で partner を None に戻した想定 ──
         partner = None;
 
         // partner=None かつ should_rescan=true → ゲート開
@@ -2400,16 +2520,16 @@ mod tests {
 
         // poll_with_base 経路統合: scan が偶然空ではないが、本テストは
         // retry_direct_read の救済能力を孤立して固定する目的。
-        // poll_with_base 統合経路は既存 `signal_file_removed_*` で
-        // 真消失時に exit_record する逆向きを既に固定済。
+        // poll_with_base 統合経路は `signal_file_removed_keeps_record_armed` で
+        // missing が Stop 権限を持たないことを固定済。
     }
 
-    /// T4: scan が空 Vec を返す + read_signal も None → recovered=None で
-    /// exit_record が呼ばれる。
+    /// T4: scan が空 Vec を返す + read_signal も None → recovered=None でも
+    /// Record は維持される。
     ///
     /// 不変条件: ファイルが本当に存在しない場合、retry_direct_read は
     /// `RETRY_MAX_ATTEMPTS` 回試行しても None を返す。これを poll_with_base
-    /// が受け取れば従来通り exit_record + partner=None になる。
+    /// が受け取っても、missing 単独では exit_record しない。
     #[test]
     fn p3_retry_returns_none_when_signal_genuinely_absent() {
         let base = isolated_base();
@@ -2423,7 +2543,7 @@ mod tests {
         );
 
         // poll_with_base 統合経路: partner=Some の状態で current=None を
-        // 引き起こし、retry も None なら exit_record + partner=None。
+        // 引き起こし、retry も None でも Record + partner を維持する。
         let sm = Arc::new(RecordStateMachine::new());
         sm.try_enter_record(License::Os).unwrap();
         let recording = Arc::new(AtomicBool::new(true));
@@ -2435,7 +2555,7 @@ mod tests {
         });
 
         // base には何も無い → scan_signals_dir 空 → matching=空 → current=None
-        // → retry_direct_read も None → exit_record。
+        // → retry_direct_read も None → missing is diagnostic only.
         poll_with_base(
             &base,
             &sm,
@@ -2448,16 +2568,16 @@ mod tests {
 
         assert_eq!(
             sm.current(),
-            RecordState::Watch,
-            "真消失時は P-3 retry が None を返し、exit_record が発火する \
-             (受入基準 #5-7 T4)"
+            RecordState::Record,
+            "missing record_signal must keep PRE Record armed"
         );
-        assert!(!recording.load(Ordering::Relaxed));
-        assert!(!ack.load(Ordering::Relaxed));
+        assert!(recording.load(Ordering::Relaxed));
+        assert!(ack.load(Ordering::Relaxed));
         assert!(
-            partner.is_none(),
-            "exit_record と同時に partner も None にクリアされる"
+            partner.is_some(),
+            "partner must be retained; missing cannot clear the pairing"
         );
+        assert_eq!(partner.as_ref().unwrap().post_instance_id, "post-T4");
     }
 
     /// T3 補強: poll_with_base 経由でファイル存在時に partner / Record が

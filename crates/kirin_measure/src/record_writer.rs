@@ -399,6 +399,9 @@ fn record_duration_ms(ctx: &RecordingCtx) -> u64 {
 }
 
 fn trace_density_is_sparse(ctx: &RecordingCtx) -> bool {
+    if ctx.writer.data().frames.is_empty() {
+        return true;
+    }
     let duration_ms = record_duration_ms(ctx);
     if duration_ms < TRACE_DENSITY_MIN_DURATION_MS {
         return false;
@@ -604,9 +607,21 @@ pub fn run_record_tick_with_pair_names(
     let is_recording = record_sm.is_recording();
     match (is_recording, recording.is_some()) {
         (true, false) => {
-            let started_at_ms = started_at_resolver();
             let paired_pre = paired_pre_resolver();
+            if matches!(role, Role::Post) && paired_pre.is_none() {
+                log::warn!(
+                    "[writer] POST Record start deferred: paired_pre_target is not latched yet"
+                );
+                return Ok(());
+            }
             let paired_post = paired_post_resolver();
+            if matches!(role, Role::Pre) && paired_post.is_none() {
+                log::warn!(
+                    "[writer] PRE Record start deferred: partner POST is not acknowledged yet"
+                );
+                return Ok(());
+            }
+            let started_at_ms = started_at_resolver();
             let pair_name = pair_name_resolver();
             let pair_pre_name = pair_pre_name_resolver();
             if let Some(mut ctx) = writer_start(
@@ -1434,6 +1449,68 @@ mod tests {
     }
 
     #[test]
+    fn post_record_start_waits_for_paired_pre_target() {
+        let sm = Arc::new(RecordStateMachine::new());
+        sm.try_enter_record(License::Os).unwrap();
+        let m = Arc::new(Mutex::new(full_measure_result()));
+        let mut rec: Option<RecordingCtx> = None;
+
+        run_record_tick(
+            &sm,
+            Role::Post,
+            48000,
+            TEST_PH,
+            TEST_IID,
+            || panic!("POST writer must not resolve started_at before PRE target is latched"),
+            || None,
+            || None,
+            &m,
+            &mut rec,
+            None,
+            &no_overflow(),
+            &no_overflow(),
+            None,
+        )
+        .unwrap();
+
+        assert!(
+            rec.is_none(),
+            "POST must not create an unpaired Record JSON when paired_pre_target is missing"
+        );
+    }
+
+    #[test]
+    fn pre_record_start_waits_for_paired_post_partner() {
+        let sm = Arc::new(RecordStateMachine::new());
+        sm.try_enter_record(License::Os).unwrap();
+        let m = Arc::new(Mutex::new(full_measure_result()));
+        let mut rec: Option<RecordingCtx> = None;
+
+        run_record_tick(
+            &sm,
+            Role::Pre,
+            48000,
+            TEST_PH,
+            TEST_IID,
+            || panic!("PRE writer must not resolve started_at before POST partner is acknowledged"),
+            || None,
+            || None,
+            &m,
+            &mut rec,
+            None,
+            &no_overflow(),
+            &no_overflow(),
+            None,
+        )
+        .unwrap();
+
+        assert!(
+            rec.is_none(),
+            "PRE must not create an unpaired Record JSON before the POST signal is acknowledged"
+        );
+    }
+
+    #[test]
     fn run_record_tick_record_to_watch_closes_writer() {
         let base = isolated_base();
         let ctx = make_ctx(&base, Role::Post, now_epoch_ms());
@@ -1675,7 +1752,7 @@ mod tests {
     }
 
     #[test]
-    fn zero_trace_samples_under_min_duration_remains_clean() {
+    fn zero_trace_samples_under_min_duration_marks_integrity_degraded() {
         let base = isolated_base();
         let started = now_epoch_ms() - (TRACE_DENSITY_MIN_DURATION_MS as i64 - 1_000);
         let ctx = make_ctx(&base, Role::Pre, started);
@@ -1686,8 +1763,27 @@ mod tests {
         let loaded: PluginDataFile =
             serde_json::from_slice(&fs::read(&final_path).unwrap()).unwrap();
         assert!(
+            loaded.integrity_degraded,
+            "a Record with zero usable TRACE frames must not look clean even when short"
+        );
+    }
+
+    #[test]
+    fn one_trace_frame_under_min_duration_remains_clean() {
+        let base = isolated_base();
+        let started = now_epoch_ms() - (TRACE_DENSITY_MIN_DURATION_MS as i64 - 1_000);
+        let mut ctx = make_ctx(&base, Role::Pre, started);
+        let final_path = ctx.final_path.clone();
+        assert!(writer_append_frame(&mut ctx, 100, &full_measure_result()));
+
+        writer_close(ctx);
+
+        let loaded: PluginDataFile =
+            serde_json::from_slice(&fs::read(&final_path).unwrap()).unwrap();
+        assert_eq!(loaded.frames.len(), 1);
+        assert!(
             !loaded.integrity_degraded,
-            "very short Record exits are below the TRACE density integrity threshold"
+            "a short Record with at least one usable TRACE frame stays clean"
         );
     }
 
@@ -2368,6 +2464,7 @@ mod tests {
         //    前 Record の累積 5 を持ち越さない（per-Record 差分）。read(f1) は ctx2 生成より前。
         let mut ctx2 = make_ctx(&base, Role::Post, now_epoch_ms());
         ctx2.overflow_start = overflow.load(Ordering::Relaxed); // Record 2 開始 snapshot = 5
+        assert!(writer_append_frame(&mut ctx2, 100, &full_measure_result()));
         let path2 = ctx2.final_path.clone();
         let sm2 = Arc::new(RecordStateMachine::new());
         sm2.try_enter_record(License::Os).unwrap();

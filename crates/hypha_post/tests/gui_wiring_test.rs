@@ -382,57 +382,38 @@ fn editor_rs_keep_uses_authoritative_reservation_cap() {
 
 // ── B-027 段階 3-B α-7 / Group 2 (Gap-6 局所対処) 配線確証 ────────────────
 //
-// POST 側 record_signal/{POST_iid}.json の cleanup 責任を構造的に保証する。
-// 統合点 #2 (trigger_stop) と #3 (HyphaPost::drop) で `delete_signal` 呼出が
-// 落ちると orphan signal が残留し、PRE 側で偽の Pending を観測する事故が
-// 静音再発する (Gap-6)。runtime テストは cdylib + global state の壁で困難な
-// ため、ソース文字列上で固定する (gui_wiring_test と同じ R-22 配線回帰枠)。
+// POST Stop は `released` をPREへ見せることを正本にする。
+// trigger_stopで即 delete_signal すると、PRE が `released` を見逃して
+// missing を Stop 代替にする必要が出る。B-243 ではその権限を剥奪する。
 
-/// 統合点 #2: trigger_stop 内で mark_released の後に delete_signal が呼ばれる。
-/// 順序が逆 (delete → mark_released) だと PRE 側 1 秒 polling との race で
-/// mark_released 結果が常に観測不能になり、設計判断 #9 (i) の「PRE 側 file
-/// removed 経路」と二重防御が崩れる。
+/// 統合点 #2: trigger_stop 内では mark_released するが delete_signal しない。
 #[test]
-fn editor_rs_trigger_stop_calls_delete_signal_after_mark_released() {
+fn editor_rs_trigger_stop_marks_released_without_deleting_signal() {
     let src = read("src/editor.rs");
-    let mark_idx = src
-        .find("mark_released(&plugin_data_dir, project_hash, instance_id)")
+    src.find("mark_released(&plugin_data_dir, project_hash, instance_id)")
         .expect("trigger_stop must call mark_released (B-027 段階 3-B α-7)");
-    let delete_idx = src
-        .find("delete_signal(&plugin_data_dir, project_hash, instance_id)")
-        .expect("trigger_stop must call delete_signal (Group 2 統合点 #2)");
     assert!(
-        mark_idx < delete_idx,
-        "delete_signal must be called AFTER mark_released in trigger_stop \
-         (mark={mark_idx}, delete={delete_idx}); reversal breaks PRE-side \
-         polling observation (設計判断 #9 (i))"
-    );
-    // 失敗時は warn のみ (panic 禁止 / 設計判断 #8)
-    assert!(
-        src.contains("[POST cleanup #2] delete_signal failed"),
-        "trigger_stop delete_signal failure must log warn only (no panic)"
+        !src.contains("delete_signal(&plugin_data_dir, project_hash, instance_id)"),
+        "trigger_stop must leave record_signal as released so PRE observes explicit Stop"
     );
 }
 
 /// 統合点 #2 broadcast (B-027 段階 3-B α-7-4-D / Step 12-A): trigger_stop 内で
-/// 既存 delete_signal の **後** に delete_broadcast が呼ばれる。順序が逆だと
-/// originator 自身が broadcast 削除 → 受信側 cache に未登録の orphan が残留する
-/// (NotFound→Ok) のため統合点 #3 (Drop) / #4 (IO Thread terminate) との重複呼出
-/// は安全。失敗時 warn のみ (設計判断 #8 / 既存 delete_signal と同規範)。
+/// mark_released の **後** に delete_broadcast が呼ばれる。
+/// record_signal は残し、all_keep broadcast だけを掃除する。
 #[test]
-fn editor_rs_trigger_stop_calls_delete_broadcast_after_delete_signal() {
+fn editor_rs_trigger_stop_calls_delete_broadcast_after_mark_released() {
     let src = read("src/editor.rs");
-    let delete_signal_idx = src
-        .find("delete_signal(&plugin_data_dir, project_hash, instance_id)")
-        .expect("trigger_stop must call delete_signal (Group 2 統合点 #2)");
+    let mark_idx = src
+        .find("mark_released(&plugin_data_dir, project_hash, instance_id)")
+        .expect("trigger_stop must call mark_released");
     let delete_broadcast_idx = src
         .find("delete_broadcast(&plugin_data_dir, project_hash, instance_id)")
         .expect("trigger_stop must call delete_broadcast (Step 12-A 統合点 #2 broadcast)");
     assert!(
-        delete_signal_idx < delete_broadcast_idx,
-        "delete_broadcast must be called AFTER delete_signal in trigger_stop \
-         (delete_signal={delete_signal_idx}, delete_broadcast={delete_broadcast_idx}); \
-         reversal breaks orphan broadcast cleanup (DEV INBOX §9-3)"
+        mark_idx < delete_broadcast_idx,
+        "delete_broadcast must be called AFTER mark_released in trigger_stop \
+         (mark={mark_idx}, delete_broadcast={delete_broadcast_idx})"
     );
     // 失敗時は warn のみ (panic 禁止 / 設計判断 #8)
     assert!(
