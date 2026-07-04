@@ -1077,6 +1077,33 @@ mod tests {
         instance_id: &str,
         signal_state: SignalState,
     ) {
+        poll_with_base_state_measure_ready(
+            base,
+            record_sm,
+            recording,
+            record_acknowledged,
+            license,
+            partner,
+            instance_id,
+            signal_state,
+            true,
+        );
+    }
+
+    /// MeasureThread readiness を明示制御する版。通常テストは ready=true で
+    /// production の ACK barrier を通し、ready=false で ACK 保留/Record巻き戻しを固定する。
+    #[allow(clippy::too_many_arguments)]
+    fn poll_with_base_state_measure_ready(
+        base: &Path,
+        record_sm: &Arc<RecordStateMachine>,
+        recording: &Arc<AtomicBool>,
+        record_acknowledged: &Arc<AtomicBool>,
+        license: &Arc<License>,
+        partner: &mut Option<PartnerInfo>,
+        instance_id: &str,
+        signal_state: SignalState,
+        measure_ready: bool,
+    ) {
         let signals = record_signal::scan_signals_dir(base, TEST_PH);
         let matching: Vec<_> = signals
             .into_iter()
@@ -1157,11 +1184,28 @@ mod tests {
             return;
         }
 
-        let entered_now = record_sm.try_enter_record(**license).is_ok();
+        let requested_started_at_ms = pending_signals
+            .iter()
+            .filter_map(|(_, sig)| parse_iso8601_to_epoch_ms(&sig.started_at))
+            .min()
+            .unwrap_or(0);
+
+        let entered_now = record_sm
+            .try_enter_record_started_at(**license, requested_started_at_ms)
+            .is_ok();
         if !entered_now {
             return;
         }
         recording.store(true, Ordering::Relaxed);
+        let target_generation = record_sm.generation();
+        if measure_ready {
+            record_sm.mark_measure_ready(target_generation);
+        }
+        if !wait_for_measure_ready(record_sm, target_generation) {
+            record_sm.exit_record();
+            recording.store(false, Ordering::Relaxed);
+            return;
+        }
 
         let mut last_acked: Option<String> = None;
         for (post_iid, _) in &pending_signals {
@@ -1222,6 +1266,37 @@ mod tests {
         assert_eq!(sig.status, SignalStatus::Acknowledged);
         assert!(partner.is_some());
         assert_eq!(partner.as_ref().unwrap().post_instance_id, "post-1");
+    }
+
+    #[test]
+    fn pending_ack_is_withheld_until_measure_thread_is_ready() {
+        let base = isolated_base();
+        write_matching_pending(&base, "post-1");
+
+        let sm = Arc::new(RecordStateMachine::new());
+        let recording = Arc::new(AtomicBool::new(false));
+        let ack = Arc::new(AtomicBool::new(false));
+        let license = Arc::new(License::Os);
+        let mut partner = None;
+
+        poll_with_base_state_measure_ready(
+            &base,
+            &sm,
+            &recording,
+            &ack,
+            &license,
+            &mut partner,
+            TEST_PRE_IID,
+            SignalState::Active,
+            false,
+        );
+
+        assert_eq!(sm.current(), RecordState::Watch);
+        assert!(!recording.load(Ordering::Relaxed));
+        assert!(!ack.load(Ordering::Relaxed));
+        assert!(partner.is_none());
+        let sig = record_signal::read_signal(&base, TEST_PH, "post-1").unwrap();
+        assert_eq!(sig.status, SignalStatus::Pending);
     }
 
     /// Q1 (b) 厳格化: target_pre_instance_id が異なる signal は無視される。
