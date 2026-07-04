@@ -323,13 +323,6 @@ impl PluginDataFile {
 pub enum WriterError {
     Io(io::Error),
     Serde(serde_json::Error),
-    /// B-025 Group B-2 / Gap-19: flush() 呼出時に親ディレクトリ (例:
-    /// `plugin_data/{ph}/{iid}/{role}/`) が消えている (= ユーザーが
-    /// `plugin_data/` を全削除 / iCloud Drive 退避 等)。`fs::write` を
-    /// 試行する前に親 dir 不在を検出し、`Io` とは別 variant で返す。
-    /// caller (run_record_tick) は本 variant を `consecutive_dir_missing`
-    /// 計上経路に分岐させる (Io variant とは独立 / 計上機構共有しない)。
-    DirectoryMissing,
 }
 
 impl std::fmt::Display for WriterError {
@@ -337,7 +330,6 @@ impl std::fmt::Display for WriterError {
         match self {
             Self::Io(e) => write!(f, "IO error: {e}"),
             Self::Serde(e) => write!(f, "JSON error: {e}"),
-            Self::DirectoryMissing => write!(f, "parent directory missing"),
         }
     }
 }
@@ -642,13 +634,12 @@ impl PluginDataWriter {
     /// rename は POSIX では同一 FS 内で atomic。途中クラッシュ時も最終ファイルは
     /// 旧状態 or 新状態のどちらかにしかならない（D-1 対策）。
     ///
-    /// B-025 Group B-2 / Gap-19: 書込前に親 dir 不在を検査。`plugin_data/` が
-    /// ユーザーにより全削除された場合、`fs::write` の前に `DirectoryMissing` を
-    /// 返して caller (run_record_tick) に通知する (warn ループ無限回避 / counter 経路)。
+    /// B-245: 書込前に親 dir 不在を検査し、消えていれば再作成する。
+    /// storage の一時消失だけで Record を止めないため、復旧可能な欠落はここで吸収する。
     pub fn flush(&mut self) -> Result<(), WriterError> {
         if let Some(parent) = self.paths.final_path.parent() {
             if !parent.is_dir() {
-                return Err(WriterError::DirectoryMissing);
+                fs::create_dir_all(parent)?;
             }
         }
         self.data.checksum = compute_checksum(&self.data)?;

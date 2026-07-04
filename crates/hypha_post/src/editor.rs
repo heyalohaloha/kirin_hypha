@@ -204,9 +204,9 @@ pub struct PostEditorState {
     /// update closure 入口で `take()` して `state.toast` 化する。
     pub pair_release_notice: Arc<RwLock<Option<String>>>,
 
-    /// B-025 Group B-2/B-3 / Gap-19/20: io_thread が連続失敗 (Directory missing /
-    /// Write failed) で record exit したとき書込まれる UI 通知文字列。`None` =
+    /// io_thread が正当に Record を閉じた理由を表示する通知文字列。`None` =
     /// 通常 / `Some` のとき GUI 末尾にステータス行表示 (R-26 沈黙ゲート / 通常時非表示)。
+    /// B-245 以降、writer flush failure はここへ書かず Record を維持する。
     pub record_error_message: Arc<RwLock<Option<String>>>,
 
     // ── エディタローカル ───────────────────────────────────────────────
@@ -645,9 +645,9 @@ fn draw_post(
                 }
             }
 
-            // B-025 Group B-2/B-3 / Gap-19/20: io_thread が連続失敗で record exit
-            // した時のステータス行 (R-26 沈黙ゲート: 通常時 None なので非表示)。
-            // G-115-29 準拠の英語固定文言を `RecordError::ui_message()` 経由で受け取る。
+            // io_thread が正当に Record を閉じた時のステータス行
+            // (R-26 沈黙ゲート: 通常時 None なので非表示)。
+            // writer flush failure は Record 停止権限を持たず、ここには出さない。
             // toast と独立 (toast 寿命と無関係 / Some の間は表示し続ける)。
             let err_msg = state
                 .record_error_message

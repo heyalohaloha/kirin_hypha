@@ -1,18 +1,17 @@
 //!
-//! POST 側の Record→Watch 遷移は editor 側 (Stop / Keep 失敗) と IO Thread 側
-//! (PRE liveness stale / ACK timeout / write threshold exceeded) の **5 経路**
-//! で発火するが、共有状態 (`record_sm` + `pair_label` + `paired_pre_target`) の
-//! cleanup 対称性が構造的に保証されないと B-024 G-115-56 同種 (test 2 POST
-//! pair: 999999) の再発を招く。
+//! POST 側の Record→Watch 遷移は、明示 Stop / Keep 失敗 / All Stop / 10分無音
+//! など、利用者操作または正当な idle timeout だけに限定する。共有状態
+//! (`record_sm` + `pair_label` + `paired_pre_target`) の cleanup 対称性が構造的に
+//! 保証されないと B-024 G-115-56 同種 (test 2 POST pair: 999999) の再発を招く。
 //!
-//! 本モジュールの [`exit_record_full`] は 3 ステップを 1 単位に束ね、全 5 経路で
-//! **同一実装**を通過させて構造的契約 「Watch 状態 ⟹ pair_label 空 /
-//! paired_pre_target = None」 を一点生成にする。
+//! 本モジュールの [`exit_record_full`] は 3 ステップを 1 単位に束ね、Record を
+//! 閉じてよい経路だけで **同一実装**を通過させ、構造的契約
+//! 「Watch 状態 ⟹ pair_label 空 / paired_pre_target = None」 を一点生成にする。
 //!
 //! - editor 側 (`hypha_post::editor::trigger_stop_internal` /
 //!   `trigger_keep_internal` 失敗) は本ヘルパー経由
-//! - IO Thread 側 (`io_thread_post::poll_pre_liveness_at` /
-//!   `poll_ack_timeout_with_base` / `handle_exit_reason`) も本ヘルパー経由
+//! - IO Thread 側の idle timeout も本ヘルパー経由
+//! - PRE stale / ACK timeout / writer flush failure は診断のみで、Record 停止権限を持たない
 
 use std::sync::{Arc, Mutex};
 
@@ -35,8 +34,7 @@ pub fn clear_pair_label(pair_label: &Arc<Mutex<String>>) {
 ///   3. `*paired_pre_target = None` — v1.2 (a) post.json 復元キーをクリア
 ///
 /// editor 側 (`trigger_stop_internal` / `trigger_keep_internal` 失敗) と
-/// IO Thread 側 (`run_record_tick` 連続失敗 / `poll_pre_liveness_at` PRE stale /
-/// `poll_ack_timeout_with_base` ACK timeout) の **全 5 経路で同一呼出**.
+/// IO Thread 側の idle timeout で同一呼出.
 ///
 /// # 構造的契約
 /// "Watch 状態 ⟹ pair_label 空 / paired_pre_target = None".
