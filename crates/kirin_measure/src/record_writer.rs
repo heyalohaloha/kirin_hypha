@@ -87,6 +87,17 @@ pub const SEAL_WAIT_TIMEOUT: Duration = Duration::from_millis(500);
 /// B-132: seal wait のポーリング間隔（lock-free / atomic load のみ）。
 pub const SEAL_WAIT_POLL: Duration = Duration::from_millis(10);
 
+/// TRACE 密度不足を integrity として扱い始める最小音声時間。
+const TRACE_DENSITY_MIN_DURATION_MS: u64 = 5_000;
+
+/// 音声時間ベースの想定 TRACE サンプル数に対する下限比率。
+///
+/// 実際の numeric frame は無音で減り得るため判定には使わず、Measure Thread から届いた
+/// RecordTraceSample 数だけを見る。1/4 未満なら高速バウンス取り込みが粗すぎるものとして
+/// `integrity_degraded` に倒す。
+const TRACE_DENSITY_MIN_RATIO_NUM: usize = 1;
+const TRACE_DENSITY_MIN_RATIO_DEN: usize = 4;
+
 /// B-132 (G-115-382 共通B): Record→Watch close 時に Measure Thread の post-drain seal が
 /// `seal_at_start` を超えるまで **lock-free bounded** に待つ。
 ///
@@ -192,6 +203,10 @@ pub struct RecordingCtx {
     /// 数値フレームが成立しないことがある。offline bounce の収録長は壁時計ではなく、
     /// 数値フレームの有無と独立したこの音声時間から焼く。
     pub last_trace_t_ms: Option<u64>,
+    /// Measure Thread から届いた audio-time TRACE サンプル総数。
+    ///
+    /// `frames[]` は無音/ウォームアップで減るため、密度検査はこの raw sample count で行う。
+    pub trace_sample_count: usize,
 }
 
 impl RecordingCtx {
@@ -342,12 +357,14 @@ pub fn writer_start(
         oversized_drop_start: 0, // B-125: 同上（oversized_drop の Record 開始 snapshot）
         seal_at_start: 0,  // B-132: run_record_tick が Record 開始時に seal を snapshot する
         last_trace_t_ms: None,
+        trace_sample_count: 0,
     })
 }
 
 /// Record 終了: status=closed で最終 flush、ログ出力。
 pub fn writer_close(mut ctx: RecordingCtx) {
     let final_path = ctx.final_path.clone();
+    mark_integrity_if_trace_density_is_sparse(&mut ctx);
     seal_bounce_marker(&mut ctx);
     match ctx.writer.close() {
         Ok(()) => log::info!("[writer] released: {}", final_path.display()),
@@ -367,6 +384,34 @@ fn seal_bounce_marker(ctx: &mut RecordingCtx) {
     let duration_samples = duration_ms.saturating_mul(sample_rate) / 1_000;
     ctx.writer
         .set_bounce_end(epoch_ms_to_iso8601(end_ms), duration_samples, String::new());
+}
+
+fn expected_trace_samples(duration_ms: u64) -> usize {
+    (duration_ms / FRAME_INTERVAL_MS).saturating_add(1) as usize
+}
+
+fn trace_density_is_sparse(ctx: &RecordingCtx) -> bool {
+    let Some(duration_ms) = ctx.last_trace_t_ms else {
+        return false;
+    };
+    if duration_ms < TRACE_DENSITY_MIN_DURATION_MS || ctx.trace_sample_count == 0 {
+        return false;
+    }
+    let expected = expected_trace_samples(duration_ms);
+    ctx.trace_sample_count
+        .saturating_mul(TRACE_DENSITY_MIN_RATIO_DEN)
+        < expected.saturating_mul(TRACE_DENSITY_MIN_RATIO_NUM)
+}
+
+fn mark_integrity_if_trace_density_is_sparse(ctx: &mut RecordingCtx) {
+    if trace_density_is_sparse(ctx) {
+        log::warn!(
+            "[writer] sparse TRACE density: samples={} duration_ms={} - marking integrity_degraded",
+            ctx.trace_sample_count,
+            ctx.last_trace_t_ms.unwrap_or_default()
+        );
+        ctx.writer.mark_integrity_degraded();
+    }
 }
 
 /// Record 終了 (B-043 セッション集計注入版)。
@@ -705,6 +750,7 @@ fn drain_trace_queue_into_writer(
             ctx.next_psb_ms = (t_ms / PSB_INTERVAL_MS + 1) * PSB_INTERVAL_MS;
         }
     }
+    ctx.trace_sample_count = ctx.trace_sample_count.saturating_add(stats.samples);
     stats
 }
 
@@ -1139,6 +1185,7 @@ mod tests {
             oversized_drop_start: 0, // B-125
             seal_at_start: 0,        // B-132
             last_trace_t_ms: None,
+            trace_sample_count: 0,
         }
     }
 
@@ -1495,6 +1542,111 @@ mod tests {
             Some(1)
         );
         assert!(drain_record_trace_queue(&queue).is_empty());
+    }
+
+    #[test]
+    fn sparse_trace_sample_density_marks_integrity_degraded() {
+        let base = isolated_base();
+        let ctx = make_ctx(&base, Role::Post, now_epoch_ms());
+        let final_path = ctx.final_path.clone();
+        let sm = Arc::new(RecordStateMachine::new());
+        sm.try_enter_record(License::Os).unwrap();
+        let m = Arc::new(Mutex::new(MeasureResult::default()));
+        let mut rec: Option<RecordingCtx> = Some(ctx);
+        let queue = new_record_trace_queue();
+        for t_ms in [100, 10_000] {
+            push_record_trace_sample(
+                &queue,
+                RecordTraceSample {
+                    t_ms,
+                    result: full_measure_result(),
+                    include_psb: false,
+                },
+            );
+        }
+
+        run_record_tick(
+            &sm,
+            Role::Post,
+            48000,
+            TEST_PH,
+            TEST_IID,
+            now_epoch_ms,
+            || None,
+            || None,
+            &m,
+            &mut rec,
+            None,
+            &no_overflow(),
+            &no_overflow(),
+            Some(&queue),
+        )
+        .unwrap();
+
+        writer_close(rec.take().unwrap());
+        let loaded: PluginDataFile =
+            serde_json::from_slice(&fs::read(&final_path).unwrap()).unwrap();
+        assert!(
+            loaded.integrity_degraded,
+            "audio-time progressed but TRACE sample density was too sparse"
+        );
+    }
+
+    #[test]
+    fn sparse_numeric_frames_do_not_degrade_when_trace_samples_are_dense() {
+        let base = isolated_base();
+        let ctx = make_ctx(&base, Role::Post, now_epoch_ms());
+        let final_path = ctx.final_path.clone();
+        let sm = Arc::new(RecordStateMachine::new());
+        sm.try_enter_record(License::Os).unwrap();
+        let m = Arc::new(Mutex::new(MeasureResult::default()));
+        let mut rec: Option<RecordingCtx> = Some(ctx);
+        let queue = new_record_trace_queue();
+        for i in 0..=100 {
+            push_record_trace_sample(
+                &queue,
+                RecordTraceSample {
+                    t_ms: i * FRAME_INTERVAL_MS,
+                    result: if i == 1 {
+                        full_measure_result()
+                    } else {
+                        MeasureResult::default()
+                    },
+                    include_psb: false,
+                },
+            );
+        }
+
+        run_record_tick(
+            &sm,
+            Role::Post,
+            48000,
+            TEST_PH,
+            TEST_IID,
+            now_epoch_ms,
+            || None,
+            || None,
+            &m,
+            &mut rec,
+            None,
+            &no_overflow(),
+            &no_overflow(),
+            Some(&queue),
+        )
+        .unwrap();
+
+        writer_close(rec.take().unwrap());
+        let loaded: PluginDataFile =
+            serde_json::from_slice(&fs::read(&final_path).unwrap()).unwrap();
+        assert_eq!(
+            loaded.frames.len(),
+            1,
+            "only the one numeric trace point should become a frame"
+        );
+        assert!(
+            !loaded.integrity_degraded,
+            "dense raw TRACE samples mean sparse numeric frames can be legitimate silence"
+        );
     }
 
     #[test]

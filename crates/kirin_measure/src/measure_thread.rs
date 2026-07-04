@@ -27,8 +27,14 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-/// Measure Thread のループ間隔（ 推奨 100ms）。
+/// Measure Thread の通常ループ間隔。
 const LOOP_SLEEP: Duration = Duration::from_millis(100);
+
+/// Record 中の idle poll 間隔。
+///
+/// Offline bounce は wall-clock より速く Audio Thread が進むため、Record 中だけ短い sleep にして
+/// Audio→Measure ring の滞留を減らす。Audio Thread からの通知や lock は増やさない。
+const RECORD_LOOP_SLEEP: Duration = Duration::from_millis(1);
 
 /// G-115-245 決定文言: heartbeat が変化しないまま何 tick 経過したら process() 停止と判定するか。
 /// **30 tick** × **TICK(=LOOP_SLEEP=100ms)** = **3s**（DAW の一時 stall を吸収）。30 / 100ms を
@@ -40,6 +46,15 @@ const TICK: Duration = LOOP_SLEEP; // 100ms
 /// テストは `LivenessEvaluator::new` に任意 Duration を注入する。
 pub fn live_window() -> Duration {
     TICK * HEARTBEAT_STALE_TICKS
+}
+
+#[inline]
+fn idle_sleep_for_record_state(is_recording: bool) -> Duration {
+    if is_recording {
+        RECORD_LOOP_SLEEP
+    } else {
+        LOOP_SLEEP
+    }
 }
 
 /// B-115: POST pair 変更ロックの述語。**実再生中（playing）かつ live**（processBlock 進行中）の
@@ -337,7 +352,7 @@ pub fn spawn_measure_thread(
                     Ok(mut guard) => *guard = MeasureResult::default(),
                     Err(e) => log::warn!("[MeasureThread] result Mutex poisoned: {}", e),
                 }
-                thread::sleep(LOOP_SLEEP);
+                thread::sleep(idle_sleep_for_record_state(is_recording));
                 continue;
             }
 
@@ -391,7 +406,7 @@ pub fn spawn_measure_thread(
                             sample_rate,
                             e
                         );
-                        thread::sleep(LOOP_SLEEP);
+                        thread::sleep(idle_sleep_for_record_state(is_recording));
                         continue;
                     }
                     &resampled_buf
@@ -451,7 +466,7 @@ pub fn spawn_measure_thread(
             if consumer.slots() > 0 {
                 thread::yield_now();
             } else {
-                thread::sleep(LOOP_SLEEP);
+                thread::sleep(idle_sleep_for_record_state(is_recording));
             }
         }
 
@@ -642,6 +657,19 @@ pub mod tests {
         psb_high_ext_15_5k_20k: f64,
     ) -> crate::PsbSummary {
         compute_psb_summary(psb, psb_bark21_24, psb_high_ext_15_5k_20k)
+    }
+
+    #[test]
+    fn record_mode_uses_short_idle_sleep_for_offline_bounce_catchup() {
+        assert_eq!(super::idle_sleep_for_record_state(false), super::LOOP_SLEEP);
+        assert_eq!(
+            super::idle_sleep_for_record_state(true),
+            super::RECORD_LOOP_SLEEP
+        );
+        assert!(
+            super::idle_sleep_for_record_state(true) < super::LOOP_SLEEP,
+            "Record mode must poll faster than Watch mode"
+        );
     }
 
     // ── B-115: POST pair lock 述語（playing かつ live）+ heartbeat 鮮度の単体 ──

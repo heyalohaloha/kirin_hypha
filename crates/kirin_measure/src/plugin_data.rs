@@ -22,7 +22,7 @@
 //! | モード | frames[] | psb_snapshots[] |
 //! |--------|---------|-----------------|
 //! | Record リアルタイム | 10 fps | 2 fps |
-//! | Record バウンス | 93 fps | 2 fps |
+//! | Record バウンス | 10 fps (audio-time) | 2 fps |
 //!
 //! caller（Plugin 側、T-6 で統合）が解像度に従って `append_frame` / `append_psb`
 //! を呼ぶ。本モジュールは間引きロジックを持たない。
