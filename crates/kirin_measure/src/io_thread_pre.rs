@@ -44,8 +44,12 @@ use crate::{load_signal_state, License, MeasureResult, RecordTraceQueue, SignalS
 
 const LOOP_SLEEP: Duration = Duration::from_millis(100);
 
-/// record_signal poll 間隔（1 秒）。
-const SIGNAL_POLL_INTERVAL: Duration = Duration::from_secs(1);
+/// record_signal poll 間隔。
+///
+/// PRE は POST の Keep を filesystem signal 経由で追従する。1 秒 cadence では
+/// Studio One の offline bounce / Stop+Keep 世代切替に遅れ、POST だけが実音を
+/// 記録して PRE が空になるため、IO tick と同じ 100ms で追従する。
+const SIGNAL_POLL_INTERVAL: Duration = LOOP_SLEEP;
 
 /// B-022 段階 5 P-3: 直接 read リトライ最大回数。
 ///
@@ -65,6 +69,14 @@ const RETRY_INTERVAL: Duration = Duration::from_millis(50);
 struct PartnerInfo {
     post_instance_id: String,
     last_seen_status: SignalStatus,
+}
+
+fn should_force_pre_watch_without_partner(
+    record_sm: &RecordStateMachine,
+    partner: &Option<PartnerInfo>,
+    record_acknowledged: &AtomicBool,
+) -> bool {
+    record_sm.is_recording() && partner.is_none() && record_acknowledged.load(Ordering::Relaxed)
 }
 
 /// B-024 Group A / Gap-3 / Gap-5: PRE startup 時に stale Acknowledged signal を削除する。
@@ -392,8 +404,20 @@ pub fn spawn_io_thread_pre(
                 );
             }
 
+            if should_force_pre_watch_without_partner(&record_sm, &partner, &record_acknowledged) {
+                record_sm.exit_record();
+                recording.store(false, Ordering::Relaxed);
+                record_acknowledged.store(false, Ordering::Relaxed);
+                log::warn!(
+                    "[signal] PRE Record ack has no partner POST; forcing Watch before writer tick \
+                     (pre_iid={})",
+                    instance_id_ref
+                );
+            }
+
             // ③ plugin_data/.../pre/*.json ライフサイクル（Record writer）
-            // partner が居れば partner の signal.started_at を解決、不在なら現在時刻 fallback
+            // partner が居れば partner の signal.started_at を解決する。PRE 単体 Record
+            // では partner が無いため、fallback の now_epoch_ms を正規経路として使う。
             //
             // B-022 段階 2: project_hash 引数も `effective_project_hash_ref`
             // に切り替え。PRE 側 plugin_data の親 dir = `{POST の project_uuid}/`
@@ -1775,6 +1799,93 @@ mod tests {
         assert!(
             partner.is_none(),
             "Group 3 branch で partner=None (新 generation 扱い)"
+        );
+    }
+
+    #[test]
+    fn a_to_p_direct_transition_acks_next_generation_on_next_poll() {
+        let base = isolated_base();
+        write_matching_pending(&base, "post-race-next");
+
+        let sm = Arc::new(RecordStateMachine::new());
+        sm.try_enter_record(License::Os).unwrap();
+        let recording = Arc::new(AtomicBool::new(true));
+        let ack = Arc::new(AtomicBool::new(true));
+        let license = Arc::new(License::Os);
+        let mut partner: Option<PartnerInfo> = Some(PartnerInfo {
+            post_instance_id: "post-race-next".to_string(),
+            last_seen_status: SignalStatus::Acknowledged,
+        });
+
+        poll_with_base(
+            &base,
+            &sm,
+            &recording,
+            &ack,
+            &license,
+            &mut partner,
+            TEST_PRE_IID,
+        );
+        assert_eq!(sm.current(), RecordState::Watch);
+        assert!(partner.is_none());
+
+        poll_with_base(
+            &base,
+            &sm,
+            &recording,
+            &ack,
+            &license,
+            &mut partner,
+            TEST_PRE_IID,
+        );
+
+        assert_eq!(
+            sm.current(),
+            RecordState::Record,
+            "A→P で旧世代を閉じた後、次 poll で新 generation を ack して Record 復帰する"
+        );
+        assert!(recording.load(Ordering::Relaxed));
+        assert!(ack.load(Ordering::Relaxed));
+        assert_eq!(
+            partner.as_ref().map(|p| p.post_instance_id.as_str()),
+            Some("post-race-next")
+        );
+        let sig = record_signal::read_signal(&base, TEST_PH, "post-race-next").unwrap();
+        assert_eq!(sig.status, SignalStatus::Acknowledged);
+    }
+
+    #[test]
+    fn pre_standalone_record_without_partner_is_allowed() {
+        let sm = Arc::new(RecordStateMachine::new());
+        sm.try_enter_record(License::Os).unwrap();
+        let partner: Option<PartnerInfo> = None;
+        let ack = AtomicBool::new(false);
+
+        assert!(
+            !should_force_pre_watch_without_partner(&sm, &partner, &ack),
+            "PRE 単体 Record は partner 無しで writer を持ってよい"
+        );
+    }
+
+    #[test]
+    fn pre_ack_without_partner_is_forced_to_watch() {
+        let sm = Arc::new(RecordStateMachine::new());
+        sm.try_enter_record(License::Os).unwrap();
+        let partner: Option<PartnerInfo> = None;
+        let ack = AtomicBool::new(true);
+
+        assert!(
+            should_force_pre_watch_without_partner(&sm, &partner, &ack),
+            "POST signal を ack した世代で partner が無い状態は壊れた連携として戻す"
+        );
+
+        let partner = Some(PartnerInfo {
+            post_instance_id: "post-ok".to_string(),
+            last_seen_status: SignalStatus::Acknowledged,
+        });
+        assert!(
+            !should_force_pre_watch_without_partner(&sm, &partner, &ack),
+            "partner が確定していれば PRE Record 継続"
         );
     }
 

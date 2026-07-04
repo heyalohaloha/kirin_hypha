@@ -59,9 +59,12 @@ use crate::record_signal::{RecordSignal, SIGNALS_SUBDIR};
 /// でも mtime が直近で更新されている前提を残す。
 pub const DISCOVERY_STALE_SECS: u64 = 10;
 
-/// `discover_pair_post_project_dir` を呼ぶ最低間隔。100ms tick で毎回
-/// `fs::read_dir` すると I/O コストが上がるため、1 秒に 1 回まで制限する。
+/// `discover_pair_post_project_dir` を呼ぶ通常の最低間隔。
 const RESCAN_INTERVAL: Duration = Duration::from_secs(1);
+
+/// POST project をまだ一度も捕捉できていない PRE は、Keep 直後の
+/// offline bounce に間に合わせるため 100ms tick で短期探索する。
+const FIRST_CAPTURE_RESCAN_INTERVAL: Duration = Duration::from_millis(100);
 
 /// PRE 側の動的 POST 検出キャッシュ。
 ///
@@ -105,11 +108,19 @@ impl PreSelfDiscoveryState {
         self.cached_daw_session_id.as_deref()
     }
 
-    /// 1 秒以上経過しているか、まだ一度も scan していない場合のみ true。
+    /// scan から十分経過しているか、まだ一度も scan していない場合のみ true。
+    ///
+    /// POST project 未捕捉の間だけ 100ms で探索する。1 回捕捉できた後は cache を
+    /// None scan で消さないため、通常の 1s cadence に戻る。
     pub fn should_rescan(&self, now: Instant) -> bool {
+        let interval = if self.cached_post_project_dir.is_some() {
+            RESCAN_INTERVAL
+        } else {
+            FIRST_CAPTURE_RESCAN_INTERVAL
+        };
         match self.last_scan {
             None => true,
-            Some(t) => now.duration_since(t) >= RESCAN_INTERVAL,
+            Some(t) => now.duration_since(t) >= interval,
         }
     }
 
@@ -480,6 +491,21 @@ mod tests {
         assert!(!s.should_rescan(t0 + Duration::from_millis(500)));
         // 1 秒経過時点で再走査可
         assert!(s.should_rescan(t0 + Duration::from_millis(1000)));
+    }
+
+    #[test]
+    fn state_uses_fast_rescan_until_first_capture() {
+        let mut s = PreSelfDiscoveryState::new();
+        let t0 = Instant::now();
+        s.record_scan(t0, None);
+        assert!(
+            !s.should_rescan(t0 + Duration::from_millis(99)),
+            "POST project 未捕捉でも 100ms 未満は throttle"
+        );
+        assert!(
+            s.should_rescan(t0 + Duration::from_millis(100)),
+            "POST project 未捕捉中は Keep→offline bounce に追従するため 100ms で再探索"
+        );
     }
 
     #[test]
