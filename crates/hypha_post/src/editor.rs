@@ -24,8 +24,9 @@
 //! （赤系禁止。色相同一・明度増）。
 
 use hypha_gui::{
-    derive_led_state, fmt_delta, fmt_val, led_color, pairing_label, tp_over, val_color, value_row,
-    BackgroundTexture, BG, COL_FLORA, COL_FLORA_BRIGHT, COL_MUTED, COL_NORMAL,
+    derive_led_state, display_smoothing::DisplaySmoother, fmt_delta, fmt_val, led_color,
+    pairing_label, tp_over, val_color, value_row, BackgroundTexture, BG, COL_FLORA,
+    COL_FLORA_BRIGHT, COL_MUTED, COL_NORMAL,
 };
 use kirin_measure::reservation; // B-127 (G-115-365): egui parity — per-pairing O_EXCL frame
 use kirin_measure::{
@@ -219,6 +220,8 @@ pub struct PostEditorState {
     /// B-027 段階 2: pair_pre_name 編集モードの入力 buffer。
     /// PRE 側 PreEditorState.edit_buffer (editor.rs:82-85) と同パターン。
     pair_pre_name_edit_buffer: String,
+    /// GUI 表示専用の安定化フィルタ。plugin_data / TRACE の raw 値には触れない。
+    display_smoother: DisplaySmoother,
 }
 
 impl PostEditorState {
@@ -258,6 +261,7 @@ impl PostEditorState {
             cards_expanded: false,
             record_start_wall_time: None,
             pair_pre_name_edit_buffer: String::new(),
+            display_smoother: DisplaySmoother::default(),
         }
     }
 }
@@ -328,8 +332,8 @@ pub fn create_post_editor(args: PostEditorArgs) -> Option<Box<dyn Editor>> {
             // playing 凍結値でも live=false ならロックしない（false-release 防止 / signal_state 非代用）。
             let live = state.liveness.is_live();
             let pair_locked = pair_lock_active(is_playing, live);
-            let m = state.measure.lock().map(|g| g.clone()).unwrap_or_default();
-            let d = state.delta.lock().map(|g| g.clone()).unwrap_or_default();
+            let raw_m = state.measure.lock().map(|g| g.clone()).unwrap_or_default();
+            let raw_d = state.delta.lock().map(|g| g.clone()).unwrap_or_default();
             let alive = state.measure_alive.load(Ordering::Relaxed);
             let recording = state.record_sm.is_recording();
             // Record から抜けた瞬間に picker を自動閉じ（Watch 中に picker が残ることを防止）
@@ -394,6 +398,28 @@ pub fn create_post_editor(args: PostEditorArgs) -> Option<Box<dyn Editor>> {
             }
             let led_col = led_color(led, now);
 
+            let (m, d, display_stale) = match sig {
+                SignalState::Active => {
+                    let smoothed_m = state.display_smoother.update_measure(&raw_m, now);
+                    let smoothed_d = if raw_d.mode == DeltaMode::Active {
+                        state.display_smoother.update_delta(&raw_d, now)
+                    } else {
+                        raw_d
+                    };
+                    (smoothed_m, smoothed_d, false)
+                }
+                SignalState::Inactive => {
+                    let held_m = state.display_smoother.held_measure(now);
+                    let held_d = state.display_smoother.held_delta(now);
+                    let stale = held_m.is_some() || held_d.is_some();
+                    (held_m.unwrap_or(raw_m), held_d.unwrap_or(raw_d), stale)
+                }
+                SignalState::Bypassed => {
+                    state.display_smoother.reset();
+                    (raw_m, raw_d, false)
+                }
+            };
+
             draw_post(
                 ctx,
                 state,
@@ -407,6 +433,7 @@ pub fn create_post_editor(args: PostEditorArgs) -> Option<Box<dyn Editor>> {
                 license,
                 now,
                 pair_locked,
+                display_stale,
             );
 
             // Toast の寿命切れはこのフレームで掃除
@@ -433,6 +460,7 @@ fn draw_post(
     license: License,
     now: f64,
     pair_locked: bool,
+    display_stale: bool,
 ) {
     egui::CentralPanel::default()
         .frame(egui::Frame::NONE.fill(BG))
@@ -502,9 +530,13 @@ fn draw_post(
                     draw_inactive_grid(ui);
                 }
                 SignalState::Inactive => {
-                    if let Some(snap) = &d.last_active {
+                    if display_stale && !pair_empty && has_delta_core(d) {
+                        draw_delta_grid(ui, d, COL_MUTED, false);
+                    } else if let Some(snap) = &d.last_active {
                         // B-049: POST 自身が Inactive でも過去 Active Δ 値を凍結保持表示
                         draw_delta_grid_frozen(ui, snap, false);
+                    } else if display_stale && has_measure_core(m) {
+                        draw_watch_absolute_grid(ui, m, true);
                     } else {
                         // last_active=None (初回起動 / Active 未経験) は既存 fallback
                         draw_inactive_grid(ui);
@@ -514,7 +546,7 @@ fn draw_post(
                 }
                 SignalState::Active => {
                     if recording {
-                        draw_record_section(ui, m, d);
+                        draw_record_section(ui, m, d, display_stale);
                         ui.add_space(4.0);
                         draw_button_row(ui, true, license, state, m, now);
                     } else {
@@ -524,7 +556,7 @@ fn draw_post(
                         // W-283 / G-115-251 / W-2: pair_empty 時は IO Thread の Δ 状態に
                         // 依らず draw_watch_absolute_grid を強制 (B-048 LKG 凍結経路 bypass)。
                         if pair_empty {
-                            draw_watch_absolute_grid(ui, m);
+                            draw_watch_absolute_grid(ui, m, false);
                         } else {
                             match d.mode {
                                 DeltaMode::Active => {
@@ -532,7 +564,7 @@ fn draw_post(
                                     draw_delta_grid(ui, d, COL_NORMAL, tp_warn);
                                 }
                                 DeltaMode::Stale | DeltaMode::NoPre => {
-                                    draw_watch_absolute_grid(ui, m);
+                                    draw_watch_absolute_grid(ui, m, false);
                                 }
                             }
                         }
@@ -696,12 +728,12 @@ fn draw_delta_grid_frozen(ui: &mut egui::Ui, snap: &DeltaSnapshot, _tp_warn: boo
 }
 
 /// Watch + PRE 不在 or Bypassed（DeltaMode::NoPre）: POST 絶対値 3 項目（LUFS-M / TP / Crest）。
-fn draw_watch_absolute_grid(ui: &mut egui::Ui, m: &MeasureResult) {
-    let tp_warn = tp_over(m.true_peak);
+fn draw_watch_absolute_grid(ui: &mut egui::Ui, m: &MeasureResult, muted: bool) {
+    let tp_warn = !muted && tp_over(m.true_peak);
     let tp_col = if tp_warn {
         COL_FLORA_BRIGHT
     } else {
-        val_color(m.true_peak)
+        display_value_color(m.true_peak, muted)
     };
     ui.horizontal(|ui| {
         ui.add_space(10.0);
@@ -710,9 +742,21 @@ fn draw_watch_absolute_grid(ui: &mut egui::Ui, m: &MeasureResult) {
             .min_col_width(58.0)
             .spacing([6.0, 6.0])
             .show(ui, |ui| {
-                value_row(ui, "LUFS-M", fmt_val(m.lufs_m), "LUFS", val_color(m.lufs_m));
+                value_row(
+                    ui,
+                    "LUFS-M",
+                    fmt_val(m.lufs_m),
+                    "LUFS",
+                    display_value_color(m.lufs_m, muted),
+                );
                 value_row(ui, "TP", fmt_val(m.true_peak), "dBTP", tp_col);
-                value_row(ui, "Crest", fmt_val(m.crest), "dB", val_color(m.crest));
+                value_row(
+                    ui,
+                    "Crest",
+                    fmt_val(m.crest),
+                    "dB",
+                    display_value_color(m.crest, muted),
+                );
             });
     });
 }
@@ -724,13 +768,17 @@ fn draw_watch_absolute_grid(ui: &mut egui::Ui, m: &MeasureResult) {
 /// - `delta_col` = mode (Active=COL_NORMAL / Stale=COL_MUTED / NoPre=COL_MUTED)
 /// - `Δ.X` が None なら `COL_MUTED` で `---`
 /// - ΔTP のみ POST 絶対 TP が 0 dBTP 超 (tp_warn) のとき `COL_FLORA_BRIGHT` (旧仕様維持)
-fn draw_record_section(ui: &mut egui::Ui, m: &MeasureResult, d: &DeltaResult) {
-    let delta_col = match d.mode {
-        DeltaMode::Active => COL_NORMAL,
-        DeltaMode::Stale => COL_MUTED,
-        DeltaMode::NoPre => COL_MUTED,
+fn draw_record_section(ui: &mut egui::Ui, m: &MeasureResult, d: &DeltaResult, muted: bool) {
+    let delta_col = if muted {
+        COL_MUTED
+    } else {
+        match d.mode {
+            DeltaMode::Active => COL_NORMAL,
+            DeltaMode::Stale => COL_MUTED,
+            DeltaMode::NoPre => COL_MUTED,
+        }
     };
-    let tp_warn = tp_over(m.true_peak);
+    let tp_warn = !muted && tp_over(m.true_peak);
 
     // B-048 / G-115-245 Last Known Good (advisor 判断 1 案 X 条件付き):
     // `current` が None かつ `d.mode != Active` のとき `snap` (凍結値) で fallback する。
@@ -772,7 +820,7 @@ fn draw_record_section(ui: &mut egui::Ui, m: &MeasureResult, d: &DeltaResult) {
     let tp_abs_col = if tp_warn {
         COL_FLORA_BRIGHT
     } else {
-        val_color(m.true_peak)
+        display_value_color(m.true_peak, muted)
     };
 
     ui.horizontal(|ui| {
@@ -785,7 +833,12 @@ fn draw_record_section(ui: &mut egui::Ui, m: &MeasureResult, d: &DeltaResult) {
                 row_pair(
                     ui,
                     ("ΔLUFS", fmt_delta(lufs_v), "LU", lufs_col),
-                    ("LUFS-M", fmt_val(m.lufs_m), "LUFS", val_color(m.lufs_m)),
+                    (
+                        "LUFS-M",
+                        fmt_val(m.lufs_m),
+                        "LUFS",
+                        display_value_color(m.lufs_m, muted),
+                    ),
                 );
                 row_pair(
                     ui,
@@ -795,10 +848,31 @@ fn draw_record_section(ui: &mut egui::Ui, m: &MeasureResult, d: &DeltaResult) {
                 row_pair(
                     ui,
                     ("ΔCrest", fmt_delta(crest_v), "dB", crest_col),
-                    ("Crest", fmt_val(m.crest), "dB", val_color(m.crest)),
+                    (
+                        "Crest",
+                        fmt_val(m.crest),
+                        "dB",
+                        display_value_color(m.crest, muted),
+                    ),
                 );
             });
     });
+}
+
+fn display_value_color(v: Option<f64>, muted: bool) -> egui::Color32 {
+    if muted {
+        COL_MUTED
+    } else {
+        val_color(v)
+    }
+}
+
+fn has_measure_core(m: &MeasureResult) -> bool {
+    m.lufs_m.is_some() || m.true_peak.is_some() || m.crest.is_some()
+}
+
+fn has_delta_core(d: &DeltaResult) -> bool {
+    d.lufs.is_some() || d.tp.is_some() || d.crest.is_some()
 }
 
 fn row_pair(

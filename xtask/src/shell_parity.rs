@@ -274,6 +274,24 @@ mod tests {
     }
 
     #[test]
+    fn juce_offline_non_silent_buffers_are_active_before_record_edge() {
+        let body = between(
+            PLUGIN_PROCESSOR_CPP,
+            "uint8_t resolveSignalStateCode",
+            "bool shouldCaptureBufferForMeasurement",
+        );
+
+        assert!(
+            body.contains("bool nonRealtime"),
+            "JUCE signal-state resolver must receive the host non-realtime flag"
+        );
+        assert!(
+            body.contains("if (! silent && (recording || playing || nonRealtime))"),
+            "non-silent offline bounce buffers must be Active even before PRE observes the Record edge"
+        );
+    }
+
+    #[test]
     fn juce_post_record_display_keeps_six_metrics_before_signal_fallback() {
         let start = PLUGIN_EDITOR_CPP
             .find("void KirinHyphaEditor::updatePost()")
@@ -286,7 +304,18 @@ mod tests {
             record_branch < signal_branch,
             "POST Record must keep Delta6/N/Sharp visible even if the host goes inactive during bounce"
         );
-        assert!(body.contains("const bool haveD = (sig == 1) && processorRef.pollDelta (d);"));
+        assert!(
+            body.contains("if (sig == 1 && processorRef.pollDelta (rawD))")
+                && body.contains("d = displaySmoother.smoothDelta (rawD, t);"),
+            "POST Record active display must pass delta values through the GUI-only smoother"
+        );
+        assert!(
+            body.contains("else if (sig == 0 && displaySmoother.heldDelta (d, t))")
+                && body.contains(
+                    "const juce::Colour base = (staleD || (haveD && d.mode == 1)) ? COL_MUTED : COL_NORMAL;"
+                ),
+            "POST Record inactive display must keep recent delta values muted instead of immediately falling to ---"
+        );
     }
 
     #[test]

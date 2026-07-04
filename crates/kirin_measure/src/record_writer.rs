@@ -595,7 +595,10 @@ pub fn run_record_tick_with_pair_names(
                     ctx.writer.mark_integrity_degraded();
                 }
                 if let Some(queue) = record_trace_queue {
-                    drain_trace_queue_into_writer(&mut ctx, queue);
+                    let drained = drain_trace_queue_into_writer(&mut ctx, queue);
+                    if drained.samples == 0 {
+                        append_current_measure_snapshot(&mut ctx, measure_result)?;
+                    }
                 }
                 writer_close_with_summary(ctx, summary);
             }
@@ -603,21 +606,12 @@ pub fn run_record_tick_with_pair_names(
         (true, true) => {
             let ctx = recording.as_mut().expect("some because of match arm");
             if let Some(queue) = record_trace_queue {
-                drain_trace_queue_into_writer(ctx, queue);
+                let drained = drain_trace_queue_into_writer(ctx, queue);
+                if drained.samples == 0 {
+                    append_current_measure_snapshot(ctx, measure_result)?;
+                }
             } else {
-                let m = measure_result
-                    .lock()
-                    .map_err(|e| format!("measure Mutex poisoned: {e}"))?
-                    .clone();
-                let now_ms = now_epoch_ms();
-                let t_ms = now_ms.saturating_sub(ctx.started_at_ms).max(0) as u64;
-
-                if t_ms >= ctx.next_frame_ms && writer_append_frame(ctx, t_ms, &m) {
-                    ctx.next_frame_ms = (t_ms / FRAME_INTERVAL_MS + 1) * FRAME_INTERVAL_MS;
-                }
-                if t_ms >= ctx.next_psb_ms && writer_append_psb(ctx, t_ms, &m) {
-                    ctx.next_psb_ms = (t_ms / PSB_INTERVAL_MS + 1) * PSB_INTERVAL_MS;
-                }
+                append_current_measure_snapshot(ctx, measure_result)?;
             }
             if Instant::now() >= ctx.next_flush {
                 ctx.writer.heartbeat_now();
@@ -663,12 +657,46 @@ pub fn run_record_tick_with_pair_names(
     Ok(())
 }
 
-fn drain_trace_queue_into_writer(ctx: &mut RecordingCtx, queue: &RecordTraceQueue) {
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+struct TraceDrainStats {
+    samples: usize,
+    frames: usize,
+}
+
+fn append_current_measure_snapshot(
+    ctx: &mut RecordingCtx,
+    measure_result: &Arc<Mutex<MeasureResult>>,
+) -> Result<bool, String> {
+    let m = measure_result
+        .lock()
+        .map_err(|e| format!("measure Mutex poisoned: {e}"))?
+        .clone();
+    let now_ms = now_epoch_ms();
+    let t_ms = now_ms.saturating_sub(ctx.started_at_ms).max(0) as u64;
+
+    let mut wrote_frame = false;
+    if t_ms >= ctx.next_frame_ms && writer_append_frame(ctx, t_ms, &m) {
+        ctx.next_frame_ms = (t_ms / FRAME_INTERVAL_MS + 1) * FRAME_INTERVAL_MS;
+        wrote_frame = true;
+    }
+    if t_ms >= ctx.next_psb_ms && writer_append_psb(ctx, t_ms, &m) {
+        ctx.next_psb_ms = (t_ms / PSB_INTERVAL_MS + 1) * PSB_INTERVAL_MS;
+    }
+    Ok(wrote_frame)
+}
+
+fn drain_trace_queue_into_writer(
+    ctx: &mut RecordingCtx,
+    queue: &RecordTraceQueue,
+) -> TraceDrainStats {
+    let mut stats = TraceDrainStats::default();
     for sample in drain_record_trace_queue(queue) {
+        stats.samples += 1;
         let t_ms = sample.t_ms;
         mark_trace_time(ctx, t_ms);
         if t_ms >= ctx.next_frame_ms && writer_append_frame(ctx, t_ms, &sample.result) {
             ctx.next_frame_ms = (t_ms / FRAME_INTERVAL_MS + 1) * FRAME_INTERVAL_MS;
+            stats.frames += 1;
         }
         if sample.include_psb
             && t_ms >= ctx.next_psb_ms
@@ -677,6 +705,7 @@ fn drain_trace_queue_into_writer(ctx: &mut RecordingCtx, queue: &RecordTraceQueu
             ctx.next_psb_ms = (t_ms / PSB_INTERVAL_MS + 1) * PSB_INTERVAL_MS;
         }
     }
+    stats
 }
 
 // ── B-025 Group B-1 / Gap-8: Startup orphan .tmp recovery ───────────────────
@@ -1466,6 +1495,92 @@ mod tests {
             Some(1)
         );
         assert!(drain_record_trace_queue(&queue).is_empty());
+    }
+
+    #[test]
+    fn run_record_tick_falls_back_to_live_snapshot_when_trace_queue_is_empty() {
+        let base = isolated_base();
+        let started = now_epoch_ms() - 600;
+        let ctx = make_ctx(&base, Role::Pre, started);
+        let sm = Arc::new(RecordStateMachine::new());
+        sm.try_enter_record(License::Os).unwrap();
+        let m = Arc::new(Mutex::new(full_measure_result()));
+        let mut rec: Option<RecordingCtx> = Some(ctx);
+        let queue = new_record_trace_queue();
+
+        run_record_tick(
+            &sm,
+            Role::Pre,
+            48000,
+            TEST_PH,
+            TEST_IID,
+            now_epoch_ms,
+            || None,
+            || None,
+            &m,
+            &mut rec,
+            None,
+            &no_overflow(),
+            &no_overflow(),
+            Some(&queue),
+        )
+        .unwrap();
+
+        let ctx_ref = rec.as_ref().unwrap();
+        assert_eq!(ctx_ref.data().frames.len(), 1);
+        assert!(
+            ctx_ref.data().frames[0].t_ms >= 500,
+            "fallback snapshot must use the shared wall-clock axis"
+        );
+        assert_eq!(
+            ctx_ref.data().psb_snapshots.as_ref().map(|v| v.len()),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn run_record_tick_does_not_fake_frame_when_trace_queue_has_silent_samples() {
+        let base = isolated_base();
+        let ctx = make_ctx(&base, Role::Pre, now_epoch_ms());
+        let sm = Arc::new(RecordStateMachine::new());
+        sm.try_enter_record(License::Os).unwrap();
+        let m = Arc::new(Mutex::new(full_measure_result()));
+        let mut rec: Option<RecordingCtx> = Some(ctx);
+        let queue = new_record_trace_queue();
+        push_record_trace_sample(
+            &queue,
+            RecordTraceSample {
+                t_ms: 100,
+                result: MeasureResult::default(),
+                include_psb: false,
+            },
+        );
+
+        run_record_tick(
+            &sm,
+            Role::Pre,
+            48000,
+            TEST_PH,
+            TEST_IID,
+            now_epoch_ms,
+            || None,
+            || None,
+            &m,
+            &mut rec,
+            None,
+            &no_overflow(),
+            &no_overflow(),
+            Some(&queue),
+        )
+        .unwrap();
+
+        let ctx_ref = rec.as_ref().unwrap();
+        assert_eq!(
+            ctx_ref.data().frames.len(),
+            0,
+            "a drained silent audio-time sample must not be replaced by a stale live meter"
+        );
+        assert_eq!(ctx_ref.last_trace_t_ms, Some(100));
     }
 
     #[test]

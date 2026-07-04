@@ -6,6 +6,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 
 #include "PluginProcessor.h"
+#include "DisplaySmoother.h"
 #include "HyphaTheme.h"
 #include "HyphaWidgets.h"
 #include "PostControls.h"
@@ -43,8 +44,8 @@ private:
     void layoutMetrics (bool six);
     void showCandidateMenu();          // B-102: POST pair dropdown (All Keep/All Stop/candidates)
     void handleCandidateMenu (int result);
-    void fillAbs (int cell, double v, bool isTp);
-    void fillDelta (int cell, double v, bool isTp, juce::Colour deltaBase, bool tpWarn);
+    void fillAbs (int cell, double v, bool isTp, bool muted = false);
+    void fillDelta (int cell, double v, bool isTp, juce::Colour deltaBase, bool tpWarn, bool muted = false);
     void showToast (const juce::String& msg);
     juce::String instanceId8() const; // first 8 chars of instance_id (empty-name fallback)
     double nowSecs() const { return juce::Time::getMillisecondCounterHiRes() * 0.001; }
@@ -76,6 +77,7 @@ private:
     double toastUntil  = 0.0;
     double pathAnomalyUntil = 0.0;        // B-128 (G-115-371 D3): restore identity anomaly latch
     juce::String pathAnomalyText;         //   drained 文言を fade まで保持
+    hypha::DisplaySmoother displaySmoother;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (KirinHyphaEditor)
 };

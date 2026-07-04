@@ -5,6 +5,7 @@
 
 pub mod background;
 pub mod common;
+pub mod display_smoothing;
 pub mod led;
 pub mod palette;
 
