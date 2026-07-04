@@ -73,7 +73,12 @@ fn record_idle_timeout() -> Duration {
 /// Record 中 かつ 非Active かつ idle 経過がしきい値以上 → true。Active 信号が来ている間は
 /// 呼出側が経過をリセットするため、録音継続中は決して true にならない。
 #[inline]
-fn idle_autostop_due(is_recording: bool, is_active: bool, idle_elapsed: Duration, timeout: Duration) -> bool {
+fn idle_autostop_due(
+    is_recording: bool,
+    is_active: bool,
+    idle_elapsed: Duration,
+    timeout: Duration,
+) -> bool {
     is_recording && !is_active && idle_elapsed >= timeout
 }
 
@@ -308,7 +313,10 @@ pub fn spawn_io_thread_post(
         // Active 信号 / 非Record で基点更新し、Record 中に連続無Active がしきい値を超えたら graceful 停止。
         let mut idle_anchor = Instant::now();
         let idle_timeout = record_idle_timeout();
-        log::info!("[IOThread POST] idle auto-stop timeout = {:?}", idle_timeout);
+        log::info!(
+            "[IOThread POST] idle auto-stop timeout = {:?}",
+            idle_timeout
+        );
 
         loop {
             if shutdown.load(Ordering::Relaxed) {
@@ -325,6 +333,8 @@ pub fn spawn_io_thread_post(
             let instance_id_ref = instance_id_owned.as_str();
             let project_hash_owned = read_project_hash_arc(&project_hash);
             let project_hash_ref = project_hash_owned.as_str();
+            let daw_session_id_owned = read_daw_session_id_arc(&daw_session_id_arc);
+            let daw_session_id_ref = daw_session_id_owned.as_str();
             // B-128 (G-115-370): within-base wall。POST post.json は inline writer ゆえ builder 関数を
             // 通らない。spawn 時 normalize_observation_cell に加え、ここでも guard して PRE(io_dir 毎回
             // guard)との DiD parity を取る（cell が spawn 後に path-unsafe 化しても base 内に留める）。
@@ -415,6 +425,7 @@ pub fn spawn_io_thread_post(
                 &pair_pre_name_snapshot,
                 pair_claimed_at_snapshot,
                 project_hash_ref,
+                daw_session_id_ref,
                 // B-108: Record 中はラッチ凍結（W-284 self_check-skip と同型）。latched は共有実体。
                 record_sm.is_recording(),
                 &latched_pre,
@@ -497,8 +508,7 @@ pub fn spawn_io_thread_post(
             //   session 集計注入 + trace drain）＝ degraded ではなく正常テイクとして保存。
             // 非Record または Active 信号あり → 基点リセット（次 Record で 0 から計時 /
             // 録音中は決して発火しない）。それ以外（Record 中の連続無Active）でしきい値超過 → 停止。
-            if !record_sm.is_recording()
-                || load_signal_state(&signal_state) == SignalState::Active
+            if !record_sm.is_recording() || load_signal_state(&signal_state) == SignalState::Active
             {
                 idle_anchor = Instant::now();
             } else if idle_autostop_due(true, false, idle_anchor.elapsed(), idle_timeout) {
@@ -1090,6 +1100,7 @@ fn run_tick(
     pair_pre_name: &str,
     pair_claimed_at: f64,
     post_project_hash: &str,
+    daw_session_id: &str,
     // B-108: recording=Record 中はラッチ凍結（アンラッチ/再選定しない）。latched=display と
     // keep/Arm が共有する単一ラッチ（io_thread が毎 tick 維持、keep が resolve_arm_target で読む）。
     recording: bool,
@@ -1107,7 +1118,13 @@ fn run_tick(
         // B-027 段階 3-B α-7-1 / Step 6: pair_pre_name は閉路 1 tick の snapshot。
         // Q-A7 採用案 A (post.json schema 拡張による cross-instance 公開)。
         // W-281: pair_claimed_at も同 tick snapshot を書き出す (後着優先 self check 軸)。
-        let json = serialize_post_json_minimal(instance_id, state, pair_pre_name, pair_claimed_at);
+        let json = serialize_post_json_minimal_with_daw(
+            instance_id,
+            state,
+            pair_pre_name,
+            pair_claimed_at,
+            daw_session_id,
+        );
         crate::atomic_file::write_bytes_atomic(post_file, json.as_bytes())
             .map_err(|e| format!("atomic write: {e}"))?;
         return Ok(());
@@ -1155,13 +1172,14 @@ fn run_tick(
     // B-027 段階 3-B α-7-1 / Step 6: pair_pre_name は閉路 1 tick の snapshot
     // (Q-A7 採用案 A 完成 / cross-instance 公開機構)。
     // W-281: pair_claimed_at も同 tick snapshot (後着優先 self check 判定軸)。
-    let json = serialize_post_json(
+    let json = serialize_post_json_with_daw(
         instance_id,
         state,
         pre_signal_state,
         &post,
         pair_pre_name,
         pair_claimed_at,
+        daw_session_id,
     );
     crate::atomic_file::write_bytes_atomic(post_file, json.as_bytes())
         .map_err(|e| format!("atomic write: {e}"))?;
@@ -1498,6 +1516,26 @@ pub fn serialize_post_json(
     pair_pre_name: &str,
     pair_claimed_at: f64,
 ) -> String {
+    serialize_post_json_with_daw(
+        instance_id,
+        state,
+        pre_signal_state,
+        result,
+        pair_pre_name,
+        pair_claimed_at,
+        "",
+    )
+}
+
+fn serialize_post_json_with_daw(
+    instance_id: &str,
+    state: SignalState,
+    pre_signal_state: Option<SignalState>,
+    result: &MeasureResult,
+    pair_pre_name: &str,
+    pair_claimed_at: f64,
+    daw_session_id: &str,
+) -> String {
     let t = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ");
     let pre_state_str = pre_signal_state
         .map(|s| format!(r#""{}""#, s.as_str()))
@@ -1514,11 +1552,14 @@ pub fn serialize_post_json(
     //     JSON 出力層で同種一括 escape する。
     let instance_id_json =
         serde_json::to_string(instance_id).unwrap_or_else(|_| "\"\"".to_string());
+    let daw_session_id_json =
+        serde_json::to_string(daw_session_id).unwrap_or_else(|_| "\"\"".to_string());
     let pair_pre_name_json =
         serde_json::to_string(pair_pre_name).unwrap_or_else(|_| "\"\"".to_string());
     format!(
-        r#"{{"v":2,"role":"POST","instance_id":{instance_id_json},"signal_state":"{signal_state}","pre_signal_state":{pre_signal_state},"t":"{t}","pair_pre_name":{pair_pre_name},"pair_claimed_at":{pair_claimed_at},"lufs_m":{lufs_m},"true_peak":{true_peak},"crest":{crest},"psr":{psr}{phase_d}}}"#,
+        r#"{{"v":2,"role":"POST","instance_id":{instance_id_json},"daw_session_id":{daw_session_id},"signal_state":"{signal_state}","pre_signal_state":{pre_signal_state},"t":"{t}","pair_pre_name":{pair_pre_name},"pair_claimed_at":{pair_claimed_at},"lufs_m":{lufs_m},"true_peak":{true_peak},"crest":{crest},"psr":{psr}{phase_d}}}"#,
         instance_id_json = instance_id_json,
+        daw_session_id = daw_session_id_json,
         signal_state = state.as_str(),
         pre_signal_state = pre_state_str,
         t = t,
@@ -1537,21 +1578,35 @@ pub fn serialize_post_json(
 /// B-027 段階 3-B α-7-1: `pair_pre_name` field を追加 (Bypassed/Inactive でも候補化
 /// される / All Keep N 計算で参照されるため filter 照合に必要)。
 /// W-281 / G-115-249: `pair_claimed_at` field 追加 (後着優先 self check 判定軸)。
+#[cfg(test)]
 fn serialize_post_json_minimal(
     instance_id: &str,
     state: SignalState,
     pair_pre_name: &str,
     pair_claimed_at: f64,
 ) -> String {
+    serialize_post_json_minimal_with_daw(instance_id, state, pair_pre_name, pair_claimed_at, "")
+}
+
+fn serialize_post_json_minimal_with_daw(
+    instance_id: &str,
+    state: SignalState,
+    pair_pre_name: &str,
+    pair_claimed_at: f64,
+    daw_session_id: &str,
+) -> String {
     let t = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ");
     // B-131 (G-115-380): instance_id / pair_pre_name を serde で JSON escape（serialize_post_json と同一契約）。
     let instance_id_json =
         serde_json::to_string(instance_id).unwrap_or_else(|_| "\"\"".to_string());
+    let daw_session_id_json =
+        serde_json::to_string(daw_session_id).unwrap_or_else(|_| "\"\"".to_string());
     let pair_pre_name_json =
         serde_json::to_string(pair_pre_name).unwrap_or_else(|_| "\"\"".to_string());
     format!(
-        r#"{{"v":2,"role":"POST","instance_id":{instance_id_json},"signal_state":"{signal_state}","t":"{t}","pair_pre_name":{pair_pre_name},"pair_claimed_at":{pair_claimed_at}}}"#,
+        r#"{{"v":2,"role":"POST","instance_id":{instance_id_json},"daw_session_id":{daw_session_id},"signal_state":"{signal_state}","t":"{t}","pair_pre_name":{pair_pre_name},"pair_claimed_at":{pair_claimed_at}}}"#,
         instance_id_json = instance_id_json,
+        daw_session_id = daw_session_id_json,
         signal_state = state.as_str(),
         t = t,
         pair_pre_name = pair_pre_name_json,
@@ -1967,13 +2022,41 @@ mod b206_idle_autostop_tests {
     /// B-206: env override パース。無効/欠落/下限未満は既定 600s、有効値は採用。
     #[test]
     fn parse_idle_timeout_override() {
-        assert_eq!(parse_idle_timeout(None), Duration::from_secs(600), "欠落 → 既定600s");
-        assert_eq!(parse_idle_timeout(Some("60".into())), Duration::from_secs(60), "有効値採用");
-        assert_eq!(parse_idle_timeout(Some(" 30 ".into())), Duration::from_secs(30), "trim して採用");
-        assert_eq!(parse_idle_timeout(Some("abc".into())), Duration::from_secs(600), "非数 → 既定");
-        assert_eq!(parse_idle_timeout(Some("0".into())), Duration::from_secs(600), "下限未満(0) → 既定");
-        assert_eq!(parse_idle_timeout(Some("4".into())), Duration::from_secs(600), "下限未満(4) → 既定");
-        assert_eq!(parse_idle_timeout(Some("5".into())), Duration::from_secs(5), "下限ちょうど → 採用");
+        assert_eq!(
+            parse_idle_timeout(None),
+            Duration::from_secs(600),
+            "欠落 → 既定600s"
+        );
+        assert_eq!(
+            parse_idle_timeout(Some("60".into())),
+            Duration::from_secs(60),
+            "有効値採用"
+        );
+        assert_eq!(
+            parse_idle_timeout(Some(" 30 ".into())),
+            Duration::from_secs(30),
+            "trim して採用"
+        );
+        assert_eq!(
+            parse_idle_timeout(Some("abc".into())),
+            Duration::from_secs(600),
+            "非数 → 既定"
+        );
+        assert_eq!(
+            parse_idle_timeout(Some("0".into())),
+            Duration::from_secs(600),
+            "下限未満(0) → 既定"
+        );
+        assert_eq!(
+            parse_idle_timeout(Some("4".into())),
+            Duration::from_secs(600),
+            "下限未満(4) → 既定"
+        );
+        assert_eq!(
+            parse_idle_timeout(Some("5".into())),
+            Duration::from_secs(5),
+            "下限ちょうど → 採用"
+        );
     }
 
     /// B-206: idle auto-stop 判定の境界。録音中×非Active×しきい値到達でのみ true。
@@ -1981,14 +2064,29 @@ mod b206_idle_autostop_tests {
     fn idle_autostop_due_boundary() {
         let t = Duration::from_secs(600);
         // 録音中・非Active・10分到達/超過 → 停止
-        assert!(idle_autostop_due(true, false, Duration::from_secs(600), t), "ちょうど10分で停止");
-        assert!(idle_autostop_due(true, false, Duration::from_secs(601), t), "10分超で停止");
+        assert!(
+            idle_autostop_due(true, false, Duration::from_secs(600), t),
+            "ちょうど10分で停止"
+        );
+        assert!(
+            idle_autostop_due(true, false, Duration::from_secs(601), t),
+            "10分超で停止"
+        );
         // 10分未満 → 停止しない
-        assert!(!idle_autostop_due(true, false, Duration::from_secs(599), t), "10分未満は停止しない");
+        assert!(
+            !idle_autostop_due(true, false, Duration::from_secs(599), t),
+            "10分未満は停止しない"
+        );
         // Active 中は経過に関わらず絶対に停止しない（録音継続中）
-        assert!(!idle_autostop_due(true, true, Duration::from_secs(99_999), t), "Active 中は停止しない");
+        assert!(
+            !idle_autostop_due(true, true, Duration::from_secs(99_999), t),
+            "Active 中は停止しない"
+        );
         // 非録音は停止対象外
-        assert!(!idle_autostop_due(false, false, Duration::from_secs(99_999), t), "非録音は対象外");
+        assert!(
+            !idle_autostop_due(false, false, Duration::from_secs(99_999), t),
+            "非録音は対象外"
+        );
     }
 }
 
@@ -3029,6 +3127,29 @@ mod post_tmp_json_tests {
         );
     }
 
+    #[test]
+    fn post_json_serialize_includes_daw_session_id() {
+        let json_full = serialize_post_json_with_daw(
+            "post-iid",
+            SignalState::Active,
+            Some(SignalState::Active),
+            &MeasureResult::default(),
+            "PRE-X",
+            42.0,
+            "daw-A",
+        );
+        assert!(json_full.contains(r#""daw_session_id":"daw-A""#));
+
+        let json_min = serialize_post_json_minimal_with_daw(
+            "post-iid",
+            SignalState::Bypassed,
+            "PRE-X",
+            0.0,
+            "daw-A",
+        );
+        assert!(json_min.contains(r#""daw_session_id":"daw-A""#));
+    }
+
     /// (A-5 ii) 旧 schema (pair_claimed_at field 不在) deserialize → default=0.0。
     #[test]
     fn post_json_deserialize_legacy_without_pair_claimed_at() {
@@ -3040,6 +3161,10 @@ mod post_tmp_json_tests {
             parsed.pair_claimed_at, 0.0,
             "pair_claimed_at must default to 0.0 for legacy schema"
         );
+        assert_eq!(
+            parsed.daw_session_id, "",
+            "daw_session_id must default to empty for legacy schema"
+        );
     }
 }
 
@@ -3047,6 +3172,10 @@ mod post_tmp_json_tests {
 #[cfg(test)]
 mod post_candidate_tests {
     use super::*;
+    use crate::{
+        active_post_project_uuids_for_daw_session,
+        enumerate_active_post_pair_candidates_for_daw_session,
+    };
     use std::sync::atomic::AtomicU64;
 
     fn unique_root(label: &str) -> PathBuf {
@@ -3089,6 +3218,29 @@ mod post_candidate_tests {
         post_file
     }
 
+    fn write_post_json_with_daw(
+        kirin_root: &Path,
+        project_uuid: &str,
+        instance_id: &str,
+        pair_pre_name: &str,
+        daw_session_id: &str,
+    ) -> PathBuf {
+        let dir = kirin_root.join(project_uuid).join(instance_id);
+        fs::create_dir_all(&dir).unwrap();
+        let post_file = dir.join("post.json");
+        let json = serialize_post_json_with_daw(
+            instance_id,
+            SignalState::Active,
+            Some(SignalState::Active),
+            &MeasureResult::default(),
+            pair_pre_name,
+            0.0,
+            daw_session_id,
+        );
+        fs::write(&post_file, json.as_bytes()).unwrap();
+        post_file
+    }
+
     /// scan_post_candidates_in: 通常 case (Active 1 件) → instance_id / project_uuid /
     /// pair_pre_name (空文字 → None / 非空 → Some) / path が正しく構築される。
     #[test]
@@ -3109,6 +3261,7 @@ mod post_candidate_tests {
         let c = &cands[0];
         assert_eq!(c.instance_id, "post-iid-1");
         assert_eq!(c.project_uuid, project_uuid);
+        assert!(c.daw_session_id.is_none());
         assert_eq!(c.pair_pre_name.as_deref(), Some("PRE-Master"));
         assert!(c.path.ends_with("post.json"));
     }
@@ -3483,6 +3636,25 @@ mod post_candidate_tests {
             .unwrap();
         assert_eq!(with_name.pair_pre_name.as_deref(), Some("PRE-Hello"));
         assert!(no_name.pair_pre_name.is_none());
+    }
+
+    #[test]
+    fn enumerate_for_daw_session_spans_projects_and_filters_other_daw() {
+        let root = unique_root("enum_daw");
+        let _ = write_post_json_with_daw(&root, "pj-AU", "post-2mix", "2Mix", "daw-main");
+        let _ = write_post_json_with_daw(&root, "pj-VST3", "post-drum", "Drum", "daw-main");
+        let _ = write_post_json_with_daw(&root, "pj-VST3", "post-music", "Music", "daw-main");
+        let _ = write_post_json_with_daw(&root, "pj-OTHER", "post-other", "Vocal", "daw-other");
+
+        let cands = enumerate_active_post_pair_candidates_for_daw_session(&root, "daw-main");
+        let names: Vec<_> = cands
+            .iter()
+            .filter_map(|c| c.pair_pre_name.as_deref())
+            .collect();
+        assert_eq!(names, vec!["2Mix", "Drum", "Music"]);
+
+        let projects = active_post_project_uuids_for_daw_session(&root, "daw-main");
+        assert_eq!(projects, vec!["pj-AU".to_string(), "pj-VST3".to_string()]);
     }
 
     // ── W-281 / G-115-249 / C-5: self_check_pair_claim テスト 5 件 ─────────

@@ -29,12 +29,13 @@ use hypha_gui::{
 };
 use kirin_measure::reservation; // B-127 (G-115-365): egui parity — per-pairing O_EXCL frame
 use kirin_measure::{
-    all_keep_signal_path, all_stop_signal_path, append_annotation_to_latest,
-    count_distinct_pairings, delete_broadcast, delete_signal,
-    enumerate_active_post_pair_candidates, enumerate_active_pre_pair_candidates_for_post_project,
-    exit_record_full, format_pair_label, load_signal_state, lookup_section_label, mark_released,
-    pair_lock_active, resolve_arm_target_for_post_project, sanitize_name, scan_latest_v2_preset,
-    show_note_button, show_save_button, show_stop_record_button, write_broadcast, write_pending,
+    active_post_project_uuids_for_daw_session, all_keep_signal_path, all_stop_signal_path,
+    append_annotation_to_latest, count_distinct_pairings, delete_broadcast, delete_signal,
+    enumerate_active_post_pair_candidates, enumerate_active_post_pair_candidates_for_daw_session,
+    enumerate_active_pre_pair_candidates_for_post_project, exit_record_full, format_pair_label,
+    load_signal_state, lookup_section_label, mark_released, pair_lock_active,
+    resolve_arm_target_for_post_project, sanitize_name, scan_latest_v2_preset, show_note_button,
+    show_save_button, show_stop_record_button, write_broadcast, write_pending,
     write_stop_broadcast, DeltaMode, DeltaResult, DeltaSnapshot, LatchedPre, License,
     LivenessEvaluator, MeasureResult, PlatformPaths, PluginDataRole, PostCandidate, PreCandidate,
     PresetFileV2, RecordStateMachine, SignalState, StoragePaths, TransitionError,
@@ -925,14 +926,19 @@ fn draw_pair_pre_combo(
 ) {
     let kirin_root = PlatformPaths::current_kirin_tmp_root();
     let current_project_hash = read_project_hash_arc(&state.project_hash);
+    let current_daw_session_id = read_daw_session_id_arc(&state.daw_session_id);
     let pre_candidates =
         enumerate_active_pre_pair_candidates_for_post_project(&kirin_root, &current_project_hash);
     // B-027 段階 3-B α-7-3 / Step 9: All Keep 行 N 集計のため POST candidates も取得。
     // ComboBox 先頭行の "All Keep: N ready POST(s)" 表示と display 判定 (N>=1) に使用。
-    let post_candidates: Vec<_> = enumerate_active_post_pair_candidates(&kirin_root)
-        .into_iter()
-        .filter(|c| c.project_uuid == current_project_hash)
-        .collect();
+    let post_candidates: Vec<_> = if current_daw_session_id.is_empty() {
+        enumerate_active_post_pair_candidates(&kirin_root)
+            .into_iter()
+            .filter(|c| c.project_uuid == current_project_hash)
+            .collect()
+    } else {
+        enumerate_active_post_pair_candidates_for_daw_session(&kirin_root, &current_daw_session_id)
+    };
     // α-7' All Stop: 自身が recording=true (Record 中) なら All Stop 行を出す。
     let recording = state.record_sm.is_recording();
 
@@ -1123,8 +1129,8 @@ fn draw_pair_pre_combo(
                         let clicked = ui
                             .add_enabled_ui(row_enabled, |ui| {
                                 ui.selectable_label(
-                                    keep_status == CandidateKeepStatus::KeepReady,
-                                    label_text,
+                                    false,
+                                    candidate_dropdown_rich_text(label_text, keep_status),
                                 )
                                 .clicked()
                             })
@@ -1210,6 +1216,25 @@ fn candidate_dropdown_label(cand: &PreCandidate, keep_status: CandidateKeepStatu
         CandidateKeepStatus::InUseByOther => "In use",
     };
     format!("{prefix}: {name_part} #{id_prefix}")
+}
+
+fn candidate_dropdown_rich_text(label_text: String, keep_status: CandidateKeepStatus) -> RichText {
+    let color = match keep_status {
+        CandidateKeepStatus::Available => COL_NORMAL,
+        CandidateKeepStatus::KeepReady => COL_FLORA_BRIGHT,
+        CandidateKeepStatus::InUseByOther => COL_MUTED,
+    };
+    RichText::new(candidate_dropdown_display_text(label_text, keep_status))
+        .size(12.0)
+        .color(color)
+        .monospace()
+}
+
+fn candidate_dropdown_display_text(label_text: String, keep_status: CandidateKeepStatus) -> String {
+    match keep_status {
+        CandidateKeepStatus::KeepReady => format!("✓ {label_text}"),
+        CandidateKeepStatus::Available | CandidateKeepStatus::InUseByOther => label_text,
+    }
 }
 
 // ── ボタン行 ──────────────────────────────────────────────────────────────
@@ -1529,7 +1554,7 @@ pub(crate) fn trigger_keep_internal(
     }
 }
 
-/// All Keep broadcast を filesystem に書込んで同 project の他 POST に通知する
+/// All Keep broadcast を filesystem に書込んで同 DAW session の他 POST に通知する
 /// (B-027 段階 3-B α-7-4-D Step 2)。
 ///
 /// Originator (= ComboBox 「All Keep: N ready POST(s)」を click した POST) のみが呼出す。
@@ -1564,43 +1589,57 @@ fn trigger_all_keep_broadcast(
         }
     };
     let plugin_data_dir = paths.plugin_data_dir();
-    match write_broadcast(
-        &plugin_data_dir,
-        project_hash,
-        originator_instance_id,
-        daw_session_id.to_string(),
-    ) {
-        Ok(broadcast) => {
-            let broadcast_path =
-                all_keep_signal_path(&plugin_data_dir, project_hash, originator_instance_id);
-            log::info!(
-                "[POST all_keep] broadcast written: originator={} started_at={} path={}",
-                originator_instance_id,
-                broadcast.started_at,
-                broadcast_path.display()
-            );
-            // §4-5 Step 4 診断: write_broadcast Ok 直後に fs::metadata で
-            // 物理存在を確認 (sandbox 経由の path redirection / atomic rename
-            // 失敗した場合に Ok を返しているケースを切り分ける)。NIH_LOG 経由で
-            // metadata err が出れば「write は成功扱いだが file が path にない」
-            // = 内部削除以外の経路 (DAW sandbox / OS) が確定する。
-            match std::fs::metadata(&broadcast_path) {
-                Ok(meta) => log::info!(
-                    "[POST all_keep] post-write metadata ok: path={} len={}",
-                    broadcast_path.display(),
-                    meta.len()
-                ),
-                Err(e) => log::warn!(
-                    "[POST all_keep] post-write metadata FAILED: path={} err={}",
-                    broadcast_path.display(),
-                    e
-                ),
+    let kirin_root = PlatformPaths::current_kirin_tmp_root();
+    let mut project_hashes = if daw_session_id.is_empty() {
+        Vec::new()
+    } else {
+        active_post_project_uuids_for_daw_session(&kirin_root, daw_session_id)
+    };
+    if project_hashes.is_empty() && !project_hash.is_empty() {
+        project_hashes.push(project_hash.to_string());
+    }
+
+    let mut wrote_any = false;
+    for target_project_hash in project_hashes {
+        match write_broadcast(
+            &plugin_data_dir,
+            &target_project_hash,
+            originator_instance_id,
+            daw_session_id.to_string(),
+        ) {
+            Ok(broadcast) => {
+                wrote_any = true;
+                let broadcast_path = all_keep_signal_path(
+                    &plugin_data_dir,
+                    &target_project_hash,
+                    originator_instance_id,
+                );
+                log::info!(
+                    "[POST all_keep] broadcast written: originator={} started_at={} path={}",
+                    originator_instance_id,
+                    broadcast.started_at,
+                    broadcast_path.display()
+                );
+                match std::fs::metadata(&broadcast_path) {
+                    Ok(meta) => log::info!(
+                        "[POST all_keep] post-write metadata ok: path={} len={}",
+                        broadcast_path.display(),
+                        meta.len()
+                    ),
+                    Err(e) => log::warn!(
+                        "[POST all_keep] post-write metadata FAILED: path={} err={}",
+                        broadcast_path.display(),
+                        e
+                    ),
+                }
+            }
+            Err(e) => {
+                log::warn!("[POST all_keep] broadcast write failed: {:?}", e);
             }
         }
-        Err(e) => {
-            log::warn!("[POST all_keep] broadcast write failed: {:?}", e);
-            *toast = Some(Toast::new("All Keep failed (file write error)", now));
-        }
+    }
+    if !wrote_any {
+        *toast = Some(Toast::new("All Keep failed (file write error)", now));
     }
 }
 
@@ -1725,7 +1764,7 @@ pub(crate) fn trigger_stop_internal(
 /// All Stop broadcast を filesystem に書込 (α-7')。`trigger_all_keep_broadcast` と完全対称。
 ///
 /// originator (= All Stop ボタンを押した POST) が 1 回だけ呼ぶ。受信側
-/// (`io_thread_post.rs` sub-tick) は同 project_hash の `all_stop_signal/*.json` を全件
+/// (`io_thread_post.rs` sub-tick) は同 DAW session の `all_stop_signal/*.json` を全件
 /// scan し、cross-process filter + self skip + 既処理 skip を経て新 broadcast 検出時に
 /// `trigger_stop_internal(toast=None)` を発火する。
 #[allow(dead_code)]
@@ -1745,25 +1784,45 @@ fn trigger_all_stop_broadcast(
         }
     };
     let plugin_data_dir = paths.plugin_data_dir();
-    match write_stop_broadcast(
-        &plugin_data_dir,
-        project_hash,
-        originator_instance_id,
-        daw_session_id.to_string(),
-    ) {
-        Ok(broadcast) => {
-            let bp = all_stop_signal_path(&plugin_data_dir, project_hash, originator_instance_id);
-            log::info!(
-                "[POST all_stop] broadcast written: originator={} started_at={} path={}",
-                originator_instance_id,
-                broadcast.started_at,
-                bp.display()
-            );
+    let kirin_root = PlatformPaths::current_kirin_tmp_root();
+    let mut project_hashes = if daw_session_id.is_empty() {
+        Vec::new()
+    } else {
+        active_post_project_uuids_for_daw_session(&kirin_root, daw_session_id)
+    };
+    if project_hashes.is_empty() && !project_hash.is_empty() {
+        project_hashes.push(project_hash.to_string());
+    }
+
+    let mut wrote_any = false;
+    for target_project_hash in project_hashes {
+        match write_stop_broadcast(
+            &plugin_data_dir,
+            &target_project_hash,
+            originator_instance_id,
+            daw_session_id.to_string(),
+        ) {
+            Ok(broadcast) => {
+                wrote_any = true;
+                let bp = all_stop_signal_path(
+                    &plugin_data_dir,
+                    &target_project_hash,
+                    originator_instance_id,
+                );
+                log::info!(
+                    "[POST all_stop] broadcast written: originator={} started_at={} path={}",
+                    originator_instance_id,
+                    broadcast.started_at,
+                    bp.display()
+                );
+            }
+            Err(e) => {
+                log::warn!("[POST all_stop] broadcast write failed: {:?}", e);
+            }
         }
-        Err(e) => {
-            log::warn!("[POST all_stop] broadcast write failed: {:?}", e);
-            *toast = Some(Toast::new("All Stop failed (file write error)", now));
-        }
+    }
+    if !wrote_any {
+        *toast = Some(Toast::new("All Stop failed (file write error)", now));
     }
 }
 
@@ -2118,6 +2177,13 @@ mod tests {
             "Keep ready: Music #abcdef12"
         );
         assert_eq!(
+            candidate_dropdown_display_text(
+                candidate_dropdown_label(&cand, CandidateKeepStatus::KeepReady),
+                CandidateKeepStatus::KeepReady,
+            ),
+            "✓ Keep ready: Music #abcdef12"
+        );
+        assert_eq!(
             candidate_dropdown_label(&cand, CandidateKeepStatus::InUseByOther),
             "In use: Music #abcdef12"
         );
@@ -2129,6 +2195,7 @@ mod tests {
             PostCandidate {
                 instance_id: "self-post".into(),
                 project_uuid: "p".into(),
+                daw_session_id: Some("daw".into()),
                 pair_pre_name: Some("Music".into()),
                 pair_claimed_at: 1.0,
                 path: std::path::PathBuf::new(),
@@ -2136,6 +2203,7 @@ mod tests {
             PostCandidate {
                 instance_id: "other-post".into(),
                 project_uuid: "p".into(),
+                daw_session_id: Some("daw".into()),
                 pair_pre_name: Some("Drum".into()),
                 pair_claimed_at: 2.0,
                 path: std::path::PathBuf::new(),
@@ -2160,6 +2228,7 @@ mod tests {
         let claims = vec![PostCandidate {
             instance_id: "other-post".into(),
             project_uuid: "p".into(),
+            daw_session_id: Some("daw".into()),
             pair_pre_name: Some("Music".into()),
             pair_claimed_at: 2.0,
             path: std::path::PathBuf::new(),
