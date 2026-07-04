@@ -35,6 +35,15 @@ cmake -S juce_shell -B juce_shell/build-universal \
   -DKIRIN_FFI_LIB="$ROOT/target/universal/libkirin_hypha_ffi.a"
 
 echo "==> cmake build (Release, universal)"
-cmake --build juce_shell/build-universal --config Release
+cmake --build juce_shell/build-universal --config Release --clean-first
+
+for role in PRE POST; do
+  plist="juce_shell/build-universal/KirinHypha${role}_artefacts/Release/AU/Kirin Hypha ${role}.component/Contents/Info.plist"
+  /usr/libexec/PlistBuddy -c "Print :AudioComponents:0:resourceUsage:temporary-exception.files.all.read-write" "$plist" >/dev/null
+  if /usr/libexec/PlistBuddy -c "Print :AudioComponents:0:resourceUsage:network.client" "$plist" >/dev/null 2>&1; then
+    echo "ERROR: ${role} AU still declares network.client resourceUsage" >&2
+    exit 1
+  fi
+done
 
 echo "==> universal bundles under juce_shell/build-universal/KirinHypha{PRE,POST}_artefacts/Release/"
