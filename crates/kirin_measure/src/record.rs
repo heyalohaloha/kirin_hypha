@@ -91,6 +91,10 @@ pub struct RecordStateMachine {
     /// session_summary を take する（post-drain の確定スナップショットのみ焼く保証）。
     /// timeout（measure 死/shutdown/stall で finalize 不能）時は integrity_degraded に倒す。
     seal: AtomicU64,
+    /// Watch→Record が成功した時だけ前進する Record セッション世代。
+    /// Audio Thread が「現在の Record で音声を見たか」を stale flag なしで判定するための
+    /// lock-free セッション ID。
+    generation: AtomicU64,
 }
 
 impl RecordStateMachine {
@@ -99,6 +103,7 @@ impl RecordStateMachine {
         Self {
             state: AtomicU8::new(RecordState::Watch as u8),
             seal: AtomicU64::new(0),
+            generation: AtomicU64::new(0),
         }
     }
 
@@ -111,6 +116,11 @@ impl RecordStateMachine {
     /// **必ず** session_summary 書込が完了した後にのみ呼ぶこと（post-drain 確定の合図）。
     pub fn bump_seal(&self) {
         self.seal.fetch_add(1, Ordering::Release);
+    }
+
+    /// 現在の Record セッション世代。0 はまだ Record に入っていない状態。
+    pub fn generation(&self) -> u64 {
+        self.generation.load(Ordering::Acquire)
     }
 
     /// 現在の状態を取得。
@@ -138,7 +148,10 @@ impl RecordStateMachine {
             Ordering::AcqRel,
             Ordering::Relaxed,
         ) {
-            Ok(_) => Ok(()),
+            Ok(_) => {
+                self.generation.fetch_add(1, Ordering::AcqRel);
+                Ok(())
+            }
             Err(_) => Err(TransitionError::AlreadyRecording),
         }
     }
@@ -223,6 +236,38 @@ mod tests {
         );
         // 状態は Record のまま（冪等）
         assert_eq!(sm.current(), RecordState::Record);
+    }
+
+    #[test]
+    fn record_generation_advances_only_on_successful_enter() {
+        let sm = RecordStateMachine::new();
+        assert_eq!(sm.generation(), 0);
+        assert_eq!(
+            sm.try_enter_record(License::Sense),
+            Err(TransitionError::LicenseDenied)
+        );
+        assert_eq!(
+            sm.generation(),
+            0,
+            "license denied must not advance generation"
+        );
+
+        assert_eq!(sm.try_enter_record(License::Os), Ok(()));
+        assert_eq!(sm.generation(), 1);
+        assert_eq!(
+            sm.try_enter_record(License::Os),
+            Err(TransitionError::AlreadyRecording)
+        );
+        assert_eq!(
+            sm.generation(),
+            1,
+            "double enter must not advance generation"
+        );
+
+        sm.exit_record();
+        assert_eq!(sm.generation(), 1, "exit keeps the completed session id");
+        assert_eq!(sm.try_enter_record(License::Os), Ok(()));
+        assert_eq!(sm.generation(), 2);
     }
 
     #[test]
