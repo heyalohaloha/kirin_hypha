@@ -4,6 +4,8 @@ mod gen_signals;
 mod install;
 mod macos_codesign;
 mod notarize;
+#[cfg(test)]
+mod plugin_display_names;
 mod release_gate;
 mod release_package;
 mod rt_safety;

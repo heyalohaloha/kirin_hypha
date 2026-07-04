@@ -473,7 +473,7 @@ impl Drop for HyphaPost {
 }
 
 impl Plugin for HyphaPost {
-    const NAME: &'static str = "Kirin Hypha POST";
+    const NAME: &'static str = "POST Kirin Hypha";
     const VENDOR: &'static str = "Kirin";
     const URL: &'static str = "";
     const EMAIL: &'static str = "";

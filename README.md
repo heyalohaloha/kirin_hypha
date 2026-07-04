@@ -102,8 +102,8 @@ The installer package has companion `.pkg.sha256` and artifact JSON assets on th
    - The package installs **Audio Unit** to `/Library/Audio/Plug-Ins/Components/`.
    - The package removes old user-level and system-level Kirin Hypha PRE/POST copies before installing, so DAWs do not load stale bundles first.
 3. Rescan plugins in your DAW.
-4. Insert **Kirin Hypha PRE** before your processing chain.
-5. Insert **Kirin Hypha POST** after your processing chain.
+4. Insert **PRE Kirin Hypha** before your processing chain.
+5. Insert **POST Kirin Hypha** after your processing chain.
 
 ---
 
