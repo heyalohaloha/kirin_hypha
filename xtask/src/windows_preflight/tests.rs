@@ -202,6 +202,30 @@ fn preflight_requires_windows_artifact_upload_error_on_missing_files() {
 }
 
 #[test]
+fn preflight_requires_windows_release_package_script() {
+    let bad = CI_WORKFLOW.replace(
+        "node scripts/ls_release/build_kirin_hypha_windows_vst3_zip.mjs",
+        "Write-Host skip-windows-package",
+    );
+    let err = verify_windows_ci_job(&bad).unwrap_err();
+    assert!(err
+        .to_string()
+        .contains("must run the Windows VST3 release package script"));
+}
+
+#[test]
+fn preflight_requires_windows_release_package_upload() {
+    let bad = CI_WORKFLOW.replace(
+        "name: kirin-hypha-windows-vst3-ls-package",
+        "name: kirin-hypha-windows-vst3-only",
+    );
+    let err = verify_windows_ci_job(&bad).unwrap_err();
+    assert!(err
+        .to_string()
+        .contains("package artifact must use a stable artifact name"));
+}
+
+#[test]
 fn preflight_rejects_macos_release_step_in_windows_ci_job() {
     let bad = CI_WORKFLOW.replace(
         "Build JUCE VST3 shell (Windows)",
