@@ -1584,7 +1584,9 @@ pub(crate) fn trigger_keep_internal(
     };
 
     // 5. RecordStateMachine 遷移（license 二重 gate）
-    match record_sm.try_enter_record(license) {
+    match record_sm
+        .try_enter_record_started_at(license, kirin_measure::record_writer::now_epoch_ms())
+    {
         Ok(()) => {}
         Err(TransitionError::LicenseDenied) => {
             log::info!("[POST keep] license denied: {:?}", license);

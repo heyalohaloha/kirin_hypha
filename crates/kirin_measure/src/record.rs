@@ -28,7 +28,7 @@
 //! Watch 時の既存 Step 1 挙動への副作用をゼロに保つため。
 
 use crate::identity::License;
-use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 
 /// Record mode の状態。
 #[repr(u8)]
@@ -38,6 +38,14 @@ pub enum RecordState {
     Watch = 0,
     /// Record mode。
     Record = 1,
+}
+
+const STATE_WATCH: u64 = RecordState::Watch as u64;
+const STATE_RECORD: u64 = RecordState::Record as u64;
+const STATE_ENTERING_TAG: u64 = 0b10;
+
+fn entering_state(token: u64) -> u64 {
+    (token.max(1) << 2) | STATE_ENTERING_TAG
 }
 
 impl RecordState {
@@ -83,7 +91,10 @@ pub enum TransitionError {
 /// ```
 #[derive(Debug)]
 pub struct RecordStateMachine {
-    state: AtomicU8,
+    state: AtomicU64,
+    /// Watch→Record の内部 Entering 状態を識別する単調トークン。
+    /// exit/retry が同時に走っても、古い Entering が新しい Entering を Record に昇格しないようにする。
+    entry_token: AtomicU64,
     /// B-132 (G-115-382): drain-completion seal。Record→Watch エッジで Measure Thread が
     /// 残量 ring を tight-drain → 最終 finalize → session_summary 書込を**完了した後**に
     /// 1 度だけ前進させる単調カウンタ。IO/record_writer の bake arm は Record 開始時に
@@ -95,15 +106,27 @@ pub struct RecordStateMachine {
     /// Audio Thread が「現在の Record で音声を見たか」を stale flag なしで判定するための
     /// lock-free セッション ID。
     generation: AtomicU64,
+    /// Record 要求が作られた wall-clock epoch ms。
+    ///
+    /// PRE は POST の `record_signal.started_at` をここへ保存する。Measure Thread は
+    /// Watch→Record を遅れて観測した場合、この時刻以降の pre-roll TRACE だけを Record
+    /// に復元し、Keep 前の古い Watch 計測を混ぜない。
+    record_started_at_ms: AtomicI64,
+    /// Measure Thread が Watch→Record 遷移を観測し、Record TRACE を受けられる状態に
+    /// なった最新 generation。PRE はこの値を待ってから `record_signal` を Acknowledged にする。
+    measure_ready_generation: AtomicU64,
 }
 
 impl RecordStateMachine {
     /// Watch で初期化。
     pub fn new() -> Self {
         Self {
-            state: AtomicU8::new(RecordState::Watch as u8),
+            state: AtomicU64::new(STATE_WATCH),
+            entry_token: AtomicU64::new(0),
             seal: AtomicU64::new(0),
             generation: AtomicU64::new(0),
+            record_started_at_ms: AtomicI64::new(0),
+            measure_ready_generation: AtomicU64::new(0),
         }
     }
 
@@ -123,9 +146,28 @@ impl RecordStateMachine {
         self.generation.load(Ordering::Acquire)
     }
 
+    /// 現 Record セッションの要求開始時刻（epoch ms）。0 は未設定。
+    pub fn record_started_at_ms(&self) -> i64 {
+        self.record_started_at_ms.load(Ordering::Acquire)
+    }
+
+    /// Measure Thread が Record generation を観測済みかどうかを見る。
+    pub fn measure_ready_generation(&self) -> u64 {
+        self.measure_ready_generation.load(Ordering::Acquire)
+    }
+
+    /// Measure Thread 側から、Record TRACE 受入準備ができた generation を公開する。
+    pub fn mark_measure_ready(&self, generation: u64) {
+        self.measure_ready_generation
+            .fetch_max(generation, Ordering::AcqRel);
+    }
+
     /// 現在の状態を取得。
     pub fn current(&self) -> RecordState {
-        RecordState::from_u8(self.state.load(Ordering::Relaxed))
+        match self.state.load(Ordering::Acquire) {
+            STATE_RECORD => RecordState::Record,
+            _ => RecordState::Watch,
+        }
     }
 
     /// Record 中かどうか（ショートハンド）。
@@ -138,19 +180,45 @@ impl RecordStateMachine {
     /// 排他制御（T-3）は呼び出し元が事前に実施する責務。本メソッドは
     /// license のみ判定する。
     pub fn try_enter_record(&self, license: License) -> Result<(), TransitionError> {
+        self.try_enter_record_started_at(license, 0)
+    }
+
+    /// Record へ遷移し、Record 要求時刻も保存する。
+    ///
+    /// `started_at_ms` は POST 自身なら Keep 操作時刻、PRE なら POST が書いた
+    /// `record_signal.started_at`。Measure Thread の pre-roll 復元境界としてのみ使い、
+    /// 0 以下なら従来通り復元しない。
+    pub fn try_enter_record_started_at(
+        &self,
+        license: License,
+        started_at_ms: i64,
+    ) -> Result<(), TransitionError> {
         if !matches!(license, License::Os) {
             return Err(TransitionError::LicenseDenied);
         }
-        // compare_exchange で冪等性を保証（Watch → Record のみ成功）。
+        // Watch → Entering → Record の2段階公開にする。
+        // Measure Thread が Record を見る時点では started_at / generation が確定済み。
+        let token = self.entry_token.fetch_add(1, Ordering::Relaxed) + 1;
+        let entering = entering_state(token);
         match self.state.compare_exchange(
-            RecordState::Watch as u8,
-            RecordState::Record as u8,
+            STATE_WATCH,
+            entering,
             Ordering::AcqRel,
             Ordering::Relaxed,
         ) {
             Ok(_) => {
+                self.record_started_at_ms
+                    .store(started_at_ms.max(0), Ordering::Release);
                 self.generation.fetch_add(1, Ordering::AcqRel);
-                Ok(())
+                match self.state.compare_exchange(
+                    entering,
+                    STATE_RECORD,
+                    Ordering::Release,
+                    Ordering::Acquire,
+                ) {
+                    Ok(_) => Ok(()),
+                    Err(_) => Err(TransitionError::AlreadyRecording),
+                }
             }
             Err(_) => Err(TransitionError::AlreadyRecording),
         }
@@ -164,8 +232,9 @@ impl RecordStateMachine {
     /// - 別マシン検出による計測停止
     /// - license 降格時の保険
     pub fn exit_record(&self) {
-        self.state
-            .store(RecordState::Watch as u8, Ordering::Release);
+        self.record_started_at_ms.store(0, Ordering::Release);
+        self.measure_ready_generation.store(0, Ordering::Release);
+        self.state.store(STATE_WATCH, Ordering::Release);
     }
 
     /// license 降格時の強制 Watch（保険 G-50-47）。
@@ -204,6 +273,23 @@ mod tests {
         assert_eq!(sm.try_enter_record(License::Os), Ok(()));
         assert_eq!(sm.current(), RecordState::Record);
         assert!(sm.is_recording());
+    }
+
+    #[test]
+    fn record_started_at_is_stored_and_cleared() {
+        let sm = RecordStateMachine::new();
+        assert_eq!(sm.record_started_at_ms(), 0);
+        assert_eq!(sm.measure_ready_generation(), 0);
+        assert_eq!(
+            sm.try_enter_record_started_at(License::Os, 1_725_000_123_456),
+            Ok(())
+        );
+        assert_eq!(sm.record_started_at_ms(), 1_725_000_123_456);
+        sm.mark_measure_ready(sm.generation());
+        assert_eq!(sm.measure_ready_generation(), sm.generation());
+        sm.exit_record();
+        assert_eq!(sm.record_started_at_ms(), 0);
+        assert_eq!(sm.measure_ready_generation(), 0);
     }
 
     #[test]

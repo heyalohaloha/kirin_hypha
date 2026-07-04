@@ -9,8 +9,8 @@ use crate::phase_d::stream::PhaseDStream;
 use crate::phase_d::tables::FieldType;
 use crate::record::RecordStateMachine;
 use crate::record_writer::{
-    clear_record_trace_queue, push_record_trace_sample, RecordTraceQueue, RecordTraceSample,
-    FRAME_INTERVAL_MS, PSB_INTERVAL_MS,
+    clear_record_trace_queue, now_epoch_ms, push_record_trace_sample, RecordTraceQueue,
+    RecordTraceSample, FRAME_INTERVAL_MS, PSB_INTERVAL_MS,
 };
 use crate::resampler::ResamplerTo48k;
 use crate::{
@@ -22,6 +22,7 @@ use crate::{
 /// 入力 SR が 48000 でない場合は Measure Thread 入口で `ResamplerTo48k` を介して
 /// 48 kHz に変換してから engine / phase_d に渡す。
 const ENGINE_SR: u32 = 48_000;
+use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
@@ -35,6 +36,10 @@ const LOOP_SLEEP: Duration = Duration::from_millis(100);
 /// Offline bounce は wall-clock より速く Audio Thread が進むため、Record 中だけ短い sleep にして
 /// Audio→Measure ring の滞留を減らす。Audio Thread からの通知や lock は増やさない。
 const RECORD_LOOP_SLEEP: Duration = Duration::from_millis(1);
+
+/// Watch→Record の検出が filesystem polling 分だけ遅れたときに、直前の Watch TRACE を
+/// Record に復元する最大音声時間。60 秒なら 10 fps TRACE で約 600 点の低メモリ履歴に収まる。
+const RECORD_PRE_ROLL_MAX_MS: u64 = 60_000;
 
 /// G-115-245 決定文言: heartbeat が変化しないまま何 tick 経過したら process() 停止と判定するか。
 /// **30 tick** × **TICK(=LOOP_SLEEP=100ms)** = **3s**（DAW の一時 stall を吸収）。30 / 100ms を
@@ -54,6 +59,44 @@ fn idle_sleep_for_record_state(is_recording: bool) -> Duration {
         RECORD_LOOP_SLEEP
     } else {
         LOOP_SLEEP
+    }
+}
+
+#[derive(Debug, Clone)]
+struct PreRollTraceSample {
+    captured_at_ms: i64,
+    frames_48k: u64,
+    result: MeasureResult,
+}
+
+#[derive(Debug, Default)]
+struct RecordTracePreRoll {
+    samples: VecDeque<PreRollTraceSample>,
+}
+
+impl RecordTracePreRoll {
+    fn clear(&mut self) {
+        self.samples.clear();
+    }
+
+    fn push(&mut self, captured_at_ms: i64, frames_48k: u64, result: &MeasureResult) {
+        self.samples.push_back(PreRollTraceSample {
+            captured_at_ms,
+            frames_48k,
+            result: result.clone(),
+        });
+        self.trim(captured_at_ms, frames_48k);
+    }
+
+    fn trim(&mut self, now_ms: i64, latest_frames_48k: u64) {
+        let max_frames = RECORD_PRE_ROLL_MAX_MS.saturating_mul(ENGINE_SR as u64) / 1_000;
+        while self.samples.front().is_some_and(|front| {
+            let wall_age_ms = now_ms.saturating_sub(front.captured_at_ms).max(0) as u64;
+            let frame_age = latest_frames_48k.saturating_sub(front.frames_48k);
+            wall_age_ms > RECORD_PRE_ROLL_MAX_MS || frame_age > max_frames
+        }) {
+            self.samples.pop_front();
+        }
     }
 }
 
@@ -222,8 +265,10 @@ pub fn spawn_measure_thread(
         // Record 中の SS-8 reset 抑止と組み合わせて、LUFS-I / LRA のセッション通算性を確保する。
         let mut prev_recording = false;
         let mut record_origin_frames = engine.total_frames();
+        let mut record_trace_time_offset_ms = 0_u64;
         let mut next_record_trace_ms = 0_u64;
         let mut next_record_psb_ms = 0_u64;
+        let mut record_pre_roll = RecordTracePreRoll::default();
 
         // heartbeat stall detection: process() が停止したことを検出する。
         // Studio One 等、バイパス時に process() を呼ばなくなる DAW に対応。
@@ -258,9 +303,18 @@ pub fn spawn_measure_thread(
                 next_record_trace_ms = 0;
                 next_record_psb_ms = 0;
                 clear_record_trace_queue(&record_trace_queue);
+                record_trace_time_offset_ms = seed_record_trace_from_pre_roll(
+                    &record_trace_queue,
+                    &record_pre_roll,
+                    record_sm.record_started_at_ms(),
+                    &mut next_record_trace_ms,
+                    &mut next_record_psb_ms,
+                );
+                record_pre_roll.clear();
                 if let Ok(mut g) = session_summary.lock() {
                     *g = None;
                 }
+                record_sm.mark_measure_ready(record_sm.generation());
                 log::info!("[MeasureThread] engine reset on Watch→Record transition");
             } else if prev_recording && !is_recording {
                 // ── B-132 (G-115-382) P1: Record→Watch エッジ drain-completion barrier ──
@@ -279,6 +333,7 @@ pub fn spawn_measure_thread(
                     Some(RecordTraceDrain {
                         queue: &record_trace_queue,
                         record_origin_frames,
+                        record_trace_time_offset_ms,
                         next_trace_ms: &mut next_record_trace_ms,
                         next_psb_ms: &mut next_record_psb_ms,
                     }),
@@ -335,6 +390,7 @@ pub fn spawn_measure_thread(
                         Some(RecordTraceDrain {
                             queue: &record_trace_queue,
                             record_origin_frames,
+                            record_trace_time_offset_ms,
                             next_trace_ms: &mut next_record_trace_ms,
                             next_psb_ms: &mut next_record_psb_ms,
                         }),
@@ -369,6 +425,7 @@ pub fn spawn_measure_thread(
             if !prev_active {
                 if !is_recording {
                     engine.reset();
+                    record_pre_roll.clear();
                 } else {
                     log::info!("[MeasureThread] SS-8 reset suppressed in Record mode (B-043)");
                 }
@@ -428,6 +485,7 @@ pub fn spawn_measure_thread(
                 // audio-time TRACE queue に渡す。
                 let mut last_result = None;
                 let latest_pd_snapshot = latest_pd.clone();
+                let observed_at_ms = now_epoch_ms();
                 let _ = engine.push_observed(chunk_48k, |frames_48k, base_result| {
                     let mut new_result = base_result.clone();
                     merge_phase_d_fields(&mut new_result, latest_pd_snapshot.as_ref());
@@ -435,11 +493,14 @@ pub fn spawn_measure_thread(
                         maybe_push_record_trace(
                             &record_trace_queue,
                             record_origin_frames,
+                            record_trace_time_offset_ms,
                             &mut next_record_trace_ms,
                             &mut next_record_psb_ms,
                             frames_48k,
                             &new_result,
                         );
+                    } else {
+                        record_pre_roll.push(observed_at_ms, frames_48k, &new_result);
                     }
                     last_result = Some(new_result);
                 });
@@ -507,15 +568,72 @@ fn merge_phase_d_fields(
     }
 }
 
+fn seed_record_trace_from_pre_roll(
+    queue: &RecordTraceQueue,
+    pre_roll: &RecordTracePreRoll,
+    requested_started_at_ms: i64,
+    next_trace_ms: &mut u64,
+    next_psb_ms: &mut u64,
+) -> u64 {
+    if requested_started_at_ms <= 0 {
+        return 0;
+    }
+    let Some(origin) = pre_roll
+        .samples
+        .iter()
+        .find(|sample| sample.captured_at_ms >= requested_started_at_ms)
+    else {
+        return 0;
+    };
+    let origin_frames = origin.frames_48k;
+    let mut last_seed_t_ms = 0;
+    let mut seeded = 0_usize;
+    for sample in pre_roll
+        .samples
+        .iter()
+        .filter(|sample| sample.captured_at_ms >= requested_started_at_ms)
+    {
+        let t_ms = sample.frames_48k.saturating_sub(origin_frames) * 1_000 / ENGINE_SR as u64;
+        if t_ms < *next_trace_ms {
+            continue;
+        }
+        let include_psb = t_ms >= *next_psb_ms;
+        push_record_trace_sample(
+            queue,
+            RecordTraceSample {
+                t_ms,
+                result: sample.result.clone(),
+                include_psb,
+            },
+        );
+        *next_trace_ms = (t_ms / FRAME_INTERVAL_MS + 1) * FRAME_INTERVAL_MS;
+        if include_psb {
+            *next_psb_ms = (t_ms / PSB_INTERVAL_MS + 1) * PSB_INTERVAL_MS;
+        }
+        last_seed_t_ms = t_ms;
+        seeded += 1;
+    }
+    if seeded > 0 {
+        log::info!(
+            "[MeasureThread] seeded {} Record TRACE sample(s) from Watch pre-roll (requested_started_at_ms={})",
+            seeded,
+            requested_started_at_ms
+        );
+    }
+    last_seed_t_ms
+}
+
 fn maybe_push_record_trace(
     queue: &RecordTraceQueue,
     record_origin_frames: u64,
+    record_trace_time_offset_ms: u64,
     next_trace_ms: &mut u64,
     next_psb_ms: &mut u64,
     frames_48k: u64,
     result: &MeasureResult,
 ) {
-    let t_ms = frames_48k.saturating_sub(record_origin_frames) * 1_000 / ENGINE_SR as u64;
+    let t_ms = record_trace_time_offset_ms
+        .saturating_add(frames_48k.saturating_sub(record_origin_frames) * 1_000 / ENGINE_SR as u64);
     if t_ms < *next_trace_ms {
         return;
     }
@@ -537,6 +655,7 @@ fn maybe_push_record_trace(
 struct RecordTraceDrain<'a> {
     queue: &'a RecordTraceQueue,
     record_origin_frames: u64,
+    record_trace_time_offset_ms: u64,
     next_trace_ms: &'a mut u64,
     next_psb_ms: &'a mut u64,
 }
@@ -589,6 +708,7 @@ fn drain_ring_into_session(
                 maybe_push_record_trace(
                     trace.queue,
                     trace.record_origin_frames,
+                    trace.record_trace_time_offset_ms,
                     trace.next_trace_ms,
                     trace.next_psb_ms,
                     frames_48k,
@@ -670,6 +790,68 @@ pub mod tests {
             super::idle_sleep_for_record_state(true) < super::LOOP_SLEEP,
             "Record mode must poll faster than Watch mode"
         );
+    }
+
+    #[test]
+    fn pre_roll_seed_rebases_only_samples_after_record_signal_started_at() {
+        let mut pre_roll = super::RecordTracePreRoll::default();
+        let before = crate::MeasureResult {
+            lufs_m: Some(-30.0),
+            ..Default::default()
+        };
+        let after_a = crate::MeasureResult {
+            lufs_m: Some(-20.0),
+            ..Default::default()
+        };
+        let after_b = crate::MeasureResult {
+            lufs_m: Some(-19.0),
+            ..Default::default()
+        };
+
+        pre_roll.push(900, 4_800, &before);
+        pre_roll.push(1_050, 9_600, &after_a);
+        pre_roll.push(1_150, 14_400, &after_b);
+
+        let queue = crate::record_writer::new_record_trace_queue();
+        let mut next_trace_ms = 0;
+        let mut next_psb_ms = 0;
+        let offset = super::seed_record_trace_from_pre_roll(
+            &queue,
+            &pre_roll,
+            1_000,
+            &mut next_trace_ms,
+            &mut next_psb_ms,
+        );
+        let drained = crate::record_writer::drain_record_trace_queue(&queue);
+
+        assert_eq!(drained.len(), 2);
+        assert_eq!(drained[0].t_ms, 0);
+        assert_eq!(drained[0].result.lufs_m, Some(-20.0));
+        assert_eq!(drained[1].t_ms, 100);
+        assert_eq!(drained[1].result.lufs_m, Some(-19.0));
+        assert_eq!(offset, 100);
+        assert_eq!(next_trace_ms, 200);
+    }
+
+    #[test]
+    fn pre_roll_seed_is_disabled_without_record_started_at() {
+        let mut pre_roll = super::RecordTracePreRoll::default();
+        pre_roll.push(1_000, 4_800, &crate::MeasureResult::default());
+        let queue = crate::record_writer::new_record_trace_queue();
+        let mut next_trace_ms = 0;
+        let mut next_psb_ms = 0;
+
+        let offset = super::seed_record_trace_from_pre_roll(
+            &queue,
+            &pre_roll,
+            0,
+            &mut next_trace_ms,
+            &mut next_psb_ms,
+        );
+
+        assert_eq!(offset, 0);
+        assert!(crate::record_writer::drain_record_trace_queue(&queue).is_empty());
+        assert_eq!(next_trace_ms, 0);
     }
 
     // ── B-115: POST pair lock 述語（playing かつ live）+ heartbeat 鮮度の単体 ──

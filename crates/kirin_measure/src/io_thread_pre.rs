@@ -36,8 +36,8 @@ use crate::pre_self_discovery::{discover_pair_post_project_dir, PreSelfDiscovery
 use crate::record::RecordStateMachine;
 use crate::record_signal::{self, SignalStatus};
 use crate::record_writer::{
-    run_record_tick_with_pair_names, take_session_summary, writer_close_degraded,
-    writer_close_with_summary, RecordingCtx,
+    parse_iso8601_to_epoch_ms, run_record_tick_with_pair_names, take_session_summary,
+    writer_close_degraded, writer_close_with_summary, RecordingCtx,
 };
 use crate::storage::{PlatformPaths, StoragePaths};
 use crate::{load_signal_state, License, MeasureResult, RecordTraceQueue, SignalState};
@@ -65,6 +65,12 @@ const RETRY_MAX_ATTEMPTS: usize = 2;
 /// 50ms を採用 (リトライ 2 回で最大 100ms 遅延)。
 const RETRY_INTERVAL: Duration = Duration::from_millis(50);
 
+/// PRE が POST に Acknowledged を返す前に、Measure Thread が Watch→Record を観測して
+/// TRACE 受入準備を終えるのを待つ上限。KEEP→READY→bounce の設計を守るための
+/// IO Thread 側 barrier（Audio Thread には触れない）。
+const MEASURE_READY_TIMEOUT: Duration = Duration::from_millis(300);
+const MEASURE_READY_POLL: Duration = Duration::from_millis(5);
+
 /// PRE スレッドが追従中の partner POST 情報（IO Thread ローカル）。
 struct PartnerInfo {
     post_instance_id: String,
@@ -77,6 +83,22 @@ fn should_force_pre_watch_without_partner(
     record_acknowledged: &AtomicBool,
 ) -> bool {
     record_sm.is_recording() && partner.is_none() && record_acknowledged.load(Ordering::Relaxed)
+}
+
+fn wait_for_measure_ready(record_sm: &RecordStateMachine, generation: u64) -> bool {
+    if generation == 0 {
+        return false;
+    }
+    let deadline = Instant::now() + MEASURE_READY_TIMEOUT;
+    loop {
+        if record_sm.measure_ready_generation() >= generation {
+            return true;
+        }
+        if Instant::now() >= deadline {
+            return false;
+        }
+        thread::sleep(MEASURE_READY_POLL);
+    }
 }
 
 /// B-024 Group A / Gap-3 / Gap-5: PRE startup 時に stale Acknowledged signal を削除する。
@@ -739,16 +761,36 @@ fn poll_record_signal(
         return;
     }
 
-    // state machine 遷移: 1 度だけ (record_sm.try_enter_record は compare_exchange
+    let requested_started_at_ms = pending_signals
+        .iter()
+        .filter_map(|(_, sig)| parse_iso8601_to_epoch_ms(&sig.started_at))
+        .min()
+        .unwrap_or(0);
+
+    // state machine 遷移: 1 度だけ (record_sm.try_enter_record_started_at は compare_exchange
     // で冪等 / record.rs:111-125)。N 件 ack の前に Watch→Record 遷移を確定する。
-    let entered_now = match record_sm.try_enter_record(**license) {
-        Ok(()) => true,
-        Err(e) => {
-            log::warn!("[signal] try_enter_record rejected: {:?}", e);
-            return;
-        }
-    };
+    let entered_now =
+        match record_sm.try_enter_record_started_at(**license, requested_started_at_ms) {
+            Ok(()) => true,
+            Err(e) => {
+                log::warn!("[signal] try_enter_record rejected: {:?}", e);
+                return;
+            }
+        };
     recording.store(true, Ordering::Relaxed);
+    let target_generation = record_sm.generation();
+    if !wait_for_measure_ready(record_sm, target_generation) {
+        record_sm.exit_record();
+        recording.store(false, Ordering::Relaxed);
+        log::warn!(
+            "[signal] PRE Record measure-ready timeout; ACK withheld \
+             (generation={}, pre_iid={}, pending_count={})",
+            target_generation,
+            instance_id,
+            pending_signals.len()
+        );
+        return;
+    }
 
     // N 件並列 ack。各 ack は独立 atomic rename (record_signal::write_signal /
     // L195-203 既存パターン)。1 件失敗しても他 N-1 件は継続 (Vec 全件処理 / Gap-11

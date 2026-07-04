@@ -377,7 +377,10 @@ fn resolve_and_enter_keep(
         *g = Some(target.clone());
     }
     // license 二重 gate（record.rs try_enter_record / E-21）。非 Os は投機的 linkage 巻き戻し。
-    if record_sm.try_enter_record(license).is_err() {
+    if record_sm
+        .try_enter_record_started_at(license, kirin_measure::record_writer::now_epoch_ms())
+        .is_err()
+    {
         if let Ok(mut g) = paired_pre_target.lock() {
             *g = None;
         }
@@ -664,7 +667,10 @@ impl KirinHyphaEngine {
     /// （record.rs:109-123）。`AlreadyRecording` / `LicenseDenied` は `false`。
     pub fn enter_record(&self) -> bool {
         self.record_sm
-            .try_enter_record(self.current_license())
+            .try_enter_record_started_at(
+                self.current_license(),
+                kirin_measure::record_writer::now_epoch_ms(),
+            )
             .is_ok()
     }
 
