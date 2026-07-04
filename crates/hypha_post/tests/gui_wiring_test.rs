@@ -86,8 +86,12 @@ fn lib_rs_offline_end_auto_stop_is_wired_from_initialize() {
         "initialize() must use the guarded offline auto-stop predicate"
     );
     assert!(
-        window.contains("self.record_active_samples.load(Ordering::Relaxed)"),
-        "offline-end auto-stop must require current-record active audio"
+        window.contains("self.offline_render_samples.load(Ordering::Relaxed)"),
+        "offline-end auto-stop must require current-record offline process samples"
+    );
+    assert!(
+        window.contains(".offline_render_sample_generation"),
+        "offline-end auto-stop must be tied to the current Record generation"
     );
     assert!(
         window.contains("&& recording_now"),
