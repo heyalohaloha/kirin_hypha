@@ -75,18 +75,22 @@ fn lib_rs_offline_end_auto_stop_is_wired_from_initialize() {
     let initialize_start = src
         .find("fn initialize(")
         .expect("initialize function must exist");
-    let mut safe_end = (initialize_start + 3000).min(src.len());
+    let mut safe_end = (initialize_start + 4500).min(src.len());
     while safe_end > initialize_start && !src.is_char_boundary(safe_end) {
         safe_end -= 1;
     }
     let window = &src[initialize_start..safe_end];
 
     assert!(
-        window.contains("offline_render_ended(self.prev_process_mode, buffer_config.process_mode)"),
-        "initialize() must check the host process-mode edge"
+        window.contains("offline_render_auto_stop_due("),
+        "initialize() must use the guarded offline auto-stop predicate"
     );
     assert!(
-        window.contains("&& self.record_sm.is_recording()"),
+        window.contains("self.record_active_samples.load(Ordering::Relaxed)"),
+        "offline-end auto-stop must require current-record active audio"
+    );
+    assert!(
+        window.contains("&& recording_now"),
         "offline-end auto-stop must only run while Keep/Record is active"
     );
     assert!(
