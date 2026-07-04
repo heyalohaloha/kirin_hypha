@@ -47,6 +47,7 @@ use nih_plug_egui::{
     egui::{self, Grid, Key, Label, RichText, Sense, Stroke, TextEdit, TextStyle, Vec2},
     EguiState,
 };
+use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU8, Ordering};
 use std::sync::{Arc, LazyLock, Mutex, RwLock};
 use std::time::Duration;
@@ -1094,6 +1095,12 @@ fn draw_pair_pre_combo(
                     .iter()
                     .filter(|cand| !cand.name.as_deref().unwrap_or("").is_empty())
                     .collect();
+                let mut name_counts = BTreeMap::<&str, usize>::new();
+                for cand in &named_candidates {
+                    if let Some(name) = cand.name.as_deref() {
+                        *name_counts.entry(name).or_default() += 1;
+                    }
+                }
                 if named_candidates.is_empty() {
                     ui.label(
                         RichText::new("No pair choices")
@@ -1105,9 +1112,8 @@ fn draw_pair_pre_combo(
                 }
                 for cand in named_candidates {
                     // W-285 / G-115-253: PRE name="" (空文字 / 旧 schema 不在 None) の
-                    // 候補は dropdown から除外する。dropdown 表示文字 `candidate_dropdown_label`
-                    // は UUID8 fallback を含むため、Daisuke が fallback 文字を見て pair_pre_name
-                    // に手入力 → pair filter 永久不一致 NoPre 化する誤導を構造的に防止する
+                    // 候補は dropdown から除外する。PRE name 不在候補を表示して選ばせると、
+                    // pair_pre_name が実PRE nameと一致せず NoPre 化する誤導につながるため、
                     // 表示・選択のみ抑止 / single pass-through (pair_pre_name="" 時の
                     // 1 件環境) など他経路は無影響。
                     let cand_name = cand.name.as_deref().unwrap_or("");
@@ -1123,9 +1129,13 @@ fn draw_pair_pre_combo(
                             &current_instance_id_for_status,
                             &current_pair_pre_name_for_status,
                             &post_candidates,
+                            name_counts.get(cand_name).copied().unwrap_or(0) > 1,
                         );
                         let label_text = candidate_dropdown_label(cand, keep_status);
-                        let row_enabled = keep_status != CandidateKeepStatus::InUseByOther;
+                        let row_enabled = !matches!(
+                            keep_status,
+                            CandidateKeepStatus::InUseByOther | CandidateKeepStatus::DuplicateName
+                        );
                         let clicked = ui
                             .add_enabled_ui(row_enabled, |ui| {
                                 ui.selectable_label(
@@ -1183,6 +1193,7 @@ enum CandidateKeepStatus {
     Available,
     KeepReady,
     InUseByOther,
+    DuplicateName,
 }
 
 fn candidate_keep_status(
@@ -1190,7 +1201,11 @@ fn candidate_keep_status(
     current_instance_id: &str,
     current_pair_pre_name: &str,
     post_candidates: &[PostCandidate],
+    duplicate_name: bool,
 ) -> CandidateKeepStatus {
+    if duplicate_name {
+        return CandidateKeepStatus::DuplicateName;
+    }
     let claimed_by_other = post_candidates
         .iter()
         .any(|c| c.pair_pre_name.as_deref() == Some(name) && c.instance_id != current_instance_id);
@@ -1205,24 +1220,24 @@ fn candidate_keep_status(
 
 /// ComboBox dropdown 1 行の表示文字列を組み立てる。
 ///
-/// `Some(name)` → `"Can Keep: snare #abc12345"`、`None` → `"Can Keep: (no name) #abc12345"`。
-/// instance_id は先頭 8 文字のみ（300×200 GUI に収まる短形）。
+/// `Some(name)` → `"Can Keep: snare"`、`None` → `"Can Keep: (no name)"`。
+/// `instance_id` はログ・診断用に保持し、通常の候補表示には出さない。
 fn candidate_dropdown_label(cand: &PreCandidate, keep_status: CandidateKeepStatus) -> String {
-    let id_prefix: String = cand.instance_id.chars().take(8).collect();
     let name_part = cand.name.as_deref().unwrap_or("(no name)");
     let prefix = match keep_status {
         CandidateKeepStatus::Available => "Can Keep",
         CandidateKeepStatus::KeepReady => "Keep ready",
         CandidateKeepStatus::InUseByOther => "In use",
+        CandidateKeepStatus::DuplicateName => "Duplicate",
     };
-    format!("{prefix}: {name_part} #{id_prefix}")
+    format!("{prefix}: {name_part}")
 }
 
 fn candidate_dropdown_rich_text(label_text: String, keep_status: CandidateKeepStatus) -> RichText {
     let color = match keep_status {
         CandidateKeepStatus::Available => COL_NORMAL,
         CandidateKeepStatus::KeepReady => COL_FLORA_BRIGHT,
-        CandidateKeepStatus::InUseByOther => COL_MUTED,
+        CandidateKeepStatus::InUseByOther | CandidateKeepStatus::DuplicateName => COL_MUTED,
     };
     RichText::new(candidate_dropdown_display_text(label_text, keep_status))
         .size(12.0)
@@ -1233,7 +1248,9 @@ fn candidate_dropdown_rich_text(label_text: String, keep_status: CandidateKeepSt
 fn candidate_dropdown_display_text(label_text: String, keep_status: CandidateKeepStatus) -> String {
     match keep_status {
         CandidateKeepStatus::KeepReady => format!("✓ {label_text}"),
-        CandidateKeepStatus::Available | CandidateKeepStatus::InUseByOther => label_text,
+        CandidateKeepStatus::Available
+        | CandidateKeepStatus::InUseByOther
+        | CandidateKeepStatus::DuplicateName => label_text,
     }
 }
 
@@ -2111,9 +2128,9 @@ mod tests {
 
     // ── B-027 段階 3-A: ComboBox dropdown label ─────────────────────────
 
-    /// `Some(name)` 持ち候補は `"Can Keep: <name> #<uuid8>"` で描画される。
+    /// `Some(name)` 持ち候補は `"Can Keep: <name>"` で描画され、UUID は出さない。
     #[test]
-    fn dropdown_label_with_name_uses_first_eight_chars() {
+    fn dropdown_label_with_name_hides_instance_id() {
         let cand = PreCandidate {
             instance_id: "abcdef1234567890".into(),
             lufs_m: None,
@@ -2124,11 +2141,12 @@ mod tests {
         };
         assert_eq!(
             candidate_dropdown_label(&cand, CandidateKeepStatus::Available),
-            "Can Keep: snare #abcdef12"
+            "Can Keep: snare"
         );
     }
 
-    /// `name = None` の旧 schema PRE は `"Can Keep: (no name) #<uuid8>"` で描画される。
+    /// `name = None` の旧 schema PRE は fallback 名のみを組み立てる。
+    /// 実際の dropdown は no-name 候補を事前に除外する。
     #[test]
     fn dropdown_label_with_no_name_falls_back() {
         let cand = PreCandidate {
@@ -2141,13 +2159,13 @@ mod tests {
         };
         assert_eq!(
             candidate_dropdown_label(&cand, CandidateKeepStatus::Available),
-            "Can Keep: (no name) #abcdef12"
+            "Can Keep: (no name)"
         );
     }
 
-    /// instance_id が 8 文字未満でも crash せずそのまま入る (char 取り)。
+    /// instance_id は候補表示に使わない。
     #[test]
-    fn dropdown_label_short_instance_id_passes_through() {
+    fn dropdown_label_short_instance_id_stays_hidden() {
         let cand = PreCandidate {
             instance_id: "abc".into(),
             lufs_m: None,
@@ -2158,7 +2176,7 @@ mod tests {
         };
         assert_eq!(
             candidate_dropdown_label(&cand, CandidateKeepStatus::Available),
-            "Can Keep: kick #abc"
+            "Can Keep: kick"
         );
     }
 
@@ -2174,18 +2192,22 @@ mod tests {
         };
         assert_eq!(
             candidate_dropdown_label(&cand, CandidateKeepStatus::KeepReady),
-            "Keep ready: Music #abcdef12"
+            "Keep ready: Music"
         );
         assert_eq!(
             candidate_dropdown_display_text(
                 candidate_dropdown_label(&cand, CandidateKeepStatus::KeepReady),
                 CandidateKeepStatus::KeepReady,
             ),
-            "✓ Keep ready: Music #abcdef12"
+            "✓ Keep ready: Music"
         );
         assert_eq!(
             candidate_dropdown_label(&cand, CandidateKeepStatus::InUseByOther),
-            "In use: Music #abcdef12"
+            "In use: Music"
+        );
+        assert_eq!(
+            candidate_dropdown_label(&cand, CandidateKeepStatus::DuplicateName),
+            "Duplicate: Music"
         );
     }
 
@@ -2210,15 +2232,15 @@ mod tests {
             },
         ];
         assert_eq!(
-            candidate_keep_status("Music", "self-post", "Music", &claims),
+            candidate_keep_status("Music", "self-post", "Music", &claims, false),
             CandidateKeepStatus::KeepReady
         );
         assert_eq!(
-            candidate_keep_status("Drum", "self-post", "Music", &claims),
+            candidate_keep_status("Drum", "self-post", "Music", &claims, false),
             CandidateKeepStatus::InUseByOther
         );
         assert_eq!(
-            candidate_keep_status("Vocal", "self-post", "Music", &claims),
+            candidate_keep_status("Vocal", "self-post", "Music", &claims, false),
             CandidateKeepStatus::Available
         );
     }
@@ -2234,8 +2256,24 @@ mod tests {
             path: std::path::PathBuf::new(),
         }];
         assert_eq!(
-            candidate_keep_status("Music", "self-post", "Music", &claims),
+            candidate_keep_status("Music", "self-post", "Music", &claims, false),
             CandidateKeepStatus::InUseByOther
+        );
+    }
+
+    #[test]
+    fn candidate_keep_status_prefers_duplicate_name_for_dropdown_safety() {
+        let claims = vec![PostCandidate {
+            instance_id: "self-post".into(),
+            project_uuid: "p".into(),
+            daw_session_id: Some("daw".into()),
+            pair_pre_name: Some("Music".into()),
+            pair_claimed_at: 1.0,
+            path: std::path::PathBuf::new(),
+        }];
+        assert_eq!(
+            candidate_keep_status("Music", "self-post", "Music", &claims, true),
+            CandidateKeepStatus::DuplicateName
         );
     }
 

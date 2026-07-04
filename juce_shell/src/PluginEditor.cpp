@@ -32,6 +32,16 @@ namespace
                 return true;
         return false;
     }
+
+    bool hasDuplicateCandidateName (const juce::String& name,
+                                    const juce::Array<KirinHyphaProcessorBase::PreCandidate>& candidates)
+    {
+        int matches = 0;
+        for (const auto& c : candidates)
+            if (c.hasName && c.name.isNotEmpty() && c.name == name && ++matches > 1)
+                return true;
+        return false;
+    }
 }
 
 KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
@@ -281,7 +291,7 @@ void KirinHyphaEditor::showCandidateMenu()
 {
     // B-102: egui draw_pair_pre_combo parity (scope = new↔new). Built on click (no per-tick FFI):
     //   [All Keep: N ready POST(s)] (Watch, N>=1) / [All Stop: recording POSTs] (Record) /
-    //   candidate rows ("Can Keep/Keep ready/In use: name #id8").
+    //   candidate rows ("Can Keep/Keep ready/In use/Duplicate: name").
     // select_target_pre matches by name, so only named candidates are offered (egui skips empty).
     const bool rec = processorRef.isRecording();
     const bool playing = processorRef.isPlaying(); // W-280: pair change locked during playback
@@ -303,10 +313,12 @@ void KirinHyphaEditor::showCandidateMenu()
             menuCandidateNames.add (c.name);
             const bool keepReady = (c.name == currentPairName);
             const bool inUse = claimedByOtherPost (c.name, ownInstanceId, claims);
-            const juce::String prefix = inUse ? "In use: " : (keepReady ? "Keep ready: " : "Can Keep: ");
-            labels.add (prefix + c.name + "  #" + c.instanceId.substring (0, 8));
-            labelEnabled.add (! inUse);
-            labelChecked.add (keepReady && ! inUse);
+            const bool duplicateName = hasDuplicateCandidateName (c.name, cands);
+            const juce::String prefix = duplicateName ? "Duplicate: "
+                                      : (inUse ? "In use: " : (keepReady ? "Keep ready: " : "Can Keep: "));
+            labels.add (prefix + c.name);
+            labelEnabled.add (! duplicateName && ! inUse);
+            labelChecked.add (! duplicateName && keepReady && ! inUse);
         }
 
     // egui parity: "N ready" = pair-set POST instances (keepReadyCount), NOT the PRE candidate
