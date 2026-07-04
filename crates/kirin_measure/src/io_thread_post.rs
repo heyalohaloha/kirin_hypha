@@ -48,11 +48,9 @@ use crate::{load_signal_state, MeasureResult, RecordTraceQueue, SignalState};
 
 const LOOP_SLEEP: Duration = Duration::from_millis(100);
 
-/// B-206/B-225: Record idle auto-stop の既定しきい値（秒）。B-225 以降は
-/// `KIRIN_RECORD_IDLE_AUTOSTOP=1` を明示した検証環境でのみ使う。通常運用では
-/// 「勝手に Record を閉じない」を優先し、手動 Stop / All Stop / 保存失敗時の安全停止だけを権威にする。
+/// B-206/B-225/B-243: Record idle auto-stop の既定しきい値（秒）。
+/// Record 中に 10 分以上 Active が無ければ、利用者の Stop 漏れ相当として graceful 停止する。
 const RECORD_IDLE_TIMEOUT_DEFAULT_SECS: u64 = 600; // 10 min
-const RECORD_IDLE_AUTOSTOP_ENV: &str = "KIRIN_RECORD_IDLE_AUTOSTOP";
 
 /// B-206: idle timeout を解決する（env override 対応 / pure・テスト用に分離）。
 /// `KIRIN_RECORD_IDLE_TIMEOUT_SECS` が有効な整数（>= 5）なら採用、それ以外は既定 600s。
@@ -65,26 +63,11 @@ fn parse_idle_timeout(raw: Option<String>) -> Duration {
     Duration::from_secs(secs)
 }
 
-/// B-206: io thread spawn 時に一度だけ env を読んで idle timeout を確定する。
-fn parse_idle_autostop_enabled(raw: Option<String>) -> bool {
-    raw.map(|s| {
-        matches!(
-            s.trim().to_ascii_lowercase().as_str(),
-            "1" | "true" | "yes" | "on"
-        )
-    })
-    .unwrap_or(false)
-}
-
-/// B-225: io thread spawn 時に一度だけ env を読んで idle auto-stop の有無を確定する。
+/// B-243: io thread spawn 時に一度だけ idle timeout を確定する。
 fn record_idle_timeout() -> Option<Duration> {
-    if parse_idle_autostop_enabled(std::env::var(RECORD_IDLE_AUTOSTOP_ENV).ok()) {
-        Some(parse_idle_timeout(
-            std::env::var("KIRIN_RECORD_IDLE_TIMEOUT_SECS").ok(),
-        ))
-    } else {
-        None
-    }
+    Some(parse_idle_timeout(
+        std::env::var("KIRIN_RECORD_IDLE_TIMEOUT_SECS").ok(),
+    ))
 }
 
 /// B-206: idle auto-stop すべきか（pure 判定 / テスト容易性のため分離）。
@@ -353,8 +336,8 @@ pub fn spawn_io_thread_post(
         // B-024 Group A / Gap-2: PRE 死活監視 sub-tick の next-fire 時刻。
         let mut next_pre_liveness_poll = Instant::now();
         let mut discovery = PostDiscoveryState::new();
-        // B-225: Record idle auto-stop は既定 OFF。Active 信号 / 非Record で基点更新し、
-        // 明示 opt-in 環境でのみ、Record 中に連続無Active がしきい値を超えたら graceful 停止。
+        // B-243: Record idle auto-stop は「10分以上無音」の正当停止理由。Active 信号 /
+        // 非Record で基点更新し、Record 中に連続無Active がしきい値を超えたら graceful 停止。
         let mut idle_anchor = Instant::now();
         let idle_timeout = record_idle_timeout();
         match idle_timeout {
@@ -541,10 +524,9 @@ pub fn spawn_io_thread_post(
                 );
             }
 
-            // ── B-225: Record idle auto-stop（検証 opt-in のみ）──────────────────────
+            // ── B-243: Record idle auto-stop（10分以上無音）────────────────────────
             // KEEP は POST 側の操作なので、本機構は POST 主導。ただし通常運用では
-            // 「勝手に Record を閉じない」を優先し、KIRIN_RECORD_IDLE_AUTOSTOP=1 のときだけ
-            // 連続無Active timeout を graceful 停止に使う。
+            // Stop/All Stop と、この連続無Active timeout だけを Record 停止権限にする。
             // - 非Record: 基点を更新（次 Record で 0 から計時 / 過去の idle を持ち越さない）。
             // - Active: 基点リセット（録音中は決して発火しない）。
             // - 非Active 連続でしきい値超過: release reservation → mark_released → exit_record_full。
@@ -1044,8 +1026,9 @@ fn delta_pre_bypassed() -> (DeltaResult, bool, Option<SignalState>) {
 ///   fs-lag Stale は B-048 凍結保持、NoPre は last_active クリア）。
 ///
 /// ラッチ規律（B-108）:
-/// - Record 中はラッチ凍結（アンラッチ/再選定しない / W-284 self_check-skip と同型）。真の PRE 実消滅は
-///   `poll_pre_liveness`(60s) が `exit_record_full` で処理（G-115-56/64 不変）。
+/// - Record 中はラッチ凍結（アンラッチ/再選定しない / W-284 self_check-skip と同型）。
+///   PRE pre.json の stale/missing は表示上だけ latched-idle にし、Record は Stop / idle timeout
+///   まで保持する。
 /// - Watch 中: pair 名変更/クリアで即アンラッチ。ラッチ先 pre.json を直読するが、実消滅
 ///   （不在/stale>TTL/rename）は解除理由にしない。明示 pair 名が残る限り、ラッチ済み instance を
 ///   権威にして muted Δ/--- を返す。未ラッチ時だけ Arm ゲート（B-104）で初回解決する。
@@ -1093,7 +1076,7 @@ fn compute_latched_display_for_post_project(
                 Ok((d, false, ss))
             }
             Some(st) if st.signal_state == Some(SignalState::Bypassed) => Ok(delta_pre_bypassed()),
-            // 一時 idle / 一時消失(<60s) → latched-idle 表示（真消滅は poll_pre_liveness 管轄）。
+            // 一時 idle / stale / missing → latched-idle 表示。missing 単独では Record を閉じない。
             _ => Ok(delta_latched_idle()),
         };
     }
@@ -1966,9 +1949,9 @@ fn poll_ack_timeout_with_base(
     base: &Path,
     project_hash: &str,
     instance_id: &str,
-    record_sm: &Arc<RecordStateMachine>,
-    pair_label: &Arc<Mutex<String>>,
-    paired_pre_target: &Arc<Mutex<Option<String>>>,
+    _record_sm: &Arc<RecordStateMachine>,
+    _pair_label: &Arc<Mutex<String>>,
+    _paired_pre_target: &Arc<Mutex<Option<String>>>,
     now: chrono::DateTime<chrono::Utc>,
 ) {
     let Some(signal) = record_signal::read_signal(base, project_hash, instance_id) else {
@@ -1981,23 +1964,9 @@ fn poll_ack_timeout_with_base(
         return;
     }
     log::warn!(
-        "[IOThread POST] ACK timeout ({}s) — auto-releasing record signal",
+        "[IOThread POST] ACK timeout ({}s) — keeping Record armed",
         ACK_TIMEOUT_SECONDS
     );
-    match record_signal::mark_released(base, project_hash, instance_id) {
-        Ok(true) => log::info!("[IOThread POST] mark_released ok"),
-        Ok(false) => log::debug!("[IOThread POST] signal already gone"),
-        Err(e) => log::warn!("[IOThread POST] mark_released failed: {}", e),
-    }
-    release_record_reservation(
-        base,
-        project_hash,
-        instance_id,
-        paired_pre_target,
-        "ack_timeout",
-    );
-    // を成立させるため、editor 側 trigger_stop_internal と同じ 3 ステップを通過させる。
-    exit_record_full(record_sm, pair_label, paired_pre_target);
 }
 
 fn release_record_reservation(
@@ -2140,21 +2109,12 @@ fn poll_preset_availability(
 
 #[cfg(test)]
 mod b206_idle_autostop_tests {
-    use super::{idle_autostop_due, parse_idle_autostop_enabled, parse_idle_timeout};
+    use super::{idle_autostop_due, parse_idle_timeout, record_idle_timeout};
     use std::time::Duration;
 
-    /// B-225: idle auto-stop は明示 opt-in のみ。
     #[test]
-    fn parse_idle_autostop_enabled_is_opt_in_only() {
-        assert!(!parse_idle_autostop_enabled(None));
-        assert!(!parse_idle_autostop_enabled(Some("".into())));
-        assert!(!parse_idle_autostop_enabled(Some("0".into())));
-        assert!(!parse_idle_autostop_enabled(Some("false".into())));
-        assert!(!parse_idle_autostop_enabled(Some("auto".into())));
-        assert!(parse_idle_autostop_enabled(Some("1".into())));
-        assert!(parse_idle_autostop_enabled(Some(" true ".into())));
-        assert!(parse_idle_autostop_enabled(Some("YES".into())));
-        assert!(parse_idle_autostop_enabled(Some("on".into())));
+    fn record_idle_timeout_is_enabled_by_default() {
+        assert_eq!(record_idle_timeout(), Some(Duration::from_secs(600)));
     }
 
     /// B-206: timeout override パース。無効/欠落/下限未満は既定 600s、有効値は採用。
@@ -2201,10 +2161,6 @@ mod b206_idle_autostop_tests {
     #[test]
     fn idle_autostop_due_boundary() {
         let t = Duration::from_secs(600);
-        assert!(
-            !idle_autostop_due(true, false, Duration::from_secs(99_999), None),
-            "既定OFFでは何分無Activeでも停止しない"
-        );
         // 録音中・非Active・10分到達/超過 → 停止
         assert!(
             idle_autostop_due(true, false, Duration::from_secs(600), Some(t)),
@@ -2985,9 +2941,10 @@ mod ack_timeout_tests {
         dir
     }
 
-    /// G-115-64: ACK timeout 経路でも `exit_record_full` で 3 ステップ cleanup される.
+    /// ACK timeout is diagnostic only. PRE may still become ready after bounce starts, so timeout
+    /// does not own Stop authority.
     #[test]
-    fn pending_over_30s_is_auto_released_with_full_cleanup() {
+    fn pending_over_30s_keeps_record_armed() {
         let base = isolated_base("stale");
         let sm = Arc::new(RecordStateMachine::new());
         sm.try_enter_record(crate::License::Os).unwrap();
@@ -3017,20 +2974,22 @@ mod ack_timeout_tests {
         );
 
         let after = record_signal::read_signal(&base, TEST_PH, TEST_POST_IID).unwrap();
-        assert_eq!(after.status, SignalStatus::Released);
-        assert_eq!(sm.current(), RecordState::Watch);
-        assert!(
-            pair_label.lock().unwrap().is_empty(),
-            "G-115-64: ACK timeout must clear pair_label"
+        assert_eq!(after.status, SignalStatus::Pending);
+        assert_eq!(sm.current(), RecordState::Record);
+        assert_eq!(
+            pair_label.lock().unwrap().as_str(),
+            "pair: deadbeef",
+            "ACK timeout must not clear pair_label"
         );
-        assert!(
-            paired_pre_target.lock().unwrap().is_none(),
-            "G-115-64: ACK timeout must reset paired_pre_target to None"
+        assert_eq!(
+            paired_pre_target.lock().unwrap().as_deref(),
+            Some("pre-1"),
+            "ACK timeout must not reset paired_pre_target"
         );
         assert_eq!(
             crate::reservation::count_frames(&base, TEST_PH),
-            0,
-            "ACK timeout must release the O_EXCL reservation frame"
+            1,
+            "ACK timeout must not release the O_EXCL reservation frame"
         );
     }
 
