@@ -28,7 +28,7 @@
 //!    - 登録済 + 値が一致 → 既処理 skip (file mutation race を構造的に回避)
 //!
 //! # originator 側ライフサイクル
-//! 1. ComboBox 先頭行 "All Keep ({N} ready)" 押下 → [`write_broadcast`] で配置
+//! 1. ComboBox 先頭行 "All Keep: N ready POST(s)" 押下 → [`write_broadcast`] で配置
 //! 2. originator 自身の `trigger_keep_internal` も同 frame で発火 (cache に self seed)
 //! 3. `record_sm.exit_record()` / `Drop` / IO Thread shutdown のいずれかで
 //! 4. orphan broadcast は受信側 cache 30 秒 stale fallback で ignore (即時 delete は

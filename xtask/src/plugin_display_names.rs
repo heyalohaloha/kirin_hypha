@@ -12,6 +12,10 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/../crates/hypha_post/src/lib.rs"
     ));
+    const JUCE_PROCESSOR_CPP: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../juce_shell/src/PluginProcessor.cpp"
+    ));
     const BUNDLER_TOML: &str =
         include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../bundler.toml"));
 
@@ -36,6 +40,12 @@ mod tests {
                 "add_kirin_plugin(KirinHyphaPOST Khpo \"Kirin Hypha POST\" \"POST Kirin Hypha\""
             ),
             "POST JUCE target must keep old bundle name but display POST first"
+        );
+        assert!(
+            JUCE_PROCESSOR_CPP.contains(
+                "return role == Role::Post ? \"POST Kirin Hypha\" : \"PRE Kirin Hypha\";"
+            ),
+            "JUCE runtime getName() must also be role-first for host title/plugin lists"
         );
     }
 

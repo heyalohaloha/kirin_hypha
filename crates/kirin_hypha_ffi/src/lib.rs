@@ -15,7 +15,8 @@
 //! - plugin_data IO: `enable_pre_writes`（PRE: Watch pre.json + Record frames/PSB）/
 //!   `enable_post_writes`（POST: post.json の生メトリクス + Δ を select_target_pre 経由で算出）。
 //!   filesystem 書込は kirin_measure の io_thread 内に閉じる（FFI は spawn と識別子注入のみ）。
-//! - PRE-POST ペアリング: `set_pair_target` / `keep` / `stop` / `poll_delta`
+//! - PRE-POST ペアリング: `set_pair_target` / `keep` / `stop` / `poll_delta` /
+//!   `enumerate_post_pair_claims`
 //!   （POST Keep → PRE が record_signal を ack して自律的に Record に入る）。
 //! - Note: `add_annotation`（Record の最新 plugin_data .json に利用者メモを追記）。
 //!
@@ -1239,6 +1240,19 @@ impl KirinHyphaEngine {
             .count()
     }
 
+    /// POST 側の pair claim 一覧（GUI dropdown の keepability 表示用）。
+    /// `count_keep_ready` と同じ resolved POST candidate source を使い、JUCE/egui の表示差を
+    /// 生まないための read-only C ABI surface。
+    pub fn enumerate_post_pair_claims(&self) -> Vec<(String, Option<String>)> {
+        let kirin_root = PlatformPaths::current_kirin_tmp_root();
+        let project_hash = read_shared_id(shared_post_project_hash_cell());
+        enumerate_active_post_pair_candidates(&kirin_root)
+            .into_iter()
+            .filter(|c| c.project_uuid == project_hash)
+            .map(|c| (c.instance_id, c.pair_pre_name))
+            .collect()
+    }
+
     /// state chunk から復元した識別子を設定する（方式A / B-058 3c）。
     /// **`enable_pre_writes` の前**に呼ぶこと（復元順: create→set_license→set_identity→enable）。
     /// 空文字を渡したキーは `enable_pre_writes` で生成される（instance_id / project_uuid）。
@@ -1524,6 +1538,14 @@ pub struct KirinPreCandidate {
     pub instance_id: [c_char; ID_BUF_LEN],
     pub name: [c_char; ID_BUF_LEN],
     pub has_name: u8,
+}
+
+/// `KirinPostPairClaim` — POST pair claim 1 件（C struct / dropdown keepability 表示用）。
+#[repr(C)]
+pub struct KirinPostPairClaim {
+    pub instance_id: [c_char; ID_BUF_LEN],
+    pub pair_pre_name: [c_char; ID_BUF_LEN],
+    pub has_pair_pre_name: u8,
 }
 
 /// `KirinDelta` — POST の Δ（C struct / B-061 3d-b）。各 double の「値なし」は NaN。
@@ -1969,6 +1991,42 @@ pub unsafe extern "C" fn kirin_hypha_count_keep_ready(handle: *mut KirinHyphaEng
             return 0;
         }
         unsafe { (*handle).count_keep_ready() }
+    }))
+    .unwrap_or(0)
+}
+
+/// POST 側の pair claim を `out`（最大 `cap` 件）へ書き、書いた件数を返す（UI Thread）。
+/// GUI は PRE 候補名と照合して "Can Keep" / "Keep ready" / "In use" を表示する。
+///
+/// # Safety
+/// `handle` は有効なハンドル。`out` は `cap` 要素以上の書込可能 `KirinPostPairClaim` 配列。
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_enumerate_post_pair_claims(
+    handle: *mut KirinHyphaEngine,
+    out: *mut KirinPostPairClaim,
+    cap: usize,
+) -> usize {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() || out.is_null() || cap == 0 {
+            return 0;
+        }
+        let claims = unsafe { (*handle).enumerate_post_pair_claims() };
+        let n = claims.len().min(cap);
+        let slice = unsafe { std::slice::from_raw_parts_mut(out, n) };
+        for (dst, (iid, pair_pre_name)) in slice.iter_mut().zip(claims.into_iter().take(n)) {
+            write_c_buf(&mut dst.instance_id, &iid);
+            match pair_pre_name {
+                Some(name) => {
+                    write_c_buf(&mut dst.pair_pre_name, &name);
+                    dst.has_pair_pre_name = 1;
+                }
+                None => {
+                    write_c_buf(&mut dst.pair_pre_name, "");
+                    dst.has_pair_pre_name = 0;
+                }
+            }
+        }
+        n
     }))
     .unwrap_or(0)
 }
