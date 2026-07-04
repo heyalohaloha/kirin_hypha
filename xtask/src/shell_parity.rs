@@ -226,8 +226,42 @@ mod tests {
             "offline-end auto-stop must only call Stop when Record/Keep is active"
         );
         assert!(
-            body.contains("if (recording)\n        stopPair();"),
+            body.contains("offlineRenderedSamples.load"),
+            "offline-end auto-stop must inspect actual non-realtime processing, not generic recording state"
+        );
+        assert!(
+            body.contains("offlineAutoStopMinRenderSamples"),
+            "offline-end auto-stop must ignore short start-side preflight churn"
+        );
+        assert!(
+            body.contains("if (recording)\n    {\n        stopPair();"),
             "offline-end auto-stop must reuse manual Stop cleanup"
+        );
+    }
+
+    #[test]
+    fn juce_record_silent_offline_buffers_are_pushed_for_record_timeline() {
+        let body = between(
+            PLUGIN_PROCESSOR_CPP,
+            "void KirinHyphaProcessorBase::processBlock",
+            "bool KirinHyphaProcessorBase::bufferIsSilent",
+        );
+
+        assert!(
+            body.contains("shouldCaptureBufferForMeasurement"),
+            "processBlock must separate display signal state from Record capture eligibility"
+        );
+        assert!(
+            body.contains("recording && nonRealtime && captureBuffer"),
+            "offline render sample accounting must be tied to captured Record buffers"
+        );
+        assert!(
+            body.contains("offlineRenderedSamples.fetch_add"),
+            "offline-end Stop gate must be fed by actual processed offline samples"
+        );
+        assert!(
+            body.contains("if (captureBuffer)"),
+            "Record silent/offline buffers must be able to enter the FFI even when stateCode is Inactive"
         );
     }
 

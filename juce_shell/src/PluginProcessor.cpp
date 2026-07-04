@@ -18,6 +18,7 @@ namespace
     // blocks beyond this ceiling are not reallocated; their frames are counted as oversized
     // drops (B-125 (c) / kirin_hypha_note_oversized_drop) while audio keeps passing through.
     constexpr int kOversizeHeadroomFrames = 65536;
+    constexpr double kOfflineAutoStopMinRenderMs = 100.0;
 
     // C ABI signal-state codes: 0 = Inactive, 1 = Active, 2 = Bypassed.
     uint8_t resolveSignalStateCode (bool bypassed, bool playing, bool silent, bool recording)
@@ -32,6 +33,24 @@ namespace
         if (! silent && (recording || playing))
             return 1;
         return 0;
+    }
+
+    bool shouldCaptureBufferForMeasurement (uint8_t stateCode,
+                                            bool bypassed,
+                                            bool recording,
+                                            bool playing,
+                                            bool positionChanged,
+                                            bool nonRealtime)
+    {
+        return ! bypassed
+            && (stateCode == 1 || (recording && (playing || positionChanged || nonRealtime)));
+    }
+
+    uint64_t offlineAutoStopMinRenderSamples (double sampleRate)
+    {
+        if (std::isfinite (sampleRate) && sampleRate > 0.0)
+            return (uint64_t) std::llround ((sampleRate * kOfflineAutoStopMinRenderMs) / 1000.0);
+        return 1;
     }
 }
 
@@ -93,6 +112,10 @@ void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBl
                              || preparedInputChannels != numCh;
     if (! needsNewHandle)
         return;
+
+    offlineRenderedSamples.store (0, std::memory_order_release);
+    lastProcessPositionValid = false;
+    wasRecordingInProcess = false;
 
     if (hyphaHandle != nullptr)
     {
@@ -184,13 +207,34 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
     const bool bypassed = (bypassParam != nullptr && bypassParam->get());
 
     bool playing = false;
+    bool hasPosition = false;
+    int64_t positionSamples = 0;
     if (auto* ph = getPlayHead())
         if (const auto pos = ph->getPosition())
+        {
             playing = pos->getIsPlaying();
+            if (const auto timeSamples = pos->getTimeInSamples())
+            {
+                hasPosition = true;
+                positionSamples = *timeSamples;
+            }
+        }
     lastPlaying.store (playing, std::memory_order_release); // B-054: POST pair lock reads this
+    const bool positionChanged = hasPosition && lastProcessPositionValid
+                              && positionSamples != lastProcessPositionSamples;
+    if (hasPosition)
+    {
+        lastProcessPositionValid = true;
+        lastProcessPositionSamples = positionSamples;
+    }
 
     const bool silent = bufferIsSilent (buffer);
     const bool recording = kirin_hypha_is_recording (hyphaHandle);
+    if (recording && ! wasRecordingInProcess)
+        offlineRenderedSamples.store (0, std::memory_order_release);
+    wasRecordingInProcess = recording;
+    if (! recording)
+        offlineRenderedSamples.store (0, std::memory_order_release);
 
     // C ABI signal-state codes: 0 = Inactive, 1 = Active, 2 = Bypassed.
     const uint8_t stateCode = resolveSignalStateCode (bypassed, playing, silent, recording);
@@ -198,10 +242,21 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
     // B-113: 旧 lastSignalState キャッシュは廃止。editor は signalStateLive()（FFI 直読 / heartbeat-aware）で表示分岐する。
 
     // --- Feed the engine ---------------------------------------------------------
-    // Parity with nih-plug: ring push only when Active; heartbeat advances every block.
+    // B-224 parity with nih-plug: Watch meters only push when Active, but a held Record
+    // captures silent offline/repositioned buffers so Record audio-time cannot be truncated.
+    const bool nonRealtime = isNonRealtime();
+    const bool captureBuffer = shouldCaptureBufferForMeasurement (stateCode,
+                                                                  bypassed,
+                                                                  recording,
+                                                                  playing,
+                                                                  positionChanged,
+                                                                  nonRealtime);
+    if (recording && nonRealtime && captureBuffer && numFrames > 0 && numCh > 0)
+        offlineRenderedSamples.fetch_add ((uint64_t) numFrames, std::memory_order_relaxed);
+
     // push_samples advances heartbeat internally, so a 0-frame call is a heartbeat-only
-    // keepalive (no ring push) for the Inactive / Bypassed case.
-    if (stateCode == 1)
+    // keepalive for the non-captured Inactive / Bypassed case.
+    if (captureBuffer)
     {
         const size_t needed = (size_t) numFrames * (size_t) numCh;
         if (numCh > 0 && needed <= scratchCapacitySamples)
@@ -341,10 +396,9 @@ void KirinHyphaProcessorBase::stopPair()
         kirin_hypha_stop (hyphaHandle);
 }
 
-// B-206: offline render 終了（isNonRealtime true→false エッジ）で KEEP 保持中の POST を自動 Stop。
-// 観測スパイク（offline_probe）で Studio One のオフラインバウンスが「false→true（開始）… true →
-// false（終了）」の単一パス遷移を示すことを実証済み。境界で prepareToPlay/releaseResources が連発
-// するため、prev からのエッジ判定で実発火は 1 回に集約する。POST 主導（PRE は stopPair 内の
+// B-224: offline render 終了（isNonRealtime true→false エッジ）で KEEP 保持中の POST を自動 Stop。
+// Studio One は開始側/preflight でも mode churn を出すため、Record 中に実際の non-realtime
+// processBlock サンプルを十分に見た場合だけ Stop を許可する。POST 主導（PRE は stopPair 内の
 // mark_released で追従）。手動 Stop と同経路（graceful close + pairing cleanup）。
 // 呼出元（prepareToPlay/releaseResources）は message-thread / 非RT。
 void KirinHyphaProcessorBase::maybeAutoStopOnOfflineEnd()
@@ -356,13 +410,24 @@ void KirinHyphaProcessorBase::maybeAutoStopOnOfflineEnd()
     if (! offlineJustEnded || ! isPostRole())
         return; // 開始/継続/非エッジ、または PRE（POST 主導なので何もしない）
 
+    const uint64_t rendered = offlineRenderedSamples.load (std::memory_order_acquire);
+    if (rendered < offlineAutoStopMinRenderSamples (preparedSampleRate))
+        return;
+
     bool recording = false;
     {
         const juce::ScopedLock sl (handleLock);
         recording = (hyphaHandle != nullptr) && kirin_hypha_is_recording (hyphaHandle);
     }
     if (recording)
+    {
         stopPair(); // = 手動 Stop（kirin_hypha_stop）。次 io tick で graceful close。
+        offlineRenderedSamples.store (0, std::memory_order_release);
+    }
+    else
+    {
+        offlineRenderedSamples.store (0, std::memory_order_release);
+    }
 }
 
 // --- B-073: POST Δ readout ---------------------------------------------------------------

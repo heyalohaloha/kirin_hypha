@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <cstdint>
 #include <vector>
 
 #include <juce_audio_processors/juce_audio_processors.h>
@@ -116,6 +117,9 @@ private:
     KirinHypha* hyphaHandle = nullptr;                 // owned; reused across same-format prepareToPlay; destroyed on incompatible reprepare/dtor
     double preparedSampleRate = 0.0;                   // format bound to hyphaHandle
     int preparedInputChannels = 0;                     // format bound to hyphaHandle
+    bool lastProcessPositionValid = false;             // audio-thread local transport position cache
+    int64_t lastProcessPositionSamples = 0;            // audio-thread local transport position cache
+    bool wasRecordingInProcess = false;                // audio-thread local Record edge cache
 
     // Persisted identity (4 keys) + POST pair target name, round-tripped via get/setState as a
     // JUCE-native XML chunk. Source of truth for the chunk; synced from the FFI at enable
@@ -126,6 +130,7 @@ private:
     std::atomic<int>  cachedLicenseCode { 2 };         // B-072: license read once in prepareToPlay (0=Os)
     std::atomic<bool> lastPlaying { false };           // B-054: transport playing (POST pair lock during playback)
     bool prevNonRealtime = false;                      // B-206: isNonRealtime edge state (touched only from prepareToPlay/releaseResources, serialized by the audio lifecycle; offline-end detection)
+    std::atomic<uint64_t> offlineRenderedSamples { 0 }; // B-224: Record samples actually processed while host is non-realtime
     std::atomic<bool> writesEnabled { false };         // plugin_data writes enabled (idempotent guard)
     std::atomic<bool> enablePending { false };         // B-126: set by prepare/processBlock, observed by the Timer
     std::atomic<int>  enableDelayTicks { 0 };          // prepare fallback restore grace; setState clears it

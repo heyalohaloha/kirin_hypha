@@ -61,6 +61,7 @@ pub struct HyphaPre {
 
     signal_state: Arc<AtomicU8>,
     heartbeat: Arc<AtomicU32>,
+    process_mode_offline: AtomicBool,
     last_process_pos_samples: i64,
     /// B-118: 単一鮮度評価器。PRE は pair lock を持たないため editor では消費しないが、
     /// spawn_measure_thread / watchdog 再起動に渡す（signature 統一）。
@@ -169,6 +170,7 @@ impl Default for HyphaPre {
             process_counter: 0,
             signal_state: Arc::new(AtomicU8::new(SignalState::Inactive as u8)),
             heartbeat,
+            process_mode_offline: AtomicBool::new(false),
             last_process_pos_samples: i64::MIN,
             liveness,
             record_sm: Arc::new(RecordStateMachine::new()),
@@ -257,6 +259,10 @@ impl Plugin for HyphaPre {
         context: &mut impl InitContext<Self>,
     ) -> bool {
         context.set_latency_samples(0);
+        self.process_mode_offline.store(
+            buffer_config.process_mode == ProcessMode::Offline,
+            Ordering::Relaxed,
+        );
 
         // chunk-persist 値（params.project_uuid / params.daw_session_uuid）を
         // プロセス cell に反映。PRE は authority として無条件に上書きする。
@@ -488,6 +494,7 @@ impl Plugin for HyphaPre {
             recording,
             playing,
             position_changed,
+            self.process_mode_offline.load(Ordering::Relaxed),
         ) {
             if let Some(producer) = &mut self.ring_producer {
                 for channel_samples in buffer.iter_samples() {
@@ -585,8 +592,11 @@ fn should_capture_buffer_for_measurement(
     recording: bool,
     playing: bool,
     position_changed: bool,
+    offline_mode: bool,
 ) -> bool {
-    !bypass && (state == SignalState::Active || (recording && (playing || position_changed)))
+    !bypass
+        && (state == SignalState::Active
+            || (recording && (playing || position_changed || offline_mode)))
 }
 
 nih_export_vst3!(HyphaPre);
@@ -698,6 +708,7 @@ mod b147_record_state_tests {
             true,
             true,
             false,
+            false,
         ));
     }
 
@@ -708,6 +719,19 @@ mod b147_record_state_tests {
             SignalState::Inactive,
             false,
             true,
+            false,
+            true,
+            false,
+        ));
+    }
+
+    #[test]
+    fn record_mode_offline_silent_tail_is_captured_without_position() {
+        assert!(should_capture_buffer_for_measurement(
+            SignalState::Inactive,
+            false,
+            true,
+            false,
             false,
             true,
         ));
@@ -722,6 +746,7 @@ mod b147_record_state_tests {
             true,
             false,
             false,
+            false,
         ));
     }
 
@@ -729,6 +754,7 @@ mod b147_record_state_tests {
     fn bypass_never_captures_record_silence() {
         assert!(!should_capture_buffer_for_measurement(
             SignalState::Bypassed,
+            true,
             true,
             true,
             true,

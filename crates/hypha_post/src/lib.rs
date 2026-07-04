@@ -80,12 +80,13 @@ pub struct HyphaPost {
     /// 「オフラインレンダー終了」とみなし、KEEP 保持中なら自動 Stop する（AU の
     /// maybeAutoStopOnOfflineEnd と対）。message/main-thread の initialize() のみが触る。
     prev_process_mode: Option<ProcessMode>,
-    /// B-207 #2: Active 音声サンプルを見た Record 世代。Studio One はバウンス開始時の
-    /// preflight でも Offline→Realtime を出すことがあるため、現在世代で十分な音声を見てから
-    /// だけ auto-stop する。
-    record_active_sample_generation: AtomicU64,
-    /// B-207 #2: 現在 Record 世代で観測した Active 音声フレーム数（channel 非依存）。
-    record_active_samples: AtomicU64,
+    /// 現在の process mode が Offline か。initialize() が非RTで書き、process() がRTで読む。
+    process_mode_offline: AtomicBool,
+    /// B-224: Offline process サンプルを見た Record 世代。通常再生中の Active 音声と
+    /// offline-end auto-stop を混ぜないため、Stop 判定はこの Offline 専用カウンタだけを見る。
+    offline_render_sample_generation: AtomicU64,
+    /// B-224: 現在 Record 世代で観測した Offline process フレーム数（channel 非依存）。
+    offline_render_samples: AtomicU64,
 
     // ── SignalState（SS-1）────────────────────────────────────────────
     signal_state: Arc<AtomicU8>,
@@ -243,8 +244,9 @@ impl Default for HyphaPost {
             measure_alive: Arc::new(AtomicBool::new(true)),
             process_counter: 0,
             prev_process_mode: None,
-            record_active_sample_generation: AtomicU64::new(0),
-            record_active_samples: AtomicU64::new(0),
+            process_mode_offline: AtomicBool::new(false),
+            offline_render_sample_generation: AtomicU64::new(0),
+            offline_render_samples: AtomicU64::new(0),
             signal_state: Arc::new(AtomicU8::new(SignalState::Inactive as u8)),
             heartbeat,
             last_process_pos_samples: i64::MIN,
@@ -298,13 +300,13 @@ fn offline_render_ended(prev: Option<ProcessMode>, current: ProcessMode) -> bool
     prev == Some(ProcessMode::Offline) && current == ProcessMode::Realtime
 }
 
-/// B-207 #2: auto-stop を許可する最小 Active 音声量。100ms 未満の preflight / mode churn で
-/// 空 Record を閉じないための下限。
-const OFFLINE_AUTO_STOP_MIN_ACTIVE_MS: f32 = 100.0;
+/// B-224: auto-stop を許可する最小 Offline process 量。通常再生中の Active 音声では
+/// Stop を許可せず、100ms 未満の preflight / mode churn も閉じないための下限。
+const OFFLINE_AUTO_STOP_MIN_RENDER_MS: f32 = 100.0;
 
-fn offline_auto_stop_min_active_samples(sample_rate: f32) -> u64 {
+fn offline_auto_stop_min_render_samples(sample_rate: f32) -> u64 {
     if sample_rate.is_finite() && sample_rate > 0.0 {
-        ((sample_rate * OFFLINE_AUTO_STOP_MIN_ACTIVE_MS) / 1000.0).round() as u64
+        ((sample_rate * OFFLINE_AUTO_STOP_MIN_RENDER_MS) / 1000.0).round() as u64
     } else {
         1
     }
@@ -314,20 +316,20 @@ fn offline_render_auto_stop_due(
     prev: Option<ProcessMode>,
     current: ProcessMode,
     current_record_generation: u64,
-    active_sample_generation: u64,
-    active_samples: u64,
+    offline_sample_generation: u64,
+    offline_samples: u64,
     sample_rate: f32,
 ) -> bool {
     offline_render_ended(prev, current)
         && current_record_generation > 0
-        && active_sample_generation == current_record_generation
-        && active_samples >= offline_auto_stop_min_active_samples(sample_rate)
+        && offline_sample_generation == current_record_generation
+        && offline_samples >= offline_auto_stop_min_render_samples(sample_rate)
 }
 
 #[cfg(test)]
 mod b207_offline_render_tests {
     use super::{
-        offline_auto_stop_min_active_samples, offline_render_auto_stop_due, offline_render_ended,
+        offline_auto_stop_min_render_samples, offline_render_auto_stop_due, offline_render_ended,
     };
     use nih_plug::prelude::ProcessMode;
 
@@ -361,8 +363,8 @@ mod b207_offline_render_tests {
     }
 
     #[test]
-    fn offline_render_auto_stop_requires_current_record_audio() {
-        assert_eq!(offline_auto_stop_min_active_samples(48_000.0), 4_800);
+    fn offline_render_auto_stop_requires_current_record_offline_processing() {
+        assert_eq!(offline_auto_stop_min_render_samples(48_000.0), 4_800);
 
         assert!(
             !offline_render_auto_stop_due(
@@ -384,7 +386,7 @@ mod b207_offline_render_tests {
                 48_000,
                 48_000.0,
             ),
-            "stale audio from an older Record generation must not close Record"
+            "stale offline processing from an older Record generation must not close Record"
         );
         assert!(
             !offline_render_auto_stop_due(
@@ -395,7 +397,7 @@ mod b207_offline_render_tests {
                 4_799,
                 48_000.0,
             ),
-            "less than 100ms of audio is treated as preflight, not a completed bounce"
+            "less than 100ms of offline processing is treated as preflight, not a completed bounce"
         );
         assert!(
             offline_render_auto_stop_due(
@@ -406,7 +408,7 @@ mod b207_offline_render_tests {
                 4_800,
                 48_000.0,
             ),
-            "Offline->Realtime after current-generation audio may close Record"
+            "Offline->Realtime after current-generation offline processing may close Record"
         );
         assert!(
             !offline_render_auto_stop_due(
@@ -418,6 +420,21 @@ mod b207_offline_render_tests {
                 48_000.0,
             ),
             "Realtime->Offline is start, not end"
+        );
+    }
+
+    #[test]
+    fn realtime_audio_before_offline_preflight_does_not_authorize_stop() {
+        assert!(
+            !offline_render_auto_stop_due(
+                Some(ProcessMode::Offline),
+                ProcessMode::Realtime,
+                7,
+                0,
+                48_000,
+                48_000.0,
+            ),
+            "normal playback audio before the bounce must not satisfy the offline-render gate"
         );
     }
 }
@@ -648,21 +665,29 @@ impl Plugin for HyphaPost {
     ) -> bool {
         context.set_latency_samples(0);
 
-        // B-207 #2: egui (VST3) オフラインレンダー終了の自動 Stop。host が process_mode を
+        self.process_mode_offline.store(
+            buffer_config.process_mode == ProcessMode::Offline,
+            Ordering::Relaxed,
+        );
+
+        // B-224: egui (VST3) オフラインレンダー終了の自動 Stop。host が process_mode を
         // Offline→Realtime に戻して再 initialize したら（=オフラインバウンス完了）、KEEP 保持中の
         // POST を手動 Stop と同経路で停止する。ただし Studio One はバウンス開始側の preflight でも
-        // 同じエッジを出すことがあるため、現在の Record 世代で 100ms 以上の Active 音声を見てから
-        // だけ auto-stop する。host が reinit しない/エッジを出さない場合も B-206 idle-net が backstop。
+        // 同じエッジを出すことがあるため、現在の Record 世代で 100ms 以上の Offline process を
+        // 実際に見てからだけ auto-stop する。通常再生の Active 音声は Stop 許可に使わない。
+        // host が reinit しない/エッジを出さない場合も B-206 idle-net が backstop。
         let recording_now = self.record_sm.is_recording();
         let record_generation = self.record_sm.generation();
-        let active_sample_generation = self.record_active_sample_generation.load(Ordering::Relaxed);
-        let active_samples = self.record_active_samples.load(Ordering::Relaxed);
+        let offline_sample_generation = self
+            .offline_render_sample_generation
+            .load(Ordering::Relaxed);
+        let offline_samples = self.offline_render_samples.load(Ordering::Relaxed);
         if offline_render_auto_stop_due(
             self.prev_process_mode,
             buffer_config.process_mode,
             record_generation,
-            active_sample_generation,
-            active_samples,
+            offline_sample_generation,
+            offline_samples,
             buffer_config.sample_rate,
         ) && recording_now
         {
@@ -678,13 +703,13 @@ impl Plugin for HyphaPost {
                 None,
                 0.0,
             );
-            self.record_active_sample_generation
+            self.offline_render_sample_generation
                 .store(0, Ordering::Relaxed);
-            self.record_active_samples.store(0, Ordering::Relaxed);
+            self.offline_render_samples.store(0, Ordering::Relaxed);
         } else if !recording_now {
-            self.record_active_sample_generation
+            self.offline_render_sample_generation
                 .store(0, Ordering::Relaxed);
-            self.record_active_samples.store(0, Ordering::Relaxed);
+            self.offline_render_samples.store(0, Ordering::Relaxed);
         }
         self.prev_process_mode = Some(buffer_config.process_mode);
 
@@ -1070,18 +1095,21 @@ impl Plugin for HyphaPost {
             recording,
             playing,
             position_changed,
+            self.process_mode_offline.load(Ordering::Relaxed),
         ) {
-            if recording && state == SignalState::Active {
+            if recording && self.process_mode_offline.load(Ordering::Relaxed) {
                 let record_generation = self.record_sm.generation();
                 if record_generation > 0 {
-                    if self.record_active_sample_generation.load(Ordering::Relaxed)
+                    if self
+                        .offline_render_sample_generation
+                        .load(Ordering::Relaxed)
                         != record_generation
                     {
-                        self.record_active_sample_generation
+                        self.offline_render_sample_generation
                             .store(record_generation, Ordering::Relaxed);
-                        self.record_active_samples.store(0, Ordering::Relaxed);
+                        self.offline_render_samples.store(0, Ordering::Relaxed);
                     }
-                    self.record_active_samples
+                    self.offline_render_samples
                         .fetch_add(buffer.samples() as u64, Ordering::Relaxed);
                 }
             }
@@ -1096,9 +1124,9 @@ impl Plugin for HyphaPost {
                 }
             }
         } else if !recording {
-            self.record_active_sample_generation
+            self.offline_render_sample_generation
                 .store(0, Ordering::Relaxed);
-            self.record_active_samples.store(0, Ordering::Relaxed);
+            self.offline_render_samples.store(0, Ordering::Relaxed);
         }
 
         self.process_counter = self.process_counter.wrapping_add(1);
@@ -1185,8 +1213,11 @@ fn should_capture_buffer_for_measurement(
     recording: bool,
     playing: bool,
     position_changed: bool,
+    offline_mode: bool,
 ) -> bool {
-    !bypass && (state == SignalState::Active || (recording && (playing || position_changed)))
+    !bypass
+        && (state == SignalState::Active
+            || (recording && (playing || position_changed || offline_mode)))
 }
 
 nih_export_vst3!(HyphaPost);
@@ -1290,6 +1321,7 @@ mod b147_record_state_tests {
             true,
             true,
             false,
+            false,
         ));
     }
 
@@ -1300,6 +1332,19 @@ mod b147_record_state_tests {
             SignalState::Inactive,
             false,
             true,
+            false,
+            true,
+            false,
+        ));
+    }
+
+    #[test]
+    fn record_mode_offline_silent_tail_is_captured_without_position() {
+        assert!(should_capture_buffer_for_measurement(
+            SignalState::Inactive,
+            false,
+            true,
+            false,
             false,
             true,
         ));
@@ -1314,6 +1359,7 @@ mod b147_record_state_tests {
             true,
             false,
             false,
+            false,
         ));
     }
 
@@ -1321,6 +1367,7 @@ mod b147_record_state_tests {
     fn bypass_never_captures_record_silence() {
         assert!(!should_capture_buffer_for_measurement(
             SignalState::Bypassed,
+            true,
             true,
             true,
             true,

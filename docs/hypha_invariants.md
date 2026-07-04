@@ -103,7 +103,7 @@ PRE/POST の状態遷移と pairing / identity / record / shell parity の不変
 | INV-I1 | `setStateInformation` が enable 前後どちらでも PRE名/POST pair target が watch JSON に反映 | `restored_pre_name_before_enable_is_written_to_pre_watch_json` / `restored_pre_name_after_enable_updates_pre_watch_json` / `restored_pair_target_before_enable_is_written_to_post_watch_json` / `restored_pair_target_after_enable_updates_post_watch_json`（全て `#[ignore]`） |
 | INV-I2 | license loose 抽出は license フィールドのみ。未知/欠落/不正は Unknown(安全側) | `loose_parses_os_with_license_field_only` / `loose_parses_trial_as_unknown` / `loose_invalid_json_falls_back_to_unknown` / `loose_missing_license_field_falls_back_to_unknown` |
 | INV-I3 | prepareToPlay 同一フォーマット再呼び出しは engine 再利用、releaseResources は engine を破棄しない。offline-end auto-stop は専用 edge gate に委譲 | `juce_prepare_to_play_reuses_record_engine_for_same_format` / `juce_release_resources_keeps_engine_alive_while_polling_offline_end` / `juce_offline_end_auto_stop_is_post_recording_edge_gated` |
-| INV-I4 | POST Record は offline bounce/export 完了 edge で手動 Stop 相当の cleanup を自動実行。edge が無い host では idle auto-stop が backstop | `offline_render_ended_edge` / `lib_rs_offline_end_auto_stop_is_wired_from_initialize` / `idle_autostop_due_boundary` |
+| INV-I4 | POST Record は同一 Record 世代で実際の offline process サンプルを見た後の offline bounce/export 完了 edge でのみ、手動 Stop 相当の cleanup を自動実行。通常再生中の Active 音声や start-side preflight は Stop 許可に使わない。edge が無い host では idle auto-stop が backstop | `offline_render_ended_edge` / `realtime_audio_before_offline_preflight_does_not_authorize_stop` / `juce_record_silent_offline_buffers_are_pushed_for_record_timeline` / `idle_autostop_due_boundary` |
 
 ---
 
