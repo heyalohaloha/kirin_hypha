@@ -148,7 +148,7 @@ mod tests {
     }
 
     #[test]
-    fn juce_release_resources_does_not_drop_record_state() {
+    fn juce_release_resources_keeps_engine_alive_while_polling_offline_end() {
         let body = between(
             PLUGIN_PROCESSOR_CPP,
             "void KirinHyphaProcessorBase::releaseResources()",
@@ -157,9 +157,46 @@ mod tests {
 
         assert!(
             !body.contains("kirin_hypha_destroy"),
-            "releaseResources can be called around offline bounce and must not exit Record"
+            "releaseResources can be called around offline bounce and must not destroy the engine"
+        );
+        assert!(
+            body.contains("maybeAutoStopOnOfflineEnd();"),
+            "releaseResources must delegate offline-end auto-stop to the edge gate"
         );
         assert!(body.contains("offline bounce/freeze"));
+    }
+
+    #[test]
+    fn juce_offline_end_auto_stop_is_post_recording_edge_gated() {
+        let prepare = between(
+            PLUGIN_PROCESSOR_CPP,
+            "void KirinHyphaProcessorBase::prepareToPlay",
+            "void KirinHyphaProcessorBase::releaseResources()",
+        );
+        assert!(
+            prepare.contains("maybeAutoStopOnOfflineEnd();"),
+            "prepareToPlay must poll offline-end auto-stop before normal prepare work"
+        );
+
+        let body = between(
+            PLUGIN_PROCESSOR_CPP,
+            "void KirinHyphaProcessorBase::maybeAutoStopOnOfflineEnd()",
+            "// --- B-073: POST",
+        );
+        assert!(body.contains("const bool offlineJustEnded = prevNonRealtime && ! nowNonRealtime;"));
+        assert!(body.contains("prevNonRealtime = nowNonRealtime;"));
+        assert!(
+            body.contains("if (! offlineJustEnded || ! isPostRole())"),
+            "offline-end auto-stop must be edge-gated and POST-only"
+        );
+        assert!(
+            body.contains("kirin_hypha_is_recording"),
+            "offline-end auto-stop must only call Stop when Record/Keep is active"
+        );
+        assert!(
+            body.contains("if (recording)\n        stopPair();"),
+            "offline-end auto-stop must reuse manual Stop cleanup"
+        );
     }
 
     #[test]

@@ -59,6 +59,47 @@ fn lib_rs_initialize_caches_sample_rate() {
 }
 
 #[test]
+fn lib_rs_offline_end_auto_stop_is_wired_from_initialize() {
+    let src = read("src/lib.rs");
+    assert!(
+        src.contains(
+            "fn offline_render_ended(prev: Option<ProcessMode>, current: ProcessMode) -> bool"
+        ),
+        "lib.rs must keep offline-end detection isolated for testing"
+    );
+    assert!(
+        src.contains("prev == Some(ProcessMode::Offline) && current == ProcessMode::Realtime"),
+        "VST3 offline-end detection must be exactly Offline -> Realtime"
+    );
+
+    let initialize_start = src
+        .find("fn initialize(")
+        .expect("initialize function must exist");
+    let mut safe_end = (initialize_start + 3000).min(src.len());
+    while safe_end > initialize_start && !src.is_char_boundary(safe_end) {
+        safe_end -= 1;
+    }
+    let window = &src[initialize_start..safe_end];
+
+    assert!(
+        window.contains("offline_render_ended(self.prev_process_mode, buffer_config.process_mode)"),
+        "initialize() must check the host process-mode edge"
+    );
+    assert!(
+        window.contains("&& self.record_sm.is_recording()"),
+        "offline-end auto-stop must only run while Keep/Record is active"
+    );
+    assert!(
+        window.contains("crate::editor::trigger_stop_internal("),
+        "offline-end auto-stop must reuse manual Stop cleanup"
+    );
+    assert!(
+        window.contains("self.prev_process_mode = Some(buffer_config.process_mode);"),
+        "initialize() must update prev_process_mode after edge handling"
+    );
+}
+
+#[test]
 fn editor_rs_contains_t_e_t_f_render_helpers() {
     let src = read("src/editor.rs");
     for needle in [
