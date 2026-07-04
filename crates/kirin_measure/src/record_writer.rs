@@ -127,42 +127,10 @@ pub fn wait_for_seal(
     }
 }
 
-/// B-025 Group B-2 / Gap-19 + Group B-3 / Gap-20: flush 連続失敗の許容回数。
-/// 値は `FLUSH_INTERVAL` (= 30 秒) × 3 = 90 秒 grace period (B25-2 推奨根拠)。
-/// ネットワーク FS / iCloud Drive の一時的失敗 (sync 中 / token refresh 中) を
-/// 90 秒以内なら吸収しつつ、持続する真の障害は record exit に切替える。
+/// B-025 Group B-2 / Gap-19 + Group B-3 / Gap-20: flush 連続失敗の診断しきい値。
+/// B-245 以降、この値はログと degraded 記録のためだけに使う。
+/// storage 失敗そのものには Record 停止権限を持たせない。
 pub const CONSECUTIVE_FAILURE_THRESHOLD: usize = 3;
-
-/// B-025 Group B-2 / Gap-19 + Group B-3 / Gap-20: io_thread が record exit + UI
-/// 通知を発火するための内部 sentinel。`run_record_tick` が flush 連続失敗を検知
-/// したとき `RecordingCtx::exit_requested` に設定し、io_thread は次 tick で
-/// `writer_close` + `record_sm.exit_record()` + `record_error_message` 書込を行う。
-///
-/// Display は GUI 表示用英語固定 (G-115-29 / 約束 5 原則 R-26 沈黙ゲート)。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RecordError {
-    /// Gap-19: plugin_data 親 dir が `CONSECUTIVE_FAILURE_THRESHOLD` 回連続で不在。
-    DirectoryMissing,
-    /// Gap-20: flush の Io / Serde 失敗が `CONSECUTIVE_FAILURE_THRESHOLD` 回連続。
-    /// disk full / 権限剥奪 / Serde 異常 等を包含。
-    WriteFailureExceeded,
-}
-
-impl RecordError {
-    /// GUI ステータス行に表示する英語固定文言 (G-115-29)。
-    pub fn ui_message(self) -> &'static str {
-        match self {
-            Self::DirectoryMissing => "Record stopped: storage missing",
-            Self::WriteFailureExceeded => "Record stopped: write failed",
-        }
-    }
-}
-
-impl std::fmt::Display for RecordError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.ui_message())
-    }
-}
 
 /// Record 中の writer + タイミング状態。
 ///
@@ -180,15 +148,9 @@ pub struct RecordingCtx {
     pub next_flush: Instant,
     /// 最初の Frame 書込をログしたか（1 Record セッションにつき 1 回）。
     pub first_frame_logged: bool,
-    /// B-025 Gap-19: flush() が `WriterError::DirectoryMissing` を返した連続回数。
-    /// 成功時 0 にリセット (transient 失敗の吸収)。
-    pub consecutive_dir_missing: usize,
-    /// B-025 Gap-20: flush() が `Io` / `Serde` を返した連続回数 (DirectoryMissing 以外)。
+    /// B-025 Gap-20 / B-245: flush() が `Io` / `Serde` を返した連続回数。
     /// 成功時 0 にリセット。
     pub consecutive_write_error: usize,
-    /// B-025 Gap-19/20: 連続失敗が閾値に達した時の sentinel。io_thread が次 tick で
-    /// `writer_close` + `record_sm.exit_record()` + UI 通知文字列書込を実施する。
-    pub exit_requested: Option<RecordError>,
     /// B-076: Record 開始時の overflow snapshot（累積 push_overflow）。close 時に
     /// 現在値との差で per-Record dropped_samples を算出する（累積を持ち越さない）。
     pub overflow_start: u64,
@@ -351,9 +313,7 @@ pub fn writer_start(
         next_psb_ms: 0,
         next_flush: Instant::now() + FLUSH_INTERVAL,
         first_frame_logged: false,
-        consecutive_dir_missing: 0,
         consecutive_write_error: 0,
-        exit_requested: None,
         overflow_start: 0, // B-076: run_record_tick が Record 開始時に snapshot を入れる
         oversized_drop_start: 0, // B-125: 同上（oversized_drop の Record 開始 snapshot）
         seal_at_start: 0,  // B-132: run_record_tick が Record 開始時に seal を snapshot する
@@ -449,19 +409,16 @@ pub fn writer_close_with_summary(mut ctx: RecordingCtx, summary: Option<SessionS
     writer_close(ctx);
 }
 
-/// B-134 (G-115-391): auto-stop（flush/write 失敗閾値超過 = `RecordError::DirectoryMissing` /
-/// `WriteFailureExceeded`）専用 close。**best-effort** で `integrity_degraded` を立ててから close する。
+/// B-134 (G-115-391): degraded 終了専用 close。**best-effort** で
+/// `integrity_degraded` を立ててから close する。
 ///
 /// - storage 書込可 → file flag が永続し README:139「incomplete measurement is recorded as incomplete」を
-///   auto-stop 経路でも真にする（JD-README139 Path1 / 過少申告 gap 解消）。
-/// - storage-loss（dir 喪失 / disk full）→ 最終 flush が失敗し flag は永続しないが、呼出側の
-///   `record_error_message`（UI 通知 / io_thread_post:1805・io_thread_pre:453）が backstop（option-2 /
-///   G-115-391）。
+///   degraded close 経路でも真にする（JD-README139 Path1 / 過少申告 gap 解消）。
+/// - storage-loss（dir 喪失 / disk full）→ 最終 flush が失敗し flag は永続しないが、
+///   Record停止権限は持たせない。明示Stop/10分無音の終了時に、書ける状態なら
+///   degraded flag を永続化する。
 ///
-/// auto-stop の exit reason は 2 variant（DirectoryMissing / WriteFailureExceeded）とも data-loss 異常終了
-/// ゆえ **unconditional** に degraded で正（benign reason 不在）。clean stop は `run_record_tick` の
-/// `(false,true)` arm の `writer_close_with_summary` を通り本関数を経由しない（over-flag なし）。通常
-/// close 経路の挙動は不変。`mark_integrity_degraded` は data field のみ・計測値（LUFS/TP/PSR/PSB）非接触。
+/// `mark_integrity_degraded` は data field のみ・計測値（LUFS/TP/PSR/PSB）非接触。
 pub fn writer_close_degraded(mut ctx: RecordingCtx) {
     ctx.writer.mark_integrity_degraded();
     writer_close(ctx);
@@ -698,34 +655,22 @@ pub fn run_record_tick_with_pair_names(
                 match ctx.writer.flush() {
                     Ok(()) => {
                         // B-025 Gap-19/20: 成功で counter リセット (transient 失敗を吸収)。
-                        ctx.consecutive_dir_missing = 0;
                         ctx.consecutive_write_error = 0;
-                    }
-                    Err(crate::plugin_data::WriterError::DirectoryMissing) => {
-                        ctx.consecutive_dir_missing = ctx.consecutive_dir_missing.saturating_add(1);
-                        log::warn!(
-                            "[writer] flush failed: parent directory missing (count={}/{})",
-                            ctx.consecutive_dir_missing,
-                            CONSECUTIVE_FAILURE_THRESHOLD
-                        );
-                        if ctx.consecutive_dir_missing >= CONSECUTIVE_FAILURE_THRESHOLD
-                            && ctx.exit_requested.is_none()
-                        {
-                            ctx.exit_requested = Some(RecordError::DirectoryMissing);
-                        }
                     }
                     Err(e) => {
                         ctx.consecutive_write_error = ctx.consecutive_write_error.saturating_add(1);
+                        ctx.writer.mark_integrity_degraded();
                         log::warn!(
-                            "[writer] flush failed: {} (count={}/{})",
+                            "[writer] flush failed: {} (count={}/{}); Record remains armed",
                             e,
                             ctx.consecutive_write_error,
                             CONSECUTIVE_FAILURE_THRESHOLD
                         );
-                        if ctx.consecutive_write_error >= CONSECUTIVE_FAILURE_THRESHOLD
-                            && ctx.exit_requested.is_none()
-                        {
-                            ctx.exit_requested = Some(RecordError::WriteFailureExceeded);
+                        if ctx.consecutive_write_error >= CONSECUTIVE_FAILURE_THRESHOLD {
+                            log::warn!(
+                                "[writer] write failure persisted for {} flush attempts; keeping Record armed",
+                                ctx.consecutive_write_error
+                            );
                         }
                     }
                 }
@@ -1213,9 +1158,7 @@ mod tests {
             next_psb_ms: 0,
             next_flush: Instant::now() + FLUSH_INTERVAL,
             first_frame_logged: false,
-            consecutive_dir_missing: 0,
             consecutive_write_error: 0,
-            exit_requested: None,
             overflow_start: 0,
             oversized_drop_start: 0, // B-125
             seal_at_start: 0,        // B-132
@@ -1368,10 +1311,10 @@ mod tests {
         assert!(crate::plugin_data::verify_checksum(&loaded));
     }
 
-    // ── B-134 (G-115-391): auto-stop close best-effort persistent integrity_degraded ──
+    // ── B-134 (G-115-391): degraded close best-effort persistent integrity_degraded ──
     #[test]
-    fn b134_auto_stop_close_persists_integrity_degraded_when_writable() {
-        // storage 書込可 → auto-stop 専用 close は integrity_degraded を file flag として永続させる
+    fn b134_degraded_close_persists_integrity_degraded_when_writable() {
+        // storage 書込可 → degraded close は integrity_degraded を file flag として永続させる
         // （README:139 Path1 / 過少申告 gap 解消）。通常録音 1 frame 後に writer_close_degraded →
         // 読み戻して integrity_degraded==true / status=Closed / checksum OK を確認。
         let base = isolated_base();
@@ -1386,7 +1329,7 @@ mod tests {
         assert_eq!(
             loaded.status,
             crate::plugin_data::Status::Closed,
-            "auto-stop でも status=Closed"
+            "degraded close でも status=Closed"
         );
         assert!(
             loaded.integrity_degraded,
@@ -1394,33 +1337,31 @@ mod tests {
         );
         assert!(crate::plugin_data::verify_checksum(&loaded));
         eprintln!(
-            "[b134] writable auto-stop close → status={:?} integrity_degraded={} (file flag 永続 / :139 Path1)",
+            "[b134] writable degraded close → status={:?} integrity_degraded={} (file flag 永続 / :139 Path1)",
             loaded.status, loaded.integrity_degraded
         );
     }
 
     #[test]
-    fn b134_auto_stop_close_storage_loss_does_not_persist_flag() {
-        // best-effort 限界: storage-loss（plugin_data dir 全削除 = DirectoryMissing 相当）では最終
-        // flush が失敗し file flag を永続できない（final file 不在）。この場合は呼出側
-        // record_error_message（UI 通知 / io_thread_post:1805・io_thread_pre:453）が backstop。
+    fn b134_degraded_close_recreates_storage_and_persists_flag() {
+        // B-245: plugin_data dir 全削除でも close 時 flush が親を再作成できるなら、
+        // degraded flag を永続する。storage 欠落だけで Record を止めないための復帰経路。
         let base = isolated_base();
         let mut ctx = make_ctx(&base, Role::Post, now_epoch_ms());
         let m = full_measure_result();
         assert!(writer_append_frame(&mut ctx, 100, &m));
         let final_path = ctx.final_path.clone();
-        // storage 消失を注入（dir 全削除）。mark_integrity_degraded は in-memory で立つが
-        // close→flush が DirectoryMissing で失敗し永続しない。
         fs::remove_dir_all(&base).unwrap();
         writer_close_degraded(ctx);
 
+        let bytes = fs::read(&final_path).unwrap();
+        let loaded: PluginDataFile = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(loaded.status, Status::Closed);
         assert!(
-            !final_path.exists(),
-            "B-134: storage-loss では file flag を永続できない（final 不在）= best-effort 限界 → UI backstop に degrade"
+            loaded.integrity_degraded,
+            "B-245: recreated storage must persist degraded=true"
         );
-        eprintln!(
-            "[b134] storage-loss auto-stop close → final file 不在（flag 未永続）→ UI backstop（record_error_message）が信頼チャネル"
-        );
+        assert!(crate::plugin_data::verify_checksum(&loaded));
     }
 
     #[test]
@@ -2254,15 +2195,15 @@ mod tests {
 
     // ── B-025 Group B-2 / Gap-19 + Group B-3 / Gap-20 ────────────────────
 
-    /// flush() が DirectoryMissing を 3 回連続で返したら exit_requested に
-    /// `RecordError::DirectoryMissing` がセットされ、ui_message が固定文言。
+    /// role dir が消えても flush が親を再作成し、Record は止まらない。
     #[test]
-    fn run_record_tick_dir_missing_threshold_sets_exit_requested() {
+    fn run_record_tick_recreates_missing_parent_and_keeps_recording() {
         let base = isolated_base();
         let started = now_epoch_ms() - 100;
         let mut ctx = make_ctx(&base, Role::Post, started);
-        // role dir を消去 → flush で DirectoryMissing。
+        // role dir を消去 → flush で再作成。
         let parent = ctx.final_path.parent().unwrap().to_path_buf();
+        let final_path = ctx.final_path.clone();
         fs::remove_dir_all(&parent).unwrap();
         // 即時 flush 実行のため next_flush を過去に。
         ctx.next_flush = Instant::now() - Duration::from_secs(1);
@@ -2272,46 +2213,38 @@ mod tests {
         let m = Arc::new(Mutex::new(full_measure_result()));
         let mut rec: Option<RecordingCtx> = Some(ctx);
 
-        for i in 1..=CONSECUTIVE_FAILURE_THRESHOLD {
-            run_record_tick(
-                &sm,
-                Role::Post,
-                48000,
-                TEST_PH,
-                TEST_IID,
-                now_epoch_ms,
-                || None,
-                || None,
-                &m,
-                &mut rec,
-                None,
-                &no_overflow(),
-                &no_overflow(), // B-125: oversized_drop（テストは欠落なし=0）
-                None,
-            )
-            .unwrap();
-            let ctx_ref = rec.as_ref().unwrap();
-            assert_eq!(
-                ctx_ref.consecutive_dir_missing, i,
-                "tick {} should bump dir_missing counter to {}",
-                i, i
-            );
-            // 次の tick で flush 再実行できるよう next_flush を巻き戻す。
-            rec.as_mut().unwrap().next_flush = Instant::now() - Duration::from_secs(1);
-        }
-        let exit = rec.as_ref().unwrap().exit_requested;
-        assert_eq!(exit, Some(RecordError::DirectoryMissing));
-        assert_eq!(
-            RecordError::DirectoryMissing.ui_message(),
-            "Record stopped: storage missing"
+        run_record_tick(
+            &sm,
+            Role::Post,
+            48000,
+            TEST_PH,
+            TEST_IID,
+            now_epoch_ms,
+            || None,
+            || None,
+            &m,
+            &mut rec,
+            None,
+            &no_overflow(),
+            &no_overflow(), // B-125: oversized_drop（テストは欠落なし=0）
+            None,
+        )
+        .unwrap();
+
+        let ctx_ref = rec.as_ref().unwrap();
+        assert!(sm.is_recording(), "missing parent must not stop Record");
+        assert!(parent.is_dir(), "flush must recreate the missing role dir");
+        assert!(
+            final_path.is_file(),
+            "flush must recover and write the JSON"
         );
+        assert_eq!(ctx_ref.consecutive_write_error, 0);
     }
 
-    /// flush() が `Io` を 3 回連続で返したら exit_requested に
-    /// `RecordError::WriteFailureExceeded` がセットされ、ui_message が固定文言。
+    /// flush() が `Io` を 3 回連続で返しても Record は止めず、degraded を立てる。
     /// `tmp_path` の場所をディレクトリにすると `fs::write` が Io error を返す。
     #[test]
-    fn run_record_tick_write_error_threshold_sets_exit_requested() {
+    fn run_record_tick_write_error_threshold_marks_degraded_without_exit() {
         let base = isolated_base();
         let started = now_epoch_ms() - 100;
         let mut ctx = make_ctx(&base, Role::Post, started);
@@ -2349,26 +2282,24 @@ mod tests {
                 "tick {} should bump write_error counter to {}",
                 i, i
             );
-            assert_eq!(ctx_ref.consecutive_dir_missing, 0);
+            assert!(
+                ctx_ref.data().integrity_degraded,
+                "write failure must be visible as degraded data"
+            );
+            assert!(sm.is_recording(), "write failure must not stop Record");
             rec.as_mut().unwrap().next_flush = Instant::now() - Duration::from_secs(1);
         }
-        let exit = rec.as_ref().unwrap().exit_requested;
-        assert_eq!(exit, Some(RecordError::WriteFailureExceeded));
-        assert_eq!(
-            RecordError::WriteFailureExceeded.ui_message(),
-            "Record stopped: write failed"
-        );
     }
 
     /// 失敗 → 成功で counter が 0 に戻る (transient 失敗の吸収)。
-    /// dir 消去 → 1 回失敗 → dir 復旧 → 1 回成功 で 0 リセット。
+    /// tmp_path衝突 → 1 回失敗 → 衝突解消 → 1 回成功 で 0 リセット。
     #[test]
     fn run_record_tick_counter_resets_on_success() {
         let base = isolated_base();
         let started = now_epoch_ms() - 100;
         let mut ctx = make_ctx(&base, Role::Post, started);
-        let parent = ctx.final_path.parent().unwrap().to_path_buf();
-        fs::remove_dir_all(&parent).unwrap();
+        let tmp_path = ctx.final_path.with_extension("json.tmp");
+        fs::create_dir_all(&tmp_path).unwrap();
         ctx.next_flush = Instant::now() - Duration::from_secs(1);
 
         let sm = Arc::new(RecordStateMachine::new());
@@ -2376,7 +2307,7 @@ mod tests {
         let m = Arc::new(Mutex::new(full_measure_result()));
         let mut rec: Option<RecordingCtx> = Some(ctx);
 
-        // 1 回失敗 (DirectoryMissing) → counter=1。
+        // 1 回失敗 (Io) → counter=1。
         run_record_tick(
             &sm,
             Role::Post,
@@ -2394,11 +2325,15 @@ mod tests {
             None,
         )
         .unwrap();
-        assert_eq!(rec.as_ref().unwrap().consecutive_dir_missing, 1);
-        assert!(rec.as_ref().unwrap().exit_requested.is_none());
+        assert_eq!(rec.as_ref().unwrap().consecutive_write_error, 1);
+        assert!(rec.as_ref().unwrap().data().integrity_degraded);
+        assert!(
+            sm.is_recording(),
+            "transient write failure must not stop Record"
+        );
 
-        // dir 復旧 + flush 即時化 → 成功で 0 リセット。
-        fs::create_dir_all(&parent).unwrap();
+        // tmp_path 衝突解消 + flush 即時化 → 成功で 0 リセット。
+        fs::remove_dir_all(&tmp_path).unwrap();
         rec.as_mut().unwrap().next_flush = Instant::now() - Duration::from_secs(1);
         run_record_tick(
             &sm,
@@ -2417,9 +2352,8 @@ mod tests {
             None,
         )
         .unwrap();
-        assert_eq!(rec.as_ref().unwrap().consecutive_dir_missing, 0);
         assert_eq!(rec.as_ref().unwrap().consecutive_write_error, 0);
-        assert!(rec.as_ref().unwrap().exit_requested.is_none());
+        assert!(sm.is_recording());
     }
 
     /// B-076: per-Record dropped_samples が .kirin JSON に出る + 複数 Record で累積を持ち越さない。

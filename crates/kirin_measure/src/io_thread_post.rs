@@ -40,8 +40,7 @@ use crate::pre_discovery::DISCOVERY_STALE_SECS;
 use crate::record::RecordStateMachine;
 use crate::record_signal::{self, SignalStatus, ACK_TIMEOUT_SECONDS, SIGNALS_SUBDIR};
 use crate::record_writer::{
-    run_record_tick_with_pair_names, take_session_summary, writer_close_degraded,
-    writer_close_with_summary, RecordError, RecordingCtx,
+    run_record_tick_with_pair_names, take_session_summary, writer_close_with_summary, RecordingCtx,
 };
 use crate::storage::{PlatformPaths, StoragePaths};
 use crate::{load_signal_state, MeasureResult, RecordTraceQueue, SignalState};
@@ -206,10 +205,9 @@ pub fn spawn_io_thread_post(
     trigger_pair_resolution: TriggerPairResolutionFn,
     // α-7' All Stop: Stop broadcast 受信時 closure (Keep と完全対称)。
     trigger_stop_resolution: TriggerStopResolutionFn,
-    // B-025 Group B-2/B-3 / Gap-19/20: io_thread → GUI ステータス行への通知 channel。
-    // None = 通常 / Some = "Record stopped: ..." 文言。`run_record_tick` が
-    // `RecordingCtx::exit_requested` に sentinel をセットしたら本 io_thread が
-    // `record_sm.exit_record()` 後に書き込む。editor 側は次描画で表示する。
+    // io_thread → GUI ステータス行への通知 channel。
+    // B-245 以降、writer flush failure は Record を止めない。
+    // 現在は idle timeout など、Record を正当に閉じた経路の説明だけを書き込む。
     record_error_message: Arc<RwLock<Option<String>>>,
     // W-281 / G-115-249: pair_claimed_at (Unix epoch sec) Arc 共有 (HyphaPostParams /
     // editor / IO Thread 全 thread で同実体)。chunk 永続化済の値を IO Thread が
@@ -499,28 +497,6 @@ pub fn spawn_io_thread_post(
                 Some(&record_trace_queue),
             ) {
                 log::warn!("[writer] tick error: {}", e);
-            }
-
-            // run_record_tick が連続失敗閾値を検知して `exit_requested` に sentinel
-            // をセットしたら、本 tick で `handle_exit_reason` 経由で
-            // writer_close + exit_record_full + UI 通知文字列書込を 1 単位で行う。
-            // 1 record session 内で 1 回のみ発火 (`Option::take` で消費)。
-            let exit_reason = recording.as_mut().and_then(|ctx| ctx.exit_requested.take());
-            if let Some(reason) = exit_reason {
-                let plugin_data_root = StoragePaths::default_platform()
-                    .ok()
-                    .map(|paths| paths.plugin_data_dir());
-                handle_exit_reason(
-                    reason,
-                    &mut recording,
-                    plugin_data_root.as_deref(),
-                    project_hash_ref,
-                    &record_sm,
-                    &pair_label,
-                    &paired_pre_target,
-                    &record_error_message,
-                    instance_id_ref,
-                );
             }
 
             // ── B-243: Record idle auto-stop（10分以上無音）────────────────────────
@@ -1731,59 +1707,6 @@ fn phase_d_fragment(result: &MeasureResult) -> String {
         ));
     }
     s
-}
-
-// ── B-025 Group B-2/B-3 + G-115-64: exit_reason cleanup helper ────────────────
-
-/// `RecordingCtx::exit_requested` sentinel が立ったときの cleanup を 1 単位で実行する
-///
-/// `run_record_tick` が連続失敗閾値 (`CONSECUTIVE_FAILURE_THRESHOLD` = 3) を検知して
-/// `exit_requested` に sentinel をセットしたら、IO Thread main loop は本関数を呼び出し:
-///   1. `writer_close_degraded(ctx)` — B-134: best-effort で integrity_degraded を立ててから
-///      status=closed 確定（書ければ file flag / storage-loss は下記 3 の record_error_message が UI backstop）
-///   2. `exit_record_full(...)` — record_sm + pair_label + paired_pre_target を一括 cleanup
-///   3. `record_error_message` に GUI 通知文言を書込
-///   4. `log::warn!` で診断ログ
-///
-/// editor 側 `trigger_stop_internal` と完全対称な構造的契約を成立させる
-/// (Watch 状態 ⟹ pair_label 空 / paired_pre_target = None).
-///
-/// unit test 容易性のため main loop から切り出した。
-#[allow(clippy::too_many_arguments)]
-fn handle_exit_reason(
-    reason: RecordError,
-    recording: &mut Option<RecordingCtx>,
-    plugin_data_root: Option<&Path>,
-    project_hash: &str,
-    record_sm: &Arc<RecordStateMachine>,
-    pair_label: &Arc<Mutex<String>>,
-    paired_pre_target: &Arc<Mutex<Option<String>>>,
-    record_error_message: &Arc<RwLock<Option<String>>>,
-    instance_id: &str,
-) {
-    if let Some(ctx) = recording.take() {
-        // B-134 (G-115-391): auto-stop（data-loss 異常終了）は best-effort で integrity_degraded を
-        // 立ててから close（書ければ file flag / 書けねば下の record_error_message が UI backstop）。
-        writer_close_degraded(ctx);
-    }
-    if let Some(base) = plugin_data_root {
-        release_record_reservation(
-            base,
-            project_hash,
-            instance_id,
-            paired_pre_target,
-            "exit_reason",
-        );
-    }
-    exit_record_full(record_sm, pair_label, paired_pre_target);
-    if let Ok(mut g) = record_error_message.write() {
-        *g = Some(reason.ui_message().to_string());
-    }
-    log::warn!(
-        "[IOThread POST] record exit: {} (post_iid={})",
-        reason,
-        instance_id
-    );
 }
 
 // ── ACK タイムアウト監視（G-60-02 / B-7）──────────────────────────────────
@@ -4258,90 +4181,8 @@ mod pre_liveness_tests {
 }
 
 #[cfg(test)]
-mod handle_exit_reason_tests {
+mod pre_mtime_path_guard_tests {
     use super::*;
-    use crate::record::{RecordState, RecordStateMachine};
-
-    const TEST_PH: &str = "ph";
-
-    /// `RecordingCtx` 無し (= writer 未確立 / Watch 直前で連続失敗閾値到達は通常起こらないが
-    /// 防御的に検証) でも 3 ステップ cleanup が動く. `exit_record_full` 経由で
-    /// pair_label / paired_pre_target が完全 cleanup される.
-    #[test]
-    fn handle_exit_reason_runs_full_cleanup_without_recording() {
-        let sm = Arc::new(RecordStateMachine::new());
-        sm.try_enter_record(crate::License::Os).unwrap();
-        let pair_label = Arc::new(Mutex::new("pair: deadbeef".to_string()));
-        let paired_pre_target = Arc::new(Mutex::new(Some("pre-iid-x".to_string())));
-        let record_error_message: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
-        let mut recording: Option<RecordingCtx> = None;
-        let base = std::env::temp_dir().join(format!(
-            "kirin_handle_exit_reason_release_{}_dir",
-            std::process::id()
-        ));
-        let _ = fs::remove_dir_all(&base);
-        fs::create_dir_all(&base).unwrap();
-        crate::reservation::reserve_pairing(&base, TEST_PH, "pre-iid-x", "post-iid-test").unwrap();
-
-        handle_exit_reason(
-            RecordError::DirectoryMissing,
-            &mut recording,
-            Some(&base),
-            TEST_PH,
-            &sm,
-            &pair_label,
-            &paired_pre_target,
-            &record_error_message,
-            "post-iid-test",
-        );
-
-        assert_eq!(sm.current(), RecordState::Watch);
-        assert!(
-            pair_label.lock().unwrap().is_empty(),
-            "G-115-64: pair_label must be cleared by handle_exit_reason"
-        );
-        assert!(
-            paired_pre_target.lock().unwrap().is_none(),
-            "G-115-64: paired_pre_target must be reset by handle_exit_reason"
-        );
-        let msg = record_error_message.read().unwrap().clone();
-        assert_eq!(msg.as_deref(), Some("Record stopped: storage missing"));
-        assert_eq!(
-            crate::reservation::count_frames(&base, TEST_PH),
-            0,
-            "auto-stop must release the O_EXCL reservation frame"
-        );
-        let _ = fs::remove_dir_all(&base);
-    }
-
-    /// `WriteFailureExceeded` 経路でも完全 cleanup + 文言が固定 (G-115-29).
-    #[test]
-    fn handle_exit_reason_write_failure_message_is_fixed() {
-        let sm = Arc::new(RecordStateMachine::new());
-        sm.try_enter_record(crate::License::Os).unwrap();
-        let pair_label = Arc::new(Mutex::new("pair: cafef00d".to_string()));
-        let paired_pre_target = Arc::new(Mutex::new(Some("pre-iid-y".to_string())));
-        let record_error_message: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
-        let mut recording: Option<RecordingCtx> = None;
-
-        handle_exit_reason(
-            RecordError::WriteFailureExceeded,
-            &mut recording,
-            None,
-            TEST_PH,
-            &sm,
-            &pair_label,
-            &paired_pre_target,
-            &record_error_message,
-            "post-iid-test",
-        );
-
-        assert_eq!(sm.current(), RecordState::Watch);
-        assert!(pair_label.lock().unwrap().is_empty());
-        assert!(paired_pre_target.lock().unwrap().is_none());
-        let msg = record_error_message.read().unwrap().clone();
-        assert_eq!(msg.as_deref(), Some("Record stopped: write failed"));
-    }
 
     /// B-128 reopen / G-115-376 gate ①: `find_pre_json_mtime` は他 instance content 由来の
     /// `pre_iid` (peer pre.json instance_id) を `.join()` する **唯一** の path builder。

@@ -37,7 +37,7 @@ use crate::record::RecordStateMachine;
 use crate::record_signal::{self, SignalStatus};
 use crate::record_writer::{
     parse_iso8601_to_epoch_ms, run_record_tick_with_pair_names, take_session_summary,
-    writer_close_degraded, writer_close_with_summary, RecordingCtx,
+    writer_close_with_summary, RecordingCtx,
 };
 use crate::storage::{PlatformPaths, StoragePaths};
 use crate::{load_signal_state, License, MeasureResult, RecordTraceQueue, SignalState};
@@ -223,9 +223,9 @@ pub fn spawn_io_thread_pre(
     signal_state: Arc<AtomicU8>,
     shutdown: Arc<AtomicBool>,
     name: Arc<RwLock<String>>,
-    // B-025 Group B-2/B-3 / Gap-19/20: io_thread → GUI ステータス行への通知 channel。
-    // io_thread_post.rs と完全対称 (writer_close + record_sm.exit_record + 文字列書込)。
-    record_error_message: Arc<RwLock<Option<String>>>,
+    // io_thread → GUI ステータス行への通知 channel。
+    // B-245 以降、writer flush failure は PRE 側から Record を止めない。
+    _record_error_message: Arc<RwLock<Option<String>>>,
     // B-043: Record セッション集計値共有スロット (Measure Thread → IO Thread)。
     // Record→Watch 遷移時に take して PluginDataWriter::set_session_aggregates に渡す。
     session_summary: Arc<Mutex<Option<SessionSummary>>>,
@@ -488,31 +488,6 @@ pub fn spawn_io_thread_pre(
                 Some(&record_trace_queue),
             ) {
                 log::warn!("[writer] tick error: {}", e);
-            }
-
-            // B-025 Group B-2/B-3 / Gap-19/20: run_record_tick が連続失敗閾値を
-            // 検知して `exit_requested` に sentinel をセットしたら、本 tick で
-            // writer_close + record_sm.exit_record + UI 通知文字列書込。io_thread_post と対称。
-            let exit_reason = writer_ctx
-                .as_mut()
-                .and_then(|ctx| ctx.exit_requested.take());
-            if let Some(reason) = exit_reason {
-                if let Some(ctx) = writer_ctx.take() {
-                    // B-134 (G-115-391): auto-stop（data-loss 異常終了）は best-effort で
-                    // integrity_degraded を立ててから close（書ければ file flag / 書けねば下の
-                    // record_error_message が UI backstop）。
-                    writer_close_degraded(ctx);
-                }
-                record_sm.exit_record();
-                record_acknowledged.store(false, Ordering::Relaxed);
-                if let Ok(mut g) = record_error_message.write() {
-                    *g = Some(reason.ui_message().to_string());
-                }
-                log::warn!(
-                    "[IOThread PRE] record exit: {} (pre_iid={})",
-                    reason,
-                    instance_id_ref
-                );
             }
 
             recording.store(record_sm.is_recording(), Ordering::Relaxed);

@@ -74,8 +74,8 @@ pub struct HyphaPre {
 
     preset_available: Arc<AtomicBool>,
 
-    /// B-025 Group B-2/B-3 / Gap-19/20: io_thread → editor のステータス行通知。
-    /// `None` = 通常 / `Some("Record stopped: ...")` = 連続失敗閾値到達後の文言。
+    /// io_thread → editor のステータス行通知。
+    /// B-245 以降、writer flush failure は Record を止めず、ここへは書かない。
     record_error_message: Arc<RwLock<Option<String>>>,
 }
 

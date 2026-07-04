@@ -131,10 +131,9 @@ pub struct HyphaPost {
     /// `take()` で読出+クリアし `state.toast` に詰める。
     pair_release_notice: Arc<RwLock<Option<String>>>,
 
-    /// B-025 Group B-2/B-3 / Gap-19/20: io_thread が連続失敗 (Directory missing /
-    /// Write failed) で record exit したとき GUI に表示する英語 1 行ステータス
-    /// (G-115-29 準拠)。`None` = 通常 (R-26 沈黙ゲート / 非表示) / `Some` = エラー
-    /// 文言保持中。editor は毎フレーム `read()` で値を取り、TP メーター下に出す。
+    /// io_thread が正当に Record を閉じた理由を GUI に表示する英語 1 行ステータス。
+    /// `None` = 通常 (R-26 沈黙ゲート / 非表示) / `Some` = 文言保持中。
+    /// B-245 以降、writer flush failure は Record を止めず、ここへは書かない。
     /// io_thread (initial / restart_io 双方) と editor の間で Arc 共有。
     record_error_message: Arc<RwLock<Option<String>>>,
 }
@@ -1030,8 +1029,7 @@ impl Plugin for HyphaPost {
             let trigger_pair_resolution = Arc::clone(&trigger_pair_resolution);
             // α-7' All Stop: Watchdog restart 経路でも trigger_stop_resolution capture。
             let trigger_stop_resolution = Arc::clone(&trigger_stop_resolution);
-            // B-025 Group B-2/B-3 / Gap-19/20: restart 経路も GUI 通知 Arc を共有
-            // (initial 経路と完全対称 / restart 後も連続失敗→exit 通知が GUI に届く)。
+            // restart 経路も GUI 通知 Arc を共有 (initial 経路と完全対称)。
             let record_error_message = Arc::clone(&self.record_error_message);
             // W-281 / G-115-249: restart 経路でも pair_claimed_at + pair_release_notice
             // を共有 (initial と完全対称 / restart 後も後着 self check 継続)。
