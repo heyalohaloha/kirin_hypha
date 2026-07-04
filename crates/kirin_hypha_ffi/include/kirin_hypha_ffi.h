@@ -73,7 +73,7 @@ typedef struct {
   char name[64];
 } KirinIdentity;
 
-/* POST の Δ（3d-b）. 各 double の「値なし」は NaN. mode: 0=Active 1=Stale 2=NoPre. */
+/* POST の Δ（3d-b）. 各 double の「値なし」は NaN. mode: 0=Active 1=Stale 2=NoPre 3=Bypassed. */
 typedef struct {
   uint8_t mode;
   double lufs;

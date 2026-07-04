@@ -13,6 +13,7 @@ use crate::pre_candidates::{
     enumerate_active_pre_pair_candidates, filter_candidates_by_name, scan_pre_candidates_in,
     PreCandidate,
 };
+use crate::SignalState;
 
 fn post_pair_names_in_project(kirin_root: &Path, post_project_hash: &str) -> HashSet<String> {
     if post_project_hash.is_empty() {
@@ -226,6 +227,8 @@ pub struct LatchedPre {
 pub struct LatchedPreState {
     /// PRE `name` field.
     pub name: Option<String>,
+    /// Exact PRE signal state if it was present in `pre.json`.
+    pub signal_state: Option<SignalState>,
     /// `signal_state == "active"`.
     pub active: bool,
     /// `t` age is within the PRE freshness TTL.
@@ -235,12 +238,20 @@ pub struct LatchedPreState {
 /// Read exactly one latched PRE `pre.json`.
 ///
 /// This does not scan shelves or re-evaluate ambiguity. After a latch is established, identity
-/// stays bound to this file until it is renamed, stale, or gone.
+/// stays bound to this file until the POST pair name is explicitly changed or cleared.
 pub fn read_pre_at(pre_json: &Path) -> Option<LatchedPreState> {
     let content = fs::read_to_string(pre_json).ok()?;
     let v: serde_json::Value = serde_json::from_str(&content).ok()?;
     let name = v.get("name").and_then(|x| x.as_str()).map(str::to_string);
-    let active = v.get("signal_state").and_then(|x| x.as_str()) == Some("active");
+    let signal_state = v
+        .get("signal_state")
+        .and_then(|x| x.as_str())
+        .map(|s| match s {
+            "active" => SignalState::Active,
+            "bypassed" => SignalState::Bypassed,
+            _ => SignalState::Inactive,
+        });
+    let active = signal_state == Some(SignalState::Active);
     let fresh = v
         .get("t")
         .and_then(|x| x.as_str())
@@ -248,57 +259,56 @@ pub fn read_pre_at(pre_json: &Path) -> Option<LatchedPreState> {
         .unwrap_or(false);
     Some(LatchedPreState {
         name,
+        signal_state,
         active,
         fresh,
     })
 }
 
-/// Resolve Arm/Keep target, preferring a still-fresh matching latch.
+fn selected_from_latch(
+    pair_pre_name: &str,
+    latched: &Mutex<Option<LatchedPre>>,
+) -> Option<SelectedPre> {
+    if pair_pre_name.is_empty() {
+        return None;
+    }
+    let g = latched.lock().ok()?;
+    let l = g.as_ref()?;
+    if l.name != pair_pre_name {
+        return None;
+    }
+    Some(SelectedPre {
+        instance_id: l.instance_id.clone(),
+        pre_json: l.pre_json.clone(),
+        project_dir: l.project_dir.clone(),
+    })
+}
+
+/// Resolve Arm/Keep target, preferring an established matching latch.
+///
+/// Once the user has paired by name, the latched instance is stronger than transient `pre.json`
+/// freshness/name reads. A stale or temporarily missing PRE may fail to acknowledge Record later,
+/// but it must not make the pair look released or force a new candidate choice.
 pub fn resolve_arm_target(
     kirin_root: &Path,
     pair_pre_name: &str,
     latched: &Mutex<Option<LatchedPre>>,
 ) -> Option<SelectedPre> {
-    if let Ok(g) = latched.lock() {
-        if let Some(l) = g.as_ref() {
-            if l.name == pair_pre_name {
-                if let Some(st) = read_pre_at(&l.pre_json) {
-                    if st.fresh && st.name.as_deref() == Some(pair_pre_name) {
-                        return Some(SelectedPre {
-                            instance_id: l.instance_id.clone(),
-                            pre_json: l.pre_json.clone(),
-                            project_dir: l.project_dir.clone(),
-                        });
-                    }
-                }
-            }
-        }
+    if let Some(sel) = selected_from_latch(pair_pre_name, latched) {
+        return Some(sel);
     }
     select_target_pre_for_arm(kirin_root, pair_pre_name)
 }
 
-/// Resolve POST-project-scoped Arm/Keep target, preferring a still-fresh matching latch.
+/// Resolve POST-project-scoped Arm/Keep target, preferring an established matching latch.
 pub fn resolve_arm_target_for_post_project(
     kirin_root: &Path,
     pair_pre_name: &str,
     post_project_hash: &str,
     latched: &Mutex<Option<LatchedPre>>,
 ) -> Option<SelectedPre> {
-    let all_dirs = crate::pre_discovery::discover_active_pre_dirs(kirin_root);
-    if let Ok(g) = latched.lock() {
-        if let Some(l) = g.as_ref() {
-            if l.name == pair_pre_name && all_dirs.iter().any(|d| d == &l.project_dir) {
-                if let Some(st) = read_pre_at(&l.pre_json) {
-                    if st.fresh && st.name.as_deref() == Some(pair_pre_name) {
-                        return Some(SelectedPre {
-                            instance_id: l.instance_id.clone(),
-                            pre_json: l.pre_json.clone(),
-                            project_dir: l.project_dir.clone(),
-                        });
-                    }
-                }
-            }
-        }
+    if let Some(sel) = selected_from_latch(pair_pre_name, latched) {
+        return Some(sel);
     }
     select_target_pre_core_for_post_project(kirin_root, pair_pre_name, post_project_hash, false)
 }

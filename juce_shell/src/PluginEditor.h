@@ -19,8 +19,8 @@
 // PRE: title "PRE" + click-to-edit Name (→ kirin_hypha_set_pre_name) + flora line + Watch(3)/
 //      Record(6) metric grid (per-cell hover help) + Keeping banner + 5-state breathing LED.
 // POST: title "POST" + Record pair label + click-to-edit pair name (→ set_pair_target) + flora +
-//      display-branch grid (Bypassed/Inactive→"---" ; pair-empty/Stale/NoPre→absolute ; Δ Active ;
-//      Record→Δ6) + Keep/Stop/Note→[Good][Fix][Hold][Cancel]/Sense hint + Toast + playback pair
+//      display-branch grid (Bypassed/Inactive→"---" ; pair-empty/PRE bypassed→absolute ;
+//      paired Stale/NoPre→muted Δ/--- ; Δ Active ; Record→Δ6) + Keep/Stop/Note→[Good][Fix][Hold][Cancel]/Sense hint + Toast + playback pair
 //      lock + LED. (Out of scope A: candidate ComboBox, All Keep/All Stop, proposals cards.)
 class KirinHyphaEditor : public juce::AudioProcessorEditor,
                          private juce::Timer

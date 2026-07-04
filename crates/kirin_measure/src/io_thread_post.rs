@@ -1022,6 +1022,18 @@ fn delta_no_pre() -> (DeltaResult, bool, Option<SignalState>) {
     )
 }
 
+/// B-231: ラッチ先 PRE が明示 Bypassed。pair は維持し、表示は POST 単独へ戻す。
+fn delta_pre_bypassed() -> (DeltaResult, bool, Option<SignalState>) {
+    (
+        DeltaResult {
+            mode: DeltaMode::Bypassed,
+            ..Default::default()
+        },
+        true,
+        Some(SignalState::Bypassed),
+    )
+}
+
 /// B-108: ラッチ意味論で表示Δを決める単一実装（`run_tick` の POST=Active 表示経路が呼ぶ）。
 ///
 /// 戻り `(delta, store_directly, pre_signal_state)`:
@@ -1034,9 +1046,10 @@ fn delta_no_pre() -> (DeltaResult, bool, Option<SignalState>) {
 /// ラッチ規律（B-108）:
 /// - Record 中はラッチ凍結（アンラッチ/再選定しない / W-284 self_check-skip と同型）。真の PRE 実消滅は
 ///   `poll_pre_liveness`(60s) が `exit_record_full` で処理（G-115-56/64 不変）。
-/// - Watch 中: pair 名変更/クリアで即アンラッチ。ラッチ先 pre.json を直読し、実消滅（不在/stale>TTL/
-///   rename）でアンラッチ → 同 tick で名前が残れば Arm ゲート（B-104）で再ラッチ（DAW 再開で自動復元）。
-///   未ラッチ時は Arm ゲートで初回解決（成立でラッチ）。同名2台目が現れてもラッチ済みなら再選定しない。
+/// - Watch 中: pair 名変更/クリアで即アンラッチ。ラッチ先 pre.json を直読するが、実消滅
+///   （不在/stale>TTL/rename）は解除理由にしない。明示 pair 名が残る限り、ラッチ済み instance を
+///   権威にして muted Δ/--- を返す。未ラッチ時だけ Arm ゲート（B-104）で初回解決する。
+///   同名2台目が現れてもラッチ済みなら再選定しない。
 #[cfg(test)]
 fn compute_latched_display(
     kirin_root: &Path,
@@ -1079,6 +1092,7 @@ fn compute_latched_display_for_post_project(
                 let (d, ss) = compute_delta_for_pre_file(&l.pre_json, post)?;
                 Ok((d, false, ss))
             }
+            Some(st) if st.signal_state == Some(SignalState::Bypassed) => Ok(delta_pre_bypassed()),
             // 一時 idle / 一時消失(<60s) → latched-idle 表示（真消滅は poll_pre_liveness 管轄）。
             _ => Ok(delta_latched_idle()),
         };
@@ -1099,25 +1113,17 @@ fn compute_latched_display_for_post_project(
     if keep {
         let l = current.expect("keep implies current is Some");
         match read_pre_at(&l.pre_json) {
-            // 実消滅（不在/読込不可）→ アンラッチし (3) の再ラッチへ落とす。
-            None => {
-                if let Ok(mut g) = latched.lock() {
-                    *g = None;
-                }
-            }
-            // stale>TTL or rename → アンラッチ。
-            Some(st) if !st.fresh || st.name.as_deref() != Some(pair_pre_name) => {
-                if let Ok(mut g) = latched.lock() {
-                    *g = None;
-                }
-            }
-            // fresh + active → 通常 Δ（現行どおり）。
-            Some(st) if st.active => {
+            // fresh + active → 通常 Δ。名前の一時不一致では解除しない。
+            Some(st) if st.fresh && st.active => {
                 let (d, ss) = compute_delta_for_pre_file(&l.pre_json, post)?;
                 return Ok((d, false, ss));
             }
-            // fresh + idle/silent → latched-idle（Stale + NaN / 凍結なし）。NoPre には落とさない。
-            Some(_) => return Ok(delta_latched_idle()),
+            // 明示 OFF は pair 維持のまま POST 単独表示に戻す。
+            Some(st) if st.signal_state == Some(SignalState::Bypassed) => {
+                return Ok(delta_pre_bypassed());
+            }
+            // stale / idle / silent / missing / rename → ラッチ維持のまま muted Δ/---。
+            _ => return Ok(delta_latched_idle()),
         }
     }
 
@@ -1139,9 +1145,12 @@ fn compute_latched_display_for_post_project(
             }
             // 初回ラッチ直後の同 tick 表示。
             match read_pre_at(&pre_json) {
-                Some(st) if st.active => {
+                Some(st) if st.fresh && st.active => {
                     let (d, ss) = compute_delta_for_pre_file(&pre_json, post)?;
                     Ok((d, false, ss))
+                }
+                Some(st) if st.signal_state == Some(SignalState::Bypassed) => {
+                    Ok(delta_pre_bypassed())
                 }
                 _ => Ok(delta_latched_idle()),
             }
@@ -1272,6 +1281,7 @@ pub fn compute_delta(project_dir: &Path, post: &MeasureResult) -> Result<DeltaRe
 /// - `new_delta.mode == Stale | NoPre` → `prev_last_active` をそのまま保持。
 ///   新値を `last_active` に書き込まない (PRE pre.json 不在/古い区間で「直近の
 ///   Active 時の凍結値」を GUI に保持させ続けるため)。
+/// - `new_delta.mode == Bypassed` → 明示 OFF なので凍結値を保持しない。
 ///
 /// 純関数のため Mutex / fs 副作用なし → unit test 容易。
 /// `run_tick` (Mutex / fs / spawn 副作用あり) は本関数を呼ぶだけのアダプタ。
@@ -1302,12 +1312,13 @@ pub fn merge_last_active(
             last_active: prev_last_active,
             ..new_delta
         },
+        DeltaMode::Bypassed => new_delta,
     }
 }
 
 /// B-059 / G-115-245 置換: `run_tick` が delta_result に書く値を決める pure 関数。
 ///
-/// - `mode == NoPre`（= `select_target_pre` が有効ペアなし）→ **`new_delta` をそのまま**
+/// - `mode == NoPre | Bypassed`（= 有効ペアなし / PRE 明示OFF）→ **`new_delta` をそのまま**
 ///   （`DeltaResult::default()` 由来で `last_active = None` ＝ クリア）。表示=commit 一本化で
 ///   「選定 None なのに直近 Δ が凍結表示される」のを防ぐ（B-048 の NoPre 保持を廃止）。
 /// - `mode == Active | Stale`（= 一意有効 PRE を選定）→ `merge_last_active`（Active 保存 /
@@ -1318,7 +1329,7 @@ pub(crate) fn resolve_delta_for_store(
     new_delta: DeltaResult,
     prev_last_active: Option<DeltaSnapshot>,
 ) -> DeltaResult {
-    if new_delta.mode == DeltaMode::NoPre {
+    if matches!(new_delta.mode, DeltaMode::NoPre | DeltaMode::Bypassed) {
         new_delta
     } else {
         merge_last_active(prev_last_active, new_delta)
@@ -1449,7 +1460,11 @@ fn compute_delta_for_pre_file(
                 n_prime_total: None,
                 crest: None,
                 sharpness: None,
-                mode: DeltaMode::NoPre,
+                mode: if pre_signal_state == Some(SignalState::Bypassed) {
+                    DeltaMode::Bypassed
+                } else {
+                    DeltaMode::NoPre
+                },
                 last_active: None, // B-048 §4-2: run_tick で merge する責務分業
             },
             pre_signal_state,
@@ -2492,9 +2507,9 @@ mod compute_delta_tests {
         assert_eq!(d2.mode, DeltaMode::NoPre);
     }
 
-    /// T4: pre.json 削除でアンラッチ → 同名 fresh PRE 再出現で自動再ラッチ（DAW 再開復元）。
+    /// T4: pre.json 削除でも、明示 pair 名が残る限りラッチは保持される。
     #[test]
-    fn latch_delete_then_relatch() {
+    fn latch_delete_keeps_pair_latched() {
         let root = isolated_dir("latch_delete");
         let p = write_pre_latch(&root, "puid-1", "iid-A", "snare", "active", &latch_now());
         let latched = std::sync::Mutex::new(None);
@@ -2508,7 +2523,7 @@ mod compute_delta_tests {
         )
         .unwrap();
         assert!(latched.lock().unwrap().is_some());
-        // 削除 → アンラッチ（再ラッチ先も無く NoPre）。
+        // 削除 → muted Δ/---。ラッチは外さない。
         fs::remove_file(&p).unwrap();
         let (d, _, _) = compute_latched_display(
             &root,
@@ -2520,13 +2535,13 @@ mod compute_delta_tests {
         )
         .unwrap();
         assert!(
-            latched.lock().unwrap().is_none(),
-            "pre.json 削除でアンラッチ"
+            latched.lock().unwrap().is_some(),
+            "pre.json 削除でも明示 pair は維持"
         );
-        assert_eq!(d.mode, DeltaMode::NoPre);
-        // 同名 fresh PRE 再出現 → 自動再ラッチ。
+        assert_eq!(d.mode, DeltaMode::Stale);
+        // 同名 fresh PRE 再出現 → 同一ラッチから復帰。
         write_pre_latch(&root, "puid-1", "iid-A", "snare", "active", &latch_now());
-        let _ = compute_latched_display(
+        let (d2, _, _) = compute_latched_display(
             &root,
             "snare",
             &latch_post(),
@@ -2535,12 +2550,13 @@ mod compute_delta_tests {
             &latched,
         )
         .unwrap();
-        assert!(latched.lock().unwrap().is_some(), "再出現で自動再ラッチ");
+        assert_eq!(d2.mode, DeltaMode::Active, "再出現で同一ラッチから復帰");
+        assert!(latched.lock().unwrap().is_some(), "再出現後もラッチ維持");
     }
 
-    /// T5: ラッチ先 pre.json が stale > NO_PRE_SECS(10s) でアンラッチ（実消滅扱い）。
+    /// T5: ラッチ先 pre.json が stale > NO_PRE_SECS(10s) でもアンラッチしない。
     #[test]
-    fn latch_stale_beyond_ttl_unlatches() {
+    fn latch_stale_beyond_ttl_keeps_pair_latched() {
         let root = isolated_dir("latch_stale");
         write_pre_latch(&root, "puid-1", "iid-A", "snare", "active", &latch_now());
         let latched = std::sync::Mutex::new(None);
@@ -2554,7 +2570,7 @@ mod compute_delta_tests {
         )
         .unwrap();
         assert!(latched.lock().unwrap().is_some());
-        // t を 20s 古く（> NO_PRE_SECS=10）→ アンラッチ + 再ラッチも stale 不可 → NoPre。
+        // t を 20s 古く（> NO_PRE_SECS=10）→ muted Δ/---。ラッチは外さない。
         write_pre_latch(&root, "puid-1", "iid-A", "snare", "active", &latch_old(20));
         let (d, _, _) = compute_latched_display(
             &root,
@@ -2565,8 +2581,87 @@ mod compute_delta_tests {
             &latched,
         )
         .unwrap();
-        assert!(latched.lock().unwrap().is_none(), "stale>TTL でアンラッチ");
-        assert_eq!(d.mode, DeltaMode::NoPre);
+        assert!(
+            latched.lock().unwrap().is_some(),
+            "stale>TTL でも明示 pair は維持"
+        );
+        assert_eq!(d.mode, DeltaMode::Stale);
+    }
+
+    /// T5b: ラッチ先 PRE の name field が一時的に違っても、instance ラッチを優先する。
+    #[test]
+    fn latch_pre_name_mismatch_keeps_instance_authority() {
+        let root = isolated_dir("latch_name_mismatch");
+        write_pre_latch(&root, "puid-1", "iid-A", "snare", "active", &latch_now());
+        let latched = std::sync::Mutex::new(None);
+        let _ = compute_latched_display(
+            &root,
+            "snare",
+            &latch_post(),
+            Some("snare"),
+            false,
+            &latched,
+        )
+        .unwrap();
+
+        write_pre_latch(
+            &root,
+            "puid-1",
+            "iid-A",
+            "snare_tmp",
+            "active",
+            &latch_now(),
+        );
+        let (d, sd, _) = compute_latched_display(
+            &root,
+            "snare",
+            &latch_post(),
+            Some("snare"),
+            false,
+            &latched,
+        )
+        .unwrap();
+        assert_eq!(d.mode, DeltaMode::Active);
+        assert!(!sd);
+        assert_eq!(
+            latched.lock().unwrap().as_ref().unwrap().instance_id,
+            "iid-A"
+        );
+    }
+
+    /// T5c: PRE が明示 Bypassed のときは、pair は維持したまま POST 単独表示へ戻す。
+    #[test]
+    fn latch_pre_bypassed_keeps_pair_but_marks_bypassed() {
+        let root = isolated_dir("latch_pre_bypassed");
+        write_pre_latch(&root, "puid-1", "iid-A", "snare", "active", &latch_now());
+        let latched = std::sync::Mutex::new(None);
+        let _ = compute_latched_display(
+            &root,
+            "snare",
+            &latch_post(),
+            Some("snare"),
+            false,
+            &latched,
+        )
+        .unwrap();
+
+        write_pre_latch(&root, "puid-1", "iid-A", "snare", "bypassed", &latch_now());
+        let (d, sd, pre_state) = compute_latched_display(
+            &root,
+            "snare",
+            &latch_post(),
+            Some("snare"),
+            false,
+            &latched,
+        )
+        .unwrap();
+        assert_eq!(d.mode, DeltaMode::Bypassed);
+        assert!(sd);
+        assert_eq!(pre_state, Some(SignalState::Bypassed));
+        assert!(
+            latched.lock().unwrap().is_some(),
+            "PRE bypass must not release the explicit pair"
+        );
     }
 
     /// T6: 停止中(inactive)の PRE を Arm でラッチでき、再生再開(active)で live Δ が出る。

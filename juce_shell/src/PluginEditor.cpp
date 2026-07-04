@@ -496,8 +496,8 @@ void KirinHyphaEditor::updatePost()
 
     postControls->update (rec, processorRef.licenseCode(), pairNonEmpty);
 
-    // ── display-branch tree (editor.rs:449-514, no last_active freeze: the FFI KirinDelta has
-    //    no snapshot field; Watch shows delta only while the paired PRE is Active).
+    // ── display-branch tree: raw Record/TRACE stays untouched, but paired Watch keeps the
+    //    delta grid through short PRE idle/stale gaps so a latched pair does not look released.
     KirinMeasureResult rawM {};
     KirinMeasureResult m {};
     bool haveM = false;
@@ -527,8 +527,23 @@ void KirinHyphaEditor::updatePost()
         bool staleD = false;
         if (sig == 1 && processorRef.pollDelta (rawD))
         {
-            d = displaySmoother.smoothDelta (rawD, t);
-            haveD = true;
+            const bool preExplicitBypassed = rawD.mode == 3;
+            if (rawD.mode == 0)
+            {
+                d = displaySmoother.smoothDelta (rawD, t);
+                haveD = true;
+            }
+            else if (! preExplicitBypassed && pairNonEmpty && displaySmoother.heldDelta (d, t))
+            {
+                haveD = true;
+                staleD = true;
+            }
+            else
+            {
+                d = rawD;
+                haveD = true;
+                staleD = true;
+            }
         }
         else if (sig == 0 && displaySmoother.heldDelta (d, t))
         {
@@ -568,18 +583,37 @@ void KirinHyphaEditor::updatePost()
         KirinDelta rawD {};
         KirinDelta d {};
         const bool haveRawD = processorRef.pollDelta (rawD);
-        const bool haveD = haveRawD;
-        if (haveRawD)
+        const bool preExplicitBypassed = haveRawD && rawD.mode == 3;
+        bool haveD = false;
+        bool staleD = false;
+        if (haveRawD && rawD.mode == 0)
+        {
             d = displaySmoother.smoothDelta (rawD, t);
-        const bool showDelta = pairNonEmpty && haveD && d.mode == 0;
-        if (showDelta)
+            haveD = true;
+        }
+        else if (! preExplicitBypassed && pairNonEmpty && displaySmoother.heldDelta (d, t))
+        {
+            haveD = true;
+            staleD = true;
+        }
+        else if (haveRawD)
+        {
+            d = rawD;
+            haveD = true;
+            staleD = true;
+        }
+
+        if (pairNonEmpty && ! preExplicitBypassed)
         {
             if (currentKind != Kind::Delta3) configureForKind (Kind::Delta3);
-            fillDelta (0, d.lufs,      false, COL_NORMAL, tpWarn);
-            fillDelta (1, d.true_peak, true,  COL_NORMAL, tpWarn);
-            fillDelta (2, d.crest,     false, COL_NORMAL, tpWarn);
+            const bool liveDelta = haveD && d.mode == 0 && ! staleD;
+            const juce::Colour base = liveDelta ? COL_NORMAL : COL_MUTED;
+            const bool warn = liveDelta ? tpWarn : false;
+            fillDelta (0, haveD ? d.lufs      : kNaN, false, base, warn, ! liveDelta);
+            fillDelta (1, haveD ? d.true_peak : kNaN, true,  base, warn, ! liveDelta);
+            fillDelta (2, haveD ? d.crest     : kNaN, false, base, warn, ! liveDelta);
         }
-        else // pair empty / Stale / NoPre / no delta -> POST absolute
+        else // pair empty or PRE explicitly bypassed -> POST absolute
         {
             if (currentKind != Kind::Abs3) configureForKind (Kind::Abs3);
             auto V = [&] (double x) { return haveM ? x : kNaN; };

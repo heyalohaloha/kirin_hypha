@@ -26,7 +26,7 @@ impl Default for DisplaySmoother {
 }
 
 impl DisplaySmoother {
-    pub const HOLD_SECS: f64 = 3.0;
+    pub const HOLD_SECS: f64 = 8.0;
 
     pub fn update_measure(&mut self, raw: &MeasureResult, now_secs: f64) -> MeasureResult {
         if is_expired(self.measure_last_secs, now_secs) {
@@ -215,8 +215,8 @@ mod tests {
             ..MeasureResult::default()
         };
         s.update_measure(&m, 10.0);
-        assert!(s.held_measure(12.9).is_some());
-        assert!(s.held_measure(13.1).is_none());
+        assert!(s.held_measure(17.9).is_some());
+        assert!(s.held_measure(18.1).is_none());
     }
 
     #[test]
@@ -227,10 +227,10 @@ mod tests {
             ..MeasureResult::default()
         };
         assert_eq!(s.update_measure(&m, 0.0).lufs_m, Some(-30.0));
-        assert!(s.held_measure(3.1).is_none());
+        assert!(s.held_measure(8.1).is_none());
 
         m.lufs_m = Some(-10.0);
-        assert_eq!(s.update_measure(&m, 3.2).lufs_m, Some(-10.0));
+        assert_eq!(s.update_measure(&m, 8.2).lufs_m, Some(-10.0));
     }
 
     #[test]

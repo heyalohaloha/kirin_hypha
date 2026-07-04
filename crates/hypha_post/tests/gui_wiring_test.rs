@@ -478,10 +478,10 @@ fn lib_rs_drop_calls_delete_signal_after_watchdog_join() {
     );
 }
 
-/// B-209: Watch 表示は PRE が Active のときだけ Δ 表示。
-/// pair ラッチ維持中でも `DeltaMode::Stale | DeltaMode::NoPre` は POST 絶対値へ戻す。
+/// B-231: Watch 表示は pair 選択中なら Stale/NoPre で muted Δ を維持する。
+/// PRE 明示 Bypassed だけは pair を維持したまま POST 絶対値へ戻す。
 #[test]
-fn editor_rs_watch_delta_requires_active_pre_mode() {
+fn editor_rs_watch_keeps_delta_grid_except_explicit_pre_bypass() {
     let src = read("src/editor.rs");
     let draw_post_start = src
         .find("fn draw_post(")
@@ -495,28 +495,20 @@ fn editor_rs_watch_delta_requires_active_pre_mode() {
     let window = &src[draw_post_start..safe_end];
 
     assert!(
-        window.contains("DeltaMode::Active =>"),
-        "draw_post Watch branch must have an explicit DeltaMode::Active arm"
+        window.contains("pair_empty || d.mode == DeltaMode::Bypassed"),
+        "draw_post Watch branch must reserve POST absolute fallback for pair-empty or explicit PRE bypass"
     );
     assert!(
-        window.contains("DeltaMode::Stale | DeltaMode::NoPre =>"),
-        "draw_post Watch branch must group Stale and NoPre as POST-absolute fallback"
+        window.contains("draw_delta_grid(ui, d, COL_MUTED, false);"),
+        "draw_post Watch branch must keep muted delta grid for paired transient Stale/NoPre"
     );
     assert!(
-        window.contains("draw_watch_absolute_grid(ui, m)"),
-        "draw_post Watch branch must contain POST absolute fallback"
-    );
-    let stale_idx = window
-        .find("DeltaMode::Stale | DeltaMode::NoPre =>")
-        .expect("Stale/NoPre arm");
-    let stale_window = &window[stale_idx..(stale_idx + 240).min(window.len())];
-    assert!(
-        stale_window.contains("draw_watch_absolute_grid(ui, m)"),
-        "Stale/NoPre arm must draw POST absolute values"
+        src.contains("raw_d.mode == DeltaMode::Bypassed"),
+        "draw_post display selection must preserve explicit PRE bypass as a distinct mode"
     );
     assert!(
-        !stale_window.contains("draw_delta_grid"),
-        "Stale/NoPre arm must not draw delta or frozen delta in Watch mode"
+        !window.contains("DeltaMode::Stale | DeltaMode::NoPre =>"),
+        "Stale/NoPre must not be grouped into POST-absolute fallback"
     );
 }
 
@@ -570,10 +562,12 @@ fn editor_rs_bypassed_branch_unchanged_no_last_active_ref() {
     )
     .expect("read editor.rs");
 
-    let bypassed_idx = src
+    let draw_post_idx = src.find("fn draw_post(").expect("draw_post not found");
+    let draw_post = &src[draw_post_idx..];
+    let bypassed_idx = draw_post
         .find("SignalState::Bypassed =>")
-        .expect("SignalState::Bypassed arm not found");
-    let after = &src[bypassed_idx..];
+        .expect("SignalState::Bypassed arm not found in draw_post");
+    let after = &draw_post[bypassed_idx..];
     // Bypassed arm の境界 = 次 arm `SignalState::Inactive =>` までを Bypassed 範囲とみなす
     let end_marker = after
         .find("SignalState::Inactive =>")
@@ -748,24 +742,27 @@ fn io_thread_post_release_block_clears_delta_result() {
 // 再計算で last_active が復活する根本問題が残った。GUI draw 分岐で pair_pre_name=""
 // を直接判定して構造的に解決する。配線が落ちると pair 解放後も Δ 凍結値が残る regression)。
 
-/// W-283 W-2: editor.rs SignalState::Active + !recording 分岐内で `if pair_empty {`
-/// → `draw_watch_absolute_grid(ui, m);` の強制経路が存在し、かつその true 枝に
+/// W-283 W-2: editor.rs SignalState::Active + !recording 分岐内で
+/// `if pair_empty || d.mode == DeltaMode::Bypassed {`
+/// → `draw_watch_absolute_grid(ui, m, false);` の強制経路が存在し、かつその true 枝に
 /// `draw_delta_grid_frozen` (B-048 LKG 凍結経路) が含まれないことを invariant 化。
 #[test]
 fn editor_rs_pair_empty_draws_watch_absolute_not_delta_frozen() {
     let src = read("src/editor.rs");
     let anchor_idx = src
-        .find("if pair_empty {")
-        .expect("W-283 W-2: `if pair_empty {` anchor not found in draw_post Active arm");
-    // 真枝 (true branch) のみを抽出: `if pair_empty {` から最初の `} else {` まで。
+        .find("if pair_empty || d.mode == DeltaMode::Bypassed {")
+        .expect(
+            "W-283 W-2: pair-empty/PRE-bypassed absolute anchor not found in draw_post Active arm",
+        );
+    // 真枝 (true branch) のみを抽出: anchor から最初の `} else {` まで。
     let from_anchor = &src[anchor_idx..];
     let else_offset = from_anchor
         .find("} else {")
-        .expect("W-283 W-2: matching `} else {` not found after `if pair_empty {`");
+        .expect("W-283 W-2: matching `} else {` not found after absolute anchor");
     let true_branch = &from_anchor[..else_offset];
     assert!(
-        true_branch.contains("draw_watch_absolute_grid(ui, m)"),
-        "W-283 W-2: pair_empty=true 真枝に draw_watch_absolute_grid(ui, m) が無い (強制経路欠落)"
+        true_branch.contains("draw_watch_absolute_grid(ui, m, false)"),
+        "W-283 W-2: pair_empty/PRE-bypassed 真枝に draw_watch_absolute_grid(ui, m, false) が無い (強制経路欠落)"
     );
     assert!(
         !true_branch.contains("draw_delta_grid_frozen"),

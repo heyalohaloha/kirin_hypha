@@ -6,7 +6,9 @@
 //! - 共通ウィジェット（value_row / fmt_val / fmt_delta / tp_color）
 //!
 //! - POST Active + PRE Active（DeltaMode::Active）→ Δ 3 項目表示
-//! - POST Active + PRE Stale / 不在 / Bypassed（DeltaMode::Stale / NoPre）→ 絶対値 3 項目表示
+//! - POST Active + pair 選択中の PRE Stale / 不在（DeltaMode::Stale / NoPre）
+//!   → muted Δ 3 項目表示。PRE Bypassed（明示 OFF）は pair 維持のまま絶対値 3 項目表示。
+//!   pair 未選択時も絶対値 3 項目表示
 //!   （LUFS-M / TP / Crest。POST 単独挿入での計測動作を目視確認する経路）
 //! - POST Bypassed → 全項目 `---` + ボタン非表示（プラグイン無効化中）
 //! - POST Inactive → 全項目 `---` + ボタン表示（信号待ちでも license 操作は可能）
@@ -346,6 +348,13 @@ pub fn create_post_editor(args: PostEditorArgs) -> Option<Box<dyn Editor>> {
                 .lock()
                 .map(|g| g.clone())
                 .unwrap_or_default();
+            let pair_pre_name_snapshot = state
+                .pair_pre_name
+                .read()
+                .ok()
+                .map(|g| g.clone())
+                .unwrap_or_default();
+            let pair_empty_for_display = pair_pre_name_snapshot.is_empty();
             let license = *state.license;
 
             let now = ctx.input(|i| i.time);
@@ -401,12 +410,19 @@ pub fn create_post_editor(args: PostEditorArgs) -> Option<Box<dyn Editor>> {
             let (m, d, display_stale) = match sig {
                 SignalState::Active => {
                     let smoothed_m = state.display_smoother.update_measure(&raw_m, now);
-                    let smoothed_d = if raw_d.mode == DeltaMode::Active {
-                        state.display_smoother.update_delta(&raw_d, now)
+                    let (display_d, stale_d) = if raw_d.mode == DeltaMode::Active {
+                        (state.display_smoother.update_delta(&raw_d, now), false)
+                    } else if raw_d.mode == DeltaMode::Bypassed {
+                        (raw_d, false)
+                    } else if !pair_empty_for_display {
+                        (
+                            state.display_smoother.held_delta(now).unwrap_or(raw_d),
+                            true,
+                        )
                     } else {
-                        raw_d
+                        (raw_d, false)
                     };
-                    (smoothed_m, smoothed_d, false)
+                    (smoothed_m, display_d, stale_d)
                 }
                 SignalState::Inactive => {
                     let held_m = state.display_smoother.held_measure(now);
@@ -550,22 +566,22 @@ fn draw_post(
                         ui.add_space(4.0);
                         draw_button_row(ui, true, license, state, m, now);
                     } else {
-                        // Watch 表示は PRE が Active のときだけ Δ 表示にする。
-                        // Stale は「ペアラッチは維持しているが PRE は計測相手として
-                        // 有効ではない」状態なので、POST 単体の絶対値表示へ戻す。
+                        // Watch 表示は pair 選択をグリッド形状の権威にする。
+                        // PRE 明示 Bypassed だけは POST 単独の絶対値表示へ戻す。
+                        // Stale/NoPre は「ペアラッチは維持、PRE は一時的に計測相手として
+                        // 有効ではない」状態として muted Δ/--- を維持する。
                         // W-283 / G-115-251 / W-2: pair_empty 時は IO Thread の Δ 状態に
                         // 依らず draw_watch_absolute_grid を強制 (B-048 LKG 凍結経路 bypass)。
-                        if pair_empty {
+                        if pair_empty || d.mode == DeltaMode::Bypassed {
                             draw_watch_absolute_grid(ui, m, false);
                         } else {
-                            match d.mode {
-                                DeltaMode::Active => {
-                                    let tp_warn = tp_over(m.true_peak);
-                                    draw_delta_grid(ui, d, COL_NORMAL, tp_warn);
-                                }
-                                DeltaMode::Stale | DeltaMode::NoPre => {
-                                    draw_watch_absolute_grid(ui, m, false);
-                                }
+                            let tp_warn = !display_stale && tp_over(m.true_peak);
+                            if d.mode == DeltaMode::Active && !display_stale {
+                                draw_delta_grid(ui, d, COL_NORMAL, tp_warn);
+                            } else {
+                                // B-231: pair 選択中は PRE の一時 idle/stale で POST 絶対値へ
+                                // 戻さない。保持値があれば muted Δ、期限後は Δ の "---"。
+                                draw_delta_grid(ui, d, COL_MUTED, false);
                             }
                         }
                         ui.add_space(4.0);
@@ -727,7 +743,7 @@ fn draw_delta_grid_frozen(ui: &mut egui::Ui, snap: &DeltaSnapshot, _tp_warn: boo
     });
 }
 
-/// Watch + PRE 不在 or Bypassed（DeltaMode::NoPre）: POST 絶対値 3 項目（LUFS-M / TP / Crest）。
+/// Watch + pair 未選択 or PRE Bypassed: POST 絶対値 3 項目（LUFS-M / TP / Crest）。
 fn draw_watch_absolute_grid(ui: &mut egui::Ui, m: &MeasureResult, muted: bool) {
     let tp_warn = !muted && tp_over(m.true_peak);
     let tp_col = if tp_warn {
@@ -765,7 +781,7 @@ fn draw_watch_absolute_grid(ui: &mut egui::Ui, m: &MeasureResult, muted: bool) {
 /// Watch 中の絶対値表示は `draw_watch_absolute_grid` 側で温存する。
 ///
 /// 各 Δ セルの色:
-/// - `delta_col` = mode (Active=COL_NORMAL / Stale=COL_MUTED / NoPre=COL_MUTED)
+/// - `delta_col` = mode (Active=COL_NORMAL / Stale/NoPre/Bypassed=COL_MUTED)
 /// - `Δ.X` が None なら `COL_MUTED` で `---`
 /// - ΔTP のみ POST 絶対 TP が 0 dBTP 超 (tp_warn) のとき `COL_FLORA_BRIGHT` (旧仕様維持)
 fn draw_record_section(ui: &mut egui::Ui, m: &MeasureResult, d: &DeltaResult, muted: bool) {
@@ -775,6 +791,7 @@ fn draw_record_section(ui: &mut egui::Ui, m: &MeasureResult, d: &DeltaResult, mu
         match d.mode {
             DeltaMode::Active => COL_NORMAL,
             DeltaMode::Stale => COL_MUTED,
+            DeltaMode::Bypassed => COL_MUTED,
             DeltaMode::NoPre => COL_MUTED,
         }
     };
@@ -1506,8 +1523,8 @@ pub(crate) fn trigger_keep_internal(
     daw_session_id: &str,
     pair_label: &Arc<Mutex<String>>,
     paired_pre_target: &Arc<Mutex<Option<String>>>,
-    // B-059: 距離 auto-pick 廃止により POST メトリクスは選定に不要（select_target_pre は
-    // name + Active + freshness のみで一意選定）。caller 据え置きのため `_` 受け。
+    // B-059: 距離 auto-pick 廃止により POST メトリクスは選定に不要（未ラッチ時は
+    // name + freshness で一意選定）。caller 据え置きのため `_` 受け。
     _m: &MeasureResult,
     mut toast: Option<&mut Option<Toast>>,
     now: f64,
@@ -1533,10 +1550,10 @@ pub(crate) fn trigger_keep_internal(
 
     // 2 + 4. PRE 選定（B-059: 表示=commit 一本化）
     //
-    // B-104: Arm 経路は `select_target_pre_for_arm`（非Bypassed + t<NO_PRE_SECS + Name 一致で
-    // **一意 1 件のみ Some** / Active 要求なし）。停止中・無音の PRE もアーム可（v1.0.0 復元）。
-    // pair_pre_name 空 / 同名複数 / 不在 / Bypassed / 古t は None → "No PRE Paired"。表示Δ
-    // (io_thread_post::run_tick) は `select_target_pre`（Active 維持）のまま。
+    // B-104/B-231: ラッチ済みなら instance_id を権威にする。未ラッチ時だけ
+    // `select_target_pre_for_arm`（非Bypassed + t<NO_PRE_SECS + Name 一致で一意 1 件 / Active
+    // 要求なし）へフォールバックする。pair_pre_name 空 / 同名複数 / 不在 / Bypassed / 古t は
+    // None → "No PRE Paired"。
     let target_id = match resolve_arm_target_for_post_project(
         &tmp_base,
         pair_pre_name,
@@ -1546,7 +1563,7 @@ pub(crate) fn trigger_keep_internal(
         Some(sel) => sel.instance_id,
         None => {
             log::info!(
-                "[POST keep] no unique active PRE for pair_pre_name=\"{}\" (none/ambiguous/inactive/stale)",
+                "[POST keep] no armable PRE for pair_pre_name=\"{}\" (none/ambiguous/bypassed/stale)",
                 pair_pre_name
             );
             if let Some(t) = toast.as_mut() {
