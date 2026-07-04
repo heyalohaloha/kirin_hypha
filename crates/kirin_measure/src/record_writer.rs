@@ -374,13 +374,8 @@ pub fn writer_close(mut ctx: RecordingCtx) {
 
 fn seal_bounce_marker(ctx: &mut RecordingCtx) {
     let end_ms = now_epoch_ms();
-    let elapsed_ms = if ctx.started_at_ms > 0 {
-        end_ms.saturating_sub(ctx.started_at_ms).max(0) as u64
-    } else {
-        0
-    };
     let sample_rate = ctx.writer.data().sample_rate as u64;
-    let duration_ms = ctx.last_trace_t_ms.unwrap_or(elapsed_ms);
+    let duration_ms = record_duration_ms(ctx);
     let duration_samples = duration_ms.saturating_mul(sample_rate) / 1_000;
     ctx.writer
         .set_bounce_end(epoch_ms_to_iso8601(end_ms), duration_samples, String::new());
@@ -390,12 +385,25 @@ fn expected_trace_samples(duration_ms: u64) -> usize {
     (duration_ms / FRAME_INTERVAL_MS).saturating_add(1) as usize
 }
 
+fn record_duration_ms(ctx: &RecordingCtx) -> u64 {
+    if let Some(t_ms) = ctx.last_trace_t_ms {
+        return t_ms;
+    }
+    let end_ms = now_epoch_ms();
+    if ctx.started_at_ms > 0 {
+        end_ms.saturating_sub(ctx.started_at_ms).max(0) as u64
+    } else {
+        0
+    }
+}
+
 fn trace_density_is_sparse(ctx: &RecordingCtx) -> bool {
-    let Some(duration_ms) = ctx.last_trace_t_ms else {
+    let duration_ms = record_duration_ms(ctx);
+    if duration_ms < TRACE_DENSITY_MIN_DURATION_MS {
         return false;
-    };
-    if duration_ms < TRACE_DENSITY_MIN_DURATION_MS || ctx.trace_sample_count == 0 {
-        return false;
+    }
+    if ctx.trace_sample_count == 0 {
+        return ctx.writer.data().frames.is_empty();
     }
     let expected = expected_trace_samples(duration_ms);
     ctx.trace_sample_count
@@ -408,7 +416,7 @@ fn mark_integrity_if_trace_density_is_sparse(ctx: &mut RecordingCtx) {
         log::warn!(
             "[writer] sparse TRACE density: samples={} duration_ms={} - marking integrity_degraded",
             ctx.trace_sample_count,
-            ctx.last_trace_t_ms.unwrap_or_default()
+            record_duration_ms(ctx)
         );
         ctx.writer.mark_integrity_degraded();
     }
@@ -1589,6 +1597,47 @@ mod tests {
         assert!(
             loaded.integrity_degraded,
             "audio-time progressed but TRACE sample density was too sparse"
+        );
+    }
+
+    #[test]
+    fn zero_trace_samples_and_zero_frames_over_min_duration_marks_integrity_degraded() {
+        let base = isolated_base();
+        let started = now_epoch_ms() - (TRACE_DENSITY_MIN_DURATION_MS as i64 + 1_000);
+        let ctx = make_ctx(&base, Role::Pre, started);
+        let final_path = ctx.final_path.clone();
+
+        writer_close(ctx);
+
+        let loaded: PluginDataFile =
+            serde_json::from_slice(&fs::read(&final_path).unwrap()).unwrap();
+        assert_eq!(loaded.frames.len(), 0);
+        assert!(
+            loaded.integrity_degraded,
+            "a long Record with no TRACE samples and no numeric frames must not look clean"
+        );
+    }
+
+    #[test]
+    fn zero_trace_samples_with_live_fallback_frame_remains_clean() {
+        let base = isolated_base();
+        let started = now_epoch_ms() - (TRACE_DENSITY_MIN_DURATION_MS as i64 + 1_000);
+        let mut ctx = make_ctx(&base, Role::Pre, started);
+        let final_path = ctx.final_path.clone();
+        assert!(writer_append_frame(
+            &mut ctx,
+            TRACE_DENSITY_MIN_DURATION_MS + 500,
+            &full_measure_result()
+        ));
+
+        writer_close(ctx);
+
+        let loaded: PluginDataFile =
+            serde_json::from_slice(&fs::read(&final_path).unwrap()).unwrap();
+        assert_eq!(loaded.frames.len(), 1);
+        assert!(
+            !loaded.integrity_degraded,
+            "wall-clock fallback frames remain valid for non-offline live capture"
         );
     }
 
