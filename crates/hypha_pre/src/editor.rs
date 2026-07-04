@@ -15,8 +15,8 @@
 
 use crate::sanitize_name;
 use hypha_gui::{
-    derive_led_state, fmt_val, led_color, tp_color, val_color, BackgroundTexture, BG, COL_FLORA,
-    COL_MUTED, COL_NORMAL,
+    derive_led_state, display_smoothing::DisplaySmoother, fmt_val, led_color, tp_color, val_color,
+    BackgroundTexture, BG, COL_FLORA, COL_MUTED, COL_NORMAL,
 };
 use kirin_measure::{load_signal_state, MeasureResult, SignalState};
 use nih_plug::prelude::Editor;
@@ -96,6 +96,8 @@ pub struct PreEditorState {
     /// 編集モード開始時に現在 Name を copy、changed() で sanitize_name 適用、
     /// Enter で `name.write()` に書き戻し、Escape で discard。
     edit_buffer: String,
+    /// GUI 表示専用の安定化フィルタ。Record/TRACE の raw 計測値には触れない。
+    display_smoother: DisplaySmoother,
 }
 
 impl PreEditorState {
@@ -126,6 +128,7 @@ impl PreEditorState {
             banner_until: None,
             prev_led: None,
             edit_buffer: String::new(),
+            display_smoother: DisplaySmoother::default(),
         }
     }
 }
@@ -171,7 +174,7 @@ pub fn create_pre_editor(
         },
         |ctx, _setter, state| {
             let sig = load_signal_state(&state.signal_state);
-            let m = state.measure.lock().map(|g| g.clone()).unwrap_or_default();
+            let raw_m = state.measure.lock().map(|g| g.clone()).unwrap_or_default();
             let alive = state.measure_alive.load(Ordering::Relaxed);
             let recording = state.recording.load(Ordering::Relaxed);
             let ack = state.record_acknowledged.load(Ordering::Relaxed);
@@ -187,6 +190,22 @@ pub fn create_pre_editor(
                 state.banner_until = None;
             }
 
+            let (m, show_values, values_muted) = match sig {
+                SignalState::Active => (
+                    state.display_smoother.update_measure(&raw_m, now),
+                    true,
+                    false,
+                ),
+                SignalState::Inactive => match state.display_smoother.held_measure(now) {
+                    Some(held) => (held, true, true),
+                    None => (raw_m, false, false),
+                },
+                SignalState::Bypassed => {
+                    state.display_smoother.reset();
+                    (raw_m, false, false)
+                }
+            };
+
             let preset_available = state.preset_available.load(Ordering::Relaxed);
             let led = derive_led_state(alive, sig, recording, ack, preset_available);
             if state.prev_led != Some(led) {
@@ -195,21 +214,37 @@ pub fn create_pre_editor(
             }
             let led_col = led_color(led, now);
 
-            draw_pre(ctx, state, &m, recording, sig, led_col, show_banner);
+            draw_pre(
+                ctx,
+                state,
+                &m,
+                recording,
+                led_col,
+                PreDisplayFlags {
+                    show_banner,
+                    show_values,
+                    values_muted,
+                },
+            );
         },
     )
 }
 
 // ── 描画 ────────────────────────────────────────────────────────────────
 
+struct PreDisplayFlags {
+    show_banner: bool,
+    show_values: bool,
+    values_muted: bool,
+}
+
 fn draw_pre(
     ctx: &egui::Context,
     state: &mut PreEditorState,
     m: &MeasureResult,
     recording: bool,
-    signal_state: SignalState,
     led_col: egui::Color32,
-    show_banner: bool,
+    flags: PreDisplayFlags,
 ) {
     egui::CentralPanel::default()
         .frame(egui::Frame::NONE.fill(BG))
@@ -243,18 +278,15 @@ fn draw_pre(
             });
             ui.add_space(6.0);
 
-            // SS-7: SignalState に基づく表示切替
-            let show_values = signal_state == SignalState::Active;
-
             // Record モード or Watch モードで表示項目を切替
             if recording {
-                draw_record_grid(ui, m, show_values);
+                draw_record_grid(ui, m, flags.show_values, flags.values_muted);
             } else {
-                draw_watch_grid(ui, m, show_values);
+                draw_watch_grid(ui, m, flags.show_values, flags.values_muted);
             }
 
             // "Keeping" バナー（ACK 直後 3 秒のみ / Keep ボタンとの統一感・R-28 静かなニュアンス）
-            if show_banner {
+            if flags.show_banner {
                 ui.add_space(4.0);
                 ui.horizontal(|ui| {
                     ui.add_space(10.0);
@@ -284,7 +316,7 @@ fn draw_pre(
             }
 
             // 100ms ごとに再描画（10fps）。呼吸アニメのため banner 表示中は 30fps に引き上げ。
-            let repaint_ms = if show_banner { 33 } else { 100 };
+            let repaint_ms = if flags.show_banner { 33 } else { 100 };
             ctx.request_repaint_after(Duration::from_millis(repaint_ms));
         });
 }
@@ -352,9 +384,19 @@ fn draw_name_field(ui: &mut egui::Ui, state: &mut PreEditorState) {
     }
 }
 
+fn value_color(v: Option<f64>, is_tp: bool, muted: bool) -> egui::Color32 {
+    if muted {
+        COL_MUTED
+    } else if is_tp {
+        tp_color(v)
+    } else {
+        val_color(v)
+    }
+}
+
 /// Watch モード: 3 項目（LUFS-M / TP / Crest）。
 ///
-fn draw_watch_grid(ui: &mut egui::Ui, m: &MeasureResult, show_values: bool) {
+fn draw_watch_grid(ui: &mut egui::Ui, m: &MeasureResult, show_values: bool, muted: bool) {
     ui.horizontal(|ui| {
         ui.add_space(10.0);
         Grid::new("pre_watch_vals")
@@ -368,7 +410,7 @@ fn draw_watch_grid(ui: &mut egui::Ui, m: &MeasureResult, show_values: bool) {
                         "LUFS-M",
                         fmt_val(m.lufs_m),
                         "LUFS",
-                        val_color(m.lufs_m),
+                        value_color(m.lufs_m, false, muted),
                         HELP_LUFS_M,
                     );
                     value_row_with_hover(
@@ -376,7 +418,7 @@ fn draw_watch_grid(ui: &mut egui::Ui, m: &MeasureResult, show_values: bool) {
                         "TP",
                         fmt_val(m.true_peak),
                         "dBTP",
-                        tp_color(m.true_peak),
+                        value_color(m.true_peak, true, muted),
                         HELP_TP,
                     );
                     value_row_with_hover(
@@ -384,7 +426,7 @@ fn draw_watch_grid(ui: &mut egui::Ui, m: &MeasureResult, show_values: bool) {
                         "Crest",
                         fmt_val(m.crest),
                         "dB",
-                        val_color(m.crest),
+                        value_color(m.crest, false, muted),
                         HELP_CREST,
                     );
                 } else {
@@ -413,7 +455,7 @@ fn draw_watch_grid(ui: &mut egui::Ui, m: &MeasureResult, show_values: bool) {
 /// Record モード: 6 項目（LUFS-M / TP / Crest / PSR / N / Sharpness）。
 /// 2 列 × 3 行で配置。
 ///
-fn draw_record_grid(ui: &mut egui::Ui, m: &MeasureResult, show_values: bool) {
+fn draw_record_grid(ui: &mut egui::Ui, m: &MeasureResult, show_values: bool, muted: bool) {
     ui.horizontal(|ui| {
         ui.add_space(10.0);
         Grid::new("pre_record_vals")
@@ -428,10 +470,16 @@ fn draw_record_grid(ui: &mut egui::Ui, m: &MeasureResult, show_values: bool) {
                             "LUFS-M",
                             fmt_val(m.lufs_m),
                             "LUFS",
-                            val_color(m.lufs_m),
+                            value_color(m.lufs_m, false, muted),
                             HELP_LUFS_M,
                         ),
-                        ("PSR", fmt_val(m.psr), "dB", val_color(m.psr), HELP_PSR),
+                        (
+                            "PSR",
+                            fmt_val(m.psr),
+                            "dB",
+                            value_color(m.psr, false, muted),
+                            HELP_PSR,
+                        ),
                     );
                     row_pair(
                         ui,
@@ -439,14 +487,14 @@ fn draw_record_grid(ui: &mut egui::Ui, m: &MeasureResult, show_values: bool) {
                             "TP",
                             fmt_val(m.true_peak),
                             "dBTP",
-                            tp_color(m.true_peak),
+                            value_color(m.true_peak, true, muted),
                             HELP_TP,
                         ),
                         (
                             "N",
                             fmt_val(m.n_prime_total),
                             "sone",
-                            val_color(m.n_prime_total),
+                            value_color(m.n_prime_total, false, muted),
                             HELP_N,
                         ),
                     );
@@ -456,14 +504,14 @@ fn draw_record_grid(ui: &mut egui::Ui, m: &MeasureResult, show_values: bool) {
                             "Crest",
                             fmt_val(m.crest),
                             "dB",
-                            val_color(m.crest),
+                            value_color(m.crest, false, muted),
                             HELP_CREST,
                         ),
                         (
                             "Sharp",
                             fmt_val(m.sharpness),
                             "acum",
-                            val_color(m.sharpness),
+                            value_color(m.sharpness, false, muted),
                             HELP_SHARP,
                         ),
                     );

@@ -22,7 +22,11 @@ namespace
     constexpr double kOfflineAutoStopMinRenderMs = 100.0;
 
     // C ABI signal-state codes: 0 = Inactive, 1 = Active, 2 = Bypassed.
-    uint8_t resolveSignalStateCode (bool bypassed, bool playing, bool silent, bool recording)
+    uint8_t resolveSignalStateCode (bool bypassed,
+                                    bool playing,
+                                    bool silent,
+                                    bool recording,
+                                    bool nonRealtime)
     {
         if (bypassed)
             return 2;
@@ -31,7 +35,10 @@ namespace
         // of measuring stale near-zero residue as a bogus ~-400 LUFS/TP. A non-silent offline
         // bounce (playing=false, silent=false, recording=true) still stays Active — parity with
         // hypha_pre/hypha_post resolve_process_signal_state (B-147 capture / B-205 silence gate).
-        if (! silent && (recording || playing))
+        // B-230: Studio One can render bounce audio with playing=false before the PRE side has
+        // observed the POST Record signal. Non-realtime non-silent buffers are real audio and
+        // must feed the meter/Record path, otherwise PRE can close with frames=0 while POST has data.
+        if (! silent && (recording || playing || nonRealtime))
             return 1;
         return 0;
     }
@@ -251,15 +258,16 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
     if (! recording)
         offlineRenderedSamples.store (0, std::memory_order_release);
 
+    const bool nonRealtime = isNonRealtime();
+
     // C ABI signal-state codes: 0 = Inactive, 1 = Active, 2 = Bypassed.
-    const uint8_t stateCode = resolveSignalStateCode (bypassed, playing, silent, recording);
+    const uint8_t stateCode = resolveSignalStateCode (bypassed, playing, silent, recording, nonRealtime);
     kirin_hypha_set_signal_state (hyphaHandle, stateCode);
     // B-113: 旧 lastSignalState キャッシュは廃止。editor は signalStateLive()（FFI 直読 / heartbeat-aware）で表示分岐する。
 
     // --- Feed the engine ---------------------------------------------------------
     // B-224 parity with nih-plug: Watch meters only push when Active, but a held Record
     // captures silent offline/repositioned buffers so Record audio-time cannot be truncated.
-    const bool nonRealtime = isNonRealtime();
     const bool captureBuffer = shouldCaptureBufferForMeasurement (stateCode,
                                                                   bypassed,
                                                                   recording,

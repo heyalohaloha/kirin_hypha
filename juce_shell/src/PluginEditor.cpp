@@ -266,17 +266,19 @@ void KirinHyphaEditor::configureForKind (Kind k)
     layoutMetrics (six);
 }
 
-void KirinHyphaEditor::fillAbs (int cell, double v, bool isTp)
+void KirinHyphaEditor::fillAbs (int cell, double v, bool isTp, bool muted)
 {
     const juce::Colour col = std::isnan (v) ? COL_MUTED
-                                            : (isTp ? hypha::tpColour (v) : hypha::valColour (v));
+                                            : (muted ? COL_MUTED
+                                                     : (isTp ? hypha::tpColour (v) : hypha::valColour (v)));
     cells[(size_t) cell].setValue (hypha::fmtVal (v), col);
 }
 
-void KirinHyphaEditor::fillDelta (int cell, double v, bool isTp, juce::Colour deltaBase, bool tpWarn)
+void KirinHyphaEditor::fillDelta (int cell, double v, bool isTp, juce::Colour deltaBase, bool tpWarn, bool muted)
 {
     const juce::Colour col = std::isnan (v) ? COL_MUTED
-                                            : ((isTp && tpWarn) ? COL_FLORA_BR : deltaBase);
+                                            : (muted ? COL_MUTED
+                                                     : ((isTp && tpWarn) ? COL_FLORA_BR : deltaBase));
     cells[(size_t) cell].setValue (hypha::fmtDelta (v), col);
 }
 
@@ -413,24 +415,40 @@ void KirinHyphaEditor::updatePre()
     if (want != currentKind)
         configureForKind (want);
 
+    KirinMeasureResult raw {};
     KirinMeasureResult r {};
-    const bool have = (sig == 1) && processorRef.pollMeasureResult (r); // non-Active -> "---"
+    bool have = false;
+    bool stale = false;
+    if (sig == 1 && processorRef.pollMeasureResult (raw))
+    {
+        r = displaySmoother.smoothMeasure (raw, t);
+        have = true;
+    }
+    else if (sig == 0 && displaySmoother.heldMeasure (r, t))
+    {
+        have = true;
+        stale = true;
+    }
+    else if (sig == 2)
+    {
+        displaySmoother.reset();
+    }
     auto V = [&] (double x) { return have ? x : kNaN; };
 
     if (rec)
     {
-        fillAbs (0, V (r.lufs_m), false);
-        fillAbs (1, V (r.psr), false);
-        fillAbs (2, V (r.true_peak), true);
-        fillAbs (3, V (r.n_prime_total), false);
-        fillAbs (4, V (r.crest), false);
-        fillAbs (5, V (r.sharpness), false);
+        fillAbs (0, V (r.lufs_m), false, stale);
+        fillAbs (1, V (r.psr), false, stale);
+        fillAbs (2, V (r.true_peak), true, stale);
+        fillAbs (3, V (r.n_prime_total), false, stale);
+        fillAbs (4, V (r.crest), false, stale);
+        fillAbs (5, V (r.sharpness), false, stale);
     }
     else
     {
-        fillAbs (0, V (r.lufs_m), false);
-        fillAbs (1, V (r.true_peak), true);
-        fillAbs (2, V (r.crest), false);
+        fillAbs (0, V (r.lufs_m), false, stale);
+        fillAbs (1, V (r.true_peak), true, stale);
+        fillAbs (2, V (r.crest), false, stale);
     }
 }
 
@@ -480,35 +498,79 @@ void KirinHyphaEditor::updatePost()
 
     // ── display-branch tree (editor.rs:449-514, no last_active freeze: the FFI KirinDelta has
     //    no snapshot field; Watch shows delta only while the paired PRE is Active).
+    KirinMeasureResult rawM {};
     KirinMeasureResult m {};
-    const bool haveM = processorRef.pollMeasureResult (m);
-    const bool tpWarn = hypha::tpOver (haveM ? m.true_peak : kNaN);
+    bool haveM = false;
+    bool staleM = false;
+    if (sig == 1 && processorRef.pollMeasureResult (rawM))
+    {
+        m = displaySmoother.smoothMeasure (rawM, t);
+        haveM = true;
+    }
+    else if (sig == 0 && displaySmoother.heldMeasure (m, t))
+    {
+        haveM = true;
+        staleM = true;
+    }
+    else if (sig == 2)
+    {
+        displaySmoother.reset();
+    }
+    const bool tpWarn = ! staleM && hypha::tpOver (haveM ? m.true_peak : kNaN);
 
     if (rec) // Record owns the six-row layout even while the host is preparing/offline-stalling.
     {
         if (currentKind != Kind::Delta6) configureForKind (Kind::Delta6);
+        KirinDelta rawD {};
         KirinDelta d {};
-        const bool haveD = (sig == 1) && processorRef.pollDelta (d);
-        const juce::Colour base = (haveD && d.mode == 1) ? COL_MUTED : COL_NORMAL; // Stale -> muted
+        bool haveD = false;
+        bool staleD = false;
+        if (sig == 1 && processorRef.pollDelta (rawD))
+        {
+            d = displaySmoother.smoothDelta (rawD, t);
+            haveD = true;
+        }
+        else if (sig == 0 && displaySmoother.heldDelta (d, t))
+        {
+            haveD = true;
+            staleD = true;
+        }
+        const juce::Colour base = (staleD || (haveD && d.mode == 1)) ? COL_MUTED : COL_NORMAL;
         auto D = [&] (double x) { return haveD ? x : kNaN; };
-        fillDelta (0, D (d.lufs),          false, base, tpWarn);
-        fillDelta (1, D (d.psr),           false, base, tpWarn);
-        fillDelta (2, D (d.true_peak),     true,  base, tpWarn);
-        fillDelta (3, D (d.n_prime_total), false, base, tpWarn);
-        fillDelta (4, D (d.crest),         false, base, tpWarn);
-        fillDelta (5, D (d.sharpness),     false, base, tpWarn);
+        fillDelta (0, D (d.lufs),          false, base, tpWarn, staleD);
+        fillDelta (1, D (d.psr),           false, base, tpWarn, staleD);
+        fillDelta (2, D (d.true_peak),     true,  base, tpWarn, staleD);
+        fillDelta (3, D (d.n_prime_total), false, base, tpWarn, staleD);
+        fillDelta (4, D (d.crest),         false, base, tpWarn, staleD);
+        fillDelta (5, D (d.sharpness),     false, base, tpWarn, staleD);
     }
     else if (sig != 1) // Bypassed / Inactive -> "---"
     {
-        if (currentKind != Kind::Abs3) configureForKind (Kind::Abs3);
-        fillAbs (0, kNaN, false);
-        fillAbs (1, kNaN, true);
-        fillAbs (2, kNaN, false);
+        KirinDelta heldD {};
+        const bool haveHeldD = sig == 0 && pairNonEmpty && displaySmoother.heldDelta (heldD, t);
+        if (haveHeldD)
+        {
+            if (currentKind != Kind::Delta3) configureForKind (Kind::Delta3);
+            fillDelta (0, heldD.lufs,      false, COL_MUTED, false, true);
+            fillDelta (1, heldD.true_peak, true,  COL_MUTED, false, true);
+            fillDelta (2, heldD.crest,     false, COL_MUTED, false, true);
+        }
+        else
+        {
+            if (currentKind != Kind::Abs3) configureForKind (Kind::Abs3);
+            fillAbs (0, haveM ? m.lufs_m : kNaN, false, staleM);
+            fillAbs (1, haveM ? m.true_peak : kNaN, true, staleM);
+            fillAbs (2, haveM ? m.crest : kNaN, false, staleM);
+        }
     }
     else // Active + Watch
     {
+        KirinDelta rawD {};
         KirinDelta d {};
-        const bool haveD = processorRef.pollDelta (d);
+        const bool haveRawD = processorRef.pollDelta (rawD);
+        const bool haveD = haveRawD;
+        if (haveRawD)
+            d = displaySmoother.smoothDelta (rawD, t);
         const bool showDelta = pairNonEmpty && haveD && d.mode == 0;
         if (showDelta)
         {

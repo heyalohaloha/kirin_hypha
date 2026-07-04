@@ -484,8 +484,10 @@ impl Plugin for HyphaPre {
         self.last_process_pos_samples = pos;
         let silent = buffer_is_silent(buffer);
         let recording = self.record_sm.is_recording();
+        let offline_mode = self.process_mode_offline.load(Ordering::Relaxed);
 
-        let state = resolve_process_signal_state(bypass_val, playing, silent, recording);
+        let state =
+            resolve_process_signal_state(bypass_val, playing, silent, recording, offline_mode);
         store_signal_state(&self.signal_state, state);
 
         if should_capture_buffer_for_measurement(
@@ -494,7 +496,7 @@ impl Plugin for HyphaPre {
             recording,
             playing,
             position_changed,
-            self.process_mode_offline.load(Ordering::Relaxed),
+            offline_mode,
         ) {
             if let Some(producer) = &mut self.ring_producer {
                 for channel_samples in buffer.iter_samples() {
@@ -565,6 +567,7 @@ fn resolve_process_signal_state(
     playing: bool,
     silent: bool,
     recording: bool,
+    offline_mode: bool,
 ) -> SignalState {
     // B-205: Active 条件は「非無音」を必須にする。recording だけでは Active にしない。
     // - transport 停止の Record 保持（playing=false, silent=true）→ Inactive（"---"）。
@@ -573,7 +576,7 @@ fn resolve_process_signal_state(
     //   （B-147 の bounce 計測継続意図を保つ）。
     if bypassed {
         SignalState::Bypassed
-    } else if !silent && (recording || playing) {
+    } else if !silent && (recording || playing || offline_mode) {
         SignalState::Active
     } else {
         SignalState::Inactive
@@ -656,16 +659,26 @@ mod b147_record_state_tests {
     #[test]
     fn watch_mode_keeps_previous_playing_and_silence_gate() {
         assert_eq!(
-            resolve_process_signal_state(false, true, false, false),
+            resolve_process_signal_state(false, true, false, false, false),
             SignalState::Active
         );
         assert_eq!(
-            resolve_process_signal_state(false, true, true, false),
+            resolve_process_signal_state(false, true, true, false, false),
             SignalState::Inactive
         );
         assert_eq!(
-            resolve_process_signal_state(false, false, false, false),
+            resolve_process_signal_state(false, false, false, false, false),
             SignalState::Inactive
+        );
+    }
+
+    /// B-230: Studio One offline bounce can deliver real audio with playing=false before PRE
+    /// observes the POST record signal. Non-silent offline buffers are measurement input.
+    #[test]
+    fn watch_mode_offline_bounce_non_silent_is_active() {
+        assert_eq!(
+            resolve_process_signal_state(false, false, false, false, true),
+            SignalState::Active
         );
     }
 
@@ -674,7 +687,7 @@ mod b147_record_state_tests {
     #[test]
     fn record_mode_captures_offline_bounce() {
         assert_eq!(
-            resolve_process_signal_state(false, false, false, true),
+            resolve_process_signal_state(false, false, false, true, false),
             SignalState::Active
         );
     }
@@ -685,7 +698,7 @@ mod b147_record_state_tests {
     #[test]
     fn record_mode_silent_transport_is_inactive() {
         assert_eq!(
-            resolve_process_signal_state(false, false, true, true),
+            resolve_process_signal_state(false, false, true, true, false),
             SignalState::Inactive
         );
     }
@@ -695,7 +708,7 @@ mod b147_record_state_tests {
     #[test]
     fn record_mode_playing_silent_gap_is_inactive() {
         assert_eq!(
-            resolve_process_signal_state(false, true, true, true),
+            resolve_process_signal_state(false, true, true, true, false),
             SignalState::Inactive
         );
     }
@@ -765,7 +778,7 @@ mod b147_record_state_tests {
     #[test]
     fn bypass_overrides_record_mode() {
         assert_eq!(
-            resolve_process_signal_state(true, false, false, true),
+            resolve_process_signal_state(true, false, false, true, true),
             SignalState::Bypassed
         );
     }
