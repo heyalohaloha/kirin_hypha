@@ -142,6 +142,8 @@ With a Kirin OS license, the POST plugin shows a **Keep** button in Watch mode.
 2. Press **Stop** to end the session. The session is written to the `.kirin` record.
 3. Optionally press **Note** to attach an annotation ([Good] / [Fix] / [Hold]).
 
+During an offline bounce/export, POST auto-runs the same cleanup as **Stop** when the host reports that offline processing has ended. If a host does not emit that offline-end edge, Keep remains armed until manual **Stop** or the idle auto-stop backstop after 10 minutes without Active signal.
+
 After Stop, the POST display does not hold a frozen value — it returns to the live Watch readout (Δ while audio plays, `---` when the transport is stopped). Multiple pairs record independently.
 
 If measurement samples are ever dropped during a recording (for example, on a buffer overflow), the dropped-sample count and an integrity flag are written into the session data. Incomplete measurement is recorded as incomplete, never presented as complete.

@@ -153,8 +153,9 @@ Fail data:
 1. Select the same PRE/POST pair.
 2. Press `Keep`.
 3. Run an offline bounce/export for at least 20 seconds.
-4. Confirm Keep stops after bounce if the host stops processing.
-5. Check Record/plugin_data output:
+4. Confirm POST auto-stops Keep/Record after the bounce completes and returns to Watch (`Stop` disappears, `Keep` becomes available again). This is the offline-end edge gate.
+5. If POST remains in Keep/Record after the bounce, capture a screenshot, press `Stop` manually to close the take, and mark this test failed as "offline-end auto-stop not observed". Do not wait for the 10-minute idle backstop during beta validation unless explicitly requested.
+6. Check Record/plugin_data output:
 
 ```powershell
 Get-ChildItem "$env:LOCALAPPDATA\Kirin OS\plugin_data" -Recurse -Filter *.json |
