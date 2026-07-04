@@ -29,6 +29,7 @@ const bundles = [
     src: 'juce_shell/build-universal/KirinHyphaPRE_artefacts/Release/AU/Kirin Hypha PRE.component',
     payload: 'Library/Audio/Plug-Ins/Components/Kirin Hypha PRE.component',
     binary: 'Kirin Hypha PRE',
+    displayName: 'PRE Kirin Hypha',
     kind: 'component',
   },
   {
@@ -36,6 +37,7 @@ const bundles = [
     src: 'juce_shell/build-universal/KirinHyphaPOST_artefacts/Release/AU/Kirin Hypha POST.component',
     payload: 'Library/Audio/Plug-Ins/Components/Kirin Hypha POST.component',
     binary: 'Kirin Hypha POST',
+    displayName: 'POST Kirin Hypha',
     kind: 'component',
   },
   {
@@ -43,6 +45,7 @@ const bundles = [
     src: 'target/bundled/Kirin Hypha PRE.vst3',
     payload: 'Library/Audio/Plug-Ins/VST3/Kirin Hypha PRE.vst3',
     binary: 'Kirin Hypha PRE',
+    displayName: 'PRE Kirin Hypha',
     kind: 'vst3',
   },
   {
@@ -50,6 +53,7 @@ const bundles = [
     src: 'target/bundled/Kirin Hypha POST.vst3',
     payload: 'Library/Audio/Plug-Ins/VST3/Kirin Hypha POST.vst3',
     binary: 'Kirin Hypha POST',
+    displayName: 'POST Kirin Hypha',
     kind: 'vst3',
   },
 ];
@@ -125,6 +129,7 @@ function verifySourceBundle(bundle) {
     const actual = plistValue(plist, key);
     if (actual !== VERSION) throw new Error(`${bundle.label} ${key}=${actual}, expected ${VERSION}`);
   }
+  verifyDisplayMetadata(bundle, plist, binary);
   if (bundle.kind === 'component') {
     const usage = run('plutil', ['-p', plist], { capture: true });
     if (!usage.includes('temporary-exception.files.all.read-write')) {
@@ -134,6 +139,28 @@ function verifySourceBundle(bundle) {
   }
   run('codesign', ['--verify', '--deep', '--strict', '--verbose=2', source]);
   run('codesign', ['--verify', '--deep', '--strict', '--check-notarization', '--verbose=2', source]);
+}
+
+function verifyDisplayMetadata(bundle, plist, binary) {
+  if (bundle.kind === 'component') {
+    const actual = plistValue(plist, 'AudioComponents:0:name');
+    const expected = `Kirin: ${bundle.displayName}`;
+    if (actual !== expected) {
+      throw new Error(`${bundle.label} AudioComponents:0:name=${actual}, expected ${expected}`);
+    }
+    return;
+  }
+
+  for (const key of ['CFBundleDisplayName', 'CFBundleName']) {
+    const actual = plistValue(plist, key);
+    if (actual !== bundle.displayName) {
+      throw new Error(`${bundle.label} ${key}=${actual}, expected ${bundle.displayName}. Run cargo run -p xtask -- stamp-egui-version after bundling.`);
+    }
+  }
+  const binaryStrings = run('strings', [binary], { capture: true });
+  if (!binaryStrings.includes(bundle.displayName)) {
+    throw new Error(`${bundle.label} binary does not contain display name ${bundle.displayName}`);
+  }
 }
 
 function writePreinstall(filePath) {

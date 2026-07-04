@@ -58,31 +58,49 @@ enum Root {
 /// 出荷対象の 4 bundle（構成C / G-115-344）: egui VST3（PRE/POST, target/bundled）と
 /// JUCE AU（PRE/POST, build-universal）。**JUCE VST3（PRE/POST）は出荷除外**
 /// （GUID 破壊回避・既存/Peach セッション保護）。
-const BUNDLES_C: [(&str, Root, &str); 4] = [
+const BUNDLES_C: [(&str, Root, &str, &str, bool); 4] = [
     (
         "PRE  AU  ",
         Root::Juce,
         "KirinHyphaPRE_artefacts/Release/AU/Kirin Hypha PRE.component",
+        "PRE Kirin Hypha",
+        true,
     ),
     (
         "POST AU  ",
         Root::Juce,
         "KirinHyphaPOST_artefacts/Release/AU/Kirin Hypha POST.component",
+        "POST Kirin Hypha",
+        true,
     ),
-    ("PRE  VST3", Root::Egui, "Kirin Hypha PRE.vst3"),
-    ("POST VST3", Root::Egui, "Kirin Hypha POST.vst3"),
+    (
+        "PRE  VST3",
+        Root::Egui,
+        "Kirin Hypha PRE.vst3",
+        "PRE Kirin Hypha",
+        false,
+    ),
+    (
+        "POST VST3",
+        Root::Egui,
+        "Kirin Hypha POST.vst3",
+        "POST Kirin Hypha",
+        false,
+    ),
 ];
 
 struct Bundle {
     label: String,
     path: PathBuf,
+    display_name: &'static str,
+    is_au: bool,
 }
 
 /// dual-root 解決: `Root::Juce` → juce_dir、`Root::Egui` → egui_dir に relpath を join。
 fn resolve_bundles(juce_dir: &Path, egui_dir: &Path) -> Vec<Bundle> {
     BUNDLES_C
         .iter()
-        .map(|(label, root, rel)| {
+        .map(|(label, root, rel, display_name, is_au)| {
             let base = match root {
                 Root::Juce => juce_dir,
                 Root::Egui => egui_dir,
@@ -90,6 +108,8 @@ fn resolve_bundles(juce_dir: &Path, egui_dir: &Path) -> Vec<Bundle> {
             Bundle {
                 label: (*label).to_string(),
                 path: base.join(rel),
+                display_name,
+                is_au: *is_au,
             }
         })
         .collect()
@@ -172,6 +192,12 @@ pub fn run(args: Vec<String>) -> Result<()> {
                 b.path.display()
             );
         }
+        verify_display_metadata(b).with_context(|| {
+            format!(
+                "{} display metadata mismatch before notarize",
+                b.path.display()
+            )
+        })?;
         eprintln!(
             "==================== {} ====================",
             b.label.trim()
@@ -263,6 +289,89 @@ fn notarize_one(
             .arg(bundle),
         "codesign --check-notarization",
     )?;
+    Ok(())
+}
+
+fn verify_display_metadata(bundle: &Bundle) -> Result<()> {
+    let plist = bundle.path.join("Contents/Info.plist");
+    if bundle.is_au {
+        let expected = format!("Kirin: {}", bundle.display_name);
+        let actual = plist_value(&plist, "AudioComponents:0:name")?;
+        if actual != expected {
+            bail!(
+                "{} AudioComponents:0:name = {}, expected {}",
+                bundle.path.display(),
+                actual,
+                expected
+            );
+        }
+        return Ok(());
+    }
+
+    for key in ["CFBundleDisplayName", "CFBundleName"] {
+        let actual = plist_value(&plist, key)?;
+        if actual != bundle.display_name {
+            bail!(
+                "{} {} = {}, expected {}. Run `cargo run -p xtask -- stamp-egui-version` after bundling.",
+                bundle.path.display(),
+                key,
+                actual,
+                bundle.display_name
+            );
+        }
+    }
+    verify_binary_contains_display_name(
+        &bundle
+            .path
+            .join("Contents/MacOS")
+            .join(bundle_file_stem(&bundle.path)?),
+        bundle.display_name,
+    )
+}
+
+fn bundle_file_stem(bundle: &Path) -> Result<&str> {
+    bundle
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .ok_or_else(|| anyhow::anyhow!("non-UTF8 bundle name: {}", bundle.display()))
+}
+
+fn plist_value(plist: &Path, key: &str) -> Result<String> {
+    let out = Command::new("/usr/libexec/PlistBuddy")
+        .args(["-c", &format!("Print :{key}")])
+        .arg(plist)
+        .output()
+        .with_context(|| format!("spawn PlistBuddy for {}", plist.display()))?;
+    if !out.status.success() {
+        bail!(
+            "PlistBuddy failed for {}: {}",
+            plist.display(),
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+fn verify_binary_contains_display_name(binary: &Path, expected: &str) -> Result<()> {
+    let out = Command::new("strings")
+        .arg(binary)
+        .output()
+        .with_context(|| format!("spawn strings for {}", binary.display()))?;
+    if !out.status.success() {
+        bail!(
+            "strings failed for {}: {}",
+            binary.display(),
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+    let text = String::from_utf8_lossy(&out.stdout);
+    if !text.contains(expected) {
+        bail!(
+            "{} does not contain display name {}",
+            binary.display(),
+            expected
+        );
+    }
     Ok(())
 }
 
