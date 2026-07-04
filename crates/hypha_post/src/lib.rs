@@ -92,6 +92,7 @@ pub struct HyphaPost {
 
     // ── Heartbeat（SS-3 代替: process() 停止検出）────────────────────
     heartbeat: Arc<AtomicU32>,
+    last_process_pos_samples: i64,
     /// B-118: 単一鮮度評価器。editor が POST pair 変更ロックの live 述語として読む
     /// （`playing かつ is_live()` でロック / signal_state とは別軸 / G-115-245: 3s window）。
     liveness: Arc<LivenessEvaluator>,
@@ -246,6 +247,7 @@ impl Default for HyphaPost {
             record_active_samples: AtomicU64::new(0),
             signal_state: Arc::new(AtomicU8::new(SignalState::Inactive as u8)),
             heartbeat,
+            last_process_pos_samples: i64::MIN,
             liveness,
             record_sm: Arc::new(RecordStateMachine::new()),
             record_acknowledged: Arc::new(AtomicBool::new(false)),
@@ -786,6 +788,7 @@ impl Plugin for HyphaPost {
 
         // ── Heartbeat リセット ────────────────────────────────────────
         self.heartbeat.store(0, Ordering::Relaxed);
+        self.last_process_pos_samples = i64::MIN;
 
         // ── T-F: sample_rate キャッシュ ──────────────────────────────
         self.playback_sample_rate
@@ -1054,13 +1057,21 @@ impl Plugin for HyphaPost {
         let recording = self.record_sm.is_recording();
 
         let pos = transport.pos_samples().unwrap_or(i64::MIN);
+        let position_changed = transport_position_changed(pos, self.last_process_pos_samples);
+        self.last_process_pos_samples = pos;
         self.playback_pos_samples.store(pos, Ordering::Relaxed);
 
         let state = resolve_process_signal_state(bypass_val, playing, silent, recording);
         store_signal_state(&self.signal_state, state);
 
-        if state == SignalState::Active {
-            if recording {
+        if should_capture_buffer_for_measurement(
+            state,
+            bypass_val,
+            recording,
+            playing,
+            position_changed,
+        ) {
+            if recording && state == SignalState::Active {
                 let record_generation = self.record_sm.generation();
                 if record_generation > 0 {
                     if self.record_active_sample_generation.load(Ordering::Relaxed)
@@ -1162,6 +1173,22 @@ fn resolve_process_signal_state(
     }
 }
 
+#[inline]
+fn transport_position_changed(current: i64, previous: i64) -> bool {
+    current != i64::MIN && previous != i64::MIN && current != previous
+}
+
+#[inline]
+fn should_capture_buffer_for_measurement(
+    state: SignalState,
+    bypass: bool,
+    recording: bool,
+    playing: bool,
+    position_changed: bool,
+) -> bool {
+    !bypass && (state == SignalState::Active || (recording && (playing || position_changed)))
+}
+
 nih_export_vst3!(HyphaPost);
 
 // ── B-027 段階 2: pair_pre_name chunk persist + 正規化テスト ───────────────
@@ -1202,7 +1229,10 @@ mod b107_silence_tests {
 
 #[cfg(test)]
 mod b147_record_state_tests {
-    use super::resolve_process_signal_state;
+    use super::{
+        resolve_process_signal_state, should_capture_buffer_for_measurement,
+        transport_position_changed,
+    };
     use kirin_measure::SignalState;
 
     #[test]
@@ -1250,6 +1280,52 @@ mod b147_record_state_tests {
             resolve_process_signal_state(false, true, true, true),
             SignalState::Inactive
         );
+    }
+
+    #[test]
+    fn record_mode_playing_silent_gap_is_captured_for_record_timeline() {
+        assert!(should_capture_buffer_for_measurement(
+            SignalState::Inactive,
+            false,
+            true,
+            true,
+            false,
+        ));
+    }
+
+    #[test]
+    fn record_mode_offline_silent_tail_is_captured_when_position_changes() {
+        assert!(transport_position_changed(2048, 1024));
+        assert!(should_capture_buffer_for_measurement(
+            SignalState::Inactive,
+            false,
+            true,
+            false,
+            true,
+        ));
+    }
+
+    #[test]
+    fn record_mode_stopped_silent_idle_is_not_captured() {
+        assert!(!transport_position_changed(2048, 2048));
+        assert!(!should_capture_buffer_for_measurement(
+            SignalState::Inactive,
+            false,
+            true,
+            false,
+            false,
+        ));
+    }
+
+    #[test]
+    fn bypass_never_captures_record_silence() {
+        assert!(!should_capture_buffer_for_measurement(
+            SignalState::Bypassed,
+            true,
+            true,
+            true,
+            true,
+        ));
     }
 
     #[test]

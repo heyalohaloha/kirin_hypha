@@ -186,8 +186,11 @@ pub struct RecordingCtx {
     /// B-132 (G-115-382): Record 開始時の drain-completion seal snapshot。close 時に
     /// `wait_for_seal` がこの値の前進を bounded 待ちして post-drain 確定を確認する。
     pub seal_at_start: u64,
-    /// 最後に TRACE frame を書いた音声時間。offline bounce では壁時計ではなくこの値から
-    /// bounce duration を焼く。
+    /// 最後に Measure Thread から届いた Record TRACE 音声時間。
+    ///
+    /// `frames[]` は LUFS/TP/Crest が揃った実測点だけを書くが、Record 中の無音区間では
+    /// 数値フレームが成立しないことがある。offline bounce の収録長は壁時計ではなく、
+    /// 数値フレームの有無と独立したこの音声時間から焼く。
     pub last_trace_t_ms: Option<u64>,
 }
 
@@ -438,6 +441,10 @@ pub fn writer_append_frame(ctx: &mut RecordingCtx, t_ms: u64, m: &MeasureResult)
     true
 }
 
+fn mark_trace_time(ctx: &mut RecordingCtx, t_ms: u64) {
+    ctx.last_trace_t_ms = Some(ctx.last_trace_t_ms.map_or(t_ms, |prev| prev.max(t_ms)));
+}
+
 /// PSB スナップショット追記。`psb_bark` が None ならスキップ。
 pub fn writer_append_psb(ctx: &mut RecordingCtx, t_ms: u64, m: &MeasureResult) -> bool {
     let Some(psb_bark) = m.psb_bark else {
@@ -659,6 +666,7 @@ pub fn run_record_tick_with_pair_names(
 fn drain_trace_queue_into_writer(ctx: &mut RecordingCtx, queue: &RecordTraceQueue) {
     for sample in drain_record_trace_queue(queue) {
         let t_ms = sample.t_ms;
+        mark_trace_time(ctx, t_ms);
         if t_ms >= ctx.next_frame_ms && writer_append_frame(ctx, t_ms, &sample.result) {
             ctx.next_frame_ms = (t_ms / FRAME_INTERVAL_MS + 1) * FRAME_INTERVAL_MS;
         }
@@ -1458,6 +1466,74 @@ mod tests {
             Some(1)
         );
         assert!(drain_record_trace_queue(&queue).is_empty());
+    }
+
+    #[test]
+    fn run_record_tick_preserves_audio_time_when_trace_sample_has_no_numeric_frame() {
+        let base = isolated_base();
+        let ctx = make_ctx(&base, Role::Pre, now_epoch_ms());
+        let final_path = ctx.final_path.clone();
+        let sm = Arc::new(RecordStateMachine::new());
+        sm.try_enter_record(License::Os).unwrap();
+        let m = Arc::new(Mutex::new(MeasureResult::default()));
+        let mut rec: Option<RecordingCtx> = Some(ctx);
+        let queue = new_record_trace_queue();
+        push_record_trace_sample(
+            &queue,
+            RecordTraceSample {
+                t_ms: 100,
+                result: full_measure_result(),
+                include_psb: true,
+            },
+        );
+        push_record_trace_sample(
+            &queue,
+            RecordTraceSample {
+                t_ms: 11_000,
+                result: full_measure_result(),
+                include_psb: false,
+            },
+        );
+        push_record_trace_sample(
+            &queue,
+            RecordTraceSample {
+                t_ms: 15_400,
+                result: MeasureResult::default(),
+                include_psb: false,
+            },
+        );
+
+        run_record_tick(
+            &sm,
+            Role::Pre,
+            48000,
+            TEST_PH,
+            TEST_IID,
+            now_epoch_ms,
+            || None,
+            || None,
+            &m,
+            &mut rec,
+            None,
+            &no_overflow(),
+            &no_overflow(),
+            Some(&queue),
+        )
+        .unwrap();
+
+        let ctx = rec.take().unwrap();
+        assert_eq!(
+            ctx.data().frames.len(),
+            2,
+            "silent trace point must not fake a numeric frame"
+        );
+        assert_eq!(ctx.last_trace_t_ms, Some(15_400));
+        writer_close(ctx);
+
+        let bytes = fs::read(&final_path).unwrap();
+        let loaded: PluginDataFile = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(loaded.frames.len(), 2);
+        assert_eq!(loaded.bounce_marker.duration_samples, 739_200);
     }
 
     #[test]
