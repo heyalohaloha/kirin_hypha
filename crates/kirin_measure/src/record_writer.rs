@@ -93,7 +93,8 @@ const TRACE_DENSITY_MIN_DURATION_MS: u64 = 5_000;
 /// 音声時間ベースの想定 TRACE サンプル数に対する下限比率。
 ///
 /// 実際の numeric frame は無音で減り得るため判定には使わず、Measure Thread から届いた
-/// RecordTraceSample 数だけを見る。1/4 未満なら高速バウンス取り込みが粗すぎるものとして
+/// RecordTraceSample 数を優先して見る。ただし TRACE が 0 件でも、fallback numeric frame が
+/// 実用密度で残っているリアルタイム収録は救済する。長時間で両方が粗すぎる場合だけ
 /// `integrity_degraded` に倒す。
 const TRACE_DENSITY_MIN_RATIO_NUM: usize = 1;
 const TRACE_DENSITY_MIN_RATIO_DEN: usize = 4;
@@ -403,7 +404,7 @@ fn trace_density_is_sparse(ctx: &RecordingCtx) -> bool {
         return false;
     }
     if ctx.trace_sample_count == 0 {
-        return ctx.writer.data().frames.is_empty();
+        return fallback_frame_density_is_sparse(ctx, duration_ms);
     }
     let expected = expected_trace_samples(duration_ms);
     ctx.trace_sample_count
@@ -411,11 +412,22 @@ fn trace_density_is_sparse(ctx: &RecordingCtx) -> bool {
         < expected.saturating_mul(TRACE_DENSITY_MIN_RATIO_NUM)
 }
 
+fn fallback_frame_density_is_sparse(ctx: &RecordingCtx, duration_ms: u64) -> bool {
+    let frame_count = ctx.writer.data().frames.len();
+    if frame_count == 0 {
+        return true;
+    }
+    let expected = expected_trace_samples(duration_ms);
+    frame_count.saturating_mul(TRACE_DENSITY_MIN_RATIO_DEN)
+        < expected.saturating_mul(TRACE_DENSITY_MIN_RATIO_NUM)
+}
+
 fn mark_integrity_if_trace_density_is_sparse(ctx: &mut RecordingCtx) {
     if trace_density_is_sparse(ctx) {
         log::warn!(
-            "[writer] sparse TRACE density: samples={} duration_ms={} - marking integrity_degraded",
+            "[writer] sparse Record density: trace_samples={} frames={} duration_ms={} - marking integrity_degraded",
             ctx.trace_sample_count,
+            ctx.writer.data().frames.len(),
             record_duration_ms(ctx)
         );
         ctx.writer.mark_integrity_degraded();
@@ -1619,7 +1631,7 @@ mod tests {
     }
 
     #[test]
-    fn zero_trace_samples_with_live_fallback_frame_remains_clean() {
+    fn zero_trace_samples_with_single_fallback_frame_over_min_duration_marks_integrity_degraded() {
         let base = isolated_base();
         let started = now_epoch_ms() - (TRACE_DENSITY_MIN_DURATION_MS as i64 + 1_000);
         let mut ctx = make_ctx(&base, Role::Pre, started);
@@ -1636,8 +1648,46 @@ mod tests {
             serde_json::from_slice(&fs::read(&final_path).unwrap()).unwrap();
         assert_eq!(loaded.frames.len(), 1);
         assert!(
+            loaded.integrity_degraded,
+            "a long Record with no audio-time TRACE samples must not look clean"
+        );
+    }
+
+    #[test]
+    fn zero_trace_samples_with_dense_fallback_frames_over_min_duration_remains_clean() {
+        let base = isolated_base();
+        let started = now_epoch_ms() - (TRACE_DENSITY_MIN_DURATION_MS as i64 + 1_000);
+        let mut ctx = make_ctx(&base, Role::Pre, started);
+        let final_path = ctx.final_path.clone();
+        for t_ms in (0..=TRACE_DENSITY_MIN_DURATION_MS + 500).step_by(FRAME_INTERVAL_MS as usize) {
+            assert!(writer_append_frame(&mut ctx, t_ms, &full_measure_result()));
+        }
+
+        writer_close(ctx);
+
+        let loaded: PluginDataFile =
+            serde_json::from_slice(&fs::read(&final_path).unwrap()).unwrap();
+        assert!(loaded.frames.len() > expected_trace_samples(TRACE_DENSITY_MIN_DURATION_MS) / 4);
+        assert!(
             !loaded.integrity_degraded,
-            "wall-clock fallback frames remain valid for non-offline live capture"
+            "dense fallback frames are still useful realtime Record data"
+        );
+    }
+
+    #[test]
+    fn zero_trace_samples_under_min_duration_remains_clean() {
+        let base = isolated_base();
+        let started = now_epoch_ms() - (TRACE_DENSITY_MIN_DURATION_MS as i64 - 1_000);
+        let ctx = make_ctx(&base, Role::Pre, started);
+        let final_path = ctx.final_path.clone();
+
+        writer_close(ctx);
+
+        let loaded: PluginDataFile =
+            serde_json::from_slice(&fs::read(&final_path).unwrap()).unwrap();
+        assert!(
+            !loaded.integrity_degraded,
+            "very short Record exits are below the TRACE density integrity threshold"
         );
     }
 
