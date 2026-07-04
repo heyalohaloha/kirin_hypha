@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-07-04T00:57:49Z",
+  "purpose": "windows_external_validation_beta",
+  "release_status": "external_validation_only",
+  "ls_upload": "blocker",
+  "blockers": [
+    "real Windows DAW validation is not complete",
+    "Windows Lemon Squeezy package/state/runbook is not implemented",
+    "audio transparency evidence is not collected"
+  ],
+  "package": {
+    "name": "Kirin-Hypha-1.1.4-Windows-VST3-Beta-B211-d44d13c.zip",
+    "path": "dist/WINDOWS_BETA/Kirin-Hypha-1.1.4-Windows-VST3-Beta-B211-d44d13c.zip",
+    "size_bytes": 5969477,
+    "sha256": "3f69eeff0e7979a97923153d6cd00b48fb52a49b03cea30431488bad6bce9c8d",
+    "format": "zip",
+    "contains_top_level_folder": true
+  },
+  "binary_artifact": {
+    "source": "GitHub Actions artifact",
+    "artifact_name": "kirin-hypha-windows-vst3",
+    "run_id": 28689811480,
+    "run_url": "https://github.com/heyalohaloha/kirin_hypha/actions/runs/28689811480",
+    "commit": "d44d13c5d0d5f882e48d080975da019e12ba3390",
+    "b_number": "B-211",
+    "ci_result": "success",
+    "windows_job": "windows VST3 preflight",
+    "windows_job_gates": [
+      "Build kirin_hypha_ffi staticlib (MSVC)",
+      "Windows preflight gate",
+      "Configure JUCE VST3 shell (Windows)",
+      "Build JUCE VST3 shell (Windows)",
+      "Verify Windows VST3 artifacts",
+      "Upload Windows VST3 artifacts",
+      "Validate Windows VST3 with pluginval"
+    ]
+  },
+  "handoff_document": {
+    "path": "docs/windows_external_validation.md",
+    "commit": "d44d13c5d0d5f882e48d080975da019e12ba3390",
+    "b_number": "B-211"
+  },
+  "contents": [
+    {
+      "path": "Kirin Hypha PRE.vst3/Contents/x86_64-win/Kirin Hypha PRE.vst3",
+      "sha256": "6e8f16a1fe86ff4d5c3878d8a08d3ed04703a56a214ef3a219ce861a3fc27b7a"
+    },
+    {
+      "path": "Kirin Hypha POST.vst3/Contents/x86_64-win/Kirin Hypha POST.vst3",
+      "sha256": "2d8d2ba3e300525fe71488bffbe1e158840cab0fdddcefe32c246ed6fa0af6bd"
+    },
+    {
+      "path": "WINDOWS_EXTERNAL_VALIDATION.md"
+    },
+    {
+      "path": "README_FIRST.txt"
+    },
+    {
+      "path": "COMMIT.txt"
+    },
+    {
+      "path": "SHA256SUMS.txt"
+    }
+  ],
+  "validation": {
+    "local_zip_test": "unzip -t passed",
+    "local_sha256_file": "dist/WINDOWS_BETA/Kirin-Hypha-1.1.4-Windows-VST3-Beta-B211-d44d13c.zip.sha256",
+    "required_external_tests": [
+      "DAW scan and load",
+      "Watch files under %TEMP%\\\\kirin",
+      "Pairing and Keep",
+      "Offline bounce Record",
+      "Audio transparency"
+    ]
+  }
+}
