@@ -1128,6 +1128,11 @@ impl Plugin for HyphaPost {
         let offline_mode = self.process_mode_offline.load(Ordering::Relaxed);
 
         let pos = transport.pos_samples().unwrap_or(i64::MIN);
+        let record_window = if recording {
+            record_window_for_buffer(buffer.samples(), pos, transport.loop_range_samples())
+        } else {
+            RecordWindow::full(buffer.samples(), pos)
+        };
         let position_changed = transport_position_changed(pos, self.last_process_pos_samples);
         self.last_process_pos_samples = pos;
         self.playback_pos_samples.store(pos, Ordering::Relaxed);
@@ -1147,12 +1152,12 @@ impl Plugin for HyphaPost {
         self.record_take_tracker.note_block(RecordTakeBlock {
             generation: self.record_sm.generation(),
             recording,
-            rendered: !bypass_val && buffer.samples() > 0 && !buffer.as_slice().is_empty(),
+            rendered: !bypass_val && record_window.num_frames > 0 && !buffer.as_slice().is_empty(),
             playing,
             offline: offline_mode,
-            position_valid: pos != i64::MIN,
-            position_samples: pos,
-            num_frames: buffer.samples() as u64,
+            position_valid: record_window.position_valid,
+            position_samples: record_window.position_samples,
+            num_frames: record_window.num_frames,
         });
 
         if capture_buffer {
@@ -1169,18 +1174,11 @@ impl Plugin for HyphaPost {
                         self.offline_render_samples.store(0, Ordering::Relaxed);
                     }
                     self.offline_render_samples
-                        .fetch_add(buffer.samples() as u64, Ordering::Relaxed);
+                        .fetch_add(record_window.num_frames, Ordering::Relaxed);
                 }
             }
             if let Some(producer) = &mut self.ring_producer {
-                for channel_samples in buffer.iter_samples() {
-                    for sample in channel_samples {
-                        // B-076: ring 満杯時は無言で捨てず累積計数（per-Record で .kirin に露出）。
-                        if producer.push(*sample).is_err() {
-                            self.overflow.fetch_add(1, Ordering::Relaxed);
-                        }
-                    }
-                }
+                push_window_to_ring(buffer, producer, record_window, &self.overflow);
             }
         } else if !recording {
             self.offline_render_sample_generation
@@ -1239,6 +1237,98 @@ fn buffer_is_silent(buffer: &mut Buffer) -> bool {
     true
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct RecordWindow {
+    start_frame: usize,
+    end_frame: usize,
+    position_valid: bool,
+    position_samples: i64,
+    num_frames: u64,
+}
+
+impl RecordWindow {
+    fn full(num_frames: usize, position_samples: i64) -> Self {
+        Self {
+            start_frame: 0,
+            end_frame: num_frames,
+            position_valid: position_samples != i64::MIN,
+            position_samples,
+            num_frames: num_frames as u64,
+        }
+    }
+}
+
+fn record_window_for_buffer(
+    num_frames: usize,
+    position_samples: i64,
+    loop_range_samples: Option<(i64, i64)>,
+) -> RecordWindow {
+    let Some((loop_start, loop_end)) = loop_range_samples else {
+        return RecordWindow::full(num_frames, position_samples);
+    };
+    if position_samples == i64::MIN {
+        return RecordWindow::full(num_frames, position_samples);
+    }
+    if loop_end <= loop_start {
+        return RecordWindow {
+            start_frame: 0,
+            end_frame: 0,
+            position_valid: true,
+            position_samples,
+            num_frames: 0,
+        };
+    }
+
+    let block_start = position_samples;
+    let block_end = position_samples.saturating_add(num_frames as i64);
+    let clipped_start = block_start.max(loop_start);
+    let clipped_end = block_end.min(loop_end);
+    if clipped_end <= clipped_start {
+        return RecordWindow {
+            start_frame: 0,
+            end_frame: 0,
+            position_valid: true,
+            position_samples: clipped_start,
+            num_frames: 0,
+        };
+    }
+
+    let start_frame = clipped_start.saturating_sub(block_start) as usize;
+    let end_frame = clipped_end.saturating_sub(block_start) as usize;
+    RecordWindow {
+        start_frame,
+        end_frame,
+        position_valid: true,
+        position_samples: clipped_start,
+        num_frames: clipped_end.saturating_sub(clipped_start) as u64,
+    }
+}
+
+fn push_window_to_ring(
+    buffer: &mut Buffer,
+    producer: &mut rtrb::Producer<f32>,
+    window: RecordWindow,
+    overflow: &AtomicU64,
+) {
+    if window.num_frames == 0 {
+        return;
+    }
+    for (frame_idx, channel_samples) in buffer.iter_samples().enumerate() {
+        if frame_idx < window.start_frame {
+            continue;
+        }
+        if frame_idx >= window.end_frame {
+            break;
+        }
+        for sample in channel_samples {
+            // B-076: ring 満杯時は無言で捨てず累積計数（per-Record で .kirin に露出）。
+            if producer.push(*sample).is_err() {
+                overflow.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+    }
+}
+
 #[inline]
 fn resolve_process_signal_state(
     bypassed: bool,
@@ -1247,14 +1337,11 @@ fn resolve_process_signal_state(
     recording: bool,
     offline_mode: bool,
 ) -> SignalState {
-    // B-205: Active 条件は「非無音」を必須にする。recording だけでは Active にしない。
-    // - transport 停止の Record 保持（playing=false, silent=true）→ Inactive（"---"）。
-    //   従来は recording 短絡で Active になり、残留ほぼ0状態を -400 LUFS/TP と誤表示していた。
-    // - 非無音のオフラインバウンス（playing=false, silent=false, recording=true）→ Active 維持
-    //   （B-147 の bounce 計測継続意図を保つ）。
     if bypassed {
         SignalState::Bypassed
-    } else if !silent && (recording || playing || offline_mode) {
+    } else if (recording && (playing || offline_mode))
+        || (!silent && (recording || playing || offline_mode))
+    {
         SignalState::Active
     } else {
         SignalState::Inactive
@@ -1373,13 +1460,13 @@ mod b147_record_state_tests {
         );
     }
 
-    /// B-205: 再生中の無音ギャップも Record 中は Inactive（無音は計測せず -400 を出さない）。
-    /// engine.reset 抑制は recording 軸で別管理（B-043）のため信号復帰時の継続性は保たれる。
+    /// Record 中にWAV時間が進んでいる無音ギャップは Active として流す。
+    /// TRACE writer 側で無音床として焼き、frames[] の大穴を作らない。
     #[test]
-    fn record_mode_playing_silent_gap_is_inactive() {
+    fn record_mode_playing_silent_gap_is_active() {
         assert_eq!(
             resolve_process_signal_state(false, true, true, true, false),
-            SignalState::Inactive
+            SignalState::Active
         );
     }
 
@@ -1393,6 +1480,23 @@ mod b147_record_state_tests {
             false,
             false,
         ));
+    }
+
+    #[test]
+    fn record_window_clips_to_loop_range_for_wav_clock() {
+        let window = super::record_window_for_buffer(512, 95_900, Some((96_000, 97_000)));
+        assert_eq!(window.start_frame, 100);
+        assert_eq!(window.end_frame, 512);
+        assert_eq!(window.position_samples, 96_000);
+        assert_eq!(window.num_frames, 412);
+    }
+
+    #[test]
+    fn record_window_drops_tail_after_loop_end() {
+        let window = super::record_window_for_buffer(512, 97_000, Some((96_000, 97_000)));
+        assert_eq!(window.num_frames, 0);
+        assert_eq!(window.start_frame, 0);
+        assert_eq!(window.end_frame, 0);
     }
 
     #[test]

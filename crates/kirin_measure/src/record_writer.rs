@@ -38,6 +38,12 @@ use chrono::TimeZone;
 /// Frame サンプリング間隔（10 fps / G-50-17 リアルタイム Record）。
 pub const FRAME_INTERVAL_MS: u64 = 100;
 
+/// TRACE の無音床。frames[] は Lens/TRACE が読む唯一の時系列なので、Record TRACE
+/// では音が無い時間も「無音として測定されたフレーム」として焼く。
+pub const TRACE_SILENCE_LUFS: f64 = -100.0;
+pub const TRACE_SILENCE_TRUE_PEAK_DBTP: f64 = -100.0;
+pub const TRACE_SILENCE_CREST_DB: f64 = 0.0;
+
 /// PSB スナップショット間隔（2 fps / G-50-17）。
 pub const PSB_INTERVAL_MS: u64 = 500;
 
@@ -136,6 +142,10 @@ const TRACE_DENSITY_MIN_DURATION_MS: u64 = 5_000;
 /// `integrity_degraded` に倒す。
 const TRACE_DENSITY_MIN_RATIO_NUM: usize = 1;
 const TRACE_DENSITY_MIN_RATIO_DEN: usize = 4;
+
+/// frames[] が WAV 0..duration を覆っているとみなす許容幅。
+const FRAME_COVERAGE_MAX_GAP_MS: u64 = FRAME_INTERVAL_MS * 2;
+const FRAME_COVERAGE_EDGE_TOLERANCE_MS: u64 = FRAME_INTERVAL_MS * 2;
 
 /// B-132 (G-115-382 共通B): Record→Watch close 時に Measure Thread の post-drain seal が
 /// `seal_at_start` を超えるまで **lock-free bounded** に待つ。
@@ -480,6 +490,7 @@ fn build_bounce_take(ctx: &RecordingCtx, duration_ms: u64, duration_samples: u64
     };
     let exact_native_time = ctx.last_trace_native_frames.is_some();
     let exact_audio_time = exact_native_time || ctx.last_trace_frame_48k.is_some();
+    let frame_coverage_ready = frame_timeline_covers_duration(ctx, duration_ms);
     BounceTake {
         source: if let Some(source) = clean_source {
             source.to_string()
@@ -497,7 +508,7 @@ fn build_bounce_take(ctx: &RecordingCtx, duration_ms: u64, duration_samples: u64
         } else {
             "wall_clock_ms".to_string()
         },
-        alignment_status: if clean_source.is_some() {
+        alignment_status: if clean_source.is_some() && frame_coverage_ready {
             "sample_count_ready".to_string()
         } else if exact_audio_time {
             "trace_span_only".to_string()
@@ -523,11 +534,39 @@ fn clip_clean_timeline_to_duration(ctx: &mut RecordingCtx) {
     }
 }
 
+fn frame_timeline_covers_duration(ctx: &RecordingCtx, duration_ms: u64) -> bool {
+    let frames = &ctx.writer.data().frames;
+    let Some(first) = frames.first() else {
+        return false;
+    };
+    if first.t_ms > FRAME_COVERAGE_EDGE_TOLERANCE_MS {
+        return false;
+    }
+    if duration_ms > 0 {
+        let Some(last) = frames.last() else {
+            return false;
+        };
+        if last.t_ms.saturating_add(FRAME_COVERAGE_EDGE_TOLERANCE_MS) < duration_ms {
+            return false;
+        }
+    }
+    frames
+        .windows(2)
+        .all(|pair| pair[1].t_ms.saturating_sub(pair[0].t_ms) <= FRAME_COVERAGE_MAX_GAP_MS)
+}
+
+fn frame_timeline_has_gap(ctx: &RecordingCtx, duration_ms: u64) -> bool {
+    !frame_timeline_covers_duration(ctx, duration_ms)
+}
+
 fn trace_density_is_sparse(ctx: &RecordingCtx) -> bool {
     if ctx.writer.data().frames.is_empty() {
         return true;
     }
     let duration_ms = record_duration_ms(ctx);
+    if frame_timeline_has_gap(ctx, duration_ms) {
+        return true;
+    }
     if duration_ms < TRACE_DENSITY_MIN_DURATION_MS {
         return false;
     }
@@ -548,22 +587,29 @@ fn fallback_frame_density_is_sparse(ctx: &RecordingCtx, duration_ms: u64) -> boo
     if frame_count == 0 {
         return true;
     }
+    if frame_timeline_has_gap(ctx, duration_ms) {
+        return true;
+    }
     let expected = expected_trace_samples(duration_ms);
     frame_count.saturating_mul(TRACE_DENSITY_MIN_RATIO_DEN)
         < expected.saturating_mul(TRACE_DENSITY_MIN_RATIO_NUM)
 }
 
 fn mark_integrity_if_trace_density_is_sparse(ctx: &mut RecordingCtx) {
+    let duration_ms = record_duration_ms(ctx);
+    let has_frame_gap = frame_timeline_has_gap(ctx, duration_ms);
     if trace_density_is_sparse(ctx) {
         log::warn!(
             "[writer] sparse Record density: trace_samples={} frames={} duration_ms={} - marking integrity_degraded",
             ctx.trace_sample_count,
             ctx.writer.data().frames.len(),
-            record_duration_ms(ctx)
+            duration_ms
         );
         ctx.writer.mark_integrity_degraded();
         if ctx.writer.data().frames.is_empty() {
             ctx.writer.add_integrity_reason("zero_trace_frames");
+        } else if has_frame_gap {
+            ctx.writer.add_integrity_reason("frame_timeline_gap");
         } else {
             ctx.writer.add_integrity_reason("sparse_trace_density");
         }
@@ -633,6 +679,47 @@ pub fn writer_append_frame(ctx: &mut RecordingCtx, t_ms: u64, m: &MeasureResult)
                 n_prime[0]
             ),
             None => log::info!("[writer] frame written: t_ms={}, phase_d=pending", t_ms),
+        }
+        ctx.first_frame_logged = true;
+    }
+    ctx.last_trace_t_ms = Some(ctx.last_trace_t_ms.map_or(t_ms, |prev| prev.max(t_ms)));
+    true
+}
+
+fn writer_append_trace_frame(ctx: &mut RecordingCtx, t_ms: u64, m: &MeasureResult) -> bool {
+    let lufs_m = m.lufs_m.unwrap_or(TRACE_SILENCE_LUFS);
+    let true_peak = m.true_peak.unwrap_or(TRACE_SILENCE_TRUE_PEAK_DBTP);
+    let crest = m.crest.unwrap_or(TRACE_SILENCE_CREST_DB);
+    let core_missing = m.lufs_m.is_none() || m.true_peak.is_none() || m.crest.is_none();
+    let n_prime = if core_missing && m.n_prime.is_none() {
+        Some([0.0; 20])
+    } else {
+        m.n_prime
+    };
+    let sharpness = if core_missing && m.sharpness.is_none() {
+        Some(0.0)
+    } else {
+        m.sharpness
+    };
+    ctx.writer
+        .append_frame_optional(t_ms, n_prime, sharpness, lufs_m, true_peak, crest, m.psr);
+    if !ctx.first_frame_logged {
+        if core_missing {
+            log::info!(
+                "[writer] trace floor frame written: t_ms={}, lufs={:.1}, tp={:.1}",
+                t_ms,
+                lufs_m,
+                true_peak
+            );
+        } else {
+            match n_prime {
+                Some(n_prime) => log::info!(
+                    "[writer] frame written: t_ms={}, n_prime[0]={:.3}",
+                    t_ms,
+                    n_prime[0]
+                ),
+                None => log::info!("[writer] frame written: t_ms={}, phase_d=pending", t_ms),
+            }
         }
         ctx.first_frame_logged = true;
     }
@@ -952,7 +1039,7 @@ fn drain_trace_queue_into_writer(
         stats.samples += 1;
         let t_ms = sample.t_ms;
         mark_trace_time(ctx, t_ms, sample.t_frames_48k, sample.t_native_frames);
-        if t_ms >= ctx.next_frame_ms && writer_append_frame(ctx, t_ms, &sample.result) {
+        if t_ms >= ctx.next_frame_ms && writer_append_trace_frame(ctx, t_ms, &sample.result) {
             ctx.next_frame_ms = (t_ms / FRAME_INTERVAL_MS + 1) * FRAME_INTERVAL_MS;
             stats.frames += 1;
         }
@@ -1807,7 +1894,10 @@ mod tests {
         let m = full_measure_result();
 
         mark_trace_time(&mut ctx, 15_800, 758_400, Some(1_516_800));
-        for t_ms in [0, 100, 14_900, 15_000, 15_100, 15_800] {
+        for t_ms in (0_u64..=15_000).step_by(FRAME_INTERVAL_MS as usize) {
+            assert!(writer_append_frame(&mut ctx, t_ms, &m));
+        }
+        for t_ms in [15_100, 15_800] {
             assert!(writer_append_frame(&mut ctx, t_ms, &m));
         }
         assert!(writer_append_psb(&mut ctx, 15_100, &m));
@@ -1832,7 +1922,7 @@ mod tests {
         assert_eq!(take.duration_samples, 1_440_000);
         assert_eq!(take.duration_frames_48k, 720_000);
         assert_eq!(take.end_t_ms, 15_000);
-        assert_eq!(take.frame_count, 4);
+        assert_eq!(take.frame_count, 151);
         assert!(loaded.frames.iter().all(|frame| frame.t_ms <= 15_000));
         assert!(loaded
             .psb_snapshots
@@ -1874,7 +1964,7 @@ mod tests {
         assert!(loaded
             .integrity_reasons
             .iter()
-            .any(|reason| reason == "sparse_trace_density"));
+            .any(|reason| reason == "frame_timeline_gap"));
     }
 
     #[test]
@@ -1884,9 +1974,10 @@ mod tests {
         let m = full_measure_result();
 
         mark_trace_time(&mut ctx, 15_900, 763_200, Some(701_190));
-        for t_ms in [0, 100, 15_000, 15_100] {
+        for t_ms in (0_u64..=15_000).step_by(FRAME_INTERVAL_MS as usize) {
             assert!(writer_append_frame(&mut ctx, t_ms, &m));
         }
+        assert!(writer_append_frame(&mut ctx, 15_100, &m));
         ctx.trace_sample_count = 151;
         ctx.record_generation = 7;
         ctx.clean_take = Some(RecordTakeSnapshot {
@@ -1909,7 +2000,7 @@ mod tests {
         assert_eq!(take.duration_samples, 661_500);
         assert_eq!(take.duration_frames_48k, 720_000);
         assert_eq!(take.end_t_ms, 15_000);
-        assert_eq!(take.frame_count, 3);
+        assert_eq!(take.frame_count, 151);
         assert!(loaded.frames.iter().all(|frame| frame.t_ms <= 15_000));
         assert!(crate::plugin_data::verify_checksum(&loaded));
     }
@@ -2375,7 +2466,8 @@ mod tests {
         let started = now_epoch_ms() - (TRACE_DENSITY_MIN_DURATION_MS as i64 + 1_000);
         let mut ctx = make_ctx(&base, Role::Pre, started);
         let final_path = ctx.final_path.clone();
-        for t_ms in (0..=TRACE_DENSITY_MIN_DURATION_MS + 500).step_by(FRAME_INTERVAL_MS as usize) {
+        for t_ms in (0..=TRACE_DENSITY_MIN_DURATION_MS + 1_000).step_by(FRAME_INTERVAL_MS as usize)
+        {
             assert!(writer_append_frame(&mut ctx, t_ms, &full_measure_result()));
         }
 
@@ -2408,12 +2500,18 @@ mod tests {
     }
 
     #[test]
-    fn one_trace_frame_under_min_duration_remains_clean() {
+    fn one_frame_with_later_trace_time_under_min_duration_marks_frame_gap_degraded() {
         let base = isolated_base();
         let started = now_epoch_ms() - (TRACE_DENSITY_MIN_DURATION_MS as i64 - 1_000);
         let mut ctx = make_ctx(&base, Role::Pre, started);
         let final_path = ctx.final_path.clone();
         assert!(writer_append_frame(&mut ctx, 100, &full_measure_result()));
+        mark_trace_time(
+            &mut ctx,
+            TRACE_DENSITY_MIN_DURATION_MS - 1_000,
+            (TRACE_DENSITY_MIN_DURATION_MS - 1_000).saturating_mul(TRACE_TIMEBASE_HZ) / 1_000,
+            None,
+        );
 
         writer_close(ctx);
 
@@ -2421,13 +2519,17 @@ mod tests {
             serde_json::from_slice(&fs::read(&final_path).unwrap()).unwrap();
         assert_eq!(loaded.frames.len(), 1);
         assert!(
-            !loaded.integrity_degraded,
-            "a short Record with at least one usable TRACE frame stays clean"
+            loaded.integrity_degraded,
+            "a Record with a usable point but a missing timeline must not look clean"
         );
+        assert!(loaded
+            .integrity_reasons
+            .iter()
+            .any(|reason| reason == "frame_timeline_gap"));
     }
 
     #[test]
-    fn sparse_numeric_frames_do_not_degrade_when_trace_samples_are_dense() {
+    fn dense_trace_samples_write_silent_floor_frames_for_numeric_gaps() {
         let base = isolated_base();
         let ctx = make_ctx(&base, Role::Post, now_epoch_ms());
         let final_path = ctx.final_path.clone();
@@ -2474,13 +2576,70 @@ mod tests {
             serde_json::from_slice(&fs::read(&final_path).unwrap()).unwrap();
         assert_eq!(
             loaded.frames.len(),
-            1,
-            "only the one numeric trace point should become a frame"
+            101,
+            "every dense trace point should become a TRACE frame, including silence"
         );
+        assert_eq!(loaded.frames[0].lufs_m, TRACE_SILENCE_LUFS);
+        assert_eq!(loaded.frames[1].lufs_m, -14.2);
         assert!(
             !loaded.integrity_degraded,
-            "dense raw TRACE samples mean sparse numeric frames can be legitimate silence"
+            "dense raw TRACE samples with explicit silence floors are a clean timeline"
         );
+    }
+
+    #[test]
+    fn ninety_six_khz_fifteen_second_record_has_wav_duration_and_continuous_silent_trace() {
+        let base = isolated_base();
+        let mut ctx = make_ctx_with_sample_rate(&base, Role::Post, now_epoch_ms(), 96_000);
+        let final_path = ctx.final_path.clone();
+        let queue = new_record_trace_queue();
+        for t_ms in (0_u64..=15_000).step_by(FRAME_INTERVAL_MS as usize) {
+            let result = if (5_800..=12_300).contains(&t_ms) {
+                MeasureResult::default()
+            } else {
+                full_measure_result()
+            };
+            push_record_trace_sample(
+                &queue,
+                trace_sample_frames_with_native(
+                    t_ms.saturating_mul(TRACE_TIMEBASE_HZ) / 1_000,
+                    Some(t_ms.saturating_mul(96_000) / 1_000),
+                    result,
+                    false,
+                ),
+            );
+        }
+
+        let drained = drain_trace_queue_into_writer(&mut ctx, &queue);
+        assert_eq!(drained.samples, 151);
+        assert_eq!(drained.frames, 151);
+        ctx.record_generation = 91;
+        ctx.clean_take = Some(RecordTakeSnapshot {
+            generation: 91,
+            duration_samples: 1_440_000,
+            source: crate::record_take::RECORD_TAKE_SOURCE_RENDER_CLOCK,
+        });
+        writer_close(ctx);
+
+        let loaded: PluginDataFile =
+            serde_json::from_slice(&fs::read(&final_path).unwrap()).unwrap();
+        let take = loaded.bounce_take.as_ref().expect("bounce_take");
+        assert_eq!(loaded.bounce_marker.duration_samples, 1_440_000);
+        assert_eq!(take.duration_samples, 1_440_000);
+        assert_eq!(take.end_t_ms, 15_000);
+        assert_eq!(take.alignment_status, "sample_count_ready");
+        assert_eq!(loaded.frames.len(), 151);
+        assert_eq!(loaded.frames.first().map(|frame| frame.t_ms), Some(0));
+        assert_eq!(loaded.frames.last().map(|frame| frame.t_ms), Some(15_000));
+        assert!(loaded
+            .frames
+            .windows(2)
+            .all(|pair| pair[1].t_ms.saturating_sub(pair[0].t_ms) == FRAME_INTERVAL_MS));
+        assert!(loaded
+            .frames
+            .iter()
+            .any(|frame| frame.lufs_m == TRACE_SILENCE_LUFS));
+        assert!(!loaded.integrity_degraded);
     }
 
     #[test]
@@ -2525,7 +2684,7 @@ mod tests {
     }
 
     #[test]
-    fn run_record_tick_does_not_fake_frame_when_trace_queue_has_silent_samples() {
+    fn run_record_tick_writes_silent_floor_when_trace_queue_has_silent_samples() {
         let base = isolated_base();
         let ctx = make_ctx(&base, Role::Pre, now_epoch_ms());
         let sm = Arc::new(RecordStateMachine::new());
@@ -2556,9 +2715,15 @@ mod tests {
         let ctx_ref = rec.as_ref().unwrap();
         assert_eq!(
             ctx_ref.data().frames.len(),
-            0,
-            "a drained silent audio-time sample must not be replaced by a stale live meter"
+            1,
+            "a drained silent audio-time sample must become an explicit silence frame"
         );
+        assert_eq!(ctx_ref.data().frames[0].lufs_m, TRACE_SILENCE_LUFS);
+        assert_eq!(
+            ctx_ref.data().frames[0].true_peak,
+            TRACE_SILENCE_TRUE_PEAK_DBTP
+        );
+        assert_eq!(ctx_ref.data().frames[0].crest, TRACE_SILENCE_CREST_DB);
         assert_eq!(ctx_ref.last_trace_t_ms, Some(100));
     }
 
@@ -2600,15 +2765,16 @@ mod tests {
         let ctx = rec.take().unwrap();
         assert_eq!(
             ctx.data().frames.len(),
-            2,
-            "silent trace point must not fake a numeric frame"
+            3,
+            "silent trace point must preserve the TRACE timeline as a silence frame"
         );
         assert_eq!(ctx.last_trace_t_ms, Some(15_400));
         writer_close(ctx);
 
         let bytes = fs::read(&final_path).unwrap();
         let loaded: PluginDataFile = serde_json::from_slice(&bytes).unwrap();
-        assert_eq!(loaded.frames.len(), 2);
+        assert_eq!(loaded.frames.len(), 3);
+        assert_eq!(loaded.frames[2].lufs_m, TRACE_SILENCE_LUFS);
         assert_eq!(loaded.bounce_marker.duration_samples, 739_200);
         let take = loaded.bounce_take.as_ref().expect("bounce_take");
         assert_eq!(take.source, "audio_time_trace");
