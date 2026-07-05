@@ -77,7 +77,8 @@ impl RecordTakeTracker {
 
         let render_eligible = block.rendered
             && block.num_frames > 0
-            && (block.offline || (block.recording && block.playing));
+            && block.recording
+            && (block.offline || block.playing);
 
         if !render_eligible {
             self.render_active.store(false, Ordering::Release);
@@ -227,7 +228,7 @@ mod tests {
     use super::{RecordTakeBlock, RecordTakeTracker, RECORD_TAKE_SOURCE_RENDER_CLOCK};
 
     #[test]
-    fn offline_render_before_record_edge_is_included_in_same_epoch() {
+    fn offline_render_before_record_edge_does_not_pollute_record_take() {
         let tracker = RecordTakeTracker::new();
         tracker.note_block(RecordTakeBlock {
             generation: 0,
@@ -251,7 +252,7 @@ mod tests {
         });
 
         let snap = tracker.snapshot(7).expect("clean take");
-        assert_eq!(snap.duration_samples, 1024);
+        assert_eq!(snap.duration_samples, 512);
         assert_eq!(snap.source, RECORD_TAKE_SOURCE_RENDER_CLOCK);
     }
 
@@ -370,7 +371,7 @@ mod tests {
             num_frames: 1_000,
         });
 
-        assert_eq!(tracker.snapshot(11).unwrap().duration_samples, 2_000);
+        assert_eq!(tracker.snapshot(11).unwrap().duration_samples, 1_000);
     }
 
     #[test]
