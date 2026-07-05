@@ -55,8 +55,8 @@ fn make_writer(base: &std::path::Path, role: Role) -> PluginDataWriter {
         role,
         None,
         SR,
-        None,
-        None,
+        (role == Role::Post).then(|| "b043_pre_iid".to_string()),
+        (role == Role::Pre).then(|| "b043_post_iid".to_string()),
         None,
         None,
     )

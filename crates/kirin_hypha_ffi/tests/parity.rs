@@ -776,6 +776,7 @@ fn pre_writes_records_plugin_data_json() {
         assert_eq!(pd.schema_version, "1.3", "schema_version");
         assert_eq!(pd.role, Role::Pre, "role must be PRE");
         assert_eq!(pd.status, Status::Closed, "exit+flush 後は status=closed");
+        assert_eq!(pd.commit_status.as_deref(), Some("committed"));
         assert!(!pd.frames.is_empty(), "frames[] non-empty");
         let f0 = &pd.frames[0];
         assert!(
@@ -989,6 +990,7 @@ fn set_identity_drives_path_and_annotation() {
     .unwrap();
 
     let plugin_data_root = home.join("Library/Application Support/Kirin OS/plugin_data");
+    let watch_root = tmp.join("kirin");
     let known_iid = "iid-b058-fixed";
     let known_puid = "puid-b058-fixed";
 
@@ -1030,6 +1032,18 @@ fn set_identity_drives_path_and_annotation() {
                 prev = s.lufs_i;
             }
         }
+
+        let watch = find_json_under(&watch_root, "", "pre.json").expect("watch pre.json exists");
+        let watch_s = watch.to_string_lossy().to_string();
+        assert!(
+            watch_s.contains(known_puid),
+            "Watch path に set した project_uuid を使う: {watch_s}"
+        );
+        assert!(
+            watch_s.contains(known_iid),
+            "Watch path に set した instance_id を使う: {watch_s}"
+        );
+
         engine.exit_record();
         sleep(Duration::from_millis(900));
 
