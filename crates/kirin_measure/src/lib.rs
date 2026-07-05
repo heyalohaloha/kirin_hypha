@@ -28,6 +28,7 @@ pub mod preset;
 pub mod preset_dispatch;
 pub mod preset_v2;
 pub mod record;
+pub mod record_clock;
 pub mod record_signal;
 pub mod record_take;
 pub mod record_writer;
@@ -48,7 +49,7 @@ pub use all_stop_signal::{
     write_stop_broadcast, write_stop_broadcast_signal, AllStopBroadcast, AllStopError,
     ALL_STOP_BROADCAST_STALE_SECS, ALL_STOP_SCHEMA_VERSION, ALL_STOP_SIGNAL_SUBDIR,
 };
-pub use cleanup::{clear_pair_label, exit_record_full};
+pub use cleanup::{clear_pair_label, exit_record_full, exit_record_preserve_pair};
 pub use delta::{DeltaMode, DeltaResult, DeltaSnapshot};
 pub use engine::{MeasureEngine, SessionSummary};
 pub use exclusion::{
@@ -114,6 +115,7 @@ pub use preset_v2::{
     SectionBoundary as PresetV2SectionBoundary, Summary as PresetV2Summary, VerifyErrorV2,
 };
 pub use record::{RecordState, RecordStateMachine, TransitionError};
+pub use record_clock::{record_window_for_buffer, RecordWindow};
 pub use record_signal::{
     delete_signal, is_timed_out, mark_acknowledged, mark_released, read_signal, scan_signals_dir,
     signal_path, signals_dir, write_pending, write_signal, RecordSignal, SignalError, SignalStatus,

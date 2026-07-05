@@ -4,12 +4,12 @@ use kirin_measure::{
     daw_session_id, delete_broadcast, delete_stop_broadcast, ensure_legacy_cleanup_done,
     identity_instance_attach, identity_instance_detach, live_window, load_installation_id_safe,
     load_license_safe, mark_released, new_record_take_tracker, new_record_trace_queue,
-    peek_project_uuid, process_project_hash, reservation, sanitize_name, set_daw_session_id,
-    set_project_uuid, spawn_io_thread_post, spawn_measure_thread, spawn_watchdog,
-    store_signal_state, DeltaResult, LatchedPre, License, LivenessEvaluator, MeasureResult,
-    RecordStateMachine, RecordTakeBlock, RecordTakeTracker, RecordTraceQueue, SessionSummary,
-    SignalState, StoragePaths, TriggerPairResolutionFn, TriggerStopResolutionFn, WatchdogIo,
-    WatchdogParams, N_CHANNELS, RING_BUFFER_SECONDS,
+    peek_project_uuid, process_project_hash, record_window_for_buffer, reservation, sanitize_name,
+    set_daw_session_id, set_project_uuid, spawn_io_thread_post, spawn_measure_thread,
+    spawn_watchdog, store_signal_state, DeltaResult, LatchedPre, License, LivenessEvaluator,
+    MeasureResult, RecordStateMachine, RecordTakeBlock, RecordTakeTracker, RecordTraceQueue,
+    RecordWindow, SessionSummary, SignalState, StoragePaths, TriggerPairResolutionFn,
+    TriggerStopResolutionFn, WatchdogIo, WatchdogParams, N_CHANNELS, RING_BUFFER_SECONDS,
 };
 use nih_plug::prelude::*;
 use nih_plug_egui::EguiState;
@@ -104,11 +104,12 @@ pub struct HyphaPost {
     // ── Record モード ─────────────────────────────────────────────────
     record_sm: Arc<RecordStateMachine>,
     record_acknowledged: Arc<AtomicBool>,
-    /// pair_label（POST GUI に表示。Record 中は "pair: PRE_xxxxxxxx"、Watch 中は空文字）
+    /// pair_label（POST GUI に表示）。Keep 成功後の pair selection を保持する。
+    /// Stop は Record session だけを閉じるため、この label をクリアしない。
     pair_label: Arc<Mutex<String>>,
     /// trigger_keep が選定した PRE instance_id（v1.2 (a) cross-instance pair 復元キー）。
-    /// Watch 中は None、Keep 成功直後に Some、Stop / 失敗で None。POST IO Thread が
-    /// Record 開始時に読み出して plugin_data の `paired_pre_instance_id` に書き込む。
+    /// Keep 成功直後に Some へ更新し、Keep 失敗など pair 自体を破棄する経路だけ None に戻す。
+    /// POST IO Thread が Record 開始時に読み出して plugin_data の `paired_pre_instance_id` に書き込む。
     paired_pre_target: Arc<Mutex<Option<String>>>,
     license: Arc<License>,
 
@@ -1235,73 +1236,6 @@ fn buffer_is_silent(buffer: &mut Buffer) -> bool {
         }
     }
     true
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct RecordWindow {
-    start_frame: usize,
-    end_frame: usize,
-    position_valid: bool,
-    position_samples: i64,
-    num_frames: u64,
-}
-
-impl RecordWindow {
-    fn full(num_frames: usize, position_samples: i64) -> Self {
-        Self {
-            start_frame: 0,
-            end_frame: num_frames,
-            position_valid: position_samples != i64::MIN,
-            position_samples,
-            num_frames: num_frames as u64,
-        }
-    }
-}
-
-fn record_window_for_buffer(
-    num_frames: usize,
-    position_samples: i64,
-    loop_range_samples: Option<(i64, i64)>,
-) -> RecordWindow {
-    let Some((loop_start, loop_end)) = loop_range_samples else {
-        return RecordWindow::full(num_frames, position_samples);
-    };
-    if position_samples == i64::MIN {
-        return RecordWindow::full(num_frames, position_samples);
-    }
-    if loop_end <= loop_start {
-        return RecordWindow {
-            start_frame: 0,
-            end_frame: 0,
-            position_valid: true,
-            position_samples,
-            num_frames: 0,
-        };
-    }
-
-    let block_start = position_samples;
-    let block_end = position_samples.saturating_add(num_frames as i64);
-    let clipped_start = block_start.max(loop_start);
-    let clipped_end = block_end.min(loop_end);
-    if clipped_end <= clipped_start {
-        return RecordWindow {
-            start_frame: 0,
-            end_frame: 0,
-            position_valid: true,
-            position_samples: clipped_start,
-            num_frames: 0,
-        };
-    }
-
-    let start_frame = clipped_start.saturating_sub(block_start) as usize;
-    let end_frame = clipped_end.saturating_sub(block_start) as usize;
-    RecordWindow {
-        start_frame,
-        end_frame,
-        position_valid: true,
-        position_samples: clipped_start,
-        num_frames: clipped_end.saturating_sub(clipped_start) as u64,
-    }
 }
 
 fn push_window_to_ring(

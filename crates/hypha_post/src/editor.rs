@@ -35,14 +35,14 @@ use kirin_measure::{
     active_post_project_uuids_for_daw_session, all_keep_signal_path, all_stop_signal_path,
     append_annotation_to_latest, count_distinct_pairings, delete_broadcast,
     enumerate_active_post_pair_candidates, enumerate_active_post_pair_candidates_for_daw_session,
-    enumerate_active_pre_pair_candidates_for_post_project, exit_record_full, format_pair_label,
-    load_signal_state, lookup_section_label, mark_released, pair_lock_active,
-    resolve_arm_target_for_post_project, sanitize_name, scan_latest_v2_preset, show_note_button,
-    show_save_button, show_stop_record_button, write_broadcast, write_pending,
-    write_stop_broadcast, DeltaMode, DeltaResult, DeltaSnapshot, LatchedPre, License,
-    LivenessEvaluator, MeasureResult, PlatformPaths, PluginDataRole, PostCandidate, PreCandidate,
-    PresetFileV2, RecordStateMachine, SignalState, StoragePaths, TransitionError,
-    MAX_ACTIVE_PER_PROJECT, SENSE_RECORD_HINT, SENSE_UPSELL_URL,
+    enumerate_active_pre_pair_candidates_for_post_project, exit_record_full,
+    exit_record_preserve_pair, format_pair_label, load_signal_state, lookup_section_label,
+    mark_released, pair_lock_active, resolve_arm_target_for_post_project, sanitize_name,
+    scan_latest_v2_preset, show_note_button, show_save_button, show_stop_record_button,
+    write_broadcast, write_pending, write_stop_broadcast, DeltaMode, DeltaResult, DeltaSnapshot,
+    LatchedPre, License, LivenessEvaluator, MeasureResult, PlatformPaths, PluginDataRole,
+    PostCandidate, PreCandidate, PresetFileV2, RecordStateMachine, SignalState, StoragePaths,
+    TransitionError, MAX_ACTIVE_PER_PROJECT, SENSE_RECORD_HINT, SENSE_UPSELL_URL,
 };
 use nih_plug::prelude::Editor;
 use nih_plug_egui::{
@@ -158,11 +158,11 @@ pub struct PostEditorState {
     pub record_sm: Arc<RecordStateMachine>,
     /// Record 信号が PRE から ACK されたか（false = Standby, true = Active）
     pub record_acknowledged: Arc<AtomicBool>,
-    /// ペアリング表示用ラベル。Record 中は "pair: PRE_xxxxxxxx"（trigger_keep が設定）、
-    /// Watch 中は空文字（trigger_stop / 自然遷移でクリア）。
+    /// ペアリング表示用ラベル。Keep 成功後は "pair: PRE_xxxxxxxx" を保持する。
+    /// Stop は Record session だけを閉じるため、この label をクリアしない。
     pub pair_label: Arc<Mutex<String>>,
     /// trigger_keep が選定した PRE instance_id（v1.2 (a) cross-instance pair 復元キー）。
-    /// Watch 中は None、Keep 成功直後に Some、Stop / 失敗で None に戻す。
+    /// Keep 成功直後に Some へ更新し、Keep 失敗など pair 自体を破棄する経路だけ None に戻す。
     /// POST IO Thread が `run_record_tick` で読み出して plugin_data の
     /// `paired_pre_instance_id` field に書き込む。
     pub paired_pre_target: Arc<Mutex<Option<String>>>,
@@ -1763,8 +1763,8 @@ fn trigger_all_keep_broadcast(
     }
 }
 
-/// Stop タップ: Watch へ戻し、record_signal を released に更新。pair_label をクリア。
-/// `paired_pre_target` も None に戻す（v1.2 (a) 次の Keep 待ち状態）。
+/// Stop タップ: Watch へ戻し、record_signal を released に更新する。
+/// Pair selection は保持する。Stop は Record session の終了であり、Unpair ではない。
 ///
 /// α-7' All Stop: Some(toast) wrapper として `trigger_stop_internal` に委譲。
 /// broadcast 受信側 (lib.rs trigger_stop_resolution closure) からは toast=None で
@@ -1797,16 +1797,15 @@ pub(crate) fn trigger_stop_internal(
     record_sm: &Arc<RecordStateMachine>,
     project_hash: &str,
     instance_id: &str,
-    pair_label: &Arc<Mutex<String>>,
+    _pair_label: &Arc<Mutex<String>>,
     paired_pre_target: &Arc<Mutex<Option<String>>>,
     mut toast: Option<&mut Option<Toast>>,
     now: f64,
 ) {
-    // G-115-365: exit_record_full は paired_pre_target を None にするため、枠解放用に対 PRE iid を
-    // 先に捕捉する（FFI resolve_and_exit_stop と同一 parity）。
+    // G-115-365: reservation 解放用に対 PRE iid を先に捕捉する
+    // (FFI resolve_and_exit_stop と同一 parity)。
     let released_pre = paired_pre_target.lock().ok().and_then(|g| g.clone());
-    // 手動 Stop は exit_record_full で 3 ステップ一括 cleanup する。
-    exit_record_full(record_sm, pair_label, paired_pre_target);
+    exit_record_preserve_pair(record_sm);
     match StoragePaths::default_platform() {
         Ok(paths) => {
             let plugin_data_dir = paths.plugin_data_dir();
