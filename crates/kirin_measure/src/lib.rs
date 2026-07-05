@@ -155,7 +155,11 @@ pub fn sanitize_name(raw: &str) -> String {
 // ── 共有定数 ────────────────────────────────────────────────────────────────
 
 /// Audio Thread → Measure Thread リングバッファの保持長（秒）。
-pub const RING_BUFFER_SECONDS: usize = 2;
+///
+/// Offline bounce は DAW が実時間より速く Audio Thread を進めるため、短い ring では
+/// Measure Thread が追いつく前に overflow し、Record の sample count が WAV と一致しなくなる。
+/// Audio Thread はブロックできないので、余裕のある SPSC 容量で clean Record を優先する。
+pub const RING_BUFFER_SECONDS: usize = 30;
 
 /// 対応チャンネル数（ステレオ固定）。
 pub const N_CHANNELS: usize = 2;

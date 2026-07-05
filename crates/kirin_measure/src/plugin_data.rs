@@ -141,6 +141,28 @@ pub struct BounceMarker {
     pub last_block_hash: String,
 }
 
+/// WAV と照合するための完成 take 情報。
+///
+/// `Record` 全体は手動 Keep/Stop の都合で長くなり得るが、Kirin OS に渡す正本は
+/// WAV の 0 sample から `duration_samples` までに対応する take であることを明示する。
+/// `duration_frames_48k` は Hypha 内部計測時間軸（48 kHz）上の長さで、DAW の出力
+/// sample rate へ換算した値が `duration_samples`。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BounceTake {
+    pub source: String,
+    pub time_axis: String,
+    pub alignment_status: String,
+    pub sample_rate: u32,
+    pub wav_start_sample: u64,
+    pub wav_end_sample: u64,
+    pub duration_samples: u64,
+    pub duration_frames_48k: u64,
+    pub start_t_ms: u64,
+    pub end_t_ms: u64,
+    pub trace_sample_count: u64,
+    pub frame_count: u64,
+}
+
 /// plugin_data/ 1 ファイル分のルート（現行 v1.3）。
 ///
 /// v1.2 (A-3 (a)): `instance_id` field 追加 + `paired_pre_instance_id` /
@@ -229,6 +251,10 @@ pub struct PluginDataFile {
     /// `commit_status=failed` または integrity degraded の理由。通常成功 JSON では省略。
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub integrity_reasons: Vec<String>,
+    /// WAV header と突き合わせるための sample-accurate take metadata。
+    /// 旧 JSON 互換のため optional additive field。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bounce_take: Option<BounceTake>,
     pub validity: bool,
     pub checksum: String,
 }
@@ -319,6 +345,7 @@ impl PluginDataFile {
             integrity_degraded: false,
             commit_status: None,
             integrity_reasons: Vec::new(),
+            bounce_take: None,
             validity: true,
             checksum: String::new(),
         }
@@ -513,6 +540,11 @@ impl PluginDataWriter {
         self.data.bounce_marker.wall_clock_end = wall_clock;
         self.data.bounce_marker.duration_samples = duration_samples;
         self.data.bounce_marker.last_block_hash = last_block_hash;
+    }
+
+    /// WAV と照合するための完成 take 情報を設定する。
+    pub fn set_bounce_take(&mut self, take: BounceTake) {
+        self.data.bounce_take = Some(take);
     }
 
     /// 1 frame を追加。数値を精度表に従って丸める。
@@ -1005,6 +1037,7 @@ mod tests {
         assert_eq!(f.started_at_ms, 0);
         assert_eq!(f.sample_rate, 48000);
         assert_eq!(f.source_format, 48000);
+        assert!(f.bounce_take.is_none());
         assert!(f.validity);
         assert!(f.checksum.is_empty());
 
@@ -1030,6 +1063,10 @@ mod tests {
         assert!(
             !json.contains("pair_pre_name"),
             "pair_pre_name omitted when None: {json}"
+        );
+        assert!(
+            !json.contains("bounce_take"),
+            "bounce_take omitted when None: {json}"
         );
     }
 
@@ -1268,6 +1305,35 @@ mod tests {
         assert_eq!(loaded.bounce_marker.duration_samples, 14_400_000);
         assert_eq!(loaded.bounce_marker.first_block_hash, "hash_first");
         assert_eq!(loaded.bounce_marker.last_block_hash, "hash_last");
+    }
+
+    #[test]
+    fn bounce_take_roundtrip_and_checksum() {
+        let base = isolated_dir();
+        let mut w = sample_writer(&base, Role::Post);
+        w.append_frame(0, [1.0; 20], 1.0, -14.0, -1.0, 12.0, None);
+        w.set_bounce_take(BounceTake {
+            source: "audio_time_trace".to_string(),
+            time_axis: "frames_48k".to_string(),
+            alignment_status: "sample_count_ready".to_string(),
+            sample_rate: 96_000,
+            wav_start_sample: 0,
+            wav_end_sample: 1_440_000,
+            duration_samples: 1_440_000,
+            duration_frames_48k: 720_000,
+            start_t_ms: 0,
+            end_t_ms: 15_000,
+            trace_sample_count: 150,
+            frame_count: 150,
+        });
+        w.flush().unwrap();
+        let bytes = fs::read(&w.paths.staging_path).unwrap();
+        let loaded: PluginDataFile = serde_json::from_slice(&bytes).unwrap();
+        let take = loaded.bounce_take.as_ref().expect("bounce_take");
+        assert_eq!(take.sample_rate, 96_000);
+        assert_eq!(take.duration_samples, 1_440_000);
+        assert_eq!(take.duration_frames_48k, 720_000);
+        assert!(verify_checksum(&loaded));
     }
 
     #[test]

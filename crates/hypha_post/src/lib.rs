@@ -982,6 +982,7 @@ impl Plugin for HyphaPost {
             Arc::clone(&self.measure_result),
             Arc::clone(&self.delta_result),
             Arc::clone(&self.signal_state),
+            Arc::clone(&self.is_playing),
             Arc::clone(&self.preset_available),
             Arc::clone(&self.paired_pre_target),
             Arc::clone(&self.io_shutdown),
@@ -1019,6 +1020,7 @@ impl Plugin for HyphaPost {
             let measure_result = Arc::clone(&self.measure_result);
             let delta_result = Arc::clone(&self.delta_result);
             let signal_state = Arc::clone(&self.signal_state);
+            let is_playing = Arc::clone(&self.is_playing);
             let preset_available = Arc::clone(&self.preset_available);
             let paired_pre_target = Arc::clone(&self.paired_pre_target);
             let pair_label_arc = Arc::clone(&pair_label_arc);
@@ -1050,6 +1052,7 @@ impl Plugin for HyphaPost {
                     Arc::clone(&measure_result),
                     Arc::clone(&delta_result),
                     Arc::clone(&signal_state),
+                    Arc::clone(&is_playing),
                     Arc::clone(&preset_available),
                     Arc::clone(&paired_pre_target),
                     new_shutdown,

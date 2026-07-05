@@ -959,6 +959,7 @@ impl KirinHyphaEngine {
         let record_error_message = Arc::clone(&self.record_error_message);
         let pair_claimed_at = Arc::new(RwLock::new(0.0));
         let pair_release_notice = Arc::new(RwLock::new(None));
+        let is_playing = Arc::new(AtomicBool::new(false));
         // B-118: io spawn を restart-closure に包む（初回 spawn も watchdog 再起動も同一経路）。
         // 継続性（最重要）: 共有状態 Arc（pair_label / pair_claimed_at / pair_release_notice /
         // record_error_message / paired_pre_target / pair_pre_name / trigger 群 / latched_pre / 各 self.*）
@@ -969,6 +970,7 @@ impl KirinHyphaEngine {
             let measure_result = Arc::clone(&self.measure_result);
             let delta_result = Arc::clone(&self.delta_result);
             let signal_state = Arc::clone(&self.signal_state);
+            let is_playing = Arc::clone(&is_playing);
             let session_summary = Arc::clone(&self.session_summary);
             let record_trace_queue = Arc::clone(&self.record_trace_queue);
             let push_overflow = Arc::clone(&self.push_overflow);
@@ -985,6 +987,7 @@ impl KirinHyphaEngine {
                     Arc::clone(&measure_result),
                     Arc::clone(&delta_result),
                     Arc::clone(&signal_state),
+                    Arc::clone(&is_playing),
                     Arc::clone(&preset_available),
                     Arc::clone(&paired_pre_target),
                     Arc::clone(&io_shutdown),

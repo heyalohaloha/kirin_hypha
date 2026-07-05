@@ -190,6 +190,7 @@ pub fn spawn_io_thread_post(
     post_result: Arc<Mutex<MeasureResult>>,
     delta_result: Arc<Mutex<DeltaResult>>,
     signal_state: Arc<AtomicU8>,
+    is_playing: Arc<AtomicBool>,
     preset_available: Arc<AtomicBool>,
     paired_pre_target: Arc<Mutex<Option<String>>>,
     shutdown: Arc<AtomicBool>,
@@ -388,11 +389,18 @@ pub fn spawn_io_thread_post(
             // W-284 / G-115-252: Record 中は self_check を skip。Record 中に self_check
             // が release を発火すると pair_pre_name="" + delta_result clear (W-282)
             // + pair_label 切替で Record 継続が破綻する (Daisuke 2026-05-17 報告)。
-            // Record 開始時点で確定した pair は Stop まで保持する仕様。Watch 中のみ
-            // 後着優先 release を許容する。
+            // Record 開始時点で確定した pair は Stop まで保持する仕様。
+            // B-253: 再生/バウンス中は pair を外さない。
+            // SignalState::Active は無音 gap で Inactive になり得るため、transport.playing も
+            // self-check release の gate に含める。名前で結ばれた pair は transport が
+            // 動いている間は保持し、後着優先 release は停止中のみ許容する。
             let tick_now = Instant::now();
+            let transport_playing = is_playing.load(Ordering::Relaxed);
+            let self_check_allowed = !record_sm.is_recording()
+                && !transport_playing
+                && load_signal_state(&signal_state) != SignalState::Active;
             if !pair_pre_name_snapshot.is_empty()
-                && !record_sm.is_recording()
+                && self_check_allowed
                 && tick_now.duration_since(last_self_check_at) >= Duration::from_secs(1)
             {
                 last_self_check_at = tick_now;

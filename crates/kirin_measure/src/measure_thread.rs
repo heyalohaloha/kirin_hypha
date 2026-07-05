@@ -66,6 +66,7 @@ fn idle_sleep_for_record_state(is_recording: bool) -> Duration {
 struct PreRollTraceSample {
     captured_at_ms: i64,
     frames_48k: u64,
+    native_frames: u64,
     result: MeasureResult,
 }
 
@@ -79,10 +80,17 @@ impl RecordTracePreRoll {
         self.samples.clear();
     }
 
-    fn push(&mut self, captured_at_ms: i64, frames_48k: u64, result: &MeasureResult) {
+    fn push(
+        &mut self,
+        captured_at_ms: i64,
+        frames_48k: u64,
+        native_frames: u64,
+        result: &MeasureResult,
+    ) {
         self.samples.push_back(PreRollTraceSample {
             captured_at_ms,
             frames_48k,
+            native_frames,
             result: result.clone(),
         });
         self.trim(captured_at_ms, frames_48k);
@@ -257,6 +265,8 @@ pub fn spawn_measure_thread(
         let mut chunk_f64: Vec<f64> = Vec::with_capacity(sample_rate as usize);
         // リサンプル後 48kHz interleaved バッファ（resampler が Some のときのみ使う）
         let mut resampled_buf: Vec<f64> = Vec::with_capacity(ENGINE_SR as usize * n_channels / 4);
+        // DAW/WAV 側 native sample frame clock。Record の duration_samples はこれを正本にする。
+        let mut native_frames_total = 0_u64;
 
         // 前回ループの SignalState を保持し、非Active→Active 遷移を検出する（SS-8）。
         let mut prev_active = false;
@@ -265,7 +275,9 @@ pub fn spawn_measure_thread(
         // Record 中の SS-8 reset 抑止と組み合わせて、LUFS-I / LRA のセッション通算性を確保する。
         let mut prev_recording = false;
         let mut record_origin_frames = engine.total_frames();
-        let mut record_trace_time_offset_ms = 0_u64;
+        let mut record_origin_native_frames = native_frames_total;
+        let mut record_trace_frame_offset_48k = 0_u64;
+        let mut record_trace_native_frame_offset = 0_u64;
         let mut next_record_trace_ms = 0_u64;
         let mut next_record_psb_ms = 0_u64;
         let mut record_pre_roll = RecordTracePreRoll::default();
@@ -300,16 +312,27 @@ pub fn spawn_measure_thread(
                 }
                 latest_pd = None;
                 record_origin_frames = engine.total_frames();
+                record_origin_native_frames = native_frames_total;
                 next_record_trace_ms = 0;
                 next_record_psb_ms = 0;
                 clear_record_trace_queue(&record_trace_queue);
-                record_trace_time_offset_ms = seed_record_trace_from_pre_roll(
+                let seed_offsets = seed_record_trace_from_pre_roll(
                     &record_trace_queue,
                     &record_pre_roll,
                     record_sm.record_started_at_ms(),
                     &mut next_record_trace_ms,
                     &mut next_record_psb_ms,
                 );
+                if seed_offsets.seeded {
+                    let transition_native_offset =
+                        native_frames_total.saturating_sub(seed_offsets.origin_native_frames);
+                    record_trace_native_frame_offset = transition_native_offset;
+                    record_trace_frame_offset_48k =
+                        native_frames_to_48k(transition_native_offset, sample_rate);
+                } else {
+                    record_trace_frame_offset_48k = 0;
+                    record_trace_native_frame_offset = 0;
+                }
                 record_pre_roll.clear();
                 if let Ok(mut g) = session_summary.lock() {
                     *g = None;
@@ -324,18 +347,29 @@ pub fn spawn_measure_thread(
                 // 再抽出するだけ（parity abs=0 維持）。完了後に seal を 1 前進させ、IO の bake arm が
                 // post-drain 確定スナップショットを読む handshake を成立させる（共通B）。
                 let drained = drain_ring_into_session(
-                    &mut consumer,
-                    &mut resampler,
-                    &mut engine,
-                    &session_summary,
-                    &mut chunk_f64,
-                    &mut resampled_buf,
+                    DrainRingSession {
+                        consumer: &mut consumer,
+                        resampler: &mut resampler,
+                        engine: &mut engine,
+                        session_summary: &session_summary,
+                        chunk_f64: &mut chunk_f64,
+                        resampled_buf: &mut resampled_buf,
+                        sample_rate,
+                        n_channels,
+                        native_frames_total: &mut native_frames_total,
+                    },
                     Some(RecordTraceDrain {
                         queue: &record_trace_queue,
-                        record_origin_frames,
-                        record_trace_time_offset_ms,
-                        next_trace_ms: &mut next_record_trace_ms,
-                        next_psb_ms: &mut next_record_psb_ms,
+                        timeline: RecordTraceTimeline {
+                            origin_frames_48k: record_origin_frames,
+                            origin_native_frames: record_origin_native_frames,
+                            offset_frames_48k: record_trace_frame_offset_48k,
+                            offset_native_frames: record_trace_native_frame_offset,
+                        },
+                        cursor: RecordTraceCursor {
+                            next_trace_ms: &mut next_record_trace_ms,
+                            next_psb_ms: &mut next_record_psb_ms,
+                        },
                     }),
                 );
                 if drained {
@@ -381,18 +415,29 @@ pub fn spawn_measure_thread(
                 // 後続ループは skip / 長時間 stall でも再 finalize しない）。
                 if is_recording && consumer.slots() > 0 {
                     let _ = drain_ring_into_session(
-                        &mut consumer,
-                        &mut resampler,
-                        &mut engine,
-                        &session_summary,
-                        &mut chunk_f64,
-                        &mut resampled_buf,
+                        DrainRingSession {
+                            consumer: &mut consumer,
+                            resampler: &mut resampler,
+                            engine: &mut engine,
+                            session_summary: &session_summary,
+                            chunk_f64: &mut chunk_f64,
+                            resampled_buf: &mut resampled_buf,
+                            sample_rate,
+                            n_channels,
+                            native_frames_total: &mut native_frames_total,
+                        },
                         Some(RecordTraceDrain {
                             queue: &record_trace_queue,
-                            record_origin_frames,
-                            record_trace_time_offset_ms,
-                            next_trace_ms: &mut next_record_trace_ms,
-                            next_psb_ms: &mut next_record_psb_ms,
+                            timeline: RecordTraceTimeline {
+                                origin_frames_48k: record_origin_frames,
+                                origin_native_frames: record_origin_native_frames,
+                                offset_frames_48k: record_trace_frame_offset_48k,
+                                offset_native_frames: record_trace_native_frame_offset,
+                            },
+                            cursor: RecordTraceCursor {
+                                next_trace_ms: &mut next_record_trace_ms,
+                                next_psb_ms: &mut next_record_psb_ms,
+                            },
                         }),
                     );
                 }
@@ -451,6 +496,10 @@ pub fn spawn_measure_thread(
                         Err(_) => break,                   // Consumer が空になった
                     }
                 }
+                let chunk_native_frames = (chunk_f64.len() / n_channels) as u64;
+                let native_frames_before = native_frames_total;
+                native_frames_total = native_frames_total.saturating_add(chunk_native_frames);
+                let native_frames_after = native_frames_total;
 
                 //  v2: 入力 SR が 48 kHz でない場合のみリサンプリング。
                 // resampler 経由では 48 kHz interleaved f64 が `resampled_buf` に追記される。
@@ -486,21 +535,45 @@ pub fn spawn_measure_thread(
                 let mut last_result = None;
                 let latest_pd_snapshot = latest_pd.clone();
                 let observed_at_ms = now_epoch_ms();
+                let frames_48k_before = engine.total_frames();
+                let chunk_48k_frames = (chunk_48k.len() / n_channels) as u64;
                 let _ = engine.push_observed(chunk_48k, |frames_48k, base_result| {
                     let mut new_result = base_result.clone();
                     merge_phase_d_fields(&mut new_result, latest_pd_snapshot.as_ref());
+                    let observed_native_frames = estimate_observed_native_frames(
+                        frames_48k,
+                        frames_48k_before,
+                        native_frames_before,
+                        chunk_native_frames,
+                        chunk_48k_frames,
+                    )
+                    .unwrap_or(native_frames_after);
                     if is_recording {
                         let _ = maybe_push_record_trace(
                             &record_trace_queue,
-                            record_origin_frames,
-                            record_trace_time_offset_ms,
-                            &mut next_record_trace_ms,
-                            &mut next_record_psb_ms,
-                            frames_48k,
+                            RecordTraceTimeline {
+                                origin_frames_48k: record_origin_frames,
+                                origin_native_frames: record_origin_native_frames,
+                                offset_frames_48k: record_trace_frame_offset_48k,
+                                offset_native_frames: record_trace_native_frame_offset,
+                            },
+                            &mut RecordTraceCursor {
+                                next_trace_ms: &mut next_record_trace_ms,
+                                next_psb_ms: &mut next_record_psb_ms,
+                            },
+                            RecordTraceObserved {
+                                frames_48k,
+                                native_frames: Some(observed_native_frames),
+                            },
                             &new_result,
                         );
                     } else {
-                        record_pre_roll.push(observed_at_ms, frames_48k, &new_result);
+                        record_pre_roll.push(
+                            observed_at_ms,
+                            frames_48k,
+                            observed_native_frames,
+                            &new_result,
+                        );
                     }
                     last_result = Some(new_result);
                 });
@@ -568,32 +641,64 @@ fn merge_phase_d_fields(
     }
 }
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+struct RecordTraceSeedOffsets {
+    frames_48k: u64,
+    native_frames: u64,
+    origin_frames_48k: u64,
+    origin_native_frames: u64,
+    seeded: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct RecordTraceTimeline {
+    origin_frames_48k: u64,
+    origin_native_frames: u64,
+    offset_frames_48k: u64,
+    offset_native_frames: u64,
+}
+
+struct RecordTraceCursor<'a> {
+    next_trace_ms: &'a mut u64,
+    next_psb_ms: &'a mut u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct RecordTraceObserved {
+    frames_48k: u64,
+    native_frames: Option<u64>,
+}
+
 fn seed_record_trace_from_pre_roll(
     queue: &RecordTraceQueue,
     pre_roll: &RecordTracePreRoll,
     requested_started_at_ms: i64,
     next_trace_ms: &mut u64,
     next_psb_ms: &mut u64,
-) -> u64 {
+) -> RecordTraceSeedOffsets {
     if requested_started_at_ms <= 0 {
-        return 0;
+        return RecordTraceSeedOffsets::default();
     }
     let Some(origin) = pre_roll
         .samples
         .iter()
         .find(|sample| sample.captured_at_ms >= requested_started_at_ms)
     else {
-        return 0;
+        return RecordTraceSeedOffsets::default();
     };
     let origin_frames = origin.frames_48k;
-    let mut last_seed_t_ms = 0;
+    let origin_native_frames = origin.native_frames;
+    let mut last_seed_frames_48k = 0;
+    let mut last_seed_native_frames = 0;
     let mut seeded = 0_usize;
     for sample in pre_roll
         .samples
         .iter()
         .filter(|sample| sample.captured_at_ms >= requested_started_at_ms)
     {
-        let t_ms = sample.frames_48k.saturating_sub(origin_frames) * 1_000 / ENGINE_SR as u64;
+        let t_frames_48k = sample.frames_48k.saturating_sub(origin_frames);
+        let t_native_frames = sample.native_frames.saturating_sub(origin_native_frames);
+        let t_ms = t_frames_48k.saturating_mul(1_000) / ENGINE_SR as u64;
         if t_ms < *next_trace_ms {
             continue;
         }
@@ -602,6 +707,8 @@ fn seed_record_trace_from_pre_roll(
             queue,
             RecordTraceSample {
                 t_ms,
+                t_frames_48k,
+                t_native_frames: Some(t_native_frames),
                 result: sample.result.clone(),
                 include_psb,
             },
@@ -610,7 +717,8 @@ fn seed_record_trace_from_pre_roll(
         if include_psb {
             *next_psb_ms = (t_ms / PSB_INTERVAL_MS + 1) * PSB_INTERVAL_MS;
         }
-        last_seed_t_ms = t_ms;
+        last_seed_frames_48k = t_frames_48k;
+        last_seed_native_frames = t_native_frames;
         seeded += 1;
     }
     if seeded > 0 {
@@ -620,45 +728,129 @@ fn seed_record_trace_from_pre_roll(
             requested_started_at_ms
         );
     }
-    last_seed_t_ms
+    RecordTraceSeedOffsets {
+        frames_48k: last_seed_frames_48k,
+        native_frames: last_seed_native_frames,
+        origin_frames_48k: origin_frames,
+        origin_native_frames,
+        seeded: seeded > 0,
+    }
 }
 
 fn maybe_push_record_trace(
     queue: &RecordTraceQueue,
-    record_origin_frames: u64,
-    record_trace_time_offset_ms: u64,
-    next_trace_ms: &mut u64,
-    next_psb_ms: &mut u64,
-    frames_48k: u64,
+    timeline: RecordTraceTimeline,
+    cursor: &mut RecordTraceCursor<'_>,
+    observed: RecordTraceObserved,
     result: &MeasureResult,
 ) -> bool {
-    let t_ms = record_trace_time_offset_ms
-        .saturating_add(frames_48k.saturating_sub(record_origin_frames) * 1_000 / ENGINE_SR as u64);
-    if t_ms < *next_trace_ms {
+    let t_frames_48k = timeline.offset_frames_48k.saturating_add(
+        observed
+            .frames_48k
+            .saturating_sub(timeline.origin_frames_48k),
+    );
+    let t_native_frames = observed.native_frames.map(|frames| {
+        timeline
+            .offset_native_frames
+            .saturating_add(frames.saturating_sub(timeline.origin_native_frames))
+    });
+    let t_ms = t_frames_48k.saturating_mul(1_000) / ENGINE_SR as u64;
+    if t_ms < *cursor.next_trace_ms {
         return false;
     }
-    let include_psb = t_ms >= *next_psb_ms;
+    let include_psb = t_ms >= *cursor.next_psb_ms;
     push_record_trace_sample(
         queue,
         RecordTraceSample {
             t_ms,
+            t_frames_48k,
+            t_native_frames,
             result: result.clone(),
             include_psb,
         },
     );
-    *next_trace_ms = (t_ms / FRAME_INTERVAL_MS + 1) * FRAME_INTERVAL_MS;
+    *cursor.next_trace_ms = (t_ms / FRAME_INTERVAL_MS + 1) * FRAME_INTERVAL_MS;
     if include_psb {
-        *next_psb_ms = (t_ms / PSB_INTERVAL_MS + 1) * PSB_INTERVAL_MS;
+        *cursor.next_psb_ms = (t_ms / PSB_INTERVAL_MS + 1) * PSB_INTERVAL_MS;
     }
     true
 }
 
 struct RecordTraceDrain<'a> {
     queue: &'a RecordTraceQueue,
-    record_origin_frames: u64,
-    record_trace_time_offset_ms: u64,
-    next_trace_ms: &'a mut u64,
-    next_psb_ms: &'a mut u64,
+    timeline: RecordTraceTimeline,
+    cursor: RecordTraceCursor<'a>,
+}
+
+struct DrainRingSession<'a> {
+    consumer: &'a mut rtrb::Consumer<f32>,
+    resampler: &'a mut Option<ResamplerTo48k>,
+    engine: &'a mut MeasureEngine,
+    session_summary: &'a Arc<Mutex<Option<SessionSummary>>>,
+    chunk_f64: &'a mut Vec<f64>,
+    resampled_buf: &'a mut Vec<f64>,
+    sample_rate: u32,
+    n_channels: usize,
+    native_frames_total: &'a mut u64,
+}
+
+fn native_frames_to_ms(frames: u64, sample_rate: u32) -> u64 {
+    if sample_rate == 0 {
+        return 0;
+    }
+    frames.saturating_mul(1_000) / sample_rate as u64
+}
+
+fn native_frames_to_48k(frames: u64, sample_rate: u32) -> u64 {
+    if sample_rate == 0 {
+        return 0;
+    }
+    frames.saturating_mul(ENGINE_SR as u64) / sample_rate as u64
+}
+
+fn estimate_observed_native_frames(
+    frames_48k: u64,
+    frames_48k_before: u64,
+    native_frames_before: u64,
+    chunk_native_frames: u64,
+    chunk_48k_frames: u64,
+) -> Option<u64> {
+    if chunk_native_frames == 0 {
+        return None;
+    }
+    if chunk_48k_frames == 0 {
+        return Some(native_frames_before.saturating_add(chunk_native_frames));
+    }
+    let observed_delta_48k = frames_48k.saturating_sub(frames_48k_before);
+    let observed_delta_native =
+        observed_delta_48k.saturating_mul(chunk_native_frames) / chunk_48k_frames;
+    Some(native_frames_before.saturating_add(observed_delta_native.min(chunk_native_frames)))
+}
+
+fn push_record_timeline_marker(
+    trace: &RecordTraceDrain<'_>,
+    sample_rate: u32,
+    native_frames_total: u64,
+) {
+    let native_delta = native_frames_total.saturating_sub(trace.timeline.origin_native_frames);
+    let t_native_frames = trace
+        .timeline
+        .offset_native_frames
+        .saturating_add(native_delta);
+    let t_frames_48k = trace
+        .timeline
+        .offset_frames_48k
+        .saturating_add(native_frames_to_48k(native_delta, sample_rate));
+    push_record_trace_sample(
+        trace.queue,
+        RecordTraceSample {
+            t_ms: native_frames_to_ms(t_native_frames, sample_rate),
+            t_frames_48k,
+            t_native_frames: Some(t_native_frames),
+            result: MeasureResult::default(),
+            include_psb: false,
+        },
+    );
 }
 
 /// B-132 (G-115-382): 残量 ring を **Active ループ本体と同一**の convert/resample/engine.push
@@ -674,54 +866,70 @@ struct RecordTraceDrain<'a> {
 /// Mutex poison で `false`（= drain 不能 → 呼び出し側は seal を進めず、IO 側 bounded wait が
 /// timeout → integrity_degraded に倒れる / 共通B）。
 fn drain_ring_into_session(
-    consumer: &mut rtrb::Consumer<f32>,
-    resampler: &mut Option<ResamplerTo48k>,
-    engine: &mut MeasureEngine,
-    session_summary: &Arc<Mutex<Option<SessionSummary>>>,
-    chunk_f64: &mut Vec<f64>,
-    resampled_buf: &mut Vec<f64>,
+    ctx: DrainRingSession<'_>,
     mut record_trace: Option<RecordTraceDrain<'_>>,
 ) -> bool {
-    let available = consumer.slots();
+    let available = ctx.consumer.slots();
     if available > 0 {
-        chunk_f64.clear();
+        ctx.chunk_f64.clear();
         for _ in 0..available {
-            match consumer.pop() {
-                Ok(s) => chunk_f64.push(s as f64),
+            match ctx.consumer.pop() {
+                Ok(s) => ctx.chunk_f64.push(s as f64),
                 Err(_) => break,
             }
         }
-        let chunk_48k: &[f64] = if let Some(rs) = resampler.as_mut() {
-            resampled_buf.clear();
-            if let Err(e) = rs.process(chunk_f64, resampled_buf) {
+        let chunk_native_frames = (ctx.chunk_f64.len() / ctx.n_channels) as u64;
+        let native_frames_before = *ctx.native_frames_total;
+        *ctx.native_frames_total = (*ctx.native_frames_total).saturating_add(chunk_native_frames);
+        let native_frames_after = *ctx.native_frames_total;
+        let chunk_48k: &[f64] = if let Some(rs) = ctx.resampler.as_mut() {
+            ctx.resampled_buf.clear();
+            if let Err(e) = rs.process(ctx.chunk_f64.as_slice(), ctx.resampled_buf) {
                 log::warn!(
                     "[MeasureThread] drain resample error: {:?} — tail finalize skipped",
                     e
                 );
+                if let Some(trace) = record_trace.as_ref() {
+                    push_record_timeline_marker(trace, ctx.sample_rate, native_frames_after);
+                }
                 return false;
             }
-            resampled_buf
+            ctx.resampled_buf.as_slice()
         } else {
-            chunk_f64
+            ctx.chunk_f64.as_slice()
         };
         if let Some(trace) = record_trace.as_mut() {
-            let _ = engine.push_observed(chunk_48k, |frames_48k, result| {
+            let frames_48k_before = ctx.engine.total_frames();
+            let chunk_48k_frames = (chunk_48k.len() / ctx.n_channels) as u64;
+            let _ = ctx.engine.push_observed(chunk_48k, |frames_48k, result| {
+                let observed_native_frames = estimate_observed_native_frames(
+                    frames_48k,
+                    frames_48k_before,
+                    native_frames_before,
+                    chunk_native_frames,
+                    chunk_48k_frames,
+                )
+                .unwrap_or(native_frames_after);
                 maybe_push_record_trace(
                     trace.queue,
-                    trace.record_origin_frames,
-                    trace.record_trace_time_offset_ms,
-                    trace.next_trace_ms,
-                    trace.next_psb_ms,
-                    frames_48k,
+                    trace.timeline,
+                    &mut trace.cursor,
+                    RecordTraceObserved {
+                        frames_48k,
+                        native_frames: Some(observed_native_frames),
+                    },
                     result,
                 );
             });
+            push_record_timeline_marker(trace, ctx.sample_rate, native_frames_after);
         } else {
-            let _ = engine.push(chunk_48k);
+            let _ = ctx.engine.push(chunk_48k);
         }
+    } else if let Some(trace) = record_trace.as_ref() {
+        push_record_timeline_marker(trace, ctx.sample_rate, *ctx.native_frames_total);
     }
-    let summary = engine.finalize();
-    match session_summary.lock() {
+    let summary = ctx.engine.finalize();
+    match ctx.session_summary.lock() {
         Ok(mut g) => {
             *g = Some(summary);
             true
@@ -809,9 +1017,9 @@ pub mod tests {
             ..Default::default()
         };
 
-        pre_roll.push(900, 4_800, &before);
-        pre_roll.push(1_050, 9_600, &after_a);
-        pre_roll.push(1_150, 14_400, &after_b);
+        pre_roll.push(900, 4_800, 4_410, &before);
+        pre_roll.push(1_050, 9_600, 8_820, &after_a);
+        pre_roll.push(1_150, 14_400, 13_230, &after_b);
 
         let queue = crate::record_writer::new_record_trace_queue();
         let mut next_trace_ms = 0;
@@ -827,17 +1035,63 @@ pub mod tests {
 
         assert_eq!(drained.len(), 2);
         assert_eq!(drained[0].t_ms, 0);
+        assert_eq!(drained[0].t_frames_48k, 0);
+        assert_eq!(drained[0].t_native_frames, Some(0));
         assert_eq!(drained[0].result.lufs_m, Some(-20.0));
         assert_eq!(drained[1].t_ms, 100);
+        assert_eq!(drained[1].t_frames_48k, 4_800);
+        assert_eq!(drained[1].t_native_frames, Some(4_410));
         assert_eq!(drained[1].result.lufs_m, Some(-19.0));
-        assert_eq!(offset, 100);
+        assert_eq!(offset.frames_48k, 4_800);
+        assert_eq!(offset.native_frames, 4_410);
+        assert_eq!(offset.origin_frames_48k, 9_600);
+        assert_eq!(offset.origin_native_frames, 8_820);
+        assert!(offset.seeded);
         assert_eq!(next_trace_ms, 200);
+    }
+
+    #[test]
+    fn pre_roll_seed_transition_offset_includes_gap_after_last_seed() {
+        let mut pre_roll = super::RecordTracePreRoll::default();
+        let after_a = crate::MeasureResult {
+            lufs_m: Some(-20.0),
+            ..Default::default()
+        };
+        let after_b = crate::MeasureResult {
+            lufs_m: Some(-19.0),
+            ..Default::default()
+        };
+        pre_roll.push(1_050, 9_600, 8_820, &after_a);
+        pre_roll.push(1_150, 14_400, 13_230, &after_b);
+
+        let queue = crate::record_writer::new_record_trace_queue();
+        let mut next_trace_ms = 0;
+        let mut next_psb_ms = 0;
+        let offset = super::seed_record_trace_from_pre_roll(
+            &queue,
+            &pre_roll,
+            1_000,
+            &mut next_trace_ms,
+            &mut next_psb_ms,
+        );
+        let transition_native_frames = 17_640_u64;
+        let transition_offset_native =
+            transition_native_frames.saturating_sub(offset.origin_native_frames);
+        assert_eq!(transition_offset_native, 8_820);
+        assert!(
+            transition_offset_native > offset.native_frames,
+            "Record transition offset must cover audio time between the last seeded sample and the transition"
+        );
+        assert_eq!(
+            super::native_frames_to_48k(transition_offset_native, 44_100),
+            9_600
+        );
     }
 
     #[test]
     fn pre_roll_seed_is_disabled_without_record_started_at() {
         let mut pre_roll = super::RecordTracePreRoll::default();
-        pre_roll.push(1_000, 4_800, &crate::MeasureResult::default());
+        pre_roll.push(1_000, 4_800, 4_410, &crate::MeasureResult::default());
         let queue = crate::record_writer::new_record_trace_queue();
         let mut next_trace_ms = 0;
         let mut next_psb_ms = 0;
@@ -850,7 +1104,7 @@ pub mod tests {
             &mut next_psb_ms,
         );
 
-        assert_eq!(offset, 0);
+        assert_eq!(offset, super::RecordTraceSeedOffsets::default());
         assert!(crate::record_writer::drain_record_trace_queue(&queue).is_empty());
         assert_eq!(next_trace_ms, 0);
     }
@@ -1065,7 +1319,7 @@ pub mod tests {
 // ── B-132 (G-115-382): drain-completion barrier 感度確証 ──────────────────────────
 #[cfg(test)]
 mod b132_drain_tests {
-    use super::drain_ring_into_session;
+    use super::{drain_ring_into_session, DrainRingSession};
     use crate::engine::MeasureEngine;
     use std::sync::{Arc, Mutex};
 
@@ -1123,13 +1377,19 @@ mod b132_drain_tests {
         let mut chunk = Vec::new();
         let mut resampled = Vec::new();
         let mut resampler = None;
+        let mut native_frames_total = SR as u64;
         let ok = drain_ring_into_session(
-            &mut cons,
-            &mut resampler,
-            &mut eng_on,
-            &ss,
-            &mut chunk,
-            &mut resampled,
+            DrainRingSession {
+                consumer: &mut cons,
+                resampler: &mut resampler,
+                engine: &mut eng_on,
+                session_summary: &ss,
+                chunk_f64: &mut chunk,
+                resampled_buf: &mut resampled,
+                sample_rate: SR,
+                n_channels: 2,
+                native_frames_total: &mut native_frames_total,
+            },
             None,
         );
         assert!(ok, "drain must succeed");
@@ -1166,13 +1426,19 @@ mod b132_drain_tests {
         let mut chunk = Vec::new();
         let mut resampled = Vec::new();
         let mut resampler = None;
+        let mut native_frames_total = SR as u64;
         let ok = drain_ring_into_session(
-            &mut cons,
-            &mut resampler,
-            &mut eng,
-            &ss,
-            &mut chunk,
-            &mut resampled,
+            DrainRingSession {
+                consumer: &mut cons,
+                resampler: &mut resampler,
+                engine: &mut eng,
+                session_summary: &ss,
+                chunk_f64: &mut chunk,
+                resampled_buf: &mut resampled,
+                sample_rate: SR,
+                n_channels: 2,
+                native_frames_total: &mut native_frames_total,
+            },
             None,
         );
         assert!(ok);
