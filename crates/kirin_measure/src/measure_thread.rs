@@ -565,6 +565,7 @@ pub fn spawn_measure_thread(
                                 next_trace_ms: &mut next_record_trace_ms,
                                 next_psb_ms: &mut next_record_psb_ms,
                             },
+                            sample_rate,
                             RecordTraceObserved {
                                 frames_48k,
                                 native_frames: Some(observed_native_frames),
@@ -748,6 +749,7 @@ fn maybe_push_record_trace(
     queue: &RecordTraceQueue,
     timeline: RecordTraceTimeline,
     cursor: &mut RecordTraceCursor<'_>,
+    sample_rate: u32,
     observed: RecordTraceObserved,
     result: &MeasureResult,
 ) -> bool {
@@ -762,6 +764,7 @@ fn maybe_push_record_trace(
             .saturating_add(frames.saturating_sub(timeline.origin_native_frames))
     });
     let t_ms = t_frames_48k.saturating_mul(1_000) / ENGINE_SR as u64;
+    push_record_trace_floor_until(queue, timeline.generation, cursor, sample_rate, t_ms, false);
     if t_ms < *cursor.next_trace_ms {
         return false;
     }
@@ -782,6 +785,41 @@ fn maybe_push_record_trace(
         *cursor.next_psb_ms = (t_ms / PSB_INTERVAL_MS + 1) * PSB_INTERVAL_MS;
     }
     true
+}
+
+fn push_record_trace_floor_until(
+    queue: &RecordTraceQueue,
+    generation: u64,
+    cursor: &mut RecordTraceCursor<'_>,
+    sample_rate: u32,
+    end_t_ms: u64,
+    inclusive: bool,
+) -> usize {
+    let mut pushed = 0;
+    while *cursor.next_trace_ms < end_t_ms || (inclusive && *cursor.next_trace_ms <= end_t_ms) {
+        let t_ms = *cursor.next_trace_ms;
+        push_record_trace_sample(
+            queue,
+            RecordTraceSample {
+                generation,
+                t_ms,
+                t_frames_48k: t_ms_to_48k_frames(t_ms),
+                t_native_frames: Some(t_ms_to_native_frames(t_ms, sample_rate)),
+                result: MeasureResult::default(),
+                include_psb: false,
+            },
+        );
+        advance_record_trace_cursor(cursor, t_ms, false);
+        pushed += 1;
+    }
+    pushed
+}
+
+fn advance_record_trace_cursor(cursor: &mut RecordTraceCursor<'_>, t_ms: u64, include_psb: bool) {
+    *cursor.next_trace_ms = (t_ms / FRAME_INTERVAL_MS + 1) * FRAME_INTERVAL_MS;
+    if include_psb {
+        *cursor.next_psb_ms = (t_ms / PSB_INTERVAL_MS + 1) * PSB_INTERVAL_MS;
+    }
 }
 
 struct RecordTraceDrain<'a> {
@@ -816,6 +854,14 @@ fn native_frames_to_48k(frames: u64, sample_rate: u32) -> u64 {
     frames.saturating_mul(ENGINE_SR as u64) / sample_rate as u64
 }
 
+fn t_ms_to_48k_frames(t_ms: u64) -> u64 {
+    t_ms.saturating_mul(ENGINE_SR as u64) / 1_000
+}
+
+fn t_ms_to_native_frames(t_ms: u64, sample_rate: u32) -> u64 {
+    t_ms.saturating_mul(sample_rate as u64) / 1_000
+}
+
 fn estimate_observed_native_frames(
     frames_48k: u64,
     frames_48k_before: u64,
@@ -835,31 +881,45 @@ fn estimate_observed_native_frames(
     Some(native_frames_before.saturating_add(observed_delta_native.min(chunk_native_frames)))
 }
 
-fn push_record_timeline_marker(
-    trace: &RecordTraceDrain<'_>,
+fn push_record_timeline_markers_until(
+    trace: &mut RecordTraceDrain<'_>,
     sample_rate: u32,
     native_frames_total: u64,
-) {
+) -> usize {
     let native_delta = native_frames_total.saturating_sub(trace.timeline.origin_native_frames);
     let t_native_frames = trace
         .timeline
         .offset_native_frames
         .saturating_add(native_delta);
-    let t_frames_48k = trace
-        .timeline
-        .offset_frames_48k
-        .saturating_add(native_frames_to_48k(native_delta, sample_rate));
-    push_record_trace_sample(
+    let end_t_ms = native_frames_to_ms(t_native_frames, sample_rate);
+    let mut pushed = push_record_trace_floor_until(
         trace.queue,
-        RecordTraceSample {
-            generation: trace.timeline.generation,
-            t_ms: native_frames_to_ms(t_native_frames, sample_rate),
-            t_frames_48k,
-            t_native_frames: Some(t_native_frames),
-            result: MeasureResult::default(),
-            include_psb: false,
-        },
+        trace.timeline.generation,
+        &mut trace.cursor,
+        sample_rate,
+        end_t_ms,
+        true,
     );
+    let grid_native_frames = t_ms_to_native_frames(end_t_ms, sample_rate);
+    if t_native_frames != grid_native_frames {
+        let t_frames_48k = trace
+            .timeline
+            .offset_frames_48k
+            .saturating_add(native_frames_to_48k(native_delta, sample_rate));
+        push_record_trace_sample(
+            trace.queue,
+            RecordTraceSample {
+                generation: trace.timeline.generation,
+                t_ms: end_t_ms,
+                t_frames_48k,
+                t_native_frames: Some(t_native_frames),
+                result: MeasureResult::default(),
+                include_psb: false,
+            },
+        );
+        pushed += 1;
+    }
+    pushed
 }
 
 /// B-132 (G-115-382): 残量 ring を **Active ループ本体と同一**の convert/resample/engine.push
@@ -898,8 +958,8 @@ fn drain_ring_into_session(
                     "[MeasureThread] drain resample error: {:?} — tail finalize skipped",
                     e
                 );
-                if let Some(trace) = record_trace.as_ref() {
-                    push_record_timeline_marker(trace, ctx.sample_rate, native_frames_after);
+                if let Some(trace) = record_trace.as_mut() {
+                    push_record_timeline_markers_until(trace, ctx.sample_rate, native_frames_after);
                 }
                 return false;
             }
@@ -923,6 +983,7 @@ fn drain_ring_into_session(
                     trace.queue,
                     trace.timeline,
                     &mut trace.cursor,
+                    ctx.sample_rate,
                     RecordTraceObserved {
                         frames_48k,
                         native_frames: Some(observed_native_frames),
@@ -930,12 +991,12 @@ fn drain_ring_into_session(
                     result,
                 );
             });
-            push_record_timeline_marker(trace, ctx.sample_rate, native_frames_after);
+            push_record_timeline_markers_until(trace, ctx.sample_rate, native_frames_after);
         } else {
             let _ = ctx.engine.push(chunk_48k);
         }
-    } else if let Some(trace) = record_trace.as_ref() {
-        push_record_timeline_marker(trace, ctx.sample_rate, *ctx.native_frames_total);
+    } else if let Some(trace) = record_trace.as_mut() {
+        push_record_timeline_markers_until(trace, ctx.sample_rate, *ctx.native_frames_total);
     }
     let summary = ctx.engine.finalize();
     match ctx.session_summary.lock() {
@@ -1120,6 +1181,124 @@ pub mod tests {
         assert_eq!(offset, super::RecordTraceSeedOffsets::default());
         assert!(crate::record_writer::drain_record_trace_queue(&queue).is_empty());
         assert_eq!(next_trace_ms, 0);
+    }
+
+    #[test]
+    fn record_trace_observed_gap_is_filled_on_audio_time_grid() {
+        let queue = crate::record_writer::new_record_trace_queue();
+        let mut next_trace_ms = 0;
+        let mut next_psb_ms = 0;
+        let timeline = super::RecordTraceTimeline {
+            generation: 5,
+            origin_frames_48k: 0,
+            origin_native_frames: 0,
+            offset_frames_48k: 0,
+            offset_native_frames: 0,
+        };
+        let observed = crate::MeasureResult {
+            lufs_m: Some(-18.0),
+            ..Default::default()
+        };
+
+        {
+            let mut cursor = super::RecordTraceCursor {
+                next_trace_ms: &mut next_trace_ms,
+                next_psb_ms: &mut next_psb_ms,
+            };
+            assert!(super::maybe_push_record_trace(
+                &queue,
+                timeline,
+                &mut cursor,
+                96_000,
+                super::RecordTraceObserved {
+                    frames_48k: 24_000,
+                    native_frames: Some(48_000),
+                },
+                &observed,
+            ));
+        }
+
+        let drained = crate::record_writer::drain_record_trace_queue(&queue);
+        assert_eq!(drained.len(), 6);
+        assert_eq!(
+            drained.iter().map(|sample| sample.t_ms).collect::<Vec<_>>(),
+            vec![0, 100, 200, 300, 400, 500]
+        );
+        assert_eq!(drained[4].t_native_frames, Some(38_400));
+        assert_eq!(drained[4].result.lufs_m, None);
+        assert_eq!(drained[5].t_native_frames, Some(48_000));
+        assert_eq!(drained[5].result.lufs_m, Some(-18.0));
+        assert_eq!(next_trace_ms, 600);
+    }
+
+    #[test]
+    fn record_trace_final_marker_covers_96k_fifteen_second_grid() {
+        let queue = crate::record_writer::new_record_trace_queue();
+        let mut next_trace_ms = 0;
+        let mut next_psb_ms = 0;
+
+        let pushed = {
+            let mut trace = super::RecordTraceDrain {
+                queue: &queue,
+                timeline: super::RecordTraceTimeline {
+                    generation: 9,
+                    origin_frames_48k: 0,
+                    origin_native_frames: 0,
+                    offset_frames_48k: 0,
+                    offset_native_frames: 0,
+                },
+                cursor: super::RecordTraceCursor {
+                    next_trace_ms: &mut next_trace_ms,
+                    next_psb_ms: &mut next_psb_ms,
+                },
+            };
+            super::push_record_timeline_markers_until(&mut trace, 96_000, 1_440_000)
+        };
+        let drained = crate::record_writer::drain_record_trace_queue(&queue);
+
+        assert_eq!(pushed, 151);
+        assert_eq!(drained.len(), 151);
+        assert_eq!(drained.first().map(|sample| sample.t_ms), Some(0));
+        assert_eq!(drained.last().map(|sample| sample.t_ms), Some(15_000));
+        assert_eq!(
+            drained.last().and_then(|sample| sample.t_native_frames),
+            Some(1_440_000)
+        );
+        assert_eq!(next_trace_ms, 15_100);
+    }
+
+    #[test]
+    fn record_trace_terminal_marker_preserves_non_grid_native_end() {
+        let queue = crate::record_writer::new_record_trace_queue();
+        let mut next_trace_ms = 0;
+        let mut next_psb_ms = 0;
+
+        let pushed = {
+            let mut trace = super::RecordTraceDrain {
+                queue: &queue,
+                timeline: super::RecordTraceTimeline {
+                    generation: 10,
+                    origin_frames_48k: 0,
+                    origin_native_frames: 0,
+                    offset_frames_48k: 0,
+                    offset_native_frames: 0,
+                },
+                cursor: super::RecordTraceCursor {
+                    next_trace_ms: &mut next_trace_ms,
+                    next_psb_ms: &mut next_psb_ms,
+                },
+            };
+            super::push_record_timeline_markers_until(&mut trace, 96_000, 1_440_048)
+        };
+        let drained = crate::record_writer::drain_record_trace_queue(&queue);
+
+        assert_eq!(pushed, 152);
+        assert_eq!(drained.len(), 152);
+        assert_eq!(drained[150].t_ms, 15_000);
+        assert_eq!(drained[150].t_native_frames, Some(1_440_000));
+        assert_eq!(drained[151].t_ms, 15_000);
+        assert_eq!(drained[151].t_native_frames, Some(1_440_048));
+        assert_eq!(next_trace_ms, 15_100);
     }
 
     // ── B-115: POST pair lock 述語（playing かつ live）+ heartbeat 鮮度の単体 ──

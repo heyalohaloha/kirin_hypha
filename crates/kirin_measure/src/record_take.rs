@@ -78,6 +78,7 @@ impl RecordTakeTracker {
         let render_eligible = block.rendered
             && block.num_frames > 0
             && block.recording
+            && block.position_valid
             && (block.offline || block.playing);
 
         if !render_eligible {
@@ -90,13 +91,9 @@ impl RecordTakeTracker {
             || self.position_discontinuity(block.position_valid, block.position_samples);
         let epoch = if reset_epoch {
             self.render_frames.store(0, Ordering::Release);
-            if block.position_valid {
-                self.render_start_position
-                    .store(block.position_samples, Ordering::Release);
-                self.render_start_valid.store(true, Ordering::Release);
-            } else {
-                self.render_start_valid.store(false, Ordering::Release);
-            }
+            self.render_start_position
+                .store(block.position_samples, Ordering::Release);
+            self.render_start_valid.store(true, Ordering::Release);
             self.render_last_end_valid.store(false, Ordering::Release);
             let next = self.render_epoch.fetch_add(1, Ordering::AcqRel) + 1;
             self.render_active.store(true, Ordering::Release);
@@ -105,32 +102,26 @@ impl RecordTakeTracker {
             self.render_epoch.load(Ordering::Acquire)
         };
 
-        let total = self
-            .render_frames
-            .fetch_add(block.num_frames, Ordering::AcqRel)
-            + block.num_frames;
+        self.render_frames
+            .fetch_add(block.num_frames, Ordering::AcqRel);
 
-        if block.position_valid {
-            self.render_last_end_position.store(
-                block
-                    .position_samples
-                    .saturating_add(block.num_frames as i64),
-                Ordering::Release,
-            );
-            self.render_last_end_valid.store(true, Ordering::Release);
-        } else {
-            self.render_last_end_valid.store(false, Ordering::Release);
-        }
+        self.render_last_end_position.store(
+            block
+                .position_samples
+                .saturating_add(block.num_frames as i64),
+            Ordering::Release,
+        );
+        self.render_last_end_valid.store(true, Ordering::Release);
 
         if block.recording && block.generation > 0 {
             let current_epoch = self.record_render_epoch.load(Ordering::Acquire);
             if current_epoch != epoch {
                 self.record_render_epoch.store(epoch, Ordering::Release);
             }
-            self.record_duration_samples.store(
-                self.render_duration_from_position_span().unwrap_or(total),
-                Ordering::Release,
-            );
+            if let Some(duration) = self.render_duration_from_position_span() {
+                self.record_duration_samples
+                    .store(duration, Ordering::Release);
+            }
         }
     }
 
@@ -308,6 +299,23 @@ mod tests {
         });
 
         assert_eq!(tracker.snapshot(9).unwrap().duration_samples, 44_100);
+    }
+
+    #[test]
+    fn invalid_position_never_becomes_clean_take_duration() {
+        let tracker = RecordTakeTracker::new();
+        tracker.note_block(RecordTakeBlock {
+            generation: 19,
+            recording: true,
+            rendered: true,
+            playing: false,
+            offline: true,
+            position_valid: false,
+            position_samples: i64::MIN,
+            num_frames: 1_440_000,
+        });
+
+        assert_eq!(tracker.snapshot(19), None);
     }
 
     #[test]
