@@ -4,20 +4,20 @@
 //! (`record_sm` + `pair_label` + `paired_pre_target`) の cleanup 対称性が構造的に
 //! 保証されないと B-024 G-115-56 同種 (test 2 POST pair: 999999) の再発を招く。
 //!
-//! 本モジュールの [`exit_record_full`] は 3 ステップを 1 単位に束ね、Record を
-//! 閉じてよい経路だけで **同一実装**を通過させ、構造的契約
-//! 「Watch 状態 ⟹ pair_label 空 / paired_pre_target = None」 を一点生成にする。
+//! 本モジュールの [`exit_record_full`] は Keep 失敗など pair 自体を破棄すべき経路の
+//! 3 ステップ cleanup を束ねる。通常の Stop/idle auto-stop は Record を閉じるだけで、
+//! pair 選択は [`exit_record_preserve_pair`] で保持する。
 //!
-//! - editor 側 (`hypha_post::editor::trigger_stop_internal` /
-//!   `trigger_keep_internal` 失敗) は本ヘルパー経由
-//! - IO Thread 側の idle timeout も本ヘルパー経由
+//! - editor 側 Stop は [`exit_record_preserve_pair`] 経由
+//! - editor 側 `trigger_keep_internal` 失敗は [`exit_record_full`] 経由
+//! - IO Thread 側の idle timeout は [`exit_record_preserve_pair`] 経由
 //! - PRE stale / ACK timeout / writer flush failure は診断のみで、Record 停止権限を持たない
 
 use std::sync::{Arc, Mutex};
 
 use crate::record::RecordStateMachine;
 
-/// pair_label をクリア (Watch 復帰時 / Record 失敗時).
+/// pair_label をクリア (Record 失敗時 / 明示的な unpair 時).
 ///
 /// poison 時は機能的沈黙 (R-28). 表示用 string なので致命ではない.
 /// `Option<String>` の paired_pre_target 側は [`exit_record_full`] 内で
@@ -28,16 +28,24 @@ pub fn clear_pair_label(pair_label: &Arc<Mutex<String>>) {
 }
 
 ///
+/// Record を閉じるが、POST の pair 表示と target は保持する。
+///
+/// 手動 Stop / All Stop / idle auto-stop は「今回のRecordを閉じる」操作であり、
+/// 次の比較対象まで外す操作ではない。Record lifecycle と pair selection を分ける。
+pub fn exit_record_preserve_pair(record_sm: &RecordStateMachine) {
+    record_sm.exit_record();
+}
+
+///
 /// 以下 3 ステップを 1 単位で実行する:
 ///   1. `record_sm.exit_record()` — 状態機械を Watch に戻す
 ///   2. `clear_pair_label(pair_label)` — POST GUI の pair 表示を空文字化
 ///   3. `*paired_pre_target = None` — v1.2 (a) post.json 復元キーをクリア
 ///
-/// editor 側 (`trigger_stop_internal` / `trigger_keep_internal` 失敗) と
-/// IO Thread 側の idle timeout で同一呼出.
+/// Keep 失敗や self-check release など、pair 自体を破棄する経路で呼ぶ。
 ///
 /// # 構造的契約
-/// "Watch 状態 ⟹ pair_label 空 / paired_pre_target = None".
+/// "unpair 済 ⟹ pair_label 空 / paired_pre_target = None".
 /// この契約は本ヘルパーの 3 ステップでのみ成立する.
 ///
 /// # Mutex poison
@@ -91,6 +99,26 @@ mod tests {
         assert!(
             target.lock().unwrap().is_none(),
             "paired_pre_target must be None"
+        );
+    }
+
+    /// Stop / idle auto-stop は Record 状態だけを閉じ、pair selection は保持する。
+    #[test]
+    fn exit_record_preserve_pair_keeps_pair_state() {
+        let (sm, label, target) = fresh_state();
+
+        exit_record_preserve_pair(&sm);
+
+        assert_eq!(sm.current(), RecordState::Watch, "exit_record() must run");
+        assert_eq!(
+            label.lock().unwrap().as_str(),
+            "pair: deadbeef",
+            "pair_label must stay visible after Stop"
+        );
+        assert_eq!(
+            target.lock().unwrap().as_deref(),
+            Some("pre-iid-xxx"),
+            "paired_pre_target must stay selected after Stop"
         );
     }
 

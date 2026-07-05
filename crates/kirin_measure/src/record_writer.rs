@@ -399,6 +399,7 @@ pub fn writer_close(mut ctx: RecordingCtx) {
     let final_path = ctx.final_path.clone();
     let failed_path = ctx.failed_path.clone();
     clip_clean_timeline_to_duration(&mut ctx);
+    ensure_clean_frame_timeline_to_duration(&mut ctx);
     mark_integrity_if_trace_density_is_sparse(&mut ctx);
     seal_bounce_marker(&mut ctx);
     match ctx.writer.close() {
@@ -532,6 +533,22 @@ fn clip_clean_timeline_to_duration(ctx: &mut RecordingCtx) {
         let duration_ms = record_duration_ms(ctx);
         ctx.writer.clip_timeline_to_duration(duration_ms);
     }
+}
+
+fn ensure_clean_frame_timeline_to_duration(ctx: &mut RecordingCtx) {
+    if ctx.clean_take.is_none() || ctx.trace_sample_count == 0 {
+        return;
+    }
+    let duration_ms = record_duration_ms(ctx);
+    ctx.writer.ensure_frame_coverage_with_silence(
+        duration_ms,
+        FRAME_INTERVAL_MS,
+        [0.0; 20],
+        0.0,
+        TRACE_SILENCE_LUFS,
+        TRACE_SILENCE_TRUE_PEAK_DBTP,
+        TRACE_SILENCE_CREST_DB,
+    );
 }
 
 fn frame_timeline_covers_duration(ctx: &RecordingCtx, duration_ms: u64) -> bool {
@@ -1932,7 +1949,7 @@ mod tests {
     }
 
     #[test]
-    fn clean_take_density_uses_clipped_frames_not_tail_trace_samples() {
+    fn clean_take_close_fills_clipped_timeline_gaps_with_silence() {
         let base = isolated_base();
         let mut ctx = make_ctx_with_sample_rate(&base, Role::Post, now_epoch_ms(), 48_000);
         let m = full_measure_result();
@@ -1957,14 +1974,22 @@ mod tests {
             serde_json::from_slice(&fs::read(&final_path).unwrap()).unwrap();
         let take = loaded.bounce_take.as_ref().expect("bounce_take");
         assert_eq!(take.end_t_ms, 10_000);
-        assert_eq!(take.frame_count, 1);
-        assert_eq!(loaded.frames.len(), 1);
-        assert!(loaded.frames.iter().all(|frame| frame.t_ms <= 10_000));
-        assert!(loaded.integrity_degraded);
+        assert_eq!(take.frame_count, 101);
+        assert_eq!(loaded.frames.len(), 101);
+        assert_eq!(loaded.frames.first().map(|frame| frame.t_ms), Some(0));
+        assert_eq!(loaded.frames.last().map(|frame| frame.t_ms), Some(10_000));
         assert!(loaded
-            .integrity_reasons
-            .iter()
-            .any(|reason| reason == "frame_timeline_gap"));
+            .frames
+            .windows(2)
+            .all(|pair| pair[1].t_ms.saturating_sub(pair[0].t_ms) == FRAME_INTERVAL_MS));
+        assert_eq!(loaded.frames[0].lufs_m, TRACE_SILENCE_LUFS);
+        assert_eq!(
+            loaded.frames[1].lufs_m,
+            full_measure_result().lufs_m.unwrap()
+        );
+        assert_eq!(loaded.frames[2].lufs_m, TRACE_SILENCE_LUFS);
+        assert!(loaded.frames.iter().all(|frame| frame.t_ms <= 10_000));
+        assert!(!loaded.integrity_degraded);
     }
 
     #[test]

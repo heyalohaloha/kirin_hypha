@@ -3,10 +3,11 @@ mod editor;
 use kirin_measure::{
     daw_session_id, ensure_legacy_cleanup_done, identity_instance_attach, identity_instance_detach,
     live_window, load_license_safe, new_record_trace_queue, process_project_hash,
-    set_daw_session_id, set_project_uuid, spawn_io_thread_pre, spawn_measure_thread,
-    spawn_watchdog, store_signal_state, License, LivenessEvaluator, MeasureResult,
-    RecordStateMachine, RecordTakeBlock, RecordTakeTracker, RecordTraceQueue, SessionSummary,
-    SignalState, WatchdogIo, WatchdogParams, N_CHANNELS, RING_BUFFER_SECONDS,
+    record_window_for_buffer, set_daw_session_id, set_project_uuid, spawn_io_thread_pre,
+    spawn_measure_thread, spawn_watchdog, store_signal_state, License, LivenessEvaluator,
+    MeasureResult, RecordStateMachine, RecordTakeBlock, RecordTakeTracker, RecordTraceQueue,
+    RecordWindow, SessionSummary, SignalState, WatchdogIo, WatchdogParams, N_CHANNELS,
+    RING_BUFFER_SECONDS,
 };
 use nih_plug::prelude::*;
 use nih_plug_egui::EguiState;
@@ -575,73 +576,6 @@ fn buffer_is_silent(buffer: &mut Buffer) -> bool {
         }
     }
     true
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct RecordWindow {
-    start_frame: usize,
-    end_frame: usize,
-    position_valid: bool,
-    position_samples: i64,
-    num_frames: u64,
-}
-
-impl RecordWindow {
-    fn full(num_frames: usize, position_samples: i64) -> Self {
-        Self {
-            start_frame: 0,
-            end_frame: num_frames,
-            position_valid: position_samples != i64::MIN,
-            position_samples,
-            num_frames: num_frames as u64,
-        }
-    }
-}
-
-fn record_window_for_buffer(
-    num_frames: usize,
-    position_samples: i64,
-    loop_range_samples: Option<(i64, i64)>,
-) -> RecordWindow {
-    let Some((loop_start, loop_end)) = loop_range_samples else {
-        return RecordWindow::full(num_frames, position_samples);
-    };
-    if position_samples == i64::MIN {
-        return RecordWindow::full(num_frames, position_samples);
-    }
-    if loop_end <= loop_start {
-        return RecordWindow {
-            start_frame: 0,
-            end_frame: 0,
-            position_valid: true,
-            position_samples,
-            num_frames: 0,
-        };
-    }
-
-    let block_start = position_samples;
-    let block_end = position_samples.saturating_add(num_frames as i64);
-    let clipped_start = block_start.max(loop_start);
-    let clipped_end = block_end.min(loop_end);
-    if clipped_end <= clipped_start {
-        return RecordWindow {
-            start_frame: 0,
-            end_frame: 0,
-            position_valid: true,
-            position_samples: clipped_start,
-            num_frames: 0,
-        };
-    }
-
-    let start_frame = clipped_start.saturating_sub(block_start) as usize;
-    let end_frame = clipped_end.saturating_sub(block_start) as usize;
-    RecordWindow {
-        start_frame,
-        end_frame,
-        position_valid: true,
-        position_samples: clipped_start,
-        num_frames: clipped_end.saturating_sub(clipped_start) as u64,
-    }
 }
 
 fn push_window_to_ring(

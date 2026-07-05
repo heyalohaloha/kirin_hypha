@@ -23,7 +23,7 @@ use std::time::{Duration, Instant, SystemTime};
 
 use crate::all_keep_signal::{self, ALL_KEEP_BROADCAST_STALE_SECS};
 use crate::all_stop_signal::{self, ALL_STOP_BROADCAST_STALE_SECS};
-use crate::cleanup::exit_record_full;
+use crate::cleanup::exit_record_preserve_pair;
 use crate::delta::{DeltaMode, DeltaResult, DeltaSnapshot};
 use crate::engine::SessionSummary;
 use crate::pairing_scope::{read_pre_at, select_target_pre_for_arm_for_post_project, LatchedPre};
@@ -516,7 +516,7 @@ pub fn spawn_io_thread_post(
             // Stop/All Stop と、この連続無Active timeout だけを Record 停止権限にする。
             // - 非Record: 基点を更新（次 Record で 0 から計時 / 過去の idle を持ち越さない）。
             // - Active: 基点リセット（録音中は決して発火しない）。
-            // - 非Active 連続でしきい値超過: release reservation → mark_released → exit_record_full。
+            // - 非Active 連続でしきい値超過: release reservation → mark_released → Record終了。
             //   writer は次 tick の run_record_tick (false,true) で graceful close（seal 待ち +
             //   session 集計注入 + trace drain）＝ degraded ではなく正常テイクとして保存。
             // 非Record または Active 信号あり → 基点リセット（次 Record で 0 から計時 /
@@ -534,7 +534,6 @@ pub fn spawn_io_thread_post(
                 );
                 if let Ok(paths) = StoragePaths::default_platform() {
                     let base = paths.plugin_data_dir();
-                    // 順序厳守: exit_record_full が paired_pre_target を None 化する前に
                     // reservation 解放（解放対象 PRE iid を読むため）。
                     release_record_reservation(
                         &base,
@@ -550,7 +549,7 @@ pub fn spawn_io_thread_post(
                 // writer_start 失敗（record 開始時ディスクエラー）時は recording==None なので、
                 // 実体のないテイクを「保存済み」と誤通知しない。
                 let take_existed = recording.is_some();
-                exit_record_full(&record_sm, &pair_label, &paired_pre_target);
+                exit_record_preserve_pair(&record_sm);
                 if let Ok(mut g) = record_error_message.write() {
                     // B-207 #3: しきい値を文言へ反映（env override 時も正確 / 既定 600s = "10 min"）。
                     // 分割り切れなければ秒表記（テスト用の短い override でも 0 min と出さない）。

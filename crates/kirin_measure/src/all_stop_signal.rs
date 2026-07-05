@@ -1,7 +1,8 @@
 //! all_stop_signal.json — POST → 同 project_hash 全 POST broadcast (α-7' / All Stop)。
 //!
-//! `all_keep_signal` と完全対称形。1 POST 押下 → broadcast → 同 project の全 POST が
-//! `record_sm.exit_record()` + `mark_released` + `paired_pre_target=None` を実行。
+//! 1 POST 押下 → broadcast → 同 project の全 POST が `record_sm.exit_record()` +
+//! `mark_released` を実行する。Stop は Record session の終了であり、pair selection は
+//! 維持する。
 //!
 //! # ファイル構造
 //! ```text
@@ -24,8 +25,7 @@
 //! # originator 側ライフサイクル
 //! 1. All Stop ボタン押下 → [`write_stop_broadcast`] 配置
 //! 2. originator 自身の `trigger_stop_internal` も同 frame で発火
-//! 3. `record_sm.exit_record()` / `Drop` / IO Thread shutdown のいずれかで
-//!    [`delete_stop_broadcast`] 呼出 (3 統合点 / all_keep_signal と完全対称)
+//! 3. `Drop` / IO Thread shutdown で [`delete_stop_broadcast`] 呼出
 //! 4. orphan broadcast は 30 秒 stale fallback で ignore
 
 use chrono::{DateTime, Utc};

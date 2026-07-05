@@ -255,12 +255,13 @@ fn lib_rs_wires_pair_label_to_editor() {
     );
 }
 
-/// editor.rs に set_pair_label が定義されており、`clear_pair_label` /
-/// `exit_record_full` は kirin_measure から import されていること
+/// editor.rs に set_pair_label が定義されており、pair cleanup は
+/// kirin_measure から import されていること。
 ///
 /// G-115-64 構造的修正: clear_pair_label の定義は `kirin_measure::cleanup` に
 /// 集約された (editor 側 / IO Thread 側で同一関数を共有 / 構造的契約一点生成).
-/// editor.rs では production 経路で `exit_record_full` のみ呼び、
+/// editor.rs では Stop 経路で `exit_record_preserve_pair` を呼び、
+/// Keep 失敗など pair 自体を破棄すべき経路だけ `exit_record_full` を呼ぶ。
 /// `clear_pair_label` は test mod から `use kirin_measure::clear_pair_label;` で
 /// 取り込む (本ファイルでも assert).
 #[test]
@@ -276,10 +277,15 @@ fn editor_rs_has_pair_label_helpers() {
         !src.contains("fn clear_pair_label"),
         "G-115-64: editor.rs must NOT define `fn clear_pair_label` locally — it is centralized in kirin_measure::cleanup"
     );
-    // G-115-64: exit_record_full を import + Record→Watch 遷移で使用していること.
+    // Stop は Record session だけを閉じ、pair selection は保持する。
+    assert!(
+        src.contains("exit_record_preserve_pair"),
+        "editor.rs must use kirin_measure::exit_record_preserve_pair for Stop without unpair"
+    );
+    // Keep 失敗など pair 自体を破棄すべき経路には exit_record_full を残す。
     assert!(
         src.contains("exit_record_full"),
-        "G-115-64: editor.rs must use kirin_measure::exit_record_full for Record→Watch cleanup symmetry"
+        "editor.rs must keep kirin_measure::exit_record_full for failed Keep/unpair cleanup"
     );
     // G-115-64: test mod から clear_pair_label を kirin_measure 経由で取り込むこと.
     assert!(
@@ -395,6 +401,30 @@ fn editor_rs_trigger_stop_marks_released_without_deleting_signal() {
     assert!(
         !src.contains("delete_signal(&plugin_data_dir, project_hash, instance_id)"),
         "trigger_stop must leave record_signal as released so PRE observes explicit Stop"
+    );
+}
+
+/// Stop は Record session だけを閉じる。pair_label / paired_pre_target は保持し、
+/// Keep 失敗用の full cleanup と混線させない。
+#[test]
+fn editor_rs_trigger_stop_preserves_pair_selection() {
+    let src = read("src/editor.rs");
+    let start = src
+        .find("pub(crate) fn trigger_stop_internal(")
+        .expect("trigger_stop_internal must exist");
+    let end = src[start..]
+        .find("fn trigger_all_stop_broadcast(")
+        .map(|idx| start + idx)
+        .expect("trigger_all_stop_broadcast must follow trigger_stop_internal");
+    let body = &src[start..end];
+
+    assert!(
+        body.contains("exit_record_preserve_pair(record_sm)"),
+        "trigger_stop_internal must preserve the selected PRE/POST pair"
+    );
+    assert!(
+        !body.contains("exit_record_full("),
+        "trigger_stop_internal must not clear pair_label or paired_pre_target"
     );
 }
 

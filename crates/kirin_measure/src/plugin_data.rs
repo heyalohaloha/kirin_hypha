@@ -558,6 +558,49 @@ impl PluginDataWriter {
         }
     }
 
+    /// Ensure `frames[]` covers `0..=end_t_ms` on a fixed grid.
+    ///
+    /// This is used only at Record close. Missing points are explicit silence
+    /// frames, not carried-forward music values.
+    #[allow(clippy::too_many_arguments)]
+    pub fn ensure_frame_coverage_with_silence(
+        &mut self,
+        end_t_ms: u64,
+        interval_ms: u64,
+        n_prime: [f64; 20],
+        sharpness: f64,
+        lufs_m: f64,
+        true_peak: f64,
+        crest: f64,
+    ) {
+        if interval_ms == 0 {
+            return;
+        }
+        let mut t_ms = 0_u64;
+        loop {
+            if !self.data.frames.iter().any(|frame| frame.t_ms == t_ms) {
+                self.append_frame_optional(
+                    t_ms,
+                    Some(n_prime),
+                    Some(sharpness),
+                    lufs_m,
+                    true_peak,
+                    crest,
+                    None,
+                );
+            }
+            if t_ms >= end_t_ms {
+                break;
+            }
+            let next = t_ms.saturating_add(interval_ms);
+            if next <= t_ms {
+                break;
+            }
+            t_ms = next.min(end_t_ms);
+        }
+        self.data.frames.sort_by_key(|frame| frame.t_ms);
+    }
+
     /// 1 frame を追加。数値を精度表に従って丸める。
     ///
     #[allow(clippy::too_many_arguments)]
