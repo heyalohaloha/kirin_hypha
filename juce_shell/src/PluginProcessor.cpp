@@ -19,7 +19,9 @@ namespace
     // blocks beyond this ceiling are not reallocated; their frames are counted as oversized
     // drops (B-125 (c) / kirin_hypha_note_oversized_drop) while audio keeps passing through.
     constexpr int kOversizeHeadroomFrames = 65536;
-    constexpr double kOfflineAutoStopMinRenderMs = 100.0;
+    // Studio One can emit short non-realtime preflight fragments before the real bounce.
+    // Treat Offline->Realtime as a Record end candidate only after a minimum usable Record span.
+    constexpr double kOfflineAutoStopMinRenderMs = 1000.0;
 
     // C ABI signal-state codes: 0 = Inactive, 1 = Active, 2 = Bypassed.
     uint8_t resolveSignalStateCode (bool bypassed,
@@ -64,10 +66,13 @@ namespace
     bool parseBoolEnvEnabled (const char* raw)
     {
         if (raw == nullptr)
-            return false;
+            return true;
 
         const auto value = juce::String (raw).trim().toLowerCase();
-        return value == "1" || value == "true" || value == "yes" || value == "on";
+        if (value == "0" || value == "false" || value == "no" || value == "off")
+            return false;
+
+        return true;
     }
 
     bool offlineAutoStopEnabled()
@@ -107,8 +112,8 @@ KirinHyphaProcessorBase::~KirinHyphaProcessorBase()
 
 void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
-    // B-225: offline render 終了 edge は観測するが、Record 信頼性優先のため自動 Stop は
-    // 既定 OFF。handleLock を取る前に呼ぶ（stopPair が自前で lock を取るため nest 回避）。
+    // Offline render 終了 edge は Record の終了候補として使う。
+    // handleLock を取る前に呼ぶ（stopPair が自前で lock を取るため nest 回避）。
     // message-thread / 非RT。
     maybeAutoStopOnOfflineEnd();
 
@@ -180,8 +185,8 @@ void KirinHyphaProcessorBase::releaseResources()
     // editor fall back to Watch/Keep mid-bounce. Keep the handle alive until destructor or an
     // incompatible prepareToPlay rebuild.
 
-    // B-225: offline render 終了境界も拾うが、既定では Record を閉じない。
-    // 明示 opt-in 時だけ maybeAutoStopOnOfflineEnd() が Stop へ進む。
+    // Offline render 終了候補も拾う。
+    // 最低 1 秒の offline render sample gate を満たした時だけ maybeAutoStopOnOfflineEnd() が Stop へ進む。
     maybeAutoStopOnOfflineEnd();
 }
 
@@ -427,10 +432,10 @@ void KirinHyphaProcessorBase::stopPair()
         kirin_hypha_stop (hyphaHandle);
 }
 
-// B-225: offline render 終了（isNonRealtime true→false エッジ）での自動 Stop は既定 OFF。
-// Hypha の信用境界では「勝手に Record を閉じない」を優先する。検証用に
-// KIRIN_HYPHA_OFFLINE_AUTOSTOP=1 を明示した場合だけ、B-224 の non-realtime process sample
-// gate を満たす POST が手動 Stop と同経路（graceful close + pairing cleanup）で閉じる。
+// Offline render 終了（isNonRealtime true→false エッジ）は Record の終了候補。
+// 1 秒以上の non-realtime process sample gate を満たす POST だけが
+// 手動 Stop と同経路（graceful close + pairing cleanup）で閉じる。
+// KIRIN_HYPHA_OFFLINE_AUTOSTOP=0/false/no/off は検証用の明示 disable。
 // 呼出元（prepareToPlay/releaseResources）は message-thread / 非RT。
 void KirinHyphaProcessorBase::maybeAutoStopOnOfflineEnd()
 {

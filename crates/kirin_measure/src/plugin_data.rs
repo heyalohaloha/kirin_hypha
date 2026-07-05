@@ -229,6 +229,12 @@ pub struct PluginDataFile {
     /// 旧 JSON 互換のため optional。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pair_pre_name: Option<String>,
+    /// POST Keep 1 回ごとの Record session UUID。
+    ///
+    /// POST が `record_signal` に書いた session_id を PRE/POST の plugin_data に転記する。
+    /// PRE/POST が同じ録音として閉じたかを後段で検証する pair-level key。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub record_session_id: Option<String>,
     /// Record 開始 wall-clock（epoch ms）。frame t_ms の原点。
     /// PRE=相手 POST の started_at、POST=自身の started_at を epoch ms 化（同一原点）。
     /// signal 不在/壊れ時の fallback では PRE/POST で異なり得る。
@@ -340,6 +346,7 @@ impl PluginDataFile {
             paired_post_instance_id,
             pair_name: non_empty_string(pair_name),
             pair_pre_name: non_empty_string(pair_pre_name),
+            record_session_id: None,
             started_at_ms: 0,
             dropped_samples: 0,
             integrity_degraded: false,
@@ -699,6 +706,11 @@ impl PluginDataWriter {
         self.data.started_at_ms = started_at_ms;
     }
 
+    /// PRE/POST 共通の Record session UUID を焼く。
+    pub fn set_record_session_id(&mut self, session_id: Option<String>) {
+        self.data.record_session_id = non_empty_string(session_id);
+    }
+
     /// atomic flush: checksum 計算 → `.tmp` 書込 → `rename()` で最終パスに置換。
     ///
     /// rename は POSIX では同一 FS 内で atomic。途中クラッシュ時も最終ファイルは
@@ -755,6 +767,15 @@ impl PluginDataWriter {
         }
         if self.data.sample_rate == 0 {
             reasons.push("missing_sample_rate");
+        }
+        for reason in &self.data.integrity_reasons {
+            match reason.as_str() {
+                "zero_trace_frames" => reasons.push("zero_trace_frames"),
+                "frame_timeline_gap" => reasons.push("frame_timeline_gap"),
+                "sparse_trace_density" => reasons.push("sparse_trace_density"),
+                "record_too_short" => reasons.push("record_too_short"),
+                _ => {}
+            }
         }
         reasons
     }
@@ -1045,6 +1066,7 @@ mod tests {
         assert!(f.paired_post_instance_id.is_none());
         assert!(f.pair_name.is_none());
         assert!(f.pair_pre_name.is_none());
+        assert!(f.record_session_id.is_none());
         assert_eq!(f.started_at_ms, 0);
         assert_eq!(f.sample_rate, 48000);
         assert_eq!(f.source_format, 48000);
@@ -1074,6 +1096,10 @@ mod tests {
         assert!(
             !json.contains("pair_pre_name"),
             "pair_pre_name omitted when None: {json}"
+        );
+        assert!(
+            !json.contains("record_session_id"),
+            "record_session_id omitted when None: {json}"
         );
         assert!(
             !json.contains("bounce_take"),
@@ -1386,6 +1412,24 @@ mod tests {
         );
         let loaded: PluginDataFile = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(loaded.started_at_ms, started_at_ms);
+        assert!(verify_checksum(&loaded));
+    }
+
+    #[test]
+    fn record_session_id_serializes_only_when_set() {
+        let base = isolated_dir();
+        let mut w = sample_writer(&base, Role::Post);
+        w.set_record_session_id(Some("session-abc".to_string()));
+        w.flush().unwrap();
+
+        let bytes = fs::read(&w.paths.staging_path).unwrap();
+        let json = String::from_utf8(bytes.clone()).unwrap();
+        assert!(
+            json.contains("\"record_session_id\":\"session-abc\""),
+            "record_session_id must be serialized when set: {json}"
+        );
+        let loaded: PluginDataFile = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(loaded.record_session_id.as_deref(), Some("session-abc"));
         assert!(verify_checksum(&loaded));
     }
 

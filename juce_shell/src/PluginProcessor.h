@@ -51,8 +51,8 @@ public:
     juce::String pathAnomalyMessage() const;            // B-128 (G-115-371 D3): kirin_hypha_drain_path_event (restore identity anomaly surface)
     bool licenseIsOs() const;                           // B-118 (①): kirin_hypha_load_license()==Os
     void stopPair();                                    // kirin_hypha_stop
-    // B-225: offline render 終了（isNonRealtime true→false エッジ）は観測するが、既定では
-    // Record を閉じない。検証 opt-in 時のみ手動 Stop と同経路 stopPair へ進む。
+    // Offline render 終了（isNonRealtime true→false エッジ）は Record の終了候補。
+    // 短い preflight を除く offline render sample gate を満たした時だけ stopPair へ進む。
     void maybeAutoStopOnOfflineEnd();
 
     // --- B-073: POST Δ readout (editor display branching) --------------------------------

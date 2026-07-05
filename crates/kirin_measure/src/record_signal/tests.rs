@@ -26,6 +26,8 @@ fn signal_status_serialization_is_lowercase() {
 #[test]
 fn signal_roundtrip_preserves_all_fields() {
     let s = RecordSignal::new_pending("post-001".into(), "pre-xyz".into(), "daw-uuid-1".into());
+    assert!(!s.session_id.is_empty());
+    assert!(uuid::Uuid::parse_str(&s.session_id).is_ok());
     let json = serde_json::to_string(&s).unwrap();
     let back: RecordSignal = serde_json::from_str(&json).unwrap();
     assert_eq!(s, back);
@@ -47,6 +49,7 @@ fn write_pending_creates_file_with_pending_status() {
     assert_eq!(s.requested_by, "post-1");
     assert_eq!(s.target_pre_instance_id, "pre-1");
     assert_eq!(s.daw_session_id, "daw-1");
+    assert!(!s.session_id.is_empty());
     let loaded = read_signal(&base, "ph", "post-1").unwrap();
     assert_eq!(loaded, s);
 }
@@ -69,7 +72,7 @@ fn read_signal_corrupt_returns_none() {
 #[test]
 fn mark_acknowledged_updates_status_and_returns_true() {
     let base = isolated_dir();
-    write_pending(&base, "ph", "post-1", "pre-1".into(), "daw-1".into()).unwrap();
+    let initial = write_pending(&base, "ph", "post-1", "pre-1".into(), "daw-1".into()).unwrap();
     let changed = mark_acknowledged(&base, "ph", "post-1").unwrap();
     assert!(changed);
     let loaded = read_signal(&base, "ph", "post-1").unwrap();
@@ -77,6 +80,10 @@ fn mark_acknowledged_updates_status_and_returns_true() {
     assert_eq!(
         loaded.daw_session_id, "daw-1",
         "daw_session_id preserved on transition"
+    );
+    assert_eq!(
+        loaded.session_id, initial.session_id,
+        "session_id preserved on transition"
     );
 }
 
@@ -105,6 +112,17 @@ fn legacy_schema_without_daw_session_id_defaults_to_empty() {
     fs::write(dir.join("post-1.json"), legacy).unwrap();
     let loaded = read_signal(&base, "ph", "post-1").unwrap();
     assert_eq!(loaded.daw_session_id, "");
+}
+
+#[test]
+fn legacy_schema_without_session_id_defaults_to_empty() {
+    let base = isolated_dir();
+    let dir = signals_dir(&base, "ph");
+    fs::create_dir_all(&dir).unwrap();
+    let legacy = r#"{"status":"pending","requested_by":"post-1","target_pre_instance_id":"pre-1","daw_session_id":"daw-1","t":"2026-01-01T00:00:00Z","started_at":"2026-01-01T00:00:00Z"}"#;
+    fs::write(dir.join("post-1.json"), legacy).unwrap();
+    let loaded = read_signal(&base, "ph", "post-1").unwrap();
+    assert_eq!(loaded.session_id, "");
 }
 
 /// B-023 段階 3: paired_pre_name 不在の旧 schema 読込で空文字 default に
@@ -294,6 +312,7 @@ fn full_post_to_pre_handshake_sequence() {
     mark_released(&base, "ph", "post-1").unwrap();
     let after = read_signal(&base, "ph", "post-1").unwrap();
     assert_eq!(after.status, SignalStatus::Released);
+    assert_eq!(after.session_id, sig.session_id);
     delete_signal(&base, "ph", "post-1").unwrap();
     assert!(read_signal(&base, "ph", "post-1").is_none());
 }

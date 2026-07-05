@@ -120,7 +120,7 @@ impl RecordTakeTracker {
             }
             if let Some(duration) = self.render_duration_from_position_span() {
                 self.record_duration_samples
-                    .store(duration, Ordering::Release);
+                    .fetch_max(duration, Ordering::AcqRel);
             }
         }
     }
@@ -408,5 +408,32 @@ mod tests {
 
         assert_eq!(tracker.snapshot(21).unwrap().duration_samples, 44_100);
         assert_eq!(tracker.snapshot(22).unwrap().duration_samples, 1_024);
+    }
+
+    #[test]
+    fn later_short_fragment_does_not_shrink_same_record_generation() {
+        let tracker = RecordTakeTracker::new();
+        tracker.note_block(RecordTakeBlock {
+            generation: 31,
+            recording: true,
+            rendered: true,
+            playing: false,
+            offline: true,
+            position_valid: true,
+            position_samples: 0,
+            num_frames: 1_440_000,
+        });
+        tracker.note_block(RecordTakeBlock {
+            generation: 31,
+            recording: true,
+            rendered: true,
+            playing: true,
+            offline: false,
+            position_valid: true,
+            position_samples: 0,
+            num_frames: 2_048,
+        });
+
+        assert_eq!(tracker.snapshot(31).unwrap().duration_samples, 1_440_000);
     }
 }

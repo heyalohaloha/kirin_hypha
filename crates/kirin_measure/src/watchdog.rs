@@ -18,7 +18,9 @@
 
 use crate::engine::SessionSummary;
 use crate::record::RecordStateMachine;
-use crate::{spawn_measure_thread, LivenessEvaluator, MeasureResult, RecordTraceQueue};
+use crate::{
+    spawn_measure_thread, LivenessEvaluator, MeasureResult, RecordTakeTracker, RecordTraceQueue,
+};
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
@@ -104,6 +106,8 @@ pub struct WatchdogParams {
     pub session_summary: Arc<Mutex<Option<SessionSummary>>>,
     /// Offline bounce 用 TRACE queue（再起動した Measure Thread に渡す）
     pub record_trace_queue: RecordTraceQueue,
+    /// Audio Thread が刻む Record native clock。Measure 再起動後も同じ clock を読む。
+    pub record_take_tracker: Arc<RecordTakeTracker>,
 }
 
 /// Watchdog Thread を起動して JoinHandle を返す。
@@ -126,6 +130,7 @@ pub fn spawn_watchdog(params: WatchdogParams) -> JoinHandle<()> {
             record_sm,
             session_summary,
             record_trace_queue,
+            record_take_tracker,
         } = params;
 
         let mut cur_measure = initial_m;
@@ -172,6 +177,7 @@ pub fn spawn_watchdog(params: WatchdogParams) -> JoinHandle<()> {
                     Arc::clone(&record_sm),
                     Arc::clone(&session_summary),
                     Arc::clone(&record_trace_queue),
+                    Arc::clone(&record_take_tracker),
                 );
 
                 // Audio Thread に新しい Producer を渡す（process() が取り出す）

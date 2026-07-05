@@ -199,7 +199,7 @@ mod tests {
     }
 
     #[test]
-    fn juce_offline_end_auto_stop_is_opt_in_and_post_recording_edge_gated() {
+    fn juce_offline_end_auto_stop_defaults_on_and_post_recording_edge_gated() {
         let prepare = between(
             PLUGIN_PROCESSOR_CPP,
             "void KirinHyphaProcessorBase::prepareToPlay",
@@ -223,15 +223,25 @@ mod tests {
         );
         assert!(
             body.contains("if (! offlineAutoStopEnabled())"),
-            "offline-end auto-stop must be disabled by default"
+            "offline-end auto-stop must honor explicit disable before closing Record"
+        );
+        assert!(
+            PLUGIN_PROCESSOR_CPP.contains("if (raw == nullptr)\n            return true;"),
+            "offline-end auto-stop must default on when the env var is unset"
+        );
+        assert!(
+            PLUGIN_PROCESSOR_CPP.contains(
+                "value == \"0\" || value == \"false\" || value == \"no\" || value == \"off\""
+            ),
+            "offline-end auto-stop must support explicit disable values"
         );
         assert!(
             PLUGIN_PROCESSOR_CPP.contains("std::getenv (\"KIRIN_HYPHA_OFFLINE_AUTOSTOP\")"),
-            "offline-end auto-stop must require explicit opt-in"
+            "offline-end auto-stop must remain externally switchable for validation"
         );
         assert!(
             body.contains("kirin_hypha_is_recording"),
-            "opt-in offline-end auto-stop must only call Stop when Record/Keep is active"
+            "offline-end auto-stop must only call Stop when Record/Keep is active"
         );
         assert!(
             body.contains("offlineRenderedSamples.load"),
@@ -240,6 +250,10 @@ mod tests {
         assert!(
             body.contains("offlineAutoStopMinRenderSamples"),
             "offline-end auto-stop must ignore short start-side preflight churn"
+        );
+        assert!(
+            PLUGIN_PROCESSOR_CPP.contains("constexpr double kOfflineAutoStopMinRenderMs = 1000.0;"),
+            "offline-end auto-stop must reject short Studio One preflight fragments"
         );
         assert!(
             body.contains("if (recording)\n    {\n        stopPair();"),

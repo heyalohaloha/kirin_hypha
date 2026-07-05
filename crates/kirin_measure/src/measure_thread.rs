@@ -8,6 +8,7 @@
 use crate::phase_d::stream::PhaseDStream;
 use crate::phase_d::tables::FieldType;
 use crate::record::RecordStateMachine;
+use crate::record_take::RecordTakeTracker;
 use crate::record_writer::{
     clear_record_trace_queue, now_epoch_ms, push_record_trace_sample, RecordTraceQueue,
     RecordTraceSample, FRAME_INTERVAL_MS, PSB_INTERVAL_MS,
@@ -211,6 +212,7 @@ pub fn spawn_measure_thread(
     record_sm: Arc<RecordStateMachine>,
     session_summary: Arc<Mutex<Option<SessionSummary>>>,
     record_trace_queue: RecordTraceQueue,
+    record_take_tracker: Arc<RecordTakeTracker>,
 ) -> JoinHandle<()> {
     thread::spawn(move || {
         let n_channels = match n_channels {
@@ -374,9 +376,22 @@ pub fn spawn_measure_thread(
                         },
                     }),
                 );
+                let completed_trace = push_record_trace_to_record_take_clock(
+                    &record_trace_queue,
+                    record_sm.generation(),
+                    &record_take_tracker,
+                    &mut RecordTraceCursor {
+                        next_trace_ms: &mut next_record_trace_ms,
+                        next_psb_ms: &mut next_record_psb_ms,
+                    },
+                    sample_rate,
+                );
                 if drained {
                     record_sm.bump_seal();
-                    log::info!("[MeasureThread] Record→Watch tight-drain complete (seal bumped)");
+                    log::info!(
+                        "[MeasureThread] Record→Watch tight-drain complete (seal bumped, clock_trace_completed={})",
+                        completed_trace
+                    );
                 } else {
                     log::warn!(
                         "[MeasureThread] Record→Watch drain incomplete — seal NOT bumped (IO bake → integrity_degraded)"
@@ -922,6 +937,53 @@ fn push_record_timeline_markers_until(
     pushed
 }
 
+fn push_record_trace_to_record_take_clock(
+    queue: &RecordTraceQueue,
+    generation: u64,
+    tracker: &RecordTakeTracker,
+    cursor: &mut RecordTraceCursor<'_>,
+    sample_rate: u32,
+) -> usize {
+    let Some(snapshot) = tracker.snapshot(generation) else {
+        return 0;
+    };
+    push_record_trace_clock_markers_until(
+        queue,
+        generation,
+        cursor,
+        sample_rate,
+        snapshot.duration_samples,
+    )
+}
+
+fn push_record_trace_clock_markers_until(
+    queue: &RecordTraceQueue,
+    generation: u64,
+    cursor: &mut RecordTraceCursor<'_>,
+    sample_rate: u32,
+    end_native_frames: u64,
+) -> usize {
+    let end_t_ms = native_frames_to_ms(end_native_frames, sample_rate);
+    let mut pushed =
+        push_record_trace_floor_until(queue, generation, cursor, sample_rate, end_t_ms, true);
+    let grid_native_frames = t_ms_to_native_frames(end_t_ms, sample_rate);
+    if end_native_frames != grid_native_frames {
+        push_record_trace_sample(
+            queue,
+            RecordTraceSample {
+                generation,
+                t_ms: end_t_ms,
+                t_frames_48k: native_frames_to_48k(end_native_frames, sample_rate),
+                t_native_frames: Some(end_native_frames),
+                result: MeasureResult::default(),
+                include_psb: false,
+            },
+        );
+        pushed += 1;
+    }
+    pushed
+}
+
 /// B-132 (G-115-382): 残量 ring を **Active ループ本体と同一**の convert/resample/engine.push
 /// パイプラインに通して engine に算入し、最終 `engine.finalize()` を `session_summary` に書く。
 ///
@@ -1046,7 +1108,14 @@ fn compute_psb_summary(
 
 #[cfg(test)]
 pub mod tests {
-    use super::compute_psb_summary;
+    use super::{
+        compute_psb_summary, push_record_trace_clock_markers_until,
+        push_record_trace_to_record_take_clock, RecordTraceCursor,
+    };
+    use crate::record_take::{RecordTakeBlock, RecordTakeTracker};
+    use crate::record_writer::{
+        drain_record_trace_queue, new_record_trace_queue, FRAME_INTERVAL_MS,
+    };
 
     /// Test-only public wrapper for compute_psb_summary.
     /// Used by stream.rs pink noise test.
@@ -1069,6 +1138,77 @@ pub mod tests {
             super::idle_sleep_for_record_state(true) < super::LOOP_SLEEP,
             "Record mode must poll faster than Watch mode"
         );
+    }
+
+    #[test]
+    fn record_take_clock_closes_96k_15s_trace_grid() {
+        let queue = new_record_trace_queue();
+        let mut next_trace_ms = 0;
+        let mut next_psb_ms = 0;
+        let pushed = push_record_trace_clock_markers_until(
+            &queue,
+            42,
+            &mut RecordTraceCursor {
+                next_trace_ms: &mut next_trace_ms,
+                next_psb_ms: &mut next_psb_ms,
+            },
+            96_000,
+            1_440_000,
+        );
+        let frames = drain_record_trace_queue(&queue);
+
+        assert_eq!(pushed, 151);
+        assert_eq!(frames.len(), 151);
+        assert_eq!(frames.first().map(|f| f.t_ms), Some(0));
+        assert_eq!(frames.last().map(|f| f.t_ms), Some(15_000));
+        assert_eq!(
+            frames.last().and_then(|f| f.t_native_frames),
+            Some(1_440_000)
+        );
+        for pair in frames.windows(2) {
+            assert_eq!(pair[1].t_ms - pair[0].t_ms, FRAME_INTERVAL_MS);
+        }
+    }
+
+    #[test]
+    fn record_take_tracker_snapshot_closes_missing_measure_tail() {
+        let tracker = RecordTakeTracker::new();
+        tracker.note_block(RecordTakeBlock {
+            generation: 7,
+            recording: true,
+            rendered: true,
+            playing: false,
+            offline: true,
+            position_valid: true,
+            position_samples: 0,
+            num_frames: 1_440_000,
+        });
+
+        let queue = new_record_trace_queue();
+        let mut next_trace_ms = 10_200;
+        let mut next_psb_ms = 0;
+        let pushed = push_record_trace_to_record_take_clock(
+            &queue,
+            7,
+            &tracker,
+            &mut RecordTraceCursor {
+                next_trace_ms: &mut next_trace_ms,
+                next_psb_ms: &mut next_psb_ms,
+            },
+            96_000,
+        );
+        let frames = drain_record_trace_queue(&queue);
+
+        assert_eq!(pushed, 49);
+        assert_eq!(frames.first().map(|f| f.t_ms), Some(10_200));
+        assert_eq!(frames.last().map(|f| f.t_ms), Some(15_000));
+        assert_eq!(
+            frames.last().and_then(|f| f.t_native_frames),
+            Some(1_440_000)
+        );
+        for pair in frames.windows(2) {
+            assert_eq!(pair[1].t_ms - pair[0].t_ms, FRAME_INTERVAL_MS);
+        }
     }
 
     #[test]
