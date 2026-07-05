@@ -319,6 +319,7 @@ pub fn spawn_measure_thread(
                 let seed_offsets = seed_record_trace_from_pre_roll(
                     &record_trace_queue,
                     &record_pre_roll,
+                    record_sm.generation(),
                     record_sm.record_started_at_ms(),
                     &mut next_record_trace_ms,
                     &mut next_record_psb_ms,
@@ -361,6 +362,7 @@ pub fn spawn_measure_thread(
                     Some(RecordTraceDrain {
                         queue: &record_trace_queue,
                         timeline: RecordTraceTimeline {
+                            generation: record_sm.generation(),
                             origin_frames_48k: record_origin_frames,
                             origin_native_frames: record_origin_native_frames,
                             offset_frames_48k: record_trace_frame_offset_48k,
@@ -429,6 +431,7 @@ pub fn spawn_measure_thread(
                         Some(RecordTraceDrain {
                             queue: &record_trace_queue,
                             timeline: RecordTraceTimeline {
+                                generation: record_sm.generation(),
                                 origin_frames_48k: record_origin_frames,
                                 origin_native_frames: record_origin_native_frames,
                                 offset_frames_48k: record_trace_frame_offset_48k,
@@ -552,6 +555,7 @@ pub fn spawn_measure_thread(
                         let _ = maybe_push_record_trace(
                             &record_trace_queue,
                             RecordTraceTimeline {
+                                generation: record_sm.generation(),
                                 origin_frames_48k: record_origin_frames,
                                 origin_native_frames: record_origin_native_frames,
                                 offset_frames_48k: record_trace_frame_offset_48k,
@@ -652,6 +656,7 @@ struct RecordTraceSeedOffsets {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct RecordTraceTimeline {
+    generation: u64,
     origin_frames_48k: u64,
     origin_native_frames: u64,
     offset_frames_48k: u64,
@@ -672,6 +677,7 @@ struct RecordTraceObserved {
 fn seed_record_trace_from_pre_roll(
     queue: &RecordTraceQueue,
     pre_roll: &RecordTracePreRoll,
+    generation: u64,
     requested_started_at_ms: i64,
     next_trace_ms: &mut u64,
     next_psb_ms: &mut u64,
@@ -706,6 +712,7 @@ fn seed_record_trace_from_pre_roll(
         push_record_trace_sample(
             queue,
             RecordTraceSample {
+                generation,
                 t_ms,
                 t_frames_48k,
                 t_native_frames: Some(t_native_frames),
@@ -762,6 +769,7 @@ fn maybe_push_record_trace(
     push_record_trace_sample(
         queue,
         RecordTraceSample {
+            generation: timeline.generation,
             t_ms,
             t_frames_48k,
             t_native_frames,
@@ -844,6 +852,7 @@ fn push_record_timeline_marker(
     push_record_trace_sample(
         trace.queue,
         RecordTraceSample {
+            generation: trace.timeline.generation,
             t_ms: native_frames_to_ms(t_native_frames, sample_rate),
             t_frames_48k,
             t_native_frames: Some(t_native_frames),
@@ -1027,6 +1036,7 @@ pub mod tests {
         let offset = super::seed_record_trace_from_pre_roll(
             &queue,
             &pre_roll,
+            77,
             1_000,
             &mut next_trace_ms,
             &mut next_psb_ms,
@@ -1035,6 +1045,7 @@ pub mod tests {
 
         assert_eq!(drained.len(), 2);
         assert_eq!(drained[0].t_ms, 0);
+        assert_eq!(drained[0].generation, 77);
         assert_eq!(drained[0].t_frames_48k, 0);
         assert_eq!(drained[0].t_native_frames, Some(0));
         assert_eq!(drained[0].result.lufs_m, Some(-20.0));
@@ -1070,6 +1081,7 @@ pub mod tests {
         let offset = super::seed_record_trace_from_pre_roll(
             &queue,
             &pre_roll,
+            77,
             1_000,
             &mut next_trace_ms,
             &mut next_psb_ms,
@@ -1099,6 +1111,7 @@ pub mod tests {
         let offset = super::seed_record_trace_from_pre_roll(
             &queue,
             &pre_roll,
+            77,
             0,
             &mut next_trace_ms,
             &mut next_psb_ms,

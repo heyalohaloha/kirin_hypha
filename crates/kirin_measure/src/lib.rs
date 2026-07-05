@@ -29,6 +29,7 @@ pub mod preset_dispatch;
 pub mod preset_v2;
 pub mod record;
 pub mod record_signal;
+pub mod record_take;
 pub mod record_writer;
 pub mod resampler;
 pub mod reservation;
@@ -117,6 +118,10 @@ pub use record_signal::{
     delete_signal, is_timed_out, mark_acknowledged, mark_released, read_signal, scan_signals_dir,
     signal_path, signals_dir, write_pending, write_signal, RecordSignal, SignalError, SignalStatus,
     ACK_TIMEOUT_SECONDS, SIGNALS_SUBDIR, SIGNAL_FILENAME,
+};
+pub use record_take::{
+    new_record_take_tracker, RecordTakeBlock, RecordTakeSnapshot, RecordTakeTracker,
+    RECORD_TAKE_SOURCE_RENDER_CLOCK,
 };
 pub use record_writer::{new_record_trace_queue, RecordTraceQueue, RecordTraceSample};
 pub use storage::{

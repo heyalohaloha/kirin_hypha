@@ -199,6 +199,13 @@ bool kirin_hypha_keep(KirinHypha* handle);
 /* POST が Record 中か（true=Record / false=Watch）. pairing UI の Keep/Stop 出し分け用. */
 bool kirin_hypha_is_recording(KirinHypha* handle);
 
+/* Record take の実レンダー長を通知する（Audio Thread 単独・RT-safe）.
+ * rendered はこの block をDAWが実処理したことを示す. position_* は host の
+ * sample position が取れる場合だけ valid=true. */
+void kirin_hypha_note_record_block(KirinHypha* handle, bool recording, bool rendered,
+                                   bool playing, bool offline, bool position_valid,
+                                   int64_t position_samples, uint64_t num_frames);
+
 /* POST「Stop」: pair 解除（record_signal released）+ Watch へ戻す（3d-b）. */
 void kirin_hypha_stop(KirinHypha* handle);
 
