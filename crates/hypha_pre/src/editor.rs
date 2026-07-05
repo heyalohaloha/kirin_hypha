@@ -196,8 +196,8 @@ pub fn create_pre_editor(
                     true,
                     false,
                 ),
-                SignalState::Inactive => match state.display_smoother.held_measure(now) {
-                    Some(held) => (held, true, true),
+                SignalState::Inactive => match state.display_smoother.held_measure_display(now) {
+                    Some(held) => (held.value, true, held.muted),
                     None => (raw_m, false, false),
                 },
                 SignalState::Bypassed => {

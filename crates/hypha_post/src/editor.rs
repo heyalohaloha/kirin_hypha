@@ -416,32 +416,43 @@ pub fn create_post_editor(args: PostEditorArgs) -> Option<Box<dyn Editor>> {
             }
             let led_col = led_color(led, now);
 
-            let (m, d, display_stale) = match sig {
+            let (m, d, display_held, display_muted) = match sig {
                 SignalState::Active => {
                     let smoothed_m = state.display_smoother.update_measure(&raw_m, now);
-                    let (display_d, stale_d) = if raw_d.mode == DeltaMode::Active {
-                        (state.display_smoother.update_delta(&raw_d, now), false)
-                    } else if raw_d.mode == DeltaMode::Bypassed {
-                        (raw_d, false)
-                    } else if !pair_empty_for_display {
+                    let (display_d, held_d, muted_d) = if raw_d.mode == DeltaMode::Active {
                         (
-                            state.display_smoother.held_delta(now).unwrap_or(raw_d),
-                            true,
+                            state.display_smoother.update_delta(&raw_d, now),
+                            false,
+                            false,
                         )
+                    } else if raw_d.mode == DeltaMode::Bypassed {
+                        (raw_d, false, false)
+                    } else if !pair_empty_for_display {
+                        match state.display_smoother.held_delta_display(now) {
+                            Some(held) => (held.value, true, held.muted),
+                            None => (raw_d, false, true),
+                        }
                     } else {
-                        (raw_d, false)
+                        (raw_d, false, false)
                     };
-                    (smoothed_m, display_d, stale_d)
+                    (smoothed_m, display_d, held_d, muted_d)
                 }
                 SignalState::Inactive => {
-                    let held_m = state.display_smoother.held_measure(now);
-                    let held_d = state.display_smoother.held_delta(now);
-                    let stale = held_m.is_some() || held_d.is_some();
-                    (held_m.unwrap_or(raw_m), held_d.unwrap_or(raw_d), stale)
+                    let held_m = state.display_smoother.held_measure_display(now);
+                    let held_d = state.display_smoother.held_delta_display(now);
+                    let held = held_m.is_some() || held_d.is_some();
+                    let muted = held_m.as_ref().is_some_and(|h| h.muted)
+                        || held_d.as_ref().is_some_and(|h| h.muted);
+                    (
+                        held_m.map(|h| h.value).unwrap_or(raw_m),
+                        held_d.map(|h| h.value).unwrap_or(raw_d),
+                        held,
+                        muted,
+                    )
                 }
                 SignalState::Bypassed => {
                     state.display_smoother.reset();
-                    (raw_m, raw_d, false)
+                    (raw_m, raw_d, false, false)
                 }
             };
 
@@ -458,7 +469,8 @@ pub fn create_post_editor(args: PostEditorArgs) -> Option<Box<dyn Editor>> {
                 license,
                 now,
                 pair_locked,
-                display_stale,
+                display_held,
+                display_muted,
             );
 
             // Toast の寿命切れはこのフレームで掃除
@@ -485,7 +497,8 @@ fn draw_post(
     license: License,
     now: f64,
     pair_locked: bool,
-    display_stale: bool,
+    display_held: bool,
+    display_muted: bool,
 ) {
     egui::CentralPanel::default()
         .frame(egui::Frame::NONE.fill(BG))
@@ -555,13 +568,14 @@ fn draw_post(
                     draw_inactive_grid(ui);
                 }
                 SignalState::Inactive => {
-                    if display_stale && !pair_empty && has_delta_core(d) {
-                        draw_delta_grid(ui, d, COL_MUTED, false);
+                    if display_held && !pair_empty && has_delta_core(d) {
+                        let delta_col = if display_muted { COL_MUTED } else { COL_NORMAL };
+                        draw_delta_grid(ui, d, delta_col, false);
                     } else if let Some(snap) = &d.last_active {
                         // B-049: POST 自身が Inactive でも過去 Active Δ 値を凍結保持表示
                         draw_delta_grid_frozen(ui, snap, false);
-                    } else if display_stale && has_measure_core(m) {
-                        draw_watch_absolute_grid(ui, m, true);
+                    } else if display_held && has_measure_core(m) {
+                        draw_watch_absolute_grid(ui, m, display_muted);
                     } else {
                         // last_active=None (初回起動 / Active 未経験) は既存 fallback
                         draw_inactive_grid(ui);
@@ -571,7 +585,7 @@ fn draw_post(
                 }
                 SignalState::Active => {
                     if recording {
-                        draw_record_section(ui, m, d, display_stale);
+                        draw_record_section(ui, m, d, display_muted);
                         ui.add_space(4.0);
                         draw_button_row(ui, true, license, state, m, now);
                     } else {
@@ -584,13 +598,17 @@ fn draw_post(
                         if pair_empty || d.mode == DeltaMode::Bypassed {
                             draw_watch_absolute_grid(ui, m, false);
                         } else {
-                            let tp_warn = !display_stale && tp_over(m.true_peak);
-                            if d.mode == DeltaMode::Active && !display_stale {
+                            let tp_warn = !display_muted && tp_over(m.true_peak);
+                            if d.mode == DeltaMode::Active && !display_muted {
                                 draw_delta_grid(ui, d, COL_NORMAL, tp_warn);
                             } else {
                                 // B-231: pair 選択中は PRE の一時 idle/stale で POST 絶対値へ
                                 // 戻さない。保持値があれば muted Δ、期限後は Δ の "---"。
-                                draw_delta_grid(ui, d, COL_MUTED, false);
+                                if display_muted {
+                                    draw_delta_grid(ui, d, COL_MUTED, false);
+                                } else {
+                                    draw_delta_grid(ui, d, COL_NORMAL, tp_warn);
+                                }
                             }
                         }
                         ui.add_space(4.0);

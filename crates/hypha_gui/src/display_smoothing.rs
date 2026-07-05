@@ -13,6 +13,12 @@ pub struct DisplaySmoother {
     tau_secs: f64,
 }
 
+#[derive(Debug, Clone)]
+pub struct HeldDisplay<T> {
+    pub value: T,
+    pub muted: bool,
+}
+
 impl Default for DisplaySmoother {
     fn default() -> Self {
         Self {
@@ -26,7 +32,8 @@ impl Default for DisplaySmoother {
 }
 
 impl DisplaySmoother {
-    pub const HOLD_SECS: f64 = 18.0;
+    pub const HOLD_SECS: f64 = 9.0;
+    pub const MUTED_AFTER_SECS: f64 = 5.0;
 
     pub fn update_measure(&mut self, raw: &MeasureResult, now_secs: f64) -> MeasureResult {
         if is_expired(self.measure_last_secs, now_secs) {
@@ -118,12 +125,26 @@ impl DisplaySmoother {
         }
     }
 
+    pub fn held_measure_display(&self, now_secs: f64) -> Option<HeldDisplay<MeasureResult>> {
+        self.held_measure(now_secs).map(|value| HeldDisplay {
+            value,
+            muted: is_muted(self.measure_last_secs, now_secs),
+        })
+    }
+
     pub fn held_delta(&self, now_secs: f64) -> Option<DeltaResult> {
         if is_held(self.delta_last_secs, now_secs) && has_delta_core(&self.delta) {
             Some(self.delta.clone())
         } else {
             None
         }
+    }
+
+    pub fn held_delta_display(&self, now_secs: f64) -> Option<HeldDisplay<DeltaResult>> {
+        self.held_delta(now_secs).map(|value| HeldDisplay {
+            value,
+            muted: is_muted(self.delta_last_secs, now_secs),
+        })
     }
 }
 
@@ -163,6 +184,12 @@ fn is_held(last: Option<f64>, now_secs: f64) -> bool {
 
 fn is_expired(last: Option<f64>, now_secs: f64) -> bool {
     last.is_some_and(|last| now_secs >= last && now_secs - last > DisplaySmoother::HOLD_SECS)
+}
+
+fn is_muted(last: Option<f64>, now_secs: f64) -> bool {
+    last.is_some_and(|last| {
+        now_secs >= last && now_secs - last >= DisplaySmoother::MUTED_AFTER_SECS
+    })
 }
 
 fn has_measure_core(m: &MeasureResult) -> bool {
@@ -215,8 +242,36 @@ mod tests {
             ..MeasureResult::default()
         };
         s.update_measure(&m, 10.0);
-        assert!(s.held_measure(27.9).is_some());
-        assert!(s.held_measure(28.1).is_none());
+        assert!(s.held_measure(18.9).is_some());
+        assert!(s.held_measure(19.1).is_none());
+    }
+
+    #[test]
+    fn held_measure_stays_normal_before_muted_grace_then_mutes() {
+        let mut s = DisplaySmoother::default();
+        let m = MeasureResult {
+            lufs_m: Some(-18.0),
+            ..MeasureResult::default()
+        };
+        s.update_measure(&m, 10.0);
+
+        assert!(!s.held_measure_display(14.9).unwrap().muted);
+        assert!(s.held_measure_display(15.0).unwrap().muted);
+        assert!(s.held_measure_display(18.9).unwrap().muted);
+        assert!(s.held_measure_display(19.1).is_none());
+    }
+
+    #[test]
+    fn held_delta_stays_normal_before_muted_grace_then_mutes() {
+        let mut s = DisplaySmoother::default();
+        let d = DeltaResult {
+            lufs: Some(1.0),
+            ..DeltaResult::default()
+        };
+        s.update_delta(&d, 2.0);
+
+        assert!(!s.held_delta_display(6.9).unwrap().muted);
+        assert!(s.held_delta_display(7.0).unwrap().muted);
     }
 
     #[test]
@@ -227,10 +282,10 @@ mod tests {
             ..MeasureResult::default()
         };
         assert_eq!(s.update_measure(&m, 0.0).lufs_m, Some(-30.0));
-        assert!(s.held_measure(18.1).is_none());
+        assert!(s.held_measure(9.1).is_none());
 
         m.lufs_m = Some(-10.0);
-        assert_eq!(s.update_measure(&m, 18.2).lufs_m, Some(-10.0));
+        assert_eq!(s.update_measure(&m, 9.2).lufs_m, Some(-10.0));
     }
 
     #[test]
