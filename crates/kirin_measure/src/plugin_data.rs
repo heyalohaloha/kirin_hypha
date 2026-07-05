@@ -515,6 +515,14 @@ impl PluginDataWriter {
         &self.data
     }
 
+    /// Record close 時の bake gate 用に TRACE frames を入れ替える。
+    ///
+    /// 逐次 append 中に欠けや順序揺れがあっても、close 直前に同一 duration の
+    /// 連続 timeline として焼き直すための専用 API。
+    pub fn clear_frames(&mut self) {
+        self.data.frames.clear();
+    }
+
     /// chain_memo を設定（利用者記入。Record 開始時 or 途中更新）。
     pub fn set_chain_memo(&mut self, memo: String) {
         self.data.chain_memo = memo;
