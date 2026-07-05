@@ -746,19 +746,20 @@ fn drain_trace_queue_into_writer(
 /// なので `log::info!` 経由でのみ可視化し、戻り値は呼出側のテスト/診断用。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct RecoveryReport {
-    /// `.tmp` を `.json` または `.json.partial` に atomic rename して救出した件数。
+    /// `.tmp` / stale `.partial` を `.json` または `.failed/*.json` に atomic publish した件数。
     pub recovered: usize,
     /// HMAC-SHA256 / serde 整合性に失敗し放置した件数 (削除しない / 将来分析用)。
     pub orphaned: usize,
 }
 
 /// B-025 Group B-1 / Gap-8: 30 秒 flush 周期中の DAW crash で残った `*.json.tmp`
-/// を起動時に拾い、整合 (`verify_checksum`) すれば対応 `*.json` に atomic rename する。
+/// と、stale 化した `*.json.partial` を起動時に拾い、整合 (`verify_checksum`) すれば
+/// 対応 `*.json` か `.failed/*.json` に atomic publish する。
 /// 不整合は warn ログのみで残置 (削除しない / 将来分析用 / 約束 5 原則)。
 ///
 /// 走査対象: `plugin_data_root` 配下を再帰的に walk して
-/// `*.json.tmp` 拡張子を持つ通常ファイル全件。`record_signal/` `preset/` 等の
-/// 予約名以下に `.tmp` は出現しないが、再帰で拾っても害はない。
+/// `*.json.tmp` または `*.json.partial` を持つ通常ファイル全件。`.partial` は実行中の
+/// Record と衝突しないよう mtime stale のものだけ救済する。
 ///
 /// PRE / POST / IO Thread の `thread::spawn` 直後 1 回だけ呼ぶ (Group A
 /// `clear_stale_self_acks_at_startup` と同位相)。loop 内で繰り返さない。
@@ -773,7 +774,7 @@ pub fn recover_orphan_tmps(plugin_data_root: &Path) -> RecoveryReport {
     walk_tmp_recover(plugin_data_root, &mut report);
     if report.recovered > 0 || report.orphaned > 0 {
         log::info!(
-            "[recover] startup .tmp recovery: recovered={} orphaned={} root={}",
+            "[recover] startup record recovery: recovered={} orphaned={} root={}",
             report.recovered,
             report.orphaned,
             plugin_data_root.display()
@@ -801,28 +802,45 @@ fn walk_tmp_recover(dir: &Path, report: &mut RecoveryReport) {
         if !ftype.is_file() {
             continue;
         }
-        // `.json.tmp` で終わるファイルのみ対象 (`{compact}.json.tmp` と同形)。
+        // `.json.tmp` / `.json.partial` で終わるファイルのみ対象。
         let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
             continue;
         };
-        if !name.ends_with(".json.tmp") {
-            continue;
+        if name.ends_with(".json.tmp") {
+            recover_one_tmp(&path, report);
+        } else if name.ends_with(".json.partial") {
+            recover_one_staging(&path, report);
         }
-        recover_one_tmp(&path, report);
     }
 }
 
 /// `.json.tmp` 1 件を試行する。checksum が正しく、最低 1 frame ある Record は
 /// status=Closed として `.json` に救済する。frame なし等の未使用 record は
-/// `.json.partial` に隔離し、Kirin OS の通常棚へ publish しない。
+/// `.failed/*.json` に隔離し、Kirin OS の通常棚へ publish しない。
 /// 不整合は `report.orphaned += 1` で記録 (削除しない)。
 fn recover_one_tmp(tmp_path: &Path, report: &mut RecoveryReport) {
-    let bytes = match fs::read(tmp_path) {
+    let final_path = strip_tmp_suffix(tmp_path);
+    recover_one_record_artifact(tmp_path, &final_path, report);
+}
+
+/// `.json.partial` 1 件を試行する。fresh partial は実行中 Record の可能性があるため触らない。
+/// stale かつ usable frame を持つものだけ通常棚へ publish し、usable でないものは
+/// `.failed/*.json` に隔離する。
+fn recover_one_staging(staging_path: &Path, report: &mut RecoveryReport) {
+    if !recovery_candidate_is_stale(staging_path) {
+        return;
+    }
+    let final_path = strip_partial_suffix(staging_path);
+    recover_one_record_artifact(staging_path, &final_path, report);
+}
+
+fn recover_one_record_artifact(source_path: &Path, final_path: &Path, report: &mut RecoveryReport) {
+    let bytes = match fs::read(source_path) {
         Ok(b) => b,
         Err(e) => {
             log::warn!(
                 "[recover] read failed (skip): {} ({})",
-                tmp_path.display(),
+                source_path.display(),
                 e
             );
             report.orphaned += 1;
@@ -834,7 +852,7 @@ fn recover_one_tmp(tmp_path: &Path, report: &mut RecoveryReport) {
         Err(e) => {
             log::warn!(
                 "[recover] parse failed (orphan kept): {} ({})",
-                tmp_path.display(),
+                source_path.display(),
                 e
             );
             report.orphaned += 1;
@@ -844,25 +862,25 @@ fn recover_one_tmp(tmp_path: &Path, report: &mut RecoveryReport) {
     if !verify_checksum(&data) {
         log::warn!(
             "[recover] checksum mismatch (orphan kept): {}",
-            tmp_path.display()
+            source_path.display()
         );
         report.orphaned += 1;
         return;
     }
-    let final_path = strip_tmp_suffix(tmp_path);
-    let publishable = data.validity && data.sample_rate > 0 && !data.frames.is_empty();
+    let failure_reasons = recovery_failure_reasons(&data);
+    let publishable = failure_reasons.is_empty();
     let recovery_path = if publishable {
-        final_path
+        final_path.to_path_buf()
     } else {
-        staging_path_for_final(&final_path)
+        failed_path_for_final(final_path)
     };
     // 既に `.json` 側がある場合 (= 直前 flush が成功してから DAW が落ちた稀ケース)
-    // は `.tmp` 側の方が新しい/古いの判定が困難なので、安全側で `.tmp` を残置 +
+    // は source 側の方が新しい/古いの判定が困難なので、安全側で source を残置 +
     // orphaned 計上。GUI 通知不要 (起動時 R-28 機能的沈黙)。
     if recovery_path.exists() {
         log::warn!(
             "[recover] recovery target already exists (orphan kept): {}",
-            tmp_path.display()
+            source_path.display()
         );
         report.orphaned += 1;
         return;
@@ -886,7 +904,7 @@ fn recover_one_tmp(tmp_path: &Path, report: &mut RecoveryReport) {
             Err(e) => {
                 log::warn!(
                     "[recover] checksum recompute failed (orphan kept): {} ({})",
-                    tmp_path.display(),
+                    source_path.display(),
                     e
                 );
                 report.orphaned += 1;
@@ -898,14 +916,14 @@ fn recover_one_tmp(tmp_path: &Path, report: &mut RecoveryReport) {
             Err(e) => {
                 log::warn!(
                     "[recover] serialize failed (orphan kept): {} ({})",
-                    tmp_path.display(),
+                    source_path.display(),
                     e
                 );
                 report.orphaned += 1;
                 return;
             }
         };
-        let recover_path = PathBuf::from(format!("{}.recover", tmp_path.to_string_lossy()));
+        let recover_path = PathBuf::from(format!("{}.recover", source_path.to_string_lossy()));
         if let Err(e) = fs::write(&recover_path, json.as_bytes()) {
             log::warn!(
                 "[recover] recovered write failed (orphan kept): {} ({})",
@@ -926,31 +944,118 @@ fn recover_one_tmp(tmp_path: &Path, report: &mut RecoveryReport) {
             report.orphaned += 1;
             return;
         }
-        let _ = fs::remove_file(tmp_path);
+        let _ = fs::remove_file(source_path);
         log::info!(
             "[recover] recovered: {} → {}",
-            tmp_path.display(),
+            source_path.display(),
             recovery_path.display()
         );
         report.recovered += 1;
         return;
     }
-    if let Err(e) = fs::rename(tmp_path, &recovery_path) {
+    data.status = Status::Closed;
+    data.commit_status = Some("failed".to_string());
+    data.validity = false;
+    data.integrity_degraded = true;
+    for reason in failure_reasons {
+        if !data
+            .integrity_reasons
+            .iter()
+            .any(|existing| existing == reason)
+        {
+            data.integrity_reasons.push(reason.to_string());
+        }
+    }
+    data.checksum = match compute_checksum(&data) {
+        Ok(checksum) => checksum,
+        Err(e) => {
+            log::warn!(
+                "[recover] failed checksum recompute failed (orphan kept): {} ({})",
+                source_path.display(),
+                e
+            );
+            report.orphaned += 1;
+            return;
+        }
+    };
+    let json = match serde_json::to_vec(&data) {
+        Ok(json) => json,
+        Err(e) => {
+            log::warn!(
+                "[recover] failed serialize failed (orphan kept): {} ({})",
+                source_path.display(),
+                e
+            );
+            report.orphaned += 1;
+            return;
+        }
+    };
+    if let Some(parent) = recovery_path.parent() {
+        if let Err(e) = fs::create_dir_all(parent) {
+            log::warn!(
+                "[recover] failed dir create failed (orphan kept): {} ({})",
+                parent.display(),
+                e
+            );
+            report.orphaned += 1;
+            return;
+        }
+    }
+    let recover_path = PathBuf::from(format!("{}.recover", source_path.to_string_lossy()));
+    if let Err(e) = fs::write(&recover_path, &json) {
         log::warn!(
-            "[recover] rename failed: {} → {} ({})",
-            tmp_path.display(),
-            recovery_path.display(),
+            "[recover] failed write failed (orphan kept): {} ({})",
+            recover_path.display(),
             e
         );
         report.orphaned += 1;
         return;
     }
+    if let Err(e) = fs::rename(&recover_path, &recovery_path) {
+        log::warn!(
+            "[recover] rename failed: {} → {} ({})",
+            recover_path.display(),
+            recovery_path.display(),
+            e
+        );
+        let _ = fs::remove_file(&recover_path);
+        report.orphaned += 1;
+        return;
+    }
+    let _ = fs::remove_file(source_path);
     log::info!(
         "[recover] recovered: {} → {}",
-        tmp_path.display(),
+        source_path.display(),
         recovery_path.display()
     );
     report.recovered += 1;
+}
+
+fn recovery_candidate_is_stale(path: &Path) -> bool {
+    let Ok(metadata) = fs::metadata(path) else {
+        return false;
+    };
+    let Ok(mtime) = metadata.modified() else {
+        return false;
+    };
+    SystemTime::now()
+        .duration_since(mtime)
+        .map(|elapsed| elapsed > Duration::from_secs(STALE_ACTIVE_SWEEP_SECS))
+        .unwrap_or(false)
+}
+
+fn recovery_failure_reasons(data: &PluginDataFile) -> Vec<&'static str> {
+    let mut reasons = Vec::new();
+    if !data.validity {
+        reasons.push("validity_false");
+    }
+    if data.frames.is_empty() {
+        reasons.push("zero_trace_frames");
+    }
+    if data.sample_rate == 0 {
+        reasons.push("missing_sample_rate");
+    }
+    reasons
 }
 
 /// `{path}.json.tmp` から末尾 `.tmp` を取り除いた `{path}.json` を返す。
@@ -961,8 +1066,20 @@ fn strip_tmp_suffix(tmp_path: &Path) -> PathBuf {
     PathBuf::from(trimmed.to_string())
 }
 
-fn staging_path_for_final(final_path: &Path) -> PathBuf {
-    PathBuf::from(format!("{}.partial", final_path.to_string_lossy()))
+fn strip_partial_suffix(staging_path: &Path) -> PathBuf {
+    let s = staging_path.to_string_lossy();
+    let trimmed = s.strip_suffix(".partial").unwrap_or(&s);
+    PathBuf::from(trimmed.to_string())
+}
+
+fn failed_path_for_final(final_path: &Path) -> PathBuf {
+    let Some(parent) = final_path.parent() else {
+        return PathBuf::from(format!("{}.failed", final_path.to_string_lossy()));
+    };
+    let Some(file_name) = final_path.file_name() else {
+        return parent.join(".failed").join("unknown.json");
+    };
+    parent.join(".failed").join(file_name)
 }
 
 // ── B-026 / Gap-9: Startup stale active sweep ───────────────────────────────
@@ -2210,12 +2327,12 @@ mod tests {
         assert!(tmp_path.exists(), ".tmp must be kept (warn-only)");
     }
 
-    /// .tmp が 1 件もないとき no-op (recovered=0, orphaned=0)。
+    /// fresh .partial は実行中 Record の可能性があるため no-op。
     #[test]
-    fn recover_orphan_tmps_no_tmps_no_op() {
+    fn recover_orphan_tmps_ignores_fresh_staging() {
         let base = isolated_base();
-        // 通常の .json だけ存在させる。
         let mut ctx = make_ctx(&base, Role::Post, now_epoch_ms());
+        assert!(writer_append_frame(&mut ctx, 100, &full_measure_result()));
         ctx.writer.flush().unwrap();
         let final_path = ctx.final_path.clone();
         let staging_path = ctx.staging_path.clone();
@@ -2227,6 +2344,80 @@ mod tests {
         assert_eq!(report.orphaned, 0);
         assert!(!final_path.exists());
         assert!(staging_path.exists());
+    }
+
+    /// stale .partial に usable frames があれば通常棚の `.json` へ publish する。
+    #[test]
+    fn recover_orphan_tmps_recovers_stale_staging_with_frames() {
+        let base = isolated_base();
+        let mut ctx = make_ctx(&base, Role::Post, now_epoch_ms());
+        assert!(writer_append_frame(&mut ctx, 100, &full_measure_result()));
+        ctx.writer.flush().unwrap();
+        let final_path = ctx.final_path.clone();
+        let staging_path = ctx.staging_path.clone();
+
+        let stale = SystemTime::now() - Duration::from_secs(STALE_ACTIVE_SWEEP_SECS + 1);
+        let f = std::fs::File::open(&staging_path).unwrap();
+        f.set_modified(stale).unwrap();
+        drop(f);
+
+        let report = recover_orphan_tmps(&base);
+        assert_eq!(report.recovered, 1);
+        assert_eq!(report.orphaned, 0);
+        assert!(final_path.exists(), "stale usable partial must publish");
+        assert!(
+            !staging_path.exists(),
+            "staging must be removed after publish"
+        );
+
+        let loaded: PluginDataFile =
+            serde_json::from_slice(&fs::read(&final_path).unwrap()).unwrap();
+        assert_eq!(loaded.status, Status::Closed);
+        assert_eq!(loaded.commit_status.as_deref(), Some("committed"));
+        assert!(
+            loaded.integrity_degraded,
+            "startup recovered partial must be marked degraded but usable"
+        );
+        assert!(loaded
+            .integrity_reasons
+            .iter()
+            .any(|reason| reason == "startup_recovered_active"));
+        assert!(verify_checksum(&loaded));
+    }
+
+    /// stale .partial でも frames が無ければ通常棚へは出さず `.failed/` に隔離する。
+    #[test]
+    fn recover_orphan_tmps_moves_stale_empty_staging_to_failed() {
+        let base = isolated_base();
+        let mut ctx = make_ctx(&base, Role::Post, now_epoch_ms());
+        ctx.writer.flush().unwrap();
+        let final_path = ctx.final_path.clone();
+        let staging_path = ctx.staging_path.clone();
+        let failed_path = ctx.failed_path.clone();
+
+        let stale = SystemTime::now() - Duration::from_secs(STALE_ACTIVE_SWEEP_SECS + 1);
+        let f = std::fs::File::open(&staging_path).unwrap();
+        f.set_modified(stale).unwrap();
+        drop(f);
+
+        let report = recover_orphan_tmps(&base);
+        assert_eq!(report.recovered, 1);
+        assert_eq!(report.orphaned, 0);
+        assert!(!final_path.exists(), "empty partial must not publish");
+        assert!(!staging_path.exists(), "empty partial must be removed");
+        assert!(failed_path.exists(), "empty partial must leave diagnostics");
+
+        let loaded: PluginDataFile =
+            serde_json::from_slice(&fs::read(&failed_path).unwrap()).unwrap();
+        assert_eq!(loaded.status, Status::Closed);
+        assert_eq!(loaded.commit_status.as_deref(), Some("failed"));
+        assert!(!loaded.validity);
+        assert!(loaded.integrity_degraded);
+        assert!(loaded
+            .integrity_reasons
+            .iter()
+            .any(|reason| reason == "zero_trace_frames"));
+        assert!(verify_checksum(&loaded));
     }
 
     /// plugin_data root 自体が不在の場合は no-op で安全に終わる (R-28 機能的沈黙)。
