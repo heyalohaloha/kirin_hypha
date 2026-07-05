@@ -236,8 +236,9 @@ fn frame_mtime_age_exceeds_grace(path: &Path, now: DateTime<Utc>) -> bool {
 }
 
 /// pairing に対応する active+fresh marker（PRE か POST のどちらか）が存在するか。
-/// `{base}/{ph}/{pre}/pre/*.json` か `{base}/{ph}/{post}/post/*.json` に status=Active かつ
-/// heartbeat fresh があれば true（= 録音継続中）。sweep が長時間 Record の枠を誤回収しないために使う。
+/// `{base}/{ph}/{pre}/pre/*.json(.partial)` か `{base}/{ph}/{post}/post/*.json(.partial)` に
+/// status=Active かつ heartbeat fresh があれば true（= 録音継続中）。sweep が長時間 Record の枠を
+/// 誤回収しないために使う。
 fn pairing_has_fresh_marker(
     base_dir: &Path,
     project_hash: &str,
@@ -265,7 +266,7 @@ fn role_dir_has_fresh_marker(dir: &Path, now: DateTime<Utc>) -> bool {
     };
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) != Some("json") {
+        if !is_record_marker_candidate(&path) {
             continue;
         }
         if let Ok(bytes) = fs::read(&path) {
@@ -283,6 +284,13 @@ fn role_dir_has_fresh_marker(dir: &Path, now: DateTime<Utc>) -> bool {
         }
     }
     false
+}
+
+fn is_record_marker_candidate(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .map(|name| name.ends_with(".json") || name.ends_with(".json.partial"))
+        .unwrap_or(false)
 }
 
 /// 孤児 reservation 枠を `base_dir` 全 project_hash 横断で回収する（B-103/B-119 startup sweep 合流）。

@@ -222,6 +222,13 @@ pub struct PluginDataFile {
     /// 程度を透明化する（隠さない / ZSA / integrity）。旧 .kirin 互換のため `#[serde(default)]`。
     #[serde(default)]
     pub integrity_degraded: bool,
+    /// Record commit gate の結果。通常棚に publish された JSON は `committed`、`.failed/`
+    /// 配下に残した診断 JSON は `failed`。旧 JSON 互換のため optional。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commit_status: Option<String>,
+    /// `commit_status=failed` または integrity degraded の理由。通常成功 JSON では省略。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub integrity_reasons: Vec<String>,
     pub validity: bool,
     pub checksum: String,
 }
@@ -310,6 +317,8 @@ impl PluginDataFile {
             started_at_ms: 0,
             dropped_samples: 0,
             integrity_degraded: false,
+            commit_status: None,
+            integrity_reasons: Vec::new(),
             validity: true,
             checksum: String::new(),
         }
@@ -381,6 +390,10 @@ pub struct WriterPaths {
     pub final_path: PathBuf,
     /// 書込中の tmp（`{compact_wall_clock}.json.tmp`）。
     pub tmp_path: PathBuf,
+    /// Record 中の staging JSON。通常 reader は `*.json` だけを見るため拾わない。
+    pub staging_path: PathBuf,
+    /// commit gate で失敗した診断 JSON。通常 reader は role 直下しか見ない。
+    pub failed_path: PathBuf,
 }
 
 impl WriterPaths {
@@ -411,9 +424,13 @@ impl WriterPaths {
         let dir = base_dir.join(&*ph).join(&*iid).join(role.dir_name());
         let final_path = dir.join(format!("{compact}.json"));
         let tmp_path = dir.join(format!("{compact}.json.tmp"));
+        let staging_path = dir.join(format!("{compact}.json.partial"));
+        let failed_path = dir.join(".failed").join(format!("{compact}.json"));
         Self {
             final_path,
             tmp_path,
+            staging_path,
+            failed_path,
         }
     }
 }
@@ -589,6 +606,16 @@ impl PluginDataWriter {
         self.data.integrity_degraded = true;
     }
 
+    /// integrity degraded の理由を重複なしで記録する。
+    pub fn add_integrity_reason(&mut self, reason: &str) {
+        if reason.is_empty() {
+            return;
+        }
+        if !self.data.integrity_reasons.iter().any(|r| r == reason) {
+            self.data.integrity_reasons.push(reason.to_string());
+        }
+    }
+
     /// 1 PSB スナップショットを追加。
     ///
     /// ため本メソッドは無条件で push する。
@@ -637,7 +664,11 @@ impl PluginDataWriter {
     /// B-245: 書込前に親 dir 不在を検査し、消えていれば再作成する。
     /// storage の一時消失だけで Record を止めないため、復旧可能な欠落はここで吸収する。
     pub fn flush(&mut self) -> Result<(), WriterError> {
-        if let Some(parent) = self.paths.final_path.parent() {
+        self.write_atomic(self.paths.staging_path.clone())
+    }
+
+    fn write_atomic(&mut self, target_path: PathBuf) -> Result<(), WriterError> {
+        if let Some(parent) = target_path.parent() {
             if !parent.is_dir() {
                 fs::create_dir_all(parent)?;
             }
@@ -647,14 +678,42 @@ impl PluginDataWriter {
         // `.tmp` へ書込
         fs::write(&self.paths.tmp_path, json.as_bytes())?;
         // atomic rename
-        fs::rename(&self.paths.tmp_path, &self.paths.final_path)?;
+        fs::rename(&self.paths.tmp_path, target_path)?;
         Ok(())
     }
 
     /// status=closed に変更して最終 flush。正常終了時に呼ぶ。
     pub fn close(mut self) -> Result<(), WriterError> {
         self.data.status = Status::Closed;
-        self.flush()
+        let reasons = self.commit_failure_reasons();
+        if reasons.is_empty() {
+            self.data.commit_status = Some("committed".to_string());
+            self.write_atomic(self.paths.final_path.clone())?;
+        } else {
+            self.data.commit_status = Some("failed".to_string());
+            self.data.validity = false;
+            self.data.integrity_degraded = true;
+            for reason in reasons {
+                self.add_integrity_reason(reason);
+            }
+            self.write_atomic(self.paths.failed_path.clone())?;
+        }
+        let _ = fs::remove_file(&self.paths.staging_path);
+        Ok(())
+    }
+
+    fn commit_failure_reasons(&self) -> Vec<&'static str> {
+        let mut reasons = Vec::new();
+        if !self.data.validity {
+            reasons.push("validity_false");
+        }
+        if self.data.frames.is_empty() {
+            reasons.push("zero_trace_frames");
+        }
+        if self.data.sample_rate == 0 {
+            reasons.push("missing_sample_rate");
+        }
+        reasons
     }
 }
 
@@ -843,8 +902,8 @@ mod tests {
             role,
             None,
             48000,
-            None,
-            None,
+            (role == Role::Post).then(|| "paired-pre-test".to_string()),
+            (role == Role::Pre).then(|| "paired-post-test".to_string()),
             None,
             None,
         )
@@ -900,6 +959,18 @@ mod tests {
         assert_eq!(
             p.tmp_path,
             Path::new(&format!("/tmp/kirin_base/ph/iid-1/pre/{compact}.json.tmp"))
+        );
+        assert_eq!(
+            p.staging_path,
+            Path::new(&format!(
+                "/tmp/kirin_base/ph/iid-1/pre/{compact}.json.partial"
+            ))
+        );
+        assert_eq!(
+            p.failed_path,
+            Path::new(&format!(
+                "/tmp/kirin_base/ph/iid-1/pre/.failed/{compact}.json"
+            ))
         );
     }
 
@@ -1107,14 +1178,22 @@ mod tests {
     }
 
     #[test]
-    fn flush_writes_final_file_atomically() {
+    fn flush_writes_staging_file_atomically_without_publishing_final() {
         let base = isolated_dir();
         let mut w = sample_writer(&base, Role::Pre);
         w.append_frame(0, [0.5; 20], 1.0, -20.0, -3.0, 10.0, None);
         w.flush().unwrap();
         let final_path = &w.paths.final_path;
         let tmp_path = &w.paths.tmp_path;
-        assert!(final_path.exists(), "final file must exist: {final_path:?}");
+        let staging_path = &w.paths.staging_path;
+        assert!(
+            !final_path.exists(),
+            "flush must not publish final file before close: {final_path:?}"
+        );
+        assert!(
+            staging_path.exists(),
+            "staging file must exist: {staging_path:?}"
+        );
         assert!(!tmp_path.exists(), "tmp file must be renamed away");
     }
 
@@ -1125,7 +1204,7 @@ mod tests {
         w.append_frame(0, [1.0; 20], 1.5, -14.0, -1.0, 12.0, None);
         w.append_psb(0, [-10.0; 20], false);
         w.flush().unwrap();
-        let bytes = fs::read(&w.paths.final_path).unwrap();
+        let bytes = fs::read(&w.paths.staging_path).unwrap();
         let loaded: PluginDataFile = serde_json::from_slice(&bytes).unwrap();
         assert!(verify_checksum(&loaded), "checksum must round-trip");
         assert_eq!(loaded.schema_version, "1.3");
@@ -1138,7 +1217,7 @@ mod tests {
         let mut w = sample_writer(&base, Role::Pre);
         w.append_frame(0, [1.0; 20], 1.5, -14.0, -1.0, 12.0, None);
         w.flush().unwrap();
-        let bytes = fs::read(&w.paths.final_path).unwrap();
+        let bytes = fs::read(&w.paths.staging_path).unwrap();
         let mut loaded: PluginDataFile = serde_json::from_slice(&bytes).unwrap();
         // 改ざん
         loaded.frames[0].lufs_m = -99.0;
@@ -1150,6 +1229,7 @@ mod tests {
         let base = isolated_dir();
         let mut w = sample_writer(&base, Role::Pre);
         w.append_frame(0, [1.0; 20], 1.0, -14.0, -1.0, 12.0, None);
+        w.append_frame(100, [1.1; 20], 1.1, -13.9, -0.9, 12.1, None);
         let final_path = w.paths.final_path.clone();
         w.close().unwrap();
         let bytes = fs::read(&final_path).unwrap();
@@ -1172,13 +1252,14 @@ mod tests {
         let base = isolated_dir();
         let mut w = sample_writer(&base, Role::Pre);
         w.set_bounce_start("2026-04-17T14:32:08Z".to_string(), "hash_first".into());
+        w.append_frame(0, [1.0; 20], 1.0, -14.0, -1.0, 12.0, None);
         w.set_bounce_end(
             "2026-04-17T14:37:08Z".to_string(),
             14_400_000,
             "hash_last".into(),
         );
         w.flush().unwrap();
-        let bytes = fs::read(&w.paths.final_path).unwrap();
+        let bytes = fs::read(&w.paths.staging_path).unwrap();
         let loaded: PluginDataFile = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(
             loaded.bounce_marker.wall_clock_start,
@@ -1195,7 +1276,7 @@ mod tests {
         let mut w = sample_writer(&base, Role::Pre);
         w.set_chain_memo("test memo".to_string());
         w.flush().unwrap();
-        let bytes = fs::read(&w.paths.final_path).unwrap();
+        let bytes = fs::read(&w.paths.staging_path).unwrap();
         let loaded: PluginDataFile = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(loaded.chain_memo, "test memo");
     }
@@ -1207,7 +1288,7 @@ mod tests {
         assert!(w.data().validity);
         w.set_validity(false);
         w.flush().unwrap();
-        let bytes = fs::read(&w.paths.final_path).unwrap();
+        let bytes = fs::read(&w.paths.staging_path).unwrap();
         let loaded: PluginDataFile = serde_json::from_slice(&bytes).unwrap();
         assert!(!loaded.validity);
     }
@@ -1220,7 +1301,7 @@ mod tests {
         w.set_started_at_ms(started_at_ms);
         w.flush().unwrap();
 
-        let bytes = fs::read(&w.paths.final_path).unwrap();
+        let bytes = fs::read(&w.paths.staging_path).unwrap();
         let json = String::from_utf8(bytes.clone()).unwrap();
         assert!(
             json.contains("\"started_at_ms\":1781234567890"),
@@ -1243,9 +1324,9 @@ mod tests {
         post.flush().unwrap();
 
         let pre_data: PluginDataFile =
-            serde_json::from_slice(&fs::read(&pre.paths.final_path).unwrap()).unwrap();
+            serde_json::from_slice(&fs::read(&pre.paths.staging_path).unwrap()).unwrap();
         let post_data: PluginDataFile =
-            serde_json::from_slice(&fs::read(&post.paths.final_path).unwrap()).unwrap();
+            serde_json::from_slice(&fs::read(&post.paths.staging_path).unwrap()).unwrap();
         assert_eq!(pre_data.started_at_ms, started_at_ms);
         assert_eq!(post_data.started_at_ms, started_at_ms);
         assert_eq!(pre_data.started_at_ms, post_data.started_at_ms);
@@ -1264,9 +1345,9 @@ mod tests {
         post.flush().unwrap();
 
         let pre_data: PluginDataFile =
-            serde_json::from_slice(&fs::read(&pre.paths.final_path).unwrap()).unwrap();
+            serde_json::from_slice(&fs::read(&pre.paths.staging_path).unwrap()).unwrap();
         let post_data: PluginDataFile =
-            serde_json::from_slice(&fs::read(&post.paths.final_path).unwrap()).unwrap();
+            serde_json::from_slice(&fs::read(&post.paths.staging_path).unwrap()).unwrap();
         assert_ne!(pre_data.started_at_ms, post_data.started_at_ms);
         assert!(verify_checksum(&pre_data));
         assert!(verify_checksum(&post_data));
@@ -1280,7 +1361,7 @@ mod tests {
         w.flush().unwrap();
         w.append_frame(100, [1.5; 20], 1.2, -13.0, -0.5, 11.0, None);
         w.flush().unwrap();
-        let bytes = fs::read(&w.paths.final_path).unwrap();
+        let bytes = fs::read(&w.paths.staging_path).unwrap();
         let loaded: PluginDataFile = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(loaded.frames.len(), 2);
         assert!(verify_checksum(&loaded));
@@ -1340,8 +1421,8 @@ mod tests {
         let base = isolated_dir();
         let mut w = sample_writer(&base, Role::Post);
         w.append_frame(0, [1.0; 20], 1.0, -14.0, -1.0, 12.0, None);
-        w.flush().unwrap();
         let path = w.paths.final_path.clone();
+        w.close().unwrap();
 
         let ok = append_annotation_to_latest(
             &base,
@@ -1374,6 +1455,8 @@ mod tests {
             let paths = WriterPaths {
                 final_path: dir.join(format!("{stamp}.json")),
                 tmp_path: dir.join(format!("{stamp}.json.tmp")),
+                staging_path: dir.join(format!("{stamp}.json.partial")),
+                failed_path: dir.join(".failed").join(format!("{stamp}.json")),
             };
             let mut w = PluginDataWriter::create(
                 paths,
@@ -1383,13 +1466,14 @@ mod tests {
                 Role::Post,
                 None,
                 48000,
-                None,
+                Some("paired-pre-test".to_string()),
                 None,
                 None,
                 None,
             )
             .unwrap();
-            w.flush().unwrap();
+            w.append_frame(0, [1.0; 20], 1.0, -14.0, -1.0, 12.0, None);
+            w.close().unwrap();
         }
 
         let ok = append_annotation_to_latest(
@@ -1416,7 +1500,9 @@ mod tests {
         let base = isolated_dir();
         let mut w = sample_writer(&base, Role::Post);
         w.append_annotation("初期メモ".to_string());
-        w.flush().unwrap();
+        w.append_frame(0, [1.0; 20], 1.0, -14.0, -1.0, 12.0, None);
+        let final_path = w.paths.final_path.clone();
+        w.close().unwrap();
 
         let ok = append_annotation_to_latest(
             &base,
@@ -1428,7 +1514,7 @@ mod tests {
         .unwrap();
         assert!(ok);
 
-        let bytes = fs::read(&w.paths.final_path).unwrap();
+        let bytes = fs::read(&final_path).unwrap();
         let loaded: PluginDataFile = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(loaded.annotations.len(), 2);
         assert_eq!(loaded.annotations[0].memo, "初期メモ");
@@ -1463,7 +1549,7 @@ mod tests {
         w.append_psb(0, [-10.0; 20], true);
         w.flush().unwrap();
 
-        let bytes = fs::read(&w.paths.final_path).unwrap();
+        let bytes = fs::read(&w.paths.staging_path).unwrap();
         let loaded: PluginDataFile = serde_json::from_slice(&bytes).unwrap();
         // source_format が JSON に出力されている (S-1)
         assert_eq!(loaded.source_format, 48000);
@@ -1501,5 +1587,36 @@ mod tests {
             0,
             "degraded は dropped_samples を動かさない"
         );
+    }
+
+    #[test]
+    fn close_failed_record_writes_failed_diagnostic_without_final_publish() {
+        let base = isolated_dir();
+        let w = sample_writer(&base, Role::Pre);
+        let final_path = w.paths.final_path.clone();
+        let failed_path = w.paths.failed_path.clone();
+        let staging_path = w.paths.staging_path.clone();
+
+        w.close().unwrap();
+
+        assert!(
+            !final_path.exists(),
+            "zero-frame Record must not be published as normal JSON"
+        );
+        assert!(
+            !staging_path.exists(),
+            "staging file must be removed after failed close"
+        );
+        assert!(failed_path.exists(), "failed diagnostic JSON must remain");
+        let bytes = fs::read(&failed_path).unwrap();
+        let loaded: PluginDataFile = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(loaded.commit_status.as_deref(), Some("failed"));
+        assert!(!loaded.validity);
+        assert!(loaded.integrity_degraded);
+        assert!(loaded
+            .integrity_reasons
+            .iter()
+            .any(|reason| reason == "zero_trace_frames"));
+        assert!(verify_checksum(&loaded));
     }
 }

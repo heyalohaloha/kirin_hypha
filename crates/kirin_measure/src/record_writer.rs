@@ -138,6 +138,8 @@ pub const CONSECUTIVE_FAILURE_THRESHOLD: usize = 3;
 pub struct RecordingCtx {
     pub(crate) writer: PluginDataWriter,
     pub final_path: PathBuf,
+    pub staging_path: PathBuf,
+    pub failed_path: PathBuf,
     /// Record 開始 wall-clock（epoch ms）。frame t_ms はこの値からの差分。
     pub started_at_ms: i64,
     /// 次に Frame を書く最小 t_ms。
@@ -274,6 +276,8 @@ pub fn writer_start(
     let wall_clock_iso = epoch_ms_to_iso8601(started_at_ms);
     let writer_paths = WriterPaths::build(&base, project_hash, instance_id, role, &wall_clock_iso);
     let final_path = writer_paths.final_path.clone();
+    let staging_path = writer_paths.staging_path.clone();
+    let failed_path = writer_paths.failed_path.clone();
     let mut w = match PluginDataWriter::create(
         writer_paths,
         installation_id,
@@ -308,6 +312,8 @@ pub fn writer_start(
     Some(RecordingCtx {
         writer: w,
         final_path,
+        staging_path,
+        failed_path,
         started_at_ms,
         next_frame_ms: 0,
         next_psb_ms: 0,
@@ -325,9 +331,14 @@ pub fn writer_start(
 /// Record 終了: status=closed で最終 flush、ログ出力。
 pub fn writer_close(mut ctx: RecordingCtx) {
     let final_path = ctx.final_path.clone();
+    let failed_path = ctx.failed_path.clone();
     mark_integrity_if_trace_density_is_sparse(&mut ctx);
     seal_bounce_marker(&mut ctx);
     match ctx.writer.close() {
+        Ok(()) if final_path.exists() => log::info!("[writer] released: {}", final_path.display()),
+        Ok(()) if failed_path.exists() => {
+            log::warn!("[writer] released diagnostic: {}", failed_path.display())
+        }
         Ok(()) => log::info!("[writer] released: {}", final_path.display()),
         Err(e) => log::warn!("[writer] close failed ({}): {}", final_path.display(), e),
     }
@@ -394,6 +405,11 @@ fn mark_integrity_if_trace_density_is_sparse(ctx: &mut RecordingCtx) {
             record_duration_ms(ctx)
         );
         ctx.writer.mark_integrity_degraded();
+        if ctx.writer.data().frames.is_empty() {
+            ctx.writer.add_integrity_reason("zero_trace_frames");
+        } else {
+            ctx.writer.add_integrity_reason("sparse_trace_density");
+        }
     }
 }
 
@@ -421,6 +437,7 @@ pub fn writer_close_with_summary(mut ctx: RecordingCtx, summary: Option<SessionS
 /// `mark_integrity_degraded` は data field のみ・計測値（LUFS/TP/PSR/PSB）非接触。
 pub fn writer_close_degraded(mut ctx: RecordingCtx) {
     ctx.writer.mark_integrity_degraded();
+    ctx.writer.add_integrity_reason("degraded_close");
     writer_close(ctx);
 }
 
@@ -565,19 +582,7 @@ pub fn run_record_tick_with_pair_names(
     match (is_recording, recording.is_some()) {
         (true, false) => {
             let paired_pre = paired_pre_resolver();
-            if matches!(role, Role::Post) && paired_pre.is_none() {
-                log::warn!(
-                    "[writer] POST Record start deferred: paired_pre_target is not latched yet"
-                );
-                return Ok(());
-            }
             let paired_post = paired_post_resolver();
-            if matches!(role, Role::Pre) && paired_post.is_none() {
-                log::warn!(
-                    "[writer] PRE Record start deferred: partner POST is not acknowledged yet"
-                );
-                return Ok(());
-            }
             let started_at_ms = started_at_resolver();
             let pair_name = pair_name_resolver();
             let pair_pre_name = pair_pre_name_resolver();
@@ -630,6 +635,7 @@ pub fn run_record_tick_with_pair_names(
                         SEAL_WAIT_TIMEOUT
                     );
                     ctx.writer.mark_integrity_degraded();
+                    ctx.writer.add_integrity_reason("drain_seal_timeout");
                 }
                 if let Some(queue) = record_trace_queue {
                     let drained = drain_trace_queue_into_writer(&mut ctx, queue);
@@ -740,7 +746,7 @@ fn drain_trace_queue_into_writer(
 /// なので `log::info!` 経由でのみ可視化し、戻り値は呼出側のテスト/診断用。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct RecoveryReport {
-    /// `.tmp` を `.json` に atomic rename して救出した件数。
+    /// `.tmp` を `.json` または `.json.partial` に atomic rename して救出した件数。
     pub recovered: usize,
     /// HMAC-SHA256 / serde 整合性に失敗し放置した件数 (削除しない / 将来分析用)。
     pub orphaned: usize,
@@ -806,7 +812,9 @@ fn walk_tmp_recover(dir: &Path, report: &mut RecoveryReport) {
     }
 }
 
-/// `.json.tmp` 1 件を試行する。integrity OK なら `.json` に rename。
+/// `.json.tmp` 1 件を試行する。checksum が正しく、最低 1 frame ある Record は
+/// status=Closed として `.json` に救済する。frame なし等の未使用 record は
+/// `.json.partial` に隔離し、Kirin OS の通常棚へ publish しない。
 /// 不整合は `report.orphaned += 1` で記録 (削除しない)。
 fn recover_one_tmp(tmp_path: &Path, report: &mut RecoveryReport) {
     let bytes = match fs::read(tmp_path) {
@@ -821,7 +829,7 @@ fn recover_one_tmp(tmp_path: &Path, report: &mut RecoveryReport) {
             return;
         }
     };
-    let data: PluginDataFile = match serde_json::from_slice(&bytes) {
+    let mut data: PluginDataFile = match serde_json::from_slice(&bytes) {
         Ok(d) => d,
         Err(e) => {
             log::warn!(
@@ -841,24 +849,97 @@ fn recover_one_tmp(tmp_path: &Path, report: &mut RecoveryReport) {
         report.orphaned += 1;
         return;
     }
-    // `{compact}.json.tmp` → `{compact}.json` に atomic rename。
     let final_path = strip_tmp_suffix(tmp_path);
+    let publishable = data.validity && data.sample_rate > 0 && !data.frames.is_empty();
+    let recovery_path = if publishable {
+        final_path
+    } else {
+        staging_path_for_final(&final_path)
+    };
     // 既に `.json` 側がある場合 (= 直前 flush が成功してから DAW が落ちた稀ケース)
     // は `.tmp` 側の方が新しい/古いの判定が困難なので、安全側で `.tmp` を残置 +
     // orphaned 計上。GUI 通知不要 (起動時 R-28 機能的沈黙)。
-    if final_path.exists() {
+    if recovery_path.exists() {
         log::warn!(
-            "[recover] final .json already exists (orphan kept): {}",
+            "[recover] recovery target already exists (orphan kept): {}",
             tmp_path.display()
         );
         report.orphaned += 1;
         return;
     }
-    if let Err(e) = fs::rename(tmp_path, &final_path) {
+    if publishable {
+        if data.status != Status::Closed {
+            data.status = Status::Closed;
+            data.integrity_degraded = true;
+            if !data
+                .integrity_reasons
+                .iter()
+                .any(|reason| reason == "startup_recovered_active")
+            {
+                data.integrity_reasons
+                    .push("startup_recovered_active".to_string());
+            }
+        }
+        data.commit_status = Some("committed".to_string());
+        data.checksum = match compute_checksum(&data) {
+            Ok(checksum) => checksum,
+            Err(e) => {
+                log::warn!(
+                    "[recover] checksum recompute failed (orphan kept): {} ({})",
+                    tmp_path.display(),
+                    e
+                );
+                report.orphaned += 1;
+                return;
+            }
+        };
+        let json = match serde_json::to_string(&data) {
+            Ok(json) => json,
+            Err(e) => {
+                log::warn!(
+                    "[recover] serialize failed (orphan kept): {} ({})",
+                    tmp_path.display(),
+                    e
+                );
+                report.orphaned += 1;
+                return;
+            }
+        };
+        let recover_path = PathBuf::from(format!("{}.recover", tmp_path.to_string_lossy()));
+        if let Err(e) = fs::write(&recover_path, json.as_bytes()) {
+            log::warn!(
+                "[recover] recovered write failed (orphan kept): {} ({})",
+                recover_path.display(),
+                e
+            );
+            report.orphaned += 1;
+            return;
+        }
+        if let Err(e) = fs::rename(&recover_path, &recovery_path) {
+            log::warn!(
+                "[recover] recovered rename failed: {} → {} ({})",
+                recover_path.display(),
+                recovery_path.display(),
+                e
+            );
+            let _ = fs::remove_file(&recover_path);
+            report.orphaned += 1;
+            return;
+        }
+        let _ = fs::remove_file(tmp_path);
+        log::info!(
+            "[recover] recovered: {} → {}",
+            tmp_path.display(),
+            recovery_path.display()
+        );
+        report.recovered += 1;
+        return;
+    }
+    if let Err(e) = fs::rename(tmp_path, &recovery_path) {
         log::warn!(
             "[recover] rename failed: {} → {} ({})",
             tmp_path.display(),
-            final_path.display(),
+            recovery_path.display(),
             e
         );
         report.orphaned += 1;
@@ -867,7 +948,7 @@ fn recover_one_tmp(tmp_path: &Path, report: &mut RecoveryReport) {
     log::info!(
         "[recover] recovered: {} → {}",
         tmp_path.display(),
-        final_path.display()
+        recovery_path.display()
     );
     report.recovered += 1;
 }
@@ -878,6 +959,10 @@ fn strip_tmp_suffix(tmp_path: &Path) -> PathBuf {
     let s = tmp_path.to_string_lossy();
     let trimmed = s.strip_suffix(".tmp").unwrap_or(&s);
     PathBuf::from(trimmed.to_string())
+}
+
+fn staging_path_for_final(final_path: &Path) -> PathBuf {
+    PathBuf::from(format!("{}.partial", final_path.to_string_lossy()))
 }
 
 // ── B-026 / Gap-9: Startup stale active sweep ───────────────────────────────
@@ -1133,6 +1218,8 @@ mod tests {
         let start_iso = epoch_ms_to_iso8601(started_at_ms);
         let paths = WriterPaths::build(base, TEST_PH, TEST_IID, role, &start_iso);
         let final_path = paths.final_path.clone();
+        let staging_path = paths.staging_path.clone();
+        let failed_path = paths.failed_path.clone();
         let mut writer = PluginDataWriter::create(
             paths,
             "test-installation-id".to_string(),
@@ -1141,8 +1228,8 @@ mod tests {
             role,
             None,
             48000,
-            None,
-            None,
+            (role == Role::Post).then(|| "paired-pre-test".to_string()),
+            (role == Role::Pre).then(|| "paired-post-test".to_string()),
             None,
             None,
         )
@@ -1153,6 +1240,8 @@ mod tests {
         RecordingCtx {
             writer,
             final_path,
+            staging_path,
+            failed_path,
             started_at_ms,
             next_frame_ms: 0,
             next_psb_ms: 0,
@@ -1322,8 +1411,17 @@ mod tests {
         let m = full_measure_result();
         assert!(writer_append_frame(&mut ctx, 100, &m));
         let final_path = ctx.final_path.clone();
+        let failed_path = ctx.failed_path.clone();
         writer_close_degraded(ctx);
 
+        assert!(
+            final_path.exists(),
+            "degraded close with usable frames must publish final JSON"
+        );
+        assert!(
+            !failed_path.exists(),
+            "degraded close with usable frames must not become a failed diagnostic"
+        );
         let bytes = fs::read(&final_path).unwrap();
         let loaded: PluginDataFile = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(
@@ -1351,9 +1449,18 @@ mod tests {
         let m = full_measure_result();
         assert!(writer_append_frame(&mut ctx, 100, &m));
         let final_path = ctx.final_path.clone();
+        let failed_path = ctx.failed_path.clone();
         fs::remove_dir_all(&base).unwrap();
         writer_close_degraded(ctx);
 
+        assert!(
+            final_path.exists(),
+            "degraded close must recreate storage and publish usable final JSON"
+        );
+        assert!(
+            !failed_path.exists(),
+            "usable degraded close must not create failed diagnostic JSON"
+        );
         let bytes = fs::read(&final_path).unwrap();
         let loaded: PluginDataFile = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(loaded.status, Status::Closed);
@@ -1390,11 +1497,12 @@ mod tests {
     }
 
     #[test]
-    fn post_record_start_waits_for_paired_pre_target() {
+    fn post_record_start_does_not_wait_for_paired_pre_target() {
         let sm = Arc::new(RecordStateMachine::new());
         sm.try_enter_record(License::Os).unwrap();
         let m = Arc::new(Mutex::new(full_measure_result()));
         let mut rec: Option<RecordingCtx> = None;
+        let started_at = now_epoch_ms();
 
         run_record_tick(
             &sm,
@@ -1402,7 +1510,7 @@ mod tests {
             48000,
             TEST_PH,
             TEST_IID,
-            || panic!("POST writer must not resolve started_at before PRE target is latched"),
+            || started_at,
             || None,
             || None,
             &m,
@@ -1414,18 +1522,20 @@ mod tests {
         )
         .unwrap();
 
-        assert!(
-            rec.is_none(),
-            "POST must not create an unpaired Record JSON when paired_pre_target is missing"
-        );
+        let ctx = rec
+            .as_ref()
+            .expect("POST must start Record even before PRE target is latched");
+        assert_eq!(ctx.data().started_at_ms, started_at);
+        assert!(ctx.data().paired_pre_instance_id.is_none());
     }
 
     #[test]
-    fn pre_record_start_waits_for_paired_post_partner() {
+    fn pre_record_start_does_not_wait_for_paired_post_partner() {
         let sm = Arc::new(RecordStateMachine::new());
         sm.try_enter_record(License::Os).unwrap();
         let m = Arc::new(Mutex::new(full_measure_result()));
         let mut rec: Option<RecordingCtx> = None;
+        let started_at = now_epoch_ms();
 
         run_record_tick(
             &sm,
@@ -1433,7 +1543,7 @@ mod tests {
             48000,
             TEST_PH,
             TEST_IID,
-            || panic!("PRE writer must not resolve started_at before POST partner is acknowledged"),
+            || started_at,
             || None,
             || None,
             &m,
@@ -1445,17 +1555,18 @@ mod tests {
         )
         .unwrap();
 
-        assert!(
-            rec.is_none(),
-            "PRE must not create an unpaired Record JSON before the POST signal is acknowledged"
-        );
+        let ctx = rec
+            .as_ref()
+            .expect("PRE must start Record even before POST is acknowledged");
+        assert_eq!(ctx.data().started_at_ms, started_at);
+        assert!(ctx.data().paired_post_instance_id.is_none());
     }
 
     #[test]
     fn run_record_tick_record_to_watch_closes_writer() {
         let base = isolated_base();
         let ctx = make_ctx(&base, Role::Post, now_epoch_ms());
-        let final_path = ctx.final_path.clone();
+        let failed_path = ctx.failed_path.clone();
         let sm = Arc::new(RecordStateMachine::new());
         sm.try_enter_record(License::Os).unwrap();
         let m = Arc::new(Mutex::new(full_measure_result()));
@@ -1484,7 +1595,7 @@ mod tests {
         .unwrap();
 
         assert!(rec.is_none());
-        let bytes = fs::read(&final_path).unwrap();
+        let bytes = fs::read(&failed_path).unwrap();
         let loaded: PluginDataFile = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(loaded.status, crate::plugin_data::Status::Closed);
     }
@@ -1635,12 +1746,12 @@ mod tests {
         let base = isolated_base();
         let started = now_epoch_ms() - (TRACE_DENSITY_MIN_DURATION_MS as i64 + 1_000);
         let ctx = make_ctx(&base, Role::Pre, started);
-        let final_path = ctx.final_path.clone();
+        let failed_path = ctx.failed_path.clone();
 
         writer_close(ctx);
 
         let loaded: PluginDataFile =
-            serde_json::from_slice(&fs::read(&final_path).unwrap()).unwrap();
+            serde_json::from_slice(&fs::read(&failed_path).unwrap()).unwrap();
         assert_eq!(loaded.frames.len(), 0);
         assert!(
             loaded.integrity_degraded,
@@ -1697,12 +1808,12 @@ mod tests {
         let base = isolated_base();
         let started = now_epoch_ms() - (TRACE_DENSITY_MIN_DURATION_MS as i64 - 1_000);
         let ctx = make_ctx(&base, Role::Pre, started);
-        let final_path = ctx.final_path.clone();
+        let failed_path = ctx.failed_path.clone();
 
         writer_close(ctx);
 
         let loaded: PluginDataFile =
-            serde_json::from_slice(&fs::read(&final_path).unwrap()).unwrap();
+            serde_json::from_slice(&fs::read(&failed_path).unwrap()).unwrap();
         assert!(
             loaded.integrity_degraded,
             "a Record with zero usable TRACE frames must not look clean even when short"
@@ -2029,25 +2140,47 @@ mod tests {
 
     // ── B-025 Group B-1 / Gap-8 (recover_orphan_tmps) ─────────────────────
 
-    /// 有効な .tmp (整合 HMAC-SHA256) は .json に atomic rename される。
-    /// recovered=1, orphaned=0, .tmp 消滅, .json 出現。
+    /// 有効な Active .tmp (整合 HMAC-SHA256) に frame があれば、Closed + degraded 理由付きで
+    /// `.json` に救済される。recovered=1, orphaned=0, .tmp 消滅。
     #[test]
     fn recover_orphan_tmps_recovers_valid_tmp() {
         let base = isolated_base();
-        // 1. flush して .json を作る → bytes を採取。
+        // 1. frame を積んで flush する → bytes を採取。
         let mut ctx = make_ctx(&base, Role::Post, now_epoch_ms());
+        assert!(writer_append_frame(&mut ctx, 100, &full_measure_result()));
         ctx.writer.flush().unwrap();
         let final_path = ctx.final_path.clone();
-        let valid_bytes = fs::read(&final_path).unwrap();
-        // 2. .json を消し、同 dir に .json.tmp として配置 (DAW crash 直前 = .tmp 残置)。
-        fs::remove_file(&final_path).unwrap();
+        let staging_path = ctx.staging_path.clone();
+        let valid_bytes = fs::read(&staging_path).unwrap();
+        // 2. .partial を消し、同 dir に .json.tmp として配置 (DAW crash 直前 = .tmp 残置)。
+        fs::remove_file(&staging_path).unwrap();
         let tmp_path = final_path.with_extension("json.tmp");
         fs::write(&tmp_path, &valid_bytes).unwrap();
 
         let report = recover_orphan_tmps(&base);
         assert_eq!(report.recovered, 1);
         assert_eq!(report.orphaned, 0);
-        assert!(final_path.exists(), ".json must exist after recover");
+        assert!(
+            final_path.exists(),
+            ".json must be published by usable tmp recovery"
+        );
+        let loaded: PluginDataFile =
+            serde_json::from_slice(&fs::read(&final_path).unwrap()).unwrap();
+        assert_eq!(loaded.status, Status::Closed);
+        assert_eq!(loaded.commit_status.as_deref(), Some("committed"));
+        assert!(
+            loaded.integrity_degraded,
+            "recovered Active tmp must be marked degraded instead of disappearing"
+        );
+        assert!(loaded
+            .integrity_reasons
+            .iter()
+            .any(|reason| reason == "startup_recovered_active"));
+        assert!(verify_checksum(&loaded));
+        assert!(
+            !staging_path.exists(),
+            ".partial must not remain after publish recovery"
+        );
         assert!(!tmp_path.exists(), ".tmp must be renamed away");
     }
 
@@ -2058,14 +2191,15 @@ mod tests {
         let mut ctx = make_ctx(&base, Role::Post, now_epoch_ms());
         ctx.writer.flush().unwrap();
         let final_path = ctx.final_path.clone();
-        let mut bytes = fs::read(&final_path).unwrap();
+        let staging_path = ctx.staging_path.clone();
+        let mut bytes = fs::read(&staging_path).unwrap();
         // checksum 値を破壊 (HMAC mismatch)。
         // checksum field の hex string 末尾を別文字に置換。
         let s = String::from_utf8(bytes.clone()).unwrap();
         let mutated = s.replace(r#""validity":true"#, r#""validity":false"#);
         bytes = mutated.into_bytes();
 
-        fs::remove_file(&final_path).unwrap();
+        fs::remove_file(&staging_path).unwrap();
         let tmp_path = final_path.with_extension("json.tmp");
         fs::write(&tmp_path, &bytes).unwrap();
 
@@ -2084,12 +2218,15 @@ mod tests {
         let mut ctx = make_ctx(&base, Role::Post, now_epoch_ms());
         ctx.writer.flush().unwrap();
         let final_path = ctx.final_path.clone();
-        assert!(final_path.exists());
+        let staging_path = ctx.staging_path.clone();
+        assert!(!final_path.exists());
+        assert!(staging_path.exists());
 
         let report = recover_orphan_tmps(&base);
         assert_eq!(report.recovered, 0);
         assert_eq!(report.orphaned, 0);
-        assert!(final_path.exists());
+        assert!(!final_path.exists());
+        assert!(staging_path.exists());
     }
 
     /// plugin_data root 自体が不在の場合は no-op で安全に終わる (R-28 機能的沈黙)。
@@ -2113,6 +2250,8 @@ mod tests {
         let mut ctx = make_ctx(&base, Role::Pre, now_epoch_ms());
         ctx.writer.flush().unwrap();
         let final_path = ctx.final_path.clone();
+        let staging_path = ctx.staging_path.clone();
+        fs::rename(&staging_path, &final_path).unwrap();
         drop(ctx);
 
         // mtime を 61 秒過去に巻き戻す。
@@ -2147,6 +2286,8 @@ mod tests {
         let mut ctx = make_ctx(&base, Role::Pre, now_epoch_ms());
         ctx.writer.flush().unwrap();
         let final_path = ctx.final_path.clone();
+        let staging_path = ctx.staging_path.clone();
+        fs::rename(&staging_path, &final_path).unwrap();
         drop(ctx);
 
         let report = sweep_stale_active_at_startup(&base);
@@ -2168,6 +2309,8 @@ mod tests {
         let mut ctx = make_ctx(&base, Role::Post, now_epoch_ms());
         ctx.writer.flush().unwrap();
         let final_path = ctx.final_path.clone();
+        let staging_path = ctx.staging_path.clone();
+        fs::rename(&staging_path, &final_path).unwrap();
         drop(ctx);
 
         // 直接 status を Closed に書換 + checksum 再計算 (close() consumption 回避)。
@@ -2203,7 +2346,7 @@ mod tests {
         let mut ctx = make_ctx(&base, Role::Post, started);
         // role dir を消去 → flush で再作成。
         let parent = ctx.final_path.parent().unwrap().to_path_buf();
-        let final_path = ctx.final_path.clone();
+        let staging_path = ctx.staging_path.clone();
         fs::remove_dir_all(&parent).unwrap();
         // 即時 flush 実行のため next_flush を過去に。
         ctx.next_flush = Instant::now() - Duration::from_secs(1);
@@ -2235,8 +2378,8 @@ mod tests {
         assert!(sm.is_recording(), "missing parent must not stop Record");
         assert!(parent.is_dir(), "flush must recreate the missing role dir");
         assert!(
-            final_path.is_file(),
-            "flush must recover and write the JSON"
+            staging_path.is_file(),
+            "flush must recover and write the staging JSON"
         );
         assert_eq!(ctx_ref.consecutive_write_error, 0);
     }
@@ -2365,7 +2508,8 @@ mod tests {
         let m = Arc::new(Mutex::new(full_measure_result()));
 
         // ── Record 1: overflow_start=0、Record 中に 5 drop、close → dropped_samples=5。
-        let ctx1 = make_ctx(&base, Role::Post, now_epoch_ms()); // overflow_start=0
+        let mut ctx1 = make_ctx(&base, Role::Post, now_epoch_ms()); // overflow_start=0
+        assert!(writer_append_frame(&mut ctx1, 100, &full_measure_result()));
         let path1 = ctx1.final_path.clone();
         let sm1 = Arc::new(RecordStateMachine::new());
         sm1.try_enter_record(License::Os).unwrap();
