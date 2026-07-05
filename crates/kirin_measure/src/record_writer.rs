@@ -143,6 +143,19 @@ const TRACE_DENSITY_MIN_DURATION_MS: u64 = 5_000;
 const TRACE_DENSITY_MIN_RATIO_NUM: usize = 1;
 const TRACE_DENSITY_MIN_RATIO_DEN: usize = 4;
 
+/// `sample_count_ready` として通常運用へ渡せる最小 Record 長。
+///
+/// 21ms / 1 frame などの短片は、たとえ native sample count が取れていても
+/// WAV と対応する take ではなく lifecycle fragment とみなす。
+const CLEAN_TAKE_MIN_DURATION_MS: u64 = 1_000;
+
+/// clean take を `sample_count_ready` と呼ぶための TRACE 密度。
+///
+/// 通常の offline bounce では Measure Thread が 100ms grid + 終端 marker を入れるため
+/// ほぼ 100% になる。75% 未満は Record grid の欠落として扱い、通常棚へ混ぜない。
+const CLEAN_TAKE_MIN_TRACE_RATIO_NUM: usize = 3;
+const CLEAN_TAKE_MIN_TRACE_RATIO_DEN: usize = 4;
+
 /// frames[] が WAV 0..duration を覆っているとみなす許容幅。
 const FRAME_COVERAGE_MAX_GAP_MS: u64 = FRAME_INTERVAL_MS * 2;
 const FRAME_COVERAGE_EDGE_TOLERANCE_MS: u64 = FRAME_INTERVAL_MS * 2;
@@ -296,6 +309,20 @@ pub fn resolve_started_at_ms(
     }
 }
 
+/// 指定 `post_instance_id` の record_signal.json から pair-wide Record session id を取得。
+pub fn resolve_record_session_id(
+    base: &std::path::Path,
+    project_hash: &str,
+    post_instance_id: &str,
+) -> Option<String> {
+    record_signal::read_signal(base, project_hash, post_instance_id)
+        .map(|signal| signal.session_id)
+        .and_then(|session_id| {
+            let trimmed = session_id.trim().to_string();
+            (!trimmed.is_empty()).then_some(trimmed)
+        })
+}
+
 /// Record 開始: `PluginDataWriter` を生成し、空ファイルで初回 flush する。
 ///
 /// # 引数
@@ -336,6 +363,12 @@ pub fn writer_start(
     let base = paths.plugin_data_dir();
     let installation_id = load_installation_id_safe()?;
     let wall_clock_iso = epoch_ms_to_iso8601(started_at_ms);
+    let signal_post_instance_id = match role {
+        Role::Pre => paired_post_instance_id.as_deref(),
+        Role::Post => Some(instance_id),
+    };
+    let record_session_id = signal_post_instance_id
+        .and_then(|post_iid| resolve_record_session_id(&base, project_hash, post_iid));
     let writer_paths = WriterPaths::build(&base, project_hash, instance_id, role, &wall_clock_iso);
     let final_path = writer_paths.final_path.clone();
     let staging_path = writer_paths.staging_path.clone();
@@ -361,6 +394,7 @@ pub fn writer_start(
     };
     w.set_record_start_wall_clock(wall_clock_iso);
     w.set_started_at_ms(started_at_ms);
+    w.set_record_session_id(record_session_id);
     if let Err(e) = w.flush() {
         log::warn!("[writer] initial flush failed: {}", e);
         return None;
@@ -399,6 +433,7 @@ pub fn writer_close(mut ctx: RecordingCtx) {
     let final_path = ctx.final_path.clone();
     let failed_path = ctx.failed_path.clone();
     clip_clean_timeline_to_duration(&mut ctx);
+    mark_integrity_if_record_is_too_short(&mut ctx);
     mark_integrity_if_trace_density_is_sparse(&mut ctx);
     seal_bounce_marker(&mut ctx);
     match ctx.writer.close() {
@@ -490,7 +525,7 @@ fn build_bounce_take(ctx: &RecordingCtx, duration_ms: u64, duration_samples: u64
     };
     let exact_native_time = ctx.last_trace_native_frames.is_some();
     let exact_audio_time = exact_native_time || ctx.last_trace_frame_48k.is_some();
-    let frame_coverage_ready = frame_timeline_covers_duration(ctx, duration_ms);
+    let clean_take_ready = clean_take_is_sample_count_ready(ctx, duration_ms);
     BounceTake {
         source: if let Some(source) = clean_source {
             source.to_string()
@@ -508,7 +543,7 @@ fn build_bounce_take(ctx: &RecordingCtx, duration_ms: u64, duration_samples: u64
         } else {
             "wall_clock_ms".to_string()
         },
-        alignment_status: if clean_source.is_some() && frame_coverage_ready {
+        alignment_status: if clean_take_ready {
             "sample_count_ready".to_string()
         } else if exact_audio_time {
             "trace_span_only".to_string()
@@ -557,6 +592,27 @@ fn frame_timeline_covers_duration(ctx: &RecordingCtx, duration_ms: u64) -> bool 
 
 fn frame_timeline_has_gap(ctx: &RecordingCtx, duration_ms: u64) -> bool {
     !frame_timeline_covers_duration(ctx, duration_ms)
+}
+
+fn clean_take_is_sample_count_ready(ctx: &RecordingCtx, duration_ms: u64) -> bool {
+    ctx.clean_take.is_some()
+        && duration_ms >= CLEAN_TAKE_MIN_DURATION_MS
+        && frame_timeline_covers_duration(ctx, duration_ms)
+        && clean_take_trace_density_ready(ctx, duration_ms)
+}
+
+fn clean_take_trace_density_ready(ctx: &RecordingCtx, duration_ms: u64) -> bool {
+    let expected = expected_trace_samples(duration_ms);
+    if expected == 0 {
+        return false;
+    }
+    let raw_count = if ctx.trace_sample_count > 0 {
+        ctx.trace_sample_count
+    } else {
+        ctx.writer.data().frames.len()
+    };
+    raw_count.saturating_mul(CLEAN_TAKE_MIN_TRACE_RATIO_DEN)
+        >= expected.saturating_mul(CLEAN_TAKE_MIN_TRACE_RATIO_NUM)
 }
 
 fn trace_density_is_sparse(ctx: &RecordingCtx) -> bool {
@@ -614,6 +670,33 @@ fn mark_integrity_if_trace_density_is_sparse(ctx: &mut RecordingCtx) {
             ctx.writer.add_integrity_reason("sparse_trace_density");
         }
     }
+}
+
+fn mark_integrity_if_record_is_too_short(ctx: &mut RecordingCtx) {
+    let has_audio_time = ctx.clean_take.is_some()
+        || ctx.last_trace_frame_48k.is_some()
+        || ctx.last_trace_native_frames.is_some();
+    if !has_audio_time {
+        return;
+    }
+    let duration_ms = record_duration_ms(ctx);
+    if duration_ms >= CLEAN_TAKE_MIN_DURATION_MS {
+        return;
+    }
+    let fragment_without_clean_take = ctx.clean_take.is_none()
+        && ctx.writer.data().frames.len() <= 1
+        && ctx.trace_sample_count <= 1;
+    if ctx.clean_take.is_none() && !fragment_without_clean_take {
+        return;
+    }
+    log::warn!(
+        "[writer] short Record fragment: duration_ms={} frames={} trace_samples={} - marking integrity_degraded",
+        duration_ms,
+        ctx.writer.data().frames.len(),
+        ctx.trace_sample_count
+    );
+    ctx.writer.mark_integrity_degraded();
+    ctx.writer.add_integrity_reason("record_too_short");
 }
 
 /// Record 終了 (B-043 セッション集計注入版)。
@@ -914,10 +997,7 @@ pub fn run_record_tick_with_pair_names(
         (true, true) => {
             let ctx = recording.as_mut().expect("some because of match arm");
             if let Some(queue) = record_trace_queue {
-                let drained = drain_trace_queue_into_writer(ctx, queue);
-                if drained.samples == 0 {
-                    append_current_measure_snapshot(ctx, measure_result)?;
-                }
+                let _ = drain_trace_queue_into_writer(ctx, queue);
             } else {
                 append_current_measure_snapshot(ctx, measure_result)?;
             }
@@ -992,10 +1072,9 @@ fn close_recording_context(
         ctx.writer.add_integrity_reason("drain_seal_timeout");
     }
     if let Some(queue) = record_trace_queue {
-        let drained = drain_trace_queue_into_writer(&mut ctx, queue);
-        if drained.samples == 0 {
-            append_current_measure_snapshot(&mut ctx, measure_result)?;
-        }
+        let _ = drain_trace_queue_into_writer(&mut ctx, queue);
+    } else {
+        append_current_measure_snapshot(&mut ctx, measure_result)?;
     }
     apply_record_take_snapshot(&mut ctx, record_take_tracker);
     writer_close_with_summary(ctx, summary);
@@ -1640,6 +1719,27 @@ mod tests {
         dir
     }
 
+    #[test]
+    fn resolve_record_session_id_reads_post_signal() {
+        let base = isolated_base();
+        let signal = crate::record_signal::RecordSignal {
+            status: crate::record_signal::SignalStatus::Pending,
+            requested_by: "post-x".to_string(),
+            target_pre_instance_id: "pre-x".to_string(),
+            daw_session_id: "daw-session".to_string(),
+            session_id: "record-session-x".to_string(),
+            t: "2026-07-05T00:00:00Z".to_string(),
+            started_at: "2026-07-05T00:00:00Z".to_string(),
+            paired_pre_name: "Music".to_string(),
+        };
+        crate::record_signal::write_signal(&base, TEST_PH, "post-x", &signal).unwrap();
+
+        assert_eq!(
+            resolve_record_session_id(&base, TEST_PH, "post-x").as_deref(),
+            Some("record-session-x")
+        );
+    }
+
     /// B-076: テスト用の overflow=0 カウンタ（欠落なし）。`&no_overflow()` で run_record_tick へ。
     fn no_overflow() -> Arc<std::sync::atomic::AtomicU64> {
         Arc::new(std::sync::atomic::AtomicU64::new(0))
@@ -1949,12 +2049,12 @@ mod tests {
             duration_samples: 480_000,
             source: crate::record_take::RECORD_TAKE_SOURCE_RENDER_CLOCK,
         });
-        let final_path = ctx.final_path.clone();
+        let failed_path = ctx.failed_path.clone();
 
         writer_close(ctx);
 
         let loaded: PluginDataFile =
-            serde_json::from_slice(&fs::read(&final_path).unwrap()).unwrap();
+            serde_json::from_slice(&fs::read(&failed_path).unwrap()).unwrap();
         let take = loaded.bounce_take.as_ref().expect("bounce_take");
         assert_eq!(take.end_t_ms, 10_000);
         assert_eq!(take.frame_count, 1);
@@ -1967,6 +2067,59 @@ mod tests {
             .integrity_reasons
             .iter()
             .any(|reason| reason == "frame_timeline_gap"));
+    }
+
+    #[test]
+    fn short_clean_take_fragment_is_not_sample_count_ready() {
+        let base = isolated_base();
+        let mut ctx = make_ctx_with_sample_rate(&base, Role::Post, now_epoch_ms(), 96_000);
+        let m = full_measure_result();
+
+        mark_trace_time(&mut ctx, 0, 0, Some(0));
+        assert!(writer_append_frame(&mut ctx, 0, &m));
+        ctx.trace_sample_count = 1;
+        ctx.record_generation = 77;
+        ctx.clean_take = Some(RecordTakeSnapshot {
+            generation: 77,
+            duration_samples: 2_048,
+            source: crate::record_take::RECORD_TAKE_SOURCE_RENDER_CLOCK,
+        });
+        let failed_path = ctx.failed_path.clone();
+
+        writer_close(ctx);
+
+        let loaded: PluginDataFile =
+            serde_json::from_slice(&fs::read(&failed_path).unwrap()).unwrap();
+        let take = loaded.bounce_take.as_ref().expect("bounce_take");
+        assert_ne!(take.alignment_status, "sample_count_ready");
+        assert!(loaded.integrity_degraded);
+        assert!(loaded
+            .integrity_reasons
+            .iter()
+            .any(|reason| reason == "record_too_short"));
+    }
+
+    #[test]
+    fn short_trace_only_fragment_is_quarantined() {
+        let base = isolated_base();
+        let mut ctx = make_ctx_with_sample_rate(&base, Role::Post, now_epoch_ms(), 96_000);
+        let m = full_measure_result();
+
+        mark_trace_time(&mut ctx, 100, 4_800, Some(9_600));
+        assert!(writer_append_frame(&mut ctx, 100, &m));
+        ctx.trace_sample_count = 1;
+        let failed_path = ctx.failed_path.clone();
+
+        writer_close(ctx);
+
+        let loaded: PluginDataFile =
+            serde_json::from_slice(&fs::read(&failed_path).unwrap()).unwrap();
+        let take = loaded.bounce_take.as_ref().expect("bounce_take");
+        assert_eq!(take.alignment_status, "trace_span_only");
+        assert!(loaded
+            .integrity_reasons
+            .iter()
+            .any(|reason| reason == "record_too_short"));
     }
 
     #[test]
@@ -2198,7 +2351,7 @@ mod tests {
     fn run_record_tick_record_to_watch_closes_writer() {
         let base = isolated_base();
         let ctx = make_ctx(&base, Role::Post, now_epoch_ms());
-        let failed_path = ctx.failed_path.clone();
+        let final_path = ctx.final_path.clone();
         let sm = Arc::new(RecordStateMachine::new());
         sm.try_enter_record(License::Os).unwrap();
         let m = Arc::new(Mutex::new(full_measure_result()));
@@ -2227,7 +2380,7 @@ mod tests {
         .unwrap();
 
         assert!(rec.is_none());
-        let bytes = fs::read(&failed_path).unwrap();
+        let bytes = fs::read(&final_path).unwrap();
         let loaded: PluginDataFile = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(loaded.status, crate::plugin_data::Status::Closed);
     }
@@ -2384,7 +2537,7 @@ mod tests {
     fn sparse_trace_sample_density_marks_integrity_degraded() {
         let base = isolated_base();
         let ctx = make_ctx(&base, Role::Post, now_epoch_ms());
-        let final_path = ctx.final_path.clone();
+        let failed_path = ctx.failed_path.clone();
         let sm = Arc::new(RecordStateMachine::new());
         sm.try_enter_record(License::Os).unwrap();
         let m = Arc::new(Mutex::new(MeasureResult::default()));
@@ -2414,7 +2567,7 @@ mod tests {
 
         writer_close(rec.take().unwrap());
         let loaded: PluginDataFile =
-            serde_json::from_slice(&fs::read(&final_path).unwrap()).unwrap();
+            serde_json::from_slice(&fs::read(&failed_path).unwrap()).unwrap();
         assert!(
             loaded.integrity_degraded,
             "audio-time progressed but TRACE sample density was too sparse"
@@ -2444,7 +2597,7 @@ mod tests {
         let base = isolated_base();
         let started = now_epoch_ms() - (TRACE_DENSITY_MIN_DURATION_MS as i64 + 1_000);
         let mut ctx = make_ctx(&base, Role::Pre, started);
-        let final_path = ctx.final_path.clone();
+        let failed_path = ctx.failed_path.clone();
         assert!(writer_append_frame(
             &mut ctx,
             TRACE_DENSITY_MIN_DURATION_MS + 500,
@@ -2454,7 +2607,7 @@ mod tests {
         writer_close(ctx);
 
         let loaded: PluginDataFile =
-            serde_json::from_slice(&fs::read(&final_path).unwrap()).unwrap();
+            serde_json::from_slice(&fs::read(&failed_path).unwrap()).unwrap();
         assert_eq!(loaded.frames.len(), 1);
         assert!(
             loaded.integrity_degraded,
@@ -2506,7 +2659,7 @@ mod tests {
         let base = isolated_base();
         let started = now_epoch_ms() - (TRACE_DENSITY_MIN_DURATION_MS as i64 - 1_000);
         let mut ctx = make_ctx(&base, Role::Pre, started);
-        let final_path = ctx.final_path.clone();
+        let failed_path = ctx.failed_path.clone();
         assert!(writer_append_frame(&mut ctx, 100, &full_measure_result()));
         mark_trace_time(
             &mut ctx,
@@ -2518,7 +2671,7 @@ mod tests {
         writer_close(ctx);
 
         let loaded: PluginDataFile =
-            serde_json::from_slice(&fs::read(&final_path).unwrap()).unwrap();
+            serde_json::from_slice(&fs::read(&failed_path).unwrap()).unwrap();
         assert_eq!(loaded.frames.len(), 1);
         assert!(
             loaded.integrity_degraded,
@@ -2645,7 +2798,7 @@ mod tests {
     }
 
     #[test]
-    fn run_record_tick_falls_back_to_live_snapshot_when_trace_queue_is_empty() {
+    fn run_record_tick_does_not_mix_wall_clock_when_trace_queue_is_empty() {
         let base = isolated_base();
         let started = now_epoch_ms() - 600;
         let ctx = make_ctx(&base, Role::Pre, started);
@@ -2674,14 +2827,49 @@ mod tests {
         .unwrap();
 
         let ctx_ref = rec.as_ref().unwrap();
-        assert_eq!(ctx_ref.data().frames.len(), 1);
         assert!(
-            ctx_ref.data().frames[0].t_ms >= 500,
-            "fallback snapshot must use the shared wall-clock axis"
+            ctx_ref.data().frames.is_empty(),
+            "modern Record must not mix wall-clock fallback frames into audio-time TRACE"
         );
         assert_eq!(
             ctx_ref.data().psb_snapshots.as_ref().map(|v| v.len()),
-            Some(1)
+            Some(0)
+        );
+    }
+
+    #[test]
+    fn run_record_tick_legacy_without_trace_queue_uses_live_snapshot() {
+        let base = isolated_base();
+        let started = now_epoch_ms() - 600;
+        let ctx = make_ctx(&base, Role::Pre, started);
+        let sm = Arc::new(RecordStateMachine::new());
+        sm.try_enter_record(License::Os).unwrap();
+        let m = Arc::new(Mutex::new(full_measure_result()));
+        let mut rec: Option<RecordingCtx> = Some(ctx);
+
+        run_record_tick(
+            &sm,
+            Role::Pre,
+            48000,
+            TEST_PH,
+            TEST_IID,
+            now_epoch_ms,
+            || None,
+            || None,
+            &m,
+            &mut rec,
+            None,
+            &no_overflow(),
+            &no_overflow(),
+            None,
+        )
+        .unwrap();
+
+        let ctx_ref = rec.as_ref().unwrap();
+        assert_eq!(ctx_ref.data().frames.len(), 1);
+        assert!(
+            ctx_ref.data().frames[0].t_ms >= 500,
+            "legacy fallback snapshot keeps the wall-clock axis only when no TRACE queue exists"
         );
     }
 
@@ -2733,7 +2921,7 @@ mod tests {
     fn run_record_tick_preserves_audio_time_when_trace_sample_has_no_numeric_frame() {
         let base = isolated_base();
         let ctx = make_ctx(&base, Role::Pre, now_epoch_ms());
-        let final_path = ctx.final_path.clone();
+        let failed_path = ctx.failed_path.clone();
         let sm = Arc::new(RecordStateMachine::new());
         sm.try_enter_record(License::Os).unwrap();
         let m = Arc::new(Mutex::new(MeasureResult::default()));
@@ -2773,7 +2961,7 @@ mod tests {
         assert_eq!(ctx.last_trace_t_ms, Some(15_400));
         writer_close(ctx);
 
-        let bytes = fs::read(&final_path).unwrap();
+        let bytes = fs::read(&failed_path).unwrap();
         let loaded: PluginDataFile = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(loaded.frames.len(), 3);
         assert_eq!(loaded.frames[2].lufs_m, TRACE_SILENCE_LUFS);
@@ -2793,17 +2981,19 @@ mod tests {
         let mut ctx = make_ctx_with_sample_rate(&base, Role::Post, now_epoch_ms(), 96_000);
         let final_path = ctx.final_path.clone();
         let queue = new_record_trace_queue();
-        push_record_trace_sample(
-            &queue,
-            trace_sample_frames(4_800, full_measure_result(), true),
-        );
-        push_record_trace_sample(
-            &queue,
-            trace_sample_frames(720_000, full_measure_result(), false),
-        );
+        for t_ms in (0_u64..=15_000).step_by(FRAME_INTERVAL_MS as usize) {
+            push_record_trace_sample(
+                &queue,
+                trace_sample_frames(
+                    t_ms.saturating_mul(TRACE_TIMEBASE_HZ) / 1_000,
+                    full_measure_result(),
+                    t_ms == 0,
+                ),
+            );
+        }
 
         let drained = drain_trace_queue_into_writer(&mut ctx, &queue);
-        assert_eq!(drained.samples, 2);
+        assert_eq!(drained.samples, 151);
         writer_close(ctx);
 
         let loaded: PluginDataFile =
@@ -2824,17 +3014,20 @@ mod tests {
         let mut ctx = make_ctx_with_sample_rate(&base, Role::Post, now_epoch_ms(), 44_100);
         let final_path = ctx.final_path.clone();
         let queue = new_record_trace_queue();
-        push_record_trace_sample(
-            &queue,
-            trace_sample_frames_with_native(4_800, Some(4_410), full_measure_result(), true),
-        );
-        push_record_trace_sample(
-            &queue,
-            trace_sample_frames_with_native(720_000, Some(661_500), full_measure_result(), false),
-        );
+        for t_ms in (0_u64..=15_000).step_by(FRAME_INTERVAL_MS as usize) {
+            push_record_trace_sample(
+                &queue,
+                trace_sample_frames_with_native(
+                    t_ms.saturating_mul(TRACE_TIMEBASE_HZ) / 1_000,
+                    Some(t_ms.saturating_mul(44_100) / 1_000),
+                    full_measure_result(),
+                    t_ms == 0,
+                ),
+            );
+        }
 
         let drained = drain_trace_queue_into_writer(&mut ctx, &queue);
-        assert_eq!(drained.samples, 2);
+        assert_eq!(drained.samples, 151);
         writer_close(ctx);
 
         let loaded: PluginDataFile =

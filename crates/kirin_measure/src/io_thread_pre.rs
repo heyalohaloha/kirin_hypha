@@ -2400,6 +2400,7 @@ mod tests {
             requested_by: "post-x".into(),
             target_pre_instance_id: "pre-x".into(),
             daw_session_id: "daw-uuid-explicit".into(),
+            session_id: "session-explicit".into(),
             t: "2026-04-19T12:00:00Z".into(),
             started_at: "2026-04-19T11:59:30Z".into(),
             paired_pre_name: String::new(),

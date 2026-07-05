@@ -154,7 +154,7 @@ Fail data:
 1. Select the same PRE/POST pair.
 2. Press `Keep`.
 3. Run an offline bounce/export for at least 20 seconds.
-4. Confirm POST remains in Keep/Record after the bounce unless the tester explicitly opted into `KIRIN_HYPHA_OFFLINE_AUTOSTOP=1`. Default behavior must not close Record automatically.
+4. Confirm POST closes Keep/Record after the bounce when the same Record generation has processed at least 1 second of offline audio. Short offline preflight fragments must not close Record. To test the manual-stop fallback only, launch with `KIRIN_HYPHA_OFFLINE_AUTOSTOP=0`.
 5. Press `Stop` manually to close the take.
 6. Check Record/plugin_data output:
 

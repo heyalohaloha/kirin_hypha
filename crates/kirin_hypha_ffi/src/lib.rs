@@ -562,6 +562,7 @@ impl KirinHyphaEngine {
             Arc::clone(&record_sm),
             Arc::clone(&session_summary),
             Arc::clone(&record_trace_queue),
+            Arc::clone(&record_take_tracker),
         );
 
         // B-118: T-8 watchdog 再採用（B-056 opt-out 撤回）。Measure Thread crash を再起動し、io は
@@ -587,6 +588,7 @@ impl KirinHyphaEngine {
             record_sm: Arc::clone(&record_sm),
             session_summary: Arc::clone(&session_summary),
             record_trace_queue: Arc::clone(&record_trace_queue),
+            record_take_tracker: Arc::clone(&record_take_tracker),
         });
 
         // B-110: live インスタンス refcount +1（破棄は Drop で −1）。enable ではなく create に置く

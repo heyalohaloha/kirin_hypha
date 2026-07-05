@@ -15,6 +15,7 @@
 //!   "requested_by": "post_instance_id (= filename stem)",
 //!   "target_pre_instance_id": "PRE 永続 instance_id（ペアリング結果）",
 //!   "daw_session_id": "DAW プロセス UUID（cross-process 防壁 / Q1 補強）",
+//!   "session_id": "PRE/POST が同じ Record session を共有するための UUID",
 //!   "t": "ISO 8601（最終遷移時刻。status 更新で書き換わる）",
 //!   "started_at": "ISO 8601（pending 配置時に固定、以後不変）"
 //! }
@@ -44,6 +45,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use uuid::Uuid;
 
 mod stale_pending;
 
@@ -95,6 +97,12 @@ pub struct RecordSignal {
     /// 旧 schema からの読込で欠落している場合は空文字で defaulted。
     #[serde(default)]
     pub daw_session_id: String,
+    /// POST Keep 1 回ごとの Record session UUID。
+    ///
+    /// PRE / POST plugin_data に同じ値を焼き、後段が pair 単位で同じ録音か検証する。
+    /// 旧 schema では空文字に default し、started_at + paired_* による互換経路を維持する。
+    #[serde(default)]
+    pub session_id: String,
     /// 状態遷移の最終時刻（ISO 8601 / RFC 3339, 秒精度 / UTC）。
     pub t: String,
     /// pending 配置時刻（以後 status 遷移で更新されない）。
@@ -122,6 +130,7 @@ impl RecordSignal {
             requested_by,
             target_pre_instance_id,
             daw_session_id,
+            session_id: Uuid::new_v4().to_string(),
             t: now.clone(),
             started_at: now,
             paired_pre_name: String::new(),

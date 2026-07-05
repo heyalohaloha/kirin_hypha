@@ -368,6 +368,7 @@ impl Plugin for HyphaPre {
             Arc::clone(&self.record_sm),
             Arc::clone(&self.session_summary),
             Arc::clone(&self.record_trace_queue),
+            Arc::clone(&self.record_take_tracker),
         );
 
         // B-022 段階 1: io_thread には Arc<RwLock<String>> 共有 → tick ごと lazy-read。
@@ -468,6 +469,7 @@ impl Plugin for HyphaPre {
             record_sm: Arc::clone(&self.record_sm),
             session_summary: Arc::clone(&self.session_summary),
             record_trace_queue: Arc::clone(&self.record_trace_queue),
+            record_take_tracker: Arc::clone(&self.record_take_tracker),
         }));
 
         true
