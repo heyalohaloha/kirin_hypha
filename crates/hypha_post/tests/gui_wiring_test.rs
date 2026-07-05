@@ -885,10 +885,10 @@ fn editor_rs_pair_dropdown_distinguishes_keep_from_pair_choices() {
     );
 }
 
-/// W-284 / G-115-252: io_thread_post.rs main loop の self_check_pair_claim 発火条件
-/// に `!record_sm.is_recording()` gate が含まれることを invariant 化。Record 中の
-/// self_check release が pair_pre_name="" / delta_result clear / pair_label 切替で
-/// Record 継続を破綻させる regression を防ぐ (Daisuke 2026-05-17 報告)。
+/// W-284 / G-115-252 + B-253: io_thread_post.rs main loop の self_check_pair_claim
+/// 発火条件に `!record_sm.is_recording()` と `!transport_playing` gate が含まれることを
+/// invariant 化。Record 中/再生中の self_check release が pair_pre_name="" /
+/// delta_result clear / pair_label 切替で pair 継続を破綻させる regression を防ぐ。
 #[test]
 fn io_thread_post_self_check_gated_when_recording() {
     let src = fs::read_to_string(
@@ -919,5 +919,9 @@ fn io_thread_post_self_check_gated_when_recording() {
     assert!(
         window.contains("!record_sm.is_recording()"),
         "W-284 G-115-252: self_check 発火条件 block に `!record_sm.is_recording()` gate が無い (Record 中 release で pair 破綻する regression)"
+    );
+    assert!(
+        window.contains("!transport_playing"),
+        "B-253: self_check 発火条件 block に `!transport_playing` gate が無い (再生中の無音 gap で pair が外れる regression)"
     );
 }

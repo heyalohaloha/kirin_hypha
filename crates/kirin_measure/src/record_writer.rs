@@ -25,7 +25,8 @@ use std::time::{Duration, Instant, SystemTime};
 
 use crate::engine::SessionSummary;
 use crate::plugin_data::{
-    compute_checksum, verify_checksum, PluginDataFile, PluginDataWriter, Role, Status, WriterPaths,
+    compute_checksum, verify_checksum, BounceTake, PluginDataFile, PluginDataWriter, Role, Status,
+    WriterPaths,
 };
 use crate::record::RecordStateMachine;
 use crate::record_signal;
@@ -39,6 +40,9 @@ pub const FRAME_INTERVAL_MS: u64 = 100;
 /// PSB スナップショット間隔（2 fps / G-50-17）。
 pub const PSB_INTERVAL_MS: u64 = 500;
 
+/// Record TRACE の内部時間軸。MeasureEngine は 48 kHz に正規化して処理する。
+pub const TRACE_TIMEBASE_HZ: u64 = 48_000;
+
 /// heartbeat + atomic flush 間隔（正本 30 秒）。
 pub const FLUSH_INTERVAL: Duration = Duration::from_secs(30);
 
@@ -49,6 +53,12 @@ pub const FLUSH_INTERVAL: Duration = Duration::from_secs(30);
 #[derive(Debug, Clone)]
 pub struct RecordTraceSample {
     pub t_ms: u64,
+    pub t_frames_48k: u64,
+    /// DAW/WAV 側の native sample frame 位置（1ch あたりの sample frame 数）。
+    ///
+    /// 44.1 kHz など非48k環境では、WAV header と一致させる正本は 48k resample 後の
+    /// frame 数ではなく、この native frame 数。
+    pub t_native_frames: Option<u64>,
     pub result: MeasureResult,
     pub include_psb: bool,
 }
@@ -79,7 +89,8 @@ pub fn drain_record_trace_queue(queue: &RecordTraceQueue) -> Vec<RecordTraceSamp
 }
 
 /// B-132 (G-115-382 共通B): bake arm が Measure Thread の drain-completion seal 前進を待つ
-/// **上限**。RING_BUFFER_SECONDS=2 + measure loop 100ms を踏まえ、健全時は ~1 loop（≤100ms）で
+/// **上限**。Record→Watch エッジでは Measure Thread が ring 残量を優先 drain するため、
+/// 健全時は ~1 loop（≤100ms）で
 /// seal が前進する。本値は measure 死 / shutdown / stall で finalize 不能なときの天井で、
 /// 超過したら integrity_degraded に倒す（共通B / silent truncation を残さない）。
 pub const SEAL_WAIT_TIMEOUT: Duration = Duration::from_millis(500);
@@ -168,6 +179,15 @@ pub struct RecordingCtx {
     /// 数値フレームが成立しないことがある。offline bounce の収録長は壁時計ではなく、
     /// 数値フレームの有無と独立したこの音声時間から焼く。
     pub last_trace_t_ms: Option<u64>,
+    /// 最後に Measure Thread から届いた Record TRACE の 48 kHz 内部フレーム位置。
+    ///
+    /// 計測内部時間軸の長さとして `bounce_take.duration_frames_48k` に残す。
+    pub last_trace_frame_48k: Option<u64>,
+    /// 最後に Measure Thread から届いた DAW/WAV native sample frame 位置。
+    ///
+    /// `bounce_take.duration_samples` と `bounce_marker.duration_samples` はこの値を正本にする。
+    /// 非48k環境で resampler の pending/latency/chunk 境界に引きずられないための主軸。
+    pub last_trace_native_frames: Option<u64>,
     /// Measure Thread から届いた audio-time TRACE サンプル総数。
     ///
     /// `frames[]` は無音/ウォームアップで減るため、密度検査はこの raw sample count で行う。
@@ -324,6 +344,8 @@ pub fn writer_start(
         oversized_drop_start: 0, // B-125: 同上（oversized_drop の Record 開始 snapshot）
         seal_at_start: 0,  // B-132: run_record_tick が Record 開始時に seal を snapshot する
         last_trace_t_ms: None,
+        last_trace_frame_48k: None,
+        last_trace_native_frames: None,
         trace_sample_count: 0,
     })
 }
@@ -346,11 +368,12 @@ pub fn writer_close(mut ctx: RecordingCtx) {
 
 fn seal_bounce_marker(ctx: &mut RecordingCtx) {
     let end_ms = now_epoch_ms();
-    let sample_rate = ctx.writer.data().sample_rate as u64;
     let duration_ms = record_duration_ms(ctx);
-    let duration_samples = duration_ms.saturating_mul(sample_rate) / 1_000;
+    let duration_samples = record_duration_samples(ctx);
     ctx.writer
         .set_bounce_end(epoch_ms_to_iso8601(end_ms), duration_samples, String::new());
+    ctx.writer
+        .set_bounce_take(build_bounce_take(ctx, duration_ms, duration_samples));
 }
 
 fn expected_trace_samples(duration_ms: u64) -> usize {
@@ -358,6 +381,15 @@ fn expected_trace_samples(duration_ms: u64) -> usize {
 }
 
 fn record_duration_ms(ctx: &RecordingCtx) -> u64 {
+    let sample_rate = ctx.writer.data().sample_rate as u64;
+    if sample_rate > 0 {
+        if let Some(native_frames) = ctx.last_trace_native_frames {
+            return native_frames.saturating_mul(1_000) / sample_rate;
+        }
+    }
+    if let Some(frames_48k) = ctx.last_trace_frame_48k {
+        return frames_48k.saturating_mul(1_000) / TRACE_TIMEBASE_HZ;
+    }
     if let Some(t_ms) = ctx.last_trace_t_ms {
         return t_ms;
     }
@@ -366,6 +398,56 @@ fn record_duration_ms(ctx: &RecordingCtx) -> u64 {
         end_ms.saturating_sub(ctx.started_at_ms).max(0) as u64
     } else {
         0
+    }
+}
+
+fn record_duration_samples(ctx: &RecordingCtx) -> u64 {
+    let sample_rate = ctx.writer.data().sample_rate as u64;
+    if let Some(native_frames) = ctx.last_trace_native_frames {
+        return native_frames;
+    }
+    if let Some(frames_48k) = ctx.last_trace_frame_48k {
+        return frames_48k.saturating_mul(sample_rate) / TRACE_TIMEBASE_HZ;
+    }
+    record_duration_ms(ctx).saturating_mul(sample_rate) / 1_000
+}
+
+fn build_bounce_take(ctx: &RecordingCtx, duration_ms: u64, duration_samples: u64) -> BounceTake {
+    let sample_rate = ctx.writer.data().sample_rate;
+    let duration_frames_48k = ctx
+        .last_trace_frame_48k
+        .unwrap_or_else(|| duration_ms.saturating_mul(TRACE_TIMEBASE_HZ) / 1_000);
+    let exact_native_time = ctx.last_trace_native_frames.is_some();
+    let exact_audio_time = exact_native_time || ctx.last_trace_frame_48k.is_some();
+    BounceTake {
+        source: if exact_native_time {
+            "audio_time_trace_native".to_string()
+        } else if exact_audio_time {
+            "audio_time_trace".to_string()
+        } else {
+            "wall_clock_fallback".to_string()
+        },
+        time_axis: if exact_native_time {
+            "native_samples".to_string()
+        } else if exact_audio_time {
+            "frames_48k".to_string()
+        } else {
+            "wall_clock_ms".to_string()
+        },
+        alignment_status: if exact_audio_time {
+            "sample_count_ready".to_string()
+        } else {
+            "estimated".to_string()
+        },
+        sample_rate,
+        wav_start_sample: 0,
+        wav_end_sample: duration_samples,
+        duration_samples,
+        duration_frames_48k,
+        start_t_ms: 0,
+        end_t_ms: duration_ms,
+        trace_sample_count: ctx.trace_sample_count as u64,
+        frame_count: ctx.writer.data().frames.len() as u64,
     }
 }
 
@@ -483,8 +565,23 @@ pub fn writer_append_frame(ctx: &mut RecordingCtx, t_ms: u64, m: &MeasureResult)
     true
 }
 
-fn mark_trace_time(ctx: &mut RecordingCtx, t_ms: u64) {
+fn mark_trace_time(
+    ctx: &mut RecordingCtx,
+    t_ms: u64,
+    t_frames_48k: u64,
+    t_native_frames: Option<u64>,
+) {
     ctx.last_trace_t_ms = Some(ctx.last_trace_t_ms.map_or(t_ms, |prev| prev.max(t_ms)));
+    ctx.last_trace_frame_48k = Some(
+        ctx.last_trace_frame_48k
+            .map_or(t_frames_48k, |prev| prev.max(t_frames_48k)),
+    );
+    if let Some(native_frames) = t_native_frames {
+        ctx.last_trace_native_frames = Some(
+            ctx.last_trace_native_frames
+                .map_or(native_frames, |prev| prev.max(native_frames)),
+        );
+    }
 }
 
 /// PSB スナップショット追記。`psb_bark` が None ならスキップ。
@@ -724,7 +821,7 @@ fn drain_trace_queue_into_writer(
     for sample in drain_record_trace_queue(queue) {
         stats.samples += 1;
         let t_ms = sample.t_ms;
-        mark_trace_time(ctx, t_ms);
+        mark_trace_time(ctx, t_ms, sample.t_frames_48k, sample.t_native_frames);
         if t_ms >= ctx.next_frame_ms && writer_append_frame(ctx, t_ms, &sample.result) {
             ctx.next_frame_ms = (t_ms / FRAME_INTERVAL_MS + 1) * FRAME_INTERVAL_MS;
             stats.frames += 1;
@@ -1332,6 +1429,15 @@ mod tests {
     }
 
     fn make_ctx(base: &std::path::Path, role: Role, started_at_ms: i64) -> RecordingCtx {
+        make_ctx_with_sample_rate(base, role, started_at_ms, 48_000)
+    }
+
+    fn make_ctx_with_sample_rate(
+        base: &std::path::Path,
+        role: Role,
+        started_at_ms: i64,
+        sample_rate: u32,
+    ) -> RecordingCtx {
         let start_iso = epoch_ms_to_iso8601(started_at_ms);
         let paths = WriterPaths::build(base, TEST_PH, TEST_IID, role, &start_iso);
         let final_path = paths.final_path.clone();
@@ -1344,7 +1450,7 @@ mod tests {
             TEST_IID.to_string(),
             role,
             None,
-            48000,
+            sample_rate,
             (role == Role::Post).then(|| "paired-pre-test".to_string()),
             (role == Role::Pre).then(|| "paired-post-test".to_string()),
             None,
@@ -1369,6 +1475,8 @@ mod tests {
             oversized_drop_start: 0, // B-125
             seal_at_start: 0,        // B-132
             last_trace_t_ms: None,
+            last_trace_frame_48k: None,
+            last_trace_native_frames: None,
             trace_sample_count: 0,
         }
     }
@@ -1389,6 +1497,37 @@ mod tests {
             }),
             n_prime: Some([0.5; 20]),
             psb_bark: Some([0.05; 20]),
+        }
+    }
+
+    fn trace_sample(t_ms: u64, result: MeasureResult, include_psb: bool) -> RecordTraceSample {
+        trace_sample_frames(
+            t_ms.saturating_mul(TRACE_TIMEBASE_HZ) / 1_000,
+            result,
+            include_psb,
+        )
+    }
+
+    fn trace_sample_frames(
+        t_frames_48k: u64,
+        result: MeasureResult,
+        include_psb: bool,
+    ) -> RecordTraceSample {
+        trace_sample_frames_with_native(t_frames_48k, None, result, include_psb)
+    }
+
+    fn trace_sample_frames_with_native(
+        t_frames_48k: u64,
+        t_native_frames: Option<u64>,
+        result: MeasureResult,
+        include_psb: bool,
+    ) -> RecordTraceSample {
+        RecordTraceSample {
+            t_ms: t_frames_48k.saturating_mul(1_000) / TRACE_TIMEBASE_HZ,
+            t_frames_48k,
+            t_native_frames,
+            result,
+            include_psb,
         }
     }
 
@@ -1764,22 +1903,8 @@ mod tests {
         let m = Arc::new(Mutex::new(MeasureResult::default()));
         let mut rec: Option<RecordingCtx> = Some(ctx);
         let queue = new_record_trace_queue();
-        push_record_trace_sample(
-            &queue,
-            RecordTraceSample {
-                t_ms: 100,
-                result: full_measure_result(),
-                include_psb: true,
-            },
-        );
-        push_record_trace_sample(
-            &queue,
-            RecordTraceSample {
-                t_ms: 200,
-                result: full_measure_result(),
-                include_psb: false,
-            },
-        );
+        push_record_trace_sample(&queue, trace_sample(100, full_measure_result(), true));
+        push_record_trace_sample(&queue, trace_sample(200, full_measure_result(), false));
 
         run_record_tick(
             &sm,
@@ -1821,14 +1946,7 @@ mod tests {
         let mut rec: Option<RecordingCtx> = Some(ctx);
         let queue = new_record_trace_queue();
         for t_ms in [100, 10_000] {
-            push_record_trace_sample(
-                &queue,
-                RecordTraceSample {
-                    t_ms,
-                    result: full_measure_result(),
-                    include_psb: false,
-                },
-            );
+            push_record_trace_sample(&queue, trace_sample(t_ms, full_measure_result(), false));
         }
 
         run_record_tick(
@@ -1969,15 +2087,15 @@ mod tests {
         for i in 0..=100 {
             push_record_trace_sample(
                 &queue,
-                RecordTraceSample {
-                    t_ms: i * FRAME_INTERVAL_MS,
-                    result: if i == 1 {
+                trace_sample(
+                    i * FRAME_INTERVAL_MS,
+                    if i == 1 {
                         full_measure_result()
                     } else {
                         MeasureResult::default()
                     },
-                    include_psb: false,
-                },
+                    false,
+                ),
             );
         }
 
@@ -2063,14 +2181,7 @@ mod tests {
         let m = Arc::new(Mutex::new(full_measure_result()));
         let mut rec: Option<RecordingCtx> = Some(ctx);
         let queue = new_record_trace_queue();
-        push_record_trace_sample(
-            &queue,
-            RecordTraceSample {
-                t_ms: 100,
-                result: MeasureResult::default(),
-                include_psb: false,
-            },
-        );
+        push_record_trace_sample(&queue, trace_sample(100, MeasureResult::default(), false));
 
         run_record_tick(
             &sm,
@@ -2109,29 +2220,11 @@ mod tests {
         let m = Arc::new(Mutex::new(MeasureResult::default()));
         let mut rec: Option<RecordingCtx> = Some(ctx);
         let queue = new_record_trace_queue();
+        push_record_trace_sample(&queue, trace_sample(100, full_measure_result(), true));
+        push_record_trace_sample(&queue, trace_sample(11_000, full_measure_result(), false));
         push_record_trace_sample(
             &queue,
-            RecordTraceSample {
-                t_ms: 100,
-                result: full_measure_result(),
-                include_psb: true,
-            },
-        );
-        push_record_trace_sample(
-            &queue,
-            RecordTraceSample {
-                t_ms: 11_000,
-                result: full_measure_result(),
-                include_psb: false,
-            },
-        );
-        push_record_trace_sample(
-            &queue,
-            RecordTraceSample {
-                t_ms: 15_400,
-                result: MeasureResult::default(),
-                include_psb: false,
-            },
+            trace_sample(15_400, MeasureResult::default(), false),
         );
 
         run_record_tick(
@@ -2165,6 +2258,78 @@ mod tests {
         let loaded: PluginDataFile = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(loaded.frames.len(), 2);
         assert_eq!(loaded.bounce_marker.duration_samples, 739_200);
+        let take = loaded.bounce_take.as_ref().expect("bounce_take");
+        assert_eq!(take.source, "audio_time_trace");
+        assert_eq!(take.time_axis, "frames_48k");
+        assert_eq!(take.alignment_status, "sample_count_ready");
+        assert_eq!(take.duration_samples, 739_200);
+        assert_eq!(take.wav_start_sample, 0);
+        assert_eq!(take.wav_end_sample, 739_200);
+    }
+
+    #[test]
+    fn bounce_take_converts_48k_trace_frames_to_96k_wav_samples() {
+        let base = isolated_base();
+        let mut ctx = make_ctx_with_sample_rate(&base, Role::Post, now_epoch_ms(), 96_000);
+        let final_path = ctx.final_path.clone();
+        let queue = new_record_trace_queue();
+        push_record_trace_sample(
+            &queue,
+            trace_sample_frames(4_800, full_measure_result(), true),
+        );
+        push_record_trace_sample(
+            &queue,
+            trace_sample_frames(720_000, full_measure_result(), false),
+        );
+
+        let drained = drain_trace_queue_into_writer(&mut ctx, &queue);
+        assert_eq!(drained.samples, 2);
+        writer_close(ctx);
+
+        let loaded: PluginDataFile =
+            serde_json::from_slice(&fs::read(&final_path).unwrap()).unwrap();
+        assert_eq!(loaded.bounce_marker.duration_samples, 1_440_000);
+        let take = loaded.bounce_take.as_ref().expect("bounce_take");
+        assert_eq!(take.duration_frames_48k, 720_000);
+        assert_eq!(take.duration_samples, 1_440_000);
+        assert_eq!(take.wav_start_sample, 0);
+        assert_eq!(take.wav_end_sample, 1_440_000);
+        assert_eq!(take.end_t_ms, 15_000);
+        assert_eq!(take.alignment_status, "sample_count_ready");
+    }
+
+    #[test]
+    fn bounce_take_prefers_native_sample_frames_at_44100() {
+        let base = isolated_base();
+        let mut ctx = make_ctx_with_sample_rate(&base, Role::Post, now_epoch_ms(), 44_100);
+        let final_path = ctx.final_path.clone();
+        let queue = new_record_trace_queue();
+        push_record_trace_sample(
+            &queue,
+            trace_sample_frames_with_native(4_800, Some(4_410), full_measure_result(), true),
+        );
+        push_record_trace_sample(
+            &queue,
+            trace_sample_frames_with_native(720_000, Some(661_500), full_measure_result(), false),
+        );
+
+        let drained = drain_trace_queue_into_writer(&mut ctx, &queue);
+        assert_eq!(drained.samples, 2);
+        writer_close(ctx);
+
+        let loaded: PluginDataFile =
+            serde_json::from_slice(&fs::read(&final_path).unwrap()).unwrap();
+        assert_eq!(loaded.bounce_marker.duration_samples, 661_500);
+        let take = loaded.bounce_take.as_ref().expect("bounce_take");
+        assert_eq!(take.source, "audio_time_trace_native");
+        assert_eq!(take.time_axis, "native_samples");
+        assert_eq!(take.sample_rate, 44_100);
+        assert_eq!(take.duration_frames_48k, 720_000);
+        assert_eq!(take.duration_samples, 661_500);
+        assert_eq!(take.wav_start_sample, 0);
+        assert_eq!(take.wav_end_sample, 661_500);
+        assert_eq!(take.end_t_ms, 15_000);
+        assert_eq!(take.alignment_status, "sample_count_ready");
     }
 
     #[test]
@@ -2780,10 +2945,12 @@ mod tests {
         obj.remove("started_at_ms");
         obj.remove("dropped_samples");
         obj.remove("integrity_degraded");
+        obj.remove("bounce_take");
         let back: PluginDataFile = serde_json::from_value(v).unwrap();
         assert_eq!(back.started_at_ms, 0, "旧 .kirin → serde default 0");
         assert_eq!(back.dropped_samples, 0, "旧 .kirin → serde default 0");
         assert!(!back.integrity_degraded, "旧 .kirin → serde default false");
+        assert!(back.bounce_take.is_none(), "旧 .kirin → serde default None");
     }
 
     // ── B-132 (G-115-382 共通B): bounded seal wait ──────────────────────────────

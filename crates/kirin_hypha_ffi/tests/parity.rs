@@ -22,6 +22,7 @@ use kirin_hypha_ffi::KirinHyphaEngine;
 use kirin_measure::engine::{MeasureEngine, SessionSummary};
 use kirin_measure::phase_d::stream::{PhaseDResult, PhaseDStream};
 use kirin_measure::phase_d::tables::FieldType;
+use kirin_measure::RING_BUFFER_SECONDS;
 
 const SR: u32 = 48_000;
 
@@ -1877,7 +1878,7 @@ fn double_keep_preserves_linkage() {
 
 // ── B-075: ring overflow → dropped_samples を C ABI に露出（欠落の沈黙解消・data 層）──
 
-/// ring 満杯を強制（>2s 分のバーストを一括 push）→ poll_result の dropped_samples が >0 で
+/// ring 満杯を強制（現在の ring 保持長を超えるバーストを一括 push）→ poll_result の dropped_samples が >0 で
 /// 露出されることを実証。計測式は不変（露出のみ）— 計測 parity は既存テストが担保。
 #[test]
 fn dropped_samples_surfaced_via_c_abi_on_ring_overflow() {
@@ -1890,9 +1891,11 @@ fn dropped_samples_surfaced_via_c_abi_on_ring_overflow() {
         assert!(!h.is_null(), "create");
         kirin_hypha_set_signal_state(h, 1); // Active
 
-        // ring 容量 = SR * 2s * 2ch = 192000 interleaved。それを大きく超えるバーストを一括 push
-        // → Audio Thread 側で push 失敗が起き push_overflow が積み上がる。
-        let burst = vec![0.05f32; 600_000];
+        // ring 容量 = SR * RING_BUFFER_SECONDS * 2ch。その 2 倍を一括 push
+        // → Measure Thread が並行消費しても Audio Thread 側で push 失敗が起き
+        // push_overflow が積み上がる。
+        let ring_capacity = SR as usize * RING_BUFFER_SECONDS * 2;
+        let burst = vec![0.05f32; ring_capacity * 2];
         kirin_hypha_push_samples(h, burst.as_ptr(), burst.len() / 2, 2);
 
         // Measure Thread が結果を出すまで keepalive しつつ poll。
@@ -1937,7 +1940,8 @@ fn b125_overflow_and_oversized_drop_are_independent_counters() {
     // 逆: ring 満杯 burst だけ → overflow_count のみ増え oversized_drop_count は 0 のまま。
     let engine2 = KirinHyphaEngine::new(SR, 2);
     engine2.set_signal_state(1);
-    let burst = vec![0.05f32; 600_000]; // ring 容量 192000 interleaved を超過
+    let ring_capacity = SR as usize * RING_BUFFER_SECONDS * 2;
+    let burst = vec![0.05f32; ring_capacity * 2]; // Measure Thread が並行消費しても ring 容量を超過
     engine2.push_samples(&burst, 2);
     assert!(
         engine2.overflow_count() > 0,
