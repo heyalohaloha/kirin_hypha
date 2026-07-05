@@ -5,8 +5,8 @@ use kirin_measure::{
     live_window, load_license_safe, new_record_trace_queue, process_project_hash,
     set_daw_session_id, set_project_uuid, spawn_io_thread_pre, spawn_measure_thread,
     spawn_watchdog, store_signal_state, License, LivenessEvaluator, MeasureResult,
-    RecordStateMachine, RecordTraceQueue, SessionSummary, SignalState, WatchdogIo, WatchdogParams,
-    N_CHANNELS, RING_BUFFER_SECONDS,
+    RecordStateMachine, RecordTakeBlock, RecordTakeTracker, RecordTraceQueue, SessionSummary,
+    SignalState, WatchdogIo, WatchdogParams, N_CHANNELS, RING_BUFFER_SECONDS,
 };
 use nih_plug::prelude::*;
 use nih_plug_egui::EguiState;
@@ -46,6 +46,8 @@ pub struct HyphaPre {
     session_summary: Arc<Mutex<Option<SessionSummary>>>,
     /// Offline bounce 用 TRACE queue（Measure → IO）。
     record_trace_queue: RecordTraceQueue,
+    /// Audio Thread が積む実レンダー長。Record close 時に bounce_take の正本になる。
+    record_take_tracker: Arc<RecordTakeTracker>,
     /// B-076: ring 満杯で測定 ring に push できなかった累積サンプル数。Audio Thread が
     /// 計数し、io_thread が per-Record dropped_samples を .kirin に焼き込む。
     overflow: Arc<AtomicU64>,
@@ -160,6 +162,7 @@ impl Default for HyphaPre {
             measure_result: Arc::new(Mutex::new(MeasureResult::default())),
             session_summary: Arc::new(Mutex::new(None)),
             record_trace_queue: new_record_trace_queue(),
+            record_take_tracker: kirin_measure::new_record_take_tracker(),
             overflow: Arc::new(AtomicU64::new(0)),
             measure_shutdown: Arc::new(AtomicBool::new(false)),
             io_shutdown: Arc::new(AtomicBool::new(false)),
@@ -396,6 +399,7 @@ impl Plugin for HyphaPre {
             Arc::clone(&self.record_error_message),
             Arc::clone(&self.session_summary),
             Arc::clone(&self.record_trace_queue),
+            Arc::clone(&self.record_take_tracker),
             Arc::clone(&self.overflow), // B-076: per-Record dropped_samples
             Arc::clone(&oversized_drop), // B-125: egui は常に 0（per-sample で overflow に計上済）
         );
@@ -414,6 +418,7 @@ impl Plugin for HyphaPre {
             let record_error_message = Arc::clone(&self.record_error_message);
             let session_summary = Arc::clone(&self.session_summary);
             let record_trace_queue = Arc::clone(&self.record_trace_queue);
+            let record_take_tracker = Arc::clone(&self.record_take_tracker);
             let overflow = Arc::clone(&self.overflow); // B-076
             let oversized_drop = Arc::clone(&oversized_drop); // B-125: egui ゼロカウンタを再起動跨ぎ共有
             move |new_shutdown: Arc<AtomicBool>| {
@@ -433,6 +438,7 @@ impl Plugin for HyphaPre {
                     Arc::clone(&record_error_message),
                     Arc::clone(&session_summary),
                     Arc::clone(&record_trace_queue),
+                    Arc::clone(&record_take_tracker),
                     Arc::clone(&overflow), // B-076: per-Record dropped_samples
                     Arc::clone(&oversized_drop), // B-125: egui は常に 0
                 )
@@ -490,14 +496,26 @@ impl Plugin for HyphaPre {
             resolve_process_signal_state(bypass_val, playing, silent, recording, offline_mode);
         store_signal_state(&self.signal_state, state);
 
-        if should_capture_buffer_for_measurement(
+        let capture_buffer = should_capture_buffer_for_measurement(
             state,
             bypass_val,
             recording,
             playing,
             position_changed,
             offline_mode,
-        ) {
+        );
+        self.record_take_tracker.note_block(RecordTakeBlock {
+            generation: self.record_sm.generation(),
+            recording,
+            rendered: !bypass_val && buffer.samples() > 0 && !buffer.as_slice().is_empty(),
+            playing,
+            offline: offline_mode,
+            position_valid: pos != i64::MIN,
+            position_samples: pos,
+            num_frames: buffer.samples() as u64,
+        });
+
+        if capture_buffer {
             if let Some(producer) = &mut self.ring_producer {
                 for channel_samples in buffer.iter_samples() {
                     for sample in channel_samples {

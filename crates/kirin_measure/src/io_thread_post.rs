@@ -40,10 +40,11 @@ use crate::pre_discovery::DISCOVERY_STALE_SECS;
 use crate::record::RecordStateMachine;
 use crate::record_signal::{self, SignalStatus, ACK_TIMEOUT_SECONDS, SIGNALS_SUBDIR};
 use crate::record_writer::{
-    run_record_tick_with_pair_names, take_session_summary, writer_close_with_summary, RecordingCtx,
+    apply_record_take_snapshot, run_record_tick_with_pair_names, take_session_summary,
+    writer_close_with_summary, RecordingCtx,
 };
 use crate::storage::{PlatformPaths, StoragePaths};
-use crate::{load_signal_state, MeasureResult, RecordTraceQueue, SignalState};
+use crate::{load_signal_state, MeasureResult, RecordTakeTracker, RecordTraceQueue, SignalState};
 
 const LOOP_SLEEP: Duration = Duration::from_millis(100);
 
@@ -222,6 +223,8 @@ pub fn spawn_io_thread_post(
     session_summary: Arc<Mutex<Option<SessionSummary>>>,
     // Offline bounce 用 TRACE queue (Measure Thread → IO Thread)。
     record_trace_queue: RecordTraceQueue,
+    // Audio Thread が積んだ実レンダー長。Record close 時の clean bounce_take 正本。
+    record_take_tracker: Arc<RecordTakeTracker>,
     // B-076: 累積 push_overflow（Audio Thread が ring 満杯時に積む）。run_record_tick が
     // Record 開始で snapshot し close 時に差分を per-Record dropped_samples として焼き込む。
     overflow: Arc<std::sync::atomic::AtomicU64>,
@@ -503,6 +506,7 @@ pub fn spawn_io_thread_post(
                 &overflow,       // B-076: per-Record dropped_samples 算出用
                 &oversized_drop, // B-125: per-Record oversized block drop 算出用
                 Some(&record_trace_queue),
+                Some(&record_take_tracker),
             ) {
                 log::warn!("[writer] tick error: {}", e);
             }
@@ -794,6 +798,7 @@ pub fn spawn_io_thread_post(
             if !sealed {
                 ctx.writer.mark_integrity_degraded();
             }
+            apply_record_take_snapshot(&mut ctx, Some(&record_take_tracker));
             writer_close_with_summary(ctx, summary);
         }
 

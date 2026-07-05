@@ -100,7 +100,7 @@ namespace hypha
         };
 
         static constexpr double kTauSecs = 1.5;
-        static constexpr double kHoldSecs = 8.0;
+        static constexpr double kHoldSecs = 18.0;
 
         std::array<Slot, 6> measure {};
         std::array<Slot, 6> delta {};

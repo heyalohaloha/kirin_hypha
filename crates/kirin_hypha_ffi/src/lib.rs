@@ -52,13 +52,14 @@ use kirin_measure::{
     enumerate_active_post_pair_candidates_for_daw_session,
     enumerate_active_pre_pair_candidates_for_post_project, identity_instance_attach,
     identity_instance_detach, live_window, load_license_safe, load_signal_state, mark_released,
-    new_record_trace_queue, resolve_arm_target_for_post_project, sanitize_name, set_daw_session_id,
-    set_project_uuid, spawn_io_thread_post, spawn_io_thread_pre, spawn_measure_thread,
-    spawn_watchdog, store_signal_state, write_broadcast, write_pending, write_stop_broadcast,
-    DeltaMode, DeltaResult, ExclusionResult, IoThreadHandle, LatchedPre, License,
-    LivenessEvaluator, MeasureResult, PlatformPaths, PluginDataRole, PsbSummary,
-    RecordStateMachine, RecordTraceQueue, RestartIoFn, SignalState, StoragePaths, WatchdogIo,
-    WatchdogParams, MAX_ACTIVE_PER_PROJECT, N_CHANNELS, RING_BUFFER_SECONDS,
+    new_record_take_tracker, new_record_trace_queue, resolve_arm_target_for_post_project,
+    sanitize_name, set_daw_session_id, set_project_uuid, spawn_io_thread_post, spawn_io_thread_pre,
+    spawn_measure_thread, spawn_watchdog, store_signal_state, write_broadcast, write_pending,
+    write_stop_broadcast, DeltaMode, DeltaResult, ExclusionResult, IoThreadHandle, LatchedPre,
+    License, LivenessEvaluator, MeasureResult, PlatformPaths, PluginDataRole, PsbSummary,
+    RecordStateMachine, RecordTakeBlock, RecordTakeTracker, RecordTraceQueue, RestartIoFn,
+    SignalState, StoragePaths, WatchdogIo, WatchdogParams, MAX_ACTIVE_PER_PROJECT, N_CHANNELS,
+    RING_BUFFER_SECONDS,
 };
 
 /// state chunk 往復する識別子（方式A: JUCE が chunk bytes を所有・FFI は文字列 get/set のみ）。
@@ -150,6 +151,8 @@ pub struct KirinHyphaEngine {
     session_summary: Arc<Mutex<Option<SessionSummary>>>,
     /// Offline bounce 用 TRACE queue（Measure → IO）。
     record_trace_queue: RecordTraceQueue,
+    /// Audio Thread が積む実レンダー長。Record close 時に bounce_take の正本になる。
+    record_take_tracker: Arc<RecordTakeTracker>,
     /// Audio Thread が宣言する信号状態（Measure Thread が読む）。
     signal_state: Arc<AtomicU8>,
     /// Measure Thread 停止フラグ（destroy でセット → join）。
@@ -528,6 +531,7 @@ impl KirinHyphaEngine {
         let delta_result = Arc::new(Mutex::new(DeltaResult::default()));
         let session_summary: Arc<Mutex<Option<SessionSummary>>> = Arc::new(Mutex::new(None));
         let record_trace_queue = new_record_trace_queue();
+        let record_take_tracker = new_record_take_tracker();
         let signal_state = Arc::new(AtomicU8::new(SignalState::Inactive as u8));
         let shutdown = Arc::new(AtomicBool::new(false));
         let heartbeat = Arc::new(AtomicU32::new(0));
@@ -595,6 +599,7 @@ impl KirinHyphaEngine {
             delta_result,
             session_summary,
             record_trace_queue,
+            record_take_tracker,
             signal_state,
             shutdown,
             heartbeat,
@@ -700,6 +705,17 @@ impl KirinHyphaEngine {
         self.record_sm.is_recording()
     }
 
+    /// Audio Thread から Record take の実レンダー長を通知する。
+    ///
+    /// 計測 ring とは独立した sample-count clock で、手動 Keep/Stop の余白を
+    /// `bounce_take` に混ぜないための正本。内部は atomic 操作のみ。
+    pub fn note_record_block(&self, block: RecordTakeBlock) {
+        self.record_take_tracker.note_block(RecordTakeBlock {
+            generation: self.record_sm.generation(),
+            ..block
+        });
+    }
+
     /// PRE の plugin_data 書込（Watch pre.json + Record frames/PSB）を有効化する（B-057 3b）。
     ///
     /// `kirin_measure::spawn_io_thread_pre`（io_thread_pre.rs:179）を engine 既存の共有
@@ -796,6 +812,7 @@ impl KirinHyphaEngine {
             let signal_state = Arc::clone(&self.signal_state);
             let session_summary = Arc::clone(&self.session_summary);
             let record_trace_queue = Arc::clone(&self.record_trace_queue);
+            let record_take_tracker = Arc::clone(&self.record_take_tracker);
             let push_overflow = Arc::clone(&self.push_overflow);
             let oversized_drop = Arc::clone(&self.oversized_drop); // B-125
             let sample_rate = self.sample_rate;
@@ -817,6 +834,7 @@ impl KirinHyphaEngine {
                     Arc::clone(&record_error_message),
                     Arc::clone(&session_summary),
                     Arc::clone(&record_trace_queue),
+                    Arc::clone(&record_take_tracker),
                     Arc::clone(&push_overflow), // B-076: per-Record dropped_samples
                     Arc::clone(&oversized_drop), // B-125: per-Record oversized block drop
                 );
@@ -973,6 +991,7 @@ impl KirinHyphaEngine {
             let is_playing = Arc::clone(&is_playing);
             let session_summary = Arc::clone(&self.session_summary);
             let record_trace_queue = Arc::clone(&self.record_trace_queue);
+            let record_take_tracker = Arc::clone(&self.record_take_tracker);
             let push_overflow = Arc::clone(&self.push_overflow);
             let oversized_drop = Arc::clone(&self.oversized_drop); // B-125
             let latched_pre = Arc::clone(&self.latched_pre);
@@ -1001,6 +1020,7 @@ impl KirinHyphaEngine {
                     Arc::clone(&pair_release_notice),
                     Arc::clone(&session_summary),
                     Arc::clone(&record_trace_queue),
+                    Arc::clone(&record_take_tracker),
                     Arc::clone(&push_overflow), // B-076: per-Record dropped_samples
                     Arc::clone(&oversized_drop), // B-125: per-Record oversized block drop
                     Arc::clone(&latched_pre),   // B-108: display/keep 共有ラッチ
@@ -1981,6 +2001,40 @@ pub unsafe extern "C" fn kirin_hypha_is_recording(handle: *mut KirinHyphaEngine)
         unsafe { (*handle).is_recording() }
     }))
     .unwrap_or(false)
+}
+
+/// Record take の実レンダー長を通知する（Audio Thread 単独・RT-safe）。
+///
+/// # Safety
+/// `handle` は有効なハンドル。
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_note_record_block(
+    handle: *mut KirinHyphaEngine,
+    recording: bool,
+    rendered: bool,
+    playing: bool,
+    offline: bool,
+    position_valid: bool,
+    position_samples: i64,
+    num_frames: u64,
+) {
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() {
+            return;
+        }
+        unsafe {
+            (*handle).note_record_block(RecordTakeBlock {
+                generation: 0,
+                recording,
+                rendered,
+                playing,
+                offline,
+                position_valid,
+                position_samples,
+                num_frames,
+            })
+        };
+    }));
 }
 
 /// POST「Stop」: pair を解除（record_signal released）し Watch へ戻す（3d-b）。

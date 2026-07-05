@@ -547,6 +547,17 @@ impl PluginDataWriter {
         self.data.bounce_take = Some(take);
     }
 
+    /// WAV と対応する clean take 長へ timeline payload を切り詰める。
+    ///
+    /// 手動 Keep/Stop の余白や Record TRACE marker は診断上有用だが、Kirin OS が
+    /// TRACE に使う `frames[]` / `psb_snapshots[]` は bounce_take と同じ時間軸に揃える。
+    pub fn clip_timeline_to_duration(&mut self, end_t_ms: u64) {
+        self.data.frames.retain(|frame| frame.t_ms <= end_t_ms);
+        if let Some(psb) = &mut self.data.psb_snapshots {
+            psb.retain(|snapshot| snapshot.t_ms <= end_t_ms);
+        }
+    }
+
     /// 1 frame を追加。数値を精度表に従って丸める。
     ///
     #[allow(clippy::too_many_arguments)]

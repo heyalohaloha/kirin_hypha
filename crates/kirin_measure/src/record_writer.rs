@@ -30,6 +30,7 @@ use crate::plugin_data::{
 };
 use crate::record::RecordStateMachine;
 use crate::record_signal;
+use crate::record_take::{RecordTakeSnapshot, RecordTakeTracker};
 use crate::storage::{load_installation_id_safe, StoragePaths};
 use crate::MeasureResult;
 use chrono::TimeZone;
@@ -52,6 +53,7 @@ pub const FLUSH_INTERVAL: Duration = Duration::from_secs(30);
 /// Offline bounce では壁時計がほとんど進まないため、このキューを正本にして TRACE を焼く。
 #[derive(Debug, Clone)]
 pub struct RecordTraceSample {
+    pub generation: u64,
     pub t_ms: u64,
     pub t_frames_48k: u64,
     /// DAW/WAV 側の native sample frame 位置（1ch あたりの sample frame 数）。
@@ -84,6 +86,31 @@ pub fn push_record_trace_sample(queue: &RecordTraceQueue, sample: RecordTraceSam
 pub fn drain_record_trace_queue(queue: &RecordTraceQueue) -> Vec<RecordTraceSample> {
     match queue.lock() {
         Ok(mut q) => q.drain(..).collect(),
+        Err(_) => Vec::new(),
+    }
+}
+
+pub fn drain_record_trace_queue_for_generation(
+    queue: &RecordTraceQueue,
+    generation: u64,
+) -> Vec<RecordTraceSample> {
+    if generation == 0 {
+        return drain_record_trace_queue(queue);
+    }
+    match queue.lock() {
+        Ok(mut q) => {
+            let mut matched = Vec::new();
+            let mut retained = VecDeque::new();
+            for sample in q.drain(..) {
+                if sample.generation == generation {
+                    matched.push(sample);
+                } else if sample.generation > generation {
+                    retained.push_back(sample);
+                }
+            }
+            *q = retained;
+            matched
+        }
         Err(_) => Vec::new(),
     }
 }
@@ -173,6 +200,11 @@ pub struct RecordingCtx {
     /// B-132 (G-115-382): Record 開始時の drain-completion seal snapshot。close 時に
     /// `wait_for_seal` がこの値の前進を bounded 待ちして post-drain 確定を確認する。
     pub seal_at_start: u64,
+    /// RecordStateMachine の Record 世代。Audio Thread 側の clean take tracker と照合する。
+    pub record_generation: u64,
+    /// Audio Thread が積んだ実レンダー長。手動 Keep/Stop の余白ではなく WAV と対応する
+    /// `bounce_take` の正本として使う。
+    pub clean_take: Option<RecordTakeSnapshot>,
     /// 最後に Measure Thread から届いた Record TRACE 音声時間。
     ///
     /// `frames[]` は LUFS/TP/Crest が揃った実測点だけを書くが、Record 中の無音区間では
@@ -343,6 +375,8 @@ pub fn writer_start(
         overflow_start: 0, // B-076: run_record_tick が Record 開始時に snapshot を入れる
         oversized_drop_start: 0, // B-125: 同上（oversized_drop の Record 開始 snapshot）
         seal_at_start: 0,  // B-132: run_record_tick が Record 開始時に seal を snapshot する
+        record_generation: 0,
+        clean_take: None,
         last_trace_t_ms: None,
         last_trace_frame_48k: None,
         last_trace_native_frames: None,
@@ -354,6 +388,7 @@ pub fn writer_start(
 pub fn writer_close(mut ctx: RecordingCtx) {
     let final_path = ctx.final_path.clone();
     let failed_path = ctx.failed_path.clone();
+    clip_clean_timeline_to_duration(&mut ctx);
     mark_integrity_if_trace_density_is_sparse(&mut ctx);
     seal_bounce_marker(&mut ctx);
     match ctx.writer.close() {
@@ -363,6 +398,15 @@ pub fn writer_close(mut ctx: RecordingCtx) {
         }
         Ok(()) => log::info!("[writer] released: {}", final_path.display()),
         Err(e) => log::warn!("[writer] close failed ({}): {}", final_path.display(), e),
+    }
+}
+
+pub fn apply_record_take_snapshot(ctx: &mut RecordingCtx, tracker: Option<&RecordTakeTracker>) {
+    let Some(tracker) = tracker else {
+        return;
+    };
+    if let Some(snapshot) = tracker.snapshot(ctx.record_generation) {
+        ctx.clean_take = Some(snapshot);
     }
 }
 
@@ -382,6 +426,11 @@ fn expected_trace_samples(duration_ms: u64) -> usize {
 
 fn record_duration_ms(ctx: &RecordingCtx) -> u64 {
     let sample_rate = ctx.writer.data().sample_rate as u64;
+    if let Some(clean) = ctx.clean_take {
+        if sample_rate > 0 {
+            return clean.duration_samples.saturating_mul(1_000) / sample_rate;
+        }
+    }
     if sample_rate > 0 {
         if let Some(native_frames) = ctx.last_trace_native_frames {
             return native_frames.saturating_mul(1_000) / sample_rate;
@@ -403,6 +452,9 @@ fn record_duration_ms(ctx: &RecordingCtx) -> u64 {
 
 fn record_duration_samples(ctx: &RecordingCtx) -> u64 {
     let sample_rate = ctx.writer.data().sample_rate as u64;
+    if let Some(clean) = ctx.clean_take {
+        return clean.duration_samples;
+    }
     if let Some(native_frames) = ctx.last_trace_native_frames {
         return native_frames;
     }
@@ -414,28 +466,41 @@ fn record_duration_samples(ctx: &RecordingCtx) -> u64 {
 
 fn build_bounce_take(ctx: &RecordingCtx, duration_ms: u64, duration_samples: u64) -> BounceTake {
     let sample_rate = ctx.writer.data().sample_rate;
-    let duration_frames_48k = ctx
-        .last_trace_frame_48k
-        .unwrap_or_else(|| duration_ms.saturating_mul(TRACE_TIMEBASE_HZ) / 1_000);
+    let clean_source = ctx.clean_take.map(|take| take.source);
+    let duration_frames_48k = if ctx.clean_take.is_some() {
+        let sr = sample_rate as u64;
+        if sr > 0 {
+            duration_samples.saturating_mul(TRACE_TIMEBASE_HZ) / sr
+        } else {
+            duration_ms.saturating_mul(TRACE_TIMEBASE_HZ) / 1_000
+        }
+    } else {
+        ctx.last_trace_frame_48k
+            .unwrap_or_else(|| duration_ms.saturating_mul(TRACE_TIMEBASE_HZ) / 1_000)
+    };
     let exact_native_time = ctx.last_trace_native_frames.is_some();
     let exact_audio_time = exact_native_time || ctx.last_trace_frame_48k.is_some();
     BounceTake {
-        source: if exact_native_time {
+        source: if let Some(source) = clean_source {
+            source.to_string()
+        } else if exact_native_time {
             "audio_time_trace_native".to_string()
         } else if exact_audio_time {
             "audio_time_trace".to_string()
         } else {
             "wall_clock_fallback".to_string()
         },
-        time_axis: if exact_native_time {
+        time_axis: if clean_source.is_some() || exact_native_time {
             "native_samples".to_string()
         } else if exact_audio_time {
             "frames_48k".to_string()
         } else {
             "wall_clock_ms".to_string()
         },
-        alignment_status: if exact_audio_time {
+        alignment_status: if clean_source.is_some() {
             "sample_count_ready".to_string()
+        } else if exact_audio_time {
+            "trace_span_only".to_string()
         } else {
             "estimated".to_string()
         },
@@ -451,6 +516,13 @@ fn build_bounce_take(ctx: &RecordingCtx, duration_ms: u64, duration_samples: u64
     }
 }
 
+fn clip_clean_timeline_to_duration(ctx: &mut RecordingCtx) {
+    if ctx.clean_take.is_some() {
+        let duration_ms = record_duration_ms(ctx);
+        ctx.writer.clip_timeline_to_duration(duration_ms);
+    }
+}
+
 fn trace_density_is_sparse(ctx: &RecordingCtx) -> bool {
     if ctx.writer.data().frames.is_empty() {
         return true;
@@ -458,6 +530,9 @@ fn trace_density_is_sparse(ctx: &RecordingCtx) -> bool {
     let duration_ms = record_duration_ms(ctx);
     if duration_ms < TRACE_DENSITY_MIN_DURATION_MS {
         return false;
+    }
+    if ctx.clean_take.is_some() {
+        return fallback_frame_density_is_sparse(ctx, duration_ms);
     }
     if ctx.trace_sample_count == 0 {
         return fallback_frame_density_is_sparse(ctx, duration_ms);
@@ -646,6 +721,7 @@ pub fn run_record_tick(
         overflow,
         oversized_drop,
         record_trace_queue,
+        None,
     )
 }
 
@@ -674,7 +750,35 @@ pub fn run_record_tick_with_pair_names(
     // sample 数）。overflow とは別カウンタ（混ぜない）。同様に Record 開始 snapshot → close 差分。
     oversized_drop: &Arc<std::sync::atomic::AtomicU64>,
     record_trace_queue: Option<&RecordTraceQueue>,
+    record_take_tracker: Option<&RecordTakeTracker>,
 ) -> Result<(), String> {
+    let is_recording = record_sm.is_recording();
+    let current_generation = record_sm.generation();
+    let generation_changed = is_recording
+        && recording.as_ref().is_some_and(|ctx| {
+            ctx.record_generation > 0 && ctx.record_generation != current_generation
+        });
+    if (!is_recording || generation_changed) && recording.is_some() {
+        if generation_changed {
+            log::warn!(
+                "[writer] Record generation changed before IO close (old={}, new={}); closing old context without mixing",
+                recording.as_ref().map_or(0, |ctx| ctx.record_generation),
+                current_generation
+            );
+        }
+        if let Some(ctx) = recording.take() {
+            close_recording_context(
+                record_sm,
+                measure_result,
+                session_summary,
+                overflow,
+                oversized_drop,
+                record_trace_queue,
+                record_take_tracker,
+                ctx,
+            )?;
+        }
+    }
     let is_recording = record_sm.is_recording();
     match (is_recording, recording.is_some()) {
         (true, false) => {
@@ -702,45 +806,22 @@ pub fn run_record_tick_with_pair_names(
                 // B-132 (G-115-382): drain-completion seal の基点を snapshot。close 時に
                 // この値の前進（measure の post-drain finalize 完了）を bounded 待ちする。
                 ctx.seal_at_start = record_sm.seal();
+                ctx.record_generation = record_sm.generation();
                 *recording = Some(ctx);
             }
         }
         (false, true) => {
-            if let Some(mut ctx) = recording.take() {
-                // ── B-132 (G-115-382) P1/共通B: drain-completion barrier ──────────────
-                // Measure Thread が Record→Watch エッジで ring 残量を tight-drain → 最終 finalize →
-                // session_summary 書込を完了し seal を前進させるのを **bounded** に待ってから取り出す。
-                // これで「post-drain の確定スナップショット」のみ焼く（live meter は元々別スロット）。
-                let sealed = wait_for_seal(record_sm, ctx.seal_at_start, SEAL_WAIT_TIMEOUT);
-                // B-043: Record→Watch 遷移時に Measure Thread の最新セッション集計を取り出して注入。
-                let summary = session_summary.and_then(take_session_summary);
-                // B-076: この Record 中に ring 満杯で落ちたサンプル数 = 現在の累積 - 開始時 snapshot。
-                let push_dropped = overflow
-                    .load(std::sync::atomic::Ordering::Relaxed)
-                    .saturating_sub(ctx.overflow_start);
-                // B-125: oversized block で落ちたサンプル数（別カウンタの per-Record 差分）。
-                let oversized_dropped = oversized_drop
-                    .load(std::sync::atomic::Ordering::Relaxed)
-                    .saturating_sub(ctx.oversized_drop_start);
-                // 別計数のまま set_integrity に渡し、JSON へは合算を焼く（ZSA / B-125 裁定）。
-                ctx.writer.set_integrity(push_dropped, oversized_dropped);
-                // B-132 共通B: seal が timeout（measure 死 / shutdown / stall で finalize 不能）なら
-                // 「不完全を不完全と記録」する（set_integrity の後に OR で立てる / silent truncation 排除）。
-                if !sealed {
-                    log::warn!(
-                        "[writer] drain seal not observed within {:?} — marking integrity_degraded (incomplete tail)",
-                        SEAL_WAIT_TIMEOUT
-                    );
-                    ctx.writer.mark_integrity_degraded();
-                    ctx.writer.add_integrity_reason("drain_seal_timeout");
-                }
-                if let Some(queue) = record_trace_queue {
-                    let drained = drain_trace_queue_into_writer(&mut ctx, queue);
-                    if drained.samples == 0 {
-                        append_current_measure_snapshot(&mut ctx, measure_result)?;
-                    }
-                }
-                writer_close_with_summary(ctx, summary);
+            if let Some(ctx) = recording.take() {
+                close_recording_context(
+                    record_sm,
+                    measure_result,
+                    session_summary,
+                    overflow,
+                    oversized_drop,
+                    record_trace_queue,
+                    record_take_tracker,
+                    ctx,
+                )?;
             }
         }
         (true, true) => {
@@ -785,6 +866,55 @@ pub fn run_record_tick_with_pair_names(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
+fn close_recording_context(
+    record_sm: &Arc<RecordStateMachine>,
+    measure_result: &Arc<Mutex<MeasureResult>>,
+    session_summary: Option<&Arc<Mutex<Option<SessionSummary>>>>,
+    overflow: &Arc<std::sync::atomic::AtomicU64>,
+    oversized_drop: &Arc<std::sync::atomic::AtomicU64>,
+    record_trace_queue: Option<&RecordTraceQueue>,
+    record_take_tracker: Option<&RecordTakeTracker>,
+    mut ctx: RecordingCtx,
+) -> Result<(), String> {
+    // ── B-132 (G-115-382) P1/共通B: drain-completion barrier ──────────────
+    // Measure Thread が Record→Watch エッジで ring 残量を tight-drain → 最終 finalize →
+    // session_summary 書込を完了し seal を前進させるのを **bounded** に待ってから取り出す。
+    // これで「post-drain の確定スナップショット」のみ焼く（live meter は元々別スロット）。
+    let sealed = wait_for_seal(record_sm, ctx.seal_at_start, SEAL_WAIT_TIMEOUT);
+    // B-043: Record→Watch 遷移時に Measure Thread の最新セッション集計を取り出して注入。
+    let summary = session_summary.and_then(take_session_summary);
+    // B-076: この Record 中に ring 満杯で落ちたサンプル数 = 現在の累積 - 開始時 snapshot。
+    let push_dropped = overflow
+        .load(std::sync::atomic::Ordering::Relaxed)
+        .saturating_sub(ctx.overflow_start);
+    // B-125: oversized block で落ちたサンプル数（別カウンタの per-Record 差分）。
+    let oversized_dropped = oversized_drop
+        .load(std::sync::atomic::Ordering::Relaxed)
+        .saturating_sub(ctx.oversized_drop_start);
+    // 別計数のまま set_integrity に渡し、JSON へは合算を焼く（ZSA / B-125 裁定）。
+    ctx.writer.set_integrity(push_dropped, oversized_dropped);
+    // B-132 共通B: seal が timeout（measure 死 / shutdown / stall で finalize 不能）なら
+    // 「不完全を不完全と記録」する（set_integrity の後に OR で立てる / silent truncation 排除）。
+    if !sealed {
+        log::warn!(
+            "[writer] drain seal not observed within {:?} — marking integrity_degraded (incomplete tail)",
+            SEAL_WAIT_TIMEOUT
+        );
+        ctx.writer.mark_integrity_degraded();
+        ctx.writer.add_integrity_reason("drain_seal_timeout");
+    }
+    if let Some(queue) = record_trace_queue {
+        let drained = drain_trace_queue_into_writer(&mut ctx, queue);
+        if drained.samples == 0 {
+            append_current_measure_snapshot(&mut ctx, measure_result)?;
+        }
+    }
+    apply_record_take_snapshot(&mut ctx, record_take_tracker);
+    writer_close_with_summary(ctx, summary);
+    Ok(())
+}
+
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 struct TraceDrainStats {
     samples: usize,
@@ -818,7 +948,7 @@ fn drain_trace_queue_into_writer(
     queue: &RecordTraceQueue,
 ) -> TraceDrainStats {
     let mut stats = TraceDrainStats::default();
-    for sample in drain_record_trace_queue(queue) {
+    for sample in drain_record_trace_queue_for_generation(queue, ctx.record_generation) {
         stats.samples += 1;
         let t_ms = sample.t_ms;
         mark_trace_time(ctx, t_ms, sample.t_frames_48k, sample.t_native_frames);
@@ -1474,6 +1604,8 @@ mod tests {
             overflow_start: 0,
             oversized_drop_start: 0, // B-125
             seal_at_start: 0,        // B-132
+            record_generation: 0,
+            clean_take: None,
             last_trace_t_ms: None,
             last_trace_frame_48k: None,
             last_trace_native_frames: None,
@@ -1523,12 +1655,24 @@ mod tests {
         include_psb: bool,
     ) -> RecordTraceSample {
         RecordTraceSample {
+            generation: 1,
             t_ms: t_frames_48k.saturating_mul(1_000) / TRACE_TIMEBASE_HZ,
             t_frames_48k,
             t_native_frames,
             result,
             include_psb,
         }
+    }
+
+    fn trace_sample_for_generation(
+        generation: u64,
+        t_ms: u64,
+        result: MeasureResult,
+        include_psb: bool,
+    ) -> RecordTraceSample {
+        let mut sample = trace_sample(t_ms, result, include_psb);
+        sample.generation = generation;
+        sample
     }
 
     #[test]
@@ -1656,6 +1800,120 @@ mod tests {
         assert!(crate::plugin_data::verify_checksum(&loaded));
     }
 
+    #[test]
+    fn writer_close_prefers_clean_take_and_clips_trace_to_wav_span_96k() {
+        let base = isolated_base();
+        let mut ctx = make_ctx_with_sample_rate(&base, Role::Post, now_epoch_ms(), 96_000);
+        let m = full_measure_result();
+
+        mark_trace_time(&mut ctx, 15_800, 758_400, Some(1_516_800));
+        for t_ms in [0, 100, 14_900, 15_000, 15_100, 15_800] {
+            assert!(writer_append_frame(&mut ctx, t_ms, &m));
+        }
+        assert!(writer_append_psb(&mut ctx, 15_100, &m));
+        ctx.trace_sample_count = 159;
+        ctx.record_generation = 42;
+        ctx.clean_take = Some(RecordTakeSnapshot {
+            generation: 42,
+            duration_samples: 1_440_000,
+            source: crate::record_take::RECORD_TAKE_SOURCE_RENDER_CLOCK,
+        });
+        let final_path = ctx.final_path.clone();
+
+        writer_close(ctx);
+
+        let loaded: PluginDataFile =
+            serde_json::from_slice(&fs::read(&final_path).unwrap()).unwrap();
+        let take = loaded.bounce_take.as_ref().expect("bounce_take");
+        assert_eq!(loaded.bounce_marker.duration_samples, 1_440_000);
+        assert_eq!(take.source, "render_clock_native");
+        assert_eq!(take.time_axis, "native_samples");
+        assert_eq!(take.alignment_status, "sample_count_ready");
+        assert_eq!(take.duration_samples, 1_440_000);
+        assert_eq!(take.duration_frames_48k, 720_000);
+        assert_eq!(take.end_t_ms, 15_000);
+        assert_eq!(take.frame_count, 4);
+        assert!(loaded.frames.iter().all(|frame| frame.t_ms <= 15_000));
+        assert!(loaded
+            .psb_snapshots
+            .as_ref()
+            .is_some_and(|psb| psb.is_empty()));
+        assert!(crate::plugin_data::verify_checksum(&loaded));
+    }
+
+    #[test]
+    fn clean_take_density_uses_clipped_frames_not_tail_trace_samples() {
+        let base = isolated_base();
+        let mut ctx = make_ctx_with_sample_rate(&base, Role::Post, now_epoch_ms(), 48_000);
+        let m = full_measure_result();
+
+        mark_trace_time(&mut ctx, 20_000, 960_000, Some(960_000));
+        assert!(writer_append_frame(&mut ctx, 100, &m));
+        for t_ms in (10_100..=20_000).step_by(FRAME_INTERVAL_MS as usize) {
+            assert!(writer_append_frame(&mut ctx, t_ms, &m));
+        }
+        ctx.trace_sample_count = 201;
+        ctx.record_generation = 12;
+        ctx.clean_take = Some(RecordTakeSnapshot {
+            generation: 12,
+            duration_samples: 480_000,
+            source: crate::record_take::RECORD_TAKE_SOURCE_RENDER_CLOCK,
+        });
+        let final_path = ctx.final_path.clone();
+
+        writer_close(ctx);
+
+        let loaded: PluginDataFile =
+            serde_json::from_slice(&fs::read(&final_path).unwrap()).unwrap();
+        let take = loaded.bounce_take.as_ref().expect("bounce_take");
+        assert_eq!(take.end_t_ms, 10_000);
+        assert_eq!(take.frame_count, 1);
+        assert_eq!(loaded.frames.len(), 1);
+        assert!(loaded.frames.iter().all(|frame| frame.t_ms <= 10_000));
+        assert!(loaded.integrity_degraded);
+        assert!(loaded
+            .integrity_reasons
+            .iter()
+            .any(|reason| reason == "sparse_trace_density"));
+    }
+
+    #[test]
+    fn writer_close_keeps_native_sample_count_at_44k1() {
+        let base = isolated_base();
+        let mut ctx = make_ctx_with_sample_rate(&base, Role::Post, now_epoch_ms(), 44_100);
+        let m = full_measure_result();
+
+        mark_trace_time(&mut ctx, 15_900, 763_200, Some(701_190));
+        for t_ms in [0, 100, 15_000, 15_100] {
+            assert!(writer_append_frame(&mut ctx, t_ms, &m));
+        }
+        ctx.trace_sample_count = 151;
+        ctx.record_generation = 7;
+        ctx.clean_take = Some(RecordTakeSnapshot {
+            generation: 7,
+            duration_samples: 661_500,
+            source: crate::record_take::RECORD_TAKE_SOURCE_RENDER_CLOCK,
+        });
+        let final_path = ctx.final_path.clone();
+
+        writer_close(ctx);
+
+        let loaded: PluginDataFile =
+            serde_json::from_slice(&fs::read(&final_path).unwrap()).unwrap();
+        let take = loaded.bounce_take.as_ref().expect("bounce_take");
+        assert_eq!(loaded.sample_rate, 44_100);
+        assert_eq!(loaded.bounce_marker.duration_samples, 661_500);
+        assert_eq!(take.source, "render_clock_native");
+        assert_eq!(take.time_axis, "native_samples");
+        assert_eq!(take.alignment_status, "sample_count_ready");
+        assert_eq!(take.duration_samples, 661_500);
+        assert_eq!(take.duration_frames_48k, 720_000);
+        assert_eq!(take.end_t_ms, 15_000);
+        assert_eq!(take.frame_count, 3);
+        assert!(loaded.frames.iter().all(|frame| frame.t_ms <= 15_000));
+        assert!(crate::plugin_data::verify_checksum(&loaded));
+    }
+
     // ── B-134 (G-115-391): degraded close best-effort persistent integrity_degraded ──
     #[test]
     fn b134_degraded_close_persists_integrity_degraded_when_writable() {
@@ -1750,6 +2008,31 @@ mod tests {
         )
         .unwrap();
         assert!(rec.is_none());
+    }
+
+    #[test]
+    fn trace_queue_drain_keeps_future_generation_samples() {
+        let queue = new_record_trace_queue();
+        push_record_trace_sample(
+            &queue,
+            trace_sample_for_generation(30, 50, full_measure_result(), false),
+        );
+        push_record_trace_sample(
+            &queue,
+            trace_sample_for_generation(31, 100, full_measure_result(), false),
+        );
+        push_record_trace_sample(
+            &queue,
+            trace_sample_for_generation(32, 200, full_measure_result(), false),
+        );
+
+        let drained = drain_record_trace_queue_for_generation(&queue, 31);
+        assert_eq!(drained.len(), 1);
+        assert_eq!(drained[0].generation, 31);
+
+        let remaining = drain_record_trace_queue(&queue);
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].generation, 32);
     }
 
     #[test]
@@ -1854,6 +2137,75 @@ mod tests {
         let bytes = fs::read(&failed_path).unwrap();
         let loaded: PluginDataFile = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(loaded.status, crate::plugin_data::Status::Closed);
+    }
+
+    #[test]
+    fn run_record_tick_generation_change_closes_old_and_starts_new_without_queue_mix() {
+        let base = isolated_base();
+        let started = now_epoch_ms();
+        let mut old_ctx = make_ctx(&base, Role::Post, started);
+        let old_final_path = old_ctx.final_path.clone();
+        let old_failed_path = old_ctx.failed_path.clone();
+        let sm = Arc::new(RecordStateMachine::new());
+        sm.try_enter_record(License::Os).unwrap();
+        let old_generation = sm.generation();
+        old_ctx.record_generation = old_generation;
+        old_ctx.seal_at_start = sm.seal();
+
+        sm.exit_record();
+        sm.bump_seal();
+        sm.try_enter_record(License::Os).unwrap();
+        let new_generation = sm.generation();
+
+        let m = Arc::new(Mutex::new(full_measure_result()));
+        let mut rec: Option<RecordingCtx> = Some(old_ctx);
+        let queue = new_record_trace_queue();
+        push_record_trace_sample(
+            &queue,
+            trace_sample_for_generation(old_generation, 100, full_measure_result(), false),
+        );
+        push_record_trace_sample(
+            &queue,
+            trace_sample_for_generation(new_generation, 200, full_measure_result(), false),
+        );
+
+        run_record_tick_with_pair_names(
+            &sm,
+            Role::Post,
+            48000,
+            TEST_PH,
+            TEST_IID,
+            || started + 1_000,
+            || None,
+            || None,
+            || None,
+            || None,
+            &m,
+            &mut rec,
+            None,
+            &no_overflow(),
+            &no_overflow(),
+            Some(&queue),
+            None,
+        )
+        .unwrap();
+
+        let new_ctx = rec
+            .as_ref()
+            .expect("new generation should start a new writer");
+        assert_eq!(new_ctx.record_generation, new_generation);
+        let remaining = drain_record_trace_queue(&queue);
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].generation, new_generation);
+
+        let published = if old_final_path.exists() {
+            old_final_path
+        } else {
+            old_failed_path
+        };
+        let loaded: PluginDataFile = serde_json::from_slice(&fs::read(published).unwrap()).unwrap();
+        assert_eq!(loaded.frames.len(), 1);
+        assert_eq!(loaded.frames[0].t_ms, 100);
     }
 
     #[test]
@@ -2261,7 +2613,7 @@ mod tests {
         let take = loaded.bounce_take.as_ref().expect("bounce_take");
         assert_eq!(take.source, "audio_time_trace");
         assert_eq!(take.time_axis, "frames_48k");
-        assert_eq!(take.alignment_status, "sample_count_ready");
+        assert_eq!(take.alignment_status, "trace_span_only");
         assert_eq!(take.duration_samples, 739_200);
         assert_eq!(take.wav_start_sample, 0);
         assert_eq!(take.wav_end_sample, 739_200);
@@ -2295,7 +2647,7 @@ mod tests {
         assert_eq!(take.wav_start_sample, 0);
         assert_eq!(take.wav_end_sample, 1_440_000);
         assert_eq!(take.end_t_ms, 15_000);
-        assert_eq!(take.alignment_status, "sample_count_ready");
+        assert_eq!(take.alignment_status, "trace_span_only");
     }
 
     #[test]
@@ -2329,7 +2681,7 @@ mod tests {
         assert_eq!(take.wav_start_sample, 0);
         assert_eq!(take.wav_end_sample, 661_500);
         assert_eq!(take.end_t_ms, 15_000);
-        assert_eq!(take.alignment_status, "sample_count_ready");
+        assert_eq!(take.alignment_status, "trace_span_only");
     }
 
     #[test]

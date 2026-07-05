@@ -274,6 +274,14 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
                                                                   playing,
                                                                   positionChanged,
                                                                   nonRealtime);
+    kirin_hypha_note_record_block (hyphaHandle,
+                                   recording,
+                                   ! bypassed && numFrames > 0 && numCh > 0,
+                                   playing,
+                                   nonRealtime,
+                                   hasPosition,
+                                   positionSamples,
+                                   (uint64_t) numFrames);
     if (recording && nonRealtime && captureBuffer && numFrames > 0 && numCh > 0)
         offlineRenderedSamples.fetch_add ((uint64_t) numFrames, std::memory_order_relaxed);
 
