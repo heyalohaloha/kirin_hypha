@@ -12,12 +12,12 @@ namespace
     // prepareToPlay to max(maximumExpectedSamplesPerBlock, this) frames so that realistic
     // variable / offline-render blocks larger than the realtime-declared block are still
     // measured without a (non-RT-safe) reallocation on the audio thread. Hosts can deliver
-    // offline / freeze / bounce blocks well above the realtime maximum; 65536 frames
-    // (~1.36 s @ 48 kHz) is a conservative ceiling. The one-time, non-RT prepareToPlay
-    // allocation is bounded at 65536 * numCh * sizeof(float) (≈512 KB stereo). Pathological
-    // blocks beyond this ceiling are not reallocated; their frames are counted as oversized
-    // drops (B-125 (c) / kirin_hypha_note_oversized_drop) while audio keeps passing through.
-    constexpr int kOversizeHeadroomFrames = 65536;
+    // offline / freeze / bounce blocks well above the realtime maximum; 262144 frames
+    // (~5.46 s @ 48 kHz) absorbs large offline chunks while keeping the one-time, non-RT
+    // prepareToPlay allocation bounded at 262144 * numCh * sizeof(float) (≈2 MB stereo).
+    // Pathological blocks beyond this ceiling are not reallocated; their frames are counted as
+    // oversized drops (B-125 (c) / kirin_hypha_note_oversized_drop) while audio passes through.
+    constexpr int kOversizeHeadroomFrames = 262144;
     // C ABI signal-state codes: 0 = Inactive, 1 = Active, 2 = Bypassed.
     uint8_t resolveSignalStateCode (bool bypassed,
                                     bool playing,

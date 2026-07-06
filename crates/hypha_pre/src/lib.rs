@@ -755,6 +755,14 @@ mod b147_record_state_tests {
     }
 
     #[test]
+    fn record_mode_offline_silent_gap_is_active() {
+        assert_eq!(
+            resolve_process_signal_state(false, false, true, true, true),
+            SignalState::Active
+        );
+    }
+
+    #[test]
     fn record_mode_playing_silent_gap_is_captured_for_record_timeline() {
         assert!(should_capture_buffer_for_measurement(
             SignalState::Inactive,
