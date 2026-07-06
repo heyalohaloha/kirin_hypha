@@ -1,7 +1,6 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include <cmath> // B-107: std::abs(float) for the silence peak threshold
-#include <cstdlib>
 
 namespace
 {
@@ -19,10 +18,6 @@ namespace
     // blocks beyond this ceiling are not reallocated; their frames are counted as oversized
     // drops (B-125 (c) / kirin_hypha_note_oversized_drop) while audio keeps passing through.
     constexpr int kOversizeHeadroomFrames = 65536;
-    // Studio One can emit short non-realtime preflight fragments before the real bounce.
-    // Treat Offline->Realtime as a Record end candidate only after a minimum usable Record span.
-    constexpr double kOfflineAutoStopMinRenderMs = 1000.0;
-
     // C ABI signal-state codes: 0 = Inactive, 1 = Active, 2 = Bypassed.
     uint8_t resolveSignalStateCode (bool bypassed,
                                     bool playing,
@@ -56,29 +51,6 @@ namespace
             && (stateCode == 1 || (recording && (playing || positionChanged || nonRealtime)));
     }
 
-    uint64_t offlineAutoStopMinRenderSamples (double sampleRate)
-    {
-        if (std::isfinite (sampleRate) && sampleRate > 0.0)
-            return (uint64_t) std::llround ((sampleRate * kOfflineAutoStopMinRenderMs) / 1000.0);
-        return 1;
-    }
-
-    bool parseBoolEnvEnabled (const char* raw)
-    {
-        if (raw == nullptr)
-            return true;
-
-        const auto value = juce::String (raw).trim().toLowerCase();
-        if (value == "0" || value == "false" || value == "no" || value == "off")
-            return false;
-
-        return true;
-    }
-
-    bool offlineAutoStopEnabled()
-    {
-        return parseBoolEnvEnabled (std::getenv ("KIRIN_HYPHA_OFFLINE_AUTOSTOP"));
-    }
 }
 
 KirinHyphaProcessorBase::KirinHyphaProcessorBase (Role roleIn)
@@ -112,11 +84,6 @@ KirinHyphaProcessorBase::~KirinHyphaProcessorBase()
 
 void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
-    // Offline render 終了 edge は Record の終了候補として使う。
-    // handleLock を取る前に呼ぶ（stopPair が自前で lock を取るため nest 回避）。
-    // message-thread / 非RT。
-    maybeAutoStopOnOfflineEnd();
-
     const int numCh = getTotalNumInputChannels();
 
     // Pre-allocate the interleave scratch so processBlock never allocates (RT-safe).
@@ -140,9 +107,7 @@ void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBl
     if (! needsNewHandle)
         return;
 
-    offlineRenderedSamples.store (0, std::memory_order_release);
     lastProcessPositionValid = false;
-    wasRecordingInProcess = false;
 
     if (hyphaHandle != nullptr)
     {
@@ -184,10 +149,8 @@ void KirinHyphaProcessorBase::releaseResources()
     // around offline bounce/freeze; destroying the engine here drops Record state and makes the
     // editor fall back to Watch/Keep mid-bounce. Keep the handle alive until destructor or an
     // incompatible prepareToPlay rebuild.
-
-    // Offline render 終了候補も拾う。
-    // 最低 1 秒の offline render sample gate を満たした時だけ maybeAutoStopOnOfflineEnd() が Stop へ進む。
-    maybeAutoStopOnOfflineEnd();
+    // Offline bounce end is not user intent either. Record stop authority stays with explicit
+    // Stop/All Stop and the IO-thread idle timeout; this callback intentionally does nothing.
 }
 
 bool KirinHyphaProcessorBase::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -257,12 +220,6 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
 
     const bool silent = bufferIsSilent (buffer);
     const bool recording = kirin_hypha_is_recording (hyphaHandle);
-    if (recording && ! wasRecordingInProcess)
-        offlineRenderedSamples.store (0, std::memory_order_release);
-    wasRecordingInProcess = recording;
-    if (! recording)
-        offlineRenderedSamples.store (0, std::memory_order_release);
-
     const bool nonRealtime = isNonRealtime();
 
     // C ABI signal-state codes: 0 = Inactive, 1 = Active, 2 = Bypassed.
@@ -287,9 +244,6 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
                                    hasPosition,
                                    positionSamples,
                                    (uint64_t) numFrames);
-    if (recording && nonRealtime && captureBuffer && numFrames > 0 && numCh > 0)
-        offlineRenderedSamples.fetch_add ((uint64_t) numFrames, std::memory_order_relaxed);
-
     // push_samples advances heartbeat internally, so a 0-frame call is a heartbeat-only
     // keepalive for the non-captured Inactive / Bypassed case.
     if (captureBuffer)
@@ -430,46 +384,6 @@ void KirinHyphaProcessorBase::stopPair()
     const juce::ScopedLock sl (handleLock);
     if (hyphaHandle != nullptr)
         kirin_hypha_stop (hyphaHandle);
-}
-
-// Offline render 終了（isNonRealtime true→false エッジ）は Record の終了候補。
-// 1 秒以上の non-realtime process sample gate を満たす POST だけが
-// 手動 Stop と同経路（graceful close + pairing cleanup）で閉じる。
-// KIRIN_HYPHA_OFFLINE_AUTOSTOP=0/false/no/off は検証用の明示 disable。
-// 呼出元（prepareToPlay/releaseResources）は message-thread / 非RT。
-void KirinHyphaProcessorBase::maybeAutoStopOnOfflineEnd()
-{
-    const bool nowNonRealtime = isNonRealtime();
-    const bool offlineJustEnded = prevNonRealtime && ! nowNonRealtime;
-    prevNonRealtime = nowNonRealtime;
-
-    if (! offlineJustEnded || ! isPostRole())
-        return; // 開始/継続/非エッジ、または PRE（POST 主導なので何もしない）
-
-    if (! offlineAutoStopEnabled())
-    {
-        offlineRenderedSamples.store (0, std::memory_order_release);
-        return;
-    }
-
-    const uint64_t rendered = offlineRenderedSamples.load (std::memory_order_acquire);
-    if (rendered < offlineAutoStopMinRenderSamples (preparedSampleRate))
-        return;
-
-    bool recording = false;
-    {
-        const juce::ScopedLock sl (handleLock);
-        recording = (hyphaHandle != nullptr) && kirin_hypha_is_recording (hyphaHandle);
-    }
-    if (recording)
-    {
-        stopPair(); // = 手動 Stop（kirin_hypha_stop）。次 io tick で graceful close。
-        offlineRenderedSamples.store (0, std::memory_order_release);
-    }
-    else
-    {
-        offlineRenderedSamples.store (0, std::memory_order_release);
-    }
 }
 
 // --- B-073: POST Δ readout ---------------------------------------------------------------

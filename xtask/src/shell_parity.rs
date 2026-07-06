@@ -180,7 +180,7 @@ mod tests {
     }
 
     #[test]
-    fn juce_release_resources_keeps_engine_alive_while_polling_offline_end() {
+    fn juce_release_resources_keeps_engine_alive_without_stop_authority() {
         let body = between(
             PLUGIN_PROCESSOR_CPP,
             "void KirinHyphaProcessorBase::releaseResources()",
@@ -192,72 +192,34 @@ mod tests {
             "releaseResources can be called around offline bounce and must not destroy the engine"
         );
         assert!(
-            body.contains("maybeAutoStopOnOfflineEnd();"),
-            "releaseResources must delegate offline-end edge tracking without destroying the engine"
+            !body.contains("stopPair()") && !body.contains("kirin_hypha_stop"),
+            "releaseResources is host lifecycle, not Record Stop authority"
         );
         assert!(body.contains("offline bounce/freeze"));
     }
 
     #[test]
-    fn juce_offline_end_auto_stop_defaults_on_and_post_recording_edge_gated() {
+    fn juce_offline_lifecycle_does_not_stop_record() {
         let prepare = between(
             PLUGIN_PROCESSOR_CPP,
             "void KirinHyphaProcessorBase::prepareToPlay",
             "void KirinHyphaProcessorBase::releaseResources()",
         );
         assert!(
-            prepare.contains("maybeAutoStopOnOfflineEnd();"),
-            "prepareToPlay must poll offline-end edge state before normal prepare work"
-        );
-
-        let body = between(
-            PLUGIN_PROCESSOR_CPP,
-            "void KirinHyphaProcessorBase::maybeAutoStopOnOfflineEnd()",
-            "// --- B-073: POST",
-        );
-        assert!(body.contains("const bool offlineJustEnded = prevNonRealtime && ! nowNonRealtime;"));
-        assert!(body.contains("prevNonRealtime = nowNonRealtime;"));
-        assert!(
-            body.contains("if (! offlineJustEnded || ! isPostRole())"),
-            "offline-end handling must be edge-gated and POST-only"
+            !prepare.contains("maybeAutoStopOnOfflineEnd")
+                && !prepare.contains("offlineAutoStop")
+                && !prepare.contains("kirin_hypha_stop"),
+            "prepareToPlay must not translate Offline->Realtime lifecycle edges into Stop"
         );
         assert!(
-            body.contains("if (! offlineAutoStopEnabled())"),
-            "offline-end auto-stop must honor explicit disable before closing Record"
+            !PLUGIN_PROCESSOR_CPP.contains("KIRIN_HYPHA_OFFLINE_AUTOSTOP"),
+            "env-gated offline auto-stop must not remain as a hidden third Stop path"
         );
         assert!(
-            PLUGIN_PROCESSOR_CPP.contains("if (raw == nullptr)\n            return true;"),
-            "offline-end auto-stop must default on when the env var is unset"
-        );
-        assert!(
-            PLUGIN_PROCESSOR_CPP.contains(
-                "value == \"0\" || value == \"false\" || value == \"no\" || value == \"off\""
-            ),
-            "offline-end auto-stop must support explicit disable values"
-        );
-        assert!(
-            PLUGIN_PROCESSOR_CPP.contains("std::getenv (\"KIRIN_HYPHA_OFFLINE_AUTOSTOP\")"),
-            "offline-end auto-stop must remain externally switchable for validation"
-        );
-        assert!(
-            body.contains("kirin_hypha_is_recording"),
-            "offline-end auto-stop must only call Stop when Record/Keep is active"
-        );
-        assert!(
-            body.contains("offlineRenderedSamples.load"),
-            "offline-end auto-stop must inspect actual non-realtime processing, not generic recording state"
-        );
-        assert!(
-            body.contains("offlineAutoStopMinRenderSamples"),
-            "offline-end auto-stop must ignore short start-side preflight churn"
-        );
-        assert!(
-            PLUGIN_PROCESSOR_CPP.contains("constexpr double kOfflineAutoStopMinRenderMs = 1000.0;"),
-            "offline-end auto-stop must reject short Studio One preflight fragments"
-        );
-        assert!(
-            body.contains("if (recording)\n    {\n        stopPair();"),
-            "offline-end auto-stop must reuse manual Stop cleanup"
+            !PLUGIN_PROCESSOR_CPP.contains("offlineRenderedSamples")
+                && !PLUGIN_PROCESSOR_CPP.contains("prevNonRealtime")
+                && !PLUGIN_PROCESSOR_CPP.contains("offlineJustEnded"),
+            "offline-end state must not remain as latent Stop machinery"
         );
     }
 
@@ -274,12 +236,18 @@ mod tests {
             "processBlock must separate display signal state from Record capture eligibility"
         );
         assert!(
-            body.contains("recording && nonRealtime && captureBuffer"),
-            "offline render sample accounting must be tied to captured Record buffers"
+            body.contains("const bool nonRealtime = isNonRealtime();"),
+            "processBlock must still observe the host non-realtime/offline mode"
         );
         assert!(
-            body.contains("offlineRenderedSamples.fetch_add"),
-            "offline-end Stop gate must be fed by actual processed offline samples"
+            body.contains("shouldCaptureBufferForMeasurement (stateCode")
+                && body.contains("positionChanged,\n                                                                  nonRealtime"),
+            "offline mode must still feed Record capture eligibility"
+        );
+        assert!(
+            body.contains("kirin_hypha_note_record_block")
+                && body.contains("playing,\n                                   nonRealtime"),
+            "offline mode must still be reported to the Record clock"
         );
         assert!(
             body.contains("if (captureBuffer)"),

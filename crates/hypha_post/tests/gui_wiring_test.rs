@@ -59,18 +59,8 @@ fn lib_rs_initialize_caches_sample_rate() {
 }
 
 #[test]
-fn lib_rs_offline_end_auto_stop_is_wired_from_initialize() {
+fn lib_rs_offline_mode_does_not_hold_stop_authority() {
     let src = read("src/lib.rs");
-    assert!(
-        src.contains(
-            "fn offline_render_ended(prev: Option<ProcessMode>, current: ProcessMode) -> bool"
-        ),
-        "lib.rs must keep offline-end detection isolated for testing"
-    );
-    assert!(
-        src.contains("prev == Some(ProcessMode::Offline) && current == ProcessMode::Realtime"),
-        "VST3 offline-end detection must be exactly Offline -> Realtime"
-    );
 
     let initialize_start = src
         .find("fn initialize(")
@@ -82,32 +72,20 @@ fn lib_rs_offline_end_auto_stop_is_wired_from_initialize() {
     let window = &src[initialize_start..safe_end];
 
     assert!(
-        window.contains("offline_render_auto_stop_due("),
-        "initialize() must use the guarded offline auto-stop predicate"
+        window.contains("self.process_mode_offline.store("),
+        "initialize() must still publish offline mode for Record capture"
     );
     assert!(
-        window.contains("offline_autostop_enabled()"),
-        "offline-end auto-stop must pass through the explicit env policy"
+        !window.contains("trigger_stop_internal("),
+        "initialize() must not translate Offline->Realtime lifecycle edges into Stop"
     );
     assert!(
-        window.contains("self.offline_render_samples.load(Ordering::Relaxed)"),
-        "offline-end auto-stop must require current-record offline process samples"
+        !src.contains("offline_render_auto_stop_due("),
+        "offline-end auto-stop predicate must not remain as a hidden third Stop path"
     );
     assert!(
-        window.contains(".offline_render_sample_generation"),
-        "offline-end auto-stop must be tied to the current Record generation"
-    );
-    assert!(
-        window.contains("&& recording_now"),
-        "offline-end auto-stop must only run while Keep/Record is active"
-    );
-    assert!(
-        window.contains("crate::editor::trigger_stop_internal("),
-        "offline-end auto-stop must reuse manual Stop cleanup"
-    );
-    assert!(
-        window.contains("self.prev_process_mode = Some(buffer_config.process_mode);"),
-        "initialize() must update prev_process_mode after edge handling"
+        !src.contains("KIRIN_HYPHA_OFFLINE_AUTOSTOP"),
+        "env-gated offline auto-stop must not remain as a hidden third Stop path"
     );
 }
 
