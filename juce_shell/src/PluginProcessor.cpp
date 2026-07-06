@@ -27,11 +27,12 @@ namespace
     {
         if (bypassed)
             return 2;
-        // B-205: silence gates Active even during Record. A held Record session with the
-        // transport stopped (playing=false, silent=true) now reports Inactive ("---") instead
-        // of measuring stale near-zero residue as a bogus ~-400 LUFS/TP. A non-silent offline
-        // bounce (playing=false, silent=false, recording=true) still stays Active — parity with
-        // hypha_pre/hypha_post resolve_process_signal_state (B-147 capture / B-205 silence gate).
+        // B-205: silence gates the displayed Active state even during Record. A held Record
+        // session with the transport stopped (playing=false, silent=true) reports Inactive
+        // instead of showing stale near-zero residue as a bogus ~-400 LUFS/TP. Record capture is
+        // deliberately decided by shouldCaptureBufferForMeasurement() below, so silent
+        // non-realtime Record buffers can still advance the Record timeline without forcing the
+        // display state to Active.
         // B-230: Studio One can render bounce audio with playing=false before the PRE side has
         // observed the POST Record signal. Non-realtime non-silent buffers are real audio and
         // must feed the meter/Record path, otherwise PRE can close with frames=0 while POST has data.

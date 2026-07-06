@@ -20,6 +20,10 @@ mod tests {
         &tail[..end_index]
     }
 
+    fn count_occurrences(source: &str, needle: &str) -> usize {
+        source.match_indices(needle).count()
+    }
+
     #[test]
     fn post_controls_keep_visibility_depends_on_selected_pair() {
         assert!(POST_CONTROLS_CPP.contains(
@@ -220,6 +224,29 @@ mod tests {
                 && !PLUGIN_PROCESSOR_CPP.contains("prevNonRealtime")
                 && !PLUGIN_PROCESSOR_CPP.contains("offlineJustEnded"),
             "offline-end state must not remain as latent Stop machinery"
+        );
+        assert_eq!(
+            count_occurrences(
+                PLUGIN_PROCESSOR_CPP,
+                "void KirinHyphaProcessorBase::stopPair()"
+            ),
+            1,
+            "POST Stop authority must stay isolated in the explicit stopPair entry point"
+        );
+        assert_eq!(
+            count_occurrences(PLUGIN_PROCESSOR_CPP, "kirin_hypha_stop (hyphaHandle);"),
+            1,
+            "kirin_hypha_stop must only be called by the explicit stopPair entry point"
+        );
+        assert!(
+            PLUGIN_EDITOR_CPP
+                .contains("postControls->onStop = [this] { processorRef.stopPair(); };"),
+            "manual POST Stop must remain the UI path into stopPair"
+        );
+        assert_eq!(
+            count_occurrences(PLUGIN_EDITOR_CPP, "processorRef.stopPair();"),
+            1,
+            "no non-manual JUCE editor path should call stopPair"
         );
     }
 
