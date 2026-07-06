@@ -197,7 +197,8 @@ bool kirin_hypha_preset_available(KirinHypha* handle);
 bool kirin_hypha_keep(KirinHypha* handle);
 
 /* Dropped WAV の expected metadata を Record arm 前に登録する（Kirin OS/JUCE runtime 入口）.
- * 未設定・不完全・stale・consumed の current.json では keep は Record を開始しない.
+ * 未設定・不完全・stale・consumed の current.json でも keep は診断 Record として開始できるが、
+ * finalizer は通常棚へ publish せず .failed に隔離する.
  * bounce_id / wav_hash / wav_path は null 終端 C 文字列（NULL 不可・空不可）. */
 bool kirin_hypha_set_expected_wav_metadata(KirinHypha* handle, const char* bounce_id,
                                            uint64_t expected_duration_samples,

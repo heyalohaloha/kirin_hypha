@@ -1515,11 +1515,13 @@ fn set_pair_label(pair_label: &Arc<Mutex<String>>, paired_pre_name: &str, target
     }
 }
 
-/// Keep タップ: PRE 候補 / 排他 / expected WAV metadata / license を事前チェックし、
+/// Keep タップ: PRE 候補 / 排他 / license を事前チェックし、
 /// record_signal pending を作る。RecordStateMachine は PRE ACK 後に POST IO Thread が入れる。
 /// 成功時は pair_label を `pair: PRE_xxxxxxxx` で設定する（POST GUI 表示用）。
 /// 同時に `paired_pre_target` に `target_id` を保存し、IO Thread が次回の writer_start で
 /// plugin_data の `paired_pre_instance_id` field に書き込めるようにする（v1.2 (a)）。
+/// expected WAV metadata は任意の trust anchor。無い場合も診断 Record として arming し、
+/// finalizer 側で通常棚 publish を止めて `.failed` に隔離する。
 ///
 /// B-027 段階 2: `pair_pre_name` 非空時は `filter_candidates_by_name` で候補を
 /// 絞り込む。空文字時は filter pass-through (B-027 段階 1 受入維持)。
@@ -1641,17 +1643,15 @@ pub(crate) fn trigger_keep_internal(
         return;
     }
     let expected_wav = match read_expected_metadata(&plugin_data_dir, project_hash) {
-        Ok(metadata) => metadata,
+        Ok(metadata) => Some(metadata),
         Err(e) => {
             log::warn!(
-                "[POST keep] expected WAV metadata missing; Record not armed (project_hash={}, err={})",
+                "[POST keep] expected WAV metadata unavailable; arming diagnostic-only Record \
+                 (project_hash={}, err={})",
                 project_hash,
                 e
             );
-            if let Some(t) = toast.as_mut() {
-                **t = Some(Toast::new("WAV metadata missing", now));
-            }
-            return;
+            None
         }
     };
 
@@ -1688,7 +1688,7 @@ pub(crate) fn trigger_keep_internal(
         instance_id,
         target_id.clone(),
         daw_session_id.to_string(),
-        Some(expected_wav),
+        expected_wav,
         started_at_position_samples,
     ) {
         Ok(_) => {
