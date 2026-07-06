@@ -2057,6 +2057,47 @@ pub unsafe extern "C" fn kirin_hypha_note_record_block(
                 position_valid,
                 position_samples,
                 num_frames,
+                clock_start_samples: 0,
+                clock_end_samples: None,
+            })
+        };
+    }));
+}
+
+/// Record take のWAV/native clock windowを通知する（Audio Thread単独・RT-safe）。
+///
+/// # Safety
+/// `handle` は有効なハンドル。
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_note_record_window(
+    handle: *mut KirinHyphaEngine,
+    recording: bool,
+    rendered: bool,
+    playing: bool,
+    offline: bool,
+    position_valid: bool,
+    position_samples: i64,
+    num_frames: u64,
+    clock_start_samples: i64,
+    clock_end_valid: bool,
+    clock_end_samples: i64,
+) {
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() {
+            return;
+        }
+        unsafe {
+            (*handle).note_record_block(RecordTakeBlock {
+                generation: 0,
+                recording,
+                rendered,
+                playing,
+                offline,
+                position_valid,
+                position_samples,
+                num_frames,
+                clock_start_samples,
+                clock_end_samples: clock_end_valid.then_some(clock_end_samples),
             })
         };
     }));

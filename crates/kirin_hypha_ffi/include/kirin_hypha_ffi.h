@@ -206,6 +206,15 @@ void kirin_hypha_note_record_block(KirinHypha* handle, bool recording, bool rend
                                    bool playing, bool offline, bool position_valid,
                                    int64_t position_samples, uint64_t num_frames);
 
+/* Record take のWAV/native clock windowを通知する（Audio Thread単独・RT-safe）.
+ * clock_end_valid=true の時だけ clock_start/end を duration_samples の正本として使う.
+ * 旧 note_record_block は clock end 不明の render-span fallback として残す. */
+void kirin_hypha_note_record_window(KirinHypha* handle, bool recording, bool rendered,
+                                    bool playing, bool offline, bool position_valid,
+                                    int64_t position_samples, uint64_t num_frames,
+                                    int64_t clock_start_samples, bool clock_end_valid,
+                                    int64_t clock_end_samples);
+
 /* POST「Stop」: pair 解除（record_signal released）+ Watch へ戻す（3d-b）. */
 void kirin_hypha_stop(KirinHypha* handle);
 

@@ -1182,6 +1182,8 @@ pub mod tests {
             position_valid: true,
             position_samples: 0,
             num_frames: 1_440_000,
+            clock_start_samples: 0,
+            clock_end_samples: Some(1_440_000),
         });
 
         let queue = new_record_trace_queue();
