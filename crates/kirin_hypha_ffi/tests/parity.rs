@@ -1415,10 +1415,11 @@ fn post_keep_acked_by_colocated_pre() {
         assert!(!post.is_recording(), "keep false で Record しない");
 
         // 成功: "mix"（pair target setter で別名選択が効く）→ keep true。
+        // expected WAV metadata は cross-DAW 必須条件ではない。未設定時も診断 Record として
+        // arming/ACK し、finalizer が通常棚 publish を止めて `.failed` に隔離する。
         post.set_pair_target("mix".into());
-        arm_expected_wav(&post, "strict-pair-mix");
         assert!(post.keep(), "一意 PRE 'mix' で keep=true");
-        wait_until_recording(&post, "strict-pair-mix");
+        wait_until_recording(&post, "strict-pair-mix-diagnostic");
         assert!(post.is_recording(), "keep 成功で POST Record 開始");
 
         // poll_delta は Δ を返す（PRE active）。
@@ -1434,6 +1435,10 @@ fn post_keep_acked_by_colocated_pre() {
             if let Some(s) = read_signal(&plugin_data_root, "puid-post", "iid-post") {
                 if s.status == SignalStatus::Acknowledged {
                     assert_eq!(s.target_pre_instance_id, "iid-pre", "target は選定 PRE");
+                    assert!(
+                        s.expected_wav.is_none(),
+                        "metadata 未設定 Keep は expected_wav=None の診断 Record として arm"
+                    );
                     acked = true;
                     break;
                 }

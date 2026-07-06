@@ -920,24 +920,10 @@ fn poll_record_signal(
     //
     // 順序: scan_signals_dir が post_instance_id 辞書順を返す (record_signal.rs:327
     // doc 仕様) ため、本 filter 後も同順を維持。決定論性確保。
-    let mut skipped_missing_expected = 0_usize;
     let pending_signals: Vec<(String, record_signal::RecordSignal)> = matching
         .into_iter()
         .filter(|(_, s)| s.status == SignalStatus::Pending)
-        .filter(|(_, s)| {
-            let ok = s.expected_wav.as_ref().is_some_and(|m| m.is_usable());
-            if !ok {
-                skipped_missing_expected = skipped_missing_expected.saturating_add(1);
-            }
-            ok
-        })
         .collect();
-    if skipped_missing_expected > 0 {
-        log::warn!(
-            "[signal] {} pending signal(s) ignored: expected WAV metadata missing/invalid",
-            skipped_missing_expected
-        );
-    }
     if pending_signals.is_empty() {
         return;
     }
@@ -1491,7 +1477,6 @@ mod tests {
         let pending_signals: Vec<(String, RecordSignal)> = matching
             .into_iter()
             .filter(|(_, s)| s.status == SignalStatus::Pending)
-            .filter(|(_, s)| s.expected_wav.as_ref().is_some_and(|m| m.is_usable()))
             .collect();
         if pending_signals.is_empty() {
             return;
@@ -1539,6 +1524,14 @@ mod tests {
     }
 
     fn write_matching_pending(base: &Path, post_iid: &str) {
+        write_matching_pending_with_expected(base, post_iid, Some(expected_wav()));
+    }
+
+    fn write_matching_pending_with_expected(
+        base: &Path,
+        post_iid: &str,
+        expected_wav: Option<ExpectedWavMetadata>,
+    ) {
         let signal = RecordSignal {
             status: SignalStatus::Pending,
             requested_by: post_iid.to_string(),
@@ -1550,7 +1543,7 @@ mod tests {
             started_at_position_samples: None,
             paired_pre_name: String::new(),
             release_reason: None,
-            expected_wav: Some(expected_wav()),
+            expected_wav,
         };
         record_signal::write_signal(base, TEST_PH, post_iid, &signal).unwrap();
     }
@@ -1585,6 +1578,36 @@ mod tests {
         assert_eq!(sig.status, SignalStatus::Acknowledged);
         assert!(partner.is_some());
         assert_eq!(partner.as_ref().unwrap().post_instance_id, "post-1");
+    }
+
+    #[test]
+    fn pending_without_expected_metadata_enters_diagnostic_record_and_acknowledges() {
+        let base = isolated_base();
+        write_matching_pending_with_expected(&base, "post-1", None);
+
+        let sm = Arc::new(RecordStateMachine::new());
+        let recording = Arc::new(AtomicBool::new(false));
+        let ack = Arc::new(AtomicBool::new(false));
+        let license = Arc::new(License::Os);
+        let mut partner = None;
+
+        poll_with_base(
+            &base,
+            &sm,
+            &recording,
+            &ack,
+            &license,
+            &mut partner,
+            TEST_PRE_IID,
+        );
+
+        assert_eq!(sm.current(), RecordState::Record);
+        assert!(recording.load(Ordering::Relaxed));
+        assert!(ack.load(Ordering::Relaxed));
+        let sig = record_signal::read_signal(&base, TEST_PH, "post-1").unwrap();
+        assert_eq!(sig.status, SignalStatus::Acknowledged);
+        assert!(sig.expected_wav.is_none());
+        assert!(partner.is_some());
     }
 
     #[test]

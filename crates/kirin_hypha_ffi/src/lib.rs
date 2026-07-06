@@ -377,8 +377,10 @@ pub fn __reset_shared_ids_for_tests() {
 
 /// B-102: keep の解決本体（`keep()` と broadcast 受信 closure が共有する単一実装）。
 /// POST単独 Record を作らないため、ここでは RecordStateMachine を Record にしない。
-/// double-keep guard → select_target_pre → expected WAV metadata → reservation →
+/// double-keep guard → select_target_pre → expected WAV metadata lookup → reservation →
 /// write_pending の順で arming し、PRE ACK 後に POST IO Thread が Record へ入る。
+/// expected WAV metadata が無い場合も診断 Record として arming するが、finalizer は通常棚へ
+/// publish せず `.failed` に隔離する。
 #[allow(clippy::too_many_arguments)]
 fn resolve_and_enter_keep(
     license: License,
@@ -416,15 +418,7 @@ fn resolve_and_enter_keep(
         Ok(p) => p.plugin_data_dir(),
         Err(_) => return false,
     };
-    let expected_wav = match read_expected_metadata(&base, project_hash) {
-        Ok(metadata) => metadata,
-        Err(_) => {
-            if let Ok(mut g) = record_error_message.write() {
-                *g = Some("WAV metadata missing".to_string());
-            }
-            return false;
-        }
-    };
+    let expected_wav = read_expected_metadata(&base, project_hash).ok();
     let _ = reservation::sweep_stale_reservations(&base);
     // B-127 (G-115-365): per-pairing O_EXCL reservation で cross-process atomic に枠を確保する。
     // pairing key = (target=PRE iid, post_iid=POST iid)。cap の真実源は枠ファイルの**物理存在のみ**
@@ -465,7 +459,7 @@ fn resolve_and_enter_keep(
         post_iid,
         target.clone(),
         daw.to_string(),
-        Some(expected_wav),
+        expected_wav,
         started_at_position_samples,
     )
     .is_ok()
@@ -1224,8 +1218,8 @@ impl KirinHyphaEngine {
     /// Kirin OS/JUCE runtime が dropped WAV の正本 metadata を Record arm 前に渡す入口。
     ///
     /// `keep()` はこの metadata を `record_expected/current.json` から読み、PRE/POST 共通の
-    /// `record_signal.expected_wav` へコピーする。未設定・不完全・stale・consumed の場合は Record
-    /// に入らない。
+    /// `record_signal.expected_wav` へコピーする。未設定・不完全・stale・consumed の場合も
+    /// Keep は診断 Record として開始できるが、finalizer は通常棚へ publish せず `.failed` に隔離する。
     pub fn set_expected_wav_metadata(&self, input: ExpectedWavMetadataInput) -> bool {
         let project_hash = match self.identity.lock() {
             Ok(id) => id.project_hash.clone(),

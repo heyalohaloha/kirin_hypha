@@ -2015,19 +2015,22 @@ fn poll_record_signal_ack_with_base(
     if signal.status != SignalStatus::Acknowledged {
         return;
     }
-    let Some(expected_wav) = signal.expected_wav.as_ref() else {
+    if signal.expected_wav.is_none() {
         log::warn!(
-            "[IOThread POST] ACK ignored: expected WAV metadata missing (post_iid={})",
+            "[IOThread POST] ACK has no expected WAV metadata; entering diagnostic-only Record \
+             (post_iid={})",
             instance_id
         );
-        return;
-    };
-    if !expected_wav.is_usable() {
+    } else if !signal
+        .expected_wav
+        .as_ref()
+        .is_some_and(crate::record_expected::ExpectedWavMetadata::is_usable)
+    {
         log::warn!(
-            "[IOThread POST] ACK ignored: expected WAV metadata invalid (post_iid={})",
+            "[IOThread POST] ACK has invalid expected WAV metadata; entering diagnostic-only Record \
+             (post_iid={})",
             instance_id
         );
-        return;
     }
     if !record_sm.is_recording() {
         let Some(started_at_ms) = parse_iso8601_to_epoch_ms(&signal.started_at) else {
@@ -3034,6 +3037,14 @@ mod record_signal_ack_barrier_tests {
     }
 
     fn write_ack(base: &Path, started_at: &str) {
+        write_ack_with_expected(base, started_at, Some(expected_wav()));
+    }
+
+    fn write_ack_with_expected(
+        base: &Path,
+        started_at: &str,
+        expected_wav: Option<ExpectedWavMetadata>,
+    ) {
         let signal = RecordSignal {
             status: SignalStatus::Acknowledged,
             requested_by: TEST_POST_IID.to_string(),
@@ -3045,7 +3056,7 @@ mod record_signal_ack_barrier_tests {
             started_at_position_samples: None,
             paired_pre_name: "PRE".to_string(),
             release_reason: None,
-            expected_wav: Some(expected_wav()),
+            expected_wav,
         };
         crate::record_signal::write_signal(base, TEST_PH, TEST_POST_IID, &signal).unwrap();
     }
@@ -3062,6 +3073,22 @@ mod record_signal_ack_barrier_tests {
 
         write_ack(&base, "2026-07-05T00:00:00Z");
         poll_record_signal_ack_with_base(&base, TEST_PH, TEST_POST_IID, &sm, &pair_label);
+        assert_eq!(sm.current(), RecordState::Record);
+        assert_eq!(
+            sm.record_started_at_ms(),
+            parse_iso8601_to_epoch_ms("2026-07-05T00:00:00Z").unwrap()
+        );
+    }
+
+    #[test]
+    fn acknowledged_without_expected_metadata_enters_diagnostic_record() {
+        let base = isolated_base("diagnostic");
+        write_ack_with_expected(&base, "2026-07-05T00:00:00Z", None);
+        let sm = Arc::new(RecordStateMachine::new());
+        let pair_label = Arc::new(Mutex::new(String::new()));
+
+        poll_record_signal_ack_with_base(&base, TEST_PH, TEST_POST_IID, &sm, &pair_label);
+
         assert_eq!(sm.current(), RecordState::Record);
         assert_eq!(
             sm.record_started_at_ms(),
