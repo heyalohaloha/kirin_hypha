@@ -2158,6 +2158,10 @@ mod b206_idle_autostop_tests {
             !idle_autostop_due(false, false, Duration::from_secs(99_999), Some(t)),
             "非録音は対象外"
         );
+        assert!(
+            !idle_autostop_due(true, false, Duration::from_secs(99_999), None),
+            "timeout disabledなら停止権限を持たない"
+        );
     }
 }
 

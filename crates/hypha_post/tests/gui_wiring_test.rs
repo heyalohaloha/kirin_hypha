@@ -15,6 +15,10 @@ fn read(rel: &str) -> String {
     fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {rel}: {e}"))
 }
 
+fn count_occurrences(source: &str, needle: &str) -> usize {
+    source.match_indices(needle).count()
+}
+
 #[test]
 fn lib_rs_exposes_three_new_arcs_to_editor() {
     let src = read("src/lib.rs");
@@ -86,6 +90,36 @@ fn lib_rs_offline_mode_does_not_hold_stop_authority() {
     assert!(
         !src.contains("KIRIN_HYPHA_OFFLINE_AUTOSTOP"),
         "env-gated offline auto-stop must not remain as a hidden third Stop path"
+    );
+}
+
+#[test]
+fn lib_rs_stop_internal_bridge_is_all_stop_only() {
+    let src = read("src/lib.rs");
+    assert_eq!(
+        count_occurrences(&src, "editor::trigger_stop_internal("),
+        1,
+        "lib.rs must expose exactly one Stop bridge, for All Stop broadcast reception"
+    );
+
+    let start = src
+        .find("let trigger_stop_resolution: TriggerStopResolutionFn")
+        .expect("All Stop trigger_stop_resolution bridge must exist");
+    let end = src[start..]
+        .find("// B-125")
+        .map(|idx| start + idx)
+        .expect("trigger_stop_resolution must end before B-125 oversized setup");
+    let body = &src[start..end];
+
+    assert!(
+        body.contains("editor::trigger_stop_internal(")
+            && body.contains("None,\n                    0.0"),
+        "All Stop bridge must use silent toast=None cleanup and not host lifecycle state"
+    );
+    assert!(
+        !src[..start].contains("editor::trigger_stop_internal(")
+            && !src[end..].contains("editor::trigger_stop_internal("),
+        "host lifecycle, offline mode, and process paths must not call trigger_stop_internal"
     );
 }
 

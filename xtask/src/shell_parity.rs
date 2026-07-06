@@ -283,6 +283,39 @@ mod tests {
     }
 
     #[test]
+    fn juce_prealloc_absorbs_large_offline_blocks_without_audio_thread_realloc() {
+        assert!(
+            PLUGIN_PROCESSOR_CPP.contains("constexpr int kOversizeHeadroomFrames = 262144;"),
+            "JUCE shell should absorb large offline-render blocks before falling back to oversized_drop"
+        );
+
+        let prepare = between(
+            PLUGIN_PROCESSOR_CPP,
+            "void KirinHyphaProcessorBase::prepareToPlay",
+            "void KirinHyphaProcessorBase::releaseResources()",
+        );
+        assert!(
+            prepare.contains("interleaveScratch.assign")
+                && prepare.contains("kOversizeHeadroomFrames")
+                && prepare.contains("scratchCapacitySamples = interleaveScratch.size();"),
+            "offline block scratch must be allocated once in prepareToPlay, not on the audio thread"
+        );
+
+        let process = between(
+            PLUGIN_PROCESSOR_CPP,
+            "void KirinHyphaProcessorBase::processBlock",
+            "bool KirinHyphaProcessorBase::bufferIsSilent",
+        );
+        assert!(
+            process.contains("needed <= scratchCapacitySamples")
+                && process.contains("kirin_hypha_note_oversized_drop")
+                && !process.contains("interleaveScratch.assign")
+                && !process.contains("interleaveScratch.resize"),
+            "processBlock must measure within prealloc capacity and report, not allocate, beyond it"
+        );
+    }
+
+    #[test]
     fn juce_offline_non_silent_buffers_are_active_before_record_edge() {
         let body = between(
             PLUGIN_PROCESSOR_CPP,
