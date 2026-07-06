@@ -35,7 +35,7 @@
 //! # POST 側 ライフサイクル
 //! 1. POST「Keep」→ 排他 OK → [`write_pending`] で自身の post_instance_id 用 signal 配置
 //! 2. PRE が ack → [`mark_acknowledged`]
-//! 3. POST「Stop」→ [`mark_released`] → 30 秒後に自動 [`delete_signal`]
+//! 3. POST「Stop」→ [`mark_released_with_reason`] → 30 秒後に自動 [`delete_signal`]
 //!
 //! # ペアリング距離（G-50-35）
 //! PRE 候補の走査・距離選択は [`crate::pre_candidates`] が所有する。
@@ -84,6 +84,24 @@ impl SignalStatus {
     }
 }
 
+/// Released が Record 終了を意味する場合の明示理由。
+///
+/// 理由なし `released` は Drop / cleanup / 旧互換 marker として扱い、PRE は Record を
+/// 閉じない。PRE 停止権限はこの enum の許可理由に限定する。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReleaseReason {
+    ManualStop,
+    AllStop,
+    IdleTimeout,
+}
+
+impl ReleaseReason {
+    pub fn authorizes_pre_stop(self) -> bool {
+        matches!(self, Self::ManualStop | Self::AllStop | Self::IdleTimeout)
+    }
+}
+
 /// record_signal.json ルート構造。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RecordSignal {
@@ -114,6 +132,9 @@ pub struct RecordSignal {
     /// 空 = POST GUI 側で UUID 短縮 8 文字 fallback 表示。
     #[serde(default)]
     pub paired_pre_name: String,
+    /// `status=released` の停止理由。None は cleanup / 旧 schema の released marker。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub release_reason: Option<ReleaseReason>,
 }
 
 impl RecordSignal {
@@ -134,7 +155,15 @@ impl RecordSignal {
             t: now.clone(),
             started_at: now,
             paired_pre_name: String::new(),
+            release_reason: None,
         }
+    }
+
+    pub fn released_authorizes_pre_stop(&self) -> bool {
+        self.status == SignalStatus::Released
+            && self
+                .release_reason
+                .is_some_and(ReleaseReason::authorizes_pre_stop)
     }
 }
 
@@ -265,21 +294,42 @@ pub fn mark_acknowledged_with_name(
     signal.status = SignalStatus::Acknowledged;
     signal.t = now_iso8601();
     signal.paired_pre_name = paired_pre_name.to_string();
+    signal.release_reason = None;
     write_signal(base_dir, project_hash, post_instance_id, &signal)?;
     Ok(true)
 }
 
-/// 状態遷移: * → released。
+/// 状態遷移: * → released。理由なし released は cleanup marker であり、PRE 停止権限を持たない。
 pub fn mark_released(
     base_dir: &Path,
     project_hash: &str,
     post_instance_id: &str,
+) -> Result<bool, SignalError> {
+    mark_released_inner(base_dir, project_hash, post_instance_id, None)
+}
+
+/// 状態遷移: * → released + 明示停止理由。
+pub fn mark_released_with_reason(
+    base_dir: &Path,
+    project_hash: &str,
+    post_instance_id: &str,
+    reason: ReleaseReason,
+) -> Result<bool, SignalError> {
+    mark_released_inner(base_dir, project_hash, post_instance_id, Some(reason))
+}
+
+fn mark_released_inner(
+    base_dir: &Path,
+    project_hash: &str,
+    post_instance_id: &str,
+    reason: Option<ReleaseReason>,
 ) -> Result<bool, SignalError> {
     transition_status(
         base_dir,
         project_hash,
         post_instance_id,
         SignalStatus::Released,
+        reason,
     )
 }
 
@@ -288,12 +338,18 @@ fn transition_status(
     project_hash: &str,
     post_instance_id: &str,
     next: SignalStatus,
+    release_reason: Option<ReleaseReason>,
 ) -> Result<bool, SignalError> {
     let Some(mut signal) = read_signal(base_dir, project_hash, post_instance_id) else {
         return Ok(false);
     };
     signal.status = next;
     signal.t = now_iso8601();
+    signal.release_reason = if next == SignalStatus::Released {
+        release_reason
+    } else {
+        None
+    };
     write_signal(base_dir, project_hash, post_instance_id, &signal)?;
     Ok(true)
 }

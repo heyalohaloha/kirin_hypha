@@ -1859,6 +1859,7 @@ mod tests {
             t: "2026-07-05T00:00:00Z".to_string(),
             started_at: "2026-07-05T00:00:00Z".to_string(),
             paired_pre_name: "Music".to_string(),
+            release_reason: None,
         };
         crate::record_signal::write_signal(&base, TEST_PH, "post-x", &signal).unwrap();
 

@@ -24,6 +24,16 @@ fn signal_status_serialization_is_lowercase() {
 }
 
 #[test]
+fn release_reason_serialization_is_snake_case() {
+    let s = serde_json::to_string(&ReleaseReason::ManualStop).unwrap();
+    assert_eq!(s, "\"manual_stop\"");
+    let s = serde_json::to_string(&ReleaseReason::AllStop).unwrap();
+    assert_eq!(s, "\"all_stop\"");
+    let s = serde_json::to_string(&ReleaseReason::IdleTimeout).unwrap();
+    assert_eq!(s, "\"idle_timeout\"");
+}
+
+#[test]
 fn signal_roundtrip_preserves_all_fields() {
     let s = RecordSignal::new_pending("post-001".into(), "pre-xyz".into(), "daw-uuid-1".into());
     assert!(!s.session_id.is_empty());
@@ -137,6 +147,7 @@ fn legacy_schema_without_paired_pre_name_defaults_to_empty() {
     let loaded = read_signal(&base, "ph", "post-1").unwrap();
     assert_eq!(loaded.paired_pre_name, "");
     assert_eq!(loaded.status, SignalStatus::Acknowledged);
+    assert_eq!(loaded.release_reason, None);
 }
 
 /// B-023 段階 3: mark_acknowledged_with_name で渡した name が
@@ -172,6 +183,22 @@ fn mark_released_updates_status() {
     mark_released(&base, "ph", "post-1").unwrap();
     let loaded = read_signal(&base, "ph", "post-1").unwrap();
     assert_eq!(loaded.status, SignalStatus::Released);
+    assert_eq!(
+        loaded.release_reason, None,
+        "unqualified cleanup release must not authorize PRE stop"
+    );
+    assert!(!loaded.released_authorizes_pre_stop());
+}
+
+#[test]
+fn mark_released_with_reason_authorizes_pre_stop() {
+    let base = isolated_dir();
+    write_pending(&base, "ph", "post-1", "pre-1".into(), "daw-1".into()).unwrap();
+    mark_released_with_reason(&base, "ph", "post-1", ReleaseReason::AllStop).unwrap();
+    let loaded = read_signal(&base, "ph", "post-1").unwrap();
+    assert_eq!(loaded.status, SignalStatus::Released);
+    assert_eq!(loaded.release_reason, Some(ReleaseReason::AllStop));
+    assert!(loaded.released_authorizes_pre_stop());
 }
 
 #[test]
