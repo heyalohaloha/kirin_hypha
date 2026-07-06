@@ -11,6 +11,13 @@ namespace hypha
     class DisplaySmoother
     {
     public:
+        template <typename T>
+        struct HeldDisplay
+        {
+            T value {};
+            bool muted = false;
+        };
+
         KirinMeasureResult smoothMeasure (const KirinMeasureResult& raw, double nowSecs)
         {
             if (expired (lastMeasureSecs, nowSecs))
@@ -55,32 +62,54 @@ namespace hypha
 
         bool heldMeasure (KirinMeasureResult& out, double nowSecs) const
         {
+            HeldDisplay<KirinMeasureResult> held {};
+            if (! heldMeasureDisplay (held, nowSecs))
+                return false;
+
+            out = held.value;
+            return true;
+        }
+
+        bool heldMeasureDisplay (HeldDisplay<KirinMeasureResult>& out, double nowSecs) const
+        {
             if (! held (lastMeasureSecs, nowSecs) || ! hasCore (measure))
                 return false;
 
-            out = nanMeasure();
-            out.lufs_m        = valueOrNan (measure[0]);
-            out.true_peak     = valueOrNan (measure[1]);
-            out.crest         = valueOrNan (measure[2]);
-            out.psr           = valueOrNan (measure[3]);
-            out.n_prime_total = valueOrNan (measure[4]);
-            out.sharpness     = valueOrNan (measure[5]);
+            out.value = nanMeasure();
+            out.value.lufs_m        = valueOrNan (measure[0]);
+            out.value.true_peak     = valueOrNan (measure[1]);
+            out.value.crest         = valueOrNan (measure[2]);
+            out.value.psr           = valueOrNan (measure[3]);
+            out.value.n_prime_total = valueOrNan (measure[4]);
+            out.value.sharpness     = valueOrNan (measure[5]);
+            out.muted = muted (lastMeasureSecs, nowSecs);
             return true;
         }
 
         bool heldDelta (KirinDelta& out, double nowSecs) const
         {
+            HeldDisplay<KirinDelta> held {};
+            if (! heldDeltaDisplay (held, nowSecs))
+                return false;
+
+            out = held.value;
+            return true;
+        }
+
+        bool heldDeltaDisplay (HeldDisplay<KirinDelta>& out, double nowSecs) const
+        {
             if (! held (lastDeltaSecs, nowSecs) || ! hasCore (delta))
                 return false;
 
-            out = nanDelta();
-            out.mode          = 0; // Active-shaped values rendered muted by the editor.
-            out.lufs          = valueOrNan (delta[0]);
-            out.true_peak     = valueOrNan (delta[1]);
-            out.crest         = valueOrNan (delta[2]);
-            out.psr           = valueOrNan (delta[3]);
-            out.n_prime_total = valueOrNan (delta[4]);
-            out.sharpness     = valueOrNan (delta[5]);
+            out.value = nanDelta();
+            out.value.mode          = 0; // Active-shaped values rendered by the editor.
+            out.value.lufs          = valueOrNan (delta[0]);
+            out.value.true_peak     = valueOrNan (delta[1]);
+            out.value.crest         = valueOrNan (delta[2]);
+            out.value.psr           = valueOrNan (delta[3]);
+            out.value.n_prime_total = valueOrNan (delta[4]);
+            out.value.sharpness     = valueOrNan (delta[5]);
+            out.muted = muted (lastDeltaSecs, nowSecs);
             return true;
         }
 
@@ -100,7 +129,8 @@ namespace hypha
         };
 
         static constexpr double kTauSecs = 1.5;
-        static constexpr double kHoldSecs = 18.0;
+        static constexpr double kHoldSecs = 9.0;
+        static constexpr double kMutedAfterSecs = 5.0;
 
         std::array<Slot, 6> measure {};
         std::array<Slot, 6> delta {};
@@ -148,6 +178,11 @@ namespace hypha
         static bool expired (double previous, double now)
         {
             return previous >= 0.0 && now >= previous && (now - previous) > kHoldSecs;
+        }
+
+        static bool muted (double previous, double now)
+        {
+            return previous >= 0.0 && now >= previous && (now - previous) >= kMutedAfterSecs;
         }
 
         static void clearSlots (std::array<Slot, 6>& slots)

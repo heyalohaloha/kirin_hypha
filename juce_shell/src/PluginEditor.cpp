@@ -385,8 +385,6 @@ void KirinHyphaEditor::updatePre()
     const bool ack    = processorRef.recordAcknowledged();
     const bool preset = processorRef.presetAvailable(); // PRE: always false
 
-    led.setState (hypha::deriveLedState (alive, sig, rec, ack, preset));
-
     nameField.setModelName (processorRef.preName());
     nameField.setFallback (instanceId8());
 
@@ -418,16 +416,21 @@ void KirinHyphaEditor::updatePre()
     KirinMeasureResult raw {};
     KirinMeasureResult r {};
     bool have = false;
-    bool stale = false;
+    bool muted = false;
     if (sig == 1 && processorRef.pollMeasureResult (raw))
     {
         r = displaySmoother.smoothMeasure (raw, t);
         have = true;
     }
-    else if (sig == 0 && displaySmoother.heldMeasure (r, t))
+    else if (sig == 0)
     {
-        have = true;
-        stale = true;
+        hypha::DisplaySmoother::HeldDisplay<KirinMeasureResult> held {};
+        if (displaySmoother.heldMeasureDisplay (held, t))
+        {
+            r = held.value;
+            have = true;
+            muted = held.muted;
+        }
     }
     else if (sig == 2)
     {
@@ -435,20 +438,23 @@ void KirinHyphaEditor::updatePre()
     }
     auto V = [&] (double x) { return have ? x : kNaN; };
 
+    const int ledSig = (! rec && sig == 0 && have && ! muted) ? 1 : sig;
+    led.setState (hypha::deriveLedState (alive, ledSig, rec, ack, preset));
+
     if (rec)
     {
-        fillAbs (0, V (r.lufs_m), false, stale);
-        fillAbs (1, V (r.psr), false, stale);
-        fillAbs (2, V (r.true_peak), true, stale);
-        fillAbs (3, V (r.n_prime_total), false, stale);
-        fillAbs (4, V (r.crest), false, stale);
-        fillAbs (5, V (r.sharpness), false, stale);
+        fillAbs (0, V (r.lufs_m), false, muted);
+        fillAbs (1, V (r.psr), false, muted);
+        fillAbs (2, V (r.true_peak), true, muted);
+        fillAbs (3, V (r.n_prime_total), false, muted);
+        fillAbs (4, V (r.crest), false, muted);
+        fillAbs (5, V (r.sharpness), false, muted);
     }
     else
     {
-        fillAbs (0, V (r.lufs_m), false, stale);
-        fillAbs (1, V (r.true_peak), true, stale);
-        fillAbs (2, V (r.crest), false, stale);
+        fillAbs (0, V (r.lufs_m), false, muted);
+        fillAbs (1, V (r.true_peak), true, muted);
+        fillAbs (2, V (r.crest), false, muted);
     }
 }
 
@@ -462,8 +468,6 @@ void KirinHyphaEditor::updatePost()
     const bool playing = processorRef.isPlaying();
     // B-115: lock only when playing AND live (processBlock running) — false-release prevention.
     const bool pairLocked = playing && processorRef.heartbeatLive();
-
-    led.setState (hypha::deriveLedState (alive, sig, rec, ack, preset));
 
     const juce::String pairName = processorRef.pairName();
     const bool pairNonEmpty = pairName.isNotEmpty();
@@ -501,22 +505,28 @@ void KirinHyphaEditor::updatePost()
     KirinMeasureResult rawM {};
     KirinMeasureResult m {};
     bool haveM = false;
-    bool staleM = false;
+    bool mutedM = false;
     if (sig == 1 && processorRef.pollMeasureResult (rawM))
     {
         m = displaySmoother.smoothMeasure (rawM, t);
         haveM = true;
     }
-    else if (sig == 0 && displaySmoother.heldMeasure (m, t))
+    else if (sig == 0)
     {
-        haveM = true;
-        staleM = true;
+        hypha::DisplaySmoother::HeldDisplay<KirinMeasureResult> held {};
+        if (displaySmoother.heldMeasureDisplay (held, t))
+        {
+            m = held.value;
+            haveM = true;
+            mutedM = held.muted;
+        }
     }
     else if (sig == 2)
     {
         displaySmoother.reset();
     }
-    const bool tpWarn = ! staleM && hypha::tpOver (haveM ? m.true_peak : kNaN);
+    const bool tpWarn = ! mutedM && hypha::tpOver (haveM ? m.true_peak : kNaN);
+    bool watchHeldNormal = false;
 
     if (rec) // Record owns the six-row layout even while the host is preparing/offline-stalling.
     {
@@ -524,7 +534,7 @@ void KirinHyphaEditor::updatePost()
         KirinDelta rawD {};
         KirinDelta d {};
         bool haveD = false;
-        bool staleD = false;
+        bool mutedD = false;
         if (sig == 1 && processorRef.pollDelta (rawD))
         {
             const bool preExplicitBypassed = rawD.mode == 3;
@@ -533,49 +543,79 @@ void KirinHyphaEditor::updatePost()
                 d = displaySmoother.smoothDelta (rawD, t);
                 haveD = true;
             }
-            else if (! preExplicitBypassed && pairNonEmpty && displaySmoother.heldDelta (d, t))
+            else if (! preExplicitBypassed && pairNonEmpty)
             {
-                haveD = true;
-                staleD = true;
+                hypha::DisplaySmoother::HeldDisplay<KirinDelta> held {};
+                if (displaySmoother.heldDeltaDisplay (held, t))
+                {
+                    d = held.value;
+                    haveD = true;
+                    mutedD = held.muted;
+                }
+                else
+                {
+                    d = rawD;
+                    haveD = true;
+                    mutedD = true;
+                }
             }
             else
             {
                 d = rawD;
                 haveD = true;
-                staleD = true;
+                mutedD = true;
             }
         }
-        else if (sig == 0 && displaySmoother.heldDelta (d, t))
+        else if (sig == 0)
         {
-            haveD = true;
-            staleD = true;
+            hypha::DisplaySmoother::HeldDisplay<KirinDelta> held {};
+            if (displaySmoother.heldDeltaDisplay (held, t))
+            {
+                d = held.value;
+                haveD = true;
+                mutedD = held.muted;
+            }
         }
-        const juce::Colour base = (staleD || (haveD && d.mode == 1)) ? COL_MUTED : COL_NORMAL;
+        const juce::Colour base = (mutedD || (haveD && d.mode == 1)) ? COL_MUTED : COL_NORMAL;
         auto D = [&] (double x) { return haveD ? x : kNaN; };
-        fillDelta (0, D (d.lufs),          false, base, tpWarn, staleD);
-        fillDelta (1, D (d.psr),           false, base, tpWarn, staleD);
-        fillDelta (2, D (d.true_peak),     true,  base, tpWarn, staleD);
-        fillDelta (3, D (d.n_prime_total), false, base, tpWarn, staleD);
-        fillDelta (4, D (d.crest),         false, base, tpWarn, staleD);
-        fillDelta (5, D (d.sharpness),     false, base, tpWarn, staleD);
+        fillDelta (0, D (d.lufs),          false, base, tpWarn, mutedD);
+        fillDelta (1, D (d.psr),           false, base, tpWarn, mutedD);
+        fillDelta (2, D (d.true_peak),     true,  base, tpWarn, mutedD);
+        fillDelta (3, D (d.n_prime_total), false, base, tpWarn, mutedD);
+        fillDelta (4, D (d.crest),         false, base, tpWarn, mutedD);
+        fillDelta (5, D (d.sharpness),     false, base, tpWarn, mutedD);
     }
     else if (sig != 1) // Bypassed / Inactive -> "---"
     {
         KirinDelta heldD {};
-        const bool haveHeldD = sig == 0 && pairNonEmpty && displaySmoother.heldDelta (heldD, t);
+        bool haveHeldD = false;
+        bool mutedHeldD = false;
+        if (sig == 0 && pairNonEmpty)
+        {
+            hypha::DisplaySmoother::HeldDisplay<KirinDelta> held {};
+            if (displaySmoother.heldDeltaDisplay (held, t))
+            {
+                heldD = held.value;
+                haveHeldD = true;
+                mutedHeldD = held.muted;
+            }
+        }
         if (haveHeldD)
         {
             if (currentKind != Kind::Delta3) configureForKind (Kind::Delta3);
-            fillDelta (0, heldD.lufs,      false, COL_MUTED, false, true);
-            fillDelta (1, heldD.true_peak, true,  COL_MUTED, false, true);
-            fillDelta (2, heldD.crest,     false, COL_MUTED, false, true);
+            const juce::Colour base = mutedHeldD ? COL_MUTED : COL_NORMAL;
+            watchHeldNormal = ! mutedHeldD;
+            fillDelta (0, heldD.lufs,      false, base, false, mutedHeldD);
+            fillDelta (1, heldD.true_peak, true,  base, false, mutedHeldD);
+            fillDelta (2, heldD.crest,     false, base, false, mutedHeldD);
         }
         else
         {
             if (currentKind != Kind::Abs3) configureForKind (Kind::Abs3);
-            fillAbs (0, haveM ? m.lufs_m : kNaN, false, staleM);
-            fillAbs (1, haveM ? m.true_peak : kNaN, true, staleM);
-            fillAbs (2, haveM ? m.crest : kNaN, false, staleM);
+            watchHeldNormal = haveM && ! mutedM;
+            fillAbs (0, haveM ? m.lufs_m : kNaN, false, mutedM);
+            fillAbs (1, haveM ? m.true_peak : kNaN, true, mutedM);
+            fillAbs (2, haveM ? m.crest : kNaN, false, mutedM);
         }
     }
     else // Active + Watch
@@ -585,28 +625,33 @@ void KirinHyphaEditor::updatePost()
         const bool haveRawD = processorRef.pollDelta (rawD);
         const bool preExplicitBypassed = haveRawD && rawD.mode == 3;
         bool haveD = false;
-        bool staleD = false;
+        bool mutedD = false;
         if (haveRawD && rawD.mode == 0)
         {
             d = displaySmoother.smoothDelta (rawD, t);
             haveD = true;
         }
-        else if (! preExplicitBypassed && pairNonEmpty && displaySmoother.heldDelta (d, t))
+        else if (! preExplicitBypassed && pairNonEmpty)
         {
-            haveD = true;
-            staleD = true;
+            hypha::DisplaySmoother::HeldDisplay<KirinDelta> held {};
+            if (displaySmoother.heldDeltaDisplay (held, t))
+            {
+                d = held.value;
+                haveD = true;
+                mutedD = held.muted;
+            }
         }
         else if (haveRawD)
         {
             d = rawD;
             haveD = true;
-            staleD = true;
+            mutedD = true;
         }
 
         if (pairNonEmpty && ! preExplicitBypassed)
         {
             if (currentKind != Kind::Delta3) configureForKind (Kind::Delta3);
-            const bool liveDelta = haveD && d.mode == 0 && ! staleD;
+            const bool liveDelta = haveD && d.mode == 0 && ! mutedD;
             const juce::Colour base = liveDelta ? COL_NORMAL : COL_MUTED;
             const bool warn = liveDelta ? tpWarn : false;
             fillDelta (0, haveD ? d.lufs      : kNaN, false, base, warn, ! liveDelta);
@@ -622,4 +667,7 @@ void KirinHyphaEditor::updatePost()
             fillAbs (2, V (m.crest), false);
         }
     }
+
+    const int ledSig = (! rec && sig == 0 && watchHeldNormal) ? 1 : sig;
+    led.setState (hypha::deriveLedState (alive, ledSig, rec, ack, preset));
 }

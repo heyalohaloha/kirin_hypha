@@ -15,8 +15,8 @@
 
 use crate::sanitize_name;
 use hypha_gui::{
-    derive_led_state, display_smoothing::DisplaySmoother, fmt_val, led_color, tp_color, val_color,
-    BackgroundTexture, BG, COL_FLORA, COL_MUTED, COL_NORMAL,
+    derive_led_state, display_signal_state_for_led, display_smoothing::DisplaySmoother, fmt_val,
+    led_color, tp_color, val_color, BackgroundTexture, BG, COL_FLORA, COL_MUTED, COL_NORMAL,
 };
 use kirin_measure::{load_signal_state, MeasureResult, SignalState};
 use nih_plug::prelude::Editor;
@@ -206,8 +206,9 @@ pub fn create_pre_editor(
                 }
             };
 
+            let led_sig = display_signal_state_for_led(sig, recording, show_values, values_muted);
             let preset_available = state.preset_available.load(Ordering::Relaxed);
-            let led = derive_led_state(alive, sig, recording, ack, preset_available);
+            let led = derive_led_state(alive, led_sig, recording, ack, preset_available);
             if state.prev_led != Some(led) {
                 log::info!("[led] state: {:?}", led);
                 state.prev_led = Some(led);

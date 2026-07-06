@@ -26,9 +26,9 @@
 //! （赤系禁止。色相同一・明度増）。
 
 use hypha_gui::{
-    derive_led_state, display_smoothing::DisplaySmoother, fmt_delta, fmt_val, led_color,
-    pairing_label, tp_over, val_color, value_row, BackgroundTexture, BG, COL_FLORA,
-    COL_FLORA_BRIGHT, COL_MUTED, COL_NORMAL,
+    derive_led_state, display_signal_state_for_led, display_smoothing::DisplaySmoother, fmt_delta,
+    fmt_val, led_color, pairing_label, tp_over, val_color, value_row, BackgroundTexture, BG,
+    COL_FLORA, COL_FLORA_BRIGHT, COL_MUTED, COL_NORMAL,
 };
 use kirin_measure::reservation; // B-127 (G-115-365): egui parity — per-pairing O_EXCL frame
 use kirin_measure::{
@@ -408,15 +408,6 @@ pub fn create_post_editor(args: PostEditorArgs) -> Option<Box<dyn Editor>> {
                 state.banner_until = None;
             }
 
-            let preset_available = state.preset_available.load(Ordering::Relaxed);
-            let led = derive_led_state(alive, sig, recording, ack, preset_available);
-            // R-28 edge-triggered: LED 状態が切り替わった瞬間のみログを出す。
-            if state.prev_led != Some(led) {
-                log::info!("[led] state: {:?}", led);
-                state.prev_led = Some(led);
-            }
-            let led_col = led_color(led, now);
-
             let (m, d, display_held, display_muted) = match sig {
                 SignalState::Active => {
                     let smoothed_m = state.display_smoother.update_measure(&raw_m, now);
@@ -456,6 +447,16 @@ pub fn create_post_editor(args: PostEditorArgs) -> Option<Box<dyn Editor>> {
                     (raw_m, raw_d, false, false)
                 }
             };
+
+            let led_sig = display_signal_state_for_led(sig, recording, display_held, display_muted);
+            let preset_available = state.preset_available.load(Ordering::Relaxed);
+            let led = derive_led_state(alive, led_sig, recording, ack, preset_available);
+            // R-28 edge-triggered: LED 状態が切り替わった瞬間のみログを出す。
+            if state.prev_led != Some(led) {
+                log::info!("[led] state: {:?}", led);
+                state.prev_led = Some(led);
+            }
+            let led_col = led_color(led, now);
 
             draw_post(
                 ctx,
