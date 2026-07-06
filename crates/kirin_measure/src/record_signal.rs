@@ -40,12 +40,14 @@
 //! # ペアリング距離（G-50-35）
 //! PRE 候補の走査・距離選択は [`crate::pre_candidates`] が所有する。
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
+
+use crate::record_expected::ExpectedWavMetadata;
 
 mod stale_pending;
 
@@ -55,6 +57,7 @@ pub use stale_pending::{
 
 /// pending → acknowledged タイムアウト（秒）。
 pub const ACK_TIMEOUT_SECONDS: i64 = 30;
+pub const RECORD_START_BARRIER_DELAY_MS: i64 = 500;
 
 /// record_signal ディレクトリ名（`{project_hash}/record_signal/`）。
 pub const SIGNALS_SUBDIR: &str = "record_signal";
@@ -121,7 +124,7 @@ pub struct RecordSignal {
     /// 旧 schema では空文字に default し、started_at + paired_* による互換経路を維持する。
     #[serde(default)]
     pub session_id: String,
-    /// 状態遷移の最終時刻（ISO 8601 / RFC 3339, 秒精度 / UTC）。
+    /// 状態遷移の最終時刻（ISO 8601 / RFC 3339, ミリ秒精度 / UTC）。
     pub t: String,
     /// pending 配置時刻（以後 status 遷移で更新されない）。
     /// 旧バージョン互換のため `#[serde(default)]`（不在で空文字）。
@@ -135,6 +138,12 @@ pub struct RecordSignal {
     /// `status=released` の停止理由。None は cleanup / 旧 schema の released marker。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub release_reason: Option<ReleaseReason>,
+    /// Kirin OS/Hub が Record 開始前に渡す dropped WAV header metadata。
+    ///
+    /// これが無い pending は PRE が Record へ入らず、PairRecordSession finalizer も
+    /// 通常棚へ publish しない。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_wav: Option<ExpectedWavMetadata>,
 }
 
 impl RecordSignal {
@@ -144,18 +153,22 @@ impl RecordSignal {
         requested_by: String,
         target_pre_instance_id: String,
         daw_session_id: String,
+        expected_wav: Option<ExpectedWavMetadata>,
     ) -> Self {
-        let now = now_iso8601();
+        let now = Utc::now();
+        let t = iso8601(now);
+        let started_at = iso8601(now + Duration::milliseconds(RECORD_START_BARRIER_DELAY_MS));
         Self {
             status: SignalStatus::Pending,
             requested_by,
             target_pre_instance_id,
             daw_session_id,
             session_id: Uuid::new_v4().to_string(),
-            t: now.clone(),
-            started_at: now,
+            t,
+            started_at,
             paired_pre_name: String::new(),
             release_reason: None,
+            expected_wav,
         }
     }
 
@@ -228,10 +241,30 @@ pub fn write_pending(
     target_pre_instance_id: String,
     daw_session_id: String,
 ) -> Result<RecordSignal, SignalError> {
+    write_pending_with_expected(
+        base_dir,
+        project_hash,
+        post_instance_id,
+        target_pre_instance_id,
+        daw_session_id,
+        None,
+    )
+}
+
+/// pending シグナルを expected WAV metadata とともに atomic 書込。
+pub fn write_pending_with_expected(
+    base_dir: &Path,
+    project_hash: &str,
+    post_instance_id: &str,
+    target_pre_instance_id: String,
+    daw_session_id: String,
+    expected_wav: Option<ExpectedWavMetadata>,
+) -> Result<RecordSignal, SignalError> {
     let signal = RecordSignal::new_pending(
         post_instance_id.to_string(),
         target_pre_instance_id,
         daw_session_id,
+        expected_wav,
     );
     write_signal(base_dir, project_hash, post_instance_id, &signal)?;
     Ok(signal)
@@ -464,7 +497,11 @@ pub fn scan_signals_dir(base_dir: &Path, project_hash: &str) -> Vec<(String, Rec
 // ── ヘルパ ────────────────────────────────────────────────────────────────────
 
 fn now_iso8601() -> String {
-    chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()
+    iso8601(chrono::Utc::now())
+}
+
+fn iso8601(t: DateTime<Utc>) -> String {
+    t.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────

@@ -15,7 +15,7 @@ use kirin_measure::engine::MeasureEngine;
 use kirin_measure::plugin_data::{
     verify_checksum, PluginDataFile, PluginDataWriter, Role, WriterPaths,
 };
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 const SR: u32 = 48_000;
@@ -61,6 +61,43 @@ fn make_writer(base: &std::path::Path, role: Role) -> PluginDataWriter {
         None,
     )
     .unwrap()
+}
+
+fn read_output_for_final(final_path: &Path) -> PluginDataFile {
+    let failed_path = failed_path_for_final(final_path);
+    let pending_path = pair_pending_path_for_final(final_path);
+    let path = if final_path.exists() {
+        final_path.to_path_buf()
+    } else if failed_path.exists() {
+        failed_path
+    } else if pending_path.exists() {
+        pending_path
+    } else {
+        any_pair_pending_for_final(final_path).unwrap_or(pending_path)
+    };
+    let bytes = std::fs::read(&path).unwrap();
+    serde_json::from_slice(&bytes).unwrap()
+}
+
+fn failed_path_for_final(final_path: &Path) -> PathBuf {
+    let parent = final_path.parent().expect("role dir");
+    let file_name = final_path.file_name().expect("file name");
+    parent.join(".failed").join(file_name)
+}
+
+fn pair_pending_path_for_final(final_path: &Path) -> PathBuf {
+    let parent = final_path.parent().expect("role dir");
+    let file_name = final_path.file_name().expect("file name");
+    parent.join(".pair_pending").join(file_name)
+}
+
+fn any_pair_pending_for_final(final_path: &Path) -> Option<PathBuf> {
+    let dir = final_path.parent()?.join(".pair_pending");
+    std::fs::read_dir(dir)
+        .ok()?
+        .flatten()
+        .map(|entry| entry.path())
+        .find(|path| path.extension().is_some_and(|ext| ext == "json"))
 }
 
 #[test]
@@ -135,8 +172,7 @@ fn set_session_aggregates_writes_lufs_i_lra_plr_to_json() {
     };
     w.close().unwrap();
 
-    let bytes = std::fs::read(&final_path).unwrap();
-    let loaded: PluginDataFile = serde_json::from_slice(&bytes).unwrap();
+    let loaded = read_output_for_final(&final_path);
 
     assert_eq!(loaded.schema_version, "1.3");
     assert_eq!(loaded.lufs_i, Some(-14.3));

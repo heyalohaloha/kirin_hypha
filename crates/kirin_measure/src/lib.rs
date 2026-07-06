@@ -29,6 +29,7 @@ pub mod preset_dispatch;
 pub mod preset_v2;
 pub mod record;
 pub mod record_clock;
+pub mod record_expected;
 pub mod record_signal;
 pub mod record_take;
 pub mod record_writer;
@@ -116,17 +117,24 @@ pub use preset_v2::{
 };
 pub use record::{RecordState, RecordStateMachine, TransitionError};
 pub use record_clock::{record_window_for_buffer, RecordWindow};
+pub use record_expected::{
+    expected_dir, expected_path, mark_expected_metadata_consumed, read_expected_metadata,
+    write_expected_metadata, ExpectedMetadataError, ExpectedWavMetadata, EXPECTED_FILENAME,
+    EXPECTED_SUBDIR,
+};
 pub use record_signal::{
     delete_signal, is_timed_out, mark_acknowledged, mark_released, mark_released_with_reason,
-    read_signal, scan_signals_dir, signal_path, signals_dir, write_pending, write_signal,
-    RecordSignal, ReleaseReason, SignalError, SignalStatus, ACK_TIMEOUT_SECONDS, SIGNALS_SUBDIR,
-    SIGNAL_FILENAME,
+    read_signal, scan_signals_dir, signal_path, signals_dir, write_pending,
+    write_pending_with_expected, write_signal, RecordSignal, ReleaseReason, SignalError,
+    SignalStatus, ACK_TIMEOUT_SECONDS, SIGNALS_SUBDIR, SIGNAL_FILENAME,
 };
 pub use record_take::{
     new_record_take_tracker, RecordTakeBlock, RecordTakeSnapshot, RecordTakeTracker,
     RECORD_TAKE_SOURCE_RENDER_CLOCK,
 };
-pub use record_writer::{new_record_trace_queue, RecordTraceQueue, RecordTraceSample};
+pub use record_writer::{
+    new_record_trace_queue, RecordTraceKind, RecordTraceQueue, RecordTraceSample,
+};
 pub use storage::{
     cleanup_legacy_v1, load_installation_id_safe, load_or_recover, read_identity, write_both,
     write_identity_atomic, CleanupReport, IdentityCache, LoadStatus, LoadedIdentity, PlatformKind,

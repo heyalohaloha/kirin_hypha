@@ -35,15 +35,14 @@ use kirin_measure::{
     active_post_project_uuids_for_daw_session, all_keep_signal_path, all_stop_signal_path,
     append_annotation_to_latest, count_distinct_pairings, delete_broadcast,
     enumerate_active_post_pair_candidates, enumerate_active_post_pair_candidates_for_daw_session,
-    enumerate_active_pre_pair_candidates_for_post_project, exit_record_full,
-    exit_record_preserve_pair, format_pair_label, load_signal_state, lookup_section_label,
-    mark_released_with_reason, pair_lock_active, resolve_arm_target_for_post_project,
-    sanitize_name, scan_latest_v2_preset, show_note_button, show_save_button,
-    show_stop_record_button, write_broadcast, write_pending, write_stop_broadcast, DeltaMode,
-    DeltaResult, DeltaSnapshot, LatchedPre, License, LivenessEvaluator, MeasureResult,
-    PlatformPaths, PluginDataRole, PostCandidate, PreCandidate, PresetFileV2, RecordStateMachine,
-    ReleaseReason, SignalState, StoragePaths, TransitionError, MAX_ACTIVE_PER_PROJECT,
-    SENSE_RECORD_HINT, SENSE_UPSELL_URL,
+    enumerate_active_pre_pair_candidates_for_post_project, exit_record_preserve_pair,
+    format_pair_label, load_signal_state, lookup_section_label, mark_released_with_reason,
+    pair_lock_active, read_expected_metadata, resolve_arm_target_for_post_project, sanitize_name,
+    scan_latest_v2_preset, show_note_button, show_save_button, show_stop_record_button,
+    write_broadcast, write_pending_with_expected, write_stop_broadcast, DeltaMode, DeltaResult,
+    DeltaSnapshot, LatchedPre, License, LivenessEvaluator, MeasureResult, PlatformPaths,
+    PluginDataRole, PostCandidate, PreCandidate, PresetFileV2, RecordStateMachine, ReleaseReason,
+    SignalState, StoragePaths, MAX_ACTIVE_PER_PROJECT, SENSE_RECORD_HINT, SENSE_UPSELL_URL,
 };
 use nih_plug::prelude::Editor;
 use nih_plug_egui::{
@@ -1494,7 +1493,8 @@ fn set_pair_label(pair_label: &Arc<Mutex<String>>, paired_pre_name: &str, target
     }
 }
 
-/// Keep タップ: PRE 候補 / 排他 / license を事前チェック → `try_enter_record` → `write_pending`。
+/// Keep タップ: PRE 候補 / 排他 / expected WAV metadata / license を事前チェックし、
+/// record_signal pending を作る。RecordStateMachine は PRE ACK 後に POST IO Thread が入れる。
 /// 成功時は pair_label を `pair: PRE_xxxxxxxx` で設定する（POST GUI 表示用）。
 /// 同時に `paired_pre_target` に `target_id` を保存し、IO Thread が次回の writer_start で
 /// plugin_data の `paired_pre_instance_id` field に書き込めるようにする（v1.2 (a)）。
@@ -1544,8 +1544,7 @@ fn trigger_keep(
 /// broadcast 受信側 (α-7 All Keep) から本関数を `toast = None` で直接呼出し、N 倍
 /// toast 嵐を構造的に防ぐ。`log::*` は不変 (toast 抑制でも log は残す)。
 ///
-/// 既存ロジック完全保持: record_sm 遷移 / reservation cap / write_pending / ロールバック /
-/// set_pair_label / paired_pre_target 設定 — 全て Step 7 改修前と同等動作。
+/// POST 単独 Record を作らないため、本関数は `record_sm.try_enter_record*` を呼ばない。
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn trigger_keep_internal(
     license: License,
@@ -1605,25 +1604,33 @@ pub(crate) fn trigger_keep_internal(
         }
     };
 
-    // 5. RecordStateMachine 遷移（license 二重 gate）
-    match record_sm
-        .try_enter_record_started_at(license, kirin_measure::record_writer::now_epoch_ms())
-    {
-        Ok(()) => {}
-        Err(TransitionError::LicenseDenied) => {
-            log::info!("[POST keep] license denied: {:?}", license);
+    if record_sm.is_recording() {
+        log::info!("[POST keep] already recording — ignored");
+        return;
+    }
+    if !matches!(license, License::Os) {
+        log::info!("[POST keep] license denied: {:?}", license);
+        if let Some(t) = toast.as_mut() {
+            **t = Some(Toast::new("Record requires Kirin OS license", now));
+        }
+        return;
+    }
+    let expected_wav = match read_expected_metadata(&plugin_data_dir, project_hash) {
+        Ok(metadata) => metadata,
+        Err(e) => {
+            log::warn!(
+                "[POST keep] expected WAV metadata missing; Record not armed (project_hash={}, err={})",
+                project_hash,
+                e
+            );
             if let Some(t) = toast.as_mut() {
-                **t = Some(Toast::new("Record requires Kirin OS license", now));
+                **t = Some(Toast::new("WAV metadata missing", now));
             }
             return;
         }
-        Err(TransitionError::AlreadyRecording) => {
-            log::info!("[POST keep] already recording — ignored");
-            return;
-        }
-    }
+    };
 
-    // 5b. G-115-365: per-pairing O_EXCL 枠を確保（cross-process atomic / FFI resolve_and_enter_keep
+    // 5. G-115-365: per-pairing O_EXCL 枠を確保（cross-process atomic / FFI resolve_and_enter_keep
     // と同一 parity）。pairing key = (target_id=PRE iid, instance_id=POST iid)。cap 真実源は枠の
     // 物理存在のみ（count_distinct_pairings = reservation::count_frames）。reserve→枠数>MAX で
     // 13 ペア目を hard reject（R-28 通知）。reserve Err（write_all 失敗等）= 枠取れず = reject。
@@ -1633,7 +1640,6 @@ pub(crate) fn trigger_keep_internal(
             Ok(reservation::ReserveOutcome::Created) => true,
             Ok(reservation::ReserveOutcome::AlreadyReserved) => false,
             Err(_) => {
-                exit_record_full(record_sm, pair_label, paired_pre_target);
                 if let Some(t) = toast.as_mut() {
                     **t = Some(Toast::new("Maximum 12 pairs reached", now));
                 }
@@ -1644,7 +1650,6 @@ pub(crate) fn trigger_keep_internal(
         if reservation_created {
             reservation::release_pairing(&plugin_data_dir, project_hash, &target_id, instance_id);
         }
-        exit_record_full(record_sm, pair_label, paired_pre_target);
         if let Some(t) = toast.as_mut() {
             **t = Some(Toast::new("Maximum 12 pairs reached", now));
         }
@@ -1652,12 +1657,13 @@ pub(crate) fn trigger_keep_internal(
     }
 
     // 6. record_signal を pending で書き込み（A-3 修正後: post_instance_id を path 識別子に）
-    match write_pending(
+    match write_pending_with_expected(
         &plugin_data_dir,
         project_hash,
         instance_id,
         target_id.clone(),
         daw_session_id.to_string(),
+        Some(expected_wav),
     ) {
         Ok(_) => {
             log::info!(
@@ -1686,9 +1692,9 @@ pub(crate) fn trigger_keep_internal(
                     instance_id,
                 );
             }
-            // try_enter_record 成功後の "部分 commit" 状態のため、Record→Watch
-            // と同じ 3 ステップ cleanup を必ず通過させる (構造的契約成立).
-            exit_record_full(record_sm, pair_label, paired_pre_target);
+            if let Ok(mut g) = paired_pre_target.lock() {
+                *g = None;
+            }
             if let Some(t) = toast.as_mut() {
                 **t = Some(Toast::new("Failed to start record", now));
             }

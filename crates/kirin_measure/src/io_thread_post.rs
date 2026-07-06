@@ -40,8 +40,8 @@ use crate::pre_discovery::DISCOVERY_STALE_SECS;
 use crate::record::RecordStateMachine;
 use crate::record_signal::{self, SignalStatus, ACK_TIMEOUT_SECONDS, SIGNALS_SUBDIR};
 use crate::record_writer::{
-    apply_record_take_snapshot, run_record_tick_with_pair_names, take_session_summary,
-    writer_close_with_summary, RecordingCtx,
+    apply_record_take_snapshot, parse_iso8601_to_epoch_ms, run_record_tick_with_pair_names,
+    take_session_summary, writer_close_with_summary, RecordingCtx,
 };
 use crate::storage::{PlatformPaths, StoragePaths};
 use crate::{load_signal_state, MeasureResult, RecordTakeTracker, RecordTraceQueue, SignalState};
@@ -166,10 +166,11 @@ const PRESET_POLL_INTERVAL: Duration = Duration::from_secs(1);
 /// record_signal.json ACK タイムアウト監視間隔（G-60-02: 1 秒）。
 const ACK_TIMEOUT_POLL_INTERVAL: Duration = Duration::from_secs(1);
 
-/// B-023 段階 4: pair_label 更新 polling 間隔。
-/// PRE 側 ack 後 `paired_pre_name` 取得 → POST GUI へ反映する間隔。
-/// 100ms tick で毎回 disk read は heavy なので 1 秒間隔（ack 検出遅延の体感差は無視可能）。
-const PAIR_LABEL_POLL_INTERVAL: Duration = Duration::from_secs(1);
+/// B-023 段階 4: ACK/start barrier polling 間隔。
+/// PRE 側 ack 後 `paired_pre_name` 取得と POST Record start barrier を同じ tick で扱う。
+/// 1 秒 throttle では `started_at` を過ぎた後に POST だけ遅れて Record へ入るため、IO tick と同じ
+/// 100ms cadence にする。
+const PAIR_LABEL_POLL_INTERVAL: Duration = LOOP_SLEEP;
 
 /// B-027 段階 3-B α-7-4-C / Step 10: all_keep_signal broadcast polling 間隔。
 /// 100ms tick で毎回 `scan_broadcasts_dir` (= read_dir + per-file read + parse) を回すと
@@ -1994,20 +1995,18 @@ fn poll_record_signal_ack(
     record_sm: &Arc<RecordStateMachine>,
     pair_label: &Arc<Mutex<String>>,
 ) {
-    if !record_sm.is_recording() {
-        return;
-    }
     let base = match StoragePaths::default_platform() {
         Ok(paths) => paths.plugin_data_dir(),
         Err(_) => return,
     };
-    poll_record_signal_ack_with_base(&base, project_hash, instance_id, pair_label);
+    poll_record_signal_ack_with_base(&base, project_hash, instance_id, record_sm, pair_label);
 }
 
 fn poll_record_signal_ack_with_base(
     base: &Path,
     project_hash: &str,
     instance_id: &str,
+    record_sm: &Arc<RecordStateMachine>,
     pair_label: &Arc<Mutex<String>>,
 ) {
     let Some(signal) = record_signal::read_signal(base, project_hash, instance_id) else {
@@ -2015,6 +2014,46 @@ fn poll_record_signal_ack_with_base(
     };
     if signal.status != SignalStatus::Acknowledged {
         return;
+    }
+    let Some(expected_wav) = signal.expected_wav.as_ref() else {
+        log::warn!(
+            "[IOThread POST] ACK ignored: expected WAV metadata missing (post_iid={})",
+            instance_id
+        );
+        return;
+    };
+    if !expected_wav.is_usable() {
+        log::warn!(
+            "[IOThread POST] ACK ignored: expected WAV metadata invalid (post_iid={})",
+            instance_id
+        );
+        return;
+    }
+    if !record_sm.is_recording() {
+        let Some(started_at_ms) = parse_iso8601_to_epoch_ms(&signal.started_at) else {
+            log::warn!(
+                "[IOThread POST] ACK ignored: started_at invalid (post_iid={}, started_at={:?})",
+                instance_id,
+                signal.started_at
+            );
+            return;
+        };
+        let now_ms = crate::record_writer::now_epoch_ms();
+        if now_ms < started_at_ms {
+            return;
+        }
+        match record_sm.try_enter_record_started_at(crate::License::Os, started_at_ms) {
+            Ok(()) => log::info!(
+                "[IOThread POST] ACK received; POST entered Record (session={}, post_iid={})",
+                signal.session_id,
+                instance_id
+            ),
+            Err(crate::record::TransitionError::AlreadyRecording) => {}
+            Err(e) => {
+                log::warn!("[IOThread POST] ACK Record enter rejected: {:?}", e);
+                return;
+            }
+        }
     }
     let new_label = format_pair_label(&signal.paired_pre_name, &signal.target_pre_instance_id);
     if let Ok(mut g) = pair_label.lock() {
@@ -2951,6 +2990,78 @@ mod compute_delta_tests {
         .unwrap();
         assert_eq!(r.0.mode, DeltaMode::NoPre);
         assert!(r.0.lufs.is_none());
+    }
+}
+
+#[cfg(test)]
+mod record_signal_ack_barrier_tests {
+    use super::*;
+    use crate::record::RecordState;
+    use crate::record_expected::ExpectedWavMetadata;
+    use crate::record_signal::{RecordSignal, SignalStatus};
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    const TEST_PH: &str = "ph";
+    const TEST_POST_IID: &str = "post-iid";
+
+    fn isolated_base(tag: &str) -> PathBuf {
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let pid = std::process::id();
+        let dir = std::env::temp_dir().join(format!("kirin_ack_barrier_{pid}_{n}_{tag}"));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn expected_wav() -> ExpectedWavMetadata {
+        ExpectedWavMetadata {
+            expected_duration_samples: 48_000,
+            expected_sample_rate: 48_000,
+            wav_path: "/tmp/kirin-post-ack-test.wav".to_string(),
+            bounce_id: "test-bounce".to_string(),
+            created_at_ms: chrono::Utc::now().timestamp_millis(),
+            wav_file_size: Some(1),
+            wav_mtime_ms: chrono::Utc::now().timestamp_millis(),
+            wav_hash: Some("test-wav-hash".to_string()),
+            consumed_at_ms: None,
+            consumed_by_session_id: None,
+        }
+    }
+
+    fn write_ack(base: &Path, started_at: &str) {
+        let signal = RecordSignal {
+            status: SignalStatus::Acknowledged,
+            requested_by: TEST_POST_IID.to_string(),
+            target_pre_instance_id: "pre-iid".to_string(),
+            daw_session_id: "daw-1".to_string(),
+            session_id: "session-post-ack".to_string(),
+            t: "2026-07-05T00:00:00Z".to_string(),
+            started_at: started_at.to_string(),
+            paired_pre_name: "PRE".to_string(),
+            release_reason: None,
+            expected_wav: Some(expected_wav()),
+        };
+        crate::record_signal::write_signal(base, TEST_PH, TEST_POST_IID, &signal).unwrap();
+    }
+
+    #[test]
+    fn acknowledged_signal_waits_until_started_at_barrier() {
+        let base = isolated_base("future");
+        write_ack(&base, "2099-01-01T00:00:00Z");
+        let sm = Arc::new(RecordStateMachine::new());
+        let pair_label = Arc::new(Mutex::new(String::new()));
+
+        poll_record_signal_ack_with_base(&base, TEST_PH, TEST_POST_IID, &sm, &pair_label);
+        assert_eq!(sm.current(), RecordState::Watch);
+
+        write_ack(&base, "2026-07-05T00:00:00Z");
+        poll_record_signal_ack_with_base(&base, TEST_PH, TEST_POST_IID, &sm, &pair_label);
+        assert_eq!(sm.current(), RecordState::Record);
+        assert_eq!(
+            sm.record_started_at_ms(),
+            parse_iso8601_to_epoch_ms("2026-07-05T00:00:00Z").unwrap()
+        );
     }
 }
 

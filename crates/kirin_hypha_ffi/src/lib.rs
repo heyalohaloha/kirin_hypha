@@ -53,11 +53,12 @@ use kirin_measure::{
     enumerate_active_pre_pair_candidates_for_post_project, identity_instance_attach,
     identity_instance_detach, live_window, load_license_safe, load_signal_state, mark_released,
     mark_released_with_reason, new_record_take_tracker, new_record_trace_queue,
-    resolve_arm_target_for_post_project, sanitize_name, set_daw_session_id, set_project_uuid,
-    spawn_io_thread_post, spawn_io_thread_pre, spawn_measure_thread, spawn_watchdog,
-    store_signal_state, write_broadcast, write_pending, write_stop_broadcast, DeltaMode,
-    DeltaResult, ExclusionResult, IoThreadHandle, LatchedPre, License, LivenessEvaluator,
-    MeasureResult, PlatformPaths, PluginDataRole, PsbSummary, RecordStateMachine, RecordTakeBlock,
+    read_expected_metadata, resolve_arm_target_for_post_project, sanitize_name, set_daw_session_id,
+    set_project_uuid, spawn_io_thread_post, spawn_io_thread_pre, spawn_measure_thread,
+    spawn_watchdog, store_signal_state, write_broadcast, write_expected_metadata,
+    write_pending_with_expected, write_stop_broadcast, DeltaMode, DeltaResult, ExclusionResult,
+    ExpectedWavMetadata, IoThreadHandle, LatchedPre, License, LivenessEvaluator, MeasureResult,
+    PlatformPaths, PluginDataRole, PsbSummary, RecordStateMachine, RecordTakeBlock,
     RecordTakeTracker, RecordTraceQueue, ReleaseReason, RestartIoFn, SignalState, StoragePaths,
     WatchdogIo, WatchdogParams, MAX_ACTIVE_PER_PROJECT, N_CHANNELS, RING_BUFFER_SECONDS,
 };
@@ -72,6 +73,17 @@ struct IdentityState {
     name: String,
     /// enable 時に確定する派生 project_hash（= project_uuid）。add_annotation の path に使う。
     project_hash: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct ExpectedWavMetadataInput {
+    pub bounce_id: String,
+    pub expected_duration_samples: u64,
+    pub expected_sample_rate: u32,
+    pub wav_path: String,
+    pub wav_file_size: u64,
+    pub wav_mtime_ms: i64,
+    pub wav_hash: String,
 }
 
 fn supported_channel_count(num_channels: u32) -> usize {
@@ -343,9 +355,9 @@ pub fn __reset_shared_ids_for_tests() {
 }
 
 /// B-102: keep の解決本体（`keep()` と broadcast 受信 closure が共有する単一実装）。
-/// 順序は従来 `keep()` と不変: double-keep guard → select_target_pre → linkage set →
-/// try_enter_record（license 二重 gate）→ write_pending。失敗時は遷移/linkage を巻き戻す。
-/// `None` 選定は `try_enter_record` 前に抜けるため、broadcast 起因の Record は有効ペア時のみ。
+/// POST単独 Record を作らないため、ここでは RecordStateMachine を Record にしない。
+/// double-keep guard → select_target_pre → expected WAV metadata → reservation →
+/// write_pending の順で arming し、PRE ACK 後に POST IO Thread が Record へ入る。
 #[allow(clippy::too_many_arguments)]
 fn resolve_and_enter_keep(
     license: License,
@@ -366,6 +378,9 @@ fn resolve_and_enter_keep(
     if record_sm.is_recording() {
         return false;
     }
+    if !matches!(license, License::Os) {
+        return false;
+    }
     let kirin_root = PlatformPaths::current_kirin_tmp_root();
     let pair = pair_target.read().map(|g| g.clone()).unwrap_or_default();
     // B-108/B-231: ラッチ済み（pair 名一致）はラッチ先を直接使用、未ラッチは B-104 Arm
@@ -375,24 +390,16 @@ fn resolve_and_enter_keep(
         return false; // 未ラッチ時の厳格選定 None: 空名/不在/曖昧/Bypassed/古t（Inactive は許容）。
     };
     let target = sel.instance_id.clone();
-    // linkage（B-062）: record_sm を Record に flip する前に set。
-    if let Ok(mut g) = paired_pre_target.lock() {
-        *g = Some(target.clone());
-    }
-    // license 二重 gate（record.rs try_enter_record / E-21）。非 Os は投機的 linkage 巻き戻し。
-    if record_sm
-        .try_enter_record_started_at(license, kirin_measure::record_writer::now_epoch_ms())
-        .is_err()
-    {
-        if let Ok(mut g) = paired_pre_target.lock() {
-            *g = None;
-        }
-        return false;
-    }
     let base = match StoragePaths::default_platform() {
         Ok(p) => p.plugin_data_dir(),
+        Err(_) => return false,
+    };
+    let expected_wav = match read_expected_metadata(&base, project_hash) {
+        Ok(metadata) => metadata,
         Err(_) => {
-            revert_after_enter(record_sm, paired_pre_target);
+            if let Ok(mut g) = record_error_message.write() {
+                *g = Some("WAV metadata missing".to_string());
+            }
             return false;
         }
     };
@@ -413,7 +420,6 @@ fn resolve_and_enter_keep(
                 if let Ok(mut g) = record_error_message.write() {
                     *g = Some("Maximum 12 pairs reached".to_string());
                 }
-                revert_after_enter(record_sm, paired_pre_target);
                 return false;
             }
         };
@@ -428,22 +434,25 @@ fn resolve_and_enter_keep(
         if let Ok(mut g) = record_error_message.write() {
             *g = Some("Maximum 12 pairs reached".to_string());
         }
-        revert_after_enter(record_sm, paired_pre_target);
         return false;
     }
     // target_pre_instance_id = 選定 PRE。PRE が自宛て signal を発見し ack する。
-    if write_pending(
+    if write_pending_with_expected(
         &base,
         project_hash,
         post_iid,
         target.clone(),
         daw.to_string(),
+        Some(expected_wav),
     )
     .is_ok()
     {
         // B-127: 正常 enter で stale な cap/io-fail 通知を消す（新しい健全な Record が開始した）。
         if let Ok(mut g) = record_error_message.write() {
             *g = None;
+        }
+        if let Ok(mut g) = paired_pre_target.lock() {
+            *g = Some(target.clone());
         }
         // B-140: 無音/停止中に Keep した場合、Record 開始時点では Watch 表示側のラッチが未成立な
         // ことがある。Record 中の Δ 表示は「ラッチ凍結」なので再探索しないため、keep が実際に
@@ -463,17 +472,10 @@ fn resolve_and_enter_keep(
         if reservation_created {
             reservation::release_pairing(&base, project_hash, &target, post_iid);
         }
-        revert_after_enter(record_sm, paired_pre_target);
+        if let Ok(mut g) = paired_pre_target.lock() {
+            *g = None;
+        }
         false
-    }
-}
-
-/// `resolve_and_enter_keep` が try_enter_record 成功**後**に失敗した時の巻き戻し（B-066 / F2）。
-/// 本 keep が行った Watch→Record 遷移と linkage 代入を戻す（副作用なし exit_record）。
-fn revert_after_enter(record_sm: &RecordStateMachine, paired_pre_target: &Mutex<Option<String>>) {
-    record_sm.exit_record();
-    if let Ok(mut g) = paired_pre_target.lock() {
-        *g = None;
     }
 }
 
@@ -1161,6 +1163,46 @@ impl KirinHyphaEngine {
     #[doc(hidden)]
     pub fn paired_pre_target_snapshot(&self) -> Option<String> {
         self.paired_pre_target.lock().ok().and_then(|g| g.clone())
+    }
+
+    /// Kirin OS/JUCE runtime が dropped WAV の正本 metadata を Record arm 前に渡す入口。
+    ///
+    /// `keep()` はこの metadata を `record_expected/current.json` から読み、PRE/POST 共通の
+    /// `record_signal.expected_wav` へコピーする。未設定・不完全・stale・consumed の場合は Record
+    /// に入らない。
+    pub fn set_expected_wav_metadata(&self, input: ExpectedWavMetadataInput) -> bool {
+        let project_hash = match self.identity.lock() {
+            Ok(id) => id.project_hash.clone(),
+            Err(_) => return false,
+        };
+        if project_hash.is_empty() {
+            return false;
+        }
+        let base = match StoragePaths::default_platform() {
+            Ok(p) => p.plugin_data_dir(),
+            Err(_) => return false,
+        };
+        let metadata = ExpectedWavMetadata {
+            expected_duration_samples: input.expected_duration_samples,
+            expected_sample_rate: input.expected_sample_rate,
+            wav_path: input.wav_path,
+            bounce_id: input.bounce_id,
+            created_at_ms: kirin_measure::record_writer::now_epoch_ms(),
+            wav_file_size: Some(input.wav_file_size),
+            wav_mtime_ms: input.wav_mtime_ms,
+            wav_hash: Some(input.wav_hash),
+            consumed_at_ms: None,
+            consumed_by_session_id: None,
+        };
+        match write_expected_metadata(&base, &project_hash, &metadata) {
+            Ok(()) => true,
+            Err(e) => {
+                if let Ok(mut g) = self.record_error_message.write() {
+                    *g = Some(format!("WAV metadata invalid: {e}"));
+                }
+                false
+            }
+        }
     }
 
     /// POST「Keep」: 厳格選定（select_target_pre）で対 PRE を一意決定し record_signal(pending)
@@ -2008,6 +2050,43 @@ pub unsafe extern "C" fn kirin_hypha_keep(handle: *mut KirinHyphaEngine) -> bool
             return false;
         }
         unsafe { (*handle).keep() }
+    }))
+    .unwrap_or(false)
+}
+
+/// Dropped WAV の expected metadata を Record arm 前に登録する。
+///
+/// # Safety
+/// `handle` は有効なハンドル。文字列ポインタは null または有効な null 終端 C 文字列。
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_set_expected_wav_metadata(
+    handle: *mut KirinHyphaEngine,
+    bounce_id: *const c_char,
+    expected_duration_samples: u64,
+    expected_sample_rate: u32,
+    wav_path: *const c_char,
+    wav_file_size: u64,
+    wav_mtime_ms: i64,
+    wav_hash: *const c_char,
+) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() {
+            return false;
+        }
+        let bounce_id = unsafe { read_c_str(bounce_id) };
+        let wav_path = unsafe { read_c_str(wav_path) };
+        let wav_hash = unsafe { read_c_str(wav_hash) };
+        unsafe {
+            (*handle).set_expected_wav_metadata(ExpectedWavMetadataInput {
+                bounce_id,
+                expected_duration_samples,
+                expected_sample_rate,
+                wav_path,
+                wav_file_size,
+                wav_mtime_ms,
+                wav_hash,
+            })
+        }
     }))
     .unwrap_or(false)
 }

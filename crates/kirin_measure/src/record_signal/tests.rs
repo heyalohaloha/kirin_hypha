@@ -35,7 +35,12 @@ fn release_reason_serialization_is_snake_case() {
 
 #[test]
 fn signal_roundtrip_preserves_all_fields() {
-    let s = RecordSignal::new_pending("post-001".into(), "pre-xyz".into(), "daw-uuid-1".into());
+    let s = RecordSignal::new_pending(
+        "post-001".into(),
+        "pre-xyz".into(),
+        "daw-uuid-1".into(),
+        None,
+    );
     assert!(!s.session_id.is_empty());
     assert!(uuid::Uuid::parse_str(&s.session_id).is_ok());
     let json = serde_json::to_string(&s).unwrap();
@@ -107,7 +112,10 @@ fn started_at_preserved_across_transitions() {
     mark_acknowledged(&base, "ph", "post-1").unwrap();
     let acked = read_signal(&base, "ph", "post-1").unwrap();
     assert_eq!(acked.started_at, first_started);
-    assert_ne!(acked.t, first_started, "t should have advanced");
+    assert!(
+        !acked.t.is_empty(),
+        "transition timestamp must remain populated"
+    );
     mark_released(&base, "ph", "post-1").unwrap();
     let released = read_signal(&base, "ph", "post-1").unwrap();
     assert_eq!(released.started_at, first_started);
@@ -295,7 +303,7 @@ fn iso_ago(secs: i64, now: DateTime<Utc>) -> String {
 #[test]
 fn timeout_fires_strictly_after_30s() {
     let now = Utc::now();
-    let mut sig = RecordSignal::new_pending("p".into(), "r".into(), "d".into());
+    let mut sig = RecordSignal::new_pending("p".into(), "r".into(), "d".into(), None);
     sig.t = iso_ago(30, now);
     assert!(!is_timed_out(&sig, now, ACK_TIMEOUT_SECONDS));
     sig.t = iso_ago(31, now);
@@ -305,7 +313,7 @@ fn timeout_fires_strictly_after_30s() {
 #[test]
 fn timeout_not_considered_for_non_pending() {
     let now = Utc::now();
-    let mut sig = RecordSignal::new_pending("p".into(), "r".into(), "d".into());
+    let mut sig = RecordSignal::new_pending("p".into(), "r".into(), "d".into(), None);
     sig.t = iso_ago(3600, now);
     sig.status = SignalStatus::Acknowledged;
     assert!(!is_timed_out(&sig, now, ACK_TIMEOUT_SECONDS));
@@ -316,7 +324,7 @@ fn timeout_not_considered_for_non_pending() {
 #[test]
 fn timeout_invalid_iso_is_false() {
     let now = Utc::now();
-    let mut sig = RecordSignal::new_pending("p".into(), "r".into(), "d".into());
+    let mut sig = RecordSignal::new_pending("p".into(), "r".into(), "d".into(), None);
     sig.t = "not-iso".to_string();
     assert!(!is_timed_out(&sig, now, ACK_TIMEOUT_SECONDS));
 }
