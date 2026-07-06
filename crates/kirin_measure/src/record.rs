@@ -112,6 +112,12 @@ pub struct RecordStateMachine {
     /// Watch→Record を遅れて観測した場合、この時刻以降の pre-roll TRACE だけを Record
     /// に復元し、Keep 前の古い Watch 計測を混ぜない。
     record_started_at_ms: AtomicI64,
+    /// Host native sample position 上の Record 開始 barrier。
+    ///
+    /// POST が Keep 時に `record_signal` へ保存し、PRE/POST 両方が同じ値を Record
+    /// state に入れる。Measure Thread は取得できる場合、この値を pre-roll/timeline
+    /// origin として wall-clock より優先する。
+    record_started_at_position_samples: AtomicI64,
     /// Measure Thread が Watch→Record 遷移を観測し、Record TRACE を受けられる状態に
     /// なった最新 generation。PRE はこの値を待ってから `record_signal` を Acknowledged にする。
     measure_ready_generation: AtomicU64,
@@ -126,6 +132,7 @@ impl RecordStateMachine {
             seal: AtomicU64::new(0),
             generation: AtomicU64::new(0),
             record_started_at_ms: AtomicI64::new(0),
+            record_started_at_position_samples: AtomicI64::new(i64::MIN),
             measure_ready_generation: AtomicU64::new(0),
         }
     }
@@ -149,6 +156,14 @@ impl RecordStateMachine {
     /// 現 Record セッションの要求開始時刻（epoch ms）。0 は未設定。
     pub fn record_started_at_ms(&self) -> i64 {
         self.record_started_at_ms.load(Ordering::Acquire)
+    }
+
+    /// 現 Record セッションの host native sample 開始位置。None は未設定/不明。
+    pub fn record_started_at_position_samples(&self) -> Option<i64> {
+        let value = self
+            .record_started_at_position_samples
+            .load(Ordering::Acquire);
+        (value != i64::MIN).then_some(value)
     }
 
     /// Measure Thread が Record generation を観測済みかどうかを見る。
@@ -193,6 +208,16 @@ impl RecordStateMachine {
         license: License,
         started_at_ms: i64,
     ) -> Result<(), TransitionError> {
+        self.try_enter_record_started_at_clock(license, started_at_ms, None)
+    }
+
+    /// Record へ遷移し、wall-clock barrier と native sample barrier を保存する。
+    pub fn try_enter_record_started_at_clock(
+        &self,
+        license: License,
+        started_at_ms: i64,
+        started_at_position_samples: Option<i64>,
+    ) -> Result<(), TransitionError> {
         if !matches!(license, License::Os) {
             return Err(TransitionError::LicenseDenied);
         }
@@ -209,6 +234,10 @@ impl RecordStateMachine {
             Ok(_) => {
                 self.record_started_at_ms
                     .store(started_at_ms.max(0), Ordering::Release);
+                self.record_started_at_position_samples.store(
+                    started_at_position_samples.unwrap_or(i64::MIN),
+                    Ordering::Release,
+                );
                 self.generation.fetch_add(1, Ordering::AcqRel);
                 match self.state.compare_exchange(
                     entering,
@@ -233,6 +262,8 @@ impl RecordStateMachine {
     /// - license 降格時の保険
     pub fn exit_record(&self) {
         self.record_started_at_ms.store(0, Ordering::Release);
+        self.record_started_at_position_samples
+            .store(i64::MIN, Ordering::Release);
         self.measure_ready_generation.store(0, Ordering::Release);
         self.state.store(STATE_WATCH, Ordering::Release);
     }
@@ -279,16 +310,19 @@ mod tests {
     fn record_started_at_is_stored_and_cleared() {
         let sm = RecordStateMachine::new();
         assert_eq!(sm.record_started_at_ms(), 0);
+        assert_eq!(sm.record_started_at_position_samples(), None);
         assert_eq!(sm.measure_ready_generation(), 0);
         assert_eq!(
-            sm.try_enter_record_started_at(License::Os, 1_725_000_123_456),
+            sm.try_enter_record_started_at_clock(License::Os, 1_725_000_123_456, Some(96_000)),
             Ok(())
         );
         assert_eq!(sm.record_started_at_ms(), 1_725_000_123_456);
+        assert_eq!(sm.record_started_at_position_samples(), Some(96_000));
         sm.mark_measure_ready(sm.generation());
         assert_eq!(sm.measure_ready_generation(), sm.generation());
         sm.exit_record();
         assert_eq!(sm.record_started_at_ms(), 0);
+        assert_eq!(sm.record_started_at_position_samples(), None);
         assert_eq!(sm.measure_ready_generation(), 0);
     }
 

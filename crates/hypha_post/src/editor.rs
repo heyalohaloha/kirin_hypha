@@ -39,10 +39,11 @@ use kirin_measure::{
     format_pair_label, load_signal_state, lookup_section_label, mark_released_with_reason,
     pair_lock_active, read_expected_metadata, resolve_arm_target_for_post_project, sanitize_name,
     scan_latest_v2_preset, show_note_button, show_save_button, show_stop_record_button,
-    write_broadcast, write_pending_with_expected, write_stop_broadcast, DeltaMode, DeltaResult,
-    DeltaSnapshot, LatchedPre, License, LivenessEvaluator, MeasureResult, PlatformPaths,
-    PluginDataRole, PostCandidate, PreCandidate, PresetFileV2, RecordStateMachine, ReleaseReason,
-    SignalState, StoragePaths, MAX_ACTIVE_PER_PROJECT, SENSE_RECORD_HINT, SENSE_UPSELL_URL,
+    write_broadcast, write_pending_with_expected_and_clock, write_stop_broadcast, DeltaMode,
+    DeltaResult, DeltaSnapshot, LatchedPre, License, LivenessEvaluator, MeasureResult,
+    PlatformPaths, PluginDataRole, PostCandidate, PreCandidate, PresetFileV2, RecordStateMachine,
+    ReleaseReason, SignalState, StoragePaths, MAX_ACTIVE_PER_PROJECT,
+    RECORD_START_BARRIER_DELAY_MS, SENSE_RECORD_HINT, SENSE_UPSELL_URL,
 };
 use nih_plug::prelude::Editor;
 use nih_plug_egui::{
@@ -88,6 +89,19 @@ fn epoch_secs_now() -> f64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs_f64())
         .unwrap_or(0.0)
+}
+
+pub(crate) fn native_start_position_samples(
+    playback_pos_samples: &AtomicI64,
+    playback_sample_rate: &AtomicU32,
+) -> Option<i64> {
+    let pos = playback_pos_samples.load(Ordering::Relaxed);
+    let sample_rate = playback_sample_rate.load(Ordering::Relaxed);
+    if pos == i64::MIN || sample_rate == 0 {
+        return None;
+    }
+    let delay_samples = (sample_rate as i64).saturating_mul(RECORD_START_BARRIER_DELAY_MS) / 1_000;
+    Some(pos.saturating_add(delay_samples))
 }
 /// T-E: cap rendered cards to keep the 300×200 GUI bounded.  Beyond this,
 /// the user sees "+ N more" (or just truncates — see draw_proposals_block).
@@ -1162,6 +1176,10 @@ fn draw_pair_pre_combo(
                             now,
                             &pair_pre_name_snapshot,
                             &state.latched_pre, // B-108: ラッチ先を直接 target に使う
+                            native_start_position_samples(
+                                &state.playback_pos_samples,
+                                &state.playback_sample_rate,
+                            ),
                         );
 
                         // §4-5 Step 4 診断: click handler 後続処理 (trigger_keep →
@@ -1460,6 +1478,10 @@ fn draw_button_row(
                         now,
                         &pair_pre_name_snapshot,
                         &state.latched_pre, // B-108: ラッチ先を直接 target に使う
+                        native_start_position_samples(
+                            &state.playback_pos_samples,
+                            &state.playback_sample_rate,
+                        ),
                     );
                 }
             } else if license == License::Sense {
@@ -1521,6 +1543,7 @@ fn trigger_keep(
     pair_pre_name: &str,
     // B-108: ラッチ済みならラッチ先を直接 Arm target に使う（resolve_arm_target 内で分岐）。
     latched: &Mutex<Option<LatchedPre>>,
+    started_at_position_samples: Option<i64>,
 ) {
     trigger_keep_internal(
         license,
@@ -1535,6 +1558,7 @@ fn trigger_keep(
         now,
         pair_pre_name,
         latched,
+        started_at_position_samples,
     );
 }
 
@@ -1563,6 +1587,7 @@ pub(crate) fn trigger_keep_internal(
     // B-108: ラッチ済みならラッチ先を直接 Arm target に使う（同名2台目でも結合不変）。未ラッチ時のみ
     // select_target_pre_for_arm にフォールバック（resolve_arm_target 内で分岐）。
     latched: &Mutex<Option<LatchedPre>>,
+    started_at_position_samples: Option<i64>,
 ) {
     // 1. ストレージパス解決
     let paths = match StoragePaths::default_platform() {
@@ -1657,13 +1682,14 @@ pub(crate) fn trigger_keep_internal(
     }
 
     // 6. record_signal を pending で書き込み（A-3 修正後: post_instance_id を path 識別子に）
-    match write_pending_with_expected(
+    match write_pending_with_expected_and_clock(
         &plugin_data_dir,
         project_hash,
         instance_id,
         target_id.clone(),
         daw_session_id.to_string(),
         Some(expected_wav),
+        started_at_position_samples,
     ) {
         Ok(_) => {
             log::info!(

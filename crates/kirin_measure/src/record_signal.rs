@@ -17,11 +17,13 @@
 //!   "daw_session_id": "DAW プロセス UUID（cross-process 防壁 / Q1 補強）",
 //!   "session_id": "PRE/POST が同じ Record session を共有するための UUID",
 //!   "t": "ISO 8601（最終遷移時刻。status 更新で書き換わる）",
-//!   "started_at": "ISO 8601（pending 配置時に固定、以後不変）"
+//!   "started_at": "ISO 8601（pending 配置時に固定、以後不変）",
+//!   "started_at_position_samples": "host native sample position（取得できる場合のみ）"
 //! }
 //! ```
 //!
-//! `t` は status の更新時刻、`started_at` は Record 開始時刻。
+//! `t` は status の更新時刻、`started_at` は Record 開始の wall-clock barrier。
+//! `started_at_position_samples` は取得できる場合の shared native clock barrier。
 //! `daw_session_id` は POST 側 [`crate::daw_session_id`] の値を保存する。PRE/POST は
 //! AU/VST3 や別 cdylib 境界で `static` 状態が一致しないため、PRE 側 ack は
 //! `daw_session_id` では filter せず、永続 `target_pre_instance_id` 一致を正本にする。
@@ -130,6 +132,12 @@ pub struct RecordSignal {
     /// 旧バージョン互換のため `#[serde(default)]`（不在で空文字）。
     #[serde(default)]
     pub started_at: String,
+    /// Host native sample position 上の Record 開始 barrier。
+    ///
+    /// PRE/POST が同じ DAW transport clock を見られる場合は、この値を timeline の
+    /// origin として優先する。旧 schema / transport position 不明時は None。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub started_at_position_samples: Option<i64>,
     /// PRE 側 ack 時に書き込む PRE 表示用 Name (B-023 段階 3 / G-115-40 案 A-3)。
     /// 旧 schema からの読込 / POST write_pending 時は空文字で defaulted。
     /// 空 = POST GUI 側で UUID 短縮 8 文字 fallback 表示。
@@ -154,6 +162,7 @@ impl RecordSignal {
         target_pre_instance_id: String,
         daw_session_id: String,
         expected_wav: Option<ExpectedWavMetadata>,
+        started_at_position_samples: Option<i64>,
     ) -> Self {
         let now = Utc::now();
         let t = iso8601(now);
@@ -166,6 +175,7 @@ impl RecordSignal {
             session_id: Uuid::new_v4().to_string(),
             t,
             started_at,
+            started_at_position_samples,
             paired_pre_name: String::new(),
             release_reason: None,
             expected_wav,
@@ -260,11 +270,34 @@ pub fn write_pending_with_expected(
     daw_session_id: String,
     expected_wav: Option<ExpectedWavMetadata>,
 ) -> Result<RecordSignal, SignalError> {
+    write_pending_with_expected_and_clock(
+        base_dir,
+        project_hash,
+        post_instance_id,
+        target_pre_instance_id,
+        daw_session_id,
+        expected_wav,
+        None,
+    )
+}
+
+/// pending シグナルを expected WAV metadata + native start clock とともに atomic 書込。
+#[allow(clippy::too_many_arguments)]
+pub fn write_pending_with_expected_and_clock(
+    base_dir: &Path,
+    project_hash: &str,
+    post_instance_id: &str,
+    target_pre_instance_id: String,
+    daw_session_id: String,
+    expected_wav: Option<ExpectedWavMetadata>,
+    started_at_position_samples: Option<i64>,
+) -> Result<RecordSignal, SignalError> {
     let signal = RecordSignal::new_pending(
         post_instance_id.to_string(),
         target_pre_instance_id,
         daw_session_id,
         expected_wav,
+        started_at_position_samples,
     );
     write_signal(base_dir, project_hash, post_instance_id, &signal)?;
     Ok(signal)

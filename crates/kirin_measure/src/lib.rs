@@ -125,8 +125,9 @@ pub use record_expected::{
 pub use record_signal::{
     delete_signal, is_timed_out, mark_acknowledged, mark_released, mark_released_with_reason,
     read_signal, scan_signals_dir, signal_path, signals_dir, write_pending,
-    write_pending_with_expected, write_signal, RecordSignal, ReleaseReason, SignalError,
-    SignalStatus, ACK_TIMEOUT_SECONDS, SIGNALS_SUBDIR, SIGNAL_FILENAME,
+    write_pending_with_expected, write_pending_with_expected_and_clock, write_signal, RecordSignal,
+    ReleaseReason, SignalError, SignalStatus, ACK_TIMEOUT_SECONDS, RECORD_START_BARRIER_DELAY_MS,
+    SIGNALS_SUBDIR, SIGNAL_FILENAME,
 };
 pub use record_take::{
     new_record_take_tracker, RecordTakeBlock, RecordTakeSnapshot, RecordTakeTracker,
