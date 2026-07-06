@@ -51,6 +51,50 @@ const LOOP_SLEEP: Duration = Duration::from_millis(100);
 /// B-206/B-225/B-243: Record idle auto-stop の既定しきい値（秒）。
 /// Record 中に 10 分以上 Active が無ければ、利用者の Stop 漏れ相当として graceful 停止する。
 const RECORD_IDLE_TIMEOUT_DEFAULT_SECS: u64 = 600; // 10 min
+const SELF_CHECK_RELEASE_CONFIRMATIONS: u8 = 3;
+
+#[derive(Debug, Default)]
+struct SelfCheckReleaseGate {
+    candidate: Option<SelfCheckReleaseCandidate>,
+}
+
+#[derive(Debug)]
+struct SelfCheckReleaseCandidate {
+    pair_pre_name: String,
+    pair_claimed_at: f64,
+    confirmations: u8,
+}
+
+impl SelfCheckReleaseGate {
+    fn reset(&mut self) {
+        self.candidate = None;
+    }
+
+    fn observe_conflict(&mut self, pair_pre_name: &str, pair_claimed_at: f64) -> bool {
+        if pair_pre_name.is_empty() {
+            self.reset();
+            return false;
+        }
+
+        match self.candidate.as_mut() {
+            Some(candidate)
+                if candidate.pair_pre_name == pair_pre_name
+                    && candidate.pair_claimed_at == pair_claimed_at =>
+            {
+                candidate.confirmations = candidate.confirmations.saturating_add(1);
+                candidate.confirmations >= SELF_CHECK_RELEASE_CONFIRMATIONS
+            }
+            _ => {
+                self.candidate = Some(SelfCheckReleaseCandidate {
+                    pair_pre_name: pair_pre_name.to_string(),
+                    pair_claimed_at,
+                    confirmations: 1,
+                });
+                false
+            }
+        }
+    }
+}
 
 /// B-206: idle timeout を解決する（env override 対応 / pure・テスト用に分離）。
 /// `KIRIN_RECORD_IDLE_TIMEOUT_SECS` が有効な整数（>= 5）なら採用、それ以外は既定 600s。
@@ -316,6 +360,7 @@ pub fn spawn_io_thread_post(
         // W-281 / C-3: self check 周期 (1 sec interval / Daisuke 確定 判断 3)。
         // 毎 tick 100ms はコスト過大のため tick state 局所変数で last 時刻を保持。
         let mut last_self_check_at: Instant = Instant::now() - Duration::from_secs(2);
+        let mut self_check_release_gate = SelfCheckReleaseGate::default();
 
         let mut recording: Option<RecordingCtx> = None;
         let mut last_preset_count: Option<usize> = None;
@@ -402,17 +447,21 @@ pub fn spawn_io_thread_post(
             let self_check_allowed = !record_sm.is_recording()
                 && !transport_playing
                 && load_signal_state(&signal_state) != SignalState::Active;
-            if !pair_pre_name_snapshot.is_empty()
-                && self_check_allowed
-                && tick_now.duration_since(last_self_check_at) >= Duration::from_secs(1)
-            {
+            if pair_pre_name_snapshot.is_empty() || !self_check_allowed {
+                self_check_release_gate.reset();
+            } else if tick_now.duration_since(last_self_check_at) >= Duration::from_secs(1) {
                 last_self_check_at = tick_now;
-                if self_check_pair_claim(
+                let conflict = self_check_pair_claim(
                     &project_dir_hint,
                     instance_id_ref,
                     &pair_pre_name_snapshot,
                     pair_claimed_at_snapshot,
-                ) {
+                );
+                if !conflict {
+                    self_check_release_gate.reset();
+                } else if self_check_release_gate
+                    .observe_conflict(&pair_pre_name_snapshot, pair_claimed_at_snapshot)
+                {
                     // C-4: 自身の claim を解放。
                     log::info!(
                         "[POST self_check] release pair: instance_id={} pair_pre_name={} (newer claim detected)",
@@ -438,6 +487,7 @@ pub fn spawn_io_thread_post(
                     if let Ok(mut d) = delta_result.lock() {
                         *d = DeltaResult::default();
                     }
+                    self_check_release_gate.reset();
                 }
             }
 
@@ -2107,6 +2157,58 @@ mod b206_idle_autostop_tests {
         assert!(
             !idle_autostop_due(false, false, Duration::from_secs(99_999), Some(t)),
             "非録音は対象外"
+        );
+    }
+}
+
+#[cfg(test)]
+mod self_check_release_gate_tests {
+    use super::{SelfCheckReleaseGate, SELF_CHECK_RELEASE_CONFIRMATIONS};
+
+    #[test]
+    fn conflict_must_repeat_before_release_is_confirmed() {
+        let mut gate = SelfCheckReleaseGate::default();
+
+        for i in 1..SELF_CHECK_RELEASE_CONFIRMATIONS {
+            assert!(
+                !gate.observe_conflict("PRE-A", 100.0),
+                "confirmation {i} must not release yet"
+            );
+        }
+
+        assert!(
+            gate.observe_conflict("PRE-A", 100.0),
+            "third consecutive same conflict confirms release"
+        );
+    }
+
+    #[test]
+    fn reset_discards_partial_confirmations() {
+        let mut gate = SelfCheckReleaseGate::default();
+
+        assert!(!gate.observe_conflict("PRE-A", 100.0));
+        assert!(!gate.observe_conflict("PRE-A", 100.0));
+        gate.reset();
+
+        assert!(
+            !gate.observe_conflict("PRE-A", 100.0),
+            "playback/Record/Active gate reset must force a fresh confirmation run"
+        );
+    }
+
+    #[test]
+    fn changed_candidate_restarts_confirmation_count() {
+        let mut gate = SelfCheckReleaseGate::default();
+
+        assert!(!gate.observe_conflict("PRE-A", 100.0));
+        assert!(!gate.observe_conflict("PRE-A", 100.0));
+        assert!(
+            !gate.observe_conflict("PRE-B", 100.0),
+            "different pair name starts a new candidate"
+        );
+        assert!(
+            !gate.observe_conflict("PRE-B", 100.0),
+            "new candidate still needs repeated confirmations"
         );
     }
 }

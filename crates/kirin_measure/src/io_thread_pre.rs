@@ -75,6 +75,59 @@ const MEASURE_READY_POLL: Duration = Duration::from_millis(5);
 struct PartnerInfo {
     post_instance_id: String,
     last_seen_status: SignalStatus,
+    signal_started_at_ms: i64,
+    session_id: String,
+}
+
+fn signal_started_at_ms(signal: &record_signal::RecordSignal) -> i64 {
+    parse_iso8601_to_epoch_ms(&signal.started_at).unwrap_or(0)
+}
+
+fn signal_matches_current_partner(
+    signal: &record_signal::RecordSignal,
+    partner: &PartnerInfo,
+    self_instance_id: &str,
+) -> bool {
+    if signal.target_pre_instance_id != self_instance_id {
+        return false;
+    }
+
+    if !signal.session_id.is_empty() && !partner.session_id.is_empty() {
+        return signal.session_id == partner.session_id;
+    }
+
+    let started_at_ms = signal_started_at_ms(signal);
+    partner.signal_started_at_ms > 0 && started_at_ms == partner.signal_started_at_ms
+}
+
+fn pending_supersedes_current_partner(
+    signal: &record_signal::RecordSignal,
+    partner: &PartnerInfo,
+    self_instance_id: &str,
+) -> bool {
+    if signal.target_pre_instance_id != self_instance_id {
+        return false;
+    }
+
+    if !signal.session_id.is_empty() && !partner.session_id.is_empty() {
+        return signal.session_id != partner.session_id;
+    }
+
+    let started_at_ms = signal_started_at_ms(signal);
+    partner.signal_started_at_ms > 0
+        && started_at_ms > 0
+        && started_at_ms != partner.signal_started_at_ms
+}
+
+fn released_matches_pending_pre_record(
+    signal: &record_signal::RecordSignal,
+    self_instance_id: &str,
+    record_started_at_ms: i64,
+) -> bool {
+    signal.status == SignalStatus::Released
+        && signal.target_pre_instance_id == self_instance_id
+        && record_started_at_ms > 0
+        && signal_started_at_ms(signal) == record_started_at_ms
 }
 
 fn should_force_pre_watch_without_partner(
@@ -588,19 +641,33 @@ fn poll_record_signal(
         match current {
             Some((_, sig)) => {
                 let new_status = sig.status;
-                if new_status == p.last_seen_status {
+                if new_status == p.last_seen_status && new_status != SignalStatus::Released {
                     return; // 変化なし
                 }
                 match new_status {
                     SignalStatus::Released => {
-                        record_sm.exit_record();
-                        recording.store(false, Ordering::Relaxed);
-                        record_acknowledged.store(false, Ordering::Relaxed);
-                        log::info!(
-                            "[signal] released, PRE exiting Record (partner={})",
-                            p.post_instance_id
-                        );
-                        *partner = None;
+                        if signal_matches_current_partner(sig, p, instance_id) {
+                            record_sm.exit_record();
+                            recording.store(false, Ordering::Relaxed);
+                            record_acknowledged.store(false, Ordering::Relaxed);
+                            log::info!(
+                                "[signal] released, PRE exiting Record (partner={}, session={})",
+                                p.post_instance_id,
+                                p.session_id
+                            );
+                            *partner = None;
+                        } else {
+                            if p.last_seen_status != SignalStatus::Released {
+                                log::warn!(
+                                    "[signal] ignored released for non-current Record session \
+                                     (partner={}, signal_session={}, current_session={})",
+                                    p.post_instance_id,
+                                    sig.session_id,
+                                    p.session_id
+                                );
+                            }
+                            p.last_seen_status = new_status;
+                        }
                         return;
                     }
                     // B-027 段階 3-B α-7 / Group 3 (Gap-21 局所対処 / 設計判断 #15 (α) B 案):
@@ -614,13 +681,19 @@ fn poll_record_signal(
                     // (record_writer.rs:281-285) で次 tick (≤LOOP_SLEEP=100ms 後) に
                     // 自動実行されるため、ここで明示呼出は不要 (B 案採用 / Group 1 改修
                     // 不変原則 / Pass 15)。
-                    SignalStatus::Pending if p.last_seen_status == SignalStatus::Acknowledged => {
+                    SignalStatus::Pending
+                        if p.last_seen_status == SignalStatus::Acknowledged
+                            && pending_supersedes_current_partner(sig, p, instance_id) =>
+                    {
                         record_sm.exit_record();
                         recording.store(false, Ordering::Relaxed);
                         record_acknowledged.store(false, Ordering::Relaxed);
                         log::info!(
-                            "[signal] B-027 Group 3: direct A→P transition, PRE exiting Record (partner={})",
-                            p.post_instance_id
+                            "[signal] B-027 Group 3: direct A→P transition, PRE exiting Record \
+                             (partner={}, old_session={}, new_session={})",
+                            p.post_instance_id,
+                            p.session_id,
+                            sig.session_id
                         );
                         *partner = None;
                         return;
@@ -670,14 +743,29 @@ fn poll_record_signal(
                     // status は記憶し直す (Released なら次 tick の status==last_seen で
                     // 抜けないよう、ここで Released を検出した場合は exit_record する)。
                     if sig.status == SignalStatus::Released {
-                        record_sm.exit_record();
-                        recording.store(false, Ordering::Relaxed);
-                        record_acknowledged.store(false, Ordering::Relaxed);
-                        log::info!(
-                            "[signal] released (via direct read), PRE exiting Record (partner={})",
-                            p.post_instance_id
-                        );
-                        *partner = None;
+                        if signal_matches_current_partner(&sig, p, instance_id) {
+                            record_sm.exit_record();
+                            recording.store(false, Ordering::Relaxed);
+                            record_acknowledged.store(false, Ordering::Relaxed);
+                            log::info!(
+                                "[signal] released (via direct read), PRE exiting Record \
+                                 (partner={}, session={})",
+                                p.post_instance_id,
+                                p.session_id
+                            );
+                            *partner = None;
+                        } else {
+                            if p.last_seen_status != SignalStatus::Released {
+                                log::warn!(
+                                    "[signal] ignored direct-read released for non-current Record session \
+                                     (partner={}, signal_session={}, current_session={})",
+                                    p.post_instance_id,
+                                    sig.session_id,
+                                    p.session_id
+                                );
+                            }
+                            p.last_seen_status = sig.status;
+                        }
                     } else {
                         // 単に scan が transient で取り逃しただけ。partner 維持。
                         p.last_seen_status = sig.status;
@@ -705,16 +793,9 @@ fn poll_record_signal(
     if record_sm.is_recording() && partner.is_none() && !record_acknowledged.load(Ordering::Relaxed)
     {
         let started_at_ms = record_sm.record_started_at_ms();
-        let released_before_ack = (started_at_ms > 0)
-            .then(|| {
-                matching.iter().find(|(_, sig)| {
-                    sig.status == SignalStatus::Released
-                        && parse_iso8601_to_epoch_ms(&sig.started_at).is_some_and(
-                            |signal_started_at_ms| signal_started_at_ms >= started_at_ms,
-                        )
-                })
-            })
-            .flatten();
+        let released_before_ack = matching
+            .iter()
+            .find(|(_, sig)| released_matches_pending_pre_record(sig, instance_id, started_at_ms));
         if let Some((post_iid, _)) = released_before_ack {
             record_sm.exit_record();
             recording.store(false, Ordering::Relaxed);
@@ -808,9 +889,9 @@ fn poll_record_signal(
     // 設計判断 #4 (i))。最後に ack 成功した POST_iid を保持し、次 tick 以降の
     // partner=Some 経路 (L378) で Released 観測の起点とする。
     let total = pending_signals.len();
-    let mut last_acked: Option<String> = None;
+    let mut last_acked: Option<(String, i64, String)> = None;
     let mut ack_ok: usize = 0;
-    for (post_iid, _) in &pending_signals {
+    for (post_iid, sig) in &pending_signals {
         match record_signal::mark_acknowledged_with_name(
             &base,
             project_hash,
@@ -823,7 +904,11 @@ fn poll_record_signal(
                     post_iid,
                     paired_pre_name
                 );
-                last_acked = Some(post_iid.clone());
+                last_acked = Some((
+                    post_iid.clone(),
+                    signal_started_at_ms(sig),
+                    sig.session_id.clone(),
+                ));
                 ack_ok += 1;
             }
             Err(e) => {
@@ -836,11 +921,13 @@ fn poll_record_signal(
         }
     }
 
-    if let Some(post_iid) = last_acked {
+    if let Some((post_iid, signal_started_at_ms, session_id)) = last_acked {
         record_acknowledged.store(true, Ordering::Relaxed);
         *partner = Some(PartnerInfo {
             post_instance_id: post_iid,
             last_seen_status: SignalStatus::Acknowledged,
+            signal_started_at_ms,
+            session_id,
         });
         log::info!(
             "[signal] B-027 Group 1: ack_count={}/{} (partner={:?})",
@@ -1037,6 +1124,28 @@ mod tests {
         dir
     }
 
+    fn test_partner(post_instance_id: &str, status: SignalStatus) -> PartnerInfo {
+        PartnerInfo {
+            post_instance_id: post_instance_id.to_string(),
+            last_seen_status: status,
+            signal_started_at_ms: 1,
+            session_id: "test-session-old".to_string(),
+        }
+    }
+
+    fn test_partner_for_signal(
+        post_instance_id: &str,
+        status: SignalStatus,
+        signal: &RecordSignal,
+    ) -> PartnerInfo {
+        PartnerInfo {
+            post_instance_id: post_instance_id.to_string(),
+            last_seen_status: status,
+            signal_started_at_ms: signal_started_at_ms(signal),
+            session_id: signal.session_id.clone(),
+        }
+    }
+
     /// poll_record_signal の挙動を検証するため、tmp_kirin_base に依存しない薄いラッパー。
     /// 実装と同じロジック（scan_signals_dir + target_pre_instance_id 単一 filter
     /// + B-024 signal_state guard）を直接回す。
@@ -1117,14 +1226,18 @@ mod tests {
             let current = matching.iter().find(|(iid, _)| iid == &p.post_instance_id);
             match current {
                 Some((_, sig)) => {
-                    if sig.status == p.last_seen_status {
+                    if sig.status == p.last_seen_status && sig.status != SignalStatus::Released {
                         return;
                     }
                     if sig.status == SignalStatus::Released {
-                        record_sm.exit_record();
-                        recording.store(false, Ordering::Relaxed);
-                        record_acknowledged.store(false, Ordering::Relaxed);
-                        *partner = None;
+                        if signal_matches_current_partner(sig, p, instance_id) {
+                            record_sm.exit_record();
+                            recording.store(false, Ordering::Relaxed);
+                            record_acknowledged.store(false, Ordering::Relaxed);
+                            *partner = None;
+                        } else {
+                            p.last_seen_status = sig.status;
+                        }
                         return;
                     }
                     // B-027 段階 3-B α-7 / Group 3 (Gap-21 / 設計判断 #15 (α) B 案):
@@ -1133,6 +1246,7 @@ mod tests {
                     // 構造的同期を維持する (Group 1 の find→filter 同期と同方針)。
                     if sig.status == SignalStatus::Pending
                         && p.last_seen_status == SignalStatus::Acknowledged
+                        && pending_supersedes_current_partner(sig, p, instance_id)
                     {
                         record_sm.exit_record();
                         recording.store(false, Ordering::Relaxed);
@@ -1148,10 +1262,14 @@ mod tests {
                     let recovered = retry_direct_read(base, TEST_PH, &p.post_instance_id);
                     if let Some(sig) = recovered {
                         if sig.status == SignalStatus::Released {
-                            record_sm.exit_record();
-                            recording.store(false, Ordering::Relaxed);
-                            record_acknowledged.store(false, Ordering::Relaxed);
-                            *partner = None;
+                            if signal_matches_current_partner(&sig, p, instance_id) {
+                                record_sm.exit_record();
+                                recording.store(false, Ordering::Relaxed);
+                                record_acknowledged.store(false, Ordering::Relaxed);
+                                *partner = None;
+                            } else {
+                                p.last_seen_status = sig.status;
+                            }
                         } else {
                             p.last_seen_status = sig.status;
                         }
@@ -1167,13 +1285,9 @@ mod tests {
             && !record_acknowledged.load(Ordering::Relaxed)
         {
             let started_at_ms = record_sm.record_started_at_ms();
-            let released_before_ack = started_at_ms > 0
-                && matching.iter().any(|(_, sig)| {
-                    sig.status == SignalStatus::Released
-                        && parse_iso8601_to_epoch_ms(&sig.started_at).is_some_and(
-                            |signal_started_at_ms| signal_started_at_ms >= started_at_ms,
-                        )
-                });
+            let released_before_ack = matching.iter().any(|(_, sig)| {
+                released_matches_pending_pre_record(sig, instance_id, started_at_ms)
+            });
             if released_before_ack {
                 record_sm.exit_record();
                 recording.store(false, Ordering::Relaxed);
@@ -1226,17 +1340,23 @@ mod tests {
             return;
         }
 
-        let mut last_acked: Option<String> = None;
-        for (post_iid, _) in &pending_signals {
+        let mut last_acked: Option<(String, i64, String)> = None;
+        for (post_iid, sig) in &pending_signals {
             if record_signal::mark_acknowledged(base, TEST_PH, post_iid).is_ok() {
-                last_acked = Some(post_iid.clone());
+                last_acked = Some((
+                    post_iid.clone(),
+                    signal_started_at_ms(sig),
+                    sig.session_id.clone(),
+                ));
             }
         }
-        if let Some(post_iid) = last_acked {
+        if let Some((post_iid, signal_started_at_ms, session_id)) = last_acked {
             record_acknowledged.store(true, Ordering::Relaxed);
             *partner = Some(PartnerInfo {
                 post_instance_id: post_iid,
                 last_seen_status: SignalStatus::Acknowledged,
+                signal_started_at_ms,
+                session_id,
             });
         } else if entered_now {
             // ACK write failures do not own Stop authority. Keep the Record armed and retry.
@@ -1645,6 +1765,113 @@ mod tests {
         );
 
         assert_eq!(sm.current(), RecordState::Watch);
+        assert!(!recording.load(Ordering::Relaxed));
+        assert!(!ack.load(Ordering::Relaxed));
+        assert!(partner.is_none());
+    }
+
+    #[test]
+    fn released_with_different_session_does_not_stop_current_record() {
+        let base = isolated_base();
+        write_matching_pending(&base, "post-1");
+        let sm = Arc::new(RecordStateMachine::new());
+        let recording = Arc::new(AtomicBool::new(false));
+        let ack = Arc::new(AtomicBool::new(false));
+        let license = Arc::new(License::Os);
+        let mut partner = None;
+        poll_with_base(
+            &base,
+            &sm,
+            &recording,
+            &ack,
+            &license,
+            &mut partner,
+            TEST_PRE_IID,
+        );
+        assert!(sm.is_recording());
+        assert!(partner.is_some());
+
+        let mut signal = record_signal::read_signal(&base, TEST_PH, "post-1").unwrap();
+        signal.status = SignalStatus::Released;
+        signal.session_id = "foreign-session".to_string();
+        record_signal::write_signal(&base, TEST_PH, "post-1", &signal).unwrap();
+
+        poll_with_base(
+            &base,
+            &sm,
+            &recording,
+            &ack,
+            &license,
+            &mut partner,
+            TEST_PRE_IID,
+        );
+
+        assert_eq!(
+            sm.current(),
+            RecordState::Record,
+            "released from a different session must not stop the current PRE Record"
+        );
+        assert!(recording.load(Ordering::Relaxed));
+        assert!(ack.load(Ordering::Relaxed));
+        assert!(partner.is_some());
+    }
+
+    #[test]
+    fn matching_release_after_ignored_foreign_release_still_stops_record() {
+        let base = isolated_base();
+        write_matching_pending(&base, "post-1");
+        let sm = Arc::new(RecordStateMachine::new());
+        let recording = Arc::new(AtomicBool::new(false));
+        let ack = Arc::new(AtomicBool::new(false));
+        let license = Arc::new(License::Os);
+        let mut partner = None;
+        poll_with_base(
+            &base,
+            &sm,
+            &recording,
+            &ack,
+            &license,
+            &mut partner,
+            TEST_PRE_IID,
+        );
+        let current_session = partner.as_ref().unwrap().session_id.clone();
+
+        let mut signal = record_signal::read_signal(&base, TEST_PH, "post-1").unwrap();
+        signal.status = SignalStatus::Released;
+        signal.session_id = "foreign-session".to_string();
+        record_signal::write_signal(&base, TEST_PH, "post-1", &signal).unwrap();
+
+        poll_with_base(
+            &base,
+            &sm,
+            &recording,
+            &ack,
+            &license,
+            &mut partner,
+            TEST_PRE_IID,
+        );
+        assert_eq!(sm.current(), RecordState::Record);
+
+        let mut signal = record_signal::read_signal(&base, TEST_PH, "post-1").unwrap();
+        signal.status = SignalStatus::Released;
+        signal.session_id = current_session;
+        record_signal::write_signal(&base, TEST_PH, "post-1", &signal).unwrap();
+
+        poll_with_base(
+            &base,
+            &sm,
+            &recording,
+            &ack,
+            &license,
+            &mut partner,
+            TEST_PRE_IID,
+        );
+
+        assert_eq!(
+            sm.current(),
+            RecordState::Watch,
+            "a real release for the acknowledged session must still close PRE after a rejected foreign release"
+        );
         assert!(!recording.load(Ordering::Relaxed));
         assert!(!ack.load(Ordering::Relaxed));
         assert!(partner.is_none());
@@ -2087,10 +2314,8 @@ mod tests {
         let ack = Arc::new(AtomicBool::new(true));
         let license = Arc::new(License::Os);
         // 既存 partner は last_seen_status=Acknowledged (前 generation の ack 済 state)
-        let mut partner: Option<PartnerInfo> = Some(PartnerInfo {
-            post_instance_id: "post-race".to_string(),
-            last_seen_status: SignalStatus::Acknowledged,
-        });
+        let mut partner: Option<PartnerInfo> =
+            Some(test_partner("post-race", SignalStatus::Acknowledged));
 
         poll_with_base(
             &base,
@@ -2131,10 +2356,8 @@ mod tests {
         let recording = Arc::new(AtomicBool::new(true));
         let ack = Arc::new(AtomicBool::new(true));
         let license = Arc::new(License::Os);
-        let mut partner: Option<PartnerInfo> = Some(PartnerInfo {
-            post_instance_id: "post-race-next".to_string(),
-            last_seen_status: SignalStatus::Acknowledged,
-        });
+        let mut partner: Option<PartnerInfo> =
+            Some(test_partner("post-race-next", SignalStatus::Acknowledged));
 
         poll_with_base(
             &base,
@@ -2198,10 +2421,7 @@ mod tests {
             "POST signal を ack した世代で partner が無い状態は壊れた連携として戻す"
         );
 
-        let partner = Some(PartnerInfo {
-            post_instance_id: "post-ok".to_string(),
-            last_seen_status: SignalStatus::Acknowledged,
-        });
+        let partner = Some(test_partner("post-ok", SignalStatus::Acknowledged));
         assert!(
             !should_force_pre_watch_without_partner(&sm, &partner, &ack),
             "partner が確定していれば PRE Record 継続"
@@ -2224,10 +2444,8 @@ mod tests {
             let recording = Arc::new(AtomicBool::new(true));
             let ack = Arc::new(AtomicBool::new(true));
             let license = Arc::new(License::Os);
-            let mut partner: Option<PartnerInfo> = Some(PartnerInfo {
-                post_instance_id: "post-keep".to_string(),
-                last_seen_status: SignalStatus::Pending,
-            });
+            let mut partner: Option<PartnerInfo> =
+                Some(test_partner("post-keep", SignalStatus::Pending));
 
             poll_with_base(
                 &base,
@@ -2261,10 +2479,8 @@ mod tests {
             let recording = Arc::new(AtomicBool::new(true));
             let ack = Arc::new(AtomicBool::new(true));
             let license = Arc::new(License::Os);
-            let mut partner: Option<PartnerInfo> = Some(PartnerInfo {
-                post_instance_id: "post-ack".to_string(),
-                last_seen_status: SignalStatus::Pending,
-            });
+            let mut partner: Option<PartnerInfo> =
+                Some(test_partner("post-ack", SignalStatus::Pending));
 
             poll_with_base(
                 &base,
@@ -2442,10 +2658,8 @@ mod tests {
         discovery.record_scan(t0, Some((initial_post_dir.clone(), "daw-test".to_string())));
 
         // 直後に partner=Some になった想定 (PRE が ack して Record 入場)
-        let mut partner: Option<PartnerInfo> = Some(PartnerInfo {
-            post_instance_id: "post-1".to_string(),
-            last_seen_status: SignalStatus::Acknowledged,
-        });
+        let mut partner: Option<PartnerInfo> =
+            Some(test_partner("post-1", SignalStatus::Acknowledged));
 
         // 主ループのガード式を直接評価。partner=Some の間は **何度試しても**
         // ゲートが開かない (= record_scan が呼ばれない) こと。
@@ -2499,10 +2713,8 @@ mod tests {
         // 初期 scan: 旧 partner 用の project_dir を cache
         let old_post_dir = PathBuf::from("/tmp/kirin_test/post-uuid-OLD");
         discovery.record_scan(t0, Some((old_post_dir.clone(), "daw-OLD".to_string())));
-        let mut partner: Option<PartnerInfo> = Some(PartnerInfo {
-            post_instance_id: "post-old".to_string(),
-            last_seen_status: SignalStatus::Acknowledged,
-        });
+        let mut partner: Option<PartnerInfo> =
+            Some(test_partner("post-old", SignalStatus::Acknowledged));
 
         // 1.5 秒経過 (本来なら rescan 可) — partner=Some なのでゲート閉
         let t1 = t0 + Duration::from_millis(1500);
@@ -2538,10 +2750,7 @@ mod tests {
         );
 
         // 新 partner を ack 後にゲート再閉鎖を確認
-        partner = Some(PartnerInfo {
-            post_instance_id: "post-new".to_string(),
-            last_seen_status: SignalStatus::Acknowledged,
-        });
+        partner = Some(test_partner("post-new", SignalStatus::Acknowledged));
         let t3 = t2 + Duration::from_secs(15);
         assert!(
             !(partner.is_none() && discovery.should_rescan(t3)),
@@ -2632,10 +2841,7 @@ mod tests {
         let recording = Arc::new(AtomicBool::new(true));
         let ack = Arc::new(AtomicBool::new(true));
         let license = Arc::new(License::Os);
-        let mut partner = Some(PartnerInfo {
-            post_instance_id: "post-T4".to_string(),
-            last_seen_status: SignalStatus::Acknowledged,
-        });
+        let mut partner = Some(test_partner("post-T4", SignalStatus::Acknowledged));
 
         // base には何も無い → scan_signals_dir 空 → matching=空 → current=None
         // → retry_direct_read も None → missing is diagnostic only.
@@ -2686,10 +2892,12 @@ mod tests {
         let recording = Arc::new(AtomicBool::new(true));
         let ack = Arc::new(AtomicBool::new(true));
         let license = Arc::new(License::Os);
-        let mut partner = Some(PartnerInfo {
-            post_instance_id: "post-T3b".to_string(),
-            last_seen_status: SignalStatus::Acknowledged,
-        });
+        let sig = record_signal::read_signal(&base, TEST_PH, "post-T3b").unwrap();
+        let mut partner = Some(test_partner_for_signal(
+            "post-T3b",
+            SignalStatus::Acknowledged,
+            &sig,
+        ));
 
         poll_with_base(
             &base,
