@@ -738,6 +738,37 @@ fn has_integrity_reason(pd: &kirin_measure::plugin_data::PluginDataFile, reason:
     pd.integrity_reasons.iter().any(|r| r == reason)
 }
 
+fn pair_member_json_from_manifest(
+    plugin_data_root: &std::path::Path,
+    role_name: &str,
+) -> std::path::PathBuf {
+    let manifest = find_json_under(plugin_data_root, "record_sessions", "*.json")
+        .expect("PairRecordSession manifest exists");
+    let value: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&manifest).unwrap()).unwrap();
+    assert_eq!(value["schema_version"], "pair_record_session.v1");
+    let side = &value[role_name];
+    assert_eq!(
+        side["role"].as_str().unwrap(),
+        role_name.to_ascii_uppercase()
+    );
+    let path = side["path"]
+        .as_str()
+        .expect("manifest side path")
+        .to_string();
+    assert!(
+        path.contains(".pair_committed"),
+        "paired Record member must stay out of normal role shelf: {path}"
+    );
+    let path = std::path::PathBuf::from(path);
+    assert!(
+        path.exists(),
+        "PairRecordSession manifest points to an existing member: {}",
+        path.display()
+    );
+    path
+}
+
 /// enable_pre_writes → Record セッションで `{ph}/{iid}/pre/{wall}.json`（永続）と
 /// Watch `pre.json`（揮発）が io_thread_pre により書かれることを検証する。
 /// HOME/TMPDIR を temp に差し替えて分離（io_thread spawn 前に設定し、テスト中変更しない）。
@@ -1517,11 +1548,17 @@ fn capstone_paired_record_output_and_linkage() {
         drive(2.0); // PRE が released を検出して閉じるのを待つ + 両 writer close。
     } // engines Drop → io_thread join（残り writer は status=closed flush）。
 
-    // 5) 両 Record .json を読み戻す（PRE は effective_project_hash=puid-post を adopt）。
-    let pre_json = find_json_under(&plugin_data_root, "pre", "*.json")
-        .expect("PRE Record pre/{wall}.json exists");
-    let post_json = find_json_under(&plugin_data_root, "post", "*.json")
-        .expect("POST Record post/{wall}.json exists");
+    // 5) PairRecordSession manifest から両 Record member を読み戻す。
+    assert!(
+        find_json_under(&plugin_data_root, "pre", "*.json").is_none(),
+        "paired PRE must not publish a side JSON in the normal role shelf"
+    );
+    assert!(
+        find_json_under(&plugin_data_root, "post", "*.json").is_none(),
+        "paired POST must not publish a side JSON in the normal role shelf"
+    );
+    let pre_json = pair_member_json_from_manifest(&plugin_data_root, "pre");
+    let post_json = pair_member_json_from_manifest(&plugin_data_root, "post");
     eprintln!("[capstone] PRE  = {}", pre_json.display());
     eprintln!("[capstone] POST = {}", post_json.display());
 
@@ -1800,9 +1837,12 @@ fn post_add_annotation_targets_post_role() {
         );
     }
 
-    // POST .json（post/）に注釈が入ったこと。
-    let post_json =
-        find_json_under(&plugin_data_root, "post", "*.json").expect("POST Record post/.json");
+    // POST member に注釈が入ったこと。
+    assert!(
+        find_json_under(&plugin_data_root, "post", "*.json").is_none(),
+        "paired POST must stay hidden behind PairRecordSession manifest"
+    );
+    let post_json = pair_member_json_from_manifest(&plugin_data_root, "post");
     eprintln!("[B-067] POST = {}", post_json.display());
     let post_pd: PluginDataFile =
         serde_json::from_str(&std::fs::read_to_string(&post_json).unwrap()).unwrap();
