@@ -50,6 +50,8 @@ pub use crate::record_expected::ExpectedWavMetadata;
 
 type HmacSha256 = Hmac<Sha256>;
 const PAIR_RECORD_SESSIONS_DIR: &str = "record_sessions";
+const PAIR_RECORD_MEMBERS_DIR: &str = ".pair_committed";
+const PAIR_RECORD_SESSION_SCHEMA: &str = "pair_record_session.v1";
 
 fn non_empty_string(value: Option<String>) -> Option<String> {
     value
@@ -942,11 +944,13 @@ fn try_finalize_pair_session(
         mark_pair_expected_metadata_consumed(paths, &self_data);
         let _ = fs::remove_file(&self_pending);
         let _ = fs::remove_file(&peer_paths.pair_pending_path);
+        let manifest = pair_commit_manifest_path(paths, &self_data)
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|_| "<unknown>".to_string());
         log::info!(
-            "[pair_record_session] published session={} files=({}, {})",
+            "[pair_record_session] published session={} manifest={}",
             self_data.record_session_id.as_deref().unwrap_or(""),
-            self_paths.final_path.display(),
-            peer_paths.final_path.display()
+            manifest
         );
     } else {
         fail_pair_pending(
@@ -979,9 +983,11 @@ fn publish_pair_committed_files(
     peer_data: &mut PluginDataFile,
 ) -> Result<(), WriterError> {
     let manifest_path = pair_commit_manifest_path(paths, self_data)?;
-    write_plugin_data_atomic(&self_paths.final_path, self_data)?;
-    if let Err(e) = write_plugin_data_atomic(&peer_paths.final_path, peer_data) {
-        let _ = fs::remove_file(&self_paths.final_path);
+    let _ = fs::remove_file(&self_paths.final_path);
+    let _ = fs::remove_file(&peer_paths.final_path);
+    write_plugin_data_atomic(&self_paths.member_path, self_data)?;
+    if let Err(e) = write_plugin_data_atomic(&peer_paths.member_path, peer_data) {
+        let _ = fs::remove_file(&self_paths.member_path);
         return Err(e);
     }
     if let Err(e) = write_pair_commit_manifest_atomic(
@@ -991,23 +997,26 @@ fn publish_pair_committed_files(
         peer_paths,
         peer_data,
     ) {
-        let _ = fs::remove_file(&self_paths.final_path);
-        let _ = fs::remove_file(&peer_paths.final_path);
+        let _ = fs::remove_file(&self_paths.member_path);
+        let _ = fs::remove_file(&peer_paths.member_path);
         return Err(e);
     }
+    let _ = fs::remove_file(&self_paths.final_path);
+    let _ = fs::remove_file(&peer_paths.final_path);
     Ok(())
 }
 
 #[derive(Debug, Clone)]
 struct PairPaths {
     final_path: PathBuf,
+    member_path: PathBuf,
     pair_pending_path: PathBuf,
     failed_path: PathBuf,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct PairCommitManifest {
-    schema_version: &'static str,
+    schema_version: String,
     session_id: String,
     project_hash: String,
     committed_at: String,
@@ -1015,10 +1024,10 @@ struct PairCommitManifest {
     post: PairCommitSide,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct PairCommitSide {
     instance_id: String,
-    role: &'static str,
+    role: String,
     path: String,
     checksum: String,
 }
@@ -1027,6 +1036,7 @@ fn self_paths_for(paths: &WriterPaths, data: &PluginDataFile) -> PairPaths {
     let Some(file_name) = pair_session_file_name(data) else {
         return PairPaths {
             final_path: paths.final_path.clone(),
+            member_path: paths.final_path.clone(),
             pair_pending_path: paths.pair_pending_path.clone(),
             failed_path: paths.failed_path.clone(),
         };
@@ -1034,6 +1044,7 @@ fn self_paths_for(paths: &WriterPaths, data: &PluginDataFile) -> PairPaths {
     let role_dir = paths.final_path.parent().unwrap_or_else(|| Path::new(""));
     PairPaths {
         final_path: role_dir.join(&file_name),
+        member_path: role_dir.join(PAIR_RECORD_MEMBERS_DIR).join(&file_name),
         pair_pending_path: role_dir.join(".pair_pending").join(&file_name),
         failed_path: role_dir.join(".failed").join(&file_name),
     }
@@ -1057,6 +1068,7 @@ fn peer_paths_for(paths: &WriterPaths, data: &PluginDataFile) -> Option<PairPath
     let dir = root.join(&*ph).join(&*peer_iid).join(peer_role.dir_name());
     Some(PairPaths {
         final_path: dir.join(&file_name),
+        member_path: dir.join(PAIR_RECORD_MEMBERS_DIR).join(&file_name),
         pair_pending_path: dir.join(".pair_pending").join(&file_name),
         failed_path: dir.join(".failed").join(&file_name),
     })
@@ -1217,7 +1229,7 @@ fn write_pair_commit_manifest_atomic(
         .unwrap_or_default()
         .to_string();
     let manifest = PairCommitManifest {
-        schema_version: "pair_record_session.v1",
+        schema_version: PAIR_RECORD_SESSION_SCHEMA.to_string(),
         session_id,
         project_hash: self_data.project_hash.clone(),
         committed_at: chrono::Utc::now()
@@ -1238,8 +1250,8 @@ fn pair_commit_side(
 ) -> PairCommitSide {
     PairCommitSide {
         instance_id: data.instance_id.clone(),
-        role,
-        path: paths.final_path.to_string_lossy().to_string(),
+        role: role.to_string(),
+        path: paths.member_path.to_string_lossy().to_string(),
         checksum: data.checksum.clone(),
     }
 }
@@ -1353,23 +1365,86 @@ pub fn append_annotation_to_latest(
     let iid =
         crate::path_identity::guard_path_component(instance_id, "append_annotation.instance_id");
     let dir = base_dir.join(&*ph).join(&*iid).join(role.dir_name());
-    let Some(latest) = find_latest_json(&dir) else {
+    let latest = match find_latest_json(&dir) {
+        Some(path) => Some(path),
+        None => latest_pair_member_for_annotation(base_dir, &ph, instance_id, role)?,
+    };
+    let Some(latest) = latest else {
         return Ok(false);
     };
-    let bytes = fs::read(&latest)?;
+    append_annotation_to_file(&latest, memo)?;
+    Ok(true)
+}
+
+fn append_annotation_to_file(path: &Path, memo: String) -> Result<(), WriterError> {
+    let bytes = fs::read(path)?;
     let mut data: PluginDataFile = serde_json::from_slice(&bytes)?;
     data.annotations.push(Annotation {
         t: now_iso8601(),
         memo,
     });
-    data.checksum = compute_checksum(&data)?;
-    let json = serde_json::to_vec(&data)?;
-    let mut tmp_os = latest.as_os_str().to_os_string();
-    tmp_os.push(".tmp");
-    let tmp = PathBuf::from(tmp_os);
-    fs::write(&tmp, &json)?;
-    fs::rename(&tmp, &latest)?;
-    Ok(true)
+    write_plugin_data_atomic(path, &mut data)?;
+    Ok(())
+}
+
+fn latest_pair_member_for_annotation(
+    base_dir: &Path,
+    guarded_project_hash: &str,
+    instance_id: &str,
+    role: Role,
+) -> Result<Option<PathBuf>, WriterError> {
+    let dir = base_dir
+        .join(guarded_project_hash)
+        .join(PAIR_RECORD_SESSIONS_DIR);
+    let entries = match fs::read_dir(&dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e.into()),
+    };
+    let mut best: Option<(String, PathBuf)> = None;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().is_none_or(|ext| ext != "json") {
+            continue;
+        }
+        let bytes = fs::read(&path)?;
+        let manifest: PairCommitManifest = serde_json::from_slice(&bytes)?;
+        let manifest_project_hash = crate::path_identity::guard_path_component(
+            &manifest.project_hash,
+            "append_annotation.manifest_project_hash",
+        );
+        if manifest_project_hash.as_ref() != guarded_project_hash
+            || manifest.schema_version != PAIR_RECORD_SESSION_SCHEMA
+        {
+            continue;
+        }
+        let side = match role {
+            Role::Pre => &manifest.pre,
+            Role::Post => &manifest.post,
+        };
+        if side.role != role.as_str() || side.instance_id != instance_id {
+            continue;
+        }
+        let member_path = PathBuf::from(&side.path);
+        if !member_path.starts_with(base_dir) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "pair commit member path escapes plugin_data base",
+            )
+            .into());
+        }
+        let key = format!(
+            "{}:{}",
+            manifest.committed_at,
+            path.file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or_default()
+        );
+        if best.as_ref().is_none_or(|(best_key, _)| key > *best_key) {
+            best = Some((key, member_path));
+        }
+    }
+    Ok(best.map(|(_, path)| path))
 }
 
 /// `dir` 直下の `*.json` のうち filename 辞書順最大を返す。
@@ -2086,7 +2161,7 @@ mod tests {
     }
 
     #[test]
-    fn pair_finalize_publishes_both_sides_and_manifest() {
+    fn pair_finalize_publishes_manifest_with_hidden_members_only() {
         let base = isolated_dir();
         let mut pre = complete_pair_writer(
             &base,
@@ -2115,6 +2190,14 @@ mod tests {
         post.data.commit_status = Some("pair_pending".to_string());
         let pre_paths = self_paths_for(&pre.paths, &pre.data);
         let post_paths = self_paths_for(&post.paths, &post.data);
+        let mut stale_pre_final = pre.data.clone();
+        let mut stale_post_final = post.data.clone();
+        stale_pre_final.commit_status = Some("committed".to_string());
+        stale_post_final.commit_status = Some("committed".to_string());
+        write_plugin_data_atomic(&pre_paths.final_path, &mut stale_pre_final).unwrap();
+        write_plugin_data_atomic(&post_paths.final_path, &mut stale_post_final).unwrap();
+        assert!(pre_paths.final_path.exists());
+        assert!(post_paths.final_path.exists());
         pre.write_atomic(pre_paths.pair_pending_path.clone())
             .unwrap();
         post.write_atomic(post_paths.pair_pending_path.clone())
@@ -2123,8 +2206,18 @@ mod tests {
         try_finalize_pair_session(&pre.paths, &pre.data).unwrap();
 
         let manifest_path = pair_commit_manifest_path(&pre.paths, &pre.data).unwrap();
-        assert!(pre_paths.final_path.exists(), "PRE final must publish");
-        assert!(post_paths.final_path.exists(), "POST final must publish");
+        assert!(
+            !pre_paths.final_path.exists() && !post_paths.final_path.exists(),
+            "pair side JSON must not appear in normal role shelves"
+        );
+        assert!(
+            pre_paths.member_path.exists(),
+            "PRE hidden member must exist"
+        );
+        assert!(
+            post_paths.member_path.exists(),
+            "POST hidden member must exist"
+        );
         assert!(
             manifest_path.exists(),
             "pair commit manifest must be the publish barrier"
@@ -2134,9 +2227,9 @@ mod tests {
             "pending files are removed only after pair publish succeeds"
         );
         let pre_data: PluginDataFile =
-            serde_json::from_slice(&fs::read(&pre_paths.final_path).unwrap()).unwrap();
+            serde_json::from_slice(&fs::read(&pre_paths.member_path).unwrap()).unwrap();
         let post_data: PluginDataFile =
-            serde_json::from_slice(&fs::read(&post_paths.final_path).unwrap()).unwrap();
+            serde_json::from_slice(&fs::read(&post_paths.member_path).unwrap()).unwrap();
         assert_eq!(pre_data.commit_status.as_deref(), Some("committed"));
         assert_eq!(post_data.commit_status.as_deref(), Some("committed"));
         assert!(verify_checksum(&pre_data));
@@ -2145,6 +2238,7 @@ mod tests {
         assert!(manifest.contains("session-pair-atomic"));
         assert!(manifest.contains("iid-pre-atomic"));
         assert!(manifest.contains("iid-post-atomic"));
+        assert!(manifest.contains(PAIR_RECORD_MEMBERS_DIR));
         assert!(matches!(
             crate::record_expected::read_expected_metadata(&base, "project_hash_test"),
             Err(crate::record_expected::ExpectedMetadataError::Consumed)
@@ -2335,6 +2429,60 @@ mod tests {
         assert_eq!(loaded.annotations.len(), 2);
         assert_eq!(loaded.annotations[0].memo, "初期メモ");
         assert_eq!(loaded.annotations[1].memo, "Good");
+        assert!(verify_checksum(&loaded));
+    }
+
+    #[test]
+    fn append_annotation_to_latest_updates_manifest_hidden_pair_member() {
+        let base = isolated_dir();
+        let mut pre = complete_pair_writer(
+            &base,
+            Role::Pre,
+            "iid-pre-note",
+            None,
+            Some("iid-post-note".to_string()),
+        );
+        let mut post = complete_pair_writer(
+            &base,
+            Role::Post,
+            "iid-post-note",
+            Some("iid-pre-note".to_string()),
+            None,
+        );
+        crate::record_expected::write_expected_metadata(
+            &base,
+            "project_hash_test",
+            &expected_wav_fixture(),
+        )
+        .unwrap();
+        pre.data.status = Status::Closed;
+        pre.data.commit_status = Some("pair_pending".to_string());
+        post.data.status = Status::Closed;
+        post.data.commit_status = Some("pair_pending".to_string());
+        let pre_paths = self_paths_for(&pre.paths, &pre.data);
+        let post_paths = self_paths_for(&post.paths, &post.data);
+        pre.write_atomic(pre_paths.pair_pending_path.clone())
+            .unwrap();
+        post.write_atomic(post_paths.pair_pending_path.clone())
+            .unwrap();
+        try_finalize_pair_session(&pre.paths, &pre.data).unwrap();
+        assert!(!post_paths.final_path.exists());
+        assert!(post_paths.member_path.exists());
+
+        let ok = append_annotation_to_latest(
+            &base,
+            "project_hash_test",
+            "iid-post-note",
+            Role::Post,
+            "Manifest Note".to_string(),
+        )
+        .unwrap();
+        assert!(ok);
+
+        let loaded: PluginDataFile =
+            serde_json::from_slice(&fs::read(&post_paths.member_path).unwrap()).unwrap();
+        assert_eq!(loaded.annotations.len(), 1);
+        assert_eq!(loaded.annotations[0].memo, "Manifest Note");
         assert!(verify_checksum(&loaded));
     }
 
