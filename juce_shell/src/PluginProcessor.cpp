@@ -213,21 +213,10 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
                 hasPosition = true;
                 positionSamples = *timeSamples;
             }
-            if (const auto loop = pos->getLoopPoints())
-                if (const auto bpm = pos->getBpm())
-                    if (*bpm > 0.0 && getSampleRate() > 0.0)
-                    {
-                        const double samplesPerQuarter = getSampleRate() * 60.0 / *bpm;
-                        const auto start = (int64_t) std::llround (loop->ppqStart * samplesPerQuarter);
-                        const auto end = (int64_t) std::llround (loop->ppqEnd * samplesPerQuarter);
-                        if (end > start)
-                        {
-                            hasClockEnd = true;
-                            clockStartSamples = start;
-                            clockEndSamples = end;
-                        }
-                    }
         }
+    // JUCE exposes loop points in PPQ, not the exact exported WAV sample range. Do not
+    // promote those values to wav_clock_native; render span remains a lower-trust fallback
+    // until a host-supplied native sample range exists.
     lastPlaying.store (playing, std::memory_order_release); // B-054: POST pair lock reads this
     const bool positionChanged = hasPosition && lastProcessPositionValid
                               && positionSamples != lastProcessPositionSamples;

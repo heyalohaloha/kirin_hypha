@@ -253,6 +253,11 @@ pub struct RecordingCtx {
     /// close 時にこの raw list を duration grid へ焼き直し、順序揺れや遅延 floor marker が
     /// そのまま `frames[]` 欠落にならないようにする。
     pub trace_samples: Vec<RecordTraceSample>,
+    /// close 時に連続 grid へ焼く前の raw TRACE が duration を覆っていたか。
+    ///
+    /// `frames[]` は close 時に補完されるため、ready/integrity 判定では補完後の見た目ではなく
+    /// 補完前の raw timeline coverage を見る。
+    pub raw_trace_timeline_covers_duration: Option<bool>,
 }
 
 impl RecordingCtx {
@@ -432,6 +437,7 @@ pub fn writer_start(
         last_trace_native_frames: None,
         trace_sample_count: 0,
         trace_samples: Vec::new(),
+        raw_trace_timeline_covers_duration: None,
     })
 }
 
@@ -444,6 +450,7 @@ pub fn writer_close(mut ctx: RecordingCtx) {
     clip_clean_timeline_to_duration(&mut ctx);
     mark_integrity_if_record_is_too_short(&mut ctx);
     mark_integrity_if_trace_density_is_sparse(&mut ctx);
+    mark_integrity_if_record_clock_is_not_wav_bounded(&mut ctx);
     seal_bounce_marker(&mut ctx);
     match ctx.writer.close() {
         Ok(()) if final_path.exists() => log::info!("[writer] released: {}", final_path.display()),
@@ -613,6 +620,10 @@ fn bake_continuous_record_timeline(ctx: &mut RecordingCtx) {
             .len()
             .saturating_add(ctx.writer.data().frames.len());
     }
+    if ctx.raw_trace_timeline_covers_duration.is_none() {
+        ctx.raw_trace_timeline_covers_duration =
+            Some(raw_trace_timeline_covers_duration(ctx, duration_ms));
+    }
 
     let slots = continuous_timeline_slots(duration_ms);
     if slots.is_empty() {
@@ -729,11 +740,59 @@ fn frame_timeline_has_gap(ctx: &RecordingCtx, duration_ms: u64) -> bool {
     !frame_timeline_covers_duration(ctx, duration_ms)
 }
 
+fn raw_trace_timeline_covers_duration(ctx: &RecordingCtx, duration_ms: u64) -> bool {
+    let mut times = Vec::with_capacity(
+        ctx.trace_samples
+            .len()
+            .saturating_add(ctx.writer.data().frames.len()),
+    );
+    for frame in &ctx.writer.data().frames {
+        if frame.t_ms <= duration_ms {
+            times.push(frame.t_ms);
+        }
+    }
+    for sample in &ctx.trace_samples {
+        if sample.t_ms <= duration_ms {
+            times.push(sample.t_ms);
+        }
+    }
+    timeline_times_cover_duration(&mut times, duration_ms)
+}
+
+fn timeline_times_cover_duration(times: &mut Vec<u64>, duration_ms: u64) -> bool {
+    if times.is_empty() {
+        return false;
+    }
+    times.sort_unstable();
+    times.dedup();
+    let Some(first) = times.first() else {
+        return false;
+    };
+    if *first > FRAME_COVERAGE_EDGE_TOLERANCE_MS {
+        return false;
+    }
+    if duration_ms > 0 {
+        let Some(last) = times.last() else {
+            return false;
+        };
+        if last.saturating_add(FRAME_COVERAGE_EDGE_TOLERANCE_MS) < duration_ms {
+            return false;
+        }
+    }
+    times
+        .windows(2)
+        .all(|pair| pair[1].saturating_sub(pair[0]) <= FRAME_COVERAGE_MAX_GAP_MS)
+}
+
 fn clean_take_is_sample_count_ready(ctx: &RecordingCtx, duration_ms: u64) -> bool {
+    let raw_timeline_ready = ctx
+        .raw_trace_timeline_covers_duration
+        .unwrap_or_else(|| frame_timeline_covers_duration(ctx, duration_ms));
     ctx.clean_take
         .is_some_and(|take| take.source == RECORD_TAKE_SOURCE_WAV_CLOCK)
         && duration_ms >= CLEAN_TAKE_MIN_DURATION_MS
         && frame_timeline_covers_duration(ctx, duration_ms)
+        && raw_timeline_ready
         && clean_take_trace_density_ready(ctx, duration_ms)
 }
 
@@ -756,6 +815,9 @@ fn trace_density_is_sparse(ctx: &RecordingCtx) -> bool {
         return true;
     }
     let duration_ms = record_duration_ms(ctx);
+    if ctx.raw_trace_timeline_covers_duration == Some(false) {
+        return true;
+    }
     if frame_timeline_has_gap(ctx, duration_ms) {
         return true;
     }
@@ -788,6 +850,7 @@ fn fallback_frame_density_is_sparse(ctx: &RecordingCtx, duration_ms: u64) -> boo
 fn mark_integrity_if_trace_density_is_sparse(ctx: &mut RecordingCtx) {
     let duration_ms = record_duration_ms(ctx);
     let has_frame_gap = frame_timeline_has_gap(ctx, duration_ms);
+    let has_raw_gap = ctx.raw_trace_timeline_covers_duration == Some(false);
     if trace_density_is_sparse(ctx) {
         log::warn!(
             "[writer] sparse Record density: trace_samples={} frames={} duration_ms={} - marking integrity_degraded",
@@ -798,12 +861,30 @@ fn mark_integrity_if_trace_density_is_sparse(ctx: &mut RecordingCtx) {
         ctx.writer.mark_integrity_degraded();
         if ctx.writer.data().frames.is_empty() {
             ctx.writer.add_integrity_reason("zero_trace_frames");
+        } else if has_raw_gap {
+            ctx.writer.add_integrity_reason("raw_trace_timeline_gap");
         } else if has_frame_gap {
             ctx.writer.add_integrity_reason("frame_timeline_gap");
         } else {
             ctx.writer.add_integrity_reason("sparse_trace_density");
         }
     }
+}
+
+fn mark_integrity_if_record_clock_is_not_wav_bounded(ctx: &mut RecordingCtx) {
+    let Some(clean_take) = ctx.clean_take else {
+        return;
+    };
+    if clean_take.source == RECORD_TAKE_SOURCE_WAV_CLOCK {
+        return;
+    }
+    log::warn!(
+        "[writer] Record clean take source is {} rather than wav_clock_native - marking integrity_degraded",
+        clean_take.source
+    );
+    ctx.writer.mark_integrity_degraded();
+    ctx.writer
+        .add_integrity_reason("record_clock_not_wav_bounded");
 }
 
 fn mark_integrity_if_record_is_too_short(ctx: &mut RecordingCtx) {
@@ -1932,6 +2013,7 @@ mod tests {
             last_trace_native_frames: None,
             trace_sample_count: 0,
             trace_samples: Vec::new(),
+            raw_trace_timeline_covers_duration: None,
         }
     }
 
@@ -2194,7 +2276,11 @@ mod tests {
         assert_eq!(take.duration_samples, 1_440_000);
         assert_eq!(take.frame_count, 151);
         assert_eq!(take.alignment_status, "trace_span_only");
-        assert!(!loaded.integrity_degraded);
+        assert!(loaded.integrity_degraded);
+        assert!(loaded
+            .integrity_reasons
+            .iter()
+            .any(|reason| reason == "record_clock_not_wav_bounded"));
     }
 
     #[test]
@@ -2235,7 +2321,11 @@ mod tests {
             .frames
             .iter()
             .any(|frame| frame.lufs_m == TRACE_SILENCE_LUFS));
-        assert!(!loaded.integrity_degraded);
+        assert!(loaded.integrity_degraded);
+        assert!(loaded
+            .integrity_reasons
+            .iter()
+            .any(|reason| reason == "raw_trace_timeline_gap"));
     }
 
     #[test]
@@ -2708,7 +2798,7 @@ mod tests {
     fn sparse_trace_sample_density_marks_integrity_degraded() {
         let base = isolated_base();
         let ctx = make_ctx(&base, Role::Post, now_epoch_ms());
-        let failed_path = ctx.failed_path.clone();
+        let final_path = ctx.final_path.clone();
         let sm = Arc::new(RecordStateMachine::new());
         sm.try_enter_record(License::Os).unwrap();
         let m = Arc::new(Mutex::new(MeasureResult::default()));
@@ -2738,11 +2828,15 @@ mod tests {
 
         writer_close(rec.take().unwrap());
         let loaded: PluginDataFile =
-            serde_json::from_slice(&fs::read(&failed_path).unwrap()).unwrap();
+            serde_json::from_slice(&fs::read(&final_path).unwrap()).unwrap();
         assert!(
             loaded.integrity_degraded,
             "audio-time progressed but TRACE sample density was too sparse"
         );
+        assert!(loaded
+            .integrity_reasons
+            .iter()
+            .any(|reason| reason == "raw_trace_timeline_gap"));
     }
 
     #[test]
@@ -2972,7 +3066,7 @@ mod tests {
     fn close_bakes_sparse_clean_take_to_continuous_trace_grid() {
         let base = isolated_base();
         let mut ctx = make_ctx_with_sample_rate(&base, Role::Post, now_epoch_ms(), 96_000);
-        let failed_path = ctx.failed_path.clone();
+        let final_path = ctx.final_path.clone();
         ctx.record_generation = 7;
         ctx.clean_take = Some(RecordTakeSnapshot {
             generation: 7,
@@ -2998,7 +3092,7 @@ mod tests {
         writer_close(ctx);
 
         let loaded: PluginDataFile =
-            serde_json::from_slice(&fs::read(&failed_path).unwrap()).unwrap();
+            serde_json::from_slice(&fs::read(&final_path).unwrap()).unwrap();
         let take = loaded.bounce_take.as_ref().expect("bounce_take");
         assert_eq!(take.duration_samples, 1_440_000);
         assert_eq!(take.end_t_ms, 15_000);
@@ -3018,14 +3112,14 @@ mod tests {
         assert!(loaded
             .integrity_reasons
             .iter()
-            .any(|reason| reason == "sparse_trace_density"));
+            .any(|reason| reason == "raw_trace_timeline_gap"));
     }
 
     #[test]
     fn wav_clock_sparse_fallback_frames_do_not_become_ready_after_grid_bake() {
         let base = isolated_base();
         let mut ctx = make_ctx_with_sample_rate(&base, Role::Post, now_epoch_ms(), 96_000);
-        let failed_path = ctx.failed_path.clone();
+        let final_path = ctx.final_path.clone();
         ctx.record_generation = 71;
         ctx.clean_take = Some(RecordTakeSnapshot {
             generation: 71,
@@ -3045,7 +3139,7 @@ mod tests {
         writer_close(ctx);
 
         let loaded: PluginDataFile =
-            serde_json::from_slice(&fs::read(&failed_path).unwrap()).unwrap();
+            serde_json::from_slice(&fs::read(&final_path).unwrap()).unwrap();
         let take = loaded.bounce_take.as_ref().expect("bounce_take");
         assert_eq!(take.duration_samples, 1_440_000);
         assert_eq!(take.end_t_ms, 15_000);
@@ -3056,14 +3150,14 @@ mod tests {
         assert!(loaded
             .integrity_reasons
             .iter()
-            .any(|reason| reason == "sparse_trace_density"));
+            .any(|reason| reason == "raw_trace_timeline_gap"));
     }
 
     #[test]
     fn close_recovers_out_of_order_trace_samples_before_publish() {
         let base = isolated_base();
         let mut ctx = make_ctx_with_sample_rate(&base, Role::Post, now_epoch_ms(), 96_000);
-        let failed_path = ctx.failed_path.clone();
+        let final_path = ctx.final_path.clone();
         let queue = new_record_trace_queue();
         for t_ms in [15_000_u64, 0, 100, 7_200] {
             push_record_trace_sample(
@@ -3092,7 +3186,7 @@ mod tests {
         writer_close(ctx);
 
         let loaded: PluginDataFile =
-            serde_json::from_slice(&fs::read(&failed_path).unwrap()).unwrap();
+            serde_json::from_slice(&fs::read(&final_path).unwrap()).unwrap();
         assert_eq!(loaded.frames.len(), 151);
         assert_eq!(loaded.frames[0].t_ms, 0);
         assert_eq!(loaded.frames[1].t_ms, 100);
@@ -3101,7 +3195,7 @@ mod tests {
         assert!(loaded
             .integrity_reasons
             .iter()
-            .any(|reason| reason == "sparse_trace_density"));
+            .any(|reason| reason == "raw_trace_timeline_gap"));
     }
 
     #[test]
@@ -3228,7 +3322,7 @@ mod tests {
     fn run_record_tick_preserves_audio_time_when_trace_sample_has_no_numeric_frame() {
         let base = isolated_base();
         let ctx = make_ctx(&base, Role::Pre, now_epoch_ms());
-        let failed_path = ctx.failed_path.clone();
+        let final_path = ctx.final_path.clone();
         let sm = Arc::new(RecordStateMachine::new());
         sm.try_enter_record(License::Os).unwrap();
         let m = Arc::new(Mutex::new(MeasureResult::default()));
@@ -3268,7 +3362,7 @@ mod tests {
         assert_eq!(ctx.last_trace_t_ms, Some(15_400));
         writer_close(ctx);
 
-        let bytes = fs::read(&failed_path).unwrap();
+        let bytes = fs::read(&final_path).unwrap();
         let loaded: PluginDataFile = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(loaded.frames.len(), 155);
         assert_eq!(loaded.frames.first().map(|frame| frame.t_ms), Some(0));
@@ -3289,6 +3383,11 @@ mod tests {
         assert_eq!(take.duration_samples, 739_200);
         assert_eq!(take.wav_start_sample, 0);
         assert_eq!(take.wav_end_sample, 739_200);
+        assert!(loaded.integrity_degraded);
+        assert!(loaded
+            .integrity_reasons
+            .iter()
+            .any(|reason| reason == "raw_trace_timeline_gap"));
     }
 
     #[test]

@@ -279,6 +279,10 @@ mod tests {
             "offline mode must still be reported to the Record clock"
         );
         assert!(
+            !body.contains("getLoopPoints") && !body.contains("ppqStart") && !body.contains("ppqEnd"),
+            "JUCE PPQ loop points are not exact WAV/export sample bounds and must not become wav_clock_native"
+        );
+        assert!(
             body.contains("if (captureBuffer)"),
             "Record silent/offline buffers must be able to enter the FFI even when stateCode is Inactive"
         );
