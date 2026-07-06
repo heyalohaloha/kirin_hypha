@@ -74,6 +74,7 @@ const MEASURE_READY_POLL: Duration = Duration::from_millis(5);
 /// PRE スレッドが追従中の partner POST 情報（IO Thread ローカル）。
 struct PartnerInfo {
     post_instance_id: String,
+    project_hash: String,
     last_seen_status: SignalStatus,
     signal_started_at_ms: i64,
     session_id: String,
@@ -152,6 +153,65 @@ fn wait_for_measure_ready(record_sm: &RecordStateMachine, generation: u64) -> bo
             return false;
         }
         thread::sleep(MEASURE_READY_POLL);
+    }
+}
+
+fn enter_pre_record_if_barrier_ready(
+    record_sm: &Arc<RecordStateMachine>,
+    recording: &Arc<AtomicBool>,
+    license: &License,
+    signal: &record_signal::RecordSignal,
+    pre_instance_id: &str,
+) -> bool {
+    if record_sm.is_recording() {
+        recording.store(true, Ordering::Relaxed);
+        return true;
+    }
+    if !is_os_license(license) {
+        return false;
+    }
+    let started_at_ms = signal_started_at_ms(signal);
+    if started_at_ms <= 0 {
+        log::warn!(
+            "[signal] PRE Record start withheld: invalid started_at (pre_iid={}, session={})",
+            pre_instance_id,
+            signal.session_id
+        );
+        return false;
+    }
+    let now_ms = crate::record_writer::now_epoch_ms();
+    if now_ms < started_at_ms {
+        return false;
+    }
+    match record_sm.try_enter_record_started_at(*license, started_at_ms) {
+        Ok(()) => {
+            recording.store(true, Ordering::Relaxed);
+            let generation = record_sm.generation();
+            if !wait_for_measure_ready(record_sm, generation) {
+                log::warn!(
+                    "[signal] PRE Record measure-ready timeout after ACK \
+                     (generation={}, pre_iid={}, session={})",
+                    generation,
+                    pre_instance_id,
+                    signal.session_id
+                );
+            }
+            log::info!(
+                "[signal] PRE entered Record at barrier (pre_iid={}, session={}, started_at={})",
+                pre_instance_id,
+                signal.session_id,
+                signal.started_at
+            );
+            true
+        }
+        Err(crate::record::TransitionError::AlreadyRecording) => {
+            recording.store(record_sm.is_recording(), Ordering::Relaxed);
+            true
+        }
+        Err(e) => {
+            log::warn!("[signal] PRE Record barrier enter rejected: {:?}", e);
+            false
+        }
     }
 }
 
@@ -426,9 +486,14 @@ pub fn spawn_io_thread_pre(
             // record_signal poll / plugin_data writer の入出力 path 両方で
             // この値を一貫して使うことで「PRE が POST と別 plugin_data 空間に
             // 書いてしまう」 cdylib 隔離問題を回避する。
-            let effective_project_hash_owned: Option<String> = discovery
-                .cached_post_project_dir()
-                .and_then(|p| p.file_name().and_then(|n| n.to_str()).map(str::to_string));
+            let effective_project_hash_owned: Option<String> = partner
+                .as_ref()
+                .map(|p| p.project_hash.clone())
+                .or_else(|| {
+                    discovery
+                        .cached_post_project_dir()
+                        .and_then(|p| p.file_name().and_then(|n| n.to_str()).map(str::to_string))
+                });
             let effective_project_hash_ref: &str = effective_project_hash_owned
                 .as_deref()
                 .unwrap_or(project_hash.as_str());
@@ -640,6 +705,18 @@ fn poll_record_signal(
         match current {
             Some((_, sig)) => {
                 let new_status = sig.status;
+                if new_status == SignalStatus::Acknowledged
+                    && signal_matches_current_partner(sig, p, instance_id)
+                    && !record_sm.is_recording()
+                {
+                    let _ = enter_pre_record_if_barrier_ready(
+                        record_sm,
+                        recording,
+                        license.as_ref(),
+                        sig,
+                        instance_id,
+                    );
+                }
                 if new_status == p.last_seen_status
                     && (new_status != SignalStatus::Released || !sig.released_authorizes_pre_stop())
                 {
@@ -827,10 +904,24 @@ fn poll_record_signal(
     //
     // 順序: scan_signals_dir が post_instance_id 辞書順を返す (record_signal.rs:327
     // doc 仕様) ため、本 filter 後も同順を維持。決定論性確保。
+    let mut skipped_missing_expected = 0_usize;
     let pending_signals: Vec<(String, record_signal::RecordSignal)> = matching
         .into_iter()
         .filter(|(_, s)| s.status == SignalStatus::Pending)
+        .filter(|(_, s)| {
+            let ok = s.expected_wav.as_ref().is_some_and(|m| m.is_usable());
+            if !ok {
+                skipped_missing_expected = skipped_missing_expected.saturating_add(1);
+            }
+            ok
+        })
         .collect();
+    if skipped_missing_expected > 0 {
+        log::warn!(
+            "[signal] {} pending signal(s) ignored: expected WAV metadata missing/invalid",
+            skipped_missing_expected
+        );
+    }
     if pending_signals.is_empty() {
         return;
     }
@@ -856,49 +947,16 @@ fn poll_record_signal(
         return;
     }
 
-    let requested_started_at_ms = pending_signals
-        .iter()
-        .filter_map(|(_, sig)| parse_iso8601_to_epoch_ms(&sig.started_at))
-        .min()
-        .unwrap_or(0);
-
-    // state machine 遷移: 1 度だけ (record_sm.try_enter_record_started_at は compare_exchange
-    // で冪等 / record.rs:111-125)。N 件 ack の前に Watch→Record 遷移を確定する。
-    let entered_now =
-        match record_sm.try_enter_record_started_at(**license, requested_started_at_ms) {
-            Ok(()) => true,
-            Err(crate::record::TransitionError::AlreadyRecording)
-                if record_sm.is_recording() && partner.is_none() =>
-            {
-                false
-            }
-            Err(e) => {
-                log::warn!("[signal] try_enter_record rejected: {:?}", e);
-                return;
-            }
-        };
-    recording.store(true, Ordering::Relaxed);
-    let target_generation = record_sm.generation();
-    if !wait_for_measure_ready(record_sm, target_generation) {
-        log::warn!(
-            "[signal] PRE Record measure-ready timeout; ACK withheld \
-             but Record remains armed (generation={}, pre_iid={}, pending_count={})",
-            target_generation,
-            instance_id,
-            pending_signals.len()
-        );
-        return;
-    }
     // N 件並列 ack。各 ack は独立 atomic rename (record_signal::write_signal /
     // L195-203 既存パターン)。1 件失敗しても他 N-1 件は継続 (Vec 全件処理 / Gap-11
     // 構造解消)。
     //
     // partner state は IO Thread ローカルの 1 件保持構造を維持 (Group 1 スコープ /
-    // POST 側 paired_pre_name + PAIR_LABEL_POLL_INTERVAL=1s 経路に同期を委ねる /
+    // POST 側 paired_pre_name + PAIR_LABEL_POLL_INTERVAL 経路に同期を委ねる /
     // 設計判断 #4 (i))。最後に ack 成功した POST_iid を保持し、次 tick 以降の
     // partner=Some 経路 (L378) で Released 観測の起点とする。
     let total = pending_signals.len();
-    let mut last_acked: Option<(String, i64, String)> = None;
+    let mut last_acked: Option<(String, i64, String, record_signal::RecordSignal)> = None;
     let mut ack_ok: usize = 0;
     for (post_iid, sig) in &pending_signals {
         match record_signal::mark_acknowledged_with_name(
@@ -917,6 +975,7 @@ fn poll_record_signal(
                     post_iid.clone(),
                     signal_started_at_ms(sig),
                     sig.session_id.clone(),
+                    sig.clone(),
                 ));
                 ack_ok += 1;
             }
@@ -930,10 +989,11 @@ fn poll_record_signal(
         }
     }
 
-    if let Some((post_iid, signal_started_at_ms, session_id)) = last_acked {
+    if let Some((post_iid, signal_started_at_ms, session_id, sig)) = last_acked {
         record_acknowledged.store(true, Ordering::Relaxed);
         *partner = Some(PartnerInfo {
             post_instance_id: post_iid,
+            project_hash: project_hash.to_string(),
             last_seen_status: SignalStatus::Acknowledged,
             signal_started_at_ms,
             session_id,
@@ -944,9 +1004,16 @@ fn poll_record_signal(
             total,
             partner.as_ref().map(|p| p.post_instance_id.as_str())
         );
-    } else if entered_now {
+        let _ = enter_pre_record_if_barrier_ready(
+            record_sm,
+            recording,
+            license.as_ref(),
+            &sig,
+            instance_id,
+        );
+    } else {
         log::warn!(
-            "[signal] all {} pending ack failed; keeping Record armed for retry",
+            "[signal] all {} pending ack failed; PRE Record not armed",
             total
         );
     }
@@ -1116,6 +1183,7 @@ fn phase_d_fragment(result: &MeasureResult) -> String {
 mod tests {
     use super::*;
     use crate::record::RecordState;
+    use crate::record_expected::ExpectedWavMetadata;
     use crate::record_signal::{write_pending, RecordSignal, SignalStatus};
     use std::sync::atomic::AtomicU64;
 
@@ -1136,6 +1204,7 @@ mod tests {
     fn test_partner(post_instance_id: &str, status: SignalStatus) -> PartnerInfo {
         PartnerInfo {
             post_instance_id: post_instance_id.to_string(),
+            project_hash: TEST_PH.to_string(),
             last_seen_status: status,
             signal_started_at_ms: 1,
             session_id: "test-session-old".to_string(),
@@ -1149,9 +1218,67 @@ mod tests {
     ) -> PartnerInfo {
         PartnerInfo {
             post_instance_id: post_instance_id.to_string(),
+            project_hash: TEST_PH.to_string(),
             last_seen_status: status,
             signal_started_at_ms: signal_started_at_ms(signal),
             session_id: signal.session_id.clone(),
+        }
+    }
+
+    fn expected_wav() -> ExpectedWavMetadata {
+        ExpectedWavMetadata {
+            expected_duration_samples: 48_000,
+            expected_sample_rate: 48_000,
+            wav_path: "/tmp/kirin-io-pre-test.wav".to_string(),
+            bounce_id: "test-bounce".to_string(),
+            created_at_ms: chrono::Utc::now().timestamp_millis(),
+            wav_file_size: Some(1),
+            wav_mtime_ms: chrono::Utc::now().timestamp_millis(),
+            wav_hash: Some("test-wav-hash".to_string()),
+            consumed_at_ms: None,
+            consumed_by_session_id: None,
+        }
+    }
+
+    fn enter_pre_record_if_barrier_ready_for_test(
+        record_sm: &Arc<RecordStateMachine>,
+        recording: &Arc<AtomicBool>,
+        license: &License,
+        signal: &RecordSignal,
+        pre_instance_id: &str,
+        measure_ready: bool,
+    ) -> bool {
+        if record_sm.is_recording() {
+            recording.store(true, Ordering::Relaxed);
+            return true;
+        }
+        if !is_os_license(license) {
+            return false;
+        }
+        let started_at_ms = signal_started_at_ms(signal);
+        if started_at_ms <= 0 || crate::record_writer::now_epoch_ms() < started_at_ms {
+            return false;
+        }
+        match record_sm.try_enter_record_started_at(*license, started_at_ms) {
+            Ok(()) => {
+                recording.store(true, Ordering::Relaxed);
+                let generation = record_sm.generation();
+                if measure_ready {
+                    record_sm.mark_measure_ready(generation);
+                }
+                let _ = wait_for_measure_ready(record_sm, generation);
+                log::info!(
+                    "[test signal] PRE entered Record at barrier (pre_iid={}, session={})",
+                    pre_instance_id,
+                    signal.session_id
+                );
+                true
+            }
+            Err(crate::record::TransitionError::AlreadyRecording) => {
+                recording.store(record_sm.is_recording(), Ordering::Relaxed);
+                true
+            }
+            Err(_) => false,
         }
     }
 
@@ -1235,6 +1362,19 @@ mod tests {
             let current = matching.iter().find(|(iid, _)| iid == &p.post_instance_id);
             match current {
                 Some((_, sig)) => {
+                    if sig.status == SignalStatus::Acknowledged
+                        && signal_matches_current_partner(sig, p, instance_id)
+                        && !record_sm.is_recording()
+                    {
+                        let _ = enter_pre_record_if_barrier_ready_for_test(
+                            record_sm,
+                            recording,
+                            license.as_ref(),
+                            sig,
+                            instance_id,
+                            measure_ready,
+                        );
+                    }
                     if sig.status == p.last_seen_status
                         && (sig.status != SignalStatus::Released
                             || !sig.released_authorizes_pre_stop())
@@ -1314,6 +1454,7 @@ mod tests {
         let pending_signals: Vec<(String, RecordSignal)> = matching
             .into_iter()
             .filter(|(_, s)| s.status == SignalStatus::Pending)
+            .filter(|(_, s)| s.expected_wav.as_ref().is_some_and(|m| m.is_usable()))
             .collect();
         if pending_signals.is_empty() {
             return;
@@ -1328,63 +1469,51 @@ mod tests {
             return;
         }
 
-        let requested_started_at_ms = pending_signals
-            .iter()
-            .filter_map(|(_, sig)| parse_iso8601_to_epoch_ms(&sig.started_at))
-            .min()
-            .unwrap_or(0);
-
-        let entered_now =
-            match record_sm.try_enter_record_started_at(**license, requested_started_at_ms) {
-                Ok(()) => true,
-                Err(crate::record::TransitionError::AlreadyRecording)
-                    if record_sm.is_recording() && partner.is_none() =>
-                {
-                    false
-                }
-                Err(_) => return,
-            };
-        recording.store(true, Ordering::Relaxed);
-        let target_generation = record_sm.generation();
-        if measure_ready {
-            record_sm.mark_measure_ready(target_generation);
-        }
-        if !wait_for_measure_ready(record_sm, target_generation) {
-            return;
-        }
-
-        let mut last_acked: Option<(String, i64, String)> = None;
+        let mut last_acked: Option<(String, i64, String, RecordSignal)> = None;
         for (post_iid, sig) in &pending_signals {
             if record_signal::mark_acknowledged(base, TEST_PH, post_iid).is_ok() {
                 last_acked = Some((
                     post_iid.clone(),
                     signal_started_at_ms(sig),
                     sig.session_id.clone(),
+                    sig.clone(),
                 ));
             }
         }
-        if let Some((post_iid, signal_started_at_ms, session_id)) = last_acked {
+        if let Some((post_iid, signal_started_at_ms, session_id, sig)) = last_acked {
             record_acknowledged.store(true, Ordering::Relaxed);
             *partner = Some(PartnerInfo {
                 post_instance_id: post_iid,
+                project_hash: TEST_PH.to_string(),
                 last_seen_status: SignalStatus::Acknowledged,
                 signal_started_at_ms,
                 session_id,
             });
-        } else if entered_now {
-            // ACK write failures do not own Stop authority. Keep the Record armed and retry.
+            let _ = enter_pre_record_if_barrier_ready_for_test(
+                record_sm,
+                recording,
+                license.as_ref(),
+                &sig,
+                instance_id,
+                measure_ready,
+            );
         }
     }
 
     fn write_matching_pending(base: &Path, post_iid: &str) {
-        write_pending(
-            base,
-            TEST_PH,
-            post_iid,
-            TEST_PRE_IID.into(),
-            TEST_DAW.into(),
-        )
-        .unwrap();
+        let signal = RecordSignal {
+            status: SignalStatus::Pending,
+            requested_by: post_iid.to_string(),
+            target_pre_instance_id: TEST_PRE_IID.to_string(),
+            daw_session_id: TEST_DAW.to_string(),
+            session_id: format!("session-{post_iid}"),
+            t: "2026-07-05T00:00:00Z".to_string(),
+            started_at: "2026-07-05T00:00:00Z".to_string(),
+            paired_pre_name: String::new(),
+            release_reason: None,
+            expected_wav: Some(expected_wav()),
+        };
+        record_signal::write_signal(base, TEST_PH, post_iid, &signal).unwrap();
     }
 
     // ── poll_record_signal ───────────────────────────────────────
@@ -1420,7 +1549,47 @@ mod tests {
     }
 
     #[test]
-    fn pending_ack_is_withheld_until_measure_thread_is_ready() {
+    fn pending_ack_sets_partner_but_waits_for_future_start_barrier() {
+        let base = isolated_base();
+        record_signal::write_pending_with_expected(
+            &base,
+            TEST_PH,
+            "post-1",
+            TEST_PRE_IID.into(),
+            TEST_DAW.into(),
+            Some(expected_wav()),
+        )
+        .unwrap();
+        let mut signal = record_signal::read_signal(&base, TEST_PH, "post-1").unwrap();
+        signal.started_at = "2099-01-01T00:00:00Z".to_string();
+        record_signal::write_signal(&base, TEST_PH, "post-1", &signal).unwrap();
+
+        let sm = Arc::new(RecordStateMachine::new());
+        let recording = Arc::new(AtomicBool::new(false));
+        let ack = Arc::new(AtomicBool::new(false));
+        let license = Arc::new(License::Os);
+        let mut partner = None;
+
+        poll_with_base(
+            &base,
+            &sm,
+            &recording,
+            &ack,
+            &license,
+            &mut partner,
+            TEST_PRE_IID,
+        );
+
+        assert_eq!(sm.current(), RecordState::Watch);
+        assert!(!recording.load(Ordering::Relaxed));
+        assert!(ack.load(Ordering::Relaxed));
+        assert!(partner.is_some());
+        let sig = record_signal::read_signal(&base, TEST_PH, "post-1").unwrap();
+        assert_eq!(sig.status, SignalStatus::Acknowledged);
+    }
+
+    #[test]
+    fn pending_ack_no_longer_waits_for_measure_thread_ready() {
         let base = isolated_base();
         write_matching_pending(&base, "post-1");
 
@@ -1444,10 +1613,10 @@ mod tests {
 
         assert_eq!(sm.current(), RecordState::Record);
         assert!(recording.load(Ordering::Relaxed));
-        assert!(!ack.load(Ordering::Relaxed));
-        assert!(partner.is_none());
+        assert!(ack.load(Ordering::Relaxed));
+        assert!(partner.is_some());
         let sig = record_signal::read_signal(&base, TEST_PH, "post-1").unwrap();
-        assert_eq!(sig.status, SignalStatus::Pending);
+        assert_eq!(sig.status, SignalStatus::Acknowledged);
     }
 
     #[test]
@@ -1482,9 +1651,20 @@ mod tests {
     }
 
     #[test]
-    fn pending_ack_retries_after_measure_thread_becomes_ready_without_reentering_record() {
+    fn acknowledged_future_signal_enters_record_after_barrier_reached() {
         let base = isolated_base();
-        write_matching_pending(&base, "post-1");
+        record_signal::write_pending_with_expected(
+            &base,
+            TEST_PH,
+            "post-1",
+            TEST_PRE_IID.into(),
+            TEST_DAW.into(),
+            Some(expected_wav()),
+        )
+        .unwrap();
+        let mut signal = record_signal::read_signal(&base, TEST_PH, "post-1").unwrap();
+        signal.started_at = "2099-01-01T00:00:00Z".to_string();
+        record_signal::write_signal(&base, TEST_PH, "post-1", &signal).unwrap();
 
         let sm = Arc::new(RecordStateMachine::new());
         let recording = Arc::new(AtomicBool::new(false));
@@ -1501,12 +1681,15 @@ mod tests {
             &mut partner,
             TEST_PRE_IID,
             SignalState::Active,
-            false,
+            true,
         );
-        let generation = sm.generation();
-        assert_eq!(sm.current(), RecordState::Record);
-        assert!(!ack.load(Ordering::Relaxed));
-        assert!(partner.is_none());
+        assert_eq!(sm.current(), RecordState::Watch);
+        assert!(ack.load(Ordering::Relaxed));
+        assert!(partner.is_some());
+
+        let mut sig = record_signal::read_signal(&base, TEST_PH, "post-1").unwrap();
+        sig.started_at = "2026-07-05T00:00:00Z".to_string();
+        record_signal::write_signal(&base, TEST_PH, "post-1", &sig).unwrap();
 
         poll_with_base_state_measure_ready(
             &base,
@@ -1521,7 +1704,6 @@ mod tests {
         );
 
         assert_eq!(sm.current(), RecordState::Record);
-        assert_eq!(sm.generation(), generation);
         assert!(recording.load(Ordering::Relaxed));
         assert!(ack.load(Ordering::Relaxed));
         assert_eq!(partner.as_ref().unwrap().post_instance_id, "post-1");
@@ -1530,7 +1712,7 @@ mod tests {
     }
 
     #[test]
-    fn unqualified_released_before_ack_keeps_pending_pre_record() {
+    fn unqualified_released_after_ack_keeps_pre_record() {
         let base = isolated_base();
         write_matching_pending(&base, "post-1");
 
@@ -1554,8 +1736,8 @@ mod tests {
 
         assert_eq!(sm.current(), RecordState::Record);
         assert!(recording.load(Ordering::Relaxed));
-        assert!(!ack.load(Ordering::Relaxed));
-        assert!(partner.is_none());
+        assert!(ack.load(Ordering::Relaxed));
+        assert!(partner.is_some());
 
         record_signal::mark_released(&base, TEST_PH, "post-1").unwrap();
         poll_with_base_state_measure_ready(
@@ -1573,11 +1755,11 @@ mod tests {
         assert_eq!(
             sm.current(),
             RecordState::Record,
-            "unqualified Released is cleanup state and must not stop PRE before ACK"
+            "unqualified Released is cleanup state and must not stop PRE after ACK"
         );
         assert!(recording.load(Ordering::Relaxed));
-        assert!(!ack.load(Ordering::Relaxed));
-        assert!(partner.is_none());
+        assert!(ack.load(Ordering::Relaxed));
+        assert!(partner.is_some());
         let sig = record_signal::read_signal(&base, TEST_PH, "post-1").unwrap();
         assert_eq!(sig.status, SignalStatus::Released);
         assert_eq!(sig.release_reason, None);
@@ -1642,6 +1824,7 @@ mod tests {
             "post-old".to_string(),
             TEST_PRE_IID.to_string(),
             TEST_DAW.to_string(),
+            None,
         );
         old.status = SignalStatus::Released;
         old.started_at = "2026-01-01T00:00:00Z".to_string();
@@ -1728,14 +1911,18 @@ mod tests {
     fn signal_with_different_daw_session_id_is_still_acknowledged() {
         let base = isolated_base();
         // POST が書いた signal の daw_session_id は PRE 側 cell 値と異なる
-        write_pending(
+        record_signal::write_pending_with_expected(
             &base,
             TEST_PH,
             "post-1",
             TEST_PRE_IID.into(),
             "daw-from-POST-cdylib".into(),
+            Some(expected_wav()),
         )
         .unwrap();
+        let mut signal = record_signal::read_signal(&base, TEST_PH, "post-1").unwrap();
+        signal.started_at = "2026-07-05T00:00:00Z".to_string();
+        record_signal::write_signal(&base, TEST_PH, "post-1", &signal).unwrap();
 
         let sm = Arc::new(RecordStateMachine::new());
         let recording = Arc::new(AtomicBool::new(false));
@@ -2734,6 +2921,7 @@ mod tests {
             started_at: "2026-04-19T11:59:30Z".into(),
             paired_pre_name: String::new(),
             release_reason: None,
+            expected_wav: None,
         };
         record_signal::write_signal(&base, TEST_PH, "post-x", &sig).unwrap();
         let loaded = record_signal::read_signal(&base, TEST_PH, "post-x").unwrap();

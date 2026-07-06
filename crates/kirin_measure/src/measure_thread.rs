@@ -727,14 +727,14 @@ fn seed_record_trace_from_pre_roll(
         let include_psb = t_ms >= *next_psb_ms;
         push_record_trace_sample(
             queue,
-            RecordTraceSample {
+            RecordTraceSample::measured(
                 generation,
                 t_ms,
                 t_frames_48k,
-                t_native_frames: Some(t_native_frames),
-                result: sample.result.clone(),
+                Some(t_native_frames),
+                sample.result.clone(),
                 include_psb,
-            },
+            ),
         );
         *next_trace_ms = (t_ms / FRAME_INTERVAL_MS + 1) * FRAME_INTERVAL_MS;
         if include_psb {
@@ -786,14 +786,14 @@ fn maybe_push_record_trace(
     let include_psb = t_ms >= *cursor.next_psb_ms;
     push_record_trace_sample(
         queue,
-        RecordTraceSample {
-            generation: timeline.generation,
+        RecordTraceSample::measured(
+            timeline.generation,
             t_ms,
             t_frames_48k,
             t_native_frames,
-            result: result.clone(),
+            result.clone(),
             include_psb,
-        },
+        ),
     );
     *cursor.next_trace_ms = (t_ms / FRAME_INTERVAL_MS + 1) * FRAME_INTERVAL_MS;
     if include_psb {
@@ -815,14 +815,12 @@ fn push_record_trace_floor_until(
         let t_ms = *cursor.next_trace_ms;
         push_record_trace_sample(
             queue,
-            RecordTraceSample {
+            RecordTraceSample::missing_marker(
                 generation,
                 t_ms,
-                t_frames_48k: t_ms_to_48k_frames(t_ms),
-                t_native_frames: Some(t_ms_to_native_frames(t_ms, sample_rate)),
-                result: MeasureResult::default(),
-                include_psb: false,
-            },
+                t_ms_to_48k_frames(t_ms),
+                Some(t_ms_to_native_frames(t_ms, sample_rate)),
+            ),
         );
         advance_record_trace_cursor(cursor, t_ms, false);
         pushed += 1;
@@ -923,14 +921,12 @@ fn push_record_timeline_markers_until(
             .saturating_add(native_frames_to_48k(native_delta, sample_rate));
         push_record_trace_sample(
             trace.queue,
-            RecordTraceSample {
-                generation: trace.timeline.generation,
-                t_ms: end_t_ms,
+            RecordTraceSample::missing_marker(
+                trace.timeline.generation,
+                end_t_ms,
                 t_frames_48k,
-                t_native_frames: Some(t_native_frames),
-                result: MeasureResult::default(),
-                include_psb: false,
-            },
+                Some(t_native_frames),
+            ),
         );
         pushed += 1;
     }
@@ -970,14 +966,12 @@ fn push_record_trace_clock_markers_until(
     if end_native_frames != grid_native_frames {
         push_record_trace_sample(
             queue,
-            RecordTraceSample {
+            RecordTraceSample::missing_marker(
                 generation,
-                t_ms: end_t_ms,
-                t_frames_48k: native_frames_to_48k(end_native_frames, sample_rate),
-                t_native_frames: Some(end_native_frames),
-                result: MeasureResult::default(),
-                include_psb: false,
-            },
+                end_t_ms,
+                native_frames_to_48k(end_native_frames, sample_rate),
+                Some(end_native_frames),
+            ),
         );
         pushed += 1;
     }

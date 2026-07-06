@@ -46,7 +46,10 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+pub use crate::record_expected::ExpectedWavMetadata;
+
 type HmacSha256 = Hmac<Sha256>;
+const PAIR_RECORD_SESSIONS_DIR: &str = "record_sessions";
 
 fn non_empty_string(value: Option<String>) -> Option<String> {
     value
@@ -163,6 +166,18 @@ pub struct BounceTake {
     pub frame_count: u64,
 }
 
+/// TRACE bake diagnostics. These fields separate a real measured silence frame
+/// from a missing TRACE slot so downstream UI never has to infer absence from
+/// `-100`.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct TraceDiagnostics {
+    pub raw_trace_count: u64,
+    pub expected_frame_count: u64,
+    pub measured_frame_count: u64,
+    pub missing_slots: u64,
+    pub explicit_silence_frame_count: u64,
+}
+
 /// plugin_data/ 1 ファイル分のルート（現行 v1.3）。
 ///
 /// v1.2 (A-3 (a)): `instance_id` field 追加 + `paired_pre_instance_id` /
@@ -261,6 +276,12 @@ pub struct PluginDataFile {
     /// 旧 JSON 互換のため optional additive field。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bounce_take: Option<BounceTake>,
+    /// Kirin OS/Hub から Record 開始前に渡された dropped WAV metadata。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_wav: Option<ExpectedWavMetadata>,
+    /// TRACE 欠損診断。missing は frames[] に測定値として入れない。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trace_diagnostics: Option<TraceDiagnostics>,
     pub validity: bool,
     pub checksum: String,
 }
@@ -353,6 +374,8 @@ impl PluginDataFile {
             commit_status: None,
             integrity_reasons: Vec::new(),
             bounce_take: None,
+            expected_wav: None,
+            trace_diagnostics: None,
             validity: true,
             checksum: String::new(),
         }
@@ -426,6 +449,8 @@ pub struct WriterPaths {
     pub tmp_path: PathBuf,
     /// Record 中の staging JSON。通常 reader は `*.json` だけを見るため拾わない。
     pub staging_path: PathBuf,
+    /// PairRecordSession finalizer 待ちの候補 JSON。通常 reader は role 直下だけを見るため拾わない。
+    pub pair_pending_path: PathBuf,
     /// commit gate で失敗した診断 JSON。通常 reader は role 直下しか見ない。
     pub failed_path: PathBuf,
 }
@@ -459,11 +484,13 @@ impl WriterPaths {
         let final_path = dir.join(format!("{compact}.json"));
         let tmp_path = dir.join(format!("{compact}.json.tmp"));
         let staging_path = dir.join(format!("{compact}.json.partial"));
+        let pair_pending_path = dir.join(".pair_pending").join(format!("{compact}.json"));
         let failed_path = dir.join(".failed").join(format!("{compact}.json"));
         Self {
             final_path,
             tmp_path,
             staging_path,
+            pair_pending_path,
             failed_path,
         }
     }
@@ -560,6 +587,16 @@ impl PluginDataWriter {
     /// WAV と照合するための完成 take 情報を設定する。
     pub fn set_bounce_take(&mut self, take: BounceTake) {
         self.data.bounce_take = Some(take);
+    }
+
+    /// Record 開始前に latch 済みの WAV metadata を設定する。
+    pub fn set_expected_wav(&mut self, expected_wav: Option<ExpectedWavMetadata>) {
+        self.data.expected_wav = expected_wav.filter(ExpectedWavMetadata::is_usable);
+    }
+
+    /// TRACE bake 診断を設定する。
+    pub fn set_trace_diagnostics(&mut self, diagnostics: TraceDiagnostics) {
+        self.data.trace_diagnostics = Some(diagnostics);
     }
 
     /// WAV と対応する clean take 長へ timeline payload を切り詰める。
@@ -750,8 +787,12 @@ impl PluginDataWriter {
         self.data.status = Status::Closed;
         let reasons = self.commit_failure_reasons();
         if reasons.is_empty() {
-            self.data.commit_status = Some("committed".to_string());
-            self.write_atomic(self.paths.final_path.clone())?;
+            self.data.commit_status = Some("pair_pending".to_string());
+            let self_paths = self_paths_for(&self.paths, &self.data);
+            self.write_atomic(self_paths.pair_pending_path.clone())?;
+            if let Err(e) = try_finalize_pair_session(&self.paths, &self.data) {
+                log::warn!("[pair_record_session] finalize attempt failed: {}", e);
+            }
         } else {
             self.data.commit_status = Some("failed".to_string());
             self.data.validity = false;
@@ -766,27 +807,521 @@ impl PluginDataWriter {
     }
 
     fn commit_failure_reasons(&self) -> Vec<&'static str> {
-        let mut reasons = Vec::new();
-        if !self.data.validity {
-            reasons.push("validity_false");
-        }
-        if self.data.frames.is_empty() {
-            reasons.push("zero_trace_frames");
-        }
-        if self.data.sample_rate == 0 {
-            reasons.push("missing_sample_rate");
-        }
-        for reason in &self.data.integrity_reasons {
-            match reason.as_str() {
-                "zero_trace_frames" => reasons.push("zero_trace_frames"),
-                "frame_timeline_gap" => reasons.push("frame_timeline_gap"),
-                "sparse_trace_density" => reasons.push("sparse_trace_density"),
-                "record_too_short" => reasons.push("record_too_short"),
-                _ => {}
-            }
-        }
-        reasons
+        side_publish_failure_reasons(&self.data)
     }
+}
+
+fn side_publish_failure_reasons(data: &PluginDataFile) -> Vec<&'static str> {
+    let mut reasons = Vec::new();
+    if !data.validity {
+        reasons.push("validity_false");
+    }
+    if data.frames.is_empty() {
+        reasons.push("zero_trace_frames");
+    }
+    if data.sample_rate == 0 {
+        reasons.push("missing_sample_rate");
+    }
+    if data.record_session_id.as_deref().is_none_or(str::is_empty) {
+        reasons.push("missing_record_session_id");
+    }
+    let expected = match &data.expected_wav {
+        Some(expected) if expected.is_usable() => Some(expected),
+        _ => {
+            reasons.push("missing_expected_wav_metadata");
+            None
+        }
+    };
+    match data.role {
+        Role::Pre
+            if data
+                .paired_post_instance_id
+                .as_deref()
+                .is_none_or(str::is_empty) =>
+        {
+            reasons.push("missing_paired_post_instance_id")
+        }
+        Role::Post
+            if data
+                .paired_pre_instance_id
+                .as_deref()
+                .is_none_or(str::is_empty) =>
+        {
+            reasons.push("missing_paired_pre_instance_id")
+        }
+        _ => {}
+    }
+    let take = match &data.bounce_take {
+        Some(take) => Some(take),
+        None => {
+            reasons.push("missing_bounce_take");
+            None
+        }
+    };
+    if let (Some(expected), Some(take)) = (expected, take) {
+        if data.sample_rate != expected.expected_sample_rate {
+            reasons.push("sample_rate_expected_mismatch");
+        }
+        if take.sample_rate != expected.expected_sample_rate {
+            reasons.push("bounce_take_sample_rate_mismatch");
+        }
+        if take.duration_samples != expected.expected_duration_samples {
+            reasons.push("bounce_take_duration_mismatch");
+        }
+        if take.alignment_status != "sample_count_ready" {
+            reasons.push("bounce_take_not_sample_count_ready");
+        }
+        if take.source != "expected_wav_duration_native" {
+            reasons.push("bounce_take_source_not_expected_wav");
+        }
+    }
+    if let Some(diag) = &data.trace_diagnostics {
+        if diag.missing_slots > 0 {
+            reasons.push("missing_trace_slots");
+        }
+        if diag.measured_frame_count != diag.expected_frame_count {
+            reasons.push("trace_frame_count_mismatch");
+        }
+    } else {
+        reasons.push("missing_trace_diagnostics");
+    }
+    if data.integrity_degraded {
+        reasons.push("integrity_degraded");
+    }
+    for reason in &data.integrity_reasons {
+        match reason.as_str() {
+            "zero_trace_frames" => reasons.push("zero_trace_frames"),
+            "frame_timeline_gap" => reasons.push("frame_timeline_gap"),
+            "raw_trace_timeline_gap" => reasons.push("raw_trace_timeline_gap"),
+            "sparse_trace_density" => reasons.push("sparse_trace_density"),
+            "record_too_short" => reasons.push("record_too_short"),
+            "record_clock_not_wav_bounded" => reasons.push("record_clock_not_wav_bounded"),
+            "drain_seal_timeout" => reasons.push("drain_seal_timeout"),
+            "missing_trace_slots" => reasons.push("missing_trace_slots"),
+            _ => {}
+        }
+    }
+    dedup_reasons(reasons)
+}
+
+fn dedup_reasons(mut reasons: Vec<&'static str>) -> Vec<&'static str> {
+    let mut out = Vec::with_capacity(reasons.len());
+    for reason in reasons.drain(..) {
+        if !out.contains(&reason) {
+            out.push(reason);
+        }
+    }
+    out
+}
+
+fn try_finalize_pair_session(
+    paths: &WriterPaths,
+    data: &PluginDataFile,
+) -> Result<(), WriterError> {
+    let self_paths = self_paths_for(paths, data);
+    let Some(peer_paths) = peer_paths_for(paths, data) else {
+        return Ok(());
+    };
+    if !peer_paths.pair_pending_path.exists() {
+        return Ok(());
+    }
+    let self_pending = self_paths.pair_pending_path.clone();
+    let mut self_data = read_plugin_data_file(&self_pending)?;
+    let mut peer_data = read_plugin_data_file(&peer_paths.pair_pending_path)?;
+    let reasons = pair_publish_failure_reasons(&self_data, &peer_data);
+    if reasons.is_empty() {
+        self_data.commit_status = Some("committed".to_string());
+        peer_data.commit_status = Some("committed".to_string());
+        publish_pair_committed_files(
+            paths,
+            &self_paths,
+            &mut self_data,
+            &peer_paths,
+            &mut peer_data,
+        )?;
+        mark_pair_expected_metadata_consumed(paths, &self_data);
+        let _ = fs::remove_file(&self_pending);
+        let _ = fs::remove_file(&peer_paths.pair_pending_path);
+        log::info!(
+            "[pair_record_session] published session={} files=({}, {})",
+            self_data.record_session_id.as_deref().unwrap_or(""),
+            self_paths.final_path.display(),
+            peer_paths.final_path.display()
+        );
+    } else {
+        fail_pair_pending(
+            &self_paths.failed_path,
+            &self_pending,
+            &mut self_data,
+            reasons.as_slice(),
+        )?;
+        fail_pair_pending(
+            &peer_paths.failed_path,
+            &peer_paths.pair_pending_path,
+            &mut peer_data,
+            reasons.as_slice(),
+        )?;
+        mark_pair_expected_metadata_consumed(paths, &self_data);
+        log::warn!(
+            "[pair_record_session] quarantined pair session={:?} reasons={:?}",
+            self_data.record_session_id,
+            reasons
+        );
+    }
+    Ok(())
+}
+
+fn publish_pair_committed_files(
+    paths: &WriterPaths,
+    self_paths: &PairPaths,
+    self_data: &mut PluginDataFile,
+    peer_paths: &PairPaths,
+    peer_data: &mut PluginDataFile,
+) -> Result<(), WriterError> {
+    let manifest_path = pair_commit_manifest_path(paths, self_data)?;
+    write_plugin_data_atomic(&self_paths.final_path, self_data)?;
+    if let Err(e) = write_plugin_data_atomic(&peer_paths.final_path, peer_data) {
+        let _ = fs::remove_file(&self_paths.final_path);
+        return Err(e);
+    }
+    if let Err(e) = write_pair_commit_manifest_atomic(
+        &manifest_path,
+        self_paths,
+        self_data,
+        peer_paths,
+        peer_data,
+    ) {
+        let _ = fs::remove_file(&self_paths.final_path);
+        let _ = fs::remove_file(&peer_paths.final_path);
+        return Err(e);
+    }
+    Ok(())
+}
+
+#[derive(Debug, Clone)]
+struct PairPaths {
+    final_path: PathBuf,
+    pair_pending_path: PathBuf,
+    failed_path: PathBuf,
+}
+
+#[derive(Debug, Serialize)]
+struct PairCommitManifest {
+    schema_version: &'static str,
+    session_id: String,
+    project_hash: String,
+    committed_at: String,
+    pre: PairCommitSide,
+    post: PairCommitSide,
+}
+
+#[derive(Debug, Serialize)]
+struct PairCommitSide {
+    instance_id: String,
+    role: &'static str,
+    path: String,
+    checksum: String,
+}
+
+fn self_paths_for(paths: &WriterPaths, data: &PluginDataFile) -> PairPaths {
+    let Some(file_name) = pair_session_file_name(data) else {
+        return PairPaths {
+            final_path: paths.final_path.clone(),
+            pair_pending_path: paths.pair_pending_path.clone(),
+            failed_path: paths.failed_path.clone(),
+        };
+    };
+    let role_dir = paths.final_path.parent().unwrap_or_else(|| Path::new(""));
+    PairPaths {
+        final_path: role_dir.join(&file_name),
+        pair_pending_path: role_dir.join(".pair_pending").join(&file_name),
+        failed_path: role_dir.join(".failed").join(&file_name),
+    }
+}
+
+fn peer_paths_for(paths: &WriterPaths, data: &PluginDataFile) -> Option<PairPaths> {
+    let root = plugin_data_root_from_final_path(&paths.final_path)?;
+    let file_name = pair_session_file_name(data)?;
+    let (peer_role, peer_iid) = match data.role {
+        Role::Pre => (Role::Post, data.paired_post_instance_id.as_deref()?),
+        Role::Post => (Role::Pre, data.paired_pre_instance_id.as_deref()?),
+    };
+    let ph = crate::path_identity::guard_path_component(
+        &data.project_hash,
+        "pair_record_session.peer.project_hash",
+    );
+    let peer_iid = crate::path_identity::guard_path_component(
+        peer_iid,
+        "pair_record_session.peer.instance_id",
+    );
+    let dir = root.join(&*ph).join(&*peer_iid).join(peer_role.dir_name());
+    Some(PairPaths {
+        final_path: dir.join(&file_name),
+        pair_pending_path: dir.join(".pair_pending").join(&file_name),
+        failed_path: dir.join(".failed").join(&file_name),
+    })
+}
+
+fn pair_commit_manifest_path(
+    paths: &WriterPaths,
+    data: &PluginDataFile,
+) -> Result<PathBuf, WriterError> {
+    let root = plugin_data_root_from_final_path(&paths.final_path).ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            "plugin_data root not resolvable",
+        )
+    })?;
+    let file_name = pair_session_file_name(data)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "record_session_id missing"))?;
+    let ph = crate::path_identity::guard_path_component(
+        &data.project_hash,
+        "pair_record_session.manifest.project_hash",
+    );
+    Ok(root
+        .join(&*ph)
+        .join(PAIR_RECORD_SESSIONS_DIR)
+        .join(file_name))
+}
+
+fn pair_session_file_name(data: &PluginDataFile) -> Option<String> {
+    let session_id = data.record_session_id.as_deref()?.trim();
+    if session_id.is_empty() {
+        return None;
+    }
+    let safe = crate::path_identity::guard_path_component(
+        session_id,
+        "pair_record_session.record_session_id",
+    );
+    Some(format!("{safe}.json"))
+}
+
+/// Startup/recovery 時に残った PairRecordSession pending を再試行する。
+///
+/// peer 未到着の session は保持し、peer が揃った session だけ committed/failed の
+/// どちらかへ収束させる。通常棚へ片側だけ publish しないための durable finalizer。
+pub fn finalize_pair_pending_sessions(plugin_data_root: &Path) -> usize {
+    let mut finalized = 0_usize;
+    if !plugin_data_root.is_dir() {
+        return finalized;
+    }
+    walk_pair_pending(plugin_data_root, &mut finalized);
+    finalized
+}
+
+fn walk_pair_pending(dir: &Path, finalized: &mut usize) {
+    let entries = match fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(_) => return,
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let ftype = match entry.file_type() {
+            Ok(ftype) => ftype,
+            Err(_) => continue,
+        };
+        if ftype.is_dir() {
+            walk_pair_pending(&path, finalized);
+            continue;
+        }
+        if !ftype.is_file() || path.extension().is_none_or(|ext| ext != "json") {
+            continue;
+        }
+        if path
+            .parent()
+            .and_then(Path::file_name)
+            .and_then(|n| n.to_str())
+            != Some(".pair_pending")
+        {
+            continue;
+        }
+        let Some(paths) = writer_paths_from_pair_pending_path(&path) else {
+            continue;
+        };
+        let data = match read_plugin_data_file(&path) {
+            Ok(data) => data,
+            Err(e) => {
+                log::warn!(
+                    "[pair_record_session] pending read failed during sweep: {} ({})",
+                    path.display(),
+                    e
+                );
+                continue;
+            }
+        };
+        if let Err(e) = try_finalize_pair_session(&paths, &data) {
+            log::warn!(
+                "[pair_record_session] pending finalize failed during sweep: {} ({})",
+                path.display(),
+                e
+            );
+            continue;
+        }
+        if !path.exists() {
+            *finalized = finalized.saturating_add(1);
+        }
+    }
+}
+
+fn writer_paths_from_pair_pending_path(pair_pending_path: &Path) -> Option<WriterPaths> {
+    let file_name = pair_pending_path.file_name()?.to_owned();
+    let role_dir = pair_pending_path.parent()?.parent()?;
+    Some(WriterPaths {
+        final_path: role_dir.join(&file_name),
+        tmp_path: role_dir.join(format!("{}.tmp", file_name.to_string_lossy())),
+        staging_path: role_dir.join(format!("{}.partial", file_name.to_string_lossy())),
+        pair_pending_path: pair_pending_path.to_path_buf(),
+        failed_path: role_dir.join(".failed").join(&file_name),
+    })
+}
+
+fn plugin_data_root_from_final_path(final_path: &Path) -> Option<PathBuf> {
+    final_path
+        .parent()
+        .and_then(Path::parent)
+        .and_then(Path::parent)
+        .and_then(Path::parent)
+        .map(Path::to_path_buf)
+}
+
+fn read_plugin_data_file(path: &Path) -> Result<PluginDataFile, WriterError> {
+    let bytes = fs::read(path)?;
+    let data: PluginDataFile = serde_json::from_slice(&bytes)?;
+    Ok(data)
+}
+
+fn write_plugin_data_atomic(path: &Path, data: &mut PluginDataFile) -> Result<(), WriterError> {
+    data.checksum = compute_checksum(data)?;
+    let json = serde_json::to_vec(data)?;
+    crate::atomic_file::write_bytes_atomic(path, &json)?;
+    Ok(())
+}
+
+fn write_pair_commit_manifest_atomic(
+    manifest_path: &Path,
+    self_paths: &PairPaths,
+    self_data: &PluginDataFile,
+    peer_paths: &PairPaths,
+    peer_data: &PluginDataFile,
+) -> Result<(), WriterError> {
+    let (pre_paths, pre_data, post_paths, post_data) = match (self_data.role, peer_data.role) {
+        (Role::Pre, Role::Post) => (self_paths, self_data, peer_paths, peer_data),
+        (Role::Post, Role::Pre) => (peer_paths, peer_data, self_paths, self_data),
+        _ => {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "pair roles invalid").into());
+        }
+    };
+    let session_id = self_data
+        .record_session_id
+        .as_deref()
+        .unwrap_or_default()
+        .to_string();
+    let manifest = PairCommitManifest {
+        schema_version: "pair_record_session.v1",
+        session_id,
+        project_hash: self_data.project_hash.clone(),
+        committed_at: chrono::Utc::now()
+            .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+            .to_string(),
+        pre: pair_commit_side(pre_paths, pre_data, "PRE"),
+        post: pair_commit_side(post_paths, post_data, "POST"),
+    };
+    let json = serde_json::to_vec(&manifest)?;
+    crate::atomic_file::write_bytes_atomic(manifest_path, &json)?;
+    Ok(())
+}
+
+fn pair_commit_side(
+    paths: &PairPaths,
+    data: &PluginDataFile,
+    role: &'static str,
+) -> PairCommitSide {
+    PairCommitSide {
+        instance_id: data.instance_id.clone(),
+        role,
+        path: paths.final_path.to_string_lossy().to_string(),
+        checksum: data.checksum.clone(),
+    }
+}
+
+fn mark_pair_expected_metadata_consumed(paths: &WriterPaths, data: &PluginDataFile) {
+    let Some(root) = plugin_data_root_from_final_path(&paths.final_path) else {
+        return;
+    };
+    let Some(expected) = data.expected_wav.as_ref() else {
+        return;
+    };
+    let Some(session_id) = data.record_session_id.as_deref() else {
+        return;
+    };
+    if let Err(e) = crate::record_expected::mark_expected_metadata_consumed(
+        &root,
+        &data.project_hash,
+        &expected.bounce_id,
+        session_id,
+    ) {
+        log::warn!(
+            "[pair_record_session] expected metadata consume marker failed: project={} bounce={} err={}",
+            data.project_hash,
+            expected.bounce_id,
+            e
+        );
+    }
+}
+
+fn fail_pair_pending(
+    failed_path: &Path,
+    pending_path: &Path,
+    data: &mut PluginDataFile,
+    reasons: &[&'static str],
+) -> Result<(), WriterError> {
+    data.commit_status = Some("failed".to_string());
+    data.validity = false;
+    data.integrity_degraded = true;
+    for reason in reasons {
+        if !data
+            .integrity_reasons
+            .iter()
+            .any(|existing| existing == reason)
+        {
+            data.integrity_reasons.push((*reason).to_string());
+        }
+    }
+    write_plugin_data_atomic(failed_path, data)?;
+    let _ = fs::remove_file(pending_path);
+    Ok(())
+}
+
+fn pair_publish_failure_reasons(
+    left: &PluginDataFile,
+    right: &PluginDataFile,
+) -> Vec<&'static str> {
+    let mut reasons = side_publish_failure_reasons(left);
+    reasons.extend(side_publish_failure_reasons(right));
+    let (pre, post) = match (left.role, right.role) {
+        (Role::Pre, Role::Post) => (left, right),
+        (Role::Post, Role::Pre) => (right, left),
+        _ => {
+            reasons.push("pair_roles_not_pre_post");
+            return dedup_reasons(reasons);
+        }
+    };
+    if pre.project_hash != post.project_hash {
+        reasons.push("pair_project_hash_mismatch");
+    }
+    if pre.record_session_id != post.record_session_id {
+        reasons.push("pair_record_session_id_mismatch");
+    }
+    if pre.paired_post_instance_id.as_deref() != Some(post.instance_id.as_str()) {
+        reasons.push("pair_pre_post_link_mismatch");
+    }
+    if post.paired_pre_instance_id.as_deref() != Some(pre.instance_id.as_str()) {
+        reasons.push("pair_post_pre_link_mismatch");
+    }
+    if pre.expected_wav != post.expected_wav {
+        reasons.push("pair_expected_wav_mismatch");
+    }
+    dedup_reasons(reasons)
 }
 
 // ── Annotation 追記（サブ2-C / Note ボタン）──────────────────────────────────
@@ -982,6 +1517,86 @@ mod tests {
         .unwrap()
     }
 
+    fn expected_wav_fixture() -> ExpectedWavMetadata {
+        let now_ms = 1_800_000_000_000;
+        ExpectedWavMetadata {
+            expected_duration_samples: 48_000,
+            expected_sample_rate: 48_000,
+            wav_path: "/tmp/kirin-plugin-data-test.wav".to_string(),
+            bounce_id: "bounce-plugin-data-test".to_string(),
+            created_at_ms: now_ms,
+            wav_file_size: Some(192_044),
+            wav_mtime_ms: now_ms,
+            wav_hash: Some("hash-plugin-data-test".to_string()),
+            consumed_at_ms: None,
+            consumed_by_session_id: None,
+        }
+    }
+
+    fn complete_pair_writer(
+        base: &Path,
+        role: Role,
+        instance_id: &str,
+        paired_pre_instance_id: Option<String>,
+        paired_post_instance_id: Option<String>,
+    ) -> PluginDataWriter {
+        let paths = WriterPaths::build(
+            base,
+            "project_hash_test",
+            instance_id,
+            role,
+            "2026-04-17T14:32:08.000Z",
+        );
+        let mut w = PluginDataWriter::create(
+            paths,
+            "11111111-2222-4333-8444-555555555555".to_string(),
+            "project_hash_test".to_string(),
+            instance_id.to_string(),
+            role,
+            None,
+            48_000,
+            paired_pre_instance_id,
+            paired_post_instance_id,
+            None,
+            None,
+        )
+        .unwrap();
+        w.set_record_session_id(Some("session-pair-atomic".to_string()));
+        w.set_expected_wav(Some(expected_wav_fixture()));
+        w.set_bounce_take(BounceTake {
+            source: "expected_wav_duration_native".to_string(),
+            time_axis: "native_samples".to_string(),
+            alignment_status: "sample_count_ready".to_string(),
+            sample_rate: 48_000,
+            wav_start_sample: 0,
+            wav_end_sample: 48_000,
+            duration_samples: 48_000,
+            duration_frames_48k: 48_000,
+            start_t_ms: 0,
+            end_t_ms: 1_000,
+            trace_sample_count: 2,
+            frame_count: 2,
+        });
+        w.set_trace_diagnostics(TraceDiagnostics {
+            raw_trace_count: 2,
+            expected_frame_count: 2,
+            measured_frame_count: 2,
+            missing_slots: 0,
+            explicit_silence_frame_count: 0,
+        });
+        w.append_frame(0, [0.0; 20], 0.0, -20.0, -1.0, 12.0, Some(10.0));
+        w.append_frame(1_000, [0.0; 20], 0.0, -20.0, -1.0, 12.0, Some(10.0));
+        w
+    }
+
+    fn write_final_for_annotation_test(mut w: PluginDataWriter) -> PathBuf {
+        let path = w.paths.final_path.clone();
+        w.data.status = Status::Closed;
+        w.data.commit_status = Some("committed".to_string());
+        w.write_atomic(path.clone()).unwrap();
+        path
+    }
+
     #[test]
     fn role_string_conversion() {
         assert_eq!(Role::Pre.as_str(), "PRE");
@@ -1036,6 +1651,12 @@ mod tests {
             p.staging_path,
             Path::new(&format!(
                 "/tmp/kirin_base/ph/iid-1/pre/{compact}.json.partial"
+            ))
+        );
+        assert_eq!(
+            p.pair_pending_path,
+            Path::new(&format!(
+                "/tmp/kirin_base/ph/iid-1/pre/.pair_pending/{compact}.json"
             ))
         );
         assert_eq!(
@@ -1312,11 +1933,12 @@ mod tests {
         let mut w = sample_writer(&base, Role::Pre);
         w.append_frame(0, [1.0; 20], 1.0, -14.0, -1.0, 12.0, None);
         w.append_frame(100, [1.1; 20], 1.1, -13.9, -0.9, 12.1, None);
-        let final_path = w.paths.final_path.clone();
+        let failed_path = w.paths.failed_path.clone();
         w.close().unwrap();
-        let bytes = fs::read(&final_path).unwrap();
+        let bytes = fs::read(&failed_path).unwrap();
         let loaded: PluginDataFile = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(loaded.status, Status::Closed);
+        assert_eq!(loaded.commit_status.as_deref(), Some("failed"));
         assert!(verify_checksum(&loaded));
     }
 
@@ -1464,6 +2086,72 @@ mod tests {
     }
 
     #[test]
+    fn pair_finalize_publishes_both_sides_and_manifest() {
+        let base = isolated_dir();
+        let mut pre = complete_pair_writer(
+            &base,
+            Role::Pre,
+            "iid-pre-atomic",
+            None,
+            Some("iid-post-atomic".to_string()),
+        );
+        let mut post = complete_pair_writer(
+            &base,
+            Role::Post,
+            "iid-post-atomic",
+            Some("iid-pre-atomic".to_string()),
+            None,
+        );
+        crate::record_expected::write_expected_metadata(
+            &base,
+            "project_hash_test",
+            &expected_wav_fixture(),
+        )
+        .unwrap();
+
+        pre.data.status = Status::Closed;
+        pre.data.commit_status = Some("pair_pending".to_string());
+        post.data.status = Status::Closed;
+        post.data.commit_status = Some("pair_pending".to_string());
+        let pre_paths = self_paths_for(&pre.paths, &pre.data);
+        let post_paths = self_paths_for(&post.paths, &post.data);
+        pre.write_atomic(pre_paths.pair_pending_path.clone())
+            .unwrap();
+        post.write_atomic(post_paths.pair_pending_path.clone())
+            .unwrap();
+
+        try_finalize_pair_session(&pre.paths, &pre.data).unwrap();
+
+        let manifest_path = pair_commit_manifest_path(&pre.paths, &pre.data).unwrap();
+        assert!(pre_paths.final_path.exists(), "PRE final must publish");
+        assert!(post_paths.final_path.exists(), "POST final must publish");
+        assert!(
+            manifest_path.exists(),
+            "pair commit manifest must be the publish barrier"
+        );
+        assert!(
+            !pre_paths.pair_pending_path.exists() && !post_paths.pair_pending_path.exists(),
+            "pending files are removed only after pair publish succeeds"
+        );
+        let pre_data: PluginDataFile =
+            serde_json::from_slice(&fs::read(&pre_paths.final_path).unwrap()).unwrap();
+        let post_data: PluginDataFile =
+            serde_json::from_slice(&fs::read(&post_paths.final_path).unwrap()).unwrap();
+        assert_eq!(pre_data.commit_status.as_deref(), Some("committed"));
+        assert_eq!(post_data.commit_status.as_deref(), Some("committed"));
+        assert!(verify_checksum(&pre_data));
+        assert!(verify_checksum(&post_data));
+        let manifest = String::from_utf8(fs::read(&manifest_path).unwrap()).unwrap();
+        assert!(manifest.contains("session-pair-atomic"));
+        assert!(manifest.contains("iid-pre-atomic"));
+        assert!(manifest.contains("iid-post-atomic"));
+        assert!(matches!(
+            crate::record_expected::read_expected_metadata(&base, "project_hash_test"),
+            Err(crate::record_expected::ExpectedMetadataError::Consumed)
+        ));
+    }
+
+    #[test]
     fn fallback_started_at_ms_may_differ_between_pre_and_post() {
         let base = isolated_dir();
         let mut pre = sample_writer(&base, Role::Pre);
@@ -1550,8 +2238,7 @@ mod tests {
         let base = isolated_dir();
         let mut w = sample_writer(&base, Role::Post);
         w.append_frame(0, [1.0; 20], 1.0, -14.0, -1.0, 12.0, None);
-        let path = w.paths.final_path.clone();
-        w.close().unwrap();
+        let path = write_final_for_annotation_test(w);
 
         let ok = append_annotation_to_latest(
             &base,
@@ -1585,6 +2272,7 @@ mod tests {
                 final_path: dir.join(format!("{stamp}.json")),
                 tmp_path: dir.join(format!("{stamp}.json.tmp")),
                 staging_path: dir.join(format!("{stamp}.json.partial")),
+                pair_pending_path: dir.join(".pair_pending").join(format!("{stamp}.json")),
                 failed_path: dir.join(".failed").join(format!("{stamp}.json")),
             };
             let mut w = PluginDataWriter::create(
@@ -1602,7 +2290,7 @@ mod tests {
             )
             .unwrap();
             w.append_frame(0, [1.0; 20], 1.0, -14.0, -1.0, 12.0, None);
-            w.close().unwrap();
+            let _ = write_final_for_annotation_test(w);
         }
 
         let ok = append_annotation_to_latest(
@@ -1630,8 +2318,7 @@ mod tests {
         let mut w = sample_writer(&base, Role::Post);
         w.append_annotation("初期メモ".to_string());
         w.append_frame(0, [1.0; 20], 1.0, -14.0, -1.0, 12.0, None);
-        let final_path = w.paths.final_path.clone();
-        w.close().unwrap();
+        let final_path = write_final_for_annotation_test(w);
 
         let ok = append_annotation_to_latest(
             &base,

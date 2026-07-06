@@ -18,7 +18,7 @@ use std::time::Duration;
 
 use approx::{abs_diff_eq, assert_relative_eq, relative_eq};
 
-use kirin_hypha_ffi::KirinHyphaEngine;
+use kirin_hypha_ffi::{ExpectedWavMetadataInput, KirinHyphaEngine};
 use kirin_measure::engine::{MeasureEngine, SessionSummary};
 use kirin_measure::phase_d::stream::{PhaseDResult, PhaseDStream};
 use kirin_measure::phase_d::tables::FieldType;
@@ -33,6 +33,32 @@ const PSB_ABS_FLOOR: f64 = 1e-9; // 同一コード経路の数値ノイズ吸�
 const PHASE_D_PARITY_SECONDS: f64 = 6.0; // async FFI publication may lag one frame; use converged steady state
 const PHASE_D_PARITY_BLOCK_SLEEP_MS: u64 = 110; // keep below the 2s ring cap even under parallel tests
 const PHASE_D_PARITY_DIRECT_TAIL_CANDIDATES: usize = 16; // latest 0.1s publish candidates for async FFI
+
+fn arm_expected_wav(engine: &KirinHyphaEngine, label: &str) {
+    assert!(
+        engine.set_expected_wav_metadata(ExpectedWavMetadataInput {
+            bounce_id: format!("bounce-{label}-{}", std::process::id()),
+            expected_duration_samples: SR as u64 * 4,
+            expected_sample_rate: SR,
+            wav_path: format!("/tmp/kirin-hypha-{label}.wav"),
+            wav_file_size: 384_044,
+            wav_mtime_ms: kirin_measure::record_writer::now_epoch_ms(),
+            wav_hash: format!("hash-{label}-{}", std::process::id()),
+        }),
+        "expected WAV metadata must arm for {label}"
+    );
+}
+
+fn wait_until_recording(engine: &KirinHyphaEngine, label: &str) {
+    for _ in 0..30 {
+        if engine.is_recording() {
+            return;
+        }
+        engine.push_samples(&[], 2);
+        sleep(Duration::from_millis(100));
+    }
+    panic!("engine did not enter Record after Keep/ACK barrier: {label}");
+}
 
 /// 定常マルチトーン（200/1000/5000 Hz）, L==R, f32 interleaved。
 fn gen_stereo_f32(seconds: f64) -> Vec<f32> {
@@ -676,6 +702,42 @@ fn find_json_under(
     None
 }
 
+fn find_failed_json_under_role(
+    root: &std::path::Path,
+    role_name: &str,
+) -> Option<std::path::PathBuf> {
+    let rd = std::fs::read_dir(root).ok()?;
+    for e in rd.flatten() {
+        let p = e.path();
+        if p.is_dir() {
+            if let Some(found) = find_failed_json_under_role(&p, role_name) {
+                return Some(found);
+            }
+        } else {
+            let fname = p.file_name().and_then(|n| n.to_str());
+            let parent = p.parent();
+            let parent_name = parent
+                .and_then(|pp| pp.file_name())
+                .and_then(|n| n.to_str());
+            let grandparent_name = parent
+                .and_then(|pp| pp.parent())
+                .and_then(|pp| pp.file_name())
+                .and_then(|n| n.to_str());
+            if fname.map(|n| n.ends_with(".json")).unwrap_or(false)
+                && parent_name == Some(".failed")
+                && grandparent_name == Some(role_name)
+            {
+                return Some(p);
+            }
+        }
+    }
+    None
+}
+
+fn has_integrity_reason(pd: &kirin_measure::plugin_data::PluginDataFile, reason: &str) -> bool {
+    pd.integrity_reasons.iter().any(|r| r == reason)
+}
+
 /// enable_pre_writes → Record セッションで `{ph}/{iid}/pre/{wall}.json`（永続）と
 /// Watch `pre.json`（揮発）が io_thread_pre により書かれることを検証する。
 /// HOME/TMPDIR を temp に差し替えて分離（io_thread spawn 前に設定し、テスト中変更しない）。
@@ -765,9 +827,14 @@ fn pre_writes_records_plugin_data_json() {
         engine.exit_record();
         sleep(Duration::from_millis(900));
 
-        // Record 永続 .json（{ph}/{iid}/pre/{wall}.json）を読み戻す。
-        let rec = find_json_under(&plugin_data_root, "pre", "*.json")
-            .expect("Record pre/{wall}.json must exist after record");
+        assert!(
+            find_json_under(&plugin_data_root, "pre", "*.json").is_none(),
+            "PairRecordSession/expected WAV が無い単独 PRE は通常棚へ publish しない"
+        );
+
+        // Record 診断 .json（{ph}/{iid}/pre/.failed/{wall}.json）を読み戻す。
+        let rec = find_failed_json_under_role(&plugin_data_root, "pre")
+            .expect("diagnostic Record pre/.failed/{wall}.json must exist after record");
         eprintln!("[pre write] record file = {}", rec.display());
         let content = std::fs::read_to_string(&rec).unwrap();
         let pd: PluginDataFile =
@@ -777,7 +844,15 @@ fn pre_writes_records_plugin_data_json() {
         assert_eq!(pd.schema_version, "1.3", "schema_version");
         assert_eq!(pd.role, Role::Pre, "role must be PRE");
         assert_eq!(pd.status, Status::Closed, "exit+flush 後は status=closed");
-        assert_eq!(pd.commit_status.as_deref(), Some("committed"));
+        assert_eq!(pd.commit_status.as_deref(), Some("failed"));
+        assert!(!pd.validity, "diagnostic-only Record is validity=false");
+        assert!(
+            pd.integrity_degraded,
+            "diagnostic-only Record is integrity_degraded=true"
+        );
+        assert!(has_integrity_reason(&pd, "missing_record_session_id"));
+        assert!(has_integrity_reason(&pd, "missing_expected_wav_metadata"));
+        assert!(has_integrity_reason(&pd, "missing_paired_post_instance_id"));
         assert!(!pd.frames.is_empty(), "frames[] non-empty");
         let f0 = &pd.frames[0];
         assert!(
@@ -966,7 +1041,7 @@ fn add_annotation_denied_without_os() {
 /// add_annotation が Record の .json に memo を追記し、非 Os では追記されないこと（gate）。
 #[test]
 #[ignore = "slow: realtime ~12s record + io_thread filesystem writes (sets HOME/TMPDIR)"]
-fn set_identity_drives_path_and_annotation() {
+fn set_identity_drives_path_and_diagnostic_record_is_not_annotatable() {
     use kirin_measure::plugin_data::PluginDataFile;
 
     let test_root = std::env::temp_dir()
@@ -1048,8 +1123,14 @@ fn set_identity_drives_path_and_annotation() {
         engine.exit_record();
         sleep(Duration::from_millis(900));
 
-        // path = {known_puid}/{known_iid}/pre/ （set_identity が path を決める = 復元再現）。
-        let rec = find_json_under(&plugin_data_root, "pre", "*.json").expect("record .json exists");
+        assert!(
+            find_json_under(&plugin_data_root, "pre", "*.json").is_none(),
+            "PairRecordSession/expected WAV が無い単独 PRE は通常棚へ publish しない"
+        );
+
+        // path = {known_puid}/{known_iid}/pre/.failed/ （set_identity が path を決める = 復元再現）。
+        let rec = find_failed_json_under_role(&plugin_data_root, "pre")
+            .expect("failed record .json exists");
         let rec_s = rec.to_string_lossy().to_string();
         eprintln!("[3c] record path = {rec_s}");
         assert!(
@@ -1061,15 +1142,23 @@ fn set_identity_drives_path_and_annotation() {
             "path に set した instance_id を使う: {rec_s}"
         );
 
-        // Note: Os + Record close 後に add_annotation → annotations[] に memo。
-        assert!(
-            engine.add_annotation("note-A".to_string()),
-            "Os の add_annotation は true"
-        );
         let pd: PluginDataFile =
             serde_json::from_str(&std::fs::read_to_string(&rec).unwrap()).unwrap();
-        assert_eq!(pd.annotations.len(), 1, "annotation が 1 件追記される");
-        assert_eq!(pd.annotations[0].memo, "note-A");
+        assert_eq!(pd.commit_status.as_deref(), Some("failed"));
+        assert!(has_integrity_reason(&pd, "missing_record_session_id"));
+        assert!(has_integrity_reason(&pd, "missing_expected_wav_metadata"));
+
+        // Pair/expected 不足で隔離された診断 Record は annotation 対象にしない。
+        assert!(
+            !engine.add_annotation("note-A".to_string()),
+            "diagnostic-only Record への add_annotation は false"
+        );
+        let pd_after: PluginDataFile =
+            serde_json::from_str(&std::fs::read_to_string(&rec).unwrap()).unwrap();
+        assert!(
+            pd_after.annotations.is_empty(),
+            "diagnostic Record は注釈不変"
+        );
 
         // gate: Sense へ降格 → add_annotation false・annotations 不変。
         engine.set_license(1);
@@ -1079,7 +1168,7 @@ fn set_identity_drives_path_and_annotation() {
         );
         let pd2: PluginDataFile =
             serde_json::from_str(&std::fs::read_to_string(&rec).unwrap()).unwrap();
-        assert_eq!(pd2.annotations.len(), 1, "Sense では追記されない（gate）");
+        assert!(pd2.annotations.is_empty(), "Sense でも追記されない（gate）");
     }
 
     let _ = std::fs::remove_dir_all(&test_root);
@@ -1296,7 +1385,9 @@ fn post_keep_acked_by_colocated_pre() {
 
         // 成功: "mix"（pair target setter で別名選択が効く）→ keep true。
         post.set_pair_target("mix".into());
+        arm_expected_wav(&post, "strict-pair-mix");
         assert!(post.keep(), "一意 PRE 'mix' で keep=true");
+        wait_until_recording(&post, "strict-pair-mix");
         assert!(post.is_recording(), "keep 成功で POST Record 開始");
 
         // poll_delta は Δ を返す（PRE active）。
@@ -1409,7 +1500,9 @@ fn capstone_paired_record_output_and_linkage() {
         drive(1.5);
 
         // 2) POST Keep → PRE が discover→ack→自動 Record（1s discover + 1s poll throttle）。
+        arm_expected_wav(&post, "capstone");
         assert!(post.keep(), "一意 PRE 'mix' で keep=true");
+        wait_until_recording(&post, "capstone");
         assert!(post.is_recording(), "POST Record 開始");
 
         // 3) ペア録音セッション（PRE が ack して Record に入り、両者 frames を書く）。
@@ -1603,10 +1696,12 @@ fn keep_failure_after_enter_reverts_record_state() {
 
         // ── positive control: platform env 復帰で同 PRE が keep 成功 → 上の失敗は select=Some 後
         //    （= ⑤ post-enter 失敗）だったと立証。失敗とこの control の間に sleep を挟まない。
+        arm_expected_wav(&post, "storage-recovered");
         assert!(
             post.keep(),
             "HOME 復帰: 同 PRE が選定可 → keep()=true（失敗経路が select 到達済を立証）"
         );
+        wait_until_recording(&post, "storage-recovered");
         assert!(post.is_recording(), "成功 keep で Record 開始");
         post.stop();
         assert!(!post.is_recording(), "stop で Watch へ");
@@ -1691,7 +1786,9 @@ fn post_add_annotation_targets_post_role() {
         let _ = bl;
 
         drive(1.5); // PRE pre.json active
+        arm_expected_wav(&post, "annotation-post");
         assert!(post.keep(), "keep true");
+        wait_until_recording(&post, "annotation-post");
         drive(4.0); // PRE acks + both record frames
         post.stop();
         drive(2.0); // PRE closes; both Record .json status=closed
@@ -1849,7 +1946,9 @@ fn double_keep_preserves_linkage() {
         pre.push_samples(&[], 2);
 
         // 1 回目 keep: 成功 → Record + linkage Some(iid-pre)。
+        arm_expected_wav(&post, "double-keep");
         assert!(post.keep(), "1st keep true");
+        wait_until_recording(&post, "double-keep");
         assert!(post.is_recording(), "1st keep enters Record");
         assert_eq!(
             post.paired_pre_target_snapshot().as_deref(),
@@ -2252,7 +2351,9 @@ fn b140_inactive_keep_latches_pre_for_delta_after_audio() {
         sleep(Duration::from_millis(50));
     }
 
+    arm_expected_wav(&post, "inactive-keep-latch");
     assert!(post.keep(), "Inactive but fresh PRE should be armable");
+    wait_until_recording(&post, "inactive-keep-latch");
     assert!(
         post.is_recording(),
         "POST enters Record while still inactive"
@@ -2361,11 +2462,13 @@ fn b127_engine_counts_pairings_not_markers() {
         sleep(Duration::from_millis(40));
     }
 
+    arm_expected_wav(&post, "b127-bidi12");
     let entered = post.keep();
     assert!(
         entered,
         "keep must succeed despite 24 active markers (枠=0 / cap 真実源は marker でなく O_EXCL 枠存在)"
     );
+    wait_until_recording(&post, "b127-bidi12");
     assert!(
         post.is_recording(),
         "engine enters Record (frame-counted, markers ignored)"
@@ -2401,6 +2504,7 @@ fn b127_reservation_released_on_stop() {
         .join(puid)
         .join("record_reservation")
         .join("iid-pre__iid-rel.json");
+    arm_expected_wav(&post, "b127-release");
     assert!(post.keep(), "keep succeeds");
     assert!(res_path.exists(), "keep が O_EXCL reservation 枠を作る");
     post.stop();
@@ -2438,6 +2542,7 @@ fn b127_reservation_released_on_drop() {
         .join(puid)
         .join("record_reservation")
         .join("iid-pre__iid-rel-drop.json");
+    arm_expected_wav(&post, "b127-release-drop");
     assert!(post.keep(), "keep succeeds");
     assert!(res_path.exists(), "keep creates the reservation frame");
     drop(post);
@@ -2473,6 +2578,7 @@ fn b127_engine_caps_at_twelve_and_notifies() {
         sleep(Duration::from_millis(40));
     }
 
+    arm_expected_wav(&post, "b127-cap12");
     let entered = post.keep();
     assert!(
         !entered,
@@ -2512,8 +2618,10 @@ fn b127_engine_allows_keep_under_cap() {
         sleep(Duration::from_millis(40));
     }
 
+    arm_expected_wav(&post, "b127-under11");
     let entered = post.keep();
     assert!(entered, "12th keep (< cap) must succeed");
+    wait_until_recording(&post, "b127-under11");
     assert!(post.is_recording(), "engine enters Record under cap");
     assert_eq!(
         post.record_error_message(),
@@ -2566,10 +2674,12 @@ fn b127_keep_sweeps_stale_orphan_frames_before_cap() {
     }
     assert_eq!(kirin_measure::reservation::count_frames(&base, puid), 12);
 
+    arm_expected_wav(&post, "b127-stale12");
     assert!(
         post.keep(),
         "stale orphan frames must not block a valid keep after sweep"
     );
+    wait_until_recording(&post, "b127-stale12");
     assert!(post.is_recording());
     assert_eq!(
         kirin_measure::reservation::count_frames(&base, puid),

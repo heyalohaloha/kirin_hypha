@@ -25,8 +25,8 @@ use std::time::{Duration, Instant, SystemTime};
 
 use crate::engine::SessionSummary;
 use crate::plugin_data::{
-    compute_checksum, verify_checksum, BounceTake, PluginDataFile, PluginDataWriter, Role, Status,
-    WriterPaths,
+    compute_checksum, verify_checksum, BounceTake, ExpectedWavMetadata, PluginDataFile,
+    PluginDataWriter, Role, Status, TraceDiagnostics, WriterPaths,
 };
 use crate::record::RecordStateMachine;
 use crate::record_signal;
@@ -57,8 +57,17 @@ pub const FLUSH_INTERVAL: Duration = Duration::from_secs(30);
 ///
 /// `t_ms` は壁時計ではなく、MeasureEngine が処理した音声フレーム数から作る音声時間。
 /// Offline bounce では壁時計がほとんど進まないため、このキューを正本にして TRACE を焼く。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RecordTraceKind {
+    /// MeasureEngine が実際に計測したフレーム。真の無音も core metrics を持つ measured frame。
+    Measured,
+    /// Measure Thread が時間軸だけを前進させる marker。frames[] には焼かない。
+    Missing,
+}
+
 #[derive(Debug, Clone)]
 pub struct RecordTraceSample {
+    pub kind: RecordTraceKind,
     pub generation: u64,
     pub t_ms: u64,
     pub t_frames_48k: u64,
@@ -69,6 +78,48 @@ pub struct RecordTraceSample {
     pub t_native_frames: Option<u64>,
     pub result: MeasureResult,
     pub include_psb: bool,
+}
+
+impl RecordTraceSample {
+    pub fn measured(
+        generation: u64,
+        t_ms: u64,
+        t_frames_48k: u64,
+        t_native_frames: Option<u64>,
+        result: MeasureResult,
+        include_psb: bool,
+    ) -> Self {
+        Self {
+            kind: RecordTraceKind::Measured,
+            generation,
+            t_ms,
+            t_frames_48k,
+            t_native_frames,
+            result,
+            include_psb,
+        }
+    }
+
+    pub fn missing_marker(
+        generation: u64,
+        t_ms: u64,
+        t_frames_48k: u64,
+        t_native_frames: Option<u64>,
+    ) -> Self {
+        Self {
+            kind: RecordTraceKind::Missing,
+            generation,
+            t_ms,
+            t_frames_48k,
+            t_native_frames,
+            result: MeasureResult::default(),
+            include_psb: false,
+        }
+    }
+
+    pub fn has_measured_core(&self) -> bool {
+        self.kind == RecordTraceKind::Measured && measure_has_core_metrics(&self.result)
+    }
 }
 
 pub type RecordTraceQueue = Arc<Mutex<VecDeque<RecordTraceSample>>>;
@@ -159,6 +210,7 @@ const CLEAN_TAKE_MIN_TRACE_RATIO_DEN: usize = 4;
 /// frames[] が WAV 0..duration を覆っているとみなす許容幅。
 const FRAME_COVERAGE_MAX_GAP_MS: u64 = FRAME_INTERVAL_MS * 2;
 const FRAME_COVERAGE_EDGE_TOLERANCE_MS: u64 = FRAME_INTERVAL_MS * 2;
+const TRACE_SLOT_ASSIGNMENT_TOLERANCE_MS: u64 = FRAME_INTERVAL_MS / 10;
 
 /// B-132 (G-115-382 共通B): Record→Watch close 時に Measure Thread の post-drain seal が
 /// `seal_at_start` を超えるまで **lock-free bounded** に待つ。
@@ -272,13 +324,13 @@ pub fn now_epoch_ms() -> i64 {
     chrono::Utc::now().timestamp_millis()
 }
 
-/// epoch ms を UTC ISO 8601（秒精度）へ変換する。
+/// epoch ms を UTC ISO 8601（ミリ秒精度）へ変換する。
 pub fn epoch_ms_to_iso8601(ms: i64) -> String {
     chrono::Utc
         .timestamp_millis_opt(ms)
         .single()
         .unwrap_or_else(chrono::Utc::now)
-        .format("%Y-%m-%dT%H:%M:%SZ")
+        .format("%Y-%m-%dT%H:%M:%S%.3fZ")
         .to_string()
 }
 
@@ -334,6 +386,17 @@ pub fn resolve_record_session_id(
         })
 }
 
+/// 指定 `post_instance_id` の record_signal.json から expected WAV metadata を取得。
+pub fn resolve_expected_wav_metadata(
+    base: &std::path::Path,
+    project_hash: &str,
+    post_instance_id: &str,
+) -> Option<ExpectedWavMetadata> {
+    record_signal::read_signal(base, project_hash, post_instance_id)
+        .and_then(|signal| signal.expected_wav)
+        .filter(ExpectedWavMetadata::is_usable)
+}
+
 /// Record 開始: `PluginDataWriter` を生成し、空ファイルで初回 flush する。
 ///
 /// # 引数
@@ -380,6 +443,8 @@ pub fn writer_start(
     };
     let record_session_id = signal_post_instance_id
         .and_then(|post_iid| resolve_record_session_id(&base, project_hash, post_iid));
+    let expected_wav = signal_post_instance_id
+        .and_then(|post_iid| resolve_expected_wav_metadata(&base, project_hash, post_iid));
     let writer_paths = WriterPaths::build(&base, project_hash, instance_id, role, &wall_clock_iso);
     let final_path = writer_paths.final_path.clone();
     let staging_path = writer_paths.staging_path.clone();
@@ -406,6 +471,7 @@ pub fn writer_start(
     w.set_record_start_wall_clock(wall_clock_iso);
     w.set_started_at_ms(started_at_ms);
     w.set_record_session_id(record_session_id);
+    w.set_expected_wav(expected_wav);
     if let Err(e) = w.flush() {
         log::warn!("[writer] initial flush failed: {}", e);
         return None;
@@ -507,10 +573,13 @@ fn seal_bounce_marker(ctx: &mut RecordingCtx) {
 }
 
 fn expected_trace_samples(duration_ms: u64) -> usize {
-    (duration_ms / FRAME_INTERVAL_MS).saturating_add(1) as usize
+    (duration_ms / FRAME_INTERVAL_MS) as usize
 }
 
 fn record_duration_ms(ctx: &RecordingCtx) -> u64 {
+    if let Some(expected) = expected_wav(ctx) {
+        return expected_duration_ms(expected);
+    }
     let sample_rate = ctx.writer.data().sample_rate as u64;
     if let Some(clean) = ctx.clean_take {
         if sample_rate > 0 {
@@ -537,6 +606,9 @@ fn record_duration_ms(ctx: &RecordingCtx) -> u64 {
 }
 
 fn record_duration_samples(ctx: &RecordingCtx) -> u64 {
+    if let Some(expected) = expected_wav(ctx) {
+        return expected.expected_duration_samples;
+    }
     let sample_rate = ctx.writer.data().sample_rate as u64;
     if let Some(clean) = ctx.clean_take {
         return clean.duration_samples;
@@ -566,9 +638,12 @@ fn build_bounce_take(ctx: &RecordingCtx, duration_ms: u64, duration_samples: u64
     };
     let exact_native_time = ctx.last_trace_native_frames.is_some();
     let exact_audio_time = exact_native_time || ctx.last_trace_frame_48k.is_some();
+    let expected_ready = expected_take_is_sample_count_ready(ctx, duration_ms);
     let clean_take_ready = clean_take_is_sample_count_ready(ctx, duration_ms);
     BounceTake {
-        source: if let Some(source) = clean_source {
+        source: if expected_wav(ctx).is_some() {
+            "expected_wav_duration_native".to_string()
+        } else if let Some(source) = clean_source {
             source.to_string()
         } else if exact_native_time {
             "audio_time_trace_native".to_string()
@@ -577,14 +652,14 @@ fn build_bounce_take(ctx: &RecordingCtx, duration_ms: u64, duration_samples: u64
         } else {
             "wall_clock_fallback".to_string()
         },
-        time_axis: if clean_source.is_some() || exact_native_time {
+        time_axis: if expected_wav(ctx).is_some() || clean_source.is_some() || exact_native_time {
             "native_samples".to_string()
         } else if exact_audio_time {
             "frames_48k".to_string()
         } else {
             "wall_clock_ms".to_string()
         },
-        alignment_status: if clean_take_ready {
+        alignment_status: if expected_ready || clean_take_ready {
             "sample_count_ready".to_string()
         } else if exact_audio_time {
             "trace_span_only".to_string()
@@ -601,6 +676,17 @@ fn build_bounce_take(ctx: &RecordingCtx, duration_ms: u64, duration_samples: u64
         trace_sample_count: ctx.trace_sample_count as u64,
         frame_count: ctx.writer.data().frames.len() as u64,
     }
+}
+
+fn expected_wav(ctx: &RecordingCtx) -> Option<&ExpectedWavMetadata> {
+    ctx.writer.data().expected_wav.as_ref()
+}
+
+fn expected_duration_ms(expected: &ExpectedWavMetadata) -> u64 {
+    if expected.expected_sample_rate == 0 {
+        return 0;
+    }
+    expected.expected_duration_samples.saturating_mul(1_000) / expected.expected_sample_rate as u64
 }
 
 fn bake_continuous_record_timeline(ctx: &mut RecordingCtx) {
@@ -633,20 +719,52 @@ fn bake_continuous_record_timeline(ctx: &mut RecordingCtx) {
     let mut best_by_ms: BTreeMap<u64, MeasureResult> = BTreeMap::new();
     for frame in &ctx.writer.data().frames {
         if frame.t_ms <= duration_ms {
-            insert_best_measure(&mut best_by_ms, frame.t_ms, measure_from_frame(frame));
+            if let Some(slot_ms) = nearest_timeline_slot(&slots, frame.t_ms) {
+                insert_best_measure(&mut best_by_ms, slot_ms, measure_from_frame(frame));
+            }
         }
     }
     for sample in &ctx.trace_samples {
-        if sample.t_ms <= duration_ms {
-            insert_best_measure(&mut best_by_ms, sample.t_ms, sample.result.clone());
+        if sample.t_ms <= duration_ms && sample.has_measured_core() {
+            if let Some(slot_ms) = nearest_timeline_slot(&slots, sample.t_ms) {
+                insert_best_measure(&mut best_by_ms, slot_ms, sample.result.clone());
+            }
         }
     }
 
     ctx.writer.clear_frames();
     ctx.first_frame_logged = false;
+    let expected_frame_count = slots.len() as u64;
+    let mut missing_slots = 0_u64;
     for t_ms in slots {
-        let result = best_by_ms.get(&t_ms).cloned().unwrap_or_default();
-        let _ = writer_append_trace_frame(ctx, t_ms, &result);
+        if let Some(result) = best_by_ms.get(&t_ms) {
+            let _ = writer_append_trace_frame(ctx, t_ms, result);
+        } else {
+            missing_slots = missing_slots.saturating_add(1);
+        }
+    }
+    let measured_frame_count = ctx.writer.data().frames.len() as u64;
+    let explicit_silence_frame_count = ctx
+        .writer
+        .data()
+        .frames
+        .iter()
+        .filter(|frame| {
+            frame.lufs_m <= TRACE_SILENCE_LUFS + 0.1
+                && frame.true_peak <= TRACE_SILENCE_TRUE_PEAK_DBTP + 0.1
+                && frame.crest.abs() <= 0.1
+        })
+        .count() as u64;
+    ctx.writer.set_trace_diagnostics(TraceDiagnostics {
+        raw_trace_count: ctx.trace_sample_count as u64,
+        expected_frame_count,
+        measured_frame_count,
+        missing_slots,
+        explicit_silence_frame_count,
+    });
+    if missing_slots > 0 {
+        ctx.writer.mark_integrity_degraded();
+        ctx.writer.add_integrity_reason("missing_trace_slots");
     }
 }
 
@@ -655,17 +773,43 @@ fn should_bake_continuous_record_timeline(ctx: &RecordingCtx) -> bool {
 }
 
 fn continuous_timeline_slots(duration_ms: u64) -> Vec<u64> {
-    let mut slots = Vec::with_capacity(expected_trace_samples(duration_ms).saturating_add(1));
+    let mut slots = Vec::with_capacity(expected_trace_samples(duration_ms));
     let end_grid = (duration_ms / FRAME_INTERVAL_MS) * FRAME_INTERVAL_MS;
-    let mut t_ms = 0;
+    let mut t_ms = FRAME_INTERVAL_MS;
     while t_ms <= end_grid {
         slots.push(t_ms);
         t_ms = t_ms.saturating_add(FRAME_INTERVAL_MS);
     }
-    if duration_ms != end_grid {
-        slots.push(duration_ms);
-    }
     slots
+}
+
+fn nearest_timeline_slot(slots: &[u64], t_ms: u64) -> Option<u64> {
+    if slots.is_empty() {
+        return None;
+    }
+    match slots.binary_search(&t_ms) {
+        Ok(idx) => Some(slots[idx]),
+        Err(idx) => {
+            let prev = idx.checked_sub(1).map(|i| slots[i]);
+            let next = slots.get(idx).copied();
+            let best = match (prev, next) {
+                (Some(a), Some(b)) => {
+                    let da = t_ms.saturating_sub(a);
+                    let db = b.saturating_sub(t_ms);
+                    if da <= db {
+                        a
+                    } else {
+                        b
+                    }
+                }
+                (Some(a), None) => a,
+                (None, Some(b)) => b,
+                (None, None) => return None,
+            };
+            let distance = best.abs_diff(t_ms);
+            (distance <= TRACE_SLOT_ASSIGNMENT_TOLERANCE_MS).then_some(best)
+        }
+    }
 }
 
 fn measure_from_frame(frame: &crate::plugin_data::Frame) -> MeasureResult {
@@ -691,6 +835,10 @@ fn insert_best_measure(
     if should_replace {
         map.insert(t_ms, candidate);
     }
+}
+
+fn measure_has_core_metrics(m: &MeasureResult) -> bool {
+    m.lufs_m.is_some() && m.true_peak.is_some() && m.crest.is_some()
 }
 
 fn measure_quality_score(m: &MeasureResult) -> u8 {
@@ -752,7 +900,7 @@ fn raw_trace_timeline_covers_duration(ctx: &RecordingCtx, duration_ms: u64) -> b
         }
     }
     for sample in &ctx.trace_samples {
-        if sample.t_ms <= duration_ms {
+        if sample.t_ms <= duration_ms && sample.has_measured_core() {
             times.push(sample.t_ms);
         }
     }
@@ -796,12 +944,32 @@ fn clean_take_is_sample_count_ready(ctx: &RecordingCtx, duration_ms: u64) -> boo
         && clean_take_trace_density_ready(ctx, duration_ms)
 }
 
+fn expected_take_is_sample_count_ready(ctx: &RecordingCtx, duration_ms: u64) -> bool {
+    let Some(expected) = expected_wav(ctx) else {
+        return false;
+    };
+    if !expected.is_usable() || duration_ms < CLEAN_TAKE_MIN_DURATION_MS {
+        return false;
+    }
+    if ctx.writer.data().sample_rate != expected.expected_sample_rate {
+        return false;
+    }
+    if let Some(diag) = &ctx.writer.data().trace_diagnostics {
+        return diag.missing_slots == 0
+            && diag.measured_frame_count == diag.expected_frame_count
+            && diag.expected_frame_count > 0;
+    }
+    frame_timeline_covers_duration(ctx, duration_ms)
+}
+
 fn clean_take_trace_density_ready(ctx: &RecordingCtx, duration_ms: u64) -> bool {
     let expected = expected_trace_samples(duration_ms);
     if expected == 0 {
         return false;
     }
-    let raw_count = if ctx.trace_sample_count > 0 {
+    let raw_count = if !ctx.trace_samples.is_empty() {
+        measured_trace_sample_count(ctx)
+    } else if ctx.trace_sample_count > 0 {
         ctx.trace_sample_count
     } else {
         ctx.writer.data().frames.len()
@@ -826,12 +994,22 @@ fn trace_density_is_sparse(ctx: &RecordingCtx) -> bool {
     }
     if ctx.trace_sample_count > 0 {
         let expected = expected_trace_samples(duration_ms);
-        return ctx
-            .trace_sample_count
-            .saturating_mul(TRACE_DENSITY_MIN_RATIO_DEN)
+        let measured = if !ctx.trace_samples.is_empty() {
+            measured_trace_sample_count(ctx)
+        } else {
+            ctx.trace_sample_count
+        };
+        return measured.saturating_mul(TRACE_DENSITY_MIN_RATIO_DEN)
             < expected.saturating_mul(TRACE_DENSITY_MIN_RATIO_NUM);
     }
     fallback_frame_density_is_sparse(ctx, duration_ms)
+}
+
+fn measured_trace_sample_count(ctx: &RecordingCtx) -> usize {
+    ctx.trace_samples
+        .iter()
+        .filter(|sample| sample.has_measured_core())
+        .count()
 }
 
 fn fallback_frame_density_is_sparse(ctx: &RecordingCtx, duration_ms: u64) -> bool {
@@ -872,6 +1050,9 @@ fn mark_integrity_if_trace_density_is_sparse(ctx: &mut RecordingCtx) {
 }
 
 fn mark_integrity_if_record_clock_is_not_wav_bounded(ctx: &mut RecordingCtx) {
+    if expected_wav(ctx).is_some() {
+        return;
+    }
     let Some(clean_take) = ctx.clean_take else {
         return;
     };
@@ -983,39 +1164,21 @@ pub fn writer_append_frame(ctx: &mut RecordingCtx, t_ms: u64, m: &MeasureResult)
 }
 
 fn writer_append_trace_frame(ctx: &mut RecordingCtx, t_ms: u64, m: &MeasureResult) -> bool {
-    let lufs_m = m.lufs_m.unwrap_or(TRACE_SILENCE_LUFS);
-    let true_peak = m.true_peak.unwrap_or(TRACE_SILENCE_TRUE_PEAK_DBTP);
-    let crest = m.crest.unwrap_or(TRACE_SILENCE_CREST_DB);
-    let core_missing = m.lufs_m.is_none() || m.true_peak.is_none() || m.crest.is_none();
-    let n_prime = if core_missing && m.n_prime.is_none() {
-        Some([0.0; 20])
-    } else {
-        m.n_prime
+    let (Some(lufs_m), Some(true_peak), Some(crest)) = (m.lufs_m, m.true_peak, m.crest) else {
+        return false;
     };
-    let sharpness = if core_missing && m.sharpness.is_none() {
-        Some(0.0)
-    } else {
-        m.sharpness
-    };
+    let n_prime = m.n_prime;
+    let sharpness = m.sharpness;
     ctx.writer
         .append_frame_optional(t_ms, n_prime, sharpness, lufs_m, true_peak, crest, m.psr);
     if !ctx.first_frame_logged {
-        if core_missing {
-            log::info!(
-                "[writer] trace floor frame written: t_ms={}, lufs={:.1}, tp={:.1}",
+        match n_prime {
+            Some(n_prime) => log::info!(
+                "[writer] frame written: t_ms={}, n_prime[0]={:.3}",
                 t_ms,
-                lufs_m,
-                true_peak
-            );
-        } else {
-            match n_prime {
-                Some(n_prime) => log::info!(
-                    "[writer] frame written: t_ms={}, n_prime[0]={:.3}",
-                    t_ms,
-                    n_prime[0]
-                ),
-                None => log::info!("[writer] frame written: t_ms={}, phase_d=pending", t_ms),
-            }
+                n_prime[0]
+            ),
+            None => log::info!("[writer] frame written: t_ms={}, phase_d=pending", t_ms),
         }
         ctx.first_frame_logged = true;
     }
@@ -1332,11 +1495,15 @@ fn drain_trace_queue_into_writer(
         let t_ms = sample.t_ms;
         mark_trace_time(ctx, t_ms, sample.t_frames_48k, sample.t_native_frames);
         ctx.trace_samples.push(sample.clone());
-        if t_ms >= ctx.next_frame_ms && writer_append_trace_frame(ctx, t_ms, &sample.result) {
+        if sample.has_measured_core()
+            && t_ms >= ctx.next_frame_ms
+            && writer_append_trace_frame(ctx, t_ms, &sample.result)
+        {
             ctx.next_frame_ms = (t_ms / FRAME_INTERVAL_MS + 1) * FRAME_INTERVAL_MS;
             stats.frames += 1;
         }
         if sample.include_psb
+            && sample.kind == RecordTraceKind::Measured
             && t_ms >= ctx.next_psb_ms
             && writer_append_psb(ctx, t_ms, &sample.result)
         {
@@ -1355,6 +1522,8 @@ fn drain_trace_queue_into_writer(
 pub struct RecoveryReport {
     /// `.tmp` / stale `.partial` を `.json` または `.failed/*.json` に atomic publish した件数。
     pub recovered: usize,
+    /// `.pair_pending` に残っていた PRE/POST session を committed/failed へ収束させた件数。
+    pub pair_finalized: usize,
     /// HMAC-SHA256 / serde 整合性に失敗し放置した件数 (削除しない / 将来分析用)。
     pub orphaned: usize,
 }
@@ -1379,10 +1548,12 @@ pub fn recover_orphan_tmps(plugin_data_root: &Path) -> RecoveryReport {
         return report;
     }
     walk_tmp_recover(plugin_data_root, &mut report);
-    if report.recovered > 0 || report.orphaned > 0 {
+    report.pair_finalized = crate::plugin_data::finalize_pair_pending_sessions(plugin_data_root);
+    if report.recovered > 0 || report.pair_finalized > 0 || report.orphaned > 0 {
         log::info!(
-            "[recover] startup record recovery: recovered={} orphaned={} root={}",
+            "[recover] startup record recovery: recovered={} pair_finalized={} orphaned={} root={}",
             report.recovered,
+            report.pair_finalized,
             report.orphaned,
             plugin_data_root.display()
         );
@@ -1662,6 +1833,39 @@ fn recovery_failure_reasons(data: &PluginDataFile) -> Vec<&'static str> {
     if data.sample_rate == 0 {
         reasons.push("missing_sample_rate");
     }
+    if data.record_session_id.as_deref().is_none_or(str::is_empty) {
+        reasons.push("missing_record_session_id");
+    }
+    if data.expected_wav.as_ref().is_none_or(|m| !m.is_usable()) {
+        reasons.push("missing_expected_wav_metadata");
+    }
+    if data
+        .bounce_take
+        .as_ref()
+        .is_none_or(|take| take.alignment_status != "sample_count_ready")
+    {
+        reasons.push("bounce_take_not_sample_count_ready");
+    }
+    if data
+        .trace_diagnostics
+        .as_ref()
+        .is_none_or(|diag| diag.missing_slots > 0)
+    {
+        reasons.push("missing_trace_slots");
+    }
+    for reason in &data.integrity_reasons {
+        match reason.as_str() {
+            "raw_trace_timeline_gap" => reasons.push("raw_trace_timeline_gap"),
+            "record_clock_not_wav_bounded" => reasons.push("record_clock_not_wav_bounded"),
+            "trace_span_only" => reasons.push("trace_span_only"),
+            "estimated" => reasons.push("estimated"),
+            "missing_trace_slots" => reasons.push("missing_trace_slots"),
+            "drain_seal_timeout" => reasons.push("drain_seal_timeout"),
+            _ => {}
+        }
+    }
+    reasons.sort_unstable();
+    reasons.dedup();
     reasons
 }
 
@@ -1946,6 +2150,7 @@ mod tests {
             started_at: "2026-07-05T00:00:00Z".to_string(),
             paired_pre_name: "Music".to_string(),
             release_reason: None,
+            expected_wav: None,
         };
         crate::record_signal::write_signal(&base, TEST_PH, "post-x", &signal).unwrap();
 
@@ -2017,6 +2222,43 @@ mod tests {
         }
     }
 
+    fn read_output_for_final(final_path: &Path) -> PluginDataFile {
+        let failed_path = failed_path_for_final(final_path);
+        let pending_path = pair_pending_path_for_final(final_path);
+        let path = if final_path.exists() {
+            final_path.to_path_buf()
+        } else if failed_path.exists() {
+            failed_path
+        } else if pending_path.exists() {
+            pending_path
+        } else {
+            any_pair_pending_for_final(final_path).unwrap_or(pending_path)
+        };
+        let bytes = fs::read(&path).unwrap_or_else(|e| {
+            panic!(
+                "expected output at final/failed/pair_pending for {}, err={}",
+                final_path.display(),
+                e
+            )
+        });
+        serde_json::from_slice(&bytes).unwrap()
+    }
+
+    fn pair_pending_path_for_final(final_path: &Path) -> PathBuf {
+        let parent = final_path.parent().expect("role dir");
+        let file_name = final_path.file_name().expect("file name");
+        parent.join(".pair_pending").join(file_name)
+    }
+
+    fn any_pair_pending_for_final(final_path: &Path) -> Option<PathBuf> {
+        let dir = final_path.parent()?.join(".pair_pending");
+        fs::read_dir(dir)
+            .ok()?
+            .flatten()
+            .map(|entry| entry.path())
+            .find(|path| path.extension().is_some_and(|ext| ext == "json"))
+    }
+
     fn full_measure_result() -> MeasureResult {
         MeasureResult {
             lufs_m: Some(-14.2),
@@ -2034,6 +2276,24 @@ mod tests {
             n_prime: Some([0.5; 20]),
             psb_bark: Some([0.05; 20]),
         }
+    }
+
+    fn measured_silence_result() -> MeasureResult {
+        MeasureResult {
+            lufs_m: Some(TRACE_SILENCE_LUFS),
+            true_peak: Some(TRACE_SILENCE_TRUE_PEAK_DBTP),
+            crest: Some(TRACE_SILENCE_CREST_DB),
+            ..MeasureResult::default()
+        }
+    }
+
+    fn missing_trace_marker(t_ms: u64) -> RecordTraceSample {
+        RecordTraceSample::missing_marker(
+            1,
+            t_ms,
+            t_ms.saturating_mul(TRACE_TIMEBASE_HZ) / 1_000,
+            None,
+        )
     }
 
     fn trace_sample(t_ms: u64, result: MeasureResult, include_psb: bool) -> RecordTraceSample {
@@ -2059,6 +2319,7 @@ mod tests {
         include_psb: bool,
     ) -> RecordTraceSample {
         RecordTraceSample {
+            kind: RecordTraceKind::Measured,
             generation: 1,
             t_ms: t_frames_48k.saturating_mul(1_000) / TRACE_TIMEBASE_HZ,
             t_frames_48k,
@@ -2089,7 +2350,7 @@ mod tests {
     #[test]
     fn epoch_ms_to_iso8601_basic() {
         let ms = parse_iso8601_to_epoch_ms("2026-04-19T12:00:00Z").unwrap();
-        assert_eq!(epoch_ms_to_iso8601(ms), "2026-04-19T12:00:00Z");
+        assert_eq!(epoch_ms_to_iso8601(ms), "2026-04-19T12:00:00.000Z");
     }
 
     #[test]
@@ -2191,8 +2452,7 @@ mod tests {
         let final_path = ctx.final_path.clone();
         writer_close(ctx);
 
-        let bytes = fs::read(&final_path).unwrap();
-        let loaded: PluginDataFile = serde_json::from_slice(&bytes).unwrap();
+        let loaded: PluginDataFile = read_output_for_final(&final_path);
         assert_eq!(loaded.status, crate::plugin_data::Status::Closed);
         assert_eq!(loaded.started_at_ms, started_at_ms);
         assert_eq!(loaded.frames.len(), 1);
@@ -2229,8 +2489,7 @@ mod tests {
 
         writer_close(ctx);
 
-        let loaded: PluginDataFile =
-            serde_json::from_slice(&fs::read(&final_path).unwrap()).unwrap();
+        let loaded: PluginDataFile = read_output_for_final(&final_path);
         let take = loaded.bounce_take.as_ref().expect("bounce_take");
         assert_eq!(loaded.bounce_marker.duration_samples, 1_440_000);
         assert_eq!(take.source, "wav_clock_native");
@@ -2239,7 +2498,7 @@ mod tests {
         assert_eq!(take.duration_samples, 1_440_000);
         assert_eq!(take.duration_frames_48k, 720_000);
         assert_eq!(take.end_t_ms, 15_000);
-        assert_eq!(take.frame_count, 151);
+        assert_eq!(take.frame_count, 150);
         assert!(loaded.frames.iter().all(|frame| frame.t_ms <= 15_000));
         assert!(loaded
             .psb_snapshots
@@ -2269,12 +2528,11 @@ mod tests {
 
         writer_close(ctx);
 
-        let loaded: PluginDataFile =
-            serde_json::from_slice(&fs::read(&final_path).unwrap()).unwrap();
+        let loaded: PluginDataFile = read_output_for_final(&final_path);
         let take = loaded.bounce_take.as_ref().expect("bounce_take");
         assert_eq!(take.source, "render_clock_native");
         assert_eq!(take.duration_samples, 1_440_000);
-        assert_eq!(take.frame_count, 151);
+        assert_eq!(take.frame_count, 150);
         assert_eq!(take.alignment_status, "trace_span_only");
         assert!(loaded.integrity_degraded);
         assert!(loaded
@@ -2284,7 +2542,7 @@ mod tests {
     }
 
     #[test]
-    fn clean_take_close_bakes_trace_timeline_gaps_to_wav_grid() {
+    fn clean_take_close_marks_trace_timeline_gaps_missing() {
         let base = isolated_base();
         let mut ctx = make_ctx_with_sample_rate(&base, Role::Post, now_epoch_ms(), 48_000);
         let m = full_measure_result();
@@ -2305,27 +2563,24 @@ mod tests {
 
         writer_close(ctx);
 
-        let loaded: PluginDataFile =
-            serde_json::from_slice(&fs::read(&final_path).unwrap()).unwrap();
+        let loaded: PluginDataFile = read_output_for_final(&final_path);
         let take = loaded.bounce_take.as_ref().expect("bounce_take");
         assert_eq!(take.end_t_ms, 10_000);
-        assert_eq!(take.frame_count, 101);
-        assert_eq!(loaded.frames.len(), 101);
-        assert_eq!(loaded.frames.first().map(|frame| frame.t_ms), Some(0));
-        assert_eq!(loaded.frames.last().map(|frame| frame.t_ms), Some(10_000));
-        assert!(loaded
-            .frames
-            .windows(2)
-            .all(|pair| pair[1].t_ms.saturating_sub(pair[0].t_ms) == FRAME_INTERVAL_MS));
-        assert!(loaded
-            .frames
-            .iter()
-            .any(|frame| frame.lufs_m == TRACE_SILENCE_LUFS));
+        assert_eq!(take.frame_count, 1);
+        assert_eq!(loaded.frames.len(), 1);
+        assert_eq!(loaded.frames.first().map(|frame| frame.t_ms), Some(100));
         assert!(loaded.integrity_degraded);
+        let diag = loaded
+            .trace_diagnostics
+            .as_ref()
+            .expect("trace diagnostics");
+        assert_eq!(diag.expected_frame_count, 100);
+        assert_eq!(diag.measured_frame_count, 1);
+        assert_eq!(diag.missing_slots, 99);
         assert!(loaded
             .integrity_reasons
             .iter()
-            .any(|reason| reason == "raw_trace_timeline_gap"));
+            .any(|reason| reason == "missing_trace_slots"));
     }
 
     #[test]
@@ -2403,8 +2658,7 @@ mod tests {
 
         writer_close(ctx);
 
-        let loaded: PluginDataFile =
-            serde_json::from_slice(&fs::read(&final_path).unwrap()).unwrap();
+        let loaded: PluginDataFile = read_output_for_final(&final_path);
         let take = loaded.bounce_take.as_ref().expect("bounce_take");
         assert_eq!(loaded.sample_rate, 44_100);
         assert_eq!(loaded.bounce_marker.duration_samples, 661_500);
@@ -2414,17 +2668,14 @@ mod tests {
         assert_eq!(take.duration_samples, 661_500);
         assert_eq!(take.duration_frames_48k, 720_000);
         assert_eq!(take.end_t_ms, 15_000);
-        assert_eq!(take.frame_count, 151);
+        assert_eq!(take.frame_count, 150);
         assert!(loaded.frames.iter().all(|frame| frame.t_ms <= 15_000));
         assert!(crate::plugin_data::verify_checksum(&loaded));
     }
 
-    // ── B-134 (G-115-391): degraded close best-effort persistent integrity_degraded ──
+    // ── B-134 (G-115-391): degraded close is diagnostic-only ──
     #[test]
-    fn b134_degraded_close_persists_integrity_degraded_when_writable() {
-        // storage 書込可 → degraded close は integrity_degraded を file flag として永続させる
-        // （README:139 Path1 / 過少申告 gap 解消）。通常録音 1 frame 後に writer_close_degraded →
-        // 読み戻して integrity_degraded==true / status=Closed / checksum OK を確認。
+    fn b134_degraded_close_goes_to_failed_when_writable() {
         let base = isolated_base();
         let mut ctx = make_ctx(&base, Role::Post, now_epoch_ms());
         let m = full_measure_result();
@@ -2434,15 +2685,14 @@ mod tests {
         writer_close_degraded(ctx);
 
         assert!(
-            final_path.exists(),
-            "degraded close with usable frames must publish final JSON"
+            !final_path.exists(),
+            "degraded close must not publish normal JSON"
         );
         assert!(
-            !failed_path.exists(),
-            "degraded close with usable frames must not become a failed diagnostic"
+            failed_path.exists(),
+            "degraded close must create a failed diagnostic JSON"
         );
-        let bytes = fs::read(&final_path).unwrap();
-        let loaded: PluginDataFile = serde_json::from_slice(&bytes).unwrap();
+        let loaded: PluginDataFile = read_output_for_final(&final_path);
         assert_eq!(
             loaded.status,
             crate::plugin_data::Status::Closed,
@@ -2454,15 +2704,13 @@ mod tests {
         );
         assert!(crate::plugin_data::verify_checksum(&loaded));
         eprintln!(
-            "[b134] writable degraded close → status={:?} integrity_degraded={} (file flag 永続 / :139 Path1)",
+            "[b134] writable degraded close → status={:?} integrity_degraded={} (failed diagnostic)",
             loaded.status, loaded.integrity_degraded
         );
     }
 
     #[test]
-    fn b134_degraded_close_recreates_storage_and_persists_flag() {
-        // B-245: plugin_data dir 全削除でも close 時 flush が親を再作成できるなら、
-        // degraded flag を永続する。storage 欠落だけで Record を止めないための復帰経路。
+    fn b134_degraded_close_recreates_storage_and_writes_failed() {
         let base = isolated_base();
         let mut ctx = make_ctx(&base, Role::Post, now_epoch_ms());
         let m = full_measure_result();
@@ -2473,15 +2721,14 @@ mod tests {
         writer_close_degraded(ctx);
 
         assert!(
-            final_path.exists(),
-            "degraded close must recreate storage and publish usable final JSON"
+            !final_path.exists(),
+            "degraded close must not recreate a normal JSON"
         );
         assert!(
-            !failed_path.exists(),
-            "usable degraded close must not create failed diagnostic JSON"
+            failed_path.exists(),
+            "degraded close must recreate storage for failed diagnostic JSON"
         );
-        let bytes = fs::read(&final_path).unwrap();
-        let loaded: PluginDataFile = serde_json::from_slice(&bytes).unwrap();
+        let loaded: PluginDataFile = read_output_for_final(&final_path);
         assert_eq!(loaded.status, Status::Closed);
         assert!(
             loaded.integrity_degraded,
@@ -2639,8 +2886,7 @@ mod tests {
         .unwrap();
 
         assert!(rec.is_none());
-        let bytes = fs::read(&final_path).unwrap();
-        let loaded: PluginDataFile = serde_json::from_slice(&bytes).unwrap();
+        let loaded: PluginDataFile = read_output_for_final(&final_path);
         assert_eq!(loaded.status, crate::plugin_data::Status::Closed);
     }
 
@@ -2709,10 +2955,8 @@ mod tests {
             old_failed_path
         };
         let loaded: PluginDataFile = serde_json::from_slice(&fs::read(published).unwrap()).unwrap();
-        assert_eq!(loaded.frames.len(), 2);
-        assert_eq!(loaded.frames[0].t_ms, 0);
-        assert_eq!(loaded.frames[0].lufs_m, TRACE_SILENCE_LUFS);
-        assert_eq!(loaded.frames[1].t_ms, 100);
+        assert_eq!(loaded.frames.len(), 1);
+        assert_eq!(loaded.frames[0].t_ms, 100);
     }
 
     #[test]
@@ -2827,8 +3071,7 @@ mod tests {
         .unwrap();
 
         writer_close(rec.take().unwrap());
-        let loaded: PluginDataFile =
-            serde_json::from_slice(&fs::read(&final_path).unwrap()).unwrap();
+        let loaded: PluginDataFile = read_output_for_final(&final_path);
         assert!(
             loaded.integrity_degraded,
             "audio-time progressed but TRACE sample density was too sparse"
@@ -2881,7 +3124,7 @@ mod tests {
     }
 
     #[test]
-    fn zero_trace_samples_with_dense_fallback_frames_over_min_duration_remains_clean() {
+    fn zero_trace_samples_with_dense_fallback_frames_over_min_duration_is_degraded() {
         let base = isolated_base();
         let started = now_epoch_ms() - (TRACE_DENSITY_MIN_DURATION_MS as i64 + 1_000);
         let mut ctx = make_ctx(&base, Role::Pre, started);
@@ -2893,12 +3136,11 @@ mod tests {
 
         writer_close(ctx);
 
-        let loaded: PluginDataFile =
-            serde_json::from_slice(&fs::read(&final_path).unwrap()).unwrap();
+        let loaded: PluginDataFile = read_output_for_final(&final_path);
         assert!(loaded.frames.len() > expected_trace_samples(TRACE_DENSITY_MIN_DURATION_MS) / 4);
         assert!(
-            !loaded.integrity_degraded,
-            "dense fallback frames are still useful realtime Record data"
+            loaded.integrity_degraded,
+            "dense fallback frames without audio-time TRACE must not be clean Record data"
         );
     }
 
@@ -2966,7 +3208,7 @@ mod tests {
                     if i == 1 {
                         full_measure_result()
                     } else {
-                        MeasureResult::default()
+                        measured_silence_result()
                     },
                     false,
                 ),
@@ -2992,19 +3234,71 @@ mod tests {
         .unwrap();
 
         writer_close(rec.take().unwrap());
-        let loaded: PluginDataFile =
-            serde_json::from_slice(&fs::read(&final_path).unwrap()).unwrap();
+        let loaded: PluginDataFile = read_output_for_final(&final_path);
         assert_eq!(
             loaded.frames.len(),
-            101,
-            "every dense trace point should become a TRACE frame, including silence"
+            100,
+            "every measured 100ms TRACE window should become a TRACE frame, including silence"
         );
-        assert_eq!(loaded.frames[0].lufs_m, TRACE_SILENCE_LUFS);
-        assert_eq!(loaded.frames[1].lufs_m, -14.2);
+        assert_eq!(loaded.frames[0].t_ms, 100);
+        assert_eq!(loaded.frames[0].lufs_m, -14.2);
+        assert_eq!(loaded.frames[1].lufs_m, TRACE_SILENCE_LUFS);
+        let diag = loaded
+            .trace_diagnostics
+            .as_ref()
+            .expect("trace diagnostics");
+        assert_eq!(diag.expected_frame_count, 100);
+        assert_eq!(diag.measured_frame_count, 100);
+        assert_eq!(diag.missing_slots, 0);
         assert!(
-            !loaded.integrity_degraded,
-            "dense raw TRACE samples with explicit silence floors are a clean timeline"
+            loaded.integrity_degraded,
+            "TRACE is complete, but missing Pair/expected metadata keeps it diagnostic-only"
         );
+    }
+
+    #[test]
+    fn jittered_trace_samples_snap_to_nearest_100ms_slot() {
+        let base = isolated_base();
+        let mut ctx = make_ctx_with_sample_rate(&base, Role::Post, now_epoch_ms(), 48_000);
+        let final_path = ctx.final_path.clone();
+        let queue = new_record_trace_queue();
+        for slot_ms in (0_u64..=1_000).step_by(FRAME_INTERVAL_MS as usize) {
+            let t_ms = if slot_ms == 0 || slot_ms == 1_000 {
+                slot_ms
+            } else {
+                slot_ms + 1
+            };
+            push_record_trace_sample(
+                &queue,
+                trace_sample_frames_with_native(
+                    t_ms.saturating_mul(TRACE_TIMEBASE_HZ) / 1_000,
+                    Some(t_ms.saturating_mul(48_000) / 1_000),
+                    full_measure_result(),
+                    false,
+                ),
+            );
+        }
+
+        let drained = drain_trace_queue_into_writer(&mut ctx, &queue);
+        assert_eq!(drained.samples, 11);
+        ctx.record_generation = 33;
+        ctx.clean_take = Some(RecordTakeSnapshot {
+            generation: 33,
+            duration_samples: 48_000,
+            source: crate::record_take::RECORD_TAKE_SOURCE_WAV_CLOCK,
+        });
+        writer_close(ctx);
+
+        let loaded: PluginDataFile = read_output_for_final(&final_path);
+        let diag = loaded
+            .trace_diagnostics
+            .as_ref()
+            .expect("trace diagnostics");
+        assert_eq!(diag.expected_frame_count, 10);
+        assert_eq!(diag.measured_frame_count, 10);
+        assert_eq!(diag.missing_slots, 0);
+        assert_eq!(loaded.frames.first().map(|frame| frame.t_ms), Some(100));
+        assert_eq!(loaded.frames.last().map(|frame| frame.t_ms), Some(1_000));
     }
 
     #[test]
@@ -3015,7 +3309,7 @@ mod tests {
         let queue = new_record_trace_queue();
         for t_ms in (0_u64..=15_000).step_by(FRAME_INTERVAL_MS as usize) {
             let result = if (5_800..=12_300).contains(&t_ms) {
-                MeasureResult::default()
+                measured_silence_result()
             } else {
                 full_measure_result()
             };
@@ -3041,15 +3335,14 @@ mod tests {
         });
         writer_close(ctx);
 
-        let loaded: PluginDataFile =
-            serde_json::from_slice(&fs::read(&final_path).unwrap()).unwrap();
+        let loaded: PluginDataFile = read_output_for_final(&final_path);
         let take = loaded.bounce_take.as_ref().expect("bounce_take");
         assert_eq!(loaded.bounce_marker.duration_samples, 1_440_000);
         assert_eq!(take.duration_samples, 1_440_000);
         assert_eq!(take.end_t_ms, 15_000);
         assert_eq!(take.alignment_status, "sample_count_ready");
-        assert_eq!(loaded.frames.len(), 151);
-        assert_eq!(loaded.frames.first().map(|frame| frame.t_ms), Some(0));
+        assert_eq!(loaded.frames.len(), 150);
+        assert_eq!(loaded.frames.first().map(|frame| frame.t_ms), Some(100));
         assert_eq!(loaded.frames.last().map(|frame| frame.t_ms), Some(15_000));
         assert!(loaded
             .frames
@@ -3059,11 +3352,21 @@ mod tests {
             .frames
             .iter()
             .any(|frame| frame.lufs_m == TRACE_SILENCE_LUFS));
-        assert!(!loaded.integrity_degraded);
+        let diag = loaded
+            .trace_diagnostics
+            .as_ref()
+            .expect("trace diagnostics");
+        assert_eq!(diag.expected_frame_count, 150);
+        assert_eq!(diag.measured_frame_count, 150);
+        assert_eq!(diag.missing_slots, 0);
+        assert!(
+            loaded.integrity_degraded,
+            "TRACE is complete, but missing Pair/expected metadata keeps it diagnostic-only"
+        );
     }
 
     #[test]
-    fn close_bakes_sparse_clean_take_to_continuous_trace_grid() {
+    fn close_keeps_sparse_clean_take_measured_slots_only() {
         let base = isolated_base();
         let mut ctx = make_ctx_with_sample_rate(&base, Role::Post, now_epoch_ms(), 96_000);
         let final_path = ctx.final_path.clone();
@@ -3091,28 +3394,26 @@ mod tests {
 
         writer_close(ctx);
 
-        let loaded: PluginDataFile =
-            serde_json::from_slice(&fs::read(&final_path).unwrap()).unwrap();
+        let loaded: PluginDataFile = read_output_for_final(&final_path);
         let take = loaded.bounce_take.as_ref().expect("bounce_take");
         assert_eq!(take.duration_samples, 1_440_000);
         assert_eq!(take.end_t_ms, 15_000);
         assert_ne!(take.alignment_status, "sample_count_ready");
-        assert_eq!(loaded.frames.len(), 151);
-        assert_eq!(loaded.frames.first().map(|frame| frame.t_ms), Some(0));
+        assert_eq!(loaded.frames.len(), 2);
+        assert_eq!(loaded.frames.first().map(|frame| frame.t_ms), Some(7_200));
         assert_eq!(loaded.frames.last().map(|frame| frame.t_ms), Some(15_000));
-        assert!(loaded
-            .frames
-            .windows(2)
-            .all(|pair| pair[1].t_ms.saturating_sub(pair[0].t_ms) == FRAME_INTERVAL_MS));
-        assert!(loaded
-            .frames
-            .iter()
-            .any(|frame| frame.lufs_m == TRACE_SILENCE_LUFS));
         assert!(loaded.integrity_degraded);
+        let diag = loaded
+            .trace_diagnostics
+            .as_ref()
+            .expect("trace diagnostics");
+        assert_eq!(diag.expected_frame_count, 150);
+        assert_eq!(diag.measured_frame_count, 2);
+        assert_eq!(diag.missing_slots, 148);
         assert!(loaded
             .integrity_reasons
             .iter()
-            .any(|reason| reason == "raw_trace_timeline_gap"));
+            .any(|reason| reason == "missing_trace_slots"));
     }
 
     #[test]
@@ -3138,13 +3439,12 @@ mod tests {
 
         writer_close(ctx);
 
-        let loaded: PluginDataFile =
-            serde_json::from_slice(&fs::read(&final_path).unwrap()).unwrap();
+        let loaded: PluginDataFile = read_output_for_final(&final_path);
         let take = loaded.bounce_take.as_ref().expect("bounce_take");
         assert_eq!(take.duration_samples, 1_440_000);
         assert_eq!(take.end_t_ms, 15_000);
-        assert_eq!(take.frame_count, 151);
-        assert_eq!(loaded.frames.len(), 151);
+        assert_eq!(take.frame_count, 2);
+        assert_eq!(loaded.frames.len(), 2);
         assert_ne!(take.alignment_status, "sample_count_ready");
         assert!(loaded.integrity_degraded);
         assert!(loaded
@@ -3185,17 +3485,23 @@ mod tests {
 
         writer_close(ctx);
 
-        let loaded: PluginDataFile =
-            serde_json::from_slice(&fs::read(&final_path).unwrap()).unwrap();
-        assert_eq!(loaded.frames.len(), 151);
-        assert_eq!(loaded.frames[0].t_ms, 0);
-        assert_eq!(loaded.frames[1].t_ms, 100);
+        let loaded: PluginDataFile = read_output_for_final(&final_path);
+        assert_eq!(loaded.frames.len(), 3);
+        assert_eq!(loaded.frames[0].t_ms, 100);
+        assert_eq!(loaded.frames[1].t_ms, 7_200);
         assert_eq!(loaded.frames.last().map(|frame| frame.t_ms), Some(15_000));
         assert!(loaded.integrity_degraded);
+        let diag = loaded
+            .trace_diagnostics
+            .as_ref()
+            .expect("trace diagnostics");
+        assert_eq!(diag.expected_frame_count, 150);
+        assert_eq!(diag.measured_frame_count, 3);
+        assert_eq!(diag.missing_slots, 147);
         assert!(loaded
             .integrity_reasons
             .iter()
-            .any(|reason| reason == "raw_trace_timeline_gap"));
+            .any(|reason| reason == "missing_trace_slots"));
     }
 
     #[test]
@@ -3283,7 +3589,7 @@ mod tests {
         let m = Arc::new(Mutex::new(full_measure_result()));
         let mut rec: Option<RecordingCtx> = Some(ctx);
         let queue = new_record_trace_queue();
-        push_record_trace_sample(&queue, trace_sample(100, MeasureResult::default(), false));
+        push_record_trace_sample(&queue, trace_sample(100, measured_silence_result(), false));
 
         run_record_tick(
             &sm,
@@ -3319,7 +3625,7 @@ mod tests {
     }
 
     #[test]
-    fn run_record_tick_preserves_audio_time_when_trace_sample_has_no_numeric_frame() {
+    fn run_record_tick_preserves_audio_time_when_trace_sample_is_missing_marker() {
         let base = isolated_base();
         let ctx = make_ctx(&base, Role::Pre, now_epoch_ms());
         let final_path = ctx.final_path.clone();
@@ -3330,10 +3636,7 @@ mod tests {
         let queue = new_record_trace_queue();
         push_record_trace_sample(&queue, trace_sample(100, full_measure_result(), true));
         push_record_trace_sample(&queue, trace_sample(11_000, full_measure_result(), false));
-        push_record_trace_sample(
-            &queue,
-            trace_sample(15_400, MeasureResult::default(), false),
-        );
+        push_record_trace_sample(&queue, missing_trace_marker(15_400));
 
         run_record_tick(
             &sm,
@@ -3356,25 +3659,16 @@ mod tests {
         let ctx = rec.take().unwrap();
         assert_eq!(
             ctx.data().frames.len(),
-            3,
-            "silent trace point must preserve the TRACE timeline as a silence frame"
+            2,
+            "missing trace marker must preserve time without becoming a silence frame"
         );
         assert_eq!(ctx.last_trace_t_ms, Some(15_400));
         writer_close(ctx);
 
-        let bytes = fs::read(&final_path).unwrap();
-        let loaded: PluginDataFile = serde_json::from_slice(&bytes).unwrap();
-        assert_eq!(loaded.frames.len(), 155);
-        assert_eq!(loaded.frames.first().map(|frame| frame.t_ms), Some(0));
-        assert_eq!(loaded.frames.last().map(|frame| frame.t_ms), Some(15_400));
-        assert!(loaded
-            .frames
-            .windows(2)
-            .all(|pair| pair[1].t_ms.saturating_sub(pair[0].t_ms) == FRAME_INTERVAL_MS));
-        assert_eq!(
-            loaded.frames.last().map(|frame| frame.lufs_m),
-            Some(TRACE_SILENCE_LUFS)
-        );
+        let loaded: PluginDataFile = read_output_for_final(&final_path);
+        assert_eq!(loaded.frames.len(), 2);
+        assert_eq!(loaded.frames.first().map(|frame| frame.t_ms), Some(100));
+        assert_eq!(loaded.frames.last().map(|frame| frame.t_ms), Some(11_000));
         assert_eq!(loaded.bounce_marker.duration_samples, 739_200);
         let take = loaded.bounce_take.as_ref().expect("bounce_take");
         assert_eq!(take.source, "audio_time_trace");
@@ -3387,7 +3681,7 @@ mod tests {
         assert!(loaded
             .integrity_reasons
             .iter()
-            .any(|reason| reason == "raw_trace_timeline_gap"));
+            .any(|reason| reason == "missing_trace_slots"));
     }
 
     #[test]
@@ -3411,8 +3705,7 @@ mod tests {
         assert_eq!(drained.samples, 151);
         writer_close(ctx);
 
-        let loaded: PluginDataFile =
-            serde_json::from_slice(&fs::read(&final_path).unwrap()).unwrap();
+        let loaded: PluginDataFile = read_output_for_final(&final_path);
         assert_eq!(loaded.bounce_marker.duration_samples, 1_440_000);
         let take = loaded.bounce_take.as_ref().expect("bounce_take");
         assert_eq!(take.duration_frames_48k, 720_000);
@@ -3445,8 +3738,7 @@ mod tests {
         assert_eq!(drained.samples, 151);
         writer_close(ctx);
 
-        let loaded: PluginDataFile =
-            serde_json::from_slice(&fs::read(&final_path).unwrap()).unwrap();
+        let loaded: PluginDataFile = read_output_for_final(&final_path);
         assert_eq!(loaded.bounce_marker.duration_samples, 661_500);
         let take = loaded.bounce_take.as_ref().expect("bounce_take");
         assert_eq!(take.source, "audio_time_trace_native");
@@ -3550,8 +3842,8 @@ mod tests {
 
     // ── B-025 Group B-1 / Gap-8 (recover_orphan_tmps) ─────────────────────
 
-    /// 有効な Active .tmp (整合 HMAC-SHA256) に frame があれば、Closed + degraded 理由付きで
-    /// `.json` に救済される。recovered=1, orphaned=0, .tmp 消滅。
+    /// 有効な Active .tmp (整合 HMAC-SHA256) に frame があっても、Pair/expected gate を
+    /// 通らなければ `.failed` に救済される。通常棚には出さない。
     #[test]
     fn recover_orphan_tmps_recovers_valid_tmp() {
         let base = isolated_base();
@@ -3571,13 +3863,14 @@ mod tests {
         assert_eq!(report.recovered, 1);
         assert_eq!(report.orphaned, 0);
         assert!(
-            final_path.exists(),
-            ".json must be published by usable tmp recovery"
+            !final_path.exists(),
+            ".json must not be published by tmp recovery without pair/expected gate"
         );
-        let loaded: PluginDataFile =
-            serde_json::from_slice(&fs::read(&final_path).unwrap()).unwrap();
+        let failed_path = failed_path_for_final(&final_path);
+        assert!(failed_path.exists(), ".failed JSON must be written");
+        let loaded: PluginDataFile = read_output_for_final(&final_path);
         assert_eq!(loaded.status, Status::Closed);
-        assert_eq!(loaded.commit_status.as_deref(), Some("committed"));
+        assert_eq!(loaded.commit_status.as_deref(), Some("failed"));
         assert!(
             loaded.integrity_degraded,
             "recovered Active tmp must be marked degraded instead of disappearing"
@@ -3585,7 +3878,7 @@ mod tests {
         assert!(loaded
             .integrity_reasons
             .iter()
-            .any(|reason| reason == "startup_recovered_active"));
+            .any(|reason| reason == "missing_expected_wav_metadata"));
         assert!(verify_checksum(&loaded));
         assert!(
             !staging_path.exists(),
@@ -3639,7 +3932,7 @@ mod tests {
         assert!(staging_path.exists());
     }
 
-    /// stale .partial に usable frames があれば通常棚の `.json` へ publish する。
+    /// stale .partial に usable frames があっても通常棚へは出さず `.failed` へ隔離する。
     #[test]
     fn recover_orphan_tmps_recovers_stale_staging_with_frames() {
         let base = isolated_base();
@@ -3657,16 +3950,22 @@ mod tests {
         let report = recover_orphan_tmps(&base);
         assert_eq!(report.recovered, 1);
         assert_eq!(report.orphaned, 0);
-        assert!(final_path.exists(), "stale usable partial must publish");
+        assert!(
+            !final_path.exists(),
+            "stale usable partial must not publish without pair/expected gate"
+        );
+        assert!(
+            failed_path_for_final(&final_path).exists(),
+            "stale usable partial must become failed diagnostic"
+        );
         assert!(
             !staging_path.exists(),
             "staging must be removed after publish"
         );
 
-        let loaded: PluginDataFile =
-            serde_json::from_slice(&fs::read(&final_path).unwrap()).unwrap();
+        let loaded: PluginDataFile = read_output_for_final(&final_path);
         assert_eq!(loaded.status, Status::Closed);
-        assert_eq!(loaded.commit_status.as_deref(), Some("committed"));
+        assert_eq!(loaded.commit_status.as_deref(), Some("failed"));
         assert!(
             loaded.integrity_degraded,
             "startup recovered partial must be marked degraded but usable"
@@ -3674,7 +3973,7 @@ mod tests {
         assert!(loaded
             .integrity_reasons
             .iter()
-            .any(|reason| reason == "startup_recovered_active"));
+            .any(|reason| reason == "missing_expected_wav_metadata"));
         assert!(verify_checksum(&loaded));
     }
 
@@ -4018,7 +4317,7 @@ mod tests {
             None,
         )
         .unwrap();
-        let f1: PluginDataFile = serde_json::from_slice(&fs::read(&path1).unwrap()).unwrap();
+        let f1: PluginDataFile = read_output_for_final(&path1);
         assert_eq!(f1.dropped_samples, 5, "Record 1 の欠落数が .kirin に出る");
         assert!(f1.integrity_degraded, "dropped>0 → integrity_degraded");
 
@@ -4051,14 +4350,10 @@ mod tests {
             None,
         )
         .unwrap();
-        let f2: PluginDataFile = serde_json::from_slice(&fs::read(&path2).unwrap()).unwrap();
+        let f2: PluginDataFile = read_output_for_final(&path2);
         assert_eq!(
             f2.dropped_samples, 0,
             "per-Record: 前 Record の累積 5 を持ち越さない"
-        );
-        assert!(
-            !f2.integrity_degraded,
-            "drop なし → integrity_degraded=false"
         );
     }
 
