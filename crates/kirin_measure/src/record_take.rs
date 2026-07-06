@@ -34,6 +34,10 @@ pub struct RecordTakeSnapshot {
 
 #[derive(Debug)]
 pub struct RecordTakeTracker {
+    capture_frames_total: AtomicU64,
+    capture_position_valid: AtomicBool,
+    capture_position_end_samples: AtomicI64,
+    capture_frames_end: AtomicU64,
     render_active: AtomicBool,
     render_epoch: AtomicU64,
     render_frames: AtomicU64,
@@ -59,6 +63,10 @@ impl Default for RecordTakeTracker {
 impl RecordTakeTracker {
     pub fn new() -> Self {
         Self {
+            capture_frames_total: AtomicU64::new(0),
+            capture_position_valid: AtomicBool::new(false),
+            capture_position_end_samples: AtomicI64::new(i64::MIN),
+            capture_frames_end: AtomicU64::new(0),
             render_active: AtomicBool::new(false),
             render_epoch: AtomicU64::new(0),
             render_frames: AtomicU64::new(0),
@@ -73,6 +81,61 @@ impl RecordTakeTracker {
             previous_generation: AtomicU64::new(0),
             previous_bounded_duration_samples: AtomicU64::new(0),
             previous_unbounded_duration_samples: AtomicU64::new(0),
+        }
+    }
+
+    /// Audio-thread capture clock note. Call only for windows actually pushed
+    /// to the measurement ring, so Measure Thread can map its consumed native
+    /// frame count back to the host transport sample clock.
+    pub fn note_capture_window(
+        &self,
+        position_valid: bool,
+        position_samples: i64,
+        num_frames: u64,
+    ) {
+        if num_frames == 0 {
+            return;
+        }
+        let frames_end = self
+            .capture_frames_total
+            .fetch_add(num_frames, Ordering::AcqRel)
+            .saturating_add(num_frames);
+        self.capture_frames_end.store(frames_end, Ordering::Release);
+        if position_valid {
+            self.capture_position_end_samples.store(
+                position_samples.saturating_add(num_frames as i64),
+                Ordering::Release,
+            );
+            self.capture_position_valid.store(true, Ordering::Release);
+        } else {
+            self.capture_position_valid.store(false, Ordering::Release);
+        }
+    }
+
+    /// Map a Measure Thread consumed native frame count onto the host transport
+    /// sample clock, when the host exposed a position for the captured block.
+    pub fn position_samples_for_captured_frame(&self, captured_frames: u64) -> Option<i64> {
+        if !self.capture_position_valid.load(Ordering::Acquire) {
+            return None;
+        }
+        let frames_end = self.capture_frames_end.load(Ordering::Acquire);
+        if frames_end == 0 {
+            return None;
+        }
+        let position_end = self.capture_position_end_samples.load(Ordering::Acquire);
+        if position_end == i64::MIN {
+            return None;
+        }
+        if captured_frames <= frames_end {
+            let delta = frames_end
+                .saturating_sub(captured_frames)
+                .min(i64::MAX as u64) as i64;
+            Some(position_end.saturating_sub(delta))
+        } else {
+            let delta = captured_frames
+                .saturating_sub(frames_end)
+                .min(i64::MAX as u64) as i64;
+            Some(position_end.saturating_add(delta))
         }
     }
 
@@ -370,6 +433,33 @@ mod tests {
         });
 
         assert_eq!(tracker.snapshot(19), None);
+    }
+
+    #[test]
+    fn capture_clock_maps_consumed_frames_to_transport_position() {
+        let tracker = RecordTakeTracker::new();
+        tracker.note_capture_window(true, 96_000, 512);
+        tracker.note_capture_window(true, 96_512, 512);
+
+        assert_eq!(
+            tracker.position_samples_for_captured_frame(512),
+            Some(96_512)
+        );
+        assert_eq!(
+            tracker.position_samples_for_captured_frame(1_024),
+            Some(97_024)
+        );
+    }
+
+    #[test]
+    fn capture_clock_drops_mapping_after_invalid_position() {
+        let tracker = RecordTakeTracker::new();
+        tracker.note_capture_window(true, 96_000, 512);
+        assert!(tracker.position_samples_for_captured_frame(512).is_some());
+
+        tracker.note_capture_window(false, i64::MIN, 512);
+
+        assert_eq!(tracker.position_samples_for_captured_frame(1_024), None);
     }
 
     #[test]

@@ -884,7 +884,7 @@ fn editor_rs_pair_dropdown_distinguishes_keep_from_pair_choices() {
     let combo_fn_idx = src
         .find("fn draw_pair_pre_combo(")
         .expect("draw_pair_pre_combo must exist");
-    let mut safe_end = (combo_fn_idx + 12000).min(src.len());
+    let mut safe_end = (combo_fn_idx + 16000).min(src.len());
     while safe_end > combo_fn_idx && !src.is_char_boundary(safe_end) {
         safe_end -= 1;
     }

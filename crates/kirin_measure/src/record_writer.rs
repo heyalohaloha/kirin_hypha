@@ -2148,6 +2148,7 @@ mod tests {
             session_id: "record-session-x".to_string(),
             t: "2026-07-05T00:00:00Z".to_string(),
             started_at: "2026-07-05T00:00:00Z".to_string(),
+            started_at_position_samples: Some(96_000),
             paired_pre_name: "Music".to_string(),
             release_reason: None,
             expected_wav: None,

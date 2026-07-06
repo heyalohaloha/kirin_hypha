@@ -2042,7 +2042,11 @@ fn poll_record_signal_ack_with_base(
         if now_ms < started_at_ms {
             return;
         }
-        match record_sm.try_enter_record_started_at(crate::License::Os, started_at_ms) {
+        match record_sm.try_enter_record_started_at_clock(
+            crate::License::Os,
+            started_at_ms,
+            signal.started_at_position_samples,
+        ) {
             Ok(()) => log::info!(
                 "[IOThread POST] ACK received; POST entered Record (session={}, post_iid={})",
                 signal.session_id,
@@ -3038,6 +3042,7 @@ mod record_signal_ack_barrier_tests {
             session_id: "session-post-ack".to_string(),
             t: "2026-07-05T00:00:00Z".to_string(),
             started_at: started_at.to_string(),
+            started_at_position_samples: None,
             paired_pre_name: "PRE".to_string(),
             release_reason: None,
             expected_wav: Some(expected_wav()),

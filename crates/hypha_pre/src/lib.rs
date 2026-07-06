@@ -526,6 +526,11 @@ impl Plugin for HyphaPre {
         });
 
         if capture_buffer {
+            self.record_take_tracker.note_capture_window(
+                record_window.position_valid,
+                record_window.position_samples,
+                record_window.num_frames,
+            );
             if let Some(producer) = &mut self.ring_producer {
                 push_window_to_ring(buffer, producer, record_window, &self.overflow);
             }

@@ -664,6 +664,8 @@ impl Plugin for HyphaPost {
             let pair_pre_name_for_closure = Arc::clone(&self.params.pair_pre_name);
             let measure_result_for_closure = Arc::clone(&self.measure_result);
             let latched_for_closure = Arc::clone(&self.latched_pre);
+            let playback_pos_samples_for_closure = Arc::clone(&self.playback_pos_samples);
+            let playback_sample_rate_for_closure = Arc::clone(&self.playback_sample_rate);
             Arc::new(move |originator_iid: &str, started_at: &str| {
                 let iid_snapshot = read_instance_id_arc(&instance_id_for_closure);
                 let project_hash_snapshot = read_project_hash_arc(&project_hash_for_closure);
@@ -690,6 +692,10 @@ impl Plugin for HyphaPost {
                     0.0,
                     &pair_pre_name_snapshot,
                     &latched_for_closure, // B-108: ラッチ済みならラッチ先を直接 target に使う
+                    editor::native_start_position_samples(
+                        &playback_pos_samples_for_closure,
+                        &playback_sample_rate_for_closure,
+                    ),
                 );
                 log::info!(
                     "[all_keep] trigger_keep_internal invoked: originator={} started_at={}",
@@ -917,6 +923,11 @@ impl Plugin for HyphaPost {
         });
 
         if capture_buffer {
+            self.record_take_tracker.note_capture_window(
+                record_window.position_valid,
+                record_window.position_samples,
+                record_window.num_frames,
+            );
             if let Some(producer) = &mut self.ring_producer {
                 push_window_to_ring(buffer, producer, record_window, &self.overflow);
             }

@@ -38,7 +38,7 @@ use std::cell::UnsafeCell;
 use std::ffi::CStr;
 use std::os::raw::{c_char, c_void};
 use std::panic::{catch_unwind, AssertUnwindSafe};
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::thread::JoinHandle;
 
@@ -56,11 +56,12 @@ use kirin_measure::{
     read_expected_metadata, resolve_arm_target_for_post_project, sanitize_name, set_daw_session_id,
     set_project_uuid, spawn_io_thread_post, spawn_io_thread_pre, spawn_measure_thread,
     spawn_watchdog, store_signal_state, write_broadcast, write_expected_metadata,
-    write_pending_with_expected, write_stop_broadcast, DeltaMode, DeltaResult, ExclusionResult,
-    ExpectedWavMetadata, IoThreadHandle, LatchedPre, License, LivenessEvaluator, MeasureResult,
-    PlatformPaths, PluginDataRole, PsbSummary, RecordStateMachine, RecordTakeBlock,
+    write_pending_with_expected_and_clock, write_stop_broadcast, DeltaMode, DeltaResult,
+    ExclusionResult, ExpectedWavMetadata, IoThreadHandle, LatchedPre, License, LivenessEvaluator,
+    MeasureResult, PlatformPaths, PluginDataRole, PsbSummary, RecordStateMachine, RecordTakeBlock,
     RecordTakeTracker, RecordTraceQueue, ReleaseReason, RestartIoFn, SignalState, StoragePaths,
-    WatchdogIo, WatchdogParams, MAX_ACTIVE_PER_PROJECT, N_CHANNELS, RING_BUFFER_SECONDS,
+    WatchdogIo, WatchdogParams, MAX_ACTIVE_PER_PROJECT, N_CHANNELS, RECORD_START_BARRIER_DELAY_MS,
+    RING_BUFFER_SECONDS,
 };
 
 /// state chunk 往復する識別子（方式A: JUCE が chunk bytes を所有・FFI は文字列 get/set のみ）。
@@ -144,6 +145,22 @@ fn license_to_abi(license: License) -> u8 {
     }
 }
 
+fn native_start_position_samples(
+    position_valid: &AtomicBool,
+    position_samples: &AtomicI64,
+    sample_rate: u32,
+) -> Option<i64> {
+    if sample_rate == 0 || !position_valid.load(Ordering::Relaxed) {
+        return None;
+    }
+    let pos = position_samples.load(Ordering::Relaxed);
+    if pos == i64::MIN {
+        return None;
+    }
+    let delay_samples = (sample_rate as i64).saturating_mul(RECORD_START_BARRIER_DELAY_MS) / 1_000;
+    Some(pos.saturating_add(delay_samples))
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Rust-safe core（tests/parity.rs はこの API 経由で FFI を駆動する）
 // ─────────────────────────────────────────────────────────────────────────────
@@ -177,6 +194,10 @@ pub struct KirinHyphaEngine {
     /// Record 状態機械。`enter_record`/`exit_record` で flip し、Measure Thread が
     /// `is_recording()` を見て自律 finalize する（Phase 3a で実配線）。
     record_sm: Arc<RecordStateMachine>,
+    /// JUCE shell が最後に通知した host transport sample position。Keep 時に
+    /// record_signal の native start barrier を作るために読む。
+    latest_position_valid: Arc<AtomicBool>,
+    latest_position_samples: Arc<AtomicI64>,
     /// 現ライセンス（C ABI コード: 0=Os 1=Sense 2=Unknown）。`enter_record` の
     /// 二重 gate（E-21）に使う。既定は Unknown（Record 不可）。
     /// B-102: `Arc<AtomicU8>` 化（broadcast 受信 closure が live に読むため / keep と同一 gate）。
@@ -373,6 +394,7 @@ fn resolve_and_enter_keep(
     // B-127: cap 到達拒否を UI に通知する永続ステータス（両殻が B-118 で表示）。cap 到達時に
     // "Maximum 12 pairs reached" を書く（R-28: silent drop 禁止）。正常 enter で None に消す。
     record_error_message: &RwLock<Option<String>>,
+    started_at_position_samples: Option<i64>,
 ) -> bool {
     // B-071 double-keep guard: 既に Record 中なら no-op（既存 linkage 温存）。
     if record_sm.is_recording() {
@@ -437,13 +459,14 @@ fn resolve_and_enter_keep(
         return false;
     }
     // target_pre_instance_id = 選定 PRE。PRE が自宛て signal を発見し ack する。
-    if write_pending_with_expected(
+    if write_pending_with_expected_and_clock(
         &base,
         project_hash,
         post_iid,
         target.clone(),
         daw.to_string(),
         Some(expected_wav),
+        started_at_position_samples,
     )
     .is_ok()
     {
@@ -613,6 +636,8 @@ impl KirinHyphaEngine {
             heartbeat,
             liveness,
             record_sm,
+            latest_position_valid: Arc::new(AtomicBool::new(false)),
+            latest_position_samples: Arc::new(AtomicI64::new(i64::MIN)),
             // 既定 Unknown（set_license(Os) されるまで Record 不可・安全側）。
             license: Arc::new(AtomicU8::new(LICENSE_UNKNOWN)),
             sample_rate,
@@ -680,9 +705,14 @@ impl KirinHyphaEngine {
     /// （record.rs:109-123）。`AlreadyRecording` / `LicenseDenied` は `false`。
     pub fn enter_record(&self) -> bool {
         self.record_sm
-            .try_enter_record_started_at(
+            .try_enter_record_started_at_clock(
                 self.current_license(),
                 kirin_measure::record_writer::now_epoch_ms(),
+                native_start_position_samples(
+                    &self.latest_position_valid,
+                    &self.latest_position_samples,
+                    self.sample_rate,
+                ),
             )
             .is_ok()
     }
@@ -719,6 +749,23 @@ impl KirinHyphaEngine {
     /// 計測 ring とは独立した sample-count clock で、手動 Keep/Stop の余白を
     /// `bounce_take` に混ぜないための正本。内部は atomic 操作のみ。
     pub fn note_record_block(&self, block: RecordTakeBlock) {
+        if block.position_valid {
+            self.latest_position_samples
+                .store(block.position_samples, Ordering::Relaxed);
+            self.latest_position_valid.store(true, Ordering::Relaxed);
+        } else {
+            self.latest_position_valid.store(false, Ordering::Relaxed);
+        }
+        if block.rendered
+            && block.num_frames > 0
+            && (block.playing || block.offline || block.recording)
+        {
+            self.record_take_tracker.note_capture_window(
+                block.position_valid,
+                block.position_samples,
+                block.num_frames,
+            );
+        }
         self.record_take_tracker.note_block(RecordTakeBlock {
             generation: self.record_sm.generation(),
             ..block
@@ -958,8 +1005,16 @@ impl KirinHyphaEngine {
             let latched = Arc::clone(&self.latched_pre);
             // B-127: broadcast 受信 keep も engine cap を通す。cap 到達通知の宛先 Arc を capture。
             let record_error_message = Arc::clone(&self.record_error_message);
+            let latest_position_valid = Arc::clone(&self.latest_position_valid);
+            let latest_position_samples = Arc::clone(&self.latest_position_samples);
+            let sample_rate = self.sample_rate;
             Arc::new(move |_pre: &str, _post: &str| {
                 let lic = license_from_abi(license.load(Ordering::Relaxed));
+                let started_at_position_samples = native_start_position_samples(
+                    &latest_position_valid,
+                    &latest_position_samples,
+                    sample_rate,
+                );
                 let _ = resolve_and_enter_keep(
                     lic,
                     &record_sm,
@@ -970,6 +1025,7 @@ impl KirinHyphaEngine {
                     &daw,
                     &latched,
                     &record_error_message,
+                    started_at_position_samples,
                 );
             })
         };
@@ -1236,6 +1292,11 @@ impl KirinHyphaEngine {
             &daw,
             &self.latched_pre, // B-108: ラッチ済みならラッチ先を直接 target に使う
             &self.record_error_message, // B-127: cap 到達通知の宛先（両殻 B-118 表示）
+            native_start_position_samples(
+                &self.latest_position_valid,
+                &self.latest_position_samples,
+                self.sample_rate,
+            ),
         )
     }
 
