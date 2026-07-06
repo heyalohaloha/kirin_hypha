@@ -67,6 +67,23 @@ pub fn derive_led_state(
     LedState::Idle
 }
 
+/// LED 用の表示上の信号状態。
+///
+/// 実信号が Inactive でも、GUI が直近値を通常色で保持している間は Watch LED も
+/// Active 相当として扱う。数値が muted に入ったタイミングで LED も Idle へ落とす。
+pub fn display_signal_state_for_led(
+    signal_state: SignalState,
+    recording: bool,
+    display_held: bool,
+    display_muted: bool,
+) -> SignalState {
+    if !recording && signal_state == SignalState::Inactive && display_held && !display_muted {
+        SignalState::Active
+    } else {
+        signal_state
+    }
+}
+
 /// 状態 + 経過秒数から描画色を計算する。
 ///
 /// 呼吸 / 脈動アニメーションは輝度を sin で変調する。
@@ -293,6 +310,38 @@ mod tests {
             );
             assert!(c.r() <= base.r(), "r={} base_r={}", c.r(), base.r());
         }
+    }
+
+    #[test]
+    fn inactive_watch_uses_active_led_while_display_is_held_normal() {
+        assert_eq!(
+            display_signal_state_for_led(SignalState::Inactive, false, true, false),
+            SignalState::Active
+        );
+    }
+
+    #[test]
+    fn inactive_watch_led_follows_display_muted_boundary() {
+        assert_eq!(
+            display_signal_state_for_led(SignalState::Inactive, false, true, true),
+            SignalState::Inactive
+        );
+        assert_eq!(
+            display_signal_state_for_led(SignalState::Inactive, false, false, false),
+            SignalState::Inactive
+        );
+    }
+
+    #[test]
+    fn display_hold_does_not_override_recording_or_bypass_led() {
+        assert_eq!(
+            display_signal_state_for_led(SignalState::Inactive, true, true, false),
+            SignalState::Inactive
+        );
+        assert_eq!(
+            display_signal_state_for_led(SignalState::Bypassed, false, true, false),
+            SignalState::Bypassed
+        );
     }
 
     #[test]

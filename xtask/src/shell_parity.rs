@@ -358,11 +358,12 @@ mod tests {
             "POST Record active display must pass delta values through the GUI-only smoother"
         );
         assert!(
-            body.contains("else if (sig == 0 && displaySmoother.heldDelta (d, t))")
+            body.contains("else if (sig == 0)")
+                && body.contains("displaySmoother.heldDeltaDisplay (held, t)")
                 && body.contains(
-                    "const juce::Colour base = (staleD || (haveD && d.mode == 1)) ? COL_MUTED : COL_NORMAL;"
+                    "const juce::Colour base = (mutedD || (haveD && d.mode == 1)) ? COL_MUTED : COL_NORMAL;"
                 ),
-            "POST Record inactive display must keep recent delta values muted instead of immediately falling to ---"
+            "POST Record inactive display must keep recent delta values until the display mute boundary instead of immediately falling to ---"
         );
     }
 
@@ -373,22 +374,39 @@ mod tests {
             .expect("updatePost");
         let body = &PLUGIN_EDITOR_CPP[start..];
         let watch_branch = body.find("else // Active + Watch").expect("watch branch");
-        let window = &body[watch_branch..body.len().min(watch_branch + 1400)];
+        let window = &body[watch_branch..body.len().min(watch_branch + 2200)];
 
         assert!(
             window.contains("if (pairNonEmpty && ! preExplicitBypassed)")
                 && window.contains("configureForKind (Kind::Delta3)")
-                && window.contains("const bool liveDelta = haveD && d.mode == 0 && ! staleD;"),
+                && window.contains("const bool liveDelta = haveD && d.mode == 0 && ! mutedD;"),
             "JUCE POST Watch must keep the Delta3 grid while an explicit pair is selected"
         );
         assert!(
-            window.contains("else if (! preExplicitBypassed && pairNonEmpty && displaySmoother.heldDelta (d, t))")
+            window.contains("else if (! preExplicitBypassed && pairNonEmpty)")
+                && window.contains("displaySmoother.heldDeltaDisplay (held, t)")
                 && window.contains("const juce::Colour base = liveDelta ? COL_NORMAL : COL_MUTED;"),
             "JUCE POST Watch must use held/muted delta values for transient stale PRE reads"
         );
         assert!(
             window.contains("else // pair empty or PRE explicitly bypassed -> POST absolute"),
             "JUCE POST Watch may fall back to POST absolute values only when the pair is empty or PRE is explicitly bypassed"
+        );
+    }
+
+    #[test]
+    fn juce_post_led_follows_display_mute_boundary() {
+        let start = PLUGIN_EDITOR_CPP
+            .find("void KirinHyphaEditor::updatePost()")
+            .expect("updatePost");
+        let body = &PLUGIN_EDITOR_CPP[start..];
+
+        assert!(
+            body.contains("bool watchHeldNormal = false;")
+                && body.contains("watchHeldNormal = ! mutedHeldD;")
+                && body.contains("watchHeldNormal = haveM && ! mutedM;")
+                && body.contains("const int ledSig = (! rec && sig == 0 && watchHeldNormal) ? 1 : sig;"),
+            "JUCE POST Watch LED must remain active only while the displayed held values are not muted"
         );
     }
 }
