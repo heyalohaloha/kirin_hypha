@@ -929,13 +929,14 @@ fn io_thread_post_self_check_gated_when_recording() {
     )
     .expect("read io_thread_post.rs");
     // W-281 C-3 self_check 発火条件 block (W-284 で Record gate 追加)。
-    // anchor = `&& tick_now.duration_since(last_self_check_at)` (条件式末尾の throttle 句)。
+    // B-263以降は条件を `self_check_allowed` に分離し、禁止状態で release
+    // 候補も reset する。
     let anchor_idx = src
-        .find("&& tick_now.duration_since(last_self_check_at)")
-        .expect("W-281 C-3 self_check throttle anchor not found");
-    // anchor から 200 byte 前後 (条件式全体を含む) で gate を確認。
-    let start = anchor_idx.saturating_sub(300);
-    let end = (anchor_idx + 200).min(src.len());
+        .find("let self_check_allowed = !record_sm.is_recording()")
+        .expect("W-281 C-3 self_check_allowed anchor not found");
+    // anchor から 500 byte 前後 (allowed 定義 + reset + throttle を含む) で gate を確認。
+    let start = anchor_idx.saturating_sub(100);
+    let end = (anchor_idx + 650).min(src.len());
     // UTF-8 char boundary walk-back (Japanese 注釈の途中で切れないように)。
     let mut safe_start = start;
     while safe_start < src.len() && !src.is_char_boundary(safe_start) {
@@ -953,5 +954,13 @@ fn io_thread_post_self_check_gated_when_recording() {
     assert!(
         window.contains("!transport_playing"),
         "B-253: self_check 発火条件 block に `!transport_playing` gate が無い (再生中の無音 gap で pair が外れる regression)"
+    );
+    assert!(
+        window.contains("self_check_release_gate.reset()"),
+        "B-264: playback/Record/Active 中は self-check release 候補を reset し、停止瞬間に古い候補で release しない"
+    );
+    assert!(
+        window.contains("tick_now.duration_since(last_self_check_at) >= Duration::from_secs(1)"),
+        "W-281 C-3: self_check は 1 秒周期 throttle を維持する"
     );
 }
