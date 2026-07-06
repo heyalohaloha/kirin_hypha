@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include <algorithm>
 #include <cmath> // B-107: std::abs(float) for the silence peak threshold
 
 namespace
@@ -200,6 +201,9 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
     bool playing = false;
     bool hasPosition = false;
     int64_t positionSamples = 0;
+    bool hasClockEnd = false;
+    int64_t clockStartSamples = 0;
+    int64_t clockEndSamples = 0;
     if (auto* ph = getPlayHead())
         if (const auto pos = ph->getPosition())
         {
@@ -209,6 +213,20 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
                 hasPosition = true;
                 positionSamples = *timeSamples;
             }
+            if (const auto loop = pos->getLoopPoints())
+                if (const auto bpm = pos->getBpm())
+                    if (*bpm > 0.0 && getSampleRate() > 0.0)
+                    {
+                        const double samplesPerQuarter = getSampleRate() * 60.0 / *bpm;
+                        const auto start = (int64_t) std::llround (loop->ppqStart * samplesPerQuarter);
+                        const auto end = (int64_t) std::llround (loop->ppqEnd * samplesPerQuarter);
+                        if (end > start)
+                        {
+                            hasClockEnd = true;
+                            clockStartSamples = start;
+                            clockEndSamples = end;
+                        }
+                    }
         }
     lastPlaying.store (playing, std::memory_order_release); // B-054: POST pair lock reads this
     const bool positionChanged = hasPosition && lastProcessPositionValid
@@ -222,6 +240,32 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
     const bool silent = bufferIsSilent (buffer);
     const bool recording = kirin_hypha_is_recording (hyphaHandle);
     const bool nonRealtime = isNonRealtime();
+    int windowStartFrame = 0;
+    int windowEndFrame = numFrames;
+    int64_t windowPositionSamples = positionSamples;
+    uint64_t windowNumFrames = (uint64_t) numFrames;
+    if (recording && hasPosition)
+    {
+        const int64_t blockStart = positionSamples;
+        const int64_t blockEnd = positionSamples + (int64_t) numFrames;
+        const int64_t clockStart = hasClockEnd ? clockStartSamples : 0;
+        const int64_t clippedStart = std::max (blockStart, clockStart);
+        const int64_t clippedEnd = hasClockEnd ? std::min (blockEnd, clockEndSamples) : blockEnd;
+        if (clippedEnd <= clippedStart)
+        {
+            windowStartFrame = 0;
+            windowEndFrame = 0;
+            windowPositionSamples = clippedStart;
+            windowNumFrames = 0;
+        }
+        else
+        {
+            windowStartFrame = (int) (clippedStart - blockStart);
+            windowEndFrame = (int) (clippedEnd - blockStart);
+            windowPositionSamples = clippedStart;
+            windowNumFrames = (uint64_t) (clippedEnd - clippedStart);
+        }
+    }
 
     // C ABI signal-state codes: 0 = Inactive, 1 = Active, 2 = Bypassed.
     const uint8_t stateCode = resolveSignalStateCode (bypassed, playing, silent, recording, nonRealtime);
@@ -237,30 +281,33 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
                                                                   playing,
                                                                   positionChanged,
                                                                   nonRealtime);
-    kirin_hypha_note_record_block (hyphaHandle,
-                                   recording,
-                                   ! bypassed && numFrames > 0 && numCh > 0,
-                                   playing,
-                                   nonRealtime,
-                                   hasPosition,
-                                   positionSamples,
-                                   (uint64_t) numFrames);
+    kirin_hypha_note_record_window (hyphaHandle,
+                                    recording,
+                                    ! bypassed && windowNumFrames > 0 && numCh > 0,
+                                    playing,
+                                    nonRealtime,
+                                    hasPosition,
+                                    windowPositionSamples,
+                                    windowNumFrames,
+                                    clockStartSamples,
+                                    hasClockEnd,
+                                    clockEndSamples);
     // push_samples advances heartbeat internally, so a 0-frame call is a heartbeat-only
     // keepalive for the non-captured Inactive / Bypassed case.
     if (captureBuffer)
     {
-        const size_t needed = (size_t) numFrames * (size_t) numCh;
+        const size_t needed = (size_t) windowNumFrames * (size_t) numCh;
         if (numCh > 0 && needed <= scratchCapacitySamples)
         {
             // Interleave [c0f0, c1f0, c0f1, c1f1, ...] — same order as nih-plug iter_samples.
             // getReadPointer only: the input buffer is never modified (R-12).
             size_t idx = 0;
-            for (int f = 0; f < numFrames; ++f)
+            for (int f = windowStartFrame; f < windowEndFrame; ++f)
                 for (int ch = 0; ch < numCh; ++ch)
                     interleaveScratch[idx++] = buffer.getReadPointer (ch)[f];
 
             kirin_hypha_push_samples (hyphaHandle, interleaveScratch.data(),
-                                      (size_t) numFrames, (uint32_t) numCh);
+                                      (size_t) windowNumFrames, (uint32_t) numCh);
         }
         else
         {

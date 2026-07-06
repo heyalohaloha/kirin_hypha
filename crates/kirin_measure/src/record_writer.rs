@@ -30,7 +30,7 @@ use crate::plugin_data::{
 };
 use crate::record::RecordStateMachine;
 use crate::record_signal;
-use crate::record_take::{RecordTakeSnapshot, RecordTakeTracker};
+use crate::record_take::{RecordTakeSnapshot, RecordTakeTracker, RECORD_TAKE_SOURCE_WAV_CLOCK};
 use crate::storage::{load_installation_id_safe, StoragePaths};
 use crate::MeasureResult;
 use chrono::TimeZone;
@@ -607,6 +607,12 @@ fn bake_continuous_record_timeline(ctx: &mut RecordingCtx) {
     if ctx.trace_samples.is_empty() && ctx.writer.data().frames.is_empty() {
         return;
     }
+    if ctx.trace_sample_count == 0 {
+        ctx.trace_sample_count = ctx
+            .trace_samples
+            .len()
+            .saturating_add(ctx.writer.data().frames.len());
+    }
 
     let slots = continuous_timeline_slots(duration_ms);
     if slots.is_empty() {
@@ -724,7 +730,8 @@ fn frame_timeline_has_gap(ctx: &RecordingCtx, duration_ms: u64) -> bool {
 }
 
 fn clean_take_is_sample_count_ready(ctx: &RecordingCtx, duration_ms: u64) -> bool {
-    ctx.clean_take.is_some()
+    ctx.clean_take
+        .is_some_and(|take| take.source == RECORD_TAKE_SOURCE_WAV_CLOCK)
         && duration_ms >= CLEAN_TAKE_MIN_DURATION_MS
         && frame_timeline_covers_duration(ctx, duration_ms)
         && clean_take_trace_density_ready(ctx, duration_ms)
@@ -755,16 +762,14 @@ fn trace_density_is_sparse(ctx: &RecordingCtx) -> bool {
     if duration_ms < TRACE_DENSITY_MIN_DURATION_MS {
         return false;
     }
-    if ctx.clean_take.is_some() {
-        return fallback_frame_density_is_sparse(ctx, duration_ms);
+    if ctx.trace_sample_count > 0 {
+        let expected = expected_trace_samples(duration_ms);
+        return ctx
+            .trace_sample_count
+            .saturating_mul(TRACE_DENSITY_MIN_RATIO_DEN)
+            < expected.saturating_mul(TRACE_DENSITY_MIN_RATIO_NUM);
     }
-    if ctx.trace_sample_count == 0 {
-        return fallback_frame_density_is_sparse(ctx, duration_ms);
-    }
-    let expected = expected_trace_samples(duration_ms);
-    ctx.trace_sample_count
-        .saturating_mul(TRACE_DENSITY_MIN_RATIO_DEN)
-        < expected.saturating_mul(TRACE_DENSITY_MIN_RATIO_NUM)
+    fallback_frame_density_is_sparse(ctx, duration_ms)
 }
 
 fn fallback_frame_density_is_sparse(ctx: &RecordingCtx, duration_ms: u64) -> bool {
@@ -2136,7 +2141,7 @@ mod tests {
         ctx.clean_take = Some(RecordTakeSnapshot {
             generation: 42,
             duration_samples: 1_440_000,
-            source: crate::record_take::RECORD_TAKE_SOURCE_RENDER_CLOCK,
+            source: crate::record_take::RECORD_TAKE_SOURCE_WAV_CLOCK,
         });
         let final_path = ctx.final_path.clone();
 
@@ -2146,7 +2151,7 @@ mod tests {
             serde_json::from_slice(&fs::read(&final_path).unwrap()).unwrap();
         let take = loaded.bounce_take.as_ref().expect("bounce_take");
         assert_eq!(loaded.bounce_marker.duration_samples, 1_440_000);
-        assert_eq!(take.source, "render_clock_native");
+        assert_eq!(take.source, "wav_clock_native");
         assert_eq!(take.time_axis, "native_samples");
         assert_eq!(take.alignment_status, "sample_count_ready");
         assert_eq!(take.duration_samples, 1_440_000);
@@ -2159,6 +2164,37 @@ mod tests {
             .as_ref()
             .is_some_and(|psb| psb.is_empty()));
         assert!(crate::plugin_data::verify_checksum(&loaded));
+    }
+
+    #[test]
+    fn render_clock_clean_take_is_not_sample_count_ready_without_wav_clock() {
+        let base = isolated_base();
+        let mut ctx = make_ctx_with_sample_rate(&base, Role::Post, now_epoch_ms(), 96_000);
+        let m = full_measure_result();
+
+        mark_trace_time(&mut ctx, 15_000, 720_000, Some(1_440_000));
+        for t_ms in (0_u64..=15_000).step_by(FRAME_INTERVAL_MS as usize) {
+            assert!(writer_append_frame(&mut ctx, t_ms, &m));
+        }
+        ctx.trace_sample_count = 151;
+        ctx.record_generation = 142;
+        ctx.clean_take = Some(RecordTakeSnapshot {
+            generation: 142,
+            duration_samples: 1_440_000,
+            source: crate::record_take::RECORD_TAKE_SOURCE_RENDER_CLOCK,
+        });
+        let final_path = ctx.final_path.clone();
+
+        writer_close(ctx);
+
+        let loaded: PluginDataFile =
+            serde_json::from_slice(&fs::read(&final_path).unwrap()).unwrap();
+        let take = loaded.bounce_take.as_ref().expect("bounce_take");
+        assert_eq!(take.source, "render_clock_native");
+        assert_eq!(take.duration_samples, 1_440_000);
+        assert_eq!(take.frame_count, 151);
+        assert_eq!(take.alignment_status, "trace_span_only");
+        assert!(!loaded.integrity_degraded);
     }
 
     #[test]
@@ -2177,7 +2213,7 @@ mod tests {
         ctx.clean_take = Some(RecordTakeSnapshot {
             generation: 12,
             duration_samples: 480_000,
-            source: crate::record_take::RECORD_TAKE_SOURCE_RENDER_CLOCK,
+            source: crate::record_take::RECORD_TAKE_SOURCE_WAV_CLOCK,
         });
         let final_path = ctx.final_path.clone();
 
@@ -2215,7 +2251,7 @@ mod tests {
         ctx.clean_take = Some(RecordTakeSnapshot {
             generation: 77,
             duration_samples: 2_048,
-            source: crate::record_take::RECORD_TAKE_SOURCE_RENDER_CLOCK,
+            source: crate::record_take::RECORD_TAKE_SOURCE_WAV_CLOCK,
         });
         let failed_path = ctx.failed_path.clone();
 
@@ -2271,7 +2307,7 @@ mod tests {
         ctx.clean_take = Some(RecordTakeSnapshot {
             generation: 7,
             duration_samples: 661_500,
-            source: crate::record_take::RECORD_TAKE_SOURCE_RENDER_CLOCK,
+            source: crate::record_take::RECORD_TAKE_SOURCE_WAV_CLOCK,
         });
         let final_path = ctx.final_path.clone();
 
@@ -2282,7 +2318,7 @@ mod tests {
         let take = loaded.bounce_take.as_ref().expect("bounce_take");
         assert_eq!(loaded.sample_rate, 44_100);
         assert_eq!(loaded.bounce_marker.duration_samples, 661_500);
-        assert_eq!(take.source, "render_clock_native");
+        assert_eq!(take.source, "wav_clock_native");
         assert_eq!(take.time_axis, "native_samples");
         assert_eq!(take.alignment_status, "sample_count_ready");
         assert_eq!(take.duration_samples, 661_500);
@@ -2907,7 +2943,7 @@ mod tests {
         ctx.clean_take = Some(RecordTakeSnapshot {
             generation: 91,
             duration_samples: 1_440_000,
-            source: crate::record_take::RECORD_TAKE_SOURCE_RENDER_CLOCK,
+            source: crate::record_take::RECORD_TAKE_SOURCE_WAV_CLOCK,
         });
         writer_close(ctx);
 
@@ -2936,12 +2972,12 @@ mod tests {
     fn close_bakes_sparse_clean_take_to_continuous_trace_grid() {
         let base = isolated_base();
         let mut ctx = make_ctx_with_sample_rate(&base, Role::Post, now_epoch_ms(), 96_000);
-        let final_path = ctx.final_path.clone();
+        let failed_path = ctx.failed_path.clone();
         ctx.record_generation = 7;
         ctx.clean_take = Some(RecordTakeSnapshot {
             generation: 7,
             duration_samples: 1_440_000,
-            source: crate::record_take::RECORD_TAKE_SOURCE_RENDER_CLOCK,
+            source: crate::record_take::RECORD_TAKE_SOURCE_WAV_CLOCK,
         });
         for t_ms in [0_u64, 7_200, 15_000] {
             ctx.trace_samples.push(trace_sample_frames_with_native(
@@ -2962,7 +2998,7 @@ mod tests {
         writer_close(ctx);
 
         let loaded: PluginDataFile =
-            serde_json::from_slice(&fs::read(&final_path).unwrap()).unwrap();
+            serde_json::from_slice(&fs::read(&failed_path).unwrap()).unwrap();
         let take = loaded.bounce_take.as_ref().expect("bounce_take");
         assert_eq!(take.duration_samples, 1_440_000);
         assert_eq!(take.end_t_ms, 15_000);
@@ -2978,14 +3014,56 @@ mod tests {
             .frames
             .iter()
             .any(|frame| frame.lufs_m == TRACE_SILENCE_LUFS));
-        assert_eq!(loaded.commit_status.as_deref(), Some("committed"));
+        assert!(loaded.integrity_degraded);
+        assert!(loaded
+            .integrity_reasons
+            .iter()
+            .any(|reason| reason == "sparse_trace_density"));
+    }
+
+    #[test]
+    fn wav_clock_sparse_fallback_frames_do_not_become_ready_after_grid_bake() {
+        let base = isolated_base();
+        let mut ctx = make_ctx_with_sample_rate(&base, Role::Post, now_epoch_ms(), 96_000);
+        let failed_path = ctx.failed_path.clone();
+        ctx.record_generation = 71;
+        ctx.clean_take = Some(RecordTakeSnapshot {
+            generation: 71,
+            duration_samples: 1_440_000,
+            source: crate::record_take::RECORD_TAKE_SOURCE_WAV_CLOCK,
+        });
+        for t_ms in [0_u64, 7_200, 15_000] {
+            assert!(writer_append_frame(&mut ctx, t_ms, &full_measure_result()));
+            mark_trace_time(
+                &mut ctx,
+                t_ms,
+                t_ms.saturating_mul(TRACE_TIMEBASE_HZ) / 1_000,
+                Some(t_ms.saturating_mul(96_000) / 1_000),
+            );
+        }
+
+        writer_close(ctx);
+
+        let loaded: PluginDataFile =
+            serde_json::from_slice(&fs::read(&failed_path).unwrap()).unwrap();
+        let take = loaded.bounce_take.as_ref().expect("bounce_take");
+        assert_eq!(take.duration_samples, 1_440_000);
+        assert_eq!(take.end_t_ms, 15_000);
+        assert_eq!(take.frame_count, 151);
+        assert_eq!(loaded.frames.len(), 151);
+        assert_ne!(take.alignment_status, "sample_count_ready");
+        assert!(loaded.integrity_degraded);
+        assert!(loaded
+            .integrity_reasons
+            .iter()
+            .any(|reason| reason == "sparse_trace_density"));
     }
 
     #[test]
     fn close_recovers_out_of_order_trace_samples_before_publish() {
         let base = isolated_base();
         let mut ctx = make_ctx_with_sample_rate(&base, Role::Post, now_epoch_ms(), 96_000);
-        let final_path = ctx.final_path.clone();
+        let failed_path = ctx.failed_path.clone();
         let queue = new_record_trace_queue();
         for t_ms in [15_000_u64, 0, 100, 7_200] {
             push_record_trace_sample(
@@ -3008,18 +3086,22 @@ mod tests {
         ctx.clean_take = Some(RecordTakeSnapshot {
             generation: 9,
             duration_samples: 1_440_000,
-            source: crate::record_take::RECORD_TAKE_SOURCE_RENDER_CLOCK,
+            source: crate::record_take::RECORD_TAKE_SOURCE_WAV_CLOCK,
         });
 
         writer_close(ctx);
 
         let loaded: PluginDataFile =
-            serde_json::from_slice(&fs::read(&final_path).unwrap()).unwrap();
+            serde_json::from_slice(&fs::read(&failed_path).unwrap()).unwrap();
         assert_eq!(loaded.frames.len(), 151);
         assert_eq!(loaded.frames[0].t_ms, 0);
         assert_eq!(loaded.frames[1].t_ms, 100);
         assert_eq!(loaded.frames.last().map(|frame| frame.t_ms), Some(15_000));
-        assert_eq!(loaded.commit_status.as_deref(), Some("committed"));
+        assert!(loaded.integrity_degraded);
+        assert!(loaded
+            .integrity_reasons
+            .iter()
+            .any(|reason| reason == "sparse_trace_density"));
     }
 
     #[test]

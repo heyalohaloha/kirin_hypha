@@ -272,8 +272,10 @@ mod tests {
             "offline mode must still feed Record capture eligibility"
         );
         assert!(
-            body.contains("kirin_hypha_note_record_block")
-                && body.contains("playing,\n                                   nonRealtime"),
+            body.contains("kirin_hypha_note_record_window")
+                && body.contains("clockStartSamples")
+                && body.contains("hasClockEnd")
+                && body.contains("clockEndSamples"),
             "offline mode must still be reported to the Record clock"
         );
         assert!(

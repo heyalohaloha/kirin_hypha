@@ -912,6 +912,8 @@ impl Plugin for HyphaPost {
             position_valid: record_window.position_valid,
             position_samples: record_window.position_samples,
             num_frames: record_window.num_frames,
+            clock_start_samples: record_window.clock_start_samples,
+            clock_end_samples: record_window.clock_end_samples,
         });
 
         if capture_buffer {

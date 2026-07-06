@@ -13,6 +13,8 @@ pub struct RecordWindow {
     pub position_valid: bool,
     pub position_samples: i64,
     pub num_frames: u64,
+    pub clock_start_samples: i64,
+    pub clock_end_samples: Option<i64>,
 }
 
 impl RecordWindow {
@@ -23,16 +25,24 @@ impl RecordWindow {
             position_valid: position_samples != i64::MIN,
             position_samples,
             num_frames: num_frames as u64,
+            clock_start_samples: 0,
+            clock_end_samples: None,
         }
     }
 
-    fn empty_at(position_samples: i64) -> Self {
+    fn empty_at(
+        position_samples: i64,
+        clock_start_samples: i64,
+        clock_end_samples: Option<i64>,
+    ) -> Self {
         Self {
             start_frame: 0,
             end_frame: 0,
             position_valid: true,
             position_samples,
             num_frames: 0,
+            clock_start_samples,
+            clock_end_samples,
         }
     }
 }
@@ -48,7 +58,7 @@ pub fn record_window_for_buffer(
 
     let (clock_start, clock_end) = match loop_range_samples {
         Some((start, end)) if end > start => (start, Some(end)),
-        Some((start, _)) => return RecordWindow::empty_at(start),
+        Some((start, _)) => return RecordWindow::empty_at(start, start, None),
         None => (0, None),
     };
 
@@ -57,7 +67,7 @@ pub fn record_window_for_buffer(
     let clipped_start = block_start.max(clock_start);
     let clipped_end = clock_end.map_or(block_end, |end| block_end.min(end));
     if clipped_end <= clipped_start {
-        return RecordWindow::empty_at(clipped_start);
+        return RecordWindow::empty_at(clipped_start, clock_start, clock_end);
     }
 
     let start_frame = clipped_start.saturating_sub(block_start) as usize;
@@ -68,6 +78,8 @@ pub fn record_window_for_buffer(
         position_valid: true,
         position_samples: clipped_start,
         num_frames: clipped_end.saturating_sub(clipped_start) as u64,
+        clock_start_samples: clock_start,
+        clock_end_samples: clock_end,
     }
 }
 
@@ -82,6 +94,8 @@ mod tests {
         assert_eq!(window.end_frame, 1_024);
         assert_eq!(window.position_samples, 0);
         assert_eq!(window.num_frames, 768);
+        assert_eq!(window.clock_start_samples, 0);
+        assert_eq!(window.clock_end_samples, None);
     }
 
     #[test]
@@ -91,6 +105,8 @@ mod tests {
         assert_eq!(window.end_frame, 0);
         assert_eq!(window.position_samples, 0);
         assert_eq!(window.num_frames, 0);
+        assert_eq!(window.clock_start_samples, 0);
+        assert_eq!(window.clock_end_samples, None);
     }
 
     #[test]
@@ -100,6 +116,8 @@ mod tests {
         assert_eq!(window.end_frame, 512);
         assert_eq!(window.position_samples, 96_000);
         assert_eq!(window.num_frames, 512);
+        assert_eq!(window.clock_start_samples, 0);
+        assert_eq!(window.clock_end_samples, None);
     }
 
     #[test]
@@ -109,6 +127,8 @@ mod tests {
         assert_eq!(window.end_frame, 350);
         assert_eq!(window.position_samples, 96_000);
         assert_eq!(window.num_frames, 250);
+        assert_eq!(window.clock_start_samples, 96_000);
+        assert_eq!(window.clock_end_samples, Some(96_250));
     }
 
     #[test]
@@ -118,5 +138,7 @@ mod tests {
         assert_eq!(window.end_frame, 0);
         assert_eq!(window.position_samples, 97_000);
         assert_eq!(window.num_frames, 0);
+        assert_eq!(window.clock_start_samples, 96_000);
+        assert_eq!(window.clock_end_samples, Some(97_000));
     }
 }
