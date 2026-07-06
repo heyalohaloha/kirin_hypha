@@ -592,8 +592,13 @@ pub fn spawn_io_thread_post(
                         &paired_pre_target,
                         "idle_timeout",
                     );
-                    // PRE は released marker を見て Watch へ追従（手動 Stop と同じ伝播）。
-                    let _ = record_signal::mark_released(&base, project_hash_ref, instance_id_ref);
+                    // PRE は reason 付き released marker だけを Stop として扱う。
+                    let _ = record_signal::mark_released_with_reason(
+                        &base,
+                        project_hash_ref,
+                        instance_id_ref,
+                        record_signal::ReleaseReason::IdleTimeout,
+                    );
                 }
                 // B-207 #3: writer が存在した（=テイクが録れた）ときだけ "Take saved." を付す。
                 // writer_start 失敗（record 開始時ディスクエラー）時は recording==None なので、

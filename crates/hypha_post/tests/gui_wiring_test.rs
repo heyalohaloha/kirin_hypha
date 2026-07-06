@@ -400,19 +400,19 @@ fn editor_rs_keep_uses_authoritative_reservation_cap() {
 
 // ── B-027 段階 3-B α-7 / Group 2 (Gap-6 局所対処) 配線確証 ────────────────
 //
-// POST Stop は `released` をPREへ見せることを正本にする。
-// trigger_stopで即 delete_signal すると、PRE が `released` を見逃して
+// POST Stop は reason 付き `released` をPREへ見せることを正本にする。
+// trigger_stopで即 delete_signal すると、PRE が authorized release を見逃して
 // missing を Stop 代替にする必要が出る。B-243 ではその権限を剥奪する。
 
-/// 統合点 #2: trigger_stop 内では mark_released するが delete_signal しない。
+/// 統合点 #2: trigger_stop 内では mark_released_with_reason するが delete_signal しない。
 #[test]
 fn editor_rs_trigger_stop_marks_released_without_deleting_signal() {
     let src = read("src/editor.rs");
-    src.find("mark_released(&plugin_data_dir, project_hash, instance_id)")
-        .expect("trigger_stop must call mark_released (B-027 段階 3-B α-7)");
+    src.find("mark_released_with_reason(")
+        .expect("trigger_stop must call mark_released_with_reason");
     assert!(
         !src.contains("delete_signal(&plugin_data_dir, project_hash, instance_id)"),
-        "trigger_stop must leave record_signal as released so PRE observes explicit Stop"
+        "trigger_stop must leave record_signal as reasoned released so PRE observes explicit Stop"
     );
 }
 
@@ -441,20 +441,20 @@ fn editor_rs_trigger_stop_preserves_pair_selection() {
 }
 
 /// 統合点 #2 broadcast (B-027 段階 3-B α-7-4-D / Step 12-A): trigger_stop 内で
-/// mark_released の **後** に delete_broadcast が呼ばれる。
+/// mark_released_with_reason の **後** に delete_broadcast が呼ばれる。
 /// record_signal は残し、all_keep broadcast だけを掃除する。
 #[test]
 fn editor_rs_trigger_stop_calls_delete_broadcast_after_mark_released() {
     let src = read("src/editor.rs");
     let mark_idx = src
-        .find("mark_released(&plugin_data_dir, project_hash, instance_id)")
-        .expect("trigger_stop must call mark_released");
+        .find("mark_released_with_reason(")
+        .expect("trigger_stop must call mark_released_with_reason");
     let delete_broadcast_idx = src
         .find("delete_broadcast(&plugin_data_dir, project_hash, instance_id)")
         .expect("trigger_stop must call delete_broadcast (Step 12-A 統合点 #2 broadcast)");
     assert!(
         mark_idx < delete_broadcast_idx,
-        "delete_broadcast must be called AFTER mark_released in trigger_stop \
+        "delete_broadcast must be called AFTER mark_released_with_reason in trigger_stop \
          (mark={mark_idx}, delete_broadcast={delete_broadcast_idx})"
     );
     // 失敗時は warn のみ (panic 禁止 / 設計判断 #8)
@@ -467,7 +467,7 @@ fn editor_rs_trigger_stop_calls_delete_broadcast_after_mark_released() {
 /// 統合点 #3: HyphaPost::drop 内 watchdog join 後に mark_released が呼ばれる。
 /// 順序: record_sm.exit_record() → shutdown flags → watchdog join →
 ///       mark_released。
-/// missing ではPREを止めないため、Dropでも明示 Released を残す。
+/// missing ではPREを止めないため、Dropでも cleanup Released を残す。
 #[test]
 fn lib_rs_drop_marks_released_after_watchdog_join() {
     let src = read("src/lib.rs");

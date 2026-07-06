@@ -19,7 +19,7 @@
 //!
 //! - `Keep` → PRE 候補 0 件 → toast / 排他違反 → toast /
 //!   `try_enter_record(license)` → `write_pending`
-//! - `Stop` → `record_sm.exit_record()` + `mark_released`
+//! - `Stop` → `record_sm.exit_record()` + reasoned `mark_released`
 //! - `Note` → スタブ維持（U-16 は サブ2-C）
 //! - Sense hint → `open::that(SENSE_UPSELL_URL)` でブラウザ起動
 //!
@@ -37,12 +37,13 @@ use kirin_measure::{
     enumerate_active_post_pair_candidates, enumerate_active_post_pair_candidates_for_daw_session,
     enumerate_active_pre_pair_candidates_for_post_project, exit_record_full,
     exit_record_preserve_pair, format_pair_label, load_signal_state, lookup_section_label,
-    mark_released, pair_lock_active, resolve_arm_target_for_post_project, sanitize_name,
-    scan_latest_v2_preset, show_note_button, show_save_button, show_stop_record_button,
-    write_broadcast, write_pending, write_stop_broadcast, DeltaMode, DeltaResult, DeltaSnapshot,
-    LatchedPre, License, LivenessEvaluator, MeasureResult, PlatformPaths, PluginDataRole,
-    PostCandidate, PreCandidate, PresetFileV2, RecordStateMachine, SignalState, StoragePaths,
-    TransitionError, MAX_ACTIVE_PER_PROJECT, SENSE_RECORD_HINT, SENSE_UPSELL_URL,
+    mark_released_with_reason, pair_lock_active, resolve_arm_target_for_post_project,
+    sanitize_name, scan_latest_v2_preset, show_note_button, show_save_button,
+    show_stop_record_button, write_broadcast, write_pending, write_stop_broadcast, DeltaMode,
+    DeltaResult, DeltaSnapshot, LatchedPre, License, LivenessEvaluator, MeasureResult,
+    PlatformPaths, PluginDataRole, PostCandidate, PreCandidate, PresetFileV2, RecordStateMachine,
+    ReleaseReason, SignalState, StoragePaths, TransitionError, MAX_ACTIVE_PER_PROJECT,
+    SENSE_RECORD_HINT, SENSE_UPSELL_URL,
 };
 use nih_plug::prelude::Editor;
 use nih_plug_egui::{
@@ -1090,13 +1091,14 @@ fn draw_pair_pre_combo(
                             &mut state.toast,
                             now,
                         );
-                        // 2. 自身も trigger_stop (Stop button と同経路)。
+                        // 2. 自身も All Stop 理由で閉じる。
                         trigger_stop(
                             &state.record_sm,
                             &project_hash_snapshot,
                             &instance_id,
                             &state.pair_label,
                             &state.paired_pre_target,
+                            ReleaseReason::AllStop,
                             &mut state.toast,
                             now,
                         );
@@ -1421,6 +1423,7 @@ fn draw_button_row(
                         &instance_id,
                         &state.pair_label,
                         &state.paired_pre_target,
+                        ReleaseReason::ManualStop,
                         &mut state.toast,
                         now,
                     );
@@ -1794,6 +1797,7 @@ fn trigger_stop(
     instance_id: &str,
     pair_label: &Arc<Mutex<String>>,
     paired_pre_target: &Arc<Mutex<Option<String>>>,
+    release_reason: ReleaseReason,
     toast: &mut Option<Toast>,
     now: f64,
 ) {
@@ -1803,6 +1807,7 @@ fn trigger_stop(
         instance_id,
         pair_label,
         paired_pre_target,
+        release_reason,
         Some(toast),
         now,
     );
@@ -1817,6 +1822,7 @@ pub(crate) fn trigger_stop_internal(
     instance_id: &str,
     _pair_label: &Arc<Mutex<String>>,
     paired_pre_target: &Arc<Mutex<Option<String>>>,
+    release_reason: ReleaseReason,
     mut toast: Option<&mut Option<Toast>>,
     now: f64,
 ) {
@@ -1831,8 +1837,13 @@ pub(crate) fn trigger_stop_internal(
             if let Some(pre) = released_pre.as_deref() {
                 reservation::release_pairing(&plugin_data_dir, project_hash, pre, instance_id);
             }
-            match mark_released(&plugin_data_dir, project_hash, instance_id) {
-                Ok(true) => log::info!("[POST stop] mark_released ok"),
+            match mark_released_with_reason(
+                &plugin_data_dir,
+                project_hash,
+                instance_id,
+                release_reason,
+            ) {
+                Ok(true) => log::info!("[POST stop] mark_released ok ({release_reason:?})"),
                 Ok(false) => log::info!("[POST stop] no signal to release"),
                 Err(e) => {
                     log::warn!("[POST stop] mark_released failed: {}", e);
@@ -1842,8 +1853,8 @@ pub(crate) fn trigger_stop_internal(
                 }
             }
 
-            // B-243: trigger_stop では record_signal を即削除しない。
-            // PRE は `released` を明示 Stop 理由として観測してから Watch へ戻る。
+            // B-243/B-269: trigger_stop では record_signal を即削除しない。
+            // PRE は reason 付き `released` だけを明示 Stop 理由として観測して Watch へ戻る。
             // missing を Stop 代替にすると一時的な scan/read miss でも Record が閉じ得るため、
             // lifecycle cleanup は Drop / IO Thread shutdown の冪等 delete に限定する。
 

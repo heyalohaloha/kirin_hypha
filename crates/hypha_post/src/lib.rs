@@ -8,8 +8,9 @@ use kirin_measure::{
     set_daw_session_id, set_project_uuid, spawn_io_thread_post, spawn_measure_thread,
     spawn_watchdog, store_signal_state, DeltaResult, LatchedPre, License, LivenessEvaluator,
     MeasureResult, RecordStateMachine, RecordTakeBlock, RecordTakeTracker, RecordTraceQueue,
-    RecordWindow, SessionSummary, SignalState, StoragePaths, TriggerPairResolutionFn,
-    TriggerStopResolutionFn, WatchdogIo, WatchdogParams, N_CHANNELS, RING_BUFFER_SECONDS,
+    RecordWindow, ReleaseReason, SessionSummary, SignalState, StoragePaths,
+    TriggerPairResolutionFn, TriggerStopResolutionFn, WatchdogIo, WatchdogParams, N_CHANNELS,
+    RING_BUFFER_SECONDS,
 };
 use nih_plug::prelude::*;
 use nih_plug_egui::EguiState;
@@ -715,6 +716,7 @@ impl Plugin for HyphaPost {
                     &iid_snapshot,
                     &pair_label_for_closure,
                     &paired_pre_target_for_closure,
+                    ReleaseReason::AllStop,
                     None,
                     0.0,
                 );

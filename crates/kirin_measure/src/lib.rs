@@ -117,9 +117,10 @@ pub use preset_v2::{
 pub use record::{RecordState, RecordStateMachine, TransitionError};
 pub use record_clock::{record_window_for_buffer, RecordWindow};
 pub use record_signal::{
-    delete_signal, is_timed_out, mark_acknowledged, mark_released, read_signal, scan_signals_dir,
-    signal_path, signals_dir, write_pending, write_signal, RecordSignal, SignalError, SignalStatus,
-    ACK_TIMEOUT_SECONDS, SIGNALS_SUBDIR, SIGNAL_FILENAME,
+    delete_signal, is_timed_out, mark_acknowledged, mark_released, mark_released_with_reason,
+    read_signal, scan_signals_dir, signal_path, signals_dir, write_pending, write_signal,
+    RecordSignal, ReleaseReason, SignalError, SignalStatus, ACK_TIMEOUT_SECONDS, SIGNALS_SUBDIR,
+    SIGNAL_FILENAME,
 };
 pub use record_take::{
     new_record_take_tracker, RecordTakeBlock, RecordTakeSnapshot, RecordTakeTracker,

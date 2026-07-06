@@ -52,14 +52,14 @@ use kirin_measure::{
     enumerate_active_post_pair_candidates_for_daw_session,
     enumerate_active_pre_pair_candidates_for_post_project, identity_instance_attach,
     identity_instance_detach, live_window, load_license_safe, load_signal_state, mark_released,
-    new_record_take_tracker, new_record_trace_queue, resolve_arm_target_for_post_project,
-    sanitize_name, set_daw_session_id, set_project_uuid, spawn_io_thread_post, spawn_io_thread_pre,
-    spawn_measure_thread, spawn_watchdog, store_signal_state, write_broadcast, write_pending,
-    write_stop_broadcast, DeltaMode, DeltaResult, ExclusionResult, IoThreadHandle, LatchedPre,
-    License, LivenessEvaluator, MeasureResult, PlatformPaths, PluginDataRole, PsbSummary,
-    RecordStateMachine, RecordTakeBlock, RecordTakeTracker, RecordTraceQueue, RestartIoFn,
-    SignalState, StoragePaths, WatchdogIo, WatchdogParams, MAX_ACTIVE_PER_PROJECT, N_CHANNELS,
-    RING_BUFFER_SECONDS,
+    mark_released_with_reason, new_record_take_tracker, new_record_trace_queue,
+    resolve_arm_target_for_post_project, sanitize_name, set_daw_session_id, set_project_uuid,
+    spawn_io_thread_post, spawn_io_thread_pre, spawn_measure_thread, spawn_watchdog,
+    store_signal_state, write_broadcast, write_pending, write_stop_broadcast, DeltaMode,
+    DeltaResult, ExclusionResult, IoThreadHandle, LatchedPre, License, LivenessEvaluator,
+    MeasureResult, PlatformPaths, PluginDataRole, PsbSummary, RecordStateMachine, RecordTakeBlock,
+    RecordTakeTracker, RecordTraceQueue, ReleaseReason, RestartIoFn, SignalState, StoragePaths,
+    WatchdogIo, WatchdogParams, MAX_ACTIVE_PER_PROJECT, N_CHANNELS, RING_BUFFER_SECONDS,
 };
 
 /// state chunk 往復する識別子（方式A: JUCE が chunk bytes を所有・FFI は文字列 get/set のみ）。
@@ -484,6 +484,7 @@ fn resolve_and_exit_stop(
     paired_pre_target: &Mutex<Option<String>>,
     project_hash: &str,
     post_iid: &str,
+    release_reason: Option<ReleaseReason>,
 ) {
     record_sm.exit_record();
     // B-127: linkage クリア前に対 PRE iid を捕捉し、本 pairing の O_EXCL reservation 枠を解放する
@@ -500,7 +501,10 @@ fn resolve_and_exit_stop(
         if let Some(pre) = released_pre.as_deref() {
             reservation::release_pairing(&base, project_hash, pre, post_iid);
         }
-        let _ = mark_released(&base, project_hash, post_iid);
+        let _ = match release_reason {
+            Some(reason) => mark_released_with_reason(&base, project_hash, post_iid, reason),
+            None => mark_released(&base, project_hash, post_iid),
+        };
     }
 }
 
@@ -696,6 +700,7 @@ impl KirinHyphaEngine {
                 &self.paired_pre_target,
                 &project_hash,
                 &post_iid,
+                Some(ReleaseReason::ManualStop),
             );
         } else {
             self.record_sm.exit_record();
@@ -972,7 +977,13 @@ impl KirinHyphaEngine {
             let project_hash = cb_project_hash;
             let post_iid = cb_post_iid;
             Arc::new(move |_pre: &str, _post: &str| {
-                resolve_and_exit_stop(&record_sm, &paired, &project_hash, &post_iid);
+                resolve_and_exit_stop(
+                    &record_sm,
+                    &paired,
+                    &project_hash,
+                    &post_iid,
+                    Some(ReleaseReason::AllStop),
+                );
             })
         };
         // B-118 Phase 3 (③): engine 保持の Arc を共有（io が書き JUCE getter が読む / 世代跨ぎ継続）。
@@ -1238,6 +1249,7 @@ impl KirinHyphaEngine {
             &self.paired_pre_target,
             &project_hash,
             &post_iid,
+            Some(ReleaseReason::ManualStop),
         );
     }
 
@@ -1267,7 +1279,17 @@ impl KirinHyphaEngine {
                 }
             }
         }
-        self.stop();
+        let (project_hash, post_iid) = match self.identity.lock() {
+            Ok(id) => (id.project_hash.clone(), id.instance_id.clone()),
+            Err(_) => (String::new(), String::new()),
+        };
+        resolve_and_exit_stop(
+            &self.record_sm,
+            &self.paired_pre_target,
+            &project_hash,
+            &post_iid,
+            Some(ReleaseReason::AllStop),
+        );
     }
 
     /// pair 候補（Active な PRE）を列挙する（B-102 / GUI ドロップダウン用・read-only）。
@@ -1527,6 +1549,7 @@ impl Drop for KirinHyphaEngine {
                 &self.paired_pre_target,
                 &project_hash,
                 &post_iid,
+                None,
             );
         }
         // B-118: io/measure は watchdog（join_on_shutdown=true）が所有・join する。
