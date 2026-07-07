@@ -214,7 +214,7 @@ pub fn create_pre_editor(
             } else {
                 state
                     .playback_max
-                    .update(&raw_m, is_playing, watch_playback_pass_id)
+                    .update(&raw_m, is_playing, watch_playback_pass_id, recording)
             };
 
             let (m, show_values, values_muted) = match sig {

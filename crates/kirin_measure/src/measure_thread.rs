@@ -212,7 +212,9 @@ pub fn spawn_measure_thread(
     result: Arc<Mutex<MeasureResult>>,
     watch_playback_pass_id: Arc<AtomicU64>,
     watch_playback_pass_cutover_samples: Arc<AtomicU64>,
-    watch_ring_cursor: Arc<AtomicU64>,
+    watch_ring_cursor_epoch: Arc<AtomicU64>,
+    watch_ring_cursor_pass_id: Arc<AtomicU64>,
+    watch_ring_cursor_samples: Arc<AtomicU64>,
     signal_state: Arc<AtomicU8>,
     shutdown: Arc<AtomicBool>,
     evaluator: Arc<LivenessEvaluator>,
@@ -403,7 +405,9 @@ pub fn spawn_measure_thread(
                 if drained {
                     record_sm.bump_seal();
                     consumed_samples = watch_ring_cursor_samples_for_pass(
-                        watch_ring_cursor.load(Ordering::Acquire),
+                        &watch_ring_cursor_epoch,
+                        &watch_ring_cursor_pass_id,
+                        &watch_ring_cursor_samples,
                         playback_pass_id,
                     )
                     .unwrap_or(consumed_samples);
@@ -528,7 +532,9 @@ pub fn spawn_measure_thread(
                         }),
                     );
                     consumed_samples = watch_ring_cursor_samples_for_pass(
-                        watch_ring_cursor.load(Ordering::Acquire),
+                        &watch_ring_cursor_epoch,
+                        &watch_ring_cursor_pass_id,
+                        &watch_ring_cursor_samples,
                         playback_pass_id,
                     )
                     .unwrap_or(consumed_samples);
@@ -596,9 +602,13 @@ pub fn spawn_measure_thread(
             let available = if is_recording {
                 consumer.slots()
             } else {
-                let cursor = watch_ring_cursor.load(Ordering::Acquire);
-                let pushed_for_pass = watch_ring_cursor_samples_for_pass(cursor, playback_pass_id)
-                    .unwrap_or(consumed_samples);
+                let pushed_for_pass = watch_ring_cursor_samples_for_pass(
+                    &watch_ring_cursor_epoch,
+                    &watch_ring_cursor_pass_id,
+                    &watch_ring_cursor_samples,
+                    playback_pass_id,
+                )
+                .unwrap_or(consumed_samples);
                 consumer.slots().min(samples_until_cursor_limit(
                     consumed_samples,
                     pushed_for_pass,

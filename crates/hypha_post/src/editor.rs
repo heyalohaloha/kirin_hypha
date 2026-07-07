@@ -436,7 +436,7 @@ pub fn create_post_editor(args: PostEditorArgs) -> Option<Box<dyn Editor>> {
             } else {
                 state
                     .playback_max
-                    .update(&raw_m, is_playing, watch_playback_pass_id)
+                    .update(&raw_m, is_playing, watch_playback_pass_id, recording)
             };
 
             let (m, d, display_held, display_muted) = match sig {
