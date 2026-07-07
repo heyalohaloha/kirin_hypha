@@ -29,9 +29,11 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
+use crate::all_stop_signal::{self, ALL_STOP_BROADCAST_STALE_SECS};
 use crate::engine::SessionSummary;
 use crate::io_thread_post::read_instance_id_arc;
 use crate::plugin_data::Role as PluginDataRole;
+use crate::post_candidates::active_post_project_uuids_for_daw_session;
 use crate::pre_self_discovery::{discover_pair_post_project_dir, PreSelfDiscoveryState};
 use crate::record::RecordStateMachine;
 use crate::record_signal::{self, SignalStatus};
@@ -78,6 +80,7 @@ struct PartnerInfo {
     last_seen_status: SignalStatus,
     signal_started_at_ms: i64,
     session_id: String,
+    daw_session_id: String,
 }
 
 fn signal_started_at_ms(signal: &record_signal::RecordSignal) -> i64 {
@@ -138,6 +141,140 @@ fn should_reset_pre_ack_without_partner(
     record_acknowledged: &AtomicBool,
 ) -> bool {
     record_sm.is_recording() && partner.is_none() && record_acknowledged.load(Ordering::Relaxed)
+}
+
+fn all_stop_authorizes_pre_stop(
+    broadcast: &all_stop_signal::AllStopBroadcast,
+    partner: &PartnerInfo,
+    record_started_at_ms: i64,
+    now: chrono::DateTime<chrono::Utc>,
+) -> bool {
+    if partner.daw_session_id.is_empty() || broadcast.daw_session_id != partner.daw_session_id {
+        return false;
+    }
+    if all_stop_signal::is_stop_broadcast_stale(broadcast, now, ALL_STOP_BROADCAST_STALE_SECS) {
+        return false;
+    }
+    let stop_started_at_ms = parse_iso8601_to_epoch_ms(&broadcast.started_at).unwrap_or(0);
+    record_started_at_ms > 0 && stop_started_at_ms >= record_started_at_ms
+}
+
+fn all_stop_scan_project_hashes(primary_project_hash: &str, partner: &PartnerInfo) -> Vec<String> {
+    let mut project_hashes = Vec::new();
+    if !primary_project_hash.is_empty() {
+        project_hashes.push(primary_project_hash.to_string());
+    }
+    if !partner.daw_session_id.is_empty() {
+        let kirin_root = PlatformPaths::current_kirin_tmp_root();
+        for project_hash in
+            active_post_project_uuids_for_daw_session(&kirin_root, &partner.daw_session_id)
+        {
+            if !project_hashes.contains(&project_hash) {
+                project_hashes.push(project_hash);
+            }
+        }
+    }
+    project_hashes
+}
+
+fn poll_all_stop_signal_in_projects_at(
+    base: &Path,
+    project_hashes: &[String],
+    record_sm: &Arc<RecordStateMachine>,
+    recording: &Arc<AtomicBool>,
+    record_acknowledged: &Arc<AtomicBool>,
+    partner: &mut Option<PartnerInfo>,
+    now: chrono::DateTime<chrono::Utc>,
+) -> bool {
+    if !record_sm.is_recording() {
+        return false;
+    }
+
+    let Some((project_hash, originator_iid, stop_started_at, partner_iid, session_id)) =
+        partner.as_ref().and_then(|p| {
+            let record_started_at_ms = record_sm.record_started_at_ms();
+            project_hashes.iter().find_map(|project_hash| {
+                all_stop_signal::scan_stop_broadcasts_dir(base, project_hash)
+                    .into_iter()
+                    .find_map(|(originator_iid, broadcast)| {
+                        if all_stop_authorizes_pre_stop(&broadcast, p, record_started_at_ms, now) {
+                            Some((
+                                project_hash.clone(),
+                                originator_iid,
+                                broadcast.started_at,
+                                p.post_instance_id.clone(),
+                                p.session_id.clone(),
+                            ))
+                        } else {
+                            None
+                        }
+                    })
+            })
+        })
+    else {
+        return false;
+    };
+
+    record_sm.exit_record();
+    recording.store(false, Ordering::Relaxed);
+    record_acknowledged.store(false, Ordering::Relaxed);
+    *partner = None;
+    log::info!(
+        "[all_stop PRE] authorized broadcast, PRE exiting Record \
+         (project_hash={}, originator={}, partner={}, session={}, started_at={})",
+        project_hash,
+        originator_iid,
+        partner_iid,
+        session_id,
+        stop_started_at
+    );
+    true
+}
+
+fn poll_all_stop_signal_at(
+    base: &Path,
+    project_hash: &str,
+    record_sm: &Arc<RecordStateMachine>,
+    recording: &Arc<AtomicBool>,
+    record_acknowledged: &Arc<AtomicBool>,
+    partner: &mut Option<PartnerInfo>,
+    now: chrono::DateTime<chrono::Utc>,
+) -> bool {
+    if !record_sm.is_recording() {
+        return false;
+    }
+    let Some(active_partner) = partner.as_ref() else {
+        return false;
+    };
+    let project_hashes = all_stop_scan_project_hashes(project_hash, active_partner);
+    poll_all_stop_signal_in_projects_at(
+        base,
+        &project_hashes,
+        record_sm,
+        recording,
+        record_acknowledged,
+        partner,
+        now,
+    )
+}
+
+fn poll_all_stop_signal(
+    base: &Path,
+    project_hash: &str,
+    record_sm: &Arc<RecordStateMachine>,
+    recording: &Arc<AtomicBool>,
+    record_acknowledged: &Arc<AtomicBool>,
+    partner: &mut Option<PartnerInfo>,
+) -> bool {
+    poll_all_stop_signal_at(
+        base,
+        project_hash,
+        record_sm,
+        recording,
+        record_acknowledged,
+        partner,
+        chrono::Utc::now(),
+    )
 }
 
 fn wait_for_measure_ready(record_sm: &RecordStateMachine, generation: u64) -> bool {
@@ -548,20 +685,45 @@ pub fn spawn_io_thread_pre(
                 last_poll.is_none_or(|t| now.duration_since(t) >= SIGNAL_POLL_INTERVAL);
             if should_poll {
                 last_poll = Some(now);
-                // B-023 段階 3: ack 直前に name を lazy-read して poll に渡す。
-                // instance_id と同パターン (chunk-restore 後の最新値追従)。
-                let name_owned = read_instance_id_arc(&name);
-                poll_record_signal(
-                    effective_project_hash_ref,
-                    instance_id_ref,
-                    &record_sm,
-                    &recording,
-                    &record_acknowledged,
-                    &license,
-                    &mut partner,
-                    name_owned.as_str(),
-                    &signal_state,
-                );
+                let stopped_by_all_stop = StoragePaths::default_platform()
+                    .ok()
+                    .map(|paths| {
+                        poll_all_stop_signal(
+                            &paths.plugin_data_dir(),
+                            effective_project_hash_ref,
+                            &record_sm,
+                            &recording,
+                            &record_acknowledged,
+                            &mut partner,
+                        )
+                    })
+                    .unwrap_or(false);
+                if !stopped_by_all_stop {
+                    // B-023 段階 3: ack 直前に name を lazy-read して poll に渡す。
+                    // instance_id と同パターン (chunk-restore 後の最新値追従)。
+                    let name_owned = read_instance_id_arc(&name);
+                    poll_record_signal(
+                        effective_project_hash_ref,
+                        instance_id_ref,
+                        &record_sm,
+                        &recording,
+                        &record_acknowledged,
+                        &license,
+                        &mut partner,
+                        name_owned.as_str(),
+                        &signal_state,
+                    );
+                    if let Ok(paths) = StoragePaths::default_platform() {
+                        let _ = poll_all_stop_signal(
+                            &paths.plugin_data_dir(),
+                            effective_project_hash_ref,
+                            &record_sm,
+                            &recording,
+                            &record_acknowledged,
+                            &mut partner,
+                        );
+                    }
+                }
             }
 
             if should_reset_pre_ack_without_partner(&record_sm, &partner, &record_acknowledged) {
@@ -958,7 +1120,7 @@ fn poll_record_signal(
     // 設計判断 #4 (i))。PRE が barrier 到達・Record enter・Measure ready まで完了
     // した後にだけ ack を書き、最後に ack 成功した POST_iid を Released 観測の起点にする。
     let total = pending_signals.len();
-    let mut last_acked: Option<(String, i64, String)> = None;
+    let mut last_acked: Option<(String, i64, String, String)> = None;
     let mut not_ready: usize = 0;
     let mut ack_ok: usize = 0;
     for (post_iid, sig) in &pending_signals {
@@ -988,6 +1150,7 @@ fn poll_record_signal(
                     post_iid.clone(),
                     signal_started_at_ms(sig),
                     sig.session_id.clone(),
+                    sig.daw_session_id.clone(),
                 ));
                 ack_ok += 1;
             }
@@ -1001,7 +1164,7 @@ fn poll_record_signal(
         }
     }
 
-    if let Some((post_iid, signal_started_at_ms, session_id)) = last_acked {
+    if let Some((post_iid, signal_started_at_ms, session_id, daw_session_id)) = last_acked {
         record_acknowledged.store(true, Ordering::Relaxed);
         *partner = Some(PartnerInfo {
             post_instance_id: post_iid,
@@ -1009,6 +1172,7 @@ fn poll_record_signal(
             last_seen_status: SignalStatus::Acknowledged,
             signal_started_at_ms,
             session_id,
+            daw_session_id,
         });
         log::info!(
             "[signal] B-027 Group 1: ack_count={}/{} not_ready={} (partner={:?})",
@@ -1219,6 +1383,7 @@ mod tests {
             last_seen_status: status,
             signal_started_at_ms: 1,
             session_id: "test-session-old".to_string(),
+            daw_session_id: TEST_DAW.to_string(),
         }
     }
 
@@ -1233,6 +1398,7 @@ mod tests {
             last_seen_status: status,
             signal_started_at_ms: signal_started_at_ms(signal),
             session_id: signal.session_id.clone(),
+            daw_session_id: signal.daw_session_id.clone(),
         }
     }
 
@@ -1491,7 +1657,7 @@ mod tests {
             return;
         }
 
-        let mut last_acked: Option<(String, i64, String)> = None;
+        let mut last_acked: Option<(String, i64, String, String)> = None;
         for (post_iid, sig) in &pending_signals {
             if !enter_pre_record_if_barrier_ready_for_test(
                 record_sm,
@@ -1508,10 +1674,11 @@ mod tests {
                     post_iid.clone(),
                     signal_started_at_ms(sig),
                     sig.session_id.clone(),
+                    sig.daw_session_id.clone(),
                 ));
             }
         }
-        if let Some((post_iid, signal_started_at_ms, session_id)) = last_acked {
+        if let Some((post_iid, signal_started_at_ms, session_id, daw_session_id)) = last_acked {
             record_acknowledged.store(true, Ordering::Relaxed);
             *partner = Some(PartnerInfo {
                 post_instance_id: post_iid,
@@ -1519,6 +1686,7 @@ mod tests {
                 last_seen_status: SignalStatus::Acknowledged,
                 signal_started_at_ms,
                 session_id,
+                daw_session_id,
             });
         }
     }
@@ -1546,6 +1714,50 @@ mod tests {
             expected_wav,
         };
         record_signal::write_signal(base, TEST_PH, post_iid, &signal).unwrap();
+    }
+
+    fn write_all_stop_broadcast_at(
+        base: &Path,
+        originator_iid: &str,
+        daw_session_id: &str,
+        started_at: &str,
+    ) {
+        write_all_stop_broadcast_for_project_at(
+            base,
+            TEST_PH,
+            originator_iid,
+            daw_session_id,
+            started_at,
+        );
+    }
+
+    fn write_all_stop_broadcast_for_project_at(
+        base: &Path,
+        project_hash: &str,
+        originator_iid: &str,
+        daw_session_id: &str,
+        started_at: &str,
+    ) {
+        let broadcast = all_stop_signal::AllStopBroadcast {
+            v: all_stop_signal::ALL_STOP_SCHEMA_VERSION,
+            originator_post_instance_id: originator_iid.to_string(),
+            daw_session_id: daw_session_id.to_string(),
+            started_at: started_at.to_string(),
+            heartbeat: started_at.to_string(),
+        };
+        all_stop_signal::write_stop_broadcast_signal(
+            base,
+            project_hash,
+            originator_iid,
+            &broadcast,
+        )
+        .unwrap();
+    }
+
+    fn chrono_utc(s: &str) -> chrono::DateTime<chrono::Utc> {
+        chrono::DateTime::parse_from_rfc3339(s)
+            .unwrap()
+            .with_timezone(&chrono::Utc)
     }
 
     // ── poll_record_signal ───────────────────────────────────────
@@ -2283,6 +2495,180 @@ mod tests {
             "partner is retained so Released can still be observed if the file reappears"
         );
         assert_eq!(partner.as_ref().unwrap().post_instance_id, "post-1");
+    }
+
+    #[test]
+    fn all_stop_broadcast_stops_pre_even_when_record_signal_is_missing() {
+        let base = isolated_base();
+        write_matching_pending(&base, "post-1");
+        let sm = Arc::new(RecordStateMachine::new());
+        let recording = Arc::new(AtomicBool::new(false));
+        let ack = Arc::new(AtomicBool::new(false));
+        let license = Arc::new(License::Os);
+        let mut partner = None;
+        poll_with_base(
+            &base,
+            &sm,
+            &recording,
+            &ack,
+            &license,
+            &mut partner,
+            TEST_PRE_IID,
+        );
+        assert_eq!(sm.current(), RecordState::Record);
+        record_signal::delete_signal(&base, TEST_PH, "post-1").unwrap();
+        write_all_stop_broadcast_at(&base, "post-origin", TEST_DAW, "2026-07-05T00:00:01Z");
+
+        let stopped = poll_all_stop_signal_at(
+            &base,
+            TEST_PH,
+            &sm,
+            &recording,
+            &ack,
+            &mut partner,
+            chrono_utc("2026-07-05T00:00:02Z"),
+        );
+
+        assert!(stopped, "All Stop must be a direct PRE stop authority");
+        assert_eq!(sm.current(), RecordState::Watch);
+        assert!(!recording.load(Ordering::Relaxed));
+        assert!(!ack.load(Ordering::Relaxed));
+        assert!(
+            partner.is_none(),
+            "PRE must clear the partner after an authorized All Stop"
+        );
+    }
+
+    #[test]
+    fn all_stop_broadcast_in_new_project_stops_pre_with_stale_partner_project() {
+        let base = isolated_base();
+        write_matching_pending(&base, "post-1");
+        let sm = Arc::new(RecordStateMachine::new());
+        let recording = Arc::new(AtomicBool::new(false));
+        let ack = Arc::new(AtomicBool::new(false));
+        let license = Arc::new(License::Os);
+        let mut partner = None;
+        poll_with_base(
+            &base,
+            &sm,
+            &recording,
+            &ack,
+            &license,
+            &mut partner,
+            TEST_PRE_IID,
+        );
+        assert_eq!(sm.current(), RecordState::Record);
+
+        let new_project_hash = "ph-new";
+        write_all_stop_broadcast_for_project_at(
+            &base,
+            new_project_hash,
+            "post-origin",
+            TEST_DAW,
+            "2026-07-05T00:00:01Z",
+        );
+        let project_hashes = vec![TEST_PH.to_string(), new_project_hash.to_string()];
+
+        let stopped = poll_all_stop_signal_in_projects_at(
+            &base,
+            &project_hashes,
+            &sm,
+            &recording,
+            &ack,
+            &mut partner,
+            chrono_utc("2026-07-05T00:00:02Z"),
+        );
+
+        assert!(
+            stopped,
+            "PRE must honor a same-DAW All Stop even when its partner project cache is stale"
+        );
+        assert_eq!(sm.current(), RecordState::Watch);
+        assert!(!recording.load(Ordering::Relaxed));
+        assert!(!ack.load(Ordering::Relaxed));
+        assert!(partner.is_none());
+    }
+
+    #[test]
+    fn old_all_stop_broadcast_does_not_stop_new_pre_record() {
+        let base = isolated_base();
+        write_matching_pending(&base, "post-1");
+        let sm = Arc::new(RecordStateMachine::new());
+        let recording = Arc::new(AtomicBool::new(false));
+        let ack = Arc::new(AtomicBool::new(false));
+        let license = Arc::new(License::Os);
+        let mut partner = None;
+        poll_with_base(
+            &base,
+            &sm,
+            &recording,
+            &ack,
+            &license,
+            &mut partner,
+            TEST_PRE_IID,
+        );
+        write_all_stop_broadcast_at(&base, "post-origin", TEST_DAW, "2026-07-04T23:59:59Z");
+
+        let stopped = poll_all_stop_signal_at(
+            &base,
+            TEST_PH,
+            &sm,
+            &recording,
+            &ack,
+            &mut partner,
+            chrono_utc("2026-07-05T00:00:02Z"),
+        );
+
+        assert!(
+            !stopped,
+            "an older All Stop must not kill a later user-started Record"
+        );
+        assert_eq!(sm.current(), RecordState::Record);
+        assert!(recording.load(Ordering::Relaxed));
+        assert!(ack.load(Ordering::Relaxed));
+        assert!(partner.is_some());
+    }
+
+    #[test]
+    fn different_daw_all_stop_broadcast_does_not_stop_pre_record() {
+        let base = isolated_base();
+        write_matching_pending(&base, "post-1");
+        let sm = Arc::new(RecordStateMachine::new());
+        let recording = Arc::new(AtomicBool::new(false));
+        let ack = Arc::new(AtomicBool::new(false));
+        let license = Arc::new(License::Os);
+        let mut partner = None;
+        poll_with_base(
+            &base,
+            &sm,
+            &recording,
+            &ack,
+            &license,
+            &mut partner,
+            TEST_PRE_IID,
+        );
+        write_all_stop_broadcast_at(
+            &base,
+            "post-origin",
+            "other-daw-session",
+            "2026-07-05T00:00:01Z",
+        );
+
+        let stopped = poll_all_stop_signal_at(
+            &base,
+            TEST_PH,
+            &sm,
+            &recording,
+            &ack,
+            &mut partner,
+            chrono_utc("2026-07-05T00:00:02Z"),
+        );
+
+        assert!(!stopped, "cross-DAW All Stop must be ignored by PRE");
+        assert_eq!(sm.current(), RecordState::Record);
+        assert!(recording.load(Ordering::Relaxed));
+        assert!(ack.load(Ordering::Relaxed));
+        assert!(partner.is_some());
     }
 
     #[test]
