@@ -77,4 +77,8 @@ fn lib_rs_process_stores_transport_playing_for_watch_max() {
         src.contains("Arc::clone(&self.is_playing)"),
         "editor() must pass is_playing into create_pre_editor"
     );
+    assert!(
+        src.contains("Arc::clone(&self.heartbeat)"),
+        "editor() must pass heartbeat into create_pre_editor so Watch MAX can detect frozen playing"
+    );
 }
