@@ -27,8 +27,8 @@
 
 use hypha_gui::{
     derive_led_state, display_signal_state_for_led, display_smoothing::DisplaySmoother, fmt_delta,
-    fmt_val, led_color, pairing_label, tp_over, val_color, value_row, BackgroundTexture, BG,
-    COL_FLORA, COL_FLORA_BRIGHT, COL_MUTED, COL_NORMAL,
+    fmt_val, led_color, pairing_label, tp_over, val_color, BackgroundTexture, PlaybackMaxTracker,
+    BG, COL_FLORA, COL_FLORA_BRIGHT, COL_MUTED, COL_NORMAL,
 };
 use kirin_measure::reservation; // B-127 (G-115-365): egui parity — per-pairing O_EXCL frame
 use kirin_measure::{
@@ -247,6 +247,8 @@ pub struct PostEditorState {
     pair_pre_name_edit_buffer: String,
     /// GUI 表示専用の安定化フィルタ。plugin_data / TRACE の raw 値には触れない。
     display_smoother: DisplaySmoother,
+    /// GUI 表示専用の playback 最大値。Record/TRACE の raw 計測値には触れない。
+    playback_max: PlaybackMaxTracker,
 }
 
 impl PostEditorState {
@@ -287,6 +289,7 @@ impl PostEditorState {
             record_start_wall_time: None,
             pair_pre_name_edit_buffer: String::new(),
             display_smoother: DisplaySmoother::default(),
+            playback_max: PlaybackMaxTracker::default(),
         }
     }
 }
@@ -421,6 +424,13 @@ pub fn create_post_editor(args: PostEditorArgs) -> Option<Box<dyn Editor>> {
                 state.banner_until = None;
             }
 
+            let max_m = if matches!(sig, SignalState::Bypassed) {
+                state.playback_max.reset();
+                MeasureResult::default()
+            } else {
+                state.playback_max.update(&raw_m, is_playing)
+            };
+
             let (m, d, display_held, display_muted) = match sig {
                 SignalState::Active => {
                     let smoothed_m = state.display_smoother.update_measure(&raw_m, now);
@@ -475,6 +485,7 @@ pub fn create_post_editor(args: PostEditorArgs) -> Option<Box<dyn Editor>> {
                 ctx,
                 state,
                 &m,
+                &max_m,
                 &d,
                 sig,
                 recording,
@@ -503,6 +514,7 @@ fn draw_post(
     ctx: &egui::Context,
     state: &mut PostEditorState,
     m: &MeasureResult,
+    max_m: &MeasureResult,
     d: &DeltaResult,
     sig: SignalState,
     recording: bool,
@@ -585,12 +597,12 @@ fn draw_post(
                 SignalState::Inactive => {
                     if display_held && !pair_empty && has_delta_core(d) {
                         let delta_col = if display_muted { COL_MUTED } else { COL_NORMAL };
-                        draw_delta_grid(ui, d, delta_col, false);
+                        draw_delta_grid(ui, d, max_m, delta_col, false, display_muted);
                     } else if let Some(snap) = &d.last_active {
                         // B-049: POST 自身が Inactive でも過去 Active Δ 値を凍結保持表示
-                        draw_delta_grid_frozen(ui, snap, false);
+                        draw_delta_grid_frozen(ui, snap, max_m, false);
                     } else if display_held && has_measure_core(m) {
-                        draw_watch_absolute_grid(ui, m, display_muted);
+                        draw_watch_absolute_grid(ui, m, max_m, display_muted);
                     } else {
                         // last_active=None (初回起動 / Active 未経験) は既存 fallback
                         draw_inactive_grid(ui);
@@ -611,18 +623,18 @@ fn draw_post(
                         // W-283 / G-115-251 / W-2: pair_empty 時は IO Thread の Δ 状態に
                         // 依らず draw_watch_absolute_grid を強制 (B-048 LKG 凍結経路 bypass)。
                         if pair_empty || d.mode == DeltaMode::Bypassed {
-                            draw_watch_absolute_grid(ui, m, false);
+                            draw_watch_absolute_grid(ui, m, max_m, false);
                         } else {
                             let tp_warn = !display_muted && tp_over(m.true_peak);
                             if d.mode == DeltaMode::Active && !display_muted {
-                                draw_delta_grid(ui, d, COL_NORMAL, tp_warn);
+                                draw_delta_grid(ui, d, max_m, COL_NORMAL, tp_warn, false);
                             } else {
                                 // B-231: pair 選択中は PRE の一時 idle/stale で POST 絶対値へ
                                 // 戻さない。保持値があれば muted Δ、期限後は Δ の "---"。
                                 if display_muted {
-                                    draw_delta_grid(ui, d, COL_MUTED, false);
+                                    draw_delta_grid(ui, d, max_m, COL_MUTED, false, true);
                                 } else {
-                                    draw_delta_grid(ui, d, COL_NORMAL, tp_warn);
+                                    draw_delta_grid(ui, d, max_m, COL_NORMAL, tp_warn, false);
                                 }
                             }
                         }
@@ -709,32 +721,65 @@ fn draw_inactive_grid(ui: &mut egui::Ui) {
     ui.horizontal(|ui| {
         ui.add_space(10.0);
         Grid::new("post_inactive")
-            .num_columns(3)
-            .min_col_width(58.0)
-            .spacing([6.0, 6.0])
+            .num_columns(6)
+            .min_col_width(40.0)
+            .spacing([6.0, 4.0])
             .show(ui, |ui| {
-                value_row(ui, "LUFS-M", "---".to_string(), "LUFS", COL_MUTED);
-                value_row(ui, "TP", "---".to_string(), "dBTP", COL_MUTED);
-                value_row(ui, "Crest", "---".to_string(), "dB", COL_MUTED);
+                row_pair(
+                    ui,
+                    ("LUFS-M", "---".to_string(), "LUFS", COL_MUTED),
+                    ("MAX", "---".to_string(), "LUFS", COL_MUTED),
+                );
+                row_pair(
+                    ui,
+                    ("TP", "---".to_string(), "dBTP", COL_MUTED),
+                    ("MAX", "---".to_string(), "dBTP", COL_MUTED),
+                );
+                row_pair(
+                    ui,
+                    ("Crest", "---".to_string(), "dB", COL_MUTED),
+                    ("MAX", "---".to_string(), "dB", COL_MUTED),
+                );
             });
     });
 }
 
 /// Watch + PRE Active（DeltaMode::Active）: Δ 3 項目表示。
-fn draw_delta_grid(ui: &mut egui::Ui, d: &DeltaResult, delta_col: egui::Color32, tp_warn: bool) {
+fn draw_delta_grid(
+    ui: &mut egui::Ui,
+    d: &DeltaResult,
+    max_m: &MeasureResult,
+    delta_col: egui::Color32,
+    tp_warn: bool,
+    max_muted: bool,
+) {
+    let max_tp_col = if !max_muted && tp_over(max_m.true_peak) {
+        COL_FLORA_BRIGHT
+    } else {
+        display_value_color(max_m.true_peak, max_muted)
+    };
     ui.horizontal(|ui| {
         ui.add_space(10.0);
         Grid::new("post_delta")
-            .num_columns(3)
-            .min_col_width(58.0)
-            .spacing([6.0, 6.0])
+            .num_columns(6)
+            .min_col_width(40.0)
+            .spacing([6.0, 4.0])
             .show(ui, |ui| {
                 let lufs_col = if d.lufs.is_some() {
                     delta_col
                 } else {
                     COL_MUTED
                 };
-                value_row(ui, "ΔLUFS", fmt_delta(d.lufs), "LU", lufs_col);
+                row_pair(
+                    ui,
+                    ("ΔLUFS", fmt_delta(d.lufs), "LU", lufs_col),
+                    (
+                        "MAX",
+                        fmt_val(max_m.lufs_m),
+                        "LUFS",
+                        display_value_color(max_m.lufs_m, max_muted),
+                    ),
+                );
 
                 let tp_col = if d.tp.is_some() {
                     if tp_warn {
@@ -745,14 +790,27 @@ fn draw_delta_grid(ui: &mut egui::Ui, d: &DeltaResult, delta_col: egui::Color32,
                 } else {
                     COL_MUTED
                 };
-                value_row(ui, "ΔTP", fmt_delta(d.tp), "dB", tp_col);
+                row_pair(
+                    ui,
+                    ("ΔTP", fmt_delta(d.tp), "dB", tp_col),
+                    ("MAX", fmt_val(max_m.true_peak), "dBTP", max_tp_col),
+                );
 
                 let crest_col = if d.crest.is_some() {
                     delta_col
                 } else {
                     COL_MUTED
                 };
-                value_row(ui, "ΔCrest", fmt_delta(d.crest), "dB", crest_col);
+                row_pair(
+                    ui,
+                    ("ΔCrest", fmt_delta(d.crest), "dB", crest_col),
+                    (
+                        "MAX",
+                        fmt_val(max_m.crest),
+                        "dB",
+                        display_value_color(max_m.crest, max_muted),
+                    ),
+                );
             });
     });
 }
@@ -770,50 +828,112 @@ fn draw_delta_grid(ui: &mut egui::Ui, d: &DeltaResult, delta_col: egui::Color32,
 ///
 /// レイアウトは `draw_delta_grid` と対称 (Watch 3 項目: ΔLUFS / ΔTP / ΔCrest)。
 /// `Grid::new` の id だけは `"post_delta_frozen"` で別 widget identity を持つ。
-fn draw_delta_grid_frozen(ui: &mut egui::Ui, snap: &DeltaSnapshot, _tp_warn: bool) {
+fn draw_delta_grid_frozen(
+    ui: &mut egui::Ui,
+    snap: &DeltaSnapshot,
+    max_m: &MeasureResult,
+    _tp_warn: bool,
+) {
     ui.horizontal(|ui| {
         ui.add_space(10.0);
         Grid::new("post_delta_frozen")
-            .num_columns(3)
-            .min_col_width(58.0)
-            .spacing([6.0, 6.0])
+            .num_columns(6)
+            .min_col_width(40.0)
+            .spacing([6.0, 4.0])
             .show(ui, |ui| {
-                value_row(ui, "ΔLUFS", fmt_delta(snap.lufs), "LU", COL_MUTED);
-                value_row(ui, "ΔTP", fmt_delta(snap.tp), "dB", COL_MUTED);
-                value_row(ui, "ΔCrest", fmt_delta(snap.crest), "dB", COL_MUTED);
+                row_pair(
+                    ui,
+                    ("ΔLUFS", fmt_delta(snap.lufs), "LU", COL_MUTED),
+                    (
+                        "MAX",
+                        fmt_val(max_m.lufs_m),
+                        "LUFS",
+                        display_value_color(max_m.lufs_m, true),
+                    ),
+                );
+                row_pair(
+                    ui,
+                    ("ΔTP", fmt_delta(snap.tp), "dB", COL_MUTED),
+                    (
+                        "MAX",
+                        fmt_val(max_m.true_peak),
+                        "dBTP",
+                        display_value_color(max_m.true_peak, true),
+                    ),
+                );
+                row_pair(
+                    ui,
+                    ("ΔCrest", fmt_delta(snap.crest), "dB", COL_MUTED),
+                    (
+                        "MAX",
+                        fmt_val(max_m.crest),
+                        "dB",
+                        display_value_color(max_m.crest, true),
+                    ),
+                );
             });
     });
 }
 
 /// Watch + pair 未選択 or PRE Bypassed: POST 絶対値 3 項目（LUFS-M / TP / Crest）。
-fn draw_watch_absolute_grid(ui: &mut egui::Ui, m: &MeasureResult, muted: bool) {
+fn draw_watch_absolute_grid(
+    ui: &mut egui::Ui,
+    m: &MeasureResult,
+    max_m: &MeasureResult,
+    muted: bool,
+) {
     let tp_warn = !muted && tp_over(m.true_peak);
     let tp_col = if tp_warn {
         COL_FLORA_BRIGHT
     } else {
         display_value_color(m.true_peak, muted)
     };
+    let max_tp_col = if !muted && tp_over(max_m.true_peak) {
+        COL_FLORA_BRIGHT
+    } else {
+        display_value_color(max_m.true_peak, muted)
+    };
     ui.horizontal(|ui| {
         ui.add_space(10.0);
         Grid::new("post_watch_abs")
-            .num_columns(3)
-            .min_col_width(58.0)
-            .spacing([6.0, 6.0])
+            .num_columns(6)
+            .min_col_width(40.0)
+            .spacing([6.0, 4.0])
             .show(ui, |ui| {
-                value_row(
+                row_pair(
                     ui,
-                    "LUFS-M",
-                    fmt_val(m.lufs_m),
-                    "LUFS",
-                    display_value_color(m.lufs_m, muted),
+                    (
+                        "LUFS-M",
+                        fmt_val(m.lufs_m),
+                        "LUFS",
+                        display_value_color(m.lufs_m, muted),
+                    ),
+                    (
+                        "MAX",
+                        fmt_val(max_m.lufs_m),
+                        "LUFS",
+                        display_value_color(max_m.lufs_m, muted),
+                    ),
                 );
-                value_row(ui, "TP", fmt_val(m.true_peak), "dBTP", tp_col);
-                value_row(
+                row_pair(
                     ui,
-                    "Crest",
-                    fmt_val(m.crest),
-                    "dB",
-                    display_value_color(m.crest, muted),
+                    ("TP", fmt_val(m.true_peak), "dBTP", tp_col),
+                    ("MAX", fmt_val(max_m.true_peak), "dBTP", max_tp_col),
+                );
+                row_pair(
+                    ui,
+                    (
+                        "Crest",
+                        fmt_val(m.crest),
+                        "dB",
+                        display_value_color(m.crest, muted),
+                    ),
+                    (
+                        "MAX",
+                        fmt_val(max_m.crest),
+                        "dB",
+                        display_value_color(max_m.crest, muted),
+                    ),
                 );
             });
     });

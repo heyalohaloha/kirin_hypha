@@ -8,6 +8,7 @@ pub mod common;
 pub mod display_smoothing;
 pub mod led;
 pub mod palette;
+pub mod playback_max;
 
 pub use background::BackgroundTexture;
 pub use common::{
@@ -18,3 +19,4 @@ pub use palette::{
     BG, COL_FLORA, COL_FLORA_BRIGHT, COL_LED_BLUE, COL_LED_GREEN, COL_LED_GREY, COL_LED_YELLOW,
     COL_MUTED, COL_NORMAL,
 };
+pub use playback_max::PlaybackMaxTracker;

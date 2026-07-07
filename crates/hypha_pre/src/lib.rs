@@ -69,6 +69,8 @@ pub struct HyphaPre {
     /// B-118: 単一鮮度評価器。PRE は pair lock を持たないため editor では消費しないが、
     /// spawn_measure_thread / watchdog 再起動に渡す（signature 統一）。
     liveness: Arc<LivenessEvaluator>,
+    /// transport.playing の純粋な値。GUI Watch MAX の再生開始 reset に使う。
+    is_playing: Arc<AtomicBool>,
 
     record_sm: Arc<RecordStateMachine>,
     recording: Arc<AtomicBool>,
@@ -177,6 +179,7 @@ impl Default for HyphaPre {
             process_mode_offline: AtomicBool::new(false),
             last_process_pos_samples: i64::MIN,
             liveness,
+            is_playing: Arc::new(AtomicBool::new(false)),
             record_sm: Arc::new(RecordStateMachine::new()),
             recording: Arc::new(AtomicBool::new(false)),
             record_acknowledged: Arc::new(AtomicBool::new(false)),
@@ -250,6 +253,7 @@ impl Plugin for HyphaPre {
             Arc::clone(&self.recording),
             Arc::clone(&self.record_acknowledged),
             Arc::clone(&self.preset_available),
+            Arc::clone(&self.is_playing),
             Arc::clone(&self.params.name),
             Arc::clone(&self.params.instance_id),
             Arc::clone(&self.record_error_message),
@@ -488,6 +492,9 @@ impl Plugin for HyphaPre {
         let bypass_val = self.params.bypass.value();
         let transport = context.transport();
         let playing = transport.playing;
+        // GUI Thread に純粋な transport.playing を公開する。silent / bypass と直交し、
+        // Watch MAX の reset edge にだけ使う。Relaxed store / lock-free / R-12 安全。
+        self.is_playing.store(playing, Ordering::Relaxed);
         let pos = transport.pos_samples().unwrap_or(i64::MIN);
         let recording = self.record_sm.is_recording();
         let record_window = if recording {
