@@ -13,11 +13,12 @@
 //!         restart_io() クロージャを呼ぶ
 //! ```
 //!
-//! Audio Thread は process() で pending_producer を低頻度チェックし、
-//! Some なら ring_producer を差し替える。
+//! Audio Thread は process() の先頭で pending_producer を非ブロッキング確認し、
+//! Some なら次の push 前に ring_producer を差し替える。
 
 use crate::engine::SessionSummary;
 use crate::record::RecordStateMachine;
+use crate::watch_playback_pass::watch_ring_cursor as pack_watch_ring_cursor;
 use crate::{
     spawn_measure_thread, LivenessEvaluator, MeasureResult, RecordTakeTracker, RecordTraceQueue,
 };
@@ -83,8 +84,8 @@ pub struct WatchdogParams {
     pub watch_playback_pass_id: Arc<AtomicU64>,
     /// Watch playback pass 開始直前までに ring へ成功 push 済みの sample 数。
     pub watch_playback_pass_cutover_samples: Arc<AtomicU64>,
-    /// Audio Thread が現在の ring 世代へ成功 push した累積 sample 数。
-    pub watch_ring_samples_pushed: Arc<AtomicU64>,
+    /// 現在の ring 世代の pass token + 成功 push 済み sample 数。
+    pub watch_ring_cursor: Arc<AtomicU64>,
     /// Watchdog が新 ring を作成済みで、Audio Thread の producer swap を待っている間 true。
     pub watch_ring_replacing: Arc<AtomicBool>,
     /// SignalState 共有（再起動した Measure Thread に渡す）
@@ -128,7 +129,7 @@ pub fn spawn_watchdog(params: WatchdogParams) -> JoinHandle<()> {
             measure_result,
             watch_playback_pass_id,
             watch_playback_pass_cutover_samples,
-            watch_ring_samples_pushed,
+            watch_ring_cursor,
             watch_ring_replacing,
             signal_state,
             evaluator,
@@ -175,9 +176,10 @@ pub fn spawn_watchdog(params: WatchdogParams) -> JoinHandle<()> {
 
                 // shutdown フラグをリセット（panic では true にならないが念のため）
                 measure_shutdown.store(false, Ordering::Relaxed);
-                watch_ring_replacing.store(true, Ordering::Relaxed);
-                watch_ring_samples_pushed.store(0, Ordering::Relaxed);
-                watch_playback_pass_cutover_samples.store(0, Ordering::Relaxed);
+                let current_pass = watch_playback_pass_id.load(Ordering::Acquire);
+                watch_ring_replacing.store(true, Ordering::Release);
+                watch_ring_cursor.store(pack_watch_ring_cursor(current_pass, 0), Ordering::Release);
+                watch_playback_pass_cutover_samples.store(0, Ordering::Release);
 
                 // 新しい ring buffer と Measure Thread を生成
                 let (producer, consumer) = rtrb::RingBuffer::new(ring_capacity);
@@ -188,7 +190,7 @@ pub fn spawn_watchdog(params: WatchdogParams) -> JoinHandle<()> {
                     Arc::clone(&measure_result),
                     Arc::clone(&watch_playback_pass_id),
                     Arc::clone(&watch_playback_pass_cutover_samples),
-                    Arc::clone(&watch_ring_samples_pushed),
+                    Arc::clone(&watch_ring_cursor),
                     Arc::clone(&signal_state),
                     Arc::clone(&measure_shutdown),
                     Arc::clone(&evaluator),

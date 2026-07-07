@@ -14,6 +14,7 @@ use crate::record_writer::{
     RecordTraceSample, FRAME_INTERVAL_MS, PSB_INTERVAL_MS,
 };
 use crate::resampler::ResamplerTo48k;
+use crate::watch_playback_pass::watch_ring_cursor_samples_for_pass;
 use crate::{
     engine::SessionSummary, load_signal_state, store_signal_state, MeasureEngine, MeasureResult,
     PsbSummary, SignalState, N_CHANNELS,
@@ -211,7 +212,7 @@ pub fn spawn_measure_thread(
     result: Arc<Mutex<MeasureResult>>,
     watch_playback_pass_id: Arc<AtomicU64>,
     watch_playback_pass_cutover_samples: Arc<AtomicU64>,
-    watch_ring_samples_pushed: Arc<AtomicU64>,
+    watch_ring_cursor: Arc<AtomicU64>,
     signal_state: Arc<AtomicU8>,
     shutdown: Arc<AtomicBool>,
     evaluator: Arc<LivenessEvaluator>,
@@ -279,8 +280,10 @@ pub fn spawn_measure_thread(
         // 前回ループの SignalState を保持し、非Active→Active 遷移を検出する（SS-8）。
         let mut prev_active = false;
         let mut measure_sequence = 0_u64;
-        let mut playback_pass_id = watch_playback_pass_id.load(Ordering::Relaxed);
-        let mut consumed_samples = watch_ring_samples_pushed.load(Ordering::Relaxed);
+        let mut playback_pass_id = watch_playback_pass_id.load(Ordering::Acquire);
+        // A spawned Measure Thread always receives a fresh Consumer. Samples already queued in
+        // that Consumer are unread, even if the Audio/FFI side has advanced the cursor first.
+        let mut consumed_samples = 0_u64;
 
         // B-043: Record mode 遷移を検出し、Watch→Record 開始時に engine をリセットする。
         // Record 中の SS-8 reset 抑止と組み合わせて、LUFS-I / LRA のセッション通算性を確保する。
@@ -399,6 +402,11 @@ pub fn spawn_measure_thread(
                 );
                 if drained {
                     record_sm.bump_seal();
+                    consumed_samples = watch_ring_cursor_samples_for_pass(
+                        watch_ring_cursor.load(Ordering::Acquire),
+                        playback_pass_id,
+                    )
+                    .unwrap_or(consumed_samples);
                     log::info!(
                         "[MeasureThread] Record→Watch tight-drain complete (seal bumped, clock_trace_completed={})",
                         completed_trace
@@ -431,7 +439,7 @@ pub fn spawn_measure_thread(
 
             // ── SS-4: SignalState チェック ──────────────────────────
             let state = load_signal_state(&signal_state);
-            let observed_playback_pass_id = watch_playback_pass_id.load(Ordering::Relaxed);
+            let observed_playback_pass_id = watch_playback_pass_id.load(Ordering::Acquire);
             if observed_playback_pass_id != 0 && observed_playback_pass_id != playback_pass_id {
                 playback_pass_id = observed_playback_pass_id;
                 if is_recording {
@@ -441,7 +449,7 @@ pub fn spawn_measure_thread(
                 } else {
                     engine.reset();
                     record_pre_roll.clear();
-                    let cutover = watch_playback_pass_cutover_samples.load(Ordering::Relaxed);
+                    let cutover = watch_playback_pass_cutover_samples.load(Ordering::Acquire);
                     let stale =
                         drain_consumer_until_sample(&mut consumer, &mut consumed_samples, cutover);
                     if stale > 0 {
@@ -456,6 +464,7 @@ pub fn spawn_measure_thread(
                         rs.reset();
                     }
                     latest_pd = None;
+                    consumed_samples = 0;
                     prev_active = state == SignalState::Active;
                     if state == SignalState::Active {
                         if let Ok(mut guard) = result.lock() {
@@ -518,6 +527,11 @@ pub fn spawn_measure_thread(
                             },
                         }),
                     );
+                    consumed_samples = watch_ring_cursor_samples_for_pass(
+                        watch_ring_cursor.load(Ordering::Acquire),
+                        playback_pass_id,
+                    )
+                    .unwrap_or(consumed_samples);
                 }
                 // Bypassed / Inactive → compute() スキップ。
                 // リングバッファに残っているサンプルは破棄する（共通A で drain 済なら no-op）。
@@ -579,7 +593,17 @@ pub fn spawn_measure_thread(
             }
 
             // ── Active: リングバッファから全サンプルを取得して計測 ────
-            let available = consumer.slots();
+            let available = if is_recording {
+                consumer.slots()
+            } else {
+                let cursor = watch_ring_cursor.load(Ordering::Acquire);
+                let pushed_for_pass = watch_ring_cursor_samples_for_pass(cursor, playback_pass_id)
+                    .unwrap_or(consumed_samples);
+                consumer.slots().min(samples_until_cursor_limit(
+                    consumed_samples,
+                    pushed_for_pass,
+                ))
+            };
             if available > 0 {
                 chunk_f64.clear();
                 for _ in 0..available {
@@ -780,6 +804,12 @@ fn drain_consumer_until_sample(
         drained += 1;
     }
     drained
+}
+
+fn samples_until_cursor_limit(consumed_samples: u64, cursor_samples: u64) -> usize {
+    cursor_samples
+        .saturating_sub(consumed_samples)
+        .min(usize::MAX as u64) as usize
 }
 
 fn stamp_shared_measure_result(
@@ -1302,6 +1332,29 @@ pub mod tests {
         assert_eq!(consumer.pop().unwrap(), 9.0);
         assert_eq!(consumer.pop().unwrap(), 10.0);
         assert_eq!(pushed, 4);
+    }
+
+    #[test]
+    fn watch_active_pop_limit_preserves_new_pass_samples_already_in_ring() {
+        let (mut producer, mut consumer) = rtrb::RingBuffer::new(8);
+        for sample in [1.0_f32, 2.0, 9.0, 10.0] {
+            producer.push(sample).unwrap();
+        }
+
+        let mut consumed = 0_u64;
+        let available = consumer
+            .slots()
+            .min(super::samples_until_cursor_limit(consumed, 2));
+        let mut popped = Vec::new();
+        for _ in 0..available {
+            popped.push(consumer.pop().unwrap());
+            consumed += 1;
+        }
+
+        assert_eq!(popped, vec![1.0, 2.0]);
+        assert_eq!(consumed, 2);
+        assert_eq!(consumer.pop().unwrap(), 9.0);
+        assert_eq!(consumer.pop().unwrap(), 10.0);
     }
 
     #[test]

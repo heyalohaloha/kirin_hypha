@@ -1,14 +1,14 @@
 mod editor;
 
 use kirin_measure::{
-    advance_watch_playback_pass_id, daw_session_id, ensure_legacy_cleanup_done,
+    add_watch_ring_cursor_samples, daw_session_id, ensure_legacy_cleanup_done,
     identity_instance_attach, identity_instance_detach, live_window, load_license_safe,
-    new_record_trace_queue, process_project_hash, record_window_for_buffer, set_daw_session_id,
-    set_project_uuid, spawn_io_thread_pre, spawn_measure_thread, spawn_watchdog,
-    store_signal_state, watch_playback_block_duration_secs, watch_playback_pass_should_start,
-    License, LivenessEvaluator, MeasureResult, RecordStateMachine, RecordTakeBlock,
-    RecordTakeTracker, RecordTraceQueue, RecordWindow, SessionSummary, SignalState, WatchdogIo,
-    WatchdogParams, N_CHANNELS, RING_BUFFER_SECONDS,
+    new_record_trace_queue, process_project_hash, publish_watch_playback_pass_boundary,
+    record_window_for_buffer, set_daw_session_id, set_project_uuid, spawn_io_thread_pre,
+    spawn_measure_thread, spawn_watchdog, store_signal_state, watch_playback_block_duration_secs,
+    watch_playback_pass_should_start, watch_ring_cursor, License, LivenessEvaluator, MeasureResult,
+    RecordStateMachine, RecordTakeBlock, RecordTakeTracker, RecordTraceQueue, RecordWindow,
+    SessionSummary, SignalState, WatchdogIo, WatchdogParams, N_CHANNELS, RING_BUFFER_SECONDS,
 };
 use nih_plug::prelude::*;
 use nih_plug_egui::EguiState;
@@ -77,8 +77,8 @@ pub struct HyphaPre {
     watch_playback_pass_id: Arc<AtomicU64>,
     /// Watch pass 開始直前までに ring へ成功 push 済みの累積 sample 数。
     watch_playback_pass_cutover_samples: Arc<AtomicU64>,
-    /// 現在の ring 世代へ成功 push した累積 sample 数。Measure Thread の cutover discard 用。
-    watch_ring_samples_pushed: Arc<AtomicU64>,
+    /// 現在の ring 世代の pass token + 成功 push 済み sample 数。
+    watch_ring_cursor: Arc<AtomicU64>,
     /// Watchdog が新 ring を作り、Audio Thread 側の producer swap を待っている間 true。
     watch_ring_replacing: Arc<AtomicBool>,
     watch_prev_playing: bool,
@@ -195,7 +195,7 @@ impl Default for HyphaPre {
             is_playing: Arc::new(AtomicBool::new(false)),
             watch_playback_pass_id: Arc::new(AtomicU64::new(0)),
             watch_playback_pass_cutover_samples: Arc::new(AtomicU64::new(0)),
-            watch_ring_samples_pushed: Arc::new(AtomicU64::new(0)),
+            watch_ring_cursor: Arc::new(AtomicU64::new(watch_ring_cursor(0, 0))),
             watch_ring_replacing: Arc::new(AtomicBool::new(false)),
             watch_prev_playing: false,
             watch_last_process_instant: None,
@@ -384,7 +384,8 @@ impl Plugin for HyphaPre {
         self.watch_playback_pass_id.store(0, Ordering::Relaxed);
         self.watch_playback_pass_cutover_samples
             .store(0, Ordering::Relaxed);
-        self.watch_ring_samples_pushed.store(0, Ordering::Relaxed);
+        self.watch_ring_cursor
+            .store(watch_ring_cursor(0, 0), Ordering::Release);
         self.watch_ring_replacing.store(false, Ordering::Relaxed);
         self.watch_prev_playing = false;
         self.watch_last_process_instant = None;
@@ -397,7 +398,7 @@ impl Plugin for HyphaPre {
             Arc::clone(&self.measure_result),
             Arc::clone(&self.watch_playback_pass_id),
             Arc::clone(&self.watch_playback_pass_cutover_samples),
-            Arc::clone(&self.watch_ring_samples_pushed),
+            Arc::clone(&self.watch_ring_cursor),
             Arc::clone(&self.signal_state),
             Arc::clone(&self.measure_shutdown),
             Arc::clone(&self.liveness),
@@ -492,7 +493,7 @@ impl Plugin for HyphaPre {
             watch_playback_pass_cutover_samples: Arc::clone(
                 &self.watch_playback_pass_cutover_samples,
             ),
-            watch_ring_samples_pushed: Arc::clone(&self.watch_ring_samples_pushed),
+            watch_ring_cursor: Arc::clone(&self.watch_ring_cursor),
             watch_ring_replacing: Arc::clone(&self.watch_ring_replacing),
             signal_state: Arc::clone(&self.signal_state),
             evaluator: Arc::clone(&self.liveness),
@@ -526,10 +527,23 @@ impl Plugin for HyphaPre {
         context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
         self.heartbeat.fetch_add(1, Ordering::Relaxed);
+        if let Ok(mut slot) = self.pending_producer.try_lock() {
+            if let Some(new_producer) = slot.take() {
+                self.ring_producer = Some(new_producer);
+                let pass_id = self.watch_playback_pass_id.load(Ordering::Acquire);
+                self.watch_ring_cursor
+                    .store(watch_ring_cursor(pass_id, 0), Ordering::Release);
+                self.watch_playback_pass_cutover_samples
+                    .store(0, Ordering::Release);
+                self.watch_ring_replacing.store(false, Ordering::Release);
+                log::info!("[PRE process] ring producer swapped after Measure restart");
+            }
+        }
 
         let bypass_val = self.params.bypass.value();
         let transport = context.transport();
         let playing = transport.playing;
+        let recording = self.record_sm.is_recording();
         let now = Instant::now();
         let callback_gap_secs = self
             .watch_last_process_instant
@@ -537,23 +551,25 @@ impl Plugin for HyphaPre {
             .map(|previous| now.duration_since(previous).as_secs_f64());
         let block_duration_secs =
             watch_playback_block_duration_secs(buffer.samples(), self.watch_sample_rate_hz);
-        if watch_playback_pass_should_start(
-            playing,
-            self.watch_prev_playing,
-            callback_gap_secs,
-            block_duration_secs,
-        ) {
-            let cutover = self.watch_ring_samples_pushed.load(Ordering::Relaxed);
-            self.watch_playback_pass_cutover_samples
-                .store(cutover, Ordering::Relaxed);
-            advance_watch_playback_pass_id(&self.watch_playback_pass_id);
+        if !recording
+            && watch_playback_pass_should_start(
+                playing,
+                self.watch_prev_playing,
+                callback_gap_secs,
+                block_duration_secs,
+            )
+        {
+            publish_watch_playback_pass_boundary(
+                &self.watch_playback_pass_id,
+                &self.watch_ring_cursor,
+                &self.watch_playback_pass_cutover_samples,
+            );
         }
         self.watch_prev_playing = playing;
         // GUI Thread に純粋な transport.playing を公開する。silent / bypass と直交し、
         // Watch MAX の reset edge にだけ使う。Relaxed store / lock-free / R-12 安全。
         self.is_playing.store(playing, Ordering::Relaxed);
         let pos = transport.pos_samples().unwrap_or(i64::MIN);
-        let recording = self.record_sm.is_recording();
         let record_window = if recording {
             record_window_for_buffer(buffer.samples(), pos, transport.loop_range_samples())
         } else {
@@ -597,9 +613,9 @@ impl Plugin for HyphaPre {
             );
             if let Some(producer) = &mut self.ring_producer {
                 let pushed = push_window_to_ring(buffer, producer, record_window, &self.overflow);
-                if pushed > 0 && !self.watch_ring_replacing.load(Ordering::Relaxed) {
-                    self.watch_ring_samples_pushed
-                        .fetch_add(pushed, Ordering::Relaxed);
+                if pushed > 0 && !self.watch_ring_replacing.load(Ordering::Acquire) {
+                    let pass_id = self.watch_playback_pass_id.load(Ordering::Acquire);
+                    add_watch_ring_cursor_samples(&self.watch_ring_cursor, pass_id, pushed);
                 }
             }
         }
@@ -615,17 +631,6 @@ impl Plugin for HyphaPre {
                 recording,
                 buffer.samples()
             );
-
-            if let Ok(mut slot) = self.pending_producer.try_lock() {
-                if let Some(new_producer) = slot.take() {
-                    self.ring_producer = Some(new_producer);
-                    self.watch_ring_samples_pushed.store(0, Ordering::Relaxed);
-                    self.watch_playback_pass_cutover_samples
-                        .store(0, Ordering::Relaxed);
-                    self.watch_ring_replacing.store(false, Ordering::Relaxed);
-                    log::info!("[PRE process] ring producer swapped after Measure restart");
-                }
-            }
         }
 
         ProcessStatus::Normal
