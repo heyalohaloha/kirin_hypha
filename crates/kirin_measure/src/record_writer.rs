@@ -418,15 +418,23 @@ pub fn resolve_record_session_id(
         })
 }
 
-/// 指定 `post_instance_id` の record_signal.json から expected WAV metadata を取得。
+/// 指定 `post_instance_id` の record_signal.json を優先し、無ければ Kirin OS 側の
+/// record_expected/current.json から expected WAV metadata を取得。
 pub fn resolve_expected_wav_metadata(
     base: &std::path::Path,
     project_hash: &str,
     post_instance_id: &str,
 ) -> Option<ExpectedWavMetadata> {
-    record_signal::read_signal(base, project_hash, post_instance_id)
-        .and_then(|signal| signal.expected_wav)
-        .filter(ExpectedWavMetadata::is_usable)
+    let signal = record_signal::read_signal(base, project_hash, post_instance_id)?;
+    if let Some(expected) = signal.expected_wav.filter(ExpectedWavMetadata::is_usable) {
+        return Some(expected);
+    }
+    crate::record_expected::claim_expected_metadata_for_session(
+        base,
+        project_hash,
+        &signal.session_id,
+    )
+    .ok()
 }
 
 /// Record 開始: `PluginDataWriter` を生成し、空ファイルで初回 flush する。
@@ -1630,7 +1638,7 @@ pub struct RecoveryReport {
 
 /// B-025 Group B-1 / Gap-8: 30 秒 flush 周期中の DAW crash で残った `*.json.tmp`
 /// と、stale 化した `*.json.partial` を起動時に拾い、整合 (`verify_checksum`) すれば
-/// 対応 `*.json` か `.failed/*.json` に atomic publish する。
+/// 対応 `.json` / `.failed/*.json` / `.pair_pending/*.json` のいずれかへ atomic publish する。
 /// 不整合は warn ログのみで残置 (削除しない / 将来分析用 / 約束 5 原則)。
 ///
 /// 走査対象: `plugin_data_root` 配下を再帰的に walk して
@@ -1685,16 +1693,80 @@ fn walk_tmp_recover(dir: &Path, report: &mut RecoveryReport) {
             continue;
         };
         if name.ends_with(".json.tmp") {
-            recover_one_tmp(&path, report);
+            if is_pair_pending_tmp(&path) {
+                recover_one_pair_pending_tmp(&path, report);
+            } else {
+                recover_one_tmp(&path, report);
+            }
         } else if name.ends_with(".json.partial") {
             recover_one_staging(&path, report);
         }
     }
 }
 
-/// `.json.tmp` 1 件を試行する。checksum が正しく、最低 1 frame ある Record は
-/// status=Closed として `.json` に救済する。frame なし等の未使用 record は
-/// `.failed/*.json` に隔離し、Kirin OS の通常棚へ publish しない。
+fn is_pair_pending_tmp(path: &Path) -> bool {
+    path.parent()
+        .and_then(Path::file_name)
+        .and_then(|name| name.to_str())
+        == Some(".pair_pending")
+}
+
+fn recover_one_pair_pending_tmp(tmp_path: &Path, report: &mut RecoveryReport) {
+    let pending_path = strip_tmp_suffix(tmp_path);
+    let bytes = match fs::read(tmp_path) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            log::warn!(
+                "[recover] pair pending tmp read failed (skip): {} ({})",
+                tmp_path.display(),
+                e
+            );
+            return;
+        }
+    };
+    let data: PluginDataFile = match serde_json::from_slice(&bytes) {
+        Ok(data) => data,
+        Err(e) => {
+            log::warn!(
+                "[recover] pair pending tmp parse failed (orphan kept): {} ({})",
+                tmp_path.display(),
+                e
+            );
+            report.orphaned += 1;
+            return;
+        }
+    };
+    if !verify_checksum(&data) || data.commit_status.as_deref() != Some("pair_pending") {
+        log::warn!(
+            "[recover] pair pending tmp invalid (orphan kept): {}",
+            tmp_path.display()
+        );
+        report.orphaned += 1;
+        return;
+    }
+    if pending_path.exists() {
+        log::warn!(
+            "[recover] pair pending target already exists (orphan kept): {}",
+            tmp_path.display()
+        );
+        report.orphaned += 1;
+        return;
+    }
+    if let Err(e) = fs::rename(tmp_path, &pending_path) {
+        log::warn!(
+            "[recover] pair pending tmp rename failed (orphan kept): {} ({})",
+            tmp_path.display(),
+            e
+        );
+        report.orphaned += 1;
+        return;
+    }
+    report.recovered += 1;
+}
+
+/// `.json.tmp` 1 件を試行する。checksum が正しく、最低 1 frame あり、通常 publish の
+/// hard gate を満たす Record は status=Closed として `.json` に救済する。frame なし等の
+/// 未使用 record は `.failed/*.json` に隔離し、Kirin OS の通常棚へ publish しない。
 /// 不整合は `report.orphaned += 1` で記録 (削除しない)。
 fn recover_one_tmp(tmp_path: &Path, report: &mut RecoveryReport) {
     let final_path = strip_tmp_suffix(tmp_path);
@@ -1745,7 +1817,12 @@ fn recover_one_record_artifact(source_path: &Path, final_path: &Path, report: &m
         report.orphaned += 1;
         return;
     }
+    if data.commit_status.as_deref() == Some("pair_pending") {
+        recover_legacy_pair_pending_artifact(source_path, final_path, &data, report);
+        return;
+    }
     let failure_reasons = recovery_failure_reasons(&data);
+    let integrity_reasons = recovery_integrity_reasons(&data);
     let publishable = failure_reasons.is_empty();
     let recovery_path = if publishable {
         final_path.to_path_buf()
@@ -1776,6 +1853,7 @@ fn recover_one_record_artifact(source_path: &Path, final_path: &Path, report: &m
                     .push("startup_recovered_active".to_string());
             }
         }
+        add_recovery_integrity_reasons(&mut data, &integrity_reasons);
         data.commit_status = Some("committed".to_string());
         data.checksum = match compute_checksum(&data) {
             Ok(checksum) => checksum,
@@ -1835,13 +1913,13 @@ fn recover_one_record_artifact(source_path: &Path, final_path: &Path, report: &m
     data.commit_status = Some("failed".to_string());
     data.validity = false;
     data.integrity_degraded = true;
-    for reason in failure_reasons {
+    for reason in failure_reasons.iter().chain(integrity_reasons.iter()) {
         if !data
             .integrity_reasons
             .iter()
-            .any(|existing| existing == reason)
+            .any(|existing| existing == *reason)
         {
-            data.integrity_reasons.push(reason.to_string());
+            data.integrity_reasons.push((*reason).to_string());
         }
     }
     data.checksum = match compute_checksum(&data) {
@@ -1909,6 +1987,73 @@ fn recover_one_record_artifact(source_path: &Path, final_path: &Path, report: &m
     report.recovered += 1;
 }
 
+fn recover_legacy_pair_pending_artifact(
+    source_path: &Path,
+    final_path: &Path,
+    data: &PluginDataFile,
+    report: &mut RecoveryReport,
+) {
+    let Some(pending_path) = pair_pending_path_from_final_and_data(final_path, data) else {
+        log::warn!(
+            "[recover] pair pending artifact has no session id (orphan kept): {}",
+            source_path.display()
+        );
+        report.orphaned += 1;
+        return;
+    };
+    if pending_path.exists() {
+        log::warn!(
+            "[recover] pair pending target already exists (orphan kept): {}",
+            source_path.display()
+        );
+        report.orphaned += 1;
+        return;
+    }
+    if let Some(parent) = pending_path.parent() {
+        if let Err(e) = fs::create_dir_all(parent) {
+            log::warn!(
+                "[recover] pair pending dir create failed (orphan kept): {} ({})",
+                parent.display(),
+                e
+            );
+            report.orphaned += 1;
+            return;
+        }
+    }
+    if let Err(e) = fs::rename(source_path, &pending_path) {
+        log::warn!(
+            "[recover] pair pending artifact rename failed (orphan kept): {} → {} ({})",
+            source_path.display(),
+            pending_path.display(),
+            e
+        );
+        report.orphaned += 1;
+        return;
+    }
+    log::info!(
+        "[recover] restored pair pending artifact: {} → {}",
+        source_path.display(),
+        pending_path.display()
+    );
+    report.recovered += 1;
+}
+
+fn pair_pending_path_from_final_and_data(
+    final_path: &Path,
+    data: &PluginDataFile,
+) -> Option<PathBuf> {
+    let role_dir = final_path.parent()?;
+    let session_id = data.record_session_id.as_deref()?.trim();
+    if session_id.is_empty() {
+        return None;
+    }
+    let safe = crate::path_identity::guard_path_component(
+        session_id,
+        "recover.pair_pending.record_session_id",
+    );
+    Some(role_dir.join(".pair_pending").join(format!("{safe}.json")))
+}
+
 fn recovery_candidate_is_stale(path: &Path) -> bool {
     let Ok(metadata) = fs::metadata(path) else {
         return false;
@@ -1936,6 +2081,13 @@ fn recovery_failure_reasons(data: &PluginDataFile) -> Vec<&'static str> {
     if data.record_session_id.as_deref().is_none_or(str::is_empty) {
         reasons.push("missing_record_session_id");
     }
+    reasons.sort_unstable();
+    reasons.dedup();
+    reasons
+}
+
+fn recovery_integrity_reasons(data: &PluginDataFile) -> Vec<&'static str> {
+    let mut reasons = Vec::new();
     if data.expected_wav.as_ref().is_none_or(|m| !m.is_usable()) {
         reasons.push("missing_expected_wav_metadata");
     }
@@ -1964,9 +2116,28 @@ fn recovery_failure_reasons(data: &PluginDataFile) -> Vec<&'static str> {
             _ => {}
         }
     }
+    if data.integrity_degraded {
+        reasons.push("integrity_degraded");
+    }
     reasons.sort_unstable();
     reasons.dedup();
     reasons
+}
+
+fn add_recovery_integrity_reasons(data: &mut PluginDataFile, reasons: &[&'static str]) {
+    if reasons.is_empty() {
+        return;
+    }
+    data.integrity_degraded = true;
+    for reason in reasons {
+        if !data
+            .integrity_reasons
+            .iter()
+            .any(|existing| existing == *reason)
+        {
+            data.integrity_reasons.push((*reason).to_string());
+        }
+    }
 }
 
 /// `{path}.json.tmp` から末尾 `.tmp` を取り除いた `{path}.json` を返す。
@@ -2288,6 +2459,44 @@ mod tests {
             Some("record-session-refresh")
         );
         assert_eq!(ctx.writer.data().expected_wav.as_ref(), Some(&expected));
+    }
+
+    #[test]
+    fn refresh_pair_record_metadata_claims_expected_wav_for_signal_session() {
+        let base = isolated_base();
+        let mut ctx = make_ctx_with_sample_rate(&base, Role::Post, now_epoch_ms(), 48_000);
+        let expected = expected_wav_metadata(48_000, 48_000, "bounce-refresh-claim");
+        crate::record_expected::write_expected_metadata(&base, TEST_PH, &expected).unwrap();
+        let signal = crate::record_signal::RecordSignal {
+            status: crate::record_signal::SignalStatus::Acknowledged,
+            requested_by: TEST_IID.to_string(),
+            target_pre_instance_id: "pre-x".to_string(),
+            daw_session_id: "daw-refresh".to_string(),
+            session_id: "record-session-claim".to_string(),
+            t: "2026-07-05T00:00:01Z".to_string(),
+            started_at: "2026-07-05T00:00:00Z".to_string(),
+            started_at_position_samples: Some(0),
+            paired_pre_name: "PRE".to_string(),
+            release_reason: None,
+            expected_wav: None,
+        };
+        crate::record_signal::write_signal(&base, TEST_PH, TEST_IID, &signal).unwrap();
+
+        refresh_pair_record_metadata_from_base(&mut ctx, &base, TEST_IID);
+
+        assert_eq!(
+            ctx.writer.data().record_session_id.as_deref(),
+            Some("record-session-claim")
+        );
+        assert_eq!(ctx.writer.data().expected_wav.as_ref(), Some(&expected));
+        assert!(matches!(
+            crate::record_expected::claim_expected_metadata_for_session(
+                &base,
+                TEST_PH,
+                "other-session"
+            ),
+            Err(crate::record_expected::ExpectedMetadataError::Consumed)
+        ));
     }
 
     /// B-076: テスト用の overflow=0 カウンタ（欠落なし）。`&no_overflow()` で run_record_tick へ。
@@ -2856,7 +3065,7 @@ mod tests {
         assert!(crate::plugin_data::verify_checksum(&loaded));
     }
 
-    // ── B-134 (G-115-391): degraded close is diagnostic-only ──
+    // ── B-134 (G-115-391): hard-gated degraded close is diagnostic-only ──
     #[test]
     fn b134_degraded_close_goes_to_failed_when_writable() {
         let base = isolated_base();
@@ -3435,7 +3644,7 @@ mod tests {
         assert_eq!(diag.missing_slots, 0);
         assert!(
             loaded.integrity_degraded,
-            "TRACE is complete, but missing Pair/expected metadata keeps it diagnostic-only"
+            "TRACE is complete, but missing PairRecordSession metadata keeps it degraded"
         );
     }
 
@@ -3544,7 +3753,7 @@ mod tests {
         assert_eq!(diag.missing_slots, 0);
         assert!(
             loaded.integrity_degraded,
-            "TRACE is complete, but missing Pair/expected metadata keeps it diagnostic-only"
+            "TRACE is complete, but missing PairRecordSession metadata keeps it degraded"
         );
     }
 
@@ -4231,7 +4440,7 @@ mod tests {
 
     // ── B-025 Group B-1 / Gap-8 (recover_orphan_tmps) ─────────────────────
 
-    /// 有効な Active .tmp (整合 HMAC-SHA256) に frame があっても、Pair/expected gate を
+    /// 有効な Active .tmp (整合 HMAC-SHA256) に frame があっても、PairRecordSession gate を
     /// 通らなければ `.failed` に救済される。通常棚には出さない。
     #[test]
     fn recover_orphan_tmps_recovers_valid_tmp() {
@@ -4253,7 +4462,7 @@ mod tests {
         assert_eq!(report.orphaned, 0);
         assert!(
             !final_path.exists(),
-            ".json must not be published by tmp recovery without pair/expected gate"
+            ".json must not be published by tmp recovery without PairRecordSession gate"
         );
         let failed_path = failed_path_for_final(&final_path);
         assert!(failed_path.exists(), ".failed JSON must be written");
@@ -4274,6 +4483,83 @@ mod tests {
             ".partial must not remain after publish recovery"
         );
         assert!(!tmp_path.exists(), ".tmp must be renamed away");
+    }
+
+    #[test]
+    fn recover_orphan_tmps_restores_pair_pending_tmp_without_role_publish() {
+        let base = isolated_base();
+        let mut ctx = make_ctx(&base, Role::Post, now_epoch_ms());
+        assert!(writer_append_frame(&mut ctx, 100, &full_measure_result()));
+        ctx.writer
+            .set_record_session_id(Some("session-pair-pending-tmp".to_string()));
+        let final_path = ctx.final_path.clone();
+        writer_close(ctx);
+        let pending_path = any_pair_pending_for_final(&final_path)
+            .expect("close must leave pair_pending without peer");
+
+        let pending_bytes = fs::read(&pending_path).unwrap();
+        fs::remove_file(&pending_path).unwrap();
+        let tmp_path = pending_path.with_extension("json.tmp");
+        fs::write(&tmp_path, pending_bytes).unwrap();
+
+        let report = recover_orphan_tmps(&base);
+        assert_eq!(report.recovered, 1);
+        assert_eq!(report.pair_finalized, 0);
+        assert_eq!(report.orphaned, 0);
+        assert!(
+            !final_path.exists(),
+            "pair pending tmp must not publish role JSON"
+        );
+        assert!(
+            pending_path.exists(),
+            "pair pending tmp must restore pending JSON"
+        );
+        assert!(!tmp_path.exists(), "pair pending tmp must be consumed");
+
+        let loaded: PluginDataFile =
+            serde_json::from_slice(&fs::read(&pending_path).unwrap()).unwrap();
+        assert_eq!(loaded.commit_status.as_deref(), Some("pair_pending"));
+        assert!(verify_checksum(&loaded));
+    }
+
+    #[test]
+    fn recover_orphan_tmps_restores_legacy_role_pair_pending_tmp_without_role_publish() {
+        let base = isolated_base();
+        let mut ctx = make_ctx(&base, Role::Post, now_epoch_ms());
+        assert!(writer_append_frame(&mut ctx, 100, &full_measure_result()));
+        ctx.writer
+            .set_record_session_id(Some("session-legacy-role-pair-tmp".to_string()));
+        let final_path = ctx.final_path.clone();
+        writer_close(ctx);
+        let pending_path = any_pair_pending_for_final(&final_path)
+            .expect("close must leave pair_pending without peer");
+
+        let pending_bytes = fs::read(&pending_path).unwrap();
+        fs::remove_file(&pending_path).unwrap();
+        let legacy_tmp_path = final_path.with_extension("json.tmp");
+        fs::write(&legacy_tmp_path, pending_bytes).unwrap();
+
+        let report = recover_orphan_tmps(&base);
+        assert_eq!(report.recovered, 1);
+        assert_eq!(report.pair_finalized, 0);
+        assert_eq!(report.orphaned, 0);
+        assert!(
+            !final_path.exists(),
+            "legacy pair pending tmp must not publish role JSON"
+        );
+        assert!(
+            pending_path.exists(),
+            "legacy pair pending tmp must restore pending JSON"
+        );
+        assert!(
+            !legacy_tmp_path.exists(),
+            "legacy pair pending tmp must be consumed"
+        );
+
+        let loaded: PluginDataFile =
+            serde_json::from_slice(&fs::read(&pending_path).unwrap()).unwrap();
+        assert_eq!(loaded.commit_status.as_deref(), Some("pair_pending"));
+        assert!(verify_checksum(&loaded));
     }
 
     /// checksum 不整合の .tmp は orphaned として残置 (削除しない)。

@@ -770,6 +770,14 @@ impl PluginDataWriter {
     }
 
     fn write_atomic(&mut self, target_path: PathBuf) -> Result<(), WriterError> {
+        self.write_atomic_with_tmp(target_path, self.paths.tmp_path.clone())
+    }
+
+    fn write_atomic_with_tmp(
+        &mut self,
+        target_path: PathBuf,
+        tmp_path: PathBuf,
+    ) -> Result<(), WriterError> {
         if let Some(parent) = target_path.parent() {
             if !parent.is_dir() {
                 fs::create_dir_all(parent)?;
@@ -777,21 +785,29 @@ impl PluginDataWriter {
         }
         self.data.checksum = compute_checksum(&self.data)?;
         let json = serde_json::to_string(&self.data)?;
-        // `.tmp` へ書込
-        fs::write(&self.paths.tmp_path, json.as_bytes())?;
-        // atomic rename
-        fs::rename(&self.paths.tmp_path, target_path)?;
+        fs::write(&tmp_path, json.as_bytes())?;
+        fs::rename(&tmp_path, target_path)?;
         Ok(())
     }
 
     /// status=closed に変更して最終 flush。正常終了時に呼ぶ。
     pub fn close(mut self) -> Result<(), WriterError> {
         self.data.status = Status::Closed;
+        let integrity_reasons = self.commit_integrity_reasons();
+        if !integrity_reasons.is_empty() {
+            self.data.integrity_degraded = true;
+            for reason in integrity_reasons {
+                self.add_integrity_reason(reason);
+            }
+        }
         let reasons = self.commit_failure_reasons();
         if reasons.is_empty() {
             self.data.commit_status = Some("pair_pending".to_string());
             let self_paths = self_paths_for(&self.paths, &self.data);
-            self.write_atomic(self_paths.pair_pending_path.clone())?;
+            self.write_atomic_with_tmp(
+                self_paths.pair_pending_path.clone(),
+                sibling_tmp_path(&self_paths.pair_pending_path),
+            )?;
             if let Err(e) = try_finalize_pair_session(&self.paths, &self.data) {
                 log::warn!("[pair_record_session] finalize attempt failed: {}", e);
             }
@@ -811,6 +827,10 @@ impl PluginDataWriter {
     fn commit_failure_reasons(&self) -> Vec<&'static str> {
         side_publish_failure_reasons(&self.data)
     }
+
+    fn commit_integrity_reasons(&self) -> Vec<&'static str> {
+        side_publish_integrity_reasons(&self.data)
+    }
 }
 
 fn side_publish_failure_reasons(data: &PluginDataFile) -> Vec<&'static str> {
@@ -827,13 +847,6 @@ fn side_publish_failure_reasons(data: &PluginDataFile) -> Vec<&'static str> {
     if data.record_session_id.as_deref().is_none_or(str::is_empty) {
         reasons.push("missing_record_session_id");
     }
-    let expected = match &data.expected_wav {
-        Some(expected) if expected.is_usable() => Some(expected),
-        _ => {
-            reasons.push("missing_expected_wav_metadata");
-            None
-        }
-    };
     match data.role {
         Role::Pre
             if data
@@ -853,6 +866,18 @@ fn side_publish_failure_reasons(data: &PluginDataFile) -> Vec<&'static str> {
         }
         _ => {}
     }
+    dedup_reasons(reasons)
+}
+
+fn side_publish_integrity_reasons(data: &PluginDataFile) -> Vec<&'static str> {
+    let mut reasons = Vec::new();
+    let expected = match &data.expected_wav {
+        Some(expected) if expected.is_usable() => Some(expected),
+        _ => {
+            reasons.push("missing_expected_wav_metadata");
+            None
+        }
+    };
     let take = match &data.bounce_take {
         Some(take) => Some(take),
         None => {
@@ -906,6 +931,22 @@ fn side_publish_failure_reasons(data: &PluginDataFile) -> Vec<&'static str> {
     dedup_reasons(reasons)
 }
 
+fn add_integrity_reasons(data: &mut PluginDataFile, reasons: &[&'static str]) {
+    if reasons.is_empty() {
+        return;
+    }
+    data.integrity_degraded = true;
+    for reason in reasons {
+        if !data
+            .integrity_reasons
+            .iter()
+            .any(|existing| existing == *reason)
+        {
+            data.integrity_reasons.push((*reason).to_string());
+        }
+    }
+}
+
 fn dedup_reasons(mut reasons: Vec<&'static str>) -> Vec<&'static str> {
     let mut out = Vec::with_capacity(reasons.len());
     for reason in reasons.drain(..) {
@@ -930,6 +971,9 @@ fn try_finalize_pair_session(
     let self_pending = self_paths.pair_pending_path.clone();
     let mut self_data = read_plugin_data_file(&self_pending)?;
     let mut peer_data = read_plugin_data_file(&peer_paths.pair_pending_path)?;
+    let integrity_reasons = pair_publish_integrity_reasons(&self_data, &peer_data);
+    add_integrity_reasons(&mut self_data, &integrity_reasons);
+    add_integrity_reasons(&mut peer_data, &integrity_reasons);
     let reasons = pair_publish_failure_reasons(&self_data, &peer_data);
     if reasons.is_empty() {
         self_data.commit_status = Some("committed".to_string());
@@ -1187,6 +1231,14 @@ fn writer_paths_from_pair_pending_path(pair_pending_path: &Path) -> Option<Write
     })
 }
 
+fn sibling_tmp_path(path: &Path) -> PathBuf {
+    let file_name = path
+        .file_name()
+        .map(|name| name.to_string_lossy())
+        .unwrap_or_default();
+    path.with_file_name(format!("{file_name}.tmp"))
+}
+
 fn plugin_data_root_from_final_path(final_path: &Path) -> Option<PathBuf> {
     final_path
         .parent()
@@ -1294,7 +1346,7 @@ fn fail_pair_pending(
         if !data
             .integrity_reasons
             .iter()
-            .any(|existing| existing == reason)
+            .any(|existing| existing == *reason)
         {
             data.integrity_reasons.push((*reason).to_string());
         }
@@ -1330,6 +1382,20 @@ fn pair_publish_failure_reasons(
     if post.paired_pre_instance_id.as_deref() != Some(pre.instance_id.as_str()) {
         reasons.push("pair_post_pre_link_mismatch");
     }
+    dedup_reasons(reasons)
+}
+
+fn pair_publish_integrity_reasons(
+    left: &PluginDataFile,
+    right: &PluginDataFile,
+) -> Vec<&'static str> {
+    let mut reasons = side_publish_integrity_reasons(left);
+    reasons.extend(side_publish_integrity_reasons(right));
+    let (pre, post) = match (left.role, right.role) {
+        (Role::Pre, Role::Post) => (left, right),
+        (Role::Post, Role::Pre) => (right, left),
+        _ => return dedup_reasons(reasons),
+    };
     if pre.expected_wav != post.expected_wav {
         reasons.push("pair_expected_wav_mismatch");
     }
@@ -2243,6 +2309,197 @@ mod tests {
             crate::record_expected::read_expected_metadata(&base, "project_hash_test"),
             Err(crate::record_expected::ExpectedMetadataError::Consumed)
         ));
+    }
+
+    #[test]
+    fn pair_finalize_commits_missing_expected_as_degraded_trace() {
+        let base = isolated_dir();
+        let mut pre = complete_pair_writer(
+            &base,
+            Role::Pre,
+            "iid-pre-no-expected",
+            None,
+            Some("iid-post-no-expected".to_string()),
+        );
+        let mut post = complete_pair_writer(
+            &base,
+            Role::Post,
+            "iid-post-no-expected",
+            Some("iid-pre-no-expected".to_string()),
+            None,
+        );
+        pre.set_expected_wav(None);
+        post.set_expected_wav(None);
+        pre.data.status = Status::Closed;
+        pre.data.commit_status = Some("pair_pending".to_string());
+        post.data.status = Status::Closed;
+        post.data.commit_status = Some("pair_pending".to_string());
+
+        let pre_paths = self_paths_for(&pre.paths, &pre.data);
+        let post_paths = self_paths_for(&post.paths, &post.data);
+        pre.write_atomic(pre_paths.pair_pending_path.clone())
+            .unwrap();
+        post.write_atomic(post_paths.pair_pending_path.clone())
+            .unwrap();
+
+        try_finalize_pair_session(&pre.paths, &pre.data).unwrap();
+
+        let manifest_path = pair_commit_manifest_path(&pre.paths, &pre.data).unwrap();
+        assert!(manifest_path.exists());
+        assert!(pre_paths.member_path.exists());
+        assert!(post_paths.member_path.exists());
+        assert!(!pre_paths.failed_path.exists());
+        assert!(!post_paths.failed_path.exists());
+
+        let pre_data: PluginDataFile =
+            serde_json::from_slice(&fs::read(&pre_paths.member_path).unwrap()).unwrap();
+        let post_data: PluginDataFile =
+            serde_json::from_slice(&fs::read(&post_paths.member_path).unwrap()).unwrap();
+        for data in [&pre_data, &post_data] {
+            assert_eq!(data.commit_status.as_deref(), Some("committed"));
+            assert!(data.validity);
+            assert!(data.integrity_degraded);
+            assert!(data
+                .integrity_reasons
+                .iter()
+                .any(|reason| reason == "missing_expected_wav_metadata"));
+            assert!(verify_checksum(data));
+        }
+    }
+
+    #[test]
+    fn pair_finalize_commits_missing_trace_slots_as_degraded_trace() {
+        let base = isolated_dir();
+        let mut pre = complete_pair_writer(
+            &base,
+            Role::Pre,
+            "iid-pre-missing-slots",
+            None,
+            Some("iid-post-missing-slots".to_string()),
+        );
+        let mut post = complete_pair_writer(
+            &base,
+            Role::Post,
+            "iid-post-missing-slots",
+            Some("iid-pre-missing-slots".to_string()),
+            None,
+        );
+        let missing_slot_diag = TraceDiagnostics {
+            raw_trace_count: 121,
+            expected_frame_count: 152,
+            measured_frame_count: 121,
+            missing_slots: 31,
+            explicit_silence_frame_count: 0,
+        };
+        pre.set_trace_diagnostics(missing_slot_diag.clone());
+        post.set_trace_diagnostics(missing_slot_diag);
+        pre.data.status = Status::Closed;
+        pre.data.commit_status = Some("pair_pending".to_string());
+        post.data.status = Status::Closed;
+        post.data.commit_status = Some("pair_pending".to_string());
+
+        let pre_paths = self_paths_for(&pre.paths, &pre.data);
+        let post_paths = self_paths_for(&post.paths, &post.data);
+        pre.write_atomic(pre_paths.pair_pending_path.clone())
+            .unwrap();
+        post.write_atomic(post_paths.pair_pending_path.clone())
+            .unwrap();
+
+        try_finalize_pair_session(&pre.paths, &pre.data).unwrap();
+
+        let manifest_path = pair_commit_manifest_path(&pre.paths, &pre.data).unwrap();
+        assert!(manifest_path.exists());
+        assert!(pre_paths.member_path.exists());
+        assert!(post_paths.member_path.exists());
+        assert!(!pre_paths.failed_path.exists());
+        assert!(!post_paths.failed_path.exists());
+
+        let pre_data: PluginDataFile =
+            serde_json::from_slice(&fs::read(&pre_paths.member_path).unwrap()).unwrap();
+        let post_data: PluginDataFile =
+            serde_json::from_slice(&fs::read(&post_paths.member_path).unwrap()).unwrap();
+        for data in [&pre_data, &post_data] {
+            assert_eq!(data.commit_status.as_deref(), Some("committed"));
+            assert!(data.validity);
+            assert!(data.integrity_degraded);
+            assert!(data
+                .integrity_reasons
+                .iter()
+                .any(|reason| reason == "missing_trace_slots"));
+            assert!(data
+                .integrity_reasons
+                .iter()
+                .any(|reason| reason == "trace_frame_count_mismatch"));
+            assert!(verify_checksum(data));
+        }
+    }
+
+    #[test]
+    fn pair_finalize_quarantines_zero_frames_even_with_trace_diagnostics() {
+        let base = isolated_dir();
+        let mut pre = complete_pair_writer(
+            &base,
+            Role::Pre,
+            "iid-pre-zero-frames",
+            None,
+            Some("iid-post-zero-frames".to_string()),
+        );
+        let mut post = complete_pair_writer(
+            &base,
+            Role::Post,
+            "iid-post-zero-frames",
+            Some("iid-pre-zero-frames".to_string()),
+            None,
+        );
+        let diag = TraceDiagnostics {
+            raw_trace_count: 121,
+            expected_frame_count: 152,
+            measured_frame_count: 0,
+            missing_slots: 31,
+            explicit_silence_frame_count: 0,
+        };
+        pre.clear_frames();
+        post.clear_frames();
+        pre.set_trace_diagnostics(diag.clone());
+        post.set_trace_diagnostics(diag);
+        pre.data.status = Status::Closed;
+        pre.data.commit_status = Some("pair_pending".to_string());
+        post.data.status = Status::Closed;
+        post.data.commit_status = Some("pair_pending".to_string());
+
+        let pre_paths = self_paths_for(&pre.paths, &pre.data);
+        let post_paths = self_paths_for(&post.paths, &post.data);
+        pre.write_atomic(pre_paths.pair_pending_path.clone())
+            .unwrap();
+        post.write_atomic(post_paths.pair_pending_path.clone())
+            .unwrap();
+
+        try_finalize_pair_session(&pre.paths, &pre.data).unwrap();
+
+        let manifest_path = pair_commit_manifest_path(&pre.paths, &pre.data).unwrap();
+        assert!(!manifest_path.exists());
+        assert!(!pre_paths.member_path.exists());
+        assert!(!post_paths.member_path.exists());
+        assert!(pre_paths.failed_path.exists());
+        assert!(post_paths.failed_path.exists());
+
+        let pre_data: PluginDataFile =
+            serde_json::from_slice(&fs::read(&pre_paths.failed_path).unwrap()).unwrap();
+        let post_data: PluginDataFile =
+            serde_json::from_slice(&fs::read(&post_paths.failed_path).unwrap()).unwrap();
+        for data in [&pre_data, &post_data] {
+            assert_eq!(data.commit_status.as_deref(), Some("failed"));
+            assert!(!data.validity);
+            assert!(data
+                .integrity_reasons
+                .iter()
+                .any(|reason| reason == "zero_trace_frames"));
+            assert!(data
+                .integrity_reasons
+                .iter()
+                .any(|reason| reason == "missing_trace_slots"));
+            assert!(verify_checksum(data));
+        }
     }
 
     #[test]

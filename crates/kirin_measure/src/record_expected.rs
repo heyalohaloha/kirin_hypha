@@ -1,8 +1,10 @@
 //! Expected WAV metadata bridge for PairRecordSession.
 //!
-//! Kirin OS owns the dropped/exported WAV header truth. Hypha reads that truth
-//! from `plugin_data/{project_hash}/record_expected/current.json` before arming
-//! Record and copies it into `record_signal` and final plugin_data artifacts.
+//! Kirin OS owns the dropped/exported WAV header truth. Hypha uses that truth
+//! from `plugin_data/{project_hash}/record_expected/current.json` when it is
+//! available before or during Record, then copies it into `record_signal` and
+//! final plugin_data artifacts. Missing metadata must not block Keep; usable
+//! TRACE frames still publish with integrity degradation reasons.
 
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -58,10 +60,23 @@ impl ExpectedWavMetadata {
         if !self.is_usable() {
             return false;
         }
+        self.is_fresh_complete_for_arm(now_ms)
+    }
+
+    fn is_fresh_complete_for_arm(&self, now_ms: i64) -> bool {
+        if !self.is_complete() {
+            return false;
+        }
         if self.created_at_ms > now_ms.saturating_add(EXPECTED_METADATA_FUTURE_SKEW_MS) {
             return false;
         }
         now_ms.saturating_sub(self.created_at_ms) <= EXPECTED_METADATA_MAX_AGE_MS
+    }
+
+    fn without_consumed_marker(mut self) -> Self {
+        self.consumed_at_ms = None;
+        self.consumed_by_session_id = None;
+        self
     }
 }
 
@@ -144,6 +159,39 @@ pub fn write_expected_metadata(
     Ok(())
 }
 
+pub fn claim_expected_metadata_for_session(
+    base_dir: &Path,
+    project_hash: &str,
+    session_id: &str,
+) -> Result<ExpectedWavMetadata, ExpectedMetadataError> {
+    let session_id = session_id.trim();
+    if session_id.is_empty() {
+        return Err(ExpectedMetadataError::Invalid);
+    }
+    let path = expected_path(base_dir, project_hash);
+    let bytes = fs::read(&path)?;
+    let mut metadata: ExpectedWavMetadata = serde_json::from_slice(&bytes)?;
+    if !metadata.is_complete() {
+        return Err(ExpectedMetadataError::Invalid);
+    }
+    if !metadata.is_fresh_complete_for_arm(now_epoch_ms()) {
+        return Err(ExpectedMetadataError::Stale);
+    }
+    if metadata.consumed_at_ms.is_some() || metadata.consumed_by_session_id.is_some() {
+        return if metadata.consumed_by_session_id.as_deref() == Some(session_id) {
+            Ok(metadata.without_consumed_marker())
+        } else {
+            Err(ExpectedMetadataError::Consumed)
+        };
+    }
+    let artifact_metadata = metadata.clone();
+    metadata.consumed_at_ms = Some(now_epoch_ms());
+    metadata.consumed_by_session_id = Some(session_id.to_string());
+    let json = serde_json::to_vec(&metadata)?;
+    crate::atomic_file::write_bytes_atomic(&path, &json)?;
+    Ok(artifact_metadata)
+}
+
 pub fn mark_expected_metadata_consumed(
     base_dir: &Path,
     project_hash: &str,
@@ -186,6 +234,21 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    fn metadata_fixture(bounce_id: &str) -> ExpectedWavMetadata {
+        ExpectedWavMetadata {
+            expected_duration_samples: 48_000,
+            expected_sample_rate: 48_000,
+            wav_path: format!("/tmp/{bounce_id}.wav"),
+            bounce_id: bounce_id.to_string(),
+            created_at_ms: now_epoch_ms(),
+            wav_file_size: Some(1_000),
+            wav_mtime_ms: now_epoch_ms(),
+            wav_hash: Some(format!("hash-{bounce_id}")),
+            consumed_at_ms: None,
+            consumed_by_session_id: None,
+        }
     }
 
     #[test]
@@ -235,24 +298,37 @@ mod tests {
     #[test]
     fn consumed_metadata_is_not_armable_again() {
         let base = isolated_dir();
-        let metadata = ExpectedWavMetadata {
-            expected_duration_samples: 48_000,
-            expected_sample_rate: 48_000,
-            wav_path: "/tmp/kirin.wav".to_string(),
-            bounce_id: "bounce-consume".to_string(),
-            created_at_ms: now_epoch_ms(),
-            wav_file_size: Some(1_000),
-            wav_mtime_ms: now_epoch_ms(),
-            wav_hash: Some("hash-consume".to_string()),
-            consumed_at_ms: None,
-            consumed_by_session_id: None,
-        };
+        let metadata = metadata_fixture("bounce-consume");
         write_expected_metadata(&base, "ph", &metadata).unwrap();
         assert!(
             mark_expected_metadata_consumed(&base, "ph", "bounce-consume", "session-1").unwrap()
         );
         assert!(matches!(
             read_expected_metadata(&base, "ph"),
+            Err(ExpectedMetadataError::Consumed)
+        ));
+    }
+
+    #[test]
+    fn claim_expected_metadata_binds_current_json_to_one_record_session() {
+        let base = isolated_dir();
+        let metadata = metadata_fixture("bounce-claim");
+        write_expected_metadata(&base, "ph", &metadata).unwrap();
+
+        let claimed = claim_expected_metadata_for_session(&base, "ph", "session-claim").unwrap();
+        assert_eq!(claimed, metadata);
+        assert!(claimed.consumed_at_ms.is_none());
+        assert!(claimed.consumed_by_session_id.is_none());
+        assert!(matches!(
+            read_expected_metadata(&base, "ph"),
+            Err(ExpectedMetadataError::Consumed)
+        ));
+
+        let same_session =
+            claim_expected_metadata_for_session(&base, "ph", "session-claim").unwrap();
+        assert_eq!(same_session, metadata);
+        assert!(matches!(
+            claim_expected_metadata_for_session(&base, "ph", "session-other"),
             Err(ExpectedMetadataError::Consumed)
         ));
     }

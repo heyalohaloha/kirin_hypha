@@ -860,7 +860,7 @@ fn pre_writes_records_plugin_data_json() {
 
         assert!(
             find_json_under(&plugin_data_root, "pre", "*.json").is_none(),
-            "PairRecordSession/expected WAV が無い単独 PRE は通常棚へ publish しない"
+            "PairRecordSession が無い単独 PRE は通常棚へ publish しない"
         );
 
         // Record 診断 .json（{ph}/{iid}/pre/.failed/{wall}.json）を読み戻す。
@@ -876,10 +876,13 @@ fn pre_writes_records_plugin_data_json() {
         assert_eq!(pd.role, Role::Pre, "role must be PRE");
         assert_eq!(pd.status, Status::Closed, "exit+flush 後は status=closed");
         assert_eq!(pd.commit_status.as_deref(), Some("failed"));
-        assert!(!pd.validity, "diagnostic-only Record is validity=false");
+        assert!(
+            !pd.validity,
+            "hard-gated diagnostic Record is validity=false"
+        );
         assert!(
             pd.integrity_degraded,
-            "diagnostic-only Record is integrity_degraded=true"
+            "hard-gated diagnostic Record is integrity_degraded=true"
         );
         assert!(has_integrity_reason(&pd, "missing_record_session_id"));
         assert!(has_integrity_reason(&pd, "missing_expected_wav_metadata"));
@@ -1156,7 +1159,7 @@ fn set_identity_drives_path_and_diagnostic_record_is_not_annotatable() {
 
         assert!(
             find_json_under(&plugin_data_root, "pre", "*.json").is_none(),
-            "PairRecordSession/expected WAV が無い単独 PRE は通常棚へ publish しない"
+            "PairRecordSession が無い単独 PRE は通常棚へ publish しない"
         );
 
         // path = {known_puid}/{known_iid}/pre/.failed/ （set_identity が path を決める = 復元再現）。
@@ -1179,10 +1182,10 @@ fn set_identity_drives_path_and_diagnostic_record_is_not_annotatable() {
         assert!(has_integrity_reason(&pd, "missing_record_session_id"));
         assert!(has_integrity_reason(&pd, "missing_expected_wav_metadata"));
 
-        // Pair/expected 不足で隔離された診断 Record は annotation 対象にしない。
+        // PairRecordSession 不足で隔離された診断 Record は annotation 対象にしない。
         assert!(
             !engine.add_annotation("note-A".to_string()),
-            "diagnostic-only Record への add_annotation は false"
+            "hard-gated diagnostic Record への add_annotation は false"
         );
         let pd_after: PluginDataFile =
             serde_json::from_str(&std::fs::read_to_string(&rec).unwrap()).unwrap();
@@ -1414,12 +1417,14 @@ fn post_keep_acked_by_colocated_pre() {
         );
         assert!(!post.is_recording(), "keep false で Record しない");
 
-        // 成功: "mix"（pair target setter で別名選択が効く）→ keep true。
-        // expected WAV metadata は cross-DAW 必須条件ではない。未設定時も診断 Record として
-        // arming/ACK し、finalizer が通常棚 publish を止めて `.failed` に隔離する。
+        // Kirin OS が未起動でも Keep の入口は狭めない。metadata が無い場合は
+        // usable frames を通常 TRACE 棚へ出し、完全性だけ degraded reason に残す。
         post.set_pair_target("mix".into());
-        assert!(post.keep(), "一意 PRE 'mix' で keep=true");
-        wait_until_recording(&post, "strict-pair-mix-diagnostic");
+        assert!(
+            post.keep(),
+            "一意 PRE 'mix' は expected WAV metadata なしでも keep=true"
+        );
+        wait_until_recording(&post, "strict-pair-mix");
         assert!(post.is_recording(), "keep 成功で POST Record 開始");
 
         // poll_delta は Δ を返す（PRE active）。
@@ -1437,7 +1442,7 @@ fn post_keep_acked_by_colocated_pre() {
                     assert_eq!(s.target_pre_instance_id, "iid-pre", "target は選定 PRE");
                     assert!(
                         s.expected_wav.is_none(),
-                        "metadata 未設定 Keep は expected_wav=None の診断 Record として arm"
+                        "Kirin OS 未起動相当の Keep は expected_wav なしで Record を継続する"
                     );
                     acked = true;
                     break;

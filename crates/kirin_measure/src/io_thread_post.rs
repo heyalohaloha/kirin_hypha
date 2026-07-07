@@ -2017,7 +2017,8 @@ fn poll_record_signal_ack_with_base(
     }
     if signal.expected_wav.is_none() {
         log::warn!(
-            "[IOThread POST] ACK has no expected WAV metadata; entering diagnostic-only Record \
+            "[IOThread POST] ACK has no expected WAV metadata; Record may publish with degraded \
+             integrity \
              (post_iid={})",
             instance_id
         );
@@ -2027,7 +2028,8 @@ fn poll_record_signal_ack_with_base(
         .is_some_and(crate::record_expected::ExpectedWavMetadata::is_usable)
     {
         log::warn!(
-            "[IOThread POST] ACK has invalid expected WAV metadata; entering diagnostic-only Record \
+            "[IOThread POST] ACK has invalid expected WAV metadata; Record may publish with \
+             degraded integrity \
              (post_iid={})",
             instance_id
         );
@@ -3081,8 +3083,8 @@ mod record_signal_ack_barrier_tests {
     }
 
     #[test]
-    fn acknowledged_without_expected_metadata_enters_diagnostic_record() {
-        let base = isolated_base("diagnostic");
+    fn acknowledged_without_expected_metadata_enters_degraded_record_path() {
+        let base = isolated_base("degraded");
         write_ack_with_expected(&base, "2026-07-05T00:00:00Z", None);
         let sm = Arc::new(RecordStateMachine::new());
         let pair_label = Arc::new(Mutex::new(String::new()));
