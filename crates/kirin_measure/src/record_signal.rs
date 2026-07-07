@@ -148,8 +148,8 @@ pub struct RecordSignal {
     pub release_reason: Option<ReleaseReason>,
     /// Kirin OS/Hub が Record 開始前に渡す dropped WAV header metadata。
     ///
-    /// これは完全性判定の trust anchor だが、Keep の入口条件ではない。無い場合でも usable
-    /// TRACE frames は通常棚へ publish し、integrity_degraded と reason に残す。
+    /// 完全な Record artifact の trust anchor。POST Keep で claim できない場合でも
+    /// Keep は続行し、final artifact 側の quality metadata で usable fallback として明示する。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expected_wav: Option<ExpectedWavMetadata>,
 }
@@ -305,8 +305,9 @@ pub fn write_pending_with_expected_and_clock(
 
 /// pending シグナルを生成し、同じ Record session_id で expected WAV metadata を claim する。
 ///
-/// metadata が無い/古い/別 session に消費済みの場合でも Keep は続行し、expected_wav=None の
-/// signal を書く。usable frames は finalizer 側で通常 TRACE に publish し、完全性だけ reason に残す。
+/// 完全な Record artifact は dropped WAV header metadata を trust anchor にする。metadata が
+/// 無い/古い/別 session に消費済みの場合でも Keep は続行し、final artifact 側の `record_quality` と
+/// integrity reasons で usable fallback として明示する。
 /// 先に pending を durable に置いてから metadata を claim することで、claim 済み metadata だけが
 /// 残って Record signal が無い状態を作らない。
 #[allow(clippy::too_many_arguments)]
@@ -334,7 +335,7 @@ pub fn write_pending_claiming_expected_and_clock(
         signal.expected_wav = Some(expected_wav);
         if let Err(e) = write_signal(base_dir, project_hash, post_instance_id, &signal) {
             log::warn!(
-                "[record_signal] expected_wav enrichment write failed; continuing without blocking Keep: {}",
+                "[record_signal] expected_wav enrichment write failed; continuing as usable fallback: {}",
                 e
             );
         }

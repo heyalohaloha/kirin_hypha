@@ -1864,6 +1864,7 @@ fn recover_one_record_artifact(source_path: &Path, final_path: &Path, report: &m
         }
         add_recovery_integrity_reasons(&mut data, &integrity_reasons);
         data.commit_status = Some("committed".to_string());
+        crate::plugin_data::refresh_record_quality(&mut data);
         data.checksum = match compute_checksum(&data) {
             Ok(checksum) => checksum,
             Err(e) => {
@@ -1931,6 +1932,7 @@ fn recover_one_record_artifact(source_path: &Path, final_path: &Path, report: &m
             data.integrity_reasons.push((*reason).to_string());
         }
     }
+    crate::plugin_data::refresh_record_quality(&mut data);
     data.checksum = match compute_checksum(&data) {
         Ok(checksum) => checksum,
         Err(e) => {

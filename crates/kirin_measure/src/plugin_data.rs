@@ -180,6 +180,22 @@ pub struct TraceDiagnostics {
     pub explicit_silence_frame_count: u64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RecordQuality {
+    /// `complete` = sample-count aligned full product.
+    /// `usable_fallback` = draw-able measured data with explicit degradation reasons.
+    /// `failed` = diagnostic artifact only.
+    pub status: String,
+    pub complete: bool,
+    pub usable: bool,
+    pub expected_wav_ready: bool,
+    pub sample_count_ready: bool,
+    pub trace_slots_complete: bool,
+    pub expected_frame_count: u64,
+    pub measured_frame_count: u64,
+    pub missing_trace_slots: u64,
+}
+
 /// plugin_data/ 1 ファイル分のルート（現行 v1.3）。
 ///
 /// v1.2 (A-3 (a)): `instance_id` field 追加 + `paired_pre_instance_id` /
@@ -284,6 +300,10 @@ pub struct PluginDataFile {
     /// TRACE 欠損診断。missing は frames[] に測定値として入れない。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trace_diagnostics: Option<TraceDiagnostics>,
+    /// Kirin OS 表示用の品質分類。厳密判定は Hypha 内に閉じ、OS はこの分類で
+    /// complete / usable fallback / failed を静かに扱い分ける。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub record_quality: Option<RecordQuality>,
     pub validity: bool,
     pub checksum: String,
 }
@@ -378,6 +398,7 @@ impl PluginDataFile {
             bounce_take: None,
             expected_wav: None,
             trace_diagnostics: None,
+            record_quality: None,
             validity: true,
             checksum: String::new(),
         }
@@ -686,12 +707,15 @@ impl PluginDataWriter {
     /// `push_dropped` = ring 満杯 drop（push_overflow 差分 / B-076）、`oversized_dropped` =
     /// prealloc-max 超の病的 block で測定 ring に渡せなかった interleaved sample 数（B-125 専用
     /// カウンタ oversized_drop 差分）。JSON へは合算を焼く（無記録欠落の解消＝ZSA）。
-    /// `integrity_degraded` は合算 > 0（閾値なし・1 sample でも立てる）。計測値（LUFS/TP/PSR/PSB）
+    /// `integrity_degraded` は合算 > 0 なら OR で立てる（閾値なし・1 sample でも立てる）。
+    /// 既に検出済みの degraded reason を dropped_samples=0 で消さない。計測値（LUFS/TP/PSR/PSB）
     /// には一切触れない。
     pub fn set_integrity(&mut self, push_dropped: u64, oversized_dropped: u64) {
         let total = push_dropped.saturating_add(oversized_dropped);
         self.data.dropped_samples = total;
-        self.data.integrity_degraded = total > 0;
+        if total > 0 {
+            self.data.integrity_degraded = true;
+        }
     }
 
     /// B-132 (G-115-382 共通B): drain-completion seal の bounded wait が timeout した
@@ -803,6 +827,7 @@ impl PluginDataWriter {
         let reasons = self.commit_failure_reasons();
         if reasons.is_empty() {
             self.data.commit_status = Some("pair_pending".to_string());
+            refresh_record_quality(&mut self.data);
             let self_paths = self_paths_for(&self.paths, &self.data);
             self.write_atomic_with_tmp(
                 self_paths.pair_pending_path.clone(),
@@ -818,6 +843,7 @@ impl PluginDataWriter {
             for reason in reasons {
                 self.add_integrity_reason(reason);
             }
+            refresh_record_quality(&mut self.data);
             self.write_atomic(self.paths.failed_path.clone())?;
         }
         let _ = fs::remove_file(&self.paths.staging_path);
@@ -931,6 +957,53 @@ fn side_publish_integrity_reasons(data: &PluginDataFile) -> Vec<&'static str> {
     dedup_reasons(reasons)
 }
 
+pub(crate) fn refresh_record_quality(data: &mut PluginDataFile) {
+    let expected_wav_ready = data
+        .expected_wav
+        .as_ref()
+        .is_some_and(ExpectedWavMetadata::is_usable);
+    let sample_count_ready = match (&data.expected_wav, &data.bounce_take) {
+        (Some(expected), Some(take)) if expected.is_usable() => {
+            take.alignment_status == "sample_count_ready"
+                && take.source == "expected_wav_duration_native"
+                && take.sample_rate == expected.expected_sample_rate
+                && take.duration_samples == expected.expected_duration_samples
+                && data.sample_rate == expected.expected_sample_rate
+        }
+        _ => false,
+    };
+    let (expected_frame_count, measured_frame_count, missing_trace_slots, trace_slots_complete) =
+        match &data.trace_diagnostics {
+            Some(diag) => (
+                diag.expected_frame_count,
+                diag.measured_frame_count,
+                diag.missing_slots,
+                diag.missing_slots == 0 && diag.measured_frame_count == diag.expected_frame_count,
+            ),
+            None => (0, data.frames.len() as u64, 0, false),
+        };
+    let usable = side_publish_failure_reasons(data).is_empty();
+    let complete = usable && side_publish_integrity_reasons(data).is_empty();
+    let status = if complete {
+        "complete"
+    } else if usable {
+        "usable_fallback"
+    } else {
+        "failed"
+    };
+    data.record_quality = Some(RecordQuality {
+        status: status.to_string(),
+        complete,
+        usable,
+        expected_wav_ready,
+        sample_count_ready,
+        trace_slots_complete,
+        expected_frame_count,
+        measured_frame_count,
+        missing_trace_slots,
+    });
+}
+
 fn add_integrity_reasons(data: &mut PluginDataFile, reasons: &[&'static str]) {
     if reasons.is_empty() {
         return;
@@ -978,6 +1051,8 @@ fn try_finalize_pair_session(
     if reasons.is_empty() {
         self_data.commit_status = Some("committed".to_string());
         peer_data.commit_status = Some("committed".to_string());
+        refresh_record_quality(&mut self_data);
+        refresh_record_quality(&mut peer_data);
         publish_pair_committed_files(
             paths,
             &self_paths,
@@ -1392,6 +1467,9 @@ fn read_plugin_data_file(path: &Path) -> Result<PluginDataFile, WriterError> {
 }
 
 fn write_plugin_data_atomic(path: &Path, data: &mut PluginDataFile) -> Result<(), WriterError> {
+    if data.commit_status.is_some() {
+        refresh_record_quality(data);
+    }
     data.checksum = compute_checksum(data)?;
     let json = serde_json::to_vec(data)?;
     crate::atomic_file::write_bytes_atomic(path, &json)?;
@@ -1488,6 +1566,7 @@ fn fail_pair_pending(
             data.integrity_reasons.push((*reason).to_string());
         }
     }
+    refresh_record_quality(data);
     write_plugin_data_atomic(failed_path, data)?;
     let _ = fs::remove_file(pending_path);
     Ok(())
@@ -1535,6 +1614,22 @@ fn pair_publish_integrity_reasons(
     };
     if pre.expected_wav != post.expected_wav {
         reasons.push("pair_expected_wav_mismatch");
+    }
+    if let (Some(pre_take), Some(post_take)) = (&pre.bounce_take, &post.bounce_take) {
+        if pre_take.duration_samples != post_take.duration_samples {
+            reasons.push("pair_bounce_take_duration_mismatch");
+        }
+        if pre_take.duration_frames_48k != post_take.duration_frames_48k {
+            reasons.push("pair_bounce_take_frame_count_mismatch");
+        }
+    }
+    if let (Some(pre_diag), Some(post_diag)) = (&pre.trace_diagnostics, &post.trace_diagnostics) {
+        if pre_diag.expected_frame_count != post_diag.expected_frame_count {
+            reasons.push("pair_trace_expected_frame_count_mismatch");
+        }
+        if pre_diag.measured_frame_count != post_diag.measured_frame_count {
+            reasons.push("pair_trace_measured_frame_count_mismatch");
+        }
     }
     dedup_reasons(reasons)
 }
@@ -2505,6 +2600,16 @@ mod tests {
         assert_eq!(post_trace_data.commit_status.as_deref(), Some("committed"));
         assert!(pre_trace_data.validity);
         assert!(post_trace_data.validity);
+        for data in [&pre_data, &post_data, &pre_trace_data, &post_trace_data] {
+            let quality = data.record_quality.as_ref().expect("record_quality");
+            assert_eq!(quality.status, "complete");
+            assert!(quality.complete);
+            assert!(quality.usable);
+            assert!(quality.expected_wav_ready);
+            assert!(quality.sample_count_ready);
+            assert!(quality.trace_slots_complete);
+            assert_eq!(quality.missing_trace_slots, 0);
+        }
         assert!(verify_checksum(&pre_data));
         assert!(verify_checksum(&post_data));
         assert!(verify_checksum(&pre_trace_data));
@@ -2582,6 +2687,12 @@ mod tests {
                 .integrity_reasons
                 .iter()
                 .any(|reason| reason == "missing_expected_wav_metadata"));
+            let quality = data.record_quality.as_ref().expect("record_quality");
+            assert_eq!(quality.status, "usable_fallback");
+            assert!(!quality.complete);
+            assert!(quality.usable);
+            assert!(!quality.expected_wav_ready);
+            assert!(quality.trace_slots_complete);
             assert!(verify_checksum(data));
         }
     }
@@ -2657,6 +2768,16 @@ mod tests {
                 .integrity_reasons
                 .iter()
                 .any(|reason| reason == "trace_frame_count_mismatch"));
+            let quality = data.record_quality.as_ref().expect("record_quality");
+            assert_eq!(quality.status, "usable_fallback");
+            assert!(!quality.complete);
+            assert!(quality.usable);
+            assert!(quality.expected_wav_ready);
+            assert!(quality.sample_count_ready);
+            assert!(!quality.trace_slots_complete);
+            assert_eq!(quality.expected_frame_count, 152);
+            assert_eq!(quality.measured_frame_count, 121);
+            assert_eq!(quality.missing_trace_slots, 31);
             assert!(verify_checksum(data));
         }
     }
