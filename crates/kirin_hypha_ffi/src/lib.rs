@@ -44,7 +44,6 @@ use std::thread::JoinHandle;
 
 use uuid::Uuid;
 
-use kirin_measure::add_watch_ring_cursor_samples;
 use kirin_measure::engine::SessionSummary;
 use kirin_measure::reservation; // B-127 (G-115-364): per-pairing O_EXCL reservation
 use kirin_measure::{
@@ -56,14 +55,15 @@ use kirin_measure::{
     mark_released_with_reason, new_record_take_tracker, new_record_trace_queue,
     read_expected_metadata, resolve_arm_target_for_post_project, sanitize_name, set_daw_session_id,
     set_project_uuid, spawn_io_thread_post, spawn_io_thread_pre, spawn_measure_thread,
-    spawn_watchdog, store_signal_state, watch_ring_cursor, write_broadcast,
-    write_expected_metadata, write_pending_with_expected_and_clock, write_stop_broadcast,
-    DeltaMode, DeltaResult, ExclusionResult, ExpectedWavMetadata, IoThreadHandle, LatchedPre,
-    License, LivenessEvaluator, MeasureResult, PlatformPaths, PluginDataRole, PsbSummary,
-    RecordStateMachine, RecordTakeBlock, RecordTakeTracker, RecordTraceQueue, ReleaseReason,
-    RestartIoFn, SignalState, StoragePaths, WatchdogIo, WatchdogParams, MAX_ACTIVE_PER_PROJECT,
-    N_CHANNELS, RECORD_START_BARRIER_DELAY_MS, RING_BUFFER_SECONDS,
+    spawn_watchdog, store_signal_state, write_broadcast, write_expected_metadata,
+    write_pending_with_expected_and_clock, write_stop_broadcast, DeltaMode, DeltaResult,
+    ExclusionResult, ExpectedWavMetadata, IoThreadHandle, LatchedPre, License, LivenessEvaluator,
+    MeasureResult, PlatformPaths, PluginDataRole, PsbSummary, RecordStateMachine, RecordTakeBlock,
+    RecordTakeTracker, RecordTraceQueue, ReleaseReason, RestartIoFn, SignalState, StoragePaths,
+    WatchdogIo, WatchdogParams, MAX_ACTIVE_PER_PROJECT, N_CHANNELS, RECORD_START_BARRIER_DELAY_MS,
+    RING_BUFFER_SECONDS,
 };
+use kirin_measure::{add_watch_ring_cursor_samples, reset_watch_ring_cursor};
 
 /// state chunk 往復する識別子（方式A: JUCE が chunk bytes を所有・FFI は文字列 get/set のみ）。
 /// `project_hash` は派生値（= 確定後の `project_uuid` / B-106 共有セル解決値）で永続対象外。
@@ -191,8 +191,12 @@ pub struct KirinHyphaEngine {
     heartbeat: Arc<AtomicU32>,
     /// Watch MAX 用 playback pass id。FFI では transport pass 通知がないため engine 生存中は安定値。
     watch_playback_pass_id: Arc<AtomicU64>,
-    /// 現在の ring 世代の pass token + 成功 push 済み sample 数。
-    watch_ring_cursor: Arc<AtomicU64>,
+    /// Watch ring cursor の seqlock epoch。
+    watch_ring_cursor_epoch: Arc<AtomicU64>,
+    /// 現在の ring cursor が属する full playback pass id。
+    watch_ring_cursor_pass_id: Arc<AtomicU64>,
+    /// 現在の ring 世代へ成功 push 済み sample 数。
+    watch_ring_cursor_samples: Arc<AtomicU64>,
     /// Watchdog が新 ring を作り、FFI push 経路側の producer swap を待っている間 true。
     watch_ring_replacing: Arc<AtomicBool>,
     /// B-118: 単一鮮度評価器。editor が POST pair lock の live 述語として読み（`kirin_hypha_heartbeat_live`
@@ -567,7 +571,9 @@ impl KirinHyphaEngine {
         let heartbeat = Arc::new(AtomicU32::new(0));
         let watch_playback_pass_id = Arc::new(AtomicU64::new(1));
         let watch_playback_pass_cutover_samples = Arc::new(AtomicU64::new(0));
-        let watch_ring_cursor = Arc::new(AtomicU64::new(watch_ring_cursor(1, 0)));
+        let watch_ring_cursor_epoch = Arc::new(AtomicU64::new(0));
+        let watch_ring_cursor_pass_id = Arc::new(AtomicU64::new(1));
+        let watch_ring_cursor_samples = Arc::new(AtomicU64::new(0));
         let watch_ring_replacing = Arc::new(AtomicBool::new(false));
         // B-118: 単一鮮度評価器。heartbeat を内部観測し is_live()（G-115-245: 3s window）を返す。
         // Measure Thread / editor pair lock / FFI getter / watchdog が同一評価器を読む。
@@ -592,7 +598,9 @@ impl KirinHyphaEngine {
             Arc::clone(&measure_result),
             Arc::clone(&watch_playback_pass_id),
             Arc::clone(&watch_playback_pass_cutover_samples),
-            Arc::clone(&watch_ring_cursor),
+            Arc::clone(&watch_ring_cursor_epoch),
+            Arc::clone(&watch_ring_cursor_pass_id),
+            Arc::clone(&watch_ring_cursor_samples),
             Arc::clone(&signal_state),
             Arc::clone(&shutdown),
             Arc::clone(&liveness),
@@ -612,7 +620,9 @@ impl KirinHyphaEngine {
             measure_result: Arc::clone(&measure_result),
             watch_playback_pass_id: Arc::clone(&watch_playback_pass_id),
             watch_playback_pass_cutover_samples: Arc::clone(&watch_playback_pass_cutover_samples),
-            watch_ring_cursor: Arc::clone(&watch_ring_cursor),
+            watch_ring_cursor_epoch: Arc::clone(&watch_ring_cursor_epoch),
+            watch_ring_cursor_pass_id: Arc::clone(&watch_ring_cursor_pass_id),
+            watch_ring_cursor_samples: Arc::clone(&watch_ring_cursor_samples),
             watch_ring_replacing: Arc::clone(&watch_ring_replacing),
             signal_state: Arc::clone(&signal_state),
             evaluator: Arc::clone(&liveness),
@@ -647,7 +657,9 @@ impl KirinHyphaEngine {
             shutdown,
             heartbeat,
             watch_playback_pass_id,
-            watch_ring_cursor,
+            watch_ring_cursor_epoch,
+            watch_ring_cursor_pass_id,
+            watch_ring_cursor_samples,
             watch_ring_replacing,
             liveness,
             record_sm,
@@ -1566,8 +1578,12 @@ impl KirinHyphaEngine {
         self.heartbeat.fetch_add(1, Ordering::Relaxed);
         if self.watch_playback_pass_id.load(Ordering::Acquire) == 0 {
             self.watch_playback_pass_id.store(1, Ordering::Release);
-            self.watch_ring_cursor
-                .store(watch_ring_cursor(1, 0), Ordering::Release);
+            reset_watch_ring_cursor(
+                &self.watch_ring_cursor_epoch,
+                &self.watch_ring_cursor_pass_id,
+                &self.watch_ring_cursor_samples,
+                1,
+            );
         }
 
         // B-118: watchdog が Measure Thread を再起動したとき pending_producer に新 Producer が来る。
@@ -1579,8 +1595,12 @@ impl KirinHyphaEngine {
                     *self.ring_producer.get() = new_producer;
                 }
                 let pass_id = self.watch_playback_pass_id.load(Ordering::Acquire);
-                self.watch_ring_cursor
-                    .store(watch_ring_cursor(pass_id, 0), Ordering::Release);
+                reset_watch_ring_cursor(
+                    &self.watch_ring_cursor_epoch,
+                    &self.watch_ring_cursor_pass_id,
+                    &self.watch_ring_cursor_samples,
+                    pass_id,
+                );
                 self.watch_ring_replacing.store(false, Ordering::Release);
             }
         }
@@ -1603,7 +1623,13 @@ impl KirinHyphaEngine {
         }
         if pushed > 0 && !self.watch_ring_replacing.load(Ordering::Acquire) {
             let pass_id = self.watch_playback_pass_id.load(Ordering::Acquire);
-            add_watch_ring_cursor_samples(&self.watch_ring_cursor, pass_id, pushed);
+            add_watch_ring_cursor_samples(
+                &self.watch_ring_cursor_epoch,
+                &self.watch_ring_cursor_pass_id,
+                &self.watch_ring_cursor_samples,
+                pass_id,
+                pushed,
+            );
         }
     }
 

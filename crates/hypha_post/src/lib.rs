@@ -5,14 +5,14 @@ use kirin_measure::{
     ensure_legacy_cleanup_done, identity_instance_attach, identity_instance_detach, live_window,
     load_installation_id_safe, load_license_safe, mark_released, new_record_take_tracker,
     new_record_trace_queue, peek_project_uuid, process_project_hash,
-    publish_watch_playback_pass_boundary, record_window_for_buffer, reservation, sanitize_name,
-    set_daw_session_id, set_project_uuid, spawn_io_thread_post, spawn_measure_thread,
-    spawn_watchdog, store_signal_state, watch_playback_block_duration_secs,
-    watch_playback_pass_should_start, watch_ring_cursor, DeltaResult, LatchedPre, License,
-    LivenessEvaluator, MeasureResult, RecordStateMachine, RecordTakeBlock, RecordTakeTracker,
-    RecordTraceQueue, RecordWindow, ReleaseReason, SessionSummary, SignalState, StoragePaths,
-    TriggerPairResolutionFn, TriggerStopResolutionFn, WatchdogIo, WatchdogParams, N_CHANNELS,
-    RING_BUFFER_SECONDS,
+    publish_watch_playback_pass_boundary, record_window_for_buffer, reservation,
+    reset_watch_ring_cursor, sanitize_name, set_daw_session_id, set_project_uuid,
+    spawn_io_thread_post, spawn_measure_thread, spawn_watchdog, store_signal_state,
+    watch_playback_block_duration_secs, watch_playback_pass_should_start, DeltaResult, LatchedPre,
+    License, LivenessEvaluator, MeasureResult, RecordStateMachine, RecordTakeBlock,
+    RecordTakeTracker, RecordTraceQueue, RecordWindow, ReleaseReason, SessionSummary, SignalState,
+    StoragePaths, TriggerPairResolutionFn, TriggerStopResolutionFn, WatchdogIo, WatchdogParams,
+    N_CHANNELS, RING_BUFFER_SECONDS,
 };
 use nih_plug::prelude::*;
 use nih_plug_egui::EguiState;
@@ -126,11 +126,16 @@ pub struct HyphaPost {
     watch_playback_pass_id: Arc<AtomicU64>,
     /// Watch pass 開始直前までに ring へ成功 push 済みの累積 sample 数。
     watch_playback_pass_cutover_samples: Arc<AtomicU64>,
-    /// 現在の ring 世代の pass token + 成功 push 済み sample 数。
-    watch_ring_cursor: Arc<AtomicU64>,
+    /// Watch ring cursor の seqlock epoch。
+    watch_ring_cursor_epoch: Arc<AtomicU64>,
+    /// 現在の ring cursor が属する full playback pass id。
+    watch_ring_cursor_pass_id: Arc<AtomicU64>,
+    /// 現在の ring 世代へ成功 push 済み sample 数。
+    watch_ring_cursor_samples: Arc<AtomicU64>,
     /// Watchdog が新 ring を作り、Audio Thread 側の producer swap を待っている間 true。
     watch_ring_replacing: Arc<AtomicBool>,
     watch_prev_playing: bool,
+    watch_prev_recording: bool,
     watch_last_process_instant: Option<Instant>,
     watch_sample_rate_hz: f64,
 
@@ -271,9 +276,12 @@ impl Default for HyphaPost {
             is_playing: Arc::new(AtomicBool::new(false)),
             watch_playback_pass_id: Arc::new(AtomicU64::new(0)),
             watch_playback_pass_cutover_samples: Arc::new(AtomicU64::new(0)),
-            watch_ring_cursor: Arc::new(AtomicU64::new(watch_ring_cursor(0, 0))),
+            watch_ring_cursor_epoch: Arc::new(AtomicU64::new(0)),
+            watch_ring_cursor_pass_id: Arc::new(AtomicU64::new(0)),
+            watch_ring_cursor_samples: Arc::new(AtomicU64::new(0)),
             watch_ring_replacing: Arc::new(AtomicBool::new(false)),
             watch_prev_playing: false,
+            watch_prev_recording: false,
             watch_last_process_instant: None,
             watch_sample_rate_hz: 0.0,
             record_error_message: Arc::new(RwLock::new(None)),
@@ -630,10 +638,15 @@ impl Plugin for HyphaPost {
         self.watch_playback_pass_id.store(0, Ordering::Relaxed);
         self.watch_playback_pass_cutover_samples
             .store(0, Ordering::Relaxed);
-        self.watch_ring_cursor
-            .store(watch_ring_cursor(0, 0), Ordering::Release);
+        reset_watch_ring_cursor(
+            &self.watch_ring_cursor_epoch,
+            &self.watch_ring_cursor_pass_id,
+            &self.watch_ring_cursor_samples,
+            0,
+        );
         self.watch_ring_replacing.store(false, Ordering::Relaxed);
         self.watch_prev_playing = false;
+        self.watch_prev_recording = false;
         self.watch_last_process_instant = None;
         self.watch_sample_rate_hz = buffer_config.sample_rate as f64;
 
@@ -650,7 +663,9 @@ impl Plugin for HyphaPost {
             Arc::clone(&self.measure_result),
             Arc::clone(&self.watch_playback_pass_id),
             Arc::clone(&self.watch_playback_pass_cutover_samples),
-            Arc::clone(&self.watch_ring_cursor),
+            Arc::clone(&self.watch_ring_cursor_epoch),
+            Arc::clone(&self.watch_ring_cursor_pass_id),
+            Arc::clone(&self.watch_ring_cursor_samples),
             Arc::clone(&self.signal_state),
             Arc::clone(&self.measure_shutdown),
             Arc::clone(&self.liveness),
@@ -882,7 +897,9 @@ impl Plugin for HyphaPost {
             watch_playback_pass_cutover_samples: Arc::clone(
                 &self.watch_playback_pass_cutover_samples,
             ),
-            watch_ring_cursor: Arc::clone(&self.watch_ring_cursor),
+            watch_ring_cursor_epoch: Arc::clone(&self.watch_ring_cursor_epoch),
+            watch_ring_cursor_pass_id: Arc::clone(&self.watch_ring_cursor_pass_id),
+            watch_ring_cursor_samples: Arc::clone(&self.watch_ring_cursor_samples),
             watch_ring_replacing: Arc::clone(&self.watch_ring_replacing),
             signal_state: Arc::clone(&self.signal_state),
             evaluator: Arc::clone(&self.liveness),
@@ -920,8 +937,12 @@ impl Plugin for HyphaPost {
             if let Some(new_producer) = slot.take() {
                 self.ring_producer = Some(new_producer);
                 let pass_id = self.watch_playback_pass_id.load(Ordering::Acquire);
-                self.watch_ring_cursor
-                    .store(watch_ring_cursor(pass_id, 0), Ordering::Release);
+                reset_watch_ring_cursor(
+                    &self.watch_ring_cursor_epoch,
+                    &self.watch_ring_cursor_pass_id,
+                    &self.watch_ring_cursor_samples,
+                    pass_id,
+                );
                 self.watch_playback_pass_cutover_samples
                     .store(0, Ordering::Release);
                 self.watch_ring_replacing.store(false, Ordering::Release);
@@ -933,6 +954,7 @@ impl Plugin for HyphaPost {
         let transport = context.transport();
         let playing = transport.playing;
         let recording = self.record_sm.is_recording();
+        let record_exited = self.watch_prev_recording && !recording;
         let now = Instant::now();
         let callback_gap_secs = self
             .watch_last_process_instant
@@ -941,20 +963,24 @@ impl Plugin for HyphaPost {
         let block_duration_secs =
             watch_playback_block_duration_secs(buffer.samples(), self.watch_sample_rate_hz);
         if !recording
-            && watch_playback_pass_should_start(
-                playing,
-                self.watch_prev_playing,
-                callback_gap_secs,
-                block_duration_secs,
-            )
+            && (record_exited
+                || watch_playback_pass_should_start(
+                    playing,
+                    self.watch_prev_playing,
+                    callback_gap_secs,
+                    block_duration_secs,
+                ))
         {
             publish_watch_playback_pass_boundary(
                 &self.watch_playback_pass_id,
-                &self.watch_ring_cursor,
+                &self.watch_ring_cursor_epoch,
+                &self.watch_ring_cursor_pass_id,
+                &self.watch_ring_cursor_samples,
                 &self.watch_playback_pass_cutover_samples,
             );
         }
         self.watch_prev_playing = playing;
+        self.watch_prev_recording = recording;
         // W-280 / G-115-248: GUI Thread に純粋な transport.playing を公開する
         // (silent / bypass と直交)。Relaxed store ~1ns / lock-free / R-12 違反なし。
         self.is_playing.store(playing, Ordering::Relaxed);
@@ -1006,7 +1032,13 @@ impl Plugin for HyphaPost {
                 let pushed = push_window_to_ring(buffer, producer, record_window, &self.overflow);
                 if pushed > 0 && !self.watch_ring_replacing.load(Ordering::Acquire) {
                     let pass_id = self.watch_playback_pass_id.load(Ordering::Acquire);
-                    add_watch_ring_cursor_samples(&self.watch_ring_cursor, pass_id, pushed);
+                    add_watch_ring_cursor_samples(
+                        &self.watch_ring_cursor_epoch,
+                        &self.watch_ring_cursor_pass_id,
+                        &self.watch_ring_cursor_samples,
+                        pass_id,
+                        pushed,
+                    );
                 }
             }
         }

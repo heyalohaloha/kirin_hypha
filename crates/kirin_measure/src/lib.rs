@@ -144,8 +144,9 @@ pub use storage::{
 };
 pub use watch_playback_pass::{
     add_watch_ring_cursor_samples, advance_watch_playback_pass_id,
-    publish_watch_playback_pass_boundary, watch_playback_block_duration_secs,
-    watch_playback_pass_should_start, watch_ring_cursor, watch_ring_cursor_samples_for_pass,
+    publish_watch_playback_pass_boundary, reset_watch_ring_cursor,
+    watch_playback_block_duration_secs, watch_playback_pass_should_start,
+    watch_ring_cursor_samples_for_pass,
 };
 pub use watchdog::{spawn_watchdog, IoThreadHandle, RestartIoFn, WatchdogIo, WatchdogParams};
 

@@ -647,8 +647,8 @@ fn editor_rs_watch_max_tracker_stays_out_of_record_section() {
     );
     assert!(
         src.contains(".playback_max")
-            && src.contains(".update(&raw_m, is_playing, watch_playback_pass_id)"),
-        "editor.rs must update Watch MAX from raw absolute POST measurements gated by the Audio Thread playback pass id"
+            && src.contains(".update(&raw_m, is_playing, watch_playback_pass_id, recording)"),
+        "editor.rs must update Watch MAX from raw absolute POST measurements gated by playback pass id and Record state"
     );
     assert!(
         src.contains("draw_record_section(ui, m, d, display_muted);"),
