@@ -210,6 +210,8 @@ pub fn spawn_measure_thread(
     n_channels: usize,
     result: Arc<Mutex<MeasureResult>>,
     watch_playback_pass_id: Arc<AtomicU64>,
+    watch_playback_pass_cutover_samples: Arc<AtomicU64>,
+    watch_ring_samples_pushed: Arc<AtomicU64>,
     signal_state: Arc<AtomicU8>,
     shutdown: Arc<AtomicBool>,
     evaluator: Arc<LivenessEvaluator>,
@@ -278,6 +280,7 @@ pub fn spawn_measure_thread(
         let mut prev_active = false;
         let mut measure_sequence = 0_u64;
         let mut playback_pass_id = watch_playback_pass_id.load(Ordering::Relaxed);
+        let mut consumed_samples = watch_ring_samples_pushed.load(Ordering::Relaxed);
 
         // B-043: Record mode 遷移を検出し、Watch→Record 開始時に engine をリセットする。
         // Record 中の SS-8 reset 抑止と組み合わせて、LUFS-I / LRA のセッション通算性を確保する。
@@ -367,6 +370,7 @@ pub fn spawn_measure_thread(
                         sample_rate,
                         n_channels,
                         native_frames_total: &mut native_frames_total,
+                        consumed_samples: &mut consumed_samples,
                     },
                     Some(RecordTraceDrain {
                         queue: &record_trace_queue,
@@ -437,14 +441,14 @@ pub fn spawn_measure_thread(
                 } else {
                     engine.reset();
                     record_pre_roll.clear();
-                    let stale = consumer.slots();
-                    for _ in 0..stale {
-                        let _ = consumer.pop();
-                    }
+                    let cutover = watch_playback_pass_cutover_samples.load(Ordering::Relaxed);
+                    let stale =
+                        drain_consumer_until_sample(&mut consumer, &mut consumed_samples, cutover);
                     if stale > 0 {
                         log::info!(
-                            "[MeasureThread] discarded {} queued samples on Watch playback pass advance",
-                            stale
+                            "[MeasureThread] discarded {} queued samples before Watch playback pass cutover {}",
+                            stale,
+                            cutover
                         );
                     }
                     phase_d.reset();
@@ -497,6 +501,7 @@ pub fn spawn_measure_thread(
                             sample_rate,
                             n_channels,
                             native_frames_total: &mut native_frames_total,
+                            consumed_samples: &mut consumed_samples,
                         },
                         Some(RecordTraceDrain {
                             queue: &record_trace_queue,
@@ -517,10 +522,7 @@ pub fn spawn_measure_thread(
                 // Bypassed / Inactive → compute() スキップ。
                 // リングバッファに残っているサンプルは破棄する（共通A で drain 済なら no-op）。
                 // （Active に戻ったとき古いデータで計測しないため）。
-                let stale = consumer.slots();
-                for _ in 0..stale {
-                    let _ = consumer.pop();
-                }
+                drain_consumer_all(&mut consumer, &mut consumed_samples);
                 // 計測結果をクリア（GUI が即座に `---` 表示できるようにする）
                 match result.lock() {
                     Ok(mut guard) => {
@@ -582,8 +584,11 @@ pub fn spawn_measure_thread(
                 chunk_f64.clear();
                 for _ in 0..available {
                     match consumer.pop() {
-                        Ok(s) => chunk_f64.push(s as f64), // f32 → f64
-                        Err(_) => break,                   // Consumer が空になった
+                        Ok(s) => {
+                            consumed_samples = consumed_samples.saturating_add(1);
+                            chunk_f64.push(s as f64); // f32 → f64
+                        }
+                        Err(_) => break, // Consumer が空になった
                     }
                 }
                 let chunk_native_frames = (chunk_f64.len() / n_channels) as u64;
@@ -746,6 +751,35 @@ fn next_nonzero_counter(counter: &mut u64) -> u64 {
         *counter = 1;
     }
     *counter
+}
+
+fn drain_consumer_all(consumer: &mut rtrb::Consumer<f32>, consumed_samples: &mut u64) -> usize {
+    let available = consumer.slots();
+    let mut drained = 0_usize;
+    for _ in 0..available {
+        if consumer.pop().is_err() {
+            break;
+        }
+        *consumed_samples = (*consumed_samples).saturating_add(1);
+        drained += 1;
+    }
+    drained
+}
+
+fn drain_consumer_until_sample(
+    consumer: &mut rtrb::Consumer<f32>,
+    consumed_samples: &mut u64,
+    cutover_samples: u64,
+) -> usize {
+    let mut drained = 0_usize;
+    while *consumed_samples < cutover_samples {
+        if consumer.pop().is_err() {
+            break;
+        }
+        *consumed_samples = (*consumed_samples).saturating_add(1);
+        drained += 1;
+    }
+    drained
 }
 
 fn stamp_shared_measure_result(
@@ -960,6 +994,7 @@ struct DrainRingSession<'a> {
     sample_rate: u32,
     n_channels: usize,
     native_frames_total: &'a mut u64,
+    consumed_samples: &'a mut u64,
 }
 
 fn native_frames_to_ms(frames: u64, sample_rate: u32) -> u64 {
@@ -1108,7 +1143,10 @@ fn drain_ring_into_session(
         ctx.chunk_f64.clear();
         for _ in 0..available {
             match ctx.consumer.pop() {
-                Ok(s) => ctx.chunk_f64.push(s as f64),
+                Ok(s) => {
+                    *ctx.consumed_samples = (*ctx.consumed_samples).saturating_add(1);
+                    ctx.chunk_f64.push(s as f64);
+                }
                 Err(_) => break,
             }
         }
@@ -1241,6 +1279,29 @@ pub mod tests {
             super::idle_sleep_for_record_state(true) < super::LOOP_SLEEP,
             "Record mode must poll faster than Watch mode"
         );
+    }
+
+    #[test]
+    fn watch_pass_cutover_drain_preserves_samples_pushed_after_cutover() {
+        let (mut producer, mut consumer) = rtrb::RingBuffer::new(8);
+        let mut pushed = 0_u64;
+        for sample in [1.0_f32, 2.0] {
+            producer.push(sample).unwrap();
+            pushed += 1;
+        }
+        let cutover = pushed;
+        for sample in [9.0_f32, 10.0] {
+            producer.push(sample).unwrap();
+            pushed += 1;
+        }
+
+        let mut consumed = 0_u64;
+        let drained = super::drain_consumer_until_sample(&mut consumer, &mut consumed, cutover);
+        assert_eq!(drained, 2);
+        assert_eq!(consumed, cutover);
+        assert_eq!(consumer.pop().unwrap(), 9.0);
+        assert_eq!(consumer.pop().unwrap(), 10.0);
+        assert_eq!(pushed, 4);
     }
 
     #[test]
@@ -1869,6 +1930,7 @@ mod b132_drain_tests {
         let mut resampled = Vec::new();
         let mut resampler = None;
         let mut native_frames_total = SR as u64;
+        let mut consumed_samples = 0_u64;
         let ok = drain_ring_into_session(
             DrainRingSession {
                 consumer: &mut cons,
@@ -1880,6 +1942,7 @@ mod b132_drain_tests {
                 sample_rate: SR,
                 n_channels: 2,
                 native_frames_total: &mut native_frames_total,
+                consumed_samples: &mut consumed_samples,
             },
             None,
         );
@@ -1918,6 +1981,7 @@ mod b132_drain_tests {
         let mut resampled = Vec::new();
         let mut resampler = None;
         let mut native_frames_total = SR as u64;
+        let mut consumed_samples = 0_u64;
         let ok = drain_ring_into_session(
             DrainRingSession {
                 consumer: &mut cons,
@@ -1929,6 +1993,7 @@ mod b132_drain_tests {
                 sample_rate: SR,
                 n_channels: 2,
                 native_frames_total: &mut native_frames_total,
+                consumed_samples: &mut consumed_samples,
             },
             None,
         );

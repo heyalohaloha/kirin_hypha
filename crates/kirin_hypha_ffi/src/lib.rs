@@ -190,6 +190,10 @@ pub struct KirinHyphaEngine {
     heartbeat: Arc<AtomicU32>,
     /// Watch MAX 用 playback pass id。FFI では transport pass 通知がないため engine 生存中は安定値。
     watch_playback_pass_id: Arc<AtomicU64>,
+    /// 現在の ring 世代へ成功 push した累積 sample 数。Measure Thread 再起動時の座標原点。
+    watch_ring_samples_pushed: Arc<AtomicU64>,
+    /// Watchdog が新 ring を作り、FFI push 経路側の producer swap を待っている間 true。
+    watch_ring_replacing: Arc<AtomicBool>,
     /// B-118: 単一鮮度評価器。editor が POST pair lock の live 述語として読み（`kirin_hypha_heartbeat_live`
     /// getter 経由）、Measure Thread / watchdog も同一評価器を読む（signal_state とは別軸）。
     liveness: Arc<LivenessEvaluator>,
@@ -561,6 +565,9 @@ impl KirinHyphaEngine {
         let shutdown = Arc::new(AtomicBool::new(false));
         let heartbeat = Arc::new(AtomicU32::new(0));
         let watch_playback_pass_id = Arc::new(AtomicU64::new(1));
+        let watch_playback_pass_cutover_samples = Arc::new(AtomicU64::new(0));
+        let watch_ring_samples_pushed = Arc::new(AtomicU64::new(0));
+        let watch_ring_replacing = Arc::new(AtomicBool::new(false));
         // B-118: 単一鮮度評価器。heartbeat を内部観測し is_live()（G-115-245: 3s window）を返す。
         // Measure Thread / editor pair lock / FFI getter / watchdog が同一評価器を読む。
         let liveness = Arc::new(LivenessEvaluator::new(
@@ -583,6 +590,8 @@ impl KirinHyphaEngine {
             num_channels,
             Arc::clone(&measure_result),
             Arc::clone(&watch_playback_pass_id),
+            Arc::clone(&watch_playback_pass_cutover_samples),
+            Arc::clone(&watch_ring_samples_pushed),
             Arc::clone(&signal_state),
             Arc::clone(&shutdown),
             Arc::clone(&liveness),
@@ -601,6 +610,9 @@ impl KirinHyphaEngine {
             ring_capacity: capacity,
             measure_result: Arc::clone(&measure_result),
             watch_playback_pass_id: Arc::clone(&watch_playback_pass_id),
+            watch_playback_pass_cutover_samples: Arc::clone(&watch_playback_pass_cutover_samples),
+            watch_ring_samples_pushed: Arc::clone(&watch_ring_samples_pushed),
+            watch_ring_replacing: Arc::clone(&watch_ring_replacing),
             signal_state: Arc::clone(&signal_state),
             evaluator: Arc::clone(&liveness),
             measure_shutdown: Arc::clone(&shutdown),
@@ -634,6 +646,8 @@ impl KirinHyphaEngine {
             shutdown,
             heartbeat,
             watch_playback_pass_id,
+            watch_ring_samples_pushed,
+            watch_ring_replacing,
             liveness,
             record_sm,
             latest_position_valid: Arc::new(AtomicBool::new(false)),
@@ -1563,6 +1577,8 @@ impl KirinHyphaEngine {
                     unsafe {
                         *self.ring_producer.get() = new_producer;
                     }
+                    self.watch_ring_samples_pushed.store(0, Ordering::Relaxed);
+                    self.watch_ring_replacing.store(false, Ordering::Relaxed);
                 }
             }
         }
@@ -1575,10 +1591,17 @@ impl KirinHyphaEngine {
         // SAFETY: push_samples は Audio Thread 単独という FFI 契約。Producer への
         // 排他アクセスは単一スレッドに限定される（SPSC）。
         let producer = unsafe { &mut *self.ring_producer.get() };
+        let mut pushed = 0_u64;
         for &s in interleaved {
             if producer.push(s).is_err() {
                 self.push_overflow.fetch_add(1, Ordering::Relaxed);
+            } else {
+                pushed += 1;
             }
+        }
+        if pushed > 0 && !self.watch_ring_replacing.load(Ordering::Relaxed) {
+            self.watch_ring_samples_pushed
+                .fetch_add(pushed, Ordering::Relaxed);
         }
     }
 

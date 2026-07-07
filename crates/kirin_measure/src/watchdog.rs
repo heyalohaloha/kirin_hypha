@@ -81,6 +81,12 @@ pub struct WatchdogParams {
     pub measure_result: Arc<Mutex<MeasureResult>>,
     /// Audio Thread が刻む Watch playback pass id。Measure 再起動後も同じ id を読む。
     pub watch_playback_pass_id: Arc<AtomicU64>,
+    /// Watch playback pass 開始直前までに ring へ成功 push 済みの sample 数。
+    pub watch_playback_pass_cutover_samples: Arc<AtomicU64>,
+    /// Audio Thread が現在の ring 世代へ成功 push した累積 sample 数。
+    pub watch_ring_samples_pushed: Arc<AtomicU64>,
+    /// Watchdog が新 ring を作成済みで、Audio Thread の producer swap を待っている間 true。
+    pub watch_ring_replacing: Arc<AtomicBool>,
     /// SignalState 共有（再起動した Measure Thread に渡す）
     pub signal_state: Arc<AtomicU8>,
     /// B-118: 単一鮮度評価器（再起動した Measure Thread が同一評価器を読み続ける）。
@@ -121,6 +127,9 @@ pub fn spawn_watchdog(params: WatchdogParams) -> JoinHandle<()> {
             ring_capacity,
             measure_result,
             watch_playback_pass_id,
+            watch_playback_pass_cutover_samples,
+            watch_ring_samples_pushed,
+            watch_ring_replacing,
             signal_state,
             evaluator,
             measure_shutdown,
@@ -166,6 +175,9 @@ pub fn spawn_watchdog(params: WatchdogParams) -> JoinHandle<()> {
 
                 // shutdown フラグをリセット（panic では true にならないが念のため）
                 measure_shutdown.store(false, Ordering::Relaxed);
+                watch_ring_replacing.store(true, Ordering::Relaxed);
+                watch_ring_samples_pushed.store(0, Ordering::Relaxed);
+                watch_playback_pass_cutover_samples.store(0, Ordering::Relaxed);
 
                 // 新しい ring buffer と Measure Thread を生成
                 let (producer, consumer) = rtrb::RingBuffer::new(ring_capacity);
@@ -175,6 +187,8 @@ pub fn spawn_watchdog(params: WatchdogParams) -> JoinHandle<()> {
                     n_channels,
                     Arc::clone(&measure_result),
                     Arc::clone(&watch_playback_pass_id),
+                    Arc::clone(&watch_playback_pass_cutover_samples),
+                    Arc::clone(&watch_ring_samples_pushed),
                     Arc::clone(&signal_state),
                     Arc::clone(&measure_shutdown),
                     Arc::clone(&evaluator),
