@@ -269,7 +269,9 @@ pub fn is_stop_broadcast_stale(
 }
 
 fn now_iso8601() -> String {
-    chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()
+    chrono::Utc::now()
+        .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+        .to_string()
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────
@@ -314,6 +316,24 @@ mod tests {
         let path = stop_signal_path(&base, "ph", "originator-1");
         assert!(path.exists());
         assert_eq!(crate::atomic_file::remove_temp_siblings(&path).unwrap(), 0);
+    }
+
+    #[test]
+    fn new_broadcast_uses_millisecond_barrier_precision() {
+        let broadcast = AllStopBroadcast::new("originator-1".into(), "session-A".into());
+        DateTime::parse_from_rfc3339(&broadcast.started_at).unwrap();
+        let fraction = broadcast
+            .started_at
+            .split('.')
+            .nth(1)
+            .and_then(|s| s.strip_suffix('Z'))
+            .expect("started_at must include a millisecond fraction");
+
+        assert_eq!(fraction.len(), 3);
+        assert_eq!(
+            broadcast.heartbeat, broadcast.started_at,
+            "heartbeat must preserve the same stop barrier"
+        );
     }
 
     #[test]

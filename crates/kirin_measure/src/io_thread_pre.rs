@@ -1695,6 +1695,13 @@ mod tests {
         write_matching_pending_with_expected(base, post_iid, Some(expected_wav()));
     }
 
+    fn write_matching_pending_started_at(base: &Path, post_iid: &str, started_at: &str) {
+        write_matching_pending(base, post_iid);
+        let mut signal = record_signal::read_signal(base, TEST_PH, post_iid).unwrap();
+        signal.started_at = started_at.to_string();
+        record_signal::write_signal(base, TEST_PH, post_iid, &signal).unwrap();
+    }
+
     fn write_matching_pending_with_expected(
         base: &Path,
         post_iid: &str,
@@ -2537,6 +2544,88 @@ mod tests {
             partner.is_none(),
             "PRE must clear the partner after an authorized All Stop"
         );
+    }
+
+    #[test]
+    fn same_second_fractional_all_stop_after_record_start_stops_pre() {
+        let base = isolated_base();
+        write_matching_pending_started_at(&base, "post-1", "2026-07-05T00:00:00.500Z");
+        let sm = Arc::new(RecordStateMachine::new());
+        let recording = Arc::new(AtomicBool::new(false));
+        let ack = Arc::new(AtomicBool::new(false));
+        let license = Arc::new(License::Os);
+        let mut partner = None;
+        poll_with_base(
+            &base,
+            &sm,
+            &recording,
+            &ack,
+            &license,
+            &mut partner,
+            TEST_PRE_IID,
+        );
+        assert_eq!(sm.current(), RecordState::Record);
+        write_all_stop_broadcast_at(&base, "post-origin", TEST_DAW, "2026-07-05T00:00:00.900Z");
+
+        let stopped = poll_all_stop_signal_at(
+            &base,
+            TEST_PH,
+            &sm,
+            &recording,
+            &ack,
+            &mut partner,
+            chrono_utc("2026-07-05T00:00:01Z"),
+        );
+
+        assert!(
+            stopped,
+            "All Stop generated later in the same wall-clock second must stop PRE"
+        );
+        assert_eq!(sm.current(), RecordState::Watch);
+        assert!(!recording.load(Ordering::Relaxed));
+        assert!(!ack.load(Ordering::Relaxed));
+        assert!(partner.is_none());
+    }
+
+    #[test]
+    fn same_second_fractional_all_stop_before_record_start_is_ignored() {
+        let base = isolated_base();
+        write_matching_pending_started_at(&base, "post-1", "2026-07-05T00:00:00.500Z");
+        let sm = Arc::new(RecordStateMachine::new());
+        let recording = Arc::new(AtomicBool::new(false));
+        let ack = Arc::new(AtomicBool::new(false));
+        let license = Arc::new(License::Os);
+        let mut partner = None;
+        poll_with_base(
+            &base,
+            &sm,
+            &recording,
+            &ack,
+            &license,
+            &mut partner,
+            TEST_PRE_IID,
+        );
+        assert_eq!(sm.current(), RecordState::Record);
+        write_all_stop_broadcast_at(&base, "post-origin", TEST_DAW, "2026-07-05T00:00:00.400Z");
+
+        let stopped = poll_all_stop_signal_at(
+            &base,
+            TEST_PH,
+            &sm,
+            &recording,
+            &ack,
+            &mut partner,
+            chrono_utc("2026-07-05T00:00:01Z"),
+        );
+
+        assert!(
+            !stopped,
+            "All Stop generated before Record start in the same second must be ignored"
+        );
+        assert_eq!(sm.current(), RecordState::Record);
+        assert!(recording.load(Ordering::Relaxed));
+        assert!(ack.load(Ordering::Relaxed));
+        assert!(partner.is_some());
     }
 
     #[test]
