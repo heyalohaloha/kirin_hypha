@@ -520,7 +520,7 @@ fn editor_rs_watch_keeps_delta_grid_except_explicit_pre_bypass() {
         "draw_post Watch branch must reserve POST absolute fallback for pair-empty or explicit PRE bypass"
     );
     assert!(
-        window.contains("draw_delta_grid(ui, d, COL_MUTED, false);"),
+        window.contains("draw_delta_grid(ui, d, max_m, COL_MUTED, false, true);"),
         "draw_post Watch branch must keep muted delta grid for paired transient Stale/NoPre"
     );
     assert!(
@@ -536,7 +536,7 @@ fn editor_rs_watch_keeps_delta_grid_except_explicit_pre_bypass() {
 /// B-049 / G-115-247: SignalState::Inactive 分岐に Last Known Good を追加。
 /// editor.rs の SignalState::Inactive 分岐内で以下 3 パターンが共存することを保証:
 /// - `if let Some(snap) = &d.last_active` (凍結値経路)
-/// - `draw_delta_grid_frozen(ui, snap, false)` (B-048 関数再利用)
+/// - `draw_delta_grid_frozen(ui, snap, max_m, false)` (B-048 関数再利用)
 /// - else 分岐に `draw_inactive_grid(ui)` (既存 fallback / 初回起動)
 #[test]
 fn editor_rs_inactive_branch_has_last_known_good_and_fallback() {
@@ -562,8 +562,8 @@ fn editor_rs_inactive_branch_has_last_known_good_and_fallback() {
         "B-049: SignalState::Inactive arm must contain `if let Some(snap) = &d.last_active`"
     );
     assert!(
-        block.contains("draw_delta_grid_frozen(ui, snap, false)"),
-        "B-049: SignalState::Inactive arm must call draw_delta_grid_frozen(ui, snap, false)"
+        block.contains("draw_delta_grid_frozen(ui, snap, max_m, false)"),
+        "B-049: SignalState::Inactive arm must call draw_delta_grid_frozen(ui, snap, max_m, false)"
     );
     assert!(
         block.contains("draw_inactive_grid(ui)"),
@@ -635,6 +635,27 @@ fn editor_rs_update_closure_loads_is_playing() {
     assert!(
         src.contains("pub is_playing: Arc<AtomicBool>"),
         "editor.rs PostEditorArgs / PostEditorState must declare `is_playing` field (W-280 B-5/B-6)"
+    );
+}
+
+#[test]
+fn editor_rs_watch_max_tracker_stays_out_of_record_section() {
+    let src = read("src/editor.rs");
+    assert!(
+        src.contains("playback_max: PlaybackMaxTracker"),
+        "editor.rs must keep Watch MAX as GUI-local state"
+    );
+    assert!(
+        src.contains("state.playback_max.update(&raw_m, is_playing)"),
+        "editor.rs must update Watch MAX from raw absolute POST measurements"
+    );
+    assert!(
+        src.contains("draw_record_section(ui, m, d, display_muted);"),
+        "Record display must stay on the existing Δ/current absolute grid"
+    );
+    assert!(
+        !src.contains("fn draw_record_section(ui: &mut egui::Ui, m: &MeasureResult, max_m"),
+        "Watch MAX must not be threaded into Record drawing"
     );
 }
 
@@ -765,7 +786,7 @@ fn io_thread_post_release_block_clears_delta_result() {
 
 /// W-283 W-2: editor.rs SignalState::Active + !recording 分岐内で
 /// `if pair_empty || d.mode == DeltaMode::Bypassed {`
-/// → `draw_watch_absolute_grid(ui, m, false);` の強制経路が存在し、かつその true 枝に
+/// → `draw_watch_absolute_grid(ui, m, max_m, false);` の強制経路が存在し、かつその true 枝に
 /// `draw_delta_grid_frozen` (B-048 LKG 凍結経路) が含まれないことを invariant 化。
 #[test]
 fn editor_rs_pair_empty_draws_watch_absolute_not_delta_frozen() {
@@ -782,8 +803,8 @@ fn editor_rs_pair_empty_draws_watch_absolute_not_delta_frozen() {
         .expect("W-283 W-2: matching `} else {` not found after absolute anchor");
     let true_branch = &from_anchor[..else_offset];
     assert!(
-        true_branch.contains("draw_watch_absolute_grid(ui, m, false)"),
-        "W-283 W-2: pair_empty/PRE-bypassed 真枝に draw_watch_absolute_grid(ui, m, false) が無い (強制経路欠落)"
+        true_branch.contains("draw_watch_absolute_grid(ui, m, max_m, false)"),
+        "W-283 W-2: pair_empty/PRE-bypassed 真枝に draw_watch_absolute_grid(ui, m, max_m, false) が無い (強制経路欠落)"
     );
     assert!(
         !true_branch.contains("draw_delta_grid_frozen"),

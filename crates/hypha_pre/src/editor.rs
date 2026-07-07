@@ -16,7 +16,8 @@
 use crate::sanitize_name;
 use hypha_gui::{
     derive_led_state, display_signal_state_for_led, display_smoothing::DisplaySmoother, fmt_val,
-    led_color, tp_color, val_color, BackgroundTexture, BG, COL_FLORA, COL_MUTED, COL_NORMAL,
+    led_color, tp_color, val_color, BackgroundTexture, PlaybackMaxTracker, BG, COL_FLORA,
+    COL_MUTED, COL_NORMAL,
 };
 use kirin_measure::{load_signal_state, MeasureResult, SignalState};
 use nih_plug::prelude::Editor;
@@ -70,6 +71,8 @@ pub struct PreEditorState {
     pub record_acknowledged: Arc<AtomicBool>,
     /// preset/*.json が 1 件以上存在するか（POST IO Thread が更新、PRE は読むだけ）。
     pub preset_available: Arc<AtomicBool>,
+    /// transport.playing の純粋な値。Watch MAX の再生開始 reset だけに使う。
+    pub is_playing: Arc<AtomicBool>,
 
     /// B-023 段階 2: ユーザー定義 Name (HyphaPreParams.name と Arc 共有)。
     /// editor 描画時に毎フレーム `read()` で最新値を取り、編集確定時に
@@ -98,6 +101,8 @@ pub struct PreEditorState {
     edit_buffer: String,
     /// GUI 表示専用の安定化フィルタ。Record/TRACE の raw 計測値には触れない。
     display_smoother: DisplaySmoother,
+    /// GUI 表示専用の playback 最大値。Record/TRACE の raw 計測値には触れない。
+    playback_max: PlaybackMaxTracker,
 }
 
 impl PreEditorState {
@@ -109,6 +114,7 @@ impl PreEditorState {
         recording: Arc<AtomicBool>,
         record_acknowledged: Arc<AtomicBool>,
         preset_available: Arc<AtomicBool>,
+        is_playing: Arc<AtomicBool>,
         name: Arc<RwLock<String>>,
         instance_id: Arc<RwLock<String>>,
         record_error_message: Arc<RwLock<Option<String>>>,
@@ -120,6 +126,7 @@ impl PreEditorState {
             recording,
             record_acknowledged,
             preset_available,
+            is_playing,
             name,
             instance_id,
             record_error_message,
@@ -129,6 +136,7 @@ impl PreEditorState {
             prev_led: None,
             edit_buffer: String::new(),
             display_smoother: DisplaySmoother::default(),
+            playback_max: PlaybackMaxTracker::default(),
         }
     }
 }
@@ -145,6 +153,7 @@ pub fn create_pre_editor(
     recording: Arc<AtomicBool>,
     record_acknowledged: Arc<AtomicBool>,
     preset_available: Arc<AtomicBool>,
+    is_playing: Arc<AtomicBool>,
     name: Arc<RwLock<String>>,
     instance_id: Arc<RwLock<String>>,
     record_error_message: Arc<RwLock<Option<String>>>,
@@ -158,6 +167,7 @@ pub fn create_pre_editor(
             recording,
             record_acknowledged,
             preset_available,
+            is_playing,
             name,
             instance_id,
             record_error_message,
@@ -178,6 +188,7 @@ pub fn create_pre_editor(
             let alive = state.measure_alive.load(Ordering::Relaxed);
             let recording = state.recording.load(Ordering::Relaxed);
             let ack = state.record_acknowledged.load(Ordering::Relaxed);
+            let is_playing = state.is_playing.load(Ordering::Relaxed);
 
             // Record ACK 成立エッジで banner 発動
             let now = ctx.input(|i| i.time);
@@ -189,6 +200,13 @@ pub fn create_pre_editor(
             if !show_banner {
                 state.banner_until = None;
             }
+
+            let max_m = if matches!(sig, SignalState::Bypassed) {
+                state.playback_max.reset();
+                MeasureResult::default()
+            } else {
+                state.playback_max.update(&raw_m, is_playing)
+            };
 
             let (m, show_values, values_muted) = match sig {
                 SignalState::Active => (
@@ -219,6 +237,7 @@ pub fn create_pre_editor(
                 ctx,
                 state,
                 &m,
+                &max_m,
                 recording,
                 led_col,
                 PreDisplayFlags {
@@ -243,6 +262,7 @@ fn draw_pre(
     ctx: &egui::Context,
     state: &mut PreEditorState,
     m: &MeasureResult,
+    max_m: &MeasureResult,
     recording: bool,
     led_col: egui::Color32,
     flags: PreDisplayFlags,
@@ -283,7 +303,7 @@ fn draw_pre(
             if recording {
                 draw_record_grid(ui, m, flags.show_values, flags.values_muted);
             } else {
-                draw_watch_grid(ui, m, flags.show_values, flags.values_muted);
+                draw_watch_grid(ui, m, max_m, flags.show_values, flags.values_muted);
             }
 
             // "Keeping" バナー（ACK 直後 3 秒のみ / Keep ボタンとの統一感・R-28 静かなニュアンス）
@@ -397,56 +417,87 @@ fn value_color(v: Option<f64>, is_tp: bool, muted: bool) -> egui::Color32 {
 
 /// Watch モード: 3 項目（LUFS-M / TP / Crest）。
 ///
-fn draw_watch_grid(ui: &mut egui::Ui, m: &MeasureResult, show_values: bool, muted: bool) {
+fn draw_watch_grid(
+    ui: &mut egui::Ui,
+    m: &MeasureResult,
+    max_m: &MeasureResult,
+    show_values: bool,
+    muted: bool,
+) {
     ui.horizontal(|ui| {
         ui.add_space(10.0);
         Grid::new("pre_watch_vals")
-            .num_columns(3)
-            .min_col_width(58.0)
-            .spacing([6.0, 6.0])
+            .num_columns(6)
+            .min_col_width(40.0)
+            .spacing([6.0, 4.0])
             .show(ui, |ui| {
                 if show_values {
-                    value_row_with_hover(
+                    row_pair(
                         ui,
-                        "LUFS-M",
-                        fmt_val(m.lufs_m),
-                        "LUFS",
-                        value_color(m.lufs_m, false, muted),
-                        HELP_LUFS_M,
+                        (
+                            "LUFS-M",
+                            fmt_val(m.lufs_m),
+                            "LUFS",
+                            value_color(m.lufs_m, false, muted),
+                            HELP_LUFS_M,
+                        ),
+                        (
+                            "MAX",
+                            fmt_val(max_m.lufs_m),
+                            "LUFS",
+                            value_color(max_m.lufs_m, false, muted),
+                            HELP_LUFS_M,
+                        ),
                     );
-                    value_row_with_hover(
+                    row_pair(
                         ui,
-                        "TP",
-                        fmt_val(m.true_peak),
-                        "dBTP",
-                        value_color(m.true_peak, true, muted),
-                        HELP_TP,
+                        (
+                            "TP",
+                            fmt_val(m.true_peak),
+                            "dBTP",
+                            value_color(m.true_peak, true, muted),
+                            HELP_TP,
+                        ),
+                        (
+                            "MAX",
+                            fmt_val(max_m.true_peak),
+                            "dBTP",
+                            value_color(max_m.true_peak, true, muted),
+                            HELP_TP,
+                        ),
                     );
-                    value_row_with_hover(
+                    row_pair(
                         ui,
-                        "Crest",
-                        fmt_val(m.crest),
-                        "dB",
-                        value_color(m.crest, false, muted),
-                        HELP_CREST,
+                        (
+                            "Crest",
+                            fmt_val(m.crest),
+                            "dB",
+                            value_color(m.crest, false, muted),
+                            HELP_CREST,
+                        ),
+                        (
+                            "MAX",
+                            fmt_val(max_m.crest),
+                            "dB",
+                            value_color(max_m.crest, false, muted),
+                            HELP_CREST,
+                        ),
                     );
                 } else {
-                    value_row_with_hover(
+                    row_pair(
                         ui,
-                        "LUFS-M",
-                        "---".to_string(),
-                        "LUFS",
-                        COL_MUTED,
-                        HELP_LUFS_M,
+                        ("LUFS-M", "---".to_string(), "LUFS", COL_MUTED, HELP_LUFS_M),
+                        ("MAX", "---".to_string(), "LUFS", COL_MUTED, HELP_LUFS_M),
                     );
-                    value_row_with_hover(ui, "TP", "---".to_string(), "dBTP", COL_MUTED, HELP_TP);
-                    value_row_with_hover(
+                    row_pair(
                         ui,
-                        "Crest",
-                        "---".to_string(),
-                        "dB",
-                        COL_MUTED,
-                        HELP_CREST,
+                        ("TP", "---".to_string(), "dBTP", COL_MUTED, HELP_TP),
+                        ("MAX", "---".to_string(), "dBTP", COL_MUTED, HELP_TP),
+                    );
+                    row_pair(
+                        ui,
+                        ("Crest", "---".to_string(), "dB", COL_MUTED, HELP_CREST),
+                        ("MAX", "---".to_string(), "dB", COL_MUTED, HELP_CREST),
                     );
                 }
             });
@@ -535,30 +586,6 @@ fn draw_record_grid(ui: &mut egui::Ui, m: &MeasureResult, show_values: bool, mut
                 }
             });
     });
-}
-
-/// B-032: PRE Watch 用の hover 付き value_row（PRE 内 private）。
-///
-/// `hypha_gui::common::value_row` (pub API) は POST editor からも参照されており、
-/// crate 外 pub API シグネチャ不変（申し送り #32）の制約下で hover を追加する
-/// ため、PRE editor 内に同型 helper を新設する（POST 側は B-032 スコープ外）。
-/// ラベル / 値 / 単位の 3 セル全部に同一 hover を張り、マウス位置による表示
-/// 揺れを排除する。
-fn value_row_with_hover(
-    ui: &mut egui::Ui,
-    label: &str,
-    value: String,
-    unit: &str,
-    color: egui::Color32,
-    hover_text: &str,
-) {
-    ui.label(RichText::new(label).size(13.0).color(COL_MUTED))
-        .on_hover_text(hover_text);
-    ui.label(RichText::new(value).size(16.0).color(color).monospace())
-        .on_hover_text(hover_text);
-    ui.label(RichText::new(unit).size(11.0).color(COL_MUTED))
-        .on_hover_text(hover_text);
-    ui.end_row();
 }
 
 /// 2 つの (label, value, unit, color, hover_text) をグリッド 1 行に流し込む。

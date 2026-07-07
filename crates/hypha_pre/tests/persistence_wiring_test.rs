@@ -61,3 +61,20 @@ fn lib_rs_spawn_io_thread_pre_passes_project_hash_and_daw_session_id() {
         "spawn_io_thread_pre must receive daw_session_id"
     );
 }
+
+#[test]
+fn lib_rs_process_stores_transport_playing_for_watch_max() {
+    let src = read_lib_rs();
+    assert!(
+        src.contains("is_playing: Arc<AtomicBool>"),
+        "HyphaPre must carry GUI-only is_playing for Watch MAX reset"
+    );
+    assert!(
+        src.contains("self.is_playing.store(playing"),
+        "process() must publish transport.playing to the PRE editor"
+    );
+    assert!(
+        src.contains("Arc::clone(&self.is_playing)"),
+        "editor() must pass is_playing into create_pre_editor"
+    );
+}
