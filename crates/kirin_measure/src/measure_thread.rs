@@ -10,8 +10,9 @@ use crate::phase_d::tables::FieldType;
 use crate::record::RecordStateMachine;
 use crate::record_take::RecordTakeTracker;
 use crate::record_writer::{
-    clear_record_trace_queue, now_epoch_ms, push_record_trace_sample, RecordTraceQueue,
-    RecordTraceSample, FRAME_INTERVAL_MS, PSB_INTERVAL_MS,
+    clear_record_trace_queue, now_epoch_ms, push_record_trace_sample,
+    samples_are_trace_silence_floor, RecordTraceQueue, RecordTraceSample, FRAME_INTERVAL_MS,
+    PSB_INTERVAL_MS,
 };
 use crate::resampler::ResamplerTo48k;
 use crate::watch_playback_pass::watch_ring_cursor_samples_for_pass;
@@ -70,6 +71,7 @@ struct PreRollTraceSample {
     position_samples: Option<i64>,
     frames_48k: u64,
     native_frames: u64,
+    observed_silence_floor: bool,
     result: MeasureResult,
 }
 
@@ -89,6 +91,7 @@ impl RecordTracePreRoll {
         position_samples: Option<i64>,
         frames_48k: u64,
         native_frames: u64,
+        observed_silence_floor: bool,
         result: &MeasureResult,
     ) {
         self.samples.push_back(PreRollTraceSample {
@@ -96,6 +99,7 @@ impl RecordTracePreRoll {
             position_samples,
             frames_48k,
             native_frames,
+            observed_silence_floor,
             result: result.clone(),
         });
         self.trim(captured_at_ms, frames_48k);
@@ -666,55 +670,60 @@ pub fn spawn_measure_thread(
                 let observed_at_ms = now_epoch_ms();
                 let frames_48k_before = engine.total_frames();
                 let chunk_48k_frames = (chunk_48k.len() / n_channels) as u64;
-                let _ = engine.push_observed(chunk_48k, |frames_48k, base_result| {
-                    let mut new_result = base_result.clone();
-                    merge_phase_d_fields(&mut new_result, latest_pd_snapshot.as_ref());
-                    stamp_shared_measure_result(
-                        &mut new_result,
-                        &mut measure_sequence,
-                        playback_pass_id,
-                    );
-                    let observed_native_frames = estimate_observed_native_frames(
-                        frames_48k,
-                        frames_48k_before,
-                        native_frames_before,
-                        chunk_native_frames,
-                        chunk_48k_frames,
-                    )
-                    .unwrap_or(native_frames_after);
-                    if is_recording {
-                        let _ = maybe_push_record_trace(
-                            &record_trace_queue,
-                            RecordTraceTimeline {
-                                generation: record_sm.generation(),
-                                origin_frames_48k: record_origin_frames,
-                                origin_native_frames: record_origin_native_frames,
-                                offset_frames_48k: record_trace_frame_offset_48k,
-                                offset_native_frames: record_trace_native_frame_offset,
-                            },
-                            &mut RecordTraceCursor {
-                                next_trace_ms: &mut next_record_trace_ms,
-                                next_psb_ms: &mut next_record_psb_ms,
-                            },
-                            sample_rate,
-                            RecordTraceObserved {
-                                frames_48k,
-                                native_frames: Some(observed_native_frames),
-                            },
-                            &new_result,
+                let _ =
+                    engine.push_observed(chunk_48k, |frames_48k, base_result, observed_chunk| {
+                        let mut new_result = base_result.clone();
+                        merge_phase_d_fields(&mut new_result, latest_pd_snapshot.as_ref());
+                        stamp_shared_measure_result(
+                            &mut new_result,
+                            &mut measure_sequence,
+                            playback_pass_id,
                         );
-                    } else {
-                        record_pre_roll.push(
-                            observed_at_ms,
-                            record_take_tracker
-                                .position_samples_for_captured_frame(observed_native_frames),
+                        let observed_native_frames = estimate_observed_native_frames(
                             frames_48k,
-                            observed_native_frames,
-                            &new_result,
-                        );
-                    }
-                    last_result = Some(new_result);
-                });
+                            frames_48k_before,
+                            native_frames_before,
+                            chunk_native_frames,
+                            chunk_48k_frames,
+                        )
+                        .unwrap_or(native_frames_after);
+                        let observed_silence_floor =
+                            samples_are_trace_silence_floor(observed_chunk);
+                        if is_recording {
+                            let _ = maybe_push_record_trace(
+                                &record_trace_queue,
+                                RecordTraceTimeline {
+                                    generation: record_sm.generation(),
+                                    origin_frames_48k: record_origin_frames,
+                                    origin_native_frames: record_origin_native_frames,
+                                    offset_frames_48k: record_trace_frame_offset_48k,
+                                    offset_native_frames: record_trace_native_frame_offset,
+                                },
+                                &mut RecordTraceCursor {
+                                    next_trace_ms: &mut next_record_trace_ms,
+                                    next_psb_ms: &mut next_record_psb_ms,
+                                },
+                                sample_rate,
+                                RecordTraceObserved {
+                                    frames_48k,
+                                    native_frames: Some(observed_native_frames),
+                                    observed_silence_floor,
+                                },
+                                &new_result,
+                            );
+                        } else {
+                            record_pre_roll.push(
+                                observed_at_ms,
+                                record_take_tracker
+                                    .position_samples_for_captured_frame(observed_native_frames),
+                                frames_48k,
+                                observed_native_frames,
+                                observed_silence_floor,
+                                &new_result,
+                            );
+                        }
+                        last_result = Some(new_result);
+                    });
                 if let Some(new_result) = last_result {
                     match result.lock() {
                         Ok(mut guard) => *guard = new_result,
@@ -858,6 +867,7 @@ struct RecordTraceCursor<'a> {
 struct RecordTraceObserved {
     frames_48k: u64,
     native_frames: Option<u64>,
+    observed_silence_floor: bool,
 }
 
 fn seed_record_trace_from_pre_roll(
@@ -903,12 +913,13 @@ fn seed_record_trace_from_pre_roll(
         let include_psb = t_ms >= *next_psb_ms;
         push_record_trace_sample(
             queue,
-            RecordTraceSample::measured(
+            RecordTraceSample::measured_observed(
                 generation,
                 t_ms,
                 t_frames_48k,
                 Some(t_native_frames),
                 sample.result.clone(),
+                sample.observed_silence_floor,
                 include_psb,
             ),
         );
@@ -969,12 +980,13 @@ fn maybe_push_record_trace(
     let include_psb = t_ms >= *cursor.next_psb_ms;
     push_record_trace_sample(
         queue,
-        RecordTraceSample::measured(
+        RecordTraceSample::measured_observed(
             timeline.generation,
             t_ms,
             t_frames_48k,
             t_native_frames,
             result.clone(),
+            observed.observed_silence_floor,
             include_psb,
         ),
     );
@@ -1213,27 +1225,31 @@ fn drain_ring_into_session(
         if let Some(trace) = record_trace.as_mut() {
             let frames_48k_before = ctx.engine.total_frames();
             let chunk_48k_frames = (chunk_48k.len() / ctx.n_channels) as u64;
-            let _ = ctx.engine.push_observed(chunk_48k, |frames_48k, result| {
-                let observed_native_frames = estimate_observed_native_frames(
-                    frames_48k,
-                    frames_48k_before,
-                    native_frames_before,
-                    chunk_native_frames,
-                    chunk_48k_frames,
-                )
-                .unwrap_or(native_frames_after);
-                maybe_push_record_trace(
-                    trace.queue,
-                    trace.timeline,
-                    &mut trace.cursor,
-                    ctx.sample_rate,
-                    RecordTraceObserved {
+            let _ = ctx
+                .engine
+                .push_observed(chunk_48k, |frames_48k, result, observed_chunk| {
+                    let observed_native_frames = estimate_observed_native_frames(
                         frames_48k,
-                        native_frames: Some(observed_native_frames),
-                    },
-                    result,
-                );
-            });
+                        frames_48k_before,
+                        native_frames_before,
+                        chunk_native_frames,
+                        chunk_48k_frames,
+                    )
+                    .unwrap_or(native_frames_after);
+                    let observed_silence_floor = samples_are_trace_silence_floor(observed_chunk);
+                    maybe_push_record_trace(
+                        trace.queue,
+                        trace.timeline,
+                        &mut trace.cursor,
+                        ctx.sample_rate,
+                        RecordTraceObserved {
+                            frames_48k,
+                            native_frames: Some(observed_native_frames),
+                            observed_silence_floor,
+                        },
+                        result,
+                    );
+                });
             push_record_timeline_markers_until(trace, ctx.sample_rate, native_frames_after);
         } else {
             let _ = ctx.engine.push(chunk_48k);
@@ -1456,9 +1472,9 @@ pub mod tests {
             ..Default::default()
         };
 
-        pre_roll.push(900, None, 4_800, 4_410, &before);
-        pre_roll.push(1_050, None, 9_600, 8_820, &after_a);
-        pre_roll.push(1_150, None, 14_400, 13_230, &after_b);
+        pre_roll.push(900, None, 4_800, 4_410, false, &before);
+        pre_roll.push(1_050, None, 9_600, 8_820, false, &after_a);
+        pre_roll.push(1_150, None, 14_400, 13_230, false, &after_b);
 
         let queue = crate::record_writer::new_record_trace_queue();
         let mut next_trace_ms = 0;
@@ -1513,10 +1529,11 @@ pub mod tests {
             Some(95_900),
             4_800,
             4_410,
+            false,
             &wall_after_but_native_before,
         );
-        pre_roll.push(900, Some(96_000), 9_600, 8_820, &native_after_a);
-        pre_roll.push(950, Some(100_410), 14_400, 13_230, &native_after_b);
+        pre_roll.push(900, Some(96_000), 9_600, 8_820, false, &native_after_a);
+        pre_roll.push(950, Some(100_410), 14_400, 13_230, false, &native_after_b);
 
         let queue = crate::record_writer::new_record_trace_queue();
         let mut next_trace_ms = 0;
@@ -1554,8 +1571,8 @@ pub mod tests {
             lufs_m: Some(-19.0),
             ..Default::default()
         };
-        pre_roll.push(1_050, None, 9_600, 8_820, &after_a);
-        pre_roll.push(1_150, None, 14_400, 13_230, &after_b);
+        pre_roll.push(1_050, None, 9_600, 8_820, false, &after_a);
+        pre_roll.push(1_150, None, 14_400, 13_230, false, &after_b);
 
         let queue = crate::record_writer::new_record_trace_queue();
         let mut next_trace_ms = 0;
@@ -1586,7 +1603,14 @@ pub mod tests {
     #[test]
     fn pre_roll_seed_is_disabled_without_record_started_at() {
         let mut pre_roll = super::RecordTracePreRoll::default();
-        pre_roll.push(1_000, None, 4_800, 4_410, &crate::MeasureResult::default());
+        pre_roll.push(
+            1_000,
+            None,
+            4_800,
+            4_410,
+            false,
+            &crate::MeasureResult::default(),
+        );
         let queue = crate::record_writer::new_record_trace_queue();
         let mut next_trace_ms = 0;
         let mut next_psb_ms = 0;
@@ -1636,6 +1660,7 @@ pub mod tests {
                 super::RecordTraceObserved {
                     frames_48k: 24_000,
                     native_frames: Some(48_000),
+                    observed_silence_floor: false,
                 },
                 &observed,
             ));
@@ -1652,6 +1677,142 @@ pub mod tests {
         assert_eq!(drained[5].t_native_frames, Some(48_000));
         assert_eq!(drained[5].result.lufs_m, Some(-18.0));
         assert_eq!(next_trace_ms, 600);
+    }
+
+    #[test]
+    fn record_trace_observed_silence_floor_becomes_explicit_trace_frame() {
+        let queue = crate::record_writer::new_record_trace_queue();
+        let mut next_trace_ms = 0;
+        let mut next_psb_ms = 0;
+        let timeline = super::RecordTraceTimeline {
+            generation: 5,
+            origin_frames_48k: 0,
+            origin_native_frames: 0,
+            offset_frames_48k: 0,
+            offset_native_frames: 0,
+        };
+
+        {
+            let mut cursor = super::RecordTraceCursor {
+                next_trace_ms: &mut next_trace_ms,
+                next_psb_ms: &mut next_psb_ms,
+            };
+            assert!(super::maybe_push_record_trace(
+                &queue,
+                timeline,
+                &mut cursor,
+                96_000,
+                super::RecordTraceObserved {
+                    frames_48k: 4_800,
+                    native_frames: Some(9_600),
+                    observed_silence_floor: true,
+                },
+                &crate::MeasureResult::default(),
+            ));
+        }
+
+        let drained = crate::record_writer::drain_record_trace_queue(&queue);
+        assert_eq!(drained.len(), 2);
+        assert_eq!(drained[1].t_ms, 100);
+        assert_eq!(
+            drained[1].result.lufs_m,
+            Some(crate::record_writer::TRACE_SILENCE_LUFS)
+        );
+        assert_eq!(
+            drained[1].result.true_peak,
+            Some(crate::record_writer::TRACE_SILENCE_TRUE_PEAK_DBTP)
+        );
+        assert_eq!(
+            drained[1].result.crest,
+            Some(crate::record_writer::TRACE_SILENCE_CREST_DB)
+        );
+    }
+
+    #[test]
+    fn record_trace_mixed_engine_batch_marks_only_silent_100ms_window() {
+        const SR: u32 = 48_000;
+
+        let queue = crate::record_writer::new_record_trace_queue();
+        let mut next_trace_ms = 0;
+        let mut next_psb_ms = 0;
+        let mut engine = crate::MeasureEngine::new(SR, 2).unwrap();
+        let timeline = super::RecordTraceTimeline {
+            generation: 6,
+            origin_frames_48k: 0,
+            origin_native_frames: 0,
+            offset_frames_48k: 0,
+            offset_native_frames: 0,
+        };
+        let mut mixed = vec![0.0; (SR / 10) as usize * 2];
+        for frame in 0..(SR / 10) {
+            let t = frame as f64 / SR as f64;
+            let sample = 0.25 * (2.0 * std::f64::consts::PI * 1_000.0 * t).sin();
+            mixed.push(sample);
+            mixed.push(sample);
+        }
+
+        let frames_48k_before = engine.total_frames();
+        let chunk_48k_frames = (mixed.len() / 2) as u64;
+        let chunk_native_frames = chunk_48k_frames;
+        {
+            let mut cursor = super::RecordTraceCursor {
+                next_trace_ms: &mut next_trace_ms,
+                next_psb_ms: &mut next_psb_ms,
+            };
+            let _ = engine.push_observed(&mixed, |frames_48k, result, observed_chunk| {
+                let observed_native_frames = super::estimate_observed_native_frames(
+                    frames_48k,
+                    frames_48k_before,
+                    0,
+                    chunk_native_frames,
+                    chunk_48k_frames,
+                )
+                .expect("native frame estimate");
+                assert!(super::maybe_push_record_trace(
+                    &queue,
+                    timeline,
+                    &mut cursor,
+                    SR,
+                    super::RecordTraceObserved {
+                        frames_48k,
+                        native_frames: Some(observed_native_frames),
+                        observed_silence_floor:
+                            crate::record_writer::samples_are_trace_silence_floor(observed_chunk),
+                    },
+                    result,
+                ));
+            });
+        }
+
+        let drained = crate::record_writer::drain_record_trace_queue(&queue);
+        assert_eq!(
+            drained.iter().map(|sample| sample.t_ms).collect::<Vec<_>>(),
+            vec![0, 100, 200]
+        );
+        assert_eq!(
+            drained[1].result.lufs_m,
+            Some(crate::record_writer::TRACE_SILENCE_LUFS)
+        );
+        assert_eq!(
+            drained[1].result.true_peak,
+            Some(crate::record_writer::TRACE_SILENCE_TRUE_PEAK_DBTP)
+        );
+        assert_eq!(
+            drained[1].result.crest,
+            Some(crate::record_writer::TRACE_SILENCE_CREST_DB)
+        );
+        let non_silent = &drained[2].result;
+        let is_explicit_silence = non_silent
+            .lufs_m
+            .is_some_and(|v| v <= crate::record_writer::TRACE_SILENCE_LUFS + 0.1)
+            && non_silent
+                .true_peak
+                .is_some_and(|v| v <= crate::record_writer::TRACE_SILENCE_TRUE_PEAK_DBTP + 0.1)
+            && non_silent.crest.is_some_and(|v| v.abs() <= 0.1);
+        assert!(
+            !is_explicit_silence,
+            "non-silent 100ms window must not be falsified as explicit silence"
+        );
     }
 
     #[test]

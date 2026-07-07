@@ -43,6 +43,7 @@ pub const FRAME_INTERVAL_MS: u64 = 100;
 pub const TRACE_SILENCE_LUFS: f64 = -100.0;
 pub const TRACE_SILENCE_TRUE_PEAK_DBTP: f64 = -100.0;
 pub const TRACE_SILENCE_CREST_DB: f64 = 0.0;
+pub const TRACE_SILENCE_PEAK_LINEAR: f64 = 0.00001;
 
 /// PSB スナップショット間隔（2 fps / G-50-17）。
 pub const PSB_INTERVAL_MS: u64 = 500;
@@ -100,6 +101,30 @@ impl RecordTraceSample {
         }
     }
 
+    pub fn measured_observed(
+        generation: u64,
+        t_ms: u64,
+        t_frames_48k: u64,
+        t_native_frames: Option<u64>,
+        result: MeasureResult,
+        observed_silence_floor: bool,
+        include_psb: bool,
+    ) -> Self {
+        let result = if observed_silence_floor && !measure_has_core_metrics(&result) {
+            with_trace_silence_core(result)
+        } else {
+            result
+        };
+        Self::measured(
+            generation,
+            t_ms,
+            t_frames_48k,
+            t_native_frames,
+            result,
+            include_psb,
+        )
+    }
+
     pub fn missing_marker(
         generation: u64,
         t_ms: u64,
@@ -120,6 +145,13 @@ impl RecordTraceSample {
     pub fn has_measured_core(&self) -> bool {
         self.kind == RecordTraceKind::Measured && measure_has_core_metrics(&self.result)
     }
+}
+
+pub fn samples_are_trace_silence_floor(samples: &[f64]) -> bool {
+    !samples.is_empty()
+        && samples
+            .iter()
+            .all(|sample| sample.abs() <= TRACE_SILENCE_PEAK_LINEAR)
 }
 
 pub type RecordTraceQueue = Arc<Mutex<VecDeque<RecordTraceSample>>>;
@@ -511,7 +543,7 @@ pub fn writer_start(
 pub fn writer_close(mut ctx: RecordingCtx) {
     let final_path = ctx.final_path.clone();
     let failed_path = ctx.failed_path.clone();
-    refresh_record_session_id_if_missing(&mut ctx);
+    refresh_pair_record_metadata_if_missing(&mut ctx);
     bake_continuous_record_timeline(&mut ctx);
     clip_clean_timeline_to_duration(&mut ctx);
     mark_integrity_if_record_is_too_short(&mut ctx);
@@ -537,28 +569,40 @@ pub fn apply_record_take_snapshot(ctx: &mut RecordingCtx, tracker: Option<&Recor
     }
 }
 
-fn refresh_record_session_id_if_missing(ctx: &mut RecordingCtx) {
-    if ctx.writer.data().record_session_id.is_some() {
+fn refresh_pair_record_metadata_if_missing(ctx: &mut RecordingCtx) {
+    if ctx.writer.data().record_session_id.is_some() && ctx.writer.data().expected_wav.is_some() {
         return;
     }
-    let data = ctx.writer.data();
-    let post_instance_id = match data.role {
-        Role::Post => Some(data.instance_id.as_str()),
-        Role::Pre => data.paired_post_instance_id.as_deref(),
-    };
-    let Some(post_instance_id) = post_instance_id else {
-        return;
-    };
     let Ok(paths) = StoragePaths::default_platform() else {
         return;
     };
-    let session_id = resolve_record_session_id(
-        &paths.plugin_data_dir(),
-        data.project_hash.as_str(),
-        post_instance_id,
-    );
-    if session_id.is_some() {
+    let Some(post_instance_id) = signal_post_instance_id(ctx).map(str::to_string) else {
+        return;
+    };
+    refresh_pair_record_metadata_from_base(ctx, &paths.plugin_data_dir(), &post_instance_id);
+}
+
+fn signal_post_instance_id(ctx: &RecordingCtx) -> Option<&str> {
+    let data = ctx.writer.data();
+    match data.role {
+        Role::Post => Some(data.instance_id.as_str()),
+        Role::Pre => data.paired_post_instance_id.as_deref(),
+    }
+}
+
+fn refresh_pair_record_metadata_from_base(
+    ctx: &mut RecordingCtx,
+    base: &Path,
+    post_instance_id: &str,
+) {
+    let project_hash = ctx.writer.data().project_hash.clone();
+    if ctx.writer.data().record_session_id.is_none() {
+        let session_id = resolve_record_session_id(base, &project_hash, post_instance_id);
         ctx.writer.set_record_session_id(session_id);
+    }
+    if ctx.writer.data().expected_wav.is_none() {
+        let expected_wav = resolve_expected_wav_metadata(base, &project_hash, post_instance_id);
+        ctx.writer.set_expected_wav(expected_wav);
     }
 }
 
@@ -735,13 +779,22 @@ fn bake_continuous_record_timeline(ctx: &mut RecordingCtx) {
     ctx.writer.clear_frames();
     ctx.first_frame_logged = false;
     let expected_frame_count = slots.len() as u64;
+    let fill_missing_silence_slots =
+        should_backfill_silent_trace_slots(ctx, slots.len(), &best_by_ms);
     let mut missing_slots = 0_u64;
+    let mut backfilled_silence_slots = 0_u64;
     for t_ms in slots {
         if let Some(result) = best_by_ms.get(&t_ms) {
             let _ = writer_append_trace_frame(ctx, t_ms, result);
+        } else if fill_missing_silence_slots {
+            let _ = writer_append_trace_frame(ctx, t_ms, &trace_silence_measure_result());
+            backfilled_silence_slots = backfilled_silence_slots.saturating_add(1);
         } else {
             missing_slots = missing_slots.saturating_add(1);
         }
+    }
+    if backfilled_silence_slots > 0 && missing_slots == 0 {
+        ctx.raw_trace_timeline_covers_duration = Some(true);
     }
     let measured_frame_count = ctx.writer.data().frames.len() as u64;
     let explicit_silence_frame_count = ctx
@@ -766,6 +819,42 @@ fn bake_continuous_record_timeline(ctx: &mut RecordingCtx) {
         ctx.writer.mark_integrity_degraded();
         ctx.writer.add_integrity_reason("missing_trace_slots");
     }
+}
+
+fn should_backfill_silent_trace_slots(
+    ctx: &RecordingCtx,
+    expected_frame_count: usize,
+    best_by_ms: &BTreeMap<u64, MeasureResult>,
+) -> bool {
+    if expected_frame_count == 0 || best_by_ms.is_empty() {
+        return false;
+    }
+    if expected_wav(ctx).is_none() && ctx.clean_take.is_none() {
+        return false;
+    }
+    if !best_by_ms.values().all(is_trace_silence_floor) {
+        return false;
+    }
+    if !observed_trace_slots_are_contiguous(best_by_ms) {
+        return false;
+    }
+    best_by_ms
+        .len()
+        .saturating_mul(CLEAN_TAKE_MIN_TRACE_RATIO_DEN)
+        >= expected_frame_count.saturating_mul(CLEAN_TAKE_MIN_TRACE_RATIO_NUM)
+}
+
+fn observed_trace_slots_are_contiguous(best_by_ms: &BTreeMap<u64, MeasureResult>) -> bool {
+    let mut previous = None;
+    for t_ms in best_by_ms.keys().copied() {
+        if let Some(previous_t_ms) = previous {
+            if t_ms.saturating_sub(previous_t_ms) > FRAME_COVERAGE_MAX_GAP_MS {
+                return false;
+            }
+        }
+        previous = Some(t_ms);
+    }
+    true
 }
 
 fn should_bake_continuous_record_timeline(ctx: &RecordingCtx) -> bool {
@@ -839,6 +928,17 @@ fn insert_best_measure(
 
 fn measure_has_core_metrics(m: &MeasureResult) -> bool {
     m.lufs_m.is_some() && m.true_peak.is_some() && m.crest.is_some()
+}
+
+fn with_trace_silence_core(mut result: MeasureResult) -> MeasureResult {
+    result.lufs_m = Some(TRACE_SILENCE_LUFS);
+    result.true_peak = Some(TRACE_SILENCE_TRUE_PEAK_DBTP);
+    result.crest = Some(TRACE_SILENCE_CREST_DB);
+    result
+}
+
+fn trace_silence_measure_result() -> MeasureResult {
+    with_trace_silence_core(MeasureResult::default())
 }
 
 fn measure_quality_score(m: &MeasureResult) -> u8 {
@@ -2161,6 +2261,35 @@ mod tests {
         );
     }
 
+    #[test]
+    fn refresh_pair_record_metadata_reads_expected_wav_from_signal() {
+        let base = isolated_base();
+        let mut ctx = make_ctx_with_sample_rate(&base, Role::Post, now_epoch_ms(), 48_000);
+        let expected = expected_wav_metadata(48_000, 48_000, "bounce-refresh");
+        let signal = crate::record_signal::RecordSignal {
+            status: crate::record_signal::SignalStatus::Acknowledged,
+            requested_by: TEST_IID.to_string(),
+            target_pre_instance_id: "pre-x".to_string(),
+            daw_session_id: "daw-refresh".to_string(),
+            session_id: "record-session-refresh".to_string(),
+            t: "2026-07-05T00:00:01Z".to_string(),
+            started_at: "2026-07-05T00:00:00Z".to_string(),
+            started_at_position_samples: Some(0),
+            paired_pre_name: "PRE".to_string(),
+            release_reason: None,
+            expected_wav: Some(expected.clone()),
+        };
+        crate::record_signal::write_signal(&base, TEST_PH, TEST_IID, &signal).unwrap();
+
+        refresh_pair_record_metadata_from_base(&mut ctx, &base, TEST_IID);
+
+        assert_eq!(
+            ctx.writer.data().record_session_id.as_deref(),
+            Some("record-session-refresh")
+        );
+        assert_eq!(ctx.writer.data().expected_wav.as_ref(), Some(&expected));
+    }
+
     /// B-076: テスト用の overflow=0 カウンタ（欠落なし）。`&no_overflow()` で run_record_tick へ。
     fn no_overflow() -> Arc<std::sync::atomic::AtomicU64> {
         Arc::new(std::sync::atomic::AtomicU64::new(0))
@@ -2286,6 +2415,26 @@ mod tests {
             true_peak: Some(TRACE_SILENCE_TRUE_PEAK_DBTP),
             crest: Some(TRACE_SILENCE_CREST_DB),
             ..MeasureResult::default()
+        }
+    }
+
+    fn expected_wav_metadata(
+        sample_rate: u32,
+        duration_samples: u64,
+        bounce_id: &str,
+    ) -> ExpectedWavMetadata {
+        let now_ms = now_epoch_ms();
+        ExpectedWavMetadata {
+            expected_duration_samples: duration_samples,
+            expected_sample_rate: sample_rate,
+            wav_path: format!("/tmp/{bounce_id}.wav"),
+            bounce_id: bounce_id.to_string(),
+            created_at_ms: now_ms,
+            wav_file_size: Some(duration_samples.saturating_mul(4).saturating_add(44)),
+            wav_mtime_ms: now_ms,
+            wav_hash: Some(format!("hash-{bounce_id}")),
+            consumed_at_ms: None,
+            consumed_by_session_id: None,
         }
     }
 
@@ -2420,6 +2569,38 @@ mod tests {
         assert_eq!(frames[0].n_prime.unwrap()[0], 0.5);
         assert_eq!(frames[0].lufs_m, -14.2);
         assert!(ctx.first_frame_logged);
+    }
+
+    #[test]
+    fn measured_observed_silence_core_preserves_phase_fields() {
+        let mut m = MeasureResult {
+            n_prime: Some([0.25; 20]),
+            sharpness: Some(1.25),
+            psb_bark: Some([0.125; 20]),
+            psr: Some(6.0),
+            ..MeasureResult::default()
+        };
+        m.tp_session_max = Some(-80.0);
+
+        let sample = RecordTraceSample::measured_observed(
+            1,
+            100,
+            TRACE_TIMEBASE_HZ / 10,
+            Some(9_600),
+            m,
+            true,
+            true,
+        );
+
+        assert_eq!(sample.result.lufs_m, Some(TRACE_SILENCE_LUFS));
+        assert_eq!(sample.result.true_peak, Some(TRACE_SILENCE_TRUE_PEAK_DBTP));
+        assert_eq!(sample.result.crest, Some(TRACE_SILENCE_CREST_DB));
+        assert_eq!(sample.result.n_prime.unwrap()[0], 0.25);
+        assert_eq!(sample.result.sharpness, Some(1.25));
+        assert_eq!(sample.result.psb_bark.unwrap()[0], 0.125);
+        assert_eq!(sample.result.psr, Some(6.0));
+        assert_eq!(sample.result.tp_session_max, Some(-80.0));
+        assert!(sample.include_psb);
     }
 
     #[test]
@@ -3368,6 +3549,161 @@ mod tests {
     }
 
     #[test]
+    fn high_density_all_silent_trace_backfills_missing_grid_slots() {
+        let base = isolated_base();
+        let mut ctx = make_ctx_with_sample_rate(&base, Role::Post, now_epoch_ms(), 96_000);
+        let final_path = ctx.final_path.clone();
+        let queue = new_record_trace_queue();
+        for t_ms in (100_u64..=12_100).step_by(FRAME_INTERVAL_MS as usize) {
+            push_record_trace_sample(
+                &queue,
+                trace_sample_frames_with_native(
+                    t_ms.saturating_mul(TRACE_TIMEBASE_HZ) / 1_000,
+                    Some(t_ms.saturating_mul(96_000) / 1_000),
+                    measured_silence_result(),
+                    false,
+                ),
+            );
+        }
+
+        let drained = drain_trace_queue_into_writer(&mut ctx, &queue);
+        assert_eq!(drained.samples, 121);
+        assert_eq!(drained.frames, 121);
+        ctx.record_generation = 92;
+        ctx.clean_take = Some(RecordTakeSnapshot {
+            generation: 92,
+            duration_samples: 1_460_224,
+            source: crate::record_take::RECORD_TAKE_SOURCE_WAV_CLOCK,
+        });
+        writer_close(ctx);
+
+        let loaded: PluginDataFile = read_output_for_final(&final_path);
+        let take = loaded.bounce_take.as_ref().expect("bounce_take");
+        assert_eq!(take.end_t_ms, 15_210);
+        assert_eq!(take.alignment_status, "sample_count_ready");
+        assert_eq!(take.frame_count, 152);
+        assert_eq!(loaded.frames.len(), 152);
+        assert_eq!(loaded.frames.first().map(|frame| frame.t_ms), Some(100));
+        assert_eq!(loaded.frames.last().map(|frame| frame.t_ms), Some(15_200));
+        assert!(loaded.frames.iter().all(|frame| {
+            frame.lufs_m == TRACE_SILENCE_LUFS
+                && frame.true_peak == TRACE_SILENCE_TRUE_PEAK_DBTP
+                && frame.crest == TRACE_SILENCE_CREST_DB
+        }));
+        let diag = loaded
+            .trace_diagnostics
+            .as_ref()
+            .expect("trace diagnostics");
+        assert_eq!(diag.raw_trace_count, 121);
+        assert_eq!(diag.expected_frame_count, 152);
+        assert_eq!(diag.measured_frame_count, 152);
+        assert_eq!(diag.missing_slots, 0);
+        assert_eq!(diag.explicit_silence_frame_count, 152);
+        assert!(!loaded
+            .integrity_reasons
+            .iter()
+            .any(|reason| reason == "missing_trace_slots"));
+        assert!(!loaded
+            .integrity_reasons
+            .iter()
+            .any(|reason| reason == "raw_trace_timeline_gap"));
+    }
+
+    #[test]
+    fn high_density_all_silent_trace_with_interior_gap_stays_failed() {
+        let base = isolated_base();
+        let mut ctx = make_ctx_with_sample_rate(&base, Role::Post, now_epoch_ms(), 96_000);
+        let final_path = ctx.final_path.clone();
+        let queue = new_record_trace_queue();
+        let observed_slots = (100_u64..=6_000)
+            .step_by(FRAME_INTERVAL_MS as usize)
+            .chain((9_200_u64..=15_200).step_by(FRAME_INTERVAL_MS as usize));
+        for t_ms in observed_slots {
+            push_record_trace_sample(
+                &queue,
+                trace_sample_frames_with_native(
+                    t_ms.saturating_mul(TRACE_TIMEBASE_HZ) / 1_000,
+                    Some(t_ms.saturating_mul(96_000) / 1_000),
+                    measured_silence_result(),
+                    false,
+                ),
+            );
+        }
+
+        let drained = drain_trace_queue_into_writer(&mut ctx, &queue);
+        assert_eq!(drained.samples, 121);
+        ctx.record_generation = 94;
+        ctx.clean_take = Some(RecordTakeSnapshot {
+            generation: 94,
+            duration_samples: 1_460_224,
+            source: crate::record_take::RECORD_TAKE_SOURCE_WAV_CLOCK,
+        });
+        writer_close(ctx);
+
+        let loaded: PluginDataFile = read_output_for_final(&final_path);
+        let take = loaded.bounce_take.as_ref().expect("bounce_take");
+        assert_ne!(take.alignment_status, "sample_count_ready");
+        let diag = loaded
+            .trace_diagnostics
+            .as_ref()
+            .expect("trace diagnostics");
+        assert_eq!(diag.raw_trace_count, 121);
+        assert_eq!(diag.expected_frame_count, 152);
+        assert_eq!(diag.measured_frame_count, 121);
+        assert_eq!(diag.missing_slots, 31);
+        assert!(loaded
+            .integrity_reasons
+            .iter()
+            .any(|reason| reason == "missing_trace_slots"));
+    }
+
+    #[test]
+    fn sparse_all_silent_trace_does_not_backfill_grid_slots() {
+        let base = isolated_base();
+        let mut ctx = make_ctx_with_sample_rate(&base, Role::Post, now_epoch_ms(), 96_000);
+        let final_path = ctx.final_path.clone();
+        ctx.record_generation = 93;
+        ctx.clean_take = Some(RecordTakeSnapshot {
+            generation: 93,
+            duration_samples: 1_440_000,
+            source: crate::record_take::RECORD_TAKE_SOURCE_WAV_CLOCK,
+        });
+        for t_ms in [0_u64, 7_200, 15_000] {
+            ctx.trace_samples.push(trace_sample_frames_with_native(
+                t_ms.saturating_mul(TRACE_TIMEBASE_HZ) / 1_000,
+                Some(t_ms.saturating_mul(96_000) / 1_000),
+                measured_silence_result(),
+                false,
+            ));
+            mark_trace_time(
+                &mut ctx,
+                t_ms,
+                t_ms.saturating_mul(TRACE_TIMEBASE_HZ) / 1_000,
+                Some(t_ms.saturating_mul(96_000) / 1_000),
+            );
+        }
+        ctx.trace_sample_count = ctx.trace_samples.len();
+
+        writer_close(ctx);
+
+        let loaded: PluginDataFile = read_output_for_final(&final_path);
+        let take = loaded.bounce_take.as_ref().expect("bounce_take");
+        assert_ne!(take.alignment_status, "sample_count_ready");
+        assert_eq!(loaded.frames.len(), 2);
+        let diag = loaded
+            .trace_diagnostics
+            .as_ref()
+            .expect("trace diagnostics");
+        assert_eq!(diag.expected_frame_count, 150);
+        assert_eq!(diag.measured_frame_count, 2);
+        assert_eq!(diag.missing_slots, 148);
+        assert!(loaded
+            .integrity_reasons
+            .iter()
+            .any(|reason| reason == "missing_trace_slots"));
+    }
+
+    #[test]
     fn close_keeps_sparse_clean_take_measured_slots_only() {
         let base = isolated_base();
         let mut ctx = make_ctx_with_sample_rate(&base, Role::Post, now_epoch_ms(), 96_000);
@@ -3624,6 +3960,57 @@ mod tests {
         );
         assert_eq!(ctx_ref.data().frames[0].crest, TRACE_SILENCE_CREST_DB);
         assert_eq!(ctx_ref.last_trace_t_ms, Some(100));
+    }
+
+    #[test]
+    fn run_record_tick_writes_silent_floor_when_observed_trace_core_is_empty() {
+        let base = isolated_base();
+        let ctx = make_ctx(&base, Role::Post, now_epoch_ms());
+        let sm = Arc::new(RecordStateMachine::new());
+        sm.try_enter_record(License::Os).unwrap();
+        let m = Arc::new(Mutex::new(full_measure_result()));
+        let mut rec: Option<RecordingCtx> = Some(ctx);
+        let queue = new_record_trace_queue();
+        push_record_trace_sample(
+            &queue,
+            RecordTraceSample::measured_observed(
+                1,
+                100,
+                TRACE_TIMEBASE_HZ / 10,
+                Some(9_600),
+                MeasureResult::default(),
+                true,
+                false,
+            ),
+        );
+
+        run_record_tick(
+            &sm,
+            Role::Post,
+            96000,
+            TEST_PH,
+            TEST_IID,
+            now_epoch_ms,
+            || None,
+            || None,
+            &m,
+            &mut rec,
+            None,
+            &no_overflow(),
+            &no_overflow(),
+            Some(&queue),
+        )
+        .unwrap();
+
+        let ctx_ref = rec.as_ref().unwrap();
+        assert_eq!(ctx_ref.data().frames.len(), 1);
+        assert_eq!(ctx_ref.data().frames[0].t_ms, 100);
+        assert_eq!(ctx_ref.data().frames[0].lufs_m, TRACE_SILENCE_LUFS);
+        assert_eq!(
+            ctx_ref.data().frames[0].true_peak,
+            TRACE_SILENCE_TRUE_PEAK_DBTP
+        );
+        assert_eq!(ctx_ref.data().frames[0].crest, TRACE_SILENCE_CREST_DB);
     }
 
     #[test]
