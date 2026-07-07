@@ -146,17 +146,18 @@ impl MeasureEngine {
     /// インターリーブ f64 サンプルを受け取り、100ms チャンクが揃うたびに
     /// MeasureResult を返す。チャンク未満の場合は None を返す。
     pub fn push(&mut self, samples: &[f64]) -> Option<MeasureResult> {
-        self.push_observed(samples, |_, _| {})
+        self.push_observed(samples, |_, _, _| {})
     }
 
     /// `push()` と同じ処理を行い、100ms チャンクごとの結果を observer に渡す。
     ///
     /// Offline bounce では 1 回の drain で複数 100ms チャンクが処理されるため、最後の
-    /// 1 件だけでなく中間結果も Record TRACE に渡す。
+    /// 1 件だけでなく中間結果も Record TRACE に渡す。observer の第 3 引数は、
+    /// その結果を生成した 100ms 分の interleaved input samples。
     pub fn push_observed(
         &mut self,
         samples: &[f64],
-        mut observe: impl FnMut(u64, &MeasureResult),
+        mut observe: impl FnMut(u64, &MeasureResult, &[f64]),
     ) -> Option<MeasureResult> {
         for &s in samples {
             self.window_400ms.push_back(s);
@@ -205,7 +206,7 @@ impl MeasureEngine {
             }
 
             let computed = self.compute();
-            observe(self.total_frames, &computed);
+            observe(self.total_frames, &computed, &self.chunk_buf);
             result = Some(computed);
         }
         result
@@ -368,6 +369,28 @@ mod tp_recent_golden {
 
     fn silence_100ms() -> Vec<f64> {
         vec![0.0; (SR / 10) as usize * 2]
+    }
+
+    #[test]
+    fn push_observed_reports_input_samples_per_100ms_chunk() {
+        let mut eng = MeasureEngine::new(SR, 2).unwrap();
+        let mut mixed = silence_100ms();
+        mixed.extend(sine_100ms(0.25));
+
+        let mut observed = Vec::new();
+        let result = eng.push_observed(&mixed, |frames, _, observed_samples| {
+            observed.push((
+                frames,
+                observed_samples.len(),
+                observed_samples.iter().all(|sample| *sample == 0.0),
+                observed_samples.iter().any(|sample| sample.abs() > 0.01),
+            ));
+        });
+
+        assert!(result.is_some());
+        assert_eq!(observed.len(), 2);
+        assert_eq!(observed[0], (4_800, 9_600, true, false));
+        assert_eq!(observed[1], (9_600, 9_600, false, true));
     }
 
     /// B-205: サブサイレンス・フロア。通常レベル(-20 dBFS)は Some を保ち、無音ゲート(-140 dBFS)を
