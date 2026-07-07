@@ -123,6 +123,12 @@ pub struct HyphaPost {
     is_playing: Arc<AtomicBool>,
     /// Watch MAX 専用の transport playback pass id。Audio Thread が pass 境界で進める。
     watch_playback_pass_id: Arc<AtomicU64>,
+    /// Watch pass 開始直前までに ring へ成功 push 済みの累積 sample 数。
+    watch_playback_pass_cutover_samples: Arc<AtomicU64>,
+    /// 現在の ring 世代へ成功 push した累積 sample 数。Measure Thread の cutover discard 用。
+    watch_ring_samples_pushed: Arc<AtomicU64>,
+    /// Watchdog が新 ring を作り、Audio Thread 側の producer swap を待っている間 true。
+    watch_ring_replacing: Arc<AtomicBool>,
     watch_prev_playing: bool,
     watch_last_process_instant: Option<Instant>,
     watch_sample_rate_hz: f64,
@@ -263,6 +269,9 @@ impl Default for HyphaPost {
             playback_sample_rate: Arc::new(AtomicU32::new(0)),
             is_playing: Arc::new(AtomicBool::new(false)),
             watch_playback_pass_id: Arc::new(AtomicU64::new(0)),
+            watch_playback_pass_cutover_samples: Arc::new(AtomicU64::new(0)),
+            watch_ring_samples_pushed: Arc::new(AtomicU64::new(0)),
+            watch_ring_replacing: Arc::new(AtomicBool::new(false)),
             watch_prev_playing: false,
             watch_last_process_instant: None,
             watch_sample_rate_hz: 0.0,
@@ -618,6 +627,10 @@ impl Plugin for HyphaPost {
         self.heartbeat.store(0, Ordering::Relaxed);
         self.last_process_pos_samples = i64::MIN;
         self.watch_playback_pass_id.store(0, Ordering::Relaxed);
+        self.watch_playback_pass_cutover_samples
+            .store(0, Ordering::Relaxed);
+        self.watch_ring_samples_pushed.store(0, Ordering::Relaxed);
+        self.watch_ring_replacing.store(false, Ordering::Relaxed);
         self.watch_prev_playing = false;
         self.watch_last_process_instant = None;
         self.watch_sample_rate_hz = buffer_config.sample_rate as f64;
@@ -634,6 +647,8 @@ impl Plugin for HyphaPost {
             N_CHANNELS,
             Arc::clone(&self.measure_result),
             Arc::clone(&self.watch_playback_pass_id),
+            Arc::clone(&self.watch_playback_pass_cutover_samples),
+            Arc::clone(&self.watch_ring_samples_pushed),
             Arc::clone(&self.signal_state),
             Arc::clone(&self.measure_shutdown),
             Arc::clone(&self.liveness),
@@ -862,6 +877,11 @@ impl Plugin for HyphaPost {
             ring_capacity: capacity,
             measure_result: Arc::clone(&self.measure_result),
             watch_playback_pass_id: Arc::clone(&self.watch_playback_pass_id),
+            watch_playback_pass_cutover_samples: Arc::clone(
+                &self.watch_playback_pass_cutover_samples,
+            ),
+            watch_ring_samples_pushed: Arc::clone(&self.watch_ring_samples_pushed),
+            watch_ring_replacing: Arc::clone(&self.watch_ring_replacing),
             signal_state: Arc::clone(&self.signal_state),
             evaluator: Arc::clone(&self.liveness),
             measure_shutdown: Arc::clone(&self.measure_shutdown),
@@ -911,6 +931,9 @@ impl Plugin for HyphaPost {
             callback_gap_secs,
             block_duration_secs,
         ) {
+            let cutover = self.watch_ring_samples_pushed.load(Ordering::Relaxed);
+            self.watch_playback_pass_cutover_samples
+                .store(cutover, Ordering::Relaxed);
             advance_watch_playback_pass_id(&self.watch_playback_pass_id);
         }
         self.watch_prev_playing = playing;
@@ -963,7 +986,11 @@ impl Plugin for HyphaPost {
                 record_window.num_frames,
             );
             if let Some(producer) = &mut self.ring_producer {
-                push_window_to_ring(buffer, producer, record_window, &self.overflow);
+                let pushed = push_window_to_ring(buffer, producer, record_window, &self.overflow);
+                if pushed > 0 && !self.watch_ring_replacing.load(Ordering::Relaxed) {
+                    self.watch_ring_samples_pushed
+                        .fetch_add(pushed, Ordering::Relaxed);
+                }
             }
         }
 
@@ -982,6 +1009,10 @@ impl Plugin for HyphaPost {
             if let Ok(mut slot) = self.pending_producer.try_lock() {
                 if let Some(new_producer) = slot.take() {
                     self.ring_producer = Some(new_producer);
+                    self.watch_ring_samples_pushed.store(0, Ordering::Relaxed);
+                    self.watch_playback_pass_cutover_samples
+                        .store(0, Ordering::Relaxed);
+                    self.watch_ring_replacing.store(false, Ordering::Relaxed);
                     log::info!("[POST process] ring producer swapped after Measure restart");
                 }
             }
@@ -1023,10 +1054,11 @@ fn push_window_to_ring(
     producer: &mut rtrb::Producer<f32>,
     window: RecordWindow,
     overflow: &AtomicU64,
-) {
+) -> u64 {
     if window.num_frames == 0 {
-        return;
+        return 0;
     }
+    let mut pushed = 0_u64;
     for (frame_idx, channel_samples) in buffer.iter_samples().enumerate() {
         if frame_idx < window.start_frame {
             continue;
@@ -1038,9 +1070,12 @@ fn push_window_to_ring(
             // B-076: ring 満杯時は無言で捨てず累積計数（per-Record で .kirin に露出）。
             if producer.push(*sample).is_err() {
                 overflow.fetch_add(1, Ordering::Relaxed);
+            } else {
+                pushed += 1;
             }
         }
     }
+    pushed
 }
 
 #[inline]

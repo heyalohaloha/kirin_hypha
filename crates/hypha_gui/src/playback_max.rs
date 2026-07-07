@@ -50,7 +50,7 @@ impl PlaybackMaxTracker {
         }
 
         if raw.measure_sequence <= self.last_sequence {
-            return self.max.clone();
+            self.last_sequence = 0;
         }
         self.last_sequence = raw.measure_sequence;
         self.max.lufs_m = max_option(self.max.lufs_m, raw.lufs_m);
@@ -256,6 +256,36 @@ mod tests {
         assert_eq!(fresh.lufs_m, Some(-24.0));
         assert_eq!(fresh.true_peak, Some(-8.0));
         assert_eq!(fresh.crest, Some(3.0));
+    }
+
+    #[test]
+    fn same_pass_sequence_regression_after_measure_restart_still_updates_maxima() {
+        let mut tracker = PlaybackMaxTracker::default();
+        tracker.update(&MeasureResult::default(), false, 0);
+        tracker.update(
+            &measure(10_000, 1, Some(-8.0), Some(-2.0), Some(8.0)),
+            true,
+            1,
+        );
+
+        let after_restart =
+            tracker.update(&measure(1, 1, Some(-6.0), Some(-1.0), Some(9.0)), true, 1);
+        assert_eq!(after_restart.lufs_m, Some(-6.0));
+        assert_eq!(after_restart.true_peak, Some(-1.0));
+        assert_eq!(after_restart.crest, Some(9.0));
+    }
+
+    #[test]
+    fn same_pass_equal_sequence_after_fast_measure_restart_still_updates_maxima() {
+        let mut tracker = PlaybackMaxTracker::default();
+        tracker.update(&MeasureResult::default(), false, 0);
+        tracker.update(&measure(1, 1, Some(-8.0), Some(-2.0), Some(8.0)), true, 1);
+
+        let after_restart =
+            tracker.update(&measure(1, 1, Some(-6.0), Some(-1.0), Some(9.0)), true, 1);
+        assert_eq!(after_restart.lufs_m, Some(-6.0));
+        assert_eq!(after_restart.true_peak, Some(-1.0));
+        assert_eq!(after_restart.crest, Some(9.0));
     }
 
     #[test]
