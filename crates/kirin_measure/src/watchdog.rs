@@ -21,7 +21,7 @@ use crate::record::RecordStateMachine;
 use crate::{
     spawn_measure_thread, LivenessEvaluator, MeasureResult, RecordTakeTracker, RecordTraceQueue,
 };
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
@@ -79,6 +79,8 @@ pub struct WatchdogParams {
     pub ring_capacity: usize,
     /// 計測結果共有（再起動した Measure Thread に渡す）
     pub measure_result: Arc<Mutex<MeasureResult>>,
+    /// Audio Thread が刻む Watch playback pass id。Measure 再起動後も同じ id を読む。
+    pub watch_playback_pass_id: Arc<AtomicU64>,
     /// SignalState 共有（再起動した Measure Thread に渡す）
     pub signal_state: Arc<AtomicU8>,
     /// B-118: 単一鮮度評価器（再起動した Measure Thread が同一評価器を読み続ける）。
@@ -118,6 +120,7 @@ pub fn spawn_watchdog(params: WatchdogParams) -> JoinHandle<()> {
             n_channels,
             ring_capacity,
             measure_result,
+            watch_playback_pass_id,
             signal_state,
             evaluator,
             measure_shutdown,
@@ -171,6 +174,7 @@ pub fn spawn_watchdog(params: WatchdogParams) -> JoinHandle<()> {
                     sample_rate,
                     n_channels,
                     Arc::clone(&measure_result),
+                    Arc::clone(&watch_playback_pass_id),
                     Arc::clone(&signal_state),
                     Arc::clone(&measure_shutdown),
                     Arc::clone(&evaluator),

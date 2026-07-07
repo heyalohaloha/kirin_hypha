@@ -1,12 +1,13 @@
 mod editor;
 
 use kirin_measure::{
-    daw_session_id, delete_broadcast, delete_stop_broadcast, ensure_legacy_cleanup_done,
-    identity_instance_attach, identity_instance_detach, live_window, load_installation_id_safe,
-    load_license_safe, mark_released, new_record_take_tracker, new_record_trace_queue,
-    peek_project_uuid, process_project_hash, record_window_for_buffer, reservation, sanitize_name,
-    set_daw_session_id, set_project_uuid, spawn_io_thread_post, spawn_measure_thread,
-    spawn_watchdog, store_signal_state, DeltaResult, LatchedPre, License, LivenessEvaluator,
+    advance_watch_playback_pass_id, daw_session_id, delete_broadcast, delete_stop_broadcast,
+    ensure_legacy_cleanup_done, identity_instance_attach, identity_instance_detach, live_window,
+    load_installation_id_safe, load_license_safe, mark_released, new_record_take_tracker,
+    new_record_trace_queue, peek_project_uuid, process_project_hash, record_window_for_buffer,
+    reservation, sanitize_name, set_daw_session_id, set_project_uuid, spawn_io_thread_post,
+    spawn_measure_thread, spawn_watchdog, store_signal_state, watch_playback_block_duration_secs,
+    watch_playback_pass_should_start, DeltaResult, LatchedPre, License, LivenessEvaluator,
     MeasureResult, RecordStateMachine, RecordTakeBlock, RecordTakeTracker, RecordTraceQueue,
     RecordWindow, ReleaseReason, SessionSummary, SignalState, StoragePaths,
     TriggerPairResolutionFn, TriggerStopResolutionFn, WatchdogIo, WatchdogParams, N_CHANNELS,
@@ -17,6 +18,7 @@ use nih_plug_egui::EguiState;
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread::JoinHandle;
+use std::time::Instant;
 use uuid::Uuid;
 
 /// Kirin Hypha POST — マスタリングチェイン後段計測プラグイン。
@@ -119,6 +121,11 @@ pub struct HyphaPost {
     /// を block する。SignalState::Active は `!silent` と論理積されるため再生中の
     /// 無音区間で Inactive 落ちする → 代用不可。本 atomic は silent / bypass と直交。
     is_playing: Arc<AtomicBool>,
+    /// Watch MAX 専用の transport playback pass id。Audio Thread が pass 境界で進める。
+    watch_playback_pass_id: Arc<AtomicU64>,
+    watch_prev_playing: bool,
+    watch_last_process_instant: Option<Instant>,
+    watch_sample_rate_hz: f64,
 
     /// W-281 / G-115-249 / D-1: pair release toast 通知 channel (IO Thread → GUI Thread)。
     /// non-persist。`None` = 通常 / `Some(msg)` = 次 GUI 描画で `Toast::new(msg, now)` 化。
@@ -255,6 +262,10 @@ impl Default for HyphaPost {
             playback_pos_samples: Arc::new(AtomicI64::new(i64::MIN)),
             playback_sample_rate: Arc::new(AtomicU32::new(0)),
             is_playing: Arc::new(AtomicBool::new(false)),
+            watch_playback_pass_id: Arc::new(AtomicU64::new(0)),
+            watch_prev_playing: false,
+            watch_last_process_instant: None,
+            watch_sample_rate_hz: 0.0,
             record_error_message: Arc::new(RwLock::new(None)),
             // W-281 / G-115-249 / D-1: pair release toast channel (non-persist)。
             pair_release_notice: Arc::new(RwLock::new(None)),
@@ -474,6 +485,7 @@ impl Plugin for HyphaPost {
             playback_sample_rate: Arc::clone(&self.playback_sample_rate),
             // W-280 / G-115-248: transport.playing 共有 (再生中 pair 変更 block)。
             is_playing: Arc::clone(&self.is_playing),
+            watch_playback_pass_id: Arc::clone(&self.watch_playback_pass_id),
             // B-118: 単一鮮度評価器共有。editor は `playing かつ is_live()` で pair 変更をロックする
             // （playing 凍結値の false-release 防止 / processing 停止中は解除 / G-115-245: 3s）。
             liveness: Arc::clone(&self.liveness),
@@ -605,6 +617,10 @@ impl Plugin for HyphaPost {
         // ── Heartbeat リセット ────────────────────────────────────────
         self.heartbeat.store(0, Ordering::Relaxed);
         self.last_process_pos_samples = i64::MIN;
+        self.watch_playback_pass_id.store(0, Ordering::Relaxed);
+        self.watch_prev_playing = false;
+        self.watch_last_process_instant = None;
+        self.watch_sample_rate_hz = buffer_config.sample_rate as f64;
 
         // ── T-F: sample_rate キャッシュ ──────────────────────────────
         self.playback_sample_rate
@@ -617,6 +633,7 @@ impl Plugin for HyphaPost {
             buffer_config.sample_rate as u32,
             N_CHANNELS,
             Arc::clone(&self.measure_result),
+            Arc::clone(&self.watch_playback_pass_id),
             Arc::clone(&self.signal_state),
             Arc::clone(&self.measure_shutdown),
             Arc::clone(&self.liveness),
@@ -844,6 +861,7 @@ impl Plugin for HyphaPost {
             n_channels: N_CHANNELS,
             ring_capacity: capacity,
             measure_result: Arc::clone(&self.measure_result),
+            watch_playback_pass_id: Arc::clone(&self.watch_playback_pass_id),
             signal_state: Arc::clone(&self.signal_state),
             evaluator: Arc::clone(&self.liveness),
             measure_shutdown: Arc::clone(&self.measure_shutdown),
@@ -880,6 +898,22 @@ impl Plugin for HyphaPost {
         let bypass_val = self.params.bypass.value();
         let transport = context.transport();
         let playing = transport.playing;
+        let now = Instant::now();
+        let callback_gap_secs = self
+            .watch_last_process_instant
+            .replace(now)
+            .map(|previous| now.duration_since(previous).as_secs_f64());
+        let block_duration_secs =
+            watch_playback_block_duration_secs(buffer.samples(), self.watch_sample_rate_hz);
+        if watch_playback_pass_should_start(
+            playing,
+            self.watch_prev_playing,
+            callback_gap_secs,
+            block_duration_secs,
+        ) {
+            advance_watch_playback_pass_id(&self.watch_playback_pass_id);
+        }
+        self.watch_prev_playing = playing;
         // W-280 / G-115-248: GUI Thread に純粋な transport.playing を公開する
         // (silent / bypass と直交)。Relaxed store ~1ns / lock-free / R-12 違反なし。
         self.is_playing.store(playing, Ordering::Relaxed);

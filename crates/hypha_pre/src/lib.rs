@@ -1,19 +1,21 @@
 mod editor;
 
 use kirin_measure::{
-    daw_session_id, ensure_legacy_cleanup_done, identity_instance_attach, identity_instance_detach,
-    live_window, load_license_safe, new_record_trace_queue, process_project_hash,
-    record_window_for_buffer, set_daw_session_id, set_project_uuid, spawn_io_thread_pre,
-    spawn_measure_thread, spawn_watchdog, store_signal_state, License, LivenessEvaluator,
-    MeasureResult, RecordStateMachine, RecordTakeBlock, RecordTakeTracker, RecordTraceQueue,
-    RecordWindow, SessionSummary, SignalState, WatchdogIo, WatchdogParams, N_CHANNELS,
-    RING_BUFFER_SECONDS,
+    advance_watch_playback_pass_id, daw_session_id, ensure_legacy_cleanup_done,
+    identity_instance_attach, identity_instance_detach, live_window, load_license_safe,
+    new_record_trace_queue, process_project_hash, record_window_for_buffer, set_daw_session_id,
+    set_project_uuid, spawn_io_thread_pre, spawn_measure_thread, spawn_watchdog,
+    store_signal_state, watch_playback_block_duration_secs, watch_playback_pass_should_start,
+    License, LivenessEvaluator, MeasureResult, RecordStateMachine, RecordTakeBlock,
+    RecordTakeTracker, RecordTraceQueue, RecordWindow, SessionSummary, SignalState, WatchdogIo,
+    WatchdogParams, N_CHANNELS, RING_BUFFER_SECONDS,
 };
 use nih_plug::prelude::*;
 use nih_plug_egui::EguiState;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread::JoinHandle;
+use std::time::Instant;
 use uuid::Uuid;
 
 /// Kirin Hypha PRE — upstream measurement plugin.
@@ -71,6 +73,11 @@ pub struct HyphaPre {
     liveness: Arc<LivenessEvaluator>,
     /// transport.playing の純粋な値。GUI Watch MAX の再生開始 reset に使う。
     is_playing: Arc<AtomicBool>,
+    /// Watch MAX 専用の transport playback pass id。Audio Thread が pass 境界で進める。
+    watch_playback_pass_id: Arc<AtomicU64>,
+    watch_prev_playing: bool,
+    watch_last_process_instant: Option<Instant>,
+    watch_sample_rate_hz: f64,
 
     record_sm: Arc<RecordStateMachine>,
     recording: Arc<AtomicBool>,
@@ -180,6 +187,10 @@ impl Default for HyphaPre {
             last_process_pos_samples: i64::MIN,
             liveness,
             is_playing: Arc::new(AtomicBool::new(false)),
+            watch_playback_pass_id: Arc::new(AtomicU64::new(0)),
+            watch_prev_playing: false,
+            watch_last_process_instant: None,
+            watch_sample_rate_hz: 0.0,
             record_sm: Arc::new(RecordStateMachine::new()),
             recording: Arc::new(AtomicBool::new(false)),
             record_acknowledged: Arc::new(AtomicBool::new(false)),
@@ -254,6 +265,7 @@ impl Plugin for HyphaPre {
             Arc::clone(&self.record_acknowledged),
             Arc::clone(&self.preset_available),
             Arc::clone(&self.is_playing),
+            Arc::clone(&self.watch_playback_pass_id),
             Arc::clone(&self.params.name),
             Arc::clone(&self.params.instance_id),
             Arc::clone(&self.record_error_message),
@@ -360,12 +372,17 @@ impl Plugin for HyphaPre {
 
         self.heartbeat.store(0, Ordering::Relaxed);
         self.last_process_pos_samples = i64::MIN;
+        self.watch_playback_pass_id.store(0, Ordering::Relaxed);
+        self.watch_prev_playing = false;
+        self.watch_last_process_instant = None;
+        self.watch_sample_rate_hz = buffer_config.sample_rate as f64;
 
         let measure_handle = spawn_measure_thread(
             consumer,
             buffer_config.sample_rate as u32,
             N_CHANNELS,
             Arc::clone(&self.measure_result),
+            Arc::clone(&self.watch_playback_pass_id),
             Arc::clone(&self.signal_state),
             Arc::clone(&self.measure_shutdown),
             Arc::clone(&self.liveness),
@@ -456,6 +473,7 @@ impl Plugin for HyphaPre {
             n_channels: N_CHANNELS,
             ring_capacity: capacity,
             measure_result: Arc::clone(&self.measure_result),
+            watch_playback_pass_id: Arc::clone(&self.watch_playback_pass_id),
             signal_state: Arc::clone(&self.signal_state),
             evaluator: Arc::clone(&self.liveness),
             measure_shutdown: Arc::clone(&self.measure_shutdown),
@@ -492,6 +510,22 @@ impl Plugin for HyphaPre {
         let bypass_val = self.params.bypass.value();
         let transport = context.transport();
         let playing = transport.playing;
+        let now = Instant::now();
+        let callback_gap_secs = self
+            .watch_last_process_instant
+            .replace(now)
+            .map(|previous| now.duration_since(previous).as_secs_f64());
+        let block_duration_secs =
+            watch_playback_block_duration_secs(buffer.samples(), self.watch_sample_rate_hz);
+        if watch_playback_pass_should_start(
+            playing,
+            self.watch_prev_playing,
+            callback_gap_secs,
+            block_duration_secs,
+        ) {
+            advance_watch_playback_pass_id(&self.watch_playback_pass_id);
+        }
+        self.watch_prev_playing = playing;
         // GUI Thread に純粋な transport.playing を公開する。silent / bypass と直交し、
         // Watch MAX の reset edge にだけ使う。Relaxed store / lock-free / R-12 安全。
         self.is_playing.store(playing, Ordering::Relaxed);
