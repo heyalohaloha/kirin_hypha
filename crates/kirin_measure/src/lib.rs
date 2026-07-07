@@ -143,8 +143,9 @@ pub use storage::{
     PlatformPaths, StorageError, StoragePaths, CLEANUP_V1_DONE_FILENAME,
 };
 pub use watch_playback_pass::{
-    advance_watch_playback_pass_id, watch_playback_block_duration_secs,
-    watch_playback_pass_should_start,
+    add_watch_ring_cursor_samples, advance_watch_playback_pass_id,
+    publish_watch_playback_pass_boundary, watch_playback_block_duration_secs,
+    watch_playback_pass_should_start, watch_ring_cursor, watch_ring_cursor_samples_for_pass,
 };
 pub use watchdog::{spawn_watchdog, IoThreadHandle, RestartIoFn, WatchdogIo, WatchdogParams};
 

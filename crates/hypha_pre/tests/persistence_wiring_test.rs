@@ -78,8 +78,8 @@ fn lib_rs_process_stores_transport_playing_for_watch_max() {
         "process() must publish transport.playing to the PRE editor"
     );
     assert!(
-        src.contains("advance_watch_playback_pass_id(&self.watch_playback_pass_id)"),
-        "process() must advance Watch MAX pass id from Audio Thread transport edges"
+        src.contains("publish_watch_playback_pass_boundary("),
+        "process() must publish Watch MAX pass boundary from Audio Thread transport edges"
     );
     assert!(
         src.contains("Arc::clone(&self.is_playing)"),
