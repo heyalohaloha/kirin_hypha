@@ -119,16 +119,17 @@ pub use preset_v2::{
 pub use record::{RecordState, RecordStateMachine, TransitionError};
 pub use record_clock::{record_window_for_buffer, RecordWindow};
 pub use record_expected::{
-    expected_dir, expected_path, mark_expected_metadata_consumed, read_expected_metadata,
-    write_expected_metadata, ExpectedMetadataError, ExpectedWavMetadata, EXPECTED_FILENAME,
-    EXPECTED_SUBDIR,
+    claim_expected_metadata_for_session, expected_dir, expected_path,
+    mark_expected_metadata_consumed, read_expected_metadata, write_expected_metadata,
+    ExpectedMetadataError, ExpectedWavMetadata, EXPECTED_FILENAME, EXPECTED_SUBDIR,
 };
 pub use record_signal::{
     delete_signal, is_timed_out, mark_acknowledged, mark_released, mark_released_with_reason,
     read_signal, scan_signals_dir, signal_path, signals_dir, write_pending,
-    write_pending_with_expected, write_pending_with_expected_and_clock, write_signal, RecordSignal,
-    ReleaseReason, SignalError, SignalStatus, ACK_TIMEOUT_SECONDS, RECORD_START_BARRIER_DELAY_MS,
-    SIGNALS_SUBDIR, SIGNAL_FILENAME,
+    write_pending_claiming_expected_and_clock, write_pending_with_expected,
+    write_pending_with_expected_and_clock, write_signal, RecordSignal, ReleaseReason, SignalError,
+    SignalStatus, ACK_TIMEOUT_SECONDS, RECORD_START_BARRIER_DELAY_MS, SIGNALS_SUBDIR,
+    SIGNAL_FILENAME,
 };
 pub use record_take::{
     new_record_take_tracker, RecordTakeBlock, RecordTakeSnapshot, RecordTakeTracker,

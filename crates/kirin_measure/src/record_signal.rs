@@ -148,8 +148,8 @@ pub struct RecordSignal {
     pub release_reason: Option<ReleaseReason>,
     /// Kirin OS/Hub が Record 開始前に渡す dropped WAV header metadata。
     ///
-    /// これが無い pending は PRE が Record へ入らず、PairRecordSession finalizer も
-    /// 通常棚へ publish しない。
+    /// これは完全性判定の trust anchor だが、Keep の入口条件ではない。無い場合でも usable
+    /// TRACE frames は通常棚へ publish し、integrity_degraded と reason に残す。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expected_wav: Option<ExpectedWavMetadata>,
 }
@@ -300,6 +300,45 @@ pub fn write_pending_with_expected_and_clock(
         started_at_position_samples,
     );
     write_signal(base_dir, project_hash, post_instance_id, &signal)?;
+    Ok(signal)
+}
+
+/// pending シグナルを生成し、同じ Record session_id で expected WAV metadata を claim する。
+///
+/// metadata が無い/古い/別 session に消費済みの場合でも Keep は続行し、expected_wav=None の
+/// signal を書く。usable frames は finalizer 側で通常 TRACE に publish し、完全性だけ reason に残す。
+/// 先に pending を durable に置いてから metadata を claim することで、claim 済み metadata だけが
+/// 残って Record signal が無い状態を作らない。
+#[allow(clippy::too_many_arguments)]
+pub fn write_pending_claiming_expected_and_clock(
+    base_dir: &Path,
+    project_hash: &str,
+    post_instance_id: &str,
+    target_pre_instance_id: String,
+    daw_session_id: String,
+    started_at_position_samples: Option<i64>,
+) -> Result<RecordSignal, SignalError> {
+    let mut signal = RecordSignal::new_pending(
+        post_instance_id.to_string(),
+        target_pre_instance_id,
+        daw_session_id,
+        None,
+        started_at_position_samples,
+    );
+    write_signal(base_dir, project_hash, post_instance_id, &signal)?;
+    if let Ok(expected_wav) = crate::record_expected::claim_expected_metadata_for_session(
+        base_dir,
+        project_hash,
+        &signal.session_id,
+    ) {
+        signal.expected_wav = Some(expected_wav);
+        if let Err(e) = write_signal(base_dir, project_hash, post_instance_id, &signal) {
+            log::warn!(
+                "[record_signal] expected_wav enrichment write failed; continuing without blocking Keep: {}",
+                e
+            );
+        }
+    }
     Ok(signal)
 }
 

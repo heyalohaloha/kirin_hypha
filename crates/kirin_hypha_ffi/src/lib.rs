@@ -53,10 +53,10 @@ use kirin_measure::{
     enumerate_active_pre_pair_candidates_for_post_project, identity_instance_attach,
     identity_instance_detach, live_window, load_license_safe, load_signal_state, mark_released,
     mark_released_with_reason, new_record_take_tracker, new_record_trace_queue,
-    read_expected_metadata, resolve_arm_target_for_post_project, sanitize_name, set_daw_session_id,
-    set_project_uuid, spawn_io_thread_post, spawn_io_thread_pre, spawn_measure_thread,
-    spawn_watchdog, store_signal_state, write_broadcast, write_expected_metadata,
-    write_pending_with_expected_and_clock, write_stop_broadcast, DeltaMode, DeltaResult,
+    resolve_arm_target_for_post_project, sanitize_name, set_daw_session_id, set_project_uuid,
+    spawn_io_thread_post, spawn_io_thread_pre, spawn_measure_thread, spawn_watchdog,
+    store_signal_state, write_broadcast, write_expected_metadata,
+    write_pending_claiming_expected_and_clock, write_stop_broadcast, DeltaMode, DeltaResult,
     ExclusionResult, ExpectedWavMetadata, IoThreadHandle, LatchedPre, License, LivenessEvaluator,
     MeasureResult, PlatformPaths, PluginDataRole, PsbSummary, RecordStateMachine, RecordTakeBlock,
     RecordTakeTracker, RecordTraceQueue, ReleaseReason, RestartIoFn, SignalState, StoragePaths,
@@ -388,10 +388,9 @@ pub fn __reset_shared_ids_for_tests() {
 
 /// B-102: keep の解決本体（`keep()` と broadcast 受信 closure が共有する単一実装）。
 /// POST単独 Record を作らないため、ここでは RecordStateMachine を Record にしない。
-/// double-keep guard → select_target_pre → expected WAV metadata lookup → reservation →
+/// double-keep guard → select_target_pre → optional expected WAV metadata lookup → reservation →
 /// write_pending の順で arming し、PRE ACK 後に POST IO Thread が Record へ入る。
-/// expected WAV metadata が無い場合も診断 Record として arming するが、finalizer は通常棚へ
-/// publish せず `.failed` に隔離する。
+/// expected WAV metadata が無い場合でも Keep は狭めず、usable frames を通常 TRACE 棚へ出す。
 #[allow(clippy::too_many_arguments)]
 fn resolve_and_enter_keep(
     license: License,
@@ -429,7 +428,6 @@ fn resolve_and_enter_keep(
         Ok(p) => p.plugin_data_dir(),
         Err(_) => return false,
     };
-    let expected_wav = read_expected_metadata(&base, project_hash).ok();
     let _ = reservation::sweep_stale_reservations(&base);
     // B-127 (G-115-365): per-pairing O_EXCL reservation で cross-process atomic に枠を確保する。
     // pairing key = (target=PRE iid, post_iid=POST iid)。cap の真実源は枠ファイルの**物理存在のみ**
@@ -464,13 +462,12 @@ fn resolve_and_enter_keep(
         return false;
     }
     // target_pre_instance_id = 選定 PRE。PRE が自宛て signal を発見し ack する。
-    if write_pending_with_expected_and_clock(
+    if write_pending_claiming_expected_and_clock(
         &base,
         project_hash,
         post_iid,
         target.clone(),
         daw.to_string(),
-        expected_wav,
         started_at_position_samples,
     )
     .is_ok()
@@ -1251,8 +1248,9 @@ impl KirinHyphaEngine {
     /// Kirin OS/JUCE runtime が dropped WAV の正本 metadata を Record arm 前に渡す入口。
     ///
     /// `keep()` はこの metadata を `record_expected/current.json` から読み、PRE/POST 共通の
-    /// `record_signal.expected_wav` へコピーする。未設定・不完全・stale・consumed の場合も
-    /// Keep は診断 Record として開始できるが、finalizer は通常棚へ publish せず `.failed` に隔離する。
+    /// `record_signal.expected_wav` へコピーする。未設定・不完全・stale・consumed の場合でも
+    /// Record は開始し、usable frames は通常 TRACE 棚へ出す。完全性は integrity_degraded と
+    /// reason に残し、Kirin OS が起動順を要求されない構造にする。
     pub fn set_expected_wav_metadata(&self, input: ExpectedWavMetadataInput) -> bool {
         let project_hash = match self.identity.lock() {
             Ok(id) => id.project_hash.clone(),
@@ -2170,6 +2168,7 @@ pub unsafe extern "C" fn kirin_hypha_keep(handle: *mut KirinHyphaEngine) -> bool
 }
 
 /// Dropped WAV の expected metadata を Record arm 前に登録する。
+/// 未登録でも Keep は可能で、通常 publish の完全性 reason として扱う。
 ///
 /// # Safety
 /// `handle` は有効なハンドル。文字列ポインタは null または有効な null 終端 C 文字列。

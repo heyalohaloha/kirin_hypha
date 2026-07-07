@@ -37,13 +37,13 @@ use kirin_measure::{
     enumerate_active_post_pair_candidates, enumerate_active_post_pair_candidates_for_daw_session,
     enumerate_active_pre_pair_candidates_for_post_project, exit_record_preserve_pair,
     format_pair_label, load_signal_state, lookup_section_label, mark_released_with_reason,
-    pair_lock_active, read_expected_metadata, resolve_arm_target_for_post_project, sanitize_name,
-    scan_latest_v2_preset, show_note_button, show_save_button, show_stop_record_button,
-    write_broadcast, write_pending_with_expected_and_clock, write_stop_broadcast, DeltaMode,
-    DeltaResult, DeltaSnapshot, LatchedPre, License, LivenessEvaluator, MeasureResult,
-    PlatformPaths, PluginDataRole, PostCandidate, PreCandidate, PresetFileV2, RecordStateMachine,
-    ReleaseReason, SignalState, StoragePaths, MAX_ACTIVE_PER_PROJECT,
-    RECORD_START_BARRIER_DELAY_MS, SENSE_RECORD_HINT, SENSE_UPSELL_URL,
+    pair_lock_active, resolve_arm_target_for_post_project, sanitize_name, scan_latest_v2_preset,
+    show_note_button, show_save_button, show_stop_record_button, write_broadcast,
+    write_pending_claiming_expected_and_clock, write_stop_broadcast, DeltaMode, DeltaResult,
+    DeltaSnapshot, LatchedPre, License, LivenessEvaluator, MeasureResult, PlatformPaths,
+    PluginDataRole, PostCandidate, PreCandidate, PresetFileV2, RecordStateMachine, ReleaseReason,
+    SignalState, StoragePaths, MAX_ACTIVE_PER_PROJECT, RECORD_START_BARRIER_DELAY_MS,
+    SENSE_RECORD_HINT, SENSE_UPSELL_URL,
 };
 use nih_plug::prelude::Editor;
 use nih_plug_egui::{
@@ -1648,8 +1648,8 @@ fn set_pair_label(pair_label: &Arc<Mutex<String>>, paired_pre_name: &str, target
 /// 成功時は pair_label を `pair: PRE_xxxxxxxx` で設定する（POST GUI 表示用）。
 /// 同時に `paired_pre_target` に `target_id` を保存し、IO Thread が次回の writer_start で
 /// plugin_data の `paired_pre_instance_id` field に書き込めるようにする（v1.2 (a)）。
-/// expected WAV metadata は任意の trust anchor。無い場合も診断 Record として arming し、
-/// finalizer 側で通常棚 publish を止めて `.failed` に隔離する。
+/// expected WAV metadata は通常 TRACE の trust anchor。無い場合でも Keep は狭めず、
+/// usable frames を通常 TRACE 棚へ出し、完全性だけ degraded reason に残す。
 ///
 /// B-027 段階 2: `pair_pre_name` 非空時は `filter_candidates_by_name` で候補を
 /// 絞り込む。空文字時は filter pass-through (B-027 段階 1 受入維持)。
@@ -1770,19 +1770,6 @@ pub(crate) fn trigger_keep_internal(
         }
         return;
     }
-    let expected_wav = match read_expected_metadata(&plugin_data_dir, project_hash) {
-        Ok(metadata) => Some(metadata),
-        Err(e) => {
-            log::warn!(
-                "[POST keep] expected WAV metadata unavailable; arming diagnostic-only Record \
-                 (project_hash={}, err={})",
-                project_hash,
-                e
-            );
-            None
-        }
-    };
-
     // 5. G-115-365: per-pairing O_EXCL 枠を確保（cross-process atomic / FFI resolve_and_enter_keep
     // と同一 parity）。pairing key = (target_id=PRE iid, instance_id=POST iid)。cap 真実源は枠の
     // 物理存在のみ（count_distinct_pairings = reservation::count_frames）。reserve→枠数>MAX で
@@ -1810,13 +1797,12 @@ pub(crate) fn trigger_keep_internal(
     }
 
     // 6. record_signal を pending で書き込み（A-3 修正後: post_instance_id を path 識別子に）
-    match write_pending_with_expected_and_clock(
+    match write_pending_claiming_expected_and_clock(
         &plugin_data_dir,
         project_hash,
         instance_id,
         target_id.clone(),
         daw_session_id.to_string(),
-        expected_wav,
         started_at_position_samples,
     ) {
         Ok(_) => {

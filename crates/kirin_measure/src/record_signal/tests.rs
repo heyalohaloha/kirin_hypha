@@ -90,6 +90,43 @@ fn write_pending_with_clock_persists_native_start_position() {
 }
 
 #[test]
+fn write_pending_claiming_expected_consumes_current_for_session() {
+    let base = isolated_dir();
+    let expected = crate::record_expected::ExpectedWavMetadata {
+        expected_duration_samples: 48_000,
+        expected_sample_rate: 48_000,
+        wav_path: "/tmp/kirin-claim.wav".to_string(),
+        bounce_id: "bounce-signal-claim".to_string(),
+        created_at_ms: chrono::Utc::now().timestamp_millis(),
+        wav_file_size: Some(1_000),
+        wav_mtime_ms: chrono::Utc::now().timestamp_millis(),
+        wav_hash: Some("hash-signal-claim".to_string()),
+        consumed_at_ms: None,
+        consumed_by_session_id: None,
+    };
+    crate::record_expected::write_expected_metadata(&base, "ph", &expected).unwrap();
+
+    let s = write_pending_claiming_expected_and_clock(
+        &base,
+        "ph",
+        "post-1",
+        "pre-1".into(),
+        "daw-1".into(),
+        Some(96_000),
+    )
+    .unwrap();
+
+    assert_eq!(s.expected_wav.as_ref(), Some(&expected));
+    assert_eq!(s.started_at_position_samples, Some(96_000));
+    assert!(matches!(
+        crate::record_expected::read_expected_metadata(&base, "ph"),
+        Err(crate::record_expected::ExpectedMetadataError::Consumed)
+    ));
+    let loaded = read_signal(&base, "ph", "post-1").unwrap();
+    assert_eq!(loaded.expected_wav.as_ref(), Some(&expected));
+}
+
+#[test]
 fn read_signal_missing_returns_none() {
     let base = isolated_dir();
     assert!(read_signal(&base, "ph", "post-x").is_none());

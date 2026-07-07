@@ -1581,7 +1581,7 @@ mod tests {
     }
 
     #[test]
-    fn pending_without_expected_metadata_enters_diagnostic_record_and_acknowledges() {
+    fn pending_without_expected_metadata_acknowledges_degraded_record_path() {
         let base = isolated_base();
         write_matching_pending_with_expected(&base, "post-1", None);
 
