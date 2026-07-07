@@ -474,8 +474,6 @@ impl Plugin for HyphaPost {
             playback_sample_rate: Arc::clone(&self.playback_sample_rate),
             // W-280 / G-115-248: transport.playing 共有 (再生中 pair 変更 block)。
             is_playing: Arc::clone(&self.is_playing),
-            // Watch MAX reset 用。transport.playing が DAW 停止で凍結しても heartbeat で判定する。
-            heartbeat: Arc::clone(&self.heartbeat),
             // B-118: 単一鮮度評価器共有。editor は `playing かつ is_live()` で pair 変更をロックする
             // （playing 凍結値の false-release 防止 / processing 停止中は解除 / G-115-245: 3s）。
             liveness: Arc::clone(&self.liveness),

@@ -26,7 +26,7 @@ use nih_plug_egui::{
     egui::{self, Grid, Key, Label, RichText, Sense, Stroke, TextEdit, TextStyle, Vec2},
     EguiState,
 };
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, LazyLock, Mutex, RwLock};
 use std::time::Duration;
 
@@ -73,8 +73,6 @@ pub struct PreEditorState {
     pub preset_available: Arc<AtomicBool>,
     /// transport.playing の純粋な値。Watch MAX の再生開始 reset だけに使う。
     pub is_playing: Arc<AtomicBool>,
-    /// Audio Thread の進行 heartbeat。`is_playing` が DAW 停止で凍結した時の reset edge 補助。
-    pub heartbeat: Arc<AtomicU32>,
 
     /// B-023 段階 2: ユーザー定義 Name (HyphaPreParams.name と Arc 共有)。
     /// editor 描画時に毎フレーム `read()` で最新値を取り、編集確定時に
@@ -117,7 +115,6 @@ impl PreEditorState {
         record_acknowledged: Arc<AtomicBool>,
         preset_available: Arc<AtomicBool>,
         is_playing: Arc<AtomicBool>,
-        heartbeat: Arc<AtomicU32>,
         name: Arc<RwLock<String>>,
         instance_id: Arc<RwLock<String>>,
         record_error_message: Arc<RwLock<Option<String>>>,
@@ -130,7 +127,6 @@ impl PreEditorState {
             record_acknowledged,
             preset_available,
             is_playing,
-            heartbeat,
             name,
             instance_id,
             record_error_message,
@@ -158,7 +154,6 @@ pub fn create_pre_editor(
     record_acknowledged: Arc<AtomicBool>,
     preset_available: Arc<AtomicBool>,
     is_playing: Arc<AtomicBool>,
-    heartbeat: Arc<AtomicU32>,
     name: Arc<RwLock<String>>,
     instance_id: Arc<RwLock<String>>,
     record_error_message: Arc<RwLock<Option<String>>>,
@@ -173,7 +168,6 @@ pub fn create_pre_editor(
             record_acknowledged,
             preset_available,
             is_playing,
-            heartbeat,
             name,
             instance_id,
             record_error_message,
@@ -195,7 +189,6 @@ pub fn create_pre_editor(
             let recording = state.recording.load(Ordering::Relaxed);
             let ack = state.record_acknowledged.load(Ordering::Relaxed);
             let is_playing = state.is_playing.load(Ordering::Relaxed);
-            let heartbeat = state.heartbeat.load(Ordering::Relaxed);
 
             // Record ACK 成立エッジで banner 発動
             let now = ctx.input(|i| i.time);
@@ -212,9 +205,7 @@ pub fn create_pre_editor(
                 state.playback_max.reset();
                 MeasureResult::default()
             } else {
-                state
-                    .playback_max
-                    .update(&raw_m, is_playing, heartbeat, now)
+                state.playback_max.update(&raw_m, is_playing)
             };
 
             let (m, show_values, values_muted) = match sig {

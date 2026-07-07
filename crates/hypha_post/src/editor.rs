@@ -197,9 +197,6 @@ pub struct PostEditorState {
     /// load して再生中 pair 変更 (Name field + ComboBox PRE 候補行) を block する。
     pub is_playing: Arc<AtomicBool>,
 
-    /// Audio Thread の進行 heartbeat。Watch MAX の reset edge を frozen playing から守る。
-    pub heartbeat: Arc<AtomicU32>,
-
     /// B-118: 単一鮮度評価器。`update` 入口で `is_live()` を読み、`pair_lock_active(is_playing, live)`
     /// で pair 変更ロックを判定する（playing 凍結値の false-release 防止 / signal_state とは別軸 /
     /// G-115-245: 3s window）。
@@ -274,7 +271,6 @@ impl PostEditorState {
             playback_pos_samples: args.playback_pos_samples,
             playback_sample_rate: args.playback_sample_rate,
             is_playing: args.is_playing,
-            heartbeat: args.heartbeat,
             liveness: args.liveness,
             pair_pre_name: args.pair_pre_name,
             pair_claimed_at: args.pair_claimed_at,
@@ -326,8 +322,6 @@ pub struct PostEditorArgs {
     pub playback_sample_rate: Arc<AtomicU32>,
     /// W-280 / G-115-248: transport.playing 独立 AtomicBool。再生中 pair 変更 block 用。
     pub is_playing: Arc<AtomicBool>,
-    /// Audio Thread の進行 heartbeat。Watch MAX の reset edge を frozen playing から守る。
-    pub heartbeat: Arc<AtomicU32>,
     /// B-118: 単一鮮度評価器。`pair_lock_active(is_playing, is_live())` の live 軸。
     pub liveness: Arc<LivenessEvaluator>,
     /// B-027 段階 2: pair PRE Name の Arc 共有 (HyphaPostParams.pair_pre_name)。
@@ -362,9 +356,8 @@ pub fn create_post_editor(args: PostEditorArgs) -> Option<Box<dyn Editor>> {
             // 再生中 pair 変更 block の判定軸 (draw_pair_pre_name_field /
             // draw_pair_pre_combo PRE 候補行)。
             let is_playing = state.is_playing.load(Ordering::Relaxed);
-            let heartbeat = state.heartbeat.load(Ordering::Relaxed);
-            // B-115: 述語を「playing かつ live」へ。heartbeat 鮮度（processBlock 進行中）も snapshot し、
-            // playing 凍結値でも live=false ならロックしない（false-release 防止 / signal_state 非代用）。
+            // B-115: 述語を「playing かつ live」へ。LivenessEvaluator が heartbeat 鮮度
+            // （processBlock 進行中）を内部観測し、playing 凍結値でも live=false ならロックしない。
             let live = state.liveness.is_live();
             let pair_locked = pair_lock_active(is_playing, live);
             let raw_m = state.measure.lock().map(|g| g.clone()).unwrap_or_default();
@@ -435,9 +428,7 @@ pub fn create_post_editor(args: PostEditorArgs) -> Option<Box<dyn Editor>> {
                 state.playback_max.reset();
                 MeasureResult::default()
             } else {
-                state
-                    .playback_max
-                    .update(&raw_m, is_playing, heartbeat, now)
+                state.playback_max.update(&raw_m, is_playing)
             };
 
             let (m, d, display_held, display_muted) = match sig {
