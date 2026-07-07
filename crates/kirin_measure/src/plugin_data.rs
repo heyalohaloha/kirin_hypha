@@ -1027,8 +1027,12 @@ fn publish_pair_committed_files(
     peer_data: &mut PluginDataFile,
 ) -> Result<(), WriterError> {
     let manifest_path = pair_commit_manifest_path(paths, self_data)?;
+    let self_trace_path = pair_trace_shelf_path(self_paths, self_data)?;
+    let peer_trace_path = pair_trace_shelf_path(peer_paths, peer_data)?;
     let _ = fs::remove_file(&self_paths.final_path);
     let _ = fs::remove_file(&peer_paths.final_path);
+    let _ = fs::remove_file(&self_trace_path);
+    let _ = fs::remove_file(&peer_trace_path);
     write_plugin_data_atomic(&self_paths.member_path, self_data)?;
     if let Err(e) = write_plugin_data_atomic(&peer_paths.member_path, peer_data) {
         let _ = fs::remove_file(&self_paths.member_path);
@@ -1047,7 +1051,31 @@ fn publish_pair_committed_files(
     }
     let _ = fs::remove_file(&self_paths.final_path);
     let _ = fs::remove_file(&peer_paths.final_path);
+    write_plugin_data_atomic(&self_trace_path, self_data)?;
+    if let Err(e) = write_plugin_data_atomic(&peer_trace_path, peer_data) {
+        let _ = fs::remove_file(&self_trace_path);
+        return Err(e);
+    }
     Ok(())
+}
+
+fn pair_trace_shelf_path(paths: &PairPaths, data: &PluginDataFile) -> Result<PathBuf, WriterError> {
+    pair_trace_shelf_path_from_member_path(&paths.member_path, data)
+}
+
+fn pair_trace_shelf_path_from_member_path(
+    member_path: &Path,
+    data: &PluginDataFile,
+) -> Result<PathBuf, WriterError> {
+    let role_dir = member_path
+        .parent()
+        .and_then(Path::parent)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "role dir missing"))?;
+    let stamp = compact_wall_clock(&data.timestamp);
+    if stamp.is_empty() {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "timestamp missing").into());
+    }
+    Ok(role_dir.join(format!("{stamp}.json")))
 }
 
 #[derive(Debug, Clone)]
@@ -1163,6 +1191,115 @@ pub fn finalize_pair_pending_sessions(plugin_data_root: &Path) -> usize {
     }
     walk_pair_pending(plugin_data_root, &mut finalized);
     finalized
+}
+
+/// PairRecordSession manifest/hidden member を真実源として、Kirin OS が読む通常 TRACE shelf
+/// (`{project}/{instance}/{pre|post}/{wall_clock}.json`) を収束させる。
+///
+/// 旧版が `.pair_committed` + `record_sessions` だけを残した場合、または publish 中の crash で
+/// 通常 shelf が片側/両側欠けた場合でも、次回起動時に通常 TRACE へ戻すための自己修復器。
+pub fn reconcile_pair_committed_trace_shelves(plugin_data_root: &Path) -> usize {
+    let mut reconciled = 0_usize;
+    if !plugin_data_root.is_dir() {
+        return reconciled;
+    }
+    walk_pair_commit_manifests(plugin_data_root, plugin_data_root, &mut reconciled);
+    reconciled
+}
+
+fn walk_pair_commit_manifests(base_dir: &Path, dir: &Path, reconciled: &mut usize) {
+    let entries = match fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(_) => return,
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let ftype = match entry.file_type() {
+            Ok(ftype) => ftype,
+            Err(_) => continue,
+        };
+        if ftype.is_dir() {
+            walk_pair_commit_manifests(base_dir, &path, reconciled);
+            continue;
+        }
+        if !ftype.is_file() || path.extension().is_none_or(|ext| ext != "json") {
+            continue;
+        }
+        if path
+            .parent()
+            .and_then(Path::file_name)
+            .and_then(|name| name.to_str())
+            != Some(PAIR_RECORD_SESSIONS_DIR)
+        {
+            continue;
+        }
+        let bytes = match fs::read(&path) {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                log::warn!(
+                    "[pair_record_session] manifest read failed during reconcile: {} ({})",
+                    path.display(),
+                    e
+                );
+                continue;
+            }
+        };
+        let manifest: PairCommitManifest = match serde_json::from_slice(&bytes) {
+            Ok(manifest) => manifest,
+            Err(e) => {
+                log::warn!(
+                    "[pair_record_session] manifest parse failed during reconcile: {} ({})",
+                    path.display(),
+                    e
+                );
+                continue;
+            }
+        };
+        if manifest.schema_version != PAIR_RECORD_SESSION_SCHEMA {
+            continue;
+        }
+        for side in [&manifest.pre, &manifest.post] {
+            match reconcile_pair_commit_side(base_dir, side) {
+                Ok(true) => *reconciled = reconciled.saturating_add(1),
+                Ok(false) => {}
+                Err(e) => log::warn!(
+                    "[pair_record_session] TRACE shelf reconcile failed: manifest={} side={} err={}",
+                    path.display(),
+                    side.role,
+                    e
+                ),
+            }
+        }
+    }
+}
+
+fn reconcile_pair_commit_side(base_dir: &Path, side: &PairCommitSide) -> Result<bool, WriterError> {
+    let member_path = PathBuf::from(&side.path);
+    if !member_path.starts_with(base_dir) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "pair commit member path escapes plugin_data base",
+        )
+        .into());
+    }
+    let mut data = read_plugin_data_file(&member_path)?;
+    if !verify_checksum(&data) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "pair commit member checksum mismatch",
+        )
+        .into());
+    }
+    let trace_path = pair_trace_shelf_path_from_member_path(&member_path, &data)?;
+    if trace_path.exists() {
+        if let Ok(existing) = read_plugin_data_file(&trace_path) {
+            if verify_checksum(&existing) && existing.checksum == data.checksum {
+                return Ok(false);
+            }
+        }
+    }
+    write_plugin_data_atomic(&trace_path, &mut data)?;
+    Ok(true)
 }
 
 fn walk_pair_pending(dir: &Path, finalized: &mut usize) {
@@ -1438,19 +1575,75 @@ pub fn append_annotation_to_latest(
     let Some(latest) = latest else {
         return Ok(false);
     };
-    append_annotation_to_file(&latest, memo)?;
+    let annotation = Annotation {
+        t: now_iso8601(),
+        memo,
+    };
+    append_annotation_to_file_and_mirror(&latest, annotation)?;
     Ok(true)
 }
 
-fn append_annotation_to_file(path: &Path, memo: String) -> Result<(), WriterError> {
+fn append_annotation_to_file_and_mirror(
+    path: &Path,
+    annotation: Annotation,
+) -> Result<(), WriterError> {
+    let mirror = pair_annotation_mirror_path(path)?;
+    let source_is_pair_member = is_pair_member_path(path);
+    append_annotation_to_file(path, annotation.clone())?;
+    if let Some(mirror) = mirror.filter(|mirror| mirror != path) {
+        if mirror.exists() {
+            append_annotation_to_file(&mirror, annotation)?;
+        } else if source_is_pair_member {
+            let mut data = read_plugin_data_file(path)?;
+            write_plugin_data_atomic(&mirror, &mut data)?;
+        }
+    }
+    Ok(())
+}
+
+fn append_annotation_to_file(path: &Path, annotation: Annotation) -> Result<(), WriterError> {
     let bytes = fs::read(path)?;
     let mut data: PluginDataFile = serde_json::from_slice(&bytes)?;
-    data.annotations.push(Annotation {
-        t: now_iso8601(),
-        memo,
-    });
+    data.annotations.push(annotation);
     write_plugin_data_atomic(path, &mut data)?;
     Ok(())
+}
+
+fn pair_annotation_mirror_path(path: &Path) -> Result<Option<PathBuf>, WriterError> {
+    let bytes = fs::read(path)?;
+    let data: PluginDataFile = serde_json::from_slice(&bytes)?;
+    if data.commit_status.as_deref() != Some("committed") {
+        return Ok(None);
+    }
+    let Some(session_id) = data.record_session_id.as_deref().map(str::trim) else {
+        return Ok(None);
+    };
+    if session_id.is_empty() {
+        return Ok(None);
+    }
+    let Some(parent) = path.parent() else {
+        return Ok(None);
+    };
+    let parent_name = parent.file_name().and_then(|name| name.to_str());
+    if parent_name == Some(PAIR_RECORD_MEMBERS_DIR) {
+        return Ok(Some(pair_trace_shelf_path_from_member_path(path, &data)?));
+    }
+    let safe = crate::path_identity::guard_path_component(
+        session_id,
+        "append_annotation.record_session_id",
+    );
+    Ok(Some(
+        parent
+            .join(PAIR_RECORD_MEMBERS_DIR)
+            .join(format!("{safe}.json")),
+    ))
+}
+
+fn is_pair_member_path(path: &Path) -> bool {
+    path.parent()
+        .and_then(|parent| parent.file_name())
+        .and_then(|name| name.to_str())
+        == Some(PAIR_RECORD_MEMBERS_DIR)
 }
 
 fn latest_pair_member_for_annotation(
@@ -2227,7 +2420,7 @@ mod tests {
     }
 
     #[test]
-    fn pair_finalize_publishes_manifest_with_hidden_members_only() {
+    fn pair_finalize_publishes_manifest_hidden_members_and_trace_shelf() {
         let base = isolated_dir();
         let mut pre = complete_pair_writer(
             &base,
@@ -2256,14 +2449,20 @@ mod tests {
         post.data.commit_status = Some("pair_pending".to_string());
         let pre_paths = self_paths_for(&pre.paths, &pre.data);
         let post_paths = self_paths_for(&post.paths, &post.data);
+        let pre_trace_path = pair_trace_shelf_path(&pre_paths, &pre.data).unwrap();
+        let post_trace_path = pair_trace_shelf_path(&post_paths, &post.data).unwrap();
         let mut stale_pre_final = pre.data.clone();
         let mut stale_post_final = post.data.clone();
         stale_pre_final.commit_status = Some("committed".to_string());
         stale_post_final.commit_status = Some("committed".to_string());
         write_plugin_data_atomic(&pre_paths.final_path, &mut stale_pre_final).unwrap();
         write_plugin_data_atomic(&post_paths.final_path, &mut stale_post_final).unwrap();
+        write_plugin_data_atomic(&pre_trace_path, &mut stale_pre_final).unwrap();
+        write_plugin_data_atomic(&post_trace_path, &mut stale_post_final).unwrap();
         assert!(pre_paths.final_path.exists());
         assert!(post_paths.final_path.exists());
+        assert!(pre_trace_path.exists());
+        assert!(post_trace_path.exists());
         pre.write_atomic(pre_paths.pair_pending_path.clone())
             .unwrap();
         post.write_atomic(post_paths.pair_pending_path.clone())
@@ -2272,10 +2471,8 @@ mod tests {
         try_finalize_pair_session(&pre.paths, &pre.data).unwrap();
 
         let manifest_path = pair_commit_manifest_path(&pre.paths, &pre.data).unwrap();
-        assert!(
-            !pre_paths.final_path.exists() && !post_paths.final_path.exists(),
-            "pair side JSON must not appear in normal role shelves"
-        );
+        assert!(!pre_paths.final_path.exists());
+        assert!(!post_paths.final_path.exists());
         assert!(
             pre_paths.member_path.exists(),
             "PRE hidden member must exist"
@@ -2288,6 +2485,8 @@ mod tests {
             manifest_path.exists(),
             "pair commit manifest must be the publish barrier"
         );
+        assert!(pre_trace_path.exists(), "PRE TRACE shelf JSON must exist");
+        assert!(post_trace_path.exists(), "POST TRACE shelf JSON must exist");
         assert!(
             !pre_paths.pair_pending_path.exists() && !post_paths.pair_pending_path.exists(),
             "pending files are removed only after pair publish succeeds"
@@ -2296,10 +2495,22 @@ mod tests {
             serde_json::from_slice(&fs::read(&pre_paths.member_path).unwrap()).unwrap();
         let post_data: PluginDataFile =
             serde_json::from_slice(&fs::read(&post_paths.member_path).unwrap()).unwrap();
+        let pre_trace_data: PluginDataFile =
+            serde_json::from_slice(&fs::read(&pre_trace_path).unwrap()).unwrap();
+        let post_trace_data: PluginDataFile =
+            serde_json::from_slice(&fs::read(&post_trace_path).unwrap()).unwrap();
         assert_eq!(pre_data.commit_status.as_deref(), Some("committed"));
         assert_eq!(post_data.commit_status.as_deref(), Some("committed"));
+        assert_eq!(pre_trace_data.commit_status.as_deref(), Some("committed"));
+        assert_eq!(post_trace_data.commit_status.as_deref(), Some("committed"));
+        assert!(pre_trace_data.validity);
+        assert!(post_trace_data.validity);
         assert!(verify_checksum(&pre_data));
         assert!(verify_checksum(&post_data));
+        assert!(verify_checksum(&pre_trace_data));
+        assert!(verify_checksum(&post_trace_data));
+        assert_eq!(pre_trace_data.checksum, pre_data.checksum);
+        assert_eq!(post_trace_data.checksum, post_data.checksum);
         let manifest = String::from_utf8(fs::read(&manifest_path).unwrap()).unwrap();
         assert!(manifest.contains("session-pair-atomic"));
         assert!(manifest.contains("iid-pre-atomic"));
@@ -2345,9 +2556,13 @@ mod tests {
         try_finalize_pair_session(&pre.paths, &pre.data).unwrap();
 
         let manifest_path = pair_commit_manifest_path(&pre.paths, &pre.data).unwrap();
+        let pre_trace_path = pair_trace_shelf_path(&pre_paths, &pre.data).unwrap();
+        let post_trace_path = pair_trace_shelf_path(&post_paths, &post.data).unwrap();
         assert!(manifest_path.exists());
         assert!(pre_paths.member_path.exists());
         assert!(post_paths.member_path.exists());
+        assert!(pre_trace_path.exists());
+        assert!(post_trace_path.exists());
         assert!(!pre_paths.failed_path.exists());
         assert!(!post_paths.failed_path.exists());
 
@@ -2355,7 +2570,11 @@ mod tests {
             serde_json::from_slice(&fs::read(&pre_paths.member_path).unwrap()).unwrap();
         let post_data: PluginDataFile =
             serde_json::from_slice(&fs::read(&post_paths.member_path).unwrap()).unwrap();
-        for data in [&pre_data, &post_data] {
+        let pre_trace_data: PluginDataFile =
+            serde_json::from_slice(&fs::read(&pre_trace_path).unwrap()).unwrap();
+        let post_trace_data: PluginDataFile =
+            serde_json::from_slice(&fs::read(&post_trace_path).unwrap()).unwrap();
+        for data in [&pre_data, &post_data, &pre_trace_data, &post_trace_data] {
             assert_eq!(data.commit_status.as_deref(), Some("committed"));
             assert!(data.validity);
             assert!(data.integrity_degraded);
@@ -2408,9 +2627,13 @@ mod tests {
         try_finalize_pair_session(&pre.paths, &pre.data).unwrap();
 
         let manifest_path = pair_commit_manifest_path(&pre.paths, &pre.data).unwrap();
+        let pre_trace_path = pair_trace_shelf_path(&pre_paths, &pre.data).unwrap();
+        let post_trace_path = pair_trace_shelf_path(&post_paths, &post.data).unwrap();
         assert!(manifest_path.exists());
         assert!(pre_paths.member_path.exists());
         assert!(post_paths.member_path.exists());
+        assert!(pre_trace_path.exists());
+        assert!(post_trace_path.exists());
         assert!(!pre_paths.failed_path.exists());
         assert!(!post_paths.failed_path.exists());
 
@@ -2418,7 +2641,11 @@ mod tests {
             serde_json::from_slice(&fs::read(&pre_paths.member_path).unwrap()).unwrap();
         let post_data: PluginDataFile =
             serde_json::from_slice(&fs::read(&post_paths.member_path).unwrap()).unwrap();
-        for data in [&pre_data, &post_data] {
+        let pre_trace_data: PluginDataFile =
+            serde_json::from_slice(&fs::read(&pre_trace_path).unwrap()).unwrap();
+        let post_trace_data: PluginDataFile =
+            serde_json::from_slice(&fs::read(&post_trace_path).unwrap()).unwrap();
+        for data in [&pre_data, &post_data, &pre_trace_data, &post_trace_data] {
             assert_eq!(data.commit_status.as_deref(), Some("committed"));
             assert!(data.validity);
             assert!(data.integrity_degraded);
@@ -2432,6 +2659,68 @@ mod tests {
                 .any(|reason| reason == "trace_frame_count_mismatch"));
             assert!(verify_checksum(data));
         }
+    }
+
+    #[test]
+    fn reconcile_pair_committed_trace_shelves_restores_hidden_only_commit() {
+        let base = isolated_dir();
+        let mut pre = complete_pair_writer(
+            &base,
+            Role::Pre,
+            "iid-pre-reconcile",
+            None,
+            Some("iid-post-reconcile".to_string()),
+        );
+        let mut post = complete_pair_writer(
+            &base,
+            Role::Post,
+            "iid-post-reconcile",
+            Some("iid-pre-reconcile".to_string()),
+            None,
+        );
+        crate::record_expected::write_expected_metadata(
+            &base,
+            "project_hash_test",
+            &expected_wav_fixture(),
+        )
+        .unwrap();
+        pre.data.status = Status::Closed;
+        pre.data.commit_status = Some("pair_pending".to_string());
+        post.data.status = Status::Closed;
+        post.data.commit_status = Some("pair_pending".to_string());
+        let pre_paths = self_paths_for(&pre.paths, &pre.data);
+        let post_paths = self_paths_for(&post.paths, &post.data);
+        let pre_trace_path = pair_trace_shelf_path(&pre_paths, &pre.data).unwrap();
+        let post_trace_path = pair_trace_shelf_path(&post_paths, &post.data).unwrap();
+        pre.write_atomic(pre_paths.pair_pending_path.clone())
+            .unwrap();
+        post.write_atomic(post_paths.pair_pending_path.clone())
+            .unwrap();
+        try_finalize_pair_session(&pre.paths, &pre.data).unwrap();
+        assert!(pre_paths.member_path.exists());
+        assert!(post_paths.member_path.exists());
+        assert!(pre_trace_path.exists());
+        assert!(post_trace_path.exists());
+
+        fs::remove_file(&pre_trace_path).unwrap();
+        fs::remove_file(&post_trace_path).unwrap();
+        assert!(!pre_trace_path.exists());
+        assert!(!post_trace_path.exists());
+
+        assert_eq!(reconcile_pair_committed_trace_shelves(&base), 2);
+        let pre_member: PluginDataFile =
+            serde_json::from_slice(&fs::read(&pre_paths.member_path).unwrap()).unwrap();
+        let post_member: PluginDataFile =
+            serde_json::from_slice(&fs::read(&post_paths.member_path).unwrap()).unwrap();
+        let pre_trace: PluginDataFile =
+            serde_json::from_slice(&fs::read(&pre_trace_path).unwrap()).unwrap();
+        let post_trace: PluginDataFile =
+            serde_json::from_slice(&fs::read(&post_trace_path).unwrap()).unwrap();
+        assert_eq!(pre_trace.checksum, pre_member.checksum);
+        assert_eq!(post_trace.checksum, post_member.checksum);
+        assert!(verify_checksum(&pre_trace));
+        assert!(verify_checksum(&post_trace));
+        assert_eq!(reconcile_pair_committed_trace_shelves(&base), 0);
     }
 
     #[test]
@@ -2718,12 +3007,13 @@ mod tests {
         post.data.commit_status = Some("pair_pending".to_string());
         let pre_paths = self_paths_for(&pre.paths, &pre.data);
         let post_paths = self_paths_for(&post.paths, &post.data);
+        let post_trace_path = pair_trace_shelf_path(&post_paths, &post.data).unwrap();
         pre.write_atomic(pre_paths.pair_pending_path.clone())
             .unwrap();
         post.write_atomic(post_paths.pair_pending_path.clone())
             .unwrap();
         try_finalize_pair_session(&pre.paths, &pre.data).unwrap();
-        assert!(!post_paths.final_path.exists());
+        assert!(post_trace_path.exists());
         assert!(post_paths.member_path.exists());
 
         let ok = append_annotation_to_latest(
@@ -2736,11 +3026,15 @@ mod tests {
         .unwrap();
         assert!(ok);
 
-        let loaded: PluginDataFile =
+        let member: PluginDataFile =
             serde_json::from_slice(&fs::read(&post_paths.member_path).unwrap()).unwrap();
-        assert_eq!(loaded.annotations.len(), 1);
-        assert_eq!(loaded.annotations[0].memo, "Manifest Note");
-        assert!(verify_checksum(&loaded));
+        let trace: PluginDataFile =
+            serde_json::from_slice(&fs::read(&post_trace_path).unwrap()).unwrap();
+        for loaded in [&member, &trace] {
+            assert_eq!(loaded.annotations.len(), 1);
+            assert_eq!(loaded.annotations[0].memo, "Manifest Note");
+            assert!(verify_checksum(loaded));
+        }
     }
 
     #[test]

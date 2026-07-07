@@ -1632,6 +1632,8 @@ pub struct RecoveryReport {
     pub recovered: usize,
     /// `.pair_pending` に残っていた PRE/POST session を committed/failed へ収束させた件数。
     pub pair_finalized: usize,
+    /// `record_sessions` manifest から通常 TRACE shelf を復元/更新した件数。
+    pub trace_reconciled: usize,
     /// HMAC-SHA256 / serde 整合性に失敗し放置した件数 (削除しない / 将来分析用)。
     pub orphaned: usize,
 }
@@ -1657,11 +1659,18 @@ pub fn recover_orphan_tmps(plugin_data_root: &Path) -> RecoveryReport {
     }
     walk_tmp_recover(plugin_data_root, &mut report);
     report.pair_finalized = crate::plugin_data::finalize_pair_pending_sessions(plugin_data_root);
-    if report.recovered > 0 || report.pair_finalized > 0 || report.orphaned > 0 {
+    report.trace_reconciled =
+        crate::plugin_data::reconcile_pair_committed_trace_shelves(plugin_data_root);
+    if report.recovered > 0
+        || report.pair_finalized > 0
+        || report.trace_reconciled > 0
+        || report.orphaned > 0
+    {
         log::info!(
-            "[recover] startup record recovery: recovered={} pair_finalized={} orphaned={} root={}",
+            "[recover] startup record recovery: recovered={} pair_finalized={} trace_reconciled={} orphaned={} root={}",
             report.recovered,
             report.pair_finalized,
+            report.trace_reconciled,
             report.orphaned,
             plugin_data_root.display()
         );
@@ -2389,7 +2398,9 @@ pub fn drain_on_shutdown(shutdown: &Arc<AtomicBool>, recording: &mut Option<Reco
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::plugin_data::{PluginDataFile, PluginDataWriter, Role, WriterPaths};
+    use crate::plugin_data::{
+        PluginDataFile, PluginDataWriter, Role, TraceDiagnostics, WriterPaths,
+    };
     use crate::record::RecordStateMachine;
     use crate::{License, MeasureResult, PsbSummary};
     use std::fs;
@@ -4560,6 +4571,85 @@ mod tests {
             serde_json::from_slice(&fs::read(&pending_path).unwrap()).unwrap();
         assert_eq!(loaded.commit_status.as_deref(), Some("pair_pending"));
         assert!(verify_checksum(&loaded));
+    }
+
+    #[test]
+    fn recover_orphan_tmps_reconciles_hidden_pair_commit_to_trace_shelf() {
+        let base = isolated_base();
+        let start_iso = "2026-04-17T14:32:08Z";
+        let session_id = "session-startup-reconcile";
+        let pre_iid = "iid-pre-startup-reconcile";
+        let post_iid = "iid-post-startup-reconcile";
+        let pre_paths = WriterPaths::build(&base, TEST_PH, pre_iid, Role::Pre, start_iso);
+        let post_paths = WriterPaths::build(&base, TEST_PH, post_iid, Role::Post, start_iso);
+        let pre_trace_path = pre_paths.final_path.clone();
+        let post_trace_path = post_paths.final_path.clone();
+        let mut pre = PluginDataWriter::create(
+            pre_paths,
+            "test-installation-id".to_string(),
+            TEST_PH.to_string(),
+            pre_iid.to_string(),
+            Role::Pre,
+            None,
+            48_000,
+            None,
+            Some(post_iid.to_string()),
+            None,
+            None,
+        )
+        .unwrap();
+        let mut post = PluginDataWriter::create(
+            post_paths,
+            "test-installation-id".to_string(),
+            TEST_PH.to_string(),
+            post_iid.to_string(),
+            Role::Post,
+            None,
+            48_000,
+            Some(pre_iid.to_string()),
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        for writer in [&mut pre, &mut post] {
+            writer.set_record_start_wall_clock(start_iso.to_string());
+            writer.set_record_session_id(Some(session_id.to_string()));
+            writer.set_trace_diagnostics(TraceDiagnostics {
+                raw_trace_count: 1,
+                expected_frame_count: 1,
+                measured_frame_count: 1,
+                missing_slots: 0,
+                explicit_silence_frame_count: 0,
+            });
+            writer.append_frame(0, [0.0; 20], 0.0, -20.0, -1.0, 12.0, Some(10.0));
+        }
+
+        pre.close().unwrap();
+        post.close().unwrap();
+        assert!(pre_trace_path.exists());
+        assert!(post_trace_path.exists());
+        fs::remove_file(&pre_trace_path).unwrap();
+        fs::remove_file(&post_trace_path).unwrap();
+
+        let report = recover_orphan_tmps(&base);
+        assert_eq!(report.recovered, 0);
+        assert_eq!(report.pair_finalized, 0);
+        assert_eq!(report.trace_reconciled, 2);
+        assert_eq!(report.orphaned, 0);
+        assert!(pre_trace_path.exists());
+        assert!(post_trace_path.exists());
+        let pre_loaded: PluginDataFile =
+            serde_json::from_slice(&fs::read(&pre_trace_path).unwrap()).unwrap();
+        let post_loaded: PluginDataFile =
+            serde_json::from_slice(&fs::read(&post_trace_path).unwrap()).unwrap();
+        assert_eq!(pre_loaded.commit_status.as_deref(), Some("committed"));
+        assert_eq!(post_loaded.commit_status.as_deref(), Some("committed"));
+        assert!(verify_checksum(&pre_loaded));
+        assert!(verify_checksum(&post_loaded));
+
+        let second_report = recover_orphan_tmps(&base);
+        assert_eq!(second_report.trace_reconciled, 0);
     }
 
     /// checksum 不整合の .tmp は orphaned として残置 (削除しない)。

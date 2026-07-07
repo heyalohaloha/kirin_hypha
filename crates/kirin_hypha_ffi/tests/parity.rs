@@ -758,7 +758,7 @@ fn pair_member_json_from_manifest(
         .to_string();
     assert!(
         path.contains(".pair_committed"),
-        "paired Record member must stay out of normal role shelf: {path}"
+        "PairRecordSession manifest must point to the durable hidden member: {path}"
     );
     let path = std::path::PathBuf::from(path);
     assert!(
@@ -1558,19 +1558,17 @@ fn capstone_paired_record_output_and_linkage() {
         drive(2.0); // PRE が released を検出して閉じるのを待つ + 両 writer close。
     } // engines Drop → io_thread join（残り writer は status=closed flush）。
 
-    // 5) PairRecordSession manifest から両 Record member を読み戻す。
-    assert!(
-        find_json_under(&plugin_data_root, "pre", "*.json").is_none(),
-        "paired PRE must not publish a side JSON in the normal role shelf"
-    );
-    assert!(
-        find_json_under(&plugin_data_root, "post", "*.json").is_none(),
-        "paired POST must not publish a side JSON in the normal role shelf"
-    );
+    // 5) Kirin OS が読む通常 TRACE 棚と PairRecordSession manifest の両方から読み戻す。
+    let pre_trace_json = find_json_under(&plugin_data_root, "pre", "*.json")
+        .expect("paired PRE must publish a normal TRACE shelf JSON");
+    let post_trace_json = find_json_under(&plugin_data_root, "post", "*.json")
+        .expect("paired POST must publish a normal TRACE shelf JSON");
     let pre_json = pair_member_json_from_manifest(&plugin_data_root, "pre");
     let post_json = pair_member_json_from_manifest(&plugin_data_root, "post");
-    eprintln!("[capstone] PRE  = {}", pre_json.display());
-    eprintln!("[capstone] POST = {}", post_json.display());
+    eprintln!("[capstone] PRE hidden  = {}", pre_json.display());
+    eprintln!("[capstone] POST hidden = {}", post_json.display());
+    eprintln!("[capstone] PRE trace   = {}", pre_trace_json.display());
+    eprintln!("[capstone] POST trace  = {}", post_trace_json.display());
 
     // 両者が同一 project_uuid(=POST の puid-post) 配下に揃う（PRE が adopt）。
     assert!(
@@ -1588,6 +1586,18 @@ fn capstone_paired_record_output_and_linkage() {
         serde_json::from_str(&std::fs::read_to_string(&pre_json).unwrap()).unwrap();
     let post_pd: PluginDataFile =
         serde_json::from_str(&std::fs::read_to_string(&post_json).unwrap()).unwrap();
+    let pre_trace_pd: PluginDataFile =
+        serde_json::from_str(&std::fs::read_to_string(&pre_trace_json).unwrap()).unwrap();
+    let post_trace_pd: PluginDataFile =
+        serde_json::from_str(&std::fs::read_to_string(&post_trace_json).unwrap()).unwrap();
+    assert_eq!(
+        pre_trace_pd.checksum, pre_pd.checksum,
+        "PRE normal TRACE shelf must mirror the hidden committed member"
+    );
+    assert_eq!(
+        post_trace_pd.checksum, post_pd.checksum,
+        "POST normal TRACE shelf must mirror the hidden committed member"
+    );
 
     // schema / status / frames。
     assert_eq!(pre_pd.schema_version, "1.3");
@@ -1847,18 +1857,26 @@ fn post_add_annotation_targets_post_role() {
         );
     }
 
-    // POST member に注釈が入ったこと。
-    assert!(
-        find_json_under(&plugin_data_root, "post", "*.json").is_none(),
-        "paired POST must stay hidden behind PairRecordSession manifest"
-    );
+    // POST の通常 TRACE 棚と hidden member の両方に注釈が入ったこと。
+    let post_trace_json = find_json_under(&plugin_data_root, "post", "*.json")
+        .expect("paired POST normal TRACE shelf JSON exists");
     let post_json = pair_member_json_from_manifest(&plugin_data_root, "post");
-    eprintln!("[B-067] POST = {}", post_json.display());
+    eprintln!("[B-067] POST hidden = {}", post_json.display());
+    eprintln!("[B-067] POST trace  = {}", post_trace_json.display());
     let post_pd: PluginDataFile =
         serde_json::from_str(&std::fs::read_to_string(&post_json).unwrap()).unwrap();
+    let post_trace_pd: PluginDataFile =
+        serde_json::from_str(&std::fs::read_to_string(&post_trace_json).unwrap()).unwrap();
     assert!(
         post_pd.annotations.iter().any(|a| a.memo == "post-note"),
-        "annotation が POST role(.json) に入る（PRE 固定をやめた）"
+        "annotation が POST hidden member に入る（PRE 固定をやめた）"
+    );
+    assert!(
+        post_trace_pd
+            .annotations
+            .iter()
+            .any(|a| a.memo == "post-note"),
+        "annotation が POST normal TRACE shelf にも入る"
     );
 
     let _ = std::fs::remove_dir_all(&test_root);
