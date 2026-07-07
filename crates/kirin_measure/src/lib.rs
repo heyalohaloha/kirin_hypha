@@ -36,6 +36,7 @@ pub mod record_writer;
 pub mod resampler;
 pub mod reservation;
 pub mod storage;
+pub mod watch_playback_pass;
 pub mod watchdog;
 
 pub use all_keep_signal::{
@@ -140,6 +141,10 @@ pub use storage::{
     cleanup_legacy_v1, load_installation_id_safe, load_or_recover, read_identity, write_both,
     write_identity_atomic, CleanupReport, IdentityCache, LoadStatus, LoadedIdentity, PlatformKind,
     PlatformPaths, StorageError, StoragePaths, CLEANUP_V1_DONE_FILENAME,
+};
+pub use watch_playback_pass::{
+    advance_watch_playback_pass_id, watch_playback_block_duration_secs,
+    watch_playback_pass_should_start,
 };
 pub use watchdog::{spawn_watchdog, IoThreadHandle, RestartIoFn, WatchdogIo, WatchdogParams};
 
@@ -514,7 +519,7 @@ pub struct MeasureResult {
     /// GUI の freshness 判定専用で、Record/TRACE/plugin_data の正本値には使わない。
     pub measure_sequence: u64,
 
-    /// Measure Thread が非Active→Active 遷移を検出するたびに進める playback pass id。
+    /// Audio Thread が transport playback pass 境界で進める id。
     /// Watch 表示の「再生 pass ごとの最大値」reset 境界として使う。
     pub playback_pass_id: u64,
 

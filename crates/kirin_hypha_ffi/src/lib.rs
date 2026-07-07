@@ -188,6 +188,8 @@ pub struct KirinHyphaEngine {
     shutdown: Arc<AtomicBool>,
     /// process() 相当の heartbeat（push_samples が進める）。
     heartbeat: Arc<AtomicU32>,
+    /// Watch MAX 用 playback pass id。FFI では transport pass 通知がないため engine 生存中は安定値。
+    watch_playback_pass_id: Arc<AtomicU64>,
     /// B-118: 単一鮮度評価器。editor が POST pair lock の live 述語として読み（`kirin_hypha_heartbeat_live`
     /// getter 経由）、Measure Thread / watchdog も同一評価器を読む（signal_state とは別軸）。
     liveness: Arc<LivenessEvaluator>,
@@ -558,6 +560,7 @@ impl KirinHyphaEngine {
         let signal_state = Arc::new(AtomicU8::new(SignalState::Inactive as u8));
         let shutdown = Arc::new(AtomicBool::new(false));
         let heartbeat = Arc::new(AtomicU32::new(0));
+        let watch_playback_pass_id = Arc::new(AtomicU64::new(1));
         // B-118: 単一鮮度評価器。heartbeat を内部観測し is_live()（G-115-245: 3s window）を返す。
         // Measure Thread / editor pair lock / FFI getter / watchdog が同一評価器を読む。
         let liveness = Arc::new(LivenessEvaluator::new(
@@ -579,6 +582,7 @@ impl KirinHyphaEngine {
             sample_rate,
             num_channels,
             Arc::clone(&measure_result),
+            Arc::clone(&watch_playback_pass_id),
             Arc::clone(&signal_state),
             Arc::clone(&shutdown),
             Arc::clone(&liveness),
@@ -596,6 +600,7 @@ impl KirinHyphaEngine {
             n_channels: num_channels,
             ring_capacity: capacity,
             measure_result: Arc::clone(&measure_result),
+            watch_playback_pass_id: Arc::clone(&watch_playback_pass_id),
             signal_state: Arc::clone(&signal_state),
             evaluator: Arc::clone(&liveness),
             measure_shutdown: Arc::clone(&shutdown),
@@ -628,6 +633,7 @@ impl KirinHyphaEngine {
             signal_state,
             shutdown,
             heartbeat,
+            watch_playback_pass_id,
             liveness,
             record_sm,
             latest_position_valid: Arc::new(AtomicBool::new(false)),
@@ -1543,6 +1549,9 @@ impl KirinHyphaEngine {
     pub fn push_samples(&self, interleaved: &[f32], num_channels: u32) {
         // (1) heartbeat は常に進める（空ブロック keepalive でも Active を維持できる）。
         let hb = self.heartbeat.fetch_add(1, Ordering::Relaxed);
+        if self.watch_playback_pass_id.load(Ordering::Relaxed) == 0 {
+            self.watch_playback_pass_id.store(1, Ordering::Relaxed);
+        }
 
         // B-118: watchdog が Measure Thread を再起動したとき pending_producer に新 Producer が来る。
         // 256 ブロック毎に try_lock（非ブロッキング）で取り出して ring_producer を差し替える

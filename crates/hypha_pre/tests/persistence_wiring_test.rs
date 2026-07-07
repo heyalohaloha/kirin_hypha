@@ -70,11 +70,23 @@ fn lib_rs_process_stores_transport_playing_for_watch_max() {
         "HyphaPre must carry GUI-only is_playing for Watch MAX reset"
     );
     assert!(
+        src.contains("watch_playback_pass_id: Arc<AtomicU64>"),
+        "HyphaPre must carry Audio Thread playback pass id for Watch MAX reset"
+    );
+    assert!(
         src.contains("self.is_playing.store(playing"),
         "process() must publish transport.playing to the PRE editor"
     );
     assert!(
+        src.contains("advance_watch_playback_pass_id(&self.watch_playback_pass_id)"),
+        "process() must advance Watch MAX pass id from Audio Thread transport edges"
+    );
+    assert!(
         src.contains("Arc::clone(&self.is_playing)"),
         "editor() must pass is_playing into create_pre_editor"
+    );
+    assert!(
+        src.contains("Arc::clone(&self.watch_playback_pass_id)"),
+        "editor() must pass watch_playback_pass_id into create_pre_editor"
     );
 }

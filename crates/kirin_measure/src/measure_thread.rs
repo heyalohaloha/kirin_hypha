@@ -29,8 +29,6 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-static PLAYBACK_PASS_COUNTER: AtomicU64 = AtomicU64::new(0);
-
 /// Measure Thread の通常ループ間隔。
 const LOOP_SLEEP: Duration = Duration::from_millis(100);
 
@@ -211,6 +209,7 @@ pub fn spawn_measure_thread(
     sample_rate: u32,
     n_channels: usize,
     result: Arc<Mutex<MeasureResult>>,
+    watch_playback_pass_id: Arc<AtomicU64>,
     signal_state: Arc<AtomicU8>,
     shutdown: Arc<AtomicBool>,
     evaluator: Arc<LivenessEvaluator>,
@@ -278,7 +277,7 @@ pub fn spawn_measure_thread(
         // 前回ループの SignalState を保持し、非Active→Active 遷移を検出する（SS-8）。
         let mut prev_active = false;
         let mut measure_sequence = 0_u64;
-        let mut playback_pass_id = 0_u64;
+        let mut playback_pass_id = watch_playback_pass_id.load(Ordering::Relaxed);
 
         // B-043: Record mode 遷移を検出し、Watch→Record 開始時に engine をリセットする。
         // Record 中の SS-8 reset 抑止と組み合わせて、LUFS-I / LRA のセッション通算性を確保する。
@@ -428,6 +427,54 @@ pub fn spawn_measure_thread(
 
             // ── SS-4: SignalState チェック ──────────────────────────
             let state = load_signal_state(&signal_state);
+            let observed_playback_pass_id = watch_playback_pass_id.load(Ordering::Relaxed);
+            if observed_playback_pass_id != 0 && observed_playback_pass_id != playback_pass_id {
+                playback_pass_id = observed_playback_pass_id;
+                if is_recording {
+                    log::info!(
+                        "[MeasureThread] Watch playback pass reset suppressed in Record mode"
+                    );
+                } else {
+                    engine.reset();
+                    record_pre_roll.clear();
+                    let stale = consumer.slots();
+                    for _ in 0..stale {
+                        let _ = consumer.pop();
+                    }
+                    if stale > 0 {
+                        log::info!(
+                            "[MeasureThread] discarded {} queued samples on Watch playback pass advance",
+                            stale
+                        );
+                    }
+                    phase_d.reset();
+                    if let Some(rs) = &mut resampler {
+                        rs.reset();
+                    }
+                    latest_pd = None;
+                    prev_active = state == SignalState::Active;
+                    if state == SignalState::Active {
+                        if let Ok(mut guard) = result.lock() {
+                            let mut cleared = MeasureResult::default();
+                            stamp_shared_measure_result(
+                                &mut cleared,
+                                &mut measure_sequence,
+                                playback_pass_id,
+                            );
+                            *guard = cleared;
+                        }
+                    }
+                }
+                log::info!(
+                    "[MeasureThread] Watch playback pass advanced (id={}, is_recording={})",
+                    playback_pass_id,
+                    is_recording
+                );
+                if state == SignalState::Active && !is_recording {
+                    thread::sleep(idle_sleep_for_record_state(is_recording));
+                    continue;
+                }
+            }
             if state != SignalState::Active {
                 prev_active = false;
                 // ── B-132 (G-115-382) 共通A: finalize-before-discard ──────────────
@@ -502,7 +549,6 @@ pub fn spawn_measure_thread(
             // phase_d / resampler / latest_pd は Record 中でも reset してよい
             // （セッション集計に影響しないため）。
             if !prev_active {
-                playback_pass_id = next_global_playback_pass_id();
                 if !is_recording {
                     engine.reset();
                     record_pre_roll.clear();
@@ -700,18 +746,6 @@ fn next_nonzero_counter(counter: &mut u64) -> u64 {
         *counter = 1;
     }
     *counter
-}
-
-fn next_global_playback_pass_id() -> u64 {
-    let next = PLAYBACK_PASS_COUNTER
-        .fetch_add(1, Ordering::Relaxed)
-        .wrapping_add(1);
-    if next == 0 {
-        PLAYBACK_PASS_COUNTER.store(1, Ordering::Relaxed);
-        1
-    } else {
-        next
-    }
 }
 
 fn stamp_shared_measure_result(

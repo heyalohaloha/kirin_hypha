@@ -52,7 +52,7 @@ use nih_plug_egui::{
     EguiState,
 };
 use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, LazyLock, Mutex, RwLock};
 use std::time::Duration;
 
@@ -196,6 +196,8 @@ pub struct PostEditorState {
     /// `process()` が毎 frame `Ordering::Relaxed` で書込、`update` closure 入口で
     /// load して再生中 pair 変更 (Name field + ComboBox PRE 候補行) を block する。
     pub is_playing: Arc<AtomicBool>,
+    /// Audio Thread が刻む Watch playback pass id。MAX reset の正本。
+    pub watch_playback_pass_id: Arc<AtomicU64>,
 
     /// B-118: 単一鮮度評価器。`update` 入口で `is_live()` を読み、`pair_lock_active(is_playing, live)`
     /// で pair 変更ロックを判定する（playing 凍結値の false-release 防止 / signal_state とは別軸 /
@@ -271,6 +273,7 @@ impl PostEditorState {
             playback_pos_samples: args.playback_pos_samples,
             playback_sample_rate: args.playback_sample_rate,
             is_playing: args.is_playing,
+            watch_playback_pass_id: args.watch_playback_pass_id,
             liveness: args.liveness,
             pair_pre_name: args.pair_pre_name,
             pair_claimed_at: args.pair_claimed_at,
@@ -322,6 +325,8 @@ pub struct PostEditorArgs {
     pub playback_sample_rate: Arc<AtomicU32>,
     /// W-280 / G-115-248: transport.playing 独立 AtomicBool。再生中 pair 変更 block 用。
     pub is_playing: Arc<AtomicBool>,
+    /// Audio Thread が刻む Watch playback pass id。MAX reset の正本。
+    pub watch_playback_pass_id: Arc<AtomicU64>,
     /// B-118: 単一鮮度評価器。`pair_lock_active(is_playing, is_live())` の live 軸。
     pub liveness: Arc<LivenessEvaluator>,
     /// B-027 段階 2: pair PRE Name の Arc 共有 (HyphaPostParams.pair_pre_name)。
@@ -356,6 +361,7 @@ pub fn create_post_editor(args: PostEditorArgs) -> Option<Box<dyn Editor>> {
             // 再生中 pair 変更 block の判定軸 (draw_pair_pre_name_field /
             // draw_pair_pre_combo PRE 候補行)。
             let is_playing = state.is_playing.load(Ordering::Relaxed);
+            let watch_playback_pass_id = state.watch_playback_pass_id.load(Ordering::Relaxed);
             // B-115: 述語を「playing かつ live」へ。LivenessEvaluator が heartbeat 鮮度
             // （processBlock 進行中）を内部観測し、playing 凍結値でも live=false ならロックしない。
             let live = state.liveness.is_live();
@@ -428,7 +434,9 @@ pub fn create_post_editor(args: PostEditorArgs) -> Option<Box<dyn Editor>> {
                 state.playback_max.reset();
                 MeasureResult::default()
             } else {
-                state.playback_max.update(&raw_m, is_playing)
+                state
+                    .playback_max
+                    .update(&raw_m, is_playing, watch_playback_pass_id)
             };
 
             let (m, d, display_held, display_muted) = match sig {
