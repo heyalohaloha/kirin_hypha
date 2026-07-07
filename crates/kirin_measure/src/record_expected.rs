@@ -1,10 +1,10 @@
 //! Expected WAV metadata bridge for PairRecordSession.
 //!
 //! Kirin OS owns the dropped/exported WAV header truth. Hypha uses that truth
-//! from `plugin_data/{project_hash}/record_expected/current.json` when it is
-//! available before or during Record, then copies it into `record_signal` and
-//! final plugin_data artifacts. Missing metadata must not block Keep; usable
-//! TRACE frames still publish with integrity degradation reasons.
+//! from `plugin_data/{project_hash}/record_expected/current.json`, copies it
+//! into `record_signal`, and then into final plugin_data artifacts when
+//! available. Missing metadata does not block Keep; final artifacts without this
+//! trust anchor are explicitly marked as usable fallback rather than complete.
 
 use serde::{Deserialize, Serialize};
 use std::fs;

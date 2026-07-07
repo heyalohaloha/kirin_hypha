@@ -127,6 +127,27 @@ fn write_pending_claiming_expected_consumes_current_for_session() {
 }
 
 #[test]
+fn write_pending_claiming_expected_continues_without_metadata() {
+    let base = isolated_dir();
+
+    let s = write_pending_claiming_expected_and_clock(
+        &base,
+        "ph",
+        "post-1",
+        "pre-1".into(),
+        "daw-1".into(),
+        Some(96_000),
+    )
+    .unwrap();
+
+    assert_eq!(s.status, SignalStatus::Pending);
+    assert!(s.expected_wav.is_none());
+    assert_eq!(s.started_at_position_samples, Some(96_000));
+    let loaded = read_signal(&base, "ph", "post-1").unwrap();
+    assert_eq!(loaded, s);
+}
+
+#[test]
 fn read_signal_missing_returns_none() {
     let base = isolated_dir();
     assert!(read_signal(&base, "ph", "post-x").is_none());
