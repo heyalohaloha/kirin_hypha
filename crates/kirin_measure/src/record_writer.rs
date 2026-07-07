@@ -2276,6 +2276,7 @@ mod tests {
             }),
             n_prime: Some([0.5; 20]),
             psb_bark: Some([0.05; 20]),
+            ..MeasureResult::default()
         }
     }
 

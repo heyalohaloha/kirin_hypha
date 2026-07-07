@@ -510,6 +510,14 @@ pub struct PsbSummary {
 /// `Arc<Mutex<MeasureResult>>` で共有する。
 #[derive(Debug, Clone, Default)]
 pub struct MeasureResult {
+    /// Measure Thread が共有結果を書き込むたびに進める単調 sequence。
+    /// GUI の freshness 判定専用で、Record/TRACE/plugin_data の正本値には使わない。
+    pub measure_sequence: u64,
+
+    /// Measure Thread が非Active→Active 遷移を検出するたびに進める playback pass id。
+    /// Watch 表示の「再生 pass ごとの最大値」reset 境界として使う。
+    pub playback_pass_id: u64,
+
     /// LUFS-M: ITU-R BS.1770-4 Momentary Loudness（400ms sliding）。
     /// 信号なし・ウィンドウ未満は `None`（GUI 表示 `---`）。
     pub lufs_m: Option<f64>,

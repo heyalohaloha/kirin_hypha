@@ -29,6 +29,8 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
+static PLAYBACK_PASS_COUNTER: AtomicU64 = AtomicU64::new(0);
+
 /// Measure Thread の通常ループ間隔。
 const LOOP_SLEEP: Duration = Duration::from_millis(100);
 
@@ -275,6 +277,8 @@ pub fn spawn_measure_thread(
 
         // 前回ループの SignalState を保持し、非Active→Active 遷移を検出する（SS-8）。
         let mut prev_active = false;
+        let mut measure_sequence = 0_u64;
+        let mut playback_pass_id = 0_u64;
 
         // B-043: Record mode 遷移を検出し、Watch→Record 開始時に engine をリセットする。
         // Record 中の SS-8 reset 抑止と組み合わせて、LUFS-I / LRA のセッション通算性を確保する。
@@ -472,7 +476,15 @@ pub fn spawn_measure_thread(
                 }
                 // 計測結果をクリア（GUI が即座に `---` 表示できるようにする）
                 match result.lock() {
-                    Ok(mut guard) => *guard = MeasureResult::default(),
+                    Ok(mut guard) => {
+                        let mut cleared = MeasureResult::default();
+                        stamp_shared_measure_result(
+                            &mut cleared,
+                            &mut measure_sequence,
+                            playback_pass_id,
+                        );
+                        *guard = cleared;
+                    }
                     Err(e) => log::warn!("[MeasureThread] result Mutex poisoned: {}", e),
                 }
                 thread::sleep(idle_sleep_for_record_state(is_recording));
@@ -490,6 +502,7 @@ pub fn spawn_measure_thread(
             // phase_d / resampler / latest_pd は Record 中でも reset してよい
             // （セッション集計に影響しないため）。
             if !prev_active {
+                playback_pass_id = next_global_playback_pass_id();
                 if !is_recording {
                     engine.reset();
                     record_pre_roll.clear();
@@ -502,6 +515,15 @@ pub fn spawn_measure_thread(
                 }
                 latest_pd = None;
                 prev_active = true;
+                if let Ok(mut guard) = result.lock() {
+                    let mut cleared = MeasureResult::default();
+                    stamp_shared_measure_result(
+                        &mut cleared,
+                        &mut measure_sequence,
+                        playback_pass_id,
+                    );
+                    *guard = cleared;
+                }
                 log::info!(
                     "[MeasureThread] Active transition handled (is_recording={})",
                     is_recording
@@ -562,6 +584,11 @@ pub fn spawn_measure_thread(
                 let _ = engine.push_observed(chunk_48k, |frames_48k, base_result| {
                     let mut new_result = base_result.clone();
                     merge_phase_d_fields(&mut new_result, latest_pd_snapshot.as_ref());
+                    stamp_shared_measure_result(
+                        &mut new_result,
+                        &mut measure_sequence,
+                        playback_pass_id,
+                    );
                     let observed_native_frames = estimate_observed_native_frames(
                         frames_48k,
                         frames_48k_before,
@@ -665,6 +692,35 @@ fn merge_phase_d_fields(
         result.n_prime = Some(pd_r.n_prime);
         result.psb_bark = Some(pd_r.psb);
     }
+}
+
+fn next_nonzero_counter(counter: &mut u64) -> u64 {
+    *counter = counter.wrapping_add(1);
+    if *counter == 0 {
+        *counter = 1;
+    }
+    *counter
+}
+
+fn next_global_playback_pass_id() -> u64 {
+    let next = PLAYBACK_PASS_COUNTER
+        .fetch_add(1, Ordering::Relaxed)
+        .wrapping_add(1);
+    if next == 0 {
+        PLAYBACK_PASS_COUNTER.store(1, Ordering::Relaxed);
+        1
+    } else {
+        next
+    }
+}
+
+fn stamp_shared_measure_result(
+    result: &mut MeasureResult,
+    sequence: &mut u64,
+    playback_pass_id: u64,
+) {
+    result.measure_sequence = next_nonzero_counter(sequence);
+    result.playback_pass_id = playback_pass_id;
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
