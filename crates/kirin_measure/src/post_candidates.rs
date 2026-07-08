@@ -341,18 +341,52 @@ pub fn enumerate_active_post_pair_candidates_for_daw_session(
 
 /// Active POST candidates in the same broadcast scope.
 ///
-/// `daw_session_id` is the isolation wall when either side has one. `host_process_id` is only a
-/// legacy bridge when both sides lack explicit session identity; it must not bridge explicit DAW
-/// sessions inside hosts that keep multiple documents in one process.
+/// `daw_session_id` is preferred when the host gives a coherent document identity. Some DAW/plugin
+/// wrapper combinations restore this value per instance instead. In that shape, all POSTs from the
+/// currently visible document still share one POST project shelf, so same-host candidates from a
+/// single POST shelf are kept together. If the same host exposes multiple POST shelves, fallback
+/// closes and only exact DAW-session matches are returned.
 pub fn enumerate_active_post_pair_candidates_for_broadcast_scope(
     kirin_root: &Path,
     daw_session_id: &str,
     host_process_id: u32,
 ) -> Vec<PostCandidate> {
-    enumerate_active_post_pair_candidates(kirin_root)
+    let candidates = enumerate_active_post_pair_candidates(kirin_root);
+    if !daw_session_id.is_empty() {
+        let same_host_single_project =
+            same_host_single_project_candidates(&candidates, host_process_id);
+        if !same_host_single_project.is_empty() {
+            return same_host_single_project;
+        }
+    }
+
+    candidates
         .into_iter()
         .filter(|c| broadcast_scope_matches(c, daw_session_id, host_process_id))
         .collect()
+}
+
+fn same_host_single_project_candidates(
+    candidates: &[PostCandidate],
+    host_process_id: u32,
+) -> Vec<PostCandidate> {
+    if host_process_id == 0 {
+        return Vec::new();
+    }
+    let same_host: Vec<PostCandidate> = candidates
+        .iter()
+        .filter(|c| c.host_process_id == Some(host_process_id))
+        .cloned()
+        .collect();
+    let projects = same_host
+        .iter()
+        .map(|c| c.project_uuid.as_str())
+        .collect::<BTreeSet<_>>();
+    if projects.len() == 1 {
+        same_host
+    } else {
+        Vec::new()
+    }
 }
 
 /// Project UUID shelves containing active POSTs in the same DAW session.

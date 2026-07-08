@@ -1838,6 +1838,7 @@ pub(crate) fn trigger_keep_internal(
                     project_dir: target.project_dir,
                     pre_json: target.pre_json,
                     daw_session_id: target.daw_session_id,
+                    host_process_id: target.host_process_id,
                 });
             }
         }

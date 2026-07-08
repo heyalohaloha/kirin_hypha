@@ -338,7 +338,7 @@ fn enumerate_active_pre_pair_candidates_for_post_project_in_session_hides_foreig
 }
 
 #[test]
-fn enumerate_active_pre_pair_candidates_for_post_project_in_session_rejects_same_project_foreign_daw(
+fn enumerate_active_pre_pair_candidates_for_post_project_in_session_allows_host_fallback_when_daw_ids_are_instance_scoped(
 ) {
     let root = isolated_dir();
     let now = now_rfc3339();
@@ -358,9 +358,10 @@ fn enumerate_active_pre_pair_candidates_for_post_project_in_session_rejects_same
         "post-current",
         "daw-current",
     );
-    assert!(
-        v.is_empty(),
-        "same project_hash must not override a distinct non-empty daw_session_id"
+    assert_eq!(
+        v.iter().map(|c| c.instance_id.as_str()).collect::<Vec<_>>(),
+        vec!["iid-old-mix"],
+        "single POST-project host fallback keeps Studio One instance-scoped daw IDs pairable"
     );
 }
 
@@ -413,7 +414,7 @@ fn select_target_pre_for_arm_for_post_project_avoids_other_session_same_name() {
 }
 
 #[test]
-fn select_target_pre_for_arm_for_post_project_rejects_same_project_foreign_daw() {
+fn select_target_pre_for_arm_for_post_project_allows_single_host_project_daw_mismatch() {
     let root = isolated_dir();
     let now = now_rfc3339();
     write_pre_for_select_with_identity(
@@ -427,16 +428,14 @@ fn select_target_pre_for_arm_for_post_project_rejects_same_project_foreign_daw()
         Some("daw-old"),
     );
 
-    assert!(
-        select_target_pre_for_arm_for_post_project_in_session(
-            &root,
-            "Vocal",
-            "post-current",
-            "daw-current",
-        )
-        .is_none(),
-        "same project_hash must not arm a PRE with a different explicit daw_session_id"
-    );
+    let sel = select_target_pre_for_arm_for_post_project_in_session(
+        &root,
+        "Vocal",
+        "post-current",
+        "daw-current",
+    )
+    .expect("single POST-project host fallback should arm instance-scoped daw IDs");
+    assert_eq!(sel.instance_id, "iid-old-vocal");
 }
 
 #[test]
@@ -615,8 +614,8 @@ fn select_target_pre_for_post_project_rejects_active_foreign_unique_pre_when_oth
 }
 
 #[test]
-fn select_target_pre_for_arm_for_post_project_rejects_foreign_unique_pre_without_same_daw_identity()
-{
+fn select_target_pre_for_arm_for_post_project_allows_unique_same_host_pre_without_daw_when_single_post_project(
+) {
     let root = isolated_dir();
     let now = now_rfc3339();
     write_pre_for_select_with_identity(
@@ -637,6 +636,47 @@ fn select_target_pre_for_arm_for_post_project_rejects_foreign_unique_pre_without
         Some(std::process::id()),
     );
 
+    let sel = select_target_pre_for_arm_for_post_project_in_session(
+        &root,
+        "Vocal",
+        "post-current-song",
+        "daw-current",
+    )
+    .expect("single POST-project host fallback should bridge legacy PREs");
+    assert_eq!(sel.instance_id, "iid-foreign-vocal");
+}
+
+#[test]
+fn select_target_pre_for_arm_for_post_project_rejects_daw_mismatch_when_other_post_project_is_active(
+) {
+    let root = isolated_dir();
+    let now = now_rfc3339();
+    let current_host = std::process::id();
+    write_pre_for_select_with_identity(
+        &root,
+        "pre-foreign-project",
+        "iid-foreign-vocal",
+        "Vocal",
+        "inactive",
+        &now,
+        Some(current_host),
+        Some("daw-foreign"),
+    );
+    write_post_for_scope_with_host_process_id(
+        &root,
+        "post-current-song",
+        "post-current",
+        "",
+        Some(current_host),
+    );
+    write_post_for_scope_with_host_process_id(
+        &root,
+        "post-mastering-project",
+        "post-master",
+        "Vocal",
+        Some(current_host),
+    );
+
     assert!(
         select_target_pre_for_arm_for_post_project_in_session(
             &root,
@@ -645,7 +685,81 @@ fn select_target_pre_for_arm_for_post_project_rejects_foreign_unique_pre_without
             "daw-current",
         )
         .is_none(),
-        "a project-external PRE without matching daw_session_id must not be selected solely by host/global uniqueness"
+        "host fallback must close when another Studio One project has an active POST shelf"
+    );
+}
+
+#[test]
+fn enumerate_active_pre_pair_candidates_for_post_project_in_session_matches_current_live_shape() {
+    let root = isolated_dir();
+    let now = now_rfc3339();
+    let current_host = std::process::id();
+    write_pre_for_select_with_identity(
+        &root,
+        "pre-drum-project",
+        "iid-drum",
+        "Drum",
+        "inactive",
+        &now,
+        Some(current_host),
+        Some("daw-pre-drum"),
+    );
+    write_pre_for_select_with_identity(
+        &root,
+        "pre-music-project",
+        "iid-music",
+        "Music",
+        "inactive",
+        &now,
+        Some(current_host),
+        Some("daw-pre-music"),
+    );
+    write_pre_for_select_with_identity(
+        &root,
+        "pre-2mix-project",
+        "iid-2mix",
+        "2Mix",
+        "inactive",
+        &now,
+        Some(current_host),
+        Some("daw-pre-2mix"),
+    );
+    write_post_for_scope_with_host_process_id(
+        &root,
+        "post-shared-project",
+        "post-drum",
+        "Drum",
+        Some(current_host),
+    );
+    write_post_for_scope_with_host_process_id(
+        &root,
+        "post-shared-project",
+        "post-music",
+        "Music",
+        Some(current_host),
+    );
+    write_post_for_scope_with_host_process_id(
+        &root,
+        "post-shared-project",
+        "post-2mix",
+        "2Mix",
+        Some(current_host),
+    );
+
+    let names = enumerate_active_pre_pair_candidates_for_post_project_in_session(
+        &root,
+        "post-shared-project",
+        "daw-post-2mix",
+    )
+    .into_iter()
+    .filter_map(|c| c.name)
+    .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        names,
+        ["2Mix", "Drum", "Music"]
+            .into_iter()
+            .map(str::to_string)
+            .collect()
     );
 }
 
@@ -693,6 +807,7 @@ fn resolve_arm_target_for_post_project_rejects_foreign_latch_without_same_daw_id
         project_dir: root.join("old-pre-project"),
         pre_json: root.join("old-pre-project").join("iid-A").join("pre.json"),
         daw_session_id: None,
+        host_process_id: None,
     }));
 
     assert!(
@@ -717,6 +832,7 @@ fn resolve_arm_target_for_post_project_rejects_same_project_latch_with_foreign_d
         project_dir: root.join("post-current"),
         pre_json: root.join("post-current").join("iid-A").join("pre.json"),
         daw_session_id: Some("daw-old".to_string()),
+        host_process_id: None,
     }));
 
     assert!(
@@ -859,6 +975,7 @@ fn resolve_arm_target_uses_latch_over_ambiguous() {
         project_dir: root.join("puid-1"),
         pre_json,
         daw_session_id: None,
+        host_process_id: None,
     }));
     write_pre_for_select(&root, "puid-2", "iid-B", "snare", "active", &now);
 
@@ -879,6 +996,7 @@ fn resolve_arm_target_uses_latch_even_when_pre_json_is_stale() {
         project_dir: root.join("puid-1"),
         pre_json,
         daw_session_id: None,
+        host_process_id: None,
     }));
 
     assert!(select_target_pre_for_arm(&root, "snare").is_none());
@@ -895,6 +1013,7 @@ fn resolve_arm_target_uses_latch_even_when_pre_json_is_missing() {
         project_dir: root.join("puid-1"),
         pre_json: root.join("puid-1").join("iid-A").join("pre.json"),
         daw_session_id: None,
+        host_process_id: None,
     }));
 
     let sel = resolve_arm_target(&root, "snare", &latched).expect("latched target wins");
@@ -910,6 +1029,7 @@ fn resolve_arm_target_for_post_project_uses_latch_even_when_project_dir_not_disc
         project_dir: root.join("old-pre-project"),
         pre_json: root.join("old-pre-project").join("iid-A").join("pre.json"),
         daw_session_id: Some("daw-current".to_string()),
+        host_process_id: None,
     }));
 
     let sel = resolve_arm_target_for_post_project_in_session(
