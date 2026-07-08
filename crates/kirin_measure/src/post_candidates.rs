@@ -253,10 +253,10 @@ pub fn enumerate_active_post_pair_candidates(kirin_root: &Path) -> Vec<PostCandi
 
 /// Whether another active POST project is visible inside the same host process.
 ///
-/// `host_process_id` is intentionally a broad bridge for AU/VST3 mixed binaries. When a DAW can
-/// keep multiple documents open inside one process, that same bridge becomes too broad for
-/// automatic PRE target selection. Callers use this as a fail-closed guard before accepting a
-/// project-external PRE solely because it is globally unique.
+/// `host_process_id` is intentionally broader than a project UUID and is only safe as a guard, not
+/// as proof of document identity. When a DAW can keep multiple documents open inside one process,
+/// callers must fail closed before accepting a project-external PRE solely because it is globally
+/// unique.
 pub fn host_scope_has_other_active_post_project(
     kirin_root: &Path,
     current_project_uuid: &str,
@@ -275,7 +275,7 @@ fn daw_session_matches(candidate: &PostCandidate, daw_session_id: &str) -> bool 
         && candidate
             .daw_session_id
             .as_deref()
-            .is_none_or(|candidate_daw| candidate_daw == daw_session_id)
+            .is_some_and(|candidate_daw| candidate_daw == daw_session_id)
 }
 
 pub fn current_host_process_id() -> u32 {
@@ -288,12 +288,13 @@ pub fn broadcast_scope_ids_match(
     remote_daw_session_id: &str,
     remote_host_process_id: u32,
 ) -> bool {
-    (!local_daw_session_id.is_empty()
-        && !remote_daw_session_id.is_empty()
-        && local_daw_session_id == remote_daw_session_id)
-        || (local_host_process_id != 0
-            && remote_host_process_id != 0
-            && local_host_process_id == remote_host_process_id)
+    if !local_daw_session_id.is_empty() && !remote_daw_session_id.is_empty() {
+        return local_daw_session_id == remote_daw_session_id;
+    }
+
+    local_host_process_id != 0
+        && remote_host_process_id != 0
+        && local_host_process_id == remote_host_process_id
 }
 
 fn host_process_matches(candidate: &PostCandidate, host_process_id: u32) -> bool {
@@ -305,14 +306,26 @@ fn broadcast_scope_matches(
     daw_session_id: &str,
     host_process_id: u32,
 ) -> bool {
-    daw_session_matches(candidate, daw_session_id)
-        || host_process_matches(candidate, host_process_id)
+    if daw_session_matches(candidate, daw_session_id) {
+        return true;
+    }
+
+    let candidate_has_daw = candidate
+        .daw_session_id
+        .as_deref()
+        .is_some_and(|daw| !daw.is_empty());
+    if !daw_session_id.is_empty() && candidate_has_daw {
+        return false;
+    }
+
+    host_process_matches(candidate, host_process_id)
 }
 
 /// Active POST candidates in the same DAW session, spanning AU/VST3 project UUID shelves.
 ///
-/// Missing `daw_session_id` is accepted for rolling compatibility with already-running older
-/// plug-ins. Callers should fall back to project-local semantics when `daw_session_id` is empty.
+/// Missing `daw_session_id` is not treated as a DAW-session match. Callers that need rolling
+/// compatibility with already-running older plug-ins can still use the broadcast-scope helper,
+/// where host fallback is limited to candidates lacking explicit session identity.
 pub fn enumerate_active_post_pair_candidates_for_daw_session(
     kirin_root: &Path,
     daw_session_id: &str,
@@ -325,9 +338,9 @@ pub fn enumerate_active_post_pair_candidates_for_daw_session(
 
 /// Active POST candidates in the same broadcast scope.
 ///
-/// `daw_session_id` remains the primary isolation wall. `host_process_id` is a secondary bridge for
-/// mixed AU/VST3 hosts where each binary family can have an independent process-local
-/// `daw_session_id` cell while still running inside the same DAW process.
+/// `daw_session_id` is the isolation wall when both sides have one. `host_process_id` is only a
+/// legacy bridge when at least one side lacks explicit session identity; it must not bridge two
+/// different non-empty DAW sessions inside hosts that keep multiple documents in one process.
 pub fn enumerate_active_post_pair_candidates_for_broadcast_scope(
     kirin_root: &Path,
     daw_session_id: &str,

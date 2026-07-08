@@ -36,15 +36,15 @@ use kirin_measure::{
     append_annotation_to_latest, count_distinct_pairings, current_host_process_id,
     delete_broadcast, enumerate_active_post_pair_candidates,
     enumerate_active_post_pair_candidates_for_broadcast_scope,
-    enumerate_active_pre_pair_candidates_for_post_project, exit_record_preserve_pair,
+    enumerate_active_pre_pair_candidates_for_post_project_in_session, exit_record_preserve_pair,
     format_pair_label, load_signal_state, lookup_section_label, mark_released_with_reason,
-    pair_lock_active, resolve_arm_target_for_post_project, sanitize_name, scan_latest_v2_preset,
-    show_note_button, show_save_button, show_stop_record_button, write_broadcast,
-    write_pending_claiming_expected_and_clock, write_stop_broadcast, DeltaMode, DeltaResult,
-    DeltaSnapshot, LatchedPre, License, LivenessEvaluator, MeasureResult, PlatformPaths,
-    PluginDataRole, PostCandidate, PreCandidate, PresetFileV2, RecordStateMachine, ReleaseReason,
-    SignalState, StoragePaths, MAX_ACTIVE_PER_PROJECT, RECORD_START_BARRIER_DELAY_MS,
-    SENSE_RECORD_HINT, SENSE_UPSELL_URL,
+    pair_lock_active, resolve_arm_target_for_post_project_in_session, sanitize_name,
+    scan_latest_v2_preset, show_note_button, show_save_button, show_stop_record_button,
+    write_broadcast, write_pending_claiming_expected_and_clock, write_stop_broadcast, DeltaMode,
+    DeltaResult, DeltaSnapshot, LatchedPre, License, LivenessEvaluator, MeasureResult,
+    PlatformPaths, PluginDataRole, PostCandidate, PreCandidate, PresetFileV2, RecordStateMachine,
+    ReleaseReason, SignalState, StoragePaths, MAX_ACTIVE_PER_PROJECT,
+    RECORD_START_BARRIER_DELAY_MS, SENSE_RECORD_HINT, SENSE_UPSELL_URL,
 };
 use nih_plug::prelude::Editor;
 use nih_plug_egui::{
@@ -1170,10 +1170,10 @@ fn draw_pair_pre_name_field(ui: &mut egui::Ui, state: &mut PostEditorState, pair
 
 /// B-027 段階 3-A 修正 (G-115-49 / α-2 撤回): pair PRE 候補 ComboBox dropdown。
 ///
-/// `kirin_root` (`$TMPDIR/kirin/`) 配下の **全 active PRE dir** を flatten 列挙する
-/// (旧版の同 project_uuid filter は cdylib 隔離で構造的不成立のため撤回)。利用者は
-/// 候補一覧から Name 識別 (B-027 段階 2 `pair_pre_name` filter) で目的 PRE を選ぶ
-/// 運用となる。多 PRE 環境では複数 project_uuid 配下の PRE が混在表示される。
+/// `kirin_root` (`$TMPDIR/kirin/`) 配下から、この POST が実際に Keep 可能な PRE だけを列挙する。
+/// 同 project_uuid / 同 non-empty daw_session_id / legacy empty-session の同一 host fallback 以外は
+/// 表示しない。利用者は候補一覧から Name 識別 (B-027 段階 2 `pair_pre_name` filter) で目的 PRE を
+/// 選ぶ運用となる。
 ///
 /// クリック確定時:
 /// - `name` 持ち PRE → `pair_pre_name = name`（filter_candidates_by_name で 1 件絞れる）
@@ -1190,8 +1190,11 @@ fn draw_pair_pre_combo(
     let kirin_root = PlatformPaths::current_kirin_tmp_root();
     let current_project_hash = read_project_hash_arc(&state.project_hash);
     let current_daw_session_id = read_daw_session_id_arc(&state.daw_session_id);
-    let pre_candidates =
-        enumerate_active_pre_pair_candidates_for_post_project(&kirin_root, &current_project_hash);
+    let pre_candidates = enumerate_active_pre_pair_candidates_for_post_project_in_session(
+        &kirin_root,
+        &current_project_hash,
+        &current_daw_session_id,
+    );
     // B-027 段階 3-B α-7-3 / Step 9: All Keep 行 N 集計のため POST candidates も取得。
     // ComboBox 先頭行の "All Keep: N ready POST(s)" 表示と display 判定 (N>=1) に使用。
     let post_candidates = enumerate_active_post_pair_candidates_for_broadcast_scope(
@@ -1746,13 +1749,14 @@ pub(crate) fn trigger_keep_internal(
     // `select_target_pre_for_arm`（非Bypassed + t<NO_PRE_SECS + Name 一致で一意 1 件 / Active
     // 要求なし）へフォールバックする。pair_pre_name 空 / 同名複数 / 不在 / Bypassed / 古t は
     // None → "No PRE Paired"。
-    let target_id = match resolve_arm_target_for_post_project(
+    let target = match resolve_arm_target_for_post_project_in_session(
         &tmp_base,
         pair_pre_name,
         project_hash,
+        daw_session_id,
         latched,
     ) {
-        Some(sel) => sel.instance_id,
+        Some(sel) => sel,
         None => {
             log::info!(
                 "[POST keep] no armable PRE for pair_pre_name=\"{}\" (none/ambiguous/bypassed/stale)",
@@ -1764,6 +1768,7 @@ pub(crate) fn trigger_keep_internal(
             return;
         }
     };
+    let target_id = target.instance_id.clone();
 
     if record_sm.is_recording() {
         log::info!("[POST keep] already recording — ignored");
@@ -1825,6 +1830,15 @@ pub(crate) fn trigger_keep_internal(
             // 8. v1.2 (a): paired_pre_target を保存（IO Thread が writer_start 時に消費）
             if let Ok(mut g) = paired_pre_target.lock() {
                 *g = Some(target_id.clone());
+            }
+            if let Ok(mut g) = latched.lock() {
+                *g = Some(LatchedPre {
+                    name: pair_pre_name.to_string(),
+                    instance_id: target_id.clone(),
+                    project_dir: target.project_dir,
+                    pre_json: target.pre_json,
+                    daw_session_id: target.daw_session_id,
+                });
             }
         }
         Err(e) => {
@@ -2407,6 +2421,7 @@ mod tests {
             path: std::path::PathBuf::new(),
             name: Some("snare".into()),
             host_process_id: None,
+            daw_session_id: None,
         };
         assert_eq!(
             candidate_dropdown_label(&cand, CandidateKeepStatus::Available),
@@ -2426,6 +2441,7 @@ mod tests {
             path: std::path::PathBuf::new(),
             name: None,
             host_process_id: None,
+            daw_session_id: None,
         };
         assert_eq!(
             candidate_dropdown_label(&cand, CandidateKeepStatus::Available),
@@ -2444,6 +2460,7 @@ mod tests {
             path: std::path::PathBuf::new(),
             name: Some("kick".into()),
             host_process_id: None,
+            daw_session_id: None,
         };
         assert_eq!(
             candidate_dropdown_label(&cand, CandidateKeepStatus::Available),
@@ -2461,6 +2478,7 @@ mod tests {
             path: std::path::PathBuf::new(),
             name: Some("Music".into()),
             host_process_id: None,
+            daw_session_id: None,
         };
         assert_eq!(
             candidate_dropdown_label(&cand, CandidateKeepStatus::KeepReady),

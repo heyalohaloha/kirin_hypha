@@ -470,11 +470,9 @@ fn clear_stale_self_acks_in(plugin_data_root: &Path, self_instance_id: &str) {
 ///   plugin params と共有。B-022 段階 1 で String snapshot から lazy-read 化。
 ///   `set_state` 経由の chunk-restore 後でも次 tick から最新値を拾う）
 /// - `project_hash`        : DAW プロセス単位の project_hash
-/// - `_daw_session_id`     : DAW プロセス単位の UUID。chunk persistence 用に
-///   呼出側で保持される値。B-022 段階 3 で record_signal filter から撤廃した
-///   ため本スレッドでは未使用（cdylib 隔離下で PRE 側 cell 値と POST が
-///   書いた signal の `daw_session_id` が乖離するため filter は破綻）。
-///   将来 record_signal 書込側で必要になった時点で復活する余地を残す。
+/// - `daw_session_id`      : DAW document/session identity。record_signal ack filter には使わない
+///   が、PRE `pre.json` に同梱し、POST 側の cross-project 自動選択が host process だけで
+///   別 Song/Project を拾わないための document 境界として使う。
 /// - `sample_rate`         : Record writer メタデータ用
 /// - `record_sm`           : Watch ↔ Record 状態機械（IO Thread が駆動）
 /// - `recording`           : editor 表示用ミラー
@@ -491,7 +489,7 @@ fn clear_stale_self_acks_in(plugin_data_root: &Path, self_instance_id: &str) {
 pub fn spawn_io_thread_pre(
     instance_id: Arc<RwLock<String>>,
     project_hash: String,
-    _daw_session_id: String,
+    daw_session_id: String,
     sample_rate: u32,
     record_sm: Arc<RecordStateMachine>,
     recording: Arc<AtomicBool>,
@@ -606,6 +604,7 @@ pub fn spawn_io_thread_pre(
                 &file_path,
                 instance_id_ref,
                 name_owned_for_write.as_str(),
+                daw_session_id.as_str(),
                 &result,
                 &signal_state,
             ) {
@@ -1252,6 +1251,7 @@ fn write_json(
     file_path: &Path,
     instance_id: &str,
     name: &str,
+    daw_session_id: &str,
     result: &Arc<Mutex<MeasureResult>>,
     signal_state: &Arc<AtomicU8>,
 ) -> Result<(), String> {
@@ -1272,9 +1272,9 @@ fn write_json(
                 format!("Mutex poisoned: {e}")
             })?
             .clone();
-        serialize_pre_json(instance_id, name, state, &measure)
+        serialize_pre_json_with_daw_session_id(instance_id, name, daw_session_id, state, &measure)
     } else {
-        serialize_pre_json_minimal(instance_id, name, state)
+        serialize_pre_json_minimal_with_daw_session_id(instance_id, name, daw_session_id, state)
     };
 
     crate::atomic_file::write_bytes_atomic(file_path, json.as_bytes())
@@ -1294,6 +1294,16 @@ pub fn serialize_pre_json(
     state: SignalState,
     result: &MeasureResult,
 ) -> String {
+    serialize_pre_json_with_daw_session_id(instance_id, name, "", state, result)
+}
+
+pub fn serialize_pre_json_with_daw_session_id(
+    instance_id: &str,
+    name: &str,
+    daw_session_id: &str,
+    state: SignalState,
+    result: &MeasureResult,
+) -> String {
     let t = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ");
     // B-077: name は利用者入力。serde で JSON 文字列化し " \ 制御文字・日本語を安全に escape する
     // （旧: 生補間で " \ を含む名が不正 JSON を生成 → POST parse 失敗）。正常 ASCII 名は不変。
@@ -1304,11 +1314,14 @@ pub fn serialize_pre_json(
     let name_json = serde_json::to_string(name).unwrap_or_else(|_| "\"\"".to_string());
     let instance_id_json =
         serde_json::to_string(instance_id).unwrap_or_else(|_| "\"\"".to_string());
+    let daw_session_id_json =
+        serde_json::to_string(daw_session_id).unwrap_or_else(|_| "\"\"".to_string());
     let host_process_id = current_host_process_id();
     format!(
-        r#"{{"v":2,"role":"PRE","instance_id":{instance_id_json},"name":{name_json},"host_process_id":{host_process_id},"signal_state":"{signal_state}","t":"{t}","lufs_m":{lufs_m},"true_peak":{true_peak},"crest":{crest},"psr":{psr}{phase_d}}}"#,
+        r#"{{"v":2,"role":"PRE","instance_id":{instance_id_json},"name":{name_json},"daw_session_id":{daw_session_id_json},"host_process_id":{host_process_id},"signal_state":"{signal_state}","t":"{t}","lufs_m":{lufs_m},"true_peak":{true_peak},"crest":{crest},"psr":{psr}{phase_d}}}"#,
         instance_id_json = instance_id_json,
         name_json = name_json,
+        daw_session_id_json = daw_session_id_json,
         host_process_id = host_process_id,
         signal_state = state.as_str(),
         t = t,
@@ -1324,18 +1337,31 @@ pub fn serialize_pre_json(
 ///
 /// B-027 段階 2: `name` field を追加 (Bypassed / Inactive でも候補化されるため
 /// filter 照合に必要。pre.json schema バージョン据置き)。
+#[cfg(test)]
 fn serialize_pre_json_minimal(instance_id: &str, name: &str, state: SignalState) -> String {
+    serialize_pre_json_minimal_with_daw_session_id(instance_id, name, "", state)
+}
+
+fn serialize_pre_json_minimal_with_daw_session_id(
+    instance_id: &str,
+    name: &str,
+    daw_session_id: &str,
+    state: SignalState,
+) -> String {
     let t = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ");
     // B-077: name を serde で JSON escape（serialize_pre_json と同一。" \ 制御文字・日本語を安全に）。
     // B-131 (G-115-380): instance_id も serde escape（serialize_pre_json と同一契約）。
     let name_json = serde_json::to_string(name).unwrap_or_else(|_| "\"\"".to_string());
     let instance_id_json =
         serde_json::to_string(instance_id).unwrap_or_else(|_| "\"\"".to_string());
+    let daw_session_id_json =
+        serde_json::to_string(daw_session_id).unwrap_or_else(|_| "\"\"".to_string());
     let host_process_id = current_host_process_id();
     format!(
-        r#"{{"v":2,"role":"PRE","instance_id":{instance_id_json},"name":{name_json},"host_process_id":{host_process_id},"signal_state":"{signal_state}","t":"{t}"}}"#,
+        r#"{{"v":2,"role":"PRE","instance_id":{instance_id_json},"name":{name_json},"daw_session_id":{daw_session_id_json},"host_process_id":{host_process_id},"signal_state":"{signal_state}","t":"{t}"}}"#,
         instance_id_json = instance_id_json,
         name_json = name_json,
+        daw_session_id_json = daw_session_id_json,
         host_process_id = host_process_id,
         signal_state = state.as_str(),
         t = t,
@@ -2794,7 +2820,7 @@ mod tests {
     }
 
     #[test]
-    fn same_host_process_all_stop_stops_pre_even_when_daw_session_differs() {
+    fn same_host_process_all_stop_does_not_stop_pre_when_both_daw_sessions_differ() {
         let base = isolated_base();
         write_matching_pending(&base, "post-1");
         let sm = Arc::new(RecordStateMachine::new());
@@ -2831,8 +2857,55 @@ mod tests {
         );
 
         assert!(
+            !stopped,
+            "same-host All Stop must not cross distinct nonempty daw_session_id values"
+        );
+        assert_eq!(sm.current(), RecordState::Record);
+        assert!(recording.load(Ordering::Relaxed));
+        assert!(ack.load(Ordering::Relaxed));
+        assert!(partner.is_some());
+    }
+
+    #[test]
+    fn same_host_process_legacy_all_stop_without_daw_stops_pre_record() {
+        let base = isolated_base();
+        write_matching_pending(&base, "post-1");
+        let sm = Arc::new(RecordStateMachine::new());
+        let recording = Arc::new(AtomicBool::new(false));
+        let ack = Arc::new(AtomicBool::new(false));
+        let license = Arc::new(License::Os);
+        let mut partner = None;
+        poll_with_base(
+            &base,
+            &sm,
+            &recording,
+            &ack,
+            &license,
+            &mut partner,
+            TEST_PRE_IID,
+        );
+        write_all_stop_broadcast_for_project_at_with_host(
+            &base,
+            TEST_PH,
+            "post-origin",
+            "",
+            current_host_process_id(),
+            "2026-07-05T00:00:01Z",
+        );
+
+        let stopped = poll_all_stop_signal_at(
+            &base,
+            TEST_PH,
+            &sm,
+            &recording,
+            &ack,
+            &mut partner,
+            chrono_utc("2026-07-05T00:00:02Z"),
+        );
+
+        assert!(
             stopped,
-            "same-host AU/VST3 All Stop must reach PRE even if daw_session_id diverges"
+            "legacy no-daw same-host All Stop must still reach PRE"
         );
         assert_eq!(sm.current(), RecordState::Watch);
         assert!(!recording.load(Ordering::Relaxed));
@@ -3453,6 +3526,20 @@ mod tests {
     }
 
     #[test]
+    fn serialize_pre_json_with_daw_session_id_includes_daw_identity() {
+        let r = MeasureResult::default();
+        let json = serialize_pre_json_with_daw_session_id(
+            "pre-xyz",
+            "Snare",
+            "daw-session-pre",
+            SignalState::Active,
+            &r,
+        );
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["daw_session_id"].as_str(), Some("daw-session-pre"));
+    }
+
+    #[test]
     fn serialize_pre_json_minimal_omits_measure_fields() {
         let json = serialize_pre_json_minimal("pre-xyz", "", SignalState::Bypassed);
         assert!(json.contains(r#""signal_state":"bypassed""#));
@@ -3462,6 +3549,19 @@ mod tests {
         )));
         assert!(!json.contains("lufs_m"));
         assert!(!json.contains(r#""bus""#));
+    }
+
+    #[test]
+    fn serialize_pre_json_minimal_with_daw_session_id_includes_daw_identity() {
+        let json = serialize_pre_json_minimal_with_daw_session_id(
+            "pre-xyz",
+            "Snare",
+            "daw-session-pre",
+            SignalState::Inactive,
+        );
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["daw_session_id"].as_str(), Some("daw-session-pre"));
+        assert!(!json.contains("lufs_m"));
     }
 
     /// B-027 段階 2: serialize_pre_json は空文字 name でも `"name":""` を出力する
