@@ -180,10 +180,13 @@ cargo run --package xtask -- bundle-universal hypha_pre --release
 cargo run --package xtask -- bundle-universal hypha_post --release
 cargo run --package xtask -- stamp-egui-version
 scripts/build_juce_universal.sh
+scripts/validate_juce_pluginval_macos.sh juce_shell/build-universal
 ```
 
 Requires Rust stable toolchain, CMake, Xcode command line tools, and the pinned JUCE submodule.
 The release ship set is construction-C: egui VST3 bundles from `target/bundled/` plus JUCE Audio Unit bundles from `juce_shell/build-universal/`. JUCE VST3 bundles are not release artifacts.
+
+Run the macOS pluginval gate before opening Studio One for manual validation. It validates the built JUCE PRE/POST VST3 bundles at strictness level 5 by default and writes logs to `target/pluginval/logs/macos`. Override with `PLUGINVAL_STRICTNESS_LEVEL=10` only when you want the slower stress pass. If Steinberg's VST3 validator is installed, pass it with `VST3_VALIDATOR_BIN=/path/to/validator`.
 
 ## Maintainer release packaging
 
