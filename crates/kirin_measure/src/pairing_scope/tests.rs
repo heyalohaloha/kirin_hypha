@@ -338,6 +338,33 @@ fn enumerate_active_pre_pair_candidates_for_post_project_in_session_hides_foreig
 }
 
 #[test]
+fn enumerate_active_pre_pair_candidates_for_post_project_in_session_rejects_same_project_foreign_daw(
+) {
+    let root = isolated_dir();
+    let now = now_rfc3339();
+    write_pre_for_select_with_identity(
+        &root,
+        "post-current",
+        "iid-old-mix",
+        "Mix",
+        "inactive",
+        &now,
+        Some(std::process::id()),
+        Some("daw-old"),
+    );
+
+    let v = enumerate_active_pre_pair_candidates_for_post_project_in_session(
+        &root,
+        "post-current",
+        "daw-current",
+    );
+    assert!(
+        v.is_empty(),
+        "same project_hash must not override a distinct non-empty daw_session_id"
+    );
+}
+
+#[test]
 fn select_target_pre_for_arm_for_post_project_avoids_other_session_same_name() {
     let root = isolated_dir();
     let now = now_rfc3339();
@@ -383,6 +410,33 @@ fn select_target_pre_for_arm_for_post_project_avoids_other_session_same_name() {
     )
     .expect("scoped Arm should choose the current session Vocal");
     assert_eq!(sel.instance_id, "iid-current-vocal");
+}
+
+#[test]
+fn select_target_pre_for_arm_for_post_project_rejects_same_project_foreign_daw() {
+    let root = isolated_dir();
+    let now = now_rfc3339();
+    write_pre_for_select_with_identity(
+        &root,
+        "post-current",
+        "iid-old-vocal",
+        "Vocal",
+        "inactive",
+        &now,
+        Some(std::process::id()),
+        Some("daw-old"),
+    );
+
+    assert!(
+        select_target_pre_for_arm_for_post_project_in_session(
+            &root,
+            "Vocal",
+            "post-current",
+            "daw-current",
+        )
+        .is_none(),
+        "same project_hash must not arm a PRE with a different explicit daw_session_id"
+    );
 }
 
 #[test]
@@ -651,6 +705,30 @@ fn resolve_arm_target_for_post_project_rejects_foreign_latch_without_same_daw_id
         )
         .is_none(),
         "project switch must not keep a foreign latch when no matching daw_session_id exists"
+    );
+}
+
+#[test]
+fn resolve_arm_target_for_post_project_rejects_same_project_latch_with_foreign_daw_identity() {
+    let root = isolated_dir();
+    let latched = Mutex::new(Some(LatchedPre {
+        name: "snare".to_string(),
+        instance_id: "iid-A".to_string(),
+        project_dir: root.join("post-current"),
+        pre_json: root.join("post-current").join("iid-A").join("pre.json"),
+        daw_session_id: Some("daw-old".to_string()),
+    }));
+
+    assert!(
+        resolve_arm_target_for_post_project_in_session(
+            &root,
+            "snare",
+            "post-current",
+            "daw-current",
+            &latched,
+        )
+        .is_none(),
+        "same project_hash must not keep a latched PRE from a different explicit daw_session_id"
     );
 }
 

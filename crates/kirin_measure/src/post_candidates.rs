@@ -291,6 +291,9 @@ pub fn broadcast_scope_ids_match(
     if !local_daw_session_id.is_empty() && !remote_daw_session_id.is_empty() {
         return local_daw_session_id == remote_daw_session_id;
     }
+    if !local_daw_session_id.is_empty() || !remote_daw_session_id.is_empty() {
+        return false;
+    }
 
     local_host_process_id != 0
         && remote_host_process_id != 0
@@ -314,7 +317,7 @@ fn broadcast_scope_matches(
         .daw_session_id
         .as_deref()
         .is_some_and(|daw| !daw.is_empty());
-    if !daw_session_id.is_empty() && candidate_has_daw {
+    if !daw_session_id.is_empty() || candidate_has_daw {
         return false;
     }
 
@@ -338,9 +341,9 @@ pub fn enumerate_active_post_pair_candidates_for_daw_session(
 
 /// Active POST candidates in the same broadcast scope.
 ///
-/// `daw_session_id` is the isolation wall when both sides have one. `host_process_id` is only a
-/// legacy bridge when at least one side lacks explicit session identity; it must not bridge two
-/// different non-empty DAW sessions inside hosts that keep multiple documents in one process.
+/// `daw_session_id` is the isolation wall when either side has one. `host_process_id` is only a
+/// legacy bridge when both sides lack explicit session identity; it must not bridge explicit DAW
+/// sessions inside hosts that keep multiple documents in one process.
 pub fn enumerate_active_post_pair_candidates_for_broadcast_scope(
     kirin_root: &Path,
     daw_session_id: &str,
