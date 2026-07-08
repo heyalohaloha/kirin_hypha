@@ -29,6 +29,7 @@ Hypha は利用者に制限や複雑な操作を課さず、普通に計測し�
 | INV-T2 | TRACE の LUFS-M / True Peak / Crest は 3軸すべて揃った時だけ実測 frame として扱う。部分欠損を代数的に埋めて complete 扱いしない | `measured_observed_partial_core_is_not_completed_for_trace_slot` / `partial_core_trace_samples_are_recorded_as_incomplete_slots` |
 | INV-T3 | paired publish は PRE/POST 両側の session/link/trace frame/native duration が一致した時だけ通常 shelf に出す。片側だけ完全、または pair として不整合な Record は通常 TRACE 候補に出さない | `pair_finalize_quarantines_missing_trace_slots` / `pair_finalize_quarantines_duration_mismatched_pair` / `pair_finalize_quarantines_zero_frames_even_with_trace_diagnostics` |
 | INV-T4 | PRE は partner 情報を失っても、自分の active writer scope から正当な All Stop を受けて writer を閉じる。Record を orphan にせず `.pair_pending` へ進める | `active_writer_all_stop_stops_pre_without_partner` / `active_writer_all_stop_ignores_broadcast_before_record_start` / `active_writer_all_stop_ignores_other_host_process` |
+| INV-T5 | 通常 TRACE shelf に publish できるのは sample-count-ready な実測ペアだけ。`expected_wav` は補強情報であり、Hypha 内部の `wav_clock_native` / `render_clock_native` が完全な場合は missing expected で fallback 化しない。一方で欠損、推定、expected_wav 由来を名乗る metadata 不在、startup recovery は通常 shelf へ出さず診断へ隔離する | `pair_finalize_commits_render_clock_without_expected_as_complete_trace` / `pair_finalize_quarantines_expected_wav_source_without_expected_metadata` / `high_density_all_silent_trace_does_not_invent_missing_grid_slots` / `recover_orphan_tmps_recovers_valid_tmp` |
 
 ### 正本ロジックの所在
 

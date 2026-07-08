@@ -25,12 +25,16 @@ use std::time::{Duration, Instant, SystemTime};
 
 use crate::engine::SessionSummary;
 use crate::plugin_data::{
-    compute_checksum, verify_checksum, BounceTake, ExpectedWavMetadata, PluginDataFile,
-    PluginDataWriter, Role, Status, TraceDiagnostics, WriterPaths,
+    compute_checksum, normal_publish_failure_reasons, verify_checksum, BounceTake,
+    ExpectedWavMetadata, PluginDataFile, PluginDataWriter, Role, Status, TraceDiagnostics,
+    WriterPaths,
 };
 use crate::record::RecordStateMachine;
 use crate::record_signal;
-use crate::record_take::{RecordTakeSnapshot, RecordTakeTracker, RECORD_TAKE_SOURCE_WAV_CLOCK};
+use crate::record_take::{
+    RecordTakeSnapshot, RecordTakeTracker, RECORD_TAKE_SOURCE_RENDER_CLOCK,
+    RECORD_TAKE_SOURCE_WAV_CLOCK,
+};
 use crate::storage::{load_installation_id_safe, StoragePaths};
 use crate::MeasureResult;
 use chrono::TimeZone;
@@ -815,22 +819,13 @@ fn bake_continuous_record_timeline(ctx: &mut RecordingCtx) {
     ctx.writer.clear_frames();
     ctx.first_frame_logged = false;
     let expected_frame_count = slots.len() as u64;
-    let fill_missing_silence_slots =
-        should_backfill_silent_trace_slots(ctx, slots.len(), &best_by_ms);
     let mut missing_slots = 0_u64;
-    let mut backfilled_silence_slots = 0_u64;
     for t_ms in slots {
         if let Some(result) = best_by_ms.get(&t_ms) {
             let _ = writer_append_trace_frame(ctx, t_ms, result);
-        } else if fill_missing_silence_slots {
-            let _ = writer_append_trace_frame(ctx, t_ms, &trace_silence_measure_result());
-            backfilled_silence_slots = backfilled_silence_slots.saturating_add(1);
         } else {
             missing_slots = missing_slots.saturating_add(1);
         }
-    }
-    if backfilled_silence_slots > 0 && missing_slots == 0 {
-        ctx.raw_trace_timeline_covers_duration = Some(true);
     }
     let measured_frame_count = ctx.writer.data().frames.len() as u64;
     let explicit_silence_frame_count = ctx
@@ -855,42 +850,6 @@ fn bake_continuous_record_timeline(ctx: &mut RecordingCtx) {
         ctx.writer.mark_integrity_degraded();
         ctx.writer.add_integrity_reason("missing_trace_slots");
     }
-}
-
-fn should_backfill_silent_trace_slots(
-    ctx: &RecordingCtx,
-    expected_frame_count: usize,
-    best_by_ms: &BTreeMap<u64, MeasureResult>,
-) -> bool {
-    if expected_frame_count == 0 || best_by_ms.is_empty() {
-        return false;
-    }
-    if expected_wav(ctx).is_none() && ctx.clean_take.is_none() {
-        return false;
-    }
-    if !best_by_ms.values().all(is_trace_silence_floor) {
-        return false;
-    }
-    if !observed_trace_slots_are_contiguous(best_by_ms) {
-        return false;
-    }
-    best_by_ms
-        .len()
-        .saturating_mul(CLEAN_TAKE_MIN_TRACE_RATIO_DEN)
-        >= expected_frame_count.saturating_mul(CLEAN_TAKE_MIN_TRACE_RATIO_NUM)
-}
-
-fn observed_trace_slots_are_contiguous(best_by_ms: &BTreeMap<u64, MeasureResult>) -> bool {
-    let mut previous = None;
-    for t_ms in best_by_ms.keys().copied() {
-        if let Some(previous_t_ms) = previous {
-            if t_ms.saturating_sub(previous_t_ms) > FRAME_COVERAGE_MAX_GAP_MS {
-                return false;
-            }
-        }
-        previous = Some(t_ms);
-    }
-    true
 }
 
 fn should_bake_continuous_record_timeline(ctx: &RecordingCtx) -> bool {
@@ -971,10 +930,6 @@ fn with_trace_silence_core(mut result: MeasureResult) -> MeasureResult {
     result.true_peak = Some(TRACE_SILENCE_TRUE_PEAK_DBTP);
     result.crest = Some(TRACE_SILENCE_CREST_DB);
     result
-}
-
-fn trace_silence_measure_result() -> MeasureResult {
-    with_trace_silence_core(MeasureResult::default())
 }
 
 fn measured_trace_result_for_bake(sample: &RecordTraceSample) -> Option<MeasureResult> {
@@ -1079,12 +1034,19 @@ fn timeline_times_cover_duration(times: &mut Vec<u64>, duration_ms: u64) -> bool
 }
 
 fn clean_take_is_sample_count_ready(ctx: &RecordingCtx, duration_ms: u64) -> bool {
+    let Some(take) = ctx.clean_take else {
+        return false;
+    };
+    if !matches!(
+        take.source,
+        RECORD_TAKE_SOURCE_WAV_CLOCK | RECORD_TAKE_SOURCE_RENDER_CLOCK
+    ) {
+        return false;
+    }
     let raw_timeline_ready = ctx
         .raw_trace_timeline_covers_duration
         .unwrap_or_else(|| frame_timeline_covers_duration(ctx, duration_ms));
-    ctx.clean_take
-        .is_some_and(|take| take.source == RECORD_TAKE_SOURCE_WAV_CLOCK)
-        && duration_ms >= CLEAN_TAKE_MIN_DURATION_MS
+    duration_ms >= CLEAN_TAKE_MIN_DURATION_MS
         && frame_timeline_covers_duration(ctx, duration_ms)
         && raw_timeline_ready
         && clean_take_trace_density_ready(ctx, duration_ms)
@@ -1205,8 +1167,14 @@ fn mark_integrity_if_record_clock_is_not_wav_bounded(ctx: &mut RecordingCtx) {
     if clean_take.source == RECORD_TAKE_SOURCE_WAV_CLOCK {
         return;
     }
+    let duration_ms = record_duration_ms(ctx);
+    if clean_take.source == RECORD_TAKE_SOURCE_RENDER_CLOCK
+        && clean_take_is_sample_count_ready(ctx, duration_ms)
+    {
+        return;
+    }
     log::warn!(
-        "[writer] Record clean take source is {} rather than wav_clock_native - marking integrity_degraded",
+        "[writer] Record clean take source is {} without a complete sample-count-ready timeline - marking integrity_degraded",
         clean_take.source
     );
     ctx.writer.mark_integrity_degraded();
@@ -2117,18 +2085,9 @@ fn recovery_candidate_is_stale(path: &Path) -> bool {
 }
 
 fn recovery_failure_reasons(data: &PluginDataFile) -> Vec<&'static str> {
-    let mut reasons = Vec::new();
-    if !data.validity {
-        reasons.push("validity_false");
-    }
-    if data.frames.is_empty() {
-        reasons.push("zero_trace_frames");
-    }
-    if data.sample_rate == 0 {
-        reasons.push("missing_sample_rate");
-    }
-    if data.record_session_id.as_deref().is_none_or(str::is_empty) {
-        reasons.push("missing_record_session_id");
+    let mut reasons = normal_publish_failure_reasons(data);
+    if data.commit_status.as_deref() != Some("committed") {
+        reasons.push("recovery_not_committed_pair_artifact");
     }
     reasons.sort_unstable();
     reasons.dedup();
@@ -2137,23 +2096,6 @@ fn recovery_failure_reasons(data: &PluginDataFile) -> Vec<&'static str> {
 
 fn recovery_integrity_reasons(data: &PluginDataFile) -> Vec<&'static str> {
     let mut reasons = Vec::new();
-    if data.expected_wav.as_ref().is_none_or(|m| !m.is_usable()) {
-        reasons.push("missing_expected_wav_metadata");
-    }
-    if data
-        .bounce_take
-        .as_ref()
-        .is_none_or(|take| take.alignment_status != "sample_count_ready")
-    {
-        reasons.push("bounce_take_not_sample_count_ready");
-    }
-    if data
-        .trace_diagnostics
-        .as_ref()
-        .is_none_or(|diag| diag.missing_slots > 0)
-    {
-        reasons.push("missing_trace_slots");
-    }
     for reason in &data.integrity_reasons {
         match reason.as_str() {
             "raw_trace_timeline_gap" => reasons.push("raw_trace_timeline_gap"),
@@ -2677,6 +2619,29 @@ mod tests {
             .find(|path| path.extension().is_some_and(|ext| ext == "json"))
     }
 
+    fn make_sample_count_ready_pending_ctx(base: &Path, role: Role) -> RecordingCtx {
+        let mut ctx = make_ctx(base, role, now_epoch_ms());
+        ctx.record_generation = 1;
+        ctx.clean_take = Some(RecordTakeSnapshot {
+            generation: 1,
+            duration_samples: 48_000,
+            source: crate::record_take::RECORD_TAKE_SOURCE_WAV_CLOCK,
+        });
+        for t_ms in (100_u64..=1_000).step_by(FRAME_INTERVAL_MS as usize) {
+            assert!(writer_append_frame(&mut ctx, t_ms, &full_measure_result()));
+            mark_trace_time(
+                &mut ctx,
+                t_ms,
+                t_ms.saturating_mul(TRACE_TIMEBASE_HZ) / 1_000,
+                Some(t_ms.saturating_mul(48_000) / 1_000),
+            );
+        }
+        ctx.trace_sample_count = 10;
+        ctx.writer
+            .set_record_session_id(Some("session-pair-pending-tmp".to_string()));
+        ctx
+    }
+
     fn full_measure_result() -> MeasureResult {
         MeasureResult {
             lufs_m: Some(-14.2),
@@ -3003,7 +2968,7 @@ mod tests {
     }
 
     #[test]
-    fn render_clock_clean_take_is_not_sample_count_ready_without_wav_clock() {
+    fn render_clock_clean_take_is_sample_count_ready_when_trace_grid_is_complete() {
         let base = isolated_base();
         let mut ctx = make_ctx_with_sample_rate(&base, Role::Post, now_epoch_ms(), 96_000);
         let m = full_measure_result();
@@ -3028,9 +2993,8 @@ mod tests {
         assert_eq!(take.source, "render_clock_native");
         assert_eq!(take.duration_samples, 1_440_000);
         assert_eq!(take.frame_count, 150);
-        assert_eq!(take.alignment_status, "trace_span_only");
-        assert!(loaded.integrity_degraded);
-        assert!(loaded
+        assert_eq!(take.alignment_status, "sample_count_ready");
+        assert!(!loaded
             .integrity_reasons
             .iter()
             .any(|reason| reason == "record_clock_not_wav_bounded"));
@@ -3917,7 +3881,7 @@ mod tests {
     }
 
     #[test]
-    fn high_density_all_silent_trace_backfills_missing_grid_slots() {
+    fn high_density_all_silent_trace_does_not_invent_missing_grid_slots() {
         let base = isolated_base();
         let mut ctx = make_ctx_with_sample_rate(&base, Role::Post, now_epoch_ms(), 96_000);
         let final_path = ctx.final_path.clone();
@@ -3948,11 +3912,11 @@ mod tests {
         let loaded: PluginDataFile = read_output_for_final(&final_path);
         let take = loaded.bounce_take.as_ref().expect("bounce_take");
         assert_eq!(take.end_t_ms, 15_210);
-        assert_eq!(take.alignment_status, "sample_count_ready");
-        assert_eq!(take.frame_count, 152);
-        assert_eq!(loaded.frames.len(), 152);
+        assert_ne!(take.alignment_status, "sample_count_ready");
+        assert_eq!(take.frame_count, 121);
+        assert_eq!(loaded.frames.len(), 121);
         assert_eq!(loaded.frames.first().map(|frame| frame.t_ms), Some(100));
-        assert_eq!(loaded.frames.last().map(|frame| frame.t_ms), Some(15_200));
+        assert_eq!(loaded.frames.last().map(|frame| frame.t_ms), Some(12_100));
         assert!(loaded.frames.iter().all(|frame| {
             frame.lufs_m == TRACE_SILENCE_LUFS
                 && frame.true_peak == TRACE_SILENCE_TRUE_PEAK_DBTP
@@ -3964,14 +3928,14 @@ mod tests {
             .expect("trace diagnostics");
         assert_eq!(diag.raw_trace_count, 121);
         assert_eq!(diag.expected_frame_count, 152);
-        assert_eq!(diag.measured_frame_count, 152);
-        assert_eq!(diag.missing_slots, 0);
-        assert_eq!(diag.explicit_silence_frame_count, 152);
-        assert!(!loaded
+        assert_eq!(diag.measured_frame_count, 121);
+        assert_eq!(diag.missing_slots, 31);
+        assert_eq!(diag.explicit_silence_frame_count, 121);
+        assert!(loaded
             .integrity_reasons
             .iter()
             .any(|reason| reason == "missing_trace_slots"));
-        assert!(!loaded
+        assert!(loaded
             .integrity_reasons
             .iter()
             .any(|reason| reason == "raw_trace_timeline_gap"));
@@ -4647,10 +4611,7 @@ mod tests {
     #[test]
     fn recover_orphan_tmps_restores_pair_pending_tmp_without_role_publish() {
         let base = isolated_base();
-        let mut ctx = make_ctx(&base, Role::Post, now_epoch_ms());
-        assert!(writer_append_frame(&mut ctx, 100, &full_measure_result()));
-        ctx.writer
-            .set_record_session_id(Some("session-pair-pending-tmp".to_string()));
+        let ctx = make_sample_count_ready_pending_ctx(&base, Role::Post);
         let final_path = ctx.final_path.clone();
         writer_close(ctx);
         let pending_path = any_pair_pending_for_final(&final_path)
@@ -4684,8 +4645,7 @@ mod tests {
     #[test]
     fn recover_orphan_tmps_restores_legacy_role_pair_pending_tmp_without_role_publish() {
         let base = isolated_base();
-        let mut ctx = make_ctx(&base, Role::Post, now_epoch_ms());
-        assert!(writer_append_frame(&mut ctx, 100, &full_measure_result()));
+        let mut ctx = make_sample_count_ready_pending_ctx(&base, Role::Post);
         ctx.writer
             .set_record_session_id(Some("session-legacy-role-pair-tmp".to_string()));
         let final_path = ctx.final_path.clone();
@@ -4763,6 +4723,20 @@ mod tests {
         for writer in [&mut pre, &mut post] {
             writer.set_record_start_wall_clock(start_iso.to_string());
             writer.set_record_session_id(Some(session_id.to_string()));
+            writer.set_bounce_take(BounceTake {
+                source: "render_clock_native".to_string(),
+                time_axis: "native_samples".to_string(),
+                alignment_status: "sample_count_ready".to_string(),
+                sample_rate: 48_000,
+                wav_start_sample: 0,
+                wav_end_sample: 48_000,
+                duration_samples: 48_000,
+                duration_frames_48k: 48_000,
+                start_t_ms: 0,
+                end_t_ms: 1_000,
+                trace_sample_count: 1,
+                frame_count: 1,
+            });
             writer.set_trace_diagnostics(TraceDiagnostics {
                 raw_trace_count: 1,
                 expected_frame_count: 1,

@@ -53,6 +53,10 @@ const PAIR_RECORD_SESSIONS_DIR: &str = "record_sessions";
 const PAIR_RECORD_MEMBERS_DIR: &str = ".pair_committed";
 const PAIR_RECORD_SESSION_SCHEMA: &str = "pair_record_session.v1";
 const TRACE_SHELF_COLLISION_SEARCH_SECS: i64 = 300;
+const BOUNCE_ALIGNMENT_SAMPLE_COUNT_READY: &str = "sample_count_ready";
+const BOUNCE_SOURCE_EXPECTED_WAV: &str = "expected_wav_duration_native";
+const BOUNCE_SOURCE_WAV_CLOCK: &str = "wav_clock_native";
+const BOUNCE_SOURCE_RENDER_CLOCK: &str = "render_clock_native";
 
 fn non_empty_string(value: Option<String>) -> Option<String> {
     value
@@ -184,7 +188,8 @@ pub struct TraceDiagnostics {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RecordQuality {
     /// `complete` = sample-count aligned full product.
-    /// `usable_fallback` = complete TRACE slots with non-fatal metadata degradation.
+    /// `usable_fallback` = diagnostic/internal compatibility state; normal TRACE shelf publish is
+    /// gated by `complete`.
     /// `failed` = diagnostic artifact only.
     pub status: String,
     pub complete: bool,
@@ -852,7 +857,7 @@ impl PluginDataWriter {
     }
 
     fn commit_failure_reasons(&self) -> Vec<&'static str> {
-        side_publish_failure_reasons(&self.data)
+        normal_publish_failure_reasons(&self.data)
     }
 
     fn commit_integrity_reasons(&self) -> Vec<&'static str> {
@@ -896,12 +901,128 @@ fn side_publish_failure_reasons(data: &PluginDataFile) -> Vec<&'static str> {
     dedup_reasons(reasons)
 }
 
+fn bounce_source_is_sample_count_ready(source: &str) -> bool {
+    matches!(
+        source,
+        BOUNCE_SOURCE_EXPECTED_WAV | BOUNCE_SOURCE_WAV_CLOCK | BOUNCE_SOURCE_RENDER_CLOCK
+    )
+}
+
+fn bounce_take_sample_count_ready(data: &PluginDataFile) -> bool {
+    let Some(take) = data.bounce_take.as_ref() else {
+        return false;
+    };
+    if take.alignment_status != BOUNCE_ALIGNMENT_SAMPLE_COUNT_READY
+        || data.sample_rate == 0
+        || take.sample_rate != data.sample_rate
+        || take.duration_samples == 0
+        || take.wav_end_sample < take.wav_start_sample
+        || take.frame_count == 0
+    {
+        return false;
+    }
+    match take.source.as_str() {
+        BOUNCE_SOURCE_EXPECTED_WAV => expected_wav_matches_take(data, take),
+        BOUNCE_SOURCE_WAV_CLOCK | BOUNCE_SOURCE_RENDER_CLOCK => true,
+        _ => false,
+    }
+}
+
+fn expected_wav_matches_take(data: &PluginDataFile, take: &BounceTake) -> bool {
+    data.expected_wav.as_ref().is_some_and(|expected| {
+        expected.is_usable()
+            && data.sample_rate == expected.expected_sample_rate
+            && take.sample_rate == expected.expected_sample_rate
+            && take.duration_samples == expected.expected_duration_samples
+    })
+}
+
+fn trace_slots_are_complete(data: &PluginDataFile) -> bool {
+    data.trace_diagnostics.as_ref().is_some_and(|diag| {
+        diag.expected_frame_count > 0
+            && diag.missing_slots == 0
+            && diag.measured_frame_count == diag.expected_frame_count
+            && diag.measured_frame_count as usize == data.frames.len()
+    })
+}
+
+fn trace_publish_failure_reasons(data: &PluginDataFile) -> Vec<&'static str> {
+    let mut reasons = Vec::new();
+    match &data.trace_diagnostics {
+        Some(diag) => {
+            if diag.expected_frame_count == 0 {
+                reasons.push("zero_expected_trace_frames");
+            }
+            if diag.missing_slots > 0 {
+                reasons.push("missing_trace_slots");
+            }
+            if diag.measured_frame_count != diag.expected_frame_count {
+                reasons.push("trace_frame_count_mismatch");
+            }
+            if diag.measured_frame_count as usize != data.frames.len() {
+                reasons.push("trace_frame_payload_count_mismatch");
+            }
+        }
+        None => reasons.push("missing_trace_diagnostics"),
+    }
+    dedup_reasons(reasons)
+}
+
+fn side_measurement_failure_reasons(data: &PluginDataFile) -> Vec<&'static str> {
+    let mut reasons = Vec::new();
+    match data.bounce_take.as_ref() {
+        Some(take) => {
+            if take.alignment_status != BOUNCE_ALIGNMENT_SAMPLE_COUNT_READY {
+                reasons.push("bounce_take_not_sample_count_ready");
+            }
+            if !bounce_source_is_sample_count_ready(&take.source) {
+                reasons.push("bounce_take_source_not_sample_count_ready");
+            }
+            if data.sample_rate == 0 || take.sample_rate != data.sample_rate {
+                reasons.push("bounce_take_sample_rate_mismatch");
+            }
+            if take.duration_samples == 0 || take.wav_end_sample < take.wav_start_sample {
+                reasons.push("bounce_take_duration_invalid");
+            }
+            if take.frame_count == 0 {
+                reasons.push("bounce_take_zero_frames");
+            }
+        }
+        None => reasons.push("missing_bounce_take"),
+    }
+    reasons.extend(trace_publish_failure_reasons(data));
+    if !bounce_take_sample_count_ready(data) {
+        reasons.push("bounce_take_not_sample_count_ready");
+    }
+    if !trace_slots_are_complete(data) {
+        reasons.push("trace_slots_not_complete");
+    }
+    dedup_reasons(reasons)
+}
+
+pub(crate) fn normal_publish_failure_reasons(data: &PluginDataFile) -> Vec<&'static str> {
+    let mut reasons = side_publish_failure_reasons(data);
+    reasons.extend(side_measurement_failure_reasons(data));
+    reasons.extend(side_publish_integrity_reasons(data));
+    dedup_reasons(reasons)
+}
+
 fn side_publish_integrity_reasons(data: &PluginDataFile) -> Vec<&'static str> {
     let mut reasons = Vec::new();
+    let sample_count_ready = bounce_take_sample_count_ready(data);
+    let internally_sample_count_ready = data.bounce_take.as_ref().is_some_and(|take| {
+        sample_count_ready
+            && matches!(
+                take.source.as_str(),
+                BOUNCE_SOURCE_WAV_CLOCK | BOUNCE_SOURCE_RENDER_CLOCK
+            )
+    });
     let expected = match &data.expected_wav {
         Some(expected) if expected.is_usable() => Some(expected),
         _ => {
-            reasons.push("missing_expected_wav_metadata");
+            if !sample_count_ready {
+                reasons.push("missing_expected_wav_metadata");
+            }
             None
         }
     };
@@ -913,28 +1034,48 @@ fn side_publish_integrity_reasons(data: &PluginDataFile) -> Vec<&'static str> {
         }
     };
     if let (Some(expected), Some(take)) = (expected, take) {
-        if data.sample_rate != expected.expected_sample_rate {
-            reasons.push("sample_rate_expected_mismatch");
+        if !internally_sample_count_ready {
+            if data.sample_rate != expected.expected_sample_rate {
+                reasons.push("sample_rate_expected_mismatch");
+            }
+            if take.sample_rate != expected.expected_sample_rate {
+                reasons.push("bounce_take_sample_rate_mismatch");
+            }
+            if take.duration_samples != expected.expected_duration_samples {
+                reasons.push("bounce_take_duration_mismatch");
+            }
+            if take.alignment_status != BOUNCE_ALIGNMENT_SAMPLE_COUNT_READY {
+                reasons.push("bounce_take_not_sample_count_ready");
+            }
+            if !bounce_source_is_sample_count_ready(&take.source) {
+                reasons.push("bounce_take_source_not_sample_count_ready");
+            } else if take.source != BOUNCE_SOURCE_EXPECTED_WAV {
+                reasons.push("bounce_take_source_not_expected_wav");
+            }
         }
-        if take.sample_rate != expected.expected_sample_rate {
-            reasons.push("bounce_take_sample_rate_mismatch");
-        }
-        if take.duration_samples != expected.expected_duration_samples {
-            reasons.push("bounce_take_duration_mismatch");
-        }
-        if take.alignment_status != "sample_count_ready" {
+    } else if let Some(take) = take {
+        if take.alignment_status != BOUNCE_ALIGNMENT_SAMPLE_COUNT_READY {
             reasons.push("bounce_take_not_sample_count_ready");
         }
-        if take.source != "expected_wav_duration_native" {
-            reasons.push("bounce_take_source_not_expected_wav");
+        if !bounce_source_is_sample_count_ready(&take.source) {
+            reasons.push("bounce_take_source_not_sample_count_ready");
+        }
+        if data.sample_rate == 0 || take.sample_rate != data.sample_rate {
+            reasons.push("bounce_take_sample_rate_mismatch");
         }
     }
     if let Some(diag) = &data.trace_diagnostics {
+        if diag.expected_frame_count == 0 {
+            reasons.push("zero_expected_trace_frames");
+        }
         if diag.missing_slots > 0 {
             reasons.push("missing_trace_slots");
         }
         if diag.measured_frame_count != diag.expected_frame_count {
             reasons.push("trace_frame_count_mismatch");
+        }
+        if diag.measured_frame_count as usize != data.frames.len() {
+            reasons.push("trace_frame_payload_count_mismatch");
         }
     } else {
         reasons.push("missing_trace_diagnostics");
@@ -963,28 +1104,19 @@ pub(crate) fn refresh_record_quality(data: &mut PluginDataFile) {
         .expected_wav
         .as_ref()
         .is_some_and(ExpectedWavMetadata::is_usable);
-    let sample_count_ready = match (&data.expected_wav, &data.bounce_take) {
-        (Some(expected), Some(take)) if expected.is_usable() => {
-            take.alignment_status == "sample_count_ready"
-                && take.source == "expected_wav_duration_native"
-                && take.sample_rate == expected.expected_sample_rate
-                && take.duration_samples == expected.expected_duration_samples
-                && data.sample_rate == expected.expected_sample_rate
-        }
-        _ => false,
-    };
+    let sample_count_ready = bounce_take_sample_count_ready(data);
     let (expected_frame_count, measured_frame_count, missing_trace_slots, trace_slots_complete) =
         match &data.trace_diagnostics {
             Some(diag) => (
                 diag.expected_frame_count,
                 diag.measured_frame_count,
                 diag.missing_slots,
-                diag.missing_slots == 0 && diag.measured_frame_count == diag.expected_frame_count,
+                trace_slots_are_complete(data),
             ),
             None => (0, data.frames.len() as u64, 0, false),
         };
-    let trace_has_missing_slots = missing_trace_slots > 0 || !trace_slots_complete;
-    let usable = side_publish_failure_reasons(data).is_empty() && !trace_has_missing_slots;
+    let usable = side_publish_failure_reasons(data).is_empty()
+        && side_measurement_failure_reasons(data).is_empty();
     let complete = usable && side_publish_integrity_reasons(data).is_empty();
     let status = if complete {
         "complete"
@@ -1699,8 +1831,8 @@ fn pair_publish_failure_reasons(
     left: &PluginDataFile,
     right: &PluginDataFile,
 ) -> Vec<&'static str> {
-    let mut reasons = side_publish_failure_reasons(left);
-    reasons.extend(side_publish_failure_reasons(right));
+    let mut reasons = normal_publish_failure_reasons(left);
+    reasons.extend(normal_publish_failure_reasons(right));
     let (pre, post) = match (left.role, right.role) {
         (Role::Pre, Role::Post) => (left, right),
         (Role::Post, Role::Pre) => (right, left),
@@ -1722,22 +1854,6 @@ fn pair_publish_failure_reasons(
         reasons.push("pair_post_pre_link_mismatch");
     }
     reasons.extend(pair_publish_consistency_failure_reasons(pre, post));
-    dedup_reasons(reasons)
-}
-
-fn trace_publish_failure_reasons(data: &PluginDataFile) -> Vec<&'static str> {
-    let mut reasons = Vec::new();
-    match &data.trace_diagnostics {
-        Some(diag) => {
-            if diag.missing_slots > 0 {
-                reasons.push("missing_trace_slots");
-            }
-            if diag.measured_frame_count != diag.expected_frame_count {
-                reasons.push("trace_frame_count_mismatch");
-            }
-        }
-        None => reasons.push("missing_trace_diagnostics"),
-    }
     dedup_reasons(reasons)
 }
 
@@ -2940,24 +3056,29 @@ mod tests {
     }
 
     #[test]
-    fn pair_finalize_commits_missing_expected_as_degraded_trace() {
+    fn pair_finalize_commits_render_clock_without_expected_as_complete_trace() {
         let base = isolated_dir();
         let mut pre = complete_pair_writer(
             &base,
             Role::Pre,
-            "iid-pre-no-expected",
+            "iid-pre-render-no-expected",
             None,
-            Some("iid-post-no-expected".to_string()),
+            Some("iid-post-render-no-expected".to_string()),
         );
         let mut post = complete_pair_writer(
             &base,
             Role::Post,
-            "iid-post-no-expected",
-            Some("iid-pre-no-expected".to_string()),
+            "iid-post-render-no-expected",
+            Some("iid-pre-render-no-expected".to_string()),
             None,
         );
         pre.set_expected_wav(None);
         post.set_expected_wav(None);
+        for writer in [&mut pre, &mut post] {
+            let mut take = writer.data.bounce_take.clone().expect("bounce_take");
+            take.source = BOUNCE_SOURCE_RENDER_CLOCK.to_string();
+            writer.set_bounce_take(take);
+        }
         pre.data.status = Status::Closed;
         pre.data.commit_status = Some("pair_pending".to_string());
         post.data.status = Status::Closed;
@@ -2994,17 +3115,84 @@ mod tests {
         for data in [&pre_data, &post_data, &pre_trace_data, &post_trace_data] {
             assert_eq!(data.commit_status.as_deref(), Some("committed"));
             assert!(data.validity);
+            assert!(!data.integrity_degraded);
+            assert!(data.integrity_reasons.is_empty());
+            let quality = data.record_quality.as_ref().expect("record_quality");
+            assert_eq!(quality.status, "complete");
+            assert!(quality.complete);
+            assert!(quality.usable);
+            assert!(!quality.expected_wav_ready);
+            assert!(quality.sample_count_ready);
+            assert!(quality.trace_slots_complete);
+            assert!(verify_checksum(data));
+        }
+    }
+
+    #[test]
+    fn pair_finalize_quarantines_expected_wav_source_without_expected_metadata() {
+        let base = isolated_dir();
+        let mut pre = complete_pair_writer(
+            &base,
+            Role::Pre,
+            "iid-pre-source-expected-missing",
+            None,
+            Some("iid-post-source-expected-missing".to_string()),
+        );
+        let mut post = complete_pair_writer(
+            &base,
+            Role::Post,
+            "iid-post-source-expected-missing",
+            Some("iid-pre-source-expected-missing".to_string()),
+            None,
+        );
+        pre.set_expected_wav(None);
+        post.set_expected_wav(None);
+        pre.data.status = Status::Closed;
+        pre.data.commit_status = Some("pair_pending".to_string());
+        post.data.status = Status::Closed;
+        post.data.commit_status = Some("pair_pending".to_string());
+
+        let pre_paths = self_paths_for(&pre.paths, &pre.data);
+        let post_paths = self_paths_for(&post.paths, &post.data);
+        pre.write_atomic(pre_paths.pair_pending_path.clone())
+            .unwrap();
+        post.write_atomic(post_paths.pair_pending_path.clone())
+            .unwrap();
+
+        try_finalize_pair_session(&pre.paths, &pre.data).unwrap();
+
+        let manifest_path = pair_commit_manifest_path(&pre.paths, &pre.data).unwrap();
+        let pre_trace_path = pair_trace_shelf_path(&pre_paths, &pre.data).unwrap();
+        let post_trace_path = pair_trace_shelf_path(&post_paths, &post.data).unwrap();
+        assert!(!manifest_path.exists());
+        assert!(!pre_paths.member_path.exists());
+        assert!(!post_paths.member_path.exists());
+        assert!(!pre_trace_path.exists());
+        assert!(!post_trace_path.exists());
+        assert!(pre_paths.failed_path.exists());
+        assert!(post_paths.failed_path.exists());
+
+        let pre_data: PluginDataFile =
+            serde_json::from_slice(&fs::read(&pre_paths.failed_path).unwrap()).unwrap();
+        let post_data: PluginDataFile =
+            serde_json::from_slice(&fs::read(&post_paths.failed_path).unwrap()).unwrap();
+        for data in [&pre_data, &post_data] {
+            assert_eq!(data.commit_status.as_deref(), Some("failed"));
+            assert!(!data.validity);
             assert!(data.integrity_degraded);
             assert!(data
                 .integrity_reasons
                 .iter()
                 .any(|reason| reason == "missing_expected_wav_metadata"));
+            assert!(data
+                .integrity_reasons
+                .iter()
+                .any(|reason| reason == "bounce_take_not_sample_count_ready"));
             let quality = data.record_quality.as_ref().expect("record_quality");
-            assert_eq!(quality.status, "usable_fallback");
+            assert_eq!(quality.status, "failed");
             assert!(!quality.complete);
-            assert!(quality.usable);
-            assert!(!quality.expected_wav_ready);
-            assert!(quality.trace_slots_complete);
+            assert!(!quality.usable);
+            assert!(!quality.sample_count_ready);
             assert!(verify_checksum(data));
         }
     }
