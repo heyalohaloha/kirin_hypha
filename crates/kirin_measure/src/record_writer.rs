@@ -2502,14 +2502,13 @@ mod tests {
             Some("record-session-claim")
         );
         assert_eq!(ctx.writer.data().expected_wav.as_ref(), Some(&expected));
-        assert!(matches!(
-            crate::record_expected::claim_expected_metadata_for_session(
-                &base,
-                TEST_PH,
-                "other-session"
-            ),
-            Err(crate::record_expected::ExpectedMetadataError::Consumed)
-        ));
+        let batch_peer = crate::record_expected::claim_expected_metadata_for_session(
+            &base,
+            TEST_PH,
+            "other-session",
+        )
+        .unwrap();
+        assert_eq!(batch_peer, expected);
     }
 
     /// B-076: テスト用の overflow=0 カウンタ（欠落なし）。`&no_overflow()` で run_record_tick へ。

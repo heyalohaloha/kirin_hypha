@@ -15,6 +15,10 @@ pub const EXPECTED_SUBDIR: &str = "record_expected";
 pub const EXPECTED_FILENAME: &str = "current.json";
 pub const EXPECTED_METADATA_MAX_AGE_MS: i64 = 10 * 60 * 1_000;
 const EXPECTED_METADATA_FUTURE_SKEW_MS: i64 = 60 * 1_000;
+const EXPECTED_METADATA_MAX_SHARED_CLAIMS: usize = 12;
+const EXPECTED_CLAIMS_SUBDIR: &str = "claims";
+const EXPECTED_METADATA_SESSION_SEPARATOR: char = '\n';
+const EXPECTED_CLAIM_SCHEMA: &str = "1.0";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExpectedWavMetadata {
@@ -35,6 +39,16 @@ pub struct ExpectedWavMetadata {
     pub consumed_at_ms: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub consumed_by_session_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct ExpectedWavClaimMarker {
+    schema_version: String,
+    session_id: String,
+    bounce_id: String,
+    created_at_ms: i64,
+    wav_hash: String,
+    claimed_at_ms: i64,
 }
 
 impl ExpectedWavMetadata {
@@ -136,7 +150,10 @@ pub fn read_expected_metadata(
     let metadata: ExpectedWavMetadata = serde_json::from_slice(&bytes)?;
     if !metadata.is_complete() {
         Err(ExpectedMetadataError::Invalid)
-    } else if metadata.consumed_at_ms.is_some() || metadata.consumed_by_session_id.is_some() {
+    } else if metadata.consumed_at_ms.is_some()
+        || metadata.consumed_by_session_id.is_some()
+        || !claimed_session_ids_for_metadata(base_dir, project_hash, &metadata)?.is_empty()
+    {
         Err(ExpectedMetadataError::Consumed)
     } else if !metadata.is_fresh_for_arm(now_epoch_ms()) {
         Err(ExpectedMetadataError::Stale)
@@ -174,19 +191,44 @@ pub fn claim_expected_metadata_for_session(
     if !metadata.is_complete() {
         return Err(ExpectedMetadataError::Invalid);
     }
-    if !metadata.is_fresh_complete_for_arm(now_epoch_ms()) {
+    let now_ms = now_epoch_ms();
+    if !metadata.is_fresh_complete_for_arm(now_ms) {
         return Err(ExpectedMetadataError::Stale);
     }
-    if metadata.consumed_at_ms.is_some() || metadata.consumed_by_session_id.is_some() {
-        return if metadata.consumed_by_session_id.as_deref() == Some(session_id) {
-            Ok(metadata.without_consumed_marker())
-        } else {
-            Err(ExpectedMetadataError::Consumed)
-        };
+    let claimed_before = claimed_session_ids_for_metadata(base_dir, project_hash, &metadata)?;
+    if metadata.consumed_at_ms.is_some()
+        || metadata.consumed_by_session_id.is_some()
+        || !claimed_before.is_empty()
+    {
+        if claimed_before.iter().any(|existing| existing == session_id) {
+            return Ok(metadata.without_consumed_marker());
+        }
+        if claimed_before.is_empty() || claimed_before.len() >= EXPECTED_METADATA_MAX_SHARED_CLAIMS
+        {
+            return Err(ExpectedMetadataError::Consumed);
+        }
     }
-    let artifact_metadata = metadata.clone();
-    metadata.consumed_at_ms = Some(now_epoch_ms());
-    metadata.consumed_by_session_id = Some(session_id.to_string());
+    let artifact_metadata = metadata.clone().without_consumed_marker();
+    write_claim_marker(base_dir, project_hash, &metadata, session_id, now_ms)?;
+    let mut session_ids = claimed_session_ids_for_metadata(base_dir, project_hash, &metadata)?;
+    if session_ids.len() > EXPECTED_METADATA_MAX_SHARED_CLAIMS {
+        let accepted = session_ids
+            .iter()
+            .take(EXPECTED_METADATA_MAX_SHARED_CLAIMS)
+            .any(|existing| existing == session_id);
+        if !accepted {
+            let _ = fs::remove_file(expected_claim_marker_path(
+                base_dir,
+                project_hash,
+                &metadata,
+                session_id,
+            ));
+            return Err(ExpectedMetadataError::Consumed);
+        }
+        session_ids.truncate(EXPECTED_METADATA_MAX_SHARED_CLAIMS);
+    }
+    metadata.consumed_at_ms = metadata.consumed_at_ms.or(Some(now_ms));
+    metadata.consumed_by_session_id = Some(join_session_ids(&session_ids));
     let json = serde_json::to_vec(&metadata)?;
     crate::atomic_file::write_bytes_atomic(&path, &json)?;
     Ok(artifact_metadata)
@@ -207,8 +249,19 @@ pub fn mark_expected_metadata_consumed(
     if metadata.bounce_id != bounce_id {
         return Ok(false);
     }
-    metadata.consumed_at_ms = Some(now_epoch_ms());
-    metadata.consumed_by_session_id = Some(session_id.to_string());
+    write_claim_marker(
+        base_dir,
+        project_hash,
+        &metadata,
+        session_id.trim(),
+        now_epoch_ms(),
+    )?;
+    let mut session_ids = claimed_session_ids_for_metadata(base_dir, project_hash, &metadata)?;
+    if session_ids.len() > EXPECTED_METADATA_MAX_SHARED_CLAIMS {
+        session_ids.truncate(EXPECTED_METADATA_MAX_SHARED_CLAIMS);
+    }
+    metadata.consumed_at_ms = metadata.consumed_at_ms.or(Some(now_epoch_ms()));
+    metadata.consumed_by_session_id = Some(join_session_ids(&session_ids));
     let json = serde_json::to_vec(&metadata)?;
     crate::atomic_file::write_bytes_atomic(&path, &json)?;
     Ok(true)
@@ -218,118 +271,112 @@ fn now_epoch_ms() -> i64 {
     chrono::Utc::now().timestamp_millis()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::atomic::{AtomicU64, Ordering};
+fn expected_claims_generation_dir(
+    base_dir: &Path,
+    project_hash: &str,
+    metadata: &ExpectedWavMetadata,
+) -> PathBuf {
+    let bounce = crate::path_identity::guard_path_component(
+        &metadata.bounce_id,
+        "record_expected.claims.bounce_id",
+    );
+    expected_dir(base_dir, project_hash)
+        .join(EXPECTED_CLAIMS_SUBDIR)
+        .join(format!("{}-{}", &*bounce, metadata.created_at_ms))
+}
 
-    fn isolated_dir() -> PathBuf {
-        static COUNTER: AtomicU64 = AtomicU64::new(0);
-        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!(
-            "kirin_record_expected_test_{}_{}",
-            std::process::id(),
-            n
-        ));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        dir
-    }
+fn expected_claim_marker_path(
+    base_dir: &Path,
+    project_hash: &str,
+    metadata: &ExpectedWavMetadata,
+    session_id: &str,
+) -> PathBuf {
+    let session =
+        crate::path_identity::guard_path_component(session_id, "record_expected.claims.session_id");
+    expected_claims_generation_dir(base_dir, project_hash, metadata).join(format!("{session}.json"))
+}
 
-    fn metadata_fixture(bounce_id: &str) -> ExpectedWavMetadata {
-        ExpectedWavMetadata {
-            expected_duration_samples: 48_000,
-            expected_sample_rate: 48_000,
-            wav_path: format!("/tmp/{bounce_id}.wav"),
-            bounce_id: bounce_id.to_string(),
-            created_at_ms: now_epoch_ms(),
-            wav_file_size: Some(1_000),
-            wav_mtime_ms: now_epoch_ms(),
-            wav_hash: Some(format!("hash-{bounce_id}")),
-            consumed_at_ms: None,
-            consumed_by_session_id: None,
+fn write_claim_marker(
+    base_dir: &Path,
+    project_hash: &str,
+    metadata: &ExpectedWavMetadata,
+    session_id: &str,
+    claimed_at_ms: i64,
+) -> Result<(), ExpectedMetadataError> {
+    let marker = ExpectedWavClaimMarker {
+        schema_version: EXPECTED_CLAIM_SCHEMA.to_string(),
+        session_id: session_id.to_string(),
+        bounce_id: metadata.bounce_id.clone(),
+        created_at_ms: metadata.created_at_ms,
+        wav_hash: metadata.wav_hash.clone().unwrap_or_default(),
+        claimed_at_ms,
+    };
+    let path = expected_claim_marker_path(base_dir, project_hash, metadata, session_id);
+    let json = serde_json::to_vec(&marker)?;
+    crate::atomic_file::write_bytes_atomic(&path, &json)?;
+    Ok(())
+}
+
+fn claimed_session_ids(metadata: &ExpectedWavMetadata) -> Vec<String> {
+    metadata
+        .consumed_by_session_id
+        .as_deref()
+        .unwrap_or("")
+        .split(EXPECTED_METADATA_SESSION_SEPARATOR)
+        .map(str::trim)
+        .filter(|session| !session.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+fn claimed_session_ids_for_metadata(
+    base_dir: &Path,
+    project_hash: &str,
+    metadata: &ExpectedWavMetadata,
+) -> Result<Vec<String>, ExpectedMetadataError> {
+    let mut session_ids = claimed_session_ids(metadata);
+    let dir = expected_claims_generation_dir(base_dir, project_hash, metadata);
+    let entries = match fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(sorted_unique(session_ids)),
+        Err(e) => return Err(ExpectedMetadataError::Io(e)),
+    };
+    let expected_hash = metadata.wav_hash.as_deref().unwrap_or("");
+    for entry in entries.flatten() {
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+        if !file_type.is_file() {
+            continue;
+        }
+        let Ok(bytes) = fs::read(entry.path()) else {
+            continue;
+        };
+        let Ok(marker) = serde_json::from_slice::<ExpectedWavClaimMarker>(&bytes) else {
+            continue;
+        };
+        if marker.schema_version == EXPECTED_CLAIM_SCHEMA
+            && marker.bounce_id == metadata.bounce_id
+            && marker.created_at_ms == metadata.created_at_ms
+            && marker.wav_hash == expected_hash
+            && !marker.session_id.trim().is_empty()
+        {
+            session_ids.push(marker.session_id);
         }
     }
-
-    #[test]
-    fn expected_metadata_roundtrips_under_project_dir() {
-        let base = isolated_dir();
-        let metadata = ExpectedWavMetadata {
-            expected_duration_samples: 1_440_000,
-            expected_sample_rate: 96_000,
-            wav_path: "/Volumes/ALOHA/Peach19(10).wav".to_string(),
-            bounce_id: "bounce-1".to_string(),
-            created_at_ms: now_epoch_ms(),
-            wav_file_size: Some(11_520_044),
-            wav_mtime_ms: now_epoch_ms(),
-            wav_hash: Some("hash-1".to_string()),
-            consumed_at_ms: None,
-            consumed_by_session_id: None,
-        };
-
-        write_expected_metadata(&base, "ph", &metadata).unwrap();
-
-        assert_eq!(read_expected_metadata(&base, "ph").unwrap(), metadata);
-        assert!(expected_path(&base, "ph").exists());
-    }
-
-    #[test]
-    fn empty_wav_path_is_invalid() {
-        let base = isolated_dir();
-        let metadata = ExpectedWavMetadata {
-            expected_duration_samples: 1,
-            expected_sample_rate: 48_000,
-            wav_path: String::new(),
-            bounce_id: "bounce-1".to_string(),
-            created_at_ms: now_epoch_ms(),
-            wav_file_size: Some(1),
-            wav_mtime_ms: now_epoch_ms(),
-            wav_hash: Some("hash-1".to_string()),
-            consumed_at_ms: None,
-            consumed_by_session_id: None,
-        };
-
-        assert!(matches!(
-            write_expected_metadata(&base, "ph", &metadata),
-            Err(ExpectedMetadataError::Invalid)
-        ));
-    }
-
-    #[test]
-    fn consumed_metadata_is_not_armable_again() {
-        let base = isolated_dir();
-        let metadata = metadata_fixture("bounce-consume");
-        write_expected_metadata(&base, "ph", &metadata).unwrap();
-        assert!(
-            mark_expected_metadata_consumed(&base, "ph", "bounce-consume", "session-1").unwrap()
-        );
-        assert!(matches!(
-            read_expected_metadata(&base, "ph"),
-            Err(ExpectedMetadataError::Consumed)
-        ));
-    }
-
-    #[test]
-    fn claim_expected_metadata_binds_current_json_to_one_record_session() {
-        let base = isolated_dir();
-        let metadata = metadata_fixture("bounce-claim");
-        write_expected_metadata(&base, "ph", &metadata).unwrap();
-
-        let claimed = claim_expected_metadata_for_session(&base, "ph", "session-claim").unwrap();
-        assert_eq!(claimed, metadata);
-        assert!(claimed.consumed_at_ms.is_none());
-        assert!(claimed.consumed_by_session_id.is_none());
-        assert!(matches!(
-            read_expected_metadata(&base, "ph"),
-            Err(ExpectedMetadataError::Consumed)
-        ));
-
-        let same_session =
-            claim_expected_metadata_for_session(&base, "ph", "session-claim").unwrap();
-        assert_eq!(same_session, metadata);
-        assert!(matches!(
-            claim_expected_metadata_for_session(&base, "ph", "session-other"),
-            Err(ExpectedMetadataError::Consumed)
-        ));
-    }
+    Ok(sorted_unique(session_ids))
 }
+
+fn sorted_unique(mut session_ids: Vec<String>) -> Vec<String> {
+    session_ids.sort();
+    session_ids.dedup();
+    session_ids
+}
+
+fn join_session_ids(session_ids: &[String]) -> String {
+    session_ids.join(&EXPECTED_METADATA_SESSION_SEPARATOR.to_string())
+}
+
+#[cfg(test)]
+#[path = "record_expected_tests.rs"]
+mod tests;
