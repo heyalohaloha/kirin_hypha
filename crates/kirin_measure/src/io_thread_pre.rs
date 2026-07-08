@@ -33,7 +33,10 @@ use crate::all_stop_signal::{self, ALL_STOP_BROADCAST_STALE_SECS};
 use crate::engine::SessionSummary;
 use crate::io_thread_post::read_instance_id_arc;
 use crate::plugin_data::Role as PluginDataRole;
-use crate::post_candidates::active_post_project_uuids_for_daw_session;
+use crate::post_candidates::{
+    active_post_project_uuids_for_broadcast_scope, broadcast_scope_ids_match,
+    current_host_process_id,
+};
 use crate::pre_self_discovery::{discover_pair_post_project_dir, PreSelfDiscoveryState};
 use crate::record::RecordStateMachine;
 use crate::record_signal::{self, SignalStatus};
@@ -149,7 +152,12 @@ fn all_stop_authorizes_pre_stop(
     record_started_at_ms: i64,
     now: chrono::DateTime<chrono::Utc>,
 ) -> bool {
-    if partner.daw_session_id.is_empty() || broadcast.daw_session_id != partner.daw_session_id {
+    if !broadcast_scope_ids_match(
+        &partner.daw_session_id,
+        current_host_process_id(),
+        &broadcast.daw_session_id,
+        broadcast.host_process_id,
+    ) {
         return false;
     }
     if all_stop_signal::is_stop_broadcast_stale(broadcast, now, ALL_STOP_BROADCAST_STALE_SECS) {
@@ -166,9 +174,11 @@ fn all_stop_scan_project_hashes(primary_project_hash: &str, partner: &PartnerInf
     }
     if !partner.daw_session_id.is_empty() {
         let kirin_root = PlatformPaths::current_kirin_tmp_root();
-        for project_hash in
-            active_post_project_uuids_for_daw_session(&kirin_root, &partner.daw_session_id)
-        {
+        for project_hash in active_post_project_uuids_for_broadcast_scope(
+            &kirin_root,
+            &partner.daw_session_id,
+            current_host_process_id(),
+        ) {
             if !project_hashes.contains(&project_hash) {
                 project_hashes.push(project_hash);
             }
@@ -1745,10 +1755,29 @@ mod tests {
         daw_session_id: &str,
         started_at: &str,
     ) {
+        write_all_stop_broadcast_for_project_at_with_host(
+            base,
+            project_hash,
+            originator_iid,
+            daw_session_id,
+            0,
+            started_at,
+        );
+    }
+
+    fn write_all_stop_broadcast_for_project_at_with_host(
+        base: &Path,
+        project_hash: &str,
+        originator_iid: &str,
+        daw_session_id: &str,
+        host_process_id: u32,
+        started_at: &str,
+    ) {
         let broadcast = all_stop_signal::AllStopBroadcast {
             v: all_stop_signal::ALL_STOP_SCHEMA_VERSION,
             originator_post_instance_id: originator_iid.to_string(),
             daw_session_id: daw_session_id.to_string(),
+            host_process_id,
             started_at: started_at.to_string(),
             heartbeat: started_at.to_string(),
         };
@@ -2758,6 +2787,53 @@ mod tests {
         assert!(recording.load(Ordering::Relaxed));
         assert!(ack.load(Ordering::Relaxed));
         assert!(partner.is_some());
+    }
+
+    #[test]
+    fn same_host_process_all_stop_stops_pre_even_when_daw_session_differs() {
+        let base = isolated_base();
+        write_matching_pending(&base, "post-1");
+        let sm = Arc::new(RecordStateMachine::new());
+        let recording = Arc::new(AtomicBool::new(false));
+        let ack = Arc::new(AtomicBool::new(false));
+        let license = Arc::new(License::Os);
+        let mut partner = None;
+        poll_with_base(
+            &base,
+            &sm,
+            &recording,
+            &ack,
+            &license,
+            &mut partner,
+            TEST_PRE_IID,
+        );
+        write_all_stop_broadcast_for_project_at_with_host(
+            &base,
+            TEST_PH,
+            "post-origin",
+            "other-daw-session",
+            current_host_process_id(),
+            "2026-07-05T00:00:01Z",
+        );
+
+        let stopped = poll_all_stop_signal_at(
+            &base,
+            TEST_PH,
+            &sm,
+            &recording,
+            &ack,
+            &mut partner,
+            chrono_utc("2026-07-05T00:00:02Z"),
+        );
+
+        assert!(
+            stopped,
+            "same-host AU/VST3 All Stop must reach PRE even if daw_session_id diverges"
+        );
+        assert_eq!(sm.current(), RecordState::Watch);
+        assert!(!recording.load(Ordering::Relaxed));
+        assert!(!ack.load(Ordering::Relaxed));
+        assert!(partner.is_none());
     }
 
     #[test]

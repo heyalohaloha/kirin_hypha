@@ -9,16 +9,17 @@
 //! plugin_data/{project_hash}/all_stop_signal/{originator_post_instance_id}.json
 //! ```
 //!
-//! # スキーマ (all_keep_signal と同型 / 5 フィールド)
+//! # スキーマ (all_keep_signal と同型)
 //! - `v`: schema version (現行 1)
 //! - `originator_post_instance_id`: filename stem と同値
 //! - `daw_session_id`: 別 DAW process からの誤受信防止
+//! - `host_process_id`: 同一 DAW process 内の AU/VST3 混在 bridge
 //! - `started_at`: 重複処理回避 key (clock-skew 完全耐性 / 文字列等価比較)
 //! - `heartbeat`: 将来 throttled re-publish 用 (当面 started_at と同値)
 //!
 //! # 受信側 polling (sub-tick)
 //! 1. [`scan_stop_broadcasts_dir`] で `{project_hash}/all_stop_signal/*.json` 全件読込
-//! 2. `broadcast.daw_session_id == self.daw_session_id` filter (cross-process 防壁)
+//! 2. `daw_session_id` or `host_process_id` filter (cross-process 防壁 + mixed binary bridge)
 //! 3. memory cache `HashMap<originator_iid, started_at>` で既処理 skip
 //! 4. 新 broadcast 検出 → `trigger_stop_internal(toast=None)` 発火
 //!
@@ -46,12 +47,14 @@ pub const ALL_STOP_BROADCAST_STALE_SECS: i64 = 30;
 
 // ── スキーマ ─────────────────────────────────────────────────────────────────
 
-/// all_stop_signal.json ルート構造 (5 field / `AllKeepBroadcast` と同型)。
+/// all_stop_signal.json ルート構造 (`AllKeepBroadcast` と同型)。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AllStopBroadcast {
     pub v: u32,
     pub originator_post_instance_id: String,
     pub daw_session_id: String,
+    #[serde(default)]
+    pub host_process_id: u32,
     pub started_at: String,
     #[serde(default)]
     pub heartbeat: String,
@@ -59,11 +62,24 @@ pub struct AllStopBroadcast {
 
 impl AllStopBroadcast {
     pub fn new(originator_post_instance_id: String, daw_session_id: String) -> Self {
+        Self::new_with_scope(
+            originator_post_instance_id,
+            daw_session_id,
+            std::process::id(),
+        )
+    }
+
+    pub fn new_with_scope(
+        originator_post_instance_id: String,
+        daw_session_id: String,
+        host_process_id: u32,
+    ) -> Self {
         let now = now_iso8601();
         Self {
             v: ALL_STOP_SCHEMA_VERSION,
             originator_post_instance_id,
             daw_session_id,
+            host_process_id,
             started_at: now.clone(),
             heartbeat: now,
         }
@@ -133,7 +149,27 @@ pub fn write_stop_broadcast(
     originator_post_instance_id: &str,
     daw_session_id: String,
 ) -> Result<AllStopBroadcast, AllStopError> {
-    let broadcast = AllStopBroadcast::new(originator_post_instance_id.to_string(), daw_session_id);
+    write_stop_broadcast_with_scope(
+        base_dir,
+        project_hash,
+        originator_post_instance_id,
+        daw_session_id,
+        std::process::id(),
+    )
+}
+
+pub fn write_stop_broadcast_with_scope(
+    base_dir: &Path,
+    project_hash: &str,
+    originator_post_instance_id: &str,
+    daw_session_id: String,
+    host_process_id: u32,
+) -> Result<AllStopBroadcast, AllStopError> {
+    let broadcast = AllStopBroadcast::new_with_scope(
+        originator_post_instance_id.to_string(),
+        daw_session_id,
+        host_process_id,
+    );
     write_stop_broadcast_signal(
         base_dir,
         project_hash,
@@ -313,6 +349,7 @@ mod tests {
         assert_eq!(result.v, ALL_STOP_SCHEMA_VERSION);
         assert_eq!(result.originator_post_instance_id, "originator-1");
         assert_eq!(result.daw_session_id, "session-A");
+        assert_eq!(result.host_process_id, std::process::id());
         let path = stop_signal_path(&base, "ph", "originator-1");
         assert!(path.exists());
         assert_eq!(crate::atomic_file::remove_temp_siblings(&path).unwrap(), 0);
@@ -321,6 +358,7 @@ mod tests {
     #[test]
     fn new_broadcast_uses_millisecond_barrier_precision() {
         let broadcast = AllStopBroadcast::new("originator-1".into(), "session-A".into());
+        assert_eq!(broadcast.host_process_id, std::process::id());
         DateTime::parse_from_rfc3339(&broadcast.started_at).unwrap();
         let fraction = broadcast
             .started_at
@@ -334,6 +372,20 @@ mod tests {
             broadcast.heartbeat, broadcast.started_at,
             "heartbeat must preserve the same stop barrier"
         );
+    }
+
+    #[test]
+    fn old_schema_without_host_process_id_parses() {
+        let json = r#"{
+            "v": 1,
+            "originator_post_instance_id": "iid-A",
+            "daw_session_id": "sess-A",
+            "started_at": "2026-05-04T12:00:00.000Z",
+            "heartbeat": "2026-05-04T12:00:00.000Z"
+        }"#;
+        let parsed: AllStopBroadcast = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.host_process_id, 0);
+        assert_eq!(parsed.daw_session_id, "sess-A");
     }
 
     #[test]

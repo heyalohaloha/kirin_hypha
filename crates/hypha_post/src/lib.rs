@@ -326,8 +326,8 @@ pub(crate) fn read_project_hash_arc(arc: &Arc<RwLock<String>>) -> String {
 /// が divergence していた (Hpha0504 / sub-tick cross-process filter で全件 skip)。
 ///
 /// `daw_session_id()` cell は process scope (lib.rs:145-148 daw_session_id_cell の
-/// static OnceLock) のため全 plugin instance で同一値を返し、broadcast filter
-/// (`broadcast.daw_session_id != snapshot`) が POST 同士で正しくマッチする。
+/// static OnceLock) のため全 plugin instance で同一値を返し、broadcast scope filter
+/// (daw_session_id / host_process_id) が POST 同士で正しくマッチする。
 ///
 /// callsite 引数の Arc 構造は維持 (editor / io_thread_post / lib.rs spawn closure 不変 /
 /// Pass 15 最小スコープ)。`§4-5 Step 1` の Arc 化はそのまま残し、本関数のみ

@@ -88,7 +88,9 @@ pub use plugin_data::{
     Status as PluginDataStatus, WriterError as PluginDataWriterError, WriterPaths,
 };
 pub use post_candidates::{
-    active_post_project_uuids_for_daw_session, enumerate_active_post_pair_candidates,
+    active_post_project_uuids_for_broadcast_scope, active_post_project_uuids_for_daw_session,
+    broadcast_scope_ids_match, current_host_process_id, enumerate_active_post_pair_candidates,
+    enumerate_active_post_pair_candidates_for_broadcast_scope,
     enumerate_active_post_pair_candidates_for_daw_session, PostCandidate,
 };
 pub use pre_candidates::{
