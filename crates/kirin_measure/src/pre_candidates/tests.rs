@@ -54,6 +54,20 @@ fn write_pre_tmp_with_name(tmp_base: &Path, ph: &str, instance_id: &str, state: 
     fs::write(dir.join("pre.json"), json).unwrap();
 }
 
+fn write_pre_tmp_with_host_process_id(
+    tmp_base: &Path,
+    ph: &str,
+    instance_id: &str,
+    host_process_id: u32,
+) {
+    let dir = tmp_base.join(ph).join(instance_id);
+    fs::create_dir_all(&dir).unwrap();
+    let json = format!(
+        r#"{{"v":2,"role":"PRE","instance_id":"{instance_id}","signal_state":"active","host_process_id":{host_process_id},"t":"now","lufs_m":-14.0,"true_peak":-1.0,"crest":12.0,"psr":8.0,"name":"Snare"}}"#
+    );
+    fs::write(dir.join("pre.json"), json).unwrap();
+}
+
 #[test]
 fn scan_with_no_dir_returns_empty() {
     let base = isolated_dir();
@@ -223,6 +237,19 @@ fn pre_candidate_name_legacy_schema_is_none() {
     let v = scan_pre_candidates(&base, "ph");
     assert_eq!(v.len(), 1);
     assert!(v[0].name.is_none(), "missing name field is None");
+    assert!(
+        v[0].host_process_id.is_none(),
+        "missing host_process_id field is None"
+    );
+}
+
+#[test]
+fn pre_candidate_includes_host_process_id_field() {
+    let base = isolated_dir();
+    write_pre_tmp_with_host_process_id(&base, "ph", "iid-1", 42);
+    let v = scan_pre_candidates(&base, "ph");
+    assert_eq!(v.len(), 1);
+    assert_eq!(v[0].host_process_id, Some(42));
 }
 
 #[test]

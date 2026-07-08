@@ -80,12 +80,19 @@ pub fn enumerate_active_pre_pair_candidates_for_post_project(
 }
 
 /// Display/Keep shared PRE selection result.
+#[derive(Clone, Debug)]
 pub struct SelectedPre {
     pub instance_id: String,
     /// Selected PRE `pre.json` path (`{kirin_root}/{project_uuid}/{instance_id}/pre.json`).
     pub pre_json: PathBuf,
     /// `{project_uuid}` directory containing the selected PRE.
     pub project_dir: PathBuf,
+}
+
+#[derive(Clone, Debug)]
+struct ScopedSelectedPre {
+    selected: SelectedPre,
+    host_process_id: Option<u32>,
 }
 
 /// Strict PRE selection shared by Display and Arm paths.
@@ -106,7 +113,7 @@ fn collect_selected_pre_from_dirs(
     dirs: &[PathBuf],
     pair_pre_name: &str,
     require_active: bool,
-) -> Vec<SelectedPre> {
+) -> Vec<ScopedSelectedPre> {
     if pair_pre_name.is_empty() {
         return Vec::new();
     }
@@ -116,7 +123,7 @@ fn collect_selected_pre_from_dirs(
         .collect();
     let named = filter_candidates_by_name(candidates, pair_pre_name);
 
-    let mut valid: Vec<SelectedPre> = Vec::new();
+    let mut valid: Vec<ScopedSelectedPre> = Vec::new();
     for c in named {
         let Ok(content) = fs::read_to_string(&c.path) else {
             continue;
@@ -141,13 +148,37 @@ fn collect_selected_pre_from_dirs(
         else {
             continue;
         };
-        valid.push(SelectedPre {
-            instance_id: c.instance_id,
-            pre_json: c.path,
-            project_dir,
+        valid.push(ScopedSelectedPre {
+            selected: SelectedPre {
+                instance_id: c.instance_id,
+                pre_json: c.path,
+                project_dir,
+            },
+            host_process_id: c.host_process_id,
         });
     }
     valid
+}
+
+fn select_unique_pre(mut valid: Vec<ScopedSelectedPre>) -> Option<SelectedPre> {
+    if valid.len() == 1 {
+        Some(valid.pop().expect("len checked").selected)
+    } else {
+        None
+    }
+}
+
+fn filter_by_host_process(
+    valid: Vec<ScopedSelectedPre>,
+    host_process_id: u32,
+) -> Vec<ScopedSelectedPre> {
+    if host_process_id == 0 {
+        return Vec::new();
+    }
+    valid
+        .into_iter()
+        .filter(|c| c.host_process_id == Some(host_process_id))
+        .collect()
 }
 
 fn select_target_pre_core_from_dirs(
@@ -155,13 +186,11 @@ fn select_target_pre_core_from_dirs(
     pair_pre_name: &str,
     require_active: bool,
 ) -> Option<SelectedPre> {
-    let mut valid = collect_selected_pre_from_dirs(dirs, pair_pre_name, require_active);
-
-    if valid.len() == 1 {
-        valid.pop()
-    } else {
-        None
-    }
+    select_unique_pre(collect_selected_pre_from_dirs(
+        dirs,
+        pair_pre_name,
+        require_active,
+    ))
 }
 
 fn select_target_pre_core_for_post_project(
@@ -171,15 +200,31 @@ fn select_target_pre_core_for_post_project(
     require_active: bool,
 ) -> Option<SelectedPre> {
     let all_dirs = crate::pre_discovery::discover_active_pre_dirs(kirin_root);
-    let mut all_valid = collect_selected_pre_from_dirs(&all_dirs, pair_pre_name, require_active);
-    match all_valid.len() {
-        0 => None,
-        1 => all_valid.pop(),
-        _ => {
-            let scoped_dirs = discover_pre_dirs_for_post_project(kirin_root, post_project_hash);
-            select_target_pre_core_from_dirs(&scoped_dirs, pair_pre_name, require_active)
-        }
+    let all_valid = collect_selected_pre_from_dirs(&all_dirs, pair_pre_name, require_active);
+    if all_valid.is_empty() {
+        return None;
     }
+    if let Some(selected) = select_unique_pre(all_valid.clone()) {
+        return Some(selected);
+    }
+
+    let host_process_id = crate::post_candidates::current_host_process_id();
+    let same_host_valid = filter_by_host_process(all_valid, host_process_id);
+    if !same_host_valid.is_empty() {
+        if let Some(selected) = select_unique_pre(same_host_valid) {
+            return Some(selected);
+        }
+
+        let scoped_dirs = discover_pre_dirs_for_post_project(kirin_root, post_project_hash);
+        let scoped_same_host = filter_by_host_process(
+            collect_selected_pre_from_dirs(&scoped_dirs, pair_pre_name, require_active),
+            host_process_id,
+        );
+        return select_unique_pre(scoped_same_host);
+    }
+
+    let scoped_dirs = discover_pre_dirs_for_post_project(kirin_root, post_project_hash);
+    select_target_pre_core_from_dirs(&scoped_dirs, pair_pre_name, require_active)
 }
 
 /// Strict PRE selection for display Delta (active + fresh + unique).
