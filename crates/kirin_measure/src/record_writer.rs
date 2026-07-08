@@ -706,7 +706,9 @@ fn record_duration_samples(ctx: &RecordingCtx) -> u64 {
 fn build_bounce_take(ctx: &RecordingCtx, duration_ms: u64, duration_samples: u64) -> BounceTake {
     let sample_rate = ctx.writer.data().sample_rate;
     let clean_source = ctx.clean_take.map(|take| take.source);
-    let duration_frames_48k = if ctx.clean_take.is_some() {
+    let expected_ready = expected_take_is_sample_count_ready(ctx, duration_ms);
+    let clean_take_ready = clean_take_is_sample_count_ready(ctx, duration_ms);
+    let duration_frames_48k = if expected_ready || clean_take_ready {
         let sr = sample_rate as u64;
         if sr > 0 {
             duration_samples.saturating_mul(TRACE_TIMEBASE_HZ) / sr
@@ -719,8 +721,6 @@ fn build_bounce_take(ctx: &RecordingCtx, duration_ms: u64, duration_samples: u64
     };
     let exact_native_time = ctx.last_trace_native_frames.is_some();
     let exact_audio_time = exact_native_time || ctx.last_trace_frame_48k.is_some();
-    let expected_ready = expected_take_is_sample_count_ready(ctx, duration_ms);
-    let clean_take_ready = clean_take_is_sample_count_ready(ctx, duration_ms);
     BounceTake {
         source: if expected_wav(ctx).is_some() {
             "expected_wav_duration_native".to_string()
@@ -2968,6 +2968,44 @@ mod tests {
     }
 
     #[test]
+    fn expected_wav_duration_frames_ignore_late_trace_span() {
+        let base = isolated_base();
+        let mut ctx = make_ctx_with_sample_rate(&base, Role::Post, now_epoch_ms(), 48_000);
+        let m = full_measure_result();
+        ctx.writer
+            .set_record_session_id(Some("session-expected-wav-trace-overrun".to_string()));
+        ctx.writer.set_expected_wav(Some(expected_wav_metadata(
+            48_000,
+            192_000,
+            "expected-trace-overrun",
+        )));
+
+        mark_trace_time(&mut ctx, 4_100, 196_800, Some(196_800));
+        for t_ms in (100_u64..=4_100).step_by(FRAME_INTERVAL_MS as usize) {
+            ctx.trace_samples
+                .push(trace_sample(t_ms, m.clone(), t_ms == 100));
+        }
+        ctx.trace_sample_count = ctx.trace_samples.len();
+        let final_path = ctx.final_path.clone();
+
+        writer_close(ctx);
+
+        let loaded: PluginDataFile = read_output_for_final(&final_path);
+        let take = loaded.bounce_take.as_ref().expect("bounce_take");
+        assert_eq!(take.source, "expected_wav_duration_native");
+        assert_eq!(take.duration_samples, 192_000);
+        assert_eq!(take.duration_frames_48k, 192_000);
+        assert_eq!(take.end_t_ms, 4_000);
+        assert_eq!(take.frame_count, 40);
+        assert_eq!(loaded.frames.last().map(|frame| frame.t_ms), Some(4_000));
+        assert!(loaded
+            .integrity_reasons
+            .iter()
+            .all(|reason| reason != "bounce_take_48k_duration_mismatch"));
+        assert!(crate::plugin_data::verify_checksum(&loaded));
+    }
+
+    #[test]
     fn render_clock_clean_take_is_sample_count_ready_when_trace_grid_is_complete() {
         let base = isolated_base();
         let mut ctx = make_ctx_with_sample_rate(&base, Role::Post, now_epoch_ms(), 96_000);
@@ -4734,17 +4772,19 @@ mod tests {
                 duration_frames_48k: 48_000,
                 start_t_ms: 0,
                 end_t_ms: 1_000,
-                trace_sample_count: 1,
-                frame_count: 1,
+                trace_sample_count: 10,
+                frame_count: 10,
             });
             writer.set_trace_diagnostics(TraceDiagnostics {
-                raw_trace_count: 1,
-                expected_frame_count: 1,
-                measured_frame_count: 1,
+                raw_trace_count: 10,
+                expected_frame_count: 10,
+                measured_frame_count: 10,
                 missing_slots: 0,
                 explicit_silence_frame_count: 0,
             });
-            writer.append_frame(0, [0.0; 20], 0.0, -20.0, -1.0, 12.0, Some(10.0));
+            for t_ms in (100_u64..=1_000).step_by(FRAME_INTERVAL_MS as usize) {
+                writer.append_frame(t_ms, [0.0; 20], 0.0, -20.0, -1.0, 12.0, Some(10.0));
+            }
         }
 
         pre.close().unwrap();

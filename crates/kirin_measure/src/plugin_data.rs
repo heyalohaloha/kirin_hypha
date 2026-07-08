@@ -57,6 +57,8 @@ const BOUNCE_ALIGNMENT_SAMPLE_COUNT_READY: &str = "sample_count_ready";
 const BOUNCE_SOURCE_EXPECTED_WAV: &str = "expected_wav_duration_native";
 const BOUNCE_SOURCE_WAV_CLOCK: &str = "wav_clock_native";
 const BOUNCE_SOURCE_RENDER_CLOCK: &str = "render_clock_native";
+const TRACE_FRAME_INTERVAL_MS: u64 = 100;
+const TRACE_TIMEBASE_HZ: u64 = 48_000;
 
 fn non_empty_string(value: Option<String>) -> Option<String> {
     value
@@ -937,13 +939,93 @@ fn expected_wav_matches_take(data: &PluginDataFile, take: &BounceTake) -> bool {
     })
 }
 
+fn u128_to_u64_saturating(value: u128) -> u64 {
+    value.min(u64::MAX as u128) as u64
+}
+
+fn bounce_take_duration_ms(take: &BounceTake) -> Option<u64> {
+    if take.sample_rate == 0 {
+        return None;
+    }
+    Some(u128_to_u64_saturating(
+        (take.duration_samples as u128)
+            .saturating_mul(1_000)
+            .saturating_div(take.sample_rate as u128),
+    ))
+}
+
+fn bounce_take_duration_frames_48k(take: &BounceTake) -> Option<u64> {
+    if take.sample_rate == 0 {
+        return None;
+    }
+    Some(u128_to_u64_saturating(
+        (take.duration_samples as u128)
+            .saturating_mul(TRACE_TIMEBASE_HZ as u128)
+            .saturating_div(take.sample_rate as u128),
+    ))
+}
+
+fn trace_bounce_take_failure_reasons(data: &PluginDataFile) -> Vec<&'static str> {
+    let Some(take) = data.bounce_take.as_ref() else {
+        return Vec::new();
+    };
+    let mut reasons = Vec::new();
+    let Some(duration_ms) = bounce_take_duration_ms(take) else {
+        return reasons;
+    };
+    let expected_frame_count = duration_ms / TRACE_FRAME_INTERVAL_MS;
+    if take.wav_start_sample != 0 {
+        reasons.push("bounce_take_start_sample_nonzero");
+    }
+    if take.wav_end_sample != take.duration_samples {
+        reasons.push("bounce_take_end_sample_mismatch");
+    }
+    if take.start_t_ms != 0 {
+        reasons.push("bounce_take_start_time_nonzero");
+    }
+    if take.end_t_ms != duration_ms {
+        reasons.push("bounce_take_end_time_mismatch");
+    }
+    if bounce_take_duration_frames_48k(take)
+        .is_some_and(|expected| take.duration_frames_48k != expected)
+    {
+        reasons.push("bounce_take_48k_duration_mismatch");
+    }
+    if let Some(diag) = &data.trace_diagnostics {
+        if diag.expected_frame_count != expected_frame_count {
+            reasons.push("trace_expected_frame_count_bounce_take_mismatch");
+        }
+        if take.frame_count != diag.measured_frame_count {
+            reasons.push("bounce_take_trace_frame_count_mismatch");
+        }
+    }
+    if take.frame_count != data.frames.len() as u64 {
+        reasons.push("bounce_take_frame_payload_count_mismatch");
+    }
+    if take.trace_sample_count < take.frame_count {
+        reasons.push("bounce_take_trace_sample_count_mismatch");
+    }
+    match usize::try_from(expected_frame_count) {
+        Ok(expected_len) => {
+            if data.frames.len() != expected_len {
+                reasons.push("trace_frame_payload_count_bounce_take_mismatch");
+            }
+            if data
+                .frames
+                .iter()
+                .enumerate()
+                .any(|(idx, frame)| frame.t_ms != (idx as u64 + 1) * TRACE_FRAME_INTERVAL_MS)
+            {
+                reasons.push("trace_frame_timeline_mismatch");
+            }
+        }
+        Err(_) => reasons.push("trace_expected_frame_count_overflow"),
+    }
+    dedup_reasons(reasons)
+}
+
 fn trace_slots_are_complete(data: &PluginDataFile) -> bool {
-    data.trace_diagnostics.as_ref().is_some_and(|diag| {
-        diag.expected_frame_count > 0
-            && diag.missing_slots == 0
-            && diag.measured_frame_count == diag.expected_frame_count
-            && diag.measured_frame_count as usize == data.frames.len()
-    })
+    trace_publish_failure_reasons(data).is_empty()
 }
 
 fn trace_publish_failure_reasons(data: &PluginDataFile) -> Vec<&'static str> {
@@ -965,6 +1047,7 @@ fn trace_publish_failure_reasons(data: &PluginDataFile) -> Vec<&'static str> {
         }
         None => reasons.push("missing_trace_diagnostics"),
     }
+    reasons.extend(trace_bounce_take_failure_reasons(data));
     dedup_reasons(reasons)
 }
 
@@ -1010,13 +1093,6 @@ pub(crate) fn normal_publish_failure_reasons(data: &PluginDataFile) -> Vec<&'sta
 fn side_publish_integrity_reasons(data: &PluginDataFile) -> Vec<&'static str> {
     let mut reasons = Vec::new();
     let sample_count_ready = bounce_take_sample_count_ready(data);
-    let internally_sample_count_ready = data.bounce_take.as_ref().is_some_and(|take| {
-        sample_count_ready
-            && matches!(
-                take.source.as_str(),
-                BOUNCE_SOURCE_WAV_CLOCK | BOUNCE_SOURCE_RENDER_CLOCK
-            )
-    });
     let expected = match &data.expected_wav {
         Some(expected) if expected.is_usable() => Some(expected),
         _ => {
@@ -1034,24 +1110,20 @@ fn side_publish_integrity_reasons(data: &PluginDataFile) -> Vec<&'static str> {
         }
     };
     if let (Some(expected), Some(take)) = (expected, take) {
-        if !internally_sample_count_ready {
-            if data.sample_rate != expected.expected_sample_rate {
-                reasons.push("sample_rate_expected_mismatch");
-            }
-            if take.sample_rate != expected.expected_sample_rate {
-                reasons.push("bounce_take_sample_rate_mismatch");
-            }
-            if take.duration_samples != expected.expected_duration_samples {
-                reasons.push("bounce_take_duration_mismatch");
-            }
-            if take.alignment_status != BOUNCE_ALIGNMENT_SAMPLE_COUNT_READY {
-                reasons.push("bounce_take_not_sample_count_ready");
-            }
-            if !bounce_source_is_sample_count_ready(&take.source) {
-                reasons.push("bounce_take_source_not_sample_count_ready");
-            } else if take.source != BOUNCE_SOURCE_EXPECTED_WAV {
-                reasons.push("bounce_take_source_not_expected_wav");
-            }
+        if data.sample_rate != expected.expected_sample_rate {
+            reasons.push("sample_rate_expected_mismatch");
+        }
+        if take.sample_rate != expected.expected_sample_rate {
+            reasons.push("bounce_take_sample_rate_mismatch");
+        }
+        if take.duration_samples != expected.expected_duration_samples {
+            reasons.push("bounce_take_duration_mismatch");
+        }
+        if take.alignment_status != BOUNCE_ALIGNMENT_SAMPLE_COUNT_READY {
+            reasons.push("bounce_take_not_sample_count_ready");
+        }
+        if !bounce_source_is_sample_count_ready(&take.source) {
+            reasons.push("bounce_take_source_not_sample_count_ready");
         }
     } else if let Some(take) = take {
         if take.alignment_status != BOUNCE_ALIGNMENT_SAMPLE_COUNT_READY {
@@ -1080,6 +1152,7 @@ fn side_publish_integrity_reasons(data: &PluginDataFile) -> Vec<&'static str> {
     } else {
         reasons.push("missing_trace_diagnostics");
     }
+    reasons.extend(trace_bounce_take_failure_reasons(data));
     if data.integrity_degraded {
         reasons.push("integrity_degraded");
     }
@@ -1863,12 +1936,45 @@ fn pair_publish_consistency_failure_reasons(
 ) -> Vec<&'static str> {
     let mut reasons = trace_publish_failure_reasons(pre);
     reasons.extend(trace_publish_failure_reasons(post));
+    if pre.sample_rate != post.sample_rate {
+        reasons.push("pair_sample_rate_mismatch");
+    }
     if pre.expected_wav != post.expected_wav {
         reasons.push("pair_expected_wav_mismatch");
     }
     if let (Some(pre_take), Some(post_take)) = (&pre.bounce_take, &post.bounce_take) {
+        if pre_take.source != post_take.source {
+            reasons.push("pair_bounce_take_source_mismatch");
+        }
+        if pre_take.time_axis != post_take.time_axis {
+            reasons.push("pair_bounce_take_time_axis_mismatch");
+        }
+        if pre_take.alignment_status != post_take.alignment_status {
+            reasons.push("pair_bounce_take_alignment_mismatch");
+        }
+        if pre_take.sample_rate != post_take.sample_rate {
+            reasons.push("pair_bounce_take_sample_rate_mismatch");
+        }
+        if pre_take.wav_start_sample != post_take.wav_start_sample {
+            reasons.push("pair_bounce_take_start_sample_mismatch");
+        }
+        if pre_take.wav_end_sample != post_take.wav_end_sample {
+            reasons.push("pair_bounce_take_end_sample_mismatch");
+        }
         if pre_take.duration_samples != post_take.duration_samples {
             reasons.push("pair_bounce_take_duration_mismatch");
+        }
+        if pre_take.duration_frames_48k != post_take.duration_frames_48k {
+            reasons.push("pair_bounce_take_48k_duration_mismatch");
+        }
+        if pre_take.start_t_ms != post_take.start_t_ms {
+            reasons.push("pair_bounce_take_start_time_mismatch");
+        }
+        if pre_take.end_t_ms != post_take.end_t_ms {
+            reasons.push("pair_bounce_take_end_time_mismatch");
+        }
+        if pre_take.frame_count != post_take.frame_count {
+            reasons.push("pair_bounce_take_frame_count_mismatch");
         }
     }
     if let (Some(pre_diag), Some(post_diag)) = (&pre.trace_diagnostics, &post.trace_diagnostics) {
@@ -1893,12 +1999,45 @@ fn pair_publish_integrity_reasons(
         (Role::Post, Role::Pre) => (right, left),
         _ => return dedup_reasons(reasons),
     };
+    if pre.sample_rate != post.sample_rate {
+        reasons.push("pair_sample_rate_mismatch");
+    }
     if pre.expected_wav != post.expected_wav {
         reasons.push("pair_expected_wav_mismatch");
     }
     if let (Some(pre_take), Some(post_take)) = (&pre.bounce_take, &post.bounce_take) {
+        if pre_take.source != post_take.source {
+            reasons.push("pair_bounce_take_source_mismatch");
+        }
+        if pre_take.time_axis != post_take.time_axis {
+            reasons.push("pair_bounce_take_time_axis_mismatch");
+        }
+        if pre_take.alignment_status != post_take.alignment_status {
+            reasons.push("pair_bounce_take_alignment_mismatch");
+        }
+        if pre_take.sample_rate != post_take.sample_rate {
+            reasons.push("pair_bounce_take_sample_rate_mismatch");
+        }
+        if pre_take.wav_start_sample != post_take.wav_start_sample {
+            reasons.push("pair_bounce_take_start_sample_mismatch");
+        }
+        if pre_take.wav_end_sample != post_take.wav_end_sample {
+            reasons.push("pair_bounce_take_end_sample_mismatch");
+        }
         if pre_take.duration_samples != post_take.duration_samples {
             reasons.push("pair_bounce_take_duration_mismatch");
+        }
+        if pre_take.duration_frames_48k != post_take.duration_frames_48k {
+            reasons.push("pair_bounce_take_48k_duration_mismatch");
+        }
+        if pre_take.start_t_ms != post_take.start_t_ms {
+            reasons.push("pair_bounce_take_start_time_mismatch");
+        }
+        if pre_take.end_t_ms != post_take.end_t_ms {
+            reasons.push("pair_bounce_take_end_time_mismatch");
+        }
+        if pre_take.frame_count != post_take.frame_count {
+            reasons.push("pair_bounce_take_frame_count_mismatch");
         }
     }
     if let (Some(pre_diag), Some(post_diag)) = (&pre.trace_diagnostics, &post.trace_diagnostics) {
@@ -2268,6 +2407,7 @@ mod tests {
             None,
         )
         .unwrap();
+        w.set_record_start_wall_clock("2026-04-17T14:32:08.000Z".to_string());
         w.set_record_session_id(Some("session-pair-atomic".to_string()));
         w.set_expected_wav(Some(expected_wav_fixture()));
         w.set_bounce_take(BounceTake {
@@ -2281,18 +2421,19 @@ mod tests {
             duration_frames_48k: 48_000,
             start_t_ms: 0,
             end_t_ms: 1_000,
-            trace_sample_count: 2,
-            frame_count: 2,
+            trace_sample_count: 10,
+            frame_count: 10,
         });
         w.set_trace_diagnostics(TraceDiagnostics {
-            raw_trace_count: 2,
-            expected_frame_count: 2,
-            measured_frame_count: 2,
+            raw_trace_count: 10,
+            expected_frame_count: 10,
+            measured_frame_count: 10,
             missing_slots: 0,
             explicit_silence_frame_count: 0,
         });
-        w.append_frame(0, [0.0; 20], 0.0, -20.0, -1.0, 12.0, Some(10.0));
-        w.append_frame(1_000, [0.0; 20], 0.0, -20.0, -1.0, 12.0, Some(10.0));
+        for t_ms in (100_u64..=1_000).step_by(TRACE_FRAME_INTERVAL_MS as usize) {
+            w.append_frame(t_ms, [0.0; 20], 0.0, -20.0, -1.0, 12.0, Some(10.0));
+        }
         w
     }
 
@@ -3342,7 +3483,207 @@ mod tests {
     }
 
     #[test]
-    fn pair_finalize_allows_derived_48k_frame_count_mismatch() {
+    fn pair_finalize_quarantines_render_clock_shorter_than_expected_wav() {
+        let base = isolated_dir();
+        let mut pre = complete_pair_writer(
+            &base,
+            Role::Pre,
+            "iid-pre-render-short-expected",
+            None,
+            Some("iid-post-render-short-expected".to_string()),
+        );
+        let mut post = complete_pair_writer(
+            &base,
+            Role::Post,
+            "iid-post-render-short-expected",
+            Some("iid-pre-render-short-expected".to_string()),
+            None,
+        );
+        let mut expected = expected_wav_fixture();
+        expected.expected_duration_samples = 720_000;
+        expected.wav_file_size = Some(2_880_044);
+        pre.set_expected_wav(Some(expected.clone()));
+        post.set_expected_wav(Some(expected));
+        for writer in [&mut pre, &mut post] {
+            let mut take = writer.data.bounce_take.clone().expect("bounce_take");
+            take.source = BOUNCE_SOURCE_RENDER_CLOCK.to_string();
+            writer.set_bounce_take(take);
+        }
+        pre.data.status = Status::Closed;
+        pre.data.commit_status = Some("pair_pending".to_string());
+        post.data.status = Status::Closed;
+        post.data.commit_status = Some("pair_pending".to_string());
+
+        let pre_paths = self_paths_for(&pre.paths, &pre.data);
+        let post_paths = self_paths_for(&post.paths, &post.data);
+        pre.write_atomic(pre_paths.pair_pending_path.clone())
+            .unwrap();
+        post.write_atomic(post_paths.pair_pending_path.clone())
+            .unwrap();
+
+        try_finalize_pair_session(&pre.paths, &pre.data).unwrap();
+
+        let manifest_path = pair_commit_manifest_path(&pre.paths, &pre.data).unwrap();
+        assert!(!manifest_path.exists());
+        assert!(!pre_paths.member_path.exists());
+        assert!(!post_paths.member_path.exists());
+        assert!(pre_paths.failed_path.exists());
+        assert!(post_paths.failed_path.exists());
+
+        let pre_data: PluginDataFile =
+            serde_json::from_slice(&fs::read(&pre_paths.failed_path).unwrap()).unwrap();
+        let post_data: PluginDataFile =
+            serde_json::from_slice(&fs::read(&post_paths.failed_path).unwrap()).unwrap();
+        for data in [&pre_data, &post_data] {
+            assert_eq!(data.commit_status.as_deref(), Some("failed"));
+            assert!(!data.validity);
+            assert!(data
+                .integrity_reasons
+                .iter()
+                .any(|reason| reason == "bounce_take_duration_mismatch"));
+            assert!(verify_checksum(data));
+        }
+    }
+
+    #[test]
+    fn pair_finalize_quarantines_short_trace_grid_even_when_internally_continuous() {
+        let base = isolated_dir();
+        let mut pre = complete_pair_writer(
+            &base,
+            Role::Pre,
+            "iid-pre-short-grid",
+            None,
+            Some("iid-post-short-grid".to_string()),
+        );
+        let mut post = complete_pair_writer(
+            &base,
+            Role::Post,
+            "iid-post-short-grid",
+            Some("iid-pre-short-grid".to_string()),
+            None,
+        );
+        for writer in [&mut pre, &mut post] {
+            writer.set_expected_wav(None);
+            let mut take = writer.data.bounce_take.clone().expect("bounce_take");
+            take.source = BOUNCE_SOURCE_RENDER_CLOCK.to_string();
+            take.duration_samples = 720_000;
+            take.duration_frames_48k = 720_000;
+            take.wav_end_sample = 720_000;
+            take.end_t_ms = 15_000;
+            writer.set_bounce_take(take);
+        }
+        pre.data.status = Status::Closed;
+        pre.data.commit_status = Some("pair_pending".to_string());
+        post.data.status = Status::Closed;
+        post.data.commit_status = Some("pair_pending".to_string());
+
+        let pre_paths = self_paths_for(&pre.paths, &pre.data);
+        let post_paths = self_paths_for(&post.paths, &post.data);
+        pre.write_atomic(pre_paths.pair_pending_path.clone())
+            .unwrap();
+        post.write_atomic(post_paths.pair_pending_path.clone())
+            .unwrap();
+
+        try_finalize_pair_session(&pre.paths, &pre.data).unwrap();
+
+        let manifest_path = pair_commit_manifest_path(&pre.paths, &pre.data).unwrap();
+        assert!(!manifest_path.exists());
+        assert!(!pre_paths.member_path.exists());
+        assert!(!post_paths.member_path.exists());
+        assert!(pre_paths.failed_path.exists());
+        assert!(post_paths.failed_path.exists());
+
+        let pre_data: PluginDataFile =
+            serde_json::from_slice(&fs::read(&pre_paths.failed_path).unwrap()).unwrap();
+        let post_data: PluginDataFile =
+            serde_json::from_slice(&fs::read(&post_paths.failed_path).unwrap()).unwrap();
+        for data in [&pre_data, &post_data] {
+            assert_eq!(data.commit_status.as_deref(), Some("failed"));
+            assert!(!data.validity);
+            assert!(data
+                .integrity_reasons
+                .iter()
+                .any(|reason| reason == "trace_expected_frame_count_bounce_take_mismatch"));
+            assert!(data
+                .integrity_reasons
+                .iter()
+                .any(|reason| reason == "trace_frame_payload_count_bounce_take_mismatch"));
+            assert!(verify_checksum(data));
+        }
+    }
+
+    #[test]
+    fn pair_finalize_quarantines_sample_rate_mismatched_pair() {
+        let base = isolated_dir();
+        let mut pre = complete_pair_writer(
+            &base,
+            Role::Pre,
+            "iid-pre-sample-rate-mismatch",
+            None,
+            Some("iid-post-sample-rate-mismatch".to_string()),
+        );
+        let mut post = complete_pair_writer(
+            &base,
+            Role::Post,
+            "iid-post-sample-rate-mismatch",
+            Some("iid-pre-sample-rate-mismatch".to_string()),
+            None,
+        );
+        for writer in [&mut pre, &mut post] {
+            writer.set_expected_wav(None);
+            let mut take = writer.data.bounce_take.clone().expect("bounce_take");
+            take.source = BOUNCE_SOURCE_RENDER_CLOCK.to_string();
+            writer.set_bounce_take(take);
+        }
+        post.data.sample_rate = 44_100;
+        let mut post_take = post.data.bounce_take.clone().expect("post bounce_take");
+        post_take.sample_rate = 44_100;
+        post_take.duration_samples = 44_100;
+        post_take.wav_end_sample = 44_100;
+        post_take.duration_frames_48k = 48_000;
+        post.set_bounce_take(post_take);
+        pre.data.status = Status::Closed;
+        pre.data.commit_status = Some("pair_pending".to_string());
+        post.data.status = Status::Closed;
+        post.data.commit_status = Some("pair_pending".to_string());
+
+        let pre_paths = self_paths_for(&pre.paths, &pre.data);
+        let post_paths = self_paths_for(&post.paths, &post.data);
+        pre.write_atomic(pre_paths.pair_pending_path.clone())
+            .unwrap();
+        post.write_atomic(post_paths.pair_pending_path.clone())
+            .unwrap();
+
+        try_finalize_pair_session(&pre.paths, &pre.data).unwrap();
+
+        let manifest_path = pair_commit_manifest_path(&pre.paths, &pre.data).unwrap();
+        assert!(!manifest_path.exists());
+        assert!(!pre_paths.member_path.exists());
+        assert!(!post_paths.member_path.exists());
+        assert!(pre_paths.failed_path.exists());
+        assert!(post_paths.failed_path.exists());
+
+        let pre_data: PluginDataFile =
+            serde_json::from_slice(&fs::read(&pre_paths.failed_path).unwrap()).unwrap();
+        let post_data: PluginDataFile =
+            serde_json::from_slice(&fs::read(&post_paths.failed_path).unwrap()).unwrap();
+        for data in [&pre_data, &post_data] {
+            assert_eq!(data.commit_status.as_deref(), Some("failed"));
+            assert!(!data.validity);
+            assert!(data
+                .integrity_reasons
+                .iter()
+                .any(|reason| reason == "pair_sample_rate_mismatch"));
+            assert!(data
+                .integrity_reasons
+                .iter()
+                .any(|reason| reason == "pair_bounce_take_sample_rate_mismatch"));
+            assert!(verify_checksum(data));
+        }
+    }
+
+    #[test]
+    fn pair_finalize_quarantines_derived_48k_frame_count_mismatch() {
         let base = isolated_dir();
         let mut pre = complete_pair_writer(
             &base,
@@ -3376,15 +3717,25 @@ mod tests {
         try_finalize_pair_session(&pre.paths, &pre.data).unwrap();
 
         let manifest_path = pair_commit_manifest_path(&pre.paths, &pre.data).unwrap();
-        let pre_trace_path = pair_trace_shelf_path(&pre_paths, &pre.data).unwrap();
-        let post_trace_path = pair_trace_shelf_path(&post_paths, &post.data).unwrap();
-        assert!(manifest_path.exists());
-        assert!(pre_paths.member_path.exists());
-        assert!(post_paths.member_path.exists());
-        assert!(pre_trace_path.exists());
-        assert!(post_trace_path.exists());
-        assert!(!pre_paths.failed_path.exists());
-        assert!(!post_paths.failed_path.exists());
+        assert!(!manifest_path.exists());
+        assert!(!pre_paths.member_path.exists());
+        assert!(!post_paths.member_path.exists());
+        assert!(pre_paths.failed_path.exists());
+        assert!(post_paths.failed_path.exists());
+
+        let pre_data: PluginDataFile =
+            serde_json::from_slice(&fs::read(&pre_paths.failed_path).unwrap()).unwrap();
+        let post_data: PluginDataFile =
+            serde_json::from_slice(&fs::read(&post_paths.failed_path).unwrap()).unwrap();
+        for data in [&pre_data, &post_data] {
+            assert_eq!(data.commit_status.as_deref(), Some("failed"));
+            assert!(!data.validity);
+            assert!(data
+                .integrity_reasons
+                .iter()
+                .any(|reason| reason == "pair_bounce_take_48k_duration_mismatch"));
+            assert!(verify_checksum(data));
+        }
     }
 
     #[test]
