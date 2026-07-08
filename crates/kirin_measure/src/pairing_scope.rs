@@ -181,6 +181,48 @@ fn filter_by_host_process(
         .collect()
 }
 
+fn selected_belongs_to_project(selected: &SelectedPre, post_project_hash: &str) -> bool {
+    !post_project_hash.is_empty()
+        && selected
+            .project_dir
+            .file_name()
+            .and_then(|name| name.to_str())
+            == Some(post_project_hash)
+}
+
+fn project_external_selection_is_guarded(
+    kirin_root: &Path,
+    selected: &SelectedPre,
+    post_project_hash: &str,
+    host_process_id: u32,
+) -> bool {
+    !selected_belongs_to_project(selected, post_project_hash)
+        && crate::post_candidates::host_scope_has_other_active_post_project(
+            kirin_root,
+            post_project_hash,
+            host_process_id,
+        )
+}
+
+fn select_unique_pre_unless_guarded(
+    valid: Vec<ScopedSelectedPre>,
+    kirin_root: &Path,
+    post_project_hash: &str,
+    host_process_id: u32,
+) -> Option<SelectedPre> {
+    let selected = select_unique_pre(valid)?;
+    if project_external_selection_is_guarded(
+        kirin_root,
+        &selected,
+        post_project_hash,
+        host_process_id,
+    ) {
+        None
+    } else {
+        Some(selected)
+    }
+}
+
 fn select_target_pre_core_from_dirs(
     dirs: &[PathBuf],
     pair_pre_name: &str,
@@ -204,15 +246,30 @@ fn select_target_pre_core_for_post_project(
     if all_valid.is_empty() {
         return None;
     }
-    if let Some(selected) = select_unique_pre(all_valid.clone()) {
-        return Some(selected);
-    }
 
     let host_process_id = crate::post_candidates::current_host_process_id();
+    if let Some(selected) = select_unique_pre(all_valid.clone()) {
+        if !project_external_selection_is_guarded(
+            kirin_root,
+            &selected,
+            post_project_hash,
+            host_process_id,
+        ) {
+            return Some(selected);
+        }
+    }
+
     let same_host_valid = filter_by_host_process(all_valid, host_process_id);
     if !same_host_valid.is_empty() {
         if let Some(selected) = select_unique_pre(same_host_valid) {
-            return Some(selected);
+            if !project_external_selection_is_guarded(
+                kirin_root,
+                &selected,
+                post_project_hash,
+                host_process_id,
+            ) {
+                return Some(selected);
+            }
         }
 
         let scoped_dirs = discover_pre_dirs_for_post_project(kirin_root, post_project_hash);
@@ -220,11 +277,21 @@ fn select_target_pre_core_for_post_project(
             collect_selected_pre_from_dirs(&scoped_dirs, pair_pre_name, require_active),
             host_process_id,
         );
-        return select_unique_pre(scoped_same_host);
+        return select_unique_pre_unless_guarded(
+            scoped_same_host,
+            kirin_root,
+            post_project_hash,
+            host_process_id,
+        );
     }
 
     let scoped_dirs = discover_pre_dirs_for_post_project(kirin_root, post_project_hash);
-    select_target_pre_core_from_dirs(&scoped_dirs, pair_pre_name, require_active)
+    select_unique_pre_unless_guarded(
+        collect_selected_pre_from_dirs(&scoped_dirs, pair_pre_name, require_active),
+        kirin_root,
+        post_project_hash,
+        host_process_id,
+    )
 }
 
 /// Strict PRE selection for display Delta (active + fresh + unique).

@@ -976,24 +976,14 @@ pub(crate) fn read_project_hash_arc(arc: &Arc<RwLock<String>>) -> String {
     arc.read().ok().map(|g| g.clone()).unwrap_or_default()
 }
 
-/// `daw_session_id` の現在値を取得（panic-safe）。
+/// `Arc<RwLock<String>>` から `daw_session_id` を lazy-read（panic-safe）。
 ///
-/// §4-5 Step 5 (instance scope divergence 是正):
-/// 引数 `_arc` は構造維持のため受け取るが内部では使わず、`crate::daw_session_id()`
-/// 経由で **process scope cell** を直読みする。`HyphaPost.daw_session_id` Arc field
-/// は initialize() 時点の cell 値を凍結するため、複数 plugin instance 環境では
-/// 後発 instance の `set_daw_session_id` 上書きを反映できず、6 POST で daw_session_id
-/// が divergence していた (Hpha0504 / sub-tick cross-process filter で全件 skip)。
-///
-/// `daw_session_id()` cell は process scope (`lib.rs:145-148 daw_session_id_cell` の
-/// static OnceLock) のため全 plugin instance で同一値を返し、broadcast filter
-/// (daw_session_id / host_process_id scope filter) が POST 同士で正しくマッチする。
-///
-/// callsite 引数の Arc 構造は維持 (sub-tick `daw_session_id_arc` 不変 /
-/// Pass 15 最小スコープ)。`§4-5 Step 1` の Arc 化はそのまま残し、本関数のみ
-/// 「Arc 凍結値を見ない」semantics に切替える 1 関数 body 修正。
-pub(crate) fn read_daw_session_id_arc(_arc: &Arc<RwLock<String>>) -> String {
-    crate::daw_session_id()
+/// FFI/JUCE path ではこの Arc が engine 単位の session identity を保持する。
+/// `crate::daw_session_id()` の process scope cell をここで読み直すと、Studio One の
+/// 複数 Song/Project 同時オープン時に後発 document の identity へ吸われ、別棚の
+/// PRE/POST と誤って同居する。IO Thread の各 use site は渡された Arc を正とする。
+pub(crate) fn read_daw_session_id_arc(arc: &Arc<RwLock<String>>) -> String {
+    arc.read().ok().map(|g| g.clone()).unwrap_or_default()
 }
 
 /// `Arc<RwLock<String>>` から `pair_pre_name` を毎 tick snapshot で取得する
@@ -3606,6 +3596,7 @@ mod post_candidate_tests {
         active_post_project_uuids_for_broadcast_scope, active_post_project_uuids_for_daw_session,
         enumerate_active_post_pair_candidates_for_broadcast_scope,
         enumerate_active_post_pair_candidates_for_daw_session,
+        host_scope_has_other_active_post_project,
     };
     use std::sync::atomic::AtomicU64;
 
@@ -4155,6 +4146,49 @@ mod post_candidate_tests {
         let daw_only = enumerate_active_post_pair_candidates_for_daw_session(&root, "daw-au");
         assert_eq!(daw_only.len(), 1);
         assert_eq!(daw_only[0].pair_pre_name.as_deref(), Some("2Mix"));
+    }
+
+    #[test]
+    fn host_scope_has_other_active_post_project_detects_same_host_foreign_project() {
+        let root = unique_root("host_scope_other_project");
+        let host_pid = 42_4242;
+        let other_pid = 77_7777;
+        let unused_pid = 88_8888;
+        let _ = write_post_json_with_daw_and_host(
+            &root,
+            "pj-current",
+            "post-current",
+            "2Mix",
+            "daw-current",
+            host_pid,
+        );
+        let _ = write_post_json_with_daw_and_host(
+            &root,
+            "pj-other-song",
+            "post-other-song",
+            "Drum",
+            "daw-other",
+            host_pid,
+        );
+        let _ = write_post_json_with_daw_and_host(
+            &root,
+            "pj-other-host",
+            "post-other-host",
+            "Vocal",
+            "daw-foreign",
+            other_pid,
+        );
+
+        assert!(host_scope_has_other_active_post_project(
+            &root,
+            "pj-current",
+            host_pid
+        ));
+        assert!(!host_scope_has_other_active_post_project(
+            &root,
+            "pj-current",
+            unused_pid
+        ));
     }
 
     // ── W-281 / G-115-249 / C-5: self_check_pair_claim テスト 5 件 ─────────

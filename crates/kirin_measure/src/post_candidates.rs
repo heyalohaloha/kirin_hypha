@@ -251,6 +251,25 @@ pub fn enumerate_active_post_pair_candidates(kirin_root: &Path) -> Vec<PostCandi
         .collect()
 }
 
+/// Whether another active POST project is visible inside the same host process.
+///
+/// `host_process_id` is intentionally a broad bridge for AU/VST3 mixed binaries. When a DAW can
+/// keep multiple documents open inside one process, that same bridge becomes too broad for
+/// automatic PRE target selection. Callers use this as a fail-closed guard before accepting a
+/// project-external PRE solely because it is globally unique.
+pub fn host_scope_has_other_active_post_project(
+    kirin_root: &Path,
+    current_project_uuid: &str,
+    host_process_id: u32,
+) -> bool {
+    host_process_id != 0
+        && enumerate_active_post_pair_candidates(kirin_root)
+            .into_iter()
+            .any(|c| {
+                c.host_process_id == Some(host_process_id) && c.project_uuid != current_project_uuid
+            })
+}
+
 fn daw_session_matches(candidate: &PostCandidate, daw_session_id: &str) -> bool {
     !daw_session_id.is_empty()
         && candidate

@@ -91,7 +91,8 @@ pub use post_candidates::{
     active_post_project_uuids_for_broadcast_scope, active_post_project_uuids_for_daw_session,
     broadcast_scope_ids_match, current_host_process_id, enumerate_active_post_pair_candidates,
     enumerate_active_post_pair_candidates_for_broadcast_scope,
-    enumerate_active_post_pair_candidates_for_daw_session, PostCandidate,
+    enumerate_active_post_pair_candidates_for_daw_session,
+    host_scope_has_other_active_post_project, PostCandidate,
 };
 pub use pre_candidates::{
     enumerate_active_pre_pair_candidates, filter_candidates_by_name, pick_closest_pre,
