@@ -348,7 +348,7 @@ pub fn spawn_io_thread_post(
         // Step 11 で `license_for_thread` は撤去 (closure 経由案 / 呼出側 lib.rs で
         // `trigger_pair_resolution` closure に直接 capture / 申し送り #31 遅延約束追跡完了)。
         // - `daw_session_id_arc` (§4-5 Step 1 Arc 化): Step 10 で all_keep sub-tick
-        //   (cross-process 防壁 = `broadcast.daw_session_id != snapshot` skip) で実 use 中。
+        //   (cross-process 防壁 = daw_session_id / host_process_id scope filter) で実 use 中。
         //   per-tick lazy-read で chunk-restore 後の最新 cell 値を反映 (snapshot timing
         //   divergence 是正 / §4-4 R-9)。
         // - `pair_pre_name_for_thread`: Step 6 で実 use (run_tick 内 100ms tick で snapshot
@@ -678,10 +678,16 @@ pub fn spawn_io_thread_post(
                     let base_dir = paths.plugin_data_dir();
                     let now_chrono = chrono::Utc::now();
                     let daw_session_id_snapshot = read_daw_session_id_arc(&daw_session_id_arc);
+                    let host_process_id_snapshot = crate::current_host_process_id();
                     let stop_broadcasts =
                         all_stop_signal::scan_stop_broadcasts_dir(&base_dir, project_hash_ref);
                     for (originator_iid, broadcast) in stop_broadcasts {
-                        if broadcast.daw_session_id != daw_session_id_snapshot {
+                        if !crate::broadcast_scope_ids_match(
+                            &daw_session_id_snapshot,
+                            host_process_id_snapshot,
+                            &broadcast.daw_session_id,
+                            broadcast.host_process_id,
+                        ) {
                             continue;
                         }
                         if all_stop_signal::is_stop_broadcast_stale(
@@ -740,7 +746,7 @@ pub fn spawn_io_thread_post(
             // 新 broadcast を `processed_broadcasts` cache に登録する (検出 + cache + log
             // のみ / `trigger_keep_internal` 発火は Step 11 で本箇所に追加予定)。
             //
-            //  1. cross-process 防壁: `broadcast.daw_session_id != self_daw_session_id` skip
+            //  1. cross-process 防壁: daw_session_id / host_process_id scope 外は skip
             //  2. self skip: `originator_iid == self_instance_id` skip (#16 (iii))
             //  3. 既処理 skip: cache 内の `started_at` と一致 → 同 broadcast 既処理 skip
             //     (clock-skew 完全耐性 / Q-A8-6)
@@ -756,11 +762,17 @@ pub fn spawn_io_thread_post(
                     // §4-5 Step 1: cross-process 防壁用 daw_session_id を per-tick lazy-read。
                     // editor() snapshot との divergence を是正 (§4-4 R-9 主因 b)。
                     let daw_session_id_snapshot = read_daw_session_id_arc(&daw_session_id_arc);
+                    let host_process_id_snapshot = crate::current_host_process_id();
                     let broadcasts =
                         all_keep_signal::scan_broadcasts_dir(&base_dir, project_hash_ref);
                     for (originator_iid, broadcast) in broadcasts {
                         // 1. cross-process 防壁
-                        if broadcast.daw_session_id != daw_session_id_snapshot {
+                        if !crate::broadcast_scope_ids_match(
+                            &daw_session_id_snapshot,
+                            host_process_id_snapshot,
+                            &broadcast.daw_session_id,
+                            broadcast.host_process_id,
+                        ) {
                             continue;
                         }
                         // 2. self skip
@@ -975,7 +987,7 @@ pub(crate) fn read_project_hash_arc(arc: &Arc<RwLock<String>>) -> String {
 ///
 /// `daw_session_id()` cell は process scope (`lib.rs:145-148 daw_session_id_cell` の
 /// static OnceLock) のため全 plugin instance で同一値を返し、broadcast filter
-/// (`broadcast.daw_session_id != snapshot`) が POST 同士で正しくマッチする。
+/// (daw_session_id / host_process_id scope filter) が POST 同士で正しくマッチする。
 ///
 /// callsite 引数の Arc 構造は維持 (sub-tick `daw_session_id_arc` 不変 /
 /// Pass 15 最小スコープ)。`§4-5 Step 1` の Arc 化はそのまま残し、本関数のみ
@@ -1693,12 +1705,14 @@ fn serialize_post_json_with_daw(
         serde_json::to_string(instance_id).unwrap_or_else(|_| "\"\"".to_string());
     let daw_session_id_json =
         serde_json::to_string(daw_session_id).unwrap_or_else(|_| "\"\"".to_string());
+    let host_process_id = crate::current_host_process_id();
     let pair_pre_name_json =
         serde_json::to_string(pair_pre_name).unwrap_or_else(|_| "\"\"".to_string());
     format!(
-        r#"{{"v":2,"role":"POST","instance_id":{instance_id_json},"daw_session_id":{daw_session_id},"signal_state":"{signal_state}","pre_signal_state":{pre_signal_state},"t":"{t}","pair_pre_name":{pair_pre_name},"pair_claimed_at":{pair_claimed_at},"lufs_m":{lufs_m},"true_peak":{true_peak},"crest":{crest},"psr":{psr}{phase_d}}}"#,
+        r#"{{"v":2,"role":"POST","instance_id":{instance_id_json},"daw_session_id":{daw_session_id},"host_process_id":{host_process_id},"signal_state":"{signal_state}","pre_signal_state":{pre_signal_state},"t":"{t}","pair_pre_name":{pair_pre_name},"pair_claimed_at":{pair_claimed_at},"lufs_m":{lufs_m},"true_peak":{true_peak},"crest":{crest},"psr":{psr}{phase_d}}}"#,
         instance_id_json = instance_id_json,
         daw_session_id = daw_session_id_json,
+        host_process_id = host_process_id,
         signal_state = state.as_str(),
         pre_signal_state = pre_state_str,
         t = t,
@@ -1740,12 +1754,14 @@ fn serialize_post_json_minimal_with_daw(
         serde_json::to_string(instance_id).unwrap_or_else(|_| "\"\"".to_string());
     let daw_session_id_json =
         serde_json::to_string(daw_session_id).unwrap_or_else(|_| "\"\"".to_string());
+    let host_process_id = crate::current_host_process_id();
     let pair_pre_name_json =
         serde_json::to_string(pair_pre_name).unwrap_or_else(|_| "\"\"".to_string());
     format!(
-        r#"{{"v":2,"role":"POST","instance_id":{instance_id_json},"daw_session_id":{daw_session_id},"signal_state":"{signal_state}","t":"{t}","pair_pre_name":{pair_pre_name},"pair_claimed_at":{pair_claimed_at}}}"#,
+        r#"{{"v":2,"role":"POST","instance_id":{instance_id_json},"daw_session_id":{daw_session_id},"host_process_id":{host_process_id},"signal_state":"{signal_state}","t":"{t}","pair_pre_name":{pair_pre_name},"pair_claimed_at":{pair_claimed_at}}}"#,
         instance_id_json = instance_id_json,
         daw_session_id = daw_session_id_json,
+        host_process_id = host_process_id,
         signal_state = state.as_str(),
         t = t,
         pair_pre_name = pair_pre_name_json,
@@ -3541,6 +3557,10 @@ mod post_tmp_json_tests {
             "daw-A",
         );
         assert!(json_full.contains(r#""daw_session_id":"daw-A""#));
+        assert!(json_full.contains(&format!(
+            r#""host_process_id":{}"#,
+            crate::current_host_process_id()
+        )));
 
         let json_min = serialize_post_json_minimal_with_daw(
             "post-iid",
@@ -3550,6 +3570,10 @@ mod post_tmp_json_tests {
             "daw-A",
         );
         assert!(json_min.contains(r#""daw_session_id":"daw-A""#));
+        assert!(json_min.contains(&format!(
+            r#""host_process_id":{}"#,
+            crate::current_host_process_id()
+        )));
     }
 
     /// (A-5 ii) 旧 schema (pair_claimed_at field 不在) deserialize → default=0.0。
@@ -3567,6 +3591,10 @@ mod post_tmp_json_tests {
             parsed.daw_session_id, "",
             "daw_session_id must default to empty for legacy schema"
         );
+        assert_eq!(
+            parsed.host_process_id, 0,
+            "host_process_id must default to 0 for legacy schema"
+        );
     }
 }
 
@@ -3575,7 +3603,8 @@ mod post_tmp_json_tests {
 mod post_candidate_tests {
     use super::*;
     use crate::{
-        active_post_project_uuids_for_daw_session,
+        active_post_project_uuids_for_broadcast_scope, active_post_project_uuids_for_daw_session,
+        enumerate_active_post_pair_candidates_for_broadcast_scope,
         enumerate_active_post_pair_candidates_for_daw_session,
     };
     use std::sync::atomic::AtomicU64;
@@ -3617,6 +3646,28 @@ mod post_candidate_tests {
             _ => serialize_post_json_minimal(instance_id, signal_state, pair_pre_name, 0.0),
         };
         fs::write(&post_file, json.as_bytes()).unwrap();
+        post_file
+    }
+
+    fn write_post_json_with_daw_and_host(
+        kirin_root: &Path,
+        project_uuid: &str,
+        instance_id: &str,
+        pair_pre_name: &str,
+        daw_session_id: &str,
+        host_process_id: u32,
+    ) -> PathBuf {
+        let post_file = write_post_json_with_daw(
+            kirin_root,
+            project_uuid,
+            instance_id,
+            pair_pre_name,
+            daw_session_id,
+        );
+        let mut json: serde_json::Value =
+            serde_json::from_slice(&fs::read(&post_file).unwrap()).unwrap();
+        json["host_process_id"] = serde_json::json!(host_process_id);
+        fs::write(&post_file, serde_json::to_vec(&json).unwrap()).unwrap();
         post_file
     }
 
@@ -3664,6 +3715,7 @@ mod post_candidate_tests {
         assert_eq!(c.instance_id, "post-iid-1");
         assert_eq!(c.project_uuid, project_uuid);
         assert!(c.daw_session_id.is_none());
+        assert_eq!(c.host_process_id, Some(crate::current_host_process_id()));
         assert_eq!(c.pair_pre_name.as_deref(), Some("PRE-Master"));
         assert!(c.path.ends_with("post.json"));
     }
@@ -4057,6 +4109,52 @@ mod post_candidate_tests {
 
         let projects = active_post_project_uuids_for_daw_session(&root, "daw-main");
         assert_eq!(projects, vec!["pj-AU".to_string(), "pj-VST3".to_string()]);
+    }
+
+    #[test]
+    fn enumerate_for_broadcast_scope_spans_mixed_daw_same_process() {
+        let root = unique_root("enum_broadcast_scope");
+        let host_pid = 42_4242;
+        let other_pid = 77_7777;
+        let _ = write_post_json_with_daw_and_host(
+            &root,
+            "pj-AU",
+            "post-2mix",
+            "2Mix",
+            "daw-au",
+            host_pid,
+        );
+        let _ = write_post_json_with_daw_and_host(
+            &root,
+            "pj-VST3",
+            "post-drum",
+            "Drum",
+            "daw-vst3",
+            host_pid,
+        );
+        let _ = write_post_json_with_daw_and_host(
+            &root,
+            "pj-OTHER",
+            "post-other",
+            "Vocal",
+            "daw-other",
+            other_pid,
+        );
+
+        let cands =
+            enumerate_active_post_pair_candidates_for_broadcast_scope(&root, "daw-au", host_pid);
+        let names: Vec<_> = cands
+            .iter()
+            .filter_map(|c| c.pair_pre_name.as_deref())
+            .collect();
+        assert_eq!(names, vec!["2Mix", "Drum"]);
+
+        let projects = active_post_project_uuids_for_broadcast_scope(&root, "daw-au", host_pid);
+        assert_eq!(projects, vec!["pj-AU".to_string(), "pj-VST3".to_string()]);
+
+        let daw_only = enumerate_active_post_pair_candidates_for_daw_session(&root, "daw-au");
+        assert_eq!(daw_only.len(), 1);
+        assert_eq!(daw_only[0].pair_pre_name.as_deref(), Some("2Mix"));
     }
 
     // ── W-281 / G-115-249 / C-5: self_check_pair_claim テスト 5 件 ─────────

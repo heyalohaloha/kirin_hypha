@@ -13,6 +13,7 @@
 //!   "v": 1,
 //!   "originator_post_instance_id": "POST 永続 instance_id (= filename stem)",
 //!   "daw_session_id": "DAW プロセス UUID (cross-process 防壁)",
+//!   "host_process_id": "DAW host process ID (AU/VST3 mixed bridge)",
 //!   "started_at": "ISO 8601 (broadcast 配置時刻 / 重複処理回避 key)",
 //!   "heartbeat": "ISO 8601 (将来 throttled re-publish 用 / 当面は started_at と同値)"
 //! }
@@ -22,7 +23,7 @@
 //! のみで「同 originator + 同 broadcast」を判別する (clock-skew 完全耐性 / Q-A8-6)。
 //!
 //! 1. [`scan_broadcasts_dir`] で `{project_hash}/all_keep_signal/*.json` を全件読込
-//! 2. `broadcast.daw_session_id == self.daw_session_id` で filter (cross-process 防壁)
+//! 2. `daw_session_id` or `host_process_id` で filter (cross-process 防壁 + mixed binary bridge)
 //! 3. memory cache `HashMap<originator_iid, started_at>` を引いて
 //!    - 未登録 / 値が異なる → 新 broadcast → 自身の `trigger_keep_internal(toast=None)` 発火
 //!    - 登録済 + 値が一致 → 既処理 skip (file mutation race を構造的に回避)
@@ -59,12 +60,13 @@ pub const ALL_KEEP_BROADCAST_STALE_SECS: i64 = 30;
 
 // ── スキーマ ─────────────────────────────────────────────────────────────────
 
-/// all_keep_signal.json ルート構造 (5 field)。
+/// all_keep_signal.json ルート構造。
 ///
 /// # フィールド
 /// - `v`: schema version (現行 1)
 /// - `originator_post_instance_id`: filename stem と同値 / check 用
 /// - `daw_session_id`: 別 DAW process からの誤受信防止 (record_signal と同位相)
+/// - `host_process_id`: 同一 DAW process 内で AU/VST3 が別 `daw_session_id` を持つ場合の補助 scope
 /// - `started_at`: 重複処理回避の key (受信側 cache 値比較対象 / clock-skew 完全耐性)
 /// - `heartbeat`: 将来 throttled re-publish 用 / 当面は `started_at` と同値で書込
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -72,6 +74,8 @@ pub struct AllKeepBroadcast {
     pub v: u32,
     pub originator_post_instance_id: String,
     pub daw_session_id: String,
+    #[serde(default)]
+    pub host_process_id: u32,
     pub started_at: String,
     /// 旧 schema 互換のため `#[serde(default)]`（不在で空文字）。
     /// 当面は `started_at` と同値で書込される。
@@ -83,11 +87,24 @@ impl AllKeepBroadcast {
     /// 新規 broadcast を生成。`started_at` / `heartbeat` は現在時刻、`v=1`、
     /// `originator_post_instance_id` / `daw_session_id` は呼び出し側責任。
     pub fn new(originator_post_instance_id: String, daw_session_id: String) -> Self {
+        Self::new_with_scope(
+            originator_post_instance_id,
+            daw_session_id,
+            std::process::id(),
+        )
+    }
+
+    pub fn new_with_scope(
+        originator_post_instance_id: String,
+        daw_session_id: String,
+        host_process_id: u32,
+    ) -> Self {
         let now = now_iso8601();
         Self {
             v: ALL_KEEP_SCHEMA_VERSION,
             originator_post_instance_id,
             daw_session_id,
+            host_process_id,
             started_at: now.clone(),
             heartbeat: now,
         }
@@ -162,7 +179,27 @@ pub fn write_broadcast(
     originator_post_instance_id: &str,
     daw_session_id: String,
 ) -> Result<AllKeepBroadcast, AllKeepError> {
-    let broadcast = AllKeepBroadcast::new(originator_post_instance_id.to_string(), daw_session_id);
+    write_broadcast_with_scope(
+        base_dir,
+        project_hash,
+        originator_post_instance_id,
+        daw_session_id,
+        std::process::id(),
+    )
+}
+
+pub fn write_broadcast_with_scope(
+    base_dir: &Path,
+    project_hash: &str,
+    originator_post_instance_id: &str,
+    daw_session_id: String,
+    host_process_id: u32,
+) -> Result<AllKeepBroadcast, AllKeepError> {
+    let broadcast = AllKeepBroadcast::new_with_scope(
+        originator_post_instance_id.to_string(),
+        daw_session_id,
+        host_process_id,
+    );
     write_broadcast_signal(
         base_dir,
         project_hash,
@@ -353,6 +390,7 @@ mod tests {
         assert_eq!(result.v, ALL_KEEP_SCHEMA_VERSION);
         assert_eq!(result.originator_post_instance_id, "originator-1");
         assert_eq!(result.daw_session_id, "session-A");
+        assert_eq!(result.host_process_id, std::process::id());
         assert!(!result.started_at.is_empty());
         assert_eq!(result.heartbeat, result.started_at);
 
@@ -490,6 +528,7 @@ mod tests {
             v: 1,
             originator_post_instance_id: "x".to_string(),
             daw_session_id: "y".to_string(),
+            host_process_id: 0,
             started_at: (now - chrono::Duration::seconds(10))
                 .format("%Y-%m-%dT%H:%M:%SZ")
                 .to_string(),
@@ -499,6 +538,7 @@ mod tests {
             v: 1,
             originator_post_instance_id: "x".to_string(),
             daw_session_id: "y".to_string(),
+            host_process_id: 0,
             started_at: (now - chrono::Duration::seconds(45))
                 .format("%Y-%m-%dT%H:%M:%SZ")
                 .to_string(),
@@ -524,6 +564,7 @@ mod tests {
             v: 1,
             originator_post_instance_id: "x".to_string(),
             daw_session_id: "y".to_string(),
+            host_process_id: 0,
             started_at: "not-an-iso".to_string(),
             heartbeat: String::new(),
         };
@@ -542,6 +583,7 @@ mod tests {
             v: 1,
             originator_post_instance_id: "x".to_string(),
             daw_session_id: "y".to_string(),
+            host_process_id: 0,
             started_at: (now + chrono::Duration::seconds(60))
                 .format("%Y-%m-%dT%H:%M:%SZ")
                 .to_string(),
@@ -570,6 +612,7 @@ mod tests {
         }"#;
         let parsed: AllKeepBroadcast = serde_json::from_str(json).unwrap();
         assert_eq!(parsed.heartbeat, "");
+        assert_eq!(parsed.host_process_id, 0);
         assert_eq!(parsed.started_at, "2026-05-04T12:00:00Z");
     }
 

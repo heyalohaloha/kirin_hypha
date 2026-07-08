@@ -47,9 +47,10 @@ use uuid::Uuid;
 use kirin_measure::engine::SessionSummary;
 use kirin_measure::reservation; // B-127 (G-115-364): per-pairing O_EXCL reservation
 use kirin_measure::{
-    active_post_project_uuids_for_daw_session, append_annotation_to_latest, can_write_plugin_data,
-    check_record_exclusion, count_distinct_pairings, enumerate_active_post_pair_candidates,
-    enumerate_active_post_pair_candidates_for_daw_session,
+    active_post_project_uuids_for_broadcast_scope, append_annotation_to_latest,
+    can_write_plugin_data, check_record_exclusion, count_distinct_pairings,
+    current_host_process_id, enumerate_active_post_pair_candidates,
+    enumerate_active_post_pair_candidates_for_broadcast_scope,
     enumerate_active_pre_pair_candidates_for_post_project, identity_instance_attach,
     identity_instance_detach, live_window, load_license_safe, load_signal_state, mark_released,
     mark_released_with_reason, new_record_take_tracker, new_record_trace_queue,
@@ -1344,14 +1345,15 @@ impl KirinHyphaEngine {
         // B-106: 棚パス・daw は共有セルを live-read（id.* と一致するが共有セルが単一正本）。
         let project_hash = read_shared_id(shared_post_project_hash_cell());
         let daw = read_shared_id(shared_post_daw_session_id_cell());
+        let host_process_id = current_host_process_id();
         if !project_hash.is_empty() {
             if let Ok(p) = StoragePaths::default_platform() {
                 let kirin_root = PlatformPaths::current_kirin_tmp_root();
-                let mut project_hashes = if daw.is_empty() {
-                    Vec::new()
-                } else {
-                    active_post_project_uuids_for_daw_session(&kirin_root, &daw)
-                };
+                let mut project_hashes = active_post_project_uuids_for_broadcast_scope(
+                    &kirin_root,
+                    &daw,
+                    host_process_id,
+                );
                 if project_hashes.is_empty() {
                     project_hashes.push(project_hash.clone());
                 }
@@ -1391,14 +1393,15 @@ impl KirinHyphaEngine {
         // B-106: 棚パス・daw は共有セルを live-read（keep_all と対称）。
         let project_hash = read_shared_id(shared_post_project_hash_cell());
         let daw = read_shared_id(shared_post_daw_session_id_cell());
+        let host_process_id = current_host_process_id();
         if !project_hash.is_empty() && !post_iid.is_empty() {
             if let Ok(p) = StoragePaths::default_platform() {
                 let kirin_root = PlatformPaths::current_kirin_tmp_root();
-                let mut project_hashes = if daw.is_empty() {
-                    Vec::new()
-                } else {
-                    active_post_project_uuids_for_daw_session(&kirin_root, &daw)
-                };
+                let mut project_hashes = active_post_project_uuids_for_broadcast_scope(
+                    &kirin_root,
+                    &daw,
+                    host_process_id,
+                );
                 if project_hashes.is_empty() {
                     project_hashes.push(project_hash.clone());
                 }
@@ -1437,13 +1440,18 @@ impl KirinHyphaEngine {
         let kirin_root = PlatformPaths::current_kirin_tmp_root();
         let project_hash = read_shared_id(shared_post_project_hash_cell());
         let daw = read_shared_id(shared_post_daw_session_id_cell());
-        let candidates = if daw.is_empty() {
+        let candidates = enumerate_active_post_pair_candidates_for_broadcast_scope(
+            &kirin_root,
+            &daw,
+            current_host_process_id(),
+        );
+        let candidates = if candidates.is_empty() {
             enumerate_active_post_pair_candidates(&kirin_root)
                 .into_iter()
                 .filter(|c| c.project_uuid == project_hash)
                 .collect()
         } else {
-            enumerate_active_post_pair_candidates_for_daw_session(&kirin_root, &daw)
+            candidates
         };
         candidates
             .into_iter()
@@ -1458,13 +1466,18 @@ impl KirinHyphaEngine {
         let kirin_root = PlatformPaths::current_kirin_tmp_root();
         let project_hash = read_shared_id(shared_post_project_hash_cell());
         let daw = read_shared_id(shared_post_daw_session_id_cell());
-        let candidates = if daw.is_empty() {
+        let candidates = enumerate_active_post_pair_candidates_for_broadcast_scope(
+            &kirin_root,
+            &daw,
+            current_host_process_id(),
+        );
+        let candidates = if candidates.is_empty() {
             enumerate_active_post_pair_candidates(&kirin_root)
                 .into_iter()
                 .filter(|c| c.project_uuid == project_hash)
                 .collect()
         } else {
-            enumerate_active_post_pair_candidates_for_daw_session(&kirin_root, &daw)
+            candidates
         };
         candidates
             .into_iter()

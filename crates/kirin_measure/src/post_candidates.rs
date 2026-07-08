@@ -35,6 +35,8 @@ pub(crate) struct PostTmpJson {
     #[serde(default)]
     pub daw_session_id: String,
     #[serde(default)]
+    pub host_process_id: u32,
+    #[serde(default)]
     pub pair_pre_name: String,
     #[serde(default)]
     pub pair_claimed_at: f64,
@@ -68,6 +70,7 @@ pub struct PostCandidate {
     pub instance_id: String,
     pub project_uuid: String,
     pub daw_session_id: Option<String>,
+    pub host_process_id: Option<u32>,
     pub pair_pre_name: Option<String>,
     /// W-281 / G-115-249: post.json から read した pair claim 時刻 (Unix epoch sec)。
     /// `self_check_pair_claim` の後着優先比較で使う。旧 schema は 0.0 fallback。
@@ -126,10 +129,16 @@ pub fn scan_post_candidates_in(project_dir: &Path) -> Vec<PostCandidate> {
         } else {
             Some(parsed.daw_session_id)
         };
+        let host_process_id = if parsed.host_process_id == 0 {
+            None
+        } else {
+            Some(parsed.host_process_id)
+        };
         out.push(PostCandidate {
             instance_id: parsed.instance_id,
             project_uuid: project_uuid.clone(),
             daw_session_id,
+            host_process_id,
             pair_pre_name,
             pair_claimed_at: parsed.pair_claimed_at,
             path: post_file,
@@ -250,6 +259,37 @@ fn daw_session_matches(candidate: &PostCandidate, daw_session_id: &str) -> bool 
             .is_none_or(|candidate_daw| candidate_daw == daw_session_id)
 }
 
+pub fn current_host_process_id() -> u32 {
+    std::process::id()
+}
+
+pub fn broadcast_scope_ids_match(
+    local_daw_session_id: &str,
+    local_host_process_id: u32,
+    remote_daw_session_id: &str,
+    remote_host_process_id: u32,
+) -> bool {
+    (!local_daw_session_id.is_empty()
+        && !remote_daw_session_id.is_empty()
+        && local_daw_session_id == remote_daw_session_id)
+        || (local_host_process_id != 0
+            && remote_host_process_id != 0
+            && local_host_process_id == remote_host_process_id)
+}
+
+fn host_process_matches(candidate: &PostCandidate, host_process_id: u32) -> bool {
+    host_process_id != 0 && candidate.host_process_id == Some(host_process_id)
+}
+
+fn broadcast_scope_matches(
+    candidate: &PostCandidate,
+    daw_session_id: &str,
+    host_process_id: u32,
+) -> bool {
+    daw_session_matches(candidate, daw_session_id)
+        || host_process_matches(candidate, host_process_id)
+}
+
 /// Active POST candidates in the same DAW session, spanning AU/VST3 project UUID shelves.
 ///
 /// Missing `daw_session_id` is accepted for rolling compatibility with already-running older
@@ -264,6 +304,22 @@ pub fn enumerate_active_post_pair_candidates_for_daw_session(
         .collect()
 }
 
+/// Active POST candidates in the same broadcast scope.
+///
+/// `daw_session_id` remains the primary isolation wall. `host_process_id` is a secondary bridge for
+/// mixed AU/VST3 hosts where each binary family can have an independent process-local
+/// `daw_session_id` cell while still running inside the same DAW process.
+pub fn enumerate_active_post_pair_candidates_for_broadcast_scope(
+    kirin_root: &Path,
+    daw_session_id: &str,
+    host_process_id: u32,
+) -> Vec<PostCandidate> {
+    enumerate_active_post_pair_candidates(kirin_root)
+        .into_iter()
+        .filter(|c| broadcast_scope_matches(c, daw_session_id, host_process_id))
+        .collect()
+}
+
 /// Project UUID shelves containing active POSTs in the same DAW session.
 pub fn active_post_project_uuids_for_daw_session(
     kirin_root: &Path,
@@ -275,4 +331,22 @@ pub fn active_post_project_uuids_for_daw_session(
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect()
+}
+
+/// Project UUID shelves containing active POSTs in the same broadcast scope.
+pub fn active_post_project_uuids_for_broadcast_scope(
+    kirin_root: &Path,
+    daw_session_id: &str,
+    host_process_id: u32,
+) -> Vec<String> {
+    enumerate_active_post_pair_candidates_for_broadcast_scope(
+        kirin_root,
+        daw_session_id,
+        host_process_id,
+    )
+    .into_iter()
+    .map(|c| c.project_uuid)
+    .collect::<BTreeSet<_>>()
+    .into_iter()
+    .collect()
 }

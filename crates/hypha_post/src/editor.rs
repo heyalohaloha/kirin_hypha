@@ -32,9 +32,10 @@ use hypha_gui::{
 };
 use kirin_measure::reservation; // B-127 (G-115-365): egui parity — per-pairing O_EXCL frame
 use kirin_measure::{
-    active_post_project_uuids_for_daw_session, all_keep_signal_path, all_stop_signal_path,
-    append_annotation_to_latest, count_distinct_pairings, delete_broadcast,
-    enumerate_active_post_pair_candidates, enumerate_active_post_pair_candidates_for_daw_session,
+    active_post_project_uuids_for_broadcast_scope, all_keep_signal_path, all_stop_signal_path,
+    append_annotation_to_latest, count_distinct_pairings, current_host_process_id,
+    delete_broadcast, enumerate_active_post_pair_candidates,
+    enumerate_active_post_pair_candidates_for_broadcast_scope,
     enumerate_active_pre_pair_candidates_for_post_project, exit_record_preserve_pair,
     format_pair_label, load_signal_state, lookup_section_label, mark_released_with_reason,
     pair_lock_active, resolve_arm_target_for_post_project, sanitize_name, scan_latest_v2_preset,
@@ -1193,13 +1194,18 @@ fn draw_pair_pre_combo(
         enumerate_active_pre_pair_candidates_for_post_project(&kirin_root, &current_project_hash);
     // B-027 段階 3-B α-7-3 / Step 9: All Keep 行 N 集計のため POST candidates も取得。
     // ComboBox 先頭行の "All Keep: N ready POST(s)" 表示と display 判定 (N>=1) に使用。
-    let post_candidates: Vec<_> = if current_daw_session_id.is_empty() {
+    let post_candidates = enumerate_active_post_pair_candidates_for_broadcast_scope(
+        &kirin_root,
+        &current_daw_session_id,
+        current_host_process_id(),
+    );
+    let post_candidates: Vec<_> = if post_candidates.is_empty() {
         enumerate_active_post_pair_candidates(&kirin_root)
             .into_iter()
             .filter(|c| c.project_uuid == current_project_hash)
             .collect()
     } else {
-        enumerate_active_post_pair_candidates_for_daw_session(&kirin_root, &current_daw_session_id)
+        post_candidates
     };
     // α-7' All Stop: 自身が recording=true (Record 中) なら All Stop 行を出す。
     let recording = state.record_sm.is_recording();
@@ -1878,11 +1884,11 @@ fn trigger_all_keep_broadcast(
     };
     let plugin_data_dir = paths.plugin_data_dir();
     let kirin_root = PlatformPaths::current_kirin_tmp_root();
-    let mut project_hashes = if daw_session_id.is_empty() {
-        Vec::new()
-    } else {
-        active_post_project_uuids_for_daw_session(&kirin_root, daw_session_id)
-    };
+    let mut project_hashes = active_post_project_uuids_for_broadcast_scope(
+        &kirin_root,
+        daw_session_id,
+        current_host_process_id(),
+    );
     if project_hashes.is_empty() && !project_hash.is_empty() {
         project_hashes.push(project_hash.to_string());
     }
@@ -2064,11 +2070,11 @@ fn trigger_all_stop_broadcast(
     };
     let plugin_data_dir = paths.plugin_data_dir();
     let kirin_root = PlatformPaths::current_kirin_tmp_root();
-    let mut project_hashes = if daw_session_id.is_empty() {
-        Vec::new()
-    } else {
-        active_post_project_uuids_for_daw_session(&kirin_root, daw_session_id)
-    };
+    let mut project_hashes = active_post_project_uuids_for_broadcast_scope(
+        &kirin_root,
+        daw_session_id,
+        current_host_process_id(),
+    );
     if project_hashes.is_empty() && !project_hash.is_empty() {
         project_hashes.push(project_hash.to_string());
     }
@@ -2480,6 +2486,7 @@ mod tests {
                 instance_id: "self-post".into(),
                 project_uuid: "p".into(),
                 daw_session_id: Some("daw".into()),
+                host_process_id: Some(1),
                 pair_pre_name: Some("Music".into()),
                 pair_claimed_at: 1.0,
                 path: std::path::PathBuf::new(),
@@ -2488,6 +2495,7 @@ mod tests {
                 instance_id: "other-post".into(),
                 project_uuid: "p".into(),
                 daw_session_id: Some("daw".into()),
+                host_process_id: Some(1),
                 pair_pre_name: Some("Drum".into()),
                 pair_claimed_at: 2.0,
                 path: std::path::PathBuf::new(),
@@ -2513,6 +2521,7 @@ mod tests {
             instance_id: "other-post".into(),
             project_uuid: "p".into(),
             daw_session_id: Some("daw".into()),
+            host_process_id: Some(1),
             pair_pre_name: Some("Music".into()),
             pair_claimed_at: 2.0,
             path: std::path::PathBuf::new(),
@@ -2529,6 +2538,7 @@ mod tests {
             instance_id: "self-post".into(),
             project_uuid: "p".into(),
             daw_session_id: Some("daw".into()),
+            host_process_id: Some(1),
             pair_pre_name: Some("Music".into()),
             pair_claimed_at: 1.0,
             path: std::path::PathBuf::new(),
