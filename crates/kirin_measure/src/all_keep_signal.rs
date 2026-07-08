@@ -67,7 +67,7 @@ pub const ALL_KEEP_BROADCAST_STALE_SECS: i64 = 30;
 /// - `v`: schema version (現行 1)
 /// - `originator_post_instance_id`: filename stem と同値 / check 用
 /// - `daw_session_id`: 別 DAW process からの誤受信防止 (record_signal と同位相)
-/// - `host_process_id`: 片側に明示 `daw_session_id` がない旧 schema/移行中向けの補助 scope
+/// - `host_process_id`: 両側に明示 `daw_session_id` がない旧 schema/移行中向けの補助 scope
 /// - `started_at`: 重複処理回避の key (受信側 cache 値比較対象 / clock-skew 完全耐性)
 /// - `heartbeat`: 将来 throttled re-publish 用 / 当面は `started_at` と同値で書込
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
