@@ -24,12 +24,43 @@ fn write_pre_for_select(
     signal_state: &str,
     t_rfc3339: &str,
 ) {
+    write_pre_for_select_with_host_process_id(
+        kirin_root,
+        project_uuid,
+        instance_id,
+        name,
+        signal_state,
+        t_rfc3339,
+        None,
+    );
+}
+
+fn write_pre_for_select_with_host_process_id(
+    kirin_root: &Path,
+    project_uuid: &str,
+    instance_id: &str,
+    name: &str,
+    signal_state: &str,
+    t_rfc3339: &str,
+    host_process_id: Option<u32>,
+) {
     let dir = kirin_root.join(project_uuid).join(instance_id);
     fs::create_dir_all(&dir).unwrap();
-    let json = format!(
-        r#"{{"v":2,"role":"PRE","instance_id":"{instance_id}","name":"{name}","signal_state":"{signal_state}","t":"{t_rfc3339}","lufs_m":-14.0,"true_peak":-1.0,"crest":12.0}}"#
-    );
-    fs::write(dir.join("pre.json"), json).unwrap();
+    let mut json = serde_json::json!({
+        "v": 2,
+        "role": "PRE",
+        "instance_id": instance_id,
+        "name": name,
+        "signal_state": signal_state,
+        "t": t_rfc3339,
+        "lufs_m": -14.0,
+        "true_peak": -1.0,
+        "crest": 12.0
+    });
+    if let Some(pid) = host_process_id {
+        json["host_process_id"] = serde_json::json!(pid);
+    }
+    fs::write(dir.join("pre.json"), json.to_string()).unwrap();
 }
 
 fn write_post_for_scope(
@@ -60,6 +91,15 @@ fn old_rfc3339(secs_ago: i64) -> String {
     (Utc::now() - chrono::Duration::seconds(secs_ago))
         .format("%Y-%m-%dT%H:%M:%SZ")
         .to_string()
+}
+
+fn other_host_process_id() -> u32 {
+    let current = std::process::id();
+    if current == u32::MAX {
+        current - 1
+    } else {
+        current + 1
+    }
 }
 
 #[test]
@@ -218,6 +258,35 @@ fn select_target_pre_for_arm_for_post_project_avoids_other_session_same_name() {
 }
 
 #[test]
+fn select_target_pre_for_arm_for_post_project_prefers_current_host_process_same_name() {
+    let root = isolated_dir();
+    let now = now_rfc3339();
+    write_pre_for_select_with_host_process_id(
+        &root,
+        "pre-other-host",
+        "iid-other-vocal",
+        "Vocal",
+        "inactive",
+        &now,
+        Some(other_host_process_id()),
+    );
+    write_pre_for_select_with_host_process_id(
+        &root,
+        "pre-current-host",
+        "iid-current-vocal",
+        "Vocal",
+        "inactive",
+        &now,
+        Some(std::process::id()),
+    );
+
+    assert!(select_target_pre_for_arm(&root, "Vocal").is_none());
+    let sel = select_target_pre_for_arm_for_post_project(&root, "Vocal", "post-current")
+        .expect("same-host PRE should win over another host process with the same name");
+    assert_eq!(sel.instance_id, "iid-current-vocal");
+}
+
+#[test]
 fn select_target_pre_for_arm_for_post_project_tie_remains_ambiguous() {
     let root = isolated_dir();
     let now = now_rfc3339();
@@ -227,6 +296,42 @@ fn select_target_pre_for_arm_for_post_project_tie_remains_ambiguous() {
     write_pre_for_select(&root, "pre-b", "iid-b-bass", "Bass", "inactive", &now);
     write_post_for_scope(&root, "post-current", "post-vocal", "Vocal");
     write_post_for_scope(&root, "post-current", "post-bass", "Bass");
+
+    assert!(select_target_pre_for_arm_for_post_project(&root, "Vocal", "post-current").is_none());
+}
+
+#[test]
+fn select_target_pre_for_arm_for_post_project_same_host_tie_remains_ambiguous() {
+    let root = isolated_dir();
+    let now = now_rfc3339();
+    let current_host = std::process::id();
+    write_pre_for_select_with_host_process_id(
+        &root,
+        "pre-current-a",
+        "iid-current-a-vocal",
+        "Vocal",
+        "inactive",
+        &now,
+        Some(current_host),
+    );
+    write_pre_for_select_with_host_process_id(
+        &root,
+        "pre-current-b",
+        "iid-current-b-vocal",
+        "Vocal",
+        "inactive",
+        &now,
+        Some(current_host),
+    );
+    write_pre_for_select_with_host_process_id(
+        &root,
+        "pre-other-host",
+        "iid-other-vocal",
+        "Vocal",
+        "inactive",
+        &now,
+        Some(other_host_process_id()),
+    );
 
     assert!(select_target_pre_for_arm_for_post_project(&root, "Vocal", "post-current").is_none());
 }

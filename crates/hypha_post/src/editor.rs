@@ -2406,6 +2406,7 @@ mod tests {
             crest: None,
             path: std::path::PathBuf::new(),
             name: Some("snare".into()),
+            host_process_id: None,
         };
         assert_eq!(
             candidate_dropdown_label(&cand, CandidateKeepStatus::Available),
@@ -2424,6 +2425,7 @@ mod tests {
             crest: None,
             path: std::path::PathBuf::new(),
             name: None,
+            host_process_id: None,
         };
         assert_eq!(
             candidate_dropdown_label(&cand, CandidateKeepStatus::Available),
@@ -2441,6 +2443,7 @@ mod tests {
             crest: None,
             path: std::path::PathBuf::new(),
             name: Some("kick".into()),
+            host_process_id: None,
         };
         assert_eq!(
             candidate_dropdown_label(&cand, CandidateKeepStatus::Available),
@@ -2457,6 +2460,7 @@ mod tests {
             crest: None,
             path: std::path::PathBuf::new(),
             name: Some("Music".into()),
+            host_process_id: None,
         };
         assert_eq!(
             candidate_dropdown_label(&cand, CandidateKeepStatus::KeepReady),

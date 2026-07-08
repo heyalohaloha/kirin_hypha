@@ -1304,10 +1304,12 @@ pub fn serialize_pre_json(
     let name_json = serde_json::to_string(name).unwrap_or_else(|_| "\"\"".to_string());
     let instance_id_json =
         serde_json::to_string(instance_id).unwrap_or_else(|_| "\"\"".to_string());
+    let host_process_id = current_host_process_id();
     format!(
-        r#"{{"v":2,"role":"PRE","instance_id":{instance_id_json},"name":{name_json},"signal_state":"{signal_state}","t":"{t}","lufs_m":{lufs_m},"true_peak":{true_peak},"crest":{crest},"psr":{psr}{phase_d}}}"#,
+        r#"{{"v":2,"role":"PRE","instance_id":{instance_id_json},"name":{name_json},"host_process_id":{host_process_id},"signal_state":"{signal_state}","t":"{t}","lufs_m":{lufs_m},"true_peak":{true_peak},"crest":{crest},"psr":{psr}{phase_d}}}"#,
         instance_id_json = instance_id_json,
         name_json = name_json,
+        host_process_id = host_process_id,
         signal_state = state.as_str(),
         t = t,
         lufs_m = opt_f64(result.lufs_m),
@@ -1329,10 +1331,12 @@ fn serialize_pre_json_minimal(instance_id: &str, name: &str, state: SignalState)
     let name_json = serde_json::to_string(name).unwrap_or_else(|_| "\"\"".to_string());
     let instance_id_json =
         serde_json::to_string(instance_id).unwrap_or_else(|_| "\"\"".to_string());
+    let host_process_id = current_host_process_id();
     format!(
-        r#"{{"v":2,"role":"PRE","instance_id":{instance_id_json},"name":{name_json},"signal_state":"{signal_state}","t":"{t}"}}"#,
+        r#"{{"v":2,"role":"PRE","instance_id":{instance_id_json},"name":{name_json},"host_process_id":{host_process_id},"signal_state":"{signal_state}","t":"{t}"}}"#,
         instance_id_json = instance_id_json,
         name_json = name_json,
+        host_process_id = host_process_id,
         signal_state = state.as_str(),
         t = t,
     )
@@ -3439,6 +3443,10 @@ mod tests {
         assert!(json.contains(r#""role":"PRE""#));
         assert!(json.contains(r#""instance_id":"pre-xyz""#));
         assert!(json.contains(r#""name":"Snare""#));
+        assert!(json.contains(&format!(
+            r#""host_process_id":{}"#,
+            current_host_process_id()
+        )));
         assert!(json.contains(r#""lufs_m":-14.000"#));
         // bus フィールドは削除済（A-3 修正後）
         assert!(!json.contains(r#""bus""#));
@@ -3448,6 +3456,10 @@ mod tests {
     fn serialize_pre_json_minimal_omits_measure_fields() {
         let json = serialize_pre_json_minimal("pre-xyz", "", SignalState::Bypassed);
         assert!(json.contains(r#""signal_state":"bypassed""#));
+        assert!(json.contains(&format!(
+            r#""host_process_id":{}"#,
+            current_host_process_id()
+        )));
         assert!(!json.contains("lufs_m"));
         assert!(!json.contains(r#""bus""#));
     }
@@ -3478,6 +3490,10 @@ mod tests {
         // pre.json の "name" field が serde で読み戻せること (PreTmpJson と等価構造)。
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed["name"].as_str(), Some("Snare"));
+        assert_eq!(
+            parsed["host_process_id"].as_u64(),
+            Some(current_host_process_id() as u64)
+        );
     }
 
     /// B-077: " や \ を含む name が serde escape され valid JSON になり値が往復する
