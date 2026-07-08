@@ -73,9 +73,12 @@ pub use license::{
 pub use measure_thread::{live_window, pair_lock_active, spawn_measure_thread, LivenessEvaluator};
 pub use pairing_scope::{
     discover_pre_dirs_for_post_project, enumerate_active_pre_pair_candidates_for_post_project,
-    read_pre_at, resolve_arm_target, resolve_arm_target_for_post_project, select_target_pre,
-    select_target_pre_for_arm, select_target_pre_for_arm_for_post_project,
-    select_target_pre_for_post_project, LatchedPre, LatchedPreState, SelectedPre,
+    enumerate_active_pre_pair_candidates_for_post_project_in_session, read_pre_at,
+    resolve_arm_target, resolve_arm_target_for_post_project,
+    resolve_arm_target_for_post_project_in_session, select_target_pre, select_target_pre_for_arm,
+    select_target_pre_for_arm_for_post_project,
+    select_target_pre_for_arm_for_post_project_in_session, select_target_pre_for_post_project,
+    select_target_pre_for_post_project_in_session, LatchedPre, LatchedPreState, SelectedPre,
 };
 pub use path_identity::{
     drain_path_events, guard_path_component, is_path_safe_component, materialize_observation_id,

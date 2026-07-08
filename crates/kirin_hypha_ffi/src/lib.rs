@@ -52,12 +52,12 @@ use kirin_measure::{
     can_write_plugin_data, check_record_exclusion, count_distinct_pairings,
     current_host_process_id, enumerate_active_post_pair_candidates,
     enumerate_active_post_pair_candidates_for_broadcast_scope,
-    enumerate_active_pre_pair_candidates_for_post_project, identity_instance_attach,
+    enumerate_active_pre_pair_candidates_for_post_project_in_session, identity_instance_attach,
     identity_instance_detach, live_window, load_license_safe, load_signal_state, mark_released,
     mark_released_with_reason, new_record_take_tracker, new_record_trace_queue,
-    resolve_arm_target_for_post_project, sanitize_name, set_daw_session_id, set_project_uuid,
-    spawn_io_thread_post, spawn_io_thread_pre, spawn_measure_thread, spawn_watchdog,
-    store_signal_state, write_broadcast, write_expected_metadata,
+    resolve_arm_target_for_post_project_in_session, sanitize_name, set_daw_session_id,
+    set_project_uuid, spawn_io_thread_post, spawn_io_thread_pre, spawn_measure_thread,
+    spawn_watchdog, store_signal_state, write_broadcast, write_expected_metadata,
     write_pending_claiming_expected_and_clock, write_stop_broadcast, DeltaMode, DeltaResult,
     ExclusionResult, ExpectedWavMetadata, IoThreadHandle, LatchedPre, License, LivenessEvaluator,
     MeasureResult, PlatformPaths, PluginDataRole, PsbSummary, RecordStateMachine, RecordTakeBlock,
@@ -293,15 +293,16 @@ unsafe impl Send for KirinHyphaEngine {}
 
 // ── B-106/B-301: FFI dylib 内の role fallback と saved-document identity group ──
 //
-// 空/legacy の `daw_session_uuid` は B-106 の role fallback cell で first-wins 収束させる。
-// 一方、保存済み DAW document で非空 `daw_session_uuid` がある場合は、その UUID を key に
-// role 内 group を分ける。Studio One のように同一 host process で複数 Song/Project を開ける
-// DAW で、後発 document が先発 document の棚へ吸われるのを防ぐため。
+// 空/legacy の `daw_session_uuid` は「明示 document identity なし」として runtime には空のまま
+// 流し、host_process_id の legacy bridge に委ねる。一方、保存済み DAW document で非空
+// `daw_session_uuid` がある場合は、その UUID を key に role 内 group を分ける。Studio One の
+// ように同一 host process で複数 Song/Project を開ける DAW で、後発 document が先発 document
+// の棚へ吸われるのを防ぐため。
 //
 // `spawn_io_thread_post` は `Arc<RwLock<String>>` を受け、io_thread が毎 tick
 // `read_project_hash_arc` / `read_daw_session_id_arc` で deref する。B-301 では各 engine が
-// 解決済み identity cell を持ち、空/legacy は role fallback と同値、保存済み document は
-// daw-session group と同値を live-read する。
+// 解決済み identity cell を持ち、空/legacy は project のみ role fallback・daw は空、
+// 保存済み document は daw-session group と同値を live-read する。
 //
 // **PRE / POST で別セル**（role-scoped）にする理由: 本番では PRE と POST は別 cdylib
 // （KirinHyphaPRE.dylib / KirinHyphaPOST.dylib / juce_shell CMakeLists.txt）として linkage され、
@@ -380,7 +381,7 @@ fn read_shared_id(cell: &Arc<RwLock<String>>) -> String {
 
 fn resolve_role_identity(
     fallback_project_cell: &Arc<RwLock<String>>,
-    fallback_daw_cell: &Arc<RwLock<String>>,
+    _fallback_daw_cell: &Arc<RwLock<String>>,
     grouped_cells: &IdentityGroups,
     project_candidate: &str,
     daw_candidate: &str,
@@ -388,7 +389,7 @@ fn resolve_role_identity(
     if daw_candidate.is_empty() {
         return (
             resolve_shared_id(fallback_project_cell, project_candidate),
-            resolve_shared_id(fallback_daw_cell, daw_candidate),
+            String::new(),
         );
     }
 
@@ -494,8 +495,13 @@ fn resolve_and_enter_keep(
     let pair = pair_target.read().map(|g| g.clone()).unwrap_or_default();
     // B-108/B-231: ラッチ済み（pair 名一致）はラッチ先を直接使用、未ラッチは B-104 Arm
     // ゲート（非Bypassed + fresh + 一意 / Active 要求なし）。v1.0.0 の「アーム→再生」を維持する。
-    let Some(sel) = resolve_arm_target_for_post_project(&kirin_root, &pair, project_hash, latched)
-    else {
+    let Some(sel) = resolve_arm_target_for_post_project_in_session(
+        &kirin_root,
+        &pair,
+        project_hash,
+        daw,
+        latched,
+    ) else {
         return false; // 未ラッチ時の厳格選定 None: 空名/不在/曖昧/Bypassed/古t（Inactive は許容）。
     };
     let target = sel.instance_id.clone();
@@ -564,6 +570,7 @@ fn resolve_and_enter_keep(
                 instance_id: target,
                 project_dir: sel.project_dir,
                 pre_json: sel.pre_json,
+                daw_session_id: sel.daw_session_id,
             });
         }
         true
@@ -884,8 +891,8 @@ impl KirinHyphaEngine {
     /// - **`set_license` の後に呼ぶこと**。呼んだ時点の license を `Arc<License>` に
     ///   スナップショットする（A）。enable 後の license 変更は反映されない（3c）。
     /// - `instance_id` は `Uuid::new_v4` 生成（永続は 3c）。`project_uuid` / `daw_session_id`
-    ///   は FFI 側で role identity として解決する。空/legacy session は B-106 の role fallback
-    ///   で first-wins、保存済み document の非空 `daw_session_uuid` は B-301 の session group
+    ///   は FFI 側で role identity として解決する。空/legacy session は runtime daw を空のまま
+    ///   host fallback に委ね、保存済み document の非空 `daw_session_uuid` は B-301 の session group
     ///   で分離する。解決値は `set_project_uuid` で kirin_measure セルへも反映し、path のルートになる。
     /// - 2 度目以降の呼出は no-op（冪等）。
     ///
@@ -915,9 +922,9 @@ impl KirinHyphaEngine {
             if id.instance_id.is_empty() {
                 id.instance_id = Uuid::new_v4().to_string();
             }
-            // B-106/B-301: chunk 復元値（id.*）を candidate に渡し、空/legacy session は
-            // role fallback、非空 session は saved-document group で解決する。解決値を identity
-            // に書き戻して chunk 永続。kirin_measure cell への反映（set_*）は現状維持。
+            // B-106/B-301/B-302: chunk 復元値（id.*）を candidate に渡し、空/legacy session は
+            // runtime daw を空にして host fallback、非空 session は saved-document group で解決する。
+            // 解決値を identity に書き戻して chunk 永続。kirin_measure cell への反映（set_*）は現状維持。
             let (resolved_project, resolved_daw) = resolve_role_identity(
                 shared_pre_project_hash_cell(),
                 shared_pre_daw_session_id_cell(),
@@ -983,7 +990,7 @@ impl KirinHyphaEngine {
                 let handle = spawn_io_thread_pre(
                     Arc::clone(&instance_id),
                     project_hash.clone(),
-                    daw_uuid.clone(), // _daw_session_id（io_thread_pre では未使用 / 復元値）
+                    daw_uuid.clone(), // PRE pre.json の document 境界として出力する復元値
                     sample_rate,
                     Arc::clone(&record_sm),
                     Arc::clone(&recording),
@@ -1049,8 +1056,8 @@ impl KirinHyphaEngine {
             if id.instance_id.is_empty() {
                 id.instance_id = Uuid::new_v4().to_string();
             }
-            // B-106/B-301: enable_pre_writes と同一規約。空/legacy session は role fallback、
-            // 非空 session は saved-document group で解決する。
+            // B-106/B-301/B-302: enable_pre_writes と同一規約。空/legacy session は runtime daw
+            // を空にして host fallback、非空 session は saved-document group で解決する。
             let (resolved_project, resolved_daw) = resolve_role_identity(
                 shared_post_project_hash_cell(),
                 shared_post_daw_session_id_cell(),
@@ -1086,7 +1093,7 @@ impl KirinHyphaEngine {
         // POST 固有の共有 Arc（hypha_post params と同型）。
         let instance_id = Arc::new(RwLock::new(iid_str));
         // Saved DAW documents with distinct non-empty daw_session_uuid values get distinct
-        // engine cells. Empty/legacy sessions still resolve through the role fallback above.
+        // engine cells. Empty/legacy sessions keep runtime daw empty and use host fallback.
         let project_hash_arc = Arc::clone(&self.project_hash_cell);
         // B-054: preset_available は engine と共有（PresetAvailable LED が poll）。
         let preset_available = Arc::clone(&self.preset_available);
@@ -1510,15 +1517,21 @@ impl KirinHyphaEngine {
         );
     }
 
-    /// pair 候補（Active な PRE）を列挙する（B-102 / GUI ドロップダウン用・read-only）。
-    /// `$TMPDIR/kirin/` 配下の Active PRE を走査し (instance_id, name) で返す。
+    /// pair 候補（Keep 可能な PRE）を列挙する（B-102 / GUI ドロップダウン用・read-only）。
+    /// `$TMPDIR/kirin/` 配下から現在の project/session 境界で arm できる PRE を走査し
+    /// (instance_id, name) で返す。
     pub fn enumerate_pre_candidates(&self) -> Vec<(String, Option<String>)> {
         let kirin_root = PlatformPaths::current_kirin_tmp_root();
         let project_hash = read_shared_id(&self.project_hash_cell);
-        enumerate_active_pre_pair_candidates_for_post_project(&kirin_root, &project_hash)
-            .into_iter()
-            .map(|c| (c.instance_id, c.name))
-            .collect()
+        let daw = read_shared_id(&self.daw_session_id_cell);
+        enumerate_active_pre_pair_candidates_for_post_project_in_session(
+            &kirin_root,
+            &project_hash,
+            &daw,
+        )
+        .into_iter()
+        .map(|c| (c.instance_id, c.name))
+        .collect()
     }
 
     /// All Keep の「N ready」= 同 DAW session 内で pair 設定済の Active POST 数。
@@ -2884,6 +2897,31 @@ mod b106_shared_id_tests {
         assert!(
             read_shared_id(&fallback_project).is_empty(),
             "saved-document grouping must not seed the legacy fallback cell"
+        );
+    }
+
+    #[test]
+    fn empty_daw_session_remains_empty_for_runtime_legacy_bridge() {
+        let fallback_project = Arc::new(RwLock::new(String::new()));
+        let fallback_daw = Arc::new(RwLock::new(String::new()));
+        let groups: IdentityGroups = Mutex::new(HashMap::new());
+
+        let resolved = resolve_role_identity(
+            &fallback_project,
+            &fallback_daw,
+            &groups,
+            "project-legacy",
+            "",
+        );
+
+        assert_eq!(resolved.0, "project-legacy");
+        assert_eq!(
+            resolved.1, "",
+            "empty/legacy daw_session_uuid is not an explicit document identity"
+        );
+        assert!(
+            read_shared_id(&fallback_daw).is_empty(),
+            "legacy daw fallback cell must not fabricate an explicit DAW session"
         );
     }
 }

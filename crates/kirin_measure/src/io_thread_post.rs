@@ -26,7 +26,9 @@ use crate::all_stop_signal::{self, ALL_STOP_BROADCAST_STALE_SECS};
 use crate::cleanup::exit_record_preserve_pair;
 use crate::delta::{DeltaMode, DeltaResult, DeltaSnapshot};
 use crate::engine::SessionSummary;
-use crate::pairing_scope::{read_pre_at, select_target_pre_for_arm_for_post_project, LatchedPre};
+use crate::pairing_scope::{
+    read_pre_at, select_target_pre_for_arm_for_post_project_in_session, LatchedPre,
+};
 use crate::plugin_data::Role as PluginDataRole;
 use crate::post_candidates::self_check_pair_claim;
 #[cfg(test)]
@@ -282,8 +284,9 @@ pub fn spawn_io_thread_post(
 ) -> JoinHandle<()> {
     thread::spawn(move || {
         // B-128 (G-115-370): 観測 family（io_thread）入口の identity materialize（唯一の検証点）。
-        // restore 由来の path-unsafe な project_hash / instance_id / daw_session_id セルを正規化し、
-        // path-unsafe なら fresh new_v4 へ差し替える（§7② 観測継続 / daw は drift 防止で同経路）。
+        // restore 由来の path-unsafe な project_hash / instance_id セルを正規化し、path-unsafe なら
+        // fresh new_v4 へ差し替える（§7② 観測継続）。daw_session_id は空が legacy bridge の明示契約
+        // なので observation 扱いで UUID 化せず、非空 unsafe だけ restore 経路で畳む。
         // path-safe な値は無改変＝parity の literal id path テスト不変。下流 builder wall が DiD backstop。
         crate::path_identity::normalize_observation_cell(
             &instance_id,
@@ -293,9 +296,10 @@ pub fn spawn_io_thread_post(
             &project_hash,
             "io_thread_post.project_hash",
         );
-        crate::path_identity::normalize_observation_cell(
+        crate::path_identity::normalize_restore_cell(
             &daw_session_id,
             "io_thread_post.daw_session_id",
+            None,
         );
         // B-021 Phase 1A: PRE scan の起点は `kirin_root` (= $TMPDIR/kirin/) で、
         // POST IO Thread が動的に discover する。`project_dir_hint` は POST 自身の
@@ -1080,6 +1084,7 @@ fn compute_latched_display(
         kirin_root,
         pair_pre_name,
         "",
+        "",
         post,
         pair_opt,
         recording,
@@ -1092,6 +1097,7 @@ fn compute_latched_display_for_post_project(
     kirin_root: &Path,
     pair_pre_name: &str,
     post_project_hash: &str,
+    post_daw_session_id: &str,
     post: &MeasureResult,
     _pair_opt: Option<&str>,
     recording: bool,
@@ -1148,16 +1154,23 @@ fn compute_latched_display_for_post_project(
     if pair_pre_name.is_empty() {
         return Ok(delta_no_pre());
     }
-    match select_target_pre_for_arm_for_post_project(kirin_root, pair_pre_name, post_project_hash) {
+    match select_target_pre_for_arm_for_post_project_in_session(
+        kirin_root,
+        pair_pre_name,
+        post_project_hash,
+        post_daw_session_id,
+    ) {
         Some(sel) => {
             let pre_json = sel.pre_json.clone();
             let project_dir = sel.project_dir.clone();
+            let daw_session_id = sel.daw_session_id.clone();
             if let Ok(mut g) = latched.lock() {
                 *g = Some(LatchedPre {
                     name: pair_pre_name.to_string(),
                     instance_id: sel.instance_id,
                     project_dir: project_dir.clone(),
                     pre_json: pre_json.clone(),
+                    daw_session_id,
                 });
             }
             // 初回ラッチ直後の同 tick 表示。
@@ -1241,6 +1254,7 @@ fn run_tick(
         kirin_root,
         pair_pre_name,
         post_project_hash,
+        daw_session_id,
         &post,
         pair_opt,
         recording,
@@ -2450,8 +2464,9 @@ mod compute_delta_tests {
     ) -> PathBuf {
         let dir = kirin_root.join(puid).join(iid);
         fs::create_dir_all(&dir).unwrap();
+        let host_process_id = crate::post_candidates::current_host_process_id();
         let json = format!(
-            r#"{{"v":2,"role":"PRE","instance_id":"{iid}","name":"{name}","signal_state":"{signal_state}","t":"{t}","lufs_m":-14.0,"true_peak":-1.0,"crest":12.0,"psr":8.0}}"#
+            r#"{{"v":2,"role":"PRE","instance_id":"{iid}","name":"{name}","host_process_id":{host_process_id},"signal_state":"{signal_state}","t":"{t}","lufs_m":-14.0,"true_peak":-1.0,"crest":12.0,"psr":8.0}}"#
         );
         let p = dir.join("pre.json");
         fs::write(&p, json).unwrap();
@@ -3662,6 +3677,29 @@ mod post_candidate_tests {
         post_file
     }
 
+    fn write_legacy_post_json_with_host(
+        kirin_root: &Path,
+        project_uuid: &str,
+        instance_id: &str,
+        pair_pre_name: &str,
+        host_process_id: u32,
+    ) -> PathBuf {
+        let post_file = write_post_json(
+            kirin_root,
+            project_uuid,
+            instance_id,
+            SignalState::Active,
+            Some(SignalState::Active),
+            pair_pre_name,
+        );
+        let mut json: serde_json::Value =
+            serde_json::from_slice(&fs::read(&post_file).unwrap()).unwrap();
+        json.as_object_mut().unwrap().remove("daw_session_id");
+        json["host_process_id"] = serde_json::json!(host_process_id);
+        fs::write(&post_file, serde_json::to_vec(&json).unwrap()).unwrap();
+        post_file
+    }
+
     fn write_post_json_with_daw(
         kirin_root: &Path,
         project_uuid: &str,
@@ -4103,7 +4141,7 @@ mod post_candidate_tests {
     }
 
     #[test]
-    fn enumerate_for_broadcast_scope_spans_mixed_daw_same_process() {
+    fn enumerate_for_broadcast_scope_does_not_span_distinct_nonempty_daw_same_process() {
         let root = unique_root("enum_broadcast_scope");
         let host_pid = 42_4242;
         let other_pid = 77_7777;
@@ -4138,14 +4176,41 @@ mod post_candidate_tests {
             .iter()
             .filter_map(|c| c.pair_pre_name.as_deref())
             .collect();
-        assert_eq!(names, vec!["2Mix", "Drum"]);
+        assert_eq!(names, vec!["2Mix"]);
 
         let projects = active_post_project_uuids_for_broadcast_scope(&root, "daw-au", host_pid);
-        assert_eq!(projects, vec!["pj-AU".to_string(), "pj-VST3".to_string()]);
+        assert_eq!(projects, vec!["pj-AU".to_string()]);
 
         let daw_only = enumerate_active_post_pair_candidates_for_daw_session(&root, "daw-au");
         assert_eq!(daw_only.len(), 1);
         assert_eq!(daw_only[0].pair_pre_name.as_deref(), Some("2Mix"));
+    }
+
+    #[test]
+    fn enumerate_for_broadcast_scope_keeps_same_host_legacy_no_daw_bridge() {
+        let root = unique_root("enum_broadcast_scope_legacy");
+        let host_pid = 42_4242;
+        let _ = write_post_json_with_daw_and_host(
+            &root,
+            "pj-current",
+            "post-2mix",
+            "2Mix",
+            "daw-current",
+            host_pid,
+        );
+        let _ =
+            write_legacy_post_json_with_host(&root, "pj-legacy", "post-legacy", "Drum", host_pid);
+
+        let cands = enumerate_active_post_pair_candidates_for_broadcast_scope(
+            &root,
+            "daw-current",
+            host_pid,
+        );
+        let names: Vec<_> = cands
+            .iter()
+            .filter_map(|c| c.pair_pre_name.as_deref())
+            .collect();
+        assert_eq!(names, vec!["2Mix", "Drum"]);
     }
 
     #[test]

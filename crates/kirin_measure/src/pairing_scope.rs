@@ -68,15 +68,83 @@ pub fn discover_pre_dirs_for_post_project(
         .collect()
 }
 
-/// PRE candidates for a POST project dropdown.
+/// Legacy unscoped PRE candidates for older callers.
 ///
-/// Candidate menus show what can be selected next, so they intentionally list all fresh PRE
-/// candidates. Existing POST overlap is only a tie-break for final target selection.
+/// This intentionally lists all fresh PRE candidates to preserve the historical API. Shipping
+/// dropdowns should use [`enumerate_active_pre_pair_candidates_for_post_project_in_session`] so the
+/// visible choices match what Keep can actually arm.
 pub fn enumerate_active_pre_pair_candidates_for_post_project(
     kirin_root: &Path,
     _post_project_hash: &str,
 ) -> Vec<PreCandidate> {
     enumerate_active_pre_pair_candidates(kirin_root)
+}
+
+fn candidate_project_dir(candidate: &PreCandidate) -> Option<PathBuf> {
+    candidate
+        .path
+        .parent()
+        .and_then(|p| p.parent())
+        .map(Path::to_path_buf)
+}
+
+fn candidate_belongs_to_project(candidate: &PreCandidate, post_project_hash: &str) -> bool {
+    !post_project_hash.is_empty()
+        && candidate_project_dir(candidate)
+            .as_deref()
+            .and_then(Path::file_name)
+            .and_then(|name| name.to_str())
+            == Some(post_project_hash)
+}
+
+fn candidate_matches_daw_session(candidate: &PreCandidate, post_daw_session_id: &str) -> bool {
+    !post_daw_session_id.is_empty()
+        && candidate.daw_session_id.as_deref() == Some(post_daw_session_id)
+}
+
+fn legacy_same_host_candidate_is_allowed(
+    kirin_root: &Path,
+    candidate: &PreCandidate,
+    post_project_hash: &str,
+    post_daw_session_id: &str,
+    host_process_id: u32,
+) -> bool {
+    post_daw_session_id.is_empty()
+        && candidate.daw_session_id.is_none()
+        && host_process_id != 0
+        && candidate.host_process_id == Some(host_process_id)
+        && !crate::post_candidates::host_scope_has_other_active_post_project(
+            kirin_root,
+            post_project_hash,
+            host_process_id,
+        )
+}
+
+/// PRE candidates that the current POST can actually arm.
+///
+/// The dropdown must not show a PRE that `Keep` will reject. Non-empty DAW session identity is the
+/// primary cross-project boundary; host-process fallback is kept only for legacy empty-session
+/// snapshots and fails closed when the same host has another active POST project.
+pub fn enumerate_active_pre_pair_candidates_for_post_project_in_session(
+    kirin_root: &Path,
+    post_project_hash: &str,
+    post_daw_session_id: &str,
+) -> Vec<PreCandidate> {
+    let host_process_id = crate::post_candidates::current_host_process_id();
+    enumerate_active_pre_pair_candidates(kirin_root)
+        .into_iter()
+        .filter(|candidate| {
+            candidate_belongs_to_project(candidate, post_project_hash)
+                || candidate_matches_daw_session(candidate, post_daw_session_id)
+                || legacy_same_host_candidate_is_allowed(
+                    kirin_root,
+                    candidate,
+                    post_project_hash,
+                    post_daw_session_id,
+                    host_process_id,
+                )
+        })
+        .collect()
 }
 
 /// Display/Keep shared PRE selection result.
@@ -87,12 +155,15 @@ pub struct SelectedPre {
     pub pre_json: PathBuf,
     /// `{project_uuid}` directory containing the selected PRE.
     pub project_dir: PathBuf,
+    /// DAW document/session identity from PRE `pre.json`, when available.
+    pub daw_session_id: Option<String>,
 }
 
 #[derive(Clone, Debug)]
 struct ScopedSelectedPre {
     selected: SelectedPre,
     host_process_id: Option<u32>,
+    daw_session_id: Option<String>,
 }
 
 /// Strict PRE selection shared by Display and Arm paths.
@@ -153,19 +224,25 @@ fn collect_selected_pre_from_dirs(
                 instance_id: c.instance_id,
                 pre_json: c.path,
                 project_dir,
+                daw_session_id: c.daw_session_id.clone(),
             },
             host_process_id: c.host_process_id,
+            daw_session_id: c.daw_session_id,
         });
     }
     valid
 }
 
-fn select_unique_pre(mut valid: Vec<ScopedSelectedPre>) -> Option<SelectedPre> {
+fn select_unique_scoped_pre(mut valid: Vec<ScopedSelectedPre>) -> Option<ScopedSelectedPre> {
     if valid.len() == 1 {
-        Some(valid.pop().expect("len checked").selected)
+        Some(valid.pop().expect("len checked"))
     } else {
         None
     }
+}
+
+fn select_unique_pre(valid: Vec<ScopedSelectedPre>) -> Option<SelectedPre> {
+    select_unique_scoped_pre(valid).map(|s| s.selected)
 }
 
 fn filter_by_host_process(
@@ -181,6 +258,19 @@ fn filter_by_host_process(
         .collect()
 }
 
+fn filter_by_daw_session(
+    valid: Vec<ScopedSelectedPre>,
+    post_daw_session_id: &str,
+) -> Vec<ScopedSelectedPre> {
+    if post_daw_session_id.is_empty() {
+        return Vec::new();
+    }
+    valid
+        .into_iter()
+        .filter(|c| c.daw_session_id.as_deref() == Some(post_daw_session_id))
+        .collect()
+}
+
 fn selected_belongs_to_project(selected: &SelectedPre, post_project_hash: &str) -> bool {
     !post_project_hash.is_empty()
         && selected
@@ -190,36 +280,70 @@ fn selected_belongs_to_project(selected: &SelectedPre, post_project_hash: &str) 
             == Some(post_project_hash)
 }
 
-fn project_external_selection_is_guarded(
+fn selected_matches_daw_session(selected: &SelectedPre, post_daw_session_id: &str) -> bool {
+    !post_daw_session_id.is_empty()
+        && selected.daw_session_id.as_deref() == Some(post_daw_session_id)
+}
+
+fn legacy_same_host_selection_is_allowed(
     kirin_root: &Path,
-    selected: &SelectedPre,
+    scoped: &ScopedSelectedPre,
     post_project_hash: &str,
+    post_daw_session_id: &str,
     host_process_id: u32,
 ) -> bool {
-    !selected_belongs_to_project(selected, post_project_hash)
-        && crate::post_candidates::host_scope_has_other_active_post_project(
+    post_daw_session_id.is_empty()
+        && scoped.daw_session_id.is_none()
+        && host_process_id != 0
+        && scoped.host_process_id == Some(host_process_id)
+        && !crate::post_candidates::host_scope_has_other_active_post_project(
             kirin_root,
             post_project_hash,
             host_process_id,
         )
 }
 
+fn project_external_selection_is_guarded(
+    kirin_root: &Path,
+    scoped: &ScopedSelectedPre,
+    post_project_hash: &str,
+    post_daw_session_id: &str,
+    host_process_id: u32,
+) -> bool {
+    if selected_belongs_to_project(&scoped.selected, post_project_hash)
+        || selected_matches_daw_session(&scoped.selected, post_daw_session_id)
+        || legacy_same_host_selection_is_allowed(
+            kirin_root,
+            scoped,
+            post_project_hash,
+            post_daw_session_id,
+            host_process_id,
+        )
+    {
+        return false;
+    }
+
+    true
+}
+
 fn select_unique_pre_unless_guarded(
     valid: Vec<ScopedSelectedPre>,
     kirin_root: &Path,
     post_project_hash: &str,
+    post_daw_session_id: &str,
     host_process_id: u32,
 ) -> Option<SelectedPre> {
-    let selected = select_unique_pre(valid)?;
+    let scoped = select_unique_scoped_pre(valid)?;
     if project_external_selection_is_guarded(
         kirin_root,
-        &selected,
+        &scoped,
         post_project_hash,
+        post_daw_session_id,
         host_process_id,
     ) {
         None
     } else {
-        Some(selected)
+        Some(scoped.selected)
     }
 }
 
@@ -239,6 +363,7 @@ fn select_target_pre_core_for_post_project(
     kirin_root: &Path,
     pair_pre_name: &str,
     post_project_hash: &str,
+    post_daw_session_id: &str,
     require_active: bool,
 ) -> Option<SelectedPre> {
     let all_dirs = crate::pre_discovery::discover_active_pre_dirs(kirin_root);
@@ -248,27 +373,34 @@ fn select_target_pre_core_for_post_project(
     }
 
     let host_process_id = crate::post_candidates::current_host_process_id();
-    if let Some(selected) = select_unique_pre(all_valid.clone()) {
+    let same_daw_valid = filter_by_daw_session(all_valid.clone(), post_daw_session_id);
+    if !same_daw_valid.is_empty() {
+        return select_unique_pre(same_daw_valid);
+    }
+
+    if let Some(scoped) = select_unique_scoped_pre(all_valid.clone()) {
         if !project_external_selection_is_guarded(
             kirin_root,
-            &selected,
+            &scoped,
             post_project_hash,
+            post_daw_session_id,
             host_process_id,
         ) {
-            return Some(selected);
+            return Some(scoped.selected);
         }
     }
 
     let same_host_valid = filter_by_host_process(all_valid, host_process_id);
     if !same_host_valid.is_empty() {
-        if let Some(selected) = select_unique_pre(same_host_valid) {
+        if let Some(scoped) = select_unique_scoped_pre(same_host_valid) {
             if !project_external_selection_is_guarded(
                 kirin_root,
-                &selected,
+                &scoped,
                 post_project_hash,
+                post_daw_session_id,
                 host_process_id,
             ) {
-                return Some(selected);
+                return Some(scoped.selected);
             }
         }
 
@@ -281,6 +413,7 @@ fn select_target_pre_core_for_post_project(
             scoped_same_host,
             kirin_root,
             post_project_hash,
+            post_daw_session_id,
             host_process_id,
         );
     }
@@ -290,6 +423,7 @@ fn select_target_pre_core_for_post_project(
         collect_selected_pre_from_dirs(&scoped_dirs, pair_pre_name, require_active),
         kirin_root,
         post_project_hash,
+        post_daw_session_id,
         host_process_id,
     )
 }
@@ -310,7 +444,23 @@ pub fn select_target_pre_for_post_project(
     pair_pre_name: &str,
     post_project_hash: &str,
 ) -> Option<SelectedPre> {
-    select_target_pre_core_for_post_project(kirin_root, pair_pre_name, post_project_hash, true)
+    select_target_pre_core_for_post_project(kirin_root, pair_pre_name, post_project_hash, "", true)
+}
+
+/// POST-project-scoped display target selection with DAW document identity.
+pub fn select_target_pre_for_post_project_in_session(
+    kirin_root: &Path,
+    pair_pre_name: &str,
+    post_project_hash: &str,
+    post_daw_session_id: &str,
+) -> Option<SelectedPre> {
+    select_target_pre_core_for_post_project(
+        kirin_root,
+        pair_pre_name,
+        post_project_hash,
+        post_daw_session_id,
+        true,
+    )
 }
 
 /// POST-project-scoped Arm/Keep target selection.
@@ -319,7 +469,23 @@ pub fn select_target_pre_for_arm_for_post_project(
     pair_pre_name: &str,
     post_project_hash: &str,
 ) -> Option<SelectedPre> {
-    select_target_pre_core_for_post_project(kirin_root, pair_pre_name, post_project_hash, false)
+    select_target_pre_core_for_post_project(kirin_root, pair_pre_name, post_project_hash, "", false)
+}
+
+/// POST-project-scoped Arm/Keep target selection with DAW document identity.
+pub fn select_target_pre_for_arm_for_post_project_in_session(
+    kirin_root: &Path,
+    pair_pre_name: &str,
+    post_project_hash: &str,
+    post_daw_session_id: &str,
+) -> Option<SelectedPre> {
+    select_target_pre_core_for_post_project(
+        kirin_root,
+        pair_pre_name,
+        post_project_hash,
+        post_daw_session_id,
+        false,
+    )
 }
 
 /// Established PRE<->POST latch shared by display ticks and Keep/Arm.
@@ -333,6 +499,8 @@ pub struct LatchedPre {
     pub project_dir: PathBuf,
     /// Exact latched PRE `pre.json`.
     pub pre_json: PathBuf,
+    /// DAW document/session identity at latch time, when available.
+    pub daw_session_id: Option<String>,
 }
 
 /// Direct read state for a latched PRE.
@@ -345,6 +513,8 @@ pub struct LatchedPreState {
     pub active: bool,
     /// `t` age is within the PRE freshness TTL.
     pub fresh: bool,
+    /// DAW document/session identity from PRE `pre.json`, when available.
+    pub daw_session_id: Option<String>,
 }
 
 /// Read exactly one latched PRE `pre.json`.
@@ -369,11 +539,17 @@ pub fn read_pre_at(pre_json: &Path) -> Option<LatchedPreState> {
         .and_then(|x| x.as_str())
         .map(|t| t_age_within(t, crate::io_thread_post::NO_PRE_SECS))
         .unwrap_or(false);
+    let daw_session_id = v
+        .get("daw_session_id")
+        .and_then(|x| x.as_str())
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
     Some(LatchedPreState {
         name,
         signal_state,
         active,
         fresh,
+        daw_session_id,
     })
 }
 
@@ -393,7 +569,24 @@ fn selected_from_latch(
         instance_id: l.instance_id.clone(),
         pre_json: l.pre_json.clone(),
         project_dir: l.project_dir.clone(),
+        daw_session_id: l.daw_session_id.clone(),
     })
+}
+
+fn selected_from_latch_for_post_project(
+    pair_pre_name: &str,
+    post_project_hash: &str,
+    post_daw_session_id: &str,
+    latched: &Mutex<Option<LatchedPre>>,
+) -> Option<SelectedPre> {
+    let sel = selected_from_latch(pair_pre_name, latched)?;
+    if selected_belongs_to_project(&sel, post_project_hash)
+        || selected_matches_daw_session(&sel, post_daw_session_id)
+    {
+        Some(sel)
+    } else {
+        None
+    }
 }
 
 /// Resolve Arm/Keep target, preferring an established matching latch.
@@ -419,10 +612,37 @@ pub fn resolve_arm_target_for_post_project(
     post_project_hash: &str,
     latched: &Mutex<Option<LatchedPre>>,
 ) -> Option<SelectedPre> {
-    if let Some(sel) = selected_from_latch(pair_pre_name, latched) {
+    if let Some(sel) =
+        selected_from_latch_for_post_project(pair_pre_name, post_project_hash, "", latched)
+    {
         return Some(sel);
     }
-    select_target_pre_core_for_post_project(kirin_root, pair_pre_name, post_project_hash, false)
+    select_target_pre_core_for_post_project(kirin_root, pair_pre_name, post_project_hash, "", false)
+}
+
+/// Resolve POST-project-scoped Arm/Keep target with DAW document identity.
+pub fn resolve_arm_target_for_post_project_in_session(
+    kirin_root: &Path,
+    pair_pre_name: &str,
+    post_project_hash: &str,
+    post_daw_session_id: &str,
+    latched: &Mutex<Option<LatchedPre>>,
+) -> Option<SelectedPre> {
+    if let Some(sel) = selected_from_latch_for_post_project(
+        pair_pre_name,
+        post_project_hash,
+        post_daw_session_id,
+        latched,
+    ) {
+        return Some(sel);
+    }
+    select_target_pre_core_for_post_project(
+        kirin_root,
+        pair_pre_name,
+        post_project_hash,
+        post_daw_session_id,
+        false,
+    )
 }
 
 /// Whether RFC3339 `t` is within `max_secs` from now.

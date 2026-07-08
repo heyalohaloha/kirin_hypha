@@ -72,7 +72,7 @@ fn spawn_pre(instance_id: &str, project_uuid: &str, name: &str) -> KirinHyphaEng
     pre.set_identity(
         instance_id.to_string(),
         project_uuid.to_string(),
-        "daw-pre".to_string(),
+        "daw-current".to_string(),
         name.to_string(),
     );
     pre.enable_pre_writes();
@@ -86,7 +86,7 @@ fn spawn_post(instance_id: &str, project_uuid: &str, name: &str) -> KirinHyphaEn
     post.set_identity(
         instance_id.to_string(),
         project_uuid.to_string(),
-        "daw-post".to_string(),
+        "daw-current".to_string(),
         name.to_string(),
     );
     post.enable_post_writes();

@@ -24,6 +24,9 @@ pub struct PreCandidate {
     pub name: Option<String>,
     /// DAW host process ID. Legacy PRE snapshots without this field are treated as `None`.
     pub host_process_id: Option<u32>,
+    /// DAW document/session identity. Legacy PRE snapshots without this field are treated as
+    /// `None`; callers must not use host process alone as a document boundary when this is absent.
+    pub daw_session_id: Option<String>,
 }
 
 /// pre tmp JSON の抜粋（distance 計算 + signal_state filter に必要なフィールドのみ）。
@@ -48,6 +51,8 @@ struct PreTmpJson {
     name: Option<String>,
     #[serde(default)]
     host_process_id: u32,
+    #[serde(default)]
+    daw_session_id: String,
 }
 
 /// `/tmp/kirin/{project_hash}/{instance_id}/pre.json` を全 instance_id 横断で走査。
@@ -112,6 +117,11 @@ pub fn scan_pre_candidates_in(project_dir: &Path) -> Vec<PreCandidate> {
         } else {
             Some(parsed.host_process_id)
         };
+        let daw_session_id = if parsed.daw_session_id.is_empty() {
+            None
+        } else {
+            Some(parsed.daw_session_id)
+        };
         out.push(PreCandidate {
             instance_id: parsed.instance_id,
             lufs_m: parsed.lufs_m,
@@ -120,6 +130,7 @@ pub fn scan_pre_candidates_in(project_dir: &Path) -> Vec<PreCandidate> {
             path: pre_file,
             name: parsed.name,
             host_process_id,
+            daw_session_id,
         });
     }
     out.sort_by(|a, b| a.instance_id.cmp(&b.instance_id));
