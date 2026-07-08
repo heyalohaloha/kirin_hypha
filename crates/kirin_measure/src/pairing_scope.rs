@@ -102,6 +102,30 @@ fn candidate_matches_daw_session(candidate: &PreCandidate, post_daw_session_id: 
         && candidate.daw_session_id.as_deref() == Some(post_daw_session_id)
 }
 
+fn host_process_is_compatible(
+    candidate_host_process_id: Option<u32>,
+    host_process_id: u32,
+) -> bool {
+    host_process_id == 0
+        || candidate_host_process_id.is_none()
+        || candidate_host_process_id == Some(host_process_id)
+}
+
+fn exact_daw_scope_is_allowed(
+    kirin_root: &Path,
+    post_project_hash: &str,
+    post_daw_session_id: &str,
+    host_process_id: u32,
+) -> bool {
+    !post_daw_session_id.is_empty()
+        && !crate::post_candidates::host_scope_has_other_active_post_project_outside_daw(
+            kirin_root,
+            post_project_hash,
+            post_daw_session_id,
+            host_process_id,
+        )
+}
+
 fn same_host_single_post_project_is_allowed(
     kirin_root: &Path,
     post_project_hash: &str,
@@ -117,6 +141,24 @@ fn same_host_single_post_project_is_allowed(
         )
 }
 
+fn exact_daw_candidate_is_allowed(
+    kirin_root: &Path,
+    candidate: &PreCandidate,
+    post_project_hash: &str,
+    post_daw_session_id: &str,
+    host_process_id: u32,
+) -> bool {
+    candidate_matches_daw_session(candidate, post_daw_session_id)
+        && host_process_is_compatible(candidate.host_process_id, host_process_id)
+        && (candidate_belongs_to_project(candidate, post_project_hash)
+            || exact_daw_scope_is_allowed(
+                kirin_root,
+                post_project_hash,
+                post_daw_session_id,
+                host_process_id,
+            ))
+}
+
 fn candidate_is_in_post_scope(
     kirin_root: &Path,
     candidate: &PreCandidate,
@@ -124,7 +166,13 @@ fn candidate_is_in_post_scope(
     post_daw_session_id: &str,
     host_process_id: u32,
 ) -> bool {
-    if candidate_matches_daw_session(candidate, post_daw_session_id) {
+    if exact_daw_candidate_is_allowed(
+        kirin_root,
+        candidate,
+        post_project_hash,
+        post_daw_session_id,
+        host_process_id,
+    ) {
         return true;
     }
 
@@ -144,26 +192,17 @@ fn candidate_is_in_post_scope(
 
 /// PRE candidates that the current POST can actually arm.
 ///
-/// The dropdown must not show a PRE that `Keep` will reject. Non-empty DAW session identity is the
-/// primary cross-project boundary; host-process fallback is kept only for legacy empty-session
-/// snapshots and fails closed when the same host has another active POST project.
+/// The dropdown must not show a PRE that `Keep` will reject. DAW identity is preferred when all
+/// visible POST shelves in this host agree on it. If hosts restore DAW IDs per instance, a same-host
+/// single POST shelf is kept together. When another POST shelf makes the host ambiguous, fallback
+/// closes.
 pub fn enumerate_active_pre_pair_candidates_for_post_project_in_session(
     kirin_root: &Path,
     post_project_hash: &str,
     post_daw_session_id: &str,
 ) -> Vec<PreCandidate> {
     let host_process_id = crate::post_candidates::current_host_process_id();
-    let candidates = enumerate_active_pre_pair_candidates(kirin_root);
-    let same_daw: Vec<_> = candidates
-        .iter()
-        .filter(|candidate| candidate_matches_daw_session(candidate, post_daw_session_id))
-        .cloned()
-        .collect();
-    if !same_daw.is_empty() {
-        return same_daw;
-    }
-
-    candidates
+    enumerate_active_pre_pair_candidates(kirin_root)
         .into_iter()
         .filter(|candidate| {
             candidate_is_in_post_scope(
@@ -318,7 +357,25 @@ fn selected_matches_daw_session(selected: &SelectedPre, post_daw_session_id: &st
         && selected.daw_session_id.as_deref() == Some(post_daw_session_id)
 }
 
-fn legacy_same_host_selection_is_allowed(
+fn exact_daw_selection_is_allowed(
+    kirin_root: &Path,
+    selected: &SelectedPre,
+    post_project_hash: &str,
+    post_daw_session_id: &str,
+    host_process_id: u32,
+) -> bool {
+    selected_matches_daw_session(selected, post_daw_session_id)
+        && host_process_is_compatible(selected.host_process_id, host_process_id)
+        && (selected_belongs_to_project(selected, post_project_hash)
+            || exact_daw_scope_is_allowed(
+                kirin_root,
+                post_project_hash,
+                post_daw_session_id,
+                host_process_id,
+            ))
+}
+
+fn same_host_selection_is_allowed(
     kirin_root: &Path,
     scoped: &ScopedSelectedPre,
     post_project_hash: &str,
@@ -339,11 +396,16 @@ fn project_external_selection_is_guarded(
     post_daw_session_id: &str,
     host_process_id: u32,
 ) -> bool {
-    if selected_matches_daw_session(&scoped.selected, post_daw_session_id) {
+    if exact_daw_selection_is_allowed(
+        kirin_root,
+        &scoped.selected,
+        post_project_hash,
+        post_daw_session_id,
+        host_process_id,
+    ) {
         return false;
     }
-    if legacy_same_host_selection_is_allowed(kirin_root, scoped, post_project_hash, host_process_id)
-    {
+    if same_host_selection_is_allowed(kirin_root, scoped, post_project_hash, host_process_id) {
         return false;
     }
 
@@ -360,10 +422,16 @@ fn selected_from_latch_is_in_post_scope(
     post_project_hash: &str,
     post_daw_session_id: &str,
 ) -> bool {
-    if selected_matches_daw_session(selected, post_daw_session_id) {
+    let host_process_id = crate::post_candidates::current_host_process_id();
+    if exact_daw_selection_is_allowed(
+        kirin_root,
+        selected,
+        post_project_hash,
+        post_daw_session_id,
+        host_process_id,
+    ) {
         return true;
     }
-    let host_process_id = crate::post_candidates::current_host_process_id();
     if same_host_single_post_project_is_allowed(
         kirin_root,
         post_project_hash,
@@ -425,7 +493,18 @@ fn select_target_pre_core_for_post_project(
     }
 
     let host_process_id = crate::post_candidates::current_host_process_id();
-    let same_daw_valid = filter_by_daw_session(all_valid.clone(), post_daw_session_id);
+    let same_daw_valid: Vec<_> = filter_by_daw_session(all_valid.clone(), post_daw_session_id)
+        .into_iter()
+        .filter(|scoped| {
+            exact_daw_selection_is_allowed(
+                kirin_root,
+                &scoped.selected,
+                post_project_hash,
+                post_daw_session_id,
+                host_process_id,
+            )
+        })
+        .collect();
     if !same_daw_valid.is_empty() {
         return select_unique_pre(same_daw_valid);
     }

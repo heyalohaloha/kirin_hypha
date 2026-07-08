@@ -13,7 +13,7 @@
 //!   "v": 1,
 //!   "originator_post_instance_id": "POST 永続 instance_id (= filename stem)",
 //!   "daw_session_id": "DAW プロセス UUID (cross-process 防壁)",
-//!   "host_process_id": "DAW host process ID (legacy bridge when both sides lack DAW session identity)",
+//!   "host_process_id": "DAW host process ID (same-project bridge when DAW identity is instance-scoped)",
 //!   "started_at": "ISO 8601 (broadcast 配置時刻 / 重複処理回避 key)",
 //!   "heartbeat": "ISO 8601 (将来 throttled re-publish 用 / 当面は started_at と同値)"
 //! }
@@ -23,8 +23,8 @@
 //! のみで「同 originator + 同 broadcast」を判別する (clock-skew 完全耐性 / Q-A8-6)。
 //!
 //! 1. [`scan_broadcasts_dir`] で `{project_hash}/all_keep_signal/*.json` を全件読込
-//! 2. `daw_session_id` を主境界として filter。両側 nonempty なら不一致を拒否し、
-//!    両側欠落時のみ `host_process_id` を legacy bridge として使う。
+//! 2. `daw_session_id` を主境界として filter。両側 nonempty で一致すれば通し、
+//!    同一 project shelf 内では instance-scoped DAW ID を `host_process_id` で橋渡しする。
 //! 3. memory cache `HashMap<originator_iid, started_at>` を引いて
 //!    - 未登録 / 値が異なる → 新 broadcast → 自身の `trigger_keep_internal(toast=None)` 発火
 //!    - 登録済 + 値が一致 → 既処理 skip (file mutation race を構造的に回避)
@@ -67,7 +67,7 @@ pub const ALL_KEEP_BROADCAST_STALE_SECS: i64 = 30;
 /// - `v`: schema version (現行 1)
 /// - `originator_post_instance_id`: filename stem と同値 / check 用
 /// - `daw_session_id`: 別 DAW process からの誤受信防止 (record_signal と同位相)
-/// - `host_process_id`: 両側に明示 `daw_session_id` がない旧 schema/移行中向けの補助 scope
+/// - `host_process_id`: 同一 project shelf 内で instance-scoped DAW ID を橋渡しする補助 scope
 /// - `started_at`: 重複処理回避の key (受信側 cache 値比較対象 / clock-skew 完全耐性)
 /// - `heartbeat`: 将来 throttled re-publish 用 / 当面は `started_at` と同値で書込
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

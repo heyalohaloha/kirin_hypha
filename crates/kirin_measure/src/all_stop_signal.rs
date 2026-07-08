@@ -13,14 +13,14 @@
 //! - `v`: schema version (現行 1)
 //! - `originator_post_instance_id`: filename stem と同値
 //! - `daw_session_id`: 別 DAW process からの誤受信防止
-//! - `host_process_id`: 両側に明示 `daw_session_id` がない旧 schema/移行中向けの補助 scope
+//! - `host_process_id`: 同一 project shelf 内で instance-scoped DAW ID を橋渡しする補助 scope
 //! - `started_at`: 重複処理回避 key (clock-skew 完全耐性 / 文字列等価比較)
 //! - `heartbeat`: 将来 throttled re-publish 用 (当面 started_at と同値)
 //!
 //! # 受信側 polling (sub-tick)
 //! 1. [`scan_stop_broadcasts_dir`] で `{project_hash}/all_stop_signal/*.json` 全件読込
-//! 2. `daw_session_id` を主境界として filter。両側 nonempty なら不一致を拒否し、
-//!    両側欠落時のみ `host_process_id` を legacy bridge として使う。
+//! 2. `daw_session_id` を主境界として filter。両側 nonempty で一致すれば通し、
+//!    同一 project shelf 内では instance-scoped DAW ID を `host_process_id` で橋渡しする。
 //! 3. memory cache `HashMap<originator_iid, started_at>` で既処理 skip
 //! 4. 新 broadcast 検出 → `trigger_stop_internal(toast=None)` 発火
 //!

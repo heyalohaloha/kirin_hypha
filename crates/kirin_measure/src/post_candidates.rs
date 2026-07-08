@@ -270,6 +270,29 @@ pub fn host_scope_has_other_active_post_project(
             })
 }
 
+/// Whether the same host has another active POST project that is not in the given DAW scope.
+///
+/// Exact DAW-session matches can bridge split AU/VST3 shelves only when every visible POST shelf in
+/// this host agrees on that same DAW identity. A different or missing identity in another shelf
+/// means the host is ambiguous, so project-external PREs must fail closed.
+pub fn host_scope_has_other_active_post_project_outside_daw(
+    kirin_root: &Path,
+    current_project_uuid: &str,
+    daw_session_id: &str,
+    host_process_id: u32,
+) -> bool {
+    if host_process_id == 0 || daw_session_id.is_empty() {
+        return false;
+    }
+    enumerate_active_post_pair_candidates(kirin_root)
+        .into_iter()
+        .any(|c| {
+            c.host_process_id == Some(host_process_id)
+                && c.project_uuid != current_project_uuid
+                && c.daw_session_id.as_deref() != Some(daw_session_id)
+        })
+}
+
 fn daw_session_matches(candidate: &PostCandidate, daw_session_id: &str) -> bool {
     !daw_session_id.is_empty()
         && candidate
@@ -326,9 +349,10 @@ fn broadcast_scope_matches(
 
 /// Active POST candidates in the same DAW session, spanning AU/VST3 project UUID shelves.
 ///
-/// Missing `daw_session_id` is not treated as a DAW-session match. Callers that need rolling
-/// compatibility with already-running older plug-ins can still use the broadcast-scope helper,
-/// where host fallback is limited to candidates lacking explicit session identity.
+/// Missing `daw_session_id` is not treated as a DAW-session match. Callers that need tolerance for
+/// hosts that restore instance-scoped DAW IDs should use the broadcast-scope helper, which keeps a
+/// same-host single POST shelf together and fails closed when another shelf makes the host
+/// ambiguous.
 pub fn enumerate_active_post_pair_candidates_for_daw_session(
     kirin_root: &Path,
     daw_session_id: &str,
