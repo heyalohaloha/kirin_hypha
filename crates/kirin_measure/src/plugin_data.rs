@@ -52,6 +52,7 @@ type HmacSha256 = Hmac<Sha256>;
 const PAIR_RECORD_SESSIONS_DIR: &str = "record_sessions";
 const PAIR_RECORD_MEMBERS_DIR: &str = ".pair_committed";
 const PAIR_RECORD_SESSION_SCHEMA: &str = "pair_record_session.v1";
+const TRACE_SHELF_COLLISION_SEARCH_SECS: i64 = 300;
 
 fn non_empty_string(value: Option<String>) -> Option<String> {
     value
@@ -1102,8 +1103,8 @@ fn publish_pair_committed_files(
     peer_data: &mut PluginDataFile,
 ) -> Result<(), WriterError> {
     let manifest_path = pair_commit_manifest_path(paths, self_data)?;
-    let self_trace_path = pair_trace_shelf_path(self_paths, self_data)?;
-    let peer_trace_path = pair_trace_shelf_path(peer_paths, peer_data)?;
+    let (self_trace_path, peer_trace_path) =
+        pair_trace_shelf_paths(self_paths, self_data, peer_paths, peer_data)?;
     let _ = fs::remove_file(&self_paths.final_path);
     let _ = fs::remove_file(&peer_paths.final_path);
     let _ = fs::remove_file(&self_trace_path);
@@ -1134,6 +1135,7 @@ fn publish_pair_committed_files(
     Ok(())
 }
 
+#[cfg(test)]
 fn pair_trace_shelf_path(paths: &PairPaths, data: &PluginDataFile) -> Result<PathBuf, WriterError> {
     pair_trace_shelf_path_from_member_path(&paths.member_path, data)
 }
@@ -1142,15 +1144,135 @@ fn pair_trace_shelf_path_from_member_path(
     member_path: &Path,
     data: &PluginDataFile,
 ) -> Result<PathBuf, WriterError> {
-    let role_dir = member_path
+    let role_dir = pair_role_dir_from_member_path(member_path)?;
+    trace_shelf_path_for_role_dir(role_dir, data)
+}
+
+fn pair_trace_shelf_paths(
+    self_paths: &PairPaths,
+    self_data: &PluginDataFile,
+    peer_paths: &PairPaths,
+    peer_data: &PluginDataFile,
+) -> Result<(PathBuf, PathBuf), WriterError> {
+    let self_role_dir = pair_role_dir_from_member_path(&self_paths.member_path)?;
+    let peer_role_dir = pair_role_dir_from_member_path(&peer_paths.member_path)?;
+    for offset_secs in 0..=TRACE_SHELF_COLLISION_SEARCH_SECS {
+        let self_path = trace_shelf_path_for_offset(self_role_dir, self_data, offset_secs)?;
+        let peer_path = trace_shelf_path_for_offset(peer_role_dir, peer_data, offset_secs)?;
+        if trace_shelf_slot_is_writable(&self_path, self_data)
+            && trace_shelf_slot_is_writable(&peer_path, peer_data)
+        {
+            return Ok((self_path, peer_path));
+        }
+    }
+    Err(io::Error::new(
+        io::ErrorKind::AlreadyExists,
+        "TRACE shelf collision window exhausted",
+    )
+    .into())
+}
+
+fn pair_role_dir_from_member_path(member_path: &Path) -> Result<&Path, WriterError> {
+    member_path
         .parent()
         .and_then(Path::parent)
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "role dir missing"))?;
-    let stamp = compact_wall_clock(&data.timestamp);
-    if stamp.is_empty() {
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "role dir missing").into())
+}
+
+fn trace_shelf_path_for_role_dir(
+    role_dir: &Path,
+    data: &PluginDataFile,
+) -> Result<PathBuf, WriterError> {
+    let mut first_vacant = None;
+    for offset_secs in 0..=TRACE_SHELF_COLLISION_SEARCH_SECS {
+        let path = trace_shelf_path_for_offset(role_dir, data, offset_secs)?;
+        match trace_shelf_slot_state(&path, data) {
+            TraceShelfSlotState::SameRecord => return Ok(path),
+            TraceShelfSlotState::Vacant => {
+                if first_vacant.is_none() {
+                    first_vacant = Some(path);
+                }
+            }
+            TraceShelfSlotState::Occupied => {}
+        }
+    }
+    first_vacant.ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            "TRACE shelf collision window exhausted",
+        )
+        .into()
+    })
+}
+
+fn trace_shelf_path_for_offset(
+    role_dir: &Path,
+    data: &PluginDataFile,
+    offset_secs: i64,
+) -> Result<PathBuf, WriterError> {
+    let stamp = trace_shelf_compact_at(data, offset_secs)?;
+    Ok(role_dir.join(format!("{stamp}.json")))
+}
+
+fn trace_shelf_compact_at(data: &PluginDataFile, offset_secs: i64) -> Result<String, WriterError> {
+    let compact = compact_wall_clock(&data.timestamp);
+    if compact.is_empty() {
         return Err(io::Error::new(io::ErrorKind::InvalidData, "timestamp missing").into());
     }
-    Ok(role_dir.join(format!("{stamp}.json")))
+    if offset_secs == 0 {
+        return Ok(compact);
+    }
+    let naive = chrono::NaiveDateTime::parse_from_str(&compact, "%Y%m%dT%H%M%S").map_err(|e| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("compact timestamp parse failed: {e}"),
+        )
+    })?;
+    Ok((naive + chrono::Duration::seconds(offset_secs))
+        .format("%Y%m%dT%H%M%S")
+        .to_string())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TraceShelfSlotState {
+    Vacant,
+    SameRecord,
+    Occupied,
+}
+
+fn trace_shelf_slot_is_writable(path: &Path, data: &PluginDataFile) -> bool {
+    matches!(
+        trace_shelf_slot_state(path, data),
+        TraceShelfSlotState::Vacant | TraceShelfSlotState::SameRecord
+    )
+}
+
+fn trace_shelf_slot_state(path: &Path, data: &PluginDataFile) -> TraceShelfSlotState {
+    if !path.exists() {
+        return TraceShelfSlotState::Vacant;
+    }
+    let Ok(existing) = read_plugin_data_file(path) else {
+        return TraceShelfSlotState::Occupied;
+    };
+    if verify_checksum(&existing) && trace_shelf_same_record(&existing, data) {
+        TraceShelfSlotState::SameRecord
+    } else {
+        TraceShelfSlotState::Occupied
+    }
+}
+
+fn trace_shelf_same_record(existing: &PluginDataFile, data: &PluginDataFile) -> bool {
+    let Some(existing_session_id) = existing.record_session_id.as_deref().map(str::trim) else {
+        return false;
+    };
+    let Some(session_id) = data.record_session_id.as_deref().map(str::trim) else {
+        return false;
+    };
+    !session_id.is_empty()
+        && existing_session_id == session_id
+        && existing.project_hash == data.project_hash
+        && existing.instance_id == data.instance_id
+        && existing.role == data.role
 }
 
 #[derive(Debug, Clone)]
@@ -2625,6 +2747,151 @@ mod tests {
             crate::record_expected::read_expected_metadata(&base, "project_hash_test"),
             Err(crate::record_expected::ExpectedMetadataError::Consumed)
         ));
+    }
+
+    #[test]
+    fn pair_finalize_preserves_same_second_repeat_trace_shelves() {
+        let base = isolated_dir();
+        let mut first_pre = complete_pair_writer(
+            &base,
+            Role::Pre,
+            "iid-pre-repeat",
+            None,
+            Some("iid-post-repeat".to_string()),
+        );
+        let mut first_post = complete_pair_writer(
+            &base,
+            Role::Post,
+            "iid-post-repeat",
+            Some("iid-pre-repeat".to_string()),
+            None,
+        );
+        first_pre.set_record_session_id(Some("session-repeat-first".to_string()));
+        first_post.set_record_session_id(Some("session-repeat-first".to_string()));
+        first_pre.data.status = Status::Closed;
+        first_pre.data.commit_status = Some("pair_pending".to_string());
+        first_post.data.status = Status::Closed;
+        first_post.data.commit_status = Some("pair_pending".to_string());
+        crate::record_expected::write_expected_metadata(
+            &base,
+            "project_hash_test",
+            &expected_wav_fixture(),
+        )
+        .unwrap();
+        let first_pre_paths = self_paths_for(&first_pre.paths, &first_pre.data);
+        let first_post_paths = self_paths_for(&first_post.paths, &first_post.data);
+        let first_pre_trace_path =
+            pair_trace_shelf_path(&first_pre_paths, &first_pre.data).unwrap();
+        let first_post_trace_path =
+            pair_trace_shelf_path(&first_post_paths, &first_post.data).unwrap();
+        first_pre
+            .write_atomic(first_pre_paths.pair_pending_path.clone())
+            .unwrap();
+        first_post
+            .write_atomic(first_post_paths.pair_pending_path.clone())
+            .unwrap();
+
+        try_finalize_pair_session(&first_pre.paths, &first_pre.data).unwrap();
+
+        let mut second_pre = complete_pair_writer(
+            &base,
+            Role::Pre,
+            "iid-pre-repeat",
+            None,
+            Some("iid-post-repeat".to_string()),
+        );
+        let mut second_post = complete_pair_writer(
+            &base,
+            Role::Post,
+            "iid-post-repeat",
+            Some("iid-pre-repeat".to_string()),
+            None,
+        );
+        second_pre.set_record_session_id(Some("session-repeat-second".to_string()));
+        second_post.set_record_session_id(Some("session-repeat-second".to_string()));
+        second_pre.data.status = Status::Closed;
+        second_pre.data.commit_status = Some("pair_pending".to_string());
+        second_post.data.status = Status::Closed;
+        second_post.data.commit_status = Some("pair_pending".to_string());
+        crate::record_expected::write_expected_metadata(
+            &base,
+            "project_hash_test",
+            &expected_wav_fixture(),
+        )
+        .unwrap();
+        let second_pre_paths = self_paths_for(&second_pre.paths, &second_pre.data);
+        let second_post_paths = self_paths_for(&second_post.paths, &second_post.data);
+        let expected_second_pre_trace =
+            pair_trace_shelf_path(&second_pre_paths, &second_pre.data).unwrap();
+        let expected_second_post_trace =
+            pair_trace_shelf_path(&second_post_paths, &second_post.data).unwrap();
+        let second_stamp = trace_shelf_compact_at(&second_pre.data, 1).unwrap();
+        let second_file_name = format!("{second_stamp}.json");
+        assert_eq!(
+            expected_second_pre_trace
+                .file_name()
+                .and_then(|name| name.to_str()),
+            Some(second_file_name.as_str())
+        );
+        assert_eq!(
+            expected_second_post_trace
+                .file_name()
+                .and_then(|name| name.to_str()),
+            Some(second_file_name.as_str())
+        );
+        second_pre
+            .write_atomic(second_pre_paths.pair_pending_path.clone())
+            .unwrap();
+        second_post
+            .write_atomic(second_post_paths.pair_pending_path.clone())
+            .unwrap();
+
+        try_finalize_pair_session(&second_pre.paths, &second_pre.data).unwrap();
+
+        assert!(first_pre_trace_path.exists());
+        assert!(first_post_trace_path.exists());
+        assert!(expected_second_pre_trace.exists());
+        assert!(expected_second_post_trace.exists());
+        assert_ne!(first_pre_trace_path, expected_second_pre_trace);
+        assert_ne!(first_post_trace_path, expected_second_post_trace);
+        assert!(first_pre_paths.member_path.exists());
+        assert!(first_post_paths.member_path.exists());
+        assert!(second_pre_paths.member_path.exists());
+        assert!(second_post_paths.member_path.exists());
+
+        let first_pre_trace: PluginDataFile =
+            serde_json::from_slice(&fs::read(&first_pre_trace_path).unwrap()).unwrap();
+        let first_post_trace: PluginDataFile =
+            serde_json::from_slice(&fs::read(&first_post_trace_path).unwrap()).unwrap();
+        let second_pre_trace: PluginDataFile =
+            serde_json::from_slice(&fs::read(&expected_second_pre_trace).unwrap()).unwrap();
+        let second_post_trace: PluginDataFile =
+            serde_json::from_slice(&fs::read(&expected_second_post_trace).unwrap()).unwrap();
+        assert_eq!(
+            first_pre_trace.record_session_id.as_deref(),
+            Some("session-repeat-first")
+        );
+        assert_eq!(
+            first_post_trace.record_session_id.as_deref(),
+            Some("session-repeat-first")
+        );
+        assert_eq!(
+            second_pre_trace.record_session_id.as_deref(),
+            Some("session-repeat-second")
+        );
+        assert_eq!(
+            second_post_trace.record_session_id.as_deref(),
+            Some("session-repeat-second")
+        );
+        for data in [
+            &first_pre_trace,
+            &first_post_trace,
+            &second_pre_trace,
+            &second_post_trace,
+        ] {
+            assert_eq!(data.commit_status.as_deref(), Some("committed"));
+            assert!(verify_checksum(data));
+        }
     }
 
     #[test]
