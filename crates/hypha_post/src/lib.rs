@@ -316,24 +316,14 @@ pub(crate) fn read_project_hash_arc(arc: &Arc<RwLock<String>>) -> String {
     arc.read().ok().map(|g| g.clone()).unwrap_or_default()
 }
 
-/// `daw_session_id` の現在値を取得（panic-safe）。
+/// `Arc<RwLock<String>>` から `daw_session_id` を lazy-read（panic-safe）。
 ///
-/// §4-5 Step 5 (instance scope divergence 是正):
-/// 引数 `_arc` は構造維持のため受け取るが内部では使わず、`kirin_measure::daw_session_id()`
-/// 経由で **process scope cell** を直読みする。`HyphaPost.daw_session_id` Arc field
-/// は initialize() 時点の cell 値を凍結するため、複数 plugin instance 環境では
-/// 後発 instance の `set_daw_session_id` 上書きを反映できず、6 POST で daw_session_id
-/// が divergence していた (Hpha0504 / sub-tick cross-process filter で全件 skip)。
-///
-/// `daw_session_id()` cell は process scope (lib.rs:145-148 daw_session_id_cell の
-/// static OnceLock) のため全 plugin instance で同一値を返し、broadcast scope filter
-/// (daw_session_id / host_process_id) が POST 同士で正しくマッチする。
-///
-/// callsite 引数の Arc 構造は維持 (editor / io_thread_post / lib.rs spawn closure 不変 /
-/// Pass 15 最小スコープ)。`§4-5 Step 1` の Arc 化はそのまま残し、本関数のみ
-/// 「Arc 凍結値を見ない」semantics に切替える 1 関数 body 修正。
-pub(crate) fn read_daw_session_id_arc(_arc: &Arc<RwLock<String>>) -> String {
-    daw_session_id()
+/// egui/VST3 path ではこの Arc が plugin instance の session identity を保持する。
+/// process scope の `daw_session_id()` をここで読み直すと、同一 DAW プロセス内で
+/// 別 Song/Project を開いた時に後発 document の identity へ吸われ、別棚の PRE/POST
+/// と誤って同居する。editor / IO Thread の各 use site は渡された Arc を正とする。
+pub(crate) fn read_daw_session_id_arc(arc: &Arc<RwLock<String>>) -> String {
+    arc.read().ok().map(|g| g.clone()).unwrap_or_default()
 }
 
 /// `RwLock<String>` 永続フィールドから現在値を読む（panic-safe）。

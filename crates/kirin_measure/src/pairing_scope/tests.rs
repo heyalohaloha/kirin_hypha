@@ -69,9 +69,25 @@ fn write_post_for_scope(
     instance_id: &str,
     pair_pre_name: &str,
 ) {
+    write_post_for_scope_with_host_process_id(
+        kirin_root,
+        project_uuid,
+        instance_id,
+        pair_pre_name,
+        None,
+    );
+}
+
+fn write_post_for_scope_with_host_process_id(
+    kirin_root: &Path,
+    project_uuid: &str,
+    instance_id: &str,
+    pair_pre_name: &str,
+    host_process_id: Option<u32>,
+) {
     let dir = kirin_root.join(project_uuid).join(instance_id);
     fs::create_dir_all(&dir).unwrap();
-    let json = serde_json::json!({
+    let mut json = serde_json::json!({
         "v": 2,
         "role": "POST",
         "instance_id": instance_id,
@@ -80,6 +96,9 @@ fn write_post_for_scope(
         "pair_pre_name": pair_pre_name,
         "pair_claimed_at": 1.0
     });
+    if let Some(pid) = host_process_id {
+        json["host_process_id"] = serde_json::json!(pid);
+    }
     fs::write(dir.join("post.json"), json.to_string()).unwrap();
 }
 
@@ -283,6 +302,113 @@ fn select_target_pre_for_arm_for_post_project_prefers_current_host_process_same_
     assert!(select_target_pre_for_arm(&root, "Vocal").is_none());
     let sel = select_target_pre_for_arm_for_post_project(&root, "Vocal", "post-current")
         .expect("same-host PRE should win over another host process with the same name");
+    assert_eq!(sel.instance_id, "iid-current-vocal");
+}
+
+#[test]
+fn select_target_pre_for_arm_for_post_project_rejects_foreign_unique_pre_when_other_post_project_is_active(
+) {
+    let root = isolated_dir();
+    let now = now_rfc3339();
+    let current_host = std::process::id();
+    write_pre_for_select_with_host_process_id(
+        &root,
+        "pre-mastering-project",
+        "iid-master-vocal",
+        "Vocal",
+        "inactive",
+        &now,
+        Some(current_host),
+    );
+    write_post_for_scope_with_host_process_id(
+        &root,
+        "post-current-song",
+        "post-current",
+        "",
+        Some(current_host),
+    );
+    write_post_for_scope_with_host_process_id(
+        &root,
+        "post-mastering-project",
+        "post-master",
+        "Vocal",
+        Some(current_host),
+    );
+
+    assert!(
+        select_target_pre_for_arm_for_post_project(&root, "Vocal", "post-current-song").is_none(),
+        "a globally unique PRE in another active Studio One project must not be auto-armed"
+    );
+}
+
+#[test]
+fn select_target_pre_for_post_project_rejects_active_foreign_unique_pre_when_other_post_project_is_active(
+) {
+    let root = isolated_dir();
+    let now = now_rfc3339();
+    let current_host = std::process::id();
+    write_pre_for_select_with_host_process_id(
+        &root,
+        "pre-mastering-project",
+        "iid-master-vocal",
+        "Vocal",
+        "active",
+        &now,
+        Some(current_host),
+    );
+    write_post_for_scope_with_host_process_id(
+        &root,
+        "post-current-song",
+        "post-current",
+        "",
+        Some(current_host),
+    );
+    write_post_for_scope_with_host_process_id(
+        &root,
+        "post-mastering-project",
+        "post-master",
+        "Vocal",
+        Some(current_host),
+    );
+
+    assert!(
+        select_target_pre_for_post_project(&root, "Vocal", "post-current-song").is_none(),
+        "display selection must not latch a globally unique active PRE from another open project"
+    );
+}
+
+#[test]
+fn select_target_pre_for_arm_for_post_project_allows_current_project_pre_when_other_post_project_is_active(
+) {
+    let root = isolated_dir();
+    let now = now_rfc3339();
+    let current_host = std::process::id();
+    write_pre_for_select_with_host_process_id(
+        &root,
+        "post-current-song",
+        "iid-current-vocal",
+        "Vocal",
+        "inactive",
+        &now,
+        Some(current_host),
+    );
+    write_post_for_scope_with_host_process_id(
+        &root,
+        "post-current-song",
+        "post-current",
+        "",
+        Some(current_host),
+    );
+    write_post_for_scope_with_host_process_id(
+        &root,
+        "post-mastering-project",
+        "post-master",
+        "Vocal",
+        Some(current_host),
+    );
+
+    let sel = select_target_pre_for_arm_for_post_project(&root, "Vocal", "post-current-song")
+        .expect("current-project PRE must remain armable");
     assert_eq!(sel.instance_id, "iid-current-vocal");
 }
 
