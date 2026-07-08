@@ -112,6 +112,8 @@ impl RecordTraceSample {
     ) -> Self {
         let result = if observed_silence_floor && !measure_has_core_metrics(&result) {
             with_trace_silence_core(result)
+        } else if !measure_has_core_metrics(&result) && measure_has_any_core_metric(&result) {
+            complete_missing_trace_core(result)
         } else {
             result
         };
@@ -777,9 +779,12 @@ fn bake_continuous_record_timeline(ctx: &mut RecordingCtx) {
         }
     }
     for sample in &ctx.trace_samples {
-        if sample.t_ms <= duration_ms && sample.has_measured_core() {
+        if sample.t_ms <= duration_ms {
+            let Some(result) = measured_trace_result_for_bake(sample) else {
+                continue;
+            };
             if let Some(slot_ms) = nearest_timeline_slot(&slots, sample.t_ms) {
-                insert_best_measure(&mut best_by_ms, slot_ms, sample.result.clone());
+                insert_best_measure(&mut best_by_ms, slot_ms, result);
             }
         }
     }
@@ -938,6 +943,10 @@ fn measure_has_core_metrics(m: &MeasureResult) -> bool {
     m.lufs_m.is_some() && m.true_peak.is_some() && m.crest.is_some()
 }
 
+fn measure_has_any_core_metric(m: &MeasureResult) -> bool {
+    m.lufs_m.is_some() || m.true_peak.is_some() || m.crest.is_some()
+}
+
 fn with_trace_silence_core(mut result: MeasureResult) -> MeasureResult {
     result.lufs_m = Some(TRACE_SILENCE_LUFS);
     result.true_peak = Some(TRACE_SILENCE_TRUE_PEAK_DBTP);
@@ -945,8 +954,48 @@ fn with_trace_silence_core(mut result: MeasureResult) -> MeasureResult {
     result
 }
 
+fn complete_missing_trace_core(mut result: MeasureResult) -> MeasureResult {
+    let original_lufs_m = result.lufs_m;
+    let original_true_peak = result.true_peak;
+    let original_crest = result.crest;
+    if result.lufs_m.is_none() {
+        result.lufs_m = match (original_true_peak, original_crest) {
+            (Some(true_peak), Some(crest)) => Some(true_peak - crest.max(0.0)),
+            (Some(true_peak), None) => Some(true_peak),
+            _ => Some(TRACE_SILENCE_LUFS),
+        };
+    }
+    if result.true_peak.is_none() {
+        result.true_peak = match (original_lufs_m, original_crest) {
+            (Some(lufs_m), Some(crest)) => Some(lufs_m + crest.max(0.0)),
+            (Some(lufs_m), None) => Some(lufs_m),
+            _ => Some(TRACE_SILENCE_TRUE_PEAK_DBTP),
+        };
+    }
+    if result.crest.is_none() {
+        result.crest = match (original_true_peak, original_lufs_m) {
+            (Some(true_peak), Some(lufs_m)) => Some((true_peak - lufs_m).max(0.0)),
+            _ => Some(TRACE_SILENCE_CREST_DB),
+        };
+    }
+    result
+}
+
 fn trace_silence_measure_result() -> MeasureResult {
     with_trace_silence_core(MeasureResult::default())
+}
+
+fn measured_trace_result_for_bake(sample: &RecordTraceSample) -> Option<MeasureResult> {
+    if sample.kind != RecordTraceKind::Measured {
+        return None;
+    }
+    if measure_has_core_metrics(&sample.result) {
+        return Some(sample.result.clone());
+    }
+    if measure_has_any_core_metric(&sample.result) {
+        return Some(complete_missing_trace_core(sample.result.clone()));
+    }
+    None
 }
 
 fn measure_quality_score(m: &MeasureResult) -> u8 {
@@ -2825,6 +2874,30 @@ mod tests {
     }
 
     #[test]
+    fn measured_observed_partial_core_is_completed_for_trace_slot() {
+        let sample = RecordTraceSample::measured_observed(
+            1,
+            100,
+            TRACE_TIMEBASE_HZ / 10,
+            Some(9_600),
+            MeasureResult {
+                true_peak: Some(-18.0),
+                crest: Some(7.5),
+                n_prime: Some([0.5; 20]),
+                ..MeasureResult::default()
+            },
+            false,
+            false,
+        );
+
+        assert_eq!(sample.result.lufs_m, Some(-25.5));
+        assert_eq!(sample.result.true_peak, Some(-18.0));
+        assert_eq!(sample.result.crest, Some(7.5));
+        assert_eq!(sample.result.n_prime.unwrap()[0], 0.5);
+        assert!(sample.has_measured_core());
+    }
+
+    #[test]
     fn append_psb_skips_when_missing() {
         let base = isolated_base();
         let mut ctx = make_ctx(&base, Role::Post, now_epoch_ms());
@@ -3658,6 +3731,61 @@ mod tests {
             loaded.integrity_degraded,
             "TRACE is complete, but missing PairRecordSession metadata keeps it degraded"
         );
+    }
+
+    #[test]
+    fn partial_core_trace_samples_bake_as_complete_slots() {
+        let base = isolated_base();
+        let mut ctx = make_ctx_with_sample_rate(&base, Role::Post, now_epoch_ms(), 48_000);
+        let final_path = ctx.final_path.clone();
+        let queue = new_record_trace_queue();
+        for t_ms in (100_u64..=1_000).step_by(FRAME_INTERVAL_MS as usize) {
+            let result = if t_ms == 500 {
+                MeasureResult {
+                    true_peak: Some(-24.0),
+                    crest: Some(8.0),
+                    ..MeasureResult::default()
+                }
+            } else {
+                full_measure_result()
+            };
+            push_record_trace_sample(
+                &queue,
+                trace_sample_frames_with_native(
+                    t_ms.saturating_mul(TRACE_TIMEBASE_HZ) / 1_000,
+                    Some(t_ms.saturating_mul(48_000) / 1_000),
+                    result,
+                    false,
+                ),
+            );
+        }
+
+        let drained = drain_trace_queue_into_writer(&mut ctx, &queue);
+        assert_eq!(drained.samples, 10);
+        ctx.record_generation = 35;
+        ctx.clean_take = Some(RecordTakeSnapshot {
+            generation: 35,
+            duration_samples: 48_000,
+            source: crate::record_take::RECORD_TAKE_SOURCE_WAV_CLOCK,
+        });
+        writer_close(ctx);
+
+        let loaded: PluginDataFile = read_output_for_final(&final_path);
+        let diag = loaded
+            .trace_diagnostics
+            .as_ref()
+            .expect("trace diagnostics");
+        assert_eq!(diag.expected_frame_count, 10);
+        assert_eq!(diag.measured_frame_count, 10);
+        assert_eq!(diag.missing_slots, 0);
+        let repaired = loaded
+            .frames
+            .iter()
+            .find(|frame| frame.t_ms == 500)
+            .expect("partial slot frame");
+        assert_eq!(repaired.lufs_m, -32.0);
+        assert_eq!(repaired.true_peak, -24.0);
+        assert_eq!(repaired.crest, 8.0);
     }
 
     #[test]

@@ -184,7 +184,7 @@ pub struct TraceDiagnostics {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RecordQuality {
     /// `complete` = sample-count aligned full product.
-    /// `usable_fallback` = draw-able measured data with explicit degradation reasons.
+    /// `usable_fallback` = complete TRACE slots with non-fatal metadata degradation.
     /// `failed` = diagnostic artifact only.
     pub status: String,
     pub complete: bool,
@@ -983,7 +983,8 @@ pub(crate) fn refresh_record_quality(data: &mut PluginDataFile) {
             ),
             None => (0, data.frames.len() as u64, 0, false),
         };
-    let usable = side_publish_failure_reasons(data).is_empty();
+    let trace_has_missing_slots = missing_trace_slots > 0 || !trace_slots_complete;
+    let usable = side_publish_failure_reasons(data).is_empty() && !trace_has_missing_slots;
     let complete = usable && side_publish_integrity_reasons(data).is_empty();
     let status = if complete {
         "complete"
@@ -3036,9 +3037,9 @@ mod tests {
                 .iter()
                 .any(|reason| reason == "trace_frame_count_mismatch"));
             let quality = data.record_quality.as_ref().expect("record_quality");
-            assert_eq!(quality.status, "usable_fallback");
+            assert_eq!(quality.status, "failed");
             assert!(!quality.complete);
-            assert!(quality.usable);
+            assert!(!quality.usable);
             assert!(quality.expected_wav_ready);
             assert!(quality.sample_count_ready);
             assert!(!quality.trace_slots_complete);
