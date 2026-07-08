@@ -3,6 +3,8 @@ mod diagnose_watch;
 mod gen_signals;
 mod install;
 mod macos_codesign;
+#[cfg(test)]
+mod macos_pluginval_gate;
 mod notarize;
 #[cfg(test)]
 mod plugin_display_names;

@@ -75,6 +75,19 @@ jobs:
             -DCMAKE_OSX_ARCHITECTURES=arm64
           cmake --build juce_shell/build-arm64 --config Release
 
+      # Validate the JUCE VST3 bundles before any Studio One/manual loop. auval below covers AU;
+      # pluginval catches VST3 load/state/automation/sample-rate/buffer-size/threading issues.
+      - name: Validate macOS JUCE VST3 with pluginval
+        run: scripts/validate_juce_pluginval_macos.sh juce_shell/build-arm64
+
+      - name: Upload macOS pluginval logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: kirin-hypha-macos-pluginval-logs
+          path: target/pluginval/logs/macos
+          if-no-files-found: ignore
+
       - name: Install AU components + re-register
         run: |
           DST="$HOME/Library/Audio/Plug-Ins/Components"
