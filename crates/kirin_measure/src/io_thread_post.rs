@@ -686,7 +686,7 @@ pub fn spawn_io_thread_post(
                     let stop_broadcasts =
                         all_stop_signal::scan_stop_broadcasts_dir(&base_dir, project_hash_ref);
                     for (originator_iid, broadcast) in stop_broadcasts {
-                        if !crate::broadcast_scope_ids_match(
+                        if !broadcast_scope_or_same_project_host_matches(
                             &daw_session_id_snapshot,
                             host_process_id_snapshot,
                             &broadcast.daw_session_id,
@@ -771,7 +771,7 @@ pub fn spawn_io_thread_post(
                         all_keep_signal::scan_broadcasts_dir(&base_dir, project_hash_ref);
                     for (originator_iid, broadcast) in broadcasts {
                         // 1. cross-process 防壁
-                        if !crate::broadcast_scope_ids_match(
+                        if !broadcast_scope_or_same_project_host_matches(
                             &daw_session_id_snapshot,
                             host_process_id_snapshot,
                             &broadcast.daw_session_id,
@@ -1007,6 +1007,31 @@ pub(crate) fn snapshot_pair_pre_name(arc: &Arc<RwLock<String>>) -> String {
     arc.read().map(|g| g.clone()).unwrap_or_default()
 }
 
+fn same_project_host_broadcast_matches(
+    local_host_process_id: u32,
+    remote_host_process_id: u32,
+) -> bool {
+    local_host_process_id != 0
+        && remote_host_process_id != 0
+        && local_host_process_id == remote_host_process_id
+}
+
+fn broadcast_scope_or_same_project_host_matches(
+    local_daw_session_id: &str,
+    local_host_process_id: u32,
+    remote_daw_session_id: &str,
+    remote_host_process_id: u32,
+) -> bool {
+    // Callers scan one project shelf at a time. The same-host branch only bridges
+    // instance-scoped DAW IDs inside that already-selected shelf.
+    crate::broadcast_scope_ids_match(
+        local_daw_session_id,
+        local_host_process_id,
+        remote_daw_session_id,
+        remote_host_process_id,
+    ) || same_project_host_broadcast_matches(local_host_process_id, remote_host_process_id)
+}
+
 /// 1 ループの処理本体。
 ///
 /// # B-021 Phase 1A: filesystem-discovery の優先順位
@@ -1171,6 +1196,7 @@ fn compute_latched_display_for_post_project(
                     project_dir: project_dir.clone(),
                     pre_json: pre_json.clone(),
                     daw_session_id,
+                    host_process_id: sel.host_process_id,
                 });
             }
             // 初回ラッチ直後の同 tick 表示。
@@ -4184,6 +4210,67 @@ mod post_candidate_tests {
         let daw_only = enumerate_active_post_pair_candidates_for_daw_session(&root, "daw-au");
         assert_eq!(daw_only.len(), 1);
         assert_eq!(daw_only[0].pair_pre_name.as_deref(), Some("2Mix"));
+    }
+
+    #[test]
+    fn enumerate_for_broadcast_scope_keeps_single_post_project_when_daw_ids_are_instance_scoped() {
+        let root = unique_root("enum_broadcast_scope_single_project_instance_daw");
+        let host_pid = 42_4242;
+        let _ = write_post_json_with_daw_and_host(
+            &root,
+            "pj-current",
+            "post-2mix",
+            "2Mix",
+            "daw-post-2mix",
+            host_pid,
+        );
+        let _ = write_post_json_with_daw_and_host(
+            &root,
+            "pj-current",
+            "post-drum",
+            "Drum",
+            "daw-post-drum",
+            host_pid,
+        );
+        let _ = write_post_json_with_daw_and_host(
+            &root,
+            "pj-current",
+            "post-music",
+            "Music",
+            "daw-post-music",
+            host_pid,
+        );
+
+        let cands = enumerate_active_post_pair_candidates_for_broadcast_scope(
+            &root,
+            "daw-post-2mix",
+            host_pid,
+        );
+        let names: Vec<_> = cands
+            .iter()
+            .filter_map(|c| c.pair_pre_name.as_deref())
+            .collect();
+        assert_eq!(names, vec!["2Mix", "Drum", "Music"]);
+
+        let projects =
+            active_post_project_uuids_for_broadcast_scope(&root, "daw-post-2mix", host_pid);
+        assert_eq!(projects, vec!["pj-current".to_string()]);
+    }
+
+    #[test]
+    fn broadcast_receive_gate_bridges_instance_scoped_daw_inside_same_project_host() {
+        assert!(broadcast_scope_or_same_project_host_matches(
+            "daw-local",
+            42,
+            "daw-remote",
+            42
+        ));
+        assert!(!broadcast_scope_or_same_project_host_matches(
+            "daw-local",
+            42,
+            "daw-remote",
+            77
+        ));
     }
 
     #[test]

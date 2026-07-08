@@ -571,6 +571,7 @@ fn resolve_and_enter_keep(
                 project_dir: sel.project_dir,
                 pre_json: sel.pre_json,
                 daw_session_id: sel.daw_session_id,
+                host_process_id: sel.host_process_id,
             });
         }
         true
