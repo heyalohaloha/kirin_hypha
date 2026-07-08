@@ -111,6 +111,24 @@ fn write_post_for_scope_with_host_process_id(
     pair_pre_name: &str,
     host_process_id: Option<u32>,
 ) {
+    write_post_for_scope_with_identity(
+        kirin_root,
+        project_uuid,
+        instance_id,
+        pair_pre_name,
+        host_process_id,
+        None,
+    );
+}
+
+fn write_post_for_scope_with_identity(
+    kirin_root: &Path,
+    project_uuid: &str,
+    instance_id: &str,
+    pair_pre_name: &str,
+    host_process_id: Option<u32>,
+    daw_session_id: Option<&str>,
+) {
     let dir = kirin_root.join(project_uuid).join(instance_id);
     fs::create_dir_all(&dir).unwrap();
     let mut json = serde_json::json!({
@@ -124,6 +142,9 @@ fn write_post_for_scope_with_host_process_id(
     });
     if let Some(pid) = host_process_id {
         json["host_process_id"] = serde_json::json!(pid);
+    }
+    if let Some(daw) = daw_session_id {
+        json["daw_session_id"] = serde_json::json!(daw);
     }
     fs::write(dir.join("post.json"), json.to_string()).unwrap();
 }
@@ -300,9 +321,11 @@ fn post_project_with_existing_drum_still_lists_and_selects_second_mix() {
 }
 
 #[test]
-fn enumerate_active_pre_pair_candidates_for_post_project_in_session_hides_foreign_daw() {
+fn enumerate_active_pre_pair_candidates_for_post_project_in_session_hides_foreign_daw_when_other_post_project_is_active(
+) {
     let root = isolated_dir();
     let now = now_rfc3339();
+    let current_host = std::process::id();
     write_pre_for_select_with_identity(
         &root,
         "pre-old",
@@ -310,18 +333,34 @@ fn enumerate_active_pre_pair_candidates_for_post_project_in_session_hides_foreig
         "Mix",
         "inactive",
         &now,
-        Some(std::process::id()),
+        Some(current_host),
         Some("daw-old"),
     );
     write_pre_for_select_with_identity(
         &root,
-        "pre-current",
+        "post-current",
         "iid-current-mix",
         "Mix",
         "inactive",
         &now,
-        Some(std::process::id()),
+        Some(current_host),
         Some("daw-current"),
+    );
+    write_post_for_scope_with_identity(
+        &root,
+        "post-current",
+        "post-current",
+        "Mix",
+        Some(current_host),
+        Some("daw-current"),
+    );
+    write_post_for_scope_with_identity(
+        &root,
+        "post-old",
+        "post-old",
+        "Mix",
+        Some(current_host),
+        Some("daw-old"),
     );
 
     let v = enumerate_active_pre_pair_candidates_for_post_project_in_session(
@@ -334,6 +373,55 @@ fn enumerate_active_pre_pair_candidates_for_post_project_in_session_hides_foreig
         ids,
         vec!["iid-current-mix"],
         "foreign non-empty DAW sessions must not appear in the selectable PRE dropdown"
+    );
+}
+
+#[test]
+fn enumerate_active_pre_pair_candidates_for_post_project_in_session_merges_exact_daw_and_single_shelf_host_fallback(
+) {
+    let root = isolated_dir();
+    let now = now_rfc3339();
+    let current_host = std::process::id();
+    write_pre_for_select_with_identity(
+        &root,
+        "pre-2mix",
+        "iid-2mix",
+        "2Mix",
+        "inactive",
+        &now,
+        Some(current_host),
+        Some("daw-current"),
+    );
+    write_pre_for_select_with_identity(
+        &root,
+        "pre-drum",
+        "iid-drum",
+        "Drum",
+        "inactive",
+        &now,
+        Some(current_host),
+        Some("daw-instance-drum"),
+    );
+    write_post_for_scope_with_identity(
+        &root,
+        "post-current",
+        "post-2mix",
+        "2Mix",
+        Some(current_host),
+        Some("daw-current"),
+    );
+
+    let names = enumerate_active_pre_pair_candidates_for_post_project_in_session(
+        &root,
+        "post-current",
+        "daw-current",
+    )
+    .into_iter()
+    .filter_map(|c| c.name)
+    .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        names,
+        ["2Mix", "Drum"].into_iter().map(str::to_string).collect()
     );
 }
 
@@ -687,6 +775,94 @@ fn select_target_pre_for_arm_for_post_project_rejects_daw_mismatch_when_other_po
         .is_none(),
         "host fallback must close when another Studio One project has an active POST shelf"
     );
+}
+
+#[test]
+fn select_target_pre_for_arm_for_post_project_rejects_external_exact_daw_when_other_post_project_outside_daw_is_active(
+) {
+    let root = isolated_dir();
+    let now = now_rfc3339();
+    let current_host = std::process::id();
+    write_pre_for_select_with_identity(
+        &root,
+        "pre-foreign-project",
+        "iid-foreign-vocal",
+        "Vocal",
+        "inactive",
+        &now,
+        Some(current_host),
+        Some("daw-current"),
+    );
+    write_post_for_scope_with_identity(
+        &root,
+        "post-current-song",
+        "post-current",
+        "",
+        Some(current_host),
+        Some("daw-current"),
+    );
+    write_post_for_scope_with_identity(
+        &root,
+        "post-mastering-project",
+        "post-master",
+        "Vocal",
+        Some(current_host),
+        Some("daw-other"),
+    );
+
+    assert!(
+        select_target_pre_for_arm_for_post_project_in_session(
+            &root,
+            "Vocal",
+            "post-current-song",
+            "daw-current",
+        )
+        .is_none(),
+        "an exact DAW id is not enough when another same-host POST shelf has a different DAW scope"
+    );
+}
+
+#[test]
+fn select_target_pre_for_arm_for_post_project_allows_external_exact_daw_when_other_post_project_shares_daw(
+) {
+    let root = isolated_dir();
+    let now = now_rfc3339();
+    let current_host = std::process::id();
+    write_pre_for_select_with_identity(
+        &root,
+        "pre-vst3-project",
+        "iid-vocal",
+        "Vocal",
+        "inactive",
+        &now,
+        Some(current_host),
+        Some("daw-shared"),
+    );
+    write_post_for_scope_with_identity(
+        &root,
+        "post-au-project",
+        "post-au",
+        "",
+        Some(current_host),
+        Some("daw-shared"),
+    );
+    write_post_for_scope_with_identity(
+        &root,
+        "post-vst3-project",
+        "post-vst3",
+        "Vocal",
+        Some(current_host),
+        Some("daw-shared"),
+    );
+
+    let sel = select_target_pre_for_arm_for_post_project_in_session(
+        &root,
+        "Vocal",
+        "post-au-project",
+        "daw-shared",
+    )
+    .expect("matching DAW scope can bridge split AU/VST3 POST shelves when all shelves agree");
+    assert_eq!(sel.instance_id, "iid-vocal");
 }
 
 #[test]

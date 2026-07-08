@@ -1171,9 +1171,9 @@ fn draw_pair_pre_name_field(ui: &mut egui::Ui, state: &mut PostEditorState, pair
 /// B-027 段階 3-A 修正 (G-115-49 / α-2 撤回): pair PRE 候補 ComboBox dropdown。
 ///
 /// `kirin_root` (`$TMPDIR/kirin/`) 配下から、この POST が実際に Keep 可能な PRE だけを列挙する。
-/// 同 project_uuid / 同 non-empty daw_session_id / legacy empty-session の同一 host fallback 以外は
-/// 表示しない。利用者は候補一覧から Name 識別 (B-027 段階 2 `pair_pre_name` filter) で目的 PRE を
-/// 選ぶ運用となる。
+/// DAW identity が同一 scope として矛盾しない候補、または同一 host の単一 POST 棚候補だけを表示する。
+/// 別 POST 棚が同一 host 内に見えて scope が曖昧なときは候補を閉じる。利用者は候補一覧から
+/// Name 識別 (B-027 段階 2 `pair_pre_name` filter) で目的 PRE を選ぶ運用となる。
 ///
 /// クリック確定時:
 /// - `name` 持ち PRE → `pair_pre_name = name`（filter_candidates_by_name で 1 件絞れる）
