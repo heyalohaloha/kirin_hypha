@@ -13,7 +13,7 @@
 //! - `v`: schema version (現行 1)
 //! - `originator_post_instance_id`: filename stem と同値
 //! - `daw_session_id`: 別 DAW process からの誤受信防止
-//! - `host_process_id`: 片側に明示 `daw_session_id` がない旧 schema/移行中向けの補助 scope
+//! - `host_process_id`: 両側に明示 `daw_session_id` がない旧 schema/移行中向けの補助 scope
 //! - `started_at`: 重複処理回避 key (clock-skew 完全耐性 / 文字列等価比較)
 //! - `heartbeat`: 将来 throttled re-publish 用 (当面 started_at と同値)
 //!
