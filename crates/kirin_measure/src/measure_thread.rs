@@ -1783,6 +1783,59 @@ pub mod tests {
     }
 
     #[test]
+    fn record_trace_origin_offset_keeps_long_bounce_dense() {
+        let queue = crate::record_writer::new_record_trace_queue();
+        let mut next_trace_ms = 0;
+        let mut next_psb_ms = 0;
+        let timeline = super::RecordTraceTimeline {
+            generation: 8,
+            origin_frames_48k: 2_400,
+            origin_native_frames: 4_800,
+            offset_frames_48k: 0,
+            offset_native_frames: 0,
+        };
+        let observed = crate::MeasureResult {
+            lufs_m: Some(-18.0),
+            true_peak: Some(-3.0),
+            crest: Some(8.0),
+            ..Default::default()
+        };
+
+        {
+            let mut cursor = super::RecordTraceCursor {
+                next_trace_ms: &mut next_trace_ms,
+                next_psb_ms: &mut next_psb_ms,
+            };
+            for i in 1_u64..=151 {
+                assert!(super::maybe_push_record_trace(
+                    &queue,
+                    timeline,
+                    &mut cursor,
+                    96_000,
+                    super::RecordTraceObserved {
+                        frames_48k: i * 4_800,
+                        native_frames: Some(i * 9_600),
+                        observed_silence_floor: false,
+                    },
+                    &observed,
+                ));
+            }
+        }
+
+        let drained = crate::record_writer::drain_record_trace_queue(&queue);
+        assert_eq!(drained.len(), 151);
+        assert_eq!(drained.first().map(|sample| sample.t_ms), Some(0));
+        assert_eq!(drained.last().map(|sample| sample.t_ms), Some(15_000));
+        assert!(drained
+            .iter()
+            .all(|sample| sample.kind == crate::record_writer::RecordTraceKind::Measured));
+        for pair in drained.windows(2) {
+            assert_eq!(pair[1].t_ms - pair[0].t_ms, FRAME_INTERVAL_MS);
+        }
+        assert_eq!(next_trace_ms, 15_100);
+    }
+
+    #[test]
     fn record_trace_observed_silence_floor_becomes_explicit_trace_frame() {
         let queue = crate::record_writer::new_record_trace_queue();
         let mut next_trace_ms = 0;
