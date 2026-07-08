@@ -1742,6 +1742,12 @@ mod tests {
         record_signal::write_signal(base, TEST_PH, post_iid, &signal).unwrap();
     }
 
+    fn clear_matching_pending_daw_session(base: &Path, post_iid: &str) {
+        let mut signal = record_signal::read_signal(base, TEST_PH, post_iid).unwrap();
+        signal.daw_session_id.clear();
+        record_signal::write_signal(base, TEST_PH, post_iid, &signal).unwrap();
+    }
+
     fn write_matching_pending_with_expected(
         base: &Path,
         post_iid: &str,
@@ -2867,7 +2873,7 @@ mod tests {
     }
 
     #[test]
-    fn same_host_process_legacy_all_stop_without_daw_stops_pre_record() {
+    fn same_host_process_all_stop_with_legacy_empty_remote_does_not_stop_explicit_pre_record() {
         let base = isolated_base();
         write_matching_pending(&base, "post-1");
         let sm = Arc::new(RecordStateMachine::new());
@@ -2904,8 +2910,56 @@ mod tests {
         );
 
         assert!(
+            !stopped,
+            "same-host All Stop must not bridge explicit PRE daw_session_id to legacy empty remote"
+        );
+        assert_eq!(sm.current(), RecordState::Record);
+        assert!(recording.load(Ordering::Relaxed));
+        assert!(ack.load(Ordering::Relaxed));
+        assert!(partner.is_some());
+    }
+
+    #[test]
+    fn same_host_process_legacy_all_stop_without_daw_stops_legacy_pre_record() {
+        let base = isolated_base();
+        write_matching_pending(&base, "post-1");
+        clear_matching_pending_daw_session(&base, "post-1");
+        let sm = Arc::new(RecordStateMachine::new());
+        let recording = Arc::new(AtomicBool::new(false));
+        let ack = Arc::new(AtomicBool::new(false));
+        let license = Arc::new(License::Os);
+        let mut partner = None;
+        poll_with_base(
+            &base,
+            &sm,
+            &recording,
+            &ack,
+            &license,
+            &mut partner,
+            TEST_PRE_IID,
+        );
+        write_all_stop_broadcast_for_project_at_with_host(
+            &base,
+            TEST_PH,
+            "post-origin",
+            "",
+            current_host_process_id(),
+            "2026-07-05T00:00:01Z",
+        );
+
+        let stopped = poll_all_stop_signal_at(
+            &base,
+            TEST_PH,
+            &sm,
+            &recording,
+            &ack,
+            &mut partner,
+            chrono_utc("2026-07-05T00:00:02Z"),
+        );
+
+        assert!(
             stopped,
-            "legacy no-daw same-host All Stop must still reach PRE"
+            "legacy no-daw same-host All Stop must still reach PRE when both sides lack explicit daw_session_id"
         );
         assert_eq!(sm.current(), RecordState::Watch);
         assert!(!recording.load(Ordering::Relaxed));

@@ -120,6 +120,30 @@ fn legacy_same_host_candidate_is_allowed(
         )
 }
 
+fn candidate_is_in_post_scope(
+    kirin_root: &Path,
+    candidate: &PreCandidate,
+    post_project_hash: &str,
+    post_daw_session_id: &str,
+    host_process_id: u32,
+) -> bool {
+    if !post_daw_session_id.is_empty() {
+        return candidate_matches_daw_session(candidate, post_daw_session_id);
+    }
+    if candidate.daw_session_id.is_some() {
+        return false;
+    }
+
+    candidate_belongs_to_project(candidate, post_project_hash)
+        || legacy_same_host_candidate_is_allowed(
+            kirin_root,
+            candidate,
+            post_project_hash,
+            post_daw_session_id,
+            host_process_id,
+        )
+}
+
 /// PRE candidates that the current POST can actually arm.
 ///
 /// The dropdown must not show a PRE that `Keep` will reject. Non-empty DAW session identity is the
@@ -134,15 +158,13 @@ pub fn enumerate_active_pre_pair_candidates_for_post_project_in_session(
     enumerate_active_pre_pair_candidates(kirin_root)
         .into_iter()
         .filter(|candidate| {
-            candidate_belongs_to_project(candidate, post_project_hash)
-                || candidate_matches_daw_session(candidate, post_daw_session_id)
-                || legacy_same_host_candidate_is_allowed(
-                    kirin_root,
-                    candidate,
-                    post_project_hash,
-                    post_daw_session_id,
-                    host_process_id,
-                )
+            candidate_is_in_post_scope(
+                kirin_root,
+                candidate,
+                post_project_hash,
+                post_daw_session_id,
+                host_process_id,
+            )
         })
         .collect()
 }
@@ -310,20 +332,36 @@ fn project_external_selection_is_guarded(
     post_daw_session_id: &str,
     host_process_id: u32,
 ) -> bool {
-    if selected_belongs_to_project(&scoped.selected, post_project_hash)
-        || selected_matches_daw_session(&scoped.selected, post_daw_session_id)
+    if !post_daw_session_id.is_empty() {
+        return !selected_matches_daw_session(&scoped.selected, post_daw_session_id);
+    }
+    if scoped.daw_session_id.is_some() {
+        return true;
+    }
+
+    !(selected_belongs_to_project(&scoped.selected, post_project_hash)
         || legacy_same_host_selection_is_allowed(
             kirin_root,
             scoped,
             post_project_hash,
             post_daw_session_id,
             host_process_id,
-        )
-    {
+        ))
+}
+
+fn selected_from_latch_is_in_post_scope(
+    selected: &SelectedPre,
+    post_project_hash: &str,
+    post_daw_session_id: &str,
+) -> bool {
+    if !post_daw_session_id.is_empty() {
+        return selected_matches_daw_session(selected, post_daw_session_id);
+    }
+    if selected.daw_session_id.is_some() {
         return false;
     }
 
-    true
+    selected_belongs_to_project(selected, post_project_hash)
 }
 
 fn select_unique_pre_unless_guarded(
@@ -580,9 +618,7 @@ fn selected_from_latch_for_post_project(
     latched: &Mutex<Option<LatchedPre>>,
 ) -> Option<SelectedPre> {
     let sel = selected_from_latch(pair_pre_name, latched)?;
-    if selected_belongs_to_project(&sel, post_project_hash)
-        || selected_matches_daw_session(&sel, post_daw_session_id)
-    {
+    if selected_from_latch_is_in_post_scope(&sel, post_project_hash, post_daw_session_id) {
         Some(sel)
     } else {
         None

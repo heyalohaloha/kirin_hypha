@@ -20,7 +20,7 @@
 //! # 受信側 polling (sub-tick)
 //! 1. [`scan_stop_broadcasts_dir`] で `{project_hash}/all_stop_signal/*.json` 全件読込
 //! 2. `daw_session_id` を主境界として filter。両側 nonempty なら不一致を拒否し、
-//!    片側欠落時のみ `host_process_id` を legacy bridge として使う。
+//!    両側欠落時のみ `host_process_id` を legacy bridge として使う。
 //! 3. memory cache `HashMap<originator_iid, started_at>` で既処理 skip
 //! 4. 新 broadcast 検出 → `trigger_stop_internal(toast=None)` 発火
 //!

@@ -4187,7 +4187,7 @@ mod post_candidate_tests {
     }
 
     #[test]
-    fn enumerate_for_broadcast_scope_keeps_same_host_legacy_no_daw_bridge() {
+    fn enumerate_for_broadcast_scope_rejects_legacy_no_daw_when_local_has_explicit_daw() {
         let root = unique_root("enum_broadcast_scope_legacy");
         let host_pid = 42_4242;
         let _ = write_post_json_with_daw_and_host(
@@ -4210,7 +4210,40 @@ mod post_candidate_tests {
             .iter()
             .filter_map(|c| c.pair_pre_name.as_deref())
             .collect();
-        assert_eq!(names, vec!["2Mix", "Drum"]);
+        assert_eq!(
+            names,
+            vec!["2Mix"],
+            "explicit local daw_session_id must not bridge to a legacy no-daw POST by host alone"
+        );
+    }
+
+    #[test]
+    fn enumerate_for_broadcast_scope_keeps_same_host_legacy_when_both_daw_absent() {
+        let root = unique_root("enum_broadcast_scope_legacy_empty");
+        let host_pid = 42_4242;
+        let _ =
+            write_legacy_post_json_with_host(&root, "pj-legacy-a", "post-2mix", "2Mix", host_pid);
+        let _ =
+            write_legacy_post_json_with_host(&root, "pj-legacy-b", "post-drum", "Drum", host_pid);
+        let _ = write_post_json_with_daw_and_host(
+            &root,
+            "pj-current",
+            "post-current",
+            "Music",
+            "daw-current",
+            host_pid,
+        );
+
+        let cands = enumerate_active_post_pair_candidates_for_broadcast_scope(&root, "", host_pid);
+        let names: Vec<_> = cands
+            .iter()
+            .filter_map(|c| c.pair_pre_name.as_deref())
+            .collect();
+        assert_eq!(
+            names,
+            vec!["2Mix", "Drum"],
+            "legacy host fallback is only valid when both sides lack explicit daw_session_id"
+        );
     }
 
     #[test]
