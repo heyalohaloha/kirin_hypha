@@ -76,19 +76,37 @@ fn empty_wav_path_is_invalid() {
 }
 
 #[test]
-fn consumed_metadata_is_not_armable_again() {
+fn consumed_marker_does_not_make_current_unarmable() {
     let base = isolated_dir();
     let metadata = metadata_fixture("bounce-consume");
     write_expected_metadata(&base, "ph", &metadata).unwrap();
     assert!(mark_expected_metadata_consumed(&base, "ph", "bounce-consume", "session-1").unwrap());
-    assert!(matches!(
-        read_expected_metadata(&base, "ph"),
-        Err(ExpectedMetadataError::Consumed)
-    ));
+    assert_eq!(read_expected_metadata(&base, "ph").unwrap(), metadata);
+    let claimed_sessions = claimed_session_ids_for_metadata(&base, "ph", &metadata).unwrap();
+    assert_eq!(claimed_sessions, vec!["session-1"]);
 }
 
 #[test]
-fn claim_expected_metadata_binds_current_json_to_record_batch_sessions() {
+fn legacy_consumed_fields_do_not_make_current_unarmable() {
+    let base = isolated_dir();
+    let mut metadata = metadata_fixture("bounce-legacy-consumed");
+    metadata.consumed_at_ms = Some(now_epoch_ms());
+    metadata.consumed_by_session_id = Some("legacy-session".to_string());
+    let path = expected_path(&base, "ph");
+    crate::atomic_file::write_bytes_atomic(&path, &serde_json::to_vec(&metadata).unwrap()).unwrap();
+
+    let mut expected = metadata.clone();
+    expected.consumed_at_ms = None;
+    expected.consumed_by_session_id = None;
+    assert_eq!(read_expected_metadata(&base, "ph").unwrap(), expected);
+    assert_eq!(
+        claim_expected_metadata_for_session(&base, "ph", "new-session").unwrap(),
+        expected
+    );
+}
+
+#[test]
+fn claim_expected_metadata_snapshots_current_without_consuming_it() {
     let base = isolated_dir();
     let metadata = metadata_fixture("bounce-claim");
     write_expected_metadata(&base, "ph", &metadata).unwrap();
@@ -97,10 +115,7 @@ fn claim_expected_metadata_binds_current_json_to_record_batch_sessions() {
     assert_eq!(claimed, metadata);
     assert!(claimed.consumed_at_ms.is_none());
     assert!(claimed.consumed_by_session_id.is_none());
-    assert!(matches!(
-        read_expected_metadata(&base, "ph"),
-        Err(ExpectedMetadataError::Consumed)
-    ));
+    assert_eq!(read_expected_metadata(&base, "ph").unwrap(), metadata);
 
     let same_session = claim_expected_metadata_for_session(&base, "ph", "session-claim").unwrap();
     assert_eq!(same_session, metadata);
@@ -111,6 +126,8 @@ fn claim_expected_metadata_binds_current_json_to_record_batch_sessions() {
     let stored = fs::read(expected_path(&base, "ph")).unwrap();
     let stored: ExpectedWavMetadata = serde_json::from_slice(&stored).unwrap();
     let claimed_sessions = claimed_session_ids(&stored);
+    assert!(claimed_sessions.is_empty());
+    let claimed_sessions = claimed_session_ids_for_metadata(&base, "ph", &stored).unwrap();
     assert_eq!(claimed_sessions, vec!["session-claim", "session-peer"]);
 }
 
@@ -130,6 +147,28 @@ fn newer_expected_generation_ignores_previous_claim_markers_for_same_wav() {
     assert_eq!(claimed, next);
     let claimed_sessions = claimed_session_ids_for_metadata(&base, "ph", &next).unwrap();
     assert_eq!(claimed_sessions, vec!["session-new"]);
+}
+
+#[test]
+fn claimed_session_returns_immutable_snapshot_after_current_overwrite() {
+    let base = isolated_dir();
+    let first = metadata_fixture("bounce-session-first");
+    let next = metadata_fixture("bounce-session-next");
+    write_expected_metadata(&base, "ph", &first).unwrap();
+
+    let claimed = claim_expected_metadata_for_session(&base, "ph", "stable-session").unwrap();
+    assert_eq!(claimed, first);
+    write_expected_metadata(&base, "ph", &next).unwrap();
+
+    assert_eq!(
+        claim_expected_metadata_for_session(&base, "ph", "stable-session").unwrap(),
+        first,
+        "once a session has a snapshot, later current.json generations must not retarget it"
+    );
+    assert_eq!(
+        claim_expected_metadata_for_session(&base, "ph", "next-session").unwrap(),
+        next
+    );
 }
 
 #[test]
@@ -157,8 +196,24 @@ fn concurrent_claim_markers_preserve_all_batch_sessions() {
         claimed_sessions,
         (0..8).map(|n| format!("session-{n}")).collect::<Vec<_>>()
     );
-    assert!(matches!(
-        read_expected_metadata(&base, "ph"),
-        Err(ExpectedMetadataError::Consumed)
-    ));
+    assert_eq!(read_expected_metadata(&base, "ph").unwrap(), metadata);
+}
+
+#[test]
+fn claim_expected_metadata_has_no_batch_size_cap() {
+    let base = isolated_dir();
+    let metadata = metadata_fixture("bounce-batch-no-cap");
+    write_expected_metadata(&base, "ph", &metadata).unwrap();
+
+    for n in 0..16 {
+        let session_id = format!("session-{n}");
+        assert_eq!(
+            claim_expected_metadata_for_session(&base, "ph", &session_id).unwrap(),
+            metadata
+        );
+    }
+
+    let claimed_sessions = claimed_session_ids_for_metadata(&base, "ph", &metadata).unwrap();
+    assert_eq!(claimed_sessions.len(), 16);
+    assert_eq!(read_expected_metadata(&base, "ph").unwrap(), metadata);
 }

@@ -86,6 +86,27 @@ struct PartnerInfo {
     daw_session_id: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ActiveWriterStopScope {
+    project_hash: String,
+    record_started_at_ms: i64,
+    paired_post_instance_id: Option<String>,
+    record_session_id: Option<String>,
+}
+
+fn active_writer_stop_scope(ctx: Option<&RecordingCtx>) -> Option<ActiveWriterStopScope> {
+    let data = ctx?.writer.data();
+    if data.project_hash.is_empty() || data.started_at_ms <= 0 {
+        return None;
+    }
+    Some(ActiveWriterStopScope {
+        project_hash: data.project_hash.clone(),
+        record_started_at_ms: data.started_at_ms,
+        paired_post_instance_id: data.paired_post_instance_id.clone(),
+        record_session_id: data.record_session_id.clone(),
+    })
+}
+
 fn signal_started_at_ms(signal: &record_signal::RecordSignal) -> i64 {
     parse_iso8601_to_epoch_ms(&signal.started_at).unwrap_or(0)
 }
@@ -165,6 +186,21 @@ fn all_stop_authorizes_pre_stop(
     }
     let stop_started_at_ms = parse_iso8601_to_epoch_ms(&broadcast.started_at).unwrap_or(0);
     record_started_at_ms > 0 && stop_started_at_ms >= record_started_at_ms
+}
+
+fn all_stop_authorizes_active_writer_stop(
+    broadcast: &all_stop_signal::AllStopBroadcast,
+    scope: &ActiveWriterStopScope,
+    now: chrono::DateTime<chrono::Utc>,
+) -> bool {
+    if all_stop_signal::is_stop_broadcast_stale(broadcast, now, ALL_STOP_BROADCAST_STALE_SECS) {
+        return false;
+    }
+    if broadcast.host_process_id == 0 || broadcast.host_process_id != current_host_process_id() {
+        return false;
+    }
+    let stop_started_at_ms = parse_iso8601_to_epoch_ms(&broadcast.started_at).unwrap_or(0);
+    scope.record_started_at_ms > 0 && stop_started_at_ms >= scope.record_started_at_ms
 }
 
 fn all_stop_scan_project_hashes(primary_project_hash: &str, partner: &PartnerInfo) -> Vec<String> {
@@ -265,6 +301,69 @@ fn poll_all_stop_signal_at(
         record_acknowledged,
         partner,
         now,
+    )
+}
+
+fn poll_all_stop_signal_for_active_writer_at(
+    base: &Path,
+    scope: Option<&ActiveWriterStopScope>,
+    record_sm: &Arc<RecordStateMachine>,
+    recording: &Arc<AtomicBool>,
+    record_acknowledged: &Arc<AtomicBool>,
+    partner: &mut Option<PartnerInfo>,
+    now: chrono::DateTime<chrono::Utc>,
+) -> bool {
+    if !record_sm.is_recording() {
+        return false;
+    }
+    let Some(scope) = scope else {
+        return false;
+    };
+
+    let Some((originator_iid, stop_started_at)) =
+        all_stop_signal::scan_stop_broadcasts_dir(base, &scope.project_hash)
+            .into_iter()
+            .find_map(|(originator_iid, broadcast)| {
+                all_stop_authorizes_active_writer_stop(&broadcast, scope, now)
+                    .then_some((originator_iid, broadcast.started_at))
+            })
+    else {
+        return false;
+    };
+
+    record_sm.exit_record();
+    recording.store(false, Ordering::Relaxed);
+    record_acknowledged.store(false, Ordering::Relaxed);
+    *partner = None;
+    log::info!(
+        "[all_stop PRE] active writer fallback authorized broadcast, PRE exiting Record \
+         (project_hash={}, originator={}, paired_post={:?}, session={:?}, started_at={})",
+        scope.project_hash,
+        originator_iid,
+        scope.paired_post_instance_id.as_deref(),
+        scope.record_session_id.as_deref(),
+        stop_started_at
+    );
+    true
+}
+
+fn poll_all_stop_signal_for_active_writer(
+    base: &Path,
+    ctx: Option<&RecordingCtx>,
+    record_sm: &Arc<RecordStateMachine>,
+    recording: &Arc<AtomicBool>,
+    record_acknowledged: &Arc<AtomicBool>,
+    partner: &mut Option<PartnerInfo>,
+) -> bool {
+    let scope = active_writer_stop_scope(ctx);
+    poll_all_stop_signal_for_active_writer_at(
+        base,
+        scope.as_ref(),
+        record_sm,
+        recording,
+        record_acknowledged,
+        partner,
+        chrono::Utc::now(),
     )
 }
 
@@ -697,9 +796,17 @@ pub fn spawn_io_thread_pre(
                 let stopped_by_all_stop = StoragePaths::default_platform()
                     .ok()
                     .map(|paths| {
+                        let base = paths.plugin_data_dir();
                         poll_all_stop_signal(
-                            &paths.plugin_data_dir(),
+                            &base,
                             effective_project_hash_ref,
+                            &record_sm,
+                            &recording,
+                            &record_acknowledged,
+                            &mut partner,
+                        ) || poll_all_stop_signal_for_active_writer(
+                            &base,
+                            writer_ctx.as_ref(),
                             &record_sm,
                             &recording,
                             &record_acknowledged,
@@ -723,9 +830,17 @@ pub fn spawn_io_thread_pre(
                         &signal_state,
                     );
                     if let Ok(paths) = StoragePaths::default_platform() {
+                        let base = paths.plugin_data_dir();
                         let _ = poll_all_stop_signal(
-                            &paths.plugin_data_dir(),
+                            &base,
                             effective_project_hash_ref,
+                            &record_sm,
+                            &recording,
+                            &record_acknowledged,
+                            &mut partner,
+                        ) || poll_all_stop_signal_for_active_writer(
+                            &base,
+                            writer_ctx.as_ref(),
                             &record_sm,
                             &recording,
                             &record_acknowledged,
@@ -2965,6 +3080,155 @@ mod tests {
         assert!(!recording.load(Ordering::Relaxed));
         assert!(!ack.load(Ordering::Relaxed));
         assert!(partner.is_none());
+    }
+
+    #[test]
+    fn active_writer_all_stop_stops_pre_without_partner() {
+        let base = isolated_base();
+        write_matching_pending(&base, "post-1");
+        let sm = Arc::new(RecordStateMachine::new());
+        let recording = Arc::new(AtomicBool::new(false));
+        let ack = Arc::new(AtomicBool::new(false));
+        let license = Arc::new(License::Os);
+        let mut partner = None;
+        poll_with_base(
+            &base,
+            &sm,
+            &recording,
+            &ack,
+            &license,
+            &mut partner,
+            TEST_PRE_IID,
+        );
+        assert_eq!(sm.current(), RecordState::Record);
+        assert!(recording.load(Ordering::Relaxed));
+        assert!(ack.load(Ordering::Relaxed));
+
+        partner = None;
+        let scope = ActiveWriterStopScope {
+            project_hash: TEST_PH.to_string(),
+            record_started_at_ms: sm.record_started_at_ms(),
+            paired_post_instance_id: Some("post-1".to_string()),
+            record_session_id: Some("session-post-1".to_string()),
+        };
+        write_all_stop_broadcast_for_project_at_with_host(
+            &base,
+            TEST_PH,
+            "post-origin",
+            "other-daw-session",
+            current_host_process_id(),
+            "2026-07-05T00:00:01Z",
+        );
+
+        let stopped = poll_all_stop_signal_for_active_writer_at(
+            &base,
+            Some(&scope),
+            &sm,
+            &recording,
+            &ack,
+            &mut partner,
+            chrono_utc("2026-07-05T00:00:02Z"),
+        );
+
+        assert!(
+            stopped,
+            "active writer state must be enough to honor All Stop after partner loss"
+        );
+        assert_eq!(sm.current(), RecordState::Watch);
+        assert!(!recording.load(Ordering::Relaxed));
+        assert!(!ack.load(Ordering::Relaxed));
+        assert!(partner.is_none());
+    }
+
+    #[test]
+    fn active_writer_all_stop_ignores_broadcast_before_record_start() {
+        let base = isolated_base();
+        let sm = Arc::new(RecordStateMachine::new());
+        sm.try_enter_record_started_at(
+            License::Os,
+            parse_iso8601_to_epoch_ms("2026-07-05T00:00:01Z").unwrap(),
+        )
+        .unwrap();
+        let recording = Arc::new(AtomicBool::new(true));
+        let ack = Arc::new(AtomicBool::new(true));
+        let mut partner = None;
+        let scope = ActiveWriterStopScope {
+            project_hash: TEST_PH.to_string(),
+            record_started_at_ms: sm.record_started_at_ms(),
+            paired_post_instance_id: Some("post-1".to_string()),
+            record_session_id: Some("session-post-1".to_string()),
+        };
+        write_all_stop_broadcast_for_project_at_with_host(
+            &base,
+            TEST_PH,
+            "post-origin",
+            TEST_DAW,
+            current_host_process_id(),
+            "2026-07-05T00:00:00Z",
+        );
+
+        let stopped = poll_all_stop_signal_for_active_writer_at(
+            &base,
+            Some(&scope),
+            &sm,
+            &recording,
+            &ack,
+            &mut partner,
+            chrono_utc("2026-07-05T00:00:02Z"),
+        );
+
+        assert!(!stopped, "older All Stop must not close a newer writer");
+        assert_eq!(sm.current(), RecordState::Record);
+        assert!(recording.load(Ordering::Relaxed));
+        assert!(ack.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn active_writer_all_stop_ignores_other_host_process() {
+        let base = isolated_base();
+        let sm = Arc::new(RecordStateMachine::new());
+        sm.try_enter_record_started_at(
+            License::Os,
+            parse_iso8601_to_epoch_ms("2026-07-05T00:00:00Z").unwrap(),
+        )
+        .unwrap();
+        let recording = Arc::new(AtomicBool::new(true));
+        let ack = Arc::new(AtomicBool::new(true));
+        let mut partner = None;
+        let scope = ActiveWriterStopScope {
+            project_hash: TEST_PH.to_string(),
+            record_started_at_ms: sm.record_started_at_ms(),
+            paired_post_instance_id: Some("post-1".to_string()),
+            record_session_id: Some("session-post-1".to_string()),
+        };
+        let host = current_host_process_id();
+        let other_host = if host == u32::MAX { host - 1 } else { host + 1 };
+        write_all_stop_broadcast_for_project_at_with_host(
+            &base,
+            TEST_PH,
+            "post-origin",
+            TEST_DAW,
+            other_host,
+            "2026-07-05T00:00:01Z",
+        );
+
+        let stopped = poll_all_stop_signal_for_active_writer_at(
+            &base,
+            Some(&scope),
+            &sm,
+            &recording,
+            &ack,
+            &mut partner,
+            chrono_utc("2026-07-05T00:00:02Z"),
+        );
+
+        assert!(
+            !stopped,
+            "All Stop from a different host process is not authority"
+        );
+        assert_eq!(sm.current(), RecordState::Record);
+        assert!(recording.load(Ordering::Relaxed));
+        assert!(ack.load(Ordering::Relaxed));
     }
 
     #[test]

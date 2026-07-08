@@ -1,10 +1,12 @@
 //! Expected WAV metadata bridge for PairRecordSession.
 //!
-//! Kirin OS owns the dropped/exported WAV header truth. Hypha uses that truth
-//! from `plugin_data/{project_hash}/record_expected/current.json`, copies it
-//! into `record_signal`, and then into final plugin_data artifacts when
-//! available. Missing metadata does not block Keep; final artifacts without this
-//! trust anchor are explicitly marked as usable fallback rather than complete.
+//! Kirin OS owns the dropped/exported WAV header truth. Hypha snapshots that
+//! truth from `plugin_data/{project_hash}/record_expected/current.json` into
+//! `record_signal`, then into final plugin_data artifacts when available.
+//! `current.json` is never consumed by claim; each `session_id` gets an immutable
+//! claim snapshot so close-time recovery cannot be pulled onto a later bounce.
+//! Missing metadata does not block Keep; final artifacts without this trust
+//! anchor are explicitly marked as usable fallback rather than complete.
 
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -15,10 +17,11 @@ pub const EXPECTED_SUBDIR: &str = "record_expected";
 pub const EXPECTED_FILENAME: &str = "current.json";
 pub const EXPECTED_METADATA_MAX_AGE_MS: i64 = 10 * 60 * 1_000;
 const EXPECTED_METADATA_FUTURE_SKEW_MS: i64 = 60 * 1_000;
-const EXPECTED_METADATA_MAX_SHARED_CLAIMS: usize = 12;
 const EXPECTED_CLAIMS_SUBDIR: &str = "claims";
-const EXPECTED_METADATA_SESSION_SEPARATOR: char = '\n';
+const EXPECTED_CLAIMS_BY_SESSION_SUBDIR: &str = "by_session";
 const EXPECTED_CLAIM_SCHEMA: &str = "1.0";
+#[cfg(test)]
+const EXPECTED_METADATA_SESSION_SEPARATOR: char = '\n';
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExpectedWavMetadata {
@@ -49,6 +52,8 @@ struct ExpectedWavClaimMarker {
     created_at_ms: i64,
     wav_hash: String,
     claimed_at_ms: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    metadata: Option<ExpectedWavMetadata>,
 }
 
 impl ExpectedWavMetadata {
@@ -100,6 +105,8 @@ pub enum ExpectedMetadataError {
     Serde(serde_json::Error),
     Invalid,
     Stale,
+    /// Legacy/current metadata was explicitly unavailable. New claim paths keep
+    /// `current.json` immutable and should not emit this for claim races.
     Consumed,
 }
 
@@ -150,15 +157,10 @@ pub fn read_expected_metadata(
     let metadata: ExpectedWavMetadata = serde_json::from_slice(&bytes)?;
     if !metadata.is_complete() {
         Err(ExpectedMetadataError::Invalid)
-    } else if metadata.consumed_at_ms.is_some()
-        || metadata.consumed_by_session_id.is_some()
-        || !claimed_session_ids_for_metadata(base_dir, project_hash, &metadata)?.is_empty()
-    {
-        Err(ExpectedMetadataError::Consumed)
-    } else if !metadata.is_fresh_for_arm(now_epoch_ms()) {
+    } else if !metadata.is_fresh_complete_for_arm(now_epoch_ms()) {
         Err(ExpectedMetadataError::Stale)
     } else {
-        Ok(metadata)
+        Ok(metadata.without_consumed_marker())
     }
 }
 
@@ -185,9 +187,12 @@ pub fn claim_expected_metadata_for_session(
     if session_id.is_empty() {
         return Err(ExpectedMetadataError::Invalid);
     }
+    if let Some(metadata) = read_claimed_metadata_for_session(base_dir, project_hash, session_id)? {
+        return Ok(metadata);
+    }
     let path = expected_path(base_dir, project_hash);
     let bytes = fs::read(&path)?;
-    let mut metadata: ExpectedWavMetadata = serde_json::from_slice(&bytes)?;
+    let metadata: ExpectedWavMetadata = serde_json::from_slice(&bytes)?;
     if !metadata.is_complete() {
         return Err(ExpectedMetadataError::Invalid);
     }
@@ -195,42 +200,8 @@ pub fn claim_expected_metadata_for_session(
     if !metadata.is_fresh_complete_for_arm(now_ms) {
         return Err(ExpectedMetadataError::Stale);
     }
-    let claimed_before = claimed_session_ids_for_metadata(base_dir, project_hash, &metadata)?;
-    if metadata.consumed_at_ms.is_some()
-        || metadata.consumed_by_session_id.is_some()
-        || !claimed_before.is_empty()
-    {
-        if claimed_before.iter().any(|existing| existing == session_id) {
-            return Ok(metadata.without_consumed_marker());
-        }
-        if claimed_before.is_empty() || claimed_before.len() >= EXPECTED_METADATA_MAX_SHARED_CLAIMS
-        {
-            return Err(ExpectedMetadataError::Consumed);
-        }
-    }
     let artifact_metadata = metadata.clone().without_consumed_marker();
     write_claim_marker(base_dir, project_hash, &metadata, session_id, now_ms)?;
-    let mut session_ids = claimed_session_ids_for_metadata(base_dir, project_hash, &metadata)?;
-    if session_ids.len() > EXPECTED_METADATA_MAX_SHARED_CLAIMS {
-        let accepted = session_ids
-            .iter()
-            .take(EXPECTED_METADATA_MAX_SHARED_CLAIMS)
-            .any(|existing| existing == session_id);
-        if !accepted {
-            let _ = fs::remove_file(expected_claim_marker_path(
-                base_dir,
-                project_hash,
-                &metadata,
-                session_id,
-            ));
-            return Err(ExpectedMetadataError::Consumed);
-        }
-        session_ids.truncate(EXPECTED_METADATA_MAX_SHARED_CLAIMS);
-    }
-    metadata.consumed_at_ms = metadata.consumed_at_ms.or(Some(now_ms));
-    metadata.consumed_by_session_id = Some(join_session_ids(&session_ids));
-    let json = serde_json::to_vec(&metadata)?;
-    crate::atomic_file::write_bytes_atomic(&path, &json)?;
     Ok(artifact_metadata)
 }
 
@@ -245,7 +216,7 @@ pub fn mark_expected_metadata_consumed(
     }
     let path = expected_path(base_dir, project_hash);
     let bytes = fs::read(&path)?;
-    let mut metadata: ExpectedWavMetadata = serde_json::from_slice(&bytes)?;
+    let metadata: ExpectedWavMetadata = serde_json::from_slice(&bytes)?;
     if metadata.bounce_id != bounce_id {
         return Ok(false);
     }
@@ -256,14 +227,6 @@ pub fn mark_expected_metadata_consumed(
         session_id.trim(),
         now_epoch_ms(),
     )?;
-    let mut session_ids = claimed_session_ids_for_metadata(base_dir, project_hash, &metadata)?;
-    if session_ids.len() > EXPECTED_METADATA_MAX_SHARED_CLAIMS {
-        session_ids.truncate(EXPECTED_METADATA_MAX_SHARED_CLAIMS);
-    }
-    metadata.consumed_at_ms = metadata.consumed_at_ms.or(Some(now_epoch_ms()));
-    metadata.consumed_by_session_id = Some(join_session_ids(&session_ids));
-    let json = serde_json::to_vec(&metadata)?;
-    crate::atomic_file::write_bytes_atomic(&path, &json)?;
     Ok(true)
 }
 
@@ -296,6 +259,49 @@ fn expected_claim_marker_path(
     expected_claims_generation_dir(base_dir, project_hash, metadata).join(format!("{session}.json"))
 }
 
+fn expected_session_claim_marker_path(
+    base_dir: &Path,
+    project_hash: &str,
+    session_id: &str,
+) -> PathBuf {
+    let session =
+        crate::path_identity::guard_path_component(session_id, "record_expected.claims.session_id");
+    expected_dir(base_dir, project_hash)
+        .join(EXPECTED_CLAIMS_SUBDIR)
+        .join(EXPECTED_CLAIMS_BY_SESSION_SUBDIR)
+        .join(format!("{session}.json"))
+}
+
+fn read_claimed_metadata_for_session(
+    base_dir: &Path,
+    project_hash: &str,
+    session_id: &str,
+) -> Result<Option<ExpectedWavMetadata>, ExpectedMetadataError> {
+    let path = expected_session_claim_marker_path(base_dir, project_hash, session_id);
+    let bytes = match fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(ExpectedMetadataError::Io(e)),
+    };
+    let marker: ExpectedWavClaimMarker = serde_json::from_slice(&bytes)?;
+    if marker.schema_version != EXPECTED_CLAIM_SCHEMA || marker.session_id != session_id {
+        return Ok(None);
+    }
+    let Some(metadata) = marker.metadata else {
+        return Ok(None);
+    };
+    let metadata = metadata.without_consumed_marker();
+    let expected_hash = metadata.wav_hash.as_deref().unwrap_or("");
+    if !metadata.is_complete()
+        || marker.bounce_id != metadata.bounce_id
+        || marker.created_at_ms != metadata.created_at_ms
+        || marker.wav_hash != expected_hash
+    {
+        return Ok(None);
+    }
+    Ok(Some(metadata))
+}
+
 fn write_claim_marker(
     base_dir: &Path,
     project_hash: &str,
@@ -310,13 +316,17 @@ fn write_claim_marker(
         created_at_ms: metadata.created_at_ms,
         wav_hash: metadata.wav_hash.clone().unwrap_or_default(),
         claimed_at_ms,
+        metadata: Some(metadata.clone().without_consumed_marker()),
     };
-    let path = expected_claim_marker_path(base_dir, project_hash, metadata, session_id);
     let json = serde_json::to_vec(&marker)?;
+    let session_path = expected_session_claim_marker_path(base_dir, project_hash, session_id);
+    crate::atomic_file::write_bytes_atomic(&session_path, &json)?;
+    let path = expected_claim_marker_path(base_dir, project_hash, metadata, session_id);
     crate::atomic_file::write_bytes_atomic(&path, &json)?;
     Ok(())
 }
 
+#[cfg(test)]
 fn claimed_session_ids(metadata: &ExpectedWavMetadata) -> Vec<String> {
     metadata
         .consumed_by_session_id
@@ -329,6 +339,7 @@ fn claimed_session_ids(metadata: &ExpectedWavMetadata) -> Vec<String> {
         .collect()
 }
 
+#[cfg(test)]
 fn claimed_session_ids_for_metadata(
     base_dir: &Path,
     project_hash: &str,
@@ -367,14 +378,11 @@ fn claimed_session_ids_for_metadata(
     Ok(sorted_unique(session_ids))
 }
 
+#[cfg(test)]
 fn sorted_unique(mut session_ids: Vec<String>) -> Vec<String> {
     session_ids.sort();
     session_ids.dedup();
     session_ids
-}
-
-fn join_session_ids(session_ids: &[String]) -> String {
-    session_ids.join(&EXPECTED_METADATA_SESSION_SEPARATOR.to_string())
 }
 
 #[cfg(test)]

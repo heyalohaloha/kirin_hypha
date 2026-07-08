@@ -90,7 +90,7 @@ fn write_pending_with_clock_persists_native_start_position() {
 }
 
 #[test]
-fn write_pending_claiming_expected_consumes_current_for_session() {
+fn write_pending_claiming_expected_snapshots_current_for_session() {
     let base = isolated_dir();
     let expected = crate::record_expected::ExpectedWavMetadata {
         expected_duration_samples: 48_000,
@@ -118,10 +118,10 @@ fn write_pending_claiming_expected_consumes_current_for_session() {
 
     assert_eq!(s.expected_wav.as_ref(), Some(&expected));
     assert_eq!(s.started_at_position_samples, Some(96_000));
-    assert!(matches!(
-        crate::record_expected::read_expected_metadata(&base, "ph"),
-        Err(crate::record_expected::ExpectedMetadataError::Consumed)
-    ));
+    assert_eq!(
+        crate::record_expected::read_expected_metadata(&base, "ph").unwrap(),
+        expected
+    );
     let loaded = read_signal(&base, "ph", "post-1").unwrap();
     assert_eq!(loaded.expected_wav.as_ref(), Some(&expected));
 }

@@ -1721,6 +1721,48 @@ fn pair_publish_failure_reasons(
     if post.paired_pre_instance_id.as_deref() != Some(pre.instance_id.as_str()) {
         reasons.push("pair_post_pre_link_mismatch");
     }
+    reasons.extend(pair_publish_consistency_failure_reasons(pre, post));
+    dedup_reasons(reasons)
+}
+
+fn trace_publish_failure_reasons(data: &PluginDataFile) -> Vec<&'static str> {
+    let mut reasons = Vec::new();
+    match &data.trace_diagnostics {
+        Some(diag) => {
+            if diag.missing_slots > 0 {
+                reasons.push("missing_trace_slots");
+            }
+            if diag.measured_frame_count != diag.expected_frame_count {
+                reasons.push("trace_frame_count_mismatch");
+            }
+        }
+        None => reasons.push("missing_trace_diagnostics"),
+    }
+    dedup_reasons(reasons)
+}
+
+fn pair_publish_consistency_failure_reasons(
+    pre: &PluginDataFile,
+    post: &PluginDataFile,
+) -> Vec<&'static str> {
+    let mut reasons = trace_publish_failure_reasons(pre);
+    reasons.extend(trace_publish_failure_reasons(post));
+    if pre.expected_wav != post.expected_wav {
+        reasons.push("pair_expected_wav_mismatch");
+    }
+    if let (Some(pre_take), Some(post_take)) = (&pre.bounce_take, &post.bounce_take) {
+        if pre_take.duration_samples != post_take.duration_samples {
+            reasons.push("pair_bounce_take_duration_mismatch");
+        }
+    }
+    if let (Some(pre_diag), Some(post_diag)) = (&pre.trace_diagnostics, &post.trace_diagnostics) {
+        if pre_diag.expected_frame_count != post_diag.expected_frame_count {
+            reasons.push("pair_trace_expected_frame_count_mismatch");
+        }
+        if pre_diag.measured_frame_count != post_diag.measured_frame_count {
+            reasons.push("pair_trace_measured_frame_count_mismatch");
+        }
+    }
     dedup_reasons(reasons)
 }
 
@@ -1741,9 +1783,6 @@ fn pair_publish_integrity_reasons(
     if let (Some(pre_take), Some(post_take)) = (&pre.bounce_take, &post.bounce_take) {
         if pre_take.duration_samples != post_take.duration_samples {
             reasons.push("pair_bounce_take_duration_mismatch");
-        }
-        if pre_take.duration_frames_48k != post_take.duration_frames_48k {
-            reasons.push("pair_bounce_take_frame_count_mismatch");
         }
     }
     if let (Some(pre_diag), Some(post_diag)) = (&pre.trace_diagnostics, &post.trace_diagnostics) {
@@ -2744,10 +2783,15 @@ mod tests {
         assert!(manifest.contains("iid-pre-atomic"));
         assert!(manifest.contains("iid-post-atomic"));
         assert!(manifest.contains(PAIR_RECORD_MEMBERS_DIR));
-        assert!(matches!(
-            crate::record_expected::read_expected_metadata(&base, "project_hash_test"),
-            Err(crate::record_expected::ExpectedMetadataError::Consumed)
-        ));
+        let stored_expected: ExpectedWavMetadata = serde_json::from_slice(
+            &fs::read(crate::record_expected::expected_path(
+                &base,
+                "project_hash_test",
+            ))
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(stored_expected, expected_wav_fixture());
     }
 
     #[test]
@@ -2966,7 +3010,7 @@ mod tests {
     }
 
     #[test]
-    fn pair_finalize_commits_missing_trace_slots_as_degraded_trace() {
+    fn pair_finalize_quarantines_missing_trace_slots() {
         let base = isolated_dir();
         let mut pre = complete_pair_writer(
             &base,
@@ -3006,27 +3050,19 @@ mod tests {
         try_finalize_pair_session(&pre.paths, &pre.data).unwrap();
 
         let manifest_path = pair_commit_manifest_path(&pre.paths, &pre.data).unwrap();
-        let pre_trace_path = pair_trace_shelf_path(&pre_paths, &pre.data).unwrap();
-        let post_trace_path = pair_trace_shelf_path(&post_paths, &post.data).unwrap();
-        assert!(manifest_path.exists());
-        assert!(pre_paths.member_path.exists());
-        assert!(post_paths.member_path.exists());
-        assert!(pre_trace_path.exists());
-        assert!(post_trace_path.exists());
-        assert!(!pre_paths.failed_path.exists());
-        assert!(!post_paths.failed_path.exists());
+        assert!(!manifest_path.exists());
+        assert!(!pre_paths.member_path.exists());
+        assert!(!post_paths.member_path.exists());
+        assert!(pre_paths.failed_path.exists());
+        assert!(post_paths.failed_path.exists());
 
         let pre_data: PluginDataFile =
-            serde_json::from_slice(&fs::read(&pre_paths.member_path).unwrap()).unwrap();
+            serde_json::from_slice(&fs::read(&pre_paths.failed_path).unwrap()).unwrap();
         let post_data: PluginDataFile =
-            serde_json::from_slice(&fs::read(&post_paths.member_path).unwrap()).unwrap();
-        let pre_trace_data: PluginDataFile =
-            serde_json::from_slice(&fs::read(&pre_trace_path).unwrap()).unwrap();
-        let post_trace_data: PluginDataFile =
-            serde_json::from_slice(&fs::read(&post_trace_path).unwrap()).unwrap();
-        for data in [&pre_data, &post_data, &pre_trace_data, &post_trace_data] {
-            assert_eq!(data.commit_status.as_deref(), Some("committed"));
-            assert!(data.validity);
+            serde_json::from_slice(&fs::read(&post_paths.failed_path).unwrap()).unwrap();
+        for data in [&pre_data, &post_data] {
+            assert_eq!(data.commit_status.as_deref(), Some("failed"));
+            assert!(!data.validity);
             assert!(data.integrity_degraded);
             assert!(data
                 .integrity_reasons
@@ -3048,6 +3084,119 @@ mod tests {
             assert_eq!(quality.missing_trace_slots, 31);
             assert!(verify_checksum(data));
         }
+    }
+
+    #[test]
+    fn pair_finalize_quarantines_duration_mismatched_pair() {
+        let base = isolated_dir();
+        let mut pre = complete_pair_writer(
+            &base,
+            Role::Pre,
+            "iid-pre-duration-mismatch",
+            None,
+            Some("iid-post-duration-mismatch".to_string()),
+        );
+        let mut post = complete_pair_writer(
+            &base,
+            Role::Post,
+            "iid-post-duration-mismatch",
+            Some("iid-pre-duration-mismatch".to_string()),
+            None,
+        );
+        post.set_bounce_take(BounceTake {
+            source: "expected_wav_duration_native".to_string(),
+            time_axis: "native_samples".to_string(),
+            alignment_status: "sample_count_ready".to_string(),
+            sample_rate: 48_000,
+            wav_start_sample: 0,
+            wav_end_sample: 96_000,
+            duration_samples: 96_000,
+            duration_frames_48k: 96_000,
+            start_t_ms: 0,
+            end_t_ms: 2_000,
+            trace_sample_count: 2,
+            frame_count: 2,
+        });
+        pre.data.status = Status::Closed;
+        pre.data.commit_status = Some("pair_pending".to_string());
+        post.data.status = Status::Closed;
+        post.data.commit_status = Some("pair_pending".to_string());
+
+        let pre_paths = self_paths_for(&pre.paths, &pre.data);
+        let post_paths = self_paths_for(&post.paths, &post.data);
+        pre.write_atomic(pre_paths.pair_pending_path.clone())
+            .unwrap();
+        post.write_atomic(post_paths.pair_pending_path.clone())
+            .unwrap();
+
+        try_finalize_pair_session(&pre.paths, &pre.data).unwrap();
+
+        let manifest_path = pair_commit_manifest_path(&pre.paths, &pre.data).unwrap();
+        assert!(!manifest_path.exists());
+        assert!(!pre_paths.member_path.exists());
+        assert!(!post_paths.member_path.exists());
+        assert!(pre_paths.failed_path.exists());
+        assert!(post_paths.failed_path.exists());
+
+        let pre_data: PluginDataFile =
+            serde_json::from_slice(&fs::read(&pre_paths.failed_path).unwrap()).unwrap();
+        let post_data: PluginDataFile =
+            serde_json::from_slice(&fs::read(&post_paths.failed_path).unwrap()).unwrap();
+        for data in [&pre_data, &post_data] {
+            assert_eq!(data.commit_status.as_deref(), Some("failed"));
+            assert!(!data.validity);
+            assert!(data
+                .integrity_reasons
+                .iter()
+                .any(|reason| reason == "pair_bounce_take_duration_mismatch"));
+            assert!(verify_checksum(data));
+        }
+    }
+
+    #[test]
+    fn pair_finalize_allows_derived_48k_frame_count_mismatch() {
+        let base = isolated_dir();
+        let mut pre = complete_pair_writer(
+            &base,
+            Role::Pre,
+            "iid-pre-frame-count-mismatch",
+            None,
+            Some("iid-post-frame-count-mismatch".to_string()),
+        );
+        let mut post = complete_pair_writer(
+            &base,
+            Role::Post,
+            "iid-post-frame-count-mismatch",
+            Some("iid-pre-frame-count-mismatch".to_string()),
+            None,
+        );
+        let mut post_take = post.data.bounce_take.clone().expect("post bounce_take");
+        post_take.duration_frames_48k = post_take.duration_frames_48k.saturating_add(4096);
+        post.set_bounce_take(post_take);
+        pre.data.status = Status::Closed;
+        pre.data.commit_status = Some("pair_pending".to_string());
+        post.data.status = Status::Closed;
+        post.data.commit_status = Some("pair_pending".to_string());
+
+        let pre_paths = self_paths_for(&pre.paths, &pre.data);
+        let post_paths = self_paths_for(&post.paths, &post.data);
+        pre.write_atomic(pre_paths.pair_pending_path.clone())
+            .unwrap();
+        post.write_atomic(post_paths.pair_pending_path.clone())
+            .unwrap();
+
+        try_finalize_pair_session(&pre.paths, &pre.data).unwrap();
+
+        let manifest_path = pair_commit_manifest_path(&pre.paths, &pre.data).unwrap();
+        let pre_trace_path = pair_trace_shelf_path(&pre_paths, &pre.data).unwrap();
+        let post_trace_path = pair_trace_shelf_path(&post_paths, &post.data).unwrap();
+        assert!(manifest_path.exists());
+        assert!(pre_paths.member_path.exists());
+        assert!(post_paths.member_path.exists());
+        assert!(pre_trace_path.exists());
+        assert!(post_trace_path.exists());
+        assert!(!pre_paths.failed_path.exists());
+        assert!(!post_paths.failed_path.exists());
     }
 
     #[test]

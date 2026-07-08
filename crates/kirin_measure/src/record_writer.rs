@@ -112,8 +112,6 @@ impl RecordTraceSample {
     ) -> Self {
         let result = if observed_silence_floor && !measure_has_core_metrics(&result) {
             with_trace_silence_core(result)
-        } else if !measure_has_core_metrics(&result) && measure_has_any_core_metric(&result) {
-            complete_missing_trace_core(result)
         } else {
             result
         };
@@ -427,16 +425,35 @@ pub fn resolve_expected_wav_metadata(
     project_hash: &str,
     post_instance_id: &str,
 ) -> Option<ExpectedWavMetadata> {
-    let signal = record_signal::read_signal(base, project_hash, post_instance_id)?;
-    if let Some(expected) = signal.expected_wav.filter(ExpectedWavMetadata::is_usable) {
+    resolve_expected_wav_metadata_for_session(base, project_hash, Some(post_instance_id), None)
+}
+
+fn resolve_expected_wav_metadata_for_session(
+    base: &std::path::Path,
+    project_hash: &str,
+    post_instance_id: Option<&str>,
+    fallback_session_id: Option<&str>,
+) -> Option<ExpectedWavMetadata> {
+    let signal = post_instance_id
+        .and_then(|post_iid| record_signal::read_signal(base, project_hash, post_iid));
+    if let Some(expected) = signal.as_ref().and_then(|signal| {
+        signal
+            .expected_wav
+            .clone()
+            .filter(ExpectedWavMetadata::is_usable)
+    }) {
         return Some(expected);
     }
-    crate::record_expected::claim_expected_metadata_for_session(
-        base,
-        project_hash,
-        &signal.session_id,
-    )
-    .ok()
+
+    let signal_session_id = signal
+        .as_ref()
+        .map(|signal| signal.session_id.trim())
+        .filter(|session_id| !session_id.is_empty());
+    let fallback_session_id = fallback_session_id
+        .map(str::trim)
+        .filter(|session_id| !session_id.is_empty());
+    let session_id = signal_session_id.or(fallback_session_id)?;
+    crate::record_expected::claim_expected_metadata_for_session(base, project_hash, session_id).ok()
 }
 
 /// Record 開始: `PluginDataWriter` を生成し、空ファイルで初回 flush する。
@@ -611,7 +628,13 @@ fn refresh_pair_record_metadata_from_base(
         ctx.writer.set_record_session_id(session_id);
     }
     if ctx.writer.data().expected_wav.is_none() {
-        let expected_wav = resolve_expected_wav_metadata(base, &project_hash, post_instance_id);
+        let record_session_id = ctx.writer.data().record_session_id.clone();
+        let expected_wav = resolve_expected_wav_metadata_for_session(
+            base,
+            &project_hash,
+            Some(post_instance_id),
+            record_session_id.as_deref(),
+        );
         ctx.writer.set_expected_wav(expected_wav);
     }
 }
@@ -943,41 +966,10 @@ fn measure_has_core_metrics(m: &MeasureResult) -> bool {
     m.lufs_m.is_some() && m.true_peak.is_some() && m.crest.is_some()
 }
 
-fn measure_has_any_core_metric(m: &MeasureResult) -> bool {
-    m.lufs_m.is_some() || m.true_peak.is_some() || m.crest.is_some()
-}
-
 fn with_trace_silence_core(mut result: MeasureResult) -> MeasureResult {
     result.lufs_m = Some(TRACE_SILENCE_LUFS);
     result.true_peak = Some(TRACE_SILENCE_TRUE_PEAK_DBTP);
     result.crest = Some(TRACE_SILENCE_CREST_DB);
-    result
-}
-
-fn complete_missing_trace_core(mut result: MeasureResult) -> MeasureResult {
-    let original_lufs_m = result.lufs_m;
-    let original_true_peak = result.true_peak;
-    let original_crest = result.crest;
-    if result.lufs_m.is_none() {
-        result.lufs_m = match (original_true_peak, original_crest) {
-            (Some(true_peak), Some(crest)) => Some(true_peak - crest.max(0.0)),
-            (Some(true_peak), None) => Some(true_peak),
-            _ => Some(TRACE_SILENCE_LUFS),
-        };
-    }
-    if result.true_peak.is_none() {
-        result.true_peak = match (original_lufs_m, original_crest) {
-            (Some(lufs_m), Some(crest)) => Some(lufs_m + crest.max(0.0)),
-            (Some(lufs_m), None) => Some(lufs_m),
-            _ => Some(TRACE_SILENCE_TRUE_PEAK_DBTP),
-        };
-    }
-    if result.crest.is_none() {
-        result.crest = match (original_true_peak, original_lufs_m) {
-            (Some(true_peak), Some(lufs_m)) => Some((true_peak - lufs_m).max(0.0)),
-            _ => Some(TRACE_SILENCE_CREST_DB),
-        };
-    }
     result
 }
 
@@ -991,9 +983,6 @@ fn measured_trace_result_for_bake(sample: &RecordTraceSample) -> Option<MeasureR
     }
     if measure_has_core_metrics(&sample.result) {
         return Some(sample.result.clone());
-    }
-    if measure_has_any_core_metric(&sample.result) {
-        return Some(complete_missing_trace_core(sample.result.clone()));
     }
     None
 }
@@ -2560,6 +2549,35 @@ mod tests {
         assert_eq!(batch_peer, expected);
     }
 
+    #[test]
+    fn refresh_pair_record_metadata_claims_expected_wav_after_signal_disappears() {
+        let base = isolated_base();
+        let mut ctx = make_ctx_with_sample_rate(&base, Role::Post, now_epoch_ms(), 48_000);
+        ctx.writer
+            .set_record_session_id(Some("record-session-latched".to_string()));
+        let expected = expected_wav_metadata(48_000, 48_000, "bounce-refresh-latched");
+        let later_expected = expected_wav_metadata(96_000, 48_000, "bounce-refresh-later");
+        crate::record_expected::write_expected_metadata(&base, TEST_PH, &expected).unwrap();
+        assert_eq!(
+            crate::record_expected::claim_expected_metadata_for_session(
+                &base,
+                TEST_PH,
+                "record-session-latched",
+            )
+            .unwrap(),
+            expected
+        );
+        crate::record_expected::write_expected_metadata(&base, TEST_PH, &later_expected).unwrap();
+
+        refresh_pair_record_metadata_from_base(&mut ctx, &base, TEST_IID);
+
+        assert_eq!(
+            ctx.writer.data().record_session_id.as_deref(),
+            Some("record-session-latched")
+        );
+        assert_eq!(ctx.writer.data().expected_wav.as_ref(), Some(&expected));
+    }
+
     /// B-076: テスト用の overflow=0 カウンタ（欠落なし）。`&no_overflow()` で run_record_tick へ。
     fn no_overflow() -> Arc<std::sync::atomic::AtomicU64> {
         Arc::new(std::sync::atomic::AtomicU64::new(0))
@@ -2874,7 +2892,7 @@ mod tests {
     }
 
     #[test]
-    fn measured_observed_partial_core_is_completed_for_trace_slot() {
+    fn measured_observed_partial_core_is_not_completed_for_trace_slot() {
         let sample = RecordTraceSample::measured_observed(
             1,
             100,
@@ -2890,11 +2908,11 @@ mod tests {
             false,
         );
 
-        assert_eq!(sample.result.lufs_m, Some(-25.5));
+        assert_eq!(sample.result.lufs_m, None);
         assert_eq!(sample.result.true_peak, Some(-18.0));
         assert_eq!(sample.result.crest, Some(7.5));
         assert_eq!(sample.result.n_prime.unwrap()[0], 0.5);
-        assert!(sample.has_measured_core());
+        assert!(!sample.has_measured_core());
     }
 
     #[test]
@@ -3734,7 +3752,7 @@ mod tests {
     }
 
     #[test]
-    fn partial_core_trace_samples_bake_as_complete_slots() {
+    fn partial_core_trace_samples_are_recorded_as_incomplete_slots() {
         let base = isolated_base();
         let mut ctx = make_ctx_with_sample_rate(&base, Role::Post, now_epoch_ms(), 48_000);
         let final_path = ctx.final_path.clone();
@@ -3776,16 +3794,17 @@ mod tests {
             .as_ref()
             .expect("trace diagnostics");
         assert_eq!(diag.expected_frame_count, 10);
-        assert_eq!(diag.measured_frame_count, 10);
-        assert_eq!(diag.missing_slots, 0);
-        let repaired = loaded
-            .frames
+        assert_eq!(diag.measured_frame_count, 9);
+        assert_eq!(diag.missing_slots, 1);
+        assert!(
+            loaded.frames.iter().all(|frame| frame.t_ms != 500),
+            "partial core metrics must not be inferred into a complete TRACE frame"
+        );
+        assert!(loaded.integrity_degraded);
+        assert!(loaded
+            .integrity_reasons
             .iter()
-            .find(|frame| frame.t_ms == 500)
-            .expect("partial slot frame");
-        assert_eq!(repaired.lufs_m, -32.0);
-        assert_eq!(repaired.true_peak, -24.0);
-        assert_eq!(repaired.crest, 8.0);
+            .any(|reason| reason == "missing_trace_slots"));
     }
 
     #[test]

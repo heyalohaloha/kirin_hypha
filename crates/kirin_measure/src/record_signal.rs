@@ -303,13 +303,13 @@ pub fn write_pending_with_expected_and_clock(
     Ok(signal)
 }
 
-/// pending シグナルを生成し、同じ Record session_id で expected WAV metadata を claim する。
+/// pending シグナルを生成し、同じ Record session_id で expected WAV metadata を snapshot する。
 ///
 /// 完全な Record artifact は dropped WAV header metadata を trust anchor にする。metadata が
 /// 無い/古い/別 session に消費済みの場合でも Keep は続行し、final artifact 側の `record_quality` と
 /// integrity reasons で usable fallback として明示する。
-/// 先に pending を durable に置いてから metadata を claim することで、claim 済み metadata だけが
-/// 残って Record signal が無い状態を作らない。
+/// 先に pending を durable に置いてから metadata を読むことで、metadata snapshot だけが
+/// 残って Record signal が無い状態を作らない。`current.json` は claim で消費しない。
 #[allow(clippy::too_many_arguments)]
 pub fn write_pending_claiming_expected_and_clock(
     base_dir: &Path,

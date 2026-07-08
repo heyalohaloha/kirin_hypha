@@ -1345,9 +1345,9 @@ impl KirinHyphaEngine {
     /// Kirin OS/JUCE runtime が dropped WAV の正本 metadata を Record arm 前に渡す入口。
     ///
     /// `keep()` はこの metadata を `record_expected/current.json` から読み、PRE/POST 共通の
-    /// `record_signal.expected_wav` へコピーする。未設定・不完全・stale・consumed の場合でも
-    /// Record は開始し、usable frames は通常 TRACE 棚へ出す。完全性は integrity_degraded と
-    /// reason に残し、Kirin OS が起動順を要求されない構造にする。
+    /// `record_signal.expected_wav` へ snapshot する。未設定・不完全・stale・legacy consumed
+    /// の場合でも Record は開始し、usable frames は通常 TRACE 棚へ出す。完全性は
+    /// integrity_degraded と reason に残し、Kirin OS が起動順を要求されない構造にする。
     pub fn set_expected_wav_metadata(&self, input: ExpectedWavMetadataInput) -> bool {
         let project_hash = match self.identity.lock() {
             Ok(id) => id.project_hash.clone(),
