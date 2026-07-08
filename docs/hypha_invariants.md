@@ -8,8 +8,27 @@ PRE/POST の状態遷移と pairing / identity / record / shell parity の不変
 
 - 不具合報告を受けたら、まずこの表で「**どの不変条件の違反か**」を特定する。
 - 修正時は、該当不変条件の「紐づくテスト」を起点に、**増やすべきテスト**を決める。
+- Record / TRACE の修正では、壊れた後の安全網ではなく、壊れない実測構造を優先する。
 - 「要追加」と書かれた行は、不変条件はあるが単体テストが未紐づけ＝次にテストを足すべき箇所。
 - 不変条件↔テスト名は 2026-06-27 に実在確認済み。テストを改名・削除するときは本表も更新する。
+
+## 0. Measurement Truth Doctrine（INV-T）
+
+Hypha は利用者に制限や複雑な操作を課さず、普通に計測した結果を実測データとして綺麗に表示する。
+内部実装はその簡単さを支えるために厳密でなければならない。設計判断は次の順序を守る。
+
+1. 欠損を作らない構造を作る。
+2. PRE/POST の対、時計、完全性を事後推定ではなく session 固有の事実として保存する。
+3. 実測されていない値を実測として補完・昇格しない。
+4. 不完全なデータは publish 前に止め、理由を診断として残す。
+5. 診断は将来欠損を作らないための内部根拠であり、利用者体験の主役にしない。
+
+| ID | 不変条件 | 紐づくテスト |
+|----|----------|--------------|
+| INV-T1 | `record_expected/current.json` は claim で消費しない。session ごとに不変 snapshot を持ち、後続 bounce / STEM export が current を上書きしても既存 session の metadata は付け替わらない | `claimed_session_returns_immutable_snapshot_after_current_overwrite` / `refresh_pair_record_metadata_claims_expected_wav_after_signal_disappears` |
+| INV-T2 | TRACE の LUFS-M / True Peak / Crest は 3軸すべて揃った時だけ実測 frame として扱う。部分欠損を代数的に埋めて complete 扱いしない | `measured_observed_partial_core_is_not_completed_for_trace_slot` / `partial_core_trace_samples_are_recorded_as_incomplete_slots` |
+| INV-T3 | paired publish は PRE/POST 両側の session/link/trace frame/native duration が一致した時だけ通常 shelf に出す。片側だけ完全、または pair として不整合な Record は通常 TRACE 候補に出さない | `pair_finalize_quarantines_missing_trace_slots` / `pair_finalize_quarantines_duration_mismatched_pair` / `pair_finalize_quarantines_zero_frames_even_with_trace_diagnostics` |
+| INV-T4 | PRE は partner 情報を失っても、自分の active writer scope から正当な All Stop を受けて writer を閉じる。Record を orphan にせず `.pair_pending` へ進める | `active_writer_all_stop_stops_pre_without_partner` / `active_writer_all_stop_ignores_broadcast_before_record_start` / `active_writer_all_stop_ignores_other_host_process` |
 
 ### 正本ロジックの所在
 

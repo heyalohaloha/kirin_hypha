@@ -14,6 +14,12 @@ Long-term stability and measurement accuracy are more important than preserving 
 shape. Large internal refactors are acceptable when they reduce cross-role ambiguity, improve test
 coverage, or make Windows support less fragile.
 
+The most important failure mode is not an ugly error state after a broken recording. It is allowing
+Hypha to create broken measurement data in the first place. Recovery paths, quarantine folders, and
+diagnostics are useful only as development evidence and last-resort containment. They must not
+become the product strategy. The product strategy is deterministic, complete, measured data from a
+simple user workflow.
+
 ## Decision
 
 Hypha will move toward a separation-first structure. Each layer has one job and exposes explicit
@@ -40,6 +46,9 @@ contracts to the next layer.
    - Owns `$TMPDIR/kirin`, `plugin_data`, record signals, broadcasts, reservations, stale cleanup,
      atomic writes, and path safety.
    - Platform-specific paths are hidden behind an adapter before Windows work begins.
+   - Shared mutable files must not be used as consumable truth when multiple roles or stems need the
+     same fact. Capture metadata, record identity, and clock authority are session facts, not
+     after-the-fact timestamp reconstructions.
 
 5. Shell adapters
    - nih-plug VST3 and JUCE AU/VST3 are adapters, not policy owners.
@@ -58,6 +67,12 @@ contracts to the next layer.
   shell parity tests around adapters, and release tests under platform-specific tooling.
 - Fixes should be classified by boundary. A pairing bug is fixed in the pairing service, not in a
   GUI branch or one shell.
+- Record / TRACE fixes must prefer prevention over presentation fallback. A change that hides,
+  infers, or prettifies missing data is not a fix unless the underlying measurement path is also made
+  unable to create that missing data under the same conditions.
+- User workflow must stay simple. Internal strictness is allowed to reject bad artifacts before they
+  reach the normal shelf, but it must not push new manual steps, timing rules, or operational burden
+  onto the user.
 
 ## Migration Order
 
