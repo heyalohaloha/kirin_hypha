@@ -287,10 +287,16 @@ impl RecordTakeTracker {
         {
             return None;
         }
+        let rendered_frames = self.render_frames.load(Ordering::Acquire);
+        if rendered_frames == 0 {
+            return None;
+        }
         let start = self.render_start_position.load(Ordering::Acquire);
         let end = self.render_last_end_position.load(Ordering::Acquire);
         if end >= start {
-            Some((end - start) as u64)
+            // Transport position can jump forward without delivering the skipped samples.
+            // The fallback clock must never demand more TRACE data than Hypha actually saw.
+            Some(((end - start) as u64).min(rendered_frames))
         } else {
             None
         }
@@ -485,6 +491,28 @@ mod tests {
         tracker.note_block(block(11, 1_000, 1_000));
 
         assert_eq!(tracker.snapshot(11).unwrap().duration_samples, 1_000);
+    }
+
+    #[test]
+    fn render_clock_fallback_never_exceeds_rendered_frames() {
+        let tracker = RecordTakeTracker::new();
+        tracker.note_block(block(12, 0, 1_000));
+        tracker.note_block(block(12, 10_000, 1_000));
+
+        let snap = tracker.snapshot(12).expect("render fallback");
+        assert_eq!(snap.duration_samples, 2_000);
+        assert_eq!(snap.source, RECORD_TAKE_SOURCE_RENDER_CLOCK);
+    }
+
+    #[test]
+    fn continuous_render_clock_keeps_position_span_when_it_matches_rendered_frames() {
+        let tracker = RecordTakeTracker::new();
+        tracker.note_block(block(13, 96_000, 1_024));
+        tracker.note_block(block(13, 97_024, 2_048));
+
+        let snap = tracker.snapshot(13).expect("continuous render fallback");
+        assert_eq!(snap.duration_samples, 3_072);
+        assert_eq!(snap.source, RECORD_TAKE_SOURCE_RENDER_CLOCK);
     }
 
     #[test]
