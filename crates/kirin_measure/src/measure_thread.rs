@@ -907,15 +907,16 @@ fn seed_record_trace_from_pre_roll(
         let t_frames_48k = sample.frames_48k.saturating_sub(origin_frames);
         let t_native_frames = sample.native_frames.saturating_sub(origin_native_frames);
         let t_ms = t_frames_48k.saturating_mul(1_000) / ENGINE_SR as u64;
-        if t_ms < *next_trace_ms {
+        let slot_ms = record_trace_slot_ms(t_ms);
+        if slot_ms < *next_trace_ms {
             continue;
         }
-        let include_psb = t_ms >= *next_psb_ms;
+        let include_psb = slot_ms >= *next_psb_ms;
         push_record_trace_sample(
             queue,
             RecordTraceSample::measured_observed(
                 generation,
-                t_ms,
+                slot_ms,
                 t_frames_48k,
                 Some(t_native_frames),
                 sample.result.clone(),
@@ -923,9 +924,9 @@ fn seed_record_trace_from_pre_roll(
                 include_psb,
             ),
         );
-        *next_trace_ms = (t_ms / FRAME_INTERVAL_MS + 1) * FRAME_INTERVAL_MS;
+        *next_trace_ms = (slot_ms / FRAME_INTERVAL_MS + 1) * FRAME_INTERVAL_MS;
         if include_psb {
-            *next_psb_ms = (t_ms / PSB_INTERVAL_MS + 1) * PSB_INTERVAL_MS;
+            *next_psb_ms = (slot_ms / PSB_INTERVAL_MS + 1) * PSB_INTERVAL_MS;
         }
         last_seed_frames_48k = t_frames_48k;
         last_seed_native_frames = t_native_frames;
@@ -973,16 +974,24 @@ fn maybe_push_record_trace(
             .saturating_add(frames.saturating_sub(timeline.origin_native_frames))
     });
     let t_ms = t_frames_48k.saturating_mul(1_000) / ENGINE_SR as u64;
-    push_record_trace_floor_until(queue, timeline.generation, cursor, sample_rate, t_ms, false);
-    if t_ms < *cursor.next_trace_ms {
+    let slot_ms = record_trace_slot_ms(t_ms);
+    push_record_trace_floor_until(
+        queue,
+        timeline.generation,
+        cursor,
+        sample_rate,
+        slot_ms,
+        false,
+    );
+    if slot_ms < *cursor.next_trace_ms {
         return false;
     }
-    let include_psb = t_ms >= *cursor.next_psb_ms;
+    let include_psb = slot_ms >= *cursor.next_psb_ms;
     push_record_trace_sample(
         queue,
         RecordTraceSample::measured_observed(
             timeline.generation,
-            t_ms,
+            slot_ms,
             t_frames_48k,
             t_native_frames,
             result.clone(),
@@ -990,11 +999,15 @@ fn maybe_push_record_trace(
             include_psb,
         ),
     );
-    *cursor.next_trace_ms = (t_ms / FRAME_INTERVAL_MS + 1) * FRAME_INTERVAL_MS;
+    *cursor.next_trace_ms = (slot_ms / FRAME_INTERVAL_MS + 1) * FRAME_INTERVAL_MS;
     if include_psb {
-        *cursor.next_psb_ms = (t_ms / PSB_INTERVAL_MS + 1) * PSB_INTERVAL_MS;
+        *cursor.next_psb_ms = (slot_ms / PSB_INTERVAL_MS + 1) * PSB_INTERVAL_MS;
     }
     true
+}
+
+fn record_trace_slot_ms(t_ms: u64) -> u64 {
+    (t_ms / FRAME_INTERVAL_MS) * FRAME_INTERVAL_MS
 }
 
 fn push_record_trace_floor_until(
@@ -1601,6 +1614,45 @@ pub mod tests {
     }
 
     #[test]
+    fn pre_roll_seed_claims_100ms_slots_for_mid_slot_samples() {
+        let mut pre_roll = super::RecordTracePreRoll::default();
+        let after_a = crate::MeasureResult {
+            lufs_m: Some(-20.0),
+            ..Default::default()
+        };
+        let after_b = crate::MeasureResult {
+            lufs_m: Some(-19.0),
+            ..Default::default()
+        };
+        pre_roll.push(1_000, None, 10_000, 20_000, false, &after_a);
+        pre_roll.push(1_100, None, 17_200, 34_400, false, &after_b);
+
+        let queue = crate::record_writer::new_record_trace_queue();
+        let mut next_trace_ms = 0;
+        let mut next_psb_ms = 0;
+        let offset = super::seed_record_trace_from_pre_roll(
+            &queue,
+            &pre_roll,
+            77,
+            1_000,
+            None,
+            &mut next_trace_ms,
+            &mut next_psb_ms,
+        );
+        let drained = crate::record_writer::drain_record_trace_queue(&queue);
+
+        assert_eq!(
+            drained.iter().map(|sample| sample.t_ms).collect::<Vec<_>>(),
+            vec![0, 100]
+        );
+        assert_eq!(drained[1].t_frames_48k, 7_200);
+        assert_eq!(drained[1].t_native_frames, Some(14_400));
+        assert_eq!(offset.frames_48k, 7_200);
+        assert_eq!(offset.native_frames, 14_400);
+        assert_eq!(next_trace_ms, 200);
+    }
+
+    #[test]
     fn pre_roll_seed_is_disabled_without_record_started_at() {
         let mut pre_roll = super::RecordTracePreRoll::default();
         pre_roll.push(
@@ -1677,6 +1729,57 @@ pub mod tests {
         assert_eq!(drained[5].t_native_frames, Some(48_000));
         assert_eq!(drained[5].result.lufs_m, Some(-18.0));
         assert_eq!(next_trace_ms, 600);
+    }
+
+    #[test]
+    fn record_trace_mid_slot_measurement_claims_expected_slot() {
+        let queue = crate::record_writer::new_record_trace_queue();
+        let mut next_trace_ms = 2_200;
+        let mut next_psb_ms = 3_000;
+        let timeline = super::RecordTraceTimeline {
+            generation: 5,
+            origin_frames_48k: 0,
+            origin_native_frames: 0,
+            offset_frames_48k: 0,
+            offset_native_frames: 0,
+        };
+        let observed = crate::MeasureResult {
+            lufs_m: Some(-18.0),
+            true_peak: Some(-3.0),
+            crest: Some(8.0),
+            ..Default::default()
+        };
+
+        {
+            let mut cursor = super::RecordTraceCursor {
+                next_trace_ms: &mut next_trace_ms,
+                next_psb_ms: &mut next_psb_ms,
+            };
+            assert!(super::maybe_push_record_trace(
+                &queue,
+                timeline,
+                &mut cursor,
+                96_000,
+                super::RecordTraceObserved {
+                    frames_48k: 108_000,
+                    native_frames: Some(216_000),
+                    observed_silence_floor: false,
+                },
+                &observed,
+            ));
+        }
+
+        let drained = crate::record_writer::drain_record_trace_queue(&queue);
+        assert_eq!(drained.len(), 1);
+        assert_eq!(
+            drained[0].kind,
+            crate::record_writer::RecordTraceKind::Measured
+        );
+        assert_eq!(drained[0].t_ms, 2_200);
+        assert_eq!(drained[0].t_frames_48k, 108_000);
+        assert_eq!(drained[0].t_native_frames, Some(216_000));
+        assert_eq!(drained[0].result.lufs_m, Some(-18.0));
+        assert_eq!(next_trace_ms, 2_300);
     }
 
     #[test]
