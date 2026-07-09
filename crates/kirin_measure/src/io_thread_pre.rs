@@ -937,20 +937,12 @@ pub fn spawn_io_thread_pre(
         recording.store(false, Ordering::Relaxed);
         record_acknowledged.store(false, Ordering::Relaxed);
 
-        // ── クリーンアップ ───────────────────────────────────────────────
-        // 終了時の instance_id を lazy-read して使用 (POST 側 io_thread と同様、
-        // 設計上残骸が残るのは Default UUID dir の 1 度限り。R-28 機能的沈黙)。
-        let final_iid = read_instance_id_arc(&instance_id);
-        let final_dir = io_dir(&project_hash, &final_iid);
-        let final_file = final_dir.join("pre.json");
-        if let Err(e) = fs::remove_file(&final_file) {
-            log::debug!("[IOThread PRE] cleanup file: {}", e);
-        }
-        if let Err(e) = crate::atomic_file::remove_temp_siblings(&final_file) {
-            log::debug!("[IOThread PRE] cleanup tmp: {}", e);
-        }
-        // instance ディレクトリ自体も空なら削除（残骸を残さない）
-        let _ = fs::remove_dir(&final_dir);
+        // Do not delete pre.json, temp siblings, or the instance directory here.
+        // pluginval and some DAWs can tear down and recreate the same restored
+        // instance_id in quick succession; an old IO thread deleting this path
+        // can remove the next IO thread's live write and create transient NoPre.
+        // Freshness is already mtime-gated by readers, so stale watch files age
+        // out without a teardown-time destructive cleanup race.
         log::info!("[IOThread PRE] terminated");
     })
 }
