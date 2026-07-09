@@ -43,8 +43,9 @@ use crate::pre_discovery::DISCOVERY_STALE_SECS;
 use crate::record::RecordStateMachine;
 use crate::record_signal::{self, SignalStatus, ACK_TIMEOUT_SECONDS, SIGNALS_SUBDIR};
 use crate::record_writer::{
-    apply_record_take_snapshot, parse_iso8601_to_epoch_ms, run_record_tick_with_pair_names,
-    take_session_summary, writer_close_with_summary, RecordingCtx,
+    apply_record_take_snapshot, parse_iso8601_to_epoch_ms,
+    run_record_tick_with_pair_names_require_session, take_session_summary,
+    writer_close_with_summary, RecordingCtx,
 };
 use crate::storage::{PlatformPaths, StoragePaths};
 use crate::{load_signal_state, MeasureResult, RecordTakeTracker, RecordTraceQueue, SignalState};
@@ -549,7 +550,8 @@ pub fn spawn_io_thread_post(
             let pair_pre_name_for_writer = pair_pre_name_snapshot.clone();
             let pair_name_resolver = move || Some(pair_name_for_writer);
             let pair_pre_name_resolver = move || Some(pair_pre_name_for_writer);
-            if let Err(e) = run_record_tick_with_pair_names(
+            let record_session_id = record_sm.record_session_id();
+            if let Err(e) = run_record_tick_with_pair_names_require_session(
                 &record_sm,
                 PluginDataRole::Post,
                 sample_rate,
@@ -560,6 +562,7 @@ pub fn spawn_io_thread_post(
                 paired_post_resolver,
                 pair_name_resolver,
                 pair_pre_name_resolver,
+                move || record_session_id,
                 &post_result,
                 &mut recording,
                 Some(&session_summary),
@@ -2084,10 +2087,11 @@ fn poll_record_signal_ack_with_base(
         if now_ms < started_at_ms {
             return;
         }
-        match record_sm.try_enter_record_started_at_clock(
+        match record_sm.try_enter_record_started_at_clock_transaction(
             crate::License::Os,
             started_at_ms,
             signal.started_at_position_samples,
+            signal.session_id.clone(),
         ) {
             Ok(()) => log::info!(
                 "[IOThread POST] ACK received; POST entered Record (session={}, post_iid={})",

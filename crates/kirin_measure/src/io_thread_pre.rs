@@ -42,8 +42,9 @@ use crate::pre_self_discovery::{discover_pair_post_project_dir, PreSelfDiscovery
 use crate::record::RecordStateMachine;
 use crate::record_signal::{self, SignalStatus};
 use crate::record_writer::{
-    apply_record_take_snapshot, parse_iso8601_to_epoch_ms, run_record_tick_with_pair_names,
-    take_session_summary, writer_close_with_summary, RecordingCtx,
+    apply_record_take_snapshot, parse_iso8601_to_epoch_ms,
+    run_record_tick_with_pair_names_require_session, take_session_summary,
+    writer_close_with_summary, RecordingCtx,
 };
 use crate::storage::{PlatformPaths, StoragePaths};
 use crate::RecordTakeTracker;
@@ -441,10 +442,11 @@ fn enter_pre_record_if_barrier_ready(
     if now_ms < started_at_ms {
         return false;
     }
-    match record_sm.try_enter_record_started_at_clock(
+    match record_sm.try_enter_record_started_at_clock_transaction(
         *license,
         started_at_ms,
         signal.started_at_position_samples,
+        signal.session_id.clone(),
     ) {
         Ok(()) => {
             recording.store(true, Ordering::Relaxed);
@@ -896,7 +898,8 @@ pub fn spawn_io_thread_pre(
             let pair_pre_name_for_writer = pre_name_for_writer;
             let pair_name_resolver = move || Some(pair_name_for_writer);
             let pair_pre_name_resolver = move || Some(pair_pre_name_for_writer);
-            if let Err(e) = run_record_tick_with_pair_names(
+            let record_session_id = record_sm.record_session_id();
+            if let Err(e) = run_record_tick_with_pair_names_require_session(
                 &record_sm,
                 PluginDataRole::Pre,
                 sample_rate,
@@ -907,6 +910,7 @@ pub fn spawn_io_thread_pre(
                 paired_post_resolver,
                 pair_name_resolver,
                 pair_pre_name_resolver,
+                move || record_session_id,
                 &result,
                 &mut writer_ctx,
                 Some(&session_summary),
@@ -1594,10 +1598,11 @@ mod tests {
         if started_at_ms <= 0 || crate::record_writer::now_epoch_ms() < started_at_ms {
             return false;
         }
-        match record_sm.try_enter_record_started_at_clock(
+        match record_sm.try_enter_record_started_at_clock_transaction(
             *license,
             started_at_ms,
             signal.started_at_position_samples,
+            signal.session_id.clone(),
         ) {
             Ok(()) => {
                 recording.store(true, Ordering::Relaxed);
