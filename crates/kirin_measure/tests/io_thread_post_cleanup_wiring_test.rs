@@ -103,3 +103,30 @@ fn io_thread_termination_does_not_delete_live_watch_files() {
         "POST source must document the mtime freshness handoff"
     );
 }
+
+/// The teardown deletion removed in B-319 must have a startup-only cleanup
+/// replacement. Both roles call the same age-based `/tmp/kirin` sweep before
+/// entering their IO loop.
+#[test]
+fn io_thread_startup_sweeps_stale_watch_files_for_both_roles() {
+    let pre = read("src/io_thread_pre.rs");
+    let post = read("src/io_thread_post.rs");
+    let cleanup = read("src/watch_tmp_cleanup.rs");
+
+    assert!(
+        pre.contains("watch_tmp_cleanup::sweep_stale_watch_files_at_startup();"),
+        "PRE startup must sweep old watch files outside teardown"
+    );
+    assert!(
+        post.contains("watch_tmp_cleanup::sweep_stale_watch_files_at_startup();"),
+        "POST startup must sweep old watch files outside teardown"
+    );
+    assert!(
+        cleanup.contains("pub(crate) const STALE_WATCH_SECS: i64 = 600;"),
+        "watch cleanup must stay much more conservative than the 10s reader freshness gate"
+    );
+    assert!(
+        cleanup.contains("now.signed_duration_since(modified).num_seconds() > stale_secs"),
+        "watch cleanup must use a strict-greater mtime age gate"
+    );
+}

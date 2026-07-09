@@ -37,6 +37,7 @@ pub mod resampler;
 pub mod reservation;
 pub mod storage;
 pub mod watch_playback_pass;
+mod watch_tmp_cleanup;
 pub mod watchdog;
 
 pub use all_keep_signal::{
