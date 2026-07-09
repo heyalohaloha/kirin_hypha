@@ -76,6 +76,24 @@ pub enum TransitionError {
     AlreadyRecording,
 }
 
+/// `record_session_id` と、それを最後に書いた entrant の `entry_token` を1つの lock 配下で
+/// 保持する。
+///
+/// この2つを別々の primitive（例: `AtomicU64` + `RwLock<Option<String>>`）で持つと、
+/// 「自分がまだ所有者か」チェックと「session を書き換える」が2つの非原子操作に分かれ、
+/// その間隙に別の entrant が割り込んで新しいセッションを確立すると、それを消してしまう
+/// TOCTOU が生まれる（2026-07-09 レビューで発覚。B-322 / P1 レース修正の再発）。
+/// token と session_id を常に同じ write guard 内で読み書きすることで、
+/// チェックとクリアを1つの critical section に閉じ込め、この class の gap を構造的に
+/// 起こり得なくする。
+#[derive(Debug, Clone, Default)]
+struct SessionSlot {
+    /// このセッションを書いた entrant の `entry_token`（0 = 所有者なし）。
+    owner_token: u64,
+    /// PRE/POST が同じ Keep/ACK から受け取った不変 Record session。
+    session_id: Option<String>,
+}
+
 /// 状態機械本体。
 ///
 /// # 使用例
@@ -121,12 +139,13 @@ pub struct RecordStateMachine {
     /// state に入れる。Measure Thread は取得できる場合、この値を pre-roll/timeline
     /// origin として wall-clock より優先する。
     record_started_at_position_samples: AtomicI64,
-    /// PRE/POST が同じ Keep/ACK から受け取った不変 Record session。
+    /// PRE/POST が同じ Keep/ACK から受け取った不変 Record session（所有者 token と1つの
+    /// lock 配下）。
     ///
     /// Audio Thread はこの値を読まない。IO Thread が writer を開始する直前に参照し、
     /// `/tmp` の record_signal が後から消える/変わるタイミングでも sessionless TRACE を
-    /// 作らないための transaction snapshot。
-    record_session_id: RwLock<Option<String>>,
+    /// 作らないための transaction snapshot。`SessionSlot` のドキュメント参照。
+    record_session: RwLock<SessionSlot>,
     /// Measure Thread が Watch→Record 遷移を観測し、Record TRACE を受けられる状態に
     /// なった最新 generation。PRE はこの値を待ってから `record_signal` を Acknowledged にする。
     measure_ready_generation: AtomicU64,
@@ -142,7 +161,7 @@ impl RecordStateMachine {
             generation: AtomicU64::new(0),
             record_started_at_ms: AtomicI64::new(0),
             record_started_at_position_samples: AtomicI64::new(i64::MIN),
-            record_session_id: RwLock::new(None),
+            record_session: RwLock::new(SessionSlot::default()),
             measure_ready_generation: AtomicU64::new(0),
         }
     }
@@ -178,9 +197,9 @@ impl RecordStateMachine {
 
     /// 現 Record の不変 session_id。transaction 経由で入った Record だけが持つ。
     pub fn record_session_id(&self) -> Option<String> {
-        match self.record_session_id.read() {
-            Ok(guard) => guard.clone(),
-            Err(poisoned) => poisoned.into_inner().clone(),
+        match self.record_session.read() {
+            Ok(guard) => guard.session_id.clone(),
+            Err(poisoned) => poisoned.into_inner().session_id.clone(),
         }
     }
 
@@ -280,6 +299,19 @@ impl RecordStateMachine {
         }
         // Watch → Entering → Record の2段階公開にする。
         // Measure Thread が Record を見る時点では started_at / generation が確定済み。
+        let token =
+            self.begin_enter(started_at_ms, started_at_position_samples, record_session_id)?;
+        self.finish_enter(token)
+    }
+
+    /// 2段階公開の前半: Watch→Entering CAS + started_at/position/session/generation の確定。
+    /// 成功したら `finish_enter` で仕上げる責務を呼び出し元へ返す（token）。
+    fn begin_enter(
+        &self,
+        started_at_ms: i64,
+        started_at_position_samples: Option<i64>,
+        record_session_id: Option<String>,
+    ) -> Result<u64, TransitionError> {
         let token = self.entry_token.fetch_add(1, Ordering::Relaxed) + 1;
         let entering = entering_state(token);
         match self.state.compare_exchange(
@@ -295,33 +327,71 @@ impl RecordStateMachine {
                     started_at_position_samples.unwrap_or(i64::MIN),
                     Ordering::Release,
                 );
-                self.store_record_session_id(record_session_id);
+                self.set_record_session(token, record_session_id);
                 self.generation.fetch_add(1, Ordering::AcqRel);
-                match self.state.compare_exchange(
-                    entering,
-                    STATE_RECORD,
-                    Ordering::Release,
-                    Ordering::Acquire,
-                ) {
-                    Ok(_) => Ok(()),
-                    Err(_) => {
-                        self.store_record_session_id(None);
-                        Err(TransitionError::AlreadyRecording)
-                    }
-                }
+                Ok(token)
             }
             Err(_) => Err(TransitionError::AlreadyRecording),
         }
     }
 
-    fn store_record_session_id(&self, record_session_id: Option<String>) {
-        let record_session_id = record_session_id
+    /// 2段階公開の後半: Entering(token)→Record CAS。負けたら cleanup する。
+    ///
+    /// cleanup は自分がまだ session の所有者（= 自分より後に完全成功した entrant が
+    /// いない）場合だけ session を clear する。所有者トークンが既に他者へ移っていれば、
+    /// それは新しい Record が正当に確立したセッションなので触れない（P1 レース修正。
+    /// 所有権チェックと clear は `clear_record_session_if_owned_by` 内の1回の write guard
+    /// で完結させ、間隙を作らない）。
+    fn finish_enter(&self, token: u64) -> Result<(), TransitionError> {
+        let entering = entering_state(token);
+        match self.state.compare_exchange(
+            entering,
+            STATE_RECORD,
+            Ordering::Release,
+            Ordering::Acquire,
+        ) {
+            Ok(_) => Ok(()),
+            Err(_) => {
+                self.clear_record_session_if_owned_by(token);
+                Err(TransitionError::AlreadyRecording)
+            }
+        }
+    }
+
+    /// `token` と `session_id` を1つの write guard 内でまとめて確定させる（`begin_enter` 用）。
+    fn set_record_session(&self, token: u64, session_id: Option<String>) {
+        let session_id = session_id
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty());
-        match self.record_session_id.write() {
-            Ok(mut guard) => *guard = record_session_id,
-            Err(poisoned) => *poisoned.into_inner() = record_session_id,
+        let mut guard = match self.record_session.write() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        guard.owner_token = token;
+        guard.session_id = session_id;
+    }
+
+    /// 自分（`token`）がまだ所有者の場合だけ、所有権チェックと clear を1つの write guard
+    /// 内で完結させる（`finish_enter` の cleanup 用）。チェックと clear を分離すると、
+    /// その間隙に別の entrant が割り込む TOCTOU が生まれるため、必ず単一の critical
+    /// section にする（P1 レース修正）。
+    fn clear_record_session_if_owned_by(&self, token: u64) {
+        let mut guard = match self.record_session.write() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        if guard.owner_token == token {
+            *guard = SessionSlot::default();
         }
+    }
+
+    /// 無条件に token と session_id をクリアする（`exit_record` 用）。
+    fn clear_record_session(&self) {
+        let mut guard = match self.record_session.write() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        *guard = SessionSlot::default();
     }
 
     /// Watch へ戻す。無条件・冪等。
@@ -335,7 +405,7 @@ impl RecordStateMachine {
         self.record_started_at_ms.store(0, Ordering::Release);
         self.record_started_at_position_samples
             .store(i64::MIN, Ordering::Release);
-        self.store_record_session_id(None);
+        self.clear_record_session();
         self.measure_ready_generation.store(0, Ordering::Release);
         self.state.store(STATE_WATCH, Ordering::Release);
     }
@@ -595,6 +665,93 @@ mod tests {
         }
         assert_eq!(success_count.load(Ordering::Relaxed), 1);
         assert_eq!(sm.current(), RecordState::Record);
+    }
+
+    /// P1 レース回帰: entering 中に負けた entrant（A）の cleanup が、A が entering の
+    /// 間に別の entrant（B）が完全成功させた新しい session を消してはならない。
+    ///
+    /// 実スレッドで A を「2つの CAS の間」に確実に一時停止させる方法はない（OS
+    /// スケジューラ依存でフレーキーになる）ため、`begin_enter` / `finish_enter`
+    /// （割込み可能にするために分割した本番コードそのもの。
+    /// `try_enter_record_started_at_clock_with_session` はこの2つを続けて呼ぶだけ）を
+    /// 呼び出し順序だけ入れ替えて呼び、A の `finish_enter` を B の成功**後**まで遅延させる。
+    /// cleanup ロジック自体は本番の `finish_enter` をそのまま実行するので、
+    /// `clear_record_session_if_owned_by` のガードが退行すればこのテストは確実に落ちる。
+    #[test]
+    fn losing_entrant_cleanup_does_not_clobber_newer_committed_session() {
+        let sm = RecordStateMachine::new();
+
+        // A: begin_enter だけ実行し、finish_enter を意図的に呼ばずに保留する
+        // （= A がまだ 2 つの CAS の間にいる状態）。
+        let token_a = sm
+            .begin_enter(1, None, Some("session-a".to_string()))
+            .expect("A must win begin_enter from Watch");
+
+        // 割込み: 「止める」タップ等が A の entering 中に飛んできて Watch へ戻す。
+        sm.exit_record();
+
+        // B: 完全に成功し、自分の session を確立する（正規の公開 API 経由）。
+        assert_eq!(
+            sm.try_enter_record_started_at_clock_transaction(License::Os, 2, None, "session-b"),
+            Ok(())
+        );
+        assert_eq!(sm.record_session_id().as_deref(), Some("session-b"));
+
+        // A の保留していた finish_enter がようやく走る。現在の state は B の
+        // STATE_RECORD であって entering_a ではないため、本番の Err(_) cleanup 分岐に入る。
+        assert_eq!(
+            sm.finish_enter(token_a),
+            Err(TransitionError::AlreadyRecording),
+            "A's stale finish_enter must lose to B's commit"
+        );
+
+        // 修正前は record_session_id が None に潰され、is_recording()==true なのに
+        // セッション無しという B-322 が閉じたはずの状態が別経路で再発していた。
+        assert!(sm.is_recording(), "B's Record state must remain published");
+        assert_eq!(
+            sm.record_session_id().as_deref(),
+            Some("session-b"),
+            "a losing entrant's cleanup must not clobber a newer, already-committed session"
+        );
+    }
+
+    /// TOCTOU 追加回帰（2026-07-09 レビューで発覚）: token と session_id が別々の
+    /// primitive に分かれていた旧設計では、「自分がまだ所有者か」チェックと「session を
+    /// clear する」実行が2つの非原子操作に分かれ、その間隙に別の entrant が割り込んで
+    /// 新しいセッションを確立すると、それを消してしまう gap が残っていた。
+    ///
+    /// このテストは「所有権が移った後に古い token で cleanup を呼んでも安全」という
+    /// *機能的な*正しさを検証する（旧設計でも、チェックとクリアの間に他スレッドが
+    /// 割り込まない限りここは通っていた点に注意 — このテスト自体は並行実行中の
+    /// atomicity を証明しない）。atomicity の根拠はテストではなくコード構造そのもの:
+    /// `set_record_session` と `clear_record_session_if_owned_by` は必ず
+    /// `self.record_session.write()` の同一 guard の中でチェックと書き換えを完結させる
+    /// ため、チェックと変更の間に他スレッドが割り込む隙間がAPIとして存在しない
+    /// （旧バグを可能にしていた「別々に呼べる2つの操作」という前提そのものを消した）。
+    #[test]
+    fn stale_cleanup_call_after_ownership_moved_on_is_a_pure_noop() {
+        let sm = RecordStateMachine::new();
+
+        let token_a = sm
+            .begin_enter(1, None, Some("session-a".to_string()))
+            .expect("A must win begin_enter from Watch");
+        sm.exit_record();
+
+        // C は A の finish_enter が呼ばれるより前に、独立して完全に成功する。
+        sm.try_enter_record_started_at_clock_transaction(License::Os, 2, None, "session-c")
+            .expect("C must win the transaction after exit_record");
+        assert_eq!(sm.record_session_id().as_deref(), Some("session-c"));
+
+        // A の cleanup が遅れて呼ばれても、所有権チェックと clear が1つの critical
+        // section なので必ず安全に no-op になる。
+        sm.clear_record_session_if_owned_by(token_a);
+
+        assert!(sm.is_recording(), "C's Record state must remain published");
+        assert_eq!(
+            sm.record_session_id().as_deref(),
+            Some("session-c"),
+            "a stale owner's cleanup call must never clobber the current owner's session"
+        );
     }
 
     /// B-132 (G-115-382): seal は 0 開始・bump で単調前進・state とは独立。

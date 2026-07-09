@@ -1571,6 +1571,29 @@ fn capstone_paired_record_output_and_linkage() {
         "POST.pair_pre_name carries the selected PRE name for Lens"
     );
 
+    // P2 回帰: paired PRE/POST が同一の非空 record_session_id を持ち、成功経路で
+    // .failed 診断棚が出ないことを capstone で直接 assert する（record.rs の session
+    // レースや将来のリファクタで、通常棚に出るのに session が抜け/不一致になる退行を検出する）。
+    assert!(
+        pre_pd
+            .record_session_id
+            .as_deref()
+            .is_some_and(|s| !s.is_empty()),
+        "PRE published TRACE must carry a non-empty record_session_id"
+    );
+    assert_eq!(
+        pre_pd.record_session_id, post_pd.record_session_id,
+        "paired PRE/POST TRACE shelves must share the same record_session_id"
+    );
+    assert!(
+        find_failed_json_under_role(&plugin_data_root, "pre").is_none(),
+        "successful paired Record must not leave a .failed diagnostic shelf for PRE"
+    );
+    assert!(
+        find_failed_json_under_role(&plugin_data_root, "post").is_none(),
+        "successful paired Record must not leave a .failed diagnostic shelf for POST"
+    );
+
     // Δ 物理妥当: POST 半振幅 → -6.02dB 相当。
     assert!(
         (-8.0..-4.0).contains(&delta_lufs),
