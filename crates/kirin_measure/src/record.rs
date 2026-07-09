@@ -74,6 +74,13 @@ pub enum TransitionError {
     MissingRecordSession,
     /// 既に Record 中。冪等性のため「エラー」としつつ状態は変更しない。
     AlreadyRecording,
+    /// この `record_session_id` は既に一度 Record→Watch で閉じられている。
+    ///
+    /// 同じ session_id は Pending→Recording→Closed の単方向にしか進めない。ACK poller が
+    /// on-disk signal の後読みで stale な Acknowledged を見て同じ session_id へ再入場しようと
+    /// しても、Watch へ既に closed 済みの session を復活させることはできない
+    /// （2026-07-10 レビューで発覚した ACK re-entry race の構造修正）。
+    SessionAlreadyClosed,
 }
 
 /// `record_session_id` と、それを最後に書いた entrant の `entry_token` を1つの lock 配下で
@@ -146,6 +153,18 @@ pub struct RecordStateMachine {
     /// `/tmp` の record_signal が後から消える/変わるタイミングでも sessionless TRACE を
     /// 作らないための transaction snapshot。`SessionSlot` のドキュメント参照。
     record_session: RwLock<SessionSlot>,
+    /// 直近に `exit_record` で閉じられた `record_session_id`（1つだけ・上書き）。
+    ///
+    /// PRE/POST それぞれの ACK poller（`io_thread_pre.rs` / `io_thread_post.rs`）は on-disk
+    /// `record_signal` が Acknowledged のままかどうかで Record 再入場を判断するが、Stop 時に
+    /// `record_sm.exit_record()`（in-process）が `record_signal` の Released 更新（on-disk）より
+    /// 先に走ると、その間隙で stale な Acknowledged を読んで同じ session_id へ再入場してしまう
+    /// （2026-07-10 発覚）。この field は「一度 Watch へ closed した session_id」を記憶し、
+    /// `try_enter_record_started_at_clock_transaction` がそれと同じ session_id での再入場を
+    /// 拒否できるようにする。on-disk signal の更新順序に依存しない、状態機械自身が持つ
+    /// 構造的ガード（B-322/B-323 の `SessionSlot` 修正と同じ発想: 外部の後読みタイミングに
+    /// 正しさを委ねない）。単一値で十分（1インスタンスにつき同時に有効な session は常に1つ）。
+    closed_session_id: RwLock<Option<String>>,
     /// Measure Thread が Watch→Record 遷移を観測し、Record TRACE を受けられる状態に
     /// なった最新 generation。PRE はこの値を待ってから `record_signal` を Acknowledged にする。
     measure_ready_generation: AtomicU64,
@@ -162,6 +181,7 @@ impl RecordStateMachine {
             record_started_at_ms: AtomicI64::new(0),
             record_started_at_position_samples: AtomicI64::new(i64::MIN),
             record_session: RwLock::new(SessionSlot::default()),
+            closed_session_id: RwLock::new(None),
             measure_ready_generation: AtomicU64::new(0),
         }
     }
@@ -299,13 +319,25 @@ impl RecordStateMachine {
         }
         // Watch → Entering → Record の2段階公開にする。
         // Measure Thread が Record を見る時点では started_at / generation が確定済み。
-        let token =
-            self.begin_enter(started_at_ms, started_at_position_samples, record_session_id)?;
+        let token = self.begin_enter(
+            started_at_ms,
+            started_at_position_samples,
+            record_session_id,
+        )?;
         self.finish_enter(token)
     }
 
     /// 2段階公開の前半: Watch→Entering CAS + started_at/position/session/generation の確定。
     /// 成功したら `finish_enter` で仕上げる責務を呼び出し元へ返す（token）。
+    ///
+    /// `record_session_id` が既に closed 済みなら Watch へロールバックして
+    /// `SessionAlreadyClosed` を返す。このチェックは **CAS 成功後**（= state が実際に
+    /// Watch だったと確定した後）に行う。CAS より前でチェックすると、チェックと CAS の間に
+    /// 別スレッドの `exit_record` が割り込んで closed 済みにする TOCTOU が残る。CAS 成功後の
+    /// チェックなら、`exit_record`（`clear_record_session` で closed 記録 → その後
+    /// `state.store(WATCH)`）と本関数の CAS（`Ordering::Acquire` で成功）が同じ `state` 変数を
+    /// 介して happens-before を作るため、CAS が成功した時点で closed_session_id の最新値を
+    /// 必ず観測できる（P1/ACK re-entry 修正）。
     fn begin_enter(
         &self,
         started_at_ms: i64,
@@ -321,6 +353,12 @@ impl RecordStateMachine {
             Ordering::Relaxed,
         ) {
             Ok(_) => {
+                if let Some(sid) = record_session_id.as_deref() {
+                    if self.is_session_closed(sid) {
+                        self.state.store(STATE_WATCH, Ordering::Release);
+                        return Err(TransitionError::SessionAlreadyClosed);
+                    }
+                }
                 self.record_started_at_ms
                     .store(started_at_ms.max(0), Ordering::Release);
                 self.record_started_at_position_samples.store(
@@ -385,13 +423,54 @@ impl RecordStateMachine {
         }
     }
 
-    /// 無条件に token と session_id をクリアする（`exit_record` 用）。
+    /// 無条件に token と session_id をクリアする（`exit_record` 用）。クリアした session_id は
+    /// `closed_session_id` に記録し、以後同じ session_id での re-entry を拒否できるようにする
+    /// （ACK re-entry race の構造修正）。`exit_record` はこの後に `state.store(WATCH)` するため、
+    /// 他スレッドから state=Watch が見える時点では closed_session_id は必ず先に確定している。
     fn clear_record_session(&self) {
-        let mut guard = match self.record_session.write() {
+        let closing_session_id = {
+            let mut guard = match self.record_session.write() {
+                Ok(guard) => guard,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+            let session_id = guard.session_id.take();
+            *guard = SessionSlot::default();
+            session_id
+        };
+        if let Some(session_id) = closing_session_id {
+            self.mark_session_closed(session_id);
+        }
+    }
+
+    /// `session_id` が既に closed（`exit_record` 済み）かどうか。
+    fn is_session_closed(&self, session_id: &str) -> bool {
+        let guard = match self.closed_session_id.read() {
             Ok(guard) => guard,
             Err(poisoned) => poisoned.into_inner(),
         };
-        *guard = SessionSlot::default();
+        guard.as_deref() == Some(session_id)
+    }
+
+    /// `session_id` を closed として記録する（直近1件のみ保持・上書き）。
+    fn mark_session_closed(&self, session_id: String) {
+        let mut guard = match self.closed_session_id.write() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        *guard = Some(session_id);
+    }
+
+    /// 直近に closed された `record_session_id`（1つだけ・上書き）。
+    ///
+    /// record_writer 側が「1 session = 1 writer」を独立に検証するための backstop 用
+    /// （P2: この state machine 自身が既に `try_enter_record_started_at_clock_transaction`
+    /// で同じ session_id の re-entry を拒否しているため、通常運用ではここが writer 側の
+    /// dedup チェックと食い違うことはない）。
+    pub fn last_closed_session_id(&self) -> Option<String> {
+        match self.closed_session_id.read() {
+            Ok(guard) => guard.clone(),
+            Err(poisoned) => poisoned.into_inner().clone(),
+        }
     }
 
     /// Watch へ戻す。無条件・冪等。
@@ -496,6 +575,54 @@ mod tests {
             Err(TransitionError::MissingRecordSession)
         );
         assert_eq!(sm.current(), RecordState::Watch);
+    }
+
+    /// ACK re-entry race 構造修正の回帰: 一度 exit_record で closed した session_id は、
+    /// on-disk signal が stale な Acknowledged を返し続けても二度と Record へ入れない。
+    /// これが無いと、io_thread_pre.rs / io_thread_post.rs の ACK poller が
+    /// `record_sm.exit_record()`（in-process）と `record_signal` の Released 更新
+    /// （on-disk）の間隙で同じ session_id を読み、Measure Thread の Watch→Record reset
+    /// （engine / trace queue clear）を誤って再トリガーしてしまう（2026-07-10 実障害）。
+    #[test]
+    fn closed_session_id_cannot_re_enter_record() {
+        let sm = RecordStateMachine::new();
+        assert_eq!(
+            sm.try_enter_record_started_at_clock_transaction(License::Os, 1, None, "session-a"),
+            Ok(())
+        );
+        sm.exit_record();
+        assert_eq!(sm.current(), RecordState::Watch);
+
+        // stale ACK が同じ session_id で再入場を試みても拒否される。
+        assert_eq!(
+            sm.try_enter_record_started_at_clock_transaction(License::Os, 2, None, "session-a"),
+            Err(TransitionError::SessionAlreadyClosed)
+        );
+        assert_eq!(
+            sm.current(),
+            RecordState::Watch,
+            "must remain in Watch, not re-enter"
+        );
+        assert_eq!(sm.record_session_id(), None);
+    }
+
+    /// 上のガードは「同じ session_id の再入場」だけを拒否する。新しい session_id を持つ
+    /// 正当な次の Keep/ACK サイクルは通常通り成功しなければならない。
+    #[test]
+    fn different_session_id_can_enter_after_previous_closed() {
+        let sm = RecordStateMachine::new();
+        assert_eq!(
+            sm.try_enter_record_started_at_clock_transaction(License::Os, 1, None, "session-a"),
+            Ok(())
+        );
+        sm.exit_record();
+
+        assert_eq!(
+            sm.try_enter_record_started_at_clock_transaction(License::Os, 2, None, "session-b"),
+            Ok(())
+        );
+        assert_eq!(sm.record_session_id().as_deref(), Some("session-b"));
+        assert_eq!(sm.current(), RecordState::Record);
     }
 
     #[test]

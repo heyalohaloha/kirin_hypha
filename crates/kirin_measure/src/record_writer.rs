@@ -208,12 +208,26 @@ pub fn drain_record_trace_queue_for_generation(
     }
 }
 
-/// B-132 (G-115-382 共通B): bake arm が Measure Thread の drain-completion seal 前進を待つ
-/// **上限**。Record→Watch エッジでは Measure Thread が ring 残量を優先 drain するため、
-/// 健全時は ~1 loop（≤100ms）で
-/// seal が前進する。本値は measure 死 / shutdown / stall で finalize 不能なときの天井で、
-/// 超過したら integrity_degraded に倒す（共通B / silent truncation を残さない）。
-pub const SEAL_WAIT_TIMEOUT: Duration = Duration::from_millis(500);
+/// P3 (2026-07-10, offline bounce 構造修正): `record_trace_queue` へ新しいフレームが
+/// 積まれ続けている限り、この時間だけ待ちを延長する「無進捗」ウィンドウ。
+///
+/// リアルタイム収録では ring 残量は常に僅かなので、健全時は ~1 loop（≤100ms）で
+/// drain が終わり seal が前進する。だが offline bounce は wall-clock より速く音声が
+/// 届くため、Record→Watch エッジで ring に数秒分の backlog が溜まっていることがあり、
+/// それを tight-drain する実処理時間が固定の短い天井を正当に超え得る（2026-07-10
+/// 実障害: 96kHz + 4 インスタンス同時 bounce で `.failed`/`missing_trace_slots` や
+/// 完全なデータへの `drain_seal_timeout` 誤検出が発生）。この値は「進捗が本当に止まった」
+/// ときだけ integrity_degraded に倒すための無進捗判定に使う（固定の合計待ち時間の
+/// 当てずっぽうを timeout の主決定要因にしない）。
+pub const SEAL_WAIT_NO_PROGRESS_TIMEOUT: Duration = Duration::from_millis(500);
+
+/// `record_trace_queue` が無い呼び出し元向けの絶対上限。
+///
+/// `record_trace_queue` がある Record TRACE 経路では「進捗が止まった時間」だけを失敗条件にし、
+/// queue が伸び続けている限り固定 wall-clock 上限では打ち切らない。offline bounce は
+/// DAW の wall-clock より速く音声を積むため、進捗中の drain を絶対上限で切ると
+/// 「壊れた後の安全網」ではなく欠損そのものを作ってしまう。
+pub const SEAL_WAIT_ABSOLUTE_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// B-132: seal wait のポーリング間隔（lock-free / atomic load のみ）。
 pub const SEAL_WAIT_POLL: Duration = Duration::from_millis(10);
@@ -251,29 +265,73 @@ const TRACE_SLOT_ASSIGNMENT_TOLERANCE_MS: u64 = FRAME_INTERVAL_MS / 10;
 /// B-132 (G-115-382 共通B): Record→Watch close 時に Measure Thread の post-drain seal が
 /// `seal_at_start` を超えるまで **lock-free bounded** に待つ。
 ///
+/// P3 (2026-07-10): 固定の合計待ち時間ではなく、`record_trace_queue` が伸び続けている
+/// （= Measure Thread が実際に drain を進めている）限り無進捗タイマーを都度リセットする
+/// deterministic な handshake にする。offline bounce のような backlog が大きいケースでも、
+/// 進捗している間は正当な処理時間として待ち続け、進捗が本当に止まったときだけ
+/// `no_progress_timeout` で諦める。`absolute_timeout` は `record_trace_queue` が無い
+/// legacy/fallback 呼び出し元だけに適用する。
+///
 /// 返値 `true`: seal が前進した（= measure が tight-drain + 最終 finalize + session_summary 書込を
 /// 完了）→ bake arm は post-drain 確定スナップショットを take してよい。
-/// 返値 `false`: `SEAL_WAIT_TIMEOUT` 超過（measure 死 / shutdown / stall）→ 呼出側は
-/// integrity_degraded を立てる。
+/// 返値 `false`: 無進捗のまま `no_progress_timeout` 超過、または進捗監視なしで
+/// `absolute_timeout` 超過（measure 死 / shutdown / stall）→ 呼出側は integrity_degraded を立てる。
 ///
-/// teardown 安全性: atomic load のみで lock を跨がない・timeout 有限。Drop が
-/// measure.shutdown を立てて join する順序（watchdog IO→measure）と循環しない
-/// （measure が seal を進めなくても最大 `SEAL_WAIT_TIMEOUT` で抜ける）。
+/// teardown 安全性: atomic load + Mutex 短時間 lock のみ。通常の Record TRACE 経路は
+/// 「進捗が止まったら有限時間で抜ける」。進捗監視の無い legacy/fallback 経路だけは
+/// `absolute_timeout` でも抜ける。
 pub fn wait_for_seal(
     record_sm: &RecordStateMachine,
     seal_at_start: u64,
-    timeout: Duration,
+    record_trace_queue: Option<&RecordTraceQueue>,
+    no_progress_timeout: Duration,
+    absolute_timeout: Duration,
 ) -> bool {
-    let deadline = Instant::now() + timeout;
+    let has_progress_detector = record_trace_queue.is_some();
+    let absolute_deadline = Instant::now() + absolute_timeout;
+    let mut no_progress_deadline = Instant::now() + no_progress_timeout;
+    let mut last_len = trace_queue_len(record_trace_queue);
     loop {
         if record_sm.seal() > seal_at_start {
             return true;
         }
-        if Instant::now() >= deadline {
+        let now = Instant::now();
+        if now >= no_progress_deadline || (!has_progress_detector && now >= absolute_deadline) {
             return false;
         }
         std::thread::sleep(SEAL_WAIT_POLL);
+        let len = trace_queue_len(record_trace_queue);
+        if has_progress_detector && len != last_len {
+            last_len = len;
+            no_progress_deadline = Instant::now() + no_progress_timeout;
+        }
     }
+}
+
+/// `record_trace_queue` の現在長（lock 取得失敗時は進捗なしとみなし 0 を返す）。
+fn trace_queue_len(record_trace_queue: Option<&RecordTraceQueue>) -> usize {
+    record_trace_queue
+        .and_then(|q| q.lock().ok())
+        .map(|guard| guard.len())
+        .unwrap_or(0)
+}
+
+fn session_scoped_failed_path(
+    fallback_failed_path: &Path,
+    record_session_id: Option<&str>,
+) -> PathBuf {
+    let Some(session_id) = record_session_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return fallback_failed_path.to_path_buf();
+    };
+    let Some(failed_dir) = fallback_failed_path.parent() else {
+        return fallback_failed_path.to_path_buf();
+    };
+    let safe =
+        crate::path_identity::guard_path_component(session_id, "record_writer.failed.session_id");
+    failed_dir.join(format!("{safe}.json"))
 }
 
 /// B-025 Group B-2 / Gap-19 + Group B-3 / Gap-20: flush 連続失敗の診断しきい値。
@@ -520,7 +578,8 @@ pub fn writer_start(
     let writer_paths = WriterPaths::build(&base, project_hash, instance_id, role, &wall_clock_iso);
     let final_path = writer_paths.final_path.clone();
     let staging_path = writer_paths.staging_path.clone();
-    let failed_path = writer_paths.failed_path.clone();
+    let failed_path =
+        session_scoped_failed_path(&writer_paths.failed_path, record_session_id.as_deref());
     let mut w = match PluginDataWriter::create(
         writer_paths,
         installation_id,
@@ -1576,6 +1635,25 @@ fn run_record_tick_with_pair_names_inner(
                 );
                 return Ok(());
             }
+            // P2 (2026-07-10, ACK re-entry race 構造修正の backstop): record_sm 自身が
+            // 既に `try_enter_record_started_at_clock_transaction` で同じ session_id の
+            // re-entry を拒否しているため、is_recording()==true の時点でここに到達する
+            // session_id が直近 closed 済みと一致することは通常運用では起こらない。
+            // それでも「1 session = 1 writer = 1 artifact」を writer 層自身でも独立に
+            // 保証する（record_sm 側の保証だけに依存しない）。
+            if let Some(sid) = record_session_id.as_deref() {
+                if record_sm.last_closed_session_id().as_deref() == Some(sid) {
+                    log::warn!(
+                        "[writer] Record start withheld: session_id already closed, refusing a \
+                         second writer (role={:?}, project={}, iid={}, session={})",
+                        role,
+                        project_hash,
+                        instance_id,
+                        sid
+                    );
+                    return Ok(());
+                }
+            }
             let started_at_ms = started_at_resolver();
             let pair_name = pair_name_resolver();
             let pair_pre_name = pair_pre_name_resolver();
@@ -1671,7 +1749,13 @@ fn close_recording_context(
     // Measure Thread が Record→Watch エッジで ring 残量を tight-drain → 最終 finalize →
     // session_summary 書込を完了し seal を前進させるのを **bounded** に待ってから取り出す。
     // これで「post-drain の確定スナップショット」のみ焼く（live meter は元々別スロット）。
-    let sealed = wait_for_seal(record_sm, ctx.seal_at_start, SEAL_WAIT_TIMEOUT);
+    let sealed = wait_for_seal(
+        record_sm,
+        ctx.seal_at_start,
+        record_trace_queue,
+        SEAL_WAIT_NO_PROGRESS_TIMEOUT,
+        SEAL_WAIT_ABSOLUTE_TIMEOUT,
+    );
     // B-043: Record→Watch 遷移時に Measure Thread の最新セッション集計を取り出して注入。
     let summary = session_summary.and_then(take_session_summary);
     // B-076: この Record 中に ring 満杯で落ちたサンプル数 = 現在の累積 - 開始時 snapshot。
@@ -1688,8 +1772,10 @@ fn close_recording_context(
     // 「不完全を不完全と記録」する（set_integrity の後に OR で立てる / silent truncation 排除）。
     if !sealed {
         log::warn!(
-            "[writer] drain seal not observed within {:?} — marking integrity_degraded (incomplete tail)",
-            SEAL_WAIT_TIMEOUT
+            "[writer] drain seal not observed (no progress for {:?}, or legacy absolute {:?} \
+             exceeded) — marking integrity_degraded (incomplete tail)",
+            SEAL_WAIT_NO_PROGRESS_TIMEOUT,
+            SEAL_WAIT_ABSOLUTE_TIMEOUT
         );
         ctx.writer.mark_integrity_degraded();
         ctx.writer.add_integrity_reason("drain_seal_timeout");
@@ -2516,7 +2602,7 @@ mod tests {
     use crate::plugin_data::{
         PluginDataFile, PluginDataWriter, Role, TraceDiagnostics, WriterPaths,
     };
-    use crate::record::RecordStateMachine;
+    use crate::record::{RecordStateMachine, TransitionError};
     use crate::{License, MeasureResult, PsbSummary};
     use std::fs;
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -2690,6 +2776,66 @@ mod tests {
         assert!(
             rec.is_none(),
             "strict Record tick must not create a sessionless writer"
+        );
+    }
+
+    /// P2 (2026-07-10, ACK re-entry race 構造修正): 一度 closed した session_id は、
+    /// record_sm 自身が re-entry を拒否する（P1）ため、tick が is_recording()==true を
+    /// 一切観測せず、writer も二度と作られない。「1 session = 1 writer = 1 artifact」を
+    /// tick 関数のレベルで直接検証する（record_sm 側のテストとは別レイヤー）。
+    #[test]
+    fn closed_session_id_never_gets_a_second_writer_via_the_tick() {
+        let sm = Arc::new(RecordStateMachine::new());
+        let m = Arc::new(Mutex::new(full_measure_result()));
+        let mut rec: Option<RecordingCtx> = None;
+
+        sm.try_enter_record_started_at_clock_transaction(
+            License::Os,
+            now_epoch_ms(),
+            Some(0),
+            "session-reuse-guard",
+        )
+        .unwrap();
+        sm.exit_record();
+
+        // record_sm 自身が同じ session_id の再入場を拒否する（P1）。
+        assert_eq!(
+            sm.try_enter_record_started_at_clock_transaction(
+                License::Os,
+                now_epoch_ms(),
+                Some(0),
+                "session-reuse-guard",
+            ),
+            Err(TransitionError::SessionAlreadyClosed)
+        );
+
+        // is_recording() は false のままなので tick は (true, false) 分岐に到達せず、
+        // writer_start は一切呼ばれない。
+        run_record_tick_with_pair_names_require_session(
+            &sm,
+            Role::Post,
+            48_000,
+            TEST_PH,
+            TEST_IID,
+            now_epoch_ms,
+            || Some("pre-iid".to_string()),
+            || None,
+            || None,
+            || None,
+            || Some("session-reuse-guard".to_string()),
+            &m,
+            &mut rec,
+            None,
+            &no_overflow(),
+            &no_overflow(),
+            None,
+            None,
+        )
+        .unwrap();
+
+        assert!(
+            rec.is_none(),
+            "a session_id record_sm already rejected as closed must never produce a writer"
         );
     }
 
@@ -5521,19 +5667,32 @@ mod tests {
         let sm = RecordStateMachine::new();
         let start = sm.seal();
         sm.bump_seal(); // measure 側 drain 完了相当
-        assert!(super::wait_for_seal(&sm, start, Duration::from_millis(200)));
+        assert!(super::wait_for_seal(
+            &sm,
+            start,
+            None,
+            Duration::from_millis(200),
+            Duration::from_millis(200)
+        ));
     }
 
-    /// seal が前進しなければ wait は **bounded** に false を返す（measure 死/stall）。
+    /// seal が前進せず、進捗（record_trace_queue の伸び）も無ければ、wait は
+    /// **bounded** に false を返す（measure 死/stall）。
     /// = deadlock 回帰防止: 待ちは必ず有限時間で抜ける（unbounded wait なら teardown deadlock）。
     #[test]
     fn b132_wait_for_seal_times_out_bounded_when_stalled() {
         let sm = RecordStateMachine::new();
         let start = sm.seal();
         let t0 = Instant::now();
-        let sealed = super::wait_for_seal(&sm, start, Duration::from_millis(120));
+        let sealed = super::wait_for_seal(
+            &sm,
+            start,
+            None,
+            Duration::from_millis(120),
+            Duration::from_millis(120),
+        );
         let elapsed = t0.elapsed();
-        assert!(!sealed, "seal 不前進 → false（timeout）");
+        assert!(!sealed, "seal 不前進・進捗なし → false（timeout）");
         assert!(
             elapsed >= Duration::from_millis(120) && elapsed < Duration::from_millis(2000),
             "bounded: timeout 近傍で抜ける（elapsed={elapsed:?}）"
@@ -5547,8 +5706,121 @@ mod tests {
         sm.bump_seal(); // 先行 session の seal
         let start = sm.seal(); // 今回 session 開始 snapshot（= 1）
                                // 今回 session はまだ drain していない → 前進なし → timeout false。
-        assert!(!super::wait_for_seal(&sm, start, Duration::from_millis(60)));
+        assert!(!super::wait_for_seal(
+            &sm,
+            start,
+            None,
+            Duration::from_millis(60),
+            Duration::from_millis(60)
+        ));
         sm.bump_seal(); // 今回 session の drain 完了
-        assert!(super::wait_for_seal(&sm, start, Duration::from_millis(200)));
+        assert!(super::wait_for_seal(
+            &sm,
+            start,
+            None,
+            Duration::from_millis(200),
+            Duration::from_millis(200)
+        ));
+    }
+
+    /// P3 (2026-07-10, offline bounce 構造修正) 回帰: `record_trace_queue` が伸び続けている
+    /// 間は、無進捗タイマーが都度リセットされるため、固定の短い timeout を大幅に超えても
+    /// 待ち続ける（offline bounce の大きな backlog を tight-drain する正当な処理時間を、
+    /// 固定 wall-clock 上限と誤って競合させない）。これが無いと、進捗中の drain でも
+    /// `no_progress_timeout` 相当の固定値だけで打ち切られ、完全なデータなのに
+    /// `drain_seal_timeout` になる（2026-07-10 実障害の一つ: 2Mix PRE が 152/152 frames
+    /// 揃っているのに `drain_seal_timeout` で failed）。
+    #[test]
+    fn b132_wait_for_seal_extends_while_trace_queue_keeps_growing() {
+        let sm = Arc::new(RecordStateMachine::new());
+        let start = sm.seal();
+        let queue = new_record_trace_queue();
+
+        // 別スレッドで「Measure Thread の tight-drain」を模擬する: no_progress_timeout(80ms)
+        // より短い間隔で queue へ新しいフレームを push し続け、最後に seal を bump する。
+        // 合計処理時間 (~240ms) は no_progress_timeout(80ms) を大きく超えるが、各 push が
+        // 無進捗タイマーをリセットするので wait は timeout せずに済む。
+        let sm_writer = Arc::clone(&sm);
+        let queue_writer = Arc::clone(&queue);
+        let handle = std::thread::spawn(move || {
+            for i in 0..4u64 {
+                std::thread::sleep(Duration::from_millis(40));
+                queue_writer
+                    .lock()
+                    .unwrap()
+                    .push_back(RecordTraceSample::measured(
+                        1,
+                        i * 100,
+                        0,
+                        None,
+                        MeasureResult::default(),
+                        false,
+                    ));
+            }
+            std::thread::sleep(Duration::from_millis(40));
+            sm_writer.bump_seal();
+        });
+
+        let sealed = super::wait_for_seal(
+            &sm,
+            start,
+            Some(&queue),
+            Duration::from_millis(80),
+            Duration::from_secs(5),
+        );
+        handle.join().unwrap();
+
+        assert!(
+            sealed,
+            "growing trace queue must keep extending the wait past a fixed 80ms ceiling"
+        );
+    }
+
+    /// 進捗監視がある TRACE 経路では、queue が伸び続ける限り `absolute_timeout` では
+    /// 打ち切らない。固定の絶対上限を主決定要因にすると、長い offline bounce の正当な
+    /// drain まで `.failed` に落ち得るため。
+    #[test]
+    fn b132_wait_for_seal_does_not_apply_absolute_timeout_while_trace_queue_progresses() {
+        let sm = Arc::new(RecordStateMachine::new());
+        let start = sm.seal();
+        let queue = new_record_trace_queue();
+
+        let sm_writer = Arc::clone(&sm);
+        let queue_writer = Arc::clone(&queue);
+        let handle = std::thread::spawn(move || {
+            for i in 0..5u64 {
+                std::thread::sleep(Duration::from_millis(35));
+                queue_writer
+                    .lock()
+                    .unwrap()
+                    .push_back(RecordTraceSample::measured(
+                        1,
+                        i * 100,
+                        0,
+                        None,
+                        MeasureResult::default(),
+                        false,
+                    ));
+            }
+            std::thread::sleep(Duration::from_millis(35));
+            sm_writer.bump_seal();
+        });
+
+        let t0 = Instant::now();
+        let sealed = super::wait_for_seal(
+            &sm,
+            start,
+            Some(&queue),
+            Duration::from_millis(80),
+            Duration::from_millis(90),
+        );
+        let elapsed = t0.elapsed();
+        handle.join().unwrap();
+
+        assert!(sealed, "progressing drain must wait for the seal");
+        assert!(
+            elapsed >= Duration::from_millis(160),
+            "test must run past the 90ms absolute timeout (elapsed={elapsed:?})"
+        );
     }
 }

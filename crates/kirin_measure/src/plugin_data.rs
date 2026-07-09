@@ -852,7 +852,11 @@ impl PluginDataWriter {
                 self.add_integrity_reason(reason);
             }
             refresh_record_quality(&mut self.data);
-            self.write_atomic(self.paths.failed_path.clone())?;
+            let self_paths = self_paths_for(&self.paths, &self.data);
+            self.write_atomic_with_tmp(
+                self_paths.failed_path.clone(),
+                sibling_tmp_path(&self_paths.failed_path),
+            )?;
         }
         let _ = fs::remove_file(&self.paths.staging_path);
         Ok(())
@@ -4209,6 +4213,34 @@ mod tests {
             .integrity_reasons
             .iter()
             .any(|reason| reason == "zero_trace_frames"));
+        assert!(verify_checksum(&loaded));
+    }
+
+    #[test]
+    fn close_failed_record_uses_session_keyed_diagnostic_path_when_session_exists() {
+        let base = isolated_dir();
+        let mut w = sample_writer(&base, Role::Post);
+        let wall_clock_failed_path = w.paths.failed_path.clone();
+        w.set_record_session_id(Some("session-failed-diagnostic".to_string()));
+        let session_failed_path = self_paths_for(&w.paths, w.data()).failed_path;
+
+        w.close().unwrap();
+
+        assert!(
+            !wall_clock_failed_path.exists(),
+            "session records must not leave wall-clock keyed failed fragments"
+        );
+        assert!(
+            session_failed_path.exists(),
+            "failed diagnostics must be keyed by record_session_id"
+        );
+        let loaded: PluginDataFile =
+            serde_json::from_slice(&fs::read(&session_failed_path).unwrap()).unwrap();
+        assert_eq!(
+            loaded.record_session_id.as_deref(),
+            Some("session-failed-diagnostic")
+        );
+        assert_eq!(loaded.commit_status.as_deref(), Some("failed"));
         assert!(verify_checksum(&loaded));
     }
 }
