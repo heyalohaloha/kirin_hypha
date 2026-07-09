@@ -596,15 +596,23 @@ fn resolve_and_exit_stop(
     post_iid: &str,
     release_reason: Option<ReleaseReason>,
 ) {
-    record_sm.exit_record();
     // B-127: linkage クリア前に対 PRE iid を捕捉し、本 pairing の O_EXCL reservation 枠を解放する
     // （両 marker が Closed/stale になる前でも stop で明示解放。孤児は sweep が age-based で回収）。
     let released_pre = paired_pre_target.lock().ok().and_then(|g| g.clone());
     if let Ok(mut g) = paired_pre_target.lock() {
         *g = None; // linkage クリア（次 Keep まで）。
     }
+    // 2026-07-10 構造修正（ACK re-entry race）: shared signal を Released にしてから
+    // record_sm.exit_record() する。逆順だと、record_sm が既に Watch なのに on-disk signal は
+    // まだ Acknowledged のままという間隙が生まれ、その間に ACK poller（io_thread_pre.rs /
+    // io_thread_post.rs）が stale な Acknowledged を読んで同じ session_id へ再入場して
+    // しまう。record_sm 側の `closed_session_id` ガード（record.rs）が構造的な本丸だが、
+    // この reorder はその隙間自体を縮める defense-in-depth。exit_record は
+    // StoragePaths 解決の成否・早期 return 経路に関わらず必ず1回だけ呼ぶ（元の
+    // 無条件呼び出しと同じ保証）。
     if project_hash.is_empty() || post_iid.is_empty() {
-        return; // 未 enable → released marker は書けない。
+        record_sm.exit_record(); // 未 enable → released marker は書けないが exit は必須。
+        return;
     }
     if let Ok(p) = StoragePaths::default_platform() {
         let base = p.plugin_data_dir();
@@ -616,6 +624,7 @@ fn resolve_and_exit_stop(
             None => mark_released(&base, project_hash, post_iid),
         };
     }
+    record_sm.exit_record();
 }
 
 /// 内部 `SignalState` を C ABI コード（0=Inactive 1=Active 2=Bypassed）へ写像する。

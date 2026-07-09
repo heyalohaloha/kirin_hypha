@@ -1997,7 +1997,13 @@ pub(crate) fn trigger_stop_internal(
     // G-115-365: reservation 解放用に対 PRE iid を先に捕捉する
     // (FFI resolve_and_exit_stop と同一 parity)。
     let released_pre = paired_pre_target.lock().ok().and_then(|g| g.clone());
-    exit_record_preserve_pair(record_sm);
+    // 2026-07-10 構造修正（ACK re-entry race）: shared signal を Released にしてから
+    // record_sm を Watch へ戻す。逆順だと、record_sm が既に Watch なのに on-disk signal は
+    // まだ Acknowledged のままという間隙が生まれ、その間に ACK poller が stale な
+    // Acknowledged を読んで同じ session_id へ再入場してしまう。record_sm 側の
+    // `closed_session_id` ガード（record.rs）が構造的な本丸だが、この reorder は
+    // その隙間自体を縮める defense-in-depth。`exit_record_preserve_pair` は
+    // StoragePaths 解決の成否に関わらず必ず1回だけ呼ぶ（元の無条件呼び出しと同じ保証）。
     match StoragePaths::default_platform() {
         Ok(paths) => {
             let plugin_data_dir = paths.plugin_data_dir();
@@ -2020,6 +2026,7 @@ pub(crate) fn trigger_stop_internal(
                     }
                 }
             }
+            exit_record_preserve_pair(record_sm);
 
             // B-243/B-269: trigger_stop では record_signal を即削除しない。
             // PRE は reason 付き `released` だけを明示 Stop 理由として観測して Watch へ戻る。
@@ -2057,6 +2064,7 @@ pub(crate) fn trigger_stop_internal(
         }
         Err(e) => {
             log::warn!("[POST stop] StoragePaths error: {:?}", e);
+            exit_record_preserve_pair(record_sm);
         }
     }
 }
