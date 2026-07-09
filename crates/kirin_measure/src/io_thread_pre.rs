@@ -15,7 +15,8 @@
 //!    に Frame / PSB を追記
 //!
 //! - このスレッドが panic / 権限エラーで止まっても Audio Thread / Measure Thread は継続。
-//! - Drop 時（プラグインアンロード）に自分の pre.json と instance ディレクトリを削除する。
+//! - Drop 時（プラグインアンロード）に pre.json は削除しない。読み手は mtime で鮮度判定し、
+//!   十分古い watch 残骸は次回起動時 sweep で掃除する。
 //! - Record 中にループ終了した場合、writer は status=closed で flush してから閉じる。
 //!
 //! - `License::Os`: 条件一致 pending 検出で `try_enter_record` + `mark_acknowledged`、writer 起動
@@ -638,6 +639,10 @@ pub fn spawn_io_thread_pre(
         // B-103: dead Pending record_signal（書込 POST 消失・自 release 30s 超）を起動時掃除。
         // age ベース・保守しきい値（STALE_PENDING_SECS=120s）で生記録は誤掃除しない。loop 前 1 回。
         record_signal::sweep_stale_pending_at_startup();
+
+        // B-320: teardown では pre/post watch JSON を削除しない。代わりに起動時だけ
+        // 十分古い `/tmp/kirin/*/*/{pre,post}.json` を sweep する。
+        crate::watch_tmp_cleanup::sweep_stale_watch_files_at_startup();
 
         // B-127 (G-115-364): 孤児 reservation 枠を起動時掃除（POST 経路と冪等・age ベース）。
         if let Ok(paths) = StoragePaths::default_platform() {

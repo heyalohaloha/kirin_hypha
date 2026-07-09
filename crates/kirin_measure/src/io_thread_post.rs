@@ -10,7 +10,8 @@
 //!    Frame (10 fps) / PSB (2 fps) を追記、30 秒毎に flush
 //!
 //! - このスレッドが panic / 権限エラーで止まっても Audio Thread / Measure Thread は継続
-//! - Drop 時に自分の post.json と instance ディレクトリを削除する
+//! - Drop 時に post.json は削除しない。読み手は mtime で鮮度判定し、十分古い
+//!   watch 残骸は次回起動時 sweep で掃除する。
 //! - Record 中に終了した場合、保留中の writer は status=closed で flush してから閉じる
 
 use std::collections::HashMap;
@@ -331,6 +332,10 @@ pub fn spawn_io_thread_post(
 
         // B-103: dead Pending record_signal を起動時掃除（PRE 経路と冪等・age ベース保守条件）。
         record_signal::sweep_stale_pending_at_startup();
+
+        // B-320: teardown では pre/post watch JSON を削除しない。代わりに起動時だけ
+        // 十分古い `/tmp/kirin/*/*/{pre,post}.json` を sweep する。
+        crate::watch_tmp_cleanup::sweep_stale_watch_files_at_startup();
 
         // B-127 (G-115-364): 孤児 reservation 枠（keep が active marker 生成前にクラッシュ等 /
         // age > RESERVATION_TTL_SECS）を起動時掃除（B-103 と合流・age ベース・冪等）。
