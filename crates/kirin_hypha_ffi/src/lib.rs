@@ -5,7 +5,7 @@
 //!
 //! # C ABI surface（すべて実装済み）
 //! - RT 計測: `create` / `set_signal_state` / `push_samples` / `poll_result` / `destroy`。
-//! - Record: `set_license` / `enter_record` / `exit_record` と `poll_session`
+//! - Record: `set_license` / `exit_record` と `poll_session`
 //!   (LUFS-I/LRA/max_true_peak)。SessionSummary は `engine.finalize()` 由来で Record 中にのみ
 //!   成立する量で、Measure Thread が **自律的に** finalize して `session_summary` を充填する
 //!   （measure_thread.rs:290-295）。FFI は RecordStateMachine を flip するだけ（exit で finalize
@@ -812,6 +812,16 @@ impl KirinHyphaEngine {
     /// Record へ遷移を試みる。`License::Os` かつ Watch のとき `true`、それ以外 `false`。
     /// license 二重 gate（E-21）: `try_enter_record` が内部で `License::Os` を再判定する
     /// （record.rs:109-123）。`AlreadyRecording` / `LicenseDenied` は `false`。
+    ///
+    /// **C ABI には公開しない**（P1 finding 2026-07-09）。session_id を持たずに Record へ
+    /// 入れてしまい、is_recording()==true だが strict writer
+    /// （record_writer.rs: run_record_tick_with_pair_names_require_session）が
+    /// session なしで起動を拒む＝TRACE が出ない状態を、B-322 が閉じたはずの経路とは別の
+    /// 入口から再び作れてしまうため。Rust 側テストが状態機械を直接検証する用途にのみ残す。
+    /// 本番の Record 開始は `keep()` 経由の `try_enter_record_started_at_clock_transaction`
+    /// （session 必須）だけを通る。`pub` のままなのは `tests/parity.rs`（別クレート扱いの
+    /// integration test）が状態機械を直接検証するために呼ぶため。C ABI 経由でこの crate の
+    /// 外（JUCE 側）から呼べる経路は存在しない。
     pub fn enter_record(&self) -> bool {
         self.record_sm
             .try_enter_record_started_at_clock(
@@ -2047,22 +2057,6 @@ pub unsafe extern "C" fn kirin_hypha_set_license(handle: *mut KirinHyphaEngine, 
         }
         unsafe { (*handle).set_license(license) };
     }));
-}
-
-/// Record 遷移を試みる。`License::Os` かつ Watch のとき `true`、それ以外 `false`
-/// （二重 gate / 冪等。AlreadyRecording / LicenseDenied は false）。
-///
-/// # Safety
-/// `handle` は有効なハンドル。
-#[no_mangle]
-pub unsafe extern "C" fn kirin_hypha_enter_record(handle: *mut KirinHyphaEngine) -> bool {
-    catch_unwind(AssertUnwindSafe(|| {
-        if handle.is_null() {
-            return false;
-        }
-        unsafe { (*handle).enter_record() }
-    }))
-    .unwrap_or(false)
 }
 
 /// Record を終了し Watch へ戻す（無条件・冪等）。SessionSummary は Measure Thread が

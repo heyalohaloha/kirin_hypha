@@ -8,7 +8,7 @@
  *
  * C ABI surface（すべて実装済み）:
  *   - RT 計測: create / set_signal_state / push_samples / poll_result / destroy.
- *   - Record:  set_license / enter_record / exit_record / poll_session
+ *   - Record:  set_license / exit_record / poll_session
  *              （SessionSummary は Record finalize 後に成立。finalize は Measure Thread のみ）.
  *   - 識別子:  set_identity / get_identity（state chunk 方式A）.
  *   - IO:      enable_pre_writes（PRE）/ enable_post_writes（POST）.
@@ -118,10 +118,6 @@ uint8_t kirin_hypha_load_license(void);
 /* ライセンス設定（0=Os 1=Sense 2=Unknown / 未知値は安全側 Unknown）.
  * identity.rs:46 の enum 宣言順に一致. Os 以外へ降格時 Record 中なら強制 Watch（E-21）. */
 void kirin_hypha_set_license(KirinHypha* handle, uint8_t license);
-
-/* Record 遷移を試みる. Os かつ Watch のとき true / それ以外 false（二重 gate・冪等）.
- * 成功後は Measure Thread が is_recording を見て自律的に finalize する. */
-bool kirin_hypha_enter_record(KirinHypha* handle);
 
 /* Record 終了（無条件 Watch・冪等）. 直近 finalize 値は session_summary に保持され
  * poll_session で取得できる（finalize は Measure Thread のみ・FFI は呼ばない）. */
