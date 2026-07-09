@@ -63,6 +63,14 @@ jobs:
       - name: Build kirin_hypha_ffi staticlib (arm64 native)
         run: cargo build --release -p kirin_hypha_ffi --locked
 
+      # The macOS VST3 ship set is the egui/nih-plug bundle under target/bundled.
+      # Build it here so pluginval validates the same VST3 family Studio One/installers load.
+      - name: Build macOS ship-set VST3 bundles (arm64)
+        run: |
+          cargo run --package xtask -- bundle hypha_pre --release
+          cargo run --package xtask -- bundle hypha_post --release
+          cargo run --package xtask -- stamp-egui-version
+
       # The JUCE submodule is pinned pristine; local patches are applied at build time only.
       # Keep CI and scripts/build_juce_universal.sh on the same patch flags.
       - name: Apply JUCE patches (patches/0001 + 0002 + 0003)
@@ -75,10 +83,10 @@ jobs:
             -DCMAKE_OSX_ARCHITECTURES=arm64
           cmake --build juce_shell/build-arm64 --config Release
 
-      # Validate the JUCE VST3 bundles before any Studio One/manual loop. auval below covers AU;
-      # pluginval catches VST3 load/state/automation/sample-rate/buffer-size/threading issues.
-      - name: Validate macOS JUCE VST3 with pluginval
-        run: scripts/validate_juce_pluginval_macos.sh juce_shell/build-arm64
+      # Validate the actual macOS VST3 ship-set before any Studio One/manual loop. auval below
+      # covers JUCE AU; pluginval catches VST3 load/state/automation/sample-rate/buffer-size issues.
+      - name: Validate macOS ship-set VST3 with pluginval
+        run: scripts/validate_macos_pluginval.sh target/bundled
 
       - name: Upload macOS pluginval logs
         if: always()

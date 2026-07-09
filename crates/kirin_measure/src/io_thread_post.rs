@@ -876,25 +876,11 @@ pub fn spawn_io_thread_post(
         // §4-5 Step 1: 終了処理時も project_hash を lazy-read で確定。
         let final_iid = read_instance_id_arc(&instance_id);
         let final_project_hash = read_project_hash_arc(&project_hash);
-        // B-128 (G-115-370): within-base wall（POST post.json cleanup builder / DiD parity）。
-        let final_ph_guard = crate::path_identity::guard_path_component(
-            &final_project_hash,
-            "io_thread_post.cleanup.project_hash",
-        );
-        let final_iid_guard = crate::path_identity::guard_path_component(
-            &final_iid,
-            "io_thread_post.cleanup.instance_id",
-        );
-        let final_project_dir_hint = kirin_root.join(&*final_ph_guard);
-        let final_instance_dir = final_project_dir_hint.join(&*final_iid_guard);
-        let final_post_file = final_instance_dir.join("post.json");
-        if let Err(e) = fs::remove_file(&final_post_file) {
-            log::debug!("[IOThread POST] cleanup post file: {}", e);
-        }
-        if let Err(e) = crate::atomic_file::remove_temp_siblings(&final_post_file) {
-            log::debug!("[IOThread POST] cleanup post tmp: {}", e);
-        }
-        let _ = fs::remove_dir(&final_instance_dir);
+        // Do not delete post.json, temp siblings, or the instance directory here.
+        // pluginval and some DAWs can tear down and recreate the same restored
+        // instance_id in quick succession; an old IO thread deleting this path
+        // can remove the next IO thread's live write and create transient missing
+        // POST/PRE pairing. Freshness is mtime-gated by readers.
 
         // B-244: IO Thread terminate 終端でも record_signal は削除せず Released にする。
         // PRE は missing では止めないため、shutdown/watchdog restart/drop の lifecycle 終了も

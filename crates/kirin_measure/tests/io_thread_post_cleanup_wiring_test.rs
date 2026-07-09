@@ -60,3 +60,46 @@ fn io_thread_post_mark_released_precedes_terminated_log() {
          (release={release_idx}, terminated={terminated_idx})"
     );
 }
+
+/// pluginval opens/closes the same restored instance quickly. Teardown cleanup
+/// must not delete watch JSON or atomic temp siblings because a replacement IO
+/// thread may already be writing the same path.
+#[test]
+fn io_thread_termination_does_not_delete_live_watch_files() {
+    let pre = read("src/io_thread_pre.rs");
+    let post = read("src/io_thread_post.rs");
+
+    assert!(
+        !pre.contains("fs::remove_file(&final_file)"),
+        "PRE teardown must not delete pre.json; freshness TTL handles stale files"
+    );
+    assert!(
+        !pre.contains("remove_temp_siblings(&final_file)"),
+        "PRE teardown must not delete atomic temp siblings owned by a replacement writer"
+    );
+    assert!(
+        !pre.contains("fs::remove_dir(&final_dir)"),
+        "PRE teardown must not remove a directory a replacement writer may be using"
+    );
+    assert!(
+        pre.contains("stale watch files age"),
+        "PRE source must document the mtime freshness handoff"
+    );
+
+    assert!(
+        !post.contains("fs::remove_file(&final_post_file)"),
+        "POST teardown must not delete post.json; freshness TTL handles stale files"
+    );
+    assert!(
+        !post.contains("remove_temp_siblings(&final_post_file)"),
+        "POST teardown must not delete atomic temp siblings owned by a replacement writer"
+    );
+    assert!(
+        !post.contains("fs::remove_dir(&final_instance_dir)"),
+        "POST teardown must not remove a directory a replacement writer may be using"
+    );
+    assert!(
+        post.contains("Freshness is mtime-gated by readers"),
+        "POST source must document the mtime freshness handoff"
+    );
+}
