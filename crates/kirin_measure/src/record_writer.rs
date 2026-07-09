@@ -460,6 +460,12 @@ fn resolve_expected_wav_metadata_for_session(
     crate::record_expected::claim_expected_metadata_for_session(base, project_hash, session_id).ok()
 }
 
+fn normalized_record_session_id(record_session_id: Option<String>) -> Option<String> {
+    record_session_id
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
 /// Record 開始: `PluginDataWriter` を生成し、空ファイルで初回 flush する。
 ///
 /// # 引数
@@ -489,6 +495,7 @@ pub fn writer_start(
     paired_post_instance_id: Option<String>,
     pair_name: Option<String>,
     pair_pre_name: Option<String>,
+    record_session_id: Option<String>,
 ) -> Option<RecordingCtx> {
     let paths = match StoragePaths::default_platform() {
         Ok(p) => p,
@@ -504,8 +511,10 @@ pub fn writer_start(
         Role::Pre => paired_post_instance_id.as_deref(),
         Role::Post => Some(instance_id),
     };
-    let record_session_id = signal_post_instance_id
-        .and_then(|post_iid| resolve_record_session_id(&base, project_hash, post_iid));
+    let record_session_id = normalized_record_session_id(record_session_id).or_else(|| {
+        signal_post_instance_id
+            .and_then(|post_iid| resolve_record_session_id(&base, project_hash, post_iid))
+    });
     let expected_wav = signal_post_instance_id
         .and_then(|post_iid| resolve_expected_wav_metadata(&base, project_hash, post_iid));
     let writer_paths = WriterPaths::build(&base, project_hash, instance_id, role, &wall_clock_iso);
@@ -1412,6 +1421,100 @@ pub fn run_record_tick_with_pair_names(
     record_trace_queue: Option<&RecordTraceQueue>,
     record_take_tracker: Option<&RecordTakeTracker>,
 ) -> Result<(), String> {
+    run_record_tick_with_pair_names_inner(
+        record_sm,
+        role,
+        sample_rate,
+        project_hash,
+        instance_id,
+        started_at_resolver,
+        paired_pre_resolver,
+        paired_post_resolver,
+        pair_name_resolver,
+        pair_pre_name_resolver,
+        || None,
+        false,
+        measure_result,
+        recording,
+        session_summary,
+        overflow,
+        oversized_drop,
+        record_trace_queue,
+        record_take_tracker,
+    )
+}
+
+/// 本番の PRE/POST 協調 Record 用 tick。
+///
+/// writer は session_id と相手 instance_id が同じ ACK/Keep transaction から揃った場合だけ
+/// 開始する。これにより `/tmp` の後読み競合・PRE project split・ACK消失で sessionless
+/// `.failed` shelf を作る経路を入口で閉じる。
+#[allow(clippy::too_many_arguments)]
+pub fn run_record_tick_with_pair_names_require_session(
+    record_sm: &Arc<RecordStateMachine>,
+    role: Role,
+    sample_rate: u32,
+    project_hash: &str,
+    instance_id: &str,
+    started_at_resolver: impl FnOnce() -> i64,
+    paired_pre_resolver: impl FnOnce() -> Option<String>,
+    paired_post_resolver: impl FnOnce() -> Option<String>,
+    pair_name_resolver: impl FnOnce() -> Option<String>,
+    pair_pre_name_resolver: impl FnOnce() -> Option<String>,
+    record_session_resolver: impl FnOnce() -> Option<String>,
+    measure_result: &Arc<Mutex<MeasureResult>>,
+    recording: &mut Option<RecordingCtx>,
+    session_summary: Option<&Arc<Mutex<Option<SessionSummary>>>>,
+    overflow: &Arc<std::sync::atomic::AtomicU64>,
+    oversized_drop: &Arc<std::sync::atomic::AtomicU64>,
+    record_trace_queue: Option<&RecordTraceQueue>,
+    record_take_tracker: Option<&RecordTakeTracker>,
+) -> Result<(), String> {
+    run_record_tick_with_pair_names_inner(
+        record_sm,
+        role,
+        sample_rate,
+        project_hash,
+        instance_id,
+        started_at_resolver,
+        paired_pre_resolver,
+        paired_post_resolver,
+        pair_name_resolver,
+        pair_pre_name_resolver,
+        record_session_resolver,
+        true,
+        measure_result,
+        recording,
+        session_summary,
+        overflow,
+        oversized_drop,
+        record_trace_queue,
+        record_take_tracker,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_record_tick_with_pair_names_inner(
+    record_sm: &Arc<RecordStateMachine>,
+    role: Role,
+    sample_rate: u32,
+    project_hash: &str,
+    instance_id: &str,
+    started_at_resolver: impl FnOnce() -> i64,
+    paired_pre_resolver: impl FnOnce() -> Option<String>,
+    paired_post_resolver: impl FnOnce() -> Option<String>,
+    pair_name_resolver: impl FnOnce() -> Option<String>,
+    pair_pre_name_resolver: impl FnOnce() -> Option<String>,
+    record_session_resolver: impl FnOnce() -> Option<String>,
+    require_record_session: bool,
+    measure_result: &Arc<Mutex<MeasureResult>>,
+    recording: &mut Option<RecordingCtx>,
+    session_summary: Option<&Arc<Mutex<Option<SessionSummary>>>>,
+    overflow: &Arc<std::sync::atomic::AtomicU64>,
+    oversized_drop: &Arc<std::sync::atomic::AtomicU64>,
+    record_trace_queue: Option<&RecordTraceQueue>,
+    record_take_tracker: Option<&RecordTakeTracker>,
+) -> Result<(), String> {
     let is_recording = record_sm.is_recording();
     let current_generation = record_sm.generation();
     let generation_changed = is_recording
@@ -1444,6 +1547,35 @@ pub fn run_record_tick_with_pair_names(
         (true, false) => {
             let paired_pre = paired_pre_resolver();
             let paired_post = paired_post_resolver();
+            if require_record_session {
+                let has_pair = match role {
+                    Role::Pre => paired_post
+                        .as_deref()
+                        .is_some_and(|value| !value.trim().is_empty()),
+                    Role::Post => paired_pre
+                        .as_deref()
+                        .is_some_and(|value| !value.trim().is_empty()),
+                };
+                if !has_pair {
+                    log::warn!(
+                        "[writer] Record start withheld: missing paired instance (role={:?}, project={}, iid={})",
+                        role,
+                        project_hash,
+                        instance_id
+                    );
+                    return Ok(());
+                }
+            }
+            let record_session_id = normalized_record_session_id(record_session_resolver());
+            if require_record_session && record_session_id.is_none() {
+                log::warn!(
+                    "[writer] Record start withheld: missing transaction session (role={:?}, project={}, iid={})",
+                    role,
+                    project_hash,
+                    instance_id
+                );
+                return Ok(());
+            }
             let started_at_ms = started_at_resolver();
             let pair_name = pair_name_resolver();
             let pair_pre_name = pair_pre_name_resolver();
@@ -1457,6 +1589,7 @@ pub fn run_record_tick_with_pair_names(
                 paired_post,
                 pair_name,
                 pair_pre_name,
+                record_session_id,
             ) {
                 // B-076: Record 開始時点の累積 overflow を記録（per-Record 差分の基点）。
                 ctx.overflow_start = overflow.load(std::sync::atomic::Ordering::Relaxed);
@@ -2523,6 +2656,82 @@ mod tests {
     /// B-076: テスト用の overflow=0 カウンタ（欠落なし）。`&no_overflow()` で run_record_tick へ。
     fn no_overflow() -> Arc<std::sync::atomic::AtomicU64> {
         Arc::new(std::sync::atomic::AtomicU64::new(0))
+    }
+
+    #[test]
+    fn strict_record_tick_does_not_start_without_transaction_session() {
+        let sm = Arc::new(RecordStateMachine::new());
+        sm.try_enter_record(License::Os).unwrap();
+        let m = Arc::new(Mutex::new(full_measure_result()));
+        let mut rec: Option<RecordingCtx> = None;
+
+        run_record_tick_with_pair_names_require_session(
+            &sm,
+            Role::Post,
+            48_000,
+            TEST_PH,
+            TEST_IID,
+            now_epoch_ms,
+            || Some("pre-iid".to_string()),
+            || None,
+            || None,
+            || None,
+            || None,
+            &m,
+            &mut rec,
+            None,
+            &no_overflow(),
+            &no_overflow(),
+            None,
+            None,
+        )
+        .unwrap();
+
+        assert!(
+            rec.is_none(),
+            "strict Record tick must not create a sessionless writer"
+        );
+    }
+
+    #[test]
+    fn strict_record_tick_does_not_start_without_required_pair() {
+        let sm = Arc::new(RecordStateMachine::new());
+        sm.try_enter_record_started_at_clock_transaction(
+            License::Os,
+            now_epoch_ms(),
+            Some(0),
+            "session-without-pair",
+        )
+        .unwrap();
+        let m = Arc::new(Mutex::new(full_measure_result()));
+        let mut rec: Option<RecordingCtx> = None;
+
+        run_record_tick_with_pair_names_require_session(
+            &sm,
+            Role::Post,
+            48_000,
+            TEST_PH,
+            TEST_IID,
+            now_epoch_ms,
+            || None,
+            || None,
+            || None,
+            || None,
+            || sm.record_session_id(),
+            &m,
+            &mut rec,
+            None,
+            &no_overflow(),
+            &no_overflow(),
+            None,
+            None,
+        )
+        .unwrap();
+
+        assert!(
+            rec.is_none(),
+            "strict Record tick must not create an unpaired writer"
+        );
     }
 
     fn make_ctx(base: &std::path::Path, role: Role, started_at_ms: i64) -> RecordingCtx {

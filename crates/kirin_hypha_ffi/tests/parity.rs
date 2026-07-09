@@ -734,10 +734,6 @@ fn find_failed_json_under_role(
     None
 }
 
-fn has_integrity_reason(pd: &kirin_measure::plugin_data::PluginDataFile, reason: &str) -> bool {
-    pd.integrity_reasons.iter().any(|r| r == reason)
-}
-
 fn pair_member_json_from_manifest(
     plugin_data_root: &std::path::Path,
     role_name: &str,
@@ -769,15 +765,13 @@ fn pair_member_json_from_manifest(
     path
 }
 
-/// enable_pre_writes → Record セッションで `{ph}/{iid}/pre/{wall}.json`（永続）と
-/// Watch `pre.json`（揮発）が io_thread_pre により書かれることを検証する。
+/// transactionless な直接 Record は plugin_data 棚を作らず、Watch `pre.json` と
+/// measurement aggregate だけを維持することを検証する。
 /// HOME/TMPDIR を temp に差し替えて分離（io_thread spawn 前に設定し、テスト中変更しない）。
 /// realtime 駆動で遅いため既定 `cargo test` から除外（`--ignored` で実行）。
 #[test]
 #[ignore = "slow: realtime ~12s record + io_thread filesystem writes (sets HOME/TMPDIR)"]
-fn pre_writes_records_plugin_data_json() {
-    use kirin_measure::plugin_data::{PluginDataFile, Role, Status};
-
+fn pre_direct_record_without_pair_does_not_write_plugin_data_json() {
     // 分離: HOME(plugin_data root) と TMPDIR(Watch pre.json root) を temp へ。
     let test_root = std::env::temp_dir()
         .join("kirin_b057_test")
@@ -862,49 +856,13 @@ fn pre_writes_records_plugin_data_json() {
             find_json_under(&plugin_data_root, "pre", "*.json").is_none(),
             "PairRecordSession が無い単独 PRE は通常棚へ publish しない"
         );
-
-        // Record 診断 .json（{ph}/{iid}/pre/.failed/{wall}.json）を読み戻す。
-        let rec = find_failed_json_under_role(&plugin_data_root, "pre")
-            .expect("diagnostic Record pre/.failed/{wall}.json must exist after record");
-        eprintln!("[pre write] record file = {}", rec.display());
-        let content = std::fs::read_to_string(&rec).unwrap();
-        let pd: PluginDataFile =
-            serde_json::from_str(&content).expect("written file deserializes as PluginDataFile");
-
-        // schema 検証（SCHEMA_VERSION 1.3 / role=PRE / status active→closed）。
-        assert_eq!(pd.schema_version, "1.3", "schema_version");
-        assert_eq!(pd.role, Role::Pre, "role must be PRE");
-        assert_eq!(pd.status, Status::Closed, "exit+flush 後は status=closed");
-        assert_eq!(pd.commit_status.as_deref(), Some("failed"));
         assert!(
-            !pd.validity,
-            "hard-gated diagnostic Record is validity=false"
+            find_failed_json_under_role(&plugin_data_root, "pre").is_none(),
+            "PairRecordSession が無い単独 PRE は failed 診断棚も作らない"
         );
         assert!(
-            pd.integrity_degraded,
-            "hard-gated diagnostic Record is integrity_degraded=true"
-        );
-        assert!(has_integrity_reason(&pd, "missing_record_session_id"));
-        assert!(has_integrity_reason(&pd, "missing_expected_wav_metadata"));
-        assert!(has_integrity_reason(&pd, "missing_paired_post_instance_id"));
-        assert!(!pd.frames.is_empty(), "frames[] non-empty");
-        let f0 = &pd.frames[0];
-        assert!(
-            f0.lufs_m.is_finite() && f0.true_peak.is_finite() && f0.crest.is_finite(),
-            "Frame.{{lufs_m,true_peak,crest}} finite"
-        );
-
-        // aggregates 一致: io_thread の set_session_aggregates(=poll_session と同じ
-        // session_summary 経路) で焼いた lufs_i が、poll_session の値と 1 桁丸め内で一致。
-        let pd_li = pd.lufs_i.expect("json lufs_i present");
-        let a_li = aggregates.lufs_i.expect("poll lufs_i present");
-        eprintln!(
-            "[pre write] aggregates lufs_i json={pd_li} poll={a_li} | lra={:?} plr={:?}",
-            pd.lra, pd.plr
-        );
-        assert!(
-            (pd_li - a_li).abs() < 0.06,
-            "lufs_i json={pd_li} vs poll={a_li}（1 桁丸め内）"
+            aggregates.lufs_i.is_some(),
+            "transactionless direct Record でも実測 aggregate は poll_session で得られる"
         );
     } // engine Drop → io_thread shutdown→join（Watch pre.json/instance dir 後始末）。
 
@@ -1071,13 +1029,11 @@ fn add_annotation_denied_without_os() {
     assert!(!engine.add_annotation("x".to_string()), "Sense でも false");
 }
 
-/// set_identity の project_uuid/instance_id が plugin_data path を決める（復元再現）こと、
-/// add_annotation が Record の .json に memo を追記し、非 Os では追記されないこと（gate）。
+/// set_identity の project_uuid/instance_id が Watch path を決める（復元再現）こと、
+/// transactionless direct Record が plugin_data 棚を作らず annotation 対象にもならないこと。
 #[test]
 #[ignore = "slow: realtime ~12s record + io_thread filesystem writes (sets HOME/TMPDIR)"]
-fn set_identity_drives_path_and_diagnostic_record_is_not_annotatable() {
-    use kirin_measure::plugin_data::PluginDataFile;
-
+fn set_identity_direct_record_does_not_create_annotation_target() {
     let test_root = std::env::temp_dir()
         .join("kirin_b058_test")
         .join(format!("pid{}", std::process::id()));
@@ -1161,37 +1117,14 @@ fn set_identity_drives_path_and_diagnostic_record_is_not_annotatable() {
             find_json_under(&plugin_data_root, "pre", "*.json").is_none(),
             "PairRecordSession が無い単独 PRE は通常棚へ publish しない"
         );
-
-        // path = {known_puid}/{known_iid}/pre/.failed/ （set_identity が path を決める = 復元再現）。
-        let rec = find_failed_json_under_role(&plugin_data_root, "pre")
-            .expect("failed record .json exists");
-        let rec_s = rec.to_string_lossy().to_string();
-        eprintln!("[3c] record path = {rec_s}");
         assert!(
-            rec_s.contains(known_puid),
-            "path に set した project_uuid を使う: {rec_s}"
+            find_failed_json_under_role(&plugin_data_root, "pre").is_none(),
+            "PairRecordSession が無い単独 PRE は failed 診断棚も作らない"
         );
-        assert!(
-            rec_s.contains(known_iid),
-            "path に set した instance_id を使う: {rec_s}"
-        );
-
-        let pd: PluginDataFile =
-            serde_json::from_str(&std::fs::read_to_string(&rec).unwrap()).unwrap();
-        assert_eq!(pd.commit_status.as_deref(), Some("failed"));
-        assert!(has_integrity_reason(&pd, "missing_record_session_id"));
-        assert!(has_integrity_reason(&pd, "missing_expected_wav_metadata"));
-
-        // PairRecordSession 不足で隔離された診断 Record は annotation 対象にしない。
+        // PairRecordSession 不足で Record shelf が存在しないため annotation 対象にしない。
         assert!(
             !engine.add_annotation("note-A".to_string()),
-            "hard-gated diagnostic Record への add_annotation は false"
-        );
-        let pd_after: PluginDataFile =
-            serde_json::from_str(&std::fs::read_to_string(&rec).unwrap()).unwrap();
-        assert!(
-            pd_after.annotations.is_empty(),
-            "diagnostic Record は注釈不変"
+            "transactionless direct Record への add_annotation は false"
         );
 
         // gate: Sense へ降格 → add_annotation false・annotations 不変。
@@ -1200,9 +1133,6 @@ fn set_identity_drives_path_and_diagnostic_record_is_not_annotatable() {
             !engine.add_annotation("note-B".to_string()),
             "Sense の add_annotation は false"
         );
-        let pd2: PluginDataFile =
-            serde_json::from_str(&std::fs::read_to_string(&rec).unwrap()).unwrap();
-        assert!(pd2.annotations.is_empty(), "Sense でも追記されない（gate）");
     }
 
     let _ = std::fs::remove_dir_all(&test_root);

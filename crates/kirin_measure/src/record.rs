@@ -29,6 +29,7 @@
 
 use crate::identity::License;
 use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
+use std::sync::RwLock;
 
 /// Record mode の状態。
 #[repr(u8)]
@@ -69,6 +70,8 @@ impl RecordState {
 pub enum TransitionError {
     /// license が Record 許可外（`sense` / `unknown`）。保険 E-21 で拒否。
     LicenseDenied,
+    /// PRE/POST 協調 Record の不変 session_id が無い。plugin_data writer は開始しない。
+    MissingRecordSession,
     /// 既に Record 中。冪等性のため「エラー」としつつ状態は変更しない。
     AlreadyRecording,
 }
@@ -118,6 +121,12 @@ pub struct RecordStateMachine {
     /// state に入れる。Measure Thread は取得できる場合、この値を pre-roll/timeline
     /// origin として wall-clock より優先する。
     record_started_at_position_samples: AtomicI64,
+    /// PRE/POST が同じ Keep/ACK から受け取った不変 Record session。
+    ///
+    /// Audio Thread はこの値を読まない。IO Thread が writer を開始する直前に参照し、
+    /// `/tmp` の record_signal が後から消える/変わるタイミングでも sessionless TRACE を
+    /// 作らないための transaction snapshot。
+    record_session_id: RwLock<Option<String>>,
     /// Measure Thread が Watch→Record 遷移を観測し、Record TRACE を受けられる状態に
     /// なった最新 generation。PRE はこの値を待ってから `record_signal` を Acknowledged にする。
     measure_ready_generation: AtomicU64,
@@ -133,6 +142,7 @@ impl RecordStateMachine {
             generation: AtomicU64::new(0),
             record_started_at_ms: AtomicI64::new(0),
             record_started_at_position_samples: AtomicI64::new(i64::MIN),
+            record_session_id: RwLock::new(None),
             measure_ready_generation: AtomicU64::new(0),
         }
     }
@@ -164,6 +174,14 @@ impl RecordStateMachine {
             .record_started_at_position_samples
             .load(Ordering::Acquire);
         (value != i64::MIN).then_some(value)
+    }
+
+    /// 現 Record の不変 session_id。transaction 経由で入った Record だけが持つ。
+    pub fn record_session_id(&self) -> Option<String> {
+        match self.record_session_id.read() {
+            Ok(guard) => guard.clone(),
+            Err(poisoned) => poisoned.into_inner().clone(),
+        }
     }
 
     /// Measure Thread が Record generation を観測済みかどうかを見る。
@@ -218,6 +236,45 @@ impl RecordStateMachine {
         started_at_ms: i64,
         started_at_position_samples: Option<i64>,
     ) -> Result<(), TransitionError> {
+        self.try_enter_record_started_at_clock_with_session(
+            license,
+            started_at_ms,
+            started_at_position_samples,
+            None,
+        )
+    }
+
+    /// Record へ遷移し、PRE/POST 協調で合意した session_id も同時に保存する。
+    ///
+    /// この経路だけが TRACE writer の正規入口。session_id は Record state 公開前に確定
+    /// するため、writer が `/tmp` の後続状態を読み直せない場合でも sessionless にならない。
+    pub fn try_enter_record_started_at_clock_transaction(
+        &self,
+        license: License,
+        started_at_ms: i64,
+        started_at_position_samples: Option<i64>,
+        record_session_id: impl Into<String>,
+    ) -> Result<(), TransitionError> {
+        let record_session_id = record_session_id.into();
+        let record_session_id = record_session_id.trim();
+        if record_session_id.is_empty() {
+            return Err(TransitionError::MissingRecordSession);
+        }
+        self.try_enter_record_started_at_clock_with_session(
+            license,
+            started_at_ms,
+            started_at_position_samples,
+            Some(record_session_id.to_string()),
+        )
+    }
+
+    fn try_enter_record_started_at_clock_with_session(
+        &self,
+        license: License,
+        started_at_ms: i64,
+        started_at_position_samples: Option<i64>,
+        record_session_id: Option<String>,
+    ) -> Result<(), TransitionError> {
         if !matches!(license, License::Os) {
             return Err(TransitionError::LicenseDenied);
         }
@@ -238,6 +295,7 @@ impl RecordStateMachine {
                     started_at_position_samples.unwrap_or(i64::MIN),
                     Ordering::Release,
                 );
+                self.store_record_session_id(record_session_id);
                 self.generation.fetch_add(1, Ordering::AcqRel);
                 match self.state.compare_exchange(
                     entering,
@@ -246,10 +304,23 @@ impl RecordStateMachine {
                     Ordering::Acquire,
                 ) {
                     Ok(_) => Ok(()),
-                    Err(_) => Err(TransitionError::AlreadyRecording),
+                    Err(_) => {
+                        self.store_record_session_id(None);
+                        Err(TransitionError::AlreadyRecording)
+                    }
                 }
             }
             Err(_) => Err(TransitionError::AlreadyRecording),
+        }
+    }
+
+    fn store_record_session_id(&self, record_session_id: Option<String>) {
+        let record_session_id = record_session_id
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        match self.record_session_id.write() {
+            Ok(mut guard) => *guard = record_session_id,
+            Err(poisoned) => *poisoned.into_inner() = record_session_id,
         }
     }
 
@@ -264,6 +335,7 @@ impl RecordStateMachine {
         self.record_started_at_ms.store(0, Ordering::Release);
         self.record_started_at_position_samples
             .store(i64::MIN, Ordering::Release);
+        self.store_record_session_id(None);
         self.measure_ready_generation.store(0, Ordering::Release);
         self.state.store(STATE_WATCH, Ordering::Release);
     }
@@ -311,6 +383,7 @@ mod tests {
         let sm = RecordStateMachine::new();
         assert_eq!(sm.record_started_at_ms(), 0);
         assert_eq!(sm.record_started_at_position_samples(), None);
+        assert_eq!(sm.record_session_id(), None);
         assert_eq!(sm.measure_ready_generation(), 0);
         assert_eq!(
             sm.try_enter_record_started_at_clock(License::Os, 1_725_000_123_456, Some(96_000)),
@@ -318,12 +391,41 @@ mod tests {
         );
         assert_eq!(sm.record_started_at_ms(), 1_725_000_123_456);
         assert_eq!(sm.record_started_at_position_samples(), Some(96_000));
+        assert_eq!(sm.record_session_id(), None);
         sm.mark_measure_ready(sm.generation());
         assert_eq!(sm.measure_ready_generation(), sm.generation());
         sm.exit_record();
         assert_eq!(sm.record_started_at_ms(), 0);
         assert_eq!(sm.record_started_at_position_samples(), None);
+        assert_eq!(sm.record_session_id(), None);
         assert_eq!(sm.measure_ready_generation(), 0);
+    }
+
+    #[test]
+    fn record_transaction_session_is_stored_and_cleared() {
+        let sm = RecordStateMachine::new();
+        assert_eq!(
+            sm.try_enter_record_started_at_clock_transaction(
+                License::Os,
+                1_725_000_123_456,
+                Some(96_000),
+                " session-keep-1 ",
+            ),
+            Ok(())
+        );
+        assert_eq!(sm.record_session_id().as_deref(), Some("session-keep-1"));
+        sm.exit_record();
+        assert_eq!(sm.record_session_id(), None);
+    }
+
+    #[test]
+    fn record_transaction_requires_session() {
+        let sm = RecordStateMachine::new();
+        assert_eq!(
+            sm.try_enter_record_started_at_clock_transaction(License::Os, 1, None, " "),
+            Err(TransitionError::MissingRecordSession)
+        );
+        assert_eq!(sm.current(), RecordState::Watch);
     }
 
     #[test]
