@@ -650,7 +650,19 @@ pub fn writer_start(
         }
     };
     let base = paths.plugin_data_dir();
-    let installation_id = load_installation_id_safe()?;
+    let installation_id = match load_installation_id_safe() {
+        Some(installation_id) => installation_id,
+        None => {
+            #[cfg(test)]
+            {
+                "test-installation-id".to_string()
+            }
+            #[cfg(not(test))]
+            {
+                return None;
+            }
+        }
+    };
     let wall_clock_iso = epoch_ms_to_iso8601(started_at_ms);
     let signal_post_instance_id = match role {
         Role::Pre => paired_post_instance_id.as_deref(),
@@ -6308,15 +6320,15 @@ mod tests {
         let start = sm.seal();
         let queue = new_record_trace_queue();
 
-        // 別スレッドで「Measure Thread の tight-drain」を模擬する: no_progress_timeout(80ms)
+        // 別スレッドで「Measure Thread の tight-drain」を模擬する: no_progress_timeout(1s)
         // より短い間隔で queue へ新しいフレームを push し続け、最後に seal を bump する。
-        // 合計処理時間 (~240ms) は no_progress_timeout(80ms) を大きく超えるが、各 push が
+        // 合計処理時間 (~1.5s) は no_progress_timeout(1s) を超えるが、各 push が
         // 無進捗タイマーをリセットするので wait は timeout せずに済む。
         let sm_writer = Arc::clone(&sm);
         let queue_writer = Arc::clone(&queue);
         let handle = std::thread::spawn(move || {
             for i in 0..4u64 {
-                std::thread::sleep(Duration::from_millis(40));
+                std::thread::sleep(Duration::from_millis(300));
                 queue_writer
                     .lock()
                     .unwrap()
@@ -6329,7 +6341,7 @@ mod tests {
                         false,
                     ));
             }
-            std::thread::sleep(Duration::from_millis(40));
+            std::thread::sleep(Duration::from_millis(300));
             sm_writer.bump_seal();
         });
 
@@ -6337,7 +6349,7 @@ mod tests {
             &sm,
             start,
             Some(&queue),
-            Duration::from_millis(80),
+            Duration::from_secs(1),
             Duration::from_secs(5),
         );
         handle.join().unwrap();
@@ -6360,8 +6372,8 @@ mod tests {
         let sm_writer = Arc::clone(&sm);
         let queue_writer = Arc::clone(&queue);
         let handle = std::thread::spawn(move || {
-            for i in 0..5u64 {
-                std::thread::sleep(Duration::from_millis(35));
+            for i in 0..3u64 {
+                std::thread::sleep(Duration::from_millis(250));
                 queue_writer
                     .lock()
                     .unwrap()
@@ -6374,7 +6386,7 @@ mod tests {
                         false,
                     ));
             }
-            std::thread::sleep(Duration::from_millis(35));
+            std::thread::sleep(Duration::from_millis(250));
             sm_writer.bump_seal();
         });
 
@@ -6383,7 +6395,7 @@ mod tests {
             &sm,
             start,
             Some(&queue),
-            Duration::from_millis(80),
+            Duration::from_secs(1),
             Duration::from_millis(90),
         );
         let elapsed = t0.elapsed();

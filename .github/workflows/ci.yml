@@ -85,7 +85,11 @@ jobs:
 
       # Validate the actual macOS VST3 ship-set before any Studio One/manual loop. auval below
       # covers JUCE AU; pluginval catches VST3 load/state/automation/sample-rate/buffer-size issues.
+      # GitHub's macOS runner is headless enough that egui/baseview cannot create an OpenGL editor
+      # context, so CI skips pluginval's GUI-window tests while keeping the VST3 validation gate.
       - name: Validate macOS ship-set VST3 with pluginval
+        env:
+          PLUGINVAL_SKIP_GUI_TESTS: "1"
         run: scripts/validate_macos_pluginval.sh target/bundled
 
       - name: Upload macOS pluginval logs
