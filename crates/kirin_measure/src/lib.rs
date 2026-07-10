@@ -5,6 +5,7 @@
 
 pub mod all_keep_signal;
 pub mod all_stop_signal;
+mod atomic_claim;
 pub mod atomic_file;
 pub mod cleanup;
 pub mod delta;
@@ -33,6 +34,7 @@ pub mod record_expected;
 pub mod record_signal;
 pub mod record_take;
 pub mod record_writer;
+mod record_writer_claim;
 pub mod resampler;
 pub mod reservation;
 pub mod storage;

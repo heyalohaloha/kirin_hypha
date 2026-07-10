@@ -2087,6 +2087,21 @@ fn poll_record_signal_ack_with_base(
         if now_ms < started_at_ms {
             return;
         }
+        if crate::record_writer::record_session_closed_for_role_instance(
+            base,
+            project_hash,
+            instance_id,
+            PluginDataRole::Post,
+            &signal.session_id,
+        ) {
+            log::warn!(
+                "[IOThread POST] ACK ignored: session already closed on disk \
+                 (session={}, post_iid={})",
+                signal.session_id,
+                instance_id
+            );
+            return;
+        }
         match record_sm.try_enter_record_started_at_clock_transaction(
             crate::License::Os,
             started_at_ms,

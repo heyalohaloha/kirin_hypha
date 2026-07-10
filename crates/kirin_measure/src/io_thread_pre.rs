@@ -405,6 +405,8 @@ fn wait_for_measure_ready(record_sm: &RecordStateMachine, generation: u64) -> bo
 }
 
 fn enter_pre_record_if_barrier_ready(
+    base: &Path,
+    project_hash: &str,
     record_sm: &Arc<RecordStateMachine>,
     recording: &Arc<AtomicBool>,
     license: &License,
@@ -440,6 +442,21 @@ fn enter_pre_record_if_barrier_ready(
     }
     let now_ms = crate::record_writer::now_epoch_ms();
     if now_ms < started_at_ms {
+        return false;
+    }
+    if crate::record_writer::record_session_closed_for_role_instance(
+        base,
+        project_hash,
+        pre_instance_id,
+        PluginDataRole::Pre,
+        &signal.session_id,
+    ) {
+        log::warn!(
+            "[signal] PRE Record start withheld: session already closed on disk \
+             (pre_iid={}, session={})",
+            pre_instance_id,
+            signal.session_id
+        );
         return false;
     }
     match record_sm.try_enter_record_started_at_clock_transaction(
@@ -1013,6 +1030,8 @@ fn poll_record_signal(
                     && !record_sm.is_recording()
                 {
                     let _ = enter_pre_record_if_barrier_ready(
+                        &base,
+                        project_hash,
                         record_sm,
                         recording,
                         license.as_ref(),
@@ -1250,6 +1269,8 @@ fn poll_record_signal(
     let mut ack_ok: usize = 0;
     for (post_iid, sig) in &pending_signals {
         if !enter_pre_record_if_barrier_ready(
+            &base,
+            project_hash,
             record_sm,
             recording,
             license.as_ref(),

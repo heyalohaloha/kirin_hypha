@@ -19,8 +19,7 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::fs::{self, OpenOptions};
-use std::io::Write;
+use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::plugin_data::{PluginDataFile, Role as PluginDataRole, Status};
@@ -31,9 +30,6 @@ pub const RESERVATION_SUBDIR: &str = "record_reservation";
 /// reservation が枠を保持できる最大秒数。active marker が現れる窓（keep→writer_start, 通常 1 tick
 /// =100ms 程度）を十分覆う保守値。超過は孤児として count 除外 + sweep 対象。`STALE_SECONDS` と同値。
 pub const RESERVATION_TTL_SECS: i64 = 60;
-
-/// G-115-366 (A): atomic claim の temp 名一意化用 process 内連番（pid と併用で並行/別プロセス衝突回避）。
-static TEMP_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// pairing を一意識別する正規化キー（`pre_instance_id__post_instance_id`）。
 /// active marker 側（POST→`(paired_pre, self)` / PRE→`(self, paired_post)`）と同じ規則で作る。
@@ -131,29 +127,7 @@ fn reserve_build_temp(
     post_iid: &str,
     bytes: &[u8],
 ) -> std::io::Result<PathBuf> {
-    let seq = TEMP_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let temp = dir.join(format!(
-        ".{}.tmp.{}.{}",
-        pairing_key(pre_iid, post_iid),
-        std::process::id(),
-        seq
-    ));
-    let res = (|| -> std::io::Result<()> {
-        let mut f = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&temp)?;
-        f.write_all(bytes)?;
-        f.sync_all()?;
-        Ok(())
-    })();
-    match res {
-        Ok(()) => Ok(temp),
-        Err(e) => {
-            let _ = fs::remove_file(&temp);
-            Err(e)
-        }
-    }
+    crate::atomic_claim::build_claim_temp(dir, &pairing_key(pre_iid, post_iid), bytes)
 }
 
 /// G-115-366 (A) step 3: `hard_link(temp → final)` で原子 claim。
@@ -163,15 +137,10 @@ fn reserve_build_temp(
 ///
 /// temp は全経路で unlink（final は link 済＝temp 削除に影響されない / 未 link でも orphan を残さない）。
 fn reserve_link_claim(temp: &Path, final_path: &Path) -> std::io::Result<ReserveOutcome> {
-    let outcome = match fs::hard_link(temp, final_path) {
-        Ok(()) => Ok(ReserveOutcome::Created),
-        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-            Ok(ReserveOutcome::AlreadyReserved)
-        }
-        Err(e) => Err(e),
-    };
-    let _ = fs::remove_file(temp);
-    outcome
+    match crate::atomic_claim::link_claim(temp, final_path)? {
+        crate::atomic_claim::ClaimOutcome::Created => Ok(ReserveOutcome::Created),
+        crate::atomic_claim::ClaimOutcome::AlreadyClaimed => Ok(ReserveOutcome::AlreadyReserved),
+    }
 }
 
 /// pairing 枠を解放する（ファイル削除）。不在は成功扱い（冪等）。
