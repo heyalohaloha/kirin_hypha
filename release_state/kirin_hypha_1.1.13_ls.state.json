@@ -1,6 +1,6 @@
 {
   "schema": "kirin-release-ls-state-v1",
-  "generatedAt": "2026-07-09T21:23:21.000Z",
+  "generatedAt": "2026-07-10T11:04:39.641Z",
   "product": {
     "name": "Kirin Hypha",
     "version": "1.1.13"
@@ -14,10 +14,10 @@
       "type": "pkg",
       "fileName": "Kirin-Hypha-1.1.13-macOS-Universal.pkg",
       "path": "dist/LS_UPLOAD/Kirin-Hypha-1.1.13-macOS-Universal.pkg",
-      "size": 28260660,
-      "sha512": "dfG1j+tVCIYf9hFk4RHLu0RQ1c9UU8Lq3nD+18MGbex/QO2mnETfXoFaFtx/rkspwRgvS8U5XXUkcAUWwKhMaA==",
-      "sha256": "9ddd3ddb7f6ee9a26171a584bada4e7f555b80907c5a301061835eca7e8f0fc8",
-      "lsDisplaySize": "26.95 MB"
+      "size": 28405473,
+      "sha512": "AlzTKvoNaAOhJQ6h/pFAlZ1iusvZZ2HhVm1LWiOcQ2CW3NwYMzt5pgvKFKWDOah4uy3K8M5P5Xou/poG7E5GtA==",
+      "sha256": "495846ed1088107acdef691802e0a1c7416b736a684c5a56f28640d2567255dc",
+      "lsDisplaySize": "27.09 MB"
     }
   ],
   "expectedPayloads": [
