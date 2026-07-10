@@ -74,6 +74,21 @@ fn egui_pre_initialize_does_not_shutdown_threads_while_recording() {
 }
 
 #[test]
+fn egui_pre_drop_does_not_exit_record_state_machine() {
+    let src = read_repo("crates/hypha_pre/src/lib.rs");
+    let body = slice_between(&src, "impl Drop for HyphaPre", "impl Plugin for HyphaPre");
+
+    assert!(
+        body.contains("PRE plugin teardown is lifecycle, not Stop authority"),
+        "PRE Drop must document that teardown has no Stop authority"
+    );
+    assert!(
+        !body.contains("self.record_sm.exit_record()"),
+        "PRE Drop must not move Record back to Watch"
+    );
+}
+
+#[test]
 fn egui_post_initialize_does_not_shutdown_threads_while_recording() {
     let src = read_repo("crates/hypha_post/src/lib.rs");
     let body = slice_between(&src, "fn initialize(", "fn reset(");
@@ -134,4 +149,31 @@ fn io_thread_shutdown_paths_mark_lifecycle_shutdown() {
             "{path} must tag lifecycle shutdown before closing the writer"
         );
     }
+}
+
+#[test]
+fn pre_lifecycle_shutdown_does_not_exit_record_state_machine() {
+    let src = read_repo("crates/kirin_measure/src/io_thread_pre.rs");
+    let body = slice_between(
+        &src,
+        "if let Some(mut ctx) = writer_ctx.take()",
+        "Do not delete pre.json",
+    );
+
+    assert!(
+        body.contains("lifecycle shutdown is not Stop authority"),
+        "PRE lifecycle shutdown block must document that it has no Stop authority"
+    );
+    assert!(
+        !body.contains("record_sm.exit_record()"),
+        "PRE lifecycle shutdown must not move the Record state machine back to Watch"
+    );
+    assert!(
+        !body.contains("recording.store(false"),
+        "PRE lifecycle shutdown must not publish a false recording state"
+    );
+    assert!(
+        !body.contains("record_acknowledged.store(false"),
+        "PRE lifecycle shutdown must not clear ACK state"
+    );
 }
