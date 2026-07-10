@@ -30,6 +30,7 @@ pub mod preset_dispatch;
 pub mod preset_v2;
 pub mod record;
 pub mod record_clock;
+mod record_entry_lock;
 pub mod record_expected;
 pub mod record_signal;
 pub mod record_take;

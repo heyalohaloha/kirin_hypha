@@ -193,6 +193,24 @@ pub(crate) fn writer_claim_closed(
     Ok(existing.closed_at_ms.is_some())
 }
 
+pub(crate) fn writer_claim_active(
+    base_dir: &Path,
+    project_hash: &str,
+    session_id: &str,
+    role: Role,
+    instance_id: &str,
+) -> Result<bool, WriterClaimError> {
+    let path = writer_claim_path(base_dir, project_hash, session_id, role, instance_id);
+    let Some(existing) = read_claim_snapshot(&path)? else {
+        return Ok(false);
+    };
+    if existing.closed_at_ms.is_some() {
+        return Ok(false);
+    }
+    let age_ms = now_epoch_ms().saturating_sub(existing.heartbeat_at_ms);
+    Ok(age_ms <= WRITER_CLAIM_STALE_MS)
+}
+
 fn reclaim_or_reject_existing(
     path: PathBuf,
     claim: WriterClaimFile,
