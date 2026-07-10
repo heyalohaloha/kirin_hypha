@@ -24,6 +24,7 @@ fi
 BUNDLE_DIR="${1:-${KIRIN_MACOS_VST3_DIR:-target/bundled}}"
 STRICTNESS="${PLUGINVAL_STRICTNESS_LEVEL:-5}"
 TIMEOUT_MS="${PLUGINVAL_TIMEOUT_MS:-120000}"
+SKIP_GUI_TESTS="${PLUGINVAL_SKIP_GUI_TESTS:-0}"
 PLUGINVAL_VERSION="${PLUGINVAL_VERSION:-v1.0.4}"
 OUTPUT_DIR="${PLUGINVAL_OUTPUT_DIR:-target/pluginval/logs/macos}"
 CACHE_DIR="${PLUGINVAL_CACHE_DIR:-target/pluginval/bin/macos/${PLUGINVAL_VERSION}}"
@@ -54,6 +55,18 @@ if [[ "$TIMEOUT_MS" -lt 1 ]]; then
   echo "ERROR: PLUGINVAL_TIMEOUT_MS must be a positive integer." >&2
   exit 1
 fi
+case "$SKIP_GUI_TESTS" in
+  1|true|TRUE|yes|YES)
+    SKIP_GUI_TESTS=1
+    ;;
+  0|false|FALSE|no|NO)
+    SKIP_GUI_TESTS=0
+    ;;
+  *)
+    echo "ERROR: PLUGINVAL_SKIP_GUI_TESTS must be 0/1 or true/false." >&2
+    exit 1
+    ;;
+esac
 
 if [[ ! -d "$BUNDLE_DIR" ]]; then
   echo "ERROR: macOS VST3 bundle dir not found: $BUNDLE_DIR" >&2
@@ -161,6 +174,7 @@ done
 
 echo "==> pluginval strictness level: $STRICTNESS"
 echo "==> pluginval timeout ms: $TIMEOUT_MS"
+echo "==> pluginval skip GUI tests: $SKIP_GUI_TESTS"
 echo "==> pluginval output dir: $OUTPUT_DIR"
 echo "==> pluginval isolated runtime dir: $RUNTIME_DIR"
 if [[ -n "${VST3_VALIDATOR_BIN:-}" ]]; then
@@ -179,6 +193,9 @@ while IFS= read -r BUNDLE; do
     --timeout-ms "$TIMEOUT_MS"
     --output-dir "$OUTPUT_DIR"
   )
+  if [[ "$SKIP_GUI_TESTS" == "1" ]]; then
+    PLUGINVAL_ARGS+=(--skip-gui-tests)
+  fi
   if [[ -n "${VST3_VALIDATOR_BIN:-}" ]]; then
     PLUGINVAL_ARGS+=(--vst3validator "$VST3_VALIDATOR_BIN")
   fi
