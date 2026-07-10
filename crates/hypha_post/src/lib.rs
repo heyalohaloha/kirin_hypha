@@ -599,6 +599,12 @@ impl Plugin for HyphaPost {
             }
         }
 
+        // B-334: initialize() is not Stop authority while Record/KEEP is armed.
+        // Host re-initialization must not tear down the POST writer or pair state.
+        if self.record_sm.is_recording() {
+            return true;
+        }
+
         // ── 既存 Watchdog を停止 ─────────────────────────────────────
         self.watchdog_shutdown.store(true, Ordering::Relaxed);
         self.measure_shutdown.store(true, Ordering::Relaxed);

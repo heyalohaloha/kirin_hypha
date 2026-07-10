@@ -368,6 +368,12 @@ impl Plugin for HyphaPre {
             }
         }
 
+        // B-334: initialize() is not Stop authority while Record/KEEP is armed.
+        // Host re-initialization must not tear down the PRE writer before POST All Stop.
+        if self.record_sm.is_recording() {
+            return true;
+        }
+
         self.watchdog_shutdown.store(true, Ordering::Relaxed);
         self.measure_shutdown.store(true, Ordering::Relaxed);
         self.io_shutdown.store(true, Ordering::Relaxed);

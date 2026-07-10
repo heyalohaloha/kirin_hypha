@@ -101,12 +101,19 @@ void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBl
     const juce::ScopedLock sl (handleLock);
     // B-141: Studio One offline bounce can call prepareToPlay again after All Keep has entered
     // Record. The maximumExpectedSamplesPerBlock may change for render, but the user-visible
-    // Record state must not be thrown away. Reuse the Rust engine when the audio format is the same;
-    // only rebuild when sample rate or channel count changes.
+    // Record state must not be thrown away. Reuse the Rust engine when the audio format is the same.
+    //
+    // B-334: sample-rate / channel-count reprepare is also not Stop authority while Record is
+    // armed. Destroying the Rust engine here closes the PRE writer through Drop/shutdown before
+    // POST All Stop, which presents as "PRE detached mid-KEEP". Defer incompatible rebuilds until
+    // the host calls prepareToPlay outside Record.
     const bool needsNewHandle = hyphaHandle == nullptr
                              || std::abs (preparedSampleRate - sampleRate) > 0.001
                              || preparedInputChannels != numCh;
     if (! needsNewHandle)
+        return;
+
+    if (hyphaHandle != nullptr && kirin_hypha_is_recording (hyphaHandle))
         return;
 
     lastProcessPositionValid = false;
