@@ -1005,9 +1005,8 @@ pub fn spawn_io_thread_pre(
             apply_record_take_snapshot(&mut ctx, Some(&record_take_tracker));
             writer_close_with_summary(ctx, summary);
         }
-        record_sm.exit_record();
-        recording.store(false, Ordering::Relaxed);
-        record_acknowledged.store(false, Ordering::Relaxed);
+        // B-335: lifecycle shutdown is not Stop authority. Keep the Record state machine intact;
+        // explicit reasoned release / All Stop paths above are the only PRE self-stop paths.
 
         // Do not delete pre.json, temp siblings, or the instance directory here.
         // pluginval and some DAWs can tear down and recreate the same restored

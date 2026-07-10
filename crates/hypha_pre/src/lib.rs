@@ -231,8 +231,8 @@ fn read_persisted_string(field: &RwLock<String>) -> String {
 
 impl Drop for HyphaPre {
     fn drop(&mut self) {
-        self.record_sm.exit_record();
-
+        // B-335: PRE plugin teardown is lifecycle, not Stop authority. The IO thread will tag
+        // any active writer as lifecycle_shutdown instead of pretending the user stopped Record.
         self.watchdog_shutdown.store(true, Ordering::Relaxed);
         self.measure_shutdown.store(true, Ordering::Relaxed);
         self.io_shutdown.store(true, Ordering::Relaxed);
