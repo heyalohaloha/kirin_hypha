@@ -188,6 +188,16 @@ impl RecordSignal {
                 .release_reason
                 .is_some_and(ReleaseReason::authorizes_pre_stop)
     }
+
+    pub fn expected_end_position_samples(&self) -> Option<i64> {
+        let start = self.started_at_position_samples?;
+        let duration = self.expected_wav.as_ref()?.expected_duration_samples;
+        if duration == 0 {
+            return None;
+        }
+        let duration = duration.min(i64::MAX as u64) as i64;
+        Some(start.saturating_add(duration))
+    }
 }
 
 // ── パス構築 ─────────────────────────────────────────────────────────────────

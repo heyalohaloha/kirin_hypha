@@ -127,7 +127,10 @@ pub use preset_v2::{
     SectionBoundary as PresetV2SectionBoundary, Summary as PresetV2Summary, VerifyErrorV2,
 };
 pub use record::{RecordState, RecordStateMachine, TransitionError};
-pub use record_clock::{record_window_for_buffer, RecordWindow};
+pub use record_clock::{
+    record_clock_bounds_for_record, record_window_for_buffer, record_window_for_buffer_with_bounds,
+    RecordClockBounds, RecordWindow,
+};
 pub use record_expected::{
     claim_expected_metadata_for_session, expected_dir, expected_path,
     mark_expected_metadata_consumed, read_expected_metadata, write_expected_metadata,

@@ -146,6 +146,12 @@ pub struct RecordStateMachine {
     /// state に入れる。Measure Thread は取得できる場合、この値を pre-roll/timeline
     /// origin として wall-clock より優先する。
     record_started_at_position_samples: AtomicI64,
+    /// Host native sample position 上の Record 終了 barrier。
+    ///
+    /// Kirin OS が expected WAV duration を Keep 前に渡せた場合、`started + duration`
+    /// をここへ保存する。Audio Thread はこの値を capture window の上限にし、実測に入る
+    /// 音声そのものをサンプル境界で切る。
+    record_expected_end_position_samples: AtomicI64,
     /// PRE/POST が同じ Keep/ACK から受け取った不変 Record session（所有者 token と1つの
     /// lock 配下）。
     ///
@@ -180,6 +186,7 @@ impl RecordStateMachine {
             generation: AtomicU64::new(0),
             record_started_at_ms: AtomicI64::new(0),
             record_started_at_position_samples: AtomicI64::new(i64::MIN),
+            record_expected_end_position_samples: AtomicI64::new(i64::MIN),
             record_session: RwLock::new(SessionSlot::default()),
             closed_session_id: RwLock::new(None),
             measure_ready_generation: AtomicU64::new(0),
@@ -211,6 +218,14 @@ impl RecordStateMachine {
     pub fn record_started_at_position_samples(&self) -> Option<i64> {
         let value = self
             .record_started_at_position_samples
+            .load(Ordering::Acquire);
+        (value != i64::MIN).then_some(value)
+    }
+
+    /// 現 Record セッションの host native sample 終了位置。None は未設定/不明。
+    pub fn record_expected_end_position_samples(&self) -> Option<i64> {
+        let value = self
+            .record_expected_end_position_samples
             .load(Ordering::Acquire);
         (value != i64::MIN).then_some(value)
     }
@@ -275,10 +290,28 @@ impl RecordStateMachine {
         started_at_ms: i64,
         started_at_position_samples: Option<i64>,
     ) -> Result<(), TransitionError> {
-        self.try_enter_record_started_at_clock_with_session(
+        self.try_enter_record_started_at_clock_window_with_session(
             license,
             started_at_ms,
             started_at_position_samples,
+            None,
+            None,
+        )
+    }
+
+    /// Record へ遷移し、wall-clock barrier と native sample 開始/終了 barrier を保存する。
+    pub fn try_enter_record_started_at_clock_window(
+        &self,
+        license: License,
+        started_at_ms: i64,
+        started_at_position_samples: Option<i64>,
+        expected_end_position_samples: Option<i64>,
+    ) -> Result<(), TransitionError> {
+        self.try_enter_record_started_at_clock_window_with_session(
+            license,
+            started_at_ms,
+            started_at_position_samples,
+            expected_end_position_samples,
             None,
         )
     }
@@ -294,24 +327,45 @@ impl RecordStateMachine {
         started_at_position_samples: Option<i64>,
         record_session_id: impl Into<String>,
     ) -> Result<(), TransitionError> {
+        self.try_enter_record_started_at_clock_window_transaction(
+            license,
+            started_at_ms,
+            started_at_position_samples,
+            None,
+            record_session_id,
+        )
+    }
+
+    /// Record へ遷移し、PRE/POST 協調 session_id と native sample 開始/終了 barrier を
+    /// 同時に保存する。
+    pub fn try_enter_record_started_at_clock_window_transaction(
+        &self,
+        license: License,
+        started_at_ms: i64,
+        started_at_position_samples: Option<i64>,
+        expected_end_position_samples: Option<i64>,
+        record_session_id: impl Into<String>,
+    ) -> Result<(), TransitionError> {
         let record_session_id = record_session_id.into();
         let record_session_id = record_session_id.trim();
         if record_session_id.is_empty() {
             return Err(TransitionError::MissingRecordSession);
         }
-        self.try_enter_record_started_at_clock_with_session(
+        self.try_enter_record_started_at_clock_window_with_session(
             license,
             started_at_ms,
             started_at_position_samples,
+            expected_end_position_samples,
             Some(record_session_id.to_string()),
         )
     }
 
-    fn try_enter_record_started_at_clock_with_session(
+    fn try_enter_record_started_at_clock_window_with_session(
         &self,
         license: License,
         started_at_ms: i64,
         started_at_position_samples: Option<i64>,
+        expected_end_position_samples: Option<i64>,
         record_session_id: Option<String>,
     ) -> Result<(), TransitionError> {
         if !matches!(license, License::Os) {
@@ -322,6 +376,7 @@ impl RecordStateMachine {
         let token = self.begin_enter(
             started_at_ms,
             started_at_position_samples,
+            expected_end_position_samples,
             record_session_id,
         )?;
         self.finish_enter(token)
@@ -342,6 +397,7 @@ impl RecordStateMachine {
         &self,
         started_at_ms: i64,
         started_at_position_samples: Option<i64>,
+        expected_end_position_samples: Option<i64>,
         record_session_id: Option<String>,
     ) -> Result<u64, TransitionError> {
         let token = self.entry_token.fetch_add(1, Ordering::Relaxed) + 1;
@@ -365,6 +421,11 @@ impl RecordStateMachine {
                     started_at_position_samples.unwrap_or(i64::MIN),
                     Ordering::Release,
                 );
+                let expected_end_position_samples = expected_end_position_samples
+                    .filter(|end| started_at_position_samples.is_none_or(|start| *end > start))
+                    .unwrap_or(i64::MIN);
+                self.record_expected_end_position_samples
+                    .store(expected_end_position_samples, Ordering::Release);
                 self.set_record_session(token, record_session_id);
                 self.generation.fetch_add(1, Ordering::AcqRel);
                 Ok(token)
@@ -484,6 +545,8 @@ impl RecordStateMachine {
         self.record_started_at_ms.store(0, Ordering::Release);
         self.record_started_at_position_samples
             .store(i64::MIN, Ordering::Release);
+        self.record_expected_end_position_samples
+            .store(i64::MIN, Ordering::Release);
         self.clear_record_session();
         self.measure_ready_generation.store(0, Ordering::Release);
         self.state.store(STATE_WATCH, Ordering::Release);
@@ -532,6 +595,7 @@ mod tests {
         let sm = RecordStateMachine::new();
         assert_eq!(sm.record_started_at_ms(), 0);
         assert_eq!(sm.record_started_at_position_samples(), None);
+        assert_eq!(sm.record_expected_end_position_samples(), None);
         assert_eq!(sm.record_session_id(), None);
         assert_eq!(sm.measure_ready_generation(), 0);
         assert_eq!(
@@ -540,14 +604,51 @@ mod tests {
         );
         assert_eq!(sm.record_started_at_ms(), 1_725_000_123_456);
         assert_eq!(sm.record_started_at_position_samples(), Some(96_000));
+        assert_eq!(sm.record_expected_end_position_samples(), None);
         assert_eq!(sm.record_session_id(), None);
         sm.mark_measure_ready(sm.generation());
         assert_eq!(sm.measure_ready_generation(), sm.generation());
         sm.exit_record();
         assert_eq!(sm.record_started_at_ms(), 0);
         assert_eq!(sm.record_started_at_position_samples(), None);
+        assert_eq!(sm.record_expected_end_position_samples(), None);
         assert_eq!(sm.record_session_id(), None);
         assert_eq!(sm.measure_ready_generation(), 0);
+    }
+
+    #[test]
+    fn record_expected_end_position_is_stored_and_cleared() {
+        let sm = RecordStateMachine::new();
+        assert_eq!(
+            sm.try_enter_record_started_at_clock_window_transaction(
+                License::Os,
+                1_725_000_123_456,
+                Some(96_000),
+                Some(192_000),
+                "session-a",
+            ),
+            Ok(())
+        );
+        assert_eq!(sm.record_started_at_position_samples(), Some(96_000));
+        assert_eq!(sm.record_expected_end_position_samples(), Some(192_000));
+        sm.exit_record();
+        assert_eq!(sm.record_started_at_position_samples(), None);
+        assert_eq!(sm.record_expected_end_position_samples(), None);
+    }
+
+    #[test]
+    fn record_expected_end_position_rejects_non_positive_window() {
+        let sm = RecordStateMachine::new();
+        assert_eq!(
+            sm.try_enter_record_started_at_clock_window(
+                License::Os,
+                1_725_000_123_456,
+                Some(96_000),
+                Some(96_000),
+            ),
+            Ok(())
+        );
+        assert_eq!(sm.record_expected_end_position_samples(), None);
     }
 
     #[test]
@@ -800,7 +901,7 @@ mod tests {
     /// 実スレッドで A を「2つの CAS の間」に確実に一時停止させる方法はない（OS
     /// スケジューラ依存でフレーキーになる）ため、`begin_enter` / `finish_enter`
     /// （割込み可能にするために分割した本番コードそのもの。
-    /// `try_enter_record_started_at_clock_with_session` はこの2つを続けて呼ぶだけ）を
+    /// `try_enter_record_started_at_clock_window_with_session` はこの2つを続けて呼ぶだけ）を
     /// 呼び出し順序だけ入れ替えて呼び、A の `finish_enter` を B の成功**後**まで遅延させる。
     /// cleanup ロジック自体は本番の `finish_enter` をそのまま実行するので、
     /// `clear_record_session_if_owned_by` のガードが退行すればこのテストは確実に落ちる。
@@ -811,7 +912,7 @@ mod tests {
         // A: begin_enter だけ実行し、finish_enter を意図的に呼ばずに保留する
         // （= A がまだ 2 つの CAS の間にいる状態）。
         let token_a = sm
-            .begin_enter(1, None, Some("session-a".to_string()))
+            .begin_enter(1, None, None, Some("session-a".to_string()))
             .expect("A must win begin_enter from Watch");
 
         // 割込み: 「止める」タップ等が A の entering 中に飛んできて Watch へ戻す。
@@ -860,7 +961,7 @@ mod tests {
         let sm = RecordStateMachine::new();
 
         let token_a = sm
-            .begin_enter(1, None, Some("session-a".to_string()))
+            .begin_enter(1, None, None, Some("session-a".to_string()))
             .expect("A must win begin_enter from Watch");
         sm.exit_record();
 

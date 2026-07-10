@@ -2148,10 +2148,11 @@ fn poll_record_signal_ack_with_base(
             );
             return;
         }
-        match record_sm.try_enter_record_started_at_clock_transaction(
+        match record_sm.try_enter_record_started_at_clock_window_transaction(
             crate::License::Os,
             started_at_ms,
             signal.started_at_position_samples,
+            signal.expected_end_position_samples(),
             signal.session_id.clone(),
         ) {
             Ok(()) => log::info!(

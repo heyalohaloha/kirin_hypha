@@ -504,10 +504,11 @@ fn enter_pre_record_if_barrier_ready(
         );
         return false;
     }
-    match record_sm.try_enter_record_started_at_clock_transaction(
+    match record_sm.try_enter_record_started_at_clock_window_transaction(
         *license,
         started_at_ms,
         signal.started_at_position_samples,
+        signal.expected_end_position_samples(),
         signal.session_id.clone(),
     ) {
         Ok(()) => {
@@ -1698,10 +1699,11 @@ mod tests {
         {
             return false;
         }
-        match record_sm.try_enter_record_started_at_clock_transaction(
+        match record_sm.try_enter_record_started_at_clock_window_transaction(
             *license,
             started_at_ms,
             signal.started_at_position_samples,
+            signal.expected_end_position_samples(),
             signal.session_id.clone(),
         ) {
             Ok(()) => {
