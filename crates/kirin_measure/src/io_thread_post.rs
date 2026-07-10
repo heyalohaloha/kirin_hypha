@@ -660,7 +660,13 @@ pub fn spawn_io_thread_post(
             // を更新（1 秒 throttle / record_sm.is_recording() ガードで Stop 直後の
             // 復活窓を構造的に防止）。
             if Instant::now() >= next_pair_label_poll {
-                poll_record_signal_ack(project_hash_ref, instance_id_ref, &record_sm, &pair_label);
+                poll_record_signal_ack(
+                    project_hash_ref,
+                    instance_id_ref,
+                    sample_rate,
+                    &record_sm,
+                    &pair_label,
+                );
                 next_pair_label_poll = Instant::now() + PAIR_LABEL_POLL_INTERVAL;
             }
 
@@ -2033,6 +2039,7 @@ pub fn format_pair_label(paired_pre_name: &str, target_id: &str) -> String {
 fn poll_record_signal_ack(
     project_hash: &str,
     instance_id: &str,
+    sample_rate: u32,
     record_sm: &Arc<RecordStateMachine>,
     pair_label: &Arc<Mutex<String>>,
 ) {
@@ -2040,13 +2047,21 @@ fn poll_record_signal_ack(
         Ok(paths) => paths.plugin_data_dir(),
         Err(_) => return,
     };
-    poll_record_signal_ack_with_base(&base, project_hash, instance_id, record_sm, pair_label);
+    poll_record_signal_ack_with_base(
+        &base,
+        project_hash,
+        instance_id,
+        sample_rate,
+        record_sm,
+        pair_label,
+    );
 }
 
 fn poll_record_signal_ack_with_base(
     base: &Path,
     project_hash: &str,
     instance_id: &str,
+    sample_rate: u32,
     record_sm: &Arc<RecordStateMachine>,
     pair_label: &Arc<Mutex<String>>,
 ) {
@@ -2152,7 +2167,7 @@ fn poll_record_signal_ack_with_base(
             crate::License::Os,
             started_at_ms,
             signal.started_at_position_samples,
-            signal.expected_end_position_samples(),
+            signal.expected_end_position_samples_for_sample_rate(sample_rate),
             signal.session_id.clone(),
         ) {
             Ok(()) => log::info!(
@@ -3174,11 +3189,11 @@ mod record_signal_ack_barrier_tests {
         let sm = Arc::new(RecordStateMachine::new());
         let pair_label = Arc::new(Mutex::new(String::new()));
 
-        poll_record_signal_ack_with_base(&base, TEST_PH, TEST_POST_IID, &sm, &pair_label);
+        poll_record_signal_ack_with_base(&base, TEST_PH, TEST_POST_IID, 48_000, &sm, &pair_label);
         assert_eq!(sm.current(), RecordState::Watch);
 
         write_ack(&base, "2026-07-05T00:00:00Z");
-        poll_record_signal_ack_with_base(&base, TEST_PH, TEST_POST_IID, &sm, &pair_label);
+        poll_record_signal_ack_with_base(&base, TEST_PH, TEST_POST_IID, 48_000, &sm, &pair_label);
         assert_eq!(sm.current(), RecordState::Record);
         assert_eq!(
             sm.record_started_at_ms(),
@@ -3193,7 +3208,7 @@ mod record_signal_ack_barrier_tests {
         let sm = Arc::new(RecordStateMachine::new());
         let pair_label = Arc::new(Mutex::new(String::new()));
 
-        poll_record_signal_ack_with_base(&base, TEST_PH, TEST_POST_IID, &sm, &pair_label);
+        poll_record_signal_ack_with_base(&base, TEST_PH, TEST_POST_IID, 48_000, &sm, &pair_label);
 
         assert_eq!(sm.current(), RecordState::Record);
         assert_eq!(
@@ -3210,8 +3225,22 @@ mod record_signal_ack_barrier_tests {
         let second = Arc::new(RecordStateMachine::new());
         let pair_label = Arc::new(Mutex::new(String::new()));
 
-        poll_record_signal_ack_with_base(&base, TEST_PH, TEST_POST_IID, &first, &pair_label);
-        poll_record_signal_ack_with_base(&base, TEST_PH, TEST_POST_IID, &second, &pair_label);
+        poll_record_signal_ack_with_base(
+            &base,
+            TEST_PH,
+            TEST_POST_IID,
+            48_000,
+            &first,
+            &pair_label,
+        );
+        poll_record_signal_ack_with_base(
+            &base,
+            TEST_PH,
+            TEST_POST_IID,
+            48_000,
+            &second,
+            &pair_label,
+        );
 
         assert_eq!(first.current(), RecordState::Record);
         assert_eq!(

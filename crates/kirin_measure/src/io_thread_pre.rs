@@ -404,14 +404,19 @@ fn wait_for_measure_ready(record_sm: &RecordStateMachine, generation: u64) -> bo
     }
 }
 
+struct PreRecordEntryContext<'a> {
+    base: &'a Path,
+    project_hash: &'a str,
+    pre_instance_id: &'a str,
+    sample_rate: u32,
+}
+
 fn enter_pre_record_if_barrier_ready(
-    base: &Path,
-    project_hash: &str,
+    ctx: PreRecordEntryContext<'_>,
     record_sm: &Arc<RecordStateMachine>,
     recording: &Arc<AtomicBool>,
     license: &License,
     signal: &record_signal::RecordSignal,
-    pre_instance_id: &str,
 ) -> bool {
     if record_sm.is_recording() {
         let generation = record_sm.generation();
@@ -423,7 +428,7 @@ fn enter_pre_record_if_barrier_ready(
             "[signal] PRE Record measure-ready timeout before ACK \
              (generation={}, pre_iid={}, session={})",
             generation,
-            pre_instance_id,
+            ctx.pre_instance_id,
             signal.session_id
         );
         return false;
@@ -435,7 +440,7 @@ fn enter_pre_record_if_barrier_ready(
     if started_at_ms <= 0 {
         log::warn!(
             "[signal] PRE Record start withheld: invalid started_at (pre_iid={}, session={})",
-            pre_instance_id,
+            ctx.pre_instance_id,
             signal.session_id
         );
         return false;
@@ -445,33 +450,33 @@ fn enter_pre_record_if_barrier_ready(
         return false;
     }
     if crate::record_writer::record_session_closed_for_role_instance(
-        base,
-        project_hash,
-        pre_instance_id,
+        ctx.base,
+        ctx.project_hash,
+        ctx.pre_instance_id,
         PluginDataRole::Pre,
         &signal.session_id,
     ) {
         log::warn!(
             "[signal] PRE Record start withheld: session already closed on disk \
              (pre_iid={}, session={})",
-            pre_instance_id,
+            ctx.pre_instance_id,
             signal.session_id
         );
         return false;
     }
     match crate::record_entry_lock::claim_record_entry(
-        base,
-        project_hash,
+        ctx.base,
+        ctx.project_hash,
         &signal.session_id,
         PluginDataRole::Pre,
-        pre_instance_id,
+        ctx.pre_instance_id,
     ) {
         Ok(()) => {}
         Err(crate::record_entry_lock::RecordEntryLockError::AlreadyActive { .. }) => {
             log::warn!(
                 "[signal] PRE Record start withheld: record entry already owned \
                  (pre_iid={}, session={})",
-                pre_instance_id,
+                ctx.pre_instance_id,
                 signal.session_id
             );
             return false;
@@ -480,7 +485,7 @@ fn enter_pre_record_if_barrier_ready(
             log::warn!(
                 "[signal] PRE Record start withheld: record entry claim failed \
                  (pre_iid={}, session={}): {}",
-                pre_instance_id,
+                ctx.pre_instance_id,
                 signal.session_id,
                 e
             );
@@ -488,18 +493,18 @@ fn enter_pre_record_if_barrier_ready(
         }
     }
     if crate::record_writer_claim::writer_claim_active(
-        base,
-        project_hash,
+        ctx.base,
+        ctx.project_hash,
         &signal.session_id,
         PluginDataRole::Pre,
-        pre_instance_id,
+        ctx.pre_instance_id,
     )
     .unwrap_or(false)
     {
         log::warn!(
             "[signal] PRE Record start withheld: writer already active \
              (pre_iid={}, session={})",
-            pre_instance_id,
+            ctx.pre_instance_id,
             signal.session_id
         );
         return false;
@@ -508,7 +513,7 @@ fn enter_pre_record_if_barrier_ready(
         *license,
         started_at_ms,
         signal.started_at_position_samples,
-        signal.expected_end_position_samples(),
+        signal.expected_end_position_samples_for_sample_rate(ctx.sample_rate),
         signal.session_id.clone(),
     ) {
         Ok(()) => {
@@ -519,14 +524,14 @@ fn enter_pre_record_if_barrier_ready(
                     "[signal] PRE Record measure-ready timeout after ACK \
                      (generation={}, pre_iid={}, session={})",
                     generation,
-                    pre_instance_id,
+                    ctx.pre_instance_id,
                     signal.session_id
                 );
                 return false;
             }
             log::info!(
                 "[signal] PRE entered Record at barrier (pre_iid={}, session={}, started_at={})",
-                pre_instance_id,
+                ctx.pre_instance_id,
                 signal.session_id,
                 signal.started_at
             );
@@ -898,6 +903,7 @@ pub fn spawn_io_thread_pre(
                         &mut partner,
                         name_owned.as_str(),
                         &signal_state,
+                        sample_rate,
                     );
                     if let Ok(paths) = StoragePaths::default_platform() {
                         let base = paths.plugin_data_dir();
@@ -1052,6 +1058,7 @@ fn poll_record_signal(
     partner: &mut Option<PartnerInfo>,
     paired_pre_name: &str,
     signal_state: &Arc<AtomicU8>,
+    sample_rate: u32,
 ) {
     let base = match StoragePaths::default_platform() {
         Ok(paths) => paths.plugin_data_dir(),
@@ -1076,13 +1083,16 @@ fn poll_record_signal(
                     && !record_sm.is_recording()
                 {
                     let _ = enter_pre_record_if_barrier_ready(
-                        &base,
-                        project_hash,
+                        PreRecordEntryContext {
+                            base: &base,
+                            project_hash,
+                            pre_instance_id: instance_id,
+                            sample_rate,
+                        },
                         record_sm,
                         recording,
                         license.as_ref(),
                         sig,
-                        instance_id,
                     );
                 }
                 if new_status == p.last_seen_status
@@ -1315,13 +1325,16 @@ fn poll_record_signal(
     let mut ack_ok: usize = 0;
     for (post_iid, sig) in &pending_signals {
         if !enter_pre_record_if_barrier_ready(
-            &base,
-            project_hash,
+            PreRecordEntryContext {
+                base: &base,
+                project_hash,
+                pre_instance_id: instance_id,
+                sample_rate,
+            },
             record_sm,
             recording,
             license.as_ref(),
             sig,
-            instance_id,
         ) {
             not_ready = not_ready.saturating_add(1);
             continue;
@@ -1703,7 +1716,7 @@ mod tests {
             *license,
             started_at_ms,
             signal.started_at_position_samples,
-            signal.expected_end_position_samples(),
+            signal.expected_end_position_samples_for_sample_rate(48_000),
             signal.session_id.clone(),
         ) {
             Ok(()) => {
