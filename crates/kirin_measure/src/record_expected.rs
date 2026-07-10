@@ -358,10 +358,9 @@ fn read_claim_marker_for_session(
     Ok(Some(marker))
 }
 
-/// テスト専用のクロスモジュール診断アクセサ。`ExpectedWavClaimMarker` 自体は
-/// private のまま、`closed_at_ms` だけを覗く（`Ok(None)` = marker 不在、
-/// `Ok(Some(None))` = marker はあるがまだ open）。
-#[cfg(test)]
+/// クロスモジュール診断アクセサ。`ExpectedWavClaimMarker` 自体は private のまま、
+/// `closed_at_ms` だけを覗く（`Ok(None)` = marker 不在、`Ok(Some(None))` =
+/// marker はあるがまだ open）。
 pub(crate) fn claim_marker_closed_at_ms_for_session(
     base_dir: &Path,
     project_hash: &str,
@@ -370,6 +369,18 @@ pub(crate) fn claim_marker_closed_at_ms_for_session(
     Ok(
         read_claim_marker_for_session(base_dir, project_hash, session_id)?
             .map(|marker| marker.closed_at_ms),
+    )
+}
+
+pub(crate) fn claim_marker_is_closed_for_session(
+    base_dir: &Path,
+    project_hash: &str,
+    session_id: &str,
+) -> Result<bool, ExpectedMetadataError> {
+    Ok(
+        claim_marker_closed_at_ms_for_session(base_dir, project_hash, session_id)?
+            .flatten()
+            .is_some(),
     )
 }
 

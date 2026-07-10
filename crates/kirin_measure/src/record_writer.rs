@@ -334,6 +334,92 @@ fn session_scoped_failed_path(
     failed_dir.join(format!("{safe}.json"))
 }
 
+pub(crate) fn record_session_closed_for_role_instance(
+    base_dir: &Path,
+    project_hash: &str,
+    instance_id: &str,
+    role: Role,
+    record_session_id: &str,
+) -> bool {
+    let session_id = record_session_id.trim();
+    if session_id.is_empty() {
+        return false;
+    }
+    if crate::record_expected::claim_marker_is_closed_for_session(
+        base_dir,
+        project_hash,
+        session_id,
+    )
+    .unwrap_or(false)
+    {
+        return true;
+    }
+    if crate::record_writer_claim::writer_claim_closed(
+        base_dir,
+        project_hash,
+        session_id,
+        role,
+        instance_id,
+    )
+    .unwrap_or(false)
+    {
+        return true;
+    }
+    role_session_artifact_exists(base_dir, project_hash, instance_id, role, session_id)
+}
+
+fn role_session_artifact_exists(
+    base_dir: &Path,
+    project_hash: &str,
+    instance_id: &str,
+    role: Role,
+    record_session_id: &str,
+) -> bool {
+    let ph = crate::path_identity::guard_path_component(
+        project_hash,
+        "record_writer.closed_artifact.project_hash",
+    );
+    let iid = crate::path_identity::guard_path_component(
+        instance_id,
+        "record_writer.closed_artifact.instance_id",
+    );
+    let sid = crate::path_identity::guard_path_component(
+        record_session_id,
+        "record_writer.closed_artifact.session_id",
+    );
+    let role_dir = base_dir.join(&*ph).join(&*iid).join(role.dir_name());
+    for subdir in [".failed", ".pair_pending", ".pair_committed"] {
+        if role_dir.join(subdir).join(format!("{sid}.json")).exists() {
+            return true;
+        }
+    }
+    role_shelf_contains_closed_session(&role_dir, record_session_id)
+}
+
+fn role_shelf_contains_closed_session(role_dir: &Path, record_session_id: &str) -> bool {
+    let Ok(entries) = fs::read_dir(role_dir) else {
+        return false;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
+            continue;
+        }
+        let Ok(bytes) = fs::read(&path) else {
+            continue;
+        };
+        let Ok(data) = serde_json::from_slice::<PluginDataFile>(&bytes) else {
+            continue;
+        };
+        if data.status == Status::Closed
+            && data.record_session_id.as_deref() == Some(record_session_id)
+        {
+            return true;
+        }
+    }
+    false
+}
+
 /// B-025 Group B-2 / Gap-19 + Group B-3 / Gap-20: flush 連続失敗の診断しきい値。
 /// B-245 以降、この値はログと degraded 記録のためだけに使う。
 /// storage 失敗そのものには Record 停止権限を持たせない。
@@ -347,6 +433,7 @@ pub struct RecordingCtx {
     pub final_path: PathBuf,
     pub staging_path: PathBuf,
     pub failed_path: PathBuf,
+    pub(crate) writer_claim: Option<crate::record_writer_claim::WriterClaimGuard>,
     /// Record 開始 wall-clock（epoch ms）。frame t_ms はこの値からの差分。
     pub started_at_ms: i64,
     /// 次に Frame を書く最小 t_ms。
@@ -589,6 +676,44 @@ pub fn writer_start(
         );
         return None;
     };
+    if record_session_closed_for_role_instance(
+        &base,
+        project_hash,
+        instance_id,
+        role,
+        &record_session_id,
+    ) {
+        log::warn!(
+            "[writer] Record start withheld: session already closed on disk \
+             (role={:?}, project={}, iid={}, session={})",
+            role,
+            project_hash,
+            instance_id,
+            record_session_id
+        );
+        return None;
+    }
+    let mut writer_claim = match crate::record_writer_claim::claim_writer(
+        &base,
+        project_hash,
+        &record_session_id,
+        role,
+        instance_id,
+    ) {
+        Ok(claim) => Some(claim),
+        Err(e) => {
+            log::warn!(
+                "[writer] Record start withheld: writer claim rejected \
+                 (role={:?}, project={}, iid={}, session={}): {}",
+                role,
+                project_hash,
+                instance_id,
+                record_session_id,
+                e
+            );
+            return None;
+        }
+    };
     let record_session_id = Some(record_session_id);
     let expected_wav = signal_post_instance_id
         .and_then(|post_iid| resolve_expected_wav_metadata(&base, project_hash, post_iid));
@@ -613,6 +738,11 @@ pub fn writer_start(
         Ok(w) => w,
         Err(e) => {
             log::warn!("[writer] create failed: {}", e);
+            if let Some(claim) = writer_claim.take() {
+                if let Err(e) = claim.abandon() {
+                    log::warn!("[writer] claim abandon failed after create error: {}", e);
+                }
+            }
             return None;
         }
     };
@@ -622,7 +752,20 @@ pub fn writer_start(
     w.set_expected_wav(expected_wav);
     if let Err(e) = w.flush() {
         log::warn!("[writer] initial flush failed: {}", e);
+        if let Some(claim) = writer_claim.take() {
+            if let Err(e) = claim.abandon() {
+                log::warn!(
+                    "[writer] claim abandon failed after initial flush error: {}",
+                    e
+                );
+            }
+        }
         return None;
+    }
+    if let Some(claim) = writer_claim.as_mut() {
+        if let Err(e) = claim.heartbeat() {
+            log::warn!("[writer] claim heartbeat failed after initial flush: {}", e);
+        }
     }
     log::info!(
         "[writer] created ({:?}): {} (started_at_ms={})",
@@ -635,6 +778,7 @@ pub fn writer_start(
         final_path,
         staging_path,
         failed_path,
+        writer_claim,
         started_at_ms,
         next_frame_ms: 0,
         next_psb_ms: 0,
@@ -659,6 +803,7 @@ pub fn writer_start(
 pub fn writer_close(mut ctx: RecordingCtx) {
     let final_path = ctx.final_path.clone();
     let failed_path = ctx.failed_path.clone();
+    let mut writer_claim = ctx.writer_claim.take();
     refresh_pair_record_metadata_if_missing(&mut ctx);
     bake_continuous_record_timeline(&mut ctx);
     clip_clean_timeline_to_duration(&mut ctx);
@@ -673,6 +818,11 @@ pub fn writer_close(mut ctx: RecordingCtx) {
         }
         Ok(()) => log::info!("[writer] released: {}", final_path.display()),
         Err(e) => log::warn!("[writer] close failed ({}): {}", final_path.display(), e),
+    }
+    if let Some(claim) = writer_claim.as_mut() {
+        if let Err(e) = claim.mark_closed() {
+            log::warn!("[writer] claim close marker failed: {}", e);
+        }
     }
 }
 
@@ -1721,6 +1871,11 @@ fn run_record_tick_with_pair_names_inner(
             }
             if Instant::now() >= ctx.next_flush {
                 ctx.writer.heartbeat_now();
+                if let Some(claim) = ctx.writer_claim.as_mut() {
+                    if let Err(e) = claim.heartbeat() {
+                        log::warn!("[writer] claim heartbeat failed: {}", e);
+                    }
+                }
                 match ctx.writer.flush() {
                     Ok(()) => {
                         // B-025 Gap-19/20: 成功で counter リセット (transient 失敗を吸収)。
@@ -2627,6 +2782,12 @@ mod tests {
     const TEST_PH: &str = "ph";
     const TEST_IID: &str = "iid-test";
 
+    fn unique_session(prefix: &str) -> String {
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+        format!("{prefix}-{}-{n}", std::process::id())
+    }
+
     fn isolated_base() -> PathBuf {
         static COUNTER: AtomicU64 = AtomicU64::new(0);
         let n = COUNTER.fetch_add(1, Ordering::Relaxed);
@@ -2805,12 +2966,13 @@ mod tests {
         let sm = Arc::new(RecordStateMachine::new());
         let m = Arc::new(Mutex::new(full_measure_result()));
         let mut rec: Option<RecordingCtx> = None;
+        let session_id = unique_session("session-reuse-guard");
 
         sm.try_enter_record_started_at_clock_transaction(
             License::Os,
             now_epoch_ms(),
             Some(0),
-            "session-reuse-guard",
+            session_id.clone(),
         )
         .unwrap();
         sm.exit_record();
@@ -2821,7 +2983,7 @@ mod tests {
                 License::Os,
                 now_epoch_ms(),
                 Some(0),
-                "session-reuse-guard",
+                session_id.clone(),
             ),
             Err(TransitionError::SessionAlreadyClosed)
         );
@@ -2839,7 +3001,7 @@ mod tests {
             || None,
             || None,
             || None,
-            || Some("session-reuse-guard".to_string()),
+            || Some(session_id.clone()),
             &m,
             &mut rec,
             None,
@@ -2857,13 +3019,222 @@ mod tests {
     }
 
     #[test]
+    fn duplicate_state_machines_same_role_instance_share_disk_writer_claim() {
+        let session_id = unique_session("session-cross-process-claim");
+        let started_at = now_epoch_ms();
+        let sm_first = Arc::new(RecordStateMachine::new());
+        let sm_second = Arc::new(RecordStateMachine::new());
+        for sm in [&sm_first, &sm_second] {
+            sm.try_enter_record_started_at_clock_transaction(
+                License::Os,
+                started_at,
+                Some(0),
+                session_id.clone(),
+            )
+            .unwrap();
+        }
+        let m = Arc::new(Mutex::new(full_measure_result()));
+        let mut first: Option<RecordingCtx> = None;
+        let mut second: Option<RecordingCtx> = None;
+
+        run_record_tick_with_pair_names_require_session(
+            &sm_first,
+            Role::Post,
+            48_000,
+            TEST_PH,
+            TEST_IID,
+            || started_at,
+            || Some("paired-pre-test".to_string()),
+            || None,
+            || None,
+            || None,
+            || sm_first.record_session_id(),
+            &m,
+            &mut first,
+            None,
+            &no_overflow(),
+            &no_overflow(),
+            None,
+            None,
+        )
+        .unwrap();
+        assert!(first.is_some(), "first state machine owns the writer claim");
+
+        run_record_tick_with_pair_names_require_session(
+            &sm_second,
+            Role::Post,
+            48_000,
+            TEST_PH,
+            TEST_IID,
+            || started_at,
+            || Some("paired-pre-test".to_string()),
+            || None,
+            || None,
+            || None,
+            || sm_second.record_session_id(),
+            &m,
+            &mut second,
+            None,
+            &no_overflow(),
+            &no_overflow(),
+            None,
+            None,
+        )
+        .unwrap();
+        assert!(
+            second.is_none(),
+            "second state machine with the same role/instance/session must not create a writer"
+        );
+
+        if let Some(ctx) = first.take() {
+            writer_close(ctx);
+        }
+        sm_first.exit_record();
+        sm_second.exit_record();
+    }
+
+    #[test]
+    fn duplicate_pre_state_machines_same_instance_share_disk_writer_claim() {
+        let session_id = unique_session("session-cross-process-pre-claim");
+        let started_at = now_epoch_ms();
+        let sm_first = Arc::new(RecordStateMachine::new());
+        let sm_second = Arc::new(RecordStateMachine::new());
+        for sm in [&sm_first, &sm_second] {
+            sm.try_enter_record_started_at_clock_transaction(
+                License::Os,
+                started_at,
+                Some(0),
+                session_id.clone(),
+            )
+            .unwrap();
+        }
+        let m = Arc::new(Mutex::new(full_measure_result()));
+        let mut first: Option<RecordingCtx> = None;
+        let mut second: Option<RecordingCtx> = None;
+
+        run_record_tick_with_pair_names_require_session(
+            &sm_first,
+            Role::Pre,
+            48_000,
+            TEST_PH,
+            TEST_IID,
+            || started_at,
+            || None,
+            || Some("paired-post-test".to_string()),
+            || None,
+            || None,
+            || sm_first.record_session_id(),
+            &m,
+            &mut first,
+            None,
+            &no_overflow(),
+            &no_overflow(),
+            None,
+            None,
+        )
+        .unwrap();
+        assert!(
+            first.is_some(),
+            "first PRE state machine owns the writer claim"
+        );
+
+        run_record_tick_with_pair_names_require_session(
+            &sm_second,
+            Role::Pre,
+            48_000,
+            TEST_PH,
+            TEST_IID,
+            || started_at,
+            || None,
+            || Some("paired-post-test".to_string()),
+            || None,
+            || None,
+            || sm_second.record_session_id(),
+            &m,
+            &mut second,
+            None,
+            &no_overflow(),
+            &no_overflow(),
+            None,
+            None,
+        )
+        .unwrap();
+        assert!(
+            second.is_none(),
+            "second PRE state machine with the same instance/session must not create a writer"
+        );
+
+        if let Some(ctx) = first.take() {
+            writer_close(ctx);
+        }
+        sm_first.exit_record();
+        sm_second.exit_record();
+    }
+
+    #[test]
+    fn closed_artifact_is_role_scoped_but_expected_marker_closes_session() {
+        let base = isolated_base();
+        let session_id = unique_session("session-closed-scope");
+        let post_failed = base
+            .join(TEST_PH)
+            .join("post-iid")
+            .join(Role::Post.dir_name())
+            .join(".failed")
+            .join(format!("{session_id}.json"));
+        fs::create_dir_all(post_failed.parent().unwrap()).unwrap();
+        fs::write(&post_failed, b"{}").unwrap();
+
+        assert!(record_session_closed_for_role_instance(
+            &base,
+            TEST_PH,
+            "post-iid",
+            Role::Post,
+            &session_id
+        ));
+        assert!(
+            !record_session_closed_for_role_instance(
+                &base,
+                TEST_PH,
+                "pre-iid",
+                Role::Pre,
+                &session_id
+            ),
+            "a POST-only failed artifact must not masquerade as a PRE artifact"
+        );
+
+        let expected = expected_wav_metadata(48_000, 48_000, "bounce-closed-scope");
+        crate::record_expected::write_expected_metadata(&base, TEST_PH, &expected).unwrap();
+        crate::record_expected::claim_expected_metadata_for_session(&base, TEST_PH, &session_id)
+            .unwrap();
+        crate::record_expected::mark_expected_metadata_consumed(
+            &base,
+            TEST_PH,
+            Some(&expected.bounce_id),
+            &session_id,
+        )
+        .unwrap();
+
+        assert!(
+            record_session_closed_for_role_instance(
+                &base,
+                TEST_PH,
+                "pre-iid",
+                Role::Pre,
+                &session_id
+            ),
+            "expected closed marker is session-global and rejects stale partner entry"
+        );
+    }
+
+    #[test]
     fn strict_record_tick_does_not_start_without_required_pair() {
         let sm = Arc::new(RecordStateMachine::new());
+        let session_id = unique_session("session-without-pair");
         sm.try_enter_record_started_at_clock_transaction(
             License::Os,
             now_epoch_ms(),
             Some(0),
-            "session-without-pair",
+            session_id,
         )
         .unwrap();
         let m = Arc::new(Mutex::new(full_measure_result()));
@@ -2934,6 +3305,7 @@ mod tests {
             final_path,
             staging_path,
             failed_path,
+            writer_claim: None,
             started_at_ms,
             next_frame_ms: 0,
             next_psb_ms: 0,
@@ -3667,13 +4039,9 @@ mod tests {
     fn post_record_start_does_not_wait_for_paired_pre_target() {
         let sm = Arc::new(RecordStateMachine::new());
         let started_at = now_epoch_ms();
-        sm.try_enter_record_started_at_clock_transaction(
-            License::Os,
-            started_at,
-            None,
-            "session-post-no-pair",
-        )
-        .unwrap();
+        let session_id = unique_session("session-post-no-pair");
+        sm.try_enter_record_started_at_clock_transaction(License::Os, started_at, None, session_id)
+            .unwrap();
         let m = Arc::new(Mutex::new(full_measure_result()));
         let mut rec: Option<RecordingCtx> = None;
 
@@ -3713,13 +4081,9 @@ mod tests {
     fn pre_record_start_does_not_wait_for_paired_post_partner() {
         let sm = Arc::new(RecordStateMachine::new());
         let started_at = now_epoch_ms();
-        sm.try_enter_record_started_at_clock_transaction(
-            License::Os,
-            started_at,
-            None,
-            "session-pre-no-pair",
-        )
-        .unwrap();
+        let session_id = unique_session("session-pre-no-pair");
+        sm.try_enter_record_started_at_clock_transaction(License::Os, started_at, None, session_id)
+            .unwrap();
         let m = Arc::new(Mutex::new(full_measure_result()));
         let mut rec: Option<RecordingCtx> = None;
 
@@ -3767,14 +4131,11 @@ mod tests {
     fn open_claim_stays_trace_usable_and_partial_does_not_leak_into_final_scan() {
         let base = isolated_base();
         let expected = expected_wav_metadata(48_000, 48_000, "bounce-open-claim");
+        let session_id = unique_session("session-open-claim");
         crate::record_expected::write_expected_metadata(&base, TEST_PH, &expected).unwrap();
         // Keep 相当: claim marker を open (closed_at_ms=None) として作る。
-        crate::record_expected::claim_expected_metadata_for_session(
-            &base,
-            TEST_PH,
-            "session-open-claim",
-        )
-        .unwrap();
+        crate::record_expected::claim_expected_metadata_for_session(&base, TEST_PH, &session_id)
+            .unwrap();
 
         let sm = Arc::new(RecordStateMachine::new());
         let started_at = now_epoch_ms();
@@ -3782,7 +4143,7 @@ mod tests {
             License::Os,
             started_at,
             None,
-            "session-open-claim",
+            session_id.clone(),
         )
         .unwrap();
         let m = Arc::new(Mutex::new(full_measure_result()));
@@ -3822,7 +4183,7 @@ mod tests {
             serde_json::from_slice(&fs::read(&staging_path).unwrap()).unwrap();
         assert_eq!(
             staged.record_session_id.as_deref(),
-            Some("session-open-claim"),
+            Some(session_id.as_str()),
             "in-progress take must already carry its record_session_id"
         );
         assert!(
@@ -3833,7 +4194,7 @@ mod tests {
         let closed_at_ms = crate::record_expected::claim_marker_closed_at_ms_for_session(
             &base,
             TEST_PH,
-            "session-open-claim",
+            &session_id,
         )
         .unwrap()
         .expect("claim marker must exist after Keep");
@@ -3945,11 +4306,13 @@ mod tests {
         let old_final_path = old_ctx.final_path.clone();
         let old_failed_path = old_ctx.failed_path.clone();
         let sm = Arc::new(RecordStateMachine::new());
+        let old_session_id = unique_session("session-old-gen");
+        let new_session_id = unique_session("session-new-gen");
         sm.try_enter_record_started_at_clock_transaction(
             License::Os,
             started,
             None,
-            "session-old-gen",
+            old_session_id,
         )
         .unwrap();
         let old_generation = sm.generation();
@@ -3962,7 +4325,7 @@ mod tests {
             License::Os,
             started + 1_000,
             None,
-            "session-new-gen",
+            new_session_id,
         )
         .unwrap();
         let new_generation = sm.generation();
