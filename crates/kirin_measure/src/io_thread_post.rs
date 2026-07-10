@@ -2102,6 +2102,51 @@ fn poll_record_signal_ack_with_base(
             );
             return;
         }
+        match crate::record_entry_lock::claim_record_entry(
+            base,
+            project_hash,
+            &signal.session_id,
+            PluginDataRole::Post,
+            instance_id,
+        ) {
+            Ok(()) => {}
+            Err(crate::record_entry_lock::RecordEntryLockError::AlreadyActive { .. }) => {
+                log::warn!(
+                    "[IOThread POST] ACK ignored: record entry already owned \
+                     (session={}, post_iid={})",
+                    signal.session_id,
+                    instance_id
+                );
+                return;
+            }
+            Err(e) => {
+                log::warn!(
+                    "[IOThread POST] ACK ignored: record entry claim failed \
+                     (session={}, post_iid={}): {}",
+                    signal.session_id,
+                    instance_id,
+                    e
+                );
+                return;
+            }
+        }
+        if crate::record_writer_claim::writer_claim_active(
+            base,
+            project_hash,
+            &signal.session_id,
+            PluginDataRole::Post,
+            instance_id,
+        )
+        .unwrap_or(false)
+        {
+            log::warn!(
+                "[IOThread POST] ACK ignored: writer already active \
+                 (session={}, post_iid={})",
+                signal.session_id,
+                instance_id
+            );
+            return;
+        }
         match record_sm.try_enter_record_started_at_clock_transaction(
             crate::License::Os,
             started_at_ms,
@@ -3152,6 +3197,25 @@ mod record_signal_ack_barrier_tests {
         assert_eq!(
             sm.record_started_at_ms(),
             parse_iso8601_to_epoch_ms("2026-07-05T00:00:00Z").unwrap()
+        );
+    }
+
+    #[test]
+    fn duplicate_post_state_machines_same_ack_only_one_enters_record() {
+        let base = isolated_base("duplicate-post-entry");
+        write_ack(&base, "2026-07-05T00:00:00Z");
+        let first = Arc::new(RecordStateMachine::new());
+        let second = Arc::new(RecordStateMachine::new());
+        let pair_label = Arc::new(Mutex::new(String::new()));
+
+        poll_record_signal_ack_with_base(&base, TEST_PH, TEST_POST_IID, &first, &pair_label);
+        poll_record_signal_ack_with_base(&base, TEST_PH, TEST_POST_IID, &second, &pair_label);
+
+        assert_eq!(first.current(), RecordState::Record);
+        assert_eq!(
+            second.current(),
+            RecordState::Watch,
+            "same session/POST instance must have only one cross-process Record entrant"
         );
     }
 }

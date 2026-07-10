@@ -459,6 +459,51 @@ fn enter_pre_record_if_barrier_ready(
         );
         return false;
     }
+    match crate::record_entry_lock::claim_record_entry(
+        base,
+        project_hash,
+        &signal.session_id,
+        PluginDataRole::Pre,
+        pre_instance_id,
+    ) {
+        Ok(()) => {}
+        Err(crate::record_entry_lock::RecordEntryLockError::AlreadyActive { .. }) => {
+            log::warn!(
+                "[signal] PRE Record start withheld: record entry already owned \
+                 (pre_iid={}, session={})",
+                pre_instance_id,
+                signal.session_id
+            );
+            return false;
+        }
+        Err(e) => {
+            log::warn!(
+                "[signal] PRE Record start withheld: record entry claim failed \
+                 (pre_iid={}, session={}): {}",
+                pre_instance_id,
+                signal.session_id,
+                e
+            );
+            return false;
+        }
+    }
+    if crate::record_writer_claim::writer_claim_active(
+        base,
+        project_hash,
+        &signal.session_id,
+        PluginDataRole::Pre,
+        pre_instance_id,
+    )
+    .unwrap_or(false)
+    {
+        log::warn!(
+            "[signal] PRE Record start withheld: writer already active \
+             (pre_iid={}, session={})",
+            pre_instance_id,
+            signal.session_id
+        );
+        return false;
+    }
     match record_sm.try_enter_record_started_at_clock_transaction(
         *license,
         started_at_ms,
@@ -1594,7 +1639,10 @@ mod tests {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn enter_pre_record_if_barrier_ready_for_test(
+        base: &Path,
+        project_hash: &str,
         record_sm: &Arc<RecordStateMachine>,
         recording: &Arc<AtomicBool>,
         license: &License,
@@ -1617,6 +1665,37 @@ mod tests {
         }
         let started_at_ms = signal_started_at_ms(signal);
         if started_at_ms <= 0 || crate::record_writer::now_epoch_ms() < started_at_ms {
+            return false;
+        }
+        if crate::record_writer::record_session_closed_for_role_instance(
+            base,
+            project_hash,
+            pre_instance_id,
+            PluginDataRole::Pre,
+            &signal.session_id,
+        ) {
+            return false;
+        }
+        if crate::record_entry_lock::claim_record_entry(
+            base,
+            project_hash,
+            &signal.session_id,
+            PluginDataRole::Pre,
+            pre_instance_id,
+        )
+        .is_err()
+        {
+            return false;
+        }
+        if crate::record_writer_claim::writer_claim_active(
+            base,
+            project_hash,
+            &signal.session_id,
+            PluginDataRole::Pre,
+            pre_instance_id,
+        )
+        .unwrap_or(false)
+        {
             return false;
         }
         match record_sm.try_enter_record_started_at_clock_transaction(
@@ -1734,6 +1813,8 @@ mod tests {
                         && !record_sm.is_recording()
                     {
                         let _ = enter_pre_record_if_barrier_ready_for_test(
+                            base,
+                            TEST_PH,
                             record_sm,
                             recording,
                             license.as_ref(),
@@ -1838,6 +1919,8 @@ mod tests {
         let mut last_acked: Option<(String, i64, String, String)> = None;
         for (post_iid, sig) in &pending_signals {
             if !enter_pre_record_if_barrier_ready_for_test(
+                base,
+                TEST_PH,
                 record_sm,
                 recording,
                 license.as_ref(),
@@ -2030,6 +2113,87 @@ mod tests {
         assert_eq!(sig.status, SignalStatus::Acknowledged);
         assert!(sig.expected_wav.is_none());
         assert!(partner.is_some());
+    }
+
+    #[test]
+    fn duplicate_pre_state_machines_same_pending_only_one_enters_record() {
+        let base = isolated_base();
+        write_matching_pending(&base, "post-1");
+        let first = Arc::new(RecordStateMachine::new());
+        let second = Arc::new(RecordStateMachine::new());
+        let first_recording = Arc::new(AtomicBool::new(false));
+        let second_recording = Arc::new(AtomicBool::new(false));
+        let license = Arc::new(License::Os);
+        let ack = Arc::new(AtomicBool::new(false));
+        let mut first_partner = None;
+        let mut second_partner = None;
+
+        poll_with_base(
+            &base,
+            &first,
+            &first_recording,
+            &ack,
+            &license,
+            &mut first_partner,
+            TEST_PRE_IID,
+        );
+        poll_with_base(
+            &base,
+            &second,
+            &second_recording,
+            &ack,
+            &license,
+            &mut second_partner,
+            TEST_PRE_IID,
+        );
+
+        assert_eq!(first.current(), RecordState::Record);
+        assert_eq!(
+            second.current(),
+            RecordState::Watch,
+            "same session/PRE instance must have only one cross-process Record entrant"
+        );
+        assert!(first_recording.load(Ordering::Relaxed));
+        assert!(!second_recording.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn duplicate_pre_state_machines_same_pending_snapshot_only_one_enters_record() {
+        let base = isolated_base();
+        write_matching_pending(&base, "post-1");
+        let signal = record_signal::read_signal(&base, TEST_PH, "post-1").unwrap();
+        let first = Arc::new(RecordStateMachine::new());
+        let second = Arc::new(RecordStateMachine::new());
+        let first_recording = Arc::new(AtomicBool::new(false));
+        let second_recording = Arc::new(AtomicBool::new(false));
+
+        assert!(enter_pre_record_if_barrier_ready_for_test(
+            &base,
+            TEST_PH,
+            &first,
+            &first_recording,
+            &License::Os,
+            &signal,
+            TEST_PRE_IID,
+            true,
+        ));
+        assert!(!enter_pre_record_if_barrier_ready_for_test(
+            &base,
+            TEST_PH,
+            &second,
+            &second_recording,
+            &License::Os,
+            &signal,
+            TEST_PRE_IID,
+            true,
+        ));
+
+        assert_eq!(first.current(), RecordState::Record);
+        assert_eq!(
+            second.current(),
+            RecordState::Watch,
+            "same pending snapshot must not arm a duplicate PRE writer path"
+        );
     }
 
     #[test]

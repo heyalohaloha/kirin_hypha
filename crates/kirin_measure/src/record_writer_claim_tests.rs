@@ -28,6 +28,7 @@ fn same_session_role_instance_rejects_second_active_claim() {
 fn closed_claim_rejects_later_claim() {
     let base = isolated_base();
     let mut first = claim_writer(&base, "ph", "session-b", Role::Post, "post-1").unwrap();
+    assert!(writer_claim_active(&base, "ph", "session-b", Role::Post, "post-1").unwrap());
     first.mark_closed().unwrap();
     let second = claim_writer(&base, "ph", "session-b", Role::Post, "post-1");
     assert!(matches!(
@@ -35,6 +36,7 @@ fn closed_claim_rejects_later_claim() {
         Err(WriterClaimError::AlreadyClosed { .. })
     ));
     assert!(writer_claim_closed(&base, "ph", "session-b", Role::Post, "post-1").unwrap());
+    assert!(!writer_claim_active(&base, "ph", "session-b", Role::Post, "post-1").unwrap());
 }
 
 #[test]
