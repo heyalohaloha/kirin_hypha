@@ -80,7 +80,9 @@ fn consumed_marker_does_not_make_current_unarmable() {
     let base = isolated_dir();
     let metadata = metadata_fixture("bounce-consume");
     write_expected_metadata(&base, "ph", &metadata).unwrap();
-    assert!(mark_expected_metadata_consumed(&base, "ph", "bounce-consume", "session-1").unwrap());
+    assert!(
+        mark_expected_metadata_consumed(&base, "ph", Some("bounce-consume"), "session-1").unwrap()
+    );
     assert_eq!(read_expected_metadata(&base, "ph").unwrap(), metadata);
     let claimed_sessions = claimed_session_ids_for_metadata(&base, "ph", &metadata).unwrap();
     assert_eq!(claimed_sessions, vec!["session-1"]);
@@ -129,6 +131,135 @@ fn claim_expected_metadata_snapshots_current_without_consuming_it() {
     assert!(claimed_sessions.is_empty());
     let claimed_sessions = claimed_session_ids_for_metadata(&base, "ph", &stored).unwrap();
     assert_eq!(claimed_sessions, vec!["session-claim", "session-peer"]);
+}
+
+/// 2026-07-10 (stopし忘れ検出): claim (Keep) と consume (Close) で `claimed_at_ms` /
+/// `closed_at_ms` が正しく分離されることの回帰。Close は開始時刻を上書きしてはならず、
+/// 終了時刻だけを新規に刻む。
+#[test]
+fn closed_at_ms_lifecycle_separates_claim_time_from_close_time() {
+    let base = isolated_dir();
+    let metadata = metadata_fixture("bounce-lifecycle");
+    write_expected_metadata(&base, "ph", &metadata).unwrap();
+
+    claim_expected_metadata_for_session(&base, "ph", "session-lifecycle").unwrap();
+    let claimed_marker = read_claim_marker_for_session(&base, "ph", "session-lifecycle")
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        claimed_marker.closed_at_ms, None,
+        "claim (Keep) must leave closed_at_ms unset — session is still open"
+    );
+    let claimed_at_ms = claimed_marker.claimed_at_ms;
+
+    thread::sleep(std::time::Duration::from_millis(5));
+
+    assert!(mark_expected_metadata_consumed(
+        &base,
+        "ph",
+        Some("bounce-lifecycle"),
+        "session-lifecycle"
+    )
+    .unwrap());
+    let closed_marker = read_claim_marker_for_session(&base, "ph", "session-lifecycle")
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        closed_marker.claimed_at_ms, claimed_at_ms,
+        "close must not overwrite the original claim (start) time"
+    );
+    let closed_at_ms = closed_marker
+        .closed_at_ms
+        .expect("close must stamp closed_at_ms");
+    assert!(
+        closed_at_ms > claimed_at_ms,
+        "closed_at_ms must reflect the later close time, not the claim time"
+    );
+}
+
+/// Close は冪等でなければならない。再tryや二重 finalize が走っても、最初に刻んだ
+/// `closed_at_ms` を後から動かしてはいけない。
+#[test]
+fn mark_consumed_preserves_existing_closed_at_ms_on_retry() {
+    let base = isolated_dir();
+    let metadata = metadata_fixture("bounce-close-idempotent");
+    write_expected_metadata(&base, "ph", &metadata).unwrap();
+
+    claim_expected_metadata_for_session(&base, "ph", "session-close-idempotent").unwrap();
+    assert!(mark_expected_metadata_consumed(
+        &base,
+        "ph",
+        Some("bounce-close-idempotent"),
+        "session-close-idempotent"
+    )
+    .unwrap());
+    let first_closed_at_ms = read_claim_marker_for_session(&base, "ph", "session-close-idempotent")
+        .unwrap()
+        .unwrap()
+        .closed_at_ms
+        .expect("first close must stamp closed_at_ms");
+
+    thread::sleep(std::time::Duration::from_millis(5));
+
+    assert!(mark_expected_metadata_consumed(
+        &base,
+        "ph",
+        Some("bounce-close-idempotent"),
+        "session-close-idempotent"
+    )
+    .unwrap());
+    let second_closed_at_ms =
+        read_claim_marker_for_session(&base, "ph", "session-close-idempotent")
+            .unwrap()
+            .unwrap()
+            .closed_at_ms
+            .expect("retry close must keep closed_at_ms");
+
+    assert_eq!(
+        second_closed_at_ms, first_closed_at_ms,
+        "retry close must preserve the original closed_at_ms"
+    );
+}
+
+/// 2026-07-10 (バグ修正): Keep と Close の間に `current.json` が同じ bounce_id のまま
+/// 新しい世代（別の created_at_ms / wav_hash）へロールオーバーしても、Close の書き込みは
+/// Keep 時に claim した世代のスナップショットを使わなければならない — モジュール冒頭の
+/// 設計原則（"close-time recovery cannot be pulled onto a later bounce"）そのものの回帰。
+#[test]
+fn mark_consumed_uses_originally_claimed_generation_not_live_current_json() {
+    let base = isolated_dir();
+    let mut first = metadata_fixture("bounce-rollover");
+    first.wav_hash = Some("hash-gen-1".to_string());
+    write_expected_metadata(&base, "ph", &first).unwrap();
+    claim_expected_metadata_for_session(&base, "ph", "session-rollover").unwrap();
+    let claimed_marker = read_claim_marker_for_session(&base, "ph", "session-rollover")
+        .unwrap()
+        .unwrap();
+    assert_eq!(claimed_marker.created_at_ms, first.created_at_ms);
+
+    // 同じ bounce_id のまま、新しい世代（別の created_at_ms / wav_hash）へロールオーバー。
+    let mut second = first.clone();
+    second.created_at_ms = first.created_at_ms + 1;
+    second.wav_hash = Some("hash-gen-2".to_string());
+    write_expected_metadata(&base, "ph", &second).unwrap();
+
+    assert!(mark_expected_metadata_consumed(
+        &base,
+        "ph",
+        Some("bounce-rollover"),
+        "session-rollover"
+    )
+    .unwrap());
+
+    let closed_marker = read_claim_marker_for_session(&base, "ph", "session-rollover")
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        closed_marker.created_at_ms, first.created_at_ms,
+        "close must stamp the ORIGINALLY-claimed generation, not the rolled-over current.json"
+    );
+    assert_eq!(closed_marker.wav_hash, "hash-gen-1");
+    assert!(closed_marker.closed_at_ms.is_some());
 }
 
 #[test]

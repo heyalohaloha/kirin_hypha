@@ -52,6 +52,15 @@ struct ExpectedWavClaimMarker {
     created_at_ms: i64,
     wav_hash: String,
     claimed_at_ms: i64,
+    /// このセッションが実際に Close した wall-clock epoch ms。`None` の間は
+    /// まだ open（Record 中、または Stop/idle-timeout での close をまだ観測していない）。
+    ///
+    /// `claimed_at_ms` は Keep 時の一度きりの値で、Close 時に上書きしない（開始/終了を
+    /// 分離する）。Kirin OS 側は「`closed_at_ms` が `None` のまま `claimed_at_ms` から
+    /// 想定音声長 + 余裕を超えて経過している」を「stop し忘れ」の検出に使える
+    /// （2026-07-10, R-13 Hub & Spoke: Hypha は書くだけ、判定は Kirin OS 側の責務）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    closed_at_ms: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     metadata: Option<ExpectedWavMetadata>,
 }
@@ -201,31 +210,87 @@ pub fn claim_expected_metadata_for_session(
         return Err(ExpectedMetadataError::Stale);
     }
     let artifact_metadata = metadata.clone().without_consumed_marker();
-    write_claim_marker(base_dir, project_hash, &metadata, session_id, now_ms)?;
+    write_claim_marker(base_dir, project_hash, &metadata, session_id, now_ms, None)?;
     Ok(artifact_metadata)
 }
 
+/// セッションの Close（成功・`.failed` いずれも）で呼ぶ。`claimed_at_ms`（Keep 時の
+/// 一度きりの claim 時刻）は書き換えず、`closed_at_ms` にだけ現在時刻を刻む
+/// （2026-07-10: 開始/終了時刻を分離し、Kirin OS が「まだ open か」を
+/// `closed_at_ms.is_none()` で判定できるようにする）。
+///
+/// close 時点の `current.json` は読まず、Keep 時に claim した marker 自身の
+/// `metadata` スナップショットを使う（モジュール冒頭のコメント通り、claim は
+/// 常に immutable — close 時の再解決が別世代の bounce に引っ張られてはならない）。
+/// marker が無い場合だけ、防御的に `current.json` へフォールバックする。
+///
+/// `bounce_id` は分かる場合の追加検証用（`None` でも可）。`record_session_id` さえ
+/// あれば marker 自身が bounce_id を覚えているため、呼び出し側が `expected_wav` を
+/// 失っている（`.failed` 経路等）場合でも `closed_at_ms` は正しく刻める。
 pub fn mark_expected_metadata_consumed(
     base_dir: &Path,
     project_hash: &str,
-    bounce_id: &str,
+    bounce_id: Option<&str>,
     session_id: &str,
 ) -> Result<bool, ExpectedMetadataError> {
-    if bounce_id.trim().is_empty() || session_id.trim().is_empty() {
+    if session_id.trim().is_empty() {
         return Ok(false);
     }
+    let session_id = session_id.trim();
+    let bounce_id = bounce_id.map(str::trim).filter(|b| !b.is_empty());
+    let now_ms = now_epoch_ms();
+    let prior_marker = read_claim_marker_for_session(base_dir, project_hash, session_id)?;
+    if let Some(marker) = &prior_marker {
+        if let Some(bounce_id) = bounce_id {
+            if marker.bounce_id != bounce_id {
+                return Ok(false);
+            }
+        }
+        if let Some(metadata) = &marker.metadata {
+            let closed_at_ms = marker.closed_at_ms.or(Some(now_ms));
+            write_claim_marker(
+                base_dir,
+                project_hash,
+                metadata,
+                session_id,
+                marker.claimed_at_ms,
+                closed_at_ms,
+            )?;
+            return Ok(true);
+        }
+    }
+    // 防御的 fallback（構造上 try_finalize_pair_session からは到達し得ないはず）:
+    // 事前の claim marker（または metadata スナップショット）が無い場合だけ
+    // 現在の current.json を読む。bounce_id 無しでは何を検証すべきか分からないため
+    // ここでは何もしない。
+    let Some(bounce_id) = bounce_id else {
+        return Ok(false);
+    };
+    log::warn!(
+        "[record_expected] mark_expected_metadata_consumed: no usable prior claim marker \
+         for session={session_id} bounce={bounce_id}; falling back to current.json"
+    );
     let path = expected_path(base_dir, project_hash);
     let bytes = fs::read(&path)?;
     let metadata: ExpectedWavMetadata = serde_json::from_slice(&bytes)?;
     if metadata.bounce_id != bounce_id {
         return Ok(false);
     }
+    let claimed_at_ms = prior_marker
+        .as_ref()
+        .map(|marker| marker.claimed_at_ms)
+        .unwrap_or(now_ms);
+    let closed_at_ms = prior_marker
+        .as_ref()
+        .and_then(|marker| marker.closed_at_ms)
+        .or(Some(now_ms));
     write_claim_marker(
         base_dir,
         project_hash,
         &metadata,
-        session_id.trim(),
-        now_epoch_ms(),
+        session_id,
+        claimed_at_ms,
+        closed_at_ms,
     )?;
     Ok(true)
 }
@@ -272,11 +337,14 @@ fn expected_session_claim_marker_path(
         .join(format!("{session}.json"))
 }
 
-fn read_claimed_metadata_for_session(
+/// 生の claim marker を読む（schema_version / session_id の一致だけ検証。metadata の
+/// 完全性チェックはしない）。`claimed_at_ms` など marker 自体のフィールドが必要な
+/// 呼び出し元（`mark_expected_metadata_consumed` 等）向け。
+fn read_claim_marker_for_session(
     base_dir: &Path,
     project_hash: &str,
     session_id: &str,
-) -> Result<Option<ExpectedWavMetadata>, ExpectedMetadataError> {
+) -> Result<Option<ExpectedWavClaimMarker>, ExpectedMetadataError> {
     let path = expected_session_claim_marker_path(base_dir, project_hash, session_id);
     let bytes = match fs::read(path) {
         Ok(bytes) => bytes,
@@ -287,6 +355,32 @@ fn read_claimed_metadata_for_session(
     if marker.schema_version != EXPECTED_CLAIM_SCHEMA || marker.session_id != session_id {
         return Ok(None);
     }
+    Ok(Some(marker))
+}
+
+/// テスト専用のクロスモジュール診断アクセサ。`ExpectedWavClaimMarker` 自体は
+/// private のまま、`closed_at_ms` だけを覗く（`Ok(None)` = marker 不在、
+/// `Ok(Some(None))` = marker はあるがまだ open）。
+#[cfg(test)]
+pub(crate) fn claim_marker_closed_at_ms_for_session(
+    base_dir: &Path,
+    project_hash: &str,
+    session_id: &str,
+) -> Result<Option<Option<i64>>, ExpectedMetadataError> {
+    Ok(
+        read_claim_marker_for_session(base_dir, project_hash, session_id)?
+            .map(|marker| marker.closed_at_ms),
+    )
+}
+
+fn read_claimed_metadata_for_session(
+    base_dir: &Path,
+    project_hash: &str,
+    session_id: &str,
+) -> Result<Option<ExpectedWavMetadata>, ExpectedMetadataError> {
+    let Some(marker) = read_claim_marker_for_session(base_dir, project_hash, session_id)? else {
+        return Ok(None);
+    };
     let Some(metadata) = marker.metadata else {
         return Ok(None);
     };
@@ -308,6 +402,7 @@ fn write_claim_marker(
     metadata: &ExpectedWavMetadata,
     session_id: &str,
     claimed_at_ms: i64,
+    closed_at_ms: Option<i64>,
 ) -> Result<(), ExpectedMetadataError> {
     let marker = ExpectedWavClaimMarker {
         schema_version: EXPECTED_CLAIM_SCHEMA.to_string(),
@@ -316,6 +411,7 @@ fn write_claim_marker(
         created_at_ms: metadata.created_at_ms,
         wav_hash: metadata.wav_hash.clone().unwrap_or_default(),
         claimed_at_ms,
+        closed_at_ms,
         metadata: Some(metadata.clone().without_consumed_marker()),
     };
     let json = serde_json::to_vec(&marker)?;

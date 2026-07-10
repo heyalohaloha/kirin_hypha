@@ -857,6 +857,7 @@ impl PluginDataWriter {
                 self_paths.failed_path.clone(),
                 sibling_tmp_path(&self_paths.failed_path),
             )?;
+            mark_pair_expected_metadata_consumed(&self.paths, &self.data);
         }
         let _ = fs::remove_file(&self.paths.staging_path);
         Ok(())
@@ -1859,22 +1860,25 @@ fn mark_pair_expected_metadata_consumed(paths: &WriterPaths, data: &PluginDataFi
     let Some(root) = plugin_data_root_from_final_path(&paths.final_path) else {
         return;
     };
-    let Some(expected) = data.expected_wav.as_ref() else {
-        return;
-    };
     let Some(session_id) = data.record_session_id.as_deref() else {
         return;
     };
+    // `expected_wav` が既に欠落/フィルタ済みの経路（.failed 等）でも、claim marker 自体は
+    // session_id だけで自分の bounce_id を覚えているため closed_at_ms は刻める。
+    let bounce_id = data
+        .expected_wav
+        .as_ref()
+        .map(|expected| expected.bounce_id.as_str());
     if let Err(e) = crate::record_expected::mark_expected_metadata_consumed(
         &root,
         &data.project_hash,
-        &expected.bounce_id,
+        bounce_id,
         session_id,
     ) {
         log::warn!(
-            "[pair_record_session] expected metadata consume marker failed: project={} bounce={} err={}",
+            "[pair_record_session] expected metadata consume marker failed: project={} bounce={:?} err={}",
             data.project_hash,
-            expected.bounce_id,
+            bounce_id,
             e
         );
     }
@@ -3055,6 +3059,102 @@ mod tests {
         assert_eq!(stored_expected, expected_wav_fixture());
     }
 
+    /// 2026-07-10 (stopし忘れ検出): データ不完全で `.failed` へ落ちた pair session も、
+    /// Keep 時の claim marker には close 時刻 (`closed_at_ms`) が刻まれなければならない
+    /// — さもないと Kirin OS 側は「まだ open（stop 忘れ中）」と誤判定してしまう。
+    /// 同時に、`.failed` は通常棚 (final/member/manifest) には一切現れないことも確認する
+    /// （「closed claimはfailedをTRACE候補にしない」）。
+    #[test]
+    fn closed_but_failed_claim_is_not_a_trace_candidate() {
+        let base = isolated_dir();
+        let mut pre = complete_pair_writer(
+            &base,
+            Role::Pre,
+            "iid-pre-failed-claim",
+            None,
+            Some("iid-post-failed-claim".to_string()),
+        );
+        let mut post = complete_pair_writer(
+            &base,
+            Role::Post,
+            "iid-post-failed-claim",
+            Some("iid-pre-failed-claim".to_string()),
+            None,
+        );
+        // POST 側のデータ完全性を意図的に崩し、pair 全体を .failed へ落とす。
+        post.data.trace_diagnostics = None;
+        post.data.bounce_take = None;
+
+        // claim_expected_metadata_for_session は fresh (10分以内) な current.json しか
+        // claim できないため、`expected_wav_fixture()` の固定 created_at_ms ではなく
+        // 現在時刻を使う（bounce_id は complete_pair_writer が焼いた値と一致させる）。
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        let mut fresh_expected = expected_wav_fixture();
+        fresh_expected.created_at_ms = now_ms;
+        fresh_expected.wav_mtime_ms = now_ms;
+        crate::record_expected::write_expected_metadata(
+            &base,
+            "project_hash_test",
+            &fresh_expected,
+        )
+        .unwrap();
+        // Keep 相当: claim marker を open (closed_at_ms=None) として作る。
+        crate::record_expected::claim_expected_metadata_for_session(
+            &base,
+            "project_hash_test",
+            "session-pair-atomic",
+        )
+        .unwrap();
+
+        pre.data.status = Status::Closed;
+        pre.data.commit_status = Some("pair_pending".to_string());
+        post.data.status = Status::Closed;
+        post.data.commit_status = Some("pair_pending".to_string());
+        let pre_paths = self_paths_for(&pre.paths, &pre.data);
+        let post_paths = self_paths_for(&post.paths, &post.data);
+        pre.write_atomic(pre_paths.pair_pending_path.clone())
+            .unwrap();
+        post.write_atomic(post_paths.pair_pending_path.clone())
+            .unwrap();
+
+        try_finalize_pair_session(&pre.paths, &pre.data).unwrap();
+
+        assert!(
+            pre_paths.failed_path.exists(),
+            "incomplete pair must quarantine PRE to .failed"
+        );
+        assert!(
+            post_paths.failed_path.exists(),
+            "incomplete pair must quarantine POST to .failed"
+        );
+        assert!(
+            !pre_paths.member_path.exists() && !post_paths.member_path.exists(),
+            ".failed sessions must never publish a hidden committed member"
+        );
+        let manifest_path = pair_commit_manifest_path(&pre.paths, &pre.data).unwrap();
+        assert!(
+            !manifest_path.exists(),
+            ".failed sessions must never publish a commit manifest"
+        );
+
+        let closed_at_ms = crate::record_expected::claim_marker_closed_at_ms_for_session(
+            &base,
+            "project_hash_test",
+            "session-pair-atomic",
+        )
+        .unwrap()
+        .expect("claim marker must still exist after a failed close");
+        assert!(
+            closed_at_ms.is_some(),
+            "a failed close must still stamp closed_at_ms — otherwise Kirin OS cannot \
+             distinguish it from a session that is still open (stop忘れ)"
+        );
+
+        let failed_json: PluginDataFile =
+            serde_json::from_slice(&fs::read(&pre_paths.failed_path).unwrap()).unwrap();
+        assert_eq!(failed_json.commit_status.as_deref(), Some("failed"));
+    }
+
     #[test]
     fn pair_finalize_preserves_same_second_repeat_trace_shelves() {
         let base = isolated_dir();
@@ -3340,6 +3440,85 @@ mod tests {
             assert!(!quality.sample_count_ready);
             assert!(verify_checksum(data));
         }
+    }
+
+    /// 2026-07-10 (バグ修正): `mark_pair_expected_metadata_consumed` は
+    /// `data.expected_wav` が Close 時点で失われている（`missing_expected_wav_metadata`
+    /// で `.failed` になる）場合でも、`record_session_id` さえ分かれば claim marker の
+    /// `closed_at_ms` を必ず刻まなければならない。marker 自身が bounce_id を覚えている
+    /// ため、close 側が `expected_wav` を持っているかどうかに依存してはならない
+    /// （さもないと、この失敗理由で落ちたセッションだけが永遠に open 扱いのまま残る）。
+    #[test]
+    fn failed_close_without_expected_wav_still_stamps_closed_at_ms() {
+        let base = isolated_dir();
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        let mut fresh_expected = expected_wav_fixture();
+        fresh_expected.created_at_ms = now_ms;
+        fresh_expected.wav_mtime_ms = now_ms;
+        crate::record_expected::write_expected_metadata(
+            &base,
+            "project_hash_test",
+            &fresh_expected,
+        )
+        .unwrap();
+        // Keep 相当: claim marker を open (closed_at_ms=None) として作る。
+        crate::record_expected::claim_expected_metadata_for_session(
+            &base,
+            "project_hash_test",
+            "session-pair-atomic",
+        )
+        .unwrap();
+
+        let mut pre = complete_pair_writer(
+            &base,
+            Role::Pre,
+            "iid-pre-no-expected-wav",
+            None,
+            Some("iid-post-no-expected-wav".to_string()),
+        );
+        let mut post = complete_pair_writer(
+            &base,
+            Role::Post,
+            "iid-post-no-expected-wav",
+            Some("iid-pre-no-expected-wav".to_string()),
+            None,
+        );
+        // Close 時点では expected_wav を失っている（missing_expected_wav_metadata 経路）。
+        pre.set_expected_wav(None);
+        post.set_expected_wav(None);
+        pre.data.status = Status::Closed;
+        pre.data.commit_status = Some("pair_pending".to_string());
+        post.data.status = Status::Closed;
+        post.data.commit_status = Some("pair_pending".to_string());
+        let pre_paths = self_paths_for(&pre.paths, &pre.data);
+        let post_paths = self_paths_for(&post.paths, &post.data);
+        pre.write_atomic(pre_paths.pair_pending_path.clone())
+            .unwrap();
+        post.write_atomic(post_paths.pair_pending_path.clone())
+            .unwrap();
+
+        try_finalize_pair_session(&pre.paths, &pre.data).unwrap();
+
+        assert!(pre_paths.failed_path.exists());
+        let failed: PluginDataFile =
+            serde_json::from_slice(&fs::read(&pre_paths.failed_path).unwrap()).unwrap();
+        assert!(failed
+            .integrity_reasons
+            .iter()
+            .any(|reason| reason == "missing_expected_wav_metadata"));
+
+        let closed_at_ms = crate::record_expected::claim_marker_closed_at_ms_for_session(
+            &base,
+            "project_hash_test",
+            "session-pair-atomic",
+        )
+        .unwrap()
+        .expect("claim marker must exist after Keep");
+        assert!(
+            closed_at_ms.is_some(),
+            "a failed close must stamp closed_at_ms even when expected_wav was lost by close \
+             time — otherwise Kirin OS cannot tell this apart from a still-open (stop忘れ) session"
+        );
     }
 
     #[test]
@@ -4242,5 +4421,50 @@ mod tests {
         );
         assert_eq!(loaded.commit_status.as_deref(), Some("failed"));
         assert!(verify_checksum(&loaded));
+    }
+
+    #[test]
+    fn direct_failed_close_stamps_claim_marker_closed_at_ms() {
+        let base = isolated_dir();
+        let session_id = "session-direct-failed-close";
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        let mut fresh_expected = expected_wav_fixture();
+        fresh_expected.created_at_ms = now_ms;
+        fresh_expected.wav_mtime_ms = now_ms;
+        crate::record_expected::write_expected_metadata(
+            &base,
+            "project_hash_test",
+            &fresh_expected,
+        )
+        .unwrap();
+        crate::record_expected::claim_expected_metadata_for_session(
+            &base,
+            "project_hash_test",
+            session_id,
+        )
+        .unwrap();
+
+        let mut w = sample_writer(&base, Role::Post);
+        w.set_record_session_id(Some(session_id.to_string()));
+        let session_failed_path = self_paths_for(&w.paths, w.data()).failed_path;
+
+        w.close().unwrap();
+
+        assert!(
+            session_failed_path.exists(),
+            "direct failed close must still write a session-keyed failed diagnostic"
+        );
+        let closed_at_ms = crate::record_expected::claim_marker_closed_at_ms_for_session(
+            &base,
+            "project_hash_test",
+            session_id,
+        )
+        .unwrap()
+        .expect("claim marker must exist after Keep");
+        assert!(
+            closed_at_ms.is_some(),
+            "direct .failed close must stamp closed_at_ms so Kirin OS does not treat it as \
+             still recording"
+        );
     }
 }

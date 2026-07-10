@@ -573,6 +573,23 @@ pub fn writer_start(
         signal_post_instance_id
             .and_then(|post_iid| resolve_record_session_id(&base, project_hash, post_iid))
     });
+    // 2026-07-10 (stopし忘れ検出の前提条件): record_session_id は `.json.partial` /
+    // `.failed/*.json` / 最終 json すべてに必ず含まれていなければならない。渡された値も
+    // フォールバック解決も両方失敗したら、writer を一切作らずここで打ち切る
+    // （require_record_session 経路は既に呼び出し元で弾いているが、それに頼らず
+    // writer_start 自身が最下層で保証する — P1 の closed_session_id ガードと同じ発想で、
+    // 呼び出し側の規律に依存しない）。
+    let Some(record_session_id) = record_session_id else {
+        log::warn!(
+            "[writer] Record start withheld: no record_session_id available even after \
+             fallback resolution (role={:?}, project={}, iid={})",
+            role,
+            project_hash,
+            instance_id
+        );
+        return None;
+    };
+    let record_session_id = Some(record_session_id);
     let expected_wav = signal_post_instance_id
         .and_then(|post_iid| resolve_expected_wav_metadata(&base, project_hash, post_iid));
     let writer_paths = WriterPaths::build(&base, project_hash, instance_id, role, &wall_clock_iso);
@@ -3639,15 +3656,28 @@ mod tests {
         assert_eq!(remaining[0].generation, 32);
     }
 
+    /// 2026-07-10: `writer_start` は record_session_id を必須にした（stopし忘れ検出の前提
+    /// 条件 — `.json.partial`/`.failed`/final すべてに record_session_id を保証する）ため、
+    /// このテストは「pairing が無くても start する」ことだけを分離検証する必要がある。
+    /// `run_record_tick_with_pair_names_require_session` は has_pair も同時に必須化するため
+    /// 使えない ―― `run_record_tick_with_pair_names_inner` を `require_record_session: false`
+    /// で直接呼び、session だけは transactional entry で本物を用意する（`try_enter_record`
+    /// の非 transactional 経路は production では使われない dead code）。
     #[test]
     fn post_record_start_does_not_wait_for_paired_pre_target() {
         let sm = Arc::new(RecordStateMachine::new());
-        sm.try_enter_record(License::Os).unwrap();
+        let started_at = now_epoch_ms();
+        sm.try_enter_record_started_at_clock_transaction(
+            License::Os,
+            started_at,
+            None,
+            "session-post-no-pair",
+        )
+        .unwrap();
         let m = Arc::new(Mutex::new(full_measure_result()));
         let mut rec: Option<RecordingCtx> = None;
-        let started_at = now_epoch_ms();
 
-        run_record_tick(
+        run_record_tick_with_pair_names_inner(
             &sm,
             Role::Post,
             48000,
@@ -3656,11 +3686,16 @@ mod tests {
             || started_at,
             || None,
             || None,
+            || None,
+            || None,
+            || sm.record_session_id(),
+            false,
             &m,
             &mut rec,
             None,
             &no_overflow(),
             &no_overflow(),
+            None,
             None,
         )
         .unwrap();
@@ -3672,15 +3707,23 @@ mod tests {
         assert!(ctx.data().paired_pre_instance_id.is_none());
     }
 
+    /// 2026-07-10: 上記と同様、session は transactional entry で本物を用意しつつ、
+    /// `require_record_session: false` で pairing 非依存性だけを分離検証する。
     #[test]
     fn pre_record_start_does_not_wait_for_paired_post_partner() {
         let sm = Arc::new(RecordStateMachine::new());
-        sm.try_enter_record(License::Os).unwrap();
+        let started_at = now_epoch_ms();
+        sm.try_enter_record_started_at_clock_transaction(
+            License::Os,
+            started_at,
+            None,
+            "session-pre-no-pair",
+        )
+        .unwrap();
         let m = Arc::new(Mutex::new(full_measure_result()));
         let mut rec: Option<RecordingCtx> = None;
-        let started_at = now_epoch_ms();
 
-        run_record_tick(
+        run_record_tick_with_pair_names_inner(
             &sm,
             Role::Pre,
             48000,
@@ -3689,11 +3732,16 @@ mod tests {
             || started_at,
             || None,
             || None,
+            || None,
+            || None,
+            || sm.record_session_id(),
+            false,
             &m,
             &mut rec,
             None,
             &no_overflow(),
             &no_overflow(),
+            None,
             None,
         )
         .unwrap();
@@ -3703,6 +3751,149 @@ mod tests {
             .expect("PRE must start Record even before POST is acknowledged");
         assert_eq!(ctx.data().started_at_ms, started_at);
         assert!(ctx.data().paired_post_instance_id.is_none());
+    }
+
+    /// 2026-07-10 (stopし忘れ検出の前提条件): `writer_start` は渡された session_id も
+    /// on-disk フォールバック解決も両方失敗したら、pairing が無関係な
+    /// `require_record_session: false` 経路でも writer を一切作ってはならない。
+    /// `.json.partial`/`.failed`/final すべてに record_session_id を保証するための
+    /// 最下層のガード（呼び出し元の規律に依存しない）。
+    /// 2026-07-10 (stopし忘れ検出): Keep 直後、まだ Stop していない「open」なセッションは
+    /// TRACE 用に使える状態のまま残らなければならない — claim marker は closed_at_ms=None、
+    /// 進行中の `.json.partial` は record_session_id と実測フレームを既に保持している。
+    /// 併せて、この開いたままの partial が最終 `*.json` 棚スキャンに紛れ込まないこと
+    /// （拡張子で自然に除外される）も同じテストで確認する（「READには混ざらない」）。
+    #[test]
+    fn open_claim_stays_trace_usable_and_partial_does_not_leak_into_final_scan() {
+        let base = isolated_base();
+        let expected = expected_wav_metadata(48_000, 48_000, "bounce-open-claim");
+        crate::record_expected::write_expected_metadata(&base, TEST_PH, &expected).unwrap();
+        // Keep 相当: claim marker を open (closed_at_ms=None) として作る。
+        crate::record_expected::claim_expected_metadata_for_session(
+            &base,
+            TEST_PH,
+            "session-open-claim",
+        )
+        .unwrap();
+
+        let sm = Arc::new(RecordStateMachine::new());
+        let started_at = now_epoch_ms();
+        sm.try_enter_record_started_at_clock_transaction(
+            License::Os,
+            started_at,
+            None,
+            "session-open-claim",
+        )
+        .unwrap();
+        let m = Arc::new(Mutex::new(full_measure_result()));
+        let mut rec: Option<RecordingCtx> = None;
+
+        run_record_tick_with_pair_names_inner(
+            &sm,
+            Role::Post,
+            48_000,
+            TEST_PH,
+            TEST_IID,
+            || started_at,
+            || None,
+            || None,
+            || None,
+            || None,
+            || sm.record_session_id(),
+            false,
+            &m,
+            &mut rec,
+            None,
+            &no_overflow(),
+            &no_overflow(),
+            None,
+            None,
+        )
+        .unwrap();
+        let mut ctx = rec
+            .take()
+            .expect("writer must start with a resolvable session");
+        ctx.writer
+            .append_frame(500, [0.0; 20], 0.0, -20.0, -1.0, 12.0, Some(10.0));
+        ctx.writer.flush().unwrap();
+
+        let staging_path = ctx.staging_path.clone();
+        let staged: PluginDataFile =
+            serde_json::from_slice(&fs::read(&staging_path).unwrap()).unwrap();
+        assert_eq!(
+            staged.record_session_id.as_deref(),
+            Some("session-open-claim"),
+            "in-progress take must already carry its record_session_id"
+        );
+        assert!(
+            !staged.frames.is_empty(),
+            "in-progress take must retain measured frames before Stop"
+        );
+
+        let closed_at_ms = crate::record_expected::claim_marker_closed_at_ms_for_session(
+            &base,
+            TEST_PH,
+            "session-open-claim",
+        )
+        .unwrap()
+        .expect("claim marker must exist after Keep");
+        assert_eq!(
+            closed_at_ms, None,
+            "stop忘れの間、claim marker は open のまま (closed_at_ms=None) でなければならない"
+        );
+
+        // 「READには混ざらない」: 通常棚が拾う *.json 拡張子スキャンには
+        // まだ Stop していない .json.partial は一致しない。
+        let fname = staging_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .expect("staging path must have a file name");
+        assert!(fname.ends_with(".json.partial"));
+        assert!(
+            !fname.ends_with(".json"),
+            "extension-based *.json shelf scan must skip in-progress partials"
+        );
+        assert!(
+            !ctx.final_path.exists(),
+            "no final committed json may exist while the take is still open"
+        );
+    }
+
+    #[test]
+    fn writer_start_refuses_when_no_session_id_is_resolvable() {
+        let sm = Arc::new(RecordStateMachine::new());
+        sm.try_enter_record(License::Os).unwrap(); // 非 transactional entry: session 無し
+        let m = Arc::new(Mutex::new(full_measure_result()));
+        let mut rec: Option<RecordingCtx> = None;
+
+        run_record_tick_with_pair_names_inner(
+            &sm,
+            Role::Post,
+            48000,
+            TEST_PH,
+            TEST_IID,
+            now_epoch_ms,
+            || None,
+            || None,
+            || None,
+            || None,
+            || None, // session resolver も None — on-disk signal も存在しない
+            false,
+            &m,
+            &mut rec,
+            None,
+            &no_overflow(),
+            &no_overflow(),
+            None,
+            None,
+        )
+        .unwrap();
+
+        assert!(
+            rec.is_none(),
+            "writer_start must refuse to create a writer with no resolvable record_session_id, \
+             even on the require_record_session=false path"
+        );
     }
 
     #[test]
@@ -3742,6 +3933,10 @@ mod tests {
         assert_eq!(loaded.status, crate::plugin_data::Status::Closed);
     }
 
+    /// 2026-07-10: 新しい generation のための writer 作成は `writer_start` を経由するため
+    /// session が必須になった。新 generation への re-entry は transactional entry で行い、
+    /// `run_record_tick_with_pair_names_inner` を `require_record_session: false` +
+    /// 本物の session resolver で直接呼んで pairing 非依存性はそのまま保つ。
     #[test]
     fn run_record_tick_generation_change_closes_old_and_starts_new_without_queue_mix() {
         let base = isolated_base();
@@ -3750,14 +3945,26 @@ mod tests {
         let old_final_path = old_ctx.final_path.clone();
         let old_failed_path = old_ctx.failed_path.clone();
         let sm = Arc::new(RecordStateMachine::new());
-        sm.try_enter_record(License::Os).unwrap();
+        sm.try_enter_record_started_at_clock_transaction(
+            License::Os,
+            started,
+            None,
+            "session-old-gen",
+        )
+        .unwrap();
         let old_generation = sm.generation();
         old_ctx.record_generation = old_generation;
         old_ctx.seal_at_start = sm.seal();
 
         sm.exit_record();
         sm.bump_seal();
-        sm.try_enter_record(License::Os).unwrap();
+        sm.try_enter_record_started_at_clock_transaction(
+            License::Os,
+            started + 1_000,
+            None,
+            "session-new-gen",
+        )
+        .unwrap();
         let new_generation = sm.generation();
 
         let m = Arc::new(Mutex::new(full_measure_result()));
@@ -3772,7 +3979,7 @@ mod tests {
             trace_sample_for_generation(new_generation, 200, full_measure_result(), false),
         );
 
-        run_record_tick_with_pair_names(
+        run_record_tick_with_pair_names_inner(
             &sm,
             Role::Post,
             48000,
@@ -3783,6 +3990,8 @@ mod tests {
             || None,
             || None,
             || None,
+            || sm.record_session_id(),
+            false,
             &m,
             &mut rec,
             None,
