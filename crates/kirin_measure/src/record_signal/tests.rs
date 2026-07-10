@@ -127,6 +127,31 @@ fn write_pending_claiming_expected_snapshots_current_for_session() {
 }
 
 #[test]
+fn expected_end_position_uses_started_position_plus_expected_duration() {
+    let expected = crate::record_expected::ExpectedWavMetadata {
+        expected_duration_samples: 48_000,
+        expected_sample_rate: 48_000,
+        wav_path: "/tmp/kirin-claim.wav".to_string(),
+        bounce_id: "bounce-signal-end".to_string(),
+        created_at_ms: chrono::Utc::now().timestamp_millis(),
+        wav_file_size: Some(1_000),
+        wav_mtime_ms: chrono::Utc::now().timestamp_millis(),
+        wav_hash: Some("hash-signal-end".to_string()),
+        consumed_at_ms: None,
+        consumed_by_session_id: None,
+    };
+    let signal = RecordSignal::new_pending(
+        "post-1".into(),
+        "pre-1".into(),
+        "daw-1".into(),
+        Some(expected),
+        Some(96_000),
+    );
+
+    assert_eq!(signal.expected_end_position_samples(), Some(144_000));
+}
+
+#[test]
 fn write_pending_claiming_expected_continues_without_metadata() {
     let base = isolated_dir();
 

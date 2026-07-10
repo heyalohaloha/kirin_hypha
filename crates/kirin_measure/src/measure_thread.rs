@@ -331,6 +331,20 @@ pub fn spawn_measure_thread(
                     rs.reset();
                 }
                 latest_pd = None;
+                let drained_start_frames = drain_consumer_before_record_start_position(
+                    &mut consumer,
+                    &mut consumed_samples,
+                    &mut native_frames_total,
+                    &record_take_tracker,
+                    record_sm.record_started_at_position_samples(),
+                    n_channels,
+                );
+                if drained_start_frames > 0 {
+                    log::info!(
+                        "[MeasureThread] discarded {} queued frames before Record start sample barrier",
+                        drained_start_frames
+                    );
+                }
                 record_origin_frames = engine.total_frames();
                 record_origin_native_frames = native_frames_total;
                 next_record_trace_ms = 0;
@@ -823,6 +837,45 @@ fn drain_consumer_until_sample(
         drained += 1;
     }
     drained
+}
+
+fn drain_consumer_before_record_start_position(
+    consumer: &mut rtrb::Consumer<f32>,
+    consumed_samples: &mut u64,
+    native_frames_total: &mut u64,
+    record_take_tracker: &RecordTakeTracker,
+    record_start_position_samples: Option<i64>,
+    n_channels: usize,
+) -> usize {
+    let Some(record_start_position_samples) = record_start_position_samples else {
+        return 0;
+    };
+    if n_channels == 0 {
+        return 0;
+    }
+
+    let mut drained_frames = 0_usize;
+    while consumer.slots() >= n_channels {
+        let next_frame = native_frames_total.saturating_add(1);
+        let Some(position_samples) =
+            record_take_tracker.position_samples_for_captured_frame(next_frame)
+        else {
+            break;
+        };
+        if position_samples >= record_start_position_samples {
+            break;
+        }
+        for _ in 0..n_channels {
+            if consumer.pop().is_err() {
+                return drained_frames;
+            }
+            *consumed_samples = (*consumed_samples).saturating_add(1);
+        }
+        *native_frames_total = next_frame;
+        drained_frames = drained_frames.saturating_add(1);
+    }
+
+    drained_frames
 }
 
 fn samples_until_cursor_limit(consumed_samples: u64, cursor_samples: u64) -> usize {
@@ -1371,6 +1424,59 @@ pub mod tests {
         assert_eq!(consumer.pop().unwrap(), 9.0);
         assert_eq!(consumer.pop().unwrap(), 10.0);
         assert_eq!(pushed, 4);
+    }
+
+    #[test]
+    fn record_start_position_drain_drops_only_queued_frames_before_barrier() {
+        let tracker = RecordTakeTracker::new();
+        tracker.note_capture_window(true, 1_000, 8);
+        let (mut producer, mut consumer) = rtrb::RingBuffer::new(16);
+        for sample in 1..=16 {
+            producer.push(sample as f32).unwrap();
+        }
+
+        let mut consumed_samples = 0_u64;
+        let mut native_frames_total = 0_u64;
+        let drained = super::drain_consumer_before_record_start_position(
+            &mut consumer,
+            &mut consumed_samples,
+            &mut native_frames_total,
+            &tracker,
+            Some(1_005),
+            2,
+        );
+
+        assert_eq!(drained, 4);
+        assert_eq!(consumed_samples, 8);
+        assert_eq!(native_frames_total, 4);
+        assert_eq!(consumer.pop().unwrap(), 9.0);
+        assert_eq!(consumer.pop().unwrap(), 10.0);
+    }
+
+    #[test]
+    fn record_start_position_drain_waits_when_capture_clock_is_unavailable() {
+        let tracker = RecordTakeTracker::new();
+        let (mut producer, mut consumer) = rtrb::RingBuffer::new(4);
+        for sample in [1.0_f32, 2.0] {
+            producer.push(sample).unwrap();
+        }
+
+        let mut consumed_samples = 0_u64;
+        let mut native_frames_total = 0_u64;
+        let drained = super::drain_consumer_before_record_start_position(
+            &mut consumer,
+            &mut consumed_samples,
+            &mut native_frames_total,
+            &tracker,
+            Some(1_005),
+            2,
+        );
+
+        assert_eq!(drained, 0);
+        assert_eq!(consumed_samples, 0);
+        assert_eq!(native_frames_total, 0);
+        assert_eq!(consumer.pop().unwrap(), 1.0);
+        assert_eq!(consumer.pop().unwrap(), 2.0);
     }
 
     #[test]

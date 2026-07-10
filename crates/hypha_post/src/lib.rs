@@ -5,14 +5,15 @@ use kirin_measure::{
     ensure_legacy_cleanup_done, identity_instance_attach, identity_instance_detach, live_window,
     load_installation_id_safe, load_license_safe, mark_released, new_record_take_tracker,
     new_record_trace_queue, peek_project_uuid, process_project_hash,
-    publish_watch_playback_pass_boundary, record_window_for_buffer, reservation,
-    reset_watch_ring_cursor, sanitize_name, set_daw_session_id, set_project_uuid,
-    spawn_io_thread_post, spawn_measure_thread, spawn_watchdog, store_signal_state,
-    watch_playback_block_duration_secs, watch_playback_pass_should_start, DeltaResult, LatchedPre,
-    License, LivenessEvaluator, MeasureResult, RecordStateMachine, RecordTakeBlock,
-    RecordTakeTracker, RecordTraceQueue, RecordWindow, ReleaseReason, SessionSummary, SignalState,
-    StoragePaths, TriggerPairResolutionFn, TriggerStopResolutionFn, WatchdogIo, WatchdogParams,
-    N_CHANNELS, RING_BUFFER_SECONDS,
+    publish_watch_playback_pass_boundary, record_clock_bounds_for_record,
+    record_window_for_buffer_with_bounds, reservation, reset_watch_ring_cursor, sanitize_name,
+    set_daw_session_id, set_project_uuid, spawn_io_thread_post, spawn_measure_thread,
+    spawn_watchdog, store_signal_state, watch_playback_block_duration_secs,
+    watch_playback_pass_should_start, DeltaResult, LatchedPre, License, LivenessEvaluator,
+    MeasureResult, RecordStateMachine, RecordTakeBlock, RecordTakeTracker, RecordTraceQueue,
+    RecordWindow, ReleaseReason, SessionSummary, SignalState, StoragePaths,
+    TriggerPairResolutionFn, TriggerStopResolutionFn, WatchdogIo, WatchdogParams, N_CHANNELS,
+    RING_BUFFER_SECONDS,
 };
 use nih_plug::prelude::*;
 use nih_plug_egui::EguiState;
@@ -985,7 +986,12 @@ impl Plugin for HyphaPost {
 
         let pos = transport.pos_samples().unwrap_or(i64::MIN);
         let record_window = if recording {
-            record_window_for_buffer(buffer.samples(), pos, transport.loop_range_samples())
+            let bounds = record_clock_bounds_for_record(
+                transport.loop_range_samples(),
+                self.record_sm.record_started_at_position_samples(),
+                self.record_sm.record_expected_end_position_samples(),
+            );
+            record_window_for_buffer_with_bounds(buffer.samples(), pos, bounds)
         } else {
             RecordWindow::full(buffer.samples(), pos)
         };
@@ -1275,7 +1281,7 @@ mod b147_record_state_tests {
 
     #[test]
     fn record_window_clips_to_loop_range_for_wav_clock() {
-        let window = super::record_window_for_buffer(512, 95_900, Some((96_000, 97_000)));
+        let window = kirin_measure::record_window_for_buffer(512, 95_900, Some((96_000, 97_000)));
         assert_eq!(window.start_frame, 100);
         assert_eq!(window.end_frame, 512);
         assert_eq!(window.position_samples, 96_000);
@@ -1284,7 +1290,7 @@ mod b147_record_state_tests {
 
     #[test]
     fn record_window_drops_tail_after_loop_end() {
-        let window = super::record_window_for_buffer(512, 97_000, Some((96_000, 97_000)));
+        let window = kirin_measure::record_window_for_buffer(512, 97_000, Some((96_000, 97_000)));
         assert_eq!(window.num_frames, 0);
         assert_eq!(window.start_frame, 0);
         assert_eq!(window.end_frame, 0);
