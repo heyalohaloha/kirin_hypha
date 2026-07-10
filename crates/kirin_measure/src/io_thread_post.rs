@@ -874,6 +874,7 @@ pub fn spawn_io_thread_post(
             // Record→Watch tight-drain を経ていない＝ tail 不確定 → 不完全と記録（共通B / R-28）。
             let sealed = record_sm.seal() > ctx.seal_at_start;
             let summary = take_session_summary(&session_summary);
+            ctx.writer.add_integrity_reason("lifecycle_shutdown");
             if !sealed {
                 ctx.writer.mark_integrity_degraded();
             }
