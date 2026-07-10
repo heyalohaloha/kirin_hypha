@@ -21,6 +21,7 @@ pub struct RecordWindow {
 pub struct RecordClockBounds {
     pub start_samples: i64,
     pub end_samples: Option<i64>,
+    pub requires_position: bool,
 }
 
 impl RecordClockBounds {
@@ -28,6 +29,7 @@ impl RecordClockBounds {
         Self {
             start_samples: 0,
             end_samples: None,
+            requires_position: false,
         }
     }
 
@@ -36,10 +38,12 @@ impl RecordClockBounds {
             Some((start, end)) if end > start => Self {
                 start_samples: start,
                 end_samples: Some(end),
+                requires_position: true,
             },
             Some((start, _)) => Self {
                 start_samples: start,
                 end_samples: Some(start),
+                requires_position: true,
             },
             None => Self::wav_zero(),
         }
@@ -74,6 +78,18 @@ impl RecordWindow {
             clock_end_samples,
         }
     }
+
+    fn empty_unpositioned(clock_start_samples: i64, clock_end_samples: Option<i64>) -> Self {
+        Self {
+            start_frame: 0,
+            end_frame: 0,
+            position_valid: false,
+            position_samples: i64::MIN,
+            num_frames: 0,
+            clock_start_samples,
+            clock_end_samples,
+        }
+    }
 }
 
 pub fn record_clock_bounds_for_record(
@@ -84,9 +100,11 @@ pub fn record_clock_bounds_for_record(
     let mut bounds = RecordClockBounds::from_loop_range(loop_range_samples);
     if let Some(start) = record_start_samples {
         bounds.start_samples = bounds.start_samples.max(start);
+        bounds.requires_position = true;
     }
     if let Some(end) = record_end_samples {
         bounds.end_samples = Some(bounds.end_samples.map_or(end, |existing| existing.min(end)));
+        bounds.requires_position = true;
     }
     bounds
 }
@@ -109,6 +127,9 @@ pub fn record_window_for_buffer_with_bounds(
     bounds: RecordClockBounds,
 ) -> RecordWindow {
     if position_samples == i64::MIN {
+        if bounds.requires_position {
+            return RecordWindow::empty_unpositioned(bounds.start_samples, bounds.end_samples);
+        }
         return RecordWindow::full(num_frames, position_samples);
     }
 
@@ -220,6 +241,32 @@ mod tests {
         assert_eq!(window.num_frames, 0);
         assert_eq!(window.clock_start_samples, 96_000);
         assert_eq!(window.clock_end_samples, Some(97_000));
+    }
+
+    #[test]
+    fn record_bounds_drop_unpositioned_buffer_instead_of_full_capture() {
+        let bounds = record_clock_bounds_for_record(None, Some(96_000), Some(97_000));
+        let window = record_window_for_buffer_with_bounds(512, i64::MIN, bounds);
+        assert_eq!(window.start_frame, 0);
+        assert_eq!(window.end_frame, 0);
+        assert!(!window.position_valid);
+        assert_eq!(window.position_samples, i64::MIN);
+        assert_eq!(window.num_frames, 0);
+        assert_eq!(window.clock_start_samples, 96_000);
+        assert_eq!(window.clock_end_samples, Some(97_000));
+    }
+
+    #[test]
+    fn unbounded_unpositioned_buffer_keeps_legacy_full_capture_fallback() {
+        let bounds = record_clock_bounds_for_record(None, None, None);
+        let window = record_window_for_buffer_with_bounds(512, i64::MIN, bounds);
+        assert_eq!(window.start_frame, 0);
+        assert_eq!(window.end_frame, 512);
+        assert!(!window.position_valid);
+        assert_eq!(window.position_samples, i64::MIN);
+        assert_eq!(window.num_frames, 512);
+        assert_eq!(window.clock_start_samples, 0);
+        assert_eq!(window.clock_end_samples, None);
     }
 
     #[test]

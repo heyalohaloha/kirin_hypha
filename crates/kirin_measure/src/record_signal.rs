@@ -189,9 +189,19 @@ impl RecordSignal {
                 .is_some_and(ReleaseReason::authorizes_pre_stop)
     }
 
-    pub fn expected_end_position_samples(&self) -> Option<i64> {
+    pub fn expected_end_position_samples_for_sample_rate(
+        &self,
+        native_sample_rate: u32,
+    ) -> Option<i64> {
+        if native_sample_rate == 0 {
+            return None;
+        }
         let start = self.started_at_position_samples?;
-        let duration = self.expected_wav.as_ref()?.expected_duration_samples;
+        let expected = self.expected_wav.as_ref()?;
+        if expected.expected_sample_rate != native_sample_rate {
+            return None;
+        }
+        let duration = expected.expected_duration_samples;
         if duration == 0 {
             return None;
         }

@@ -127,7 +127,7 @@ fn write_pending_claiming_expected_snapshots_current_for_session() {
 }
 
 #[test]
-fn expected_end_position_uses_started_position_plus_expected_duration() {
+fn expected_end_position_uses_started_position_plus_expected_duration_when_sample_rate_matches() {
     let expected = crate::record_expected::ExpectedWavMetadata {
         expected_duration_samples: 48_000,
         expected_sample_rate: 48_000,
@@ -148,7 +148,38 @@ fn expected_end_position_uses_started_position_plus_expected_duration() {
         Some(96_000),
     );
 
-    assert_eq!(signal.expected_end_position_samples(), Some(144_000));
+    assert_eq!(
+        signal.expected_end_position_samples_for_sample_rate(48_000),
+        Some(144_000)
+    );
+}
+
+#[test]
+fn expected_end_position_is_none_when_sample_rate_mismatches() {
+    let expected = crate::record_expected::ExpectedWavMetadata {
+        expected_duration_samples: 48_000,
+        expected_sample_rate: 48_000,
+        wav_path: "/tmp/kirin-claim.wav".to_string(),
+        bounce_id: "bounce-signal-end-mismatch".to_string(),
+        created_at_ms: chrono::Utc::now().timestamp_millis(),
+        wav_file_size: Some(1_000),
+        wav_mtime_ms: chrono::Utc::now().timestamp_millis(),
+        wav_hash: Some("hash-signal-end-mismatch".to_string()),
+        consumed_at_ms: None,
+        consumed_by_session_id: None,
+    };
+    let signal = RecordSignal::new_pending(
+        "post-1".into(),
+        "pre-1".into(),
+        "daw-1".into(),
+        Some(expected),
+        Some(96_000),
+    );
+
+    assert_eq!(
+        signal.expected_end_position_samples_for_sample_rate(96_000),
+        None
+    );
 }
 
 #[test]
