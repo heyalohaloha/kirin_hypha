@@ -9,26 +9,10 @@ use std::time::Duration;
 
 use kirin_hypha_ffi::{
     kirin_hypha_count_keep_ready, kirin_hypha_enumerate_post_pair_claims,
-    kirin_hypha_enumerate_pre_candidates, ExpectedWavMetadataInput, KirinHyphaEngine,
-    KirinPostPairClaim, KirinPreCandidate,
+    kirin_hypha_enumerate_pre_candidates, KirinHyphaEngine, KirinPostPairClaim, KirinPreCandidate,
 };
 
 const SR: u32 = 48_000;
-
-fn arm_expected_wav(engine: &KirinHyphaEngine, label: &str) {
-    assert!(
-        engine.set_expected_wav_metadata(ExpectedWavMetadataInput {
-            bounce_id: format!("bounce-{label}-{}", std::process::id()),
-            expected_duration_samples: SR as u64 * 4,
-            expected_sample_rate: SR,
-            wav_path: format!("/tmp/kirin-hypha-{label}.wav"),
-            wav_file_size: 384_044,
-            wav_mtime_ms: kirin_measure::record_writer::now_epoch_ms(),
-            wav_hash: format!("hash-{label}-{}", std::process::id()),
-        }),
-        "expected WAV metadata must arm for {label}"
-    );
-}
 
 fn wait_until_recording(engine: &KirinHyphaEngine, label: &str) {
     for _ in 0..30 {
@@ -224,7 +208,6 @@ fn juce_candidate_abi_keeps_second_pre_visible_after_first_ready_post() {
     );
 
     post_mix.set_pair_target("Mix".to_string());
-    arm_expected_wav(&post_mix, "pairing-candidates-mix");
     assert!(
         post_mix.keep(),
         "Mix should be keepable once selected from the same C ABI candidate list"

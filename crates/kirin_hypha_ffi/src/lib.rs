@@ -448,9 +448,9 @@ pub fn __reset_shared_ids_for_tests() {
 
 /// B-102: keep の解決本体（`keep()` と broadcast 受信 closure が共有する単一実装）。
 /// POST単独 Record を作らないため、ここでは RecordStateMachine を Record にしない。
-/// double-keep guard → select_target_pre → optional expected WAV metadata lookup → reservation →
-/// write_pending の順で arming し、PRE ACK 後に POST IO Thread が Record へ入る。
-/// expected WAV metadata が無い場合でも Keep は狭めず、usable frames を通常 TRACE 棚へ出す。
+/// double-keep guard → select_target_pre → reservation → write_pending の順で arming し、
+/// PRE ACK 後に POST IO Thread が Record へ入る。Keep は dropped WAV metadata を読まず、
+/// Drop 後の [`KirinHyphaEngine::set_expected_wav_metadata`] が今回世代だけを結び付ける。
 #[allow(clippy::too_many_arguments)]
 fn resolve_and_enter_keep(
     license: License,
@@ -1356,12 +1356,11 @@ impl KirinHyphaEngine {
         self.paired_pre_target.lock().ok().and_then(|g| g.clone())
     }
 
-    /// Kirin OS/JUCE runtime が dropped WAV の正本 metadata を Record arm 前に渡す入口。
+    /// Kirin OS/JUCE runtime が Drop 後の WAV 正本 metadata を渡す入口。
     ///
-    /// `keep()` はこの metadata を `record_expected/current.json` から読み、PRE/POST 共通の
-    /// `record_signal.expected_wav` へ snapshot する。未設定・不完全・stale・legacy consumed
-    /// の場合でも Record は開始し、usable frames は通常 TRACE 棚へ出す。完全性は
-    /// integrity_degraded と reason に残し、Kirin OS が起動順を要求されない構造にする。
+    /// `current.json` を atomic 書込みした同じ呼出しで、既に閉じた今回 Record を
+    /// WAV の `0..duration_samples` へ再照合する。Keep 前の前回世代は Record に結ばない。
+    /// writer がまだ close 中なら IO Thread の定常 poll が同じ再照合を後続する。
     pub fn set_expected_wav_metadata(&self, input: ExpectedWavMetadataInput) -> bool {
         let project_hash = match self.identity.lock() {
             Ok(id) => id.project_hash.clone(),
@@ -1387,7 +1386,13 @@ impl KirinHyphaEngine {
             consumed_by_session_id: None,
         };
         match write_expected_metadata(&base, &project_hash, &metadata) {
-            Ok(()) => true,
+            Ok(()) => {
+                kirin_measure::plugin_data::reconcile_late_expected_wav_project(
+                    &base,
+                    &project_hash,
+                );
+                true
+            }
             Err(e) => {
                 if let Ok(mut g) = self.record_error_message.write() {
                     *g = Some(format!("WAV metadata invalid: {e}"));
@@ -2276,8 +2281,8 @@ pub unsafe extern "C" fn kirin_hypha_keep(handle: *mut KirinHyphaEngine) -> bool
     .unwrap_or(false)
 }
 
-/// Dropped WAV の expected metadata を Record arm 前に登録する。
-/// 未登録でも Keep は可能で、通常 publish の完全性 reason として扱う。
+/// Drop 後の WAV expected metadata を登録し、閉じた今回 Record を即時再照合する。
+/// Keep はこの事前登録を必要としない。
 ///
 /// # Safety
 /// `handle` は有効なハンドル。文字列ポインタは null または有効な null 終端 C 文字列。
