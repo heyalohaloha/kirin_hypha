@@ -882,14 +882,19 @@ impl KirinHyphaEngine {
             block.clock_start_samples = start_samples;
         }
 
-        if block.rendered && block.num_frames > 0 {
-            self.record_take_tracker.note_capture_window(
-                block.position_valid,
-                block.position_samples,
-                block.num_frames,
-            );
-        }
         self.record_take_tracker.note_block(block);
+    }
+
+    /// Audio Thread が measurement ring へ投入する窓の host sample clock を通知する。
+    /// `note_record_block` とは独立させ、Watch pre-roll と Record の両方を同じ clock に載せる。
+    pub fn note_capture_window(
+        &self,
+        position_valid: bool,
+        position_samples: i64,
+        num_frames: u64,
+    ) {
+        self.record_take_tracker
+            .note_capture_window(position_valid, position_samples, num_frames);
     }
 
     /// PRE の plugin_data 書込（Watch pre.json + Record frames/PSB）を有効化する（B-057 3b）。
@@ -1701,6 +1706,7 @@ impl KirinHyphaEngine {
         // 毎 call の先頭で try_lock（非ブロッキング）し、再起動後の Watch 欠落を1 callback以内に抑える。
         if let Ok(mut slot) = self.pending_producer.try_lock() {
             if let Some(new_producer) = slot.take() {
+                self.record_take_tracker.reset_capture_clock();
                 // SAFETY: push_samples は Audio Thread 単独（SPSC）。Producer 差し替えも同契約内。
                 unsafe {
                     *self.ring_producer.get() = new_producer;
@@ -2390,6 +2396,27 @@ pub unsafe extern "C" fn kirin_hypha_note_record_window(
                 clock_end_samples: clock_end_valid.then_some(clock_end_samples),
             })
         };
+    }));
+}
+
+/// measurement ring へ投入する窓の host sample clock を通知する（Audio Thread単独・RT-safe）。
+///
+/// # Safety
+/// `handle` は有効なハンドル。
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_note_capture_window(
+    handle: *mut KirinHyphaEngine,
+    position_valid: bool,
+    position_samples: i64,
+    num_frames: u64,
+) {
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() {
+            return;
+        }
+        unsafe {
+            (*handle).note_capture_window(position_valid, position_samples, num_frames);
+        }
     }));
 }
 

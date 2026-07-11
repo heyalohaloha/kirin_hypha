@@ -12,11 +12,11 @@
 //! `BUS_PHASE1="MIX"` / `PROJECT_HASH_PHASE1="default"` 定数依存は廃止。
 //!
 //! # t_ms 軸
-//! `started_at_ms` は record_signal.json の `started_at` を epoch ms に変換したもの。
-//! POST / PRE が同じ軸上で frame を並べるため、record_signal を単一真実として参照する。
-//! 不在・パース失敗時は現在時刻にフォールバック（defensive）。
+//! 通常 Record の `frames[].t_ms` は Audio Thread が取得した host native sample position
+//! から算出する。同じ host slot が再処理された場合は最後の測定値で置換する。
+//! `started_at_ms` は wall-clock 表示と旧 capture 互換用であり、位置合わせには使わない。
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
@@ -26,7 +26,7 @@ use std::time::{Duration, Instant, SystemTime};
 use crate::engine::SessionSummary;
 use crate::plugin_data::{
     compute_checksum, normal_publish_failure_reasons, verify_checksum, BounceTake,
-    ExpectedWavMetadata, Frame, PluginDataFile, PluginDataWriter, Role, Status, TraceDiagnostics,
+    ExpectedWavMetadata, PluginDataFile, PluginDataWriter, Role, Status, TraceDiagnostics,
     WriterPaths,
 };
 use crate::record::RecordStateMachine;
@@ -81,6 +81,10 @@ pub struct RecordTraceSample {
     /// 44.1 kHz など非48k環境では、WAV header と一致させる正本は 48k resample 後の
     /// frame 数ではなく、この native frame 数。
     pub t_native_frames: Option<u64>,
+    /// This measurement's absolute host transport boundary. Repeated offline pre-roll passes can
+    /// reuse the same host range; close-time baking deliberately keeps the last measurement at
+    /// each host slot.
+    pub position_samples: Option<i64>,
     pub result: MeasureResult,
     pub include_psb: bool,
 }
@@ -100,6 +104,7 @@ impl RecordTraceSample {
             t_ms,
             t_frames_48k,
             t_native_frames,
+            position_samples: None,
             result,
             include_psb,
         }
@@ -141,6 +146,7 @@ impl RecordTraceSample {
             t_ms,
             t_frames_48k,
             t_native_frames,
+            position_samples: None,
             result: MeasureResult::default(),
             include_psb: false,
         }
@@ -148,6 +154,11 @@ impl RecordTraceSample {
 
     pub fn has_measured_core(&self) -> bool {
         self.kind == RecordTraceKind::Measured && measure_has_core_metrics(&self.result)
+    }
+
+    pub fn with_position_samples(mut self, position_samples: Option<i64>) -> Self {
+        self.position_samples = position_samples;
+        self
     }
 }
 
@@ -955,7 +966,7 @@ fn build_bounce_take(ctx: &RecordingCtx, duration_ms: u64, duration_samples: u64
     let clean_source = ctx.clean_take.map(|take| take.source);
     let expected_ready = expected_take_is_sample_count_ready(ctx, duration_ms);
     let clean_take_ready = clean_take_is_sample_count_ready(ctx, duration_ms);
-    let duration_frames_48k = if expected_ready || clean_take_ready {
+    let duration_frames_48k = if expected_wav(ctx).is_some() || clean_take_ready {
         let sr = sample_rate as u64;
         if sr > 0 {
             duration_samples.saturating_mul(TRACE_TIMEBASE_HZ) / sr
@@ -1044,50 +1055,8 @@ fn bake_continuous_record_timeline(ctx: &mut RecordingCtx) {
         return;
     }
 
-    let context_end_ms = ctx
-        .trace_samples
-        .iter()
-        .map(|sample| sample.t_ms)
-        .chain(ctx.writer.data().frames.iter().map(|frame| frame.t_ms))
-        .max()
-        .unwrap_or(duration_ms)
-        .max(duration_ms);
-    let context_slots = continuous_timeline_slots(context_end_ms);
-    let mut context_best_by_ms: BTreeMap<u64, MeasureResult> = BTreeMap::new();
-    for frame in &ctx.writer.data().frames {
-        if let Some(slot_ms) = nearest_timeline_slot(&context_slots, frame.t_ms) {
-            insert_best_measure(&mut context_best_by_ms, slot_ms, measure_from_frame(frame));
-        }
-    }
-    for sample in &ctx.trace_samples {
-        let Some(result) = measured_trace_result_for_bake(sample) else {
-            continue;
-        };
-        if let Some(slot_ms) = nearest_timeline_slot(&context_slots, sample.t_ms) {
-            insert_best_measure(&mut context_best_by_ms, slot_ms, result);
-        }
-    }
-    let context_frames = context_best_by_ms
-        .into_iter()
-        .map(|(t_ms, result)| frame_from_measure(t_ms, &result))
-        .collect();
-    ctx.writer.set_trace_context_frames(context_frames);
-    let context_psb = ctx
-        .writer
-        .data()
-        .psb_snapshots
-        .as_ref()
-        .map(|snapshots| {
-            snapshots
-                .iter()
-                .filter(|snapshot| snapshot.t_ms <= context_end_ms)
-                .cloned()
-                .collect()
-        })
-        .unwrap_or_default();
-    ctx.writer.set_trace_context_psb_snapshots(context_psb);
-
     let mut best_by_ms: BTreeMap<u64, MeasureResult> = BTreeMap::new();
+    let mut host_positioned_slots = BTreeSet::new();
     for frame in &ctx.writer.data().frames {
         if frame.t_ms <= duration_ms {
             if let Some(slot_ms) = nearest_timeline_slot(&slots, frame.t_ms) {
@@ -1102,8 +1071,26 @@ fn bake_continuous_record_timeline(ctx: &mut RecordingCtx) {
             };
             if let Some(slot_ms) = nearest_timeline_slot(&slots, sample.t_ms) {
                 insert_best_measure(&mut best_by_ms, slot_ms, result);
+                if sample.position_samples.is_some() {
+                    host_positioned_slots.insert(slot_ms);
+                }
             }
         }
+    }
+
+    let mut psb_by_ms: BTreeMap<u64, MeasureResult> = BTreeMap::new();
+    for sample in &ctx.trace_samples {
+        if sample.position_samples.is_some()
+            && sample.include_psb
+            && sample.t_ms <= duration_ms
+            && sample.result.psb_bark.is_some()
+        {
+            psb_by_ms.insert(sample.t_ms, sample.result.clone());
+        }
+    }
+    ctx.writer.clear_psb_snapshots();
+    for (t_ms, result) in psb_by_ms {
+        let _ = writer_append_psb(ctx, t_ms, &result);
     }
 
     ctx.writer.clear_frames();
@@ -1136,6 +1123,10 @@ fn bake_continuous_record_timeline(ctx: &mut RecordingCtx) {
         missing_slots,
         explicit_silence_frame_count,
     });
+    ctx.writer.set_trace_time_axis(
+        (host_positioned_slots.len() as u64 == expected_frame_count)
+            .then(|| "host_native_samples_v1".to_string()),
+    );
     if missing_slots > 0 {
         ctx.writer.mark_integrity_degraded();
         ctx.writer.add_integrity_reason("missing_trace_slots");
@@ -1196,18 +1187,6 @@ fn measure_from_frame(frame: &crate::plugin_data::Frame) -> MeasureResult {
         sharpness: frame.sharpness,
         ..MeasureResult::default()
     }
-}
-
-fn frame_from_measure(t_ms: u64, measure: &MeasureResult) -> Frame {
-    crate::plugin_data::make_frame_optional(
-        t_ms,
-        measure.n_prime,
-        measure.sharpness,
-        measure.lufs_m.unwrap_or(TRACE_SILENCE_LUFS),
-        measure.true_peak.unwrap_or(TRACE_SILENCE_TRUE_PEAK_DBTP),
-        measure.crest.unwrap_or(TRACE_SILENCE_CREST_DB),
-        measure.psr,
-    )
 }
 
 fn insert_best_measure(
@@ -3545,6 +3524,7 @@ mod tests {
             t_ms: t_frames_48k.saturating_mul(1_000) / TRACE_TIMEBASE_HZ,
             t_frames_48k,
             t_native_frames,
+            position_samples: None,
             result,
             include_psb,
         }
@@ -3780,7 +3760,7 @@ mod tests {
         assert!(loaded
             .psb_snapshots
             .as_ref()
-            .is_some_and(|psb| psb.is_empty()));
+            .is_none_or(|psb| psb.is_empty()));
         assert!(crate::plugin_data::verify_checksum(&loaded));
     }
 
@@ -5213,36 +5193,46 @@ mod tests {
     }
 
     #[test]
-    fn close_preserves_full_render_context_beyond_wav_for_pair_canonicalization() {
+    fn close_replaces_compensation_preroll_by_host_sample_position() {
         let base = isolated_base();
         let mut ctx = make_ctx_with_sample_rate(&base, Role::Post, now_epoch_ms(), 96_000);
         let final_path = ctx.final_path.clone();
         ctx.record_generation = 356;
         ctx.clean_take = Some(RecordTakeSnapshot {
             generation: 356,
-            duration_samples: 1_440_000,
+            duration_samples: 96_000,
             source: crate::record_take::RECORD_TAKE_SOURCE_WAV_CLOCK,
         });
-        for t_ms in (100_u64..=16_000).step_by(FRAME_INTERVAL_MS as usize) {
-            ctx.trace_samples.push(trace_sample_frames_with_native(
-                t_ms.saturating_mul(TRACE_TIMEBASE_HZ) / 1_000,
-                Some(t_ms.saturating_mul(96_000) / 1_000),
-                full_measure_result(),
-                false,
-            ));
+        let silence = MeasureResult {
+            lufs_m: Some(TRACE_SILENCE_LUFS),
+            true_peak: Some(TRACE_SILENCE_TRUE_PEAK_DBTP),
+            crest: Some(TRACE_SILENCE_CREST_DB),
+            ..MeasureResult::default()
+        };
+        for pass_result in [silence, full_measure_result()] {
+            for t_ms in (100_u64..=1_000).step_by(FRAME_INTERVAL_MS as usize) {
+                let mut sample = trace_sample_frames_with_native(
+                    t_ms.saturating_mul(TRACE_TIMEBASE_HZ) / 1_000,
+                    Some(t_ms.saturating_mul(96_000) / 1_000),
+                    pass_result.clone(),
+                    t_ms.is_multiple_of(PSB_INTERVAL_MS),
+                );
+                sample.position_samples = Some(t_ms as i64 * 96);
+                ctx.trace_samples.push(sample);
+            }
         }
         ctx.trace_sample_count = ctx.trace_samples.len();
 
         writer_close(ctx);
 
         let loaded: PluginDataFile = read_output_for_final(&final_path);
-        assert_eq!(loaded.frames.len(), 150);
-        assert_eq!(loaded.frames.last().map(|frame| frame.t_ms), Some(15_000));
-        assert_eq!(loaded.trace_context_frames.len(), 160);
+        assert_eq!(loaded.frames.len(), 10);
+        assert!(loaded.frames.iter().all(|frame| frame.lufs_m > -100.0));
         assert_eq!(
-            loaded.trace_context_frames.last().map(|frame| frame.t_ms),
-            Some(16_000)
+            loaded.trace_time_axis.as_deref(),
+            Some(crate::trace_alignment::TRACE_TIME_AXIS)
         );
+        assert!(loaded.trace_context_frames.is_empty());
     }
 
     #[test]
@@ -5815,6 +5805,7 @@ mod tests {
                 missing_slots: 0,
                 explicit_silence_frame_count: 0,
             });
+            writer.set_trace_time_axis(Some(crate::trace_alignment::TRACE_TIME_AXIS.to_string()));
             for t_ms in (100_u64..=1_000).step_by(FRAME_INTERVAL_MS as usize) {
                 writer.append_frame(t_ms, [0.0; 20], 0.0, -20.0, -1.0, 12.0, Some(10.0));
             }

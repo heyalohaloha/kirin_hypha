@@ -312,14 +312,18 @@ pub struct PluginDataFile {
     /// TRACE 欠損診断。missing は frames[] に測定値として入れない。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trace_diagnostics: Option<TraceDiagnostics>,
-    /// PRE/POST の内容位置 co-registration。通常 shelf の `frames[]` はこの判定を使って
-    /// Hypha 内で canonical WAV axis へ焼き直した後の完成品であり、consumer 補正は不要。
+    /// Producer-owned TRACE time axis. Normal pair publication requires every frame to be baked
+    /// from the host's native sample position; consumers never infer or shift it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trace_time_axis: Option<String>,
+    /// PRE/POST が producer-owned host sample clock 上で完成済みであることを示す契約。
+    /// consumer は内容推定も時刻補正も行わない。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trace_content_alignment: Option<crate::trace_alignment::TraceContentAlignment>,
-    /// Pair canonicalization 用の余裕付き内部フレーム。pair publish 前に必ず消去する。
+    /// B-356 以前の staging JSON を読み戻すための legacy field。publish 前に必ず消去する。
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub trace_context_frames: Vec<Frame>,
-    /// Pair canonicalization 用の余裕付き PSB。pair publish 前に必ず消去する。
+    /// B-356 以前の staging JSON を読み戻すための legacy field。publish 前に必ず消去する。
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub trace_context_psb_snapshots: Vec<PsbSnapshot>,
     /// Kirin OS 表示用の品質分類。厳密判定は Hypha 内に閉じ、OS はこの分類で
@@ -420,6 +424,7 @@ impl PluginDataFile {
             bounce_take: None,
             expected_wav: None,
             trace_diagnostics: None,
+            trace_time_axis: None,
             trace_content_alignment: None,
             trace_context_frames: Vec::new(),
             trace_context_psb_snapshots: Vec::new(),
@@ -598,12 +603,8 @@ impl PluginDataWriter {
         self.data.frames.clear();
     }
 
-    pub(crate) fn set_trace_context_frames(&mut self, frames: Vec<Frame>) {
-        self.data.trace_context_frames = frames;
-    }
-
-    pub(crate) fn set_trace_context_psb_snapshots(&mut self, snapshots: Vec<PsbSnapshot>) {
-        self.data.trace_context_psb_snapshots = snapshots;
+    pub(crate) fn clear_psb_snapshots(&mut self) {
+        self.data.psb_snapshots = None;
     }
 
     /// chain_memo を設定（利用者記入。Record 開始時 or 途中更新）。
@@ -653,6 +654,10 @@ impl PluginDataWriter {
     /// TRACE bake 診断を設定する。
     pub fn set_trace_diagnostics(&mut self, diagnostics: TraceDiagnostics) {
         self.data.trace_diagnostics = Some(diagnostics);
+    }
+
+    pub(crate) fn set_trace_time_axis(&mut self, time_axis: Option<String>) {
+        self.data.trace_time_axis = time_axis;
     }
 
     /// WAV と対応する clean take 長へ timeline payload を切り詰める。
@@ -1268,12 +1273,34 @@ fn try_finalize_pair_session(
     let self_pending = self_paths.pair_pending_path.clone();
     let mut self_data = read_plugin_data_file(&self_pending)?;
     let mut peer_data = read_plugin_data_file(&peer_paths.pair_pending_path)?;
-    let content_alignment = crate::trace_alignment::canonicalize_pair_trace_content_alignment(
-        &mut self_data,
-        &mut peer_data,
-    );
+    if let Some(root) = plugin_data_root_from_final_path(&paths.final_path) {
+        let project = crate::path_identity::guard_path_component(
+            &self_data.project_hash,
+            "pair_record_session.expected.project_hash",
+        );
+        let project_dir = root.join(project.as_ref());
+        if let Some(expected) = read_late_expected_metadata_from_project_dir(&project_dir) {
+            let mut normalized_self = self_data.clone();
+            let mut normalized_peer = peer_data.clone();
+            if normalize_late_expected_record(&mut normalized_self, &expected)
+                && normalize_late_expected_record(&mut normalized_peer, &expected)
+            {
+                self_data = normalized_self;
+                peer_data = normalized_peer;
+            }
+        }
+    }
+    let Some(content_alignment) =
+        crate::trace_alignment::canonical_host_alignment(&self_data, &peer_data)
+    else {
+        return Ok(());
+    };
     self_data.trace_content_alignment = Some(content_alignment.clone());
     peer_data.trace_content_alignment = Some(content_alignment);
+    self_data.trace_context_frames.clear();
+    peer_data.trace_context_frames.clear();
+    self_data.trace_context_psb_snapshots.clear();
+    peer_data.trace_context_psb_snapshots.clear();
     let integrity_reasons = pair_publish_integrity_reasons(&self_data, &peer_data);
     add_integrity_reasons(&mut self_data, &integrity_reasons);
     add_integrity_reasons(&mut peer_data, &integrity_reasons);
@@ -1701,7 +1728,12 @@ fn reconcile_late_expected_wav_project_dir(plugin_data_root: &Path, project_dir:
     let Some(expected) = read_late_expected_metadata_from_project_dir(project_dir) else {
         return 0;
     };
-    reconcile_late_expected_committed_project(plugin_data_root, project_dir, &expected)
+    finalize_pair_pending_sessions(project_dir)
+        .saturating_add(reconcile_late_expected_committed_project(
+            plugin_data_root,
+            project_dir,
+            &expected,
+        ))
         .saturating_add(reconcile_late_expected_failed_project(
             plugin_data_root,
             project_dir,
@@ -1934,10 +1966,17 @@ fn publish_late_expected_pair(
         )
         .into());
     }
-    let content_alignment =
-        crate::trace_alignment::canonicalize_pair_trace_content_alignment(pre_data, post_data);
+    let Some(content_alignment) =
+        crate::trace_alignment::canonical_host_alignment(pre_data, post_data)
+    else {
+        return Ok(false);
+    };
     pre_data.trace_content_alignment = Some(content_alignment.clone());
     post_data.trace_content_alignment = Some(content_alignment);
+    pre_data.trace_context_frames.clear();
+    post_data.trace_context_frames.clear();
+    pre_data.trace_context_psb_snapshots.clear();
+    post_data.trace_context_psb_snapshots.clear();
     if !pair_publish_failure_reasons(pre_data, post_data).is_empty() {
         return Ok(false);
     }
@@ -3054,6 +3093,7 @@ mod tests {
             missing_slots: 0,
             explicit_silence_frame_count: 0,
         });
+        writer.set_trace_time_axis(Some(crate::trace_alignment::TRACE_TIME_AXIS.to_string()));
     }
 
     fn complete_pair_writer(
@@ -3108,6 +3148,7 @@ mod tests {
             missing_slots: 0,
             explicit_silence_frame_count: 0,
         });
+        w.set_trace_time_axis(Some(crate::trace_alignment::TRACE_TIME_AXIS.to_string()));
         for t_ms in (100_u64..=1_000).step_by(TRACE_FRAME_INTERVAL_MS as usize) {
             w.append_frame(t_ms, [0.0; 20], 0.0, -20.0, -1.0, 12.0, Some(10.0));
         }
@@ -3701,8 +3742,10 @@ mod tests {
                 .trace_content_alignment
                 .as_ref()
                 .expect("pair publish must stamp content alignment");
-            assert_eq!(alignment.status, "unverifiable");
-            assert_eq!(alignment.post_offset_ms, 0);
+            assert_eq!(
+                alignment.status,
+                crate::trace_alignment::TRACE_ALIGNMENT_STATUS
+            );
             let quality = data.record_quality.as_ref().expect("record_quality");
             assert_eq!(quality.status, "complete");
             assert!(quality.complete);
@@ -4742,7 +4785,7 @@ mod tests {
     }
 
     #[test]
-    fn late_expected_reconcile_promotes_failed_duration_mismatched_pair() {
+    fn late_expected_reconcile_commits_pending_duration_mismatched_pair() {
         let base = isolated_dir();
         let expected = fresh_expected_wav_fixture(48_000);
         let start_ms = expected.wav_mtime_ms.saturating_sub(2_000);
@@ -4778,22 +4821,22 @@ mod tests {
         post.write_atomic(post_paths.pair_pending_path.clone())
             .unwrap();
         try_finalize_pair_session(&pre.paths, &pre.data).unwrap();
-        assert!(pre_paths.failed_path.exists());
-        assert!(post_paths.failed_path.exists());
+        assert!(pre_paths.pair_pending_path.exists());
+        assert!(post_paths.pair_pending_path.exists());
         assert!(!pair_commit_manifest_path(&pre.paths, &pre.data)
             .unwrap()
             .exists());
 
         crate::record_expected::write_expected_metadata(&base, "project_hash_test", &expected)
             .unwrap();
-        assert_eq!(reconcile_late_expected_wav(&base), 2);
+        assert_eq!(reconcile_late_expected_wav(&base), 1);
 
         let manifest_path = pair_commit_manifest_path(&pre.paths, &pre.data).unwrap();
         let pre_trace_path = pair_trace_shelf_path(&pre_paths, &pre.data).unwrap();
         let post_trace_path = pair_trace_shelf_path(&post_paths, &post.data).unwrap();
         assert!(manifest_path.exists());
-        assert!(!pre_paths.failed_path.exists());
-        assert!(!post_paths.failed_path.exists());
+        assert!(!pre_paths.pair_pending_path.exists());
+        assert!(!post_paths.pair_pending_path.exists());
         for path in [
             &pre_paths.member_path,
             &post_paths.member_path,
@@ -4868,8 +4911,8 @@ mod tests {
             .unwrap();
 
         assert_eq!(reconcile_late_expected_wav(&base), 0);
-        assert!(pre_paths.failed_path.exists());
-        assert!(post_paths.failed_path.exists());
+        assert!(pre_paths.pair_pending_path.exists());
+        assert!(post_paths.pair_pending_path.exists());
         assert!(!pair_commit_manifest_path(&pre.paths, &pre.data)
             .unwrap()
             .exists());
@@ -4983,24 +5026,16 @@ mod tests {
         assert!(!manifest_path.exists());
         assert!(!pre_paths.member_path.exists());
         assert!(!post_paths.member_path.exists());
-        assert!(pre_paths.failed_path.exists());
-        assert!(post_paths.failed_path.exists());
+        assert!(pre_paths.pair_pending_path.exists());
+        assert!(post_paths.pair_pending_path.exists());
 
         let pre_data: PluginDataFile =
-            serde_json::from_slice(&fs::read(&pre_paths.failed_path).unwrap()).unwrap();
+            serde_json::from_slice(&fs::read(&pre_paths.pair_pending_path).unwrap()).unwrap();
         let post_data: PluginDataFile =
-            serde_json::from_slice(&fs::read(&post_paths.failed_path).unwrap()).unwrap();
+            serde_json::from_slice(&fs::read(&post_paths.pair_pending_path).unwrap()).unwrap();
         for data in [&pre_data, &post_data] {
-            assert_eq!(data.commit_status.as_deref(), Some("failed"));
-            assert!(!data.validity);
-            assert!(data
-                .integrity_reasons
-                .iter()
-                .any(|reason| reason == "zero_trace_frames"));
-            assert!(data
-                .integrity_reasons
-                .iter()
-                .any(|reason| reason == "missing_trace_slots"));
+            assert_eq!(data.commit_status.as_deref(), Some("pair_pending"));
+            assert!(data.validity);
             assert!(verify_checksum(data));
         }
     }

@@ -11,6 +11,115 @@ use std::sync::Arc;
 pub const RECORD_TAKE_SOURCE_RENDER_CLOCK: &str = "render_clock_native";
 pub const RECORD_TAKE_SOURCE_WAV_CLOCK: &str = "wav_clock_native";
 
+const CAPTURE_CLOCK_SPAN_CAPACITY: usize = 4_096;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct CaptureClockSpan {
+    pub capture_start_frame: u64,
+    pub capture_end_frame: u64,
+    pub position_start_samples: Option<i64>,
+}
+
+impl CaptureClockSpan {
+    pub(crate) fn position_for_captured_frame(self, captured_frame: u64) -> Option<i64> {
+        if captured_frame <= self.capture_start_frame || captured_frame > self.capture_end_frame {
+            return None;
+        }
+        self.position_start_samples.map(|position| {
+            position.saturating_add(captured_frame.saturating_sub(self.capture_start_frame) as i64)
+        })
+    }
+
+    pub(crate) fn position_at_capture_boundary(self, captured_frames: u64) -> Option<i64> {
+        if captured_frames < self.capture_start_frame || captured_frames >= self.capture_end_frame {
+            return None;
+        }
+        self.position_start_samples.map(|position| {
+            position.saturating_add(captured_frames.saturating_sub(self.capture_start_frame) as i64)
+        })
+    }
+}
+
+#[derive(Debug)]
+struct CaptureClockSlot {
+    version: AtomicU64,
+    sequence: AtomicU64,
+    capture_start_frame: AtomicU64,
+    capture_end_frame: AtomicU64,
+    position_valid: AtomicBool,
+    position_start_samples: AtomicI64,
+}
+
+impl CaptureClockSlot {
+    fn new() -> Self {
+        Self {
+            version: AtomicU64::new(0),
+            sequence: AtomicU64::new(0),
+            capture_start_frame: AtomicU64::new(0),
+            capture_end_frame: AtomicU64::new(0),
+            position_valid: AtomicBool::new(false),
+            position_start_samples: AtomicI64::new(i64::MIN),
+        }
+    }
+
+    fn publish(
+        &self,
+        sequence: u64,
+        capture_start_frame: u64,
+        capture_end_frame: u64,
+        position_start_samples: Option<i64>,
+    ) {
+        self.version.fetch_add(1, Ordering::AcqRel);
+        self.sequence.store(sequence, Ordering::Relaxed);
+        self.capture_start_frame
+            .store(capture_start_frame, Ordering::Relaxed);
+        self.capture_end_frame
+            .store(capture_end_frame, Ordering::Relaxed);
+        self.position_valid
+            .store(position_start_samples.is_some(), Ordering::Relaxed);
+        self.position_start_samples.store(
+            position_start_samples.unwrap_or(i64::MIN),
+            Ordering::Relaxed,
+        );
+        self.version.fetch_add(1, Ordering::Release);
+    }
+
+    fn extend(&self, sequence: u64, capture_end_frame: u64) -> bool {
+        if self.sequence.load(Ordering::Acquire) != sequence {
+            return false;
+        }
+        // All fields except the end are immutable for a contiguous span. Updating the monotonic
+        // end directly avoids making Measure Thread readers race a seqlock on every audio block.
+        self.capture_end_frame
+            .fetch_max(capture_end_frame, Ordering::Release);
+        true
+    }
+
+    fn read(&self, sequence: u64) -> Option<CaptureClockSpan> {
+        for _ in 0..4 {
+            let before = self.version.load(Ordering::Acquire);
+            if before & 1 != 0 || self.sequence.load(Ordering::Acquire) != sequence {
+                continue;
+            }
+            let capture_start_frame = self.capture_start_frame.load(Ordering::Relaxed);
+            let capture_end_frame = self.capture_end_frame.load(Ordering::Relaxed);
+            let position_start_samples = self
+                .position_valid
+                .load(Ordering::Relaxed)
+                .then(|| self.position_start_samples.load(Ordering::Relaxed));
+            let after = self.version.load(Ordering::Acquire);
+            if before == after && after & 1 == 0 {
+                return Some(CaptureClockSpan {
+                    capture_start_frame,
+                    capture_end_frame,
+                    position_start_samples,
+                });
+            }
+        }
+        None
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RecordTakeBlock {
     pub generation: u64,
@@ -35,9 +144,11 @@ pub struct RecordTakeSnapshot {
 #[derive(Debug)]
 pub struct RecordTakeTracker {
     capture_frames_total: AtomicU64,
-    capture_position_valid: AtomicBool,
-    capture_position_end_samples: AtomicI64,
-    capture_frames_end: AtomicU64,
+    capture_span_sequence: AtomicU64,
+    capture_last_span_sequence: AtomicU64,
+    capture_last_position_valid: AtomicBool,
+    capture_last_position_end_samples: AtomicI64,
+    capture_clock_slots: Box<[CaptureClockSlot]>,
     render_active: AtomicBool,
     render_epoch: AtomicU64,
     render_frames: AtomicU64,
@@ -64,9 +175,14 @@ impl RecordTakeTracker {
     pub fn new() -> Self {
         Self {
             capture_frames_total: AtomicU64::new(0),
-            capture_position_valid: AtomicBool::new(false),
-            capture_position_end_samples: AtomicI64::new(i64::MIN),
-            capture_frames_end: AtomicU64::new(0),
+            capture_span_sequence: AtomicU64::new(0),
+            capture_last_span_sequence: AtomicU64::new(0),
+            capture_last_position_valid: AtomicBool::new(false),
+            capture_last_position_end_samples: AtomicI64::new(i64::MIN),
+            capture_clock_slots: (0..CAPTURE_CLOCK_SPAN_CAPACITY)
+                .map(|_| CaptureClockSlot::new())
+                .collect::<Vec<_>>()
+                .into_boxed_slice(),
             render_active: AtomicBool::new(false),
             render_epoch: AtomicU64::new(0),
             render_frames: AtomicU64::new(0),
@@ -84,9 +200,9 @@ impl RecordTakeTracker {
         }
     }
 
-    /// Audio-thread capture clock note. Call only for windows actually pushed
-    /// to the measurement ring, so Measure Thread can map its consumed native
-    /// frame count back to the host transport sample clock.
+    /// Audio-thread capture clock note. Call immediately before the corresponding ring push,
+    /// so Measure Thread can map its consumed native frame count back to the host transport
+    /// sample clock. Any push overflow invalidates normal publication through integrity counters.
     pub fn note_capture_window(
         &self,
         position_valid: bool,
@@ -96,47 +212,89 @@ impl RecordTakeTracker {
         if num_frames == 0 {
             return;
         }
+        let capture_start_frame = self.capture_frames_total.load(Ordering::Acquire);
         let frames_end = self
             .capture_frames_total
             .fetch_add(num_frames, Ordering::AcqRel)
             .saturating_add(num_frames);
-        self.capture_frames_end.store(frames_end, Ordering::Release);
-        if position_valid {
-            self.capture_position_end_samples.store(
-                position_samples.saturating_add(num_frames as i64),
-                Ordering::Release,
-            );
-            self.capture_position_valid.store(true, Ordering::Release);
+        let previous_sequence = self.capture_last_span_sequence.load(Ordering::Acquire);
+        let position_contiguous = position_valid
+            && self.capture_last_position_valid.load(Ordering::Acquire)
+            && self
+                .capture_last_position_end_samples
+                .load(Ordering::Acquire)
+                == position_samples;
+        let extended = if previous_sequence > 0 && position_contiguous {
+            let index = previous_sequence as usize % self.capture_clock_slots.len();
+            self.capture_clock_slots[index].extend(previous_sequence, frames_end)
         } else {
-            self.capture_position_valid.store(false, Ordering::Release);
+            false
+        };
+        if !extended {
+            let sequence = self
+                .capture_span_sequence
+                .fetch_add(1, Ordering::AcqRel)
+                .saturating_add(1);
+            let index = sequence as usize % self.capture_clock_slots.len();
+            self.capture_clock_slots[index].publish(
+                sequence,
+                capture_start_frame,
+                frames_end,
+                position_valid.then_some(position_samples),
+            );
+            self.capture_last_span_sequence
+                .store(sequence, Ordering::Release);
         }
+        self.capture_last_position_valid
+            .store(position_valid, Ordering::Release);
+        self.capture_last_position_end_samples.store(
+            position_samples.saturating_add(num_frames as i64),
+            Ordering::Release,
+        );
     }
 
     /// Map a Measure Thread consumed native frame count onto the host transport
     /// sample clock, when the host exposed a position for the captured block.
     pub fn position_samples_for_captured_frame(&self, captured_frames: u64) -> Option<i64> {
-        if !self.capture_position_valid.load(Ordering::Acquire) {
+        self.capture_span_for_frame(captured_frames)
+            .and_then(|span| span.position_for_captured_frame(captured_frames))
+    }
+
+    /// Start the capture clock for a replacement SPSC ring.
+    ///
+    /// The Measure Thread consuming the new ring starts its native frame cursor at zero. The
+    /// Audio Thread must therefore reset this producer-side mapping in the same callback that
+    /// installs the replacement Producer. Atomics only; no allocation, lock, logging, or I/O.
+    pub fn reset_capture_clock(&self) {
+        self.capture_frames_total.store(0, Ordering::Release);
+        self.capture_span_sequence.store(0, Ordering::Release);
+        self.capture_last_span_sequence.store(0, Ordering::Release);
+        self.capture_last_position_valid
+            .store(false, Ordering::Release);
+        self.capture_last_position_end_samples
+            .store(i64::MIN, Ordering::Release);
+    }
+
+    pub(crate) fn capture_span_for_frame(&self, captured_frame: u64) -> Option<CaptureClockSpan> {
+        if captured_frame == 0 {
             return None;
         }
-        let frames_end = self.capture_frames_end.load(Ordering::Acquire);
-        if frames_end == 0 {
-            return None;
+        let latest = self.capture_span_sequence.load(Ordering::Acquire);
+        let earliest = latest
+            .saturating_sub(self.capture_clock_slots.len() as u64)
+            .saturating_add(1)
+            .max(1);
+        for sequence in (earliest..=latest).rev() {
+            let index = sequence as usize % self.capture_clock_slots.len();
+            let Some(span) = self.capture_clock_slots[index].read(sequence) else {
+                continue;
+            };
+            if captured_frame > span.capture_start_frame && captured_frame <= span.capture_end_frame
+            {
+                return Some(span);
+            }
         }
-        let position_end = self.capture_position_end_samples.load(Ordering::Acquire);
-        if position_end == i64::MIN {
-            return None;
-        }
-        if captured_frames <= frames_end {
-            let delta = frames_end
-                .saturating_sub(captured_frames)
-                .min(i64::MAX as u64) as i64;
-            Some(position_end.saturating_sub(delta))
-        } else {
-            let delta = captured_frames
-                .saturating_sub(frames_end)
-                .min(i64::MAX as u64) as i64;
-            Some(position_end.saturating_add(delta))
-        }
+        None
     }
 
     /// Audio-thread note. This is atomics only: no allocation, lock, filesystem,
@@ -411,6 +569,35 @@ mod tests {
     }
 
     #[test]
+    fn capture_clock_preserves_repeated_host_range_as_distinct_passes() {
+        let tracker = RecordTakeTracker::new();
+        tracker.note_capture_window(true, 0, 100);
+        tracker.note_capture_window(true, 100, 100);
+        tracker.note_capture_window(true, 0, 100);
+
+        assert_eq!(tracker.position_samples_for_captured_frame(50), Some(50));
+        assert_eq!(tracker.position_samples_for_captured_frame(150), Some(150));
+        assert_eq!(tracker.position_samples_for_captured_frame(250), Some(50));
+        let repeated = tracker.capture_span_for_frame(201).expect("second pass");
+        assert_eq!(repeated.capture_start_frame, 200);
+        assert_eq!(repeated.position_start_samples, Some(0));
+    }
+
+    #[test]
+    fn capture_clock_aggregates_contiguous_blocks_without_losing_boundaries() {
+        let tracker = RecordTakeTracker::new();
+        for block in 0..10_000_i64 {
+            tracker.note_capture_window(true, block * 32, 32);
+        }
+        let span = tracker
+            .capture_span_for_frame(320_000)
+            .expect("aggregated span");
+        assert_eq!(span.capture_start_frame, 0);
+        assert_eq!(span.capture_end_frame, 320_000);
+        assert_eq!(span.position_for_captured_frame(320_000), Some(320_000));
+    }
+
+    #[test]
     fn stopped_tail_after_record_does_not_extend_take() {
         let tracker = RecordTakeTracker::new();
         tracker.note_block(RecordTakeBlock {
@@ -475,6 +662,25 @@ mod tests {
         tracker.note_capture_window(false, i64::MIN, 512);
 
         assert_eq!(tracker.position_samples_for_captured_frame(1_024), None);
+    }
+
+    #[test]
+    fn capture_clock_reset_rebases_replacement_ring_cursor() {
+        let tracker = RecordTakeTracker::new();
+        tracker.note_capture_window(true, 48_000, 512);
+        assert_eq!(
+            tracker.position_samples_for_captured_frame(512),
+            Some(48_512)
+        );
+
+        tracker.reset_capture_clock();
+        assert_eq!(tracker.position_samples_for_captured_frame(512), None);
+
+        tracker.note_capture_window(true, 96_000, 256);
+        assert_eq!(
+            tracker.position_samples_for_captured_frame(256),
+            Some(96_256)
+        );
     }
 
     #[test]

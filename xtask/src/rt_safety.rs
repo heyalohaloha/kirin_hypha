@@ -10,6 +10,10 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/../juce_shell/src/PluginProcessor.cpp"
     ));
+    const RECORD_TAKE_RS: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../crates/kirin_measure/src/record_take.rs"
+    ));
 
     fn strip_line_comments(source: &str) -> String {
         source
@@ -63,6 +67,7 @@ mod tests {
         let calls = ffi_calls(&body);
         let expected = BTreeSet::from([
             "kirin_hypha_is_recording".to_string(),
+            "kirin_hypha_note_capture_window".to_string(),
             "kirin_hypha_note_record_window".to_string(),
             "kirin_hypha_note_oversized_drop".to_string(),
             "kirin_hypha_push_samples".to_string(),
@@ -150,11 +155,48 @@ mod tests {
     }
 
     #[test]
+    fn capture_clock_core_avoids_io_allocation_and_blocking_locks() {
+        let body = function_body(
+            RECORD_TAKE_RS,
+            "pub fn note_capture_window(\n        &self,",
+        );
+
+        for forbidden in [
+            "StoragePaths",
+            "std::fs",
+            "read_to_string",
+            "write(",
+            "File::",
+            ".lock(",
+            ".try_lock(",
+            "Vec::",
+            "Box::",
+            "String::",
+            "format!",
+            "thread::",
+            "spawn",
+            "sleep",
+            "join",
+        ] {
+            assert!(
+                !body.contains(forbidden),
+                "capture clock core must not contain {forbidden}"
+            );
+        }
+
+        assert!(body.contains("capture_frames_total"));
+        assert!(body.contains(".fetch_add(num_frames"));
+        assert!(body.contains("capture_clock_slots[index].extend"));
+        assert!(body.contains("capture_clock_slots[index].publish"));
+    }
+
+    #[test]
     fn audio_thread_c_abi_wrappers_remain_thin() {
         for signature in [
             "pub unsafe extern \"C\" fn kirin_hypha_push_samples",
             "pub unsafe extern \"C\" fn kirin_hypha_note_record_block",
             "pub unsafe extern \"C\" fn kirin_hypha_note_record_window",
+            "pub unsafe extern \"C\" fn kirin_hypha_note_capture_window",
             "pub unsafe extern \"C\" fn kirin_hypha_note_oversized_drop",
         ] {
             let body = function_body(FFI_LIB_RS, signature);
