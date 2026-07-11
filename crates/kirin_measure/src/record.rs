@@ -222,6 +222,25 @@ impl RecordStateMachine {
         (value != i64::MIN).then_some(value)
     }
 
+    /// Keep は Record を arm するだけで、音声範囲の native 開始位置は
+    /// 最初に実キャプチャされた process window で一度だけ確定する。
+    ///
+    /// Audio Thread から呼ぶため atomics のみ。明示的な bounce/range 境界が
+    /// 既に入っている場合は上書きしない。
+    pub fn try_latch_record_started_at_position_samples(&self, position_samples: i64) -> bool {
+        if position_samples == i64::MIN || !self.is_recording() {
+            return false;
+        }
+        self.record_started_at_position_samples
+            .compare_exchange(
+                i64::MIN,
+                position_samples,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
+            .is_ok()
+    }
+
     /// 現 Record セッションの host native sample 終了位置。None は未設定/不明。
     pub fn record_expected_end_position_samples(&self) -> Option<i64> {
         let value = self
@@ -614,6 +633,31 @@ mod tests {
         assert_eq!(sm.record_expected_end_position_samples(), None);
         assert_eq!(sm.record_session_id(), None);
         assert_eq!(sm.measure_ready_generation(), 0);
+    }
+
+    #[test]
+    fn record_start_position_latches_from_first_captured_window_after_arm() {
+        let sm = RecordStateMachine::new();
+        assert_eq!(
+            sm.try_enter_record_started_at_clock_window_transaction(
+                License::Os,
+                1_725_000_123_456,
+                None,
+                None,
+                "session-a",
+            ),
+            Ok(())
+        );
+        assert_eq!(sm.record_started_at_position_samples(), None);
+
+        assert!(sm.try_latch_record_started_at_position_samples(44_100));
+        assert_eq!(sm.record_started_at_position_samples(), Some(44_100));
+        assert!(!sm.try_latch_record_started_at_position_samples(88_200));
+        assert_eq!(sm.record_started_at_position_samples(), Some(44_100));
+
+        sm.exit_record();
+        assert_eq!(sm.record_started_at_position_samples(), None);
+        assert!(!sm.try_latch_record_started_at_position_samples(132_300));
     }
 
     #[test]

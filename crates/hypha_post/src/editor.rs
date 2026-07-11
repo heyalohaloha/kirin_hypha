@@ -43,8 +43,8 @@ use kirin_measure::{
     write_broadcast, write_pending_claiming_expected_and_clock, write_stop_broadcast, DeltaMode,
     DeltaResult, DeltaSnapshot, LatchedPre, License, LivenessEvaluator, MeasureResult,
     PlatformPaths, PluginDataRole, PostCandidate, PreCandidate, PresetFileV2, RecordStateMachine,
-    ReleaseReason, SignalState, StoragePaths, MAX_ACTIVE_PER_PROJECT,
-    RECORD_START_BARRIER_DELAY_MS, SENSE_RECORD_HINT, SENSE_UPSELL_URL,
+    ReleaseReason, SignalState, StoragePaths, MAX_ACTIVE_PER_PROJECT, SENSE_RECORD_HINT,
+    SENSE_UPSELL_URL,
 };
 use nih_plug::prelude::Editor;
 use nih_plug_egui::{
@@ -92,18 +92,6 @@ fn epoch_secs_now() -> f64 {
         .unwrap_or(0.0)
 }
 
-pub(crate) fn native_start_position_samples(
-    playback_pos_samples: &AtomicI64,
-    playback_sample_rate: &AtomicU32,
-) -> Option<i64> {
-    let pos = playback_pos_samples.load(Ordering::Relaxed);
-    let sample_rate = playback_sample_rate.load(Ordering::Relaxed);
-    if pos == i64::MIN || sample_rate == 0 {
-        return None;
-    }
-    let delay_samples = (sample_rate as i64).saturating_mul(RECORD_START_BARRIER_DELAY_MS) / 1_000;
-    Some(pos.saturating_add(delay_samples))
-}
 /// T-E: cap rendered cards to keep the 300×200 GUI bounded.  Beyond this,
 /// the user sees "+ N more" (or just truncates — see draw_proposals_block).
 const MAX_CARDS_RENDERED: usize = 8;
@@ -1313,10 +1301,7 @@ fn draw_pair_pre_combo(
                             now,
                             &pair_pre_name_snapshot,
                             &state.latched_pre, // B-108: ラッチ先を直接 target に使う
-                            native_start_position_samples(
-                                &state.playback_pos_samples,
-                                &state.playback_sample_rate,
-                            ),
+                            None,
                         );
 
                         // §4-5 Step 4 診断: click handler 後続処理 (trigger_keep →
@@ -1615,10 +1600,7 @@ fn draw_button_row(
                         now,
                         &pair_pre_name_snapshot,
                         &state.latched_pre, // B-108: ラッチ先を直接 target に使う
-                        native_start_position_samples(
-                            &state.playback_pos_samples,
-                            &state.playback_sample_rate,
-                        ),
+                        None,
                     );
                 }
             } else if license == License::Sense {

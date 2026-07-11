@@ -5,15 +5,14 @@ use kirin_measure::{
     ensure_legacy_cleanup_done, identity_instance_attach, identity_instance_detach, live_window,
     load_installation_id_safe, load_license_safe, mark_released, new_record_take_tracker,
     new_record_trace_queue, peek_project_uuid, process_project_hash,
-    publish_watch_playback_pass_boundary, record_clock_bounds_for_record,
-    record_window_for_buffer_with_bounds, reservation, reset_watch_ring_cursor, sanitize_name,
-    set_daw_session_id, set_project_uuid, spawn_io_thread_post, spawn_measure_thread,
-    spawn_watchdog, store_signal_state, watch_playback_block_duration_secs,
-    watch_playback_pass_should_start, DeltaResult, LatchedPre, License, LivenessEvaluator,
-    MeasureResult, RecordStateMachine, RecordTakeBlock, RecordTakeTracker, RecordTraceQueue,
-    RecordWindow, ReleaseReason, SessionSummary, SignalState, StoragePaths,
-    TriggerPairResolutionFn, TriggerStopResolutionFn, WatchdogIo, WatchdogParams, N_CHANNELS,
-    RING_BUFFER_SECONDS,
+    publish_watch_playback_pass_boundary, record_window_for_record_capture, reservation,
+    reset_watch_ring_cursor, sanitize_name, set_daw_session_id, set_project_uuid,
+    spawn_io_thread_post, spawn_measure_thread, spawn_watchdog, store_signal_state,
+    watch_playback_block_duration_secs, watch_playback_pass_should_start, DeltaResult, LatchedPre,
+    License, LivenessEvaluator, MeasureResult, RecordStateMachine, RecordTakeBlock,
+    RecordTakeTracker, RecordTraceQueue, RecordWindow, ReleaseReason, SessionSummary, SignalState,
+    StoragePaths, TriggerPairResolutionFn, TriggerStopResolutionFn, WatchdogIo, WatchdogParams,
+    N_CHANNELS, RING_BUFFER_SECONDS,
 };
 use nih_plug::prelude::*;
 use nih_plug_egui::EguiState;
@@ -710,8 +709,6 @@ impl Plugin for HyphaPost {
             let pair_pre_name_for_closure = Arc::clone(&self.params.pair_pre_name);
             let measure_result_for_closure = Arc::clone(&self.measure_result);
             let latched_for_closure = Arc::clone(&self.latched_pre);
-            let playback_pos_samples_for_closure = Arc::clone(&self.playback_pos_samples);
-            let playback_sample_rate_for_closure = Arc::clone(&self.playback_sample_rate);
             Arc::new(move |originator_iid: &str, started_at: &str| {
                 let iid_snapshot = read_instance_id_arc(&instance_id_for_closure);
                 let project_hash_snapshot = read_project_hash_arc(&project_hash_for_closure);
@@ -738,10 +735,7 @@ impl Plugin for HyphaPost {
                     0.0,
                     &pair_pre_name_snapshot,
                     &latched_for_closure, // B-108: ラッチ済みならラッチ先を直接 target に使う
-                    editor::native_start_position_samples(
-                        &playback_pos_samples_for_closure,
-                        &playback_sample_rate_for_closure,
-                    ),
+                    None,
                 );
                 log::info!(
                     "[all_keep] trigger_keep_internal invoked: originator={} started_at={}",
@@ -986,12 +980,12 @@ impl Plugin for HyphaPost {
 
         let pos = transport.pos_samples().unwrap_or(i64::MIN);
         let record_window = if recording {
-            let bounds = record_clock_bounds_for_record(
+            record_window_for_record_capture(
+                buffer.samples(),
+                pos,
                 transport.loop_range_samples(),
-                self.record_sm.record_started_at_position_samples(),
-                self.record_sm.record_expected_end_position_samples(),
-            );
-            record_window_for_buffer_with_bounds(buffer.samples(), pos, bounds)
+                &self.record_sm,
+            )
         } else {
             RecordWindow::full(buffer.samples(), pos)
         };

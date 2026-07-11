@@ -18,12 +18,15 @@
 //!   "session_id": "PRE/POST が同じ Record session を共有するための UUID",
 //!   "t": "ISO 8601（最終遷移時刻。status 更新で書き換わる）",
 //!   "started_at": "ISO 8601（pending 配置時に固定、以後不変）",
-//!   "started_at_position_samples": "host native sample position（取得できる場合のみ）"
+//!   "started_at_position_samples": "明示された bounce/range の host native 開始位置（ある場合のみ）"
 //! }
 //! ```
 //!
 //! `t` は status の更新時刻、`started_at` は Record 開始の wall-clock barrier。
-//! `started_at_position_samples` は取得できる場合の shared native clock barrier。
+//! 通常の Keep はここにクリック時点の再生位置を入れず、Record を arm するだけにする。
+//! 音声範囲の実開始位置は PRE/POST の Audio Thread が最初にキャプチャした
+//! process window から確定する。`started_at_position_samples` は、Kirin OS/host から
+//! 明示的な bounce/range 開始が渡された場合だけ shared native clock barrier として使う。
 //! `daw_session_id` は POST 側 [`crate::daw_session_id`] の値を保存する。PRE/POST は
 //! AU/VST3 や別 cdylib 境界で `static` 状態が一致しないため、PRE 側 ack は
 //! `daw_session_id` では filter せず、永続 `target_pre_instance_id` 一致を正本にする。
@@ -132,9 +135,11 @@ pub struct RecordSignal {
     /// 旧バージョン互換のため `#[serde(default)]`（不在で空文字）。
     #[serde(default)]
     pub started_at: String,
-    /// Host native sample position 上の Record 開始 barrier。
+    /// Host native sample position 上の明示 Record 開始 barrier。
     ///
-    /// PRE/POST が同じ DAW transport clock を見られる場合は、この値を timeline の
+    /// 通常の Keep はクリック位置をここに保存しない。Record に入った後、最初に
+    /// 実キャプチャされた process window の先頭位置を各インスタンスがラッチする。
+    /// 明示 bounce/range 開始が事前に渡された場合だけ、この値を timeline の
     /// origin として優先する。旧 schema / transport position 不明時は None。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub started_at_position_samples: Option<i64>,

@@ -62,8 +62,7 @@ use kirin_measure::{
     ExclusionResult, ExpectedWavMetadata, IoThreadHandle, LatchedPre, License, LivenessEvaluator,
     MeasureResult, PlatformPaths, PluginDataRole, PsbSummary, RecordStateMachine, RecordTakeBlock,
     RecordTakeTracker, RecordTraceQueue, ReleaseReason, RestartIoFn, SignalState, StoragePaths,
-    WatchdogIo, WatchdogParams, MAX_ACTIVE_PER_PROJECT, N_CHANNELS, RECORD_START_BARRIER_DELAY_MS,
-    RING_BUFFER_SECONDS,
+    WatchdogIo, WatchdogParams, MAX_ACTIVE_PER_PROJECT, N_CHANNELS, RING_BUFFER_SECONDS,
 };
 use kirin_measure::{add_watch_ring_cursor_samples, reset_watch_ring_cursor};
 
@@ -146,22 +145,6 @@ fn license_to_abi(license: License) -> u8 {
         License::Sense => LICENSE_SENSE,
         License::Unknown => LICENSE_UNKNOWN,
     }
-}
-
-fn native_start_position_samples(
-    position_valid: &AtomicBool,
-    position_samples: &AtomicI64,
-    sample_rate: u32,
-) -> Option<i64> {
-    if sample_rate == 0 || !position_valid.load(Ordering::Relaxed) {
-        return None;
-    }
-    let pos = position_samples.load(Ordering::Relaxed);
-    if pos == i64::MIN {
-        return None;
-    }
-    let delay_samples = (sample_rate as i64).saturating_mul(RECORD_START_BARRIER_DELAY_MS) / 1_000;
-    Some(pos.saturating_add(delay_samples))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -836,11 +819,7 @@ impl KirinHyphaEngine {
             .try_enter_record_started_at_clock(
                 self.current_license(),
                 kirin_measure::record_writer::now_epoch_ms(),
-                native_start_position_samples(
-                    &self.latest_position_valid,
-                    &self.latest_position_samples,
-                    self.sample_rate,
-                ),
+                None,
             )
             .is_ok()
     }
@@ -1145,16 +1124,8 @@ impl KirinHyphaEngine {
             let latched = Arc::clone(&self.latched_pre);
             // B-127: broadcast 受信 keep も engine cap を通す。cap 到達通知の宛先 Arc を capture。
             let record_error_message = Arc::clone(&self.record_error_message);
-            let latest_position_valid = Arc::clone(&self.latest_position_valid);
-            let latest_position_samples = Arc::clone(&self.latest_position_samples);
-            let sample_rate = self.sample_rate;
             Arc::new(move |_pre: &str, _post: &str| {
                 let lic = license_from_abi(license.load(Ordering::Relaxed));
-                let started_at_position_samples = native_start_position_samples(
-                    &latest_position_valid,
-                    &latest_position_samples,
-                    sample_rate,
-                );
                 let _ = resolve_and_enter_keep(
                     lic,
                     &record_sm,
@@ -1165,7 +1136,7 @@ impl KirinHyphaEngine {
                     &daw,
                     &latched,
                     &record_error_message,
-                    started_at_position_samples,
+                    None,
                 );
             })
         };
@@ -1433,11 +1404,7 @@ impl KirinHyphaEngine {
             &daw,
             &self.latched_pre, // B-108: ラッチ済みならラッチ先を直接 target に使う
             &self.record_error_message, // B-127: cap 到達通知の宛先（両殻 B-118 表示）
-            native_start_position_samples(
-                &self.latest_position_valid,
-                &self.latest_position_samples,
-                self.sample_rate,
-            ),
+            None,
         )
     }
 
