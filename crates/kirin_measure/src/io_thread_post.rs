@@ -868,8 +868,10 @@ pub fn spawn_io_thread_post(
 
             if Instant::now() >= next_late_expected_reconcile {
                 if let Ok(paths) = StoragePaths::default_platform() {
-                    let reconciled =
-                        crate::plugin_data::reconcile_late_expected_wav(&paths.plugin_data_dir());
+                    let reconciled = crate::plugin_data::reconcile_late_expected_wav_project(
+                        &paths.plugin_data_dir(),
+                        project_hash_ref,
+                    );
                     if reconciled > 0 {
                         log::info!(
                             "[record_expected] late WAV reconcile updated {} side(s)",

@@ -1644,21 +1644,38 @@ pub fn reconcile_late_expected_wav(plugin_data_root: &Path) -> usize {
             continue;
         }
         let project_dir = entry.path();
-        let Some(expected) = read_late_expected_metadata_from_project_dir(&project_dir) else {
-            continue;
-        };
-        reconciled = reconciled.saturating_add(reconcile_late_expected_committed_project(
+        reconciled = reconciled.saturating_add(reconcile_late_expected_wav_project_dir(
             plugin_data_root,
             &project_dir,
-            &expected,
-        ));
-        reconciled = reconciled.saturating_add(reconcile_late_expected_failed_project(
-            plugin_data_root,
-            &project_dir,
-            &expected,
         ));
     }
     reconciled
+}
+
+/// IO Thread の定常 tick 用。現在プロジェクトだけを対象にし、複数 Hypha インスタンスが
+/// plugin_data 全体を 1 秒ごとに再帰走査する状態を避ける。
+pub fn reconcile_late_expected_wav_project(plugin_data_root: &Path, project_hash: &str) -> usize {
+    if !plugin_data_root.is_dir() {
+        return 0;
+    }
+    let ph = crate::path_identity::guard_path_component(
+        project_hash,
+        "record_expected.late_reconcile.project_hash",
+    );
+    let project_dir = plugin_data_root.join(&*ph);
+    reconcile_late_expected_wav_project_dir(plugin_data_root, &project_dir)
+}
+
+fn reconcile_late_expected_wav_project_dir(plugin_data_root: &Path, project_dir: &Path) -> usize {
+    let Some(expected) = read_late_expected_metadata_from_project_dir(project_dir) else {
+        return 0;
+    };
+    reconcile_late_expected_committed_project(plugin_data_root, project_dir, &expected)
+        .saturating_add(reconcile_late_expected_failed_project(
+            plugin_data_root,
+            project_dir,
+            &expected,
+        ))
 }
 
 fn read_late_expected_metadata_from_project_dir(project_dir: &Path) -> Option<ExpectedWavMetadata> {
@@ -4590,6 +4607,66 @@ mod tests {
             assert!(verify_checksum(&data));
         }
         assert_eq!(reconcile_late_expected_wav(&base), 0);
+    }
+
+    #[test]
+    fn late_expected_reconcile_project_scope_does_not_scan_unrelated_projects() {
+        let base = isolated_dir();
+        let expected = fresh_expected_wav_fixture(48_000);
+        let start_ms = expected.wav_mtime_ms.saturating_sub(2_000);
+        let end_ms = expected.wav_mtime_ms.saturating_add(500);
+        let mut pre = complete_pair_writer(
+            &base,
+            Role::Pre,
+            "iid-pre-late-scoped",
+            None,
+            Some("iid-post-late-scoped".to_string()),
+        );
+        let mut post = complete_pair_writer(
+            &base,
+            Role::Post,
+            "iid-post-late-scoped",
+            Some("iid-pre-late-scoped".to_string()),
+            None,
+        );
+        for writer in [&mut pre, &mut post] {
+            writer.set_record_session_id(Some("session-late-scoped".to_string()));
+            set_late_expected_record_time(writer, start_ms, end_ms);
+            configure_render_clock_take(writer, 57_600);
+            writer.data.status = Status::Closed;
+            writer.data.commit_status = Some("pair_pending".to_string());
+        }
+        let pre_paths = self_paths_for(&pre.paths, &pre.data);
+        let post_paths = self_paths_for(&post.paths, &post.data);
+        pre.write_atomic(pre_paths.pair_pending_path.clone())
+            .unwrap();
+        post.write_atomic(post_paths.pair_pending_path.clone())
+            .unwrap();
+        try_finalize_pair_session(&pre.paths, &pre.data).unwrap();
+        crate::record_expected::write_expected_metadata(&base, "project_hash_test", &expected)
+            .unwrap();
+
+        assert_eq!(
+            reconcile_late_expected_wav_project(&base, "unrelated_project"),
+            0
+        );
+        let before: PluginDataFile =
+            serde_json::from_slice(&fs::read(&pre_paths.member_path).unwrap()).unwrap();
+        assert_eq!(
+            before.bounce_take.as_ref().map(|take| take.source.as_str()),
+            Some(BOUNCE_SOURCE_RENDER_CLOCK)
+        );
+
+        assert_eq!(
+            reconcile_late_expected_wav_project(&base, "project_hash_test"),
+            2
+        );
+        let after: PluginDataFile =
+            serde_json::from_slice(&fs::read(&pre_paths.member_path).unwrap()).unwrap();
+        assert_eq!(
+            after.bounce_take.as_ref().map(|take| take.source.as_str()),
+            Some(BOUNCE_SOURCE_EXPECTED_WAV)
+        );
     }
 
     #[test]
