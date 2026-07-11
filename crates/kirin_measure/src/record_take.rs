@@ -146,11 +146,8 @@ impl RecordTakeTracker {
             self.ensure_record_generation(block.generation);
         }
 
-        let render_eligible = block.rendered
-            && block.num_frames > 0
-            && block.recording
-            && block.position_valid
-            && (block.offline || block.playing);
+        let render_eligible =
+            block.rendered && block.num_frames > 0 && block.recording && block.position_valid;
 
         if !render_eligible {
             self.render_active.store(false, Ordering::Release);
@@ -428,6 +425,18 @@ mod tests {
         });
 
         assert_eq!(tracker.snapshot(9).unwrap().duration_samples, 44_100);
+    }
+
+    #[test]
+    fn rendered_capture_block_counts_even_when_host_flags_are_idle() {
+        let tracker = RecordTakeTracker::new();
+        tracker.note_block(RecordTakeBlock {
+            playing: false,
+            offline: false,
+            ..block(14, 0, 512)
+        });
+
+        assert_eq!(tracker.snapshot(14).unwrap().duration_samples, 512);
     }
 
     #[test]

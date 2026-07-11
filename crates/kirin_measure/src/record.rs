@@ -225,6 +225,7 @@ impl RecordStateMachine {
     /// Keep は Record を arm するだけで、音声範囲の native 開始位置は
     /// 最初に実キャプチャされた process window で一度だけ確定する。
     ///
+    /// 呼び出し側は「実際に Record へ入れる window か」を判定済みであること。
     /// Audio Thread から呼ぶため atomics のみ。明示的な bounce/range 境界が
     /// 既に入っている場合は上書きしない。
     pub fn try_latch_record_started_at_position_samples(&self, position_samples: i64) -> bool {

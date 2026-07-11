@@ -164,6 +164,7 @@ pub fn record_window_for_record_capture(
     position_samples: i64,
     loop_range_samples: Option<(i64, i64)>,
     record_sm: &RecordStateMachine,
+    latch_start_anchor: bool,
 ) -> RecordWindow {
     let existing_start_samples = record_sm.record_started_at_position_samples();
     let bounds = record_clock_bounds_for_record(
@@ -172,16 +173,18 @@ pub fn record_window_for_record_capture(
         record_sm.record_expected_end_position_samples(),
     );
     let mut window = record_window_for_buffer_with_bounds(num_frames, position_samples, bounds);
-    if let Some(start_samples) =
-        start_anchor_candidate_samples(window, loop_range_samples, existing_start_samples)
-    {
-        if record_sm.try_latch_record_started_at_position_samples(start_samples) {
-            let bounds = record_clock_bounds_for_record(
-                loop_range_samples,
-                record_sm.record_started_at_position_samples(),
-                record_sm.record_expected_end_position_samples(),
-            );
-            window = record_window_for_buffer_with_bounds(num_frames, position_samples, bounds);
+    if latch_start_anchor {
+        if let Some(start_samples) =
+            start_anchor_candidate_samples(window, loop_range_samples, existing_start_samples)
+        {
+            if record_sm.try_latch_record_started_at_position_samples(start_samples) {
+                let bounds = record_clock_bounds_for_record(
+                    loop_range_samples,
+                    record_sm.record_started_at_position_samples(),
+                    record_sm.record_expected_end_position_samples(),
+                );
+                window = record_window_for_buffer_with_bounds(num_frames, position_samples, bounds);
+            }
         }
     }
     window
@@ -339,7 +342,7 @@ mod tests {
         )
         .unwrap();
 
-        let window = record_window_for_record_capture(512, 44_100, None, &sm);
+        let window = record_window_for_record_capture(512, 44_100, None, &sm, true);
         assert_eq!(sm.record_started_at_position_samples(), Some(44_100));
         assert_eq!(window.start_frame, 0);
         assert_eq!(window.end_frame, 512);
@@ -348,9 +351,34 @@ mod tests {
         assert_eq!(window.clock_start_samples, 44_100);
         assert_eq!(window.clock_end_samples, None);
 
-        let next = record_window_for_record_capture(512, 44_612, None, &sm);
+        let next = record_window_for_record_capture(512, 44_612, None, &sm, true);
         assert_eq!(sm.record_started_at_position_samples(), Some(44_100));
         assert_eq!(next.clock_start_samples, 44_100);
+    }
+
+    #[test]
+    fn record_capture_does_not_latch_stopped_wait_before_bounce_start() {
+        let sm = RecordStateMachine::new();
+        sm.try_enter_record_started_at_clock_window_transaction(
+            crate::License::Os,
+            1_725_000_123_456,
+            None,
+            None,
+            "session-a",
+        )
+        .unwrap();
+
+        let waiting = record_window_for_record_capture(512, 185_880, None, &sm, false);
+        assert_eq!(sm.record_started_at_position_samples(), None);
+        assert_eq!(waiting.clock_start_samples, 0);
+        assert_eq!(waiting.position_samples, 185_880);
+
+        let bounced = record_window_for_record_capture(512, 0, None, &sm, true);
+        assert_eq!(sm.record_started_at_position_samples(), Some(0));
+        assert_eq!(bounced.start_frame, 0);
+        assert_eq!(bounced.end_frame, 512);
+        assert_eq!(bounced.position_samples, 0);
+        assert_eq!(bounced.clock_start_samples, 0);
     }
 
     #[test]
@@ -365,7 +393,8 @@ mod tests {
         )
         .unwrap();
 
-        let window = record_window_for_record_capture(512, 95_900, Some((96_000, 97_000)), &sm);
+        let window =
+            record_window_for_record_capture(512, 95_900, Some((96_000, 97_000)), &sm, true);
         assert_eq!(sm.record_started_at_position_samples(), Some(96_000));
         assert_eq!(window.start_frame, 100);
         assert_eq!(window.end_frame, 512);

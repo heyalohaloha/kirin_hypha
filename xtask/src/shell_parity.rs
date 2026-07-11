@@ -279,12 +279,23 @@ mod tests {
             "offline mode must still be reported to the Record clock"
         );
         assert!(
+            body.contains("recordStartWindowLatched")
+                && body.contains("recordStartCandidateWindow")
+                && body.contains("renderedRecordWindow")
+                && body.contains("const bool pushBuffer = recording ? renderedRecordWindow : captureBuffer"),
+            "JUCE Record must not push or render idle pre-start windows before the first valid Record window"
+        );
+        assert!(
+            body.contains("recording,\n                                    renderedRecordWindow,"),
+            "JUCE rendered flag passed to FFI must be the strict Record render window, not the broad Watch capture flag"
+        );
+        assert!(
             !body.contains("getLoopPoints") && !body.contains("ppqStart") && !body.contains("ppqEnd"),
             "JUCE PPQ loop points are not exact WAV/export sample bounds and must not become wav_clock_native"
         );
         assert!(
-            body.contains("if (captureBuffer)"),
-            "Record silent/offline buffers must be able to enter the FFI even when stateCode is Inactive"
+            body.contains("if (pushBuffer)"),
+            "Record silent/offline buffers must be gated through the strict Record push window"
         );
     }
 

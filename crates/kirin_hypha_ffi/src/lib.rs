@@ -856,6 +856,10 @@ impl KirinHyphaEngine {
     /// 計測 ring とは独立した sample-count clock で、手動 Keep/Stop の余白を
     /// `bounce_take` に混ぜないための正本。内部は atomic 操作のみ。
     pub fn note_record_block(&self, block: RecordTakeBlock) {
+        let mut block = RecordTakeBlock {
+            generation: self.record_sm.generation(),
+            ..block
+        };
         if block.position_valid {
             self.latest_position_samples
                 .store(block.position_samples, Ordering::Relaxed);
@@ -863,20 +867,29 @@ impl KirinHyphaEngine {
         } else {
             self.latest_position_valid.store(false, Ordering::Relaxed);
         }
-        if block.rendered
-            && block.num_frames > 0
-            && (block.playing || block.offline || block.recording)
-        {
+
+        if block.rendered && block.recording && block.position_valid && block.num_frames > 0 {
+            let start_samples = if block.clock_end_samples.is_some() {
+                block.clock_start_samples
+            } else {
+                block.position_samples
+            };
+            let _ = self
+                .record_sm
+                .try_latch_record_started_at_position_samples(start_samples);
+        }
+        if let Some(start_samples) = self.record_sm.record_started_at_position_samples() {
+            block.clock_start_samples = start_samples;
+        }
+
+        if block.rendered && block.num_frames > 0 {
             self.record_take_tracker.note_capture_window(
                 block.position_valid,
                 block.position_samples,
                 block.num_frames,
             );
         }
-        self.record_take_tracker.note_block(RecordTakeBlock {
-            generation: self.record_sm.generation(),
-            ..block
-        });
+        self.record_take_tracker.note_block(block);
     }
 
     /// PRE の plugin_data 書込（Watch pre.json + Record frames/PSB）を有効化する（B-057 3b）。
@@ -2776,6 +2789,59 @@ pub unsafe extern "C" fn kirin_hypha_destroy(handle: *mut KirinHyphaEngine) {
 // `c_void` を未使用警告なく保持（将来 opaque alias 用の置き場）。
 #[doc(hidden)]
 pub type _KirinHyphaOpaque = c_void;
+
+#[cfg(test)]
+mod record_start_latch_tests {
+    use super::{KirinHyphaEngine, RecordTakeBlock, LICENSE_OS};
+
+    fn block(
+        rendered: bool,
+        position_samples: i64,
+        clock_end_samples: Option<i64>,
+    ) -> RecordTakeBlock {
+        RecordTakeBlock {
+            generation: 0,
+            recording: true,
+            rendered,
+            playing: false,
+            offline: false,
+            position_valid: true,
+            position_samples,
+            num_frames: 512,
+            clock_start_samples: clock_end_samples.map_or(0, |_| position_samples),
+            clock_end_samples,
+        }
+    }
+
+    #[test]
+    fn ffi_record_start_latches_only_rendered_capture_window() {
+        let engine = KirinHyphaEngine::new(48_000, 2);
+        engine.set_license(LICENSE_OS);
+        assert!(engine.enter_record());
+
+        engine.note_record_block(block(false, 185_880, None));
+        assert_eq!(engine.record_sm.record_started_at_position_samples(), None);
+
+        engine.note_record_block(block(true, 0, None));
+        assert_eq!(
+            engine.record_sm.record_started_at_position_samples(),
+            Some(0)
+        );
+    }
+
+    #[test]
+    fn ffi_record_start_latches_explicit_clock_start_for_bounded_window() {
+        let engine = KirinHyphaEngine::new(48_000, 2);
+        engine.set_license(LICENSE_OS);
+        assert!(engine.enter_record());
+
+        engine.note_record_block(block(true, 96_000, Some(97_000)));
+        assert_eq!(
+            engine.record_sm.record_started_at_position_samples(),
+            Some(96_000)
+        );
+    }
+}
 
 #[cfg(test)]
 mod b106_shared_id_tests {
