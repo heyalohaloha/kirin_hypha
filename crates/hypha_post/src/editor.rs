@@ -1639,8 +1639,8 @@ fn set_pair_label(pair_label: &Arc<Mutex<String>>, paired_pre_name: &str, target
 /// 成功時は pair_label を `pair: PRE_xxxxxxxx` で設定する（POST GUI 表示用）。
 /// 同時に `paired_pre_target` に `target_id` を保存し、IO Thread が次回の writer_start で
 /// plugin_data の `paired_pre_instance_id` field に書き込めるようにする（v1.2 (a)）。
-/// expected WAV metadata は通常 TRACE の trust anchor。無い場合でも Keep は狭めず、
-/// usable frames を通常 TRACE 棚へ出し、完全性だけ degraded reason に残す。
+/// Keep は expected WAV metadata を要求せず、今回の Record session だけを開始する。
+/// Drop 後の WAV metadata が同じ session を正本 sample 境界へ収束させる。
 ///
 /// B-027 段階 2: `pair_pre_name` 非空時は `filter_candidates_by_name` で候補を
 /// 絞り込む。空文字時は filter pass-through (B-027 段階 1 受入維持)。

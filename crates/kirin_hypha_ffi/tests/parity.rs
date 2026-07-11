@@ -35,7 +35,7 @@ const PHASE_D_PARITY_SECONDS: f64 = 6.0; // async FFI publication may lag one fr
 const PHASE_D_PARITY_BLOCK_SLEEP_MS: u64 = 110; // keep below the 2s ring cap even under parallel tests
 const PHASE_D_PARITY_DIRECT_TAIL_CANDIDATES: usize = 16; // latest 0.1s publish candidates for async FFI
 
-fn arm_expected_wav(engine: &KirinHyphaEngine, label: &str) {
+fn drop_expected_wav(engine: &KirinHyphaEngine, label: &str) {
     assert!(
         engine.set_expected_wav_metadata(ExpectedWavMetadataInput {
             bounce_id: format!("bounce-{label}-{}", std::process::id()),
@@ -46,7 +46,7 @@ fn arm_expected_wav(engine: &KirinHyphaEngine, label: &str) {
             wav_mtime_ms: kirin_measure::record_writer::now_epoch_ms(),
             wav_hash: format!("hash-{label}-{}", std::process::id()),
         }),
-        "expected WAV metadata must arm for {label}"
+        "dropped WAV metadata must reconcile for {label}"
     );
 }
 
@@ -1499,7 +1499,6 @@ fn capstone_paired_record_output_and_linkage() {
         drive(1.5);
 
         // 2) POST Keep → PRE が discover→ack→自動 Record（1s discover + 1s poll throttle）。
-        arm_expected_wav(&post, "capstone");
         assert!(post.keep(), "一意 PRE 'mix' で keep=true");
         wait_until_recording(&post, "capstone");
         assert!(post.is_recording(), "POST Record 開始");
@@ -1514,6 +1513,7 @@ fn capstone_paired_record_output_and_linkage() {
         post.stop();
         assert!(!post.is_recording());
         drive(2.0); // PRE が released を検出して閉じるのを待つ + 両 writer close。
+        drop_expected_wav(&post, "capstone");
     } // engines Drop → io_thread join（残り writer は status=closed flush）。
 
     // 5) Kirin OS が読む通常 TRACE 棚と PairRecordSession manifest の両方から読み戻す。
@@ -1734,7 +1734,6 @@ fn keep_failure_after_enter_reverts_record_state() {
 
         // ── positive control: platform env 復帰で同 PRE が keep 成功 → 上の失敗は select=Some 後
         //    （= ⑤ post-enter 失敗）だったと立証。失敗とこの control の間に sleep を挟まない。
-        arm_expected_wav(&post, "storage-recovered");
         assert!(
             post.keep(),
             "HOME 復帰: 同 PRE が選定可 → keep()=true（失敗経路が select 到達済を立証）"
@@ -1827,12 +1826,12 @@ fn post_add_annotation_targets_post_role() {
         let _ = bl;
 
         drive(1.5); // PRE pre.json active
-        arm_expected_wav(&post, "annotation-post");
         assert!(post.keep(), "keep true");
         wait_until_recording(&post, "annotation-post");
         drive(4.0); // PRE acks + both record frames
         post.stop();
         drive(2.0); // PRE closes; both Record .json status=closed
+        drop_expected_wav(&post, "annotation-post");
 
         // Record close 後に POST へ注釈（header 注: 確実なのは close 後）。
         assert!(
@@ -1998,7 +1997,6 @@ fn double_keep_preserves_linkage() {
         pre.push_samples(&[], 2);
 
         // 1 回目 keep: 成功 → Record + linkage Some(iid-pre)。
-        arm_expected_wav(&post, "double-keep");
         assert!(post.keep(), "1st keep true");
         wait_until_recording(&post, "double-keep");
         assert!(post.is_recording(), "1st keep enters Record");
@@ -2403,7 +2401,6 @@ fn b140_inactive_keep_latches_pre_for_delta_after_audio() {
         sleep(Duration::from_millis(50));
     }
 
-    arm_expected_wav(&post, "inactive-keep-latch");
     assert!(post.keep(), "Inactive but fresh PRE should be armable");
     wait_until_recording(&post, "inactive-keep-latch");
     assert!(
@@ -2514,7 +2511,6 @@ fn b127_engine_counts_pairings_not_markers() {
         sleep(Duration::from_millis(40));
     }
 
-    arm_expected_wav(&post, "b127-bidi12");
     let entered = post.keep();
     assert!(
         entered,
@@ -2556,7 +2552,6 @@ fn b127_reservation_released_on_stop() {
         .join(puid)
         .join("record_reservation")
         .join("iid-pre__iid-rel.json");
-    arm_expected_wav(&post, "b127-release");
     assert!(post.keep(), "keep succeeds");
     assert!(res_path.exists(), "keep が O_EXCL reservation 枠を作る");
     post.stop();
@@ -2594,7 +2589,6 @@ fn b127_reservation_released_on_drop() {
         .join(puid)
         .join("record_reservation")
         .join("iid-pre__iid-rel-drop.json");
-    arm_expected_wav(&post, "b127-release-drop");
     assert!(post.keep(), "keep succeeds");
     assert!(res_path.exists(), "keep creates the reservation frame");
     drop(post);
@@ -2630,7 +2624,6 @@ fn b127_engine_caps_at_twelve_and_notifies() {
         sleep(Duration::from_millis(40));
     }
 
-    arm_expected_wav(&post, "b127-cap12");
     let entered = post.keep();
     assert!(
         !entered,
@@ -2670,7 +2663,6 @@ fn b127_engine_allows_keep_under_cap() {
         sleep(Duration::from_millis(40));
     }
 
-    arm_expected_wav(&post, "b127-under11");
     let entered = post.keep();
     assert!(entered, "12th keep (< cap) must succeed");
     wait_until_recording(&post, "b127-under11");
@@ -2726,7 +2718,6 @@ fn b127_keep_sweeps_stale_orphan_frames_before_cap() {
     }
     assert_eq!(kirin_measure::reservation::count_frames(&base, puid), 12);
 
-    arm_expected_wav(&post, "b127-stale12");
     assert!(
         post.keep(),
         "stale orphan frames must not block a valid keep after sweep"
