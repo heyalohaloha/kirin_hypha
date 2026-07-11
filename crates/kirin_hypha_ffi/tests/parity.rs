@@ -22,6 +22,7 @@ use kirin_hypha_ffi::{ExpectedWavMetadataInput, KirinHyphaEngine};
 use kirin_measure::engine::{MeasureEngine, SessionSummary};
 use kirin_measure::phase_d::stream::{PhaseDResult, PhaseDStream};
 use kirin_measure::phase_d::tables::FieldType;
+use kirin_measure::record_take::RecordTakeBlock;
 use kirin_measure::RING_BUFFER_SECONDS;
 
 const SR: u32 = 48_000;
@@ -58,6 +59,25 @@ fn wait_until_recording(engine: &KirinHyphaEngine, label: &str) {
         sleep(Duration::from_millis(100));
     }
     panic!("engine did not enter Record after Keep/ACK barrier: {label}");
+}
+
+fn push_positioned_stereo(engine: &KirinHyphaEngine, samples: &[f32], position_samples: i64) {
+    let num_frames = (samples.len() / 2) as u64;
+    let recording = engine.is_recording();
+    engine.note_record_block(RecordTakeBlock {
+        generation: 0,
+        recording,
+        rendered: recording,
+        playing: true,
+        offline: false,
+        position_valid: true,
+        position_samples,
+        num_frames,
+        clock_start_samples: 0,
+        clock_end_samples: None,
+    });
+    engine.note_capture_window(true, position_samples, num_frames);
+    engine.push_samples(samples, 2);
 }
 
 /// 定常マルチトーン（200/1000/5000 Hz）, L==R, f32 interleaved。
@@ -1458,11 +1478,14 @@ fn capstone_paired_record_output_and_linkage() {
         post.set_pair_target("mix".into());
 
         // realtime ブロック投入ヘルパ（PRE フル / POST 半）。
+        let position = std::cell::Cell::new(0_i64);
         let drive = |secs: f64| {
             let ticks = (secs / 0.1) as usize;
             for _ in 0..ticks {
-                pre.push_samples(&pre_block, 2);
-                post.push_samples(&post_block, 2);
+                let start = position.get();
+                push_positioned_stereo(&pre, &pre_block, start);
+                push_positioned_stereo(&post, &post_block, start);
+                position.set(start.saturating_add(bf as i64));
                 sleep(dt);
             }
         };
@@ -1786,10 +1809,13 @@ fn post_add_annotation_targets_post_role() {
         let bl = bf * 2;
         let dt = Duration::from_secs_f64(bf as f64 / SR as f64);
         let blk = gen_stereo_f32(0.1);
+        let position = std::cell::Cell::new(0_i64);
         let drive = |secs: f64| {
             for _ in 0..((secs / 0.1) as usize) {
-                pre.push_samples(&blk, 2);
-                post.push_samples(&blk, 2);
+                let start = position.get();
+                push_positioned_stereo(&pre, &blk, start);
+                push_positioned_stereo(&post, &blk, start);
+                position.set(start.saturating_add(bf as i64));
                 sleep(dt);
             }
         };

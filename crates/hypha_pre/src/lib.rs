@@ -553,6 +553,7 @@ impl Plugin for HyphaPre {
         self.heartbeat.fetch_add(1, Ordering::Relaxed);
         if let Ok(mut slot) = self.pending_producer.try_lock() {
             if let Some(new_producer) = slot.take() {
+                self.record_take_tracker.reset_capture_clock();
                 self.ring_producer = Some(new_producer);
                 let pass_id = self.watch_playback_pass_id.load(Ordering::Acquire);
                 reset_watch_ring_cursor(

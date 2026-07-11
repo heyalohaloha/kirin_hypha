@@ -320,6 +320,8 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
                 for (int ch = 0; ch < numCh; ++ch)
                     interleaveScratch[idx++] = buffer.getReadPointer (ch)[f];
 
+            kirin_hypha_note_capture_window (hyphaHandle, hasPosition,
+                                             windowPositionSamples, windowNumFrames);
             kirin_hypha_push_samples (hyphaHandle, interleaveScratch.data(),
                                       (size_t) windowNumFrames, (uint32_t) numCh);
         }

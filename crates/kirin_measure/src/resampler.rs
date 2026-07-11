@@ -14,7 +14,7 @@
 //! `pending` バッファに保持し、次回呼び出しでまとめて消費する。
 
 use rubato::audioadapter_buffers::direct::InterleavedSlice;
-use rubato::{Fft, FixedSync, ResampleError, Resampler, ResamplerConstructionError};
+use rubato::{Fft, FixedSync, Indexing, ResampleError, Resampler, ResamplerConstructionError};
 
 const TARGET_SR: usize = 48_000;
 const FFT_CHUNK_SIZE: usize = 1024;
@@ -33,6 +33,10 @@ pub struct ResamplerTo48k {
     out_frames_max: usize,
     /// `process_into_buffer` が要求する固定入力フレーム数 (channels 単位)。
     in_frames_fixed: usize,
+    input_sample_rate: u32,
+    input_frames_total: u64,
+    output_frames_emitted: u64,
+    delay_remaining: usize,
 }
 
 impl ResamplerTo48k {
@@ -47,6 +51,7 @@ impl ResamplerTo48k {
         )?;
         let in_frames_fixed = fft.input_frames_next();
         let out_frames_max = fft.output_frames_max();
+        let delay_remaining = fft.output_delay();
         Ok(Self {
             fft,
             channels,
@@ -55,6 +60,10 @@ impl ResamplerTo48k {
             scratch_out: vec![0.0; out_frames_max * channels],
             out_frames_max,
             in_frames_fixed,
+            input_sample_rate: input_sr,
+            input_frames_total: 0,
+            output_frames_emitted: 0,
+            delay_remaining,
         })
     }
 
@@ -68,33 +77,78 @@ impl ResamplerTo48k {
         input_interleaved: &[f64],
         out: &mut Vec<f64>,
     ) -> Result<(), ResampleError> {
+        self.input_frames_total = self
+            .input_frames_total
+            .saturating_add((input_interleaved.len() / self.channels) as u64);
         self.pending.extend_from_slice(input_interleaved);
         let need = self.in_frames_fixed * self.channels;
-        let out_max_samples = self.out_frames_max * self.channels;
 
         while self.pending.len() >= need {
             self.scratch_in.copy_from_slice(&self.pending[..need]);
             self.pending.drain(..need);
 
-            let in_adapter = InterleavedSlice::new(
-                &self.scratch_in[..need],
-                self.channels,
-                self.in_frames_fixed,
-            )
-            .expect("in_adapter size invariant");
-            let mut out_adapter = InterleavedSlice::new_mut(
-                &mut self.scratch_out[..out_max_samples],
-                self.channels,
-                self.out_frames_max,
-            )
-            .expect("out_adapter size invariant");
-
-            let (_in_frames, out_frames) =
-                self.fft
-                    .process_into_buffer(&in_adapter, &mut out_adapter, None)?;
-
-            out.extend_from_slice(&self.scratch_out[..out_frames * self.channels]);
+            self.process_scratch(None, None, out)?;
         }
+        Ok(())
+    }
+
+    /// Finish the current finite capture pass. Initial FFT group delay is already trimmed by
+    /// `process`; this pumps the remaining overlap with zero input and appends exactly the missing
+    /// 48 kHz frames. Call only at an actual host-pass boundary, then `reset()` before reuse.
+    pub(crate) fn finish(&mut self, out: &mut Vec<f64>) -> Result<u64, ResampleError> {
+        let expected = ((self.input_frames_total as u128 * TARGET_SR as u128)
+            .saturating_add(self.input_sample_rate as u128 - 1)
+            / self.input_sample_rate as u128) as u64;
+        if !self.pending.is_empty() {
+            let partial_frames = self.pending.len() / self.channels;
+            self.scratch_in.fill(0.0);
+            let samples = partial_frames * self.channels;
+            self.scratch_in[..samples].copy_from_slice(&self.pending[..samples]);
+            self.pending.clear();
+            self.process_scratch(Some(partial_frames), Some(expected), out)?;
+        }
+        self.scratch_in.fill(0.0);
+        while self.output_frames_emitted < expected {
+            self.process_scratch(Some(0), Some(expected), out)?;
+        }
+        Ok(expected)
+    }
+
+    fn process_scratch(
+        &mut self,
+        partial_len: Option<usize>,
+        output_limit: Option<u64>,
+        out: &mut Vec<f64>,
+    ) -> Result<(), ResampleError> {
+        let out_max_samples = self.out_frames_max * self.channels;
+        let input = InterleavedSlice::new(&self.scratch_in, self.channels, self.in_frames_fixed)
+            .expect("in_adapter size invariant");
+        let mut output = InterleavedSlice::new_mut(
+            &mut self.scratch_out[..out_max_samples],
+            self.channels,
+            self.out_frames_max,
+        )
+        .expect("out_adapter size invariant");
+        let indexing = Indexing {
+            input_offset: 0,
+            output_offset: 0,
+            partial_len,
+            active_channels_mask: None,
+        };
+        let (_, produced) = self
+            .fft
+            .process_into_buffer(&input, &mut output, Some(&indexing))?;
+        let skip = self.delay_remaining.min(produced);
+        self.delay_remaining -= skip;
+        let available = produced - skip;
+        let remaining = output_limit
+            .map(|limit| limit.saturating_sub(self.output_frames_emitted) as usize)
+            .unwrap_or(available);
+        let take = available.min(remaining);
+        let start = skip * self.channels;
+        let end = start + take * self.channels;
+        out.extend_from_slice(&self.scratch_out[start..end]);
+        self.output_frames_emitted = self.output_frames_emitted.saturating_add(take as u64);
         Ok(())
     }
 
@@ -103,13 +157,16 @@ impl ResamplerTo48k {
     pub fn reset(&mut self) {
         self.fft.reset();
         self.pending.clear();
+        self.input_frames_total = 0;
+        self.output_frames_emitted = 0;
+        self.delay_remaining = self.fft.output_delay();
         // scratch_in / scratch_out は次回の copy_from_slice で全領域上書きされるため
         // 明示的なゼロクリアは不要（パフォーマンス優先）。
     }
 
     pub fn input_sample_rate(&self) -> u32 {
         // resample_ratio = output_sr / input_sr → input_sr = output_sr / ratio
-        (TARGET_SR as f64 / self.fft.resample_ratio()) as u32
+        self.input_sample_rate
     }
 }
 
@@ -185,5 +242,20 @@ mod tests {
         assert!(!r.pending.is_empty(), "pending should accumulate");
         r.reset();
         assert_eq!(r.pending.len(), 0, "reset must clear pending");
+    }
+
+    #[test]
+    fn finite_capture_finish_trims_delay_and_restores_exact_tail() {
+        for input_rate in [44_100_u32, 96_000, 192_000] {
+            let mut r = ResamplerTo48k::new(input_rate, 2).expect("construct");
+            let input = vec![0.25_f64; input_rate as usize * 2];
+            let mut out = Vec::new();
+            for chunk in input.chunks(7_778) {
+                r.process(chunk, &mut out).expect("process");
+            }
+            assert!(out.len() / 2 < 48_000, "tail should still be pending");
+            assert_eq!(r.finish(&mut out).expect("finish"), 48_000);
+            assert_eq!(out.len() / 2, 48_000, "input_rate={input_rate}");
+        }
     }
 }
