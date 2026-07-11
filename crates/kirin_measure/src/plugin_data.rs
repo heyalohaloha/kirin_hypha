@@ -1658,12 +1658,29 @@ pub fn reconcile_late_expected_wav_project(plugin_data_root: &Path, project_hash
     if !plugin_data_root.is_dir() {
         return 0;
     }
-    let ph = crate::path_identity::guard_path_component(
-        project_hash,
-        "record_expected.late_reconcile.project_hash",
-    );
-    let project_dir = plugin_data_root.join(&*ph);
+    let project_dir_name = late_expected_project_dir_name(project_hash);
+    let project_dir = plugin_data_root.join(project_dir_name.as_ref());
     reconcile_late_expected_wav_project_dir(plugin_data_root, &project_dir)
+}
+
+fn late_expected_project_dir_name(project_hash: &str) -> std::borrow::Cow<'_, str> {
+    if crate::path_identity::is_path_safe_component(project_hash)
+        || late_expected_is_materialized_quarantine_dir(project_hash)
+    {
+        std::borrow::Cow::Borrowed(project_hash)
+    } else {
+        crate::path_identity::guard_path_component(
+            project_hash,
+            "record_expected.late_reconcile.project_hash",
+        )
+    }
+}
+
+fn late_expected_is_materialized_quarantine_dir(component: &str) -> bool {
+    let Some(hex) = component.strip_prefix(crate::path_identity::QUARANTINE_PREFIX) else {
+        return false;
+    };
+    hex.len() == 16 && hex.chars().all(|c| c.is_ascii_hexdigit())
 }
 
 fn reconcile_late_expected_wav_project_dir(plugin_data_root: &Path, project_dir: &Path) -> usize {
@@ -4650,6 +4667,7 @@ mod tests {
             reconcile_late_expected_wav_project(&base, "unrelated_project"),
             0
         );
+        assert_eq!(reconcile_late_expected_wav_project(&base, "_q_nothex"), 0);
         let before: PluginDataFile =
             serde_json::from_slice(&fs::read(&pre_paths.member_path).unwrap()).unwrap();
         assert_eq!(
@@ -4657,8 +4675,10 @@ mod tests {
             Some(BOUNCE_SOURCE_RENDER_CLOCK)
         );
 
+        let materialized_project_dir =
+            crate::path_identity::guard_path_component("project_hash_test", "test").to_string();
         assert_eq!(
-            reconcile_late_expected_wav_project(&base, "project_hash_test"),
+            reconcile_late_expected_wav_project(&base, &materialized_project_dir),
             2
         );
         let after: PluginDataFile =
