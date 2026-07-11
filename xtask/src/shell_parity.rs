@@ -12,6 +12,14 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/../juce_shell/src/PluginProcessor.cpp"
     ));
+    const JUCE_PLUGIN_CONFIG: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../juce_shell/src/KirinJucePluginConfig.h"
+    ));
+    const JUCE_AU_WRAPPER: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../juce_shell/JUCE/modules/juce_audio_plugin_client/juce_audio_plugin_client_AU_1.mm"
+    ));
 
     fn between<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
         let start_index = source.find(start).expect(start) + start.len();
@@ -297,6 +305,25 @@ mod tests {
             body.contains("if (pushBuffer)"),
             "Record silent/offline buffers must be gated through the strict Record push window"
         );
+    }
+
+    #[test]
+    fn au_transport_omission_uses_render_clock_from_first_callback() {
+        assert!(JUCE_PLUGIN_CONFIG.contains("KIRIN_HYPHA_AU_CLOCK_PROVENANCE 1"));
+        assert!(JUCE_AU_WRAPPER
+            .contains("info.setKirinAuUsesHostTransportTimeline (transportStatus == noErr);"));
+        assert!(JUCE_AU_WRAPPER.contains("setTimeInSamples (audioUnit.lastTimeStamp.mSampleTime);"));
+
+        let body = between(
+            PLUGIN_PROCESSOR_CPP,
+            "void KirinHyphaProcessorBase::processBlock",
+            "bool KirinHyphaProcessorBase::bufferIsSilent",
+        );
+        assert!(body.contains("KIRIN_HYPHA_CLOCK_AUDIO_RENDER_TIMELINE"));
+        assert!(body.contains(
+            "const bool measurementTimelineActive = playing\n                                        || clockSource == KIRIN_HYPHA_CLOCK_AUDIO_RENDER_TIMELINE;"
+        ));
+        assert!(body.contains("windowPositionSamples, windowNumFrames, clockSource"));
     }
 
     #[test]

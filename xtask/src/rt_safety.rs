@@ -158,7 +158,7 @@ mod tests {
     fn capture_clock_core_avoids_io_allocation_and_blocking_locks() {
         let body = function_body(
             RECORD_TAKE_RS,
-            "pub fn note_capture_window(\n        &self,",
+            "pub fn note_capture_window_with_source(\n        &self,",
         );
 
         for forbidden in [

@@ -58,11 +58,12 @@ use kirin_measure::{
     resolve_arm_target_for_post_project_in_session, sanitize_name, set_daw_session_id,
     set_project_uuid, spawn_io_thread_post, spawn_io_thread_pre, spawn_measure_thread,
     spawn_watchdog, store_signal_state, write_broadcast, write_expected_metadata,
-    write_pending_claiming_expected_and_clock, write_stop_broadcast, DeltaMode, DeltaResult,
-    ExclusionResult, ExpectedWavMetadata, IoThreadHandle, LatchedPre, License, LivenessEvaluator,
-    MeasureResult, PlatformPaths, PluginDataRole, PsbSummary, RecordStateMachine, RecordTakeBlock,
-    RecordTakeTracker, RecordTraceQueue, ReleaseReason, RestartIoFn, SignalState, StoragePaths,
-    WatchdogIo, WatchdogParams, MAX_ACTIVE_PER_PROJECT, N_CHANNELS, RING_BUFFER_SECONDS,
+    write_pending_claiming_expected_and_clock, write_stop_broadcast, CaptureClockSource, DeltaMode,
+    DeltaResult, ExclusionResult, ExpectedWavMetadata, IoThreadHandle, LatchedPre, License,
+    LivenessEvaluator, MeasureResult, PlatformPaths, PluginDataRole, PsbSummary,
+    RecordStateMachine, RecordTakeBlock, RecordTakeTracker, RecordTraceQueue, ReleaseReason,
+    RestartIoFn, SignalState, StoragePaths, WatchdogIo, WatchdogParams, MAX_ACTIVE_PER_PROJECT,
+    N_CHANNELS, RING_BUFFER_SECONDS,
 };
 use kirin_measure::{add_watch_ring_cursor_samples, reset_watch_ring_cursor};
 
@@ -892,9 +893,14 @@ impl KirinHyphaEngine {
         position_valid: bool,
         position_samples: i64,
         num_frames: u64,
+        clock_source: CaptureClockSource,
     ) {
-        self.record_take_tracker
-            .note_capture_window(position_valid, position_samples, num_frames);
+        self.record_take_tracker.note_capture_window_with_source(
+            position_valid,
+            position_samples,
+            num_frames,
+            clock_source,
+        );
     }
 
     /// PRE の plugin_data 書込（Watch pre.json + Record frames/PSB）を有効化する（B-057 3b）。
@@ -2409,13 +2415,19 @@ pub unsafe extern "C" fn kirin_hypha_note_capture_window(
     position_valid: bool,
     position_samples: i64,
     num_frames: u64,
+    clock_source: u8,
 ) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         if handle.is_null() {
             return;
         }
         unsafe {
-            (*handle).note_capture_window(position_valid, position_samples, num_frames);
+            (*handle).note_capture_window(
+                position_valid,
+                position_samples,
+                num_frames,
+                CaptureClockSource::from_abi(clock_source),
+            );
         }
     }));
 }

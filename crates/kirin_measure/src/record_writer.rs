@@ -26,13 +26,13 @@ use std::time::{Duration, Instant, SystemTime};
 use crate::engine::SessionSummary;
 use crate::plugin_data::{
     compute_checksum, normal_publish_failure_reasons, verify_checksum, BounceTake,
-    ExpectedWavMetadata, PluginDataFile, PluginDataWriter, Role, Status, TraceDiagnostics,
-    WriterPaths,
+    ExpectedWavMetadata, PluginDataFile, PluginDataWriter, Role, Status, TraceClock,
+    TraceDiagnostics, WriterPaths,
 };
 use crate::record::RecordStateMachine;
 use crate::record_signal;
 use crate::record_take::{
-    RecordTakeSnapshot, RecordTakeTracker, RECORD_TAKE_SOURCE_RENDER_CLOCK,
+    CaptureClockSource, RecordTakeSnapshot, RecordTakeTracker, RECORD_TAKE_SOURCE_RENDER_CLOCK,
     RECORD_TAKE_SOURCE_WAV_CLOCK,
 };
 use crate::storage::{load_installation_id_safe, StoragePaths};
@@ -85,6 +85,8 @@ pub struct RecordTraceSample {
     /// reuse the same host range; close-time baking deliberately keeps the last measurement at
     /// each host slot.
     pub position_samples: Option<i64>,
+    /// Provenance of `position_samples`. Unknown clocks never become a canonical pair contract.
+    pub clock_source: CaptureClockSource,
     pub result: MeasureResult,
     pub include_psb: bool,
 }
@@ -105,6 +107,7 @@ impl RecordTraceSample {
             t_frames_48k,
             t_native_frames,
             position_samples: None,
+            clock_source: CaptureClockSource::Unknown,
             result,
             include_psb,
         }
@@ -147,6 +150,7 @@ impl RecordTraceSample {
             t_frames_48k,
             t_native_frames,
             position_samples: None,
+            clock_source: CaptureClockSource::Unknown,
             result: MeasureResult::default(),
             include_psb: false,
         }
@@ -158,6 +162,11 @@ impl RecordTraceSample {
 
     pub fn with_position_samples(mut self, position_samples: Option<i64>) -> Self {
         self.position_samples = position_samples;
+        self
+    }
+
+    pub fn with_clock_source(mut self, clock_source: CaptureClockSource) -> Self {
+        self.clock_source = clock_source;
         self
     }
 }
@@ -1057,6 +1066,8 @@ fn bake_continuous_record_timeline(ctx: &mut RecordingCtx) {
 
     let mut best_by_ms: BTreeMap<u64, MeasureResult> = BTreeMap::new();
     let mut host_positioned_slots = BTreeSet::new();
+    let mut absolute_origins = BTreeSet::new();
+    let mut clock_sources = BTreeSet::new();
     for frame in &ctx.writer.data().frames {
         if frame.t_ms <= duration_ms {
             if let Some(slot_ms) = nearest_timeline_slot(&slots, frame.t_ms) {
@@ -1071,8 +1082,15 @@ fn bake_continuous_record_timeline(ctx: &mut RecordingCtx) {
             };
             if let Some(slot_ms) = nearest_timeline_slot(&slots, sample.t_ms) {
                 insert_best_measure(&mut best_by_ms, slot_ms, result);
-                if sample.position_samples.is_some() {
+                if let (Some(position), Some(native_frames), Some(source)) = (
+                    sample.position_samples,
+                    sample.t_native_frames,
+                    sample.clock_source.as_str(),
+                ) {
                     host_positioned_slots.insert(slot_ms);
+                    absolute_origins
+                        .insert(position.saturating_sub(native_frames.min(i64::MAX as u64) as i64));
+                    clock_sources.insert(source.to_string());
                 }
             }
         }
@@ -1123,10 +1141,30 @@ fn bake_continuous_record_timeline(ctx: &mut RecordingCtx) {
         missing_slots,
         explicit_silence_frame_count,
     });
+    let sample_rate = ctx.writer.data().sample_rate;
+    let canonical_clock = host_positioned_slots.len() as u64 == expected_frame_count
+        && absolute_origins.len() == 1
+        && !clock_sources.is_empty()
+        && sample_rate > 0;
+    let trace_clock = canonical_clock.then(|| {
+        let origin_position_samples = *absolute_origins
+            .iter()
+            .next()
+            .expect("canonical clock has one origin");
+        let duration_samples = record_duration_samples(ctx);
+        TraceClock {
+            basis: crate::trace_alignment::TRACE_CLOCK_BASIS.to_string(),
+            origin_position_samples,
+            end_position_samples: origin_position_samples
+                .saturating_add(duration_samples.min(i64::MAX as u64) as i64),
+            sample_rate,
+            sources: clock_sources.into_iter().collect(),
+        }
+    });
     ctx.writer.set_trace_time_axis(
-        (host_positioned_slots.len() as u64 == expected_frame_count)
-            .then(|| "host_native_samples_v1".to_string()),
+        canonical_clock.then(|| crate::trace_alignment::TRACE_TIME_AXIS.to_string()),
     );
+    ctx.writer.set_trace_clock(trace_clock);
     if missing_slots > 0 {
         ctx.writer.mark_integrity_degraded();
         ctx.writer.add_integrity_reason("missing_trace_slots");
@@ -3525,6 +3563,9 @@ mod tests {
             t_frames_48k,
             t_native_frames,
             position_samples: None,
+            clock_source: t_native_frames.map_or(CaptureClockSource::Unknown, |_| {
+                CaptureClockSource::ProjectTimeline
+            }),
             result,
             include_psb,
         }
@@ -5232,7 +5273,71 @@ mod tests {
             loaded.trace_time_axis.as_deref(),
             Some(crate::trace_alignment::TRACE_TIME_AXIS)
         );
+        let trace_clock = loaded.trace_clock.as_ref().expect("absolute trace clock");
+        assert_eq!(trace_clock.origin_position_samples, 0);
+        assert_eq!(trace_clock.end_position_samples, 96_000);
+        assert_eq!(trace_clock.sample_rate, 96_000);
+        assert_eq!(trace_clock.sources, vec!["project_timeline"]);
         assert!(loaded.trace_context_frames.is_empty());
+    }
+
+    #[test]
+    fn conflicting_absolute_origins_never_become_a_canonical_trace_clock() {
+        let base = isolated_base();
+        let mut ctx = make_ctx_with_sample_rate(&base, Role::Post, now_epoch_ms(), 48_000);
+        ctx.record_generation = 358;
+        ctx.clean_take = Some(RecordTakeSnapshot {
+            generation: 358,
+            duration_samples: 48_000,
+            source: crate::record_take::RECORD_TAKE_SOURCE_WAV_CLOCK,
+        });
+        for t_ms in (100_u64..=1_000).step_by(FRAME_INTERVAL_MS as usize) {
+            let native = t_ms * 48;
+            let mut sample =
+                trace_sample_frames_with_native(native, Some(native), full_measure_result(), false);
+            let conflicting_offset = if t_ms == 500 { 512 } else { 0 };
+            sample.position_samples = Some(native as i64 + conflicting_offset);
+            ctx.trace_samples.push(sample);
+        }
+        ctx.trace_sample_count = ctx.trace_samples.len();
+
+        bake_continuous_record_timeline(&mut ctx);
+
+        assert_eq!(ctx.writer.data().frames.len(), 10);
+        assert!(ctx.writer.data().trace_time_axis.is_none());
+        assert!(ctx.writer.data().trace_clock.is_none());
+    }
+
+    #[test]
+    fn au_render_timestamp_bakes_the_same_absolute_clock_contract() {
+        let base = isolated_base();
+        let mut ctx = make_ctx_with_sample_rate(&base, Role::Pre, now_epoch_ms(), 48_000);
+        ctx.record_generation = 359;
+        ctx.clean_take = Some(RecordTakeSnapshot {
+            generation: 359,
+            duration_samples: 48_000,
+            source: crate::record_take::RECORD_TAKE_SOURCE_WAV_CLOCK,
+        });
+        for t_ms in (100_u64..=1_000).step_by(FRAME_INTERVAL_MS as usize) {
+            let native = t_ms * 48;
+            let mut sample =
+                trace_sample_frames_with_native(native, Some(native), full_measure_result(), false);
+            sample.position_samples = Some(24_000 + native as i64);
+            sample.clock_source = CaptureClockSource::AudioRenderTimeline;
+            ctx.trace_samples.push(sample);
+        }
+        ctx.trace_sample_count = ctx.trace_samples.len();
+
+        bake_continuous_record_timeline(&mut ctx);
+
+        assert_eq!(
+            ctx.writer.data().trace_time_axis.as_deref(),
+            Some(crate::trace_alignment::TRACE_TIME_AXIS)
+        );
+        let clock = ctx.writer.data().trace_clock.as_ref().unwrap();
+        assert_eq!(clock.origin_position_samples, 24_000);
+        assert_eq!(clock.end_position_samples, 72_000);
+        assert_eq!(clock.sources, vec!["audio_render_timeline"]);
     }
 
     #[test]
@@ -5806,6 +5911,13 @@ mod tests {
                 explicit_silence_frame_count: 0,
             });
             writer.set_trace_time_axis(Some(crate::trace_alignment::TRACE_TIME_AXIS.to_string()));
+            writer.set_trace_clock(Some(TraceClock {
+                basis: crate::trace_alignment::TRACE_CLOCK_BASIS.to_string(),
+                origin_position_samples: 0,
+                end_position_samples: 48_000,
+                sample_rate: 48_000,
+                sources: vec!["project_timeline".to_string()],
+            }));
             for t_ms in (100_u64..=1_000).step_by(FRAME_INTERVAL_MS as usize) {
                 writer.append_frame(t_ms, [0.0; 20], 0.0, -20.0, -1.0, 12.0, Some(10.0));
             }

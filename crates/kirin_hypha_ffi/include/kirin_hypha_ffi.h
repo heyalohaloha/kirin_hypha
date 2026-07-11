@@ -223,8 +223,12 @@ void kirin_hypha_note_record_window(KirinHypha* handle, bool recording, bool ren
 
 /* measurement ring へ実際に投入する窓の host sample clock（Audio Thread単独・RT-safe）.
  * Watch pre-roll / Record 共通。対応する push_samples の直前に1回だけ呼ぶ. */
+#define KIRIN_HYPHA_CLOCK_UNKNOWN 0
+#define KIRIN_HYPHA_CLOCK_PROJECT_TIMELINE 1
+#define KIRIN_HYPHA_CLOCK_AUDIO_RENDER_TIMELINE 2
 void kirin_hypha_note_capture_window(KirinHypha* handle, bool position_valid,
-                                     int64_t position_samples, uint64_t num_frames);
+                                     int64_t position_samples, uint64_t num_frames,
+                                     uint8_t clock_source);
 
 /* POST「Stop」: pair 解除（record_signal released）+ Watch へ戻す（3d-b）. */
 void kirin_hypha_stop(KirinHypha* handle);

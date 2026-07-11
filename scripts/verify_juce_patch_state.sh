@@ -8,6 +8,7 @@ JUCE_DIR="juce_shell/JUCE"
 EXPECTED_HEAD="4f43011b96eb0636104cb3e433894cda98243626"
 
 EXPECTED_FILES=(
+  "modules/juce_audio_basics/audio_play_head/juce_AudioPlayHead.h"
   "modules/juce_audio_plugin_client/juce_audio_plugin_client_AU_1.mm"
   "modules/juce_gui_basics/native/juce_Windowing_mac.mm"
   "modules/juce_gui_extra/juce_gui_extra.h"
@@ -17,6 +18,7 @@ PATCHES=(
   "0001-macos15-sdk-cgwindowlistcreateimage-bypass.patch::"
   "0002-drop-webkit-osxframework-from-juce-gui-extra.patch::"
   "0003-au-preferred-channel-layout-tags-for-logic-mono.patch::--unidiff-zero --ignore-whitespace"
+  "0004-au-clock-provenance.patch::--unidiff-zero --ignore-whitespace"
 )
 
 die() {
@@ -95,4 +97,4 @@ for expected in "${EXPECTED_FILES[@]}"; do
   fi
 done
 
-echo "JUCE patch state OK: upstream ${EXPECTED_HEAD} + 3 tracked patches"
+echo "JUCE patch state OK: upstream ${EXPECTED_HEAD} + 4 tracked patches"

@@ -146,8 +146,8 @@ pub use record_signal::{
     SIGNAL_FILENAME,
 };
 pub use record_take::{
-    new_record_take_tracker, RecordTakeBlock, RecordTakeSnapshot, RecordTakeTracker,
-    RECORD_TAKE_SOURCE_RENDER_CLOCK,
+    new_record_take_tracker, CaptureClockPoint, CaptureClockSource, RecordTakeBlock,
+    RecordTakeSnapshot, RecordTakeTracker, RECORD_TAKE_SOURCE_RENDER_CLOCK,
 };
 pub use record_writer::{
     new_record_trace_queue, RecordTraceKind, RecordTraceQueue, RecordTraceSample,
