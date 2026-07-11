@@ -26,7 +26,7 @@ use std::time::{Duration, Instant, SystemTime};
 use crate::engine::SessionSummary;
 use crate::plugin_data::{
     compute_checksum, normal_publish_failure_reasons, verify_checksum, BounceTake,
-    ExpectedWavMetadata, PluginDataFile, PluginDataWriter, Role, Status, TraceDiagnostics,
+    ExpectedWavMetadata, Frame, PluginDataFile, PluginDataWriter, Role, Status, TraceDiagnostics,
     WriterPaths,
 };
 use crate::record::RecordStateMachine;
@@ -1044,6 +1044,49 @@ fn bake_continuous_record_timeline(ctx: &mut RecordingCtx) {
         return;
     }
 
+    let context_end_ms = ctx
+        .trace_samples
+        .iter()
+        .map(|sample| sample.t_ms)
+        .chain(ctx.writer.data().frames.iter().map(|frame| frame.t_ms))
+        .max()
+        .unwrap_or(duration_ms)
+        .max(duration_ms);
+    let context_slots = continuous_timeline_slots(context_end_ms);
+    let mut context_best_by_ms: BTreeMap<u64, MeasureResult> = BTreeMap::new();
+    for frame in &ctx.writer.data().frames {
+        if let Some(slot_ms) = nearest_timeline_slot(&context_slots, frame.t_ms) {
+            insert_best_measure(&mut context_best_by_ms, slot_ms, measure_from_frame(frame));
+        }
+    }
+    for sample in &ctx.trace_samples {
+        let Some(result) = measured_trace_result_for_bake(sample) else {
+            continue;
+        };
+        if let Some(slot_ms) = nearest_timeline_slot(&context_slots, sample.t_ms) {
+            insert_best_measure(&mut context_best_by_ms, slot_ms, result);
+        }
+    }
+    let context_frames = context_best_by_ms
+        .into_iter()
+        .map(|(t_ms, result)| frame_from_measure(t_ms, &result))
+        .collect();
+    ctx.writer.set_trace_context_frames(context_frames);
+    let context_psb = ctx
+        .writer
+        .data()
+        .psb_snapshots
+        .as_ref()
+        .map(|snapshots| {
+            snapshots
+                .iter()
+                .filter(|snapshot| snapshot.t_ms <= context_end_ms)
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default();
+    ctx.writer.set_trace_context_psb_snapshots(context_psb);
+
     let mut best_by_ms: BTreeMap<u64, MeasureResult> = BTreeMap::new();
     for frame in &ctx.writer.data().frames {
         if frame.t_ms <= duration_ms {
@@ -1153,6 +1196,18 @@ fn measure_from_frame(frame: &crate::plugin_data::Frame) -> MeasureResult {
         sharpness: frame.sharpness,
         ..MeasureResult::default()
     }
+}
+
+fn frame_from_measure(t_ms: u64, measure: &MeasureResult) -> Frame {
+    crate::plugin_data::make_frame_optional(
+        t_ms,
+        measure.n_prime,
+        measure.sharpness,
+        measure.lufs_m.unwrap_or(TRACE_SILENCE_LUFS),
+        measure.true_peak.unwrap_or(TRACE_SILENCE_TRUE_PEAK_DBTP),
+        measure.crest.unwrap_or(TRACE_SILENCE_CREST_DB),
+        measure.psr,
+    )
 }
 
 fn insert_best_measure(
@@ -5155,6 +5210,39 @@ mod tests {
             .integrity_reasons
             .iter()
             .any(|reason| reason == "missing_trace_slots"));
+    }
+
+    #[test]
+    fn close_preserves_full_render_context_beyond_wav_for_pair_canonicalization() {
+        let base = isolated_base();
+        let mut ctx = make_ctx_with_sample_rate(&base, Role::Post, now_epoch_ms(), 96_000);
+        let final_path = ctx.final_path.clone();
+        ctx.record_generation = 356;
+        ctx.clean_take = Some(RecordTakeSnapshot {
+            generation: 356,
+            duration_samples: 1_440_000,
+            source: crate::record_take::RECORD_TAKE_SOURCE_WAV_CLOCK,
+        });
+        for t_ms in (100_u64..=16_000).step_by(FRAME_INTERVAL_MS as usize) {
+            ctx.trace_samples.push(trace_sample_frames_with_native(
+                t_ms.saturating_mul(TRACE_TIMEBASE_HZ) / 1_000,
+                Some(t_ms.saturating_mul(96_000) / 1_000),
+                full_measure_result(),
+                false,
+            ));
+        }
+        ctx.trace_sample_count = ctx.trace_samples.len();
+
+        writer_close(ctx);
+
+        let loaded: PluginDataFile = read_output_for_final(&final_path);
+        assert_eq!(loaded.frames.len(), 150);
+        assert_eq!(loaded.frames.last().map(|frame| frame.t_ms), Some(15_000));
+        assert_eq!(loaded.trace_context_frames.len(), 160);
+        assert_eq!(
+            loaded.trace_context_frames.last().map(|frame| frame.t_ms),
+            Some(16_000)
+        );
     }
 
     #[test]

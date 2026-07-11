@@ -312,6 +312,16 @@ pub struct PluginDataFile {
     /// TRACE 欠損診断。missing は frames[] に測定値として入れない。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trace_diagnostics: Option<TraceDiagnostics>,
+    /// PRE/POST の内容位置 co-registration。通常 shelf の `frames[]` はこの判定を使って
+    /// Hypha 内で canonical WAV axis へ焼き直した後の完成品であり、consumer 補正は不要。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trace_content_alignment: Option<crate::trace_alignment::TraceContentAlignment>,
+    /// Pair canonicalization 用の余裕付き内部フレーム。pair publish 前に必ず消去する。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub trace_context_frames: Vec<Frame>,
+    /// Pair canonicalization 用の余裕付き PSB。pair publish 前に必ず消去する。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub trace_context_psb_snapshots: Vec<PsbSnapshot>,
     /// Kirin OS 表示用の品質分類。厳密判定は Hypha 内に閉じ、OS はこの分類で
     /// complete / usable fallback / failed を静かに扱い分ける。
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -410,6 +420,9 @@ impl PluginDataFile {
             bounce_take: None,
             expected_wav: None,
             trace_diagnostics: None,
+            trace_content_alignment: None,
+            trace_context_frames: Vec::new(),
+            trace_context_psb_snapshots: Vec::new(),
             record_quality: None,
             validity: true,
             checksum: String::new(),
@@ -585,6 +598,14 @@ impl PluginDataWriter {
         self.data.frames.clear();
     }
 
+    pub(crate) fn set_trace_context_frames(&mut self, frames: Vec<Frame>) {
+        self.data.trace_context_frames = frames;
+    }
+
+    pub(crate) fn set_trace_context_psb_snapshots(&mut self, snapshots: Vec<PsbSnapshot>) {
+        self.data.trace_context_psb_snapshots = snapshots;
+    }
+
     /// chain_memo を設定（利用者記入。Record 開始時 or 途中更新）。
     pub fn set_chain_memo(&mut self, memo: String) {
         self.data.chain_memo = memo;
@@ -681,22 +702,9 @@ impl PluginDataWriter {
         crest: f64,
         psr: Option<f64>,
     ) {
-        let rounded_n = n_prime.map(|arr| {
-            let mut rounded = [0.0; 20];
-            for (i, v) in arr.iter().enumerate() {
-                rounded[i] = round1(*v);
-            }
-            rounded
-        });
-        self.data.frames.push(Frame {
-            t_ms,
-            n_prime: rounded_n,
-            sharpness: sharpness.filter(|v| v.is_finite()).map(round2),
-            lufs_m: round1(lufs_m),
-            true_peak: round1(true_peak),
-            crest: round1(crest),
-            psr: psr.filter(|v| v.is_finite()).map(round1),
-        });
+        self.data.frames.push(make_frame_optional(
+            t_ms, n_prime, sharpness, lufs_m, true_peak, crest, psr,
+        ));
     }
 
     /// Record セッション集計値を JSON に注入する (B-043)。
@@ -1260,6 +1268,12 @@ fn try_finalize_pair_session(
     let self_pending = self_paths.pair_pending_path.clone();
     let mut self_data = read_plugin_data_file(&self_pending)?;
     let mut peer_data = read_plugin_data_file(&peer_paths.pair_pending_path)?;
+    let content_alignment = crate::trace_alignment::canonicalize_pair_trace_content_alignment(
+        &mut self_data,
+        &mut peer_data,
+    );
+    self_data.trace_content_alignment = Some(content_alignment.clone());
+    peer_data.trace_content_alignment = Some(content_alignment);
     let integrity_reasons = pair_publish_integrity_reasons(&self_data, &peer_data);
     add_integrity_reasons(&mut self_data, &integrity_reasons);
     add_integrity_reasons(&mut peer_data, &integrity_reasons);
@@ -1920,6 +1934,10 @@ fn publish_late_expected_pair(
         )
         .into());
     }
+    let content_alignment =
+        crate::trace_alignment::canonicalize_pair_trace_content_alignment(pre_data, post_data);
+    pre_data.trace_content_alignment = Some(content_alignment.clone());
+    post_data.trace_content_alignment = Some(content_alignment);
     if !pair_publish_failure_reasons(pre_data, post_data).is_empty() {
         return Ok(false);
     }
@@ -2815,6 +2833,34 @@ pub fn compact_wall_clock(iso: &str) -> String {
 }
 
 /// 1 桁丸め。
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn make_frame_optional(
+    t_ms: u64,
+    n_prime: Option<[f64; 20]>,
+    sharpness: Option<f64>,
+    lufs_m: f64,
+    true_peak: f64,
+    crest: f64,
+    psr: Option<f64>,
+) -> Frame {
+    let rounded_n = n_prime.map(|arr| {
+        let mut rounded = [0.0; 20];
+        for (i, v) in arr.iter().enumerate() {
+            rounded[i] = round1(*v);
+        }
+        rounded
+    });
+    Frame {
+        t_ms,
+        n_prime: rounded_n,
+        sharpness: sharpness.filter(|v| v.is_finite()).map(round2),
+        lufs_m: round1(lufs_m),
+        true_peak: round1(true_peak),
+        crest: round1(crest),
+        psr: psr.filter(|v| v.is_finite()).map(round1),
+    }
+}
+
 fn round1(v: f64) -> f64 {
     if v.is_finite() {
         (v * 10.0).round() / 10.0
@@ -3651,6 +3697,12 @@ mod tests {
         assert!(pre_trace_data.validity);
         assert!(post_trace_data.validity);
         for data in [&pre_data, &post_data, &pre_trace_data, &post_trace_data] {
+            let alignment = data
+                .trace_content_alignment
+                .as_ref()
+                .expect("pair publish must stamp content alignment");
+            assert_eq!(alignment.status, "unverifiable");
+            assert_eq!(alignment.post_offset_ms, 0);
             let quality = data.record_quality.as_ref().expect("record_quality");
             assert_eq!(quality.status, "complete");
             assert!(quality.complete);
