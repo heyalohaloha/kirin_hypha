@@ -9,7 +9,7 @@ diff --git a/modules/juce_audio_basics/audio_play_head/juce_AudioPlayHead.h b/mo
 +
 +       #if KIRIN_HYPHA_AU_CLOCK_PROVENANCE
 +        /** Kirin Hypha AU-only provenance: true when the AU host transport callback supplied
-+            the sample timeline, false when JUCE used the AudioUnit render timestamp. */
++            a finite sample timeline, false when JUCE used a valid AudioUnit render timestamp. */
 +        bool getKirinAuUsesHostTransportTimeline() const                { return getFlag (flagKirinAuHostTransport); }
 +        void setKirinAuUsesHostTransportTimeline (bool available)      {        setFlag (flagKirinAuHostTransport, available); }
 +       #endif
@@ -24,22 +24,67 @@ diff --git a/modules/juce_audio_basics/audio_play_head/juce_AudioPlayHead.h b/mo
 diff --git a/modules/juce_audio_plugin_client/juce_audio_plugin_client_AU_1.mm b/modules/juce_audio_plugin_client/juce_audio_plugin_client_AU_1.mm
 --- a/modules/juce_audio_plugin_client/juce_audio_plugin_client_AU_1.mm
 +++ b/modules/juce_audio_plugin_client/juce_audio_plugin_client_AU_1.mm
-@@ -1250,6 +1250,12 @@ explicit ScopedPlayHead (JuceAU& juceAudioUnit)
+@@ -1244,23 +1244,40 @@ explicit ScopedPlayHead (JuceAU& juceAudioUnit)
+-            const auto setTimeInSamples = [&] (auto timeInSamples)
+-            {
+-                info.setTimeInSamples ((int64) (timeInSamples + 0.5));
+-                info.setTimeInSeconds ((double) (*info.getTimeInSamples()) / audioUnit.getSampleRate());
+-            };
+-
 -            if (audioUnit.CallHostTransportState (&playing,
 -                                                  &playchanged,
 -                                                  &outCurrentSampleInTimeLine,
 -                                                  &looping,
 -                                                  &outCycleStartBeat,
 -                                                  &outCycleEndBeat) == noErr)
+-            {
+-                info.setIsPlaying (playing);
+-                info.setIsLooping (looping);
+-                info.setLoopPoints (LoopPoints { outCycleStartBeat, outCycleEndBeat });
+-                setTimeInSamples (outCurrentSampleInTimeLine);
+-            }
+-            else
+-            {
+-                // If the host doesn't support this callback, then use the sample time from lastTimeStamp
+-                setTimeInSamples (audioUnit.lastTimeStamp.mSampleTime);
+-            }
++            const auto setTimeInSamples = [&] (auto timeInSamples)
++            {
++                info.setTimeInSamples ((int64) (timeInSamples + 0.5));
++                info.setTimeInSeconds ((double) (*info.getTimeInSamples()) / audioUnit.getSampleRate());
++            };
++
++            const auto sampleTimeIsRepresentable = [] (double timeInSamples)
++            {
++                return std::isfinite (timeInSamples)
++                    && timeInSamples >= static_cast<double> (std::numeric_limits<int64_t>::min())
++                    && timeInSamples < static_cast<double> (std::numeric_limits<int64_t>::max());
++            };
++
 +            const auto transportStatus = audioUnit.CallHostTransportState (&playing,
 +                                                                            &playchanged,
 +                                                                            &outCurrentSampleInTimeLine,
 +                                                                            &looping,
 +                                                                            &outCycleStartBeat,
 +                                                                            &outCycleEndBeat);
++            const bool transportTimelineValid = transportStatus == noErr
++                                             && sampleTimeIsRepresentable (outCurrentSampleInTimeLine);
++            const bool renderTimelineValid =
++                (audioUnit.lastTimeStamp.mFlags & kAudioTimeStampSampleTimeValid) != 0
++                && sampleTimeIsRepresentable (audioUnit.lastTimeStamp.mSampleTime);
 +
 +           #if KIRIN_HYPHA_AU_CLOCK_PROVENANCE
-+            info.setKirinAuUsesHostTransportTimeline (transportStatus == noErr);
++            info.setKirinAuUsesHostTransportTimeline (transportTimelineValid);
 +           #endif
 +
 +            if (transportStatus == noErr)
++            {
++                info.setIsPlaying (playing);
++                info.setIsLooping (looping);
++                info.setLoopPoints (LoopPoints { outCycleStartBeat, outCycleEndBeat });
++            }
++
++            if (transportTimelineValid)
++                setTimeInSamples (outCurrentSampleInTimeLine);
++            else if (renderTimelineValid)
++                setTimeInSamples (audioUnit.lastTimeStamp.mSampleTime);
