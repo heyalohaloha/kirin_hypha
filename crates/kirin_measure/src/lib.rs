@@ -39,6 +39,7 @@ mod record_writer_claim;
 pub mod resampler;
 pub mod reservation;
 pub mod storage;
+pub mod trace_alignment;
 pub mod watch_playback_pass;
 mod watch_tmp_cleanup;
 pub mod watchdog;
@@ -156,6 +157,7 @@ pub use storage::{
     write_identity_atomic, CleanupReport, IdentityCache, LoadStatus, LoadedIdentity, PlatformKind,
     PlatformPaths, StorageError, StoragePaths, CLEANUP_V1_DONE_FILENAME,
 };
+pub use trace_alignment::TraceContentAlignment;
 pub use watch_playback_pass::{
     add_watch_ring_cursor_samples, advance_watch_playback_pass_id,
     publish_watch_playback_pass_boundary, reset_watch_ring_cursor,
