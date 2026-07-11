@@ -244,9 +244,10 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
     if (! recording)
         recordStartWindowLatched = false;
     const bool nonRealtime = isNonRealtime();
-    // Some AU hosts omit the optional transport callback. JUCE then supplies the mandatory
-    // AudioUnit render timestamp and cannot report `playing`; that render clock is nevertheless
-    // an exact processing timeline and must capture from the first callback.
+    // Some AU hosts omit the optional transport callback. A valid AudioUnit render timestamp is
+    // still an exact processing timeline, so non-silent Watch audio and an already-started Record
+    // can advance on it. Clock availability alone is not transport authority: otherwise silent
+    // idle callbacks between Keep and Drop would be captured as Record pre-roll.
     const bool measurementTimelineActive = playing
                                         || clockSource == KIRIN_HYPHA_CLOCK_AUDIO_RENDER_TIMELINE;
     int windowStartFrame = 0;
@@ -297,8 +298,7 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
                                          && hasPosition
                                          && windowNumFrames > 0
                                          && numCh > 0
-                                         && (stateCode == 1 || measurementTimelineActive
-                                                               || nonRealtime || hasClockEnd);
+                                         && (stateCode == 1 || playing || nonRealtime || hasClockEnd);
     const bool renderedRecordWindow = recording
                                    && hasPosition
                                    && windowNumFrames > 0

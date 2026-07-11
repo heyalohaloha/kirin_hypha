@@ -308,11 +308,19 @@ mod tests {
     }
 
     #[test]
-    fn au_transport_omission_uses_render_clock_from_first_callback() {
+    fn au_transport_omission_uses_only_valid_render_clock_without_arming_on_idle() {
         assert!(JUCE_PLUGIN_CONFIG.contains("KIRIN_HYPHA_AU_CLOCK_PROVENANCE 1"));
         assert!(JUCE_AU_WRAPPER
-            .contains("info.setKirinAuUsesHostTransportTimeline (transportStatus == noErr);"));
-        assert!(JUCE_AU_WRAPPER.contains("setTimeInSamples (audioUnit.lastTimeStamp.mSampleTime);"));
+            .contains("info.setKirinAuUsesHostTransportTimeline (transportTimelineValid);"));
+        assert!(JUCE_AU_WRAPPER.contains("kAudioTimeStampSampleTimeValid"));
+        assert!(JUCE_AU_WRAPPER.contains("sampleTimeIsRepresentable"));
+        assert!(JUCE_AU_WRAPPER.contains("std::numeric_limits<int64_t>::min()"));
+        assert!(JUCE_AU_WRAPPER.contains("std::numeric_limits<int64_t>::max()"));
+        assert!(JUCE_AU_WRAPPER
+            .contains("sampleTimeIsRepresentable (audioUnit.lastTimeStamp.mSampleTime)"));
+        assert!(JUCE_AU_WRAPPER.contains(
+            "else if (renderTimelineValid)\n                setTimeInSamples (audioUnit.lastTimeStamp.mSampleTime);"
+        ));
 
         let body = between(
             PLUGIN_PROCESSOR_CPP,
@@ -323,6 +331,8 @@ mod tests {
         assert!(body.contains(
             "const bool measurementTimelineActive = playing\n                                        || clockSource == KIRIN_HYPHA_CLOCK_AUDIO_RENDER_TIMELINE;"
         ));
+        assert!(body.contains("&& (stateCode == 1 || playing || nonRealtime || hasClockEnd);"));
+        assert!(!body.contains("&& (stateCode == 1 || measurementTimelineActive"));
         assert!(body.contains("windowPositionSamples, windowNumFrames, clockSource"));
     }
 
