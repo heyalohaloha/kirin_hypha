@@ -4,12 +4,12 @@ use kirin_measure::{
     add_watch_ring_cursor_samples, daw_session_id, ensure_legacy_cleanup_done,
     identity_instance_attach, identity_instance_detach, live_window, load_license_safe,
     new_record_trace_queue, process_project_hash, publish_watch_playback_pass_boundary,
-    record_clock_bounds_for_record, record_window_for_buffer_with_bounds, reset_watch_ring_cursor,
-    set_daw_session_id, set_project_uuid, spawn_io_thread_pre, spawn_measure_thread,
-    spawn_watchdog, store_signal_state, watch_playback_block_duration_secs,
-    watch_playback_pass_should_start, License, LivenessEvaluator, MeasureResult,
-    RecordStateMachine, RecordTakeBlock, RecordTakeTracker, RecordTraceQueue, RecordWindow,
-    SessionSummary, SignalState, WatchdogIo, WatchdogParams, N_CHANNELS, RING_BUFFER_SECONDS,
+    record_window_for_record_capture, reset_watch_ring_cursor, set_daw_session_id,
+    set_project_uuid, spawn_io_thread_pre, spawn_measure_thread, spawn_watchdog,
+    store_signal_state, watch_playback_block_duration_secs, watch_playback_pass_should_start,
+    License, LivenessEvaluator, MeasureResult, RecordStateMachine, RecordTakeBlock,
+    RecordTakeTracker, RecordTraceQueue, RecordWindow, SessionSummary, SignalState, WatchdogIo,
+    WatchdogParams, N_CHANNELS, RING_BUFFER_SECONDS,
 };
 use nih_plug::prelude::*;
 use nih_plug_egui::EguiState;
@@ -604,12 +604,12 @@ impl Plugin for HyphaPre {
         self.is_playing.store(playing, Ordering::Relaxed);
         let pos = transport.pos_samples().unwrap_or(i64::MIN);
         let record_window = if recording {
-            let bounds = record_clock_bounds_for_record(
+            record_window_for_record_capture(
+                buffer.samples(),
+                pos,
                 transport.loop_range_samples(),
-                self.record_sm.record_started_at_position_samples(),
-                self.record_sm.record_expected_end_position_samples(),
-            );
-            record_window_for_buffer_with_bounds(buffer.samples(), pos, bounds)
+                &self.record_sm,
+            )
         } else {
             RecordWindow::full(buffer.samples(), pos)
         };

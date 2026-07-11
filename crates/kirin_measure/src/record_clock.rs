@@ -6,6 +6,8 @@
 //! keeps the audio-thread decision small and deterministic: count only the part
 //! of the buffer that belongs to the WAV/native Record clock.
 
+use crate::record::RecordStateMachine;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RecordWindow {
     pub start_frame: usize,
@@ -157,12 +159,55 @@ pub fn record_window_for_buffer_with_bounds(
     }
 }
 
+pub fn record_window_for_record_capture(
+    num_frames: usize,
+    position_samples: i64,
+    loop_range_samples: Option<(i64, i64)>,
+    record_sm: &RecordStateMachine,
+) -> RecordWindow {
+    let existing_start_samples = record_sm.record_started_at_position_samples();
+    let bounds = record_clock_bounds_for_record(
+        loop_range_samples,
+        existing_start_samples,
+        record_sm.record_expected_end_position_samples(),
+    );
+    let mut window = record_window_for_buffer_with_bounds(num_frames, position_samples, bounds);
+    if let Some(start_samples) =
+        start_anchor_candidate_samples(window, loop_range_samples, existing_start_samples)
+    {
+        if record_sm.try_latch_record_started_at_position_samples(start_samples) {
+            let bounds = record_clock_bounds_for_record(
+                loop_range_samples,
+                record_sm.record_started_at_position_samples(),
+                record_sm.record_expected_end_position_samples(),
+            );
+            window = record_window_for_buffer_with_bounds(num_frames, position_samples, bounds);
+        }
+    }
+    window
+}
+
+fn start_anchor_candidate_samples(
+    window: RecordWindow,
+    loop_range_samples: Option<(i64, i64)>,
+    existing_start_samples: Option<i64>,
+) -> Option<i64> {
+    if existing_start_samples.is_some() || !window.position_valid || window.num_frames == 0 {
+        return None;
+    }
+    match loop_range_samples {
+        Some((start, end)) if end > start => Some(window.clock_start_samples),
+        _ => Some(window.position_samples),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         record_clock_bounds_for_record, record_window_for_buffer,
-        record_window_for_buffer_with_bounds,
+        record_window_for_buffer_with_bounds, record_window_for_record_capture,
     };
+    use crate::record::RecordStateMachine;
 
     #[test]
     fn clips_negative_preroll_to_wav_zero_without_loop_range() {
@@ -278,6 +323,54 @@ mod tests {
         assert_eq!(window.end_frame, 1_500);
         assert_eq!(window.position_samples, 96_000);
         assert_eq!(window.num_frames, 1_000);
+        assert_eq!(window.clock_start_samples, 96_000);
+        assert_eq!(window.clock_end_samples, Some(97_000));
+    }
+
+    #[test]
+    fn record_capture_latches_unbounded_start_from_first_valid_window() {
+        let sm = RecordStateMachine::new();
+        sm.try_enter_record_started_at_clock_window_transaction(
+            crate::License::Os,
+            1_725_000_123_456,
+            None,
+            None,
+            "session-a",
+        )
+        .unwrap();
+
+        let window = record_window_for_record_capture(512, 44_100, None, &sm);
+        assert_eq!(sm.record_started_at_position_samples(), Some(44_100));
+        assert_eq!(window.start_frame, 0);
+        assert_eq!(window.end_frame, 512);
+        assert_eq!(window.position_samples, 44_100);
+        assert_eq!(window.num_frames, 512);
+        assert_eq!(window.clock_start_samples, 44_100);
+        assert_eq!(window.clock_end_samples, None);
+
+        let next = record_window_for_record_capture(512, 44_612, None, &sm);
+        assert_eq!(sm.record_started_at_position_samples(), Some(44_100));
+        assert_eq!(next.clock_start_samples, 44_100);
+    }
+
+    #[test]
+    fn record_capture_latches_explicit_loop_start_as_common_anchor() {
+        let sm = RecordStateMachine::new();
+        sm.try_enter_record_started_at_clock_window_transaction(
+            crate::License::Os,
+            1_725_000_123_456,
+            None,
+            None,
+            "session-a",
+        )
+        .unwrap();
+
+        let window = record_window_for_record_capture(512, 95_900, Some((96_000, 97_000)), &sm);
+        assert_eq!(sm.record_started_at_position_samples(), Some(96_000));
+        assert_eq!(window.start_frame, 100);
+        assert_eq!(window.end_frame, 512);
+        assert_eq!(window.position_samples, 96_000);
+        assert_eq!(window.num_frames, 412);
         assert_eq!(window.clock_start_samples, 96_000);
         assert_eq!(window.clock_end_samples, Some(97_000));
     }
