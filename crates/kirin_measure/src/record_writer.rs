@@ -2043,6 +2043,8 @@ pub struct RecoveryReport {
     pub pair_finalized: usize,
     /// `record_sessions` manifest から通常 TRACE shelf を復元/更新した件数。
     pub trace_reconciled: usize,
+    /// Drop 後に到着した expected WAV metadata で閉じた Record を WAV 境界へ再収束した件数。
+    pub late_expected_reconciled: usize,
     /// HMAC-SHA256 / serde 整合性に失敗し放置した件数 (削除しない / 将来分析用)。
     pub orphaned: usize,
 }
@@ -2070,16 +2072,20 @@ pub fn recover_orphan_tmps(plugin_data_root: &Path) -> RecoveryReport {
     report.pair_finalized = crate::plugin_data::finalize_pair_pending_sessions(plugin_data_root);
     report.trace_reconciled =
         crate::plugin_data::reconcile_pair_committed_trace_shelves(plugin_data_root);
+    report.late_expected_reconciled =
+        crate::plugin_data::reconcile_late_expected_wav(plugin_data_root);
     if report.recovered > 0
         || report.pair_finalized > 0
         || report.trace_reconciled > 0
+        || report.late_expected_reconciled > 0
         || report.orphaned > 0
     {
         log::info!(
-            "[recover] startup record recovery: recovered={} pair_finalized={} trace_reconciled={} orphaned={} root={}",
+            "[recover] startup record recovery: recovered={} pair_finalized={} trace_reconciled={} late_expected_reconciled={} orphaned={} root={}",
             report.recovered,
             report.pair_finalized,
             report.trace_reconciled,
+            report.late_expected_reconciled,
             report.orphaned,
             plugin_data_root.display()
         );

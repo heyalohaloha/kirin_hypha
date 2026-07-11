@@ -51,6 +51,7 @@ use crate::storage::{PlatformPaths, StoragePaths};
 use crate::{load_signal_state, MeasureResult, RecordTakeTracker, RecordTraceQueue, SignalState};
 
 const LOOP_SLEEP: Duration = Duration::from_millis(100);
+const LATE_EXPECTED_RECONCILE_INTERVAL: Duration = Duration::from_secs(1);
 
 /// B-206/B-225/B-243: Record idle auto-stop の既定しきい値（秒）。
 /// Record 中に 10 分以上 Active が無ければ、利用者の Stop 漏れ相当として graceful 停止する。
@@ -378,6 +379,7 @@ pub fn spawn_io_thread_post(
         let mut next_preset_poll = Instant::now();
         let mut next_ack_timeout_poll = Instant::now();
         let mut next_pair_label_poll = Instant::now();
+        let mut next_late_expected_reconcile = Instant::now() + LATE_EXPECTED_RECONCILE_INTERVAL;
         // B-027 段階 3-B α-7-4-C / Step 10: all_keep_signal broadcast 受信側 cache。
         // key = `originator_post_instance_id`、value = `(started_at, last_seen)`。
         //
@@ -862,6 +864,20 @@ pub fn spawn_io_thread_post(
                     log::warn!("[all_keep] StoragePaths::default_platform() failed; skipping tick");
                 }
                 next_all_keep_poll = Instant::now() + ALL_KEEP_POLL_INTERVAL;
+            }
+
+            if Instant::now() >= next_late_expected_reconcile {
+                if let Ok(paths) = StoragePaths::default_platform() {
+                    let reconciled =
+                        crate::plugin_data::reconcile_late_expected_wav(&paths.plugin_data_dir());
+                    if reconciled > 0 {
+                        log::info!(
+                            "[record_expected] late WAV reconcile updated {} side(s)",
+                            reconciled
+                        );
+                    }
+                }
+                next_late_expected_reconcile = Instant::now() + LATE_EXPECTED_RECONCILE_INTERVAL;
             }
 
             thread::sleep(LOOP_SLEEP);

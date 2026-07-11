@@ -42,6 +42,7 @@
 use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
+use std::collections::HashMap;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -59,6 +60,9 @@ const BOUNCE_SOURCE_WAV_CLOCK: &str = "wav_clock_native";
 const BOUNCE_SOURCE_RENDER_CLOCK: &str = "render_clock_native";
 const TRACE_FRAME_INTERVAL_MS: u64 = 100;
 const TRACE_TIMEBASE_HZ: u64 = 48_000;
+const LATE_EXPECTED_BEFORE_RECORD_GRACE_MS: i64 = 2_000;
+const LATE_EXPECTED_AFTER_RECORD_GRACE_MS: i64 = 5 * 60 * 1_000;
+const LATE_EXPECTED_METADATA_FUTURE_SKEW_MS: i64 = 60 * 1_000;
 
 fn non_empty_string(value: Option<String>) -> Option<String> {
     value
@@ -1615,6 +1619,519 @@ pub fn reconcile_pair_committed_trace_shelves(plugin_data_root: &Path) -> usize 
     reconciled
 }
 
+/// Kirin OS が Drop 後に `record_expected/current.json` を書いた場合でも、既に閉じた
+/// Record を WAV の 0..duration sample 境界へ収束させる。
+///
+/// Hypha close 時点で expected WAV がまだ無い場合、pair は一度 `render_clock_native`
+/// の暫定成果物として閉じる。そのままだと PRE/POST の微小な block 差で `.failed`
+/// に落ちたり、TRACE が fallback warning 付きで表示されたりする。ここでは閉じた
+/// artifact だけを対象に、WAV header truth が到着した後で同じ session を正本境界へ
+/// 正規化する。計測中の writer / Audio Thread には触れない。
+pub fn reconcile_late_expected_wav(plugin_data_root: &Path) -> usize {
+    let mut reconciled = 0_usize;
+    if !plugin_data_root.is_dir() {
+        return reconciled;
+    }
+    let entries = match fs::read_dir(plugin_data_root) {
+        Ok(entries) => entries,
+        Err(_) => return reconciled,
+    };
+    for entry in entries.flatten() {
+        let Ok(ftype) = entry.file_type() else {
+            continue;
+        };
+        if !ftype.is_dir() {
+            continue;
+        }
+        let project_dir = entry.path();
+        let Some(expected) = read_late_expected_metadata_from_project_dir(&project_dir) else {
+            continue;
+        };
+        reconciled = reconciled.saturating_add(reconcile_late_expected_committed_project(
+            plugin_data_root,
+            &project_dir,
+            &expected,
+        ));
+        reconciled = reconciled.saturating_add(reconcile_late_expected_failed_project(
+            plugin_data_root,
+            &project_dir,
+            &expected,
+        ));
+    }
+    reconciled
+}
+
+fn read_late_expected_metadata_from_project_dir(project_dir: &Path) -> Option<ExpectedWavMetadata> {
+    let path = project_dir
+        .join(crate::record_expected::EXPECTED_SUBDIR)
+        .join(crate::record_expected::EXPECTED_FILENAME);
+    let bytes = fs::read(path).ok()?;
+    let mut metadata: ExpectedWavMetadata = serde_json::from_slice(&bytes).ok()?;
+    metadata.consumed_at_ms = None;
+    metadata.consumed_by_session_id = None;
+    if !metadata.is_complete() {
+        return None;
+    }
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    if metadata.created_at_ms > now_ms.saturating_add(LATE_EXPECTED_METADATA_FUTURE_SKEW_MS) {
+        return None;
+    }
+    if now_ms.saturating_sub(metadata.created_at_ms)
+        > crate::record_expected::EXPECTED_METADATA_MAX_AGE_MS
+    {
+        return None;
+    }
+    Some(metadata)
+}
+
+fn reconcile_late_expected_committed_project(
+    plugin_data_root: &Path,
+    project_dir: &Path,
+    expected: &ExpectedWavMetadata,
+) -> usize {
+    let sessions_dir = project_dir.join(PAIR_RECORD_SESSIONS_DIR);
+    let entries = match fs::read_dir(sessions_dir) {
+        Ok(entries) => entries,
+        Err(_) => return 0,
+    };
+    let mut reconciled = 0_usize;
+    for entry in entries.flatten() {
+        let Ok(ftype) = entry.file_type() else {
+            continue;
+        };
+        let path = entry.path();
+        if !ftype.is_file() || path.extension().is_none_or(|ext| ext != "json") {
+            continue;
+        }
+        match reconcile_late_expected_committed_manifest(plugin_data_root, &path, expected) {
+            Ok(true) => reconciled = reconciled.saturating_add(2),
+            Ok(false) => {}
+            Err(e) => log::warn!(
+                "[record_expected] late committed reconcile skipped: manifest={} err={}",
+                path.display(),
+                e
+            ),
+        }
+    }
+    reconciled
+}
+
+fn reconcile_late_expected_committed_manifest(
+    plugin_data_root: &Path,
+    manifest_path: &Path,
+    expected: &ExpectedWavMetadata,
+) -> Result<bool, WriterError> {
+    let bytes = fs::read(manifest_path)?;
+    let manifest: PairCommitManifest = serde_json::from_slice(&bytes)?;
+    if manifest.schema_version != PAIR_RECORD_SESSION_SCHEMA {
+        return Ok(false);
+    }
+    let pre_member = PathBuf::from(&manifest.pre.path);
+    let post_member = PathBuf::from(&manifest.post.path);
+    if !pre_member.starts_with(plugin_data_root) || !post_member.starts_with(plugin_data_root) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "pair commit member path escapes plugin_data base",
+        )
+        .into());
+    }
+    let mut pre_data = read_plugin_data_file(&pre_member)?;
+    let mut post_data = read_plugin_data_file(&post_member)?;
+    if late_expected_record_is_aligned(&pre_data, expected)
+        && late_expected_record_is_aligned(&post_data, expected)
+    {
+        return Ok(false);
+    }
+    if !normalize_late_expected_record(&mut pre_data, expected)
+        || !normalize_late_expected_record(&mut post_data, expected)
+    {
+        return Ok(false);
+    }
+    publish_late_expected_pair(
+        plugin_data_root,
+        &pre_member,
+        &mut pre_data,
+        &post_member,
+        &mut post_data,
+    )
+}
+
+#[derive(Default)]
+struct LateExpectedFailedCandidate {
+    pre: Option<(PathBuf, PluginDataFile)>,
+    post: Option<(PathBuf, PluginDataFile)>,
+}
+
+fn reconcile_late_expected_failed_project(
+    plugin_data_root: &Path,
+    project_dir: &Path,
+    expected: &ExpectedWavMetadata,
+) -> usize {
+    let mut candidates: HashMap<String, LateExpectedFailedCandidate> = HashMap::new();
+    collect_late_expected_failed_candidates(project_dir, &mut candidates);
+    let mut reconciled = 0_usize;
+    for (session_id, candidate) in candidates {
+        let (Some((pre_path, mut pre_data)), Some((post_path, mut post_data))) =
+            (candidate.pre, candidate.post)
+        else {
+            continue;
+        };
+        if !normalize_late_expected_record(&mut pre_data, expected)
+            || !normalize_late_expected_record(&mut post_data, expected)
+        {
+            continue;
+        }
+        match publish_late_expected_pair(
+            plugin_data_root,
+            &pre_path,
+            &mut pre_data,
+            &post_path,
+            &mut post_data,
+        ) {
+            Ok(true) => {
+                let _ = fs::remove_file(&pre_path);
+                let _ = fs::remove_file(&post_path);
+                reconciled = reconciled.saturating_add(2);
+                log::info!(
+                    "[record_expected] promoted late expected failed pair: session={} root={}",
+                    session_id,
+                    plugin_data_root.display()
+                );
+            }
+            Ok(false) => {}
+            Err(e) => log::warn!(
+                "[record_expected] late failed reconcile skipped: session={} err={}",
+                session_id,
+                e
+            ),
+        }
+    }
+    reconciled
+}
+
+fn collect_late_expected_failed_candidates(
+    dir: &Path,
+    candidates: &mut HashMap<String, LateExpectedFailedCandidate>,
+) {
+    let entries = match fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(_) => return,
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Ok(ftype) = entry.file_type() else {
+            continue;
+        };
+        if ftype.is_dir() {
+            collect_late_expected_failed_candidates(&path, candidates);
+            continue;
+        }
+        if !ftype.is_file()
+            || path.extension().is_none_or(|ext| ext != "json")
+            || path
+                .parent()
+                .and_then(Path::file_name)
+                .and_then(|name| name.to_str())
+                != Some(".failed")
+        {
+            continue;
+        }
+        let Ok(data) = read_plugin_data_file(&path) else {
+            continue;
+        };
+        let Some(session_id) = data
+            .record_session_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|session| !session.is_empty())
+            .map(str::to_string)
+        else {
+            continue;
+        };
+        let entry = candidates.entry(session_id).or_default();
+        match data.role {
+            Role::Pre if entry.pre.is_none() => entry.pre = Some((path, data)),
+            Role::Post if entry.post.is_none() => entry.post = Some((path, data)),
+            _ => {}
+        }
+    }
+}
+
+fn publish_late_expected_pair(
+    plugin_data_root: &Path,
+    left_path: &Path,
+    left_data: &mut PluginDataFile,
+    right_path: &Path,
+    right_data: &mut PluginDataFile,
+) -> Result<bool, WriterError> {
+    let Some(left_paths) = pair_paths_from_closed_artifact_path(left_path) else {
+        return Ok(false);
+    };
+    let Some(right_paths) = pair_paths_from_closed_artifact_path(right_path) else {
+        return Ok(false);
+    };
+    let paths = writer_paths_from_pair_paths(&left_paths);
+    let (pre_paths, pre_data, post_paths, post_data) = match (left_data.role, right_data.role) {
+        (Role::Pre, Role::Post) => (&left_paths, left_data, &right_paths, right_data),
+        (Role::Post, Role::Pre) => (&right_paths, right_data, &left_paths, left_data),
+        _ => return Ok(false),
+    };
+    if !paths.final_path.starts_with(plugin_data_root)
+        || !pre_paths.member_path.starts_with(plugin_data_root)
+        || !post_paths.member_path.starts_with(plugin_data_root)
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "late expected publish path escapes plugin_data base",
+        )
+        .into());
+    }
+    if !pair_publish_failure_reasons(pre_data, post_data).is_empty() {
+        return Ok(false);
+    }
+    pre_data.commit_status = Some("committed".to_string());
+    post_data.commit_status = Some("committed".to_string());
+    refresh_record_quality(pre_data);
+    refresh_record_quality(post_data);
+    publish_pair_committed_files(&paths, pre_paths, pre_data, post_paths, post_data)?;
+    mark_pair_expected_metadata_consumed(&paths, pre_data);
+    Ok(true)
+}
+
+fn normalize_late_expected_record(
+    data: &mut PluginDataFile,
+    expected: &ExpectedWavMetadata,
+) -> bool {
+    if !late_expected_can_own_record(data, expected)
+        || !late_expected_prior_reasons_are_reconcilable(data)
+    {
+        return false;
+    }
+    let Some(duration_ms) = expected_wav_duration_ms(expected) else {
+        return false;
+    };
+    let expected_frame_count = duration_ms / TRACE_FRAME_INTERVAL_MS;
+    let Ok(expected_len) = usize::try_from(expected_frame_count) else {
+        return false;
+    };
+    if expected_len == 0 || data.frames.len() < expected_len {
+        return false;
+    }
+
+    data.frames.retain(|frame| frame.t_ms <= duration_ms);
+    data.frames.truncate(expected_len);
+    if data.frames.len() != expected_len
+        || data
+            .frames
+            .iter()
+            .enumerate()
+            .any(|(idx, frame)| frame.t_ms != (idx as u64 + 1) * TRACE_FRAME_INTERVAL_MS)
+    {
+        return false;
+    }
+    if let Some(psb) = &mut data.psb_snapshots {
+        psb.retain(|snapshot| snapshot.t_ms <= duration_ms);
+    }
+
+    let raw_trace_count = data
+        .trace_diagnostics
+        .as_ref()
+        .map(|diag| diag.raw_trace_count)
+        .unwrap_or(data.frames.len() as u64)
+        .max(data.frames.len() as u64);
+    let explicit_silence_frame_count = data
+        .frames
+        .iter()
+        .filter(|frame| late_expected_frame_is_explicit_silence(frame))
+        .count() as u64;
+    let duration_frames_48k = u128_to_u64_saturating(
+        (expected.expected_duration_samples as u128)
+            .saturating_mul(TRACE_TIMEBASE_HZ as u128)
+            .saturating_div(expected.expected_sample_rate as u128),
+    );
+
+    data.expected_wav = Some(expected.clone());
+    data.bounce_marker.duration_samples = expected.expected_duration_samples;
+    data.bounce_take = Some(BounceTake {
+        source: BOUNCE_SOURCE_EXPECTED_WAV.to_string(),
+        time_axis: "native_samples".to_string(),
+        alignment_status: BOUNCE_ALIGNMENT_SAMPLE_COUNT_READY.to_string(),
+        sample_rate: expected.expected_sample_rate,
+        wav_start_sample: 0,
+        wav_end_sample: expected.expected_duration_samples,
+        duration_samples: expected.expected_duration_samples,
+        duration_frames_48k,
+        start_t_ms: 0,
+        end_t_ms: duration_ms,
+        trace_sample_count: raw_trace_count,
+        frame_count: data.frames.len() as u64,
+    });
+    data.trace_diagnostics = Some(TraceDiagnostics {
+        raw_trace_count,
+        expected_frame_count,
+        measured_frame_count: data.frames.len() as u64,
+        missing_slots: 0,
+        explicit_silence_frame_count,
+    });
+    data.integrity_reasons
+        .retain(|reason| !late_expected_reconcilable_reason(reason));
+    data.integrity_degraded = data.dropped_samples > 0 || !data.integrity_reasons.is_empty();
+    data.validity = !data.integrity_degraded;
+    data.commit_status = Some("committed".to_string());
+    refresh_record_quality(data);
+    normal_publish_failure_reasons(data).is_empty()
+}
+
+fn late_expected_record_is_aligned(data: &PluginDataFile, expected: &ExpectedWavMetadata) -> bool {
+    if data.expected_wav.as_ref() != Some(expected) {
+        return false;
+    }
+    let Some(take) = data.bounce_take.as_ref() else {
+        return false;
+    };
+    let Some(duration_ms) = expected_wav_duration_ms(expected) else {
+        return false;
+    };
+    take.source == BOUNCE_SOURCE_EXPECTED_WAV
+        && take.sample_rate == expected.expected_sample_rate
+        && take.duration_samples == expected.expected_duration_samples
+        && take.wav_start_sample == 0
+        && take.wav_end_sample == expected.expected_duration_samples
+        && take.end_t_ms == duration_ms
+        && data
+            .record_quality
+            .as_ref()
+            .is_some_and(|quality| quality.expected_wav_ready && quality.trace_slots_complete)
+}
+
+fn late_expected_can_own_record(data: &PluginDataFile, expected: &ExpectedWavMetadata) -> bool {
+    if !expected.is_usable()
+        || data.sample_rate == 0
+        || data.sample_rate != expected.expected_sample_rate
+        || data.record_session_id.as_deref().is_none_or(str::is_empty)
+        || data.status != Status::Closed
+    {
+        return false;
+    }
+    if let Some(existing) = &data.expected_wav {
+        if existing.is_usable() && existing != expected {
+            return false;
+        }
+    }
+    if data.started_at_ms > 0 {
+        if expected
+            .wav_mtime_ms
+            .saturating_add(LATE_EXPECTED_BEFORE_RECORD_GRACE_MS)
+            < data.started_at_ms
+        {
+            return false;
+        }
+        if expected
+            .created_at_ms
+            .saturating_add(LATE_EXPECTED_BEFORE_RECORD_GRACE_MS)
+            < data.started_at_ms
+        {
+            return false;
+        }
+    }
+    if let Some(end_ms) = parse_plugin_data_wall_clock_ms(&data.bounce_marker.wall_clock_end) {
+        if end_ms >= data.started_at_ms
+            && expected.wav_mtime_ms > end_ms.saturating_add(LATE_EXPECTED_AFTER_RECORD_GRACE_MS)
+        {
+            return false;
+        }
+    }
+    true
+}
+
+fn late_expected_prior_reasons_are_reconcilable(data: &PluginDataFile) -> bool {
+    data.dropped_samples == 0
+        && data
+            .integrity_reasons
+            .iter()
+            .all(|reason| late_expected_reconcilable_reason(reason))
+}
+
+fn late_expected_reconcilable_reason(reason: &str) -> bool {
+    matches!(
+        reason,
+        "validity_false"
+            | "integrity_degraded"
+            | "missing_expected_wav_metadata"
+            | "record_clock_not_wav_bounded"
+            | "bounce_take_duration_mismatch"
+            | "bounce_take_end_sample_mismatch"
+            | "bounce_take_end_time_mismatch"
+            | "bounce_take_48k_duration_mismatch"
+            | "trace_expected_frame_count_bounce_take_mismatch"
+            | "trace_frame_count_mismatch"
+            | "trace_frame_payload_count_mismatch"
+            | "trace_frame_payload_count_bounce_take_mismatch"
+            | "bounce_take_trace_frame_count_mismatch"
+            | "bounce_take_frame_payload_count_mismatch"
+            | "pair_expected_wav_mismatch"
+            | "pair_bounce_take_source_mismatch"
+            | "pair_bounce_take_time_axis_mismatch"
+            | "pair_bounce_take_alignment_mismatch"
+            | "pair_bounce_take_sample_rate_mismatch"
+            | "pair_bounce_take_start_sample_mismatch"
+            | "pair_bounce_take_end_sample_mismatch"
+            | "pair_bounce_take_duration_mismatch"
+            | "pair_bounce_take_48k_duration_mismatch"
+            | "pair_bounce_take_start_time_mismatch"
+            | "pair_bounce_take_end_time_mismatch"
+            | "pair_bounce_take_frame_count_mismatch"
+            | "pair_trace_expected_frame_count_mismatch"
+            | "pair_trace_measured_frame_count_mismatch"
+    )
+}
+
+fn late_expected_frame_is_explicit_silence(frame: &Frame) -> bool {
+    frame.true_peak <= -99.9 && frame.lufs_m <= -99.9
+}
+
+fn expected_wav_duration_ms(expected: &ExpectedWavMetadata) -> Option<u64> {
+    if expected.expected_sample_rate == 0 {
+        return None;
+    }
+    Some(u128_to_u64_saturating(
+        (expected.expected_duration_samples as u128)
+            .saturating_mul(1_000)
+            .saturating_div(expected.expected_sample_rate as u128),
+    ))
+}
+
+fn parse_plugin_data_wall_clock_ms(value: &str) -> Option<i64> {
+    chrono::DateTime::parse_from_rfc3339(value)
+        .ok()
+        .map(|dt| dt.timestamp_millis())
+}
+
+fn pair_paths_from_closed_artifact_path(path: &Path) -> Option<PairPaths> {
+    let file_name = path.file_name()?.to_owned();
+    let parent = path.parent()?;
+    let role_dir = match parent.file_name().and_then(|name| name.to_str()) {
+        Some(PAIR_RECORD_MEMBERS_DIR) | Some(".failed") => parent.parent()?,
+        _ => parent,
+    };
+    Some(PairPaths {
+        final_path: role_dir.join(&file_name),
+        member_path: role_dir.join(PAIR_RECORD_MEMBERS_DIR).join(&file_name),
+        pair_pending_path: role_dir.join(".pair_pending").join(&file_name),
+        failed_path: role_dir.join(".failed").join(&file_name),
+    })
+}
+
+fn writer_paths_from_pair_paths(paths: &PairPaths) -> WriterPaths {
+    WriterPaths {
+        final_path: paths.final_path.clone(),
+        tmp_path: sibling_tmp_path(&paths.final_path),
+        staging_path: paths.final_path.with_extension("json.partial"),
+        pair_pending_path: paths.pair_pending_path.clone(),
+        failed_path: paths.failed_path.clone(),
+    }
+}
+
 fn walk_pair_commit_manifests(base_dir: &Path, dir: &Path, reconciled: &mut usize) {
     let entries = match fs::read_dir(dir) {
         Ok(entries) => entries,
@@ -2385,6 +2902,78 @@ mod tests {
             consumed_at_ms: None,
             consumed_by_session_id: None,
         }
+    }
+
+    fn fresh_expected_wav_fixture(duration_samples: u64) -> ExpectedWavMetadata {
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        ExpectedWavMetadata {
+            expected_duration_samples: duration_samples,
+            expected_sample_rate: 48_000,
+            wav_path: "/tmp/kirin-plugin-data-late-expected.wav".to_string(),
+            bounce_id: format!("bounce-late-expected-{now_ms}"),
+            created_at_ms: now_ms,
+            wav_file_size: Some(duration_samples.saturating_mul(8).saturating_add(44)),
+            wav_mtime_ms: now_ms.saturating_sub(1_000),
+            wav_hash: Some(format!("hash-late-expected-{now_ms}")),
+            consumed_at_ms: None,
+            consumed_by_session_id: None,
+        }
+    }
+
+    fn iso_ms(ms: i64) -> String {
+        chrono::DateTime::<chrono::Utc>::from_timestamp_millis(ms)
+            .unwrap()
+            .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+            .to_string()
+    }
+
+    fn set_late_expected_record_time(writer: &mut PluginDataWriter, start_ms: i64, end_ms: i64) {
+        writer.set_record_start_wall_clock(iso_ms(start_ms));
+        writer.set_started_at_ms(start_ms);
+        writer.data.bounce_marker.wall_clock_end = iso_ms(end_ms);
+    }
+
+    fn configure_render_clock_take(writer: &mut PluginDataWriter, duration_samples: u64) {
+        let sample_rate = writer.data.sample_rate;
+        let duration_ms = duration_samples
+            .saturating_mul(1_000)
+            .saturating_div(sample_rate as u64);
+        let frame_count = duration_ms / TRACE_FRAME_INTERVAL_MS;
+        writer.set_expected_wav(None);
+        writer.clear_frames();
+        for idx in 1..=frame_count {
+            let t_ms = idx * TRACE_FRAME_INTERVAL_MS;
+            writer.append_frame(
+                t_ms,
+                [idx as f64; 20],
+                idx as f64,
+                -24.0 + idx as f64 * 0.1,
+                -6.0 + idx as f64 * 0.1,
+                12.0,
+                Some(9.0),
+            );
+        }
+        writer.set_bounce_take(BounceTake {
+            source: BOUNCE_SOURCE_RENDER_CLOCK.to_string(),
+            time_axis: "native_samples".to_string(),
+            alignment_status: BOUNCE_ALIGNMENT_SAMPLE_COUNT_READY.to_string(),
+            sample_rate,
+            wav_start_sample: 0,
+            wav_end_sample: duration_samples,
+            duration_samples,
+            duration_frames_48k: duration_samples,
+            start_t_ms: 0,
+            end_t_ms: duration_ms,
+            trace_sample_count: frame_count,
+            frame_count,
+        });
+        writer.set_trace_diagnostics(TraceDiagnostics {
+            raw_trace_count: frame_count,
+            expected_frame_count: frame_count,
+            measured_frame_count: frame_count,
+            missing_slots: 0,
+            explicit_silence_frame_count: 0,
+        });
     }
 
     fn complete_pair_writer(
@@ -3919,6 +4508,222 @@ mod tests {
                 .any(|reason| reason == "pair_bounce_take_48k_duration_mismatch"));
             assert!(verify_checksum(data));
         }
+    }
+
+    #[test]
+    fn late_expected_reconcile_rebases_committed_render_clock_pair_to_wav_boundaries() {
+        let base = isolated_dir();
+        let expected = fresh_expected_wav_fixture(48_000);
+        let start_ms = expected.wav_mtime_ms.saturating_sub(2_000);
+        let end_ms = expected.wav_mtime_ms.saturating_add(500);
+        let mut pre = complete_pair_writer(
+            &base,
+            Role::Pre,
+            "iid-pre-late-committed",
+            None,
+            Some("iid-post-late-committed".to_string()),
+        );
+        let mut post = complete_pair_writer(
+            &base,
+            Role::Post,
+            "iid-post-late-committed",
+            Some("iid-pre-late-committed".to_string()),
+            None,
+        );
+        for writer in [&mut pre, &mut post] {
+            writer.set_record_session_id(Some("session-late-committed".to_string()));
+            set_late_expected_record_time(writer, start_ms, end_ms);
+            configure_render_clock_take(writer, 57_600);
+            writer.data.status = Status::Closed;
+            writer.data.commit_status = Some("pair_pending".to_string());
+        }
+        let pre_paths = self_paths_for(&pre.paths, &pre.data);
+        let post_paths = self_paths_for(&post.paths, &post.data);
+        pre.write_atomic(pre_paths.pair_pending_path.clone())
+            .unwrap();
+        post.write_atomic(post_paths.pair_pending_path.clone())
+            .unwrap();
+        try_finalize_pair_session(&pre.paths, &pre.data).unwrap();
+
+        let before: PluginDataFile =
+            serde_json::from_slice(&fs::read(&pre_paths.member_path).unwrap()).unwrap();
+        assert_eq!(
+            before.bounce_take.as_ref().map(|take| take.source.as_str()),
+            Some(BOUNCE_SOURCE_RENDER_CLOCK)
+        );
+        assert_eq!(before.frames.len(), 12);
+        assert!(
+            !before
+                .record_quality
+                .as_ref()
+                .expect("quality")
+                .expected_wav_ready
+        );
+
+        crate::record_expected::write_expected_metadata(&base, "project_hash_test", &expected)
+            .unwrap();
+        assert_eq!(reconcile_late_expected_wav(&base), 2);
+
+        let manifest_path = pair_commit_manifest_path(&pre.paths, &pre.data).unwrap();
+        let pre_trace_path = pair_trace_shelf_path(&pre_paths, &pre.data).unwrap();
+        let post_trace_path = pair_trace_shelf_path(&post_paths, &post.data).unwrap();
+        assert!(manifest_path.exists());
+        assert!(pre_trace_path.exists());
+        assert!(post_trace_path.exists());
+        for path in [
+            &pre_paths.member_path,
+            &post_paths.member_path,
+            &pre_trace_path,
+            &post_trace_path,
+        ] {
+            let data: PluginDataFile = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+            assert_eq!(data.commit_status.as_deref(), Some("committed"));
+            assert_eq!(data.frames.len(), 10);
+            let take = data.bounce_take.as_ref().expect("bounce_take");
+            assert_eq!(take.source, BOUNCE_SOURCE_EXPECTED_WAV);
+            assert_eq!(take.duration_samples, expected.expected_duration_samples);
+            assert_eq!(take.frame_count, 10);
+            let quality = data.record_quality.as_ref().expect("record_quality");
+            assert_eq!(quality.status, "complete");
+            assert!(quality.expected_wav_ready);
+            assert!(quality.trace_slots_complete);
+            assert!(verify_checksum(&data));
+        }
+        assert_eq!(reconcile_late_expected_wav(&base), 0);
+    }
+
+    #[test]
+    fn late_expected_reconcile_promotes_failed_duration_mismatched_pair() {
+        let base = isolated_dir();
+        let expected = fresh_expected_wav_fixture(48_000);
+        let start_ms = expected.wav_mtime_ms.saturating_sub(2_000);
+        let end_ms = expected.wav_mtime_ms.saturating_add(500);
+        let mut pre = complete_pair_writer(
+            &base,
+            Role::Pre,
+            "iid-pre-late-failed",
+            None,
+            Some("iid-post-late-failed".to_string()),
+        );
+        let mut post = complete_pair_writer(
+            &base,
+            Role::Post,
+            "iid-post-late-failed",
+            Some("iid-pre-late-failed".to_string()),
+            None,
+        );
+        pre.set_record_session_id(Some("session-late-failed".to_string()));
+        post.set_record_session_id(Some("session-late-failed".to_string()));
+        set_late_expected_record_time(&mut pre, start_ms, end_ms);
+        set_late_expected_record_time(&mut post, start_ms, end_ms);
+        configure_render_clock_take(&mut pre, 52_800);
+        configure_render_clock_take(&mut post, 57_600);
+        for writer in [&mut pre, &mut post] {
+            writer.data.status = Status::Closed;
+            writer.data.commit_status = Some("pair_pending".to_string());
+        }
+        let pre_paths = self_paths_for(&pre.paths, &pre.data);
+        let post_paths = self_paths_for(&post.paths, &post.data);
+        pre.write_atomic(pre_paths.pair_pending_path.clone())
+            .unwrap();
+        post.write_atomic(post_paths.pair_pending_path.clone())
+            .unwrap();
+        try_finalize_pair_session(&pre.paths, &pre.data).unwrap();
+        assert!(pre_paths.failed_path.exists());
+        assert!(post_paths.failed_path.exists());
+        assert!(!pair_commit_manifest_path(&pre.paths, &pre.data)
+            .unwrap()
+            .exists());
+
+        crate::record_expected::write_expected_metadata(&base, "project_hash_test", &expected)
+            .unwrap();
+        assert_eq!(reconcile_late_expected_wav(&base), 2);
+
+        let manifest_path = pair_commit_manifest_path(&pre.paths, &pre.data).unwrap();
+        let pre_trace_path = pair_trace_shelf_path(&pre_paths, &pre.data).unwrap();
+        let post_trace_path = pair_trace_shelf_path(&post_paths, &post.data).unwrap();
+        assert!(manifest_path.exists());
+        assert!(!pre_paths.failed_path.exists());
+        assert!(!post_paths.failed_path.exists());
+        for path in [
+            &pre_paths.member_path,
+            &post_paths.member_path,
+            &pre_trace_path,
+            &post_trace_path,
+        ] {
+            let data: PluginDataFile = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+            assert_eq!(data.commit_status.as_deref(), Some("committed"));
+            assert!(data.validity);
+            assert!(!data.integrity_degraded);
+            assert!(data.integrity_reasons.is_empty());
+            assert_eq!(data.frames.len(), 10);
+            assert_eq!(
+                data.bounce_take.as_ref().map(|take| take.duration_samples),
+                Some(expected.expected_duration_samples)
+            );
+            assert!(
+                data.record_quality
+                    .as_ref()
+                    .expect("record_quality")
+                    .expected_wav_ready
+            );
+            assert!(verify_checksum(&data));
+        }
+        assert!(crate::record_expected::claim_marker_is_closed_for_session(
+            &base,
+            "project_hash_test",
+            "session-late-failed"
+        )
+        .unwrap());
+    }
+
+    #[test]
+    fn late_expected_reconcile_rejects_expected_wav_older_than_record_start() {
+        let base = isolated_dir();
+        let mut expected = fresh_expected_wav_fixture(48_000);
+        let start_ms = expected.wav_mtime_ms.saturating_add(10_000);
+        let end_ms = start_ms.saturating_add(1_000);
+        expected.created_at_ms = start_ms.saturating_add(500);
+        let mut pre = complete_pair_writer(
+            &base,
+            Role::Pre,
+            "iid-pre-late-stale",
+            None,
+            Some("iid-post-late-stale".to_string()),
+        );
+        let mut post = complete_pair_writer(
+            &base,
+            Role::Post,
+            "iid-post-late-stale",
+            Some("iid-pre-late-stale".to_string()),
+            None,
+        );
+        pre.set_record_session_id(Some("session-late-stale".to_string()));
+        post.set_record_session_id(Some("session-late-stale".to_string()));
+        set_late_expected_record_time(&mut pre, start_ms, end_ms);
+        set_late_expected_record_time(&mut post, start_ms, end_ms);
+        configure_render_clock_take(&mut pre, 52_800);
+        configure_render_clock_take(&mut post, 57_600);
+        for writer in [&mut pre, &mut post] {
+            writer.data.status = Status::Closed;
+            writer.data.commit_status = Some("pair_pending".to_string());
+        }
+        let pre_paths = self_paths_for(&pre.paths, &pre.data);
+        let post_paths = self_paths_for(&post.paths, &post.data);
+        pre.write_atomic(pre_paths.pair_pending_path.clone())
+            .unwrap();
+        post.write_atomic(post_paths.pair_pending_path.clone())
+            .unwrap();
+        try_finalize_pair_session(&pre.paths, &pre.data).unwrap();
+        crate::record_expected::write_expected_metadata(&base, "project_hash_test", &expected)
+            .unwrap();
+
+        assert_eq!(reconcile_late_expected_wav(&base), 0);
+        assert!(pre_paths.failed_path.exists());
+        assert!(post_paths.failed_path.exists());
+        assert!(!pair_commit_manifest_path(&pre.paths, &pre.data)
+            .unwrap()
+            .exists());
     }
 
     #[test]
