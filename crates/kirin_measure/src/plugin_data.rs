@@ -2180,15 +2180,6 @@ fn normalize_late_expected_record(
         missing_slots: 0,
         explicit_silence_frame_count,
     });
-    let Some(trace_clock) = data.trace_clock.as_mut() else {
-        return false;
-    };
-    if trace_clock.basis != crate::trace_alignment::TRACE_CLOCK_BASIS
-        || trace_clock.sources.is_empty()
-        || trace_clock.sample_rate != data.sample_rate
-    {
-        return false;
-    }
     let Some(record_session_id) = data
         .record_session_id
         .as_deref()
@@ -2255,6 +2246,8 @@ fn late_expected_can_own_record(data: &PluginDataFile, expected: &ExpectedWavMet
         || data.sample_rate == 0
         || data.sample_rate != expected.expected_sample_rate
         || data.record_session_id.as_deref().is_none_or(str::is_empty)
+        || data.started_at_ms <= 0
+        || expected.created_at_ms < data.started_at_ms
         || data.status != Status::Closed
     {
         return false;
@@ -2305,6 +2298,11 @@ fn late_expected_reconcilable_reason(reason: &str) -> bool {
             | "integrity_degraded"
             | "missing_expected_wav_metadata"
             | "record_clock_not_wav_bounded"
+            | "missing_trace_slots"
+            | "raw_trace_timeline_gap"
+            | "frame_timeline_gap"
+            | "sparse_trace_density"
+            | "record_too_short"
             | "bounce_take_duration_mismatch"
             | "bounce_take_end_sample_mismatch"
             | "bounce_take_end_time_mismatch"
@@ -2626,8 +2624,8 @@ fn mark_pair_expected_metadata_consumed(paths: &WriterPaths, data: &PluginDataFi
     let Some(session_id) = data.record_session_id.as_deref() else {
         return;
     };
-    // `expected_wav` が既に欠落/フィルタ済みの経路（.failed 等）でも、claim marker 自体は
-    // session_id だけで自分の bounce_id を覚えているため closed_at_ms は刻める。
+    // `.failed` 等で expected_wav が無い場合は metadata-free lifecycle だけを閉じる。
+    // Drop 後に exact WAV が結合された成功経路だけ bounce_id を渡して marker を完成させる。
     let bounce_id = data
         .expected_wav
         .as_ref()
@@ -5060,6 +5058,106 @@ mod tests {
             "session-late-failed"
         )
         .unwrap());
+    }
+
+    #[test]
+    fn late_expected_normalization_does_not_require_optional_host_clock() {
+        let base = isolated_dir();
+        let expected = fresh_expected_wav_fixture(48_000);
+        let start_ms = expected.wav_mtime_ms.saturating_sub(2_000);
+        let end_ms = expected.wav_mtime_ms.saturating_add(500);
+        let mut writer = complete_pair_writer(
+            &base,
+            Role::Pre,
+            "iid-pre-no-host-clock",
+            None,
+            Some("iid-post-no-host-clock".to_string()),
+        );
+        writer.set_record_session_id(Some("session-no-host-clock".to_string()));
+        set_late_expected_record_time(&mut writer, start_ms, end_ms);
+        configure_render_clock_take(&mut writer, 57_600);
+        writer.data.status = Status::Closed;
+        writer.data.commit_status = Some("pair_pending".to_string());
+        writer.data.trace_time_axis = None;
+        writer.data.trace_clock = None;
+
+        let mut data = writer.data;
+        assert!(normalize_late_expected_record(&mut data, &expected));
+        assert!(data.trace_clock.is_none());
+        assert_eq!(
+            data.trace_time_axis.as_deref(),
+            Some(crate::trace_alignment::TRACE_TIME_AXIS)
+        );
+        assert!(crate::trace_alignment::has_canonical_wav_reference(&data));
+        assert_eq!(data.frames.len(), 10);
+    }
+
+    #[test]
+    fn late_expected_normalization_rejects_previous_generation_even_one_ms_before_keep() {
+        let base = isolated_dir();
+        let mut expected = fresh_expected_wav_fixture(48_000);
+        let start_ms = expected.created_at_ms.saturating_add(1);
+        expected.wav_mtime_ms = start_ms;
+        let mut writer = complete_pair_writer(
+            &base,
+            Role::Pre,
+            "iid-pre-prior-generation",
+            None,
+            Some("iid-post-prior-generation".to_string()),
+        );
+        writer.set_record_session_id(Some("session-prior-generation".to_string()));
+        set_late_expected_record_time(&mut writer, start_ms, start_ms.saturating_add(1_000));
+        configure_render_clock_take(&mut writer, 57_600);
+        writer.data.status = Status::Closed;
+        writer.data.commit_status = Some("pair_pending".to_string());
+
+        let mut data = writer.data;
+        assert!(!normalize_late_expected_record(&mut data, &expected));
+        assert!(data.expected_wav.is_none());
+        assert!(data.trace_wav_reference.is_none());
+    }
+
+    #[test]
+    fn late_expected_normalization_discards_integrity_faults_after_wav_end() {
+        let base = isolated_dir();
+        let expected = fresh_expected_wav_fixture(48_000);
+        let start_ms = expected.wav_mtime_ms.saturating_sub(2_000);
+        let end_ms = expected.wav_mtime_ms.saturating_add(500);
+        let mut writer = complete_pair_writer(
+            &base,
+            Role::Post,
+            "iid-post-tail-gap",
+            Some("iid-pre-tail-gap".to_string()),
+            None,
+        );
+        writer.set_record_session_id(Some("session-tail-gap".to_string()));
+        set_late_expected_record_time(&mut writer, start_ms, end_ms);
+        configure_render_clock_take(&mut writer, 57_600);
+        writer.data.status = Status::Closed;
+        writer.data.commit_status = Some("pair_pending".to_string());
+        writer.data.trace_diagnostics = Some(TraceDiagnostics {
+            raw_trace_count: 13,
+            expected_frame_count: 13,
+            measured_frame_count: 12,
+            missing_slots: 1,
+            explicit_silence_frame_count: 0,
+        });
+        writer.data.integrity_degraded = true;
+        writer.data.integrity_reasons = vec![
+            "missing_trace_slots".to_string(),
+            "raw_trace_timeline_gap".to_string(),
+            "sparse_trace_density".to_string(),
+        ];
+
+        let mut data = writer.data;
+        assert!(normalize_late_expected_record(&mut data, &expected));
+        assert_eq!(data.frames.len(), 10);
+        assert!(!data.integrity_degraded);
+        assert!(data.integrity_reasons.is_empty());
+        let diagnostics = data.trace_diagnostics.expect("WAV-scoped diagnostics");
+        assert_eq!(diagnostics.expected_frame_count, 10);
+        assert_eq!(diagnostics.measured_frame_count, 10);
+        assert_eq!(diagnostics.missing_slots, 0);
     }
 
     #[test]

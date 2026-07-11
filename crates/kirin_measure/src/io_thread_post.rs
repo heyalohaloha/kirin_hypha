@@ -2089,17 +2089,11 @@ fn poll_record_signal_ack_with_base(
     if signal.status != SignalStatus::Acknowledged {
         return;
     }
-    if signal.expected_wav.is_none() {
-        log::warn!(
-            "[IOThread POST] ACK has no expected WAV metadata; Record may publish with degraded \
-             integrity \
-             (post_iid={})",
-            instance_id
-        );
-    } else if !signal
-        .expected_wav
-        .as_ref()
-        .is_some_and(crate::record_expected::ExpectedWavMetadata::is_usable)
+    if signal.expected_wav.is_some()
+        && !signal
+            .expected_wav
+            .as_ref()
+            .is_some_and(crate::record_expected::ExpectedWavMetadata::is_usable)
     {
         log::warn!(
             "[IOThread POST] ACK has invalid expected WAV metadata; Record may publish with \

@@ -151,10 +151,9 @@ pub struct RecordSignal {
     /// `status=released` の停止理由。None は cleanup / 旧 schema の released marker。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub release_reason: Option<ReleaseReason>,
-    /// Kirin OS/Hub が Record 開始前に渡す dropped WAV header metadata。
-    ///
-    /// 完全な Record artifact の trust anchor。POST Keep で claim できない場合でも
-    /// Keep は続行し、final artifact 側の quality metadata で usable fallback として明示する。
+    /// Legacy explicit pre-bound WAV metadata. Normal Keep leaves this absent so a previous
+    /// `current.json` generation can never arm a new Record; Drop-time reconciliation owns the
+    /// current contract.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expected_wav: Option<ExpectedWavMetadata>,
 }
@@ -328,13 +327,10 @@ pub fn write_pending_with_expected_and_clock(
     Ok(signal)
 }
 
-/// pending シグナルを生成し、同じ Record session_id で expected WAV metadata を snapshot する。
+/// pending シグナルと、WAV 世代をまだ持たない Record session lifecycle を生成する。
 ///
-/// 完全な Record artifact は dropped WAV header metadata を trust anchor にする。metadata が
-/// 無い/古い/別 session に消費済みの場合でも Keep は続行し、final artifact 側の `record_quality` と
-/// integrity reasons で usable fallback として明示する。
-/// 先に pending を durable に置いてから metadata を読むことで、metadata snapshot だけが
-/// 残って Record signal が無い状態を作らない。`current.json` は claim で消費しない。
+/// `record_expected/current.json` は前回 Drop の世代を保持し得るため、Keep 時には読まない。
+/// 今回の Drop 後に reconciliation が同じ session_id へ exact WAV metadata を結合する。
 #[allow(clippy::too_many_arguments)]
 pub fn write_pending_claiming_expected_and_clock(
     base_dir: &Path,
@@ -344,7 +340,7 @@ pub fn write_pending_claiming_expected_and_clock(
     daw_session_id: String,
     started_at_position_samples: Option<i64>,
 ) -> Result<RecordSignal, SignalError> {
-    let mut signal = RecordSignal::new_pending(
+    let signal = RecordSignal::new_pending(
         post_instance_id.to_string(),
         target_pre_instance_id,
         daw_session_id,
@@ -352,18 +348,13 @@ pub fn write_pending_claiming_expected_and_clock(
         started_at_position_samples,
     );
     write_signal(base_dir, project_hash, post_instance_id, &signal)?;
-    if let Ok(expected_wav) = crate::record_expected::claim_expected_metadata_for_session(
-        base_dir,
-        project_hash,
-        &signal.session_id,
-    ) {
-        signal.expected_wav = Some(expected_wav);
-        if let Err(e) = write_signal(base_dir, project_hash, post_instance_id, &signal) {
-            log::warn!(
-                "[record_signal] expected_wav enrichment write failed; continuing as usable fallback: {}",
-                e
-            );
-        }
+    if let Err(e) =
+        crate::record_expected::begin_expected_session(base_dir, project_hash, &signal.session_id)
+    {
+        log::warn!(
+            "[record_signal] session lifecycle marker write failed; Keep continues: {}",
+            e
+        );
     }
     Ok(signal)
 }

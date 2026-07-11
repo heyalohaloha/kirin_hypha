@@ -53,10 +53,9 @@ pub(crate) fn has_canonical_wav_reference(data: &PluginDataFile) -> bool {
     if data.trace_time_axis.as_deref() != Some(TRACE_TIME_AXIS) {
         return false;
     }
-    let (Some(reference), Some(expected), Some(clock), Some(session_id)) = (
+    let (Some(reference), Some(expected), Some(session_id)) = (
         data.trace_wav_reference.as_ref(),
         data.expected_wav.as_ref(),
-        data.trace_clock.as_ref(),
         data.record_session_id.as_deref(),
     ) else {
         return false;
@@ -64,14 +63,7 @@ pub(crate) fn has_canonical_wav_reference(data: &PluginDataFile) -> bool {
     let Some(expected_hash) = expected.wav_hash.as_deref().map(str::trim) else {
         return false;
     };
-    let valid_host_diagnostic = clock.basis == TRACE_CLOCK_BASIS
-        && clock.end_position_samples > clock.origin_position_samples
-        && clock.sample_rate == data.sample_rate
-        && clock.sample_rate > 0
-        && !clock.sources.is_empty()
-        && clock.sources.iter().all(|source| !source.trim().is_empty());
     expected.is_complete()
-        && valid_host_diagnostic
         && reference.basis == TRACE_WAV_REFERENCE_BASIS
         && reference.capture_basis == TRACE_CAPTURE_BASIS
         && reference.start_sample == 0
@@ -183,13 +175,17 @@ mod tests {
     }
 
     #[test]
-    fn pair_contract_rejects_invalid_instance_host_diagnostics() {
-        let pre = data(Role::Pre);
+    fn pair_contract_does_not_depend_on_instance_host_diagnostics() {
+        let mut pre = data(Role::Pre);
         let mut post = data(Role::Post);
         let clock = post.trace_clock.as_mut().unwrap();
         clock.end_position_samples = clock.origin_position_samples;
 
-        assert!(canonical_wav_alignment(&pre, &post).is_none());
+        assert!(canonical_wav_alignment(&pre, &post).is_some());
+
+        pre.trace_clock = None;
+        post.trace_clock = None;
+        assert!(canonical_wav_alignment(&pre, &post).is_some());
     }
 
     #[test]
