@@ -51,6 +51,7 @@ use crate::RecordTakeTracker;
 use crate::{load_signal_state, License, MeasureResult, RecordTraceQueue, SignalState};
 
 const LOOP_SLEEP: Duration = Duration::from_millis(100);
+const LATE_EXPECTED_RECONCILE_INTERVAL: Duration = Duration::from_secs(1);
 
 /// record_signal poll 間隔。
 ///
@@ -739,6 +740,7 @@ pub fn spawn_io_thread_pre(
         let mut writer_ctx: Option<RecordingCtx> = None;
         let mut last_poll: Option<Instant> = None;
         let mut partner: Option<PartnerInfo> = None;
+        let mut next_late_expected_reconcile = Instant::now() + LATE_EXPECTED_RECONCILE_INTERVAL;
         // B-022 段階 5 P-1 #1: effective_project_hash_ref の edge-triggered ログ用。
         // 値が前回と異なる時のみ INFO で出す (毎 tick 出すと R-26/R-28 沈黙ゲート違反)。
         let mut prev_effective_ph: Option<String> = None;
@@ -992,6 +994,20 @@ pub fn spawn_io_thread_pre(
             }
 
             recording.store(record_sm.is_recording(), Ordering::Relaxed);
+
+            if Instant::now() >= next_late_expected_reconcile {
+                if let Ok(paths) = StoragePaths::default_platform() {
+                    let reconciled =
+                        crate::plugin_data::reconcile_late_expected_wav(&paths.plugin_data_dir());
+                    if reconciled > 0 {
+                        log::info!(
+                            "[record_expected] late WAV reconcile updated {} side(s)",
+                            reconciled
+                        );
+                    }
+                }
+                next_late_expected_reconcile = Instant::now() + LATE_EXPECTED_RECONCILE_INTERVAL;
+            }
 
             thread::sleep(LOOP_SLEEP);
         }
