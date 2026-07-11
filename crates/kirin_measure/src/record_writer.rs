@@ -1162,7 +1162,7 @@ fn bake_continuous_record_timeline(ctx: &mut RecordingCtx) {
         }
     });
     ctx.writer.set_trace_time_axis(
-        canonical_clock.then(|| crate::trace_alignment::TRACE_TIME_AXIS.to_string()),
+        canonical_clock.then(|| crate::trace_alignment::TRACE_HOST_TIME_AXIS.to_string()),
     );
     ctx.writer.set_trace_clock(trace_clock);
     if missing_slots > 0 {
@@ -5271,7 +5271,7 @@ mod tests {
         assert!(loaded.frames.iter().all(|frame| frame.lufs_m > -100.0));
         assert_eq!(
             loaded.trace_time_axis.as_deref(),
-            Some(crate::trace_alignment::TRACE_TIME_AXIS)
+            Some(crate::trace_alignment::TRACE_HOST_TIME_AXIS)
         );
         let trace_clock = loaded.trace_clock.as_ref().expect("absolute trace clock");
         assert_eq!(trace_clock.origin_position_samples, 0);
@@ -5332,7 +5332,7 @@ mod tests {
 
         assert_eq!(
             ctx.writer.data().trace_time_axis.as_deref(),
-            Some(crate::trace_alignment::TRACE_TIME_AXIS)
+            Some(crate::trace_alignment::TRACE_HOST_TIME_AXIS)
         );
         let clock = ctx.writer.data().trace_clock.as_ref().unwrap();
         assert_eq!(clock.origin_position_samples, 24_000);
@@ -5886,9 +5886,11 @@ mod tests {
             None,
         )
         .unwrap();
+        let expected = expected_wav_metadata(48_000, 48_000, "startup-reconcile");
         for writer in [&mut pre, &mut post] {
             writer.set_record_start_wall_clock(start_iso.to_string());
             writer.set_record_session_id(Some(session_id.to_string()));
+            writer.set_expected_wav(Some(expected.clone()));
             writer.set_bounce_take(BounceTake {
                 source: "render_clock_native".to_string(),
                 time_axis: "native_samples".to_string(),
@@ -5910,7 +5912,9 @@ mod tests {
                 missing_slots: 0,
                 explicit_silence_frame_count: 0,
             });
-            writer.set_trace_time_axis(Some(crate::trace_alignment::TRACE_TIME_AXIS.to_string()));
+            writer.set_trace_time_axis(Some(
+                crate::trace_alignment::TRACE_HOST_TIME_AXIS.to_string(),
+            ));
             writer.set_trace_clock(Some(TraceClock {
                 basis: crate::trace_alignment::TRACE_CLOCK_BASIS.to_string(),
                 origin_position_samples: 0,
