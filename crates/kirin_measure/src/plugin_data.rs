@@ -204,6 +204,22 @@ pub struct TraceClock {
     pub sources: Vec<String>,
 }
 
+/// Final TRACE axis bound to the exact WAV selected by Drop.
+///
+/// Host callback positions remain in trace_clock as per-instance diagnostics. This reference is
+/// the pair-wide coordinate system: WAV sample 0 through the exact header-derived sample count.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TraceWavReference {
+    pub basis: String,
+    pub capture_basis: String,
+    pub start_sample: u64,
+    pub end_sample: u64,
+    pub sample_rate: u32,
+    pub record_session_id: String,
+    pub bounce_id: String,
+    pub wav_hash: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RecordQuality {
     /// `complete` = sample-count aligned full product.
@@ -325,14 +341,18 @@ pub struct PluginDataFile {
     /// TRACE 欠損診断。missing は frames[] に測定値として入れない。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trace_diagnostics: Option<TraceDiagnostics>,
-    /// Producer-owned TRACE time axis. Normal pair publication requires every frame to be baked
-    /// from the host's native sample position; consumers never infer or shift it.
+    /// TRACE time axis. Before Drop this is the per-instance host diagnostic axis; normal pair
+    /// publication replaces it with the exact dropped-WAV sample axis.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trace_time_axis: Option<String>,
-    /// Absolute origin/range and clock provenance for the producer-owned TRACE axis.
+    /// Per-instance host callback origin/range and provenance. This remains diagnostic and is not
+    /// compared across PRE/POST because DAW PDC and wrapper scheduling can shift it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trace_clock: Option<TraceClock>,
-    /// PRE/POST が producer-owned host sample clock 上で完成済みであることを示す契約。
+    /// Pair-wide final axis. Present only after Drop supplies a complete WAV identity and length.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trace_wav_reference: Option<TraceWavReference>,
+    /// PRE/POST が同一 Record session と dropped-WAV sample axis 上で完成済みである契約。
     /// consumer は内容推定も時刻補正も行わない。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trace_content_alignment: Option<crate::trace_alignment::TraceContentAlignment>,
@@ -442,6 +462,7 @@ impl PluginDataFile {
             trace_diagnostics: None,
             trace_time_axis: None,
             trace_clock: None,
+            trace_wav_reference: None,
             trace_content_alignment: None,
             trace_context_frames: Vec::new(),
             trace_context_psb_snapshots: Vec::new(),
@@ -666,6 +687,15 @@ impl PluginDataWriter {
     /// Record 開始前に latch 済みの WAV metadata を設定する。
     pub fn set_expected_wav(&mut self, expected_wav: Option<ExpectedWavMetadata>) {
         self.data.expected_wav = expected_wav.filter(ExpectedWavMetadata::is_usable);
+        if self.data.expected_wav.is_none() && self.data.trace_wav_reference.is_some() {
+            self.data.trace_wav_reference = None;
+            self.data.trace_content_alignment = None;
+            self.data.trace_time_axis = self
+                .data
+                .trace_clock
+                .as_ref()
+                .map(|_| crate::trace_alignment::TRACE_HOST_TIME_AXIS.to_string());
+        }
     }
 
     /// TRACE bake 診断を設定する。
@@ -679,6 +709,14 @@ impl PluginDataWriter {
 
     pub(crate) fn set_trace_clock(&mut self, trace_clock: Option<TraceClock>) {
         self.data.trace_clock = trace_clock;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_trace_wav_reference(
+        &mut self,
+        trace_wav_reference: Option<TraceWavReference>,
+    ) {
+        self.data.trace_wav_reference = trace_wav_reference;
     }
 
     /// WAV と対応する clean take 長へ timeline payload を切り詰める。
@@ -1152,6 +1190,9 @@ fn side_publish_integrity_reasons(data: &PluginDataFile) -> Vec<&'static str> {
             None
         }
     };
+    if expected.is_none() && take.is_some_and(|take| take.source == BOUNCE_SOURCE_EXPECTED_WAV) {
+        reasons.push("missing_expected_wav_metadata");
+    }
     if let (Some(expected), Some(take)) = (expected, take) {
         if data.sample_rate != expected.expected_sample_rate {
             reasons.push("sample_rate_expected_mismatch");
@@ -1294,28 +1335,73 @@ fn try_finalize_pair_session(
     let self_pending = self_paths.pair_pending_path.clone();
     let mut self_data = read_plugin_data_file(&self_pending)?;
     let mut peer_data = read_plugin_data_file(&peer_paths.pair_pending_path)?;
-    if let Some(root) = plugin_data_root_from_final_path(&paths.final_path) {
+    let embedded_expected = match (&self_data.expected_wav, &peer_data.expected_wav) {
+        (Some(left), Some(right)) if left == right && left.is_usable() => Some(left.clone()),
+        _ => None,
+    };
+    let late_expected = plugin_data_root_from_final_path(&paths.final_path).and_then(|root| {
         let project = crate::path_identity::guard_path_component(
             &self_data.project_hash,
             "pair_record_session.expected.project_hash",
         );
         let project_dir = root.join(project.as_ref());
-        if let Some(expected) = read_late_expected_metadata_from_project_dir(&project_dir) {
+        read_late_expected_metadata_from_project_dir(&project_dir)
+    });
+    let pair_expected = embedded_expected.or(late_expected);
+    let needs_wav_binding = !crate::trace_alignment::has_canonical_wav_reference(&self_data)
+        || !crate::trace_alignment::has_canonical_wav_reference(&peer_data);
+    if needs_wav_binding {
+        if let Some(expected) = pair_expected.as_ref() {
             let mut normalized_self = self_data.clone();
             let mut normalized_peer = peer_data.clone();
-            if normalize_late_expected_record(&mut normalized_self, &expected)
-                && normalize_late_expected_record(&mut normalized_peer, &expected)
+            if normalize_late_expected_record(&mut normalized_self, expected)
+                && normalize_late_expected_record(&mut normalized_peer, expected)
             {
                 self_data = normalized_self;
                 peer_data = normalized_peer;
             }
         }
     }
-    let Some(content_alignment) =
-        crate::trace_alignment::canonical_host_alignment(&self_data, &peer_data)
-    else {
+    let content_alignment = crate::trace_alignment::canonical_wav_alignment(&self_data, &peer_data);
+    let reasons = pair_publish_failure_reasons(&self_data, &peer_data);
+    if content_alignment.is_none() {
+        let expected_metadata_was_lost = reasons.contains(&"missing_expected_wav_metadata")
+            && [&self_data, &peer_data].iter().any(|data| {
+                data.bounce_take
+                    .as_ref()
+                    .is_some_and(|take| take.source == BOUNCE_SOURCE_EXPECTED_WAV)
+            });
+        let wav_bound_nonempty_pair_is_invalid = !self_data.frames.is_empty()
+            && !peer_data.frames.is_empty()
+            && self_data.trace_time_axis.as_deref()
+                == Some(crate::trace_alignment::TRACE_TIME_AXIS)
+            && peer_data.trace_time_axis.as_deref()
+                == Some(crate::trace_alignment::TRACE_TIME_AXIS)
+            && !reasons.is_empty();
+        if !expected_metadata_was_lost && !wav_bound_nonempty_pair_is_invalid {
+            return Ok(());
+        }
+        fail_pair_pending(
+            &self_paths.failed_path,
+            &self_pending,
+            &mut self_data,
+            reasons.as_slice(),
+        )?;
+        fail_pair_pending(
+            &peer_paths.failed_path,
+            &peer_paths.pair_pending_path,
+            &mut peer_data,
+            reasons.as_slice(),
+        )?;
+        mark_pair_expected_metadata_consumed(paths, &self_data);
+        log::warn!(
+            "[pair_record_session] quarantined pair session={:?} reasons={:?}",
+            self_data.record_session_id,
+            reasons
+        );
         return Ok(());
-    };
+    }
+    let content_alignment = content_alignment.expect("checked canonical WAV alignment");
     self_data.trace_content_alignment = Some(content_alignment.clone());
     peer_data.trace_content_alignment = Some(content_alignment);
     self_data.trace_context_frames.clear();
@@ -1988,7 +2074,7 @@ fn publish_late_expected_pair(
         .into());
     }
     let Some(content_alignment) =
-        crate::trace_alignment::canonical_host_alignment(pre_data, post_data)
+        crate::trace_alignment::canonical_wav_alignment(pre_data, post_data)
     else {
         return Ok(false);
     };
@@ -2014,7 +2100,16 @@ fn normalize_late_expected_record(
     data: &mut PluginDataFile,
     expected: &ExpectedWavMetadata,
 ) -> bool {
-    if !late_expected_can_own_record(data, expected)
+    let expected_was_latched_by_record = data.expected_wav.as_ref() == Some(expected)
+        && expected.is_usable()
+        && data.sample_rate > 0
+        && data.sample_rate == expected.expected_sample_rate
+        && data
+            .record_session_id
+            .as_deref()
+            .is_some_and(|id| !id.is_empty())
+        && data.status == Status::Closed;
+    if (!expected_was_latched_by_record && !late_expected_can_own_record(data, expected))
         || !late_expected_prior_reasons_are_reconcilable(data)
     {
         return false;
@@ -2090,14 +2185,39 @@ fn normalize_late_expected_record(
     };
     if trace_clock.basis != crate::trace_alignment::TRACE_CLOCK_BASIS
         || trace_clock.sources.is_empty()
+        || trace_clock.sample_rate != data.sample_rate
     {
         return false;
     }
-    trace_clock.sample_rate = expected.expected_sample_rate;
-    trace_clock.end_position_samples = trace_clock
-        .origin_position_samples
-        .saturating_add(expected.expected_duration_samples.min(i64::MAX as u64) as i64);
+    let Some(record_session_id) = data
+        .record_session_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|session| !session.is_empty())
+        .map(str::to_string)
+    else {
+        return false;
+    };
+    let Some(wav_hash) = expected
+        .wav_hash
+        .as_deref()
+        .map(str::trim)
+        .filter(|hash| !hash.is_empty())
+        .map(str::to_string)
+    else {
+        return false;
+    };
     data.trace_time_axis = Some(crate::trace_alignment::TRACE_TIME_AXIS.to_string());
+    data.trace_wav_reference = Some(TraceWavReference {
+        basis: crate::trace_alignment::TRACE_WAV_REFERENCE_BASIS.to_string(),
+        capture_basis: crate::trace_alignment::TRACE_CAPTURE_BASIS.to_string(),
+        start_sample: 0,
+        end_sample: expected.expected_duration_samples,
+        sample_rate: expected.expected_sample_rate,
+        record_session_id,
+        bounce_id: expected.bounce_id.clone(),
+        wav_hash,
+    });
     data.integrity_reasons
         .retain(|reason| !late_expected_reconcilable_reason(reason));
     data.integrity_degraded = data.dropped_samples > 0 || !data.integrity_reasons.is_empty();
@@ -2127,6 +2247,7 @@ fn late_expected_record_is_aligned(data: &PluginDataFile, expected: &ExpectedWav
             .record_quality
             .as_ref()
             .is_some_and(|quality| quality.expected_wav_ready && quality.trace_slots_complete)
+        && crate::trace_alignment::has_canonical_wav_reference(data)
 }
 
 fn late_expected_can_own_record(data: &PluginDataFile, expected: &ExpectedWavMetadata) -> bool {
@@ -3127,7 +3248,10 @@ mod tests {
             missing_slots: 0,
             explicit_silence_frame_count: 0,
         });
-        writer.set_trace_time_axis(Some(crate::trace_alignment::TRACE_TIME_AXIS.to_string()));
+        writer.set_trace_time_axis(Some(
+            crate::trace_alignment::TRACE_HOST_TIME_AXIS.to_string(),
+        ));
+        writer.set_trace_wav_reference(None);
         writer.set_trace_clock(Some(TraceClock {
             basis: crate::trace_alignment::TRACE_CLOCK_BASIS.to_string(),
             origin_position_samples: 0,
@@ -3167,7 +3291,8 @@ mod tests {
         .unwrap();
         w.set_record_start_wall_clock("2026-04-17T14:32:08.000Z".to_string());
         w.set_record_session_id(Some("session-pair-atomic".to_string()));
-        w.set_expected_wav(Some(expected_wav_fixture()));
+        let expected = expected_wav_fixture();
+        w.set_expected_wav(Some(expected.clone()));
         w.set_bounce_take(BounceTake {
             source: "expected_wav_duration_native".to_string(),
             time_axis: "native_samples".to_string(),
@@ -3196,6 +3321,16 @@ mod tests {
             end_position_samples: 48_000,
             sample_rate: 48_000,
             sources: vec!["project_timeline".to_string()],
+        }));
+        w.set_trace_wav_reference(Some(TraceWavReference {
+            basis: crate::trace_alignment::TRACE_WAV_REFERENCE_BASIS.to_string(),
+            capture_basis: crate::trace_alignment::TRACE_CAPTURE_BASIS.to_string(),
+            start_sample: 0,
+            end_sample: expected.expected_duration_samples,
+            sample_rate: expected.expected_sample_rate,
+            record_session_id: "session-pair-atomic".to_string(),
+            bounce_id: expected.bounce_id,
+            wav_hash: expected.wav_hash.expect("complete expected WAV hash"),
         }));
         for t_ms in (100_u64..=1_000).step_by(TRACE_FRAME_INTERVAL_MS as usize) {
             w.append_frame(t_ms, [0.0; 20], 0.0, -20.0, -1.0, 12.0, Some(10.0));
@@ -4067,7 +4202,7 @@ mod tests {
     }
 
     #[test]
-    fn pair_finalize_commits_render_clock_without_expected_as_complete_trace() {
+    fn pair_finalize_keeps_render_clock_pending_until_drop_supplies_wav_axis() {
         let base = isolated_dir();
         let mut pre = complete_pair_writer(
             &base,
@@ -4089,6 +4224,10 @@ mod tests {
             let mut take = writer.data.bounce_take.clone().expect("bounce_take");
             take.source = BOUNCE_SOURCE_RENDER_CLOCK.to_string();
             writer.set_bounce_take(take);
+            writer.set_trace_time_axis(Some(
+                crate::trace_alignment::TRACE_HOST_TIME_AXIS.to_string(),
+            ));
+            writer.set_trace_wav_reference(None);
         }
         pre.data.status = Status::Closed;
         pre.data.commit_status = Some("pair_pending".to_string());
@@ -4107,36 +4246,15 @@ mod tests {
         let manifest_path = pair_commit_manifest_path(&pre.paths, &pre.data).unwrap();
         let pre_trace_path = pair_trace_shelf_path(&pre_paths, &pre.data).unwrap();
         let post_trace_path = pair_trace_shelf_path(&post_paths, &post.data).unwrap();
-        assert!(manifest_path.exists());
-        assert!(pre_paths.member_path.exists());
-        assert!(post_paths.member_path.exists());
-        assert!(pre_trace_path.exists());
-        assert!(post_trace_path.exists());
+        assert!(!manifest_path.exists());
+        assert!(!pre_paths.member_path.exists());
+        assert!(!post_paths.member_path.exists());
+        assert!(!pre_trace_path.exists());
+        assert!(!post_trace_path.exists());
         assert!(!pre_paths.failed_path.exists());
         assert!(!post_paths.failed_path.exists());
-
-        let pre_data: PluginDataFile =
-            serde_json::from_slice(&fs::read(&pre_paths.member_path).unwrap()).unwrap();
-        let post_data: PluginDataFile =
-            serde_json::from_slice(&fs::read(&post_paths.member_path).unwrap()).unwrap();
-        let pre_trace_data: PluginDataFile =
-            serde_json::from_slice(&fs::read(&pre_trace_path).unwrap()).unwrap();
-        let post_trace_data: PluginDataFile =
-            serde_json::from_slice(&fs::read(&post_trace_path).unwrap()).unwrap();
-        for data in [&pre_data, &post_data, &pre_trace_data, &post_trace_data] {
-            assert_eq!(data.commit_status.as_deref(), Some("committed"));
-            assert!(data.validity);
-            assert!(!data.integrity_degraded);
-            assert!(data.integrity_reasons.is_empty());
-            let quality = data.record_quality.as_ref().expect("record_quality");
-            assert_eq!(quality.status, "complete");
-            assert!(quality.complete);
-            assert!(quality.usable);
-            assert!(!quality.expected_wav_ready);
-            assert!(quality.sample_count_ready);
-            assert!(quality.trace_slots_complete);
-            assert!(verify_checksum(data));
-        }
+        assert!(pre_paths.pair_pending_path.exists());
+        assert!(post_paths.pair_pending_path.exists());
     }
 
     #[test]
@@ -4495,7 +4613,7 @@ mod tests {
     }
 
     #[test]
-    fn pair_finalize_quarantines_short_trace_grid_even_when_internally_continuous() {
+    fn pair_finalize_keeps_unbound_short_trace_grid_pending_for_drop() {
         let base = isolated_dir();
         let mut pre = complete_pair_writer(
             &base,
@@ -4539,30 +4657,24 @@ mod tests {
         assert!(!manifest_path.exists());
         assert!(!pre_paths.member_path.exists());
         assert!(!post_paths.member_path.exists());
-        assert!(pre_paths.failed_path.exists());
-        assert!(post_paths.failed_path.exists());
+        assert!(pre_paths.pair_pending_path.exists());
+        assert!(post_paths.pair_pending_path.exists());
+        assert!(!pre_paths.failed_path.exists());
+        assert!(!post_paths.failed_path.exists());
 
         let pre_data: PluginDataFile =
-            serde_json::from_slice(&fs::read(&pre_paths.failed_path).unwrap()).unwrap();
+            serde_json::from_slice(&fs::read(&pre_paths.pair_pending_path).unwrap()).unwrap();
         let post_data: PluginDataFile =
-            serde_json::from_slice(&fs::read(&post_paths.failed_path).unwrap()).unwrap();
+            serde_json::from_slice(&fs::read(&post_paths.pair_pending_path).unwrap()).unwrap();
         for data in [&pre_data, &post_data] {
-            assert_eq!(data.commit_status.as_deref(), Some("failed"));
-            assert!(!data.validity);
-            assert!(data
-                .integrity_reasons
-                .iter()
-                .any(|reason| reason == "trace_expected_frame_count_bounce_take_mismatch"));
-            assert!(data
-                .integrity_reasons
-                .iter()
-                .any(|reason| reason == "trace_frame_payload_count_bounce_take_mismatch"));
+            assert_eq!(data.commit_status.as_deref(), Some("pair_pending"));
+            assert!(data.validity);
             assert!(verify_checksum(data));
         }
     }
 
     #[test]
-    fn pair_finalize_quarantines_sample_rate_mismatched_pair() {
+    fn pair_finalize_keeps_unbound_sample_rate_mismatch_pending_for_drop() {
         let base = isolated_dir();
         let mut pre = complete_pair_writer(
             &base,
@@ -4609,24 +4721,18 @@ mod tests {
         assert!(!manifest_path.exists());
         assert!(!pre_paths.member_path.exists());
         assert!(!post_paths.member_path.exists());
-        assert!(pre_paths.failed_path.exists());
-        assert!(post_paths.failed_path.exists());
+        assert!(pre_paths.pair_pending_path.exists());
+        assert!(post_paths.pair_pending_path.exists());
+        assert!(!pre_paths.failed_path.exists());
+        assert!(!post_paths.failed_path.exists());
 
         let pre_data: PluginDataFile =
-            serde_json::from_slice(&fs::read(&pre_paths.failed_path).unwrap()).unwrap();
+            serde_json::from_slice(&fs::read(&pre_paths.pair_pending_path).unwrap()).unwrap();
         let post_data: PluginDataFile =
-            serde_json::from_slice(&fs::read(&post_paths.failed_path).unwrap()).unwrap();
+            serde_json::from_slice(&fs::read(&post_paths.pair_pending_path).unwrap()).unwrap();
         for data in [&pre_data, &post_data] {
-            assert_eq!(data.commit_status.as_deref(), Some("failed"));
-            assert!(!data.validity);
-            assert!(data
-                .integrity_reasons
-                .iter()
-                .any(|reason| reason == "pair_sample_rate_mismatch"));
-            assert!(data
-                .integrity_reasons
-                .iter()
-                .any(|reason| reason == "pair_bounce_take_sample_rate_mismatch"));
+            assert_eq!(data.commit_status.as_deref(), Some("pair_pending"));
+            assert!(data.validity);
             assert!(verify_checksum(data));
         }
     }
@@ -4688,7 +4794,7 @@ mod tests {
     }
 
     #[test]
-    fn late_expected_reconcile_rebases_committed_render_clock_pair_to_wav_boundaries() {
+    fn late_expected_reconcile_promotes_pending_render_clock_pair_to_wav_boundaries() {
         let base = isolated_dir();
         let expected = fresh_expected_wav_fixture(48_000);
         let start_ms = expected.wav_mtime_ms.saturating_sub(2_000);
@@ -4722,24 +4828,20 @@ mod tests {
             .unwrap();
         try_finalize_pair_session(&pre.paths, &pre.data).unwrap();
 
+        assert!(!pre_paths.member_path.exists());
+        assert!(pre_paths.pair_pending_path.exists());
         let before: PluginDataFile =
-            serde_json::from_slice(&fs::read(&pre_paths.member_path).unwrap()).unwrap();
+            serde_json::from_slice(&fs::read(&pre_paths.pair_pending_path).unwrap()).unwrap();
         assert_eq!(
             before.bounce_take.as_ref().map(|take| take.source.as_str()),
             Some(BOUNCE_SOURCE_RENDER_CLOCK)
         );
         assert_eq!(before.frames.len(), 12);
-        assert!(
-            !before
-                .record_quality
-                .as_ref()
-                .expect("quality")
-                .expected_wav_ready
-        );
+        assert_eq!(before.commit_status.as_deref(), Some("pair_pending"));
 
         crate::record_expected::write_expected_metadata(&base, "project_hash_test", &expected)
             .unwrap();
-        assert_eq!(reconcile_late_expected_wav(&base), 2);
+        assert_eq!(reconcile_late_expected_wav(&base), 1);
 
         let manifest_path = pair_commit_manifest_path(&pre.paths, &pre.data).unwrap();
         let pre_trace_path = pair_trace_shelf_path(&pre_paths, &pre.data).unwrap();
@@ -4812,7 +4914,7 @@ mod tests {
         );
         assert_eq!(reconcile_late_expected_wav_project(&base, "_q_nothex"), 0);
         let before: PluginDataFile =
-            serde_json::from_slice(&fs::read(&pre_paths.member_path).unwrap()).unwrap();
+            serde_json::from_slice(&fs::read(&pre_paths.pair_pending_path).unwrap()).unwrap();
         assert_eq!(
             before.bounce_take.as_ref().map(|take| take.source.as_str()),
             Some(BOUNCE_SOURCE_RENDER_CLOCK)
@@ -4822,7 +4924,7 @@ mod tests {
             crate::path_identity::guard_path_component("project_hash_test", "test").to_string();
         assert_eq!(
             reconcile_late_expected_wav_project(&base, &materialized_project_dir),
-            2
+            1
         );
         let after: PluginDataFile =
             serde_json::from_slice(&fs::read(&pre_paths.member_path).unwrap()).unwrap();
@@ -4858,6 +4960,16 @@ mod tests {
         set_late_expected_record_time(&mut post, start_ms, end_ms);
         configure_render_clock_take(&mut pre, 52_800);
         configure_render_clock_take(&mut post, 57_600);
+        {
+            let clock = pre.data.trace_clock.as_mut().expect("PRE host clock");
+            clock.origin_position_samples = 6_473_347;
+            clock.end_position_samples = 6_526_147;
+        }
+        {
+            let clock = post.data.trace_clock.as_mut().expect("POST host clock");
+            clock.origin_position_samples = 6_465_671;
+            clock.end_position_samples = 6_523_271;
+        }
         for writer in [&mut pre, &mut post] {
             writer.data.status = Status::Closed;
             writer.data.commit_status = Some("pair_pending".to_string());
@@ -4909,6 +5021,39 @@ mod tests {
             );
             assert!(verify_checksum(&data));
         }
+        let committed_pre: PluginDataFile =
+            serde_json::from_slice(&fs::read(&pre_paths.member_path).unwrap()).unwrap();
+        let committed_post: PluginDataFile =
+            serde_json::from_slice(&fs::read(&post_paths.member_path).unwrap()).unwrap();
+        assert_eq!(
+            committed_pre
+                .trace_clock
+                .as_ref()
+                .expect("PRE host clock")
+                .origin_position_samples,
+            6_473_347
+        );
+        assert_eq!(
+            committed_post
+                .trace_clock
+                .as_ref()
+                .expect("POST host clock")
+                .origin_position_samples,
+            6_465_671
+        );
+        assert_eq!(
+            committed_pre.trace_wav_reference,
+            committed_post.trace_wav_reference
+        );
+        let wav_reference = committed_pre
+            .trace_wav_reference
+            .expect("shared dropped WAV reference");
+        assert_eq!(wav_reference.start_sample, 0);
+        assert_eq!(wav_reference.end_sample, 48_000);
+        assert_eq!(
+            committed_pre.trace_time_axis.as_deref(),
+            Some(crate::trace_alignment::TRACE_TIME_AXIS)
+        );
         assert!(crate::record_expected::claim_marker_is_closed_for_session(
             &base,
             "project_hash_test",
