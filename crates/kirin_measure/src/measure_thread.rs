@@ -8,7 +8,7 @@
 use crate::phase_d::stream::PhaseDStream;
 use crate::phase_d::tables::FieldType;
 use crate::record::RecordStateMachine;
-use crate::record_take::RecordTakeTracker;
+use crate::record_take::{CaptureClockSource, RecordTakeTracker};
 use crate::record_writer::{
     clear_record_trace_queue, now_epoch_ms, push_record_trace_sample,
     samples_are_trace_silence_floor, RecordTraceQueue, RecordTraceSample, FRAME_INTERVAL_MS,
@@ -69,6 +69,7 @@ fn idle_sleep_for_record_state(is_recording: bool) -> Duration {
 struct PreRollTraceSample {
     captured_at_ms: i64,
     position_samples: Option<i64>,
+    clock_source: CaptureClockSource,
     frames_48k: u64,
     native_frames: u64,
     observed_silence_floor: bool,
@@ -85,6 +86,7 @@ impl RecordTracePreRoll {
         self.samples.clear();
     }
 
+    #[cfg(test)]
     fn push(
         &mut self,
         captured_at_ms: i64,
@@ -94,9 +96,35 @@ impl RecordTracePreRoll {
         observed_silence_floor: bool,
         result: &MeasureResult,
     ) {
+        let source = position_samples.map_or(CaptureClockSource::Unknown, |_| {
+            CaptureClockSource::ProjectTimeline
+        });
+        self.push_with_clock(
+            captured_at_ms,
+            position_samples,
+            source,
+            frames_48k,
+            native_frames,
+            observed_silence_floor,
+            result,
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn push_with_clock(
+        &mut self,
+        captured_at_ms: i64,
+        position_samples: Option<i64>,
+        clock_source: CaptureClockSource,
+        frames_48k: u64,
+        native_frames: u64,
+        observed_silence_floor: bool,
+        result: &MeasureResult,
+    ) {
         self.samples.push_back(PreRollTraceSample {
             captured_at_ms,
             position_samples,
+            clock_source,
             frames_48k,
             native_frames,
             observed_silence_floor,
@@ -789,10 +817,13 @@ pub fn spawn_measure_thread(
                         let observed_silence_floor =
                             samples_are_trace_silence_floor(observed_chunk);
                         if !is_recording {
-                            record_pre_roll.push(
+                            let clock_point = record_take_tracker
+                                .clock_point_for_captured_frame(observed_native_frames);
+                            record_pre_roll.push_with_clock(
                                 observed_at_ms,
-                                record_take_tracker
-                                    .position_samples_for_captured_frame(observed_native_frames),
+                                clock_point.map(|point| point.position_samples),
+                                clock_point
+                                    .map_or(CaptureClockSource::Unknown, |point| point.source),
                                 frames_48k,
                                 observed_native_frames,
                                 observed_silence_floor,
@@ -817,11 +848,14 @@ pub fn spawn_measure_thread(
                             let observed_native_frames = native_frames_after;
                             let observed_silence_floor =
                                 samples_are_trace_silence_floor(observed_chunk);
+                            let clock_point = record_take_tracker
+                                .clock_point_for_captured_frame(observed_native_frames);
                             record_core_pending.push_back(PendingRecordCore {
                                 frames_48k: native_frames_to_48k(native_engine_frames, sample_rate),
                                 native_frames: observed_native_frames,
-                                position_samples: record_take_tracker
-                                    .position_samples_for_captured_frame(observed_native_frames),
+                                position_samples: clock_point.map(|point| point.position_samples),
+                                clock_source: clock_point
+                                    .map_or(CaptureClockSource::Unknown, |point| point.source),
                                 observed_silence_floor,
                                 result: base_result.clone(),
                             });
@@ -1027,6 +1061,7 @@ struct RecordTraceObserved {
     frames_48k: u64,
     native_frames: Option<u64>,
     position_samples: Option<i64>,
+    clock_source: CaptureClockSource,
     observed_silence_floor: bool,
 }
 
@@ -1035,6 +1070,7 @@ struct PendingRecordCore {
     frames_48k: u64,
     native_frames: u64,
     position_samples: Option<i64>,
+    clock_source: CaptureClockSource,
     observed_silence_floor: bool,
     result: MeasureResult,
 }
@@ -1084,6 +1120,7 @@ fn join_record_trace_slots(
                 frames_48k: core.frames_48k,
                 native_frames: Some(core.native_frames),
                 position_samples: core.position_samples,
+                clock_source: core.clock_source,
                 observed_silence_floor: core.observed_silence_floor,
             },
             &result,
@@ -1138,6 +1175,7 @@ fn seed_record_trace_from_pre_roll(
             include_psb,
         )
         .with_position_samples(Some(position_samples));
+        let trace_sample = trace_sample.with_clock_source(sample.clock_source);
         push_record_trace_sample(queue, trace_sample);
         *next_trace_ms = (slot_ms / FRAME_INTERVAL_MS + 1) * FRAME_INTERVAL_MS;
         if include_psb {
@@ -1227,6 +1265,7 @@ fn maybe_push_record_trace(
         include_psb,
     )
     .with_position_samples(observed.position_samples);
+    let sample = sample.with_clock_source(observed.clock_source);
     push_record_trace_sample(queue, sample);
     *cursor.next_trace_ms =
         (*cursor.next_trace_ms).max((slot_ms / FRAME_INTERVAL_MS + 1) * FRAME_INTERVAL_MS);
@@ -1549,12 +1588,15 @@ fn drain_ring_into_session(
                 |native_engine_frames, base_result, observed_chunk| {
                     let observed_native_frames = native_frames_after;
                     let observed_silence_floor = samples_are_trace_silence_floor(observed_chunk);
+                    let clock_point = ctx
+                        .record_take_tracker
+                        .clock_point_for_captured_frame(observed_native_frames);
                     ctx.record_core_pending.push_back(PendingRecordCore {
                         frames_48k: native_frames_to_48k(native_engine_frames, ctx.sample_rate),
                         native_frames: observed_native_frames,
-                        position_samples: ctx
-                            .record_take_tracker
-                            .position_samples_for_captured_frame(observed_native_frames),
+                        position_samples: clock_point.map(|point| point.position_samples),
+                        clock_source: clock_point
+                            .map_or(CaptureClockSource::Unknown, |point| point.source),
                         observed_silence_floor,
                         result: base_result.clone(),
                     });
@@ -1655,7 +1697,7 @@ pub mod tests {
         compute_psb_summary, push_record_trace_clock_markers_until,
         push_record_trace_to_record_take_clock, RecordTraceCursor,
     };
-    use crate::record_take::{RecordTakeBlock, RecordTakeTracker};
+    use crate::record_take::{CaptureClockSource, RecordTakeBlock, RecordTakeTracker};
     use crate::record_writer::{
         drain_record_trace_queue, new_record_trace_queue, FRAME_INTERVAL_MS,
     };
@@ -2119,6 +2161,7 @@ pub mod tests {
                     frames_48k: 24_000,
                     native_frames: Some(48_000),
                     position_samples: None,
+                    clock_source: CaptureClockSource::Unknown,
                     observed_silence_floor: false,
                 },
                 &observed,
@@ -2172,6 +2215,7 @@ pub mod tests {
                     frames_48k: 108_000,
                     native_frames: Some(216_000),
                     position_samples: None,
+                    clock_source: CaptureClockSource::Unknown,
                     observed_silence_floor: false,
                 },
                 &observed,
@@ -2226,6 +2270,7 @@ pub mod tests {
                         frames_48k: i * 4_800,
                         native_frames: Some(i * 9_600),
                         position_samples: None,
+                        clock_source: CaptureClockSource::Unknown,
                         observed_silence_floor: false,
                     },
                     &observed,
@@ -2274,6 +2319,7 @@ pub mod tests {
                     frames_48k: 4_800,
                     native_frames: Some(9_600),
                     position_samples: None,
+                    clock_source: CaptureClockSource::Unknown,
                     observed_silence_floor: true,
                 },
                 &crate::MeasureResult::default(),
@@ -2347,6 +2393,7 @@ pub mod tests {
                         frames_48k,
                         native_frames: Some(observed_native_frames),
                         position_samples: None,
+                        clock_source: CaptureClockSource::Unknown,
                         observed_silence_floor:
                             crate::record_writer::samples_are_trace_silence_floor(observed_chunk),
                     },

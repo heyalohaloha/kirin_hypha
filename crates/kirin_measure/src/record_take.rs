@@ -5,7 +5,7 @@
 //! deliberately measures the WAV/native clock span when the host exposes one,
 //! and keeps the raw render span as a lower-trust fallback.
 
-use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, AtomicU8, Ordering};
 use std::sync::Arc;
 
 pub const RECORD_TAKE_SOURCE_RENDER_CLOCK: &str = "render_clock_native";
@@ -13,11 +13,49 @@ pub const RECORD_TAKE_SOURCE_WAV_CLOCK: &str = "wav_clock_native";
 
 const CAPTURE_CLOCK_SPAN_CAPACITY: usize = 4_096;
 
+/// Host sample clock provenance carried from the audio callback to the completed TRACE.
+///
+/// Both variants are exact sample clocks. `ProjectTimeline` is the DAW transport timeline
+/// (VST3 projectTimeSamples / AU host transport callback). `AudioRenderTimeline` is the AU
+/// render timestamp used when a host omits its optional transport callback.
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum CaptureClockSource {
+    Unknown = 0,
+    ProjectTimeline = 1,
+    AudioRenderTimeline = 2,
+}
+
+impl CaptureClockSource {
+    pub fn from_abi(value: u8) -> Self {
+        match value {
+            1 => Self::ProjectTimeline,
+            2 => Self::AudioRenderTimeline,
+            _ => Self::Unknown,
+        }
+    }
+
+    pub fn as_str(self) -> Option<&'static str> {
+        match self {
+            Self::Unknown => None,
+            Self::ProjectTimeline => Some("project_timeline"),
+            Self::AudioRenderTimeline => Some("audio_render_timeline"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CaptureClockPoint {
+    pub position_samples: i64,
+    pub source: CaptureClockSource,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct CaptureClockSpan {
     pub capture_start_frame: u64,
     pub capture_end_frame: u64,
     pub position_start_samples: Option<i64>,
+    pub source: CaptureClockSource,
 }
 
 impl CaptureClockSpan {
@@ -48,6 +86,7 @@ struct CaptureClockSlot {
     capture_end_frame: AtomicU64,
     position_valid: AtomicBool,
     position_start_samples: AtomicI64,
+    source: AtomicU8,
 }
 
 impl CaptureClockSlot {
@@ -59,6 +98,7 @@ impl CaptureClockSlot {
             capture_end_frame: AtomicU64::new(0),
             position_valid: AtomicBool::new(false),
             position_start_samples: AtomicI64::new(i64::MIN),
+            source: AtomicU8::new(CaptureClockSource::Unknown as u8),
         }
     }
 
@@ -68,6 +108,7 @@ impl CaptureClockSlot {
         capture_start_frame: u64,
         capture_end_frame: u64,
         position_start_samples: Option<i64>,
+        source: CaptureClockSource,
     ) {
         self.version.fetch_add(1, Ordering::AcqRel);
         self.sequence.store(sequence, Ordering::Relaxed);
@@ -81,6 +122,7 @@ impl CaptureClockSlot {
             position_start_samples.unwrap_or(i64::MIN),
             Ordering::Relaxed,
         );
+        self.source.store(source as u8, Ordering::Relaxed);
         self.version.fetch_add(1, Ordering::Release);
     }
 
@@ -107,12 +149,14 @@ impl CaptureClockSlot {
                 .position_valid
                 .load(Ordering::Relaxed)
                 .then(|| self.position_start_samples.load(Ordering::Relaxed));
+            let source = CaptureClockSource::from_abi(self.source.load(Ordering::Relaxed));
             let after = self.version.load(Ordering::Acquire);
             if before == after && after & 1 == 0 {
                 return Some(CaptureClockSpan {
                     capture_start_frame,
                     capture_end_frame,
                     position_start_samples,
+                    source,
                 });
             }
         }
@@ -148,6 +192,7 @@ pub struct RecordTakeTracker {
     capture_last_span_sequence: AtomicU64,
     capture_last_position_valid: AtomicBool,
     capture_last_position_end_samples: AtomicI64,
+    capture_last_source: AtomicU8,
     capture_clock_slots: Box<[CaptureClockSlot]>,
     render_active: AtomicBool,
     render_epoch: AtomicU64,
@@ -179,6 +224,7 @@ impl RecordTakeTracker {
             capture_last_span_sequence: AtomicU64::new(0),
             capture_last_position_valid: AtomicBool::new(false),
             capture_last_position_end_samples: AtomicI64::new(i64::MIN),
+            capture_last_source: AtomicU8::new(CaptureClockSource::Unknown as u8),
             capture_clock_slots: (0..CAPTURE_CLOCK_SPAN_CAPACITY)
                 .map(|_| CaptureClockSlot::new())
                 .collect::<Vec<_>>()
@@ -209,6 +255,21 @@ impl RecordTakeTracker {
         position_samples: i64,
         num_frames: u64,
     ) {
+        self.note_capture_window_with_source(
+            position_valid,
+            position_samples,
+            num_frames,
+            CaptureClockSource::ProjectTimeline,
+        );
+    }
+
+    pub fn note_capture_window_with_source(
+        &self,
+        position_valid: bool,
+        position_samples: i64,
+        num_frames: u64,
+        source: CaptureClockSource,
+    ) {
         if num_frames == 0 {
             return;
         }
@@ -219,7 +280,9 @@ impl RecordTakeTracker {
             .saturating_add(num_frames);
         let previous_sequence = self.capture_last_span_sequence.load(Ordering::Acquire);
         let position_contiguous = position_valid
+            && source != CaptureClockSource::Unknown
             && self.capture_last_position_valid.load(Ordering::Acquire)
+            && self.capture_last_source.load(Ordering::Acquire) == source as u8
             && self
                 .capture_last_position_end_samples
                 .load(Ordering::Acquire)
@@ -241,6 +304,7 @@ impl RecordTakeTracker {
                 capture_start_frame,
                 frames_end,
                 position_valid.then_some(position_samples),
+                source,
             );
             self.capture_last_span_sequence
                 .store(sequence, Ordering::Release);
@@ -251,13 +315,27 @@ impl RecordTakeTracker {
             position_samples.saturating_add(num_frames as i64),
             Ordering::Release,
         );
+        self.capture_last_source
+            .store(source as u8, Ordering::Release);
     }
 
     /// Map a Measure Thread consumed native frame count onto the host transport
     /// sample clock, when the host exposed a position for the captured block.
     pub fn position_samples_for_captured_frame(&self, captured_frames: u64) -> Option<i64> {
-        self.capture_span_for_frame(captured_frames)
-            .and_then(|span| span.position_for_captured_frame(captured_frames))
+        self.clock_point_for_captured_frame(captured_frames)
+            .map(|point| point.position_samples)
+    }
+
+    pub fn clock_point_for_captured_frame(
+        &self,
+        captured_frames: u64,
+    ) -> Option<CaptureClockPoint> {
+        let span = self.capture_span_for_frame(captured_frames)?;
+        let position_samples = span.position_for_captured_frame(captured_frames)?;
+        (span.source != CaptureClockSource::Unknown).then_some(CaptureClockPoint {
+            position_samples,
+            source: span.source,
+        })
     }
 
     /// Start the capture clock for a replacement SPSC ring.
@@ -273,6 +351,8 @@ impl RecordTakeTracker {
             .store(false, Ordering::Release);
         self.capture_last_position_end_samples
             .store(i64::MIN, Ordering::Release);
+        self.capture_last_source
+            .store(CaptureClockSource::Unknown as u8, Ordering::Release);
     }
 
     pub(crate) fn capture_span_for_frame(&self, captured_frame: u64) -> Option<CaptureClockSpan> {
@@ -496,7 +576,7 @@ pub fn new_record_take_tracker() -> Arc<RecordTakeTracker> {
 #[cfg(test)]
 mod tests {
     use super::{
-        RecordTakeBlock, RecordTakeTracker, RECORD_TAKE_SOURCE_RENDER_CLOCK,
+        CaptureClockSource, RecordTakeBlock, RecordTakeTracker, RECORD_TAKE_SOURCE_RENDER_CLOCK,
         RECORD_TAKE_SOURCE_WAV_CLOCK,
     };
 
@@ -581,6 +661,42 @@ mod tests {
         let repeated = tracker.capture_span_for_frame(201).expect("second pass");
         assert_eq!(repeated.capture_start_frame, 200);
         assert_eq!(repeated.position_start_samples, Some(0));
+    }
+
+    #[test]
+    fn capture_clock_preserves_au_render_fallback_provenance() {
+        let tracker = RecordTakeTracker::new();
+        tracker.note_capture_window_with_source(
+            true,
+            48_000,
+            512,
+            CaptureClockSource::AudioRenderTimeline,
+        );
+        let point = tracker
+            .clock_point_for_captured_frame(512)
+            .expect("render clock point");
+        assert_eq!(point.position_samples, 48_512);
+        assert_eq!(point.source, CaptureClockSource::AudioRenderTimeline);
+    }
+
+    #[test]
+    fn capture_clock_source_change_never_merges_two_clock_domains() {
+        let tracker = RecordTakeTracker::new();
+        tracker.note_capture_window_with_source(true, 0, 256, CaptureClockSource::ProjectTimeline);
+        tracker.note_capture_window_with_source(
+            true,
+            256,
+            256,
+            CaptureClockSource::AudioRenderTimeline,
+        );
+        assert_eq!(
+            tracker.clock_point_for_captured_frame(256).unwrap().source,
+            CaptureClockSource::ProjectTimeline
+        );
+        assert_eq!(
+            tracker.clock_point_for_captured_frame(512).unwrap().source,
+            CaptureClockSource::AudioRenderTimeline
+        );
     }
 
     #[test]

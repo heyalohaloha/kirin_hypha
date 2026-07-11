@@ -207,6 +207,7 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
 
     bool playing = false;
     bool hasPosition = false;
+    uint8_t clockSource = KIRIN_HYPHA_CLOCK_UNKNOWN;
     int64_t positionSamples = 0;
     bool hasClockEnd = false;
     int64_t clockStartSamples = 0;
@@ -219,6 +220,11 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
             {
                 hasPosition = true;
                 positionSamples = *timeSamples;
+                clockSource = KIRIN_HYPHA_CLOCK_PROJECT_TIMELINE;
+               #if JucePlugin_Build_AU && KIRIN_HYPHA_AU_CLOCK_PROVENANCE
+                if (! pos->getKirinAuUsesHostTransportTimeline())
+                    clockSource = KIRIN_HYPHA_CLOCK_AUDIO_RENDER_TIMELINE;
+               #endif
             }
         }
     // JUCE exposes loop points in PPQ, not the exact exported WAV sample range. Do not
@@ -238,6 +244,11 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
     if (! recording)
         recordStartWindowLatched = false;
     const bool nonRealtime = isNonRealtime();
+    // Some AU hosts omit the optional transport callback. JUCE then supplies the mandatory
+    // AudioUnit render timestamp and cannot report `playing`; that render clock is nevertheless
+    // an exact processing timeline and must capture from the first callback.
+    const bool measurementTimelineActive = playing
+                                        || clockSource == KIRIN_HYPHA_CLOCK_AUDIO_RENDER_TIMELINE;
     int windowStartFrame = 0;
     int windowEndFrame = numFrames;
     int64_t windowPositionSamples = positionSamples;
@@ -266,7 +277,8 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
     }
 
     // C ABI signal-state codes: 0 = Inactive, 1 = Active, 2 = Bypassed.
-    const uint8_t stateCode = resolveSignalStateCode (bypassed, playing, silent, recording, nonRealtime);
+    const uint8_t stateCode = resolveSignalStateCode (bypassed, measurementTimelineActive,
+                                                      silent, recording, nonRealtime);
     kirin_hypha_set_signal_state (hyphaHandle, stateCode);
     // B-113: 旧 lastSignalState キャッシュは廃止。editor は signalStateLive()（FFI 直読 / heartbeat-aware）で表示分岐する。
 
@@ -277,7 +289,7 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
     const bool captureBuffer = shouldCaptureBufferForMeasurement (stateCode,
                                                                   bypassed,
                                                                   recording,
-                                                                  playing,
+                                                                  measurementTimelineActive,
                                                                   positionChanged,
                                                                   nonRealtime);
     const bool recordStartCandidateWindow = captureBuffer
@@ -285,7 +297,8 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
                                          && hasPosition
                                          && windowNumFrames > 0
                                          && numCh > 0
-                                         && (stateCode == 1 || playing || nonRealtime || hasClockEnd);
+                                         && (stateCode == 1 || measurementTimelineActive
+                                                               || nonRealtime || hasClockEnd);
     const bool renderedRecordWindow = recording
                                    && hasPosition
                                    && windowNumFrames > 0
@@ -321,7 +334,7 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
                     interleaveScratch[idx++] = buffer.getReadPointer (ch)[f];
 
             kirin_hypha_note_capture_window (hyphaHandle, hasPosition,
-                                             windowPositionSamples, windowNumFrames);
+                                             windowPositionSamples, windowNumFrames, clockSource);
             kirin_hypha_push_samples (hyphaHandle, interleaveScratch.data(),
                                       (size_t) windowNumFrames, (uint32_t) numCh);
         }

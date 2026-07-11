@@ -191,6 +191,19 @@ pub struct TraceDiagnostics {
     pub explicit_silence_frame_count: u64,
 }
 
+/// Producer-owned absolute sample clock used to bake every TRACE frame.
+///
+/// `origin_position_samples` is the absolute callback position corresponding to `t_ms = 0`.
+/// Every measured slot must independently derive the same origin before this metadata is written.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TraceClock {
+    pub basis: String,
+    pub origin_position_samples: i64,
+    pub end_position_samples: i64,
+    pub sample_rate: u32,
+    pub sources: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RecordQuality {
     /// `complete` = sample-count aligned full product.
@@ -316,6 +329,9 @@ pub struct PluginDataFile {
     /// from the host's native sample position; consumers never infer or shift it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trace_time_axis: Option<String>,
+    /// Absolute origin/range and clock provenance for the producer-owned TRACE axis.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trace_clock: Option<TraceClock>,
     /// PRE/POST が producer-owned host sample clock 上で完成済みであることを示す契約。
     /// consumer は内容推定も時刻補正も行わない。
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -425,6 +441,7 @@ impl PluginDataFile {
             expected_wav: None,
             trace_diagnostics: None,
             trace_time_axis: None,
+            trace_clock: None,
             trace_content_alignment: None,
             trace_context_frames: Vec::new(),
             trace_context_psb_snapshots: Vec::new(),
@@ -658,6 +675,10 @@ impl PluginDataWriter {
 
     pub(crate) fn set_trace_time_axis(&mut self, time_axis: Option<String>) {
         self.data.trace_time_axis = time_axis;
+    }
+
+    pub(crate) fn set_trace_clock(&mut self, trace_clock: Option<TraceClock>) {
+        self.data.trace_clock = trace_clock;
     }
 
     /// WAV と対応する clean take 長へ timeline payload を切り詰める。
@@ -2064,6 +2085,19 @@ fn normalize_late_expected_record(
         missing_slots: 0,
         explicit_silence_frame_count,
     });
+    let Some(trace_clock) = data.trace_clock.as_mut() else {
+        return false;
+    };
+    if trace_clock.basis != crate::trace_alignment::TRACE_CLOCK_BASIS
+        || trace_clock.sources.is_empty()
+    {
+        return false;
+    }
+    trace_clock.sample_rate = expected.expected_sample_rate;
+    trace_clock.end_position_samples = trace_clock
+        .origin_position_samples
+        .saturating_add(expected.expected_duration_samples.min(i64::MAX as u64) as i64);
+    data.trace_time_axis = Some(crate::trace_alignment::TRACE_TIME_AXIS.to_string());
     data.integrity_reasons
         .retain(|reason| !late_expected_reconcilable_reason(reason));
     data.integrity_degraded = data.dropped_samples > 0 || !data.integrity_reasons.is_empty();
@@ -3094,6 +3128,13 @@ mod tests {
             explicit_silence_frame_count: 0,
         });
         writer.set_trace_time_axis(Some(crate::trace_alignment::TRACE_TIME_AXIS.to_string()));
+        writer.set_trace_clock(Some(TraceClock {
+            basis: crate::trace_alignment::TRACE_CLOCK_BASIS.to_string(),
+            origin_position_samples: 0,
+            end_position_samples: duration_samples.min(i64::MAX as u64) as i64,
+            sample_rate,
+            sources: vec!["project_timeline".to_string()],
+        }));
     }
 
     fn complete_pair_writer(
@@ -3149,6 +3190,13 @@ mod tests {
             explicit_silence_frame_count: 0,
         });
         w.set_trace_time_axis(Some(crate::trace_alignment::TRACE_TIME_AXIS.to_string()));
+        w.set_trace_clock(Some(TraceClock {
+            basis: crate::trace_alignment::TRACE_CLOCK_BASIS.to_string(),
+            origin_position_samples: 0,
+            end_position_samples: 48_000,
+            sample_rate: 48_000,
+            sources: vec!["project_timeline".to_string()],
+        }));
         for t_ms in (100_u64..=1_000).step_by(TRACE_FRAME_INTERVAL_MS as usize) {
             w.append_frame(t_ms, [0.0; 20], 0.0, -20.0, -1.0, 12.0, Some(10.0));
         }

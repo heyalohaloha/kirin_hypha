@@ -47,3 +47,9 @@ apply_patch_idempotent \
   "0003-au-preferred-channel-layout-tags-for-logic-mono.patch" \
   --unidiff-zero \
   --ignore-whitespace
+
+apply_patch_idempotent \
+  "0004" \
+  "0004-au-clock-provenance.patch" \
+  --unidiff-zero \
+  --ignore-whitespace

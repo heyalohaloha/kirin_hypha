@@ -22,7 +22,7 @@ use kirin_hypha_ffi::{ExpectedWavMetadataInput, KirinHyphaEngine};
 use kirin_measure::engine::{MeasureEngine, SessionSummary};
 use kirin_measure::phase_d::stream::{PhaseDResult, PhaseDStream};
 use kirin_measure::phase_d::tables::FieldType;
-use kirin_measure::record_take::RecordTakeBlock;
+use kirin_measure::record_take::{CaptureClockSource, RecordTakeBlock};
 use kirin_measure::RING_BUFFER_SECONDS;
 
 const SR: u32 = 48_000;
@@ -76,7 +76,12 @@ fn push_positioned_stereo(engine: &KirinHyphaEngine, samples: &[f32], position_s
         clock_start_samples: 0,
         clock_end_samples: None,
     });
-    engine.note_capture_window(true, position_samples, num_frames);
+    engine.note_capture_window(
+        true,
+        position_samples,
+        num_frames,
+        CaptureClockSource::ProjectTimeline,
+    );
     engine.push_samples(samples, 2);
 }
 
