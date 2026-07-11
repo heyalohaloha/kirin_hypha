@@ -116,6 +116,7 @@ private:
     int preparedInputChannels = 0;                     // format bound to hyphaHandle
     bool lastProcessPositionValid = false;             // audio-thread local transport position cache
     int64_t lastProcessPositionSamples = 0;            // audio-thread local transport position cache
+    bool recordStartWindowLatched = false;             // audio-thread Record start gate; reset outside Record
 
     // Persisted identity (4 keys) + POST pair target name, round-tripped via get/setState as a
     // JUCE-native XML chunk. Source of truth for the chunk; synced from the FFI at enable

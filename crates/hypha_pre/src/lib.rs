@@ -603,16 +603,6 @@ impl Plugin for HyphaPre {
         // Watch MAX の reset edge にだけ使う。Relaxed store / lock-free / R-12 安全。
         self.is_playing.store(playing, Ordering::Relaxed);
         let pos = transport.pos_samples().unwrap_or(i64::MIN);
-        let record_window = if recording {
-            record_window_for_record_capture(
-                buffer.samples(),
-                pos,
-                transport.loop_range_samples(),
-                &self.record_sm,
-            )
-        } else {
-            RecordWindow::full(buffer.samples(), pos)
-        };
         let position_changed = transport_position_changed(pos, self.last_process_pos_samples);
         self.last_process_pos_samples = pos;
         let silent = buffer_is_silent(buffer);
@@ -622,18 +612,55 @@ impl Plugin for HyphaPre {
             resolve_process_signal_state(bypass_val, playing, silent, recording, offline_mode);
         store_signal_state(&self.signal_state, state);
 
+        let loop_range_samples = transport.loop_range_samples();
+        let explicit_record_range = loop_range_samples.is_some_and(|(start, end)| end > start);
+        let record_start_latched = self
+            .record_sm
+            .record_started_at_position_samples()
+            .is_some();
         let capture_buffer = should_capture_buffer_for_measurement(
             state,
-            bypass_val,
             recording,
             playing,
             position_changed,
             offline_mode,
+            record_start_latched,
+            explicit_record_range,
         );
+        let latch_start_anchor = should_latch_record_start_anchor(
+            state,
+            recording,
+            playing,
+            offline_mode,
+            explicit_record_range,
+        );
+        let record_window = if recording {
+            record_window_for_record_capture(
+                buffer.samples(),
+                pos,
+                loop_range_samples,
+                &self.record_sm,
+                latch_start_anchor,
+            )
+        } else {
+            RecordWindow::full(buffer.samples(), pos)
+        };
+        let record_window_started = self
+            .record_sm
+            .record_started_at_position_samples()
+            .is_some();
+        let push_buffer = if recording {
+            capture_buffer && record_window_started && record_window.position_valid
+        } else {
+            capture_buffer
+        };
         self.record_take_tracker.note_block(RecordTakeBlock {
             generation: self.record_sm.generation(),
             recording,
-            rendered: !bypass_val && record_window.num_frames > 0 && !buffer.as_slice().is_empty(),
+            rendered: recording
+                && push_buffer
+                && record_window.num_frames > 0
+                && !buffer.as_slice().is_empty(),
             playing,
             offline: offline_mode,
             position_valid: record_window.position_valid,
@@ -643,7 +670,7 @@ impl Plugin for HyphaPre {
             clock_end_samples: record_window.clock_end_samples,
         });
 
-        if capture_buffer {
+        if push_buffer {
             self.record_take_tracker.note_capture_window(
                 record_window.position_valid,
                 record_window.position_samples,
@@ -764,15 +791,33 @@ fn transport_position_changed(current: i64, previous: i64) -> bool {
 #[inline]
 fn should_capture_buffer_for_measurement(
     state: SignalState,
-    bypass: bool,
     recording: bool,
     playing: bool,
     position_changed: bool,
     offline_mode: bool,
+    record_start_latched: bool,
+    explicit_record_range: bool,
 ) -> bool {
-    !bypass
+    state != SignalState::Bypassed
         && (state == SignalState::Active
-            || (recording && (playing || position_changed || offline_mode)))
+            || (recording
+                && (playing
+                    || offline_mode
+                    || explicit_record_range
+                    || (position_changed && record_start_latched))))
+}
+
+#[inline]
+fn should_latch_record_start_anchor(
+    state: SignalState,
+    recording: bool,
+    playing: bool,
+    offline_mode: bool,
+    explicit_record_range: bool,
+) -> bool {
+    state != SignalState::Bypassed
+        && recording
+        && (state == SignalState::Active || playing || offline_mode || explicit_record_range)
 }
 
 nih_export_vst3!(HyphaPre);
@@ -825,7 +870,7 @@ mod b107_silence_tests {
 mod b147_record_state_tests {
     use super::{
         resolve_process_signal_state, should_capture_buffer_for_measurement,
-        transport_position_changed,
+        should_latch_record_start_anchor, transport_position_changed,
     };
     use kirin_measure::SignalState;
 
@@ -898,9 +943,10 @@ mod b147_record_state_tests {
     fn record_mode_playing_silent_gap_is_captured_for_record_timeline() {
         assert!(should_capture_buffer_for_measurement(
             SignalState::Inactive,
+            true,
+            true,
             false,
-            true,
-            true,
+            false,
             false,
             false,
         ));
@@ -924,10 +970,36 @@ mod b147_record_state_tests {
     }
 
     #[test]
-    fn record_mode_offline_silent_tail_is_captured_when_position_changes() {
+    fn record_mode_silent_wait_before_start_is_not_captured_when_position_changes() {
+        assert!(transport_position_changed(2048, 1024));
+        assert!(!should_capture_buffer_for_measurement(
+            SignalState::Inactive,
+            true,
+            false,
+            true,
+            false,
+            false,
+            false,
+        ));
+    }
+
+    #[test]
+    fn record_mode_silent_wait_before_start_does_not_latch_anchor() {
+        assert!(!should_latch_record_start_anchor(
+            SignalState::Inactive,
+            true,
+            false,
+            false,
+            false,
+        ));
+    }
+
+    #[test]
+    fn record_mode_silent_tail_after_start_is_captured_when_position_changes() {
         assert!(transport_position_changed(2048, 1024));
         assert!(should_capture_buffer_for_measurement(
             SignalState::Inactive,
+            true,
             false,
             true,
             false,
@@ -937,14 +1009,53 @@ mod b147_record_state_tests {
     }
 
     #[test]
+    fn record_mode_playing_offline_or_explicit_range_can_latch_anchor() {
+        assert!(should_latch_record_start_anchor(
+            SignalState::Inactive,
+            true,
+            true,
+            false,
+            false,
+        ));
+        assert!(should_latch_record_start_anchor(
+            SignalState::Inactive,
+            true,
+            false,
+            true,
+            false,
+        ));
+        assert!(should_latch_record_start_anchor(
+            SignalState::Inactive,
+            true,
+            false,
+            false,
+            true,
+        ));
+    }
+
+    #[test]
+    fn record_mode_explicit_range_captures_first_silent_window() {
+        assert!(should_capture_buffer_for_measurement(
+            SignalState::Inactive,
+            true,
+            false,
+            false,
+            false,
+            false,
+            true,
+        ));
+    }
+
+    #[test]
     fn record_mode_offline_silent_tail_is_captured_without_position() {
         assert!(should_capture_buffer_for_measurement(
             SignalState::Inactive,
-            false,
             true,
             false,
             false,
             true,
+            false,
+            false,
         ));
     }
 
@@ -953,8 +1064,9 @@ mod b147_record_state_tests {
         assert!(!transport_position_changed(2048, 2048));
         assert!(!should_capture_buffer_for_measurement(
             SignalState::Inactive,
-            false,
             true,
+            false,
+            false,
             false,
             false,
             false,
@@ -966,6 +1078,14 @@ mod b147_record_state_tests {
         assert!(!should_capture_buffer_for_measurement(
             SignalState::Bypassed,
             true,
+            true,
+            true,
+            true,
+            true,
+            true,
+        ));
+        assert!(!should_latch_record_start_anchor(
+            SignalState::Bypassed,
             true,
             true,
             true,

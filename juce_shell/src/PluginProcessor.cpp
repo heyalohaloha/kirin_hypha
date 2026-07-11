@@ -235,6 +235,8 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
 
     const bool silent = bufferIsSilent (buffer);
     const bool recording = kirin_hypha_is_recording (hyphaHandle);
+    if (! recording)
+        recordStartWindowLatched = false;
     const bool nonRealtime = isNonRealtime();
     int windowStartFrame = 0;
     int windowEndFrame = numFrames;
@@ -269,17 +271,33 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
     // B-113: 旧 lastSignalState キャッシュは廃止。editor は signalStateLive()（FFI 直読 / heartbeat-aware）で表示分岐する。
 
     // --- Feed the engine ---------------------------------------------------------
-    // B-224 parity with nih-plug: Watch meters only push when Active, but a held Record
-    // captures silent offline/repositioned buffers so Record audio-time cannot be truncated.
+    // Watch meters push when Active. Record only enters after a real rendered/replayed
+    // window has established the native sample start; later silent position-advanced
+    // windows may continue the already-started Record timeline.
     const bool captureBuffer = shouldCaptureBufferForMeasurement (stateCode,
                                                                   bypassed,
                                                                   recording,
                                                                   playing,
                                                                   positionChanged,
                                                                   nonRealtime);
+    const bool recordStartCandidateWindow = captureBuffer
+                                         && recording
+                                         && hasPosition
+                                         && windowNumFrames > 0
+                                         && numCh > 0
+                                         && (stateCode == 1 || playing || nonRealtime || hasClockEnd);
+    const bool renderedRecordWindow = recording
+                                   && hasPosition
+                                   && windowNumFrames > 0
+                                   && numCh > 0
+                                   && captureBuffer
+                                   && (recordStartWindowLatched || recordStartCandidateWindow);
+    if (renderedRecordWindow)
+        recordStartWindowLatched = true;
+    const bool pushBuffer = recording ? renderedRecordWindow : captureBuffer;
     kirin_hypha_note_record_window (hyphaHandle,
                                     recording,
-                                    ! bypassed && windowNumFrames > 0 && numCh > 0,
+                                    renderedRecordWindow,
                                     playing,
                                     nonRealtime,
                                     hasPosition,
@@ -290,7 +308,7 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
                                     clockEndSamples);
     // push_samples advances heartbeat internally, so a 0-frame call is a heartbeat-only
     // keepalive for the non-captured Inactive / Bypassed case.
-    if (captureBuffer)
+    if (pushBuffer)
     {
         const size_t needed = (size_t) windowNumFrames * (size_t) numCh;
         if (numCh > 0 && needed <= scratchCapacitySamples)
