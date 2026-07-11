@@ -861,7 +861,8 @@ fn drain_consumer_before_record_start_position(
         let Some(position_samples) =
             record_take_tracker.position_samples_for_captured_frame(next_frame)
         else {
-            break;
+            let drained_samples = drain_consumer_all(consumer, consumed_samples);
+            return drained_frames.saturating_add(drained_samples / n_channels);
         };
         if position_samples >= record_start_position_samples {
             break;
@@ -1440,7 +1441,7 @@ pub mod tests {
     }
 
     #[test]
-    fn record_start_position_drain_waits_when_capture_clock_is_unavailable() {
+    fn record_start_position_drain_drops_unmapped_queued_frames_before_barrier() {
         let tracker = RecordTakeTracker::new();
         let (mut producer, mut consumer) = rtrb::RingBuffer::new(4);
         for sample in [1.0_f32, 2.0] {
@@ -1458,11 +1459,14 @@ pub mod tests {
             2,
         );
 
-        assert_eq!(drained, 0);
-        assert_eq!(consumed_samples, 0);
+        assert_eq!(drained, 1);
+        assert_eq!(consumed_samples, 2);
         assert_eq!(native_frames_total, 0);
-        assert_eq!(consumer.pop().unwrap(), 1.0);
-        assert_eq!(consumer.pop().unwrap(), 2.0);
+        assert_eq!(
+            consumer.slots(),
+            0,
+            "unmapped queued samples must not become the Record origin"
+        );
     }
 
     #[test]
