@@ -847,12 +847,13 @@ fn drain_consumer_before_record_start_position(
     record_start_position_samples: Option<i64>,
     n_channels: usize,
 ) -> usize {
-    let Some(record_start_position_samples) = record_start_position_samples else {
-        return 0;
-    };
     if n_channels == 0 {
         return 0;
     }
+    let Some(record_start_position_samples) = record_start_position_samples else {
+        let drained_samples = drain_consumer_all(consumer, consumed_samples);
+        return drained_samples / n_channels;
+    };
 
     let mut drained_frames = 0_usize;
     while consumer.slots() >= n_channels {
@@ -927,26 +928,18 @@ fn seed_record_trace_from_pre_roll(
     queue: &RecordTraceQueue,
     pre_roll: &RecordTracePreRoll,
     generation: u64,
-    requested_started_at_ms: i64,
+    _requested_started_at_ms: i64,
     requested_started_at_position_samples: Option<i64>,
     next_trace_ms: &mut u64,
     next_psb_ms: &mut u64,
 ) -> RecordTraceSeedOffsets {
-    #[derive(Clone, Copy)]
-    enum SeedBoundary {
-        Native(i64),
-        WallClock(i64),
-    }
-    let boundary = match requested_started_at_position_samples {
-        Some(position) => SeedBoundary::Native(position),
-        None if requested_started_at_ms > 0 => SeedBoundary::WallClock(requested_started_at_ms),
-        None => return RecordTraceSeedOffsets::default(),
+    let Some(start_position) = requested_started_at_position_samples else {
+        return RecordTraceSeedOffsets::default();
     };
-    let matches_boundary = |sample: &&PreRollTraceSample| match boundary {
-        SeedBoundary::Native(position) => sample
+    let matches_boundary = |sample: &&PreRollTraceSample| {
+        sample
             .position_samples
-            .is_some_and(|sample_position| sample_position >= position),
-        SeedBoundary::WallClock(started_at_ms) => sample.captured_at_ms >= started_at_ms,
+            .is_some_and(|sample_position| sample_position >= start_position)
     };
     let Some(origin) = pre_roll.samples.iter().find(matches_boundary) else {
         return RecordTraceSeedOffsets::default();
@@ -986,18 +979,11 @@ fn seed_record_trace_from_pre_roll(
         seeded += 1;
     }
     if seeded > 0 {
-        match boundary {
-            SeedBoundary::Native(position) => log::info!(
-                "[MeasureThread] seeded {} Record TRACE sample(s) from Watch pre-roll (started_at_position_samples={})",
-                seeded,
-                position
-            ),
-            SeedBoundary::WallClock(started_at_ms) => log::info!(
-                "[MeasureThread] seeded {} Record TRACE sample(s) from Watch pre-roll (requested_started_at_ms={})",
-                seeded,
-                started_at_ms
-            ),
-        }
+        log::info!(
+            "[MeasureThread] seeded {} Record TRACE sample(s) from Watch pre-roll (started_at_position_samples={})",
+            seeded,
+            start_position
+        );
     }
     RecordTraceSeedOffsets {
         frames_48k: last_seed_frames_48k,
@@ -1480,6 +1466,34 @@ pub mod tests {
     }
 
     #[test]
+    fn record_start_position_drain_drops_pending_watch_samples_when_start_is_unlatched() {
+        let tracker = RecordTakeTracker::new();
+        let (mut producer, mut consumer) = rtrb::RingBuffer::new(8);
+        for sample in [1.0_f32, 2.0, 3.0, 4.0] {
+            producer.push(sample).unwrap();
+        }
+
+        let mut consumed_samples = 0_u64;
+        let mut native_frames_total = 0_u64;
+        let drained = super::drain_consumer_before_record_start_position(
+            &mut consumer,
+            &mut consumed_samples,
+            &mut native_frames_total,
+            &tracker,
+            None,
+            2,
+        );
+
+        assert_eq!(drained, 2);
+        assert_eq!(consumed_samples, 4);
+        assert_eq!(
+            native_frames_total, 0,
+            "pre-start Watch samples must not advance the Record native origin"
+        );
+        assert_eq!(consumer.slots(), 0);
+    }
+
+    #[test]
     fn watch_active_pop_limit_preserves_new_pass_samples_already_in_ring() {
         let (mut producer, mut consumer) = rtrb::RingBuffer::new(8);
         for sample in [1.0_f32, 2.0, 9.0, 10.0] {
@@ -1576,7 +1590,7 @@ pub mod tests {
     }
 
     #[test]
-    fn pre_roll_seed_rebases_only_samples_after_record_signal_started_at() {
+    fn pre_roll_seed_does_not_use_wall_clock_when_native_start_is_unlatched() {
         let mut pre_roll = super::RecordTracePreRoll::default();
         let before = crate::MeasureResult {
             lufs_m: Some(-30.0),
@@ -1609,22 +1623,10 @@ pub mod tests {
         );
         let drained = crate::record_writer::drain_record_trace_queue(&queue);
 
-        assert_eq!(drained.len(), 2);
-        assert_eq!(drained[0].t_ms, 0);
-        assert_eq!(drained[0].generation, 77);
-        assert_eq!(drained[0].t_frames_48k, 0);
-        assert_eq!(drained[0].t_native_frames, Some(0));
-        assert_eq!(drained[0].result.lufs_m, Some(-20.0));
-        assert_eq!(drained[1].t_ms, 100);
-        assert_eq!(drained[1].t_frames_48k, 4_800);
-        assert_eq!(drained[1].t_native_frames, Some(4_410));
-        assert_eq!(drained[1].result.lufs_m, Some(-19.0));
-        assert_eq!(offset.frames_48k, 4_800);
-        assert_eq!(offset.native_frames, 4_410);
-        assert_eq!(offset.origin_frames_48k, 9_600);
-        assert_eq!(offset.origin_native_frames, 8_820);
-        assert!(offset.seeded);
-        assert_eq!(next_trace_ms, 200);
+        assert_eq!(offset, super::RecordTraceSeedOffsets::default());
+        assert!(drained.is_empty());
+        assert_eq!(next_trace_ms, 0);
+        assert_eq!(next_psb_ms, 0);
     }
 
     #[test]
@@ -1690,8 +1692,8 @@ pub mod tests {
             lufs_m: Some(-19.0),
             ..Default::default()
         };
-        pre_roll.push(1_050, None, 9_600, 8_820, false, &after_a);
-        pre_roll.push(1_150, None, 14_400, 13_230, false, &after_b);
+        pre_roll.push(1_050, Some(96_000), 9_600, 8_820, false, &after_a);
+        pre_roll.push(1_150, Some(100_410), 14_400, 13_230, false, &after_b);
 
         let queue = crate::record_writer::new_record_trace_queue();
         let mut next_trace_ms = 0;
@@ -1701,7 +1703,7 @@ pub mod tests {
             &pre_roll,
             77,
             1_000,
-            None,
+            Some(96_000),
             &mut next_trace_ms,
             &mut next_psb_ms,
         );
@@ -1730,8 +1732,8 @@ pub mod tests {
             lufs_m: Some(-19.0),
             ..Default::default()
         };
-        pre_roll.push(1_000, None, 10_000, 20_000, false, &after_a);
-        pre_roll.push(1_100, None, 17_200, 34_400, false, &after_b);
+        pre_roll.push(1_000, Some(48_000), 10_000, 20_000, false, &after_a);
+        pre_roll.push(1_100, Some(62_400), 17_200, 34_400, false, &after_b);
 
         let queue = crate::record_writer::new_record_trace_queue();
         let mut next_trace_ms = 0;
@@ -1741,7 +1743,7 @@ pub mod tests {
             &pre_roll,
             77,
             1_000,
-            None,
+            Some(48_000),
             &mut next_trace_ms,
             &mut next_psb_ms,
         );
