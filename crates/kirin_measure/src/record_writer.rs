@@ -587,44 +587,6 @@ pub fn resolve_record_session_id(
         })
 }
 
-/// 指定 `post_instance_id` の record_signal.json を優先し、無ければ Kirin OS 側の
-/// record_expected/current.json から expected WAV metadata を取得。
-pub fn resolve_expected_wav_metadata(
-    base: &std::path::Path,
-    project_hash: &str,
-    post_instance_id: &str,
-) -> Option<ExpectedWavMetadata> {
-    resolve_expected_wav_metadata_for_session(base, project_hash, Some(post_instance_id), None)
-}
-
-fn resolve_expected_wav_metadata_for_session(
-    base: &std::path::Path,
-    project_hash: &str,
-    post_instance_id: Option<&str>,
-    fallback_session_id: Option<&str>,
-) -> Option<ExpectedWavMetadata> {
-    let signal = post_instance_id
-        .and_then(|post_iid| record_signal::read_signal(base, project_hash, post_iid));
-    if let Some(expected) = signal.as_ref().and_then(|signal| {
-        signal
-            .expected_wav
-            .clone()
-            .filter(ExpectedWavMetadata::is_usable)
-    }) {
-        return Some(expected);
-    }
-
-    let signal_session_id = signal
-        .as_ref()
-        .map(|signal| signal.session_id.trim())
-        .filter(|session_id| !session_id.is_empty());
-    let fallback_session_id = fallback_session_id
-        .map(str::trim)
-        .filter(|session_id| !session_id.is_empty());
-    let session_id = signal_session_id.or(fallback_session_id)?;
-    crate::record_expected::claim_expected_metadata_for_session(base, project_hash, session_id).ok()
-}
-
 fn normalized_record_session_id(record_session_id: Option<String>) -> Option<String> {
     record_session_id
         .map(|value| value.trim().to_string())
@@ -747,8 +709,6 @@ pub fn writer_start(
         }
     };
     let record_session_id = Some(record_session_id);
-    let expected_wav = signal_post_instance_id
-        .and_then(|post_iid| resolve_expected_wav_metadata(&base, project_hash, post_iid));
     let writer_paths = WriterPaths::build(&base, project_hash, instance_id, role, &wall_clock_iso);
     let final_path = writer_paths.final_path.clone();
     let staging_path = writer_paths.staging_path.clone();
@@ -781,7 +741,7 @@ pub fn writer_start(
     w.set_record_start_wall_clock(wall_clock_iso);
     w.set_started_at_ms(started_at_ms);
     w.set_record_session_id(record_session_id);
-    w.set_expected_wav(expected_wav);
+    w.set_expected_wav(None);
     if let Err(e) = w.flush() {
         log::warn!("[writer] initial flush failed: {}", e);
         if let Some(claim) = writer_claim.take() {
@@ -868,7 +828,7 @@ pub fn apply_record_take_snapshot(ctx: &mut RecordingCtx, tracker: Option<&Recor
 }
 
 fn refresh_pair_record_metadata_if_missing(ctx: &mut RecordingCtx) {
-    if ctx.writer.data().record_session_id.is_some() && ctx.writer.data().expected_wav.is_some() {
+    if ctx.writer.data().record_session_id.is_some() {
         return;
     }
     let Ok(paths) = StoragePaths::default_platform() else {
@@ -897,16 +857,6 @@ fn refresh_pair_record_metadata_from_base(
     if ctx.writer.data().record_session_id.is_none() {
         let session_id = resolve_record_session_id(base, &project_hash, post_instance_id);
         ctx.writer.set_record_session_id(session_id);
-    }
-    if ctx.writer.data().expected_wav.is_none() {
-        let record_session_id = ctx.writer.data().record_session_id.clone();
-        let expected_wav = resolve_expected_wav_metadata_for_session(
-            base,
-            &project_hash,
-            Some(post_instance_id),
-            record_session_id.as_deref(),
-        );
-        ctx.writer.set_expected_wav(expected_wav);
     }
 }
 
@@ -2913,7 +2863,7 @@ mod tests {
     }
 
     #[test]
-    fn refresh_pair_record_metadata_reads_expected_wav_from_signal() {
+    fn refresh_pair_record_metadata_never_binds_signal_wav_before_drop() {
         let base = isolated_base();
         let mut ctx = make_ctx_with_sample_rate(&base, Role::Post, now_epoch_ms(), 48_000);
         let expected = expected_wav_metadata(48_000, 48_000, "bounce-refresh");
@@ -2938,11 +2888,11 @@ mod tests {
             ctx.writer.data().record_session_id.as_deref(),
             Some("record-session-refresh")
         );
-        assert_eq!(ctx.writer.data().expected_wav.as_ref(), Some(&expected));
+        assert!(ctx.writer.data().expected_wav.is_none());
     }
 
     #[test]
-    fn refresh_pair_record_metadata_claims_expected_wav_for_signal_session() {
+    fn refresh_pair_record_metadata_does_not_claim_previous_current_for_signal_session() {
         let base = isolated_base();
         let mut ctx = make_ctx_with_sample_rate(&base, Role::Post, now_epoch_ms(), 48_000);
         let expected = expected_wav_metadata(48_000, 48_000, "bounce-refresh-claim");
@@ -2968,7 +2918,7 @@ mod tests {
             ctx.writer.data().record_session_id.as_deref(),
             Some("record-session-claim")
         );
-        assert_eq!(ctx.writer.data().expected_wav.as_ref(), Some(&expected));
+        assert!(ctx.writer.data().expected_wav.is_none());
         let batch_peer = crate::record_expected::claim_expected_metadata_for_session(
             &base,
             TEST_PH,
@@ -2979,7 +2929,7 @@ mod tests {
     }
 
     #[test]
-    fn refresh_pair_record_metadata_claims_expected_wav_after_signal_disappears() {
+    fn refresh_pair_record_metadata_does_not_restore_preclaimed_wav_after_signal_disappears() {
         let base = isolated_base();
         let mut ctx = make_ctx_with_sample_rate(&base, Role::Post, now_epoch_ms(), 48_000);
         ctx.writer
@@ -3004,7 +2954,7 @@ mod tests {
             ctx.writer.data().record_session_id.as_deref(),
             Some("record-session-latched")
         );
-        assert_eq!(ctx.writer.data().expected_wav.as_ref(), Some(&expected));
+        assert!(ctx.writer.data().expected_wav.is_none());
     }
 
     /// B-076: テスト用の overflow=0 カウンタ（欠落なし）。`&no_overflow()` で run_record_tick へ。

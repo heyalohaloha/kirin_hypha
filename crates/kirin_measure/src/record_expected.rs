@@ -1,12 +1,10 @@
 //! Expected WAV metadata bridge for PairRecordSession.
 //!
-//! Kirin OS owns the dropped/exported WAV header truth. Hypha snapshots that
-//! truth from `plugin_data/{project_hash}/record_expected/current.json` into
-//! `record_signal`, then into final plugin_data artifacts when available.
-//! `current.json` is never consumed by claim; each `session_id` gets an immutable
-//! claim snapshot so close-time recovery cannot be pulled onto a later bounce.
-//! Missing metadata does not block Keep; final artifacts without this trust
-//! anchor are explicitly marked as usable fallback rather than complete.
+//! Kirin OS owns the dropped/exported WAV header truth. Keep first creates a
+//! metadata-free Record session lifecycle; it never reads the previous
+//! `plugin_data/{project_hash}/record_expected/current.json`. After Drop, Hypha
+//! binds the new WAV generation to pending PRE/POST artifacts and completes the
+//! same session marker. Explicit legacy claims remain immutable for compatibility.
 
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -214,15 +212,34 @@ pub fn claim_expected_metadata_for_session(
     Ok(artifact_metadata)
 }
 
+/// Keep 時点では WAV 世代を選ばず、Record session の open/closed lifecycle だけを作る。
+///
+/// `current.json` は前回 Drop の世代を保持し得るため、Keep 時に読んではならない。Drop 後の
+/// reconciliation が bounce_id/hash を確定し、この marker を同じ session_id のまま完成させる。
+pub(crate) fn begin_expected_session(
+    base_dir: &Path,
+    project_hash: &str,
+    session_id: &str,
+) -> Result<(), ExpectedMetadataError> {
+    let session_id = session_id.trim();
+    if session_id.is_empty() {
+        return Err(ExpectedMetadataError::Invalid);
+    }
+    if read_claim_marker_for_session(base_dir, project_hash, session_id)?.is_some() {
+        return Ok(());
+    }
+    write_empty_claim_marker(base_dir, project_hash, session_id, now_epoch_ms(), None)
+}
+
 /// セッションの Close（成功・`.failed` いずれも）で呼ぶ。`claimed_at_ms`（Keep 時の
 /// 一度きりの claim 時刻）は書き換えず、`closed_at_ms` にだけ現在時刻を刻む
 /// （2026-07-10: 開始/終了時刻を分離し、Kirin OS が「まだ open か」を
 /// `closed_at_ms.is_none()` で判定できるようにする）。
 ///
-/// close 時点の `current.json` は読まず、Keep 時に claim した marker 自身の
-/// `metadata` スナップショットを使う（モジュール冒頭のコメント通り、claim は
-/// 常に immutable — close 時の再解決が別世代の bounce に引っ張られてはならない）。
-/// marker が無い場合だけ、防御的に `current.json` へフォールバックする。
+/// 既に WAV metadata を持つ legacy marker は、その immutable snapshot だけを閉じる。
+/// 通常の metadata-free marker は、Drop 後に呼び出し側が確定した `bounce_id` と
+/// `current.json` が一致した場合に限って、その世代を結合して閉じる。したがって
+/// Keep 時点の前回世代や、別 bounce へ再解決されることはない。
 ///
 /// `bounce_id` は分かる場合の追加検証用（`None` でも可）。`record_session_id` さえ
 /// あれば marker 自身が bounce_id を覚えているため、呼び出し側が `expected_wav` を
@@ -242,7 +259,7 @@ pub fn mark_expected_metadata_consumed(
     let prior_marker = read_claim_marker_for_session(base_dir, project_hash, session_id)?;
     if let Some(marker) = &prior_marker {
         if let Some(bounce_id) = bounce_id {
-            if marker.bounce_id != bounce_id {
+            if !marker.bounce_id.is_empty() && marker.bounce_id != bounce_id {
                 return Ok(false);
             }
         }
@@ -258,18 +275,28 @@ pub fn mark_expected_metadata_consumed(
             )?;
             return Ok(true);
         }
+        if bounce_id.is_none() {
+            write_empty_claim_marker(
+                base_dir,
+                project_hash,
+                session_id,
+                marker.claimed_at_ms,
+                marker.closed_at_ms.or(Some(now_ms)),
+            )?;
+            return Ok(true);
+        }
     }
-    // 防御的 fallback（構造上 try_finalize_pair_session からは到達し得ないはず）:
-    // 事前の claim marker（または metadata スナップショット）が無い場合だけ
-    // 現在の current.json を読む。bounce_id 無しでは何を検証すべきか分からないため
-    // ここでは何もしない。
+    // Keep 時の metadata-free lifecycle を、Drop 後に選ばれた current.json で完成させる。
+    // bounce_id 無しでは世代を検証できないため何もしない。
     let Some(bounce_id) = bounce_id else {
         return Ok(false);
     };
-    log::warn!(
-        "[record_expected] mark_expected_metadata_consumed: no usable prior claim marker \
-         for session={session_id} bounce={bounce_id}; falling back to current.json"
-    );
+    if prior_marker.is_none() {
+        log::warn!(
+            "[record_expected] finalize has no prior session lifecycle marker; \
+             session={session_id} bounce={bounce_id}"
+        );
+    }
     let path = expected_path(base_dir, project_hash);
     let bytes = fs::read(&path)?;
     let metadata: ExpectedWavMetadata = serde_json::from_slice(&bytes)?;
@@ -430,6 +457,29 @@ fn write_claim_marker(
     crate::atomic_file::write_bytes_atomic(&session_path, &json)?;
     let path = expected_claim_marker_path(base_dir, project_hash, metadata, session_id);
     crate::atomic_file::write_bytes_atomic(&path, &json)?;
+    Ok(())
+}
+
+fn write_empty_claim_marker(
+    base_dir: &Path,
+    project_hash: &str,
+    session_id: &str,
+    claimed_at_ms: i64,
+    closed_at_ms: Option<i64>,
+) -> Result<(), ExpectedMetadataError> {
+    let marker = ExpectedWavClaimMarker {
+        schema_version: EXPECTED_CLAIM_SCHEMA.to_string(),
+        session_id: session_id.to_string(),
+        bounce_id: String::new(),
+        created_at_ms: 0,
+        wav_hash: String::new(),
+        claimed_at_ms,
+        closed_at_ms,
+        metadata: None,
+    };
+    let json = serde_json::to_vec(&marker)?;
+    let session_path = expected_session_claim_marker_path(base_dir, project_hash, session_id);
+    crate::atomic_file::write_bytes_atomic(&session_path, &json)?;
     Ok(())
 }
 

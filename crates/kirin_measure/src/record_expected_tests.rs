@@ -348,3 +348,43 @@ fn claim_expected_metadata_has_no_batch_size_cap() {
     assert_eq!(claimed_sessions.len(), 16);
     assert_eq!(read_expected_metadata(&base, "ph").unwrap(), metadata);
 }
+
+#[test]
+fn empty_session_lifecycle_does_not_snapshot_previous_current() {
+    let base = isolated_dir();
+    let previous = metadata_fixture("previous-drop");
+    write_expected_metadata(&base, "ph", &previous).unwrap();
+
+    begin_expected_session(&base, "ph", "new-record-session").unwrap();
+
+    let marker = read_claim_marker_for_session(&base, "ph", "new-record-session")
+        .unwrap()
+        .expect("session lifecycle marker");
+    assert!(marker.metadata.is_none());
+    assert!(marker.bounce_id.is_empty());
+    assert!(marker.closed_at_ms.is_none());
+    assert_eq!(read_expected_metadata(&base, "ph").unwrap(), previous);
+}
+
+#[test]
+fn empty_session_lifecycle_binds_only_drop_selected_at_finalize() {
+    let base = isolated_dir();
+    begin_expected_session(&base, "ph", "new-record-session").unwrap();
+    let selected = metadata_fixture("selected-after-keep");
+    write_expected_metadata(&base, "ph", &selected).unwrap();
+
+    assert!(mark_expected_metadata_consumed(
+        &base,
+        "ph",
+        Some(&selected.bounce_id),
+        "new-record-session",
+    )
+    .unwrap());
+
+    let marker = read_claim_marker_for_session(&base, "ph", "new-record-session")
+        .unwrap()
+        .expect("completed lifecycle marker");
+    assert_eq!(marker.metadata.as_ref(), Some(&selected));
+    assert_eq!(marker.bounce_id, selected.bounce_id);
+    assert!(marker.closed_at_ms.is_some());
+}
