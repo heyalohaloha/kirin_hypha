@@ -1025,21 +1025,56 @@ fn bake_continuous_record_timeline(ctx: &mut RecordingCtx) {
         }
     }
     for sample in &ctx.trace_samples {
+        let Some(result) = measured_trace_result_for_bake(sample) else {
+            continue;
+        };
+        // Absolute-position context deliberately keeps compensation pre-roll/tail beyond the
+        // provisional WAV-length crop. Pair finalization needs that neighborhood to select N
+        // content-matched frames without inventing or duplicating an edge frame.
+        if let (Some(position), Some(source)) =
+            (sample.position_samples, sample.clock_source.as_str())
+        {
+            insert_best_measure(&mut best_by_position, position, result.clone());
+            clock_sources.insert(source.to_string());
+        }
         if sample.t_ms <= duration_ms {
-            let Some(result) = measured_trace_result_for_bake(sample) else {
-                continue;
-            };
-            if let (Some(position), Some(source)) =
-                (sample.position_samples, sample.clock_source.as_str())
-            {
-                insert_best_measure(&mut best_by_position, position, result.clone());
-                clock_sources.insert(source.to_string());
-            }
             if let Some(slot_ms) = nearest_timeline_slot(&slots, sample.t_ms) {
                 insert_best_measure(&mut best_by_ms, slot_ms, result);
             }
         }
     }
+
+    // Retain the complete absolute-position neighborhood until PRE/POST finalization. DAWs may
+    // render compensation pre-roll before the WAV range, and the two plug-in positions can carry
+    // the same content on different host slots. `frames[]` remains the provisional 10 fps take;
+    // the pair finalizer consumes this context once and removes it from published artifacts.
+    let context: Vec<(i64, crate::plugin_data::Frame)> = best_by_position
+        .iter()
+        .enumerate()
+        .filter_map(|(index, (position, result))| {
+            let (Some(lufs_m), Some(true_peak), Some(crest)) =
+                (result.lufs_m, result.true_peak, result.crest)
+            else {
+                return None;
+            };
+            Some((
+                *position,
+                crate::plugin_data::make_frame_optional(
+                    (index as u64 + 1).saturating_mul(FRAME_INTERVAL_MS),
+                    result.n_prime,
+                    result.sharpness,
+                    lufs_m,
+                    true_peak,
+                    crest,
+                    result.psr,
+                ),
+            ))
+        })
+        .collect();
+    ctx.writer.set_trace_context(
+        context.iter().map(|(_, frame)| frame.clone()).collect(),
+        context.iter().map(|(position, _)| *position).collect(),
+    );
 
     let mut psb_by_ms: BTreeMap<u64, MeasureResult> = BTreeMap::new();
     for sample in &ctx.trace_samples {
@@ -3489,6 +3524,7 @@ mod tests {
         ExpectedWavMetadata {
             expected_duration_samples: duration_samples,
             expected_sample_rate: sample_rate,
+            wav_time_reference_samples: None,
             wav_path: format!("/tmp/{bounce_id}.wav"),
             bounce_id: bounce_id.to_string(),
             created_at_ms: now_ms,
@@ -5253,7 +5289,12 @@ mod tests {
         assert_eq!(trace_clock.end_position_samples, 96_000);
         assert_eq!(trace_clock.sample_rate, 96_000);
         assert_eq!(trace_clock.sources, vec!["project_timeline"]);
-        assert!(loaded.trace_context_frames.is_empty());
+        assert_eq!(loaded.trace_context_frames.len(), 10);
+        assert_eq!(loaded.trace_context_slot_positions.len(), 10);
+        assert_eq!(
+            loaded.trace_context_slot_positions,
+            loaded.trace_slot_positions
+        );
     }
 
     #[test]

@@ -95,6 +95,7 @@ fn write_pending_claiming_expected_does_not_bind_previous_current_generation() {
     let expected = crate::record_expected::ExpectedWavMetadata {
         expected_duration_samples: 48_000,
         expected_sample_rate: 48_000,
+        wav_time_reference_samples: None,
         wav_path: "/tmp/kirin-claim.wav".to_string(),
         bounce_id: "bounce-signal-claim".to_string(),
         created_at_ms: chrono::Utc::now().timestamp_millis(),
@@ -136,6 +137,7 @@ fn expected_end_position_uses_started_position_plus_expected_duration_when_sampl
     let expected = crate::record_expected::ExpectedWavMetadata {
         expected_duration_samples: 48_000,
         expected_sample_rate: 48_000,
+        wav_time_reference_samples: None,
         wav_path: "/tmp/kirin-claim.wav".to_string(),
         bounce_id: "bounce-signal-end".to_string(),
         created_at_ms: chrono::Utc::now().timestamp_millis(),
@@ -164,6 +166,7 @@ fn expected_end_position_is_none_when_sample_rate_mismatches() {
     let expected = crate::record_expected::ExpectedWavMetadata {
         expected_duration_samples: 48_000,
         expected_sample_rate: 48_000,
+        wav_time_reference_samples: None,
         wav_path: "/tmp/kirin-claim.wav".to_string(),
         bounce_id: "bounce-signal-end-mismatch".to_string(),
         created_at_ms: chrono::Utc::now().timestamp_millis(),

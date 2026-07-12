@@ -25,6 +25,10 @@ const EXPECTED_METADATA_SESSION_SEPARATOR: char = '\n';
 pub struct ExpectedWavMetadata {
     pub expected_duration_samples: u64,
     pub expected_sample_rate: u32,
+    /// Broadcast-Wave `bext.timeReference` (first WAV sample on the DAW project axis).
+    /// Optional because plain RIFF/WAVE files and some DAWs do not emit `bext`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wav_time_reference_samples: Option<u64>,
     pub wav_path: String,
     #[serde(default)]
     pub bounce_id: String,

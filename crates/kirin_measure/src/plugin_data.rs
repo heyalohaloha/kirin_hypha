@@ -42,7 +42,7 @@
 use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -349,10 +349,9 @@ pub struct PluginDataFile {
     /// compared across PRE/POST because DAW PDC and wrapper scheduling can shift it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trace_clock: Option<TraceClock>,
-    /// Absolute native-sample endpoint of every `frames[]` entry before WAV rebasing.
-    /// A complete PRE/POST comparison requires these vectors to be identical. Keeping the
-    /// producer slot identity separate from the display `t_ms` prevents Drop from relabelling
-    /// two differently measured windows as if they were the same time.
+    /// Producer-canonical native-sample endpoint of every `frames[]` entry. Before pair
+    /// finalization this is the host callback position; afterwards both roles carry the POST
+    /// content position selected by the producer-owned content clock.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub trace_slot_positions: Vec<i64>,
     /// Pair-wide final axis. Present only after Drop supplies a complete WAV identity and length.
@@ -362,9 +361,21 @@ pub struct PluginDataFile {
     /// consumer は内容推定も時刻補正も行わない。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trace_content_alignment: Option<crate::trace_alignment::TraceContentAlignment>,
-    /// B-356 以前の staging JSON を読み戻すための legacy field。publish 前に必ず消去する。
+    /// Pair finalization-only measurement neighborhood. Legacy B-356 staging files also deserialize
+    /// here; new producers pair it with `trace_context_slot_positions`. Always removed on publish.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub trace_context_frames: Vec<Frame>,
+    /// Absolute endpoints for `trace_context_frames`. Closed pair candidates retain the complete
+    /// measured neighborhood (including DAW compensation pre-roll) until the pair finalizer has
+    /// established one content-time mapping. Published files clear both context vectors.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub trace_context_slot_positions: Vec<i64>,
+    /// Producer-derived mapping from a PRE host slot to the POST host slot carrying the same
+    /// audio content. This is pair data, not a DAW-specific latency setting.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trace_pair_offset_samples: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trace_pair_alignment_score: Option<f64>,
     /// B-356 以前の staging JSON を読み戻すための legacy field。publish 前に必ず消去する。
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub trace_context_psb_snapshots: Vec<PsbSnapshot>,
@@ -472,6 +483,9 @@ impl PluginDataFile {
             trace_wav_reference: None,
             trace_content_alignment: None,
             trace_context_frames: Vec::new(),
+            trace_context_slot_positions: Vec::new(),
+            trace_pair_offset_samples: None,
+            trace_pair_alignment_score: None,
             trace_context_psb_snapshots: Vec::new(),
             record_quality: None,
             validity: true,
@@ -647,6 +661,11 @@ impl PluginDataWriter {
     pub fn clear_frames(&mut self) {
         self.data.frames.clear();
         self.data.trace_slot_positions.clear();
+    }
+
+    pub(crate) fn set_trace_context(&mut self, frames: Vec<Frame>, slot_positions: Vec<i64>) {
+        self.data.trace_context_frames = frames;
+        self.data.trace_context_slot_positions = slot_positions;
     }
 
     pub(crate) fn clear_psb_snapshots(&mut self) {
@@ -1414,8 +1433,14 @@ fn try_finalize_pair_session(
     let content_alignment = content_alignment.expect("checked canonical WAV alignment");
     self_data.trace_content_alignment = Some(content_alignment.clone());
     peer_data.trace_content_alignment = Some(content_alignment);
+    self_data.trace_pair_offset_samples = None;
+    peer_data.trace_pair_offset_samples = None;
+    self_data.trace_pair_alignment_score = None;
+    peer_data.trace_pair_alignment_score = None;
     self_data.trace_context_frames.clear();
     peer_data.trace_context_frames.clear();
+    self_data.trace_context_slot_positions.clear();
+    peer_data.trace_context_slot_positions.clear();
     self_data.trace_context_psb_snapshots.clear();
     peer_data.trace_context_psb_snapshots.clear();
     let integrity_reasons = pair_publish_integrity_reasons(&self_data, &peer_data);
@@ -2087,8 +2112,14 @@ fn publish_late_expected_pair(
     };
     pre_data.trace_content_alignment = Some(content_alignment.clone());
     post_data.trace_content_alignment = Some(content_alignment);
+    pre_data.trace_pair_offset_samples = None;
+    post_data.trace_pair_offset_samples = None;
+    pre_data.trace_pair_alignment_score = None;
+    post_data.trace_pair_alignment_score = None;
     pre_data.trace_context_frames.clear();
     post_data.trace_context_frames.clear();
+    pre_data.trace_context_slot_positions.clear();
+    post_data.trace_context_slot_positions.clear();
     pre_data.trace_context_psb_snapshots.clear();
     post_data.trace_context_psb_snapshots.clear();
     if !pair_publish_failure_reasons(pre_data, post_data).is_empty() {
@@ -2126,55 +2157,51 @@ fn normalize_late_expected_pair(
         return false;
     }
     let slot_samples = (left.sample_rate as i64 / 10).max(1);
-    let left_by_position: BTreeMap<i64, Frame> = left
-        .trace_slot_positions
-        .iter()
-        .copied()
-        .zip(left.frames.iter().cloned())
-        .collect();
-    let right_by_position: BTreeMap<i64, Frame> = right
-        .trace_slot_positions
-        .iter()
-        .copied()
-        .zip(right.frames.iter().cloned())
-        .collect();
-    let shared: Vec<i64> = left_by_position
-        .keys()
-        .copied()
-        .filter(|position| right_by_position.contains_key(position))
-        .collect();
-    let Some(selected) = shared
-        .windows(expected_len)
-        .find(|window| {
-            window
-                .windows(2)
-                .all(|pair| pair[1].saturating_sub(pair[0]) == slot_samples)
-        })
-        .map(<[i64]>::to_vec)
-    else {
+    let plan = match (left.role, right.role) {
+        (Role::Pre, Role::Post) => crate::trace_content_clock::build_content_clock_plan(
+            left,
+            right,
+            expected,
+            expected_len,
+            slot_samples,
+        ),
+        (Role::Post, Role::Pre) => crate::trace_content_clock::build_content_clock_plan(
+            right,
+            left,
+            expected,
+            expected_len,
+            slot_samples,
+        ),
+        _ => return false,
+    };
+    let Some(plan) = plan else {
         return false;
     };
-
-    let rebuild = |data: &mut PluginDataFile, source: &BTreeMap<i64, Frame>| {
-        data.frames = selected
-            .iter()
-            .enumerate()
-            .filter_map(|(index, position)| {
-                source.get(position).cloned().map(|mut frame| {
-                    frame.t_ms = (index as u64 + 1) * TRACE_FRAME_INTERVAL_MS;
-                    frame
-                })
-            })
-            .collect();
-        data.trace_slot_positions = selected.clone();
+    let rebuild = |data: &mut PluginDataFile, frames: Vec<Frame>| {
+        data.frames = frames;
+        data.trace_slot_positions = plan.canonical_slots.clone();
+        data.trace_pair_offset_samples = Some(plan.pre_to_post_offset_samples);
+        data.trace_pair_alignment_score = plan.alignment_score;
         if let Some(clock) = data.trace_clock.as_mut() {
-            clock.origin_position_samples = selected[0].saturating_sub(slot_samples);
-            clock.end_position_samples = *selected.last().expect("selected is non-empty");
+            clock.origin_position_samples = plan.canonical_slots[0].saturating_sub(slot_samples);
+            clock.end_position_samples = *plan
+                .canonical_slots
+                .last()
+                .expect("canonical slots are non-empty");
             clock.sample_rate = expected.expected_sample_rate;
         }
     };
-    rebuild(left, &left_by_position);
-    rebuild(right, &right_by_position);
+    match (left.role, right.role) {
+        (Role::Pre, Role::Post) => {
+            rebuild(left, plan.pre_frames);
+            rebuild(right, plan.post_frames);
+        }
+        (Role::Post, Role::Pre) => {
+            rebuild(left, plan.post_frames);
+            rebuild(right, plan.pre_frames);
+        }
+        _ => return false,
+    }
     normalize_late_expected_record(left, expected)
         && normalize_late_expected_record(right, expected)
 }
@@ -3255,6 +3282,7 @@ mod tests {
         ExpectedWavMetadata {
             expected_duration_samples: 48_000,
             expected_sample_rate: 48_000,
+            wav_time_reference_samples: None,
             wav_path: "/tmp/kirin-plugin-data-test.wav".to_string(),
             bounce_id: "bounce-plugin-data-test".to_string(),
             created_at_ms: now_ms,
@@ -3271,6 +3299,7 @@ mod tests {
         ExpectedWavMetadata {
             expected_duration_samples: duration_samples,
             expected_sample_rate: 48_000,
+            wav_time_reference_samples: None,
             wav_path: "/tmp/kirin-plugin-data-late-expected.wav".to_string(),
             bounce_id: format!("bounce-late-expected-{now_ms}"),
             created_at_ms: now_ms,
@@ -3358,6 +3387,87 @@ mod tests {
         );
     }
 
+    #[test]
+    fn pair_normalization_uses_content_offset_and_bwf_origin_not_equal_host_slots() {
+        let base = isolated_dir();
+        let mut expected = fresh_expected_wav_fixture(24_000);
+        expected.wav_time_reference_samples = Some(480_000);
+        let mut pre = complete_pair_writer(
+            &base,
+            Role::Pre,
+            "iid-pre-content-clock",
+            None,
+            Some("iid-post-content-clock".to_string()),
+        );
+        let mut post = complete_pair_writer(
+            &base,
+            Role::Post,
+            "iid-post-content-clock",
+            Some("iid-pre-content-clock".to_string()),
+            None,
+        );
+        let positions: Vec<i64> = (0..8).map(|index| 475_200 + index * 4_800).collect();
+        let shape = [-28.0, -20.0, -13.0, -22.0, -9.0, -18.0, -11.0, -24.0];
+        let pre_context: Vec<Frame> = shape
+            .iter()
+            .enumerate()
+            .map(|(index, value)| {
+                make_frame_optional(
+                    (index as u64 + 1) * 100,
+                    None,
+                    None,
+                    *value,
+                    value + 10.0,
+                    12.0,
+                    None,
+                )
+            })
+            .collect();
+        let post_context: Vec<Frame> = std::iter::once(-60.0)
+            .chain(shape.iter().copied().map(|value| value + 4.0))
+            .take(8)
+            .enumerate()
+            .map(|(index, value)| {
+                make_frame_optional(
+                    (index as u64 + 1) * 100,
+                    None,
+                    None,
+                    value,
+                    value + 10.0,
+                    9.0,
+                    None,
+                )
+            })
+            .collect();
+        for (writer, context) in [(&mut pre, pre_context), (&mut post, post_context)] {
+            configure_render_clock_take(writer, 38_400);
+            writer.data.trace_context_frames = context;
+            writer.data.trace_context_slot_positions = positions.clone();
+            writer.data.expected_wav = Some(expected.clone());
+            writer.data.record_session_id = Some("session-content-clock".to_string());
+            writer.data.status = Status::Closed;
+        }
+
+        assert!(normalize_late_expected_pair(
+            &mut pre.data,
+            &mut post.data,
+            &expected
+        ));
+        assert_eq!(pre.data.trace_pair_offset_samples, Some(4_800));
+        assert_eq!(post.data.trace_pair_offset_samples, Some(4_800));
+        assert_eq!(
+            pre.data.trace_slot_positions,
+            post.data.trace_slot_positions
+        );
+        assert_eq!(pre.data.trace_slot_positions[0], 484_800);
+        assert_eq!(pre.data.frames.len(), 5);
+        assert_eq!(post.data.frames.len(), 5);
+        for (pre_frame, post_frame) in pre.data.frames.iter().zip(&post.data.frames) {
+            assert_eq!(post_frame.lufs_m - pre_frame.lufs_m, 4.0);
+            assert_eq!(pre_frame.t_ms, post_frame.t_ms);
+        }
+    }
+
     fn complete_pair_writer(
         base: &Path,
         role: Role,
@@ -3433,6 +3543,8 @@ mod tests {
             w.append_frame(t_ms, [0.0; 20], 0.0, -20.0, -1.0, 12.0, Some(10.0));
         }
         w.set_trace_slot_positions((4_800_i64..=48_000).step_by(4_800).collect());
+        w.data.trace_pair_offset_samples = Some(0);
+        w.data.trace_pair_alignment_score = Some(1.0);
         w
     }
 
@@ -4027,6 +4139,12 @@ mod tests {
                 alignment.status,
                 crate::trace_alignment::TRACE_ALIGNMENT_STATUS
             );
+            assert_eq!(
+                alignment.method,
+                crate::trace_alignment::TRACE_ALIGNMENT_METHOD
+            );
+            assert!(data.trace_pair_offset_samples.is_none());
+            assert!(data.trace_pair_alignment_score.is_none());
             let quality = data.record_quality.as_ref().expect("record_quality");
             assert_eq!(quality.status, "complete");
             assert!(quality.complete);

@@ -1660,6 +1660,7 @@ mod tests {
         ExpectedWavMetadata {
             expected_duration_samples: 48_000,
             expected_sample_rate: 48_000,
+            wav_time_reference_samples: None,
             wav_path: "/tmp/kirin-io-pre-test.wav".to_string(),
             bounce_id: "test-bounce".to_string(),
             created_at_ms: chrono::Utc::now().timestamp_millis(),

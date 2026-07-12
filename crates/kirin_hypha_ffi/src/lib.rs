@@ -1376,6 +1376,7 @@ impl KirinHyphaEngine {
         let metadata = ExpectedWavMetadata {
             expected_duration_samples: input.expected_duration_samples,
             expected_sample_rate: input.expected_sample_rate,
+            wav_time_reference_samples: None,
             wav_path: input.wav_path,
             bounce_id: input.bounce_id,
             created_at_ms: kirin_measure::record_writer::now_epoch_ms(),

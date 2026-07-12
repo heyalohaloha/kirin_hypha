@@ -40,6 +40,7 @@ pub mod resampler;
 pub mod reservation;
 pub mod storage;
 pub mod trace_alignment;
+mod trace_content_clock;
 pub mod watch_playback_pass;
 mod watch_tmp_cleanup;
 pub mod watchdog;
