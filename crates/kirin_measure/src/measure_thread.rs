@@ -8,7 +8,7 @@
 use crate::phase_d::stream::PhaseDStream;
 use crate::phase_d::tables::FieldType;
 use crate::record::RecordStateMachine;
-use crate::record_take::{CaptureClockSource, RecordTakeTracker};
+use crate::record_take::{CaptureClockPoint, CaptureClockSource, RecordTakeTracker};
 use crate::record_writer::{
     clear_record_trace_queue, now_epoch_ms, push_record_trace_sample,
     samples_are_trace_silence_floor, RecordTraceQueue, RecordTraceSample, FRAME_INTERVAL_MS,
@@ -63,6 +63,17 @@ fn idle_sleep_for_record_state(is_recording: bool) -> Duration {
     } else {
         LOOP_SLEEP
     }
+}
+
+fn record_grid_alignment(position_start: i64, sample_rate: u32) -> (usize, i64) {
+    let slot_frames = (sample_rate as i64 / 10).max(1);
+    let phase_frames = position_start.rem_euclid(slot_frames) as usize;
+    let remaining = if phase_frames == 0 {
+        slot_frames
+    } else {
+        slot_frames.saturating_sub(phase_frames as i64)
+    };
+    (phase_frames, position_start.saturating_add(remaining))
 }
 
 #[derive(Debug, Clone)]
@@ -270,11 +281,21 @@ pub fn spawn_measure_thread(
                 return;
             }
         };
-        let mut record_engine = match MeasureEngine::new(sample_rate, n_channels) {
+        let mut record_trace_engine = match MeasureEngine::new(sample_rate, n_channels) {
             Ok(engine) => engine,
             Err(error) => {
                 log::error!(
-                    "[MeasureThread] native Record engine construction failed: {}",
+                    "[MeasureThread] native Record TRACE engine construction failed: {}",
+                    error
+                );
+                return;
+            }
+        };
+        let mut record_summary_engine = match MeasureEngine::new(sample_rate, n_channels) {
+            Ok(engine) => engine,
+            Err(error) => {
+                log::error!(
+                    "[MeasureThread] native Record summary engine construction failed: {}",
                     error
                 );
                 return;
@@ -316,6 +337,15 @@ pub fn spawn_measure_thread(
         let mut latest_pd: Option<crate::phase_d::stream::PhaseDResult> = None;
         let mut record_core_pending: VecDeque<PendingRecordCore> = VecDeque::new();
         let mut record_phase_pending = VecDeque::new();
+        // Record TRACE windows are phase-locked to the host's absolute native-sample grid.
+        // PRE and POST may begin delivering Record buffers on different callbacks (Studio One
+        // PDC is a real example), but a 100 ms boundary at sample N must mean the same interval
+        // in both instances. The cursor is Measure-thread-only; Audio Thread still publishes
+        // samples and clocks through the existing lock-free ring/atomics.
+        let mut record_grid_cursor: Option<i64> = None;
+        let mut record_next_grid_end: Option<i64> = None;
+        let mut record_alignment_silence =
+            Vec::with_capacity((sample_rate as usize / 10).saturating_mul(n_channels));
 
         // f32 → f64 変換バッファ（ループをまたいで再利用。再アロケーションを避ける）
         let mut chunk_f64: Vec<f64> = Vec::with_capacity(sample_rate as usize);
@@ -368,7 +398,8 @@ pub fn spawn_measure_thread(
             let is_recording = record_sm.is_recording();
             if !prev_recording && is_recording {
                 engine.reset();
-                record_engine.reset();
+                record_trace_engine.reset();
+                record_summary_engine.reset();
                 phase_d.reset();
                 if let Some(rs) = &mut resampler {
                     rs.reset();
@@ -377,6 +408,8 @@ pub fn spawn_measure_thread(
                 phase_d_slot_pending.clear();
                 record_core_pending.clear();
                 record_phase_pending.clear();
+                record_grid_cursor = None;
+                record_next_grid_end = None;
                 let drained_start_frames = drain_consumer_before_record_start_position(
                     &mut consumer,
                     &mut consumed_samples,
@@ -392,7 +425,7 @@ pub fn spawn_measure_thread(
                     );
                 }
                 record_origin_frames =
-                    native_frames_to_48k(record_engine.total_frames(), sample_rate);
+                    native_frames_to_48k(record_trace_engine.total_frames(), sample_rate);
                 record_origin_native_frames = native_frames_total;
                 next_record_trace_ms = 0;
                 next_record_psb_ms = 0;
@@ -433,7 +466,8 @@ pub fn spawn_measure_thread(
                     DrainRingSession {
                         consumer: &mut consumer,
                         resampler: &mut resampler,
-                        engine: &mut record_engine,
+                        trace_engine: &mut record_trace_engine,
+                        summary_engine: &mut record_summary_engine,
                         session_summary: &session_summary,
                         chunk_f64: &mut chunk_f64,
                         resampled_buf: &mut resampled_buf,
@@ -546,6 +580,8 @@ pub fn spawn_measure_thread(
                     phase_d_slot_pending.clear();
                     record_core_pending.clear();
                     record_phase_pending.clear();
+                    record_grid_cursor = None;
+                    record_next_grid_end = None;
                     consumed_samples = 0;
                     prev_active = state == SignalState::Active;
                     if state == SignalState::Active {
@@ -585,7 +621,8 @@ pub fn spawn_measure_thread(
                         DrainRingSession {
                             consumer: &mut consumer,
                             resampler: &mut resampler,
-                            engine: &mut record_engine,
+                            trace_engine: &mut record_trace_engine,
+                            summary_engine: &mut record_summary_engine,
                             session_summary: &session_summary,
                             chunk_f64: &mut chunk_f64,
                             resampled_buf: &mut resampled_buf,
@@ -662,7 +699,8 @@ pub fn spawn_measure_thread(
             if !prev_active {
                 if !is_recording {
                     engine.reset();
-                    record_engine.reset();
+                    record_trace_engine.reset();
+                    record_summary_engine.reset();
                     record_pre_roll.clear();
                 } else {
                     log::info!("[MeasureThread] SS-8 reset suppressed in Record mode (B-043)");
@@ -722,7 +760,8 @@ pub fn spawn_measure_thread(
                     .is_some_and(|(start, previous_end)| start != previous_end)
                 {
                     engine.reset();
-                    record_engine.reset();
+                    record_trace_engine.reset();
+                    record_summary_engine.reset();
                     phase_d.reset();
                     if let Some(rs) = &mut resampler {
                         rs.reset();
@@ -731,9 +770,11 @@ pub fn spawn_measure_thread(
                     phase_d_slot_pending.clear();
                     record_core_pending.clear();
                     record_phase_pending.clear();
+                    record_grid_cursor = None;
+                    record_next_grid_end = None;
                     if is_recording {
                         record_origin_frames =
-                            native_frames_to_48k(record_engine.total_frames(), sample_rate);
+                            native_frames_to_48k(record_trace_engine.total_frames(), sample_rate);
                         record_origin_native_frames = native_frames_total;
                     }
                     log::info!(
@@ -775,6 +816,56 @@ pub fn spawn_measure_thread(
                 } else {
                     &chunk_f64
                 };
+
+                // Establish the Record metric phase before feeding either the native EBU engine
+                // or Phase D. Padding represents only the unavailable prefix of the absolute
+                // 100 ms slot; it is never written to the audio buffer and never reaches the DAW.
+                // The independent TRACE engine is causally primed with silence, so its first
+                // published 400 ms window ends on the same absolute grid in every instance.
+                if is_recording {
+                    if let Some(position_start) = capture_plan.position_start_samples {
+                        if record_grid_cursor != Some(position_start) {
+                            record_trace_engine.reset();
+                            phase_d.reset();
+                            latest_pd = None;
+                            phase_d_slot_pending.clear();
+                            record_core_pending.clear();
+                            record_phase_pending.clear();
+                            let (phase_frames, next_grid_end) =
+                                record_grid_alignment(position_start, sample_rate);
+                            // TRACE has a causal 400 ms momentary window. Prime only the TRACE
+                            // engine with the unavailable 300 ms prefix plus the absolute-grid
+                            // phase. The independent summary engine receives real capture samples
+                            // only, so LUFS-I/LRA remain unmodified.
+                            let warmup_frames = (sample_rate as usize * 3) / 10;
+                            let alignment_frames = warmup_frames.saturating_add(phase_frames);
+                            record_alignment_silence.clear();
+                            record_alignment_silence
+                                .resize(alignment_frames.saturating_mul(n_channels), 0.0);
+                            let _ = record_trace_engine.push(&record_alignment_silence);
+                            let phase_frames_48k =
+                                native_frames_to_48k(alignment_frames as u64, sample_rate) as usize;
+                            record_alignment_silence.clear();
+                            record_alignment_silence
+                                .resize(phase_frames_48k.saturating_mul(n_channels), 0.0);
+                            feed_phase_d_slots(
+                                &record_alignment_silence,
+                                n_channels,
+                                &mut phase_d_mono_buf,
+                                &mut phase_d_slot_pending,
+                                &mut phase_d,
+                                &mut latest_pd,
+                                &mut record_phase_pending,
+                                false,
+                            );
+                            record_next_grid_end = Some(next_grid_end);
+                            record_grid_cursor = Some(position_start);
+                        }
+                    } else {
+                        record_grid_cursor = None;
+                        record_next_grid_end = None;
+                    }
+                }
 
                 // Phase D: mono is identity; stereo is averaged to mono. Do not duplicate mono
                 // into two channels, because that would also bias EBU loudness by +3 dB.
@@ -842,14 +933,27 @@ pub fn spawn_measure_thread(
                 }
 
                 if is_recording {
-                    let _ = record_engine.push_observed(
+                    let _ = record_trace_engine.push_observed(
                         &chunk_f64,
                         |native_engine_frames, base_result, observed_chunk| {
+                            let grid_position = record_next_grid_end;
+                            if let Some(position) = grid_position {
+                                record_next_grid_end =
+                                    Some(position.saturating_add((sample_rate as i64 / 10).max(1)));
+                            }
                             let observed_native_frames = native_frames_after;
                             let observed_silence_floor =
                                 samples_are_trace_silence_floor(observed_chunk);
-                            let clock_point = record_take_tracker
-                                .clock_point_for_captured_frame(observed_native_frames);
+                            let clock_point = grid_position
+                                .zip(capture_plan.clock_source())
+                                .map(|(position_samples, source)| CaptureClockPoint {
+                                    position_samples,
+                                    source,
+                                })
+                                .or_else(|| {
+                                    record_take_tracker
+                                        .clock_point_for_captured_frame(observed_native_frames)
+                                });
                             record_core_pending.push_back(PendingRecordCore {
                                 frames_48k: native_frames_to_48k(native_engine_frames, sample_rate),
                                 native_frames: observed_native_frames,
@@ -861,6 +965,11 @@ pub fn spawn_measure_thread(
                             });
                         },
                     );
+                    let _ = record_summary_engine.push(&chunk_f64);
+                    if let Some(position_start) = capture_plan.position_start_samples {
+                        record_grid_cursor =
+                            Some(position_start.saturating_add(chunk_native_frames as i64));
+                    }
                     let mut trace = RecordTraceDrain {
                         queue: &record_trace_queue,
                         timeline: RecordTraceTimeline {
@@ -888,7 +997,7 @@ pub fn spawn_measure_thread(
                 // IO Thread が Record→Watch 遷移時に直近の値を読み出して JSON に焼く。
                 // engine.push() 後に呼ぶことで最新チャンク反映後の値を取れる。
                 if is_recording {
-                    let summary = record_engine.finalize();
+                    let summary = record_summary_engine.finalize();
                     if let Ok(mut g) = session_summary.lock() {
                         *g = Some(summary);
                     }
@@ -1143,7 +1252,10 @@ fn seed_record_trace_from_pre_roll(
     let matches_boundary = |sample: &&PreRollTraceSample| {
         sample
             .position_samples
-            .is_some_and(|sample_position| sample_position >= start_position)
+            // A metric stamped exactly at the Record start describes the preceding 400 ms
+            // Watch window, not the first Record interval. Importing it shifts the bounded take
+            // one slot earlier and can leave PRE/POST with only N-1 shared slots.
+            .is_some_and(|sample_position| sample_position > start_position)
     };
     let Some(origin) = pre_roll.samples.iter().find(matches_boundary) else {
         return RecordTraceSeedOffsets::default();
@@ -1321,7 +1433,8 @@ struct RecordTraceDrain<'a> {
 struct DrainRingSession<'a> {
     consumer: &'a mut rtrb::Consumer<f32>,
     resampler: &'a mut Option<ResamplerTo48k>,
-    engine: &'a mut MeasureEngine,
+    trace_engine: &'a mut MeasureEngine,
+    summary_engine: &'a mut MeasureEngine,
     session_summary: &'a Arc<Mutex<Option<SessionSummary>>>,
     chunk_f64: &'a mut Vec<f64>,
     resampled_buf: &'a mut Vec<f64>,
@@ -1386,6 +1499,13 @@ struct CaptureChunkPlan {
     sample_count: usize,
     position_start_samples: Option<i64>,
     position_end_samples: Option<i64>,
+    clock_source: CaptureClockSource,
+}
+
+impl CaptureChunkPlan {
+    fn clock_source(self) -> Option<CaptureClockSource> {
+        (self.clock_source != CaptureClockSource::Unknown).then_some(self.clock_source)
+    }
 }
 
 fn capture_chunk_plan(
@@ -1413,6 +1533,7 @@ fn capture_chunk_plan(
         position_start_samples,
         position_end_samples: position_start_samples
             .map(|position| position.saturating_add(frames as i64)),
+        clock_source: span.source,
     }
 }
 
@@ -1532,7 +1653,8 @@ fn drain_ring_into_session(
             .zip(*ctx.last_capture_position_end)
             .is_some_and(|(start, previous_end)| start != previous_end)
         {
-            ctx.engine.reset();
+            ctx.trace_engine.reset();
+            ctx.summary_engine.reset();
             ctx.phase_d.reset();
             if let Some(rs) = ctx.resampler.as_mut() {
                 rs.reset();
@@ -1583,7 +1705,7 @@ fn drain_ring_into_session(
             true,
         );
         if let Some(trace) = record_trace.as_mut() {
-            let _ = ctx.engine.push_observed(
+            let _ = ctx.trace_engine.push_observed(
                 ctx.chunk_f64,
                 |native_engine_frames, base_result, observed_chunk| {
                     let observed_native_frames = native_frames_after;
@@ -1608,8 +1730,10 @@ fn drain_ring_into_session(
                 ctx.record_core_pending,
                 ctx.record_phase_pending,
             );
+            let _ = ctx.summary_engine.push(ctx.chunk_f64);
         } else {
-            let _ = ctx.engine.push(ctx.chunk_f64);
+            let _ = ctx.trace_engine.push(ctx.chunk_f64);
+            let _ = ctx.summary_engine.push(ctx.chunk_f64);
         }
     }
     if ctx.finalize_capture {
@@ -1645,7 +1769,7 @@ fn drain_ring_into_session(
     if let Some(trace) = record_trace.as_mut() {
         push_record_timeline_markers_until(trace, ctx.sample_rate, *ctx.native_frames_total);
     }
-    let summary = ctx.engine.finalize();
+    let summary = ctx.summary_engine.finalize();
     match ctx.session_summary.lock() {
         Ok(mut g) => {
             *g = Some(summary);
@@ -1695,7 +1819,7 @@ fn compute_psb_summary(
 pub mod tests {
     use super::{
         compute_psb_summary, push_record_trace_clock_markers_until,
-        push_record_trace_to_record_take_clock, RecordTraceCursor,
+        push_record_trace_to_record_take_clock, record_grid_alignment, RecordTraceCursor,
     };
     use crate::record_take::{CaptureClockSource, RecordTakeBlock, RecordTakeTracker};
     use crate::record_writer::{
@@ -1723,6 +1847,20 @@ pub mod tests {
             super::idle_sleep_for_record_state(true) < super::LOOP_SLEEP,
             "Record mode must poll faster than Watch mode"
         );
+    }
+
+    #[test]
+    fn studio_one_instance_start_skew_converges_to_one_absolute_100ms_grid() {
+        let (post_padding, post_first_end) = record_grid_alignment(6_465_671, 96_000);
+        let (pre_padding, pre_first_end) = record_grid_alignment(6_473_347, 96_000);
+
+        assert_eq!(post_padding, 4_871);
+        assert_eq!(pre_padding, 2_947);
+        assert_eq!(post_first_end, 6_470_400);
+        assert_eq!(pre_first_end, 6_480_000);
+        assert_eq!(post_first_end.rem_euclid(9_600), 0);
+        assert_eq!(pre_first_end.rem_euclid(9_600), 0);
+        assert_eq!(post_first_end.saturating_add(9_600), pre_first_end);
     }
 
     #[test]
@@ -2009,14 +2147,13 @@ pub mod tests {
         );
         let drained = crate::record_writer::drain_record_trace_queue(&queue);
 
-        assert_eq!(drained.len(), 2);
-        assert_eq!(drained[0].t_ms, 0);
-        assert_eq!(drained[0].t_frames_48k, 0);
-        assert_eq!(drained[0].t_native_frames, Some(0));
-        assert_eq!(drained[0].result.lufs_m, Some(-20.0));
-        assert_eq!(drained[1].result.lufs_m, Some(-19.0));
-        assert_eq!(offset.origin_frames_48k, 9_600);
-        assert_eq!(offset.origin_native_frames, 8_820);
+        assert_eq!(drained.len(), 1);
+        assert_eq!(drained[0].t_ms, 100);
+        assert_eq!(drained[0].t_frames_48k, 4_800);
+        assert_eq!(drained[0].t_native_frames, Some(4_410));
+        assert_eq!(drained[0].result.lufs_m, Some(-19.0));
+        assert_eq!(offset.origin_frames_48k, 14_400);
+        assert_eq!(offset.origin_native_frames, 13_230);
         assert!(offset.seeded);
     }
 
@@ -2031,7 +2168,7 @@ pub mod tests {
             lufs_m: Some(-19.0),
             ..Default::default()
         };
-        pre_roll.push(1_050, Some(96_000), 9_600, 8_820, false, &after_a);
+        pre_roll.push(1_050, Some(96_001), 9_600, 8_820, false, &after_a);
         pre_roll.push(1_150, Some(100_410), 14_400, 13_230, false, &after_b);
 
         let queue = crate::record_writer::new_record_trace_queue();
@@ -2090,10 +2227,10 @@ pub mod tests {
 
         assert_eq!(
             drained.iter().map(|sample| sample.t_ms).collect::<Vec<_>>(),
-            vec![0, 100]
+            vec![100]
         );
-        assert_eq!(drained[1].t_frames_48k, 7_200);
-        assert_eq!(drained[1].t_native_frames, Some(14_400));
+        assert_eq!(drained[0].t_frames_48k, 7_200);
+        assert_eq!(drained[0].t_native_frames, Some(14_400));
         assert_eq!(offset.frames_48k, 7_200);
         assert_eq!(offset.native_frames, 14_400);
         assert_eq!(next_trace_ms, 200);
@@ -2486,7 +2623,8 @@ pub mod tests {
         let mut next_trace_ms = 0;
         let mut next_psb_ms = 0;
         let mut resampler = Some(crate::resampler::ResamplerTo48k::new(SR, 2).unwrap());
-        let mut engine = crate::MeasureEngine::new(SR, 2).unwrap();
+        let mut trace_engine = crate::MeasureEngine::new(SR, 2).unwrap();
+        let mut summary_engine = crate::MeasureEngine::new(SR, 2).unwrap();
         let summary = std::sync::Arc::new(std::sync::Mutex::new(None));
         let mut chunk = Vec::new();
         let mut resampled = Vec::new();
@@ -2504,7 +2642,8 @@ pub mod tests {
             super::DrainRingSession {
                 consumer: &mut consumer,
                 resampler: &mut resampler,
-                engine: &mut engine,
+                trace_engine: &mut trace_engine,
+                summary_engine: &mut summary_engine,
                 session_summary: &summary,
                 chunk_f64: &mut chunk,
                 resampled_buf: &mut resampled,
@@ -2895,6 +3034,7 @@ mod b132_drain_tests {
         // ON（barrier）: body push 済 + tail を ring に入れて drain。
         let mut eng_on = MeasureEngine::new(SR, 2).unwrap();
         let _ = eng_on.push(&body_f64);
+        let mut trace_engine = MeasureEngine::new(SR, 2).unwrap();
         let (mut prod, mut cons) = rtrb::RingBuffer::<f32>::new(tail.len() + 16);
         for &s in &tail {
             prod.push(s).unwrap();
@@ -2917,7 +3057,8 @@ mod b132_drain_tests {
             DrainRingSession {
                 consumer: &mut cons,
                 resampler: &mut resampler,
-                engine: &mut eng_on,
+                trace_engine: &mut trace_engine,
+                summary_engine: &mut eng_on,
                 session_summary: &ss,
                 chunk_f64: &mut chunk,
                 resampled_buf: &mut resampled,
@@ -2964,6 +3105,7 @@ mod b132_drain_tests {
         let body_f64 = to_f64(&body);
         let mut eng = MeasureEngine::new(SR, 2).unwrap();
         let _ = eng.push(&body_f64);
+        let mut trace_engine = MeasureEngine::new(SR, 2).unwrap();
         let reference = eng.finalize();
 
         let (_prod, mut cons) = rtrb::RingBuffer::<f32>::new(16); // 空
@@ -2985,7 +3127,8 @@ mod b132_drain_tests {
             DrainRingSession {
                 consumer: &mut cons,
                 resampler: &mut resampler,
-                engine: &mut eng,
+                trace_engine: &mut trace_engine,
+                summary_engine: &mut eng,
                 session_summary: &ss,
                 chunk_f64: &mut chunk,
                 resampled_buf: &mut resampled,

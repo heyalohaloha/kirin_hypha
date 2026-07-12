@@ -42,7 +42,7 @@
 use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -349,6 +349,12 @@ pub struct PluginDataFile {
     /// compared across PRE/POST because DAW PDC and wrapper scheduling can shift it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trace_clock: Option<TraceClock>,
+    /// Absolute native-sample endpoint of every `frames[]` entry before WAV rebasing.
+    /// A complete PRE/POST comparison requires these vectors to be identical. Keeping the
+    /// producer slot identity separate from the display `t_ms` prevents Drop from relabelling
+    /// two differently measured windows as if they were the same time.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub trace_slot_positions: Vec<i64>,
     /// Pair-wide final axis. Present only after Drop supplies a complete WAV identity and length.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trace_wav_reference: Option<TraceWavReference>,
@@ -462,6 +468,7 @@ impl PluginDataFile {
             trace_diagnostics: None,
             trace_time_axis: None,
             trace_clock: None,
+            trace_slot_positions: Vec::new(),
             trace_wav_reference: None,
             trace_content_alignment: None,
             trace_context_frames: Vec::new(),
@@ -639,6 +646,7 @@ impl PluginDataWriter {
     /// 連続 timeline として焼き直すための専用 API。
     pub fn clear_frames(&mut self) {
         self.data.frames.clear();
+        self.data.trace_slot_positions.clear();
     }
 
     pub(crate) fn clear_psb_snapshots(&mut self) {
@@ -709,6 +717,10 @@ impl PluginDataWriter {
 
     pub(crate) fn set_trace_clock(&mut self, trace_clock: Option<TraceClock>) {
         self.data.trace_clock = trace_clock;
+    }
+
+    pub(crate) fn set_trace_slot_positions(&mut self, positions: Vec<i64>) {
+        self.data.trace_slot_positions = positions;
     }
 
     #[cfg(test)]
@@ -1354,9 +1366,7 @@ fn try_finalize_pair_session(
         if let Some(expected) = pair_expected.as_ref() {
             let mut normalized_self = self_data.clone();
             let mut normalized_peer = peer_data.clone();
-            if normalize_late_expected_record(&mut normalized_self, expected)
-                && normalize_late_expected_record(&mut normalized_peer, expected)
-            {
+            if normalize_late_expected_pair(&mut normalized_self, &mut normalized_peer, expected) {
                 self_data = normalized_self;
                 peer_data = normalized_peer;
             }
@@ -1841,7 +1851,7 @@ fn reconcile_late_expected_wav_project_dir(plugin_data_root: &Path, project_dir:
             project_dir,
             &expected,
         ))
-        .saturating_add(reconcile_late_expected_failed_project(
+        .saturating_add(reconcile_late_expected_closed_project(
             plugin_data_root,
             project_dir,
             &expected,
@@ -1929,9 +1939,7 @@ fn reconcile_late_expected_committed_manifest(
     {
         return Ok(false);
     }
-    if !normalize_late_expected_record(&mut pre_data, expected)
-        || !normalize_late_expected_record(&mut post_data, expected)
-    {
+    if !normalize_late_expected_pair(&mut pre_data, &mut post_data, expected) {
         return Ok(false);
     }
     publish_late_expected_pair(
@@ -1944,18 +1952,18 @@ fn reconcile_late_expected_committed_manifest(
 }
 
 #[derive(Default)]
-struct LateExpectedFailedCandidate {
+struct LateExpectedClosedCandidate {
     pre: Option<(PathBuf, PluginDataFile)>,
     post: Option<(PathBuf, PluginDataFile)>,
 }
 
-fn reconcile_late_expected_failed_project(
+fn reconcile_late_expected_closed_project(
     plugin_data_root: &Path,
     project_dir: &Path,
     expected: &ExpectedWavMetadata,
 ) -> usize {
-    let mut candidates: HashMap<String, LateExpectedFailedCandidate> = HashMap::new();
-    collect_late_expected_failed_candidates(project_dir, &mut candidates);
+    let mut candidates: HashMap<String, LateExpectedClosedCandidate> = HashMap::new();
+    collect_late_expected_closed_candidates(project_dir, &mut candidates);
     let mut reconciled = 0_usize;
     for (session_id, candidate) in candidates {
         let (Some((pre_path, mut pre_data)), Some((post_path, mut post_data))) =
@@ -1963,9 +1971,7 @@ fn reconcile_late_expected_failed_project(
         else {
             continue;
         };
-        if !normalize_late_expected_record(&mut pre_data, expected)
-            || !normalize_late_expected_record(&mut post_data, expected)
-        {
+        if !normalize_late_expected_pair(&mut pre_data, &mut post_data, expected) {
             continue;
         }
         match publish_late_expected_pair(
@@ -1980,14 +1986,14 @@ fn reconcile_late_expected_failed_project(
                 let _ = fs::remove_file(&post_path);
                 reconciled = reconciled.saturating_add(2);
                 log::info!(
-                    "[record_expected] promoted late expected failed pair: session={} root={}",
+                    "[record_expected] promoted late expected closed pair: session={} root={}",
                     session_id,
                     plugin_data_root.display()
                 );
             }
             Ok(false) => {}
             Err(e) => log::warn!(
-                "[record_expected] late failed reconcile skipped: session={} err={}",
+                "[record_expected] late closed reconcile skipped: session={} err={}",
                 session_id,
                 e
             ),
@@ -1996,9 +2002,9 @@ fn reconcile_late_expected_failed_project(
     reconciled
 }
 
-fn collect_late_expected_failed_candidates(
+fn collect_late_expected_closed_candidates(
     dir: &Path,
-    candidates: &mut HashMap<String, LateExpectedFailedCandidate>,
+    candidates: &mut HashMap<String, LateExpectedClosedCandidate>,
 ) {
     let entries = match fs::read_dir(dir) {
         Ok(entries) => entries,
@@ -2010,16 +2016,17 @@ fn collect_late_expected_failed_candidates(
             continue;
         };
         if ftype.is_dir() {
-            collect_late_expected_failed_candidates(&path, candidates);
+            collect_late_expected_closed_candidates(&path, candidates);
             continue;
         }
         if !ftype.is_file()
             || path.extension().is_none_or(|ext| ext != "json")
-            || path
-                .parent()
-                .and_then(Path::file_name)
-                .and_then(|name| name.to_str())
-                != Some(".failed")
+            || !matches!(
+                path.parent()
+                    .and_then(Path::file_name)
+                    .and_then(|name| name.to_str()),
+                Some(".failed" | ".pair_pending")
+            )
         {
             continue;
         }
@@ -2096,6 +2103,82 @@ fn publish_late_expected_pair(
     Ok(true)
 }
 
+fn normalize_late_expected_pair(
+    left: &mut PluginDataFile,
+    right: &mut PluginDataFile,
+    expected: &ExpectedWavMetadata,
+) -> bool {
+    if left.sample_rate == 0
+        || left.sample_rate != right.sample_rate
+        || left.sample_rate != expected.expected_sample_rate
+        || left.trace_slot_positions.len() != left.frames.len()
+        || right.trace_slot_positions.len() != right.frames.len()
+    {
+        return false;
+    }
+    let Some(duration_ms) = expected_wav_duration_ms(expected) else {
+        return false;
+    };
+    let Ok(expected_len) = usize::try_from(duration_ms / TRACE_FRAME_INTERVAL_MS) else {
+        return false;
+    };
+    if expected_len == 0 {
+        return false;
+    }
+    let slot_samples = (left.sample_rate as i64 / 10).max(1);
+    let left_by_position: BTreeMap<i64, Frame> = left
+        .trace_slot_positions
+        .iter()
+        .copied()
+        .zip(left.frames.iter().cloned())
+        .collect();
+    let right_by_position: BTreeMap<i64, Frame> = right
+        .trace_slot_positions
+        .iter()
+        .copied()
+        .zip(right.frames.iter().cloned())
+        .collect();
+    let shared: Vec<i64> = left_by_position
+        .keys()
+        .copied()
+        .filter(|position| right_by_position.contains_key(position))
+        .collect();
+    let Some(selected) = shared
+        .windows(expected_len)
+        .find(|window| {
+            window
+                .windows(2)
+                .all(|pair| pair[1].saturating_sub(pair[0]) == slot_samples)
+        })
+        .map(<[i64]>::to_vec)
+    else {
+        return false;
+    };
+
+    let rebuild = |data: &mut PluginDataFile, source: &BTreeMap<i64, Frame>| {
+        data.frames = selected
+            .iter()
+            .enumerate()
+            .filter_map(|(index, position)| {
+                source.get(position).cloned().map(|mut frame| {
+                    frame.t_ms = (index as u64 + 1) * TRACE_FRAME_INTERVAL_MS;
+                    frame
+                })
+            })
+            .collect();
+        data.trace_slot_positions = selected.clone();
+        if let Some(clock) = data.trace_clock.as_mut() {
+            clock.origin_position_samples = selected[0].saturating_sub(slot_samples);
+            clock.end_position_samples = *selected.last().expect("selected is non-empty");
+            clock.sample_rate = expected.expected_sample_rate;
+        }
+    };
+    rebuild(left, &left_by_position);
+    rebuild(right, &right_by_position);
+    normalize_late_expected_record(left, expected)
+        && normalize_late_expected_record(right, expected)
+}
+
 fn normalize_late_expected_record(
     data: &mut PluginDataFile,
     expected: &ExpectedWavMetadata,
@@ -2127,6 +2210,12 @@ fn normalize_late_expected_record(
 
     data.frames.retain(|frame| frame.t_ms <= duration_ms);
     data.frames.truncate(expected_len);
+    if !data.trace_slot_positions.is_empty() {
+        data.trace_slot_positions.truncate(expected_len);
+        if data.trace_slot_positions.len() != data.frames.len() {
+            return false;
+        }
+    }
     if data.frames.len() != expected_len
         || data
             .frames
@@ -2311,6 +2400,7 @@ fn late_expected_reconcilable_reason(reason: &str) -> bool {
             | "trace_frame_count_mismatch"
             | "trace_frame_payload_count_mismatch"
             | "trace_frame_payload_count_bounce_take_mismatch"
+            | "trace_slots_not_complete"
             | "bounce_take_trace_frame_count_mismatch"
             | "bounce_take_frame_payload_count_mismatch"
             | "pair_expected_wav_mismatch"
@@ -2355,7 +2445,7 @@ fn pair_paths_from_closed_artifact_path(path: &Path) -> Option<PairPaths> {
     let file_name = path.file_name()?.to_owned();
     let parent = path.parent()?;
     let role_dir = match parent.file_name().and_then(|name| name.to_str()) {
-        Some(PAIR_RECORD_MEMBERS_DIR) | Some(".failed") => parent.parent()?,
+        Some(PAIR_RECORD_MEMBERS_DIR) | Some(".failed" | ".pair_pending") => parent.parent()?,
         _ => parent,
     };
     Some(PairPaths {
@@ -3257,6 +3347,15 @@ mod tests {
             sample_rate,
             sources: vec!["project_timeline".to_string()],
         }));
+        writer.set_trace_slot_positions(
+            (1..=frame_count)
+                .map(|index| {
+                    index
+                        .saturating_mul(sample_rate as u64 / 10)
+                        .min(i64::MAX as u64) as i64
+                })
+                .collect(),
+        );
     }
 
     fn complete_pair_writer(
@@ -3333,6 +3432,7 @@ mod tests {
         for t_ms in (100_u64..=1_000).step_by(TRACE_FRAME_INTERVAL_MS as usize) {
             w.append_frame(t_ms, [0.0; 20], 0.0, -20.0, -1.0, 12.0, Some(10.0));
         }
+        w.set_trace_slot_positions((4_800_i64..=48_000).step_by(4_800).collect());
         w
     }
 
@@ -4933,7 +5033,7 @@ mod tests {
     }
 
     #[test]
-    fn late_expected_reconcile_commits_pending_duration_mismatched_pair() {
+    fn late_expected_reconcile_commits_mixed_failed_and_pending_pair() {
         let base = isolated_dir();
         let expected = fresh_expected_wav_fixture(48_000);
         let start_ms = expected.wav_mtime_ms.saturating_sub(2_000);
@@ -4970,16 +5070,21 @@ mod tests {
         }
         for writer in [&mut pre, &mut post] {
             writer.data.status = Status::Closed;
-            writer.data.commit_status = Some("pair_pending".to_string());
         }
+        pre.data.commit_status = Some("failed".to_string());
+        pre.data.integrity_degraded = true;
+        pre.data.integrity_reasons = vec![
+            "missing_trace_slots".to_string(),
+            "trace_slots_not_complete".to_string(),
+            "integrity_degraded".to_string(),
+        ];
+        post.data.commit_status = Some("pair_pending".to_string());
         let pre_paths = self_paths_for(&pre.paths, &pre.data);
         let post_paths = self_paths_for(&post.paths, &post.data);
-        pre.write_atomic(pre_paths.pair_pending_path.clone())
-            .unwrap();
+        pre.write_atomic(pre_paths.failed_path.clone()).unwrap();
         post.write_atomic(post_paths.pair_pending_path.clone())
             .unwrap();
-        try_finalize_pair_session(&pre.paths, &pre.data).unwrap();
-        assert!(pre_paths.pair_pending_path.exists());
+        assert!(pre_paths.failed_path.exists());
         assert!(post_paths.pair_pending_path.exists());
         assert!(!pair_commit_manifest_path(&pre.paths, &pre.data)
             .unwrap()
@@ -4987,13 +5092,13 @@ mod tests {
 
         crate::record_expected::write_expected_metadata(&base, "project_hash_test", &expected)
             .unwrap();
-        assert_eq!(reconcile_late_expected_wav(&base), 1);
+        assert_eq!(reconcile_late_expected_wav(&base), 2);
 
         let manifest_path = pair_commit_manifest_path(&pre.paths, &pre.data).unwrap();
         let pre_trace_path = pair_trace_shelf_path(&pre_paths, &pre.data).unwrap();
         let post_trace_path = pair_trace_shelf_path(&post_paths, &post.data).unwrap();
         assert!(manifest_path.exists());
-        assert!(!pre_paths.pair_pending_path.exists());
+        assert!(!pre_paths.failed_path.exists());
         assert!(!post_paths.pair_pending_path.exists());
         for path in [
             &pre_paths.member_path,
@@ -5029,7 +5134,7 @@ mod tests {
                 .as_ref()
                 .expect("PRE host clock")
                 .origin_position_samples,
-            6_473_347
+            0
         );
         assert_eq!(
             committed_post
@@ -5037,7 +5142,11 @@ mod tests {
                 .as_ref()
                 .expect("POST host clock")
                 .origin_position_samples,
-            6_465_671
+            0
+        );
+        assert_eq!(
+            committed_pre.trace_slot_positions,
+            committed_post.trace_slot_positions
         );
         assert_eq!(
             committed_pre.trace_wav_reference,
@@ -5058,6 +5167,42 @@ mod tests {
             "session-late-failed"
         )
         .unwrap());
+    }
+
+    #[test]
+    fn late_expected_pair_never_relabels_studio_one_7676_sample_skew_as_canonical() {
+        let base = isolated_dir();
+        let expected = fresh_expected_wav_fixture(48_000);
+        let mut pre = complete_pair_writer(
+            &base,
+            Role::Pre,
+            "iid-pre-shifted-slots",
+            None,
+            Some("iid-post-shifted-slots".to_string()),
+        );
+        let mut post = complete_pair_writer(
+            &base,
+            Role::Post,
+            "iid-post-shifted-slots",
+            Some("iid-pre-shifted-slots".to_string()),
+            None,
+        );
+        for writer in [&mut pre, &mut post] {
+            writer.set_record_session_id(Some("session-shifted-slots".to_string()));
+            configure_render_clock_take(writer, 57_600);
+            writer.data.status = Status::Closed;
+        }
+        for position in &mut post.data.trace_slot_positions {
+            *position = position.saturating_sub(7_676);
+        }
+
+        assert!(!normalize_late_expected_pair(
+            &mut pre.data,
+            &mut post.data,
+            &expected
+        ));
+        assert!(pre.data.trace_wav_reference.is_none());
+        assert!(post.data.trace_wav_reference.is_none());
     }
 
     #[test]
@@ -5147,6 +5292,7 @@ mod tests {
             "missing_trace_slots".to_string(),
             "raw_trace_timeline_gap".to_string(),
             "sparse_trace_density".to_string(),
+            "trace_slots_not_complete".to_string(),
         ];
 
         let mut data = writer.data;
