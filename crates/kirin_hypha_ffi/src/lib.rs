@@ -60,10 +60,10 @@ use kirin_measure::{
     spawn_watchdog, store_signal_state, write_broadcast, write_expected_metadata,
     write_pending_claiming_expected_and_clock, write_stop_broadcast, CaptureClockSource, DeltaMode,
     DeltaResult, ExclusionResult, ExpectedWavMetadata, IoThreadHandle, LatchedPre, License,
-    LivenessEvaluator, MeasureResult, PlatformPaths, PluginDataRole, PsbSummary,
-    RecordStateMachine, RecordTakeBlock, RecordTakeTracker, RecordTraceQueue, ReleaseReason,
-    RestartIoFn, SignalState, StoragePaths, WatchdogIo, WatchdogParams, MAX_ACTIVE_PER_PROJECT,
-    N_CHANNELS, RING_BUFFER_SECONDS,
+    LivenessEvaluator, MeasureResult, PlatformPaths, PluginDataRole, PresentationLatencySamples,
+    PsbSummary, RecordStateMachine, RecordTakeBlock, RecordTakeTracker, RecordTraceQueue,
+    ReleaseReason, RestartIoFn, SignalState, StoragePaths, WatchdogIo, WatchdogParams,
+    MAX_ACTIVE_PER_PROJECT, N_CHANNELS, RING_BUFFER_SECONDS,
 };
 use kirin_measure::{add_watch_ring_cursor_samples, reset_watch_ring_cursor};
 
@@ -895,12 +895,31 @@ impl KirinHyphaEngine {
         num_frames: u64,
         clock_source: CaptureClockSource,
     ) {
-        self.record_take_tracker.note_capture_window_with_source(
+        self.note_capture_window_with_presentation(
             position_valid,
             position_samples,
             num_frames,
             clock_source,
+            PresentationLatencySamples::default(),
         );
+    }
+
+    pub fn note_capture_window_with_presentation(
+        &self,
+        position_valid: bool,
+        position_samples: i64,
+        num_frames: u64,
+        clock_source: CaptureClockSource,
+        presentation_latency: PresentationLatencySamples,
+    ) {
+        self.record_take_tracker
+            .note_capture_window_with_presentation(
+                position_valid,
+                position_samples,
+                num_frames,
+                clock_source,
+                presentation_latency,
+            );
     }
 
     /// PRE の plugin_data 書込（Watch pre.json + Record frames/PSB）を有効化する（B-057 3b）。
@@ -2422,17 +2441,25 @@ pub unsafe extern "C" fn kirin_hypha_note_capture_window(
     position_samples: i64,
     num_frames: u64,
     clock_source: u8,
+    input_presentation_valid: bool,
+    input_presentation_samples: u32,
+    output_presentation_valid: bool,
+    output_presentation_samples: u32,
 ) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         if handle.is_null() {
             return;
         }
         unsafe {
-            (*handle).note_capture_window(
+            (*handle).note_capture_window_with_presentation(
                 position_valid,
                 position_samples,
                 num_frames,
                 CaptureClockSource::from_abi(clock_source),
+                PresentationLatencySamples {
+                    input: input_presentation_valid.then_some(input_presentation_samples),
+                    output: output_presentation_valid.then_some(output_presentation_samples),
+                },
             );
         }
     }));

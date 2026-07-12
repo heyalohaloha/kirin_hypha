@@ -1,0 +1,186 @@
+diff --git a/modules/juce_audio_basics/audio_play_head/juce_AudioPlayHead.h b/modules/juce_audio_basics/audio_play_head/juce_AudioPlayHead.h
+--- a/modules/juce_audio_basics/audio_play_head/juce_AudioPlayHead.h
++++ b/modules/juce_audio_basics/audio_play_head/juce_AudioPlayHead.h
+@@ -400,2 +400,9 @@ public:
+        #endif
++
++       #if KIRIN_HYPHA_PRESENTATION_CLOCK
++        Optional<int64_t> getKirinInputPresentationLatencySamples() const { return getOptional (flagKirinInputPresentationLatency, kirinInputPresentationLatencySamples); }
++        void setKirinInputPresentationLatencySamples (Optional<int64_t> value) { setOptional (flagKirinInputPresentationLatency, kirinInputPresentationLatencySamples, value); }
++        Optional<int64_t> getKirinOutputPresentationLatencySamples() const { return getOptional (flagKirinOutputPresentationLatency, kirinOutputPresentationLatencySamples); }
++        void setKirinOutputPresentationLatencySamples (Optional<int64_t> value) { setOptional (flagKirinOutputPresentationLatency, kirinOutputPresentationLatencySamples, value); }
++       #endif
+
+@@ -438,2 +445,6 @@ public:
+                                         i.getHostTimeNs(),
++                                       #if KIRIN_HYPHA_PRESENTATION_CLOCK
++                                        i.getKirinInputPresentationLatencySamples(),
++                                        i.getKirinOutputPresentationLatencySamples(),
++                                       #endif
+                                         i.getIsPlaying(),
+@@ -494,3 +505,7 @@ public:
+            #if KIRIN_HYPHA_AU_CLOCK_PROVENANCE
+-            flagKirinAuHostTransport = 1 << 14
++            flagKirinAuHostTransport = 1 << 14,
++           #endif
++           #if KIRIN_HYPHA_PRESENTATION_CLOCK
++            flagKirinInputPresentationLatency = 1 << 15,
++            flagKirinOutputPresentationLatency = 1 << 16
+            #endif
+@@ -504,2 +520,6 @@ public:
+         uint64_t hostTimeNs    = 0;
++       #if KIRIN_HYPHA_PRESENTATION_CLOCK
++        int64_t kirinInputPresentationLatencySamples = 0;
++        int64_t kirinOutputPresentationLatencySamples = 0;
++       #endif
+         int64_t flags          = 0;
+diff --git a/modules/juce_audio_plugin_client/juce_audio_plugin_client_VST3.cpp b/modules/juce_audio_plugin_client/juce_audio_plugin_client_VST3.cpp
+--- a/modules/juce_audio_plugin_client/juce_audio_plugin_client_VST3.cpp
++++ b/modules/juce_audio_plugin_client/juce_audio_plugin_client_VST3.cpp
+@@ -2424,2 +2424,5 @@ class JuceVST3Component final : public Vst::IComponent,
+                                 public Vst::IAudioProcessor,
++                               #if KIRIN_HYPHA_PRESENTATION_CLOCK
++                                public Vst::IAudioPresentationLatency,
++                               #endif
+                                 public Vst::IUnitInfo,
+@@ -3010,3 +3016,14 @@ public:
+                             : nullopt);
++
++       #if KIRIN_HYPHA_PRESENTATION_CLOCK
++        const auto inputLatency = inputPresentationLatencySamples.load (std::memory_order_acquire);
++        const auto outputLatency = outputPresentationLatencySamples.load (std::memory_order_acquire);
++        info.setKirinInputPresentationLatencySamples (inputLatency >= 0
++                                                        ? makeOptional (inputLatency)
++                                                        : nullopt);
++        info.setKirinOutputPresentationLatencySamples (outputLatency >= 0
++                                                         ? makeOptional (outputLatency)
++                                                         : nullopt);
++       #endif
+
+         return info;
+@@ -3015,3 +3032,27 @@ public:
+     }
++
++   #if KIRIN_HYPHA_PRESENTATION_CLOCK
++    tresult PLUGIN_API setAudioPresentationLatencySamples (Vst::BusDirection dir,
++                                                            Steinberg::int32 busIndex,
++                                                            Steinberg::uint32 latencyInSamples) override
++    {
++        if (busIndex != 0)
++            return kInvalidArgument;
++
++        if (dir == Vst::kInput)
++        {
++            inputPresentationLatencySamples.store ((int64_t) latencyInSamples, std::memory_order_release);
++            return kResultOk;
++        }
++
++        if (dir == Vst::kOutput)
++        {
++            outputPresentationLatencySamples.store ((int64_t) latencyInSamples, std::memory_order_release);
++            return kResultOk;
++        }
++
++        return kInvalidArgument;
++    }
++   #endif
+
+     //==============================================================================
+@@ -3631,3 +3677,6 @@ private:
+                                             UniqueBase<Vst::IComponent>{},
+                                             UniqueBase<Vst::IAudioProcessor>{},
++                                            #if KIRIN_HYPHA_PRESENTATION_CLOCK
++                                             UniqueBase<Vst::IAudioPresentationLatency>{},
++                                            #endif
+                                             UniqueBase<Vst::IUnitInfo>{},
+@@ -3830,3 +3876,10 @@ private:
+     Vst::ProcessSetup processSetup;
++
++   #if KIRIN_HYPHA_PRESENTATION_CLOCK
++    static_assert (std::atomic<int64_t>::is_always_lock_free,
++                   "presentation latency must remain lock-free on the audio thread");
++    std::atomic<int64_t> inputPresentationLatencySamples { -1 };
++    std::atomic<int64_t> outputPresentationLatencySamples { -1 };
++   #endif
+
+     MidiBuffer midiBuffer;
+diff --git a/modules/juce_audio_plugin_client/juce_audio_plugin_client_AU_1.mm b/modules/juce_audio_plugin_client/juce_audio_plugin_client_AU_1.mm
+--- a/modules/juce_audio_plugin_client/juce_audio_plugin_client_AU_1.mm
++++ b/modules/juce_audio_plugin_client/juce_audio_plugin_client_AU_1.mm
+@@ -362,2 +362,17 @@ public:
+     {
++       #if KIRIN_HYPHA_PRESENTATION_CLOCK
++        if (inID == kAudioUnitProperty_PresentationLatency
++            && (inScope == kAudioUnitScope_Input || inScope == kAudioUnitScope_Output))
++        {
++            const auto info = getElementInfo (inScope, inElement);
++            if (info.error != noErr)
++                return info.error;
++            if (info.busNr != 0 || info.kind != BusKind::processor)
++                return kAudioUnitErr_InvalidElement;
++            outWritable = true;
++            outDataSize = sizeof (Float64);
++            return noErr;
++        }
++       #endif
++
+         if (inScope == kAudioUnitScope_Global)
+@@ -664,3 +679,25 @@ public:
+     {
++       #if KIRIN_HYPHA_PRESENTATION_CLOCK
++        if (inID == kAudioUnitProperty_PresentationLatency
++            && (inScope == kAudioUnitScope_Input || inScope == kAudioUnitScope_Output))
++        {
++            const auto info = getElementInfo (inScope, inElement);
++            if (info.error != noErr)
++                return info.error;
++            if (info.busNr != 0 || info.kind != BusKind::processor)
++                return kAudioUnitErr_InvalidElement;
++            if (inData == nullptr || inDataSize != sizeof (Float64))
++                return kAudioUnitErr_InvalidPropertyValue;
++            const auto seconds = *static_cast<const Float64*> (inData);
++            if (! std::isfinite (seconds) || seconds < 0.0)
++                return kAudioUnitErr_InvalidPropertyValue;
++            if (inScope == kAudioUnitScope_Input)
++                inputPresentationLatencySeconds.store (seconds, std::memory_order_release);
++            else
++                outputPresentationLatencySeconds.store (seconds, std::memory_order_release);
++            return noErr;
++        }
++       #endif
++
+
+         if (inScope == kAudioUnitScope_Global)
+@@ -1286,3 +1329,23 @@ private:
+                                 : nullopt);
++
++           #if KIRIN_HYPHA_PRESENTATION_CLOCK
++            const auto latencySamples = [this] (double seconds) -> Optional<int64_t>
++            {
++                if (! std::isfinite (seconds) || seconds < 0.0)
++                    return nullopt;
++                const auto sampleRate = audioUnit.getSampleRate();
++                if (! std::isfinite (sampleRate) || sampleRate <= 0.0)
++                    return nullopt;
++                const auto samples = seconds * sampleRate;
++                if (! std::isfinite (samples)
++                    || samples > static_cast<double> (std::numeric_limits<uint32_t>::max()))
++                    return nullopt;
++                return makeOptional ((int64_t) std::llround (samples));
++            };
++            info.setKirinInputPresentationLatencySamples (latencySamples (
++                audioUnit.inputPresentationLatencySeconds.load (std::memory_order_acquire)));
++            info.setKirinOutputPresentationLatencySamples (latencySamples (
++                audioUnit.outputPresentationLatencySeconds.load (std::memory_order_acquire)));
++           #endif
+
+             return info;
+@@ -2059,2 +2118,8 @@ private:
+     AudioTimeStamp lastTimeStamp;
++   #if KIRIN_HYPHA_PRESENTATION_CLOCK
++    static_assert (std::atomic<double>::is_always_lock_free,
++                   "presentation latency must remain lock-free on the audio thread");
++    std::atomic<double> inputPresentationLatencySeconds { -1.0 };
++    std::atomic<double> outputPresentationLatencySeconds { -1.0 };
++   #endif
+     int totalInChannels, totalOutChannels;

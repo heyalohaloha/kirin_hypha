@@ -53,3 +53,9 @@ apply_patch_idempotent \
   "0004-au-clock-provenance.patch" \
   --unidiff-zero \
   --ignore-whitespace
+
+apply_patch_idempotent \
+  "0005" \
+  "0005-host-presentation-clock.patch" \
+  --unidiff-zero \
+  --ignore-whitespace

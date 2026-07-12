@@ -14,6 +14,38 @@ fn read_repo(path: &str) -> String {
     fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()))
 }
 
+#[test]
+fn juce_wrappers_forward_host_presentation_latency_as_diagnostics() {
+    let position =
+        read_repo("juce_shell/JUCE/modules/juce_audio_basics/audio_play_head/juce_AudioPlayHead.h");
+    assert!(position.contains("setKirinInputPresentationLatencySamples"));
+    assert!(position.contains("setKirinOutputPresentationLatencySamples"));
+
+    let vst3 = read_repo(
+        "juce_shell/JUCE/modules/juce_audio_plugin_client/juce_audio_plugin_client_VST3.cpp",
+    );
+    assert!(vst3.contains("Vst::IAudioPresentationLatency"));
+    assert!(vst3.contains("setAudioPresentationLatencySamples"));
+    assert!(vst3.contains("inputPresentationLatencySamples { -1 }"));
+    assert!(vst3.contains("outputPresentationLatencySamples { -1 }"));
+    assert!(vst3.contains("std::atomic<int64_t>::is_always_lock_free"));
+
+    let au = read_repo(
+        "juce_shell/JUCE/modules/juce_audio_plugin_client/juce_audio_plugin_client_AU_1.mm",
+    );
+    assert!(au.contains("kAudioUnitProperty_PresentationLatency"));
+    assert!(au.contains("inputPresentationLatencySeconds { -1.0 }"));
+    assert!(au.contains("outputPresentationLatencySeconds { -1.0 }"));
+    assert!(au.contains("std::atomic<double>::is_always_lock_free"));
+    assert!(au.contains("info.busNr != 0 || info.kind != BusKind::processor"));
+    assert!(au.contains("sampleRate <= 0.0"));
+
+    let processor = read_repo("juce_shell/src/PluginProcessor.cpp");
+    assert!(processor.contains("getKirinInputPresentationLatencySamples"));
+    assert!(processor.contains("getKirinOutputPresentationLatencySamples"));
+    assert!(processor.contains("kirin_hypha_note_capture_window"));
+}
+
 fn slice_between<'a>(src: &'a str, start_marker: &str, end_marker: &str) -> &'a str {
     let start = src.find(start_marker).expect("start marker must exist");
     let end = src[start..]

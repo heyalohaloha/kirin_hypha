@@ -27,6 +27,15 @@ pub enum CaptureClockSource {
     AudioRenderTimeline = 2,
 }
 
+/// Host-supplied cumulative presentation latency for the active main buses.
+/// `None` means the format wrapper never received the optional host callback; `Some(0)` preserves
+/// the standard's intentionally ambiguous zero without pretending it was absent.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub struct PresentationLatencySamples {
+    pub input: Option<u32>,
+    pub output: Option<u32>,
+}
+
 impl CaptureClockSource {
     pub fn from_abi(value: u8) -> Self {
         match value {
@@ -194,6 +203,9 @@ pub struct RecordTakeTracker {
     capture_last_position_valid: AtomicBool,
     capture_last_position_end_samples: AtomicI64,
     capture_last_source: AtomicU8,
+    presentation_version: AtomicU64,
+    input_presentation_samples: AtomicU64,
+    output_presentation_samples: AtomicU64,
     capture_clock_slots: Box<[CaptureClockSlot]>,
     render_active: AtomicBool,
     render_epoch: AtomicU64,
@@ -226,6 +238,9 @@ impl RecordTakeTracker {
             capture_last_position_valid: AtomicBool::new(false),
             capture_last_position_end_samples: AtomicI64::new(i64::MIN),
             capture_last_source: AtomicU8::new(CaptureClockSource::Unknown as u8),
+            presentation_version: AtomicU64::new(0),
+            input_presentation_samples: AtomicU64::new(u64::MAX),
+            output_presentation_samples: AtomicU64::new(u64::MAX),
             capture_clock_slots: (0..CAPTURE_CLOCK_SPAN_CAPACITY)
                 .map(|_| CaptureClockSlot::new())
                 .collect::<Vec<_>>()
@@ -271,6 +286,33 @@ impl RecordTakeTracker {
         num_frames: u64,
         source: CaptureClockSource,
     ) {
+        self.note_capture_window_with_presentation(
+            position_valid,
+            position_samples,
+            num_frames,
+            source,
+            PresentationLatencySamples::default(),
+        );
+    }
+
+    pub fn note_capture_window_with_presentation(
+        &self,
+        position_valid: bool,
+        position_samples: i64,
+        num_frames: u64,
+        source: CaptureClockSource,
+        presentation_latency: PresentationLatencySamples,
+    ) {
+        self.presentation_version.fetch_add(1, Ordering::AcqRel);
+        self.input_presentation_samples.store(
+            presentation_latency.input.map_or(u64::MAX, u64::from),
+            Ordering::Relaxed,
+        );
+        self.output_presentation_samples.store(
+            presentation_latency.output.map_or(u64::MAX, u64::from),
+            Ordering::Relaxed,
+        );
+        self.presentation_version.fetch_add(1, Ordering::Release);
         if num_frames == 0 {
             return;
         }
@@ -318,6 +360,27 @@ impl RecordTakeTracker {
         );
         self.capture_last_source
             .store(source as u8, Ordering::Release);
+    }
+
+    /// Latest optional host callback values. This is deliberately independent of capture-clock
+    /// span construction so a diagnostic-only host feature cannot alter existing TRACE positions.
+    pub fn presentation_latency(&self) -> PresentationLatencySamples {
+        for _ in 0..4 {
+            let before = self.presentation_version.load(Ordering::Acquire);
+            if before & 1 != 0 {
+                continue;
+            }
+            let input = self.input_presentation_samples.load(Ordering::Relaxed);
+            let output = self.output_presentation_samples.load(Ordering::Relaxed);
+            let after = self.presentation_version.load(Ordering::Acquire);
+            if before == after {
+                return PresentationLatencySamples {
+                    input: u32::try_from(input).ok(),
+                    output: u32::try_from(output).ok(),
+                };
+            }
+        }
+        PresentationLatencySamples::default()
     }
 
     /// Map a Measure Thread consumed native frame count onto the host transport
@@ -577,8 +640,8 @@ pub fn new_record_take_tracker() -> Arc<RecordTakeTracker> {
 #[cfg(test)]
 mod tests {
     use super::{
-        CaptureClockSource, RecordTakeBlock, RecordTakeTracker, RECORD_TAKE_SOURCE_RENDER_CLOCK,
-        RECORD_TAKE_SOURCE_WAV_CLOCK,
+        CaptureClockSource, PresentationLatencySamples, RecordTakeBlock, RecordTakeTracker,
+        RECORD_TAKE_SOURCE_RENDER_CLOCK, RECORD_TAKE_SOURCE_WAV_CLOCK,
     };
 
     fn block(generation: u64, position_samples: i64, num_frames: u64) -> RecordTakeBlock {
@@ -615,6 +678,66 @@ mod tests {
             clock_start_samples,
             clock_end_samples: Some(clock_end_samples),
         }
+    }
+
+    #[test]
+    fn presentation_latency_is_observed_without_splitting_capture_spans() {
+        let tracker = RecordTakeTracker::new();
+        assert_eq!(
+            tracker.presentation_latency(),
+            PresentationLatencySamples::default()
+        );
+        let first = PresentationLatencySamples {
+            input: Some(0),
+            output: Some(9_600),
+        };
+        tracker.note_capture_window_with_presentation(
+            true,
+            1_000,
+            256,
+            CaptureClockSource::ProjectTimeline,
+            first,
+        );
+        tracker.note_capture_window_with_presentation(
+            true,
+            1_256,
+            256,
+            CaptureClockSource::ProjectTimeline,
+            first,
+        );
+        assert_eq!(tracker.presentation_latency(), first);
+
+        let changed = PresentationLatencySamples {
+            input: Some(9_600),
+            output: Some(0),
+        };
+        tracker.note_capture_window_with_presentation(
+            true,
+            1_512,
+            256,
+            CaptureClockSource::ProjectTimeline,
+            changed,
+        );
+        assert_eq!(tracker.presentation_latency(), changed);
+        let boundary = PresentationLatencySamples {
+            input: Some(u32::MAX),
+            output: None,
+        };
+        tracker.note_capture_window_with_presentation(
+            true,
+            1_768,
+            256,
+            CaptureClockSource::ProjectTimeline,
+            boundary,
+        );
+        assert_eq!(tracker.presentation_latency(), boundary);
+        assert_eq!(
+            tracker
+                .capture_span_sequence
+                .load(std::sync::atomic::Ordering::Acquire),
+            1,
+            "diagnostic changes must not fragment the existing contiguous capture clock"
+        );
     }
 
     #[test]

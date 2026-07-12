@@ -26,14 +26,14 @@ use std::time::{Duration, Instant, SystemTime};
 use crate::engine::SessionSummary;
 use crate::plugin_data::{
     compute_checksum, normal_publish_failure_reasons, verify_checksum, BounceTake,
-    ExpectedWavMetadata, PluginDataFile, PluginDataWriter, Role, Status, TraceClock,
-    TraceDiagnostics, WriterPaths,
+    ExpectedWavMetadata, HostPresentationLatencyObservation, PluginDataFile, PluginDataWriter,
+    Role, Status, TraceClock, TraceDiagnostics, WriterPaths,
 };
 use crate::record::RecordStateMachine;
 use crate::record_signal;
 use crate::record_take::{
-    CaptureClockSource, RecordTakeSnapshot, RecordTakeTracker, RECORD_TAKE_SOURCE_RENDER_CLOCK,
-    RECORD_TAKE_SOURCE_WAV_CLOCK,
+    CaptureClockSource, PresentationLatencySamples, RecordTakeSnapshot, RecordTakeTracker,
+    RECORD_TAKE_SOURCE_RENDER_CLOCK, RECORD_TAKE_SOURCE_WAV_CLOCK,
 };
 use crate::storage::{load_installation_id_safe, StoragePaths};
 use crate::MeasureResult;
@@ -87,6 +87,9 @@ pub struct RecordTraceSample {
     pub position_samples: Option<i64>,
     /// Provenance of `position_samples`. Unknown clocks never become a canonical pair contract.
     pub clock_source: CaptureClockSource,
+    /// Optional host callback facts. These are diagnostic in Phase 1 and never alter frame values
+    /// or positions until the host/format conformance test has established their semantics.
+    pub presentation_latency: PresentationLatencySamples,
     pub result: MeasureResult,
     pub include_psb: bool,
 }
@@ -108,6 +111,7 @@ impl RecordTraceSample {
             t_native_frames,
             position_samples: None,
             clock_source: CaptureClockSource::Unknown,
+            presentation_latency: PresentationLatencySamples::default(),
             result,
             include_psb,
         }
@@ -151,6 +155,7 @@ impl RecordTraceSample {
             t_native_frames,
             position_samples: None,
             clock_source: CaptureClockSource::Unknown,
+            presentation_latency: PresentationLatencySamples::default(),
             result: MeasureResult::default(),
             include_psb: false,
         }
@@ -167,6 +172,14 @@ impl RecordTraceSample {
 
     pub fn with_clock_source(mut self, clock_source: CaptureClockSource) -> Self {
         self.clock_source = clock_source;
+        self
+    }
+
+    pub fn with_presentation_latency(
+        mut self,
+        presentation_latency: PresentationLatencySamples,
+    ) -> Self {
+        self.presentation_latency = presentation_latency;
         self
     }
 }
@@ -988,6 +1001,21 @@ fn expected_duration_ms(expected: &ExpectedWavMetadata) -> u64 {
 }
 
 fn bake_continuous_record_timeline(ctx: &mut RecordingCtx) {
+    let presentation_latency_observations: Vec<HostPresentationLatencyObservation> = ctx
+        .trace_samples
+        .iter()
+        .map(|sample| sample.presentation_latency)
+        .filter(|latency| latency.input.is_some() || latency.output.is_some())
+        .map(|latency| HostPresentationLatencyObservation {
+            input_samples: latency.input,
+            output_samples: latency.output,
+        })
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    ctx.writer
+        .set_host_presentation_latency_observations(presentation_latency_observations);
+
     let duration_ms = record_duration_ms(ctx);
     if duration_ms == 0 {
         return;
@@ -3577,6 +3605,7 @@ mod tests {
             clock_source: t_native_frames.map_or(CaptureClockSource::Unknown, |_| {
                 CaptureClockSource::ProjectTimeline
             }),
+            presentation_latency: PresentationLatencySamples::default(),
             result,
             include_psb,
         }
@@ -5270,6 +5299,10 @@ mod tests {
                     t_ms.is_multiple_of(PSB_INTERVAL_MS),
                 );
                 sample.position_samples = Some(t_ms as i64 * 96);
+                sample.presentation_latency = PresentationLatencySamples {
+                    input: Some(64),
+                    output: Some(128),
+                };
                 ctx.trace_samples.push(sample);
             }
         }
@@ -5289,6 +5322,15 @@ mod tests {
         assert_eq!(trace_clock.end_position_samples, 96_000);
         assert_eq!(trace_clock.sample_rate, 96_000);
         assert_eq!(trace_clock.sources, vec!["project_timeline"]);
+        assert_eq!(loaded.host_presentation_latency_observations.len(), 1);
+        assert_eq!(
+            loaded.host_presentation_latency_observations[0].input_samples,
+            Some(64)
+        );
+        assert_eq!(
+            loaded.host_presentation_latency_observations[0].output_samples,
+            Some(128)
+        );
         assert_eq!(loaded.trace_context_frames.len(), 10);
         assert_eq!(loaded.trace_context_slot_positions.len(), 10);
         assert_eq!(
@@ -5313,6 +5355,10 @@ mod tests {
                 trace_sample_frames_with_native(native, Some(native), full_measure_result(), false);
             let conflicting_offset = if t_ms == 500 { 512 } else { 0 };
             sample.position_samples = Some(native as i64 + conflicting_offset);
+            sample.presentation_latency = PresentationLatencySamples {
+                input: Some(0),
+                output: Some(2_048),
+            };
             ctx.trace_samples.push(sample);
         }
         ctx.trace_sample_count = ctx.trace_samples.len();
@@ -5322,6 +5368,36 @@ mod tests {
         assert_eq!(ctx.writer.data().frames.len(), 10);
         assert!(ctx.writer.data().trace_time_axis.is_none());
         assert!(ctx.writer.data().trace_clock.is_none());
+        assert_eq!(
+            ctx.writer.data().host_presentation_latency_observations,
+            vec![HostPresentationLatencyObservation {
+                input_samples: Some(0),
+                output_samples: Some(2_048),
+            }]
+        );
+    }
+
+    #[test]
+    fn presentation_latency_diagnostics_survive_zero_duration_failure() {
+        let base = isolated_base();
+        let mut ctx = make_ctx_with_sample_rate(&base, Role::Post, now_epoch_ms(), 48_000);
+        let mut sample = trace_sample(0, full_measure_result(), false);
+        sample.presentation_latency = PresentationLatencySamples {
+            input: Some(0),
+            output: Some(4_096),
+        };
+        ctx.trace_samples.push(sample);
+
+        bake_continuous_record_timeline(&mut ctx);
+
+        assert!(ctx.writer.data().trace_clock.is_none());
+        assert_eq!(
+            ctx.writer.data().host_presentation_latency_observations,
+            vec![HostPresentationLatencyObservation {
+                input_samples: Some(0),
+                output_samples: Some(4_096),
+            }]
+        );
     }
 
     #[test]

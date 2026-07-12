@@ -9,16 +9,15 @@ the same "upstream + tracked patch" discipline already used for
 committed with local edits; `juce_shell/patches/*.patch` are the source of
 truth and can be re-applied after a submodule update.
 
-To re-apply after a fresh submodule checkout:
+To re-apply after a fresh submodule checkout, use the idempotent project script so
+the exact per-patch flags and ordering stay in one place:
 
 ```sh
-cd juce_shell/JUCE
-git apply ../patches/0001-macos15-sdk-cgwindowlistcreateimage-bypass.patch
-git apply ../patches/0002-drop-webkit-osxframework-from-juce-gui-extra.patch
-git apply ../patches/0003-au-preferred-channel-layout-tags-for-logic-mono.patch
+bash scripts/apply_juce_patches.sh
+bash scripts/verify_juce_patch_state.sh
 ```
 
-(`scripts/build_juce_universal.sh` applies all three idempotently at build time.)
+`scripts/build_juce_universal.sh` runs both commands before every universal build.
 
 To verify that a dirty `juce_shell/JUCE` checkout is **only** this tracked patch
 stack and nothing else:
@@ -29,7 +28,7 @@ bash scripts/verify_juce_patch_state.sh
 
 `cargo run --package xtask -- release-package` also runs this verifier before it
 allows an uploadable zip. A dirty submodule is acceptable only when it matches
-the pinned JUCE commit plus these three patch files byte-for-byte; unexpected
+the pinned JUCE commit plus these five patch files byte-for-byte; unexpected
 JUCE edits, staged files, untracked files, or a moved submodule HEAD fail the
 release gate.
 
@@ -115,3 +114,38 @@ release gate.
 - **Upstream ref:** JUCE 7.0.12 (`4f43011b96`). This patch is intentionally small
   and local to AU v2 metadata because replacing the JUCE wrapper or changing AU
   identifiers would break existing project recall.
+
+---
+
+## 0004 — AU host/render clock provenance
+
+- **Files:** `juce_AudioPlayHead.h`, `juce_audio_plugin_client_AU_1.mm`
+- **Patch:** `patches/0004-au-clock-provenance.patch`
+- **Why:** AU v2 may obtain the timeline from the host transport callback or fall
+  back to the render timestamp. Hypha must preserve which source supplied a valid
+  sample position instead of labeling both as the same clock.
+- **Change:** Validate finite/representable AU sample positions, expose the chosen
+  provenance through `PositionInfo`, and leave the position absent when neither
+  source is valid.
+- **Scope / impact:** AU clock provenance only. It does not shift, infer, or align
+  PRE/POST data and does not alter audio.
+
+---
+
+## 0005 — VST3/AU host presentation-latency diagnostics
+
+- **Files:** `juce_AudioPlayHead.h`, `juce_audio_plugin_client_VST3.cpp`,
+  `juce_audio_plugin_client_AU_1.mm`
+- **Patch:** `patches/0005-host-presentation-clock.patch`
+- **Why:** VST3 `IAudioPresentationLatency` and AU
+  `kAudioUnitProperty_PresentationLatency` are the format-level host facts needed
+  to determine how a DAW presents a plug-in's input/output timeline. JUCE 7.0.12
+  does not expose those callbacks to `AudioProcessor::processBlock`.
+- **Change:** Implement the optional VST3 interface and AU write-only property for
+  main bus 0, retain host-provided zero distinctly from an absent callback, and
+  surface the values in samples through `PositionInfo`. Wrapper storage is a
+  compile-time verified lock-free atomic; the Audio Thread only loads it.
+- **Scope / impact:** Observation only. This patch never changes the audio buffer,
+  callback position, frame values, PRE/POST offset, or TRACE axis. Production
+  alignment may consume the facts only after a host/format conformance capture has
+  proven the correct sample-domain mapping.

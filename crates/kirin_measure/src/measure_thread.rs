@@ -8,7 +8,9 @@
 use crate::phase_d::stream::PhaseDStream;
 use crate::phase_d::tables::FieldType;
 use crate::record::RecordStateMachine;
-use crate::record_take::{CaptureClockPoint, CaptureClockSource, RecordTakeTracker};
+use crate::record_take::{
+    CaptureClockPoint, CaptureClockSource, PresentationLatencySamples, RecordTakeTracker,
+};
 use crate::record_writer::{
     clear_record_trace_queue, now_epoch_ms, push_record_trace_sample,
     samples_are_trace_silence_floor, RecordTraceQueue, RecordTraceSample, FRAME_INTERVAL_MS,
@@ -81,6 +83,7 @@ struct PreRollTraceSample {
     captured_at_ms: i64,
     position_samples: Option<i64>,
     clock_source: CaptureClockSource,
+    presentation_latency: PresentationLatencySamples,
     frames_48k: u64,
     native_frames: u64,
     observed_silence_floor: bool,
@@ -114,6 +117,7 @@ impl RecordTracePreRoll {
             captured_at_ms,
             position_samples,
             source,
+            PresentationLatencySamples::default(),
             frames_48k,
             native_frames,
             observed_silence_floor,
@@ -127,6 +131,7 @@ impl RecordTracePreRoll {
         captured_at_ms: i64,
         position_samples: Option<i64>,
         clock_source: CaptureClockSource,
+        presentation_latency: PresentationLatencySamples,
         frames_48k: u64,
         native_frames: u64,
         observed_silence_floor: bool,
@@ -136,6 +141,7 @@ impl RecordTracePreRoll {
             captured_at_ms,
             position_samples,
             clock_source,
+            presentation_latency,
             frames_48k,
             native_frames,
             observed_silence_floor,
@@ -915,6 +921,7 @@ pub fn spawn_measure_thread(
                                 clock_point.map(|point| point.position_samples),
                                 clock_point
                                     .map_or(CaptureClockSource::Unknown, |point| point.source),
+                                record_take_tracker.presentation_latency(),
                                 frames_48k,
                                 observed_native_frames,
                                 observed_silence_floor,
@@ -960,6 +967,7 @@ pub fn spawn_measure_thread(
                                 position_samples: clock_point.map(|point| point.position_samples),
                                 clock_source: clock_point
                                     .map_or(CaptureClockSource::Unknown, |point| point.source),
+                                presentation_latency: record_take_tracker.presentation_latency(),
                                 observed_silence_floor,
                                 result: base_result.clone(),
                             });
@@ -1171,6 +1179,7 @@ struct RecordTraceObserved {
     native_frames: Option<u64>,
     position_samples: Option<i64>,
     clock_source: CaptureClockSource,
+    presentation_latency: PresentationLatencySamples,
     observed_silence_floor: bool,
 }
 
@@ -1180,6 +1189,7 @@ struct PendingRecordCore {
     native_frames: u64,
     position_samples: Option<i64>,
     clock_source: CaptureClockSource,
+    presentation_latency: PresentationLatencySamples,
     observed_silence_floor: bool,
     result: MeasureResult,
 }
@@ -1230,6 +1240,7 @@ fn join_record_trace_slots(
                 native_frames: Some(core.native_frames),
                 position_samples: core.position_samples,
                 clock_source: core.clock_source,
+                presentation_latency: core.presentation_latency,
                 observed_silence_floor: core.observed_silence_floor,
             },
             &result,
@@ -1288,6 +1299,7 @@ fn seed_record_trace_from_pre_roll(
         )
         .with_position_samples(Some(position_samples));
         let trace_sample = trace_sample.with_clock_source(sample.clock_source);
+        let trace_sample = trace_sample.with_presentation_latency(sample.presentation_latency);
         push_record_trace_sample(queue, trace_sample);
         *next_trace_ms = (slot_ms / FRAME_INTERVAL_MS + 1) * FRAME_INTERVAL_MS;
         if include_psb {
@@ -1378,6 +1390,7 @@ fn maybe_push_record_trace(
     )
     .with_position_samples(observed.position_samples);
     let sample = sample.with_clock_source(observed.clock_source);
+    let sample = sample.with_presentation_latency(observed.presentation_latency);
     push_record_trace_sample(queue, sample);
     *cursor.next_trace_ms =
         (*cursor.next_trace_ms).max((slot_ms / FRAME_INTERVAL_MS + 1) * FRAME_INTERVAL_MS);
@@ -1719,6 +1732,7 @@ fn drain_ring_into_session(
                         position_samples: clock_point.map(|point| point.position_samples),
                         clock_source: clock_point
                             .map_or(CaptureClockSource::Unknown, |point| point.source),
+                        presentation_latency: ctx.record_take_tracker.presentation_latency(),
                         observed_silence_floor,
                         result: base_result.clone(),
                     });
@@ -1821,7 +1835,9 @@ pub mod tests {
         compute_psb_summary, push_record_trace_clock_markers_until,
         push_record_trace_to_record_take_clock, record_grid_alignment, RecordTraceCursor,
     };
-    use crate::record_take::{CaptureClockSource, RecordTakeBlock, RecordTakeTracker};
+    use crate::record_take::{
+        CaptureClockSource, PresentationLatencySamples, RecordTakeBlock, RecordTakeTracker,
+    };
     use crate::record_writer::{
         drain_record_trace_queue, new_record_trace_queue, FRAME_INTERVAL_MS,
     };
@@ -2299,6 +2315,7 @@ pub mod tests {
                     native_frames: Some(48_000),
                     position_samples: None,
                     clock_source: CaptureClockSource::Unknown,
+                    presentation_latency: PresentationLatencySamples::default(),
                     observed_silence_floor: false,
                 },
                 &observed,
@@ -2353,6 +2370,7 @@ pub mod tests {
                     native_frames: Some(216_000),
                     position_samples: None,
                     clock_source: CaptureClockSource::Unknown,
+                    presentation_latency: PresentationLatencySamples::default(),
                     observed_silence_floor: false,
                 },
                 &observed,
@@ -2408,6 +2426,7 @@ pub mod tests {
                         native_frames: Some(i * 9_600),
                         position_samples: None,
                         clock_source: CaptureClockSource::Unknown,
+                        presentation_latency: PresentationLatencySamples::default(),
                         observed_silence_floor: false,
                     },
                     &observed,
@@ -2457,6 +2476,7 @@ pub mod tests {
                     native_frames: Some(9_600),
                     position_samples: None,
                     clock_source: CaptureClockSource::Unknown,
+                    presentation_latency: PresentationLatencySamples::default(),
                     observed_silence_floor: true,
                 },
                 &crate::MeasureResult::default(),
@@ -2531,6 +2551,7 @@ pub mod tests {
                         native_frames: Some(observed_native_frames),
                         position_samples: None,
                         clock_source: CaptureClockSource::Unknown,
+                        presentation_latency: PresentationLatencySamples::default(),
                         observed_silence_floor:
                             crate::record_writer::samples_are_trace_silence_floor(observed_chunk),
                     },

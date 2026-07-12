@@ -12,3 +12,9 @@
 #ifndef KIRIN_HYPHA_AU_CLOCK_PROVENANCE
 #define KIRIN_HYPHA_AU_CLOCK_PROVENANCE 1
 #endif
+
+// Surface host-supplied cumulative input/output presentation latency through JUCE's
+// PositionInfo. The wrapper stores host callbacks atomically; processBlock only reads them.
+#ifndef KIRIN_HYPHA_PRESENTATION_CLOCK
+#define KIRIN_HYPHA_PRESENTATION_CLOCK 1
+#endif
