@@ -227,7 +227,11 @@ void kirin_hypha_note_record_window(KirinHypha* handle, bool recording, bool ren
 #define KIRIN_HYPHA_CLOCK_AUDIO_RENDER_TIMELINE 2
 void kirin_hypha_note_capture_window(KirinHypha* handle, bool position_valid,
                                      int64_t position_samples, uint64_t num_frames,
-                                     uint8_t clock_source);
+                                     uint8_t clock_source,
+                                     bool input_presentation_valid,
+                                     uint32_t input_presentation_samples,
+                                     bool output_presentation_valid,
+                                     uint32_t output_presentation_samples);
 
 /* POST「Stop」: pair 解除（record_signal released）+ Watch へ戻す（3d-b）. */
 void kirin_hypha_stop(KirinHypha* handle);

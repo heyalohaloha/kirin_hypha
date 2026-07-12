@@ -2,6 +2,7 @@
 #include "PluginEditor.h"
 #include <algorithm>
 #include <cmath> // B-107: std::abs(float) for the silence peak threshold
+#include <limits>
 
 namespace
 {
@@ -212,6 +213,10 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
     bool hasClockEnd = false;
     int64_t clockStartSamples = 0;
     int64_t clockEndSamples = 0;
+    bool inputPresentationValid = false;
+    uint32_t inputPresentationSamples = 0;
+    bool outputPresentationValid = false;
+    uint32_t outputPresentationSamples = 0;
     if (auto* ph = getPlayHead())
         if (const auto pos = ph->getPosition())
         {
@@ -226,6 +231,21 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
                     clockSource = KIRIN_HYPHA_CLOCK_AUDIO_RENDER_TIMELINE;
                #endif
             }
+           #if KIRIN_HYPHA_PRESENTATION_CLOCK
+            const auto readPresentationLatency = [] (const auto& value, bool& valid, uint32_t& samples)
+            {
+                if (value.hasValue() && *value >= 0
+                    && *value <= (int64_t) std::numeric_limits<uint32_t>::max())
+                {
+                    valid = true;
+                    samples = (uint32_t) *value;
+                }
+            };
+            readPresentationLatency (pos->getKirinInputPresentationLatencySamples(),
+                                     inputPresentationValid, inputPresentationSamples);
+            readPresentationLatency (pos->getKirinOutputPresentationLatencySamples(),
+                                     outputPresentationValid, outputPresentationSamples);
+           #endif
         }
     // JUCE exposes loop points in PPQ, not the exact exported WAV sample range. Do not
     // promote those values to wav_clock_native; render span remains a lower-trust fallback
@@ -334,7 +354,9 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
                     interleaveScratch[idx++] = buffer.getReadPointer (ch)[f];
 
             kirin_hypha_note_capture_window (hyphaHandle, hasPosition,
-                                             windowPositionSamples, windowNumFrames, clockSource);
+                                             windowPositionSamples, windowNumFrames, clockSource,
+                                             inputPresentationValid, inputPresentationSamples,
+                                             outputPresentationValid, outputPresentationSamples);
             kirin_hypha_push_samples (hyphaHandle, interleaveScratch.data(),
                                       (size_t) windowNumFrames, (uint32_t) numCh);
         }

@@ -204,6 +204,14 @@ pub struct TraceClock {
     pub sources: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+pub struct HostPresentationLatencyObservation {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_samples: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_samples: Option<u32>,
+}
+
 /// Final TRACE axis bound to the exact WAV selected by Drop.
 ///
 /// Host callback positions remain in trace_clock as per-instance diagnostics. This reference is
@@ -349,6 +357,11 @@ pub struct PluginDataFile {
     /// compared across PRE/POST because DAW PDC and wrapper scheduling can shift it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trace_clock: Option<TraceClock>,
+    /// Distinct VST3/AU presentation-latency callbacks observed during this take. This diagnostic
+    /// is independent of trace-clock completeness so failed/pending takes remain inspectable.
+    /// Empty means the wrapper/host did not provide the optional interface; zero is preserved.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub host_presentation_latency_observations: Vec<HostPresentationLatencyObservation>,
     /// Producer-canonical native-sample endpoint of every `frames[]` entry. Before pair
     /// finalization this is the host callback position; afterwards both roles carry the POST
     /// content position selected by the producer-owned content clock.
@@ -479,6 +492,7 @@ impl PluginDataFile {
             trace_diagnostics: None,
             trace_time_axis: None,
             trace_clock: None,
+            host_presentation_latency_observations: Vec::new(),
             trace_slot_positions: Vec::new(),
             trace_wav_reference: None,
             trace_content_alignment: None,
@@ -736,6 +750,13 @@ impl PluginDataWriter {
 
     pub(crate) fn set_trace_clock(&mut self, trace_clock: Option<TraceClock>) {
         self.data.trace_clock = trace_clock;
+    }
+
+    pub(crate) fn set_host_presentation_latency_observations(
+        &mut self,
+        observations: Vec<HostPresentationLatencyObservation>,
+    ) {
+        self.data.host_presentation_latency_observations = observations;
     }
 
     pub(crate) fn set_trace_slot_positions(&mut self, positions: Vec<i64>) {
