@@ -1,9 +1,9 @@
-//! Producer-owned PRE/POST content clock.
+//! Producer-owned PRE/POST WAV-start clock.
 //!
-//! A DAW host position identifies a callback, not necessarily the source-audio interval inside
-//! that callback after plug-in delay compensation. This module derives one constant PRE→POST
-//! slot mapping from the complete measured neighborhood and then anchors the selected POST range
-//! to the dropped Broadcast-Wave origin when one exists.
+//! Metric values are deliberately absent from the clock decision. A Broadcast-Wave time
+//! reference is the primary start anchor. When a DAW omits `bext`, the first complete dense window
+//! shared by the PRE and POST host-sample clocks is the fallback Record-session anchor. Both lanes
+//! are always read at the same absolute sample positions and are then rebased to WAV sample 0..N.
 
 use std::collections::BTreeMap;
 
@@ -11,49 +11,68 @@ use crate::plugin_data::{Frame, PluginDataFile};
 use crate::record_expected::ExpectedWavMetadata;
 
 const FRAME_INTERVAL_MS: u64 = 100;
-const MAX_CONTENT_LAG_SLOTS: usize = 100;
 
-pub(crate) struct ContentClockPlan {
+pub(crate) struct WavStartClockPlan {
     pub pre_frames: Vec<Frame>,
     pub post_frames: Vec<Frame>,
     pub canonical_slots: Vec<i64>,
-    pub pre_to_post_offset_samples: i64,
-    pub alignment_score: Option<f64>,
+    pub start_basis: &'static str,
 }
 
-pub(crate) fn build_content_clock_plan(
+pub(crate) fn build_wav_start_clock_plan(
     pre: &PluginDataFile,
     post: &PluginDataFile,
     expected: &ExpectedWavMetadata,
     expected_len: usize,
     slot_samples: i64,
-) -> Option<ContentClockPlan> {
+) -> Option<WavStartClockPlan> {
+    if expected_len == 0 || slot_samples <= 0 {
+        return None;
+    }
+    let shared_session = pre
+        .record_session_id
+        .as_deref()
+        .zip(post.record_session_id.as_deref())
+        .is_some_and(|(pre_session, post_session)| {
+            !pre_session.trim().is_empty() && pre_session == post_session
+        });
+    if !shared_session || !has_compatible_host_clocks(pre, post) {
+        return None;
+    }
     let pre_source = trace_source(pre);
     let post_source = trace_source(post);
-    let (offset_slots, alignment_score) =
-        estimate_pre_to_post_offset(&pre_source, &post_source, slot_samples);
-    let offset_samples = offset_slots.saturating_mul(slot_samples);
-    let selected_pre = select_aligned_window(
+    let selected_positions = select_wav_window(
         &pre_source,
         &post_source,
         expected,
         expected_len,
         slot_samples,
-        offset_samples,
     )?;
-    let selected_post: Vec<i64> = selected_pre
-        .iter()
-        .map(|position| position.saturating_add(offset_samples))
-        .collect();
-    let pre_frames = selected_frames(&pre_source, &selected_pre)?;
-    let post_frames = selected_frames(&post_source, &selected_post)?;
-    Some(ContentClockPlan {
+    let pre_frames = selected_frames(&pre_source, &selected_positions)?;
+    let post_frames = selected_frames(&post_source, &selected_positions)?;
+    Some(WavStartClockPlan {
         pre_frames,
         post_frames,
-        canonical_slots: selected_post,
-        pre_to_post_offset_samples: offset_samples,
-        alignment_score,
+        canonical_slots: selected_positions,
+        start_basis: if expected.wav_time_reference_samples.is_some() {
+            crate::trace_alignment::TRACE_ALIGNMENT_START_BWF
+        } else {
+            crate::trace_alignment::TRACE_ALIGNMENT_START_SHARED_CLOCK
+        },
     })
+}
+
+pub(crate) fn has_compatible_host_clocks(pre: &PluginDataFile, post: &PluginDataFile) -> bool {
+    let (Some(pre_clock), Some(post_clock)) = (pre.trace_clock.as_ref(), post.trace_clock.as_ref())
+    else {
+        return false;
+    };
+    pre_clock.basis == crate::trace_alignment::TRACE_CLOCK_BASIS
+        && post_clock.basis == crate::trace_alignment::TRACE_CLOCK_BASIS
+        && pre_clock.sample_rate > 0
+        && pre_clock.sample_rate == post_clock.sample_rate
+        && !pre_clock.sources.is_empty()
+        && pre_clock.sources == post_clock.sources
 }
 
 fn trace_source(data: &PluginDataFile) -> BTreeMap<i64, Frame> {
@@ -79,112 +98,210 @@ fn selected_frames(source: &BTreeMap<i64, Frame>, positions: &[i64]) -> Option<V
         .iter()
         .enumerate()
         .map(|(index, position)| {
-            source.get(position).cloned().map(|mut frame| {
-                frame.t_ms = (index as u64 + 1) * FRAME_INTERVAL_MS;
-                frame
-            })
+            let t_ms = u64::try_from(index)
+                .ok()?
+                .checked_add(1)?
+                .checked_mul(FRAME_INTERVAL_MS)?;
+            let mut frame = source.get(position)?.clone();
+            frame.t_ms = t_ms;
+            Some(frame)
         })
         .collect()
 }
 
-fn select_aligned_window(
+fn select_wav_window(
     pre: &BTreeMap<i64, Frame>,
     post: &BTreeMap<i64, Frame>,
     expected: &ExpectedWavMetadata,
     expected_len: usize,
     slot_samples: i64,
-    offset_samples: i64,
 ) -> Option<Vec<i64>> {
-    let window_is_complete = |pre_positions: &[i64]| {
-        pre_positions.len() == expected_len
-            && pre_positions
+    let window_is_complete = |positions: &[i64]| {
+        positions.len() == expected_len
+            && positions
                 .windows(2)
                 .all(|pair| pair[1].saturating_sub(pair[0]) == slot_samples)
-            && pre_positions
+            && positions
                 .iter()
-                .all(|pre_position| post.contains_key(&pre_position.saturating_add(offset_samples)))
+                .all(|position| pre.contains_key(position) && post.contains_key(position))
     };
 
     if let Some(wav_start) = expected.wav_time_reference_samples {
-        let post_first = i64::try_from(wav_start).ok()?.saturating_add(slot_samples);
-        let pre_first = post_first.saturating_sub(offset_samples);
+        let first = i64::try_from(wav_start).ok()?.checked_add(slot_samples)?;
         let anchored: Vec<i64> = (0..expected_len)
-            .map(|index| pre_first.saturating_add(index as i64 * slot_samples))
-            .collect();
-        if anchored.iter().all(|position| pre.contains_key(position))
-            && window_is_complete(&anchored)
-        {
+            .map(|index| {
+                i64::try_from(index)
+                    .ok()?
+                    .checked_mul(slot_samples)?
+                    .checked_add(first)
+            })
+            .collect::<Option<Vec<_>>>()?;
+        if window_is_complete(&anchored) {
             return Some(anchored);
         }
+        return None;
     }
 
-    let paired_pre: Vec<i64> = pre
+    let shared_positions: Vec<i64> = pre
         .keys()
         .copied()
-        .filter(|position| post.contains_key(&position.saturating_add(offset_samples)))
+        .filter(|position| post.contains_key(position))
         .collect();
-    paired_pre
+    shared_positions
         .windows(expected_len)
         .find(|window| window_is_complete(window))
         .map(<[i64]>::to_vec)
 }
 
-fn estimate_pre_to_post_offset(
-    pre: &BTreeMap<i64, Frame>,
-    post: &BTreeMap<i64, Frame>,
-    slot_samples: i64,
-) -> (i64, Option<f64>) {
-    if pre.len() < 3 || post.len() < 3 || slot_samples <= 0 {
-        return (0, None);
-    }
-    let max_lag = ((pre.len().min(post.len()) / 3).min(MAX_CONTENT_LAG_SLOTS)) as i64;
-    let mut best: Option<(i64, f64, usize)> = None;
-    for lag in -max_lag..=max_lag {
-        let offset = lag.saturating_mul(slot_samples);
-        let pairs: Vec<(&Frame, &Frame)> = pre
-            .iter()
-            .filter_map(|(position, pre_frame)| {
-                post.get(&position.saturating_add(offset))
-                    .map(|post_frame| (pre_frame, post_frame))
-            })
-            .collect();
-        if pairs.len() < 3 {
-            continue;
-        }
-        let lufs = pearson_metric(&pairs, |frame| frame.lufs_m);
-        let peak = pearson_metric(&pairs, |frame| frame.true_peak);
-        let score = match (lufs, peak) {
-            (Some(a), Some(b)) => (a + b) * 0.5,
-            (Some(value), None) | (None, Some(value)) => value,
-            (None, None) => continue,
-        };
-        let replace = best.is_none_or(|(best_lag, best_score, best_count)| {
-            score > best_score + 1e-9
-                || ((score - best_score).abs() <= 1e-9
-                    && (pairs.len() > best_count
-                        || (pairs.len() == best_count && lag.abs() < best_lag.abs())))
-        });
-        if replace {
-            best = Some((lag, score, pairs.len()));
-        }
-    }
-    best.map_or((0, None), |(lag, score, _)| (lag, Some(score)))
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::plugin_data::{Role, TraceClock};
 
-fn pearson_metric(pairs: &[(&Frame, &Frame)], value: impl Fn(&Frame) -> f64) -> Option<f64> {
-    let n = pairs.len() as f64;
-    let mean_left = pairs.iter().map(|(left, _)| value(left)).sum::<f64>() / n;
-    let mean_right = pairs.iter().map(|(_, right)| value(right)).sum::<f64>() / n;
-    let mut covariance = 0.0;
-    let mut variance_left = 0.0;
-    let mut variance_right = 0.0;
-    for (left, right) in pairs {
-        let a = value(left) - mean_left;
-        let b = value(right) - mean_right;
-        covariance += a * b;
-        variance_left += a * a;
-        variance_right += b * b;
+    fn frame(value: f64) -> Frame {
+        Frame {
+            t_ms: 0,
+            n_prime: None,
+            sharpness: None,
+            lufs_m: value,
+            true_peak: value * -3.0,
+            crest: value.abs(),
+            psr: None,
+        }
     }
-    let denominator = (variance_left * variance_right).sqrt();
-    (denominator > 1e-12).then_some(covariance / denominator)
+
+    fn source(positions: &[i64], values: &[f64]) -> BTreeMap<i64, Frame> {
+        positions
+            .iter()
+            .copied()
+            .zip(values.iter().copied().map(frame))
+            .collect()
+    }
+
+    fn expected(wav_start: Option<u64>) -> ExpectedWavMetadata {
+        ExpectedWavMetadata {
+            expected_duration_samples: 14_400,
+            expected_sample_rate: 48_000,
+            wav_time_reference_samples: wav_start,
+            wav_path: "/tmp/wav-start-clock.wav".to_string(),
+            bounce_id: "bounce-wav-start-clock".to_string(),
+            created_at_ms: 1,
+            wav_file_size: Some(1),
+            wav_mtime_ms: 1,
+            wav_hash: Some("hash-wav-start-clock".to_string()),
+            consumed_at_ms: None,
+            consumed_by_session_id: None,
+        }
+    }
+
+    fn plugin_data(role: Role, session: &str, source_name: &str) -> PluginDataFile {
+        let mut data = PluginDataFile::new(
+            "installation".to_string(),
+            "project".to_string(),
+            format!("{role:?}"),
+            role,
+            None,
+            48_000,
+            None,
+            None,
+            None,
+            None,
+        );
+        data.record_session_id = Some(session.to_string());
+        data.trace_clock = Some(TraceClock {
+            basis: crate::trace_alignment::TRACE_CLOCK_BASIS.to_string(),
+            origin_position_samples: 96_000,
+            end_position_samples: 115_200,
+            sample_rate: 48_000,
+            sources: vec![source_name.to_string()],
+        });
+        data.trace_slot_positions = vec![100_800, 105_600, 110_400];
+        data.frames = vec![frame(-30.0), frame(-20.0), frame(-10.0)];
+        data
+    }
+
+    #[test]
+    fn bwf_start_selects_identical_samples_even_when_shapes_disagree() {
+        let positions = [96_000, 100_800, 105_600, 110_400, 115_200];
+        let pre = source(&positions, &[-30.0, -8.0, -25.0, -12.0, -20.0]);
+        let post = source(&positions, &[4.0, -40.0, 2.0, -35.0, 1.0]);
+
+        let selected = select_wav_window(&pre, &post, &expected(Some(96_000)), 3, 4_800);
+
+        assert_eq!(selected, Some(vec![100_800, 105_600, 110_400]));
+    }
+
+    #[test]
+    fn bwf_start_never_falls_forward_to_a_different_complete_window() {
+        let pre_positions = [100_800, 105_600, 110_400, 115_200];
+        let post_positions = [105_600, 110_400, 115_200, 120_000];
+        let pre = source(&pre_positions, &[-30.0, -8.0, -25.0, -12.0]);
+        let post = source(&post_positions, &[-7.0, -6.0, -5.0, -4.0]);
+
+        let selected = select_wav_window(&pre, &post, &expected(Some(96_000)), 3, 4_800);
+
+        assert_eq!(selected, None);
+    }
+
+    #[test]
+    fn out_of_range_bwf_start_cannot_saturate_into_a_false_window() {
+        let positions = [i64::MAX - 9_600, i64::MAX - 4_800, i64::MAX];
+        let pre = source(&positions, &[-3.0, -2.0, -1.0]);
+        let post = source(&positions, &[-30.0, -20.0, -10.0]);
+
+        let selected = select_wav_window(&pre, &post, &expected(Some(u64::MAX)), 3, 4_800);
+
+        assert_eq!(selected, None);
+    }
+
+    #[test]
+    fn missing_bext_uses_first_dense_shared_record_clock_without_shape_matching() {
+        let pre_positions = [91_200, 96_000, 100_800, 105_600, 110_400];
+        let post_positions = [96_000, 100_800, 105_600, 110_400, 115_200];
+        let pre = source(&pre_positions, &[-1.0, -2.0, -3.0, -4.0, -5.0]);
+        let post = source(&post_positions, &[-50.0, 10.0, -40.0, 20.0, -30.0]);
+
+        let selected = select_wav_window(&pre, &post, &expected(None), 3, 4_800);
+
+        assert_eq!(selected, Some(vec![96_000, 100_800, 105_600]));
+    }
+
+    #[test]
+    fn plan_requires_one_record_session_and_one_host_clock_provenance() {
+        let pre = plugin_data(Role::Pre, "session", "project_timeline");
+        let mut post = plugin_data(Role::Post, "session", "project_timeline");
+
+        assert!(
+            build_wav_start_clock_plan(&pre, &post, &expected(Some(96_000)), 3, 4_800).is_some()
+        );
+
+        post.record_session_id = Some("other-session".to_string());
+        assert!(
+            build_wav_start_clock_plan(&pre, &post, &expected(Some(96_000)), 3, 4_800).is_none()
+        );
+
+        post.record_session_id = Some("session".to_string());
+        post.trace_clock.as_mut().unwrap().sources = vec!["different_clock".to_string()];
+        assert!(
+            build_wav_start_clock_plan(&pre, &post, &expected(Some(96_000)), 3, 4_800).is_none()
+        );
+    }
+
+    #[test]
+    fn missing_bext_plan_declares_shared_record_clock_without_metric_inference() {
+        let pre = plugin_data(Role::Pre, "session", "project_timeline");
+        let mut post = plugin_data(Role::Post, "session", "project_timeline");
+        post.frames = vec![frame(40.0), frame(-60.0), frame(30.0)];
+
+        let plan = build_wav_start_clock_plan(&pre, &post, &expected(None), 3, 4_800)
+            .expect("shared Record clock plan");
+
+        assert_eq!(
+            plan.start_basis,
+            crate::trace_alignment::TRACE_ALIGNMENT_START_SHARED_CLOCK
+        );
+        assert_eq!(plan.canonical_slots, vec![100_800, 105_600, 110_400]);
+        assert_eq!(plan.pre_frames[0].lufs_m, -30.0);
+        assert_eq!(plan.post_frames[0].lufs_m, 40.0);
+    }
 }
