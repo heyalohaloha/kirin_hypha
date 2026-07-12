@@ -494,6 +494,9 @@ pub struct RecordingCtx {
     /// Audio Thread が積んだ実レンダー長。手動 Keep/Stop の余白ではなく WAV と対応する
     /// `bounce_take` の正本として使う。
     pub clean_take: Option<RecordTakeSnapshot>,
+    /// Host presentation-latency state read directly at close. This remains available even when
+    /// Measure Thread produced no TRACE sample for a failed or zero-duration take.
+    pub presentation_latency_at_close: PresentationLatencySamples,
     /// 最後に Measure Thread から届いた Record TRACE 音声時間。
     ///
     /// `frames[]` は LUFS/TP/Crest が揃った実測点だけを書くが、Record 中の無音区間では
@@ -795,6 +798,7 @@ pub fn writer_start(
         seal_at_start: 0,  // B-132: run_record_tick が Record 開始時に seal を snapshot する
         record_generation: 0,
         clean_take: None,
+        presentation_latency_at_close: PresentationLatencySamples::default(),
         last_trace_t_ms: None,
         last_trace_frame_48k: None,
         last_trace_native_frames: None,
@@ -835,6 +839,7 @@ pub fn apply_record_take_snapshot(ctx: &mut RecordingCtx, tracker: Option<&Recor
     let Some(tracker) = tracker else {
         return;
     };
+    ctx.presentation_latency_at_close = tracker.presentation_latency();
     if let Some(snapshot) = tracker.snapshot(ctx.record_generation) {
         ctx.clean_take = Some(snapshot);
     }
@@ -1001,18 +1006,29 @@ fn expected_duration_ms(expected: &ExpectedWavMetadata) -> u64 {
 }
 
 fn bake_continuous_record_timeline(ctx: &mut RecordingCtx) {
-    let presentation_latency_observations: Vec<HostPresentationLatencyObservation> = ctx
+    let mut seen_presentation = BTreeSet::new();
+    let mut presentation_latency_observations = Vec::new();
+    for latency in ctx
         .trace_samples
         .iter()
         .map(|sample| sample.presentation_latency)
-        .filter(|latency| latency.input.is_some() || latency.output.is_some())
-        .map(|latency| HostPresentationLatencyObservation {
+        .chain(std::iter::once(ctx.presentation_latency_at_close))
+    {
+        let Some(source) = latency.source.as_str() else {
+            continue;
+        };
+        if latency.input.is_none() && latency.output.is_none() {
+            continue;
+        }
+        let observation = HostPresentationLatencyObservation {
+            source: Some(source.to_string()),
             input_samples: latency.input,
             output_samples: latency.output,
-        })
-        .collect::<BTreeSet<_>>()
-        .into_iter()
-        .collect();
+        };
+        if seen_presentation.insert(observation.clone()) {
+            presentation_latency_observations.push(observation);
+        }
+    }
     ctx.writer
         .set_host_presentation_latency_observations(presentation_latency_observations);
 
@@ -2903,6 +2919,7 @@ mod tests {
         PluginDataFile, PluginDataWriter, Role, TraceDiagnostics, WriterPaths,
     };
     use crate::record::{RecordStateMachine, TransitionError};
+    use crate::record_take::PresentationLatencySource;
     use crate::{License, MeasureResult, PsbSummary};
     use std::fs;
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -3445,6 +3462,7 @@ mod tests {
             seal_at_start: 0,        // B-132
             record_generation: 0,
             clean_take: None,
+            presentation_latency_at_close: PresentationLatencySamples::default(),
             last_trace_t_ms: None,
             last_trace_frame_48k: None,
             last_trace_native_frames: None,
@@ -5300,6 +5318,7 @@ mod tests {
                 );
                 sample.position_samples = Some(t_ms as i64 * 96);
                 sample.presentation_latency = PresentationLatencySamples {
+                    source: PresentationLatencySource::Vst3,
                     input: Some(64),
                     output: Some(128),
                 };
@@ -5323,6 +5342,12 @@ mod tests {
         assert_eq!(trace_clock.sample_rate, 96_000);
         assert_eq!(trace_clock.sources, vec!["project_timeline"]);
         assert_eq!(loaded.host_presentation_latency_observations.len(), 1);
+        assert_eq!(
+            loaded.host_presentation_latency_observations[0]
+                .source
+                .as_deref(),
+            Some("vst3")
+        );
         assert_eq!(
             loaded.host_presentation_latency_observations[0].input_samples,
             Some(64)
@@ -5356,6 +5381,7 @@ mod tests {
             let conflicting_offset = if t_ms == 500 { 512 } else { 0 };
             sample.position_samples = Some(native as i64 + conflicting_offset);
             sample.presentation_latency = PresentationLatencySamples {
+                source: PresentationLatencySource::AudioUnitV2,
                 input: Some(0),
                 output: Some(2_048),
             };
@@ -5371,6 +5397,7 @@ mod tests {
         assert_eq!(
             ctx.writer.data().host_presentation_latency_observations,
             vec![HostPresentationLatencyObservation {
+                source: Some("audio_unit_v2".to_string()),
                 input_samples: Some(0),
                 output_samples: Some(2_048),
             }]
@@ -5381,12 +5408,19 @@ mod tests {
     fn presentation_latency_diagnostics_survive_zero_duration_failure() {
         let base = isolated_base();
         let mut ctx = make_ctx_with_sample_rate(&base, Role::Post, now_epoch_ms(), 48_000);
-        let mut sample = trace_sample(0, full_measure_result(), false);
-        sample.presentation_latency = PresentationLatencySamples {
-            input: Some(0),
-            output: Some(4_096),
-        };
-        ctx.trace_samples.push(sample);
+        let tracker = RecordTakeTracker::new();
+        tracker.note_capture_window_with_presentation(
+            false,
+            0,
+            0,
+            CaptureClockSource::Unknown,
+            PresentationLatencySamples {
+                source: PresentationLatencySource::Vst3,
+                input: Some(0),
+                output: Some(4_096),
+            },
+        );
+        apply_record_take_snapshot(&mut ctx, Some(&tracker));
 
         bake_continuous_record_timeline(&mut ctx);
 
@@ -5394,9 +5428,48 @@ mod tests {
         assert_eq!(
             ctx.writer.data().host_presentation_latency_observations,
             vec![HostPresentationLatencyObservation {
+                source: Some("vst3".to_string()),
                 input_samples: Some(0),
                 output_samples: Some(4_096),
             }]
+        );
+    }
+
+    #[test]
+    fn presentation_latency_diagnostics_keep_first_observed_order() {
+        let base = isolated_base();
+        let mut ctx = make_ctx_with_sample_rate(&base, Role::Post, now_epoch_ms(), 48_000);
+        let mut first = trace_sample(0, full_measure_result(), false);
+        first.presentation_latency = PresentationLatencySamples {
+            source: PresentationLatencySource::AudioUnitV2,
+            input: Some(512),
+            output: Some(1_024),
+        };
+        let mut second = trace_sample(100, full_measure_result(), false);
+        second.presentation_latency = PresentationLatencySamples {
+            source: PresentationLatencySource::Vst3,
+            input: Some(0),
+            output: Some(4_096),
+        };
+        ctx.presentation_latency_at_close = first.presentation_latency;
+        ctx.trace_samples.extend([first, second]);
+
+        bake_continuous_record_timeline(&mut ctx);
+
+        assert_eq!(
+            ctx.writer.data().host_presentation_latency_observations,
+            vec![
+                HostPresentationLatencyObservation {
+                    source: Some("audio_unit_v2".to_string()),
+                    input_samples: Some(512),
+                    output_samples: Some(1_024),
+                },
+                HostPresentationLatencyObservation {
+                    source: Some("vst3".to_string()),
+                    input_samples: Some(0),
+                    output_samples: Some(4_096),
+                },
+            ]
         );
     }
 

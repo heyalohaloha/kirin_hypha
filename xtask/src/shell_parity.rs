@@ -16,6 +16,10 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/../juce_shell/src/KirinJucePluginConfig.h"
     ));
+    const JUCE_CMAKE: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../juce_shell/CMakeLists.txt"
+    ));
 
     fn read_juce_au_wrapper() -> Option<String> {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
@@ -33,6 +37,18 @@ mod tests {
 
     fn count_occurrences(source: &str, needle: &str) -> usize {
         source.match_indices(needle).count()
+    }
+
+    #[test]
+    fn juce_default_build_refreshes_rust_ffi_before_link() {
+        assert!(JUCE_CMAKE.contains("add_custom_target(KirinHyphaRustFFI"));
+        assert!(JUCE_CMAKE.contains("build --release -p kirin_hypha_ffi --locked"));
+        assert!(JUCE_CMAKE.contains("BYPRODUCTS ${KIRIN_FFI_LIB}"));
+        assert!(JUCE_CMAKE.contains("add_dependencies(${TARGET} KirinHyphaRustFFI)"));
+        assert!(JUCE_CMAKE.contains("cmake_path(ABSOLUTE_PATH _KIRIN_FFI_SELECTED_PATH NORMALIZE"));
+        assert!(JUCE_CMAKE.contains("cmake_path(ABSOLUTE_PATH _KIRIN_FFI_DEFAULT_PATH NORMALIZE"));
+        assert!(JUCE_CMAKE
+            .contains("if(\"${_KIRIN_FFI_SELECTED_ABS}\" STREQUAL \"${_KIRIN_FFI_DEFAULT_ABS}\")"));
     }
 
     #[test]

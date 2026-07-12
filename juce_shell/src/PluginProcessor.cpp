@@ -213,6 +213,7 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
     bool hasClockEnd = false;
     int64_t clockStartSamples = 0;
     int64_t clockEndSamples = 0;
+    uint8_t presentationSource = KIRIN_HYPHA_PRESENTATION_SOURCE_UNKNOWN;
     bool inputPresentationValid = false;
     uint32_t inputPresentationSamples = 0;
     bool outputPresentationValid = false;
@@ -232,6 +233,10 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
                #endif
             }
            #if KIRIN_HYPHA_PRESENTATION_CLOCK
+            const auto wrapperSource = pos->getKirinPresentationLatencySource();
+            if (wrapperSource == KIRIN_HYPHA_PRESENTATION_SOURCE_VST3
+                || wrapperSource == KIRIN_HYPHA_PRESENTATION_SOURCE_AUDIO_UNIT_V2)
+                presentationSource = (uint8_t) wrapperSource;
             const auto readPresentationLatency = [] (const auto& value, bool& valid, uint32_t& samples)
             {
                 if (value.hasValue() && *value >= 0
@@ -355,6 +360,7 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
 
             kirin_hypha_note_capture_window (hyphaHandle, hasPosition,
                                              windowPositionSamples, windowNumFrames, clockSource,
+                                             presentationSource,
                                              inputPresentationValid, inputPresentationSamples,
                                              outputPresentationValid, outputPresentationSamples);
             kirin_hypha_push_samples (hyphaHandle, interleaveScratch.data(),

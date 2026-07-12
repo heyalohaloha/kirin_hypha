@@ -207,6 +207,8 @@ pub struct TraceClock {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 pub struct HostPresentationLatencyObservation {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub input_samples: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output_samples: Option<u32>,
@@ -357,9 +359,10 @@ pub struct PluginDataFile {
     /// compared across PRE/POST because DAW PDC and wrapper scheduling can shift it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trace_clock: Option<TraceClock>,
-    /// Distinct VST3/AU presentation-latency callbacks observed during this take. This diagnostic
-    /// is independent of trace-clock completeness so failed/pending takes remain inspectable.
-    /// Empty means the wrapper/host did not provide the optional interface; zero is preserved.
+    /// Distinct VST3/AU presentation-latency states in first-observed order during this take.
+    /// This diagnostic is independent of trace-clock completeness so failed/pending takes remain
+    /// inspectable. Empty means the wrapper/host did not provide the optional interface; zero is
+    /// preserved. `source` keeps VST3 and Audio Unit v2 evidence distinguishable.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub host_presentation_latency_observations: Vec<HostPresentationLatencyObservation>,
     /// Producer-canonical native-sample endpoint of every `frames[]` entry. Before pair
@@ -5986,6 +5989,15 @@ mod tests {
         );
         assert_eq!(loaded.commit_status.as_deref(), Some("failed"));
         assert!(verify_checksum(&loaded));
+    }
+
+    #[test]
+    fn legacy_presentation_latency_observation_without_source_still_deserializes() {
+        let observation: HostPresentationLatencyObservation =
+            serde_json::from_str(r#"{"input_samples":0,"output_samples":9600}"#).unwrap();
+        assert!(observation.source.is_none());
+        assert_eq!(observation.input_samples, Some(0));
+        assert_eq!(observation.output_samples, Some(9_600));
     }
 
     #[test]

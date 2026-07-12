@@ -38,6 +38,29 @@ endif()
 set(KIRIN_FFI_LIB "${_KIRIN_FFI_DEFAULT}"
     CACHE FILEPATH "Path to the kirin_hypha_ffi staticlib (.a on macOS/Linux, .lib on Windows/MSVC)")
 
+# B-376: The C ABI symbol name does not encode its argument list, so an old staticlib can link
+# successfully against a newer header and fail only at runtime. For the default local path on every
+# platform, always ask Cargo to refresh the release staticlib before JUCE compiles or links. Cargo's
+# own dependency graph makes an unchanged build a no-op. CMake canonicalises FILEPATH cache values,
+# so compare normalised absolute paths rather than the original strings (whose default contains `..`).
+# Explicit universal/staticlib overrides remain owned by scripts/build_juce_universal.sh and are not
+# rebuilt here.
+set(_KIRIN_FFI_SELECTED_PATH "${KIRIN_FFI_LIB}")
+set(_KIRIN_FFI_DEFAULT_PATH "${_KIRIN_FFI_DEFAULT}")
+cmake_path(ABSOLUTE_PATH _KIRIN_FFI_SELECTED_PATH NORMALIZE
+    OUTPUT_VARIABLE _KIRIN_FFI_SELECTED_ABS)
+cmake_path(ABSOLUTE_PATH _KIRIN_FFI_DEFAULT_PATH NORMALIZE
+    OUTPUT_VARIABLE _KIRIN_FFI_DEFAULT_ABS)
+if("${_KIRIN_FFI_SELECTED_ABS}" STREQUAL "${_KIRIN_FFI_DEFAULT_ABS}")
+    find_program(KIRIN_CARGO_EXECUTABLE cargo REQUIRED)
+    add_custom_target(KirinHyphaRustFFI
+        COMMAND ${KIRIN_CARGO_EXECUTABLE} build --release -p kirin_hypha_ffi --locked
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/..
+        BYPRODUCTS ${KIRIN_FFI_LIB}
+        VERBATIM
+        COMMENT "B-376: refresh kirin_hypha_ffi release staticlib before JUCE link")
+endif()
+
 if(APPLE)
     set(KIRIN_PLUGIN_FORMATS AU VST3)
 elseif(WIN32)
@@ -105,6 +128,10 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         src/HyphaWidgets.cpp     # B-054: LED / mycelium bg / metric cells / editable name
         src/PostControls.cpp     # B-054: POST Keep/Stop/Note/Sense button row
         ${MAIN_SRC})
+
+    if(TARGET KirinHyphaRustFFI)
+        add_dependencies(${TARGET} KirinHyphaRustFFI)
+    endif()
 
     # kirin_hypha_ffi: C ABI header + Rust staticlib (B-052 boundary, unchanged).
     target_include_directories(${TARGET} PRIVATE

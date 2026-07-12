@@ -27,13 +27,42 @@ pub enum CaptureClockSource {
     AudioRenderTimeline = 2,
 }
 
+/// Plug-in format that supplied the optional host presentation-latency callback.
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub enum PresentationLatencySource {
+    #[default]
+    Unknown = 0,
+    Vst3 = 1,
+    AudioUnitV2 = 2,
+}
+
 /// Host-supplied cumulative presentation latency for the active main buses.
 /// `None` means the format wrapper never received the optional host callback; `Some(0)` preserves
 /// the standard's intentionally ambiguous zero without pretending it was absent.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub struct PresentationLatencySamples {
+    pub source: PresentationLatencySource,
     pub input: Option<u32>,
     pub output: Option<u32>,
+}
+
+impl PresentationLatencySource {
+    pub fn from_abi(value: u8) -> Self {
+        match value {
+            1 => Self::Vst3,
+            2 => Self::AudioUnitV2,
+            _ => Self::Unknown,
+        }
+    }
+
+    pub fn as_str(self) -> Option<&'static str> {
+        match self {
+            Self::Unknown => None,
+            Self::Vst3 => Some("vst3"),
+            Self::AudioUnitV2 => Some("audio_unit_v2"),
+        }
+    }
 }
 
 impl CaptureClockSource {
@@ -204,6 +233,7 @@ pub struct RecordTakeTracker {
     capture_last_position_end_samples: AtomicI64,
     capture_last_source: AtomicU8,
     presentation_version: AtomicU64,
+    presentation_source: AtomicU8,
     input_presentation_samples: AtomicU64,
     output_presentation_samples: AtomicU64,
     capture_clock_slots: Box<[CaptureClockSlot]>,
@@ -239,6 +269,7 @@ impl RecordTakeTracker {
             capture_last_position_end_samples: AtomicI64::new(i64::MIN),
             capture_last_source: AtomicU8::new(CaptureClockSource::Unknown as u8),
             presentation_version: AtomicU64::new(0),
+            presentation_source: AtomicU8::new(PresentationLatencySource::Unknown as u8),
             input_presentation_samples: AtomicU64::new(u64::MAX),
             output_presentation_samples: AtomicU64::new(u64::MAX),
             capture_clock_slots: (0..CAPTURE_CLOCK_SPAN_CAPACITY)
@@ -304,6 +335,8 @@ impl RecordTakeTracker {
         presentation_latency: PresentationLatencySamples,
     ) {
         self.presentation_version.fetch_add(1, Ordering::AcqRel);
+        self.presentation_source
+            .store(presentation_latency.source as u8, Ordering::Relaxed);
         self.input_presentation_samples.store(
             presentation_latency.input.map_or(u64::MAX, u64::from),
             Ordering::Relaxed,
@@ -370,11 +403,13 @@ impl RecordTakeTracker {
             if before & 1 != 0 {
                 continue;
             }
+            let source = self.presentation_source.load(Ordering::Relaxed);
             let input = self.input_presentation_samples.load(Ordering::Relaxed);
             let output = self.output_presentation_samples.load(Ordering::Relaxed);
             let after = self.presentation_version.load(Ordering::Acquire);
             if before == after {
                 return PresentationLatencySamples {
+                    source: PresentationLatencySource::from_abi(source),
                     input: u32::try_from(input).ok(),
                     output: u32::try_from(output).ok(),
                 };
@@ -640,8 +675,8 @@ pub fn new_record_take_tracker() -> Arc<RecordTakeTracker> {
 #[cfg(test)]
 mod tests {
     use super::{
-        CaptureClockSource, PresentationLatencySamples, RecordTakeBlock, RecordTakeTracker,
-        RECORD_TAKE_SOURCE_RENDER_CLOCK, RECORD_TAKE_SOURCE_WAV_CLOCK,
+        CaptureClockSource, PresentationLatencySamples, PresentationLatencySource, RecordTakeBlock,
+        RecordTakeTracker, RECORD_TAKE_SOURCE_RENDER_CLOCK, RECORD_TAKE_SOURCE_WAV_CLOCK,
     };
 
     fn block(generation: u64, position_samples: i64, num_frames: u64) -> RecordTakeBlock {
@@ -688,6 +723,7 @@ mod tests {
             PresentationLatencySamples::default()
         );
         let first = PresentationLatencySamples {
+            source: PresentationLatencySource::Vst3,
             input: Some(0),
             output: Some(9_600),
         };
@@ -708,6 +744,7 @@ mod tests {
         assert_eq!(tracker.presentation_latency(), first);
 
         let changed = PresentationLatencySamples {
+            source: PresentationLatencySource::AudioUnitV2,
             input: Some(9_600),
             output: Some(0),
         };
@@ -720,6 +757,7 @@ mod tests {
         );
         assert_eq!(tracker.presentation_latency(), changed);
         let boundary = PresentationLatencySamples {
+            source: PresentationLatencySource::AudioUnitV2,
             input: Some(u32::MAX),
             output: None,
         };
