@@ -61,9 +61,9 @@ use kirin_measure::{
     write_pending_claiming_expected_and_clock, write_stop_broadcast, CaptureClockSource, DeltaMode,
     DeltaResult, ExclusionResult, ExpectedWavMetadata, IoThreadHandle, LatchedPre, License,
     LivenessEvaluator, MeasureResult, PlatformPaths, PluginDataRole, PresentationLatencySamples,
-    PsbSummary, RecordStateMachine, RecordTakeBlock, RecordTakeTracker, RecordTraceQueue,
-    ReleaseReason, RestartIoFn, SignalState, StoragePaths, WatchdogIo, WatchdogParams,
-    MAX_ACTIVE_PER_PROJECT, N_CHANNELS, RING_BUFFER_SECONDS,
+    PresentationLatencySource, PsbSummary, RecordStateMachine, RecordTakeBlock, RecordTakeTracker,
+    RecordTraceQueue, ReleaseReason, RestartIoFn, SignalState, StoragePaths, WatchdogIo,
+    WatchdogParams, MAX_ACTIVE_PER_PROJECT, N_CHANNELS, RING_BUFFER_SECONDS,
 };
 use kirin_measure::{add_watch_ring_cursor_samples, reset_watch_ring_cursor};
 
@@ -2441,6 +2441,7 @@ pub unsafe extern "C" fn kirin_hypha_note_capture_window(
     position_samples: i64,
     num_frames: u64,
     clock_source: u8,
+    presentation_source: u8,
     input_presentation_valid: bool,
     input_presentation_samples: u32,
     output_presentation_valid: bool,
@@ -2457,6 +2458,7 @@ pub unsafe extern "C" fn kirin_hypha_note_capture_window(
                 num_frames,
                 CaptureClockSource::from_abi(clock_source),
                 PresentationLatencySamples {
+                    source: PresentationLatencySource::from_abi(presentation_source),
                     input: input_presentation_valid.then_some(input_presentation_samples),
                     output: output_presentation_valid.then_some(output_presentation_samples),
                 },

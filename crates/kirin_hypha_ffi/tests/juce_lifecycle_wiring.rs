@@ -16,16 +16,22 @@ fn read_repo(path: &str) -> String {
 
 #[test]
 fn juce_wrappers_forward_host_presentation_latency_as_diagnostics() {
+    let ffi_header = read_repo("crates/kirin_hypha_ffi/include/kirin_hypha_ffi.h");
+    assert!(ffi_header.contains("KIRIN_HYPHA_PRESENTATION_SOURCE_VST3 1"));
+    assert!(ffi_header.contains("KIRIN_HYPHA_PRESENTATION_SOURCE_AUDIO_UNIT_V2 2"));
+
     let position =
         read_repo("juce_shell/JUCE/modules/juce_audio_basics/audio_play_head/juce_AudioPlayHead.h");
     assert!(position.contains("setKirinInputPresentationLatencySamples"));
     assert!(position.contains("setKirinOutputPresentationLatencySamples"));
+    assert!(position.contains("setKirinPresentationLatencySource"));
 
     let vst3 = read_repo(
         "juce_shell/JUCE/modules/juce_audio_plugin_client/juce_audio_plugin_client_VST3.cpp",
     );
     assert!(vst3.contains("Vst::IAudioPresentationLatency"));
     assert!(vst3.contains("setAudioPresentationLatencySamples"));
+    assert!(vst3.contains("setKirinPresentationLatencySource (1)"));
     assert!(vst3.contains("inputPresentationLatencySamples { -1 }"));
     assert!(vst3.contains("outputPresentationLatencySamples { -1 }"));
     assert!(vst3.contains("std::atomic<int64_t>::is_always_lock_free"));
@@ -34,6 +40,7 @@ fn juce_wrappers_forward_host_presentation_latency_as_diagnostics() {
         "juce_shell/JUCE/modules/juce_audio_plugin_client/juce_audio_plugin_client_AU_1.mm",
     );
     assert!(au.contains("kAudioUnitProperty_PresentationLatency"));
+    assert!(au.contains("setKirinPresentationLatencySource (2)"));
     assert!(au.contains("inputPresentationLatencySeconds { -1.0 }"));
     assert!(au.contains("outputPresentationLatencySeconds { -1.0 }"));
     assert!(au.contains("std::atomic<double>::is_always_lock_free"));
@@ -43,6 +50,7 @@ fn juce_wrappers_forward_host_presentation_latency_as_diagnostics() {
     let processor = read_repo("juce_shell/src/PluginProcessor.cpp");
     assert!(processor.contains("getKirinInputPresentationLatencySamples"));
     assert!(processor.contains("getKirinOutputPresentationLatencySamples"));
+    assert!(processor.contains("getKirinPresentationLatencySource"));
     assert!(processor.contains("kirin_hypha_note_capture_window"));
 }
 
