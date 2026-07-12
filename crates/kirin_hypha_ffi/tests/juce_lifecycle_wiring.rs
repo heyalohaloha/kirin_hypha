@@ -20,32 +20,27 @@ fn juce_wrappers_forward_host_presentation_latency_as_diagnostics() {
     assert!(ffi_header.contains("KIRIN_HYPHA_PRESENTATION_SOURCE_VST3 1"));
     assert!(ffi_header.contains("KIRIN_HYPHA_PRESENTATION_SOURCE_AUDIO_UNIT_V2 2"));
 
-    let position =
-        read_repo("juce_shell/JUCE/modules/juce_audio_basics/audio_play_head/juce_AudioPlayHead.h");
-    assert!(position.contains("setKirinInputPresentationLatencySamples"));
-    assert!(position.contains("setKirinOutputPresentationLatencySamples"));
-    assert!(position.contains("setKirinPresentationLatencySource"));
-
-    let vst3 = read_repo(
-        "juce_shell/JUCE/modules/juce_audio_plugin_client/juce_audio_plugin_client_VST3.cpp",
-    );
-    assert!(vst3.contains("Vst::IAudioPresentationLatency"));
-    assert!(vst3.contains("setAudioPresentationLatencySamples"));
-    assert!(vst3.contains("setKirinPresentationLatencySource (1)"));
-    assert!(vst3.contains("inputPresentationLatencySamples { -1 }"));
-    assert!(vst3.contains("outputPresentationLatencySamples { -1 }"));
-    assert!(vst3.contains("std::atomic<int64_t>::is_always_lock_free"));
-
-    let au = read_repo(
-        "juce_shell/JUCE/modules/juce_audio_plugin_client/juce_audio_plugin_client_AU_1.mm",
-    );
-    assert!(au.contains("kAudioUnitProperty_PresentationLatency"));
-    assert!(au.contains("setKirinPresentationLatencySource (2)"));
-    assert!(au.contains("inputPresentationLatencySeconds { -1.0 }"));
-    assert!(au.contains("outputPresentationLatencySeconds { -1.0 }"));
-    assert!(au.contains("std::atomic<double>::is_always_lock_free"));
-    assert!(au.contains("info.busNr != 0 || info.kind != BusKind::processor"));
-    assert!(au.contains("sampleRate <= 0.0"));
+    let patch = read_repo("juce_shell/patches/0005-host-presentation-clock.patch");
+    for required in [
+        "setKirinInputPresentationLatencySamples",
+        "setKirinOutputPresentationLatencySamples",
+        "setKirinPresentationLatencySource",
+        "Vst::IAudioPresentationLatency",
+        "setAudioPresentationLatencySamples",
+        "setKirinPresentationLatencySource (1)",
+        "inputPresentationLatencySamples { -1 }",
+        "outputPresentationLatencySamples { -1 }",
+        "std::atomic<int64_t>::is_always_lock_free",
+        "kAudioUnitProperty_PresentationLatency",
+        "setKirinPresentationLatencySource (2)",
+        "inputPresentationLatencySeconds { -1.0 }",
+        "outputPresentationLatencySeconds { -1.0 }",
+        "std::atomic<double>::is_always_lock_free",
+        "info.busNr != 0 || info.kind != BusKind::processor",
+        "sampleRate <= 0.0",
+    ] {
+        assert!(patch.contains(required), "patch must contain {required}");
+    }
 
     let processor = read_repo("juce_shell/src/PluginProcessor.cpp");
     assert!(processor.contains("getKirinInputPresentationLatencySamples"));
