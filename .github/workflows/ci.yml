@@ -148,6 +148,10 @@ jobs:
       - name: Windows preflight gate
         run: cargo run -p xtask --locked -- windows-preflight
 
+      - name: Apply tracked JUCE patches
+        shell: bash
+        run: bash scripts/apply_juce_patches.sh
+
       - name: Configure JUCE VST3 shell (Windows)
         shell: pwsh
         run: >
