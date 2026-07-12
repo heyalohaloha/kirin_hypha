@@ -116,7 +116,7 @@ mod tests {
             "candidate rows must hide instance_id in normal POST menu display"
         );
         assert!(body.contains("const int nReady = processorRef.keepReadyCount();"));
-        assert!(body.contains("if (! rec && nReady >= 1)"));
+        assert!(body.contains("if (! rec && processorRef.licenseIsOs() && nReady >= 1)"));
         assert!(body.contains("menu.addItem (1, allKeepMenuLabel (nReady));"));
         assert!(body.contains("menu.addItem (2, \"All Stop: recording POSTs\");"));
         assert!(
@@ -185,6 +185,19 @@ mod tests {
             all_keep_body.contains("processorRef.recordErrorMessage()"),
             "All Keep cap failure must use the FFI record_error_message"
         );
+    }
+
+    #[test]
+    fn juce_entitlement_is_live_and_never_silently_ignores_keep() {
+        assert!(
+            PLUGIN_PROCESSOR_CPP.contains("const int observed = (int) kirin_hypha_load_license();")
+        );
+        assert!(PLUGIN_PROCESSOR_CPP.contains("cachedLicenseCode.exchange (observed"));
+        assert!(PLUGIN_PROCESSOR_CPP
+            .contains("kirin_hypha_set_license (hyphaHandle, (uint8_t) observed);"));
+        assert!(PLUGIN_PROCESSOR_CPP
+            .contains("cachedLicenseCode.load (std::memory_order_acquire) == 0"));
+        assert!(PLUGIN_EDITOR_CPP.contains("Record requires Kirin OS license"));
     }
 
     #[test]
@@ -357,6 +370,10 @@ mod tests {
         assert!(body.contains("&& (stateCode == 1 || playing || nonRealtime || hasClockEnd);"));
         assert!(!body.contains("&& (stateCode == 1 || measurementTimelineActive"));
         assert!(body.contains("windowPositionSamples, windowNumFrames, clockSource"));
+        assert!(body
+            .contains("kirin_hypha_note_transport_block (hyphaHandle, measurementTimelineActive"));
+        assert!(PLUGIN_PROCESSOR_CPP
+            .contains("lastMeasurementTimelineActive.load (std::memory_order_acquire)"));
     }
 
     #[test]
@@ -449,9 +466,9 @@ mod tests {
 
         assert!(
             window.contains("if (pairNonEmpty && ! preExplicitBypassed)")
-                && window.contains("configureForKind (Kind::Delta3)")
+                && window.contains("configureForKind (Kind::WatchDelta6)")
                 && window.contains("const bool liveDelta = haveD && d.mode == 0 && ! mutedD;"),
-            "JUCE POST Watch must keep the Delta3 grid while an explicit pair is selected"
+            "JUCE POST Watch must keep the Delta+MAX grid while an explicit pair is selected"
         );
         assert!(
             window.contains("else if (! preExplicitBypassed && pairNonEmpty)")
@@ -462,6 +479,12 @@ mod tests {
         assert!(
             window.contains("else // pair empty or PRE explicitly bypassed -> POST absolute"),
             "JUCE POST Watch may fall back to POST absolute values only when the pair is empty or PRE is explicitly bypassed"
+        );
+        assert!(
+            window.contains("watchMaximum.lufs_m")
+                && window.contains("watchMaximum.true_peak")
+                && window.contains("watchMaximum.crest"),
+            "JUCE POST Watch must expose all three absolute MAX values in both paired and unpaired layouts"
         );
     }
 

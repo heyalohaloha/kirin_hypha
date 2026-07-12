@@ -68,6 +68,7 @@ mod tests {
         let expected = BTreeSet::from([
             "kirin_hypha_is_recording".to_string(),
             "kirin_hypha_note_capture_window".to_string(),
+            "kirin_hypha_note_transport_block".to_string(),
             "kirin_hypha_note_record_window".to_string(),
             "kirin_hypha_note_oversized_drop".to_string(),
             "kirin_hypha_push_samples".to_string(),
@@ -197,6 +198,7 @@ mod tests {
             "pub unsafe extern \"C\" fn kirin_hypha_note_record_block",
             "pub unsafe extern \"C\" fn kirin_hypha_note_record_window",
             "pub unsafe extern \"C\" fn kirin_hypha_note_capture_window",
+            "pub unsafe extern \"C\" fn kirin_hypha_note_transport_block",
             "pub unsafe extern \"C\" fn kirin_hypha_note_oversized_drop",
         ] {
             let body = function_body(FFI_LIB_RS, signature);

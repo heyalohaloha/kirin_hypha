@@ -3573,6 +3573,11 @@ mod tests {
             sample_rate: 48_000,
             sources: vec!["project_timeline".to_string()],
         }));
+        w.set_host_presentation_latency_observations(vec![HostPresentationLatencyObservation {
+            source: Some("vst3".to_string()),
+            input_samples: Some(0),
+            output_samples: Some(0),
+        }]);
         w.set_trace_wav_reference(Some(TraceWavReference {
             basis: crate::trace_alignment::TRACE_WAV_REFERENCE_BASIS.to_string(),
             capture_basis: crate::trace_alignment::TRACE_CAPTURE_BASIS.to_string(),

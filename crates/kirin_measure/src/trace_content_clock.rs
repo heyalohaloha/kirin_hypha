@@ -2,7 +2,7 @@
 //!
 //! Metric values are deliberately absent from the clock decision. A Broadcast-Wave time
 //! reference is the primary start anchor. When a DAW omits `bext`, the first complete dense window
-//! shared by the PRE and POST host-sample clocks is the fallback Record-session anchor. Both lanes
+//! shared by the PRE and POST presentation-normalised content clocks is the fallback Record-session anchor. Both lanes
 //! are always read at the same absolute sample positions and are then rebased to WAV sample 0..N.
 
 use std::collections::BTreeMap;

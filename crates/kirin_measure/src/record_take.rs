@@ -349,20 +349,28 @@ impl RecordTakeTracker {
         if num_frames == 0 {
             return;
         }
+        // VST3 defines input presentation latency as the elapsed samples from
+        // generation/acquisition until this plug-in input receives the audio.
+        // Therefore a block received at host position P contains content from
+        // P - input_latency. Normalise here, before any measurement frame is
+        // formed, so PRE and POST share content coordinates without comparing
+        // their metric shapes later.
+        let content_position_samples = position_valid
+            .then(|| content_position_samples(position_samples, presentation_latency.input));
         let capture_start_frame = self.capture_frames_total.load(Ordering::Acquire);
         let frames_end = self
             .capture_frames_total
             .fetch_add(num_frames, Ordering::AcqRel)
             .saturating_add(num_frames);
         let previous_sequence = self.capture_last_span_sequence.load(Ordering::Acquire);
-        let position_contiguous = position_valid
+        let position_contiguous = content_position_samples.is_some()
             && source != CaptureClockSource::Unknown
             && self.capture_last_position_valid.load(Ordering::Acquire)
             && self.capture_last_source.load(Ordering::Acquire) == source as u8
             && self
                 .capture_last_position_end_samples
                 .load(Ordering::Acquire)
-                == position_samples;
+                == content_position_samples.unwrap_or(i64::MIN);
         let extended = if previous_sequence > 0 && position_contiguous {
             let index = previous_sequence as usize % self.capture_clock_slots.len();
             self.capture_clock_slots[index].extend(previous_sequence, frames_end)
@@ -379,16 +387,18 @@ impl RecordTakeTracker {
                 sequence,
                 capture_start_frame,
                 frames_end,
-                position_valid.then_some(position_samples),
+                content_position_samples,
                 source,
             );
             self.capture_last_span_sequence
                 .store(sequence, Ordering::Release);
         }
         self.capture_last_position_valid
-            .store(position_valid, Ordering::Release);
+            .store(content_position_samples.is_some(), Ordering::Release);
         self.capture_last_position_end_samples.store(
-            position_samples.saturating_add(num_frames as i64),
+            content_position_samples
+                .unwrap_or(i64::MIN)
+                .saturating_add(num_frames as i64),
             Ordering::Release,
         );
         self.capture_last_source
@@ -637,6 +647,16 @@ impl RecordTakeTracker {
     }
 }
 
+/// Convert a host callback position to the sample position of the audio
+/// content present at the plug-in input.
+#[inline]
+pub fn content_position_samples(
+    host_position_samples: i64,
+    input_presentation_samples: Option<u32>,
+) -> i64 {
+    host_position_samples.saturating_sub(i64::from(input_presentation_samples.unwrap_or(0)))
+}
+
 fn bounded_duration_from_block(block: &RecordTakeBlock) -> Option<u64> {
     let end = block.clock_end_samples?;
     if end > block.clock_start_samples {
@@ -675,8 +695,9 @@ pub fn new_record_take_tracker() -> Arc<RecordTakeTracker> {
 #[cfg(test)]
 mod tests {
     use super::{
-        CaptureClockSource, PresentationLatencySamples, PresentationLatencySource, RecordTakeBlock,
-        RecordTakeTracker, RECORD_TAKE_SOURCE_RENDER_CLOCK, RECORD_TAKE_SOURCE_WAV_CLOCK,
+        content_position_samples, CaptureClockSource, PresentationLatencySamples,
+        PresentationLatencySource, RecordTakeBlock, RecordTakeTracker,
+        RECORD_TAKE_SOURCE_RENDER_CLOCK, RECORD_TAKE_SOURCE_WAV_CLOCK,
     };
 
     fn block(generation: u64, position_samples: i64, num_frames: u64) -> RecordTakeBlock {
@@ -716,7 +737,7 @@ mod tests {
     }
 
     #[test]
-    fn presentation_latency_is_observed_without_splitting_capture_spans() {
+    fn presentation_latency_changes_split_content_clock_spans() {
         let tracker = RecordTakeTracker::new();
         assert_eq!(
             tracker.presentation_latency(),
@@ -773,9 +794,42 @@ mod tests {
             tracker
                 .capture_span_sequence
                 .load(std::sync::atomic::Ordering::Acquire),
-            1,
-            "diagnostic changes must not fragment the existing contiguous capture clock"
+            3,
+            "each input-latency generation owns its own content-clock span"
         );
+    }
+
+    #[test]
+    fn pre_and_delayed_post_map_the_same_content_position() {
+        assert_eq!(content_position_samples(48_000, Some(0)), 48_000);
+        assert_eq!(content_position_samples(48_256, Some(256)), 48_000);
+
+        let pre = RecordTakeTracker::new();
+        pre.note_capture_window_with_presentation(
+            true,
+            48_000,
+            512,
+            CaptureClockSource::ProjectTimeline,
+            PresentationLatencySamples {
+                source: PresentationLatencySource::Vst3,
+                input: Some(0),
+                output: Some(256),
+            },
+        );
+        let post = RecordTakeTracker::new();
+        post.note_capture_window_with_presentation(
+            true,
+            48_256,
+            512,
+            CaptureClockSource::ProjectTimeline,
+            PresentationLatencySamples {
+                source: PresentationLatencySource::Vst3,
+                input: Some(256),
+                output: Some(0),
+            },
+        );
+        assert_eq!(pre.position_samples_for_captured_frame(512), Some(48_512));
+        assert_eq!(post.position_samples_for_captured_frame(512), Some(48_512));
     }
 
     #[test]

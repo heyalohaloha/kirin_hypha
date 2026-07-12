@@ -37,3 +37,6 @@ baseview = { path = "vendor/baseview" }
 
 [patch."https://github.com/BillyDM/egui-baseview.git"]
 egui-baseview = { path = "vendor/egui-baseview" }
+
+[patch."https://github.com/robbert-vdh/nih-plug.git"]
+nih_plug = { path = "vendor/nih-plug-presentation" }

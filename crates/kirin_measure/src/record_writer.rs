@@ -6087,6 +6087,13 @@ mod tests {
                 sample_rate: 48_000,
                 sources: vec!["project_timeline".to_string()],
             }));
+            writer.set_host_presentation_latency_observations(vec![
+                HostPresentationLatencyObservation {
+                    source: Some("vst3".to_string()),
+                    input_samples: Some(0),
+                    output_samples: Some(0),
+                },
+            ]);
             for t_ms in (100_u64..=1_000).step_by(FRAME_INTERVAL_MS as usize) {
                 writer.append_frame(t_ms, [0.0; 20], 0.0, -20.0, -1.0, 12.0, Some(10.0));
             }

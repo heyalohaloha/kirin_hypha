@@ -55,17 +55,25 @@ use kirin_measure::{
     enumerate_active_pre_pair_candidates_for_post_project_in_session, identity_instance_attach,
     identity_instance_detach, live_window, load_license_safe, load_signal_state, mark_released,
     mark_released_with_reason, new_record_take_tracker, new_record_trace_queue,
-    resolve_arm_target_for_post_project_in_session, sanitize_name, set_daw_session_id,
-    set_project_uuid, spawn_io_thread_post, spawn_io_thread_pre, spawn_measure_thread,
-    spawn_watchdog, store_signal_state, write_broadcast, write_expected_metadata,
+    resolve_arm_target_for_post_project_in_session, sanitize_name,
+    select_target_pre_for_arm_for_post_project_in_session, set_daw_session_id, set_project_uuid,
+    spawn_io_thread_post, spawn_io_thread_pre, spawn_measure_thread, spawn_watchdog,
+    store_signal_state, write_broadcast, write_expected_metadata,
     write_pending_claiming_expected_and_clock, write_stop_broadcast, CaptureClockSource, DeltaMode,
     DeltaResult, ExclusionResult, ExpectedWavMetadata, IoThreadHandle, LatchedPre, License,
-    LivenessEvaluator, MeasureResult, PlatformPaths, PluginDataRole, PresentationLatencySamples,
-    PresentationLatencySource, PsbSummary, RecordStateMachine, RecordTakeBlock, RecordTakeTracker,
-    RecordTraceQueue, ReleaseReason, RestartIoFn, SignalState, StoragePaths, WatchdogIo,
-    WatchdogParams, MAX_ACTIVE_PER_PROJECT, N_CHANNELS, RING_BUFFER_SECONDS,
+    LiveLicense, LivenessEvaluator, MeasureResult, PlatformPaths, PluginDataRole,
+    PresentationLatencySamples, PresentationLatencySource, PsbSummary, RecordStateMachine,
+    RecordTakeBlock, RecordTakeTracker, RecordTraceQueue, ReleaseReason, RestartIoFn, SignalState,
+    StoragePaths, WatchMaxTracker, WatchdogIo, WatchdogParams, MAX_ACTIVE_PER_PROJECT, N_CHANNELS,
+    RING_BUFFER_SECONDS,
 };
-use kirin_measure::{add_watch_ring_cursor_samples, reset_watch_ring_cursor};
+use kirin_measure::{
+    add_watch_ring_cursor_samples, publish_watch_playback_pass_boundary, reset_watch_ring_cursor,
+};
+
+mod pair_binding;
+
+use pair_binding::PairBinding;
 
 /// state chunk 往復する識別子（方式A: JUCE が chunk bytes を所有・FFI は文字列 get/set のみ）。
 /// `project_hash` は派生値（= 確定後の `project_uuid` / B-106 共有セル解決値）で永続対象外。
@@ -175,8 +183,14 @@ pub struct KirinHyphaEngine {
     shutdown: Arc<AtomicBool>,
     /// process() 相当の heartbeat（push_samples が進める）。
     heartbeat: Arc<AtomicU32>,
-    /// Watch MAX 用 playback pass id。FFI では transport pass 通知がないため engine 生存中は安定値。
+    /// Watch MAX 用 playback pass id。Audio Thread の transport通知で進む。
     watch_playback_pass_id: Arc<AtomicU64>,
+    watch_playback_pass_cutover_samples: Arc<AtomicU64>,
+    watch_max: Mutex<WatchMaxTracker>,
+    transport_previous_playing: AtomicBool,
+    transport_previous_position_valid: AtomicBool,
+    transport_previous_position_samples: AtomicI64,
+    transport_previous_num_frames: AtomicU64,
     /// Watch ring cursor の seqlock epoch。
     watch_ring_cursor_epoch: Arc<AtomicU64>,
     /// 現在の ring cursor が属する full playback pass id。
@@ -198,7 +212,7 @@ pub struct KirinHyphaEngine {
     /// 現ライセンス（C ABI コード: 0=Os 1=Sense 2=Unknown）。`enter_record` の
     /// 二重 gate（E-21）に使う。既定は Unknown（Record 不可）。
     /// B-102: `Arc<AtomicU8>` 化（broadcast 受信 closure が live に読むため / keep と同一 gate）。
-    license: Arc<AtomicU8>,
+    license: LiveLicense,
     /// `spawn_io_thread_pre` に渡す入力サンプルレート（create 時に保持）。
     sample_rate: u32,
     /// create 時に確定した入力チャンネル数。1=mono / 2=stereo。
@@ -231,10 +245,9 @@ pub struct KirinHyphaEngine {
     /// POST の対 PRE 名（B-061 3d-b）。`set_pair_target` で設定（identity.name 結合を解く）。
     /// `enable_post_writes` 時に空なら identity.name で seed し、io_thread と Arc 共有する
     /// （run_tick の select / keep() の write_pending target 解決に使う・live 反映）。
-    pair_target: Arc<RwLock<String>>,
-    /// keep() が選定した対 PRE instance_id（B-062）。io_thread と Arc 共有し、POST Record の
-    /// `paired_pre_instance_id`（plugin_data linkage）に焼かれる。stop() で None に戻す。
-    paired_pre_target: Arc<Mutex<Option<String>>>,
+    /// Human-readable selection + exact PRE instance state. Name changes clear
+    /// every exact-instance field as one transition.
+    pair_binding: Arc<PairBinding>,
     /// この engine の plugin_data 書込 role（B-067 / F3）。`enable_pre_writes`→Pre /
     /// `enable_post_writes`→Post で 1 度だけ確定する（io_thread slot と同じ first-wins）。
     /// `add_annotation` はこの role に書く。未 enable（None）時は add_annotation を no-op にする。
@@ -261,10 +274,6 @@ pub struct KirinHyphaEngine {
     /// `enable_post_writes` で io_thread_post と Arc 共有する。PresetAvailable LED の判定に使う。
     /// PRE engine では io_thread に渡らないため常に false（egui PRE と一致）。
     preset_available: Arc<AtomicBool>,
-    /// B-108: display と keep/Arm が共有する単一ラッチ。`enable_post_writes` で io_thread_post と
-    /// Arc 共有し、keep/keep_all/broadcast 受信が `resolve_arm_target` で読む。一度成立した PRE 結合を
-    /// 保持し、解除は pair 名変更/クリアのみ。PRE の stale/一時消失では解除しない（B-231）。
-    latched_pre: Arc<Mutex<Option<LatchedPre>>>,
 }
 
 // SAFETY: `ring_producer`(UnsafeCell<rtrb::Producer>) は push_samples からのみ触れ、
@@ -730,6 +739,12 @@ impl KirinHyphaEngine {
             shutdown,
             heartbeat,
             watch_playback_pass_id,
+            watch_playback_pass_cutover_samples,
+            watch_max: Mutex::new(WatchMaxTracker::default()),
+            transport_previous_playing: AtomicBool::new(false),
+            transport_previous_position_valid: AtomicBool::new(false),
+            transport_previous_position_samples: AtomicI64::new(0),
+            transport_previous_num_frames: AtomicU64::new(0),
             watch_ring_cursor_epoch,
             watch_ring_cursor_pass_id,
             watch_ring_cursor_samples,
@@ -739,7 +754,7 @@ impl KirinHyphaEngine {
             latest_position_valid: Arc::new(AtomicBool::new(false)),
             latest_position_samples: Arc::new(AtomicI64::new(i64::MIN)),
             // 既定 Unknown（set_license(Os) されるまで Record 不可・安全側）。
-            license: Arc::new(AtomicU8::new(LICENSE_UNKNOWN)),
+            license: LiveLicense::new(License::Unknown),
             sample_rate,
             num_channels,
             io_thread,
@@ -752,8 +767,7 @@ impl KirinHyphaEngine {
             identity: Mutex::new(IdentityState::default()),
             project_hash_cell: Arc::new(RwLock::new(String::new())),
             daw_session_id_cell: Arc::new(RwLock::new(String::new())),
-            pair_target: Arc::new(RwLock::new(String::new())),
-            paired_pre_target: Arc::new(Mutex::new(None)),
+            pair_binding: Arc::new(PairBinding::new()),
             write_role: Mutex::new(None),
             push_overflow: Arc::new(AtomicU64::new(0)),
             oversized_drop: Arc::new(AtomicU64::new(0)), // B-125: JUCE oversized block drop 専用
@@ -762,7 +776,6 @@ impl KirinHyphaEngine {
             record_acknowledged: Arc::new(AtomicBool::new(false)),
             preset_available: Arc::new(AtomicBool::new(false)),
             // B-108: 未ラッチで起動。enable_post_writes で io_thread_post と Arc 共有する。
-            latched_pre: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -793,13 +806,13 @@ impl KirinHyphaEngine {
             LICENSE_SENSE => LICENSE_SENSE,
             _ => LICENSE_UNKNOWN,
         };
-        self.license.store(code, Ordering::Relaxed);
+        self.license.store(license_from_abi(code));
         self.record_sm.enforce_license(license_from_abi(code));
     }
 
     /// 現ライセンスを取得。
     fn current_license(&self) -> License {
-        license_from_abi(self.license.load(Ordering::Relaxed))
+        self.license.load()
     }
 
     /// Record へ遷移を試みる。`License::Os` かつ Watch のとき `true`、それ以外 `false`。
@@ -835,9 +848,10 @@ impl KirinHyphaEngine {
                 Ok(id) => (id.project_hash.clone(), id.instance_id.clone()),
                 Err(_) => (String::new(), String::new()),
             };
+            let paired_pre_target = self.pair_binding.recording_pre();
             resolve_and_exit_stop(
                 &self.record_sm,
-                &self.paired_pre_target,
+                &paired_pre_target,
                 &project_hash,
                 &post_iid,
                 Some(ReleaseReason::ManualStop),
@@ -922,6 +936,56 @@ impl KirinHyphaEngine {
             );
     }
 
+    /// Publish one host transport block. Audio Thread only; atomics and the
+    /// existing ring-cursor seqlock make this RT-safe.
+    pub fn note_transport_block(
+        &self,
+        playing: bool,
+        position_valid: bool,
+        position_samples: i64,
+        num_frames: u64,
+    ) {
+        let previous_playing = self
+            .transport_previous_playing
+            .swap(playing, Ordering::AcqRel);
+        let previous_valid = self
+            .transport_previous_position_valid
+            .swap(position_valid, Ordering::AcqRel);
+        let previous_position = self
+            .transport_previous_position_samples
+            .swap(position_samples, Ordering::AcqRel);
+        let previous_frames = self
+            .transport_previous_num_frames
+            .swap(num_frames, Ordering::AcqRel);
+
+        let discontinuity = playing
+            && previous_playing
+            && position_valid
+            && previous_valid
+            && previous_position.checked_add(previous_frames as i64) != Some(position_samples);
+        if playing && (!previous_playing || discontinuity) {
+            publish_watch_playback_pass_boundary(
+                &self.watch_playback_pass_id,
+                &self.watch_ring_cursor_epoch,
+                &self.watch_ring_cursor_pass_id,
+                &self.watch_ring_cursor_samples,
+                &self.watch_playback_pass_cutover_samples,
+            );
+        }
+    }
+
+    pub fn poll_watch_display(&self, playing: bool) -> Option<(MeasureResult, MeasureResult)> {
+        let raw = self.poll_result()?;
+        let pass_id = self.watch_playback_pass_id.load(Ordering::Acquire);
+        let maximum = self.watch_max.try_lock().ok()?.update(
+            &raw,
+            playing,
+            pass_id,
+            self.record_sm.is_recording(),
+        );
+        Some((raw, maximum))
+    }
+
     /// PRE の plugin_data 書込（Watch pre.json + Record frames/PSB）を有効化する（B-057 3b）。
     ///
     /// `kirin_measure::spawn_io_thread_pre`（io_thread_pre.rs:179）を engine 既存の共有
@@ -930,8 +994,8 @@ impl KirinHyphaEngine {
     /// その Rust スレッド内に閉じる（FFI は spawn と識別子注入のみ・B2 分離原則）。
     ///
     /// 前提・割り切り（3b）:
-    /// - **`set_license` の後に呼ぶこと**。呼んだ時点の license を `Arc<License>` に
-    ///   スナップショットする（A）。enable 後の license 変更は反映されない（3c）。
+    /// - `set_license` の現在値と IO worker は同じ [`LiveLicense`] を共有する。
+    ///   enable 後の Kirin OS 認識・降格も engine 再生成なしで反映される。
     /// - `instance_id` は `Uuid::new_v4` 生成（永続は 3c）。`project_uuid` / `daw_session_id`
     ///   は FFI 側で role identity として解決する。空/legacy session は runtime daw を空のまま
     ///   host fallback に委ね、保存済み document の非空 `daw_session_uuid` は B-301 の session group
@@ -1010,7 +1074,7 @@ impl KirinHyphaEngine {
         // B-118 Phase 3 (③): engine 保持の Arc を共有（io が書き JUCE getter が読む / 世代跨ぎ継続）。
         let record_error_message = Arc::clone(&self.record_error_message);
         // A: enable 時点の license をスナップショット（immutable）。
-        let license = Arc::new(self.current_license());
+        let license = self.license.clone();
 
         // B-118: io spawn を restart-closure に包む（初回 spawn も watchdog 再起動も同一経路）。
         // 継続性（最重要）: 共有状態 Arc（record_error_message / recording / record_acknowledged /
@@ -1037,7 +1101,7 @@ impl KirinHyphaEngine {
                     Arc::clone(&record_sm),
                     Arc::clone(&recording),
                     Arc::clone(&record_acknowledged),
-                    Arc::clone(&license),
+                    license.clone(),
                     Arc::clone(&measure_result),
                     Arc::clone(&signal_state),
                     Arc::clone(&io_shutdown),
@@ -1140,35 +1204,31 @@ impl KirinHyphaEngine {
         // B-054: preset_available は engine と共有（PresetAvailable LED が poll）。
         let preset_available = Arc::clone(&self.preset_available);
         // paired_pre_target は engine と共有（keep() が set → POST Record の linkage に焼く）。
-        let paired_pre_target = Arc::clone(&self.paired_pre_target);
+        let paired_pre_target = self.pair_binding.recording_pre();
         let pair_label = Arc::new(Mutex::new(String::new()));
         let daw_session_id = Arc::clone(&self.daw_session_id_cell);
         // pair_pre_name = self.pair_target（set_pair_target 優先 / 空なら identity.name で seed）。
         // io_thread と Arc 共有 → set_pair_target の live 反映 + keep() の select と同一値。
-        if let Ok(mut pt) = self.pair_target.write() {
-            if pt.is_empty() {
-                *pt = name_str;
-            }
-        }
-        let pair_pre_name = Arc::clone(&self.pair_target);
+        self.pair_binding.seed_name_if_empty(name_str);
+        let pair_pre_name = self.pair_binding.desired_name();
         // B-102: broadcast 受信 → 自身の keep/stop を発火する本物の closure（egui hypha_post と
         // 同一経路 / scope = 新↔新）。closure は Box 所有の engine を借用できないため、keep()/stop()
         // と同一の共有 free 関数 resolve_and_enter_keep / resolve_and_exit_stop を捕捉 Arc + enable
-        // 値で呼ぶ。license は Arc<AtomicU8> を live 読み（keep と同一 gate）。args (pre/post) は
+        // 値で呼ぶ。license は LiveLicense を live 読み（keep と同一 gate）。args (pre/post) は
         // 各 POST が自分の pair_target を再選定するため無視する。
         let trigger_pair_resolution: kirin_measure::TriggerPairResolutionFn = {
             let record_sm = Arc::clone(&self.record_sm);
-            let pair_target = Arc::clone(&self.pair_target);
-            let paired = Arc::clone(&self.paired_pre_target);
-            let license = Arc::clone(&self.license);
+            let pair_target = self.pair_binding.desired_name();
+            let paired = self.pair_binding.recording_pre();
+            let license = self.license.clone();
             let project_hash = cb_project_hash.clone();
             let post_iid = cb_post_iid.clone();
             let daw = cb_daw.clone();
-            let latched = Arc::clone(&self.latched_pre);
+            let latched = self.pair_binding.latched_pre();
             // B-127: broadcast 受信 keep も engine cap を通す。cap 到達通知の宛先 Arc を capture。
             let record_error_message = Arc::clone(&self.record_error_message);
             Arc::new(move |_pre: &str, _post: &str| {
-                let lic = license_from_abi(license.load(Ordering::Relaxed));
+                let lic = license.load();
                 let _ = resolve_and_enter_keep(
                     lic,
                     &record_sm,
@@ -1185,7 +1245,7 @@ impl KirinHyphaEngine {
         };
         let trigger_stop_resolution: kirin_measure::TriggerStopResolutionFn = {
             let record_sm = Arc::clone(&self.record_sm);
-            let paired = Arc::clone(&self.paired_pre_target);
+            let paired = self.pair_binding.recording_pre();
             let project_hash = cb_project_hash;
             let post_iid = cb_post_iid;
             Arc::new(move |_pre: &str, _post: &str| {
@@ -1203,6 +1263,7 @@ impl KirinHyphaEngine {
         let pair_claimed_at = Arc::new(RwLock::new(0.0));
         let pair_release_notice = Arc::new(RwLock::new(None));
         let is_playing = Arc::new(AtomicBool::new(false));
+        let live_license = self.license.clone();
         // B-118: io spawn を restart-closure に包む（初回 spawn も watchdog 再起動も同一経路）。
         // 継続性（最重要）: 共有状態 Arc（pair_label / pair_claimed_at / pair_release_notice /
         // record_error_message / paired_pre_target / pair_pre_name / trigger 群 / latched_pre / 各 self.*）
@@ -1219,7 +1280,7 @@ impl KirinHyphaEngine {
             let record_take_tracker = Arc::clone(&self.record_take_tracker);
             let push_overflow = Arc::clone(&self.push_overflow);
             let oversized_drop = Arc::clone(&self.oversized_drop); // B-125
-            let latched_pre = Arc::clone(&self.latched_pre);
+            let latched_pre = self.pair_binding.latched_pre();
             let sample_rate = self.sample_rate;
             Box::new(move || {
                 let io_shutdown = Arc::new(AtomicBool::new(false));
@@ -1233,6 +1294,7 @@ impl KirinHyphaEngine {
                     Arc::clone(&signal_state),
                     Arc::clone(&is_playing),
                     Arc::clone(&preset_available),
+                    live_license.clone(),
                     Arc::clone(&paired_pre_target),
                     Arc::clone(&io_shutdown),
                     Arc::clone(&pair_label),
@@ -1283,8 +1345,56 @@ impl KirinHyphaEngine {
         // 単一情報源（kirin_measure::sanitize_name）。select_target_pre は sanitized な PRE 名と
         // 照合するため、pair target も同じ正規化を通す。
         let sanitized = sanitize_name(&name);
-        if let Ok(mut pt) = self.pair_target.write() {
-            *pt = sanitized;
+        let desired_name = self.pair_binding.desired_name();
+        let current_name = desired_name
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone();
+        if current_name == sanitized {
+            return;
+        }
+
+        // Publish Released before leaving Record so an ACK poller cannot
+        // re-enter the old session during the transition. The binding itself
+        // is then replaced in one critical section, clearing both the display
+        // latch and the exact Record target.
+        let (project_hash, post_iid) = match self.identity.lock() {
+            Ok(id) => (id.project_hash.clone(), id.instance_id.clone()),
+            Err(_) => (String::new(), String::new()),
+        };
+        if !project_hash.is_empty() && !post_iid.is_empty() {
+            if let Ok(paths) = StoragePaths::default_platform() {
+                let _ = mark_released_with_reason(
+                    &paths.plugin_data_dir(),
+                    &project_hash,
+                    &post_iid,
+                    ReleaseReason::ManualStop,
+                );
+            }
+        }
+        self.record_sm.exit_record();
+        let transition = self.pair_binding.replace_name(sanitized);
+        if transition.changed {
+            if !project_hash.is_empty() && !post_iid.is_empty() {
+                if let (Some(pre), Ok(paths)) = (
+                    transition.previous_pre_instance_id.as_deref(),
+                    StoragePaths::default_platform(),
+                ) {
+                    reservation::release_pairing(
+                        &paths.plugin_data_dir(),
+                        &project_hash,
+                        pre,
+                        &post_iid,
+                    );
+                }
+            }
+            self.preset_available.store(false, Ordering::Release);
+            if let Ok(mut delta) = self.delta_result.lock() {
+                *delta = DeltaResult::default();
+            }
+            if let Ok(mut error) = self.record_error_message.write() {
+                *error = None;
+            }
         }
     }
 
@@ -1372,7 +1482,11 @@ impl KirinHyphaEngine {
     /// B-071 double-keep 検証で「2 回目 keep が linkage を None 化しない」ことを assert する。
     #[doc(hidden)]
     pub fn paired_pre_target_snapshot(&self) -> Option<String> {
-        self.paired_pre_target.lock().ok().and_then(|g| g.clone())
+        self.pair_binding
+            .recording_pre()
+            .lock()
+            .ok()
+            .and_then(|g| g.clone())
     }
 
     /// Kirin OS/JUCE runtime が Drop 後の WAV 正本 metadata を渡す入口。
@@ -1443,15 +1557,18 @@ impl KirinHyphaEngine {
         };
         // B-102: 解決本体は共有 free 関数 resolve_and_enter_keep（broadcast 受信 closure と同一
         // 経路）。選定→linkage→try_enter_record→write_pending の順序は従来 keep() と不変。
+        let pair_target = self.pair_binding.desired_name();
+        let paired_pre_target = self.pair_binding.recording_pre();
+        let latched_pre = self.pair_binding.latched_pre();
         resolve_and_enter_keep(
             self.current_license(),
             &self.record_sm,
-            &self.pair_target,
-            &self.paired_pre_target,
+            &pair_target,
+            &paired_pre_target,
             &project_hash,
             &post_iid,
             &daw,
-            &self.latched_pre, // B-108: ラッチ済みならラッチ先を直接 target に使う
+            &latched_pre, // B-108: ラッチ済みならラッチ先を直接 target に使う
             &self.record_error_message, // B-127: cap 到達通知の宛先（両殻 B-118 表示）
             None,
         )
@@ -1505,9 +1622,10 @@ impl KirinHyphaEngine {
             Ok(id) => (id.project_hash.clone(), id.instance_id.clone()),
             Err(_) => (String::new(), String::new()),
         };
+        let paired_pre_target = self.pair_binding.recording_pre();
         resolve_and_exit_stop(
             &self.record_sm,
-            &self.paired_pre_target,
+            &paired_pre_target,
             &project_hash,
             &post_iid,
             Some(ReleaseReason::ManualStop),
@@ -1544,9 +1662,10 @@ impl KirinHyphaEngine {
             Ok(id) => (id.project_hash.clone(), id.instance_id.clone()),
             Err(_) => (String::new(), String::new()),
         };
+        let paired_pre_target = self.pair_binding.recording_pre();
         resolve_and_exit_stop(
             &self.record_sm,
-            &self.paired_pre_target,
+            &paired_pre_target,
             &project_hash,
             &post_iid,
             Some(ReleaseReason::AllStop),
@@ -1573,6 +1692,9 @@ impl KirinHyphaEngine {
     /// All Keep の「N ready」= 同 DAW session 内で pair 設定済の Active POST 数。
     /// AU/VST3 が別 project_hash 棚へ分裂しても `daw_session_id` で集約する。
     pub fn count_keep_ready(&self) -> usize {
+        if self.current_license() != License::Os {
+            return 0;
+        }
         let kirin_root = PlatformPaths::current_kirin_tmp_root();
         let project_hash = read_shared_id(&self.project_hash_cell);
         let daw = read_shared_id(&self.daw_session_id_cell);
@@ -1591,7 +1713,22 @@ impl KirinHyphaEngine {
         };
         candidates
             .into_iter()
-            .filter(|c| c.pair_pre_name.is_some())
+            .filter(|candidate| {
+                let Some(name) = candidate
+                    .pair_pre_name
+                    .as_deref()
+                    .filter(|name| !name.is_empty())
+                else {
+                    return false;
+                };
+                select_target_pre_for_arm_for_post_project_in_session(
+                    &kirin_root,
+                    name,
+                    &candidate.project_uuid,
+                    candidate.daw_session_id.as_deref().unwrap_or(""),
+                )
+                .is_some()
+            })
             .count()
     }
 
@@ -1849,9 +1986,10 @@ impl Drop for KirinHyphaEngine {
                 Ok(id) => (id.project_hash.clone(), id.instance_id.clone()),
                 Err(_) => (String::new(), String::new()),
             };
+            let paired_pre_target = self.pair_binding.recording_pre();
             resolve_and_exit_stop(
                 &self.record_sm,
-                &self.paired_pre_target,
+                &paired_pre_target,
                 &project_hash,
                 &post_iid,
                 None,
@@ -1905,6 +2043,12 @@ pub struct KirinMeasureResult {
     // B-075: ring 満杯で測定 ring に push できなかった累積サンプル数（>0 = integrity 低下）。
     // 計測値は汚さない「欠落の露出」のみ。poll_result が engine の overflow_count() から注入する。
     pub dropped_samples: u64,
+}
+
+#[repr(C)]
+pub struct KirinWatchDisplay {
+    pub current: KirinMeasureResult,
+    pub maximum: KirinMeasureResult,
 }
 
 /// `KirinSessionSummary` — セッション集計（C struct）。Option は NaN で表す。
@@ -2467,6 +2611,33 @@ pub unsafe extern "C" fn kirin_hypha_note_capture_window(
     }));
 }
 
+/// Host transport block notification used only to delimit Watch MAX passes.
+/// Audio Thread safe: atomics + bounded seqlock writes, no allocation/IO/lock.
+///
+/// # Safety
+/// `handle` must be null or a live pointer returned by [`kirin_hypha_create`].
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_note_transport_block(
+    handle: *mut KirinHyphaEngine,
+    playing: bool,
+    position_valid: bool,
+    position_samples: i64,
+    num_frames: u64,
+) {
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        if !handle.is_null() {
+            unsafe {
+                (*handle).note_transport_block(
+                    playing,
+                    position_valid,
+                    position_samples,
+                    num_frames,
+                )
+            };
+        }
+    }));
+}
+
 /// POST「Stop」: pair を解除（record_signal released）し Watch へ戻す（3d-b）。
 ///
 /// # Safety
@@ -2815,6 +2986,36 @@ pub unsafe extern "C" fn kirin_hypha_poll_result(
             }
             None => false,
         }
+    }))
+    .unwrap_or(false)
+}
+
+/// Current Watch values and current-playback-pass maxima from one Rust
+/// snapshot. UI thread only.
+///
+/// # Safety
+/// `handle` must be null or a live pointer returned by [`kirin_hypha_create`].
+/// `out` must be null or point to writable storage for one [`KirinWatchDisplay`].
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_poll_watch_display(
+    handle: *mut KirinHyphaEngine,
+    playing: bool,
+    out: *mut KirinWatchDisplay,
+) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() || out.is_null() {
+            return false;
+        }
+        let Some((current, maximum)) = (unsafe { &*handle }).poll_watch_display(playing) else {
+            return false;
+        };
+        unsafe {
+            *out = KirinWatchDisplay {
+                current: to_c_result(&current),
+                maximum: to_c_result(&maximum),
+            };
+        }
+        true
     }))
     .unwrap_or(false)
 }

@@ -243,6 +243,7 @@ pub fn spawn_io_thread_post(
     signal_state: Arc<AtomicU8>,
     is_playing: Arc<AtomicBool>,
     preset_available: Arc<AtomicBool>,
+    license: impl Into<crate::LiveLicense>,
     paired_pre_target: Arc<Mutex<Option<String>>>,
     shutdown: Arc<AtomicBool>,
     pair_label: Arc<Mutex<String>>,
@@ -285,6 +286,7 @@ pub fn spawn_io_thread_post(
     // keep/keep_all/broadcast 受信が `resolve_arm_target` で読む（egui/JUCE 両殻が同実体を渡す）。
     latched_pre: Arc<Mutex<Option<LatchedPre>>>,
 ) -> JoinHandle<()> {
+    let license = license.into();
     thread::spawn(move || {
         // B-128 (G-115-370): 観測 family（io_thread）入口の identity materialize（唯一の検証点）。
         // restore 由来の path-unsafe な project_hash / instance_id セルを正規化し、path-unsafe なら
@@ -375,6 +377,7 @@ pub fn spawn_io_thread_post(
         let mut self_check_release_gate = SelfCheckReleaseGate::default();
 
         let mut recording: Option<RecordingCtx> = None;
+        let mut last_entitlement_refresh = Instant::now();
         let mut last_preset_count: Option<usize> = None;
         let mut next_preset_poll = Instant::now();
         let mut next_ack_timeout_poll = Instant::now();
@@ -407,6 +410,12 @@ pub fn spawn_io_thread_post(
         loop {
             if shutdown.load(Ordering::Relaxed) {
                 break;
+            }
+
+            if last_entitlement_refresh.elapsed() >= Duration::from_millis(250) {
+                let observed = license.refresh_from_disk();
+                record_sm.enforce_license(observed);
+                last_entitlement_refresh = Instant::now();
             }
 
             // B-022 段階 1: tick 開始時に instance_id を lazy-read。
@@ -483,6 +492,16 @@ pub fn spawn_io_thread_post(
                     );
                     if let Ok(mut g) = pair_pre_name_for_thread.write() {
                         g.clear();
+                    }
+                    // A released human selector must not leave an exact PRE
+                    // instance hidden in either linkage slot. Otherwise a
+                    // later same-name PRE cannot be selected even though the
+                    // UI already shows an empty pair.
+                    if let Ok(mut paired) = paired_pre_target.lock() {
+                        *paired = None;
+                    }
+                    if let Ok(mut latched) = latched_pre.lock() {
+                        *latched = None;
                     }
                     if let Ok(mut c) = pair_claimed_at_for_thread.write() {
                         *c = 0.0;

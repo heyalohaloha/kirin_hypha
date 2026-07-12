@@ -57,6 +57,11 @@ typedef struct {
                               (>0 = integrity 低下 / B-075: 計測値は不変・欠落の露出のみ) */
 } KirinMeasureResult;
 
+typedef struct {
+  KirinMeasureResult current;
+  KirinMeasureResult maximum;
+} KirinWatchDisplay;
+
 /* セッション集計（Record finalize 後に充填・Record 前は未充填）. */
 typedef struct {
   double lufs_i;        /* EBU R128 Integrated [LUFS] */
@@ -236,6 +241,15 @@ void kirin_hypha_note_capture_window(KirinHypha* handle, bool position_valid,
                                      uint32_t input_presentation_samples,
                                      bool output_presentation_valid,
                                      uint32_t output_presentation_samples);
+
+/* Watch MAX pass boundary notification (Audio Thread, RT-safe). */
+void kirin_hypha_note_transport_block(KirinHypha* handle, bool playing,
+                                      bool position_valid, int64_t position_samples,
+                                      uint64_t num_frames);
+
+/* Current Watch values + current playback-pass MAX (UI thread). */
+bool kirin_hypha_poll_watch_display(KirinHypha* handle, bool playing,
+                                    KirinWatchDisplay* out);
 
 /* POST「Stop」: pair 解除（record_signal released）+ Watch へ戻す（3d-b）. */
 void kirin_hypha_stop(KirinHypha* handle);
