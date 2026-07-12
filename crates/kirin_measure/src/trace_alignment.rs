@@ -9,8 +9,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::plugin_data::PluginDataFile;
 
-pub const TRACE_ALIGNMENT_METHOD: &str = "producer_content_correlated_slots_v2";
+pub const TRACE_ALIGNMENT_METHOD: &str = "producer_wav_start_slots_v3";
 pub const TRACE_ALIGNMENT_STATUS: &str = "canonical_wav_clock";
+pub const TRACE_ALIGNMENT_START_BWF: &str = "bwf_time_reference";
+pub const TRACE_ALIGNMENT_START_SHARED_CLOCK: &str = "shared_record_clock";
 pub const TRACE_TIME_AXIS: &str = "wav_samples_v1";
 pub const TRACE_HOST_TIME_AXIS: &str = "host_audio_samples_v2";
 pub const TRACE_CLOCK_BASIS: &str = "host_audio_callback_samples_v1";
@@ -24,15 +26,17 @@ pub struct TraceContentAlignment {
     pub confidence: f64,
     pub compared_frame_count: u64,
     pub method: String,
-    #[serde(default)]
-    pub pre_to_post_offset_samples: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_basis: Option<String>,
+    /// Legacy v2 diagnostic. New v3 artifacts never publish a curve-derived correction.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pre_to_post_offset_samples: Option<i64>,
 }
 
 pub(crate) fn canonical_wav_alignment(
     left: &PluginDataFile,
     right: &PluginDataFile,
 ) -> Option<TraceContentAlignment> {
-    let pair_offset = left.trace_pair_offset_samples?;
     if !has_canonical_wav_reference(left)
         || !has_canonical_wav_reference(right)
         || left.trace_wav_reference != right.trace_wav_reference
@@ -42,20 +46,33 @@ pub(crate) fn canonical_wav_alignment(
         || !has_dense_frame_grid(left)
         || !has_dense_frame_grid(right)
         || !has_shared_native_slots(left, right)
-        || right.trace_pair_offset_samples != Some(pair_offset)
-        || left.trace_pair_alignment_score != right.trace_pair_alignment_score
+        || !crate::trace_content_clock::has_compatible_host_clocks(left, right)
+        || !has_wav_bounded_slots(left)
+        || !has_wav_bounded_slots(right)
+    {
+        return None;
+    }
+    let start_basis = if left
+        .expected_wav
+        .as_ref()
+        .is_some_and(|expected| expected.wav_time_reference_samples.is_some())
+    {
+        TRACE_ALIGNMENT_START_BWF
+    } else {
+        TRACE_ALIGNMENT_START_SHARED_CLOCK
+    };
+    if left.trace_pair_wav_start_basis.as_deref() != Some(start_basis)
+        || right.trace_pair_wav_start_basis.as_deref() != Some(start_basis)
     {
         return None;
     }
     Some(TraceContentAlignment {
         status: TRACE_ALIGNMENT_STATUS.to_string(),
-        confidence: left
-            .trace_pair_alignment_score
-            .zip(right.trace_pair_alignment_score)
-            .map_or(1.0, |(left, right)| left.min(right).clamp(0.0, 1.0)),
+        confidence: 1.0,
         compared_frame_count: left.frames.len() as u64,
         method: TRACE_ALIGNMENT_METHOD.to_string(),
-        pre_to_post_offset_samples: pair_offset,
+        start_basis: Some(start_basis.to_string()),
+        pre_to_post_offset_samples: None,
     })
 }
 
@@ -71,6 +88,44 @@ fn has_shared_native_slots(left: &PluginDataFile, right: &PluginDataFile) -> boo
     left.trace_slot_positions
         .windows(2)
         .all(|pair| pair[1].saturating_sub(pair[0]) == slot_samples)
+}
+
+fn has_wav_bounded_slots(data: &PluginDataFile) -> bool {
+    let (Some(expected), Some(reference), Some(first), Some(last)) = (
+        data.expected_wav.as_ref(),
+        data.trace_wav_reference.as_ref(),
+        data.trace_slot_positions.first().copied(),
+        data.trace_slot_positions.last().copied(),
+    ) else {
+        return false;
+    };
+    let slot_samples = (data.sample_rate as i64 / 10).max(1);
+    let Ok(frame_count) = i64::try_from(data.trace_slot_positions.len()) else {
+        return false;
+    };
+    let Some(duration_samples) = reference.end_sample.checked_sub(reference.start_sample) else {
+        return false;
+    };
+    let Ok(reference_duration) = i64::try_from(duration_samples) else {
+        return false;
+    };
+    let Some(measured_span) = frame_count.checked_mul(slot_samples) else {
+        return false;
+    };
+    let Some(unmeasured_tail) = reference_duration.checked_sub(measured_span) else {
+        return false;
+    };
+    if unmeasured_tail >= slot_samples {
+        return false;
+    }
+    let Some(wav_start) = expected.wav_time_reference_samples else {
+        return true;
+    };
+    let Ok(wav_start) = i64::try_from(wav_start) else {
+        return false;
+    };
+    wav_start.checked_add(slot_samples) == Some(first)
+        && wav_start.checked_add(measured_span) == Some(last)
 }
 
 pub(crate) fn has_canonical_wav_reference(data: &PluginDataFile) -> bool {
@@ -152,7 +207,7 @@ mod tests {
             sources: vec!["project_timeline".to_string()],
         });
         data.trace_slot_positions = vec![6_482_947];
-        data.trace_pair_offset_samples = Some(0);
+        data.trace_pair_wav_start_basis = Some(TRACE_ALIGNMENT_START_SHARED_CLOCK.to_string());
         data.trace_wav_reference = Some(TraceWavReference {
             basis: TRACE_WAV_REFERENCE_BASIS.to_string(),
             capture_basis: TRACE_CAPTURE_BASIS.to_string(),
@@ -189,7 +244,14 @@ mod tests {
         post.trace_clock.as_mut().unwrap().origin_position_samples -= 7_676;
         post.trace_clock.as_mut().unwrap().end_position_samples -= 7_676;
 
-        assert!(canonical_wav_alignment(&pre, &post).is_some());
+        let alignment = canonical_wav_alignment(&pre, &post).expect("v3 alignment");
+        assert_eq!(alignment.method, TRACE_ALIGNMENT_METHOD);
+        assert_eq!(alignment.confidence, 1.0);
+        assert_eq!(
+            alignment.start_basis.as_deref(),
+            Some(TRACE_ALIGNMENT_START_SHARED_CLOCK)
+        );
+        assert!(alignment.pre_to_post_offset_samples.is_none());
 
         post.trace_slot_positions[0] -= 7_676;
         assert!(canonical_wav_alignment(&pre, &post).is_none());
@@ -205,7 +267,63 @@ mod tests {
     }
 
     #[test]
-    fn pair_contract_does_not_depend_on_instance_host_diagnostics() {
+    fn pair_contract_proves_the_declared_bwf_start_boundary() {
+        let mut pre = data(Role::Pre);
+        let mut post = data(Role::Post);
+        for side in [&mut pre, &mut post] {
+            side.expected_wav
+                .as_mut()
+                .unwrap()
+                .wav_time_reference_samples = Some(6_473_347);
+            side.trace_pair_wav_start_basis = Some(TRACE_ALIGNMENT_START_BWF.to_string());
+        }
+
+        let alignment = canonical_wav_alignment(&pre, &post).expect("BWF anchored alignment");
+        assert_eq!(
+            alignment.start_basis.as_deref(),
+            Some(TRACE_ALIGNMENT_START_BWF)
+        );
+
+        for side in [&mut pre, &mut post] {
+            side.expected_wav
+                .as_mut()
+                .unwrap()
+                .wav_time_reference_samples = Some(6_473_348);
+        }
+        assert!(canonical_wav_alignment(&pre, &post).is_none());
+    }
+
+    #[test]
+    fn pair_contract_accepts_a_wav_with_an_unmeasured_sub_frame_tail() {
+        let mut pre = data(Role::Pre);
+        let mut post = data(Role::Post);
+        for side in [&mut pre, &mut post] {
+            side.expected_wav
+                .as_mut()
+                .unwrap()
+                .expected_duration_samples = 10_000;
+            side.expected_wav
+                .as_mut()
+                .unwrap()
+                .wav_time_reference_samples = Some(6_473_347);
+            side.trace_wav_reference.as_mut().unwrap().end_sample = 10_000;
+            side.trace_pair_wav_start_basis = Some(TRACE_ALIGNMENT_START_BWF.to_string());
+        }
+
+        assert!(canonical_wav_alignment(&pre, &post).is_some());
+
+        for side in [&mut pre, &mut post] {
+            side.expected_wav
+                .as_mut()
+                .unwrap()
+                .expected_duration_samples = 19_200;
+            side.trace_wav_reference.as_mut().unwrap().end_sample = 19_200;
+        }
+        assert!(canonical_wav_alignment(&pre, &post).is_none());
+    }
+
+    #[test]
+    fn pair_contract_ignores_clock_ranges_but_requires_clock_provenance() {
         let mut pre = data(Role::Pre);
         let mut post = data(Role::Post);
         let clock = post.trace_clock.as_mut().unwrap();
@@ -213,9 +331,12 @@ mod tests {
 
         assert!(canonical_wav_alignment(&pre, &post).is_some());
 
+        post.trace_clock.as_mut().unwrap().sources = vec!["different_clock".to_string()];
+        assert!(canonical_wav_alignment(&pre, &post).is_none());
+
         pre.trace_clock = None;
         post.trace_clock = None;
-        assert!(canonical_wav_alignment(&pre, &post).is_some());
+        assert!(canonical_wav_alignment(&pre, &post).is_none());
     }
 
     #[test]
@@ -225,5 +346,16 @@ mod tests {
         post.frames[0].t_ms = 200;
 
         assert!(canonical_wav_alignment(&pre, &post).is_none());
+    }
+
+    #[test]
+    fn legacy_curve_correlated_alignment_still_deserializes() {
+        let alignment: TraceContentAlignment = serde_json::from_str(
+            r#"{"status":"canonical_wav_clock","confidence":0.94,"compared_frame_count":150,"method":"producer_content_correlated_slots_v2","pre_to_post_offset_samples":9600}"#,
+        )
+        .unwrap();
+
+        assert!(alignment.start_basis.is_none());
+        assert_eq!(alignment.pre_to_post_offset_samples, Some(9_600));
     }
 }

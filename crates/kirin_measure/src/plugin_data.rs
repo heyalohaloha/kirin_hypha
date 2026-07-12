@@ -366,8 +366,8 @@ pub struct PluginDataFile {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub host_presentation_latency_observations: Vec<HostPresentationLatencyObservation>,
     /// Producer-canonical native-sample endpoint of every `frames[]` entry. Before pair
-    /// finalization this is the host callback position; afterwards both roles carry the POST
-    /// content position selected by the producer-owned content clock.
+    /// finalization this is the host callback position; afterwards both roles carry the same
+    /// absolute host-sample endpoint selected by the producer-owned WAV-start clock.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub trace_slot_positions: Vec<i64>,
     /// Pair-wide final axis. Present only after Drop supplies a complete WAV identity and length.
@@ -382,12 +382,15 @@ pub struct PluginDataFile {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub trace_context_frames: Vec<Frame>,
     /// Absolute endpoints for `trace_context_frames`. Closed pair candidates retain the complete
-    /// measured neighborhood (including DAW compensation pre-roll) until the pair finalizer has
-    /// established one content-time mapping. Published files clear both context vectors.
+    /// measured neighborhood until the pair finalizer has selected the exact dropped-WAV start
+    /// window. Published files clear both context vectors.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub trace_context_slot_positions: Vec<i64>,
-    /// Producer-derived mapping from a PRE host slot to the POST host slot carrying the same
-    /// audio content. This is pair data, not a DAW-specific latency setting.
+    /// Current v3 pair-finalization proof. It records which factual start anchor selected the
+    /// identical PRE/POST host-sample window and is removed when the pair is published.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trace_pair_wav_start_basis: Option<String>,
+    /// Legacy v2 staging fields. Current producers never derive or publish a curve-based offset.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trace_pair_offset_samples: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -501,6 +504,7 @@ impl PluginDataFile {
             trace_content_alignment: None,
             trace_context_frames: Vec::new(),
             trace_context_slot_positions: Vec::new(),
+            trace_pair_wav_start_basis: None,
             trace_pair_offset_samples: None,
             trace_pair_alignment_score: None,
             trace_context_psb_snapshots: Vec::new(),
@@ -1404,7 +1408,9 @@ fn try_finalize_pair_session(
     });
     let pair_expected = embedded_expected.or(late_expected);
     let needs_wav_binding = !crate::trace_alignment::has_canonical_wav_reference(&self_data)
-        || !crate::trace_alignment::has_canonical_wav_reference(&peer_data);
+        || !crate::trace_alignment::has_canonical_wav_reference(&peer_data)
+        || self_data.trace_pair_wav_start_basis.is_none()
+        || peer_data.trace_pair_wav_start_basis.is_none();
     if needs_wav_binding {
         if let Some(expected) = pair_expected.as_ref() {
             let mut normalized_self = self_data.clone();
@@ -1465,6 +1471,8 @@ fn try_finalize_pair_session(
     peer_data.trace_context_frames.clear();
     self_data.trace_context_slot_positions.clear();
     peer_data.trace_context_slot_positions.clear();
+    self_data.trace_pair_wav_start_basis = None;
+    peer_data.trace_pair_wav_start_basis = None;
     self_data.trace_context_psb_snapshots.clear();
     peer_data.trace_context_psb_snapshots.clear();
     let integrity_reasons = pair_publish_integrity_reasons(&self_data, &peer_data);
@@ -2144,6 +2152,8 @@ fn publish_late_expected_pair(
     post_data.trace_context_frames.clear();
     pre_data.trace_context_slot_positions.clear();
     post_data.trace_context_slot_positions.clear();
+    pre_data.trace_pair_wav_start_basis = None;
+    post_data.trace_pair_wav_start_basis = None;
     pre_data.trace_context_psb_snapshots.clear();
     post_data.trace_context_psb_snapshots.clear();
     if !pair_publish_failure_reasons(pre_data, post_data).is_empty() {
@@ -2182,14 +2192,14 @@ fn normalize_late_expected_pair(
     }
     let slot_samples = (left.sample_rate as i64 / 10).max(1);
     let plan = match (left.role, right.role) {
-        (Role::Pre, Role::Post) => crate::trace_content_clock::build_content_clock_plan(
+        (Role::Pre, Role::Post) => crate::trace_content_clock::build_wav_start_clock_plan(
             left,
             right,
             expected,
             expected_len,
             slot_samples,
         ),
-        (Role::Post, Role::Pre) => crate::trace_content_clock::build_content_clock_plan(
+        (Role::Post, Role::Pre) => crate::trace_content_clock::build_wav_start_clock_plan(
             right,
             left,
             expected,
@@ -2204,8 +2214,9 @@ fn normalize_late_expected_pair(
     let rebuild = |data: &mut PluginDataFile, frames: Vec<Frame>| {
         data.frames = frames;
         data.trace_slot_positions = plan.canonical_slots.clone();
-        data.trace_pair_offset_samples = Some(plan.pre_to_post_offset_samples);
-        data.trace_pair_alignment_score = plan.alignment_score;
+        data.trace_pair_wav_start_basis = Some(plan.start_basis.to_string());
+        data.trace_pair_offset_samples = None;
+        data.trace_pair_alignment_score = None;
         if let Some(clock) = data.trace_clock.as_mut() {
             clock.origin_position_samples = plan.canonical_slots[0].saturating_sub(slot_samples);
             clock.end_position_samples = *plan
@@ -3412,7 +3423,7 @@ mod tests {
     }
 
     #[test]
-    fn pair_normalization_uses_content_offset_and_bwf_origin_not_equal_host_slots() {
+    fn pair_normalization_uses_bwf_start_without_comparing_metric_shapes() {
         let base = isolated_dir();
         let mut expected = fresh_expected_wav_fixture(24_000);
         expected.wav_time_reference_samples = Some(480_000);
@@ -3477,8 +3488,16 @@ mod tests {
             &mut post.data,
             &expected
         ));
-        assert_eq!(pre.data.trace_pair_offset_samples, Some(4_800));
-        assert_eq!(post.data.trace_pair_offset_samples, Some(4_800));
+        assert_eq!(
+            pre.data.trace_pair_wav_start_basis.as_deref(),
+            Some(crate::trace_alignment::TRACE_ALIGNMENT_START_BWF)
+        );
+        assert_eq!(
+            post.data.trace_pair_wav_start_basis.as_deref(),
+            Some(crate::trace_alignment::TRACE_ALIGNMENT_START_BWF)
+        );
+        assert!(pre.data.trace_pair_offset_samples.is_none());
+        assert!(post.data.trace_pair_offset_samples.is_none());
         assert_eq!(
             pre.data.trace_slot_positions,
             post.data.trace_slot_positions
@@ -3486,8 +3505,9 @@ mod tests {
         assert_eq!(pre.data.trace_slot_positions[0], 484_800);
         assert_eq!(pre.data.frames.len(), 5);
         assert_eq!(post.data.frames.len(), 5);
+        assert_eq!(pre.data.frames[0].lufs_m, -13.0);
+        assert_eq!(post.data.frames[0].lufs_m, -16.0);
         for (pre_frame, post_frame) in pre.data.frames.iter().zip(&post.data.frames) {
-            assert_eq!(post_frame.lufs_m - pre_frame.lufs_m, 4.0);
             assert_eq!(pre_frame.t_ms, post_frame.t_ms);
         }
     }
@@ -3567,8 +3587,8 @@ mod tests {
             w.append_frame(t_ms, [0.0; 20], 0.0, -20.0, -1.0, 12.0, Some(10.0));
         }
         w.set_trace_slot_positions((4_800_i64..=48_000).step_by(4_800).collect());
-        w.data.trace_pair_offset_samples = Some(0);
-        w.data.trace_pair_alignment_score = Some(1.0);
+        w.data.trace_pair_wav_start_basis =
+            Some(crate::trace_alignment::TRACE_ALIGNMENT_START_SHARED_CLOCK.to_string());
         w
     }
 
@@ -4167,6 +4187,13 @@ mod tests {
                 alignment.method,
                 crate::trace_alignment::TRACE_ALIGNMENT_METHOD
             );
+            assert_eq!(alignment.confidence, 1.0);
+            assert_eq!(
+                alignment.start_basis.as_deref(),
+                Some(crate::trace_alignment::TRACE_ALIGNMENT_START_SHARED_CLOCK)
+            );
+            assert!(alignment.pre_to_post_offset_samples.is_none());
+            assert!(data.trace_pair_wav_start_basis.is_none());
             assert!(data.trace_pair_offset_samples.is_none());
             assert!(data.trace_pair_alignment_score.is_none());
             let quality = data.record_quality.as_ref().expect("record_quality");
