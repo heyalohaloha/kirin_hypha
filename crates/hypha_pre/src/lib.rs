@@ -7,9 +7,10 @@ use kirin_measure::{
     record_window_for_record_capture, reset_watch_ring_cursor, set_daw_session_id,
     set_project_uuid, spawn_io_thread_pre, spawn_measure_thread, spawn_watchdog,
     store_signal_state, watch_playback_block_duration_secs, watch_playback_pass_should_start,
-    License, LivenessEvaluator, MeasureResult, RecordStateMachine, RecordTakeBlock,
-    RecordTakeTracker, RecordTraceQueue, RecordWindow, SessionSummary, SignalState, WatchdogIo,
-    WatchdogParams, N_CHANNELS, RING_BUFFER_SECONDS,
+    LiveLicense, LivenessEvaluator, MeasureResult, PresentationLatencySamples,
+    PresentationLatencySource, RecordStateMachine, RecordTakeBlock, RecordTakeTracker,
+    RecordTraceQueue, RecordWindow, SessionSummary, SignalState, WatchdogIo, WatchdogParams,
+    N_CHANNELS, RING_BUFFER_SECONDS,
 };
 use nih_plug::prelude::*;
 use nih_plug_egui::EguiState;
@@ -94,7 +95,7 @@ pub struct HyphaPre {
     record_sm: Arc<RecordStateMachine>,
     recording: Arc<AtomicBool>,
     record_acknowledged: Arc<AtomicBool>,
-    license: Arc<License>,
+    license: LiveLicense,
 
     preset_available: Arc<AtomicBool>,
 
@@ -212,7 +213,7 @@ impl Default for HyphaPre {
             record_sm: Arc::new(RecordStateMachine::new()),
             recording: Arc::new(AtomicBool::new(false)),
             record_acknowledged: Arc::new(AtomicBool::new(false)),
-            license: Arc::new(load_license_safe()),
+            license: LiveLicense::new(load_license_safe()),
             preset_available: Arc::new(AtomicBool::new(false)),
             record_error_message: Arc::new(RwLock::new(None)),
         }
@@ -452,7 +453,7 @@ impl Plugin for HyphaPre {
             Arc::clone(&self.record_sm),
             Arc::clone(&self.recording),
             Arc::clone(&self.record_acknowledged),
-            Arc::clone(&self.license),
+            self.license.clone(),
             Arc::clone(&self.measure_result),
             Arc::clone(&self.signal_state),
             Arc::clone(&self.io_shutdown),
@@ -472,7 +473,7 @@ impl Plugin for HyphaPre {
             let record_sm = Arc::clone(&self.record_sm);
             let recording = Arc::clone(&self.recording);
             let record_acknowledged = Arc::clone(&self.record_acknowledged);
-            let license = Arc::clone(&self.license);
+            let license = self.license.clone();
             let measure_result = Arc::clone(&self.measure_result);
             let signal_state = Arc::clone(&self.signal_state);
             let name_arc = Arc::clone(&name_arc);
@@ -491,7 +492,7 @@ impl Plugin for HyphaPre {
                     Arc::clone(&record_sm),
                     Arc::clone(&recording),
                     Arc::clone(&record_acknowledged),
-                    Arc::clone(&license),
+                    license.clone(),
                     Arc::clone(&measure_result),
                     Arc::clone(&signal_state),
                     new_shutdown,
@@ -672,11 +673,18 @@ impl Plugin for HyphaPre {
         });
 
         if push_buffer {
-            self.record_take_tracker.note_capture_window(
-                record_window.position_valid,
-                record_window.position_samples,
-                record_window.num_frames,
-            );
+            self.record_take_tracker
+                .note_capture_window_with_presentation(
+                    record_window.position_valid,
+                    record_window.position_samples,
+                    record_window.num_frames,
+                    kirin_measure::CaptureClockSource::ProjectTimeline,
+                    PresentationLatencySamples {
+                        source: PresentationLatencySource::Vst3,
+                        input: transport.input_presentation_latency_samples,
+                        output: transport.output_presentation_latency_samples,
+                    },
+                );
             if let Some(producer) = &mut self.ring_producer {
                 let pushed = push_window_to_ring(buffer, producer, record_window, &self.overflow);
                 if pushed > 0 && !self.watch_ring_replacing.load(Ordering::Acquire) {

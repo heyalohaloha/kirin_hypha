@@ -23,13 +23,81 @@
 
 use crate::identity::License;
 use std::path::Path;
+use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::Arc;
 
-/// `identity.json` から license を安全に読み込む（GUI 起動時用）。
+const LICENSE_OS: u8 = 0;
+const LICENSE_SENSE: u8 = 1;
+const LICENSE_UNKNOWN: u8 = 2;
+
+/// A live entitlement shared by UI, Record state and IO workers.
+///
+/// The atomic contains only a compact enum code. Filesystem observation stays
+/// outside the audio thread; readers can safely query the current value from
+/// any non-RT or RT context without allocation or locking.
+#[derive(Debug, Clone)]
+pub struct LiveLicense {
+    code: Arc<AtomicU8>,
+}
+
+impl LiveLicense {
+    pub fn new(initial: License) -> Self {
+        Self {
+            code: Arc::new(AtomicU8::new(license_code(initial))),
+        }
+    }
+
+    pub fn load(&self) -> License {
+        license_from_code(self.code.load(Ordering::Acquire))
+    }
+
+    pub fn store(&self, license: License) {
+        self.code.store(license_code(license), Ordering::Release);
+    }
+
+    /// Refresh from Kirin OS storage. This performs filesystem IO and must be
+    /// called only from GUI, message or IO threads.
+    pub fn refresh_from_disk(&self) -> License {
+        let observed = load_license_safe();
+        self.store(observed);
+        observed
+    }
+}
+
+impl From<License> for LiveLicense {
+    fn from(value: License) -> Self {
+        Self::new(value)
+    }
+}
+
+impl From<Arc<License>> for LiveLicense {
+    fn from(value: Arc<License>) -> Self {
+        Self::new(*value)
+    }
+}
+
+fn license_code(license: License) -> u8 {
+    match license {
+        License::Os => LICENSE_OS,
+        License::Sense => LICENSE_SENSE,
+        License::Unknown => LICENSE_UNKNOWN,
+    }
+}
+
+fn license_from_code(code: u8) -> License {
+    match code {
+        LICENSE_OS => License::Os,
+        LICENSE_SENSE => License::Sense,
+        _ => License::Unknown,
+    }
+}
+
+/// `identity.json` から license を安全に読み込む（非RTの定期更新用）。
 ///
 /// - 本番パス: `StoragePaths::default_platform().primary_path()`
-/// - platform path 解決不能 / ファイル不在 / 不正 JSON / license フィールド欠落 / 未知値 → `License::Unknown`
-/// - 常に成功する（`Result` を返さない）。GUI が起動時に 1 回だけ呼ぶ想定。
-/// - 降格（例 Os → Sense）の即時反映は Step 4 T-6 で別途実装。
+/// - primary のファイル不在 / 不正 JSON / field 欠落は secondary を read-only fallback
+/// - platform path 解決不能 / 両方不在 / 未知値 → `License::Unknown`
+/// - 常に成功する（`Result` を返さない）。UI/IO thread から定期的に再読込できる。
 ///
 /// # loose パース
 /// `Identity` 構造体は 8 フィールド必須（HMAC 署名含む）だが、本関数は
@@ -44,11 +112,22 @@ pub fn load_license_safe() -> License {
             return License::Unknown;
         }
     };
-    load_license_from(&paths.primary_path())
+    if let Some(license) = try_load_license_from(&paths.primary_path()) {
+        return license;
+    }
+    // Read-only recovery. The plugin never creates or upgrades identity; it
+    // merely avoids remaining Unknown when Kirin OS already left its mirrored
+    // identity and the primary file is temporarily unavailable.
+    try_load_license_from(&paths.secondary_path()).unwrap_or(License::Unknown)
 }
 
 /// 任意パスから license を loose 抽出（テスト・`load_license_safe` 共用）。
+#[cfg(test)]
 pub(crate) fn load_license_from(path: &Path) -> License {
+    try_load_license_from(path).unwrap_or(License::Unknown)
+}
+
+fn try_load_license_from(path: &Path) -> Option<License> {
     let text = match std::fs::read_to_string(path) {
         Ok(t) => t,
         Err(_) => {
@@ -56,25 +135,25 @@ pub(crate) fn load_license_from(path: &Path) -> License {
                 "[license] loaded: Unknown (file missing or unreadable: {})",
                 path.display()
             );
-            return License::Unknown;
+            return None;
         }
     };
     let value: serde_json::Value = match serde_json::from_str(&text) {
         Ok(v) => v,
         Err(e) => {
             log::info!("[license] loaded: Unknown (JSON parse error: {})", e);
-            return License::Unknown;
+            return None;
         }
     };
     match value.get("license").and_then(|v| v.as_str()) {
         Some(s) => {
             let license = License::parse_loose(s);
             log::info!("[license] loaded: {:?} (raw: {:?})", license, s);
-            license
+            Some(license)
         }
         None => {
             log::info!("[license] loaded: Unknown (license field missing)");
-            License::Unknown
+            None
         }
     }
 }
@@ -195,6 +274,18 @@ mod tests {
         }"#;
         std::fs::write(&path, full).unwrap();
         assert_eq!(load_license_from(&path), License::Os);
+    }
+
+    #[test]
+    fn live_license_updates_every_shared_reader_without_recreation() {
+        let live = LiveLicense::new(License::Unknown);
+        let ui_reader = live.clone();
+        let io_reader = live.clone();
+        live.store(License::Os);
+        assert_eq!(ui_reader.load(), License::Os);
+        assert_eq!(io_reader.load(), License::Os);
+        io_reader.store(License::Sense);
+        assert_eq!(live.load(), License::Sense);
     }
 
     #[test]

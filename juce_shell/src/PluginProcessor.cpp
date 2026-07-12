@@ -131,8 +131,9 @@ void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBl
     preparedSampleRate = hyphaHandle != nullptr ? sampleRate : 0.0;
     preparedInputChannels = hyphaHandle != nullptr ? numCh : 0;
 
-    // B-070: a fresh handle needs license applied and (re-)enabling. License is read once
-    // from identity.json (single source) and cached for the editor's Os-gate (B-072).
+    // A fresh handle receives the current entitlement immediately. The message-thread timer
+    // refreshes this cache so instances opened before Kirin OS recognition do not retain a stale
+    // Sense gate for their lifetime.
     // set_identity + enable_*_writes are deferred to the message-thread Timer
     // (enableWritesNow) so any setStateInformation restore is applied before enable.
     if (hyphaHandle != nullptr)
@@ -275,6 +276,7 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
     // idle callbacks between Keep and Drop would be captured as Record pre-roll.
     const bool measurementTimelineActive = playing
                                         || clockSource == KIRIN_HYPHA_CLOCK_AUDIO_RENDER_TIMELINE;
+    lastMeasurementTimelineActive.store (measurementTimelineActive, std::memory_order_release);
     int windowStartFrame = 0;
     int windowEndFrame = numFrames;
     int64_t windowPositionSamples = positionSamples;
@@ -306,6 +308,8 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
     const uint8_t stateCode = resolveSignalStateCode (bypassed, measurementTimelineActive,
                                                       silent, recording, nonRealtime);
     kirin_hypha_set_signal_state (hyphaHandle, stateCode);
+    kirin_hypha_note_transport_block (hyphaHandle, measurementTimelineActive, hasPosition,
+                                      positionSamples, (uint64_t) numFrames);
     // B-113: 旧 lastSignalState キャッシュは廃止。editor は signalStateLive()（FFI 直読 / heartbeat-aware）で表示分岐する。
 
     // --- Feed the engine ---------------------------------------------------------
@@ -420,6 +424,17 @@ bool KirinHyphaProcessorBase::pollMeasureResult (KirinMeasureResult& out) const
     return kirin_hypha_poll_result (hyphaHandle, &out);
 }
 
+bool KirinHyphaProcessorBase::pollWatchDisplay (KirinWatchDisplay& out) const
+{
+    const juce::ScopedLock sl (handleLock);
+    if (hyphaHandle == nullptr)
+        return false;
+    return kirin_hypha_poll_watch_display (
+        hyphaHandle,
+        lastMeasurementTimelineActive.load (std::memory_order_acquire),
+        &out);
+}
+
 // --- B-072: POST pairing surface ---------------------------------------------------------
 
 bool KirinHyphaProcessorBase::isRecording() const
@@ -480,8 +495,7 @@ juce::String KirinHyphaProcessorBase::pathAnomalyMessage() const
 
 bool KirinHyphaProcessorBase::licenseIsOs() const
 {
-    // B-118 (①): identity.json の license（0=Os / 1=Sense / 2=Unknown）。handle 不要。
-    return kirin_hypha_load_license() == 0;
+    return cachedLicenseCode.load (std::memory_order_acquire) == 0;
 }
 
 void KirinHyphaProcessorBase::stopPair()
@@ -718,21 +732,33 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
 
 void KirinHyphaProcessorBase::timerCallback()
 {
-    // B-126 + Logic stopped-state fix: non-RT enable poll on the message thread. No-op once enabled (cheap atomic
-    // load). Normally processBlock clears the prepare fallback delay and enables promptly; if the
-    // host does not call processBlock while stopped, the prepare fallback publishes Inactive
-    // presence after a short state-restore grace period.
-    if (writesEnabled.load (std::memory_order_acquire))
-        return;
-    if (! enablePending.load (std::memory_order_acquire))
-        return;
-    const int ticks = enableDelayTicks.load (std::memory_order_acquire);
-    if (ticks > 0)
+    // Live entitlement refresh. Kirin OS may create identity.json after Logic
+    // has already instantiated the AU. UI, Record state and IO share the same
+    // Rust entitlement, so a change is applied to all three in one message-
+    // thread step and never touches the audio thread.
+    if (++licenseRefreshTicks >= 5) // processor timer is 50 ms -> <= 250 ms
     {
-        enableDelayTicks.store (ticks - 1, std::memory_order_release);
-        return;
+        licenseRefreshTicks = 0;
+        const int observed = (int) kirin_hypha_load_license();
+        const int previous = cachedLicenseCode.exchange (observed, std::memory_order_acq_rel);
+        if (observed != previous)
+        {
+            const juce::ScopedLock sl (handleLock);
+            if (hyphaHandle != nullptr)
+                kirin_hypha_set_license (hyphaHandle, (uint8_t) observed);
+        }
     }
-    enableWritesNow();
+
+    // B-126 + Logic stopped-state fix: non-RT enable poll on the message thread.
+    if (! writesEnabled.load (std::memory_order_acquire)
+        && enablePending.load (std::memory_order_acquire))
+    {
+        const int ticks = enableDelayTicks.load (std::memory_order_acquire);
+        if (ticks > 0)
+            enableDelayTicks.store (ticks - 1, std::memory_order_release);
+        else
+            enableWritesNow();
+    }
 }
 
 void KirinHyphaProcessorBase::enableWritesNow()

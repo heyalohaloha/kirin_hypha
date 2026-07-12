@@ -9,10 +9,11 @@ use kirin_measure::{
     reset_watch_ring_cursor, sanitize_name, set_daw_session_id, set_project_uuid,
     spawn_io_thread_post, spawn_measure_thread, spawn_watchdog, store_signal_state,
     watch_playback_block_duration_secs, watch_playback_pass_should_start, DeltaResult, LatchedPre,
-    License, LivenessEvaluator, MeasureResult, RecordStateMachine, RecordTakeBlock,
-    RecordTakeTracker, RecordTraceQueue, RecordWindow, ReleaseReason, SessionSummary, SignalState,
-    StoragePaths, TriggerPairResolutionFn, TriggerStopResolutionFn, WatchdogIo, WatchdogParams,
-    N_CHANNELS, RING_BUFFER_SECONDS,
+    LiveLicense, LivenessEvaluator, MeasureResult, PresentationLatencySamples,
+    PresentationLatencySource, RecordStateMachine, RecordTakeBlock, RecordTakeTracker,
+    RecordTraceQueue, RecordWindow, ReleaseReason, SessionSummary, SignalState, StoragePaths,
+    TriggerPairResolutionFn, TriggerStopResolutionFn, WatchdogIo, WatchdogParams, N_CHANNELS,
+    RING_BUFFER_SECONDS,
 };
 use nih_plug::prelude::*;
 use nih_plug_egui::EguiState;
@@ -107,7 +108,7 @@ pub struct HyphaPost {
     /// Keep 成功直後に Some へ更新し、Keep 失敗など pair 自体を破棄する経路だけ None に戻す。
     /// POST IO Thread が Record 開始時に読み出して plugin_data の `paired_pre_instance_id` に書き込む。
     paired_pre_target: Arc<Mutex<Option<String>>>,
-    license: Arc<License>,
+    license: LiveLicense,
 
     /// preset/*.json が 1 件以上存在するか。
     preset_available: Arc<AtomicBool>,
@@ -268,7 +269,7 @@ impl Default for HyphaPost {
             record_acknowledged: Arc::new(AtomicBool::new(false)),
             pair_label: Arc::new(Mutex::new(String::new())),
             paired_pre_target: Arc::new(Mutex::new(None)),
-            license: Arc::new(load_license_safe()),
+            license: LiveLicense::new(load_license_safe()),
             preset_available: Arc::new(AtomicBool::new(false)),
             installation_id: Arc::new(load_installation_id_or_empty()),
             playback_pos_samples: Arc::new(AtomicI64::new(i64::MIN)),
@@ -486,7 +487,7 @@ impl Plugin for HyphaPost {
             record_acknowledged: Arc::clone(&self.record_acknowledged),
             pair_label: Arc::clone(&self.pair_label),
             paired_pre_target: Arc::clone(&self.paired_pre_target),
-            license: Arc::clone(&self.license),
+            license: self.license.clone(),
             preset_available: Arc::clone(&self.preset_available),
             installation_id: Arc::clone(&self.installation_id),
             playback_pos_samples: Arc::clone(&self.playback_pos_samples),
@@ -696,7 +697,7 @@ impl Plugin for HyphaPost {
         // 申し送り #31 遅延約束追跡: license は Step 6 で IO Thread 引数追加 (実 use 待ち)
         // → Step 11 で closure capture に直接移行 + spawn_io_thread_post 引数から撤去。
         let trigger_pair_resolution: TriggerPairResolutionFn = {
-            let license_for_closure = Arc::clone(&self.license);
+            let license_for_closure = self.license.clone();
             let record_sm_for_closure = Arc::clone(&self.record_sm);
             let instance_id_for_closure = Arc::clone(&self.params.instance_id);
             // §4-5 Step 1: project_hash / daw_session_id を Arc capture (closure body
@@ -723,7 +724,7 @@ impl Plugin for HyphaPost {
                     Err(poisoned) => poisoned.into_inner().clone(),
                 };
                 editor::trigger_keep_internal(
-                    *license_for_closure,
+                    license_for_closure.load(),
                     &record_sm_for_closure,
                     &iid_snapshot,
                     &project_hash_snapshot,
@@ -787,6 +788,7 @@ impl Plugin for HyphaPost {
             Arc::clone(&self.signal_state),
             Arc::clone(&self.is_playing),
             Arc::clone(&self.preset_available),
+            self.license.clone(),
             Arc::clone(&self.paired_pre_target),
             Arc::clone(&self.io_shutdown),
             Arc::clone(&pair_label_arc),
@@ -826,6 +828,7 @@ impl Plugin for HyphaPost {
             let signal_state = Arc::clone(&self.signal_state);
             let is_playing = Arc::clone(&self.is_playing);
             let preset_available = Arc::clone(&self.preset_available);
+            let license = self.license.clone();
             let paired_pre_target = Arc::clone(&self.paired_pre_target);
             let pair_label_arc = Arc::clone(&pair_label_arc);
             // Step 11: license capture 撤去 (closure 経由 / Q-11-C 案 (i)) /
@@ -859,6 +862,7 @@ impl Plugin for HyphaPost {
                     Arc::clone(&signal_state),
                     Arc::clone(&is_playing),
                     Arc::clone(&preset_available),
+                    license.clone(),
                     Arc::clone(&paired_pre_target),
                     new_shutdown,
                     Arc::clone(&pair_label_arc),
@@ -1047,11 +1051,18 @@ impl Plugin for HyphaPost {
         });
 
         if push_buffer {
-            self.record_take_tracker.note_capture_window(
-                record_window.position_valid,
-                record_window.position_samples,
-                record_window.num_frames,
-            );
+            self.record_take_tracker
+                .note_capture_window_with_presentation(
+                    record_window.position_valid,
+                    record_window.position_samples,
+                    record_window.num_frames,
+                    kirin_measure::CaptureClockSource::ProjectTimeline,
+                    PresentationLatencySamples {
+                        source: PresentationLatencySource::Vst3,
+                        input: transport.input_presentation_latency_samples,
+                        output: transport.output_presentation_latency_samples,
+                    },
+                );
             if let Some(producer) = &mut self.ring_producer {
                 let pushed = push_window_to_ring(buffer, producer, record_window, &self.overflow);
                 if pushed > 0 && !self.watch_ring_replacing.load(Ordering::Acquire) {

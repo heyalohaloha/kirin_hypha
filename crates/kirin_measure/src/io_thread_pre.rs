@@ -665,7 +665,7 @@ pub fn spawn_io_thread_pre(
     record_sm: Arc<RecordStateMachine>,
     recording: Arc<AtomicBool>,
     record_acknowledged: Arc<AtomicBool>,
-    license: Arc<License>,
+    license: impl Into<crate::LiveLicense>,
     result: Arc<Mutex<MeasureResult>>,
     signal_state: Arc<AtomicU8>,
     shutdown: Arc<AtomicBool>,
@@ -687,6 +687,7 @@ pub fn spawn_io_thread_pre(
     // run_record_tick が同位相で snapshot/差分し、合算を dropped_samples へ焼く。
     oversized_drop: Arc<std::sync::atomic::AtomicU64>,
 ) -> JoinHandle<()> {
+    let license = license.into();
     thread::spawn(move || {
         // B-128 (G-115-370): 観測 family（io_thread）入口の identity materialize（唯一の検証点）。
         // restore 由来の path-unsafe な project_hash は fresh new_v4 へ差し替え、instance_id セルも
@@ -739,6 +740,7 @@ pub fn spawn_io_thread_pre(
 
         let mut writer_ctx: Option<RecordingCtx> = None;
         let mut last_poll: Option<Instant> = None;
+        let mut last_entitlement_refresh = Instant::now();
         let mut partner: Option<PartnerInfo> = None;
         let mut next_late_expected_reconcile = Instant::now() + LATE_EXPECTED_RECONCILE_INTERVAL;
         // B-022 段階 5 P-1 #1: effective_project_hash_ref の edge-triggered ログ用。
@@ -756,6 +758,12 @@ pub fn spawn_io_thread_pre(
         loop {
             if shutdown.load(Ordering::Relaxed) {
                 break;
+            }
+
+            if last_entitlement_refresh.elapsed() >= Duration::from_millis(250) {
+                let observed = license.refresh_from_disk();
+                record_sm.enforce_license(observed);
+                last_entitlement_refresh = Instant::now();
             }
 
             // B-022 段階 1: tick 開始時に instance_id を lazy-read。
@@ -895,13 +903,14 @@ pub fn spawn_io_thread_pre(
                     // B-023 段階 3: ack 直前に name を lazy-read して poll に渡す。
                     // instance_id と同パターン (chunk-restore 後の最新値追従)。
                     let name_owned = read_instance_id_arc(&name);
+                    let current_license = license.load();
                     poll_record_signal(
                         effective_project_hash_ref,
                         instance_id_ref,
                         &record_sm,
                         &recording,
                         &record_acknowledged,
-                        &license,
+                        &current_license,
                         &mut partner,
                         name_owned.as_str(),
                         &signal_state,
@@ -1072,7 +1081,7 @@ fn poll_record_signal(
     record_sm: &Arc<RecordStateMachine>,
     recording: &Arc<AtomicBool>,
     record_acknowledged: &Arc<AtomicBool>,
-    license: &Arc<License>,
+    license: &License,
     partner: &mut Option<PartnerInfo>,
     paired_pre_name: &str,
     signal_state: &Arc<AtomicU8>,
@@ -1109,7 +1118,7 @@ fn poll_record_signal(
                         },
                         record_sm,
                         recording,
-                        license.as_ref(),
+                        license,
                         sig,
                     );
                 }
@@ -1324,7 +1333,7 @@ fn poll_record_signal(
         log::info!(
             "[signal] {} pending detected, ignored (license: {:?})",
             pending_signals.len(),
-            **license
+            *license
         );
         return;
     }
@@ -1351,7 +1360,7 @@ fn poll_record_signal(
             },
             record_sm,
             recording,
-            license.as_ref(),
+            license,
             sig,
         ) {
             not_ready = not_ready.saturating_add(1);

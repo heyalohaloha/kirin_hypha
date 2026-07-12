@@ -174,12 +174,15 @@ fn juce_candidate_abi_keeps_second_pre_visible_after_first_ready_post() {
     let pre_mix = spawn_pre("iid-pre-mix", "puid-pre-mix", "Mix");
     let post_drum = spawn_post("iid-post-drum", "puid-post", "Drum");
     post_drum.set_pair_target("Drum".to_string());
+    let post_without_pre = spawn_post("iid-post-ghost", "puid-post", "Ghost");
+    post_without_pre.set_pair_target("Ghost".to_string());
     let post_mix = spawn_post("iid-post-mix", "puid-post", "");
 
     for _ in 0..12 {
         pre_drum.push_samples(&[], 2);
         pre_mix.push_samples(&[], 2);
         post_drum.push_samples(&[], 2);
+        post_without_pre.push_samples(&[], 2);
         post_mix.push_samples(&[], 2);
         sleep(Duration::from_millis(50));
     }
@@ -188,7 +191,10 @@ fn juce_candidate_abi_keeps_second_pre_visible_after_first_ready_post() {
         let handle = (&post_mix as *const KirinHyphaEngine).cast_mut();
         kirin_hypha_count_keep_ready(handle)
     };
-    assert_eq!(ready, 1, "Drum POST should be the single ready POST");
+    assert_eq!(
+        ready, 1,
+        "a pair name without one unique armable PRE must not inflate All Keep readiness"
+    );
     let claims = read_pair_claims(&post_mix);
     assert!(
         claims
@@ -215,6 +221,7 @@ fn juce_candidate_abi_keeps_second_pre_visible_after_first_ready_post() {
     wait_until_recording(&post_mix, "pairing-candidates-mix");
 
     drop(post_mix);
+    drop(post_without_pre);
     drop(post_drum);
     drop(pre_mix);
     drop(pre_drum);

@@ -41,7 +41,7 @@ use kirin_measure::{
     pair_lock_active, resolve_arm_target_for_post_project_in_session, sanitize_name,
     scan_latest_v2_preset, show_note_button, show_save_button, show_stop_record_button,
     write_broadcast, write_pending_claiming_expected_and_clock, write_stop_broadcast, DeltaMode,
-    DeltaResult, DeltaSnapshot, LatchedPre, License, LivenessEvaluator, MeasureResult,
+    DeltaResult, DeltaSnapshot, LatchedPre, License, LiveLicense, LivenessEvaluator, MeasureResult,
     PlatformPaths, PluginDataRole, PostCandidate, PreCandidate, PresetFileV2, RecordStateMachine,
     ReleaseReason, SignalState, StoragePaths, MAX_ACTIVE_PER_PROJECT, SENSE_RECORD_HINT,
     SENSE_UPSELL_URL,
@@ -90,6 +90,74 @@ fn epoch_secs_now() -> f64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs_f64())
         .unwrap_or(0.0)
+}
+
+/// Replace the user-facing PRE name and sever every exact binding derived from
+/// the previous selection in the same GUI transition.  The name remains the
+/// convenient selector; `paired_pre_target`/`latched_pre` are session facts and
+/// must never survive a name change.
+fn replace_pair_pre_name(state: &PostEditorState, new_name: String, claimed_at: f64) {
+    // Keep the selector write-locked until both exact-instance slots have been
+    // detached. IO readers can therefore observe either the complete old
+    // binding or the complete new unbound selector, never a new name carrying
+    // the previous PRE instance.
+    let mut name = state
+        .pair_pre_name
+        .write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if *name == new_name {
+        return;
+    }
+
+    let was_recording = state.record_sm.is_recording();
+    let project_hash = read_project_hash_arc(&state.project_hash);
+    let instance_id = read_instance_id_arc(&state.instance_id);
+
+    if let Ok(paths) = StoragePaths::default_platform() {
+        let plugin_data_dir = paths.plugin_data_dir();
+        if was_recording {
+            let _ = mark_released_with_reason(
+                &plugin_data_dir,
+                &project_hash,
+                &instance_id,
+                ReleaseReason::ManualStop,
+            );
+        }
+    }
+    if was_recording {
+        exit_record_preserve_pair(&state.record_sm);
+    }
+    state.record_acknowledged.store(false, Ordering::Release);
+    let released_exact = state
+        .paired_pre_target
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .take();
+    let released_latch = state
+        .latched_pre
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .take();
+    let released_pre = released_exact.or_else(|| released_latch.map(|pre| pre.instance_id));
+    state
+        .pair_label
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clear();
+    *state
+        .delta
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = DeltaResult::default();
+    *name = new_name;
+    *state
+        .pair_claimed_at
+        .write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = claimed_at;
+    drop(name);
+
+    if let (Some(pre), Ok(paths)) = (released_pre.as_deref(), StoragePaths::default_platform()) {
+        reservation::release_pairing(&paths.plugin_data_dir(), &project_hash, pre, &instance_id);
+    }
 }
 
 /// T-E: cap rendered cards to keep the 300×200 GUI bounded.  Beyond this,
@@ -170,7 +238,7 @@ pub struct PostEditorState {
     /// `paired_pre_instance_id` field に書き込む。
     pub paired_pre_target: Arc<Mutex<Option<String>>>,
     /// license 値（起動時に読込済。サブ2-A 範囲では不変）。
-    pub license: Arc<License>,
+    pub license: LiveLicense,
     /// preset/*.json が 1 件以上存在するか（サブ3-C-2: POST IO Thread が更新）。
     pub preset_available: Arc<AtomicBool>,
 
@@ -307,7 +375,7 @@ pub struct PostEditorArgs {
     pub pair_label: Arc<Mutex<String>>,
     /// v1.2 (a): trigger_keep が選定した PRE instance_id を IO Thread に渡す共有スロット。
     pub paired_pre_target: Arc<Mutex<Option<String>>>,
-    pub license: Arc<License>,
+    pub license: LiveLicense,
     pub preset_available: Arc<AtomicBool>,
     pub installation_id: Arc<String>,
     pub playback_pos_samples: Arc<AtomicI64>,
@@ -376,7 +444,7 @@ pub fn create_post_editor(args: PostEditorArgs) -> Option<Box<dyn Editor>> {
                 .map(|g| g.clone())
                 .unwrap_or_default();
             let pair_empty_for_display = pair_pre_name_snapshot.is_empty();
-            let license = *state.license;
+            let license = state.license.load();
 
             let now = ctx.input(|i| i.time);
 
@@ -1102,19 +1170,7 @@ fn draw_pair_pre_name_field(ui: &mut egui::Ui, state: &mut PostEditorState, pair
                 } else {
                     0.0
                 };
-                if let Ok(mut g) = state.pair_pre_name.write() {
-                    *g = sanitized;
-                }
-                if let Ok(mut c) = state.pair_claimed_at.write() {
-                    *c = new_claimed_at;
-                }
-                // W-282 / G-115-250 / B-1: 手動空文字クリア時 Δ 表示完全リセット
-                // 非空 (新 PRE に pair 続行) では reset しない / Δ 計測継続。
-                if new_claimed_at == 0.0 {
-                    if let Ok(mut d) = state.delta.lock() {
-                        *d = DeltaResult::default();
-                    }
-                }
+                replace_pair_pre_name(state, sanitized, new_claimed_at);
                 ui.memory_mut(|mem| mem.surrender_focus(*PAIR_PRE_NAME_FOCUS_ID));
             } else if response.changed() {
                 state.pair_pre_name_edit_buffer = sanitize_name(&state.pair_pre_name_edit_buffer);
@@ -1248,10 +1304,28 @@ fn draw_pair_pre_combo(
             // B-027 段階 3-B α-7-3 / Step 9: All Keep 行 (先頭 / N>=1 時のみ表示)。
             // (broadcast 失敗で自身まで pair 不可になることを構造的に回避)。
             // α-7': recording=true 時は All Keep 行を非表示 (Record 中は Keep 不要)。
-            let n_ready = post_candidates
-                .iter()
-                .filter(|c| c.pair_pre_name.is_some())
-                .count();
+            let n_ready = if state.license.load() == License::Os {
+                post_candidates
+                    .iter()
+                    .filter(|post| {
+                        let Some(name) = post.pair_pre_name.as_deref().filter(|n| !n.is_empty())
+                        else {
+                            return false;
+                        };
+                        let session = post.daw_session_id.as_deref().unwrap_or("");
+                        resolve_arm_target_for_post_project_in_session(
+                            &kirin_root,
+                            name,
+                            &post.project_uuid,
+                            session,
+                            &Mutex::new(None),
+                        )
+                        .is_some()
+                    })
+                    .count()
+            } else {
+                0
+            };
             if !recording && n_ready >= 1 {
                 ui.push_id("hypha_post_all_keep_row", |ui| {
                     let label = all_keep_dropdown_label(n_ready);
@@ -1289,7 +1363,7 @@ fn draw_pair_pre_combo(
                         // 2. 自身も trigger_keep (Step 7 wrapper 経由 / draw_button_row
                         //    L774 と同引数列)
                         trigger_keep(
-                            *state.license,
+                            state.license.load(),
                             &state.record_sm,
                             &instance_id,
                             &project_hash_snapshot,
@@ -1415,19 +1489,7 @@ fn draw_pair_pre_combo(
                             } else {
                                 0.0
                             };
-                            if let Ok(mut g) = state.pair_pre_name.write() {
-                                *g = new_name;
-                            }
-                            if let Ok(mut c) = state.pair_claimed_at.write() {
-                                *c = new_claimed_at;
-                            }
-                            // W-282 / G-115-250 / B-2: 手動空文字クリア時 (PRE name None
-                            // 候補 click) は Δ 表示完全リセット (判断 2 / B-1 と一貫)。
-                            if new_claimed_at == 0.0 {
-                                if let Ok(mut d) = state.delta.lock() {
-                                    *d = DeltaResult::default();
-                                }
-                            }
+                            replace_pair_pre_name(state, new_name, new_claimed_at);
                             log::info!(
                                 "[POST pair-combo] selected: instance_id={} name={:?}",
                                 cand.instance_id,

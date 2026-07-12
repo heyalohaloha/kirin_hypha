@@ -47,6 +47,15 @@ fn juce_wrappers_forward_host_presentation_latency_as_diagnostics() {
     assert!(processor.contains("getKirinOutputPresentationLatencySamples"));
     assert!(processor.contains("getKirinPresentationLatencySource"));
     assert!(processor.contains("kirin_hypha_note_capture_window"));
+
+    // The shipped VST3 is the nih-plug binary, not the JUCE VST3 target. Its
+    // wrapper must therefore implement the same host contract independently.
+    let nih_wrapper = read_repo("vendor/nih-plug-presentation/src/wrapper/vst3/wrapper.rs");
+    let nih_transport = read_repo("vendor/nih-plug-presentation/src/context/process.rs");
+    assert!(nih_wrapper.contains("impl<P: Vst3Plugin> IAudioPresentationLatency for Wrapper<P>"));
+    assert!(nih_wrapper.contains("input_presentation_latency"));
+    assert!(nih_wrapper.contains("transport.input_presentation_latency_samples"));
+    assert!(nih_transport.contains("pub input_presentation_latency_samples: Option<u32>"));
 }
 
 fn slice_between<'a>(src: &'a str, start_marker: &str, end_marker: &str) -> &'a str {

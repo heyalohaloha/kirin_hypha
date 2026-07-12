@@ -134,7 +134,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
     recordErrorLabel.setInterceptsMouseClicks (false, false);
     addChildComponent (recordErrorLabel);
 
-    configureForKind (Kind::Abs3); // initial grid (3 absolute cells)
+    configureForKind (Kind::WatchAbs6); // current | MAX, three rows
     resized();                     // finalise positions now that postControls exists
     startTimerHz (30);             // smooth LED breathing (egui repaints at 10–30Hz)
 }
@@ -227,8 +227,9 @@ void KirinHyphaEditor::layoutMetrics (bool six)
 
 void KirinHyphaEditor::configureForKind (Kind k)
 {
-    const bool six = (k == Kind::Abs6 || k == Kind::Delta6);
-    const bool dlt = (k == Kind::Delta3 || k == Kind::Delta6);
+    const bool watch = (k == Kind::WatchAbs6 || k == Kind::WatchDelta6);
+    const bool six = true;
+    const bool dlt = (k == Kind::WatchDelta6 || k == Kind::Delta6);
 
     const float lblSz = six ? 11.0f : 13.0f;
     const float valSz = six ? 14.0f : 16.0f;
@@ -242,7 +243,16 @@ void KirinHyphaEditor::configureForKind (Kind k)
         cells[(size_t) i].setVisible (true);
     };
 
-    if (six)
+    if (watch)
+    {
+        cfg (0, dlt ? d + "LUFS"  : juce::String ("LUFS-M"), dlt ? "LU" : "LUFS", hypha::helpLufsM());
+        cfg (1, "MAX", "LUFS", hypha::helpLufsM());
+        cfg (2, dlt ? d + "TP"    : juce::String ("TP"), dlt ? "dB" : "dBTP", hypha::helpTp());
+        cfg (3, "MAX", "dBTP", hypha::helpTp());
+        cfg (4, dlt ? d + "Crest" : juce::String ("Crest"), "dB", hypha::helpCrest());
+        cfg (5, "MAX", "dB", hypha::helpCrest());
+    }
+    else
     {
         // Record 2×3: row0 LUFS|PSR, row1 TP|N, row2 Crest|Sharp.
         cfg (0, dlt ? d + "LUFS"  : juce::String ("LUFS-M"), dlt ? "LU" : "LUFS", hypha::helpLufsM());
@@ -252,15 +262,6 @@ void KirinHyphaEditor::configureForKind (Kind k)
         cfg (4, dlt ? d + "Crest" : juce::String ("Crest"),  "dB",                hypha::helpCrest());
         cfg (5, dlt ? d + "Sharp" : juce::String ("Sharp"),  "acum",              hypha::helpSharp());
     }
-    else
-    {
-        cfg (0, dlt ? d + "LUFS"  : juce::String ("LUFS-M"), dlt ? "LU" : "LUFS", hypha::helpLufsM());
-        cfg (1, dlt ? d + "TP"    : juce::String ("TP"),     dlt ? "dB" : "dBTP", hypha::helpTp());
-        cfg (2, dlt ? d + "Crest" : juce::String ("Crest"),  "dB",                hypha::helpCrest());
-        for (int i = 3; i < 6; ++i)
-            cells[(size_t) i].setVisible (false);
-    }
-
     currentKind = k;
     currentSix  = six;
     layoutMetrics (six);
@@ -328,7 +329,7 @@ void KirinHyphaEditor::showCandidateMenu()
     // below are the PRE list (menuCandidateNames), matching egui's separate pre_candidates source.
     const int nReady = processorRef.keepReadyCount();
     juce::PopupMenu menu;
-    if (! rec && nReady >= 1)
+    if (! rec && processorRef.licenseIsOs() && nReady >= 1)
         menu.addItem (1, allKeepMenuLabel (nReady));
     if (rec)
         menu.addItem (2, "All Stop: recording POSTs");
@@ -352,7 +353,8 @@ void KirinHyphaEditor::handleCandidateMenu (int result)
         if (! processorRef.keepAll())
         {
             const juce::String err = processorRef.recordErrorMessage();
-            if (err.isNotEmpty()) showToast (err);
+            if (err.isNotEmpty()) { showToast (err); return; }
+            showToast (processorRef.licenseIsOs() ? "No PRE Paired" : "Record requires Kirin OS license");
         }
     }
     else if (result == 2)
@@ -409,7 +411,7 @@ void KirinHyphaEditor::updatePre()
     if (status.isNotEmpty())
         recordErrorLabel.setText (status, juce::dontSendNotification);
 
-    const Kind want = rec ? Kind::Abs6 : Kind::Abs3;
+    const Kind want = rec ? Kind::Abs6 : Kind::WatchAbs6;
     if (want != currentKind)
         configureForKind (want);
 
@@ -417,8 +419,16 @@ void KirinHyphaEditor::updatePre()
     KirinMeasureResult r {};
     bool have = false;
     bool muted = false;
-    if (sig == 1 && processorRef.pollMeasureResult (raw))
+    KirinWatchDisplay watch {};
+    const bool haveWatch = ! rec && sig == 1 && processorRef.pollWatchDisplay (watch);
+    if (sig == 1 && (haveWatch || (rec && processorRef.pollMeasureResult (raw))))
     {
+        if (haveWatch)
+        {
+            raw = watch.current;
+            watchMaximum = watch.maximum;
+            haveWatchMaximum = true;
+        }
         r = displaySmoother.smoothMeasure (raw, t);
         have = true;
     }
@@ -435,6 +445,7 @@ void KirinHyphaEditor::updatePre()
     else if (sig == 2)
     {
         displaySmoother.reset();
+        haveWatchMaximum = false;
     }
     auto V = [&] (double x) { return have ? x : kNaN; };
 
@@ -453,8 +464,11 @@ void KirinHyphaEditor::updatePre()
     else
     {
         fillAbs (0, V (r.lufs_m), false, muted);
-        fillAbs (1, V (r.true_peak), true, muted);
-        fillAbs (2, V (r.crest), false, muted);
+        fillAbs (1, haveWatchMaximum ? watchMaximum.lufs_m : kNaN, false, muted);
+        fillAbs (2, V (r.true_peak), true, muted);
+        fillAbs (3, haveWatchMaximum ? watchMaximum.true_peak : kNaN, true, muted);
+        fillAbs (4, V (r.crest), false, muted);
+        fillAbs (5, haveWatchMaximum ? watchMaximum.crest : kNaN, false, muted);
     }
 }
 
@@ -506,8 +520,16 @@ void KirinHyphaEditor::updatePost()
     KirinMeasureResult m {};
     bool haveM = false;
     bool mutedM = false;
-    if (sig == 1 && processorRef.pollMeasureResult (rawM))
+    KirinWatchDisplay watch {};
+    const bool haveWatch = ! rec && sig == 1 && processorRef.pollWatchDisplay (watch);
+    if (sig == 1 && (haveWatch || (rec && processorRef.pollMeasureResult (rawM))))
     {
+        if (haveWatch)
+        {
+            rawM = watch.current;
+            watchMaximum = watch.maximum;
+            haveWatchMaximum = true;
+        }
         m = displaySmoother.smoothMeasure (rawM, t);
         haveM = true;
     }
@@ -524,6 +546,7 @@ void KirinHyphaEditor::updatePost()
     else if (sig == 2)
     {
         displaySmoother.reset();
+        haveWatchMaximum = false;
     }
     const bool tpWarn = ! mutedM && hypha::tpOver (haveM ? m.true_peak : kNaN);
     bool watchHeldNormal = false;
@@ -602,20 +625,26 @@ void KirinHyphaEditor::updatePost()
         }
         if (haveHeldD)
         {
-            if (currentKind != Kind::Delta3) configureForKind (Kind::Delta3);
+            if (currentKind != Kind::WatchDelta6) configureForKind (Kind::WatchDelta6);
             const juce::Colour base = mutedHeldD ? COL_MUTED : COL_NORMAL;
             watchHeldNormal = ! mutedHeldD;
             fillDelta (0, heldD.lufs,      false, base, false, mutedHeldD);
-            fillDelta (1, heldD.true_peak, true,  base, false, mutedHeldD);
-            fillDelta (2, heldD.crest,     false, base, false, mutedHeldD);
+            fillAbs (1, haveWatchMaximum ? watchMaximum.lufs_m : kNaN, false, true);
+            fillDelta (2, heldD.true_peak, true,  base, false, mutedHeldD);
+            fillAbs (3, haveWatchMaximum ? watchMaximum.true_peak : kNaN, true, true);
+            fillDelta (4, heldD.crest,     false, base, false, mutedHeldD);
+            fillAbs (5, haveWatchMaximum ? watchMaximum.crest : kNaN, false, true);
         }
         else
         {
-            if (currentKind != Kind::Abs3) configureForKind (Kind::Abs3);
+            if (currentKind != Kind::WatchAbs6) configureForKind (Kind::WatchAbs6);
             watchHeldNormal = haveM && ! mutedM;
             fillAbs (0, haveM ? m.lufs_m : kNaN, false, mutedM);
-            fillAbs (1, haveM ? m.true_peak : kNaN, true, mutedM);
-            fillAbs (2, haveM ? m.crest : kNaN, false, mutedM);
+            fillAbs (1, haveWatchMaximum ? watchMaximum.lufs_m : kNaN, false, true);
+            fillAbs (2, haveM ? m.true_peak : kNaN, true, mutedM);
+            fillAbs (3, haveWatchMaximum ? watchMaximum.true_peak : kNaN, true, true);
+            fillAbs (4, haveM ? m.crest : kNaN, false, mutedM);
+            fillAbs (5, haveWatchMaximum ? watchMaximum.crest : kNaN, false, true);
         }
     }
     else // Active + Watch
@@ -650,21 +679,27 @@ void KirinHyphaEditor::updatePost()
 
         if (pairNonEmpty && ! preExplicitBypassed)
         {
-            if (currentKind != Kind::Delta3) configureForKind (Kind::Delta3);
+            if (currentKind != Kind::WatchDelta6) configureForKind (Kind::WatchDelta6);
             const bool liveDelta = haveD && d.mode == 0 && ! mutedD;
             const juce::Colour base = liveDelta ? COL_NORMAL : COL_MUTED;
             const bool warn = liveDelta ? tpWarn : false;
             fillDelta (0, haveD ? d.lufs      : kNaN, false, base, warn, ! liveDelta);
-            fillDelta (1, haveD ? d.true_peak : kNaN, true,  base, warn, ! liveDelta);
-            fillDelta (2, haveD ? d.crest     : kNaN, false, base, warn, ! liveDelta);
+            fillAbs (1, haveWatchMaximum ? watchMaximum.lufs_m : kNaN, false, ! liveDelta);
+            fillDelta (2, haveD ? d.true_peak : kNaN, true,  base, warn, ! liveDelta);
+            fillAbs (3, haveWatchMaximum ? watchMaximum.true_peak : kNaN, true, ! liveDelta);
+            fillDelta (4, haveD ? d.crest     : kNaN, false, base, warn, ! liveDelta);
+            fillAbs (5, haveWatchMaximum ? watchMaximum.crest : kNaN, false, ! liveDelta);
         }
         else // pair empty or PRE explicitly bypassed -> POST absolute
         {
-            if (currentKind != Kind::Abs3) configureForKind (Kind::Abs3);
+            if (currentKind != Kind::WatchAbs6) configureForKind (Kind::WatchAbs6);
             auto V = [&] (double x) { return haveM ? x : kNaN; };
             fillAbs (0, V (m.lufs_m), false);
-            fillAbs (1, V (m.true_peak), true);
-            fillAbs (2, V (m.crest), false);
+            fillAbs (1, haveWatchMaximum ? watchMaximum.lufs_m : kNaN, false);
+            fillAbs (2, V (m.true_peak), true);
+            fillAbs (3, haveWatchMaximum ? watchMaximum.true_peak : kNaN, true);
+            fillAbs (4, V (m.crest), false);
+            fillAbs (5, haveWatchMaximum ? watchMaximum.crest : kNaN, false);
         }
     }
 

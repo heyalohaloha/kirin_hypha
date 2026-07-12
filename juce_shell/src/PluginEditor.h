@@ -16,7 +16,7 @@
 // the editor only formats values the Rust engine produces. palette.rs is the colour source of
 // truth (no new colours hardcoded). No red / pure white (#ffffff) / neon (品位原則 / G-72-10).
 //
-// PRE: title "PRE" + click-to-edit Name (→ kirin_hypha_set_pre_name) + flora line + Watch(3)/
+// PRE: title "PRE" + click-to-edit Name (→ kirin_hypha_set_pre_name) + flora line + Watch(current+MAX)/
 //      Record(6) metric grid (per-cell hover help) + Keeping banner + 5-state breathing LED.
 // POST: title "POST" + Record pair label + click-to-edit pair name (→ set_pair_target) + flora +
 //      display-branch grid (Bypassed/Inactive→"---" ; pair-empty/PRE bypassed→absolute ;
@@ -38,8 +38,8 @@ private:
     void updatePost();
 
     // Which metric grid is configured (label/unit/font set). Abs* uses absolute labels
-    // (LUFS-M/TP/…); Delta* uses Δ labels (ΔLUFS/…). 3 = Watch/3-up, 6 = Record/2×3.
-    enum class Kind { Abs3, Delta3, Abs6, Delta6 };
+    // (LUFS-M/TP/…); Delta* uses Δ labels (ΔLUFS/…). Watch is current|MAX; Record is 2×3.
+    enum class Kind { WatchAbs6, WatchDelta6, Abs6, Delta6 };
     void configureForKind (Kind);
     void layoutMetrics (bool six);
     void showCandidateMenu();          // B-102: POST pair dropdown (All Keep/All Stop/candidates)
@@ -66,7 +66,7 @@ private:
     juce::StringArray         menuCandidateNames;          // maps PopupMenu result -> candidate name
     juce::TooltipWindow       tooltip { this };           // drives per-cell hover help
 
-    Kind   currentKind = Kind::Abs3;
+    Kind   currentKind = Kind::WatchAbs6;
     bool   currentSix  = false;
     int    metricTop   = 0;       // y of the first metric row (set in resized())
     int    floraY      = 0;       // y of the flora separator line
@@ -78,6 +78,8 @@ private:
     double pathAnomalyUntil = 0.0;        // B-128 (G-115-371 D3): restore identity anomaly latch
     juce::String pathAnomalyText;         //   drained 文言を fade まで保持
     hypha::DisplaySmoother displaySmoother;
+    KirinMeasureResult watchMaximum {};
+    bool haveWatchMaximum = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (KirinHyphaEditor)
 };

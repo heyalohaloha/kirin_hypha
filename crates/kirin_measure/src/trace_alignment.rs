@@ -1,21 +1,21 @@
 //! Producer-owned PRE/POST TRACE axis contract.
 //!
-//! Every metric frame is formed on an absolute native-sample boundary before Drop. Pair
-//! finalization derives which PRE and POST slots carry the same content, then publishes both on
-//! that one producer-owned grid. This keeps Studio One PDC/callback skew out of the consumer and
-//! applies the same invariant to VST3 and AU render clocks.
+//! Every metric frame is formed on the host callback position minus the main-input presentation
+//! latency reported for that plugin instance. Pair finalization reads PRE and POST only at equal
+//! content-sample positions, then publishes that producer-owned grid on dropped-WAV sample 0..N.
+//! Metric values never participate in the clock decision.
 
 use serde::{Deserialize, Serialize};
 
 use crate::plugin_data::PluginDataFile;
 
-pub const TRACE_ALIGNMENT_METHOD: &str = "producer_wav_start_slots_v3";
+pub const TRACE_ALIGNMENT_METHOD: &str = "producer_presentation_content_clock_v4";
 pub const TRACE_ALIGNMENT_STATUS: &str = "canonical_wav_clock";
 pub const TRACE_ALIGNMENT_START_BWF: &str = "bwf_time_reference";
 pub const TRACE_ALIGNMENT_START_SHARED_CLOCK: &str = "shared_record_clock";
 pub const TRACE_TIME_AXIS: &str = "wav_samples_v1";
-pub const TRACE_HOST_TIME_AXIS: &str = "host_audio_samples_v2";
-pub const TRACE_CLOCK_BASIS: &str = "host_audio_callback_samples_v1";
+pub const TRACE_HOST_TIME_AXIS: &str = "host_content_samples_v3";
+pub const TRACE_CLOCK_BASIS: &str = "input_presentation_content_samples_v1";
 pub const TRACE_WAV_REFERENCE_BASIS: &str = "dropped_wav_sample_index_v1";
 pub const TRACE_CAPTURE_BASIS: &str = "paired_record_session_v1";
 const TRACE_FRAME_INTERVAL_MS: u64 = 100;
@@ -28,7 +28,7 @@ pub struct TraceContentAlignment {
     pub method: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub start_basis: Option<String>,
-    /// Legacy v2 diagnostic. New v3 artifacts never publish a curve-derived correction.
+    /// Legacy v2 diagnostic. Current artifacts never publish a curve-derived correction.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pre_to_post_offset_samples: Option<i64>,
 }
@@ -47,6 +47,8 @@ pub(crate) fn canonical_wav_alignment(
         || !has_dense_frame_grid(right)
         || !has_shared_native_slots(left, right)
         || !crate::trace_content_clock::has_compatible_host_clocks(left, right)
+        || !has_input_presentation_evidence(left)
+        || !has_input_presentation_evidence(right)
         || !has_wav_bounded_slots(left)
         || !has_wav_bounded_slots(right)
     {
@@ -74,6 +76,17 @@ pub(crate) fn canonical_wav_alignment(
         start_basis: Some(start_basis.to_string()),
         pre_to_post_offset_samples: None,
     })
+}
+
+fn has_input_presentation_evidence(data: &PluginDataFile) -> bool {
+    data.host_presentation_latency_observations
+        .iter()
+        .any(|observation| {
+            matches!(
+                observation.source.as_deref(),
+                Some("vst3" | "audio_unit_v2")
+            ) && observation.input_samples.is_some()
+        })
 }
 
 fn has_shared_native_slots(left: &PluginDataFile, right: &PluginDataFile) -> bool {
@@ -167,7 +180,8 @@ fn has_dense_frame_grid(data: &PluginDataFile) -> bool {
 mod tests {
     use super::*;
     use crate::plugin_data::{
-        Frame, PluginDataFile, Role, TraceClock, TraceDiagnostics, TraceWavReference,
+        Frame, HostPresentationLatencyObservation, PluginDataFile, Role, TraceClock,
+        TraceDiagnostics, TraceWavReference,
     };
     use crate::record_expected::ExpectedWavMetadata;
 
@@ -199,6 +213,11 @@ mod tests {
             consumed_by_session_id: None,
         });
         data.trace_time_axis = Some(TRACE_TIME_AXIS.to_string());
+        data.host_presentation_latency_observations = vec![HostPresentationLatencyObservation {
+            source: Some("vst3".to_string()),
+            input_samples: Some(if role == Role::Pre { 0 } else { 256 }),
+            output_samples: None,
+        }];
         data.trace_clock = Some(TraceClock {
             basis: TRACE_CLOCK_BASIS.to_string(),
             origin_position_samples: 6_473_347,
@@ -263,6 +282,21 @@ mod tests {
         let mut post = data(Role::Post);
         post.trace_wav_reference.as_mut().unwrap().wav_hash = "other-hash".to_string();
 
+        assert!(canonical_wav_alignment(&pre, &post).is_none());
+    }
+
+    #[test]
+    fn pair_contract_requires_observed_main_input_presentation_latency() {
+        let pre = data(Role::Pre);
+        let mut post = data(Role::Post);
+        post.host_presentation_latency_observations.clear();
+        assert!(canonical_wav_alignment(&pre, &post).is_none());
+
+        post.host_presentation_latency_observations = vec![HostPresentationLatencyObservation {
+            source: Some("vst3".to_string()),
+            input_samples: None,
+            output_samples: Some(256),
+        }];
         assert!(canonical_wav_alignment(&pre, &post).is_none());
     }
 

@@ -712,33 +712,31 @@ fn editor_rs_pair_widgets_wrapped_in_add_enabled_ui_not_is_playing() {
 
 // ── W-282 / G-115-250: pair 解放時 Δ 表示完全リセット 配線回帰テスト (C-3) ────
 
-/// W-282 C-3: editor.rs TextEdit Enter `sanitized.is_empty()` 経路 (B-1) で
-/// `state.delta.lock()` reset が走る配線を invariant 化。配線が落ちると手動
-/// 空文字クリア時に B-048 LKG が古い Δ 凍結値を残し続ける regression。
+/// Name commit is a full pair transition. TextEdit must call the shared helper,
+/// and the helper must reset delta for every changed selector (empty or not).
 #[test]
 fn editor_rs_text_edit_clear_pair_resets_delta_result() {
     let src = read("src/editor.rs");
-    // sanitized.is_empty() 経路 (TextEdit) の write 直後に state.delta.lock() reset。
-    // `if new_claimed_at == 0.0 {` から始まる block が `state.delta.lock()` +
-    // `*d = DeltaResult::default();` を含むこと。
     let text_edit_idx = src
         .find("let sanitized = sanitize_name(&state.pair_pre_name_edit_buffer);")
         .expect("draw_pair_pre_name_field sanitize entry missing");
-    // 当該 sanitize から 1500 byte 以内 (W-281 B-2 + W-282 B-1 の write block 範囲 /
-    // Japanese 注釈が UTF-8 で 1 char=3 byte となるため余裕を持つ)。
-    let window = &src[text_edit_idx..text_edit_idx + 1500.min(src.len() - text_edit_idx)];
+    let window = &src[text_edit_idx..text_edit_idx + 900.min(src.len() - text_edit_idx)];
     assert!(
-        window.contains("if new_claimed_at == 0.0"),
-        "W-282 B-1: TextEdit 分岐に `if new_claimed_at == 0.0` 判定がない"
+        window.contains("replace_pair_pre_name(state, sanitized, new_claimed_at);"),
+        "TextEdit must use the full pair transition helper"
     );
+    let helper = src
+        .find("fn replace_pair_pre_name(")
+        .expect("pair transition helper missing");
+    let helper_window = &src[helper..helper + 3500.min(src.len() - helper)];
+    let compact: String = helper_window.split_whitespace().collect();
     assert!(
-        window.contains("state.delta.lock()") && window.contains("DeltaResult::default()"),
-        "W-282 B-1: TextEdit sanitized.is_empty() 経路に state.delta = DeltaResult::default() の reset がない"
+        compact.contains("state.delta.lock()") && compact.contains("DeltaResult::default()"),
+        "pair transition helper must reset stale delta"
     );
 }
 
-/// W-282 C-3: editor.rs ComboBox PRE 候補 click `new_name.is_empty()` 経路 (B-2) で
-/// `state.delta.lock()` reset が走る配線を invariant 化。
+/// ComboBox selection uses the same full pair transition as TextEdit.
 #[test]
 fn editor_rs_combobox_clear_pair_resets_delta_result() {
     let src = read("src/editor.rs");
@@ -747,12 +745,8 @@ fn editor_rs_combobox_clear_pair_resets_delta_result() {
         .expect("draw_pair_pre_combo new_name entry missing");
     let window = &src[combo_idx..combo_idx + 1200.min(src.len() - combo_idx)];
     assert!(
-        window.contains("if new_claimed_at == 0.0"),
-        "W-282 B-2: ComboBox 分岐に `if new_claimed_at == 0.0` 判定がない"
-    );
-    assert!(
-        window.contains("state.delta.lock()") && window.contains("DeltaResult::default()"),
-        "W-282 B-2: ComboBox new_name.is_empty() 経路に state.delta = DeltaResult::default() の reset がない"
+        window.contains("replace_pair_pre_name(state, new_name, new_claimed_at);"),
+        "ComboBox must use the full pair transition helper"
     );
 }
 

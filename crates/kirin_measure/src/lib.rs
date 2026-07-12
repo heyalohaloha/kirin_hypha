@@ -41,6 +41,7 @@ pub mod reservation;
 pub mod storage;
 pub mod trace_alignment;
 mod trace_content_clock;
+pub mod watch_max;
 pub mod watch_playback_pass;
 mod watch_tmp_cleanup;
 pub mod watchdog;
@@ -74,7 +75,7 @@ pub use io_thread_post::{
 pub use io_thread_pre::{serialize_pre_json, spawn_io_thread_pre};
 pub use license::{
     can_enter_record, can_read_preset, can_write_plugin_data, load_license_safe, show_note_button,
-    show_save_button, show_stop_record_button, SENSE_RECORD_HINT, SENSE_UPSELL_URL,
+    show_save_button, show_stop_record_button, LiveLicense, SENSE_RECORD_HINT, SENSE_UPSELL_URL,
 };
 pub use measure_thread::{live_window, pair_lock_active, spawn_measure_thread, LivenessEvaluator};
 pub use pairing_scope::{
@@ -160,6 +161,7 @@ pub use storage::{
     PlatformPaths, StorageError, StoragePaths, CLEANUP_V1_DONE_FILENAME,
 };
 pub use trace_alignment::TraceContentAlignment;
+pub use watch_max::WatchMaxTracker;
 pub use watch_playback_pass::{
     add_watch_ring_cursor_samples, advance_watch_playback_pass_id,
     publish_watch_playback_pass_boundary, reset_watch_ring_cursor,
