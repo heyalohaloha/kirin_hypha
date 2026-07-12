@@ -20,6 +20,7 @@ fn metadata_fixture(bounce_id: &str) -> ExpectedWavMetadata {
     ExpectedWavMetadata {
         expected_duration_samples: 48_000,
         expected_sample_rate: 48_000,
+        wav_time_reference_samples: None,
         wav_path: format!("/tmp/{bounce_id}.wav"),
         bounce_id: bounce_id.to_string(),
         created_at_ms: now_epoch_ms(),
@@ -37,6 +38,7 @@ fn expected_metadata_roundtrips_under_project_dir() {
     let metadata = ExpectedWavMetadata {
         expected_duration_samples: 1_440_000,
         expected_sample_rate: 96_000,
+        wav_time_reference_samples: None,
         wav_path: "/Volumes/ALOHA/Peach19(10).wav".to_string(),
         bounce_id: "bounce-1".to_string(),
         created_at_ms: now_epoch_ms(),
@@ -59,6 +61,7 @@ fn empty_wav_path_is_invalid() {
     let metadata = ExpectedWavMetadata {
         expected_duration_samples: 1,
         expected_sample_rate: 48_000,
+        wav_time_reference_samples: None,
         wav_path: String::new(),
         bounce_id: "bounce-1".to_string(),
         created_at_ms: now_epoch_ms(),

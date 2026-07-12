@@ -1,15 +1,15 @@
 //! Producer-owned PRE/POST TRACE axis contract.
 //!
-//! Every metric frame is formed on an absolute native-sample boundary before Drop. Drop may
-//! rebase that already-shared grid to WAV sample zero, but it may not relabel independently
-//! measured PRE/POST windows. This keeps Studio One PDC/callback skew out of the measurement and
+//! Every metric frame is formed on an absolute native-sample boundary before Drop. Pair
+//! finalization derives which PRE and POST slots carry the same content, then publishes both on
+//! that one producer-owned grid. This keeps Studio One PDC/callback skew out of the consumer and
 //! applies the same invariant to VST3 and AU render clocks.
 
 use serde::{Deserialize, Serialize};
 
 use crate::plugin_data::PluginDataFile;
 
-pub const TRACE_ALIGNMENT_METHOD: &str = "shared_native_sample_slots_v1";
+pub const TRACE_ALIGNMENT_METHOD: &str = "producer_content_correlated_slots_v2";
 pub const TRACE_ALIGNMENT_STATUS: &str = "canonical_wav_clock";
 pub const TRACE_TIME_AXIS: &str = "wav_samples_v1";
 pub const TRACE_HOST_TIME_AXIS: &str = "host_audio_samples_v2";
@@ -24,12 +24,15 @@ pub struct TraceContentAlignment {
     pub confidence: f64,
     pub compared_frame_count: u64,
     pub method: String,
+    #[serde(default)]
+    pub pre_to_post_offset_samples: i64,
 }
 
 pub(crate) fn canonical_wav_alignment(
     left: &PluginDataFile,
     right: &PluginDataFile,
 ) -> Option<TraceContentAlignment> {
+    let pair_offset = left.trace_pair_offset_samples?;
     if !has_canonical_wav_reference(left)
         || !has_canonical_wav_reference(right)
         || left.trace_wav_reference != right.trace_wav_reference
@@ -39,14 +42,20 @@ pub(crate) fn canonical_wav_alignment(
         || !has_dense_frame_grid(left)
         || !has_dense_frame_grid(right)
         || !has_shared_native_slots(left, right)
+        || right.trace_pair_offset_samples != Some(pair_offset)
+        || left.trace_pair_alignment_score != right.trace_pair_alignment_score
     {
         return None;
     }
     Some(TraceContentAlignment {
         status: TRACE_ALIGNMENT_STATUS.to_string(),
-        confidence: 1.0,
+        confidence: left
+            .trace_pair_alignment_score
+            .zip(right.trace_pair_alignment_score)
+            .map_or(1.0, |(left, right)| left.min(right).clamp(0.0, 1.0)),
         compared_frame_count: left.frames.len() as u64,
         method: TRACE_ALIGNMENT_METHOD.to_string(),
+        pre_to_post_offset_samples: pair_offset,
     })
 }
 
@@ -124,6 +133,7 @@ mod tests {
         data.expected_wav = Some(ExpectedWavMetadata {
             expected_duration_samples: 9_600,
             expected_sample_rate: 96_000,
+            wav_time_reference_samples: None,
             wav_path: "/tmp/drop.wav".to_string(),
             bounce_id: "bounce-id".to_string(),
             created_at_ms: 1,
@@ -142,6 +152,7 @@ mod tests {
             sources: vec!["project_timeline".to_string()],
         });
         data.trace_slot_positions = vec![6_482_947];
+        data.trace_pair_offset_samples = Some(0);
         data.trace_wav_reference = Some(TraceWavReference {
             basis: TRACE_WAV_REFERENCE_BASIS.to_string(),
             capture_basis: TRACE_CAPTURE_BASIS.to_string(),

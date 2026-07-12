@@ -3158,6 +3158,7 @@ mod record_signal_ack_barrier_tests {
         ExpectedWavMetadata {
             expected_duration_samples: 48_000,
             expected_sample_rate: 48_000,
+            wav_time_reference_samples: None,
             wav_path: "/tmp/kirin-post-ack-test.wav".to_string(),
             bounce_id: "test-bounce".to_string(),
             created_at_ms: chrono::Utc::now().timestamp_millis(),
