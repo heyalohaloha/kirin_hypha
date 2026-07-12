@@ -1015,8 +1015,7 @@ fn bake_continuous_record_timeline(ctx: &mut RecordingCtx) {
     }
 
     let mut best_by_ms: BTreeMap<u64, MeasureResult> = BTreeMap::new();
-    let mut host_positioned_slots = BTreeSet::new();
-    let mut absolute_origins = BTreeSet::new();
+    let mut best_by_position: BTreeMap<i64, MeasureResult> = BTreeMap::new();
     let mut clock_sources = BTreeSet::new();
     for frame in &ctx.writer.data().frames {
         if frame.t_ms <= duration_ms {
@@ -1030,18 +1029,14 @@ fn bake_continuous_record_timeline(ctx: &mut RecordingCtx) {
             let Some(result) = measured_trace_result_for_bake(sample) else {
                 continue;
             };
+            if let (Some(position), Some(source)) =
+                (sample.position_samples, sample.clock_source.as_str())
+            {
+                insert_best_measure(&mut best_by_position, position, result.clone());
+                clock_sources.insert(source.to_string());
+            }
             if let Some(slot_ms) = nearest_timeline_slot(&slots, sample.t_ms) {
                 insert_best_measure(&mut best_by_ms, slot_ms, result);
-                if let (Some(position), Some(native_frames), Some(source)) = (
-                    sample.position_samples,
-                    sample.t_native_frames,
-                    sample.clock_source.as_str(),
-                ) {
-                    host_positioned_slots.insert(slot_ms);
-                    absolute_origins
-                        .insert(position.saturating_sub(native_frames.min(i64::MAX as u64) as i64));
-                    clock_sources.insert(source.to_string());
-                }
             }
         }
     }
@@ -1063,13 +1058,28 @@ fn bake_continuous_record_timeline(ctx: &mut RecordingCtx) {
 
     ctx.writer.clear_frames();
     ctx.first_frame_logged = false;
+    let mut trace_slot_positions = Vec::with_capacity(slots.len());
     let expected_frame_count = slots.len() as u64;
     let mut missing_slots = 0_u64;
-    for t_ms in slots {
-        if let Some(result) = best_by_ms.get(&t_ms) {
-            let _ = writer_append_trace_frame(ctx, t_ms, result);
-        } else {
-            missing_slots = missing_slots.saturating_add(1);
+    if !best_by_position.is_empty() {
+        for (index, (position, result)) in best_by_position
+            .iter()
+            .take(expected_frame_count as usize)
+            .enumerate()
+        {
+            let t_ms = (index as u64 + 1).saturating_mul(FRAME_INTERVAL_MS);
+            if writer_append_trace_frame(ctx, t_ms, result) {
+                trace_slot_positions.push(*position);
+            }
+        }
+        missing_slots = expected_frame_count.saturating_sub(trace_slot_positions.len() as u64);
+    } else {
+        for t_ms in slots {
+            if let Some(result) = best_by_ms.get(&t_ms) {
+                let _ = writer_append_trace_frame(ctx, t_ms, result);
+            } else {
+                missing_slots = missing_slots.saturating_add(1);
+            }
         }
     }
     let measured_frame_count = ctx.writer.data().frames.len() as u64;
@@ -1092,24 +1102,39 @@ fn bake_continuous_record_timeline(ctx: &mut RecordingCtx) {
         explicit_silence_frame_count,
     });
     let sample_rate = ctx.writer.data().sample_rate;
-    let canonical_clock = host_positioned_slots.len() as u64 == expected_frame_count
-        && absolute_origins.len() == 1
+    let slot_frames = (sample_rate as i64 / 10).max(1);
+    let positions_are_dense = trace_slot_positions.len() == ctx.writer.data().frames.len()
+        && trace_slot_positions
+            .windows(2)
+            .all(|window| window[1].saturating_sub(window[0]) == slot_frames);
+    let canonical_clock = trace_slot_positions.len() as u64 == expected_frame_count
+        && positions_are_dense
         && !clock_sources.is_empty()
         && sample_rate > 0;
     let trace_clock = canonical_clock.then(|| {
-        let origin_position_samples = *absolute_origins
-            .iter()
-            .next()
-            .expect("canonical clock has one origin");
-        let duration_samples = record_duration_samples(ctx);
+        let origin_position_samples = trace_slot_positions
+            .first()
+            .copied()
+            .expect("canonical clock has slots")
+            .saturating_sub(slot_frames);
         TraceClock {
             basis: crate::trace_alignment::TRACE_CLOCK_BASIS.to_string(),
             origin_position_samples,
-            end_position_samples: origin_position_samples
-                .saturating_add(duration_samples.min(i64::MAX as u64) as i64),
+            end_position_samples: *trace_slot_positions
+                .last()
+                .expect("canonical clock has slots"),
             sample_rate,
             sources: clock_sources.into_iter().collect(),
         }
+    });
+    // Preserve the producer's absolute slot identity even when this side alone is shorter than
+    // the provisional Record duration. A late WAV Drop can only intersect PRE/POST truthfully if
+    // both closed artifacts retain their measured positions. Completeness still gates the clock
+    // and publication below; sparse/non-positioned data never receives a slot vector.
+    ctx.writer.set_trace_slot_positions(if positions_are_dense {
+        trace_slot_positions
+    } else {
+        Vec::new()
     });
     ctx.writer.set_trace_time_axis(
         canonical_clock.then(|| crate::trace_alignment::TRACE_HOST_TIME_AXIS.to_string()),
@@ -1177,16 +1202,16 @@ fn measure_from_frame(frame: &crate::plugin_data::Frame) -> MeasureResult {
     }
 }
 
-fn insert_best_measure(
-    map: &mut BTreeMap<u64, MeasureResult>,
-    t_ms: u64,
+fn insert_best_measure<K: Copy + Ord>(
+    map: &mut BTreeMap<K, MeasureResult>,
+    key: K,
     candidate: MeasureResult,
 ) {
-    let should_replace = map.get(&t_ms).is_none_or(|existing| {
+    let should_replace = map.get(&key).is_none_or(|existing| {
         measure_quality_score(&candidate) >= measure_quality_score(existing)
     });
     if should_replace {
-        map.insert(t_ms, candidate);
+        map.insert(key, candidate);
     }
 }
 
@@ -5875,6 +5900,7 @@ mod tests {
             for t_ms in (100_u64..=1_000).step_by(FRAME_INTERVAL_MS as usize) {
                 writer.append_frame(t_ms, [0.0; 20], 0.0, -20.0, -1.0, 12.0, Some(10.0));
             }
+            writer.set_trace_slot_positions((4_800_i64..=48_000).step_by(4_800).collect());
         }
 
         pre.close().unwrap();

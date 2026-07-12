@@ -1,15 +1,15 @@
 //! Producer-owned PRE/POST TRACE axis contract.
 //!
-//! Host callback positions are instance-local diagnostics. DAWs may report different positions
-//! for PRE and POST because of PDC, callback scheduling, or wrapper behavior, so those absolute
-//! positions must never be used as a pair-wide origin. The final TRACE coordinate system is the
-//! exact dropped WAV: sample 0 through its header-derived sample count.
+//! Every metric frame is formed on an absolute native-sample boundary before Drop. Drop may
+//! rebase that already-shared grid to WAV sample zero, but it may not relabel independently
+//! measured PRE/POST windows. This keeps Studio One PDC/callback skew out of the measurement and
+//! applies the same invariant to VST3 and AU render clocks.
 
 use serde::{Deserialize, Serialize};
 
 use crate::plugin_data::PluginDataFile;
 
-pub const TRACE_ALIGNMENT_METHOD: &str = "paired_render_pass_wav_timeline_v1";
+pub const TRACE_ALIGNMENT_METHOD: &str = "shared_native_sample_slots_v1";
 pub const TRACE_ALIGNMENT_STATUS: &str = "canonical_wav_clock";
 pub const TRACE_TIME_AXIS: &str = "wav_samples_v1";
 pub const TRACE_HOST_TIME_AXIS: &str = "host_audio_samples_v2";
@@ -38,6 +38,7 @@ pub(crate) fn canonical_wav_alignment(
         || left.frames.len() != right.frames.len()
         || !has_dense_frame_grid(left)
         || !has_dense_frame_grid(right)
+        || !has_shared_native_slots(left, right)
     {
         return None;
     }
@@ -47,6 +48,20 @@ pub(crate) fn canonical_wav_alignment(
         compared_frame_count: left.frames.len() as u64,
         method: TRACE_ALIGNMENT_METHOD.to_string(),
     })
+}
+
+fn has_shared_native_slots(left: &PluginDataFile, right: &PluginDataFile) -> bool {
+    if left.sample_rate == 0
+        || left.sample_rate != right.sample_rate
+        || left.trace_slot_positions.len() != left.frames.len()
+        || left.trace_slot_positions != right.trace_slot_positions
+    {
+        return false;
+    }
+    let slot_samples = (left.sample_rate as i64 / 10).max(1);
+    left.trace_slot_positions
+        .windows(2)
+        .all(|pair| pair[1].saturating_sub(pair[0]) == slot_samples)
 }
 
 pub(crate) fn has_canonical_wav_reference(data: &PluginDataFile) -> bool {
@@ -126,6 +141,7 @@ mod tests {
             sample_rate: 96_000,
             sources: vec!["project_timeline".to_string()],
         });
+        data.trace_slot_positions = vec![6_482_947];
         data.trace_wav_reference = Some(TraceWavReference {
             basis: TRACE_WAV_REFERENCE_BASIS.to_string(),
             capture_basis: TRACE_CAPTURE_BASIS.to_string(),
@@ -156,13 +172,16 @@ mod tests {
     }
 
     #[test]
-    fn pair_contract_accepts_studio_one_instance_local_host_offsets() {
+    fn pair_contract_requires_shared_slots_even_when_instance_diagnostics_differ() {
         let pre = data(Role::Pre);
         let mut post = data(Role::Post);
         post.trace_clock.as_mut().unwrap().origin_position_samples -= 7_676;
         post.trace_clock.as_mut().unwrap().end_position_samples -= 7_676;
 
         assert!(canonical_wav_alignment(&pre, &post).is_some());
+
+        post.trace_slot_positions[0] -= 7_676;
+        assert!(canonical_wav_alignment(&pre, &post).is_none());
     }
 
     #[test]

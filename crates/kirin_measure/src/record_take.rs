@@ -19,8 +19,9 @@ const CAPTURE_CLOCK_SPAN_CAPACITY: usize = 4_096;
 /// (VST3 projectTimeSamples / AU host transport callback). `AudioRenderTimeline` is the AU
 /// render timestamp used when a host omits its optional transport callback.
 #[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub enum CaptureClockSource {
+    #[default]
     Unknown = 0,
     ProjectTimeline = 1,
     AudioRenderTimeline = 2,
