@@ -6,6 +6,13 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# A later patch may intentionally modify lines introduced by an earlier patch, making the
+# earlier patch's reverse-check inconclusive. Accept the complete tracked stack up front.
+if scripts/verify_juce_patch_state.sh >/dev/null 2>&1; then
+  echo "==> JUCE tracked patch stack already applied — skipping"
+  exit 0
+fi
+
 apply_patch_idempotent() {
   local label="$1"
   local patch="$2"
