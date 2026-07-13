@@ -82,8 +82,12 @@ fn io_thread_termination_does_not_delete_live_watch_files() {
         "PRE teardown must not remove a directory a replacement writer may be using"
     );
     assert!(
-        pre.contains("stale watch files age"),
-        "PRE source must document the mtime freshness handoff"
+        pre.contains("Dropping this thread's WatchSnapshotLease"),
+        "PRE teardown must release only its runtime-specific watch lease"
+    );
+    assert!(
+        pre.contains("mtime expiry path"),
+        "PRE source must preserve the legacy snapshot mtime handoff"
     );
 
     assert!(
@@ -99,8 +103,12 @@ fn io_thread_termination_does_not_delete_live_watch_files() {
         "POST teardown must not remove a directory a replacement writer may be using"
     );
     assert!(
-        post.contains("Freshness is mtime-gated by readers"),
-        "POST source must document the mtime freshness handoff"
+        post.contains("Dropping this thread's unique WatchSnapshotLease"),
+        "POST teardown must release only its runtime-specific watch lease"
+    );
+    assert!(
+        post.contains("mtime expiry path"),
+        "POST source must preserve the legacy snapshot mtime handoff"
     );
 }
 
