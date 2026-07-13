@@ -106,14 +106,14 @@ mod tests {
     }
 
     #[test]
-    fn post_controls_keep_visibility_depends_on_selected_pair() {
+    fn post_controls_keep_slot_is_fixed_and_availability_depends_on_selected_pair() {
         assert!(POST_CONTROLS_CPP.contains(
-            "void PostControls::update (bool recording, int license, bool pairNonEmpty)"
+            "void PostControls::update (bool recording, int license, bool pairSelected)"
         ));
-        assert!(
-            POST_CONTROLS_CPP.contains("keepBtn  .setVisible (! recording && os && pairNonEmpty);")
-        );
-        assert!(!POST_CONTROLS_CPP.contains("keepBtn  .setVisible (! recording && os);"));
+        assert!(POST_CONTROLS_CPP.contains("keepBtn  .setVisible (! recording && os);"));
+        assert!(POST_CONTROLS_CPP.contains("keepBtn  .setEnabled (pairSelected);"));
+        assert!(!POST_CONTROLS_CPP
+            .contains("keepBtn  .setVisible (! recording && os && pairSelected);"));
     }
 
     /// B-195 (Step3 監査ギャップ): PostControls::update の可視性式を **全行** 固定する。
@@ -125,12 +125,13 @@ mod tests {
     fn post_controls_update_visibility_formula_is_pinned() {
         let body = between(
             POST_CONTROLS_CPP,
-            "void PostControls::update (bool recording, int license, bool pairNonEmpty)",
+            "void PostControls::update (bool recording, int license, bool pairSelected)",
             "void PostControls::resized()",
         );
         assert!(body.contains("const bool os    = (license == 0);"));
         assert!(body.contains("const bool sense = (license == 1);"));
-        assert!(body.contains("keepBtn  .setVisible (! recording && os && pairNonEmpty);"));
+        assert!(body.contains("keepBtn  .setVisible (! recording && os);"));
+        assert!(body.contains("keepBtn  .setEnabled (pairSelected);"));
         assert!(body.contains("senseBtn .setVisible (! recording && sense);"));
         assert!(body.contains("stopBtn  .setVisible (recording && os && ! notePickerOpen);"));
         assert!(body.contains("noteBtn  .setVisible (recording && os && ! notePickerOpen);"));
@@ -152,23 +153,21 @@ mod tests {
         assert!(body.contains("const auto cands = processorRef.enumeratePreCandidates();"));
         assert!(body.contains("const auto claims = processorRef.enumeratePostPairClaims();"));
         assert!(body.contains("const juce::String currentPairName = processorRef.pairName();"));
-        assert!(body.contains("if (c.hasName && c.name.isNotEmpty())"));
-        assert!(body.contains("const bool keepReady = (c.name == currentPairName);"));
+        assert!(body.contains(
+            "const juce::String currentPreInstanceId = processorRef.pairedPreInstanceId();"
+        ));
+        assert!(body.contains("c.instanceId == currentPreInstanceId"));
         assert!(body.contains("const bool inUse = claimedByOtherPost"));
-        assert!(body.contains("const bool duplicateName = hasDuplicateCandidateName"));
         assert!(
-            body.contains("duplicateName ? \"Duplicate: \"")
-                && body.contains(
-                    "inUse ? \"In use: \" : (keepReady ? \"Keep ready: \" : \"Can Keep: \")"
-                )
+            body.contains("c.hasName && c.name.isNotEmpty()")
+                && body.contains("c.instanceId.substring (0, 8)"),
+            "unnamed PREs must remain independently selectable by an exact-id fallback label"
         );
-        assert!(body.contains("labels.add (prefix + c.name);"));
-        assert!(body.contains("labelEnabled.add (! duplicateName && ! inUse);"));
-        assert!(body.contains("labelChecked.add (! duplicateName && keepReady && ! inUse);"));
-        assert!(
-            !body.contains("instanceId.substring (0, 8)"),
-            "candidate rows must hide instance_id in normal POST menu display"
-        );
+        assert!(body.contains(
+            "labels.add ((inUse ? \"In use: \" : (keepReady ? \"Keep ready: \" : \"Can Keep: \")) + shown);"
+        ));
+        assert!(body.contains("labelEnabled.add (! inUse);"));
+        assert!(body.contains("labelChecked.add (keepReady && ! inUse);"));
         assert!(body.contains("const int nReady = processorRef.keepReadyCount();"));
         assert!(body.contains("if (! rec && processorRef.licenseIsOs() && nReady >= 1)"));
         assert!(body.contains("menu.addItem (1, allKeepMenuLabel (nReady));"));
@@ -190,15 +189,16 @@ mod tests {
     }
 
     #[test]
-    fn candidate_selection_commits_pair_name_to_processor_and_field() {
+    fn candidate_selection_commits_exact_instance_and_updates_display_field() {
         let body = between(
             PLUGIN_EDITOR_CPP,
             "void KirinHyphaEditor::handleCandidateMenu (int result)",
             "void KirinHyphaEditor::timerCallback()",
         );
 
-        assert!(body.contains("processorRef.setPairName (name);"));
+        assert!(body.contains("processorRef.setPairCandidate (candidate.instanceId, name)"));
         assert!(body.contains("nameField.setModelName (name);"));
+        assert!(body.contains("candidate.instanceId.substring (0, 8)"));
     }
 
     #[test]
@@ -519,13 +519,13 @@ mod tests {
         let window = &body[watch_branch..body.len().min(watch_branch + 2200)];
 
         assert!(
-            window.contains("if (pairNonEmpty && ! preExplicitBypassed)")
+            window.contains("if (pairSelected && ! preExplicitBypassed)")
                 && window.contains("configureForKind (Kind::WatchDelta6)")
                 && window.contains("const bool liveDelta = haveD && d.mode == 0 && ! mutedD;"),
             "JUCE POST Watch must keep the Delta+MAX grid while an explicit pair is selected"
         );
         assert!(
-            window.contains("else if (! preExplicitBypassed && pairNonEmpty)")
+            window.contains("else if (! preExplicitBypassed && pairSelected)")
                 && window.contains("displaySmoother.heldDeltaDisplay (held, t)")
                 && window.contains("const juce::Colour base = liveDelta ? COL_NORMAL : COL_MUTED;"),
             "JUCE POST Watch must use held/muted delta values for transient stale PRE reads"

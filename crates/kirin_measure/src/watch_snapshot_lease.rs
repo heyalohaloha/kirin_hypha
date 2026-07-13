@@ -10,6 +10,7 @@ use serde::Deserialize;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime};
 use uuid::Uuid;
 
 const OWNER_DIR: &str = ".watch_owners";
@@ -73,6 +74,13 @@ struct SnapshotOwner {
     watch_owner_id: String,
 }
 
+fn read_snapshot_owner(snapshot_path: &Path) -> Option<(PathBuf, SnapshotOwner)> {
+    let bytes = fs::read(snapshot_path).ok()?;
+    let snapshot = serde_json::from_slice::<SnapshotOwner>(&bytes).ok()?;
+    let instance_dir = snapshot_path.parent()?.to_path_buf();
+    Some((instance_dir, snapshot))
+}
+
 /// Legacy snapshots without `watch_owner_id` remain mtime-compatible. New snapshots must prove
 /// that their exact writer runtime still owns the instance directory.
 pub(crate) fn snapshot_owner_is_live(instance_dir: &Path, owner_id: &str) -> bool {
@@ -85,16 +93,77 @@ pub(crate) fn snapshot_owner_is_live(instance_dir: &Path, owner_id: &str) -> boo
 /// Discovery paths read only a snapshot path, so they use this small owner-only parse rather than
 /// duplicating PRE/POST wire schemas.
 pub(crate) fn snapshot_file_has_live_owner(snapshot_path: &Path) -> bool {
-    let Ok(bytes) = fs::read(snapshot_path) else {
+    let Some((instance_dir, snapshot)) = read_snapshot_owner(snapshot_path) else {
         return false;
     };
-    let Ok(snapshot) = serde_json::from_slice::<SnapshotOwner>(&bytes) else {
+    snapshot_owner_is_live(&instance_dir, &snapshot.watch_owner_id)
+}
+
+/// Current-schema evidence requires a non-empty lease ID. Legacy snapshots are intentionally not
+/// accepted here: freshness alone cannot prove that their producer runtime still exists.
+pub(crate) fn snapshot_file_has_current_live_owner(snapshot_path: &Path) -> bool {
+    let Some((instance_dir, snapshot)) = read_snapshot_owner(snapshot_path) else {
         return false;
     };
-    let Some(instance_dir) = snapshot_path.parent() else {
+    !snapshot.watch_owner_id.is_empty()
+        && snapshot_owner_is_live(&instance_dir, &snapshot.watch_owner_id)
+}
+
+/// A current runtime explicitly released the lease named by this still-present snapshot.
+///
+/// Teardown intentionally leaves Watch JSON in place; the missing marker is therefore immediate,
+/// non-timeout evidence that an exact latch may be detached and re-resolved by name. Missing or
+/// legacy snapshots return false because they do not carry that proof.
+pub(crate) fn snapshot_file_has_released_current_owner(snapshot_path: &Path) -> bool {
+    let Some((instance_dir, snapshot)) = read_snapshot_owner(snapshot_path) else {
         return false;
     };
-    snapshot_owner_is_live(instance_dir, &snapshot.watch_owner_id)
+    !snapshot.watch_owner_id.is_empty()
+        && !snapshot_owner_is_live(&instance_dir, &snapshot.watch_owner_id)
+}
+
+/// Pair-choice discovery separates runtime presence from measurement freshness.
+///
+/// Snapshots produced by current Hypha builds carry a unique owner lease. While that lease is
+/// present, the plugin runtime still exists and must remain selectable even if a transient writer
+/// failure stopped the JSON timestamp. Legacy snapshots have no lifetime proof, so they retain the
+/// bounded mtime rule and cannot remain visible forever.
+pub(crate) fn snapshot_file_is_live_pair_choice(
+    snapshot_path: &Path,
+    legacy_max_age: Duration,
+) -> bool {
+    let Some((instance_dir, snapshot)) = read_snapshot_owner(snapshot_path) else {
+        return false;
+    };
+    if !snapshot.watch_owner_id.is_empty() {
+        return snapshot_owner_is_live(&instance_dir, &snapshot.watch_owner_id);
+    }
+
+    let Ok(modified) = fs::metadata(snapshot_path).and_then(|meta| meta.modified()) else {
+        return false;
+    };
+    SystemTime::now()
+        .duration_since(modified)
+        .map(|age| age <= legacy_max_age)
+        .unwrap_or(true)
+}
+
+/// Fresh peer evidence requires both a live runtime owner (for current snapshots) and a recently
+/// published file. Pair choices can outlive this window, but the blue Paired state cannot.
+pub(crate) fn snapshot_file_is_fresh_runtime_evidence(
+    snapshot_path: &Path,
+    max_age: Duration,
+) -> bool {
+    if !snapshot_file_has_current_live_owner(snapshot_path) {
+        return false;
+    }
+    let Ok(modified) = fs::metadata(snapshot_path).and_then(|meta| meta.modified()) else {
+        return false;
+    };
+    SystemTime::now()
+        .duration_since(modified)
+        .map(|age| age <= max_age)
+        .unwrap_or(true)
 }
 
 fn owner_marker_path(instance_dir: &Path, owner_id: &str) -> Option<PathBuf> {
@@ -186,6 +255,68 @@ mod tests {
     fn invalid_owner_cannot_escape_instance_directory() {
         let instance_dir = isolated_dir("invalid");
         assert!(!snapshot_owner_is_live(&instance_dir, "../foreign"));
+        let _ = fs::remove_dir_all(instance_dir);
+    }
+
+    #[test]
+    fn live_owner_keeps_stale_snapshot_selectable_but_legacy_does_not() {
+        let instance_dir = isolated_dir("pair_choice");
+        let mut lease = WatchSnapshotLease::new();
+        lease.bind(&instance_dir).unwrap();
+        let owned = write_owned_snapshot(&instance_dir, lease.owner_id());
+        assert!(snapshot_file_is_live_pair_choice(&owned, Duration::ZERO));
+
+        let legacy = instance_dir.join("pre.json");
+        fs::write(&legacy, br#"{"v":2,"role":"PRE"}"#).unwrap();
+        std::thread::sleep(Duration::from_millis(5));
+        assert!(!snapshot_file_is_live_pair_choice(&legacy, Duration::ZERO));
+        let _ = fs::remove_dir_all(instance_dir);
+    }
+
+    #[test]
+    fn paired_evidence_requires_a_recent_write_even_with_a_live_owner() {
+        let instance_dir = isolated_dir("pair_evidence");
+        let mut lease = WatchSnapshotLease::new();
+        lease.bind(&instance_dir).unwrap();
+        let snapshot = write_owned_snapshot(&instance_dir, lease.owner_id());
+        assert!(snapshot_file_is_fresh_runtime_evidence(
+            &snapshot,
+            Duration::from_secs(1)
+        ));
+        std::thread::sleep(Duration::from_millis(5));
+        assert!(!snapshot_file_is_fresh_runtime_evidence(
+            &snapshot,
+            Duration::ZERO
+        ));
+        let _ = fs::remove_dir_all(instance_dir);
+    }
+
+    #[test]
+    fn legacy_snapshot_is_not_current_runtime_evidence() {
+        let instance_dir = isolated_dir("legacy_evidence");
+        let snapshot = instance_dir.join("pre.json");
+        fs::write(&snapshot, br#"{"v":2,"role":"PRE"}"#).unwrap();
+
+        assert!(snapshot_file_has_live_owner(&snapshot));
+        assert!(!snapshot_file_has_current_live_owner(&snapshot));
+        assert!(!snapshot_file_is_fresh_runtime_evidence(
+            &snapshot,
+            Duration::from_secs(1)
+        ));
+        let _ = fs::remove_dir_all(instance_dir);
+    }
+
+    #[test]
+    fn dropped_current_owner_is_explicit_release_evidence() {
+        let instance_dir = isolated_dir("released_owner");
+        let mut lease = WatchSnapshotLease::new();
+        lease.bind(&instance_dir).unwrap();
+        let snapshot = write_owned_snapshot(&instance_dir, lease.owner_id());
+        assert!(!snapshot_file_has_released_current_owner(&snapshot));
+
+        drop(lease);
+
+        assert!(snapshot_file_has_released_current_owner(&snapshot));
         let _ = fs::remove_dir_all(instance_dir);
     }
 }

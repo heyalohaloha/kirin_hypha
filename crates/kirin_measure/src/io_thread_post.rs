@@ -31,11 +31,11 @@ use crate::pairing_scope::{
     read_pre_at, select_target_pre_for_arm_for_post_project_in_session, LatchedPre,
 };
 use crate::plugin_data::Role as PluginDataRole;
-use crate::post_candidates::self_check_pair_claim;
+use crate::post_candidates::self_check_pair_claim_exact;
 #[cfg(test)]
 use crate::post_candidates::{
     discover_active_post_dirs, enumerate_active_post_pair_candidates, scan_post_candidates_in,
-    PostTmpJson,
+    self_check_pair_claim, PostTmpJson,
 };
 use crate::pre_discovery::PostDiscoveryState;
 #[cfg(test)]
@@ -65,7 +65,7 @@ struct SelfCheckReleaseGate {
 
 #[derive(Debug)]
 struct SelfCheckReleaseCandidate {
-    pair_pre_name: String,
+    pair_key: String,
     pair_claimed_at: f64,
     confirmations: u8,
 }
@@ -75,15 +75,15 @@ impl SelfCheckReleaseGate {
         self.candidate = None;
     }
 
-    fn observe_conflict(&mut self, pair_pre_name: &str, pair_claimed_at: f64) -> bool {
-        if pair_pre_name.is_empty() {
+    fn observe_conflict(&mut self, pair_key: &str, pair_claimed_at: f64) -> bool {
+        if pair_key.is_empty() {
             self.reset();
             return false;
         }
 
         match self.candidate.as_mut() {
             Some(candidate)
-                if candidate.pair_pre_name == pair_pre_name
+                if candidate.pair_key == pair_key
                     && candidate.pair_claimed_at == pair_claimed_at =>
             {
                 candidate.confirmations = candidate.confirmations.saturating_add(1);
@@ -91,7 +91,7 @@ impl SelfCheckReleaseGate {
             }
             _ => {
                 self.candidate = Some(SelfCheckReleaseCandidate {
-                    pair_pre_name: pair_pre_name.to_string(),
+                    pair_key: pair_key.to_string(),
                     pair_claimed_at,
                     confirmations: 1,
                 });
@@ -491,6 +491,7 @@ pub fn spawn_io_thread_post(
             // RwLock read guard 寿命を tick 内に閉じる (closure スコープから外で
             // guard を保持しない)。poison error 時は空文字 fallback (旧 schema 互換)。
             let pair_pre_name_snapshot = snapshot_pair_pre_name(&pair_pre_name_for_thread);
+            let paired_pre_instance_id_snapshot = crate::paired_pre_instance_id(&latched_pre);
             let pair_binding_generation_snapshot = (pair_binding_generation)();
             // W-281: pair_claimed_at snapshot per tick (同位相 / poison は 0.0 fallback)。
             let pair_claimed_at_snapshot =
@@ -512,20 +513,26 @@ pub fn spawn_io_thread_post(
             let self_check_allowed = !record_sm.is_recording()
                 && !transport_playing
                 && load_signal_state(&signal_state) != SignalState::Active;
-            if pair_pre_name_snapshot.is_empty() || !self_check_allowed {
+            if (pair_pre_name_snapshot.is_empty() && paired_pre_instance_id_snapshot.is_none())
+                || !self_check_allowed
+            {
                 self_check_release_gate.reset();
             } else if tick_now.duration_since(last_self_check_at) >= Duration::from_secs(1) {
                 last_self_check_at = tick_now;
-                let conflict = self_check_pair_claim(
+                let conflict = self_check_pair_claim_exact(
                     &project_dir_hint,
                     instance_id_ref,
                     &pair_pre_name_snapshot,
+                    paired_pre_instance_id_snapshot.as_deref().unwrap_or(""),
                     pair_claimed_at_snapshot,
                 );
+                let pair_key = paired_pre_instance_id_snapshot
+                    .as_deref()
+                    .unwrap_or(&pair_pre_name_snapshot);
                 if !conflict {
                     self_check_release_gate.reset();
                 } else if self_check_release_gate
-                    .observe_conflict(&pair_pre_name_snapshot, pair_claimed_at_snapshot)
+                    .observe_conflict(pair_key, pair_claimed_at_snapshot)
                 {
                     // 判定後のrename/re-Keepを古い判定で破壊しない。所有層のtransition lock内で
                     // name+generationを再照合し、現世代だった場合だけ全bindingを解放する。
@@ -536,9 +543,10 @@ pub fn spawn_io_thread_post(
                         );
                     if released {
                         log::info!(
-                            "[POST self_check] release pair: instance_id={} pair_pre_name={} (newer claim detected)",
+                            "[POST self_check] release pair: instance_id={} pair_pre_name={} paired_pre_instance_id={:?} (newer claim detected)",
                             instance_id_ref,
-                            pair_pre_name_snapshot
+                            pair_pre_name_snapshot,
+                            paired_pre_instance_id_snapshot
                         );
                         if let Ok(mut c) = pair_claimed_at_for_thread.write() {
                             *c = 0.0;
@@ -549,9 +557,10 @@ pub fn spawn_io_thread_post(
                         // W-282 / G-115-250 / A-1: Δ 表示完全リセット。
                         // B-048 LKG (`last_active=Some(snap)`) を bypass し、解放された POST に
                         // 古い Δ 値が `draw_delta_grid_frozen` で凍結保持されるのを防ぐ。
-                        if let Ok(mut d) = delta_result.lock() {
-                            *d = DeltaResult::default();
-                        }
+                        *crate::sync_recovery::lock_recover(
+                            &delta_result,
+                            "POST self_check delta",
+                        ) = DeltaResult::default();
                     }
                     self_check_release_gate.reset();
                 }
@@ -1283,28 +1292,44 @@ fn compute_latched_display_for_post_project(
     // (1) 名前変更/クリア → 即アンラッチ。
     let keep = current
         .as_ref()
-        .is_some_and(|l| !pair_pre_name.is_empty() && l.name == pair_pre_name);
+        .is_some_and(|l| l.name == pair_pre_name && !l.instance_id.is_empty());
     if current.is_some() && !keep {
         if let Ok(mut g) = latched.lock() {
             *g = None;
         }
     }
 
-    // (2) ラッチ維持中 → ラッチ先 pre.json 直読で維持/アンラッチ判定。
+    // (2) ラッチ維持中。現行leaseの明示終了だけは完全切断し、同じnameの再作成PREを
+    // 同tickで再解決できるようにする。Record中は上のfreeze分岐が先に返るため不変。
     if keep {
         let l = current.expect("keep implies current is Some");
-        match read_pre_at(&l.pre_json) {
-            // fresh + active → 通常 Δ。名前の一時不一致では解除しない。
-            Some(st) if st.fresh && st.active => {
-                let (d, ss) = compute_delta_for_pre_file(&l.pre_json, post)?;
-                return Ok((d, false, ss));
+        if crate::watch_snapshot_lease::snapshot_file_has_released_current_owner(&l.pre_json) {
+            let mut binding = latched
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if binding.as_ref().is_some_and(|current| {
+                current.instance_id == l.instance_id && current.pre_json == l.pre_json
+            }) {
+                binding.take();
+                log::info!(
+                    "[POST pairing] released PRE runtime detached: instance_id={}",
+                    l.instance_id
+                );
             }
-            // 明示 OFF は pair 維持のまま POST 単独表示に戻す。
-            Some(st) if st.signal_state == Some(SignalState::Bypassed) => {
-                return Ok(delta_pre_bypassed());
+        } else {
+            match read_pre_at(&l.pre_json) {
+                // fresh + active → 通常 Δ。名前の一時不一致では解除しない。
+                Some(st) if st.fresh && st.active => {
+                    let (d, ss) = compute_delta_for_pre_file(&l.pre_json, post)?;
+                    return Ok((d, false, ss));
+                }
+                // 明示 OFF は pair 維持のまま POST 単独表示に戻す。
+                Some(st) if st.signal_state == Some(SignalState::Bypassed) => {
+                    return Ok(delta_pre_bypassed());
+                }
+                // stale / idle / silent / missing / rename → ラッチ維持のまま muted Δ/---。
+                _ => return Ok(delta_latched_idle()),
             }
-            // stale / idle / silent / missing / rename → ラッチ維持のまま muted Δ/---。
-            _ => return Ok(delta_latched_idle()),
         }
     }
 
@@ -1377,22 +1402,23 @@ fn run_tick(
     fs::create_dir_all(instance_dir).map_err(|e| format!("create_dir_all: {e}"))?;
 
     if state != SignalState::Active {
-        let mut delta_locked = delta_result
-            .lock()
-            .map_err(|e| format!("delta Mutex poisoned: {e}"))?;
+        let mut delta_locked =
+            crate::sync_recovery::lock_recover(delta_result, "POST inactive delta");
         let previous_delta = delta_locked.clone();
         *delta_locked = resolve_delta_for_non_active_post(state, pair_pre_name, &previous_delta);
 
         // B-027 段階 3-B α-7-1 / Step 6: pair_pre_name は閉路 1 tick の snapshot。
         // Q-A7 採用案 A (post.json schema 拡張による cross-instance 公開)。
         // W-281: pair_claimed_at も同 tick snapshot を書き出す (後着優先 self check 軸)。
-        let json = serialize_post_json_minimal_with_daw_and_owner(
+        let paired_pre_instance_id = crate::paired_pre_instance_id(latched).unwrap_or_default();
+        let json = serialize_post_json_minimal_with_daw_owner_and_pair_instance(
             instance_id,
             state,
             pair_pre_name,
             pair_claimed_at,
             daw_session_id,
             watch_owner_id,
+            &paired_pre_instance_id,
         );
         crate::atomic_file::write_bytes_atomic(post_file, json.as_bytes())
             .map_err(|e| format!("atomic write: {e}"))?;
@@ -1404,10 +1430,7 @@ fn run_tick(
     // Inactive / 古t は None (= 表示 NoPre 沈黙 = commit 拒否)。
     let pair_opt = Some(pair_pre_name).filter(|s| !s.is_empty());
 
-    let post = post_result
-        .lock()
-        .map_err(|e| format!("post Mutex poisoned: {e}"))?
-        .clone();
+    let post = crate::sync_recovery::lock_recover(post_result, "POST Watch result").clone();
 
     // B-108: ラッチ意味論で表示Δを決める（select_target_pre 直呼びを廃止）。一度成立した結合は
     // 無音/停止/一時鮮度揺らぎ/同名2台目では NoPre に落とさず、解除は名前変更/クリアと PRE 実消滅のみ。
@@ -1428,9 +1451,8 @@ fn run_tick(
     // - それ以外 → resolve_delta_for_store（Active 保存 / active-pair fs-lag Stale は B-048 凍結保持
     //   / NoPre は last_active クリア）。
     {
-        let mut delta_locked = delta_result
-            .lock()
-            .map_err(|e| format!("delta Mutex poisoned: {e}"))?;
+        let mut delta_locked =
+            crate::sync_recovery::lock_recover(delta_result, "POST active delta");
         let prev_last_active = delta_locked.last_active.clone();
         *delta_locked = if store_directly {
             new_delta
@@ -1442,7 +1464,8 @@ fn run_tick(
     // B-027 段階 3-B α-7-1 / Step 6: pair_pre_name は閉路 1 tick の snapshot
     // (Q-A7 採用案 A 完成 / cross-instance 公開機構)。
     // W-281: pair_claimed_at も同 tick snapshot (後着優先 self check 判定軸)。
-    let json = serialize_post_json_with_daw_and_owner(
+    let paired_pre_instance_id = crate::paired_pre_instance_id(latched).unwrap_or_default();
+    let json = serialize_post_json_with_daw_owner_and_pair_instance(
         instance_id,
         state,
         pre_signal_state,
@@ -1451,11 +1474,89 @@ fn run_tick(
         pair_claimed_at,
         daw_session_id,
         watch_owner_id,
+        &paired_pre_instance_id,
     );
     crate::atomic_file::write_bytes_atomic(post_file, json.as_bytes())
         .map_err(|e| format!("atomic write: {e}"))?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod watch_producer_recovery_tests {
+    use super::*;
+    use std::sync::atomic::AtomicU64;
+
+    fn isolated_root() -> PathBuf {
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let root = std::env::temp_dir().join(format!(
+            "kirin_post_watch_recovery_{}_{}",
+            std::process::id(),
+            n
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        root
+    }
+
+    #[test]
+    fn active_watch_tick_recovers_poisoned_result_locks() {
+        let root = isolated_root();
+        let project_dir = root.join("project");
+        let instance_dir = project_dir.join("post-instance");
+        let post_file = instance_dir.join("post.json");
+        let post_result = Arc::new(Mutex::new(MeasureResult {
+            lufs_m: Some(-11.0),
+            ..Default::default()
+        }));
+        let delta_result = Arc::new(Mutex::new(DeltaResult::default()));
+
+        let post_poison_target = Arc::clone(&post_result);
+        let _ = std::thread::spawn(move || {
+            let _guard = post_poison_target.lock().unwrap();
+            panic!("poison fixture");
+        })
+        .join();
+        let delta_poison_target = Arc::clone(&delta_result);
+        let _ = std::thread::spawn(move || {
+            let _guard = delta_poison_target.lock().unwrap();
+            panic!("poison fixture");
+        })
+        .join();
+        assert!(post_result.is_poisoned());
+        assert!(delta_result.is_poisoned());
+
+        let state = Arc::new(AtomicU8::new(SignalState::Active as u8));
+        let latched = Mutex::new(None);
+        run_tick(
+            &project_dir,
+            &root,
+            &mut PostDiscoveryState::new(),
+            &instance_dir,
+            &post_file,
+            "post-instance",
+            "owner",
+            &post_result,
+            &delta_result,
+            &state,
+            "",
+            0.0,
+            "project",
+            "daw",
+            false,
+            &latched,
+        )
+        .expect("poisoned result locks must not stop Watch JSON");
+
+        assert!(!post_result.is_poisoned());
+        assert!(!delta_result.is_poisoned());
+
+        let parsed: PostTmpJson = serde_json::from_slice(&fs::read(&post_file).unwrap()).unwrap();
+        assert_eq!(parsed.instance_id, "post-instance");
+        assert_eq!(parsed.lufs_m, Some(-11.0));
+        assert!(!parsed.t.is_empty());
+    }
 }
 
 /// PRE ファイルをスキャンして Δ を算出する（後方互換ラッパー / 既存 integration test 用）。
@@ -1876,6 +1977,31 @@ fn serialize_post_json_with_daw_and_owner(
     daw_session_id: &str,
     watch_owner_id: &str,
 ) -> String {
+    serialize_post_json_with_daw_owner_and_pair_instance(
+        instance_id,
+        state,
+        pre_signal_state,
+        result,
+        pair_pre_name,
+        pair_claimed_at,
+        daw_session_id,
+        watch_owner_id,
+        "",
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn serialize_post_json_with_daw_owner_and_pair_instance(
+    instance_id: &str,
+    state: SignalState,
+    pre_signal_state: Option<SignalState>,
+    result: &MeasureResult,
+    pair_pre_name: &str,
+    pair_claimed_at: f64,
+    daw_session_id: &str,
+    watch_owner_id: &str,
+    paired_pre_instance_id: &str,
+) -> String {
     let t = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ");
     let pre_state_str = pre_signal_state
         .map(|s| format!(r#""{}""#, s.as_str()))
@@ -1899,8 +2025,10 @@ fn serialize_post_json_with_daw_and_owner(
     let host_process_id = crate::current_host_process_id();
     let pair_pre_name_json =
         serde_json::to_string(pair_pre_name).unwrap_or_else(|_| "\"\"".to_string());
+    let paired_pre_instance_id_json =
+        serde_json::to_string(paired_pre_instance_id).unwrap_or_else(|_| "\"\"".to_string());
     format!(
-        r#"{{"v":2,"role":"POST","instance_id":{instance_id_json},"daw_session_id":{daw_session_id},"host_process_id":{host_process_id},"watch_owner_id":{watch_owner_id},"signal_state":"{signal_state}","pre_signal_state":{pre_signal_state},"t":"{t}","pair_pre_name":{pair_pre_name},"pair_claimed_at":{pair_claimed_at},"lufs_m":{lufs_m},"true_peak":{true_peak},"crest":{crest},"psr":{psr}{phase_d}}}"#,
+        r#"{{"v":2,"role":"POST","instance_id":{instance_id_json},"daw_session_id":{daw_session_id},"host_process_id":{host_process_id},"watch_owner_id":{watch_owner_id},"signal_state":"{signal_state}","pre_signal_state":{pre_signal_state},"t":"{t}","pair_pre_name":{pair_pre_name},"paired_pre_instance_id":{paired_pre_instance_id},"pair_claimed_at":{pair_claimed_at},"lufs_m":{lufs_m},"true_peak":{true_peak},"crest":{crest},"psr":{psr}{phase_d}}}"#,
         instance_id_json = instance_id_json,
         daw_session_id = daw_session_id_json,
         host_process_id = host_process_id,
@@ -1909,6 +2037,7 @@ fn serialize_post_json_with_daw_and_owner(
         pre_signal_state = pre_state_str,
         t = t,
         pair_pre_name = pair_pre_name_json,
+        paired_pre_instance_id = paired_pre_instance_id_json,
         pair_claimed_at = pair_claimed_at,
         lufs_m = opt_f64(result.lufs_m),
         true_peak = opt_f64(result.true_peak),
@@ -1951,6 +2080,7 @@ fn serialize_post_json_minimal_with_daw(
     )
 }
 
+#[cfg(test)]
 fn serialize_post_json_minimal_with_daw_and_owner(
     instance_id: &str,
     state: SignalState,
@@ -1958,6 +2088,26 @@ fn serialize_post_json_minimal_with_daw_and_owner(
     pair_claimed_at: f64,
     daw_session_id: &str,
     watch_owner_id: &str,
+) -> String {
+    serialize_post_json_minimal_with_daw_owner_and_pair_instance(
+        instance_id,
+        state,
+        pair_pre_name,
+        pair_claimed_at,
+        daw_session_id,
+        watch_owner_id,
+        "",
+    )
+}
+
+fn serialize_post_json_minimal_with_daw_owner_and_pair_instance(
+    instance_id: &str,
+    state: SignalState,
+    pair_pre_name: &str,
+    pair_claimed_at: f64,
+    daw_session_id: &str,
+    watch_owner_id: &str,
+    paired_pre_instance_id: &str,
 ) -> String {
     let t = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ");
     // B-131 (G-115-380): instance_id / pair_pre_name を serde で JSON escape（serialize_post_json と同一契約）。
@@ -1970,8 +2120,10 @@ fn serialize_post_json_minimal_with_daw_and_owner(
     let host_process_id = crate::current_host_process_id();
     let pair_pre_name_json =
         serde_json::to_string(pair_pre_name).unwrap_or_else(|_| "\"\"".to_string());
+    let paired_pre_instance_id_json =
+        serde_json::to_string(paired_pre_instance_id).unwrap_or_else(|_| "\"\"".to_string());
     format!(
-        r#"{{"v":2,"role":"POST","instance_id":{instance_id_json},"daw_session_id":{daw_session_id},"host_process_id":{host_process_id},"watch_owner_id":{watch_owner_id},"signal_state":"{signal_state}","t":"{t}","pair_pre_name":{pair_pre_name},"pair_claimed_at":{pair_claimed_at}}}"#,
+        r#"{{"v":2,"role":"POST","instance_id":{instance_id_json},"daw_session_id":{daw_session_id},"host_process_id":{host_process_id},"watch_owner_id":{watch_owner_id},"signal_state":"{signal_state}","t":"{t}","pair_pre_name":{pair_pre_name},"paired_pre_instance_id":{paired_pre_instance_id},"pair_claimed_at":{pair_claimed_at}}}"#,
         instance_id_json = instance_id_json,
         daw_session_id = daw_session_id_json,
         host_process_id = host_process_id,
@@ -1979,6 +2131,7 @@ fn serialize_post_json_minimal_with_daw_and_owner(
         signal_state = state.as_str(),
         t = t,
         pair_pre_name = pair_pre_name_json,
+        paired_pre_instance_id = paired_pre_instance_id_json,
         pair_claimed_at = pair_claimed_at,
     )
 }
@@ -2819,6 +2972,17 @@ mod compute_delta_tests {
         fs::write(&p, json).unwrap();
         p
     }
+
+    fn attach_pre_owner(pre_json: &Path) -> crate::watch_snapshot_lease::WatchSnapshotLease {
+        let instance_dir = pre_json.parent().unwrap();
+        let mut lease = crate::watch_snapshot_lease::WatchSnapshotLease::new();
+        lease.bind(instance_dir).unwrap();
+        let mut json: serde_json::Value =
+            serde_json::from_slice(&fs::read(pre_json).unwrap()).unwrap();
+        json["watch_owner_id"] = serde_json::json!(lease.owner_id());
+        fs::write(pre_json, json.to_string()).unwrap();
+        lease
+    }
     fn latch_now() -> String {
         chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()
     }
@@ -2955,11 +3119,38 @@ mod compute_delta_tests {
         assert_eq!(d2.mode, DeltaMode::NoPre);
     }
 
-    /// T4: pre.json 削除でも、明示 pair 名が残る限りラッチは保持される。
     #[test]
-    fn latch_delete_keeps_pair_latched() {
-        let root = isolated_dir("latch_delete");
-        let p = write_pre_latch(&root, "puid-1", "iid-A", "snare", "active", &latch_now());
+    fn unnamed_exact_latch_remains_valid_until_selection_layer_clears_it() {
+        let root = isolated_dir("latch_unnamed_exact");
+        let pre_json = write_pre_latch(&root, "puid-1", "iid-A", "", "active", &latch_now());
+        let latched = std::sync::Mutex::new(Some(LatchedPre {
+            name: String::new(),
+            instance_id: "iid-A".to_string(),
+            project_dir: root.join("puid-1"),
+            pre_json,
+            daw_session_id: None,
+            host_process_id: Some(crate::post_candidates::current_host_process_id()),
+        }));
+
+        let (delta, _, _) =
+            compute_latched_display(&root, "", &latch_post(), None, false, &latched).unwrap();
+        assert_eq!(delta.mode, DeltaMode::Active);
+        assert_eq!(
+            latched
+                .lock()
+                .unwrap()
+                .as_ref()
+                .map(|pre| pre.instance_id.as_str()),
+            Some("iid-A")
+        );
+    }
+
+    /// 現行PRE leaseの終了はexact latchを完全に外し、同名の再作成へ即再接続する。
+    #[test]
+    fn released_owner_detaches_and_recreated_name_relatches() {
+        let root = isolated_dir("latch_recreate");
+        let old = write_pre_latch(&root, "puid-1", "iid-A", "snare", "active", &latch_now());
+        let lease = attach_pre_owner(&old);
         let latched = std::sync::Mutex::new(None);
         let _ = compute_latched_display(
             &root,
@@ -2971,8 +3162,8 @@ mod compute_delta_tests {
         )
         .unwrap();
         assert!(latched.lock().unwrap().is_some());
-        // 削除 → muted Δ/---。ラッチは外さない。
-        fs::remove_file(&p).unwrap();
+
+        drop(lease);
         let (d, _, _) = compute_latched_display(
             &root,
             "snare",
@@ -2983,12 +3174,12 @@ mod compute_delta_tests {
         )
         .unwrap();
         assert!(
-            latched.lock().unwrap().is_some(),
-            "pre.json 削除でも明示 pair は維持"
+            latched.lock().unwrap().is_none(),
+            "released owner must detach"
         );
-        assert_eq!(d.mode, DeltaMode::Stale);
-        // 同名 fresh PRE 再出現 → 同一ラッチから復帰。
-        write_pre_latch(&root, "puid-1", "iid-A", "snare", "active", &latch_now());
+        assert_eq!(d.mode, DeltaMode::NoPre);
+
+        write_pre_latch(&root, "puid-2", "iid-B", "snare", "active", &latch_now());
         let (d2, _, _) = compute_latched_display(
             &root,
             "snare",
@@ -2998,8 +3189,15 @@ mod compute_delta_tests {
             &latched,
         )
         .unwrap();
-        assert_eq!(d2.mode, DeltaMode::Active, "再出現で同一ラッチから復帰");
-        assert!(latched.lock().unwrap().is_some(), "再出現後もラッチ維持");
+        assert_eq!(d2.mode, DeltaMode::Active, "recreated PRE must reconnect");
+        assert_eq!(
+            latched
+                .lock()
+                .unwrap()
+                .as_ref()
+                .map(|pre| pre.instance_id.as_str()),
+            Some("iid-B")
+        );
     }
 
     /// T5: ラッチ先 pre.json が stale > NO_PRE_SECS(10s) でもアンラッチしない。
@@ -4789,6 +4987,32 @@ mod post_candidate_tests {
         post_file
     }
 
+    fn write_post_json_with_exact_claim(
+        kirin_root: &Path,
+        project_uuid: &str,
+        instance_id: &str,
+        pair_pre_name: &str,
+        paired_pre_instance_id: &str,
+        pair_claimed_at: f64,
+    ) -> PathBuf {
+        let dir = kirin_root.join(project_uuid).join(instance_id);
+        fs::create_dir_all(&dir).unwrap();
+        let post_file = dir.join("post.json");
+        let json = serialize_post_json_with_daw_owner_and_pair_instance(
+            instance_id,
+            SignalState::Active,
+            Some(SignalState::Active),
+            &MeasureResult::default(),
+            pair_pre_name,
+            pair_claimed_at,
+            "",
+            "",
+            paired_pre_instance_id,
+        );
+        fs::write(&post_file, json.as_bytes()).unwrap();
+        post_file
+    }
+
     /// (C-5 i) 他 POST が自分より新しい claim → release 必要 (true)。
     #[test]
     fn self_check_returns_true_when_other_post_has_newer_claim() {
@@ -4863,6 +5087,82 @@ mod post_candidate_tests {
         write_post_json_with_claim(&root, project_uuid, "post-other", "PRE-A", 200.0);
         let project_dir = root.join(project_uuid);
         assert!(!self_check_pair_claim(&project_dir, "post-self", "", 0.0));
+    }
+
+    #[test]
+    fn self_check_distinguishes_exact_instances_with_the_same_name() {
+        let root = unique_root("self_check_exact_same_name");
+        let project_uuid = "pj-X";
+        write_post_json_with_exact_claim(
+            &root,
+            project_uuid,
+            "post-self",
+            "PRE-A",
+            "pre-instance-a",
+            100.0,
+        );
+        write_post_json_with_exact_claim(
+            &root,
+            project_uuid,
+            "post-other",
+            "PRE-A",
+            "pre-instance-b",
+            200.0,
+        );
+        assert!(!self_check_pair_claim_exact(
+            &root.join(project_uuid),
+            "post-self",
+            "PRE-A",
+            "pre-instance-a",
+            100.0,
+        ));
+    }
+
+    #[test]
+    fn self_check_matches_exact_instance_even_if_display_name_changed() {
+        let root = unique_root("self_check_exact_renamed");
+        let project_uuid = "pj-X";
+        write_post_json_with_exact_claim(
+            &root,
+            project_uuid,
+            "post-other",
+            "RENAMED",
+            "pre-instance-a",
+            200.0,
+        );
+        assert!(self_check_pair_claim_exact(
+            &root.join(project_uuid),
+            "post-self",
+            "PRE-A",
+            "pre-instance-a",
+            100.0,
+        ));
+    }
+
+    #[test]
+    fn self_check_keeps_bypassed_post_claim_exclusive() {
+        let root = unique_root("self_check_exact_bypassed");
+        let project_uuid = "pj-X";
+        let post_file = write_post_json_with_exact_claim(
+            &root,
+            project_uuid,
+            "post-other",
+            "PRE-A",
+            "pre-instance-a",
+            200.0,
+        );
+        let mut json: serde_json::Value =
+            serde_json::from_slice(&fs::read(&post_file).unwrap()).unwrap();
+        json["signal_state"] = serde_json::json!("bypassed");
+        fs::write(post_file, json.to_string()).unwrap();
+
+        assert!(self_check_pair_claim_exact(
+            &root.join(project_uuid),
+            "post-self",
+            "PRE-A",
+            "pre-instance-a",
+            100.0,
+        ));
     }
 }
 

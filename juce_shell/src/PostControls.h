@@ -8,7 +8,7 @@
 
 // B-054: POST button row, element-for-element with hypha_post draw_button_row.
 // States (license-gated; Os = license code 0, Sense = 1):
-//   Watch  (not recording): [Keep] (Os, only when pair non-empty) | Sense hint (Sense) | nothing (Unknown)
+//   Watch  (not recording): [Keep] (Os, fixed slot; disabled only while Unpaired) | Sense hint (Sense) | nothing (Unknown)
 //   Record (recording):     [Stop] [Note] (Os)  →  Note opens [Good] [Fix] [Hold] [Cancel]
 // The playback pair-lock does NOT affect these (約束 5 #5: Stop/Keep/Note stay available); only
 // the pair-name field is locked during playback (handled in the editor). All actions are routed
@@ -39,7 +39,7 @@ namespace hypha
         std::function<void()>                     onSenseHint;  // open upsell URL
 
         // Rebuild visibility for the current state. license: 0=Os 1=Sense 2=Unknown.
-        void update (bool recording, int license, bool pairNonEmpty);
+        void update (bool recording, int license, bool pairSelected);
 
         void resized() override;
 

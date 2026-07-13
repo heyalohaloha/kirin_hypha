@@ -7,6 +7,7 @@ pub mod background;
 pub mod common;
 pub mod display_smoothing;
 pub mod led;
+pub mod pair_indicator;
 pub mod palette;
 pub mod playback_max;
 
@@ -15,6 +16,7 @@ pub use common::{
     flora_line, fmt_delta, fmt_val, pairing_label, tp_color, tp_over, val_color, value_row,
 };
 pub use led::{derive_led_state, display_signal_state_for_led, led_color, LedState};
+pub use pair_indicator::{draw_pair_indicator, pair_indicator_color, pair_indicator_text};
 pub use palette::{
     BG, COL_FLORA, COL_FLORA_BRIGHT, COL_LED_BLUE, COL_LED_GREEN, COL_LED_GREY, COL_LED_YELLOW,
     COL_MUTED, COL_NORMAL,

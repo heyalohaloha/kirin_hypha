@@ -46,6 +46,9 @@ public:
     bool isRecording() const;                          // FFI kirin_hypha_is_recording (Watch/Record toggle)
     juce::String pairName() const { return persistPairName; }
     void setPairName (const juce::String& name);       // persist + set_pair_target (sanitized in FFI)
+    bool setPairCandidate (const juce::String& instanceId, const juce::String& name);
+    int pairStatus() const;                            // 0=Unpaired 1=Waiting 2=Paired
+    juce::String pairedPreInstanceId() const;
     bool keepPair();                                    // kirin_hypha_keep (Os + unique PRE)
     bool recordExclusionConflict() const;               // B-118 (②): kirin_hypha_record_exclusion_conflict (advisory only)
     juce::String recordErrorMessage() const;            // B-118 (③): kirin_hypha_record_error_message (io fail status / G-115-29)
@@ -71,7 +74,14 @@ public:
 
     // --- B-102: POST broadcast (All Keep / All Stop) + candidate enumeration (new↔new) -----
     struct PreCandidate { juce::String instanceId; juce::String name; bool hasName = false; };
-    struct PostPairClaim { juce::String instanceId; juce::String pairPreName; bool hasPairPreName = false; };
+    struct PostPairClaim
+    {
+        juce::String instanceId;
+        juce::String pairPreName;
+        bool hasPairPreName = false;
+        juce::String pairedPreInstanceId;
+        bool hasPairedPreInstanceId = false;
+    };
     bool keepAll();                                       // FFI kirin_hypha_keep_all (broadcast + self keep)
     void stopAll();                                       // FFI kirin_hypha_stop_all (broadcast + self stop)
     juce::Array<PreCandidate> enumeratePreCandidates() const; // FFI kirin_hypha_enumerate_pre_candidates

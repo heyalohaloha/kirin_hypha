@@ -103,6 +103,8 @@ typedef struct {
   char instance_id[64];
   char pair_pre_name[64];
   uint8_t has_pair_pre_name;
+  char paired_pre_instance_id[64];
+  uint8_t has_paired_pre_instance_id;
 } KirinPostPairClaim;
 
 /* ランタイム生成. sample_rate!=48000 は内部で 48k 変換. num_channels は 1=mono / 2=stereo. */
@@ -152,6 +154,15 @@ void kirin_hypha_enable_post_writes(KirinHypha* handle);
  * 値は内部で sanitize される（ASCII graphic + space / 最大 16 文字）. PRE 名と同一語彙.
  * enable_post_writes 後でも live 反映（io_thread と Arc 共有）. */
 void kirin_hypha_set_pair_target(KirinHypha* handle, const char* name);
+
+/* Dropdown で選んだ exact PRE instance を即時ラッチする. live/in-scope なら true. */
+bool kirin_hypha_select_pair_candidate(KirinHypha* handle, const char* instance_id);
+
+/* Pair status: 0=Unpaired, 1=Waiting, 2=Paired. KEEP/Record 状態とは独立. */
+uint8_t kirin_hypha_pair_status(KirinHypha* handle);
+
+/* POST がラッチ中の exact PRE instance_id を out へ書く. 未ラッチ=false. */
+bool kirin_hypha_get_paired_pre_instance_id(KirinHypha* handle, char* out, size_t out_len);
 
 /* PRE の自名（pre name）を設定（B-054 / set_pair_target と完全対称）. NULL=空文字.
  * 値は内部で sanitize される（ASCII graphic + space / 最大 16 文字）. POST 側 pair target と

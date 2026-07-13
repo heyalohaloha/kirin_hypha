@@ -453,6 +453,35 @@ void KirinHyphaProcessorBase::setPairName (const juce::String& name)
         kirin_hypha_set_pair_target (hyphaHandle, name.toRawUTF8());
 }
 
+bool KirinHyphaProcessorBase::setPairCandidate (const juce::String& instanceId,
+                                                const juce::String& name)
+{
+    const juce::ScopedLock sl (handleLock);
+    if (hyphaHandle == nullptr)
+        return false;
+    const bool selected = kirin_hypha_select_pair_candidate (hyphaHandle, instanceId.toRawUTF8());
+    if (selected)
+        persistPairName = name;
+    return selected;
+}
+
+int KirinHyphaProcessorBase::pairStatus() const
+{
+    const juce::ScopedLock sl (handleLock);
+    return hyphaHandle != nullptr ? (int) kirin_hypha_pair_status (hyphaHandle) : 0;
+}
+
+juce::String KirinHyphaProcessorBase::pairedPreInstanceId() const
+{
+    const juce::ScopedLock sl (handleLock);
+    if (hyphaHandle == nullptr)
+        return {};
+    char out[64] = { 0 };
+    return kirin_hypha_get_paired_pre_instance_id (hyphaHandle, out, sizeof (out))
+             ? juce::String::fromUTF8 (out)
+             : juce::String();
+}
+
 bool KirinHyphaProcessorBase::keepPair()
 {
     const juce::ScopedLock sl (handleLock);
@@ -636,6 +665,8 @@ juce::Array<KirinHyphaProcessorBase::PostPairClaim> KirinHyphaProcessorBase::enu
         c.instanceId      = juce::String::fromUTF8 (buf[i].instance_id);
         c.pairPreName     = juce::String::fromUTF8 (buf[i].pair_pre_name);
         c.hasPairPreName  = (buf[i].has_pair_pre_name != 0);
+        c.pairedPreInstanceId = juce::String::fromUTF8 (buf[i].paired_pre_instance_id);
+        c.hasPairedPreInstanceId = (buf[i].has_paired_pre_instance_id != 0);
         out.add (c);
     }
     return out;

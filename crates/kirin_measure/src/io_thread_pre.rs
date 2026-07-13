@@ -1492,18 +1492,7 @@ fn write_json(
     let state = load_signal_state(signal_state);
 
     let json = if state == SignalState::Active {
-        let measure = result
-            .lock()
-            .map_err(|e| {
-                // B-047 / G-115-247: Mutex poison は Measure Thread panic 後の永続障害。
-                // pre.json の `t` field 更新が止まり、POST 側で DeltaMode::Stale/NoPre 化する真因。
-                log::error!(
-                    "[PRE write_json] Mutex poisoned — t field NOT updated (instance_id={}, err={})",
-                    instance_id, e
-                );
-                format!("Mutex poisoned: {e}")
-            })?
-            .clone();
+        let measure = crate::sync_recovery::lock_recover(result, "PRE write_json").clone();
         serialize_pre_json_with_daw_session_id_and_owner(
             instance_id,
             name,
@@ -4134,6 +4123,45 @@ mod tests {
         assert!(json.contains(r#""lufs_m":-14.000"#));
         // bus フィールドは削除済（A-3 修正後）
         assert!(!json.contains(r#""bus""#));
+    }
+
+    #[test]
+    fn active_watch_write_recovers_after_measure_result_poison() {
+        let dir = isolated_base();
+        let file = dir.join("pre-instance").join("pre.json");
+        let result = Arc::new(Mutex::new(MeasureResult {
+            lufs_m: Some(-17.5),
+            ..Default::default()
+        }));
+        let poison_target = Arc::clone(&result);
+        let _ = std::thread::spawn(move || {
+            let _guard = poison_target.lock().unwrap();
+            panic!("poison fixture");
+        })
+        .join();
+        assert!(result.is_poisoned());
+
+        let signal_state = Arc::new(AtomicU8::new(SignalState::Active as u8));
+        write_json(
+            &file,
+            "pre-instance",
+            "Mix",
+            "daw",
+            "owner",
+            &result,
+            &signal_state,
+        )
+        .expect("poisoned result must not stop Watch JSON");
+
+        assert!(
+            !result.is_poisoned(),
+            "producer recovery must let the restarted Measure Thread write again"
+        );
+
+        let json: serde_json::Value = serde_json::from_slice(&fs::read(&file).unwrap()).unwrap();
+        assert_eq!(json["instance_id"], "pre-instance");
+        assert_eq!(json["lufs_m"], -17.5);
+        assert!(json["t"].as_str().is_some_and(|t| !t.is_empty()));
     }
 
     #[test]

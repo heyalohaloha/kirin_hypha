@@ -15,6 +15,38 @@ fn read_repo(path: &str) -> String {
 }
 
 #[test]
+fn au_and_vst3_share_pair_status_and_control_geometry_contract() {
+    let ffi_header = read_repo("crates/kirin_hypha_ffi/include/kirin_hypha_ffi.h");
+    for symbol in [
+        "kirin_hypha_select_pair_candidate",
+        "kirin_hypha_pair_status",
+        "kirin_hypha_get_paired_pre_instance_id",
+    ] {
+        assert!(ffi_header.contains(symbol), "FFI must expose {symbol}");
+    }
+
+    let rust_indicator = read_repo("crates/hypha_gui/src/pair_indicator.rs");
+    let juce_editor = read_repo("juce_shell/src/PluginEditor.cpp");
+    for text in ["PAIR —", "PAIR ◌", "PAIR ●"] {
+        assert!(rust_indicator.contains(text), "VST3 missing {text}");
+        assert!(juce_editor.contains(text), "AU missing {text}");
+    }
+    assert!(juce_editor.contains("setSize (300, 200)"));
+    assert!(juce_editor
+        .contains("postControls->setBounds (kMargin, afterMetric + 4, w - 2 * kMargin, 26)"));
+
+    let rust_post = read_repo("crates/hypha_post/src/editor.rs");
+    assert!(rust_post.contains("egui::Button::new(\"Keep\").min_size(Vec2::new(width, 26.0))"));
+    assert!(rust_post.contains(".add_sized([width, 26.0], egui::Button::new(\"Stop\"))"));
+    assert!(rust_post.contains(".add_sized([width, 26.0], egui::Button::new(\"Note\"))"));
+
+    let juce_controls = read_repo("juce_shell/src/PostControls.cpp");
+    assert!(juce_controls.contains("keepBtn  .setVisible (! recording && os)"));
+    assert!(juce_controls.contains("keepBtn  .setEnabled (pairSelected)"));
+    assert!(rust_post.contains("pair_status != PairStatus::Unpaired"));
+}
+
+#[test]
 fn juce_wrappers_forward_host_presentation_latency_as_diagnostics() {
     let ffi_header = read_repo("crates/kirin_hypha_ffi/include/kirin_hypha_ffi.h");
     assert!(ffi_header.contains("KIRIN_HYPHA_PRESENTATION_SOURCE_VST3 1"));

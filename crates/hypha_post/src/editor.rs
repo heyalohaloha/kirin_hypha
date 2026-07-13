@@ -26,22 +26,24 @@
 //! （赤系禁止。色相同一・明度増）。
 
 use hypha_gui::{
-    derive_led_state, display_signal_state_for_led, display_smoothing::DisplaySmoother, fmt_delta,
-    fmt_val, led_color, pairing_label, tp_over, val_color, BackgroundTexture, PlaybackMaxTracker,
-    BG, COL_FLORA, COL_FLORA_BRIGHT, COL_MUTED, COL_NORMAL,
+    derive_led_state, display_signal_state_for_led, display_smoothing::DisplaySmoother,
+    draw_pair_indicator, fmt_delta, fmt_val, led_color, tp_over, val_color, BackgroundTexture,
+    PlaybackMaxTracker, BG, COL_FLORA, COL_FLORA_BRIGHT, COL_MUTED, COL_NORMAL,
 };
 use kirin_measure::reservation; // B-127 (G-115-365): egui parity — per-pairing O_EXCL frame
 use kirin_measure::{
     active_post_project_uuids_for_broadcast_scope, all_keep_signal_path, all_stop_signal_path,
     append_annotation_to_latest, count_distinct_pairings, current_host_process_id,
     delete_broadcast, enumerate_active_post_pair_candidates,
-    enumerate_active_post_pair_candidates_for_broadcast_scope,
-    enumerate_active_pre_pair_candidates_for_post_project_in_session, exit_record_preserve_pair,
+    enumerate_active_post_pair_candidates_for_broadcast_scope, enumerate_live_post_pair_candidates,
+    enumerate_live_post_pair_candidates_for_broadcast_scope,
+    enumerate_live_pre_pair_choices_for_post_project_in_session, exit_record_preserve_pair,
     format_pair_label, load_signal_state, lookup_section_label, mark_released_with_reason,
-    pair_lock_active, resolve_arm_target_for_post_project_in_session, sanitize_name,
-    scan_latest_v2_preset, show_note_button, show_save_button, show_stop_record_button,
-    write_broadcast, write_pending_claiming_expected_and_clock, write_stop_broadcast, DeltaMode,
-    DeltaResult, DeltaSnapshot, LatchedPre, License, LiveLicense, LivenessEvaluator, MeasureResult,
+    pair_lock_active, pair_status_for_post, resolve_arm_target_for_post_project_in_session,
+    resolve_published_pair_claim_for_arm, sanitize_name, scan_latest_v2_preset, show_note_button,
+    show_save_button, show_stop_record_button, write_broadcast,
+    write_pending_claiming_expected_and_clock, write_stop_broadcast, DeltaMode, DeltaResult,
+    DeltaSnapshot, LatchedPre, License, LiveLicense, LivenessEvaluator, MeasureResult, PairStatus,
     PlatformPaths, PluginDataRole, PostCandidate, PreCandidate, PresetFileV2, RecordStateMachine,
     ReleaseReason, SignalState, StoragePaths, MAX_ACTIVE_PER_PROJECT, SENSE_RECORD_HINT,
     SENSE_UPSELL_URL,
@@ -52,7 +54,6 @@ use nih_plug_egui::{
     egui::{self, Grid, Key, Label, RichText, Sense, Stroke, TextEdit, TextStyle, Vec2},
     EguiState,
 };
-use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, LazyLock, Mutex, RwLock};
 use std::time::Duration;
@@ -97,6 +98,36 @@ fn epoch_secs_now() -> f64 {
 /// convenient selector; `paired_pre_target`/`latched_pre` are session facts and
 /// must never survive a name change.
 fn replace_pair_pre_name(state: &PostEditorState, new_name: String, claimed_at: f64) {
+    replace_pair_selection(state, new_name, claimed_at, None);
+}
+
+fn replace_pair_pre_candidate(state: &PostEditorState, candidate: &PreCandidate, claimed_at: f64) {
+    let Some(project_dir) = candidate
+        .path
+        .parent()
+        .and_then(|instance_dir| instance_dir.parent())
+        .map(std::path::Path::to_path_buf)
+    else {
+        return;
+    };
+    let name = candidate.name.clone().unwrap_or_default();
+    let selected = LatchedPre {
+        name: name.clone(),
+        instance_id: candidate.instance_id.clone(),
+        project_dir,
+        pre_json: candidate.path.clone(),
+        daw_session_id: candidate.daw_session_id.clone(),
+        host_process_id: candidate.host_process_id,
+    };
+    replace_pair_selection(state, name, claimed_at, Some(selected));
+}
+
+fn replace_pair_selection(
+    state: &PostEditorState,
+    new_name: String,
+    claimed_at: f64,
+    new_latch: Option<LatchedPre>,
+) {
     // Keep the selector write-locked until both exact-instance slots have been
     // detached. IO readers can therefore observe either the complete old
     // binding or the complete new unbound selector, never a new name carrying
@@ -106,7 +137,19 @@ fn replace_pair_pre_name(state: &PostEditorState, new_name: String, claimed_at: 
         .write()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     if *name == new_name {
-        return;
+        let requested_exact = new_latch.as_ref().map(|pre| pre.instance_id.as_str());
+        let current_exact = state
+            .latched_pre
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .as_ref()
+            .map(|pre| pre.instance_id.clone());
+        let same_exact = requested_exact.is_some() && current_exact.as_deref() == requested_exact;
+        let same_name_only =
+            requested_exact.is_none() && (!new_name.is_empty() || current_exact.is_none());
+        if same_exact || same_name_only {
+            return;
+        }
     }
 
     let was_recording = state.record_sm.is_recording();
@@ -149,6 +192,12 @@ fn replace_pair_pre_name(state: &PostEditorState, new_name: String, claimed_at: 
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner()) = DeltaResult::default();
     *name = new_name;
+    if let Some(selected) = new_latch {
+        *state
+            .latched_pre
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(selected);
+    }
     *state
         .pair_claimed_at
         .write()
@@ -432,18 +481,14 @@ pub fn create_post_editor(args: PostEditorArgs) -> Option<Box<dyn Editor>> {
                 state.note_picker_open = false;
             }
             let ack = state.record_acknowledged.load(Ordering::Relaxed);
-            let pair = state
-                .pair_label
-                .lock()
-                .map(|g| g.clone())
-                .unwrap_or_default();
             let pair_pre_name_snapshot = state
                 .pair_pre_name
                 .read()
                 .ok()
                 .map(|g| g.clone())
                 .unwrap_or_default();
-            let pair_empty_for_display = pair_pre_name_snapshot.is_empty();
+            let pair_status = pair_status_for_post(&pair_pre_name_snapshot, &state.latched_pre);
+            let pair_empty_for_display = pair_status == PairStatus::Unpaired;
             let license = state.license.load();
 
             let now = ctx.input(|i| i.time);
@@ -554,7 +599,7 @@ pub fn create_post_editor(args: PostEditorArgs) -> Option<Box<dyn Editor>> {
                 &d,
                 sig,
                 recording,
-                &pair,
+                pair_status,
                 led_col,
                 show_banner,
                 license,
@@ -583,7 +628,7 @@ fn draw_post(
     d: &DeltaResult,
     sig: SignalState,
     recording: bool,
-    pair: &str,
+    pair_status: PairStatus,
     led_col: egui::Color32,
     show_banner: bool,
     license: License,
@@ -602,16 +647,11 @@ fn draw_post(
             ui.horizontal(|ui| {
                 ui.add_space(10.0);
                 ui.label(RichText::new("POST").size(20.0).color(COL_NORMAL));
-                // A-3 修正後の pair_label 表示ルール:
-                //   Record 中 = "pair: PRE_xxxxxxxx" を表示（trigger_keep が設定）
-                //   Watch 中  = 描画自体を省略（pair_label は空文字に保たれる）
-                if recording {
-                    ui.add_space(6.0);
-                    pairing_label(ui, pair);
-                }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.add_space(10.0);
                     draw_led(ui, led_col);
+                    ui.add_space(6.0);
+                    draw_pair_indicator(ui, pair_status);
                 });
             });
             ui.add_space(4.0);
@@ -647,13 +687,7 @@ fn draw_post(
             // pair_empty=true (pair_pre_name="") のとき GUI 側で draw_watch_absolute_grid
             // を強制し、IO Thread `delta_result` の状態 (W-282 reset 後の次 tick run_tick
             // pass-through Δ 再計算で last_active 復活) に依らず確実に絶対値表示にする。
-            let pair_pre_name_snapshot = state
-                .pair_pre_name
-                .read()
-                .ok()
-                .map(|g| g.clone())
-                .unwrap_or_default();
-            let pair_empty = pair_pre_name_snapshot.is_empty();
+            let pair_empty = pair_status == PairStatus::Unpaired;
 
             match sig {
                 SignalState::Bypassed => {
@@ -672,14 +706,10 @@ fn draw_post(
                         // last_active=None (初回起動 / Active 未経験) は既存 fallback
                         draw_inactive_grid(ui);
                     }
-                    ui.add_space(4.0);
-                    draw_button_row(ui, recording, license, state, m, now);
                 }
                 SignalState::Active => {
                     if recording {
                         draw_record_section(ui, m, d, display_muted);
-                        ui.add_space(4.0);
-                        draw_button_row(ui, true, license, state, m, now);
                     } else {
                         // Watch 表示は pair 選択をグリッド形状の権威にする。
                         // PRE 明示 Bypassed だけは POST 単独の絶対値表示へ戻す。
@@ -703,17 +733,11 @@ fn draw_post(
                                 }
                             }
                         }
-                        ui.add_space(4.0);
-                        // W-283 / G-115-251 / W-3: pair_empty 時は Keep ボタンを表示しない
-                        // (pair 未設定で Keep 押下しても pair_pre_name 空文字で trigger_keep
-                        // 経由保存される問題を構造的に防ぐ / Active arm 内限定 / Inactive
-                        // arm の draw_button_row は変更なし)。
-                        if !pair_empty {
-                            draw_button_row(ui, false, license, state, m, now);
-                        }
                     }
                 }
             }
+            ui.add_space(4.0);
+            draw_button_row(ui, recording, license, state, m, now, pair_status);
 
             // draw_proposals_block は R-28 沈黙: 表示対象がなければ何も描かず、
             // ここで allocate した add_space ぶんだけが残る。allocate は関数
@@ -1214,14 +1238,13 @@ fn draw_pair_pre_name_field(ui: &mut egui::Ui, state: &mut PostEditorState, pair
 
 /// B-027 段階 3-A 修正 (G-115-49 / α-2 撤回): pair PRE 候補 ComboBox dropdown。
 ///
-/// `kirin_root` (`$TMPDIR/kirin/`) 配下から、この POST が実際に Keep 可能な PRE だけを列挙する。
-/// DAW identity が同一 scope として矛盾しない候補、または同一 host の単一 POST 棚候補だけを表示する。
-/// 別 POST 棚が同一 host 内に見えて scope が曖昧なときは候補を閉じる。利用者は候補一覧から
-/// Name 識別 (B-027 段階 2 `pair_pre_name` filter) で目的 PRE を選ぶ運用となる。
+/// `kirin_root` (`$TMPDIR/kirin/`) 配下から、このPOSTと同一runtime scopeのlive PREを列挙する。
+/// 明示クリックはexact instanceを確定し、名前は再接続用selectorとして保持する。計測timestampが
+/// 一時的に古い場合やBypass中でもruntime leaseが生きていれば候補から消さない。
 ///
 /// クリック確定時:
-/// - `name` 持ち PRE → `pair_pre_name = name`（filter_candidates_by_name で 1 件絞れる）
-/// - `name = None`   → `pair_pre_name = ""`（filter pass-through / Keep 距離優先）
+/// - `name` 持ち PRE → exact instance + `pair_pre_name = name`
+/// - `name = None`   → exact instance + `pair_pre_name = ""`
 ///
 /// 0 候補時は `ui.label("No pair choices")` を出す（dropdown 内空表示）。
 /// egui 0.31.1 公式 API: `ComboBox::from_id_salt` (旧 `from_id_source` は廃止)。
@@ -1234,25 +1257,38 @@ fn draw_pair_pre_combo(
     let kirin_root = PlatformPaths::current_kirin_tmp_root();
     let current_project_hash = read_project_hash_arc(&state.project_hash);
     let current_daw_session_id = read_daw_session_id_arc(&state.daw_session_id);
-    let pre_candidates = enumerate_active_pre_pair_candidates_for_post_project_in_session(
+    let pre_candidates = enumerate_live_pre_pair_choices_for_post_project_in_session(
         &kirin_root,
         &current_project_hash,
         &current_daw_session_id,
     );
     // B-027 段階 3-B α-7-3 / Step 9: All Keep 行 N 集計のため POST candidates も取得。
     // ComboBox 先頭行の "All Keep: N ready POST(s)" 表示と display 判定 (N>=1) に使用。
-    let post_candidates = enumerate_active_post_pair_candidates_for_broadcast_scope(
+    let post_candidates = enumerate_live_post_pair_candidates_for_broadcast_scope(
         &kirin_root,
         &current_daw_session_id,
         current_host_process_id(),
     );
     let post_candidates: Vec<_> = if post_candidates.is_empty() {
-        enumerate_active_post_pair_candidates(&kirin_root)
+        enumerate_live_post_pair_candidates(&kirin_root)
             .into_iter()
             .filter(|c| c.project_uuid == current_project_hash)
             .collect()
     } else {
         post_candidates
+    };
+    let ready_post_candidates = enumerate_active_post_pair_candidates_for_broadcast_scope(
+        &kirin_root,
+        &current_daw_session_id,
+        current_host_process_id(),
+    );
+    let ready_post_candidates: Vec<_> = if ready_post_candidates.is_empty() {
+        enumerate_active_post_pair_candidates(&kirin_root)
+            .into_iter()
+            .filter(|candidate| candidate.project_uuid == current_project_hash)
+            .collect()
+    } else {
+        ready_post_candidates
     };
     // α-7' All Stop: 自身が recording=true (Record 中) なら All Stop 行を出す。
     let recording = state.record_sm.is_recording();
@@ -1305,20 +1341,16 @@ fn draw_pair_pre_combo(
             // (broadcast 失敗で自身まで pair 不可になることを構造的に回避)。
             // α-7': recording=true 時は All Keep 行を非表示 (Record 中は Keep 不要)。
             let n_ready = if state.license.load() == License::Os {
-                post_candidates
+                ready_post_candidates
                     .iter()
                     .filter(|post| {
-                        let Some(name) = post.pair_pre_name.as_deref().filter(|n| !n.is_empty())
-                        else {
-                            return false;
-                        };
                         let session = post.daw_session_id.as_deref().unwrap_or("");
-                        resolve_arm_target_for_post_project_in_session(
+                        resolve_published_pair_claim_for_arm(
                             &kirin_root,
-                            name,
+                            post.pair_pre_name.as_deref(),
+                            post.paired_pre_instance_id.as_deref(),
                             &post.project_uuid,
                             session,
-                            &Mutex::new(None),
                         )
                         .is_some()
                     })
@@ -1419,6 +1451,7 @@ fn draw_pair_pre_combo(
                 .read()
                 .map(|g| g.clone())
                 .unwrap_or_default();
+            let current_pre_instance_id = kirin_measure::paired_pre_instance_id(&state.latched_pre);
             let pre_inner = ui.add_enabled_ui(!pair_locked, |ui| {
                 ui.label(
                     RichText::new("Pair choices (not Keep targets)")
@@ -1426,17 +1459,7 @@ fn draw_pair_pre_combo(
                         .color(COL_MUTED)
                         .monospace(),
                 );
-                let named_candidates: Vec<_> = pre_candidates
-                    .iter()
-                    .filter(|cand| !cand.name.as_deref().unwrap_or("").is_empty())
-                    .collect();
-                let mut name_counts = BTreeMap::<&str, usize>::new();
-                for cand in &named_candidates {
-                    if let Some(name) = cand.name.as_deref() {
-                        *name_counts.entry(name).or_default() += 1;
-                    }
-                }
-                if named_candidates.is_empty() {
+                if pre_candidates.is_empty() {
                     ui.label(
                         RichText::new("No pair choices")
                             .size(11.0)
@@ -1445,32 +1468,25 @@ fn draw_pair_pre_combo(
                     );
                     return;
                 }
-                for cand in named_candidates {
-                    // W-285 / G-115-253: PRE name="" (空文字 / 旧 schema 不在 None) の
-                    // 候補は dropdown から除外する。PRE name 不在候補を表示して選ばせると、
-                    // pair_pre_name が実PRE nameと一致せず NoPre 化する誤導につながるため、
-                    // 表示・選択のみ抑止 / single pass-through (pair_pre_name="" 時の
-                    // 1 件環境) など他経路は無影響。
+                for cand in &pre_candidates {
                     let cand_name = cand.name.as_deref().unwrap_or("");
-                    // B-027 段階 3 (a) 仮説 2 (G-115-53): instance_id (UUID v4) で push_id
-                    // 化し widget identity を sort 順入替に対して固定する。
+                    // Exact snapshot path で push_id 化し、widget identity をsort順入替に対して
+                    // 固定する。同じrestored instance_idが別shelfに並んでもrow IDは衝突しない。
                     // selectable_label の auto-ID は label_text 文字列ハッシュに依存
                     // するため、同 index 位置の text 変動で press/release フレーム間の
                     // ID 不一致 → clicked() event 喪失 (#5-A-3 異常 2) を起こす。
                     // push_id で外側スコープ ID を固定すると本問題が構造的に解消する。
-                    ui.push_id(cand.instance_id.as_str(), |ui| {
+                    ui.push_id(&cand.path, |ui| {
                         let keep_status = candidate_keep_status(
+                            &cand.instance_id,
                             cand_name,
                             &current_instance_id_for_status,
                             &current_pair_pre_name_for_status,
+                            current_pre_instance_id.as_deref(),
                             &post_candidates,
-                            name_counts.get(cand_name).copied().unwrap_or(0) > 1,
                         );
                         let label_text = candidate_dropdown_label(cand, keep_status);
-                        let row_enabled = !matches!(
-                            keep_status,
-                            CandidateKeepStatus::InUseByOther | CandidateKeepStatus::DuplicateName
-                        );
+                        let row_enabled = !matches!(keep_status, CandidateKeepStatus::InUseByOther);
                         let clicked = ui
                             .add_enabled_ui(row_enabled, |ui| {
                                 ui.selectable_label(
@@ -1481,15 +1497,7 @@ fn draw_pair_pre_combo(
                             })
                             .inner;
                         if clicked {
-                            let new_name = cand.name.clone().unwrap_or_default();
-                            // W-281 / G-115-249 / B-2: 非空 claim → epoch_secs_now() /
-                            // 空文字 (PRE name が None だった候補 click) → 0.0。
-                            let new_claimed_at = if !new_name.is_empty() {
-                                epoch_secs_now()
-                            } else {
-                                0.0
-                            };
-                            replace_pair_pre_name(state, new_name, new_claimed_at);
+                            replace_pair_pre_candidate(state, cand, epoch_secs_now());
                             log::info!(
                                 "[POST pair-combo] selected: instance_id={} name={:?}",
                                 cand.instance_id,
@@ -1516,25 +1524,28 @@ enum CandidateKeepStatus {
     Available,
     KeepReady,
     InUseByOther,
-    DuplicateName,
 }
 
 fn candidate_keep_status(
+    candidate_instance_id: &str,
     name: &str,
     current_instance_id: &str,
     current_pair_pre_name: &str,
+    current_pre_instance_id: Option<&str>,
     post_candidates: &[PostCandidate],
-    duplicate_name: bool,
 ) -> CandidateKeepStatus {
-    if duplicate_name {
-        return CandidateKeepStatus::DuplicateName;
-    }
-    let claimed_by_other = post_candidates
-        .iter()
-        .any(|c| c.pair_pre_name.as_deref() == Some(name) && c.instance_id != current_instance_id);
+    let claimed_by_other = post_candidates.iter().any(|c| {
+        c.instance_id != current_instance_id
+            && (c.paired_pre_instance_id.as_deref() == Some(candidate_instance_id)
+                || (c.paired_pre_instance_id.is_none()
+                    && !name.is_empty()
+                    && c.pair_pre_name.as_deref() == Some(name)))
+    });
     if claimed_by_other {
         CandidateKeepStatus::InUseByOther
-    } else if name == current_pair_pre_name {
+    } else if current_pre_instance_id == Some(candidate_instance_id)
+        || (current_pre_instance_id.is_none() && !name.is_empty() && name == current_pair_pre_name)
+    {
         CandidateKeepStatus::KeepReady
     } else {
         CandidateKeepStatus::Available
@@ -1543,15 +1554,18 @@ fn candidate_keep_status(
 
 /// ComboBox dropdown 1 行の表示文字列を組み立てる。
 ///
-/// `Some(name)` → `"Can Keep: snare"`、`None` → `"Can Keep: (no name)"`。
-/// `instance_id` はログ・診断用に保持し、通常の候補表示には出さない。
+/// `Some(name)` → `"Can Keep: snare"`、名前なし → instance ID 先頭8文字。
 fn candidate_dropdown_label(cand: &PreCandidate, keep_status: CandidateKeepStatus) -> String {
-    let name_part = cand.name.as_deref().unwrap_or("(no name)");
+    let name_part = cand
+        .name
+        .as_deref()
+        .filter(|name| !name.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| cand.instance_id.chars().take(8).collect());
     let prefix = match keep_status {
         CandidateKeepStatus::Available => "Can Keep",
         CandidateKeepStatus::KeepReady => "Keep ready",
         CandidateKeepStatus::InUseByOther => "In use",
-        CandidateKeepStatus::DuplicateName => "Duplicate",
     };
     format!("{prefix}: {name_part}")
 }
@@ -1560,7 +1574,7 @@ fn candidate_dropdown_rich_text(label_text: String, keep_status: CandidateKeepSt
     let color = match keep_status {
         CandidateKeepStatus::Available => COL_NORMAL,
         CandidateKeepStatus::KeepReady => COL_FLORA_BRIGHT,
-        CandidateKeepStatus::InUseByOther | CandidateKeepStatus::DuplicateName => COL_MUTED,
+        CandidateKeepStatus::InUseByOther => COL_MUTED,
     };
     RichText::new(candidate_dropdown_display_text(label_text, keep_status))
         .size(12.0)
@@ -1571,9 +1585,7 @@ fn candidate_dropdown_rich_text(label_text: String, keep_status: CandidateKeepSt
 fn candidate_dropdown_display_text(label_text: String, keep_status: CandidateKeepStatus) -> String {
     match keep_status {
         CandidateKeepStatus::KeepReady => format!("✓ {label_text}"),
-        CandidateKeepStatus::Available
-        | CandidateKeepStatus::InUseByOther
-        | CandidateKeepStatus::DuplicateName => label_text,
+        CandidateKeepStatus::Available | CandidateKeepStatus::InUseByOther => label_text,
     }
 }
 
@@ -1586,6 +1598,7 @@ fn draw_button_row(
     state: &mut PostEditorState,
     m: &MeasureResult,
     now: f64,
+    pair_status: PairStatus,
 ) {
     // B-022 段階 1: chunk-restore 後の最新値を 1 フレーム 1 回 lazy-read。
     // ボタン押下が同フレーム内で発火するため、各 trigger_* に同じ値を渡せる。
@@ -1598,8 +1611,13 @@ fn draw_button_row(
         if recording {
             if state.note_picker_open {
                 // サブ2-C: Note picker — [Good] [Fix] [Hold] [Cancel]
+                let width = (ui.available_width() - 10.0 - 18.0) / 4.0;
+                ui.spacing_mut().item_spacing.x = 6.0;
                 for tag in ["Good", "Fix", "Hold"] {
-                    if ui.button(tag).clicked() {
+                    if ui
+                        .add_sized([width, 26.0], egui::Button::new(tag))
+                        .clicked()
+                    {
                         log::info!("[hypha-fork] button clicked: {}", tag);
                         trigger_note_save(
                             tag,
@@ -1611,13 +1629,22 @@ fn draw_button_row(
                         state.note_picker_open = false;
                     }
                 }
-                if ui.button("Cancel").clicked() {
+                if ui
+                    .add_sized([width, 26.0], egui::Button::new("Cancel"))
+                    .clicked()
+                {
                     log::info!("[hypha-fork] button clicked: Cancel");
                     state.note_picker_open = false;
                 }
             } else {
                 // Record: [Stop] [Note]
-                if show_stop_record_button(license) && ui.button("Stop").clicked() {
+                let width = (ui.available_width() - 10.0 - 6.0) / 2.0;
+                ui.spacing_mut().item_spacing.x = 6.0;
+                if show_stop_record_button(license)
+                    && ui
+                        .add_sized([width, 26.0], egui::Button::new("Stop"))
+                        .clicked()
+                {
                     log::info!("[hypha-fork] button clicked: Stop");
                     trigger_stop(
                         &state.record_sm,
@@ -1630,7 +1657,11 @@ fn draw_button_row(
                         now,
                     );
                 }
-                if show_note_button(license) && ui.button("Note").clicked() {
+                if show_note_button(license)
+                    && ui
+                        .add_sized([width, 26.0], egui::Button::new("Note"))
+                        .clicked()
+                {
                     log::info!("[hypha-fork] button clicked: Note");
                     state.note_picker_open = true;
                 }
@@ -1638,7 +1669,14 @@ fn draw_button_row(
         } else {
             // Watch: [Keep or Sense hint]（License::Unknown は空行）
             if show_save_button(license) {
-                if ui.button("Keep").clicked() {
+                let width = ui.available_width() - 10.0;
+                if ui
+                    .add_enabled(
+                        pair_status != PairStatus::Unpaired,
+                        egui::Button::new("Keep").min_size(Vec2::new(width, 26.0)),
+                    )
+                    .clicked()
+                {
                     log::info!("[hypha-fork] button clicked: Keep");
                     // B-027 段階 2: 押下時点の pair_pre_name を lazy-read。
                     // 編集モード途中で Keep 押下されても直前の確定値を使う
@@ -1668,7 +1706,8 @@ fn draw_button_row(
             } else if license == License::Sense {
                 let resp = ui.add(
                     egui::Button::new(RichText::new(SENSE_RECORD_HINT).size(11.0).color(COL_FLORA))
-                        .frame(false),
+                        .frame(false)
+                        .min_size(Vec2::new(ui.available_width() - 10.0, 26.0)),
                 );
                 if resp.clicked() {
                     log::info!("[hypha-fork] button clicked: SenseHint");
@@ -2482,8 +2521,7 @@ mod tests {
         );
     }
 
-    /// `name = None` の旧 schema PRE は fallback 名のみを組み立てる。
-    /// 実際の dropdown は no-name 候補を事前に除外する。
+    /// `name = None` の PRE も instance_id の先頭8文字で選択できる。
     #[test]
     fn dropdown_label_with_no_name_falls_back() {
         let cand = PreCandidate {
@@ -2498,7 +2536,7 @@ mod tests {
         };
         assert_eq!(
             candidate_dropdown_label(&cand, CandidateKeepStatus::Available),
-            "Can Keep: (no name)"
+            "Can Keep: abcdef12"
         );
     }
 
@@ -2548,10 +2586,6 @@ mod tests {
             candidate_dropdown_label(&cand, CandidateKeepStatus::InUseByOther),
             "In use: Music"
         );
-        assert_eq!(
-            candidate_dropdown_label(&cand, CandidateKeepStatus::DuplicateName),
-            "Duplicate: Music"
-        );
     }
 
     #[test]
@@ -2563,6 +2597,7 @@ mod tests {
                 daw_session_id: Some("daw".into()),
                 host_process_id: Some(1),
                 pair_pre_name: Some("Music".into()),
+                paired_pre_instance_id: Some("pre-music".into()),
                 pair_claimed_at: 1.0,
                 path: std::path::PathBuf::new(),
             },
@@ -2572,20 +2607,42 @@ mod tests {
                 daw_session_id: Some("daw".into()),
                 host_process_id: Some(1),
                 pair_pre_name: Some("Drum".into()),
+                paired_pre_instance_id: Some("pre-drum".into()),
                 pair_claimed_at: 2.0,
                 path: std::path::PathBuf::new(),
             },
         ];
         assert_eq!(
-            candidate_keep_status("Music", "self-post", "Music", &claims, false),
+            candidate_keep_status(
+                "pre-music",
+                "Music",
+                "self-post",
+                "Music",
+                Some("pre-music"),
+                &claims,
+            ),
             CandidateKeepStatus::KeepReady
         );
         assert_eq!(
-            candidate_keep_status("Drum", "self-post", "Music", &claims, false),
+            candidate_keep_status(
+                "pre-drum",
+                "Drum",
+                "self-post",
+                "Music",
+                Some("pre-music"),
+                &claims,
+            ),
             CandidateKeepStatus::InUseByOther
         );
         assert_eq!(
-            candidate_keep_status("Vocal", "self-post", "Music", &claims, false),
+            candidate_keep_status(
+                "pre-vocal",
+                "Vocal",
+                "self-post",
+                "Music",
+                Some("pre-music"),
+                &claims,
+            ),
             CandidateKeepStatus::Available
         );
     }
@@ -2598,29 +2655,38 @@ mod tests {
             daw_session_id: Some("daw".into()),
             host_process_id: Some(1),
             pair_pre_name: Some("Music".into()),
+            paired_pre_instance_id: Some("pre-music".into()),
             pair_claimed_at: 2.0,
             path: std::path::PathBuf::new(),
         }];
         assert_eq!(
-            candidate_keep_status("Music", "self-post", "Music", &claims, false),
+            candidate_keep_status("pre-music", "Music", "self-post", "", None, &claims,),
             CandidateKeepStatus::InUseByOther
         );
     }
 
     #[test]
-    fn candidate_keep_status_prefers_duplicate_name_for_dropdown_safety() {
+    fn candidate_keep_status_allows_distinct_instances_with_the_same_name() {
         let claims = vec![PostCandidate {
             instance_id: "self-post".into(),
             project_uuid: "p".into(),
             daw_session_id: Some("daw".into()),
             host_process_id: Some(1),
             pair_pre_name: Some("Music".into()),
+            paired_pre_instance_id: Some("pre-music-a".into()),
             pair_claimed_at: 1.0,
             path: std::path::PathBuf::new(),
         }];
         assert_eq!(
-            candidate_keep_status("Music", "self-post", "Music", &claims, true),
-            CandidateKeepStatus::DuplicateName
+            candidate_keep_status(
+                "pre-music-b",
+                "Music",
+                "self-post",
+                "Music",
+                Some("pre-music-a"),
+                &claims,
+            ),
+            CandidateKeepStatus::Available
         );
     }
 

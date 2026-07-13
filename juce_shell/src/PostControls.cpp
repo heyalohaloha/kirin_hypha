@@ -68,7 +68,7 @@ namespace hypha
         senseBtn.onClick = [this] { if (onSenseHint) onSenseHint(); };
     }
 
-    void PostControls::update (bool recording, int license, bool pairNonEmpty)
+    void PostControls::update (bool recording, int license, bool pairSelected)
     {
         const bool os    = (license == 0);
         const bool sense = (license == 1);
@@ -76,9 +76,10 @@ namespace hypha
         if (! recording)
             notePickerOpen = false; // picker only exists during Record
 
-        // Compute visibility (parity: show_save_button / show_stop_record_button / show_note_button
-        // are all (license == Os); Keep hidden when pair_empty per W-283; Sense hint when Sense).
-        keepBtn  .setVisible (! recording && os && pairNonEmpty);
+        // Keep owns a fixed layout slot in both AU and VST3. Pair state changes availability, not
+        // geometry, so opening or losing a pair never moves NOTE/metrics around the panel.
+        keepBtn  .setVisible (! recording && os);
+        keepBtn  .setEnabled (pairSelected);
         senseBtn .setVisible (! recording && sense);
 
         stopBtn  .setVisible (recording && os && ! notePickerOpen);
