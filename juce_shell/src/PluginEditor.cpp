@@ -116,6 +116,12 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         pairDropdown.setColour (juce::TextButton::buttonColourId, hypha::kFieldFill);
         pairDropdown.setColour (juce::TextButton::textColourOnId,  COL_FLORA);
         pairDropdown.setColour (juce::TextButton::textColourOffId, COL_FLORA);
+        pairMenuLookAndFeel.setColour (juce::PopupMenu::backgroundColourId, hypha::BG);
+        pairMenuLookAndFeel.setColour (juce::PopupMenu::textColourId, COL_NORMAL);
+        pairMenuLookAndFeel.setColour (juce::PopupMenu::headerTextColourId, COL_MUTED);
+        pairMenuLookAndFeel.setColour (juce::PopupMenu::highlightedBackgroundColourId,
+                                       hypha::kFieldFill.brighter (0.08f));
+        pairMenuLookAndFeel.setColour (juce::PopupMenu::highlightedTextColourId, COL_FLORA_BR);
         pairDropdown.onClick = [this] { showCandidateMenu(); };
         addAndMakeVisible (pairDropdown);
     }
@@ -345,6 +351,7 @@ void KirinHyphaEditor::showCandidateMenu()
     // below are the exact PRE rows (menuCandidates), matching egui's separate pre_candidates source.
     const int nReady = processorRef.keepReadyCount();
     juce::PopupMenu menu;
+    menu.setLookAndFeel (&pairMenuLookAndFeel);
     if (! rec && processorRef.licenseIsOs() && nReady >= 1)
         menu.addItem (1, allKeepMenuLabel (nReady));
     if (rec)

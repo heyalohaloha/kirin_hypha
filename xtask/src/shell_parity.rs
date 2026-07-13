@@ -94,6 +94,30 @@ mod tests {
     }
 
     #[test]
+    fn shipped_post_pair_selectors_share_geometry() {
+        assert!(
+            HYPHA_POST_EDITOR.contains("ui.spacing_mut().interact_size.y = 22.0;")
+                && HYPHA_POST_EDITOR.contains("ui.spacing_mut().icon_spacing = 0.0;")
+                && HYPHA_POST_EDITOR.contains("ui.spacing_mut().icon_width = 10.0;")
+                && HYPHA_POST_EDITOR.contains(".selected_text(\"\")")
+                && HYPHA_POST_EDITOR.contains(".width(22.0)")
+                && HYPHA_POST_EDITOR.contains(".icon(|ui, rect, _visuals, _is_open, _placement|")
+        );
+        assert!(
+            PLUGIN_EDITOR_CPP.contains("const int ddW = 22;")
+                && PLUGIN_EDITOR_CPP
+                    .contains("pairDropdown.setBounds (w - kMargin - ddW, nameY, ddW, 22);")
+                && PLUGIN_EDITOR_CPP.contains(
+                    "nameField.setBounds (kMargin, nameY, w - 2 * kMargin - ddW - 4, 22);"
+                )
+                && PLUGIN_EDITOR_CPP.contains("menu.setLookAndFeel (&pairMenuLookAndFeel);")
+                && PLUGIN_EDITOR_CPP.contains(
+                    "pairMenuLookAndFeel.setColour (juce::PopupMenu::backgroundColourId, hypha::BG);"
+                )
+        );
+    }
+
+    #[test]
     fn juce_default_build_refreshes_rust_ffi_before_link() {
         assert!(JUCE_CMAKE.contains("add_custom_target(KirinHyphaRustFFI"));
         assert!(JUCE_CMAKE.contains("build --release -p kirin_hypha_ffi --locked"));

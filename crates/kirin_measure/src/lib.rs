@@ -17,6 +17,7 @@ pub mod io_thread_post;
 pub mod io_thread_pre;
 pub mod license;
 pub mod measure_thread;
+pub mod pair_operation_group;
 pub mod pair_status;
 pub mod pairing_scope;
 pub mod path_identity;
@@ -82,6 +83,14 @@ pub use license::{
     show_save_button, show_stop_record_button, LiveLicense, SENSE_RECORD_HINT, SENSE_UPSELL_URL,
 };
 pub use measure_thread::{live_window, pair_lock_active, spawn_measure_thread, LivenessEvaluator};
+pub use pair_operation_group::{
+    active_post_project_uuids_for_operation_group,
+    enumerate_active_post_pair_candidates_for_operation_group,
+    enumerate_live_post_pair_candidates_for_operation_group,
+    enumerate_owned_post_pair_candidates_for_operation_group,
+    enumerate_ready_post_pair_candidates_for_operation_group,
+    live_post_project_uuids_for_operation_group,
+};
 pub use pair_status::{
     pair_status_for_post, pair_status_for_pre, paired_pre_instance_id, PairStatus,
 };
