@@ -1,6 +1,6 @@
 {
   "schema": "kirin-release-ls-state-v1",
-  "generatedAt": "2026-07-13T09:09:01.000Z",
+  "generatedAt": "2026-07-13T09:44:50.049Z",
   "product": {
     "name": "Kirin Hypha",
     "version": "1.1.23"
@@ -14,17 +14,17 @@
       "type": "pkg",
       "fileName": "Kirin-Hypha-1.1.23-macOS-Universal.pkg",
       "path": "dist/LS_UPLOAD/Kirin-Hypha-1.1.23-macOS-Universal.pkg",
-      "size": 0,
-      "sha512": "",
-      "sha256": "",
-      "lsDisplaySize": "pending"
+      "size": 29375791,
+      "sha512": "6w9YKu25/7Pa3VyfZOEe4a+H24OXyZ3oViXRTOTtyVrdqv7ftMD5id1ArC1KQS1I7wk7DSCyK3DtmhpJRPwZGg==",
+      "sha256": "63d5a6820c1efc6e2a3e239fd2dc8bda736919c4f77913f1630f36375855048e",
+      "lsDisplaySize": "28.01 MB"
     }
   ],
   "expectedPayloads": [
     "Library/Audio/Plug-Ins/Components/Kirin Hypha PRE.component",
     "Library/Audio/Plug-Ins/Components/Kirin Hypha POST.component",
-    "Library/Audio/Plug-Ins/VST3/Kirin Hypha PRE.vst3",
-    "Library/Audio/Plug-Ins/VST3/Kirin Hypha POST.vst3"
+    "Library/Audio/Plug-Ins/VST3/PRE Kirin Hypha.vst3",
+    "Library/Audio/Plug-Ins/VST3/POST Kirin Hypha.vst3"
   ],
   "lemonSqueezy": {
     "storeName": "Kirin Mastering",
