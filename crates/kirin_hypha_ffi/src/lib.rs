@@ -53,8 +53,9 @@ use kirin_measure::{
     current_host_process_id, enumerate_active_post_pair_candidates,
     enumerate_active_post_pair_candidates_for_broadcast_scope,
     enumerate_active_pre_pair_candidates_for_post_project_in_session, identity_instance_attach,
-    identity_instance_detach, live_window, load_license_safe, load_signal_state, mark_released,
-    mark_released_with_reason, new_record_take_tracker, new_record_trace_queue,
+    identity_instance_detach, live_window, load_license_safe, load_signal_state,
+    mark_expected_metadata_consumed, mark_released, mark_released_with_reason,
+    new_record_take_tracker, new_record_trace_queue,
     resolve_arm_target_for_post_project_in_session, sanitize_name,
     select_target_pre_for_arm_for_post_project_in_session, set_daw_session_id, set_project_uuid,
     spawn_io_thread_post, spawn_io_thread_pre, spawn_measure_thread, spawn_watchdog,
@@ -799,7 +800,7 @@ impl KirinHyphaEngine {
     }
 
     /// ライセンスを設定（C ABI コード: 0=Os 1=Sense 2=Unknown / 未知は Unknown）。
-    /// 降格（Os 以外）かつ Record 中なら強制 Watch（E-21 保険 / record.rs:141）。
+    /// 次回 Keep の開始可否だけに使う。開始済み Keep をライセンス更新で停止しない。
     pub fn set_license(&self, abi: u8) {
         let code = match abi {
             LICENSE_OS => LICENSE_OS,
@@ -807,7 +808,6 @@ impl KirinHyphaEngine {
             _ => LICENSE_UNKNOWN,
         };
         self.license.store(license_from_abi(code));
-        self.record_sm.enforce_license(license_from_abi(code));
     }
 
     /// 現ライセンスを取得。
@@ -1258,6 +1258,16 @@ impl KirinHyphaEngine {
                 );
             })
         };
+        let pair_binding_generation: kirin_measure::PairBindingGenerationFn = {
+            let pair_binding = Arc::clone(&self.pair_binding);
+            Arc::new(move || pair_binding.generation())
+        };
+        let release_pair_binding_if_current: kirin_measure::ReleasePairBindingIfCurrentFn = {
+            let pair_binding = Arc::clone(&self.pair_binding);
+            Arc::new(move |expected_name, expected_generation| {
+                pair_binding.release_if_current(expected_name, expected_generation)
+            })
+        };
         // B-118 Phase 3 (③): engine 保持の Arc を共有（io が書き JUCE getter が読む / 世代跨ぎ継続）。
         let record_error_message = Arc::clone(&self.record_error_message);
         let pair_claimed_at = Arc::new(RwLock::new(0.0));
@@ -1302,6 +1312,8 @@ impl KirinHyphaEngine {
                     Arc::clone(&pair_pre_name),
                     Arc::clone(&trigger_pair_resolution),
                     Arc::clone(&trigger_stop_resolution),
+                    Arc::clone(&pair_binding_generation),
+                    Arc::clone(&release_pair_binding_if_current),
                     Arc::clone(&record_error_message),
                     Arc::clone(&pair_claimed_at),
                     Arc::clone(&pair_release_notice),
@@ -1519,8 +1531,28 @@ impl KirinHyphaEngine {
             consumed_at_ms: None,
             consumed_by_session_id: None,
         };
+        let Some(session_id) = self.record_sm.last_closed_session_id() else {
+            if let Ok(mut g) = self.record_error_message.write() {
+                *g = Some("WAV metadata has no closed Keep session".to_string());
+            }
+            return false;
+        };
         match write_expected_metadata(&base, &project_hash, &metadata) {
             Ok(()) => {
+                if !matches!(
+                    mark_expected_metadata_consumed(
+                        &base,
+                        &project_hash,
+                        Some(&metadata.bounce_id),
+                        &session_id,
+                    ),
+                    Ok(true)
+                ) {
+                    if let Ok(mut g) = self.record_error_message.write() {
+                        *g = Some("WAV metadata could not bind to closed Keep session".to_string());
+                    }
+                    return false;
+                }
                 kirin_measure::plugin_data::reconcile_late_expected_wav_project(
                     &base,
                     &project_hash,
@@ -2215,7 +2247,7 @@ pub extern "C" fn kirin_hypha_load_license() -> u8 {
 }
 
 /// ライセンスを設定（0=Os 1=Sense 2=Unknown / 未知値は安全側 Unknown）。
-/// Os 以外へ降格すると Record 中なら強制 Watch（E-21 保険）。
+/// 次回 Keep の開始 gate にだけ反映し、開始済み Keep は停止しない。
 ///
 /// # Safety
 /// `handle` は `kirin_hypha_create` の戻り値（非 null・未解放）であること。

@@ -31,6 +31,8 @@ fn release_reason_serialization_is_snake_case() {
     assert_eq!(s, "\"all_stop\"");
     let s = serde_json::to_string(&ReleaseReason::IdleTimeout).unwrap();
     assert_eq!(s, "\"idle_timeout\"");
+    let s = serde_json::to_string(&ReleaseReason::DropCommitted).unwrap();
+    assert_eq!(s, "\"drop_committed\"");
 }
 
 #[test]

@@ -18,14 +18,19 @@ use std::time::Duration;
 
 use approx::{abs_diff_eq, assert_relative_eq, relative_eq};
 
-use kirin_hypha_ffi::{ExpectedWavMetadataInput, KirinHyphaEngine};
+use kirin_hypha_ffi::KirinHyphaEngine;
 use kirin_measure::engine::{MeasureEngine, SessionSummary};
 use kirin_measure::phase_d::stream::{PhaseDResult, PhaseDStream};
 use kirin_measure::phase_d::tables::FieldType;
+use kirin_measure::record_drop_commit::{
+    drop_commit_path, drop_transaction_path, DropRecordCommit, DropRecordTransaction,
+    DROP_COMMIT_SCHEMA, DROP_TRANSACTION_SCHEMA,
+};
+use kirin_measure::record_expected::ExpectedWavMetadata;
 use kirin_measure::record_take::{
     CaptureClockSource, PresentationLatencySamples, PresentationLatencySource, RecordTakeBlock,
 };
-use kirin_measure::RING_BUFFER_SECONDS;
+use kirin_measure::{read_signal, SignalStatus, RING_BUFFER_SECONDS};
 
 const SR: u32 = 48_000;
 
@@ -37,19 +42,63 @@ const PHASE_D_PARITY_SECONDS: f64 = 6.0; // async FFI publication may lag one fr
 const PHASE_D_PARITY_BLOCK_SLEEP_MS: u64 = 110; // keep below the 2s ring cap even under parallel tests
 const PHASE_D_PARITY_DIRECT_TAIL_CANDIDATES: usize = 16; // latest 0.1s publish candidates for async FFI
 
-fn drop_expected_wav(engine: &KirinHyphaEngine, label: &str) {
+fn drop_expected_wav(
+    plugin_data_root: &std::path::Path,
+    project_hash: &str,
+    post_iid: &str,
+    label: &str,
+) {
+    let signal = read_signal(plugin_data_root, project_hash, post_iid)
+        .expect("active POST signal for Drop transaction");
+    let session_id = signal.session_id;
     assert!(
-        engine.set_expected_wav_metadata(ExpectedWavMetadataInput {
-            bounce_id: format!("bounce-{label}-{}", std::process::id()),
-            expected_duration_samples: SR as u64 * 4,
-            expected_sample_rate: SR,
-            wav_path: format!("/tmp/kirin-hypha-{label}.wav"),
-            wav_file_size: 384_044,
-            wav_mtime_ms: kirin_measure::record_writer::now_epoch_ms(),
-            wav_hash: format!("hash-{label}-{}", std::process::id()),
-        }),
-        "dropped WAV metadata must reconcile for {label}"
+        !session_id.is_empty(),
+        "Drop transaction requires an exact Record session"
     );
+    let now_ms = kirin_measure::record_writer::now_epoch_ms();
+    let bounce_id = format!("bounce-{label}-{}", std::process::id());
+    let wav_hash = format!("hash-{label}-{}", std::process::id());
+    let drop_commit_id = format!("drop-{label}-{}", std::process::id());
+    let metadata = ExpectedWavMetadata {
+        expected_duration_samples: SR as u64 * 4,
+        expected_sample_rate: SR,
+        wav_time_reference_samples: None,
+        wav_path: format!("/tmp/kirin-hypha-{label}.wav"),
+        bounce_id: bounce_id.clone(),
+        created_at_ms: now_ms,
+        wav_file_size: Some(384_044),
+        wav_mtime_ms: now_ms,
+        wav_hash: Some(wav_hash.clone()),
+        consumed_at_ms: None,
+        consumed_by_session_id: None,
+    };
+    let commit = DropRecordCommit {
+        schema_version: DROP_COMMIT_SCHEMA.to_string(),
+        drop_commit_id: drop_commit_id.clone(),
+        project_hash: project_hash.to_string(),
+        record_session_id: session_id.clone(),
+        created_at_ms: now_ms,
+        metadata,
+    };
+    kirin_measure::atomic_file::write_bytes_atomic(
+        &drop_commit_path(plugin_data_root, project_hash, &session_id),
+        &serde_json::to_vec(&commit).unwrap(),
+    )
+    .unwrap();
+    let transaction = DropRecordTransaction {
+        schema_version: DROP_TRANSACTION_SCHEMA.to_string(),
+        drop_commit_id: drop_commit_id.clone(),
+        project_hash: project_hash.to_string(),
+        created_at_ms: now_ms,
+        bounce_id,
+        wav_hash,
+        record_session_ids: vec![session_id],
+    };
+    kirin_measure::atomic_file::write_bytes_atomic(
+        &drop_transaction_path(plugin_data_root, project_hash, &drop_commit_id),
+        &serde_json::to_vec(&transaction).unwrap(),
+    )
+    .unwrap();
 }
 
 fn wait_until_recording(engine: &KirinHyphaEngine, label: &str) {
@@ -686,17 +735,17 @@ fn default_license_is_unknown_record_denied() {
     assert!(!engine.is_recording());
 }
 
-/// E-21 降格保険: Os で Record 開始 → Sense へ降格すると強制 Watch（enforce_license）。
+/// Keep 開始後は license 更新に停止権限がない。降格は次回 Keep の開始 gate にだけ反映する。
 #[test]
-fn license_demotion_forces_watch() {
+fn license_demotion_does_not_stop_active_keep() {
     let engine = KirinHyphaEngine::new(SR, 2);
     engine.set_license(0); // Os
     assert!(engine.enter_record(), "Os で enter_record は true");
     assert!(engine.is_recording(), "Record 中");
-    engine.set_license(1); // Sense へ降格 → enforce_license で強制 Watch
+    engine.set_license(1); // Sense へ降格しても開始済み Keep は継続
     assert!(
-        !engine.is_recording(),
-        "Os 以外への降格で Record が強制 Watch されること（E-21）"
+        engine.is_recording(),
+        "開始済み Keep は license 更新に停止権限を渡さない"
     );
 }
 
@@ -1510,17 +1559,42 @@ fn capstone_paired_record_output_and_linkage() {
         wait_until_recording(&post, "capstone");
         assert!(post.is_recording(), "POST Record 開始");
 
-        // 3) ペア録音セッション（PRE が ack して Record に入り、両者 frames を書く）。
+        // 3) PRE の ACK 後、実際の bounce と同じ transport rewind から4秒を描画する。
+        // Keep前後の試聴区間をWAV本体と見なさず、producer render rangeを両laneで一致させる。
+        let mut acked = false;
+        for _ in 0..30 {
+            drive(0.1);
+            if read_signal(&plugin_data_root, "puid-post", "iid-post")
+                .is_some_and(|signal| signal.status == SignalStatus::Acknowledged)
+            {
+                acked = true;
+                break;
+            }
+        }
+        assert!(
+            acked,
+            "PRE must acknowledge before the simulated bounce begins"
+        );
+        position.set(0);
         drive(4.0);
         let d = post.poll_delta().expect("poll_delta Some");
         delta_lufs = d.lufs.expect("delta lufs Some");
         eprintln!("[capstone] mid-record delta lufs={delta_lufs}");
 
-        // 4) POST Stop → released → PRE が検出して exit_record + writer_close。
-        post.stop();
-        assert!(!post.is_recording());
-        drive(2.0); // PRE が released を検出して閉じるのを待つ + 両 writer close。
-        drop_expected_wav(&post, "capstone");
+        // 4) Actual Drop order: bind WAV metadata while the exact Record generation is open,
+        // then Stop/release closes both writers.
+        drop_expected_wav(&plugin_data_root, "puid-post", "iid-post", "capstone");
+        for _ in 0..30 {
+            if !post.is_recording() {
+                break;
+            }
+            sleep(Duration::from_millis(100));
+        }
+        assert!(
+            !post.is_recording(),
+            "Drop transaction must close POST Keep"
+        );
+        sleep(Duration::from_secs(2)); // PRE が released を検出して閉じるのを待つ。
     } // engines Drop → io_thread join（残り writer は status=closed flush）。
 
     // 5) Kirin OS が読む通常 TRACE 棚と PairRecordSession manifest の両方から読み戻す。
@@ -1835,10 +1909,39 @@ fn post_add_annotation_targets_post_role() {
         drive(1.5); // PRE pre.json active
         assert!(post.keep(), "keep true");
         wait_until_recording(&post, "annotation-post");
-        drive(4.0); // PRE acks + both record frames
-        post.stop();
-        drive(2.0); // PRE closes; both Record .json status=closed
-        drop_expected_wav(&post, "annotation-post");
+        let mut acked = false;
+        for _ in 0..30 {
+            drive(0.1);
+            if read_signal(&plugin_data_root, "puid-post", "iid-post")
+                .is_some_and(|signal| signal.status == SignalStatus::Acknowledged)
+            {
+                acked = true;
+                break;
+            }
+        }
+        assert!(
+            acked,
+            "PRE must acknowledge before the simulated bounce begins"
+        );
+        position.set(0); // actual bounce transport start
+        drive(4.0); // both lanes observe the same producer render range
+        drop_expected_wav(
+            &plugin_data_root,
+            "puid-post",
+            "iid-post",
+            "annotation-post",
+        );
+        for _ in 0..30 {
+            if !post.is_recording() {
+                break;
+            }
+            sleep(Duration::from_millis(100));
+        }
+        assert!(
+            !post.is_recording(),
+            "Drop transaction must close POST Keep"
+        );
+        sleep(Duration::from_secs(2)); // PRE closes; both Record .json status=closed
 
         // Record close 後に POST へ注釈（header 注: 確実なのは close 後）。
         assert!(

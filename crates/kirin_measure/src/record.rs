@@ -558,9 +558,9 @@ impl RecordStateMachine {
     ///
     /// 用途:
     /// - 「記録を止める」タップ
-    /// - `Drop`（プラグインアンロード）
-    /// - 別マシン検出による計測停止
-    /// - license 降格時の保険
+    /// - 同一 session の Kirin OS Drop commit
+    /// - 10 分 idle timeout
+    /// - プラグインアンロード時のローカル終了処理
     pub fn exit_record(&self) {
         self.record_started_at_ms.store(0, Ordering::Release);
         self.record_started_at_position_samples
@@ -570,16 +570,6 @@ impl RecordStateMachine {
         self.clear_record_session();
         self.measure_ready_generation.store(0, Ordering::Release);
         self.state.store(STATE_WATCH, Ordering::Release);
-    }
-
-    /// license 降格時の強制 Watch（保険 G-50-47）。
-    ///
-    /// `current_license` が `os` でないのに Record 中なら Watch に戻す。
-    /// `os` であれば何もしない。
-    pub fn enforce_license(&self, current_license: License) {
-        if self.is_recording() && !matches!(current_license, License::Os) {
-            self.exit_record();
-        }
     }
 }
 
@@ -847,38 +837,6 @@ mod tests {
     fn exit_from_watch_is_noop() {
         let sm = RecordStateMachine::new();
         sm.exit_record();
-        assert_eq!(sm.current(), RecordState::Watch);
-    }
-
-    #[test]
-    fn enforce_license_os_keeps_record() {
-        let sm = RecordStateMachine::new();
-        sm.try_enter_record(License::Os).unwrap();
-        sm.enforce_license(License::Os);
-        assert_eq!(sm.current(), RecordState::Record);
-    }
-
-    #[test]
-    fn enforce_license_sense_forces_watch() {
-        let sm = RecordStateMachine::new();
-        sm.try_enter_record(License::Os).unwrap();
-        // 降格（Os → Sense）
-        sm.enforce_license(License::Sense);
-        assert_eq!(sm.current(), RecordState::Watch);
-    }
-
-    #[test]
-    fn enforce_license_unknown_forces_watch() {
-        let sm = RecordStateMachine::new();
-        sm.try_enter_record(License::Os).unwrap();
-        sm.enforce_license(License::Unknown);
-        assert_eq!(sm.current(), RecordState::Watch);
-    }
-
-    #[test]
-    fn enforce_license_on_watch_is_noop() {
-        let sm = RecordStateMachine::new();
-        sm.enforce_license(License::Sense);
         assert_eq!(sm.current(), RecordState::Watch);
     }
 

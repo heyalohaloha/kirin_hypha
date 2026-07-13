@@ -30,6 +30,7 @@ pub mod preset_dispatch;
 pub mod preset_v2;
 pub mod record;
 pub mod record_clock;
+pub mod record_drop_commit;
 mod record_entry_lock;
 pub mod record_expected;
 pub mod record_signal;
@@ -69,8 +70,8 @@ pub use exclusion::{
 pub use hardware::{HardwareComponents, Match};
 pub use identity::{Identity, License};
 pub use io_thread_post::{
-    format_pair_label, serialize_post_json, spawn_io_thread_post, TriggerPairResolutionFn,
-    TriggerStopResolutionFn,
+    format_pair_label, serialize_post_json, spawn_io_thread_post, PairBindingGenerationFn,
+    ReleasePairBindingIfCurrentFn, TriggerPairResolutionFn, TriggerStopResolutionFn,
 };
 pub use io_thread_pre::{serialize_pre_json, spawn_io_thread_pre};
 pub use license::{

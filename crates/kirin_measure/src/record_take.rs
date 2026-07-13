@@ -222,6 +222,10 @@ pub struct RecordTakeSnapshot {
     pub generation: u64,
     pub duration_samples: u64,
     pub source: &'static str,
+    /// Exact host/render range observed for this take. These remain `None` when the host clock
+    /// jumped or the selected duration cannot be represented by one contiguous range.
+    pub host_start_position_samples: Option<i64>,
+    pub host_end_position_samples: Option<i64>,
 }
 
 #[derive(Debug)]
@@ -247,10 +251,19 @@ pub struct RecordTakeTracker {
     record_generation: AtomicU64,
     record_render_epoch: AtomicU64,
     record_bounded_duration_samples: AtomicU64,
+    record_bounded_range_valid: AtomicBool,
+    record_bounded_start_position: AtomicI64,
+    record_bounded_end_position: AtomicI64,
     record_unbounded_duration_samples: AtomicU64,
+    record_unbounded_range_valid: AtomicBool,
+    record_unbounded_start_position: AtomicI64,
+    record_unbounded_end_position: AtomicI64,
     previous_generation: AtomicU64,
     previous_bounded_duration_samples: AtomicU64,
     previous_unbounded_duration_samples: AtomicU64,
+    previous_range_valid: AtomicBool,
+    previous_start_position: AtomicI64,
+    previous_end_position: AtomicI64,
 }
 
 impl Default for RecordTakeTracker {
@@ -286,10 +299,19 @@ impl RecordTakeTracker {
             record_generation: AtomicU64::new(0),
             record_render_epoch: AtomicU64::new(0),
             record_bounded_duration_samples: AtomicU64::new(0),
+            record_bounded_range_valid: AtomicBool::new(false),
+            record_bounded_start_position: AtomicI64::new(i64::MIN),
+            record_bounded_end_position: AtomicI64::new(i64::MIN),
             record_unbounded_duration_samples: AtomicU64::new(0),
+            record_unbounded_range_valid: AtomicBool::new(false),
+            record_unbounded_start_position: AtomicI64::new(i64::MIN),
+            record_unbounded_end_position: AtomicI64::new(i64::MIN),
             previous_generation: AtomicU64::new(0),
             previous_bounded_duration_samples: AtomicU64::new(0),
             previous_unbounded_duration_samples: AtomicU64::new(0),
+            previous_range_valid: AtomicBool::new(false),
+            previous_start_position: AtomicI64::new(i64::MIN),
+            previous_end_position: AtomicI64::new(i64::MIN),
         }
     }
 
@@ -349,12 +371,9 @@ impl RecordTakeTracker {
         if num_frames == 0 {
             return;
         }
-        // VST3 defines input presentation latency as the elapsed samples from
-        // generation/acquisition until this plug-in input receives the audio.
-        // Therefore a block received at host position P contains content from
-        // P - input_latency. Normalise here, before any measurement frame is
-        // formed, so PRE and POST share content coordinates without comparing
-        // their metric shapes later.
+        // The host transport/render position is the producer clock. Optional VST3/AU presentation
+        // callbacks remain diagnostics only: zero is ambiguous across hosts, and applying a
+        // per-instance value here would move one lane away from the DAW/WAV timeline.
         let content_position_samples = position_valid
             .then(|| content_position_samples(position_samples, presentation_latency.input));
         let capture_start_frame = self.capture_frames_total.load(Ordering::Acquire);
@@ -433,6 +452,42 @@ impl RecordTakeTracker {
     pub fn position_samples_for_captured_frame(&self, captured_frames: u64) -> Option<i64> {
         self.clock_point_for_captured_frame(captured_frames)
             .map(|point| point.position_samples)
+    }
+
+    /// Audio Thread が実際に観測した1本の連続content-clock spanが、指定したWAV範囲を
+    /// 丸ごと含むか。Drop commitを別projectのKeepへbroadcastしないためのproducer側scope
+    /// proofとしてIO Threadだけが読む。Atomic readのみでAudio Threadを止めない。
+    pub fn observed_content_range(&self, start_samples: i64, end_samples: i64) -> bool {
+        if end_samples <= start_samples {
+            return false;
+        }
+        let latest = self.capture_span_sequence.load(Ordering::Acquire);
+        let first = latest
+            .saturating_sub(self.capture_clock_slots.len() as u64)
+            .saturating_add(1)
+            .max(1);
+        (first..=latest).any(|sequence| {
+            let index = sequence as usize % self.capture_clock_slots.len();
+            let Some(span) = self.capture_clock_slots[index].read(sequence) else {
+                return false;
+            };
+            let Some(span_start) = span.position_start_samples else {
+                return false;
+            };
+            if span.source == CaptureClockSource::Unknown {
+                return false;
+            }
+            let span_len = span
+                .capture_end_frame
+                .saturating_sub(span.capture_start_frame);
+            let Ok(span_len) = i64::try_from(span_len) else {
+                return false;
+            };
+            span_start <= start_samples
+                && span_start
+                    .checked_add(span_len)
+                    .is_some_and(|end| end >= end_samples)
+        })
     }
 
     pub fn clock_point_for_captured_frame(
@@ -534,12 +589,42 @@ impl RecordTakeTracker {
                 self.record_render_epoch.store(epoch, Ordering::Release);
             }
             if let Some(duration) = bounded_duration_from_block(&block) {
-                self.record_bounded_duration_samples
-                    .fetch_max(duration, Ordering::AcqRel);
+                let previous = self.record_bounded_duration_samples.load(Ordering::Acquire);
+                if duration >= previous {
+                    self.record_bounded_range_valid
+                        .store(false, Ordering::Release);
+                    self.record_bounded_start_position
+                        .store(block.clock_start_samples, Ordering::Relaxed);
+                    self.record_bounded_end_position.store(
+                        block.clock_end_samples.unwrap_or(i64::MIN),
+                        Ordering::Relaxed,
+                    );
+                    self.record_bounded_duration_samples
+                        .store(duration, Ordering::Release);
+                    self.record_bounded_range_valid
+                        .store(true, Ordering::Release);
+                }
             }
             if let Some(duration) = self.render_duration_from_position_span() {
-                self.record_unbounded_duration_samples
-                    .fetch_max(duration, Ordering::AcqRel);
+                let previous = self
+                    .record_unbounded_duration_samples
+                    .load(Ordering::Acquire);
+                if duration >= previous {
+                    self.record_unbounded_range_valid
+                        .store(false, Ordering::Release);
+                    let start = self.render_start_position.load(Ordering::Acquire);
+                    let end = self.render_last_end_position.load(Ordering::Acquire);
+                    self.record_unbounded_start_position
+                        .store(start, Ordering::Relaxed);
+                    self.record_unbounded_end_position
+                        .store(end, Ordering::Relaxed);
+                    self.record_unbounded_duration_samples
+                        .store(duration, Ordering::Release);
+                    if end.checked_sub(start) == i64::try_from(duration).ok() {
+                        self.record_unbounded_range_valid
+                            .store(true, Ordering::Release);
+                    }
+                }
             }
         }
     }
@@ -555,10 +640,13 @@ impl RecordTakeTracker {
             .load(Ordering::Acquire);
         let epoch = self.record_render_epoch.load(Ordering::Acquire);
         if generation == expected_generation && epoch > 0 {
+            let range =
+                self.current_exact_host_range(bounded_duration_samples, unbounded_duration_samples);
             snapshot_from_durations(
                 generation,
                 bounded_duration_samples,
                 unbounded_duration_samples,
+                range,
             )
         } else if self.previous_generation.load(Ordering::Acquire) == expected_generation {
             let bounded_duration_samples = self
@@ -567,10 +655,17 @@ impl RecordTakeTracker {
             let unbounded_duration_samples = self
                 .previous_unbounded_duration_samples
                 .load(Ordering::Acquire);
+            let range = self.previous_range_valid.load(Ordering::Acquire).then(|| {
+                (
+                    self.previous_start_position.load(Ordering::Acquire),
+                    self.previous_end_position.load(Ordering::Acquire),
+                )
+            });
             snapshot_from_durations(
                 expected_generation,
                 bounded_duration_samples,
                 unbounded_duration_samples,
+                range,
             )
         } else {
             None
@@ -592,8 +687,12 @@ impl RecordTakeTracker {
         self.record_render_epoch.store(0, Ordering::Release);
         self.record_bounded_duration_samples
             .store(0, Ordering::Release);
+        self.record_bounded_range_valid
+            .store(false, Ordering::Release);
         self.record_unbounded_duration_samples
             .store(0, Ordering::Release);
+        self.record_unbounded_range_valid
+            .store(false, Ordering::Release);
         self.record_generation.store(generation, Ordering::Release);
     }
 
@@ -608,6 +707,14 @@ impl RecordTakeTracker {
             .record_unbounded_duration_samples
             .load(Ordering::Acquire);
         if epoch > 0 && (bounded_duration_samples > 0 || unbounded_duration_samples > 0) {
+            let range =
+                self.current_exact_host_range(bounded_duration_samples, unbounded_duration_samples);
+            self.previous_range_valid.store(false, Ordering::Release);
+            if let Some((start, end)) = range {
+                self.previous_start_position.store(start, Ordering::Relaxed);
+                self.previous_end_position.store(end, Ordering::Relaxed);
+                self.previous_range_valid.store(true, Ordering::Release);
+            }
             self.previous_bounded_duration_samples
                 .store(bounded_duration_samples, Ordering::Release);
             self.previous_unbounded_duration_samples
@@ -645,16 +752,47 @@ impl RecordTakeTracker {
             None
         }
     }
+
+    fn current_exact_host_range(
+        &self,
+        bounded_duration_samples: u64,
+        unbounded_duration_samples: u64,
+    ) -> Option<(i64, i64)> {
+        let (start, end, duration) = if bounded_duration_samples > 0 {
+            if !self.record_bounded_range_valid.load(Ordering::Acquire) {
+                return None;
+            }
+            (
+                self.record_bounded_start_position.load(Ordering::Acquire),
+                self.record_bounded_end_position.load(Ordering::Acquire),
+                bounded_duration_samples,
+            )
+        } else {
+            if unbounded_duration_samples == 0
+                || !self.record_unbounded_range_valid.load(Ordering::Acquire)
+            {
+                return None;
+            }
+            (
+                self.record_unbounded_start_position.load(Ordering::Acquire),
+                self.record_unbounded_end_position.load(Ordering::Acquire),
+                unbounded_duration_samples,
+            )
+        };
+        let duration = i64::try_from(duration).ok()?;
+        end.checked_sub(start)
+            .filter(|observed| *observed == duration)
+            .map(|_| (start, end))
+    }
 }
 
-/// Convert a host callback position to the sample position of the audio
-/// content present at the plug-in input.
+/// Preserve the host transport/render sample position. Presentation latency is diagnostic only.
 #[inline]
 pub fn content_position_samples(
     host_position_samples: i64,
-    input_presentation_samples: Option<u32>,
+    _input_presentation_samples: Option<u32>,
 ) -> i64 {
-    host_position_samples.saturating_sub(i64::from(input_presentation_samples.unwrap_or(0)))
+    host_position_samples
 }
 
 fn bounded_duration_from_block(block: &RecordTakeBlock) -> Option<u64> {
@@ -670,18 +808,24 @@ fn snapshot_from_durations(
     generation: u64,
     bounded_duration_samples: u64,
     unbounded_duration_samples: u64,
+    host_range: Option<(i64, i64)>,
 ) -> Option<RecordTakeSnapshot> {
+    let (host_start_position_samples, host_end_position_samples) = host_range.unzip();
     if bounded_duration_samples > 0 {
         Some(RecordTakeSnapshot {
             generation,
             duration_samples: bounded_duration_samples,
             source: RECORD_TAKE_SOURCE_WAV_CLOCK,
+            host_start_position_samples,
+            host_end_position_samples,
         })
     } else if unbounded_duration_samples > 0 {
         Some(RecordTakeSnapshot {
             generation,
             duration_samples: unbounded_duration_samples,
             source: RECORD_TAKE_SOURCE_RENDER_CLOCK,
+            host_start_position_samples,
+            host_end_position_samples,
         })
     } else {
         None
@@ -737,7 +881,7 @@ mod tests {
     }
 
     #[test]
-    fn presentation_latency_changes_split_content_clock_spans() {
+    fn presentation_latency_changes_do_not_split_the_host_clock() {
         let tracker = RecordTakeTracker::new();
         assert_eq!(
             tracker.presentation_latency(),
@@ -794,15 +938,15 @@ mod tests {
             tracker
                 .capture_span_sequence
                 .load(std::sync::atomic::Ordering::Acquire),
-            3,
-            "each input-latency generation owns its own content-clock span"
+            1,
+            "optional latency diagnostics cannot alter the host-clock span"
         );
     }
 
     #[test]
-    fn pre_and_delayed_post_map_the_same_content_position() {
+    fn presentation_latency_never_rebases_the_host_position() {
         assert_eq!(content_position_samples(48_000, Some(0)), 48_000);
-        assert_eq!(content_position_samples(48_256, Some(256)), 48_000);
+        assert_eq!(content_position_samples(48_256, Some(256)), 48_256);
 
         let pre = RecordTakeTracker::new();
         pre.note_capture_window_with_presentation(
@@ -829,7 +973,7 @@ mod tests {
             },
         );
         assert_eq!(pre.position_samples_for_captured_frame(512), Some(48_512));
-        assert_eq!(post.position_samples_for_captured_frame(512), Some(48_512));
+        assert_eq!(post.position_samples_for_captured_frame(512), Some(48_768));
     }
 
     #[test]
@@ -930,6 +1074,29 @@ mod tests {
     }
 
     #[test]
+    fn observed_content_range_requires_one_complete_contiguous_span() {
+        let tracker = RecordTakeTracker::new();
+        tracker.note_capture_window(true, 96_000, 48_000);
+        tracker.note_capture_window(true, 144_000, 48_000);
+
+        assert!(tracker.observed_content_range(96_000, 192_000));
+        assert!(tracker.observed_content_range(100_000, 180_000));
+        assert!(!tracker.observed_content_range(95_999, 192_000));
+        assert!(!tracker.observed_content_range(96_000, 192_001));
+    }
+
+    #[test]
+    fn observed_content_range_rejects_gaps_and_unknown_clocks() {
+        let tracker = RecordTakeTracker::new();
+        tracker.note_capture_window(true, 0, 48_000);
+        tracker.note_capture_window(true, 96_000, 48_000);
+        tracker.note_capture_window_with_source(true, 144_000, 48_000, CaptureClockSource::Unknown);
+
+        assert!(!tracker.observed_content_range(0, 144_000));
+        assert!(!tracker.observed_content_range(144_000, 192_000));
+    }
+
+    #[test]
     fn stopped_tail_after_record_does_not_extend_take() {
         let tracker = RecordTakeTracker::new();
         tracker.note_block(RecordTakeBlock {
@@ -943,7 +1110,10 @@ mod tests {
             ..block(9, 44_100, 44_100)
         });
 
-        assert_eq!(tracker.snapshot(9).unwrap().duration_samples, 44_100);
+        let snapshot = tracker.snapshot(9).unwrap();
+        assert_eq!(snapshot.duration_samples, 44_100);
+        assert_eq!(snapshot.host_start_position_samples, Some(0));
+        assert_eq!(snapshot.host_end_position_samples, Some(44_100));
     }
 
     #[test]
@@ -1049,6 +1219,8 @@ mod tests {
         let snap = tracker.snapshot(12).expect("render fallback");
         assert_eq!(snap.duration_samples, 2_000);
         assert_eq!(snap.source, RECORD_TAKE_SOURCE_RENDER_CLOCK);
+        assert_eq!(snap.host_start_position_samples, None);
+        assert_eq!(snap.host_end_position_samples, None);
     }
 
     #[test]
@@ -1060,6 +1232,8 @@ mod tests {
         let snap = tracker.snapshot(13).expect("continuous render fallback");
         assert_eq!(snap.duration_samples, 3_072);
         assert_eq!(snap.source, RECORD_TAKE_SOURCE_RENDER_CLOCK);
+        assert_eq!(snap.host_start_position_samples, Some(96_000));
+        assert_eq!(snap.host_end_position_samples, Some(99_072));
     }
 
     #[test]
@@ -1102,6 +1276,8 @@ mod tests {
         let snap = tracker.snapshot(41).expect("bounded take");
         assert_eq!(snap.duration_samples, 1_440_000);
         assert_eq!(snap.source, RECORD_TAKE_SOURCE_WAV_CLOCK);
+        assert_eq!(snap.host_start_position_samples, Some(0));
+        assert_eq!(snap.host_end_position_samples, Some(1_440_000));
     }
 
     #[test]
@@ -1112,5 +1288,7 @@ mod tests {
         let snap = tracker.snapshot(42).expect("bounded take");
         assert_eq!(snap.duration_samples, 1_440_000);
         assert_eq!(snap.source, RECORD_TAKE_SOURCE_WAV_CLOCK);
+        assert_eq!(snap.host_start_position_samples, Some(96_000));
+        assert_eq!(snap.host_end_position_samples, Some(1_536_000));
     }
 }

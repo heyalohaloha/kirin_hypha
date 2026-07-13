@@ -761,8 +761,8 @@ pub fn spawn_io_thread_pre(
             }
 
             if last_entitlement_refresh.elapsed() >= Duration::from_millis(250) {
-                let observed = license.refresh_from_disk();
-                record_sm.enforce_license(observed);
+                // License は次回 Keep の開始 gate。開始済み Keep の停止権限は持たない。
+                let _ = license.refresh_from_disk();
                 last_entitlement_refresh = Instant::now();
             }
 

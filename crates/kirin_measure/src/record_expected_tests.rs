@@ -32,6 +32,56 @@ fn metadata_fixture(bounce_id: &str) -> ExpectedWavMetadata {
     }
 }
 
+fn claimed_session_ids(metadata: &ExpectedWavMetadata) -> Vec<String> {
+    metadata
+        .consumed_by_session_id
+        .as_deref()
+        .unwrap_or("")
+        .split('\n')
+        .map(str::trim)
+        .filter(|session| !session.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+fn claimed_session_ids_for_metadata(
+    base_dir: &Path,
+    project_hash: &str,
+    metadata: &ExpectedWavMetadata,
+) -> Result<Vec<String>, ExpectedMetadataError> {
+    let mut session_ids = claimed_session_ids(metadata);
+    let dir = expected_claims_generation_dir(base_dir, project_hash, metadata);
+    let entries = match fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(sorted_unique(session_ids)),
+        Err(e) => return Err(ExpectedMetadataError::Io(e)),
+    };
+    let expected_hash = metadata.wav_hash.as_deref().unwrap_or("");
+    for entry in entries.flatten() {
+        let Ok(bytes) = fs::read(entry.path()) else {
+            continue;
+        };
+        let Ok(marker) = serde_json::from_slice::<ExpectedWavClaimMarker>(&bytes) else {
+            continue;
+        };
+        if marker.schema_version == EXPECTED_CLAIM_SCHEMA
+            && marker.bounce_id == metadata.bounce_id
+            && marker.created_at_ms == metadata.created_at_ms
+            && marker.wav_hash == expected_hash
+            && !marker.session_id.trim().is_empty()
+        {
+            session_ids.push(marker.session_id);
+        }
+    }
+    Ok(sorted_unique(session_ids))
+}
+
+fn sorted_unique(mut session_ids: Vec<String>) -> Vec<String> {
+    session_ids.sort();
+    session_ids.dedup();
+    session_ids
+}
+
 #[test]
 fn expected_metadata_roundtrips_under_project_dir() {
     let base = isolated_dir();

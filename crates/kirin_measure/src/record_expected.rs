@@ -14,12 +14,10 @@ use std::path::{Path, PathBuf};
 pub const EXPECTED_SUBDIR: &str = "record_expected";
 pub const EXPECTED_FILENAME: &str = "current.json";
 pub const EXPECTED_METADATA_MAX_AGE_MS: i64 = 10 * 60 * 1_000;
-const EXPECTED_METADATA_FUTURE_SKEW_MS: i64 = 60 * 1_000;
+pub(crate) const EXPECTED_METADATA_FUTURE_SKEW_MS: i64 = 60 * 1_000;
 const EXPECTED_CLAIMS_SUBDIR: &str = "claims";
 const EXPECTED_CLAIMS_BY_SESSION_SUBDIR: &str = "by_session";
 const EXPECTED_CLAIM_SCHEMA: &str = "1.0";
-#[cfg(test)]
-const EXPECTED_METADATA_SESSION_SEPARATOR: char = '\n';
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExpectedWavMetadata {
@@ -47,13 +45,13 @@ pub struct ExpectedWavMetadata {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct ExpectedWavClaimMarker {
-    schema_version: String,
-    session_id: String,
-    bounce_id: String,
-    created_at_ms: i64,
-    wav_hash: String,
-    claimed_at_ms: i64,
+pub(crate) struct ExpectedWavClaimMarker {
+    pub(crate) schema_version: String,
+    pub(crate) session_id: String,
+    pub(crate) bounce_id: String,
+    pub(crate) created_at_ms: i64,
+    pub(crate) wav_hash: String,
+    pub(crate) claimed_at_ms: i64,
     /// このセッションが実際に Close した wall-clock epoch ms。`None` の間は
     /// まだ open（Record 中、または Stop/idle-timeout での close をまだ観測していない）。
     ///
@@ -62,9 +60,9 @@ struct ExpectedWavClaimMarker {
     /// 想定音声長 + 余裕を超えて経過している」を「stop し忘れ」の検出に使える
     /// （2026-07-10, R-13 Hub & Spoke: Hypha は書くだけ、判定は Kirin OS 側の責務）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    closed_at_ms: Option<i64>,
+    pub(crate) closed_at_ms: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    metadata: Option<ExpectedWavMetadata>,
+    pub(crate) metadata: Option<ExpectedWavMetadata>,
 }
 
 impl ExpectedWavMetadata {
@@ -93,7 +91,7 @@ impl ExpectedWavMetadata {
         self.is_fresh_complete_for_arm(now_ms)
     }
 
-    fn is_fresh_complete_for_arm(&self, now_ms: i64) -> bool {
+    pub(crate) fn is_fresh_complete_for_arm(&self, now_ms: i64) -> bool {
         if !self.is_complete() {
             return false;
         }
@@ -103,7 +101,7 @@ impl ExpectedWavMetadata {
         now_ms.saturating_sub(self.created_at_ms) <= EXPECTED_METADATA_MAX_AGE_MS
     }
 
-    fn without_consumed_marker(mut self) -> Self {
+    pub(crate) fn without_consumed_marker(mut self) -> Self {
         self.consumed_at_ms = None;
         self.consumed_by_session_id = None;
         self
@@ -326,7 +324,7 @@ pub fn mark_expected_metadata_consumed(
     Ok(true)
 }
 
-fn now_epoch_ms() -> i64 {
+pub(crate) fn now_epoch_ms() -> i64 {
     chrono::Utc::now().timestamp_millis()
 }
 
@@ -371,7 +369,7 @@ fn expected_session_claim_marker_path(
 /// 生の claim marker を読む（schema_version / session_id の一致だけ検証。metadata の
 /// 完全性チェックはしない）。`claimed_at_ms` など marker 自体のフィールドが必要な
 /// 呼び出し元（`mark_expected_metadata_consumed` 等）向け。
-fn read_claim_marker_for_session(
+pub(crate) fn read_claim_marker_for_session(
     base_dir: &Path,
     project_hash: &str,
     session_id: &str,
@@ -438,7 +436,7 @@ fn read_claimed_metadata_for_session(
     Ok(Some(metadata))
 }
 
-fn write_claim_marker(
+pub(crate) fn write_claim_marker(
     base_dir: &Path,
     project_hash: &str,
     metadata: &ExpectedWavMetadata,
@@ -485,65 +483,6 @@ fn write_empty_claim_marker(
     let session_path = expected_session_claim_marker_path(base_dir, project_hash, session_id);
     crate::atomic_file::write_bytes_atomic(&session_path, &json)?;
     Ok(())
-}
-
-#[cfg(test)]
-fn claimed_session_ids(metadata: &ExpectedWavMetadata) -> Vec<String> {
-    metadata
-        .consumed_by_session_id
-        .as_deref()
-        .unwrap_or("")
-        .split(EXPECTED_METADATA_SESSION_SEPARATOR)
-        .map(str::trim)
-        .filter(|session| !session.is_empty())
-        .map(str::to_string)
-        .collect()
-}
-
-#[cfg(test)]
-fn claimed_session_ids_for_metadata(
-    base_dir: &Path,
-    project_hash: &str,
-    metadata: &ExpectedWavMetadata,
-) -> Result<Vec<String>, ExpectedMetadataError> {
-    let mut session_ids = claimed_session_ids(metadata);
-    let dir = expected_claims_generation_dir(base_dir, project_hash, metadata);
-    let entries = match fs::read_dir(dir) {
-        Ok(entries) => entries,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(sorted_unique(session_ids)),
-        Err(e) => return Err(ExpectedMetadataError::Io(e)),
-    };
-    let expected_hash = metadata.wav_hash.as_deref().unwrap_or("");
-    for entry in entries.flatten() {
-        let Ok(file_type) = entry.file_type() else {
-            continue;
-        };
-        if !file_type.is_file() {
-            continue;
-        }
-        let Ok(bytes) = fs::read(entry.path()) else {
-            continue;
-        };
-        let Ok(marker) = serde_json::from_slice::<ExpectedWavClaimMarker>(&bytes) else {
-            continue;
-        };
-        if marker.schema_version == EXPECTED_CLAIM_SCHEMA
-            && marker.bounce_id == metadata.bounce_id
-            && marker.created_at_ms == metadata.created_at_ms
-            && marker.wav_hash == expected_hash
-            && !marker.session_id.trim().is_empty()
-        {
-            session_ids.push(marker.session_id);
-        }
-    }
-    Ok(sorted_unique(session_ids))
-}
-
-#[cfg(test)]
-fn sorted_unique(mut session_ids: Vec<String>) -> Vec<String> {
-    session_ids.sort();
-    session_ids.dedup();
-    session_ids
 }
 
 #[cfg(test)]

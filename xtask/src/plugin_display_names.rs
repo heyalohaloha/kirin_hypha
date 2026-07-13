@@ -12,6 +12,14 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/../crates/hypha_post/src/lib.rs"
     ));
+    const HYPHA_PRE_CARGO: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../crates/hypha_pre/Cargo.toml"
+    ));
+    const HYPHA_POST_CARGO: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../crates/hypha_post/Cargo.toml"
+    ));
     const JUCE_PROCESSOR_CPP: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../juce_shell/src/PluginProcessor.cpp"
@@ -79,6 +87,22 @@ mod tests {
             BUNDLER_TOML.contains("name = \"Kirin Hypha POST\""),
             "bundler.toml must keep the existing POST bundle/file name"
         );
+    }
+
+    #[test]
+    fn pre_and_post_version_advance_together_to_invalidate_host_name_caches() {
+        let version_line = |source: &str| {
+            source
+                .lines()
+                .find(|line| line.trim_start().starts_with("version ="))
+                .expect("package version")
+                .to_string()
+        };
+        assert_eq!(
+            version_line(HYPHA_PRE_CARGO),
+            version_line(HYPHA_POST_CARGO)
+        );
+        assert_eq!(version_line(HYPHA_PRE_CARGO).trim(), "version = \"1.1.22\"");
     }
 
     #[test]

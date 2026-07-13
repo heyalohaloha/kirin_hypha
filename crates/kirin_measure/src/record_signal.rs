@@ -102,11 +102,15 @@ pub enum ReleaseReason {
     ManualStop,
     AllStop,
     IdleTimeout,
+    DropCommitted,
 }
 
 impl ReleaseReason {
     pub fn authorizes_pre_stop(self) -> bool {
-        matches!(self, Self::ManualStop | Self::AllStop | Self::IdleTimeout)
+        matches!(
+            self,
+            Self::ManualStop | Self::AllStop | Self::IdleTimeout | Self::DropCommitted
+        )
     }
 }
 
