@@ -32,16 +32,15 @@ use hypha_gui::{
 };
 use kirin_measure::reservation; // B-127 (G-115-365): egui parity — per-pairing O_EXCL frame
 use kirin_measure::{
-    active_post_project_uuids_for_broadcast_scope, all_keep_signal_path, all_stop_signal_path,
+    active_post_project_uuids_for_operation_group, all_keep_signal_path, all_stop_signal_path,
     append_annotation_to_latest, count_distinct_pairings, current_host_process_id,
-    delete_broadcast, enumerate_active_post_pair_candidates,
-    enumerate_active_post_pair_candidates_for_broadcast_scope, enumerate_live_post_pair_candidates,
-    enumerate_live_post_pair_candidates_for_broadcast_scope,
-    enumerate_live_pre_pair_choices_for_post_project_in_session, exit_record_preserve_pair,
-    format_pair_label, load_signal_state, lookup_section_label, mark_released_with_reason,
-    pair_lock_active, pair_status_for_post, resolve_arm_target_for_post_project_in_session,
-    resolve_published_pair_claim_for_arm, sanitize_name, scan_latest_v2_preset, show_note_button,
-    show_save_button, show_stop_record_button, write_broadcast,
+    delete_broadcast, enumerate_live_pre_pair_choices_for_post_project_in_session,
+    enumerate_owned_post_pair_candidates_for_operation_group,
+    enumerate_ready_post_pair_candidates_for_operation_group, exit_record_preserve_pair,
+    format_pair_label, live_post_project_uuids_for_operation_group, load_signal_state,
+    lookup_section_label, mark_released_with_reason, pair_lock_active, pair_status_for_post,
+    resolve_arm_target_for_post_project_in_session, sanitize_name, scan_latest_v2_preset,
+    show_note_button, show_save_button, show_stop_record_button, write_broadcast,
     write_pending_claiming_expected_and_clock, write_stop_broadcast, DeltaMode, DeltaResult,
     DeltaSnapshot, LatchedPre, License, LiveLicense, LivenessEvaluator, MeasureResult, PairStatus,
     PlatformPaths, PluginDataRole, PostCandidate, PreCandidate, PresetFileV2, RecordStateMachine,
@@ -1264,38 +1263,42 @@ fn draw_pair_pre_combo(
     );
     // B-027 段階 3-B α-7-3 / Step 9: All Keep 行 N 集計のため POST candidates も取得。
     // ComboBox 先頭行の "All Keep: N ready POST(s)" 表示と display 判定 (N>=1) に使用。
-    let post_candidates = enumerate_live_post_pair_candidates_for_broadcast_scope(
+    let post_candidates = enumerate_owned_post_pair_candidates_for_operation_group(
         &kirin_root,
+        &current_project_hash,
         &current_daw_session_id,
         current_host_process_id(),
     );
-    let post_candidates: Vec<_> = if post_candidates.is_empty() {
-        enumerate_live_post_pair_candidates(&kirin_root)
-            .into_iter()
-            .filter(|c| c.project_uuid == current_project_hash)
-            .collect()
-    } else {
-        post_candidates
-    };
-    let ready_post_candidates = enumerate_active_post_pair_candidates_for_broadcast_scope(
+    let ready_post_candidates = enumerate_ready_post_pair_candidates_for_operation_group(
         &kirin_root,
+        &current_project_hash,
         &current_daw_session_id,
         current_host_process_id(),
     );
-    let ready_post_candidates: Vec<_> = if ready_post_candidates.is_empty() {
-        enumerate_active_post_pair_candidates(&kirin_root)
-            .into_iter()
-            .filter(|candidate| candidate.project_uuid == current_project_hash)
-            .collect()
-    } else {
-        ready_post_candidates
-    };
     // α-7' All Stop: 自身が recording=true (Record 中) なら All Stop 行を出す。
     let recording = state.record_sm.is_recording();
 
+    let previous_interact_height = ui.spacing().interact_size.y;
+    let previous_icon_spacing = ui.spacing().icon_spacing;
+    let previous_icon_width = ui.spacing().icon_width;
+    ui.spacing_mut().interact_size.y = 22.0;
+    ui.spacing_mut().icon_spacing = 0.0;
+    ui.spacing_mut().icon_width = 10.0;
     egui::ComboBox::from_id_salt("hypha_post_pair_pre_dropdown")
-        .selected_text(RichText::new("▼").size(12.0).color(COL_FLORA).monospace())
-        .width(140.0)
+        .selected_text("")
+        .width(22.0)
+        .icon(|ui, rect, _visuals, _is_open, _placement| {
+            let triangle = egui::Rect::from_center_size(rect.center(), egui::vec2(8.0, 5.0));
+            ui.painter().add(egui::Shape::convex_polygon(
+                vec![
+                    triangle.left_top(),
+                    triangle.right_top(),
+                    triangle.center_bottom(),
+                ],
+                COL_FLORA,
+                Stroke::NONE,
+            ));
+        })
         .show_ui(ui, |ui| {
             apply_pair_combo_dropdown_visuals(ui);
             // α-7' All Stop 行 (recording=true 時のみ / All Keep と排他表示 / 琥珀明度色)。
@@ -1341,20 +1344,7 @@ fn draw_pair_pre_combo(
             // (broadcast 失敗で自身まで pair 不可になることを構造的に回避)。
             // α-7': recording=true 時は All Keep 行を非表示 (Record 中は Keep 不要)。
             let n_ready = if state.license.load() == License::Os {
-                ready_post_candidates
-                    .iter()
-                    .filter(|post| {
-                        let session = post.daw_session_id.as_deref().unwrap_or("");
-                        resolve_published_pair_claim_for_arm(
-                            &kirin_root,
-                            post.pair_pre_name.as_deref(),
-                            post.paired_pre_instance_id.as_deref(),
-                            &post.project_uuid,
-                            session,
-                        )
-                        .is_some()
-                    })
-                    .count()
+                ready_post_candidates.len()
             } else {
                 0
             };
@@ -1512,6 +1502,9 @@ fn draw_pair_pre_combo(
                 pre_inner.response.on_hover_text(PAIR_LOCKED_TOOLTIP);
             }
         });
+    ui.spacing_mut().interact_size.y = previous_interact_height;
+    ui.spacing_mut().icon_spacing = previous_icon_spacing;
+    ui.spacing_mut().icon_width = previous_icon_width;
 }
 
 fn all_keep_dropdown_label(n_ready: usize) -> String {
@@ -1946,7 +1939,7 @@ pub(crate) fn trigger_keep_internal(
     }
 }
 
-/// All Keep broadcast を filesystem に書込んで同 DAW session の他 POST に通知する
+/// All Keep broadcast を filesystem に書込んで同じ explicit-pair operation group の他 POST に通知する
 /// (B-027 段階 3-B α-7-4-D Step 2)。
 ///
 /// Originator (= ComboBox 「All Keep: N ready POST(s)」を click した POST) のみが呼出す。
@@ -1982,8 +1975,9 @@ fn trigger_all_keep_broadcast(
     };
     let plugin_data_dir = paths.plugin_data_dir();
     let kirin_root = PlatformPaths::current_kirin_tmp_root();
-    let mut project_hashes = active_post_project_uuids_for_broadcast_scope(
+    let mut project_hashes = active_post_project_uuids_for_operation_group(
         &kirin_root,
+        project_hash,
         daw_session_id,
         current_host_process_id(),
     );
@@ -2176,8 +2170,9 @@ fn trigger_all_stop_broadcast(
     };
     let plugin_data_dir = paths.plugin_data_dir();
     let kirin_root = PlatformPaths::current_kirin_tmp_root();
-    let mut project_hashes = active_post_project_uuids_for_broadcast_scope(
+    let mut project_hashes = live_post_project_uuids_for_operation_group(
         &kirin_root,
+        project_hash,
         daw_session_id,
         current_host_process_id(),
     );

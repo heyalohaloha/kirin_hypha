@@ -50,13 +50,18 @@ fn isolate_env(label: &str) -> (std::path::PathBuf, std::path::PathBuf) {
     (home, tmp)
 }
 
-fn spawn_pre(instance_id: &str, project_uuid: &str, name: &str) -> KirinHyphaEngine {
+fn spawn_pre(
+    instance_id: &str,
+    project_uuid: &str,
+    daw_session_id: &str,
+    name: &str,
+) -> KirinHyphaEngine {
     let pre = KirinHyphaEngine::new(SR, 2);
     pre.set_license(0);
     pre.set_identity(
         instance_id.to_string(),
         project_uuid.to_string(),
-        "daw-current".to_string(),
+        daw_session_id.to_string(),
         name.to_string(),
     );
     pre.enable_pre_writes();
@@ -64,13 +69,18 @@ fn spawn_pre(instance_id: &str, project_uuid: &str, name: &str) -> KirinHyphaEng
     pre
 }
 
-fn spawn_post(instance_id: &str, project_uuid: &str, name: &str) -> KirinHyphaEngine {
+fn spawn_post(
+    instance_id: &str,
+    project_uuid: &str,
+    daw_session_id: &str,
+    name: &str,
+) -> KirinHyphaEngine {
     let post = KirinHyphaEngine::new(SR, 2);
     post.set_license(0);
     post.set_identity(
         instance_id.to_string(),
         project_uuid.to_string(),
-        "daw-current".to_string(),
+        daw_session_id.to_string(),
         name.to_string(),
     );
     post.enable_post_writes();
@@ -90,7 +100,7 @@ fn read_candidate_names(post: &KirinHyphaEngine) -> Vec<String> {
         .collect()
 }
 
-fn read_pair_claims(post: &KirinHyphaEngine) -> Vec<(String, String)> {
+fn read_pair_claims(post: &KirinHyphaEngine) -> Vec<(String, String, String)> {
     let mut buf: [KirinPostPairClaim; 8] = std::array::from_fn(|_| unsafe { std::mem::zeroed() });
     let handle = (post as *const KirinHyphaEngine).cast_mut();
     let n = unsafe { kirin_hypha_enumerate_post_pair_claims(handle, buf.as_mut_ptr(), buf.len()) };
@@ -104,7 +114,10 @@ fn read_pair_claims(post: &KirinHyphaEngine) -> Vec<(String, String)> {
             let pair = unsafe { CStr::from_ptr(c.pair_pre_name.as_ptr()) }
                 .to_string_lossy()
                 .to_string();
-            (iid, pair)
+            let exact = unsafe { CStr::from_ptr(c.paired_pre_instance_id.as_ptr()) }
+                .to_string_lossy()
+                .to_string();
+            (iid, pair, exact)
         })
         .collect()
 }
@@ -163,68 +176,104 @@ fn wait_for_watch_field(
 
 /// AU/JUCE POST dropdown parity.
 ///
-/// `Drum` / `Mix` are fixture labels only. The invariant is that an existing named POST claim must
-/// not hide a second differently named PRE from the same C ABI candidate list.
+/// `2Mix` / `Drum` / `Music` are fixture labels only. AU and VST3 may publish different project and
+/// DAW IDs inside one host process. The shell contract still requires all three exact claims to be
+/// visible, counted as ready, and reached by one All Keep action.
 #[test]
 #[ignore = "slow: C ABI candidate enumeration with PRE/POST io threads (sets HOME/TMPDIR)"]
-fn juce_candidate_abi_keeps_second_pre_visible_after_first_ready_post() {
-    let (home, tmp) = isolate_env("drum_then_mix");
+fn juce_candidate_abi_bridges_split_shell_claims_and_all_keep() {
+    let (home, tmp) = isolate_env("split_shell_all_keep");
 
-    let pre_drum = spawn_pre("iid-pre-drum", "puid-pre-drum", "Drum");
-    let pre_mix = spawn_pre("iid-pre-mix", "puid-pre-mix", "Mix");
-    let post_drum = spawn_post("iid-post-drum", "puid-post", "Drum");
-    post_drum.set_pair_target("Drum".to_string());
-    let post_without_pre = spawn_post("iid-post-ghost", "puid-post", "Ghost");
-    post_without_pre.set_pair_target("Ghost".to_string());
-    let post_mix = spawn_post("iid-post-mix", "puid-post", "");
+    let pre_2mix = spawn_pre("iid-pre-2mix", "puid-pre-au", "daw-pre-au", "2Mix");
+    let pre_drum = spawn_pre("iid-pre-drum", "puid-pre-vst", "daw-pre-vst", "Drum");
+    let pre_music = spawn_pre("iid-pre-music", "puid-pre-vst", "daw-pre-vst", "Music");
+    let post_2mix = spawn_post("iid-post-2mix", "puid-post-au", "daw-post-au", "");
+    let post_drum = spawn_post("iid-post-drum", "puid-post-vst", "daw-post-vst", "");
+    let post_music = spawn_post("iid-post-music", "puid-post-vst", "daw-post-vst", "");
 
     for _ in 0..12 {
+        pre_2mix.push_samples(&[], 2);
         pre_drum.push_samples(&[], 2);
-        pre_mix.push_samples(&[], 2);
+        pre_music.push_samples(&[], 2);
+        post_2mix.push_samples(&[], 2);
         post_drum.push_samples(&[], 2);
-        post_without_pre.push_samples(&[], 2);
-        post_mix.push_samples(&[], 2);
+        post_music.push_samples(&[], 2);
         sleep(Duration::from_millis(50));
     }
 
+    let names = wait_for_candidate_names(&post_2mix, &["2Mix", "Drum", "Music"]);
+    assert_eq!(names.len(), 3, "split-shell PRE choices: {names:?}");
+    assert!(post_2mix.set_pair_candidate("iid-pre-2mix"));
+    assert!(post_drum.set_pair_candidate("iid-pre-drum"));
+    assert!(post_music.set_pair_candidate("iid-pre-music"));
+
+    wait_for_watch_field(
+        &post_2mix,
+        &tmp,
+        "puid-post-au",
+        "iid-post-2mix",
+        "post.json",
+        "paired_pre_instance_id",
+        "iid-pre-2mix",
+    );
+    wait_for_watch_field(
+        &post_drum,
+        &tmp,
+        "puid-post-vst",
+        "iid-post-drum",
+        "post.json",
+        "paired_pre_instance_id",
+        "iid-pre-drum",
+    );
+    wait_for_watch_field(
+        &post_music,
+        &tmp,
+        "puid-post-vst",
+        "iid-post-music",
+        "post.json",
+        "paired_pre_instance_id",
+        "iid-pre-music",
+    );
+
     let ready = unsafe {
-        let handle = (&post_mix as *const KirinHyphaEngine).cast_mut();
+        let handle = (&post_2mix as *const KirinHyphaEngine).cast_mut();
         kirin_hypha_count_keep_ready(handle)
     };
+    assert_eq!(ready, 3, "All Keep must count all split-shell POSTs");
+    let claims = read_pair_claims(&post_2mix);
     assert_eq!(
-        ready, 1,
-        "a pair name without one unique armable PRE must not inflate All Keep readiness"
-    );
-    let claims = read_pair_claims(&post_mix);
-    assert!(
-        claims
-            .iter()
-            .any(|(iid, pair)| iid == "iid-post-drum" && pair == "Drum"),
-        "POST pair claim list must expose the already ready Drum pair for JUCE menu status: {claims:?}"
+        claims,
+        vec![
+            (
+                "iid-post-2mix".to_string(),
+                "2Mix".to_string(),
+                "iid-pre-2mix".to_string(),
+            ),
+            (
+                "iid-post-drum".to_string(),
+                "Drum".to_string(),
+                "iid-pre-drum".to_string(),
+            ),
+            (
+                "iid-post-music".to_string(),
+                "Music".to_string(),
+                "iid-pre-music".to_string(),
+            ),
+        ],
+        "pair ownership must cross AU/VST shelves: {claims:?}"
     );
 
-    let names = wait_for_candidate_names(&post_mix, &["Drum", "Mix"]);
-    assert!(
-        names.iter().any(|n| n == "Drum"),
-        "Drum candidate missing from JUCE C ABI list: {names:?}"
-    );
-    assert!(
-        names.iter().any(|n| n == "Mix"),
-        "Mix candidate must remain visible after Drum is ready: {names:?}"
-    );
+    assert!(post_2mix.keep_all(), "originator must enter Record");
+    wait_until_recording(&post_2mix, "split-shell-2mix");
+    wait_until_recording(&post_drum, "split-shell-drum");
+    wait_until_recording(&post_music, "split-shell-music");
 
-    post_mix.set_pair_target("Mix".to_string());
-    assert!(
-        post_mix.keep(),
-        "Mix should be keepable once selected from the same C ABI candidate list"
-    );
-    wait_until_recording(&post_mix, "pairing-candidates-mix");
-
-    drop(post_mix);
-    drop(post_without_pre);
+    drop(post_music);
     drop(post_drum);
-    drop(pre_mix);
+    drop(post_2mix);
+    drop(pre_music);
     drop(pre_drum);
+    drop(pre_2mix);
     let _ = std::fs::remove_dir_all(home.parent().unwrap_or(&home));
     let _ = std::fs::remove_dir_all(tmp.parent().unwrap_or(&tmp));
 }

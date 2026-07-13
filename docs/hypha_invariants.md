@@ -117,6 +117,7 @@ Hypha は利用者に制限や複雑な操作を課さず、普通に計測し�
 |----|----------|--------------|
 | INV-A1 | All Keep/Stop は broadcast JSON 経由、30s で stale。keep と stop は独立 | `is_broadcast_stale_detects_30s_threshold` / `stop_broadcast_independent_of_keep_broadcast` / `read_broadcast_roundtrip` |
 | INV-A2 | JUCE All Keep は engine 権威結果を使い、12-cap を事前 reject しない | `juce_all_keep_uses_authoritative_engine_result` |
+| INV-A3 | AU/VST3 が別 project/DAW ID 棚を公開しても、同一host内で明示exact PRE（削除・再作成後は一意name fallback）が見えるPOST群はready数・pair所有・All Keep/Stop到達先を共有する。別hostと不可視/曖昧PRE claimは混ぜない | `operation_group_bridges_au_vst_shelves_by_exact_visible_pre` / `operation_group_rejects_other_host_and_nonvisible_exact_claim` / `stale_exact_claim_reconnects_only_by_unique_visible_name` / `juce_candidate_abi_bridges_split_shell_claims_and_all_keep`（後者は `#[ignore]`） |
 
 ---
 
@@ -150,6 +151,7 @@ Hypha は利用者に制限や複雑な操作を課さず、普通に計測し�
 | INV-S3 | JUCE Keep は 12-cap を事前 reject せず FFI reserve→count>MAX が権威。失敗は FFI error message を出す | `juce_keep_does_not_pre_reject_at_twelve_reservations` |
 | INV-S4 | POST Record 表示は host inactive でも 6軸+N+Sharp を保持してから signal fallback | `juce_post_record_display_keeps_six_metrics_before_signal_fallback` |
 | INV-S5 | RT 安全 — processBlock が呼べる C ABI は allowlist、push_samples に fs/alloc/blocking lock 再混入なし | `process_block_calls_only_rt_safe_ffi_surface` / `ffi_push_samples_core_avoids_io_allocation_and_blocking_locks` / `audio_thread_c_abi_wrappers_remain_thin` |
+| INV-S6 | AU/VST3 POST のpair欄は 22px高・22px幅の独立した単一▼ボタンを使い、名前欄・候補操作の配置を一致させる | `shipped_post_pair_selectors_share_geometry` |
 
 ---
 

@@ -16,6 +16,10 @@ const PAIRING_SCOPE_TEST: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../crates/kirin_measure/tests/pairing_scope_separation_test.rs"
 ));
+const PAIR_OPERATION_GROUP: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../crates/kirin_measure/src/pair_operation_group.rs"
+));
 const RECORD_SIGNAL_SEPARATION_TEST: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../crates/kirin_measure/tests/record_signal_separation_test.rs"
@@ -125,9 +129,17 @@ fn readiness_checks() -> Vec<Check> {
                 (
                     PAIRING_CANDIDATES_TEST,
                     &[
-                        "juce_candidate_abi_keeps_second_pre_visible_after_first_ready_post",
-                        "not hide a second differently named PRE",
+                        "juce_candidate_abi_bridges_split_shell_claims_and_all_keep",
+                        "split-shell PRE choices",
                         "kirin_hypha_enumerate_pre_candidates",
+                    ][..],
+                ),
+                (
+                    PAIR_OPERATION_GROUP,
+                    &[
+                        "operation_group_bridges_au_vst_shelves_by_exact_visible_pre",
+                        "operation_group_rejects_other_host_and_nonvisible_exact_claim",
+                        "host_process_id",
                     ][..],
                 ),
                 (

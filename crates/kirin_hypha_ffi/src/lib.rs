@@ -49,17 +49,16 @@ use uuid::Uuid;
 use kirin_measure::engine::SessionSummary;
 use kirin_measure::reservation; // B-127 (G-115-364): per-pairing O_EXCL reservation
 use kirin_measure::{
-    active_post_project_uuids_for_broadcast_scope, append_annotation_to_latest,
+    active_post_project_uuids_for_operation_group, append_annotation_to_latest,
     can_write_plugin_data, check_record_exclusion, count_distinct_pairings,
-    current_host_process_id, enumerate_active_post_pair_candidates,
-    enumerate_active_post_pair_candidates_for_broadcast_scope, enumerate_live_post_pair_candidates,
-    enumerate_live_post_pair_candidates_for_broadcast_scope,
-    enumerate_live_pre_pair_choices_for_post_project_in_session, identity_instance_attach,
-    identity_instance_detach, latch_selected_pre, live_window, load_license_safe,
-    load_signal_state, mark_expected_metadata_consumed, mark_released, mark_released_with_reason,
-    new_record_take_tracker, new_record_trace_queue, pair_status_for_post, pair_status_for_pre,
-    paired_pre_instance_id, resolve_arm_target_for_post_project_in_session,
-    resolve_published_pair_claim_for_arm, sanitize_name,
+    current_host_process_id, enumerate_live_pre_pair_choices_for_post_project_in_session,
+    enumerate_owned_post_pair_candidates_for_operation_group,
+    enumerate_ready_post_pair_candidates_for_operation_group, identity_instance_attach,
+    identity_instance_detach, latch_selected_pre, live_post_project_uuids_for_operation_group,
+    live_window, load_license_safe, load_signal_state, mark_expected_metadata_consumed,
+    mark_released, mark_released_with_reason, new_record_take_tracker, new_record_trace_queue,
+    pair_status_for_post, pair_status_for_pre, paired_pre_instance_id,
+    resolve_arm_target_for_post_project_in_session, sanitize_name,
     select_live_pre_pair_choice_by_instance_for_post_project_in_session, set_daw_session_id,
     set_project_uuid, spawn_io_thread_post, spawn_io_thread_pre, spawn_measure_thread,
     spawn_watchdog, store_signal_state, write_broadcast, write_expected_metadata,
@@ -1716,9 +1715,8 @@ impl KirinHyphaEngine {
 
     /// POST「All Keep」: all_keep broadcast を書いてから自身の keep を発火する（B-102 /
     /// egui ComboBox 先頭行と同一ライフサイクル: broadcast → self keep）。broadcast の棚パス
-    /// （`project_hash`）と `daw_session_id` は engine の解決済み identity cell を呼び出し時に
-    /// live-read する。空/legacy session は role fallback、保存済み document は session group
-    /// の値になるため、同一 host process 内の別 Song/Project へ broadcast を誤結合しない。
+    /// は、厳格DAW scopeに加えて同一host内で明示的に見えるexact PREをclaimするPOST棚へ書く。
+    /// これによりAU/VST3のidentity棚が分かれても届き、別host・不可視PRE claimは混ぜない。
     /// 自 keep の結果（有効ペアありなら true）を返す。broadcast 書込失敗は best-effort（無視）。
     pub fn keep_all(&self) -> bool {
         let post_iid = {
@@ -1737,8 +1735,9 @@ impl KirinHyphaEngine {
         if !project_hash.is_empty() {
             if let Ok(p) = StoragePaths::default_platform() {
                 let kirin_root = PlatformPaths::current_kirin_tmp_root();
-                let mut project_hashes = active_post_project_uuids_for_broadcast_scope(
+                let mut project_hashes = active_post_project_uuids_for_operation_group(
                     &kirin_root,
+                    &project_hash,
                     &daw,
                     host_process_id,
                 );
@@ -1785,8 +1784,9 @@ impl KirinHyphaEngine {
         if !project_hash.is_empty() && !post_iid.is_empty() {
             if let Ok(p) = StoragePaths::default_platform() {
                 let kirin_root = PlatformPaths::current_kirin_tmp_root();
-                let mut project_hashes = active_post_project_uuids_for_broadcast_scope(
+                let mut project_hashes = live_post_project_uuids_for_operation_group(
                     &kirin_root,
+                    &project_hash,
                     &daw,
                     host_process_id,
                 );
@@ -1829,8 +1829,8 @@ impl KirinHyphaEngine {
         .collect()
     }
 
-    /// All Keep の「N ready」= 同 DAW session 内で pair 設定済の Active POST 数。
-    /// AU/VST3 が別 project_hash 棚へ分裂しても `daw_session_id` で集約する。
+    /// All Keep の「N ready」= 同じexplicit-pair operation groupでpair設定済のActive POST数。
+    /// AU/VST3 が project_hash / DAW ID の両方で分裂してもexact PRE可視性で集約する。
     pub fn count_keep_ready(&self) -> usize {
         if self.current_license() != License::Os {
             return 0;
@@ -1838,54 +1838,28 @@ impl KirinHyphaEngine {
         let kirin_root = PlatformPaths::current_kirin_tmp_root();
         let project_hash = read_shared_id(&self.project_hash_cell);
         let daw = read_shared_id(&self.daw_session_id_cell);
-        let candidates = enumerate_active_post_pair_candidates_for_broadcast_scope(
+        let candidates = enumerate_ready_post_pair_candidates_for_operation_group(
             &kirin_root,
+            &project_hash,
             &daw,
             current_host_process_id(),
         );
-        let candidates = if candidates.is_empty() {
-            enumerate_active_post_pair_candidates(&kirin_root)
-                .into_iter()
-                .filter(|c| c.project_uuid == project_hash)
-                .collect()
-        } else {
-            candidates
-        };
-        candidates
-            .into_iter()
-            .filter(|candidate| {
-                resolve_published_pair_claim_for_arm(
-                    &kirin_root,
-                    candidate.pair_pre_name.as_deref(),
-                    candidate.paired_pre_instance_id.as_deref(),
-                    &candidate.project_uuid,
-                    candidate.daw_session_id.as_deref().unwrap_or(""),
-                )
-                .is_some()
-            })
-            .count()
+        candidates.len()
     }
 
     /// POST 側の pair claim 一覧（GUI dropdown の keepability 表示用）。
-    /// `count_keep_ready` と同じ DAW-session-scoped source を使い、JUCE/egui の表示差を
+    /// `count_keep_ready` と同じ explicit-pair operation group を使い、JUCE/egui の表示差を
     /// 生まないための read-only C ABI surface。
     pub fn enumerate_post_pair_claims(&self) -> Vec<(String, Option<String>, Option<String>)> {
         let kirin_root = PlatformPaths::current_kirin_tmp_root();
         let project_hash = read_shared_id(&self.project_hash_cell);
         let daw = read_shared_id(&self.daw_session_id_cell);
-        let candidates = enumerate_live_post_pair_candidates_for_broadcast_scope(
+        let candidates = enumerate_owned_post_pair_candidates_for_operation_group(
             &kirin_root,
+            &project_hash,
             &daw,
             current_host_process_id(),
         );
-        let candidates = if candidates.is_empty() {
-            enumerate_live_post_pair_candidates(&kirin_root)
-                .into_iter()
-                .filter(|c| c.project_uuid == project_hash)
-                .collect()
-        } else {
-            candidates
-        };
         candidates
             .into_iter()
             .map(|c| (c.instance_id, c.pair_pre_name, c.paired_pre_instance_id))

@@ -33,6 +33,12 @@ public:
     void resized() override;
 
 private:
+    class PairMenuLookAndFeel final : public juce::LookAndFeel_V4
+    {
+    public:
+        juce::Font getPopupMenuFont() override { return hypha::monoFont (12.0f); }
+    };
+
     void timerCallback() override;
     void updatePre();
     void updatePost();
@@ -62,6 +68,7 @@ private:
     juce::Label               toastLabel;                 // POST transient messages (3s)
     juce::Label               recordErrorLabel;           // B-118 (③/追補): PRE+POST io-fail status (persistent / G-115-29)
     std::unique_ptr<hypha::PostControls> postControls;    // POST button row
+    PairMenuLookAndFeel       pairMenuLookAndFeel;          // POST: dark mono popup parity with egui
     juce::TextButton          pairDropdown;                // POST: ▼ candidate / All Keep / All Stop
     juce::Array<KirinHyphaProcessorBase::PreCandidate> menuCandidates;
     juce::TooltipWindow       tooltip { this };           // drives per-cell hover help
