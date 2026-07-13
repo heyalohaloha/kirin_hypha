@@ -118,12 +118,12 @@ if command -v xattr >/dev/null 2>&1; then
 fi
 
 BUNDLES=(
-  "$BUNDLE_DIR/Kirin Hypha PRE.vst3"
-  "$BUNDLE_DIR/Kirin Hypha POST.vst3"
+  "$BUNDLE_DIR/PRE Kirin Hypha.vst3"
+  "$BUNDLE_DIR/POST Kirin Hypha.vst3"
 )
 EXPECTED_BASENAMES=(
-  "Kirin Hypha POST.vst3"
-  "Kirin Hypha PRE.vst3"
+  "POST Kirin Hypha.vst3"
+  "PRE Kirin Hypha.vst3"
 )
 DISPLAY_NAMES=(
   "PRE Kirin Hypha"

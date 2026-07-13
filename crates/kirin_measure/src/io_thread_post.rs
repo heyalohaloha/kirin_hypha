@@ -10,8 +10,8 @@
 //!    Frame (10 fps) / PSB (2 fps) を追記、30 秒毎に flush
 //!
 //! - このスレッドが panic / 権限エラーで止まっても Audio Thread / Measure Thread は継続
-//! - Drop 時に post.json は削除しない。読み手は mtime で鮮度判定し、十分古い
-//!   watch 残骸は次回起動時 sweep で掃除する。
+//! - Drop 時に post.json 自体は削除しない。実行体固有 lease を解放すると新 reader から
+//!   即座に不可視になり、legacy 残骸だけは mtime + 起動時 sweep で扱う。
 //! - Record 中に終了した場合、保留中の writer は status=closed で flush してから閉じる
 
 use std::collections::HashMap;
@@ -436,6 +436,7 @@ pub fn spawn_io_thread_post(
         // B-024 Group A / Gap-2: PRE 死活監視 sub-tick の next-fire 時刻。
         let mut next_pre_liveness_poll = Instant::now();
         let mut discovery = PostDiscoveryState::new();
+        let mut watch_lease = crate::watch_snapshot_lease::WatchSnapshotLease::new();
         // B-243: Record idle auto-stop は「10分以上無音」の正当停止理由。Active 信号 /
         // 非Record で基点更新し、Record 中に連続無Active がしきい値を超えたら graceful 停止。
         let mut idle_anchor = Instant::now();
@@ -482,6 +483,9 @@ pub fn spawn_io_thread_post(
             let project_dir_hint = kirin_root.join(&*ph_guard);
             let instance_dir = project_dir_hint.join(&*iid_guard);
             let post_file = instance_dir.join("post.json");
+            if let Err(e) = watch_lease.bind(&instance_dir) {
+                log::warn!("[IOThread POST] watch lease bind error: {}", e);
+            }
 
             // B-027 段階 3-B α-7-1 / Step 6: pair_pre_name snapshot per tick。
             // RwLock read guard 寿命を tick 内に閉じる (closure スコープから外で
@@ -566,6 +570,7 @@ pub fn spawn_io_thread_post(
                 &instance_dir,
                 &post_file,
                 instance_id_ref,
+                watch_lease.owner_id(),
                 &post_result,
                 &delta_result,
                 &signal_state,
@@ -1020,7 +1025,9 @@ pub fn spawn_io_thread_post(
         // pluginval and some DAWs can tear down and recreate the same restored
         // instance_id in quick succession; an old IO thread deleting this path
         // can remove the next IO thread's live write and create transient missing
-        // POST/PRE pairing. Freshness is mtime-gated by readers.
+        // POST/PRE pairing. Dropping this thread's unique WatchSnapshotLease
+        // makes the old snapshot immediately invisible to new readers, while
+        // legacy readers/snapshots keep the mtime expiry path.
 
         // B-244: IO Thread terminate 終端でも record_signal は削除せず Released にする。
         // PRE は missing では止めないため、shutdown/watchdog restart/drop の lifecycle 終了も
@@ -1352,6 +1359,7 @@ fn run_tick(
     instance_dir: &Path,
     post_file: &Path,
     instance_id: &str,
+    watch_owner_id: &str,
     post_result: &Arc<Mutex<MeasureResult>>,
     delta_result: &Arc<Mutex<DeltaResult>>,
     signal_state_atom: &Arc<AtomicU8>,
@@ -1378,12 +1386,13 @@ fn run_tick(
         // B-027 段階 3-B α-7-1 / Step 6: pair_pre_name は閉路 1 tick の snapshot。
         // Q-A7 採用案 A (post.json schema 拡張による cross-instance 公開)。
         // W-281: pair_claimed_at も同 tick snapshot を書き出す (後着優先 self check 軸)。
-        let json = serialize_post_json_minimal_with_daw(
+        let json = serialize_post_json_minimal_with_daw_and_owner(
             instance_id,
             state,
             pair_pre_name,
             pair_claimed_at,
             daw_session_id,
+            watch_owner_id,
         );
         crate::atomic_file::write_bytes_atomic(post_file, json.as_bytes())
             .map_err(|e| format!("atomic write: {e}"))?;
@@ -1433,7 +1442,7 @@ fn run_tick(
     // B-027 段階 3-B α-7-1 / Step 6: pair_pre_name は閉路 1 tick の snapshot
     // (Q-A7 採用案 A 完成 / cross-instance 公開機構)。
     // W-281: pair_claimed_at も同 tick snapshot (後着優先 self check 判定軸)。
-    let json = serialize_post_json_with_daw(
+    let json = serialize_post_json_with_daw_and_owner(
         instance_id,
         state,
         pre_signal_state,
@@ -1441,6 +1450,7 @@ fn run_tick(
         pair_pre_name,
         pair_claimed_at,
         daw_session_id,
+        watch_owner_id,
     );
     crate::atomic_file::write_bytes_atomic(post_file, json.as_bytes())
         .map_err(|e| format!("atomic write: {e}"))?;
@@ -1843,6 +1853,29 @@ fn serialize_post_json_with_daw(
     pair_claimed_at: f64,
     daw_session_id: &str,
 ) -> String {
+    serialize_post_json_with_daw_and_owner(
+        instance_id,
+        state,
+        pre_signal_state,
+        result,
+        pair_pre_name,
+        pair_claimed_at,
+        daw_session_id,
+        "",
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn serialize_post_json_with_daw_and_owner(
+    instance_id: &str,
+    state: SignalState,
+    pre_signal_state: Option<SignalState>,
+    result: &MeasureResult,
+    pair_pre_name: &str,
+    pair_claimed_at: f64,
+    daw_session_id: &str,
+    watch_owner_id: &str,
+) -> String {
     let t = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ");
     let pre_state_str = pre_signal_state
         .map(|s| format!(r#""{}""#, s.as_str()))
@@ -1861,14 +1894,17 @@ fn serialize_post_json_with_daw(
         serde_json::to_string(instance_id).unwrap_or_else(|_| "\"\"".to_string());
     let daw_session_id_json =
         serde_json::to_string(daw_session_id).unwrap_or_else(|_| "\"\"".to_string());
+    let watch_owner_id_json =
+        serde_json::to_string(watch_owner_id).unwrap_or_else(|_| "\"\"".to_string());
     let host_process_id = crate::current_host_process_id();
     let pair_pre_name_json =
         serde_json::to_string(pair_pre_name).unwrap_or_else(|_| "\"\"".to_string());
     format!(
-        r#"{{"v":2,"role":"POST","instance_id":{instance_id_json},"daw_session_id":{daw_session_id},"host_process_id":{host_process_id},"signal_state":"{signal_state}","pre_signal_state":{pre_signal_state},"t":"{t}","pair_pre_name":{pair_pre_name},"pair_claimed_at":{pair_claimed_at},"lufs_m":{lufs_m},"true_peak":{true_peak},"crest":{crest},"psr":{psr}{phase_d}}}"#,
+        r#"{{"v":2,"role":"POST","instance_id":{instance_id_json},"daw_session_id":{daw_session_id},"host_process_id":{host_process_id},"watch_owner_id":{watch_owner_id},"signal_state":"{signal_state}","pre_signal_state":{pre_signal_state},"t":"{t}","pair_pre_name":{pair_pre_name},"pair_claimed_at":{pair_claimed_at},"lufs_m":{lufs_m},"true_peak":{true_peak},"crest":{crest},"psr":{psr}{phase_d}}}"#,
         instance_id_json = instance_id_json,
         daw_session_id = daw_session_id_json,
         host_process_id = host_process_id,
+        watch_owner_id = watch_owner_id_json,
         signal_state = state.as_str(),
         pre_signal_state = pre_state_str,
         t = t,
@@ -1897,6 +1933,7 @@ fn serialize_post_json_minimal(
     serialize_post_json_minimal_with_daw(instance_id, state, pair_pre_name, pair_claimed_at, "")
 }
 
+#[cfg(test)]
 fn serialize_post_json_minimal_with_daw(
     instance_id: &str,
     state: SignalState,
@@ -1904,20 +1941,41 @@ fn serialize_post_json_minimal_with_daw(
     pair_claimed_at: f64,
     daw_session_id: &str,
 ) -> String {
+    serialize_post_json_minimal_with_daw_and_owner(
+        instance_id,
+        state,
+        pair_pre_name,
+        pair_claimed_at,
+        daw_session_id,
+        "",
+    )
+}
+
+fn serialize_post_json_minimal_with_daw_and_owner(
+    instance_id: &str,
+    state: SignalState,
+    pair_pre_name: &str,
+    pair_claimed_at: f64,
+    daw_session_id: &str,
+    watch_owner_id: &str,
+) -> String {
     let t = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ");
     // B-131 (G-115-380): instance_id / pair_pre_name を serde で JSON escape（serialize_post_json と同一契約）。
     let instance_id_json =
         serde_json::to_string(instance_id).unwrap_or_else(|_| "\"\"".to_string());
     let daw_session_id_json =
         serde_json::to_string(daw_session_id).unwrap_or_else(|_| "\"\"".to_string());
+    let watch_owner_id_json =
+        serde_json::to_string(watch_owner_id).unwrap_or_else(|_| "\"\"".to_string());
     let host_process_id = crate::current_host_process_id();
     let pair_pre_name_json =
         serde_json::to_string(pair_pre_name).unwrap_or_else(|_| "\"\"".to_string());
     format!(
-        r#"{{"v":2,"role":"POST","instance_id":{instance_id_json},"daw_session_id":{daw_session_id},"host_process_id":{host_process_id},"signal_state":"{signal_state}","t":"{t}","pair_pre_name":{pair_pre_name},"pair_claimed_at":{pair_claimed_at}}}"#,
+        r#"{{"v":2,"role":"POST","instance_id":{instance_id_json},"daw_session_id":{daw_session_id},"host_process_id":{host_process_id},"watch_owner_id":{watch_owner_id},"signal_state":"{signal_state}","t":"{t}","pair_pre_name":{pair_pre_name},"pair_claimed_at":{pair_claimed_at}}}"#,
         instance_id_json = instance_id_json,
         daw_session_id = daw_session_id_json,
         host_process_id = host_process_id,
+        watch_owner_id = watch_owner_id_json,
         signal_state = state.as_str(),
         t = t,
         pair_pre_name = pair_pre_name_json,
@@ -4070,6 +4128,39 @@ mod post_candidate_tests {
         assert_eq!(c.host_process_id, Some(crate::current_host_process_id()));
         assert_eq!(c.pair_pre_name.as_deref(), Some("PRE-Master"));
         assert!(c.path.ends_with("post.json"));
+    }
+
+    #[test]
+    fn released_post_runtime_cannot_block_pair_scope_for_thirty_seconds() {
+        let root = unique_root("released_post_scope");
+        let project_uuid = "pj-OLD";
+        let post_file = write_post_json(
+            &root,
+            project_uuid,
+            "post-old",
+            SignalState::Active,
+            Some(SignalState::Active),
+            "2Mix",
+        );
+        let instance_dir = post_file.parent().unwrap();
+        let mut lease = crate::watch_snapshot_lease::WatchSnapshotLease::new();
+        lease.bind(instance_dir).unwrap();
+        let mut json: serde_json::Value =
+            serde_json::from_slice(&fs::read(&post_file).unwrap()).unwrap();
+        json["watch_owner_id"] = serde_json::json!(lease.owner_id());
+        fs::write(&post_file, serde_json::to_vec(&json).unwrap()).unwrap();
+        let host_process_id = crate::current_host_process_id();
+        assert!(host_scope_has_other_active_post_project(
+            &root,
+            "pj-CURRENT",
+            host_process_id
+        ));
+
+        drop(lease);
+        assert!(
+            !host_scope_has_other_active_post_project(&root, "pj-CURRENT", host_process_id),
+            "a normally removed POST must stop excluding every PRE immediately"
+        );
     }
 
     /// B-131 (G-115-380) 感度確証: `"` / `\` を含む pair_pre_name の POST が

@@ -169,18 +169,18 @@ fn ship_bundles() -> Vec<ShipBundle> {
         ShipBundle {
             label: "PRE VST3",
             format_dir: "VST3",
-            src: PathBuf::from("target/bundled/Kirin Hypha PRE.vst3"),
-            file_name: "Kirin Hypha PRE.vst3",
-            binary_name: "Kirin Hypha PRE",
+            src: PathBuf::from("target/bundled/PRE Kirin Hypha.vst3"),
+            file_name: "PRE Kirin Hypha.vst3",
+            binary_name: "PRE Kirin Hypha",
             display_name: "PRE Kirin Hypha",
             is_au: false,
         },
         ShipBundle {
             label: "POST VST3",
             format_dir: "VST3",
-            src: PathBuf::from("target/bundled/Kirin Hypha POST.vst3"),
-            file_name: "Kirin Hypha POST.vst3",
-            binary_name: "Kirin Hypha POST",
+            src: PathBuf::from("target/bundled/POST Kirin Hypha.vst3"),
+            file_name: "POST Kirin Hypha.vst3",
+            binary_name: "POST Kirin Hypha",
             display_name: "POST Kirin Hypha",
             is_au: false,
         },
@@ -459,7 +459,7 @@ fn install_text(version: &str) -> String {
         "Kirin Hypha {version}\n\n\
          Install either or both formats. Remove old Kirin Hypha PRE/POST copies from user-level and system-level plug-in folders first if your DAW still loads stale binaries.\n\n\
          VST3:\n\
-         - Copy VST3/Kirin Hypha PRE.vst3 and VST3/Kirin Hypha POST.vst3 to ~/Library/Audio/Plug-Ins/VST3/\n\n\
+         - Copy VST3/PRE Kirin Hypha.vst3 and VST3/POST Kirin Hypha.vst3 to ~/Library/Audio/Plug-Ins/VST3/\n\n\
          Audio Unit:\n\
          - Copy Audio Unit/Kirin Hypha PRE.component and Audio Unit/Kirin Hypha POST.component to ~/Library/Audio/Plug-Ins/Components/\n\n\
          Restart or rescan your DAW after installation. If your DAW caches plug-ins, force a full plug-in rescan.\n"
@@ -593,8 +593,8 @@ mod tests {
         for file in [
             "Kirin Hypha PRE.component",
             "Kirin Hypha POST.component",
-            "Kirin Hypha PRE.vst3",
-            "Kirin Hypha POST.vst3",
+            "PRE Kirin Hypha.vst3",
+            "POST Kirin Hypha.vst3",
         ] {
             assert!(json.contains(file));
         }

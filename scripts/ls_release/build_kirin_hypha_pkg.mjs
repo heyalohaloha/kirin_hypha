@@ -42,17 +42,17 @@ const bundles = [
   },
   {
     label: 'PRE VST3',
-    src: 'target/bundled/Kirin Hypha PRE.vst3',
-    payload: 'Library/Audio/Plug-Ins/VST3/Kirin Hypha PRE.vst3',
-    binary: 'Kirin Hypha PRE',
+    src: 'target/bundled/PRE Kirin Hypha.vst3',
+    payload: 'Library/Audio/Plug-Ins/VST3/PRE Kirin Hypha.vst3',
+    binary: 'PRE Kirin Hypha',
     displayName: 'PRE Kirin Hypha',
     kind: 'vst3',
   },
   {
     label: 'POST VST3',
-    src: 'target/bundled/Kirin Hypha POST.vst3',
-    payload: 'Library/Audio/Plug-Ins/VST3/Kirin Hypha POST.vst3',
-    binary: 'Kirin Hypha POST',
+    src: 'target/bundled/POST Kirin Hypha.vst3',
+    payload: 'Library/Audio/Plug-Ins/VST3/POST Kirin Hypha.vst3',
+    binary: 'POST Kirin Hypha',
     displayName: 'POST Kirin Hypha',
     kind: 'vst3',
   },
@@ -177,6 +177,8 @@ remove_bundle "/Library/Audio/Plug-Ins/Components/Kirin Hypha PRE.component"
 remove_bundle "/Library/Audio/Plug-Ins/Components/Kirin Hypha POST.component"
 remove_bundle "/Library/Audio/Plug-Ins/VST3/Kirin Hypha PRE.vst3"
 remove_bundle "/Library/Audio/Plug-Ins/VST3/Kirin Hypha POST.vst3"
+remove_bundle "/Library/Audio/Plug-Ins/VST3/PRE Kirin Hypha.vst3"
+remove_bundle "/Library/Audio/Plug-Ins/VST3/POST Kirin Hypha.vst3"
 
 for home in /Users/*; do
   [ -d "$home" ] || continue
@@ -184,6 +186,8 @@ for home in /Users/*; do
   remove_bundle "$home/Library/Audio/Plug-Ins/Components/Kirin Hypha POST.component"
   remove_bundle "$home/Library/Audio/Plug-Ins/VST3/Kirin Hypha PRE.vst3"
   remove_bundle "$home/Library/Audio/Plug-Ins/VST3/Kirin Hypha POST.vst3"
+  remove_bundle "$home/Library/Audio/Plug-Ins/VST3/PRE Kirin Hypha.vst3"
+  remove_bundle "$home/Library/Audio/Plug-Ins/VST3/POST Kirin Hypha.vst3"
 done
 
 exit 0

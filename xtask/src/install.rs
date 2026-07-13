@@ -10,7 +10,7 @@
 //! finding for Studio One). user-level is never the install target.
 //!
 //! # Source (B-098 signed / B-137 construction-C / G-115-344)
-//! egui VST3: `target/bundled/Kirin Hypha {PRE,POST}.vst3` (bundle-universal + stamp-egui-version).
+//! egui VST3: `target/bundled/{PRE,POST} Kirin Hypha.vst3` (bundle-universal + stamp-egui-version).
 //! JUCE AU:   `juce_shell/build-universal/KirinHypha{PRE,POST}_artefacts/Release/AU/*.component`.
 //! JUCE VST3 (`build-universal/.../Release/VST3/*.vst3`) is EXCLUDED from the ship set
 //! (GUID continuity / existing+Peach session protection). All sources must be Developer-ID
@@ -53,8 +53,10 @@ const SYSTEM_VST3_DIR: &str = "/Library/Audio/Plug-Ins/VST3";
 
 /// One installable bundle (PRE/POST × AU/VST3).
 struct Bundle {
-    /// e.g. "Kirin Hypha PRE".
+    /// Physical bundle and executable name.
     name: String,
+    /// Previous physical name removed during migration. VST3 only.
+    legacy_name: Option<String>,
     /// e.g. "PRE Kirin Hypha" — the role-first name DAWs/scanners must surface.
     display_name: String,
     /// bundle extension: "component" (AU) | "vst3" (VST3).
@@ -66,7 +68,7 @@ struct Bundle {
 }
 
 impl Bundle {
-    /// "Kirin Hypha PRE.component" etc.
+    /// "Kirin Hypha PRE.component" / "PRE Kirin Hypha.vst3".
     fn file(&self) -> String {
         format!("{}.{}", self.name, self.ext)
     }
@@ -83,6 +85,25 @@ impl Bundle {
             "Library/Audio/Plug-Ins/VST3"
         };
         Ok(PathBuf::from(home).join(leaf).join(self.file()))
+    }
+
+    fn legacy_file(&self) -> Option<String> {
+        self.legacy_name
+            .as_ref()
+            .map(|name| format!("{name}.{}", self.ext))
+    }
+
+    fn legacy_user_dest(&self) -> Result<Option<PathBuf>> {
+        let Some(file) = self.legacy_file() else {
+            return Ok(None);
+        };
+        let home = std::env::var_os("HOME").context("HOME env var not set")?;
+        let leaf = if self.ext == "component" {
+            "Library/Audio/Plug-Ins/Components"
+        } else {
+            "Library/Audio/Plug-Ins/VST3"
+        };
+        Ok(Some(PathBuf::from(home).join(leaf).join(file)))
     }
 }
 
@@ -101,14 +122,16 @@ fn bundles(root: &Path) -> Vec<Bundle> {
                 .join(format!("KirinHypha{role}_artefacts/Release/AU"))
                 .join(format!("{name}.component")),
             name: name.clone(),
+            legacy_name: None,
             display_name: display_name.clone(),
             ext: "component",
             system_dir: SYSTEM_AU_DIR,
         });
         // egui VST3 — target/bundled → /Library/Audio/Plug-Ins/VST3（JUCE VST3 は出荷しない）
         out.push(Bundle {
-            src: root.join(EGUI_BUNDLED).join(format!("{name}.vst3")),
-            name,
+            src: root.join(EGUI_BUNDLED).join(format!("{display_name}.vst3")),
+            name: display_name.clone(),
+            legacy_name: Some(name),
             display_name,
             ext: "vst3",
             system_dir: SYSTEM_VST3_DIR,
@@ -161,6 +184,9 @@ pub fn run(args: Vec<String>) -> Result<()> {
     //    wrong plugin; the canonical install target is system-level only).
     for b in &bundles {
         remove_user_level(&b.user_dest()?)?;
+        if let Some(legacy) = b.legacy_user_dest()? {
+            remove_user_level(&legacy)?;
+        }
     }
 
     // 3. deploy each bundle system-level (sudo).
@@ -182,7 +208,7 @@ fn print_usage() {
         "Usage: cargo run --package xtask -- install --release\n\n\
          Deploys the SIGNED construction-C ship bundles to the system plugin folders:\n\
          \x20 AU  -> /Library/Audio/Plug-Ins/Components/Kirin Hypha {{PRE,POST}}.component (JUCE)\n\
-         \x20 VST3-> /Library/Audio/Plug-Ins/VST3/Kirin Hypha {{PRE,POST}}.vst3 (egui)\n\n\
+         \x20 VST3-> /Library/Audio/Plug-Ins/VST3/{{PRE,POST}} Kirin Hypha.vst3 (egui)\n\n\
          Source: JUCE AU = juce_shell/build-universal/.../Release/AU; egui VST3 = target/bundled/.\n\
          JUCE VST3 is EXCLUDED from the ship set (GUID continuity).\n\
          Each source must be Developer-ID signed ({TEAM_ID}) + notarized (B-098), else install\n\
@@ -332,6 +358,12 @@ fn deploy_system_level(b: &Bundle) -> Result<()> {
         );
     }
     let dst = b.system_dest();
+    if let Some(legacy_file) = b.legacy_file() {
+        let legacy = sys_dir.join(legacy_file);
+        eprintln!("[install]   sudo rm -rf {}", legacy.display());
+        run_sudo(&["rm", "-rf", path_str(&legacy)?])
+            .with_context(|| format!("sudo rm -rf failed for {}", legacy.display()))?;
+    }
     eprintln!("[install]   sudo rm -rf {}", dst.display());
     run_sudo(&["rm", "-rf", path_str(&dst)?])
         .with_context(|| format!("sudo rm -rf failed for {}", dst.display()))?;
@@ -520,9 +552,29 @@ mod tests {
         assert_eq!(b.len(), 4);
         let names: Vec<_> = b.iter().map(|x| x.file()).collect();
         assert!(names.contains(&"Kirin Hypha PRE.component".to_string()));
-        assert!(names.contains(&"Kirin Hypha PRE.vst3".to_string()));
+        assert!(names.contains(&"PRE Kirin Hypha.vst3".to_string()));
         assert!(names.contains(&"Kirin Hypha POST.component".to_string()));
-        assert!(names.contains(&"Kirin Hypha POST.vst3".to_string()));
+        assert!(names.contains(&"POST Kirin Hypha.vst3".to_string()));
+    }
+
+    #[test]
+    fn role_first_vst3_migration_removes_only_the_two_legacy_vst3_names() {
+        let bundles = bundles(Path::new("."));
+        let legacy: Vec<_> = bundles
+            .iter()
+            .filter_map(|bundle| bundle.legacy_file())
+            .collect();
+        assert_eq!(
+            legacy,
+            vec![
+                "Kirin Hypha PRE.vst3".to_string(),
+                "Kirin Hypha POST.vst3".to_string()
+            ]
+        );
+        assert!(bundles
+            .iter()
+            .filter(|bundle| bundle.ext == "component")
+            .all(|bundle| bundle.legacy_file().is_none()));
     }
 
     #[test]

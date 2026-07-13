@@ -81,8 +81,8 @@ The source ship set is construction-C:
 
 - `juce_shell/build-universal/.../AU/Kirin Hypha PRE.component`
 - `juce_shell/build-universal/.../AU/Kirin Hypha POST.component`
-- `target/bundled/Kirin Hypha PRE.vst3`
-- `target/bundled/Kirin Hypha POST.vst3`
+- `target/bundled/PRE Kirin Hypha.vst3`
+- `target/bundled/POST Kirin Hypha.vst3`
 
 ## Phase 2: Build Installer Package
 
