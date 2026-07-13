@@ -196,6 +196,27 @@ fn scan_pre_candidates_in_keeps_active() {
 }
 
 #[test]
+fn released_runtime_is_removed_from_pair_candidates_without_waiting_for_mtime() {
+    let base = isolated_dir();
+    let instance_dir = base.join("ph").join("released-pre");
+    fs::create_dir_all(&instance_dir).unwrap();
+    let mut lease = crate::watch_snapshot_lease::WatchSnapshotLease::new();
+    lease.bind(&instance_dir).unwrap();
+    let json = format!(
+        r#"{{"v":2,"role":"PRE","instance_id":"released-pre","watch_owner_id":"{}","signal_state":"active","t":"now","name":"2Mix"}}"#,
+        lease.owner_id()
+    );
+    fs::write(instance_dir.join("pre.json"), json).unwrap();
+    assert_eq!(scan_pre_candidates(&base, "ph").len(), 1);
+
+    drop(lease);
+    assert!(
+        scan_pre_candidates(&base, "ph").is_empty(),
+        "normal teardown must remove PRE from the selector immediately"
+    );
+}
+
+#[test]
 fn scan_pre_candidates_in_filters_only_bypassed() {
     let base = isolated_dir();
     write_pre_tmp_with_state(&base, "ph", "alive", "active");

@@ -56,12 +56,12 @@ fn macos_pluginval_script_is_a_reusable_strict_preflight_gate() {
     );
     require(
         PLUGINVAL_SCRIPT,
-        "\"$BUNDLE_DIR/Kirin Hypha PRE.vst3\"",
+        "\"$BUNDLE_DIR/PRE Kirin Hypha.vst3\"",
         "script must validate the PRE ship-set VST3 by exact path",
     );
     require(
         PLUGINVAL_SCRIPT,
-        "\"$BUNDLE_DIR/Kirin Hypha POST.vst3\"",
+        "\"$BUNDLE_DIR/POST Kirin Hypha.vst3\"",
         "script must validate the POST ship-set VST3 by exact path",
     );
     require(

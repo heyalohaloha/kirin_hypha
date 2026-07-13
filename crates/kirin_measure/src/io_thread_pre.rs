@@ -15,8 +15,8 @@
 //!    に Frame / PSB を追記
 //!
 //! - このスレッドが panic / 権限エラーで止まっても Audio Thread / Measure Thread は継続。
-//! - Drop 時（プラグインアンロード）に pre.json は削除しない。読み手は mtime で鮮度判定し、
-//!   十分古い watch 残骸は次回起動時 sweep で掃除する。
+//! - Drop 時（プラグインアンロード）に pre.json 自体は削除しない。実行体固有 lease を
+//!   解放すると新 reader から即座に不可視になり、legacy 残骸だけは mtime + 起動時 sweep で扱う。
 //! - Record 中にループ終了した場合、writer は status=closed で flush してから閉じる。
 //!
 //! - `License::Os`: 条件一致 pending 検出で `try_enter_record` + `mark_acknowledged`、writer 起動
@@ -754,6 +754,7 @@ pub fn spawn_io_thread_pre(
         // project_uuid 空間に揃え、cdylib 隔離下 (`static OnceLock` が PRE/POST
         // で別実体) でも cross-instance pair 復元 v1.2 (a) が機能する。
         let mut discovery = PreSelfDiscoveryState::new();
+        let mut watch_lease = crate::watch_snapshot_lease::WatchSnapshotLease::new();
 
         loop {
             if shutdown.load(Ordering::Relaxed) {
@@ -776,6 +777,9 @@ pub fn spawn_io_thread_pre(
             let name_owned_for_write = read_instance_id_arc(&name);
             let dir = io_dir(&project_hash, instance_id_ref);
             let file_path = dir.join("pre.json");
+            if let Err(e) = watch_lease.bind(&dir) {
+                log::warn!("[IOThread PRE] watch lease bind error: {}", e);
+            }
 
             // ① pre.json（Watch 値）書き込み
             // path は PRE 自身の `project_hash` で構築する。POST 側 io_thread
@@ -784,11 +788,11 @@ pub fn spawn_io_thread_pre(
             // PRE/POST の project_hash が乖離していても POST はこの pre.json を
             // 拾える。本 path は B-022 では変更しない。
             if let Err(e) = write_json(
-                &dir,
                 &file_path,
                 instance_id_ref,
                 name_owned_for_write.as_str(),
                 daw_session_id.as_str(),
+                watch_lease.owner_id(),
                 &result,
                 &signal_state,
             ) {
@@ -1046,8 +1050,10 @@ pub fn spawn_io_thread_pre(
         // pluginval and some DAWs can tear down and recreate the same restored
         // instance_id in quick succession; an old IO thread deleting this path
         // can remove the next IO thread's live write and create transient NoPre.
-        // Freshness is already mtime-gated by readers, so stale watch files age
-        // out without a teardown-time destructive cleanup race.
+        // Dropping this thread's WatchSnapshotLease releases only its unique
+        // owner marker, so new readers stop accepting this snapshot immediately.
+        // Legacy readers/snapshots retain the mtime expiry path without a
+        // teardown-time destructive cleanup race.
         log::info!("[IOThread PRE] terminated");
     })
 }
@@ -1470,14 +1476,17 @@ fn retry_direct_read(
 
 /// 計測結果を JSON に変換して アトミックに書き込む（Watch 値）。
 fn write_json(
-    dir: &Path,
     file_path: &Path,
     instance_id: &str,
     name: &str,
     daw_session_id: &str,
+    watch_owner_id: &str,
     result: &Arc<Mutex<MeasureResult>>,
     signal_state: &Arc<AtomicU8>,
 ) -> Result<(), String> {
+    let dir = file_path
+        .parent()
+        .ok_or_else(|| "pre.json path has no parent".to_string())?;
     fs::create_dir_all(dir).map_err(|e| format!("create_dir_all: {e}"))?;
 
     let state = load_signal_state(signal_state);
@@ -1495,9 +1504,22 @@ fn write_json(
                 format!("Mutex poisoned: {e}")
             })?
             .clone();
-        serialize_pre_json_with_daw_session_id(instance_id, name, daw_session_id, state, &measure)
+        serialize_pre_json_with_daw_session_id_and_owner(
+            instance_id,
+            name,
+            daw_session_id,
+            watch_owner_id,
+            state,
+            &measure,
+        )
     } else {
-        serialize_pre_json_minimal_with_daw_session_id(instance_id, name, daw_session_id, state)
+        serialize_pre_json_minimal_with_daw_session_id_and_owner(
+            instance_id,
+            name,
+            daw_session_id,
+            watch_owner_id,
+            state,
+        )
     };
 
     crate::atomic_file::write_bytes_atomic(file_path, json.as_bytes())
@@ -1527,6 +1549,24 @@ pub fn serialize_pre_json_with_daw_session_id(
     state: SignalState,
     result: &MeasureResult,
 ) -> String {
+    serialize_pre_json_with_daw_session_id_and_owner(
+        instance_id,
+        name,
+        daw_session_id,
+        "",
+        state,
+        result,
+    )
+}
+
+fn serialize_pre_json_with_daw_session_id_and_owner(
+    instance_id: &str,
+    name: &str,
+    daw_session_id: &str,
+    watch_owner_id: &str,
+    state: SignalState,
+    result: &MeasureResult,
+) -> String {
     let t = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ");
     // B-077: name は利用者入力。serde で JSON 文字列化し " \ 制御文字・日本語を安全に escape する
     // （旧: 生補間で " \ を含む名が不正 JSON を生成 → POST parse 失敗）。正常 ASCII 名は不変。
@@ -1539,13 +1579,16 @@ pub fn serialize_pre_json_with_daw_session_id(
         serde_json::to_string(instance_id).unwrap_or_else(|_| "\"\"".to_string());
     let daw_session_id_json =
         serde_json::to_string(daw_session_id).unwrap_or_else(|_| "\"\"".to_string());
+    let watch_owner_id_json =
+        serde_json::to_string(watch_owner_id).unwrap_or_else(|_| "\"\"".to_string());
     let host_process_id = current_host_process_id();
     format!(
-        r#"{{"v":2,"role":"PRE","instance_id":{instance_id_json},"name":{name_json},"daw_session_id":{daw_session_id_json},"host_process_id":{host_process_id},"signal_state":"{signal_state}","t":"{t}","lufs_m":{lufs_m},"true_peak":{true_peak},"crest":{crest},"psr":{psr}{phase_d}}}"#,
+        r#"{{"v":2,"role":"PRE","instance_id":{instance_id_json},"name":{name_json},"daw_session_id":{daw_session_id_json},"host_process_id":{host_process_id},"watch_owner_id":{watch_owner_id_json},"signal_state":"{signal_state}","t":"{t}","lufs_m":{lufs_m},"true_peak":{true_peak},"crest":{crest},"psr":{psr}{phase_d}}}"#,
         instance_id_json = instance_id_json,
         name_json = name_json,
         daw_session_id_json = daw_session_id_json,
         host_process_id = host_process_id,
+        watch_owner_id_json = watch_owner_id_json,
         signal_state = state.as_str(),
         t = t,
         lufs_m = opt_f64(result.lufs_m),
@@ -1565,10 +1608,27 @@ fn serialize_pre_json_minimal(instance_id: &str, name: &str, state: SignalState)
     serialize_pre_json_minimal_with_daw_session_id(instance_id, name, "", state)
 }
 
+#[cfg(test)]
 fn serialize_pre_json_minimal_with_daw_session_id(
     instance_id: &str,
     name: &str,
     daw_session_id: &str,
+    state: SignalState,
+) -> String {
+    serialize_pre_json_minimal_with_daw_session_id_and_owner(
+        instance_id,
+        name,
+        daw_session_id,
+        "",
+        state,
+    )
+}
+
+fn serialize_pre_json_minimal_with_daw_session_id_and_owner(
+    instance_id: &str,
+    name: &str,
+    daw_session_id: &str,
+    watch_owner_id: &str,
     state: SignalState,
 ) -> String {
     let t = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ");
@@ -1579,13 +1639,16 @@ fn serialize_pre_json_minimal_with_daw_session_id(
         serde_json::to_string(instance_id).unwrap_or_else(|_| "\"\"".to_string());
     let daw_session_id_json =
         serde_json::to_string(daw_session_id).unwrap_or_else(|_| "\"\"".to_string());
+    let watch_owner_id_json =
+        serde_json::to_string(watch_owner_id).unwrap_or_else(|_| "\"\"".to_string());
     let host_process_id = current_host_process_id();
     format!(
-        r#"{{"v":2,"role":"PRE","instance_id":{instance_id_json},"name":{name_json},"daw_session_id":{daw_session_id_json},"host_process_id":{host_process_id},"signal_state":"{signal_state}","t":"{t}"}}"#,
+        r#"{{"v":2,"role":"PRE","instance_id":{instance_id_json},"name":{name_json},"daw_session_id":{daw_session_id_json},"host_process_id":{host_process_id},"watch_owner_id":{watch_owner_id_json},"signal_state":"{signal_state}","t":"{t}"}}"#,
         instance_id_json = instance_id_json,
         name_json = name_json,
         daw_session_id_json = daw_session_id_json,
         host_process_id = host_process_id,
+        watch_owner_id_json = watch_owner_id_json,
         signal_state = state.as_str(),
         t = t,
     )

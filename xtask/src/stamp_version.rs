@@ -25,16 +25,19 @@ struct BundleStamp {
 
 const BUNDLES: &[BundleStamp] = &[
     BundleStamp {
-        file_name: "Kirin Hypha PRE",
+        file_name: "PRE Kirin Hypha",
         display_name: "PRE Kirin Hypha",
     },
     BundleStamp {
-        file_name: "Kirin Hypha POST",
+        file_name: "POST Kirin Hypha",
         display_name: "POST Kirin Hypha",
     },
 ];
 
+const LEGACY_BUNDLE_NAMES: &[&str] = &["Kirin Hypha PRE", "Kirin Hypha POST"];
+
 pub fn run(_args: Vec<String>) -> Result<()> {
+    remove_legacy_egui_outputs(Path::new("target/bundled"))?;
     let version = read_egui_crate_version()?;
     eprintln!("[stamp-egui-version] egui crate version = {version}");
     for bundle in BUNDLES {
@@ -55,6 +58,27 @@ pub fn run(_args: Vec<String>) -> Result<()> {
             "[stamp-egui-version] {}.vst3 → {version}, display {}",
             bundle.file_name, bundle.display_name
         );
+    }
+    Ok(())
+}
+
+/// The upstream bundler does not remove outputs whose configured name changed. Leaving those
+/// directories beside the role-first bundles makes DAWs and the strict pluginval gate discover
+/// both generations. Remove only the two known legacy egui VST3 outputs before stamping.
+fn remove_legacy_egui_outputs(root: &Path) -> Result<()> {
+    for name in LEGACY_BUNDLE_NAMES {
+        for suffix in [".vst3", ".vst3.zip"] {
+            let path = root.join(format!("{name}{suffix}"));
+            if path.is_dir() {
+                std::fs::remove_dir_all(&path)
+                    .with_context(|| format!("remove legacy bundle {}", path.display()))?;
+                eprintln!("[stamp-egui-version] removed legacy {}", path.display());
+            } else if path.is_file() {
+                std::fs::remove_file(&path)
+                    .with_context(|| format!("remove legacy bundle {}", path.display()))?;
+                eprintln!("[stamp-egui-version] removed legacy {}", path.display());
+            }
+        }
     }
     Ok(())
 }

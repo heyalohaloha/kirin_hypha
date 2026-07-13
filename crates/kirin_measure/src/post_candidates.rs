@@ -37,6 +37,8 @@ pub(crate) struct PostTmpJson {
     #[serde(default)]
     pub host_process_id: u32,
     #[serde(default)]
+    pub watch_owner_id: String,
+    #[serde(default)]
     pub pair_pre_name: String,
     #[serde(default)]
     pub pair_claimed_at: f64,
@@ -116,6 +118,9 @@ pub fn scan_post_candidates_in(project_dir: &Path) -> Vec<PostCandidate> {
                 continue;
             }
         };
+        if !crate::watch_snapshot_lease::snapshot_owner_is_live(&path, &parsed.watch_owner_id) {
+            continue;
+        }
         if parsed.signal_state == "bypassed" {
             continue;
         }
@@ -184,6 +189,10 @@ pub(crate) fn discover_active_post_dirs(kirin_root: &Path) -> Vec<PathBuf> {
                 Err(_) => continue,
             };
             if !meta.is_file() {
+                continue;
+            }
+
+            if !crate::watch_snapshot_lease::snapshot_file_has_live_owner(&post_json) {
                 continue;
             }
 

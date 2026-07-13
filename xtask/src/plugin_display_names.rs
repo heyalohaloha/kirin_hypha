@@ -70,7 +70,7 @@ mod tests {
     }
 
     #[test]
-    fn egui_vst3_display_names_are_role_first_while_bundle_names_stay_stable() {
+    fn egui_vst3_display_and_physical_names_are_role_first() {
         assert!(
             HYPHA_PRE_LIB.contains("const NAME: &'static str = \"PRE Kirin Hypha\";"),
             "egui PRE VST3 display name must put PRE before Kirin Hypha"
@@ -80,12 +80,12 @@ mod tests {
             "egui POST VST3 display name must put POST before Kirin Hypha"
         );
         assert!(
-            BUNDLER_TOML.contains("name = \"Kirin Hypha PRE\""),
-            "bundler.toml must keep the existing PRE bundle/file name"
+            BUNDLER_TOML.contains("name = \"PRE Kirin Hypha\""),
+            "bundler.toml must expose PRE first in hosts that surface the module filename"
         );
         assert!(
-            BUNDLER_TOML.contains("name = \"Kirin Hypha POST\""),
-            "bundler.toml must keep the existing POST bundle/file name"
+            BUNDLER_TOML.contains("name = \"POST Kirin Hypha\""),
+            "bundler.toml must expose POST first in hosts that surface the module filename"
         );
     }
 
@@ -102,7 +102,7 @@ mod tests {
             version_line(HYPHA_PRE_CARGO),
             version_line(HYPHA_POST_CARGO)
         );
-        assert_eq!(version_line(HYPHA_PRE_CARGO).trim(), "version = \"1.1.22\"");
+        assert_eq!(version_line(HYPHA_PRE_CARGO).trim(), "version = \"1.1.23\"");
     }
 
     #[test]
@@ -116,6 +116,12 @@ mod tests {
             STAMP_VERSION_RS.contains("\"CFBundleDisplayName\"")
                 && STAMP_VERSION_RS.contains("\"CFBundleName\""),
             "stamp-egui-version must update bundle display metadata after nih-plug bundling"
+        );
+        assert!(
+            STAMP_VERSION_RS.contains("remove_legacy_egui_outputs")
+                && STAMP_VERSION_RS.contains("Kirin Hypha PRE")
+                && STAMP_VERSION_RS.contains("Kirin Hypha POST"),
+            "stamp-egui-version must remove the two obsolete physical VST3 names"
         );
         assert!(
             RELEASE_PACKAGE_RS.contains("verify_display_metadata")

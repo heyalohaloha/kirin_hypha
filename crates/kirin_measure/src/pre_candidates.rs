@@ -53,6 +53,8 @@ struct PreTmpJson {
     host_process_id: u32,
     #[serde(default)]
     daw_session_id: String,
+    #[serde(default)]
+    watch_owner_id: String,
 }
 
 /// `/tmp/kirin/{project_hash}/{instance_id}/pre.json` を全 instance_id 横断で走査。
@@ -105,6 +107,9 @@ pub fn scan_pre_candidates_in(project_dir: &Path) -> Vec<PreCandidate> {
                 continue;
             }
         };
+        if !crate::watch_snapshot_lease::snapshot_owner_is_live(&path, &parsed.watch_owner_id) {
+            continue;
+        }
         // B-027: Bypassed の PRE のみ pair 候補から除外。
         // Active / Inactive / 旧 schema (signal_state 不在) は候補化する。
         // 読込側 filter (二重防御の片側)。書込側 guard は

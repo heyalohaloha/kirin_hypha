@@ -76,14 +76,14 @@ const BUNDLES_C: [(&str, Root, &str, &str, bool); 4] = [
     (
         "PRE  VST3",
         Root::Egui,
-        "Kirin Hypha PRE.vst3",
+        "PRE Kirin Hypha.vst3",
         "PRE Kirin Hypha",
         false,
     ),
     (
         "POST VST3",
         Root::Egui,
-        "Kirin Hypha POST.vst3",
+        "POST Kirin Hypha.vst3",
         "POST Kirin Hypha",
         false,
     ),

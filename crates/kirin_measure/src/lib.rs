@@ -44,6 +44,7 @@ pub mod trace_alignment;
 mod trace_content_clock;
 pub mod watch_max;
 pub mod watch_playback_pass;
+mod watch_snapshot_lease;
 mod watch_tmp_cleanup;
 pub mod watchdog;
 

@@ -138,6 +138,10 @@ pub fn discover_active_pre_dir_for_pair(
                 continue;
             }
 
+            if !crate::watch_snapshot_lease::snapshot_file_has_live_owner(&pre_json) {
+                continue;
+            }
+
             let mtime = match meta.modified() {
                 Ok(t) => t,
                 Err(_) => continue,
@@ -241,6 +245,10 @@ pub fn discover_active_pre_dirs(kirin_root: &Path) -> Vec<PathBuf> {
                 Err(_) => continue,
             };
             if !meta.is_file() {
+                continue;
+            }
+
+            if !crate::watch_snapshot_lease::snapshot_file_has_live_owner(&pre_json) {
                 continue;
             }
 
