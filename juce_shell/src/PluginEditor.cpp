@@ -23,24 +23,31 @@ namespace
              + (nReady == 1 ? "" : "s");
     }
 
-    bool claimedByOtherPost (const juce::String& name,
+    bool claimedByOtherPost (const KirinHyphaProcessorBase::PreCandidate& candidate,
                              const juce::String& ownInstanceId,
                              const juce::Array<KirinHyphaProcessorBase::PostPairClaim>& claims)
     {
         for (const auto& c : claims)
-            if (c.hasPairPreName && c.pairPreName == name && c.instanceId != ownInstanceId)
+            if (c.instanceId != ownInstanceId
+                && ((c.hasPairedPreInstanceId && c.pairedPreInstanceId == candidate.instanceId)
+                    || (! c.hasPairedPreInstanceId && c.hasPairPreName && candidate.hasName
+                        && candidate.name.isNotEmpty() && c.pairPreName == candidate.name)))
                 return true;
         return false;
     }
 
-    bool hasDuplicateCandidateName (const juce::String& name,
-                                    const juce::Array<KirinHyphaProcessorBase::PreCandidate>& candidates)
+    juce::String pairStatusText (int status)
     {
-        int matches = 0;
-        for (const auto& c : candidates)
-            if (c.hasName && c.name.isNotEmpty() && c.name == name && ++matches > 1)
-                return true;
-        return false;
+        if (status == 2) return juce::CharPointer_UTF8 ("PAIR ●");
+        if (status == 1) return juce::CharPointer_UTF8 ("PAIR ◌");
+        return juce::CharPointer_UTF8 ("PAIR —");
+    }
+
+    juce::Colour pairStatusColour (int status)
+    {
+        if (status == 2) return hypha::COL_LED_BLUE;
+        if (status == 1) return COL_FLORA;
+        return COL_MUTED;
     }
 }
 
@@ -58,9 +65,18 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
     addAndMakeVisible (nameField);
     nameField.onCommit = [this] (const juce::String& n)
     {
-        if (isPost) processorRef.setPairName (n);
+        if (isPost)
+        {
+            processorRef.setPairName (n);
+            if (n.isEmpty()) nameField.setFallback ("___");
+        }
         else        processorRef.setPreName (n);
     };
+
+    pairStatusLabel.setFont (hypha::monoFont (11.0f));
+    pairStatusLabel.setJustificationType (juce::Justification::centredRight);
+    pairStatusLabel.setInterceptsMouseClicks (false, false);
+    addAndMakeVisible (pairStatusLabel);
 
     if (isPost)
     {
@@ -68,11 +84,6 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         nameField.setFallback ("___");
         nameField.setLockedTooltip (juce::CharPointer_UTF8 ("Pair selection is locked during playback"));
         nameField.setModelName (processorRef.pairName());
-
-        pairRecLabel.setFont (hypha::monoFont (11.0f));
-        pairRecLabel.setColour (juce::Label::textColourId, COL_MUTED);
-        pairRecLabel.setJustificationType (juce::Justification::centredLeft);
-        addChildComponent (pairRecLabel);
 
         postControls = std::make_unique<hypha::PostControls>();
         addAndMakeVisible (*postControls);
@@ -167,13 +178,15 @@ void KirinHyphaEditor::resized()
     const int w = getWidth();
     titleArea = { kMargin, kTopSpace, 58, kTitleH };
     led.setBounds (w - kMargin - kLedPx, kTopSpace + (kTitleH - kLedPx) / 2, kLedPx, kLedPx);
+    const int pairStatusW = 52;
+    const int pairStatusX = w - kMargin - kLedPx - 6 - pairStatusW;
+    pairStatusLabel.setBounds (pairStatusX, kTopSpace, pairStatusW, kTitleH);
 
     const int fieldLeft  = kMargin + 58 + 6;            // after the title text
-    const int fieldRight = w - kMargin - kLedPx - 6;    // before the LED
+    const int fieldRight = pairStatusX - 6;             // before the common PAIR status
 
     if (isPost)
     {
-        pairRecLabel.setBounds (fieldLeft, kTopSpace, juce::jmax (0, fieldRight - fieldLeft), kTitleH);
         const int nameY = kTopSpace + kTitleH + 4;      // 38
         const int ddW = 22;                             // ▼ dropdown width (B-102)
         nameField.setBounds (kMargin, nameY, w - 2 * kMargin - ddW - 4, 22);
@@ -294,8 +307,9 @@ void KirinHyphaEditor::showCandidateMenu()
 {
     // B-102: egui draw_pair_pre_combo parity (scope = new↔new). Built on click (no per-tick FFI):
     //   [All Keep: N ready POST(s)] (Watch, N>=1) / [All Stop: recording POSTs] (Record) /
-    //   candidate rows ("Can Keep/Keep ready/In use/Duplicate: name").
-    // select_target_pre matches by name, so only named candidates are offered (egui skips empty).
+    //   candidate rows ("Can Keep/Keep ready/In use: name-or-id8").
+    // Every live PRE is offered, including unnamed instances. Selection commits its exact
+    // instance_id; the name remains only the convenient persisted display/search value.
     const bool rec = processorRef.isRecording();
     const bool playing = processorRef.isPlaying(); // W-280: pair change locked during playback
     // B-115: lock only when playing AND live (processBlock running). A frozen `playing` with a
@@ -306,27 +320,29 @@ void KirinHyphaEditor::showCandidateMenu()
     const juce::String currentPairName = processorRef.pairName();
     const juce::String ownInstanceId = processorRef.instanceId();
 
-    menuCandidateNames.clearQuick();
+    menuCandidates.clearQuick();
     juce::StringArray labels;
     juce::Array<bool> labelEnabled;
     juce::Array<bool> labelChecked;
+    const juce::String currentPreInstanceId = processorRef.pairedPreInstanceId();
     for (const auto& c : cands)
-        if (c.hasName && c.name.isNotEmpty())
-        {
-            menuCandidateNames.add (c.name);
-            const bool keepReady = (c.name == currentPairName);
-            const bool inUse = claimedByOtherPost (c.name, ownInstanceId, claims);
-            const bool duplicateName = hasDuplicateCandidateName (c.name, cands);
-            const juce::String prefix = duplicateName ? "Duplicate: "
-                                      : (inUse ? "In use: " : (keepReady ? "Keep ready: " : "Can Keep: "));
-            labels.add (prefix + c.name);
-            labelEnabled.add (! duplicateName && ! inUse);
-            labelChecked.add (! duplicateName && keepReady && ! inUse);
-        }
+    {
+        menuCandidates.add (c);
+        const bool keepReady = currentPreInstanceId.isNotEmpty()
+                                 ? c.instanceId == currentPreInstanceId
+                                 : (c.hasName && c.name.isNotEmpty() && c.name == currentPairName);
+        const bool inUse = claimedByOtherPost (c, ownInstanceId, claims);
+        const juce::String shown = c.hasName && c.name.isNotEmpty()
+                                     ? c.name
+                                     : c.instanceId.substring (0, 8);
+        labels.add ((inUse ? "In use: " : (keepReady ? "Keep ready: " : "Can Keep: ")) + shown);
+        labelEnabled.add (! inUse);
+        labelChecked.add (keepReady && ! inUse);
+    }
 
     // egui parity: "N ready" = pair-set POST instances (keepReadyCount), NOT the PRE candidate
     // count — the All Keep broadcast acts on POSTs (hypha_post editor.rs:938-944). Candidate rows
-    // below are the PRE list (menuCandidateNames), matching egui's separate pre_candidates source.
+    // below are the exact PRE rows (menuCandidates), matching egui's separate pre_candidates source.
     const int nReady = processorRef.keepReadyCount();
     juce::PopupMenu menu;
     if (! rec && processorRef.licenseIsOs() && nReady >= 1)
@@ -336,7 +352,7 @@ void KirinHyphaEditor::showCandidateMenu()
     if (menu.getNumItems() > 0)
         menu.addSeparator();
     menu.addItem (4, "Pair choices (not Keep targets)", false, false);
-    if (menuCandidateNames.isEmpty())
+    if (menuCandidates.isEmpty())
         menu.addItem (3, "No pair choices", false, false); // disabled (R-26: silent when nothing)
     else
         for (int i = 0; i < labels.size(); ++i)
@@ -362,11 +378,18 @@ void KirinHyphaEditor::handleCandidateMenu (int result)
     else if (result >= 100)
     {
         const int idx = result - 100;
-        if (idx >= 0 && idx < menuCandidateNames.size())
+        if (idx >= 0 && idx < menuCandidates.size())
         {
-            const juce::String name = menuCandidateNames[idx];
-            processorRef.setPairName (name);     // -> kirin_hypha_set_pair_target
-            nameField.setModelName (name);       // reflect immediately in the field
+            const auto candidate = menuCandidates.getReference (idx);
+            const juce::String name = candidate.hasName ? candidate.name : juce::String();
+            if (processorRef.setPairCandidate (candidate.instanceId, name))
+            {
+                nameField.setModelName (name);
+                nameField.setFallback (name.isEmpty() ? candidate.instanceId.substring (0, 8)
+                                                      : juce::String ("___"));
+            }
+            else
+                showToast ("PRE no longer available");
         }
     }
 }
@@ -386,6 +409,9 @@ void KirinHyphaEditor::updatePre()
     const bool rec    = processorRef.isRecording();    // record_sm (PRE autonomous record too)
     const bool ack    = processorRef.recordAcknowledged();
     const bool preset = processorRef.presetAvailable(); // PRE: always false
+    const int pairStatus = processorRef.pairStatus();
+    pairStatusLabel.setText (pairStatusText (pairStatus), juce::dontSendNotification);
+    pairStatusLabel.setColour (juce::Label::textColourId, pairStatusColour (pairStatus));
 
     nameField.setModelName (processorRef.preName());
     nameField.setFallback (instanceId8());
@@ -484,15 +510,13 @@ void KirinHyphaEditor::updatePost()
     const bool pairLocked = playing && processorRef.heartbeatLive();
 
     const juce::String pairName = processorRef.pairName();
-    const bool pairNonEmpty = pairName.isNotEmpty();
+    const int pairStatus = processorRef.pairStatus();
+    const bool pairSelected = pairStatus != 0;
+    pairStatusLabel.setText (pairStatusText (pairStatus), juce::dontSendNotification);
+    pairStatusLabel.setColour (juce::Label::textColourId, pairStatusColour (pairStatus));
 
     nameField.setModelName (pairName);
     nameField.setEditingEnabled (! pairLocked); // W-280 + B-115 playback pair lock (playing AND live)
-
-    pairRecLabel.setVisible (rec);
-    if (rec)
-        pairRecLabel.setText ("pair: " + (pairNonEmpty ? pairName : instanceId8()),
-                              juce::dontSendNotification);
 
     const double t = nowSecs();
     if (ack && ! prevAck) bannerUntil = t + 3.0; // harmless (POST ack never true)
@@ -512,7 +536,7 @@ void KirinHyphaEditor::updatePost()
     if (status.isNotEmpty())
         recordErrorLabel.setText (status, juce::dontSendNotification);
 
-    postControls->update (rec, processorRef.licenseCode(), pairNonEmpty);
+    postControls->update (rec, processorRef.licenseCode(), pairStatus != 0);
 
     // ── display-branch tree: raw Record/TRACE stays untouched, but paired Watch keeps the
     //    delta grid through short PRE idle/stale gaps so a latched pair does not look released.
@@ -566,7 +590,7 @@ void KirinHyphaEditor::updatePost()
                 d = displaySmoother.smoothDelta (rawD, t);
                 haveD = true;
             }
-            else if (! preExplicitBypassed && pairNonEmpty)
+            else if (! preExplicitBypassed && pairSelected)
             {
                 hypha::DisplaySmoother::HeldDisplay<KirinDelta> held {};
                 if (displaySmoother.heldDeltaDisplay (held, t))
@@ -613,7 +637,7 @@ void KirinHyphaEditor::updatePost()
         KirinDelta heldD {};
         bool haveHeldD = false;
         bool mutedHeldD = false;
-        if (sig == 0 && pairNonEmpty)
+        if (sig == 0 && pairSelected)
         {
             hypha::DisplaySmoother::HeldDisplay<KirinDelta> held {};
             if (displaySmoother.heldDeltaDisplay (held, t))
@@ -660,7 +684,7 @@ void KirinHyphaEditor::updatePost()
             d = displaySmoother.smoothDelta (rawD, t);
             haveD = true;
         }
-        else if (! preExplicitBypassed && pairNonEmpty)
+        else if (! preExplicitBypassed && pairSelected)
         {
             hypha::DisplaySmoother::HeldDisplay<KirinDelta> held {};
             if (displaySmoother.heldDeltaDisplay (held, t))
@@ -677,7 +701,7 @@ void KirinHyphaEditor::updatePost()
             mutedD = true;
         }
 
-        if (pairNonEmpty && ! preExplicitBypassed)
+        if (pairSelected && ! preExplicitBypassed)
         {
             if (currentKind != Kind::WatchDelta6) configureForKind (Kind::WatchDelta6);
             const bool liveDelta = haveD && d.mode == 0 && ! mutedD;

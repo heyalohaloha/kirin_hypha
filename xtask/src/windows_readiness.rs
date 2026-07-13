@@ -172,13 +172,13 @@ fn readiness_checks() -> Vec<Check> {
         ),
         check_all(
             "shell-parity",
-            "JUCE POST menu and Keep visibility have static parity tests",
+            "JUCE POST exact-pair menu and fixed Keep slot have static parity tests",
             &[(
                 SHELL_PARITY,
                 &[
-                    "post_controls_keep_visibility_depends_on_selected_pair",
+                    "post_controls_keep_slot_is_fixed_and_availability_depends_on_selected_pair",
                     "candidate_menu_enumerates_pre_candidates_independent_of_current_pair",
-                    "candidate_selection_commits_pair_name_to_processor_and_field",
+                    "candidate_selection_commits_exact_instance_and_updates_display_field",
                 ][..],
             )],
         ),

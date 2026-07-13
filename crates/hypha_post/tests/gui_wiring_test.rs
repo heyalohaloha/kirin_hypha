@@ -316,7 +316,7 @@ fn editor_rs_has_pair_label_helpers() {
 }
 
 /// B-027 段階 3 (a) 仮説 2 (G-115-53): ComboBox 候補ループが
-/// `ui.push_id(cand.instance_id.as_str(), |ui| { ... })` でラップされていること。
+/// `ui.push_id(&cand.path, |ui| { ... })` でラップされていること。
 /// instance_id (UUID v4) を ID 種に使うことで、sort 順入替で label_text が
 /// 同 index 位置で変動しても widget identity が固定される (#5-A-3 異常 2 防止)。
 /// auto-ID 依存だと press/release フレーム間で ID 不一致 → clicked() 喪失。
@@ -332,12 +332,12 @@ fn editor_rs_wraps_combo_entries_with_push_id() {
         .expect("draw_pair_pre_combo should be followed by all_keep_dropdown_label");
     let body = &src[combo_fn_idx..combo_end];
     assert!(
-        body.contains("ui.push_id(cand.instance_id.as_str()"),
-        "draw_pair_pre_combo must wrap each entry with `ui.push_id(cand.instance_id.as_str(), ...)` (B-027 段階 3 (a) 仮説 2)"
+        body.contains("ui.push_id(&cand.path"),
+        "draw_pair_pre_combo must use the exact snapshot path as row identity"
     );
     // selectable_label 呼出は push_id クロージャ内に居ること (順序確認)。
     let push_idx = body
-        .find("ui.push_id(cand.instance_id.as_str()")
+        .find("ui.push_id(&cand.path")
         .expect("push_id wrap must precede selectable_label");
     let select_idx = body[push_idx..]
         .find("ui.selectable_label(")
@@ -349,20 +349,23 @@ fn editor_rs_wraps_combo_entries_with_push_id() {
     );
 }
 
-/// pairing_label の描画が `if recording { ... }` で gate されていること。
-/// Watch 中はラベル自体が非表示なので、空文字でも空行が出ない。
+/// ペア状態は Keep 中だけでなく Watch 中もタイトル行へ常時表示する。
+/// 色だけに依存せず、shared indicator の記号と文言も同時に描画する。
 #[test]
-fn editor_rs_gates_pairing_label_with_recording_flag() {
+fn editor_rs_always_draws_pair_status_in_title_row() {
     let src = read("src/editor.rs");
-    let pairing_call_idx = src
-        .find("pairing_label(ui, pair)")
-        .expect("pairing_label call must exist in editor.rs");
-    // 直前 200 文字以内に `if recording` があれば gate されているとみなす。
-    let window_start = pairing_call_idx.saturating_sub(200);
-    let window = &src[window_start..pairing_call_idx];
+    let draw_post = src.find("fn draw_post(").expect("draw_post must exist");
+    let title = src[draw_post..]
+        .find("draw_pair_indicator(ui, pair_status);")
+        .map(|idx| draw_post + idx)
+        .expect("shared pair indicator must be drawn by POST");
+    let signal_grid = src[draw_post..]
+        .find("match sig")
+        .map(|idx| draw_post + idx)
+        .expect("signal grid branch must exist");
     assert!(
-        window.contains("if recording"),
-        "pairing_label call must be wrapped in `if recording {{ ... }}` (Watch 中は描画省略)"
+        title < signal_grid,
+        "pair status must be outside recording/signal branches so Watch and Keep share it"
     );
 }
 
@@ -736,22 +739,32 @@ fn editor_rs_text_edit_clear_pair_resets_delta_result() {
     );
 }
 
-/// ComboBox selection uses the same full pair transition as TextEdit.
+/// ComboBox selection keeps the exact PRE instance and delegates to the same
+/// full pair transition that resets stale delta state.
 #[test]
-fn editor_rs_combobox_clear_pair_resets_delta_result() {
+fn editor_rs_combobox_exact_pair_resets_delta_result() {
     let src = read("src/editor.rs");
     let combo_idx = src
-        .find("let new_name = cand.name.clone().unwrap_or_default();")
-        .expect("draw_pair_pre_combo new_name entry missing");
-    let window = &src[combo_idx..combo_idx + 1200.min(src.len() - combo_idx)];
+        .find("replace_pair_pre_candidate(state, cand, epoch_secs_now());")
+        .expect("draw_pair_pre_combo exact candidate transition missing");
+    let helper_idx = src
+        .find("fn replace_pair_pre_candidate(")
+        .expect("exact pair transition helper missing");
+    let helper_window = &src[helper_idx..helper_idx + 1800.min(src.len() - helper_idx)];
     assert!(
-        window.contains("replace_pair_pre_name(state, new_name, new_claimed_at);"),
-        "ComboBox must use the full pair transition helper"
+        helper_window.contains("instance_id: candidate.instance_id.clone()")
+            && helper_window
+                .contains("replace_pair_selection(state, name, claimed_at, Some(selected));"),
+        "ComboBox must retain exact instance identity and use the full transition helper"
+    );
+    assert!(
+        combo_idx > helper_idx,
+        "selection helper must be defined before use"
     );
 }
 
 /// W-282 C-3: io_thread_post.rs W-281 C-4 release block (A-1) で
-/// `delta_result.lock()` + `DeltaResult::default()` reset が走る配線を invariant 化。
+/// poisonを解除するworker lock + `DeltaResult::default()` reset が走る配線を invariant 化。
 #[test]
 fn io_thread_post_release_block_clears_delta_result() {
     let src = fs::read_to_string(
@@ -765,11 +778,12 @@ fn io_thread_post_release_block_clears_delta_result() {
     let release_idx = src
         .find(r#"*n = Some("Released (paired elsewhere)".to_string());"#)
         .expect("W-281 C-4 release marker not found");
-    // 当該 release write から 1000 byte 以内に delta_result.lock() + DeltaResult::default()
+    // 当該 release write から 1000 byte 以内に回復lock + DeltaResult::default()
     // (UTF-8 Japanese 注釈 byte 膨張を考慮)。
     let window = &src[release_idx..release_idx + 1000.min(src.len() - release_idx)];
     assert!(
-        window.contains("delta_result.lock()") && window.contains("DeltaResult::default()"),
+        window.contains("sync_recovery::lock_recover")
+            && window.contains("DeltaResult::default()"),
         "W-282 A-1: IO Thread C-4 release block に delta_result = DeltaResult::default() の reset がない"
     );
 }
@@ -811,27 +825,18 @@ fn editor_rs_pair_empty_draws_watch_absolute_not_delta_frozen() {
     );
 }
 
-/// W-283 W-3: editor.rs SignalState::Active + !recording 分岐内で
-/// `if !pair_empty { draw_button_row(ui, false, ...) }` の Keep ボタン gate
-/// 配線が残っていることを invariant 化。pair_pre_name="" で Keep ボタンが
-/// 表示されると pair 未設定 trigger_keep が走る regression を防ぐ。
+/// Pair状態が変わってもKEEPの位置を動かさず、未選択時はdisabledにする。
 #[test]
-fn editor_rs_keep_button_gated_when_pair_empty() {
+fn editor_rs_keep_button_has_fixed_slot_and_pair_status_gate() {
     let src = read("src/editor.rs");
-    let anchor_idx = src
-        .find("if !pair_empty {")
-        .expect("W-283 W-3: `if !pair_empty {` anchor not found in draw_post Active arm");
-    // anchor から 300 byte 以内 (gate block 本体 + 余裕)。
-    // UTF-8 char boundary walk-back (前後のコメント変動で byte 300 が
-    // multi-byte char の途中に当たる場合に panic 回避)。
-    let mut safe_end = (anchor_idx + 300).min(src.len());
-    while safe_end > anchor_idx && !src.is_char_boundary(safe_end) {
-        safe_end -= 1;
-    }
-    let window = &src[anchor_idx..safe_end];
     assert!(
-        window.contains("draw_button_row(ui, false"),
-        "W-283 W-3: `if !pair_empty {{` gate に draw_button_row(ui, false, ...) が含まれない (Keep gate 欠落)"
+        src.contains("draw_button_row(ui, recording, license, state, m, now, pair_status)"),
+        "draw_post must allocate the common button row independently of signal/pair branches"
+    );
+    assert!(
+        src.contains("pair_status != PairStatus::Unpaired")
+            && src.contains("egui::Button::new(\"Keep\").min_size"),
+        "fixed KEEP must be disabled, not hidden, while Unpaired"
     );
 }
 
@@ -866,31 +871,26 @@ fn editor_rs_record_grid_keeps_right_absolute_values() {
     );
 }
 
-/// W-285 / G-115-253: editor.rs draw_pair_pre_combo dropdown loop で PRE name=""
-/// (空文字 / 旧 schema 不在 None) の候補が gate されることを invariant 化。
-/// dropdown 表示文字に UUID8 fallback が含まれるため、name="" の候補を残すと
-/// Daisuke が UUID8 文字を見て pair_pre_name に手入力 → pair filter 永久不一致 NoPre
+/// 名前なしPREも、手入力名ではなくexact instance_id選択として候補に残す。
 #[test]
-fn editor_rs_dropdown_excludes_empty_name_pre() {
+fn editor_rs_dropdown_supports_unnamed_pre_by_exact_instance() {
     let src = read("src/editor.rs");
     let anchor_idx = src
-        .find("let named_candidates: Vec<_>")
-        .expect("W-285: named_candidates filter anchor not found");
-    // anchor から 1000 byte 以内に gate (UTF-8 Japanese 注釈で gate 自体は ~750 byte 先)。
-    let window_end = (anchor_idx + 1500).min(src.len());
-    // UTF-8 char boundary walk-back
+        .find("for cand in &pre_candidates")
+        .expect("live candidate loop not found");
+    let window_end = (anchor_idx + 4500).min(src.len());
     let mut safe_end = window_end;
     while safe_end > anchor_idx && !src.is_char_boundary(safe_end) {
         safe_end -= 1;
     }
     let window = &src[anchor_idx..safe_end];
     assert!(
-        window.contains("!cand.name.as_deref().unwrap_or(\"\").is_empty()"),
-        "W-285 G-115-253: dropdown loop 前に PRE name=\"\" 候補を除外する filter が無い (UUID8 fallback 誤導 regression)"
+        window.contains("replace_pair_pre_candidate(state, cand, epoch_secs_now())"),
+        "candidate click must bind the exact PRE, including unnamed choices"
     );
     assert!(
-        window.contains("for cand in named_candidates"),
-        "W-285 G-115-253: dropdown loop must render the filtered named candidate set"
+        src.contains("cand.instance_id.chars().take(8).collect()"),
+        "unnamed candidate needs a short, deterministic display fallback"
     );
 }
 
@@ -923,8 +923,8 @@ fn editor_rs_pair_dropdown_distinguishes_keep_from_pair_choices() {
         "empty candidate state must not reuse the ambiguous `No candidates` text"
     );
     assert!(
-        body.contains("let named_candidates: Vec<_>"),
-        "empty-name PRE candidates must not leave the pair-choice section blank"
+        body.contains("for cand in &pre_candidates"),
+        "all live pair choices, including unnamed PREs, must be rendered"
     );
     assert!(
         src.contains("format!(\"{prefix}: {name_part}\")") && !src.contains("#{id_prefix}"),
@@ -934,12 +934,14 @@ fn editor_rs_pair_dropdown_distinguishes_keep_from_pair_choices() {
         src.contains("CandidateKeepStatus::KeepReady")
             && src.contains("CandidateKeepStatus::InUseByOther")
             && src.contains("CandidateKeepStatus::Available")
-            && src.contains("CandidateKeepStatus::DuplicateName"),
-        "pair dropdown must distinguish current ready, already used, duplicate, and available PRE choices"
+            && !src.contains("CandidateKeepStatus::DuplicateName"),
+        "pair dropdown must use exact IDs so duplicate display names remain selectable"
     );
     assert!(
-        body.contains("CandidateKeepStatus::InUseByOther | CandidateKeepStatus::DuplicateName"),
-        "already-used and duplicate PRE choices must not be accidentally selectable"
+        body.contains(
+            "let row_enabled = !matches!(keep_status, CandidateKeepStatus::InUseByOther)"
+        ),
+        "only the exact PRE claimed by another POST should be disabled"
     );
 }
 

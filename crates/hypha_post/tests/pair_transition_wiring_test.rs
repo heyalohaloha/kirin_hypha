@@ -12,7 +12,7 @@ fn editor_source() -> String {
 fn name_change_detaches_all_exact_pair_state_before_reselection() {
     let source = editor_source();
     let start = source
-        .find("fn replace_pair_pre_name(")
+        .find("fn replace_pair_selection(")
         .expect("transactional pair transition helper");
     let end = source[start..]
         .find("\n}\n\n")
@@ -39,8 +39,8 @@ fn name_change_detaches_all_exact_pair_state_before_reselection() {
     }
 
     assert_eq!(
-        source.matches("replace_pair_pre_name(state,").count(),
+        source.matches("replace_pair_selection(state,").count(),
         2,
-        "typed-name and dropdown selection must share one detach transaction"
+        "typed-name and exact dropdown selection must share one detach transaction"
     );
 }

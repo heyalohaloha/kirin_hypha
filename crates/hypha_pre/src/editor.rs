@@ -15,11 +15,13 @@
 
 use crate::sanitize_name;
 use hypha_gui::{
-    derive_led_state, display_signal_state_for_led, display_smoothing::DisplaySmoother, fmt_val,
-    led_color, tp_color, val_color, BackgroundTexture, PlaybackMaxTracker, BG, COL_FLORA,
-    COL_MUTED, COL_NORMAL,
+    derive_led_state, display_signal_state_for_led, display_smoothing::DisplaySmoother,
+    draw_pair_indicator, fmt_val, led_color, tp_color, val_color, BackgroundTexture,
+    PlaybackMaxTracker, BG, COL_FLORA, COL_MUTED, COL_NORMAL,
 };
-use kirin_measure::{load_signal_state, MeasureResult, SignalState};
+use kirin_measure::{
+    load_signal_state, pair_status_for_pre, MeasureResult, PairStatus, PlatformPaths, SignalState,
+};
 use nih_plug::prelude::Editor;
 use nih_plug_egui::{
     create_egui_editor,
@@ -241,6 +243,21 @@ pub fn create_pre_editor(
                 state.prev_led = Some(led);
             }
             let led_col = led_color(led, now);
+            let instance_id = state
+                .instance_id
+                .read()
+                .map(|value| value.clone())
+                .unwrap_or_default();
+            let name = state
+                .name
+                .read()
+                .map(|value| value.clone())
+                .unwrap_or_default();
+            let pair_status = pair_status_for_pre(
+                &PlatformPaths::current_kirin_tmp_root(),
+                &instance_id,
+                &name,
+            );
 
             draw_pre(
                 ctx,
@@ -253,6 +270,7 @@ pub fn create_pre_editor(
                     show_banner,
                     show_values,
                     values_muted,
+                    pair_status,
                 },
             );
         },
@@ -265,6 +283,7 @@ struct PreDisplayFlags {
     show_banner: bool,
     show_values: bool,
     values_muted: bool,
+    pair_status: PairStatus,
 }
 
 fn draw_pre(
@@ -294,6 +313,8 @@ fn draw_pre(
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.add_space(10.0);
                     draw_led(ui, led_col);
+                    ui.add_space(6.0);
+                    draw_pair_indicator(ui, flags.pair_status);
                 });
             });
             ui.add_space(4.0);

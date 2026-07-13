@@ -17,6 +17,7 @@ pub mod io_thread_post;
 pub mod io_thread_pre;
 pub mod license;
 pub mod measure_thread;
+pub mod pair_status;
 pub mod pairing_scope;
 pub mod path_identity;
 pub mod phase_d;
@@ -40,6 +41,7 @@ mod record_writer_claim;
 pub mod resampler;
 pub mod reservation;
 pub mod storage;
+mod sync_recovery;
 pub mod trace_alignment;
 mod trace_content_clock;
 pub mod watch_max;
@@ -80,12 +82,17 @@ pub use license::{
     show_save_button, show_stop_record_button, LiveLicense, SENSE_RECORD_HINT, SENSE_UPSELL_URL,
 };
 pub use measure_thread::{live_window, pair_lock_active, spawn_measure_thread, LivenessEvaluator};
+pub use pair_status::{
+    pair_status_for_post, pair_status_for_pre, paired_pre_instance_id, PairStatus,
+};
 pub use pairing_scope::{
     discover_pre_dirs_for_post_project, enumerate_active_pre_pair_candidates_for_post_project,
-    enumerate_active_pre_pair_candidates_for_post_project_in_session, read_pre_at,
+    enumerate_active_pre_pair_candidates_for_post_project_in_session,
+    enumerate_live_pre_pair_choices_for_post_project_in_session, latch_selected_pre, read_pre_at,
     resolve_arm_target, resolve_arm_target_for_post_project,
-    resolve_arm_target_for_post_project_in_session, select_target_pre, select_target_pre_for_arm,
-    select_target_pre_for_arm_for_post_project,
+    resolve_arm_target_for_post_project_in_session, resolve_published_pair_claim_for_arm,
+    select_live_pre_pair_choice_by_instance_for_post_project_in_session, select_target_pre,
+    select_target_pre_for_arm, select_target_pre_for_arm_for_post_project,
     select_target_pre_for_arm_for_post_project_in_session, select_target_pre_for_post_project,
     select_target_pre_for_post_project_in_session, LatchedPre, LatchedPreState, SelectedPre,
 };
@@ -103,12 +110,15 @@ pub use post_candidates::{
     active_post_project_uuids_for_broadcast_scope, active_post_project_uuids_for_daw_session,
     broadcast_scope_ids_match, current_host_process_id, enumerate_active_post_pair_candidates,
     enumerate_active_post_pair_candidates_for_broadcast_scope,
-    enumerate_active_post_pair_candidates_for_daw_session,
-    host_scope_has_other_active_post_project, PostCandidate,
+    enumerate_active_post_pair_candidates_for_daw_session, enumerate_live_post_pair_candidates,
+    enumerate_live_post_pair_candidates_for_broadcast_scope,
+    host_scope_has_other_active_post_project, self_check_pair_claim, self_check_pair_claim_exact,
+    PostCandidate,
 };
 pub use pre_candidates::{
-    enumerate_active_pre_pair_candidates, filter_candidates_by_name, pick_closest_pre,
-    scan_pre_candidates, scan_pre_candidates_in, PostMetrics, PreCandidate,
+    enumerate_active_pre_pair_candidates, enumerate_live_pre_pair_choices,
+    filter_candidates_by_name, pick_closest_pre, scan_pre_candidates, scan_pre_candidates_in,
+    PostMetrics, PreCandidate,
 };
 pub use pre_discovery::{
     discover_active_pre_dir_for_pair, discover_active_pre_dirs, PostDiscoveryState,

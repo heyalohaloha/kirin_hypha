@@ -145,6 +145,58 @@ impl PairBinding {
         }
     }
 
+    /// Replace the selector with one exact PRE chosen by the user.
+    ///
+    /// Name and instance latch become visible under the same transition lock. Selecting a second
+    /// PRE with the same human name is therefore a real transition instead of the old name-only
+    /// no-op.
+    pub(crate) fn replace_exact(&self, name: String, selected: LatchedPre) -> PairTargetTransition {
+        let _transition = self
+            .transition
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut desired = self
+            .desired_name
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let current_exact = self
+            .latched_pre
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .as_ref()
+            .map(|pre| pre.instance_id.clone());
+        if desired.as_str() == name && current_exact.as_deref() == Some(&selected.instance_id) {
+            return PairTargetTransition {
+                changed: false,
+                previous_name: desired.clone(),
+                previous_pre_instance_id: None,
+                generation: self.generation(),
+            };
+        }
+
+        let previous_name = desired.clone();
+        let previous_recording = self
+            .recording_pre
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .take();
+        let previous_latched = self
+            .latched_pre
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .replace(selected);
+        let previous_pre_instance_id =
+            previous_recording.or_else(|| previous_latched.map(|latched| latched.instance_id));
+        *desired = name;
+        let generation = next_generation(&self.generation);
+        PairTargetTransition {
+            changed: true,
+            previous_name,
+            previous_pre_instance_id,
+            generation,
+        }
+    }
+
     #[cfg(test)]
     fn set_exact_binding_for_test(&self, instance_id: &str) {
         if let Ok(mut recording) = self.recording_pre.lock() {
@@ -266,5 +318,37 @@ mod tests {
         assert!(binding.recording_pre.lock().unwrap().is_none());
         assert!(binding.latched_pre.lock().unwrap().is_none());
         assert_ne!(binding.generation(), generation);
+    }
+
+    #[test]
+    fn same_name_can_move_to_an_explicit_second_instance() {
+        let binding = PairBinding::new();
+        binding.replace_name("mix".to_string());
+        binding.set_exact_binding_for_test("pre-old");
+        let selected = LatchedPre {
+            name: "mix".to_string(),
+            instance_id: "pre-new".to_string(),
+            project_dir: Default::default(),
+            pre_json: Default::default(),
+            daw_session_id: None,
+            host_process_id: None,
+        };
+
+        let transition = binding.replace_exact("mix".to_string(), selected);
+
+        assert!(transition.changed);
+        assert_eq!(
+            transition.previous_pre_instance_id.as_deref(),
+            Some("pre-old")
+        );
+        assert_eq!(
+            binding
+                .latched_pre
+                .lock()
+                .unwrap()
+                .as_ref()
+                .map(|pre| pre.instance_id.as_str()),
+            Some("pre-new")
+        );
     }
 }

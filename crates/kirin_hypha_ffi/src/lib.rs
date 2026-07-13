@@ -42,6 +42,7 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::thread::JoinHandle;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use uuid::Uuid;
 
@@ -51,18 +52,20 @@ use kirin_measure::{
     active_post_project_uuids_for_broadcast_scope, append_annotation_to_latest,
     can_write_plugin_data, check_record_exclusion, count_distinct_pairings,
     current_host_process_id, enumerate_active_post_pair_candidates,
-    enumerate_active_post_pair_candidates_for_broadcast_scope,
-    enumerate_active_pre_pair_candidates_for_post_project_in_session, identity_instance_attach,
-    identity_instance_detach, live_window, load_license_safe, load_signal_state,
-    mark_expected_metadata_consumed, mark_released, mark_released_with_reason,
-    new_record_take_tracker, new_record_trace_queue,
-    resolve_arm_target_for_post_project_in_session, sanitize_name,
-    select_target_pre_for_arm_for_post_project_in_session, set_daw_session_id, set_project_uuid,
-    spawn_io_thread_post, spawn_io_thread_pre, spawn_measure_thread, spawn_watchdog,
-    store_signal_state, write_broadcast, write_expected_metadata,
+    enumerate_active_post_pair_candidates_for_broadcast_scope, enumerate_live_post_pair_candidates,
+    enumerate_live_post_pair_candidates_for_broadcast_scope,
+    enumerate_live_pre_pair_choices_for_post_project_in_session, identity_instance_attach,
+    identity_instance_detach, latch_selected_pre, live_window, load_license_safe,
+    load_signal_state, mark_expected_metadata_consumed, mark_released, mark_released_with_reason,
+    new_record_take_tracker, new_record_trace_queue, pair_status_for_post, pair_status_for_pre,
+    paired_pre_instance_id, resolve_arm_target_for_post_project_in_session,
+    resolve_published_pair_claim_for_arm, sanitize_name,
+    select_live_pre_pair_choice_by_instance_for_post_project_in_session, set_daw_session_id,
+    set_project_uuid, spawn_io_thread_post, spawn_io_thread_pre, spawn_measure_thread,
+    spawn_watchdog, store_signal_state, write_broadcast, write_expected_metadata,
     write_pending_claiming_expected_and_clock, write_stop_broadcast, CaptureClockSource, DeltaMode,
     DeltaResult, ExclusionResult, ExpectedWavMetadata, IoThreadHandle, LatchedPre, License,
-    LiveLicense, LivenessEvaluator, MeasureResult, PlatformPaths, PluginDataRole,
+    LiveLicense, LivenessEvaluator, MeasureResult, PairStatus, PlatformPaths, PluginDataRole,
     PresentationLatencySamples, PresentationLatencySource, PsbSummary, RecordStateMachine,
     RecordTakeBlock, RecordTakeTracker, RecordTraceQueue, ReleaseReason, RestartIoFn, SignalState,
     StoragePaths, WatchMaxTracker, WatchdogIo, WatchdogParams, MAX_ACTIVE_PER_PROJECT, N_CHANNELS,
@@ -74,7 +77,7 @@ use kirin_measure::{
 
 mod pair_binding;
 
-use pair_binding::PairBinding;
+use pair_binding::{PairBinding, PairTargetTransition};
 
 /// state chunk 往復する識別子（方式A: JUCE が chunk bytes を所有・FFI は文字列 get/set のみ）。
 /// `project_hash` は派生値（= 確定後の `project_uuid` / B-106 共有セル解決値）で永続対象外。
@@ -155,6 +158,13 @@ fn license_to_abi(license: License) -> u8 {
         License::Sense => LICENSE_SENSE,
         License::Unknown => LICENSE_UNKNOWN,
     }
+}
+
+fn epoch_secs_now() -> f64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs_f64())
+        .unwrap_or(0.0)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -249,6 +259,8 @@ pub struct KirinHyphaEngine {
     /// Human-readable selection + exact PRE instance state. Name changes clear
     /// every exact-instance field as one transition.
     pair_binding: Arc<PairBinding>,
+    /// Monotonic ownership ordering published with the current POST pair claim.
+    pair_claimed_at: Arc<RwLock<f64>>,
     /// この engine の plugin_data 書込 role（B-067 / F3）。`enable_pre_writes`→Pre /
     /// `enable_post_writes`→Post で 1 度だけ確定する（io_thread slot と同じ first-wins）。
     /// `add_annotation` はこの role に書く。未 enable（None）時は add_annotation を no-op にする。
@@ -769,6 +781,7 @@ impl KirinHyphaEngine {
             project_hash_cell: Arc::new(RwLock::new(String::new())),
             daw_session_id_cell: Arc::new(RwLock::new(String::new())),
             pair_binding: Arc::new(PairBinding::new()),
+            pair_claimed_at: Arc::new(RwLock::new(0.0)),
             write_role: Mutex::new(None),
             push_overflow: Arc::new(AtomicU64::new(0)),
             oversized_drop: Arc::new(AtomicU64::new(0)), // B-125: JUCE oversized block drop 専用
@@ -1270,7 +1283,7 @@ impl KirinHyphaEngine {
         };
         // B-118 Phase 3 (③): engine 保持の Arc を共有（io が書き JUCE getter が読む / 世代跨ぎ継続）。
         let record_error_message = Arc::clone(&self.record_error_message);
-        let pair_claimed_at = Arc::new(RwLock::new(0.0));
+        let pair_claimed_at = Arc::clone(&self.pair_claimed_at);
         let pair_release_notice = Arc::new(RwLock::new(None));
         let is_playing = Arc::new(AtomicBool::new(false));
         let live_license = self.license.clone();
@@ -1350,26 +1363,7 @@ impl KirinHyphaEngine {
         }
     }
 
-    /// 対 PRE 名（pair target）を設定する（B-061 3d-b / identity.name 結合を解く）。
-    /// io_thread と Arc 共有のため `enable_post_writes` 後でも live に反映される。
-    pub fn set_pair_target(&self, name: String) {
-        // B-071: sanitize（ASCII graphic + space / max 16）で PRE 名と同一語彙に正規化する
-        // 単一情報源（kirin_measure::sanitize_name）。select_target_pre は sanitized な PRE 名と
-        // 照合するため、pair target も同じ正規化を通す。
-        let sanitized = sanitize_name(&name);
-        let desired_name = self.pair_binding.desired_name();
-        let current_name = desired_name
-            .read()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .clone();
-        if current_name == sanitized {
-            return;
-        }
-
-        // Publish Released before leaving Record so an ACK poller cannot
-        // re-enter the old session during the transition. The binding itself
-        // is then replaced in one critical section, clearing both the display
-        // latch and the exact Record target.
+    fn begin_pair_reselection(&self) -> (String, String) {
         let (project_hash, post_iid) = match self.identity.lock() {
             Ok(id) => (id.project_hash.clone(), id.instance_id.clone()),
             Err(_) => (String::new(), String::new()),
@@ -1385,29 +1379,143 @@ impl KirinHyphaEngine {
             }
         }
         self.record_sm.exit_record();
-        let transition = self.pair_binding.replace_name(sanitized);
-        if transition.changed {
-            if !project_hash.is_empty() && !post_iid.is_empty() {
-                if let (Some(pre), Ok(paths)) = (
-                    transition.previous_pre_instance_id.as_deref(),
-                    StoragePaths::default_platform(),
-                ) {
-                    reservation::release_pairing(
-                        &paths.plugin_data_dir(),
-                        &project_hash,
-                        pre,
-                        &post_iid,
-                    );
-                }
-            }
-            self.preset_available.store(false, Ordering::Release);
-            if let Ok(mut delta) = self.delta_result.lock() {
-                *delta = DeltaResult::default();
-            }
-            if let Ok(mut error) = self.record_error_message.write() {
-                *error = None;
+        (project_hash, post_iid)
+    }
+
+    fn finish_pair_reselection(
+        &self,
+        transition: PairTargetTransition,
+        project_hash: &str,
+        post_iid: &str,
+        pair_claimed_at: f64,
+    ) {
+        if !transition.changed {
+            return;
+        }
+        if !project_hash.is_empty() && !post_iid.is_empty() {
+            if let (Some(pre), Ok(paths)) = (
+                transition.previous_pre_instance_id.as_deref(),
+                StoragePaths::default_platform(),
+            ) {
+                reservation::release_pairing(&paths.plugin_data_dir(), project_hash, pre, post_iid);
             }
         }
+        *self
+            .pair_claimed_at
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = pair_claimed_at;
+        self.preset_available.store(false, Ordering::Release);
+        *self
+            .delta_result
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = DeltaResult::default();
+        if let Ok(mut error) = self.record_error_message.write() {
+            *error = None;
+        }
+    }
+
+    /// 対 PRE 名（pair target）を設定する（B-061 3d-b / identity.name 結合を解く）。
+    /// io_thread と Arc 共有のため `enable_post_writes` 後でも live に反映される。
+    pub fn set_pair_target(&self, name: String) {
+        // B-071: sanitize（ASCII graphic + space / max 16）で PRE 名と同一語彙に正規化する
+        // 単一情報源（kirin_measure::sanitize_name）。select_target_pre は sanitized な PRE 名と
+        // 照合するため、pair target も同じ正規化を通す。
+        let sanitized = sanitize_name(&name);
+        let desired_name = self.pair_binding.desired_name();
+        let current_name = desired_name
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone();
+        if current_name == sanitized
+            && (!sanitized.is_empty() || self.paired_pre_instance_id().is_none())
+        {
+            return;
+        }
+
+        // Publish Released before leaving Record so an ACK poller cannot re-enter the old session.
+        let (project_hash, post_iid) = self.begin_pair_reselection();
+        let transition = self.pair_binding.replace_name(sanitized);
+        let claimed_at = if self
+            .pair_binding
+            .desired_name()
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .is_empty()
+        {
+            0.0
+        } else {
+            epoch_secs_now()
+        };
+        self.finish_pair_reselection(transition, &project_hash, &post_iid, claimed_at);
+    }
+
+    /// Bind one exact PRE selected from the dropdown. Human name remains the reconnect selector;
+    /// the runtime instance latch is authoritative for this session.
+    pub fn set_pair_candidate(&self, instance_id: &str) -> bool {
+        let kirin_root = PlatformPaths::current_kirin_tmp_root();
+        let project_hash = read_shared_id(&self.project_hash_cell);
+        let daw = read_shared_id(&self.daw_session_id_cell);
+        let Some((selected, name)) =
+            select_live_pre_pair_choice_by_instance_for_post_project_in_session(
+                &kirin_root,
+                instance_id,
+                &project_hash,
+                &daw,
+            )
+        else {
+            return false;
+        };
+        let name = sanitize_name(&name);
+        let latch = latch_selected_pre(name.clone(), selected);
+        let current_name = self
+            .pair_binding
+            .desired_name()
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone();
+        if current_name == name
+            && self.paired_pre_instance_id().as_deref() == Some(latch.instance_id.as_str())
+        {
+            return true;
+        }
+        let (project_hash, post_iid) = self.begin_pair_reselection();
+        let transition = self.pair_binding.replace_exact(name, latch);
+        self.finish_pair_reselection(transition, &project_hash, &post_iid, epoch_secs_now());
+        true
+    }
+
+    pub fn pair_status(&self) -> PairStatus {
+        let role = self.write_role.lock().ok().and_then(|role| *role);
+        match role {
+            Some(PluginDataRole::Post) => {
+                let desired = self
+                    .pair_binding
+                    .desired_name()
+                    .read()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .clone();
+                let latched = self.pair_binding.latched_pre();
+                pair_status_for_post(&desired, &latched)
+            }
+            Some(PluginDataRole::Pre) => {
+                let iid = self
+                    .identity
+                    .lock()
+                    .map(|identity| identity.instance_id.clone())
+                    .unwrap_or_default();
+                let name = self
+                    .pre_name
+                    .read()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .clone();
+                pair_status_for_pre(&PlatformPaths::current_kirin_tmp_root(), &iid, &name)
+            }
+            None => PairStatus::Unpaired,
+        }
+    }
+
+    pub fn paired_pre_instance_id(&self) -> Option<String> {
+        paired_pre_instance_id(&self.pair_binding.latched_pre())
     }
 
     /// PRE の自名を設定する（B-054 / `set_pair_target` と完全対称）。
@@ -1711,7 +1819,7 @@ impl KirinHyphaEngine {
         let kirin_root = PlatformPaths::current_kirin_tmp_root();
         let project_hash = read_shared_id(&self.project_hash_cell);
         let daw = read_shared_id(&self.daw_session_id_cell);
-        enumerate_active_pre_pair_candidates_for_post_project_in_session(
+        enumerate_live_pre_pair_choices_for_post_project_in_session(
             &kirin_root,
             &project_hash,
             &daw,
@@ -1746,16 +1854,10 @@ impl KirinHyphaEngine {
         candidates
             .into_iter()
             .filter(|candidate| {
-                let Some(name) = candidate
-                    .pair_pre_name
-                    .as_deref()
-                    .filter(|name| !name.is_empty())
-                else {
-                    return false;
-                };
-                select_target_pre_for_arm_for_post_project_in_session(
+                resolve_published_pair_claim_for_arm(
                     &kirin_root,
-                    name,
+                    candidate.pair_pre_name.as_deref(),
+                    candidate.paired_pre_instance_id.as_deref(),
                     &candidate.project_uuid,
                     candidate.daw_session_id.as_deref().unwrap_or(""),
                 )
@@ -1767,17 +1869,17 @@ impl KirinHyphaEngine {
     /// POST 側の pair claim 一覧（GUI dropdown の keepability 表示用）。
     /// `count_keep_ready` と同じ DAW-session-scoped source を使い、JUCE/egui の表示差を
     /// 生まないための read-only C ABI surface。
-    pub fn enumerate_post_pair_claims(&self) -> Vec<(String, Option<String>)> {
+    pub fn enumerate_post_pair_claims(&self) -> Vec<(String, Option<String>, Option<String>)> {
         let kirin_root = PlatformPaths::current_kirin_tmp_root();
         let project_hash = read_shared_id(&self.project_hash_cell);
         let daw = read_shared_id(&self.daw_session_id_cell);
-        let candidates = enumerate_active_post_pair_candidates_for_broadcast_scope(
+        let candidates = enumerate_live_post_pair_candidates_for_broadcast_scope(
             &kirin_root,
             &daw,
             current_host_process_id(),
         );
         let candidates = if candidates.is_empty() {
-            enumerate_active_post_pair_candidates(&kirin_root)
+            enumerate_live_post_pair_candidates(&kirin_root)
                 .into_iter()
                 .filter(|c| c.project_uuid == project_hash)
                 .collect()
@@ -1786,7 +1888,7 @@ impl KirinHyphaEngine {
         };
         candidates
             .into_iter()
-            .map(|c| (c.instance_id, c.pair_pre_name))
+            .map(|c| (c.instance_id, c.pair_pre_name, c.paired_pre_instance_id))
             .collect()
     }
 
@@ -2119,6 +2221,8 @@ pub struct KirinPostPairClaim {
     pub instance_id: [c_char; ID_BUF_LEN],
     pub pair_pre_name: [c_char; ID_BUF_LEN],
     pub has_pair_pre_name: u8,
+    pub paired_pre_instance_id: [c_char; ID_BUF_LEN],
+    pub has_paired_pre_instance_id: u8,
 }
 
 /// `KirinDelta` — POST の Δ（C struct / B-061 3d-b）。各 double の「値なし」は NaN。
@@ -2325,6 +2429,71 @@ pub unsafe extern "C" fn kirin_hypha_set_pair_target(
         let nm = unsafe { read_c_str(name) };
         unsafe { (*handle).set_pair_target(nm) };
     }));
+}
+
+/// Select one exact PRE runtime from the dropdown. Returns false when that runtime is no longer a
+/// live in-scope choice. UI thread only.
+///
+/// # Safety
+/// A non-null `handle` must be a live pointer returned by `kirin_hypha_create`. `instance_id` may
+/// be null; otherwise it must point to a readable null-terminated C string for this call.
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_select_pair_candidate(
+    handle: *mut KirinHyphaEngine,
+    instance_id: *const c_char,
+) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() {
+            return false;
+        }
+        let instance_id = unsafe { read_c_str(instance_id) };
+        unsafe { (*handle).set_pair_candidate(&instance_id) }
+    }))
+    .unwrap_or(false)
+}
+
+/// Factual pair status: 0=Unpaired, 1=Waiting, 2=Paired.
+///
+/// # Safety
+/// A non-null `handle` must be a live pointer returned by `kirin_hypha_create`. A null handle is
+/// accepted and returns `Unpaired`.
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_pair_status(handle: *mut KirinHyphaEngine) -> u8 {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() {
+            return PairStatus::Unpaired as u8;
+        }
+        unsafe { (*handle).pair_status() as u8 }
+    }))
+    .unwrap_or(PairStatus::Unpaired as u8)
+}
+
+/// Return the exact PRE instance currently latched by a POST.
+///
+/// # Safety
+/// A non-null `handle` must be a live pointer returned by `kirin_hypha_create`. When `out` is
+/// non-null and `out_len > 0`, it must reference a writable buffer of at least `out_len` bytes.
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_get_paired_pre_instance_id(
+    handle: *mut KirinHyphaEngine,
+    out: *mut c_char,
+    out_len: usize,
+) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() || out.is_null() || out_len == 0 {
+            return false;
+        }
+        let Some(instance_id) = (unsafe { (*handle).paired_pre_instance_id() }) else {
+            return false;
+        };
+        let bytes = instance_id.as_bytes();
+        let n = bytes.len().min(out_len - 1);
+        let dst = unsafe { std::slice::from_raw_parts_mut(out as *mut u8, out_len) };
+        dst[..n].copy_from_slice(&bytes[..n]);
+        dst[n] = 0;
+        true
+    }))
+    .unwrap_or(false)
 }
 
 /// PRE の自名（pre name）を設定する（B-054 / set_pair_target と完全対称）。
@@ -2748,7 +2917,9 @@ pub unsafe extern "C" fn kirin_hypha_enumerate_post_pair_claims(
         let claims = unsafe { (*handle).enumerate_post_pair_claims() };
         let n = claims.len().min(cap);
         let slice = unsafe { std::slice::from_raw_parts_mut(out, n) };
-        for (dst, (iid, pair_pre_name)) in slice.iter_mut().zip(claims.into_iter().take(n)) {
+        for (dst, (iid, pair_pre_name, paired_pre_instance_id)) in
+            slice.iter_mut().zip(claims.into_iter().take(n))
+        {
             write_c_buf(&mut dst.instance_id, &iid);
             match pair_pre_name {
                 Some(name) => {
@@ -2758,6 +2929,16 @@ pub unsafe extern "C" fn kirin_hypha_enumerate_post_pair_claims(
                 None => {
                     write_c_buf(&mut dst.pair_pre_name, "");
                     dst.has_pair_pre_name = 0;
+                }
+            }
+            match paired_pre_instance_id {
+                Some(instance_id) => {
+                    write_c_buf(&mut dst.paired_pre_instance_id, &instance_id);
+                    dst.has_paired_pre_instance_id = 1;
+                }
+                None => {
+                    write_c_buf(&mut dst.paired_pre_instance_id, "");
+                    dst.has_paired_pre_instance_id = 0;
                 }
             }
         }

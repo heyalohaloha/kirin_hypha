@@ -591,15 +591,17 @@ pub fn spawn_measure_thread(
                     consumed_samples = 0;
                     prev_active = state == SignalState::Active;
                     if state == SignalState::Active {
-                        if let Ok(mut guard) = result.lock() {
-                            let mut cleared = MeasureResult::default();
-                            stamp_shared_measure_result(
-                                &mut cleared,
-                                &mut measure_sequence,
-                                playback_pass_id,
-                            );
-                            *guard = cleared;
-                        }
+                        let mut guard = crate::sync_recovery::lock_recover(
+                            &result,
+                            "MeasureThread playback-pass reset",
+                        );
+                        let mut cleared = MeasureResult::default();
+                        stamp_shared_measure_result(
+                            &mut cleared,
+                            &mut measure_sequence,
+                            playback_pass_id,
+                        );
+                        *guard = cleared;
                     }
                 }
                 log::info!(
@@ -676,18 +678,12 @@ pub fn spawn_measure_thread(
                 // （Active に戻ったとき古いデータで計測しないため）。
                 drain_consumer_all(&mut consumer, &mut consumed_samples);
                 // 計測結果をクリア（GUI が即座に `---` 表示できるようにする）
-                match result.lock() {
-                    Ok(mut guard) => {
-                        let mut cleared = MeasureResult::default();
-                        stamp_shared_measure_result(
-                            &mut cleared,
-                            &mut measure_sequence,
-                            playback_pass_id,
-                        );
-                        *guard = cleared;
-                    }
-                    Err(e) => log::warn!("[MeasureThread] result Mutex poisoned: {}", e),
-                }
+                let mut guard =
+                    crate::sync_recovery::lock_recover(&result, "MeasureThread inactive reset");
+                let mut cleared = MeasureResult::default();
+                stamp_shared_measure_result(&mut cleared, &mut measure_sequence, playback_pass_id);
+                *guard = cleared;
+                drop(guard);
                 thread::sleep(idle_sleep_for_record_state(is_recording));
                 continue;
             }
@@ -720,15 +716,13 @@ pub fn spawn_measure_thread(
                 record_core_pending.clear();
                 record_phase_pending.clear();
                 prev_active = true;
-                if let Ok(mut guard) = result.lock() {
-                    let mut cleared = MeasureResult::default();
-                    stamp_shared_measure_result(
-                        &mut cleared,
-                        &mut measure_sequence,
-                        playback_pass_id,
-                    );
-                    *guard = cleared;
-                }
+                let mut guard = crate::sync_recovery::lock_recover(
+                    &result,
+                    "MeasureThread active-transition reset",
+                );
+                let mut cleared = MeasureResult::default();
+                stamp_shared_measure_result(&mut cleared, &mut measure_sequence, playback_pass_id);
+                *guard = cleared;
                 log::info!(
                     "[MeasureThread] Active transition handled (is_recording={})",
                     is_recording
@@ -931,12 +925,8 @@ pub fn spawn_measure_thread(
                         last_result = Some(new_result);
                     });
                 if let Some(new_result) = last_result {
-                    match result.lock() {
-                        Ok(mut guard) => *guard = new_result,
-                        Err(e) => {
-                            log::warn!("[MeasureThread] result Mutex poisoned: {}", e);
-                        }
-                    }
+                    *crate::sync_recovery::lock_recover(&result, "MeasureThread result publish") =
+                        new_result;
                 }
 
                 if is_recording {

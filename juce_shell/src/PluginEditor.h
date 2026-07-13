@@ -21,7 +21,7 @@
 // POST: title "POST" + Record pair label + click-to-edit pair name (→ set_pair_target) + flora +
 //      display-branch grid (Bypassed/Inactive→"---" ; pair-empty/PRE bypassed→absolute ;
 //      paired Stale/NoPre→muted Δ/--- ; Δ Active ; Record→Δ6) + Keep/Stop/Note→[Good][Fix][Hold][Cancel]/Sense hint + Toast + playback pair
-//      lock + LED. (Out of scope A: candidate ComboBox, All Keep/All Stop, proposals cards.)
+//      lock + LED + exact candidate dropdown + All Keep/All Stop. (Proposals cards remain egui-only.)
 class KirinHyphaEditor : public juce::AudioProcessorEditor,
                          private juce::Timer
 {
@@ -56,14 +56,14 @@ private:
     hypha::MyceliumBackground bg;
     hypha::StatusLed          led;
     hypha::EditableName       nameField;                  // PRE name / POST pair name
-    juce::Label               pairRecLabel;               // POST: "pair: …" shown during Record
+    juce::Label               pairStatusLabel;            // PRE/POST: PAIR — / ◌ / ●
     std::array<hypha::MetricCell, 6> cells;
     juce::Label               bannerLabel;                // "Keeping" (ACK edge, 3s) — PRE
     juce::Label               toastLabel;                 // POST transient messages (3s)
     juce::Label               recordErrorLabel;           // B-118 (③/追補): PRE+POST io-fail status (persistent / G-115-29)
     std::unique_ptr<hypha::PostControls> postControls;    // POST button row
     juce::TextButton          pairDropdown;                // POST: ▼ candidate / All Keep / All Stop
-    juce::StringArray         menuCandidateNames;          // maps PopupMenu result -> candidate name
+    juce::Array<KirinHyphaProcessorBase::PreCandidate> menuCandidates;
     juce::TooltipWindow       tooltip { this };           // drives per-cell hover help
 
     Kind   currentKind = Kind::WatchAbs6;

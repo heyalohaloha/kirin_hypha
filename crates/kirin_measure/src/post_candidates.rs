@@ -41,6 +41,8 @@ pub(crate) struct PostTmpJson {
     #[serde(default)]
     pub pair_pre_name: String,
     #[serde(default)]
+    pub paired_pre_instance_id: String,
+    #[serde(default)]
     pub pair_claimed_at: f64,
     #[serde(default)]
     pub lufs_m: Option<f64>,
@@ -74,6 +76,8 @@ pub struct PostCandidate {
     pub daw_session_id: Option<String>,
     pub host_process_id: Option<u32>,
     pub pair_pre_name: Option<String>,
+    /// Exact PRE runtime selected by this POST. Empty on legacy/name-only snapshots.
+    pub paired_pre_instance_id: Option<String>,
     /// W-281 / G-115-249: post.json から read した pair claim 時刻 (Unix epoch sec)。
     /// `self_check_pair_claim` の後着優先比較で使う。旧 schema は 0.0 fallback。
     pub pair_claimed_at: f64,
@@ -85,6 +89,14 @@ pub struct PostCandidate {
 /// `record_signal/` 予約 dir は除外。`post.json` deserialize 失敗・ファイル不在は
 /// skip。`signal_state == "bypassed"` の POST は除外する。
 pub fn scan_post_candidates_in(project_dir: &Path) -> Vec<PostCandidate> {
+    scan_post_candidates_in_mode(project_dir, false)
+}
+
+fn scan_post_pair_claims_in(project_dir: &Path) -> Vec<PostCandidate> {
+    scan_post_candidates_in_mode(project_dir, true)
+}
+
+fn scan_post_candidates_in_mode(project_dir: &Path, include_bypassed: bool) -> Vec<PostCandidate> {
     let project_uuid = project_dir
         .file_name()
         .and_then(|n| n.to_str())
@@ -121,13 +133,18 @@ pub fn scan_post_candidates_in(project_dir: &Path) -> Vec<PostCandidate> {
         if !crate::watch_snapshot_lease::snapshot_owner_is_live(&path, &parsed.watch_owner_id) {
             continue;
         }
-        if parsed.signal_state == "bypassed" {
+        if !include_bypassed && parsed.signal_state == "bypassed" {
             continue;
         }
         let pair_pre_name = if parsed.pair_pre_name.is_empty() {
             None
         } else {
             Some(parsed.pair_pre_name)
+        };
+        let paired_pre_instance_id = if parsed.paired_pre_instance_id.is_empty() {
+            None
+        } else {
+            Some(parsed.paired_pre_instance_id)
         };
         let daw_session_id = if parsed.daw_session_id.is_empty() {
             None
@@ -145,12 +162,46 @@ pub fn scan_post_candidates_in(project_dir: &Path) -> Vec<PostCandidate> {
             daw_session_id,
             host_process_id,
             pair_pre_name,
+            paired_pre_instance_id,
             pair_claimed_at: parsed.pair_claimed_at,
             path: post_file,
         });
     }
     out.sort_by(|a, b| a.instance_id.cmp(&b.instance_id));
     out
+}
+
+fn scan_live_post_pair_candidates_in(project_dir: &Path) -> Vec<PostCandidate> {
+    scan_post_pair_claims_in(project_dir)
+        .into_iter()
+        .filter(|candidate| {
+            crate::watch_snapshot_lease::snapshot_file_is_live_pair_choice(
+                &candidate.path,
+                Duration::from_secs(DISCOVERY_STALE_SECS),
+            )
+        })
+        .collect()
+}
+
+/// POST runtimes visible for pair-status discovery.
+///
+/// A current owner lease is stronger evidence of plugin presence than snapshot mtime. Legacy
+/// snapshots retain the bounded freshness rule because they cannot prove a live producer.
+pub fn enumerate_live_post_pair_candidates(kirin_root: &Path) -> Vec<PostCandidate> {
+    let project_entries = match fs::read_dir(kirin_root) {
+        Ok(entries) => entries,
+        Err(_) => return Vec::new(),
+    };
+    let mut candidates = Vec::new();
+    for entry in project_entries.flatten() {
+        let project_dir = entry.path();
+        if !project_dir.is_dir() {
+            continue;
+        }
+        candidates.extend(scan_live_post_pair_candidates_in(&project_dir));
+    }
+    candidates.sort_by(|a, b| a.instance_id.cmp(&b.instance_id));
+    candidates
 }
 
 /// `kirin_root` (= `$TMPDIR/kirin/`) 配下を scan して mtime fresh の全 active POST dir を返す。
@@ -230,15 +281,45 @@ pub fn self_check_pair_claim(
     self_pair_pre_name: &str,
     self_pair_claimed_at: f64,
 ) -> bool {
-    if self_pair_pre_name.is_empty() {
+    self_check_pair_claim_exact(
+        project_dir,
+        self_instance_id,
+        self_pair_pre_name,
+        "",
+        self_pair_claimed_at,
+    )
+}
+
+/// Exact-instance variant of [`self_check_pair_claim`].
+///
+/// Current snapshots compare `paired_pre_instance_id`, so two PREs with the same display name do
+/// not steal each other's POST. A legacy POST without the exact field falls back to the name to
+/// preserve the previous mutual-exclusion contract during a rolling upgrade.
+pub fn self_check_pair_claim_exact(
+    project_dir: &Path,
+    self_instance_id: &str,
+    self_pair_pre_name: &str,
+    self_pre_instance_id: &str,
+    self_pair_claimed_at: f64,
+) -> bool {
+    if self_pair_pre_name.is_empty() && self_pre_instance_id.is_empty() {
         return false;
     }
-    let candidates = scan_post_candidates_in(project_dir);
+    let candidates = scan_live_post_pair_candidates_in(project_dir);
     for cand in &candidates {
         if cand.instance_id == self_instance_id {
             continue;
         }
-        if cand.pair_pre_name.as_deref() != Some(self_pair_pre_name) {
+        let claims_same_pre = if self_pre_instance_id.is_empty() {
+            !self_pair_pre_name.is_empty()
+                && cand.pair_pre_name.as_deref() == Some(self_pair_pre_name)
+        } else if let Some(candidate_pre_instance_id) = cand.paired_pre_instance_id.as_deref() {
+            candidate_pre_instance_id == self_pre_instance_id
+        } else {
+            !self_pair_pre_name.is_empty()
+                && cand.pair_pre_name.as_deref() == Some(self_pair_pre_name)
+        };
+        if !claims_same_pre {
             continue;
         }
         if cand.pair_claimed_at > self_pair_claimed_at {
@@ -396,6 +477,30 @@ pub fn enumerate_active_post_pair_candidates_for_broadcast_scope(
     candidates
         .into_iter()
         .filter(|c| broadcast_scope_matches(c, daw_session_id, host_process_id))
+        .collect()
+}
+
+/// Live POST pair claims in the same DAW/broadcast scope.
+///
+/// This is deliberately independent of signal bypass. A bypassed POST cannot measure, but its
+/// explicit PRE ownership and PAIR indicator must not silently move to another POST.
+pub fn enumerate_live_post_pair_candidates_for_broadcast_scope(
+    kirin_root: &Path,
+    daw_session_id: &str,
+    host_process_id: u32,
+) -> Vec<PostCandidate> {
+    let candidates = enumerate_live_post_pair_candidates(kirin_root);
+    if !daw_session_id.is_empty() {
+        let same_host_single_project =
+            same_host_single_project_candidates(&candidates, host_process_id);
+        if !same_host_single_project.is_empty() {
+            return same_host_single_project;
+        }
+    }
+
+    candidates
+        .into_iter()
+        .filter(|candidate| broadcast_scope_matches(candidate, daw_session_id, host_process_id))
         .collect()
 }
 

@@ -10,8 +10,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use crate::pre_candidates::{
-    enumerate_active_pre_pair_candidates, filter_candidates_by_name, scan_pre_candidates_in,
-    PreCandidate,
+    enumerate_active_pre_pair_candidates, enumerate_live_pre_pair_choices,
+    filter_candidates_by_name, scan_pre_candidates_in, PreCandidate,
 };
 use crate::SignalState;
 
@@ -216,6 +216,53 @@ pub fn enumerate_active_pre_pair_candidates_for_post_project_in_session(
         .collect()
 }
 
+fn explicit_candidate_is_in_post_scope(
+    kirin_root: &Path,
+    candidate: &PreCandidate,
+    post_project_hash: &str,
+    post_daw_session_id: &str,
+    host_process_id: u32,
+) -> bool {
+    // An explicit click is stronger than unreliable per-instance project/session IDs. The host
+    // process still forms a hard runtime boundary, so another DAW process is never offered merely
+    // because it reused a human name.
+    if host_process_id != 0 && candidate.host_process_id == Some(host_process_id) {
+        return true;
+    }
+    candidate_is_in_post_scope(
+        kirin_root,
+        candidate,
+        post_project_hash,
+        post_daw_session_id,
+        host_process_id,
+    )
+}
+
+/// Live PRE runtimes offered for an explicit click in the current POST.
+///
+/// Unlike the automatic/Keep resolver, this list does not discard a leased runtime solely because
+/// its measurement timestamp is stale. Exact selection records the instance ID, while the Pair
+/// status remains Waiting until fresh snapshots resume.
+pub fn enumerate_live_pre_pair_choices_for_post_project_in_session(
+    kirin_root: &Path,
+    post_project_hash: &str,
+    post_daw_session_id: &str,
+) -> Vec<PreCandidate> {
+    let host_process_id = crate::post_candidates::current_host_process_id();
+    enumerate_live_pre_pair_choices(kirin_root)
+        .into_iter()
+        .filter(|candidate| {
+            explicit_candidate_is_in_post_scope(
+                kirin_root,
+                candidate,
+                post_project_hash,
+                post_daw_session_id,
+                host_process_id,
+            )
+        })
+        .collect()
+}
+
 /// Display/Keep shared PRE selection result.
 #[derive(Clone, Debug)]
 pub struct SelectedPre {
@@ -228,6 +275,80 @@ pub struct SelectedPre {
     pub daw_session_id: Option<String>,
     /// DAW host process ID from PRE `pre.json`, when available.
     pub host_process_id: Option<u32>,
+}
+
+/// Resolve one exact PRE chosen by the user. No name ambiguity or metric freshness gate is applied.
+pub fn select_live_pre_pair_choice_by_instance_for_post_project_in_session(
+    kirin_root: &Path,
+    instance_id: &str,
+    post_project_hash: &str,
+    post_daw_session_id: &str,
+) -> Option<(SelectedPre, String)> {
+    let candidate = enumerate_live_pre_pair_choices_for_post_project_in_session(
+        kirin_root,
+        post_project_hash,
+        post_daw_session_id,
+    )
+    .into_iter()
+    .find(|candidate| candidate.instance_id == instance_id)?;
+    let project_dir = candidate_project_dir(&candidate)?;
+    let name = candidate.name.clone().unwrap_or_default();
+    Some((
+        SelectedPre {
+            instance_id: candidate.instance_id,
+            pre_json: candidate.path,
+            project_dir,
+            daw_session_id: candidate.daw_session_id,
+            host_process_id: candidate.host_process_id,
+        },
+        name,
+    ))
+}
+
+/// Resolve a POST's published pair claim for All Keep/readiness checks.
+///
+/// Current POSTs publish an exact PRE instance. That identity is attempted first and remains valid
+/// while its runtime lease exists, even when Watch measurements are temporarily stale. A missing
+/// exact runtime falls back to the human name so delete/recreate can reconnect immediately. Legacy
+/// name-only POSTs keep the strict fresh+unique Arm resolver.
+pub fn resolve_published_pair_claim_for_arm(
+    kirin_root: &Path,
+    pair_pre_name: Option<&str>,
+    paired_pre_instance_id: Option<&str>,
+    post_project_hash: &str,
+    post_daw_session_id: &str,
+) -> Option<SelectedPre> {
+    if let Some(instance_id) = paired_pre_instance_id.filter(|id| !id.is_empty()) {
+        if let Some((selected, _)) =
+            select_live_pre_pair_choice_by_instance_for_post_project_in_session(
+                kirin_root,
+                instance_id,
+                post_project_hash,
+                post_daw_session_id,
+            )
+        {
+            return Some(selected);
+        }
+    }
+
+    let name = pair_pre_name.filter(|name| !name.is_empty())?;
+    select_target_pre_for_arm_for_post_project_in_session(
+        kirin_root,
+        name,
+        post_project_hash,
+        post_daw_session_id,
+    )
+}
+
+pub fn latch_selected_pre(name: String, selected: SelectedPre) -> LatchedPre {
+    LatchedPre {
+        name,
+        instance_id: selected.instance_id,
+        project_dir: selected.project_dir,
+        pre_json: selected.pre_json,
+        daw_session_id: selected.daw_session_id,
+        host_process_id: selected.host_process_id,
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -423,6 +544,12 @@ fn selected_from_latch_is_in_post_scope(
     post_daw_session_id: &str,
 ) -> bool {
     let host_process_id = crate::post_candidates::current_host_process_id();
+    // An exact runtime latch was either established by a strict automatic resolver or by an
+    // explicit user click. Once it exists, per-instance project/session IDs must not invalidate
+    // that identity. The host process remains the hard boundary.
+    if host_process_id != 0 && selected.host_process_id == Some(host_process_id) {
+        return true;
+    }
     if exact_daw_selection_is_allowed(
         kirin_root,
         selected,
@@ -638,6 +765,8 @@ pub struct LatchedPre {
 
 /// Direct read state for a latched PRE.
 pub struct LatchedPreState {
+    /// Exact PRE instance ID read from the snapshot.
+    pub instance_id: Option<String>,
     /// PRE `name` field.
     pub name: Option<String>,
     /// Exact PRE signal state if it was present in `pre.json`.
@@ -657,6 +786,10 @@ pub struct LatchedPreState {
 pub fn read_pre_at(pre_json: &Path) -> Option<LatchedPreState> {
     let content = fs::read_to_string(pre_json).ok()?;
     let v: serde_json::Value = serde_json::from_str(&content).ok()?;
+    let instance_id = v
+        .get("instance_id")
+        .and_then(|x| x.as_str())
+        .map(str::to_string);
     let name = v.get("name").and_then(|x| x.as_str()).map(str::to_string);
     let signal_state = v
         .get("signal_state")
@@ -678,6 +811,7 @@ pub fn read_pre_at(pre_json: &Path) -> Option<LatchedPreState> {
         .filter(|s| !s.is_empty())
         .map(str::to_string);
     Some(LatchedPreState {
+        instance_id,
         name,
         signal_state,
         active,
@@ -690,12 +824,12 @@ fn selected_from_latch(
     pair_pre_name: &str,
     latched: &Mutex<Option<LatchedPre>>,
 ) -> Option<SelectedPre> {
-    if pair_pre_name.is_empty() {
-        return None;
-    }
     let g = latched.lock().ok()?;
     let l = g.as_ref()?;
     if l.name != pair_pre_name {
+        return None;
+    }
+    if crate::watch_snapshot_lease::snapshot_file_has_released_current_owner(&l.pre_json) {
         return None;
     }
     Some(SelectedPre {

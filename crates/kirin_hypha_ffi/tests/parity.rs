@@ -1941,7 +1941,22 @@ fn post_add_annotation_targets_post_role() {
             !post.is_recording(),
             "Drop transaction must close POST Keep"
         );
-        sleep(Duration::from_secs(2)); // PRE closes; both Record .json status=closed
+        // `is_recording=false` is the control-state edge. The IO writers and the
+        // pair commit run asynchronously after that edge, so wait for the durable
+        // manifest instead of assuming a fixed two seconds is enough on a loaded
+        // machine. Note targets only committed Record artifacts.
+        let mut pair_committed = false;
+        for _ in 0..100 {
+            if find_json_under(&plugin_data_root, "record_sessions", "*.json").is_some() {
+                pair_committed = true;
+                break;
+            }
+            sleep(Duration::from_millis(100));
+        }
+        assert!(
+            pair_committed,
+            "PRE/POST pair commit must become durable before annotation"
+        );
 
         // Record close 後に POST へ注釈（header 注: 確実なのは close 後）。
         assert!(

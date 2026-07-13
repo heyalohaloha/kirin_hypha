@@ -168,6 +168,21 @@ fn other_host_process_id() -> u32 {
     }
 }
 
+fn attach_live_owner(
+    kirin_root: &Path,
+    project_uuid: &str,
+    instance_id: &str,
+) -> crate::watch_snapshot_lease::WatchSnapshotLease {
+    let instance_dir = kirin_root.join(project_uuid).join(instance_id);
+    let mut lease = crate::watch_snapshot_lease::WatchSnapshotLease::new();
+    lease.bind(&instance_dir).unwrap();
+    let path = instance_dir.join("pre.json");
+    let mut json: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    json["watch_owner_id"] = serde_json::json!(lease.owner_id());
+    fs::write(path, json.to_string()).unwrap();
+    lease
+}
+
 #[test]
 fn select_target_pre_unique_active_fresh_returns_some() {
     let root = isolated_dir();
@@ -937,6 +952,141 @@ fn enumerate_active_pre_pair_candidates_for_post_project_in_session_matches_curr
             .map(str::to_string)
             .collect()
     );
+}
+
+#[test]
+fn explicit_pair_choice_survives_stale_measurement_and_instance_scoped_ids() {
+    let root = isolated_dir();
+    let current_host = std::process::id();
+    write_pre_for_select_with_identity(
+        &root,
+        "pre-au-project",
+        "pre-2mix",
+        "2Mix",
+        "inactive",
+        &old_rfc3339(120),
+        Some(current_host),
+        Some("daw-pre-instance"),
+    );
+    let _lease = attach_live_owner(&root, "pre-au-project", "pre-2mix");
+
+    let choices = enumerate_live_pre_pair_choices_for_post_project_in_session(
+        &root,
+        "post-au-project",
+        "daw-post-instance",
+    );
+    assert_eq!(choices.len(), 1);
+    assert_eq!(choices[0].instance_id, "pre-2mix");
+
+    let (selected, name) = select_live_pre_pair_choice_by_instance_for_post_project_in_session(
+        &root,
+        "pre-2mix",
+        "post-au-project",
+        "daw-post-instance",
+    )
+    .expect("live same-host PRE remains explicitly selectable");
+    assert_eq!(selected.instance_id, "pre-2mix");
+    assert_eq!(name, "2Mix");
+
+    write_post_for_scope_with_host_process_id(
+        &root,
+        "post-other-project",
+        "post-other",
+        "Other",
+        Some(current_host),
+    );
+    let latched = Mutex::new(Some(latch_selected_pre(name, selected)));
+    let resolved = resolve_arm_target_for_post_project_in_session(
+        &root,
+        "2Mix",
+        "post-au-project",
+        "daw-post-instance",
+        &latched,
+    )
+    .expect("exact same-host latch remains authoritative after explicit selection");
+    assert_eq!(resolved.instance_id, "pre-2mix");
+}
+
+#[test]
+fn explicit_pair_choice_selects_one_exact_instance_among_duplicate_names() {
+    let root = isolated_dir();
+    let current_host = std::process::id();
+    for (project, instance) in [("pre-a-project", "pre-a"), ("pre-b-project", "pre-b")] {
+        write_pre_for_select_with_identity(
+            &root,
+            project,
+            instance,
+            "2Mix",
+            "inactive",
+            &old_rfc3339(120),
+            Some(current_host),
+            None,
+        );
+    }
+    let _lease_a = attach_live_owner(&root, "pre-a-project", "pre-a");
+    let _lease_b = attach_live_owner(&root, "pre-b-project", "pre-b");
+
+    let (selected, name) = select_live_pre_pair_choice_by_instance_for_post_project_in_session(
+        &root,
+        "pre-b",
+        "post-project",
+        "daw-post-instance",
+    )
+    .expect("instance-id click must not be ambiguous by display name");
+    assert_eq!(selected.instance_id, "pre-b");
+    assert_eq!(name, "2Mix");
+}
+
+#[test]
+fn explicit_pair_choice_keeps_bypassed_runtime_visible() {
+    let root = isolated_dir();
+    write_pre_for_select_with_identity(
+        &root,
+        "pre-project",
+        "pre-bypassed",
+        "2Mix",
+        "bypassed",
+        &old_rfc3339(120),
+        Some(std::process::id()),
+        None,
+    );
+    let _lease = attach_live_owner(&root, "pre-project", "pre-bypassed");
+
+    let choices = enumerate_live_pre_pair_choices_for_post_project_in_session(
+        &root,
+        "post-project",
+        "daw-post",
+    );
+
+    assert_eq!(choices.len(), 1);
+    assert_eq!(choices[0].instance_id, "pre-bypassed");
+}
+
+#[test]
+fn published_exact_unnamed_claim_is_all_keep_ready_while_runtime_is_live() {
+    let root = isolated_dir();
+    write_pre_for_select_with_identity(
+        &root,
+        "pre-project",
+        "pre-unnamed",
+        "",
+        "inactive",
+        &old_rfc3339(120),
+        Some(std::process::id()),
+        None,
+    );
+    let _lease = attach_live_owner(&root, "pre-project", "pre-unnamed");
+
+    let selected = resolve_published_pair_claim_for_arm(
+        &root,
+        None,
+        Some("pre-unnamed"),
+        "post-project",
+        "daw-post",
+    )
+    .expect("exact live claim must not depend on a name or measurement timestamp");
+
+    assert_eq!(selected.instance_id, "pre-unnamed");
 }
 
 #[test]

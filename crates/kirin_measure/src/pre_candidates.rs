@@ -7,6 +7,7 @@
 use serde::Deserialize;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 const RECORD_SIGNAL_RESERVED_DIR: &str = "record_signal";
 
@@ -76,6 +77,16 @@ pub fn scan_pre_candidates(tmp_base: &Path, project_hash: &str) -> Vec<PreCandid
 /// `project_dir` は `pre_discovery::discover_active_pre_dir` の戻り値（または
 /// 同等 path）を渡す。`record_signal/` 予約名 dir は除外する。
 pub fn scan_pre_candidates_in(project_dir: &Path) -> Vec<PreCandidate> {
+    scan_pre_candidates_in_mode(project_dir, false)
+}
+
+/// Runtime-presence scan used only by explicit pairing. Bypass affects measurement, not the
+/// identity connection, so a leased bypassed PRE remains visible and can show Waiting/Paired.
+fn scan_pre_pair_choices_in(project_dir: &Path) -> Vec<PreCandidate> {
+    scan_pre_candidates_in_mode(project_dir, true)
+}
+
+fn scan_pre_candidates_in_mode(project_dir: &Path, include_bypassed: bool) -> Vec<PreCandidate> {
     let entries = match fs::read_dir(project_dir) {
         Ok(e) => e,
         Err(_) => return Vec::new(),
@@ -114,7 +125,7 @@ pub fn scan_pre_candidates_in(project_dir: &Path) -> Vec<PreCandidate> {
         // Active / Inactive / 旧 schema (signal_state 不在) は候補化する。
         // 読込側 filter (二重防御の片側)。書込側 guard は
         // io_thread_pre.rs::poll_record_signal の signal_state チェックで担保。
-        if parsed.signal_state.as_deref() == Some("bypassed") {
+        if !include_bypassed && parsed.signal_state.as_deref() == Some("bypassed") {
             continue;
         }
         let host_process_id = if parsed.host_process_id == 0 {
@@ -196,6 +207,38 @@ pub fn enumerate_active_pre_pair_candidates(kirin_root: &Path) -> Vec<PreCandida
         .into_iter()
         .flat_map(|d| scan_pre_candidates_in(&d))
         .collect()
+}
+
+/// PRE runtimes offered for an explicit user selection.
+///
+/// This intentionally differs from [`enumerate_active_pre_pair_candidates`]: an exact user choice
+/// is a runtime-presence operation, not a measurement-freshness decision. Current snapshots remain
+/// listed while their unique writer lease exists. Legacy snapshots, which have no lease, remain
+/// bounded by the historical freshness interval.
+pub fn enumerate_live_pre_pair_choices(kirin_root: &Path) -> Vec<PreCandidate> {
+    let entries = match fs::read_dir(kirin_root) {
+        Ok(entries) => entries,
+        Err(_) => return Vec::new(),
+    };
+    let mut choices = Vec::new();
+    for entry in entries.flatten() {
+        let project_dir = entry.path();
+        if !project_dir.is_dir() {
+            continue;
+        }
+        choices.extend(
+            scan_pre_pair_choices_in(&project_dir)
+                .into_iter()
+                .filter(|candidate| {
+                    crate::watch_snapshot_lease::snapshot_file_is_live_pair_choice(
+                        &candidate.path,
+                        Duration::from_secs(crate::pre_discovery::DISCOVERY_STALE_SECS),
+                    )
+                }),
+        );
+    }
+    choices.sort_by(|a, b| a.instance_id.cmp(&b.instance_id));
+    choices
 }
 
 /// POST 側計測値。距離計算用。
