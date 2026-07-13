@@ -132,6 +132,37 @@ fn idle_autostop_due(
     timeout.is_some_and(|timeout| is_recording && !is_active && idle_elapsed >= timeout)
 }
 
+fn drop_commit_matches_observed_capture(
+    expected: &crate::record_expected::ExpectedWavMetadata,
+    tracker: &RecordTakeTracker,
+    generation: u64,
+) -> bool {
+    let bwf_matches = expected
+        .wav_time_reference_samples
+        .and_then(|start| {
+            let start = i64::try_from(start).ok()?;
+            let duration = i64::try_from(expected.expected_duration_samples).ok()?;
+            Some((start, start.checked_add(duration)?))
+        })
+        .is_some_and(|(start, end)| tracker.observed_content_range(start, end));
+    if bwf_matches {
+        return true;
+    }
+    // Non-BWF WAVs have no absolute timeline origin. The host's bounded offline-render epoch is
+    // still an exact producer fact: only the Keep generation that rendered this exact native
+    // sample count may consume the Drop transaction. Unrelated or stale Keeps remain armed.
+    expected.wav_time_reference_samples.is_none()
+        && tracker.snapshot(generation).is_some_and(|snapshot| {
+            snapshot.generation == generation
+                && snapshot.duration_samples == expected.expected_duration_samples
+                && snapshot
+                    .host_start_position_samples
+                    .zip(snapshot.host_end_position_samples)
+                    .and_then(|(start, end)| end.checked_sub(start))
+                    == i64::try_from(expected.expected_duration_samples).ok()
+        })
+}
+
 /// All Stop is a filesystem-level barrier for older All Keep broadcasts.
 ///
 /// Studio One can re-initialize plugins during offline bounce. That restarts the
@@ -203,6 +234,11 @@ pub type TriggerPairResolutionFn = Arc<dyn Fn(&str, &str) + Send + Sync>;
 /// hypha_post::editor::trigger_stop_internal を toast=None で呼出す。
 pub type TriggerStopResolutionFn = Arc<dyn Fn(&str, &str) + Send + Sync>;
 
+/// PairBinding の世代snapshot/releaseを所有層へ戻す。IO Threadは古いself-check判定を
+/// generationなしで現在のbindingへ適用してはならない。
+pub type PairBindingGenerationFn = Arc<dyn Fn() -> u64 + Send + Sync>;
+pub type ReleasePairBindingIfCurrentFn = Arc<dyn Fn(&str, u64) -> bool + Send + Sync>;
+
 /// POST 用 IO Thread を起動して JoinHandle を返す。
 ///
 /// # 引数
@@ -258,6 +294,8 @@ pub fn spawn_io_thread_post(
     trigger_pair_resolution: TriggerPairResolutionFn,
     // α-7' All Stop: Stop broadcast 受信時 closure (Keep と完全対称)。
     trigger_stop_resolution: TriggerStopResolutionFn,
+    pair_binding_generation: PairBindingGenerationFn,
+    release_pair_binding_if_current: ReleasePairBindingIfCurrentFn,
     // io_thread → GUI ステータス行への通知 channel。
     // B-245 以降、writer flush failure は Record を止めない。
     // 現在は idle timeout など、Record を正当に閉じた経路の説明だけを書き込む。
@@ -413,8 +451,8 @@ pub fn spawn_io_thread_post(
             }
 
             if last_entitlement_refresh.elapsed() >= Duration::from_millis(250) {
-                let observed = license.refresh_from_disk();
-                record_sm.enforce_license(observed);
+                // License は次回 Keep の開始 gate。開始済み Keep の停止権限は持たない。
+                let _ = license.refresh_from_disk();
                 last_entitlement_refresh = Instant::now();
             }
 
@@ -449,6 +487,7 @@ pub fn spawn_io_thread_post(
             // RwLock read guard 寿命を tick 内に閉じる (closure スコープから外で
             // guard を保持しない)。poison error 時は空文字 fallback (旧 schema 互換)。
             let pair_pre_name_snapshot = snapshot_pair_pre_name(&pair_pre_name_for_thread);
+            let pair_binding_generation_snapshot = (pair_binding_generation)();
             // W-281: pair_claimed_at snapshot per tick (同位相 / poison は 0.0 fallback)。
             let pair_claimed_at_snapshot =
                 pair_claimed_at_for_thread.read().map(|g| *g).unwrap_or(0.0);
@@ -484,40 +523,31 @@ pub fn spawn_io_thread_post(
                 } else if self_check_release_gate
                     .observe_conflict(&pair_pre_name_snapshot, pair_claimed_at_snapshot)
                 {
-                    // C-4: 自身の claim を解放。
-                    log::info!(
-                        "[POST self_check] release pair: instance_id={} pair_pre_name={} (newer claim detected)",
-                        instance_id_ref,
-                        pair_pre_name_snapshot
-                    );
-                    if let Ok(mut g) = pair_pre_name_for_thread.write() {
-                        g.clear();
-                    }
-                    // A released human selector must not leave an exact PRE
-                    // instance hidden in either linkage slot. Otherwise a
-                    // later same-name PRE cannot be selected even though the
-                    // UI already shows an empty pair.
-                    if let Ok(mut paired) = paired_pre_target.lock() {
-                        *paired = None;
-                    }
-                    if let Ok(mut latched) = latched_pre.lock() {
-                        *latched = None;
-                    }
-                    if let Ok(mut c) = pair_claimed_at_for_thread.write() {
-                        *c = 0.0;
-                    }
-                    if let Ok(mut n) = pair_release_notice_for_thread.write() {
-                        *n = Some("Released (paired elsewhere)".to_string());
-                    }
-                    // W-282 / G-115-250 / A-1: Δ 表示完全リセット。
-                    // B-048 LKG (`last_active=Some(snap)`) を bypass し、解放された POST に
-                    // 古い Δ 値が `draw_delta_grid_frozen` で凍結保持されるのを防ぐ。
-                    // 次 GUI frame で `draw_watch_absolute_grid` (絶対値 fallback) に切替。
-                    // 同 tick 内 run_tick 再走時は instance 2+ 環境のみで release 発火するため
-                    // compute_delta_with_state は NoPre を返し、merge_last_active(prev=None,
-                    // new=NoPre) で last_active=None が維持される。
-                    if let Ok(mut d) = delta_result.lock() {
-                        *d = DeltaResult::default();
+                    // 判定後のrename/re-Keepを古い判定で破壊しない。所有層のtransition lock内で
+                    // name+generationを再照合し、現世代だった場合だけ全bindingを解放する。
+                    let released = !record_sm.is_recording()
+                        && (release_pair_binding_if_current)(
+                            &pair_pre_name_snapshot,
+                            pair_binding_generation_snapshot,
+                        );
+                    if released {
+                        log::info!(
+                            "[POST self_check] release pair: instance_id={} pair_pre_name={} (newer claim detected)",
+                            instance_id_ref,
+                            pair_pre_name_snapshot
+                        );
+                        if let Ok(mut c) = pair_claimed_at_for_thread.write() {
+                            *c = 0.0;
+                        }
+                        if let Ok(mut n) = pair_release_notice_for_thread.write() {
+                            *n = Some("Released (paired elsewhere)".to_string());
+                        }
+                        // W-282 / G-115-250 / A-1: Δ 表示完全リセット。
+                        // B-048 LKG (`last_active=Some(snap)`) を bypass し、解放された POST に
+                        // 古い Δ 値が `draw_delta_grid_frozen` で凍結保持されるのを防ぐ。
+                        if let Ok(mut d) = delta_result.lock() {
+                            *d = DeltaResult::default();
+                        }
                     }
                     self_check_release_gate.reset();
                 }
@@ -571,6 +601,64 @@ pub fn spawn_io_thread_post(
             let pair_pre_name_for_writer = pair_pre_name_snapshot.clone();
             let pair_name_resolver = move || Some(pair_name_for_writer);
             let pair_pre_name_resolver = move || Some(pair_pre_name_for_writer);
+            // Drop は project broadcast ではなく、Kirin OS が Drop 開始時点で捕捉した
+            // exact session_id の commit file だけを停止根拠にする。metadata を lifecycle
+            // markerへ先に固定し、PREへ reason 付き Released を公開してから両 writerを閉じる。
+            if record_sm.is_recording() {
+                if let (Ok(paths), Some(session_id)) = (
+                    StoragePaths::default_platform(),
+                    record_sm.record_session_id(),
+                ) {
+                    let base = paths.plugin_data_dir();
+                    match crate::record_drop_commit::inspect_drop_commit_for_open_session(
+                        &base,
+                        project_hash_ref,
+                        &session_id,
+                    ) {
+                        Ok(Some(expected)) => {
+                            let capture_matches_drop = drop_commit_matches_observed_capture(
+                                &expected,
+                                &record_take_tracker,
+                                record_sm.generation(),
+                            );
+                            if capture_matches_drop {
+                                if let Ok(Some(expected)) =
+                                    crate::record_drop_commit::bind_drop_commit_for_open_session(
+                                        &base,
+                                        project_hash_ref,
+                                        &session_id,
+                                    )
+                                {
+                                    release_record_reservation(
+                                        &base,
+                                        project_hash_ref,
+                                        instance_id_ref,
+                                        &paired_pre_target,
+                                        "drop_committed",
+                                    );
+                                    let _ = record_signal::mark_released_with_reason(
+                                        &base,
+                                        project_hash_ref,
+                                        instance_id_ref,
+                                        record_signal::ReleaseReason::DropCommitted,
+                                    );
+                                    log::info!(
+                                        "[IOThread POST] Drop committed exact session: session={} bounce={} post_iid={}",
+                                        session_id,
+                                        expected.bounce_id,
+                                        instance_id_ref
+                                    );
+                                    exit_record_preserve_pair(&record_sm);
+                                }
+                            }
+                        }
+                        Ok(None) => {}
+                        // 内部 commit の一時的不在・破損は停止せず、次 tick へ委ねる。
+                        // 利用者操作と結び付かないため R-28 に従い無言で skip する。
+                        Err(_) => {}
+                    }
+                }
+            }
             let record_session_id = record_sm.record_session_id();
             if let Err(e) = run_record_tick_with_pair_names_require_session(
                 &record_sm,
@@ -2284,7 +2372,12 @@ fn poll_preset_availability(
 
 #[cfg(test)]
 mod b206_idle_autostop_tests {
-    use super::{idle_autostop_due, parse_idle_timeout, record_idle_timeout};
+    use super::{
+        drop_commit_matches_observed_capture, idle_autostop_due, parse_idle_timeout,
+        record_idle_timeout,
+    };
+    use crate::record_expected::ExpectedWavMetadata;
+    use crate::record_take::{RecordTakeBlock, RecordTakeTracker};
     use std::time::Duration;
 
     #[test]
@@ -2364,6 +2457,73 @@ mod b206_idle_autostop_tests {
             !idle_autostop_due(true, false, Duration::from_secs(99_999), None),
             "timeout disabledなら停止権限を持たない"
         );
+    }
+
+    #[test]
+    fn drop_commit_requires_bwf_range_observed_by_this_post() {
+        let tracker = RecordTakeTracker::new();
+        tracker.note_capture_window(true, 96_000, 48_000);
+        let mut expected = ExpectedWavMetadata {
+            expected_duration_samples: 48_000,
+            expected_sample_rate: 48_000,
+            wav_time_reference_samples: Some(96_000),
+            wav_path: "/tmp/drop.wav".to_string(),
+            bounce_id: "bounce".to_string(),
+            created_at_ms: chrono::Utc::now().timestamp_millis(),
+            wav_file_size: Some(1),
+            wav_mtime_ms: chrono::Utc::now().timestamp_millis(),
+            wav_hash: Some("hash".to_string()),
+            consumed_at_ms: None,
+            consumed_by_session_id: None,
+        };
+        assert!(drop_commit_matches_observed_capture(&expected, &tracker, 1));
+
+        expected.wav_time_reference_samples = Some(192_000);
+        assert!(!drop_commit_matches_observed_capture(
+            &expected, &tracker, 1
+        ));
+        expected.wav_time_reference_samples = None;
+        assert!(!drop_commit_matches_observed_capture(
+            &expected, &tracker, 1
+        ));
+    }
+
+    #[test]
+    fn non_bwf_drop_commit_requires_exact_current_render_generation_and_duration() {
+        let tracker = RecordTakeTracker::new();
+        tracker.note_block(RecordTakeBlock {
+            generation: 7,
+            recording: true,
+            rendered: true,
+            playing: true,
+            offline: true,
+            position_valid: true,
+            position_samples: 96_000,
+            num_frames: 48_000,
+            clock_start_samples: 96_000,
+            clock_end_samples: Some(144_000),
+        });
+        let mut expected = ExpectedWavMetadata {
+            expected_duration_samples: 48_000,
+            expected_sample_rate: 48_000,
+            wav_time_reference_samples: None,
+            wav_path: "/tmp/drop-no-bwf.wav".to_string(),
+            bounce_id: "bounce-no-bwf".to_string(),
+            created_at_ms: chrono::Utc::now().timestamp_millis(),
+            wav_file_size: Some(1),
+            wav_mtime_ms: chrono::Utc::now().timestamp_millis(),
+            wav_hash: Some("hash-no-bwf".to_string()),
+            consumed_at_ms: None,
+            consumed_by_session_id: None,
+        };
+        assert!(drop_commit_matches_observed_capture(&expected, &tracker, 7));
+        assert!(!drop_commit_matches_observed_capture(
+            &expected, &tracker, 8
+        ));
+        expected.expected_duration_samples += 1;
+        assert!(!drop_commit_matches_observed_capture(
+            &expected, &tracker, 7
+        ));
     }
 }
 

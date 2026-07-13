@@ -1,18 +1,18 @@
 //! Producer-owned PRE/POST TRACE axis contract.
 //!
-//! Every metric frame is formed on the host callback position minus the main-input presentation
-//! latency reported for that plugin instance. Pair finalization reads PRE and POST only at equal
-//! content-sample positions, then publishes that producer-owned grid on dropped-WAV sample 0..N.
-//! Metric values never participate in the clock decision.
+//! Every metric frame is formed on the DAW host transport/render sample position. Optional
+//! presentation-latency callbacks are diagnostic and never rebase either lane. Pair finalization
+//! reads PRE and POST only at equal host positions, then publishes that producer-owned grid on
+//! dropped-WAV sample 0..N. Metric values never participate in the clock decision.
 
 use serde::{Deserialize, Serialize};
 
 use crate::plugin_data::PluginDataFile;
 
-pub const TRACE_ALIGNMENT_METHOD: &str = "producer_presentation_content_clock_v4";
+pub const TRACE_ALIGNMENT_METHOD: &str = "producer_render_range_clock_v7";
 pub const TRACE_ALIGNMENT_STATUS: &str = "canonical_wav_clock";
 pub const TRACE_ALIGNMENT_START_BWF: &str = "bwf_time_reference";
-pub const TRACE_ALIGNMENT_START_SHARED_CLOCK: &str = "shared_record_clock";
+pub const TRACE_ALIGNMENT_START_RENDER_RANGE: &str = "producer_render_range";
 pub const TRACE_TIME_AXIS: &str = "wav_samples_v1";
 pub const TRACE_HOST_TIME_AXIS: &str = "host_content_samples_v3";
 pub const TRACE_CLOCK_BASIS: &str = "input_presentation_content_samples_v1";
@@ -47,23 +47,17 @@ pub(crate) fn canonical_wav_alignment(
         || !has_dense_frame_grid(right)
         || !has_shared_native_slots(left, right)
         || !crate::trace_content_clock::has_compatible_host_clocks(left, right)
-        || !has_input_presentation_evidence(left)
-        || !has_input_presentation_evidence(right)
         || !has_wav_bounded_slots(left)
         || !has_wav_bounded_slots(right)
     {
         return None;
     }
-    let start_basis = if left
-        .expected_wav
-        .as_ref()
-        .is_some_and(|expected| expected.wav_time_reference_samples.is_some())
-    {
-        TRACE_ALIGNMENT_START_BWF
-    } else {
-        TRACE_ALIGNMENT_START_SHARED_CLOCK
-    };
-    if left.trace_pair_wav_start_basis.as_deref() != Some(start_basis)
+    let start_basis = left.trace_pair_wav_start_basis.as_deref()?;
+    if ![
+        TRACE_ALIGNMENT_START_BWF,
+        TRACE_ALIGNMENT_START_RENDER_RANGE,
+    ]
+    .contains(&start_basis)
         || right.trace_pair_wav_start_basis.as_deref() != Some(start_basis)
     {
         return None;
@@ -76,17 +70,6 @@ pub(crate) fn canonical_wav_alignment(
         start_basis: Some(start_basis.to_string()),
         pre_to_post_offset_samples: None,
     })
-}
-
-fn has_input_presentation_evidence(data: &PluginDataFile) -> bool {
-    data.host_presentation_latency_observations
-        .iter()
-        .any(|observation| {
-            matches!(
-                observation.source.as_deref(),
-                Some("vst3" | "audio_unit_v2")
-            ) && observation.input_samples.is_some()
-        })
 }
 
 fn has_shared_native_slots(left: &PluginDataFile, right: &PluginDataFile) -> bool {
@@ -226,7 +209,11 @@ mod tests {
             sources: vec!["project_timeline".to_string()],
         });
         data.trace_slot_positions = vec![6_482_947];
-        data.trace_pair_wav_start_basis = Some(TRACE_ALIGNMENT_START_SHARED_CLOCK.to_string());
+        data.trace_pair_wav_start_basis = Some(TRACE_ALIGNMENT_START_BWF.to_string());
+        data.expected_wav
+            .as_mut()
+            .unwrap()
+            .wav_time_reference_samples = Some(6_473_347);
         data.trace_wav_reference = Some(TraceWavReference {
             basis: TRACE_WAV_REFERENCE_BASIS.to_string(),
             capture_basis: TRACE_CAPTURE_BASIS.to_string(),
@@ -268,7 +255,7 @@ mod tests {
         assert_eq!(alignment.confidence, 1.0);
         assert_eq!(
             alignment.start_basis.as_deref(),
-            Some(TRACE_ALIGNMENT_START_SHARED_CLOCK)
+            Some(TRACE_ALIGNMENT_START_BWF)
         );
         assert!(alignment.pre_to_post_offset_samples.is_none());
 
@@ -286,18 +273,18 @@ mod tests {
     }
 
     #[test]
-    fn pair_contract_requires_observed_main_input_presentation_latency() {
+    fn pair_contract_does_not_treat_optional_latency_callbacks_as_start_proof() {
         let pre = data(Role::Pre);
         let mut post = data(Role::Post);
         post.host_presentation_latency_observations.clear();
-        assert!(canonical_wav_alignment(&pre, &post).is_none());
+        assert!(canonical_wav_alignment(&pre, &post).is_some());
 
         post.host_presentation_latency_observations = vec![HostPresentationLatencyObservation {
             source: Some("vst3".to_string()),
             input_samples: None,
             output_samples: Some(256),
         }];
-        assert!(canonical_wav_alignment(&pre, &post).is_none());
+        assert!(canonical_wav_alignment(&pre, &post).is_some());
     }
 
     #[test]
@@ -325,6 +312,27 @@ mod tests {
                 .wav_time_reference_samples = Some(6_473_348);
         }
         assert!(canonical_wav_alignment(&pre, &post).is_none());
+    }
+
+    #[test]
+    fn pair_contract_accepts_exact_producer_render_range_for_a_non_bwf_wav() {
+        let mut pre = data(Role::Pre);
+        let mut post = data(Role::Post);
+        for side in [&mut pre, &mut post] {
+            side.expected_wav
+                .as_mut()
+                .unwrap()
+                .wav_time_reference_samples = None;
+            side.trace_pair_wav_start_basis = Some(TRACE_ALIGNMENT_START_RENDER_RANGE.to_string());
+        }
+
+        let alignment =
+            canonical_wav_alignment(&pre, &post).expect("producer render-range alignment");
+        assert_eq!(alignment.method, TRACE_ALIGNMENT_METHOD);
+        assert_eq!(
+            alignment.start_basis.as_deref(),
+            Some(TRACE_ALIGNMENT_START_RENDER_RANGE)
+        );
     }
 
     #[test]

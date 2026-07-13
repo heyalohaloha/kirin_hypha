@@ -121,7 +121,7 @@ uint8_t kirin_hypha_get_signal_state(KirinHypha* handle);
 uint8_t kirin_hypha_load_license(void);
 
 /* ライセンス設定（0=Os 1=Sense 2=Unknown / 未知値は安全側 Unknown）.
- * identity.rs:46 の enum 宣言順に一致. Os 以外へ降格時 Record 中なら強制 Watch（E-21）. */
+ * identity.rs:46 の enum 宣言順に一致. 次回 Keep の開始 gate にだけ反映する. */
 void kirin_hypha_set_license(KirinHypha* handle, uint8_t license);
 
 /* Record 終了（無条件 Watch・冪等）. 直近 finalize 値は session_summary に保持され

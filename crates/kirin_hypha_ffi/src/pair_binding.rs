@@ -53,6 +53,37 @@ impl PairBinding {
         self.generation.load(Ordering::Acquire)
     }
 
+    /// IO self-check が採った古い判定で、rename/re-Keep 後の binding を消さないための
+    /// generation付きcompare-and-release。name と generation を transition lock 内で再照合し、
+    /// 一致した世代だけを人名selector・recording・latchごと解放する。
+    pub(crate) fn release_if_current(&self, expected_name: &str, expected_generation: u64) -> bool {
+        let _transition = self
+            .transition
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if self.generation() != expected_generation {
+            return false;
+        }
+        let mut desired = self
+            .desired_name
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if desired.as_str() != expected_name {
+            return false;
+        }
+        desired.clear();
+        self.recording_pre
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .take();
+        self.latched_pre
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .take();
+        next_generation(&self.generation);
+        true
+    }
+
     /// Seed a restored/default name without disturbing a user selection that
     /// was already applied before the IO runtime was enabled.
     pub(crate) fn seed_name_if_empty(&self, name: String) {
@@ -204,5 +235,36 @@ mod tests {
         assert!(binding.desired_name.read().unwrap().is_empty());
         assert!(binding.recording_pre.lock().unwrap().is_none());
         assert!(binding.latched_pre.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn stale_self_check_generation_cannot_release_new_binding() {
+        let binding = PairBinding::new();
+        binding.replace_name("mix".to_string());
+        let stale_generation = binding.generation();
+        binding.replace_name("master".to_string());
+        binding.replace_name("mix".to_string());
+        binding.set_exact_binding_for_test("pre-new");
+
+        assert!(!binding.release_if_current("mix", stale_generation));
+        assert_eq!(binding.desired_name.read().unwrap().as_str(), "mix");
+        assert_eq!(
+            binding.recording_pre.lock().unwrap().as_deref(),
+            Some("pre-new")
+        );
+    }
+
+    #[test]
+    fn current_self_check_generation_releases_whole_binding() {
+        let binding = PairBinding::new();
+        binding.replace_name("mix".to_string());
+        binding.set_exact_binding_for_test("pre-current");
+        let generation = binding.generation();
+
+        assert!(binding.release_if_current("mix", generation));
+        assert!(binding.desired_name.read().unwrap().is_empty());
+        assert!(binding.recording_pre.lock().unwrap().is_none());
+        assert!(binding.latched_pre.lock().unwrap().is_none());
+        assert_ne!(binding.generation(), generation);
     }
 }

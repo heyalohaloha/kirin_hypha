@@ -774,6 +774,35 @@ impl Plugin for HyphaPost {
                 );
             })
         };
+        // Legacy egui shell also revalidates self-check at the ownership boundary. Its pair
+        // selector predates PairBinding generations, so generation is a sentinel and the release
+        // closure atomically rechecks current name + Record state before clearing exact links.
+        let pair_binding_generation: kirin_measure::PairBindingGenerationFn = Arc::new(|| 0);
+        let release_pair_binding_if_current: kirin_measure::ReleasePairBindingIfCurrentFn = {
+            let record_sm = Arc::clone(&self.record_sm);
+            let desired_name = Arc::clone(&self.params.pair_pre_name);
+            let recording_pre = Arc::clone(&self.paired_pre_target);
+            let latched_pre = Arc::clone(&self.latched_pre);
+            Arc::new(move |expected_name, _expected_generation| {
+                if record_sm.is_recording() {
+                    return false;
+                }
+                let Ok(mut name) = desired_name.write() else {
+                    return false;
+                };
+                if name.as_str() != expected_name {
+                    return false;
+                }
+                name.clear();
+                if let Ok(mut paired) = recording_pre.lock() {
+                    *paired = None;
+                }
+                if let Ok(mut latched) = latched_pre.lock() {
+                    *latched = None;
+                }
+                true
+            })
+        };
 
         // B-125: egui POST は oversized 経路を持たない（全 frame を per-sample で overflow に計上済）。
         // spawn 契約を満たすため常に 0 の専用ゼロカウンタを渡す（io 再起動跨ぎで同実体を共有）。
@@ -802,6 +831,8 @@ impl Plugin for HyphaPost {
             Arc::clone(&trigger_pair_resolution),
             // α-7' All Stop: 末尾に trigger_stop_resolution 引数追加 (count 15)。
             Arc::clone(&trigger_stop_resolution),
+            Arc::clone(&pair_binding_generation),
+            Arc::clone(&release_pair_binding_if_current),
             // B-025 Group B-2/B-3 / Gap-19/20: GUI ステータス行通知 Arc。
             Arc::clone(&self.record_error_message),
             // W-281 / G-115-249: pair_claimed_at + pair_release_notice 共有。
@@ -838,6 +869,8 @@ impl Plugin for HyphaPost {
             let trigger_pair_resolution = Arc::clone(&trigger_pair_resolution);
             // α-7' All Stop: Watchdog restart 経路でも trigger_stop_resolution capture。
             let trigger_stop_resolution = Arc::clone(&trigger_stop_resolution);
+            let pair_binding_generation = Arc::clone(&pair_binding_generation);
+            let release_pair_binding_if_current = Arc::clone(&release_pair_binding_if_current);
             // restart 経路も GUI 通知 Arc を共有 (initial 経路と完全対称)。
             let record_error_message = Arc::clone(&self.record_error_message);
             // W-281 / G-115-249: restart 経路でも pair_claimed_at + pair_release_notice
@@ -870,6 +903,8 @@ impl Plugin for HyphaPost {
                     Arc::clone(&pair_pre_name_arc),
                     Arc::clone(&trigger_pair_resolution),
                     Arc::clone(&trigger_stop_resolution),
+                    Arc::clone(&pair_binding_generation),
+                    Arc::clone(&release_pair_binding_if_current),
                     Arc::clone(&record_error_message),
                     Arc::clone(&pair_claimed_at_arc),
                     Arc::clone(&pair_release_notice_arc),

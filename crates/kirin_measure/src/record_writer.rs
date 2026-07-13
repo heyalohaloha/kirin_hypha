@@ -846,16 +846,32 @@ pub fn apply_record_take_snapshot(ctx: &mut RecordingCtx, tracker: Option<&Recor
 }
 
 fn refresh_pair_record_metadata_if_missing(ctx: &mut RecordingCtx) {
-    if ctx.writer.data().record_session_id.is_some() {
-        return;
-    }
     let Ok(paths) = StoragePaths::default_platform() else {
         return;
     };
-    let Some(post_instance_id) = signal_post_instance_id(ctx).map(str::to_string) else {
+    let base = paths.plugin_data_dir();
+    if ctx.writer.data().record_session_id.is_none() {
+        let Some(post_instance_id) = signal_post_instance_id(ctx).map(str::to_string) else {
+            return;
+        };
+        refresh_pair_record_metadata_from_base(ctx, &base, &post_instance_id);
+    }
+    if ctx.writer.data().expected_wav.is_some() {
+        return;
+    }
+    let project_hash = ctx.writer.data().project_hash.clone();
+    let Some(session_id) = ctx.writer.data().record_session_id.clone() else {
         return;
     };
-    refresh_pair_record_metadata_from_base(ctx, &paths.plugin_data_dir(), &post_instance_id);
+    let Ok(Some(marker)) =
+        crate::record_expected::read_claim_marker_for_session(&base, &project_hash, &session_id)
+    else {
+        return;
+    };
+    if let Some(metadata) = marker.metadata {
+        ctx.writer
+            .set_expected_wav(Some(metadata.without_consumed_marker()));
+    }
 }
 
 fn signal_post_instance_id(ctx: &RecordingCtx) -> Option<&str> {
@@ -991,6 +1007,12 @@ fn build_bounce_take(ctx: &RecordingCtx, duration_ms: u64, duration_samples: u64
         end_t_ms: duration_ms,
         trace_sample_count: ctx.trace_sample_count as u64,
         frame_count: ctx.writer.data().frames.len() as u64,
+        host_start_position_samples: ctx
+            .clean_take
+            .and_then(|take| take.host_start_position_samples),
+        host_end_position_samples: ctx
+            .clean_take
+            .and_then(|take| take.host_end_position_samples),
     }
 }
 
@@ -3516,6 +3538,8 @@ mod tests {
             generation: 1,
             duration_samples: 48_000,
             source: crate::record_take::RECORD_TAKE_SOURCE_WAV_CLOCK,
+            host_start_position_samples: None,
+            host_end_position_samples: None,
         });
         for t_ms in (100_u64..=1_000).step_by(FRAME_INTERVAL_MS as usize) {
             assert!(writer_append_frame(&mut ctx, t_ms, &full_measure_result()));
@@ -3840,6 +3864,8 @@ mod tests {
             generation: 42,
             duration_samples: 1_440_000,
             source: crate::record_take::RECORD_TAKE_SOURCE_WAV_CLOCK,
+            host_start_position_samples: None,
+            host_end_position_samples: None,
         });
         let final_path = ctx.final_path.clone();
 
@@ -3917,6 +3943,8 @@ mod tests {
             generation: 142,
             duration_samples: 1_440_000,
             source: crate::record_take::RECORD_TAKE_SOURCE_RENDER_CLOCK,
+            host_start_position_samples: None,
+            host_end_position_samples: None,
         });
         let final_path = ctx.final_path.clone();
 
@@ -3951,6 +3979,8 @@ mod tests {
             generation: 12,
             duration_samples: 480_000,
             source: crate::record_take::RECORD_TAKE_SOURCE_WAV_CLOCK,
+            host_start_position_samples: None,
+            host_end_position_samples: None,
         });
         let final_path = ctx.final_path.clone();
 
@@ -3990,6 +4020,8 @@ mod tests {
             generation: 77,
             duration_samples: 2_048,
             source: crate::record_take::RECORD_TAKE_SOURCE_WAV_CLOCK,
+            host_start_position_samples: None,
+            host_end_position_samples: None,
         });
         let failed_path = ctx.failed_path.clone();
 
@@ -4046,6 +4078,8 @@ mod tests {
             generation: 7,
             duration_samples: 661_500,
             source: crate::record_take::RECORD_TAKE_SOURCE_WAV_CLOCK,
+            host_start_position_samples: None,
+            host_end_position_samples: None,
         });
         let final_path = ctx.final_path.clone();
 
@@ -4866,6 +4900,8 @@ mod tests {
             generation: 35,
             duration_samples: 48_000,
             source: crate::record_take::RECORD_TAKE_SOURCE_WAV_CLOCK,
+            host_start_position_samples: None,
+            host_end_position_samples: None,
         });
         writer_close(ctx);
 
@@ -4918,6 +4954,8 @@ mod tests {
             generation: 33,
             duration_samples: 48_000,
             source: crate::record_take::RECORD_TAKE_SOURCE_WAV_CLOCK,
+            host_start_position_samples: None,
+            host_end_position_samples: None,
         });
         writer_close(ctx);
 
@@ -4964,6 +5002,8 @@ mod tests {
             generation: 91,
             duration_samples: 1_440_000,
             source: crate::record_take::RECORD_TAKE_SOURCE_WAV_CLOCK,
+            host_start_position_samples: None,
+            host_end_position_samples: None,
         });
         writer_close(ctx);
 
@@ -5023,6 +5063,8 @@ mod tests {
             generation: 92,
             duration_samples: 1_460_224,
             source: crate::record_take::RECORD_TAKE_SOURCE_WAV_CLOCK,
+            host_start_position_samples: None,
+            host_end_position_samples: None,
         });
         writer_close(ctx);
 
@@ -5086,6 +5128,8 @@ mod tests {
             generation: 94,
             duration_samples: 1_460_224,
             source: crate::record_take::RECORD_TAKE_SOURCE_WAV_CLOCK,
+            host_start_position_samples: None,
+            host_end_position_samples: None,
         });
         writer_close(ctx);
 
@@ -5116,6 +5160,8 @@ mod tests {
             generation: 93,
             duration_samples: 1_440_000,
             source: crate::record_take::RECORD_TAKE_SOURCE_WAV_CLOCK,
+            host_start_position_samples: None,
+            host_end_position_samples: None,
         });
         for t_ms in [0_u64, 7_200, 15_000] {
             ctx.trace_samples.push(trace_sample_frames_with_native(
@@ -5162,6 +5208,8 @@ mod tests {
             generation: 7,
             duration_samples: 1_440_000,
             source: crate::record_take::RECORD_TAKE_SOURCE_WAV_CLOCK,
+            host_start_position_samples: None,
+            host_end_position_samples: None,
         });
         for t_ms in [0_u64, 7_200, 15_000] {
             ctx.trace_samples.push(trace_sample_frames_with_native(
@@ -5213,6 +5261,8 @@ mod tests {
             generation: 71,
             duration_samples: 1_440_000,
             source: crate::record_take::RECORD_TAKE_SOURCE_WAV_CLOCK,
+            host_start_position_samples: None,
+            host_end_position_samples: None,
         });
         for t_ms in [0_u64, 7_200, 15_000] {
             assert!(writer_append_frame(&mut ctx, t_ms, &full_measure_result()));
@@ -5268,6 +5318,8 @@ mod tests {
             generation: 9,
             duration_samples: 1_440_000,
             source: crate::record_take::RECORD_TAKE_SOURCE_WAV_CLOCK,
+            host_start_position_samples: None,
+            host_end_position_samples: None,
         });
 
         writer_close(ctx);
@@ -5301,6 +5353,8 @@ mod tests {
             generation: 356,
             duration_samples: 96_000,
             source: crate::record_take::RECORD_TAKE_SOURCE_WAV_CLOCK,
+            host_start_position_samples: None,
+            host_end_position_samples: None,
         });
         let silence = MeasureResult {
             lufs_m: Some(TRACE_SILENCE_LUFS),
@@ -5373,6 +5427,8 @@ mod tests {
             generation: 358,
             duration_samples: 48_000,
             source: crate::record_take::RECORD_TAKE_SOURCE_WAV_CLOCK,
+            host_start_position_samples: None,
+            host_end_position_samples: None,
         });
         for t_ms in (100_u64..=1_000).step_by(FRAME_INTERVAL_MS as usize) {
             let native = t_ms * 48;
@@ -5482,6 +5538,8 @@ mod tests {
             generation: 359,
             duration_samples: 48_000,
             source: crate::record_take::RECORD_TAKE_SOURCE_WAV_CLOCK,
+            host_start_position_samples: None,
+            host_end_position_samples: None,
         });
         for t_ms in (100_u64..=1_000).step_by(FRAME_INTERVAL_MS as usize) {
             let native = t_ms * 48;
@@ -6051,7 +6109,8 @@ mod tests {
             None,
         )
         .unwrap();
-        let expected = expected_wav_metadata(48_000, 48_000, "startup-reconcile");
+        let mut expected = expected_wav_metadata(48_000, 48_000, "startup-reconcile");
+        expected.wav_time_reference_samples = Some(0);
         for writer in [&mut pre, &mut post] {
             writer.set_record_start_wall_clock(start_iso.to_string());
             writer.set_record_session_id(Some(session_id.to_string()));
@@ -6069,6 +6128,8 @@ mod tests {
                 end_t_ms: 1_000,
                 trace_sample_count: 10,
                 frame_count: 10,
+                host_start_position_samples: None,
+                host_end_position_samples: None,
             });
             writer.set_trace_diagnostics(TraceDiagnostics {
                 raw_trace_count: 10,

@@ -1,0 +1,167 @@
+use super::*;
+use crate::record_expected::{
+    begin_expected_session, claim_expected_metadata_for_session, mark_expected_metadata_consumed,
+    read_claim_marker_for_session, write_expected_metadata,
+};
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+
+fn isolated_dir() -> PathBuf {
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let dir = std::env::temp_dir().join(format!(
+        "kirin_record_drop_commit_test_{}_{}",
+        std::process::id(),
+        n
+    ));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+fn metadata_fixture(bounce_id: &str) -> ExpectedWavMetadata {
+    let now = chrono::Utc::now().timestamp_millis();
+    ExpectedWavMetadata {
+        expected_duration_samples: 48_000,
+        expected_sample_rate: 48_000,
+        wav_time_reference_samples: Some(96_000),
+        wav_path: format!("/tmp/{bounce_id}.wav"),
+        bounce_id: bounce_id.to_string(),
+        created_at_ms: now,
+        wav_file_size: Some(1_000),
+        wav_mtime_ms: now,
+        wav_hash: Some(format!("hash-{bounce_id}")),
+        consumed_at_ms: None,
+        consumed_by_session_id: None,
+    }
+}
+
+fn write_drop_commit(
+    base: &Path,
+    project_hash: &str,
+    session_id: &str,
+    metadata: &ExpectedWavMetadata,
+) {
+    let drop_commit_id = format!("drop-{session_id}");
+    let commit = DropRecordCommit {
+        schema_version: DROP_COMMIT_SCHEMA.to_string(),
+        drop_commit_id: drop_commit_id.clone(),
+        project_hash: project_hash.to_string(),
+        record_session_id: session_id.to_string(),
+        created_at_ms: metadata.created_at_ms,
+        metadata: metadata.clone(),
+    };
+    crate::atomic_file::write_bytes_atomic(
+        &drop_commit_path(base, project_hash, session_id),
+        &serde_json::to_vec(&commit).unwrap(),
+    )
+    .unwrap();
+    let transaction = DropRecordTransaction {
+        schema_version: DROP_TRANSACTION_SCHEMA.to_string(),
+        drop_commit_id,
+        project_hash: project_hash.to_string(),
+        created_at_ms: metadata.created_at_ms,
+        bounce_id: metadata.bounce_id.clone(),
+        wav_hash: metadata.wav_hash.clone().unwrap(),
+        record_session_ids: vec![session_id.to_string()],
+    };
+    crate::atomic_file::write_bytes_atomic(
+        &drop_transaction_path(base, project_hash, &transaction.drop_commit_id),
+        &serde_json::to_vec(&transaction).unwrap(),
+    )
+    .unwrap();
+}
+
+#[test]
+fn drop_commit_binds_only_the_exact_open_session() {
+    let base = isolated_dir();
+    begin_expected_session(&base, "project-a", "session-a").unwrap();
+    begin_expected_session(&base, "project-a", "session-b").unwrap();
+    let metadata = metadata_fixture("drop-exact-session");
+    write_drop_commit(&base, "project-a", "session-a", &metadata);
+
+    assert_eq!(
+        bind_drop_commit_for_open_session(&base, "project-a", "session-a").unwrap(),
+        Some(metadata.clone())
+    );
+    assert_eq!(
+        bind_drop_commit_for_open_session(&base, "project-a", "session-b").unwrap(),
+        None
+    );
+    assert_eq!(
+        read_claim_marker_for_session(&base, "project-a", "session-a")
+            .unwrap()
+            .unwrap()
+            .metadata,
+        Some(metadata)
+    );
+}
+
+#[test]
+fn drop_commit_cannot_reopen_or_retarget_a_closed_session() {
+    let base = isolated_dir();
+    let first = metadata_fixture("drop-closed-first");
+    write_expected_metadata(&base, "project-a", &first).unwrap();
+    claim_expected_metadata_for_session(&base, "project-a", "session-a").unwrap();
+    mark_expected_metadata_consumed(&base, "project-a", Some(&first.bounce_id), "session-a")
+        .unwrap();
+    let later = metadata_fixture("drop-closed-later");
+    write_drop_commit(&base, "project-a", "session-a", &later);
+
+    assert_eq!(
+        bind_drop_commit_for_open_session(&base, "project-a", "session-a").unwrap(),
+        None
+    );
+    assert_eq!(
+        read_claim_marker_for_session(&base, "project-a", "session-a")
+            .unwrap()
+            .unwrap()
+            .metadata,
+        Some(first)
+    );
+}
+
+#[test]
+fn drop_commit_is_inert_until_transaction_manifest_is_ready() {
+    let base = isolated_dir();
+    begin_expected_session(&base, "project-a", "session-a").unwrap();
+    let metadata = metadata_fixture("drop-not-ready");
+    let commit = DropRecordCommit {
+        schema_version: DROP_COMMIT_SCHEMA.to_string(),
+        drop_commit_id: "drop-not-ready".to_string(),
+        project_hash: "project-a".to_string(),
+        record_session_id: "session-a".to_string(),
+        created_at_ms: metadata.created_at_ms,
+        metadata,
+    };
+    crate::atomic_file::write_bytes_atomic(
+        &drop_commit_path(&base, "project-a", "session-a"),
+        &serde_json::to_vec(&commit).unwrap(),
+    )
+    .unwrap();
+
+    assert_eq!(
+        inspect_drop_commit_for_open_session(&base, "project-a", "session-a").unwrap(),
+        None
+    );
+}
+
+#[test]
+fn transaction_cannot_authorize_a_session_not_in_its_batch() {
+    let base = isolated_dir();
+    begin_expected_session(&base, "project-a", "session-a").unwrap();
+    let metadata = metadata_fixture("drop-wrong-batch");
+    write_drop_commit(&base, "project-a", "session-a", &metadata);
+    let path = drop_transaction_path(&base, "project-a", "drop-session-a");
+    let mut transaction: DropRecordTransaction =
+        serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    transaction.record_session_ids = vec!["session-other".to_string()];
+    crate::atomic_file::write_bytes_atomic(&path, &serde_json::to_vec(&transaction).unwrap())
+        .unwrap();
+
+    assert_eq!(
+        inspect_drop_commit_for_open_session(&base, "project-a", "session-a").unwrap(),
+        None
+    );
+}

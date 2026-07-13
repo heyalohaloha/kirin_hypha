@@ -177,6 +177,12 @@ pub struct BounceTake {
     pub end_t_ms: u64,
     pub trace_sample_count: u64,
     pub frame_count: u64,
+    /// Producer-observed contiguous DAW/render range corresponding to WAV sample `0..N`.
+    /// Legacy artifacts and hosts without an exact range omit both fields.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_start_position_samples: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_end_position_samples: Option<i64>,
 }
 
 /// TRACE bake diagnostics. These fields separate a real measured silence frame
@@ -1398,13 +1404,16 @@ fn try_finalize_pair_session(
         (Some(left), Some(right)) if left == right && left.is_usable() => Some(left.clone()),
         _ => None,
     };
-    let late_expected = plugin_data_root_from_final_path(&paths.final_path).and_then(|root| {
+    let plugin_data_root = plugin_data_root_from_final_path(&paths.final_path);
+    let late_expected = plugin_data_root.as_ref().and_then(|root| {
         let project = crate::path_identity::guard_path_component(
             &self_data.project_hash,
             "pair_record_session.expected.project_hash",
         );
         let project_dir = root.join(project.as_ref());
-        read_late_expected_metadata_from_project_dir(&project_dir)
+        read_late_expected_metadata_from_project_dir(&project_dir).filter(|expected| {
+            pair_has_exact_expected_claim(root, &self_data, &peer_data, expected)
+        })
     });
     let pair_expected = embedded_expected.or(late_expected);
     let needs_wav_binding = !crate::trace_alignment::has_canonical_wav_reference(&self_data)
@@ -1991,6 +2000,9 @@ fn reconcile_late_expected_committed_manifest(
     }
     let mut pre_data = read_plugin_data_file(&pre_member)?;
     let mut post_data = read_plugin_data_file(&post_member)?;
+    if !pair_has_exact_expected_claim(plugin_data_root, &pre_data, &post_data, expected) {
+        return Ok(false);
+    }
     if late_expected_record_is_aligned(&pre_data, expected)
         && late_expected_record_is_aligned(&post_data, expected)
     {
@@ -2028,6 +2040,9 @@ fn reconcile_late_expected_closed_project(
         else {
             continue;
         };
+        if !pair_has_exact_expected_claim(plugin_data_root, &pre_data, &post_data, expected) {
+            continue;
+        }
         if !normalize_late_expected_pair(&mut pre_data, &mut post_data, expected) {
             continue;
         }
@@ -2057,6 +2072,38 @@ fn reconcile_late_expected_closed_project(
         }
     }
     reconciled
+}
+
+fn pair_has_exact_expected_claim(
+    plugin_data_root: &Path,
+    left: &PluginDataFile,
+    right: &PluginDataFile,
+    expected: &ExpectedWavMetadata,
+) -> bool {
+    let Some(left_session) = left.record_session_id.as_deref() else {
+        return false;
+    };
+    let Some(right_session) = right.record_session_id.as_deref() else {
+        return false;
+    };
+    if left_session.is_empty()
+        || left_session != right_session
+        || left.project_hash != right.project_hash
+    {
+        return false;
+    }
+    if left.expected_wav.as_ref() == Some(expected) && right.expected_wav.as_ref() == Some(expected)
+    {
+        return true;
+    }
+    crate::record_expected::read_claim_marker_for_session(
+        plugin_data_root,
+        &left.project_hash,
+        left_session,
+    )
+    .ok()
+    .flatten()
+    .is_some_and(|marker| marker.metadata.as_ref() == Some(expected))
 }
 
 fn collect_late_expected_closed_candidates(
@@ -2308,6 +2355,10 @@ fn normalize_late_expected_record(
             .saturating_div(expected.expected_sample_rate as u128),
     );
 
+    let producer_host_range = data.bounce_take.as_ref().and_then(|take| {
+        take.host_start_position_samples
+            .zip(take.host_end_position_samples)
+    });
     data.expected_wav = Some(expected.clone());
     data.bounce_marker.duration_samples = expected.expected_duration_samples;
     data.bounce_take = Some(BounceTake {
@@ -2323,6 +2374,8 @@ fn normalize_late_expected_record(
         end_t_ms: duration_ms,
         trace_sample_count: raw_trace_count,
         frame_count: data.frames.len() as u64,
+        host_start_position_samples: producer_host_range.map(|range| range.0),
+        host_end_position_samples: producer_host_range.map(|range| range.1),
     });
     data.trace_diagnostics = Some(TraceDiagnostics {
         raw_trace_count,
@@ -3392,6 +3445,8 @@ mod tests {
             end_t_ms: duration_ms,
             trace_sample_count: frame_count,
             frame_count,
+            host_start_position_samples: None,
+            host_end_position_samples: None,
         });
         writer.set_trace_diagnostics(TraceDiagnostics {
             raw_trace_count: frame_count,
@@ -3542,7 +3597,8 @@ mod tests {
         .unwrap();
         w.set_record_start_wall_clock("2026-04-17T14:32:08.000Z".to_string());
         w.set_record_session_id(Some("session-pair-atomic".to_string()));
-        let expected = expected_wav_fixture();
+        let mut expected = expected_wav_fixture();
+        expected.wav_time_reference_samples = Some(0);
         w.set_expected_wav(Some(expected.clone()));
         w.set_bounce_take(BounceTake {
             source: "expected_wav_duration_native".to_string(),
@@ -3557,6 +3613,8 @@ mod tests {
             end_t_ms: 1_000,
             trace_sample_count: 10,
             frame_count: 10,
+            host_start_position_samples: None,
+            host_end_position_samples: None,
         });
         w.set_trace_diagnostics(TraceDiagnostics {
             raw_trace_count: 10,
@@ -3593,7 +3651,7 @@ mod tests {
         }
         w.set_trace_slot_positions((4_800_i64..=48_000).step_by(4_800).collect());
         w.data.trace_pair_wav_start_basis =
-            Some(crate::trace_alignment::TRACE_ALIGNMENT_START_SHARED_CLOCK.to_string());
+            Some(crate::trace_alignment::TRACE_ALIGNMENT_START_BWF.to_string());
         w
     }
 
@@ -4000,6 +4058,8 @@ mod tests {
             end_t_ms: 15_000,
             trace_sample_count: 150,
             frame_count: 150,
+            host_start_position_samples: None,
+            host_end_position_samples: None,
         });
         w.flush().unwrap();
         let bytes = fs::read(&w.paths.staging_path).unwrap();
@@ -4195,7 +4255,7 @@ mod tests {
             assert_eq!(alignment.confidence, 1.0);
             assert_eq!(
                 alignment.start_basis.as_deref(),
-                Some(crate::trace_alignment::TRACE_ALIGNMENT_START_SHARED_CLOCK)
+                Some(crate::trace_alignment::TRACE_ALIGNMENT_START_BWF)
             );
             assert!(alignment.pre_to_post_offset_samples.is_none());
             assert!(data.trace_pair_wav_start_basis.is_none());
@@ -4784,6 +4844,8 @@ mod tests {
             end_t_ms: 2_000,
             trace_sample_count: 2,
             frame_count: 2,
+            host_start_position_samples: None,
+            host_end_position_samples: None,
         });
         pre.data.status = Status::Closed;
         pre.data.commit_status = Some("pair_pending".to_string());
@@ -5068,7 +5130,8 @@ mod tests {
     #[test]
     fn late_expected_reconcile_promotes_pending_render_clock_pair_to_wav_boundaries() {
         let base = isolated_dir();
-        let expected = fresh_expected_wav_fixture(48_000);
+        let mut expected = fresh_expected_wav_fixture(48_000);
+        expected.wav_time_reference_samples = Some(0);
         let start_ms = expected.wav_mtime_ms.saturating_sub(2_000);
         let end_ms = expected.wav_mtime_ms.saturating_add(500);
         let mut pre = complete_pair_writer(
@@ -5113,6 +5176,15 @@ mod tests {
 
         crate::record_expected::write_expected_metadata(&base, "project_hash_test", &expected)
             .unwrap();
+        crate::record_expected::write_claim_marker(
+            &base,
+            "project_hash_test",
+            &expected,
+            "session-late-committed",
+            start_ms,
+            Some(end_ms),
+        )
+        .unwrap();
         assert_eq!(reconcile_late_expected_wav(&base), 1);
 
         let manifest_path = pair_commit_manifest_path(&pre.paths, &pre.data).unwrap();
@@ -5144,9 +5216,64 @@ mod tests {
     }
 
     #[test]
-    fn late_expected_reconcile_project_scope_does_not_scan_unrelated_projects() {
+    fn late_expected_requires_the_exact_session_claim_before_binding() {
         let base = isolated_dir();
         let expected = fresh_expected_wav_fixture(48_000);
+        let mut other = fresh_expected_wav_fixture(48_000);
+        other.bounce_id = "different-bounce".to_string();
+        other.wav_hash = Some("different-hash".to_string());
+        let mut pre = complete_pair_writer(
+            &base,
+            Role::Pre,
+            "iid-pre-exact-claim",
+            None,
+            Some("iid-post-exact-claim".to_string()),
+        );
+        let mut post = complete_pair_writer(
+            &base,
+            Role::Post,
+            "iid-post-exact-claim",
+            Some("iid-pre-exact-claim".to_string()),
+            None,
+        );
+        for writer in [&mut pre, &mut post] {
+            writer.set_record_session_id(Some("session-exact-claim".to_string()));
+            writer.set_expected_wav(None);
+        }
+        assert!(!pair_has_exact_expected_claim(
+            &base, &pre.data, &post.data, &expected
+        ));
+        crate::record_expected::write_claim_marker(
+            &base,
+            "project_hash_test",
+            &other,
+            "session-exact-claim",
+            other.created_at_ms.saturating_sub(1),
+            None,
+        )
+        .unwrap();
+        assert!(!pair_has_exact_expected_claim(
+            &base, &pre.data, &post.data, &expected
+        ));
+        crate::record_expected::write_claim_marker(
+            &base,
+            "project_hash_test",
+            &expected,
+            "session-exact-claim",
+            expected.created_at_ms.saturating_sub(1),
+            None,
+        )
+        .unwrap();
+        assert!(pair_has_exact_expected_claim(
+            &base, &pre.data, &post.data, &expected
+        ));
+    }
+
+    #[test]
+    fn late_expected_reconcile_project_scope_does_not_scan_unrelated_projects() {
+        let base = isolated_dir();
+        let mut expected = fresh_expected_wav_fixture(48_000);
+        expected.wav_time_reference_samples = Some(0);
         let start_ms = expected.wav_mtime_ms.saturating_sub(2_000);
         let end_ms = expected.wav_mtime_ms.saturating_add(500);
         let mut pre = complete_pair_writer(
@@ -5179,6 +5306,15 @@ mod tests {
         try_finalize_pair_session(&pre.paths, &pre.data).unwrap();
         crate::record_expected::write_expected_metadata(&base, "project_hash_test", &expected)
             .unwrap();
+        crate::record_expected::write_claim_marker(
+            &base,
+            "project_hash_test",
+            &expected,
+            "session-late-scoped",
+            start_ms,
+            Some(end_ms),
+        )
+        .unwrap();
 
         assert_eq!(
             reconcile_late_expected_wav_project(&base, "unrelated_project"),
@@ -5209,7 +5345,8 @@ mod tests {
     #[test]
     fn late_expected_reconcile_commits_mixed_failed_and_pending_pair() {
         let base = isolated_dir();
-        let expected = fresh_expected_wav_fixture(48_000);
+        let mut expected = fresh_expected_wav_fixture(48_000);
+        expected.wav_time_reference_samples = Some(0);
         let start_ms = expected.wav_mtime_ms.saturating_sub(2_000);
         let end_ms = expected.wav_mtime_ms.saturating_add(500);
         let mut pre = complete_pair_writer(
@@ -5266,6 +5403,15 @@ mod tests {
 
         crate::record_expected::write_expected_metadata(&base, "project_hash_test", &expected)
             .unwrap();
+        crate::record_expected::write_claim_marker(
+            &base,
+            "project_hash_test",
+            &expected,
+            "session-late-failed",
+            start_ms,
+            Some(end_ms),
+        )
+        .unwrap();
         assert_eq!(reconcile_late_expected_wav(&base), 2);
 
         let manifest_path = pair_commit_manifest_path(&pre.paths, &pre.data).unwrap();

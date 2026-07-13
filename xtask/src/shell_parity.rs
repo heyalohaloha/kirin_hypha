@@ -20,6 +20,18 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/../juce_shell/CMakeLists.txt"
     ));
+    const HYPHA_PRE_EDITOR: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../crates/hypha_pre/src/editor.rs"
+    ));
+    const HYPHA_POST_EDITOR: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../crates/hypha_post/src/editor.rs"
+    ));
+    const FFI_HEADER: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../crates/kirin_hypha_ffi/include/kirin_hypha_ffi.h"
+    ));
 
     fn read_juce_au_wrapper() -> Option<String> {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
@@ -37,6 +49,48 @@ mod tests {
 
     fn count_occurrences(source: &str, needle: &str) -> usize {
         source.match_indices(needle).count()
+    }
+
+    #[test]
+    fn shipped_vst3_and_au_shells_share_the_watch_max_contract() {
+        for (label, source) in [
+            ("VST3 PRE", HYPHA_PRE_EDITOR),
+            ("VST3 POST", HYPHA_POST_EDITOR),
+        ] {
+            assert!(
+                source.contains("playback_max: PlaybackMaxTracker"),
+                "{label}"
+            );
+            assert!(
+                source.contains(".playback_max\n                    .update("),
+                "{label}"
+            );
+            assert!(count_occurrences(source, "\"MAX\"") >= 3, "{label}");
+            for metric in ["max_m.lufs_m", "max_m.true_peak", "max_m.crest"] {
+                assert!(source.contains(metric), "{label} missing {metric}");
+            }
+        }
+
+        assert!(FFI_HEADER.contains("KirinMeasureResult current;"));
+        assert!(FFI_HEADER.contains("KirinMeasureResult maximum;"));
+        assert!(FFI_HEADER.contains("kirin_hypha_poll_watch_display"));
+        assert_eq!(
+            count_occurrences(PLUGIN_EDITOR_CPP, "processorRef.pollWatchDisplay (watch)"),
+            2,
+            "shared AU editor must poll Watch current+MAX in both PRE and POST"
+        );
+        assert_eq!(
+            count_occurrences(PLUGIN_EDITOR_CPP, "watchMaximum = watch.maximum;"),
+            2,
+            "shared AU editor must retain MAX in both PRE and POST"
+        );
+        for metric in [
+            "watchMaximum.lufs_m",
+            "watchMaximum.true_peak",
+            "watchMaximum.crest",
+        ] {
+            assert!(PLUGIN_EDITOR_CPP.contains(metric), "AU missing {metric}");
+        }
     }
 
     #[test]

@@ -1,9 +1,9 @@
 //! Producer-owned PRE/POST WAV-start clock.
 //!
 //! Metric values are deliberately absent from the clock decision. A Broadcast-Wave time
-//! reference is the primary start anchor. When a DAW omits `bext`, the first complete dense window
-//! shared by the PRE and POST presentation-normalised content clocks is the fallback Record-session anchor. Both lanes
-//! are always read at the same absolute sample positions and are then rebased to WAV sample 0..N.
+//! reference is the strongest start anchor. When the WAV has no `bext`, the producer uses the
+//! exact contiguous DAW/render range observed for this Record generation. Metric shapes and the
+//! relative position of a frame inside the broader Keep history never participate in the decision.
 
 use std::collections::BTreeMap;
 
@@ -41,12 +41,14 @@ pub(crate) fn build_wav_start_clock_plan(
     }
     let pre_source = trace_source(pre);
     let post_source = trace_source(post);
-    let selected_positions = select_wav_window(
+    let render_range = shared_producer_render_range(pre, post, expected);
+    let (selected_positions, start_basis) = select_wav_window(
         &pre_source,
         &post_source,
         expected,
         expected_len,
         slot_samples,
+        render_range,
     )?;
     let pre_frames = selected_frames(&pre_source, &selected_positions)?;
     let post_frames = selected_frames(&post_source, &selected_positions)?;
@@ -54,11 +56,7 @@ pub(crate) fn build_wav_start_clock_plan(
         pre_frames,
         post_frames,
         canonical_slots: selected_positions,
-        start_basis: if expected.wav_time_reference_samples.is_some() {
-            crate::trace_alignment::TRACE_ALIGNMENT_START_BWF
-        } else {
-            crate::trace_alignment::TRACE_ALIGNMENT_START_SHARED_CLOCK
-        },
+        start_basis,
     })
 }
 
@@ -115,7 +113,8 @@ fn select_wav_window(
     expected: &ExpectedWavMetadata,
     expected_len: usize,
     slot_samples: i64,
-) -> Option<Vec<i64>> {
+    render_range: Option<(i64, i64)>,
+) -> Option<(Vec<i64>, &'static str)> {
     let window_is_complete = |positions: &[i64]| {
         positions.len() == expected_len
             && positions
@@ -126,37 +125,66 @@ fn select_wav_window(
                 .all(|position| pre.contains_key(position) && post.contains_key(position))
     };
 
-    if let Some(wav_start) = expected.wav_time_reference_samples {
-        let first = i64::try_from(wav_start).ok()?.checked_add(slot_samples)?;
-        let anchored: Vec<i64> = (0..expected_len)
-            .map(|index| {
-                i64::try_from(index)
-                    .ok()?
-                    .checked_mul(slot_samples)?
-                    .checked_add(first)
-            })
-            .collect::<Option<Vec<_>>>()?;
-        if window_is_complete(&anchored) {
-            return Some(anchored);
+    let (wav_start, start_basis) = if let Some(wav_start) = expected.wav_time_reference_samples {
+        (
+            i64::try_from(wav_start).ok()?,
+            crate::trace_alignment::TRACE_ALIGNMENT_START_BWF,
+        )
+    } else {
+        let (start, end) = render_range?;
+        let duration = i64::try_from(expected.expected_duration_samples).ok()?;
+        if end.checked_sub(start) != Some(duration) {
+            return None;
         }
-        return None;
+        (
+            start,
+            crate::trace_alignment::TRACE_ALIGNMENT_START_RENDER_RANGE,
+        )
+    };
+    let first = wav_start.checked_add(slot_samples)?;
+    let anchored: Vec<i64> = (0..expected_len)
+        .map(|index| {
+            i64::try_from(index)
+                .ok()?
+                .checked_mul(slot_samples)?
+                .checked_add(first)
+        })
+        .collect::<Option<Vec<_>>>()?;
+    if window_is_complete(&anchored) {
+        return Some((anchored, start_basis));
     }
+    None
+}
 
-    let shared_positions: Vec<i64> = pre
-        .keys()
-        .copied()
-        .filter(|position| post.contains_key(position))
-        .collect();
-    shared_positions
-        .windows(expected_len)
-        .find(|window| window_is_complete(window))
-        .map(<[i64]>::to_vec)
+fn shared_producer_render_range(
+    pre: &PluginDataFile,
+    post: &PluginDataFile,
+    expected: &ExpectedWavMetadata,
+) -> Option<(i64, i64)> {
+    let pre_take = pre.bounce_take.as_ref()?;
+    let post_take = post.bounce_take.as_ref()?;
+    let pre_range = (
+        pre_take.host_start_position_samples?,
+        pre_take.host_end_position_samples?,
+    );
+    let post_range = (
+        post_take.host_start_position_samples?,
+        post_take.host_end_position_samples?,
+    );
+    let duration = i64::try_from(expected.expected_duration_samples).ok()?;
+    (pre_range == post_range
+        && pre_take.sample_rate == expected.expected_sample_rate
+        && post_take.sample_rate == expected.expected_sample_rate
+        && pre_take.duration_samples == expected.expected_duration_samples
+        && post_take.duration_samples == expected.expected_duration_samples
+        && pre_range.1.checked_sub(pre_range.0) == Some(duration))
+    .then_some(pre_range)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::plugin_data::{Role, TraceClock};
+    use crate::plugin_data::{BounceTake, Role, TraceClock};
 
     fn frame(value: f64) -> Frame {
         Frame {
@@ -217,6 +245,22 @@ mod tests {
         });
         data.trace_slot_positions = vec![100_800, 105_600, 110_400];
         data.frames = vec![frame(-30.0), frame(-20.0), frame(-10.0)];
+        data.bounce_take = Some(BounceTake {
+            source: "render_clock_native".to_string(),
+            time_axis: "native_samples".to_string(),
+            alignment_status: "sample_count_ready".to_string(),
+            sample_rate: 48_000,
+            wav_start_sample: 0,
+            wav_end_sample: 14_400,
+            duration_samples: 14_400,
+            duration_frames_48k: 14_400,
+            start_t_ms: 0,
+            end_t_ms: 300,
+            trace_sample_count: 3,
+            frame_count: 3,
+            host_start_position_samples: Some(96_000),
+            host_end_position_samples: Some(110_400),
+        });
         data
     }
 
@@ -226,9 +270,15 @@ mod tests {
         let pre = source(&positions, &[-30.0, -8.0, -25.0, -12.0, -20.0]);
         let post = source(&positions, &[4.0, -40.0, 2.0, -35.0, 1.0]);
 
-        let selected = select_wav_window(&pre, &post, &expected(Some(96_000)), 3, 4_800);
+        let selected = select_wav_window(&pre, &post, &expected(Some(96_000)), 3, 4_800, None);
 
-        assert_eq!(selected, Some(vec![100_800, 105_600, 110_400]));
+        assert_eq!(
+            selected,
+            Some((
+                vec![100_800, 105_600, 110_400],
+                crate::trace_alignment::TRACE_ALIGNMENT_START_BWF,
+            ))
+        );
     }
 
     #[test]
@@ -238,7 +288,7 @@ mod tests {
         let pre = source(&pre_positions, &[-30.0, -8.0, -25.0, -12.0]);
         let post = source(&post_positions, &[-7.0, -6.0, -5.0, -4.0]);
 
-        let selected = select_wav_window(&pre, &post, &expected(Some(96_000)), 3, 4_800);
+        let selected = select_wav_window(&pre, &post, &expected(Some(96_000)), 3, 4_800, None);
 
         assert_eq!(selected, None);
     }
@@ -249,21 +299,46 @@ mod tests {
         let pre = source(&positions, &[-3.0, -2.0, -1.0]);
         let post = source(&positions, &[-30.0, -20.0, -10.0]);
 
-        let selected = select_wav_window(&pre, &post, &expected(Some(u64::MAX)), 3, 4_800);
+        let selected = select_wav_window(&pre, &post, &expected(Some(u64::MAX)), 3, 4_800, None);
 
         assert_eq!(selected, None);
     }
 
     #[test]
-    fn missing_bext_uses_first_dense_shared_record_clock_without_shape_matching() {
+    fn missing_bext_uses_the_exact_render_start_not_a_dense_tail() {
         let pre_positions = [91_200, 96_000, 100_800, 105_600, 110_400];
         let post_positions = [96_000, 100_800, 105_600, 110_400, 115_200];
         let pre = source(&pre_positions, &[-1.0, -2.0, -3.0, -4.0, -5.0]);
         let post = source(&post_positions, &[-50.0, 10.0, -40.0, 20.0, -30.0]);
 
-        let selected = select_wav_window(&pre, &post, &expected(None), 3, 4_800);
+        let selected = select_wav_window(
+            &pre,
+            &post,
+            &expected(None),
+            3,
+            4_800,
+            Some((91_200, 105_600)),
+        );
 
-        assert_eq!(selected, Some(vec![96_000, 100_800, 105_600]));
+        assert_eq!(
+            selected,
+            Some((
+                vec![96_000, 100_800, 105_600],
+                crate::trace_alignment::TRACE_ALIGNMENT_START_RENDER_RANGE,
+            ))
+        );
+    }
+
+    #[test]
+    fn missing_bext_never_promotes_dense_frames_without_a_producer_range() {
+        let positions = [96_000, 100_800, 105_600, 110_400];
+        let pre = source(&positions, &[-1.0, -2.0, -3.0, -4.0]);
+        let post = source(&positions, &[-10.0, -20.0, -30.0, -40.0]);
+
+        assert_eq!(
+            select_wav_window(&pre, &post, &expected(None), 3, 4_800, None),
+            None
+        );
     }
 
     #[test]
@@ -288,20 +363,17 @@ mod tests {
     }
 
     #[test]
-    fn missing_bext_plan_declares_shared_record_clock_without_metric_inference() {
+    fn missing_bext_plan_uses_producer_render_range_with_different_metric_shapes() {
         let pre = plugin_data(Role::Pre, "session", "project_timeline");
         let mut post = plugin_data(Role::Post, "session", "project_timeline");
         post.frames = vec![frame(40.0), frame(-60.0), frame(30.0)];
 
         let plan = build_wav_start_clock_plan(&pre, &post, &expected(None), 3, 4_800)
-            .expect("shared Record clock plan");
-
+            .expect("producer render-range plan");
         assert_eq!(
             plan.start_basis,
-            crate::trace_alignment::TRACE_ALIGNMENT_START_SHARED_CLOCK
+            crate::trace_alignment::TRACE_ALIGNMENT_START_RENDER_RANGE
         );
-        assert_eq!(plan.canonical_slots, vec![100_800, 105_600, 110_400]);
-        assert_eq!(plan.pre_frames[0].lufs_m, -30.0);
-        assert_eq!(plan.post_frames[0].lufs_m, 40.0);
+        assert_ne!(plan.pre_frames[0].lufs_m, plan.post_frames[0].lufs_m);
     }
 }
