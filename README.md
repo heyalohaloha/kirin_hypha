@@ -140,7 +140,7 @@ With a Kirin OS license, the POST plugin shows a **Keep** button in Watch mode.
 
 1. Press **Keep** to begin a session recording.
 2. Press **Stop** to end the session. The session is written to the `.kirin` record.
-3. Optionally press **Note** to attach an annotation ([Good] / [Fix] / [Hold]).
+3. Optionally press **Mark** during Record to pin [Good] / [Fix] / [Hold] to the exact producer sample position. The completed pair also stores the corresponding WAV sample position when Drop metadata is available.
 
 During an offline bounce/export, POST auto-runs the same cleanup as **Stop** when the host reports that offline processing has ended. If a host does not emit that offline-end edge, Keep remains armed until manual **Stop** or the idle auto-stop backstop after 10 minutes without Active signal.
 

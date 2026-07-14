@@ -136,7 +136,7 @@ Hypha は利用者に制限や複雑な操作を課さず、普通に計測し�
 
 | ID | 不変条件 | 紐づくテスト |
 |----|----------|--------------|
-| INV-L1 | Record/plugin_data/preset/Keep/Stop/Note は License::Os のみ。Sense/Unknown 不可（Unknown 安全側） | `os_enables_record_features` / `sense_blocks_record_features` / `unknown_defaults_to_safe_side` |
+| INV-L1 | Record/plugin_data/preset/Keep/Stop/Mark は License::Os のみ。Sense/Unknown 不可（Unknown 安全側） | `os_enables_record_features` / `sense_blocks_record_features` / `unknown_defaults_to_safe_side` |
 | INV-L2 | GUI ボタン可視性は Rust license ヘルパと C++ `PostControls::update` が値レベルで一致（os=(code==0)） | `post_controls_visibility_matches_rust_license_helpers`（B-195） / `sense_hint_visibility_is_sense_only_and_exclusive_with_keep` / `post_controls_update_visibility_formula_is_pinned` |
 | INV-L3 | Keep ボタンは選択済み pair 名がある時のみ表示（`!recording && os && pairNonEmpty`） | `post_controls_keep_visibility_depends_on_selected_pair` |
 

@@ -20,7 +20,7 @@
 //      Record(6) metric grid (per-cell hover help) + Keeping banner + 5-state breathing LED.
 // POST: title "POST" + Record pair label + click-to-edit pair name (→ set_pair_target) + flora +
 //      display-branch grid (Bypassed/Inactive→"---" ; pair-empty/PRE bypassed→absolute ;
-//      paired Stale/NoPre→muted Δ/--- ; Δ Active ; Record→Δ6) + Keep/Stop/Note→[Good][Fix][Hold][Cancel]/Sense hint + Toast + playback pair
+//      paired Stale/NoPre→muted Δ/--- ; Δ Active ; Record→Δ6) + Keep/Stop/Mark→[Good][Fix][Hold][Cancel]/Sense hint + Toast + playback pair
 //      lock + LED + exact candidate dropdown + All Keep/All Stop. (Proposals cards remain egui-only.)
 class KirinHyphaEditor : public juce::AudioProcessorEditor,
                          private juce::Timer

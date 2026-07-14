@@ -20,7 +20,7 @@
 //! - `Keep` → PRE 候補 0 件 → toast / 排他違反 → toast /
 //!   `try_enter_record(license)` → `write_pending`
 //! - `Stop` → `record_sm.exit_record()` + reasoned `mark_released`
-//! - `Note` → スタブ維持（U-16 は サブ2-C）
+//! - `Mark` → Record中のproducer sample位置へ Good/Fix/Hold を記録
 //! - Sense hint → `open::that(SENSE_UPSELL_URL)` でブラウザ起動
 //!
 //! （赤系禁止。色相同一・明度増）。
@@ -33,8 +33,8 @@ use hypha_gui::{
 use kirin_measure::reservation; // B-127 (G-115-365): egui parity — per-pairing O_EXCL frame
 use kirin_measure::{
     active_post_project_uuids_for_operation_group, all_keep_signal_path, all_stop_signal_path,
-    append_annotation_to_latest, count_distinct_pairings, current_host_process_id,
-    delete_broadcast, enumerate_live_pre_pair_choices_for_post_project_in_session,
+    count_distinct_pairings, current_host_process_id, delete_broadcast, enqueue_record_mark,
+    enumerate_live_pre_pair_choices_for_post_project_in_session,
     enumerate_owned_post_pair_candidates_for_operation_group,
     enumerate_ready_post_pair_candidates_for_operation_group, exit_record_preserve_pair,
     format_pair_label, live_post_project_uuids_for_operation_group, load_signal_state,
@@ -43,9 +43,9 @@ use kirin_measure::{
     show_note_button, show_save_button, show_stop_record_button, write_broadcast,
     write_pending_claiming_expected_and_clock, write_stop_broadcast, DeltaMode, DeltaResult,
     DeltaSnapshot, LatchedPre, License, LiveLicense, LivenessEvaluator, MeasureResult, PairStatus,
-    PlatformPaths, PluginDataRole, PostCandidate, PreCandidate, PresetFileV2, RecordStateMachine,
-    ReleaseReason, SignalState, StoragePaths, MAX_ACTIVE_PER_PROJECT, SENSE_RECORD_HINT,
-    SENSE_UPSELL_URL,
+    PlatformPaths, PostCandidate, PreCandidate, PresetFileV2, RecordMarkQueue, RecordStateMachine,
+    RecordTakeTracker, ReleaseReason, SignalState, StoragePaths, MAX_ACTIVE_PER_PROJECT,
+    SENSE_RECORD_HINT, SENSE_UPSELL_URL,
 };
 use nih_plug::prelude::Editor;
 use nih_plug_egui::{
@@ -258,7 +258,7 @@ impl Toast {
 pub struct PostEditorState {
     /// B-022 段階 1: chunk-restore 後の最新 instance_id を毎フレーム lazy-read するため
     /// `Arc<RwLock<String>>` を共有保持する。trigger_keep / trigger_stop /
-    /// trigger_note_save の各 use site で `read_instance_id_arc(&self.instance_id)` を
+    /// trigger_keep/stop の各 use site で `read_instance_id_arc(&self.instance_id)` を
     /// 呼び出してから渡す。
     pub instance_id: Arc<RwLock<String>>,
     /// プロセス単位 `project_hash`（plugin_data path のルートセグメント）。
@@ -335,9 +335,13 @@ pub struct PostEditorState {
     prev_ack: bool,
     banner_until: Option<f64>,
     toast: Option<Toast>,
-    /// サブ2-C: Note タップ後の 3 タグ選択行を表示中か。
+    /// Mark タップ後の 3 タグ選択行を表示中か。
     /// Record 中のみ有効。非 Record 時は毎フレーム false に戻される。
-    note_picker_open: bool,
+    mark_picker_open: bool,
+    /// UI→POST IO writer のMARK queue（Audio Threadは触れない）。
+    record_mark_queue: RecordMarkQueue,
+    /// Audio Threadがatomic publishした最新Record sample境界。
+    record_take_tracker: Arc<RecordTakeTracker>,
     /// 直前フレームの LED 状態（edge-triggered log 用）。
     prev_led: Option<hypha_gui::LedState>,
     /// T-E: 最新 v2.0 proposals（500ms throttle で更新）。
@@ -389,7 +393,9 @@ impl PostEditorState {
             prev_ack: false,
             banner_until: None,
             toast: None,
-            note_picker_open: false,
+            mark_picker_open: false,
+            record_mark_queue: args.record_mark_queue,
+            record_take_tracker: args.record_take_tracker,
             prev_led: None,
             latest_proposals: None,
             proposals_scan_last: None,
@@ -444,6 +450,8 @@ pub struct PostEditorArgs {
     pub record_error_message: Arc<RwLock<Option<String>>>,
     /// B-108: display/keep 共有ラッチ。
     pub latched_pre: Arc<Mutex<Option<LatchedPre>>>,
+    pub record_mark_queue: RecordMarkQueue,
+    pub record_take_tracker: Arc<RecordTakeTracker>,
 }
 
 // ── 公開エントリポイント ─────────────────────────────────────────────────
@@ -477,7 +485,7 @@ pub fn create_post_editor(args: PostEditorArgs) -> Option<Box<dyn Editor>> {
             let recording = state.record_sm.is_recording();
             // Record から抜けた瞬間に picker を自動閉じ（Watch 中に picker が残ることを防止）
             if !recording {
-                state.note_picker_open = false;
+                state.mark_picker_open = false;
             }
             let ack = state.record_acknowledged.load(Ordering::Relaxed);
             let pair_pre_name_snapshot = state
@@ -1609,8 +1617,8 @@ fn draw_button_row(
     ui.horizontal(|ui| {
         ui.add_space(10.0);
         if recording {
-            if state.note_picker_open {
-                // サブ2-C: Note picker — [Good] [Fix] [Hold] [Cancel]
+            if state.mark_picker_open {
+                // Mark picker — [Good] [Fix] [Hold] [Cancel]
                 let width = (ui.available_width() - 10.0 - 18.0) / 4.0;
                 ui.spacing_mut().item_spacing.x = 6.0;
                 for tag in ["Good", "Fix", "Hold"] {
@@ -1619,14 +1627,15 @@ fn draw_button_row(
                         .clicked()
                     {
                         log::info!("[hypha-fork] button clicked: {}", tag);
-                        trigger_note_save(
+                        trigger_mark(
                             tag,
-                            &project_hash_snapshot,
-                            &instance_id,
+                            &state.record_sm,
+                            &state.record_take_tracker,
+                            &state.record_mark_queue,
                             &mut state.toast,
                             now,
                         );
-                        state.note_picker_open = false;
+                        state.mark_picker_open = false;
                     }
                 }
                 if ui
@@ -1634,10 +1643,10 @@ fn draw_button_row(
                     .clicked()
                 {
                     log::info!("[hypha-fork] button clicked: Cancel");
-                    state.note_picker_open = false;
+                    state.mark_picker_open = false;
                 }
             } else {
-                // Record: [Stop] [Note]
+                // Record: [Stop] [Mark]
                 let width = (ui.available_width() - 10.0 - 6.0) / 2.0;
                 ui.spacing_mut().item_spacing.x = 6.0;
                 if show_stop_record_button(license)
@@ -1659,11 +1668,11 @@ fn draw_button_row(
                 }
                 if show_note_button(license)
                     && ui
-                        .add_sized([width, 26.0], egui::Button::new("Note"))
+                        .add_sized([width, 26.0], egui::Button::new("Mark"))
                         .clicked()
                 {
-                    log::info!("[hypha-fork] button clicked: Note");
-                    state.note_picker_open = true;
+                    log::info!("[hypha-fork] button clicked: Mark");
+                    state.mark_picker_open = true;
                 }
             }
         } else {
@@ -2219,46 +2228,30 @@ fn trigger_all_stop_broadcast(
     }
 }
 
-/// Note タグ確定: 最新 `plugin_data/.../post/*.json` に annotation を追記。
-fn trigger_note_save(
+/// Record中の最新producer sample境界へMARKをqueueする。
+fn trigger_mark(
     tag: &str,
-    project_hash: &str,
-    instance_id: &str,
+    record_sm: &RecordStateMachine,
+    record_take_tracker: &RecordTakeTracker,
+    record_mark_queue: &RecordMarkQueue,
     toast: &mut Option<Toast>,
     now: f64,
 ) {
-    let paths = match StoragePaths::default_platform() {
-        Ok(p) => p,
-        Err(e) => {
-            log::warn!("[note] StoragePaths error: {:?}", e);
-            *toast = Some(Toast::new("Note save failed", now));
-            return;
+    match enqueue_record_mark(record_sm, record_take_tracker, record_mark_queue, tag) {
+        Ok(mark) => {
+            let position = mark
+                .annotation
+                .mark
+                .as_ref()
+                .map_or(0, |mark| mark.producer_position_samples);
+            log::info!("[record_mark] queued tag={} position={}", tag, position);
+            *toast = Some(Toast::new(format!("Marked: {tag}"), now));
         }
-    };
-    let result = append_annotation_to_latest(
-        &paths.plugin_data_dir(),
-        project_hash,
-        instance_id,
-        PluginDataRole::Post,
-        tag.to_string(),
-    );
-    match &result {
-        Ok(true) => log::info!("[note] appended to latest post record: {}", tag),
-        Ok(false) => log::warn!("[note] no active record file (nothing to append to)"),
-        Err(e) => log::warn!("[note] append failed: {}", e),
+        Err(error) => {
+            log::warn!("[record_mark] rejected tag={}: {:?}", tag, error);
+            *toast = Some(Toast::new(error.ui_message(), now));
+        }
     }
-    // B-111: Ok(true) のみ成功表示。Ok(false)(記録不在) / Err(IO) は失敗表示にする（旧実装は
-    // Ok(false) でも「Note saved」と偽表示していた）。JUCE 殻と parity（onNote も bool を分岐）。
-    if note_append_succeeded(&result) {
-        *toast = Some(Toast::new(format!("Note saved: {tag}"), now));
-    } else {
-        *toast = Some(Toast::new("Note save failed", now));
-    }
-}
-
-/// B-111: Note 追記が成功か。Ok(true) のみ成功 / Ok(false)（記録不在）・Err（IO）は失敗。純粋・テスト可能。
-fn note_append_succeeded<E>(result: &Result<bool, E>) -> bool {
-    matches!(result, Ok(true))
 }
 
 /// Sense hint タップ: ブラウザで URL を開く。
@@ -2442,21 +2435,6 @@ mod tests {
     // (set_then_clear_pair_label_round_trip) のためだけに本 mod に明示 import.
     use kirin_measure::clear_pair_label;
     use std::sync::{Arc, Mutex};
-
-    /// B-111: Note 追記の成功判定（失敗系の回帰固定）。Ok(true) のみ成功、Ok(false)(記録不在)・
-    /// Err(IO) は失敗＝失敗表示。旧 egui は Ok(false) を「Note saved」と偽表示していた。
-    #[test]
-    fn note_append_succeeded_only_on_ok_true() {
-        let ok_true: Result<bool, ()> = Ok(true);
-        let ok_false: Result<bool, ()> = Ok(false);
-        let err: Result<bool, ()> = Err(());
-        assert!(note_append_succeeded(&ok_true), "Ok(true) = 成功");
-        assert!(
-            !note_append_succeeded(&ok_false),
-            "Ok(false)(記録不在) = 失敗"
-        );
-        assert!(!note_append_succeeded(&err), "Err(IO) = 失敗");
-    }
 
     /// B-023 段階 4: format_pair_label は paired_pre_name 非空時に
     /// `pair: <name>` を返す（Name 優先表示 / 判断 2 / G-115-40 案 A-3）。

@@ -70,7 +70,7 @@ public:
     bool heartbeatLive() const;     // B-115: FFI kirin_hypha_heartbeat_live (processBlock liveness / POST pair lock)
     bool recordAcknowledged() const;// FFI kirin_hypha_record_acknowledged (PRE Keeping banner / RecordActive LED)
     bool presetAvailable() const;   // FFI kirin_hypha_preset_available (PresetAvailable LED)
-    bool addAnnotation (const juce::String& memo); // FFI kirin_hypha_add_annotation (POST Note → Good/Fix/Hold)
+    bool addMark (const juce::String& tag); // FFI kirin_hypha_add_mark (POST Mark → Good/Fix/Hold)
 
     // --- B-102: POST broadcast (All Keep / All Stop) + candidate enumeration (new↔new) -----
     struct PreCandidate { juce::String instanceId; juce::String name; bool hasName = false; };

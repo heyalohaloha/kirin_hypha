@@ -30,6 +30,9 @@ use crate::plugin_data::{
     Role, Status, TraceClock, TraceDiagnostics, WriterPaths,
 };
 use crate::record::RecordStateMachine;
+use crate::record_mark::{
+    acknowledge_record_marks, pending_record_marks_for_generation, RecordMarkQueue,
+};
 use crate::record_signal;
 use crate::record_take::{
     CaptureClockSource, PresentationLatencySamples, RecordTakeSnapshot, RecordTakeTracker,
@@ -809,7 +812,11 @@ pub fn writer_start(
 }
 
 /// Record 終了: status=closed で最終 flush、ログ出力。
-pub fn writer_close(mut ctx: RecordingCtx) {
+pub fn writer_close(ctx: RecordingCtx) {
+    let _ = writer_close_result(ctx);
+}
+
+fn writer_close_result(mut ctx: RecordingCtx) -> bool {
     let final_path = ctx.final_path.clone();
     let failed_path = ctx.failed_path.clone();
     let mut writer_claim = ctx.writer_claim.take();
@@ -820,19 +827,30 @@ pub fn writer_close(mut ctx: RecordingCtx) {
     mark_integrity_if_trace_density_is_sparse(&mut ctx);
     mark_integrity_if_record_clock_is_not_wav_bounded(&mut ctx);
     seal_bounce_marker(&mut ctx);
-    match ctx.writer.close() {
-        Ok(()) if final_path.exists() => log::info!("[writer] released: {}", final_path.display()),
-        Ok(()) if failed_path.exists() => {
-            log::warn!("[writer] released diagnostic: {}", failed_path.display())
+    let closed = match ctx.writer.close() {
+        Ok(()) if final_path.exists() => {
+            log::info!("[writer] released: {}", final_path.display());
+            true
         }
-        Ok(()) => log::info!("[writer] released: {}", final_path.display()),
-        Err(e) => log::warn!("[writer] close failed ({}): {}", final_path.display(), e),
-    }
+        Ok(()) if failed_path.exists() => {
+            log::warn!("[writer] released diagnostic: {}", failed_path.display());
+            true
+        }
+        Ok(()) => {
+            log::info!("[writer] released: {}", final_path.display());
+            true
+        }
+        Err(e) => {
+            log::warn!("[writer] close failed ({}): {}", final_path.display(), e);
+            false
+        }
+    };
     if let Some(claim) = writer_claim.as_mut() {
         if let Err(e) = claim.mark_closed() {
             log::warn!("[writer] claim close marker failed: {}", e);
         }
     }
+    closed
 }
 
 pub fn apply_record_take_snapshot(ctx: &mut RecordingCtx, tracker: Option<&RecordTakeTracker>) {
@@ -1827,6 +1845,7 @@ pub fn run_record_tick_with_pair_names(
         oversized_drop,
         record_trace_queue,
         record_take_tracker,
+        None,
     )
 }
 
@@ -1876,6 +1895,55 @@ pub fn run_record_tick_with_pair_names_require_session(
         oversized_drop,
         record_trace_queue,
         record_take_tracker,
+        None,
+    )
+}
+
+/// POST writer variant with durable Record MARK ingestion. PRE and legacy test
+/// callers stay on [`run_record_tick_with_pair_names_require_session`].
+#[allow(clippy::too_many_arguments)]
+pub fn run_record_tick_with_pair_names_require_session_and_marks(
+    record_sm: &Arc<RecordStateMachine>,
+    role: Role,
+    sample_rate: u32,
+    project_hash: &str,
+    instance_id: &str,
+    started_at_resolver: impl FnOnce() -> i64,
+    paired_pre_resolver: impl FnOnce() -> Option<String>,
+    paired_post_resolver: impl FnOnce() -> Option<String>,
+    pair_name_resolver: impl FnOnce() -> Option<String>,
+    pair_pre_name_resolver: impl FnOnce() -> Option<String>,
+    record_session_resolver: impl FnOnce() -> Option<String>,
+    measure_result: &Arc<Mutex<MeasureResult>>,
+    recording: &mut Option<RecordingCtx>,
+    session_summary: Option<&Arc<Mutex<Option<SessionSummary>>>>,
+    overflow: &Arc<std::sync::atomic::AtomicU64>,
+    oversized_drop: &Arc<std::sync::atomic::AtomicU64>,
+    record_trace_queue: Option<&RecordTraceQueue>,
+    record_take_tracker: Option<&RecordTakeTracker>,
+    record_mark_queue: &RecordMarkQueue,
+) -> Result<(), String> {
+    run_record_tick_with_pair_names_inner(
+        record_sm,
+        role,
+        sample_rate,
+        project_hash,
+        instance_id,
+        started_at_resolver,
+        paired_pre_resolver,
+        paired_post_resolver,
+        pair_name_resolver,
+        pair_pre_name_resolver,
+        record_session_resolver,
+        true,
+        measure_result,
+        recording,
+        session_summary,
+        overflow,
+        oversized_drop,
+        record_trace_queue,
+        record_take_tracker,
+        Some(record_mark_queue),
     )
 }
 
@@ -1900,6 +1968,7 @@ fn run_record_tick_with_pair_names_inner(
     oversized_drop: &Arc<std::sync::atomic::AtomicU64>,
     record_trace_queue: Option<&RecordTraceQueue>,
     record_take_tracker: Option<&RecordTakeTracker>,
+    record_mark_queue: Option<&RecordMarkQueue>,
 ) -> Result<(), String> {
     let is_recording = record_sm.is_recording();
     let current_generation = record_sm.generation();
@@ -1924,6 +1993,7 @@ fn run_record_tick_with_pair_names_inner(
                 oversized_drop,
                 record_trace_queue,
                 record_take_tracker,
+                record_mark_queue,
                 ctx,
             )?;
         }
@@ -2018,6 +2088,7 @@ fn run_record_tick_with_pair_names_inner(
                     oversized_drop,
                     record_trace_queue,
                     record_take_tracker,
+                    record_mark_queue,
                     ctx,
                 )?;
             }
@@ -2028,6 +2099,9 @@ fn run_record_tick_with_pair_names_inner(
                 let _ = drain_trace_queue_into_writer(ctx, queue);
             } else {
                 append_current_measure_snapshot(ctx, measure_result)?;
+            }
+            if let Some(queue) = record_mark_queue {
+                persist_pending_record_marks(ctx, queue);
             }
             if Instant::now() >= ctx.next_flush {
                 ctx.writer.heartbeat_now();
@@ -2075,6 +2149,7 @@ fn close_recording_context(
     oversized_drop: &Arc<std::sync::atomic::AtomicU64>,
     record_trace_queue: Option<&RecordTraceQueue>,
     record_take_tracker: Option<&RecordTakeTracker>,
+    record_mark_queue: Option<&RecordMarkQueue>,
     mut ctx: RecordingCtx,
 ) -> Result<(), String> {
     // ── B-132 (G-115-382) P1/共通B: drain-completion barrier ──────────────
@@ -2118,8 +2193,53 @@ fn close_recording_context(
         append_current_measure_snapshot(&mut ctx, measure_result)?;
     }
     apply_record_take_snapshot(&mut ctx, record_take_tracker);
-    writer_close_with_summary(ctx, summary);
+    let mark_ids = record_mark_queue
+        .map(|queue| pending_record_marks_for_generation(queue, ctx.record_generation))
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|pending| pending.annotation.mark.map(|mark| mark.id))
+        .collect::<Vec<_>>();
+    if let Some(queue) = record_mark_queue {
+        persist_pending_record_marks(&mut ctx, queue);
+    }
+    if let Some(summary) = summary {
+        ctx.writer.set_session_aggregates(summary);
+    }
+    let closed = writer_close_result(ctx);
+    if closed {
+        if let Some(queue) = record_mark_queue {
+            acknowledge_record_marks(queue, &mark_ids);
+        }
+    }
     Ok(())
+}
+
+fn persist_pending_record_marks(ctx: &mut RecordingCtx, queue: &RecordMarkQueue) {
+    let pending = pending_record_marks_for_generation(queue, ctx.record_generation);
+    if pending.is_empty() {
+        return;
+    }
+    let mut appended = 0_usize;
+    for pending_mark in pending {
+        if ctx
+            .writer
+            .append_record_mark_if_absent(pending_mark.annotation)
+        {
+            appended = appended.saturating_add(1);
+        }
+    }
+    if appended == 0 {
+        return;
+    }
+    ctx.writer.heartbeat_now();
+    match ctx.writer.flush() {
+        Ok(()) => {}
+        Err(error) => log::warn!(
+            "[record_mark] flush failed; retaining {} queued MARK(s): {}",
+            appended,
+            error
+        ),
+    }
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -2938,9 +3058,11 @@ pub fn drain_on_shutdown(shutdown: &Arc<AtomicBool>, recording: &mut Option<Reco
 mod tests {
     use super::*;
     use crate::plugin_data::{
-        PluginDataFile, PluginDataWriter, Role, TraceDiagnostics, WriterPaths,
+        Annotation, AnnotationMark, PluginDataFile, PluginDataWriter, Role, TraceDiagnostics,
+        WriterPaths,
     };
     use crate::record::{RecordStateMachine, TransitionError};
+    use crate::record_mark::{new_record_mark_queue, PendingRecordMark, RECORD_MARK_BASIS};
     use crate::record_take::PresentationLatencySource;
     use crate::{License, MeasureResult, PsbSummary};
     use std::fs;
@@ -3492,6 +3614,56 @@ mod tests {
             trace_samples: Vec::new(),
             raw_trace_timeline_covers_duration: None,
         }
+    }
+
+    #[test]
+    fn pending_record_mark_is_deduplicated_and_replayed_into_restarted_writer() {
+        let base = isolated_base();
+        let mut ctx = make_ctx(&base, Role::Post, now_epoch_ms());
+        ctx.record_generation = 7;
+        let queue = new_record_mark_queue();
+        let annotation = Annotation {
+            t: "2026-07-14T00:00:00Z".to_string(),
+            memo: "Fix".to_string(),
+            mark: Some(AnnotationMark {
+                schema_version: "record_mark.v1".to_string(),
+                id: "mark-dedup".to_string(),
+                basis: RECORD_MARK_BASIS.to_string(),
+                producer_position_samples: 96_000,
+                clock_source: "project_timeline".to_string(),
+                wav_position_samples: None,
+            }),
+        };
+        queue.lock().unwrap().push_back(PendingRecordMark {
+            generation: 7,
+            annotation,
+        });
+
+        persist_pending_record_marks(&mut ctx, &queue);
+        persist_pending_record_marks(&mut ctx, &queue);
+
+        assert_eq!(queue.lock().unwrap().len(), 1, "close成功まではqueueを保持");
+        let staged: PluginDataFile =
+            serde_json::from_slice(&fs::read(&ctx.staging_path).unwrap()).unwrap();
+        assert_eq!(staged.annotations.len(), 1);
+        assert_eq!(staged.annotations[0].memo, "Fix");
+        assert_eq!(
+            staged.annotations[0]
+                .mark
+                .as_ref()
+                .and_then(|mark| mark.wav_position_samples),
+            None
+        );
+        assert!(crate::plugin_data::verify_checksum(&staged));
+
+        let restarted_base = isolated_base();
+        let mut restarted = make_ctx(&restarted_base, Role::Post, now_epoch_ms());
+        restarted.record_generation = 7;
+        persist_pending_record_marks(&mut restarted, &queue);
+        let replayed: PluginDataFile =
+            serde_json::from_slice(&fs::read(&restarted.staging_path).unwrap()).unwrap();
+        assert_eq!(replayed.annotations.len(), 1);
+        assert_eq!(replayed.annotations[0].memo, "Fix");
     }
 
     fn read_output_for_final(final_path: &Path) -> PluginDataFile {
@@ -4251,6 +4423,7 @@ mod tests {
             &no_overflow(),
             None,
             None,
+            None,
         )
         .unwrap();
 
@@ -4291,6 +4464,7 @@ mod tests {
             None,
             &no_overflow(),
             &no_overflow(),
+            None,
             None,
             None,
         )
@@ -4353,6 +4527,7 @@ mod tests {
             None,
             &no_overflow(),
             &no_overflow(),
+            None,
             None,
             None,
         )
@@ -4431,6 +4606,7 @@ mod tests {
             None,
             &no_overflow(),
             &no_overflow(),
+            None,
             None,
             None,
         )
@@ -4547,6 +4723,7 @@ mod tests {
             &no_overflow(),
             &no_overflow(),
             Some(&queue),
+            None,
             None,
         )
         .unwrap();

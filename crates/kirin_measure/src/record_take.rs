@@ -241,6 +241,12 @@ pub struct RecordTakeTracker {
     input_presentation_samples: AtomicU64,
     output_presentation_samples: AtomicU64,
     capture_clock_slots: Box<[CaptureClockSlot]>,
+    mark_version: AtomicU64,
+    mark_capture_armed: AtomicBool,
+    mark_generation: AtomicU64,
+    mark_position_valid: AtomicBool,
+    mark_position_samples: AtomicI64,
+    mark_source: AtomicU8,
     render_active: AtomicBool,
     render_epoch: AtomicU64,
     render_frames: AtomicU64,
@@ -289,6 +295,12 @@ impl RecordTakeTracker {
                 .map(|_| CaptureClockSlot::new())
                 .collect::<Vec<_>>()
                 .into_boxed_slice(),
+            mark_version: AtomicU64::new(0),
+            mark_capture_armed: AtomicBool::new(false),
+            mark_generation: AtomicU64::new(0),
+            mark_position_valid: AtomicBool::new(false),
+            mark_position_samples: AtomicI64::new(i64::MIN),
+            mark_source: AtomicU8::new(CaptureClockSource::Unknown as u8),
             render_active: AtomicBool::new(false),
             render_epoch: AtomicU64::new(0),
             render_frames: AtomicU64::new(0),
@@ -376,6 +388,7 @@ impl RecordTakeTracker {
         // per-instance value here would move one lane away from the DAW/WAV timeline.
         let content_position_samples = position_valid
             .then(|| content_position_samples(position_samples, presentation_latency.input));
+        self.publish_record_mark_point(content_position_samples, num_frames, source);
         let capture_start_frame = self.capture_frames_total.load(Ordering::Acquire);
         let frames_end = self
             .capture_frames_total
@@ -544,6 +557,21 @@ impl RecordTakeTracker {
     /// Audio-thread note. This is atomics only: no allocation, lock, filesystem,
     /// logging, or blocking call.
     pub fn note_block(&self, block: RecordTakeBlock) {
+        self.mark_version.fetch_add(1, Ordering::AcqRel);
+        self.mark_capture_armed.store(
+            block.recording
+                && block.rendered
+                && block.generation > 0
+                && block.position_valid
+                && block.num_frames > 0,
+            Ordering::Relaxed,
+        );
+        self.mark_generation
+            .store(block.generation, Ordering::Relaxed);
+        self.mark_position_valid.store(false, Ordering::Relaxed);
+        self.mark_source
+            .store(CaptureClockSource::Unknown as u8, Ordering::Relaxed);
+        self.mark_version.fetch_add(1, Ordering::Release);
         if block.recording && block.generation > 0 {
             self.ensure_record_generation(block.generation);
         }
@@ -627,6 +655,63 @@ impl RecordTakeTracker {
                 }
             }
         }
+    }
+
+    fn publish_record_mark_point(
+        &self,
+        content_position_samples: Option<i64>,
+        num_frames: u64,
+        source: CaptureClockSource,
+    ) {
+        if !self.mark_capture_armed.load(Ordering::Acquire)
+            || content_position_samples.is_none()
+            || num_frames == 0
+            || source == CaptureClockSource::Unknown
+        {
+            return;
+        }
+        self.mark_version.fetch_add(1, Ordering::AcqRel);
+        self.mark_position_samples.store(
+            content_position_samples
+                .unwrap_or(i64::MIN)
+                .saturating_add(num_frames as i64),
+            Ordering::Relaxed,
+        );
+        self.mark_source.store(source as u8, Ordering::Relaxed);
+        self.mark_position_valid.store(true, Ordering::Relaxed);
+        self.mark_version.fetch_add(1, Ordering::Release);
+    }
+
+    /// Latest exact producer boundary for the current Record generation.
+    pub fn record_mark_point(&self, expected_generation: u64) -> Option<CaptureClockPoint> {
+        if expected_generation == 0 {
+            return None;
+        }
+        for _ in 0..4 {
+            let before = self.mark_version.load(Ordering::Acquire);
+            if before & 1 != 0 {
+                continue;
+            }
+            let armed = self.mark_capture_armed.load(Ordering::Relaxed);
+            let generation = self.mark_generation.load(Ordering::Relaxed);
+            let valid = self.mark_position_valid.load(Ordering::Relaxed);
+            let position_samples = self.mark_position_samples.load(Ordering::Relaxed);
+            let source = CaptureClockSource::from_abi(self.mark_source.load(Ordering::Relaxed));
+            let after = self.mark_version.load(Ordering::Acquire);
+            if before == after
+                && after & 1 == 0
+                && armed
+                && valid
+                && generation == expected_generation
+                && source != CaptureClockSource::Unknown
+            {
+                return Some(CaptureClockPoint {
+                    position_samples,
+                    source,
+                });
+            }
+        }
+        None
     }
 
     pub fn snapshot(&self, expected_generation: u64) -> Option<RecordTakeSnapshot> {

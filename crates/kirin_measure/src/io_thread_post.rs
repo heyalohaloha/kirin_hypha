@@ -44,7 +44,7 @@ use crate::record::RecordStateMachine;
 use crate::record_signal::{self, SignalStatus, ACK_TIMEOUT_SECONDS, SIGNALS_SUBDIR};
 use crate::record_writer::{
     apply_record_take_snapshot, parse_iso8601_to_epoch_ms,
-    run_record_tick_with_pair_names_require_session, take_session_summary,
+    run_record_tick_with_pair_names_require_session_and_marks, take_session_summary,
     writer_close_with_summary, RecordingCtx,
 };
 use crate::storage::{PlatformPaths, StoragePaths};
@@ -314,6 +314,8 @@ pub fn spawn_io_thread_post(
     record_trace_queue: RecordTraceQueue,
     // Audio Thread が積んだ実レンダー長。Record close 時の clean bounce_take 正本。
     record_take_tracker: Arc<RecordTakeTracker>,
+    // GUI Thread → POST IO Thread. Only the writer consumes queued MARKs.
+    record_mark_queue: crate::record_mark::RecordMarkQueue,
     // B-076: 累積 push_overflow（Audio Thread が ring 満杯時に積む）。run_record_tick が
     // Record 開始で snapshot し close 時に差分を per-Record dropped_samples として焼き込む。
     overflow: Arc<std::sync::atomic::AtomicU64>,
@@ -674,7 +676,7 @@ pub fn spawn_io_thread_post(
                 }
             }
             let record_session_id = record_sm.record_session_id();
-            if let Err(e) = run_record_tick_with_pair_names_require_session(
+            if let Err(e) = run_record_tick_with_pair_names_require_session_and_marks(
                 &record_sm,
                 PluginDataRole::Post,
                 sample_rate,
@@ -693,6 +695,7 @@ pub fn spawn_io_thread_post(
                 &oversized_drop, // B-125: per-Record oversized block drop 算出用
                 Some(&record_trace_queue),
                 Some(&record_take_tracker),
+                &record_mark_queue,
             ) {
                 log::warn!("[writer] tick error: {}", e);
             }

@@ -18,7 +18,7 @@
 //! - PRE-POST ペアリング: `set_pair_target` / `keep` / `stop` / `poll_delta` /
 //!   `enumerate_post_pair_claims`
 //!   （POST Keep → PRE が record_signal を ack して自律的に Record に入る）。
-//! - Note: `add_annotation`（Record の最新 plugin_data .json に利用者メモを追記）。
+//! - Mark: `add_mark`（Record中のproducer sample位置へ Good/Fix/Hold を記録）。
 //!
 //! # スレッドモデル（本番 hypha_pre/post と同一の入口を使う）
 //! `create` は本番の実運用入口 `kirin_measure::spawn_measure_thread`(measure_thread.rs:59) で
@@ -51,13 +51,14 @@ use kirin_measure::reservation; // B-127 (G-115-364): per-pairing O_EXCL reserva
 use kirin_measure::{
     active_post_project_uuids_for_operation_group, append_annotation_to_latest,
     can_write_plugin_data, check_record_exclusion, count_distinct_pairings,
-    current_host_process_id, enumerate_live_pre_pair_choices_for_post_project_in_session,
+    current_host_process_id, enqueue_record_mark,
+    enumerate_live_pre_pair_choices_for_post_project_in_session,
     enumerate_owned_post_pair_candidates_for_operation_group,
     enumerate_ready_post_pair_candidates_for_operation_group, identity_instance_attach,
     identity_instance_detach, latch_selected_pre, live_post_project_uuids_for_operation_group,
     live_window, load_license_safe, load_signal_state, mark_expected_metadata_consumed,
-    mark_released, mark_released_with_reason, new_record_take_tracker, new_record_trace_queue,
-    pair_status_for_post, pair_status_for_pre, paired_pre_instance_id,
+    mark_released, mark_released_with_reason, new_record_mark_queue, new_record_take_tracker,
+    new_record_trace_queue, pair_status_for_post, pair_status_for_pre, paired_pre_instance_id,
     resolve_arm_target_for_post_project_in_session, sanitize_name,
     select_live_pre_pair_choice_by_instance_for_post_project_in_session, set_daw_session_id,
     set_project_uuid, spawn_io_thread_post, spawn_io_thread_pre, spawn_measure_thread,
@@ -65,10 +66,10 @@ use kirin_measure::{
     write_pending_claiming_expected_and_clock, write_stop_broadcast, CaptureClockSource, DeltaMode,
     DeltaResult, ExclusionResult, ExpectedWavMetadata, IoThreadHandle, LatchedPre, License,
     LiveLicense, LivenessEvaluator, MeasureResult, PairStatus, PlatformPaths, PluginDataRole,
-    PresentationLatencySamples, PresentationLatencySource, PsbSummary, RecordStateMachine,
-    RecordTakeBlock, RecordTakeTracker, RecordTraceQueue, ReleaseReason, RestartIoFn, SignalState,
-    StoragePaths, WatchMaxTracker, WatchdogIo, WatchdogParams, MAX_ACTIVE_PER_PROJECT, N_CHANNELS,
-    RING_BUFFER_SECONDS,
+    PresentationLatencySamples, PresentationLatencySource, PsbSummary, RecordMarkQueue,
+    RecordStateMachine, RecordTakeBlock, RecordTakeTracker, RecordTraceQueue, ReleaseReason,
+    RestartIoFn, SignalState, StoragePaths, WatchMaxTracker, WatchdogIo, WatchdogParams,
+    MAX_ACTIVE_PER_PROJECT, N_CHANNELS, RING_BUFFER_SECONDS,
 };
 use kirin_measure::{
     add_watch_ring_cursor_samples, publish_watch_playback_pass_boundary, reset_watch_ring_cursor,
@@ -187,6 +188,8 @@ pub struct KirinHyphaEngine {
     record_trace_queue: RecordTraceQueue,
     /// Audio Thread が積む実レンダー長。Record close 時に bounce_take の正本になる。
     record_take_tracker: Arc<RecordTakeTracker>,
+    /// UI Thread → POST IO writer. PRE engines keep the queue empty.
+    record_mark_queue: RecordMarkQueue,
     /// Audio Thread が宣言する信号状態（Measure Thread が読む）。
     signal_state: Arc<AtomicU8>,
     /// Measure Thread 停止フラグ（destroy でセット → join）。
@@ -660,6 +663,7 @@ impl KirinHyphaEngine {
         let session_summary: Arc<Mutex<Option<SessionSummary>>> = Arc::new(Mutex::new(None));
         let record_trace_queue = new_record_trace_queue();
         let record_take_tracker = new_record_take_tracker();
+        let record_mark_queue = new_record_mark_queue();
         let signal_state = Arc::new(AtomicU8::new(SignalState::Inactive as u8));
         let shutdown = Arc::new(AtomicBool::new(false));
         let heartbeat = Arc::new(AtomicU32::new(0));
@@ -747,6 +751,7 @@ impl KirinHyphaEngine {
             session_summary,
             record_trace_queue,
             record_take_tracker,
+            record_mark_queue,
             signal_state,
             shutdown,
             heartbeat,
@@ -1300,6 +1305,7 @@ impl KirinHyphaEngine {
             let session_summary = Arc::clone(&self.session_summary);
             let record_trace_queue = Arc::clone(&self.record_trace_queue);
             let record_take_tracker = Arc::clone(&self.record_take_tracker);
+            let record_mark_queue = Arc::clone(&self.record_mark_queue);
             let push_overflow = Arc::clone(&self.push_overflow);
             let oversized_drop = Arc::clone(&self.oversized_drop); // B-125
             let latched_pre = self.pair_binding.latched_pre();
@@ -1332,6 +1338,7 @@ impl KirinHyphaEngine {
                     Arc::clone(&session_summary),
                     Arc::clone(&record_trace_queue),
                     Arc::clone(&record_take_tracker),
+                    Arc::clone(&record_mark_queue),
                     Arc::clone(&push_overflow), // B-076: per-Record dropped_samples
                     Arc::clone(&oversized_drop), // B-125: per-Record oversized block drop
                     Arc::clone(&latched_pre),   // B-108: display/keep 共有ラッチ
@@ -1915,6 +1922,22 @@ impl KirinHyphaEngine {
     /// 現在の識別子スナップショット（JUCE が getStateInformation で chunk へ保存）。
     fn identity_snapshot(&self) -> IdentityState {
         self.identity.lock().map(|g| g.clone()).unwrap_or_default()
+    }
+
+    /// Record中の最新producer sample境界へ固定タグMARKを追加する。
+    pub fn add_mark(&self, tag: String) -> bool {
+        if !can_write_plugin_data(self.current_license())
+            || self.write_role.lock().ok().and_then(|role| *role) != Some(PluginDataRole::Post)
+        {
+            return false;
+        }
+        enqueue_record_mark(
+            &self.record_sm,
+            &self.record_take_tracker,
+            &self.record_mark_queue,
+            &tag,
+        )
+        .is_ok()
     }
 
     /// Record の最新 plugin_data .json に利用者メモ（Annotation）を追記する（Note / 方式A）。
@@ -3094,6 +3117,25 @@ pub unsafe extern "C" fn kirin_hypha_add_annotation(
     .unwrap_or(false)
 }
 
+/// Record中の最新producer sample境界へ Good/Fix/Hold MARKを追加する。
+///
+/// # Safety
+/// `handle` は有効なハンドル。`tag` は null か有効な null 終端 C 文字列であること。
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_add_mark(
+    handle: *mut KirinHyphaEngine,
+    tag: *const c_char,
+) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() {
+            return false;
+        }
+        let tag = unsafe { read_c_str(tag) };
+        unsafe { (*handle).add_mark(tag) }
+    }))
+    .unwrap_or(false)
+}
+
 /// interleaved f32 サンプルを供給（Audio Thread 単独・RT-safe）。
 ///
 /// # Safety
@@ -3464,31 +3506,31 @@ mod post_controls_parity_tests {
         keep: bool,
         sense: bool,
         stop: bool,
-        note: bool,
+        mark: bool,
     }
 
-    /// PostControls.cpp:73-91 のうち keep/sense/stop/note の os/sense ゲートのみを Rust に写す
-    /// （picker 4 ボタンと 76-77 行 notePickerOpen reset は対象外＝string-gate
+    /// PostControls.cpp:73-91 のうち keep/sense/stop/mark の os/sense ゲートのみを Rust に写す
+    /// （picker 4 ボタンと markPickerOpen reset は対象外＝string-gate
     /// post_controls_update_visibility_formula_is_pinned で固定）。os=(code==0) / sense=(code==1)。
     fn cpp_post_controls_update(
         recording: bool,
         license_code: u8,
         pair_non_empty: bool,
-        note_picker_open: bool,
+        mark_picker_open: bool,
     ) -> PostVis {
         let os = license_code == 0;
         let sense = license_code == 1;
         PostVis {
             keep: !recording && os && pair_non_empty,
             sense: !recording && sense,
-            stop: recording && os && !note_picker_open,
-            note: recording && os && !note_picker_open,
+            stop: recording && os && !mark_picker_open,
+            mark: recording && os && !mark_picker_open,
         }
     }
 
     /// B-195 (Step3 監査ギャップ): 値レベル parity — C++ PostControls::update の os ゲートが
     /// Rust license ヘルパ (show_save_button / show_stop_record_button / show_note_button) と
-    /// 全 (license × recording × pairNonEmpty × notePickerOpen) で一致する。実 License→abi
+    /// 全 (license × recording × pairNonEmpty × markPickerOpen) で一致する。実 License→abi
     /// マッピング (license_to_abi) を経由するので、int マッピングかヘルパのどちらが乖離しても捕捉する。
     #[test]
     fn post_controls_visibility_matches_rust_license_helpers() {
@@ -3509,9 +3551,9 @@ mod post_controls_parity_tests {
                             "stop parity: {license:?} rec={recording} picker={picker_open}"
                         );
                         assert_eq!(
-                            v.note,
+                            v.mark,
                             recording && show_note_button(license) && !picker_open,
-                            "note parity: {license:?} rec={recording} picker={picker_open}"
+                            "mark parity: {license:?} rec={recording} picker={picker_open}"
                         );
                     }
                 }
