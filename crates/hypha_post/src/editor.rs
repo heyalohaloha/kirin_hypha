@@ -42,10 +42,11 @@ use kirin_measure::{
     show_save_button, show_stop_record_button, write_broadcast_for_generation,
     write_pending_claiming_expected_and_clock,
     write_pending_claiming_expected_and_clock_for_generation, write_stop_broadcast,
-    CaptureGeneration, CaptureGenerationMember, DeltaMode, DeltaResult, DeltaSnapshot, LatchedPre,
-    License, LiveLicense, LivenessEvaluator, MeasureResult, PairStatus, PlatformPaths,
-    PostCandidate, PreCandidate, PresetFileV2, RecordStateMachine, ReleaseReason, SignalState,
-    StoragePaths, MAX_ACTIVE_PER_PROJECT, SENSE_RECORD_HINT, SENSE_UPSELL_URL,
+    CaptureGeneration, CaptureGenerationMember, CaptureGenerationTransaction, DeltaMode,
+    DeltaResult, DeltaSnapshot, LatchedPre, License, LiveLicense, LivenessEvaluator, MeasureResult,
+    PairStatus, PlatformPaths, PostCandidate, PreCandidate, PresetFileV2, RecordStateMachine,
+    ReleaseReason, SignalState, StoragePaths, MAX_ACTIVE_PER_PROJECT, SENSE_RECORD_HINT,
+    SENSE_UPSELL_URL,
 };
 use nih_plug::prelude::Editor;
 use nih_plug_egui::{
@@ -1419,31 +1420,48 @@ fn draw_pair_pre_combo(
                         );
 
                         // 1. broadcast 先発火 (#20 (i) / Step 8 実装済 fn)
-                        let capture_generation = trigger_all_keep_broadcast(
+                        let prepared = trigger_all_keep_broadcast(
                             &instance_id,
                             &project_hash_snapshot,
                             &daw_session_id_snapshot,
                             &mut state.toast,
                             now,
                         );
-                        // 2. 自身も trigger_keep (Step 7 wrapper 経由 / draw_button_row
-                        //    L774 と同引数列)
-                        trigger_keep(
-                            state.license.refresh_for_user_action(),
-                            &state.record_sm,
-                            &instance_id,
-                            &project_hash_snapshot,
-                            &daw_session_id_snapshot,
-                            &state.pair_label,
-                            &state.paired_pre_target,
-                            &m,
-                            &mut state.toast,
-                            now,
-                            &pair_pre_name_snapshot,
-                            &state.latched_pre, // B-108: ラッチ先を直接 target に使う
-                            None,
-                            capture_generation.as_ref(),
-                        );
+                        if let Some((capture_generation, mut transaction)) = prepared {
+                            // 2. Arm the originator while every receiver still sees an
+                            // uncommitted generation. The global pointer is promoted only when
+                            // this exact member also entered successfully.
+                            let entered = trigger_keep(
+                                state.license.refresh_for_user_action(),
+                                &state.record_sm,
+                                &instance_id,
+                                &project_hash_snapshot,
+                                &daw_session_id_snapshot,
+                                &state.pair_label,
+                                &state.paired_pre_target,
+                                &m,
+                                &mut state.toast,
+                                now,
+                                &pair_pre_name_snapshot,
+                                &state.latched_pre,
+                                None,
+                                Some(&capture_generation),
+                            );
+                            if entered && transaction.commit().is_err() {
+                                trigger_stop_internal(
+                                    &state.record_sm,
+                                    &project_hash_snapshot,
+                                    &instance_id,
+                                    &state.pair_label,
+                                    &state.paired_pre_target,
+                                    ReleaseReason::ManualStop,
+                                    None,
+                                    now,
+                                );
+                                state.toast =
+                                    Some(Toast::new("All Keep failed (file write error)", now));
+                            }
+                        }
 
                         // §4-5 Step 4 診断: click handler 後続処理 (trigger_keep →
                         // write_pending → record_sm 遷移) を経た frame 末尾で broadcast
@@ -1776,7 +1794,7 @@ fn trigger_keep(
     latched: &Mutex<Option<LatchedPre>>,
     started_at_position_samples: Option<i64>,
     capture_generation: Option<&CaptureGeneration>,
-) {
+) -> bool {
     trigger_keep_internal(
         license,
         record_sm,
@@ -1792,7 +1810,7 @@ fn trigger_keep(
         latched,
         started_at_position_samples,
         capture_generation,
-    );
+    )
 }
 
 /// `trigger_keep` の内部実装 (B-027 段階 3-B α-7-4-D Step 1)。
@@ -1822,7 +1840,7 @@ pub(crate) fn trigger_keep_internal(
     latched: &Mutex<Option<LatchedPre>>,
     started_at_position_samples: Option<i64>,
     capture_generation: Option<&CaptureGeneration>,
-) {
+) -> bool {
     // 1. ストレージパス解決
     let paths = match StoragePaths::default_platform() {
         Ok(p) => p,
@@ -1831,7 +1849,7 @@ pub(crate) fn trigger_keep_internal(
             if let Some(t) = toast.as_mut() {
                 **t = Some(Toast::new("Kirin OS not installed", now));
             }
-            return;
+            return false;
         }
     };
     let plugin_data_dir = paths.plugin_data_dir();
@@ -1859,21 +1877,21 @@ pub(crate) fn trigger_keep_internal(
             if let Some(t) = toast.as_mut() {
                 **t = Some(Toast::new("No PRE Paired", now));
             }
-            return;
+            return false;
         }
     };
     let target_id = target.instance_id.clone();
 
     if record_sm.is_recording() {
         log::info!("[POST keep] already recording — ignored");
-        return;
+        return false;
     }
     if !matches!(license, License::Os) {
         log::info!("[POST keep] license denied: {:?}", license);
         if let Some(t) = toast.as_mut() {
             **t = Some(Toast::new("Record requires Kirin OS license", now));
         }
-        return;
+        return false;
     }
     // 5. G-115-365: per-pairing O_EXCL 枠を確保（cross-process atomic / FFI resolve_and_enter_keep
     // と同一 parity）。pairing key = (target_id=PRE iid, instance_id=POST iid)。cap 真実源は枠の
@@ -1888,13 +1906,13 @@ pub(crate) fn trigger_keep_internal(
                 if let Some(t) = toast.as_mut() {
                     **t = Some(Toast::new("PRE already in use", now));
                 }
-                return;
+                return false;
             }
             Err(_) => {
                 if let Some(t) = toast.as_mut() {
                     **t = Some(Toast::new("Maximum 12 pairs reached", now));
                 }
-                return;
+                return false;
             }
         };
     if count_distinct_pairings(&plugin_data_dir, project_hash) > MAX_ACTIVE_PER_PROJECT {
@@ -1904,7 +1922,7 @@ pub(crate) fn trigger_keep_internal(
         if let Some(t) = toast.as_mut() {
             **t = Some(Toast::new("Maximum 12 pairs reached", now));
         }
-        return;
+        return false;
     }
 
     if let Some(generation) = capture_generation {
@@ -1917,7 +1935,7 @@ pub(crate) fn trigger_keep_internal(
                     instance_id,
                 );
             }
-            return;
+            return false;
         };
         if !member.pre_instance_id.is_empty() && member.pre_instance_id != target_id {
             if reservation_created {
@@ -1928,7 +1946,7 @@ pub(crate) fn trigger_keep_internal(
                     instance_id,
                 );
             }
-            return;
+            return false;
         }
     }
 
@@ -1978,6 +1996,7 @@ pub(crate) fn trigger_keep_internal(
                     host_process_id: target.host_process_id,
                 });
             }
+            true
         }
         Err(e) => {
             log::warn!("[POST keep] write_pending failed: {}", e);
@@ -1996,6 +2015,7 @@ pub(crate) fn trigger_keep_internal(
             if let Some(t) = toast.as_mut() {
                 **t = Some(Toast::new("Failed to start record", now));
             }
+            false
         }
     }
 }
@@ -2025,7 +2045,7 @@ fn trigger_all_keep_broadcast(
     daw_session_id: &str,
     toast: &mut Option<Toast>,
     now: f64,
-) -> Option<CaptureGeneration> {
+) -> Option<(CaptureGeneration, CaptureGenerationTransaction)> {
     let paths = match StoragePaths::default_platform() {
         Ok(p) => p,
         Err(e) => {
@@ -2063,7 +2083,23 @@ fn trigger_all_keep_broadcast(
         *toast = Some(Toast::new("No PRE Paired", now));
         return None;
     }
-    if kirin_measure::publish_generation_roster(&plugin_data_dir, &generation).is_err() {
+    let mut transaction = match CaptureGenerationTransaction::begin(&plugin_data_dir, &generation) {
+        Ok(transaction) => transaction,
+        Err(e) => {
+            log::warn!("[POST all_keep] generation busy/stage failed: {e}");
+            let message = match &e {
+                kirin_measure::CaptureGenerationError::Io(error)
+                    if error.kind() == std::io::ErrorKind::WouldBlock =>
+                {
+                    "Another Keep is active"
+                }
+                _ => "All Keep failed (file write error)",
+            };
+            *toast = Some(Toast::new(message, now));
+            return None;
+        }
+    };
+    if transaction.stage().is_err() {
         *toast = Some(Toast::new("All Keep failed (file write error)", now));
         return None;
     }
@@ -2073,7 +2109,6 @@ fn trigger_all_keep_broadcast(
         .map(|member| member.project_hash.clone())
         .collect::<std::collections::BTreeSet<_>>();
 
-    let mut wrote_any = false;
     for target_project_hash in project_hashes {
         match write_broadcast_for_generation(
             &plugin_data_dir,
@@ -2084,7 +2119,6 @@ fn trigger_all_keep_broadcast(
             &generation,
         ) {
             Ok(broadcast) => {
-                wrote_any = true;
                 let broadcast_path = all_keep_signal_path(
                     &plugin_data_dir,
                     &target_project_hash,
@@ -2111,15 +2145,12 @@ fn trigger_all_keep_broadcast(
             }
             Err(e) => {
                 log::warn!("[POST all_keep] broadcast write failed: {:?}", e);
+                *toast = Some(Toast::new("All Keep failed (file write error)", now));
+                return None;
             }
         }
     }
-    if !wrote_any {
-        *toast = Some(Toast::new("All Keep failed (file write error)", now));
-        None
-    } else {
-        Some(generation)
-    }
+    Some((generation, transaction))
 }
 
 /// Stop タップ: Watch へ戻し、record_signal を released に更新する。

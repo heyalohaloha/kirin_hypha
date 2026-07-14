@@ -8,6 +8,7 @@ pub mod all_stop_signal;
 mod atomic_claim;
 pub mod atomic_file;
 pub mod capture_generation;
+pub mod capture_generation_tx;
 pub mod cleanup;
 pub mod delta;
 pub mod engine;
@@ -71,6 +72,7 @@ pub use capture_generation::{
     CaptureGenerationError, CaptureGenerationMember, CAPTURE_GENERATION_CURRENT,
     CAPTURE_GENERATION_SCHEMA, CAPTURE_GENERATION_SUBDIR,
 };
+pub use capture_generation_tx::CaptureGenerationTransaction;
 pub use cleanup::{clear_pair_label, exit_record_full, exit_record_preserve_pair};
 pub use delta::{DeltaMode, DeltaResult, DeltaSnapshot};
 pub use engine::{MeasureEngine, SessionSummary};

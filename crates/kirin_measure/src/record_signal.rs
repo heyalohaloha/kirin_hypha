@@ -402,9 +402,13 @@ pub fn write_pending_claiming_expected_and_clock(
         daw_session_id.clone(),
         std::process::id(),
     );
-    crate::capture_generation::publish_generation_roster(base_dir, &generation)
+    let mut transaction =
+        crate::capture_generation_tx::CaptureGenerationTransaction::begin(base_dir, &generation)
+            .map_err(capture_generation_signal_error)?;
+    transaction
+        .stage()
         .map_err(capture_generation_signal_error)?;
-    write_pending_claiming_expected_and_clock_for_generation(
+    let signal = write_pending_claiming_expected_and_clock_for_generation(
         base_dir,
         project_hash,
         post_instance_id,
@@ -412,7 +416,19 @@ pub fn write_pending_claiming_expected_and_clock(
         daw_session_id,
         started_at_position_samples,
         &generation,
-    )
+    )?;
+    if let Err(error) = transaction.commit() {
+        let _ = mark_released_with_reason(
+            base_dir,
+            project_hash,
+            post_instance_id,
+            // The user-initiated Keep never committed. ManualStop is the existing
+            // cross-version-compatible authorization for undoing its pending inbox.
+            ReleaseReason::ManualStop,
+        );
+        return Err(capture_generation_signal_error(error));
+    }
+    Ok(signal)
 }
 
 #[allow(clippy::too_many_arguments)]

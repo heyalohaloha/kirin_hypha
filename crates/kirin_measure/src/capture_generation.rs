@@ -166,27 +166,17 @@ pub fn publish_current_generation(
     Ok(())
 }
 
-/// Publish the complete immutable roster before arming any member. Project pointers are
-/// written first; the installation-wide pointer is the final commit barrier. A partial IO
-/// failure therefore cannot promote an incomplete roster to Kirin OS.
+/// One-shot compatibility publisher. New Keep producers should hold a
+/// `CaptureGenerationTransaction`, stage every exact inbox, and commit only after producer setup
+/// succeeds. In both paths the installation-wide pointer remains the final commit barrier.
 pub fn publish_generation_roster(
     base_dir: &Path,
     generation: &CaptureGeneration,
 ) -> Result<(), CaptureGenerationError> {
-    if !generation.is_valid() {
-        return Err(CaptureGenerationError::Invalid);
-    }
-    let project_hashes = generation
-        .members
-        .iter()
-        .map(|member| member.project_hash.as_str())
-        .collect::<std::collections::BTreeSet<_>>();
-    for project_hash in project_hashes {
-        publish_current_generation(base_dir, project_hash, generation)?;
-    }
-    let json = serde_json::to_vec(generation)?;
-    crate::atomic_file::write_bytes_atomic(&active_generation_path(base_dir), &json)?;
-    Ok(())
+    let mut transaction =
+        crate::capture_generation_tx::CaptureGenerationTransaction::begin(base_dir, generation)?;
+    transaction.stage()?;
+    transaction.commit()
 }
 
 pub fn read_current_generation(

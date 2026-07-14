@@ -66,14 +66,15 @@ use kirin_measure::{
     select_live_pre_pair_choice_by_instance_for_post_project_in_session, set_daw_session_id,
     set_project_uuid, spawn_io_thread_post, spawn_io_thread_pre, spawn_measure_thread,
     spawn_watchdog, store_signal_state, write_broadcast_for_generation, write_expected_metadata,
+    write_pending_claiming_expected_and_clock,
     write_pending_claiming_expected_and_clock_for_generation, write_stop_broadcast,
-    CaptureClockSource, CaptureGeneration, CaptureGenerationMember, DeltaMode, DeltaResult,
-    ExpectedWavMetadata, IoThreadHandle, LatchedPre, License, LiveLicense, LivenessEvaluator,
-    MeasureResult, PairStatus, PlatformPaths, PluginDataRole, PresentationLatencySamples,
-    PresentationLatencySource, PsbSummary, RecordMarkQueue, RecordStateMachine, RecordTakeBlock,
-    RecordTakeTracker, RecordTraceQueue, ReleaseReason, RestartIoFn, SignalState, StoragePaths,
-    WatchMaxTracker, WatchdogIo, WatchdogParams, MAX_ACTIVE_PER_PROJECT, N_CHANNELS,
-    RING_BUFFER_SECONDS,
+    CaptureClockSource, CaptureGeneration, CaptureGenerationMember, CaptureGenerationTransaction,
+    DeltaMode, DeltaResult, ExpectedWavMetadata, IoThreadHandle, LatchedPre, License, LiveLicense,
+    LivenessEvaluator, MeasureResult, PairStatus, PlatformPaths, PluginDataRole,
+    PresentationLatencySamples, PresentationLatencySource, PsbSummary, RecordMarkQueue,
+    RecordStateMachine, RecordTakeBlock, RecordTakeTracker, RecordTraceQueue, ReleaseReason,
+    RestartIoFn, SignalError, SignalState, StoragePaths, WatchMaxTracker, WatchdogIo,
+    WatchdogParams, MAX_ACTIVE_PER_PROJECT, N_CHANNELS, RING_BUFFER_SECONDS,
 };
 
 mod pair_binding;
@@ -631,48 +632,43 @@ fn resolve_and_enter_keep(
         }
         return false;
     }
-    let owned_generation = capture_generation.cloned().unwrap_or_else(|| {
-        CaptureGeneration::new_single(
-            project_hash.to_string(),
-            post_iid.to_string(),
-            target.clone(),
-            daw.to_string(),
-            current_host_process_id(),
-        )
-    });
-    let Some(generation_member) = owned_generation.member(project_hash, post_iid) else {
-        if reservation_created {
-            reservation::release_pairing(&base, project_hash, &target, post_iid);
+    if let Some(generation) = capture_generation {
+        let Some(generation_member) = generation.member(project_hash, post_iid) else {
+            if reservation_created {
+                reservation::release_pairing(&base, project_hash, &target, post_iid);
+            }
+            return false;
+        };
+        if !generation_member.pre_instance_id.is_empty()
+            && generation_member.pre_instance_id != target
+        {
+            if reservation_created {
+                reservation::release_pairing(&base, project_hash, &target, post_iid);
+            }
+            return false;
         }
-        return false;
-    };
-    if !generation_member.pre_instance_id.is_empty() && generation_member.pre_instance_id != target
-    {
-        if reservation_created {
-            reservation::release_pairing(&base, project_hash, &target, post_iid);
-        }
-        return false;
-    }
-    if capture_generation.is_none()
-        && kirin_measure::publish_generation_roster(&base, &owned_generation).is_err()
-    {
-        if reservation_created {
-            reservation::release_pairing(&base, project_hash, &target, post_iid);
-        }
-        return false;
     }
     // target_pre_instance_id = 選定 PRE。PRE が自宛て signal を発見し ack する。
-    if write_pending_claiming_expected_and_clock_for_generation(
-        &base,
-        project_hash,
-        post_iid,
-        target.clone(),
-        daw.to_string(),
-        started_at_position_samples,
-        &owned_generation,
-    )
-    .is_ok()
-    {
+    let write_result = match capture_generation {
+        Some(generation) => write_pending_claiming_expected_and_clock_for_generation(
+            &base,
+            project_hash,
+            post_iid,
+            target.clone(),
+            daw.to_string(),
+            started_at_position_samples,
+            generation,
+        ),
+        None => write_pending_claiming_expected_and_clock(
+            &base,
+            project_hash,
+            post_iid,
+            target.clone(),
+            daw.to_string(),
+            started_at_position_samples,
+        ),
+    };
+    if write_result.is_ok() {
         // B-127: 正常 enter で stale な cap/io-fail 通知を消す（新しい健全な Record が開始した）。
         if let Ok(mut g) = record_error_message.write() {
             *g = None;
@@ -696,6 +692,19 @@ fn resolve_and_enter_keep(
         }
         true
     } else {
+        if let Ok(mut g) = record_error_message.write() {
+            *g = Some(
+                match write_result {
+                    Err(SignalError::Io(ref error))
+                        if error.kind() == std::io::ErrorKind::WouldBlock =>
+                    {
+                        "Another Keep is active"
+                    }
+                    _ => "Failed to start record",
+                }
+                .to_string(),
+            );
+        }
         // write_pending 失敗時も予約枠を戻す（自分が作った場合のみ）。
         if reservation_created {
             reservation::release_pairing(&base, project_hash, &target, post_iid);
@@ -1359,7 +1368,7 @@ impl KirinHyphaEngine {
             Arc::new(
                 move |_originator: &str, _started_at: &str, generation: &CaptureGeneration| {
                     let lic = license.refresh_for_user_action();
-                    let _ = resolve_and_enter_keep(
+                    resolve_and_enter_keep(
                         lic,
                         &record_sm,
                         &pair_target,
@@ -1371,7 +1380,7 @@ impl KirinHyphaEngine {
                         &record_error_message,
                         None,
                         Some(generation),
-                    );
+                    )
                 },
             )
         };
@@ -1899,7 +1908,29 @@ impl KirinHyphaEngine {
         if !generation.is_valid() {
             return false;
         }
-        if kirin_measure::publish_generation_roster(&p.plugin_data_dir(), &generation).is_err() {
+        let plugin_data_dir = p.plugin_data_dir();
+        let mut transaction =
+            match CaptureGenerationTransaction::begin(&plugin_data_dir, &generation) {
+                Ok(transaction) => transaction,
+                Err(error) => {
+                    let message = match &error {
+                        kirin_measure::CaptureGenerationError::Io(error)
+                            if error.kind() == std::io::ErrorKind::WouldBlock =>
+                        {
+                            "Another Keep is active"
+                        }
+                        _ => "All Keep failed (file write error)",
+                    };
+                    if let Ok(mut error) = self.record_error_message.write() {
+                        *error = Some(message.to_string());
+                    }
+                    return false;
+                }
+            };
+        if transaction.stage().is_err() {
+            if let Ok(mut error) = self.record_error_message.write() {
+                *error = Some("All Keep failed (file write error)".to_string());
+            }
             return false;
         }
         let project_hashes = generation
@@ -1909,7 +1940,7 @@ impl KirinHyphaEngine {
             .collect::<std::collections::BTreeSet<_>>();
         for ph in project_hashes {
             if write_broadcast_for_generation(
-                &p.plugin_data_dir(),
+                &plugin_data_dir,
                 &ph,
                 &post_iid,
                 daw.clone(),
@@ -1918,10 +1949,30 @@ impl KirinHyphaEngine {
             )
             .is_err()
             {
+                if let Ok(mut error) = self.record_error_message.write() {
+                    *error = Some("All Keep failed (file write error)".to_string());
+                }
                 return false;
             }
         }
-        self.keep_with_generation(&generation)
+        if !self.keep_with_generation(&generation) {
+            return false;
+        }
+        if transaction.commit().is_err() {
+            let paired_pre_target = self.pair_binding.recording_pre();
+            resolve_and_exit_stop(
+                &self.record_sm,
+                &paired_pre_target,
+                &project_hash,
+                &post_iid,
+                Some(ReleaseReason::ManualStop),
+            );
+            if let Ok(mut error) = self.record_error_message.write() {
+                *error = Some("All Keep failed (file write error)".to_string());
+            }
+            return false;
+        }
+        true
     }
 
     /// POST「Stop」: pair を解除（record_signal released）し Watch へ戻す（B-061 3d-b）。

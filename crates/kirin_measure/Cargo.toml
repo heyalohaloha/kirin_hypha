@@ -14,6 +14,7 @@ uuid = { workspace = true }
 hmac = { workspace = true }
 sha2 = { workspace = true }
 hex = { workspace = true }
+libc = "0.2"
 # guardian_61 C-2: Phase D PSB High FFT 経路（Bark 21-24 + 15.5k-20kHz 補完）。
 # ISO 532-1 specific loudness パイプラインとは独立。Measure Thread 上で動作し、
 # Audio Thread (R-12 製造境界) には影響しない。
