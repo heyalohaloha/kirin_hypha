@@ -62,6 +62,20 @@ impl LiveLicense {
         self.store(observed);
         observed
     }
+
+    /// Refresh only at a user-initiated Record boundary. A transient unreadable identity must
+    /// not revoke an already observed OS entitlement; this product is sold offline and has no
+    /// periodic revocation contract. Definite `os`/`sense` values still replace the cache.
+    pub fn refresh_for_user_action(&self) -> License {
+        let cached = self.load();
+        let observed = load_license_safe();
+        if observed == License::Unknown && cached != License::Unknown {
+            cached
+        } else {
+            self.store(observed);
+            observed
+        }
+    }
 }
 
 impl From<License> for LiveLicense {

@@ -2,10 +2,10 @@
 # Validate the macOS ship-set VST3 bundles with Tracktion pluginval.
 #
 # Usage:
-#   scripts/validate_macos_pluginval.sh [vst3_bundle_dir]
+#   scripts/validate_macos_pluginval.sh [juce_build_dir]
 #
 # Defaults:
-#   vst3_bundle_dir = target/bundled
+#   juce_build_dir = juce_shell/build-universal
 #   PLUGINVAL_VERSION = v1.0.4
 #   PLUGINVAL_STRICTNESS_LEVEL = 5
 #
@@ -21,7 +21,7 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
   exit 1
 fi
 
-BUNDLE_DIR="${1:-${KIRIN_MACOS_VST3_DIR:-target/bundled}}"
+BUILD_DIR="${1:-${KIRIN_MACOS_VST3_DIR:-juce_shell/build-universal}}"
 STRICTNESS="${PLUGINVAL_STRICTNESS_LEVEL:-5}"
 TIMEOUT_MS="${PLUGINVAL_TIMEOUT_MS:-120000}"
 SKIP_GUI_TESTS="${PLUGINVAL_SKIP_GUI_TESTS:-0}"
@@ -68,12 +68,9 @@ case "$SKIP_GUI_TESTS" in
     ;;
 esac
 
-if [[ ! -d "$BUNDLE_DIR" ]]; then
-  echo "ERROR: macOS VST3 bundle dir not found: $BUNDLE_DIR" >&2
-  echo "Build first:" >&2
-  echo "  cargo run --package xtask -- bundle hypha_pre --release" >&2
-  echo "  cargo run --package xtask -- bundle hypha_post --release" >&2
-  echo "  cargo run --package xtask -- stamp-egui-version" >&2
+if [[ ! -d "$BUILD_DIR" ]]; then
+  echo "ERROR: JUCE universal build dir not found: $BUILD_DIR" >&2
+  echo "Build first: scripts/build_juce_universal.sh" >&2
   exit 1
 fi
 
@@ -118,41 +115,26 @@ if command -v xattr >/dev/null 2>&1; then
 fi
 
 BUNDLES=(
-  "$BUNDLE_DIR/PRE Kirin Hypha.vst3"
-  "$BUNDLE_DIR/POST Kirin Hypha.vst3"
+  "$BUILD_DIR/KirinHyphaPRE_artefacts/Release/VST3/Kirin Hypha PRE.vst3"
+  "$BUILD_DIR/KirinHyphaPOST_artefacts/Release/VST3/Kirin Hypha POST.vst3"
 )
-EXPECTED_BASENAMES=(
-  "POST Kirin Hypha.vst3"
-  "PRE Kirin Hypha.vst3"
+PHYSICAL_NAMES=(
+  "Kirin Hypha PRE"
+  "Kirin Hypha POST"
 )
 DISPLAY_NAMES=(
   "PRE Kirin Hypha"
   "POST Kirin Hypha"
 )
-
-FOUND_VST3_BASENAMES=""
-while IFS= read -r bundle_path; do
-  [[ -n "$bundle_path" ]] || continue
-  FOUND_VST3_BASENAMES="${FOUND_VST3_BASENAMES}$(basename "$bundle_path")
-"
-done < <(find "$BUNDLE_DIR" -mindepth 1 -maxdepth 1 -type d -name '*.vst3' -print | LC_ALL=C sort)
-EXPECTED_VST3_BASENAMES=""
-for expected_basename in "${EXPECTED_BASENAMES[@]}"; do
-  EXPECTED_VST3_BASENAMES="${EXPECTED_VST3_BASENAMES}${expected_basename}
-"
-done
-if [[ "$FOUND_VST3_BASENAMES" != "$EXPECTED_VST3_BASENAMES" ]]; then
-  echo "ERROR: macOS VST3 ship-set directory must contain exactly PRE and POST bundles." >&2
-  echo "Expected:" >&2
-  printf '%s' "$EXPECTED_VST3_BASENAMES" >&2
-  echo "Found:" >&2
-  printf '%s' "$FOUND_VST3_BASENAMES" >&2
-  exit 1
-fi
+COMPONENT_CIDS=(
+  "4B6972696E4879706861505245763031"
+  "4B6972696E4879706861504F53547631"
+)
 
 for idx in "${!BUNDLES[@]}"; do
   BUNDLE="${BUNDLES[$idx]}"
   DISPLAY_NAME="${DISPLAY_NAMES[$idx]}"
+  PHYSICAL_NAME="${PHYSICAL_NAMES[$idx]}"
   if [[ ! -d "$BUNDLE" ]]; then
     echo "ERROR: missing ship-set VST3 bundle: $BUNDLE" >&2
     exit 1
@@ -164,12 +146,21 @@ for idx in "${!BUNDLES[@]}"; do
   fi
   for key in CFBundleDisplayName CFBundleName; do
     ACTUAL="$(/usr/libexec/PlistBuddy -c "Print :$key" "$PLIST" 2>/dev/null || true)"
-    if [[ "$ACTUAL" != "$DISPLAY_NAME" ]]; then
-      echo "ERROR: $BUNDLE $key=$ACTUAL, expected $DISPLAY_NAME." >&2
-      echo "Run: cargo run --package xtask -- stamp-egui-version" >&2
+    if [[ "$ACTUAL" != "$PHYSICAL_NAME" ]]; then
+      echo "ERROR: $BUNDLE $key=$ACTUAL, expected $PHYSICAL_NAME." >&2
+      echo "Run: scripts/build_juce_universal.sh" >&2
       exit 1
     fi
   done
+  MODULEINFO="$BUNDLE/Contents/Resources/moduleinfo.json"
+  if [[ ! -f "$MODULEINFO" ]] || ! grep -q "\"CID\": \"${COMPONENT_CIDS[$idx]}\"" "$MODULEINFO"; then
+    echo "ERROR: $BUNDLE does not preserve the shipped component CID ${COMPONENT_CIDS[$idx]}." >&2
+    exit 1
+  fi
+  if ! grep -q "\"Name\": \"$DISPLAY_NAME\"" "$MODULEINFO"; then
+    echo "ERROR: $BUNDLE does not expose role-first display name $DISPLAY_NAME." >&2
+    exit 1
+  fi
 done
 
 echo "==> pluginval strictness level: $STRICTNESS"

@@ -27,3 +27,4 @@ symphonia = { version = "0.5", features = ["wav", "pcm"] }
 # - N_spec:    assert_relative_eq!(max_relative = 1e-3)
 # - bit-identical: assert_abs_diff_eq!(epsilon = 1e-8)
 approx = "0.5"
+tempfile = "3"

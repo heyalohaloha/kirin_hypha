@@ -44,13 +44,16 @@ use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::thread::JoinHandle;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use serde_json::Value;
 use uuid::Uuid;
 
 use kirin_measure::engine::SessionSummary;
 use kirin_measure::reservation; // B-127 (G-115-364): per-pairing O_EXCL reservation
 use kirin_measure::{
-    active_post_project_uuids_for_operation_group, append_annotation_to_latest,
-    can_write_plugin_data, check_record_exclusion, count_distinct_pairings,
+    add_watch_ring_cursor_samples, publish_watch_playback_pass_boundary, reset_watch_ring_cursor,
+};
+use kirin_measure::{
+    append_annotation_to_latest, can_write_plugin_data, count_distinct_pairings,
     current_host_process_id, enqueue_record_mark,
     enumerate_live_pre_pair_choices_for_post_project_in_session,
     enumerate_owned_post_pair_candidates_for_operation_group,
@@ -62,17 +65,15 @@ use kirin_measure::{
     resolve_arm_target_for_post_project_in_session, sanitize_name,
     select_live_pre_pair_choice_by_instance_for_post_project_in_session, set_daw_session_id,
     set_project_uuid, spawn_io_thread_post, spawn_io_thread_pre, spawn_measure_thread,
-    spawn_watchdog, store_signal_state, write_broadcast, write_expected_metadata,
-    write_pending_claiming_expected_and_clock, write_stop_broadcast, CaptureClockSource, DeltaMode,
-    DeltaResult, ExclusionResult, ExpectedWavMetadata, IoThreadHandle, LatchedPre, License,
-    LiveLicense, LivenessEvaluator, MeasureResult, PairStatus, PlatformPaths, PluginDataRole,
-    PresentationLatencySamples, PresentationLatencySource, PsbSummary, RecordMarkQueue,
-    RecordStateMachine, RecordTakeBlock, RecordTakeTracker, RecordTraceQueue, ReleaseReason,
-    RestartIoFn, SignalState, StoragePaths, WatchMaxTracker, WatchdogIo, WatchdogParams,
-    MAX_ACTIVE_PER_PROJECT, N_CHANNELS, RING_BUFFER_SECONDS,
-};
-use kirin_measure::{
-    add_watch_ring_cursor_samples, publish_watch_playback_pass_boundary, reset_watch_ring_cursor,
+    spawn_watchdog, store_signal_state, write_broadcast_for_generation, write_expected_metadata,
+    write_pending_claiming_expected_and_clock_for_generation, write_stop_broadcast,
+    CaptureClockSource, CaptureGeneration, CaptureGenerationMember, DeltaMode, DeltaResult,
+    ExpectedWavMetadata, IoThreadHandle, LatchedPre, License, LiveLicense, LivenessEvaluator,
+    MeasureResult, PairStatus, PlatformPaths, PluginDataRole, PresentationLatencySamples,
+    PresentationLatencySource, PsbSummary, RecordMarkQueue, RecordStateMachine, RecordTakeBlock,
+    RecordTakeTracker, RecordTraceQueue, ReleaseReason, RestartIoFn, SignalState, StoragePaths,
+    WatchMaxTracker, WatchdogIo, WatchdogParams, MAX_ACTIVE_PER_PROJECT, N_CHANNELS,
+    RING_BUFFER_SECONDS,
 };
 
 mod pair_binding;
@@ -89,6 +90,30 @@ struct IdentityState {
     name: String,
     /// enable 時に確定する派生 project_hash（= project_uuid）。add_annotation の path に使う。
     project_hash: String,
+}
+
+/// 旧 nih-plug VST3 state を JUCE shell へ移すための固定長 DTO。
+/// state restore の message thread でのみ使い、Audio Thread には到達しない。
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct KirinLegacyNihState {
+    pub instance_id: [c_char; ID_BUF_LEN],
+    pub project_uuid: [c_char; ID_BUF_LEN],
+    pub daw_session_uuid: [c_char; ID_BUF_LEN],
+    pub name: [c_char; ID_BUF_LEN],
+    pub pair_pre_name: [c_char; ID_BUF_LEN],
+}
+
+impl Default for KirinLegacyNihState {
+    fn default() -> Self {
+        Self {
+            instance_id: [0; ID_BUF_LEN],
+            project_uuid: [0; ID_BUF_LEN],
+            daw_session_uuid: [0; ID_BUF_LEN],
+            name: [0; ID_BUF_LEN],
+            pair_pre_name: [0; ID_BUF_LEN],
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -131,6 +156,56 @@ unsafe fn read_c_str(p: *const c_char) -> String {
         return String::new();
     }
     unsafe { CStr::from_ptr(p) }.to_string_lossy().into_owned()
+}
+
+fn legacy_nih_field(fields: &serde_json::Map<String, Value>, key: &str) -> Option<String> {
+    let encoded = fields.get(key)?.as_str()?;
+    serde_json::from_str::<String>(encoded).ok()
+}
+
+fn decode_legacy_nih_state_bytes(data: &[u8]) -> Option<KirinLegacyNihState> {
+    // Old shipped nih-plug did not enable its optional zstd feature. Keep this decoder deliberately
+    // narrow: accepting arbitrary compressed/enveloped data would turn state restore into a second
+    // format-discovery system. JUCE XML remains the sole current writer.
+    const MAX_LEGACY_STATE_BYTES: usize = 1024 * 1024;
+    if data.is_empty() || data.len() > MAX_LEGACY_STATE_BYTES {
+        return None;
+    }
+    let root: Value = serde_json::from_slice(data).ok()?;
+    let fields = root.get("fields")?.as_object()?;
+    let instance_id = legacy_nih_field(fields, "instance_id");
+    let project_uuid = legacy_nih_field(fields, "project_uuid");
+    let daw_session_uuid = legacy_nih_field(fields, "daw_session_uuid");
+    let name = legacy_nih_field(fields, "name");
+    let pair_pre_name = legacy_nih_field(fields, "pair_pre_name");
+    if instance_id.is_none()
+        && project_uuid.is_none()
+        && daw_session_uuid.is_none()
+        && name.is_none()
+        && pair_pre_name.is_none()
+    {
+        return None;
+    }
+
+    let mut out = KirinLegacyNihState::default();
+    write_c_buf(
+        &mut out.instance_id,
+        instance_id.as_deref().unwrap_or_default(),
+    );
+    write_c_buf(
+        &mut out.project_uuid,
+        project_uuid.as_deref().unwrap_or_default(),
+    );
+    write_c_buf(
+        &mut out.daw_session_uuid,
+        daw_session_uuid.as_deref().unwrap_or_default(),
+    );
+    write_c_buf(&mut out.name, name.as_deref().unwrap_or_default());
+    write_c_buf(
+        &mut out.pair_pre_name,
+        pair_pre_name.as_deref().unwrap_or_default(),
+    );
+    Some(out)
 }
 
 // B-118: IoThreadHandle は kirin_measure に移動（watchdog の Lazy slot 共有型）。FFI は import する。
@@ -491,6 +566,7 @@ fn resolve_and_enter_keep(
     // "Maximum 12 pairs reached" を書く（R-28: silent drop 禁止）。正常 enter で None に消す。
     record_error_message: &RwLock<Option<String>>,
     started_at_position_samples: Option<i64>,
+    capture_generation: Option<&CaptureGeneration>,
 ) -> bool {
     // B-071 double-keep guard: 既に Record 中なら no-op（既存 linkage 温存）。
     if record_sm.is_recording() {
@@ -517,7 +593,6 @@ fn resolve_and_enter_keep(
         Ok(p) => p.plugin_data_dir(),
         Err(_) => return false,
     };
-    let _ = reservation::sweep_stale_reservations(&base);
     // B-127 (G-115-365): per-pairing O_EXCL reservation で cross-process atomic に枠を確保する。
     // pairing key = (target=PRE iid, post_iid=POST iid)。cap の真実源は枠ファイルの**物理存在のみ**
     // （count_distinct_pairings = reservation::count_frames）。reservation を先に atomic-create
@@ -528,6 +603,12 @@ fn resolve_and_enter_keep(
         match reservation::reserve_pairing(&base, project_hash, &target, post_iid) {
             Ok(reservation::ReserveOutcome::Created) => true,
             Ok(reservation::ReserveOutcome::AlreadyReserved) => false,
+            Ok(reservation::ReserveOutcome::PreInUse) => {
+                if let Ok(mut g) = record_error_message.write() {
+                    *g = Some("PRE already in use".to_string());
+                }
+                return false;
+            }
             // G-115-365 (3): 枠が取れない（write_all 失敗等の Err / 不完全枠は内部で unlink 済）= reject。
             // 枠なしで keep に入らない。
             Err(_) => {
@@ -550,14 +631,45 @@ fn resolve_and_enter_keep(
         }
         return false;
     }
+    let owned_generation = capture_generation.cloned().unwrap_or_else(|| {
+        CaptureGeneration::new_single(
+            project_hash.to_string(),
+            post_iid.to_string(),
+            target.clone(),
+            daw.to_string(),
+            current_host_process_id(),
+        )
+    });
+    let Some(generation_member) = owned_generation.member(project_hash, post_iid) else {
+        if reservation_created {
+            reservation::release_pairing(&base, project_hash, &target, post_iid);
+        }
+        return false;
+    };
+    if !generation_member.pre_instance_id.is_empty() && generation_member.pre_instance_id != target
+    {
+        if reservation_created {
+            reservation::release_pairing(&base, project_hash, &target, post_iid);
+        }
+        return false;
+    }
+    if capture_generation.is_none()
+        && kirin_measure::publish_generation_roster(&base, &owned_generation).is_err()
+    {
+        if reservation_created {
+            reservation::release_pairing(&base, project_hash, &target, post_iid);
+        }
+        return false;
+    }
     // target_pre_instance_id = 選定 PRE。PRE が自宛て signal を発見し ack する。
-    if write_pending_claiming_expected_and_clock(
+    if write_pending_claiming_expected_and_clock_for_generation(
         &base,
         project_hash,
         post_iid,
         target.clone(),
         daw.to_string(),
         started_at_position_samples,
+        &owned_generation,
     )
     .is_ok()
     {
@@ -1244,21 +1356,24 @@ impl KirinHyphaEngine {
             let latched = self.pair_binding.latched_pre();
             // B-127: broadcast 受信 keep も engine cap を通す。cap 到達通知の宛先 Arc を capture。
             let record_error_message = Arc::clone(&self.record_error_message);
-            Arc::new(move |_pre: &str, _post: &str| {
-                let lic = license.load();
-                let _ = resolve_and_enter_keep(
-                    lic,
-                    &record_sm,
-                    &pair_target,
-                    &paired,
-                    &project_hash,
-                    &post_iid,
-                    &daw,
-                    &latched,
-                    &record_error_message,
-                    None,
-                );
-            })
+            Arc::new(
+                move |_originator: &str, _started_at: &str, generation: &CaptureGeneration| {
+                    let lic = license.refresh_for_user_action();
+                    let _ = resolve_and_enter_keep(
+                        lic,
+                        &record_sm,
+                        &pair_target,
+                        &paired,
+                        &project_hash,
+                        &post_iid,
+                        &daw,
+                        &latched,
+                        &record_error_message,
+                        None,
+                        Some(generation),
+                    );
+                },
+            )
         };
         let trigger_stop_resolution: kirin_measure::TriggerStopResolutionFn = {
             let record_sm = Arc::clone(&self.record_sm);
@@ -1552,27 +1667,16 @@ impl KirinHyphaEngine {
         self.shutdown.store(true, Ordering::Relaxed);
     }
 
-    /// B-118 Phase 3 (②): 現プロジェクトが Record 排他上限（MAX_ACTIVE_PER_PROJECT=12）に達しているか。
-    /// これは表示用の advisory getter。Keep の正本判定は `resolve_and_enter_keep` の
-    /// reserve→count>MAX で行う（同一 pairing の再Keepを 12 枠ちょうどで誤拒否しないため）。
-    /// 未 enable（project_hash 空）/ StoragePaths 不能は false（保守側＝ブロックしない）。
+    /// Compatibility advisory for older shells. This getter is deliberately memory-only: UI
+    /// polling must never enumerate reservation files. The authoritative Keep attempt records a
+    /// factual error message when it cannot obtain the 13th slot.
     pub fn record_exclusion_conflict(&self) -> bool {
-        let project_hash = match self.identity.lock() {
-            Ok(id) => id.project_hash.clone(),
-            Err(_) => return false,
-        };
-        if project_hash.is_empty() {
-            return false;
-        }
-        let base = match StoragePaths::default_platform() {
-            Ok(p) => p.plugin_data_dir(),
-            Err(_) => return false,
-        };
-        let _ = reservation::sweep_stale_reservations(&base);
-        matches!(
-            check_record_exclusion(&base, &project_hash),
-            ExclusionResult::Conflict { .. }
-        )
+        self.record_error_message
+            .read()
+            .ok()
+            .and_then(|message| message.clone())
+            .as_deref()
+            == Some("Maximum 12 pairs reached")
     }
 
     /// B-118 Phase 3 (③): io_thread 連続失敗時の固定文言（RecordError::ui_message / G-115-29）。
@@ -1618,14 +1722,14 @@ impl KirinHyphaEngine {
     /// Kirin OS/JUCE runtime が Drop 後の WAV 正本 metadata を渡す入口。
     ///
     /// `current.json` を atomic 書込みした同じ呼出しで、既に閉じた今回 Record を
-    /// WAV の `0..duration_samples` へ再照合する。Keep 前の前回世代は Record に結ばない。
-    /// writer がまだ close 中なら IO Thread の定常 poll が同じ再照合を後続する。
+    /// WAV の `0..duration_samples` へ再照合する。Recordが固定したsession/PRE/POSTの
+    /// deterministic pathだけを読み、project棚や履歴は走査しない。
     pub fn set_expected_wav_metadata(&self, input: ExpectedWavMetadataInput) -> bool {
-        let project_hash = match self.identity.lock() {
-            Ok(id) => id.project_hash.clone(),
+        let (project_hash, post_instance_id) = match self.identity.lock() {
+            Ok(id) => (id.project_hash.clone(), id.instance_id.clone()),
             Err(_) => return false,
         };
-        if project_hash.is_empty() {
+        if project_hash.is_empty() || post_instance_id.is_empty() {
             return false;
         }
         let base = match StoragePaths::default_platform() {
@@ -1651,6 +1755,15 @@ impl KirinHyphaEngine {
             }
             return false;
         };
+        let Some(pre_instance_id) = self
+            .paired_pre_target_snapshot()
+            .or_else(|| self.paired_pre_instance_id())
+        else {
+            if let Ok(mut g) = self.record_error_message.write() {
+                *g = Some("WAV metadata has no exact PRE transaction owner".to_string());
+            }
+            return false;
+        };
         match write_expected_metadata(&base, &project_hash, &metadata) {
             Ok(()) => {
                 if !matches!(
@@ -1667,9 +1780,12 @@ impl KirinHyphaEngine {
                     }
                     return false;
                 }
-                kirin_measure::plugin_data::reconcile_late_expected_wav_project(
+                kirin_measure::plugin_data::reconcile_drop_committed_closed_session(
                     &base,
                     &project_hash,
+                    &session_id,
+                    &pre_instance_id,
+                    &post_instance_id,
                 );
                 true
             }
@@ -1687,6 +1803,14 @@ impl KirinHyphaEngine {
     /// `License::Os` かつ一意 PRE のとき `true`。選定 None（空名/不在/曖昧/Bypassed/古t）/
     /// 非 Os / AlreadyRecording は `false`（write_pending しない）。
     pub fn keep(&self) -> bool {
+        self.keep_with_optional_generation(None)
+    }
+
+    fn keep_with_generation(&self, generation: &CaptureGeneration) -> bool {
+        self.keep_with_optional_generation(Some(generation))
+    }
+
+    fn keep_with_optional_generation(&self, generation: Option<&CaptureGeneration>) -> bool {
         let (project_hash, post_iid, daw) = {
             let id = match self.identity.lock() {
                 Ok(g) => g,
@@ -1706,8 +1830,9 @@ impl KirinHyphaEngine {
         let pair_target = self.pair_binding.desired_name();
         let paired_pre_target = self.pair_binding.recording_pre();
         let latched_pre = self.pair_binding.latched_pre();
+        let license = self.license.refresh_for_user_action();
         resolve_and_enter_keep(
-            self.current_license(),
+            license,
             &self.record_sm,
             &pair_target,
             &paired_pre_target,
@@ -1717,6 +1842,7 @@ impl KirinHyphaEngine {
             &latched_pre, // B-108: ラッチ済みならラッチ先を直接 target に使う
             &self.record_error_message, // B-127: cap 到達通知の宛先（両殻 B-118 表示）
             None,
+            generation,
         )
     }
 
@@ -1739,24 +1865,63 @@ impl KirinHyphaEngine {
         let project_hash = read_shared_id(&self.project_hash_cell);
         let daw = read_shared_id(&self.daw_session_id_cell);
         let host_process_id = current_host_process_id();
-        if !project_hash.is_empty() {
-            if let Ok(p) = StoragePaths::default_platform() {
-                let kirin_root = PlatformPaths::current_kirin_tmp_root();
-                let mut project_hashes = active_post_project_uuids_for_operation_group(
-                    &kirin_root,
-                    &project_hash,
-                    &daw,
-                    host_process_id,
-                );
-                if project_hashes.is_empty() {
-                    project_hashes.push(project_hash.clone());
-                }
-                for ph in project_hashes {
-                    let _ = write_broadcast(&p.plugin_data_dir(), &ph, &post_iid, daw.clone());
-                }
+        if project_hash.is_empty() {
+            return false;
+        }
+        let p = match StoragePaths::default_platform() {
+            Ok(paths) => paths,
+            Err(_) => return false,
+        };
+        let kirin_root = PlatformPaths::current_kirin_tmp_root();
+        let ready = enumerate_ready_post_pair_candidates_for_operation_group(
+            &kirin_root,
+            &project_hash,
+            &daw,
+            host_process_id,
+        );
+        let members = ready
+            .iter()
+            .filter_map(|candidate| {
+                Some(CaptureGenerationMember {
+                    project_hash: candidate.project_uuid.clone(),
+                    post_instance_id: candidate.instance_id.clone(),
+                    pre_instance_id: candidate.paired_pre_instance_id.clone()?,
+                    record_session_id: String::new(),
+                })
+            })
+            .collect();
+        let generation = CaptureGeneration::new_for_members(
+            post_iid.clone(),
+            daw.clone(),
+            host_process_id,
+            members,
+        );
+        if !generation.is_valid() {
+            return false;
+        }
+        if kirin_measure::publish_generation_roster(&p.plugin_data_dir(), &generation).is_err() {
+            return false;
+        }
+        let project_hashes = generation
+            .members
+            .iter()
+            .map(|member| member.project_hash.clone())
+            .collect::<std::collections::BTreeSet<_>>();
+        for ph in project_hashes {
+            if write_broadcast_for_generation(
+                &p.plugin_data_dir(),
+                &ph,
+                &post_iid,
+                daw.clone(),
+                host_process_id,
+                &generation,
+            )
+            .is_err()
+            {
+                return false;
             }
         }
-        self.keep()
+        self.keep_with_generation(&generation)
     }
 
     /// POST「Stop」: pair を解除（record_signal released）し Watch へ戻す（B-061 3d-b）。
@@ -2273,6 +2438,31 @@ fn to_c_session(s: &SessionSummary) -> KirinSessionSummary {
         lra: opt_f64(s.lra),
         max_true_peak: opt_f64(s.max_true_peak),
     }
+}
+
+/// Shipped nih-plug VST3 state -> JUCE common-shell one-time migration.
+/// This is invoked only from the host's state restore callback, never from `processBlock`.
+///
+/// # Safety
+/// `data` must reference `len` readable bytes and `out` must reference writable storage.
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_decode_legacy_nih_state(
+    data: *const u8,
+    len: usize,
+    out: *mut KirinLegacyNihState,
+) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        if data.is_null() || out.is_null() {
+            return false;
+        }
+        let bytes = unsafe { std::slice::from_raw_parts(data, len) };
+        let Some(decoded) = decode_legacy_nih_state_bytes(bytes) else {
+            return false;
+        };
+        unsafe { *out = decoded };
+        true
+    }))
+    .unwrap_or(false)
 }
 
 fn to_c_delta(d: &DeltaResult) -> KirinDelta {
@@ -3491,6 +3681,48 @@ mod b113_signal_state_tests {
             2,
             "Bypassed → 2"
         );
+    }
+}
+
+#[cfg(test)]
+mod legacy_nih_state_tests {
+    use super::{decode_legacy_nih_state_bytes, KirinLegacyNihState};
+    use std::ffi::CStr;
+
+    fn field(state: &KirinLegacyNihState, which: &str) -> String {
+        let ptr = match which {
+            "instance_id" => state.instance_id.as_ptr(),
+            "project_uuid" => state.project_uuid.as_ptr(),
+            "daw_session_uuid" => state.daw_session_uuid.as_ptr(),
+            "name" => state.name.as_ptr(),
+            "pair_pre_name" => state.pair_pre_name.as_ptr(),
+            _ => unreachable!(),
+        };
+        unsafe { CStr::from_ptr(ptr) }
+            .to_string_lossy()
+            .into_owned()
+    }
+
+    #[test]
+    fn decodes_pre_identity_from_exact_nih_fields_contract() {
+        let bytes = br#"{"version":"1.1.26","params":{},"fields":{"instance_id":"\"iid-pre\"","project_uuid":"\"project-a\"","daw_session_uuid":"\"session-a\"","name":"\"Drum\""}}"#;
+        let state = decode_legacy_nih_state_bytes(bytes).expect("legacy PRE state");
+        assert_eq!(field(&state, "instance_id"), "iid-pre");
+        assert_eq!(field(&state, "project_uuid"), "project-a");
+        assert_eq!(field(&state, "daw_session_uuid"), "session-a");
+        assert_eq!(field(&state, "name"), "Drum");
+        assert_eq!(field(&state, "pair_pre_name"), "");
+    }
+
+    #[test]
+    fn decodes_post_pair_and_rejects_unrelated_or_malformed_state() {
+        let bytes = br#"{"version":"1.1.26","params":{"bypass":{"Bool":false}},"fields":{"instance_id":"\"iid-post\"","project_uuid":"\"project-a\"","daw_session_uuid":"\"session-a\"","pair_pre_name":"\"2Mix\"","pair_claimed_at":"12.0"}}"#;
+        let state = decode_legacy_nih_state_bytes(bytes).expect("legacy POST state");
+        assert_eq!(field(&state, "instance_id"), "iid-post");
+        assert_eq!(field(&state, "pair_pre_name"), "2Mix");
+        assert!(decode_legacy_nih_state_bytes(br#"{"fields":{"other":"\"x\""}}"#).is_none());
+        assert!(decode_legacy_nih_state_bytes(b"not-json").is_none());
+        assert!(decode_legacy_nih_state_bytes(&vec![b' '; 1024 * 1024 + 1]).is_none());
     }
 }
 

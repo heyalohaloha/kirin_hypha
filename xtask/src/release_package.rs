@@ -19,6 +19,7 @@ struct ShipBundle {
     binary_name: &'static str,
     display_name: &'static str,
     is_au: bool,
+    component_cid: Option<&'static str>,
 }
 
 pub fn run(args: Vec<String>) -> Result<()> {
@@ -135,7 +136,7 @@ pub fn run(args: Vec<String>) -> Result<()> {
 fn print_help() {
     eprintln!(
         "Usage: cargo run -p xtask -- release-package [--dist-dir dist] [--dry-run] [--allow-unsigned]\n\n\
-         Builds the Lemon Squeezy upload zip from construction-C only: JUCE AU + egui VST3.\n\
+         Builds the Lemon Squeezy upload zip from the JUCE common-shell AU + VST3 set.\n\
          Default checks: clean source worktree, Developer-ID team {TEAM_ID}, notarized, universal,\n\
          version-matched, no WebKit/DiscRecording. --allow-unsigned is forced to /tmp and marks\n\
          the zip as {UNSIGNED_SUFFIX}."
@@ -154,6 +155,7 @@ fn ship_bundles() -> Vec<ShipBundle> {
             binary_name: "Kirin Hypha PRE",
             display_name: "PRE Kirin Hypha",
             is_au: true,
+            component_cid: None,
         },
         ShipBundle {
             label: "POST AU",
@@ -165,36 +167,43 @@ fn ship_bundles() -> Vec<ShipBundle> {
             binary_name: "Kirin Hypha POST",
             display_name: "POST Kirin Hypha",
             is_au: true,
+            component_cid: None,
         },
         ShipBundle {
             label: "PRE VST3",
             format_dir: "VST3",
-            src: PathBuf::from("target/bundled/PRE Kirin Hypha.vst3"),
+            src: PathBuf::from(
+                "juce_shell/build-universal/KirinHyphaPRE_artefacts/Release/VST3/Kirin Hypha PRE.vst3",
+            ),
             file_name: "PRE Kirin Hypha.vst3",
-            binary_name: "PRE Kirin Hypha",
+            binary_name: "Kirin Hypha PRE",
             display_name: "PRE Kirin Hypha",
             is_au: false,
+            component_cid: Some("4B6972696E4879706861505245763031"),
         },
         ShipBundle {
             label: "POST VST3",
             format_dir: "VST3",
-            src: PathBuf::from("target/bundled/POST Kirin Hypha.vst3"),
+            src: PathBuf::from(
+                "juce_shell/build-universal/KirinHyphaPOST_artefacts/Release/VST3/Kirin Hypha POST.vst3",
+            ),
             file_name: "POST Kirin Hypha.vst3",
-            binary_name: "POST Kirin Hypha",
+            binary_name: "Kirin Hypha POST",
             display_name: "POST Kirin Hypha",
             is_au: false,
+            component_cid: Some("4B6972696E4879706861504F53547631"),
         },
     ]
 }
 
 fn verify_ship_set_shape(bundles: &[ShipBundle]) -> Result<()> {
     if bundles.len() != 4 {
-        bail!("construction-C ship set must contain exactly 4 bundles");
+        bail!("common-shell ship set must contain exactly 4 bundles");
     }
     for b in bundles {
         let s = b.src.to_string_lossy();
-        if s.contains("/Release/VST3/") || s.contains("KirinHyphaPRE_artefacts/Release/VST3") {
-            bail!("JUCE VST3 forbidden in ship set: {}", b.src.display());
+        if !s.starts_with("juce_shell/build-universal/") {
+            bail!("non-JUCE source forbidden in ship set: {}", b.src.display());
         }
         match (b.is_au, b.src.extension().and_then(|x| x.to_str())) {
             (true, Some("component")) | (false, Some("vst3")) => {}
@@ -252,15 +261,26 @@ fn verify_display_metadata(bundle: &ShipBundle) -> Result<()> {
 
     for key in ["CFBundleDisplayName", "CFBundleName"] {
         let actual = plist_value(&plist, key)?;
-        if actual != bundle.display_name {
+        if actual != bundle.binary_name {
             bail!(
-                "{} {} = {}, expected {}. Run `cargo run -p xtask -- stamp-egui-version` after bundling.",
+                "{} {} = {}, expected {}. Rebuild with scripts/build_juce_universal.sh.",
                 bundle.src.display(),
                 key,
                 actual,
-                bundle.display_name
+                bundle.binary_name
             );
         }
+    }
+    let moduleinfo = fs::read_to_string(bundle.src.join("Contents/Resources/moduleinfo.json"))
+        .with_context(|| format!("read VST3 moduleinfo for {}", bundle.src.display()))?;
+    let cid = bundle.component_cid.context("VST3 component CID missing")?;
+    if !moduleinfo.contains(&format!("\"CID\": \"{cid}\""))
+        || !moduleinfo.contains(&format!("\"Name\": \"{}\"", bundle.display_name))
+    {
+        bail!(
+            "{} VST3 CID/display contract mismatch",
+            bundle.src.display()
+        );
     }
     verify_binary_contains_display_name(
         &bundle.src.join("Contents/MacOS").join(bundle.binary_name),
@@ -492,7 +512,7 @@ fn manifest_json(
         "  \"unsigned_smoke_test\": {allow_unsigned},\n  \"git_dirty\": \"{}\",\n",
         json_escape(git_dirty)
     ));
-    s.push_str("  \"ship_set\": \"construction-C\",\n  \"bundles\": [\n");
+    s.push_str("  \"ship_set\": \"juce-common-shell\",\n  \"bundles\": [\n");
     for (i, b) in bundles.iter().enumerate() {
         let comma = if i + 1 == bundles.len() { "" } else { "," };
         s.push_str(&format!(
@@ -571,18 +591,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn ship_set_is_construction_c_only() {
+    fn ship_set_is_juce_common_shell_only() {
         let bundles = ship_bundles();
         verify_ship_set_shape(&bundles).unwrap();
         assert!(bundles
             .iter()
-            .any(|b| b.src.starts_with("target/bundled") && !b.is_au));
+            .all(|b| b.src.starts_with("juce_shell/build-universal")));
+        assert_eq!(bundles.iter().filter(|b| b.is_au).count(), 2);
+        assert_eq!(bundles.iter().filter(|b| !b.is_au).count(), 2);
         assert!(bundles
             .iter()
-            .any(|b| b.src.starts_with("juce_shell/build-universal") && b.is_au));
-        assert!(!bundles
-            .iter()
-            .any(|b| b.src.to_string_lossy().contains("/Release/VST3/")));
+            .filter(|b| !b.is_au)
+            .all(|b| b.src.to_string_lossy().contains("/Release/VST3/")));
     }
 
     #[test]
@@ -598,7 +618,7 @@ mod tests {
         ] {
             assert!(json.contains(file));
         }
-        assert!(!json.contains("Release/VST3"));
+        assert!(json.contains("\"ship_set\": \"juce-common-shell\""));
         assert!(json.contains("\"unsigned_smoke_test\": false"));
     }
 }

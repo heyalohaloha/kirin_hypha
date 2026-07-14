@@ -146,6 +146,23 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         JUCE_VST3_CAN_REPLACE_VST2=0
         JUCE_DISPLAY_SPLASH_SCREEN=0)          # permitted: built under GPLv3
 
+    # Preserve the component CIDs shipped by the original nih-plug VST3 adapters so existing DAW
+    # sessions load the now-common JUCE shell in place. Four big-endian words spell the exact
+    # 16-byte IDs; Steinberg INLINE_UID applies the matching Windows byte-order convention.
+    if("${TARGET}" STREQUAL "KirinHyphaPRE")
+        target_compile_definitions(${TARGET} PRIVATE
+            KIRIN_HYPHA_VST3_COMPONENT_UID_1=0x4B697269
+            KIRIN_HYPHA_VST3_COMPONENT_UID_2=0x6E487970
+            KIRIN_HYPHA_VST3_COMPONENT_UID_3=0x68615052
+            KIRIN_HYPHA_VST3_COMPONENT_UID_4=0x45763031)
+    elseif("${TARGET}" STREQUAL "KirinHyphaPOST")
+        target_compile_definitions(${TARGET} PRIVATE
+            KIRIN_HYPHA_VST3_COMPONENT_UID_1=0x4B697269
+            KIRIN_HYPHA_VST3_COMPONENT_UID_2=0x6E487970
+            KIRIN_HYPHA_VST3_COMPONENT_UID_3=0x6861504F
+            KIRIN_HYPHA_VST3_COMPONENT_UID_4=0x53547631)
+    endif()
+
     target_compile_options(${TARGET} PUBLIC ${KIRIN_FORCE_INCLUDE_ARGS})
 
     # B-130 (G-115-373): juce_audio_utils（AudioThumbnail/CD/DeviceSelector 用・実使用 grep 0）を

@@ -24,8 +24,6 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/../juce_shell/src/PluginProcessor.cpp"
     ));
-    const STAMP_VERSION_RS: &str =
-        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/stamp_version.rs"));
     const RELEASE_PACKAGE_RS: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/src/release_package.rs"
@@ -70,7 +68,7 @@ mod tests {
     }
 
     #[test]
-    fn egui_vst3_display_and_physical_names_are_role_first() {
+    fn legacy_development_egui_adapter_retains_role_first_names() {
         assert!(
             HYPHA_PRE_LIB.contains("const NAME: &'static str = \"PRE Kirin Hypha\";"),
             "egui PRE VST3 display name must put PRE before Kirin Hypha"
@@ -106,49 +104,45 @@ mod tests {
     }
 
     #[test]
-    fn ship_tooling_stamps_and_gates_role_first_display_metadata() {
-        assert!(
-            STAMP_VERSION_RS.contains("display_name: \"PRE Kirin Hypha\"")
-                && STAMP_VERSION_RS.contains("display_name: \"POST Kirin Hypha\""),
-            "stamp-egui-version must know the role-first VST3 display names"
-        );
-        assert!(
-            STAMP_VERSION_RS.contains("\"CFBundleDisplayName\"")
-                && STAMP_VERSION_RS.contains("\"CFBundleName\""),
-            "stamp-egui-version must update bundle display metadata after nih-plug bundling"
-        );
-        assert!(
-            STAMP_VERSION_RS.contains("remove_legacy_egui_outputs")
-                && STAMP_VERSION_RS.contains("Kirin Hypha PRE")
-                && STAMP_VERSION_RS.contains("Kirin Hypha POST"),
-            "stamp-egui-version must remove the two obsolete physical VST3 names"
-        );
+    fn ship_tooling_uses_and_gates_the_juce_common_shell() {
+        for source in [RELEASE_PACKAGE_RS, NOTARIZE_RS, LS_PKG_JS] {
+            assert!(source.contains("KirinHyphaPRE_artefacts/Release/VST3/Kirin Hypha PRE.vst3"));
+            assert!(source.contains("KirinHyphaPOST_artefacts/Release/VST3/Kirin Hypha POST.vst3"));
+            assert!(!source.contains("target/bundled/PRE Kirin Hypha.vst3"));
+            assert!(!source.contains("target/bundled/POST Kirin Hypha.vst3"));
+            assert!(source.contains("4B6972696E4879706861505245763031"));
+            assert!(source.contains("4B6972696E4879706861504F53547631"));
+        }
+        assert!(INSTALL_RS.contains("KirinHypha{role}_artefacts/Release/VST3"));
+        assert!(INSTALL_RS.contains("4B6972696E4879706861505245763031"));
+        assert!(INSTALL_RS.contains("4B6972696E4879706861504F53547631"));
+        assert!(!INSTALL_RS.contains("target/bundled/PRE Kirin Hypha.vst3"));
         assert!(
             RELEASE_PACKAGE_RS.contains("verify_display_metadata")
                 && RELEASE_PACKAGE_RS.contains("\"AudioComponents:0:name\"")
                 && RELEASE_PACKAGE_RS.contains("\"CFBundleDisplayName\"")
-                && RELEASE_PACKAGE_RS.contains("\"CFBundleName\""),
+                && RELEASE_PACKAGE_RS.contains("moduleinfo.json"),
             "release-package must fail if ship bundles lose role-first display metadata"
         );
         assert!(
             INSTALL_RS.contains("verify_display_metadata")
                 && INSTALL_RS.contains("\"AudioComponents:0:name\"")
                 && INSTALL_RS.contains("\"CFBundleDisplayName\"")
-                && INSTALL_RS.contains("\"CFBundleName\""),
+                && INSTALL_RS.contains("moduleinfo.json"),
             "install must fail if DAW-bound bundles lose role-first display metadata"
         );
         assert!(
             NOTARIZE_RS.contains("verify_display_metadata")
                 && NOTARIZE_RS.contains("\"AudioComponents:0:name\"")
                 && NOTARIZE_RS.contains("\"CFBundleDisplayName\"")
-                && NOTARIZE_RS.contains("\"CFBundleName\""),
+                && NOTARIZE_RS.contains("moduleinfo.json"),
             "notarize must fail before signing if ship bundles lose role-first display metadata"
         );
         assert!(
             LS_PKG_JS.contains("verifyDisplayMetadata")
                 && LS_PKG_JS.contains("'AudioComponents:0:name'")
                 && LS_PKG_JS.contains("'CFBundleDisplayName'")
-                && LS_PKG_JS.contains("'CFBundleName'"),
+                && LS_PKG_JS.contains("moduleinfo.json"),
             "LS pkg builder must fail if upload bundles lose role-first display metadata"
         );
     }

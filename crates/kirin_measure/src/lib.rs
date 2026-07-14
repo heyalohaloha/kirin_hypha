@@ -7,6 +7,7 @@ pub mod all_keep_signal;
 pub mod all_stop_signal;
 mod atomic_claim;
 pub mod atomic_file;
+pub mod capture_generation;
 pub mod cleanup;
 pub mod delta;
 pub mod engine;
@@ -17,6 +18,7 @@ pub mod io_thread_post;
 pub mod io_thread_pre;
 pub mod license;
 pub mod measure_thread;
+pub mod pair_claim_index;
 pub mod pair_operation_group;
 pub mod pair_status;
 pub mod pairing_scope;
@@ -26,7 +28,6 @@ pub mod plugin_data;
 pub mod post_candidates;
 pub mod pre_candidates;
 pub mod pre_discovery;
-pub mod pre_self_discovery;
 pub mod preset;
 pub mod preset_dispatch;
 pub mod preset_v2;
@@ -49,20 +50,26 @@ mod trace_content_clock;
 pub mod watch_max;
 pub mod watch_playback_pass;
 mod watch_snapshot_lease;
-mod watch_tmp_cleanup;
 pub mod watchdog;
 
 pub use all_keep_signal::{
-    delete_broadcast, is_broadcast_stale, read_broadcast, scan_broadcasts_dir,
+    delete_broadcast, is_broadcast_stale, read_broadcast, read_current_broadcast,
     signal_path as all_keep_signal_path, signals_dir as all_keep_signals_dir, write_broadcast,
-    write_broadcast_signal, AllKeepBroadcast, AllKeepError, ALL_KEEP_BROADCAST_STALE_SECS,
-    ALL_KEEP_SCHEMA_VERSION, ALL_KEEP_SIGNAL_SUBDIR,
+    write_broadcast_for_generation, write_broadcast_signal, AllKeepBroadcast, AllKeepError,
+    ALL_KEEP_BROADCAST_STALE_SECS, ALL_KEEP_SCHEMA_VERSION, ALL_KEEP_SIGNAL_SUBDIR,
 };
 pub use all_stop_signal::{
-    delete_stop_broadcast, is_stop_broadcast_stale, read_stop_broadcast, scan_stop_broadcasts_dir,
-    stop_signal_path as all_stop_signal_path, stop_signals_dir as all_stop_signals_dir,
-    write_stop_broadcast, write_stop_broadcast_signal, AllStopBroadcast, AllStopError,
-    ALL_STOP_BROADCAST_STALE_SECS, ALL_STOP_SCHEMA_VERSION, ALL_STOP_SIGNAL_SUBDIR,
+    delete_stop_broadcast, is_stop_broadcast_stale, read_current_stop_broadcast,
+    read_stop_broadcast, stop_signal_path as all_stop_signal_path,
+    stop_signals_dir as all_stop_signals_dir, write_stop_broadcast, write_stop_broadcast_signal,
+    AllStopBroadcast, AllStopError, ALL_STOP_BROADCAST_STALE_SECS, ALL_STOP_SCHEMA_VERSION,
+    ALL_STOP_SIGNAL_SUBDIR,
+};
+pub use capture_generation::{
+    active_generation_path, current_generation_path, publish_current_generation,
+    publish_generation_roster, read_active_generation, read_current_generation, CaptureGeneration,
+    CaptureGenerationError, CaptureGenerationMember, CAPTURE_GENERATION_CURRENT,
+    CAPTURE_GENERATION_SCHEMA, CAPTURE_GENERATION_SUBDIR,
 };
 pub use cleanup::{clear_pair_label, exit_record_full, exit_record_preserve_pair};
 pub use delta::{DeltaMode, DeltaResult, DeltaSnapshot};
@@ -84,6 +91,10 @@ pub use license::{
     show_save_button, show_stop_record_button, LiveLicense, SENSE_RECORD_HINT, SENSE_UPSELL_URL,
 };
 pub use measure_thread::{live_window, pair_lock_active, spawn_measure_thread, LivenessEvaluator};
+pub use pair_claim_index::{
+    live_claim_owned_by_other, pair_claim_is_live, publish_pair_claim, read_pair_claim,
+    release_pair_claim, PairClaim, PublishPairClaimOutcome, PAIR_CLAIM_SCHEMA,
+};
 pub use pair_operation_group::{
     active_post_project_uuids_for_operation_group,
     enumerate_active_post_pair_candidates_for_operation_group,
@@ -122,8 +133,7 @@ pub use post_candidates::{
     enumerate_active_post_pair_candidates_for_broadcast_scope,
     enumerate_active_post_pair_candidates_for_daw_session, enumerate_live_post_pair_candidates,
     enumerate_live_post_pair_candidates_for_broadcast_scope,
-    host_scope_has_other_active_post_project, self_check_pair_claim, self_check_pair_claim_exact,
-    PostCandidate,
+    host_scope_has_other_active_post_project, PostCandidate,
 };
 pub use pre_candidates::{
     enumerate_active_pre_pair_candidates, enumerate_live_pre_pair_choices,
@@ -134,17 +144,13 @@ pub use pre_discovery::{
     discover_active_pre_dir_for_pair, discover_active_pre_dirs, PostDiscoveryState,
     DISCOVERY_STALE_SECS,
 };
-pub use pre_self_discovery::{
-    discover_pair_post_project_dir, PreSelfDiscoveryState,
-    DISCOVERY_STALE_SECS as PRE_SELF_DISCOVERY_STALE_SECS,
-};
 pub use preset::{
     compute_preset_checksum, preset_dir, region_resolved, scan_valid_presets, verify_preset,
     PresetFile, Region as PresetRegion, VerifyError as PresetVerifyError, PRESET_SUBDIR,
 };
 pub use preset_dispatch::{
-    dispatch_one as dispatch_preset_one, scan_any_presets, scan_latest_v2_preset,
-    DispatchError as PresetDispatchError, PresetVariant,
+    dispatch_one as dispatch_preset_one, read_current_v2_preset, scan_any_presets,
+    scan_latest_v2_preset, DispatchError as PresetDispatchError, PresetVariant,
 };
 pub use preset_v2::{
     compute_preset_v2_checksum, lookup_section_label, preset_dir_v2, scan_valid_presets_v2,
@@ -167,11 +173,12 @@ pub use record_mark::{
 };
 pub use record_signal::{
     delete_signal, is_timed_out, mark_acknowledged, mark_released, mark_released_with_reason,
-    read_signal, scan_signals_dir, signal_path, signals_dir, write_pending,
-    write_pending_claiming_expected_and_clock, write_pending_with_expected,
+    read_signal, read_target_signal, scan_signals_dir, signal_path, signals_dir,
+    target_signal_path, write_pending, write_pending_claiming_expected_and_clock,
+    write_pending_claiming_expected_and_clock_for_generation, write_pending_with_expected,
     write_pending_with_expected_and_clock, write_signal, RecordSignal, ReleaseReason, SignalError,
     SignalStatus, ACK_TIMEOUT_SECONDS, RECORD_START_BARRIER_DELAY_MS, SIGNALS_SUBDIR,
-    SIGNAL_FILENAME,
+    SIGNAL_FILENAME, TARGET_SIGNALS_SUBDIR,
 };
 pub use record_take::{
     new_record_take_tracker, CaptureClockPoint, CaptureClockSource, PresentationLatencySamples,

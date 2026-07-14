@@ -713,40 +713,46 @@ impl Plugin for HyphaPost {
             let pair_pre_name_for_closure = Arc::clone(&self.params.pair_pre_name);
             let measure_result_for_closure = Arc::clone(&self.measure_result);
             let latched_for_closure = Arc::clone(&self.latched_pre);
-            Arc::new(move |originator_iid: &str, started_at: &str| {
-                let iid_snapshot = read_instance_id_arc(&instance_id_for_closure);
-                let project_hash_snapshot = read_project_hash_arc(&project_hash_for_closure);
-                let daw_session_id_snapshot = read_daw_session_id_arc(&daw_session_id_for_closure);
-                let pair_pre_name_snapshot = pair_pre_name_for_closure
-                    .read()
-                    .ok()
-                    .map(|g| g.clone())
-                    .unwrap_or_default();
-                let m_snapshot = match measure_result_for_closure.lock() {
-                    Ok(g) => g.clone(),
-                    Err(poisoned) => poisoned.into_inner().clone(),
-                };
-                editor::trigger_keep_internal(
-                    license_for_closure.load(),
-                    &record_sm_for_closure,
-                    &iid_snapshot,
-                    &project_hash_snapshot,
-                    &daw_session_id_snapshot,
-                    &pair_label_for_closure,
-                    &paired_pre_target_for_closure,
-                    &m_snapshot,
-                    None,
-                    0.0,
-                    &pair_pre_name_snapshot,
-                    &latched_for_closure, // B-108: ラッチ済みならラッチ先を直接 target に使う
-                    None,
-                );
-                log::info!(
-                    "[all_keep] trigger_keep_internal invoked: originator={} started_at={}",
-                    originator_iid,
-                    started_at
-                );
-            })
+            Arc::new(
+                move |originator_iid: &str,
+                      started_at: &str,
+                      capture_generation: &kirin_measure::CaptureGeneration| {
+                    let iid_snapshot = read_instance_id_arc(&instance_id_for_closure);
+                    let project_hash_snapshot = read_project_hash_arc(&project_hash_for_closure);
+                    let daw_session_id_snapshot =
+                        read_daw_session_id_arc(&daw_session_id_for_closure);
+                    let pair_pre_name_snapshot = pair_pre_name_for_closure
+                        .read()
+                        .ok()
+                        .map(|g| g.clone())
+                        .unwrap_or_default();
+                    let m_snapshot = match measure_result_for_closure.lock() {
+                        Ok(g) => g.clone(),
+                        Err(poisoned) => poisoned.into_inner().clone(),
+                    };
+                    editor::trigger_keep_internal(
+                        license_for_closure.refresh_for_user_action(),
+                        &record_sm_for_closure,
+                        &iid_snapshot,
+                        &project_hash_snapshot,
+                        &daw_session_id_snapshot,
+                        &pair_label_for_closure,
+                        &paired_pre_target_for_closure,
+                        &m_snapshot,
+                        None,
+                        0.0,
+                        &pair_pre_name_snapshot,
+                        &latched_for_closure, // B-108: ラッチ済みならラッチ先を直接 target に使う
+                        None,
+                        Some(capture_generation),
+                    );
+                    log::info!(
+                        "[all_keep] trigger_keep_internal invoked: originator={} started_at={}",
+                        originator_iid,
+                        started_at
+                    );
+                },
+            )
         };
 
         // α-7' All Stop: Stop broadcast 受信 closure。Keep と完全対称形 / toast=None /

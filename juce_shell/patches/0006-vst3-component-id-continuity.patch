@@ -1,0 +1,17 @@
+diff --git a/modules/juce_audio_plugin_client/juce_audio_plugin_client_VST3.cpp b/modules/juce_audio_plugin_client/juce_audio_plugin_client_VST3.cpp
+index 3ec36602b..8752eaf55 100644
+--- a/modules/juce_audio_plugin_client/juce_audio_plugin_client_VST3.cpp
++++ b/modules/juce_audio_plugin_client/juce_audio_plugin_client_VST3.cpp
+@@ -2486,6 +2486,11 @@ public:
+     //==============================================================================
+-   #if JUCE_VST3_CAN_REPLACE_VST2
++   #if defined (KIRIN_HYPHA_VST3_COMPONENT_UID_1)
++    inline static const FUID iid { TUID INLINE_UID (KIRIN_HYPHA_VST3_COMPONENT_UID_1,
++                                                     KIRIN_HYPHA_VST3_COMPONENT_UID_2,
++                                                     KIRIN_HYPHA_VST3_COMPONENT_UID_3,
++                                                     KIRIN_HYPHA_VST3_COMPONENT_UID_4) };
++   #elif JUCE_VST3_CAN_REPLACE_VST2
+     inline static const FUID iid = getFUIDForVST2ID (false);
+    #else
+     inline static const FUID iid { TUID INLINE_UID (0xABCDEF01, 0x9182FAEB, JucePlugin_ManufacturerCode, JucePlugin_PluginCode) };
+    #endif

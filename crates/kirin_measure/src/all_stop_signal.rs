@@ -18,7 +18,7 @@
 //! - `heartbeat`: 将来 throttled re-publish 用 (当面 started_at と同値)
 //!
 //! # 受信側 polling (sub-tick)
-//! 1. [`scan_stop_broadcasts_dir`] で `{project_hash}/all_stop_signal/*.json` 全件読込
+//! 1. [`read_current_stop_broadcast`] で `{project_hash}/all_stop_signal/current.json` を1件読込
 //! 2. `daw_session_id` を主境界として filter。両側 nonempty で一致すれば通し、
 //!    同一 project shelf 内では instance-scoped DAW ID を `host_process_id` で橋渡しする。
 //! 3. memory cache `HashMap<originator_iid, started_at>` で既処理 skip
@@ -39,6 +39,7 @@ use std::path::{Path, PathBuf};
 /// `all_stop_signal/` ディレクトリ名。`exclusion::check_record_exclusion_at` の
 /// 予約名 list に追加して instance_id dir 走査から除外する。
 pub const ALL_STOP_SIGNAL_SUBDIR: &str = "all_stop_signal";
+pub const CURRENT_STOP_FILENAME: &str = "current.json";
 
 /// broadcast schema 現行 version。
 pub const ALL_STOP_SCHEMA_VERSION: u32 = 1;
@@ -110,6 +111,10 @@ pub fn stop_signal_path(
         "all_stop_signal.stop_signal_path.originator",
     );
     stop_signals_dir(base_dir, project_hash).join(format!("{iid}.json"))
+}
+
+pub fn current_stop_path(base_dir: &Path, project_hash: &str) -> PathBuf {
+    stop_signals_dir(base_dir, project_hash).join(CURRENT_STOP_FILENAME)
 }
 
 // ── I/O ──────────────────────────────────────────────────────────────────────
@@ -190,6 +195,7 @@ pub fn write_stop_broadcast_signal(
     let final_path = stop_signal_path(base_dir, project_hash, originator_post_instance_id);
     let json = serde_json::to_vec(broadcast)?;
     crate::atomic_file::write_bytes_atomic(&final_path, &json)?;
+    crate::atomic_file::write_bytes_atomic(&current_stop_path(base_dir, project_hash), &json)?;
     Ok(())
 }
 
@@ -204,6 +210,19 @@ pub fn read_stop_broadcast(
     serde_json::from_slice(&bytes).ok()
 }
 
+pub fn read_current_stop_broadcast(
+    base_dir: &Path,
+    project_hash: &str,
+) -> Option<(String, AllStopBroadcast)> {
+    let bytes = fs::read(current_stop_path(base_dir, project_hash)).ok()?;
+    let broadcast: AllStopBroadcast = serde_json::from_slice(&bytes).ok()?;
+    let originator = broadcast.originator_post_instance_id.trim();
+    if originator.is_empty() {
+        return None;
+    }
+    Some((originator.to_string(), broadcast))
+}
+
 /// broadcast file を削除。不在は成功扱い (R-28 機能的沈黙)。
 ///
 /// 統合点: trigger_stop / HyphaPost::drop / IO Thread shutdown の 3 site で並列呼出。
@@ -214,16 +233,32 @@ pub fn delete_stop_broadcast(
 ) -> Result<(), AllStopError> {
     let path = stop_signal_path(base_dir, project_hash, originator_post_instance_id);
     match fs::remove_file(&path) {
-        Ok(()) => Ok(()),
-        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
-        Err(e) => Err(AllStopError::Io(e)),
+        Ok(()) => {}
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+        Err(e) => return Err(AllStopError::Io(e)),
     }
+    let current = current_stop_path(base_dir, project_hash);
+    let owns_current = fs::read(&current)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<AllStopBroadcast>(&bytes).ok())
+        .is_some_and(|broadcast| {
+            broadcast.originator_post_instance_id == originator_post_instance_id
+        });
+    if owns_current {
+        match fs::remove_file(current) {
+            Ok(()) => {}
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(e) => return Err(AllStopError::Io(e)),
+        }
+    }
+    Ok(())
 }
 
 /// `{project_hash}/all_stop_signal/` 配下の `*.json` を全件読み込んで返す。
 ///
 /// 各要素は `(originator_post_instance_id, AllStopBroadcast)`。
 /// パース不能 / I/O 失敗ファイルは silently skip。返値は instance_id 辞書順。
+#[cfg(test)]
 pub fn scan_stop_broadcasts_dir(
     base_dir: &Path,
     project_hash: &str,
@@ -252,6 +287,9 @@ pub fn scan_stop_broadcasts_dir(
     for entry in entries.flatten() {
         let path = entry.path();
         if path.extension().and_then(|s| s.to_str()) != Some("json") {
+            continue;
+        }
+        if path.file_name().and_then(|name| name.to_str()) == Some(CURRENT_STOP_FILENAME) {
             continue;
         }
         let Some(stem) = path
@@ -353,7 +391,26 @@ mod tests {
         assert_eq!(result.host_process_id, std::process::id());
         let path = stop_signal_path(&base, "ph", "originator-1");
         assert!(path.exists());
+        assert_eq!(
+            read_current_stop_broadcast(&base, "ph").unwrap(),
+            ("originator-1".to_string(), result)
+        );
         assert_eq!(crate::atomic_file::remove_temp_siblings(&path).unwrap(), 0);
+    }
+
+    #[test]
+    fn deleting_old_originator_does_not_remove_new_current_stop() {
+        let base = isolated_dir();
+        write_stop_broadcast(&base, "ph", "originator-old", "session-A".into()).unwrap();
+        let newest =
+            write_stop_broadcast(&base, "ph", "originator-new", "session-A".into()).unwrap();
+
+        delete_stop_broadcast(&base, "ph", "originator-old").unwrap();
+
+        assert_eq!(
+            read_current_stop_broadcast(&base, "ph"),
+            Some(("originator-new".into(), newest))
+        );
     }
 
     #[test]

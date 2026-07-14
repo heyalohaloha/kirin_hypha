@@ -131,7 +131,7 @@ fn editor_rs_contains_t_e_t_f_render_helpers() {
         "fn current_playback_time",
         "fn draw_proposals_block",
         "fn severity_glyph",
-        "scan_latest_v2_preset(",
+        "read_current_v2_preset(",
         "lookup_section_label(",
     ] {
         assert!(
@@ -382,8 +382,8 @@ fn editor_rs_keep_uses_authoritative_reservation_cap() {
     let body = &src[start..end];
 
     assert!(
-        body.contains("reservation::sweep_stale_reservations"),
-        "Keep must sweep stale reservation frames before counting the cap"
+        !body.contains("reservation::sweep_stale_reservations"),
+        "Keep must delegate bounded current-project recovery to reserve_pairing, never sweep all projects"
     );
     assert!(
         !body.contains("check_record_exclusion"),

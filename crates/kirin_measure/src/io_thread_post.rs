@@ -1,17 +1,17 @@
 //! IO Thread — POST 側（A-3 修正後）。
 //!
 //! 100ms ループで:
-//! 1. `$TMPDIR/kirin/{project_hash}/*/pre.json` を全 instance_id 横断で走査
-//! 2. 最新 `t` を持つ PRE を選択
-//! 3. Δ = POST − PRE を算出、鮮度判定
-//! 4. `$TMPDIR/kirin/{project_hash}/{self.instance_id}/post.json` にアトミック書込
+//! 1. 確定済みPREの1本の `pre.json` を直接読む（未確定時だけ名前解決をbounded実行）
+//! 2. Δ = POST − PRE を算出、鮮度判定
+//! 3. `$TMPDIR/kirin/{project_hash}/{self.instance_id}/post.json` にアトミック書込
+//! 4. PRE固有の1本のpair claimを公開
 //! 5. `Arc<Mutex<DeltaResult>>` を更新
 //! 6. Record mode 時: `plugin_data/{project_hash}/{instance_id}/post/*.json` に
 //!    Frame (10 fps) / PSB (2 fps) を追記、30 秒毎に flush
 //!
 //! - このスレッドが panic / 権限エラーで止まっても Audio Thread / Measure Thread は継続
 //! - Drop 時に post.json 自体は削除しない。実行体固有 lease を解放すると新 reader から
-//!   即座に不可視になり、legacy 残骸だけは mtime + 起動時 sweep で扱う。
+//!   即座に不可視になる。起動時の履歴sweepは行わない。
 //! - Record 中に終了した場合、保留中の writer は status=closed で flush してから閉じる
 
 use std::collections::HashMap;
@@ -31,11 +31,10 @@ use crate::pairing_scope::{
     read_pre_at, select_target_pre_for_arm_for_post_project_in_session, LatchedPre,
 };
 use crate::plugin_data::Role as PluginDataRole;
-use crate::post_candidates::self_check_pair_claim_exact;
 #[cfg(test)]
 use crate::post_candidates::{
     discover_active_post_dirs, enumerate_active_post_pair_candidates, scan_post_candidates_in,
-    self_check_pair_claim, PostTmpJson,
+    self_check_pair_claim, self_check_pair_claim_exact, PostTmpJson,
 };
 use crate::pre_discovery::PostDiscoveryState;
 #[cfg(test)]
@@ -51,7 +50,6 @@ use crate::storage::{PlatformPaths, StoragePaths};
 use crate::{load_signal_state, MeasureResult, RecordTakeTracker, RecordTraceQueue, SignalState};
 
 const LOOP_SLEEP: Duration = Duration::from_millis(100);
-const LATE_EXPECTED_RECONCILE_INTERVAL: Duration = Duration::from_secs(1);
 
 /// B-206/B-225/B-243: Record idle auto-stop の既定しきい値（秒）。
 /// Record 中に 10 分以上 Active が無ければ、利用者の Stop 漏れ相当として graceful 停止する。
@@ -196,7 +194,7 @@ const STALE_SECS: i64 = 5; // B-046: 2→5 (fs I/O backpressure 吸収 / G-115-2
 /// B-059: `pairing_scope::select_target_pre` の freshness gate でも単一ソースとして参照。
 pub(crate) const NO_PRE_SECS: i64 = 10;
 
-/// preset/ ポーリング間隔（サブ3-C-2: 1 秒）。
+/// producer-owned preset/current.json ポーリング間隔（固定 1 path / 1 秒）。
 const PRESET_POLL_INTERVAL: Duration = Duration::from_secs(1);
 
 /// record_signal.json ACK タイムアウト監視間隔（G-60-02: 1 秒）。
@@ -209,8 +207,7 @@ const ACK_TIMEOUT_POLL_INTERVAL: Duration = Duration::from_secs(1);
 const PAIR_LABEL_POLL_INTERVAL: Duration = LOOP_SLEEP;
 
 /// B-027 段階 3-B α-7-4-C / Step 10: all_keep_signal broadcast polling 間隔。
-/// 100ms tick で毎回 `scan_broadcasts_dir` (= read_dir + per-file read + parse) を回すと
-/// disk I/O が嵩むため 1 秒 throttle (ack/preset/pair_label と同位相 / 体感差は無視可能)。
+/// project-local `current.json` 1 件を 1 秒間隔で読む。履歴や originator 数に比例しない。
 const ALL_KEEP_POLL_INTERVAL: Duration = Duration::from_secs(1);
 
 /// B-024 Group A / Gap-2: PRE 死活確認 sub-tick の間隔 (1 秒 / 既存 PRESET / ACK /
@@ -227,7 +224,8 @@ const PRE_LIVENESS_STALE_SECS: u64 = 60;
 /// hypha_post 逆依存不可) を回避するため、closure 構築は呼出側 (hypha_post::lib.rs)
 /// で完結し本 crate は Arc<dyn Fn> として受領するのみ。`clippy::type_complexity`
 /// (rust-clippy 1.94) を type alias で抑制。
-pub type TriggerPairResolutionFn = Arc<dyn Fn(&str, &str) + Send + Sync>;
+pub type TriggerPairResolutionFn =
+    Arc<dyn Fn(&str, &str, &crate::capture_generation::CaptureGeneration) + Send + Sync>;
 
 /// α-7' All Stop: broadcast 受信時に発火する Stop trigger closure 型。
 /// `TriggerPairResolutionFn` と同シグネチャ (`(originator_iid, started_at)`) で
@@ -250,7 +248,7 @@ pub type ReleasePairBindingIfCurrentFn = Arc<dyn Fn(&str, u64) -> bool + Send + 
 /// - `record_sm`          : Watch/Record 判定用（editor.rs から共有）
 /// - `post_result`        : Measure Thread が更新する POST 側計測結果
 /// - `delta_result`       : この IO Thread が更新する Δ結果
-/// - `preset_available`   : 1 秒ごとに preset/ を ls して更新
+/// - `preset_available`   : 1 秒ごとに producer-owned `preset/current.json` だけを確認
 /// - `paired_pre_target`  : trigger_keep が選定した PRE instance_id（v1.2 (a)
 ///   cross-instance pair 復元キー）。Watch 中は None、Keep 成功直後に Some、Stop で None
 /// - `shutdown`           : `true` になったらループ終了
@@ -279,7 +277,7 @@ pub fn spawn_io_thread_post(
     signal_state: Arc<AtomicU8>,
     is_playing: Arc<AtomicBool>,
     preset_available: Arc<AtomicBool>,
-    license: impl Into<crate::LiveLicense>,
+    _license: impl Into<crate::LiveLicense>,
     paired_pre_target: Arc<Mutex<Option<String>>>,
     shutdown: Arc<AtomicBool>,
     pair_label: Arc<Mutex<String>>,
@@ -326,7 +324,6 @@ pub fn spawn_io_thread_post(
     // keep/keep_all/broadcast 受信が `resolve_arm_target` で読む（egui/JUCE 両殻が同実体を渡す）。
     latched_pre: Arc<Mutex<Option<LatchedPre>>>,
 ) -> JoinHandle<()> {
-    let license = license.into();
     thread::spawn(move || {
         // B-128 (G-115-370): 観測 family（io_thread）入口の identity materialize（唯一の検証点）。
         // restore 由来の path-unsafe な project_hash / instance_id セルを正規化し、path-unsafe なら
@@ -367,35 +364,9 @@ pub fn spawn_io_thread_post(
             kirin_root.display()
         );
 
-        // B-025 Group B-1 / Gap-8: 30 秒 flush 周期中の DAW crash で残った
-        // `*.json.tmp` を整合 verify (HMAC-SHA256) → `.json` に atomic rename で救出。
-        // 不整合 .tmp は warn ログのみで残置 (削除しない / 約束 5 原則)。loop 前 1 回。
-        if let Ok(paths) = StoragePaths::default_platform() {
-            let _ = crate::record_writer::recover_orphan_tmps(&paths.plugin_data_dir());
-        }
-
-        // B-103: dead Pending record_signal を起動時掃除（PRE 経路と冪等・age ベース保守条件）。
-        record_signal::sweep_stale_pending_at_startup();
-
-        // B-320: teardown では pre/post watch JSON を削除しない。代わりに起動時だけ
-        // 十分古い `/tmp/kirin/*/*/{pre,post}.json` を sweep する。
-        crate::watch_tmp_cleanup::sweep_stale_watch_files_at_startup();
-
-        // B-127 (G-115-364): 孤児 reservation 枠（keep が active marker 生成前にクラッシュ等 /
-        // age > RESERVATION_TTL_SECS）を起動時掃除（B-103 と合流・age ベース・冪等）。
-        if let Ok(paths) = StoragePaths::default_platform() {
-            let _ = crate::reservation::sweep_stale_reservations_in(
-                &paths.plugin_data_dir(),
-                chrono::Utc::now(),
-            );
-        }
-
-        // B-026 / Gap-9: crash 残骸 `pre/{compact}.json` / `post/{compact}.json`
-        // のうち status=Active かつ mtime > 60s のファイルを status=Closed に
-        // 書換 (Lens 側「進行中 Record」誤認の構造的解消)。loop 前 1 回。
-        if let Ok(paths) = StoragePaths::default_platform() {
-            let _ = crate::record_writer::sweep_stale_active_at_startup(&paths.plugin_data_dir());
-        }
+        // Exact capture generations and direct lifecycle paths make historical artifacts
+        // non-authoritative. A POST startup performs no plugin_data or /tmp history sweep;
+        // recovery belongs to the exact transaction that is explicitly opened by Keep/Drop.
 
         // B-027 段階 3-B α-7-1 / Step 6: 引数を closure scope に capture。
         // Step 11 で `license_for_thread` は撤去 (closure 経由案 / 呼出側 lib.rs で
@@ -417,12 +388,10 @@ pub fn spawn_io_thread_post(
         let mut self_check_release_gate = SelfCheckReleaseGate::default();
 
         let mut recording: Option<RecordingCtx> = None;
-        let mut last_entitlement_refresh = Instant::now();
-        let mut last_preset_count: Option<usize> = None;
+        let mut last_preset_available: Option<bool> = None;
         let mut next_preset_poll = Instant::now();
         let mut next_ack_timeout_poll = Instant::now();
         let mut next_pair_label_poll = Instant::now();
-        let mut next_late_expected_reconcile = Instant::now() + LATE_EXPECTED_RECONCILE_INTERVAL;
         // B-027 段階 3-B α-7-4-C / Step 10: all_keep_signal broadcast 受信側 cache。
         // key = `originator_post_instance_id`、value = `(started_at, last_seen)`。
         //
@@ -437,8 +406,13 @@ pub fn spawn_io_thread_post(
         let mut next_all_keep_poll = Instant::now();
         // B-024 Group A / Gap-2: PRE 死活監視 sub-tick の next-fire 時刻。
         let mut next_pre_liveness_poll = Instant::now();
+        let mut next_reservation_lease_refresh = Instant::now();
+        let mut next_closed_drop_poll = Instant::now();
+        let mut completed_closed_drop_session: Option<String> = None;
         let mut discovery = PostDiscoveryState::new();
         let mut watch_lease = crate::watch_snapshot_lease::WatchSnapshotLease::new();
+        let mut owned_pair_claim: Option<crate::pair_claim_index::PairClaim> = None;
+        let mut next_pair_claim_publish = Instant::now();
         // B-243: Record idle auto-stop は「10分以上無音」の正当停止理由。Active 信号 /
         // 非Record で基点更新し、Record 中に連続無Active がしきい値を超えたら graceful 停止。
         let mut idle_anchor = Instant::now();
@@ -453,12 +427,6 @@ pub fn spawn_io_thread_post(
                 break;
             }
 
-            if last_entitlement_refresh.elapsed() >= Duration::from_millis(250) {
-                // License は次回 Keep の開始 gate。開始済み Keep の停止権限は持たない。
-                let _ = license.refresh_from_disk();
-                last_entitlement_refresh = Instant::now();
-            }
-
             // B-022 段階 1: tick 開始時に instance_id を lazy-read。
             // `Arc<RwLock<String>>` は plugin params と同実体を共有するため、
             // `set_state_inner` 経由で chunk-restored 値が書かれた直後でも
@@ -471,6 +439,31 @@ pub fn spawn_io_thread_post(
             let project_hash_ref = project_hash_owned.as_str();
             let daw_session_id_owned = read_daw_session_id_arc(&daw_session_id_arc);
             let daw_session_id_ref = daw_session_id_owned.as_str();
+
+            // Reservation liveness is one exact inode, refreshed by its POST owner. This replaces
+            // startup/history sweeps and lets a later explicit Keep reclaim a crashed owner after
+            // TTL without enumerating plugin_data. Failure is non-authoritative and never stops an
+            // active Record.
+            if record_sm.is_recording() && Instant::now() >= next_reservation_lease_refresh {
+                if let (Some(pre_instance_id), Ok(paths)) = (
+                    paired_pre_target
+                        .lock()
+                        .ok()
+                        .and_then(|guard| guard.clone()),
+                    StoragePaths::default_platform(),
+                ) {
+                    let _ = crate::reservation::refresh_pairing(
+                        &paths.plugin_data_dir(),
+                        project_hash_ref,
+                        &pre_instance_id,
+                        instance_id_ref,
+                    );
+                }
+                next_reservation_lease_refresh = Instant::now()
+                    + Duration::from_secs(crate::reservation::RESERVATION_LEASE_REFRESH_SECS);
+            } else if !record_sm.is_recording() {
+                next_reservation_lease_refresh = Instant::now();
+            }
             // B-128 (G-115-370): within-base wall。POST post.json は inline writer ゆえ builder 関数を
             // 通らない。spawn 時 normalize_observation_cell に加え、ここでも guard して PRE(io_dir 毎回
             // guard)との DiD parity を取る（cell が spawn 後に path-unsafe 化しても base 内に留める）。
@@ -500,7 +493,8 @@ pub fn spawn_io_thread_post(
                 pair_claimed_at_for_thread.read().map(|g| *g).unwrap_or(0.0);
 
             // W-281 / C-3: 1 sec interval で後着優先 self check を発火。
-            // pair_pre_name が空 or 自身が唯一の claim 者 → release 不要。
+            // PRE 固有の1本の claim と、その所有 POST lease だけを直接確認する。project 配下の
+            // POST 列挙は行わない。exact PRE が未確定なら競合を断定できないため release しない。
             // 解放対象 → C-4 経路で pair_pre_name="" / pair_claimed_at=0.0 + Toast 通知。
             // W-284 / G-115-252: Record 中は self_check を skip。Record 中に self_check
             // が release を発火すると pair_pre_name="" + delta_result clear (W-282)
@@ -515,26 +509,24 @@ pub fn spawn_io_thread_post(
             let self_check_allowed = !record_sm.is_recording()
                 && !transport_playing
                 && load_signal_state(&signal_state) != SignalState::Active;
-            if (pair_pre_name_snapshot.is_empty() && paired_pre_instance_id_snapshot.is_none())
-                || !self_check_allowed
-            {
+            if paired_pre_instance_id_snapshot.is_none() || !self_check_allowed {
                 self_check_release_gate.reset();
             } else if tick_now.duration_since(last_self_check_at) >= Duration::from_secs(1) {
                 last_self_check_at = tick_now;
-                let conflict = self_check_pair_claim_exact(
-                    &project_dir_hint,
+                let exact_pre = paired_pre_instance_id_snapshot
+                    .as_deref()
+                    .expect("checked exact PRE above");
+                let conflict = crate::pair_claim_index::live_claim_owned_by_other(
+                    &kirin_root,
+                    exact_pre,
+                    project_hash_ref,
                     instance_id_ref,
-                    &pair_pre_name_snapshot,
-                    paired_pre_instance_id_snapshot.as_deref().unwrap_or(""),
                     pair_claimed_at_snapshot,
                 );
-                let pair_key = paired_pre_instance_id_snapshot
-                    .as_deref()
-                    .unwrap_or(&pair_pre_name_snapshot);
                 if !conflict {
                     self_check_release_gate.reset();
                 } else if self_check_release_gate
-                    .observe_conflict(pair_key, pair_claimed_at_snapshot)
+                    .observe_conflict(exact_pre, pair_claimed_at_snapshot)
                 {
                     // 判定後のrename/re-Keepを古い判定で破壊しない。所有層のtransition lock内で
                     // name+generationを再照合し、現世代だった場合だけ全bindingを解放する。
@@ -574,7 +566,7 @@ pub fn spawn_io_thread_post(
             let pair_claimed_at_snapshot =
                 pair_claimed_at_for_thread.read().map(|g| *g).unwrap_or(0.0);
 
-            match run_tick(
+            let post_snapshot_written = match run_tick(
                 &project_dir_hint,
                 &kirin_root,
                 &mut discovery,
@@ -593,8 +585,84 @@ pub fn spawn_io_thread_post(
                 record_sm.is_recording(),
                 &latched_pre,
             ) {
-                Ok(()) => {}
-                Err(e) => log::warn!("[IOThread POST] tick error: {}", e),
+                Ok(()) => true,
+                Err(e) => {
+                    log::warn!("[IOThread POST] tick error: {}", e);
+                    false
+                }
+            };
+
+            // The exact PRE ownership index is published only after this POST's atomic snapshot
+            // already contains the same binding generation. A PRE UI and a competing POST read
+            // one fixed claim, then one fixed post.json; neither path enumerates a directory.
+            let current_pre = crate::paired_pre_instance_id(&latched_pre);
+            let current_claimed_at = pair_claimed_at_for_thread
+                .read()
+                .map(|value| *value)
+                .unwrap_or(0.0);
+            if let Some(owned) = owned_pair_claim.as_ref() {
+                if Instant::now() >= next_pair_claim_publish {
+                    let current = crate::pair_claim_index::read_pair_claim(
+                        &kirin_root,
+                        owned.host_process_id,
+                        &owned.pre_instance_id,
+                    );
+                    if current.as_ref() != Some(owned)
+                        || !crate::pair_claim_index::pair_claim_is_live(&kirin_root, owned)
+                    {
+                        owned_pair_claim = None;
+                    }
+                    next_pair_claim_publish = Instant::now() + Duration::from_secs(1);
+                }
+            }
+            let desired_matches_owned = owned_pair_claim.as_ref().is_some_and(|owned| {
+                current_pre.as_deref() == Some(owned.pre_instance_id.as_str())
+                    && owned.project_hash == project_hash_ref
+                    && owned.post_instance_id == instance_id_ref
+                    && owned.post_watch_owner_id == watch_lease.owner_id()
+                    && owned.pair_claimed_at_bits == current_claimed_at.to_bits()
+            });
+            if !desired_matches_owned {
+                if let Some(previous) = owned_pair_claim.take() {
+                    let _ = crate::pair_claim_index::release_pair_claim(&kirin_root, &previous);
+                }
+                next_pair_claim_publish = Instant::now();
+            }
+            if post_snapshot_written
+                && owned_pair_claim.is_none()
+                && current_claimed_at.is_finite()
+                && current_claimed_at > 0.0
+                && Instant::now() >= next_pair_claim_publish
+            {
+                if let Some(pre_instance_id) = current_pre.as_deref() {
+                    match crate::pair_claim_index::publish_pair_claim(
+                        &kirin_root,
+                        pre_instance_id,
+                        project_hash_ref,
+                        instance_id_ref,
+                        watch_lease.owner_id(),
+                        crate::post_candidates::current_host_process_id(),
+                        current_claimed_at,
+                    ) {
+                        Ok(
+                            crate::pair_claim_index::PublishPairClaimOutcome::Published
+                            | crate::pair_claim_index::PublishPairClaimOutcome::AlreadyOwner,
+                        ) => {
+                            owned_pair_claim = crate::pair_claim_index::read_pair_claim(
+                                &kirin_root,
+                                crate::post_candidates::current_host_process_id(),
+                                pre_instance_id,
+                            );
+                        }
+                        Ok(crate::pair_claim_index::PublishPairClaimOutcome::OwnedByOther) => {}
+                        Err(error) => log::debug!(
+                            "[POST pair claim] exact publish deferred: instance_id={} error={}",
+                            instance_id_ref,
+                            error
+                        ),
+                    }
+                    next_pair_claim_publish = Instant::now() + Duration::from_secs(1);
+                }
             }
 
             // plugin_data/.../post/*.json ライフサイクル
@@ -700,6 +768,43 @@ pub fn spawn_io_thread_post(
                 log::warn!("[writer] tick error: {}", e);
             }
 
+            // A user may explicitly Stop before Drop. The producer still knows the exact closed
+            // session and paired PRE, so poll one commit path and inspect only that pair's fixed
+            // `.failed/.pair_pending` files. No project recursion or history convergence runs in
+            // the steady-state IO loop.
+            if !record_sm.is_recording() && Instant::now() >= next_closed_drop_poll {
+                if let (Some(session_id), Some(pre_instance_id), Ok(paths)) = (
+                    record_sm.last_closed_session_id(),
+                    paired_pre_target
+                        .lock()
+                        .ok()
+                        .and_then(|guard| guard.clone()),
+                    StoragePaths::default_platform(),
+                ) {
+                    if completed_closed_drop_session.as_deref() != Some(session_id.as_str()) {
+                        let base = paths.plugin_data_dir();
+                        let reconciled =
+                            crate::plugin_data::reconcile_drop_committed_closed_session(
+                                &base,
+                                project_hash_ref,
+                                &session_id,
+                                &pre_instance_id,
+                                instance_id_ref,
+                            );
+                        if reconciled > 0
+                            || crate::plugin_data::pair_record_session_manifest_exists(
+                                &base,
+                                project_hash_ref,
+                                &session_id,
+                            )
+                        {
+                            completed_closed_drop_session = Some(session_id);
+                        }
+                    }
+                }
+                next_closed_drop_poll = Instant::now() + Duration::from_secs(1);
+            }
+
             // ── B-243: Record idle auto-stop（10分以上無音）────────────────────────
             // KEEP は POST 側の操作なので、本機構は POST 主導。ただし通常運用では
             // Stop/All Stop と、この連続無Active timeout だけを Record 停止権限にする。
@@ -766,7 +871,7 @@ pub fn spawn_io_thread_post(
                 poll_preset_availability(
                     project_hash_ref,
                     &preset_available,
-                    &mut last_preset_count,
+                    &mut last_preset_available,
                 );
                 next_preset_poll = Instant::now() + PRESET_POLL_INTERVAL;
             }
@@ -800,19 +905,12 @@ pub fn spawn_io_thread_post(
             // Record 中でも stem/offline export 後は PRE pre.json の mtime が止まるため、
             // ここで Record を自動解除しない。Keep は利用者の Stop 操作まで保持する。
             if Instant::now() >= next_pre_liveness_poll {
-                poll_pre_liveness(
-                    &kirin_root,
-                    project_hash_ref,
-                    instance_id_ref,
-                    &record_sm,
-                    &pair_label,
-                    &paired_pre_target,
-                );
+                poll_latched_pre_liveness(instance_id_ref, &record_sm, &latched_pre);
                 next_pre_liveness_poll = Instant::now() + PRE_LIVENESS_POLL_INTERVAL;
             }
 
             // α-7' All Stop: Stop broadcast 受信 sub-tick (Keep より先に処理 / Stop 優先)。
-            // 1 秒 throttle で `plugin_data/{ph}/all_stop_signal/*.json` を全件 scan し、
+            // 1 秒 throttle で `plugin_data/{ph}/all_stop_signal/current.json` だけを読み、
             // 新 broadcast を `processed_stop_broadcasts` cache に登録 + `trigger_stop_resolution`
             // closure 発火。Keep と並列の同型ロジック (cross-process filter / self skip /
             // 既処理 skip / stale fallback / GC)。
@@ -824,8 +922,8 @@ pub fn spawn_io_thread_post(
                     let daw_session_id_snapshot = read_daw_session_id_arc(&daw_session_id_arc);
                     let host_process_id_snapshot = crate::current_host_process_id();
                     let stop_broadcasts =
-                        all_stop_signal::scan_stop_broadcasts_dir(&base_dir, project_hash_ref);
-                    for (originator_iid, broadcast) in stop_broadcasts {
+                        all_stop_signal::read_current_stop_broadcast(&base_dir, project_hash_ref);
+                    for (originator_iid, broadcast) in stop_broadcasts.into_iter().take(1) {
                         if !broadcast_scope_or_same_project_host_matches(
                             &daw_session_id_snapshot,
                             host_process_id_snapshot,
@@ -886,7 +984,7 @@ pub fn spawn_io_thread_post(
             }
 
             // B-027 段階 3-B α-7-4-C / Step 10: all_keep_signal broadcast 受信 sub-tick。
-            // 1 秒 throttle で `plugin_data/{ph}/all_keep_signal/*.json` を全件 scan し、
+            // 1 秒 throttle で `plugin_data/{ph}/all_keep_signal/current.json` だけを読み、
             // 新 broadcast を `processed_broadcasts` cache に登録する (検出 + cache + log
             // のみ / `trigger_keep_internal` 発火は Step 11 で本箇所に追加予定)。
             //
@@ -908,8 +1006,8 @@ pub fn spawn_io_thread_post(
                     let daw_session_id_snapshot = read_daw_session_id_arc(&daw_session_id_arc);
                     let host_process_id_snapshot = crate::current_host_process_id();
                     let broadcasts =
-                        all_keep_signal::scan_broadcasts_dir(&base_dir, project_hash_ref);
-                    for (originator_iid, broadcast) in broadcasts {
+                        all_keep_signal::read_current_broadcast(&base_dir, project_hash_ref);
+                    for (originator_iid, broadcast) in broadcasts.into_iter().take(1) {
                         // 1. cross-process 防壁
                         if !broadcast_scope_or_same_project_host_matches(
                             &daw_session_id_snapshot,
@@ -979,7 +1077,39 @@ pub fn spawn_io_thread_post(
                             broadcast.started_at,
                             scan_dir.display()
                         );
-                        (trigger_pair_resolution)(&originator_iid, &broadcast.started_at);
+                        // v1 broadcasts have no generation and cannot safely arm a new
+                        // transaction: selecting them would re-introduce time-based grouping.
+                        if broadcast.capture_generation_id.trim().is_empty()
+                            || broadcast.generation_started_at_ms <= 0
+                        {
+                            log::debug!(
+                                "[all_keep] legacy broadcast skipped without generation: originator={}",
+                                originator_iid
+                            );
+                            continue;
+                        }
+                        let generation = match crate::capture_generation::read_current_generation(
+                            &base_dir,
+                            project_hash_ref,
+                        ) {
+                            Ok(Some(generation))
+                                if generation.capture_generation_id
+                                    == broadcast.capture_generation_id
+                                    && generation.started_at_ms
+                                        == broadcast.generation_started_at_ms
+                                    && generation
+                                        .member(project_hash_ref, instance_id_ref)
+                                        .is_some() =>
+                            {
+                                generation
+                            }
+                            _ => continue,
+                        };
+                        (trigger_pair_resolution)(
+                            &originator_iid,
+                            &broadcast.started_at,
+                            &generation,
+                        );
                     }
                     // 6. GC: ACK_TIMEOUT_SECONDS 経過 cache 削除
                     let timeout = Duration::from_secs(ACK_TIMEOUT_SECONDS as u64);
@@ -990,23 +1120,13 @@ pub fn spawn_io_thread_post(
                 next_all_keep_poll = Instant::now() + ALL_KEEP_POLL_INTERVAL;
             }
 
-            if Instant::now() >= next_late_expected_reconcile {
-                if let Ok(paths) = StoragePaths::default_platform() {
-                    let reconciled = crate::plugin_data::reconcile_late_expected_wav_project(
-                        &paths.plugin_data_dir(),
-                        project_hash_ref,
-                    );
-                    if reconciled > 0 {
-                        log::info!(
-                            "[record_expected] late WAV reconcile updated {} side(s)",
-                            reconciled
-                        );
-                    }
-                }
-                next_late_expected_reconcile = Instant::now() + LATE_EXPECTED_RECONCILE_INTERVAL;
-            }
-
             thread::sleep(LOOP_SLEEP);
+        }
+
+        // Conditional release is serialized by the same per-PRE OS lock. If a newer POST already
+        // replaced this claim, the old teardown cannot remove the new owner's pointer.
+        if let Some(claim) = owned_pair_claim.take() {
+            let _ = crate::pair_claim_index::release_pair_claim(&kirin_root, &claim);
         }
 
         // 終了処理: 直近 tick の instance_id でクリーンアップ。
@@ -1181,9 +1301,8 @@ fn broadcast_scope_or_same_project_host_matches(
 ///
 /// # B-021 Phase 1A: filesystem-discovery の優先順位
 ///
-/// `kirin_root` (= `$TMPDIR/kirin/`) を `discovery` 経由で 1 秒に 1 回 scan し、
-/// active な PRE が居る `{project_uuid}/` dir を採用する。検出できない場合のみ
-/// `project_dir_hint` (POST 自身の project_uuid 由来) にフォールバック。
+/// Pair未確定時だけ `discovery` が名前候補を1秒間隔で解決する。いったん exact PRE を
+/// latchした後は、その1本の `pre.json` だけを読み、再走査しない。
 ///
 /// `instance_dir` (POST 自身の post.json 書込先) は変更しない。POST 自身の
 /// `project_uuid` で構築された path のままで、検出された PRE dir とは独立。
@@ -1258,6 +1377,7 @@ fn compute_latched_display(
         post,
         pair_opt,
         recording,
+        true,
         latched,
     )
 }
@@ -1271,6 +1391,7 @@ fn compute_latched_display_for_post_project(
     post: &MeasureResult,
     _pair_opt: Option<&str>,
     recording: bool,
+    allow_unlatched_resolution: bool,
     latched: &Mutex<Option<LatchedPre>>,
 ) -> Result<(DeltaResult, bool, Option<SignalState>), String> {
     let current = latched.lock().ok().and_then(|g| g.clone());
@@ -1340,6 +1461,9 @@ fn compute_latched_display_for_post_project(
     if pair_pre_name.is_empty() {
         return Ok(delta_no_pre());
     }
+    if !allow_unlatched_resolution {
+        return Ok(delta_no_pre());
+    }
     match select_target_pre_for_arm_for_post_project_in_session(
         kirin_root,
         pair_pre_name,
@@ -1383,7 +1507,7 @@ fn run_tick(
     // (単一最新 dir の throttle/cache) は不要化（caller は据え置きで `_` 受け）。
     _project_dir_hint: &Path,
     kirin_root: &Path,
-    _discovery: &mut PostDiscoveryState,
+    discovery: &mut PostDiscoveryState,
     instance_dir: &Path,
     post_file: &Path,
     instance_id: &str,
@@ -1437,6 +1561,18 @@ fn run_tick(
 
     // B-108: ラッチ意味論で表示Δを決める（select_target_pre 直呼びを廃止）。一度成立した結合は
     // 無音/停止/一時鮮度揺らぎ/同名2台目では NoPre に落とさず、解除は名前変更/クリアと PRE 実消滅のみ。
+    let needs_resolution = !pair_pre_name.is_empty()
+        && latched
+            .lock()
+            .map(|binding| binding.is_none())
+            .unwrap_or(true);
+    let resolution_now = Instant::now();
+    let allow_unlatched_resolution = !needs_resolution || discovery.should_rescan(resolution_now);
+    if needs_resolution && allow_unlatched_resolution {
+        // Record the bounded discovery attempt even when no PRE exists. Otherwise an unresolved
+        // selector would walk the live registry on every 100 ms IO tick.
+        discovery.record_scan(resolution_now, None);
+    }
     let (new_delta, store_directly, pre_signal_state) = compute_latched_display_for_post_project(
         kirin_root,
         pair_pre_name,
@@ -1445,6 +1581,7 @@ fn run_tick(
         &post,
         pair_opt,
         recording,
+        allow_unlatched_resolution,
         latched,
     )?;
 
@@ -2187,6 +2324,8 @@ fn poll_ack_timeout(
     );
 }
 
+/// Legacy test helper. Runtime liveness uses the exact `LatchedPre::pre_json` path and never scans
+/// project directories.
 /// B-024 Group A / Gap-2: kirin_root 配下の全 project_hash を横断 scan して
 /// `*/{pre_iid}/pre.json` の中で最新 mtime を返す。
 ///
@@ -2197,6 +2336,7 @@ fn poll_ack_timeout(
 ///
 /// R-28 機能的沈黙: 各エラー (read_dir 不能 / metadata 不能 / modified 不能) は
 /// 当該 dir/file のみ skip。全件失敗 / 不在なら None。
+#[cfg(test)]
 fn find_pre_json_mtime(kirin_root: &Path, pre_iid: &str) -> Option<SystemTime> {
     if pre_iid.is_empty() {
         return None;
@@ -2247,6 +2387,7 @@ fn find_pre_json_mtime(kirin_root: &Path, pre_iid: &str) -> Option<SystemTime> {
 ///   2. `now - mtime > PRE_LIVENESS_STALE_SECS` (60 秒 / G-50-33) または mtime 不在を検出
 ///   3. 検出時も Record は維持する。stem/offline export 後は DAW が process 更新を止めるため、
 ///      ここで `exit_record_full` すると Keep が利用者の Stop 前に消える。
+#[cfg(test)]
 fn poll_pre_liveness(
     kirin_root: &Path,
     project_hash: &str,
@@ -2281,6 +2422,7 @@ fn poll_pre_liveness(
 /// `poll_pre_liveness` の純粋ロジック版 (テスト容易性のため `now` と `plugin_data_root`
 /// を注入)。Production は `poll_pre_liveness` を経由する。
 #[allow(clippy::too_many_arguments)]
+#[cfg(test)]
 fn poll_pre_liveness_at(
     kirin_root: &Path,
     _plugin_data_root: &Path,
@@ -2308,6 +2450,41 @@ fn poll_pre_liveness_at(
         pre_iid,
         self_post_iid
     );
+}
+
+/// Record liveness diagnostic on one producer-selected PRE path. This never changes Record state:
+/// offline bounce can legitimately stop Watch updates, and only Stop/Drop/idle timeout own the
+/// Record lifecycle.
+fn poll_latched_pre_liveness(
+    self_post_iid: &str,
+    record_sm: &Arc<RecordStateMachine>,
+    latched: &Mutex<Option<LatchedPre>>,
+) {
+    if !record_sm.is_recording() {
+        return;
+    }
+    let Some(pre) = latched.lock().ok().and_then(|binding| binding.clone()) else {
+        return;
+    };
+    let stale = match fs::metadata(&pre.pre_json)
+        .ok()
+        .filter(|metadata| metadata.is_file())
+        .and_then(|metadata| metadata.modified().ok())
+    {
+        Some(mtime) => SystemTime::now()
+            .duration_since(mtime)
+            .map(|age| age.as_secs() > PRE_LIVENESS_STALE_SECS)
+            .unwrap_or(false),
+        None => true,
+    };
+    if stale {
+        log::warn!(
+            "[POST liveness] exact PRE pre.json stale > {}s — keeping record armed (partner_pre_iid={}, post_iid={})",
+            PRE_LIVENESS_STALE_SECS,
+            pre.instance_id,
+            self_post_iid
+        );
+    }
 }
 
 fn poll_ack_timeout_with_base(
@@ -2530,26 +2707,16 @@ fn poll_record_signal_ack_with_base(
 
 // ── preset/ poller ──────────────────────────────────────────────────────────
 
-fn count_preset_files(preset_dir: &Path) -> usize {
-    let Ok(entries) = fs::read_dir(preset_dir) else {
-        return 0;
-    };
-    entries
-        .flatten()
-        .filter(|e| {
-            e.path()
-                .file_name()
-                .and_then(|n| n.to_str())
-                .map(|n| n.ends_with(".json") && !n.ends_with(".tmp"))
-                .unwrap_or(false)
-        })
-        .count()
+fn current_preset_exists(preset_dir: &Path) -> bool {
+    fs::metadata(preset_dir.join("current.json"))
+        .map(|metadata| metadata.is_file())
+        .unwrap_or(false)
 }
 
 fn poll_preset_availability(
     project_hash: &str,
     preset_available: &Arc<AtomicBool>,
-    last_seen: &mut Option<usize>,
+    last_seen: &mut Option<bool>,
 ) {
     let preset_dir = match StoragePaths::default_platform() {
         // B-128 (G-115-370): within-base wall（preset availability read。preset_dir 同等の inline 構築）。
@@ -2561,24 +2728,24 @@ fn poll_preset_availability(
             ))
             .join(crate::preset::PRESET_SUBDIR),
         Err(_) => {
-            if *last_seen != Some(0) {
+            if *last_seen != Some(false) {
                 log::info!("[preset] unavailable");
-                *last_seen = Some(0);
+                *last_seen = Some(false);
             }
             preset_available.store(false, Ordering::Relaxed);
             return;
         }
     };
-    let count = count_preset_files(&preset_dir);
-    preset_available.store(count > 0, Ordering::Relaxed);
+    let available = current_preset_exists(&preset_dir);
+    preset_available.store(available, Ordering::Relaxed);
 
-    if *last_seen != Some(count) {
-        if count > 0 {
-            log::info!("[preset] available: {} files", count);
+    if *last_seen != Some(available) {
+        if available {
+            log::info!("[preset] available");
         } else {
             log::info!("[preset] unavailable");
         }
-        *last_seen = Some(count);
+        *last_seen = Some(available);
     }
 }
 
@@ -2851,41 +3018,39 @@ mod preset_poll_tests {
     }
 
     #[test]
-    fn count_empty_dir_returns_zero() {
+    fn empty_dir_has_no_current_pointer() {
         let dir = isolated_dir("empty");
-        assert_eq!(count_preset_files(&dir), 0);
+        assert!(!current_preset_exists(&dir));
     }
 
     #[test]
-    fn count_missing_dir_returns_zero() {
+    fn missing_dir_has_no_current_pointer() {
         let dir = isolated_dir("missing");
         let child = dir.join("no_such");
-        assert_eq!(count_preset_files(&child), 0);
+        assert!(!current_preset_exists(&child));
     }
 
     #[test]
-    fn count_one_json_returns_one() {
+    fn current_pointer_is_available() {
         let dir = isolated_dir("one");
-        fs::write(dir.join("a.json"), b"x").unwrap();
-        assert_eq!(count_preset_files(&dir), 1);
+        fs::write(dir.join("current.json"), b"x").unwrap();
+        assert!(current_preset_exists(&dir));
     }
 
     #[test]
-    fn count_ignores_tmp_and_non_json() {
+    fn history_tmp_and_non_json_never_make_preset_available() {
         let dir = isolated_dir("ignore");
-        fs::write(dir.join("ok.json"), b"x").unwrap();
+        fs::write(dir.join("history.json"), b"x").unwrap();
         fs::write(dir.join("notes.txt"), b"x").unwrap();
-        fs::write(dir.join("in_progress.json.tmp"), b"x").unwrap();
-        assert_eq!(count_preset_files(&dir), 1);
+        fs::write(dir.join("current.json.tmp"), b"x").unwrap();
+        assert!(!current_preset_exists(&dir));
     }
 
     #[test]
-    fn count_multiple_json_files() {
-        let dir = isolated_dir("multi");
-        for name in ["a.json", "b.json", "c.json"] {
-            fs::write(dir.join(name), b"x").unwrap();
-        }
-        assert_eq!(count_preset_files(&dir), 3);
+    fn current_pointer_must_be_a_file() {
+        let dir = isolated_dir("current_dir");
+        fs::create_dir_all(dir.join("current.json")).unwrap();
+        assert!(!current_preset_exists(&dir));
     }
 }
 
@@ -3623,6 +3788,8 @@ mod record_signal_ack_barrier_tests {
             target_pre_instance_id: "pre-iid".to_string(),
             daw_session_id: "daw-1".to_string(),
             session_id: "session-post-ack".to_string(),
+            capture_generation_id: String::new(),
+            generation_started_at_ms: 0,
             t: "2026-07-05T00:00:00Z".to_string(),
             started_at: started_at.to_string(),
             started_at_position_samples: None,

@@ -176,17 +176,14 @@ Tested on macOS 14 (Sonoma).
 ```bash
 git clone https://github.com/heyalohaloha/kirin_hypha.git
 cd kirin_hypha
-cargo run --package xtask -- bundle-universal hypha_pre --release
-cargo run --package xtask -- bundle-universal hypha_post --release
-cargo run --package xtask -- stamp-egui-version
 scripts/build_juce_universal.sh
-scripts/validate_macos_pluginval.sh target/bundled
+scripts/validate_macos_pluginval.sh juce_shell/build-universal
 ```
 
 Requires Rust stable toolchain, CMake, Xcode command line tools, and the pinned JUCE submodule.
-The release ship set is construction-C: egui VST3 bundles from `target/bundled/` plus JUCE Audio Unit bundles from `juce_shell/build-universal/`. JUCE VST3 bundles are not release artifacts.
+The macOS release ship set is one JUCE role-parameterised processor/editor compiled as AU and VST3. The VST3 wrapper preserves the original component IDs and migrates legacy nih-plug state so existing DAW sessions keep their identities and pair names.
 
-Run the macOS pluginval gate before opening Studio One for manual validation. It validates the actual egui/nih-plug PRE/POST VST3 bundles at `target/bundled/` with strictness level 5 by default and writes logs to `target/pluginval/logs/macos`. The gate also rejects stale or unexpected VST3 bundles, verifies the role-first PRE/POST display names before pluginval runs, and isolates plugin runtime writes under `target/pluginval/runtime/macos/` instead of the user's Kirin OS data. Override with `PLUGINVAL_STRICTNESS_LEVEL=10` only when you want the slower stress pass. If Steinberg's VST3 validator is installed, pass it with `VST3_VALIDATOR_BIN=/path/to/validator`.
+Run the macOS pluginval gate before opening Studio One for manual validation. It validates the actual JUCE common-shell PRE/POST VST3 bundles with strictness level 5, pins their legacy component IDs and role-first host names, and writes logs to `target/pluginval/logs/macos`. Runtime writes are isolated under `target/pluginval/runtime/macos/`. Override with `PLUGINVAL_STRICTNESS_LEVEL=10` only for the slower stress pass. If Steinberg's VST3 validator is installed, pass it with `VST3_VALIDATOR_BIN=/path/to/validator`.
 
 ## Maintainer release packaging
 

@@ -43,6 +43,7 @@ public:
     // --- B-072: POST pairing surface (used by the editor only when isPostRole()) ----------
     bool isPostRole() const { return role == Role::Post; }
     int  licenseCode() const { return cachedLicenseCode.load (std::memory_order_acquire); } // 0=Os 1=Sense 2=Unknown
+    void refreshLicenseForUserAction();                 // editor open / Keep / pair menu only; no periodic disk polling
     bool isRecording() const;                          // FFI kirin_hypha_is_recording (Watch/Record toggle)
     juce::String pairName() const { return persistPairName; }
     void setPairName (const juce::String& name);       // persist + set_pair_target (sanitized in FFI)
@@ -112,7 +113,7 @@ private:
     // identity into the io_thread. Hosts such as Logic may not call processBlock while stopped, so
     // the Timer publishes Inactive PRE/POST presence after either setStateInformation arrives or the
     // restore grace expires. enable_*_writes spawns an io_thread (not RT-safe), hence the deferral.
-    void timerCallback() override;        // B-126: non-RT poll (message thread) — observes enablePending
+    void timerCallback() override;        // B-126: one-shot non-RT enable barrier
     void enableWritesNow();               // B-070 enable body (set_identity -> enable_*_writes -> readback)
 
     const Role role;                                   // Pre or Post (selects enable + display name)
@@ -136,7 +137,6 @@ private:
     juce::String persistPairName;                      // POST pair target (B-072)
 
     std::atomic<int>  cachedLicenseCode { 2 };         // live non-RT entitlement cache (0=Os)
-    int licenseRefreshTicks = 0;                       // message-thread identity refresh cadence
     std::atomic<bool> lastPlaying { false };           // B-054: transport playing (POST pair lock during playback)
     std::atomic<bool> lastMeasurementTimelineActive { false }; // Watch MAX pass clock (AU render fallback)
     std::atomic<bool> writesEnabled { false };         // plugin_data writes enabled (idempotent guard)

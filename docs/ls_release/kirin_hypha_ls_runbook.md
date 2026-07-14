@@ -70,19 +70,16 @@ Before the first signed package exists, this intentionally fails because the `.p
 If the four source bundles are not already current, rebuild and notarize them:
 
 ```bash
-cargo run --package xtask -- bundle-universal hypha_pre --release
-cargo run --package xtask -- bundle-universal hypha_post --release
-cargo run --package xtask -- stamp-egui-version
 scripts/build_juce_universal.sh
 cargo run --package xtask -- notarize
 ```
 
-The source ship set is construction-C:
+The macOS source ship set is the JUCE common shell in both formats:
 
 - `juce_shell/build-universal/.../AU/Kirin Hypha PRE.component`
 - `juce_shell/build-universal/.../AU/Kirin Hypha POST.component`
-- `target/bundled/PRE Kirin Hypha.vst3`
-- `target/bundled/POST Kirin Hypha.vst3`
+- `juce_shell/build-universal/.../VST3/Kirin Hypha PRE.vst3`
+- `juce_shell/build-universal/.../VST3/Kirin Hypha POST.vst3`
 
 ## Phase 2: Build Installer Package
 

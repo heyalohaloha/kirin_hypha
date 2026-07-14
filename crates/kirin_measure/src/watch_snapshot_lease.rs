@@ -133,6 +133,7 @@ pub(crate) fn snapshot_owner_is_live(instance_dir: &Path, owner_id: &str) -> boo
 
 /// Remove valid owner markers whose producer no longer holds its kernel lock. Live marker files
 /// are never removed. Returns the number of orphan marker files removed.
+#[cfg(test)]
 pub(crate) fn sweep_released_owner_markers(instance_dir: &Path) -> usize {
     let owner_dir = instance_dir.join(OWNER_DIR);
     let Ok(entries) = fs::read_dir(&owner_dir) else {

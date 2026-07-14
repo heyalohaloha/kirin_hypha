@@ -57,40 +57,27 @@ pub fn paired_pre_instance_id(latched: &Mutex<Option<LatchedPre>>) -> Option<Str
         .map(|pre| pre.instance_id.clone())
 }
 
-/// Resolve the PRE-side view from POST Watch claims.
-pub fn pair_status_for_pre(kirin_root: &Path, pre_instance_id: &str, pre_name: &str) -> PairStatus {
+/// Resolve the PRE-side view from its one exact POST ownership claim.
+pub fn pair_status_for_pre(
+    kirin_root: &Path,
+    pre_instance_id: &str,
+    _pre_name: &str,
+) -> PairStatus {
     if pre_instance_id.is_empty() {
         return PairStatus::Unpaired;
     }
 
     let current_host = crate::post_candidates::current_host_process_id();
-    let live: Vec<_> = crate::post_candidates::enumerate_live_post_pair_candidates(kirin_root)
-        .into_iter()
-        .filter(|post| post.host_process_id == Some(current_host))
-        .collect();
-    if live
-        .iter()
-        .filter(|post| {
-            crate::watch_snapshot_lease::snapshot_file_is_fresh_runtime_evidence(
-                &post.path,
-                Duration::from_secs(crate::pre_discovery::DISCOVERY_STALE_SECS),
-            )
-        })
-        .any(|post| post.paired_pre_instance_id.as_deref() == Some(pre_instance_id))
-    {
-        return PairStatus::Paired;
-    }
-
-    let exact_waiting = live
-        .iter()
-        .any(|post| post.paired_pre_instance_id.as_deref() == Some(pre_instance_id));
-    let name_waiting = !pre_name.is_empty()
-        && live.iter().any(|post| {
-            post.paired_pre_instance_id.is_none() && post.pair_pre_name.as_deref() == Some(pre_name)
-        });
-    if exact_waiting || name_waiting {
-        PairStatus::Waiting
+    let Some(claim) =
+        crate::pair_claim_index::read_pair_claim(kirin_root, current_host, pre_instance_id)
+    else {
+        return PairStatus::Unpaired;
+    };
+    if crate::pair_claim_index::pair_claim_is_live(kirin_root, &claim) {
+        PairStatus::Paired
     } else {
+        // A released/crashed POST must not leave PRE looking half-paired forever. The stale fixed
+        // pointer is non-authoritative and a later POST can replace it under the per-PRE lock.
         PairStatus::Unpaired
     }
 }
@@ -110,6 +97,67 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(&root).unwrap();
         root
+    }
+
+    fn write_post_claim(
+        root: &Path,
+        project: &str,
+        post: &str,
+        pre: &str,
+        signal_state: &str,
+        host_process_id: u32,
+        lease: &mut crate::watch_snapshot_lease::WatchSnapshotLease,
+    ) {
+        let instance_dir = root.join(project).join(post);
+        lease.bind(&instance_dir).unwrap();
+        fs::write(
+            instance_dir.join("post.json"),
+            serde_json::json!({
+                "v": 2,
+                "role": "POST",
+                "instance_id": post,
+                "watch_owner_id": lease.owner_id(),
+                "host_process_id": host_process_id,
+                "signal_state": signal_state,
+                "t": chrono::Utc::now().to_rfc3339(),
+                "pair_pre_name": "2Mix",
+                "paired_pre_instance_id": pre,
+                "pair_claimed_at": 1.0,
+            })
+            .to_string(),
+        )
+        .unwrap();
+        if host_process_id == std::process::id() {
+            crate::pair_claim_index::publish_pair_claim(
+                root,
+                pre,
+                project,
+                post,
+                lease.owner_id(),
+                std::process::id(),
+                1.0,
+            )
+            .unwrap();
+        } else {
+            let claim_dir = root
+                .join("pair_target")
+                .join(std::process::id().to_string());
+            fs::create_dir_all(&claim_dir).unwrap();
+            fs::write(
+                claim_dir.join(format!("{pre}.json")),
+                serde_json::to_vec(&crate::pair_claim_index::PairClaim {
+                    schema: crate::pair_claim_index::PAIR_CLAIM_SCHEMA.to_string(),
+                    pre_instance_id: pre.to_string(),
+                    project_hash: project.to_string(),
+                    post_instance_id: post.to_string(),
+                    post_watch_owner_id: lease.owner_id().to_string(),
+                    host_process_id: std::process::id(),
+                    pair_claimed_at_bits: 1.0f64.to_bits(),
+                })
+                .unwrap(),
+            )
+            .unwrap();
+        }
     }
 
     #[test]
@@ -211,26 +259,16 @@ mod tests {
     #[test]
     fn pre_reads_exact_post_claim_as_paired_and_owner_drop_as_unpaired() {
         let root = isolated_root();
-        let instance_dir = root.join("project").join("post-1");
         let mut lease = crate::watch_snapshot_lease::WatchSnapshotLease::new();
-        lease.bind(&instance_dir).unwrap();
-        fs::write(
-            instance_dir.join("post.json"),
-            serde_json::json!({
-                "v": 2,
-                "role": "POST",
-                "instance_id": "post-1",
-                "watch_owner_id": lease.owner_id(),
-                "host_process_id": std::process::id(),
-                "signal_state": "inactive",
-                "t": chrono::Utc::now().to_rfc3339(),
-                "pair_pre_name": "2Mix",
-                "paired_pre_instance_id": "pre-1",
-                "pair_claimed_at": 1.0,
-            })
-            .to_string(),
-        )
-        .unwrap();
+        write_post_claim(
+            &root,
+            "project",
+            "post-1",
+            "pre-1",
+            "inactive",
+            std::process::id(),
+            &mut lease,
+        );
         assert_eq!(
             pair_status_for_pre(&root, "pre-1", "2Mix"),
             PairStatus::Paired
@@ -245,23 +283,16 @@ mod tests {
     #[test]
     fn exact_claim_does_not_mark_a_duplicate_name_pre_as_waiting() {
         let root = isolated_root();
-        let instance_dir = root.join("project").join("post-1");
         let mut lease = crate::watch_snapshot_lease::WatchSnapshotLease::new();
-        lease.bind(&instance_dir).unwrap();
-        fs::write(
-            instance_dir.join("post.json"),
-            serde_json::json!({
-                "instance_id": "post-1",
-                "watch_owner_id": lease.owner_id(),
-                "host_process_id": std::process::id(),
-                "signal_state": "inactive",
-                "t": chrono::Utc::now().to_rfc3339(),
-                "pair_pre_name": "2Mix",
-                "paired_pre_instance_id": "pre-selected",
-            })
-            .to_string(),
-        )
-        .unwrap();
+        write_post_claim(
+            &root,
+            "project",
+            "post-1",
+            "pre-selected",
+            "inactive",
+            std::process::id(),
+            &mut lease,
+        );
 
         assert_eq!(
             pair_status_for_pre(&root, "pre-other", "2Mix"),
@@ -272,23 +303,16 @@ mod tests {
     #[test]
     fn foreign_host_claim_never_marks_this_pre_as_paired() {
         let root = isolated_root();
-        let instance_dir = root.join("project").join("post-1");
         let mut lease = crate::watch_snapshot_lease::WatchSnapshotLease::new();
-        lease.bind(&instance_dir).unwrap();
-        fs::write(
-            instance_dir.join("post.json"),
-            serde_json::json!({
-                "instance_id": "post-1",
-                "watch_owner_id": lease.owner_id(),
-                "host_process_id": std::process::id().saturating_add(1),
-                "signal_state": "inactive",
-                "t": chrono::Utc::now().to_rfc3339(),
-                "pair_pre_name": "2Mix",
-                "paired_pre_instance_id": "pre-1",
-            })
-            .to_string(),
-        )
-        .unwrap();
+        write_post_claim(
+            &root,
+            "project",
+            "post-1",
+            "pre-1",
+            "inactive",
+            std::process::id().saturating_add(1),
+            &mut lease,
+        );
 
         assert_eq!(
             pair_status_for_pre(&root, "pre-1", "2Mix"),
@@ -299,23 +323,16 @@ mod tests {
     #[test]
     fn bypassed_post_keeps_its_exact_pair_visible() {
         let root = isolated_root();
-        let instance_dir = root.join("project").join("post-1");
         let mut lease = crate::watch_snapshot_lease::WatchSnapshotLease::new();
-        lease.bind(&instance_dir).unwrap();
-        fs::write(
-            instance_dir.join("post.json"),
-            serde_json::json!({
-                "instance_id": "post-1",
-                "watch_owner_id": lease.owner_id(),
-                "host_process_id": std::process::id(),
-                "signal_state": "bypassed",
-                "t": chrono::Utc::now().to_rfc3339(),
-                "pair_pre_name": "2Mix",
-                "paired_pre_instance_id": "pre-1",
-            })
-            .to_string(),
-        )
-        .unwrap();
+        write_post_claim(
+            &root,
+            "project",
+            "post-1",
+            "pre-1",
+            "bypassed",
+            std::process::id(),
+            &mut lease,
+        );
 
         assert_eq!(
             pair_status_for_pre(&root, "pre-1", "2Mix"),

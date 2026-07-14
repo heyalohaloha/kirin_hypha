@@ -11,15 +11,15 @@
 // logic lives here (R-12 / R-22): widgets only render values the Rust engine produces.
 namespace hypha
 {
-    // ── led.rs: 5-state LED + breathing ────────────────────────────────────────────────────
+    // ── led.rs: 5-state static LED ─────────────────────────────────────────────────────────
     enum class LedState
     {
         Idle,            // grey, static
         Error,           // yellow, static (measure thread stopped)
         RecordStandby,   // green dimmed 0.45, static (recording, not yet acked)
-        WatchBreathing,  // blue, breathe(3.0, 0.6, 1.0)
-        RecordActive,    // green, breathe(1.5, 0.7, 1.0)
-        PresetAvailable  // amber, breathe(2.5, 0.55, 1.0)
+        WatchBreathing,  // blue (legacy enum name; rendering is static)
+        RecordActive,    // green
+        PresetAvailable  // amber
     };
 
     // derive_led_state priority (first match wins): Error > RecordActive > RecordStandby >
@@ -28,7 +28,7 @@ namespace hypha
                              bool recording, bool recordAcknowledged, bool presetAvailable);
 
     // Drawn as a 12×12 box with a 5px-radius filled circle (led.rs draw). Colour from the
-    // current state + a monotonic clock (breathing); the editor repaints it each timer tick.
+    // Current state only. setState repaints on transitions; no animation clock is required.
     class StatusLed : public juce::Component
     {
     public:

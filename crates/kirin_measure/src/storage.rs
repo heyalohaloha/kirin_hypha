@@ -1,4 +1,4 @@
-//! Identity storage — 2 箇所保存 + 4 段階復旧。
+//! Identity storage — 2 箇所保存 + deterministic 3 段階復旧。
 //!
 //!
 //! # 保存先
@@ -12,19 +12,17 @@
 //! Windows では `PlatformPaths` 経由で identity root と plugin_data root を分けられる
 //! ようにし、APPDATA / LOCALAPPDATA の差を storage 利用側へ漏らさない。
 //!
-//! # 4 段階復旧フロー
+//! # 3 段階復旧フロー
 //! ```text
 //! 1. 一次を読む  → OK → 2-of-3 判定 → 通常稼働 / 計測停止
 //!                失敗 → 2 へ
 //! 2. 二次を読む  → OK → 2-of-3 判定 → 一次に復元
 //!                失敗 → 3 へ
-//! 3. plugin_data/*/* /pre/*.json 走査
-//!                installation_id が取れる → reconstruct → 一次・二次両方書込
-//!                取れない → 4 へ
-//! 4. 新規生成    → 一次・二次両方書込
+//! 3. 新規生成    → 一次・二次両方書込
 //! ```
 //!
-//! 復旧に 3 秒以内（仕様）。ディスク I/O のみのため通常ミリ秒単位で完了する。
+//! 過去の plugin_data 全履歴から identity を推測しない。一次・二次という所有された固定パス
+//! だけを読み、両方失われた場合は新規 identity を作る。
 
 use crate::hardware::{HardwareComponents, Match};
 use crate::identity::{Identity, License};
@@ -49,9 +47,7 @@ pub enum LoadStatus {
     PrimaryOk,
     /// 段階 2: 二次から読込、一次復元済み。
     RecoveredFromSecondary,
-    /// 段階 3: plugin_data から installation_id 抽出、再構築済み。
-    RecoveredFromPluginData,
-    /// 段階 4: 新規生成。
+    /// 段階 3: 新規生成。
     FreshlyGenerated,
     /// 別マシン検出: 計測停止が必要（GUI 警告）。
     DifferentMachine,
@@ -342,107 +338,16 @@ pub fn load_or_recover(
                 }
             }
         }
-        log::warn!("[identity] secondary HMAC verification failed; scanning plugin_data");
+        log::warn!("[identity] secondary HMAC verification failed; creating a fresh identity");
     }
 
-    // ── 段階 3: plugin_data から installation_id 抽出 ────────────────
-    if let Some(installation_id) = scan_plugin_data_for_installation_id(&paths.plugin_data_dir()) {
-        let identity = Identity::reconstruct(installation_id, current_hw, default_license);
-        write_both(paths, &identity)?;
-        return Ok(LoadedIdentity {
-            identity,
-            status: LoadStatus::RecoveredFromPluginData,
-        });
-    }
-
-    // ── 段階 4: 新規生成 ─────────────────────────────────────────────
+    // ── 段階 3: 新規生成 ─────────────────────────────────────────────
     let identity = Identity::new(current_hw, default_license);
     write_both(paths, &identity)?;
     Ok(LoadedIdentity {
         identity,
         status: LoadStatus::FreshlyGenerated,
     })
-}
-
-/// `plugin_data/{project_hash}/{instance_id}/pre/*.json` を走査して最新ファイルから
-/// `installation_id` を抽出する（A-3 修正後の階層）。
-///
-/// # PRE 専用前提（A H-4 / 受入基準 #4）
-/// 本関数は `pre/` ディレクトリ固定で走査する。POST 側の `installation_id` は読まない。
-/// PRE/POST は同一 DAW プロセスで同じ identity.json を参照するため `installation_id`
-/// は等価であり、片側走査で十分という設計判断（pre_dir 固定）。
-/// もし将来 PRE が一切起動されないユースケースが発生した場合は、POST 側 path も
-/// fallback として走査する拡張が必要になる。
-///
-/// 走査対象が見つからない、installation_id が全ファイル欠落している等の場合は `None`。
-fn scan_plugin_data_for_installation_id(plugin_data_dir: &Path) -> Option<String> {
-    if !plugin_data_dir.exists() {
-        return None;
-    }
-
-    // 深さ 3 まで再帰走査: plugin_data / {project_hash} / {instance_id} / pre
-    let mut candidates: Vec<(std::time::SystemTime, PathBuf)> = Vec::new();
-
-    let projects = fs::read_dir(plugin_data_dir).ok()?;
-    for project in projects.flatten() {
-        if !project.file_type().ok()?.is_dir() {
-            continue;
-        }
-        let instances = match fs::read_dir(project.path()) {
-            Ok(d) => d,
-            Err(_) => continue,
-        };
-        for inst in instances.flatten() {
-            if !inst.file_type().map(|t| t.is_dir()).unwrap_or(false) {
-                continue;
-            }
-            // record_signal/ / preset/ 等の予約ディレクトリは instance_id ではない
-            let name = inst.file_name();
-            let name_str = match name.to_str() {
-                Some(s) => s,
-                None => continue,
-            };
-            if name_str == crate::record_signal::SIGNALS_SUBDIR
-                || name_str == crate::preset::PRESET_SUBDIR
-            {
-                continue;
-            }
-            let pre_dir = inst.path().join("pre");
-            if !pre_dir.is_dir() {
-                continue;
-            }
-            let files = match fs::read_dir(&pre_dir) {
-                Ok(d) => d,
-                Err(_) => continue,
-            };
-            for file in files.flatten() {
-                let path = file.path();
-                if path.extension().and_then(|s| s.to_str()) != Some("json") {
-                    continue;
-                }
-                let mtime = file
-                    .metadata()
-                    .and_then(|m| m.modified())
-                    .unwrap_or(std::time::UNIX_EPOCH);
-                candidates.push((mtime, path));
-            }
-        }
-    }
-
-    candidates.sort_by(|a, b| b.0.cmp(&a.0));
-
-    for (_, path) in candidates {
-        if let Ok(text) = fs::read_to_string(&path) {
-            if let Ok(v) = serde_json::from_str::<Value>(&text) {
-                if let Some(s) = v.get("installation_id").and_then(|x| x.as_str()) {
-                    if !s.is_empty() {
-                        return Some(s.to_string());
-                    }
-                }
-            }
-        }
-    }
-    None
 }
 
 // ── 旧構造 cleanup（1a-6 / Q4）────────────────────────────────────────────────
@@ -772,7 +677,7 @@ mod tests {
     }
 
     #[test]
-    fn stage3_plugin_data_extracts_installation_id() {
+    fn stage3_does_not_scan_plugin_history_for_identity() {
         let (paths, root) = isolated_paths();
         let first = load_or_recover(&paths, hc("A", "B", "C"), License::Os).unwrap();
         let original_id = first.identity.installation_id.clone();
@@ -793,16 +698,16 @@ mod tests {
         fs::remove_file(paths.secondary_path()).unwrap();
 
         let second = load_or_recover(&paths, hc("A", "B", "C"), License::Os).unwrap();
-        assert_eq!(second.status, LoadStatus::RecoveredFromPluginData);
-        assert_eq!(second.identity.installation_id, original_id);
-        // 一次・二次が復元済み
+        assert_eq!(second.status, LoadStatus::FreshlyGenerated);
+        assert_ne!(second.identity.installation_id, original_id);
+        // 一次・二次は新しい同一 identity で復元済み。
         assert!(paths.primary_path().exists());
         assert!(paths.secondary_path().exists());
         let _ = fs::remove_dir_all(root);
     }
 
     #[test]
-    fn stage3_picks_newest_by_mtime() {
+    fn stage3_is_independent_of_plugin_history_mtime() {
         let (paths, root) = isolated_paths();
         let pre_dir = paths
             .plugin_data_dir()
@@ -817,8 +722,9 @@ mod tests {
         fs::write(&new_file, r#"{"installation_id":"new-id"}"#).unwrap();
 
         let loaded = load_or_recover(&paths, hc("A", "B", "C"), License::Os).unwrap();
-        assert_eq!(loaded.status, LoadStatus::RecoveredFromPluginData);
-        assert_eq!(loaded.identity.installation_id, "new-id");
+        assert_eq!(loaded.status, LoadStatus::FreshlyGenerated);
+        assert_ne!(loaded.identity.installation_id, "old-id");
+        assert_ne!(loaded.identity.installation_id, "new-id");
         let _ = fs::remove_dir_all(root);
     }
 

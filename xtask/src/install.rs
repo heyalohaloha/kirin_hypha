@@ -1,5 +1,4 @@
-//! `cargo xtask install --release` — deploy the SIGNED construction-C ship bundles
-//! (egui VST3 + JUCE AU; JUCE VST3 excluded) to the system-level plugin folders.
+//! `cargo xtask install --release` — deploy the signed JUCE common-shell AU + VST3 bundles.
 //!
 //! # B-099 rewrite
 //! Rewritten from the B-022 nih-plug VST3-only installer (source `target/bundled/*.vst3`,
@@ -9,12 +8,10 @@
 //! because a stale user-level binary makes a DAW load the wrong plugin (the original B-022
 //! finding for Studio One). user-level is never the install target.
 //!
-//! # Source (B-098 signed / B-137 construction-C / G-115-344)
-//! egui VST3: `target/bundled/{PRE,POST} Kirin Hypha.vst3` (bundle-universal + stamp-egui-version).
-//! JUCE AU:   `juce_shell/build-universal/KirinHypha{PRE,POST}_artefacts/Release/AU/*.component`.
-//! JUCE VST3 (`build-universal/.../Release/VST3/*.vst3`) is EXCLUDED from the ship set
-//! (GUID continuity / existing+Peach session protection). All sources must be Developer-ID
-//! signed + notarized.
+//! # Source
+//! All four bundles come from `juce_shell/build-universal/KirinHypha{PRE,POST}_artefacts/Release`.
+//! The JUCE VST3 wrapper is compiled with the original nih-plug component CIDs and migrates its
+//! exact legacy state contract, preserving existing sessions while removing the dual GUI runtime.
 //!
 //! # Signed-source guard (B-099, required)
 //! Each source bundle MUST be Developer-ID signed (`codesign` `TeamIdentifier=7N8BSMA684`, not
@@ -41,11 +38,8 @@ use crate::macos_codesign;
 /// Developer ID team. Source bundles must be signed by this team (not ad-hoc / unsigned).
 const TEAM_ID: &str = "7N8BSMA684";
 
-/// universal ship build root (scripts/build_juce_universal.sh output) — JUCE AU の source。
+/// universal common-shell build root (scripts/build_juce_universal.sh output).
 const BUILD_UNIVERSAL: &str = "juce_shell/build-universal";
-
-/// 構成C (G-115-344): egui VST3 の source root（cargo xtask bundle-universal + stamp-egui-version 出力）。
-const EGUI_BUNDLED: &str = "target/bundled";
 
 /// system-level plugin dirs (root-owned / sudo required).
 const SYSTEM_AU_DIR: &str = "/Library/Audio/Plug-Ins/Components";
@@ -55,6 +49,8 @@ const SYSTEM_VST3_DIR: &str = "/Library/Audio/Plug-Ins/VST3";
 struct Bundle {
     /// Physical bundle and executable name.
     name: String,
+    /// Executable and JUCE metadata name inside the source bundle.
+    binary_name: String,
     /// Previous physical name removed during migration. VST3 only.
     legacy_name: Option<String>,
     /// e.g. "PRE Kirin Hypha" — the role-first name DAWs/scanners must surface.
@@ -65,6 +61,8 @@ struct Bundle {
     src: PathBuf,
     /// system-level destination dir.
     system_dir: &'static str,
+    /// Original shipped nih-plug component CID; VST3 only.
+    component_cid: Option<&'static str>,
 }
 
 impl Bundle {
@@ -107,9 +105,8 @@ impl Bundle {
     }
 }
 
-/// The 4 construction-C ship bundles (G-115-344): egui VST3 (PRE/POST, target/bundled) +
-/// JUCE AU (PRE/POST, build-universal). JUCE VST3 (PRE/POST) は **出荷除外**（GUID 破壊回避・
-/// 既存/Peach セッション保護）。dual-root: AU=build-universal/Release/AU、VST3=target/bundled。
+/// Four formats from one role-parameterised shell source. Physical JUCE VST3 source names remain
+/// format-native; install destinations retain the public role-first names used by Studio One.
 fn bundles(root: &Path) -> Vec<Bundle> {
     let mut out = Vec::with_capacity(4);
     for role in ["PRE", "POST"] {
@@ -122,19 +119,30 @@ fn bundles(root: &Path) -> Vec<Bundle> {
                 .join(format!("KirinHypha{role}_artefacts/Release/AU"))
                 .join(format!("{name}.component")),
             name: name.clone(),
+            binary_name: name.clone(),
             legacy_name: None,
             display_name: display_name.clone(),
             ext: "component",
             system_dir: SYSTEM_AU_DIR,
+            component_cid: None,
         });
-        // egui VST3 — target/bundled → /Library/Audio/Plug-Ins/VST3（JUCE VST3 は出荷しない）
+        // JUCE VST3 — the same PluginProcessor/PluginEditor as the AU above.
         out.push(Bundle {
-            src: root.join(EGUI_BUNDLED).join(format!("{display_name}.vst3")),
+            src: root
+                .join(BUILD_UNIVERSAL)
+                .join(format!("KirinHypha{role}_artefacts/Release/VST3"))
+                .join(format!("{name}.vst3")),
             name: display_name.clone(),
+            binary_name: name.clone(),
             legacy_name: Some(name),
             display_name,
             ext: "vst3",
             system_dir: SYSTEM_VST3_DIR,
+            component_cid: Some(if role == "PRE" {
+                "4B6972696E4879706861505245763031"
+            } else {
+                "4B6972696E4879706861504F53547631"
+            }),
         });
     }
     out
@@ -206,11 +214,11 @@ pub fn run(args: Vec<String>) -> Result<()> {
 fn print_usage() {
     eprintln!(
         "Usage: cargo run --package xtask -- install --release\n\n\
-         Deploys the SIGNED construction-C ship bundles to the system plugin folders:\n\
+         Deploys the signed JUCE common-shell bundles to the system plugin folders:\n\
          \x20 AU  -> /Library/Audio/Plug-Ins/Components/Kirin Hypha {{PRE,POST}}.component (JUCE)\n\
-         \x20 VST3-> /Library/Audio/Plug-Ins/VST3/{{PRE,POST}} Kirin Hypha.vst3 (egui)\n\n\
-         Source: JUCE AU = juce_shell/build-universal/.../Release/AU; egui VST3 = target/bundled/.\n\
-         JUCE VST3 is EXCLUDED from the ship set (GUID continuity).\n\
+         \x20 VST3-> /Library/Audio/Plug-Ins/VST3/{{PRE,POST}} Kirin Hypha.vst3 (JUCE)\n\n\
+         Source: juce_shell/build-universal/.../Release/{{AU,VST3}}.\n\
+         VST3 preserves the original component CIDs and migrates old nih-plug state.\n\
          Each source must be Developer-ID signed ({TEAM_ID}) + notarized (B-098), else install\n\
          aborts. user-level copies are removed first (sudo prompt for the system deploy).\n\n\
          Build both shells + `cargo xtask notarize ...` beforehand."
@@ -459,18 +467,29 @@ fn verify_display_metadata(bundle_path: &Path, bundle: &Bundle) -> Result<()> {
 
     for key in ["CFBundleDisplayName", "CFBundleName"] {
         let actual = plist_value(&plist, key)?;
-        if actual != bundle.display_name {
+        if actual != bundle.binary_name {
             bail!(
-                "{} {} = {}, expected {}. Run `cargo run -p xtask -- stamp-egui-version` after bundling.",
+                "{} {} = {}, expected {}. Rebuild with scripts/build_juce_universal.sh.",
                 bundle_path.display(),
                 key,
                 actual,
-                bundle.display_name
+                bundle.binary_name
             );
         }
     }
+    let moduleinfo = fs::read_to_string(bundle_path.join("Contents/Resources/moduleinfo.json"))
+        .with_context(|| format!("read VST3 moduleinfo for {}", bundle_path.display()))?;
+    let cid = bundle.component_cid.context("VST3 component CID missing")?;
+    if !moduleinfo.contains(&format!("\"CID\": \"{cid}\""))
+        || !moduleinfo.contains(&format!("\"Name\": \"{}\"", bundle.display_name))
+    {
+        bail!(
+            "{} VST3 CID/display contract mismatch",
+            bundle_path.display()
+        );
+    }
     verify_binary_contains_display_name(
-        &bundle_path.join("Contents/MacOS").join(&bundle.name),
+        &bundle_path.join("Contents/MacOS").join(&bundle.binary_name),
         &bundle.display_name,
     )
 }
@@ -589,11 +608,10 @@ mod tests {
     }
 
     #[test]
-    fn source_paths_construction_c_dual_root() {
-        // 構成C (G-115-344): AU=build-universal/Release/AU、egui VST3=target/bundled。
-        // JUCE VST3 (build-universal/Release/VST3) は出荷除外＝どの src にも現れない。
+    fn all_source_paths_use_the_common_juce_build() {
         for x in bundles(Path::new(".")) {
             let s = x.src.to_string_lossy();
+            assert!(s.contains("juce_shell/build-universal/"), "{s}");
             match x.ext {
                 "component" => {
                     assert!(
@@ -604,12 +622,12 @@ mod tests {
                 }
                 "vst3" => {
                     assert!(
-                        s.contains("target/bundled/"),
-                        "egui VST3 src not under target/bundled: {s}"
+                        s.contains("/Release/VST3/"),
+                        "VST3 src not Release/VST3: {s}"
                     );
                     assert!(
-                        !s.contains("build-universal"),
-                        "VST3 must NOT be the JUCE build-universal copy (構成C excludes JUCE VST3): {s}"
+                        !s.contains("target/bundled"),
+                        "legacy egui source returned: {s}"
                     );
                 }
                 other => panic!("unexpected ext {other}"),

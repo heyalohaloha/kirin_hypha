@@ -13,8 +13,8 @@ fn macos_ci_runs_pluginval_before_manual_daw_validation() {
     let auval_job = section_after(CI_WORKFLOW, "  auval-arm64:\n");
     require(
         auval_job,
-        "Build macOS ship-set VST3 bundles (arm64)",
-        "macOS CI must build the egui/nih-plug VST3 ship set before pluginval",
+        "Build macOS common-shell AU + VST3 bundles (arm64)",
+        "macOS CI must build the common JUCE shell before pluginval",
     );
     require(
         auval_job,
@@ -23,7 +23,7 @@ fn macos_ci_runs_pluginval_before_manual_daw_validation() {
     );
     require(
         auval_job,
-        "scripts/validate_macos_pluginval.sh target/bundled",
+        "scripts/validate_macos_pluginval.sh juce_shell/build-arm64",
         "macOS CI must use the shared local pluginval script on the ship-set directory",
     );
     require(
@@ -33,7 +33,7 @@ fn macos_ci_runs_pluginval_before_manual_daw_validation() {
     );
 
     let build_idx = auval_job
-        .find("Build macOS ship-set VST3 bundles (arm64)")
+        .find("Build macOS common-shell AU + VST3 bundles (arm64)")
         .expect("macOS CI must build VST3 ship-set bundles");
     let pluginval_idx = auval_job
         .find("Validate macOS ship-set VST3 with pluginval")
@@ -51,23 +51,23 @@ fn macos_ci_runs_pluginval_before_manual_daw_validation() {
 fn macos_pluginval_script_is_a_reusable_strict_preflight_gate() {
     require(
         PLUGINVAL_SCRIPT,
-        "BUNDLE_DIR=\"${1:-${KIRIN_MACOS_VST3_DIR:-target/bundled}}\"",
-        "script must default to the egui/nih-plug VST3 ship-set directory",
+        "BUILD_DIR=\"${1:-${KIRIN_MACOS_VST3_DIR:-juce_shell/build-universal}}\"",
+        "script must default to the JUCE common-shell build directory",
     );
     require(
         PLUGINVAL_SCRIPT,
-        "\"$BUNDLE_DIR/PRE Kirin Hypha.vst3\"",
+        "KirinHyphaPRE_artefacts/Release/VST3/Kirin Hypha PRE.vst3",
         "script must validate the PRE ship-set VST3 by exact path",
     );
     require(
         PLUGINVAL_SCRIPT,
-        "\"$BUNDLE_DIR/POST Kirin Hypha.vst3\"",
+        "KirinHyphaPOST_artefacts/Release/VST3/Kirin Hypha POST.vst3",
         "script must validate the POST ship-set VST3 by exact path",
     );
     require(
         PLUGINVAL_SCRIPT,
-        "EXPECTED_BASENAMES=(",
-        "script must reject stale or unexpected VST3 bundles in the ship-set directory",
+        "COMPONENT_CIDS=(",
+        "script must pin the existing VST3 component identities",
     );
     require(
         PLUGINVAL_SCRIPT,
@@ -155,13 +155,13 @@ fn macos_pluginval_script_is_a_reusable_strict_preflight_gate() {
 fn readme_exposes_the_local_pluginval_gate() {
     require(
         README,
-        "scripts/validate_macos_pluginval.sh target/bundled",
+        "scripts/validate_macos_pluginval.sh juce_shell/build-universal",
         "README must tell maintainers how to run the local macOS pluginval gate",
     );
     require(
         README,
-        "egui/nih-plug PRE/POST VST3 bundles",
-        "README must make clear that pluginval checks the actual VST3 ship set",
+        "JUCE common-shell PRE/POST VST3 bundles",
+        "README must make clear that pluginval checks the actual common-shell ship set",
     );
     require(
         README,

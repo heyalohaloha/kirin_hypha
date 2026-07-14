@@ -8,10 +8,11 @@
 //! (2) 正常系が壊れていない、ことを確認する。
 
 use kirin_hypha_ffi::{
-    kirin_hypha_create, kirin_hypha_destroy, kirin_hypha_enumerate_post_pair_claims,
-    kirin_hypha_get_paired_pre_instance_id, kirin_hypha_pair_status, kirin_hypha_poll_result,
-    kirin_hypha_poll_session, kirin_hypha_push_samples, kirin_hypha_select_pair_candidate,
-    kirin_hypha_set_signal_state, KirinMeasureResult, KirinPostPairClaim, KirinSessionSummary,
+    kirin_hypha_create, kirin_hypha_decode_legacy_nih_state, kirin_hypha_destroy,
+    kirin_hypha_enumerate_post_pair_claims, kirin_hypha_get_paired_pre_instance_id,
+    kirin_hypha_pair_status, kirin_hypha_poll_result, kirin_hypha_poll_session,
+    kirin_hypha_push_samples, kirin_hypha_select_pair_candidate, kirin_hypha_set_signal_state,
+    KirinLegacyNihState, KirinMeasureResult, KirinPostPairClaim, KirinSessionSummary,
 };
 
 #[test]
@@ -62,6 +63,18 @@ fn null_handle_calls_are_safe_noops() {
             std::ptr::null_mut(),
             paired.as_mut_ptr(),
             paired.len()
+        ));
+
+        let mut legacy = std::mem::zeroed::<KirinLegacyNihState>();
+        assert!(!kirin_hypha_decode_legacy_nih_state(
+            std::ptr::null(),
+            0,
+            &mut legacy
+        ));
+        assert!(!kirin_hypha_decode_legacy_nih_state(
+            b"{}".as_ptr(),
+            2,
+            std::ptr::null_mut()
         ));
 
         kirin_hypha_destroy(std::ptr::null_mut()); // null destroy = no-op

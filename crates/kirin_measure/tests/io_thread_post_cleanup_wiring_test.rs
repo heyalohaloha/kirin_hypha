@@ -112,29 +112,71 @@ fn io_thread_termination_does_not_delete_live_watch_files() {
     );
 }
 
-/// The teardown deletion removed in B-319 must have a startup-only cleanup
-/// replacement. Both roles call the same age-based `/tmp/kirin` sweep before
-/// entering their IO loop.
+/// Watch owner leases make old snapshots non-authoritative. Plugin startup must not make every
+/// instance recursively clean the shared `/tmp/kirin` or plugin_data history.
 #[test]
-fn io_thread_startup_sweeps_stale_watch_files_for_both_roles() {
+fn io_thread_startup_never_sweeps_shared_history() {
     let pre = read("src/io_thread_pre.rs");
     let post = read("src/io_thread_post.rs");
-    let cleanup = read("src/watch_tmp_cleanup.rs");
+    for (role, src) in [("PRE", pre.as_str()), ("POST", post.as_str())] {
+        for forbidden in [
+            "sweep_stale_pending_at_startup()",
+            "sweep_stale_watch_files_at_startup()",
+            "sweep_stale_reservations_in(",
+            "recover_orphan_tmps(",
+            "sweep_stale_active_at_startup(",
+        ] {
+            assert!(
+                !src.contains(forbidden),
+                "{role} startup/runtime must not call shared-history cleanup: {forbidden}"
+            );
+        }
+    }
+}
+
+/// PRE の PAIR 表示は editor の 10 Hz tick から呼ばれる。ここへ候補列挙を戻すと、
+/// GUI を開くだけで `/tmp/kirin` 全体を毎秒何度も走査する退行になる。
+#[test]
+fn pre_pair_status_reads_one_exact_claim_without_enumeration() {
+    let src = read("src/pair_status.rs");
+    let start = src
+        .find("pub fn pair_status_for_pre(")
+        .expect("pair_status_for_pre must exist");
+    let end = src[start..]
+        .find("\n#[cfg(test)]")
+        .map(|offset| start + offset)
+        .expect("pair_status_for_pre production block must end before tests");
+    let body = &src[start..end];
 
     assert!(
-        pre.contains("watch_tmp_cleanup::sweep_stale_watch_files_at_startup();"),
-        "PRE startup must sweep old watch files outside teardown"
+        body.contains("read_pair_claim"),
+        "PRE pair status must start from its fixed ownership claim"
+    );
+    for forbidden in [
+        "read_dir",
+        "enumerate_live_post_pair_candidates",
+        "scan_post_candidates_in",
+        "discover_active_post_dirs",
+    ] {
+        assert!(
+            !body.contains(forbidden),
+            "PRE pair status must not enumerate runtime/history state: {forbidden}"
+        );
+    }
+}
+
+/// POST の定常 IO loop は確定 claim と exact closed-session paths だけを読む。
+/// 全 project の late reconciliation はテスト/旧移行 helper として残っても、この loop からは
+/// 到達不能でなければならない。
+#[test]
+fn post_runtime_never_reconciles_project_history() {
+    let src = read("src/io_thread_post.rs");
+    assert!(
+        src.contains("reconcile_drop_committed_closed_session"),
+        "closed Drop recovery must name one exact session"
     );
     assert!(
-        post.contains("watch_tmp_cleanup::sweep_stale_watch_files_at_startup();"),
-        "POST startup must sweep old watch files outside teardown"
-    );
-    assert!(
-        cleanup.contains("pub(crate) const STALE_WATCH_SECS: i64 = 600;"),
-        "watch cleanup must stay much more conservative than the 10s reader freshness gate"
-    );
-    assert!(
-        cleanup.contains("now.signed_duration_since(modified).num_seconds() > stale_secs"),
-        "watch cleanup must use a strict-greater mtime age gate"
+        !src.contains("reconcile_late_expected_wav_project("),
+        "POST runtime must not recursively reconcile a project"
     );
 }

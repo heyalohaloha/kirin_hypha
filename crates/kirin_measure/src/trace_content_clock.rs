@@ -15,7 +15,11 @@ const FRAME_INTERVAL_MS: u64 = 100;
 pub(crate) struct WavStartClockPlan {
     pub pre_frames: Vec<Frame>,
     pub post_frames: Vec<Frame>,
-    pub canonical_slots: Vec<i64>,
+    /// Producer/DAW positions used only to select the exact source frames.
+    pub producer_slots: Vec<i64>,
+    /// Public TRACE positions on the dropped WAV axis. The first frame is the end of the first
+    /// 100 ms measurement window, so this always starts at `slot_samples`, never at a DAW offset.
+    pub wav_slots: Vec<i64>,
     pub start_basis: &'static str,
 }
 
@@ -63,10 +67,14 @@ pub(crate) fn build_wav_start_clock_plan(
     )?;
     let pre_frames = selected_frames(&pre_source, &selected_positions)?;
     let post_frames = selected_frames(&post_source, &selected_positions)?;
+    let wav_slots = (1..=expected_len)
+        .map(|index| i64::try_from(index).ok()?.checked_mul(slot_samples))
+        .collect::<Option<Vec<_>>>()?;
     Some(WavStartClockPlan {
         pre_frames,
         post_frames,
-        canonical_slots: selected_positions,
+        producer_slots: selected_positions,
+        wav_slots,
         start_basis,
     })
 }
@@ -437,7 +445,8 @@ mod tests {
         let plan = build_wav_start_clock_plan(&pre, &post, &expected(Some(96_000)), 3, 4_800)
             .expect("BWF-anchored common producer context");
 
-        assert_eq!(plan.canonical_slots, vec![100_800, 105_600, 110_400]);
+        assert_eq!(plan.producer_slots, vec![100_800, 105_600, 110_400]);
+        assert_eq!(plan.wav_slots, vec![4_800, 9_600, 14_400]);
         assert_eq!(plan.pre_frames[0].lufs_m, -20.0);
         assert_eq!(plan.post_frames[0].lufs_m, 4.0);
         assert_eq!(
@@ -496,9 +505,11 @@ mod tests {
         )
         .expect("exact 96 kHz BWF window");
 
-        assert_eq!(plan.canonical_slots.len(), 150);
-        assert_eq!(plan.canonical_slots.first(), Some(&6_489_600));
-        assert_eq!(plan.canonical_slots.last(), Some(&7_920_000));
+        assert_eq!(plan.producer_slots.len(), 150);
+        assert_eq!(plan.producer_slots.first(), Some(&6_489_600));
+        assert_eq!(plan.producer_slots.last(), Some(&7_920_000));
+        assert_eq!(plan.wav_slots.first(), Some(&9_600));
+        assert_eq!(plan.wav_slots.last(), Some(&1_440_000));
         assert_eq!(plan.pre_frames.len(), 150);
         assert_eq!(plan.post_frames.len(), 150);
     }
