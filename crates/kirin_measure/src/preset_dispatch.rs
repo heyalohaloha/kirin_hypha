@@ -196,6 +196,20 @@ pub fn scan_latest_v2_preset(
         .max_by(|a, b| a.generated_at.cmp(&b.generated_at))
 }
 
+/// Read the producer-owned latest proposal pointer. Runtime GUI code uses this deterministic path;
+/// historical scanning remains available only to explicit migration/diagnostic callers.
+pub fn read_current_v2_preset(
+    base: &Path,
+    project_hash: &str,
+    own_installation_id: &str,
+) -> Option<PresetFileV2> {
+    let path = preset::preset_dir(base, project_hash).join("current.json");
+    match dispatch_one(&path, own_installation_id).ok()? {
+        PresetVariant::V2_0(preset) => Some(preset),
+        PresetVariant::V1_1(_) => None,
+    }
+}
+
 // ── tests ────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -381,6 +395,30 @@ mod tests {
     fn scan_latest_v2_none_when_empty_dir() {
         let base = isolated_dir();
         assert!(scan_latest_v2_preset(&base, "PH", "iid-own").is_none());
+    }
+
+    #[test]
+    fn current_v2_reads_only_the_producer_pointer() {
+        let base = isolated_dir();
+        let dir = preset_dir(&base, "PH");
+        fs::create_dir_all(&dir).unwrap();
+        let old = signed_v2_0("iid-own");
+        let mut current = signed_v2_0("iid-own");
+        current.generated_at = "2026-04-23T12:00:00Z".to_string();
+        current.hmac_checksum = compute_preset_v2_checksum(&current);
+        fs::write(dir.join("history.json"), serde_json::to_vec(&old).unwrap()).unwrap();
+        fs::write(
+            dir.join("current.json"),
+            serde_json::to_vec(&current).unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            read_current_v2_preset(&base, "PH", "iid-own")
+                .unwrap()
+                .generated_at,
+            current.generated_at
+        );
     }
 
     #[test]

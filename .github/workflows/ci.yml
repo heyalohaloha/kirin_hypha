@@ -63,34 +63,24 @@ jobs:
       - name: Build kirin_hypha_ffi staticlib (arm64 native)
         run: cargo build --release -p kirin_hypha_ffi --locked
 
-      # The macOS VST3 ship set is the egui/nih-plug bundle under target/bundled.
-      # Build it here so pluginval validates the same VST3 family Studio One/installers load.
-      - name: Build macOS ship-set VST3 bundles (arm64)
-        run: |
-          cargo run --package xtask -- bundle hypha_pre --release
-          cargo run --package xtask -- bundle hypha_post --release
-          cargo run --package xtask -- stamp-egui-version
-
       # The JUCE submodule is pinned pristine; local patches are applied at build time only.
       # Keep CI and scripts/build_juce_universal.sh on the same patch flags.
-      - name: Apply JUCE patches (patches/0001 + 0002 + 0003)
+      - name: Apply tracked JUCE patch stack
         run: bash scripts/apply_juce_patches.sh
 
-      - name: Configure + build JUCE shells (arm64)
+      - name: Build macOS common-shell AU + VST3 bundles (arm64)
         run: |
           cmake -S juce_shell -B juce_shell/build-arm64 \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_OSX_ARCHITECTURES=arm64
           cmake --build juce_shell/build-arm64 --config Release
 
-      # Validate the actual macOS VST3 ship-set before any Studio One/manual loop. auval below
-      # covers JUCE AU; pluginval catches VST3 load/state/automation/sample-rate/buffer-size issues.
-      # GitHub's macOS runner is headless enough that egui/baseview cannot create an OpenGL editor
-      # context, so CI skips pluginval's GUI-window tests while keeping the VST3 validation gate.
+      # Validate the actual JUCE VST3 ship-set before any Studio One/manual loop. auval below
+      # validates the other format built from the same processor/editor source.
       - name: Validate macOS ship-set VST3 with pluginval
         env:
           PLUGINVAL_SKIP_GUI_TESTS: "1"
-        run: scripts/validate_macos_pluginval.sh target/bundled
+        run: scripts/validate_macos_pluginval.sh juce_shell/build-arm64
 
       - name: Upload macOS pluginval logs
         if: always()

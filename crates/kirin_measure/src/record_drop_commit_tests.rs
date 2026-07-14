@@ -49,6 +49,8 @@ fn write_drop_commit(
         drop_commit_id: drop_commit_id.clone(),
         project_hash: project_hash.to_string(),
         record_session_id: session_id.to_string(),
+        capture_generation_id: String::new(),
+        generation_started_at_ms: 0,
         created_at_ms: metadata.created_at_ms,
         metadata: metadata.clone(),
     };
@@ -61,6 +63,8 @@ fn write_drop_commit(
         schema_version: DROP_TRANSACTION_SCHEMA.to_string(),
         drop_commit_id,
         project_hash: project_hash.to_string(),
+        capture_generation_id: String::new(),
+        generation_started_at_ms: 0,
         created_at_ms: metadata.created_at_ms,
         bounce_id: metadata.bounce_id.clone(),
         wav_hash: metadata.wav_hash.clone().unwrap(),
@@ -192,6 +196,8 @@ fn drop_commit_is_inert_until_transaction_manifest_is_ready() {
         drop_commit_id: "drop-not-ready".to_string(),
         project_hash: "project-a".to_string(),
         record_session_id: "session-a".to_string(),
+        capture_generation_id: String::new(),
+        generation_started_at_ms: 0,
         created_at_ms: metadata.created_at_ms,
         metadata,
     };

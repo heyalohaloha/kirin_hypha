@@ -78,6 +78,21 @@ typedef struct {
   char name[64];
 } KirinIdentity;
 
+/* nih-plug VST3 1.1.x state から JUCE 共通 shell へ一度だけ移す非 RT DTO.
+ * 旧 state は JSON object の fields 内に、各値を JSON string として保持する。 */
+typedef struct {
+  char instance_id[64];
+  char project_uuid[64];
+  char daw_session_uuid[64];
+  char name[64];
+  char pair_pre_name[64];
+} KirinLegacyNihState;
+
+/* 旧 nih-plug state chunk を読む。message thread/state restore 専用。
+ * 認識できる identity/pair field が1件以上あり、JSON契約が正しいときだけ true。 */
+bool kirin_hypha_decode_legacy_nih_state(const uint8_t* data, size_t len,
+                                         KirinLegacyNihState* out);
+
 /* POST の Δ（3d-b）. 各 double の「値なし」は NaN. mode: 0=Active 1=Stale 2=NoPre 3=Bypassed. */
 typedef struct {
   uint8_t mode;

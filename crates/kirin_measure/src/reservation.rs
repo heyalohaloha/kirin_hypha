@@ -1,4 +1,4 @@
-//! B-127 (G-115-364/365/366): per-pairing reservation — cross-process safe atomic claim。
+//! B-127 (G-115-364/365/366): per-PRE reservation — cross-process safe atomic claim。
 //!
 //! 記録 cap は **distinct pairing** 単位（[`crate::exclusion`]）。active marker が io_thread に
 //! よって書かれるのは keep 確定の **後** であり、その間（keep→writer_start）に複数の keep が
@@ -8,19 +8,22 @@
 //! plugin_data/` を共有する別 DAW/別プロセス含む）で閉じる。final 枠は link するまで dir entry を
 //! 持たないため、reserve 進行中に sweep/count が「0-byte/incomplete な final」を観測する窓が無い。
 //!
-//! - 枠ファイル: `{plugin_data}/{project_hash}/record_reservation/{pairing_key}.json`
-//! - `pairing_key` = `{pre_instance_id}__{post_instance_id}`（active marker の pairing key と一致）
+//! - 枠ファイル: `{plugin_data}/{project_hash}/record_reservation/{pre_instance_id}.json`
+//! - 1 PRE = 1 枠。payload の `post_instance_id` が現在の唯一の owner。
+//!   異なる POST は同じ PRE を同時に予約できないため、PRE の単一 Record inbox と契約が一致する。
 //! - cap count（[`count_frames`]）は **`record_reservation/*.json` の物理存在数のみ**で数える。
 //!   marker JSON は参照しない（第二の独立 count を持たない）/ parse もしない（壊れ枠も存在側で
 //!   数える＝under-count しない）/ TTL を count から引かない（古い枠も存在すれば数える）。
-//! - 孤児回収（grace 超過）は **sweep の責務**であって count ではない。keep が writer_start 前に
-//!   クラッシュした枠は age（reserved_at）/ mtime grace 超過で sweep が削除する（B-103/B-119 合流）。
+//! - POST IO thread は所有する1ファイルの mtime lease だけを更新する。孤児回収はプラグイン起動時の
+//!   全履歴 sweep ではなく、利用者の Keep 操作時に現在 project の予約棚（上限12件）だけを確認する。
 //! - 解放: POST stop（[`crate::record_signal`] 経路）で明示削除 + 孤児は grace-based sweep。
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::fs;
+use std::fs::{self, File, FileTimes, OpenOptions};
+use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 use crate::plugin_data::{PluginDataFile, Role as PluginDataRole, Status};
 
@@ -31,27 +34,51 @@ pub const RESERVATION_SUBDIR: &str = "record_reservation";
 /// =100ms 程度）を十分覆う保守値。超過は孤児として count 除外 + sweep 対象。`STALE_SECONDS` と同値。
 pub const RESERVATION_TTL_SECS: i64 = 60;
 
-/// pairing を一意識別する正規化キー（`pre_instance_id__post_instance_id`）。
-/// active marker 側（POST→`(paired_pre, self)` / PRE→`(self, paired_post)`）と同じ規則で作る。
-pub fn pairing_key(pre_instance_id: &str, post_instance_id: &str) -> String {
-    // B-128 (G-115-370): within-base wall。reservation_path / reserve_build_temp の両 path builder が
-    // 本キーを使うため、ここで pre/post を guard すれば枠ファイル名は常に base 内 path-safe。
-    // 正常運用（valid UUID / 安全な literal）は無改変＝既存 pairing 契約・B-127 テスト不変。
-    let pre =
-        crate::path_identity::guard_path_component(pre_instance_id, "reservation.pairing_key.pre");
-    let post = crate::path_identity::guard_path_component(
-        post_instance_id,
-        "reservation.pairing_key.post",
-    );
-    format!("{pre}__{post}")
+/// Active POST が exact reservation lease を更新する周期。TTL より十分短く、Record中でも
+/// project/history scan は一切行わず1 inodeの mtime だけを更新する。
+pub const RESERVATION_LEASE_REFRESH_SECS: u64 = 10;
+
+const RESERVATION_LEASE_VERSION: u8 = 2;
+
+/// PRE ownership claim の正規化キー。
+fn pre_owner_key(pre_instance_id: &str) -> String {
+    crate::path_identity::guard_path_component(pre_instance_id, "reservation.pre_owner_key")
+        .into_owned()
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct ReservationFile {
     pre_instance_id: String,
     post_instance_id: String,
     /// rfc3339。TTL / sweep の age 判定に使う。
     reserved_at: String,
+    /// v2+: mtime は active owner が更新する exact lease。欠落は旧版 reservation。
+    #[serde(default)]
+    lease_version: u8,
+}
+
+/// Cross-process serialization for one project's tiny reservation registry. The lock file is
+/// stable; a process crash releases the OS lock automatically and leaves no stale lock state.
+struct ProjectLock(File);
+
+impl ProjectLock {
+    fn acquire(dir: &Path) -> std::io::Result<Self> {
+        fs::create_dir_all(dir)?;
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(dir.join(".registry.lock"))?;
+        file.lock()?;
+        Ok(Self(file))
+    }
+}
+
+impl Drop for ProjectLock {
+    fn drop(&mut self) {
+        let _ = self.0.unlock();
+    }
 }
 
 /// [`reserve_pairing`] の結果。
@@ -61,6 +88,8 @@ pub enum ReserveOutcome {
     Created,
     /// 既に同 pairing の reservation が存在した（EEXIST）。枠は既に確保済み。
     AlreadyReserved,
+    /// 同じ PRE を別 POST が既に所有している。上書きせず利用者へ競合を返す。
+    PreInUse,
 }
 
 fn reservation_dir(base_dir: &Path, project_hash: &str) -> PathBuf {
@@ -70,8 +99,8 @@ fn reservation_dir(base_dir: &Path, project_hash: &str) -> PathBuf {
     base_dir.join(&*ph).join(RESERVATION_SUBDIR)
 }
 
-fn reservation_path(base_dir: &Path, project_hash: &str, pre_iid: &str, post_iid: &str) -> PathBuf {
-    reservation_dir(base_dir, project_hash).join(format!("{}.json", pairing_key(pre_iid, post_iid)))
+fn reservation_path(base_dir: &Path, project_hash: &str, pre_iid: &str) -> PathBuf {
+    reservation_dir(base_dir, project_hash).join(format!("{}.json", pre_owner_key(pre_iid)))
 }
 
 /// pairing 枠を **atomic claim**（tempfile + `hard_link` / G-115-366 A）で予約する（cross-process safe）。
@@ -97,8 +126,11 @@ pub fn reserve_pairing_at(
     now: DateTime<Utc>,
 ) -> std::io::Result<ReserveOutcome> {
     let dir = reservation_dir(base_dir, project_hash);
-    fs::create_dir_all(&dir)?;
-    let path = reservation_path(base_dir, project_hash, pre_iid, post_iid);
+    let _project_lock = ProjectLock::acquire(&dir)?;
+    // Explicit Keep is the only recovery boundary. The registry is capped at 12 live entries,
+    // so this work is bounded by the product contract and never scales with stored history.
+    reclaim_stale_project_reservations_unlocked(base_dir, project_hash, now);
+    let path = reservation_path(base_dir, project_hash, pre_iid);
 
     // G-115-366 (A): atomic claim = tempfile + hard_link。final(枠) は link するまで dir entry を
     // 持たない → reserve 進行中に sweep / count が final を観測できない（0-byte/incomplete が final に
@@ -109,25 +141,34 @@ pub fn reserve_pairing_at(
         pre_instance_id: pre_iid.to_string(),
         post_instance_id: post_iid.to_string(),
         reserved_at: now.to_rfc3339(),
+        lease_version: RESERVATION_LEASE_VERSION,
     })
     .map_err(std::io::Error::other)?;
     // step 1-2: temp に完全 JSON を write_all → sync_all（fsync）。失敗は temp 掃除して Err（reject）。
-    let temp = reserve_build_temp(&dir, pre_iid, post_iid, &bytes)?;
+    let temp = reserve_build_temp(&dir, pre_iid, &bytes)?;
     // step 3: hard_link(temp → final) で原子 claim（temp は内部で全経路掃除）。
-    reserve_link_claim(&temp, &path)
+    match reserve_link_claim(&temp, &path)? {
+        ReserveOutcome::AlreadyReserved => {
+            let owner = read_frame_pair(&path);
+            if owner
+                .as_ref()
+                .is_some_and(|(pre, post)| pre == pre_iid && post == post_iid)
+            {
+                Ok(ReserveOutcome::AlreadyReserved)
+            } else {
+                Ok(ReserveOutcome::PreInUse)
+            }
+        }
+        outcome => Ok(outcome),
+    }
 }
 
 /// G-115-366 (A) step 1-2: temp に完全 JSON を write_all → sync_all（fsync）し、temp path を返す。
 /// temp は final と同一 dir（= 同一 fs / hard_link 制約クリア）。名は `.{pair_key}.tmp.{pid}.{seq}`
 /// （process 内 atomic 連番 + pid で並行・別プロセスと衝突しない / 拡張子が `.json` でない＝sweep/
 /// count が無視する）。write / sync 失敗時は temp を best-effort 掃除して Err（orphan temp を残さない）。
-fn reserve_build_temp(
-    dir: &Path,
-    pre_iid: &str,
-    post_iid: &str,
-    bytes: &[u8],
-) -> std::io::Result<PathBuf> {
-    crate::atomic_claim::build_claim_temp(dir, &pairing_key(pre_iid, post_iid), bytes)
+fn reserve_build_temp(dir: &Path, pre_iid: &str, bytes: &[u8]) -> std::io::Result<PathBuf> {
+    crate::atomic_claim::build_claim_temp(dir, &pre_owner_key(pre_iid), bytes)
 }
 
 /// G-115-366 (A) step 3: `hard_link(temp → final)` で原子 claim。
@@ -143,9 +184,59 @@ fn reserve_link_claim(temp: &Path, final_path: &Path) -> std::io::Result<Reserve
     }
 }
 
-/// pairing 枠を解放する（ファイル削除）。不在は成功扱い（冪等）。
+/// pairing 枠を解放する（ファイル削除）。payload が同じ POST owner の場合だけ削除する。
+/// 古い POST の遅延 cleanup が、同じ PRE を再取得した新 owner の枠を消すことはない。
 pub fn release_pairing(base_dir: &Path, project_hash: &str, pre_iid: &str, post_iid: &str) {
-    let _ = fs::remove_file(reservation_path(base_dir, project_hash, pre_iid, post_iid));
+    let dir = reservation_dir(base_dir, project_hash);
+    let Ok(_project_lock) = ProjectLock::acquire(&dir) else {
+        return;
+    };
+    let path = reservation_path(base_dir, project_hash, pre_iid);
+    if read_frame_pair(&path)
+        .as_ref()
+        .is_some_and(|(pre, post)| pre == pre_iid && post == post_iid)
+    {
+        let _ = fs::remove_file(path);
+    }
+}
+
+/// Refresh one active reservation without rewriting JSON or enumerating any directory.
+/// The owner check and mtime update happen while holding the project registry lock. A failed
+/// refresh never stops Record; it merely allows a later explicit Keep to reclaim the lease.
+pub fn refresh_pairing(base_dir: &Path, project_hash: &str, pre_iid: &str, post_iid: &str) -> bool {
+    refresh_pairing_at(base_dir, project_hash, pre_iid, post_iid, SystemTime::now())
+}
+
+fn refresh_pairing_at(
+    base_dir: &Path,
+    project_hash: &str,
+    pre_iid: &str,
+    post_iid: &str,
+    modified: SystemTime,
+) -> bool {
+    let dir = reservation_dir(base_dir, project_hash);
+    let Ok(_project_lock) = ProjectLock::acquire(&dir) else {
+        return false;
+    };
+    let path = reservation_path(base_dir, project_hash, pre_iid);
+    let Ok(mut file) = OpenOptions::new().read(true).write(true).open(path) else {
+        return false;
+    };
+    let mut bytes = Vec::new();
+    if file.read_to_end(&mut bytes).is_err() {
+        return false;
+    }
+    let Ok(frame) = serde_json::from_slice::<ReservationFile>(&bytes) else {
+        return false;
+    };
+    if frame.lease_version < RESERVATION_LEASE_VERSION
+        || frame.pre_instance_id != pre_iid
+        || frame.post_instance_id != post_iid
+    {
+        return false;
+    }
+    file.set_times(FileTimes::new().set_modified(modified))
+        .is_ok()
 }
 
 /// G-115-365 (2): cap の真実源。`{project_hash}/record_reservation/` 配下に**物理的に存在する**
@@ -173,20 +264,15 @@ pub fn count_frames(base_dir: &Path, project_hash: &str) -> usize {
         .count()
 }
 
-/// 枠の reserved_at（rfc3339）。parse 不能/欠落は None。
-fn read_frame_reserved_at(path: &Path) -> Option<DateTime<Utc>> {
-    let bytes = fs::read(path).ok()?;
-    let rf: ReservationFile = serde_json::from_slice(&bytes).ok()?;
-    DateTime::parse_from_rfc3339(&rf.reserved_at)
-        .ok()
-        .map(|t| t.with_timezone(&Utc))
-}
-
 /// 枠の (pre, post) instance_id。parse 不能は None。
 fn read_frame_pair(path: &Path) -> Option<(String, String)> {
-    let bytes = fs::read(path).ok()?;
-    let rf: ReservationFile = serde_json::from_slice(&bytes).ok()?;
+    let rf = read_frame(path)?;
     Some((rf.pre_instance_id, rf.post_instance_id))
+}
+
+fn read_frame(path: &Path) -> Option<ReservationFile> {
+    let bytes = fs::read(path).ok()?;
+    serde_json::from_slice(&bytes).ok()
 }
 
 /// G-115-366 (B): 枠ファイルの mtime が `now` から [`RESERVATION_TTL_SECS`] を超えて古いか。
@@ -279,36 +365,57 @@ pub fn sweep_stale_reservations_in(base_dir: &Path, now: DateTime<Utc>) -> usize
             continue;
         };
         let ph = ph.to_string();
-        let dir = project_path.join(RESERVATION_SUBDIR);
-        let Ok(entries) = fs::read_dir(&dir) else {
+        removed += reclaim_stale_project_reservations(base_dir, &ph, now);
+    }
+    removed
+}
+
+/// Reclaim only the current project's bounded reservation registry. New lease-v2 files are
+/// decided exclusively by their exact mtime. Legacy files retain the old marker compatibility
+/// check, but only during an explicit Keep and never from startup, UI polling or a timer.
+pub fn reclaim_stale_project_reservations(
+    base_dir: &Path,
+    project_hash: &str,
+    now: DateTime<Utc>,
+) -> usize {
+    let dir = reservation_dir(base_dir, project_hash);
+    let Ok(_project_lock) = ProjectLock::acquire(&dir) else {
+        return 0;
+    };
+    reclaim_stale_project_reservations_unlocked(base_dir, project_hash, now)
+}
+
+fn reclaim_stale_project_reservations_unlocked(
+    base_dir: &Path,
+    project_hash: &str,
+    now: DateTime<Utc>,
+) -> usize {
+    let dir = reservation_dir(base_dir, project_hash);
+    let Ok(entries) = fs::read_dir(&dir) else {
+        return 0;
+    };
+    let mut removed = 0;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("json") {
             continue;
+        }
+        if !frame_mtime_age_exceeds_grace(&path, now) {
+            continue;
+        }
+        let reclaim = match read_frame(&path) {
+            Some(frame) if frame.lease_version >= RESERVATION_LEASE_VERSION => true,
+            Some(frame) => !pairing_has_fresh_marker(
+                base_dir,
+                project_hash,
+                &frame.pre_instance_id,
+                &frame.post_instance_id,
+                now,
+            ),
+            None => true,
         };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) != Some("json") {
-                continue;
-            }
-            let reclaim = match read_frame_reserved_at(&path) {
-                Some(reserved_at) => {
-                    let age = now.signed_duration_since(reserved_at).num_seconds();
-                    // grace 内は保持。grace 超過は marker 無し（録音継続せず）のときだけ回収。
-                    age > RESERVATION_TTL_SECS
-                        && match read_frame_pair(&path) {
-                            Some((pre, post)) => {
-                                !pairing_has_fresh_marker(base_dir, &ph, &pre, &post, now)
-                            }
-                            None => true,
-                        }
-                }
-                // G-115-366 (B): reserved_at parse 不能枠は mtime grace 超過のときだけ回収する。
-                // atomic claim 後の final は常に parse 可（A）。それでも parse 不能な final が出るのは
-                // 旧形式残骸 / FS 破損のみ。最近 mtime のもの（万一の生成途中等）は保守的に保持し、
-                // grace 超過のものだけ孤児として回収する。
-                None => frame_mtime_age_exceeds_grace(&path, now),
-            };
-            if reclaim && fs::remove_file(&path).is_ok() {
-                removed += 1;
-            }
+        if reclaim && fs::remove_file(&path).is_ok() {
+            removed += 1;
         }
     }
     removed
@@ -354,6 +461,22 @@ mod tests {
     }
 
     #[test]
+    fn same_pre_cannot_be_reserved_by_a_different_post() {
+        let base = isolated_dir();
+        let now = Utc::now();
+        assert_eq!(
+            reserve_pairing_at(&base, "ph", "pre", "post-a", now).unwrap(),
+            ReserveOutcome::Created
+        );
+        assert_eq!(
+            reserve_pairing_at(&base, "ph", "pre", "post-b", now).unwrap(),
+            ReserveOutcome::PreInUse,
+            "PRE ownership is the cross-process truth; a second POST cannot overwrite it"
+        );
+        assert_eq!(count_frames(&base, "ph"), 1);
+    }
+
+    #[test]
     fn release_allows_re_reserve() {
         let base = isolated_dir();
         let now = Utc::now();
@@ -366,31 +489,25 @@ mod tests {
         );
     }
 
-    /// fresh active marker（録音継続中）を `{base}/{ph}/{post}/post/` に書く（sweep 保護テスト用）。
-    fn write_active_post_marker(base: &Path, ph: &str, post_iid: &str) {
-        use crate::plugin_data::{PluginDataWriter, WriterPaths};
-        let paths = WriterPaths::build(
-            base,
-            ph,
-            post_iid,
-            PluginDataRole::Post,
-            "2026-06-14T00:00:00Z",
+    #[test]
+    fn late_release_from_old_post_cannot_remove_new_owner() {
+        let base = isolated_dir();
+        let now = Utc::now();
+        reserve_pairing_at(&base, "ph", "pre", "post-old", now).unwrap();
+        release_pairing(&base, "ph", "pre", "post-old");
+        assert_eq!(
+            reserve_pairing_at(&base, "ph", "pre", "post-new", now).unwrap(),
+            ReserveOutcome::Created
         );
-        let mut w = PluginDataWriter::create(
-            paths,
-            "i".to_string(),
-            ph.to_string(),
-            post_iid.to_string(),
-            PluginDataRole::Post,
-            None,
-            48000,
-            None,
-            None,
-            None,
-            None,
-        )
-        .unwrap();
-        w.flush().unwrap(); // status=Active, heartbeat=now（fresh）
+
+        release_pairing(&base, "ph", "pre", "post-old");
+
+        assert_eq!(
+            reserve_pairing_at(&base, "ph", "pre", "post-new", now).unwrap(),
+            ReserveOutcome::AlreadyReserved,
+            "cleanup must compare payload ownership before unlinking the PRE claim"
+        );
+        assert_eq!(count_frames(&base, "ph"), 1);
     }
 
     /// G-115-365 (2): count は枠の物理存在のみ（parse/TTL 非依存）。古い枠も壊れた枠も数える。
@@ -418,10 +535,10 @@ mod tests {
         );
     }
 
-    /// G-115-365 sweep: 孤児（age>TTL かつ fresh marker 無し）を回収。fresh 枠（grace 内）と
-    /// fresh marker に裏付けられた古い枠（長時間 Record）は保持する（pure-age 誤剥がし防止）。
+    /// v2 lease: stale mtime の孤児だけを回収し、active owner が exact inode を refresh した
+    /// reservation は保持する。active 判定に plugin_data history scan は不要。
     #[test]
-    fn sweep_reclaims_orphan_but_protects_fresh_and_marker_backed() {
+    fn sweep_reclaims_orphan_but_protects_fresh_and_refreshed_lease() {
         let base = isolated_dir();
         let now = Utc::now();
         let old = now - chrono::Duration::seconds(RESERVATION_TTL_SECS + 10);
@@ -429,16 +546,29 @@ mod tests {
         reserve_pairing_at(&base, "ph", "fresh-pre", "fresh-post", now).unwrap();
         // (2) 古い枠 + marker 無し → 孤児 → 回収。
         reserve_pairing_at(&base, "ph", "orphan-pre", "orphan-post", old).unwrap();
-        // (3) 古い枠 + fresh active marker（録音継続中）→ 保持。
+        // (3) 古い枠を active owner が exact refresh → 保持。
         reserve_pairing_at(&base, "ph", "live-pre", "live-post", old).unwrap();
-        write_active_post_marker(&base, "ph", "live-post");
+        let old_time: SystemTime = old.into();
+        for pre in ["orphan-pre", "live-pre"] {
+            let file = File::open(reservation_path(&base, "ph", pre)).unwrap();
+            file.set_times(FileTimes::new().set_modified(old_time))
+                .unwrap();
+        }
+        let now_time: SystemTime = now.into();
+        assert!(refresh_pairing_at(
+            &base,
+            "ph",
+            "live-pre",
+            "live-post",
+            now_time
+        ));
 
         let removed = sweep_stale_reservations_in(&base, now);
         assert_eq!(removed, 1, "孤児 1 件のみ回収");
         assert_eq!(
             count_frames(&base, "ph"),
             2,
-            "fresh 枠 + marker 裏付け枠は残る"
+            "fresh 枠 + refreshed lease は残る"
         );
     }
 
@@ -483,16 +613,17 @@ mod tests {
         let now = Utc::now();
         let dir = reservation_dir(&base, "ph");
         fs::create_dir_all(&dir).unwrap();
-        let final_path = reservation_path(&base, "ph", "x", "y");
+        let final_path = reservation_path(&base, "ph", "x");
         let bytes = serde_json::to_vec(&ReservationFile {
             pre_instance_id: "x".to_string(),
             post_instance_id: "y".to_string(),
             reserved_at: now.to_rfc3339(),
+            lease_version: RESERVATION_LEASE_VERSION,
         })
         .unwrap();
 
         // step: temp 書込後・link 前。
-        let temp = reserve_build_temp(&dir, "x", "y", &bytes).unwrap();
+        let temp = reserve_build_temp(&dir, "x", &bytes).unwrap();
         assert!(
             !final_path.exists(),
             "link 前: final は dir entry を持たない（sweep 非観測）"
@@ -605,6 +736,7 @@ mod tests {
                     Ok(ReserveOutcome::AlreadyReserved) => {
                         already.fetch_add(1, Ordering::Relaxed);
                     }
+                    Ok(ReserveOutcome::PreInUse) => {}
                     Err(_) => {}
                 })
             })
@@ -636,6 +768,7 @@ mod tests {
                 }
             }
             Ok(ReserveOutcome::AlreadyReserved) => true,
+            Ok(ReserveOutcome::PreInUse) => false,
             Err(_) => false,
         }
     }

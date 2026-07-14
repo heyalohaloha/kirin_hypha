@@ -28,7 +28,7 @@ bash scripts/verify_juce_patch_state.sh
 
 `cargo run --package xtask -- release-package` also runs this verifier before it
 allows an uploadable zip. A dirty submodule is acceptable only when it matches
-the pinned JUCE commit plus these five patch files byte-for-byte; unexpected
+the pinned JUCE commit plus these six patch files byte-for-byte; unexpected
 JUCE edits, staged files, untracked files, or a moved submodule HEAD fail the
 release gate.
 
@@ -149,3 +149,18 @@ release gate.
   callback position, frame values, PRE/POST offset, or TRACE axis. Production
   alignment may consume the facts only after a host/format conformance capture has
   proven the correct sample-domain mapping.
+
+---
+
+## 0006 — VST3 component identity continuity
+
+- **File:** `juce_audio_plugin_client_VST3.cpp` (`JuceVST3Component::iid`).
+- **Why:** macOS previously shipped the nih-plug VST3 while AU and Windows used the
+  JUCE shell. Unifying macOS AU/VST3 on one editor is required for identical type,
+  colour, metric labels and Keep geometry, but changing the VST3 component CID would
+  make existing DAW projects report a missing plug-in.
+- **Change:** Let a target provide four explicit VST3 UID words. PRE keeps
+  `KirinHyphaPREv01`; POST keeps `KirinHyphaPOSTv1`, including Steinberg's Windows
+  byte-order convention. Targets without these definitions retain JUCE defaults.
+- **Scope / impact:** Factory identity only. DSP, audio buffers, parameters and clocks
+  are untouched. Old nih-plug state bytes are migrated separately at the FFI boundary.

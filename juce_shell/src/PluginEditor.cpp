@@ -149,7 +149,9 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
 
     configureForKind (Kind::WatchAbs6); // current | MAX, three rows
     resized();                     // finalise positions now that postControls exists
-    startTimerHz (30);             // smooth LED breathing (egui repaints at 10–30Hz)
+    // Producer JSON and meter snapshots advance at 100 ms. Polling faster cannot reveal newer
+    // facts, so the shared AU/VST3 editor uses one 10 Hz presentation clock.
+    startTimerHz (10);
 }
 
 KirinHyphaEditor::~KirinHyphaEditor()
@@ -313,6 +315,7 @@ void KirinHyphaEditor::showToast (const juce::String& msg)
 
 void KirinHyphaEditor::showCandidateMenu()
 {
+    processorRef.refreshLicenseForUserAction();
     // B-102: egui draw_pair_pre_combo parity (scope = new↔new). Built on click (no per-tick FFI):
     //   [All Keep: N ready POST(s)] (Watch, N>=1) / [All Stop: recording POSTs] (Record) /
     //   candidate rows ("Can Keep/Keep ready/In use: name-or-id8").
@@ -415,7 +418,6 @@ void KirinHyphaEditor::timerCallback()
     if (isPost) updatePost();
     else        updatePre();
 
-    led.repaint(); // breathing animation (state colour evolves with the monotonic clock)
 }
 
 void KirinHyphaEditor::updatePre()

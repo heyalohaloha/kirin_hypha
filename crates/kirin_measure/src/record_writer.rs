@@ -606,6 +606,22 @@ pub fn resolve_record_session_id(
         })
 }
 
+fn resolve_capture_generation_for_session(
+    base: &Path,
+    project_hash: &str,
+    post_instance_id: &str,
+    record_session_id: &str,
+) -> Option<(String, i64)> {
+    let signal = record_signal::read_signal(base, project_hash, post_instance_id)?;
+    if signal.session_id != record_session_id || signal.capture_generation_id.trim().is_empty() {
+        return None;
+    }
+    Some((
+        signal.capture_generation_id.trim().to_string(),
+        signal.generation_started_at_ms,
+    ))
+}
+
 fn normalized_record_session_id(record_session_id: Option<String>) -> Option<String> {
     record_session_id
         .map(|value| value.trim().to_string())
@@ -727,6 +743,9 @@ pub fn writer_start(
             return None;
         }
     };
+    let capture_generation = signal_post_instance_id.and_then(|post_iid| {
+        resolve_capture_generation_for_session(&base, project_hash, post_iid, &record_session_id)
+    });
     let record_session_id = Some(record_session_id);
     let writer_paths = WriterPaths::build(&base, project_hash, instance_id, role, &wall_clock_iso);
     let final_path = writer_paths.final_path.clone();
@@ -760,6 +779,9 @@ pub fn writer_start(
     w.set_record_start_wall_clock(wall_clock_iso);
     w.set_started_at_ms(started_at_ms);
     w.set_record_session_id(record_session_id);
+    if let Some((capture_generation_id, generation_started_at_ms)) = capture_generation {
+        w.set_capture_generation(Some(capture_generation_id), generation_started_at_ms);
+    }
     w.set_expected_wav(None);
     if let Err(e) = w.flush() {
         log::warn!("[writer] initial flush failed: {}", e);
@@ -917,6 +939,21 @@ fn refresh_pair_record_metadata_from_base(
     if ctx.writer.data().record_session_id.is_none() {
         let session_id = resolve_record_session_id(base, &project_hash, post_instance_id);
         ctx.writer.set_record_session_id(session_id);
+    }
+    if ctx.writer.data().capture_generation_id.is_none() {
+        if let Some(session_id) = ctx.writer.data().record_session_id.clone() {
+            if let Some((capture_generation_id, generation_started_at_ms)) =
+                resolve_capture_generation_for_session(
+                    base,
+                    &project_hash,
+                    post_instance_id,
+                    &session_id,
+                )
+            {
+                ctx.writer
+                    .set_capture_generation(Some(capture_generation_id), generation_started_at_ms);
+            }
+        }
     }
 }
 
@@ -3114,6 +3151,8 @@ mod tests {
             target_pre_instance_id: "pre-x".to_string(),
             daw_session_id: "daw-session".to_string(),
             session_id: "record-session-x".to_string(),
+            capture_generation_id: String::new(),
+            generation_started_at_ms: 0,
             t: "2026-07-05T00:00:00Z".to_string(),
             started_at: "2026-07-05T00:00:00Z".to_string(),
             started_at_position_samples: Some(96_000),
@@ -3140,6 +3179,8 @@ mod tests {
             target_pre_instance_id: "pre-x".to_string(),
             daw_session_id: "daw-refresh".to_string(),
             session_id: "record-session-refresh".to_string(),
+            capture_generation_id: String::new(),
+            generation_started_at_ms: 0,
             t: "2026-07-05T00:00:01Z".to_string(),
             started_at: "2026-07-05T00:00:00Z".to_string(),
             started_at_position_samples: Some(0),
@@ -3170,6 +3211,8 @@ mod tests {
             target_pre_instance_id: "pre-x".to_string(),
             daw_session_id: "daw-refresh".to_string(),
             session_id: "record-session-claim".to_string(),
+            capture_generation_id: String::new(),
+            generation_started_at_ms: 0,
             t: "2026-07-05T00:00:01Z".to_string(),
             started_at: "2026-07-05T00:00:00Z".to_string(),
             started_at_position_samples: Some(0),

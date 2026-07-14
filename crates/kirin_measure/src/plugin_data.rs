@@ -339,6 +339,12 @@ pub struct PluginDataFile {
     /// PRE/POST が同じ録音として閉じたかを後段で検証する pair-level key。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub record_session_id: Option<String>,
+    /// Keep/All Keep producer transaction. New captures always carry this on
+    /// both roles; empty is accepted only while reading legacy artifacts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capture_generation_id: Option<String>,
+    #[serde(default)]
+    pub generation_started_at_ms: i64,
     /// Record 開始 wall-clock（epoch ms）。frame t_ms の原点。
     /// PRE=相手 POST の started_at、POST=自身の started_at を epoch ms 化（同一原点）。
     /// signal 不在/壊れ時の fallback では PRE/POST で異なり得る。
@@ -508,6 +514,8 @@ impl PluginDataFile {
             pair_name: non_empty_string(pair_name),
             pair_pre_name: non_empty_string(pair_pre_name),
             record_session_id: None,
+            capture_generation_id: None,
+            generation_started_at_ms: 0,
             started_at_ms: 0,
             dropped_samples: 0,
             integrity_degraded: false,
@@ -961,6 +969,15 @@ impl PluginDataWriter {
     /// PRE/POST 共通の Record session UUID を焼く。
     pub fn set_record_session_id(&mut self, session_id: Option<String>) {
         self.data.record_session_id = non_empty_string(session_id);
+    }
+
+    pub fn set_capture_generation(
+        &mut self,
+        capture_generation_id: Option<String>,
+        generation_started_at_ms: i64,
+    ) {
+        self.data.capture_generation_id = non_empty_string(capture_generation_id);
+        self.data.generation_started_at_ms = generation_started_at_ms.max(0);
     }
 
     /// atomic flush: checksum 計算 → `.tmp` 書込 → `rename()` で最終パスに置換。
@@ -1745,6 +1762,9 @@ fn trace_shelf_same_record(existing: &PluginDataFile, data: &PluginDataFile) -> 
         && existing.project_hash == data.project_hash
         && existing.instance_id == data.instance_id
         && existing.role == data.role
+        && (existing.capture_generation_id.is_none()
+            || data.capture_generation_id.is_none()
+            || existing.capture_generation_id == data.capture_generation_id)
 }
 
 #[derive(Debug, Clone)]
@@ -1760,6 +1780,10 @@ struct PairCommitManifest {
     schema_version: String,
     session_id: String,
     project_hash: String,
+    #[serde(default)]
+    capture_generation_id: String,
+    #[serde(default)]
+    generation_started_at_ms: i64,
     committed_at: String,
     pre: PairCommitSide,
     post: PairCommitSide,
@@ -2044,6 +2068,121 @@ fn reconcile_drop_committed_closed_project(plugin_data_root: &Path, project_dir:
         }
     }
     reconciled
+}
+
+/// Reconcile one stopped pair named by the producer transaction. This is the normal post-Stop
+/// Drop path: callers already know project/session/PRE/POST identities, so only four deterministic
+/// candidate files are considered. Recursive project recovery remains startup-only.
+pub fn reconcile_drop_committed_closed_session(
+    plugin_data_root: &Path,
+    project_hash: &str,
+    session_id: &str,
+    pre_instance_id: &str,
+    post_instance_id: &str,
+) -> usize {
+    if [project_hash, session_id, pre_instance_id, post_instance_id]
+        .iter()
+        .any(|value| value.trim().is_empty())
+    {
+        return 0;
+    }
+    let ph = crate::path_identity::guard_path_component(
+        project_hash,
+        "record_drop_reconcile.project_hash",
+    );
+    let session =
+        crate::path_identity::guard_path_component(session_id, "record_drop_reconcile.session_id");
+    let pre_iid = crate::path_identity::guard_path_component(
+        pre_instance_id,
+        "record_drop_reconcile.pre_instance_id",
+    );
+    let post_iid = crate::path_identity::guard_path_component(
+        post_instance_id,
+        "record_drop_reconcile.post_instance_id",
+    );
+    let expected = match crate::record_drop_commit::inspect_drop_commit_for_closed_pair_session(
+        plugin_data_root,
+        project_hash,
+        session_id,
+    ) {
+        Ok(Some(expected)) => expected,
+        _ => return 0,
+    };
+    let file_name = format!("{session}.json");
+    let candidate = |instance_id: &str, role: Role| {
+        let role_dir = plugin_data_root
+            .join(&*ph)
+            .join(instance_id)
+            .join(role.dir_name());
+        [
+            role_dir.join(".failed").join(&file_name),
+            role_dir.join(".pair_pending").join(&file_name),
+        ]
+        .into_iter()
+        .find_map(|path| read_plugin_data_file(&path).ok().map(|data| (path, data)))
+    };
+    let (Some((pre_path, mut pre_data)), Some((post_path, mut post_data))) = (
+        candidate(&pre_iid, Role::Pre),
+        candidate(&post_iid, Role::Post),
+    ) else {
+        return 0;
+    };
+    if !closed_pair_can_accept_exact_drop(&pre_data, &post_data, session_id)
+        || !late_expected_publish_paths_are_inside_root(plugin_data_root, &pre_path, &post_path)
+    {
+        return 0;
+    }
+    if !normalize_late_expected_pair(&mut pre_data, &mut post_data, &expected)
+        || !prepare_late_expected_pair(&mut pre_data, &mut post_data)
+    {
+        return 0;
+    }
+    match crate::record_drop_commit::bind_drop_commit_for_closed_pair_session(
+        plugin_data_root,
+        project_hash,
+        session_id,
+        &expected,
+    ) {
+        Ok(Some(bound)) if bound == expected => {}
+        _ => return 0,
+    }
+    match publish_prepared_late_expected_pair(
+        plugin_data_root,
+        &pre_path,
+        &mut pre_data,
+        &post_path,
+        &mut post_data,
+    ) {
+        Ok(true) => {
+            let _ = fs::remove_file(pre_path);
+            let _ = fs::remove_file(post_path);
+            2
+        }
+        _ => 0,
+    }
+}
+
+pub fn pair_record_session_manifest_exists(
+    plugin_data_root: &Path,
+    project_hash: &str,
+    session_id: &str,
+) -> bool {
+    if project_hash.trim().is_empty() || session_id.trim().is_empty() {
+        return false;
+    }
+    let ph = crate::path_identity::guard_path_component(
+        project_hash,
+        "pair_record_session.exists.project_hash",
+    );
+    let session = crate::path_identity::guard_path_component(
+        session_id,
+        "pair_record_session.exists.session_id",
+    );
+    plugin_data_root
+        .join(&*ph)
+        .join(PAIR_RECORD_SESSIONS_DIR)
+        .join(format!("{session}.json"))
+        .is_file()
 }
 
 fn closed_pair_can_accept_exact_drop(
@@ -2474,16 +2613,16 @@ fn normalize_late_expected_pair(
     };
     let rebuild = |data: &mut PluginDataFile, frames: Vec<Frame>| {
         data.frames = frames;
-        data.trace_slot_positions = plan.canonical_slots.clone();
+        data.trace_slot_positions = plan.wav_slots.clone();
         data.trace_pair_wav_start_basis = Some(plan.start_basis.to_string());
         data.trace_pair_offset_samples = None;
         data.trace_pair_alignment_score = None;
         if let Some(clock) = data.trace_clock.as_mut() {
-            clock.origin_position_samples = plan.canonical_slots[0].saturating_sub(slot_samples);
+            clock.origin_position_samples = plan.producer_slots[0].saturating_sub(slot_samples);
             clock.end_position_samples = *plan
-                .canonical_slots
+                .producer_slots
                 .last()
-                .expect("canonical slots are non-empty");
+                .expect("producer slots are non-empty");
             clock.sample_rate = expected.expected_sample_rate;
         }
     };
@@ -2498,7 +2637,7 @@ fn normalize_late_expected_pair(
         }
         _ => return false,
     }
-    let wav_origin_samples = plan.canonical_slots[0].saturating_sub(slot_samples);
+    let wav_origin_samples = plan.producer_slots[0].saturating_sub(slot_samples);
     bind_annotation_marks_to_wav(left, wav_origin_samples, expected.expected_duration_samples);
     bind_annotation_marks_to_wav(
         right,
@@ -3055,6 +3194,8 @@ fn write_pair_commit_manifest_atomic(
         schema_version: PAIR_RECORD_SESSION_SCHEMA.to_string(),
         session_id,
         project_hash: self_data.project_hash.clone(),
+        capture_generation_id: self_data.capture_generation_id.clone().unwrap_or_default(),
+        generation_started_at_ms: self_data.generation_started_at_ms,
         committed_at: chrono::Utc::now()
             .format("%Y-%m-%dT%H:%M:%S%.3fZ")
             .to_string(),
@@ -3150,6 +3291,16 @@ fn pair_publish_failure_reasons(
     }
     if pre.record_session_id != post.record_session_id {
         reasons.push("pair_record_session_id_mismatch");
+    }
+    if pre.capture_generation_id != post.capture_generation_id
+        && (pre.capture_generation_id.is_some() || post.capture_generation_id.is_some())
+    {
+        reasons.push("pair_capture_generation_mismatch");
+    }
+    if pre.generation_started_at_ms != post.generation_started_at_ms
+        && (pre.capture_generation_id.is_some() || post.capture_generation_id.is_some())
+    {
+        reasons.push("pair_generation_start_mismatch");
     }
     if pre.paired_post_instance_id.as_deref() != Some(post.instance_id.as_str()) {
         reasons.push("pair_pre_post_link_mismatch");
@@ -3669,6 +3820,8 @@ mod tests {
             drop_commit_id: drop_commit_id.clone(),
             project_hash: "project_hash_test".to_string(),
             record_session_id: session_id.to_string(),
+            capture_generation_id: String::new(),
+            generation_started_at_ms: 0,
             created_at_ms: metadata.created_at_ms,
             metadata: metadata.clone(),
         };
@@ -3684,6 +3837,8 @@ mod tests {
             schema_version: crate::record_drop_commit::DROP_TRANSACTION_SCHEMA.to_string(),
             drop_commit_id: drop_commit_id.clone(),
             project_hash: "project_hash_test".to_string(),
+            capture_generation_id: String::new(),
+            generation_started_at_ms: 0,
             created_at_ms: metadata.created_at_ms,
             bounce_id: metadata.bounce_id.clone(),
             wav_hash: metadata.wav_hash.clone().unwrap(),
@@ -3858,7 +4013,10 @@ mod tests {
             pre.data.trace_slot_positions,
             post.data.trace_slot_positions
         );
-        assert_eq!(pre.data.trace_slot_positions[0], 484_800);
+        assert_eq!(
+            pre.data.trace_slot_positions,
+            vec![4_800, 9_600, 14_400, 19_200, 24_000]
+        );
         assert_eq!(pre.data.frames.len(), 5);
         assert_eq!(post.data.frames.len(), 5);
         assert_eq!(pre.data.frames[0].lufs_m, -13.0);
@@ -5517,7 +5675,7 @@ mod tests {
     }
 
     #[test]
-    fn stopped_record_drop_promotes_au_partial_context_without_current_metadata() {
+    fn stopped_record_drop_promotes_au_partial_context_onto_public_wav_axis() {
         let base = isolated_dir();
         let session_id = "session-stopped-drop-au-partial";
         crate::record_expected::begin_expected_session(&base, "project_hash_test", session_id)
@@ -5630,9 +5788,8 @@ mod tests {
             assert_eq!(data.frames.len(), 10);
             assert_eq!(
                 data.trace_slot_positions,
-                (1..=10)
-                    .map(|index| 96_000 + index * 4_800)
-                    .collect::<Vec<_>>()
+                (1..=10).map(|index| index * 4_800).collect::<Vec<_>>(),
+                "the BWF origin selects the exact context internally, but the public TRACE axis is WAV sample 0"
             );
             assert_eq!(
                 data.trace_pair_wav_start_basis, None,

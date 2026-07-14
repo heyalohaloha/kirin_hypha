@@ -2,9 +2,9 @@
 //!
 //! 100ms ループで:
 //! 1. `$TMPDIR/kirin/{project_hash}/{instance_id}/pre.json` にアトミック書込（Watch 値）
-//! 2. 1 秒毎に `{plugin_data_dir}/{effective_project_hash}/record_signal/*.json`
-//!    を全件 polling し、`target_pre_instance_id == self.instance_id` の signal
-//!    にだけ追従。`daw_session_id` の filter 比較は撤廃（B-022 段階 3）:
+//! 2. 100ms 毎に installation root の `record_target/{self.instance_id}.json` 1件、
+//!    接続後は canonical `record_signal/{post_instance_id}.json` 1件だけを polling。
+//!    `daw_session_id` の filter 比較は撤廃（B-022 段階 3）:
 //!    cdylib 隔離下では PRE/POST が別 `static OnceLock` を持ち、
 //!    `daw_session_id_cell()` 値が PRE 側 / POST が書いた signal 値で乖離する
 //!    ため、PRE 側 cell との比較は構造的に成立しない。代わりに
@@ -34,11 +34,7 @@ use crate::all_stop_signal::{self, ALL_STOP_BROADCAST_STALE_SECS};
 use crate::engine::SessionSummary;
 use crate::io_thread_post::read_instance_id_arc;
 use crate::plugin_data::Role as PluginDataRole;
-use crate::post_candidates::{
-    active_post_project_uuids_for_broadcast_scope, broadcast_scope_ids_match,
-    current_host_process_id,
-};
-use crate::pre_self_discovery::{discover_pair_post_project_dir, PreSelfDiscoveryState};
+use crate::post_candidates::{broadcast_scope_ids_match, current_host_process_id};
 use crate::record::RecordStateMachine;
 use crate::record_signal::{self, SignalStatus};
 use crate::record_writer::{
@@ -48,10 +44,11 @@ use crate::record_writer::{
 };
 use crate::storage::{PlatformPaths, StoragePaths};
 use crate::RecordTakeTracker;
-use crate::{load_signal_state, License, MeasureResult, RecordTraceQueue, SignalState};
+use crate::{
+    load_signal_state, License, LiveLicense, MeasureResult, RecordTraceQueue, SignalState,
+};
 
 const LOOP_SLEEP: Duration = Duration::from_millis(100);
-const LATE_EXPECTED_RECONCILE_INTERVAL: Duration = Duration::from_secs(1);
 
 /// record_signal poll 間隔。
 ///
@@ -60,11 +57,9 @@ const LATE_EXPECTED_RECONCILE_INTERVAL: Duration = Duration::from_secs(1);
 /// 記録して PRE が空になるため、IO tick と同じ 100ms で追従する。
 const SIGNAL_POLL_INTERVAL: Duration = LOOP_SLEEP;
 
-/// B-022 段階 5 P-3: 直接 read リトライ最大回数。
-///
-/// `scan_signals_dir` が transient 失敗 (read_dir Err / parse race) で
-/// `current=None` を返した場合、`read_signal` で直接 path を read し直す
-/// 最大回数。本値 + `RETRY_INTERVAL` の積が scan miss 診断前の最大待機時間。
+/// Legacy retry test constants. Production polling addresses one immutable path and never
+/// retries or scans a directory inside a tick.
+#[cfg(test)]
 const RETRY_MAX_ATTEMPTS: usize = 2;
 
 /// B-022 段階 5 P-3: 直接 read リトライ間隔。
@@ -72,6 +67,7 @@ const RETRY_MAX_ATTEMPTS: usize = 2;
 /// atomic rename (`fs::rename`) の race window は通常 ms 未満だが、
 /// macOS の APFS / 仮想ボリューム経由では数十 ms に延びることがあるため
 /// 50ms を採用 (リトライ 2 回で最大 100ms 遅延)。
+#[cfg(test)]
 const RETRY_INTERVAL: Duration = Duration::from_millis(50);
 
 /// PRE が POST に Acknowledged を返す前に、Measure Thread が Watch→Record を観測して
@@ -87,6 +83,9 @@ struct PartnerInfo {
     signal_started_at_ms: i64,
     session_id: String,
     daw_session_id: String,
+    /// Exact generation roster captured when the request is acknowledged. All Stop follows these
+    /// direct project pointers and never rediscovers active projects from `/tmp/kirin`.
+    all_stop_project_hashes: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -206,24 +205,50 @@ fn all_stop_authorizes_active_writer_stop(
     scope.record_started_at_ms > 0 && stop_started_at_ms >= scope.record_started_at_ms
 }
 
-fn all_stop_scan_project_hashes(primary_project_hash: &str, partner: &PartnerInfo) -> Vec<String> {
-    let mut project_hashes = Vec::new();
-    if !primary_project_hash.is_empty() {
+fn all_stop_project_hashes(primary_project_hash: &str, partner: &PartnerInfo) -> Vec<String> {
+    let mut project_hashes = partner.all_stop_project_hashes.clone();
+    if !primary_project_hash.is_empty()
+        && !project_hashes
+            .iter()
+            .any(|project| project == primary_project_hash)
+    {
         project_hashes.push(primary_project_hash.to_string());
     }
-    if !partner.daw_session_id.is_empty() {
-        let kirin_root = PlatformPaths::current_kirin_tmp_root();
-        for project_hash in active_post_project_uuids_for_broadcast_scope(
-            &kirin_root,
-            &partner.daw_session_id,
-            current_host_process_id(),
-        ) {
-            if !project_hashes.contains(&project_hash) {
-                project_hashes.push(project_hash);
-            }
-        }
-    }
+    project_hashes.sort();
+    project_hashes.dedup();
     project_hashes
+}
+
+fn generation_project_hashes_for_signal(
+    base: &Path,
+    project_hash: &str,
+    post_instance_id: &str,
+    signal: &record_signal::RecordSignal,
+) -> Vec<String> {
+    let fallback = || vec![project_hash.to_string()];
+    if signal.capture_generation_id.trim().is_empty() {
+        return fallback();
+    }
+    let Ok(Some(generation)) =
+        crate::capture_generation::read_current_generation(base, project_hash)
+    else {
+        return fallback();
+    };
+    let Some(member) = generation.member(project_hash, post_instance_id) else {
+        return fallback();
+    };
+    if generation.capture_generation_id != signal.capture_generation_id
+        || member.record_session_id != signal.session_id
+    {
+        return fallback();
+    }
+    generation
+        .members
+        .iter()
+        .map(|member| member.project_hash.clone())
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect()
 }
 
 fn poll_all_stop_signal_in_projects_at(
@@ -243,7 +268,7 @@ fn poll_all_stop_signal_in_projects_at(
         partner.as_ref().and_then(|p| {
             let record_started_at_ms = record_sm.record_started_at_ms();
             project_hashes.iter().find_map(|project_hash| {
-                all_stop_signal::scan_stop_broadcasts_dir(base, project_hash)
+                all_stop_signal::read_current_stop_broadcast(base, project_hash)
                     .into_iter()
                     .find_map(|(originator_iid, broadcast)| {
                         if all_stop_authorizes_pre_stop(&broadcast, p, record_started_at_ms, now) {
@@ -295,7 +320,7 @@ fn poll_all_stop_signal_at(
     let Some(active_partner) = partner.as_ref() else {
         return false;
     };
-    let project_hashes = all_stop_scan_project_hashes(project_hash, active_partner);
+    let project_hashes = all_stop_project_hashes(project_hash, active_partner);
     poll_all_stop_signal_in_projects_at(
         base,
         &project_hashes,
@@ -324,7 +349,7 @@ fn poll_all_stop_signal_for_active_writer_at(
     };
 
     let Some((originator_iid, stop_started_at)) =
-        all_stop_signal::scan_stop_broadcasts_dir(base, &scope.project_hash)
+        all_stop_signal::read_current_stop_broadcast(base, &scope.project_hash)
             .into_iter()
             .find_map(|(originator_iid, broadcast)| {
                 all_stop_authorizes_active_writer_stop(&broadcast, scope, now)
@@ -557,9 +582,9 @@ fn enter_pre_record_if_barrier_ready(
 /// この古い Acknowledged を adopt しない。POST 側は status 不変のまま Record 維持
 /// → 構造的状態乖離 → Gap-3 / Gap-5 の真因。
 ///
-/// 本関数は startup 時に plugin_data 配下の全 project_hash 横断 scan を行い、
-/// `target_pre_instance_id == self_iid && status == Acknowledged` を満たす signal
-/// を `delete_signal` で削除する (Daisuke 判断 α 採用 / Watch リセット仕様 /
+/// 本関数は startup 時に PRE 自身の root inbox 1件だけを読み、Acknowledged なら
+/// envelope が運ぶ exact project/POST key を `delete_signal` で削除する。履歴や他 project
+/// は探索しない (Daisuke 判断 α 採用 / Watch リセット仕様 /
 /// → exit_record で Watch 復帰する (Gap-2 と並ぶ構造的同期経路)。
 ///
 /// R-28 機能的沈黙: storage path 解決失敗 / read_dir 失敗 / parse 失敗は当該
@@ -577,60 +602,30 @@ fn clear_stale_self_acks_at_startup(self_instance_id: &str) {
 /// `clear_stale_self_acks_at_startup` の純粋ロジック版 (テスト容易性のため
 /// `plugin_data_root` を注入)。Production は `clear_stale_self_acks_at_startup` 経由。
 fn clear_stale_self_acks_in(plugin_data_root: &Path, self_instance_id: &str) {
-    let project_entries = match fs::read_dir(plugin_data_root) {
-        Ok(e) => e,
-        Err(_) => return,
+    let Some((project_hash, post_iid, signal)) =
+        record_signal::read_target_signal(plugin_data_root, self_instance_id)
+    else {
+        return;
     };
-    let mut cleared: usize = 0;
-    for project_entry in project_entries.flatten() {
-        let project_dir = project_entry.path();
-        if !project_dir.is_dir() {
-            continue;
-        }
-        let project_hash = match project_dir.file_name().and_then(|n| n.to_str()) {
-            Some(s) => s.to_string(),
-            None => continue,
-        };
-        // 予約名 (record_signal / preset 等) が project_hash として現れるケースを除外。
-        if project_hash.as_str() == record_signal::SIGNALS_SUBDIR {
-            continue;
-        }
-        let signals = record_signal::scan_signals_dir(plugin_data_root, &project_hash);
-        for (post_iid, sig) in signals {
-            if sig.target_pre_instance_id != self_instance_id {
-                continue;
-            }
-            if sig.status != SignalStatus::Acknowledged {
-                continue;
-            }
-            match record_signal::delete_signal(plugin_data_root, &project_hash, &post_iid) {
-                Ok(()) => {
-                    cleared += 1;
-                    log::info!(
-                        "[IOThread PRE] startup: cleared stale Acknowledged signal \
-                         (project_hash={}, post_iid={})",
-                        project_hash,
-                        post_iid
-                    );
-                }
-                Err(e) => {
-                    log::warn!(
-                        "[IOThread PRE] startup: delete_signal failed \
-                         (project_hash={}, post_iid={}): {}",
-                        project_hash,
-                        post_iid,
-                        e
-                    );
-                }
-            }
-        }
+    if signal.status != SignalStatus::Acknowledged {
+        return;
     }
-    if cleared > 0 {
-        log::info!(
-            "[IOThread PRE] startup: cleared {} stale Acknowledged signal(s) (self_iid={})",
-            cleared,
+    match record_signal::delete_signal(plugin_data_root, &project_hash, &post_iid) {
+        Ok(()) => log::info!(
+            "[IOThread PRE] startup: cleared stale Acknowledged signal \
+             (project_hash={}, post_iid={}, self_iid={})",
+            project_hash,
+            post_iid,
             self_instance_id
-        );
+        ),
+        Err(error) => log::warn!(
+            "[IOThread PRE] startup: delete_signal failed \
+             (project_hash={}, post_iid={}, self_iid={}): {}",
+            project_hash,
+            post_iid,
+            self_instance_id,
+            error
+        ),
     }
 }
 
@@ -708,63 +703,19 @@ pub fn spawn_io_thread_pre(
         let initial_self_iid = read_instance_id_arc(&instance_id);
         clear_stale_self_acks_at_startup(&initial_self_iid);
 
-        // B-103: dead Pending record_signal（書込 POST 消失・自 release 30s 超）を起動時掃除。
-        // age ベース・保守しきい値（STALE_PENDING_SECS=120s）で生記録は誤掃除しない。loop 前 1 回。
-        record_signal::sweep_stale_pending_at_startup();
-
-        // B-320: teardown では pre/post watch JSON を削除しない。代わりに起動時だけ
-        // 十分古い `/tmp/kirin/*/*/{pre,post}.json` を sweep する。
-        crate::watch_tmp_cleanup::sweep_stale_watch_files_at_startup();
-
-        // B-127 (G-115-364): 孤児 reservation 枠を起動時掃除（POST 経路と冪等・age ベース）。
-        if let Ok(paths) = StoragePaths::default_platform() {
-            let _ = crate::reservation::sweep_stale_reservations_in(
-                &paths.plugin_data_dir(),
-                chrono::Utc::now(),
-            );
-        }
-
-        // B-025 Group B-1 / Gap-8: 30 秒 flush 周期中の DAW crash で残った
-        // `*.json.tmp` を整合 verify (HMAC-SHA256) → `.json` に atomic rename で救出。
-        // 不整合 .tmp は warn ログのみで残置 (削除しない / 約束 5 原則)。loop 前 1 回。
-        if let Ok(paths) = StoragePaths::default_platform() {
-            let _ = crate::record_writer::recover_orphan_tmps(&paths.plugin_data_dir());
-        }
-
-        // B-026 / Gap-9: crash 残骸 `pre/{compact}.json` / `post/{compact}.json`
-        // のうち status=Active かつ mtime > 60s のファイルを status=Closed に
-        // 書換 (Lens 側「進行中 Record」誤認の構造的解消)。loop 前 1 回。
-        if let Ok(paths) = StoragePaths::default_platform() {
-            let _ = crate::record_writer::sweep_stale_active_at_startup(&paths.plugin_data_dir());
-        }
+        // Capture generations, direct PRE inboxes and Watch owner leases make historical
+        // artifacts non-authoritative. Startup therefore touches only this PRE's single inbox
+        // above; it never walks plugin_data or /tmp history. Crash residue is ignored by identity
+        // and generation contracts instead of repaired by every plugin instance.
 
         let mut writer_ctx: Option<RecordingCtx> = None;
         let mut last_poll: Option<Instant> = None;
-        let mut last_entitlement_refresh = Instant::now();
         let mut partner: Option<PartnerInfo> = None;
-        let mut next_late_expected_reconcile = Instant::now() + LATE_EXPECTED_RECONCILE_INTERVAL;
-        // B-022 段階 5 P-1 #1: effective_project_hash_ref の edge-triggered ログ用。
-        // 値が前回と異なる時のみ INFO で出す (毎 tick 出すと R-26/R-28 沈黙ゲート違反)。
-        let mut prev_effective_ph: Option<String> = None;
-        // B-022 段階 2: PRE 側 filesystem-discovery (G-115-36)。
-        // `plugin_data/{any_uuid}/record_signal/*.json` を 1 秒 throttle で scan
-        // し、`target_pre_instance_id == 自 PRE instance_id` の signal が居る
-        // `{any_uuid}/` (= POST 側 project_uuid) を採用する。これにより PRE 側
-        // plugin_data 出力先 / record_signal poll 経路を POST と同じ
-        // project_uuid 空間に揃え、cdylib 隔離下 (`static OnceLock` が PRE/POST
-        // で別実体) でも cross-instance pair 復元 v1.2 (a) が機能する。
-        let mut discovery = PreSelfDiscoveryState::new();
         let mut watch_lease = crate::watch_snapshot_lease::WatchSnapshotLease::new();
 
         loop {
             if shutdown.load(Ordering::Relaxed) {
                 break;
-            }
-
-            if last_entitlement_refresh.elapsed() >= Duration::from_millis(250) {
-                // License は次回 Keep の開始 gate。開始済み Keep の停止権限は持たない。
-                let _ = license.refresh_from_disk();
-                last_entitlement_refresh = Instant::now();
             }
 
             // B-022 段階 1: tick 開始時に instance_id を lazy-read。
@@ -799,78 +750,14 @@ pub fn spawn_io_thread_pre(
                 log::warn!("[IOThread PRE] write error: {}", e);
             }
 
-            // B-022 段階 2: 1 秒 throttle で POST 側 project_uuid を再走査。
-            // 結果が cache されるので、各 tick での fs::read_dir コストは抑制。
-            //
-            // B-022 段階 4: Record 中 (partner=Some) は discovery を skip。
-            // 理由: PRE が一度 ack して partner を確定した後、POST 側は signal を
-            // 触らない (heartbeat 不在 / record_signal.rs:511-512 で Acknowledged
-            // signal はスキップ) ため、signal の mtime は ack 時点で固定。
-            // discovery の stale 閾値 (DISCOVERY_STALE_SECS=10s) を超えると
-            // `discover_pair_post_project_dir` が None を返し、cached_post_project_dir
-            // が None にリセットされる。すると effective_project_hash_ref が
-            // PRE 自身の project_hash に fallback (line 167-169) し、
-            // poll_record_signal が誤った dir を scan して matching=empty になる。
-            // B-243 以降は current=None 自体では止めないが、cached path 保護は
-            // 不要な missing 診断と pair 不安定化を避けるため維持する。
-            //
-            // 修正: partner.is_some() の間は discovery 呼出を skip し、
-            // cached_post_project_dir を保持し続ける。partner=None (Released / cleanup)
-            // 後の次 tick から discovery 再開。
-            let now_instant = Instant::now();
-            if partner.is_none() && discovery.should_rescan(now_instant) {
-                let plugin_data_root = StoragePaths::default_platform()
-                    .ok()
-                    .map(|paths| paths.plugin_data_dir());
-                let found = match plugin_data_root.as_ref() {
-                    Some(root) => discover_pair_post_project_dir(root, instance_id_ref),
-                    None => None,
-                };
-                discovery.record_scan(now_instant, found);
-            }
-
-            // `effective_project_hash`:
-            // - discover が POST project_uuid を見つけた場合 → その値
-            // - 見つからない場合 → PRE 自身の project_hash (B-020 fallback)
-            //
-            // record_signal poll / plugin_data writer の入出力 path 両方で
-            // この値を一貫して使うことで「PRE が POST と別 plugin_data 空間に
-            // 書いてしまう」 cdylib 隔離問題を回避する。
-            let effective_project_hash_owned: Option<String> = partner
+            // The direct PRE inbox carries its canonical project hash. Before ACK the fallback
+            // hash is used only for this PRE's own Watch snapshot; after ACK the exact partner
+            // identity owns all Record paths. No project directory discovery is required.
+            let effective_project_hash_owned = partner
                 .as_ref()
-                .map(|p| p.project_hash.clone())
-                .or_else(|| {
-                    discovery
-                        .cached_post_project_dir()
-                        .and_then(|p| p.file_name().and_then(|n| n.to_str()).map(str::to_string))
-                });
-            let effective_project_hash_ref: &str = effective_project_hash_owned
-                .as_deref()
-                .unwrap_or(project_hash.as_str());
-
-            // B-022 段階 5 P-1 #1: effective_project_hash_ref が前回と異なる
-            // 場合のみ INFO ログ。fallback 切替 (POST_uuid → PRE 自身 / 逆) の
-            // 瞬間を 1 行で捕捉できる。R-28 沈黙ゲート: 値不変時は無音。
-            if prev_effective_ph.as_deref() != Some(effective_project_hash_ref) {
-                log::info!(
-                    "[discover] effective_project_hash_ref={} (prev={:?}, partner={:?})",
-                    effective_project_hash_ref,
-                    prev_effective_ph,
-                    partner.as_ref().map(|p| p.post_instance_id.as_str())
-                );
-                prev_effective_ph = Some(effective_project_hash_ref.to_string());
-            }
-
-            // B-022 段階 3: PRE 側 `daw_session_id` は record_signal filter から
-            // 撤廃。`discovery.cached_daw_session_id()` (= POST が書いた signal
-            // の値) は将来 record_signal 書込側で必要になった時点で参照する
-            // ため state 内に保持済み。本ループでは使わない。
-            //
-            // 設計補足: cdylib 隔離下で PRE/POST が別 `static OnceLock` を
-            // 持つため、PRE 側 `daw_session_id_cell()` 値と POST が書いた
-            // signal の `daw_session_id` は構造的に乖離する。filter 比較は
-            // 成立しないため撤廃 (`target_pre_instance_id` UUID v4 で
-            // 衝突 ≈ 2^-122、決定論的に PRE 自身宛てを識別)。
+                .map(|partner| partner.project_hash.clone())
+                .unwrap_or_else(|| project_hash.clone());
+            let effective_project_hash_ref = effective_project_hash_owned.as_str();
 
             // ② record_signal poll（1 秒間隔）
             // base_dir = plugin_data_root / project_hash = effective_project_hash_ref
@@ -907,14 +794,13 @@ pub fn spawn_io_thread_pre(
                     // B-023 段階 3: ack 直前に name を lazy-read して poll に渡す。
                     // instance_id と同パターン (chunk-restore 後の最新値追従)。
                     let name_owned = read_instance_id_arc(&name);
-                    let current_license = license.load();
                     poll_record_signal(
                         effective_project_hash_ref,
                         instance_id_ref,
                         &record_sm,
                         &recording,
                         &record_acknowledged,
-                        &current_license,
+                        &license,
                         &mut partner,
                         name_owned.as_str(),
                         &signal_state,
@@ -957,7 +843,10 @@ pub fn spawn_io_thread_pre(
             // B-022 段階 2: project_hash 引数も `effective_project_hash_ref`
             // に切り替え。PRE 側 plugin_data の親 dir = `{POST の project_uuid}/`
             // を採用 (G-115-36)。
-            let writer_project_hash: String = effective_project_hash_ref.to_string();
+            let writer_project_hash = partner
+                .as_ref()
+                .map(|partner| partner.project_hash.clone())
+                .unwrap_or_else(|| project_hash.clone());
             let project_hash_ref_for_resolver = writer_project_hash.clone();
             let partner_iid = partner.as_ref().map(|p| p.post_instance_id.clone());
             let started_resolver_iid = partner_iid.clone();
@@ -1008,22 +897,6 @@ pub fn spawn_io_thread_pre(
 
             recording.store(record_sm.is_recording(), Ordering::Relaxed);
 
-            if Instant::now() >= next_late_expected_reconcile {
-                if let Ok(paths) = StoragePaths::default_platform() {
-                    let reconciled = crate::plugin_data::reconcile_late_expected_wav_project(
-                        &paths.plugin_data_dir(),
-                        effective_project_hash_ref,
-                    );
-                    if reconciled > 0 {
-                        log::info!(
-                            "[record_expected] late WAV reconcile updated {} side(s)",
-                            reconciled
-                        );
-                    }
-                }
-                next_late_expected_reconcile = Instant::now() + LATE_EXPECTED_RECONCILE_INTERVAL;
-            }
-
             thread::sleep(LOOP_SLEEP);
         }
 
@@ -1070,9 +943,8 @@ pub fn io_dir(project_hash: &str, instance_id: &str) -> PathBuf {
 
 /// record_signal を 1 度だけ poll し、PRE 側の record state を同期する。
 ///
-/// scan_signals_dir で全 signal を取得し、`target_pre_instance_id == instance_id`
-/// を満たす最初の signal にだけ追従。追従中の partner（post_instance_id）を
-/// `partner` に保持し、消失・released で外す。
+/// 未接続時は PRE 固有 inbox 1ファイル、接続後は既知 POST の canonical 1ファイルだけを読む。
+/// `partner` に保持した exact identity が消失・released になるまで探索へ戻らない。
 ///
 /// # B-022 段階 3: daw_session_id filter 撤廃
 /// 旧版は `daw_session_id` 比較で cross-process 防壁を掛けていたが、cdylib 隔離
@@ -1087,23 +959,34 @@ fn poll_record_signal(
     record_sm: &Arc<RecordStateMachine>,
     recording: &Arc<AtomicBool>,
     record_acknowledged: &Arc<AtomicBool>,
-    license: &License,
+    license: &LiveLicense,
     partner: &mut Option<PartnerInfo>,
     paired_pre_name: &str,
     signal_state: &Arc<AtomicU8>,
     sample_rate: u32,
 ) {
+    let mut current_license = license.load();
     let base = match StoragePaths::default_platform() {
         Ok(paths) => paths.plugin_data_dir(),
         Err(_) => return,
     };
 
-    // 全 signal を読む。target_pre_instance_id 一致のみで filter。
-    let signals = record_signal::scan_signals_dir(&base, project_hash);
-    let matching: Vec<_> = signals
-        .into_iter()
-        .filter(|(_, s)| s.target_pre_instance_id == instance_id)
-        .collect();
+    let (signal_project_hash, matching) = if let Some(current) = partner.as_ref() {
+        (
+            current.project_hash.clone(),
+            record_signal::read_signal(&base, &current.project_hash, &current.post_instance_id)
+                .filter(|signal| signal.target_pre_instance_id == instance_id)
+                .map(|signal| vec![(current.post_instance_id.clone(), signal)])
+                .unwrap_or_default(),
+        )
+    } else {
+        match record_signal::read_target_signal(&base, instance_id) {
+            Some((target_project_hash, post_instance_id, signal)) => {
+                (target_project_hash, vec![(post_instance_id, signal)])
+            }
+            None => (project_hash.to_string(), Vec::new()),
+        }
+    };
 
     // 既存 partner の現状況を確認
     if let Some(p) = partner.as_mut() {
@@ -1118,13 +1001,13 @@ fn poll_record_signal(
                     let _ = enter_pre_record_if_barrier_ready(
                         PreRecordEntryContext {
                             base: &base,
-                            project_hash,
+                            project_hash: &signal_project_hash,
                             pre_instance_id: instance_id,
                             sample_rate,
                         },
                         record_sm,
                         recording,
-                        license,
+                        &current_license,
                         sig,
                     );
                 }
@@ -1193,91 +1076,9 @@ fn poll_record_signal(
                 }
             }
             None => {
-                // B-022 段階 5 P-1 #4: scan が partner.post_instance_id を
-                // 含まなかった瞬間の matching 内容を診断ログとしてダンプ。
-                // 真因 β/γ 確定 (= scan transient 失敗 vs 別 POST instance) の
-                // 決め手になる情報を 1 行に集約。
-                let matching_iids: Vec<&str> =
-                    matching.iter().map(|(iid, _)| iid.as_str()).collect();
-                log::warn!(
-                    "[signal] current=None: project_hash={}, partner.post_instance_id={}, \
-                     matching_count={}, matching_iids={:?}",
-                    project_hash,
-                    p.post_instance_id,
-                    matching.len(),
-                    matching_iids
-                );
-
-                // B-022 段階 5 P-3: 直接 read リトライ。
-                // scan_signals_dir の transient 失敗 (read_dir Err / parse race) を
-                // 救済するため、`signal_path(base, project_hash, post_instance_id)`
-                // で直接 read し直す。1 path 直撃 read は scan の `read_dir` よりも
-                // 失敗確率が低く、atomic rename と read の race window も
-                // 50ms 待機で抜けやすい。
-                //
-                // 最大 RETRY_MAX_ATTEMPTS (= 2) 回、各 RETRY_INTERVAL (= 50ms) 間隔で
-                // read を試み、いずれかで Some が返れば transient 失敗扱いで Record を維持。
-                // 全試行で None でも missing 自体には Stop 権限を持たせない。
-                let recovered = retry_direct_read(&base, project_hash, &p.post_instance_id);
-
-                if let Some(sig) = recovered {
-                    log::info!(
-                        "[signal] recovered via direct read after scan miss \
-                         (partner={}, status={:?}) — keeping Record",
-                        p.post_instance_id,
-                        sig.status
-                    );
-                    // status は記憶し直す。ただし PRE 停止は明示 reason 付き Released のみ。
-                    if sig.status == SignalStatus::Released {
-                        if signal_matches_current_partner(&sig, p, instance_id) {
-                            if sig.released_authorizes_pre_stop() {
-                                record_sm.exit_record();
-                                recording.store(false, Ordering::Relaxed);
-                                record_acknowledged.store(false, Ordering::Relaxed);
-                                log::info!(
-                                    "[signal] authorized release (via direct read), PRE exiting Record \
-                                     (partner={}, session={}, reason={:?})",
-                                    p.post_instance_id,
-                                    p.session_id,
-                                    sig.release_reason
-                                );
-                                *partner = None;
-                            } else {
-                                log::warn!(
-                                    "[signal] ignored unqualified direct-read release; keeping PRE Record \
-                                     (partner={}, session={})",
-                                    p.post_instance_id,
-                                    p.session_id
-                                );
-                                p.last_seen_status = sig.status;
-                            }
-                        } else {
-                            if p.last_seen_status != SignalStatus::Released {
-                                log::warn!(
-                                    "[signal] ignored direct-read released for non-current Record session \
-                                     (partner={}, signal_session={}, current_session={})",
-                                    p.post_instance_id,
-                                    sig.session_id,
-                                    p.session_id
-                                );
-                            }
-                            p.last_seen_status = sig.status;
-                        }
-                    } else {
-                        // 単に scan が transient で取り逃しただけ。partner 維持。
-                        p.last_seen_status = sig.status;
-                    }
-                    return;
-                }
-
-                // 直接 read も None。B-243: missing は Stop 権限を持たない。
-                // Stop は trigger_stop が残す Released を正本にする。一時的な read/scan miss や
-                // cleanup race で PRE Record を閉じない。
-                log::warn!(
-                    "[signal] file missing after direct read; keeping PRE Record armed \
-                     (partner={})",
-                    p.post_instance_id
-                );
+                // Missing exact files never own Stop authority. Atomic replacement may make one
+                // read transiently unavailable; the next 100 ms tick retries naturally without
+                // blocking this IO thread or falling back to a directory inventory.
                 return;
             }
         }
@@ -1305,16 +1106,8 @@ fn poll_record_signal(
         }
     }
 
-    // partner 未設定 → 同 instance_id 配下 Pending を全件列挙
-    //
-    // B-027 段階 3-B α-7 / Group 1 (G-115-XX 申し送り #24 broadcast/multi-target):
-    // 旧版は `find` で先頭 1 件のみ ack していた (Gap-4 / Gap-11)。All Keep で
-    // N POST が同時に同 PRE 宛 write_pending を発行すると、N-1 件は
-    // ACK_TIMEOUT_SECONDS=30 経路に流れて silent fail していた。
-    // 本改修で同 tick 内 Vec 全件並列 ack に拡張する。
-    //
-    // 順序: scan_signals_dir が post_instance_id 辞書順を返す (record_signal.rs:327
-    // doc 仕様) ため、本 filter 後も同順を維持。決定論性確保。
+    // One PRE has one direct inbox and one reservation owner. All Keep rejects duplicate PRE
+    // members before publication, so a PRE never needs to enumerate or arbitrate N POST files.
     let pending_signals: Vec<(String, record_signal::RecordSignal)> = matching
         .into_iter()
         .filter(|(_, s)| s.status == SignalStatus::Pending)
@@ -1335,38 +1128,37 @@ fn poll_record_signal(
         return;
     }
 
-    if !is_os_license(license) {
+    if !is_os_license(&current_license) {
+        // The direct Pending inbox is a user Keep boundary. Refresh entitlement once here,
+        // instead of reading identity.json from every PRE every 250 ms while idle.
+        current_license = license.refresh_for_user_action();
+    }
+    if !is_os_license(&current_license) {
         log::info!(
             "[signal] {} pending detected, ignored (license: {:?})",
             pending_signals.len(),
-            *license
+            current_license
         );
         return;
     }
 
-    // N 件並列 ready→ack。各 ack は独立 atomic rename (record_signal::write_signal /
-    // L195-203 既存パターン)。1 件失敗しても他 N-1 件は継続 (Vec 全件処理 / Gap-11
-    // 構造解消)。
-    //
-    // partner state は IO Thread ローカルの 1 件保持構造を維持 (Group 1 スコープ /
-    // POST 側 paired_pre_name + PAIR_LABEL_POLL_INTERVAL 経路に同期を委ねる /
-    // 設計判断 #4 (i))。PRE が barrier 到達・Record enter・Measure ready まで完了
-    // した後にだけ ack を書き、最後に ack 成功した POST_iid を Released 観測の起点にする。
+    // PRE enters Record and reaches Measure readiness before publishing the ACK. The resulting
+    // partner identity is the sole canonical path until an authorized release.
     let total = pending_signals.len();
-    let mut last_acked: Option<(String, i64, String, String)> = None;
+    let mut last_acked: Option<(String, i64, String, String, Vec<String>)> = None;
     let mut not_ready: usize = 0;
     let mut ack_ok: usize = 0;
     for (post_iid, sig) in &pending_signals {
         if !enter_pre_record_if_barrier_ready(
             PreRecordEntryContext {
                 base: &base,
-                project_hash,
+                project_hash: &signal_project_hash,
                 pre_instance_id: instance_id,
                 sample_rate,
             },
             record_sm,
             recording,
-            license,
+            &current_license,
             sig,
         ) {
             not_ready = not_ready.saturating_add(1);
@@ -1374,7 +1166,7 @@ fn poll_record_signal(
         }
         match record_signal::mark_acknowledged_with_name(
             &base,
-            project_hash,
+            &signal_project_hash,
             post_iid,
             paired_pre_name,
         ) {
@@ -1389,6 +1181,12 @@ fn poll_record_signal(
                     signal_started_at_ms(sig),
                     sig.session_id.clone(),
                     sig.daw_session_id.clone(),
+                    generation_project_hashes_for_signal(
+                        &base,
+                        &signal_project_hash,
+                        post_iid,
+                        sig,
+                    ),
                 ));
                 ack_ok += 1;
             }
@@ -1402,15 +1200,23 @@ fn poll_record_signal(
         }
     }
 
-    if let Some((post_iid, signal_started_at_ms, session_id, daw_session_id)) = last_acked {
+    if let Some((
+        post_iid,
+        signal_started_at_ms,
+        session_id,
+        daw_session_id,
+        all_stop_project_hashes,
+    )) = last_acked
+    {
         record_acknowledged.store(true, Ordering::Relaxed);
         *partner = Some(PartnerInfo {
             post_instance_id: post_iid,
-            project_hash: project_hash.to_string(),
+            project_hash: signal_project_hash,
             last_seen_status: SignalStatus::Acknowledged,
             signal_started_at_ms,
             session_id,
             daw_session_id,
+            all_stop_project_hashes,
         });
         log::info!(
             "[signal] B-027 Group 1: ack_count={}/{} not_ready={} (partner={:?})",
@@ -1452,6 +1258,7 @@ fn is_os_license(license: &License) -> bool {
 /// # 副作用
 /// IO Thread を最大 `RETRY_MAX_ATTEMPTS * RETRY_INTERVAL` 秒間 sleep する。
 /// 100ms 主ループの 1 tick 内で完結 (現状: 2 * 50ms = 100ms 上限)。
+#[cfg(test)]
 fn retry_direct_read(
     base: &Path,
     project_hash: &str,
@@ -1699,6 +1506,7 @@ mod tests {
             signal_started_at_ms: 1,
             session_id: "test-session-old".to_string(),
             daw_session_id: TEST_DAW.to_string(),
+            all_stop_project_hashes: vec![TEST_PH.to_string()],
         }
     }
 
@@ -1714,6 +1522,7 @@ mod tests {
             signal_started_at_ms: signal_started_at_ms(signal),
             session_id: signal.session_id.clone(),
             daw_session_id: signal.daw_session_id.clone(),
+            all_stop_project_hashes: vec![TEST_PH.to_string()],
         }
     }
 
@@ -2043,6 +1852,7 @@ mod tests {
                 signal_started_at_ms,
                 session_id,
                 daw_session_id,
+                all_stop_project_hashes: vec![TEST_PH.to_string()],
             });
         }
     }
@@ -2075,6 +1885,8 @@ mod tests {
             target_pre_instance_id: TEST_PRE_IID.to_string(),
             daw_session_id: TEST_DAW.to_string(),
             session_id: format!("session-{post_iid}"),
+            capture_generation_id: String::new(),
+            generation_started_at_ms: 0,
             t: "2026-07-05T00:00:00Z".to_string(),
             started_at: "2026-07-05T00:00:00Z".to_string(),
             started_at_position_samples: None,
@@ -4288,6 +4100,8 @@ mod tests {
             target_pre_instance_id: "pre-x".into(),
             daw_session_id: "daw-uuid-explicit".into(),
             session_id: "session-explicit".into(),
+            capture_generation_id: String::new(),
+            generation_started_at_ms: 0,
             t: "2026-04-19T12:00:00Z".into(),
             started_at: "2026-04-19T11:59:30Z".into(),
             started_at_position_samples: Some(44_100),
@@ -4299,142 +4113,6 @@ mod tests {
         let loaded = record_signal::read_signal(&base, TEST_PH, "post-x").unwrap();
         assert_eq!(loaded.started_at, "2026-04-19T11:59:30Z");
         assert_eq!(loaded.daw_session_id, "daw-uuid-explicit");
-    }
-
-    // ── B-022 段階 4: discovery skip while partner=Some ──────────────────
-    //
-    // io_thread_pre.rs 主ループの discovery 呼出ガード:
-    //   if partner.is_none() && discovery.should_rescan(now) { ... }
-    // を直接 spawn せず、ガード式の不変条件をテストで構造的に固定する。
-    //
-    // 真因 (R-9 確定): POST 側 signal heartbeat 不在で signal mtime が ack 時点で
-    // 固定 → DISCOVERY_STALE_SECS=10s 経過後に discover_pair_post_project_dir が
-    // None を返す → cached_post_project_dir リセット → effective_project_hash_ref
-    // が PRE 自身の project_hash に fallback → poll_record_signal が誤った dir を
-    // scan → matching=empty。B-243 以降は missing で止めないが、不要な
-    // current=None 診断を避けるため discovery gate は維持する。
-    //
-    // 段階 4 修正 (案 a): partner=Some の間 discovery 呼出を skip し
-    // cached_post_project_dir を保持。これにより stale 判定経路が走らない。
-
-    /// T1: partner=Some の間、discovery を呼ぶゲートが閉じることを構造的に固定。
-    ///
-    /// `partner.is_none() && discovery.should_rescan(now)` という主ループの
-    /// ガード式に対し、partner=Some なら **時間がいくら経っても** ゲートが
-    /// 開かないこと、cached_post_project_dir が初期値で固定されることを検証。
-    #[test]
-    fn discovery_skipped_while_partner_is_some() {
-        let mut discovery = PreSelfDiscoveryState::new();
-
-        // 初期 scan: partner=None / 一致 signal を発見した想定
-        let t0 = Instant::now();
-        let initial_post_dir = PathBuf::from("/tmp/kirin_test/post-uuid-X");
-        discovery.record_scan(t0, Some((initial_post_dir.clone(), "daw-test".to_string())));
-
-        // 直後に partner=Some になった想定 (PRE が ack して Record 入場)
-        let mut partner: Option<PartnerInfo> =
-            Some(test_partner("post-1", SignalStatus::Acknowledged));
-
-        // 主ループのガード式を直接評価。partner=Some の間は **何度試しても**
-        // ゲートが開かない (= record_scan が呼ばれない) こと。
-        for delta_ms in [1500u64, 5000, 11_000, 60_000] {
-            let now = t0 + Duration::from_millis(delta_ms);
-            let gate_open = partner.is_none() && discovery.should_rescan(now);
-            assert!(
-                !gate_open,
-                "partner=Some の間 discovery ゲートは閉じる必要がある (delta={}ms)",
-                delta_ms
-            );
-            // ガードが閉じている = record_scan が呼ばれない = 状態不変
-            assert_eq!(
-                discovery.cached_post_project_dir(),
-                Some(initial_post_dir.as_path()),
-                "partner=Some 中 cached_post_project_dir は初期値を保持する \
-                 (delta={}ms)",
-                delta_ms
-            );
-            assert_eq!(
-                discovery.cached_daw_session_id(),
-                Some("daw-test"),
-                "partner=Some 中 cached_daw_session_id も初期値を保持する \
-                 (delta={}ms)",
-                delta_ms
-            );
-        }
-
-        // partner を強制的に変えても (= ステータス変化シミュレーション)、
-        // is_some() のまま → ゲート閉のまま。
-        if let Some(p) = partner.as_mut() {
-            p.last_seen_status = SignalStatus::Pending;
-        }
-        let now = t0 + Duration::from_secs(120);
-        assert!(
-            !(partner.is_none() && discovery.should_rescan(now)),
-            "partner.last_seen_status を変えても is_some() なので gate 閉のまま"
-        );
-    }
-
-    /// T2: explicit cleanup などで partner=None 復帰後 discovery が再開し、
-    /// 新しい POST project_dir を取得できることを構造的に固定。
-    ///
-    /// 受入基準 4-3 に対応: Released / lifecycle cleanup で partner=None に
-    /// なった次 tick から discovery 呼出が解禁される。
-    #[test]
-    fn discovery_resumed_after_partner_cleared() {
-        let mut discovery = PreSelfDiscoveryState::new();
-        let t0 = Instant::now();
-
-        // 初期 scan: 旧 partner 用の project_dir を cache
-        let old_post_dir = PathBuf::from("/tmp/kirin_test/post-uuid-OLD");
-        discovery.record_scan(t0, Some((old_post_dir.clone(), "daw-OLD".to_string())));
-        let mut partner: Option<PartnerInfo> =
-            Some(test_partner("post-old", SignalStatus::Acknowledged));
-
-        // 1.5 秒経過 (本来なら rescan 可) — partner=Some なのでゲート閉
-        let t1 = t0 + Duration::from_millis(1500);
-        assert!(
-            !(partner.is_none() && discovery.should_rescan(t1)),
-            "partner=Some の間は rescan ゲート閉 (再確認)"
-        );
-
-        // ── poll_record_signal が明示 Stop / cleanup で partner を None に戻した想定 ──
-        partner = None;
-
-        // partner=None かつ should_rescan=true → ゲート開
-        let t2 = t0 + Duration::from_secs(3);
-        assert!(
-            partner.is_none() && discovery.should_rescan(t2),
-            "partner=None 復帰後はゲート開 (discovery 再開)"
-        );
-
-        // 主ループはここで discovery を呼び record_scan する。
-        // 新しい POST instance に切り替わったシナリオを模擬。
-        let new_post_dir = PathBuf::from("/tmp/kirin_test/post-uuid-NEW");
-        discovery.record_scan(t2, Some((new_post_dir.clone(), "daw-NEW".to_string())));
-
-        assert_eq!(
-            discovery.cached_post_project_dir(),
-            Some(new_post_dir.as_path()),
-            "partner=None 復帰後の record_scan で cached_post_project_dir が更新される"
-        );
-        assert_eq!(
-            discovery.cached_daw_session_id(),
-            Some("daw-NEW"),
-            "partner=None 復帰後の record_scan で cached_daw_session_id も更新される"
-        );
-
-        // 新 partner を ack 後にゲート再閉鎖を確認
-        partner = Some(test_partner("post-new", SignalStatus::Acknowledged));
-        let t3 = t2 + Duration::from_secs(15);
-        assert!(
-            !(partner.is_none() && discovery.should_rescan(t3)),
-            "新 partner 確定後は再びゲート閉 (cached_post_project_dir 保護)"
-        );
-        assert_eq!(
-            discovery.cached_post_project_dir(),
-            Some(new_post_dir.as_path()),
-            "新 partner 中も cached_post_project_dir は保持される"
-        );
     }
 
     // ── B-022 段階 5: P-3 直接 read リトライ救済 ─────────────────────────
@@ -4692,9 +4370,10 @@ mod startup_clear_acks_tests {
         assert_eq!(after.unwrap().target_pre_instance_id, TEST_PRE_IID_OTHER);
     }
 
-    /// Gap-3 / Gap-5: 複数 project_hash 横断で削除される (cdylib 隔離下対応)。
+    /// The direct inbox has one current owner. Startup clears only that exact canonical request;
+    /// an older orphan is inert history and must not trigger a project-wide scan.
     #[test]
-    fn clear_stale_self_acks_in_scans_all_project_hashes() {
+    fn clear_stale_self_acks_in_follows_only_current_inbox_owner() {
         let pdr = isolated_pdr("multi_ph");
         // ph-startup と ph-other の両方に self 宛 Acknowledged signal を配置。
         write_pending(
@@ -4720,12 +4399,12 @@ mod startup_clear_acks_tests {
         clear_stale_self_acks_in(&pdr, TEST_PRE_IID);
 
         assert!(
-            crate::record_signal::read_signal(&pdr, TEST_PH, TEST_POST_IID).is_none(),
-            "ph-startup の self 宛 Acknowledged は削除される"
+            crate::record_signal::read_signal(&pdr, TEST_PH, TEST_POST_IID).is_some(),
+            "an older canonical file is not rediscovered by scanning history"
         );
         assert!(
             crate::record_signal::read_signal(&pdr, TEST_PH_OTHER, "post-iid-other").is_none(),
-            "ph-other の self 宛 Acknowledged も削除される (multi-ph scan)"
+            "the exact owner named by the current PRE inbox is removed"
         );
     }
 

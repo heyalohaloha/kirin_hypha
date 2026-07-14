@@ -57,6 +57,12 @@ fn signal_path_uses_post_instance_id_as_filename() {
     assert_eq!(p, Path::new("/tmp/kb/phash/record_signal/post-uuid-A.json"));
 }
 
+#[test]
+fn target_signal_path_is_one_fixed_inbox_per_pre() {
+    let p = target_signal_path(Path::new("/tmp/kb"), "pre-uuid-A");
+    assert_eq!(p, Path::new("/tmp/kb/record_target/pre-uuid-A.json"));
+}
+
 // ── I/O ─────────────────────────────────────────────────
 
 #[test]
@@ -70,6 +76,23 @@ fn write_pending_creates_file_with_pending_status() {
     assert!(!s.session_id.is_empty());
     let loaded = read_signal(&base, "ph", "post-1").unwrap();
     assert_eq!(loaded, s);
+    let (project_hash, post_iid, targeted) = read_target_signal(&base, "pre-1").unwrap();
+    assert_eq!(project_hash, "ph");
+    assert_eq!(post_iid, "post-1");
+    assert_eq!(targeted, s);
+}
+
+#[test]
+fn pending_publish_is_rolled_back_when_pre_inbox_cannot_commit() {
+    let base = isolated_dir();
+    let inbox = target_signal_path(&base, "pre-blocked");
+    fs::create_dir_all(&inbox).unwrap();
+
+    assert!(write_pending(&base, "ph", "post-1", "pre-blocked".into(), "daw-1".into()).is_err());
+    assert!(
+        read_signal(&base, "ph", "post-1").is_none(),
+        "a PRE-invisible pending request must not survive as hidden canonical state"
+    );
 }
 
 #[test]
@@ -391,6 +414,21 @@ fn delete_signal_idempotent_under_repeated_calls() {
 }
 
 #[test]
+fn deleting_old_post_does_not_remove_newer_pre_inbox_owner() {
+    let base = isolated_dir();
+    let old = write_pending(&base, "ph", "post-old", "pre-1".into(), "daw-1".into()).unwrap();
+    let new = write_pending(&base, "ph", "post-new", "pre-1".into(), "daw-1".into()).unwrap();
+    assert_ne!(old.session_id, new.session_id);
+
+    delete_signal(&base, "ph", "post-old").unwrap();
+
+    let (project_hash, owner, targeted) = read_target_signal(&base, "pre-1").unwrap();
+    assert_eq!(project_hash, "ph");
+    assert_eq!(owner, "post-new");
+    assert_eq!(targeted.session_id, new.session_id);
+}
+
+#[test]
 fn atomic_write_leaves_no_tmp_behind() {
     let base = isolated_dir();
     write_pending(&base, "ph", "post-1", "pre-1".into(), "daw-1".into()).unwrap();
@@ -482,10 +520,10 @@ fn full_post_to_pre_handshake_sequence() {
     assert_eq!(sig.status, SignalStatus::Pending);
     assert_eq!(sig.daw_session_id, "daw-1");
 
-    let scanned = scan_signals_dir(&base, "ph");
-    assert_eq!(scanned.len(), 1);
-    assert_eq!(scanned[0].0, "post-1");
-    assert_eq!(scanned[0].1.target_pre_instance_id, "pre-1");
+    let targeted = read_target_signal(&base, "pre-1").unwrap();
+    assert_eq!(targeted.0, "ph");
+    assert_eq!(targeted.1, "post-1");
+    assert_eq!(targeted.2.target_pre_instance_id, "pre-1");
 
     mark_acknowledged(&base, "ph", "post-1").unwrap();
     mark_released(&base, "ph", "post-1").unwrap();
@@ -494,6 +532,7 @@ fn full_post_to_pre_handshake_sequence() {
     assert_eq!(after.session_id, sig.session_id);
     delete_signal(&base, "ph", "post-1").unwrap();
     assert!(read_signal(&base, "ph", "post-1").is_none());
+    assert!(read_target_signal(&base, "pre-1").is_none());
 }
 
 // ── B-103: sweep_stale_pending_in（起動時 dead Pending 掃除）─────────────────────

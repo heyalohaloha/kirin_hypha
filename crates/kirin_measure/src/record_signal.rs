@@ -31,11 +31,11 @@
 //! AU/VST3 や別 cdylib 境界で `static` 状態が一致しないため、PRE 側 ack は
 //! `daw_session_id` では filter せず、永続 `target_pre_instance_id` 一致を正本にする。
 //!
-//! # PRE 側 polling（Q1 (b) 厳格化）
-//! 1. [`scan_signals_dir`] で `{project_hash}/record_signal/*.json` を全件読み込む
-//! 2. 各 signal について以下を満たすもののみ処理:
-//!    - `signal.target_pre_instance_id == self.instance_id`
-//! 3. 1 つも条件一致がなければ Record 状態を維持（pending 検出なしと同義）
+//! # PRE 側 polling
+//! POST は canonical signal と同時に installation root の
+//! `record_target/{pre_iid}.json` を publish する。inbox envelope が canonical の
+//! `project_hash` を運ぶため、未接続 PRE は自身の 1 ファイルだけを読み、接続後は既知の
+//! POST canonical 1 ファイルだけを読む。project/history directory scan は行わない。
 //!
 //! # POST 側 ライフサイクル
 //! 1. POST「Keep」→ 排他 OK → [`write_pending`] で自身の post_instance_id 用 signal 配置
@@ -66,6 +66,7 @@ pub const RECORD_START_BARRIER_DELAY_MS: i64 = 500;
 
 /// record_signal ディレクトリ名（`{project_hash}/record_signal/`）。
 pub const SIGNALS_SUBDIR: &str = "record_signal";
+pub const TARGET_SIGNALS_SUBDIR: &str = "record_target";
 
 /// 旧バージョン互換: 1 ファイルだけ置かれていた頃の filename。テストや残骸検出
 /// にだけ参照され、新コードから書込先には使わない。
@@ -133,6 +134,12 @@ pub struct RecordSignal {
     /// 旧 schema では空文字に default し、started_at + paired_* による互換経路を維持する。
     #[serde(default)]
     pub session_id: String,
+    /// Producer transaction identity. PRE, POST, expected claim, pair manifest,
+    /// and Drop commit must carry this exact value.
+    #[serde(default)]
+    pub capture_generation_id: String,
+    #[serde(default)]
+    pub generation_started_at_ms: i64,
     /// 状態遷移の最終時刻（ISO 8601 / RFC 3339, ミリ秒精度 / UTC）。
     pub t: String,
     /// pending 配置時刻（以後 status 遷移で更新されない）。
@@ -162,6 +169,14 @@ pub struct RecordSignal {
     pub expected_wav: Option<ExpectedWavMetadata>,
 }
 
+/// One direct delivery addressed to a PRE. The envelope owns the only cross-project routing
+/// information PRE needs; the signal itself remains identical to its canonical POST record.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct TargetRecordSignal {
+    project_hash: String,
+    signal: RecordSignal,
+}
+
 impl RecordSignal {
     /// 新規 pending シグナルを生成。`t` と `started_at` は現在時刻、
     /// `daw_session_id` は呼び出し側が責任を持って渡す。
@@ -172,6 +187,29 @@ impl RecordSignal {
         expected_wav: Option<ExpectedWavMetadata>,
         started_at_position_samples: Option<i64>,
     ) -> Self {
+        Self::new_pending_for_generation(
+            requested_by,
+            target_pre_instance_id,
+            daw_session_id,
+            expected_wav,
+            started_at_position_samples,
+            String::new(),
+            0,
+            Uuid::new_v4().to_string(),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_pending_for_generation(
+        requested_by: String,
+        target_pre_instance_id: String,
+        daw_session_id: String,
+        expected_wav: Option<ExpectedWavMetadata>,
+        started_at_position_samples: Option<i64>,
+        capture_generation_id: String,
+        generation_started_at_ms: i64,
+        session_id: String,
+    ) -> Self {
         let now = Utc::now();
         let t = iso8601(now);
         let started_at = iso8601(now + Duration::milliseconds(RECORD_START_BARRIER_DELAY_MS));
@@ -180,7 +218,9 @@ impl RecordSignal {
             requested_by,
             target_pre_instance_id,
             daw_session_id,
-            session_id: Uuid::new_v4().to_string(),
+            session_id,
+            capture_generation_id,
+            generation_started_at_ms,
             t,
             started_at,
             started_at_position_samples,
@@ -237,6 +277,17 @@ pub fn signal_path(base_dir: &Path, project_hash: &str, post_instance_id: &str) 
         "record_signal.signal_path.post_instance_id",
     );
     signals_dir(base_dir, project_hash).join(format!("{iid}.json"))
+}
+
+/// `{base}/record_target/{pre_instance_id}.json`。PRE installation 内で一意の direct inbox。
+pub fn target_signal_path(base_dir: &Path, pre_instance_id: &str) -> PathBuf {
+    let iid = crate::path_identity::guard_path_component(
+        pre_instance_id,
+        "record_signal.target_path.pre_instance_id",
+    );
+    base_dir
+        .join(TARGET_SIGNALS_SUBDIR)
+        .join(format!("{iid}.json"))
 }
 
 // ── I/O ──────────────────────────────────────────────────────────────────────
@@ -344,23 +395,93 @@ pub fn write_pending_claiming_expected_and_clock(
     daw_session_id: String,
     started_at_position_samples: Option<i64>,
 ) -> Result<RecordSignal, SignalError> {
-    let signal = RecordSignal::new_pending(
+    let generation = crate::capture_generation::CaptureGeneration::new_single(
+        project_hash.to_string(),
+        post_instance_id.to_string(),
+        target_pre_instance_id.clone(),
+        daw_session_id.clone(),
+        std::process::id(),
+    );
+    crate::capture_generation::publish_generation_roster(base_dir, &generation)
+        .map_err(capture_generation_signal_error)?;
+    write_pending_claiming_expected_and_clock_for_generation(
+        base_dir,
+        project_hash,
+        post_instance_id,
+        target_pre_instance_id,
+        daw_session_id,
+        started_at_position_samples,
+        &generation,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn write_pending_claiming_expected_and_clock_for_generation(
+    base_dir: &Path,
+    project_hash: &str,
+    post_instance_id: &str,
+    target_pre_instance_id: String,
+    daw_session_id: String,
+    started_at_position_samples: Option<i64>,
+    generation: &crate::capture_generation::CaptureGeneration,
+) -> Result<RecordSignal, SignalError> {
+    if !generation.is_valid() {
+        return Err(SignalError::Io(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "invalid capture generation",
+        )));
+    }
+    let Some(member) = generation.member(project_hash, post_instance_id) else {
+        return Err(SignalError::Io(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "capture generation does not contain POST member",
+        )));
+    };
+    if member.pre_instance_id != target_pre_instance_id {
+        return Err(SignalError::Io(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "capture generation PRE does not match Record target",
+        )));
+    }
+    let signal = RecordSignal::new_pending_for_generation(
         post_instance_id.to_string(),
         target_pre_instance_id,
         daw_session_id,
         None,
         started_at_position_samples,
+        generation.capture_generation_id.clone(),
+        generation.started_at_ms,
+        member.record_session_id.clone(),
     );
     write_signal(base_dir, project_hash, post_instance_id, &signal)?;
-    if let Err(e) =
-        crate::record_expected::begin_expected_session(base_dir, project_hash, &signal.session_id)
-    {
+    if let Err(e) = crate::record_expected::begin_expected_session_for_generation(
+        base_dir,
+        project_hash,
+        &signal.session_id,
+        post_instance_id,
+        &signal.capture_generation_id,
+        signal.generation_started_at_ms,
+    ) {
         log::warn!(
             "[record_signal] session lifecycle marker write failed; Keep continues: {}",
             e
         );
     }
     Ok(signal)
+}
+
+fn capture_generation_signal_error(
+    error: crate::capture_generation::CaptureGenerationError,
+) -> SignalError {
+    match error {
+        crate::capture_generation::CaptureGenerationError::Io(error) => SignalError::Io(error),
+        crate::capture_generation::CaptureGenerationError::Serde(error) => {
+            SignalError::Serde(error)
+        }
+        crate::capture_generation::CaptureGenerationError::Invalid => SignalError::Io(
+            io::Error::new(io::ErrorKind::InvalidData, "invalid capture generation"),
+        ),
+    }
 }
 
 /// 任意のシグナルを atomic 書込（unique tmp → rename）。
@@ -373,6 +494,25 @@ pub fn write_signal(
     let final_path = signal_path(base_dir, project_hash, post_instance_id);
     let json = serde_json::to_vec(signal)?;
     crate::atomic_file::write_bytes_atomic(&final_path, &json)?;
+    if !signal.target_pre_instance_id.trim().is_empty() {
+        let target_json = serde_json::to_vec(&TargetRecordSignal {
+            project_hash: project_hash.to_string(),
+            signal: signal.clone(),
+        })?;
+        if let Err(error) = crate::atomic_file::write_bytes_atomic(
+            &target_signal_path(base_dir, &signal.target_pre_instance_id),
+            &target_json,
+        ) {
+            // Pending is the publication transaction: the PRE inbox is its commit point.
+            // If the commit cannot be published, leave neither a hidden canonical request nor a
+            // half-started Record. Later status transitions retain canonical history because the
+            // exact paired PRE already knows the POST key and reads that file directly.
+            if signal.status == SignalStatus::Pending {
+                let _ = fs::remove_file(&final_path);
+            }
+            return Err(SignalError::Io(error));
+        }
+    }
     Ok(())
 }
 
@@ -385,6 +525,30 @@ pub fn read_signal(
     let path = signal_path(base_dir, project_hash, post_instance_id);
     let bytes = fs::read(&path).ok()?;
     serde_json::from_slice(&bytes).ok()
+}
+
+/// Read the one inbox owned by this PRE. The payload must name the same PRE and a non-empty
+/// canonical POST key; corrupt/stale cross-target files are ignored without falling back to a
+/// directory inventory.
+pub fn read_target_signal(
+    base_dir: &Path,
+    pre_instance_id: &str,
+) -> Option<(String, String, RecordSignal)> {
+    let bytes = fs::read(target_signal_path(base_dir, pre_instance_id)).ok()?;
+    let target: TargetRecordSignal = serde_json::from_slice(&bytes).ok()?;
+    let signal = target.signal;
+    if signal.target_pre_instance_id != pre_instance_id || signal.requested_by.trim().is_empty() {
+        return None;
+    }
+    let project_hash = crate::path_identity::guard_path_component(
+        &target.project_hash,
+        "record_signal.read_target.project_hash",
+    );
+    Some((
+        project_hash.into_owned(),
+        signal.requested_by.clone(),
+        signal,
+    ))
 }
 
 /// 状態遷移: pending → acknowledged。`t` は現在時刻に更新。
@@ -486,12 +650,32 @@ pub fn delete_signal(
     project_hash: &str,
     post_instance_id: &str,
 ) -> Result<(), SignalError> {
+    let prior = read_signal(base_dir, project_hash, post_instance_id);
     let path = signal_path(base_dir, project_hash, post_instance_id);
     match fs::remove_file(&path) {
-        Ok(()) => Ok(()),
-        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
-        Err(e) => Err(SignalError::Io(e)),
+        Ok(()) => {}
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+        Err(e) => return Err(SignalError::Io(e)),
     }
+    if let Some(prior) = prior.filter(|signal| !signal.target_pre_instance_id.trim().is_empty()) {
+        let target = target_signal_path(base_dir, &prior.target_pre_instance_id);
+        let owns_target = fs::read(&target)
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<TargetRecordSignal>(&bytes).ok())
+            .is_some_and(|current| {
+                current.project_hash == project_hash
+                    && current.signal.requested_by == prior.requested_by
+                    && current.signal.session_id == prior.session_id
+            });
+        if owns_target {
+            match fs::remove_file(target) {
+                Ok(()) => {}
+                Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+                Err(e) => return Err(SignalError::Io(e)),
+            }
+        }
+    }
+    Ok(())
 }
 
 /// pending 状態で `t` から `timeout_secs` 秒以上経過していれば true。

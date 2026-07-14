@@ -30,6 +30,7 @@ const bundles = [
     payload: 'Library/Audio/Plug-Ins/Components/Kirin Hypha PRE.component',
     binary: 'Kirin Hypha PRE',
     displayName: 'PRE Kirin Hypha',
+    physicalName: 'Kirin Hypha PRE',
     kind: 'component',
   },
   {
@@ -38,22 +39,27 @@ const bundles = [
     payload: 'Library/Audio/Plug-Ins/Components/Kirin Hypha POST.component',
     binary: 'Kirin Hypha POST',
     displayName: 'POST Kirin Hypha',
+    physicalName: 'Kirin Hypha POST',
     kind: 'component',
   },
   {
     label: 'PRE VST3',
-    src: 'target/bundled/PRE Kirin Hypha.vst3',
+    src: 'juce_shell/build-universal/KirinHyphaPRE_artefacts/Release/VST3/Kirin Hypha PRE.vst3',
     payload: 'Library/Audio/Plug-Ins/VST3/PRE Kirin Hypha.vst3',
-    binary: 'PRE Kirin Hypha',
+    binary: 'Kirin Hypha PRE',
     displayName: 'PRE Kirin Hypha',
+    physicalName: 'Kirin Hypha PRE',
+    componentCid: '4B6972696E4879706861505245763031',
     kind: 'vst3',
   },
   {
     label: 'POST VST3',
-    src: 'target/bundled/POST Kirin Hypha.vst3',
+    src: 'juce_shell/build-universal/KirinHyphaPOST_artefacts/Release/VST3/Kirin Hypha POST.vst3',
     payload: 'Library/Audio/Plug-Ins/VST3/POST Kirin Hypha.vst3',
-    binary: 'POST Kirin Hypha',
+    binary: 'Kirin Hypha POST',
     displayName: 'POST Kirin Hypha',
+    physicalName: 'Kirin Hypha POST',
+    componentCid: '4B6972696E4879706861504F53547631',
     kind: 'vst3',
   },
 ];
@@ -153,9 +159,13 @@ function verifyDisplayMetadata(bundle, plist, binary) {
 
   for (const key of ['CFBundleDisplayName', 'CFBundleName']) {
     const actual = plistValue(plist, key);
-    if (actual !== bundle.displayName) {
-      throw new Error(`${bundle.label} ${key}=${actual}, expected ${bundle.displayName}. Run cargo run -p xtask -- stamp-egui-version after bundling.`);
+    if (actual !== bundle.physicalName) {
+      throw new Error(`${bundle.label} ${key}=${actual}, expected ${bundle.physicalName}. Rebuild with scripts/build_juce_universal.sh.`);
     }
+  }
+  const moduleInfo = fs.readFileSync(path.join(path.dirname(path.dirname(binary)), 'Resources', 'moduleinfo.json'), 'utf8');
+  if (!moduleInfo.includes(`"CID": "${bundle.componentCid}"`) || !moduleInfo.includes(`"Name": "${bundle.displayName}"`)) {
+    throw new Error(`${bundle.label} VST3 CID/display contract mismatch`);
   }
   const binaryStrings = run('strings', [binary], { capture: true });
   if (!binaryStrings.includes(bundle.displayName)) {

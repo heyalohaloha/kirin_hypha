@@ -48,6 +48,12 @@ pub struct ExpectedWavMetadata {
 pub(crate) struct ExpectedWavClaimMarker {
     pub(crate) schema_version: String,
     pub(crate) session_id: String,
+    #[serde(default)]
+    pub(crate) requested_by_post_instance_id: String,
+    #[serde(default)]
+    pub(crate) capture_generation_id: String,
+    #[serde(default)]
+    pub(crate) generation_started_at_ms: i64,
     pub(crate) bounce_id: String,
     pub(crate) created_at_ms: i64,
     pub(crate) wav_hash: String,
@@ -218,10 +224,22 @@ pub fn claim_expected_metadata_for_session(
 ///
 /// `current.json` は前回 Drop の世代を保持し得るため、Keep 時に読んではならない。Drop 後の
 /// reconciliation が bounce_id/hash を確定し、この marker を同じ session_id のまま完成させる。
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn begin_expected_session(
     base_dir: &Path,
     project_hash: &str,
     session_id: &str,
+) -> Result<(), ExpectedMetadataError> {
+    begin_expected_session_for_generation(base_dir, project_hash, session_id, "", "", 0)
+}
+
+pub(crate) fn begin_expected_session_for_generation(
+    base_dir: &Path,
+    project_hash: &str,
+    session_id: &str,
+    requested_by_post_instance_id: &str,
+    capture_generation_id: &str,
+    generation_started_at_ms: i64,
 ) -> Result<(), ExpectedMetadataError> {
     let session_id = session_id.trim();
     if session_id.is_empty() {
@@ -230,7 +248,16 @@ pub(crate) fn begin_expected_session(
     if read_claim_marker_for_session(base_dir, project_hash, session_id)?.is_some() {
         return Ok(());
     }
-    write_empty_claim_marker(base_dir, project_hash, session_id, now_epoch_ms(), None)
+    write_empty_claim_marker_for_generation(
+        base_dir,
+        project_hash,
+        session_id,
+        requested_by_post_instance_id,
+        now_epoch_ms(),
+        None,
+        capture_generation_id,
+        generation_started_at_ms,
+    )
 }
 
 /// セッションの Close（成功・`.failed` いずれも）で呼ぶ。`claimed_at_ms`（Keep 時の
@@ -267,23 +294,29 @@ pub fn mark_expected_metadata_consumed(
         }
         if let Some(metadata) = &marker.metadata {
             let closed_at_ms = marker.closed_at_ms.or(Some(now_ms));
-            write_claim_marker(
+            write_claim_marker_for_generation(
                 base_dir,
                 project_hash,
                 metadata,
                 session_id,
                 marker.claimed_at_ms,
                 closed_at_ms,
+                &marker.requested_by_post_instance_id,
+                &marker.capture_generation_id,
+                marker.generation_started_at_ms,
             )?;
             return Ok(true);
         }
         if bounce_id.is_none() {
-            write_empty_claim_marker(
+            write_empty_claim_marker_for_generation(
                 base_dir,
                 project_hash,
                 session_id,
+                &marker.requested_by_post_instance_id,
                 marker.claimed_at_ms,
                 marker.closed_at_ms.or(Some(now_ms)),
+                &marker.capture_generation_id,
+                marker.generation_started_at_ms,
             )?;
             return Ok(true);
         }
@@ -313,13 +346,28 @@ pub fn mark_expected_metadata_consumed(
         .as_ref()
         .and_then(|marker| marker.closed_at_ms)
         .or(Some(now_ms));
-    write_claim_marker(
+    let capture_generation_id = prior_marker
+        .as_ref()
+        .map(|marker| marker.capture_generation_id.as_str())
+        .unwrap_or("");
+    let requested_by_post_instance_id = prior_marker
+        .as_ref()
+        .map(|marker| marker.requested_by_post_instance_id.as_str())
+        .unwrap_or("");
+    let generation_started_at_ms = prior_marker
+        .as_ref()
+        .map(|marker| marker.generation_started_at_ms)
+        .unwrap_or(0);
+    write_claim_marker_for_generation(
         base_dir,
         project_hash,
         &metadata,
         session_id,
         claimed_at_ms,
         closed_at_ms,
+        requested_by_post_instance_id,
+        capture_generation_id,
+        generation_started_at_ms,
     )?;
     Ok(true)
 }
@@ -444,9 +492,37 @@ pub(crate) fn write_claim_marker(
     claimed_at_ms: i64,
     closed_at_ms: Option<i64>,
 ) -> Result<(), ExpectedMetadataError> {
+    write_claim_marker_for_generation(
+        base_dir,
+        project_hash,
+        metadata,
+        session_id,
+        claimed_at_ms,
+        closed_at_ms,
+        "",
+        "",
+        0,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn write_claim_marker_for_generation(
+    base_dir: &Path,
+    project_hash: &str,
+    metadata: &ExpectedWavMetadata,
+    session_id: &str,
+    claimed_at_ms: i64,
+    closed_at_ms: Option<i64>,
+    requested_by_post_instance_id: &str,
+    capture_generation_id: &str,
+    generation_started_at_ms: i64,
+) -> Result<(), ExpectedMetadataError> {
     let marker = ExpectedWavClaimMarker {
         schema_version: EXPECTED_CLAIM_SCHEMA.to_string(),
         session_id: session_id.to_string(),
+        requested_by_post_instance_id: requested_by_post_instance_id.to_string(),
+        capture_generation_id: capture_generation_id.to_string(),
+        generation_started_at_ms,
         bounce_id: metadata.bounce_id.clone(),
         created_at_ms: metadata.created_at_ms,
         wav_hash: metadata.wav_hash.clone().unwrap_or_default(),
@@ -462,16 +538,23 @@ pub(crate) fn write_claim_marker(
     Ok(())
 }
 
-fn write_empty_claim_marker(
+#[allow(clippy::too_many_arguments)]
+fn write_empty_claim_marker_for_generation(
     base_dir: &Path,
     project_hash: &str,
     session_id: &str,
+    requested_by_post_instance_id: &str,
     claimed_at_ms: i64,
     closed_at_ms: Option<i64>,
+    capture_generation_id: &str,
+    generation_started_at_ms: i64,
 ) -> Result<(), ExpectedMetadataError> {
     let marker = ExpectedWavClaimMarker {
         schema_version: EXPECTED_CLAIM_SCHEMA.to_string(),
         session_id: session_id.to_string(),
+        requested_by_post_instance_id: requested_by_post_instance_id.to_string(),
+        capture_generation_id: capture_generation_id.to_string(),
+        generation_started_at_ms,
         bounce_id: String::new(),
         created_at_ms: 0,
         wav_hash: String::new(),

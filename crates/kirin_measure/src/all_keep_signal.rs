@@ -22,7 +22,7 @@
 //! `started_at` は originator が `now_iso8601()` で書き込み、受信側は文字列等価比較
 //! のみで「同 originator + 同 broadcast」を判別する (clock-skew 完全耐性 / Q-A8-6)。
 //!
-//! 1. [`scan_broadcasts_dir`] で `{project_hash}/all_keep_signal/*.json` を全件読込
+//! 1. [`read_current_broadcast`] で `{project_hash}/all_keep_signal/current.json` を1件読込
 //! 2. `daw_session_id` を主境界として filter。両側 nonempty で一致すれば通し、
 //!    同一 project shelf 内では instance-scoped DAW ID を `host_process_id` で橋渡しする。
 //! 3. memory cache `HashMap<originator_iid, started_at>` を引いて
@@ -51,9 +51,10 @@ use std::path::{Path, PathBuf};
 /// `all_keep_signal/` ディレクトリ名。`exclusion::check_record_exclusion_at` の
 /// 予約名 list に追加して instance_id dir 走査から除外する (α-7-4-B)。
 pub const ALL_KEEP_SIGNAL_SUBDIR: &str = "all_keep_signal";
+pub const CURRENT_BROADCAST_FILENAME: &str = "current.json";
 
 /// migration は `#[serde(default)]` で旧 schema 互換維持)。
-pub const ALL_KEEP_SCHEMA_VERSION: u32 = 1;
+pub const ALL_KEEP_SCHEMA_VERSION: u32 = 2;
 
 /// broadcast の stale 判定閾値 (秒)。30 秒経過 broadcast は受信側 cache 検出時
 /// ACK_TIMEOUT_SECONDS` (= 30) と同値で対称性を維持。
@@ -77,6 +78,13 @@ pub struct AllKeepBroadcast {
     pub daw_session_id: String,
     #[serde(default)]
     pub host_process_id: u32,
+    /// One producer transaction shared by every POST armed by this All Keep.
+    /// Empty only when reading a legacy v1 broadcast; legacy broadcasts are not
+    /// eligible to create a new generation-aware Record.
+    #[serde(default)]
+    pub capture_generation_id: String,
+    #[serde(default)]
+    pub generation_started_at_ms: i64,
     pub started_at: String,
     /// 旧 schema 互換のため `#[serde(default)]`（不在で空文字）。
     /// 当面は `started_at` と同値で書込される。
@@ -106,6 +114,27 @@ impl AllKeepBroadcast {
             originator_post_instance_id,
             daw_session_id,
             host_process_id,
+            capture_generation_id: uuid::Uuid::new_v4().to_string(),
+            generation_started_at_ms: Utc::now().timestamp_millis(),
+            started_at: now.clone(),
+            heartbeat: now,
+        }
+    }
+
+    pub fn new_for_generation(
+        originator_post_instance_id: String,
+        daw_session_id: String,
+        host_process_id: u32,
+        generation: &crate::capture_generation::CaptureGeneration,
+    ) -> Self {
+        let now = now_iso8601();
+        Self {
+            v: ALL_KEEP_SCHEMA_VERSION,
+            originator_post_instance_id,
+            daw_session_id,
+            host_process_id,
+            capture_generation_id: generation.capture_generation_id.clone(),
+            generation_started_at_ms: generation.started_at_ms,
             started_at: now.clone(),
             heartbeat: now,
         }
@@ -135,6 +164,12 @@ pub fn signal_path(
         "all_keep_signal.signal_path.originator",
     );
     signals_dir(base_dir, project_hash).join(format!("{iid}.json"))
+}
+
+/// One project-local commit pointer read by every POST. Its payload contains the originator,
+/// so consumers never enumerate historical originator files.
+pub fn current_broadcast_path(base_dir: &Path, project_hash: &str) -> PathBuf {
+    signals_dir(base_dir, project_hash).join(CURRENT_BROADCAST_FILENAME)
 }
 
 // ── I/O ──────────────────────────────────────────────────────────────────────
@@ -196,10 +231,55 @@ pub fn write_broadcast_with_scope(
     daw_session_id: String,
     host_process_id: u32,
 ) -> Result<AllKeepBroadcast, AllKeepError> {
-    let broadcast = AllKeepBroadcast::new_with_scope(
+    let generation = crate::capture_generation::CaptureGeneration::new_single(
+        project_hash.to_string(),
+        originator_post_instance_id.to_string(),
+        String::new(),
+        daw_session_id.clone(),
+        host_process_id,
+    );
+    crate::capture_generation::publish_generation_roster(base_dir, &generation).map_err(
+        |error| match error {
+            crate::capture_generation::CaptureGenerationError::Io(error) => AllKeepError::Io(error),
+            crate::capture_generation::CaptureGenerationError::Serde(error) => {
+                AllKeepError::Serde(error)
+            }
+            crate::capture_generation::CaptureGenerationError::Invalid => AllKeepError::Io(
+                io::Error::new(io::ErrorKind::InvalidData, "invalid capture generation"),
+            ),
+        },
+    )?;
+    write_broadcast_for_generation(
+        base_dir,
+        project_hash,
+        originator_post_instance_id,
+        daw_session_id,
+        host_process_id,
+        &generation,
+    )
+}
+
+/// Publish a broadcast to one project shelf for an already committed generation roster.
+/// All Keep callers publish the roster once, then call this for every member project.
+pub fn write_broadcast_for_generation(
+    base_dir: &Path,
+    project_hash: &str,
+    originator_post_instance_id: &str,
+    daw_session_id: String,
+    host_process_id: u32,
+    generation: &crate::capture_generation::CaptureGeneration,
+) -> Result<AllKeepBroadcast, AllKeepError> {
+    if !generation.is_valid() {
+        return Err(AllKeepError::Io(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "invalid capture generation",
+        )));
+    }
+    let broadcast = AllKeepBroadcast::new_for_generation(
         originator_post_instance_id.to_string(),
         daw_session_id,
         host_process_id,
+        generation,
     );
     write_broadcast_signal(
         base_dir,
@@ -220,6 +300,7 @@ pub fn write_broadcast_signal(
     let final_path = signal_path(base_dir, project_hash, originator_post_instance_id);
     let json = serde_json::to_vec(broadcast)?;
     crate::atomic_file::write_bytes_atomic(&final_path, &json)?;
+    crate::atomic_file::write_bytes_atomic(&current_broadcast_path(base_dir, project_hash), &json)?;
     Ok(())
 }
 
@@ -234,6 +315,19 @@ pub fn read_broadcast(
     serde_json::from_slice(&bytes).ok()
 }
 
+pub fn read_current_broadcast(
+    base_dir: &Path,
+    project_hash: &str,
+) -> Option<(String, AllKeepBroadcast)> {
+    let bytes = fs::read(current_broadcast_path(base_dir, project_hash)).ok()?;
+    let broadcast: AllKeepBroadcast = serde_json::from_slice(&bytes).ok()?;
+    let originator = broadcast.originator_post_instance_id.trim();
+    if originator.is_empty() {
+        return None;
+    }
+    Some((originator.to_string(), broadcast))
+}
+
 /// broadcast file を削除。不在は成功扱い (R-28 機能的沈黙)。
 ///
 /// - #2 `trigger_stop` (`record_sm.exit_record()` 直後)
@@ -246,10 +340,25 @@ pub fn delete_broadcast(
 ) -> Result<(), AllKeepError> {
     let path = signal_path(base_dir, project_hash, originator_post_instance_id);
     match fs::remove_file(&path) {
-        Ok(()) => Ok(()),
-        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
-        Err(e) => Err(AllKeepError::Io(e)),
+        Ok(()) => {}
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+        Err(e) => return Err(AllKeepError::Io(e)),
     }
+    let current = current_broadcast_path(base_dir, project_hash);
+    let owns_current = fs::read(&current)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<AllKeepBroadcast>(&bytes).ok())
+        .is_some_and(|broadcast| {
+            broadcast.originator_post_instance_id == originator_post_instance_id
+        });
+    if owns_current {
+        match fs::remove_file(current) {
+            Ok(()) => {}
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(e) => return Err(AllKeepError::Io(e)),
+        }
+    }
+    Ok(())
 }
 
 /// `{project_hash}/all_keep_signal/` 配下の `*.json` を全件読み込んで返す。
@@ -262,6 +371,7 @@ pub fn delete_broadcast(
 ///
 /// 旧 plugin (本変更前 / dir 不在) 互換は `read_dir` Err → empty Vec で構造保証
 /// (`pre_discovery::discover_active_pre_dirs` :181-184 と同位相)。
+#[cfg(test)]
 pub fn scan_broadcasts_dir(base_dir: &Path, project_hash: &str) -> Vec<(String, AllKeepBroadcast)> {
     let dir = signals_dir(base_dir, project_hash);
     let entries = match fs::read_dir(&dir) {
@@ -290,6 +400,9 @@ pub fn scan_broadcasts_dir(base_dir: &Path, project_hash: &str) -> Vec<(String, 
     for entry in entries.flatten() {
         let path = entry.path();
         if path.extension().and_then(|s| s.to_str()) != Some("json") {
+            continue;
+        }
+        if path.file_name().and_then(|name| name.to_str()) == Some(CURRENT_BROADCAST_FILENAME) {
             continue;
         }
         let Some(stem) = path
@@ -397,7 +510,25 @@ mod tests {
 
         let path = signal_path(&base, "ph", "originator-1");
         assert!(path.exists(), "broadcast file should exist");
+        assert_eq!(
+            read_current_broadcast(&base, "ph").unwrap(),
+            ("originator-1".to_string(), result)
+        );
         assert_eq!(crate::atomic_file::remove_temp_siblings(&path).unwrap(), 0);
+    }
+
+    #[test]
+    fn deleting_old_originator_does_not_remove_new_current_broadcast() {
+        let base = isolated_dir();
+        write_broadcast(&base, "ph", "originator-old", "session-A".into()).unwrap();
+        let newest = write_broadcast(&base, "ph", "originator-new", "session-A".into()).unwrap();
+
+        delete_broadcast(&base, "ph", "originator-old").unwrap();
+
+        assert_eq!(
+            read_current_broadcast(&base, "ph"),
+            Some(("originator-new".into(), newest))
+        );
     }
 
     #[test]
@@ -530,6 +661,8 @@ mod tests {
             originator_post_instance_id: "x".to_string(),
             daw_session_id: "y".to_string(),
             host_process_id: 0,
+            capture_generation_id: String::new(),
+            generation_started_at_ms: 0,
             started_at: (now - chrono::Duration::seconds(10))
                 .format("%Y-%m-%dT%H:%M:%SZ")
                 .to_string(),
@@ -540,6 +673,8 @@ mod tests {
             originator_post_instance_id: "x".to_string(),
             daw_session_id: "y".to_string(),
             host_process_id: 0,
+            capture_generation_id: String::new(),
+            generation_started_at_ms: 0,
             started_at: (now - chrono::Duration::seconds(45))
                 .format("%Y-%m-%dT%H:%M:%SZ")
                 .to_string(),
@@ -566,6 +701,8 @@ mod tests {
             originator_post_instance_id: "x".to_string(),
             daw_session_id: "y".to_string(),
             host_process_id: 0,
+            capture_generation_id: String::new(),
+            generation_started_at_ms: 0,
             started_at: "not-an-iso".to_string(),
             heartbeat: String::new(),
         };
@@ -585,6 +722,8 @@ mod tests {
             originator_post_instance_id: "x".to_string(),
             daw_session_id: "y".to_string(),
             host_process_id: 0,
+            capture_generation_id: String::new(),
+            generation_started_at_ms: 0,
             started_at: (now + chrono::Duration::seconds(60))
                 .format("%Y-%m-%dT%H:%M:%SZ")
                 .to_string(),
@@ -598,8 +737,8 @@ mod tests {
     }
 
     #[test]
-    fn schema_version_is_1() {
-        assert_eq!(ALL_KEEP_SCHEMA_VERSION, 1);
+    fn schema_version_is_2() {
+        assert_eq!(ALL_KEEP_SCHEMA_VERSION, 2);
     }
 
     #[test]

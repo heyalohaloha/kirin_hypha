@@ -38,7 +38,7 @@ fn au_and_vst3_share_pair_status_and_control_geometry_contract() {
     let rust_post = read_repo("crates/hypha_post/src/editor.rs");
     assert!(rust_post.contains("egui::Button::new(\"Keep\").min_size(Vec2::new(width, 26.0))"));
     assert!(rust_post.contains(".add_sized([width, 26.0], egui::Button::new(\"Stop\"))"));
-    assert!(rust_post.contains(".add_sized([width, 26.0], egui::Button::new(\"Mark\"))"));
+    assert!(!rust_post.contains("egui::Button::new(\"Mark\")"));
 
     let juce_controls = read_repo("juce_shell/src/PostControls.cpp");
     assert!(juce_controls.contains("keepBtn  .setVisible (! recording && os)"));
@@ -47,6 +47,11 @@ fn au_and_vst3_share_pair_status_and_control_geometry_contract() {
     assert!(!juce_controls.contains("markBtn"));
     assert!(ffi_header.contains("kirin_hypha_add_mark"));
     assert!(rust_post.contains("pair_status != PairStatus::Unpaired"));
+
+    let cmake = read_repo("juce_shell/CMakeLists.txt");
+    assert!(cmake.contains("FORMATS AU VST3"));
+    assert!(cmake.contains("src/PluginProcessor.cpp"));
+    assert!(cmake.contains("src/PluginEditor.cpp"));
 }
 
 #[test]
@@ -83,14 +88,9 @@ fn juce_wrappers_forward_host_presentation_latency_as_diagnostics() {
     assert!(processor.contains("getKirinPresentationLatencySource"));
     assert!(processor.contains("kirin_hypha_note_capture_window"));
 
-    // The shipped VST3 is the nih-plug binary, not the JUCE VST3 target. Its
-    // wrapper must therefore implement the same host contract independently.
-    let nih_wrapper = read_repo("vendor/nih-plug-presentation/src/wrapper/vst3/wrapper.rs");
-    let nih_transport = read_repo("vendor/nih-plug-presentation/src/context/process.rs");
-    assert!(nih_wrapper.contains("impl<P: Vst3Plugin> IAudioPresentationLatency for Wrapper<P>"));
-    assert!(nih_wrapper.contains("input_presentation_latency"));
-    assert!(nih_wrapper.contains("transport.input_presentation_latency_samples"));
-    assert!(nih_transport.contains("pub input_presentation_latency_samples: Option<u32>"));
+    // Both shipped formats now compile this processor and the same patched JUCE host adapter.
+    let cmake = read_repo("juce_shell/CMakeLists.txt");
+    assert!(cmake.contains("FORMATS AU VST3"));
 }
 
 fn slice_between<'a>(src: &'a str, start_marker: &str, end_marker: &str) -> &'a str {

@@ -14,7 +14,7 @@
 
 use std::f64::consts::PI;
 use std::thread::sleep;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use approx::{abs_diff_eq, assert_relative_eq, relative_eq};
 
@@ -51,6 +51,8 @@ fn drop_expected_wav(
     let signal = read_signal(plugin_data_root, project_hash, post_iid)
         .expect("active POST signal for Drop transaction");
     let session_id = signal.session_id;
+    let capture_generation_id = signal.capture_generation_id;
+    let generation_started_at_ms = signal.generation_started_at_ms;
     assert!(
         !session_id.is_empty(),
         "Drop transaction requires an exact Record session"
@@ -77,6 +79,8 @@ fn drop_expected_wav(
         drop_commit_id: drop_commit_id.clone(),
         project_hash: project_hash.to_string(),
         record_session_id: session_id.clone(),
+        capture_generation_id: capture_generation_id.clone(),
+        generation_started_at_ms,
         created_at_ms: now_ms,
         metadata,
     };
@@ -89,6 +93,8 @@ fn drop_expected_wav(
         schema_version: DROP_TRANSACTION_SCHEMA.to_string(),
         drop_commit_id: drop_commit_id.clone(),
         project_hash: project_hash.to_string(),
+        capture_generation_id,
+        generation_started_at_ms,
         created_at_ms: now_ms,
         bounce_id,
         wav_hash,
@@ -2683,11 +2689,11 @@ fn b127_reservation_released_on_stop() {
         sleep(Duration::from_millis(40));
     }
 
-    // pairing key = (resolved PRE iid "iid-pre", POST iid "iid-rel")。
+    // PRE ownership key = resolved PRE iid "iid-pre"。payload が POST owner を保持する。
     let res_path = base
         .join(puid)
         .join("record_reservation")
-        .join("iid-pre__iid-rel.json");
+        .join("iid-pre.json");
     assert!(post.keep(), "keep succeeds");
     assert!(res_path.exists(), "keep が O_EXCL reservation 枠を作る");
     post.stop();
@@ -2724,7 +2730,7 @@ fn b127_reservation_released_on_drop() {
     let res_path = base
         .join(puid)
         .join("record_reservation")
-        .join("iid-pre__iid-rel-drop.json");
+        .join("iid-pre.json");
     assert!(post.keep(), "keep succeeds");
     assert!(res_path.exists(), "keep creates the reservation frame");
     drop(post);
@@ -2813,11 +2819,11 @@ fn b127_engine_allows_keep_under_cap() {
     let _ = std::fs::remove_dir_all(home.parent().unwrap());
 }
 
-/// 12 個の古い孤児 reservation が残っていても、Keep 直前/起動時 sweep で回収してから
-/// concrete pairing を予約するため、実在ペアが 12 未満なら Keep は通る。
+/// Explicit Keep reclaims only the current project's bounded (max 12) stale lease registry.
+/// No startup, UI timer or global-history sweep participates in the recovery path.
 #[test]
-#[ignore = "slow: HOME/TMPDIR + io_thread filesystem; stale 12 reservation sweep before keep (sets env)"]
-fn b127_keep_sweeps_stale_orphan_frames_before_cap() {
+#[ignore = "slow: HOME/TMPDIR + io_thread filesystem; bounded stale lease reclaim on Keep (sets env)"]
+fn b127_keep_reclaims_bounded_stale_leases_before_cap() {
     let (home, tmp) = b127_isolate("stale12");
     let puid = "puid-b127-stale";
     let base = home.join("Library/Application Support/Kirin OS/plugin_data");
@@ -2844,13 +2850,20 @@ fn b127_keep_sweeps_stale_orphan_frames_before_cap() {
     for i in 0..12 {
         let pre = format!("stale-pre-{i}");
         let post_iid = format!("stale-post-{i}");
+        let stale_path = stale_dir.join(format!("{pre}__{post_iid}.json"));
         std::fs::write(
-            stale_dir.join(format!("{pre}__{post_iid}.json")),
+            &stale_path,
             format!(
                 r#"{{"pre_instance_id":"{pre}","post_instance_id":"{post_iid}","reserved_at":"2026-01-01T00:00:00Z"}}"#
             ),
         )
         .unwrap();
+        let file = std::fs::OpenOptions::new()
+            .write(true)
+            .open(stale_path)
+            .unwrap();
+        file.set_times(std::fs::FileTimes::new().set_modified(SystemTime::UNIX_EPOCH))
+            .unwrap();
     }
     assert_eq!(kirin_measure::reservation::count_frames(&base, puid), 12);
 

@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::plugin_data::PluginDataFile;
 
-pub const TRACE_ALIGNMENT_METHOD: &str = "producer_render_range_clock_v7";
+pub const TRACE_ALIGNMENT_METHOD: &str = "producer_wav_sample_axis_v8";
 pub const TRACE_ALIGNMENT_STATUS: &str = "canonical_wav_clock";
 pub const TRACE_ALIGNMENT_START_BWF: &str = "bwf_time_reference";
 pub const TRACE_ALIGNMENT_START_RENDER_RANGE: &str = "producer_render_range";
@@ -95,8 +95,7 @@ fn has_shared_native_slots(left: &PluginDataFile, right: &PluginDataFile) -> boo
 }
 
 fn has_wav_bounded_slots(data: &PluginDataFile) -> bool {
-    let (Some(expected), Some(reference), Some(first), Some(last)) = (
-        data.expected_wav.as_ref(),
+    let (Some(reference), Some(first), Some(last)) = (
         data.trace_wav_reference.as_ref(),
         data.trace_slot_positions.first().copied(),
         data.trace_slot_positions.last().copied(),
@@ -119,17 +118,7 @@ fn has_wav_bounded_slots(data: &PluginDataFile) -> bool {
     let Some(unmeasured_tail) = reference_duration.checked_sub(measured_span) else {
         return false;
     };
-    if unmeasured_tail >= slot_samples {
-        return false;
-    }
-    let Some(wav_start) = expected.wav_time_reference_samples else {
-        return true;
-    };
-    let Ok(wav_start) = i64::try_from(wav_start) else {
-        return false;
-    };
-    wav_start.checked_add(slot_samples) == Some(first)
-        && wav_start.checked_add(measured_span) == Some(last)
+    first == slot_samples && last == measured_span && unmeasured_tail < slot_samples
 }
 
 pub(crate) fn has_canonical_wav_reference(data: &PluginDataFile) -> bool {
@@ -216,7 +205,7 @@ mod tests {
             sample_rate: 96_000,
             sources: vec!["project_timeline".to_string()],
         });
-        data.trace_slot_positions = vec![6_482_947];
+        data.trace_slot_positions = vec![9_600];
         data.trace_pair_wav_start_basis = Some(TRACE_ALIGNMENT_START_BWF.to_string());
         data.expected_wav
             .as_mut()
@@ -316,7 +305,7 @@ mod tests {
     }
 
     #[test]
-    fn pair_contract_proves_the_declared_bwf_start_boundary() {
+    fn public_wav_axis_does_not_reintroduce_the_absolute_bwf_offset() {
         let mut pre = data(Role::Pre);
         let mut post = data(Role::Post);
         for side in [&mut pre, &mut post] {
@@ -339,7 +328,10 @@ mod tests {
                 .unwrap()
                 .wav_time_reference_samples = Some(6_473_348);
         }
-        assert!(canonical_wav_alignment(&pre, &post).is_none());
+        // The producer already used the BWF reference to select the common source frames. The
+        // published grid remains 0-relative to the dropped WAV and must not be shifted again by
+        // that absolute DAW position in a consumer.
+        assert!(canonical_wav_alignment(&pre, &post).is_some());
     }
 
     #[test]

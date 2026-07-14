@@ -10,7 +10,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use crate::record_expected::{
-    expected_dir, now_epoch_ms, read_claim_marker_for_session, write_claim_marker,
+    expected_dir, now_epoch_ms, read_claim_marker_for_session, write_claim_marker_for_generation,
     write_expected_metadata, ExpectedMetadataError, ExpectedWavClaimMarker, ExpectedWavMetadata,
     EXPECTED_METADATA_FUTURE_SKEW_MS, EXPECTED_METADATA_MAX_AGE_MS,
 };
@@ -27,6 +27,10 @@ pub struct DropRecordCommit {
     pub drop_commit_id: String,
     pub project_hash: String,
     pub record_session_id: String,
+    #[serde(default)]
+    pub capture_generation_id: String,
+    #[serde(default)]
+    pub generation_started_at_ms: i64,
     pub created_at_ms: i64,
     pub metadata: ExpectedWavMetadata,
 }
@@ -36,6 +40,10 @@ pub struct DropRecordTransaction {
     pub schema_version: String,
     pub drop_commit_id: String,
     pub project_hash: String,
+    #[serde(default)]
+    pub capture_generation_id: String,
+    #[serde(default)]
+    pub generation_started_at_ms: i64,
     pub created_at_ms: i64,
     pub bounce_id: String,
     pub wav_hash: String,
@@ -76,13 +84,16 @@ pub fn bind_drop_commit_for_open_session(
         return Ok((existing == metadata).then_some(existing));
     }
     write_expected_metadata(base_dir, project_hash, &metadata)?;
-    write_claim_marker(
+    write_claim_marker_for_generation(
         base_dir,
         project_hash,
         &metadata,
         session_id.trim(),
         marker.claimed_at_ms,
         None,
+        &marker.requested_by_post_instance_id,
+        &marker.capture_generation_id,
+        marker.generation_started_at_ms,
     )?;
     Ok(Some(metadata.without_consumed_marker()))
 }
@@ -139,13 +150,16 @@ pub(crate) fn bind_drop_commit_for_closed_pair_session(
         return Ok((existing == metadata).then_some(existing));
     }
     write_expected_metadata(base_dir, project_hash, &metadata)?;
-    write_claim_marker(
+    write_claim_marker_for_generation(
         base_dir,
         project_hash,
         &metadata,
         session_id.trim(),
         marker.claimed_at_ms,
         marker.closed_at_ms.or(Some(now_epoch_ms())),
+        &marker.requested_by_post_instance_id,
+        &marker.capture_generation_id,
+        marker.generation_started_at_ms,
     )?;
     Ok(Some(metadata.without_consumed_marker()))
 }
@@ -181,11 +195,17 @@ fn read_drop_commit_for_session(
         return Ok(None);
     };
     let expected_hash = commit.metadata.wav_hash.as_deref().unwrap_or_default();
+    let generation_invalid = !marker.capture_generation_id.is_empty()
+        && (commit.capture_generation_id != marker.capture_generation_id
+            || transaction.capture_generation_id != marker.capture_generation_id
+            || commit.generation_started_at_ms != marker.generation_started_at_ms
+            || transaction.generation_started_at_ms != marker.generation_started_at_ms);
     let invalid = commit.schema_version != DROP_COMMIT_SCHEMA
         || commit.drop_commit_id.trim().is_empty()
         || commit.project_hash != project_hash
         || commit.record_session_id != session_id
         || marker.session_id != session_id
+        || generation_invalid
         || (require_open_marker && marker.closed_at_ms.is_some())
         || commit.created_at_ms < marker.claimed_at_ms
         || commit.created_at_ms > now_ms.saturating_add(EXPECTED_METADATA_FUTURE_SKEW_MS)

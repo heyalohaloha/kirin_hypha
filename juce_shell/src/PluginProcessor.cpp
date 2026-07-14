@@ -66,12 +66,8 @@ KirinHyphaProcessorBase::KirinHyphaProcessorBase (Role roleIn)
     // Bypassed signal state while still passing audio through (parity with hypha_pre).
     addParameter (bypassParam = new juce::AudioParameterBool ({ "bypass", 1 }, "Bypass", false));
 
-    // B-126: start the non-RT enable poll. The constructor runs on the message thread (plugin
-    // instantiation), so starting the Timer here is safe. It ticks at a low rate and no-ops once
-    // writesEnabled is true. This replaces the audio-thread triggerAsyncUpdate (which JUCE warns
-    // may block — juce_AsyncUpdater.h). 50ms keeps enable latency ~one buffer after the first
-    // processBlock while costing one atomic load per tick.
-    startTimer (50);
+    // The non-RT enable timer starts only after prepareToPlay creates a fresh engine and stops as
+    // soon as writes are enabled. An instantiated-but-never-prepared plugin owns no periodic work.
 }
 
 KirinHyphaProcessorBase::~KirinHyphaProcessorBase()
@@ -131,9 +127,8 @@ void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBl
     preparedSampleRate = hyphaHandle != nullptr ? sampleRate : 0.0;
     preparedInputChannels = hyphaHandle != nullptr ? numCh : 0;
 
-    // A fresh handle receives the current entitlement immediately. The message-thread timer
-    // refreshes this cache so instances opened before Kirin OS recognition do not retain a stale
-    // Sense gate for their lifetime.
+    // A fresh handle receives the current entitlement immediately. Further refreshes are tied to
+    // editor open / explicit Keep / pair-menu actions; there is no steady-state disk polling.
     // set_identity + enable_*_writes are deferred to the message-thread Timer
     // (enableWritesNow) so any setStateInformation restore is applied before enable.
     if (hyphaHandle != nullptr)
@@ -150,6 +145,7 @@ void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBl
         const int restoreDelay = stateInformationSeen.load (std::memory_order_acquire) ? 0 : kPrepareEnableDelayTicks;
         enableDelayTicks.store (restoreDelay, std::memory_order_release);
         enablePending.store (true, std::memory_order_release);
+        startTimer (50);
     }
     // A null handle (create failure) is tolerated; processBlock / pollMeasureResult guard on it.
 }
@@ -406,6 +402,7 @@ bool KirinHyphaProcessorBase::bufferIsSilent (const juce::AudioBuffer<float>& bu
 
 juce::AudioProcessorEditor* KirinHyphaProcessorBase::createEditor()
 {
+    refreshLicenseForUserAction();
     return new KirinHyphaEditor (*this);
 }
 
@@ -484,6 +481,7 @@ juce::String KirinHyphaProcessorBase::pairedPreInstanceId() const
 
 bool KirinHyphaProcessorBase::keepPair()
 {
+    refreshLicenseForUserAction();
     const juce::ScopedLock sl (handleLock);
     if (hyphaHandle == nullptr)
         return false;
@@ -525,6 +523,15 @@ juce::String KirinHyphaProcessorBase::pathAnomalyMessage() const
 bool KirinHyphaProcessorBase::licenseIsOs() const
 {
     return cachedLicenseCode.load (std::memory_order_acquire) == 0;
+}
+
+void KirinHyphaProcessorBase::refreshLicenseForUserAction()
+{
+    const int observed = (int) kirin_hypha_load_license();
+    cachedLicenseCode.store (observed, std::memory_order_release);
+    const juce::ScopedLock sl (handleLock);
+    if (hyphaHandle != nullptr)
+        kirin_hypha_set_license (hyphaHandle, (uint8_t) observed);
 }
 
 void KirinHyphaProcessorBase::stopPair()
@@ -615,6 +622,7 @@ bool KirinHyphaProcessorBase::addMark (const juce::String& tag)
 
 bool KirinHyphaProcessorBase::keepAll()
 {
+    refreshLicenseForUserAction();
     const juce::ScopedLock sl (handleLock);
     if (hyphaHandle == nullptr)
         return false;
@@ -716,42 +724,66 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
     // these at enable time (enableWritesNow), deferred to the message-thread Timer.
     stateInformationSeen.store (true, std::memory_order_release);
 
+    juce::String restoredInstanceId, restoredProjectUuid, restoredDawSessionUuid;
+    juce::String restoredName, restoredPairName;
+    bool restored = false;
+
     if (auto xml = getXmlFromBinary (data, sizeInBytes))
     {
         if (xml->hasTagName ("KirinHyphaState"))
         {
-            const auto restoredInstanceId     = xml->getStringAttribute ("instance_id");
-            const auto restoredProjectUuid    = xml->getStringAttribute ("project_uuid");
-            const auto restoredDawSessionUuid = xml->getStringAttribute ("daw_session_uuid");
-            const auto restoredName           = xml->getStringAttribute ("name");
-            const auto restoredPairName       = xml->getStringAttribute ("pair_pre_name");
-
-            // Once writes are enabled, the io_thread has already snapshotted the path identity
-            // (instance/project/session). Replacing those persisted keys now would split the DAW
-            // chunk from the active writer. Live-editable fields are safe to restore and push
-            // through their dedicated FFI setters.
-            if (writesEnabled.load (std::memory_order_acquire))
-            {
-                persistName     = restoredName;
-                persistPairName = restoredPairName;
-
-                const juce::ScopedLock sl (handleLock);
-                if (hyphaHandle != nullptr)
-                {
-                    if (role == Role::Post)
-                        kirin_hypha_set_pair_target (hyphaHandle, persistPairName.toRawUTF8());
-                    else
-                        kirin_hypha_set_pre_name (hyphaHandle, persistName.toRawUTF8());
-                }
-                return;
-            }
-
-            persistInstanceId     = restoredInstanceId;
-            persistProjectUuid    = restoredProjectUuid;
-            persistDawSessionUuid = restoredDawSessionUuid;
-            persistName           = restoredName;
-            persistPairName       = restoredPairName;
+            restoredInstanceId     = xml->getStringAttribute ("instance_id");
+            restoredProjectUuid    = xml->getStringAttribute ("project_uuid");
+            restoredDawSessionUuid = xml->getStringAttribute ("daw_session_uuid");
+            restoredName           = xml->getStringAttribute ("name");
+            restoredPairName       = xml->getStringAttribute ("pair_pre_name");
+            restored = true;
         }
+    }
+
+    // Existing Studio One projects contain the old nih-plug VST3 JSON state. The JUCE shell keeps
+    // the same component CID and decodes that exact one-time legacy contract here, so switching the
+    // shipped VST3 adapter does not fabricate new identities or lose the selected PRE name.
+    if (! restored && data != nullptr && sizeInBytes > 0)
+    {
+        KirinLegacyNihState legacy {};
+        if (kirin_hypha_decode_legacy_nih_state (
+                static_cast<const uint8_t*> (data), (size_t) sizeInBytes, &legacy))
+        {
+            restoredInstanceId     = juce::String::fromUTF8 (legacy.instance_id);
+            restoredProjectUuid    = juce::String::fromUTF8 (legacy.project_uuid);
+            restoredDawSessionUuid = juce::String::fromUTF8 (legacy.daw_session_uuid);
+            restoredName           = juce::String::fromUTF8 (legacy.name);
+            restoredPairName       = juce::String::fromUTF8 (legacy.pair_pre_name);
+            restored = true;
+        }
+    }
+
+    if (restored)
+    {
+        // Once writes are enabled, the io_thread has already snapshotted path identity. Only the
+        // live-editable name/pair fields may be applied at that point; the exact-path writer stays
+        // coherent with its established identity.
+        if (writesEnabled.load (std::memory_order_acquire))
+        {
+            persistName = restoredName;
+            persistPairName = restoredPairName;
+            const juce::ScopedLock sl (handleLock);
+            if (hyphaHandle != nullptr)
+            {
+                if (role == Role::Post)
+                    kirin_hypha_set_pair_target (hyphaHandle, persistPairName.toRawUTF8());
+                else
+                    kirin_hypha_set_pre_name (hyphaHandle, persistName.toRawUTF8());
+            }
+            return;
+        }
+
+        persistInstanceId = restoredInstanceId;
+        persistProjectUuid = restoredProjectUuid;
+        persistDawSessionUuid = restoredDawSessionUuid;
+        persistName = restoredName;
+        persistPairName = restoredPairName;
     }
 
     if (! writesEnabled.load (std::memory_order_acquire))
@@ -763,23 +795,6 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
 
 void KirinHyphaProcessorBase::timerCallback()
 {
-    // Live entitlement refresh. Kirin OS may create identity.json after Logic
-    // has already instantiated the AU. UI, Record state and IO share the same
-    // Rust entitlement, so a change is applied to all three in one message-
-    // thread step and never touches the audio thread.
-    if (++licenseRefreshTicks >= 5) // processor timer is 50 ms -> <= 250 ms
-    {
-        licenseRefreshTicks = 0;
-        const int observed = (int) kirin_hypha_load_license();
-        const int previous = cachedLicenseCode.exchange (observed, std::memory_order_acq_rel);
-        if (observed != previous)
-        {
-            const juce::ScopedLock sl (handleLock);
-            if (hyphaHandle != nullptr)
-                kirin_hypha_set_license (hyphaHandle, (uint8_t) observed);
-        }
-    }
-
     // B-126 + Logic stopped-state fix: non-RT enable poll on the message thread.
     if (! writesEnabled.load (std::memory_order_acquire)
         && enablePending.load (std::memory_order_acquire))
@@ -790,6 +805,8 @@ void KirinHyphaProcessorBase::timerCallback()
         else
             enableWritesNow();
     }
+    if (writesEnabled.load (std::memory_order_acquire))
+        stopTimer();
 }
 
 void KirinHyphaProcessorBase::enableWritesNow()

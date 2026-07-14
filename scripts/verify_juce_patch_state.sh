@@ -21,6 +21,7 @@ PATCHES=(
   "0003-au-preferred-channel-layout-tags-for-logic-mono.patch::--unidiff-zero --ignore-whitespace"
   "0004-au-clock-provenance.patch::--unidiff-zero --ignore-whitespace"
   "0005-host-presentation-clock.patch::--unidiff-zero --ignore-whitespace"
+  "0006-vst3-component-id-continuity.patch::--unidiff-zero --ignore-whitespace"
 )
 
 die() {
@@ -101,4 +102,4 @@ for expected in "${EXPECTED_FILES[@]}"; do
   fi
 done
 
-echo "JUCE patch state OK: upstream ${EXPECTED_HEAD} + 5 tracked patches"
+echo "JUCE patch state OK: upstream ${EXPECTED_HEAD} + 6 tracked patches"

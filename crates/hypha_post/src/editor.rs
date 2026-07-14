@@ -32,19 +32,20 @@ use hypha_gui::{
 };
 use kirin_measure::reservation; // B-127 (G-115-365): egui parity — per-pairing O_EXCL frame
 use kirin_measure::{
-    active_post_project_uuids_for_operation_group, all_keep_signal_path, all_stop_signal_path,
-    count_distinct_pairings, current_host_process_id, delete_broadcast,
-    enumerate_live_pre_pair_choices_for_post_project_in_session,
+    all_keep_signal_path, all_stop_signal_path, count_distinct_pairings, current_host_process_id,
+    delete_broadcast, enumerate_live_pre_pair_choices_for_post_project_in_session,
     enumerate_owned_post_pair_candidates_for_operation_group,
     enumerate_ready_post_pair_candidates_for_operation_group, exit_record_preserve_pair,
     format_pair_label, live_post_project_uuids_for_operation_group, load_signal_state,
     lookup_section_label, mark_released_with_reason, pair_lock_active, pair_status_for_post,
-    resolve_arm_target_for_post_project_in_session, sanitize_name, scan_latest_v2_preset,
-    show_save_button, show_stop_record_button, write_broadcast,
-    write_pending_claiming_expected_and_clock, write_stop_broadcast, DeltaMode, DeltaResult,
-    DeltaSnapshot, LatchedPre, License, LiveLicense, LivenessEvaluator, MeasureResult, PairStatus,
-    PlatformPaths, PostCandidate, PreCandidate, PresetFileV2, RecordStateMachine, ReleaseReason,
-    SignalState, StoragePaths, MAX_ACTIVE_PER_PROJECT, SENSE_RECORD_HINT, SENSE_UPSELL_URL,
+    read_current_v2_preset, resolve_arm_target_for_post_project_in_session, sanitize_name,
+    show_save_button, show_stop_record_button, write_broadcast_for_generation,
+    write_pending_claiming_expected_and_clock,
+    write_pending_claiming_expected_and_clock_for_generation, write_stop_broadcast,
+    CaptureGeneration, CaptureGenerationMember, DeltaMode, DeltaResult, DeltaSnapshot, LatchedPre,
+    License, LiveLicense, LivenessEvaluator, MeasureResult, PairStatus, PlatformPaths,
+    PostCandidate, PreCandidate, PresetFileV2, RecordStateMachine, ReleaseReason, SignalState,
+    StoragePaths, MAX_ACTIVE_PER_PROJECT, SENSE_RECORD_HINT, SENSE_UPSELL_URL,
 };
 use nih_plug::prelude::Editor;
 use nih_plug_egui::{
@@ -75,6 +76,9 @@ use crate::{read_daw_session_id_arc, read_instance_id_arc, read_project_hash_arc
 /// T-E throttle: rescan `preset/` at most every 500 ms. proposals rarely
 /// change at sub-second cadence; avoids hitting FS every repaint (≈ 10 Hz).
 const PROPOSALS_SCAN_INTERVAL_SECS: f64 = 0.5;
+/// Pair discovery is an explicit menu operation. The closed editor must perform zero candidate
+/// inventory work; while open, one short cache window prevents repaint-rate rescans.
+const PAIR_MENU_SCAN_INTERVAL_SECS: f64 = 0.5;
 
 /// W-280 / G-115-248: 再生中 pair 変更を block 中に表示する tooltip 文言。
 /// R-22 中立的事実説明 (価値判断語なし)。Daisuke 確定 (判断 4) のため変更禁止。
@@ -340,6 +344,7 @@ pub struct PostEditorState {
     latest_proposals: Option<PresetFileV2>,
     /// T-E: proposals を最後にスキャンした wall-clock 時刻（秒）。
     proposals_scan_last: Option<f64>,
+    pair_menu_snapshot: PairMenuSnapshot,
     /// T-E: カードリストが展開されているか（タップでトグル）。
     cards_expanded: bool,
     /// T-F fallback: Record 開始時の wall-clock（秒）。transport.pos_samples
@@ -388,6 +393,7 @@ impl PostEditorState {
             prev_led: None,
             latest_proposals: None,
             proposals_scan_last: None,
+            pair_menu_snapshot: PairMenuSnapshot::default(),
             cards_expanded: false,
             record_start_wall_time: None,
             pair_pre_name_edit_buffer: String::new(),
@@ -395,6 +401,58 @@ impl PostEditorState {
             playback_max: PlaybackMaxTracker::default(),
         }
     }
+}
+
+#[derive(Default)]
+struct PairMenuSnapshot {
+    scanned_at: Option<f64>,
+    project_hash: String,
+    daw_session_id: String,
+    pre_candidates: Vec<PreCandidate>,
+    owned_post_candidates: Vec<PostCandidate>,
+    ready_post_count: usize,
+}
+
+fn refresh_pair_menu_snapshot_if_needed(
+    state: &mut PostEditorState,
+    now: f64,
+    project_hash: &str,
+    daw_session_id: &str,
+) {
+    let current_scope = state.pair_menu_snapshot.project_hash == project_hash
+        && state.pair_menu_snapshot.daw_session_id == daw_session_id;
+    let cache_fresh = state
+        .pair_menu_snapshot
+        .scanned_at
+        .is_some_and(|scanned_at| now - scanned_at < PAIR_MENU_SCAN_INTERVAL_SECS);
+    if current_scope && cache_fresh {
+        return;
+    }
+
+    let kirin_root = PlatformPaths::current_kirin_tmp_root();
+    state.pair_menu_snapshot = PairMenuSnapshot {
+        scanned_at: Some(now),
+        project_hash: project_hash.to_string(),
+        daw_session_id: daw_session_id.to_string(),
+        pre_candidates: enumerate_live_pre_pair_choices_for_post_project_in_session(
+            &kirin_root,
+            project_hash,
+            daw_session_id,
+        ),
+        owned_post_candidates: enumerate_owned_post_pair_candidates_for_operation_group(
+            &kirin_root,
+            project_hash,
+            daw_session_id,
+            current_host_process_id(),
+        ),
+        ready_post_count: enumerate_ready_post_pair_candidates_for_operation_group(
+            &kirin_root,
+            project_hash,
+            daw_session_id,
+            current_host_process_id(),
+        )
+        .len(),
+    };
 }
 
 /// Bundle of `Arc`-shared plugin state handed to the editor.
@@ -450,6 +508,9 @@ pub fn create_post_editor(args: PostEditorArgs) -> Option<Box<dyn Editor>> {
         PostEditorState::new(args),
         |ctx, state| {
             install_native_font_contract(ctx);
+            // One non-RT observation when the editor opens. Steady-state drawing and the IO
+            // worker never poll identity.json.
+            let _ = state.license.refresh_for_user_action();
             let mut visuals = ctx.style().visuals.clone();
             visuals.panel_fill = BG;
             visuals.window_fill = BG;
@@ -1245,28 +1306,8 @@ fn draw_pair_pre_combo(
     now: f64,
     pair_locked: bool,
 ) {
-    let kirin_root = PlatformPaths::current_kirin_tmp_root();
     let current_project_hash = read_project_hash_arc(&state.project_hash);
     let current_daw_session_id = read_daw_session_id_arc(&state.daw_session_id);
-    let pre_candidates = enumerate_live_pre_pair_choices_for_post_project_in_session(
-        &kirin_root,
-        &current_project_hash,
-        &current_daw_session_id,
-    );
-    // B-027 段階 3-B α-7-3 / Step 9: All Keep 行 N 集計のため POST candidates も取得。
-    // ComboBox 先頭行の "All Keep: N ready POST(s)" 表示と display 判定 (N>=1) に使用。
-    let post_candidates = enumerate_owned_post_pair_candidates_for_operation_group(
-        &kirin_root,
-        &current_project_hash,
-        &current_daw_session_id,
-        current_host_process_id(),
-    );
-    let ready_post_candidates = enumerate_ready_post_pair_candidates_for_operation_group(
-        &kirin_root,
-        &current_project_hash,
-        &current_daw_session_id,
-        current_host_process_id(),
-    );
     // α-7' All Stop: 自身が recording=true (Record 中) なら All Stop 行を出す。
     let recording = state.record_sm.is_recording();
 
@@ -1292,6 +1333,17 @@ fn draw_pair_pre_combo(
             ));
         })
         .show_ui(ui, |ui| {
+            // egui executes this closure only while the popup is open. Candidate inventory is
+            // therefore user-driven rather than tied to the editor repaint loop.
+            refresh_pair_menu_snapshot_if_needed(
+                state,
+                now,
+                &current_project_hash,
+                &current_daw_session_id,
+            );
+            let pre_candidates = state.pair_menu_snapshot.pre_candidates.clone();
+            let post_candidates = state.pair_menu_snapshot.owned_post_candidates.clone();
+            let ready_post_count = state.pair_menu_snapshot.ready_post_count;
             apply_pair_combo_dropdown_visuals(ui);
             // α-7' All Stop 行 (recording=true 時のみ / All Keep と排他表示 / 琥珀明度色)。
             // click handler 順序 = broadcast 先発火 → 自身 trigger_stop (Keep の対称形)。
@@ -1336,7 +1388,7 @@ fn draw_pair_pre_combo(
             // (broadcast 失敗で自身まで pair 不可になることを構造的に回避)。
             // α-7': recording=true 時は All Keep 行を非表示 (Record 中は Keep 不要)。
             let n_ready = if state.license.load() == License::Os {
-                ready_post_candidates.len()
+                ready_post_count
             } else {
                 0
             };
@@ -1367,7 +1419,7 @@ fn draw_pair_pre_combo(
                         );
 
                         // 1. broadcast 先発火 (#20 (i) / Step 8 実装済 fn)
-                        trigger_all_keep_broadcast(
+                        let capture_generation = trigger_all_keep_broadcast(
                             &instance_id,
                             &project_hash_snapshot,
                             &daw_session_id_snapshot,
@@ -1377,7 +1429,7 @@ fn draw_pair_pre_combo(
                         // 2. 自身も trigger_keep (Step 7 wrapper 経由 / draw_button_row
                         //    L774 と同引数列)
                         trigger_keep(
-                            state.license.load(),
+                            state.license.refresh_for_user_action(),
                             &state.record_sm,
                             &instance_id,
                             &project_hash_snapshot,
@@ -1390,6 +1442,7 @@ fn draw_pair_pre_combo(
                             &pair_pre_name_snapshot,
                             &state.latched_pre, // B-108: ラッチ先を直接 target に使う
                             None,
+                            capture_generation.as_ref(),
                         );
 
                         // §4-5 Step 4 診断: click handler 後続処理 (trigger_keep →
@@ -1643,7 +1696,7 @@ fn draw_button_row(
                         .map(|g| g.clone())
                         .unwrap_or_default();
                     trigger_keep(
-                        license,
+                        state.license.refresh_for_user_action(),
                         &state.record_sm,
                         &instance_id,
                         &project_hash_snapshot,
@@ -1655,6 +1708,7 @@ fn draw_button_row(
                         now,
                         &pair_pre_name_snapshot,
                         &state.latched_pre, // B-108: ラッチ先を直接 target に使う
+                        None,
                         None,
                     );
                 }
@@ -1721,6 +1775,7 @@ fn trigger_keep(
     // B-108: ラッチ済みならラッチ先を直接 Arm target に使う（resolve_arm_target 内で分岐）。
     latched: &Mutex<Option<LatchedPre>>,
     started_at_position_samples: Option<i64>,
+    capture_generation: Option<&CaptureGeneration>,
 ) {
     trigger_keep_internal(
         license,
@@ -1736,6 +1791,7 @@ fn trigger_keep(
         pair_pre_name,
         latched,
         started_at_position_samples,
+        capture_generation,
     );
 }
 
@@ -1765,6 +1821,7 @@ pub(crate) fn trigger_keep_internal(
     // select_target_pre_for_arm にフォールバック（resolve_arm_target 内で分岐）。
     latched: &Mutex<Option<LatchedPre>>,
     started_at_position_samples: Option<i64>,
+    capture_generation: Option<&CaptureGeneration>,
 ) {
     // 1. ストレージパス解決
     let paths = match StoragePaths::default_platform() {
@@ -1779,7 +1836,6 @@ pub(crate) fn trigger_keep_internal(
     };
     let plugin_data_dir = paths.plugin_data_dir();
     let tmp_base = PlatformPaths::current_kirin_tmp_root();
-    let _ = reservation::sweep_stale_reservations(&plugin_data_dir);
 
     // 2 + 4. PRE 選定（B-059: 表示=commit 一本化）
     //
@@ -1828,6 +1884,12 @@ pub(crate) fn trigger_keep_internal(
         {
             Ok(reservation::ReserveOutcome::Created) => true,
             Ok(reservation::ReserveOutcome::AlreadyReserved) => false,
+            Ok(reservation::ReserveOutcome::PreInUse) => {
+                if let Some(t) = toast.as_mut() {
+                    **t = Some(Toast::new("PRE already in use", now));
+                }
+                return;
+            }
             Err(_) => {
                 if let Some(t) = toast.as_mut() {
                     **t = Some(Toast::new("Maximum 12 pairs reached", now));
@@ -1845,15 +1907,52 @@ pub(crate) fn trigger_keep_internal(
         return;
     }
 
+    if let Some(generation) = capture_generation {
+        let Some(member) = generation.member(project_hash, instance_id) else {
+            if reservation_created {
+                reservation::release_pairing(
+                    &plugin_data_dir,
+                    project_hash,
+                    &target_id,
+                    instance_id,
+                );
+            }
+            return;
+        };
+        if !member.pre_instance_id.is_empty() && member.pre_instance_id != target_id {
+            if reservation_created {
+                reservation::release_pairing(
+                    &plugin_data_dir,
+                    project_hash,
+                    &target_id,
+                    instance_id,
+                );
+            }
+            return;
+        }
+    }
+
     // 6. record_signal を pending で書き込み（A-3 修正後: post_instance_id を path 識別子に）
-    match write_pending_claiming_expected_and_clock(
-        &plugin_data_dir,
-        project_hash,
-        instance_id,
-        target_id.clone(),
-        daw_session_id.to_string(),
-        started_at_position_samples,
-    ) {
+    let write_result = match capture_generation {
+        Some(generation) => write_pending_claiming_expected_and_clock_for_generation(
+            &plugin_data_dir,
+            project_hash,
+            instance_id,
+            target_id.clone(),
+            daw_session_id.to_string(),
+            started_at_position_samples,
+            generation,
+        ),
+        None => write_pending_claiming_expected_and_clock(
+            &plugin_data_dir,
+            project_hash,
+            instance_id,
+            target_id.clone(),
+            daw_session_id.to_string(),
+            started_at_position_samples,
+        ),
+    };
+    match write_result {
         Ok(_) => {
             log::info!(
                 "[POST keep] write_pending ok: requested_by={} target={} daw={}",
@@ -1906,7 +2005,7 @@ pub(crate) fn trigger_keep_internal(
 ///
 /// Originator (= ComboBox 「All Keep: N ready POST(s)」を click した POST) のみが呼出す。
 /// 受信側 (Step 10-11 で実装) は io_thread_post.rs sub-tick で
-/// [`kirin_measure::scan_broadcasts_dir`] / `trigger_keep_internal(toast=None)` を経由
+/// project-local current broadcast / `trigger_keep_internal(toast=None)` を経由
 /// して各々 pair 確定する (toast 嵐回避)。
 ///
 /// - #19 (i): Err 経路では `record_sm` を触らず log::warn! + toast のみ。自身の
@@ -1926,34 +2025,63 @@ fn trigger_all_keep_broadcast(
     daw_session_id: &str,
     toast: &mut Option<Toast>,
     now: f64,
-) {
+) -> Option<CaptureGeneration> {
     let paths = match StoragePaths::default_platform() {
         Ok(p) => p,
         Err(e) => {
             log::warn!("[POST all_keep] StoragePaths resolve failed: {:?}", e);
             *toast = Some(Toast::new("Kirin OS not installed", now));
-            return;
+            return None;
         }
     };
     let plugin_data_dir = paths.plugin_data_dir();
     let kirin_root = PlatformPaths::current_kirin_tmp_root();
-    let mut project_hashes = active_post_project_uuids_for_operation_group(
+    let ready = enumerate_ready_post_pair_candidates_for_operation_group(
         &kirin_root,
         project_hash,
         daw_session_id,
         current_host_process_id(),
     );
-    if project_hashes.is_empty() && !project_hash.is_empty() {
-        project_hashes.push(project_hash.to_string());
+    let members = ready
+        .iter()
+        .filter_map(|candidate| {
+            Some(CaptureGenerationMember {
+                project_hash: candidate.project_uuid.clone(),
+                post_instance_id: candidate.instance_id.clone(),
+                pre_instance_id: candidate.paired_pre_instance_id.clone()?,
+                record_session_id: String::new(),
+            })
+        })
+        .collect();
+    let generation = CaptureGeneration::new_for_members(
+        originator_instance_id.to_string(),
+        daw_session_id.to_string(),
+        current_host_process_id(),
+        members,
+    );
+    if !generation.is_valid() {
+        *toast = Some(Toast::new("No PRE Paired", now));
+        return None;
     }
+    if kirin_measure::publish_generation_roster(&plugin_data_dir, &generation).is_err() {
+        *toast = Some(Toast::new("All Keep failed (file write error)", now));
+        return None;
+    }
+    let project_hashes = generation
+        .members
+        .iter()
+        .map(|member| member.project_hash.clone())
+        .collect::<std::collections::BTreeSet<_>>();
 
     let mut wrote_any = false;
     for target_project_hash in project_hashes {
-        match write_broadcast(
+        match write_broadcast_for_generation(
             &plugin_data_dir,
             &target_project_hash,
             originator_instance_id,
             daw_session_id.to_string(),
+            current_host_process_id(),
+            &generation,
         ) {
             Ok(broadcast) => {
                 wrote_any = true;
@@ -1988,6 +2116,9 @@ fn trigger_all_keep_broadcast(
     }
     if !wrote_any {
         *toast = Some(Toast::new("All Keep failed (file write error)", now));
+        None
+    } else {
+        Some(generation)
     }
 }
 
@@ -2218,7 +2349,7 @@ fn maybe_rescan_proposals(state: &mut PostEditorState, now: f64) {
     // §4-5 Step 1: project_hash を use site で lazy-read (Arc 化済 / chunk-restore 後の
     // 最新 cell 値を proposals scan の root に反映)。
     let project_hash_snapshot = read_project_hash_arc(&state.project_hash);
-    state.latest_proposals = scan_latest_v2_preset(
+    state.latest_proposals = read_current_v2_preset(
         &paths.plugin_data_dir(),
         &project_hash_snapshot,
         installation_id,

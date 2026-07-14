@@ -66,3 +66,9 @@ apply_patch_idempotent \
   "0005-host-presentation-clock.patch" \
   --unidiff-zero \
   --ignore-whitespace
+
+apply_patch_idempotent \
+  "0006" \
+  "0006-vst3-component-id-continuity.patch" \
+  --unidiff-zero \
+  --ignore-whitespace

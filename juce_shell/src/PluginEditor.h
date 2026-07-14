@@ -17,7 +17,7 @@
 // truth (no new colours hardcoded). No red / pure white (#ffffff) / neon (品位原則 / G-72-10).
 //
 // PRE: title "PRE" + click-to-edit Name (→ kirin_hypha_set_pre_name) + flora line + Watch(current+MAX)/
-//      Record(6) metric grid (per-cell hover help) + Keeping banner + 5-state breathing LED.
+//      Record(6) metric grid (per-cell hover help) + Keeping banner + 5-state static LED.
 // POST: title "POST" + Record pair label + click-to-edit pair name (→ set_pair_target) + flora +
 //      display-branch grid (Bypassed/Inactive→"---" ; pair-empty/PRE bypassed→absolute ;
 //      paired Stale/NoPre→muted Δ/--- ; Δ Active ; Record→Δ6) + Keep/Stop/Sense hint + Toast + playback pair

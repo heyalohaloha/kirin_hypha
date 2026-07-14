@@ -24,21 +24,9 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/../juce_shell/CMakeLists.txt"
     ));
-    const HYPHA_PRE_EDITOR: &str = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../crates/hypha_pre/src/editor.rs"
-    ));
-    const HYPHA_POST_EDITOR: &str = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../crates/hypha_post/src/editor.rs"
-    ));
     const FFI_HEADER: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../crates/kirin_hypha_ffi/include/kirin_hypha_ffi.h"
-    ));
-    const HYPHA_GUI_COMMON: &str = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../crates/hypha_gui/src/common.rs"
     ));
     const HYPHA_THEME_H: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -64,67 +52,42 @@ mod tests {
     }
 
     #[test]
-    fn shipped_vst3_and_au_shells_share_the_watch_max_contract() {
-        for (label, source) in [
-            ("VST3 PRE", HYPHA_PRE_EDITOR),
-            ("VST3 POST", HYPHA_POST_EDITOR),
-        ] {
-            assert!(
-                source.contains("playback_max: PlaybackMaxTracker"),
-                "{label}"
-            );
-            assert!(
-                source.contains(".playback_max\n                    .update("),
-                "{label}"
-            );
-            assert!(count_occurrences(source, "\"MAX\"") >= 3, "{label}");
-            for metric in ["max_m.lufs_m", "max_m.true_peak", "max_m.crest"] {
-                assert!(source.contains(metric), "{label} missing {metric}");
-            }
-        }
-
+    fn common_juce_shell_owns_watch_max_for_both_formats_and_roles() {
         assert!(FFI_HEADER.contains("KirinMeasureResult current;"));
         assert!(FFI_HEADER.contains("KirinMeasureResult maximum;"));
         assert!(FFI_HEADER.contains("kirin_hypha_poll_watch_display"));
         assert_eq!(
             count_occurrences(PLUGIN_EDITOR_CPP, "processorRef.pollWatchDisplay (watch)"),
             2,
-            "shared AU editor must poll Watch current+MAX in both PRE and POST"
+            "shared AU/VST3 editor must poll Watch current+MAX in both roles"
         );
         assert_eq!(
             count_occurrences(PLUGIN_EDITOR_CPP, "watchMaximum = watch.maximum;"),
             2,
-            "shared AU editor must retain MAX in both PRE and POST"
+            "shared AU/VST3 editor must retain MAX in both roles"
         );
         for metric in [
             "watchMaximum.lufs_m",
             "watchMaximum.true_peak",
             "watchMaximum.crest",
         ] {
-            assert!(PLUGIN_EDITOR_CPP.contains(metric), "AU missing {metric}");
+            assert!(
+                PLUGIN_EDITOR_CPP.contains(metric),
+                "common shell missing {metric}"
+            );
         }
+        assert!(JUCE_CMAKE.contains("FORMATS ${KIRIN_PLUGIN_FORMATS}"));
+        assert!(JUCE_CMAKE.contains("src/PluginEditor.cpp"));
     }
 
     #[test]
-    fn shipped_vst3_and_au_shells_share_native_font_contract() {
-        assert!(HYPHA_GUI_COMMON.contains("/System/Library/Fonts/SFNS.ttf"));
-        assert!(HYPHA_GUI_COMMON.contains("/System/Library/Fonts/SFNSMono.ttf"));
-        assert!(HYPHA_PRE_EDITOR.contains("install_native_font_contract(ctx);"));
-        assert!(HYPHA_POST_EDITOR.contains("install_native_font_contract(ctx);"));
+    fn shipped_vst3_and_au_use_one_native_font_contract() {
         assert!(HYPHA_THEME_H.contains("juce::Font (\".SF NS\", h"));
         assert!(HYPHA_THEME_H.contains("juce::Font (\".SF NS Mono\", h"));
     }
 
     #[test]
-    fn shipped_post_pair_selectors_share_geometry() {
-        assert!(
-            HYPHA_POST_EDITOR.contains("ui.spacing_mut().interact_size.y = 22.0;")
-                && HYPHA_POST_EDITOR.contains("ui.spacing_mut().icon_spacing = 0.0;")
-                && HYPHA_POST_EDITOR.contains("ui.spacing_mut().icon_width = 10.0;")
-                && HYPHA_POST_EDITOR.contains(".selected_text(\"\")")
-                && HYPHA_POST_EDITOR.contains(".width(22.0)")
-                && HYPHA_POST_EDITOR.contains(".icon(|ui, rect, _visuals, _is_open, _placement|")
-        );
+    fn shipped_post_pair_selector_has_one_geometry_source() {
         assert!(
             PLUGIN_EDITOR_CPP.contains("const int ddW = 22;")
                 && PLUGIN_EDITOR_CPP
@@ -136,6 +99,23 @@ mod tests {
                 && PLUGIN_EDITOR_H
                     .contains("setColour (juce::PopupMenu::backgroundColourId, hypha::BG);")
         );
+    }
+
+    #[test]
+    fn common_vst3_preserves_legacy_component_ids_and_state() {
+        for word in [
+            "0x4B697269",
+            "0x6E487970",
+            "0x68615052",
+            "0x45763031",
+            "0x6861504F",
+            "0x53547631",
+        ] {
+            assert!(JUCE_CMAKE.contains(word), "missing VST3 UID word {word}");
+        }
+        assert!(FFI_HEADER.contains("KirinLegacyNihState"));
+        assert!(FFI_HEADER.contains("kirin_hypha_decode_legacy_nih_state"));
+        assert!(PLUGIN_PROCESSOR_CPP.contains("kirin_hypha_decode_legacy_nih_state"));
     }
 
     #[test]
@@ -300,11 +280,20 @@ mod tests {
     }
 
     #[test]
-    fn juce_entitlement_is_live_and_never_silently_ignores_keep() {
+    fn juce_entitlement_refresh_is_user_driven_and_never_a_periodic_disk_poll() {
         assert!(
             PLUGIN_PROCESSOR_CPP.contains("const int observed = (int) kirin_hypha_load_license();")
         );
-        assert!(PLUGIN_PROCESSOR_CPP.contains("cachedLicenseCode.exchange (observed"));
+        assert!(PLUGIN_PROCESSOR_CPP
+            .contains("void KirinHyphaProcessorBase::refreshLicenseForUserAction()"));
+        assert!(PLUGIN_PROCESSOR_CPP.contains("refreshLicenseForUserAction();"));
+        assert!(!PLUGIN_PROCESSOR_CPP.contains("licenseRefreshTicks"));
+        let timer = between(
+            PLUGIN_PROCESSOR_CPP,
+            "void KirinHyphaProcessorBase::timerCallback()",
+            "void KirinHyphaProcessorBase::enableWritesNow()",
+        );
+        assert!(!timer.contains("kirin_hypha_load_license"));
         assert!(PLUGIN_PROCESSOR_CPP
             .contains("kirin_hypha_set_license (hyphaHandle, (uint8_t) observed);"));
         assert!(PLUGIN_PROCESSOR_CPP

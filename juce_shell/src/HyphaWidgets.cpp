@@ -52,17 +52,15 @@ namespace hypha
 
     void StatusLed::paint (juce::Graphics& g)
     {
-        const double t = juce::Time::getMillisecondCounterHiRes() * 0.001; // monotonic seconds
-
         juce::Colour c;
         switch (state)
         {
             case LedState::Idle:            c = COL_LED_GREY; break;
             case LedState::Error:           c = COL_LED_YELLOW; break;
             case LedState::RecordStandby:   c = dim (COL_LED_GREEN, 0.45f); break;
-            case LedState::WatchBreathing:  c = breathe (COL_LED_BLUE,  t, 3.0, 0.6f,  1.0f); break;
-            case LedState::RecordActive:    c = breathe (COL_LED_GREEN, t, 1.5, 0.7f,  1.0f); break;
-            case LedState::PresetAvailable: c = breathe (COL_FLORA,     t, 2.5, 0.55f, 1.0f); break;
+            case LedState::WatchBreathing:  c = COL_LED_BLUE; break;
+            case LedState::RecordActive:    c = COL_LED_GREEN; break;
+            case LedState::PresetAvailable: c = COL_FLORA; break;
         }
 
         g.setColour (c);

@@ -275,7 +275,8 @@ pub(crate) fn discover_active_post_dirs(kirin_root: &Path) -> Vec<PathBuf> {
 
 /// 自 instance が同 project_dir 配下の他 POST と pair_pre_name を共有し、
 /// 自身より新しい claim が存在するなら release 必要 (`true`) を返す。
-pub fn self_check_pair_claim(
+#[cfg(test)]
+pub(crate) fn self_check_pair_claim(
     project_dir: &Path,
     self_instance_id: &str,
     self_pair_pre_name: &str,
@@ -295,7 +296,8 @@ pub fn self_check_pair_claim(
 /// Current snapshots compare `paired_pre_instance_id`, so two PREs with the same display name do
 /// not steal each other's POST. A legacy POST without the exact field falls back to the name to
 /// preserve the previous mutual-exclusion contract during a rolling upgrade.
-pub fn self_check_pair_claim_exact(
+#[cfg(test)]
+pub(crate) fn self_check_pair_claim_exact(
     project_dir: &Path,
     self_instance_id: &str,
     self_pair_pre_name: &str,
