@@ -730,7 +730,7 @@ impl Plugin for HyphaPost {
                         Ok(g) => g.clone(),
                         Err(poisoned) => poisoned.into_inner().clone(),
                     };
-                    editor::trigger_keep_internal(
+                    let entered = editor::trigger_keep_internal(
                         license_for_closure.refresh_for_user_action(),
                         &record_sm_for_closure,
                         &iid_snapshot,
@@ -746,11 +746,14 @@ impl Plugin for HyphaPost {
                         None,
                         Some(capture_generation),
                     );
-                    log::info!(
-                        "[all_keep] trigger_keep_internal invoked: originator={} started_at={}",
-                        originator_iid,
-                        started_at
-                    );
+                    if entered {
+                        log::info!(
+                            "[all_keep] trigger_keep_internal invoked: originator={} started_at={}",
+                            originator_iid,
+                            started_at
+                        );
+                    }
+                    entered
                 },
             )
         };

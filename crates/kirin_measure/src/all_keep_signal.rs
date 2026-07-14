@@ -69,7 +69,8 @@ pub const ALL_KEEP_BROADCAST_STALE_SECS: i64 = 30;
 /// - `originator_post_instance_id`: filename stem と同値 / check 用
 /// - `daw_session_id`: 別 DAW process からの誤受信防止 (record_signal と同位相)
 /// - `host_process_id`: 同一 project shelf 内で instance-scoped DAW ID を橋渡しする補助 scope
-/// - `started_at`: 重複処理回避の key (受信側 cache 値比較対象 / clock-skew 完全耐性)
+/// - `capture_generation_id`: generation-aware受信側の重複処理回避 key
+/// - `started_at`: legacy互換とAll Stopとの順序判定だけに使用
 /// - `heartbeat`: 将来 throttled re-publish 用 / 当面は `started_at` と同値で書込
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AllKeepBroadcast {
@@ -208,7 +209,7 @@ impl From<serde_json::Error> for AllKeepError {
 ///
 /// originator 側 `trigger_all_keep_broadcast` から 1 回だけ呼ぶ。同一 originator が
 /// 連打した場合は同 path に atomic rename で上書き (last-wins / 受信側 cache の
-/// `started_at` 値が更新されて新 broadcast として正しく検出される / Q-A8-6)。
+/// generation id が更新されて新 broadcast として正しく検出される)。
 pub fn write_broadcast(
     base_dir: &Path,
     project_hash: &str,
@@ -259,8 +260,8 @@ pub fn write_broadcast_with_scope(
     )
 }
 
-/// Publish a broadcast to one project shelf for an already committed generation roster.
-/// All Keep callers publish the roster once, then call this for every member project.
+/// Stage a broadcast on one project shelf for a generation transaction. All Keep callers write
+/// every member shelf first and promote the installation-wide active pointer only afterwards.
 pub fn write_broadcast_for_generation(
     base_dir: &Path,
     project_hash: &str,

@@ -251,6 +251,37 @@ fn generation_project_hashes_for_signal(
         .collect()
 }
 
+/// A generation-bearing inbox is actionable only after both its project pointer and the
+/// installation-wide commit pointer identify the same immutable member. Legacy inboxes without a
+/// generation retain their compatibility path.
+fn signal_generation_is_committed(
+    base: &Path,
+    project_hash: &str,
+    post_instance_id: &str,
+    pre_instance_id: &str,
+    signal: &record_signal::RecordSignal,
+) -> bool {
+    if signal.capture_generation_id.trim().is_empty() {
+        return true;
+    }
+    let (Ok(Some(project_generation)), Ok(Some(active_generation))) = (
+        crate::capture_generation::read_current_generation(base, project_hash),
+        crate::capture_generation::read_active_generation(base),
+    ) else {
+        return false;
+    };
+    let Some(member) = project_generation.member(project_hash, post_instance_id) else {
+        return false;
+    };
+    project_generation.capture_generation_id == signal.capture_generation_id
+        && project_generation.started_at_ms == signal.generation_started_at_ms
+        && active_generation.capture_generation_id == project_generation.capture_generation_id
+        && active_generation.started_at_ms == project_generation.started_at_ms
+        && member.record_session_id == signal.session_id
+        && member.pre_instance_id == pre_instance_id
+        && signal.target_pre_instance_id == pre_instance_id
+}
+
 fn poll_all_stop_signal_in_projects_at(
     base: &Path,
     project_hashes: &[String],
@@ -1110,7 +1141,16 @@ fn poll_record_signal(
     // members before publication, so a PRE never needs to enumerate or arbitrate N POST files.
     let pending_signals: Vec<(String, record_signal::RecordSignal)> = matching
         .into_iter()
-        .filter(|(_, s)| s.status == SignalStatus::Pending)
+        .filter(|(post_iid, signal)| {
+            signal.status == SignalStatus::Pending
+                && signal_generation_is_committed(
+                    &base,
+                    &signal_project_hash,
+                    post_iid,
+                    instance_id,
+                    signal,
+                )
+        })
         .collect();
     if pending_signals.is_empty() {
         return;
@@ -4430,5 +4470,57 @@ mod startup_clear_acks_tests {
         // 環境依存ホーム (StoragePaths::default_macos) を経由する経路の確証は
         // self_iid="" 早期 return で本機の plugin_data には触らない (R-9 of code)。
         let _ = after;
+    }
+}
+
+#[cfg(test)]
+mod capture_generation_commit_tests {
+    use super::*;
+    use crate::{CaptureGeneration, CaptureGenerationMember, CaptureGenerationTransaction};
+
+    #[test]
+    fn pre_cannot_enter_a_staged_generation_before_global_commit() {
+        let base = tempfile::tempdir().unwrap();
+        let generation = CaptureGeneration::new_for_members(
+            "post-a".into(),
+            "daw-a".into(),
+            std::process::id(),
+            vec![CaptureGenerationMember {
+                project_hash: "project-a".into(),
+                post_instance_id: "post-a".into(),
+                pre_instance_id: "pre-a".into(),
+                record_session_id: String::new(),
+            }],
+        );
+        let mut transaction =
+            CaptureGenerationTransaction::begin(base.path(), &generation).unwrap();
+        transaction.stage().unwrap();
+        let signal = record_signal::write_pending_claiming_expected_and_clock_for_generation(
+            base.path(),
+            "project-a",
+            "post-a",
+            "pre-a".into(),
+            "daw-a".into(),
+            None,
+            &generation,
+        )
+        .unwrap();
+
+        assert!(!signal_generation_is_committed(
+            base.path(),
+            "project-a",
+            "post-a",
+            "pre-a",
+            &signal,
+        ));
+
+        transaction.commit().unwrap();
+        assert!(signal_generation_is_committed(
+            base.path(),
+            "project-a",
+            "post-a",
+            "pre-a",
+            &signal,
+        ));
     }
 }
