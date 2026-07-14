@@ -1,5 +1,3 @@
-//! POST operation grouping across plugin shells.
-//!
 //! AU and VST3 are separate binaries and may publish different project/session identities for
 //! instances in the same DAW document. Pair selection already treats an explicit PRE instance in
 //! the same host process as authoritative. This module applies that same evidence to POST-only
@@ -11,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 use crate::pairing_scope::{
     enumerate_live_pre_pair_choices_for_post_project_in_session,
-    resolve_published_pair_claim_for_arm,
+    resolve_published_pair_claim_for_arm, SelectedPre,
 };
 use crate::post_candidates::{
     enumerate_active_post_pair_candidates,
@@ -170,7 +168,7 @@ pub fn enumerate_live_post_pair_candidates_for_operation_group(
     )
 }
 
-fn claim_resolves_to_live_pre(kirin_root: &Path, candidate: &PostCandidate) -> bool {
+fn resolve_claim(kirin_root: &Path, candidate: &PostCandidate) -> Option<SelectedPre> {
     resolve_published_pair_claim_for_arm(
         kirin_root,
         candidate.pair_pre_name.as_deref(),
@@ -178,7 +176,6 @@ fn claim_resolves_to_live_pre(kirin_root: &Path, candidate: &PostCandidate) -> b
         &candidate.project_uuid,
         candidate.daw_session_id.as_deref().unwrap_or(""),
     )
-    .is_some()
 }
 
 /// Keep-ready POSTs in the current operation group.
@@ -195,7 +192,11 @@ pub fn enumerate_ready_post_pair_candidates_for_operation_group(
         host_process_id,
     )
     .into_iter()
-    .filter(|candidate| claim_resolves_to_live_pre(kirin_root, candidate))
+    .filter_map(|mut candidate| {
+        let selected = resolve_claim(kirin_root, &candidate)?;
+        candidate.paired_pre_instance_id = Some(selected.instance_id);
+        Some(candidate)
+    })
     .collect()
 }
 
@@ -213,7 +214,11 @@ pub fn enumerate_owned_post_pair_candidates_for_operation_group(
         host_process_id,
     )
     .into_iter()
-    .filter(|candidate| claim_resolves_to_live_pre(kirin_root, candidate))
+    .filter_map(|mut candidate| {
+        let selected = resolve_claim(kirin_root, &candidate)?;
+        candidate.paired_pre_instance_id = Some(selected.instance_id);
+        Some(candidate)
+    })
     .collect()
 }
 

@@ -25,6 +25,17 @@ fn wait_until_recording(engine: &KirinHyphaEngine, label: &str) {
     panic!("engine did not enter Record after Keep/ACK barrier: {label}");
 }
 
+fn wait_until_stopped(engine: &KirinHyphaEngine, label: &str) {
+    for _ in 0..30 {
+        if !engine.is_recording() {
+            return;
+        }
+        engine.push_samples(&[], 2);
+        sleep(Duration::from_millis(100));
+    }
+    panic!("engine did not leave Record after All Stop: {label}");
+}
+
 fn isolate_env(label: &str) -> (std::path::PathBuf, std::path::PathBuf) {
     let root = std::env::temp_dir().join(format!(
         "kirin_pairing_candidates_{label}_pid{}",
@@ -178,7 +189,7 @@ fn wait_for_watch_field(
 ///
 /// `2Mix` / `Drum` / `Music` are fixture labels only. AU and VST3 may publish different project and
 /// DAW IDs inside one host process. The shell contract still requires all three exact claims to be
-/// visible, counted as ready, and reached by one All Keep action.
+/// visible, counted as ready, reached by one All Keep action, and stopped by one All Stop action.
 #[test]
 #[ignore = "slow: C ABI candidate enumeration with PRE/POST io threads (sets HOME/TMPDIR)"]
 fn juce_candidate_abi_bridges_split_shell_claims_and_all_keep() {
@@ -267,6 +278,13 @@ fn juce_candidate_abi_bridges_split_shell_claims_and_all_keep() {
     wait_until_recording(&post_2mix, "split-shell-2mix");
     wait_until_recording(&post_drum, "split-shell-drum");
     wait_until_recording(&post_music, "split-shell-music");
+
+    post_drum.set_signal_state(2); // C ABI 2=Bypassed; owners remain part of All Stop
+    sleep(Duration::from_millis(150));
+    post_2mix.stop_all();
+    wait_until_stopped(&post_2mix, "split-shell-2mix");
+    wait_until_stopped(&post_drum, "split-shell-drum-bypassed");
+    wait_until_stopped(&post_music, "split-shell-music");
 
     drop(post_music);
     drop(post_drum);
