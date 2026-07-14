@@ -35,6 +35,7 @@ pub mod record_clock;
 pub mod record_drop_commit;
 mod record_entry_lock;
 pub mod record_expected;
+pub mod record_mark;
 pub mod record_signal;
 pub mod record_take;
 pub mod record_writer;
@@ -111,8 +112,8 @@ pub use path_identity::{
     take_path_event, MAX_COMPONENT_LEN,
 };
 pub use plugin_data::{
-    append_annotation_to_latest, compact_wall_clock, verify_checksum, Annotation, BounceMarker,
-    Frame, PluginDataFile, PluginDataWriter, PsbSnapshot, Role as PluginDataRole,
+    append_annotation_to_latest, compact_wall_clock, verify_checksum, Annotation, AnnotationMark,
+    BounceMarker, Frame, PluginDataFile, PluginDataWriter, PsbSnapshot, Role as PluginDataRole,
     Status as PluginDataStatus, WriterError as PluginDataWriterError, WriterPaths,
 };
 pub use post_candidates::{
@@ -159,6 +160,10 @@ pub use record_expected::{
     claim_expected_metadata_for_session, expected_dir, expected_path,
     mark_expected_metadata_consumed, read_expected_metadata, write_expected_metadata,
     ExpectedMetadataError, ExpectedWavMetadata, EXPECTED_FILENAME, EXPECTED_SUBDIR,
+};
+pub use record_mark::{
+    enqueue_record_mark, new_record_mark_queue, PendingRecordMark, RecordMarkError,
+    RecordMarkQueue, RECORD_MARK_BASIS,
 };
 pub use record_signal::{
     delete_signal, is_timed_out, mark_acknowledged, mark_released, mark_released_with_reason,

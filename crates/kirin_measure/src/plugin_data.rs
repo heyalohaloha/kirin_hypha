@@ -139,12 +139,26 @@ pub struct PsbSnapshot {
     pub interpolatable: bool,
 }
 
-/// 利用者メモ（「メモを残す」タップ時に追加）。
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Record MARK の sample-clock identity。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AnnotationMark {
+    pub schema_version: String,
+    pub id: String,
+    pub basis: String,
+    pub producer_position_samples: i64,
+    pub clock_source: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wav_position_samples: Option<u64>,
+}
+
+/// 利用者 MARK。`mark=None` は旧 NOTE JSON の読み書き互換。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Annotation {
     /// ISO 8601 wall clock.
     pub t: String,
     pub memo: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mark: Option<AnnotationMark>,
 }
 
 /// バウンスマーカ（G-50-18）。
@@ -907,7 +921,25 @@ impl PluginDataWriter {
         self.data.annotations.push(Annotation {
             t: now_iso8601(),
             memo,
+            mark: None,
         });
+    }
+
+    /// POST IO writer が queue 済み MARK を冪等追記する。
+    pub fn append_record_mark_if_absent(&mut self, annotation: Annotation) -> bool {
+        let Some(id) = annotation.mark.as_ref().map(|mark| mark.id.as_str()) else {
+            return false;
+        };
+        if self
+            .data
+            .annotations
+            .iter()
+            .any(|existing| existing.mark.as_ref().map(|mark| mark.id.as_str()) == Some(id))
+        {
+            return false;
+        }
+        self.data.annotations.push(annotation);
+        true
     }
 
     /// heartbeat を現在時刻に更新（T-3 と共通。30 秒毎に caller が呼ぶ）。
@@ -1430,6 +1462,7 @@ fn try_finalize_pair_session(
             }
         }
     }
+    synchronize_pair_annotations(&mut self_data, &mut peer_data);
     let content_alignment = crate::trace_alignment::canonical_wav_alignment(&self_data, &peer_data);
     let reasons = pair_publish_failure_reasons(&self_data, &peer_data);
     if content_alignment.is_none() {
@@ -2174,6 +2207,7 @@ fn publish_late_expected_pair(
         (Role::Post, Role::Pre) => (&right_paths, right_data, &left_paths, left_data),
         _ => return Ok(false),
     };
+    synchronize_pair_annotations(pre_data, post_data);
     if !paths.final_path.starts_with(plugin_data_root)
         || !pre_paths.member_path.starts_with(plugin_data_root)
         || !post_paths.member_path.starts_with(plugin_data_root)
@@ -2284,8 +2318,51 @@ fn normalize_late_expected_pair(
         }
         _ => return false,
     }
+    let wav_origin_samples = plan.canonical_slots[0].saturating_sub(slot_samples);
+    bind_annotation_marks_to_wav(left, wav_origin_samples, expected.expected_duration_samples);
+    bind_annotation_marks_to_wav(
+        right,
+        wav_origin_samples,
+        expected.expected_duration_samples,
+    );
     normalize_late_expected_record(left, expected)
         && normalize_late_expected_record(right, expected)
+}
+
+fn bind_annotation_marks_to_wav(
+    data: &mut PluginDataFile,
+    wav_origin_samples: i64,
+    wav_duration_samples: u64,
+) {
+    for annotation in &mut data.annotations {
+        let Some(mark) = annotation.mark.as_mut() else {
+            continue;
+        };
+        mark.wav_position_samples = mark
+            .producer_position_samples
+            .checked_sub(wav_origin_samples)
+            .and_then(|position| u64::try_from(position).ok())
+            .filter(|position| *position <= wav_duration_samples);
+    }
+}
+
+fn synchronize_pair_annotations(left: &mut PluginDataFile, right: &mut PluginDataFile) {
+    let mut merged = left.annotations.clone();
+    for annotation in &right.annotations {
+        let duplicate = merged.iter().any(|existing| {
+            match (existing.mark.as_ref(), annotation.mark.as_ref()) {
+                (Some(existing), Some(candidate)) => existing.id == candidate.id,
+                (None, None) => existing.t == annotation.t && existing.memo == annotation.memo,
+                _ => false,
+            }
+        });
+        if !duplicate {
+            merged.push(annotation.clone());
+        }
+    }
+    merged.sort_by(|a, b| a.t.cmp(&b.t));
+    left.annotations = merged.clone();
+    right.annotations = merged;
 }
 
 fn normalize_late_expected_record(
@@ -3064,6 +3141,7 @@ pub fn append_annotation_to_latest(
     let annotation = Annotation {
         t: now_iso8601(),
         memo,
+        mark: None,
     };
     append_annotation_to_file_and_mirror(&latest, annotation)?;
     Ok(true)
@@ -6221,5 +6299,68 @@ mod tests {
             "direct .failed close must stamp closed_at_ms so Kirin OS does not treat it as \
              still recording"
         );
+    }
+
+    fn marked_annotation(id: &str, position: i64, memo: &str) -> Annotation {
+        Annotation {
+            t: "2026-07-14T00:00:00Z".to_string(),
+            memo: memo.to_string(),
+            mark: Some(AnnotationMark {
+                schema_version: "record_mark.v1".to_string(),
+                id: id.to_string(),
+                basis: crate::record_mark::RECORD_MARK_BASIS.to_string(),
+                producer_position_samples: position,
+                clock_source: "project_timeline".to_string(),
+                wav_position_samples: None,
+            }),
+        }
+    }
+
+    #[test]
+    fn legacy_annotation_without_mark_still_deserializes() {
+        let annotation: Annotation =
+            serde_json::from_str(r#"{"t":"2026-07-14T00:00:00Z","memo":"Fix"}"#).unwrap();
+        assert_eq!(annotation.memo, "Fix");
+        assert!(annotation.mark.is_none());
+    }
+
+    #[test]
+    fn record_mark_binds_only_inside_exact_wav_sample_range() {
+        let base = isolated_dir();
+        let mut data = sample_writer(&base, Role::Post).data;
+        data.annotations = vec![
+            marked_annotation("before", 9_999, "Fix"),
+            marked_annotation("start", 10_000, "Good"),
+            marked_annotation("inside", 10_256, "Hold"),
+            marked_annotation("end", 11_000, "Good"),
+            marked_annotation("after", 11_001, "Fix"),
+        ];
+        bind_annotation_marks_to_wav(&mut data, 10_000, 1_000);
+        let positions: Vec<Option<u64>> = data
+            .annotations
+            .iter()
+            .map(|annotation| {
+                annotation
+                    .mark
+                    .as_ref()
+                    .and_then(|mark| mark.wav_position_samples)
+            })
+            .collect();
+        assert_eq!(positions, vec![None, Some(0), Some(256), Some(1_000), None]);
+    }
+
+    #[test]
+    fn pair_annotation_sync_deduplicates_mark_id_on_both_members() {
+        let base = isolated_dir();
+        let mut pre = sample_writer(&base, Role::Pre).data;
+        let mut post = sample_writer(&base, Role::Post).data;
+        pre.annotations = vec![marked_annotation("shared", 10, "Good")];
+        post.annotations = vec![
+            marked_annotation("shared", 10, "Good"),
+            marked_annotation("post", 20, "Fix"),
+        ];
+        synchronize_pair_annotations(&mut pre, &mut post);
+        assert_eq!(pre.annotations, post.annotations);
+        assert_eq!(pre.annotations.len(), 2);
     }
 }

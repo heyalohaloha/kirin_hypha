@@ -38,11 +38,13 @@ fn au_and_vst3_share_pair_status_and_control_geometry_contract() {
     let rust_post = read_repo("crates/hypha_post/src/editor.rs");
     assert!(rust_post.contains("egui::Button::new(\"Keep\").min_size(Vec2::new(width, 26.0))"));
     assert!(rust_post.contains(".add_sized([width, 26.0], egui::Button::new(\"Stop\"))"));
-    assert!(rust_post.contains(".add_sized([width, 26.0], egui::Button::new(\"Note\"))"));
+    assert!(rust_post.contains(".add_sized([width, 26.0], egui::Button::new(\"Mark\"))"));
 
     let juce_controls = read_repo("juce_shell/src/PostControls.cpp");
     assert!(juce_controls.contains("keepBtn  .setVisible (! recording && os)"));
     assert!(juce_controls.contains("keepBtn  .setEnabled (pairSelected)"));
+    assert!(juce_controls.contains("markBtn  .setVisible (recording && os && ! markPickerOpen)"));
+    assert!(ffi_header.contains("kirin_hypha_add_mark"));
     assert!(rust_post.contains("pair_status != PairStatus::Unpaired"));
 }
 

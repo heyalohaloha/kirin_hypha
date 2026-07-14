@@ -603,12 +603,12 @@ bool KirinHyphaProcessorBase::presetAvailable() const
     return kirin_hypha_preset_available (hyphaHandle);
 }
 
-bool KirinHyphaProcessorBase::addAnnotation (const juce::String& memo)
+bool KirinHyphaProcessorBase::addMark (const juce::String& tag)
 {
     const juce::ScopedLock sl (handleLock);
     if (hyphaHandle == nullptr)
         return false;
-    return kirin_hypha_add_annotation (hyphaHandle, memo.toRawUTF8());
+    return kirin_hypha_add_mark (hyphaHandle, tag.toRawUTF8());
 }
 
 // --- B-102: POST broadcast + candidate enumeration -----------------------------------------

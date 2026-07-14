@@ -126,7 +126,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         src/PluginProcessor.cpp
         src/PluginEditor.cpp
         src/HyphaWidgets.cpp     # B-054: LED / mycelium bg / metric cells / editable name
-        src/PostControls.cpp     # B-054: POST Keep/Stop/Note/Sense button row
+        src/PostControls.cpp     # B-054: POST Keep/Stop/Mark/Sense button row
         ${MAIN_SRC})
 
     if(TARGET KirinHyphaRustFFI)

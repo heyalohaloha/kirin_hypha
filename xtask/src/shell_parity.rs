@@ -160,9 +160,9 @@ mod tests {
         assert!(body.contains("keepBtn  .setVisible (! recording && os);"));
         assert!(body.contains("keepBtn  .setEnabled (pairSelected);"));
         assert!(body.contains("senseBtn .setVisible (! recording && sense);"));
-        assert!(body.contains("stopBtn  .setVisible (recording && os && ! notePickerOpen);"));
-        assert!(body.contains("noteBtn  .setVisible (recording && os && ! notePickerOpen);"));
-        assert!(body.contains("const bool picker = recording && os && notePickerOpen;"));
+        assert!(body.contains("stopBtn  .setVisible (recording && os && ! markPickerOpen);"));
+        assert!(body.contains("markBtn  .setVisible (recording && os && ! markPickerOpen);"));
+        assert!(body.contains("const bool picker = recording && os && markPickerOpen;"));
         assert!(body.contains("goodBtn  .setVisible (picker);"));
         assert!(body.contains("fixBtn   .setVisible (picker);"));
         assert!(body.contains("holdBtn  .setVisible (picker);"));

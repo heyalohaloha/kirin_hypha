@@ -1106,8 +1106,16 @@ fn add_annotation_denied_without_os() {
         !engine.add_annotation("x".to_string()),
         "既定 Unknown では false"
     );
+    assert!(
+        !engine.add_mark("Good".to_string()),
+        "既定 Unknown では MARK false"
+    );
     engine.set_license(1); // Sense
     assert!(!engine.add_annotation("x".to_string()), "Sense でも false");
+    assert!(
+        !engine.add_mark("Good".to_string()),
+        "Sense でも MARK false"
+    );
 }
 
 /// set_identity の project_uuid/instance_id が Watch path を決める（復元再現）こと、
@@ -1828,7 +1836,7 @@ fn keep_failure_after_enter_reverts_record_state() {
     let _ = std::fs::remove_dir_all(&test_root);
 }
 
-// ── B-067 / F3: annotation がこの engine の role を対象にする ─────────────────────
+// ── Record MARK: POST writer + producer sample clock ──────────────────────────────
 
 /// enable していない engine（write_role 未確定）は Os でも add_annotation を no-op にする。
 #[test]
@@ -1839,14 +1847,17 @@ fn add_annotation_noop_without_role() {
         !engine.add_annotation("x".into()),
         "未 enable（role None）は add_annotation=false（既定 ::Pre で勝手に書かない）"
     );
+    assert!(
+        !engine.add_mark("Good".into()),
+        "未 enable は MARK も false"
+    );
 }
 
-/// POST engine の add_annotation が POST role（post/ の Record .json）を対象にすることを実証。
-/// 修正前: ハードコード role=Pre で {puid}/{iid-post}/pre/（POST 自身の空 subdir）を見て false。
-/// 修正後: 保持 role=Post で {puid}/{iid-post}/post/ の Record .json に追記。
+/// POST MARK がRecord中にexact producer sampleへ入り、後続flush/closeでも消えず、
+/// hidden memberと通常TRACE棚の双方でWAV sample位置まで確定することを実証。
 #[test]
-#[ignore = "slow: paired PRE+POST record then POST annotation by role (sets HOME/TMPDIR)"]
-fn post_add_annotation_targets_post_role() {
+#[ignore = "slow: paired PRE+POST record MARK persistence (sets HOME/TMPDIR)"]
+fn post_mark_survives_flush_and_close_with_wav_sample_position() {
     use kirin_measure::plugin_data::PluginDataFile;
 
     let test_root = std::env::temp_dir()
@@ -1924,7 +1935,9 @@ fn post_add_annotation_targets_post_role() {
             "PRE must acknowledge before the simulated bounce begins"
         );
         position.set(0); // actual bounce transport start
-        drive(4.0); // both lanes observe the same producer render range
+        drive(2.0);
+        assert!(post.add_mark("Fix".into()), "Record中のPOST MARKを受理");
+        drive(2.0); // MARK後のwriter tick/flushでも消えないことを含める
         drop_expected_wav(
             &plugin_data_root,
             "puid-post",
@@ -1944,7 +1957,7 @@ fn post_add_annotation_targets_post_role() {
         // `is_recording=false` is the control-state edge. The IO writers and the
         // pair commit run asynchronously after that edge, so wait for the durable
         // manifest instead of assuming a fixed two seconds is enough on a loaded
-        // machine. Note targets only committed Record artifacts.
+        // machine. MARK is already queued into the active POST writer.
         let mut pair_committed = false;
         for _ in 0..100 {
             if find_json_under(&plugin_data_root, "record_sessions", "*.json").is_some() {
@@ -1955,17 +1968,11 @@ fn post_add_annotation_targets_post_role() {
         }
         assert!(
             pair_committed,
-            "PRE/POST pair commit must become durable before annotation"
-        );
-
-        // Record close 後に POST へ注釈（header 注: 確実なのは close 後）。
-        assert!(
-            post.add_annotation("post-note".into()),
-            "F3 fix: POST add_annotation が POST role の Record .json を見つけて true"
+            "PRE/POST pair commit must become durable before MARK verification"
         );
     }
 
-    // POST の通常 TRACE 棚と hidden member の両方に注釈が入ったこと。
+    // POST の通常 TRACE 棚と hidden member の両方に同じsample MARKが入ったこと。
     let post_trace_json = find_json_under(&plugin_data_root, "post", "*.json")
         .expect("paired POST normal TRACE shelf JSON exists");
     let post_json = pair_member_json_from_manifest(&plugin_data_root, "post");
@@ -1975,17 +1982,21 @@ fn post_add_annotation_targets_post_role() {
         serde_json::from_str(&std::fs::read_to_string(&post_json).unwrap()).unwrap();
     let post_trace_pd: PluginDataFile =
         serde_json::from_str(&std::fs::read_to_string(&post_trace_json).unwrap()).unwrap();
-    assert!(
-        post_pd.annotations.iter().any(|a| a.memo == "post-note"),
-        "annotation が POST hidden member に入る（PRE 固定をやめた）"
-    );
-    assert!(
-        post_trace_pd
-            .annotations
-            .iter()
-            .any(|a| a.memo == "post-note"),
-        "annotation が POST normal TRACE shelf にも入る"
-    );
+    let hidden_mark = post_pd
+        .annotations
+        .iter()
+        .find(|annotation| annotation.memo == "Fix")
+        .and_then(|annotation| annotation.mark.as_ref())
+        .expect("MARK が POST hidden member に入る");
+    let trace_mark = post_trace_pd
+        .annotations
+        .iter()
+        .find(|annotation| annotation.memo == "Fix")
+        .and_then(|annotation| annotation.mark.as_ref())
+        .expect("MARK が POST normal TRACE shelf にも入る");
+    assert_eq!(hidden_mark.id, trace_mark.id);
+    assert_eq!(hidden_mark.producer_position_samples, SR as i64 * 2);
+    assert_eq!(hidden_mark.wav_position_samples, Some(SR as u64 * 2));
 
     let _ = std::fs::remove_dir_all(&test_root);
 }

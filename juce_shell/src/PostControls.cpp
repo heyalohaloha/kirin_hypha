@@ -49,7 +49,7 @@ namespace hypha
             b.setColour (juce::TextButton::textColourOffId, COL_NORMAL);
             addChildComponent (b);
         };
-        for (auto* b : { &keepBtn, &stopBtn, &noteBtn, &goodBtn, &fixBtn, &holdBtn, &cancelBtn })
+        for (auto* b : { &keepBtn, &stopBtn, &markBtn, &goodBtn, &fixBtn, &holdBtn, &cancelBtn })
             styleButton (*b);
 
         // Sense hint: frameless amber text (no fill / blends into BG) — opens the upsell URL.
@@ -60,11 +60,11 @@ namespace hypha
 
         keepBtn.onClick = [this] { if (onKeep) onKeep(); };
         stopBtn.onClick = [this] { if (onStop) onStop(); };
-        noteBtn.onClick = [this] { notePickerOpen = true; layoutVisible(); };
-        cancelBtn.onClick = [this] { notePickerOpen = false; layoutVisible(); };
-        goodBtn.onClick = [this] { if (onNote) onNote ("Good"); notePickerOpen = false; layoutVisible(); };
-        fixBtn.onClick  = [this] { if (onNote) onNote ("Fix");  notePickerOpen = false; layoutVisible(); };
-        holdBtn.onClick = [this] { if (onNote) onNote ("Hold"); notePickerOpen = false; layoutVisible(); };
+        markBtn.onClick = [this] { markPickerOpen = true; layoutVisible(); };
+        cancelBtn.onClick = [this] { markPickerOpen = false; layoutVisible(); };
+        goodBtn.onClick = [this] { if (onMark) onMark ("Good"); markPickerOpen = false; layoutVisible(); };
+        fixBtn.onClick  = [this] { if (onMark) onMark ("Fix");  markPickerOpen = false; layoutVisible(); };
+        holdBtn.onClick = [this] { if (onMark) onMark ("Hold"); markPickerOpen = false; layoutVisible(); };
         senseBtn.onClick = [this] { if (onSenseHint) onSenseHint(); };
     }
 
@@ -74,18 +74,18 @@ namespace hypha
         const bool sense = (license == 1);
 
         if (! recording)
-            notePickerOpen = false; // picker only exists during Record
+            markPickerOpen = false; // picker only exists during Record
 
         // Keep owns a fixed layout slot in both AU and VST3. Pair state changes availability, not
-        // geometry, so opening or losing a pair never moves NOTE/metrics around the panel.
+        // geometry, so opening or losing a pair never moves MARK/metrics around the panel.
         keepBtn  .setVisible (! recording && os);
         keepBtn  .setEnabled (pairSelected);
         senseBtn .setVisible (! recording && sense);
 
-        stopBtn  .setVisible (recording && os && ! notePickerOpen);
-        noteBtn  .setVisible (recording && os && ! notePickerOpen);
+        stopBtn  .setVisible (recording && os && ! markPickerOpen);
+        markBtn  .setVisible (recording && os && ! markPickerOpen);
 
-        const bool picker = recording && os && notePickerOpen;
+        const bool picker = recording && os && markPickerOpen;
         goodBtn  .setVisible (picker);
         fixBtn   .setVisible (picker);
         holdBtn  .setVisible (picker);
@@ -102,7 +102,7 @@ namespace hypha
     void PostControls::layoutVisible()
     {
         // Lay visible buttons left-to-right across the row, equal widths, 6px gaps.
-        juce::Component* const ordered[] = { &keepBtn, &senseBtn, &stopBtn, &noteBtn,
+        juce::Component* const ordered[] = { &keepBtn, &senseBtn, &stopBtn, &markBtn,
                                              &goodBtn, &fixBtn, &holdBtn, &cancelBtn };
         juce::Array<juce::Component*> visible;
         for (auto* b : ordered)

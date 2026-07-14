@@ -16,7 +16,7 @@
  *   - 一斉操作: keep_all / stop_all（broadcast + self）/ enumerate_pre_candidates /
  *              enumerate_post_pair_claims（B-102 / 新↔新）.
  *   - LED poller: measure_alive / record_acknowledged / preset_available（B-054 / read-only）.
- *   - Note:    add_annotation.
+ *   - Mark:    add_mark (Good/Fix/Hold at producer sample position).
  *   - Option<f64> は NaN sentinel で表す（C 側は isnan() で「値なし」を判定）.
  *
  * スレッド契約:
@@ -292,6 +292,9 @@ bool kirin_hypha_poll_delta(KirinHypha* handle, KirinDelta* out);
  * 書込先はこの engine の役割（enable_pre_writes=PRE / enable_post_writes=POST）の .json.
  * Os かつ enable 済（role 確定）かつ対象 .json 存在のとき true / それ以外（未 enable 含む）false. */
 bool kirin_hypha_add_annotation(KirinHypha* handle, const char* memo);
+
+/* Record中の最新producer sample境界へ Good/Fix/Hold MARKを追加する. */
+bool kirin_hypha_add_mark(KirinHypha* handle, const char* tag);
 
 /* interleaved f32 を供給（Audio Thread 単独・RT-safe）. num_frames==0 は keepalive 可. */
 void kirin_hypha_push_samples(KirinHypha* handle, const float* interleaved,
