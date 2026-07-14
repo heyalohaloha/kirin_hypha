@@ -845,9 +845,17 @@ fn writer_close_result(mut ctx: RecordingCtx) -> bool {
             false
         }
     };
-    if let Some(claim) = writer_claim.as_mut() {
-        if let Err(e) = claim.mark_closed() {
-            log::warn!("[writer] claim close marker failed: {}", e);
+    if closed {
+        if let Some(claim) = writer_claim.as_mut() {
+            if let Err(e) = claim.mark_closed() {
+                log::warn!("[writer] claim close marker failed: {}", e);
+            }
+        }
+    } else if let Some(claim) = writer_claim.take() {
+        // A failed artifact close is not a closed session. Release only this owner's claim so a
+        // later recovery path is not blocked by a false terminal marker.
+        if let Err(e) = claim.abandon() {
+            log::warn!("[writer] claim abandon failed after close error: {}", e);
         }
     }
     closed
@@ -1632,6 +1640,28 @@ pub fn writer_close_with_summary(mut ctx: RecordingCtx, summary: Option<SessionS
     writer_close(ctx);
 }
 
+/// Record 終了時に受理済み MARK を同じ writer へ最終 drain してから close する。
+///
+/// 通常の Record→Watch と lifecycle shutdown がこの単一経路を共有することで、IO tick 間に
+/// queue された最後の MARK も artifact に含める。queue の ACK は close 成功後だけ行う。
+pub fn writer_close_with_summary_and_marks(
+    mut ctx: RecordingCtx,
+    summary: Option<SessionSummary>,
+    record_mark_queue: &RecordMarkQueue,
+) {
+    let mark_ids = pending_record_marks_for_generation(record_mark_queue, ctx.record_generation)
+        .into_iter()
+        .filter_map(|pending| pending.annotation.mark.map(|mark| mark.id))
+        .collect::<Vec<_>>();
+    persist_pending_record_marks(&mut ctx, record_mark_queue);
+    if let Some(summary) = summary {
+        ctx.writer.set_session_aggregates(summary);
+    }
+    if writer_close_result(ctx) {
+        acknowledge_record_marks(record_mark_queue, &mark_ids);
+    }
+}
+
 /// B-134 (G-115-391): degraded 終了専用 close。**best-effort** で
 /// `integrity_degraded` を立ててから close する。
 ///
@@ -2193,23 +2223,10 @@ fn close_recording_context(
         append_current_measure_snapshot(&mut ctx, measure_result)?;
     }
     apply_record_take_snapshot(&mut ctx, record_take_tracker);
-    let mark_ids = record_mark_queue
-        .map(|queue| pending_record_marks_for_generation(queue, ctx.record_generation))
-        .unwrap_or_default()
-        .into_iter()
-        .filter_map(|pending| pending.annotation.mark.map(|mark| mark.id))
-        .collect::<Vec<_>>();
     if let Some(queue) = record_mark_queue {
-        persist_pending_record_marks(&mut ctx, queue);
-    }
-    if let Some(summary) = summary {
-        ctx.writer.set_session_aggregates(summary);
-    }
-    let closed = writer_close_result(ctx);
-    if closed {
-        if let Some(queue) = record_mark_queue {
-            acknowledge_record_marks(queue, &mark_ids);
-        }
+        writer_close_with_summary_and_marks(ctx, summary, queue);
+    } else {
+        writer_close_with_summary(ctx, summary);
     }
     Ok(())
 }
@@ -3064,6 +3081,7 @@ mod tests {
     use crate::record::{RecordStateMachine, TransitionError};
     use crate::record_mark::{new_record_mark_queue, PendingRecordMark, RECORD_MARK_BASIS};
     use crate::record_take::PresentationLatencySource;
+    use crate::record_writer_claim::{claim_writer, writer_claim_active, writer_claim_closed};
     use crate::{License, MeasureResult, PsbSummary};
     use std::fs;
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -3619,8 +3637,15 @@ mod tests {
     #[test]
     fn pending_record_mark_is_deduplicated_and_replayed_into_restarted_writer() {
         let base = isolated_base();
-        let mut ctx = make_ctx(&base, Role::Post, now_epoch_ms());
+        let started_at_ms = now_epoch_ms();
+        let session_id = "mark-restart-session";
+        let mut ctx = make_ctx(&base, Role::Post, started_at_ms);
         ctx.record_generation = 7;
+        ctx.writer
+            .set_record_session_id(Some(session_id.to_string()));
+        ctx.writer.flush().unwrap();
+        ctx.writer_claim =
+            Some(claim_writer(&base, TEST_PH, session_id, Role::Post, TEST_IID).unwrap());
         let queue = new_record_mark_queue();
         let annotation = Annotation {
             t: "2026-07-14T00:00:00Z".to_string(),
@@ -3656,14 +3681,73 @@ mod tests {
         );
         assert!(crate::plugin_data::verify_checksum(&staged));
 
-        let restarted_base = isolated_base();
-        let mut restarted = make_ctx(&restarted_base, Role::Post, now_epoch_ms());
+        drop(ctx); // IO Thread unwind: unfinished guard releases only its own active claim.
+        assert!(!writer_claim_active(&base, TEST_PH, session_id, Role::Post, TEST_IID).unwrap());
+        let restarted_claim =
+            claim_writer(&base, TEST_PH, session_id, Role::Post, TEST_IID).unwrap();
+        let mut restarted = make_ctx(&base, Role::Post, started_at_ms);
         restarted.record_generation = 7;
+        restarted
+            .writer
+            .set_record_session_id(Some(session_id.to_string()));
+        restarted.writer_claim = Some(restarted_claim);
         persist_pending_record_marks(&mut restarted, &queue);
         let replayed: PluginDataFile =
             serde_json::from_slice(&fs::read(&restarted.staging_path).unwrap()).unwrap();
         assert_eq!(replayed.annotations.len(), 1);
         assert_eq!(replayed.annotations[0].memo, "Fix");
+    }
+
+    #[test]
+    fn lifecycle_close_final_drains_and_acknowledges_pending_record_mark() {
+        let base = isolated_base();
+        let mut ctx = make_ctx(&base, Role::Post, now_epoch_ms());
+        ctx.record_generation = 9;
+        let final_path = ctx.final_path.clone();
+        let queue = new_record_mark_queue();
+        queue.lock().unwrap().push_back(PendingRecordMark {
+            generation: 9,
+            annotation: Annotation {
+                t: "2026-07-14T00:00:00Z".to_string(),
+                memo: "Hold".to_string(),
+                mark: Some(AnnotationMark {
+                    schema_version: "record_mark.v1".to_string(),
+                    id: "lifecycle-last-mark".to_string(),
+                    basis: RECORD_MARK_BASIS.to_string(),
+                    producer_position_samples: 144_000,
+                    clock_source: "audio_render_timeline".to_string(),
+                    wav_position_samples: None,
+                }),
+            },
+        });
+
+        writer_close_with_summary_and_marks(ctx, None, &queue);
+
+        assert!(queue.lock().unwrap().is_empty());
+        let closed = read_output_for_final(&final_path);
+        assert!(closed.annotations.iter().any(|annotation| {
+            annotation
+                .mark
+                .as_ref()
+                .is_some_and(|mark| mark.id == "lifecycle-last-mark")
+        }));
+    }
+
+    #[test]
+    fn failed_close_releases_claim_without_writing_false_closed_marker() {
+        let base = isolated_base();
+        let session_id = "mark-close-failure";
+        let mut ctx = make_ctx(&base, Role::Post, now_epoch_ms());
+        ctx.writer
+            .set_record_session_id(Some(session_id.to_string()));
+        ctx.writer_claim =
+            Some(claim_writer(&base, TEST_PH, session_id, Role::Post, TEST_IID).unwrap());
+        let failed_dir = ctx.failed_path.parent().unwrap();
+        fs::write(failed_dir, b"not-a-directory").unwrap();
+
+        assert!(!writer_close_result(ctx));
+        assert!(!writer_claim_closed(&base, TEST_PH, session_id, Role::Post, TEST_IID).unwrap());
+        assert!(!writer_claim_active(&base, TEST_PH, session_id, Role::Post, TEST_IID).unwrap());
     }
 
     fn read_output_for_final(final_path: &Path) -> PluginDataFile {

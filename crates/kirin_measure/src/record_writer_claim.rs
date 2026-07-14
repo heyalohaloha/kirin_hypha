@@ -111,6 +111,7 @@ impl From<serde_json::Error> for WriterClaimError {
 pub(crate) struct WriterClaimGuard {
     path: PathBuf,
     claim: WriterClaimFile,
+    finalized: bool,
 }
 
 impl WriterClaimGuard {
@@ -138,12 +139,26 @@ impl WriterClaimGuard {
             now,
             self.claim.closed_at_ms,
         )?;
+        self.finalized = true;
         Ok(())
     }
 
-    pub(crate) fn abandon(self) -> Result<(), WriterClaimError> {
+    pub(crate) fn abandon(mut self) -> Result<(), WriterClaimError> {
         release_if_current_owner(&self.path, &self.claim.owner_id)?;
+        self.finalized = true;
         Ok(())
+    }
+}
+
+impl Drop for WriterClaimGuard {
+    fn drop(&mut self) {
+        if self.finalized {
+            return;
+        }
+        // An unwinding IO thread must not strand an "active" disk claim for fifteen minutes.
+        // Ownership is rechecked inside release_if_current_owner, so a stale guard can never
+        // remove a claim already reclaimed by another writer.
+        let _ = release_if_current_owner(&self.path, &self.claim.owner_id);
     }
 }
 
@@ -174,7 +189,11 @@ pub(crate) fn claim_writer(
     let bytes = serde_json::to_vec(&claim)?;
 
     match link_claim(&dir, &path, role, instance_id, &bytes)? {
-        LinkOutcome::Created => Ok(WriterClaimGuard { path, claim }),
+        LinkOutcome::Created => Ok(WriterClaimGuard {
+            path,
+            claim,
+            finalized: false,
+        }),
         LinkOutcome::AlreadyExists => reclaim_or_reject_existing(path, claim, role, &bytes),
     }
 }
@@ -241,7 +260,11 @@ fn reclaim_or_reject_existing(
         .parent()
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "claim dir missing"))?;
     match link_claim(dir, &path, role, &claim.instance_id, bytes)? {
-        LinkOutcome::Created => Ok(WriterClaimGuard { path, claim }),
+        LinkOutcome::Created => Ok(WriterClaimGuard {
+            path,
+            claim,
+            finalized: false,
+        }),
         LinkOutcome::AlreadyExists => Err(WriterClaimError::AlreadyActive {
             path,
             owner_id: None,

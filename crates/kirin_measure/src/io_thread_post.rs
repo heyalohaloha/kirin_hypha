@@ -45,7 +45,7 @@ use crate::record_signal::{self, SignalStatus, ACK_TIMEOUT_SECONDS, SIGNALS_SUBD
 use crate::record_writer::{
     apply_record_take_snapshot, parse_iso8601_to_epoch_ms,
     run_record_tick_with_pair_names_require_session_and_marks, take_session_summary,
-    writer_close_with_summary, RecordingCtx,
+    writer_close_with_summary_and_marks, RecordingCtx,
 };
 use crate::storage::{PlatformPaths, StoragePaths};
 use crate::{load_signal_state, MeasureResult, RecordTakeTracker, RecordTraceQueue, SignalState};
@@ -1027,7 +1027,7 @@ pub fn spawn_io_thread_post(
                 ctx.writer.mark_integrity_degraded();
             }
             apply_record_take_snapshot(&mut ctx, Some(&record_take_tracker));
-            writer_close_with_summary(ctx, summary);
+            writer_close_with_summary_and_marks(ctx, summary, &record_mark_queue);
         }
 
         // §4-5 Step 1: 終了処理時も project_hash を lazy-read で確定。

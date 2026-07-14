@@ -1,4 +1,5 @@
 use super::*;
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::{Arc, Barrier, Mutex};
 
 fn isolated_base() -> PathBuf {
@@ -56,6 +57,21 @@ fn abandon_releases_startup_claim_for_retry() {
 
     let second = claim_writer(&base, "ph", "session-abandon", Role::Post, "post-1").unwrap();
     assert_ne!(second.claim.owner_id, first_owner);
+}
+
+#[test]
+fn unwound_owner_drop_releases_claim_for_watchdog_restart() {
+    let base = isolated_base();
+    let mut first_owner = None;
+    let unwind = catch_unwind(AssertUnwindSafe(|| {
+        let first = claim_writer(&base, "ph", "session-unwind", Role::Post, "post-1").unwrap();
+        first_owner = Some(first.claim.owner_id.clone());
+        panic!("simulate IO writer panic");
+    }));
+    assert!(unwind.is_err());
+
+    let second = claim_writer(&base, "ph", "session-unwind", Role::Post, "post-1").unwrap();
+    assert_ne!(second.claim.owner_id, first_owner.unwrap());
 }
 
 #[test]
