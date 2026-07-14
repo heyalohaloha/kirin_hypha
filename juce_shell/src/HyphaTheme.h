@@ -28,11 +28,14 @@ namespace hypha
     // (Dark Cockpit). Defined after BG so its static initialisation is sequenced after it.
     inline const juce::Colour kFieldFill = BG.brighter (0.05f);
 
-    // ── fonts: egui point sizes map 1:1; "monospace" -> default monospaced typeface ────────
-    inline juce::Font labelFont (float h) { return juce::Font (h); }
+    // ── fonts: exact native families also loaded by hypha_gui::install_native_font_contract ─
+    inline juce::Font labelFont (float h)
+    {
+        return juce::Font (".SF NS", h, juce::Font::plain);
+    }
     inline juce::Font monoFont  (float h)
     {
-        return juce::Font (juce::Font::getDefaultMonospacedFontName(), h, juce::Font::plain);
+        return juce::Font (".SF NS Mono", h, juce::Font::plain);
     }
 
     // Δ (U+0394) built from its codepoint to avoid non-ASCII source/escape issues.

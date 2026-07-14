@@ -68,7 +68,7 @@ pub fn bind_drop_commit_for_open_session(
     session_id: &str,
 ) -> Result<Option<ExpectedWavMetadata>, ExpectedMetadataError> {
     let Some((metadata, marker)) =
-        read_drop_commit_for_open_session(base_dir, project_hash, session_id)?
+        read_drop_commit_for_session(base_dir, project_hash, session_id, true)?
     else {
         return Ok(None);
     };
@@ -95,15 +95,66 @@ pub fn inspect_drop_commit_for_open_session(
     session_id: &str,
 ) -> Result<Option<ExpectedWavMetadata>, ExpectedMetadataError> {
     Ok(
-        read_drop_commit_for_open_session(base_dir, project_hash, session_id)?
+        read_drop_commit_for_session(base_dir, project_hash, session_id, true)?
             .map(|(metadata, _)| metadata),
     )
 }
 
-fn read_drop_commit_for_open_session(
+/// Read-only validation for a Record session whose closed PRE/POST artifacts are still pending.
+///
+/// Unlike the live IO path, this accepts either marker lifecycle state because a crash or the
+/// pair-pending close path may leave a metadata-free marker without `closed_at_ms`. The caller
+/// must independently prove the exact closed PRE/POST pair before binding the returned metadata.
+pub(crate) fn inspect_drop_commit_for_closed_pair_session(
     base_dir: &Path,
     project_hash: &str,
     session_id: &str,
+) -> Result<Option<ExpectedWavMetadata>, ExpectedMetadataError> {
+    Ok(
+        read_drop_commit_for_session(base_dir, project_hash, session_id, false)?
+            .map(|(metadata, _)| metadata),
+    )
+}
+
+/// Complete one metadata-free Record lifecycle after its closed PRE/POST pair has been proven.
+///
+/// `inspected_metadata` makes the validation/bind boundary fail closed if Kirin OS replaces a
+/// commit between the caller's sample-clock proof and this second read. Existing metadata is
+/// immutable: an equal retry is idempotent and a different generation is rejected.
+pub(crate) fn bind_drop_commit_for_closed_pair_session(
+    base_dir: &Path,
+    project_hash: &str,
+    session_id: &str,
+    inspected_metadata: &ExpectedWavMetadata,
+) -> Result<Option<ExpectedWavMetadata>, ExpectedMetadataError> {
+    let Some((metadata, marker)) =
+        read_drop_commit_for_session(base_dir, project_hash, session_id, false)?
+    else {
+        return Ok(None);
+    };
+    if &metadata != inspected_metadata {
+        return Ok(None);
+    }
+    if let Some(existing) = marker.metadata {
+        return Ok((existing == metadata).then_some(existing));
+    }
+    write_expected_metadata(base_dir, project_hash, &metadata)?;
+    write_claim_marker(
+        base_dir,
+        project_hash,
+        &metadata,
+        session_id.trim(),
+        marker.claimed_at_ms,
+        marker.closed_at_ms.or(Some(now_epoch_ms())),
+    )?;
+    Ok(Some(metadata.without_consumed_marker()))
+}
+
+fn read_drop_commit_for_session(
+    base_dir: &Path,
+    project_hash: &str,
+    session_id: &str,
+    require_open_marker: bool,
 ) -> Result<Option<(ExpectedWavMetadata, ExpectedWavClaimMarker)>, ExpectedMetadataError> {
     let session_id = session_id.trim();
     if session_id.is_empty() {
@@ -135,7 +186,7 @@ fn read_drop_commit_for_open_session(
         || commit.project_hash != project_hash
         || commit.record_session_id != session_id
         || marker.session_id != session_id
-        || marker.closed_at_ms.is_some()
+        || (require_open_marker && marker.closed_at_ms.is_some())
         || commit.created_at_ms < marker.claimed_at_ms
         || commit.created_at_ms > now_ms.saturating_add(EXPECTED_METADATA_FUTURE_SKEW_MS)
         || now_ms.saturating_sub(commit.created_at_ms) > EXPECTED_METADATA_MAX_AGE_MS

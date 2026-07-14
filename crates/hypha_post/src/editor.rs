@@ -20,32 +20,31 @@
 //! - `Keep` → PRE 候補 0 件 → toast / 排他違反 → toast /
 //!   `try_enter_record(license)` → `write_pending`
 //! - `Stop` → `record_sm.exit_record()` + reasoned `mark_released`
-//! - `Mark` → Record中のproducer sample位置へ Good/Fix/Hold を記録
 //! - Sense hint → `open::that(SENSE_UPSELL_URL)` でブラウザ起動
 //!
 //! （赤系禁止。色相同一・明度増）。
 
 use hypha_gui::{
     derive_led_state, display_signal_state_for_led, display_smoothing::DisplaySmoother,
-    draw_pair_indicator, fmt_delta, fmt_val, led_color, tp_over, val_color, BackgroundTexture,
-    PlaybackMaxTracker, BG, COL_FLORA, COL_FLORA_BRIGHT, COL_MUTED, COL_NORMAL,
+    draw_pair_indicator, fmt_delta, fmt_val, install_native_font_contract, led_color, tp_over,
+    val_color, BackgroundTexture, PlaybackMaxTracker, BG, COL_FLORA, COL_FLORA_BRIGHT, COL_MUTED,
+    COL_NORMAL,
 };
 use kirin_measure::reservation; // B-127 (G-115-365): egui parity — per-pairing O_EXCL frame
 use kirin_measure::{
     active_post_project_uuids_for_operation_group, all_keep_signal_path, all_stop_signal_path,
-    count_distinct_pairings, current_host_process_id, delete_broadcast, enqueue_record_mark,
+    count_distinct_pairings, current_host_process_id, delete_broadcast,
     enumerate_live_pre_pair_choices_for_post_project_in_session,
     enumerate_owned_post_pair_candidates_for_operation_group,
     enumerate_ready_post_pair_candidates_for_operation_group, exit_record_preserve_pair,
     format_pair_label, live_post_project_uuids_for_operation_group, load_signal_state,
     lookup_section_label, mark_released_with_reason, pair_lock_active, pair_status_for_post,
     resolve_arm_target_for_post_project_in_session, sanitize_name, scan_latest_v2_preset,
-    show_note_button, show_save_button, show_stop_record_button, write_broadcast,
+    show_save_button, show_stop_record_button, write_broadcast,
     write_pending_claiming_expected_and_clock, write_stop_broadcast, DeltaMode, DeltaResult,
     DeltaSnapshot, LatchedPre, License, LiveLicense, LivenessEvaluator, MeasureResult, PairStatus,
-    PlatformPaths, PostCandidate, PreCandidate, PresetFileV2, RecordMarkQueue, RecordStateMachine,
-    RecordTakeTracker, ReleaseReason, SignalState, StoragePaths, MAX_ACTIVE_PER_PROJECT,
-    SENSE_RECORD_HINT, SENSE_UPSELL_URL,
+    PlatformPaths, PostCandidate, PreCandidate, PresetFileV2, RecordStateMachine, ReleaseReason,
+    SignalState, StoragePaths, MAX_ACTIVE_PER_PROJECT, SENSE_RECORD_HINT, SENSE_UPSELL_URL,
 };
 use nih_plug::prelude::Editor;
 use nih_plug_egui::{
@@ -335,13 +334,6 @@ pub struct PostEditorState {
     prev_ack: bool,
     banner_until: Option<f64>,
     toast: Option<Toast>,
-    /// Mark タップ後の 3 タグ選択行を表示中か。
-    /// Record 中のみ有効。非 Record 時は毎フレーム false に戻される。
-    mark_picker_open: bool,
-    /// UI→POST IO writer のMARK queue（Audio Threadは触れない）。
-    record_mark_queue: RecordMarkQueue,
-    /// Audio Threadがatomic publishした最新Record sample境界。
-    record_take_tracker: Arc<RecordTakeTracker>,
     /// 直前フレームの LED 状態（edge-triggered log 用）。
     prev_led: Option<hypha_gui::LedState>,
     /// T-E: 最新 v2.0 proposals（500ms throttle で更新）。
@@ -393,9 +385,6 @@ impl PostEditorState {
             prev_ack: false,
             banner_until: None,
             toast: None,
-            mark_picker_open: false,
-            record_mark_queue: args.record_mark_queue,
-            record_take_tracker: args.record_take_tracker,
             prev_led: None,
             latest_proposals: None,
             proposals_scan_last: None,
@@ -450,8 +439,6 @@ pub struct PostEditorArgs {
     pub record_error_message: Arc<RwLock<Option<String>>>,
     /// B-108: display/keep 共有ラッチ。
     pub latched_pre: Arc<Mutex<Option<LatchedPre>>>,
-    pub record_mark_queue: RecordMarkQueue,
-    pub record_take_tracker: Arc<RecordTakeTracker>,
 }
 
 // ── 公開エントリポイント ─────────────────────────────────────────────────
@@ -462,6 +449,7 @@ pub fn create_post_editor(args: PostEditorArgs) -> Option<Box<dyn Editor>> {
         egui_state,
         PostEditorState::new(args),
         |ctx, state| {
+            install_native_font_contract(ctx);
             let mut visuals = ctx.style().visuals.clone();
             visuals.panel_fill = BG;
             visuals.window_fill = BG;
@@ -483,10 +471,6 @@ pub fn create_post_editor(args: PostEditorArgs) -> Option<Box<dyn Editor>> {
             let raw_d = state.delta.lock().map(|g| g.clone()).unwrap_or_default();
             let alive = state.measure_alive.load(Ordering::Relaxed);
             let recording = state.record_sm.is_recording();
-            // Record から抜けた瞬間に picker を自動閉じ（Watch 中に picker が残ることを防止）
-            if !recording {
-                state.mark_picker_open = false;
-            }
             let ack = state.record_acknowledged.load(Ordering::Relaxed);
             let pair_pre_name_snapshot = state
                 .pair_pre_name
@@ -1617,63 +1601,25 @@ fn draw_button_row(
     ui.horizontal(|ui| {
         ui.add_space(10.0);
         if recording {
-            if state.mark_picker_open {
-                // Mark picker — [Good] [Fix] [Hold] [Cancel]
-                let width = (ui.available_width() - 10.0 - 18.0) / 4.0;
-                ui.spacing_mut().item_spacing.x = 6.0;
-                for tag in ["Good", "Fix", "Hold"] {
-                    if ui
-                        .add_sized([width, 26.0], egui::Button::new(tag))
-                        .clicked()
-                    {
-                        log::info!("[hypha-fork] button clicked: {}", tag);
-                        trigger_mark(
-                            tag,
-                            &state.record_sm,
-                            &state.record_take_tracker,
-                            &state.record_mark_queue,
-                            &mut state.toast,
-                            now,
-                        );
-                        state.mark_picker_open = false;
-                    }
-                }
-                if ui
-                    .add_sized([width, 26.0], egui::Button::new("Cancel"))
+            // Offline bounce can suspend the DAW editor, so Record exposes only the reliable
+            // lifecycle action. Annotation data remains readable for backward compatibility.
+            let width = ui.available_width() - 10.0;
+            if show_stop_record_button(license)
+                && ui
+                    .add_sized([width, 26.0], egui::Button::new("Stop"))
                     .clicked()
-                {
-                    log::info!("[hypha-fork] button clicked: Cancel");
-                    state.mark_picker_open = false;
-                }
-            } else {
-                // Record: [Stop] [Mark]
-                let width = (ui.available_width() - 10.0 - 6.0) / 2.0;
-                ui.spacing_mut().item_spacing.x = 6.0;
-                if show_stop_record_button(license)
-                    && ui
-                        .add_sized([width, 26.0], egui::Button::new("Stop"))
-                        .clicked()
-                {
-                    log::info!("[hypha-fork] button clicked: Stop");
-                    trigger_stop(
-                        &state.record_sm,
-                        &project_hash_snapshot,
-                        &instance_id,
-                        &state.pair_label,
-                        &state.paired_pre_target,
-                        ReleaseReason::ManualStop,
-                        &mut state.toast,
-                        now,
-                    );
-                }
-                if show_note_button(license)
-                    && ui
-                        .add_sized([width, 26.0], egui::Button::new("Mark"))
-                        .clicked()
-                {
-                    log::info!("[hypha-fork] button clicked: Mark");
-                    state.mark_picker_open = true;
-                }
+            {
+                log::info!("[hypha-fork] button clicked: Stop");
+                trigger_stop(
+                    &state.record_sm,
+                    &project_hash_snapshot,
+                    &instance_id,
+                    &state.pair_label,
+                    &state.paired_pre_target,
+                    ReleaseReason::ManualStop,
+                    &mut state.toast,
+                    now,
+                );
             }
         } else {
             // Watch: [Keep or Sense hint]（License::Unknown は空行）
@@ -2225,32 +2171,6 @@ fn trigger_all_stop_broadcast(
     }
     if !wrote_any {
         *toast = Some(Toast::new("All Stop failed (file write error)", now));
-    }
-}
-
-/// Record中の最新producer sample境界へMARKをqueueする。
-fn trigger_mark(
-    tag: &str,
-    record_sm: &RecordStateMachine,
-    record_take_tracker: &RecordTakeTracker,
-    record_mark_queue: &RecordMarkQueue,
-    toast: &mut Option<Toast>,
-    now: f64,
-) {
-    match enqueue_record_mark(record_sm, record_take_tracker, record_mark_queue, tag) {
-        Ok(mark) => {
-            let position = mark
-                .annotation
-                .mark
-                .as_ref()
-                .map_or(0, |mark| mark.producer_position_samples);
-            log::info!("[record_mark] queued tag={} position={}", tag, position);
-            *toast = Some(Toast::new(format!("Marked: {tag}"), now));
-        }
-        Err(error) => {
-            log::warn!("[record_mark] rejected tag={}: {:?}", tag, error);
-            *toast = Some(Toast::new(error.ui_message(), now));
-        }
     }
 }
 

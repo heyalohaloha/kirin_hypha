@@ -106,13 +106,6 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
             showToast (processorRef.licenseIsOs() ? "No PRE Paired" : "Record requires Kirin OS license");
         };
         postControls->onStop = [this] { processorRef.stopPair(); };
-        postControls->onMark = [this] (const juce::String& tag)
-        {
-            if (processorRef.addMark (tag))
-                showToast ("Marked: " + tag);
-            else
-                showToast ("Mark unavailable");
-        };
         postControls->onSenseHint = [this]
         {
             if (! juce::URL ("https://kirinmastering.com").launchInDefaultBrowser())

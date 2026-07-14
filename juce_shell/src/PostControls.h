@@ -9,8 +9,8 @@
 // B-054: POST button row, element-for-element with hypha_post draw_button_row.
 // States (license-gated; Os = license code 0, Sense = 1):
 //   Watch  (not recording): [Keep] (Os, fixed slot; disabled only while Unpaired) | Sense hint (Sense) | nothing (Unknown)
-//   Record (recording):     [Stop] [Mark] (Os)  →  Mark opens [Good] [Fix] [Hold] [Cancel]
-// The playback pair-lock does NOT affect these (約束 5 #5: Stop/Keep/Mark stay available); only
+//   Record (recording):     [Stop] (Os)
+// The playback pair-lock does NOT affect these (約束 5 #5: Stop/Keep stay available); only
 // the pair-name field is locked during playback (handled in the editor). All actions are routed
 // back to the processor via the callbacks; no measurement logic lives here (R-12 / R-22).
 namespace hypha
@@ -35,7 +35,6 @@ namespace hypha
 
         std::function<void()>                     onKeep;       // -> kirin_hypha_keep
         std::function<void()>                     onStop;       // -> kirin_hypha_stop
-        std::function<void (const juce::String&)> onMark;       // tag in {Good,Fix,Hold} -> sample MARK
         std::function<void()>                     onSenseHint;  // open upsell URL
 
         // Rebuild visibility for the current state. license: 0=Os 1=Sense 2=Unknown.
@@ -48,14 +47,7 @@ namespace hypha
 
         HyphaTextButton keepBtn   { "Keep" };
         HyphaTextButton stopBtn   { "Stop" };
-        HyphaTextButton markBtn   { "Mark" };
-        HyphaTextButton goodBtn   { "Good" };
-        HyphaTextButton fixBtn    { "Fix" };
-        HyphaTextButton holdBtn   { "Hold" };
-        HyphaTextButton cancelBtn { "Cancel" };
         HyphaTextButton senseBtn  { juce::CharPointer_UTF8 ("Record mode available in Kirin OS"), false };
-
-        bool markPickerOpen = false;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PostControls)
     };

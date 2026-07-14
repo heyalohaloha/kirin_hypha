@@ -36,6 +36,14 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/../crates/kirin_hypha_ffi/include/kirin_hypha_ffi.h"
     ));
+    const HYPHA_GUI_COMMON: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../crates/hypha_gui/src/common.rs"
+    ));
+    const HYPHA_THEME_H: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../juce_shell/src/HyphaTheme.h"
+    ));
 
     fn read_juce_au_wrapper() -> Option<String> {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
@@ -95,6 +103,16 @@ mod tests {
         ] {
             assert!(PLUGIN_EDITOR_CPP.contains(metric), "AU missing {metric}");
         }
+    }
+
+    #[test]
+    fn shipped_vst3_and_au_shells_share_native_font_contract() {
+        assert!(HYPHA_GUI_COMMON.contains("/System/Library/Fonts/SFNS.ttf"));
+        assert!(HYPHA_GUI_COMMON.contains("/System/Library/Fonts/SFNSMono.ttf"));
+        assert!(HYPHA_PRE_EDITOR.contains("install_native_font_contract(ctx);"));
+        assert!(HYPHA_POST_EDITOR.contains("install_native_font_contract(ctx);"));
+        assert!(HYPHA_THEME_H.contains("juce::Font (\".SF NS\", h"));
+        assert!(HYPHA_THEME_H.contains("juce::Font (\".SF NS Mono\", h"));
     }
 
     #[test]
@@ -160,13 +178,9 @@ mod tests {
         assert!(body.contains("keepBtn  .setVisible (! recording && os);"));
         assert!(body.contains("keepBtn  .setEnabled (pairSelected);"));
         assert!(body.contains("senseBtn .setVisible (! recording && sense);"));
-        assert!(body.contains("stopBtn  .setVisible (recording && os && ! markPickerOpen);"));
-        assert!(body.contains("markBtn  .setVisible (recording && os && ! markPickerOpen);"));
-        assert!(body.contains("const bool picker = recording && os && markPickerOpen;"));
-        assert!(body.contains("goodBtn  .setVisible (picker);"));
-        assert!(body.contains("fixBtn   .setVisible (picker);"));
-        assert!(body.contains("holdBtn  .setVisible (picker);"));
-        assert!(body.contains("cancelBtn.setVisible (picker);"));
+        assert!(body.contains("stopBtn  .setVisible (recording && os);"));
+        assert!(!body.contains("markBtn"));
+        assert!(!body.contains("markPickerOpen"));
     }
 
     #[test]

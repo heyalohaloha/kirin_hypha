@@ -1,10 +1,11 @@
-//! Startup cleanup for stale `/tmp/kirin` watch snapshots.
+//! Startup cleanup for orphaned `/tmp/kirin` watch artifacts.
 //!
 //! PRE/POST watch files are freshness-gated by readers. IO thread teardown must
 //! not delete them because DAWs and pluginval can recreate the same restored
 //! instance id while the old IO thread is still exiting. This module moves that
-//! hygiene to startup and only removes files that are far older than the live
-//! freshness window.
+//! hygiene to startup. Current snapshots use their OS-locked owner lease as the
+//! primary lifetime contract; legacy snapshots and abandoned atomic temp files
+//! use a conservative age threshold.
 
 use chrono::{DateTime, Utc};
 use std::fs;
@@ -24,17 +25,17 @@ pub(crate) fn sweep_stale_watch_files_at_startup() {
     let kirin_root = crate::storage::PlatformPaths::current_kirin_tmp_root();
     let n = sweep_stale_watch_files_in(&kirin_root, Utc::now(), STALE_WATCH_SECS);
     if n > 0 {
-        log::info!("[watch_tmp] startup: swept {n} stale watch snapshot(s)");
+        log::info!("[watch_tmp] startup: swept {n} orphaned watch artifact(s)");
     }
 }
 
 /// Sweep stale watch snapshots below `{kirin_root}/{project_hash}/{instance_id}/`.
 ///
-/// Only `pre.json`/`post.json` whose filesystem mtime is older than
-/// `stale_secs` are removed. Fresh files, future mtimes, unreadable mtimes, and
-/// non-directory entries are kept. Instance/project directories are removed only
-/// when they become empty, so a replacement writer's temp file prevents parent
-/// removal.
+/// Current-schema snapshots are kept for as long as their exact writer holds its lease lock, even
+/// if their mtime is old. A released current owner is definitive crash/teardown evidence, so its
+/// snapshot and marker are removed immediately. Legacy snapshots and atomic temp siblings are
+/// removed only when older than `stale_secs`. Instance/project directories are removed only when
+/// empty, so a replacement writer's fresh temp file prevents parent removal.
 pub(crate) fn sweep_stale_watch_files_in(
     kirin_root: &Path,
     now: DateTime<Utc>,
@@ -62,7 +63,13 @@ pub(crate) fn sweep_stale_watch_files_in(
 
             for file_name in WATCH_FILES {
                 let path = instance_dir.join(file_name);
-                if stale_by_mtime(&path, now, stale_secs) {
+                let live_current_owner =
+                    crate::watch_snapshot_lease::snapshot_file_has_current_live_owner(&path);
+                let released_current_owner =
+                    crate::watch_snapshot_lease::snapshot_file_has_released_current_owner(&path);
+                let should_remove = released_current_owner
+                    || (!live_current_owner && stale_by_mtime(&path, now, stale_secs));
+                if should_remove {
                     match fs::remove_file(&path) {
                         Ok(()) => {
                             removed += 1;
@@ -80,6 +87,9 @@ pub(crate) fn sweep_stale_watch_files_in(
                 }
             }
 
+            removed += sweep_stale_atomic_temps(&instance_dir, now, stale_secs);
+            removed += crate::watch_snapshot_lease::sweep_released_owner_markers(&instance_dir);
+
             remove_dir_if_empty(&instance_dir);
         }
 
@@ -87,6 +97,37 @@ pub(crate) fn sweep_stale_watch_files_in(
     }
 
     removed
+}
+
+fn sweep_stale_atomic_temps(instance_dir: &Path, now: DateTime<Utc>, stale_secs: i64) -> usize {
+    let Ok(entries) = fs::read_dir(instance_dir) else {
+        return 0;
+    };
+    let mut removed = 0usize;
+    for entry in entries.flatten() {
+        let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+            continue;
+        };
+        if !is_watch_atomic_temp(&name) || !stale_by_mtime(&entry.path(), now, stale_secs) {
+            continue;
+        }
+        match fs::remove_file(entry.path()) {
+            Ok(()) => removed += 1,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => log::debug!(
+                "[watch_tmp] startup: failed to sweep temp {}: {}",
+                entry.path().display(),
+                error
+            ),
+        }
+    }
+    removed
+}
+
+fn is_watch_atomic_temp(name: &str) -> bool {
+    WATCH_FILES
+        .iter()
+        .any(|watch| name == format!("{watch}.tmp") || name.starts_with(&format!(".{watch}.tmp.")))
 }
 
 fn entry_is_dir(entry: &fs::DirEntry) -> bool {
@@ -241,5 +282,82 @@ mod tests {
         );
         assert!(live_tmp.exists(), "fresh writer temp is not removed");
         let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn live_owner_prevents_age_cleanup_of_stalled_snapshot() {
+        let root = isolated_root("live_owner");
+        let instance_dir = root.join("ph").join("iid");
+        fs::create_dir_all(&instance_dir).unwrap();
+        let mut lease = crate::watch_snapshot_lease::WatchSnapshotLease::new();
+        lease.bind(&instance_dir).unwrap();
+        let snapshot = instance_dir.join("pre.json");
+        fs::write(
+            &snapshot,
+            format!(r#"{{"watch_owner_id":"{}"}}"#, lease.owner_id()),
+        )
+        .unwrap();
+        let now_system = SystemTime::now();
+        set_mtime(
+            &snapshot,
+            now_system - Duration::from_secs(STALE_WATCH_SECS as u64 + 1),
+        );
+
+        let removed =
+            sweep_stale_watch_files_in(&root, DateTime::<Utc>::from(now_system), STALE_WATCH_SECS);
+
+        assert_eq!(removed, 0);
+        assert!(snapshot.exists(), "live kernel lease outranks old mtime");
+        drop(lease);
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn released_current_owner_and_crash_marker_are_removed_without_waiting() {
+        let root = isolated_root("released_owner");
+        let instance_dir = root.join("ph").join("iid");
+        let owner_id = uuid::Uuid::new_v4().to_string();
+        let marker_dir = instance_dir.join(".watch_owners");
+        fs::create_dir_all(&marker_dir).unwrap();
+        let marker = marker_dir.join(format!("{owner_id}.lease"));
+        fs::write(&marker, b"1").unwrap();
+        let snapshot = instance_dir.join("post.json");
+        fs::write(&snapshot, format!(r#"{{"watch_owner_id":"{owner_id}"}}"#)).unwrap();
+
+        let removed = sweep_stale_watch_files_in(&root, Utc::now(), STALE_WATCH_SECS);
+
+        assert_eq!(removed, 2, "one snapshot plus one released marker");
+        assert!(!snapshot.exists());
+        assert!(!marker.exists());
+        assert!(!root.join("ph").exists(), "empty parents are reclaimed");
+    }
+
+    #[test]
+    fn stale_atomic_temps_are_removed_but_fresh_writer_temp_is_kept() {
+        let root = isolated_root("atomic_temps");
+        let instance_dir = root.join("ph").join("iid");
+        fs::create_dir_all(&instance_dir).unwrap();
+        let stale_unique = instance_dir.join(".pre.json.tmp.123.1");
+        let stale_legacy = instance_dir.join("post.json.tmp");
+        let fresh = instance_dir.join(".post.json.tmp.456.2");
+        let unrelated = instance_dir.join(".note.json.tmp.123.1");
+        for path in [&stale_unique, &stale_legacy, &fresh, &unrelated] {
+            fs::write(path, b"tmp").unwrap();
+        }
+        let now_system = SystemTime::now();
+        let stale_system = now_system - Duration::from_secs(STALE_WATCH_SECS as u64 + 1);
+        set_mtime(&stale_unique, stale_system);
+        set_mtime(&stale_legacy, stale_system);
+        set_mtime(&unrelated, stale_system);
+
+        let removed =
+            sweep_stale_watch_files_in(&root, DateTime::<Utc>::from(now_system), STALE_WATCH_SECS);
+
+        assert_eq!(removed, 2);
+        assert!(!stale_unique.exists());
+        assert!(!stale_legacy.exists());
+        assert!(fresh.exists());
+        assert!(unrelated.exists());
+        let _ = fs::remove_dir_all(root);
     }
 }

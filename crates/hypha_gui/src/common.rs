@@ -5,6 +5,55 @@
 use crate::palette::{COL_FLORA, COL_FLORA_BRIGHT, COL_MUTED, COL_NORMAL};
 use nih_plug_egui::egui::{self, Color32, RichText, Stroke, Vec2};
 
+#[cfg(target_os = "macos")]
+const MACOS_PROPORTIONAL_FONT_PATH: &str = "/System/Library/Fonts/SFNS.ttf";
+#[cfg(target_os = "macos")]
+const MACOS_MONOSPACE_FONT_PATH: &str = "/System/Library/Fonts/SFNSMono.ttf";
+
+/// Install the same native typefaces used by the JUCE AU shell. This runs once on the GUI
+/// thread; missing platform fonts silently retain the normal egui fallback fonts.
+pub fn install_native_font_contract(ctx: &egui::Context) {
+    #[cfg(target_os = "macos")]
+    {
+        use nih_plug_egui::egui::{FontData, FontDefinitions, FontFamily};
+        use std::sync::Arc;
+
+        let proportional = std::fs::read(MACOS_PROPORTIONAL_FONT_PATH).ok();
+        let monospace = std::fs::read(MACOS_MONOSPACE_FONT_PATH).ok();
+        if proportional.is_none() && monospace.is_none() {
+            return;
+        }
+
+        let mut fonts = FontDefinitions::default();
+        if let Some(bytes) = proportional {
+            let name = "Hypha System".to_owned();
+            fonts
+                .font_data
+                .insert(name.clone(), Arc::new(FontData::from_owned(bytes)));
+            fonts
+                .families
+                .entry(FontFamily::Proportional)
+                .or_default()
+                .insert(0, name);
+        }
+        if let Some(bytes) = monospace {
+            let name = "Hypha System Mono".to_owned();
+            fonts
+                .font_data
+                .insert(name.clone(), Arc::new(FontData::from_owned(bytes)));
+            fonts
+                .families
+                .entry(FontFamily::Monospace)
+                .or_default()
+                .insert(0, name);
+        }
+        ctx.set_fonts(fonts);
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    let _ = ctx;
+}
+
 /// label | value | unit の 1 行をグリッドに流し込む。
 pub fn value_row(ui: &mut egui::Ui, label: &str, value: String, unit: &str, color: Color32) {
     ui.label(RichText::new(label).size(13.0).color(COL_MUTED));

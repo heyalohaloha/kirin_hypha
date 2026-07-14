@@ -46,7 +46,6 @@ pub(crate) fn canonical_wav_alignment(
         || !has_dense_frame_grid(left)
         || !has_dense_frame_grid(right)
         || !has_shared_native_slots(left, right)
-        || !crate::trace_content_clock::has_compatible_host_clocks(left, right)
         || !has_wav_bounded_slots(left)
         || !has_wav_bounded_slots(right)
     {
@@ -59,6 +58,15 @@ pub(crate) fn canonical_wav_alignment(
     ]
     .contains(&start_basis)
         || right.trace_pair_wav_start_basis.as_deref() != Some(start_basis)
+    {
+        return None;
+    }
+    // A BWF time reference plus the identical native slots is the final sample-axis proof. The
+    // per-instance host clock remains diagnostic and can legitimately be absent on AU when its
+    // first callback is a partial 100 ms block. Without `bext`, the render-range fallback still
+    // requires matching host-clock provenance.
+    if start_basis == TRACE_ALIGNMENT_START_RENDER_RANGE
+        && !crate::trace_content_clock::has_compatible_host_clocks(left, right)
     {
         return None;
     }
@@ -288,6 +296,26 @@ mod tests {
     }
 
     #[test]
+    fn bwf_pair_contract_does_not_require_optional_au_host_clock() {
+        let pre = data(Role::Pre);
+        let mut post = data(Role::Post);
+        post.trace_clock = None;
+
+        assert!(canonical_wav_alignment(&pre, &post).is_some());
+
+        let mut render_pre = pre;
+        let mut render_post = post;
+        for side in [&mut render_pre, &mut render_post] {
+            side.expected_wav
+                .as_mut()
+                .unwrap()
+                .wav_time_reference_samples = None;
+            side.trace_pair_wav_start_basis = Some(TRACE_ALIGNMENT_START_RENDER_RANGE.to_string());
+        }
+        assert!(canonical_wav_alignment(&render_pre, &render_post).is_none());
+    }
+
+    #[test]
     fn pair_contract_proves_the_declared_bwf_start_boundary() {
         let mut pre = data(Role::Pre);
         let mut post = data(Role::Post);
@@ -365,7 +393,7 @@ mod tests {
     }
 
     #[test]
-    fn pair_contract_ignores_clock_ranges_but_requires_clock_provenance() {
+    fn bwf_pair_contract_treats_instance_clock_ranges_as_diagnostics() {
         let mut pre = data(Role::Pre);
         let mut post = data(Role::Post);
         let clock = post.trace_clock.as_mut().unwrap();
@@ -374,11 +402,11 @@ mod tests {
         assert!(canonical_wav_alignment(&pre, &post).is_some());
 
         post.trace_clock.as_mut().unwrap().sources = vec!["different_clock".to_string()];
-        assert!(canonical_wav_alignment(&pre, &post).is_none());
+        assert!(canonical_wav_alignment(&pre, &post).is_some());
 
         pre.trace_clock = None;
         post.trace_clock = None;
-        assert!(canonical_wav_alignment(&pre, &post).is_none());
+        assert!(canonical_wav_alignment(&pre, &post).is_some());
     }
 
     #[test]

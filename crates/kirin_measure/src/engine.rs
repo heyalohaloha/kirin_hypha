@@ -159,15 +159,7 @@ impl MeasureEngine {
         samples: &[f64],
         mut observe: impl FnMut(u64, &MeasureResult, &[f64]),
     ) -> Option<MeasureResult> {
-        for &s in samples {
-            self.window_400ms.push_back(s);
-            self.accum.push(s);
-        }
-
-        // 400ms ウィンドウを制限（古いサンプルを破棄）
-        while self.window_400ms.len() > self.window_400ms_cap {
-            self.window_400ms.pop_front();
-        }
+        self.accum.extend_from_slice(samples);
 
         // 100ms チャンクが揃ったら ebur128 に投入 → 結果を更新
         // 複数チャンク分溜まっている場合は全て処理し、最後の結果を返す
@@ -178,6 +170,14 @@ impl MeasureEngine {
             // 処理する f64 列は drain().collect() と同一順・同一値 → 計測 byte-identical。
             self.chunk_buf.clear();
             self.chunk_buf.extend(self.accum.drain(..self.accum_target));
+
+            // Crest/PSR の 400ms 窓も、この observer 結果を生成した 100ms チャンクまでだけ
+            // 進める。入力全体を先に窓へ入れると、offline bounce など 1 回の push で複数
+            // チャンクを処理した際に、中間結果まで最後の 400ms tail を参照してしまう。
+            self.window_400ms.extend(self.chunk_buf.iter().copied());
+            while self.window_400ms.len() > self.window_400ms_cap {
+                self.window_400ms.pop_front();
+            }
             // B-078: add_frames_f64 失敗を沈黙させない。正常運用では frames が n_channels で
             // 割り切れ mode も有効なので発生しないが、NoMem 等で失敗した場合この 100ms チャンクは
             // 計測に入らない（欠落相当）。UI には出さず log で可視化する（R-28 / integrity 思想）。

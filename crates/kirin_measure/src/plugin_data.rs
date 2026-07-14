@@ -1941,10 +1941,12 @@ fn late_expected_is_materialized_quarantine_dir(component: &str) -> bool {
 }
 
 fn reconcile_late_expected_wav_project_dir(plugin_data_root: &Path, project_dir: &Path) -> usize {
+    let drop_reconciled = reconcile_drop_committed_closed_project(plugin_data_root, project_dir);
     let Some(expected) = read_late_expected_metadata_from_project_dir(project_dir) else {
-        return 0;
+        return drop_reconciled;
     };
-    finalize_pair_pending_sessions(project_dir)
+    drop_reconciled
+        .saturating_add(finalize_pair_pending_sessions(project_dir))
         .saturating_add(reconcile_late_expected_committed_project(
             plugin_data_root,
             project_dir,
@@ -1955,6 +1957,132 @@ fn reconcile_late_expected_wav_project_dir(plugin_data_root: &Path, project_dir:
             project_dir,
             &expected,
         ))
+}
+
+/// Complete an exact Kirin OS Drop even when the user stopped Record before dropping the WAV.
+///
+/// The live IO path binds commits while Record is open. This recovery path starts from the two
+/// closed producer artifacts instead: it proves their cross-links and sample window first, then
+/// re-reads and binds only the transaction that names that same session. A project-wide
+/// `current.json` is never used to choose the session.
+fn reconcile_drop_committed_closed_project(plugin_data_root: &Path, project_dir: &Path) -> usize {
+    let mut candidates: HashMap<String, LateExpectedClosedCandidate> = HashMap::new();
+    collect_late_expected_closed_candidates(project_dir, &mut candidates);
+    let mut reconciled = 0_usize;
+    for (session_id, candidate) in candidates {
+        let (Some((pre_path, mut pre_data)), Some((post_path, mut post_data))) =
+            (candidate.pre, candidate.post)
+        else {
+            continue;
+        };
+        if !closed_pair_can_accept_exact_drop(&pre_data, &post_data, &session_id)
+            || !late_expected_publish_paths_are_inside_root(plugin_data_root, &pre_path, &post_path)
+        {
+            continue;
+        }
+        let expected = match crate::record_drop_commit::inspect_drop_commit_for_closed_pair_session(
+            plugin_data_root,
+            &pre_data.project_hash,
+            &session_id,
+        ) {
+            Ok(Some(expected)) => expected,
+            Ok(None) => continue,
+            Err(error) => {
+                log::warn!(
+                    "[record_drop_commit] closed-pair inspect skipped: session={} err={}",
+                    session_id,
+                    error
+                );
+                continue;
+            }
+        };
+        if !normalize_late_expected_pair(&mut pre_data, &mut post_data, &expected)
+            || !prepare_late_expected_pair(&mut pre_data, &mut post_data)
+        {
+            continue;
+        }
+        match crate::record_drop_commit::bind_drop_commit_for_closed_pair_session(
+            plugin_data_root,
+            &pre_data.project_hash,
+            &session_id,
+            &expected,
+        ) {
+            Ok(Some(bound)) if bound == expected => {}
+            Ok(_) => continue,
+            Err(error) => {
+                log::warn!(
+                    "[record_drop_commit] closed-pair bind skipped: session={} err={}",
+                    session_id,
+                    error
+                );
+                continue;
+            }
+        }
+        match publish_prepared_late_expected_pair(
+            plugin_data_root,
+            &pre_path,
+            &mut pre_data,
+            &post_path,
+            &mut post_data,
+        ) {
+            Ok(true) => {
+                let _ = fs::remove_file(&pre_path);
+                let _ = fs::remove_file(&post_path);
+                reconciled = reconciled.saturating_add(2);
+                log::info!(
+                    "[record_drop_commit] promoted exact stopped pair: session={} root={}",
+                    session_id,
+                    plugin_data_root.display()
+                );
+            }
+            Ok(false) => {}
+            Err(error) => log::warn!(
+                "[record_drop_commit] stopped-pair publish skipped: session={} err={}",
+                session_id,
+                error
+            ),
+        }
+    }
+    reconciled
+}
+
+fn closed_pair_can_accept_exact_drop(
+    pre: &PluginDataFile,
+    post: &PluginDataFile,
+    session_id: &str,
+) -> bool {
+    pre.role == Role::Pre
+        && post.role == Role::Post
+        && pre.status == Status::Closed
+        && post.status == Status::Closed
+        && pre.project_hash == post.project_hash
+        && pre.record_session_id.as_deref() == Some(session_id)
+        && post.record_session_id.as_deref() == Some(session_id)
+        && pre.paired_post_instance_id.as_deref() == Some(post.instance_id.as_str())
+        && post.paired_pre_instance_id.as_deref() == Some(pre.instance_id.as_str())
+        && matches!(
+            pre.commit_status.as_deref(),
+            Some("pair_pending" | "failed")
+        )
+        && matches!(
+            post.commit_status.as_deref(),
+            Some("pair_pending" | "failed")
+        )
+}
+
+fn late_expected_publish_paths_are_inside_root(
+    plugin_data_root: &Path,
+    left_path: &Path,
+    right_path: &Path,
+) -> bool {
+    [left_path, right_path].into_iter().all(|path| {
+        let Some(paths) = pair_paths_from_closed_artifact_path(path) else {
+            return false;
+        };
+        path.starts_with(plugin_data_root)
+            && paths.final_path.starts_with(plugin_data_root)
+            && paths.member_path.starts_with(plugin_data_root)
+    })
 }
 
 fn read_late_expected_metadata_from_project_dir(project_dir: &Path) -> Option<ExpectedWavMetadata> {
@@ -2180,15 +2308,96 @@ fn collect_late_expected_closed_candidates(
             continue;
         };
         let entry = candidates.entry(session_id).or_default();
-        match data.role {
-            Role::Pre if entry.pre.is_none() => entry.pre = Some((path, data)),
-            Role::Post if entry.post.is_none() => entry.post = Some((path, data)),
-            _ => {}
+        let slot = match data.role {
+            Role::Pre => &mut entry.pre,
+            Role::Post => &mut entry.post,
+        };
+        let should_replace = slot.as_ref().is_none_or(|(existing_path, _)| {
+            let new_precedence = closed_candidate_precedence(&path);
+            let existing_precedence = closed_candidate_precedence(existing_path);
+            new_precedence > existing_precedence
+                || (new_precedence == existing_precedence
+                    && path.as_path() < existing_path.as_path())
+        });
+        if should_replace {
+            *slot = Some((path, data));
         }
     }
 }
 
+/// A `.failed` artifact is written from the fully evaluated pair and only then replaces its
+/// `.pair_pending` source. A crash between those two operations can leave both files behind, so
+/// directory iteration order must not decide which generation is reconciled.
+fn closed_candidate_precedence(path: &Path) -> u8 {
+    match path
+        .parent()
+        .and_then(Path::file_name)
+        .and_then(|name| name.to_str())
+    {
+        Some(".failed") => 1,
+        _ => 0,
+    }
+}
+
 fn publish_late_expected_pair(
+    plugin_data_root: &Path,
+    left_path: &Path,
+    left_data: &mut PluginDataFile,
+    right_path: &Path,
+    right_data: &mut PluginDataFile,
+) -> Result<bool, WriterError> {
+    if !prepare_late_expected_pair(left_data, right_data) {
+        return Ok(false);
+    }
+    publish_prepared_late_expected_pair(
+        plugin_data_root,
+        left_path,
+        left_data,
+        right_path,
+        right_data,
+    )
+}
+
+fn prepare_late_expected_pair(
+    left_data: &mut PluginDataFile,
+    right_data: &mut PluginDataFile,
+) -> bool {
+    let (pre_data, post_data) = match (left_data.role, right_data.role) {
+        (Role::Pre, Role::Post) => (left_data, right_data),
+        (Role::Post, Role::Pre) => (right_data, left_data),
+        _ => return false,
+    };
+    synchronize_pair_annotations(pre_data, post_data);
+    let Some(content_alignment) =
+        crate::trace_alignment::canonical_wav_alignment(pre_data, post_data)
+    else {
+        return false;
+    };
+    pre_data.trace_content_alignment = Some(content_alignment.clone());
+    post_data.trace_content_alignment = Some(content_alignment);
+    pre_data.trace_pair_offset_samples = None;
+    post_data.trace_pair_offset_samples = None;
+    pre_data.trace_pair_alignment_score = None;
+    post_data.trace_pair_alignment_score = None;
+    pre_data.trace_context_frames.clear();
+    post_data.trace_context_frames.clear();
+    pre_data.trace_context_slot_positions.clear();
+    post_data.trace_context_slot_positions.clear();
+    pre_data.trace_pair_wav_start_basis = None;
+    post_data.trace_pair_wav_start_basis = None;
+    pre_data.trace_context_psb_snapshots.clear();
+    post_data.trace_context_psb_snapshots.clear();
+    if !pair_publish_failure_reasons(pre_data, post_data).is_empty() {
+        return false;
+    }
+    pre_data.commit_status = Some("committed".to_string());
+    post_data.commit_status = Some("committed".to_string());
+    refresh_record_quality(pre_data);
+    refresh_record_quality(post_data);
+    true
+}
+
+fn publish_prepared_late_expected_pair(
     plugin_data_root: &Path,
     left_path: &Path,
     left_data: &mut PluginDataFile,
@@ -2207,7 +2416,6 @@ fn publish_late_expected_pair(
         (Role::Post, Role::Pre) => (&right_paths, right_data, &left_paths, left_data),
         _ => return Ok(false),
     };
-    synchronize_pair_annotations(pre_data, post_data);
     if !paths.final_path.starts_with(plugin_data_root)
         || !pre_paths.member_path.starts_with(plugin_data_root)
         || !post_paths.member_path.starts_with(plugin_data_root)
@@ -2218,32 +2426,6 @@ fn publish_late_expected_pair(
         )
         .into());
     }
-    let Some(content_alignment) =
-        crate::trace_alignment::canonical_wav_alignment(pre_data, post_data)
-    else {
-        return Ok(false);
-    };
-    pre_data.trace_content_alignment = Some(content_alignment.clone());
-    post_data.trace_content_alignment = Some(content_alignment);
-    pre_data.trace_pair_offset_samples = None;
-    post_data.trace_pair_offset_samples = None;
-    pre_data.trace_pair_alignment_score = None;
-    post_data.trace_pair_alignment_score = None;
-    pre_data.trace_context_frames.clear();
-    post_data.trace_context_frames.clear();
-    pre_data.trace_context_slot_positions.clear();
-    post_data.trace_context_slot_positions.clear();
-    pre_data.trace_pair_wav_start_basis = None;
-    post_data.trace_pair_wav_start_basis = None;
-    pre_data.trace_context_psb_snapshots.clear();
-    post_data.trace_context_psb_snapshots.clear();
-    if !pair_publish_failure_reasons(pre_data, post_data).is_empty() {
-        return Ok(false);
-    }
-    pre_data.commit_status = Some("committed".to_string());
-    post_data.commit_status = Some("committed".to_string());
-    refresh_record_quality(pre_data);
-    refresh_record_quality(post_data);
     publish_pair_committed_files(&paths, pre_paths, pre_data, post_paths, post_data)?;
     mark_pair_expected_metadata_consumed(&paths, pre_data);
     Ok(true)
@@ -2257,8 +2439,6 @@ fn normalize_late_expected_pair(
     if left.sample_rate == 0
         || left.sample_rate != right.sample_rate
         || left.sample_rate != expected.expected_sample_rate
-        || left.trace_slot_positions.len() != left.frames.len()
-        || right.trace_slot_positions.len() != right.frames.len()
     {
         return false;
     }
@@ -3475,6 +3655,49 @@ mod tests {
             consumed_at_ms: None,
             consumed_by_session_id: None,
         }
+    }
+
+    fn write_drop_commit_fixture(
+        base: &Path,
+        session_id: &str,
+        metadata: &ExpectedWavMetadata,
+        with_transaction: bool,
+    ) {
+        let drop_commit_id = format!("drop-{session_id}");
+        let commit = crate::record_drop_commit::DropRecordCommit {
+            schema_version: crate::record_drop_commit::DROP_COMMIT_SCHEMA.to_string(),
+            drop_commit_id: drop_commit_id.clone(),
+            project_hash: "project_hash_test".to_string(),
+            record_session_id: session_id.to_string(),
+            created_at_ms: metadata.created_at_ms,
+            metadata: metadata.clone(),
+        };
+        crate::atomic_file::write_bytes_atomic(
+            &crate::record_drop_commit::drop_commit_path(base, "project_hash_test", session_id),
+            &serde_json::to_vec(&commit).unwrap(),
+        )
+        .unwrap();
+        if !with_transaction {
+            return;
+        }
+        let transaction = crate::record_drop_commit::DropRecordTransaction {
+            schema_version: crate::record_drop_commit::DROP_TRANSACTION_SCHEMA.to_string(),
+            drop_commit_id: drop_commit_id.clone(),
+            project_hash: "project_hash_test".to_string(),
+            created_at_ms: metadata.created_at_ms,
+            bounce_id: metadata.bounce_id.clone(),
+            wav_hash: metadata.wav_hash.clone().unwrap(),
+            record_session_ids: vec![session_id.to_string()],
+        };
+        crate::atomic_file::write_bytes_atomic(
+            &crate::record_drop_commit::drop_transaction_path(
+                base,
+                "project_hash_test",
+                &drop_commit_id,
+            ),
+            &serde_json::to_vec(&transaction).unwrap(),
+        )
+        .unwrap();
     }
 
     fn iso_ms(ms: i64) -> String {
@@ -5291,6 +5514,241 @@ mod tests {
             assert!(verify_checksum(&data));
         }
         assert_eq!(reconcile_late_expected_wav(&base), 0);
+    }
+
+    #[test]
+    fn stopped_record_drop_promotes_au_partial_context_without_current_metadata() {
+        let base = isolated_dir();
+        let session_id = "session-stopped-drop-au-partial";
+        crate::record_expected::begin_expected_session(&base, "project_hash_test", session_id)
+            .unwrap();
+        crate::record_expected::mark_expected_metadata_consumed(
+            &base,
+            "project_hash_test",
+            None,
+            session_id,
+        )
+        .unwrap();
+        let mut expected = fresh_expected_wav_fixture(48_000);
+        expected.wav_time_reference_samples = Some(96_000);
+        let start_ms = expected.created_at_ms.saturating_sub(2_000);
+        let end_ms = expected.created_at_ms.saturating_sub(500);
+        let mut pre = complete_pair_writer(
+            &base,
+            Role::Pre,
+            "iid-pre-stopped-drop",
+            None,
+            Some("iid-post-stopped-drop".to_string()),
+        );
+        let mut post = complete_pair_writer(
+            &base,
+            Role::Post,
+            "iid-post-stopped-drop",
+            Some("iid-pre-stopped-drop".to_string()),
+            None,
+        );
+        let positions: Vec<i64> = std::iter::once(95_940)
+            .chain(std::iter::once(96_000))
+            .chain((1..=11).map(|index| 96_000 + index * 4_800))
+            .collect();
+        for (writer, role_offset) in [(&mut pre, 0.0), (&mut post, 20.0)] {
+            writer.set_record_session_id(Some(session_id.to_string()));
+            set_late_expected_record_time(writer, start_ms, end_ms);
+            configure_render_clock_take(writer, 57_600);
+            writer.data.trace_context_slot_positions = positions.clone();
+            writer.data.trace_context_frames = positions
+                .iter()
+                .enumerate()
+                .map(|(index, _)| {
+                    make_frame_optional(
+                        (index as u64 + 1) * TRACE_FRAME_INTERVAL_MS,
+                        None,
+                        None,
+                        -30.0 + index as f64 + role_offset,
+                        -6.0 + index as f64,
+                        12.0,
+                        None,
+                    )
+                })
+                .collect();
+            writer.data.status = Status::Closed;
+            writer.data.commit_status = Some("pair_pending".to_string());
+        }
+        post.data.trace_slot_positions.clear();
+        post.data.trace_time_axis = None;
+        post.data.trace_clock = None;
+        let pre_paths = self_paths_for(&pre.paths, &pre.data);
+        let post_paths = self_paths_for(&post.paths, &post.data);
+        pre.write_atomic(pre_paths.pair_pending_path.clone())
+            .unwrap();
+        post.write_atomic(post_paths.pair_pending_path.clone())
+            .unwrap();
+        assert!(!crate::record_expected::expected_path(&base, "project_hash_test").exists());
+        write_drop_commit_fixture(&base, session_id, &expected, true);
+        assert!(closed_pair_can_accept_exact_drop(
+            &pre.data, &post.data, session_id
+        ));
+        let inspected = crate::record_drop_commit::inspect_drop_commit_for_closed_pair_session(
+            &base,
+            "project_hash_test",
+            session_id,
+        )
+        .unwrap()
+        .expect("exact Drop transaction");
+        assert_eq!(inspected, expected);
+        let mut proof_pre = pre.data.clone();
+        let mut proof_post = post.data.clone();
+        assert!(normalize_late_expected_pair(
+            &mut proof_pre,
+            &mut proof_post,
+            &inspected
+        ));
+        assert!(
+            prepare_late_expected_pair(&mut proof_pre, &mut proof_post),
+            "normalized pair must satisfy publication: pre={:?} post={:?}",
+            pair_publish_failure_reasons(&proof_pre, &proof_post),
+            pair_publish_failure_reasons(&proof_post, &proof_pre)
+        );
+
+        assert_eq!(
+            reconcile_late_expected_wav_project(&base, "project_hash_test"),
+            2
+        );
+
+        assert!(!pre_paths.pair_pending_path.exists());
+        assert!(!post_paths.pair_pending_path.exists());
+        let pre_trace_path = pair_trace_shelf_path(&pre_paths, &pre.data).unwrap();
+        let post_trace_path = pair_trace_shelf_path(&post_paths, &post.data).unwrap();
+        for path in [
+            &pre_paths.member_path,
+            &post_paths.member_path,
+            &pre_trace_path,
+            &post_trace_path,
+        ] {
+            let data: PluginDataFile = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+            assert_eq!(data.commit_status.as_deref(), Some("committed"));
+            assert_eq!(data.frames.len(), 10);
+            assert_eq!(
+                data.trace_slot_positions,
+                (1..=10)
+                    .map(|index| 96_000 + index * 4_800)
+                    .collect::<Vec<_>>()
+            );
+            assert_eq!(
+                data.trace_pair_wav_start_basis, None,
+                "staging proof must be removed after publication"
+            );
+            assert!(data.trace_context_frames.is_empty());
+            assert!(data.trace_context_slot_positions.is_empty());
+            assert!(crate::trace_alignment::has_canonical_wav_reference(&data));
+            assert!(verify_checksum(&data));
+        }
+        let marker = crate::record_expected::read_claim_marker_for_session(
+            &base,
+            "project_hash_test",
+            session_id,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(marker.metadata, Some(expected));
+        assert!(marker.closed_at_ms.is_some());
+        assert_eq!(reconcile_late_expected_wav(&base), 0);
+    }
+
+    #[test]
+    fn closed_candidate_selection_prefers_the_evaluated_failed_generation() {
+        let base = isolated_dir();
+        let project_dir = base.join("project_hash_test");
+        let pending_path = project_dir
+            .join("pre")
+            .join(".pair_pending")
+            .join("same-session.json");
+        let failed_path = project_dir
+            .join("pre")
+            .join(".failed")
+            .join("same-session.json");
+        let mut pending = complete_pair_writer(
+            &base,
+            Role::Pre,
+            "iid-pre-candidate-precedence",
+            None,
+            Some("iid-post-candidate-precedence".to_string()),
+        )
+        .data;
+        pending.record_session_id = Some("same-session".to_string());
+        pending.status = Status::Closed;
+        pending.commit_status = Some("pair_pending".to_string());
+        let mut failed = pending.clone();
+        failed.commit_status = Some("failed".to_string());
+        failed.integrity_reasons = vec!["evaluated-generation".to_string()];
+        write_plugin_data_atomic(&pending_path, &mut pending).unwrap();
+        write_plugin_data_atomic(&failed_path, &mut failed).unwrap();
+
+        let mut candidates = HashMap::new();
+        collect_late_expected_closed_candidates(&project_dir, &mut candidates);
+        let selected = candidates
+            .remove("same-session")
+            .and_then(|candidate| candidate.pre)
+            .expect("PRE candidate");
+
+        assert_eq!(selected.0, failed_path);
+        assert_eq!(selected.1.commit_status.as_deref(), Some("failed"));
+        assert_eq!(selected.1.integrity_reasons, ["evaluated-generation"]);
+    }
+
+    #[test]
+    fn stopped_record_drop_without_transaction_stays_pending_and_unclaimed() {
+        let base = isolated_dir();
+        let session_id = "session-stopped-drop-no-transaction";
+        crate::record_expected::begin_expected_session(&base, "project_hash_test", session_id)
+            .unwrap();
+        let mut expected = fresh_expected_wav_fixture(48_000);
+        expected.wav_time_reference_samples = Some(0);
+        let start_ms = expected.created_at_ms.saturating_sub(2_000);
+        let end_ms = expected.created_at_ms.saturating_sub(500);
+        let mut pre = complete_pair_writer(
+            &base,
+            Role::Pre,
+            "iid-pre-no-drop-transaction",
+            None,
+            Some("iid-post-no-drop-transaction".to_string()),
+        );
+        let mut post = complete_pair_writer(
+            &base,
+            Role::Post,
+            "iid-post-no-drop-transaction",
+            Some("iid-pre-no-drop-transaction".to_string()),
+            None,
+        );
+        for writer in [&mut pre, &mut post] {
+            writer.set_record_session_id(Some(session_id.to_string()));
+            set_late_expected_record_time(writer, start_ms, end_ms);
+            configure_render_clock_take(writer, 57_600);
+            writer.data.trace_context_frames = writer.data.frames.clone();
+            writer.data.trace_context_slot_positions = writer.data.trace_slot_positions.clone();
+            writer.data.status = Status::Closed;
+            writer.data.commit_status = Some("pair_pending".to_string());
+        }
+        let pre_paths = self_paths_for(&pre.paths, &pre.data);
+        let post_paths = self_paths_for(&post.paths, &post.data);
+        pre.write_atomic(pre_paths.pair_pending_path.clone())
+            .unwrap();
+        post.write_atomic(post_paths.pair_pending_path.clone())
+            .unwrap();
+        write_drop_commit_fixture(&base, session_id, &expected, false);
+
+        assert_eq!(reconcile_late_expected_wav(&base), 0);
+        assert!(pre_paths.pair_pending_path.exists());
+        assert!(post_paths.pair_pending_path.exists());
+        assert!(!crate::record_expected::expected_path(&base, "project_hash_test").exists());
+        let marker = crate::record_expected::read_claim_marker_for_session(
+            &base,
+            "project_hash_test",
+            session_id,
+        )
+        .unwrap()
+        .unwrap();
+        assert!(marker.metadata.is_none());
     }
 
     #[test]

@@ -512,8 +512,6 @@ impl Plugin for HyphaPost {
             record_error_message: Arc::clone(&self.record_error_message),
             // B-108: display/keep 共有ラッチ。trigger_keep が resolve_arm_target で読む。
             latched_pre: Arc::clone(&self.latched_pre),
-            record_mark_queue: Arc::clone(&self.record_mark_queue),
-            record_take_tracker: Arc::clone(&self.record_take_tracker),
         })
     }
 
