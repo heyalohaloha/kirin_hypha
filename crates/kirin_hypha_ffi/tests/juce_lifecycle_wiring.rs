@@ -191,21 +191,22 @@ fn egui_post_initialize_does_not_shutdown_threads_while_recording() {
 
 #[test]
 fn io_thread_shutdown_paths_mark_lifecycle_shutdown() {
-    for (path, start_marker) in [
+    for (path, start_marker, close_marker) in [
         (
             "crates/kirin_measure/src/io_thread_pre.rs",
             "if let Some(mut ctx) = writer_ctx.take()",
+            "writer_close_with_summary(ctx, summary);",
         ),
         (
             "crates/kirin_measure/src/io_thread_post.rs",
             "if let Some(mut ctx) = recording.take()",
+            "writer_close_with_summary_and_marks(ctx, summary, &record_mark_queue);",
         ),
     ] {
         let src = read_repo(path);
         let start = src
             .find(start_marker)
             .expect("shutdown-during-record writer context must exist");
-        let close_marker = "writer_close_with_summary(ctx, summary);";
         let close_end = src[start..]
             .find(close_marker)
             .map(|idx| start + idx + close_marker.len())
@@ -219,13 +220,17 @@ fn io_thread_shutdown_paths_mark_lifecycle_shutdown() {
         let reason = body
             .find("ctx.writer.add_integrity_reason(\"lifecycle_shutdown\")")
             .expect("reason call exists");
-        let close = body
-            .find("writer_close_with_summary(ctx, summary);")
-            .expect("writer close exists");
+        let close = body.find(close_marker).expect("writer close exists");
         assert!(
             reason < close,
             "{path} must tag lifecycle shutdown before closing the writer"
         );
+        if path.ends_with("io_thread_post.rs") {
+            assert!(
+                close_marker.contains("and_marks"),
+                "POST lifecycle close must final-drain accepted MARKs"
+            );
+        }
     }
 }
 

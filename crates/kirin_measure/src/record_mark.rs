@@ -65,16 +65,22 @@ pub fn enqueue_record_mark(
     if !is_record_mark_tag(tag) {
         return Err(RecordMarkError::InvalidTag);
     }
-    let mut pending = queue
-        .lock()
-        .map_err(|_| RecordMarkError::QueueUnavailable)?;
-    if pending.len() >= RECORD_MARK_QUEUE_CAPACITY {
-        return Err(RecordMarkError::QueueFull);
-    }
     if !record_sm.is_recording() {
         return Err(RecordMarkError::NotRecording);
     }
     let generation = record_sm.generation();
+    let mut pending = queue
+        .lock()
+        .map_err(|_| RecordMarkError::QueueUnavailable)?;
+    if !record_sm.is_recording() || record_sm.generation() != generation {
+        return Err(RecordMarkError::NotRecording);
+    }
+    // A new Record generation is a terminal boundary for any failed previous close. Those marks
+    // can no longer be attached to the new session and must not consume its bounded queue budget.
+    pending.retain(|mark| mark.generation == generation);
+    if pending.len() >= RECORD_MARK_QUEUE_CAPACITY {
+        return Err(RecordMarkError::QueueFull);
+    }
     let point = tracker
         .record_mark_point(generation)
         .ok_or(RecordMarkError::ClockUnavailable)?;
@@ -203,5 +209,30 @@ mod tests {
         acknowledge_record_marks(&queue, &[first_id]);
         let remaining = pending_record_marks_for_generation(&queue, sm.generation());
         assert_eq!(remaining, vec![second]);
+    }
+
+    #[test]
+    fn failed_previous_generation_cannot_exhaust_new_record_queue() {
+        let sm = RecordStateMachine::new();
+        let tracker = RecordTakeTracker::new();
+        let queue = new_record_mark_queue();
+        sm.try_enter_record(License::Os).unwrap();
+        let first_generation = sm.generation();
+        publish_record_point(&sm, &tracker);
+        let old = enqueue_record_mark(&sm, &tracker, &queue, "Fix").unwrap();
+        queue
+            .lock()
+            .unwrap()
+            .resize(RECORD_MARK_QUEUE_CAPACITY, old);
+
+        sm.exit_record();
+        sm.try_enter_record(License::Os).unwrap();
+        assert_ne!(sm.generation(), first_generation);
+        publish_record_point(&sm, &tracker);
+        let current = enqueue_record_mark(&sm, &tracker, &queue, "Good").unwrap();
+
+        let pending = queue.lock().unwrap();
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending.front().unwrap(), &current);
     }
 }
