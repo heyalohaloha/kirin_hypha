@@ -36,6 +36,17 @@ namespace
         return false;
     }
 
+    juce::String resolvedOwnPreInstanceId (
+        const juce::String& ownInstanceId,
+        const juce::String& latchedPreInstanceId,
+        const juce::Array<KirinHyphaProcessorBase::PostPairClaim>& claims)
+    {
+        for (const auto& claim : claims)
+            if (claim.instanceId == ownInstanceId && claim.hasPairedPreInstanceId)
+                return claim.pairedPreInstanceId;
+        return latchedPreInstanceId;
+    }
+
     juce::String pairStatusText (int status)
     {
         if (status == 2) return juce::CharPointer_UTF8 ("PAIR ●");
@@ -116,12 +127,6 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         pairDropdown.setColour (juce::TextButton::buttonColourId, hypha::kFieldFill);
         pairDropdown.setColour (juce::TextButton::textColourOnId,  COL_FLORA);
         pairDropdown.setColour (juce::TextButton::textColourOffId, COL_FLORA);
-        pairMenuLookAndFeel.setColour (juce::PopupMenu::backgroundColourId, hypha::BG);
-        pairMenuLookAndFeel.setColour (juce::PopupMenu::textColourId, COL_NORMAL);
-        pairMenuLookAndFeel.setColour (juce::PopupMenu::headerTextColourId, COL_MUTED);
-        pairMenuLookAndFeel.setColour (juce::PopupMenu::highlightedBackgroundColourId,
-                                       hypha::kFieldFill.brighter (0.08f));
-        pairMenuLookAndFeel.setColour (juce::PopupMenu::highlightedTextColourId, COL_FLORA_BR);
         pairDropdown.onClick = [this] { showCandidateMenu(); };
         addAndMakeVisible (pairDropdown);
     }
@@ -159,6 +164,12 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
 KirinHyphaEditor::~KirinHyphaEditor()
 {
     stopTimer();
+}
+
+KirinHyphaEditor::PairMenuLookAndFeel& KirinHyphaEditor::pairMenuLookAndFeel()
+{
+    static PairMenuLookAndFeel lookAndFeel;
+    return lookAndFeel;
 }
 
 juce::String KirinHyphaEditor::instanceId8() const
@@ -326,14 +337,13 @@ void KirinHyphaEditor::showCandidateMenu()
     const juce::String currentPairName = processorRef.pairName();
     const juce::String ownInstanceId = processorRef.instanceId();
 
-    menuCandidates.clearQuick();
     juce::StringArray labels;
     juce::Array<bool> labelEnabled;
     juce::Array<bool> labelChecked;
-    const juce::String currentPreInstanceId = processorRef.pairedPreInstanceId();
+    const juce::String currentPreInstanceId = resolvedOwnPreInstanceId (
+        ownInstanceId, processorRef.pairedPreInstanceId(), claims);
     for (const auto& c : cands)
     {
-        menuCandidates.add (c);
         const bool keepReady = currentPreInstanceId.isNotEmpty()
                                  ? c.instanceId == currentPreInstanceId
                                  : (c.hasName && c.name.isNotEmpty() && c.name == currentPairName);
@@ -348,10 +358,10 @@ void KirinHyphaEditor::showCandidateMenu()
 
     // egui parity: "N ready" = pair-set POST instances (keepReadyCount), NOT the PRE candidate
     // count — the All Keep broadcast acts on POSTs (hypha_post editor.rs:938-944). Candidate rows
-    // below are the exact PRE rows (menuCandidates), matching egui's separate pre_candidates source.
+    // below are exact PRE rows, matching egui's separate pre_candidates source.
     const int nReady = processorRef.keepReadyCount();
     juce::PopupMenu menu;
-    menu.setLookAndFeel (&pairMenuLookAndFeel);
+    menu.setLookAndFeel (&pairMenuLookAndFeel());
     if (! rec && processorRef.licenseIsOs() && nReady >= 1)
         menu.addItem (1, allKeepMenuLabel (nReady));
     if (rec)
@@ -359,17 +369,25 @@ void KirinHyphaEditor::showCandidateMenu()
     if (menu.getNumItems() > 0)
         menu.addSeparator();
     menu.addItem (4, "Pair choices (not Keep targets)", false, false);
-    if (menuCandidates.isEmpty())
+    if (cands.isEmpty())
         menu.addItem (3, "No pair choices", false, false); // disabled (R-26: silent when nothing)
     else
         for (int i = 0; i < labels.size(); ++i)
             menu.addItem (100 + i, labels[i], ! pairLocked && labelEnabled[i], labelChecked[i]);
 
-    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&pairDropdown),
-                        [this] (int result) { handleCandidateMenu (result); });
+    const auto options = juce::PopupMenu::Options()
+                             .withTargetComponent (&pairDropdown)
+                             .withDeletionCheck (*this);
+    juce::Component::SafePointer<KirinHyphaEditor> safeThis (this);
+    menu.showMenuAsync (options, [safeThis, candidates = cands] (int result)
+    {
+        if (safeThis != nullptr)
+            safeThis->handleCandidateMenu (result, candidates);
+    });
 }
 
-void KirinHyphaEditor::handleCandidateMenu (int result)
+void KirinHyphaEditor::handleCandidateMenu (
+    int result, const juce::Array<KirinHyphaProcessorBase::PreCandidate>& candidates)
 {
     if (result == 1)
     {
@@ -385,9 +403,9 @@ void KirinHyphaEditor::handleCandidateMenu (int result)
     else if (result >= 100)
     {
         const int idx = result - 100;
-        if (idx >= 0 && idx < menuCandidates.size())
+        if (idx >= 0 && idx < candidates.size())
         {
-            const auto candidate = menuCandidates.getReference (idx);
+            const auto candidate = candidates.getReference (idx);
             const juce::String name = candidate.hasName ? candidate.name : juce::String();
             if (processorRef.setPairCandidate (candidate.instanceId, name))
             {

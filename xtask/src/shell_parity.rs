@@ -8,6 +8,10 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/../juce_shell/src/PluginEditor.cpp"
     ));
+    const PLUGIN_EDITOR_H: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../juce_shell/src/PluginEditor.h"
+    ));
     const PLUGIN_PROCESSOR_CPP: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../juce_shell/src/PluginProcessor.cpp"
@@ -110,10 +114,9 @@ mod tests {
                 && PLUGIN_EDITOR_CPP.contains(
                     "nameField.setBounds (kMargin, nameY, w - 2 * kMargin - ddW - 4, 22);"
                 )
-                && PLUGIN_EDITOR_CPP.contains("menu.setLookAndFeel (&pairMenuLookAndFeel);")
-                && PLUGIN_EDITOR_CPP.contains(
-                    "pairMenuLookAndFeel.setColour (juce::PopupMenu::backgroundColourId, hypha::BG);"
-                )
+                && PLUGIN_EDITOR_CPP.contains("menu.setLookAndFeel (&pairMenuLookAndFeel());")
+                && PLUGIN_EDITOR_H
+                    .contains("setColour (juce::PopupMenu::backgroundColourId, hypha::BG);")
         );
     }
 
@@ -177,9 +180,10 @@ mod tests {
         assert!(body.contains("const auto cands = processorRef.enumeratePreCandidates();"));
         assert!(body.contains("const auto claims = processorRef.enumeratePostPairClaims();"));
         assert!(body.contains("const juce::String currentPairName = processorRef.pairName();"));
-        assert!(body.contains(
-            "const juce::String currentPreInstanceId = processorRef.pairedPreInstanceId();"
-        ));
+        assert!(
+            body.contains("const juce::String currentPreInstanceId = resolvedOwnPreInstanceId (")
+        );
+        assert!(body.contains("ownInstanceId, processorRef.pairedPreInstanceId(), claims);"));
         assert!(body.contains("c.instanceId == currentPreInstanceId"));
         assert!(body.contains("const bool inUse = claimedByOtherPost"));
         assert!(
@@ -213,10 +217,26 @@ mod tests {
     }
 
     #[test]
+    fn juce_candidate_menu_owns_async_state_and_lifetimes() {
+        let body = between(
+            PLUGIN_EDITOR_CPP,
+            "void KirinHyphaEditor::showCandidateMenu()",
+            "void KirinHyphaEditor::handleCandidateMenu",
+        );
+        assert!(body.contains(".withDeletionCheck (*this);"));
+        assert!(body.contains("juce::Component::SafePointer<KirinHyphaEditor> safeThis (this);"));
+        assert!(body.contains("[safeThis, candidates = cands] (int result)"));
+        assert!(body.contains("safeThis->handleCandidateMenu (result, candidates);"));
+        assert!(PLUGIN_EDITOR_CPP.contains("static PairMenuLookAndFeel lookAndFeel;"));
+        assert!(!PLUGIN_EDITOR_H.contains("PairMenuLookAndFeel       pairMenuLookAndFeel"));
+        assert!(!PLUGIN_EDITOR_H.contains("menuCandidates;"));
+    }
+
+    #[test]
     fn candidate_selection_commits_exact_instance_and_updates_display_field() {
         let body = between(
             PLUGIN_EDITOR_CPP,
-            "void KirinHyphaEditor::handleCandidateMenu (int result)",
+            "void KirinHyphaEditor::handleCandidateMenu (",
             "void KirinHyphaEditor::timerCallback()",
         );
 
@@ -249,7 +269,7 @@ mod tests {
     fn juce_all_keep_uses_authoritative_engine_result() {
         let body = between(
             PLUGIN_EDITOR_CPP,
-            "void KirinHyphaEditor::handleCandidateMenu (int result)",
+            "void KirinHyphaEditor::handleCandidateMenu (",
             "void KirinHyphaEditor::timerCallback()",
         );
         let all_keep_body = between(body, "if (result == 1)", "else if (result == 2)");

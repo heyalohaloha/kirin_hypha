@@ -1527,6 +1527,11 @@ fn candidate_keep_status(
     current_pre_instance_id: Option<&str>,
     post_candidates: &[PostCandidate],
 ) -> CandidateKeepStatus {
+    let resolved_current_pre_instance_id = post_candidates
+        .iter()
+        .find(|candidate| candidate.instance_id == current_instance_id)
+        .and_then(|candidate| candidate.paired_pre_instance_id.as_deref())
+        .or(current_pre_instance_id);
     let claimed_by_other = post_candidates.iter().any(|c| {
         c.instance_id != current_instance_id
             && (c.paired_pre_instance_id.as_deref() == Some(candidate_instance_id)
@@ -1536,8 +1541,10 @@ fn candidate_keep_status(
     });
     if claimed_by_other {
         CandidateKeepStatus::InUseByOther
-    } else if current_pre_instance_id == Some(candidate_instance_id)
-        || (current_pre_instance_id.is_none() && !name.is_empty() && name == current_pair_pre_name)
+    } else if resolved_current_pre_instance_id == Some(candidate_instance_id)
+        || (resolved_current_pre_instance_id.is_none()
+            && !name.is_empty()
+            && name == current_pair_pre_name)
     {
         CandidateKeepStatus::KeepReady
     } else {
@@ -2682,6 +2689,31 @@ mod tests {
                 &claims,
             ),
             CandidateKeepStatus::Available
+        );
+    }
+
+    #[test]
+    fn candidate_keep_status_uses_resolved_self_claim_after_pre_recreation() {
+        let claims = vec![PostCandidate {
+            instance_id: "self-post".into(),
+            project_uuid: "p".into(),
+            daw_session_id: Some("daw".into()),
+            host_process_id: Some(1),
+            pair_pre_name: Some("Music".into()),
+            paired_pre_instance_id: Some("pre-music-recreated".into()),
+            pair_claimed_at: 1.0,
+            path: std::path::PathBuf::new(),
+        }];
+        assert_eq!(
+            candidate_keep_status(
+                "pre-music-recreated",
+                "Music",
+                "self-post",
+                "Music",
+                Some("pre-music-deleted"),
+                &claims,
+            ),
+            CandidateKeepStatus::KeepReady
         );
     }
 

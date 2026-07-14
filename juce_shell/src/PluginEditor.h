@@ -36,6 +36,15 @@ private:
     class PairMenuLookAndFeel final : public juce::LookAndFeel_V4
     {
     public:
+        PairMenuLookAndFeel()
+        {
+            setColour (juce::PopupMenu::backgroundColourId, hypha::BG);
+            setColour (juce::PopupMenu::textColourId, hypha::COL_NORMAL);
+            setColour (juce::PopupMenu::headerTextColourId, hypha::COL_MUTED);
+            setColour (juce::PopupMenu::highlightedBackgroundColourId,
+                       hypha::kFieldFill.brighter (0.08f));
+            setColour (juce::PopupMenu::highlightedTextColourId, hypha::COL_FLORA_BR);
+        }
         juce::Font getPopupMenuFont() override { return hypha::monoFont (12.0f); }
     };
 
@@ -49,7 +58,9 @@ private:
     void configureForKind (Kind);
     void layoutMetrics (bool six);
     void showCandidateMenu();          // B-102: POST pair dropdown (All Keep/All Stop/candidates)
-    void handleCandidateMenu (int result);
+    void handleCandidateMenu (int result,
+                              const juce::Array<KirinHyphaProcessorBase::PreCandidate>& candidates);
+    static PairMenuLookAndFeel& pairMenuLookAndFeel();
     void fillAbs (int cell, double v, bool isTp, bool muted = false);
     void fillDelta (int cell, double v, bool isTp, juce::Colour deltaBase, bool tpWarn, bool muted = false);
     void showToast (const juce::String& msg);
@@ -68,9 +79,7 @@ private:
     juce::Label               toastLabel;                 // POST transient messages (3s)
     juce::Label               recordErrorLabel;           // B-118 (③/追補): PRE+POST io-fail status (persistent / G-115-29)
     std::unique_ptr<hypha::PostControls> postControls;    // POST button row
-    PairMenuLookAndFeel       pairMenuLookAndFeel;          // POST: dark mono popup parity with egui
     juce::TextButton          pairDropdown;                // POST: ▼ candidate / All Keep / All Stop
-    juce::Array<KirinHyphaProcessorBase::PreCandidate> menuCandidates;
     juce::TooltipWindow       tooltip { this };           // drives per-cell hover help
 
     Kind   currentKind = Kind::WatchAbs6;
