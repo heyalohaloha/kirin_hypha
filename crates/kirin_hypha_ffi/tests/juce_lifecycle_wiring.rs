@@ -43,7 +43,8 @@ fn au_and_vst3_share_pair_status_and_control_geometry_contract() {
     let juce_controls = read_repo("juce_shell/src/PostControls.cpp");
     assert!(juce_controls.contains("keepBtn  .setVisible (! recording && os)"));
     assert!(juce_controls.contains("keepBtn  .setEnabled (pairSelected)"));
-    assert!(juce_controls.contains("markBtn  .setVisible (recording && os && ! markPickerOpen)"));
+    assert!(juce_controls.contains("stopBtn  .setVisible (recording && os)"));
+    assert!(!juce_controls.contains("markBtn"));
     assert!(ffi_header.contains("kirin_hypha_add_mark"));
     assert!(rust_post.contains("pair_status != PairStatus::Unpaired"));
 }

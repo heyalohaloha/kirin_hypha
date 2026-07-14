@@ -598,7 +598,8 @@ pub struct MeasureResult {
     /// ISO 532-1 Zwicker の総ラウドネス N (specific loudness N'(z) ではない)
     /// を `temporal_weighting` LP IIR で時系列平滑化した値。GUI label は "N"。
     /// field 名 `n_prime_total` は履歴互換維持 (Phase 2 で rename 候補)。
-    /// 48 kHz 以外は常に `None`。
+    /// Measure Thread が host sample rate から 48 kHz mono へ変換した Phase D 結果なので、
+    /// 対応 sample rate では 48 kHz 以外も `Some` になり得る。
     pub n_prime_total: Option<f64>,
 
     pub sharpness: Option<f64>,

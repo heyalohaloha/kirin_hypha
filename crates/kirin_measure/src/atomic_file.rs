@@ -11,17 +11,24 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+#[cfg(unix)]
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+
 static TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 pub fn write_bytes_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
+        create_private_dir_all(parent)?;
     }
 
     let mut last_exists: Option<io::Error> = None;
     for _ in 0..16 {
         let tmp = unique_tmp_path(path)?;
-        match OpenOptions::new().write(true).create_new(true).open(&tmp) {
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        options.mode(0o600);
+        match options.open(&tmp) {
             Ok(mut file) => {
                 let result = (|| {
                     file.write_all(bytes)?;
@@ -47,6 +54,16 @@ pub fn write_bytes_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
             "could not allocate unique atomic temp path",
         )
     }))
+}
+
+/// Create coordination directories without exposing newly-created paths to other users.
+/// Existing directories keep their current mode; this avoids mutating user-owned parents.
+pub(crate) fn create_private_dir_all(path: &Path) -> io::Result<()> {
+    let mut builder = fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    builder.mode(0o700);
+    builder.create(path)
 }
 
 pub fn remove_temp_siblings(path: &Path) -> io::Result<usize> {
@@ -185,5 +202,25 @@ mod tests {
         assert!(!root.join("pre.json.tmp").exists());
         assert!(!root.join(".pre.json.tmp.123.1").exists());
         assert!(root.join(".post.json.tmp.123.1").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn newly_created_coordination_paths_are_private() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = isolated_dir("private");
+        let nested = root.join("new").join("instance");
+        let path = nested.join("pre.json");
+        write_bytes_atomic(&path, b"private").unwrap();
+
+        assert_eq!(
+            fs::metadata(&nested).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+        assert_eq!(
+            fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
     }
 }

@@ -49,7 +49,7 @@ namespace hypha
             b.setColour (juce::TextButton::textColourOffId, COL_NORMAL);
             addChildComponent (b);
         };
-        for (auto* b : { &keepBtn, &stopBtn, &markBtn, &goodBtn, &fixBtn, &holdBtn, &cancelBtn })
+        for (auto* b : { &keepBtn, &stopBtn })
             styleButton (*b);
 
         // Sense hint: frameless amber text (no fill / blends into BG) — opens the upsell URL.
@@ -60,11 +60,6 @@ namespace hypha
 
         keepBtn.onClick = [this] { if (onKeep) onKeep(); };
         stopBtn.onClick = [this] { if (onStop) onStop(); };
-        markBtn.onClick = [this] { markPickerOpen = true; layoutVisible(); };
-        cancelBtn.onClick = [this] { markPickerOpen = false; layoutVisible(); };
-        goodBtn.onClick = [this] { if (onMark) onMark ("Good"); markPickerOpen = false; layoutVisible(); };
-        fixBtn.onClick  = [this] { if (onMark) onMark ("Fix");  markPickerOpen = false; layoutVisible(); };
-        holdBtn.onClick = [this] { if (onMark) onMark ("Hold"); markPickerOpen = false; layoutVisible(); };
         senseBtn.onClick = [this] { if (onSenseHint) onSenseHint(); };
     }
 
@@ -73,23 +68,13 @@ namespace hypha
         const bool os    = (license == 0);
         const bool sense = (license == 1);
 
-        if (! recording)
-            markPickerOpen = false; // picker only exists during Record
-
         // Keep owns a fixed layout slot in both AU and VST3. Pair state changes availability, not
-        // geometry, so opening or losing a pair never moves MARK/metrics around the panel.
+        // geometry, so opening or losing a pair never moves controls or metrics around the panel.
         keepBtn  .setVisible (! recording && os);
         keepBtn  .setEnabled (pairSelected);
         senseBtn .setVisible (! recording && sense);
 
-        stopBtn  .setVisible (recording && os && ! markPickerOpen);
-        markBtn  .setVisible (recording && os && ! markPickerOpen);
-
-        const bool picker = recording && os && markPickerOpen;
-        goodBtn  .setVisible (picker);
-        fixBtn   .setVisible (picker);
-        holdBtn  .setVisible (picker);
-        cancelBtn.setVisible (picker);
+        stopBtn  .setVisible (recording && os);
 
         layoutVisible();
     }
@@ -102,8 +87,7 @@ namespace hypha
     void PostControls::layoutVisible()
     {
         // Lay visible buttons left-to-right across the row, equal widths, 6px gaps.
-        juce::Component* const ordered[] = { &keepBtn, &senseBtn, &stopBtn, &markBtn,
-                                             &goodBtn, &fixBtn, &holdBtn, &cancelBtn };
+        juce::Component* const ordered[] = { &keepBtn, &senseBtn, &stopBtn };
         juce::Array<juce::Component*> visible;
         for (auto* b : ordered)
             if (b->isVisible())

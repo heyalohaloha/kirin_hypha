@@ -36,7 +36,18 @@ pub(crate) fn build_wav_start_clock_plan(
         .is_some_and(|(pre_session, post_session)| {
             !pre_session.trim().is_empty() && pre_session == post_session
         });
-    if !shared_session || !has_compatible_host_clocks(pre, post) {
+    if !shared_session {
+        return None;
+    }
+    // AU hosts can deliver one short callback before the first full 100 ms slot. The writer keeps
+    // that producer-owned absolute-position neighborhood, but deliberately withholds a canonical
+    // per-instance trace clock because the complete provisional vector is not dense. A BWF time
+    // reference is itself the exact project-sample anchor, so two complete producer contexts can
+    // still prove the common window without inventing an origin or comparing curve shapes.
+    let bwf_context_pair = expected.wav_time_reference_samples.is_some()
+        && has_complete_position_context(pre)
+        && has_complete_position_context(post);
+    if !has_compatible_host_clocks(pre, post) && !bwf_context_pair {
         return None;
     }
     let pre_source = trace_source(pre);
@@ -58,6 +69,12 @@ pub(crate) fn build_wav_start_clock_plan(
         canonical_slots: selected_positions,
         start_basis,
     })
+}
+
+fn has_complete_position_context(data: &PluginDataFile) -> bool {
+    data.sample_rate > 0
+        && !data.trace_context_frames.is_empty()
+        && data.trace_context_frames.len() == data.trace_context_slot_positions.len()
 }
 
 pub(crate) fn has_compatible_host_clocks(pre: &PluginDataFile, post: &PluginDataFile) -> bool {
@@ -222,6 +239,22 @@ mod tests {
         }
     }
 
+    fn expected_96k_15s(wav_start: u64) -> ExpectedWavMetadata {
+        ExpectedWavMetadata {
+            expected_duration_samples: 1_440_000,
+            expected_sample_rate: 96_000,
+            wav_time_reference_samples: Some(wav_start),
+            wav_path: "/tmp/wav-start-clock-96k.wav".to_string(),
+            bounce_id: "bounce-wav-start-clock-96k".to_string(),
+            created_at_ms: 1,
+            wav_file_size: Some(1),
+            wav_mtime_ms: 1,
+            wav_hash: Some("hash-wav-start-clock-96k".to_string()),
+            consumed_at_ms: None,
+            consumed_by_session_id: None,
+        }
+    }
+
     fn plugin_data(role: Role, session: &str, source_name: &str) -> PluginDataFile {
         let mut data = PluginDataFile::new(
             "installation".to_string(),
@@ -375,5 +408,98 @@ mod tests {
             crate::trace_alignment::TRACE_ALIGNMENT_START_RENDER_RANGE
         );
         assert_ne!(plan.pre_frames[0].lufs_m, plan.post_frames[0].lufs_m);
+    }
+
+    #[test]
+    fn bwf_plan_uses_exact_common_context_when_au_starts_with_a_partial_block() {
+        let mut pre = plugin_data(Role::Pre, "session", "project_timeline");
+        let mut post = plugin_data(Role::Post, "session", "project_timeline");
+        let positions = [95_940, 96_000, 100_800, 105_600, 110_400];
+        pre.trace_context_slot_positions = positions.to_vec();
+        pre.trace_context_frames = vec![
+            frame(-31.0),
+            frame(-30.0),
+            frame(-20.0),
+            frame(-10.0),
+            frame(-5.0),
+        ];
+        post.trace_context_slot_positions = positions.to_vec();
+        post.trace_context_frames = vec![
+            frame(20.0),
+            frame(10.0),
+            frame(4.0),
+            frame(-40.0),
+            frame(2.0),
+        ];
+        post.trace_slot_positions.clear();
+        post.trace_clock = None;
+
+        let plan = build_wav_start_clock_plan(&pre, &post, &expected(Some(96_000)), 3, 4_800)
+            .expect("BWF-anchored common producer context");
+
+        assert_eq!(plan.canonical_slots, vec![100_800, 105_600, 110_400]);
+        assert_eq!(plan.pre_frames[0].lufs_m, -20.0);
+        assert_eq!(plan.post_frames[0].lufs_m, 4.0);
+        assert_eq!(
+            plan.start_basis,
+            crate::trace_alignment::TRACE_ALIGNMENT_START_BWF
+        );
+    }
+
+    #[test]
+    fn bwf_context_never_skips_a_missing_anchored_slot() {
+        let mut pre = plugin_data(Role::Pre, "session", "project_timeline");
+        let mut post = plugin_data(Role::Post, "session", "project_timeline");
+        pre.trace_context_slot_positions = vec![96_000, 100_800, 105_600, 110_400];
+        pre.trace_context_frames = vec![frame(-30.0), frame(-20.0), frame(-10.0), frame(-5.0)];
+        post.trace_context_slot_positions = vec![96_000, 105_600, 110_400, 115_200];
+        post.trace_context_frames = vec![frame(10.0), frame(4.0), frame(-40.0), frame(2.0)];
+        post.trace_slot_positions.clear();
+        post.trace_clock = None;
+
+        assert!(
+            build_wav_start_clock_plan(&pre, &post, &expected(Some(96_000)), 3, 4_800).is_none()
+        );
+    }
+
+    #[test]
+    fn studio_one_96k_partial_lead_selects_the_exact_15_second_bwf_window() {
+        const WAV_START: i64 = 6_480_000;
+        const SLOT_SAMPLES: i64 = 9_600;
+        let mut positions = vec![6_475_940, WAV_START];
+        positions.extend((1_i64..=151).map(|index| WAV_START + index * SLOT_SAMPLES));
+        let context_frames: Vec<Frame> = positions
+            .iter()
+            .enumerate()
+            .map(|(index, _)| frame(-30.0 + index as f64 * 0.01))
+            .collect();
+        let mut pre = plugin_data(Role::Pre, "session-96k", "project_timeline");
+        let mut post = plugin_data(Role::Post, "session-96k", "project_timeline");
+        for side in [&mut pre, &mut post] {
+            side.sample_rate = 96_000;
+            side.source_format = 96_000;
+            side.trace_context_slot_positions = positions.clone();
+            side.trace_context_frames = context_frames.clone();
+            if let Some(clock) = side.trace_clock.as_mut() {
+                clock.sample_rate = 96_000;
+            }
+        }
+        post.trace_slot_positions.clear();
+        post.trace_clock = None;
+
+        let plan = build_wav_start_clock_plan(
+            &pre,
+            &post,
+            &expected_96k_15s(WAV_START as u64),
+            150,
+            SLOT_SAMPLES,
+        )
+        .expect("exact 96 kHz BWF window");
+
+        assert_eq!(plan.canonical_slots.len(), 150);
+        assert_eq!(plan.canonical_slots.first(), Some(&6_489_600));
+        assert_eq!(plan.canonical_slots.last(), Some(&7_920_000));
+        assert_eq!(plan.pre_frames.len(), 150);
+        assert_eq!(plan.post_frames.len(), 150);
     }
 }

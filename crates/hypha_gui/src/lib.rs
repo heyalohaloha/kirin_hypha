@@ -13,7 +13,8 @@ pub mod playback_max;
 
 pub use background::BackgroundTexture;
 pub use common::{
-    flora_line, fmt_delta, fmt_val, pairing_label, tp_color, tp_over, val_color, value_row,
+    flora_line, fmt_delta, fmt_val, install_native_font_contract, pairing_label, tp_color, tp_over,
+    val_color, value_row,
 };
 pub use led::{derive_led_state, display_signal_state_for_led, led_color, LedState};
 pub use pair_indicator::{draw_pair_indicator, pair_indicator_color, pair_indicator_text};

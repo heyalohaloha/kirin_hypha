@@ -4,14 +4,19 @@
 //! instance's teardown can therefore delete a newer instance's write. Conversely, leaving it in
 //! place makes a normally removed instance look alive until the mtime timeout expires. A unique
 //! per-IO-thread lease separates those two lifetimes: snapshots name their writer, and readers
-//! accept a current snapshot only while that writer's private marker exists.
+//! accept a current snapshot only while that writer holds an OS file lock. The marker remains a
+//! stable rendezvous path, while the kernel lock is released automatically even if the DAW
+//! crashes and Rust destructors never run.
 
 use serde::Deserialize;
-use std::fs;
-use std::io;
+use std::fs::{self, File, OpenOptions, TryLockError};
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 use uuid::Uuid;
+
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt;
 
 const OWNER_DIR: &str = ".watch_owners";
 const OWNER_SUFFIX: &str = ".lease";
@@ -19,14 +24,20 @@ const OWNER_SUFFIX: &str = ".lease";
 #[derive(Debug)]
 pub(crate) struct WatchSnapshotLease {
     owner_id: String,
-    marker_path: Option<PathBuf>,
+    marker: Option<LeaseMarker>,
+}
+
+#[derive(Debug)]
+struct LeaseMarker {
+    path: PathBuf,
+    file: File,
 }
 
 impl WatchSnapshotLease {
     pub(crate) fn new() -> Self {
         Self {
             owner_id: Uuid::new_v4().to_string(),
-            marker_path: None,
+            marker: None,
         }
     }
 
@@ -42,19 +53,47 @@ impl WatchSnapshotLease {
     pub(crate) fn bind(&mut self, instance_dir: &Path) -> io::Result<()> {
         let marker = owner_marker_path(instance_dir, &self.owner_id)
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "invalid watch owner id"))?;
-        if self.marker_path.as_deref() == Some(marker.as_path()) && marker.is_file() {
+        if self
+            .marker
+            .as_ref()
+            .is_some_and(|current| current.path == marker && current.path.is_file())
+        {
             return Ok(());
         }
 
         let owner_dir = marker
             .parent()
             .expect("watch owner marker always has parent");
-        fs::create_dir_all(owner_dir)?;
-        fs::write(&marker, b"1")?;
+        crate::atomic_file::create_private_dir_all(owner_dir)?;
+        let mut options = OpenOptions::new();
+        options.read(true).write(true).create_new(true);
+        #[cfg(unix)]
+        options.mode(0o600);
+        let mut file = options.open(&marker)?;
+        if let Err(error) = file.lock() {
+            drop(file);
+            let _ = fs::remove_file(&marker);
+            return Err(error);
+        }
+        if let Err(error) = file.write_all(b"1").and_then(|()| file.flush()) {
+            drop(file);
+            let _ = fs::remove_file(&marker);
+            return Err(error);
+        }
 
-        let old = self.marker_path.replace(marker);
+        let old = self.marker.replace(LeaseMarker { path: marker, file });
         if let Some(old) = old {
-            remove_marker(&old);
+            if self
+                .marker
+                .as_ref()
+                .is_some_and(|current| current.path == old.path)
+            {
+                // The old locked inode was externally unlinked and the same path was recreated.
+                // Dropping that old lock is correct; unlinking by path would delete the new marker.
+                drop(old.file);
+            } else {
+                release_marker(old);
+            }
         }
         Ok(())
     }
@@ -62,8 +101,8 @@ impl WatchSnapshotLease {
 
 impl Drop for WatchSnapshotLease {
     fn drop(&mut self) {
-        if let Some(marker) = self.marker_path.take() {
-            remove_marker(&marker);
+        if let Some(marker) = self.marker.take() {
+            release_marker(marker);
         }
     }
 }
@@ -82,12 +121,56 @@ fn read_snapshot_owner(snapshot_path: &Path) -> Option<(PathBuf, SnapshotOwner)>
 }
 
 /// Legacy snapshots without `watch_owner_id` remain mtime-compatible. New snapshots must prove
-/// that their exact writer runtime still owns the instance directory.
+/// that their exact writer runtime still owns the instance directory. The marker's existence alone
+/// is insufficient: a DAW crash can leave the directory entry behind, but it cannot retain the
+/// kernel lock after the process closes.
 pub(crate) fn snapshot_owner_is_live(instance_dir: &Path, owner_id: &str) -> bool {
     if owner_id.is_empty() {
         return true;
     }
-    owner_marker_path(instance_dir, owner_id).is_some_and(|path| path.is_file())
+    owner_marker_path(instance_dir, owner_id).is_some_and(|path| marker_lock_is_held(&path))
+}
+
+/// Remove valid owner markers whose producer no longer holds its kernel lock. Live marker files
+/// are never removed. Returns the number of orphan marker files removed.
+pub(crate) fn sweep_released_owner_markers(instance_dir: &Path) -> usize {
+    let owner_dir = instance_dir.join(OWNER_DIR);
+    let Ok(entries) = fs::read_dir(&owner_dir) else {
+        return 0;
+    };
+
+    let mut removed = 0usize;
+    for entry in entries.flatten() {
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+        if !file_type.is_file() {
+            continue;
+        }
+        let Some(file_name) = entry.file_name().to_str().map(str::to_owned) else {
+            continue;
+        };
+        let Some(owner_id) = file_name.strip_suffix(OWNER_SUFFIX) else {
+            continue;
+        };
+        if owner_marker_path(instance_dir, owner_id).as_deref() != Some(entry.path().as_path()) {
+            continue;
+        }
+        if marker_lock_is_held(&entry.path()) {
+            continue;
+        }
+        match fs::remove_file(entry.path()) {
+            Ok(()) => removed += 1,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => log::debug!(
+                "[watch lease] failed to sweep released marker {}: {}",
+                entry.path().display(),
+                error
+            ),
+        }
+    }
+    let _ = fs::remove_dir(&owner_dir);
+    removed
 }
 
 /// Discovery paths read only a snapshot path, so they use this small owner-only parse rather than
@@ -178,17 +261,53 @@ fn owner_marker_path(instance_dir: &Path, owner_id: &str) -> Option<PathBuf> {
     )
 }
 
-fn remove_marker(marker: &Path) {
-    match fs::remove_file(marker) {
+fn marker_lock_is_held(marker: &Path) -> bool {
+    let file = match OpenOptions::new().read(true).write(true).open(marker) {
+        Ok(file) => file,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return false,
+        Err(error) => {
+            // An inspection failure is not evidence that a producer died. Keep the pair visible
+            // and let a later poll retry rather than turning a permission/filesystem issue into a
+            // false disconnect.
+            log::debug!(
+                "[watch lease] failed to open marker {}: {}",
+                marker.display(),
+                error
+            );
+            return true;
+        }
+    };
+    match file.try_lock() {
+        Err(TryLockError::WouldBlock) => true,
+        Ok(()) => {
+            let _ = file.unlock();
+            false
+        }
+        Err(TryLockError::Error(error)) => {
+            // As above, only a successfully-acquired lock proves that no producer owns it.
+            log::debug!(
+                "[watch lease] failed to inspect marker lock {}: {}",
+                marker.display(),
+                error
+            );
+            true
+        }
+    }
+}
+
+fn release_marker(marker: LeaseMarker) {
+    let LeaseMarker { path, file } = marker;
+    drop(file);
+    match fs::remove_file(&path) {
         Ok(()) => {}
         Err(error) if error.kind() == io::ErrorKind::NotFound => {}
         Err(error) => log::warn!(
             "[watch lease] failed to remove {}: {}",
-            marker.display(),
+            path.display(),
             error
         ),
     }
-    if let Some(owner_dir) = marker.parent() {
+    if let Some(owner_dir) = path.parent() {
         let _ = fs::remove_dir(owner_dir);
     }
 }
@@ -255,6 +374,50 @@ mod tests {
     fn invalid_owner_cannot_escape_instance_directory() {
         let instance_dir = isolated_dir("invalid");
         assert!(!snapshot_owner_is_live(&instance_dir, "../foreign"));
+        let _ = fs::remove_dir_all(instance_dir);
+    }
+
+    #[test]
+    fn unlocked_crash_orphan_is_not_live_even_while_marker_remains() {
+        let instance_dir = isolated_dir("crash_orphan");
+        let owner_id = Uuid::new_v4().to_string();
+        let marker = owner_marker_path(&instance_dir, &owner_id).unwrap();
+        fs::create_dir_all(marker.parent().unwrap()).unwrap();
+        fs::write(&marker, b"1").unwrap();
+
+        assert!(marker.is_file(), "fixture must retain the crash residue");
+        assert!(!snapshot_owner_is_live(&instance_dir, &owner_id));
+        assert_eq!(sweep_released_owner_markers(&instance_dir), 1);
+        assert!(!marker.exists());
+        let _ = fs::remove_dir_all(instance_dir);
+    }
+
+    #[test]
+    fn startup_marker_sweep_preserves_locked_live_owner() {
+        let instance_dir = isolated_dir("live_sweep");
+        let mut lease = WatchSnapshotLease::new();
+        lease.bind(&instance_dir).unwrap();
+
+        assert_eq!(sweep_released_owner_markers(&instance_dir), 0);
+        assert!(snapshot_owner_is_live(&instance_dir, lease.owner_id()));
+        drop(lease);
+        let _ = fs::remove_dir_all(instance_dir);
+    }
+
+    #[test]
+    fn rebinding_after_external_unlink_does_not_delete_recreated_marker() {
+        let instance_dir = isolated_dir("external_unlink");
+        let mut lease = WatchSnapshotLease::new();
+        lease.bind(&instance_dir).unwrap();
+        let marker = owner_marker_path(&instance_dir, lease.owner_id()).unwrap();
+        fs::remove_file(&marker).unwrap();
+
+        lease.bind(&instance_dir).unwrap();
+
+        assert!(marker.is_file());
+        assert!(snapshot_owner_is_live(&instance_dir, lease.owner_id()));
+        drop(lease);
+        assert!(!marker.exists());
         let _ = fs::remove_dir_all(instance_dir);
     }
 

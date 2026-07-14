@@ -123,6 +123,66 @@ fn drop_commit_cannot_reopen_or_retarget_a_closed_session() {
 }
 
 #[test]
+fn exact_drop_can_complete_a_metadata_free_closed_pair_lifecycle() {
+    let base = isolated_dir();
+    begin_expected_session(&base, "project-a", "session-a").unwrap();
+    mark_expected_metadata_consumed(&base, "project-a", None, "session-a").unwrap();
+    let closed_at_ms = read_claim_marker_for_session(&base, "project-a", "session-a")
+        .unwrap()
+        .unwrap()
+        .closed_at_ms
+        .expect("closed lifecycle");
+    let metadata = metadata_fixture("drop-after-stop");
+    write_drop_commit(&base, "project-a", "session-a", &metadata);
+
+    assert_eq!(
+        inspect_drop_commit_for_open_session(&base, "project-a", "session-a").unwrap(),
+        None
+    );
+    let inspected = inspect_drop_commit_for_closed_pair_session(&base, "project-a", "session-a")
+        .unwrap()
+        .expect("exact closed-pair Drop");
+    assert_eq!(inspected, metadata);
+    assert_eq!(
+        bind_drop_commit_for_closed_pair_session(&base, "project-a", "session-a", &inspected,)
+            .unwrap(),
+        Some(metadata.clone())
+    );
+    let marker = read_claim_marker_for_session(&base, "project-a", "session-a")
+        .unwrap()
+        .unwrap();
+    assert_eq!(marker.metadata, Some(metadata));
+    assert_eq!(marker.closed_at_ms, Some(closed_at_ms));
+}
+
+#[test]
+fn closed_pair_bind_rejects_metadata_replaced_after_inspection() {
+    let base = isolated_dir();
+    begin_expected_session(&base, "project-a", "session-a").unwrap();
+    let first = metadata_fixture("drop-inspected-first");
+    write_drop_commit(&base, "project-a", "session-a", &first);
+    let inspected = inspect_drop_commit_for_closed_pair_session(&base, "project-a", "session-a")
+        .unwrap()
+        .unwrap();
+
+    let later = metadata_fixture("drop-replaced-later");
+    write_drop_commit(&base, "project-a", "session-a", &later);
+
+    assert_eq!(
+        bind_drop_commit_for_closed_pair_session(&base, "project-a", "session-a", &inspected,)
+            .unwrap(),
+        None
+    );
+    assert_eq!(
+        read_claim_marker_for_session(&base, "project-a", "session-a")
+            .unwrap()
+            .unwrap()
+            .metadata,
+        None
+    );
+}
+
+#[test]
 fn drop_commit_is_inert_until_transaction_manifest_is_ready() {
     let base = isolated_dir();
     begin_expected_session(&base, "project-a", "session-a").unwrap();

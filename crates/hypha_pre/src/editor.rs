@@ -16,8 +16,8 @@
 use crate::sanitize_name;
 use hypha_gui::{
     derive_led_state, display_signal_state_for_led, display_smoothing::DisplaySmoother,
-    draw_pair_indicator, fmt_val, led_color, tp_color, val_color, BackgroundTexture,
-    PlaybackMaxTracker, BG, COL_FLORA, COL_MUTED, COL_NORMAL,
+    draw_pair_indicator, fmt_val, install_native_font_contract, led_color, tp_color, val_color,
+    BackgroundTexture, PlaybackMaxTracker, BG, COL_FLORA, COL_MUTED, COL_NORMAL,
 };
 use kirin_measure::{
     load_signal_state, pair_status_for_pre, MeasureResult, PairStatus, PlatformPaths, SignalState,
@@ -181,6 +181,7 @@ pub fn create_pre_editor(
             record_error_message,
         ),
         |ctx, state| {
+            install_native_font_contract(ctx);
             let mut visuals = ctx.style().visuals.clone();
             visuals.panel_fill = BG;
             visuals.window_fill = BG;
