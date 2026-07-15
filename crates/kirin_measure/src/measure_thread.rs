@@ -1929,16 +1929,13 @@ pub mod tests {
 
     #[test]
     fn studio_one_instance_start_skew_converges_to_one_absolute_100ms_grid() {
-        let (post_padding, post_first_end) = record_grid_alignment(6_465_671, 96_000);
-        let (pre_padding, pre_first_end) = record_grid_alignment(6_473_347, 96_000);
-
-        assert_eq!(post_padding, 4_871);
-        assert_eq!(pre_padding, 2_947);
-        assert_eq!(post_first_end, 6_470_400);
-        assert_eq!(pre_first_end, 6_480_000);
-        assert_eq!(post_first_end.rem_euclid(9_600), 0);
-        assert_eq!(pre_first_end.rem_euclid(9_600), 0);
-        assert_eq!(post_first_end.saturating_add(9_600), pre_first_end);
+        let corrected_starts = [6_461_383; 6];
+        for start in corrected_starts {
+            let (phase_frames, first_end) = record_grid_alignment(start, 96_000);
+            assert_eq!(phase_frames, 583);
+            assert_eq!(first_end, 6_470_400);
+            assert_eq!(first_end.rem_euclid(9_600), 0);
+        }
     }
 
     #[test]
@@ -1950,9 +1947,9 @@ pub mod tests {
         };
         let plan = super::CaptureChunkPlan {
             sample_count: 19_200,
-            position_start_samples: Some(6_487_676),
-            position_end_samples: Some(6_497_276),
-            raw_host_position_start_samples: Some(6_480_000),
+            position_start_samples: Some(6_480_000),
+            position_end_samples: Some(6_489_600),
+            raw_host_position_start_samples: Some(6_487_676),
             capture_epoch: Some(9),
             clock_source: CaptureClockSource::AudioRenderTimeline,
             presentation_latency: latency,
@@ -1970,10 +1967,10 @@ pub mod tests {
         let point = point.expect("plan owns the observer endpoint");
 
         assert_eq!(captured_frame, 9_700);
-        assert_eq!(point.position_samples, 6_497_276);
-        assert_eq!(point.raw_host_position_samples, 6_489_600);
+        assert_eq!(point.position_samples, 6_489_600);
+        assert_eq!(point.raw_host_position_samples, 6_497_276);
         assert_eq!(
-            point.position_samples - point.raw_host_position_samples,
+            point.raw_host_position_samples - point.position_samples,
             7_676
         );
         assert_eq!(point.epoch, 9);

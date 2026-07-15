@@ -1234,7 +1234,49 @@ fn trace_bounce_take_failure_reasons(data: &PluginDataFile) -> Vec<&'static str>
 }
 
 fn trace_slots_are_complete(data: &PluginDataFile) -> bool {
-    trace_publish_failure_reasons(data).is_empty()
+    trace_publish_failure_reasons(data).is_empty() && trace_slot_identity_is_complete(data)
+}
+
+fn trace_slot_identity_is_complete(data: &PluginDataFile) -> bool {
+    if data.sample_rate == 0
+        || data.frames.is_empty()
+        || data.trace_slot_positions.len() != data.frames.len()
+    {
+        return false;
+    }
+    let slot_samples = (data.sample_rate as i64 / 10).max(1);
+    if !data
+        .trace_slot_positions
+        .windows(2)
+        .all(|pair| pair[1].checked_sub(pair[0]) == Some(slot_samples))
+    {
+        return false;
+    }
+    match data.trace_time_axis.as_deref() {
+        Some(axis) if axis == crate::trace_alignment::TRACE_HOST_TIME_AXIS => {
+            let (Some(first), Some(last), Some(clock)) = (
+                data.trace_slot_positions.first().copied(),
+                data.trace_slot_positions.last().copied(),
+                data.trace_clock.as_ref(),
+            ) else {
+                return false;
+            };
+            clock.basis == crate::trace_alignment::TRACE_CLOCK_BASIS
+                && clock.sample_rate == data.sample_rate
+                && !clock.sources.is_empty()
+                && first.checked_sub(slot_samples) == Some(clock.origin_position_samples)
+                && last == clock.end_position_samples
+        }
+        Some(axis) if axis == crate::trace_alignment::TRACE_TIME_AXIS => {
+            crate::trace_alignment::has_canonical_wav_reference(data)
+                && data.trace_slot_positions.first().copied() == Some(slot_samples)
+                && i64::try_from(data.trace_slot_positions.len())
+                    .ok()
+                    .and_then(|count| count.checked_mul(slot_samples))
+                    == data.trace_slot_positions.last().copied()
+        }
+        _ => false,
+    }
 }
 
 fn trace_publish_failure_reasons(data: &PluginDataFile) -> Vec<&'static str> {
@@ -4161,6 +4203,32 @@ mod tests {
         w
     }
 
+    #[test]
+    fn matching_frame_count_without_slot_identity_is_never_complete() {
+        let base = isolated_dir();
+        let mut writer = complete_pair_writer(
+            &base,
+            Role::Post,
+            "iid-post-count-only",
+            Some("iid-pre-count-only".to_string()),
+            None,
+        );
+        assert!(trace_slots_are_complete(&writer.data));
+
+        writer.data.trace_slot_positions.clear();
+        refresh_record_quality(&mut writer.data);
+
+        assert!(!trace_slots_are_complete(&writer.data));
+        assert_eq!(
+            writer
+                .data
+                .record_quality
+                .as_ref()
+                .map(|quality| (quality.complete, quality.trace_slots_complete)),
+            Some((false, false))
+        );
+    }
+
     const RELEASE_GATE_SAMPLE_RATE: u32 = 96_000;
     const RELEASE_GATE_DURATION_SAMPLES: u64 = 1_440_000;
     const RELEASE_GATE_SLOT_SAMPLES: i64 = 9_600;
@@ -4192,7 +4260,7 @@ mod tests {
             input: Some(0),
             output: Some(output_latency),
         };
-        let raw_wav_start = RELEASE_GATE_WAV_START - i64::from(output_latency);
+        let raw_wav_start = RELEASE_GATE_WAV_START + i64::from(output_latency);
         let raw_wav_end = raw_wav_start + RELEASE_GATE_DURATION_SAMPLES as i64;
         let old_raw_start = raw_wav_start + RELEASE_GATE_DURATION_SAMPLES as i64 * 4;
 
@@ -4222,8 +4290,8 @@ mod tests {
         assert_eq!(current_start.raw_host_position_samples, raw_wav_start);
         assert_eq!(
             current_start
-                .position_samples
-                .saturating_sub(current_start.raw_host_position_samples),
+                .raw_host_position_samples
+                .saturating_sub(current_start.position_samples),
             i64::from(output_latency),
             "latency is applied once at the producer boundary"
         );
@@ -4605,7 +4673,7 @@ mod tests {
                     .raw_host_clock_range
                     .expect("raw host range audit");
                 assert_eq!(
-                    raw_range.start_position_samples + i64::from(expected_latency),
+                    raw_range.start_position_samples - i64::from(expected_latency),
                     RELEASE_GATE_WAV_START,
                     "raw host and output-presentation coordinates stay separately auditable"
                 );

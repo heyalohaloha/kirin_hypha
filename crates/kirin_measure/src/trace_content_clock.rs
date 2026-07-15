@@ -551,9 +551,14 @@ mod tests {
     fn studio_one_96k_bwf_uses_exact_150_direct_slots_and_ignores_context() {
         const WAV_START: i64 = 6_480_000;
         const SLOT_SAMPLES: i64 = 9_600;
-        let direct_positions = (1_i64..=150)
-            .map(|index| WAV_START + index * SLOT_SAMPLES)
+        let direct_positions = (6_470_400_i64..=7_920_000)
+            .step_by(SLOT_SAMPLES as usize)
             .collect::<Vec<_>>();
+        assert_eq!(
+            direct_positions.len(),
+            152,
+            "failed generation's full producer grid"
+        );
         let mut context_positions = vec![6_475_940, WAV_START];
         context_positions.extend((1_i64..=151).map(|index| WAV_START + index * SLOT_SAMPLES));
         let context_frames: Vec<Frame> = context_positions
@@ -567,7 +572,7 @@ mod tests {
             side.sample_rate = 96_000;
             side.source_format = 96_000;
             side.trace_slot_positions = direct_positions.clone();
-            side.frames = (0..150)
+            side.frames = (0..direct_positions.len())
                 .map(|index| frame(base_value + index as f64 * 0.01))
                 .collect();
             side.trace_context_slot_positions = context_positions.clone();
@@ -591,7 +596,7 @@ mod tests {
         assert_eq!(plan.wav_slots.last(), Some(&1_440_000));
         assert_eq!(plan.pre_frames.len(), 150);
         assert_eq!(plan.post_frames.len(), 150);
-        assert_eq!(plan.pre_frames[0].lufs_m, -30.0);
-        assert_eq!(plan.post_frames[0].lufs_m, 20.0);
+        assert_eq!(plan.pre_frames[0].lufs_m, -29.98);
+        assert_eq!(plan.post_frames[0].lufs_m, 20.02);
     }
 }

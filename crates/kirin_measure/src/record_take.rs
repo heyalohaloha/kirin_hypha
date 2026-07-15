@@ -564,10 +564,10 @@ impl RecordTakeTracker {
         if num_frames == 0 {
             return;
         }
-        // Convert exactly once at the Audio-Thread producer boundary. VST3 and AU both report the
-        // output presentation latency for the plug-in instance; adding it maps the raw processing
-        // position to the sample that is presented on the exported WAV timeline. Downstream code
-        // receives both facts but must never apply or choose a latency again.
+        // Convert exactly once at the Audio-Thread producer boundary. Studio One reports each
+        // plug-in node's project position ahead by that node's downstream output-presentation
+        // latency. Subtracting that latency restores the shared content sample seen by every node.
+        // Downstream code receives both facts but must never apply or choose a latency again.
         let presentation_position_samples =
             position_valid
                 .then_some(position_samples)
@@ -1541,7 +1541,7 @@ pub fn wav_presentation_position_samples(
     host_position_samples: i64,
     output_presentation_samples: Option<u32>,
 ) -> Option<i64> {
-    host_position_samples.checked_add(i64::from(output_presentation_samples.unwrap_or(0)))
+    host_position_samples.checked_sub(i64::from(output_presentation_samples.unwrap_or(0)))
 }
 
 fn bounded_duration_from_block(block: &RecordTakeBlock) -> Option<u64> {
@@ -1721,7 +1721,7 @@ mod tests {
 
         assert_ne!(take_start.epoch, watch_epoch);
         assert_eq!(take_start.raw_host_position_samples, 513);
-        assert_eq!(take_start.position_samples, 8_189);
+        assert_eq!(take_start.position_samples, -7_163);
         assert_eq!(take_start.presentation_latency, latency);
     }
 
@@ -1733,13 +1733,13 @@ mod tests {
         );
         assert_eq!(
             wav_presentation_position_samples(48_000, Some(256)),
-            Some(48_256)
+            Some(47_744)
         );
 
         let pre = RecordTakeTracker::new();
         pre.note_capture_window_with_presentation(
             true,
-            48_000,
+            48_256,
             512,
             CaptureClockSource::ProjectTimeline,
             PresentationLatencySamples {
@@ -1751,7 +1751,7 @@ mod tests {
         let post = RecordTakeTracker::new();
         post.note_capture_window_with_presentation(
             true,
-            48_256,
+            48_000,
             512,
             CaptureClockSource::ProjectTimeline,
             PresentationLatencySamples {
@@ -1760,13 +1760,13 @@ mod tests {
                 output: Some(0),
             },
         );
-        assert_eq!(pre.position_samples_for_captured_frame(512), Some(48_768));
-        assert_eq!(post.position_samples_for_captured_frame(512), Some(48_768));
+        assert_eq!(pre.position_samples_for_captured_frame(512), Some(48_512));
+        assert_eq!(post.position_samples_for_captured_frame(512), Some(48_512));
         let pre_point = pre.clock_point_for_captured_frame(512).unwrap();
         let post_point = post.clock_point_for_captured_frame(512).unwrap();
         assert_eq!(pre_point.position_samples, post_point.position_samples);
-        assert_eq!(pre_point.raw_host_position_samples, 48_512);
-        assert_eq!(post_point.raw_host_position_samples, 48_768);
+        assert_eq!(pre_point.raw_host_position_samples, 48_768);
+        assert_eq!(post_point.raw_host_position_samples, 48_512);
         assert_eq!(pre_point.presentation_latency.output, Some(256));
         assert_eq!(post_point.presentation_latency.output, Some(0));
     }
@@ -1776,7 +1776,7 @@ mod tests {
         let pre = RecordTakeTracker::new();
         pre.note_capture_window_with_presentation(
             true,
-            0,
+            7_676,
             9_600,
             CaptureClockSource::ProjectTimeline,
             PresentationLatencySamples {
@@ -1788,7 +1788,7 @@ mod tests {
         let post = RecordTakeTracker::new();
         post.note_capture_window_with_presentation(
             true,
-            7_676,
+            0,
             9_600,
             CaptureClockSource::ProjectTimeline,
             PresentationLatencySamples {
@@ -1800,12 +1800,40 @@ mod tests {
 
         let pre_point = pre.clock_point_for_captured_frame(9_600).unwrap();
         let post_point = post.clock_point_for_captured_frame(9_600).unwrap();
-        assert_eq!(pre_point.position_samples, 17_276);
+        assert_eq!(pre_point.position_samples, 9_600);
         assert_eq!(pre_point.position_samples, post_point.position_samples);
         assert_ne!(
             pre_point.raw_host_position_samples,
             post_point.raw_host_position_samples
         );
+    }
+
+    #[test]
+    fn studio_one_six_role_capture_rebases_to_one_content_range() {
+        let observations = [
+            (6_478_013, 7_938_237, 16_630),
+            (6_477_492, 7_937_716, 16_109),
+            (6_473_347, 7_933_571, 11_964),
+            (6_465_671, 7_925_895, 4_288),
+            (6_475_257, 7_935_481, 13_874),
+            (6_473_347, 7_933_571, 11_964),
+        ];
+
+        for (raw_start, raw_end, output_latency) in observations {
+            assert_eq!(
+                wav_presentation_position_samples(raw_start, Some(output_latency)),
+                Some(6_461_383)
+            );
+            assert_eq!(
+                wav_presentation_position_samples(raw_end, Some(output_latency)),
+                Some(7_921_607)
+            );
+        }
+    }
+
+    #[test]
+    fn presentation_conversion_never_saturates_at_i64_boundary() {
+        assert_eq!(wav_presentation_position_samples(i64::MIN, Some(1)), None);
     }
 
     #[test]
@@ -1987,11 +2015,11 @@ mod tests {
         // producer. These callbacks are raw pre-roll for this exact pass, not normal Watch history.
         tracker.note_block(RecordTakeBlock {
             recording: false,
-            ..block(0, 0, 512)
+            ..block(0, 200, 512)
         });
         tracker.note_capture_window_with_presentation_boundary(
             true,
-            0,
+            200,
             512,
             CaptureClockSource::ProjectTimeline,
             latency,
@@ -2004,11 +2032,11 @@ mod tests {
 
         tracker.note_block(RecordTakeBlock {
             recording: false,
-            ..block(0, 512, 512)
+            ..block(0, 712, 512)
         });
         tracker.note_capture_window_with_presentation_boundary(
             true,
-            512,
+            712,
             512,
             CaptureClockSource::ProjectTimeline,
             latency,
@@ -2017,10 +2045,10 @@ mod tests {
 
         // force_new_epoch is true at the Record acknowledgement edge, but exact producer
         // continuity proves that this is still the same WAV pass and therefore the same epoch.
-        tracker.note_block(block(80, 1_024, 512));
+        tracker.note_block(block(80, 1_224, 512));
         tracker.note_capture_window_with_presentation_boundary(
             true,
-            1_024,
+            1_224,
             512,
             CaptureClockSource::ProjectTimeline,
             latency,
@@ -2040,7 +2068,7 @@ mod tests {
         assert_eq!(
             tracker
                 .raw_host_range_for_capture_epoch_presentation_range(promoted.epoch, 100, 1_636,),
-            Some((0, 1_536))
+            Some((200, 1_736))
         );
     }
 
@@ -2057,11 +2085,11 @@ mod tests {
             recording: false,
             playing: true,
             offline: false,
-            ..block(0, 0, 512)
+            ..block(0, 200, 512)
         });
         tracker.note_capture_window_with_presentation_boundary(
             true,
-            0,
+            200,
             512,
             CaptureClockSource::ProjectTimeline,
             latency,
@@ -2069,10 +2097,10 @@ mod tests {
         );
         let watch_epoch = tracker.capture_span_for_frame(512).expect("watch").epoch;
 
-        tracker.note_block(block(81, 512, 512));
+        tracker.note_block(block(81, 712, 512));
         tracker.note_capture_window_with_presentation_boundary(
             true,
-            512,
+            712,
             512,
             CaptureClockSource::ProjectTimeline,
             latency,
