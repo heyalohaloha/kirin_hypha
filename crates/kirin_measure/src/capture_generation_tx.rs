@@ -18,7 +18,7 @@ use crate::capture_generation::{
     CAPTURE_GENERATION_SUBDIR,
 };
 use crate::plugin_data::Role;
-use crate::record_signal::{read_signal, SignalStatus};
+use crate::record_signal::read_signal;
 
 const PUBLISH_LOCK_FILENAME: &str = ".publish.lock";
 
@@ -146,18 +146,95 @@ impl CaptureGenerationTransaction {
         }
     }
 
+    /// Move producer readiness waiting off the host message thread.
+    ///
+    /// Keep itself only stages immutable intent. This short-lived control worker owns the
+    /// transaction until every exact writer has reached the barrier or the bounded timeout
+    /// aborts it. It never touches the Audio Thread or audio buffers.
+    pub fn commit_when_ready_async(
+        mut self,
+        timeout: Duration,
+        completed: impl FnOnce(Result<(), CaptureGenerationError>) + Send + 'static,
+    ) -> Result<(), CaptureGenerationError> {
+        thread::Builder::new()
+            .name("hypha-keep-barrier".to_string())
+            .spawn(move || {
+                let result = self.commit_when_ready(timeout);
+                completed(result);
+            })
+            .map(|_| ())
+            .map_err(CaptureGenerationError::Io)
+    }
+
     /// Private final pointer promotion. The only production entry is
     /// [`Self::commit_when_ready`], so no caller can bypass writer readiness.
     fn commit(&mut self) -> Result<(), CaptureGenerationError> {
+        self.commit_observing_active(|| {})
+    }
+
+    /// The observer exists so the release test can inspect the only formerly unsafe promotion
+    /// instant: active has changed and preparation has not yet been retired. Production always
+    /// passes a zero-cost no-op through [`Self::commit`].
+    fn commit_observing_active(
+        &mut self,
+        after_active_publish: impl FnOnce(),
+    ) -> Result<(), CaptureGenerationError> {
         if !self.staged {
             return Err(CaptureGenerationError::Io(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "capture generation was not staged",
             )));
         }
-        let json = serde_json::to_vec(&self.generation)?;
-        remove_preparing_if_current(&self.base_dir, &self.generation);
-        crate::atomic_file::write_bytes_atomic(&active_generation_path(&self.base_dir), &json)?;
+        crate::capture_generation_lifecycle::with_generation_lifecycle_lock(
+            &self.base_dir,
+            &self.generation.capture_generation_id,
+            || {
+                match crate::capture_generation_lifecycle::read_generation_terminal_or_quarantine_locked(
+                    &self.base_dir,
+                    &self.generation.capture_generation_id,
+                    self.generation.started_at_ms,
+                ) {
+                    Ok(None) => {}
+                    Ok(Some(_)) => {
+                        return Err(CaptureGenerationError::Io(io::Error::new(
+                            io::ErrorKind::AlreadyExists,
+                            "terminal capture generation cannot be committed",
+                        )))
+                    }
+                    Err(error) => {
+                        return Err(CaptureGenerationError::Io(io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            format!("capture generation terminal state unreadable: {error}"),
+                        )))
+                    }
+                }
+                // Readiness is revalidated inside the same lifecycle critical section as active
+                // publication. A writer that closed or was replaced after the outer polling loop
+                // cannot lend its stale `ready` state to this commit.
+                if !generation_producers_ready(&self.base_dir, &self.generation) {
+                    return Err(CaptureGenerationError::Io(io::Error::new(
+                        io::ErrorKind::TimedOut,
+                        "capture generation exact producer attestation changed before commit",
+                    )));
+                }
+                let json = serde_json::to_vec(&self.generation)?;
+                // Persist the exact 1–12 member roster before advancing its discovery pointer.
+                // Later Keeps may overwrite `active/current.json`; Drop follows this immutable
+                // generation address and therefore never loses an earlier legitimate WAV.
+                crate::capture_generation::archive_generation(&self.base_dir, &self.generation)?;
+                // `preparing` is the Stop authority until the consumer barrier points at this
+                // exact generation. Publish the new active pointer first, then compare-remove
+                // preparation. At every observable filesystem state Stop therefore resolves the
+                // new generation; there is no gap in which retained old active can win.
+                crate::atomic_file::write_bytes_atomic(
+                    &active_generation_path(&self.base_dir),
+                    &json,
+                )?;
+                after_active_publish();
+                remove_preparing_if_current(&self.base_dir, &self.generation);
+                Ok(())
+            },
+        )?;
         self.committed = true;
         Ok(())
     }
@@ -185,18 +262,27 @@ impl Drop for CaptureGenerationTransaction {
 }
 
 fn abort_uncommitted_generation(base_dir: &Path, generation: &CaptureGeneration) {
+    // Close start authority before touching member signals. A worker already inside the
+    // generation lock may finish publishing Pending first; the following release then advances
+    // it to the absorbing state. A later worker observes terminality and cannot arm.
+    let _ = crate::capture_generation_lifecycle::mark_generation_terminal(
+        base_dir,
+        generation,
+        crate::capture_generation_lifecycle::GenerationTerminalReason::Aborted,
+    );
     for member in &generation.members {
-        let owns_signal = read_signal(base_dir, &member.project_hash, &member.post_instance_id)
-            .is_some_and(|signal| {
+        let owned_signal = read_signal(base_dir, &member.project_hash, &member.post_instance_id)
+            .filter(|signal| {
                 signal.capture_generation_id == generation.capture_generation_id
                     && signal.generation_started_at_ms == generation.started_at_ms
                     && signal.session_id == member.record_session_id
             });
-        if owns_signal {
-            let _ = crate::record_signal::mark_released_with_reason(
+        if let Some(signal) = owned_signal {
+            let _ = crate::record_signal::mark_released_with_reason_if_current(
                 base_dir,
                 &member.project_hash,
                 &member.post_instance_id,
+                &signal,
                 crate::record_signal::ReleaseReason::ManualStop,
             );
         }
@@ -208,33 +294,43 @@ fn abort_uncommitted_generation(base_dir: &Path, generation: &CaptureGeneration)
         .map(|member| member.project_hash.as_str())
         .collect::<BTreeSet<_>>()
     {
-        let _ = crate::all_stop_signal::write_stop_broadcast_with_scope(
+        let _ = crate::all_stop_signal::write_stop_broadcast_for_generation(
             base_dir,
             project_hash,
             &generation.originator_post_instance_id,
             generation.daw_session_id.clone(),
             generation.host_process_id,
+            generation,
         );
     }
 }
 
 fn generation_producers_ready(base_dir: &Path, generation: &CaptureGeneration) -> bool {
+    if !process_is_alive(generation.host_process_id) {
+        return false;
+    }
     generation.members.iter().all(|member| {
         !member.pre_instance_id.trim().is_empty()
-            && crate::record_writer_claim::writer_claim_ready(
+            && crate::record_writer_claim::writer_claim_ready_for_generation(
                 base_dir,
                 &member.project_hash,
                 &member.record_session_id,
                 Role::Pre,
                 &member.pre_instance_id,
+                &generation.capture_generation_id,
+                generation.started_at_ms,
+                generation.host_process_id,
             )
             .unwrap_or(false)
-            && crate::record_writer_claim::writer_claim_ready(
+            && crate::record_writer_claim::writer_claim_ready_for_generation(
                 base_dir,
                 &member.project_hash,
                 &member.record_session_id,
                 Role::Post,
                 &member.post_instance_id,
+                &generation.capture_generation_id,
+                generation.started_at_ms,
+                generation.host_process_id,
             )
             .unwrap_or(false)
     })
@@ -280,16 +376,48 @@ fn generation_has_open_member(base_dir: &Path, generation: &CaptureGeneration) -
     if !process_is_alive(generation.host_process_id) {
         return false;
     }
-    generation.members.iter().any(|member| {
-        read_signal(base_dir, &member.project_hash, &member.post_instance_id).is_some_and(
-            |signal| {
-                signal.status != SignalStatus::Released
-                    && signal.capture_generation_id == generation.capture_generation_id
-                    && signal.generation_started_at_ms == generation.started_at_ms
-                    && signal.session_id == member.record_session_id
-            },
-        )
-    })
+    crate::capture_generation_lifecycle::with_generation_lifecycle_lock(
+        base_dir,
+        &generation.capture_generation_id,
+        || -> Result<bool, crate::capture_generation_lifecycle::GenerationLifecycleError> {
+            // Malformed terminal residue is quarantined under the same lock that serializes a
+            // legitimate terminal publication. It is evidence, not execution authority.
+            let _ =
+                crate::capture_generation_lifecycle::read_generation_terminal_or_quarantine_locked(
+                    base_dir,
+                    &generation.capture_generation_id,
+                    generation.started_at_ms,
+                )?;
+            Ok(generation.members.iter().any(|member| {
+                [
+                    (Role::Pre, member.pre_instance_id.as_str()),
+                    (Role::Post, member.post_instance_id.as_str()),
+                ]
+                .into_iter()
+                .any(|(role, instance_id)| {
+                    match crate::record_writer_claim::writer_claim_execution_active_for_generation(
+                        base_dir,
+                        &member.project_hash,
+                        &member.record_session_id,
+                        role,
+                        instance_id,
+                        &generation.capture_generation_id,
+                        generation.started_at_ms,
+                        generation.host_process_id,
+                    ) {
+                        Ok(active) => active,
+                        // A malformed claim cannot prove immutable identity, liveness, or
+                        // renewal. Real filesystem I/O failure remains conservative.
+                        Err(crate::record_writer_claim::WriterClaimError::Io(_)) => true,
+                        Err(_) => false,
+                    }
+                })
+            }))
+        },
+    )
+    // Filesystem permission/I/O failure is still conservative. Only malformed JSON is removed as
+    // a permanent blocker by the quarantine path above.
+    .unwrap_or(true)
 }
 
 #[cfg(unix)]

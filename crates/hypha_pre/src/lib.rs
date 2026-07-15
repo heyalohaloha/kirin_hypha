@@ -4,13 +4,13 @@ use kirin_measure::{
     add_watch_ring_cursor_samples, daw_session_id, ensure_legacy_cleanup_done,
     identity_instance_attach, identity_instance_detach, live_window, load_license_safe,
     new_record_trace_queue, process_project_hash, publish_watch_playback_pass_boundary,
-    record_window_for_record_capture, reset_watch_ring_cursor, set_daw_session_id,
-    set_project_uuid, spawn_io_thread_pre, spawn_measure_thread, spawn_watchdog,
-    store_signal_state, watch_playback_block_duration_secs, watch_playback_pass_should_start,
-    LiveLicense, LivenessEvaluator, MeasureResult, PresentationLatencySamples,
-    PresentationLatencySource, RecordStateMachine, RecordTakeBlock, RecordTakeTracker,
-    RecordTraceQueue, RecordWindow, SessionSummary, SignalState, WatchdogIo, WatchdogParams,
-    N_CHANNELS, RING_BUFFER_SECONDS,
+    record_ring_capacity_samples, record_window_for_record_capture, reset_watch_ring_cursor,
+    set_daw_session_id, set_project_uuid, spawn_io_thread_pre, spawn_measure_thread,
+    spawn_watchdog, store_signal_state, watch_playback_block_duration_secs,
+    watch_playback_pass_should_start, watch_ring_capacity_samples, LiveLicense, LivenessEvaluator,
+    MeasureResult, PresentationLatencySamples, PresentationLatencySource, RecordIngress,
+    RecordStateMachine, RecordTakeBlock, RecordTakeTracker, RecordTraceQueue, RecordWindow,
+    SessionSummary, SignalState, WatchProducerHandoff, WatchdogIo, WatchdogParams, N_CHANNELS,
 };
 use nih_plug::prelude::*;
 use nih_plug_egui::EguiState;
@@ -45,7 +45,8 @@ pub struct HyphaPre {
     /// プロセス単位 `daw_session_id`（chunk-persistent session id）。
     daw_session_id: String,
 
-    ring_producer: Option<rtrb::Producer<f32>>,
+    producer_handoff: Option<Arc<WatchProducerHandoff>>,
+    record_ingress: Arc<RecordIngress>,
     measure_result: Arc<Mutex<MeasureResult>>,
     /// B-043: Record セッション集計値共有スロット（Measure → IO Thread）。
     session_summary: Arc<Mutex<Option<SessionSummary>>>,
@@ -62,13 +63,14 @@ pub struct HyphaPre {
 
     watchdog_shutdown: Arc<AtomicBool>,
     watchdog_handle: Option<JoinHandle<()>>,
-    pending_producer: Arc<Mutex<Option<rtrb::Producer<f32>>>>,
     measure_alive: Arc<AtomicBool>,
-    process_counter: u32,
 
     signal_state: Arc<AtomicU8>,
     heartbeat: Arc<AtomicU32>,
     process_mode_offline: AtomicBool,
+    /// Audio-thread-local host mode edge. Unlike Record state, this survives the PRE notification
+    /// handoff so an offline boundary observed in Watch remains the immutable pre-roll epoch.
+    capture_last_offline: bool,
     last_process_pos_samples: i64,
     /// B-118: 単一鮮度評価器。PRE は pair lock を持たないため editor では消費しないが、
     /// spawn_measure_thread / watchdog 再起動に渡す（signature 統一）。
@@ -181,7 +183,8 @@ impl Default for HyphaPre {
             editor_state: EguiState::from_size(300, 200),
             project_hash: process_project_hash(),
             daw_session_id: daw_session_id(),
-            ring_producer: None,
+            producer_handoff: None,
+            record_ingress: Arc::new(RecordIngress::new(record_ring_capacity_samples(N_CHANNELS))),
             measure_result: Arc::new(Mutex::new(MeasureResult::default())),
             session_summary: Arc::new(Mutex::new(None)),
             record_trace_queue: new_record_trace_queue(),
@@ -191,12 +194,11 @@ impl Default for HyphaPre {
             io_shutdown: Arc::new(AtomicBool::new(false)),
             watchdog_shutdown: Arc::new(AtomicBool::new(false)),
             watchdog_handle: None,
-            pending_producer: Arc::new(Mutex::new(None)),
             measure_alive: Arc::new(AtomicBool::new(true)),
-            process_counter: 0,
             signal_state: Arc::new(AtomicU8::new(SignalState::Inactive as u8)),
             heartbeat,
             process_mode_offline: AtomicBool::new(false),
+            capture_last_offline: false,
             last_process_pos_samples: i64::MIN,
             liveness,
             is_playing: Arc::new(AtomicBool::new(false)),
@@ -386,17 +388,17 @@ impl Plugin for HyphaPre {
         self.measure_shutdown.store(false, Ordering::Relaxed);
         self.io_shutdown.store(false, Ordering::Relaxed);
         self.measure_alive.store(true, Ordering::Relaxed);
-        if let Ok(mut slot) = self.pending_producer.lock() {
-            *slot = None;
-        }
-        self.process_counter = 0;
 
-        let capacity = (buffer_config.sample_rate as usize) * RING_BUFFER_SECONDS * N_CHANNELS;
+        let capacity = watch_ring_capacity_samples(N_CHANNELS);
         let (producer, consumer) = rtrb::RingBuffer::new(capacity);
-        self.ring_producer = Some(producer);
+        let producer_handoff = Arc::new(WatchProducerHandoff::new(producer));
+        self.producer_handoff = Some(Arc::clone(&producer_handoff));
+        let record_ingress = Arc::new(RecordIngress::new(record_ring_capacity_samples(N_CHANNELS)));
+        self.record_ingress = Arc::clone(&record_ingress);
 
         self.heartbeat.store(0, Ordering::Relaxed);
         self.last_process_pos_samples = i64::MIN;
+        self.capture_last_offline = false;
         self.watch_playback_pass_id.store(0, Ordering::Relaxed);
         self.watch_playback_pass_cutover_samples
             .store(0, Ordering::Relaxed);
@@ -429,6 +431,7 @@ impl Plugin for HyphaPre {
             Arc::clone(&self.session_summary),
             Arc::clone(&self.record_trace_queue),
             Arc::clone(&self.record_take_tracker),
+            Arc::clone(&record_ingress),
         );
 
         // B-022 段階 1: io_thread には Arc<RwLock<String>> 共有 → tick ごと lazy-read。
@@ -462,6 +465,7 @@ impl Plugin for HyphaPre {
             Arc::clone(&self.session_summary),
             Arc::clone(&self.record_trace_queue),
             Arc::clone(&self.record_take_tracker),
+            Arc::clone(&record_ingress),
             Arc::clone(&self.overflow), // B-076: per-Record dropped_samples
             Arc::clone(&oversized_drop), // B-125: egui は常に 0（per-sample で overflow に計上済）
         );
@@ -481,6 +485,7 @@ impl Plugin for HyphaPre {
             let session_summary = Arc::clone(&self.session_summary);
             let record_trace_queue = Arc::clone(&self.record_trace_queue);
             let record_take_tracker = Arc::clone(&self.record_take_tracker);
+            let record_ingress_for_restart = Arc::clone(&record_ingress);
             let overflow = Arc::clone(&self.overflow); // B-076
             let oversized_drop = Arc::clone(&oversized_drop); // B-125: egui ゼロカウンタを再起動跨ぎ共有
             move |new_shutdown: Arc<AtomicBool>| {
@@ -501,6 +506,7 @@ impl Plugin for HyphaPre {
                     Arc::clone(&session_summary),
                     Arc::clone(&record_trace_queue),
                     Arc::clone(&record_take_tracker),
+                    Arc::clone(&record_ingress_for_restart),
                     Arc::clone(&overflow), // B-076: per-Record dropped_samples
                     Arc::clone(&oversized_drop), // B-125: egui は常に 0
                 )
@@ -524,7 +530,9 @@ impl Plugin for HyphaPre {
             evaluator: Arc::clone(&self.liveness),
             measure_shutdown: Arc::clone(&self.measure_shutdown),
             measure_alive: Arc::clone(&self.measure_alive),
-            pending_producer: Arc::clone(&self.pending_producer),
+            measure_worker_generation: Arc::new(AtomicU64::new(1)),
+            producer_handoff,
+            record_ingress,
             measure_handle,
             // B-118: egui は io を eager spawn 済み handle で渡す（既存挙動）。
             io: WatchdogIo::Eager {
@@ -552,10 +560,10 @@ impl Plugin for HyphaPre {
         context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
         self.heartbeat.fetch_add(1, Ordering::Relaxed);
-        if let Ok(mut slot) = self.pending_producer.try_lock() {
-            if let Some(new_producer) = slot.take() {
+        if let Some(handoff) = self.producer_handoff.as_ref() {
+            // SAFETY: nih-plug は process() を単一 Audio Thread で直列実行する。
+            if unsafe { handoff.swap_pending_from_audio() } {
                 self.record_take_tracker.reset_capture_clock();
-                self.ring_producer = Some(new_producer);
                 let pass_id = self.watch_playback_pass_id.load(Ordering::Acquire);
                 reset_watch_ring_cursor(
                     &self.watch_ring_cursor_epoch,
@@ -566,9 +574,11 @@ impl Plugin for HyphaPre {
                 self.watch_playback_pass_cutover_samples
                     .store(0, Ordering::Release);
                 self.watch_ring_replacing.store(false, Ordering::Release);
-                log::info!("[PRE process] ring producer swapped after Measure restart");
             }
         }
+        // SAFETY: nih-plug invokes process() serially on one Audio Thread. Adoption only moves
+        // atomic pointers; allocation/reclamation remain on IO/Watchdog threads.
+        unsafe { self.record_ingress.adopt_from_audio() };
 
         let bypass_val = self.params.bypass.value();
         let transport = context.transport();
@@ -642,21 +652,31 @@ impl Plugin for HyphaPre {
                 pos,
                 loop_range_samples,
                 &self.record_sm,
-                latch_start_anchor,
+                false,
             )
         } else {
             RecordWindow::full(buffer.samples(), pos)
         };
-        let record_window_started = self
-            .record_sm
-            .record_started_at_position_samples()
-            .is_some();
+        let record_start_candidate = (recording
+            && latch_start_anchor
+            && self
+                .record_sm
+                .record_started_at_position_samples()
+                .is_none()
+            && record_window.position_valid
+            && record_window.num_frames > 0)
+            .then_some(if explicit_record_range {
+                record_window.clock_start_samples
+            } else {
+                record_window.position_samples
+            });
+        let record_window_started = record_start_latched || record_start_candidate.is_some();
         let push_buffer = if recording {
             capture_buffer && record_window_started && record_window.position_valid
         } else {
             capture_buffer
         };
-        self.record_take_tracker.note_block(RecordTakeBlock {
+        let take_block = RecordTakeBlock {
             generation: self.record_sm.generation(),
             recording,
             rendered: recording
@@ -670,23 +690,94 @@ impl Plugin for HyphaPre {
             num_frames: record_window.num_frames,
             clock_start_samples: record_window.clock_start_samples,
             clock_end_samples: record_window.clock_end_samples,
-        });
+        };
+        let offline_capture_boundary = push_buffer && offline_mode && !self.capture_last_offline;
 
         if push_buffer {
-            self.record_take_tracker
-                .note_capture_window_with_presentation(
-                    record_window.position_valid,
-                    record_window.position_samples,
-                    record_window.num_frames,
-                    kirin_measure::CaptureClockSource::ProjectTimeline,
-                    PresentationLatencySamples {
-                        source: PresentationLatencySource::Vst3,
-                        input: transport.input_presentation_latency_samples,
-                        output: transport.output_presentation_latency_samples,
-                    },
-                );
-            if let Some(producer) = &mut self.ring_producer {
-                let pushed = push_window_to_ring(buffer, producer, record_window, &self.overflow);
+            let presentation_latency = PresentationLatencySamples {
+                source: PresentationLatencySource::Vst3,
+                input: transport.input_presentation_latency_samples,
+                output: transport.output_presentation_latency_samples,
+            };
+            if recording {
+                // SAFETY: single Audio Thread; producer access is confined to this callback.
+                let pushed = unsafe {
+                    self.record_ingress.with_producer_from_audio(
+                        self.record_sm.generation(),
+                        |producer| {
+                            let required =
+                                record_window.num_frames.saturating_mul(N_CHANNELS as u64) as usize;
+                            if producer.slots() < required {
+                                self.overflow.fetch_add(required as u64, Ordering::Relaxed);
+                                return 0;
+                            }
+                            if let Some(start_samples) = record_start_candidate {
+                                let _ = self
+                                    .record_sm
+                                    .try_latch_record_started_at_position_samples(start_samples);
+                            }
+                            if self
+                                .record_sm
+                                .record_started_at_position_samples()
+                                .is_none()
+                            {
+                                return 0;
+                            }
+                            // Commit the immutable clock only after the complete block has been
+                            // admitted. A full lane therefore drops audio+clock together and can
+                            // never shift the next callback's presentation coordinate.
+                            let record_entry = self.record_ingress.begin_generation_from_audio(
+                                self.record_sm.generation(),
+                                self.record_take_tracker.captured_frames_total(),
+                            );
+                            self.record_take_tracker.note_block(take_block);
+                            self.record_take_tracker
+                                .note_capture_window_with_presentation_boundary(
+                                    record_window.position_valid,
+                                    record_window.position_samples,
+                                    record_window.num_frames,
+                                    kirin_measure::CaptureClockSource::ProjectTimeline,
+                                    presentation_latency,
+                                    offline_capture_boundary || (record_entry && !offline_mode),
+                                );
+                            push_window_to_ring(buffer, producer, record_window, &self.overflow)
+                        },
+                    )
+                };
+                if pushed.is_none() && record_window.num_frames > 0 {
+                    self.overflow.fetch_add(
+                        record_window.num_frames.saturating_mul(N_CHANNELS as u64),
+                        Ordering::Relaxed,
+                    );
+                } else if pushed.is_some_and(|count| count > 0) {
+                    self.capture_last_offline = offline_mode;
+                }
+            } else if let Some(handoff) = self.producer_handoff.as_ref() {
+                // SAFETY: process() の単一 Audio Thread 契約。参照はこの block 内だけ保持。
+                let pushed = unsafe {
+                    handoff.with_active_producer_from_audio(|producer| {
+                        let required =
+                            record_window.num_frames.saturating_mul(N_CHANNELS as u64) as usize;
+                        if producer.slots() < required {
+                            self.overflow.fetch_add(required as u64, Ordering::Relaxed);
+                            return 0;
+                        }
+                        self.record_take_tracker.note_block(take_block);
+                        self.record_take_tracker
+                            .note_capture_window_with_presentation_boundary(
+                                record_window.position_valid,
+                                record_window.position_samples,
+                                record_window.num_frames,
+                                kirin_measure::CaptureClockSource::ProjectTimeline,
+                                presentation_latency,
+                                offline_capture_boundary,
+                            );
+                        push_window_to_ring(buffer, producer, record_window, &self.overflow)
+                    })
+                };
+                if pushed > 0 {
+                    self.capture_last_offline = offline_mode;
+                }
                 if pushed > 0 && !self.watch_ring_replacing.load(Ordering::Acquire) {
                     let pass_id = self.watch_playback_pass_id.load(Ordering::Acquire);
                     add_watch_ring_cursor_samples(
@@ -698,19 +789,6 @@ impl Plugin for HyphaPre {
                     );
                 }
             }
-        }
-
-        self.process_counter = self.process_counter.wrapping_add(1);
-        if self.process_counter & 0xFF == 0 {
-            log::info!(
-                "[PRE diag] state={:?} bypass={} playing={} silent={} recording={} buf_len={}",
-                state,
-                bypass_val,
-                playing,
-                silent,
-                recording,
-                buffer.samples()
-            );
         }
 
         ProcessStatus::Normal

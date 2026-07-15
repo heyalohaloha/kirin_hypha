@@ -22,6 +22,11 @@ const DROP_COMMITS_SUBDIR: &str = "drop_commits";
 const DROP_COMMITS_BY_SESSION_SUBDIR: &str = "by_session";
 const DROP_TRANSACTIONS_SUBDIR: &str = "drop_transactions";
 const DROP_GENERATION_TRANSACTIONS_SUBDIR: &str = "drop_transactions";
+const DROP_GENERATION_ACCEPTANCE_SUBDIR: &str = "drop_acceptance";
+const DROP_GENERATION_ACCEPTANCE_SCHEMA: &str = "drop_record_generation_acceptance.v2";
+
+#[path = "record_drop_acceptance.rs"]
+mod acceptance;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DropRecordCommit {
@@ -72,6 +77,24 @@ pub struct DropRecordGenerationTransaction {
     pub projects: Vec<DropRecordGenerationProject>,
 }
 
+/// First immutable WAV transaction accepted for one exact producer generation.
+/// Every member bind must match this fingerprint, so retries cannot split one Keep roster across
+/// two WAVs even if individual commit files are replaced between member callbacks.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct DropRecordGenerationAcceptance {
+    schema_version: String,
+    capture_generation_id: String,
+    generation_started_at_ms: i64,
+    drop_commit_id: String,
+    created_at_ms: i64,
+    accepted_at_ms: i64,
+    bounce_id: String,
+    wav_hash: String,
+    exact_artifacts_sha256: String,
+    generation: crate::capture_generation::CaptureGeneration,
+    members: Vec<acceptance::AcceptedDropMember>,
+}
+
 pub fn drop_commit_path(base_dir: &Path, project_hash: &str, session_id: &str) -> PathBuf {
     let session =
         crate::path_identity::guard_path_component(session_id, "record_drop_commit.session_id");
@@ -102,6 +125,21 @@ pub fn drop_generation_transaction_path(base_dir: &Path, drop_commit_id: &str) -
         .join(format!("{commit}.json"))
 }
 
+fn drop_generation_acceptance_path(
+    base_dir: &Path,
+    capture_generation_id: &str,
+    generation_started_at_ms: i64,
+) -> PathBuf {
+    let generation = crate::path_identity::guard_path_component(
+        capture_generation_id,
+        "record_drop_commit.acceptance.generation_id",
+    );
+    base_dir
+        .join(crate::capture_generation::CAPTURE_GENERATION_SUBDIR)
+        .join(DROP_GENERATION_ACCEPTANCE_SUBDIR)
+        .join(format!("{generation}.{generation_started_at_ms}.v2.json"))
+}
+
 /// Bind an already inspected Drop commit to exactly one still-open session.
 pub fn bind_drop_commit_for_open_session(
     base_dir: &Path,
@@ -113,6 +151,7 @@ pub fn bind_drop_commit_for_open_session(
     else {
         return Ok(None);
     };
+    terminalize_drop_generation(base_dir, &marker)?;
     if let Some(existing) = marker.metadata {
         return Ok((existing == metadata).then_some(existing));
     }
@@ -179,6 +218,7 @@ pub(crate) fn bind_drop_commit_for_closed_pair_session(
     if &metadata != inspected_metadata {
         return Ok(None);
     }
+    terminalize_drop_generation(base_dir, &marker)?;
     if let Some(existing) = marker.metadata {
         return Ok((existing == metadata).then_some(existing));
     }
@@ -197,6 +237,33 @@ pub(crate) fn bind_drop_commit_for_closed_pair_session(
     Ok(Some(metadata.without_consumed_marker()))
 }
 
+fn terminalize_drop_generation(
+    base_dir: &Path,
+    marker: &ExpectedWavClaimMarker,
+) -> Result<(), ExpectedMetadataError> {
+    if marker.capture_generation_id.trim().is_empty() {
+        return Ok(());
+    }
+    crate::capture_generation_lifecycle::mark_generation_terminal_by_identity(
+        base_dir,
+        &marker.capture_generation_id,
+        marker.generation_started_at_ms,
+        crate::capture_generation_lifecycle::GenerationTerminalReason::DropCommitted,
+    )
+    .map(|_| ())
+    .map_err(|error| match error {
+        crate::capture_generation_lifecycle::GenerationLifecycleError::Io(error) => {
+            ExpectedMetadataError::Io(error)
+        }
+        crate::capture_generation_lifecycle::GenerationLifecycleError::Serde(error) => {
+            ExpectedMetadataError::Serde(error)
+        }
+        crate::capture_generation_lifecycle::GenerationLifecycleError::Invalid => {
+            ExpectedMetadataError::Invalid
+        }
+    })
+}
+
 fn read_drop_commit_for_session(
     base_dir: &Path,
     project_hash: &str,
@@ -207,6 +274,53 @@ fn read_drop_commit_for_session(
     if session_id.is_empty() {
         return Ok(None);
     }
+    let Some(marker) = read_claim_marker_for_session(base_dir, project_hash, session_id)? else {
+        return Ok(None);
+    };
+    if marker.session_id != session_id || (require_open_marker && marker.closed_at_ms.is_some()) {
+        return Ok(None);
+    }
+    if !marker.capture_generation_id.is_empty() {
+        let Some(accepted) = acceptance::accepted_member_for_session(
+            base_dir,
+            &marker.capture_generation_id,
+            marker.generation_started_at_ms,
+            project_hash,
+            session_id,
+        )?
+        else {
+            return Ok(None);
+        };
+        let metadata = accepted.metadata.without_consumed_marker();
+        let invalid = accepted.member.project_hash != project_hash
+            || accepted.member.record_session_id != session_id
+            || accepted.member.post_instance_id != marker.requested_by_post_instance_id
+            || metadata.created_at_ms < marker.claimed_at_ms
+            || marker
+                .metadata
+                .as_ref()
+                .is_some_and(|existing| existing != &metadata);
+        return Ok((!invalid).then_some((metadata, marker)));
+    }
+
+    read_legacy_drop_commit_for_session(
+        base_dir,
+        project_hash,
+        session_id,
+        require_open_marker,
+        marker,
+    )
+}
+
+/// Compatibility path for pre-generation captures. Current captures are resolved exclusively
+/// through the immutable generation acceptance above.
+fn read_legacy_drop_commit_for_session(
+    base_dir: &Path,
+    project_hash: &str,
+    session_id: &str,
+    require_open_marker: bool,
+    marker: ExpectedWavClaimMarker,
+) -> Result<Option<(ExpectedWavMetadata, ExpectedWavClaimMarker)>, ExpectedMetadataError> {
     let bytes = match fs::read(drop_commit_path(base_dir, project_hash, session_id)) {
         Ok(bytes) => bytes,
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
@@ -234,21 +348,16 @@ fn read_drop_commit_for_session(
     let generation_transaction: DropRecordGenerationTransaction =
         serde_json::from_slice(&generation_transaction_bytes)?;
     let now_ms = now_epoch_ms();
-    let Some(marker) = read_claim_marker_for_session(base_dir, project_hash, session_id)? else {
-        return Ok(None);
-    };
     let expected_hash = commit.metadata.wav_hash.as_deref().unwrap_or_default();
-    let generation_invalid = !marker.capture_generation_id.is_empty()
-        && (commit.capture_generation_id != marker.capture_generation_id
-            || transaction.capture_generation_id != marker.capture_generation_id
-            || commit.generation_started_at_ms != marker.generation_started_at_ms
-            || transaction.generation_started_at_ms != marker.generation_started_at_ms);
     let invalid = commit.schema_version != DROP_COMMIT_SCHEMA
         || commit.drop_commit_id.trim().is_empty()
         || commit.project_hash != project_hash
         || commit.record_session_id != session_id
         || marker.session_id != session_id
-        || generation_invalid
+        || !commit.capture_generation_id.is_empty()
+        || !transaction.capture_generation_id.is_empty()
+        || commit.generation_started_at_ms != 0
+        || transaction.generation_started_at_ms != 0
         || (require_open_marker && marker.closed_at_ms.is_some())
         || commit.created_at_ms < marker.claimed_at_ms
         || commit.created_at_ms > now_ms.saturating_add(EXPECTED_METADATA_FUTURE_SKEW_MS)
@@ -286,7 +395,10 @@ fn read_drop_commit_for_session(
             .metadata
             .as_ref()
             .is_some_and(|existing| existing != &commit.metadata);
-    Ok((!invalid).then_some((commit.metadata.without_consumed_marker(), marker)))
+    if invalid {
+        return Ok(None);
+    }
+    Ok(Some((commit.metadata.without_consumed_marker(), marker)))
 }
 
 fn generation_transaction_authorizes_project(

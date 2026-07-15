@@ -38,7 +38,7 @@ namespace hypha
         std::function<void()>                     onSenseHint;  // open upsell URL
 
         // Rebuild visibility for the current state. license: 0=Os 1=Sense 2=Unknown.
-        void update (bool recording, int license, bool pairSelected);
+        void update (bool keepActive, int license, bool pairSelected);
 
         void resized() override;
 

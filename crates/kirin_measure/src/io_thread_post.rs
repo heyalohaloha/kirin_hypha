@@ -14,7 +14,6 @@
 //!   即座に不可視になる。起動時の履歴sweepは行わない。
 //! - Record 中に終了した場合、保留中の writer は status=closed で flush してから閉じる
 
-use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
@@ -187,6 +186,30 @@ fn remember_latest_started_at(latest: &mut Option<String>, candidate: &str) {
     }
 }
 
+fn generation_stop_authorizes_post(
+    base_dir: &Path,
+    project_hash: &str,
+    post_instance_id: &str,
+    broadcast: &all_stop_signal::AllStopBroadcast,
+) -> bool {
+    if !broadcast.has_generation() {
+        return true;
+    }
+    let terminal = crate::capture_generation_lifecycle::read_generation_terminal(
+        base_dir,
+        &broadcast.capture_generation_id,
+        broadcast.generation_started_at_ms,
+    );
+    if !matches!(terminal, Ok(Some(_))) {
+        return false;
+    }
+    record_signal::read_signal(base_dir, project_hash, post_instance_id).is_some_and(|signal| {
+        signal.status != SignalStatus::Released
+            && signal.capture_generation_id == broadcast.capture_generation_id
+            && signal.generation_started_at_ms == broadcast.generation_started_at_ms
+    })
+}
+
 /// PRE ファイルが Active とみなされる最大経過時間（秒）
 const STALE_SECS: i64 = 5; // B-046: 2→5 (fs I/O backpressure 吸収 / G-115-246)
 
@@ -314,6 +337,8 @@ pub fn spawn_io_thread_post(
     record_trace_queue: RecordTraceQueue,
     // Audio Thread が積んだ実レンダー長。Record close 時の clean bounce_take 正本。
     record_take_tracker: Arc<RecordTakeTracker>,
+    // Control-plane-preallocated Record-only Audio -> Measure lane.
+    record_ingress: Arc<crate::RecordIngress>,
     // GUI Thread → POST IO Thread. Only the writer consumes queued MARKs.
     record_mark_queue: crate::record_mark::RecordMarkQueue,
     // B-076: 累積 push_overflow（Audio Thread が ring 満杯時に積む）。run_record_tick が
@@ -394,17 +419,13 @@ pub fn spawn_io_thread_post(
         let mut next_preset_poll = Instant::now();
         let mut next_ack_timeout_poll = Instant::now();
         let mut next_pair_label_poll = Instant::now();
-        // B-027 段階 3-B α-7-4-C / Step 10: all_keep_signal broadcast 受信側 cache。
-        // key = `originator_post_instance_id`、value = `(started_at, last_seen)`。
-        //
-        // - `started_at` 値比較で「同 originator + 同 broadcast」の既処理 skip (clock-skew
-        //   完全耐性 / Q-A8-6)。
-        // - `last_seen: Instant` で GC (`ACK_TIMEOUT_SECONDS` = 30 秒経過 entry を retain で
-        //   削除 / 引数 #24 (ii) 採用 / 先例 io_thread_pre.rs:378-403 partner.last_seen_status
-        //   cache パターンと同位相 / chrono 新規依存導入なし)。
-        let mut processed_broadcasts: HashMap<String, (String, Instant)> = HashMap::new();
-        // α-7' All Stop: Stop broadcast 受信側 cache (Keep と並列 / 同型 HashMap)。
-        let mut processed_stop_broadcasts: HashMap<String, (String, Instant)> = HashMap::new();
+        // All Keep/Stop are edge notifications, not renewable execution leases. Each current file
+        // has one owner and is replaced by that owner's next immutable generation, so retaining
+        // the last processed key per originator is naturally bounded by the live POST roster. A
+        // wall-clock TTL here would let an unchanged completed generation become a new edge after
+        // 30 seconds and is therefore forbidden.
+        let mut processed_broadcasts = crate::broadcast_edge::BroadcastEdgeMemory::default();
+        let mut processed_stop_broadcasts = crate::broadcast_edge::BroadcastEdgeMemory::default();
         let mut next_all_keep_poll = Instant::now();
         // B-024 Group A / Gap-2: PRE 死活監視 sub-tick の next-fire 時刻。
         let mut next_pre_liveness_poll = Instant::now();
@@ -899,6 +920,7 @@ pub fn spawn_io_thread_post(
                     sample_rate,
                     &record_sm,
                     &pair_label,
+                    &record_ingress,
                 );
                 next_pair_label_poll = Instant::now() + PAIR_LABEL_POLL_INTERVAL;
             }
@@ -926,6 +948,11 @@ pub fn spawn_io_thread_post(
                     let stop_broadcasts =
                         all_stop_signal::read_current_stop_broadcast(&base_dir, project_hash_ref);
                     for (originator_iid, broadcast) in stop_broadcasts.into_iter().take(1) {
+                        let stop_key = if broadcast.has_generation() {
+                            broadcast.capture_generation_id.clone()
+                        } else {
+                            format!("legacy:{}", broadcast.started_at)
+                        };
                         if !broadcast_scope_or_same_project_host_matches(
                             &daw_session_id_snapshot,
                             host_process_id_snapshot,
@@ -934,39 +961,43 @@ pub fn spawn_io_thread_post(
                         ) {
                             continue;
                         }
-                        if all_stop_signal::is_stop_broadcast_stale(
-                            &broadcast,
-                            now_chrono,
-                            ALL_STOP_BROADCAST_STALE_SECS,
-                        ) {
-                            processed_stop_broadcasts.insert(
-                                originator_iid.clone(),
-                                (broadcast.started_at.clone(), Instant::now()),
-                            );
+                        if broadcast.has_generation()
+                            && !generation_stop_authorizes_post(
+                                &base_dir,
+                                project_hash_ref,
+                                instance_id_ref,
+                                &broadcast,
+                            )
+                        {
+                            continue;
+                        }
+                        if !broadcast.has_generation()
+                            && all_stop_signal::is_stop_broadcast_stale(
+                                &broadcast,
+                                now_chrono,
+                                ALL_STOP_BROADCAST_STALE_SECS,
+                            )
+                        {
+                            processed_stop_broadcasts.remember(&originator_iid, &stop_key);
                             log::debug!(
                                 "[all_stop] stale broadcast cached without fire: originator={}",
                                 originator_iid
                             );
                             continue;
                         }
-                        remember_latest_started_at(
-                            &mut latest_fresh_stop_started_at,
-                            &broadcast.started_at,
-                        );
+                        if !broadcast.has_generation() {
+                            remember_latest_started_at(
+                                &mut latest_fresh_stop_started_at,
+                                &broadcast.started_at,
+                            );
+                        }
                         if originator_iid == instance_id_ref {
                             continue;
                         }
-                        if let Some((cached_started_at, _)) =
-                            processed_stop_broadcasts.get(&originator_iid)
-                        {
-                            if cached_started_at == &broadcast.started_at {
-                                continue;
-                            }
+                        if processed_stop_broadcasts.contains(&originator_iid, &stop_key) {
+                            continue;
                         }
-                        processed_stop_broadcasts.insert(
-                            originator_iid.clone(),
-                            (broadcast.started_at.clone(), Instant::now()),
-                        );
+                        processed_stop_broadcasts.remember(&originator_iid, &stop_key);
                         let scan_dir =
                             all_stop_signal::stop_signals_dir(&base_dir, project_hash_ref);
                         log::info!(
@@ -977,9 +1008,6 @@ pub fn spawn_io_thread_post(
                         );
                         (trigger_stop_resolution)(&originator_iid, &broadcast.started_at);
                     }
-                    let timeout = Duration::from_secs(ACK_TIMEOUT_SECONDS as u64);
-                    processed_stop_broadcasts
-                        .retain(|_, (_, last_seen)| last_seen.elapsed() < timeout);
                 }
                 // 注: next_all_keep_poll は Keep sub-tick 末でresetされるため、StopはKeepと
                 // 同じ100ms IO cadence・同frameで動く。
@@ -995,9 +1023,8 @@ pub fn spawn_io_thread_post(
             //  3. 既処理 skip: cache 内の immutable generation id と一致 → 同 broadcast skip
             //  4. stale fallback: legacy または未commit generationだけ cache 登録
             //  5. commit済 generation: arm成功まで再試行し、成功後だけ cache 更新
-            //  6. GC: `last_seen.elapsed() >= ACK_TIMEOUT_SECONDS` の entry を retain で削除
-            //     (先例 io_thread_pre.rs:378-403 partner.last_seen_status cache 同位相 /
-            //     chrono 新規依存なし / 申し送り #24 (ii))
+            // Cache entries do not expire: a new Keep always has a new generation UUID/session and
+            // therefore replaces the key explicitly. Elapsed time never recreates an edge.
             if Instant::now() >= next_all_keep_poll {
                 if let Ok(paths) = StoragePaths::default_platform() {
                     let base_dir = paths.plugin_data_dir();
@@ -1025,19 +1052,12 @@ pub fn spawn_io_thread_post(
                         }
                         // 2. self skip
                         if originator_iid == instance_id_ref {
-                            processed_broadcasts.insert(
-                                originator_iid.clone(),
-                                (broadcast_key.clone(), Instant::now()),
-                            );
+                            processed_broadcasts.remember(&originator_iid, &broadcast_key);
                             continue;
                         }
                         // 3. 既処理 skip
-                        if let Some((cached_broadcast_key, _)) =
-                            processed_broadcasts.get(&originator_iid)
-                        {
-                            if cached_broadcast_key == &broadcast_key {
-                                continue;
-                            }
+                        if processed_broadcasts.contains(&originator_iid, &broadcast_key) {
+                            continue;
                         }
                         let broadcast_is_stale = all_keep_signal::is_broadcast_stale(
                             &broadcast,
@@ -1048,10 +1068,7 @@ pub fn spawn_io_thread_post(
                         // their only compatibility bound. A generation message is handled below:
                         // committed generations remain retryable for their full lifetime.
                         if broadcast_is_stale && broadcast.capture_generation_id.trim().is_empty() {
-                            processed_broadcasts.insert(
-                                originator_iid.clone(),
-                                (broadcast_key.clone(), Instant::now()),
-                            );
+                            processed_broadcasts.remember(&originator_iid, &broadcast_key);
                             log::debug!(
                                 "[all_keep] stale broadcast cached without fire: originator={}, started_at={}",
                                 originator_iid,
@@ -1063,10 +1080,7 @@ pub fn spawn_io_thread_post(
                             &broadcast.started_at,
                             latest_fresh_stop_started_at.as_deref(),
                         ) {
-                            processed_broadcasts.insert(
-                                originator_iid.clone(),
-                                (broadcast_key.clone(), Instant::now()),
-                            );
+                            processed_broadcasts.remember(&originator_iid, &broadcast_key);
                             log::info!(
                                 "[all_keep] keep broadcast suppressed by newer/equal all_stop: originator={} keep_started_at={} stop_started_at={}",
                                 originator_iid,
@@ -1080,10 +1094,7 @@ pub fn spawn_io_thread_post(
                         if broadcast.capture_generation_id.trim().is_empty()
                             || broadcast.generation_started_at_ms <= 0
                         {
-                            processed_broadcasts.insert(
-                                originator_iid.clone(),
-                                (broadcast_key.clone(), Instant::now()),
-                            );
+                            processed_broadcasts.remember(&originator_iid, &broadcast_key);
                             log::debug!(
                                 "[all_keep] legacy broadcast skipped without generation: originator={}",
                                 originator_iid
@@ -1110,10 +1121,7 @@ pub fn spawn_io_thread_post(
                                 _ if broadcast_is_stale => {
                                     // A stale staged/aborted generation that never became active is
                                     // permanently non-authoritative and may now be cached.
-                                    processed_broadcasts.insert(
-                                        originator_iid.clone(),
-                                        (broadcast_key.clone(), Instant::now()),
-                                    );
+                                    processed_broadcasts.remember(&originator_iid, &broadcast_key);
                                     continue;
                                 }
                                 _ => continue,
@@ -1134,13 +1142,9 @@ pub fn spawn_io_thread_post(
                                     generation.capture_generation_id
                                 );
                             }
-                            processed_broadcasts
-                                .insert(originator_iid.clone(), (broadcast_key, Instant::now()));
+                            processed_broadcasts.remember(&originator_iid, &broadcast_key);
                         }
                     }
-                    // 6. GC: ACK_TIMEOUT_SECONDS 経過 cache 削除
-                    let timeout = Duration::from_secs(ACK_TIMEOUT_SECONDS as u64);
-                    processed_broadcasts.retain(|_, (_, last_seen)| last_seen.elapsed() < timeout);
                 } else {
                     log::warn!("[all_keep] StoragePaths::default_platform() failed; skipping tick");
                 }
@@ -1202,11 +1206,24 @@ pub fn spawn_io_thread_post(
                     &paired_pre_target,
                     "cleanup #4",
                 );
-                match record_signal::mark_released(
-                    &paths.plugin_data_dir(),
-                    &final_project_hash,
-                    &final_iid,
-                ) {
+                let base = paths.plugin_data_dir();
+                let owned_session = record_sm
+                    .record_session_id()
+                    .or_else(|| record_sm.last_closed_session_id());
+                let release_result =
+                    record_signal::read_signal(&base, &final_project_hash, &final_iid)
+                        .filter(|signal| {
+                            owned_session.as_deref() == Some(signal.session_id.as_str())
+                        })
+                        .map_or(Ok(false), |expected| {
+                            record_signal::mark_released_if_current(
+                                &base,
+                                &final_project_hash,
+                                &final_iid,
+                                &expected,
+                            )
+                        });
+                match release_result {
                     Ok(true) => log::info!("[POST cleanup #4] mark_released ok"),
                     Ok(false) => log::info!("[POST cleanup #4] no signal to release"),
                     Err(e) => log::warn!("[POST cleanup #4] mark_released failed: {:?}", e),
@@ -2618,6 +2635,7 @@ fn poll_record_signal_ack(
     sample_rate: u32,
     record_sm: &Arc<RecordStateMachine>,
     pair_label: &Arc<Mutex<String>>,
+    record_ingress: &crate::RecordIngress,
 ) {
     let base = match StoragePaths::default_platform() {
         Ok(paths) => paths.plugin_data_dir(),
@@ -2630,6 +2648,7 @@ fn poll_record_signal_ack(
         sample_rate,
         record_sm,
         pair_label,
+        record_ingress,
     );
 }
 
@@ -2640,6 +2659,7 @@ fn poll_record_signal_ack_with_base(
     sample_rate: u32,
     record_sm: &Arc<RecordStateMachine>,
     pair_label: &Arc<Mutex<String>>,
+    record_ingress: &crate::RecordIngress,
 ) {
     let Some(signal) = record_signal::read_signal(base, project_hash, instance_id) else {
         return;
@@ -2661,6 +2681,13 @@ fn poll_record_signal_ack_with_base(
         );
     }
     if !record_sm.is_recording() {
+        // A durable ACK is historical state, not permission to start a producer after an IO/DAW
+        // restart. Only the exact live preparation lease may re-arm this POST. Once a generation
+        // is committed, `preparing.json` is retired and an already-running writer continues from
+        // memory; a fresh state machine must remain in Watch.
+        if !post_ack_generation_is_authorized(base, project_hash, instance_id, &signal) {
+            return;
+        }
         let Some(started_at_ms) = parse_iso8601_to_epoch_ms(&signal.started_at) else {
             log::warn!(
                 "[IOThread POST] ACK ignored: started_at invalid (post_iid={}, started_at={:?})",
@@ -2683,6 +2710,37 @@ fn poll_record_signal_ack_with_base(
             log::warn!(
                 "[IOThread POST] ACK ignored: session already closed on disk \
                  (session={}, post_iid={})",
+                signal.session_id,
+                instance_id
+            );
+            return;
+        }
+        if crate::record_writer_claim::writer_claim_active(
+            base,
+            project_hash,
+            &signal.session_id,
+            PluginDataRole::Post,
+            instance_id,
+        )
+        .unwrap_or(false)
+        {
+            log::warn!(
+                "[IOThread POST] ACK ignored: writer already active \
+                 (session={}, post_iid={})",
+                signal.session_id,
+                instance_id
+            );
+            return;
+        }
+        // Prepare the reusable in-memory lane before claiming this session on disk. A second Keep
+        // may arrive while the prior Record consumer is completing its drain; that transient must
+        // remain retryable and must not strand a durable entry claim.
+        let next_generation = record_sm.generation().saturating_add(1);
+        if !record_ingress.prepare_for_generation(next_generation) {
+            log::warn!(
+                "[IOThread POST] ACK ignored: Record ingest lane is not drained/prepared \
+                 (generation={}, session={}, post_iid={})",
+                next_generation,
                 signal.session_id,
                 instance_id
             );
@@ -2716,23 +2774,6 @@ fn poll_record_signal_ack_with_base(
                 return;
             }
         }
-        if crate::record_writer_claim::writer_claim_active(
-            base,
-            project_hash,
-            &signal.session_id,
-            PluginDataRole::Post,
-            instance_id,
-        )
-        .unwrap_or(false)
-        {
-            log::warn!(
-                "[IOThread POST] ACK ignored: writer already active \
-                 (session={}, post_iid={})",
-                signal.session_id,
-                instance_id
-            );
-            return;
-        }
         match record_sm.try_enter_record_started_at_clock_window_transaction(
             crate::License::Os,
             started_at_ms,
@@ -2763,6 +2804,41 @@ fn poll_record_signal_ack_with_base(
             *g = new_label;
         }
     }
+}
+
+fn post_ack_generation_is_authorized(
+    base: &Path,
+    project_hash: &str,
+    post_instance_id: &str,
+    signal: &record_signal::RecordSignal,
+) -> bool {
+    // Legacy signals retain their old compatibility path, but every signal emitted by the
+    // current producer carries an immutable generation and is governed by the strict lease.
+    if signal.capture_generation_id.trim().is_empty() {
+        return true;
+    }
+    let Ok(Some(generation)) = crate::capture_generation::read_producer_authorized_generation(
+        base,
+        project_hash,
+        &signal.capture_generation_id,
+        signal.generation_started_at_ms,
+    ) else {
+        return false;
+    };
+    // The immutable roster was assembled only after operation-group resolution and is already
+    // bound to one live host process plus exact project/POST/session/PRE identities below. Some
+    // hosts assign distinct non-empty DAW ids to AU and VST3 instances in the same document; a
+    // second DAW-id equality check here would acknowledge the PRE but strand the corresponding
+    // POST forever. No scope is widened: a signal absent from the exact roster still fails.
+    if generation.host_process_id != crate::current_host_process_id() {
+        return false;
+    }
+    generation
+        .member(project_hash, post_instance_id)
+        .is_some_and(|member| {
+            member.record_session_id == signal.session_id
+                && member.pre_instance_id == signal.target_pre_instance_id
+        })
 }
 
 // ── preset/ poller ──────────────────────────────────────────────────────────
@@ -3935,17 +4011,73 @@ mod record_signal_ack_barrier_tests {
     }
 
     #[test]
+    fn exact_generation_member_accepts_instance_scoped_au_vst_daw_ids() {
+        let base = isolated_base("split-au-vst-daw-id");
+        let generation = crate::CaptureGeneration::new_single_named(
+            TEST_PH.to_string(),
+            TEST_POST_IID.to_string(),
+            "pre-iid".to_string(),
+            "originator-au-daw-id".to_string(),
+            crate::current_host_process_id(),
+            Some("2Mix".to_string()),
+        );
+        let member = generation.members[0].clone();
+        let mut transaction = crate::CaptureGenerationTransaction::begin(&base, &generation)
+            .expect("generation lock");
+        transaction.stage().expect("producer preparation");
+        let signal = RecordSignal {
+            status: SignalStatus::Acknowledged,
+            requested_by: TEST_POST_IID.to_string(),
+            target_pre_instance_id: member.pre_instance_id.clone(),
+            daw_session_id: "remote-vst-daw-id".to_string(),
+            session_id: member.record_session_id,
+            capture_generation_id: generation.capture_generation_id.clone(),
+            generation_started_at_ms: generation.started_at_ms,
+            t: "2026-07-15T00:00:00Z".to_string(),
+            started_at: "2026-07-15T00:00:00Z".to_string(),
+            started_at_position_samples: None,
+            paired_pre_name: "2Mix".to_string(),
+            release_reason: None,
+            expected_wav: None,
+        };
+
+        assert!(post_ack_generation_is_authorized(
+            &base,
+            TEST_PH,
+            TEST_POST_IID,
+            &signal,
+        ));
+    }
+
+    #[test]
     fn acknowledged_signal_waits_until_started_at_barrier() {
         let base = isolated_base("future");
         write_ack(&base, "2099-01-01T00:00:00Z");
         let sm = Arc::new(RecordStateMachine::new());
         let pair_label = Arc::new(Mutex::new(String::new()));
+        let record_ingress = crate::RecordIngress::new(16);
 
-        poll_record_signal_ack_with_base(&base, TEST_PH, TEST_POST_IID, 48_000, &sm, &pair_label);
+        poll_record_signal_ack_with_base(
+            &base,
+            TEST_PH,
+            TEST_POST_IID,
+            48_000,
+            &sm,
+            &pair_label,
+            &record_ingress,
+        );
         assert_eq!(sm.current(), RecordState::Watch);
 
         write_ack(&base, "2026-07-05T00:00:00Z");
-        poll_record_signal_ack_with_base(&base, TEST_PH, TEST_POST_IID, 48_000, &sm, &pair_label);
+        poll_record_signal_ack_with_base(
+            &base,
+            TEST_PH,
+            TEST_POST_IID,
+            48_000,
+            &sm,
+            &pair_label,
+            &record_ingress,
+        );
         assert_eq!(sm.current(), RecordState::Record);
         assert_eq!(
             sm.record_started_at_ms(),
@@ -3959,8 +4091,17 @@ mod record_signal_ack_barrier_tests {
         write_ack_with_expected(&base, "2026-07-05T00:00:00Z", None);
         let sm = Arc::new(RecordStateMachine::new());
         let pair_label = Arc::new(Mutex::new(String::new()));
+        let record_ingress = crate::RecordIngress::new(16);
 
-        poll_record_signal_ack_with_base(&base, TEST_PH, TEST_POST_IID, 48_000, &sm, &pair_label);
+        poll_record_signal_ack_with_base(
+            &base,
+            TEST_PH,
+            TEST_POST_IID,
+            48_000,
+            &sm,
+            &pair_label,
+            &record_ingress,
+        );
 
         assert_eq!(sm.current(), RecordState::Record);
         assert_eq!(
@@ -3970,12 +4111,50 @@ mod record_signal_ack_barrier_tests {
     }
 
     #[test]
+    fn second_keep_retries_after_prior_record_lane_finishes_draining() {
+        let base = isolated_base("record-lane-drain-retry");
+        write_ack(&base, "2026-07-05T00:00:00Z");
+        let sm = Arc::new(RecordStateMachine::new());
+        let pair_label = Arc::new(Mutex::new(String::new()));
+        let record_ingress = crate::RecordIngress::new(16);
+
+        // Model the prior take between Stop and the Measure-thread drain acknowledgement.
+        assert!(record_ingress.prepare_for_generation(7));
+        poll_record_signal_ack_with_base(
+            &base,
+            TEST_PH,
+            TEST_POST_IID,
+            48_000,
+            &sm,
+            &pair_label,
+            &record_ingress,
+        );
+        assert_eq!(sm.current(), RecordState::Watch);
+
+        // The failed poll must not have claimed this new session. Once the prior lane drain is
+        // acknowledged, the same durable ACK enters Record on its next ordinary poll.
+        record_ingress.mark_drained_from_measure(7);
+        poll_record_signal_ack_with_base(
+            &base,
+            TEST_PH,
+            TEST_POST_IID,
+            48_000,
+            &sm,
+            &pair_label,
+            &record_ingress,
+        );
+        assert_eq!(sm.current(), RecordState::Record);
+    }
+
+    #[test]
     fn duplicate_post_state_machines_same_ack_only_one_enters_record() {
         let base = isolated_base("duplicate-post-entry");
         write_ack(&base, "2026-07-05T00:00:00Z");
         let first = Arc::new(RecordStateMachine::new());
         let second = Arc::new(RecordStateMachine::new());
         let pair_label = Arc::new(Mutex::new(String::new()));
+        let first_ingress = crate::RecordIngress::new(16);
+        let second_ingress = crate::RecordIngress::new(16);
 
         poll_record_signal_ack_with_base(
             &base,
@@ -3984,6 +4163,7 @@ mod record_signal_ack_barrier_tests {
             48_000,
             &first,
             &pair_label,
+            &first_ingress,
         );
         poll_record_signal_ack_with_base(
             &base,
@@ -3992,6 +4172,7 @@ mod record_signal_ack_barrier_tests {
             48_000,
             &second,
             &pair_label,
+            &second_ingress,
         );
 
         assert_eq!(first.current(), RecordState::Record);

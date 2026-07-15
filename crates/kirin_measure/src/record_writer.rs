@@ -84,14 +84,16 @@ pub struct RecordTraceSample {
     /// 44.1 kHz など非48k環境では、WAV header と一致させる正本は 48k resample 後の
     /// frame 数ではなく、この native frame 数。
     pub t_native_frames: Option<u64>,
-    /// This measurement's absolute host transport boundary. Repeated offline pre-roll passes can
-    /// reuse the same host range; close-time baking deliberately keeps the last measurement at
-    /// each host slot.
+    /// Producer-owned WAV presentation-sample boundary. The Audio Thread has already applied the
+    /// output presentation latency exactly once; no downstream stage may rebase this value.
     pub position_samples: Option<i64>,
-    /// Provenance of `position_samples`. Unknown clocks never become a canonical pair contract.
+    /// Unmodified host project/render boundary retained only for diagnostics and epoch proof.
+    pub raw_host_position_samples: Option<i64>,
+    /// Contiguous producer epoch. Frames from different transport passes must never form one take.
+    pub capture_epoch: Option<u64>,
+    /// Provenance of both sample positions. Unknown clocks never become a canonical pair contract.
     pub clock_source: CaptureClockSource,
-    /// Optional host callback facts. These are diagnostic in Phase 1 and never alter frame values
-    /// or positions until the host/format conformance test has established their semantics.
+    /// Raw host callback facts retained after the producer made the one canonical conversion.
     pub presentation_latency: PresentationLatencySamples,
     pub result: MeasureResult,
     pub include_psb: bool,
@@ -113,6 +115,8 @@ impl RecordTraceSample {
             t_frames_48k,
             t_native_frames,
             position_samples: None,
+            raw_host_position_samples: None,
+            capture_epoch: None,
             clock_source: CaptureClockSource::Unknown,
             presentation_latency: PresentationLatencySamples::default(),
             result,
@@ -157,6 +161,8 @@ impl RecordTraceSample {
             t_frames_48k,
             t_native_frames,
             position_samples: None,
+            raw_host_position_samples: None,
+            capture_epoch: None,
             clock_source: CaptureClockSource::Unknown,
             presentation_latency: PresentationLatencySamples::default(),
             result: MeasureResult::default(),
@@ -170,6 +176,20 @@ impl RecordTraceSample {
 
     pub fn with_position_samples(mut self, position_samples: Option<i64>) -> Self {
         self.position_samples = position_samples;
+        self
+    }
+
+    pub fn with_clock_point(
+        mut self,
+        point: Option<crate::record_take::CaptureClockPoint>,
+    ) -> Self {
+        if let Some(point) = point {
+            self.position_samples = Some(point.position_samples);
+            self.raw_host_position_samples = Some(point.raw_host_position_samples);
+            self.capture_epoch = Some(point.epoch);
+            self.clock_source = point.source;
+            self.presentation_latency = point.presentation_latency;
+        }
         self
     }
 
@@ -497,6 +517,11 @@ pub struct RecordingCtx {
     /// Audio Thread が積んだ実レンダー長。手動 Keep/Stop の余白ではなく WAV と対応する
     /// `bounce_take` の正本として使う。
     pub clean_take: Option<RecordTakeSnapshot>,
+    /// Single producer capture epoch selected by the exact clean render range. TRACE samples from
+    /// every other transport pass are discarded before timeline baking.
+    pub selected_capture_epoch: Option<u64>,
+    /// Canonical output-presentation range corresponding to the selected raw render range.
+    pub presentation_range: Option<(i64, i64)>,
     /// Host presentation-latency state read directly at close. This remains available even when
     /// Measure Thread produced no TRACE sample for a failed or zero-duration take.
     pub presentation_latency_at_close: PresentationLatencySamples,
@@ -659,14 +684,49 @@ pub fn writer_start(
     pair_pre_name: Option<String>,
     record_session_id: Option<String>,
 ) -> Option<RecordingCtx> {
-    let paths = match StoragePaths::default_platform() {
-        Ok(p) => p,
-        Err(e) => {
-            log::warn!("[writer] StoragePaths error: {:?}", e);
-            return None;
-        }
+    writer_start_with_base_override(
+        None,
+        role,
+        sample_rate,
+        started_at_ms,
+        project_hash,
+        instance_id,
+        paired_pre_instance_id,
+        paired_post_instance_id,
+        pair_name,
+        pair_pre_name,
+        record_session_id,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn writer_start_with_base_override(
+    base_override: Option<&Path>,
+    role: Role,
+    sample_rate: u32,
+    started_at_ms: i64,
+    project_hash: &str,
+    instance_id: &str,
+    paired_pre_instance_id: Option<String>,
+    paired_post_instance_id: Option<String>,
+    pair_name: Option<String>,
+    pair_pre_name: Option<String>,
+    record_session_id: Option<String>,
+) -> Option<RecordingCtx> {
+    let resolved_base;
+    let base = if let Some(base) = base_override {
+        base
+    } else {
+        let paths = match StoragePaths::default_platform() {
+            Ok(paths) => paths,
+            Err(error) => {
+                log::warn!("[writer] StoragePaths error: {:?}", error);
+                return None;
+            }
+        };
+        resolved_base = paths.plugin_data_dir();
+        &resolved_base
     };
-    let base = paths.plugin_data_dir();
     let installation_id = match load_installation_id_safe() {
         Some(installation_id) => installation_id,
         None => {
@@ -687,7 +747,7 @@ pub fn writer_start(
     };
     let record_session_id = normalized_record_session_id(record_session_id).or_else(|| {
         signal_post_instance_id
-            .and_then(|post_iid| resolve_record_session_id(&base, project_hash, post_iid))
+            .and_then(|post_iid| resolve_record_session_id(base, project_hash, post_iid))
     });
     // 2026-07-10 (stopし忘れ検出の前提条件): record_session_id は `.json.partial` /
     // `.failed/*.json` / 最終 json すべてに必ず含まれていなければならない。渡された値も
@@ -706,7 +766,7 @@ pub fn writer_start(
         return None;
     };
     if record_session_closed_for_role_instance(
-        &base,
+        base,
         project_hash,
         instance_id,
         role,
@@ -722,13 +782,30 @@ pub fn writer_start(
         );
         return None;
     }
-    let mut writer_claim = match crate::record_writer_claim::claim_writer(
-        &base,
-        project_hash,
-        &record_session_id,
-        role,
-        instance_id,
-    ) {
+    let capture_generation = signal_post_instance_id.and_then(|post_iid| {
+        resolve_capture_generation_for_session(base, project_hash, post_iid, &record_session_id)
+    });
+    let claim_result = match capture_generation.as_ref() {
+        Some((capture_generation_id, generation_started_at_ms)) => {
+            crate::record_writer_claim::claim_writer_for_generation(
+                base,
+                project_hash,
+                &record_session_id,
+                role,
+                instance_id,
+                capture_generation_id,
+                *generation_started_at_ms,
+            )
+        }
+        None => crate::record_writer_claim::claim_writer(
+            base,
+            project_hash,
+            &record_session_id,
+            role,
+            instance_id,
+        ),
+    };
+    let mut writer_claim = match claim_result {
         Ok(claim) => Some(claim),
         Err(e) => {
             log::warn!(
@@ -743,11 +820,8 @@ pub fn writer_start(
             return None;
         }
     };
-    let capture_generation = signal_post_instance_id.and_then(|post_iid| {
-        resolve_capture_generation_for_session(&base, project_hash, post_iid, &record_session_id)
-    });
     let record_session_id = Some(record_session_id);
-    let writer_paths = WriterPaths::build(&base, project_hash, instance_id, role, &wall_clock_iso);
+    let writer_paths = WriterPaths::build(base, project_hash, instance_id, role, &wall_clock_iso);
     let final_path = writer_paths.final_path.clone();
     let staging_path = writer_paths.staging_path.clone();
     let failed_path =
@@ -832,6 +906,8 @@ pub fn writer_start(
         seal_at_start: 0,  // B-132: run_record_tick が Record 開始時に seal を snapshot する
         record_generation: 0,
         clean_take: None,
+        selected_capture_epoch: None,
+        presentation_range: None,
         presentation_latency_at_close: PresentationLatencySamples::default(),
         last_trace_t_ms: None,
         last_trace_frame_48k: None,
@@ -897,9 +973,65 @@ pub fn apply_record_take_snapshot(ctx: &mut RecordingCtx, tracker: Option<&Recor
         return;
     };
     ctx.presentation_latency_at_close = tracker.presentation_latency();
-    if let Some(snapshot) = tracker.snapshot(ctx.record_generation) {
-        ctx.clean_take = Some(snapshot);
+    ctx.selected_capture_epoch = None;
+    ctx.presentation_range = None;
+
+    let snapshot = tracker.snapshot(ctx.record_generation);
+    let raw_range = snapshot.and_then(|snapshot| {
+        snapshot
+            .host_start_position_samples
+            .zip(snapshot.host_end_position_samples)
+    });
+    if let Some((raw_start, raw_end)) = raw_range {
+        ctx.writer
+            .set_raw_host_clock_range(Some(crate::plugin_data::HostClockRange {
+                start_position_samples: raw_start,
+                end_position_samples: raw_end,
+            }));
     }
+
+    // Exact BWF presentation coordinates are the first selection authority. They are compared to
+    // producer-converted capture spans in the same native sample rate; latency is never selected
+    // or applied again here. If no span proves the complete BWF range, retain the producer's
+    // immutable take epoch instead of searching for a longer post-bounce pass.
+    let bwf_range = ctx
+        .writer
+        .data()
+        .expected_wav
+        .as_ref()
+        .and_then(|expected| {
+            if expected.expected_sample_rate != ctx.writer.data().sample_rate {
+                return None;
+            }
+            let start = i64::try_from(expected.wav_time_reference_samples?).ok()?;
+            let end = start.checked_add(i64::try_from(expected.expected_duration_samples).ok()?)?;
+            let epoch = tracker.capture_epoch_containing_presentation_range(
+                ctx.record_generation,
+                start,
+                expected.expected_duration_samples,
+            )?;
+            Some((epoch, start, end))
+        });
+    if let Some((epoch, start, end)) = bwf_range {
+        ctx.selected_capture_epoch = Some(epoch);
+        ctx.presentation_range = Some((start, end));
+        if let Some((raw_start, raw_end)) =
+            tracker.raw_host_range_for_capture_epoch_presentation_range(epoch, start, end)
+        {
+            ctx.writer
+                .set_raw_host_clock_range(Some(crate::plugin_data::HostClockRange {
+                    start_position_samples: raw_start,
+                    end_position_samples: raw_end,
+                }));
+        }
+    } else if let Some(epoch) = tracker.selected_capture_epoch(ctx.record_generation) {
+        ctx.selected_capture_epoch = Some(epoch);
+        if let Some((raw_start, raw_end)) = raw_range {
+            ctx.presentation_range =
+                tracker.presentation_range_for_capture_epoch(epoch, raw_start, raw_end);
+        }
+    }
+    ctx.clean_take = snapshot;
 }
 
 fn refresh_pair_record_metadata_if_missing(ctx: &mut RecordingCtx) {
@@ -1083,12 +1215,8 @@ fn build_bounce_take(ctx: &RecordingCtx, duration_ms: u64, duration_samples: u64
         end_t_ms: duration_ms,
         trace_sample_count: ctx.trace_sample_count as u64,
         frame_count: ctx.writer.data().frames.len() as u64,
-        host_start_position_samples: ctx
-            .clean_take
-            .and_then(|take| take.host_start_position_samples),
-        host_end_position_samples: ctx
-            .clean_take
-            .and_then(|take| take.host_end_position_samples),
+        host_start_position_samples: ctx.presentation_range.map(|range| range.0),
+        host_end_position_samples: ctx.presentation_range.map(|range| range.1),
     }
 }
 
@@ -1104,6 +1232,21 @@ fn expected_duration_ms(expected: &ExpectedWavMetadata) -> u64 {
 }
 
 fn bake_continuous_record_timeline(ctx: &mut RecordingCtx) {
+    let has_epoch_samples = ctx
+        .trace_samples
+        .iter()
+        .any(|sample| sample.capture_epoch.is_some());
+    let selected_trace_samples: Vec<&RecordTraceSample> = ctx
+        .trace_samples
+        .iter()
+        .filter(|sample| {
+            !has_epoch_samples
+                || sample
+                    .capture_epoch
+                    .zip(ctx.selected_capture_epoch)
+                    .is_some_and(|(sample_epoch, selected_epoch)| sample_epoch == selected_epoch)
+        })
+        .collect();
     let mut seen_presentation = BTreeSet::new();
     let mut presentation_latency_observations = Vec::new();
     for latency in ctx
@@ -1129,6 +1272,20 @@ fn bake_continuous_record_timeline(ctx: &mut RecordingCtx) {
     }
     ctx.writer
         .set_host_presentation_latency_observations(presentation_latency_observations);
+    // Current producers publish only the exact Record-lane take. `trace_context_*` remains in the
+    // schema solely so old staging files deserialize; it must never carry Watch history or be used
+    // as a second chance to repair an incomplete current take after close.
+    ctx.writer.set_trace_context(Vec::new(), Vec::new());
+    if has_epoch_samples && ctx.selected_capture_epoch.is_none() {
+        ctx.writer.clear_frames();
+        ctx.writer.set_trace_slot_positions(Vec::new());
+        ctx.writer.set_trace_clock(None);
+        ctx.writer.set_trace_time_axis(None);
+        ctx.writer.mark_integrity_degraded();
+        ctx.writer
+            .add_integrity_reason("missing_selected_capture_epoch");
+        return;
+    }
 
     let duration_ms = record_duration_ms(ctx);
     if duration_ms == 0 {
@@ -1137,12 +1294,13 @@ fn bake_continuous_record_timeline(ctx: &mut RecordingCtx) {
     if !should_bake_continuous_record_timeline(ctx) {
         return;
     }
-    if ctx.trace_samples.is_empty() && ctx.writer.data().frames.is_empty() {
+    if selected_trace_samples.is_empty() && ctx.writer.data().frames.is_empty() {
         return;
     }
-    if ctx.trace_sample_count == 0 {
-        ctx.trace_sample_count = ctx
-            .trace_samples
+    if has_epoch_samples {
+        ctx.trace_sample_count = selected_trace_samples.len();
+    } else if ctx.trace_sample_count == 0 {
+        ctx.trace_sample_count = selected_trace_samples
             .len()
             .saturating_add(ctx.writer.data().frames.len());
     }
@@ -1155,6 +1313,9 @@ fn bake_continuous_record_timeline(ctx: &mut RecordingCtx) {
     if slots.is_empty() {
         return;
     }
+    let sample_rate = ctx.writer.data().sample_rate;
+    let slot_frames = (sample_rate as i64 / 10).max(1);
+    let producer_take_slots = producer_take_slot_positions(ctx, slots.len(), slot_frames);
 
     let mut best_by_ms: BTreeMap<u64, MeasureResult> = BTreeMap::new();
     let mut best_by_position: BTreeMap<i64, MeasureResult> = BTreeMap::new();
@@ -1166,13 +1327,12 @@ fn bake_continuous_record_timeline(ctx: &mut RecordingCtx) {
             }
         }
     }
-    for sample in &ctx.trace_samples {
+    for sample in &selected_trace_samples {
         let Some(result) = measured_trace_result_for_bake(sample) else {
             continue;
         };
-        // Absolute-position context deliberately keeps compensation pre-roll/tail beyond the
-        // provisional WAV-length crop. Pair finalization needs that neighborhood to select N
-        // content-matched frames without inventing or duplicating an edge frame.
+        // Only the selected Record epoch enters this map. The producer take grid below chooses
+        // the exact WAV-range positions; callbacks outside that grid never become publish input.
         if let (Some(position), Some(source)) =
             (sample.position_samples, sample.clock_source.as_str())
         {
@@ -1186,40 +1346,8 @@ fn bake_continuous_record_timeline(ctx: &mut RecordingCtx) {
         }
     }
 
-    // Retain the complete absolute-position neighborhood until PRE/POST finalization. DAWs may
-    // render compensation pre-roll before the WAV range, and the two plug-in positions can carry
-    // the same content on different host slots. `frames[]` remains the provisional 10 fps take;
-    // the pair finalizer consumes this context once and removes it from published artifacts.
-    let context: Vec<(i64, crate::plugin_data::Frame)> = best_by_position
-        .iter()
-        .enumerate()
-        .filter_map(|(index, (position, result))| {
-            let (Some(lufs_m), Some(true_peak), Some(crest)) =
-                (result.lufs_m, result.true_peak, result.crest)
-            else {
-                return None;
-            };
-            Some((
-                *position,
-                crate::plugin_data::make_frame_optional(
-                    (index as u64 + 1).saturating_mul(FRAME_INTERVAL_MS),
-                    result.n_prime,
-                    result.sharpness,
-                    lufs_m,
-                    true_peak,
-                    crest,
-                    result.psr,
-                ),
-            ))
-        })
-        .collect();
-    ctx.writer.set_trace_context(
-        context.iter().map(|(_, frame)| frame.clone()).collect(),
-        context.iter().map(|(position, _)| *position).collect(),
-    );
-
     let mut psb_by_ms: BTreeMap<u64, MeasureResult> = BTreeMap::new();
-    for sample in &ctx.trace_samples {
+    for sample in &selected_trace_samples {
         if sample.position_samples.is_some()
             && sample.include_psb
             && sample.t_ms <= duration_ms
@@ -1238,7 +1366,24 @@ fn bake_continuous_record_timeline(ctx: &mut RecordingCtx) {
     let mut trace_slot_positions = Vec::with_capacity(slots.len());
     let expected_frame_count = slots.len() as u64;
     let mut missing_slots = 0_u64;
-    if !best_by_position.is_empty() {
+    if let Some(producer_take_slots) = producer_take_slots.as_ref().filter(|positions| {
+        positions
+            .iter()
+            .all(|position| best_by_position.contains_key(position))
+    }) {
+        for (index, position) in producer_take_slots.iter().enumerate() {
+            let result = best_by_position
+                .get(position)
+                .expect("producer slot completeness checked");
+            let t_ms = (index as u64 + 1).saturating_mul(FRAME_INTERVAL_MS);
+            if writer_append_trace_frame(ctx, t_ms, result) {
+                trace_slot_positions.push(*position);
+            }
+        }
+        missing_slots = expected_frame_count.saturating_sub(trace_slot_positions.len() as u64);
+    } else if !has_epoch_samples && !best_by_position.is_empty() {
+        // Legacy artifacts have no epoch proof. Preserve their prior provisional path for read
+        // compatibility, but new producers can only enter the exact range above.
         for (index, (position, result)) in best_by_position
             .iter()
             .take(expected_frame_count as usize)
@@ -1278,8 +1423,6 @@ fn bake_continuous_record_timeline(ctx: &mut RecordingCtx) {
         missing_slots,
         explicit_silence_frame_count,
     });
-    let sample_rate = ctx.writer.data().sample_rate;
-    let slot_frames = (sample_rate as i64 / 10).max(1);
     let positions_are_dense = trace_slot_positions.len() == ctx.writer.data().frames.len()
         && trace_slot_positions
             .windows(2)
@@ -1304,10 +1447,9 @@ fn bake_continuous_record_timeline(ctx: &mut RecordingCtx) {
             sources: clock_sources.into_iter().collect(),
         }
     });
-    // Preserve the producer's absolute slot identity even when this side alone is shorter than
-    // the provisional Record duration. A late WAV Drop can only intersect PRE/POST truthfully if
-    // both closed artifacts retain their measured positions. Completeness still gates the clock
-    // and publication below; sparse/non-positioned data never receives a slot vector.
+    // Preserve only a dense producer-owned slot identity. A late WAV Drop is allowed to translate
+    // this complete absolute grid to WAV-relative samples, never to search surrounding history or
+    // synthesize a missing slot.
     ctx.writer.set_trace_slot_positions(if positions_are_dense {
         trace_slot_positions
     } else {
@@ -1321,6 +1463,40 @@ fn bake_continuous_record_timeline(ctx: &mut RecordingCtx) {
         ctx.writer.mark_integrity_degraded();
         ctx.writer.add_integrity_reason("missing_trace_slots");
     }
+}
+
+fn producer_take_slot_positions(
+    ctx: &RecordingCtx,
+    expected_len: usize,
+    slot_samples: i64,
+) -> Option<Vec<i64>> {
+    if expected_len == 0 || slot_samples <= 0 {
+        return None;
+    }
+    let duration_samples = i64::try_from(record_duration_samples(ctx)).ok()?;
+    let bwf_start = expected_wav(ctx)
+        .and_then(|expected| expected.wav_time_reference_samples)
+        .and_then(|start| i64::try_from(start).ok());
+    let start = bwf_start.or_else(|| ctx.presentation_range.map(|range| range.0))?;
+    let end = start.checked_add(duration_samples)?;
+    if bwf_start.is_none()
+        && ctx
+            .presentation_range
+            .is_some_and(|range| range != (start, end))
+    {
+        return None;
+    }
+    let first = start.checked_add(slot_samples)?;
+    let positions = (0..expected_len)
+        .map(|index| {
+            i64::try_from(index)
+                .ok()?
+                .checked_mul(slot_samples)?
+                .checked_add(first)
+        })
+        .collect::<Option<Vec<_>>>()?;
+    let grid_end = positions.last().copied()?;
+    (grid_end <= end && end.saturating_sub(grid_end) < slot_samples).then_some(positions)
 }
 
 fn should_bake_continuous_record_timeline(ctx: &RecordingCtx) -> bool {
@@ -1461,18 +1637,29 @@ fn frame_timeline_has_gap(ctx: &RecordingCtx, duration_ms: u64) -> bool {
 }
 
 fn raw_trace_timeline_covers_duration(ctx: &RecordingCtx, duration_ms: u64) -> bool {
+    let has_epoch_samples = ctx
+        .trace_samples
+        .iter()
+        .any(|sample| sample.capture_epoch.is_some());
     let mut times = Vec::with_capacity(
         ctx.trace_samples
             .len()
             .saturating_add(ctx.writer.data().frames.len()),
     );
-    for frame in &ctx.writer.data().frames {
-        if frame.t_ms <= duration_ms {
-            times.push(frame.t_ms);
+    if !has_epoch_samples {
+        for frame in &ctx.writer.data().frames {
+            if frame.t_ms <= duration_ms {
+                times.push(frame.t_ms);
+            }
         }
     }
     for sample in &ctx.trace_samples {
-        if sample.t_ms <= duration_ms && sample.has_measured_core() {
+        let selected_epoch = !has_epoch_samples
+            || sample
+                .capture_epoch
+                .zip(ctx.selected_capture_epoch)
+                .is_some_and(|(sample_epoch, selected_epoch)| sample_epoch == selected_epoch);
+        if selected_epoch && sample.t_ms <= duration_ms && sample.has_measured_core() {
             times.push(sample.t_ms);
         }
     }
@@ -1926,6 +2113,7 @@ pub fn run_record_tick_with_pair_names(
         record_trace_queue,
         record_take_tracker,
         None,
+        None,
     )
 }
 
@@ -1976,6 +2164,7 @@ pub fn run_record_tick_with_pair_names_require_session(
         record_trace_queue,
         record_take_tracker,
         None,
+        None,
     )
 }
 
@@ -2024,6 +2213,7 @@ pub fn run_record_tick_with_pair_names_require_session_and_marks(
         record_trace_queue,
         record_take_tracker,
         Some(record_mark_queue),
+        None,
     )
 }
 
@@ -2049,6 +2239,7 @@ fn run_record_tick_with_pair_names_inner(
     record_trace_queue: Option<&RecordTraceQueue>,
     record_take_tracker: Option<&RecordTakeTracker>,
     record_mark_queue: Option<&RecordMarkQueue>,
+    writer_base_override: Option<&Path>,
 ) -> Result<(), String> {
     let is_recording = record_sm.is_recording();
     let current_generation = record_sm.generation();
@@ -2081,6 +2272,16 @@ fn run_record_tick_with_pair_names_inner(
     let is_recording = record_sm.is_recording();
     match (is_recording, recording.is_some()) {
         (true, false) => {
+            // The Record state alone is not writer readiness. Measure must first own the dedicated
+            // generation consumer and reset its engines. Both PRE and POST pass through this one
+            // gate, so the generation transaction cannot advertise ARMED while a side still has
+            // no consumer attached. Returning here is retryable and performs no filesystem write.
+            if require_record_session
+                && (current_generation == 0
+                    || record_sm.measure_ready_generation() < current_generation)
+            {
+                return Ok(());
+            }
             let paired_pre = paired_pre_resolver();
             let paired_post = paired_post_resolver();
             if require_record_session {
@@ -2134,7 +2335,8 @@ fn run_record_tick_with_pair_names_inner(
             let started_at_ms = started_at_resolver();
             let pair_name = pair_name_resolver();
             let pair_pre_name = pair_pre_name_resolver();
-            if let Some(mut ctx) = writer_start(
+            if let Some(mut ctx) = writer_start_with_base_override(
+                writer_base_override,
                 role,
                 sample_rate,
                 started_at_ms,
@@ -2272,6 +2474,10 @@ fn close_recording_context(
     } else {
         append_current_measure_snapshot(&mut ctx, measure_result)?;
     }
+    // BWF metadata must be attached before epoch selection. The subsequent close path may refresh
+    // it again for persistence, but filtering cannot defer this read until after the tracker has
+    // already been consumed.
+    refresh_pair_record_metadata_if_missing(&mut ctx);
     apply_record_take_snapshot(&mut ctx, record_take_tracker);
     if let Some(queue) = record_mark_queue {
         writer_close_with_summary_and_marks(ctx, summary, queue);
@@ -3130,7 +3336,7 @@ mod tests {
     };
     use crate::record::{RecordStateMachine, TransitionError};
     use crate::record_mark::{new_record_mark_queue, PendingRecordMark, RECORD_MARK_BASIS};
-    use crate::record_take::PresentationLatencySource;
+    use crate::record_take::{PresentationLatencySource, RecordTakeBlock};
     use crate::record_writer_claim::{claim_writer, writer_claim_active, writer_claim_closed};
     use crate::{License, MeasureResult, PsbSummary};
     use std::fs;
@@ -3320,6 +3526,72 @@ mod tests {
         );
     }
 
+    #[test]
+    fn strict_pre_and_post_writers_wait_for_their_measure_consumer_generation() {
+        for (role, paired_pre, paired_post) in [
+            (Role::Pre, None, Some("post-ready-gate".to_string())),
+            (Role::Post, Some("pre-ready-gate".to_string()), None),
+        ] {
+            let base = isolated_base();
+            let sm = Arc::new(RecordStateMachine::new());
+            let started_at = now_epoch_ms();
+            let session_id = unique_session("session-measure-ready-gate");
+            sm.try_enter_record_started_at_clock_transaction(
+                License::Os,
+                started_at,
+                Some(0),
+                session_id,
+            )
+            .unwrap();
+            let measure = Arc::new(Mutex::new(full_measure_result()));
+            let mut recording = None;
+
+            let run = |recording: &mut Option<RecordingCtx>| {
+                run_record_tick_with_pair_names_inner(
+                    &sm,
+                    role,
+                    48_000,
+                    TEST_PH,
+                    TEST_IID,
+                    || started_at,
+                    || paired_pre.clone(),
+                    || paired_post.clone(),
+                    || None,
+                    || None,
+                    || sm.record_session_id(),
+                    true,
+                    &measure,
+                    recording,
+                    None,
+                    &no_overflow(),
+                    &no_overflow(),
+                    None,
+                    None,
+                    None,
+                    Some(&base),
+                )
+            };
+
+            run(&mut recording).unwrap();
+            assert!(
+                recording.is_none(),
+                "{role:?} must not publish a writer before Measure owns the Record lane"
+            );
+
+            sm.mark_measure_ready(sm.generation());
+            run(&mut recording).unwrap();
+            assert!(
+                recording.is_some(),
+                "{role:?} writer starts after one common gate"
+            );
+
+            if let Some(context) = recording.take() {
+                writer_close(context);
+            }
+            sm.exit_record();
+        }
+    }
+
     /// P2 (2026-07-10, ACK re-entry race 構造修正): 一度 closed した session_id は、
     /// record_sm 自身が re-entry を拒否する（P1）ため、tick が is_recording()==true を
     /// 一切観測せず、writer も二度と作られない。「1 session = 1 writer = 1 artifact」を
@@ -3384,6 +3656,13 @@ mod tests {
     #[test]
     fn duplicate_state_machines_same_role_instance_share_disk_writer_claim() {
         let session_id = unique_session("session-cross-process-claim");
+        let project_hash = unique_session("project-isolated-post-claim");
+        let base = isolated_base();
+        let default_project_path = StoragePaths::default_platform()
+            .unwrap()
+            .plugin_data_dir()
+            .join(&project_hash);
+        assert!(!default_project_path.exists());
         let started_at = now_epoch_ms();
         let sm_first = Arc::new(RecordStateMachine::new());
         let sm_second = Arc::new(RecordStateMachine::new());
@@ -3395,16 +3674,17 @@ mod tests {
                 session_id.clone(),
             )
             .unwrap();
+            sm.mark_measure_ready(sm.generation());
         }
         let m = Arc::new(Mutex::new(full_measure_result()));
         let mut first: Option<RecordingCtx> = None;
         let mut second: Option<RecordingCtx> = None;
 
-        run_record_tick_with_pair_names_require_session(
+        run_record_tick_with_pair_names_inner(
             &sm_first,
             Role::Post,
             48_000,
-            TEST_PH,
+            &project_hash,
             TEST_IID,
             || started_at,
             || Some("paired-pre-test".to_string()),
@@ -3412,6 +3692,7 @@ mod tests {
             || None,
             || None,
             || sm_first.record_session_id(),
+            true,
             &m,
             &mut first,
             None,
@@ -3419,15 +3700,17 @@ mod tests {
             &no_overflow(),
             None,
             None,
+            None,
+            Some(&base),
         )
         .unwrap();
         assert!(first.is_some(), "first state machine owns the writer claim");
 
-        run_record_tick_with_pair_names_require_session(
+        run_record_tick_with_pair_names_inner(
             &sm_second,
             Role::Post,
             48_000,
-            TEST_PH,
+            &project_hash,
             TEST_IID,
             || started_at,
             || Some("paired-pre-test".to_string()),
@@ -3435,6 +3718,7 @@ mod tests {
             || None,
             || None,
             || sm_second.record_session_id(),
+            true,
             &m,
             &mut second,
             None,
@@ -3442,6 +3726,8 @@ mod tests {
             &no_overflow(),
             None,
             None,
+            None,
+            Some(&base),
         )
         .unwrap();
         assert!(
@@ -3454,11 +3740,22 @@ mod tests {
         }
         sm_first.exit_record();
         sm_second.exit_record();
+        assert!(
+            !default_project_path.exists(),
+            "injected writer tests must never materialize the real plugin_data project"
+        );
     }
 
     #[test]
     fn duplicate_pre_state_machines_same_instance_share_disk_writer_claim() {
         let session_id = unique_session("session-cross-process-pre-claim");
+        let project_hash = unique_session("project-isolated-pre-claim");
+        let base = isolated_base();
+        let default_project_path = StoragePaths::default_platform()
+            .unwrap()
+            .plugin_data_dir()
+            .join(&project_hash);
+        assert!(!default_project_path.exists());
         let started_at = now_epoch_ms();
         let sm_first = Arc::new(RecordStateMachine::new());
         let sm_second = Arc::new(RecordStateMachine::new());
@@ -3470,16 +3767,17 @@ mod tests {
                 session_id.clone(),
             )
             .unwrap();
+            sm.mark_measure_ready(sm.generation());
         }
         let m = Arc::new(Mutex::new(full_measure_result()));
         let mut first: Option<RecordingCtx> = None;
         let mut second: Option<RecordingCtx> = None;
 
-        run_record_tick_with_pair_names_require_session(
+        run_record_tick_with_pair_names_inner(
             &sm_first,
             Role::Pre,
             48_000,
-            TEST_PH,
+            &project_hash,
             TEST_IID,
             || started_at,
             || None,
@@ -3487,6 +3785,7 @@ mod tests {
             || None,
             || None,
             || sm_first.record_session_id(),
+            true,
             &m,
             &mut first,
             None,
@@ -3494,6 +3793,8 @@ mod tests {
             &no_overflow(),
             None,
             None,
+            None,
+            Some(&base),
         )
         .unwrap();
         assert!(
@@ -3501,11 +3802,11 @@ mod tests {
             "first PRE state machine owns the writer claim"
         );
 
-        run_record_tick_with_pair_names_require_session(
+        run_record_tick_with_pair_names_inner(
             &sm_second,
             Role::Pre,
             48_000,
-            TEST_PH,
+            &project_hash,
             TEST_IID,
             || started_at,
             || None,
@@ -3513,6 +3814,7 @@ mod tests {
             || None,
             || None,
             || sm_second.record_session_id(),
+            true,
             &m,
             &mut second,
             None,
@@ -3520,6 +3822,8 @@ mod tests {
             &no_overflow(),
             None,
             None,
+            None,
+            Some(&base),
         )
         .unwrap();
         assert!(
@@ -3532,6 +3836,10 @@ mod tests {
         }
         sm_first.exit_record();
         sm_second.exit_record();
+        assert!(
+            !default_project_path.exists(),
+            "injected PRE writer tests must never materialize the real plugin_data project"
+        );
     }
 
     #[test]
@@ -3680,6 +3988,8 @@ mod tests {
             seal_at_start: 0,        // B-132
             record_generation: 0,
             clean_take: None,
+            selected_capture_epoch: None,
+            presentation_range: None,
             presentation_latency_at_close: PresentationLatencySamples::default(),
             last_trace_t_ms: None,
             last_trace_frame_48k: None,
@@ -3956,6 +4266,8 @@ mod tests {
             t_frames_48k,
             t_native_frames,
             position_samples: None,
+            raw_host_position_samples: None,
+            capture_epoch: None,
             clock_source: t_native_frames.map_or(CaptureClockSource::Unknown, |_| {
                 CaptureClockSource::ProjectTimeline
             }),
@@ -4564,6 +4876,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap();
 
@@ -4604,6 +4917,7 @@ mod tests {
             None,
             &no_overflow(),
             &no_overflow(),
+            None,
             None,
             None,
             None,
@@ -4667,6 +4981,7 @@ mod tests {
             None,
             &no_overflow(),
             &no_overflow(),
+            None,
             None,
             None,
             None,
@@ -4746,6 +5061,7 @@ mod tests {
             None,
             &no_overflow(),
             &no_overflow(),
+            None,
             None,
             None,
             None,
@@ -4863,6 +5179,7 @@ mod tests {
             &no_overflow(),
             &no_overflow(),
             Some(&queue),
+            None,
             None,
             None,
         )
@@ -5661,7 +5978,7 @@ mod tests {
     }
 
     #[test]
-    fn close_replaces_compensation_preroll_by_host_sample_position() {
+    fn close_publishes_only_the_exact_record_epoch_grid() {
         let base = isolated_base();
         let mut ctx = make_ctx_with_sample_rate(&base, Role::Post, now_epoch_ms(), 96_000);
         let final_path = ctx.final_path.clone();
@@ -5727,12 +6044,8 @@ mod tests {
             loaded.host_presentation_latency_observations[0].output_samples,
             Some(128)
         );
-        assert_eq!(loaded.trace_context_frames.len(), 10);
-        assert_eq!(loaded.trace_context_slot_positions.len(), 10);
-        assert_eq!(
-            loaded.trace_context_slot_positions,
-            loaded.trace_slot_positions
-        );
+        assert!(loaded.trace_context_frames.is_empty());
+        assert!(loaded.trace_context_slot_positions.is_empty());
     }
 
     #[test]
@@ -5806,6 +6119,207 @@ mod tests {
                 output_samples: Some(4_096),
             }]
         );
+    }
+
+    #[test]
+    fn apply_snapshot_never_upgrades_to_later_post_bounce_epoch() {
+        let base = isolated_base();
+        let mut ctx = make_ctx_with_sample_rate(&base, Role::Post, now_epoch_ms(), 48_000);
+        ctx.record_generation = 731;
+        let mut expected = expected_wav_metadata(48_000, 1_000, "bwf-epoch-selection");
+        expected.wav_time_reference_samples = Some(100);
+        ctx.writer.set_expected_wav(Some(expected));
+
+        let tracker = RecordTakeTracker::new();
+        let latency = PresentationLatencySamples {
+            source: PresentationLatencySource::Vst3,
+            input: Some(0),
+            output: Some(100),
+        };
+        tracker.note_block(RecordTakeBlock {
+            generation: 731,
+            recording: true,
+            rendered: true,
+            playing: false,
+            offline: true,
+            position_valid: true,
+            position_samples: 1_000,
+            num_frames: 500,
+            clock_start_samples: 0,
+            clock_end_samples: None,
+        });
+        tracker.note_capture_window_with_presentation_boundary(
+            true,
+            1_000,
+            500,
+            CaptureClockSource::ProjectTimeline,
+            latency,
+            true,
+        );
+        let immutable_first = tracker.selected_capture_epoch(731).unwrap();
+
+        tracker.note_block(RecordTakeBlock {
+            generation: 731,
+            recording: true,
+            rendered: true,
+            playing: false,
+            offline: true,
+            position_valid: true,
+            position_samples: 0,
+            num_frames: 1_000,
+            clock_start_samples: 0,
+            clock_end_samples: None,
+        });
+        tracker.note_capture_window_with_presentation_boundary(
+            true,
+            0,
+            1_000,
+            CaptureClockSource::ProjectTimeline,
+            latency,
+            true,
+        );
+        let later_epoch = tracker
+            .capture_span_for_frame(1_500)
+            .expect("post-bounce epoch")
+            .epoch;
+        assert_ne!(later_epoch, immutable_first);
+        assert_eq!(
+            tracker.capture_epoch_containing_presentation_range(731, 100, 1_000),
+            None,
+            "writer close cannot select an epoch whose samples Measure already rejected"
+        );
+
+        apply_record_take_snapshot(&mut ctx, Some(&tracker));
+
+        assert_eq!(ctx.selected_capture_epoch, Some(immutable_first));
+        assert_eq!(ctx.presentation_range, Some((1_100, 1_600)));
+        assert_eq!(
+            ctx.writer.data().raw_host_clock_range,
+            Some(crate::plugin_data::HostClockRange {
+                start_position_samples: 1_000,
+                end_position_samples: 1_500,
+            }),
+            "post-bounce position jumps cannot overwrite the selected take diagnostics"
+        );
+    }
+
+    #[test]
+    fn apply_snapshot_uses_offline_preroll_promoted_into_exact_bwf_epoch() {
+        let base = isolated_base();
+        let mut ctx = make_ctx_with_sample_rate(&base, Role::Pre, now_epoch_ms(), 48_000);
+        ctx.record_generation = 733;
+        let mut expected = expected_wav_metadata(48_000, 1_536, "bwf-offline-preroll");
+        expected.wav_time_reference_samples = Some(100);
+        ctx.writer.set_expected_wav(Some(expected));
+
+        let tracker = RecordTakeTracker::new();
+        let latency = PresentationLatencySamples {
+            source: PresentationLatencySource::Vst3,
+            input: Some(0),
+            output: Some(100),
+        };
+        for raw_start in [0, 512] {
+            tracker.note_block(RecordTakeBlock {
+                generation: 0,
+                recording: false,
+                rendered: true,
+                playing: false,
+                offline: true,
+                position_valid: true,
+                position_samples: raw_start,
+                num_frames: 512,
+                clock_start_samples: 0,
+                clock_end_samples: None,
+            });
+            tracker.note_capture_window_with_presentation_boundary(
+                true,
+                raw_start,
+                512,
+                CaptureClockSource::ProjectTimeline,
+                latency,
+                false,
+            );
+        }
+        let offline_start_epoch = tracker
+            .capture_span_for_frame(512)
+            .expect("offline pre-roll")
+            .epoch;
+
+        tracker.note_block(RecordTakeBlock {
+            generation: 733,
+            recording: true,
+            rendered: true,
+            playing: false,
+            offline: true,
+            position_valid: true,
+            position_samples: 1_024,
+            num_frames: 512,
+            clock_start_samples: 0,
+            clock_end_samples: None,
+        });
+        tracker.note_capture_window_with_presentation_boundary(
+            true,
+            1_024,
+            512,
+            CaptureClockSource::ProjectTimeline,
+            latency,
+            true,
+        );
+
+        apply_record_take_snapshot(&mut ctx, Some(&tracker));
+
+        assert_eq!(ctx.selected_capture_epoch, Some(offline_start_epoch));
+        assert_eq!(ctx.presentation_range, Some((100, 1_636)));
+        assert_eq!(
+            ctx.writer.data().raw_host_clock_range,
+            Some(crate::plugin_data::HostClockRange {
+                start_position_samples: 0,
+                end_position_samples: 1_536,
+            }),
+            "BWF sample zero selects the producer span containing the ACK pre-roll"
+        );
+    }
+
+    #[test]
+    fn apply_snapshot_falls_back_to_immutable_epoch_when_bwf_is_outside_capture() {
+        let base = isolated_base();
+        let mut ctx = make_ctx_with_sample_rate(&base, Role::Post, now_epoch_ms(), 48_000);
+        ctx.record_generation = 732;
+        let mut expected = expected_wav_metadata(48_000, 1_000, "bwf-outside-fallback");
+        expected.wav_time_reference_samples = Some(99);
+        ctx.writer.set_expected_wav(Some(expected));
+
+        let tracker = RecordTakeTracker::new();
+        tracker.note_block(RecordTakeBlock {
+            generation: 732,
+            recording: true,
+            rendered: true,
+            playing: false,
+            offline: true,
+            position_valid: true,
+            position_samples: 0,
+            num_frames: 1_000,
+            clock_start_samples: 0,
+            clock_end_samples: None,
+        });
+        tracker.note_capture_window_with_presentation_boundary(
+            true,
+            0,
+            1_000,
+            CaptureClockSource::ProjectTimeline,
+            PresentationLatencySamples {
+                source: PresentationLatencySource::AudioUnitV2,
+                input: Some(0),
+                output: Some(100),
+            },
+            true,
+        );
+        let immutable_epoch = tracker.selected_capture_epoch(732).unwrap();
+
+        apply_record_take_snapshot(&mut ctx, Some(&tracker));
+
+        assert_eq!(ctx.selected_capture_epoch, Some(immutable_epoch));
+        assert_eq!(ctx.presentation_range, Some((100, 1_100)));
     }
 
     #[test]

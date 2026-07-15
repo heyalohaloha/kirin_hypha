@@ -648,3 +648,208 @@ fn sweep_stale_pending_boundary() {
         "超過 = 掃除"
     );
 }
+
+fn generation_for_signal(post: &str) -> crate::capture_generation::CaptureGeneration {
+    crate::capture_generation::CaptureGeneration::new_single(
+        "ph".into(),
+        post.into(),
+        "pre-1".into(),
+        "daw-1".into(),
+        std::process::id(),
+    )
+}
+
+#[test]
+fn released_generation_member_cannot_ack_or_rearm() {
+    let base = isolated_dir();
+    let generation = generation_for_signal("post-monotonic");
+    write_pending_claiming_expected_and_clock_for_generation(
+        &base,
+        "ph",
+        "post-monotonic",
+        "pre-1".into(),
+        "daw-1".into(),
+        None,
+        &generation,
+    )
+    .unwrap();
+    mark_acknowledged(&base, "ph", "post-monotonic").unwrap();
+    mark_released_with_reason(&base, "ph", "post-monotonic", ReleaseReason::AllStop).unwrap();
+
+    assert!(!mark_acknowledged(&base, "ph", "post-monotonic").unwrap());
+    let error = write_pending_claiming_expected_and_clock_for_generation(
+        &base,
+        "ph",
+        "post-monotonic",
+        "pre-1".into(),
+        "daw-1".into(),
+        None,
+        &generation,
+    )
+    .expect_err("the same immutable member must not return to Pending");
+    assert!(matches!(
+        error,
+        SignalError::Io(ref error) if error.kind() == io::ErrorKind::AlreadyExists
+    ));
+    assert_eq!(
+        read_signal(&base, "ph", "post-monotonic").unwrap().status,
+        SignalStatus::Released
+    );
+}
+
+#[test]
+fn new_generation_replaces_released_member_with_new_session() {
+    let base = isolated_dir();
+    let first = generation_for_signal("post-next");
+    let first_signal = write_pending_claiming_expected_and_clock_for_generation(
+        &base,
+        "ph",
+        "post-next",
+        "pre-1".into(),
+        "daw-1".into(),
+        None,
+        &first,
+    )
+    .unwrap();
+    mark_released_with_reason(&base, "ph", "post-next", ReleaseReason::ManualStop).unwrap();
+
+    let second = generation_for_signal("post-next");
+    let second_signal = write_pending_claiming_expected_and_clock_for_generation(
+        &base,
+        "ph",
+        "post-next",
+        "pre-1".into(),
+        "daw-1".into(),
+        None,
+        &second,
+    )
+    .unwrap();
+
+    assert_ne!(
+        second_signal.capture_generation_id,
+        first_signal.capture_generation_id
+    );
+    assert_ne!(second_signal.session_id, first_signal.session_id);
+    assert_eq!(second_signal.status, SignalStatus::Pending);
+}
+
+#[test]
+fn terminal_generation_rejects_member_arm_without_time_expiry() {
+    let base = isolated_dir();
+    let generation = generation_for_signal("post-terminal");
+    crate::capture_generation_lifecycle::mark_generation_terminal(
+        &base,
+        &generation,
+        crate::capture_generation_lifecycle::GenerationTerminalReason::DropCommitted,
+    )
+    .unwrap();
+
+    let error = write_pending_claiming_expected_and_clock_for_generation(
+        &base,
+        "ph",
+        "post-terminal",
+        "pre-1".into(),
+        "daw-1".into(),
+        None,
+        &generation,
+    )
+    .expect_err("terminality, not elapsed time, owns authorization");
+    assert!(matches!(
+        error,
+        SignalError::Io(ref error) if error.kind() == io::ErrorKind::AlreadyExists
+    ));
+    assert!(read_signal(&base, "ph", "post-terminal").is_none());
+}
+
+#[test]
+fn stale_callbacks_cannot_ack_or_release_the_next_generation() {
+    let base = isolated_dir();
+    let first = generation_for_signal("post-stale-callback");
+    let first_signal = write_pending_claiming_expected_and_clock_for_generation(
+        &base,
+        "ph",
+        "post-stale-callback",
+        "pre-1".into(),
+        "daw-1".into(),
+        None,
+        &first,
+    )
+    .unwrap();
+    mark_released_with_reason(
+        &base,
+        "ph",
+        "post-stale-callback",
+        ReleaseReason::ManualStop,
+    )
+    .unwrap();
+
+    let second = generation_for_signal("post-stale-callback");
+    let second_signal = write_pending_claiming_expected_and_clock_for_generation(
+        &base,
+        "ph",
+        "post-stale-callback",
+        "pre-1".into(),
+        "daw-1".into(),
+        None,
+        &second,
+    )
+    .unwrap();
+
+    assert!(!mark_acknowledged_with_name_if_current(
+        &base,
+        "ph",
+        "post-stale-callback",
+        "Old PRE",
+        Some(&first_signal),
+    )
+    .unwrap());
+    assert!(!mark_released_with_reason_if_current(
+        &base,
+        "ph",
+        "post-stale-callback",
+        &first_signal,
+        ReleaseReason::AllStop,
+    )
+    .unwrap());
+
+    let current = read_signal(&base, "ph", "post-stale-callback").unwrap();
+    assert_eq!(current, second_signal);
+    assert_eq!(current.status, SignalStatus::Pending);
+}
+
+#[test]
+fn terminal_generation_cannot_be_acknowledged_by_a_delayed_pre_poll() {
+    let base = isolated_dir();
+    let generation = generation_for_signal("post-terminal-ack");
+    let pending = write_pending_claiming_expected_and_clock_for_generation(
+        &base,
+        "ph",
+        "post-terminal-ack",
+        "pre-1".into(),
+        "daw-1".into(),
+        None,
+        &generation,
+    )
+    .unwrap();
+    crate::capture_generation_lifecycle::mark_generation_terminal(
+        &base,
+        &generation,
+        crate::capture_generation_lifecycle::GenerationTerminalReason::AllStop,
+    )
+    .unwrap();
+
+    assert!(!mark_acknowledged_with_name_if_current(
+        &base,
+        "ph",
+        "post-terminal-ack",
+        "PRE",
+        Some(&pending),
+    )
+    .unwrap());
+    assert_eq!(
+        read_signal(&base, "ph", "post-terminal-ack")
+            .unwrap()
+            .status,
+        SignalStatus::Pending
+    );
+}

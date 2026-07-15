@@ -10,7 +10,7 @@
 //! ```
 //!
 //! # スキーマ (all_keep_signal と同型)
-//! - `v`: schema version (現行 1)
+//! - `v`: schema version (現行 2)
 //! - `originator_post_instance_id`: filename stem と同値
 //! - `daw_session_id`: 別 DAW process からの誤受信防止
 //! - `host_process_id`: 同一 project shelf 内で instance-scoped DAW ID を橋渡しする補助 scope
@@ -28,7 +28,8 @@
 //! 1. All Stop ボタン押下 → [`write_stop_broadcast`] 配置
 //! 2. originator 自身の `trigger_stop_internal` も同 frame で発火
 //! 3. `Drop` / IO Thread shutdown で [`delete_stop_broadcast`] 呼出
-//! 4. orphan broadcast は 30 秒 stale fallback で ignore
+//! 4. generation-addressed broadcast は永続 terminal fact で判定し、30秒では失効しない。
+//!    generation を持たない旧版 broadcast だけ30秒 stale fallbackでignoreする。
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -42,9 +43,10 @@ pub const ALL_STOP_SIGNAL_SUBDIR: &str = "all_stop_signal";
 pub const CURRENT_STOP_FILENAME: &str = "current.json";
 
 /// broadcast schema 現行 version。
-pub const ALL_STOP_SCHEMA_VERSION: u32 = 1;
+pub const ALL_STOP_SCHEMA_VERSION: u32 = 2;
 
-/// stale 判定閾値 (秒)。30 秒経過 broadcast は受信側 cache 検出時非発火。
+/// 旧版（generationなし）broadcastだけに適用する互換stale閾値。現行All Stopの権限は
+/// generation terminal factであり、経過時間には依存しない。
 pub const ALL_STOP_BROADCAST_STALE_SECS: i64 = 30;
 
 // ── スキーマ ─────────────────────────────────────────────────────────────────
@@ -57,6 +59,10 @@ pub struct AllStopBroadcast {
     pub daw_session_id: String,
     #[serde(default)]
     pub host_process_id: u32,
+    #[serde(default)]
+    pub capture_generation_id: String,
+    #[serde(default)]
+    pub generation_started_at_ms: i64,
     pub started_at: String,
     #[serde(default)]
     pub heartbeat: String,
@@ -82,9 +88,34 @@ impl AllStopBroadcast {
             originator_post_instance_id,
             daw_session_id,
             host_process_id,
+            capture_generation_id: String::new(),
+            generation_started_at_ms: 0,
             started_at: now.clone(),
             heartbeat: now,
         }
+    }
+
+    fn new_for_generation(
+        originator_post_instance_id: String,
+        daw_session_id: String,
+        host_process_id: u32,
+        generation: &crate::capture_generation::CaptureGeneration,
+    ) -> Self {
+        let now = now_iso8601();
+        Self {
+            v: ALL_STOP_SCHEMA_VERSION,
+            originator_post_instance_id,
+            daw_session_id,
+            host_process_id,
+            capture_generation_id: generation.capture_generation_id.clone(),
+            generation_started_at_ms: generation.started_at_ms,
+            started_at: now.clone(),
+            heartbeat: now,
+        }
+    }
+
+    pub fn has_generation(&self) -> bool {
+        !self.capture_generation_id.trim().is_empty() && self.generation_started_at_ms > 0
     }
 }
 
@@ -175,6 +206,47 @@ pub fn write_stop_broadcast_with_scope(
         originator_post_instance_id.to_string(),
         daw_session_id,
         host_process_id,
+    );
+    write_stop_broadcast_signal(
+        base_dir,
+        project_hash,
+        originator_post_instance_id,
+        &broadcast,
+    )?;
+    Ok(broadcast)
+}
+
+/// Write a Stop addressed to one immutable generation on one exact roster shelf.
+pub fn write_stop_broadcast_for_generation(
+    base_dir: &Path,
+    project_hash: &str,
+    originator_post_instance_id: &str,
+    daw_session_id: String,
+    host_process_id: u32,
+    generation: &crate::capture_generation::CaptureGeneration,
+) -> Result<AllStopBroadcast, AllStopError> {
+    if !generation.is_valid()
+        || generation.daw_session_id != daw_session_id
+        || generation.host_process_id != host_process_id
+        || !generation
+            .members
+            .iter()
+            .any(|member| member.project_hash == project_hash)
+        || !generation
+            .members
+            .iter()
+            .any(|member| member.post_instance_id == originator_post_instance_id)
+    {
+        return Err(AllStopError::Io(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "All Stop broadcast does not match capture generation",
+        )));
+    }
+    let broadcast = AllStopBroadcast::new_for_generation(
+        originator_post_instance_id.to_string(),
+        daw_session_id,
+        host_process_id,
+        generation,
     );
     write_stop_broadcast_signal(
         base_dir,
@@ -396,6 +468,43 @@ mod tests {
             ("originator-1".to_string(), result)
         );
         assert_eq!(crate::atomic_file::remove_temp_siblings(&path).unwrap(), 0);
+    }
+
+    #[test]
+    fn generation_stop_is_addressed_to_the_exact_roster() {
+        let base = isolated_dir();
+        let generation = crate::capture_generation::CaptureGeneration::new_single(
+            "ph".into(),
+            "originator-1".into(),
+            "pre-1".into(),
+            "daw-1".into(),
+            std::process::id(),
+        );
+        let broadcast = write_stop_broadcast_for_generation(
+            &base,
+            "ph",
+            "originator-1",
+            "daw-1".into(),
+            std::process::id(),
+            &generation,
+        )
+        .unwrap();
+
+        assert!(broadcast.has_generation());
+        assert_eq!(
+            broadcast.capture_generation_id,
+            generation.capture_generation_id
+        );
+        assert_eq!(broadcast.generation_started_at_ms, generation.started_at_ms);
+        assert!(write_stop_broadcast_for_generation(
+            &base,
+            "foreign-project",
+            "originator-1",
+            "daw-1".into(),
+            std::process::id(),
+            &generation,
+        )
+        .is_err());
     }
 
     #[test]

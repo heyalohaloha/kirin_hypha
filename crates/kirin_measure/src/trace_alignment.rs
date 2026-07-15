@@ -1,21 +1,21 @@
 //! Producer-owned PRE/POST TRACE axis contract.
 //!
-//! Every metric frame is formed on the DAW host transport/render sample position. Optional
-//! presentation-latency callbacks are diagnostic and never rebase either lane. Pair finalization
-//! reads PRE and POST only at equal host positions, then publishes that producer-owned grid on
-//! dropped-WAV sample 0..N. Metric values never participate in the clock decision.
+//! Every metric frame is formed on one producer-owned output-presentation sample position. The
+//! Audio Thread converts raw host position + output presentation latency exactly once and retains
+//! both raw facts separately. Pair finalization validates equal presentation slots, then publishes
+//! them on dropped-WAV sample 0..N. Metric values never participate in the clock decision.
 
 use serde::{Deserialize, Serialize};
 
 use crate::plugin_data::PluginDataFile;
 
-pub const TRACE_ALIGNMENT_METHOD: &str = "producer_wav_sample_axis_v8";
+pub const TRACE_ALIGNMENT_METHOD: &str = "producer_wav_sample_axis_v9";
 pub const TRACE_ALIGNMENT_STATUS: &str = "canonical_wav_clock";
 pub const TRACE_ALIGNMENT_START_BWF: &str = "bwf_time_reference";
 pub const TRACE_ALIGNMENT_START_RENDER_RANGE: &str = "producer_render_range";
 pub const TRACE_TIME_AXIS: &str = "wav_samples_v1";
 pub const TRACE_HOST_TIME_AXIS: &str = "host_content_samples_v3";
-pub const TRACE_CLOCK_BASIS: &str = "input_presentation_content_samples_v1";
+pub const TRACE_CLOCK_BASIS: &str = "output_presentation_wav_samples_v1";
 pub const TRACE_WAV_REFERENCE_BASIS: &str = "dropped_wav_sample_index_v1";
 pub const TRACE_CAPTURE_BASIS: &str = "paired_record_session_v1";
 const TRACE_FRAME_INTERVAL_MS: u64 = 100;

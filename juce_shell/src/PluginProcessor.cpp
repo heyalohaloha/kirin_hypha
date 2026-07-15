@@ -264,7 +264,10 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
     const bool silent = bufferIsSilent (buffer);
     const bool recording = kirin_hypha_is_recording (hyphaHandle);
     if (! recording)
+    {
         recordStartWindowLatched = false;
+        recordNativeRangeLatched = false;
+    }
     const bool nonRealtime = isNonRealtime();
     // Some AU hosts omit the optional transport callback. A valid AudioUnit render timestamp is
     // still an exact processing timeline, so non-silent Watch audio and an already-started Record
@@ -330,8 +333,13 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
                                    && numCh > 0
                                    && captureBuffer
                                    && (recordStartWindowLatched || recordStartCandidateWindow);
-    if (renderedRecordWindow)
-        recordStartWindowLatched = true;
+    // An explicit native WAV range is a producer TakeStart edge. Offline entry is intentionally
+    // not derived from Record state here: the FFI observes the first fully-admitted offline Watch
+    // callback, before Keep ACK, and preserves its raw pre-roll for WAV sample 0. Forcing the first
+    // Record callback would discard that exact prefix and recreate the 7,676-sample skew class.
+    const bool forceTakeStartEpoch = renderedRecordWindow
+                                  && hasClockEnd
+                                  && ! recordNativeRangeLatched;
     const bool pushBuffer = recording ? renderedRecordWindow : captureBuffer;
     kirin_hypha_note_record_window (hyphaHandle,
                                     recording,
@@ -362,9 +370,20 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
                                              windowPositionSamples, windowNumFrames, clockSource,
                                              presentationSource,
                                              inputPresentationValid, inputPresentationSamples,
-                                             outputPresentationValid, outputPresentationSamples);
-            kirin_hypha_push_samples (hyphaHandle, interleaveScratch.data(),
-                                      (size_t) windowNumFrames, (uint32_t) numCh);
+                                             outputPresentationValid, outputPresentationSamples,
+                                             forceTakeStartEpoch);
+            const bool blockAccepted = kirin_hypha_push_samples (
+                hyphaHandle, interleaveScratch.data(),
+                (size_t) windowNumFrames, (uint32_t) numCh);
+            // Producer take boundaries are commit facts, not callback intentions. If the
+            // complete audio+clock transaction is rejected, the next eligible callback must
+            // still carry the same first-Record/native-range edge.
+            if (blockAccepted && renderedRecordWindow)
+            {
+                recordStartWindowLatched = true;
+                if (hasClockEnd)
+                    recordNativeRangeLatched = true;
+            }
         }
         else
         {
@@ -522,6 +541,13 @@ bool KirinHyphaProcessorBase::keepPair()
     return kirin_hypha_keep (hyphaHandle);
 }
 
+int KirinHyphaProcessorBase::keepPhase() const
+{
+    const juce::ScopedLock sl (handleLock);
+    return hyphaHandle != nullptr ? (int) kirin_hypha_keep_phase (hyphaHandle)
+                                  : (int) KIRIN_KEEP_PHASE_IDLE;
+}
+
 bool KirinHyphaProcessorBase::recordExclusionConflict() const
 {
     // B-118 (②): advisory only. keepPair()/keepAll() の reserve→count>MAX が正本。
@@ -539,6 +565,17 @@ juce::String KirinHyphaProcessorBase::recordErrorMessage() const
         return {};
     char buf[128] = { 0 };
     if (kirin_hypha_record_error_message (hyphaHandle, buf, sizeof (buf)))
+        return juce::String::fromUTF8 (buf);
+    return {};
+}
+
+juce::String KirinHyphaProcessorBase::drainKeepActionNotice()
+{
+    const juce::ScopedLock sl (handleLock);
+    if (hyphaHandle == nullptr)
+        return {};
+    char buf[128] = { 0 };
+    if (kirin_hypha_drain_keep_action_notice (hyphaHandle, buf, sizeof (buf)))
         return juce::String::fromUTF8 (buf);
     return {};
 }

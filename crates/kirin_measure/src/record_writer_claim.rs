@@ -18,6 +18,9 @@ use crate::plugin_data::Role;
 pub(crate) const WRITER_CLAIM_SUBDIR: &str = "record_writer_claim";
 pub(crate) const WRITER_CLAIM_SCHEMA: &str = "record_writer_claim.v1";
 pub(crate) const WRITER_CLAIM_STALE_MS: i64 = 15 * 60 * 1_000;
+/// A Record writer renews on every 30-second flush. Generation replacement accepts at most four
+/// missed renewals as execution evidence; a live DAW PID by itself cannot strand `Another Keep`.
+pub(crate) const WRITER_EXECUTION_LEASE_STALE_MS: i64 = 2 * 60 * 1_000;
 
 #[cfg(test)]
 static TEMP_SEQ: AtomicU64 = AtomicU64::new(0);
@@ -32,6 +35,12 @@ struct WriterClaimFile {
     role: String,
     owner_id: String,
     host_process_id: u32,
+    /// Immutable producer generation attestation. Legacy/no-generation writers keep both fields
+    /// absent and can own a session, but can never satisfy the consumer activation barrier.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    capture_generation_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    generation_started_at_ms: Option<i64>,
     claimed_at_ms: i64,
     heartbeat_at_ms: i64,
     #[serde(default)]
@@ -51,7 +60,14 @@ struct WriterClaimStateFile {
 
 #[derive(Debug, Clone)]
 struct WriterClaimSnapshot {
+    project_hash: String,
+    record_session_id: String,
+    instance_id: String,
+    role: String,
     owner_id: String,
+    host_process_id: u32,
+    capture_generation_id: Option<String>,
+    generation_started_at_ms: Option<i64>,
     heartbeat_at_ms: i64,
     ready_at_ms: Option<i64>,
     closed_at_ms: Option<i64>,
@@ -70,6 +86,7 @@ pub(crate) enum WriterClaimError {
         path: PathBuf,
         closed_at_ms: Option<i64>,
     },
+    InvalidGenerationAttestation,
 }
 
 impl std::fmt::Display for WriterClaimError {
@@ -94,7 +111,28 @@ impl std::fmt::Display for WriterClaimError {
                 path.display(),
                 closed_at_ms
             ),
+            Self::InvalidGenerationAttestation => {
+                write!(f, "writer claim generation attestation is invalid")
+            }
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct WriterGenerationAttestation {
+    pub capture_generation_id: String,
+    pub generation_started_at_ms: i64,
+}
+
+impl WriterGenerationAttestation {
+    fn new(capture_generation_id: &str, generation_started_at_ms: i64) -> Option<Self> {
+        let capture_generation_id = capture_generation_id.trim();
+        (uuid::Uuid::parse_str(capture_generation_id).is_ok() && generation_started_at_ms > 0).then(
+            || Self {
+                capture_generation_id: capture_generation_id.to_string(),
+                generation_started_at_ms,
+            },
+        )
     }
 }
 
@@ -194,6 +232,42 @@ pub(crate) fn claim_writer(
     role: Role,
     instance_id: &str,
 ) -> Result<WriterClaimGuard, WriterClaimError> {
+    claim_writer_with_attestation(base_dir, project_hash, session_id, role, instance_id, None)
+}
+
+/// Claims one writer while binding it to the immutable generation carried by its Record signal.
+/// The attestation is written once into the ownership file; heartbeat/ready state can never
+/// replace it with a later generation that happens to reuse the same session/role/iid path.
+pub(crate) fn claim_writer_for_generation(
+    base_dir: &Path,
+    project_hash: &str,
+    session_id: &str,
+    role: Role,
+    instance_id: &str,
+    capture_generation_id: &str,
+    generation_started_at_ms: i64,
+) -> Result<WriterClaimGuard, WriterClaimError> {
+    let attestation =
+        WriterGenerationAttestation::new(capture_generation_id, generation_started_at_ms)
+            .ok_or(WriterClaimError::InvalidGenerationAttestation)?;
+    claim_writer_with_attestation(
+        base_dir,
+        project_hash,
+        session_id,
+        role,
+        instance_id,
+        Some(attestation),
+    )
+}
+
+fn claim_writer_with_attestation(
+    base_dir: &Path,
+    project_hash: &str,
+    session_id: &str,
+    role: Role,
+    instance_id: &str,
+    attestation: Option<WriterGenerationAttestation>,
+) -> Result<WriterClaimGuard, WriterClaimError> {
     let dir = writer_claim_dir(base_dir, project_hash, session_id);
     fs::create_dir_all(&dir)?;
     let path = writer_claim_path(base_dir, project_hash, session_id, role, instance_id);
@@ -207,6 +281,12 @@ pub(crate) fn claim_writer(
         role: role.dir_name().to_string(),
         owner_id,
         host_process_id: std::process::id(),
+        capture_generation_id: attestation
+            .as_ref()
+            .map(|attestation| attestation.capture_generation_id.clone()),
+        generation_started_at_ms: attestation
+            .as_ref()
+            .map(|attestation| attestation.generation_started_at_ms),
         claimed_at_ms: now,
         heartbeat_at_ms: now,
         ready_at_ms: None,
@@ -249,7 +329,10 @@ pub(crate) fn writer_claim_active(
     let Some(existing) = read_claim_snapshot(&path)? else {
         return Ok(false);
     };
-    if existing.closed_at_ms.is_some() {
+    if !snapshot_matches_writer(&existing, project_hash, session_id, role, instance_id)
+        || existing.closed_at_ms.is_some()
+        || !process_is_alive(existing.host_process_id)
+    {
         return Ok(false);
     }
     let age_ms = now_epoch_ms().saturating_sub(existing.heartbeat_at_ms);
@@ -258,22 +341,79 @@ pub(crate) fn writer_claim_active(
 
 /// Returns true only for a live owner that has completed artifact creation and initial flush.
 /// This is the producer barrier used by capture generation publication.
-pub(crate) fn writer_claim_ready(
+/// Exact producer activation barrier. A current session/role/iid claim from another generation
+/// is stale data, not readiness, even if its mutable state says `ready`.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn writer_claim_ready_for_generation(
     base_dir: &Path,
     project_hash: &str,
     session_id: &str,
     role: Role,
     instance_id: &str,
+    capture_generation_id: &str,
+    generation_started_at_ms: i64,
+    host_process_id: u32,
 ) -> Result<bool, WriterClaimError> {
     let path = writer_claim_path(base_dir, project_hash, session_id, role, instance_id);
     let Some(existing) = read_claim_snapshot(&path)? else {
         return Ok(false);
     };
-    if existing.ready_at_ms.is_none() || existing.closed_at_ms.is_some() {
+    if !snapshot_matches_writer(&existing, project_hash, session_id, role, instance_id)
+        || existing.ready_at_ms.is_none()
+        || existing.closed_at_ms.is_some()
+        || existing.capture_generation_id.as_deref() != Some(capture_generation_id)
+        || existing.generation_started_at_ms != Some(generation_started_at_ms)
+        || existing.host_process_id != host_process_id
+        || !process_is_alive(existing.host_process_id)
+    {
         return Ok(false);
     }
     let age_ms = now_epoch_ms().saturating_sub(existing.heartbeat_at_ms);
     Ok(age_ms <= WRITER_CLAIM_STALE_MS)
+}
+
+/// Exact execution authority for generation replacement. Readiness is intentionally not
+/// required here: a writer between claim and initial flush is already executing and must not be
+/// overlapped. The immutable generation and live renewing owner are required.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn writer_claim_execution_active_for_generation(
+    base_dir: &Path,
+    project_hash: &str,
+    session_id: &str,
+    role: Role,
+    instance_id: &str,
+    capture_generation_id: &str,
+    generation_started_at_ms: i64,
+    host_process_id: u32,
+) -> Result<bool, WriterClaimError> {
+    let path = writer_claim_path(base_dir, project_hash, session_id, role, instance_id);
+    let Some(existing) = read_claim_snapshot(&path)? else {
+        return Ok(false);
+    };
+    if !snapshot_matches_writer(&existing, project_hash, session_id, role, instance_id)
+        || existing.closed_at_ms.is_some()
+        || existing.capture_generation_id.as_deref() != Some(capture_generation_id)
+        || existing.generation_started_at_ms != Some(generation_started_at_ms)
+        || existing.host_process_id != host_process_id
+        || !process_is_alive(existing.host_process_id)
+    {
+        return Ok(false);
+    }
+    let age_ms = now_epoch_ms().saturating_sub(existing.heartbeat_at_ms);
+    Ok(age_ms <= WRITER_EXECUTION_LEASE_STALE_MS)
+}
+
+fn snapshot_matches_writer(
+    snapshot: &WriterClaimSnapshot,
+    project_hash: &str,
+    session_id: &str,
+    role: Role,
+    instance_id: &str,
+) -> bool {
+    snapshot.project_hash == project_hash
+        && snapshot.record_session_id == session_id
+        && snapshot.instance_id == instance_id
+        && snapshot.role == role.dir_name()
 }
 
 fn reclaim_or_reject_existing(
@@ -291,7 +431,7 @@ fn reclaim_or_reject_existing(
             });
         }
         let age_ms = now_epoch_ms().saturating_sub(existing.heartbeat_at_ms);
-        if age_ms <= WRITER_CLAIM_STALE_MS {
+        if age_ms <= WRITER_CLAIM_STALE_MS && process_is_alive(existing.host_process_id) {
             return Err(WriterClaimError::AlreadyActive {
                 path,
                 owner_id: Some(existing.owner_id),
@@ -390,7 +530,14 @@ fn read_claim_snapshot(path: &Path) -> Result<Option<WriterClaimSnapshot>, Write
         .and_then(|state| state.ready_at_ms)
         .or(claim.ready_at_ms);
     Ok(Some(WriterClaimSnapshot {
+        project_hash: claim.project_hash,
+        record_session_id: claim.record_session_id,
+        instance_id: claim.instance_id,
+        role: claim.role,
         owner_id: claim.owner_id,
+        host_process_id: claim.host_process_id,
+        capture_generation_id: claim.capture_generation_id,
+        generation_started_at_ms: claim.generation_started_at_ms,
         heartbeat_at_ms,
         ready_at_ms,
         closed_at_ms,
@@ -490,6 +637,21 @@ fn next_owner_id() -> String {
 
 fn now_epoch_ms() -> i64 {
     chrono::Utc::now().timestamp_millis()
+}
+
+#[cfg(unix)]
+fn process_is_alive(process_id: u32) -> bool {
+    if process_id == 0 || process_id > i32::MAX as u32 {
+        return false;
+    }
+    // SAFETY: signal 0 performs only a kernel liveness probe. EPERM also proves existence.
+    let result = unsafe { libc::kill(process_id as i32, 0) };
+    result == 0 || io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+}
+
+#[cfg(not(unix))]
+fn process_is_alive(process_id: u32) -> bool {
+    process_id != 0
 }
 
 #[cfg(test)]

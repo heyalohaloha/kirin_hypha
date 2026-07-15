@@ -15,6 +15,11 @@ pub const CAPTURE_GENERATION_SUBDIR: &str = "capture_generation";
 pub const CAPTURE_GENERATION_CURRENT: &str = "current.json";
 pub const CAPTURE_GENERATION_PREPARING: &str = "preparing.json";
 pub const CAPTURE_GENERATION_SCHEMA: &str = "capture_generation.v1";
+pub const CAPTURE_GENERATION_ARCHIVE_SUBDIR: &str = "by_generation";
+/// One immutable Keep generation is the exact producer roster consumed by Kirin OS.
+/// Keep this equal to the installation pairing cap so a successful producer action can never
+/// create a roster the consumer must reject wholesale.
+pub const MAX_CAPTURE_GENERATION_MEMBERS: usize = crate::capture_contract::MAX_CAPTURE_PAIRS;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 pub struct CaptureGenerationMember {
@@ -195,6 +200,7 @@ impl CaptureGeneration {
             && !self.originator_post_instance_id.trim().is_empty()
             && self.started_at_ms > 0
             && !self.members.is_empty()
+            && self.members.len() <= MAX_CAPTURE_GENERATION_MEMBERS
             && self.members.iter().all(|member| {
                 !member.project_hash.trim().is_empty()
                     && !member.post_instance_id.trim().is_empty()
@@ -268,6 +274,53 @@ pub fn preparing_generation_path(base_dir: &Path) -> PathBuf {
         .join(CAPTURE_GENERATION_PREPARING)
 }
 
+/// Immutable roster address. `active/current.json` is only a discovery pointer and may advance
+/// to the next Keep before an earlier WAV is Dropped.
+pub fn archived_generation_path(
+    base_dir: &Path,
+    capture_generation_id: &str,
+    started_at_ms: i64,
+) -> PathBuf {
+    let generation_id = crate::path_identity::guard_path_component(
+        capture_generation_id,
+        "capture_generation.archive.generation_id",
+    );
+    base_dir
+        .join(CAPTURE_GENERATION_SUBDIR)
+        .join(CAPTURE_GENERATION_ARCHIVE_SUBDIR)
+        .join(format!("{generation_id}.{started_at_ms}.json"))
+}
+
+pub fn archive_generation(
+    base_dir: &Path,
+    generation: &CaptureGeneration,
+) -> Result<(), CaptureGenerationError> {
+    if !generation.is_valid() {
+        return Err(CaptureGenerationError::Invalid);
+    }
+    crate::atomic_file::write_bytes_immutable(
+        &archived_generation_path(
+            base_dir,
+            &generation.capture_generation_id,
+            generation.started_at_ms,
+        ),
+        &serde_json::to_vec(generation)?,
+    )?;
+    Ok(())
+}
+
+pub fn read_archived_generation(
+    base_dir: &Path,
+    capture_generation_id: &str,
+    started_at_ms: i64,
+) -> Result<Option<CaptureGeneration>, CaptureGenerationError> {
+    read_generation_file(&archived_generation_path(
+        base_dir,
+        capture_generation_id,
+        started_at_ms,
+    ))
+}
+
 pub fn publish_current_generation(
     base_dir: &Path,
     project_hash: &str,
@@ -312,16 +365,55 @@ pub fn read_preparing_generation(
     read_generation_file(&preparing_generation_path(base_dir))
 }
 
-/// Resolves one project member against the producer preparation/commit barrier. This is the only
-/// authorization path used by PRE/POST workers: project-local roster data alone is never enough.
-/// Consumers continue to use [`read_active_generation`] and therefore cannot observe an
-/// incompletely armed generation.
+/// Resolve the immutable generation addressed by a Stop from one POST. A producer-owned
+/// `preparing.json` is newer than the retained consumer `active/current.json`, so it must win
+/// whenever it contains this exact member. This prevents a concurrent Stop from terminalizing
+/// the previous active generation during the prepare→commit interval.
+pub fn read_stop_target_generation(
+    base_dir: &Path,
+    project_hash: &str,
+    post_instance_id: &str,
+) -> Result<Option<CaptureGeneration>, CaptureGenerationError> {
+    let owns_exact_member = |generation: &CaptureGeneration| {
+        generation.members.iter().any(|member| {
+            member.project_hash == project_hash && member.post_instance_id == post_instance_id
+        })
+    };
+    if let Some(preparing) = read_preparing_generation(base_dir)? {
+        if owns_exact_member(&preparing) {
+            return Ok(Some(preparing));
+        }
+    }
+    Ok(read_active_generation(base_dir)?.filter(owns_exact_member))
+}
+
+/// Resolves one project member against the producer-only preparation barrier. This is the only
+/// start authorization used by PRE/POST workers: project-local or active consumer roster data is
+/// never enough. Once every writer is ready, promotion removes `preparing.json`; the retained
+/// active pointer belongs exclusively to Drop/TRACE and cannot replay an old Keep after an IO
+/// restart, cache expiry, or upgrade from an older build without terminal markers.
 pub fn read_producer_authorized_generation(
     base_dir: &Path,
     project_hash: &str,
     capture_generation_id: &str,
     started_at_ms: i64,
 ) -> Result<Option<CaptureGeneration>, CaptureGenerationError> {
+    // Stop/Drop is an absorbing producer fact. `active/current.json` deliberately remains for
+    // Kirin OS to consume, so pointer equality alone must never re-authorize its old broadcasts.
+    match crate::capture_generation_lifecycle::read_generation_terminal_recovering(
+        base_dir,
+        capture_generation_id,
+        started_at_ms,
+    ) {
+        Ok(Some(_)) => return Ok(None),
+        Ok(None) => {}
+        Err(error) => {
+            return Err(CaptureGenerationError::Io(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("capture generation terminal state unreadable: {error}"),
+            )))
+        }
+    }
     let Some(project_generation) = read_current_generation(base_dir, project_hash)? else {
         return Ok(None);
     };
@@ -331,16 +423,13 @@ pub fn read_producer_authorized_generation(
         return Ok(None);
     }
 
-    let global_matches = |generation: &CaptureGeneration| {
+    let preparation_matches = |generation: &CaptureGeneration| {
         generation.capture_generation_id == project_generation.capture_generation_id
             && generation.started_at_ms == project_generation.started_at_ms
     };
-    if read_active_generation(base_dir)?
+    if read_preparing_generation(base_dir)?
         .as_ref()
-        .is_some_and(global_matches)
-        || read_preparing_generation(base_dir)?
-            .as_ref()
-            .is_some_and(global_matches)
+        .is_some_and(preparation_matches)
     {
         return Ok(Some(project_generation));
     }

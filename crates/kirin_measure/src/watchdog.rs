@@ -7,17 +7,20 @@
 //!   │     measure_alive = false         (GUI LED 黄)
 //!   │     新 RingBuffer 生成
 //!   │     spawn_measure_thread()
-//!   │     pending_producer スロットへ新 Producer を書く
+//!   │     lock-free handoff へ新 Producer を publish
 //!   │     measure_alive = true          (GUI LED 青復帰)
 //!   └─ IO Thread.is_finished() → true
 //!         restart_io() クロージャを呼ぶ
 //! ```
 //!
-//! Audio Thread は process() の先頭で pending_producer を非ブロッキング確認し、
-//! Some なら次の push 前に ring_producer を差し替える。
+//! Audio Thread は process() の先頭で atomic pointer を 1 回読み、新世代があれば
+//! active Producer を差し替える。旧 Producer の破棄は Watchdog Thread に返し、
+//! Audio Thread で lock / allocation / deallocation を発生させない。
 
 use crate::engine::SessionSummary;
 use crate::record::RecordStateMachine;
+use crate::record_ingress::RecordIngressGenerationObservation;
+use crate::watchdog_handoff::WatchProducerHandoff;
 use crate::{
     spawn_measure_thread, LivenessEvaluator, MeasureResult, RecordTakeTracker, RecordTraceQueue,
 };
@@ -100,9 +103,14 @@ pub struct WatchdogParams {
     pub measure_shutdown: Arc<AtomicBool>,
     /// Measure Thread 生存フラグ。false=停止中（LED 黄）、true=稼働中（LED 青）
     pub measure_alive: Arc<AtomicBool>,
-    /// Audio Thread に新しい Producer を渡すスロット。
-    /// Watchdog が Some を書き、process() が取り出す。
-    pub pending_producer: Arc<Mutex<Option<rtrb::Producer<f32>>>>,
+    /// Successfully spawned Measure worker generation. Starts at one for the initial worker and
+    /// advances only after a replacement worker has been created. Unlike the short-lived
+    /// `measure_alive=false` edge, this is a durable restart fact.
+    pub measure_worker_generation: Arc<AtomicU64>,
+    /// active / pending / retired Producer の lock-free ownership handoff。
+    pub producer_handoff: Arc<WatchProducerHandoff>,
+    /// Separate preallocated Record producer/consumer lifecycle.
+    pub record_ingress: Arc<crate::RecordIngress>,
     /// 最初の Measure Thread の JoinHandle（watchdog が所有・管理する）
     pub measure_handle: JoinHandle<()>,
     /// B-118: IO Thread の所有モード（egui=Eager / FFI=Lazy）。
@@ -140,7 +148,9 @@ pub fn spawn_watchdog(params: WatchdogParams) -> JoinHandle<()> {
             evaluator,
             measure_shutdown,
             measure_alive,
-            pending_producer,
+            measure_worker_generation,
+            producer_handoff,
+            record_ingress,
             measure_handle: initial_m,
             io,
             watchdog_shutdown,
@@ -159,6 +169,11 @@ pub fn spawn_watchdog(params: WatchdogParams) -> JoinHandle<()> {
 
         loop {
             thread::sleep(TICK);
+
+            // Audio Thread は旧 Producer を破棄せず retired slot へ返す。実際の
+            // deallocation は常にこの Watchdog Thread で行う。
+            producer_handoff.reclaim_retired_from_watchdog();
+            record_ingress.reclaim_from_watchdog();
 
             // シャットダウン確認（50ms 精度で素早く応答）
             if watchdog_shutdown.load(Ordering::Relaxed) {
@@ -186,6 +201,14 @@ pub fn spawn_watchdog(params: WatchdogParams) -> JoinHandle<()> {
 
                 // 新しい ring buffer と Measure Thread を生成
                 let (producer, consumer) = rtrb::RingBuffer::new(ring_capacity);
+                // Snapshot the state machine before replacing its consumer. `generation` advances
+                // while Record is Entering and the session is installed before that advance, so a
+                // non-recording generation with a live session is pending entry, not a closed take.
+                // The replacement Measure worker reconciles once more, closing the Stop-after-this-
+                // snapshot race without retiring a live generation.
+                let record_observation =
+                    RecordIngressGenerationObservation::capture(record_sm.as_ref());
+                record_ingress.replace_after_measure_restart(record_observation);
                 cur_measure = spawn_measure_thread(
                     consumer,
                     sample_rate,
@@ -203,19 +226,14 @@ pub fn spawn_watchdog(params: WatchdogParams) -> JoinHandle<()> {
                     Arc::clone(&session_summary),
                     Arc::clone(&record_trace_queue),
                     Arc::clone(&record_take_tracker),
+                    Arc::clone(&record_ingress),
                 );
 
-                // Audio Thread に新しい Producer を渡す（process() が取り出す）
-                match pending_producer.lock() {
-                    Ok(mut slot) => {
-                        *slot = Some(producer);
-                    }
-                    Err(e) => {
-                        log::error!("[Watchdog] pending_producer Mutex poisoned: {}", e);
-                    }
-                }
+                // Audio Thread に最新 Producer の所有権を lock-free publish する。
+                producer_handoff.publish_from_watchdog(producer);
 
-                // LED 青復帰
+                // Publish the durable generation fact before reporting the worker live.
+                measure_worker_generation.fetch_add(1, Ordering::Release);
                 measure_alive.store(true, Ordering::Relaxed);
                 log::info!("[Watchdog] Measure Thread restarted successfully");
             }
@@ -280,6 +298,9 @@ pub fn spawn_watchdog(params: WatchdogParams) -> JoinHandle<()> {
             }
             let _ = cur_measure.join();
         }
+
+        producer_handoff.reclaim_retired_from_watchdog();
+        producer_handoff.discard_pending_from_watchdog();
 
         log::info!("[Watchdog] terminated");
     })

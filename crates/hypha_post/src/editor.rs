@@ -44,8 +44,8 @@ use kirin_measure::{
     CaptureGeneration, CaptureGenerationMember, CaptureGenerationTransaction, DeltaMode,
     DeltaResult, DeltaSnapshot, LatchedPre, License, LiveLicense, LivenessEvaluator, MeasureResult,
     PairStatus, PlatformPaths, PostCandidate, PreCandidate, PresetFileV2, RecordStateMachine,
-    ReleaseReason, SignalState, StoragePaths, MAX_ACTIVE_PER_PROJECT, SENSE_RECORD_HINT,
-    SENSE_UPSELL_URL,
+    ReleaseReason, SignalState, StoragePaths, CAPTURE_PRODUCER_READY_TIMEOUT,
+    MAX_ACTIVE_PER_PROJECT, SENSE_RECORD_HINT, SENSE_UPSELL_URL,
 };
 use nih_plug::prelude::Editor;
 use nih_plug_egui::{
@@ -56,8 +56,6 @@ use nih_plug_egui::{
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, LazyLock, Mutex, RwLock};
 use std::time::Duration;
-
-const CAPTURE_PRODUCER_READY_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// B-027 段階 2: pair PRE Name 編集 TextEdit の egui focus ID。
 ///

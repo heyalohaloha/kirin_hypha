@@ -35,7 +35,7 @@ pub const STALE_SECONDS: i64 = 60;
 /// 枠ファイル（tempfile+hard_link）の物理存在数のみ**を distinct pairing 数として数える
 /// （G-115-365/366 / marker は畳み込まない・parse しない・TTL を引かない）。枠数が本値を **超えたら**
 /// 13 ペア目として hard reject。値は 12 のまま（Daisuke 2026-05-04 確定）だが意味は「12 pairs」。
-pub const MAX_ACTIVE_PER_PROJECT: usize = 12;
+pub const MAX_ACTIVE_PER_PROJECT: usize = crate::capture_contract::MAX_CAPTURE_PAIRS;
 
 /// 排他チェック結果。
 #[derive(Debug, Clone, PartialEq, Eq)]

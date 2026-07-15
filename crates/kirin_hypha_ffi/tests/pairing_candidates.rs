@@ -5,11 +5,12 @@
 use std::ffi::CStr;
 use std::path::Path;
 use std::thread::sleep;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use kirin_hypha_ffi::{
     kirin_hypha_count_keep_ready, kirin_hypha_enumerate_post_pair_claims,
     kirin_hypha_enumerate_pre_candidates, KirinHyphaEngine, KirinPostPairClaim, KirinPreCandidate,
+    KIRIN_KEEP_PHASE_ARMED,
 };
 
 const SR: u32 = 48_000;
@@ -23,6 +24,40 @@ fn wait_until_stopped(engine: &KirinHyphaEngine, label: &str) {
         sleep(Duration::from_millis(100));
     }
     panic!("engine did not leave Record after All Stop: {label}");
+}
+
+fn wait_until_all_armed(pres: &[&KirinHyphaEngine], posts: &[&KirinHyphaEngine]) {
+    let deadline = Instant::now() + Duration::from_secs(8);
+    while Instant::now() < deadline {
+        for engine in pres.iter().chain(posts.iter()) {
+            engine.push_samples(&[], 2);
+        }
+        if posts
+            .iter()
+            .all(|engine| engine.keep_phase() == KIRIN_KEEP_PHASE_ARMED && engine.is_recording())
+        {
+            return;
+        }
+        sleep(Duration::from_millis(20));
+    }
+    panic!(
+        "accepted All Keep did not arm every exact producer: posts={:?}, pres={:?}",
+        posts
+            .iter()
+            .map(|engine| {
+                (
+                    engine.keep_phase(),
+                    engine.is_recording(),
+                    engine.paired_pre_target_snapshot(),
+                    engine.drain_keep_action_notice(),
+                    engine.record_error_message(),
+                )
+            })
+            .collect::<Vec<_>>(),
+        pres.iter()
+            .map(|engine| (engine.record_acknowledged(), engine.is_recording()))
+            .collect::<Vec<_>>()
+    );
 }
 
 fn isolate_env(label: &str) -> (std::path::PathBuf, std::path::PathBuf) {
@@ -265,11 +300,11 @@ fn juce_candidate_abi_bridges_split_shell_claims_and_all_keep() {
 
     assert!(
         post_2mix.keep_all(),
-        "All Keep may return success only after every exact producer is armed"
+        "All Keep accepts one exact broadcast edge"
     );
-    assert!(
-        post_2mix.is_recording() && post_drum.is_recording() && post_music.is_recording(),
-        "successful All Keep is the bounce-safe barrier; callers must not need a later wait"
+    wait_until_all_armed(
+        &[&pre_2mix, &pre_drum, &pre_music],
+        &[&post_2mix, &post_drum, &post_music],
     );
 
     post_drum.set_signal_state(2); // C ABI 2=Bypassed; owners remain part of All Stop

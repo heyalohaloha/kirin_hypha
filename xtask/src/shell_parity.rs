@@ -106,11 +106,50 @@ mod tests {
             PLUGIN_EDITOR_CPP.contains("pairDropdown.setBounds (juceRect (layout.pairDropdown))")
         );
         assert!(!PLUGIN_EDITOR_CPP.contains("const int ddW = 22;"));
-        assert!(HYPHA_UI_CONTRACT_H.contains("constexpr int dropdownWidth = 22"));
+        assert!(HYPHA_UI_CONTRACT_H.contains("constexpr int pairDropdownWidth = 28"));
         assert!(PLUGIN_EDITOR_CPP.contains("menu.setLookAndFeel (&pairMenuLookAndFeel())"));
         assert!(
             PLUGIN_EDITOR_H.contains("setColour (juce::PopupMenu::backgroundColourId, hypha::BG);")
         );
+    }
+
+    #[test]
+    fn au_and_vst3_compile_the_same_editor_without_format_specific_ui_branches() {
+        assert!(JUCE_CMAKE.contains("set(KIRIN_PLUGIN_FORMATS AU VST3)"));
+        assert_eq!(count_occurrences(JUCE_CMAKE, "src/PluginEditor.cpp"), 1);
+        assert_eq!(count_occurrences(JUCE_CMAKE, "src/HyphaWidgets.cpp"), 1);
+        assert_eq!(count_occurrences(JUCE_CMAKE, "src/PostControls.cpp"), 1);
+        for forbidden in [
+            "JucePlugin_Build_AU",
+            "JucePlugin_Build_VST3",
+            "JucePlugin_Build_AUv3",
+        ] {
+            assert!(
+                !PLUGIN_EDITOR_CPP.contains(forbidden)
+                    && !PLUGIN_EDITOR_H.contains(forbidden)
+                    && !POST_CONTROLS_CPP.contains(forbidden),
+                "format-specific UI branch can make AU and VST3 visually diverge: {forbidden}"
+            );
+        }
+    }
+
+    #[test]
+    fn keep_preparing_and_armed_are_visible_and_stoppable_before_record_ack() {
+        let body = between(
+            PLUGIN_EDITOR_CPP,
+            "void KirinHyphaEditor::updatePost()",
+            "const int ledSig",
+        );
+        assert!(FFI_HEADER.contains("#define KIRIN_KEEP_PHASE_IDLE 0u"));
+        assert!(FFI_HEADER.contains("#define KIRIN_KEEP_PHASE_PREPARING 1u"));
+        assert!(FFI_HEADER.contains("#define KIRIN_KEEP_PHASE_ARMED 2u"));
+        assert!(FFI_HEADER.contains("uint8_t kirin_hypha_keep_phase(KirinHypha* handle);"));
+        assert!(PLUGIN_PROCESSOR_CPP.contains("kirin_hypha_keep_phase (hyphaHandle)"));
+        assert!(body.contains("const bool keepActive = rec || preparing || armed;"));
+        assert!(body.contains("\"Preparing pairs...\""));
+        assert!(body.contains("\"Ready to bounce\""));
+        assert!(body.contains("postControls->update (keepActive"));
+        assert!(POST_CONTROLS_CPP.contains("stopBtn  .setVisible (keepActive && os);"));
     }
 
     #[test]
@@ -160,12 +199,12 @@ mod tests {
     #[test]
     fn post_controls_keep_slot_is_fixed_and_availability_depends_on_selected_pair() {
         assert!(POST_CONTROLS_CPP.contains(
-            "void PostControls::update (bool recording, int license, bool pairSelected)"
+            "void PostControls::update (bool keepActive, int license, bool pairSelected)"
         ));
-        assert!(POST_CONTROLS_CPP.contains("keepBtn  .setVisible (! recording && os);"));
+        assert!(POST_CONTROLS_CPP.contains("keepBtn  .setVisible (! keepActive && os);"));
         assert!(POST_CONTROLS_CPP.contains("keepBtn  .setEnabled (pairSelected);"));
         assert!(!POST_CONTROLS_CPP
-            .contains("keepBtn  .setVisible (! recording && os && pairSelected);"));
+            .contains("keepBtn  .setVisible (! keepActive && os && pairSelected);"));
     }
 
     /// B-195 (Step3 監査ギャップ): PostControls::update の可視性式を **全行** 固定する。
@@ -177,15 +216,15 @@ mod tests {
     fn post_controls_update_visibility_formula_is_pinned() {
         let body = between(
             POST_CONTROLS_CPP,
-            "void PostControls::update (bool recording, int license, bool pairSelected)",
+            "void PostControls::update (bool keepActive, int license, bool pairSelected)",
             "void PostControls::resized()",
         );
         assert!(body.contains("const bool os    = (license == 0);"));
         assert!(body.contains("const bool sense = (license == 1);"));
-        assert!(body.contains("keepBtn  .setVisible (! recording && os);"));
+        assert!(body.contains("keepBtn  .setVisible (! keepActive && os);"));
         assert!(body.contains("keepBtn  .setEnabled (pairSelected);"));
-        assert!(body.contains("senseBtn .setVisible (! recording && sense);"));
-        assert!(body.contains("stopBtn  .setVisible (recording && os);"));
+        assert!(body.contains("senseBtn .setVisible (! keepActive && sense);"));
+        assert!(body.contains("stopBtn  .setVisible (keepActive && os);"));
         assert!(!body.contains("markBtn"));
         assert!(!body.contains("markPickerOpen"));
     }
@@ -200,7 +239,6 @@ mod tests {
 
         assert!(body.contains("const auto cands = processorRef.enumeratePreCandidates();"));
         assert!(body.contains("const auto claims = processorRef.enumeratePostPairClaims();"));
-        assert!(body.contains("const juce::String currentPairName = processorRef.pairName();"));
         assert!(
             body.contains("const juce::String currentPreInstanceId = resolvedOwnPreInstanceId (")
         );
@@ -215,15 +253,17 @@ mod tests {
         assert!(body.contains(
             "labels.add ((inUse ? \"In use: \" : (keepReady ? \"Keep ready: \" : \"Can Keep: \")) + shown);"
         ));
+        assert!(body.contains("const bool keepReady = currentPreInstanceId.isNotEmpty()"));
+        assert!(!body.contains("c.name == currentPairName"));
+        assert!(body.contains("sameNameCount > 1"));
         assert!(body.contains("labelEnabled.add (! inUse);"));
         assert!(body.contains("labelChecked.add (keepReady && ! inUse);"));
         assert!(body.contains("const int nReady = processorRef.keepReadyCount();"));
-        assert!(body.contains("if (! rec && processorRef.licenseIsOs() && nReady >= 1)"));
+        assert!(body.contains("processorRef.keepPhase() != (int) KIRIN_KEEP_PHASE_IDLE"));
+        assert!(body.contains("if (! keepActive && processorRef.licenseIsOs() && nReady >= 1)"));
         assert!(body.contains("menu.addItem (1, allKeepMenuLabel (nReady));"));
-        assert!(body.contains("menu.addItem (2, \"All Stop: recording POSTs\");"));
-        assert!(
-            body.contains("menu.addItem (4, \"Pair choices (not Keep targets)\", false, false);")
-        );
+        assert!(body.contains("menu.addItem (2, \"All Stop: active POSTs\");"));
+        assert!(body.contains("menu.addSectionHeader (\"Pair choices (not Keep targets)\");"));
         assert!(body.contains("menu.addItem (3, \"No pair choices\", false, false);"));
         assert!(body.contains("! pairLocked && labelEnabled[i], labelChecked[i]"));
         assert!(
@@ -244,7 +284,7 @@ mod tests {
             "void KirinHyphaEditor::showCandidateMenu()",
             "void KirinHyphaEditor::handleCandidateMenu",
         );
-        assert!(body.contains(".withDeletionCheck (*this);"));
+        assert!(body.contains(".withDeletionCheck (*this)"));
         assert!(body.contains("juce::Component::SafePointer<KirinHyphaEditor> safeThis (this);"));
         assert!(body.contains("[safeThis, candidates = cands] (int result)"));
         assert!(body.contains("safeThis->handleCandidateMenu (result, candidates);"));

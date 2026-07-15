@@ -21,6 +21,7 @@ fn shipped_au_and_vst3_compile_the_same_editor_processor_and_control_contract() 
         "kirin_hypha_select_pair_candidate",
         "kirin_hypha_pair_status",
         "kirin_hypha_get_paired_pre_instance_id",
+        "kirin_hypha_drain_keep_action_notice",
     ] {
         assert!(ffi_header.contains(symbol), "FFI must expose {symbol}");
     }
@@ -40,6 +41,14 @@ fn shipped_au_and_vst3_compile_the_same_editor_processor_and_control_contract() 
     assert!(juce_editor.contains("ui::metricValueFontHeight"));
     assert!(juce_editor.contains("ui::metricUnitFontHeight"));
     assert!(juce_editor.contains("ui::maximumLabel"));
+    assert!(juce_editor.contains("menu.addSectionHeader"));
+    assert!(juce_editor.contains("withMinimumWidth (ui::pairMenuMinimumWidth)"));
+    assert!(juce_editor.contains("withMaximumNumColumns (ui::pairMenuMaximumColumns)"));
+    assert!(juce_editor.contains("withStandardItemHeight (ui::pairMenuItemHeight)"));
+    assert!(juce_editor.contains("updateFeedback (t, t < bannerUntil, status)"));
+    assert!(!juce_editor.contains("bannerLabel"));
+    assert!(!juce_editor.contains("toastLabel"));
+    assert!(!juce_editor.contains("recordErrorLabel"));
     assert!(
         juce_editor.contains("ui::preTitle : ui::postTitle")
             || juce_editor.contains("ui::postTitle : ui::preTitle")
@@ -52,9 +61,12 @@ fn shipped_au_and_vst3_compile_the_same_editor_processor_and_control_contract() 
         "constexpr int editorHeight = 200",
         "constexpr EditorLayout editorLayout",
         "constexpr Rect metricCellBounds",
+        "constexpr int pairMenuItemHeight     = 28",
+        "constexpr int pairMenuMinimumWidth   = editorWidth",
+        "constexpr int pairMenuMaximumColumns = 1",
         "constexpr std::array<MetricSlot, 6> watchMetrics",
         "constexpr std::array<MetricSlot, 6> recordMetrics",
-        "POST status row must end exactly at the 300x200 editor boundary",
+        "POST feedback row must fit the 300x200 editor boundary",
     ] {
         assert!(
             ui_contract.contains(required),
@@ -78,9 +90,9 @@ fn shipped_au_and_vst3_compile_the_same_editor_processor_and_control_contract() 
     }
 
     let juce_controls = read_repo("juce_shell/src/PostControls.cpp");
-    assert!(juce_controls.contains("keepBtn  .setVisible (! recording && os)"));
+    assert!(juce_controls.contains("keepBtn  .setVisible (! keepActive && os)"));
     assert!(juce_controls.contains("keepBtn  .setEnabled (pairSelected)"));
-    assert!(juce_controls.contains("stopBtn  .setVisible (recording && os)"));
+    assert!(juce_controls.contains("stopBtn  .setVisible (keepActive && os)"));
     assert!(!juce_controls.contains("markBtn"));
     let juce_controls_header = read_repo("juce_shell/src/PostControls.h");
     assert!(juce_controls_header.contains("ui_contract::keepLabel"));
@@ -100,6 +112,50 @@ fn shipped_au_and_vst3_compile_the_same_editor_processor_and_control_contract() 
     assert!(source_gate.contains("cargo build -p kirin_hypha_ffi --locked"));
     assert!(source_gate.contains("kirin_hypha_restore_pair_candidate"));
     assert!(source_gate.contains("kirin_hypha_get_paired_pre_locator"));
+}
+
+#[test]
+fn direct_keep_feedback_is_a_consumable_edge_not_a_persistent_error() {
+    let header = read_repo("crates/kirin_hypha_ffi/include/kirin_hypha_ffi.h");
+    assert!(header.contains("kirin_hypha_drain_keep_action_notice"));
+
+    let ffi = read_repo("crates/kirin_hypha_ffi/src/lib.rs");
+    assert!(ffi.contains("keep_action_notice: Arc<RwLock<Option<String>>>"));
+    assert!(ffi.contains("pub fn drain_keep_action_notice(&self) -> Option<String>"));
+    assert!(ffi.contains("and_then(|mut notice| notice.take())"));
+    assert!(ffi.contains("*message = Some(\"Another Keep is active\".to_string())"));
+
+    let processor = read_repo("juce_shell/src/PluginProcessor.cpp");
+    assert!(processor.contains("kirin_hypha_drain_keep_action_notice"));
+    let editor = read_repo("juce_shell/src/PluginEditor.cpp");
+    assert!(editor.contains("processorRef.drainKeepActionNotice()"));
+    assert!(editor.contains("toastUntil = t + 3.0"));
+}
+
+#[test]
+fn juce_commits_take_start_only_after_whole_block_admission() {
+    let header = read_repo("crates/kirin_hypha_ffi/include/kirin_hypha_ffi.h");
+    assert!(header.contains("bool kirin_hypha_push_samples("));
+
+    let ffi = read_repo("crates/kirin_hypha_ffi/src/lib.rs");
+    let push = slice_between(
+        &ffi,
+        "pub unsafe extern \"C\" fn kirin_hypha_push_samples",
+        "/// B-125: prealloc-max",
+    );
+    assert!(push.contains(") -> bool"));
+    assert!(push.contains("engine.push_samples_transaction(slice, num_channels)"));
+    assert!(push.contains(".unwrap_or(false)"));
+
+    let processor = read_repo("juce_shell/src/PluginProcessor.cpp");
+    let push_index = processor
+        .find("const bool blockAccepted = kirin_hypha_push_samples")
+        .expect("JUCE must observe whole-block admission");
+    let latch_index = processor[push_index..]
+        .find("if (blockAccepted && renderedRecordWindow)")
+        .map(|offset| push_index + offset)
+        .expect("take-start latch must be conditional on admission");
+    assert!(push_index < latch_index);
 }
 
 #[test]

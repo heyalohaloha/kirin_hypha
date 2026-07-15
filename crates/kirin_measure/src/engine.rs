@@ -143,6 +143,15 @@ impl MeasureEngine {
         self.total_frames
     }
 
+    /// Input frames retained below the next 100 ms observer boundary.
+    ///
+    /// A caller that causally primes this engine may begin a real-audio push with an already
+    /// populated accumulator. Observer `total_frames` counts the completed 100 ms slot, including
+    /// that prefix; this value is the exact bridge back to the real callback offset.
+    pub(crate) fn pending_frames(&self) -> u64 {
+        (self.accum.len() / self.n_channels) as u64
+    }
+
     /// インターリーブ f64 サンプルを受け取り、100ms チャンクが揃うたびに
     /// MeasureResult を返す。チャンク未満の場合は None を返す。
     pub fn push(&mut self, samples: &[f64]) -> Option<MeasureResult> {

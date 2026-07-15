@@ -47,7 +47,7 @@
 
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
-use std::fs;
+use std::fs::{self, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
@@ -290,6 +290,34 @@ pub fn target_signal_path(base_dir: &Path, pre_instance_id: &str) -> PathBuf {
         .join(format!("{iid}.json"))
 }
 
+fn signal_lock_path(base_dir: &Path, project_hash: &str, post_instance_id: &str) -> PathBuf {
+    signal_path(base_dir, project_hash, post_instance_id).with_extension("lock")
+}
+
+fn with_signal_lock<T>(
+    base_dir: &Path,
+    project_hash: &str,
+    post_instance_id: &str,
+    action: impl FnOnce() -> Result<T, SignalError>,
+) -> Result<T, SignalError> {
+    let lock_path = signal_lock_path(base_dir, project_hash, post_instance_id);
+    if let Some(parent) = lock_path.parent() {
+        crate::atomic_file::create_private_dir_all(parent)?;
+    }
+    let mut options = OpenOptions::new();
+    options.read(true).write(true).create(true).truncate(false);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let lock = options.open(lock_path)?;
+    lock.lock()?;
+    let result = action();
+    let _ = lock.unlock();
+    result
+}
+
 // ── I/O ──────────────────────────────────────────────────────────────────────
 
 /// I/O エラー。
@@ -420,7 +448,46 @@ pub fn write_pending_claiming_expected_and_clock_for_generation(
         generation.started_at_ms,
         member.record_session_id.clone(),
     );
-    write_signal(base_dir, project_hash, post_instance_id, &signal)?;
+    let signal = crate::capture_generation_lifecycle::with_generation_lifecycle_lock(
+        base_dir,
+        &generation.capture_generation_id,
+        || {
+            match crate::capture_generation_lifecycle::read_generation_terminal(
+                base_dir,
+                &generation.capture_generation_id,
+                generation.started_at_ms,
+            ) {
+                Ok(None) => {}
+                Ok(Some(_)) => {
+                    return Err(SignalError::Io(io::Error::new(
+                        io::ErrorKind::AlreadyExists,
+                        "capture generation is terminal",
+                    )))
+                }
+                Err(error) => {
+                    return Err(SignalError::Io(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!("capture generation terminal state unreadable: {error}"),
+                    )))
+                }
+            }
+            with_signal_lock(base_dir, project_hash, post_instance_id, || {
+                if let Some(existing) = read_signal(base_dir, project_hash, post_instance_id) {
+                    if same_generation_member(&existing, &signal) {
+                        return match existing.status {
+                            SignalStatus::Released => Err(SignalError::Io(io::Error::new(
+                                io::ErrorKind::AlreadyExists,
+                                "capture generation member is terminal",
+                            ))),
+                            SignalStatus::Pending | SignalStatus::Acknowledged => Ok(existing),
+                        };
+                    }
+                }
+                write_signal_unlocked(base_dir, project_hash, post_instance_id, &signal)?;
+                Ok(signal)
+            })
+        },
+    )?;
     if let Err(e) = crate::record_expected::begin_expected_session_for_generation(
         base_dir,
         project_hash,
@@ -439,6 +506,27 @@ pub fn write_pending_claiming_expected_and_clock_for_generation(
 
 /// 任意のシグナルを atomic 書込（unique tmp → rename）。
 pub fn write_signal(
+    base_dir: &Path,
+    project_hash: &str,
+    post_instance_id: &str,
+    signal: &RecordSignal,
+) -> Result<(), SignalError> {
+    with_signal_lock(base_dir, project_hash, post_instance_id, || {
+        if let Some(existing) = read_signal(base_dir, project_hash, post_instance_id) {
+            if same_generation_member(&existing, signal)
+                && signal_status_rank(signal.status) < signal_status_rank(existing.status)
+            {
+                return Err(SignalError::Io(io::Error::new(
+                    io::ErrorKind::AlreadyExists,
+                    "capture generation member state cannot regress",
+                )));
+            }
+        }
+        write_signal_unlocked(base_dir, project_hash, post_instance_id, signal)
+    })
+}
+
+fn write_signal_unlocked(
     base_dir: &Path,
     project_hash: &str,
     post_instance_id: &str,
@@ -531,15 +619,56 @@ pub fn mark_acknowledged_with_name(
     post_instance_id: &str,
     paired_pre_name: &str,
 ) -> Result<bool, SignalError> {
-    let Some(mut signal) = read_signal(base_dir, project_hash, post_instance_id) else {
-        return Ok(false);
-    };
-    signal.status = SignalStatus::Acknowledged;
-    signal.t = now_iso8601();
-    signal.paired_pre_name = paired_pre_name.to_string();
-    signal.release_reason = None;
-    write_signal(base_dir, project_hash, post_instance_id, &signal)?;
-    Ok(true)
+    mark_acknowledged_with_name_if_current(
+        base_dir,
+        project_hash,
+        post_instance_id,
+        paired_pre_name,
+        None,
+    )
+}
+
+/// Compare-and-acknowledge used by PRE after reading one exact inbox. A stale PRE poll can never
+/// acknowledge a newer generation that replaced the canonical POST path meanwhile.
+pub fn mark_acknowledged_with_name_if_current(
+    base_dir: &Path,
+    project_hash: &str,
+    post_instance_id: &str,
+    paired_pre_name: &str,
+    expected: Option<&RecordSignal>,
+) -> Result<bool, SignalError> {
+    with_signal_lock(base_dir, project_hash, post_instance_id, || {
+        let Some(mut signal) = read_signal(base_dir, project_hash, post_instance_id) else {
+            return Ok(false);
+        };
+        if expected.is_some_and(|expected| !same_signal_incarnation(&signal, expected)) {
+            return Ok(false);
+        }
+        if signal.status == SignalStatus::Released {
+            return Ok(false);
+        }
+        if !signal.capture_generation_id.trim().is_empty()
+            && !matches!(
+                crate::capture_generation_lifecycle::read_generation_terminal(
+                    base_dir,
+                    &signal.capture_generation_id,
+                    signal.generation_started_at_ms,
+                ),
+                Ok(None)
+            )
+        {
+            // Terminal publication is the producer-side barrier. A delayed PRE poll must not
+            // advance an already stopped/aborted member even during the small interval before its
+            // exact Released write becomes visible.
+            return Ok(false);
+        }
+        signal.status = SignalStatus::Acknowledged;
+        signal.t = now_iso8601();
+        signal.paired_pre_name = paired_pre_name.to_string();
+        signal.release_reason = None;
+        write_signal_unlocked(base_dir, project_hash, post_instance_id, &signal)?;
+        Ok(true)
+    })
 }
 
 /// 状態遷移: * → released。理由なし released は cleanup marker であり、PRE 停止権限を持たない。
@@ -559,6 +688,41 @@ pub fn mark_released_with_reason(
     reason: ReleaseReason,
 ) -> Result<bool, SignalError> {
     mark_released_inner(base_dir, project_hash, post_instance_id, Some(reason))
+}
+
+/// Compare-and-release used by delayed IO/worker callbacks. The canonical path may already belong
+/// to the next Keep; in that case the old callback has no mutation authority.
+pub fn mark_released_with_reason_if_current(
+    base_dir: &Path,
+    project_hash: &str,
+    post_instance_id: &str,
+    expected: &RecordSignal,
+    reason: ReleaseReason,
+) -> Result<bool, SignalError> {
+    transition_status_if_current(
+        base_dir,
+        project_hash,
+        post_instance_id,
+        SignalStatus::Released,
+        Some(reason),
+        Some(expected),
+    )
+}
+
+pub fn mark_released_if_current(
+    base_dir: &Path,
+    project_hash: &str,
+    post_instance_id: &str,
+    expected: &RecordSignal,
+) -> Result<bool, SignalError> {
+    transition_status_if_current(
+        base_dir,
+        project_hash,
+        post_instance_id,
+        SignalStatus::Released,
+        None,
+        Some(expected),
+    )
 }
 
 fn mark_released_inner(
@@ -583,22 +747,68 @@ fn transition_status(
     next: SignalStatus,
     release_reason: Option<ReleaseReason>,
 ) -> Result<bool, SignalError> {
-    let Some(mut signal) = read_signal(base_dir, project_hash, post_instance_id) else {
-        return Ok(false);
-    };
-    signal.status = next;
-    signal.t = now_iso8601();
-    signal.release_reason = if next == SignalStatus::Released {
-        release_reason
-    } else {
-        None
-    };
-    write_signal(base_dir, project_hash, post_instance_id, &signal)?;
-    Ok(true)
+    transition_status_if_current(
+        base_dir,
+        project_hash,
+        post_instance_id,
+        next,
+        release_reason,
+        None,
+    )
+}
+
+fn transition_status_if_current(
+    base_dir: &Path,
+    project_hash: &str,
+    post_instance_id: &str,
+    next: SignalStatus,
+    release_reason: Option<ReleaseReason>,
+    expected: Option<&RecordSignal>,
+) -> Result<bool, SignalError> {
+    with_signal_lock(base_dir, project_hash, post_instance_id, || {
+        let Some(mut signal) = read_signal(base_dir, project_hash, post_instance_id) else {
+            return Ok(false);
+        };
+        if expected.is_some_and(|expected| !same_signal_incarnation(&signal, expected)) {
+            return Ok(false);
+        }
+        if signal.status == SignalStatus::Released {
+            // Released is absorbing. A later explicit reason may only strengthen a reasonless
+            // cleanup marker so PRE still receives the user's Stop/Drop authority.
+            if signal.release_reason.is_none() && release_reason.is_some() {
+                signal.release_reason = release_reason;
+                signal.t = now_iso8601();
+                write_signal_unlocked(base_dir, project_hash, post_instance_id, &signal)?;
+            }
+            return Ok(true);
+        }
+        if signal_status_rank(next) < signal_status_rank(signal.status) {
+            return Ok(false);
+        }
+        signal.status = next;
+        signal.t = now_iso8601();
+        signal.release_reason = if next == SignalStatus::Released {
+            release_reason
+        } else {
+            None
+        };
+        write_signal_unlocked(base_dir, project_hash, post_instance_id, &signal)?;
+        Ok(true)
+    })
 }
 
 /// record_signal.json を削除。不在は成功扱い。
 pub fn delete_signal(
+    base_dir: &Path,
+    project_hash: &str,
+    post_instance_id: &str,
+) -> Result<(), SignalError> {
+    with_signal_lock(base_dir, project_hash, post_instance_id, || {
+        delete_signal_unlocked(base_dir, project_hash, post_instance_id)
+    })
+}
+
+fn delete_signal_unlocked(
     base_dir: &Path,
     project_hash: &str,
     post_instance_id: &str,
@@ -629,6 +839,30 @@ pub fn delete_signal(
         }
     }
     Ok(())
+}
+
+fn same_generation_member(left: &RecordSignal, right: &RecordSignal) -> bool {
+    !left.capture_generation_id.trim().is_empty()
+        && left.capture_generation_id == right.capture_generation_id
+        && left.generation_started_at_ms == right.generation_started_at_ms
+        && left.session_id == right.session_id
+        && left.requested_by == right.requested_by
+}
+
+fn same_signal_incarnation(left: &RecordSignal, right: &RecordSignal) -> bool {
+    left.requested_by == right.requested_by
+        && left.session_id == right.session_id
+        && left.capture_generation_id == right.capture_generation_id
+        && left.generation_started_at_ms == right.generation_started_at_ms
+        && left.target_pre_instance_id == right.target_pre_instance_id
+}
+
+fn signal_status_rank(status: SignalStatus) -> u8 {
+    match status {
+        SignalStatus::Pending => 0,
+        SignalStatus::Acknowledged => 1,
+        SignalStatus::Released => 2,
+    }
 }
 
 /// pending 状態で `t` から `timeout_secs` 秒以上経過していれば true。
