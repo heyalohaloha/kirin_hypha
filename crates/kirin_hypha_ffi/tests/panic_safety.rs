@@ -10,9 +10,10 @@
 use kirin_hypha_ffi::{
     kirin_hypha_create, kirin_hypha_decode_legacy_nih_state, kirin_hypha_destroy,
     kirin_hypha_enumerate_post_pair_claims, kirin_hypha_get_paired_pre_instance_id,
-    kirin_hypha_pair_status, kirin_hypha_poll_result, kirin_hypha_poll_session,
-    kirin_hypha_push_samples, kirin_hypha_select_pair_candidate, kirin_hypha_set_signal_state,
-    KirinLegacyNihState, KirinMeasureResult, KirinPostPairClaim, KirinSessionSummary,
+    kirin_hypha_get_paired_pre_locator, kirin_hypha_pair_status, kirin_hypha_poll_result,
+    kirin_hypha_poll_session, kirin_hypha_push_samples, kirin_hypha_restore_pair_candidate,
+    kirin_hypha_select_pair_candidate, kirin_hypha_set_signal_state, KirinLegacyNihState,
+    KirinMeasureResult, KirinPostPairClaim, KirinSessionSummary,
 };
 
 #[test]
@@ -58,9 +59,22 @@ fn null_handle_calls_are_safe_noops() {
             std::ptr::null_mut(),
             std::ptr::null()
         ));
+        assert!(!kirin_hypha_restore_pair_candidate(
+            std::ptr::null_mut(),
+            std::ptr::null(),
+            std::ptr::null()
+        ));
         let mut paired = [0_i8; 64];
         assert!(!kirin_hypha_get_paired_pre_instance_id(
             std::ptr::null_mut(),
+            paired.as_mut_ptr(),
+            paired.len()
+        ));
+        let mut project = [0_i8; 64];
+        assert!(!kirin_hypha_get_paired_pre_locator(
+            std::ptr::null_mut(),
+            project.as_mut_ptr(),
+            project.len(),
             paired.as_mut_ptr(),
             paired.len()
         ));

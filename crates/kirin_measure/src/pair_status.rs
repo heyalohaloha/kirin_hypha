@@ -36,6 +36,9 @@ pub fn pair_status_for_post(
 
     let exact_and_fresh = read_pre_at(&latched.pre_json).is_some_and(|state| {
         state.instance_id.as_deref() == Some(latched.instance_id.as_str())
+            && latched
+                .host_process_id
+                .is_none_or(|host| state.host_process_id == Some(host))
             && state.fresh
             && crate::watch_snapshot_lease::snapshot_file_is_fresh_runtime_evidence(
                 &latched.pre_json,
@@ -185,6 +188,7 @@ mod tests {
             pre_json: PathBuf::from("/missing/pre.json"),
             daw_session_id: None,
             host_process_id: None,
+            readiness: crate::LatchedPreReadiness::Confirmed,
         };
         assert_eq!(
             pair_status_for_post("2Mix", &Mutex::new(Some(latch))),
@@ -219,6 +223,7 @@ mod tests {
             pre_json,
             daw_session_id: None,
             host_process_id: None,
+            readiness: crate::LatchedPreReadiness::Confirmed,
         };
         let latched = Mutex::new(Some(latch));
         assert_eq!(pair_status_for_post("2Mix", &latched), PairStatus::Paired);
@@ -251,9 +256,51 @@ mod tests {
             pre_json,
             daw_session_id: None,
             host_process_id: None,
+            readiness: crate::LatchedPreReadiness::Confirmed,
         }));
 
         assert_eq!(pair_status_for_post("2Mix", &latched), PairStatus::Waiting);
+    }
+
+    #[test]
+    fn restored_post_does_not_confirm_an_exact_path_owned_by_another_daw_process() {
+        let root = isolated_root();
+        let instance_dir = root.join("project").join("pre-1");
+        let mut lease = crate::watch_snapshot_lease::WatchSnapshotLease::new();
+        lease.bind(&instance_dir).unwrap();
+        let pre_json = instance_dir.join("pre.json");
+        let current_host = std::process::id();
+        let other_host = if current_host == u32::MAX {
+            current_host - 1
+        } else {
+            current_host + 1
+        };
+        fs::write(
+            &pre_json,
+            serde_json::json!({
+                "instance_id": "pre-1",
+                "watch_owner_id": lease.owner_id(),
+                "signal_state": "inactive",
+                "host_process_id": other_host,
+                "t": chrono::Utc::now().to_rfc3339(),
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let latched = Mutex::new(Some(LatchedPre {
+            name: "2Mix".to_string(),
+            instance_id: "pre-1".to_string(),
+            project_dir: root.join("project"),
+            pre_json,
+            daw_session_id: None,
+            host_process_id: Some(std::process::id()),
+            readiness: crate::LatchedPreReadiness::RestoredWaiting,
+        }));
+
+        assert_eq!(pair_status_for_post("2Mix", &latched), PairStatus::Waiting);
+        assert!(!crate::pairing_scope::confirm_restored_latch_runtime(
+            &latched
+        ));
     }
 
     #[test]

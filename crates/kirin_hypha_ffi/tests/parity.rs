@@ -107,17 +107,6 @@ fn drop_expected_wav(
     .unwrap();
 }
 
-fn wait_until_recording(engine: &KirinHyphaEngine, label: &str) {
-    for _ in 0..30 {
-        if engine.is_recording() {
-            return;
-        }
-        engine.push_samples(&[], 2);
-        sleep(Duration::from_millis(100));
-    }
-    panic!("engine did not enter Record after Keep/ACK barrier: {label}");
-}
-
 fn push_positioned_stereo(engine: &KirinHyphaEngine, samples: &[f32], position_samples: i64) {
     let num_frames = (samples.len() / 2) as u64;
     let recording = engine.is_recording();
@@ -1449,34 +1438,25 @@ fn post_keep_acked_by_colocated_pre() {
             post.keep(),
             "一意 PRE 'mix' は expected WAV metadata なしでも keep=true"
         );
-        wait_until_recording(&post, "strict-pair-mix");
-        assert!(post.is_recording(), "keep 成功で POST Record 開始");
+        assert!(
+            post.is_recording(),
+            "keep=true is the bounce-safe writer-ready barrier"
+        );
 
         // poll_delta は Δ を返す（PRE active）。
         let d = post.poll_delta().expect("poll_delta Some");
         eprintln!("[3d-b] post-keep delta mode={:?} lufs={:?}", d.mode, d.lufs);
 
-        // PRE が cross-uuid で discover→ack するまで待つ（1s discover + 1s poll throttle）。
-        let mut acked = false;
-        for _ in 0..50 {
-            pre.push_samples(&[], 2);
-            post.push_samples(&[], 2);
-            sleep(Duration::from_millis(100));
-            if let Some(s) = read_signal(&plugin_data_root, "puid-post", "iid-post") {
-                if s.status == SignalStatus::Acknowledged {
-                    assert_eq!(s.target_pre_instance_id, "iid-pre", "target は選定 PRE");
-                    assert!(
-                        s.expected_wav.is_none(),
-                        "Kirin OS 未起動相当の Keep は expected_wav なしで Record を継続する"
-                    );
-                    acked = true;
-                    break;
-                }
-            }
-        }
+        let signal = read_signal(&plugin_data_root, "puid-post", "iid-post")
+            .expect("writer-ready Keep must retain its exact signal");
+        assert_eq!(signal.status, SignalStatus::Acknowledged);
+        assert_eq!(
+            signal.target_pre_instance_id, "iid-pre",
+            "target は選定 PRE"
+        );
         assert!(
-            acked,
-            "PRE が別 uuid の record_signal(puid-post/record_signal/iid-post.json) を ack"
+            signal.expected_wav.is_none(),
+            "Kirin OS 未起動相当の Keep は expected_wav なしで Record を継続する"
         );
 
         // Stop → released。
@@ -1568,27 +1548,20 @@ fn capstone_paired_record_output_and_linkage() {
         // 1) PRE pre.json を active+fresh にする（POST が select できる状態）。
         drive(1.5);
 
-        // 2) POST Keep → PRE が discover→ack→自動 Record（1s discover + 1s poll throttle）。
+        // 2) POST Keep → PRE ACK + both initial artifact flushes. `true` is the barrier.
         assert!(post.keep(), "一意 PRE 'mix' で keep=true");
-        wait_until_recording(&post, "capstone");
-        assert!(post.is_recording(), "POST Record 開始");
-
-        // 3) PRE の ACK 後、実際の bounce と同じ transport rewind から4秒を描画する。
-        // Keep前後の試聴区間をWAV本体と見なさず、producer render rangeを両laneで一致させる。
-        let mut acked = false;
-        for _ in 0..30 {
-            drive(0.1);
-            if read_signal(&plugin_data_root, "puid-post", "iid-post")
-                .is_some_and(|signal| signal.status == SignalStatus::Acknowledged)
-            {
-                acked = true;
-                break;
-            }
-        }
         assert!(
-            acked,
-            "PRE must acknowledge before the simulated bounce begins"
+            post.is_recording(),
+            "successful Keep itself must be the bounce-safe PRE+POST writer barrier"
         );
+        let signal = read_signal(&plugin_data_root, "puid-post", "iid-post")
+            .expect("successful Keep retains its exact generation signal");
+        assert_eq!(signal.status, SignalStatus::Acknowledged);
+        assert!(!signal.capture_generation_id.is_empty());
+        assert!(!signal.session_id.is_empty());
+
+        // 3) 実際の bounce と同じ transport rewind から4秒を描画する。
+        // Keep前後の試聴区間をWAV本体と見なさず、producer render rangeを両laneで一致させる。
         position.set(0);
         drive(4.0);
         let d = post.poll_delta().expect("poll_delta Some");
@@ -1708,6 +1681,46 @@ fn capstone_paired_record_output_and_linkage() {
         pre_pd.record_session_id, post_pd.record_session_id,
         "paired PRE/POST TRACE shelves must share the same record_session_id"
     );
+    assert!(
+        pre_pd
+            .capture_generation_id
+            .as_deref()
+            .is_some_and(|id| !id.is_empty()),
+        "published PRE must retain the committed capture generation"
+    );
+    assert_eq!(
+        pre_pd.capture_generation_id, post_pd.capture_generation_id,
+        "paired PRE/POST must belong to one immutable capture generation"
+    );
+    assert!(pre_pd.generation_started_at_ms > 0);
+    assert_eq!(
+        pre_pd.generation_started_at_ms, post_pd.generation_started_at_ms,
+        "paired PRE/POST generation clock must be identical"
+    );
+    let pre_wav = pre_pd
+        .trace_wav_reference
+        .as_ref()
+        .expect("published PRE must be bound to the dropped WAV axis");
+    let post_wav = post_pd
+        .trace_wav_reference
+        .as_ref()
+        .expect("published POST must be bound to the dropped WAV axis");
+    assert_eq!(pre_wav, post_wav, "both lanes must share one WAV reference");
+    assert_eq!(
+        pre_wav.start_sample, 0,
+        "TRACE origin is dropped WAV sample 0"
+    );
+    assert!(pre_wav.end_sample > pre_wav.start_sample);
+    for (role, data) in [("PRE", &pre_pd), ("POST", &post_pd)] {
+        let take = data
+            .bounce_take
+            .as_ref()
+            .unwrap_or_else(|| panic!("{role} must carry a sample-count bounce take"));
+        assert_eq!(take.wav_start_sample, 0, "{role} WAV origin");
+        assert_eq!(take.start_t_ms, 0, "{role} TRACE time origin");
+        assert_eq!(take.wav_end_sample, take.duration_samples);
+        assert_eq!(take.frame_count, data.frames.len() as u64);
+    }
     assert!(
         find_failed_json_under_role(&plugin_data_root, "pre").is_none(),
         "successful paired Record must not leave a .failed diagnostic shelf for PRE"
@@ -1833,8 +1846,10 @@ fn keep_failure_after_enter_reverts_record_state() {
             post.keep(),
             "HOME 復帰: 同 PRE が選定可 → keep()=true（失敗経路が select 到達済を立証）"
         );
-        wait_until_recording(&post, "storage-recovered");
-        assert!(post.is_recording(), "成功 keep で Record 開始");
+        assert!(
+            post.is_recording(),
+            "successful Keep must already own a ready Record writer"
+        );
         post.stop();
         assert!(!post.is_recording(), "stop で Watch へ");
     }
@@ -1925,20 +1940,11 @@ fn post_mark_survives_flush_and_close_with_wav_sample_position() {
 
         drive(1.5); // PRE pre.json active
         assert!(post.keep(), "keep true");
-        wait_until_recording(&post, "annotation-post");
-        let mut acked = false;
-        for _ in 0..30 {
-            drive(0.1);
-            if read_signal(&plugin_data_root, "puid-post", "iid-post")
-                .is_some_and(|signal| signal.status == SignalStatus::Acknowledged)
-            {
-                acked = true;
-                break;
-            }
-        }
         assert!(
-            acked,
-            "PRE must acknowledge before the simulated bounce begins"
+            post.is_recording()
+                && read_signal(&plugin_data_root, "puid-post", "iid-post")
+                    .is_some_and(|signal| signal.status == SignalStatus::Acknowledged),
+            "Keep success must mean PRE ACK and POST writer readiness before bounce sample 0"
         );
         position.set(0); // actual bounce transport start
         drive(2.0);
@@ -2140,7 +2146,6 @@ fn double_keep_preserves_linkage() {
 
         // 1 回目 keep: 成功 → Record + linkage Some(iid-pre)。
         assert!(post.keep(), "1st keep true");
-        wait_until_recording(&post, "double-keep");
         assert!(post.is_recording(), "1st keep enters Record");
         assert_eq!(
             post.paired_pre_target_snapshot().as_deref(),
@@ -2544,10 +2549,9 @@ fn b140_inactive_keep_latches_pre_for_delta_after_audio() {
     }
 
     assert!(post.keep(), "Inactive but fresh PRE should be armable");
-    wait_until_recording(&post, "inactive-keep-latch");
     assert!(
         post.is_recording(),
-        "POST enters Record while still inactive"
+        "Keep success means POST is already recording while still inactive"
     );
 
     pre.set_signal_state(1); // Active ABI
@@ -2658,10 +2662,9 @@ fn b127_engine_counts_pairings_not_markers() {
         entered,
         "keep must succeed despite 24 active markers (枠=0 / cap 真実源は marker でなく O_EXCL 枠存在)"
     );
-    wait_until_recording(&post, "b127-bidi12");
     assert!(
         post.is_recording(),
-        "engine enters Record (frame-counted, markers ignored)"
+        "successful Keep already owns Record (frame-counted, markers ignored)"
     );
 
     drop(post);
@@ -2807,8 +2810,10 @@ fn b127_engine_allows_keep_under_cap() {
 
     let entered = post.keep();
     assert!(entered, "12th keep (< cap) must succeed");
-    wait_until_recording(&post, "b127-under11");
-    assert!(post.is_recording(), "engine enters Record under cap");
+    assert!(
+        post.is_recording(),
+        "successful Keep already owns Record under cap"
+    );
     assert_eq!(
         post.record_error_message(),
         None,
@@ -2871,7 +2876,6 @@ fn b127_keep_reclaims_bounded_stale_leases_before_cap() {
         post.keep(),
         "stale orphan frames must not block a valid keep after sweep"
     );
-    wait_until_recording(&post, "b127-stale12");
     assert!(post.is_recording());
     assert_eq!(
         kirin_measure::reservation::count_frames(&base, puid),

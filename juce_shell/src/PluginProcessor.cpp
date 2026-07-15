@@ -444,6 +444,11 @@ bool KirinHyphaProcessorBase::isRecording() const
 
 void KirinHyphaProcessorBase::setPairName (const juce::String& name)
 {
+    if (persistPairName != name)
+    {
+        persistPairInstanceId.clear();
+        persistPairProjectHash.clear();
+    }
     persistPairName = name; // persisted; the FFI sanitizes its own copy (ASCII graphic + space, 16).
     const juce::ScopedLock sl (handleLock);
     if (hyphaHandle != nullptr)
@@ -453,12 +458,25 @@ void KirinHyphaProcessorBase::setPairName (const juce::String& name)
 bool KirinHyphaProcessorBase::setPairCandidate (const juce::String& instanceId,
                                                 const juce::String& name)
 {
-    const juce::ScopedLock sl (handleLock);
-    if (hyphaHandle == nullptr)
-        return false;
-    const bool selected = kirin_hypha_select_pair_candidate (hyphaHandle, instanceId.toRawUTF8());
+    bool selected = false;
+    {
+        const juce::ScopedLock sl (handleLock);
+        if (hyphaHandle == nullptr)
+            return false;
+        selected = kirin_hypha_select_pair_candidate (hyphaHandle, instanceId.toRawUTF8());
+    }
     if (selected)
+    {
         persistPairName = name;
+        persistPairProjectHash.clear();
+        persistPairInstanceId.clear();
+        juce::String projectHash, selectedInstanceId;
+        if (pairedPreLocator (projectHash, selectedInstanceId))
+        {
+            persistPairProjectHash = projectHash;
+            persistPairInstanceId = selectedInstanceId;
+        }
+    }
     return selected;
 }
 
@@ -477,6 +495,22 @@ juce::String KirinHyphaProcessorBase::pairedPreInstanceId() const
     return kirin_hypha_get_paired_pre_instance_id (hyphaHandle, out, sizeof (out))
              ? juce::String::fromUTF8 (out)
              : juce::String();
+}
+
+bool KirinHyphaProcessorBase::pairedPreLocator (juce::String& projectHash,
+                                                juce::String& instanceId) const
+{
+    const juce::ScopedLock sl (handleLock);
+    if (hyphaHandle == nullptr)
+        return false;
+    char projectOut[64] = { 0 };
+    char instanceOut[64] = { 0 };
+    if (! kirin_hypha_get_paired_pre_locator (
+            hyphaHandle, projectOut, sizeof (projectOut), instanceOut, sizeof (instanceOut)))
+        return false;
+    projectHash = juce::String::fromUTF8 (projectOut);
+    instanceId = juce::String::fromUTF8 (instanceOut);
+    return true;
 }
 
 bool KirinHyphaProcessorBase::keepPair()
@@ -706,14 +740,27 @@ void KirinHyphaProcessorBase::changeProgramName (int, const juce::String&) {}
 
 void KirinHyphaProcessorBase::getStateInformation (juce::MemoryBlock& destData)
 {
-    // B-069/B-072: serialize the 4 identity keys + POST pair target as a JUCE-native XML
-    // chunk. The persist members are kept in sync with the FFI at enable time.
+    // Persist both the human reconnect selector and the exact PRE instance. Hosts may restore PRE
+    // and POST in either order; the exact ID is reconstructed as a Waiting fixed-path latch.
+    juce::String livePairProjectHash, livePairInstanceId;
+    if (pairedPreLocator (livePairProjectHash, livePairInstanceId))
+    {
+        persistPairInstanceId = livePairInstanceId;
+        persistPairProjectHash = livePairProjectHash;
+    }
+    else if (writesEnabled.load (std::memory_order_acquire))
+    {
+        persistPairInstanceId.clear();
+        persistPairProjectHash.clear();
+    }
     juce::XmlElement xml ("KirinHyphaState");
     xml.setAttribute ("instance_id",      persistInstanceId);
     xml.setAttribute ("project_uuid",     persistProjectUuid);
     xml.setAttribute ("daw_session_uuid", persistDawSessionUuid);
     xml.setAttribute ("name",             persistName);
     xml.setAttribute ("pair_pre_name",    persistPairName);
+    xml.setAttribute ("paired_pre_instance_id", persistPairInstanceId);
+    xml.setAttribute ("paired_pre_project_hash", persistPairProjectHash);
     copyXmlToBinary (xml, destData);
 }
 
@@ -725,7 +772,7 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
     stateInformationSeen.store (true, std::memory_order_release);
 
     juce::String restoredInstanceId, restoredProjectUuid, restoredDawSessionUuid;
-    juce::String restoredName, restoredPairName;
+    juce::String restoredName, restoredPairName, restoredPairInstanceId, restoredPairProjectHash;
     bool restored = false;
 
     if (auto xml = getXmlFromBinary (data, sizeInBytes))
@@ -737,6 +784,8 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
             restoredDawSessionUuid = xml->getStringAttribute ("daw_session_uuid");
             restoredName           = xml->getStringAttribute ("name");
             restoredPairName       = xml->getStringAttribute ("pair_pre_name");
+            restoredPairInstanceId = xml->getStringAttribute ("paired_pre_instance_id");
+            restoredPairProjectHash = xml->getStringAttribute ("paired_pre_project_hash");
             restored = true;
         }
     }
@@ -768,11 +817,26 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
         {
             persistName = restoredName;
             persistPairName = restoredPairName;
+            persistPairInstanceId = restoredPairInstanceId;
+            persistPairProjectHash = restoredPairProjectHash;
             const juce::ScopedLock sl (handleLock);
             if (hyphaHandle != nullptr)
             {
                 if (role == Role::Post)
+                {
                     kirin_hypha_set_pair_target (hyphaHandle, persistPairName.toRawUTF8());
+                    if (persistPairInstanceId.isNotEmpty() && persistPairProjectHash.isNotEmpty())
+                    {
+                        if (! kirin_hypha_restore_pair_candidate (
+                                hyphaHandle,
+                                persistPairProjectHash.toRawUTF8(),
+                                persistPairInstanceId.toRawUTF8()))
+                        {
+                            persistPairInstanceId.clear();
+                            persistPairProjectHash.clear();
+                        }
+                    }
+                }
                 else
                     kirin_hypha_set_pre_name (hyphaHandle, persistName.toRawUTF8());
             }
@@ -784,6 +848,8 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
         persistDawSessionUuid = restoredDawSessionUuid;
         persistName = restoredName;
         persistPairName = restoredPairName;
+        persistPairInstanceId = restoredPairInstanceId;
+        persistPairProjectHash = restoredPairProjectHash;
     }
 
     if (! writesEnabled.load (std::memory_order_acquire))
@@ -836,6 +902,17 @@ void KirinHyphaProcessorBase::enableWritesNow()
         kirin_hypha_enable_post_writes (hyphaHandle);
         // B-072: apply the restored/current pair target after enable (contract order).
         kirin_hypha_set_pair_target (hyphaHandle, persistPairName.toRawUTF8());
+        if (persistPairInstanceId.isNotEmpty() && persistPairProjectHash.isNotEmpty())
+        {
+            if (! kirin_hypha_restore_pair_candidate (
+                    hyphaHandle,
+                    persistPairProjectHash.toRawUTF8(),
+                    persistPairInstanceId.toRawUTF8()))
+            {
+                persistPairInstanceId.clear();
+                persistPairProjectHash.clear();
+            }
+        }
     }
     else
     {

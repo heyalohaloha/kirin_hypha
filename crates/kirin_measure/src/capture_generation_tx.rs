@@ -4,27 +4,34 @@
 //! installation-wide file lock is held. The active pointer is written last and
 //! is the only commit barrier consumers may trust.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{File, OpenOptions, TryLockError};
 use std::io;
 use std::path::{Path, PathBuf};
+use std::thread;
+use std::time::{Duration, Instant};
 
 use crate::capture_generation::{
-    active_generation_path, publish_current_generation, read_active_generation, CaptureGeneration,
-    CaptureGenerationError, CAPTURE_GENERATION_SUBDIR,
+    active_generation_path, current_generation_path, preparing_generation_path,
+    publish_current_generation, read_active_generation, read_current_generation,
+    read_preparing_generation, CaptureGeneration, CaptureGenerationError,
+    CAPTURE_GENERATION_SUBDIR,
 };
+use crate::plugin_data::Role;
 use crate::record_signal::{read_signal, SignalStatus};
 
 const PUBLISH_LOCK_FILENAME: &str = ".publish.lock";
 
 /// Holds the installation-wide generation lock from roster staging through
-/// active-pointer commit. Dropping an uncommitted transaction leaves staged
-/// files non-authoritative and therefore harmless.
+/// active-pointer commit. Dropping an uncommitted transaction releases its exact
+/// signals, wakes its exact member shelves, and restores the previous pointers.
 pub struct CaptureGenerationTransaction {
     base_dir: PathBuf,
     generation: CaptureGeneration,
     lock: File,
     staged: bool,
+    committed: bool,
+    previous_project_generations: BTreeMap<String, Option<CaptureGeneration>>,
 }
 
 impl CaptureGenerationTransaction {
@@ -62,9 +69,11 @@ impl CaptureGenerationTransaction {
         }
 
         if let Some(active) = read_active_generation(base_dir)? {
-            let same_generation = active.capture_generation_id == generation.capture_generation_id
-                && active.started_at_ms == generation.started_at_ms;
-            if !same_generation && generation_has_open_member(base_dir, &active) {
+            // An open generation has exactly one producer transaction. Re-entering even with the
+            // same immutable id would give the second guard rollback authority over the active
+            // writers when it drops. A new transaction is therefore allowed only after every
+            // exact member has closed (or the producer process is gone).
+            if generation_has_open_member(base_dir, &active) {
                 return Err(CaptureGenerationError::Io(io::Error::new(
                     io::ErrorKind::WouldBlock,
                     "another capture generation is still active",
@@ -77,12 +86,24 @@ impl CaptureGenerationTransaction {
             generation: generation.clone(),
             lock,
             staged: false,
+            committed: false,
+            previous_project_generations: BTreeMap::new(),
         })
     }
 
-    /// Writes every project pointer while keeping the global active pointer
-    /// unchanged. Callers may now stage all exact member inboxes.
+    /// Writes every project pointer, then publishes the producer-only preparation barrier while
+    /// keeping the consumer-authoritative active pointer unchanged. Callers may now stage exact
+    /// member inboxes; Kirin OS still sees only the previously committed generation.
     pub fn stage(&mut self) -> Result<(), CaptureGenerationError> {
+        if self.staged {
+            return Err(CaptureGenerationError::Io(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                "capture generation was already staged",
+            )));
+        }
+        // Own cleanup before the first filesystem mutation. If any later write fails, Drop can
+        // remove the exact partial roster instead of leaving a misleading project pointer.
+        self.staged = true;
         let projects = self
             .generation
             .members
@@ -90,14 +111,44 @@ impl CaptureGenerationTransaction {
             .map(|member| member.project_hash.as_str())
             .collect::<BTreeSet<_>>();
         for project_hash in projects {
+            let previous = read_current_generation(&self.base_dir, project_hash)?;
+            self.previous_project_generations
+                .insert(project_hash.to_string(), previous);
             publish_current_generation(&self.base_dir, project_hash, &self.generation)?;
         }
-        self.staged = true;
+        let json = serde_json::to_vec(&self.generation)?;
+        crate::atomic_file::write_bytes_atomic(&preparing_generation_path(&self.base_dir), &json)?;
         Ok(())
     }
 
-    /// Commits the generation only after every producer inbox has been staged.
-    pub fn commit(&mut self) -> Result<(), CaptureGenerationError> {
+    /// Waits for both PRE and POST writers of every immutable roster member to own their exact
+    /// Record session, then promotes the active pointer. This runs only on a user/control thread;
+    /// it performs no audio-thread work and never scans directories or historical sessions.
+    pub fn commit_when_ready(&mut self, timeout: Duration) -> Result<(), CaptureGenerationError> {
+        if !self.staged {
+            return Err(CaptureGenerationError::Io(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "capture generation was not staged",
+            )));
+        }
+        let deadline = Instant::now() + timeout;
+        loop {
+            if generation_producers_ready(&self.base_dir, &self.generation) {
+                return self.commit();
+            }
+            if Instant::now() >= deadline {
+                return Err(CaptureGenerationError::Io(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "capture generation producers did not become ready",
+                )));
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    /// Private final pointer promotion. The only production entry is
+    /// [`Self::commit_when_ready`], so no caller can bypass writer readiness.
+    fn commit(&mut self) -> Result<(), CaptureGenerationError> {
         if !self.staged {
             return Err(CaptureGenerationError::Io(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -105,15 +156,124 @@ impl CaptureGenerationTransaction {
             )));
         }
         let json = serde_json::to_vec(&self.generation)?;
+        remove_preparing_if_current(&self.base_dir, &self.generation);
         crate::atomic_file::write_bytes_atomic(&active_generation_path(&self.base_dir), &json)?;
+        self.committed = true;
         Ok(())
     }
 }
 
 impl Drop for CaptureGenerationTransaction {
     fn drop(&mut self) {
+        if self.staged && !self.committed {
+            // Rollback is part of the transaction contract, not a caller convention. Release only
+            // signals that still identify this immutable generation, then notify the exact member
+            // shelves so already-started remote state machines exit Record as well.
+            abort_uncommitted_generation(&self.base_dir, &self.generation);
+            remove_preparing_if_current(&self.base_dir, &self.generation);
+            for (project_hash, previous) in &self.previous_project_generations {
+                restore_project_pointer_if_current(
+                    &self.base_dir,
+                    project_hash,
+                    &self.generation,
+                    previous.as_ref(),
+                );
+            }
+        }
         let _ = self.lock.unlock();
     }
+}
+
+fn abort_uncommitted_generation(base_dir: &Path, generation: &CaptureGeneration) {
+    for member in &generation.members {
+        let owns_signal = read_signal(base_dir, &member.project_hash, &member.post_instance_id)
+            .is_some_and(|signal| {
+                signal.capture_generation_id == generation.capture_generation_id
+                    && signal.generation_started_at_ms == generation.started_at_ms
+                    && signal.session_id == member.record_session_id
+            });
+        if owns_signal {
+            let _ = crate::record_signal::mark_released_with_reason(
+                base_dir,
+                &member.project_hash,
+                &member.post_instance_id,
+                crate::record_signal::ReleaseReason::ManualStop,
+            );
+        }
+    }
+
+    for project_hash in generation
+        .members
+        .iter()
+        .map(|member| member.project_hash.as_str())
+        .collect::<BTreeSet<_>>()
+    {
+        let _ = crate::all_stop_signal::write_stop_broadcast_with_scope(
+            base_dir,
+            project_hash,
+            &generation.originator_post_instance_id,
+            generation.daw_session_id.clone(),
+            generation.host_process_id,
+        );
+    }
+}
+
+fn generation_producers_ready(base_dir: &Path, generation: &CaptureGeneration) -> bool {
+    generation.members.iter().all(|member| {
+        !member.pre_instance_id.trim().is_empty()
+            && crate::record_writer_claim::writer_claim_ready(
+                base_dir,
+                &member.project_hash,
+                &member.record_session_id,
+                Role::Pre,
+                &member.pre_instance_id,
+            )
+            .unwrap_or(false)
+            && crate::record_writer_claim::writer_claim_ready(
+                base_dir,
+                &member.project_hash,
+                &member.record_session_id,
+                Role::Post,
+                &member.post_instance_id,
+            )
+            .unwrap_or(false)
+    })
+}
+
+fn remove_preparing_if_current(base_dir: &Path, generation: &CaptureGeneration) {
+    if read_preparing_generation(base_dir)
+        .ok()
+        .flatten()
+        .as_ref()
+        .is_some_and(|current| same_generation(current, generation))
+    {
+        let _ = std::fs::remove_file(preparing_generation_path(base_dir));
+    }
+}
+
+fn restore_project_pointer_if_current(
+    base_dir: &Path,
+    project_hash: &str,
+    generation: &CaptureGeneration,
+    previous: Option<&CaptureGeneration>,
+) {
+    if read_current_generation(base_dir, project_hash)
+        .ok()
+        .flatten()
+        .as_ref()
+        .is_some_and(|current| same_generation(current, generation))
+    {
+        if let Some(previous) = previous {
+            let _ = publish_current_generation(base_dir, project_hash, previous);
+        } else {
+            let _ = std::fs::remove_file(current_generation_path(base_dir, project_hash));
+        }
+    }
+}
+
+fn same_generation(left: &CaptureGeneration, right: &CaptureGeneration) -> bool {
+    left.capture_generation_id == right.capture_generation_id
+        && left.started_at_ms == right.started_at_ms
 }
 
 fn generation_has_open_member(base_dir: &Path, generation: &CaptureGeneration) -> bool {
@@ -151,136 +311,5 @@ fn process_is_alive(process_id: u32) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::capture_generation::{
-        read_active_generation, read_current_generation, CaptureGenerationMember,
-    };
-
-    fn generation() -> CaptureGeneration {
-        CaptureGeneration::new_for_members(
-            "post-a".into(),
-            "daw-a".into(),
-            std::process::id(),
-            vec![CaptureGenerationMember {
-                project_hash: "project-a".into(),
-                post_instance_id: "post-a".into(),
-                pre_instance_id: "pre-a".into(),
-                record_session_id: String::new(),
-            }],
-        )
-    }
-
-    #[test]
-    fn staged_roster_is_not_active_until_commit() {
-        let temp = tempfile::tempdir().unwrap();
-        let generation = generation();
-        let mut transaction =
-            CaptureGenerationTransaction::begin(temp.path(), &generation).unwrap();
-
-        transaction.stage().unwrap();
-
-        assert_eq!(
-            read_current_generation(temp.path(), "project-a")
-                .unwrap()
-                .unwrap(),
-            generation
-        );
-        assert!(read_active_generation(temp.path()).unwrap().is_none());
-
-        transaction.commit().unwrap();
-        assert_eq!(
-            read_active_generation(temp.path()).unwrap().unwrap(),
-            generation
-        );
-    }
-
-    #[test]
-    fn commit_without_stage_is_rejected() {
-        let temp = tempfile::tempdir().unwrap();
-        let generation = generation();
-        let mut transaction =
-            CaptureGenerationTransaction::begin(temp.path(), &generation).unwrap();
-
-        assert!(transaction.commit().is_err());
-        assert!(read_active_generation(temp.path()).unwrap().is_none());
-    }
-
-    #[test]
-    fn concurrent_publisher_is_rejected_without_waiting() {
-        let temp = tempfile::tempdir().unwrap();
-        let first = generation();
-        let first_transaction = CaptureGenerationTransaction::begin(temp.path(), &first).unwrap();
-        let second = generation();
-
-        let error = CaptureGenerationTransaction::begin(temp.path(), &second)
-            .err()
-            .expect("the publication lock must be non-blocking");
-
-        assert!(matches!(
-            error,
-            CaptureGenerationError::Io(ref error)
-                if error.kind() == io::ErrorKind::WouldBlock
-        ));
-        drop(first_transaction);
-    }
-
-    #[test]
-    fn live_open_generation_cannot_be_replaced() {
-        let temp = tempfile::tempdir().unwrap();
-        let first = generation();
-        let mut first_transaction =
-            CaptureGenerationTransaction::begin(temp.path(), &first).unwrap();
-        first_transaction.stage().unwrap();
-        crate::record_signal::write_pending_claiming_expected_and_clock_for_generation(
-            temp.path(),
-            "project-a",
-            "post-a",
-            "pre-a".into(),
-            "daw-a".into(),
-            None,
-            &first,
-        )
-        .unwrap();
-        first_transaction.commit().unwrap();
-        drop(first_transaction);
-
-        let second = generation();
-        let error = CaptureGenerationTransaction::begin(temp.path(), &second)
-            .err()
-            .expect("a live open generation must retain ownership");
-        assert!(matches!(
-            error,
-            CaptureGenerationError::Io(ref error)
-                if error.kind() == io::ErrorKind::WouldBlock
-        ));
-        assert_eq!(read_active_generation(temp.path()).unwrap().unwrap(), first);
-    }
-
-    #[test]
-    fn dead_producer_generation_does_not_block_restart() {
-        let temp = tempfile::tempdir().unwrap();
-        let mut abandoned = generation();
-        abandoned.host_process_id = i32::MAX as u32;
-        let mut abandoned_transaction =
-            CaptureGenerationTransaction::begin(temp.path(), &abandoned).unwrap();
-        abandoned_transaction.stage().unwrap();
-        crate::record_signal::write_pending_claiming_expected_and_clock_for_generation(
-            temp.path(),
-            "project-a",
-            "post-a",
-            "pre-a".into(),
-            "daw-a".into(),
-            None,
-            &abandoned,
-        )
-        .unwrap();
-        abandoned_transaction.commit().unwrap();
-        drop(abandoned_transaction);
-
-        let replacement = generation();
-        let transaction = CaptureGenerationTransaction::begin(temp.path(), &replacement)
-            .expect("a crashed producer must not own the next Keep");
-        drop(transaction);
-    }
-}
+#[path = "capture_generation_tx_tests.rs"]
+mod tests;

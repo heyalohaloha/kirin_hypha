@@ -34,6 +34,8 @@ struct WriterClaimFile {
     host_process_id: u32,
     claimed_at_ms: i64,
     heartbeat_at_ms: i64,
+    #[serde(default)]
+    ready_at_ms: Option<i64>,
     closed_at_ms: Option<i64>,
 }
 
@@ -42,6 +44,8 @@ struct WriterClaimStateFile {
     schema_version: String,
     owner_id: String,
     heartbeat_at_ms: i64,
+    #[serde(default)]
+    ready_at_ms: Option<i64>,
     closed_at_ms: Option<i64>,
 }
 
@@ -49,6 +53,7 @@ struct WriterClaimStateFile {
 struct WriterClaimSnapshot {
     owner_id: String,
     heartbeat_at_ms: i64,
+    ready_at_ms: Option<i64>,
     closed_at_ms: Option<i64>,
 }
 
@@ -123,6 +128,25 @@ impl WriterClaimGuard {
             &self.path,
             &self.claim.owner_id,
             now,
+            self.claim.ready_at_ms,
+            self.claim.closed_at_ms,
+        )?;
+        Ok(())
+    }
+
+    /// Publishes producer readiness only after the Record artifact exists and its initial flush
+    /// completed. Ownership alone is deliberately not readiness: generation publication must not
+    /// race ahead of writer construction.
+    pub(crate) fn mark_ready(&mut self) -> Result<(), WriterClaimError> {
+        ensure_current_owner(&self.path, &self.claim.owner_id)?;
+        let now = now_epoch_ms();
+        self.claim.heartbeat_at_ms = now;
+        self.claim.ready_at_ms = Some(now);
+        write_state_atomic(
+            &self.path,
+            &self.claim.owner_id,
+            now,
+            self.claim.ready_at_ms,
             self.claim.closed_at_ms,
         )?;
         Ok(())
@@ -137,6 +161,7 @@ impl WriterClaimGuard {
             &self.path,
             &self.claim.owner_id,
             now,
+            self.claim.ready_at_ms,
             self.claim.closed_at_ms,
         )?;
         self.finalized = true;
@@ -184,6 +209,7 @@ pub(crate) fn claim_writer(
         host_process_id: std::process::id(),
         claimed_at_ms: now,
         heartbeat_at_ms: now,
+        ready_at_ms: None,
         closed_at_ms: None,
     };
     let bytes = serde_json::to_vec(&claim)?;
@@ -224,6 +250,26 @@ pub(crate) fn writer_claim_active(
         return Ok(false);
     };
     if existing.closed_at_ms.is_some() {
+        return Ok(false);
+    }
+    let age_ms = now_epoch_ms().saturating_sub(existing.heartbeat_at_ms);
+    Ok(age_ms <= WRITER_CLAIM_STALE_MS)
+}
+
+/// Returns true only for a live owner that has completed artifact creation and initial flush.
+/// This is the producer barrier used by capture generation publication.
+pub(crate) fn writer_claim_ready(
+    base_dir: &Path,
+    project_hash: &str,
+    session_id: &str,
+    role: Role,
+    instance_id: &str,
+) -> Result<bool, WriterClaimError> {
+    let path = writer_claim_path(base_dir, project_hash, session_id, role, instance_id);
+    let Some(existing) = read_claim_snapshot(&path)? else {
+        return Ok(false);
+    };
+    if existing.ready_at_ms.is_none() || existing.closed_at_ms.is_some() {
         return Ok(false);
     }
     let age_ms = now_epoch_ms().saturating_sub(existing.heartbeat_at_ms);
@@ -309,12 +355,14 @@ fn write_state_atomic(
     claim_path: &Path,
     owner_id: &str,
     heartbeat_at_ms: i64,
+    ready_at_ms: Option<i64>,
     closed_at_ms: Option<i64>,
 ) -> Result<(), WriterClaimError> {
     let state = WriterClaimStateFile {
         schema_version: WRITER_CLAIM_SCHEMA.to_string(),
         owner_id: owner_id.to_string(),
         heartbeat_at_ms,
+        ready_at_ms,
         closed_at_ms,
     };
     let bytes = serde_json::to_vec(&state)?;
@@ -337,9 +385,14 @@ fn read_claim_snapshot(path: &Path) -> Result<Option<WriterClaimSnapshot>, Write
         .as_ref()
         .and_then(|state| state.closed_at_ms)
         .or(claim.closed_at_ms);
+    let ready_at_ms = state
+        .as_ref()
+        .and_then(|state| state.ready_at_ms)
+        .or(claim.ready_at_ms);
     Ok(Some(WriterClaimSnapshot {
         owner_id: claim.owner_id,
         heartbeat_at_ms,
+        ready_at_ms,
         closed_at_ms,
     }))
 }

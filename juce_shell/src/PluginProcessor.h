@@ -50,6 +50,7 @@ public:
     bool setPairCandidate (const juce::String& instanceId, const juce::String& name);
     int pairStatus() const;                            // 0=Unpaired 1=Waiting 2=Paired
     juce::String pairedPreInstanceId() const;
+    bool pairedPreLocator (juce::String& projectHash, juce::String& instanceId) const;
     bool keepPair();                                    // kirin_hypha_keep (Os + unique PRE)
     bool recordExclusionConflict() const;               // B-118 (②): kirin_hypha_record_exclusion_conflict (advisory only)
     juce::String recordErrorMessage() const;            // B-118 (③): kirin_hypha_record_error_message (io fail status / G-115-29)
@@ -130,11 +131,13 @@ private:
     int64_t lastProcessPositionSamples = 0;            // audio-thread local transport position cache
     bool recordStartWindowLatched = false;             // audio-thread Record start gate; reset outside Record
 
-    // Persisted identity (4 keys) + POST pair target name, round-tripped via get/setState as a
+    // Persisted identity (4 keys) + POST pair target, round-tripped via get/setState as a
     // JUCE-native XML chunk. Source of truth for the chunk; synced from the FFI at enable
     // (B-070/B-072 enableWritesNow). Empty until restored or generated.
     juce::String persistInstanceId, persistProjectUuid, persistDawSessionUuid, persistName;
     juce::String persistPairName;                      // POST pair target (B-072)
+    juce::String persistPairInstanceId;                // exact PRE target; survives DAW restart
+    juce::String persistPairProjectHash;               // exact PRE shelf; no cross-format guess
 
     std::atomic<int>  cachedLicenseCode { 2 };         // live non-RT entitlement cache (0=Os)
     std::atomic<bool> lastPlaying { false };           // B-054: transport playing (POST pair lock during playback)

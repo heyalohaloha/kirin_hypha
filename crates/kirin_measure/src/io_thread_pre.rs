@@ -251,10 +251,10 @@ fn generation_project_hashes_for_signal(
         .collect()
 }
 
-/// A generation-bearing inbox is actionable only after both its project pointer and the
-/// installation-wide commit pointer identify the same immutable member. Legacy inboxes without a
-/// generation retain their compatibility path.
-fn signal_generation_is_committed(
+/// A generation-bearing inbox is actionable only after its project pointer and either the
+/// producer-only preparation barrier or consumer commit barrier identify the same immutable
+/// member. Legacy inboxes without a generation retain their compatibility path.
+fn signal_generation_is_authorized(
     base: &Path,
     project_hash: &str,
     post_instance_id: &str,
@@ -264,20 +264,20 @@ fn signal_generation_is_committed(
     if signal.capture_generation_id.trim().is_empty() {
         return true;
     }
-    let (Ok(Some(project_generation)), Ok(Some(active_generation))) = (
-        crate::capture_generation::read_current_generation(base, project_hash),
-        crate::capture_generation::read_active_generation(base),
-    ) else {
+    let Ok(Some(project_generation)) =
+        crate::capture_generation::read_producer_authorized_generation(
+            base,
+            project_hash,
+            &signal.capture_generation_id,
+            signal.generation_started_at_ms,
+        )
+    else {
         return false;
     };
     let Some(member) = project_generation.member(project_hash, post_instance_id) else {
         return false;
     };
-    project_generation.capture_generation_id == signal.capture_generation_id
-        && project_generation.started_at_ms == signal.generation_started_at_ms
-        && active_generation.capture_generation_id == project_generation.capture_generation_id
-        && active_generation.started_at_ms == project_generation.started_at_ms
-        && member.record_session_id == signal.session_id
+    member.record_session_id == signal.session_id
         && member.pre_instance_id == pre_instance_id
         && signal.target_pre_instance_id == pre_instance_id
 }
@@ -790,7 +790,7 @@ pub fn spawn_io_thread_pre(
                 .unwrap_or_else(|| project_hash.clone());
             let effective_project_hash_ref = effective_project_hash_owned.as_str();
 
-            // ② record_signal poll（1 秒間隔）
+            // ② record_signal poll（100ms、単一exact pathのみ）
             // base_dir = plugin_data_root / project_hash = effective_project_hash_ref
             //
             // B-022 段階 3: filter から daw_session_id 比較を撤廃。
@@ -1143,7 +1143,7 @@ fn poll_record_signal(
         .into_iter()
         .filter(|(post_iid, signal)| {
             signal.status == SignalStatus::Pending
-                && signal_generation_is_committed(
+                && signal_generation_is_authorized(
                     &base,
                     &signal_project_hash,
                     post_iid,
@@ -4479,7 +4479,7 @@ mod capture_generation_commit_tests {
     use crate::{CaptureGeneration, CaptureGenerationMember, CaptureGenerationTransaction};
 
     #[test]
-    fn pre_cannot_enter_a_staged_generation_before_global_commit() {
+    fn pre_can_arm_from_preparing_generation_without_consumer_commit() {
         let base = tempfile::tempdir().unwrap();
         let generation = CaptureGeneration::new_for_members(
             "post-a".into(),
@@ -4506,16 +4506,41 @@ mod capture_generation_commit_tests {
         )
         .unwrap();
 
-        assert!(!signal_generation_is_committed(
+        assert!(signal_generation_is_authorized(
             base.path(),
             "project-a",
             "post-a",
             "pre-a",
             &signal,
         ));
+        assert!(
+            crate::capture_generation::read_active_generation(base.path())
+                .unwrap()
+                .is_none(),
+            "producer preparation must not expose an active Drop generation"
+        );
 
-        transaction.commit().unwrap();
-        assert!(signal_generation_is_committed(
+        let member = generation.members.first().unwrap();
+        let mut pre_claim = crate::record_writer_claim::claim_writer(
+            base.path(),
+            &member.project_hash,
+            &member.record_session_id,
+            crate::plugin_data::Role::Pre,
+            &member.pre_instance_id,
+        )
+        .unwrap();
+        let mut post_claim = crate::record_writer_claim::claim_writer(
+            base.path(),
+            &member.project_hash,
+            &member.record_session_id,
+            crate::plugin_data::Role::Post,
+            &member.post_instance_id,
+        )
+        .unwrap();
+        pre_claim.mark_ready().unwrap();
+        post_claim.mark_ready().unwrap();
+        transaction.commit_when_ready(Duration::ZERO).unwrap();
+        assert!(signal_generation_is_authorized(
             base.path(),
             "project-a",
             "post-a",

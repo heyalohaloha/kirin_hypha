@@ -496,8 +496,22 @@ mod tests {
         use crate::all_keep_signal;
         let base = isolated_dir();
         // 同一 originator が両 broadcast を配置 (All Keep → All Stop の連続押下シナリオ)
-        all_keep_signal::write_broadcast(&base, "ph", "originator-A", "session-A".to_string())
-            .unwrap();
+        let generation = crate::capture_generation::CaptureGeneration::new_single(
+            "ph".to_string(),
+            "originator-A".to_string(),
+            "pre-A".to_string(),
+            "session-A".to_string(),
+            std::process::id(),
+        );
+        all_keep_signal::write_broadcast_for_generation(
+            &base,
+            "ph",
+            "originator-A",
+            "session-A".to_string(),
+            std::process::id(),
+            &generation,
+        )
+        .unwrap();
         write_stop_broadcast(&base, "ph", "originator-A", "session-A".to_string()).unwrap();
         let keep_path = all_keep_signal::signal_path(&base, "ph", "originator-A");
         let stop_path = stop_signal_path(&base, "ph", "originator-A");

@@ -38,6 +38,21 @@ extern "C" {
 /* 不透明ハンドル. */
 typedef struct KirinHypha KirinHypha;
 
+/* C / C++ shell が Rust ABI の数値を直書きしないための共有状態契約. */
+#define KIRIN_SIGNAL_STATE_INACTIVE 0u
+#define KIRIN_SIGNAL_STATE_ACTIVE 1u
+#define KIRIN_SIGNAL_STATE_BYPASSED 2u
+
+#define KIRIN_PAIR_STATUS_UNPAIRED 0u
+#define KIRIN_PAIR_STATUS_WAITING 1u
+#define KIRIN_PAIR_STATUS_PAIRED 2u
+
+#define KIRIN_DELTA_MODE_ACTIVE 0u
+#define KIRIN_DELTA_MODE_STALE 1u
+#define KIRIN_DELTA_MODE_NO_PRE 2u
+#define KIRIN_DELTA_MODE_BYPASSED 3u
+#define KIRIN_DELTA_MODE_PRE_INACTIVE 4u
+
 /* RT 計測結果. 各 double の「値なし」は NaN. */
 typedef struct {
   double lufs_m;        /* LUFS-M (ITU-R BS.1770-4 Momentary, 400ms) */
@@ -93,7 +108,8 @@ typedef struct {
 bool kirin_hypha_decode_legacy_nih_state(const uint8_t* data, size_t len,
                                          KirinLegacyNihState* out);
 
-/* POST の Δ（3d-b）. 各 double の「値なし」は NaN. mode: 0=Active 1=Stale 2=NoPre 3=Bypassed. */
+/* POST の Δ（3d-b）. 各 double の「値なし」は NaN.
+ * mode は KIRIN_DELTA_MODE_* のいずれか. */
 typedef struct {
   uint8_t mode;
   double lufs;
@@ -173,11 +189,21 @@ void kirin_hypha_set_pair_target(KirinHypha* handle, const char* name);
 /* Dropdown で選んだ exact PRE instance を即時ラッチする. live/in-scope なら true. */
 bool kirin_hypha_select_pair_candidate(KirinHypha* handle, const char* instance_id);
 
-/* Pair status: 0=Unpaired, 1=Waiting, 2=Paired. KEEP/Record 状態とは独立. */
+/* DAW state から復元した exact PRE locator を Waiting latch として再構成する。
+ * live scan は行わず、保存済み PRE project + instance の固定 pre.json だけを待つ。 */
+bool kirin_hypha_restore_pair_candidate(KirinHypha* handle, const char* pre_project_hash,
+                                        const char* instance_id);
+
+/* Pair status は KIRIN_PAIR_STATUS_* のいずれか. KEEP/Record 状態とは独立. */
 uint8_t kirin_hypha_pair_status(KirinHypha* handle);
 
 /* POST がラッチ中の exact PRE instance_id を out へ書く. 未ラッチ=false. */
 bool kirin_hypha_get_paired_pre_instance_id(KirinHypha* handle, char* out, size_t out_len);
+
+/* POST がラッチ中の exact PRE locator を同一snapshotから書く. 未ラッチ=false. */
+bool kirin_hypha_get_paired_pre_locator(KirinHypha* handle,
+                                        char* project_out, size_t project_out_len,
+                                        char* instance_out, size_t instance_out_len);
 
 /* PRE の自名（pre name）を設定（B-054 / set_pair_target と完全対称）. NULL=空文字.
  * 値は内部で sanitize される（ASCII graphic + space / 最大 16 文字）. POST 側 pair target と

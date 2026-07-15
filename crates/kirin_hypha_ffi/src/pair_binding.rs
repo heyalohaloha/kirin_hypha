@@ -53,6 +53,25 @@ impl PairBinding {
         self.generation.load(Ordering::Acquire)
     }
 
+    pub(crate) fn matches_exact(&self, name: &str, selected: &LatchedPre) -> bool {
+        let _transition = self
+            .transition
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let desired = self
+            .desired_name
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let latched = self
+            .latched_pre
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        desired.as_str() == name
+            && latched.as_ref().is_some_and(|current| {
+                current.instance_id == selected.instance_id && current.pre_json == selected.pre_json
+            })
+    }
+
     /// IO self-check が採った古い判定で、rename/re-Keep 後の binding を消さないための
     /// generation付きcompare-and-release。name と generation を transition lock 内で再照合し、
     /// 一致した世代だけを人名selector・recording・latchごと解放する。
@@ -159,13 +178,15 @@ impl PairBinding {
             .desired_name
             .write()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let current_exact = self
+        let exact_unchanged = self
             .latched_pre
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .as_ref()
-            .map(|pre| pre.instance_id.clone());
-        if desired.as_str() == name && current_exact.as_deref() == Some(&selected.instance_id) {
+            .is_some_and(|current| {
+                current.instance_id == selected.instance_id && current.pre_json == selected.pre_json
+            });
+        if desired.as_str() == name && exact_unchanged {
             return PairTargetTransition {
                 changed: false,
                 previous_name: desired.clone(),
@@ -210,6 +231,7 @@ impl PairBinding {
                 pre_json: Default::default(),
                 daw_session_id: Some(String::new()),
                 host_process_id: None,
+                readiness: kirin_measure::LatchedPreReadiness::Confirmed,
             });
         }
     }
@@ -332,6 +354,7 @@ mod tests {
             pre_json: Default::default(),
             daw_session_id: None,
             host_process_id: None,
+            readiness: kirin_measure::LatchedPreReadiness::Confirmed,
         };
 
         let transition = binding.replace_exact("mix".to_string(), selected);
@@ -349,6 +372,42 @@ mod tests {
                 .as_ref()
                 .map(|pre| pre.instance_id.as_str()),
             Some("pre-new")
+        );
+    }
+
+    #[test]
+    fn same_instance_id_in_another_project_is_a_different_exact_locator() {
+        let binding = PairBinding::new();
+        let old = LatchedPre {
+            name: "mix".to_string(),
+            instance_id: "pre-shared".to_string(),
+            project_dir: "project-a".into(),
+            pre_json: "project-a/pre-shared/pre.json".into(),
+            daw_session_id: None,
+            host_process_id: None,
+            readiness: kirin_measure::LatchedPreReadiness::Confirmed,
+        };
+        assert!(binding.replace_exact("mix".to_string(), old).changed);
+
+        let moved = LatchedPre {
+            name: "mix".to_string(),
+            instance_id: "pre-shared".to_string(),
+            project_dir: "project-b".into(),
+            pre_json: "project-b/pre-shared/pre.json".into(),
+            daw_session_id: None,
+            host_process_id: None,
+            readiness: kirin_measure::LatchedPreReadiness::RestoredWaiting,
+        };
+        assert!(!binding.matches_exact("mix", &moved));
+        assert!(binding.replace_exact("mix".to_string(), moved).changed);
+        assert_eq!(
+            binding
+                .latched_pre
+                .lock()
+                .unwrap()
+                .as_ref()
+                .map(|pre| pre.project_dir.as_path()),
+            Some(std::path::Path::new("project-b"))
         );
     }
 }

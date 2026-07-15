@@ -45,8 +45,8 @@ namespace hypha
     private:
         void layoutVisible();
 
-        HyphaTextButton keepBtn   { "Keep" };
-        HyphaTextButton stopBtn   { "Stop" };
+        HyphaTextButton keepBtn   { ui_contract::keepLabel };
+        HyphaTextButton stopBtn   { ui_contract::stopLabel };
         HyphaTextButton senseBtn  { juce::CharPointer_UTF8 ("Record mode available in Kirin OS"), false };
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PostControls)

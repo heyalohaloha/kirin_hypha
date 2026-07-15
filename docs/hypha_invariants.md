@@ -29,8 +29,9 @@ Hypha は利用者に制限や複雑な操作を課さず、普通に計測し�
 | INV-T2 | TRACE の LUFS-M / True Peak / Crest は 3軸すべて揃った時だけ実測 frame として扱う。部分欠損を代数的に埋めて complete 扱いしない | `measured_observed_partial_core_is_not_completed_for_trace_slot` / `partial_core_trace_samples_are_recorded_as_incomplete_slots` |
 | INV-T3 | paired publish は PRE/POST 両側の session/link/sample rate/time axis/native duration/48k duration/trace grid が一致した時だけ通常 shelf に出す。片側だけ完全、または pair として不整合な Record は通常 TRACE 候補に出さない | `pair_finalize_quarantines_missing_trace_slots` / `pair_finalize_quarantines_duration_mismatched_pair` / `pair_finalize_quarantines_sample_rate_mismatched_pair` / `pair_finalize_quarantines_derived_48k_frame_count_mismatch` / `pair_finalize_quarantines_zero_frames_even_with_trace_diagnostics` |
 | INV-T4 | PRE は partner 情報を失っても、自分の active writer scope から正当な All Stop を受けて writer を閉じる。Record を orphan にせず `.pair_pending` へ進める | `active_writer_all_stop_stops_pre_without_partner` / `active_writer_all_stop_ignores_broadcast_before_record_start` / `active_writer_all_stop_ignores_other_host_process` |
-| INV-T5 | 通常 TRACE shelf に publish できるのは sample-count-ready な実測ペアだけ。TRACE frame 数と 100ms grid は `BounceTake` の duration/sample rate から逆算して検算する。`expected_wav` は補強情報であり、Hypha 内部の `wav_clock_native` / `render_clock_native` が完全な場合は missing expected で fallback 化しない。一方で expected が存在する場合の duration/sample rate 不一致、欠損、推定、expected_wav 由来を名乗る metadata 不在、startup recovery は通常 shelf へ出さず診断へ隔離する | `pair_finalize_commits_render_clock_without_expected_as_complete_trace` / `pair_finalize_quarantines_render_clock_shorter_than_expected_wav` / `pair_finalize_quarantines_short_trace_grid_even_when_internally_continuous` / `pair_finalize_quarantines_expected_wav_source_without_expected_metadata` / `expected_wav_duration_frames_ignore_late_trace_span` / `high_density_all_silent_trace_does_not_invent_missing_grid_slots` / `recover_orphan_tmps_recovers_valid_tmp` |
-| INV-T6 | pair の同一 wall-clock / sample count は内容位置一致の代用にしない。Hypha は完成長より後ろに実際に届いた render context を全て保持し、LUFS-M と TP が同じ一意 lag を支持したら pair finalize 内で canonical WAV axis の全 frame を再構成してから通常 shelf へ出す。固定 latency 上限、consumer 補正、利用者の再操作を前提にしない。短い・一定・metric 間不一致の素材は推測しない | `aligned_pair_keeps_zero_offset` / `one_slot_compensation_preroll_is_detected` / `captured_tail_produces_full_canonical_wav_axis` / `pair_finalize_uses_tail_context_and_publishes_canonical_frames` / `short_or_constant_pair_is_not_guessed` / `metrics_disagreeing_on_lag_are_not_shifted` / `close_preserves_full_render_context_beyond_wav_for_pair_canonicalization` |
+| INV-T5 | 通常 TRACE shelf に publish できるのは、Drop WAVのhash/sample rate/sample countと結合済みで、PRE/POSTの100ms native slotが全件一致する実測ペアだけ。Drop前のrender clockは保持するがconsumer-visibleにはせず、DropがWAV sample 0..Nを供給した時点でproducerが完成させる。欠損slot・推定frame・duration/sample rate不一致は通常shelfへ出さない | `pair_finalize_keeps_render_clock_pending_until_drop_supplies_wav_axis` / `late_expected_reconcile_promotes_pending_render_clock_pair_to_wav_boundaries` / `pair_finalize_quarantines_render_clock_shorter_than_expected_wav` / `pair_finalize_quarantines_expected_wav_source_without_expected_metadata` / `expected_wav_duration_frames_ignore_late_trace_span` / `high_density_all_silent_trace_does_not_invent_missing_grid_slots` |
+| INV-T6 | pairのwall-clock・曲線形状・LUFS/TP相関は位置合わせに使わない。producerが保持した同一host content sample位置またはBWF time referenceだけからWAV sample 0原点を決め、PRE/POSTの同一native slotを公開する。consumer側のshift/補間は位置を変えない | `missing_bext_uses_the_exact_render_start_not_a_dense_tail` / `missing_bext_plan_uses_producer_render_range_with_different_metric_shapes` / `pair_contract_requires_shared_slots_even_when_instance_diagnostics_differ` / `public_wav_axis_does_not_reintroduce_the_absolute_bwf_offset` / `pair_contract_rejects_shifted_or_non_dense_wav_grids` |
+| INV-T7 | 1回のKeep/All Keepは1つのimmutable capture generationを作る。`pair_key == record_session_id`、`channel_key == persisted PRE instance_id`で、1世代内のpair/channelはともに一意。表示名は可変・未知でも有効で、任意のsemantic `channel_role`だけが自動STEM/root結合を制御する | `generation_separates_stable_channel_identity_from_optional_role` / `generation_rejects_two_posts_targeting_the_same_pre` / `ready_commit_requires_exact_pre_and_post_writer_claims` |
 
 ### 正本ロジックの所在
 
@@ -39,7 +40,7 @@ Hypha は利用者に制限や複雑な操作を課さず、普通に計測し�
 | Pairing / discovery | `crates/kirin_measure/src/pairing_scope.rs` / `post_candidates.rs` / `pre_candidates.rs` |
 | 表示 / Delta / ラッチ | `crates/kirin_measure/src/io_thread_post.rs`（`compute_latched_display_for_post_project`）/ `delta.rs` |
 | Record / reservation | `crates/kirin_measure/src/reservation.rs` / `record_signal.rs` |
-| All Keep / All Stop | `crates/kirin_measure/src/all_keep_signal.rs` / `all_stop_signal.rs` |
+| All Keep / All Stop | `crates/kirin_measure/src/capture_generation_tx.rs` / `all_keep_signal.rs` / `all_stop_signal.rs` |
 | License gating | `crates/kirin_measure/src/license.rs` |
 | Shell parity / RT 安全 | `xtask/src/shell_parity.rs` / `xtask/src/rt_safety.rs` / `crates/kirin_hypha_ffi/src/lib.rs` |
 | 復元順 (restore) | `crates/kirin_hypha_ffi/tests/pairing_candidates.rs`（`#[ignore]`） |
@@ -51,9 +52,9 @@ Hypha は利用者に制限や複雑な操作を課さず、普通に計測し�
 | PRE 状態 | 表示(Δ) | Keep / Arm | Delta 算出 | Record | All Keep |
 |----------|---------|------------|------------|--------|----------|
 | Active + fresh + 一意 + 名前一致 | Active（Δ表示） | 可 | 算出 | 可（Os） | 対象 |
-| Inactive + fresh（停止/無音） | latched-idle = Stale（Δ非表示） | **可**（Arm 許可） | 非算出（再生で Active 化） | ラッチ凍結維持 | 対象（ラッチ先） |
-| Bypassed | 除外 | 不可（候補除外） | なし | 不可 | 除外 |
-| Stale（t > TTL 10s） | アンラッチ → NoPre | 不可 | なし | 実消滅は 60s poll が exit | 除外 |
+| Inactive + fresh（POSTはActive） | `PreInactive` = POST絶対値。exact pairは保持 | **可**（Arm 許可） | 非算出（PRE再開で同pairのΔへ復帰） | ラッチ凍結維持 | 対象（ラッチ先） |
+| Bypassed | POST絶対値。既存exact pairは保持 | 不可（新規候補から除外） | なし | 不可 | 除外 |
+| Stale（t > TTL 10s） | ラッチ維持 + muted Δ/--- | 不可 | なし | 実消滅はlease終了でexit | 除外 |
 | 同名複数（曖昧・未ラッチ） | NoPre（沈黙） | 不可（None） | なし | 不可 | — |
 | 同名複数（ラッチ済み） | ラッチ先を維持 | ラッチ先 instance 不変 | ラッチ先で算出 | 凍結 | ラッチ先 |
 | 不在 | NoPre | 不可 | なし | 実消滅で exit | — |
@@ -77,6 +78,7 @@ Hypha は利用者に制限や複雑な操作を課さず、普通に計測し�
 | INV-P7 | POST scope 推定は pair 名が食い違うと fallback しない | `discover_pre_dirs_for_post_project_does_not_fallback_when_names_disagree` |
 | INV-P8 | bypassed PRE は候補スキャンから除外。legacy(no signal_state) は active 扱い | `scan_pre_candidates_in_filters_only_bypassed` / `scan_pre_candidates_in_keeps_legacy_no_signal_state` / `scan_pre_candidates_in_keeps_active` |
 | INV-P9 | 名前一致は exact・日本語対応・空名は pass-through | `filter_candidates_by_name_keeps_match` / `filter_candidates_by_name_matches_japanese` / `filter_candidates_by_name_drops_mismatch` / `filter_candidates_by_name_empty_passes_through` |
+| INV-P10 | 保存済みDAW stateはpair名とexact PRE locator（`project_hash` + `instance_id`）を同一snapshotで保持する。再起動時はregistryを再走査せず固定`{pre_project}/{pre_instance}/pre.json`だけを待つ。前プロセスのlease切れ残骸では解除せず、同じpath・instance・現hostのlive ownerを確認してから通常latchへ昇格する。exact fieldのない旧stateだけ一意名reconnectを使う | `saved_exact_pre_reconstructs_one_fixed_waiting_path_without_discovery` / `restored_exact_latch_waits_for_pre_loaded_later_without_name_rescan` / `restored_latch_blocks_name_fallback_until_exact_current_runtime_is_proven` / `saved_daw_state_restores_the_exact_pre_without_registry_rescan` |
 
 ---
 
@@ -85,11 +87,11 @@ Hypha は利用者に制限や複雑な操作を課さず、普通に計測し�
 | ID | 不変条件 | 紐づくテスト |
 |----|----------|--------------|
 | INV-D1 | ラッチ維持中は選定済み pre.json を直読し Δ 算出（再スキャンで別 PRE を拾わない） | `read_pre_at_fresh_active` / `resolve_arm_target_uses_latch_over_ambiguous` |
-| INV-D2 | 停止/無音（inactive+fresh）は latched-idle=Stale。NoPre に落とさずラッチ維持 | `latch_idle_stays_stale_not_nopre` |
+| INV-D2 | POSTがActiveのままpaired PREだけInactiveになった場合、pairを外さず`PreInactive`へ遷移し、POST絶対値を表示する | `latch_inactive_switches_to_post_absolute_without_releasing_pair` / `paired_pre_inactive_uses_post_absolute_without_releasing_binding` |
 | INV-D3 | 停止→再生（inactive→active）でラッチ維持のまま live Δ(Active) | `latch_inactive_then_active_yields_live_delta`（B-194） |
 | INV-D4 | pair 名変更/クリアで即アンラッチ→NoPre | `latch_name_change_unlatches` |
 | INV-D5 | pre.json 実消滅でアンラッチ、同名 fresh 再出現で自動再ラッチ | `latch_delete_then_relatch` |
-| INV-D6 | ラッチ先 t > TTL(10s) でアンラッチ | `latch_stale_beyond_ttl_unlatches` |
+| INV-D6 | ラッチ先 t > TTL(10s)だけではpairを外さず、同exact instanceの一時停止として扱う | `latch_stale_beyond_ttl_keeps_pair_latched` |
 | INV-D7 | pair 未指定で instance 1件は pass-through、2件以上は曖昧で NoPre | `single_instance_pass_through_when_no_pair` / `no_pre_dir_returns_no_pre_mode` |
 | INV-D8 | 非 Active state では Delta=default(NoPre) + 最小 post.json | 要追加（`run_tick` の `state != Active` 分岐に直接の単体テストなし） |
 
@@ -105,7 +107,7 @@ Hypha は利用者に制限や複雑な操作を課さず、普通に計測し�
 | INV-R4 | Keep は sweep→reserve→count>MAX(12) の権威的 cap。stale orphan は cap 前に sweep | `b127_keep_sweeps_stale_orphan_frames_before_cap`（`#[ignore]`） / `sweep_stale_reservations` / `thirteenth_rejected_under_concurrent_sweep` |
 | INV-R5 | sweep は in-progress/claimed/fresh/marker 付きを保護、stale orphan のみ回収 | `sweep_does_not_delete_in_progress_or_claimed_reservation` / `sweep_grace_protects_recent_unparseable_frame` / `sweep_reclaims_orphan_but_protects_fresh_and_marker_backed` / `sweep_reclaims_mtime_stale_unparseable_frame` |
 | INV-R6 | record_signal は pending→acknowledged→released。30s timeout で released | `full_post_to_pre_handshake_sequence` / `mark_acknowledged_updates_status_and_returns_true` / `mark_released_updates_status` / `timeout_fires_strictly_after_30s` / `sweep_stale_pending_removes_only_dead_pending` |
-| INV-R7 | Record TRACE は Measure 観測だけに依存せず、RecordTakeTracker の native clock で終了境界まで 100ms grid を閉じる。96kHz / 15.000s は 0〜15000ms の 151 点になり、Measure tail 欠落は無音 frame として時間軸を残す | `record_take_clock_closes_96k_15s_trace_grid` / `record_take_tracker_snapshot_closes_missing_measure_tail` / `recorded_96k_15s_silent_trace_is_sample_count_ready_with_continuous_frames` |
+| INV-R7 | Record TRACEは100msごとの実測slotだけを保持する。96kHz / 15.000sはWAV原点0に対して100〜15000ms（9600〜1,440,000 samples）の150点。先頭原点はreferenceであり偽の0ms metric frameを作らず、Measure tail欠損を無音frameで補完しない | `ninety_six_khz_fifteen_second_record_has_wav_duration_and_continuous_silent_trace` / `high_density_all_silent_trace_does_not_invent_missing_grid_slots` / `sparse_all_silent_trace_does_not_backfill_grid_slots` |
 | INV-R8 | PRE/POST Record は record_signal の `session_id` を plugin_data の `record_session_id` に写し、同じ PairRecordSession として後段で照合できる | `signal_roundtrip_preserves_all_fields` / `resolve_record_session_id_reads_post_signal` / `record_session_id_serializes_only_when_set` |
 | INV-R9 | Record TRACE queue がある現行経路では、queue が空の tick でも wall-clock snapshot を frames[] に混ぜない。Record frames[] は audio-time TRACE と同じ原点・同じ時計だけで作る | `run_record_tick_does_not_mix_wall_clock_when_trace_queue_is_empty` / `run_record_tick_legacy_without_trace_queue_uses_live_snapshot` / `pre_writes_records_plugin_data_json`（`#[ignore]`） |
 
@@ -118,6 +120,7 @@ Hypha は利用者に制限や複雑な操作を課さず、普通に計測し�
 | INV-A1 | All Keep/Stop は broadcast JSON 経由、30s で stale。keep と stop は独立 | `is_broadcast_stale_detects_30s_threshold` / `stop_broadcast_independent_of_keep_broadcast` / `read_broadcast_roundtrip` |
 | INV-A2 | JUCE All Keep は engine 権威結果を使い、12-cap を事前 reject しない | `juce_all_keep_uses_authoritative_engine_result` |
 | INV-A3 | AU/VST3 が別 project/DAW ID 棚を公開しても、同一host内で明示exact PRE（削除・再作成後は一意name fallback）が見えるPOST群はready数・pair所有・All Keep/Stop到達先を共有する。再接続claimは解決後の新exact IDで公開し、別hostと不可視/曖昧PRE claimは混ぜない | `operation_group_bridges_au_vst_shelves_by_exact_visible_pre` / `operation_group_rejects_other_host_and_nonvisible_exact_claim` / `stale_exact_claim_reconnects_only_by_unique_visible_name` / `candidate_keep_status_uses_resolved_self_claim_after_pre_recreation` / `juce_candidate_abi_bridges_split_shell_claims_and_all_keep`（後者は `#[ignore]`） |
+| INV-A4 | Keep / All Keep の `true` は、immutable generation roster 全員の exact PRE/POST writer が実artifact生成と初回flushを完了した後だけ返す。`preparing.json` はproducerだけが参照し、Kirin OSは`active.json`だけを参照する。commit前の失敗はtransaction Dropが同generationのsignalだけをreleaseし、exact member棚へStopを通知して旧project pointerを復元する | `ownership_is_not_writer_readiness_until_initial_flush_is_published` / `ready_commit_requires_exact_pre_and_post_writer_claims` / `abandoned_preparation_releases_its_exact_signal_and_broadcasts_to_exact_shelf` / `rollback_never_releases_a_signal_that_was_replaced_by_another_generation` / `rollback_restores_previous_project_pointer_without_changing_active_generation` / `capstone_paired_record_output_and_linkage` / `juce_candidate_abi_bridges_split_shell_claims_and_all_keep`（後2件は`#[ignore]`） |
 
 ---
 
@@ -136,9 +139,9 @@ Hypha は利用者に制限や複雑な操作を課さず、普通に計測し�
 
 | ID | 不変条件 | 紐づくテスト |
 |----|----------|--------------|
-| INV-L1 | Record/plugin_data/preset/Keep/Stop/Mark は License::Os のみ。Sense/Unknown 不可（Unknown 安全側） | `os_enables_record_features` / `sense_blocks_record_features` / `unknown_defaults_to_safe_side` |
+| INV-L1 | Record/plugin_data/preset/Keep/Stop は License::Os のみ。Sense/Unknown 不可（Unknown 安全側）。MARK操作は出荷UIに持たない | `os_enables_record_features` / `sense_blocks_record_features` / `unknown_defaults_to_safe_side` / `shipped_au_and_vst3_compile_the_same_editor_processor_and_control_contract` |
 | INV-L2 | GUI ボタン可視性は Rust license ヘルパと C++ `PostControls::update` が値レベルで一致（os=(code==0)） | `post_controls_visibility_matches_rust_license_helpers`（B-195） / `sense_hint_visibility_is_sense_only_and_exclusive_with_keep` / `post_controls_update_visibility_formula_is_pinned` |
-| INV-L3 | Keep ボタンは選択済み pair 名がある時のみ表示（`!recording && os && pairNonEmpty`） | `post_controls_keep_visibility_depends_on_selected_pair` |
+| INV-L3 | KeepはAU/VST3共通の固定スロットに表示し、pair未選択時は非表示化せずdisabledにする | `shipped_au_and_vst3_compile_the_same_editor_processor_and_control_contract` |
 
 ---
 
@@ -151,7 +154,7 @@ Hypha は利用者に制限や複雑な操作を課さず、普通に計測し�
 | INV-S3 | JUCE Keep は 12-cap を事前 reject せず FFI reserve→count>MAX が権威。失敗は FFI error message を出す | `juce_keep_does_not_pre_reject_at_twelve_reservations` |
 | INV-S4 | POST Record 表示は host inactive でも 6軸+N+Sharp を保持してから signal fallback | `juce_post_record_display_keeps_six_metrics_before_signal_fallback` |
 | INV-S5 | RT 安全 — processBlock が呼べる C ABI は allowlist、push_samples に fs/alloc/blocking lock 再混入なし | `process_block_calls_only_rt_safe_ffi_surface` / `ffi_push_samples_core_avoids_io_allocation_and_blocking_locks` / `audio_thread_c_abi_wrappers_remain_thin` |
-| INV-S6 | AU/VST3 POST のpair欄は 22px高・22px幅の独立した単一▼ボタンを使い、名前欄・候補操作の配置を一致させる。AU非同期menuは候補snapshotを値所有し、editor削除とLookAndFeel寿命から独立させる | `shipped_post_pair_selectors_share_geometry` / `juce_candidate_menu_owns_async_state_and_lifetimes` |
+| INV-S6 | 出荷AU/VST3は同一JUCE processor/editor/control sourceと単一`HyphaUiContract`をcompileする。300×200矩形、全bounds、font family/size、palette、Watch current/MAX 6セル、Record 6セル、Keep/Stop表記をbundle build前にpure C++ testで固定する | `shipped_au_and_vst3_compile_the_same_editor_processor_and_control_contract` / `juce_shell/tests/ui_contract_test.cpp` |
 
 ---
 
@@ -159,9 +162,10 @@ Hypha は利用者に制限や複雑な操作を課さず、普通に計測し�
 
 | ゲート | コマンド | 対象不変条件 |
 |--------|----------|--------------|
-| 通常 | `cargo test --workspace` | INV-P/D/R/A/I2/L（unit）/ INV-S（xtask 静的） |
-| FFI ignored | `cargo test -p kirin_hypha_ffi --test parity -- --ignored --test-threads=1` ＋ `--test pairing_candidates` | INV-P6 / INV-I1 / INV-R3,R4（`#[ignore]` 分） |
-| clippy | `cargo clippy --workspace --all-targets --exclude baseview --exclude egui-baseview -- -D warnings` | 品質基準 |
+| 出荷source正本 | `bash scripts/test_release_source.sh` | `kirin_measure` / FFI / 共通JUCE殻静的契約 / ignored 20+5件 / release-owned clippy |
+| workspace互換 | `cargo test --workspace` | 旧nih-plug殻を含む非出荷workspaceの退行確認（出荷AU/VST3 parityの根拠には使わない） |
+| FFI ignored（個別） | `cargo test -p kirin_hypha_ffi --test parity -- --ignored --test-threads=1` ＋ `--test pairing_candidates` | INV-P6 / INV-I1 / INV-R3,R4 / INV-A4（20件+5件を実測固定） |
+| clippy（個別） | `cargo clippy -p kirin_measure -p kirin_hypha_ffi -p xtask --all-targets --locked -- -D warnings` | 出荷owned code品質基準 |
 
 > 未紐づけ（要追加）: INV-D8。新しい pairing/表示の不具合を直すときは、本表に行を足し、
 > 対応テストを同時に書く（テスト名が決まらない修正は不変条件が曖昧なサイン）。

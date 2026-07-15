@@ -397,6 +397,7 @@ pub fn latch_selected_pre(name: String, selected: SelectedPre) -> LatchedPre {
         pre_json: selected.pre_json,
         daw_session_id: selected.daw_session_id,
         host_process_id: selected.host_process_id,
+        readiness: LatchedPreReadiness::Confirmed,
     }
 }
 
@@ -795,6 +796,14 @@ pub fn select_target_pre_for_arm_for_post_project_in_session(
     )
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LatchedPreReadiness {
+    /// The exact PRE runtime was observed with a live owner lease in this DAW process.
+    Confirmed,
+    /// DAW state restored an exact locator before that PRE runtime republished its snapshot.
+    RestoredWaiting,
+}
+
 /// Established PRE<->POST latch shared by display ticks and Keep/Arm.
 #[derive(Clone, Debug)]
 pub struct LatchedPre {
@@ -810,6 +819,8 @@ pub struct LatchedPre {
     pub daw_session_id: Option<String>,
     /// DAW host process ID at latch time, when available.
     pub host_process_id: Option<u32>,
+    /// Runtime proof state for exact DAW-state restoration.
+    pub readiness: LatchedPreReadiness,
 }
 
 /// Direct read state for a latched PRE.
@@ -826,12 +837,15 @@ pub struct LatchedPreState {
     pub fresh: bool,
     /// DAW document/session identity from PRE `pre.json`, when available.
     pub daw_session_id: Option<String>,
+    /// DAW process that owns the PRE runtime snapshot, when present.
+    pub host_process_id: Option<u32>,
 }
 
 /// Read exactly one latched PRE `pre.json`.
 ///
 /// This does not scan shelves or re-evaluate ambiguity. After a latch is established, identity
-/// stays bound to this file until the POST pair name is explicitly changed or cleared.
+/// stays bound to this file until the POST pair name changes or a confirmed current owner
+/// explicitly releases its lease. A restored locator is not confirmed by previous-process residue.
 pub fn read_pre_at(pre_json: &Path) -> Option<LatchedPreState> {
     let content = fs::read_to_string(pre_json).ok()?;
     let v: serde_json::Value = serde_json::from_str(&content).ok()?;
@@ -859,6 +873,11 @@ pub fn read_pre_at(pre_json: &Path) -> Option<LatchedPreState> {
         .and_then(|x| x.as_str())
         .filter(|s| !s.is_empty())
         .map(str::to_string);
+    let host_process_id = v
+        .get("host_process_id")
+        .and_then(|x| x.as_u64())
+        .and_then(|value| u32::try_from(value).ok())
+        .filter(|value| *value != 0);
     Some(LatchedPreState {
         instance_id,
         name,
@@ -866,22 +885,73 @@ pub fn read_pre_at(pre_json: &Path) -> Option<LatchedPreState> {
         active,
         fresh,
         daw_session_id,
+        host_process_id,
     })
 }
 
-fn selected_from_latch(
-    pair_pre_name: &str,
-    latched: &Mutex<Option<LatchedPre>>,
-) -> Option<SelectedPre> {
-    let g = latched.lock().ok()?;
-    let l = g.as_ref()?;
+fn snapshot_matches_exact_latch_runtime(latched: &LatchedPre) -> bool {
+    let snapshot_matches = read_pre_at(&latched.pre_json).is_some_and(|state| {
+        state.instance_id.as_deref() == Some(latched.instance_id.as_str())
+            && latched
+                .host_process_id
+                .is_none_or(|host| state.host_process_id == Some(host))
+    });
+    snapshot_matches
+        && crate::watch_snapshot_lease::snapshot_file_has_current_live_owner(&latched.pre_json)
+}
+
+/// Promote a saved fixed locator only after the new DAW process proves that the exact PRE runtime
+/// owns that path. A stale JSON/lease left by the previous process can never satisfy this step.
+pub fn confirm_restored_latch_runtime(latched: &Mutex<Option<LatchedPre>>) -> bool {
+    let candidate = latched
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone();
+    let Some(candidate) = candidate else {
+        return false;
+    };
+    if candidate.readiness == LatchedPreReadiness::Confirmed {
+        return true;
+    }
+    if !snapshot_matches_exact_latch_runtime(&candidate) {
+        return false;
+    }
+
+    let mut binding = latched
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let Some(current) = binding.as_mut() else {
+        return false;
+    };
+    if current.instance_id != candidate.instance_id || current.pre_json != candidate.pre_json {
+        return false;
+    }
+    current.readiness = LatchedPreReadiness::Confirmed;
+    true
+}
+
+enum LatchedTarget {
+    None,
+    RestoredWaiting,
+    Selected(SelectedPre),
+}
+
+fn selected_from_latch(pair_pre_name: &str, latched: &Mutex<Option<LatchedPre>>) -> LatchedTarget {
+    let Some(l) = latched.lock().ok().and_then(|binding| binding.clone()) else {
+        return LatchedTarget::None;
+    };
     if l.name != pair_pre_name {
-        return None;
+        return LatchedTarget::None;
+    }
+    if l.readiness == LatchedPreReadiness::RestoredWaiting
+        && !confirm_restored_latch_runtime(latched)
+    {
+        return LatchedTarget::RestoredWaiting;
     }
     if crate::watch_snapshot_lease::snapshot_file_has_released_current_owner(&l.pre_json) {
-        return None;
+        return LatchedTarget::None;
     }
-    Some(SelectedPre {
+    LatchedTarget::Selected(SelectedPre {
         instance_id: l.instance_id.clone(),
         pre_json: l.pre_json.clone(),
         project_dir: l.project_dir.clone(),
@@ -896,17 +966,20 @@ fn selected_from_latch_for_post_project(
     post_project_hash: &str,
     post_daw_session_id: &str,
     latched: &Mutex<Option<LatchedPre>>,
-) -> Option<SelectedPre> {
-    let sel = selected_from_latch(pair_pre_name, latched)?;
-    if selected_from_latch_is_in_post_scope(
-        kirin_root,
-        &sel,
-        post_project_hash,
-        post_daw_session_id,
-    ) {
-        Some(sel)
-    } else {
-        None
+) -> LatchedTarget {
+    match selected_from_latch(pair_pre_name, latched) {
+        LatchedTarget::Selected(sel)
+            if selected_from_latch_is_in_post_scope(
+                kirin_root,
+                &sel,
+                post_project_hash,
+                post_daw_session_id,
+            ) =>
+        {
+            LatchedTarget::Selected(sel)
+        }
+        LatchedTarget::RestoredWaiting => LatchedTarget::RestoredWaiting,
+        _ => LatchedTarget::None,
     }
 }
 
@@ -920,8 +993,10 @@ pub fn resolve_arm_target(
     pair_pre_name: &str,
     latched: &Mutex<Option<LatchedPre>>,
 ) -> Option<SelectedPre> {
-    if let Some(sel) = selected_from_latch(pair_pre_name, latched) {
-        return Some(sel);
+    match selected_from_latch(pair_pre_name, latched) {
+        LatchedTarget::Selected(sel) => return Some(sel),
+        LatchedTarget::RestoredWaiting => return None,
+        LatchedTarget::None => {}
     }
     select_target_pre_for_arm(kirin_root, pair_pre_name)
 }
@@ -933,14 +1008,16 @@ pub fn resolve_arm_target_for_post_project(
     post_project_hash: &str,
     latched: &Mutex<Option<LatchedPre>>,
 ) -> Option<SelectedPre> {
-    if let Some(sel) = selected_from_latch_for_post_project(
+    match selected_from_latch_for_post_project(
         kirin_root,
         pair_pre_name,
         post_project_hash,
         "",
         latched,
     ) {
-        return Some(sel);
+        LatchedTarget::Selected(sel) => return Some(sel),
+        LatchedTarget::RestoredWaiting => return None,
+        LatchedTarget::None => {}
     }
     select_target_pre_core_for_post_project(kirin_root, pair_pre_name, post_project_hash, "", false)
 }
@@ -953,14 +1030,16 @@ pub fn resolve_arm_target_for_post_project_in_session(
     post_daw_session_id: &str,
     latched: &Mutex<Option<LatchedPre>>,
 ) -> Option<SelectedPre> {
-    if let Some(sel) = selected_from_latch_for_post_project(
+    match selected_from_latch_for_post_project(
         kirin_root,
         pair_pre_name,
         post_project_hash,
         post_daw_session_id,
         latched,
     ) {
-        return Some(sel);
+        LatchedTarget::Selected(sel) => return Some(sel),
+        LatchedTarget::RestoredWaiting => return None,
+        LatchedTarget::None => {}
     }
     select_target_pre_core_for_post_project(
         kirin_root,

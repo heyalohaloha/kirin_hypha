@@ -14,17 +14,6 @@ use kirin_hypha_ffi::{
 
 const SR: u32 = 48_000;
 
-fn wait_until_recording(engine: &KirinHyphaEngine, label: &str) {
-    for _ in 0..30 {
-        if engine.is_recording() {
-            return;
-        }
-        engine.push_samples(&[], 2);
-        sleep(Duration::from_millis(100));
-    }
-    panic!("engine did not enter Record after Keep/ACK barrier: {label}");
-}
-
 fn wait_until_stopped(engine: &KirinHyphaEngine, label: &str) {
     for _ in 0..30 {
         if !engine.is_recording() {
@@ -274,10 +263,14 @@ fn juce_candidate_abi_bridges_split_shell_claims_and_all_keep() {
         "pair ownership must cross AU/VST shelves: {claims:?}"
     );
 
-    assert!(post_2mix.keep_all(), "originator must enter Record");
-    wait_until_recording(&post_2mix, "split-shell-2mix");
-    wait_until_recording(&post_drum, "split-shell-drum");
-    wait_until_recording(&post_music, "split-shell-music");
+    assert!(
+        post_2mix.keep_all(),
+        "All Keep may return success only after every exact producer is armed"
+    );
+    assert!(
+        post_2mix.is_recording() && post_drum.is_recording() && post_music.is_recording(),
+        "successful All Keep is the bounce-safe barrier; callers must not need a later wait"
+    );
 
     post_drum.set_signal_state(2); // C ABI 2=Bypassed; owners remain part of All Stop
     sleep(Duration::from_millis(150));

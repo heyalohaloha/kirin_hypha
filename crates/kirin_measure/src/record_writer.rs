@@ -796,8 +796,17 @@ pub fn writer_start(
         return None;
     }
     if let Some(claim) = writer_claim.as_mut() {
-        if let Err(e) = claim.heartbeat() {
-            log::warn!("[writer] claim heartbeat failed after initial flush: {}", e);
+        if let Err(e) = claim.mark_ready() {
+            log::warn!(
+                "[writer] readiness publish failed after initial flush: {}",
+                e
+            );
+            if let Some(claim) = writer_claim.take() {
+                if let Err(e) = claim.abandon() {
+                    log::warn!("[writer] claim abandon failed after readiness error: {}", e);
+                }
+            }
+            return None;
         }
     }
     log::info!(

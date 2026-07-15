@@ -13,6 +13,7 @@ use uuid::Uuid;
 
 pub const CAPTURE_GENERATION_SUBDIR: &str = "capture_generation";
 pub const CAPTURE_GENERATION_CURRENT: &str = "current.json";
+pub const CAPTURE_GENERATION_PREPARING: &str = "preparing.json";
 pub const CAPTURE_GENERATION_SCHEMA: &str = "capture_generation.v1";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
@@ -27,6 +28,23 @@ pub struct CaptureGenerationMember {
     pub record_session_id: String,
 }
 
+/// Human-facing and semantic metadata for one immutable member.
+///
+/// `pair_key` is not a second identity: it is the consumer-facing name of the exact
+/// `record_session_id`. Keeping the equality explicit prevents two independent IDs from drifting.
+/// `channel_key` is the persisted PRE instance id, not a display-name classification. This makes
+/// one exact channel unique inside a generation even when names change or collide. `channel_role`
+/// is optional semantic metadata; an arbitrary display name is always valid without a role.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+pub struct CaptureGenerationMemberIdentity {
+    pub pair_key: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
+    pub channel_key: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub channel_role: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CaptureGeneration {
     pub schema_version: String,
@@ -38,6 +56,10 @@ pub struct CaptureGeneration {
     /// Immutable All Keep roster. Drop is publishable only when every member
     /// produced exactly one closed pair session in this generation.
     pub members: Vec<CaptureGenerationMember>,
+    /// Additive v1 metadata. Empty is accepted only for captures produced before this contract.
+    /// New captures contain exactly one identity for every member.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub member_identities: Vec<CaptureGenerationMemberIdentity>,
 }
 
 impl CaptureGeneration {
@@ -48,16 +70,37 @@ impl CaptureGeneration {
         daw_session_id: String,
         host_process_id: u32,
     ) -> Self {
-        Self::new_for_members(
+        Self::new_single_named(
+            project_hash,
+            originator_post_instance_id,
+            pre_instance_id,
+            daw_session_id,
+            host_process_id,
+            None,
+        )
+    }
+
+    pub fn new_single_named(
+        project_hash: String,
+        originator_post_instance_id: String,
+        pre_instance_id: String,
+        daw_session_id: String,
+        host_process_id: u32,
+        display_name: Option<String>,
+    ) -> Self {
+        Self::new_for_named_members(
             originator_post_instance_id.clone(),
             daw_session_id,
             host_process_id,
-            vec![CaptureGenerationMember {
-                project_hash,
-                post_instance_id: originator_post_instance_id,
-                pre_instance_id,
-                record_session_id: String::new(),
-            }],
+            vec![(
+                CaptureGenerationMember {
+                    project_hash,
+                    post_instance_id: originator_post_instance_id,
+                    pre_instance_id,
+                    record_session_id: String::new(),
+                },
+                display_name,
+            )],
         )
     }
 
@@ -65,14 +108,44 @@ impl CaptureGeneration {
         originator_post_instance_id: String,
         daw_session_id: String,
         host_process_id: u32,
-        mut members: Vec<CaptureGenerationMember>,
+        members: Vec<CaptureGenerationMember>,
     ) -> Self {
-        members.sort();
-        members.dedup();
-        for member in &mut members {
+        Self::new_for_named_members(
+            originator_post_instance_id,
+            daw_session_id,
+            host_process_id,
+            members.into_iter().map(|member| (member, None)).collect(),
+        )
+    }
+
+    pub fn new_for_named_members(
+        originator_post_instance_id: String,
+        daw_session_id: String,
+        host_process_id: u32,
+        mut named_members: Vec<(CaptureGenerationMember, Option<String>)>,
+    ) -> Self {
+        named_members.sort_by(|a, b| a.0.cmp(&b.0));
+        named_members.dedup_by(|a, b| a.0 == b.0);
+        let mut members = Vec::with_capacity(named_members.len());
+        let mut member_identities = Vec::with_capacity(named_members.len());
+        for (mut member, display_name) in named_members {
             if member.record_session_id.trim().is_empty() {
                 member.record_session_id = Uuid::new_v4().to_string();
             }
+            let display_name = crate::channel_identity::display_name_snapshot(
+                display_name.as_deref().unwrap_or_default(),
+            );
+            let channel_role = display_name
+                .as_deref()
+                .and_then(crate::channel_identity::canonical_channel_role)
+                .map(str::to_string);
+            member_identities.push(CaptureGenerationMemberIdentity {
+                pair_key: member.record_session_id.clone(),
+                display_name,
+                channel_key: member.pre_instance_id.clone(),
+                channel_role,
+            });
+            members.push(member);
         }
         Self {
             schema_version: CAPTURE_GENERATION_SCHEMA.to_string(),
@@ -82,6 +155,7 @@ impl CaptureGeneration {
             host_process_id,
             started_at_ms: chrono::Utc::now().timestamp_millis(),
             members,
+            member_identities,
         }
     }
 
@@ -92,6 +166,30 @@ impl CaptureGeneration {
             .filter(|member| !member.pre_instance_id.trim().is_empty())
             .map(|member| (&member.project_hash, &member.pre_instance_id))
             .collect::<std::collections::BTreeSet<_>>();
+        let unique_identity_channels = self
+            .member_identities
+            .iter()
+            .map(|identity| identity.channel_key.as_str())
+            .collect::<std::collections::BTreeSet<_>>();
+        let identities_valid =
+            self.member_identities.is_empty()
+                || (self.member_identities.len() == self.members.len()
+                    && unique_identity_channels.len() == self.member_identities.len()
+                    && self.member_identities.iter().zip(&self.members).all(
+                        |(identity, member)| {
+                            identity.pair_key == member.record_session_id
+                                && identity.channel_key == member.pre_instance_id
+                                && identity
+                                    .display_name
+                                    .as_deref()
+                                    .is_none_or(|name| !name.trim().is_empty())
+                                && identity.channel_role.as_deref()
+                                    == identity
+                                        .display_name
+                                        .as_deref()
+                                        .and_then(crate::channel_identity::canonical_channel_role)
+                        },
+                    ));
         self.schema_version == CAPTURE_GENERATION_SCHEMA
             && Uuid::parse_str(self.capture_generation_id.trim()).is_ok()
             && !self.originator_post_instance_id.trim().is_empty()
@@ -100,6 +198,7 @@ impl CaptureGeneration {
             && self.members.iter().all(|member| {
                 !member.project_hash.trim().is_empty()
                     && !member.post_instance_id.trim().is_empty()
+                    && !member.pre_instance_id.trim().is_empty()
                     && Uuid::parse_str(member.record_session_id.trim()).is_ok()
             })
             && self.members.windows(2).all(|pair| {
@@ -116,6 +215,7 @@ impl CaptureGeneration {
                 .members
                 .iter()
                 .any(|member| member.post_instance_id == self.originator_post_instance_id)
+            && identities_valid
     }
 
     pub fn member(
@@ -126,6 +226,15 @@ impl CaptureGeneration {
         self.members.iter().find(|member| {
             member.project_hash == project_hash && member.post_instance_id == post_instance_id
         })
+    }
+
+    pub fn member_identity(
+        &self,
+        record_session_id: &str,
+    ) -> Option<&CaptureGenerationMemberIdentity> {
+        self.member_identities
+            .iter()
+            .find(|identity| identity.pair_key == record_session_id)
     }
 }
 
@@ -150,6 +259,15 @@ pub fn active_generation_path(base_dir: &Path) -> PathBuf {
         .join(CAPTURE_GENERATION_CURRENT)
 }
 
+/// Producer-only preparation pointer. PRE/POST workers may arm an exact member while this
+/// pointer matches, but Kirin OS must never treat it as a Drop/TRACE commit barrier. The
+/// installation-wide `current.json` remains the only consumer-authoritative generation.
+pub fn preparing_generation_path(base_dir: &Path) -> PathBuf {
+    base_dir
+        .join(CAPTURE_GENERATION_SUBDIR)
+        .join(CAPTURE_GENERATION_PREPARING)
+}
+
 pub fn publish_current_generation(
     base_dir: &Path,
     project_hash: &str,
@@ -164,19 +282,6 @@ pub fn publish_current_generation(
         &json,
     )?;
     Ok(())
-}
-
-/// One-shot compatibility publisher. New Keep producers should hold a
-/// `CaptureGenerationTransaction`, stage every exact inbox, and commit only after producer setup
-/// succeeds. In both paths the installation-wide pointer remains the final commit barrier.
-pub fn publish_generation_roster(
-    base_dir: &Path,
-    generation: &CaptureGeneration,
-) -> Result<(), CaptureGenerationError> {
-    let mut transaction =
-        crate::capture_generation_tx::CaptureGenerationTransaction::begin(base_dir, generation)?;
-    transaction.stage()?;
-    transaction.commit()
 }
 
 pub fn read_current_generation(
@@ -198,7 +303,52 @@ pub fn read_current_generation(
 pub fn read_active_generation(
     base_dir: &Path,
 ) -> Result<Option<CaptureGeneration>, CaptureGenerationError> {
-    let bytes = match fs::read(active_generation_path(base_dir)) {
+    read_generation_file(&active_generation_path(base_dir))
+}
+
+pub fn read_preparing_generation(
+    base_dir: &Path,
+) -> Result<Option<CaptureGeneration>, CaptureGenerationError> {
+    read_generation_file(&preparing_generation_path(base_dir))
+}
+
+/// Resolves one project member against the producer preparation/commit barrier. This is the only
+/// authorization path used by PRE/POST workers: project-local roster data alone is never enough.
+/// Consumers continue to use [`read_active_generation`] and therefore cannot observe an
+/// incompletely armed generation.
+pub fn read_producer_authorized_generation(
+    base_dir: &Path,
+    project_hash: &str,
+    capture_generation_id: &str,
+    started_at_ms: i64,
+) -> Result<Option<CaptureGeneration>, CaptureGenerationError> {
+    let Some(project_generation) = read_current_generation(base_dir, project_hash)? else {
+        return Ok(None);
+    };
+    if project_generation.capture_generation_id != capture_generation_id
+        || project_generation.started_at_ms != started_at_ms
+    {
+        return Ok(None);
+    }
+
+    let global_matches = |generation: &CaptureGeneration| {
+        generation.capture_generation_id == project_generation.capture_generation_id
+            && generation.started_at_ms == project_generation.started_at_ms
+    };
+    if read_active_generation(base_dir)?
+        .as_ref()
+        .is_some_and(global_matches)
+        || read_preparing_generation(base_dir)?
+            .as_ref()
+            .is_some_and(global_matches)
+    {
+        return Ok(Some(project_generation));
+    }
+    Ok(None)
+}
+
+fn read_generation_file(path: &Path) -> Result<Option<CaptureGeneration>, CaptureGenerationError> {
+    let bytes = match fs::read(path) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(error.into()),
@@ -242,125 +392,5 @@ impl From<serde_json::Error> for CaptureGenerationError {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn one_generation_is_published_identically_to_every_project() {
-        let temp = tempfile::tempdir().unwrap();
-        let generation = CaptureGeneration::new_for_members(
-            "post-a".into(),
-            "daw-a".into(),
-            42,
-            vec![
-                CaptureGenerationMember {
-                    project_hash: "project-a".into(),
-                    post_instance_id: "post-a".into(),
-                    pre_instance_id: "pre-a".into(),
-                    record_session_id: String::new(),
-                },
-                CaptureGenerationMember {
-                    project_hash: "project-b".into(),
-                    post_instance_id: "post-b".into(),
-                    pre_instance_id: "pre-b".into(),
-                    record_session_id: String::new(),
-                },
-            ],
-        );
-
-        publish_generation_roster(temp.path(), &generation).unwrap();
-
-        assert_eq!(
-            read_current_generation(temp.path(), "project-a")
-                .unwrap()
-                .unwrap(),
-            generation
-        );
-        assert_eq!(
-            read_current_generation(temp.path(), "project-b")
-                .unwrap()
-                .unwrap(),
-            generation
-        );
-        assert_eq!(
-            read_active_generation(temp.path()).unwrap().unwrap(),
-            generation
-        );
-    }
-
-    #[test]
-    fn generation_roster_is_sorted_and_member_addressable() {
-        let generation = CaptureGeneration::new_for_members(
-            "post-b".into(),
-            "daw-a".into(),
-            42,
-            vec![
-                CaptureGenerationMember {
-                    project_hash: "project-b".into(),
-                    post_instance_id: "post-b".into(),
-                    pre_instance_id: "pre-b".into(),
-                    record_session_id: String::new(),
-                },
-                CaptureGenerationMember {
-                    project_hash: "project-a".into(),
-                    post_instance_id: "post-a".into(),
-                    pre_instance_id: "pre-a".into(),
-                    record_session_id: String::new(),
-                },
-            ],
-        );
-        assert!(generation.is_valid());
-        assert!(generation
-            .members
-            .iter()
-            .all(|member| Uuid::parse_str(&member.record_session_id).is_ok()));
-        assert_eq!(generation.members[0].post_instance_id, "post-a");
-        assert_eq!(
-            generation
-                .member("project-b", "post-b")
-                .map(|member| member.pre_instance_id.as_str()),
-            Some("pre-b")
-        );
-    }
-
-    #[test]
-    fn generation_rejects_two_posts_targeting_the_same_pre() {
-        let generation = CaptureGeneration::new_for_members(
-            "post-a".into(),
-            "daw-a".into(),
-            42,
-            vec![
-                CaptureGenerationMember {
-                    project_hash: "project-a".into(),
-                    post_instance_id: "post-a".into(),
-                    pre_instance_id: "pre-shared".into(),
-                    record_session_id: String::new(),
-                },
-                CaptureGenerationMember {
-                    project_hash: "project-a".into(),
-                    post_instance_id: "post-b".into(),
-                    pre_instance_id: "pre-shared".into(),
-                    record_session_id: String::new(),
-                },
-            ],
-        );
-
-        assert!(
-            !generation.is_valid(),
-            "one PRE inbox cannot belong to two POST members in one generation"
-        );
-    }
-
-    #[test]
-    fn invalid_pointer_is_not_promoted_to_a_generation() {
-        let temp = tempfile::tempdir().unwrap();
-        let path = current_generation_path(temp.path(), "project-a");
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(path, br#"{"schema_version":"capture_generation.v1"}"#).unwrap();
-
-        assert!(matches!(
-            read_current_generation(temp.path(), "project-a"),
-            Err(CaptureGenerationError::Serde(_))
-        ));
-    }
-}
+#[path = "capture_generation_tests.rs"]
+mod tests;

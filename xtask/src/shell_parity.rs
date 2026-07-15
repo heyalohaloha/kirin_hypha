@@ -32,6 +32,14 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/../juce_shell/src/HyphaTheme.h"
     ));
+    const HYPHA_UI_CONTRACT_H: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../juce_shell/src/HyphaUiContract.h"
+    ));
+    const HYPHA_DISPLAY_CONTRACT_H: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../juce_shell/src/HyphaDisplayContract.h"
+    ));
 
     fn read_juce_au_wrapper() -> Option<String> {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
@@ -82,22 +90,26 @@ mod tests {
 
     #[test]
     fn shipped_vst3_and_au_use_one_native_font_contract() {
-        assert!(HYPHA_THEME_H.contains("juce::Font (\".SF NS\", h"));
-        assert!(HYPHA_THEME_H.contains("juce::Font (\".SF NS Mono\", h"));
+        assert!(HYPHA_THEME_H.contains("ui_contract::labelFontFamily"));
+        assert!(HYPHA_THEME_H.contains("ui_contract::monoFontFamily"));
+        assert!(HYPHA_UI_CONTRACT_H.contains("labelFontFamily = \".SF NS\""));
+        assert!(HYPHA_UI_CONTRACT_H.contains("monoFontFamily  = \".SF NS Mono\""));
     }
 
     #[test]
     fn shipped_post_pair_selector_has_one_geometry_source() {
         assert!(
-            PLUGIN_EDITOR_CPP.contains("const int ddW = 22;")
-                && PLUGIN_EDITOR_CPP
-                    .contains("pairDropdown.setBounds (w - kMargin - ddW, nameY, ddW, 22);")
-                && PLUGIN_EDITOR_CPP.contains(
-                    "nameField.setBounds (kMargin, nameY, w - 2 * kMargin - ddW - 4, 22);"
-                )
-                && PLUGIN_EDITOR_CPP.contains("menu.setLookAndFeel (&pairMenuLookAndFeel());")
-                && PLUGIN_EDITOR_H
-                    .contains("setColour (juce::PopupMenu::backgroundColourId, hypha::BG);")
+            PLUGIN_EDITOR_CPP.contains("const auto layout = ui::editorLayout (isPost, getWidth())")
+        );
+        assert!(PLUGIN_EDITOR_CPP.contains("nameField.setBounds (juceRect (layout.name))"));
+        assert!(
+            PLUGIN_EDITOR_CPP.contains("pairDropdown.setBounds (juceRect (layout.pairDropdown))")
+        );
+        assert!(!PLUGIN_EDITOR_CPP.contains("const int ddW = 22;"));
+        assert!(HYPHA_UI_CONTRACT_H.contains("constexpr int dropdownWidth = 22"));
+        assert!(PLUGIN_EDITOR_CPP.contains("menu.setLookAndFeel (&pairMenuLookAndFeel())"));
+        assert!(
+            PLUGIN_EDITOR_H.contains("setColour (juce::PopupMenu::backgroundColourId, hypha::BG);")
         );
     }
 
@@ -115,7 +127,22 @@ mod tests {
         }
         assert!(FFI_HEADER.contains("KirinLegacyNihState"));
         assert!(FFI_HEADER.contains("kirin_hypha_decode_legacy_nih_state"));
+        assert!(FFI_HEADER.contains("kirin_hypha_restore_pair_candidate"));
+        assert!(FFI_HEADER.contains("kirin_hypha_get_paired_pre_locator"));
         assert!(PLUGIN_PROCESSOR_CPP.contains("kirin_hypha_decode_legacy_nih_state"));
+        assert!(PLUGIN_PROCESSOR_CPP
+            .contains("xml.setAttribute (\"paired_pre_instance_id\", persistPairInstanceId)"));
+        assert!(PLUGIN_PROCESSOR_CPP.contains(
+            "restoredPairInstanceId = xml->getStringAttribute (\"paired_pre_instance_id\")"
+        ));
+        assert!(PLUGIN_PROCESSOR_CPP
+            .contains("xml.setAttribute (\"paired_pre_project_hash\", persistPairProjectHash)"));
+        assert!(PLUGIN_PROCESSOR_CPP.contains(
+            "restoredPairProjectHash = xml->getStringAttribute (\"paired_pre_project_hash\")"
+        ));
+        assert!(PLUGIN_PROCESSOR_CPP
+            .contains("pairedPreLocator (livePairProjectHash, livePairInstanceId)"));
+        assert!(PLUGIN_PROCESSOR_CPP.contains("kirin_hypha_restore_pair_candidate ("));
     }
 
     #[test]
@@ -535,25 +562,28 @@ mod tests {
             .expect("updatePost");
         let body = &PLUGIN_EDITOR_CPP[start..];
         let record_branch = body.find("if (rec)").expect("record branch");
-        let signal_branch = body.find("else if (sig != 1)").expect("signal fallback");
+        let signal_branch = body
+            .find("else if (sig != KIRIN_SIGNAL_STATE_ACTIVE)")
+            .expect("signal fallback");
 
         assert!(
             record_branch < signal_branch,
             "POST Record must keep Delta6/N/Sharp visible even if the host goes inactive during bounce"
         );
         assert!(
-            body.contains("if (sig == 1 && processorRef.pollDelta (rawD))")
+            body.contains("if (sig == KIRIN_SIGNAL_STATE_ACTIVE && processorRef.pollDelta (rawD))",)
+                && body.contains("display::deltaIsActive (rawD.mode)")
                 && body.contains("d = displaySmoother.smoothDelta (rawD, t);"),
             "POST Record active display must pass delta values through the GUI-only smoother"
         );
         assert!(
-            body.contains("else if (sig == 0)")
+            body.contains("else if (sig == KIRIN_SIGNAL_STATE_INACTIVE)")
                 && body.contains("displaySmoother.heldDeltaDisplay (held, t)")
-                && body.contains(
-                    "const juce::Colour base = (mutedD || (haveD && d.mode == 1)) ? COL_MUTED : COL_NORMAL;"
-                ),
+                && body.contains("display::recordMetricMode (haveD, d.mode)")
+                && body.contains("display::deltaIsStale (d.mode)"),
             "POST Record inactive display must keep recent delta values until the display mute boundary instead of immediately falling to ---"
         );
+        assert!(HYPHA_DISPLAY_CONTRACT_H.contains("haveDelta && preUnavailableForDelta (mode)"));
     }
 
     #[test]
@@ -563,24 +593,26 @@ mod tests {
             .expect("updatePost");
         let body = &PLUGIN_EDITOR_CPP[start..];
         let watch_branch = body.find("else // Active + Watch").expect("watch branch");
-        let window = &body[watch_branch..body.len().min(watch_branch + 2200)];
+        let window = &body[watch_branch..body.len().min(watch_branch + 3600)];
 
         assert!(
-            window.contains("if (pairSelected && ! preExplicitBypassed)")
+            window.contains("display::watchMetricMode (pairSelected, haveRawD, rawD.mode)")
                 && window.contains("configureForKind (Kind::WatchDelta6)")
-                && window.contains("const bool liveDelta = haveD && d.mode == 0 && ! mutedD;"),
+                && window.contains("display::deltaIsActive (d.mode)"),
             "JUCE POST Watch must keep the Delta+MAX grid while an explicit pair is selected"
         );
         assert!(
-            window.contains("else if (! preExplicitBypassed && pairSelected)")
+            window.contains("else if (! preUnavailable && pairSelected)")
                 && window.contains("displaySmoother.heldDeltaDisplay (held, t)")
                 && window.contains("const juce::Colour base = liveDelta ? COL_NORMAL : COL_MUTED;"),
             "JUCE POST Watch must use held/muted delta values for transient stale PRE reads"
         );
         assert!(
-            window.contains("else // pair empty or PRE explicitly bypassed -> POST absolute"),
-            "JUCE POST Watch may fall back to POST absolute values only when the pair is empty or PRE is explicitly bypassed"
+            window.contains("else // pair empty or paired PRE bypassed/inactive -> POST absolute"),
+            "JUCE POST Watch may fall back to POST absolute values only when the pair is empty or PRE is explicitly OFF"
         );
+        assert!(HYPHA_DISPLAY_CONTRACT_H.contains("if (! pairSelected)"));
+        assert!(HYPHA_DISPLAY_CONTRACT_H.contains("haveDelta && preUnavailableForDelta (mode)"));
         assert!(
             window.contains("watchMaximum.lufs_m")
                 && window.contains("watchMaximum.true_peak")
@@ -600,7 +632,10 @@ mod tests {
             body.contains("bool watchHeldNormal = false;")
                 && body.contains("watchHeldNormal = ! mutedHeldD;")
                 && body.contains("watchHeldNormal = haveM && ! mutedM;")
-                && body.contains("const int ledSig = (! rec && sig == 0 && watchHeldNormal) ? 1 : sig;"),
+                && body.contains(
+                    "const int ledSig = (! rec && sig == KIRIN_SIGNAL_STATE_INACTIVE && watchHeldNormal)"
+                )
+                && body.contains("? KIRIN_SIGNAL_STATE_ACTIVE : sig;"),
             "JUCE POST Watch LED must remain active only while the displayed held values are not muted"
         );
     }

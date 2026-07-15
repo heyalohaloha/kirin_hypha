@@ -34,7 +34,7 @@
 //! 2. originator 自身の `trigger_keep_internal` も同 frame で発火 (cache に self seed)
 //! 3. `record_sm.exit_record()` / `Drop` / IO Thread shutdown のいずれかで
 //! 4. orphan broadcast は受信側 cache 30 秒 stale fallback で ignore (即時 delete は
-//!    受信側 1 秒 polling との race のため不採用)
+//!    受信側pollとの race のため不採用)
 //!
 //! # cdylib 越境通信制約
 //! filesystem 経由のみ (`OnceLock` 不触 / 申し送り #22 適合)。同 OS process 内の
@@ -65,7 +65,7 @@ pub const ALL_KEEP_BROADCAST_STALE_SECS: i64 = 30;
 /// all_keep_signal.json ルート構造。
 ///
 /// # フィールド
-/// - `v`: schema version (現行 1)
+/// - `v`: schema version (現行 2)
 /// - `originator_post_instance_id`: filename stem と同値 / check 用
 /// - `daw_session_id`: 別 DAW process からの誤受信防止 (record_signal と同位相)
 /// - `host_process_id`: 同一 project shelf 内で instance-scoped DAW ID を橋渡しする補助 scope
@@ -94,35 +94,7 @@ pub struct AllKeepBroadcast {
 }
 
 impl AllKeepBroadcast {
-    /// 新規 broadcast を生成。`started_at` / `heartbeat` は現在時刻、`v=1`、
-    /// `originator_post_instance_id` / `daw_session_id` は呼び出し側責任。
-    pub fn new(originator_post_instance_id: String, daw_session_id: String) -> Self {
-        Self::new_with_scope(
-            originator_post_instance_id,
-            daw_session_id,
-            std::process::id(),
-        )
-    }
-
-    pub fn new_with_scope(
-        originator_post_instance_id: String,
-        daw_session_id: String,
-        host_process_id: u32,
-    ) -> Self {
-        let now = now_iso8601();
-        Self {
-            v: ALL_KEEP_SCHEMA_VERSION,
-            originator_post_instance_id,
-            daw_session_id,
-            host_process_id,
-            capture_generation_id: uuid::Uuid::new_v4().to_string(),
-            generation_started_at_ms: Utc::now().timestamp_millis(),
-            started_at: now.clone(),
-            heartbeat: now,
-        }
-    }
-
-    pub fn new_for_generation(
+    fn new_for_generation(
         originator_post_instance_id: String,
         daw_session_id: String,
         host_process_id: u32,
@@ -205,61 +177,6 @@ impl From<serde_json::Error> for AllKeepError {
     }
 }
 
-/// broadcast を atomic 書込 (unique tmp → rename)。親ディレクトリが無ければ作成。
-///
-/// originator 側 `trigger_all_keep_broadcast` から 1 回だけ呼ぶ。同一 originator が
-/// 連打した場合は同 path に atomic rename で上書き (last-wins / 受信側 cache の
-/// generation id が更新されて新 broadcast として正しく検出される)。
-pub fn write_broadcast(
-    base_dir: &Path,
-    project_hash: &str,
-    originator_post_instance_id: &str,
-    daw_session_id: String,
-) -> Result<AllKeepBroadcast, AllKeepError> {
-    write_broadcast_with_scope(
-        base_dir,
-        project_hash,
-        originator_post_instance_id,
-        daw_session_id,
-        std::process::id(),
-    )
-}
-
-pub fn write_broadcast_with_scope(
-    base_dir: &Path,
-    project_hash: &str,
-    originator_post_instance_id: &str,
-    daw_session_id: String,
-    host_process_id: u32,
-) -> Result<AllKeepBroadcast, AllKeepError> {
-    let generation = crate::capture_generation::CaptureGeneration::new_single(
-        project_hash.to_string(),
-        originator_post_instance_id.to_string(),
-        String::new(),
-        daw_session_id.clone(),
-        host_process_id,
-    );
-    crate::capture_generation::publish_generation_roster(base_dir, &generation).map_err(
-        |error| match error {
-            crate::capture_generation::CaptureGenerationError::Io(error) => AllKeepError::Io(error),
-            crate::capture_generation::CaptureGenerationError::Serde(error) => {
-                AllKeepError::Serde(error)
-            }
-            crate::capture_generation::CaptureGenerationError::Invalid => AllKeepError::Io(
-                io::Error::new(io::ErrorKind::InvalidData, "invalid capture generation"),
-            ),
-        },
-    )?;
-    write_broadcast_for_generation(
-        base_dir,
-        project_hash,
-        originator_post_instance_id,
-        daw_session_id,
-        host_process_id,
-        &generation,
-    )
-}
-
 /// Stage a broadcast on one project shelf for a generation transaction. All Keep callers write
 /// every member shelf first and promote the installation-wide active pointer only afterwards.
 pub fn write_broadcast_for_generation(
@@ -274,6 +191,20 @@ pub fn write_broadcast_for_generation(
         return Err(AllKeepError::Io(io::Error::new(
             io::ErrorKind::InvalidData,
             "invalid capture generation",
+        )));
+    }
+    let project_is_member = generation
+        .members
+        .iter()
+        .any(|member| member.project_hash == project_hash);
+    if !project_is_member
+        || generation.originator_post_instance_id != originator_post_instance_id
+        || generation.daw_session_id != daw_session_id
+        || generation.host_process_id != host_process_id
+    {
+        return Err(AllKeepError::Io(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "All Keep broadcast does not match capture generation",
         )));
     }
     let broadcast = AllKeepBroadcast::new_for_generation(
@@ -292,7 +223,7 @@ pub fn write_broadcast_for_generation(
 }
 
 /// 任意の broadcast を atomic 書込 (unique tmp → rename)。
-pub fn write_broadcast_signal(
+fn write_broadcast_signal(
     base_dir: &Path,
     project_hash: &str,
     originator_post_instance_id: &str,
@@ -484,6 +415,29 @@ mod tests {
         dir
     }
 
+    fn write_broadcast(
+        base_dir: &Path,
+        project_hash: &str,
+        originator_post_instance_id: &str,
+        daw_session_id: String,
+    ) -> Result<AllKeepBroadcast, AllKeepError> {
+        let generation = crate::capture_generation::CaptureGeneration::new_single(
+            project_hash.to_string(),
+            originator_post_instance_id.to_string(),
+            format!("pre-{originator_post_instance_id}"),
+            daw_session_id.clone(),
+            std::process::id(),
+        );
+        write_broadcast_for_generation(
+            base_dir,
+            project_hash,
+            originator_post_instance_id,
+            daw_session_id,
+            std::process::id(),
+            &generation,
+        )
+    }
+
     #[test]
     fn signals_dir_path_format() {
         let base = PathBuf::from("/base");
@@ -516,6 +470,45 @@ mod tests {
             ("originator-1".to_string(), result)
         );
         assert_eq!(crate::atomic_file::remove_temp_siblings(&path).unwrap(), 0);
+    }
+
+    #[test]
+    fn generation_broadcast_rejects_foreign_project_scope_and_originator() {
+        let base = isolated_dir();
+        let generation = crate::capture_generation::CaptureGeneration::new_single(
+            "project-a".to_string(),
+            "post-a".to_string(),
+            "pre-a".to_string(),
+            "daw-a".to_string(),
+            std::process::id(),
+        );
+
+        for (project, originator, daw, host) in [
+            ("project-b", "post-a", "daw-a", std::process::id()),
+            ("project-a", "post-b", "daw-a", std::process::id()),
+            ("project-a", "post-a", "daw-b", std::process::id()),
+            (
+                "project-a",
+                "post-a",
+                "daw-a",
+                std::process::id().saturating_add(1),
+            ),
+        ] {
+            assert!(
+                write_broadcast_for_generation(
+                    &base,
+                    project,
+                    originator,
+                    daw.to_string(),
+                    host,
+                    &generation,
+                )
+                .is_err(),
+                "foreign broadcast scope must be rejected: project={project} originator={originator} daw={daw} host={host}"
+            );
+        }
+        assert!(read_current_broadcast(&base, "project-a").is_none());
+        assert!(read_current_broadcast(&base, "project-b").is_none());
     }
 
     #[test]

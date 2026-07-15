@@ -39,10 +39,11 @@ use std::collections::HashMap;
 use std::ffi::CStr;
 use std::os::raw::{c_char, c_void};
 use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::thread::JoinHandle;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde_json::Value;
 use uuid::Uuid;
@@ -66,7 +67,6 @@ use kirin_measure::{
     select_live_pre_pair_choice_by_instance_for_post_project_in_session, set_daw_session_id,
     set_project_uuid, spawn_io_thread_post, spawn_io_thread_pre, spawn_measure_thread,
     spawn_watchdog, store_signal_state, write_broadcast_for_generation, write_expected_metadata,
-    write_pending_claiming_expected_and_clock,
     write_pending_claiming_expected_and_clock_for_generation, write_stop_broadcast,
     CaptureClockSource, CaptureGeneration, CaptureGenerationMember, CaptureGenerationTransaction,
     DeltaMode, DeltaResult, ExpectedWavMetadata, IoThreadHandle, LatchedPre, License, LiveLicense,
@@ -76,6 +76,8 @@ use kirin_measure::{
     RestartIoFn, SignalError, SignalState, StoragePaths, WatchMaxTracker, WatchdogIo,
     WatchdogParams, MAX_ACTIVE_PER_PROJECT, N_CHANNELS, RING_BUFFER_SECONDS,
 };
+
+const CAPTURE_PRODUCER_READY_TIMEOUT: Duration = Duration::from_secs(3);
 
 mod pair_binding;
 
@@ -534,6 +536,94 @@ fn clear_role_scoped_cells() {
     }
 }
 
+fn restored_pair_latch(
+    kirin_root: &Path,
+    project_hash: &str,
+    daw_session_id: &str,
+    pair_name: &str,
+    pre_instance_id: &str,
+    host_process_id: u32,
+) -> Option<LatchedPre> {
+    if !kirin_measure::is_path_safe_component(project_hash)
+        || !kirin_measure::is_path_safe_component(pre_instance_id)
+    {
+        return None;
+    }
+    let project_dir = kirin_root.join(project_hash);
+    Some(LatchedPre {
+        name: pair_name.to_string(),
+        instance_id: pre_instance_id.to_string(),
+        pre_json: project_dir.join(pre_instance_id).join("pre.json"),
+        project_dir,
+        daw_session_id: (!daw_session_id.is_empty()).then(|| daw_session_id.to_string()),
+        host_process_id: (host_process_id != 0).then_some(host_process_id),
+        readiness: kirin_measure::LatchedPreReadiness::RestoredWaiting,
+    })
+}
+
+#[cfg(test)]
+mod restored_pair_latch_tests {
+    use super::restored_pair_latch;
+    use std::path::Path;
+
+    #[test]
+    fn saved_exact_pre_reconstructs_one_fixed_waiting_path_without_discovery() {
+        let latch = restored_pair_latch(
+            Path::new("/tmp/kirin"),
+            "project-a",
+            "daw-a",
+            "2Mix",
+            "pre-a",
+            42,
+        )
+        .expect("safe saved pair");
+        assert_eq!(latch.name, "2Mix");
+        assert_eq!(latch.instance_id, "pre-a");
+        assert_eq!(latch.project_dir, Path::new("/tmp/kirin/project-a"));
+        assert_eq!(
+            latch.pre_json,
+            Path::new("/tmp/kirin/project-a/pre-a/pre.json")
+        );
+        assert_eq!(latch.daw_session_id.as_deref(), Some("daw-a"));
+        assert_eq!(latch.host_process_id, Some(42));
+        assert_eq!(
+            latch.readiness,
+            kirin_measure::LatchedPreReadiness::RestoredWaiting
+        );
+    }
+
+    #[test]
+    fn saved_exact_pre_accepts_unnamed_pair_but_rejects_unsafe_path_components() {
+        assert!(restored_pair_latch(
+            Path::new("/tmp/kirin"),
+            "project-a",
+            "daw-a",
+            "",
+            "pre-a",
+            42,
+        )
+        .is_some());
+        assert!(restored_pair_latch(
+            Path::new("/tmp/kirin"),
+            "../escape",
+            "daw-a",
+            "2Mix",
+            "pre-a",
+            42,
+        )
+        .is_none());
+        assert!(restored_pair_latch(
+            Path::new("/tmp/kirin"),
+            "project-a",
+            "daw-a",
+            "2Mix",
+            "../../pre",
+            42,
+        )
+        .is_none());
+    }
+}
+
 /// テスト専用: role-scoped 共有セルを全クリアして first-wins 状態を初期化する。
 ///
 /// 本番は単一 DAW プロセス = 単一セッションで「最初の 1 回だけ seed」が正しいが、統合テスト
@@ -648,26 +738,77 @@ fn resolve_and_enter_keep(
             return false;
         }
     }
-    // target_pre_instance_id = 選定 PRE。PRE が自宛て signal を発見し ack する。
-    let write_result = match capture_generation {
-        Some(generation) => write_pending_claiming_expected_and_clock_for_generation(
-            &base,
-            project_hash,
-            post_iid,
+    // A single Keep owns the same two-phase generation contract as All Keep. External
+    // generations are already staged by the All Keep originator and are committed only after all
+    // members report exact PRE+POST writer ownership.
+    let owned_generation = capture_generation.is_none().then(|| {
+        CaptureGeneration::new_single_named(
+            project_hash.to_string(),
+            post_iid.to_string(),
             target.clone(),
             daw.to_string(),
-            started_at_position_samples,
-            generation,
-        ),
-        None => write_pending_claiming_expected_and_clock(
-            &base,
-            project_hash,
-            post_iid,
-            target.clone(),
-            daw.to_string(),
-            started_at_position_samples,
-        ),
+            current_host_process_id(),
+            Some(pair.clone()),
+        )
+    });
+    let generation = match capture_generation.or(owned_generation.as_ref()) {
+        Some(generation) => generation,
+        None => {
+            if reservation_created {
+                reservation::release_pairing(&base, project_hash, &target, post_iid);
+            }
+            if let Ok(mut message) = record_error_message.write() {
+                *message = Some("Failed to start record".to_string());
+            }
+            return false;
+        }
     };
+    let mut owned_transaction = if owned_generation.is_some() {
+        let mut transaction = match CaptureGenerationTransaction::begin(&base, generation) {
+            Ok(transaction) => transaction,
+            Err(error) => {
+                if reservation_created {
+                    reservation::release_pairing(&base, project_hash, &target, post_iid);
+                }
+                if let Ok(mut message) = record_error_message.write() {
+                    *message = Some(
+                        match error {
+                            kirin_measure::CaptureGenerationError::Io(ref error)
+                                if error.kind() == std::io::ErrorKind::WouldBlock =>
+                            {
+                                "Another Keep is active"
+                            }
+                            _ => "Failed to start record",
+                        }
+                        .to_string(),
+                    );
+                }
+                return false;
+            }
+        };
+        if transaction.stage().is_err() {
+            if reservation_created {
+                reservation::release_pairing(&base, project_hash, &target, post_iid);
+            }
+            if let Ok(mut message) = record_error_message.write() {
+                *message = Some("Failed to start record".to_string());
+            }
+            return false;
+        }
+        Some(transaction)
+    } else {
+        None
+    };
+    // target_pre_instance_id = 選定 PRE。PRE が自宛て signal を発見し ack する。
+    let write_result = write_pending_claiming_expected_and_clock_for_generation(
+        &base,
+        project_hash,
+        post_iid,
+        target.clone(),
+        daw.to_string(),
+        started_at_position_samples,
+        generation,
+    );
     if write_result.is_ok() {
         // B-127: 正常 enter で stale な cap/io-fail 通知を消す（新しい健全な Record が開始した）。
         if let Ok(mut g) = record_error_message.write() {
@@ -683,12 +824,37 @@ fn resolve_and_enter_keep(
         if let Ok(mut g) = latched.lock() {
             *g = Some(LatchedPre {
                 name: pair.clone(),
-                instance_id: target,
+                instance_id: target.clone(),
                 project_dir: sel.project_dir,
                 pre_json: sel.pre_json,
                 daw_session_id: sel.daw_session_id,
                 host_process_id: sel.host_process_id,
+                readiness: kirin_measure::LatchedPreReadiness::Confirmed,
             });
+        }
+        if let Some(transaction) = owned_transaction.as_mut() {
+            if transaction
+                .commit_when_ready(CAPTURE_PRODUCER_READY_TIMEOUT)
+                .is_err()
+            {
+                let _ = mark_released_with_reason(
+                    &base,
+                    project_hash,
+                    post_iid,
+                    ReleaseReason::ManualStop,
+                );
+                if reservation_created {
+                    reservation::release_pairing(&base, project_hash, &target, post_iid);
+                }
+                if let Ok(mut g) = paired_pre_target.lock() {
+                    *g = None;
+                }
+                record_sm.exit_record();
+                if let Ok(mut message) = record_error_message.write() {
+                    *message = Some("Failed to arm PRE and POST".to_string());
+                }
+                return false;
+            }
         }
         true
     } else {
@@ -1597,19 +1763,46 @@ impl KirinHyphaEngine {
         };
         let name = sanitize_name(&name);
         let latch = latch_selected_pre(name.clone(), selected);
-        let current_name = self
+        if self.pair_binding.matches_exact(&name, &latch) {
+            return true;
+        }
+        let (project_hash, post_iid) = self.begin_pair_reselection();
+        let transition = self.pair_binding.replace_exact(name, latch);
+        self.finish_pair_reselection(transition, &project_hash, &post_iid, epoch_secs_now());
+        true
+    }
+
+    /// Restore one exact PRE selected in a saved DAW document without scanning the live registry.
+    /// The fixed path may not exist yet because hosts restore plugin instances in arbitrary order;
+    /// the latch remains Waiting and becomes Paired as soon as that PRE publishes at the same path.
+    pub fn restore_pair_candidate(&self, pre_project_hash: &str, instance_id: &str) -> bool {
+        let desired_name = self
             .pair_binding
             .desired_name()
             .read()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .clone();
-        if current_name == name
-            && self.paired_pre_instance_id().as_deref() == Some(latch.instance_id.as_str())
-        {
+        let daw_session_id = self
+            .identity
+            .lock()
+            .map(|identity| identity.daw_session_uuid.clone())
+            .unwrap_or_default();
+        let Some(latch) = restored_pair_latch(
+            &PlatformPaths::current_kirin_tmp_root(),
+            pre_project_hash,
+            &daw_session_id,
+            &desired_name,
+            instance_id,
+            current_host_process_id(),
+        ) else {
+            return false;
+        };
+        if self.pair_binding.matches_exact(&desired_name, &latch) {
             return true;
         }
+
         let (project_hash, post_iid) = self.begin_pair_reselection();
-        let transition = self.pair_binding.replace_exact(name, latch);
+        let transition = self.pair_binding.replace_exact(desired_name, latch);
         self.finish_pair_reselection(transition, &project_hash, &post_iid, epoch_secs_now());
         true
     }
@@ -1646,6 +1839,21 @@ impl KirinHyphaEngine {
 
     pub fn paired_pre_instance_id(&self) -> Option<String> {
         paired_pre_instance_id(&self.pair_binding.latched_pre())
+    }
+
+    pub fn paired_pre_locator(&self) -> Option<(String, String)> {
+        let binding = self.pair_binding.latched_pre();
+        let binding = binding
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let pre = binding.as_ref()?;
+        let project_hash = pre.project_dir.file_name()?.to_str()?;
+        if !kirin_measure::is_path_safe_component(project_hash)
+            || !kirin_measure::is_path_safe_component(&pre.instance_id)
+        {
+            return None;
+        }
+        Some((project_hash.to_string(), pre.instance_id.clone()))
     }
 
     /// PRE の自名を設定する（B-054 / `set_pair_target` と完全対称）。
@@ -1891,15 +2099,18 @@ impl KirinHyphaEngine {
         let members = ready
             .iter()
             .filter_map(|candidate| {
-                Some(CaptureGenerationMember {
-                    project_hash: candidate.project_uuid.clone(),
-                    post_instance_id: candidate.instance_id.clone(),
-                    pre_instance_id: candidate.paired_pre_instance_id.clone()?,
-                    record_session_id: String::new(),
-                })
+                Some((
+                    CaptureGenerationMember {
+                        project_hash: candidate.project_uuid.clone(),
+                        post_instance_id: candidate.instance_id.clone(),
+                        pre_instance_id: candidate.paired_pre_instance_id.clone()?,
+                        record_session_id: String::new(),
+                    },
+                    candidate.pair_pre_name.clone(),
+                ))
             })
             .collect();
-        let generation = CaptureGeneration::new_for_members(
+        let generation = CaptureGeneration::new_for_named_members(
             post_iid.clone(),
             daw.clone(),
             host_process_id,
@@ -1958,17 +2169,15 @@ impl KirinHyphaEngine {
         if !self.keep_with_generation(&generation) {
             return false;
         }
-        if transaction.commit().is_err() {
-            let paired_pre_target = self.pair_binding.recording_pre();
-            resolve_and_exit_stop(
-                &self.record_sm,
-                &paired_pre_target,
-                &project_hash,
-                &post_iid,
-                Some(ReleaseReason::ManualStop),
-            );
+        if transaction
+            .commit_when_ready(CAPTURE_PRODUCER_READY_TIMEOUT)
+            .is_err()
+        {
+            // The transaction rollback releases and broadcasts to its immutable exact roster;
+            // only the originator's in-memory state needs the direct local stop here.
+            self.stop();
             if let Ok(mut error) = self.record_error_message.write() {
-                *error = Some("All Keep failed (file write error)".to_string());
+                *error = Some("All Keep failed to arm every PRE and POST".to_string());
             }
             return false;
         }
@@ -2439,7 +2648,7 @@ pub struct KirinPostPairClaim {
 }
 
 /// `KirinDelta` — POST の Δ（C struct / B-061 3d-b）。各 double の「値なし」は NaN。
-/// `mode`: 0=Active / 1=Stale / 2=NoPre / 3=Bypassed。
+/// `mode`: 0=Active / 1=Stale / 2=NoPre / 3=Bypassed / 4=PreInactive。
 #[repr(C)]
 pub struct KirinDelta {
     pub mode: u8,
@@ -2516,20 +2725,39 @@ pub unsafe extern "C" fn kirin_hypha_decode_legacy_nih_state(
     .unwrap_or(false)
 }
 
+fn delta_mode_to_abi(mode: &DeltaMode) -> u8 {
+    match mode {
+        DeltaMode::Active => 0,
+        DeltaMode::Stale => 1,
+        DeltaMode::NoPre => 2,
+        DeltaMode::Bypassed => 3,
+        DeltaMode::PreInactive => 4,
+    }
+}
+
 fn to_c_delta(d: &DeltaResult) -> KirinDelta {
     KirinDelta {
-        mode: match d.mode {
-            DeltaMode::Active => 0,
-            DeltaMode::Stale => 1,
-            DeltaMode::NoPre => 2,
-            DeltaMode::Bypassed => 3,
-        },
+        mode: delta_mode_to_abi(&d.mode),
         lufs: opt_f64(d.lufs),
         true_peak: opt_f64(d.tp),
         crest: opt_f64(d.crest),
         psr: opt_f64(d.psr),
         n_prime_total: opt_f64(d.n_prime_total),
         sharpness: opt_f64(d.sharpness),
+    }
+}
+
+#[cfg(test)]
+mod delta_mode_abi_tests {
+    use super::{delta_mode_to_abi, DeltaMode};
+
+    #[test]
+    fn pre_inactive_has_distinct_abi_mode_for_post_absolute_display() {
+        assert_eq!(delta_mode_to_abi(&DeltaMode::Active), 0);
+        assert_eq!(delta_mode_to_abi(&DeltaMode::Stale), 1);
+        assert_eq!(delta_mode_to_abi(&DeltaMode::NoPre), 2);
+        assert_eq!(delta_mode_to_abi(&DeltaMode::Bypassed), 3);
+        assert_eq!(delta_mode_to_abi(&DeltaMode::PreInactive), 4);
     }
 }
 
@@ -2673,8 +2901,9 @@ pub unsafe extern "C" fn kirin_hypha_set_pair_target(
 /// live in-scope choice. UI thread only.
 ///
 /// # Safety
-/// A non-null `handle` must be a live pointer returned by `kirin_hypha_create`. `instance_id` may
-/// be null; otherwise it must point to a readable null-terminated C string for this call.
+/// A non-null `handle` must be a live pointer returned by `kirin_hypha_create`.
+/// `pre_project_hash` and `instance_id` may be null; otherwise each must point to a readable
+/// null-terminated C string for this call.
 #[no_mangle]
 pub unsafe extern "C" fn kirin_hypha_select_pair_candidate(
     handle: *mut KirinHyphaEngine,
@@ -2686,6 +2915,30 @@ pub unsafe extern "C" fn kirin_hypha_select_pair_candidate(
         }
         let instance_id = unsafe { read_c_str(instance_id) };
         unsafe { (*handle).set_pair_candidate(&instance_id) }
+    }))
+    .unwrap_or(false)
+}
+
+/// Restore one exact PRE from the DAW state chunk. Unlike user selection this does not enumerate
+/// live PREs: it reconstructs the saved fixed path and waits for that runtime to publish.
+///
+/// # Safety
+/// A non-null `handle` must be a live pointer returned by `kirin_hypha_create`.
+/// `pre_project_hash` and `instance_id` may be null; otherwise each must point to a readable
+/// null-terminated C string for this call.
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_restore_pair_candidate(
+    handle: *mut KirinHyphaEngine,
+    pre_project_hash: *const c_char,
+    instance_id: *const c_char,
+) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() {
+            return false;
+        }
+        let pre_project_hash = unsafe { read_c_str(pre_project_hash) };
+        let instance_id = unsafe { read_c_str(instance_id) };
+        unsafe { (*handle).restore_pair_candidate(&pre_project_hash, &instance_id) }
     }))
     .unwrap_or(false)
 }
@@ -2729,6 +2982,49 @@ pub unsafe extern "C" fn kirin_hypha_get_paired_pre_instance_id(
         let dst = unsafe { std::slice::from_raw_parts_mut(out as *mut u8, out_len) };
         dst[..n].copy_from_slice(&bytes[..n]);
         dst[n] = 0;
+        true
+    }))
+    .unwrap_or(false)
+}
+
+/// Return the project shelf and instance ID of the exact PRE from one binding snapshot.
+///
+/// # Safety
+/// A non-null `handle` must be a live pointer returned by `kirin_hypha_create`. Each non-null
+/// output pointer must reference a writable buffer at least as large as its corresponding length.
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_get_paired_pre_locator(
+    handle: *mut KirinHyphaEngine,
+    project_out: *mut c_char,
+    project_out_len: usize,
+    instance_out: *mut c_char,
+    instance_out_len: usize,
+) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null()
+            || project_out.is_null()
+            || project_out_len == 0
+            || instance_out.is_null()
+            || instance_out_len == 0
+        {
+            return false;
+        }
+        let Some((project_hash, instance_id)) = (unsafe { (*handle).paired_pre_locator() }) else {
+            return false;
+        };
+        let project_bytes = project_hash.as_bytes();
+        let project_n = project_bytes.len().min(project_out_len - 1);
+        let project_dst =
+            unsafe { std::slice::from_raw_parts_mut(project_out as *mut u8, project_out_len) };
+        project_dst[..project_n].copy_from_slice(&project_bytes[..project_n]);
+        project_dst[project_n] = 0;
+
+        let instance_bytes = instance_id.as_bytes();
+        let instance_n = instance_bytes.len().min(instance_out_len - 1);
+        let instance_dst =
+            unsafe { std::slice::from_raw_parts_mut(instance_out as *mut u8, instance_out_len) };
+        instance_dst[..instance_n].copy_from_slice(&instance_bytes[..instance_n]);
+        instance_dst[instance_n] = 0;
         true
     }))
     .unwrap_or(false)
