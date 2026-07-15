@@ -1,7 +1,7 @@
 //! B-027 段階 3-B α-7 / Group 2 統合点 #4 配線確証 (Gap-6 局所対処)
 //!
 //! IO Thread POST terminate 終端で record_signal/{POST_iid}.json が
-//! `Released` へ遷移することをソース文字列上で固定する。
+//! 所有中の signal だけが `Released` へ遷移することをソース文字列上で固定する。
 //! PRE は missing では止めないため、shutdown/watchdog restart 経路でも
 //! 明示 Stop を観測できる必要がある。
 //!
@@ -22,14 +22,14 @@ fn read(rel: &str) -> String {
 }
 
 /// 統合点 #4: IO Thread terminate 終端 (loop 抜けた直後) に
-/// `record_signal::mark_released` 呼出が存在し、failure は warn ログのみ。
+/// `record_signal::mark_released_if_current` 呼出が存在し、failure は warn ログのみ。
 #[test]
 fn io_thread_post_terminate_marks_released() {
     let src = read("src/io_thread_post.rs");
 
     assert!(
-        src.contains("record_signal::mark_released("),
-        "IO Thread POST terminate must call record_signal::mark_released"
+        src.contains("record_signal::mark_released_if_current("),
+        "IO Thread POST terminate must compare-and-release its exact owned signal"
     );
 
     assert!(
@@ -43,20 +43,20 @@ fn io_thread_post_terminate_marks_released() {
     );
 }
 
-/// mark_released 呼出は terminate ログ "[IOThread POST] terminated" より
+/// compare-and-release 呼出は terminate ログ "[IOThread POST] terminated" より
 /// 前に位置すること。逆順だと thread 終了直前の明示 Stop 伝播が抜ける。
 #[test]
 fn io_thread_post_mark_released_precedes_terminated_log() {
     let src = read("src/io_thread_post.rs");
     let release_idx = src
-        .find("record_signal::mark_released(")
-        .expect("mark_released call must exist (統合点 #4)");
+        .find("record_signal::mark_released_if_current(")
+        .expect("compare-and-release call must exist (統合点 #4)");
     let terminated_idx = src
         .find(r#""[IOThread POST] terminated""#)
         .expect("terminate log must exist");
     assert!(
         release_idx < terminated_idx,
-        "mark_released must precede `[IOThread POST] terminated` log \
+        "compare-and-release must precede `[IOThread POST] terminated` log \
          (release={release_idx}, terminated={terminated_idx})"
     );
 }

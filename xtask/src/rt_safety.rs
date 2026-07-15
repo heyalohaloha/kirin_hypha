@@ -125,7 +125,7 @@ mod tests {
     fn ffi_push_samples_core_avoids_io_allocation_and_blocking_locks() {
         let body = function_body(
             FFI_LIB_RS,
-            "pub fn push_samples(&self, interleaved: &[f32], num_channels: u32)",
+            "fn push_samples_transaction(&self, interleaved: &[f32], num_channels: u32)",
         );
 
         for forbidden in [
@@ -135,6 +135,7 @@ mod tests {
             "write(",
             "File::",
             ".lock(",
+            ".try_lock(",
             "Vec::",
             "Box::",
             "String::",
@@ -150,8 +151,11 @@ mod tests {
             );
         }
 
-        assert!(body.contains(".try_lock()"));
         assert!(body.contains("heartbeat.fetch_add"));
+        assert!(body.contains("producer_handoff.swap_pending_from_audio"));
+        assert!(body.contains("record_ingress.adopt_from_audio"));
+        assert!(body.contains(".with_producer_from_audio("));
+        assert!(body.contains(".with_active_producer_from_audio("));
         assert!(body.contains("producer.push"));
     }
 
@@ -159,7 +163,7 @@ mod tests {
     fn capture_clock_core_avoids_io_allocation_and_blocking_locks() {
         let body = function_body(
             RECORD_TAKE_RS,
-            "pub fn note_capture_window_with_presentation(\n        &self,",
+            "pub fn note_capture_window_with_presentation_boundary(\n        &self,",
         );
 
         for forbidden in [

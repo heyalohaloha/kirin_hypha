@@ -4984,20 +4984,24 @@ mod capture_generation_commit_tests {
         );
 
         let member = generation.members.first().unwrap();
-        let mut pre_claim = crate::record_writer_claim::claim_writer(
+        let mut pre_claim = crate::record_writer_claim::claim_writer_for_generation(
             base.path(),
             &member.project_hash,
             &member.record_session_id,
             crate::plugin_data::Role::Pre,
             &member.pre_instance_id,
+            &generation.capture_generation_id,
+            generation.started_at_ms,
         )
         .unwrap();
-        let mut post_claim = crate::record_writer_claim::claim_writer(
+        let mut post_claim = crate::record_writer_claim::claim_writer_for_generation(
             base.path(),
             &member.project_hash,
             &member.record_session_id,
             crate::plugin_data::Role::Post,
             &member.post_instance_id,
+            &generation.capture_generation_id,
+            generation.started_at_ms,
         )
         .unwrap();
         pre_claim.mark_ready().unwrap();

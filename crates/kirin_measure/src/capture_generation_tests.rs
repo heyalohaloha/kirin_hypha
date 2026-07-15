@@ -32,7 +32,7 @@ fn one_generation_is_published_identically_to_every_project() {
     let generation = CaptureGeneration::new_for_members(
         "post-a".into(),
         "daw-a".into(),
-        42,
+        std::process::id(),
         vec![
             CaptureGenerationMember {
                 project_hash: "project-a".into(),
