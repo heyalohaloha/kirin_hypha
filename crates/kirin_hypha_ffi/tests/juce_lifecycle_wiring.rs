@@ -130,7 +130,8 @@ fn paired_pre_inactive_uses_post_absolute_without_releasing_binding() {
     assert!(editor.contains("Kind::Abs6"));
     assert!(editor.contains("paired PRE bypassed/inactive -> POST absolute"));
     assert!(display_contract.contains("if (! pairSelected)"));
-    assert!(display_contract.contains("haveDelta && preUnavailableForDelta (mode)"));
+    assert!(display_contract.contains("return preUnavailableForDelta (mode)"));
+    assert!(display_contract.contains("if (preUnavailableForDelta (mode))"));
 
     let producer = read_repo("crates/kirin_measure/src/io_thread_post.rs");
     assert!(producer.contains("mode: DeltaMode::PreInactive"));
