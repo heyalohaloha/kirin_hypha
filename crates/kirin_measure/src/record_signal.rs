@@ -382,55 +382,6 @@ pub fn write_pending_with_expected_and_clock(
     Ok(signal)
 }
 
-/// pending シグナルと、WAV 世代をまだ持たない Record session lifecycle を生成する。
-///
-/// `record_expected/current.json` は前回 Drop の世代を保持し得るため、Keep 時には読まない。
-/// 今回の Drop 後に reconciliation が同じ session_id へ exact WAV metadata を結合する。
-#[allow(clippy::too_many_arguments)]
-pub fn write_pending_claiming_expected_and_clock(
-    base_dir: &Path,
-    project_hash: &str,
-    post_instance_id: &str,
-    target_pre_instance_id: String,
-    daw_session_id: String,
-    started_at_position_samples: Option<i64>,
-) -> Result<RecordSignal, SignalError> {
-    let generation = crate::capture_generation::CaptureGeneration::new_single(
-        project_hash.to_string(),
-        post_instance_id.to_string(),
-        target_pre_instance_id.clone(),
-        daw_session_id.clone(),
-        std::process::id(),
-    );
-    let mut transaction =
-        crate::capture_generation_tx::CaptureGenerationTransaction::begin(base_dir, &generation)
-            .map_err(capture_generation_signal_error)?;
-    transaction
-        .stage()
-        .map_err(capture_generation_signal_error)?;
-    let signal = write_pending_claiming_expected_and_clock_for_generation(
-        base_dir,
-        project_hash,
-        post_instance_id,
-        target_pre_instance_id,
-        daw_session_id,
-        started_at_position_samples,
-        &generation,
-    )?;
-    if let Err(error) = transaction.commit() {
-        let _ = mark_released_with_reason(
-            base_dir,
-            project_hash,
-            post_instance_id,
-            // The user-initiated Keep never committed. ManualStop is the existing
-            // cross-version-compatible authorization for undoing its pending inbox.
-            ReleaseReason::ManualStop,
-        );
-        return Err(capture_generation_signal_error(error));
-    }
-    Ok(signal)
-}
-
 #[allow(clippy::too_many_arguments)]
 pub fn write_pending_claiming_expected_and_clock_for_generation(
     base_dir: &Path,
@@ -484,20 +435,6 @@ pub fn write_pending_claiming_expected_and_clock_for_generation(
         );
     }
     Ok(signal)
-}
-
-fn capture_generation_signal_error(
-    error: crate::capture_generation::CaptureGenerationError,
-) -> SignalError {
-    match error {
-        crate::capture_generation::CaptureGenerationError::Io(error) => SignalError::Io(error),
-        crate::capture_generation::CaptureGenerationError::Serde(error) => {
-            SignalError::Serde(error)
-        }
-        crate::capture_generation::CaptureGenerationError::Invalid => SignalError::Io(
-            io::Error::new(io::ErrorKind::InvalidData, "invalid capture generation"),
-        ),
-    }
 }
 
 /// 任意のシグナルを atomic 書込（unique tmp → rename）。

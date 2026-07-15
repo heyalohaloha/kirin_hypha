@@ -26,6 +26,21 @@ fn same_session_role_instance_rejects_second_active_claim() {
 }
 
 #[test]
+fn ownership_is_not_writer_readiness_until_initial_flush_is_published() {
+    let base = isolated_base();
+    let mut claim = claim_writer(&base, "ph", "session-ready", Role::Post, "post-1").unwrap();
+
+    assert!(writer_claim_active(&base, "ph", "session-ready", Role::Post, "post-1").unwrap());
+    assert!(!writer_claim_ready(&base, "ph", "session-ready", Role::Post, "post-1").unwrap());
+
+    claim.mark_ready().unwrap();
+    assert!(writer_claim_ready(&base, "ph", "session-ready", Role::Post, "post-1").unwrap());
+
+    claim.mark_closed().unwrap();
+    assert!(!writer_claim_ready(&base, "ph", "session-ready", Role::Post, "post-1").unwrap());
+}
+
+#[test]
 fn closed_claim_rejects_later_claim() {
     let base = isolated_base();
     let mut first = claim_writer(&base, "ph", "session-b", Role::Post, "post-1").unwrap();

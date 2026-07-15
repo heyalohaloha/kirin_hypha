@@ -503,9 +503,9 @@ fn lib_rs_drop_marks_released_after_watchdog_join() {
 }
 
 /// B-231: Watch 表示は pair 選択中なら Stale/NoPre で muted Δ を維持する。
-/// PRE 明示 Bypassed だけは pair を維持したまま POST 絶対値へ戻す。
+/// PRE Bypassed/Inactive は pair を維持したまま POST 絶対値へ戻す。
 #[test]
-fn editor_rs_watch_keeps_delta_grid_except_explicit_pre_bypass() {
+fn editor_rs_watch_keeps_delta_grid_except_unavailable_pre() {
     let src = read("src/editor.rs");
     let draw_post_start = src
         .find("fn draw_post(")
@@ -519,16 +519,16 @@ fn editor_rs_watch_keeps_delta_grid_except_explicit_pre_bypass() {
     let window = &src[draw_post_start..safe_end];
 
     assert!(
-        window.contains("pair_empty || d.mode == DeltaMode::Bypassed"),
-        "draw_post Watch branch must reserve POST absolute fallback for pair-empty or explicit PRE bypass"
+        window.contains("matches!(d.mode, DeltaMode::Bypassed | DeltaMode::PreInactive)"),
+        "draw_post Watch branch must reserve POST absolute fallback for pair-empty or unavailable PRE"
     );
     assert!(
         window.contains("draw_delta_grid(ui, d, max_m, COL_MUTED, false, true);"),
         "draw_post Watch branch must keep muted delta grid for paired transient Stale/NoPre"
     );
     assert!(
-        src.contains("raw_d.mode == DeltaMode::Bypassed"),
-        "draw_post display selection must preserve explicit PRE bypass as a distinct mode"
+        src.contains("DeltaMode::Bypassed | DeltaMode::PreInactive"),
+        "draw_post display selection must preserve PRE-unavailable modes"
     );
     assert!(
         !window.contains("DeltaMode::Stale | DeltaMode::NoPre =>"),
@@ -794,14 +794,14 @@ fn io_thread_post_release_block_clears_delta_result() {
 // を直接判定して構造的に解決する。配線が落ちると pair 解放後も Δ 凍結値が残る regression)。
 
 /// W-283 W-2: editor.rs SignalState::Active + !recording 分岐内で
-/// `if pair_empty || d.mode == DeltaMode::Bypassed {`
+/// `pair_empty || matches!(d.mode, Bypassed | PreInactive)`
 /// → `draw_watch_absolute_grid(ui, m, max_m, false);` の強制経路が存在し、かつその true 枝に
 /// `draw_delta_grid_frozen` (B-048 LKG 凍結経路) が含まれないことを invariant 化。
 #[test]
 fn editor_rs_pair_empty_draws_watch_absolute_not_delta_frozen() {
     let src = read("src/editor.rs");
     let anchor_idx = src
-        .find("if pair_empty || d.mode == DeltaMode::Bypassed {")
+        .find("if pair_empty\n                            || matches!(d.mode, DeltaMode::Bypassed | DeltaMode::PreInactive)")
         .expect(
             "W-283 W-2: pair-empty/PRE-bypassed absolute anchor not found in draw_post Active arm",
         );

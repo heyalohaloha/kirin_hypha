@@ -4,6 +4,8 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include "HyphaUiContract.h"
+
 // B-054: element-for-element port of crates/hypha_gui/{palette,common,led}.rs into JUCE.
 // palette.rs is the single source of truth for colour (no new colours hardcoded) — every
 // constant below is the exact RGB from palette.rs. No red / pure white (#ffffff) / neon
@@ -12,15 +14,15 @@
 namespace hypha
 {
     // ── palette.rs (exact) ───────────────────────────────────────────────────────────────
-    inline const juce::Colour BG            { 0xff0d0f1a }; // #0D0F1A panel/window fill
-    inline const juce::Colour COL_NORMAL    { 0xffe0e0e0 }; // #E0E0E0 values / title (not pure white)
-    inline const juce::Colour COL_MUTED     { 0xff606060 }; // #606060 labels / units / "---"
-    inline const juce::Colour COL_FLORA     { 0xffd4a043 }; // #D4A043 name / flora line / Keeping / preset LED
-    inline const juce::Colour COL_FLORA_BR  { 0xffffe0a0 }; // #FFE0A0 TP > -1.0 dBTP (luminance up, same hue)
-    inline const juce::Colour COL_LED_BLUE  { 0xff4488cc }; // #4488CC WatchBreathing
-    inline const juce::Colour COL_LED_GREEN { 0xff4cc07a }; // #4CC07A RecordStandby / RecordActive
-    inline const juce::Colour COL_LED_YELLOW{ 0xffccaa44 }; // #CCAA44 Error (measure thread)
-    inline const juce::Colour COL_LED_GREY  { 0xff555558 }; // #555558 Idle
+    inline const juce::Colour BG            { ui_contract::background }; // #0D0F1A panel/window fill
+    inline const juce::Colour COL_NORMAL    { ui_contract::normal }; // #E0E0E0 values / title (not pure white)
+    inline const juce::Colour COL_MUTED     { ui_contract::muted }; // #606060 labels / units / "---"
+    inline const juce::Colour COL_FLORA     { ui_contract::flora }; // #D4A043 name / flora line / Keeping / preset LED
+    inline const juce::Colour COL_FLORA_BR  { ui_contract::floraBright }; // #FFE0A0 TP > -1.0 dBTP
+    inline const juce::Colour COL_LED_BLUE  { ui_contract::ledBlue }; // #4488CC WatchBreathing
+    inline const juce::Colour COL_LED_GREEN { ui_contract::ledGreen }; // #4CC07A RecordStandby / RecordActive
+    inline const juce::Colour COL_LED_YELLOW{ ui_contract::ledYellow }; // #CCAA44 Error (measure thread)
+    inline const juce::Colour COL_LED_GREY  { ui_contract::ledGrey }; // #555558 Idle
 
     // Field / button background fill. NOT a new palette colour: derived from BG (lifted
     // slightly). egui styles widgets via framework visuals — palette.rs has no widget-bg
@@ -31,11 +33,11 @@ namespace hypha
     // ── fonts: exact native families also loaded by hypha_gui::install_native_font_contract ─
     inline juce::Font labelFont (float h)
     {
-        return juce::Font (".SF NS", h, juce::Font::plain);
+        return juce::Font (ui_contract::labelFontFamily, h, juce::Font::plain);
     }
     inline juce::Font monoFont  (float h)
     {
-        return juce::Font (".SF NS Mono", h, juce::Font::plain);
+        return juce::Font (ui_contract::monoFontFamily, h, juce::Font::plain);
     }
 
     // Δ (U+0394) built from its codepoint to avoid non-ASCII source/escape issues.

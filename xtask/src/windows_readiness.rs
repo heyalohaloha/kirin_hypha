@@ -8,6 +8,10 @@ const STABILITY_PLAN: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../docs/hypha_stability_plan_2026-06-26.md"
 ));
+const RELEASE_SOURCE_GATE: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../scripts/test_release_source.sh"
+));
 const PAIRING_CANDIDATES_TEST: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../crates/kirin_hypha_ffi/tests/pairing_candidates.rs"
@@ -170,11 +174,20 @@ fn readiness_checks() -> Vec<Check> {
         ),
         check_all(
             "ffi-ignored-parity",
-            "slow FFI parity suite is documented and present in CI full run",
+            "both slow FFI suites have pinned inventories and run through the CI release gate",
             &[
                 (
                     CI_WORKFLOW,
-                    &["cargo test -p kirin_hypha_ffi --test parity --locked -- --ignored --test-threads=1"][..],
+                    &["bash scripts/test_release_source.sh"][..],
+                ),
+                (
+                    RELEASE_SOURCE_GATE,
+                    &[
+                        "assert_ignored_count parity 20",
+                        "assert_ignored_count pairing_candidates 5",
+                        "cargo test -p kirin_hypha_ffi --test parity --locked -- --ignored --test-threads=1",
+                        "cargo test -p kirin_hypha_ffi --test pairing_candidates --locked -- --ignored --test-threads=1",
+                    ][..],
                 ),
                 (
                     STABILITY_PLAN,

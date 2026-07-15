@@ -40,7 +40,6 @@ use kirin_measure::{
     lookup_section_label, mark_released_with_reason, pair_lock_active, pair_status_for_post,
     read_current_v2_preset, resolve_arm_target_for_post_project_in_session, sanitize_name,
     show_save_button, show_stop_record_button, write_broadcast_for_generation,
-    write_pending_claiming_expected_and_clock,
     write_pending_claiming_expected_and_clock_for_generation, write_stop_broadcast,
     CaptureGeneration, CaptureGenerationMember, CaptureGenerationTransaction, DeltaMode,
     DeltaResult, DeltaSnapshot, LatchedPre, License, LiveLicense, LivenessEvaluator, MeasureResult,
@@ -57,6 +56,8 @@ use nih_plug_egui::{
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, LazyLock, Mutex, RwLock};
 use std::time::Duration;
+
+const CAPTURE_PRODUCER_READY_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// B-027 段階 2: pair PRE Name 編集 TextEdit の egui focus ID。
 ///
@@ -121,6 +122,7 @@ fn replace_pair_pre_candidate(state: &PostEditorState, candidate: &PreCandidate,
         pre_json: candidate.path.clone(),
         daw_session_id: candidate.daw_session_id.clone(),
         host_process_id: candidate.host_process_id,
+        readiness: kirin_measure::LatchedPreReadiness::Confirmed,
     };
     replace_pair_selection(state, name, claimed_at, Some(selected));
 }
@@ -603,7 +605,7 @@ pub fn create_post_editor(args: PostEditorArgs) -> Option<Box<dyn Editor>> {
                             false,
                             false,
                         )
-                    } else if raw_d.mode == DeltaMode::Bypassed {
+                    } else if matches!(raw_d.mode, DeltaMode::Bypassed | DeltaMode::PreInactive) {
                         (raw_d, false, false)
                     } else if !pair_empty_for_display {
                         match state.display_smoother.held_delta_display(now) {
@@ -765,12 +767,14 @@ fn draw_post(
                         draw_record_section(ui, m, d, display_muted);
                     } else {
                         // Watch 表示は pair 選択をグリッド形状の権威にする。
-                        // PRE 明示 Bypassed だけは POST 単独の絶対値表示へ戻す。
+                        // PRE Bypassed/Inactive は pair を保ったまま POST 単独表示へ戻す。
                         // Stale/NoPre は「ペアラッチは維持、PRE は一時的に計測相手として
                         // 有効ではない」状態として muted Δ/--- を維持する。
                         // W-283 / G-115-251 / W-2: pair_empty 時は IO Thread の Δ 状態に
                         // 依らず draw_watch_absolute_grid を強制 (B-048 LKG 凍結経路 bypass)。
-                        if pair_empty || d.mode == DeltaMode::Bypassed {
+                        if pair_empty
+                            || matches!(d.mode, DeltaMode::Bypassed | DeltaMode::PreInactive)
+                        {
                             draw_watch_absolute_grid(ui, m, max_m, false);
                         } else {
                             let tp_warn = !display_muted && tp_over(m.true_peak);
@@ -1096,6 +1100,7 @@ fn draw_record_section(ui: &mut egui::Ui, m: &MeasureResult, d: &DeltaResult, mu
             DeltaMode::Active => COL_NORMAL,
             DeltaMode::Stale => COL_MUTED,
             DeltaMode::Bypassed => COL_MUTED,
+            DeltaMode::PreInactive => COL_MUTED,
             DeltaMode::NoPre => COL_MUTED,
         }
     };
@@ -1447,7 +1452,13 @@ fn draw_pair_pre_combo(
                                 None,
                                 Some(&capture_generation),
                             );
-                            if entered && transaction.commit().is_err() {
+                            let committed = entered
+                                && transaction
+                                    .commit_when_ready(CAPTURE_PRODUCER_READY_TIMEOUT)
+                                    .is_ok();
+                            if !committed {
+                                // Transaction Drop releases and broadcasts to the immutable exact
+                                // roster. Close only this editor's in-memory originator state here.
                                 trigger_stop_internal(
                                     &state.record_sm,
                                     &project_hash_snapshot,
@@ -1458,8 +1469,10 @@ fn draw_pair_pre_combo(
                                     None,
                                     now,
                                 );
-                                state.toast =
-                                    Some(Toast::new("All Keep failed (file write error)", now));
+                                state.toast = Some(Toast::new(
+                                    "All Keep failed to arm every PRE and POST",
+                                    now,
+                                ));
                             }
                         }
 
@@ -1950,26 +1963,78 @@ pub(crate) fn trigger_keep_internal(
         }
     }
 
-    // 6. record_signal を pending で書き込み（A-3 修正後: post_instance_id を path 識別子に）
-    let write_result = match capture_generation {
-        Some(generation) => write_pending_claiming_expected_and_clock_for_generation(
-            &plugin_data_dir,
-            project_hash,
-            instance_id,
+    let owned_generation = capture_generation.is_none().then(|| {
+        CaptureGeneration::new_single_named(
+            project_hash.to_string(),
+            instance_id.to_string(),
             target_id.clone(),
             daw_session_id.to_string(),
-            started_at_position_samples,
-            generation,
-        ),
-        None => write_pending_claiming_expected_and_clock(
-            &plugin_data_dir,
-            project_hash,
-            instance_id,
-            target_id.clone(),
-            daw_session_id.to_string(),
-            started_at_position_samples,
-        ),
+            current_host_process_id(),
+            Some(pair_pre_name.to_string()),
+        )
+    });
+    let generation = match capture_generation.or(owned_generation.as_ref()) {
+        Some(generation) => generation,
+        None => return false,
     };
+    let mut owned_transaction = if owned_generation.is_some() {
+        let mut transaction =
+            match CaptureGenerationTransaction::begin(&plugin_data_dir, generation) {
+                Ok(transaction) => transaction,
+                Err(error) => {
+                    if reservation_created {
+                        reservation::release_pairing(
+                            &plugin_data_dir,
+                            project_hash,
+                            &target_id,
+                            instance_id,
+                        );
+                    }
+                    if let Some(t) = toast.as_mut() {
+                        **t = Some(Toast::new(
+                            match error {
+                                kirin_measure::CaptureGenerationError::Io(ref error)
+                                    if error.kind() == std::io::ErrorKind::WouldBlock =>
+                                {
+                                    "Another Keep is active"
+                                }
+                                _ => "Failed to start record",
+                            },
+                            now,
+                        ));
+                    }
+                    return false;
+                }
+            };
+        if transaction.stage().is_err() {
+            if reservation_created {
+                reservation::release_pairing(
+                    &plugin_data_dir,
+                    project_hash,
+                    &target_id,
+                    instance_id,
+                );
+            }
+            if let Some(t) = toast.as_mut() {
+                **t = Some(Toast::new("Failed to start record", now));
+            }
+            return false;
+        }
+        Some(transaction)
+    } else {
+        None
+    };
+
+    // 6. record_signal を pending で書き込み（A-3 修正後: post_instance_id を path 識別子に）
+    let write_result = write_pending_claiming_expected_and_clock_for_generation(
+        &plugin_data_dir,
+        project_hash,
+        instance_id,
+        target_id.clone(),
+        daw_session_id.to_string(),
+        started_at_position_samples,
+        generation,
+    );
     match write_result {
         Ok(_) => {
             log::info!(
@@ -1994,7 +2059,35 @@ pub(crate) fn trigger_keep_internal(
                     pre_json: target.pre_json,
                     daw_session_id: target.daw_session_id,
                     host_process_id: target.host_process_id,
+                    readiness: kirin_measure::LatchedPreReadiness::Confirmed,
                 });
+            }
+            if let Some(transaction) = owned_transaction.as_mut() {
+                if transaction
+                    .commit_when_ready(CAPTURE_PRODUCER_READY_TIMEOUT)
+                    .is_err()
+                {
+                    let _ = mark_released_with_reason(
+                        &plugin_data_dir,
+                        project_hash,
+                        instance_id,
+                        ReleaseReason::ManualStop,
+                    );
+                    reservation::release_pairing(
+                        &plugin_data_dir,
+                        project_hash,
+                        &target_id,
+                        instance_id,
+                    );
+                    if let Ok(mut g) = paired_pre_target.lock() {
+                        *g = None;
+                    }
+                    record_sm.exit_record();
+                    if let Some(t) = toast.as_mut() {
+                        **t = Some(Toast::new("Failed to arm PRE and POST", now));
+                    }
+                    return false;
+                }
             }
             true
         }
@@ -2065,15 +2158,18 @@ fn trigger_all_keep_broadcast(
     let members = ready
         .iter()
         .filter_map(|candidate| {
-            Some(CaptureGenerationMember {
-                project_hash: candidate.project_uuid.clone(),
-                post_instance_id: candidate.instance_id.clone(),
-                pre_instance_id: candidate.paired_pre_instance_id.clone()?,
-                record_session_id: String::new(),
-            })
+            Some((
+                CaptureGenerationMember {
+                    project_hash: candidate.project_uuid.clone(),
+                    post_instance_id: candidate.instance_id.clone(),
+                    pre_instance_id: candidate.paired_pre_instance_id.clone()?,
+                    record_session_id: String::new(),
+                },
+                candidate.pair_pre_name.clone(),
+            ))
         })
         .collect();
-    let generation = CaptureGeneration::new_for_members(
+    let generation = CaptureGeneration::new_for_named_members(
         originator_instance_id.to_string(),
         daw_session_id.to_string(),
         current_host_process_id(),

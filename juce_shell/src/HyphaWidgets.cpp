@@ -151,7 +151,7 @@ namespace hypha
         editor->setMultiLine (false);
         editor->setReturnKeyStartsNewLine (false);
         editor->setInputRestrictions (16, allowedNameChars()); // parity with sanitize_name (≤16)
-        editor->setFont (monoFont (14.0f));
+        editor->setFont (monoFont (ui_contract::nameFontHeight));
         editor->setColour (juce::TextEditor::backgroundColourId, kFieldFill);
         editor->setColour (juce::TextEditor::textColourId, COL_FLORA);
         editor->setColour (juce::TextEditor::outlineColourId, COL_MUTED);
@@ -235,7 +235,7 @@ namespace hypha
 
         const bool empty = rawName.isEmpty();
         const juce::String shown = prefix + (empty ? fallback : rawName);
-        g.setFont (monoFont (14.0f));
+        g.setFont (monoFont (ui_contract::nameFontHeight));
         g.setColour (COL_FLORA);
         g.drawText (shown, getLocalBounds(), juce::Justification::centredLeft);
     }

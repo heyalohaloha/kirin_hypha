@@ -35,7 +35,8 @@ namespace hypha
         }
 
         g.setColour (isEnabled() ? text : COL_MUTED);
-        g.setFont (monoFont (framed ? 15.0f : 13.0f));
+        g.setFont (monoFont (framed ? ui_contract::framedButtonFontHeight
+                                    : ui_contract::framelessButtonFontHeight));
         g.drawFittedText (getButtonText(), getLocalBounds().reduced (6, 2),
                           juce::Justification::centred, 1, 0.85f);
     }

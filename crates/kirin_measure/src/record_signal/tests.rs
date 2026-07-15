@@ -11,6 +11,32 @@ fn isolated_dir() -> PathBuf {
     dir
 }
 
+fn write_pending_claiming_expected_and_clock(
+    base_dir: &Path,
+    project_hash: &str,
+    post_instance_id: &str,
+    target_pre_instance_id: String,
+    daw_session_id: String,
+    started_at_position_samples: Option<i64>,
+) -> Result<RecordSignal, SignalError> {
+    let generation = crate::capture_generation::CaptureGeneration::new_single(
+        project_hash.to_string(),
+        post_instance_id.to_string(),
+        target_pre_instance_id.clone(),
+        daw_session_id.clone(),
+        std::process::id(),
+    );
+    write_pending_claiming_expected_and_clock_for_generation(
+        base_dir,
+        project_hash,
+        post_instance_id,
+        target_pre_instance_id,
+        daw_session_id,
+        started_at_position_samples,
+        &generation,
+    )
+}
+
 // ── スキーマ・パス ──────────────────────────────────────
 
 #[test]
@@ -112,6 +138,34 @@ fn write_pending_with_clock_persists_native_start_position() {
     let loaded = read_signal(&base, "ph", "post-1").unwrap();
     assert_eq!(s.started_at_position_samples, Some(96_000));
     assert_eq!(loaded.started_at_position_samples, Some(96_000));
+}
+
+#[test]
+fn generation_signal_preserves_each_split_shells_local_daw_identity() {
+    let base = isolated_dir();
+    let generation = crate::capture_generation::CaptureGeneration::new_single(
+        "project-vst".to_string(),
+        "post-vst".to_string(),
+        "pre-vst".to_string(),
+        "originator-daw-au".to_string(),
+        std::process::id(),
+    );
+
+    let signal = write_pending_claiming_expected_and_clock_for_generation(
+        &base,
+        "project-vst",
+        "post-vst",
+        "pre-vst".to_string(),
+        "local-daw-vst".to_string(),
+        None,
+        &generation,
+    )
+    .expect("one host generation may bridge AU/VST instance-scoped DAW ids");
+    assert_eq!(signal.daw_session_id, "local-daw-vst");
+    assert_eq!(
+        signal.capture_generation_id,
+        generation.capture_generation_id
+    );
 }
 
 #[test]

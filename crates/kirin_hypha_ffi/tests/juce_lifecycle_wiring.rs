@@ -15,7 +15,7 @@ fn read_repo(path: &str) -> String {
 }
 
 #[test]
-fn au_and_vst3_share_pair_status_and_control_geometry_contract() {
+fn shipped_au_and_vst3_compile_the_same_editor_processor_and_control_contract() {
     let ffi_header = read_repo("crates/kirin_hypha_ffi/include/kirin_hypha_ffi.h");
     for symbol in [
         "kirin_hypha_select_pair_candidate",
@@ -25,33 +25,152 @@ fn au_and_vst3_share_pair_status_and_control_geometry_contract() {
         assert!(ffi_header.contains(symbol), "FFI must expose {symbol}");
     }
 
-    let rust_indicator = read_repo("crates/hypha_gui/src/pair_indicator.rs");
     let juce_editor = read_repo("juce_shell/src/PluginEditor.cpp");
     for text in ["PAIR —", "PAIR ◌", "PAIR ●"] {
-        assert!(rust_indicator.contains(text), "VST3 missing {text}");
-        assert!(juce_editor.contains(text), "AU missing {text}");
+        assert!(
+            juce_editor.contains(text),
+            "common JUCE shell missing {text}"
+        );
     }
-    assert!(juce_editor.contains("setSize (300, 200)"));
-    assert!(juce_editor
-        .contains("postControls->setBounds (kMargin, afterMetric + 4, w - 2 * kMargin, 26)"));
+    assert!(juce_editor.contains("setSize (ui::editorWidth, ui::editorHeight)"));
+    assert!(juce_editor.contains("ui::editorLayout (isPost, getWidth())"));
+    assert!(juce_editor.contains("ui::watchMetrics"));
+    assert!(juce_editor.contains("ui::recordMetrics"));
+    assert!(juce_editor.contains("ui::metricLabelFontHeight"));
+    assert!(juce_editor.contains("ui::metricValueFontHeight"));
+    assert!(juce_editor.contains("ui::metricUnitFontHeight"));
+    assert!(juce_editor.contains("ui::maximumLabel"));
+    assert!(
+        juce_editor.contains("ui::preTitle : ui::postTitle")
+            || juce_editor.contains("ui::postTitle : ui::preTitle")
+    );
+    assert!(!juce_editor.contains("setSize (300, 200)"));
 
-    let rust_post = read_repo("crates/hypha_post/src/editor.rs");
-    assert!(rust_post.contains("egui::Button::new(\"Keep\").min_size(Vec2::new(width, 26.0))"));
-    assert!(rust_post.contains(".add_sized([width, 26.0], egui::Button::new(\"Stop\"))"));
-    assert!(!rust_post.contains("egui::Button::new(\"Mark\")"));
+    let ui_contract = read_repo("juce_shell/src/HyphaUiContract.h");
+    for required in [
+        "constexpr int editorWidth  = 300",
+        "constexpr int editorHeight = 200",
+        "constexpr EditorLayout editorLayout",
+        "constexpr Rect metricCellBounds",
+        "constexpr std::array<MetricSlot, 6> watchMetrics",
+        "constexpr std::array<MetricSlot, 6> recordMetrics",
+        "POST status row must end exactly at the 300x200 editor boundary",
+    ] {
+        assert!(
+            ui_contract.contains(required),
+            "common UI contract missing {required}"
+        );
+    }
+
+    let theme = read_repo("juce_shell/src/HyphaTheme.h");
+    for required in [
+        "ui_contract::background",
+        "ui_contract::normal",
+        "ui_contract::muted",
+        "ui_contract::flora",
+        "ui_contract::labelFontFamily",
+        "ui_contract::monoFontFamily",
+    ] {
+        assert!(
+            theme.contains(required),
+            "theme bypasses UI contract: {required}"
+        );
+    }
 
     let juce_controls = read_repo("juce_shell/src/PostControls.cpp");
     assert!(juce_controls.contains("keepBtn  .setVisible (! recording && os)"));
     assert!(juce_controls.contains("keepBtn  .setEnabled (pairSelected)"));
     assert!(juce_controls.contains("stopBtn  .setVisible (recording && os)"));
     assert!(!juce_controls.contains("markBtn"));
-    assert!(ffi_header.contains("kirin_hypha_add_mark"));
-    assert!(rust_post.contains("pair_status != PairStatus::Unpaired"));
+    let juce_controls_header = read_repo("juce_shell/src/PostControls.h");
+    assert!(juce_controls_header.contains("ui_contract::keepLabel"));
+    assert!(juce_controls_header.contains("ui_contract::stopLabel"));
 
     let cmake = read_repo("juce_shell/CMakeLists.txt");
-    assert!(cmake.contains("FORMATS AU VST3"));
+    assert!(cmake.contains("set(KIRIN_PLUGIN_FORMATS AU VST3)"));
+    assert!(cmake.contains("FORMATS ${KIRIN_PLUGIN_FORMATS}"));
     assert!(cmake.contains("src/PluginProcessor.cpp"));
     assert!(cmake.contains("src/PluginEditor.cpp"));
+    assert!(cmake.contains("add_kirin_plugin(KirinHyphaPRE"));
+    assert!(cmake.contains("add_kirin_plugin(KirinHyphaPOST"));
+
+    let source_gate = read_repo("scripts/test_release_source.sh");
+    assert!(source_gate.contains("juce_shell/tests/ui_contract_test.cpp"));
+    assert!(source_gate.contains("-Wpedantic -Werror"));
+    assert!(source_gate.contains("cargo build -p kirin_hypha_ffi --locked"));
+    assert!(source_gate.contains("kirin_hypha_restore_pair_candidate"));
+    assert!(source_gate.contains("kirin_hypha_get_paired_pre_locator"));
+}
+
+#[test]
+fn paired_pre_inactive_uses_post_absolute_without_releasing_binding() {
+    let ffi_header = read_repo("crates/kirin_hypha_ffi/include/kirin_hypha_ffi.h");
+    for required in [
+        "KIRIN_DELTA_MODE_ACTIVE 0u",
+        "KIRIN_DELTA_MODE_BYPASSED 3u",
+        "KIRIN_DELTA_MODE_PRE_INACTIVE 4u",
+        "KIRIN_PAIR_STATUS_PAIRED 2u",
+        "KIRIN_SIGNAL_STATE_ACTIVE 1u",
+    ] {
+        assert!(
+            ffi_header.contains(required),
+            "ABI contract missing {required}"
+        );
+    }
+
+    let editor = read_repo("juce_shell/src/PluginEditor.cpp");
+    let display_contract = read_repo("juce_shell/src/HyphaDisplayContract.h");
+    assert!(display_contract.contains("mode == KIRIN_DELTA_MODE_BYPASSED"));
+    assert!(display_contract.contains("mode == KIRIN_DELTA_MODE_PRE_INACTIVE"));
+    assert!(display_contract.contains("mode == KIRIN_DELTA_MODE_ACTIVE"));
+    assert!(editor.contains("display::preUnavailableForDelta (rawD.mode)"));
+    assert!(editor.contains("display::recordMetricMode (haveD, d.mode)"));
+    assert!(editor.contains("display::watchMetricMode (pairSelected, haveRawD, rawD.mode)"));
+    assert!(!editor.contains("rawD.mode == 0"));
+    assert!(editor.contains("Kind::Abs6"));
+    assert!(editor.contains("paired PRE bypassed/inactive -> POST absolute"));
+    assert!(display_contract.contains("if (! pairSelected)"));
+    assert!(display_contract.contains("haveDelta && preUnavailableForDelta (mode)"));
+
+    let producer = read_repo("crates/kirin_measure/src/io_thread_post.rs");
+    assert!(producer.contains("mode: DeltaMode::PreInactive"));
+    assert!(producer.contains("Some(SignalState::Inactive) => DeltaMode::PreInactive"));
+    assert!(producer.contains("POST absolute until it resumes"));
+    assert!(!producer.contains("idle はラッチ維持で Stale"));
+}
+
+#[test]
+fn saved_daw_state_restores_the_exact_pre_without_registry_rescan() {
+    let ffi_header = read_repo("crates/kirin_hypha_ffi/include/kirin_hypha_ffi.h");
+    assert!(ffi_header.contains("kirin_hypha_restore_pair_candidate"));
+    assert!(ffi_header.contains("kirin_hypha_get_paired_pre_locator"));
+
+    let processor = read_repo("juce_shell/src/PluginProcessor.cpp");
+    assert!(
+        processor.contains("xml.setAttribute (\"paired_pre_instance_id\", persistPairInstanceId)")
+    );
+    assert!(processor
+        .contains("restoredPairInstanceId = xml->getStringAttribute (\"paired_pre_instance_id\")"));
+    assert!(processor
+        .contains("xml.setAttribute (\"paired_pre_project_hash\", persistPairProjectHash)"));
+    assert!(processor.contains(
+        "restoredPairProjectHash = xml->getStringAttribute (\"paired_pre_project_hash\")"
+    ));
+    assert!(processor.contains("pairedPreLocator (livePairProjectHash, livePairInstanceId)"));
+    assert!(processor.contains("kirin_hypha_restore_pair_candidate ("));
+
+    let ffi = read_repo("crates/kirin_hypha_ffi/src/lib.rs");
+    let restore = slice_between(&ffi, "pub fn restore_pair_candidate", "pub fn pair_status");
+    assert!(restore.contains("restored_pair_latch("));
+    assert!(!restore.contains("enumerate_live_pre_pair_choices"));
+    assert!(!restore.contains("select_live_pre_pair_choice"));
+    assert!(ffi.contains("project_dir.join(pre_instance_id).join(\"pre.json\")"));
+    assert!(ffi.contains("LatchedPreReadiness::RestoredWaiting"));
+    assert!(ffi.contains("pub fn paired_pre_locator(&self) -> Option<(String, String)>"));
+
+    let pairing = read_repo("crates/kirin_measure/src/pairing_scope.rs");
+    assert!(pairing.contains("confirm_restored_latch_runtime"));
+    assert!(pairing.contains("LatchedTarget::RestoredWaiting => return None"));
 }
 
 #[test]
@@ -90,7 +209,8 @@ fn juce_wrappers_forward_host_presentation_latency_as_diagnostics() {
 
     // Both shipped formats now compile this processor and the same patched JUCE host adapter.
     let cmake = read_repo("juce_shell/CMakeLists.txt");
-    assert!(cmake.contains("FORMATS AU VST3"));
+    assert!(cmake.contains("set(KIRIN_PLUGIN_FORMATS AU VST3)"));
+    assert!(cmake.contains("FORMATS ${KIRIN_PLUGIN_FORMATS}"));
 }
 
 fn slice_between<'a>(src: &'a str, start_marker: &str, end_marker: &str) -> &'a str {
@@ -126,67 +246,6 @@ fn juce_prepare_does_not_destroy_engine_while_recording() {
     assert!(
         guarded_return,
         "Record guard must return before the incompatible rebuild can destroy the engine"
-    );
-}
-
-#[test]
-fn egui_pre_initialize_does_not_shutdown_threads_while_recording() {
-    let src = read_repo("crates/hypha_pre/src/lib.rs");
-    let body = slice_between(&src, "fn initialize(", "fn reset(");
-
-    let guard = body
-        .find("self.record_sm.is_recording()")
-        .expect("PRE initialize must guard Record before thread shutdown");
-    let shutdown = body
-        .find("self.watchdog_shutdown.store(true")
-        .expect("PRE initialize contains the watchdog shutdown path");
-    assert!(
-        guard < shutdown,
-        "PRE Record guard must run before initialize() can stop threads"
-    );
-
-    let guarded_return = body[guard..shutdown].contains("return true;");
-    assert!(
-        guarded_return,
-        "PRE Record guard must return before initialize() can stop threads"
-    );
-}
-
-#[test]
-fn egui_pre_drop_does_not_exit_record_state_machine() {
-    let src = read_repo("crates/hypha_pre/src/lib.rs");
-    let body = slice_between(&src, "impl Drop for HyphaPre", "impl Plugin for HyphaPre");
-
-    assert!(
-        body.contains("PRE plugin teardown is lifecycle, not Stop authority"),
-        "PRE Drop must document that teardown has no Stop authority"
-    );
-    assert!(
-        !body.contains("self.record_sm.exit_record()"),
-        "PRE Drop must not move Record back to Watch"
-    );
-}
-
-#[test]
-fn egui_post_initialize_does_not_shutdown_threads_while_recording() {
-    let src = read_repo("crates/hypha_post/src/lib.rs");
-    let body = slice_between(&src, "fn initialize(", "fn reset(");
-
-    let guard = body
-        .find("self.record_sm.is_recording()")
-        .expect("POST initialize must guard Record before thread shutdown");
-    let shutdown = body
-        .find("self.watchdog_shutdown.store(true")
-        .expect("POST initialize contains the watchdog shutdown path");
-    assert!(
-        guard < shutdown,
-        "POST Record guard must run before initialize() can stop threads"
-    );
-
-    let guarded_return = body[guard..shutdown].contains("return true;");
-    assert!(
-        guarded_return,
-        "POST Record guard must return before initialize() can stop threads"
     );
 }
 

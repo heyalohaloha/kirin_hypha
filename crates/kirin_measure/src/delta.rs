@@ -9,6 +9,10 @@ pub enum DeltaMode {
     /// PRE が明示的にバイパス/OFF（POST 単独表示へ戻す）
     Bypassed,
 
+    /// ペアは維持されているが PRE の process が停止中（POST 単独表示へ戻す）。
+    /// PRE が再び Active になれば、同じ exact instance binding で差分表示へ復帰する。
+    PreInactive,
+
     /// PRE ファイルはあるが t が 2〜10 秒古い（GUI グレーアウト）
     Stale,
 
@@ -63,7 +67,7 @@ pub struct DeltaResult {
     /// Δ Sharpness = POST_sharpness − PRE_sharpness [acum]。PRE/POST どちらかが None → None。
     pub sharpness: Option<f64>,
 
-    /// PREファイルの鮮度状態。NoPre/Stale/Bypassed 時は全 Δ フィールドを表示しない。
+    /// PREファイルの鮮度状態。Active 以外は全 Δ フィールドを表示しない。
     pub mode: DeltaMode,
 
     /// 直近 `DeltaMode::Active` 時の Δ 6 軸スナップショット (B-048 / G-115-245)。

@@ -1203,6 +1203,7 @@ fn resolve_arm_target_for_post_project_rejects_foreign_latch_without_same_daw_id
         pre_json: root.join("old-pre-project").join("iid-A").join("pre.json"),
         daw_session_id: None,
         host_process_id: None,
+        readiness: LatchedPreReadiness::Confirmed,
     }));
 
     assert!(
@@ -1228,6 +1229,7 @@ fn resolve_arm_target_for_post_project_rejects_same_project_latch_with_foreign_d
         pre_json: root.join("post-current").join("iid-A").join("pre.json"),
         daw_session_id: Some("daw-old".to_string()),
         host_process_id: None,
+        readiness: LatchedPreReadiness::Confirmed,
     }));
 
     assert!(
@@ -1371,6 +1373,7 @@ fn resolve_arm_target_uses_latch_over_ambiguous() {
         pre_json,
         daw_session_id: None,
         host_process_id: None,
+        readiness: LatchedPreReadiness::Confirmed,
     }));
     write_pre_for_select(&root, "puid-2", "iid-B", "snare", "active", &now);
 
@@ -1392,6 +1395,7 @@ fn resolve_arm_target_uses_latch_even_when_pre_json_is_stale() {
         pre_json,
         daw_session_id: None,
         host_process_id: None,
+        readiness: LatchedPreReadiness::Confirmed,
     }));
 
     assert!(select_target_pre_for_arm(&root, "snare").is_none());
@@ -1409,10 +1413,80 @@ fn resolve_arm_target_uses_latch_even_when_pre_json_is_missing() {
         pre_json: root.join("puid-1").join("iid-A").join("pre.json"),
         daw_session_id: None,
         host_process_id: None,
+        readiness: LatchedPreReadiness::Confirmed,
     }));
 
     let sel = resolve_arm_target(&root, "snare", &latched).expect("latched target wins");
     assert_eq!(sel.instance_id, "iid-A");
+}
+
+#[test]
+fn restored_latch_blocks_name_fallback_until_exact_current_runtime_is_proven() {
+    let root = isolated_dir();
+    let host = std::process::id();
+    write_pre_for_select_with_host_process_id(
+        &root,
+        "saved-project",
+        "iid-saved",
+        "snare",
+        "inactive",
+        &now_rfc3339(),
+        Some(host),
+    );
+    let old_owner = attach_live_owner(&root, "saved-project", "iid-saved");
+    drop(old_owner);
+
+    write_pre_for_select_with_host_process_id(
+        &root,
+        "other-project",
+        "iid-other",
+        "snare",
+        "inactive",
+        &now_rfc3339(),
+        Some(host),
+    );
+    let _other_owner = attach_live_owner(&root, "other-project", "iid-other");
+
+    let pre_json = root
+        .join("saved-project")
+        .join("iid-saved")
+        .join("pre.json");
+    let latched = Mutex::new(Some(LatchedPre {
+        name: "snare".to_string(),
+        instance_id: "iid-saved".to_string(),
+        project_dir: root.join("saved-project"),
+        pre_json,
+        daw_session_id: Some("daw-saved".to_string()),
+        host_process_id: Some(host),
+        readiness: LatchedPreReadiness::RestoredWaiting,
+    }));
+
+    assert!(
+        resolve_arm_target(&root, "snare", &latched).is_none(),
+        "Keep must wait for the saved exact path instead of arming iid-other by name"
+    );
+    assert_eq!(
+        latched.lock().unwrap().as_ref().map(|pre| pre.readiness),
+        Some(LatchedPreReadiness::RestoredWaiting)
+    );
+
+    write_pre_for_select_with_host_process_id(
+        &root,
+        "saved-project",
+        "iid-saved",
+        "snare",
+        "inactive",
+        &now_rfc3339(),
+        Some(host),
+    );
+    let _new_owner = attach_live_owner(&root, "saved-project", "iid-saved");
+    let selected = resolve_arm_target(&root, "snare", &latched)
+        .expect("the exact saved runtime should arm as soon as it republishes");
+    assert_eq!(selected.instance_id, "iid-saved");
+    assert_eq!(
+        latched.lock().unwrap().as_ref().map(|pre| pre.readiness),
+        Some(LatchedPreReadiness::Confirmed)
+    );
 }
 
 #[test]
@@ -1425,6 +1499,7 @@ fn resolve_arm_target_for_post_project_uses_latch_even_when_project_dir_not_disc
         pre_json: root.join("old-pre-project").join("iid-A").join("pre.json"),
         daw_session_id: Some("daw-current".to_string()),
         host_process_id: None,
+        readiness: LatchedPreReadiness::Confirmed,
     }));
 
     let sel = resolve_arm_target_for_post_project_in_session(

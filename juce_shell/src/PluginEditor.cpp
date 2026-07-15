@@ -1,4 +1,5 @@
 #include "PluginEditor.h"
+#include "HyphaDisplayContract.h"
 
 #include <cmath>
 #include <limits>
@@ -10,12 +11,28 @@ using hypha::COL_NORMAL;
 
 namespace
 {
-    constexpr int   kMargin   = 10;  // egui add_space(10) left/right
-    constexpr int   kTopSpace = 8;   // egui add_space(8)
-    constexpr int   kTitleH   = 26;  // title row (font 20)
-    constexpr int   kLedPx    = 12;  // led 12×12 box (radius 5 circle)
-    constexpr int   kMetricH  = 70;  // metric area reserve (3 rows of pitch 24)
+    namespace ui = hypha::ui_contract;
+    namespace display = hypha::display_contract;
     const double    kNaN = std::numeric_limits<double>::quiet_NaN();
+
+    juce::Rectangle<int> juceRect (ui::Rect rect)
+    {
+        return { rect.x, rect.y, rect.width, rect.height };
+    }
+
+    juce::String metricHelp (ui::Metric metric)
+    {
+        switch (metric)
+        {
+            case ui::Metric::lufs:      return hypha::helpLufsM();
+            case ui::Metric::truePeak:  return hypha::helpTp();
+            case ui::Metric::crest:     return hypha::helpCrest();
+            case ui::Metric::psr:       return hypha::helpPsr();
+            case ui::Metric::loudness:  return hypha::helpN();
+            case ui::Metric::sharpness: return hypha::helpSharp();
+        }
+        return {};
+    }
 
     juce::String allKeepMenuLabel (int nReady)
     {
@@ -49,17 +66,18 @@ namespace
 
     juce::String pairStatusText (int status)
     {
-        if (status == 2) return juce::CharPointer_UTF8 ("PAIR ●");
-        if (status == 1) return juce::CharPointer_UTF8 ("PAIR ◌");
+        if (status == KIRIN_PAIR_STATUS_PAIRED) return juce::CharPointer_UTF8 ("PAIR ●");
+        if (status == KIRIN_PAIR_STATUS_WAITING) return juce::CharPointer_UTF8 ("PAIR ◌");
         return juce::CharPointer_UTF8 ("PAIR —");
     }
 
     juce::Colour pairStatusColour (int status)
     {
-        if (status == 2) return hypha::COL_LED_BLUE;
-        if (status == 1) return COL_FLORA;
+        if (status == KIRIN_PAIR_STATUS_PAIRED) return hypha::COL_LED_BLUE;
+        if (status == KIRIN_PAIR_STATUS_WAITING) return COL_FLORA;
         return COL_MUTED;
     }
+
 }
 
 KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
@@ -67,7 +85,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
 {
     setWantsKeyboardFocus (true);
     setFocusContainerType (juce::Component::FocusContainerType::keyboardFocusContainer);
-    setSize (300, 200); // egui EguiState::from_size(300, 200) — identical for PRE and POST
+    setSize (ui::editorWidth, ui::editorHeight);
 
     addAndMakeVisible (led);
     for (auto& c : cells)
@@ -84,7 +102,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         else        processorRef.setPreName (n);
     };
 
-    pairStatusLabel.setFont (hypha::monoFont (11.0f));
+    pairStatusLabel.setFont (hypha::monoFont (ui::pairStatusFontHeight));
     pairStatusLabel.setJustificationType (juce::Justification::centredRight);
     pairStatusLabel.setInterceptsMouseClicks (false, false);
     addAndMakeVisible (pairStatusLabel);
@@ -127,21 +145,21 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         nameField.setFallback (instanceId8());
     }
 
-    bannerLabel.setFont (hypha::monoFont (13.0f));
+    bannerLabel.setFont (hypha::monoFont (ui::bannerFontHeight));
     bannerLabel.setColour (juce::Label::textColourId, COL_FLORA);
     bannerLabel.setText ("Keeping", juce::dontSendNotification);
     bannerLabel.setJustificationType (juce::Justification::centredLeft);
     bannerLabel.setInterceptsMouseClicks (false, false);
     addChildComponent (bannerLabel);
 
-    toastLabel.setFont (hypha::monoFont (11.0f));
+    toastLabel.setFont (hypha::monoFont (ui::statusFontHeight));
     toastLabel.setColour (juce::Label::textColourId, COL_MUTED);
     toastLabel.setJustificationType (juce::Justification::centredLeft);
     toastLabel.setInterceptsMouseClicks (false, false);
     addChildComponent (toastLabel);
 
     // B-118 (③): io_thread 連続失敗の永続 status label（toast とは別・R-26 で文言ありの間表示）。
-    recordErrorLabel.setFont (hypha::monoFont (11.0f));
+    recordErrorLabel.setFont (hypha::monoFont (ui::statusFontHeight));
     recordErrorLabel.setColour (juce::Label::textColourId, COL_MUTED);
     recordErrorLabel.setJustificationType (juce::Justification::centredLeft);
     recordErrorLabel.setInterceptsMouseClicks (false, false);
@@ -175,119 +193,70 @@ void KirinHyphaEditor::paint (juce::Graphics& g)
     bg.draw (g, getLocalBounds()); // mycelium PNG over BG (R-12: pure chrome)
 
     g.setColour (COL_NORMAL);
-    g.setFont (hypha::labelFont (20.0f));
-    g.drawText (isPost ? "POST" : "PRE", titleArea, juce::Justification::centredLeft);
+    g.setFont (hypha::labelFont (ui::titleFontHeight));
+    g.drawText (isPost ? ui::postTitle : ui::preTitle,
+                titleArea,
+                juce::Justification::centredLeft);
 
     // flora line (#d4a043, 1px) — the mycelium tip joining Hypha to Kirin OS.
     g.setColour (COL_FLORA);
-    g.fillRect ((float) kMargin, (float) floraY, (float) (getWidth() - 2 * kMargin), 1.0f);
+    g.fillRect ((float) ui::margin, (float) floraY,
+                (float) (getWidth() - 2 * ui::margin), 1.0f);
 }
 
 void KirinHyphaEditor::resized()
 {
-    const int w = getWidth();
-    titleArea = { kMargin, kTopSpace, 58, kTitleH };
-    led.setBounds (w - kMargin - kLedPx, kTopSpace + (kTitleH - kLedPx) / 2, kLedPx, kLedPx);
-    const int pairStatusW = 52;
-    const int pairStatusX = w - kMargin - kLedPx - 6 - pairStatusW;
-    pairStatusLabel.setBounds (pairStatusX, kTopSpace, pairStatusW, kTitleH);
-
-    const int fieldLeft  = kMargin + 58 + 6;            // after the title text
-    const int fieldRight = pairStatusX - 6;             // before the common PAIR status
-
+    const auto layout = ui::editorLayout (isPost, getWidth());
+    titleArea = juceRect (layout.title);
+    led.setBounds (juceRect (layout.led));
+    pairStatusLabel.setBounds (juceRect (layout.pairStatus));
+    nameField.setBounds (juceRect (layout.name));
     if (isPost)
-    {
-        const int nameY = kTopSpace + kTitleH + 4;      // 38
-        const int ddW = 22;                             // ▼ dropdown width (B-102)
-        nameField.setBounds (kMargin, nameY, w - 2 * kMargin - ddW - 4, 22);
-        pairDropdown.setBounds (w - kMargin - ddW, nameY, ddW, 22);
-        floraY    = nameY + 22 + 4;                     // 64 (B-118 追補 2-2: POST を 6px 引上げ recordErrorLabel を 200px 内へ)
-        metricTop = floraY + 1 + 4;                     // 69
-    }
-    else
-    {
-        nameField.setBounds (fieldLeft, kTopSpace, juce::jmax (0, fieldRight - fieldLeft), kTitleH);
-        floraY    = kTopSpace + kTitleH + 4;            // 38
-        metricTop = floraY + 1 + 6;                     // 45
-    }
+        pairDropdown.setBounds (juceRect (layout.pairDropdown));
+    floraY = layout.floraY;
+    metricTop = layout.metricTop;
 
     layoutMetrics (currentSix);
-
-    const int afterMetric = metricTop + kMetricH;
-    int bannerY = afterMetric + 4;
     if (isPost && postControls != nullptr)
-    {
-        postControls->setBounds (kMargin, afterMetric + 4, w - 2 * kMargin, 26);
-        bannerY = afterMetric + 4 + 26 + 1;             // B-118 追補 2-2: +1 gap（recordErrorLabel 行ぶん詰め）
-    }
-    bannerLabel.setBounds (kMargin, bannerY, w - 2 * kMargin, 16);
-    toastLabel .setBounds (kMargin, bannerY, w - 2 * kMargin, 16); // same slot (per-role only one shows)
-    // B-118 (③/追補 2-2): 永続 status row（toast の直下）。h14 で POST=186..200 / PRE=135..149 に収め画面外を解消。
-    recordErrorLabel.setBounds (kMargin, bannerY + 16, w - 2 * kMargin, 14);
+        postControls->setBounds (juceRect (layout.postControls));
+    bannerLabel.setBounds (juceRect (layout.banner));
+    toastLabel.setBounds (juceRect (layout.banner));
+    recordErrorLabel.setBounds (juceRect (layout.recordError));
 }
 
-void KirinHyphaEditor::layoutMetrics (bool six)
+void KirinHyphaEditor::layoutMetrics (bool)
 {
-    const int areaW = getWidth() - 2 * kMargin;
-    const int rowH = 22, pitch = 24;
-
-    if (! six)
-    {
-        for (int i = 0; i < 3; ++i)
-            cells[(size_t) i].setBounds (kMargin, metricTop + i * pitch, areaW, rowH);
-    }
-    else
-    {
-        const int gap = 6;
-        const int cw  = (areaW - gap) / 2;
-        for (int i = 0; i < 6; ++i)
-        {
-            const int r = i / 2, c = i % 2;
-            cells[(size_t) i].setBounds (kMargin + c * (cw + gap), metricTop + r * pitch, cw, rowH);
-        }
-    }
+    for (int i = 0; i < 6; ++i)
+        cells[(size_t) i].setBounds (juceRect (ui::metricCellBounds (i, metricTop, getWidth())));
 }
 
 void KirinHyphaEditor::configureForKind (Kind k)
 {
     const bool watch = (k == Kind::WatchAbs6 || k == Kind::WatchDelta6);
-    const bool six = true;
     const bool dlt = (k == Kind::WatchDelta6 || k == Kind::Delta6);
-
-    const float lblSz = six ? 11.0f : 13.0f;
-    const float valSz = six ? 14.0f : 16.0f;
-    const float unitSz = six ? 10.0f : 11.0f;
-    const float minCol = six ? 40.0f : 58.0f;
     const juce::String d = hypha::delta();
 
-    auto cfg = [&] (int i, const juce::String& label, const juce::String& unit, const juce::String& help)
+    const auto& specs = watch ? ui::watchMetrics : ui::recordMetrics;
+    for (int i = 0; i < (int) specs.size(); ++i)
     {
-        cells[(size_t) i].configure (label, unit, help, lblSz, valSz, unitSz, minCol);
+        const auto spec = specs[(size_t) i];
+        const auto text = ui::metricText (spec.metric);
+        const bool deltaCell = dlt && ! spec.maximum;
+        const juce::String label = spec.maximum
+                                     ? juce::String (ui::maximumLabel)
+                                     : (deltaCell ? d + text.deltaSuffix
+                                                  : juce::String (text.absoluteLabel));
+        const juce::String unit = deltaCell ? text.deltaUnit : text.absoluteUnit;
+        cells[(size_t) i].configure (label, unit, metricHelp (spec.metric),
+                                     ui::metricLabelFontHeight,
+                                     ui::metricValueFontHeight,
+                                     ui::metricUnitFontHeight,
+                                     ui::metricMinimumLabelWidth);
         cells[(size_t) i].setVisible (true);
-    };
-
-    if (watch)
-    {
-        cfg (0, dlt ? d + "LUFS"  : juce::String ("LUFS-M"), dlt ? "LU" : "LUFS", hypha::helpLufsM());
-        cfg (1, "MAX", "LUFS", hypha::helpLufsM());
-        cfg (2, dlt ? d + "TP"    : juce::String ("TP"), dlt ? "dB" : "dBTP", hypha::helpTp());
-        cfg (3, "MAX", "dBTP", hypha::helpTp());
-        cfg (4, dlt ? d + "Crest" : juce::String ("Crest"), "dB", hypha::helpCrest());
-        cfg (5, "MAX", "dB", hypha::helpCrest());
-    }
-    else
-    {
-        // Record 2×3: row0 LUFS|PSR, row1 TP|N, row2 Crest|Sharp.
-        cfg (0, dlt ? d + "LUFS"  : juce::String ("LUFS-M"), dlt ? "LU" : "LUFS", hypha::helpLufsM());
-        cfg (1, dlt ? d + "PSR"   : juce::String ("PSR"),    "dB",                hypha::helpPsr());
-        cfg (2, dlt ? d + "TP"    : juce::String ("TP"),     dlt ? "dB" : "dBTP", hypha::helpTp());
-        cfg (3, dlt ? d + "N"     : juce::String ("N"),      "sone",              hypha::helpN());
-        cfg (4, dlt ? d + "Crest" : juce::String ("Crest"),  "dB",                hypha::helpCrest());
-        cfg (5, dlt ? d + "Sharp" : juce::String ("Sharp"),  "acum",              hypha::helpSharp());
     }
     currentKind = k;
-    currentSix  = six;
-    layoutMetrics (six);
+    currentSix  = true;
+    layoutMetrics (true);
 }
 
 void KirinHyphaEditor::fillAbs (int cell, double v, bool isTp, bool muted)
@@ -464,8 +433,10 @@ void KirinHyphaEditor::updatePre()
     bool have = false;
     bool muted = false;
     KirinWatchDisplay watch {};
-    const bool haveWatch = ! rec && sig == 1 && processorRef.pollWatchDisplay (watch);
-    if (sig == 1 && (haveWatch || (rec && processorRef.pollMeasureResult (raw))))
+    const bool haveWatch = ! rec && sig == KIRIN_SIGNAL_STATE_ACTIVE
+        && processorRef.pollWatchDisplay (watch);
+    if (sig == KIRIN_SIGNAL_STATE_ACTIVE
+        && (haveWatch || (rec && processorRef.pollMeasureResult (raw))))
     {
         if (haveWatch)
         {
@@ -476,7 +447,7 @@ void KirinHyphaEditor::updatePre()
         r = displaySmoother.smoothMeasure (raw, t);
         have = true;
     }
-    else if (sig == 0)
+    else if (sig == KIRIN_SIGNAL_STATE_INACTIVE)
     {
         hypha::DisplaySmoother::HeldDisplay<KirinMeasureResult> held {};
         if (displaySmoother.heldMeasureDisplay (held, t))
@@ -486,14 +457,15 @@ void KirinHyphaEditor::updatePre()
             muted = held.muted;
         }
     }
-    else if (sig == 2)
+    else if (sig == KIRIN_SIGNAL_STATE_BYPASSED)
     {
         displaySmoother.reset();
         haveWatchMaximum = false;
     }
     auto V = [&] (double x) { return have ? x : kNaN; };
 
-    const int ledSig = (! rec && sig == 0 && have && ! muted) ? 1 : sig;
+    const int ledSig = (! rec && sig == KIRIN_SIGNAL_STATE_INACTIVE && have && ! muted)
+        ? KIRIN_SIGNAL_STATE_ACTIVE : sig;
     led.setState (hypha::deriveLedState (alive, ledSig, rec, ack, preset));
 
     if (rec)
@@ -529,7 +501,7 @@ void KirinHyphaEditor::updatePost()
 
     const juce::String pairName = processorRef.pairName();
     const int pairStatus = processorRef.pairStatus();
-    const bool pairSelected = pairStatus != 0;
+    const bool pairSelected = pairStatus != KIRIN_PAIR_STATUS_UNPAIRED;
     pairStatusLabel.setText (pairStatusText (pairStatus), juce::dontSendNotification);
     pairStatusLabel.setColour (juce::Label::textColourId, pairStatusColour (pairStatus));
 
@@ -554,7 +526,8 @@ void KirinHyphaEditor::updatePost()
     if (status.isNotEmpty())
         recordErrorLabel.setText (status, juce::dontSendNotification);
 
-    postControls->update (rec, processorRef.licenseCode(), pairStatus != 0);
+    postControls->update (rec, processorRef.licenseCode(),
+                          pairStatus != KIRIN_PAIR_STATUS_UNPAIRED);
 
     // ── display-branch tree: raw Record/TRACE stays untouched, but paired Watch keeps the
     //    delta grid through short PRE idle/stale gaps so a latched pair does not look released.
@@ -563,8 +536,10 @@ void KirinHyphaEditor::updatePost()
     bool haveM = false;
     bool mutedM = false;
     KirinWatchDisplay watch {};
-    const bool haveWatch = ! rec && sig == 1 && processorRef.pollWatchDisplay (watch);
-    if (sig == 1 && (haveWatch || (rec && processorRef.pollMeasureResult (rawM))))
+    const bool haveWatch = ! rec && sig == KIRIN_SIGNAL_STATE_ACTIVE
+        && processorRef.pollWatchDisplay (watch);
+    if (sig == KIRIN_SIGNAL_STATE_ACTIVE
+        && (haveWatch || (rec && processorRef.pollMeasureResult (rawM))))
     {
         if (haveWatch)
         {
@@ -575,7 +550,7 @@ void KirinHyphaEditor::updatePost()
         m = displaySmoother.smoothMeasure (rawM, t);
         haveM = true;
     }
-    else if (sig == 0)
+    else if (sig == KIRIN_SIGNAL_STATE_INACTIVE)
     {
         hypha::DisplaySmoother::HeldDisplay<KirinMeasureResult> held {};
         if (displaySmoother.heldMeasureDisplay (held, t))
@@ -585,7 +560,7 @@ void KirinHyphaEditor::updatePost()
             mutedM = held.muted;
         }
     }
-    else if (sig == 2)
+    else if (sig == KIRIN_SIGNAL_STATE_BYPASSED)
     {
         displaySmoother.reset();
         haveWatchMaximum = false;
@@ -595,20 +570,19 @@ void KirinHyphaEditor::updatePost()
 
     if (rec) // Record owns the six-row layout even while the host is preparing/offline-stalling.
     {
-        if (currentKind != Kind::Delta6) configureForKind (Kind::Delta6);
         KirinDelta rawD {};
         KirinDelta d {};
         bool haveD = false;
         bool mutedD = false;
-        if (sig == 1 && processorRef.pollDelta (rawD))
+        if (sig == KIRIN_SIGNAL_STATE_ACTIVE && processorRef.pollDelta (rawD))
         {
-            const bool preExplicitBypassed = rawD.mode == 3;
-            if (rawD.mode == 0)
+            const bool preUnavailable = display::preUnavailableForDelta (rawD.mode);
+            if (display::deltaIsActive (rawD.mode))
             {
                 d = displaySmoother.smoothDelta (rawD, t);
                 haveD = true;
             }
-            else if (! preExplicitBypassed && pairSelected)
+            else if (! preUnavailable && pairSelected)
             {
                 hypha::DisplaySmoother::HeldDisplay<KirinDelta> held {};
                 if (displaySmoother.heldDeltaDisplay (held, t))
@@ -631,7 +605,7 @@ void KirinHyphaEditor::updatePost()
                 mutedD = true;
             }
         }
-        else if (sig == 0)
+        else if (sig == KIRIN_SIGNAL_STATE_INACTIVE)
         {
             hypha::DisplaySmoother::HeldDisplay<KirinDelta> held {};
             if (displaySmoother.heldDeltaDisplay (held, t))
@@ -641,21 +615,37 @@ void KirinHyphaEditor::updatePost()
                 mutedD = held.muted;
             }
         }
-        const juce::Colour base = (mutedD || (haveD && d.mode == 1)) ? COL_MUTED : COL_NORMAL;
-        auto D = [&] (double x) { return haveD ? x : kNaN; };
-        fillDelta (0, D (d.lufs),          false, base, tpWarn, mutedD);
-        fillDelta (1, D (d.psr),           false, base, tpWarn, mutedD);
-        fillDelta (2, D (d.true_peak),     true,  base, tpWarn, mutedD);
-        fillDelta (3, D (d.n_prime_total), false, base, tpWarn, mutedD);
-        fillDelta (4, D (d.crest),         false, base, tpWarn, mutedD);
-        fillDelta (5, D (d.sharpness),     false, base, tpWarn, mutedD);
+        if (display::recordMetricMode (haveD, d.mode) == display::MetricMode::absolute)
+        {
+            if (currentKind != Kind::Abs6) configureForKind (Kind::Abs6);
+            auto V = [&] (double x) { return haveM ? x : kNaN; };
+            fillAbs (0, V (m.lufs_m), false, mutedM);
+            fillAbs (1, V (m.psr), false, mutedM);
+            fillAbs (2, V (m.true_peak), true, mutedM);
+            fillAbs (3, V (m.n_prime_total), false, mutedM);
+            fillAbs (4, V (m.crest), false, mutedM);
+            fillAbs (5, V (m.sharpness), false, mutedM);
+        }
+        else
+        {
+            if (currentKind != Kind::Delta6) configureForKind (Kind::Delta6);
+            const juce::Colour base = (mutedD || (haveD && display::deltaIsStale (d.mode)))
+                ? COL_MUTED : COL_NORMAL;
+            auto D = [&] (double x) { return haveD ? x : kNaN; };
+            fillDelta (0, D (d.lufs),          false, base, tpWarn, mutedD);
+            fillDelta (1, D (d.psr),           false, base, tpWarn, mutedD);
+            fillDelta (2, D (d.true_peak),     true,  base, tpWarn, mutedD);
+            fillDelta (3, D (d.n_prime_total), false, base, tpWarn, mutedD);
+            fillDelta (4, D (d.crest),         false, base, tpWarn, mutedD);
+            fillDelta (5, D (d.sharpness),     false, base, tpWarn, mutedD);
+        }
     }
-    else if (sig != 1) // Bypassed / Inactive -> "---"
+    else if (sig != KIRIN_SIGNAL_STATE_ACTIVE) // Bypassed / Inactive -> "---"
     {
         KirinDelta heldD {};
         bool haveHeldD = false;
         bool mutedHeldD = false;
-        if (sig == 0 && pairSelected)
+        if (sig == KIRIN_SIGNAL_STATE_INACTIVE && pairSelected)
         {
             hypha::DisplaySmoother::HeldDisplay<KirinDelta> held {};
             if (displaySmoother.heldDeltaDisplay (held, t))
@@ -694,15 +684,15 @@ void KirinHyphaEditor::updatePost()
         KirinDelta rawD {};
         KirinDelta d {};
         const bool haveRawD = processorRef.pollDelta (rawD);
-        const bool preExplicitBypassed = haveRawD && rawD.mode == 3;
+        const bool preUnavailable = haveRawD && display::preUnavailableForDelta (rawD.mode);
         bool haveD = false;
         bool mutedD = false;
-        if (haveRawD && rawD.mode == 0)
+        if (haveRawD && display::deltaIsActive (rawD.mode))
         {
             d = displaySmoother.smoothDelta (rawD, t);
             haveD = true;
         }
-        else if (! preExplicitBypassed && pairSelected)
+        else if (! preUnavailable && pairSelected)
         {
             hypha::DisplaySmoother::HeldDisplay<KirinDelta> held {};
             if (displaySmoother.heldDeltaDisplay (held, t))
@@ -719,10 +709,11 @@ void KirinHyphaEditor::updatePost()
             mutedD = true;
         }
 
-        if (pairSelected && ! preExplicitBypassed)
+        if (display::watchMetricMode (pairSelected, haveRawD, rawD.mode)
+            == display::MetricMode::delta)
         {
             if (currentKind != Kind::WatchDelta6) configureForKind (Kind::WatchDelta6);
-            const bool liveDelta = haveD && d.mode == 0 && ! mutedD;
+            const bool liveDelta = haveD && display::deltaIsActive (d.mode) && ! mutedD;
             const juce::Colour base = liveDelta ? COL_NORMAL : COL_MUTED;
             const bool warn = liveDelta ? tpWarn : false;
             fillDelta (0, haveD ? d.lufs      : kNaN, false, base, warn, ! liveDelta);
@@ -732,7 +723,7 @@ void KirinHyphaEditor::updatePost()
             fillDelta (4, haveD ? d.crest     : kNaN, false, base, warn, ! liveDelta);
             fillAbs (5, haveWatchMaximum ? watchMaximum.crest : kNaN, false, ! liveDelta);
         }
-        else // pair empty or PRE explicitly bypassed -> POST absolute
+        else // pair empty or paired PRE bypassed/inactive -> POST absolute
         {
             if (currentKind != Kind::WatchAbs6) configureForKind (Kind::WatchAbs6);
             auto V = [&] (double x) { return haveM ? x : kNaN; };
@@ -745,6 +736,7 @@ void KirinHyphaEditor::updatePost()
         }
     }
 
-    const int ledSig = (! rec && sig == 0 && watchHeldNormal) ? 1 : sig;
+    const int ledSig = (! rec && sig == KIRIN_SIGNAL_STATE_INACTIVE && watchHeldNormal)
+        ? KIRIN_SIGNAL_STATE_ACTIVE : sig;
     led.setState (hypha::deriveLedState (alive, ledSig, rec, ack, preset));
 }

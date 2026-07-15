@@ -20,7 +20,8 @@
 //      Record(6) metric grid (per-cell hover help) + Keeping banner + 5-state static LED.
 // POST: title "POST" + Record pair label + click-to-edit pair name (→ set_pair_target) + flora +
 //      display-branch grid (Bypassed/Inactive→"---" ; pair-empty/PRE bypassed→absolute ;
-//      paired Stale/NoPre→muted Δ/--- ; Δ Active ; Record→Δ6) + Keep/Stop/Sense hint + Toast + playback pair
+//      paired Stale/NoPre→muted Δ/--- ; PRE Bypassed/Inactive→POST absolute ; Δ Active ; Record→6) +
+//      Keep/Stop/Sense hint + Toast + playback pair
 //      lock + LED + exact candidate dropdown + All Keep/All Stop. (Proposals cards remain egui-only.)
 class KirinHyphaEditor : public juce::AudioProcessorEditor,
                          private juce::Timer
@@ -45,7 +46,10 @@ private:
                        hypha::kFieldFill.brighter (0.08f));
             setColour (juce::PopupMenu::highlightedTextColourId, hypha::COL_FLORA_BR);
         }
-        juce::Font getPopupMenuFont() override { return hypha::monoFont (12.0f); }
+        juce::Font getPopupMenuFont() override
+        {
+            return hypha::monoFont (hypha::ui_contract::menuFontHeight);
+        }
     };
 
     void timerCallback() override;

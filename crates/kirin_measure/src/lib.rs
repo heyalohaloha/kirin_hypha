@@ -9,6 +9,7 @@ mod atomic_claim;
 pub mod atomic_file;
 pub mod capture_generation;
 pub mod capture_generation_tx;
+pub mod channel_identity;
 pub mod cleanup;
 pub mod delta;
 pub mod engine;
@@ -55,9 +56,9 @@ pub mod watchdog;
 
 pub use all_keep_signal::{
     delete_broadcast, is_broadcast_stale, read_broadcast, read_current_broadcast,
-    signal_path as all_keep_signal_path, signals_dir as all_keep_signals_dir, write_broadcast,
-    write_broadcast_for_generation, write_broadcast_signal, AllKeepBroadcast, AllKeepError,
-    ALL_KEEP_BROADCAST_STALE_SECS, ALL_KEEP_SCHEMA_VERSION, ALL_KEEP_SIGNAL_SUBDIR,
+    signal_path as all_keep_signal_path, signals_dir as all_keep_signals_dir,
+    write_broadcast_for_generation, AllKeepBroadcast, AllKeepError, ALL_KEEP_BROADCAST_STALE_SECS,
+    ALL_KEEP_SCHEMA_VERSION, ALL_KEEP_SIGNAL_SUBDIR,
 };
 pub use all_stop_signal::{
     delete_stop_broadcast, is_stop_broadcast_stale, read_current_stop_broadcast,
@@ -67,12 +68,15 @@ pub use all_stop_signal::{
     ALL_STOP_SIGNAL_SUBDIR,
 };
 pub use capture_generation::{
-    active_generation_path, current_generation_path, publish_current_generation,
-    publish_generation_roster, read_active_generation, read_current_generation, CaptureGeneration,
-    CaptureGenerationError, CaptureGenerationMember, CAPTURE_GENERATION_CURRENT,
-    CAPTURE_GENERATION_SCHEMA, CAPTURE_GENERATION_SUBDIR,
+    active_generation_path, current_generation_path, preparing_generation_path,
+    publish_current_generation, read_active_generation, read_current_generation,
+    read_preparing_generation, read_producer_authorized_generation, CaptureGeneration,
+    CaptureGenerationError, CaptureGenerationMember, CaptureGenerationMemberIdentity,
+    CAPTURE_GENERATION_CURRENT, CAPTURE_GENERATION_PREPARING, CAPTURE_GENERATION_SCHEMA,
+    CAPTURE_GENERATION_SUBDIR,
 };
 pub use capture_generation_tx::CaptureGenerationTransaction;
+pub use channel_identity::{canonical_channel_role, display_name_snapshot};
 pub use cleanup::{clear_pair_label, exit_record_full, exit_record_preserve_pair};
 pub use delta::{DeltaMode, DeltaResult, DeltaSnapshot};
 pub use engine::{MeasureEngine, SessionSummary};
@@ -117,7 +121,8 @@ pub use pairing_scope::{
     select_live_pre_pair_choice_by_instance_for_post_project_in_session, select_target_pre,
     select_target_pre_for_arm, select_target_pre_for_arm_for_post_project,
     select_target_pre_for_arm_for_post_project_in_session, select_target_pre_for_post_project,
-    select_target_pre_for_post_project_in_session, LatchedPre, LatchedPreState, SelectedPre,
+    select_target_pre_for_post_project_in_session, LatchedPre, LatchedPreReadiness,
+    LatchedPreState, SelectedPre,
 };
 pub use path_identity::{
     drain_path_events, guard_path_component, is_path_safe_component, materialize_observation_id,
@@ -176,11 +181,10 @@ pub use record_mark::{
 pub use record_signal::{
     delete_signal, is_timed_out, mark_acknowledged, mark_released, mark_released_with_reason,
     read_signal, read_target_signal, scan_signals_dir, signal_path, signals_dir,
-    target_signal_path, write_pending, write_pending_claiming_expected_and_clock,
-    write_pending_claiming_expected_and_clock_for_generation, write_pending_with_expected,
-    write_pending_with_expected_and_clock, write_signal, RecordSignal, ReleaseReason, SignalError,
-    SignalStatus, ACK_TIMEOUT_SECONDS, RECORD_START_BARRIER_DELAY_MS, SIGNALS_SUBDIR,
-    SIGNAL_FILENAME, TARGET_SIGNALS_SUBDIR,
+    target_signal_path, write_pending, write_pending_claiming_expected_and_clock_for_generation,
+    write_pending_with_expected, write_pending_with_expected_and_clock, write_signal, RecordSignal,
+    ReleaseReason, SignalError, SignalStatus, ACK_TIMEOUT_SECONDS, RECORD_START_BARRIER_DELAY_MS,
+    SIGNALS_SUBDIR, SIGNAL_FILENAME, TARGET_SIGNALS_SUBDIR,
 };
 pub use record_take::{
     new_record_take_tracker, CaptureClockPoint, CaptureClockSource, PresentationLatencySamples,

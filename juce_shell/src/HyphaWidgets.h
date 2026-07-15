@@ -68,8 +68,10 @@ namespace hypha
     private:
         juce::String label, unit, value;
         juce::Colour valueColour = COL_MUTED;
-        float labelSize = 13.0f, valueSize = 16.0f, unitSize = 11.0f;
-        float minColW = 58.0f; // egui Grid min_col_width (Watch 58 / Record 40); columns auto-expand
+        float labelSize = ui_contract::metricLabelFontHeight;
+        float valueSize = ui_contract::metricValueFontHeight;
+        float unitSize = ui_contract::metricUnitFontHeight;
+        float minColW = ui_contract::metricMinimumLabelWidth;
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MetricCell)
     };
 

@@ -207,8 +207,10 @@ const ACK_TIMEOUT_POLL_INTERVAL: Duration = Duration::from_secs(1);
 const PAIR_LABEL_POLL_INTERVAL: Duration = LOOP_SLEEP;
 
 /// B-027 段階 3-B α-7-4-C / Step 10: all_keep_signal broadcast polling 間隔。
-/// project-local `current.json` 1 件を 1 秒間隔で読む。履歴や originator 数に比例しない。
-const ALL_KEEP_POLL_INTERVAL: Duration = Duration::from_secs(1);
+/// Producer preparation is a user-triggered control handshake。既存IO tickと同じ100msで
+/// project-local `current.json` 1件だけを読み、履歴やoriginator数に比例する走査はしない。
+/// これによりAll Keepはbusy scanなしで全exact writerのreadyを確認してから成功を返せる。
+const ALL_KEEP_POLL_INTERVAL: Duration = LOOP_SLEEP;
 
 /// B-024 Group A / Gap-2: PRE 死活確認 sub-tick の間隔 (1 秒 / 既存 PRESET / ACK /
 /// PAIR_LABEL / ALL_KEEP と同位相)。`record_sm.is_recording()` 中のみ動作し disk I/O は
@@ -979,12 +981,12 @@ pub fn spawn_io_thread_post(
                     processed_stop_broadcasts
                         .retain(|_, (_, last_seen)| last_seen.elapsed() < timeout);
                 }
-                // 注: next_all_keep_poll は Keep sub-tick 末で reset されるため
-                // Stop は Keep と同 throttle (1 秒) で同 frame に動く。
+                // 注: next_all_keep_poll は Keep sub-tick 末でresetされるため、StopはKeepと
+                // 同じ100ms IO cadence・同frameで動く。
             }
 
             // B-027 段階 3-B α-7-4-C / Step 10: all_keep_signal broadcast 受信 sub-tick。
-            // 1 秒 throttle で `plugin_data/{ph}/all_keep_signal/current.json` だけを読み、
+            // 100ms IO cadenceで`plugin_data/{ph}/all_keep_signal/current.json`だけを読み、
             // 新 broadcast を `processed_broadcasts` cache に登録する (検出 + cache + log
             // のみ / `trigger_keep_internal` 発火は Step 11 で本箇所に追加予定)。
             //
@@ -1088,42 +1090,34 @@ pub fn spawn_io_thread_post(
                             );
                             continue;
                         }
-                        // Project pointers may exist while the producer is still staging
-                        // broadcasts. Only the installation-wide pointer is the commit barrier.
-                        // A mismatch is transient and must not be cached: the next 1s tick retries.
-                        let generation = match (
-                            crate::capture_generation::read_current_generation(
+                        // Workers may arm from the producer-only preparation barrier. Kirin OS
+                        // still sees only the active pointer, which is promoted after every exact
+                        // PRE/POST writer claim exists. A mismatch is transient and is not cached.
+                        let generation =
+                            match crate::capture_generation::read_producer_authorized_generation(
                                 &base_dir,
                                 project_hash_ref,
-                            ),
-                            crate::capture_generation::read_active_generation(&base_dir),
-                        ) {
-                            (Ok(Some(project_generation)), Ok(Some(active_generation)))
-                                if project_generation.capture_generation_id
-                                    == broadcast.capture_generation_id
-                                    && project_generation.started_at_ms
-                                        == broadcast.generation_started_at_ms
-                                    && active_generation.capture_generation_id
-                                        == project_generation.capture_generation_id
-                                    && active_generation.started_at_ms
-                                        == project_generation.started_at_ms
-                                    && project_generation
+                                &broadcast.capture_generation_id,
+                                broadcast.generation_started_at_ms,
+                            ) {
+                                Ok(Some(project_generation))
+                                    if project_generation
                                         .member(project_hash_ref, instance_id_ref)
                                         .is_some() =>
-                            {
-                                project_generation
-                            }
-                            _ if broadcast_is_stale => {
-                                // A stale staged/aborted generation that never became active is
-                                // permanently non-authoritative and may now be cached.
-                                processed_broadcasts.insert(
-                                    originator_iid.clone(),
-                                    (broadcast_key.clone(), Instant::now()),
-                                );
-                                continue;
-                            }
-                            _ => continue,
-                        };
+                                {
+                                    project_generation
+                                }
+                                _ if broadcast_is_stale => {
+                                    // A stale staged/aborted generation that never became active is
+                                    // permanently non-authoritative and may now be cached.
+                                    processed_broadcasts.insert(
+                                        originator_iid.clone(),
+                                        (broadcast_key.clone(), Instant::now()),
+                                    );
+                                    continue;
+                                }
+                                _ => continue,
+                            };
                         let entered = (trigger_pair_resolution)(
                             &originator_iid,
                             &broadcast.started_at,
@@ -1135,7 +1129,7 @@ pub fn spawn_io_thread_post(
                         if entered || record_sm.is_recording() {
                             if entered {
                                 log::info!(
-                                    "[all_keep] committed member armed: originator={} generation={}",
+                                    "[all_keep] generation member armed: originator={} generation={}",
                                     originator_iid,
                                     generation.capture_generation_id
                                 );
@@ -1376,12 +1370,25 @@ fn delta_pre_bypassed() -> (DeltaResult, bool, Option<SignalState>) {
     )
 }
 
+/// Pair binding remains authoritative while the paired PRE process is inactive. POST renders its
+/// own absolute metrics until the same PRE instance resumes, then Δ resumes without re-pairing.
+fn delta_pre_inactive() -> (DeltaResult, bool, Option<SignalState>) {
+    (
+        DeltaResult {
+            mode: DeltaMode::PreInactive,
+            ..Default::default()
+        },
+        true,
+        Some(SignalState::Inactive),
+    )
+}
+
 /// B-108: ラッチ意味論で表示Δを決める単一実装（`run_tick` の POST=Active 表示経路が呼ぶ）。
 ///
 /// 戻り `(delta, store_directly, pre_signal_state)`:
-/// - `store_directly = true` は **latched-idle**（Stale + 全Δ None + `last_active = None`）。
-///   `run_tick` は `resolve_delta_for_store` を経由せずそのまま格納し凍結値の復活を防ぐ（--- のみ
-///   / B-048・B-049 維持）。
+/// - `store_directly = true` は **PREから差分を作れないがpairを維持する状態**。Stale は全Δ None、
+///   PreInactive / Bypassed は POST 単独表示へ切り替える。いずれも `run_tick` は
+///   `resolve_delta_for_store` を経由せずそのまま格納し、古い凍結Δの復活を防ぐ。
 /// - `false` は従来どおり `resolve_delta_for_store`（Active は last_active 保存、active-pair の
 ///   fs-lag Stale は B-048 凍結保持、NoPre は last_active クリア）。
 ///
@@ -1440,6 +1447,7 @@ fn compute_latched_display_for_post_project(
                 Ok((d, false, ss))
             }
             Some(st) if st.signal_state == Some(SignalState::Bypassed) => Ok(delta_pre_bypassed()),
+            Some(st) if st.signal_state == Some(SignalState::Inactive) => Ok(delta_pre_inactive()),
             // 一時 idle / stale / missing → latched-idle 表示。missing 単独では Record を閉じない。
             _ => Ok(delta_latched_idle()),
         };
@@ -1460,6 +1468,14 @@ fn compute_latched_display_for_post_project(
     // 同tickで再解決できるようにする。Record中は上のfreeze分岐が先に返るため不変。
     if keep {
         let l = current.expect("keep implies current is Some");
+        // A saved exact locator first waits for a current-process owner at that same path. The
+        // previous DAW process deliberately leaves its JSON behind with a released lease; treating
+        // that residue as a new deletion would discard the saved pair and re-enter name discovery.
+        if l.readiness == crate::LatchedPreReadiness::RestoredWaiting
+            && !crate::pairing_scope::confirm_restored_latch_runtime(latched)
+        {
+            return Ok(delta_latched_idle());
+        }
         if crate::watch_snapshot_lease::snapshot_file_has_released_current_owner(&l.pre_json) {
             let mut binding = latched
                 .lock()
@@ -1484,7 +1500,11 @@ fn compute_latched_display_for_post_project(
                 Some(st) if st.signal_state == Some(SignalState::Bypassed) => {
                     return Ok(delta_pre_bypassed());
                 }
-                // stale / idle / silent / missing / rename → ラッチ維持のまま muted Δ/---。
+                // PRE process inactive: keep exact binding, show POST absolute until it resumes.
+                Some(st) if st.signal_state == Some(SignalState::Inactive) => {
+                    return Ok(delta_pre_inactive());
+                }
+                // stale / missing / rename → ラッチ維持のまま muted Δ/---。
                 _ => return Ok(delta_latched_idle()),
             }
         }
@@ -1515,6 +1535,7 @@ fn compute_latched_display_for_post_project(
                     pre_json: pre_json.clone(),
                     daw_session_id,
                     host_process_id: sel.host_process_id,
+                    readiness: crate::LatchedPreReadiness::Confirmed,
                 });
             }
             // 初回ラッチ直後の同 tick 表示。
@@ -1525,6 +1546,9 @@ fn compute_latched_display_for_post_project(
                 }
                 Some(st) if st.signal_state == Some(SignalState::Bypassed) => {
                     Ok(delta_pre_bypassed())
+                }
+                Some(st) if st.signal_state == Some(SignalState::Inactive) => {
+                    Ok(delta_pre_inactive())
                 }
                 _ => Ok(delta_latched_idle()),
             }
@@ -1619,8 +1643,8 @@ fn run_tick(
     )?;
 
     // last_active 規律:
-    // - store_directly（latched-idle）→ Stale + last_active=None をそのまま格納（凍結値復活禁止
-    //   / B-048・B-049 維持）。merge_last_active を経由しない。
+    // - store_directly（latched-idle / PRE bypassed / PRE inactive）→ そのまま格納し、
+    //   古い凍結Δを復活させない。pair binding 自体は別管理なので維持される。
     // - それ以外 → resolve_delta_for_store（Active 保存 / active-pair fs-lag Stale は B-048 凍結保持
     //   / NoPre は last_active クリア）。
     {
@@ -1781,7 +1805,7 @@ pub fn merge_last_active(
             last_active: prev_last_active,
             ..new_delta
         },
-        DeltaMode::Bypassed => new_delta,
+        DeltaMode::Bypassed | DeltaMode::PreInactive => new_delta,
     }
 }
 
@@ -1827,7 +1851,7 @@ fn resolve_delta_for_non_active_post(
 
 /// B-059 / G-115-245 置換: `run_tick` が delta_result に書く値を決める pure 関数。
 ///
-/// - `mode == NoPre | Bypassed`（= 有効ペアなし / PRE 明示OFF）→ **`new_delta` をそのまま**
+/// - `mode == NoPre | Bypassed | PreInactive`（= 有効ペアなし / PRE OFF）→ **`new_delta` をそのまま**
 ///   （`DeltaResult::default()` 由来で `last_active = None` ＝ クリア）。表示=commit 一本化で
 ///   「選定 None なのに直近 Δ が凍結表示される」のを防ぐ（B-048 の NoPre 保持を廃止）。
 /// - `mode == Active | Stale`（= 一意有効 PRE を選定）→ `merge_last_active`（Active 保存 /
@@ -1838,7 +1862,10 @@ pub(crate) fn resolve_delta_for_store(
     new_delta: DeltaResult,
     prev_last_active: Option<DeltaSnapshot>,
 ) -> DeltaResult {
-    if matches!(new_delta.mode, DeltaMode::NoPre | DeltaMode::Bypassed) {
+    if matches!(
+        new_delta.mode,
+        DeltaMode::NoPre | DeltaMode::Bypassed | DeltaMode::PreInactive
+    ) {
         new_delta
     } else {
         merge_last_active(prev_last_active, new_delta)
@@ -1969,10 +1996,10 @@ fn compute_delta_for_pre_file(
                 n_prime_total: None,
                 crest: None,
                 sharpness: None,
-                mode: if pre_signal_state == Some(SignalState::Bypassed) {
-                    DeltaMode::Bypassed
-                } else {
-                    DeltaMode::NoPre
+                mode: match pre_signal_state {
+                    Some(SignalState::Bypassed) => DeltaMode::Bypassed,
+                    Some(SignalState::Inactive) => DeltaMode::PreInactive,
+                    _ => DeltaMode::NoPre,
                 },
                 last_active: None, // B-048 §4-2: run_tick で merge する責務分業
             },
@@ -3201,10 +3228,9 @@ mod compute_delta_tests {
         }
     }
 
-    /// T1: ラッチ後、PRE が silence/idle（signal_state=inactive・fresh）でも Stale（NoPre でない）+
-    /// 全Δ None + last_active クリア。ラッチは保持される。
+    /// Paired PRE inactive means POST standalone display while the exact binding remains.
     #[test]
-    fn latch_idle_stays_stale_not_nopre() {
+    fn latch_inactive_switches_to_post_absolute_without_releasing_pair() {
         let root = isolated_dir("latch_idle");
         write_pre_latch(&root, "puid-1", "iid-A", "snare", "active", &latch_now());
         let latched = std::sync::Mutex::new(None);
@@ -3222,7 +3248,7 @@ mod compute_delta_tests {
         assert!(latched.lock().unwrap().is_some(), "active で初回ラッチ成立");
         // PRE が idle（fresh のまま signal_state=inactive）。
         write_pre_latch(&root, "puid-1", "iid-A", "snare", "inactive", &latch_now());
-        let (d1, sd1, _) = compute_latched_display(
+        let (d1, sd1, pre_state) = compute_latched_display(
             &root,
             "snare",
             &latch_post(),
@@ -3231,15 +3257,15 @@ mod compute_delta_tests {
             &latched,
         )
         .unwrap();
-        assert_eq!(
-            d1.mode,
-            DeltaMode::Stale,
-            "idle はラッチ維持で Stale（NoPre でない）"
+        assert_eq!(d1.mode, DeltaMode::PreInactive);
+        assert_eq!(pre_state, Some(SignalState::Inactive));
+        assert!(
+            sd1,
+            "PRE inactive must clear frozen delta for POST absolute display"
         );
-        assert!(sd1, "latched-idle は store_directly（last_active クリア）");
         assert!(
             d1.lufs.is_none() && d1.last_active.is_none(),
-            "全Δ None + 凍結なし"
+            "POST absolute mode must carry no delta or frozen delta"
         );
         assert!(latched.lock().unwrap().is_some(), "idle でラッチは外れない");
     }
@@ -3331,6 +3357,7 @@ mod compute_delta_tests {
             pre_json,
             daw_session_id: None,
             host_process_id: Some(crate::post_candidates::current_host_process_id()),
+            readiness: crate::LatchedPreReadiness::Confirmed,
         }));
 
         let (delta, _, _) =
@@ -3343,6 +3370,73 @@ mod compute_delta_tests {
                 .as_ref()
                 .map(|pre| pre.instance_id.as_str()),
             Some("iid-A")
+        );
+    }
+
+    #[test]
+    fn restored_exact_latch_waits_for_pre_loaded_later_without_name_rescan() {
+        let root = isolated_dir("restored_exact_wait");
+        let pre_json = write_pre_latch(&root, "puid-1", "iid-A", "snare", "active", &latch_now());
+        let old_owner = attach_pre_owner(&pre_json);
+        drop(old_owner); // normal previous-DAW residue: JSON remains, kernel lease is released
+
+        let competing = write_pre_latch(&root, "puid-2", "iid-B", "snare", "active", &latch_now());
+        let _competing_owner = attach_pre_owner(&competing);
+        let latched = std::sync::Mutex::new(Some(LatchedPre {
+            name: "snare".to_string(),
+            instance_id: "iid-A".to_string(),
+            project_dir: root.join("puid-1"),
+            pre_json: pre_json.clone(),
+            daw_session_id: Some("daw-1".to_string()),
+            host_process_id: Some(crate::post_candidates::current_host_process_id()),
+            readiness: crate::LatchedPreReadiness::RestoredWaiting,
+        }));
+
+        let (waiting, _, _) = compute_latched_display(
+            &root,
+            "snare",
+            &latch_post(),
+            Some("snare"),
+            false,
+            &latched,
+        )
+        .unwrap();
+        assert_eq!(waiting.mode, DeltaMode::Stale);
+        assert_eq!(
+            latched
+                .lock()
+                .unwrap()
+                .as_ref()
+                .map(|pre| pre.instance_id.as_str()),
+            Some("iid-A"),
+            "released previous-process residue must not release the saved exact binding or select iid-B by name"
+        );
+
+        write_pre_latch(&root, "puid-1", "iid-A", "snare", "active", &latch_now());
+        let _new_owner = attach_pre_owner(&pre_json);
+        let (active, _, _) = compute_latched_display(
+            &root,
+            "snare",
+            &latch_post(),
+            Some("snare"),
+            false,
+            &latched,
+        )
+        .unwrap();
+        assert_eq!(active.mode, DeltaMode::Active);
+        assert_eq!(
+            latched
+                .lock()
+                .unwrap()
+                .as_ref()
+                .map(|pre| pre.instance_id.as_str()),
+            Some("iid-A"),
+            "late PRE publication must resume the saved exact pair, not select by name"
+        );
+        assert_eq!(
+            latched.lock().unwrap().as_ref().map(|pre| pre.readiness),
+            Some(crate::LatchedPreReadiness::Confirmed),
+            "the fixed restore latch becomes a normal live latch only after current owner proof"
         );
     }
 
@@ -3531,14 +3625,21 @@ mod compute_delta_tests {
             &latched,
         )
         .unwrap();
-        // Arm は inactive-fresh をラッチする（Keep 可）が、表示は active を要求するため
-        // latched-idle = Stale（NoPre には落とさない）。
+        // Arm は inactive-fresh をラッチする（Keep 可）。差分の代わりにPOST単独表示へ移り、
+        // pair binding は同じ instance の復帰に備えて維持する。
         assert!(
             latched.lock().unwrap().is_some(),
             "inactive-fresh でも Arm でラッチ成立（Keep 可）"
         );
-        assert_eq!(d0.mode, DeltaMode::Stale, "停止中は latched-idle（Stale）");
-        assert!(sd0, "latched-idle は store_directly（last_active クリア）");
+        assert_eq!(
+            d0.mode,
+            DeltaMode::PreInactive,
+            "inactive PRE uses POST standalone mode"
+        );
+        assert!(
+            sd0,
+            "PRE inactive clears frozen delta while retaining binding"
+        );
         assert!(d0.lufs.is_none(), "停止中は Δ 非表示");
 
         // 再生再開: 同 instance が active+fresh に遷移。
