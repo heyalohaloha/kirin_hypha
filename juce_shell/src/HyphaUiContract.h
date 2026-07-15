@@ -11,33 +11,42 @@ namespace hypha::ui_contract
     constexpr int editorWidth  = 300;
     constexpr int editorHeight = 200;
 
-    constexpr int margin          = 10;
-    constexpr int topSpace        = 8;
-    constexpr int titleHeight     = 26;
-    constexpr int titleWidth      = 58;
-    constexpr int ledSize         = 12;
-    constexpr int pairStatusWidth = 52;
-    constexpr int metricHeight    = 70;
-    constexpr int metricRowHeight = 22;
-    constexpr int metricRowPitch  = 24;
-    constexpr int metricColumnGap = 6;
-    constexpr int postControlHeight = 26;
+    constexpr int margin            = 10;
+    constexpr int topSpace          = 7;
+    constexpr int titleHeight       = 27;
+    constexpr int titleWidth        = 42;
+    constexpr int ledSize           = 12;
+    constexpr int pairStatusWidth   = 50;
+    constexpr int nameFieldHeight   = 24;
+    constexpr int pairDropdownWidth = 28;
+    constexpr int metricRowHeight   = 25;
+    constexpr int metricRowPitch    = 27;
+    constexpr int metricColumnGap   = 4;
+    constexpr int metricHeight      = metricRowPitch * 2 + metricRowHeight;
+    constexpr int postControlHeight = 28;
+    constexpr int feedbackHeight    = 20;
+
+    // PopupMenu is a separate native window in desktop AU/VST3 hosts. Its geometry therefore
+    // cannot inherit the 300x200 editor scale and must be explicit in the shared contract.
+    constexpr int pairMenuItemHeight     = 28;
+    constexpr int pairMenuMinimumWidth   = editorWidth;
+    constexpr int pairMenuMaximumColumns = 1;
 
     constexpr const char* labelFontFamily = ".SF NS";
     constexpr const char* monoFontFamily  = ".SF NS Mono";
 
     constexpr float titleFontHeight       = 20.0f;
-    constexpr float pairStatusFontHeight  = 11.0f;
-    constexpr float bannerFontHeight      = 13.0f;
-    constexpr float statusFontHeight      = 11.0f;
-    constexpr float metricLabelFontHeight = 11.0f;
-    constexpr float metricValueFontHeight = 14.0f;
-    constexpr float metricUnitFontHeight  = 10.0f;
-    constexpr float nameFontHeight        = 14.0f;
-    constexpr float menuFontHeight        = 12.0f;
+    constexpr float pairStatusFontHeight  = 13.0f;
+    constexpr float feedbackFontHeight    = 13.0f;
+    constexpr float metricLabelFontHeight = 12.0f;
+    constexpr float metricValueFontHeight = 17.0f;
+    constexpr float metricUnitFontHeight  = 12.0f;
+    constexpr float nameFontHeight        = 16.0f;
+    constexpr float menuFontHeight        = 16.0f;
     constexpr float framedButtonFontHeight   = 15.0f;
     constexpr float framelessButtonFontHeight = 13.0f;
     constexpr float metricMinimumLabelWidth = 40.0f;
+    constexpr float metricHorizontalSpacing = 4.0f;
 
     constexpr const char* preTitle = "PRE";
     constexpr const char* postTitle = "POST";
@@ -74,8 +83,7 @@ namespace hypha::ui_contract
         Rect name;
         Rect pairDropdown;
         Rect postControls;
-        Rect banner;
-        Rect recordError;
+        Rect feedback;
         int floraY = 0;
         int metricTop = 0;
     };
@@ -95,36 +103,38 @@ namespace hypha::ui_contract
 
         if (post)
         {
-            constexpr int dropdownWidth = 22;
-            const int nameY = topSpace + titleHeight + 4;
-            layout.name = { margin, nameY, width - 2 * margin - dropdownWidth - 4, 22 };
-            layout.pairDropdown = { width - margin - dropdownWidth, nameY, dropdownWidth, 22 };
-            layout.floraY = nameY + 22 + 4;
-            layout.metricTop = layout.floraY + 1 + 4;
+            const int nameY = topSpace + titleHeight + 2;
+            layout.name = { margin,
+                            nameY,
+                            width - 2 * margin - pairDropdownWidth - 4,
+                            nameFieldHeight };
+            layout.pairDropdown = { width - margin - pairDropdownWidth,
+                                    nameY,
+                                    pairDropdownWidth,
+                                    nameFieldHeight };
+            layout.floraY = nameY + nameFieldHeight + 3;
+            layout.metricTop = layout.floraY + 1 + 3;
             const int afterMetric = layout.metricTop + metricHeight;
-            layout.postControls = { margin, afterMetric + 4, width - 2 * margin, postControlHeight };
-            layout.banner = { margin,
-                              afterMetric + 4 + postControlHeight + 1,
-                              width - 2 * margin,
-                              16 };
+            layout.postControls = { margin,
+                                    afterMetric + 3,
+                                    width - 2 * margin,
+                                    postControlHeight };
         }
         else
         {
-            const int fieldLeft = margin + titleWidth + 6;
+            const int fieldLeft = margin + titleWidth + 4;
             const int fieldRight = layout.pairStatus.x - 6;
             layout.name = { fieldLeft, topSpace, fieldRight - fieldLeft, titleHeight };
             layout.floraY = topSpace + titleHeight + 4;
-            layout.metricTop = layout.floraY + 1 + 6;
-            layout.banner = { margin,
-                              layout.metricTop + metricHeight + 4,
-                              width - 2 * margin,
-                              16 };
+            layout.metricTop = layout.floraY + 1 + 4;
         }
 
-        layout.recordError = { margin,
-                               layout.banner.y + 16,
-                               width - 2 * margin,
-                               14 };
+        // One bottom-aligned feedback row is shared by both roles. Transient user feedback,
+        // persistent I/O errors, and the short Keeping acknowledgement never overlap each other.
+        layout.feedback = { margin,
+                            editorHeight - feedbackHeight - 2,
+                            width - 2 * margin,
+                            feedbackHeight };
         return layout;
     }
 
@@ -191,12 +201,28 @@ namespace hypha::ui_contract
         { Metric::crest, false }, { Metric::sharpness, false },
     }};
 
-    static_assert (bottom (editorLayout (true).recordError) == editorHeight,
-                   "POST status row must end exactly at the 300x200 editor boundary");
+    static_assert (metricValueFontHeight >= 17.0f
+                       && metricLabelFontHeight >= 12.0f
+                       && metricUnitFontHeight >= 12.0f
+                       && nameFontHeight >= 16.0f
+                       && pairStatusFontHeight >= 13.0f,
+                   "The 300x200 editor must retain the legibility floor agreed for release");
+    static_assert (menuFontHeight >= 16.0f && pairMenuItemHeight >= 28
+                       && pairMenuMinimumWidth >= editorWidth && pairMenuMaximumColumns == 1,
+                   "The pair menu must remain readable and single-column in every plugin format");
+    static_assert (bottom (editorLayout (true).feedback) <= editorHeight,
+                   "POST feedback row must fit the 300x200 editor boundary");
+    static_assert (bottom (metricCellBounds (5, editorLayout (true).metricTop))
+                       < editorLayout (true).postControls.y,
+                   "POST metrics and controls must not overlap");
+    static_assert (bottom (editorLayout (true).postControls) <= editorLayout (true).feedback.y,
+                   "POST controls and feedback must not overlap");
     static_assert (bottom (metricCellBounds (5, editorLayout (true).metricTop)) <= editorHeight,
                    "POST metric grid must fit the editor");
     static_assert (bottom (metricCellBounds (5, editorLayout (false).metricTop)) <= editorHeight,
                    "PRE metric grid must fit the editor");
+    static_assert (editorLayout (false).name.width >= 160,
+                   "Every valid 16-character PRE name must fit at the release font size");
     static_assert (watchMetrics[1].maximum && watchMetrics[3].maximum && watchMetrics[5].maximum,
                    "Watch right column must remain MAX for all three metrics");
 }

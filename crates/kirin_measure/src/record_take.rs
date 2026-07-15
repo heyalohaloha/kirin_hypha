@@ -85,16 +85,33 @@ impl CaptureClockSource {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CaptureClockPoint {
+    /// Canonical WAV presentation-sample boundary. This is the only position downstream TRACE
+    /// code may use for alignment.
     pub position_samples: i64,
+    /// Unmodified host project/render position retained for diagnostics and epoch proof.
+    pub raw_host_position_samples: i64,
+    /// One producer-owned contiguous transport epoch. A rewind, forward jump, clock-source
+    /// change, or presentation-latency change starts a new epoch.
+    pub epoch: u64,
     pub source: CaptureClockSource,
+    pub presentation_latency: PresentationLatencySamples,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct CaptureClockSpan {
+    pub epoch: u64,
+    /// Record generation that owns this span. Ordinary Watch history stays generation zero and
+    /// can never satisfy a later WAV take merely because the project position repeats. The one
+    /// exception is the explicitly isolated offline-start span, which may be promoted once when
+    /// the first Record callback proves exact position/source/latency continuity.
+    pub generation: u64,
     pub capture_start_frame: u64,
     pub capture_end_frame: u64,
+    /// Canonical WAV presentation-sample start.
     pub position_start_samples: Option<i64>,
+    pub raw_host_position_start_samples: Option<i64>,
     pub source: CaptureClockSource,
+    pub presentation_latency: PresentationLatencySamples,
 }
 
 impl CaptureClockSpan {
@@ -115,17 +132,32 @@ impl CaptureClockSpan {
             position.saturating_add(captured_frames.saturating_sub(self.capture_start_frame) as i64)
         })
     }
+
+    pub(crate) fn raw_host_position_at_capture_boundary(self, captured_frames: u64) -> Option<i64> {
+        if captured_frames < self.capture_start_frame || captured_frames >= self.capture_end_frame {
+            return None;
+        }
+        self.raw_host_position_start_samples.map(|position| {
+            position.saturating_add(captured_frames.saturating_sub(self.capture_start_frame) as i64)
+        })
+    }
 }
 
 #[derive(Debug)]
 struct CaptureClockSlot {
     version: AtomicU64,
     sequence: AtomicU64,
+    generation: AtomicU64,
     capture_start_frame: AtomicU64,
     capture_end_frame: AtomicU64,
     position_valid: AtomicBool,
     position_start_samples: AtomicI64,
+    raw_host_position_valid: AtomicBool,
+    raw_host_position_start_samples: AtomicI64,
     source: AtomicU8,
+    presentation_source: AtomicU8,
+    input_presentation_samples: AtomicU64,
+    output_presentation_samples: AtomicU64,
 }
 
 impl CaptureClockSlot {
@@ -133,35 +165,53 @@ impl CaptureClockSlot {
         Self {
             version: AtomicU64::new(0),
             sequence: AtomicU64::new(0),
+            generation: AtomicU64::new(0),
             capture_start_frame: AtomicU64::new(0),
             capture_end_frame: AtomicU64::new(0),
             position_valid: AtomicBool::new(false),
             position_start_samples: AtomicI64::new(i64::MIN),
+            raw_host_position_valid: AtomicBool::new(false),
+            raw_host_position_start_samples: AtomicI64::new(i64::MIN),
             source: AtomicU8::new(CaptureClockSource::Unknown as u8),
+            presentation_source: AtomicU8::new(PresentationLatencySource::Unknown as u8),
+            input_presentation_samples: AtomicU64::new(u64::MAX),
+            output_presentation_samples: AtomicU64::new(u64::MAX),
         }
     }
 
-    fn publish(
-        &self,
-        sequence: u64,
-        capture_start_frame: u64,
-        capture_end_frame: u64,
-        position_start_samples: Option<i64>,
-        source: CaptureClockSource,
-    ) {
+    fn publish(&self, span: CaptureClockSpan) {
         self.version.fetch_add(1, Ordering::AcqRel);
-        self.sequence.store(sequence, Ordering::Relaxed);
+        self.sequence.store(span.epoch, Ordering::Relaxed);
+        self.generation.store(span.generation, Ordering::Relaxed);
         self.capture_start_frame
-            .store(capture_start_frame, Ordering::Relaxed);
+            .store(span.capture_start_frame, Ordering::Relaxed);
         self.capture_end_frame
-            .store(capture_end_frame, Ordering::Relaxed);
+            .store(span.capture_end_frame, Ordering::Relaxed);
         self.position_valid
-            .store(position_start_samples.is_some(), Ordering::Relaxed);
+            .store(span.position_start_samples.is_some(), Ordering::Relaxed);
         self.position_start_samples.store(
-            position_start_samples.unwrap_or(i64::MIN),
+            span.position_start_samples.unwrap_or(i64::MIN),
             Ordering::Relaxed,
         );
-        self.source.store(source as u8, Ordering::Relaxed);
+        self.raw_host_position_valid.store(
+            span.raw_host_position_start_samples.is_some(),
+            Ordering::Relaxed,
+        );
+        self.raw_host_position_start_samples.store(
+            span.raw_host_position_start_samples.unwrap_or(i64::MIN),
+            Ordering::Relaxed,
+        );
+        self.source.store(span.source as u8, Ordering::Relaxed);
+        self.presentation_source
+            .store(span.presentation_latency.source as u8, Ordering::Relaxed);
+        self.input_presentation_samples.store(
+            span.presentation_latency.input.map_or(u64::MAX, u64::from),
+            Ordering::Relaxed,
+        );
+        self.output_presentation_samples.store(
+            span.presentation_latency.output.map_or(u64::MAX, u64::from),
+            Ordering::Relaxed,
+        );
         self.version.fetch_add(1, Ordering::Release);
     }
 
@@ -176,6 +226,15 @@ impl CaptureClockSlot {
         true
     }
 
+    fn promote_watch_offline_generation(&self, sequence: u64, generation: u64) -> bool {
+        generation > 0
+            && self.sequence.load(Ordering::Acquire) == sequence
+            && self
+                .generation
+                .compare_exchange(0, generation, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+    }
+
     fn read(&self, sequence: u64) -> Option<CaptureClockSpan> {
         for _ in 0..4 {
             let before = self.version.load(Ordering::Acquire);
@@ -184,22 +243,78 @@ impl CaptureClockSlot {
             }
             let capture_start_frame = self.capture_start_frame.load(Ordering::Relaxed);
             let capture_end_frame = self.capture_end_frame.load(Ordering::Relaxed);
+            let generation = self.generation.load(Ordering::Relaxed);
             let position_start_samples = self
                 .position_valid
                 .load(Ordering::Relaxed)
                 .then(|| self.position_start_samples.load(Ordering::Relaxed));
+            let raw_host_position_start_samples = self
+                .raw_host_position_valid
+                .load(Ordering::Relaxed)
+                .then(|| self.raw_host_position_start_samples.load(Ordering::Relaxed));
             let source = CaptureClockSource::from_abi(self.source.load(Ordering::Relaxed));
+            let presentation_source = PresentationLatencySource::from_abi(
+                self.presentation_source.load(Ordering::Relaxed),
+            );
+            let input_presentation_samples =
+                self.input_presentation_samples.load(Ordering::Relaxed);
+            let output_presentation_samples =
+                self.output_presentation_samples.load(Ordering::Relaxed);
             let after = self.version.load(Ordering::Acquire);
             if before == after && after & 1 == 0 {
                 return Some(CaptureClockSpan {
+                    epoch: sequence,
+                    generation,
                     capture_start_frame,
                     capture_end_frame,
                     position_start_samples,
+                    raw_host_position_start_samples,
                     source,
+                    presentation_latency: PresentationLatencySamples {
+                        source: presentation_source,
+                        input: u32::try_from(input_presentation_samples).ok(),
+                        output: u32::try_from(output_presentation_samples).ok(),
+                    },
                 });
             }
         }
         None
+    }
+}
+
+/// Producer-owned preference for one immutable take epoch.
+///
+/// The numeric order is part of the lock-free selection rule: a producer may upgrade to a more
+/// authoritative clock, but a later epoch of the same or lower authority can never replace the
+/// already selected take merely because it is longer.
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
+enum TakeEpochPriority {
+    #[default]
+    None = 0,
+    Rendered = 1,
+    Offline = 2,
+    NativeRange = 3,
+}
+
+impl TakeEpochPriority {
+    fn from_abi(value: u8) -> Self {
+        match value {
+            1 => Self::Rendered,
+            2 => Self::Offline,
+            3 => Self::NativeRange,
+            _ => Self::None,
+        }
+    }
+
+    fn for_block(block: &RecordTakeBlock) -> Self {
+        if bounded_duration_from_block(block).is_some() {
+            Self::NativeRange
+        } else if block.offline {
+            Self::Offline
+        } else {
+            Self::Rendered
+        }
     }
 }
 
@@ -232,10 +347,17 @@ pub struct RecordTakeSnapshot {
 pub struct RecordTakeTracker {
     capture_frames_total: AtomicU64,
     capture_span_sequence: AtomicU64,
+    capture_clock_floor_sequence: AtomicU64,
     capture_last_span_sequence: AtomicU64,
+    capture_last_generation: AtomicU64,
     capture_last_position_valid: AtomicBool,
     capture_last_position_end_samples: AtomicI64,
+    capture_last_raw_host_position_valid: AtomicBool,
+    capture_last_raw_host_position_end_samples: AtomicI64,
     capture_last_source: AtomicU8,
+    capture_last_presentation_source: AtomicU8,
+    capture_last_input_presentation_samples: AtomicU64,
+    capture_last_output_presentation_samples: AtomicU64,
     presentation_version: AtomicU64,
     presentation_source: AtomicU8,
     input_presentation_samples: AtomicU64,
@@ -246,9 +368,19 @@ pub struct RecordTakeTracker {
     mark_generation: AtomicU64,
     mark_position_valid: AtomicBool,
     mark_position_samples: AtomicI64,
+    mark_raw_host_position_samples: AtomicI64,
+    mark_epoch: AtomicU64,
     mark_source: AtomicU8,
+    mark_presentation_source: AtomicU8,
+    mark_input_presentation_samples: AtomicU64,
+    mark_output_presentation_samples: AtomicU64,
+    capture_block_offline: AtomicBool,
+    watch_offline_active: AtomicBool,
+    watch_offline_force_pending: AtomicBool,
+    watch_offline_candidate_epoch: AtomicU64,
     render_active: AtomicBool,
     render_epoch: AtomicU64,
+    render_epoch_priority: AtomicU8,
     render_frames: AtomicU64,
     render_start_valid: AtomicBool,
     render_start_position: AtomicI64,
@@ -256,6 +388,8 @@ pub struct RecordTakeTracker {
     render_last_end_position: AtomicI64,
     record_generation: AtomicU64,
     record_render_epoch: AtomicU64,
+    record_epoch_priority: AtomicU8,
+    record_capture_epoch: AtomicU64,
     record_bounded_duration_samples: AtomicU64,
     record_bounded_range_valid: AtomicBool,
     record_bounded_start_position: AtomicI64,
@@ -265,6 +399,7 @@ pub struct RecordTakeTracker {
     record_unbounded_start_position: AtomicI64,
     record_unbounded_end_position: AtomicI64,
     previous_generation: AtomicU64,
+    previous_capture_epoch: AtomicU64,
     previous_bounded_duration_samples: AtomicU64,
     previous_unbounded_duration_samples: AtomicU64,
     previous_range_valid: AtomicBool,
@@ -283,10 +418,19 @@ impl RecordTakeTracker {
         Self {
             capture_frames_total: AtomicU64::new(0),
             capture_span_sequence: AtomicU64::new(0),
+            capture_clock_floor_sequence: AtomicU64::new(1),
             capture_last_span_sequence: AtomicU64::new(0),
+            capture_last_generation: AtomicU64::new(0),
             capture_last_position_valid: AtomicBool::new(false),
             capture_last_position_end_samples: AtomicI64::new(i64::MIN),
+            capture_last_raw_host_position_valid: AtomicBool::new(false),
+            capture_last_raw_host_position_end_samples: AtomicI64::new(i64::MIN),
             capture_last_source: AtomicU8::new(CaptureClockSource::Unknown as u8),
+            capture_last_presentation_source: AtomicU8::new(
+                PresentationLatencySource::Unknown as u8,
+            ),
+            capture_last_input_presentation_samples: AtomicU64::new(u64::MAX),
+            capture_last_output_presentation_samples: AtomicU64::new(u64::MAX),
             presentation_version: AtomicU64::new(0),
             presentation_source: AtomicU8::new(PresentationLatencySource::Unknown as u8),
             input_presentation_samples: AtomicU64::new(u64::MAX),
@@ -300,9 +444,19 @@ impl RecordTakeTracker {
             mark_generation: AtomicU64::new(0),
             mark_position_valid: AtomicBool::new(false),
             mark_position_samples: AtomicI64::new(i64::MIN),
+            mark_raw_host_position_samples: AtomicI64::new(i64::MIN),
+            mark_epoch: AtomicU64::new(0),
             mark_source: AtomicU8::new(CaptureClockSource::Unknown as u8),
+            mark_presentation_source: AtomicU8::new(PresentationLatencySource::Unknown as u8),
+            mark_input_presentation_samples: AtomicU64::new(u64::MAX),
+            mark_output_presentation_samples: AtomicU64::new(u64::MAX),
+            capture_block_offline: AtomicBool::new(false),
+            watch_offline_active: AtomicBool::new(false),
+            watch_offline_force_pending: AtomicBool::new(false),
+            watch_offline_candidate_epoch: AtomicU64::new(0),
             render_active: AtomicBool::new(false),
             render_epoch: AtomicU64::new(0),
+            render_epoch_priority: AtomicU8::new(TakeEpochPriority::None as u8),
             render_frames: AtomicU64::new(0),
             render_start_valid: AtomicBool::new(false),
             render_start_position: AtomicI64::new(i64::MIN),
@@ -310,6 +464,8 @@ impl RecordTakeTracker {
             render_last_end_position: AtomicI64::new(i64::MIN),
             record_generation: AtomicU64::new(0),
             record_render_epoch: AtomicU64::new(0),
+            record_epoch_priority: AtomicU8::new(TakeEpochPriority::None as u8),
+            record_capture_epoch: AtomicU64::new(0),
             record_bounded_duration_samples: AtomicU64::new(0),
             record_bounded_range_valid: AtomicBool::new(false),
             record_bounded_start_position: AtomicI64::new(i64::MIN),
@@ -319,6 +475,7 @@ impl RecordTakeTracker {
             record_unbounded_start_position: AtomicI64::new(i64::MIN),
             record_unbounded_end_position: AtomicI64::new(i64::MIN),
             previous_generation: AtomicU64::new(0),
+            previous_capture_epoch: AtomicU64::new(0),
             previous_bounded_duration_samples: AtomicU64::new(0),
             previous_unbounded_duration_samples: AtomicU64::new(0),
             previous_range_valid: AtomicBool::new(false),
@@ -368,6 +525,30 @@ impl RecordTakeTracker {
         source: CaptureClockSource,
         presentation_latency: PresentationLatencySamples,
     ) {
+        self.note_capture_window_with_presentation_boundary(
+            position_valid,
+            position_samples,
+            num_frames,
+            source,
+            presentation_latency,
+            false,
+        );
+    }
+
+    /// Publish a captured callback and optionally force a producer TakeStart epoch.
+    ///
+    /// `force_new_epoch` is normalized by the host adapter from first Record window,
+    /// realtime→offline render entry, or native range entry. It is not inferred downstream from
+    /// curve shape or mutable host state. The Audio Thread path remains atomics only.
+    pub fn note_capture_window_with_presentation_boundary(
+        &self,
+        position_valid: bool,
+        position_samples: i64,
+        num_frames: u64,
+        source: CaptureClockSource,
+        presentation_latency: PresentationLatencySamples,
+        force_new_epoch: bool,
+    ) {
         self.presentation_version.fetch_add(1, Ordering::AcqRel);
         self.presentation_source
             .store(presentation_latency.source as u8, Ordering::Relaxed);
@@ -383,62 +564,187 @@ impl RecordTakeTracker {
         if num_frames == 0 {
             return;
         }
-        // The host transport/render position is the producer clock. Optional VST3/AU presentation
-        // callbacks remain diagnostics only: zero is ambiguous across hosts, and applying a
-        // per-instance value here would move one lane away from the DAW/WAV timeline.
-        let content_position_samples = position_valid
-            .then(|| content_position_samples(position_samples, presentation_latency.input));
-        self.publish_record_mark_point(content_position_samples, num_frames, source);
+        // Convert exactly once at the Audio-Thread producer boundary. VST3 and AU both report the
+        // output presentation latency for the plug-in instance; adding it maps the raw processing
+        // position to the sample that is presented on the exported WAV timeline. Downstream code
+        // receives both facts but must never apply or choose a latency again.
+        let presentation_position_samples =
+            position_valid
+                .then_some(position_samples)
+                .and_then(|raw_position| {
+                    wav_presentation_position_samples(raw_position, presentation_latency.output)
+                });
         let capture_start_frame = self.capture_frames_total.load(Ordering::Acquire);
         let frames_end = self
             .capture_frames_total
             .fetch_add(num_frames, Ordering::AcqRel)
             .saturating_add(num_frames);
+        let record_generation = self.record_generation.load(Ordering::Acquire);
+        let capture_generation = (self.mark_capture_armed.load(Ordering::Acquire)
+            && self.mark_generation.load(Ordering::Acquire) == record_generation)
+            .then_some(record_generation)
+            .filter(|generation| *generation > 0)
+            .unwrap_or(0);
         let previous_sequence = self.capture_last_span_sequence.load(Ordering::Acquire);
-        let position_contiguous = content_position_samples.is_some()
+        let previous_generation = self.capture_last_generation.load(Ordering::Acquire);
+        let mapping_contiguous = presentation_position_samples.is_some()
             && source != CaptureClockSource::Unknown
             && self.capture_last_position_valid.load(Ordering::Acquire)
+            && self
+                .capture_last_raw_host_position_valid
+                .load(Ordering::Acquire)
             && self.capture_last_source.load(Ordering::Acquire) == source as u8
+            && self
+                .capture_last_presentation_source
+                .load(Ordering::Acquire)
+                == presentation_latency.source as u8
+            && self
+                .capture_last_input_presentation_samples
+                .load(Ordering::Acquire)
+                == presentation_latency.input.map_or(u64::MAX, u64::from)
+            && self
+                .capture_last_output_presentation_samples
+                .load(Ordering::Acquire)
+                == presentation_latency.output.map_or(u64::MAX, u64::from)
             && self
                 .capture_last_position_end_samples
                 .load(Ordering::Acquire)
-                == content_position_samples.unwrap_or(i64::MIN);
-        let extended = if previous_sequence > 0 && position_contiguous {
+                == presentation_position_samples.unwrap_or(i64::MIN)
+            && self
+                .capture_last_raw_host_position_end_samples
+                .load(Ordering::Acquire)
+                == position_samples;
+
+        // Some hosts enter the offline render before PRE has acknowledged the Keep generation.
+        // The audio is already the first WAV audio in that interval, but it is still tagged as
+        // Watch (generation zero). Force a fresh epoch at the offline edge so no ordinary Watch
+        // history can precede it. When the first armed Record callback is exactly contiguous in
+        // producer coordinates, promote that one epoch to the Record generation instead of
+        // splitting it at the acknowledgement edge. This is a one-way producer fact: a normal
+        // realtime Watch span, a discontinuity, or a source/latency change can never be promoted.
+        let watch_offline_active = self.watch_offline_active.load(Ordering::Acquire);
+        let capture_block_offline = self.capture_block_offline.load(Ordering::Acquire);
+        let watch_offline_capture =
+            capture_generation == 0 && watch_offline_active && capture_block_offline;
+        let force_watch_offline_epoch = watch_offline_capture
+            && self
+                .watch_offline_force_pending
+                .swap(false, Ordering::AcqRel);
+        let watch_candidate = self.watch_offline_candidate_epoch.load(Ordering::Acquire);
+        let promote_watch_offline = capture_generation > 0
+            && watch_offline_active
+            && capture_block_offline
+            && previous_generation == 0
+            && previous_sequence > 0
+            && watch_candidate == previous_sequence
+            && mapping_contiguous;
+
+        let extended = if promote_watch_offline {
+            let index = previous_sequence as usize % self.capture_clock_slots.len();
+            self.capture_clock_slots[index]
+                .promote_watch_offline_generation(previous_sequence, capture_generation)
+                && self.capture_clock_slots[index].extend(previous_sequence, frames_end)
+        } else if !force_new_epoch
+            && !force_watch_offline_epoch
+            && previous_sequence > 0
+            && previous_generation == capture_generation
+            && mapping_contiguous
+        {
             let index = previous_sequence as usize % self.capture_clock_slots.len();
             self.capture_clock_slots[index].extend(previous_sequence, frames_end)
         } else {
             false
         };
+        let mut published_sequence = None;
         if !extended {
             let sequence = self
                 .capture_span_sequence
                 .fetch_add(1, Ordering::AcqRel)
                 .saturating_add(1);
             let index = sequence as usize % self.capture_clock_slots.len();
-            self.capture_clock_slots[index].publish(
-                sequence,
+            self.capture_clock_slots[index].publish(CaptureClockSpan {
+                epoch: sequence,
+                generation: capture_generation,
                 capture_start_frame,
-                frames_end,
-                content_position_samples,
+                capture_end_frame: frames_end,
+                position_start_samples: presentation_position_samples,
+                raw_host_position_start_samples: position_valid.then_some(position_samples),
                 source,
-            );
+                presentation_latency,
+            });
             self.capture_last_span_sequence
                 .store(sequence, Ordering::Release);
+            published_sequence = Some(sequence);
         }
+        let epoch = self.capture_last_span_sequence.load(Ordering::Acquire);
+        if watch_offline_capture {
+            if let Some(sequence) = published_sequence {
+                self.watch_offline_candidate_epoch
+                    .store(sequence, Ordering::Release);
+            }
+        } else if capture_generation > 0 {
+            // Promotion is permitted only at the first armed Record callback. Regardless of
+            // whether the mapping was contiguous, consume the offline edge here so a later Record
+            // callback can never reach back and relabel unrelated Watch audio.
+            self.watch_offline_active.store(false, Ordering::Release);
+            self.watch_offline_force_pending
+                .store(false, Ordering::Release);
+            self.watch_offline_candidate_epoch
+                .store(0, Ordering::Release);
+        }
+        if self.mark_capture_armed.load(Ordering::Acquire)
+            && capture_generation > 0
+            && capture_generation == record_generation
+            && self.record_render_epoch.load(Ordering::Acquire)
+                == self.render_epoch.load(Ordering::Acquire)
+        {
+            let _ = self.record_capture_epoch.compare_exchange(
+                0,
+                epoch,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            );
+        }
+        self.publish_record_mark_point(
+            presentation_position_samples,
+            position_valid.then_some(position_samples),
+            num_frames,
+            epoch,
+            source,
+            presentation_latency,
+        );
         self.capture_last_position_valid
-            .store(content_position_samples.is_some(), Ordering::Release);
+            .store(presentation_position_samples.is_some(), Ordering::Release);
         self.capture_last_position_end_samples.store(
-            content_position_samples
+            presentation_position_samples
                 .unwrap_or(i64::MIN)
                 .saturating_add(num_frames as i64),
             Ordering::Release,
         );
+        self.capture_last_raw_host_position_valid
+            .store(position_valid, Ordering::Release);
+        self.capture_last_raw_host_position_end_samples.store(
+            position_samples.saturating_add(num_frames as i64),
+            Ordering::Release,
+        );
         self.capture_last_source
             .store(source as u8, Ordering::Release);
+        self.capture_last_generation
+            .store(capture_generation, Ordering::Release);
+        self.capture_last_presentation_source
+            .store(presentation_latency.source as u8, Ordering::Release);
+        self.capture_last_input_presentation_samples.store(
+            presentation_latency.input.map_or(u64::MAX, u64::from),
+            Ordering::Release,
+        );
+        self.capture_last_output_presentation_samples.store(
+            presentation_latency.output.map_or(u64::MAX, u64::from),
+            Ordering::Release,
+        );
     }
 
-    /// Latest optional host callback values. This is deliberately independent of capture-clock
-    /// span construction so a diagnostic-only host feature cannot alter existing TRACE positions.
+    /// Latest raw host callback values for diagnostics. Historical values are also retained in
+    /// each immutable capture-clock epoch; downstream alignment never reads this "latest" value.
     pub fn presentation_latency(&self) -> PresentationLatencySamples {
         for _ in 0..4 {
             let before = self.presentation_version.load(Ordering::Acquire);
@@ -467,6 +773,13 @@ impl RecordTakeTracker {
             .map(|point| point.position_samples)
     }
 
+    /// Total native frames published to the capture clock. Audio adapters use this immediately
+    /// after publishing a TakeStart window to bind the separate Record SPSC lane to the same
+    /// immutable clock origin. Atomic read only.
+    pub fn captured_frames_total(&self) -> u64 {
+        self.capture_frames_total.load(Ordering::Acquire)
+    }
+
     /// Audio Thread が実際に観測した1本の連続content-clock spanが、指定したWAV範囲を
     /// 丸ごと含むか。Drop commitを別projectのKeepへbroadcastしないためのproducer側scope
     /// proofとしてIO Threadだけが読む。Atomic readのみでAudio Threadを止めない。
@@ -478,6 +791,7 @@ impl RecordTakeTracker {
         let first = latest
             .saturating_sub(self.capture_clock_slots.len() as u64)
             .saturating_add(1)
+            .max(self.capture_clock_floor_sequence.load(Ordering::Acquire))
             .max(1);
         (first..=latest).any(|sequence| {
             let index = sequence as usize % self.capture_clock_slots.len();
@@ -509,10 +823,234 @@ impl RecordTakeTracker {
     ) -> Option<CaptureClockPoint> {
         let span = self.capture_span_for_frame(captured_frames)?;
         let position_samples = span.position_for_captured_frame(captured_frames)?;
+        let raw_host_position_samples = span
+            .raw_host_position_start_samples?
+            .saturating_add(captured_frames.saturating_sub(span.capture_start_frame) as i64);
         (span.source != CaptureClockSource::Unknown).then_some(CaptureClockPoint {
             position_samples,
+            raw_host_position_samples,
+            epoch: span.epoch,
             source: span.source,
+            presentation_latency: span.presentation_latency,
         })
+    }
+
+    /// Resolve one raw host boundary onto the immutable producer presentation clock. The newest
+    /// containing epoch wins, which is exactly the callback pass that owns the current Keep edge.
+    /// This performs no latency selection: the epoch already stores the value used at production.
+    pub fn clock_point_for_raw_host_position(
+        &self,
+        raw_host_position_samples: i64,
+    ) -> Option<CaptureClockPoint> {
+        let latest = self.capture_span_sequence.load(Ordering::Acquire);
+        let earliest = latest
+            .saturating_sub(self.capture_clock_slots.len() as u64)
+            .saturating_add(1)
+            .max(self.capture_clock_floor_sequence.load(Ordering::Acquire))
+            .max(1);
+        for sequence in (earliest..=latest).rev() {
+            let index = sequence as usize % self.capture_clock_slots.len();
+            let Some(span) = self.capture_clock_slots[index].read(sequence) else {
+                continue;
+            };
+            let (Some(raw_start), Some(presentation_start)) = (
+                span.raw_host_position_start_samples,
+                span.position_start_samples,
+            ) else {
+                continue;
+            };
+            let span_len = span
+                .capture_end_frame
+                .saturating_sub(span.capture_start_frame);
+            let Ok(span_len) = i64::try_from(span_len) else {
+                continue;
+            };
+            let Some(raw_end) = raw_start.checked_add(span_len) else {
+                continue;
+            };
+            if raw_host_position_samples < raw_start || raw_host_position_samples > raw_end {
+                continue;
+            }
+            let delta = raw_host_position_samples.saturating_sub(raw_start);
+            return (span.source != CaptureClockSource::Unknown).then_some(CaptureClockPoint {
+                position_samples: presentation_start.saturating_add(delta),
+                raw_host_position_samples,
+                epoch: span.epoch,
+                source: span.source,
+                presentation_latency: span.presentation_latency,
+            });
+        }
+        None
+    }
+
+    /// Capture epoch that fully owns an exact raw render range. A range spanning a transport jump
+    /// intentionally has no answer and therefore cannot be baked as one WAV take.
+    pub fn capture_epoch_for_raw_host_range(
+        &self,
+        raw_start_samples: i64,
+        raw_end_samples: i64,
+    ) -> Option<u64> {
+        if raw_end_samples <= raw_start_samples {
+            return None;
+        }
+        let start = self.clock_point_for_raw_host_position(raw_start_samples)?;
+        let end = self.clock_point_for_raw_host_position(raw_end_samples.checked_sub(1)?)?;
+        (start.epoch == end.epoch).then_some(start.epoch)
+    }
+
+    pub fn presentation_range_for_raw_host_range(
+        &self,
+        raw_start_samples: i64,
+        raw_end_samples: i64,
+    ) -> Option<(u64, i64, i64)> {
+        if raw_end_samples <= raw_start_samples {
+            return None;
+        }
+        let start = self.clock_point_for_raw_host_position(raw_start_samples)?;
+        let end_last = self.clock_point_for_raw_host_position(raw_end_samples.checked_sub(1)?)?;
+        if start.epoch != end_last.epoch {
+            return None;
+        }
+        Some((
+            start.epoch,
+            start.position_samples,
+            end_last.position_samples.checked_add(1)?,
+        ))
+    }
+
+    /// Select the producer epoch that owns the exact Broadcast-Wave presentation range.
+    ///
+    /// `bwf_start_samples` is already on the exported WAV presentation axis and the duration is
+    /// expressed in the same native sample rate. No host position or latency is consulted here:
+    /// each capture span stored the one producer conversion used when the audio was copied. Watch
+    /// history (generation zero) and other Keep generations are ineligible even when their project
+    /// positions repeat.
+    pub fn capture_epoch_containing_presentation_range(
+        &self,
+        expected_generation: u64,
+        bwf_start_samples: i64,
+        duration_samples: u64,
+    ) -> Option<u64> {
+        if expected_generation == 0 || duration_samples == 0 {
+            return None;
+        }
+        let duration_samples = i64::try_from(duration_samples).ok()?;
+        let bwf_end_samples = bwf_start_samples.checked_add(duration_samples)?;
+        let contains = |span: CaptureClockSpan| {
+            if span.generation != expected_generation || span.source == CaptureClockSource::Unknown
+            {
+                return false;
+            }
+            let Some(span_start) = span.position_start_samples else {
+                return false;
+            };
+            let Ok(span_len) = i64::try_from(
+                span.capture_end_frame
+                    .saturating_sub(span.capture_start_frame),
+            ) else {
+                return false;
+            };
+            span_start <= bwf_start_samples
+                && span_start
+                    .checked_add(span_len)
+                    .is_some_and(|span_end| span_end >= bwf_end_samples)
+        };
+
+        // Measure binds samples to this immutable epoch while Record is running. Writer close is
+        // too late to upgrade to a later epoch because those samples have already been rejected by
+        // the Record consumer. The producer must therefore make the first selected epoch correct
+        // (including ACK pre-roll promotion); BWF is a final exact-containment proof, never an
+        // alternate epoch selector.
+        let selected = self.selected_capture_epoch(expected_generation)?;
+        let index = selected as usize % self.capture_clock_slots.len();
+        self.capture_clock_slots[index]
+            .read(selected)
+            .is_some_and(contains)
+            .then_some(selected)
+    }
+
+    pub fn selected_capture_epoch(&self, expected_generation: u64) -> Option<u64> {
+        if expected_generation == 0 {
+            return None;
+        }
+        if self.record_generation.load(Ordering::Acquire) == expected_generation {
+            return Some(self.record_capture_epoch.load(Ordering::Acquire))
+                .filter(|epoch| *epoch > 0);
+        }
+        (self.previous_generation.load(Ordering::Acquire) == expected_generation)
+            .then(|| self.previous_capture_epoch.load(Ordering::Acquire))
+            .filter(|epoch| *epoch > 0)
+    }
+
+    pub fn presentation_range_for_capture_epoch(
+        &self,
+        epoch: u64,
+        raw_start_samples: i64,
+        raw_end_samples: i64,
+    ) -> Option<(i64, i64)> {
+        if epoch == 0 || raw_end_samples <= raw_start_samples {
+            return None;
+        }
+        let index = epoch as usize % self.capture_clock_slots.len();
+        let span = self.capture_clock_slots[index].read(epoch)?;
+        let (raw_start, presentation_start) = (
+            span.raw_host_position_start_samples?,
+            span.position_start_samples?,
+        );
+        let span_len = i64::try_from(
+            span.capture_end_frame
+                .saturating_sub(span.capture_start_frame),
+        )
+        .ok()?;
+        let span_raw_end = raw_start.checked_add(span_len)?;
+        if raw_start_samples < raw_start || raw_end_samples > span_raw_end {
+            return None;
+        }
+        let offset = raw_start_samples.checked_sub(raw_start)?;
+        let presentation_range_start = presentation_start.checked_add(offset)?;
+        let duration = raw_end_samples.checked_sub(raw_start_samples)?;
+        Some((
+            presentation_range_start,
+            presentation_range_start.checked_add(duration)?,
+        ))
+    }
+
+    /// Recover the raw host diagnostic interval corresponding to an already selected producer
+    /// presentation interval. This is an offset within one immutable mapping; it does not inspect,
+    /// choose, add, or subtract a latency value downstream.
+    pub fn raw_host_range_for_capture_epoch_presentation_range(
+        &self,
+        epoch: u64,
+        presentation_start_samples: i64,
+        presentation_end_samples: i64,
+    ) -> Option<(i64, i64)> {
+        if epoch == 0 || presentation_end_samples <= presentation_start_samples {
+            return None;
+        }
+        let index = epoch as usize % self.capture_clock_slots.len();
+        let span = self.capture_clock_slots[index].read(epoch)?;
+        let (span_presentation_start, span_raw_start) = (
+            span.position_start_samples?,
+            span.raw_host_position_start_samples?,
+        );
+        let span_len = i64::try_from(
+            span.capture_end_frame
+                .saturating_sub(span.capture_start_frame),
+        )
+        .ok()?;
+        let span_presentation_end = span_presentation_start.checked_add(span_len)?;
+        if presentation_start_samples < span_presentation_start
+            || presentation_end_samples > span_presentation_end
+        {
+            return None;
+        }
+        let offset = presentation_start_samples.checked_sub(span_presentation_start)?;
+        let raw_start = span_raw_start.checked_add(offset)?;
+        Some((
+            raw_start,
+            raw_start
+                .checked_add(presentation_end_samples.checked_sub(presentation_start_samples)?)?,
+        ))
     }
 
     /// Start the capture clock for a replacement SPSC ring.
@@ -522,14 +1060,40 @@ impl RecordTakeTracker {
     /// installs the replacement Producer. Atomics only; no allocation, lock, logging, or I/O.
     pub fn reset_capture_clock(&self) {
         self.capture_frames_total.store(0, Ordering::Release);
-        self.capture_span_sequence.store(0, Ordering::Release);
+        // Epoch IDs remain monotonic across SPSC replacement. A previous Keep may still be closing
+        // on IO Thread and holds its selected epoch; reusing sequence 1 would silently redirect it
+        // to the replacement ring. Current-frame lookups are isolated by the floor while direct
+        // selected-epoch lookups can still finish the previous generation from immutable slots.
+        self.capture_clock_floor_sequence.store(
+            self.capture_span_sequence
+                .load(Ordering::Acquire)
+                .saturating_add(1),
+            Ordering::Release,
+        );
         self.capture_last_span_sequence.store(0, Ordering::Release);
+        self.capture_last_generation.store(0, Ordering::Release);
         self.capture_last_position_valid
             .store(false, Ordering::Release);
         self.capture_last_position_end_samples
             .store(i64::MIN, Ordering::Release);
+        self.capture_last_raw_host_position_valid
+            .store(false, Ordering::Release);
+        self.capture_last_raw_host_position_end_samples
+            .store(i64::MIN, Ordering::Release);
         self.capture_last_source
             .store(CaptureClockSource::Unknown as u8, Ordering::Release);
+        self.capture_last_presentation_source
+            .store(PresentationLatencySource::Unknown as u8, Ordering::Release);
+        self.capture_last_input_presentation_samples
+            .store(u64::MAX, Ordering::Release);
+        self.capture_last_output_presentation_samples
+            .store(u64::MAX, Ordering::Release);
+        self.capture_block_offline.store(false, Ordering::Release);
+        self.watch_offline_active.store(false, Ordering::Release);
+        self.watch_offline_force_pending
+            .store(false, Ordering::Release);
+        self.watch_offline_candidate_epoch
+            .store(0, Ordering::Release);
     }
 
     pub(crate) fn capture_span_for_frame(&self, captured_frame: u64) -> Option<CaptureClockSpan> {
@@ -540,6 +1104,7 @@ impl RecordTakeTracker {
         let earliest = latest
             .saturating_sub(self.capture_clock_slots.len() as u64)
             .saturating_add(1)
+            .max(self.capture_clock_floor_sequence.load(Ordering::Acquire))
             .max(1);
         for sequence in (earliest..=latest).rev() {
             let index = sequence as usize % self.capture_clock_slots.len();
@@ -557,6 +1122,27 @@ impl RecordTakeTracker {
     /// Audio-thread note. This is atomics only: no allocation, lock, filesystem,
     /// logging, or blocking call.
     pub fn note_block(&self, block: RecordTakeBlock) {
+        let watch_offline =
+            !block.recording && block.offline && block.position_valid && block.num_frames > 0;
+        let watch_offline_active = self.watch_offline_active.load(Ordering::Acquire);
+        if watch_offline {
+            if !watch_offline_active {
+                self.watch_offline_candidate_epoch
+                    .store(0, Ordering::Release);
+                self.watch_offline_force_pending
+                    .store(true, Ordering::Release);
+                self.watch_offline_active.store(true, Ordering::Release);
+            }
+        } else if !(block.recording && block.offline && watch_offline_active) {
+            self.watch_offline_active.store(false, Ordering::Release);
+            self.watch_offline_force_pending
+                .store(false, Ordering::Release);
+            self.watch_offline_candidate_epoch
+                .store(0, Ordering::Release);
+        }
+        self.capture_block_offline
+            .store(block.offline, Ordering::Release);
+
         self.mark_version.fetch_add(1, Ordering::AcqRel);
         self.mark_capture_armed.store(
             block.recording
@@ -581,12 +1167,17 @@ impl RecordTakeTracker {
 
         if !render_eligible {
             self.render_active.store(false, Ordering::Release);
+            self.render_epoch_priority
+                .store(TakeEpochPriority::None as u8, Ordering::Release);
             self.render_last_end_valid.store(false, Ordering::Release);
             return;
         }
 
+        let candidate_priority = TakeEpochPriority::for_block(&block);
         let reset_epoch = !self.render_active.load(Ordering::Acquire)
-            || self.position_discontinuity(block.position_valid, block.position_samples);
+            || self.position_discontinuity(block.position_valid, block.position_samples)
+            || TakeEpochPriority::from_abi(self.render_epoch_priority.load(Ordering::Acquire))
+                != candidate_priority;
         let epoch = if reset_epoch {
             self.render_frames.store(0, Ordering::Release);
             self.render_start_position
@@ -594,6 +1185,8 @@ impl RecordTakeTracker {
             self.render_start_valid.store(true, Ordering::Release);
             self.render_last_end_valid.store(false, Ordering::Release);
             let next = self.render_epoch.fetch_add(1, Ordering::AcqRel) + 1;
+            self.render_epoch_priority
+                .store(candidate_priority as u8, Ordering::Release);
             self.render_active.store(true, Ordering::Release);
             next
         } else {
@@ -611,14 +1204,21 @@ impl RecordTakeTracker {
         );
         self.render_last_end_valid.store(true, Ordering::Release);
 
-        if block.recording && block.generation > 0 {
-            let current_epoch = self.record_render_epoch.load(Ordering::Acquire);
-            if current_epoch != epoch {
-                self.record_render_epoch.store(epoch, Ordering::Release);
-            }
-            if let Some(duration) = bounded_duration_from_block(&block) {
-                let previous = self.record_bounded_duration_samples.load(Ordering::Acquire);
-                if duration >= previous {
+        let selected_priority =
+            TakeEpochPriority::from_abi(self.record_epoch_priority.load(Ordering::Acquire));
+        let selected_epoch = self.record_render_epoch.load(Ordering::Acquire);
+        if selected_epoch == 0 || candidate_priority > selected_priority {
+            self.select_record_epoch(epoch, candidate_priority);
+        }
+        if self.record_render_epoch.load(Ordering::Acquire) != epoch {
+            return;
+        }
+
+        if candidate_priority == TakeEpochPriority::NativeRange {
+            // A host native range is a complete take declaration, not a running maximum. The
+            // first declaration for this immutable epoch wins; later callbacks cannot stretch it.
+            if self.record_bounded_duration_samples.load(Ordering::Acquire) == 0 {
+                if let Some(duration) = bounded_duration_from_block(&block) {
                     self.record_bounded_range_valid
                         .store(false, Ordering::Release);
                     self.record_bounded_start_position
@@ -633,51 +1233,89 @@ impl RecordTakeTracker {
                         .store(true, Ordering::Release);
                 }
             }
-            if let Some(duration) = self.render_duration_from_position_span() {
-                let previous = self
-                    .record_unbounded_duration_samples
-                    .load(Ordering::Acquire);
-                if duration >= previous {
+        } else if let Some(duration) = self.render_duration_from_position_span() {
+            // Duration may grow only while the selected epoch itself remains active. A later
+            // rewind/post-bounce epoch never competes by length.
+            let previous = self
+                .record_unbounded_duration_samples
+                .load(Ordering::Acquire);
+            if duration > previous {
+                self.record_unbounded_range_valid
+                    .store(false, Ordering::Release);
+                let start = self.render_start_position.load(Ordering::Acquire);
+                let end = self.render_last_end_position.load(Ordering::Acquire);
+                self.record_unbounded_start_position
+                    .store(start, Ordering::Relaxed);
+                self.record_unbounded_end_position
+                    .store(end, Ordering::Relaxed);
+                self.record_unbounded_duration_samples
+                    .store(duration, Ordering::Release);
+                if end.checked_sub(start) == i64::try_from(duration).ok() {
                     self.record_unbounded_range_valid
-                        .store(false, Ordering::Release);
-                    let start = self.render_start_position.load(Ordering::Acquire);
-                    let end = self.render_last_end_position.load(Ordering::Acquire);
-                    self.record_unbounded_start_position
-                        .store(start, Ordering::Relaxed);
-                    self.record_unbounded_end_position
-                        .store(end, Ordering::Relaxed);
-                    self.record_unbounded_duration_samples
-                        .store(duration, Ordering::Release);
-                    if end.checked_sub(start) == i64::try_from(duration).ok() {
-                        self.record_unbounded_range_valid
-                            .store(true, Ordering::Release);
-                    }
+                        .store(true, Ordering::Release);
                 }
             }
         }
     }
 
+    fn select_record_epoch(&self, epoch: u64, priority: TakeEpochPriority) {
+        self.record_capture_epoch.store(0, Ordering::Release);
+        self.record_bounded_duration_samples
+            .store(0, Ordering::Release);
+        self.record_bounded_range_valid
+            .store(false, Ordering::Release);
+        self.record_unbounded_duration_samples
+            .store(0, Ordering::Release);
+        self.record_unbounded_range_valid
+            .store(false, Ordering::Release);
+        self.record_epoch_priority
+            .store(priority as u8, Ordering::Release);
+        self.record_render_epoch.store(epoch, Ordering::Release);
+    }
+
     fn publish_record_mark_point(
         &self,
-        content_position_samples: Option<i64>,
+        presentation_position_samples: Option<i64>,
+        raw_host_position_samples: Option<i64>,
         num_frames: u64,
+        epoch: u64,
         source: CaptureClockSource,
+        presentation_latency: PresentationLatencySamples,
     ) {
         if !self.mark_capture_armed.load(Ordering::Acquire)
-            || content_position_samples.is_none()
+            || presentation_position_samples.is_none()
+            || raw_host_position_samples.is_none()
             || num_frames == 0
+            || epoch == 0
             || source == CaptureClockSource::Unknown
         {
             return;
         }
         self.mark_version.fetch_add(1, Ordering::AcqRel);
         self.mark_position_samples.store(
-            content_position_samples
+            presentation_position_samples
                 .unwrap_or(i64::MIN)
                 .saturating_add(num_frames as i64),
             Ordering::Relaxed,
         );
+        self.mark_raw_host_position_samples.store(
+            raw_host_position_samples
+                .unwrap_or(i64::MIN)
+                .saturating_add(num_frames as i64),
+            Ordering::Relaxed,
+        );
+        self.mark_epoch.store(epoch, Ordering::Relaxed);
         self.mark_source.store(source as u8, Ordering::Relaxed);
+        self.mark_presentation_source
+            .store(presentation_latency.source as u8, Ordering::Relaxed);
+        self.mark_input_presentation_samples.store(
+            presentation_latency.input.map_or(u64::MAX, u64::from),
+            Ordering::Relaxed,
+        );
+        self.mark_output_presentation_samples.store(
+            presentation_latency.output.map_or(u64::MAX, u64::from),
+            Ordering::Relaxed,
+        );
         self.mark_position_valid.store(true, Ordering::Relaxed);
         self.mark_version.fetch_add(1, Ordering::Release);
     }
@@ -696,18 +1334,37 @@ impl RecordTakeTracker {
             let generation = self.mark_generation.load(Ordering::Relaxed);
             let valid = self.mark_position_valid.load(Ordering::Relaxed);
             let position_samples = self.mark_position_samples.load(Ordering::Relaxed);
+            let raw_host_position_samples =
+                self.mark_raw_host_position_samples.load(Ordering::Relaxed);
+            let epoch = self.mark_epoch.load(Ordering::Relaxed);
             let source = CaptureClockSource::from_abi(self.mark_source.load(Ordering::Relaxed));
+            let presentation_source = PresentationLatencySource::from_abi(
+                self.mark_presentation_source.load(Ordering::Relaxed),
+            );
+            let input_presentation_samples =
+                self.mark_input_presentation_samples.load(Ordering::Relaxed);
+            let output_presentation_samples = self
+                .mark_output_presentation_samples
+                .load(Ordering::Relaxed);
             let after = self.mark_version.load(Ordering::Acquire);
             if before == after
                 && after & 1 == 0
                 && armed
                 && valid
                 && generation == expected_generation
+                && epoch > 0
                 && source != CaptureClockSource::Unknown
             {
                 return Some(CaptureClockPoint {
                     position_samples,
+                    raw_host_position_samples,
+                    epoch,
                     source,
+                    presentation_latency: PresentationLatencySamples {
+                        source: presentation_source,
+                        input: u32::try_from(input_presentation_samples).ok(),
+                        output: u32::try_from(output_presentation_samples).ok(),
+                    },
                 });
             }
         }
@@ -770,6 +1427,9 @@ impl RecordTakeTracker {
             self.render_last_end_valid.store(false, Ordering::Release);
         }
         self.record_render_epoch.store(0, Ordering::Release);
+        self.record_epoch_priority
+            .store(TakeEpochPriority::None as u8, Ordering::Release);
+        self.record_capture_epoch.store(0, Ordering::Release);
         self.record_bounded_duration_samples
             .store(0, Ordering::Release);
         self.record_bounded_range_valid
@@ -804,6 +1464,10 @@ impl RecordTakeTracker {
                 .store(bounded_duration_samples, Ordering::Release);
             self.previous_unbounded_duration_samples
                 .store(unbounded_duration_samples, Ordering::Release);
+            self.previous_capture_epoch.store(
+                self.record_capture_epoch.load(Ordering::Acquire),
+                Ordering::Release,
+            );
             self.previous_generation
                 .store(generation, Ordering::Release);
         }
@@ -814,7 +1478,7 @@ impl RecordTakeTracker {
             return false;
         }
         let previous_end = self.render_last_end_position.load(Ordering::Acquire);
-        position_samples < previous_end.saturating_sub(1)
+        position_samples != previous_end
     }
 
     fn render_duration_from_position_span(&self) -> Option<u64> {
@@ -830,8 +1494,6 @@ impl RecordTakeTracker {
         let start = self.render_start_position.load(Ordering::Acquire);
         let end = self.render_last_end_position.load(Ordering::Acquire);
         if end >= start {
-            // Transport position can jump forward without delivering the skipped samples.
-            // The fallback clock must never demand more TRACE data than Hypha actually saw.
             Some(((end - start) as u64).min(rendered_frames))
         } else {
             None
@@ -871,13 +1533,15 @@ impl RecordTakeTracker {
     }
 }
 
-/// Preserve the host transport/render sample position. Presentation latency is diagnostic only.
+/// Convert the raw processing position to the sample presented on the exported WAV timeline.
+/// This function is intentionally producer-only; downstream code receives the converted sample
+/// plus the separately retained raw facts and must not apply latency again.
 #[inline]
-pub fn content_position_samples(
+pub fn wav_presentation_position_samples(
     host_position_samples: i64,
-    _input_presentation_samples: Option<u32>,
-) -> i64 {
-    host_position_samples
+    output_presentation_samples: Option<u32>,
+) -> Option<i64> {
+    host_position_samples.checked_add(i64::from(output_presentation_samples.unwrap_or(0)))
 }
 
 fn bounded_duration_from_block(block: &RecordTakeBlock) -> Option<u64> {
@@ -924,7 +1588,7 @@ pub fn new_record_take_tracker() -> Arc<RecordTakeTracker> {
 #[cfg(test)]
 mod tests {
     use super::{
-        content_position_samples, CaptureClockSource, PresentationLatencySamples,
+        wav_presentation_position_samples, CaptureClockSource, PresentationLatencySamples,
         PresentationLatencySource, RecordTakeBlock, RecordTakeTracker,
         RECORD_TAKE_SOURCE_RENDER_CLOCK, RECORD_TAKE_SOURCE_WAV_CLOCK,
     };
@@ -966,7 +1630,7 @@ mod tests {
     }
 
     #[test]
-    fn presentation_latency_changes_do_not_split_the_host_clock() {
+    fn presentation_latency_changes_split_immutable_presentation_epochs() {
         let tracker = RecordTakeTracker::new();
         assert_eq!(
             tracker.presentation_latency(),
@@ -1023,15 +1687,54 @@ mod tests {
             tracker
                 .capture_span_sequence
                 .load(std::sync::atomic::Ordering::Acquire),
-            1,
-            "optional latency diagnostics cannot alter the host-clock span"
+            3,
+            "each latency mapping owns one immutable presentation epoch"
         );
     }
 
     #[test]
-    fn presentation_latency_never_rebases_the_host_position() {
-        assert_eq!(content_position_samples(48_000, Some(0)), 48_000);
-        assert_eq!(content_position_samples(48_256, Some(256)), 48_256);
+    fn explicit_take_start_splits_even_a_contiguous_host_position() {
+        let tracker = RecordTakeTracker::new();
+        let latency = PresentationLatencySamples {
+            source: PresentationLatencySource::AudioUnitV2,
+            input: Some(0),
+            output: Some(7_676),
+        };
+        tracker.note_capture_window_with_presentation_boundary(
+            true,
+            0,
+            512,
+            CaptureClockSource::ProjectTimeline,
+            latency,
+            false,
+        );
+        let watch_epoch = tracker.clock_point_for_captured_frame(512).unwrap().epoch;
+        tracker.note_capture_window_with_presentation_boundary(
+            true,
+            512,
+            512,
+            CaptureClockSource::ProjectTimeline,
+            latency,
+            true,
+        );
+        let take_start = tracker.clock_point_for_captured_frame(513).unwrap();
+
+        assert_ne!(take_start.epoch, watch_epoch);
+        assert_eq!(take_start.raw_host_position_samples, 513);
+        assert_eq!(take_start.position_samples, 8_189);
+        assert_eq!(take_start.presentation_latency, latency);
+    }
+
+    #[test]
+    fn output_presentation_latency_rebases_pre_and_post_to_one_wav_sample() {
+        assert_eq!(
+            wav_presentation_position_samples(48_000, Some(0)),
+            Some(48_000)
+        );
+        assert_eq!(
+            wav_presentation_position_samples(48_000, Some(256)),
+            Some(48_256)
+        );
 
         let pre = RecordTakeTracker::new();
         pre.note_capture_window_with_presentation(
@@ -1057,8 +1760,52 @@ mod tests {
                 output: Some(0),
             },
         );
-        assert_eq!(pre.position_samples_for_captured_frame(512), Some(48_512));
+        assert_eq!(pre.position_samples_for_captured_frame(512), Some(48_768));
         assert_eq!(post.position_samples_for_captured_frame(512), Some(48_768));
+        let pre_point = pre.clock_point_for_captured_frame(512).unwrap();
+        let post_point = post.clock_point_for_captured_frame(512).unwrap();
+        assert_eq!(pre_point.position_samples, post_point.position_samples);
+        assert_eq!(pre_point.raw_host_position_samples, 48_512);
+        assert_eq!(post_point.raw_host_position_samples, 48_768);
+        assert_eq!(pre_point.presentation_latency.output, Some(256));
+        assert_eq!(post_point.presentation_latency.output, Some(0));
+    }
+
+    #[test]
+    fn au_and_vst3_7676_sample_observations_share_one_wav_axis() {
+        let pre = RecordTakeTracker::new();
+        pre.note_capture_window_with_presentation(
+            true,
+            0,
+            9_600,
+            CaptureClockSource::ProjectTimeline,
+            PresentationLatencySamples {
+                source: PresentationLatencySource::AudioUnitV2,
+                input: Some(0),
+                output: Some(7_676),
+            },
+        );
+        let post = RecordTakeTracker::new();
+        post.note_capture_window_with_presentation(
+            true,
+            7_676,
+            9_600,
+            CaptureClockSource::ProjectTimeline,
+            PresentationLatencySamples {
+                source: PresentationLatencySource::Vst3,
+                input: Some(7_676),
+                output: Some(0),
+            },
+        );
+
+        let pre_point = pre.clock_point_for_captured_frame(9_600).unwrap();
+        let post_point = post.clock_point_for_captured_frame(9_600).unwrap();
+        assert_eq!(pre_point.position_samples, 17_276);
+        assert_eq!(pre_point.position_samples, post_point.position_samples);
+        assert_ne!(
+            pre_point.raw_host_position_samples,
+            post_point.raw_host_position_samples
+        );
     }
 
     #[test]
@@ -1182,6 +1929,261 @@ mod tests {
     }
 
     #[test]
+    fn later_bwf_containing_epoch_never_replaces_selected_take_epoch() {
+        let tracker = RecordTakeTracker::new();
+        let latency = PresentationLatencySamples {
+            source: PresentationLatencySource::Vst3,
+            input: Some(0),
+            output: Some(100),
+        };
+
+        tracker.note_block(block(73, 1_000, 500));
+        tracker.note_capture_window_with_presentation_boundary(
+            true,
+            1_000,
+            500,
+            CaptureClockSource::ProjectTimeline,
+            latency,
+            true,
+        );
+        let initially_selected = tracker.selected_capture_epoch(73).unwrap();
+
+        // A later same-priority epoch cannot replace the take at writer close, even if its clock
+        // happens to contain the BWF interval. Measure has already accepted only the immutable
+        // selected epoch and discarded this post-bounce pass.
+        tracker.note_block(block(73, 0, 1_000));
+        tracker.note_capture_window_with_presentation_boundary(
+            true,
+            0,
+            1_000,
+            CaptureClockSource::ProjectTimeline,
+            latency,
+            true,
+        );
+        let later_epoch = tracker
+            .capture_span_for_frame(1_500)
+            .expect("later epoch")
+            .epoch;
+
+        assert_eq!(tracker.selected_capture_epoch(73), Some(initially_selected));
+        assert_ne!(later_epoch, initially_selected);
+        assert_eq!(
+            tracker.capture_epoch_containing_presentation_range(73, 100, 1_000),
+            None,
+            "BWF proof cannot resurrect a later epoch whose samples were already dropped"
+        );
+    }
+
+    #[test]
+    fn watch_offline_epoch_promotes_into_first_record_callback() {
+        let tracker = RecordTakeTracker::new();
+        let latency = PresentationLatencySamples {
+            source: PresentationLatencySource::Vst3,
+            input: Some(0),
+            output: Some(100),
+        };
+
+        // The host begins the exported offline pass before the Keep acknowledgement reaches the
+        // producer. These callbacks are raw pre-roll for this exact pass, not normal Watch history.
+        tracker.note_block(RecordTakeBlock {
+            recording: false,
+            ..block(0, 0, 512)
+        });
+        tracker.note_capture_window_with_presentation_boundary(
+            true,
+            0,
+            512,
+            CaptureClockSource::ProjectTimeline,
+            latency,
+            false,
+        );
+        let offline_start_epoch = tracker
+            .capture_span_for_frame(512)
+            .expect("offline start")
+            .epoch;
+
+        tracker.note_block(RecordTakeBlock {
+            recording: false,
+            ..block(0, 512, 512)
+        });
+        tracker.note_capture_window_with_presentation_boundary(
+            true,
+            512,
+            512,
+            CaptureClockSource::ProjectTimeline,
+            latency,
+            false,
+        );
+
+        // force_new_epoch is true at the Record acknowledgement edge, but exact producer
+        // continuity proves that this is still the same WAV pass and therefore the same epoch.
+        tracker.note_block(block(80, 1_024, 512));
+        tracker.note_capture_window_with_presentation_boundary(
+            true,
+            1_024,
+            512,
+            CaptureClockSource::ProjectTimeline,
+            latency,
+            true,
+        );
+
+        let promoted = tracker.capture_span_for_frame(1_536).expect("record tail");
+        assert_eq!(promoted.epoch, offline_start_epoch);
+        assert_eq!(promoted.generation, 80);
+        assert_eq!(promoted.capture_start_frame, 0);
+        assert_eq!(promoted.capture_end_frame, 1_536);
+        assert_eq!(tracker.selected_capture_epoch(80), Some(promoted.epoch));
+        assert_eq!(
+            tracker.capture_epoch_containing_presentation_range(80, 100, 1_536),
+            Some(promoted.epoch)
+        );
+        assert_eq!(
+            tracker
+                .raw_host_range_for_capture_epoch_presentation_range(promoted.epoch, 100, 1_636,),
+            Some((0, 1_536))
+        );
+    }
+
+    #[test]
+    fn normal_realtime_watch_history_never_promotes_into_record() {
+        let tracker = RecordTakeTracker::new();
+        let latency = PresentationLatencySamples {
+            source: PresentationLatencySource::AudioUnitV2,
+            input: Some(0),
+            output: Some(100),
+        };
+
+        tracker.note_block(RecordTakeBlock {
+            recording: false,
+            playing: true,
+            offline: false,
+            ..block(0, 0, 512)
+        });
+        tracker.note_capture_window_with_presentation_boundary(
+            true,
+            0,
+            512,
+            CaptureClockSource::ProjectTimeline,
+            latency,
+            false,
+        );
+        let watch_epoch = tracker.capture_span_for_frame(512).expect("watch").epoch;
+
+        tracker.note_block(block(81, 512, 512));
+        tracker.note_capture_window_with_presentation_boundary(
+            true,
+            512,
+            512,
+            CaptureClockSource::ProjectTimeline,
+            latency,
+            true,
+        );
+        let record_span = tracker.capture_span_for_frame(1_024).expect("record");
+
+        assert_ne!(record_span.epoch, watch_epoch);
+        assert_eq!(record_span.generation, 81);
+        assert_eq!(record_span.capture_start_frame, 512);
+        assert_eq!(
+            tracker.capture_epoch_containing_presentation_range(81, 100, 1_024),
+            None,
+            "generation changes cannot relabel ordinary realtime Watch history"
+        );
+        assert_eq!(
+            tracker.capture_epoch_containing_presentation_range(81, 612, 512),
+            Some(record_span.epoch)
+        );
+    }
+
+    #[test]
+    fn watch_offline_promotion_requires_exact_position_and_latency_continuity() {
+        let watch_latency = PresentationLatencySamples {
+            source: PresentationLatencySource::Vst3,
+            input: Some(0),
+            output: Some(100),
+        };
+        for (generation, record_position, record_latency) in [
+            (82, 1_024, watch_latency),
+            (
+                83,
+                512,
+                PresentationLatencySamples {
+                    output: Some(101),
+                    ..watch_latency
+                },
+            ),
+        ] {
+            let tracker = RecordTakeTracker::new();
+            tracker.note_block(RecordTakeBlock {
+                recording: false,
+                ..block(0, 0, 512)
+            });
+            tracker.note_capture_window_with_presentation_boundary(
+                true,
+                0,
+                512,
+                CaptureClockSource::ProjectTimeline,
+                watch_latency,
+                false,
+            );
+            let watch_epoch = tracker.capture_span_for_frame(512).unwrap().epoch;
+
+            tracker.note_block(block(generation, record_position, 512));
+            tracker.note_capture_window_with_presentation_boundary(
+                true,
+                record_position,
+                512,
+                CaptureClockSource::ProjectTimeline,
+                record_latency,
+                true,
+            );
+            let record_epoch = tracker.capture_span_for_frame(1_024).unwrap().epoch;
+
+            assert_ne!(record_epoch, watch_epoch);
+            assert_eq!(
+                tracker.selected_capture_epoch(generation),
+                Some(record_epoch)
+            );
+            assert_eq!(
+                tracker.capture_epoch_containing_presentation_range(generation, 100, 1_024,),
+                None,
+                "discontinuous Watch audio cannot be relabeled to fill the BWF prefix"
+            );
+        }
+    }
+
+    #[test]
+    fn bwf_presentation_range_outside_record_epoch_returns_none() {
+        let tracker = RecordTakeTracker::new();
+        tracker.note_block(block(74, 0, 1_000));
+        tracker.note_capture_window_with_presentation_boundary(
+            true,
+            0,
+            1_000,
+            CaptureClockSource::ProjectTimeline,
+            PresentationLatencySamples {
+                source: PresentationLatencySource::AudioUnitV2,
+                input: Some(0),
+                output: Some(100),
+            },
+            true,
+        );
+
+        assert_eq!(
+            tracker.capture_epoch_containing_presentation_range(74, 99, 1_000),
+            None
+        );
+        assert_eq!(
+            tracker.capture_epoch_containing_presentation_range(74, 100, 1_001),
+            None
+        );
+        assert_eq!(
+            tracker.capture_epoch_containing_presentation_range(75, 100, 1_000),
+            None,
+            "another generation cannot reuse the same project range"
+        );
+    }
+
+    #[test]
     fn stopped_tail_after_record_does_not_extend_take() {
         let tracker = RecordTakeTracker::new();
         tracker.note_block(RecordTakeBlock {
@@ -1255,6 +2257,10 @@ mod tests {
     fn capture_clock_reset_rebases_replacement_ring_cursor() {
         let tracker = RecordTakeTracker::new();
         tracker.note_capture_window(true, 48_000, 512);
+        let old_epoch = tracker
+            .capture_span_for_frame(512)
+            .expect("old ring epoch")
+            .epoch;
         assert_eq!(
             tracker.position_samples_for_captured_frame(512),
             Some(48_512)
@@ -1264,19 +2270,50 @@ mod tests {
         assert_eq!(tracker.position_samples_for_captured_frame(512), None);
 
         tracker.note_capture_window(true, 96_000, 256);
+        let replacement_epoch = tracker
+            .capture_span_for_frame(256)
+            .expect("replacement ring epoch")
+            .epoch;
+        assert_ne!(replacement_epoch, old_epoch);
         assert_eq!(
             tracker.position_samples_for_captured_frame(256),
             Some(96_256)
         );
+        assert_eq!(
+            tracker.presentation_range_for_capture_epoch(old_epoch, 48_000, 48_512),
+            Some((48_000, 48_512)),
+            "an IO close racing ring replacement keeps its immutable old epoch"
+        );
     }
 
     #[test]
-    fn position_rewind_starts_a_new_render_epoch() {
+    fn later_longer_offline_epoch_does_not_replace_first_offline_epoch() {
         let tracker = RecordTakeTracker::new();
         tracker.note_block(block(4, 10_000, 1_000));
         tracker.note_block(block(4, 0, 2_000));
 
-        assert_eq!(tracker.snapshot(4).unwrap().duration_samples, 2_000);
+        let snapshot = tracker.snapshot(4).unwrap();
+        assert_eq!(snapshot.duration_samples, 1_000);
+        assert_eq!(snapshot.host_start_position_samples, Some(10_000));
+        assert_eq!(snapshot.host_end_position_samples, Some(11_000));
+    }
+
+    #[test]
+    fn epoch_authority_upgrades_rendered_then_offline_then_native_only_once() {
+        let tracker = RecordTakeTracker::new();
+        tracker.note_block(RecordTakeBlock {
+            offline: false,
+            ..block(5, 0, 400)
+        });
+        tracker.note_block(block(5, 400, 400));
+        tracker.note_block(bounded_block(5, 800, 100, 100, 1_100));
+        tracker.note_block(bounded_block(5, 0, 5_000, 0, 5_000));
+
+        let snapshot = tracker.snapshot(5).expect("native take");
+        assert_eq!(snapshot.source, RECORD_TAKE_SOURCE_WAV_CLOCK);
+        assert_eq!(snapshot.duration_samples, 1_000);
+        assert_eq!(snapshot.host_start_position_samples, Some(100));
+        assert_eq!(snapshot.host_end_position_samples, Some(1_100));
     }
 
     #[test]
@@ -1302,10 +2339,10 @@ mod tests {
         tracker.note_block(block(12, 10_000, 1_000));
 
         let snap = tracker.snapshot(12).expect("render fallback");
-        assert_eq!(snap.duration_samples, 2_000);
+        assert_eq!(snap.duration_samples, 1_000);
         assert_eq!(snap.source, RECORD_TAKE_SOURCE_RENDER_CLOCK);
-        assert_eq!(snap.host_start_position_samples, None);
-        assert_eq!(snap.host_end_position_samples, None);
+        assert_eq!(snap.host_start_position_samples, Some(0));
+        assert_eq!(snap.host_end_position_samples, Some(1_000));
     }
 
     #[test]
@@ -1329,6 +2366,15 @@ mod tests {
             offline: false,
             ..block(21, 0, 44_100)
         });
+        tracker.note_capture_window_with_presentation_boundary(
+            true,
+            0,
+            44_100,
+            CaptureClockSource::ProjectTimeline,
+            PresentationLatencySamples::default(),
+            true,
+        );
+        let first_capture_epoch = tracker.selected_capture_epoch(21).unwrap();
         tracker.note_block(RecordTakeBlock {
             playing: true,
             offline: false,
@@ -1336,6 +2382,11 @@ mod tests {
         });
 
         assert_eq!(tracker.snapshot(21).unwrap().duration_samples, 44_100);
+        assert_eq!(
+            tracker.selected_capture_epoch(21),
+            Some(first_capture_epoch),
+            "immutable selection survives IO close racing the next Keep generation"
+        );
         assert_eq!(tracker.snapshot(22).unwrap().duration_samples, 1_024);
     }
 

@@ -56,6 +56,44 @@ pub fn write_bytes_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
     }))
 }
 
+/// Publish immutable bytes exactly once without an overwrite window.
+///
+/// A unique sibling is fully written first, then hard-linked to the final name. `hard_link` is
+/// the commit barrier: concurrent publishers cannot replace an existing fact. An equal retry is
+/// idempotent; different bytes at the same identity are rejected.
+pub fn write_bytes_immutable(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    if let Some(parent) = path.parent() {
+        create_private_dir_all(parent)?;
+    }
+    let tmp = unique_tmp_path(path)?;
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    options.mode(0o600);
+    let result = (|| {
+        let mut file = options.open(&tmp)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        drop(file);
+        match fs::hard_link(&tmp, path) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                if fs::read(path)? == bytes {
+                    Ok(())
+                } else {
+                    Err(io::Error::new(
+                        io::ErrorKind::AlreadyExists,
+                        "immutable fact already exists with different bytes",
+                    ))
+                }
+            }
+            Err(error) => Err(error),
+        }
+    })();
+    let _ = fs::remove_file(&tmp);
+    result
+}
+
 /// Create coordination directories without exposing newly-created paths to other users.
 /// Existing directories keep their current mode; this avoids mutating user-owned parents.
 pub(crate) fn create_private_dir_all(path: &Path) -> io::Result<()> {
@@ -178,6 +216,18 @@ mod tests {
         let writer = parsed.get("writer").and_then(serde_json::Value::as_u64);
         assert!(writer.is_some_and(|n| n < 12));
         assert!(tmp_entries(path.parent().unwrap()).is_empty());
+    }
+
+    #[test]
+    fn immutable_write_accepts_equal_retry_and_rejects_replacement() {
+        let root = isolated_dir("immutable");
+        let path = root.join("fact.json");
+        write_bytes_immutable(&path, b"first").unwrap();
+        write_bytes_immutable(&path, b"first").unwrap();
+        let error = write_bytes_immutable(&path, b"second").unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(fs::read(&path).unwrap(), b"first");
+        assert!(tmp_entries(&root).is_empty());
     }
 
     #[test]

@@ -1,5 +1,31 @@
 use super::*;
 
+fn generation_with_member_count(member_count: usize) -> CaptureGeneration {
+    CaptureGeneration::new_for_members(
+        "post-0".into(),
+        "daw-a".into(),
+        42,
+        (0..member_count)
+            .map(|index| CaptureGenerationMember {
+                project_hash: "project-a".into(),
+                post_instance_id: format!("post-{index}"),
+                pre_instance_id: format!("pre-{index}"),
+                record_session_id: String::new(),
+            })
+            .collect(),
+    )
+}
+
+#[test]
+fn generation_accepts_twelve_exact_pairs_and_rejects_thirteen() {
+    assert_eq!(MAX_CAPTURE_GENERATION_MEMBERS, 12);
+    assert!(generation_with_member_count(12).is_valid());
+    assert!(
+        !generation_with_member_count(13).is_valid(),
+        "producer must reject a roster the atomic consumer cannot display"
+    );
+}
+
 #[test]
 fn one_generation_is_published_identically_to_every_project() {
     let temp = tempfile::tempdir().unwrap();
@@ -39,12 +65,14 @@ fn one_generation_is_published_identically_to_every_project() {
                 member.post_instance_id.as_str(),
             ),
         ] {
-            let mut guard = crate::record_writer_claim::claim_writer(
+            let mut guard = crate::record_writer_claim::claim_writer_for_generation(
                 temp.path(),
                 &member.project_hash,
                 &member.record_session_id,
                 role,
                 instance_id,
+                &generation.capture_generation_id,
+                generation.started_at_ms,
             )
             .unwrap();
             guard.mark_ready().unwrap();
@@ -240,4 +268,187 @@ fn invalid_pointer_is_not_promoted_to_a_generation() {
         read_current_generation(temp.path(), "project-a"),
         Err(CaptureGenerationError::Serde(_))
     ));
+}
+
+#[test]
+fn stop_targets_preparing_member_before_retained_active_member() {
+    let temp = tempfile::tempdir().unwrap();
+    let active = CaptureGeneration::new_single(
+        "project-a".into(),
+        "post-a".into(),
+        "pre-old".into(),
+        "daw-a".into(),
+        std::process::id(),
+    );
+    crate::atomic_file::write_bytes_atomic(
+        &active_generation_path(temp.path()),
+        &serde_json::to_vec(&active).unwrap(),
+    )
+    .unwrap();
+
+    let preparing = CaptureGeneration::new_single(
+        "project-a".into(),
+        "post-a".into(),
+        "pre-new".into(),
+        "daw-a".into(),
+        std::process::id(),
+    );
+    let mut transaction =
+        crate::capture_generation_tx::CaptureGenerationTransaction::begin(temp.path(), &preparing)
+            .unwrap();
+    transaction.stage().unwrap();
+
+    assert_eq!(
+        read_stop_target_generation(temp.path(), "project-a", "post-a")
+            .unwrap()
+            .unwrap(),
+        preparing,
+        "Stop must address the producer-owned generation during prepare→commit"
+    );
+    drop(transaction);
+    assert_eq!(
+        read_stop_target_generation(temp.path(), "project-a", "post-a")
+            .unwrap()
+            .unwrap(),
+        active,
+        "without a matching preparation, retained active is the exact fallback"
+    );
+}
+
+#[test]
+fn stop_target_requires_the_exact_project_and_post_member() {
+    let temp = tempfile::tempdir().unwrap();
+    let generation = CaptureGeneration::new_single(
+        "project-a".into(),
+        "post-shared".into(),
+        "pre-a".into(),
+        "daw-a".into(),
+        std::process::id(),
+    );
+    crate::atomic_file::write_bytes_atomic(
+        &active_generation_path(temp.path()),
+        &serde_json::to_vec(&generation).unwrap(),
+    )
+    .unwrap();
+
+    assert!(
+        read_stop_target_generation(temp.path(), "project-b", "post-shared")
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(
+        read_stop_target_generation(temp.path(), "project-a", "post-shared")
+            .unwrap()
+            .unwrap(),
+        generation
+    );
+}
+
+#[test]
+fn terminal_generation_never_rearms_after_cache_loss_or_io_restart() {
+    let temp = tempfile::tempdir().unwrap();
+    let generation = CaptureGeneration::new_single(
+        "project-a".into(),
+        "post-a".into(),
+        "pre-a".into(),
+        "daw-a".into(),
+        std::process::id(),
+    );
+    publish_current_generation(temp.path(), "project-a", &generation).unwrap();
+    crate::atomic_file::write_bytes_atomic(
+        &preparing_generation_path(temp.path()),
+        &serde_json::to_vec(&generation).unwrap(),
+    )
+    .unwrap();
+    crate::atomic_file::write_bytes_atomic(
+        &active_generation_path(temp.path()),
+        &serde_json::to_vec(&generation).unwrap(),
+    )
+    .unwrap();
+
+    assert!(read_producer_authorized_generation(
+        temp.path(),
+        "project-a",
+        &generation.capture_generation_id,
+        generation.started_at_ms,
+    )
+    .unwrap()
+    .is_some());
+
+    crate::capture_generation_lifecycle::mark_generation_terminal(
+        temp.path(),
+        &generation,
+        crate::capture_generation_lifecycle::GenerationTerminalReason::DropCommitted,
+    )
+    .unwrap();
+
+    // active/current are consumer evidence for Kirin OS and intentionally survive. A newly
+    // started IO worker has no in-memory processed-broadcast cache, yet the durable terminal fact
+    // remains the sole start-authority check and makes both reads non-authoritative.
+    assert_eq!(
+        read_active_generation(temp.path()).unwrap(),
+        Some(generation.clone())
+    );
+    assert_eq!(
+        read_current_generation(temp.path(), "project-a").unwrap(),
+        Some(generation.clone())
+    );
+    for _fresh_io_worker in 0..2 {
+        assert!(read_producer_authorized_generation(
+            temp.path(),
+            "project-a",
+            &generation.capture_generation_id,
+            generation.started_at_ms,
+        )
+        .unwrap()
+        .is_none());
+    }
+}
+
+#[test]
+fn next_keep_requires_and_accepts_a_new_generation_and_session() {
+    let temp = tempfile::tempdir().unwrap();
+    let first = CaptureGeneration::new_single(
+        "project-a".into(),
+        "post-a".into(),
+        "pre-a".into(),
+        "daw-a".into(),
+        std::process::id(),
+    );
+    crate::capture_generation_lifecycle::mark_generation_terminal(
+        temp.path(),
+        &first,
+        crate::capture_generation_lifecycle::GenerationTerminalReason::AllStop,
+    )
+    .unwrap();
+
+    let second = CaptureGeneration::new_single(
+        "project-a".into(),
+        "post-a".into(),
+        "pre-a".into(),
+        "daw-a".into(),
+        std::process::id(),
+    );
+    assert_ne!(second.capture_generation_id, first.capture_generation_id);
+    assert_ne!(
+        second.members[0].record_session_id,
+        first.members[0].record_session_id
+    );
+    publish_current_generation(temp.path(), "project-a", &second).unwrap();
+    crate::atomic_file::write_bytes_atomic(
+        &preparing_generation_path(temp.path()),
+        &serde_json::to_vec(&second).unwrap(),
+    )
+    .unwrap();
+
+    assert_eq!(
+        read_producer_authorized_generation(
+            temp.path(),
+            "project-a",
+            &second.capture_generation_id,
+            second.started_at_ms,
+        )
+        .unwrap(),
+        Some(second)
+    );
 }

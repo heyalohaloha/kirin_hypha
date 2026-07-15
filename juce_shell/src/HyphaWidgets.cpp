@@ -113,8 +113,10 @@ namespace hypha
     void MetricCell::paint (juce::Graphics& g)
     {
         // Left-packed columns (parity with egui Grid: min_col_width floor, content auto-expands,
-        // 6px horizontal spacing, all left-aligned). label | value | unit.
-        const float spacing = 6.0f;
+        // contract-owned horizontal spacing, all left-aligned). label | value | unit.
+        // The larger release typography still fits the fixed 300px editor because spacing is
+        // part of the same shared contract as the font and two-column geometry.
+        const float spacing = ui_contract::metricHorizontalSpacing;
         const auto  labelF = labelFont (labelSize);
         const auto  valueF = monoFont  (valueSize);
         const auto  unitF  = labelFont (unitSize);

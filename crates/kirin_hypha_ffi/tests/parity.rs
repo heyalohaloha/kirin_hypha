@@ -14,11 +14,11 @@
 
 use std::f64::consts::PI;
 use std::thread::sleep;
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 use approx::{abs_diff_eq, assert_relative_eq, relative_eq};
 
-use kirin_hypha_ffi::KirinHyphaEngine;
+use kirin_hypha_ffi::{KirinHyphaEngine, KIRIN_KEEP_PHASE_ARMED};
 use kirin_measure::engine::{MeasureEngine, SessionSummary};
 use kirin_measure::phase_d::stream::{PhaseDResult, PhaseDStream};
 use kirin_measure::phase_d::tables::FieldType;
@@ -42,6 +42,28 @@ const PSB_ABS_FLOOR: f64 = 1e-9; // 同一コード経路の数値ノイズ吸�
 const PHASE_D_PARITY_SECONDS: f64 = 6.0; // async FFI publication may lag one frame; use converged steady state
 const PHASE_D_PARITY_BLOCK_SLEEP_MS: u64 = 110; // keep below the 2s ring cap even under parallel tests
 const PHASE_D_PARITY_DIRECT_TAIL_CANDIDATES: usize = 16; // latest 0.1s publish candidates for async FFI
+
+/// Keep acceptance is an edge, while ARMED is the producer's bounce-safe barrier. Drive both
+/// colocated members until the exact generation has acquired its PRE acknowledgement and writers;
+/// never turn an arbitrary sleep or the initial `keep()` return into that contract.
+fn wait_for_keep_armed(pre: &KirinHyphaEngine, post: &KirinHyphaEngine, label: &str) {
+    let deadline = Instant::now() + Duration::from_secs(8);
+    while Instant::now() < deadline {
+        pre.push_samples(&[], 2);
+        post.push_samples(&[], 2);
+        if post.keep_phase() == KIRIN_KEEP_PHASE_ARMED && post.is_recording() {
+            return;
+        }
+        sleep(Duration::from_millis(20));
+    }
+    panic!(
+        "{label}: accepted Keep did not reach ARMED (phase={}, recording={}, action={:?}, io={:?})",
+        post.keep_phase(),
+        post.is_recording(),
+        post.drain_keep_action_notice(),
+        post.record_error_message()
+    );
+}
 
 fn drop_expected_wav(
     plugin_data_root: &std::path::Path,
@@ -151,6 +173,7 @@ fn push_positioned_stereo(engine: &KirinHyphaEngine, samples: &[f32], position_s
             input: Some(0),
             output: Some(0),
         },
+        false,
     );
     engine.push_samples(samples, 2);
 }
@@ -1462,10 +1485,7 @@ fn post_keep_acked_by_colocated_pre() {
             post.keep(),
             "一意 PRE 'mix' は expected WAV metadata なしでも keep=true"
         );
-        assert!(
-            post.is_recording(),
-            "keep=true is the bounce-safe writer-ready barrier"
-        );
+        wait_for_keep_armed(&pre, &post, "paired Keep without expected WAV metadata");
 
         // poll_delta は Δ を返す（PRE active）。
         let d = post.poll_delta().expect("poll_delta Some");
@@ -1572,12 +1592,9 @@ fn capstone_paired_record_output_and_linkage() {
         // 1) PRE pre.json を active+fresh にする（POST が select できる状態）。
         drive(1.5);
 
-        // 2) POST Keep → PRE ACK + both initial artifact flushes. `true` is the barrier.
+        // 2) POST Keep acceptance → the same generation reaches the explicit ARMED barrier.
         assert!(post.keep(), "一意 PRE 'mix' で keep=true");
-        assert!(
-            post.is_recording(),
-            "successful Keep itself must be the bounce-safe PRE+POST writer barrier"
-        );
+        wait_for_keep_armed(&pre, &post, "capstone paired Keep");
         let signal = read_signal(&plugin_data_root, "puid-post", "iid-post")
             .expect("successful Keep retains its exact generation signal");
         assert_eq!(signal.status, SignalStatus::Acknowledged);
@@ -1870,10 +1887,7 @@ fn keep_failure_after_enter_reverts_record_state() {
             post.keep(),
             "HOME 復帰: 同 PRE が選定可 → keep()=true（失敗経路が select 到達済を立証）"
         );
-        assert!(
-            post.is_recording(),
-            "successful Keep must already own a ready Record writer"
-        );
+        wait_for_keep_armed(&pre, &post, "positive-control Keep after rollback");
         post.stop();
         assert!(!post.is_recording(), "stop で Watch へ");
     }
@@ -1964,11 +1978,11 @@ fn post_mark_survives_flush_and_close_with_wav_sample_position() {
 
         drive(1.5); // PRE pre.json active
         assert!(post.keep(), "keep true");
+        wait_for_keep_armed(&pre, &post, "MARK persistence Keep");
         assert!(
-            post.is_recording()
-                && read_signal(&plugin_data_root, "puid-post", "iid-post")
-                    .is_some_and(|signal| signal.status == SignalStatus::Acknowledged),
-            "Keep success must mean PRE ACK and POST writer readiness before bounce sample 0"
+            read_signal(&plugin_data_root, "puid-post", "iid-post")
+                .is_some_and(|signal| signal.status == SignalStatus::Acknowledged),
+            "ARMED must retain the exact acknowledged generation"
         );
         position.set(0); // actual bounce transport start
         drive(2.0);
@@ -2170,7 +2184,7 @@ fn double_keep_preserves_linkage() {
 
         // 1 回目 keep: 成功 → Record + linkage Some(iid-pre)。
         assert!(post.keep(), "1st keep true");
-        assert!(post.is_recording(), "1st keep enters Record");
+        wait_for_keep_armed(&pre, &post, "first Keep before duplicate attempt");
         assert_eq!(
             post.paired_pre_target_snapshot().as_deref(),
             Some("iid-pre"),
@@ -2391,7 +2405,8 @@ fn two_post_instances_converge_on_one_shelf() {
 
 /// B-118 (iii): Measure Thread 死 → watchdog 再 spawn → 計測再開（FFI 経路）。
 /// `__force_measure_restart_for_test` で measure を強制終了し、watchdog（1s 検査）が
-/// is_finished を検出して再 spawn → measure_alive 復帰 + poll_result 再開を観測する。
+/// is_finished を検出して再 spawn → durable worker generation が進み、新 worker が計測を
+/// publish することを3世代連続で観測する。短い alive edgeや旧 poll_result残値ではpassさせない。
 #[test]
 #[ignore]
 fn b118_measure_restart_recovers_via_watchdog() {
@@ -2399,25 +2414,59 @@ fn b118_measure_restart_recovers_via_watchdog() {
     engine.set_signal_state(1); // Active
     assert!(engine.measure_alive(), "起動直後は measure 生存");
 
-    // Measure Thread を強制終了（watchdog が再 spawn するはず）。
-    engine.__force_measure_restart_for_test();
-
-    // watchdog の 1s 検査で再 spawn。新 producer は pending_producer → push_samples が swap。
     let block = vec![0.05f32; (SR as usize / 10) * 2]; // 0.1s stereo
-    let mut recovered = false;
+
     for _ in 0..100 {
-        // ~5s 上限
         engine.push_samples(&block, 2);
         sleep(Duration::from_millis(50));
-        if engine.measure_alive() && engine.poll_result().is_some() {
-            recovered = true;
+        if engine
+            .poll_result()
+            .map(|result| result.measure_sequence >= 4)
+            .unwrap_or(false)
+        {
             break;
         }
     }
-    assert!(
-        recovered,
-        "watchdog 再 spawn 後に measure_alive 復帰 + 計測再開（poll_result Some）"
-    );
+
+    for cycle in 1..=3 {
+        let before_generation = engine.__measure_worker_generation_for_test();
+
+        engine.__force_measure_restart_for_test();
+
+        // watchdog の1s検査で再spawn。新producerはlock-free handoffされ、durable worker
+        // generationが先に進んだ後、その世代のMeasureResultがpublishされる。
+        let mut recovered = false;
+        for _ in 0..120 {
+            engine.push_samples(&block, 2);
+            sleep(Duration::from_millis(50));
+            let new_generation = engine.__measure_worker_generation_for_test();
+            if new_generation > before_generation
+                && engine.measure_alive()
+                && engine
+                    .poll_result()
+                    .is_some_and(|result| result.measure_sequence > 0 && result.lufs_m.is_some())
+            {
+                recovered = true;
+                break;
+            }
+        }
+        assert!(
+            recovered,
+            "cycle {cycle}: durable Measure worker generation + 計測再開を観測"
+        );
+
+        for _ in 0..100 {
+            engine.push_samples(&block, 2);
+            sleep(Duration::from_millis(50));
+            if engine
+                .poll_result()
+                .map(|result| result.measure_sequence >= 4)
+                .unwrap_or(false)
+            {
+                break;
+            }
+        }
+    }
 }
 
 /// B-118 (iv): 再起動を跨いだ Drop で UAF/hang なし。force restart で再起動世代を作り、
@@ -2573,10 +2622,7 @@ fn b140_inactive_keep_latches_pre_for_delta_after_audio() {
     }
 
     assert!(post.keep(), "Inactive but fresh PRE should be armable");
-    assert!(
-        post.is_recording(),
-        "Keep success means POST is already recording while still inactive"
-    );
+    wait_for_keep_armed(&pre, &post, "inactive paired Keep");
 
     pre.set_signal_state(1); // Active ABI
     post.set_signal_state(1);
@@ -2667,7 +2713,7 @@ fn b127_engine_counts_pairings_not_markers() {
     let puid = "puid-b127-bidi";
     let base = home.join("Library/Application Support/Kirin OS/plugin_data");
 
-    let _pre = b127_spawn_pre(puid, &tmp);
+    let pre = b127_spawn_pre(puid, &tmp);
     b127_write_bidi_pairs(&base, puid, 12); // 24 active marker・**枠は 0**
 
     let post = KirinHyphaEngine::new(SR, 2);
@@ -2686,10 +2732,7 @@ fn b127_engine_counts_pairings_not_markers() {
         entered,
         "keep must succeed despite 24 active markers (枠=0 / cap 真実源は marker でなく O_EXCL 枠存在)"
     );
-    assert!(
-        post.is_recording(),
-        "successful Keep already owns Record (frame-counted, markers ignored)"
-    );
+    wait_for_keep_armed(&pre, &post, "frame-counted Keep");
 
     drop(post);
     let _ = std::fs::remove_dir_all(home.parent().unwrap());
@@ -2770,7 +2813,7 @@ fn b127_reservation_released_on_drop() {
 }
 
 /// (iv): 12 distinct pairing（ここでは 12 lone POST marker = 12 lone pairing）で 13 ペア目の keep が
-/// engine で hard reject され、Record に入らず R-28 通知（record_error_message）に出る（silent でない）。
+/// engine で hard reject され、Record に入らず one-shot R-28 通知に出る（silent でない）。
 /// keep_all / 単一 keep / broadcast 受信は全て resolve_and_enter_keep を通るため authoritative cap を実証。
 #[test]
 #[ignore = "slow: HOME/TMPDIR + io_thread filesystem; engine 12-pair enforcement (sets env)"]
@@ -2800,9 +2843,15 @@ fn b127_engine_caps_at_twelve_and_notifies() {
     );
     assert!(!post.is_recording(), "engine must NOT enter Record at cap");
     assert_eq!(
-        post.record_error_message().as_deref(),
+        post.drain_keep_action_notice().as_deref(),
         Some("Maximum 12 pairs reached"),
         "cap rejection must notify (R-28: not silent)"
+    );
+    assert_eq!(post.drain_keep_action_notice(), None, "notice is one-shot");
+    assert_eq!(
+        post.record_error_message(),
+        None,
+        "capacity feedback must not become a persistent IO error"
     );
 
     drop(post);
@@ -2818,7 +2867,7 @@ fn b127_engine_allows_keep_under_cap() {
     let puid = "puid-b127-under";
     let base = home.join("Library/Application Support/Kirin OS/plugin_data");
 
-    let _pre = b127_spawn_pre(puid, &tmp);
+    let pre = b127_spawn_pre(puid, &tmp);
     b127_make_frames(&base, puid, 11); // < cap（11 枠 = 11 pairing）。
 
     let post = KirinHyphaEngine::new(SR, 2);
@@ -2834,10 +2883,7 @@ fn b127_engine_allows_keep_under_cap() {
 
     let entered = post.keep();
     assert!(entered, "12th keep (< cap) must succeed");
-    assert!(
-        post.is_recording(),
-        "successful Keep already owns Record under cap"
-    );
+    wait_for_keep_armed(&pre, &post, "12th under-cap Keep");
     assert_eq!(
         post.record_error_message(),
         None,
@@ -2857,7 +2903,7 @@ fn b127_keep_reclaims_bounded_stale_leases_before_cap() {
     let puid = "puid-b127-stale";
     let base = home.join("Library/Application Support/Kirin OS/plugin_data");
 
-    let _pre = b127_spawn_pre(puid, &tmp);
+    let pre = b127_spawn_pre(puid, &tmp);
     let post = KirinHyphaEngine::new(SR, 2);
     post.set_license(0);
     post.set_identity(
@@ -2900,7 +2946,7 @@ fn b127_keep_reclaims_bounded_stale_leases_before_cap() {
         post.keep(),
         "stale orphan frames must not block a valid keep after sweep"
     );
-    assert!(post.is_recording());
+    wait_for_keep_armed(&pre, &post, "Keep after bounded stale-lease reclaim");
     assert_eq!(
         kirin_measure::reservation::count_frames(&base, puid),
         1,

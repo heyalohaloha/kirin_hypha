@@ -43,19 +43,22 @@ pub(crate) fn build_wav_start_clock_plan(
     if !shared_session {
         return None;
     }
-    // AU hosts can deliver one short callback before the first full 100 ms slot. The writer keeps
-    // that producer-owned absolute-position neighborhood, but deliberately withholds a canonical
-    // per-instance trace clock because the complete provisional vector is not dense. A BWF time
-    // reference is itself the exact project-sample anchor, so two complete producer contexts can
-    // still prove the common window without inventing an origin or comparing curve shapes.
-    let bwf_context_pair = expected.wav_time_reference_samples.is_some()
-        && has_complete_position_context(pre)
-        && has_complete_position_context(post);
-    if !has_compatible_host_clocks(pre, post) && !bwf_context_pair {
+    if pre.sample_rate == 0
+        || pre.sample_rate != post.sample_rate
+        || pre.sample_rate != expected.expected_sample_rate
+    {
         return None;
     }
-    let pre_source = trace_source(pre);
-    let post_source = trace_source(post);
+    // BWF is the exact WAV sample-0 anchor, so host-clock provenance is optional on that path.
+    // Without BWF, the shared producer render range still needs two compatible native clocks.
+    if expected.wav_time_reference_samples.is_none() && !has_compatible_host_clocks(pre, post) {
+        return None;
+    }
+    // Current producers commit exactly one direct frame for every direct slot. The direct Record
+    // epoch may include measured lead/tail, but the exact BWF/render window must be present on both
+    // sides. Legacy context fields may deserialize but can never repair a missing direct slot.
+    let pre_source = direct_trace_source(pre, expected_len)?;
+    let post_source = direct_trace_source(post, expected_len)?;
     let render_range = shared_producer_render_range(pre, post, expected);
     let (selected_positions, start_basis) = select_wav_window(
         &pre_source,
@@ -79,41 +82,45 @@ pub(crate) fn build_wav_start_clock_plan(
     })
 }
 
-fn has_complete_position_context(data: &PluginDataFile) -> bool {
-    data.sample_rate > 0
-        && !data.trace_context_frames.is_empty()
-        && data.trace_context_frames.len() == data.trace_context_slot_positions.len()
-}
-
 pub(crate) fn has_compatible_host_clocks(pre: &PluginDataFile, post: &PluginDataFile) -> bool {
     let (Some(pre_clock), Some(post_clock)) = (pre.trace_clock.as_ref(), post.trace_clock.as_ref())
     else {
         return false;
     };
+    let sources_are_known = |sources: &[String]| {
+        !sources.is_empty()
+            && sources.iter().all(|source| {
+                matches!(
+                    source.as_str(),
+                    "project_timeline" | "audio_render_timeline"
+                )
+            })
+    };
     pre_clock.basis == crate::trace_alignment::TRACE_CLOCK_BASIS
         && post_clock.basis == crate::trace_alignment::TRACE_CLOCK_BASIS
         && pre_clock.sample_rate > 0
         && pre_clock.sample_rate == post_clock.sample_rate
-        && !pre_clock.sources.is_empty()
-        && pre_clock.sources == post_clock.sources
+        && sources_are_known(&pre_clock.sources)
+        && sources_are_known(&post_clock.sources)
 }
 
-fn trace_source(data: &PluginDataFile) -> BTreeMap<i64, Frame> {
-    let context_is_usable = !data.trace_context_frames.is_empty()
-        && data.trace_context_frames.len() == data.trace_context_slot_positions.len();
-    let (positions, frames) = if context_is_usable {
-        (
-            &data.trace_context_slot_positions,
-            &data.trace_context_frames,
-        )
-    } else {
-        (&data.trace_slot_positions, &data.frames)
-    };
-    positions
-        .iter()
-        .copied()
-        .zip(frames.iter().cloned())
-        .collect()
+fn direct_trace_source(data: &PluginDataFile, expected_len: usize) -> Option<BTreeMap<i64, Frame>> {
+    if data.frames.len() < expected_len
+        || data.frames.len() != data.trace_slot_positions.len()
+        || !data
+            .trace_slot_positions
+            .windows(2)
+            .all(|pair| pair[0] < pair[1])
+    {
+        return None;
+    }
+    Some(
+        data.trace_slot_positions
+            .iter()
+            .copied()
+            .zip(data.frames.iter().cloned())
+            .collect(),
+    )
 }
 
 fn selected_frames(source: &BTreeMap<i64, Frame>, positions: &[i64]) -> Option<Vec<Frame>> {
@@ -383,8 +390,8 @@ mod tests {
     }
 
     #[test]
-    fn plan_requires_one_record_session_and_one_host_clock_provenance() {
-        let pre = plugin_data(Role::Pre, "session", "project_timeline");
+    fn bwf_plan_requires_one_record_session_and_exact_direct_slots_not_a_host_clock() {
+        let mut pre = plugin_data(Role::Pre, "session", "project_timeline");
         let mut post = plugin_data(Role::Post, "session", "project_timeline");
 
         assert!(
@@ -397,9 +404,81 @@ mod tests {
         );
 
         post.record_session_id = Some("session".to_string());
-        post.trace_clock.as_mut().unwrap().sources = vec!["different_clock".to_string()];
+        pre.trace_clock = None;
+        post.trace_clock = None;
+        assert!(
+            build_wav_start_clock_plan(&pre, &post, &expected(Some(96_000)), 3, 4_800).is_some()
+        );
+
+        post.trace_slot_positions.pop();
         assert!(
             build_wav_start_clock_plan(&pre, &post, &expected(Some(96_000)), 3, 4_800).is_none()
+        );
+    }
+
+    #[test]
+    fn bwf_plan_selects_exact_slots_from_same_record_epoch_lead_and_tail() {
+        let mut pre = plugin_data(Role::Pre, "session", "project_timeline");
+        let mut post = plugin_data(Role::Post, "session", "project_timeline");
+        let positions = vec![96_000, 100_800, 105_600, 110_400, 115_200];
+        pre.trace_slot_positions = positions.clone();
+        post.trace_slot_positions = positions;
+        pre.frames = vec![
+            frame(-90.0),
+            frame(-30.0),
+            frame(-20.0),
+            frame(-10.0),
+            frame(-80.0),
+        ];
+        post.frames = vec![
+            frame(90.0),
+            frame(10.0),
+            frame(20.0),
+            frame(30.0),
+            frame(80.0),
+        ];
+
+        let plan = build_wav_start_clock_plan(&pre, &post, &expected(Some(96_000)), 3, 4_800)
+            .expect("direct Record lead/tail may surround the exact WAV window");
+
+        assert_eq!(plan.producer_slots, vec![100_800, 105_600, 110_400]);
+        assert_eq!(
+            plan.pre_frames
+                .iter()
+                .map(|frame| frame.lufs_m)
+                .collect::<Vec<_>>(),
+            vec![-30.0, -20.0, -10.0]
+        );
+        assert_eq!(
+            plan.post_frames
+                .iter()
+                .map(|frame| frame.lufs_m)
+                .collect::<Vec<_>>(),
+            vec![10.0, 20.0, 30.0]
+        );
+    }
+
+    #[test]
+    fn render_range_plan_still_requires_compatible_known_host_clocks() {
+        let pre = plugin_data(Role::Pre, "session", "project_timeline");
+        let mut post = plugin_data(Role::Post, "session", "project_timeline");
+        assert!(build_wav_start_clock_plan(&pre, &post, &expected(None), 3, 4_800).is_some());
+
+        post.trace_clock = None;
+        assert!(build_wav_start_clock_plan(&pre, &post, &expected(None), 3, 4_800).is_none());
+
+        post.trace_clock = plugin_data(Role::Post, "session", "unknown_clock").trace_clock;
+        assert!(build_wav_start_clock_plan(&pre, &post, &expected(None), 3, 4_800).is_none());
+    }
+
+    #[test]
+    fn mixed_au_vst3_clock_sources_are_known_and_share_the_presentation_axis() {
+        let pre = plugin_data(Role::Pre, "session", "audio_render_timeline");
+        let post = plugin_data(Role::Post, "session", "project_timeline");
+
+        assert!(has_compatible_host_clocks(&pre, &post));
+        assert!(
+            build_wav_start_clock_plan(&pre, &post, &expected(Some(96_000)), 3, 4_800).is_some()
         );
     }
 
@@ -419,7 +498,7 @@ mod tests {
     }
 
     #[test]
-    fn bwf_plan_uses_exact_common_context_when_au_starts_with_a_partial_block() {
+    fn context_cannot_repair_missing_direct_bwf_slots() {
         let mut pre = plugin_data(Role::Pre, "session", "project_timeline");
         let mut post = plugin_data(Role::Post, "session", "project_timeline");
         let positions = [95_940, 96_000, 100_800, 105_600, 110_400];
@@ -439,31 +518,28 @@ mod tests {
             frame(-40.0),
             frame(2.0),
         ];
+        post.frames.clear();
         post.trace_slot_positions.clear();
+        pre.trace_clock = None;
         post.trace_clock = None;
 
-        let plan = build_wav_start_clock_plan(&pre, &post, &expected(Some(96_000)), 3, 4_800)
-            .expect("BWF-anchored common producer context");
-
-        assert_eq!(plan.producer_slots, vec![100_800, 105_600, 110_400]);
-        assert_eq!(plan.wav_slots, vec![4_800, 9_600, 14_400]);
-        assert_eq!(plan.pre_frames[0].lufs_m, -20.0);
-        assert_eq!(plan.post_frames[0].lufs_m, 4.0);
-        assert_eq!(
-            plan.start_basis,
-            crate::trace_alignment::TRACE_ALIGNMENT_START_BWF
+        assert!(
+            build_wav_start_clock_plan(&pre, &post, &expected(Some(96_000)), 3, 4_800).is_none(),
+            "Watch context must never manufacture a missing producer-direct POST"
         );
     }
 
     #[test]
-    fn bwf_context_never_skips_a_missing_anchored_slot() {
+    fn context_cannot_replace_a_missing_anchored_direct_slot() {
         let mut pre = plugin_data(Role::Pre, "session", "project_timeline");
         let mut post = plugin_data(Role::Post, "session", "project_timeline");
-        pre.trace_context_slot_positions = vec![96_000, 100_800, 105_600, 110_400];
-        pre.trace_context_frames = vec![frame(-30.0), frame(-20.0), frame(-10.0), frame(-5.0)];
-        post.trace_context_slot_positions = vec![96_000, 105_600, 110_400, 115_200];
-        post.trace_context_frames = vec![frame(10.0), frame(4.0), frame(-40.0), frame(2.0)];
-        post.trace_slot_positions.clear();
+        let exact_context = vec![100_800, 105_600, 110_400];
+        pre.trace_context_slot_positions = exact_context.clone();
+        pre.trace_context_frames = vec![frame(-20.0), frame(-10.0), frame(-5.0)];
+        post.trace_context_slot_positions = exact_context;
+        post.trace_context_frames = vec![frame(4.0), frame(-40.0), frame(2.0)];
+        post.trace_slot_positions = vec![100_800, 110_400, 115_200];
+        pre.trace_clock = None;
         post.trace_clock = None;
 
         assert!(
@@ -472,29 +548,32 @@ mod tests {
     }
 
     #[test]
-    fn studio_one_96k_partial_lead_selects_the_exact_15_second_bwf_window() {
+    fn studio_one_96k_bwf_uses_exact_150_direct_slots_and_ignores_context() {
         const WAV_START: i64 = 6_480_000;
         const SLOT_SAMPLES: i64 = 9_600;
-        let mut positions = vec![6_475_940, WAV_START];
-        positions.extend((1_i64..=151).map(|index| WAV_START + index * SLOT_SAMPLES));
-        let context_frames: Vec<Frame> = positions
+        let direct_positions = (1_i64..=150)
+            .map(|index| WAV_START + index * SLOT_SAMPLES)
+            .collect::<Vec<_>>();
+        let mut context_positions = vec![6_475_940, WAV_START];
+        context_positions.extend((1_i64..=151).map(|index| WAV_START + index * SLOT_SAMPLES));
+        let context_frames: Vec<Frame> = context_positions
             .iter()
             .enumerate()
-            .map(|(index, _)| frame(-30.0 + index as f64 * 0.01))
+            .map(|(index, _)| frame(1_000.0 + index as f64))
             .collect();
         let mut pre = plugin_data(Role::Pre, "session-96k", "project_timeline");
         let mut post = plugin_data(Role::Post, "session-96k", "project_timeline");
-        for side in [&mut pre, &mut post] {
+        for (side, base_value) in [(&mut pre, -30.0), (&mut post, 20.0)] {
             side.sample_rate = 96_000;
             side.source_format = 96_000;
-            side.trace_context_slot_positions = positions.clone();
+            side.trace_slot_positions = direct_positions.clone();
+            side.frames = (0..150)
+                .map(|index| frame(base_value + index as f64 * 0.01))
+                .collect();
+            side.trace_context_slot_positions = context_positions.clone();
             side.trace_context_frames = context_frames.clone();
-            if let Some(clock) = side.trace_clock.as_mut() {
-                clock.sample_rate = 96_000;
-            }
+            side.trace_clock = None;
         }
-        post.trace_slot_positions.clear();
-        post.trace_clock = None;
 
         let plan = build_wav_start_clock_plan(
             &pre,
@@ -512,5 +591,7 @@ mod tests {
         assert_eq!(plan.wav_slots.last(), Some(&1_440_000));
         assert_eq!(plan.pre_frames.len(), 150);
         assert_eq!(plan.post_frames.len(), 150);
+        assert_eq!(plan.pre_frames[0].lufs_m, -30.0);
+        assert_eq!(plan.post_frames[0].lufs_m, 20.0);
     }
 }

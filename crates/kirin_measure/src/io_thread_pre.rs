@@ -82,9 +82,21 @@ struct PartnerInfo {
     last_seen_status: SignalStatus,
     signal_started_at_ms: i64,
     session_id: String,
+    capture_generation_id: String,
+    generation_started_at_ms: i64,
     daw_session_id: String,
     /// Exact generation roster captured when the request is acknowledged. All Stop follows these
     /// direct project pointers and never rediscovers active projects from `/tmp/kirin`.
+    all_stop_project_hashes: Vec<String>,
+}
+
+struct PendingPartnerAcknowledgement {
+    post_instance_id: String,
+    signal_started_at_ms: i64,
+    session_id: String,
+    capture_generation_id: String,
+    generation_started_at_ms: i64,
+    daw_session_id: String,
     all_stop_project_hashes: Vec<String>,
 }
 
@@ -94,6 +106,8 @@ struct ActiveWriterStopScope {
     record_started_at_ms: i64,
     paired_post_instance_id: Option<String>,
     record_session_id: Option<String>,
+    capture_generation_id: Option<String>,
+    generation_started_at_ms: i64,
 }
 
 fn active_writer_stop_scope(ctx: Option<&RecordingCtx>) -> Option<ActiveWriterStopScope> {
@@ -106,6 +120,8 @@ fn active_writer_stop_scope(ctx: Option<&RecordingCtx>) -> Option<ActiveWriterSt
         record_started_at_ms: data.started_at_ms,
         paired_post_instance_id: data.paired_post_instance_id.clone(),
         record_session_id: data.record_session_id.clone(),
+        capture_generation_id: data.capture_generation_id.clone(),
+        generation_started_at_ms: data.generation_started_at_ms,
     })
 }
 
@@ -161,15 +177,19 @@ fn released_matches_pending_pre_record(
         && signal_started_at_ms(signal) == record_started_at_ms
 }
 
-fn should_reset_pre_ack_without_partner(
+fn active_record_needs_partner_restore(
     record_sm: &RecordStateMachine,
     partner: &Option<PartnerInfo>,
-    record_acknowledged: &AtomicBool,
 ) -> bool {
-    record_sm.is_recording() && partner.is_none() && record_acknowledged.load(Ordering::Relaxed)
+    record_sm.is_recording()
+        && partner.is_none()
+        && record_sm
+            .record_session_id()
+            .is_some_and(|session_id| !session_id.trim().is_empty())
 }
 
 fn all_stop_authorizes_pre_stop(
+    base: &Path,
     broadcast: &all_stop_signal::AllStopBroadcast,
     partner: &PartnerInfo,
     record_started_at_ms: i64,
@@ -183,6 +203,18 @@ fn all_stop_authorizes_pre_stop(
     ) {
         return false;
     }
+    if broadcast.has_generation() {
+        return partner.capture_generation_id == broadcast.capture_generation_id
+            && partner.generation_started_at_ms == broadcast.generation_started_at_ms
+            && matches!(
+                crate::capture_generation_lifecycle::read_generation_terminal(
+                    base,
+                    &broadcast.capture_generation_id,
+                    broadcast.generation_started_at_ms,
+                ),
+                Ok(Some(_))
+            );
+    }
     if all_stop_signal::is_stop_broadcast_stale(broadcast, now, ALL_STOP_BROADCAST_STALE_SECS) {
         return false;
     }
@@ -191,14 +223,28 @@ fn all_stop_authorizes_pre_stop(
 }
 
 fn all_stop_authorizes_active_writer_stop(
+    base: &Path,
     broadcast: &all_stop_signal::AllStopBroadcast,
     scope: &ActiveWriterStopScope,
     now: chrono::DateTime<chrono::Utc>,
 ) -> bool {
-    if all_stop_signal::is_stop_broadcast_stale(broadcast, now, ALL_STOP_BROADCAST_STALE_SECS) {
+    if broadcast.host_process_id == 0 || broadcast.host_process_id != current_host_process_id() {
         return false;
     }
-    if broadcast.host_process_id == 0 || broadcast.host_process_id != current_host_process_id() {
+    if broadcast.has_generation() {
+        return scope.capture_generation_id.as_deref()
+            == Some(broadcast.capture_generation_id.as_str())
+            && scope.generation_started_at_ms == broadcast.generation_started_at_ms
+            && matches!(
+                crate::capture_generation_lifecycle::read_generation_terminal(
+                    base,
+                    &broadcast.capture_generation_id,
+                    broadcast.generation_started_at_ms,
+                ),
+                Ok(Some(_))
+            );
+    }
+    if all_stop_signal::is_stop_broadcast_stale(broadcast, now, ALL_STOP_BROADCAST_STALE_SECS) {
         return false;
     }
     let stop_started_at_ms = parse_iso8601_to_epoch_ms(&broadcast.started_at).unwrap_or(0);
@@ -251,9 +297,46 @@ fn generation_project_hashes_for_signal(
         .collect()
 }
 
+fn generation_project_hashes_for_restored_signal(
+    base: &Path,
+    project_hash: &str,
+    post_instance_id: &str,
+    signal: &record_signal::RecordSignal,
+) -> Vec<String> {
+    let fallback =
+        || generation_project_hashes_for_signal(base, project_hash, post_instance_id, signal);
+    if signal.capture_generation_id.trim().is_empty() {
+        return fallback();
+    }
+    let Ok(Some(generation)) = crate::capture_generation::read_archived_generation(
+        base,
+        &signal.capture_generation_id,
+        signal.generation_started_at_ms,
+    ) else {
+        return fallback();
+    };
+    let exact_member = generation
+        .member(project_hash, post_instance_id)
+        .is_some_and(|member| {
+            member.record_session_id == signal.session_id
+                && member.pre_instance_id == signal.target_pre_instance_id
+        });
+    if generation.capture_generation_id != signal.capture_generation_id || !exact_member {
+        return fallback();
+    }
+    generation
+        .members
+        .iter()
+        .map(|member| member.project_hash.clone())
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
 /// A generation-bearing inbox is actionable only after its project pointer and either the
-/// producer-only preparation barrier or consumer commit barrier identify the same immutable
-/// member. Legacy inboxes without a generation retain their compatibility path.
+/// producer-only preparation barrier identifies the same immutable member. The active consumer
+/// roster is intentionally not a start authority. Legacy inboxes without a generation retain
+/// their compatibility path.
 fn signal_generation_is_authorized(
     base: &Path,
     project_hash: &str,
@@ -302,7 +385,13 @@ fn poll_all_stop_signal_in_projects_at(
                 all_stop_signal::read_current_stop_broadcast(base, project_hash)
                     .into_iter()
                     .find_map(|(originator_iid, broadcast)| {
-                        if all_stop_authorizes_pre_stop(&broadcast, p, record_started_at_ms, now) {
+                        if all_stop_authorizes_pre_stop(
+                            base,
+                            &broadcast,
+                            p,
+                            record_started_at_ms,
+                            now,
+                        ) {
                             Some((
                                 project_hash.clone(),
                                 originator_iid,
@@ -383,7 +472,7 @@ fn poll_all_stop_signal_for_active_writer_at(
         all_stop_signal::read_current_stop_broadcast(base, &scope.project_hash)
             .into_iter()
             .find_map(|(originator_iid, broadcast)| {
-                all_stop_authorizes_active_writer_stop(&broadcast, scope, now)
+                all_stop_authorizes_active_writer_stop(base, &broadcast, scope, now)
                     .then_some((originator_iid, broadcast.started_at))
             })
     else {
@@ -474,6 +563,7 @@ fn enter_pre_record_if_barrier_ready(
     recording: &Arc<AtomicBool>,
     license: &License,
     signal: &record_signal::RecordSignal,
+    record_ingress: &crate::RecordIngress,
 ) -> bool {
     if record_sm.is_recording() {
         let generation = record_sm.generation();
@@ -521,6 +611,37 @@ fn enter_pre_record_if_barrier_ready(
         );
         return false;
     }
+    if crate::record_writer_claim::writer_claim_active(
+        ctx.base,
+        ctx.project_hash,
+        &signal.session_id,
+        PluginDataRole::Pre,
+        ctx.pre_instance_id,
+    )
+    .unwrap_or(false)
+    {
+        log::warn!(
+            "[signal] PRE Record start withheld: writer already active \
+             (pre_iid={}, session={})",
+            ctx.pre_instance_id,
+            signal.session_id
+        );
+        return false;
+    }
+    // The in-memory lane must be reusable before taking the durable entry claim. Otherwise an
+    // immediate second Keep can leave a fresh session's claim behind while the prior generation
+    // is still draining, and every later poll would reject itself as AlreadyActive forever.
+    let next_generation = record_sm.generation().saturating_add(1);
+    if !record_ingress.prepare_for_generation(next_generation) {
+        log::warn!(
+            "[signal] PRE Record start withheld: Record ingest lane is not drained/prepared \
+             (generation={}, pre_iid={}, session={})",
+            next_generation,
+            ctx.pre_instance_id,
+            signal.session_id
+        );
+        return false;
+    }
     match crate::record_entry_lock::claim_record_entry(
         ctx.base,
         ctx.project_hash,
@@ -548,23 +669,6 @@ fn enter_pre_record_if_barrier_ready(
             );
             return false;
         }
-    }
-    if crate::record_writer_claim::writer_claim_active(
-        ctx.base,
-        ctx.project_hash,
-        &signal.session_id,
-        PluginDataRole::Pre,
-        ctx.pre_instance_id,
-    )
-    .unwrap_or(false)
-    {
-        log::warn!(
-            "[signal] PRE Record start withheld: writer already active \
-             (pre_iid={}, session={})",
-            ctx.pre_instance_id,
-            signal.session_id
-        );
-        return false;
     }
     match record_sm.try_enter_record_started_at_clock_window_transaction(
         *license,
@@ -605,7 +709,115 @@ fn enter_pre_record_if_barrier_ready(
     }
 }
 
-/// B-024 Group A / Gap-3 / Gap-5: PRE startup 時に stale Acknowledged signal を削除する。
+/// Restore the one active POST partner after an IO-thread-only watchdog restart.
+///
+/// The shared `RecordStateMachine` survives that restart, while the thread-local `PartnerInfo`
+/// does not. Recovery therefore follows only the PRE's fixed inbox and the canonical signal named
+/// by that inbox. Both snapshots, the immutable Record session, and the Record start barrier must
+/// agree. No project/history inventory is consulted.
+fn restore_active_partner_in(
+    plugin_data_root: &Path,
+    self_instance_id: &str,
+    record_sm: &RecordStateMachine,
+) -> Option<PartnerInfo> {
+    if self_instance_id.is_empty() || !record_sm.is_recording() {
+        return None;
+    }
+    let active_session_id = record_sm.record_session_id()?;
+    if active_session_id.trim().is_empty() {
+        return None;
+    }
+    let active_started_at_ms = record_sm.record_started_at_ms();
+    if active_started_at_ms <= 0 {
+        return None;
+    }
+
+    let (project_hash, post_instance_id, inbox_signal) =
+        record_signal::read_target_signal(plugin_data_root, self_instance_id)?;
+    let canonical_signal =
+        record_signal::read_signal(plugin_data_root, &project_hash, &post_instance_id)?;
+
+    if inbox_signal != canonical_signal
+        || !matches!(
+            canonical_signal.status,
+            SignalStatus::Acknowledged | SignalStatus::Released
+        )
+        || canonical_signal.requested_by != post_instance_id
+        || canonical_signal.target_pre_instance_id != self_instance_id
+        || canonical_signal.session_id != active_session_id
+        || signal_started_at_ms(&canonical_signal) != active_started_at_ms
+    {
+        return None;
+    }
+
+    // Stop/re-entry can race filesystem reads. Recheck the in-memory owner before publishing the
+    // recovered local context; the same closed session cannot be re-entered by RecordStateMachine.
+    if !record_sm.is_recording()
+        || record_sm.record_session_id().as_deref() != Some(active_session_id.as_str())
+        || record_sm.record_started_at_ms() != active_started_at_ms
+    {
+        return None;
+    }
+
+    Some(PartnerInfo {
+        post_instance_id: post_instance_id.clone(),
+        project_hash: project_hash.clone(),
+        last_seen_status: canonical_signal.status,
+        signal_started_at_ms: active_started_at_ms,
+        session_id: active_session_id,
+        capture_generation_id: canonical_signal.capture_generation_id.clone(),
+        generation_started_at_ms: canonical_signal.generation_started_at_ms,
+        daw_session_id: canonical_signal.daw_session_id.clone(),
+        all_stop_project_hashes: generation_project_hashes_for_restored_signal(
+            plugin_data_root,
+            &project_hash,
+            &post_instance_id,
+            &canonical_signal,
+        ),
+    })
+}
+
+/// Cold Watch startup clears one stale Acknowledged owner. An IO-thread watchdog restart during
+/// Record instead restores that exact live owner and must never delete or demote its ACK.
+fn initialize_pre_io_partner_in(
+    plugin_data_root: &Path,
+    self_instance_id: &str,
+    record_sm: &RecordStateMachine,
+    record_acknowledged: &AtomicBool,
+) -> Option<PartnerInfo> {
+    if record_sm.is_recording() {
+        let restored = restore_active_partner_in(plugin_data_root, self_instance_id, record_sm);
+        if restored.is_some() {
+            record_acknowledged.store(true, Ordering::Relaxed);
+        }
+        return restored;
+    }
+
+    clear_stale_self_acks_in(plugin_data_root, self_instance_id);
+    record_acknowledged.store(false, Ordering::Relaxed);
+    None
+}
+
+fn initialize_pre_io_partner_at_startup(
+    self_instance_id: &str,
+    record_sm: &RecordStateMachine,
+    record_acknowledged: &AtomicBool,
+) -> Option<PartnerInfo> {
+    if self_instance_id.is_empty() {
+        return None;
+    }
+    let Ok(paths) = StoragePaths::default_platform() else {
+        return None;
+    };
+    initialize_pre_io_partner_in(
+        &paths.plugin_data_dir(),
+        self_instance_id,
+        record_sm,
+        record_acknowledged,
+    )
+}
+
+/// B-024 Group A / Gap-3 / Gap-5: cold Watch startup 時に stale Acknowledged signal を削除する。
 ///
 /// 同 instance_id で再起動した PRE が、過去自身が Acknowledged にした
 /// `record_signal/{post_iid}.json` を plugin_data に残したまま fresh Watch 状態で
@@ -613,26 +825,17 @@ fn enter_pre_record_if_barrier_ready(
 /// この古い Acknowledged を adopt しない。POST 側は status 不変のまま Record 維持
 /// → 構造的状態乖離 → Gap-3 / Gap-5 の真因。
 ///
-/// 本関数は startup 時に PRE 自身の root inbox 1件だけを読み、Acknowledged なら
+/// 本関数は cold Watch startup 時に PRE 自身の root inbox 1件だけを読み、Acknowledged なら
 /// envelope が運ぶ exact project/POST key を `delete_signal` で削除する。履歴や他 project
 /// は探索しない (Daisuke 判断 α 採用 / Watch リセット仕様 /
 /// → exit_record で Watch 復帰する (Gap-2 と並ぶ構造的同期経路)。
 ///
-/// R-28 機能的沈黙: storage path 解決失敗 / read_dir 失敗 / parse 失敗は当該
-/// dir/file のみ skip。UI エラー出さず log のみ。
-fn clear_stale_self_acks_at_startup(self_instance_id: &str) {
+/// R-28 機能的沈黙: storage path 解決失敗 / parse 失敗は当該
+/// file のみ skip。UI エラー出さず log のみ。
+fn clear_stale_self_acks_in(plugin_data_root: &Path, self_instance_id: &str) {
     if self_instance_id.is_empty() {
         return;
     }
-    let Ok(paths) = StoragePaths::default_platform() else {
-        return;
-    };
-    clear_stale_self_acks_in(&paths.plugin_data_dir(), self_instance_id);
-}
-
-/// `clear_stale_self_acks_at_startup` の純粋ロジック版 (テスト容易性のため
-/// `plugin_data_root` を注入)。Production は `clear_stale_self_acks_at_startup` 経由。
-fn clear_stale_self_acks_in(plugin_data_root: &Path, self_instance_id: &str) {
     let Some((project_hash, post_iid, signal)) =
         record_signal::read_target_signal(plugin_data_root, self_instance_id)
     else {
@@ -706,6 +909,9 @@ pub fn spawn_io_thread_pre(
     record_trace_queue: RecordTraceQueue,
     // Audio Thread が積んだ実レンダー長。Record close 時の clean bounce_take 正本。
     record_take_tracker: Arc<RecordTakeTracker>,
+    // Control-plane-preallocated Record-only Audio -> Measure lane. It is armed before
+    // RecordStateMachine entry, so every committed writer owns its full producer capacity.
+    record_ingress: Arc<crate::RecordIngress>,
     // B-076: 累積 push_overflow（Audio Thread が ring 満杯時に積む）。run_record_tick が
     // Record 開始で snapshot し close 時に差分を per-Record dropped_samples として焼き込む。
     overflow: Arc<std::sync::atomic::AtomicU64>,
@@ -729,10 +935,24 @@ pub fn spawn_io_thread_pre(
             project_hash
         );
 
-        // B-024 Group A / Gap-3 / Gap-5: PRE startup で stale Acknowledged signal を
-        // 削除し POST 側 Record を Watch に復帰させる。loop 突入前の 1 回のみ実行。
+        // Cold Watch startup may clear its one stale ACK. A watchdog restart keeps the same
+        // RecordStateMachine, so Record startup instead restores the exact direct owner and leaves
+        // the canonical Acknowledged signal untouched.
         let initial_self_iid = read_instance_id_arc(&instance_id);
-        clear_stale_self_acks_at_startup(&initial_self_iid);
+        let mut partner = initialize_pre_io_partner_at_startup(
+            &initial_self_iid,
+            &record_sm,
+            &record_acknowledged,
+        );
+        if let Some(restored) = partner.as_ref() {
+            log::info!(
+                "[IOThread PRE] watchdog restart restored active partner \
+                 (project_hash={}, post_iid={}, session={})",
+                restored.project_hash,
+                restored.post_instance_id,
+                restored.session_id
+            );
+        }
 
         // Capture generations, direct PRE inboxes and Watch owner leases make historical
         // artifacts non-authoritative. Startup therefore touches only this PRE's single inbox
@@ -741,7 +961,6 @@ pub fn spawn_io_thread_pre(
 
         let mut writer_ctx: Option<RecordingCtx> = None;
         let mut last_poll: Option<Instant> = None;
-        let mut partner: Option<PartnerInfo> = None;
         let mut watch_lease = crate::watch_snapshot_lease::WatchSnapshotLease::new();
 
         loop {
@@ -779,6 +998,30 @@ pub fn spawn_io_thread_pre(
                 &signal_state,
             ) {
                 log::warn!("[IOThread PRE] write error: {}", e);
+            }
+
+            // A target/canonical atomic replacement may be briefly unavailable at thread start.
+            // While the same immutable Record session remains active, retry only those two fixed
+            // paths. The ACK atomic is deliberately preserved until exact restoration succeeds or
+            // an authorized Stop exits Record.
+            if active_record_needs_partner_restore(&record_sm, &partner) {
+                if let Ok(paths) = StoragePaths::default_platform() {
+                    if let Some(restored) = restore_active_partner_in(
+                        &paths.plugin_data_dir(),
+                        instance_id_ref,
+                        &record_sm,
+                    ) {
+                        log::info!(
+                            "[IOThread PRE] restored active partner after direct-path retry \
+                             (project_hash={}, post_iid={}, session={})",
+                            restored.project_hash,
+                            restored.post_instance_id,
+                            restored.session_id
+                        );
+                        record_acknowledged.store(true, Ordering::Relaxed);
+                        partner = Some(restored);
+                    }
+                }
             }
 
             // The direct PRE inbox carries its canonical project hash. Before ACK the fallback
@@ -836,6 +1079,7 @@ pub fn spawn_io_thread_pre(
                         name_owned.as_str(),
                         &signal_state,
                         sample_rate,
+                        &record_ingress,
                     );
                     if let Ok(paths) = StoragePaths::default_platform() {
                         let base = paths.plugin_data_dir();
@@ -858,13 +1102,14 @@ pub fn spawn_io_thread_pre(
                 }
             }
 
-            if should_reset_pre_ack_without_partner(&record_sm, &partner, &record_acknowledged) {
-                record_acknowledged.store(false, Ordering::Relaxed);
-                log::warn!(
-                    "[signal] PRE Record ack has no partner POST; clearing stale ack and keeping Record \
-                     (pre_iid={})",
-                    instance_id_ref
-                );
+            // A transaction Record may outlive this IO thread, but it may never recreate its
+            // writer under the fallback project while its exact POST context is temporarily
+            // unavailable. Keep Record and the ACK intact, poll the fixed paths again next tick,
+            // and create/continue the writer only after the immutable partner is restored.
+            if active_record_needs_partner_restore(&record_sm, &partner) {
+                recording.store(true, Ordering::Relaxed);
+                thread::sleep(LOOP_SLEEP);
+                continue;
             }
 
             // ③ plugin_data/.../pre/*.json ライフサイクル（Record writer）
@@ -995,6 +1240,7 @@ fn poll_record_signal(
     paired_pre_name: &str,
     signal_state: &Arc<AtomicU8>,
     sample_rate: u32,
+    record_ingress: &crate::RecordIngress,
 ) {
     let mut current_license = license.load();
     let base = match StoragePaths::default_platform() {
@@ -1040,6 +1286,7 @@ fn poll_record_signal(
                         recording,
                         &current_license,
                         sig,
+                        record_ingress,
                     );
                 }
                 if new_status == p.last_seen_status
@@ -1185,7 +1432,7 @@ fn poll_record_signal(
     // PRE enters Record and reaches Measure readiness before publishing the ACK. The resulting
     // partner identity is the sole canonical path until an authorized release.
     let total = pending_signals.len();
-    let mut last_acked: Option<(String, i64, String, String, Vec<String>)> = None;
+    let mut last_acked: Option<PendingPartnerAcknowledgement> = None;
     let mut not_ready: usize = 0;
     let mut ack_ok: usize = 0;
     for (post_iid, sig) in &pending_signals {
@@ -1200,35 +1447,45 @@ fn poll_record_signal(
             recording,
             &current_license,
             sig,
+            record_ingress,
         ) {
             not_ready = not_ready.saturating_add(1);
             continue;
         }
-        match record_signal::mark_acknowledged_with_name(
+        match record_signal::mark_acknowledged_with_name_if_current(
             &base,
             &signal_project_hash,
             post_iid,
             paired_pre_name,
+            Some(sig),
         ) {
-            Ok(_) => {
+            Ok(true) => {
                 log::info!(
                     "[signal] PRE acknowledged Record request (partner={}, pair_pre_name={})",
                     post_iid,
                     paired_pre_name
                 );
-                last_acked = Some((
-                    post_iid.clone(),
-                    signal_started_at_ms(sig),
-                    sig.session_id.clone(),
-                    sig.daw_session_id.clone(),
-                    generation_project_hashes_for_signal(
+                last_acked = Some(PendingPartnerAcknowledgement {
+                    post_instance_id: post_iid.clone(),
+                    signal_started_at_ms: signal_started_at_ms(sig),
+                    session_id: sig.session_id.clone(),
+                    capture_generation_id: sig.capture_generation_id.clone(),
+                    generation_started_at_ms: sig.generation_started_at_ms,
+                    daw_session_id: sig.daw_session_id.clone(),
+                    all_stop_project_hashes: generation_project_hashes_for_signal(
                         &base,
                         &signal_project_hash,
                         post_iid,
                         sig,
                     ),
-                ));
+                });
                 ack_ok += 1;
+            }
+            Ok(false) => {
+                log::debug!(
+                    "[signal] stale PRE acknowledge skipped for replaced member {}",
+                    post_iid
+                );
             }
             Err(e) => {
                 log::warn!(
@@ -1240,23 +1497,18 @@ fn poll_record_signal(
         }
     }
 
-    if let Some((
-        post_iid,
-        signal_started_at_ms,
-        session_id,
-        daw_session_id,
-        all_stop_project_hashes,
-    )) = last_acked
-    {
+    if let Some(acknowledged) = last_acked {
         record_acknowledged.store(true, Ordering::Relaxed);
         *partner = Some(PartnerInfo {
-            post_instance_id: post_iid,
+            post_instance_id: acknowledged.post_instance_id,
             project_hash: signal_project_hash,
             last_seen_status: SignalStatus::Acknowledged,
-            signal_started_at_ms,
-            session_id,
-            daw_session_id,
-            all_stop_project_hashes,
+            signal_started_at_ms: acknowledged.signal_started_at_ms,
+            session_id: acknowledged.session_id,
+            capture_generation_id: acknowledged.capture_generation_id,
+            generation_started_at_ms: acknowledged.generation_started_at_ms,
+            daw_session_id: acknowledged.daw_session_id,
+            all_stop_project_hashes: acknowledged.all_stop_project_hashes,
         });
         log::info!(
             "[signal] B-027 Group 1: ack_count={}/{} not_ready={} (partner={:?})",
@@ -1545,6 +1797,8 @@ mod tests {
             last_seen_status: status,
             signal_started_at_ms: 1,
             session_id: "test-session-old".to_string(),
+            capture_generation_id: String::new(),
+            generation_started_at_ms: 0,
             daw_session_id: TEST_DAW.to_string(),
             all_stop_project_hashes: vec![TEST_PH.to_string()],
         }
@@ -1561,6 +1815,8 @@ mod tests {
             last_seen_status: status,
             signal_started_at_ms: signal_started_at_ms(signal),
             session_id: signal.session_id.clone(),
+            capture_generation_id: signal.capture_generation_id.clone(),
+            generation_started_at_ms: signal.generation_started_at_ms,
             daw_session_id: signal.daw_session_id.clone(),
             all_stop_project_hashes: vec![TEST_PH.to_string()],
         }
@@ -1860,7 +2116,7 @@ mod tests {
             return;
         }
 
-        let mut last_acked: Option<(String, i64, String, String)> = None;
+        let mut last_acked: Option<(String, i64, String, String, i64, String)> = None;
         for (post_iid, sig) in &pending_signals {
             if !enter_pre_record_if_barrier_ready_for_test(
                 base,
@@ -1879,11 +2135,21 @@ mod tests {
                     post_iid.clone(),
                     signal_started_at_ms(sig),
                     sig.session_id.clone(),
+                    sig.capture_generation_id.clone(),
+                    sig.generation_started_at_ms,
                     sig.daw_session_id.clone(),
                 ));
             }
         }
-        if let Some((post_iid, signal_started_at_ms, session_id, daw_session_id)) = last_acked {
+        if let Some((
+            post_iid,
+            signal_started_at_ms,
+            session_id,
+            capture_generation_id,
+            generation_started_at_ms,
+            daw_session_id,
+        )) = last_acked
+        {
             record_acknowledged.store(true, Ordering::Relaxed);
             *partner = Some(PartnerInfo {
                 post_instance_id: post_iid,
@@ -1891,6 +2157,8 @@ mod tests {
                 last_seen_status: SignalStatus::Acknowledged,
                 signal_started_at_ms,
                 session_id,
+                capture_generation_id,
+                generation_started_at_ms,
                 daw_session_id,
                 all_stop_project_hashes: vec![TEST_PH.to_string()],
             });
@@ -1982,6 +2250,8 @@ mod tests {
             originator_post_instance_id: originator_iid.to_string(),
             daw_session_id: daw_session_id.to_string(),
             host_process_id,
+            capture_generation_id: String::new(),
+            generation_started_at_ms: 0,
             started_at: started_at.to_string(),
             heartbeat: started_at.to_string(),
         };
@@ -3244,6 +3514,8 @@ mod tests {
             record_started_at_ms: sm.record_started_at_ms(),
             paired_post_instance_id: Some("post-1".to_string()),
             record_session_id: Some("session-post-1".to_string()),
+            capture_generation_id: None,
+            generation_started_at_ms: 0,
         };
         write_all_stop_broadcast_for_project_at_with_host(
             &base,
@@ -3291,6 +3563,8 @@ mod tests {
             record_started_at_ms: sm.record_started_at_ms(),
             paired_post_instance_id: Some("post-1".to_string()),
             record_session_id: Some("session-post-1".to_string()),
+            capture_generation_id: None,
+            generation_started_at_ms: 0,
         };
         write_all_stop_broadcast_for_project_at_with_host(
             &base,
@@ -3334,6 +3608,8 @@ mod tests {
             record_started_at_ms: sm.record_started_at_ms(),
             paired_post_instance_id: Some("post-1".to_string()),
             record_session_id: Some("session-post-1".to_string()),
+            capture_generation_id: None,
+            generation_started_at_ms: 0,
         };
         let host = current_host_process_id();
         let other_host = if host == u32::MAX { host - 1 } else { host + 1 };
@@ -3846,31 +4122,84 @@ mod tests {
         let sm = Arc::new(RecordStateMachine::new());
         sm.try_enter_record(License::Os).unwrap();
         let partner: Option<PartnerInfo> = None;
-        let ack = AtomicBool::new(false);
 
         assert!(
-            !should_reset_pre_ack_without_partner(&sm, &partner, &ack),
+            !active_record_needs_partner_restore(&sm, &partner),
             "PRE 単体 Record は partner 無しで writer を持ってよい"
         );
     }
 
     #[test]
-    fn pre_ack_without_partner_resets_ack_without_forcing_watch() {
+    fn transactional_pre_record_without_local_partner_requires_exact_restore() {
         let sm = Arc::new(RecordStateMachine::new());
-        sm.try_enter_record(License::Os).unwrap();
+        sm.try_enter_record_started_at_clock_transaction(
+            License::Os,
+            1,
+            None,
+            "session-needs-restore",
+        )
+        .unwrap();
         let partner: Option<PartnerInfo> = None;
-        let ack = AtomicBool::new(true);
 
         assert!(
-            should_reset_pre_ack_without_partner(&sm, &partner, &ack),
-            "POST signal を ack した世代で partner が無い状態は ack だけを戻す"
+            active_record_needs_partner_restore(&sm, &partner),
+            "transactional Record missing only thread-local partner must restore direct owner"
         );
 
         let partner = Some(test_partner("post-ok", SignalStatus::Acknowledged));
         assert!(
-            !should_reset_pre_ack_without_partner(&sm, &partner, &ack),
+            !active_record_needs_partner_restore(&sm, &partner),
             "partner が確定していれば PRE Record 継続"
         );
+    }
+
+    #[test]
+    fn restored_partner_keeps_reasoned_stop_authority() {
+        let base = isolated_base();
+        write_matching_pending(&base, "post-restart-stop");
+        let pending = record_signal::read_signal(&base, TEST_PH, "post-restart-stop").unwrap();
+        let sm = Arc::new(RecordStateMachine::new());
+        sm.try_enter_record_started_at_clock_window_transaction(
+            License::Os,
+            signal_started_at_ms(&pending),
+            pending.started_at_position_samples,
+            pending.expected_end_position_samples_for_sample_rate(48_000),
+            pending.session_id.clone(),
+        )
+        .unwrap();
+        assert!(record_signal::mark_acknowledged(&base, TEST_PH, "post-restart-stop").unwrap());
+        assert!(record_signal::mark_released_with_reason(
+            &base,
+            TEST_PH,
+            "post-restart-stop",
+            record_signal::ReleaseReason::ManualStop,
+        )
+        .unwrap());
+
+        let recording = Arc::new(AtomicBool::new(true));
+        let ack = Arc::new(AtomicBool::new(true));
+        let license = Arc::new(License::Os);
+        let mut partner = restore_active_partner_in(&base, TEST_PRE_IID, &sm);
+        assert_eq!(
+            partner.as_ref().map(|partner| partner.last_seen_status),
+            Some(SignalStatus::Released),
+            "restart must recover Released context so the exact Stop remains actionable"
+        );
+
+        poll_with_base(
+            &base,
+            &sm,
+            &recording,
+            &ack,
+            &license,
+            &mut partner,
+            TEST_PRE_IID,
+        );
+
+        assert_eq!(sm.current(), RecordState::Watch);
+        assert!(!recording.load(Ordering::Relaxed));
+        assert!(!ack.load(Ordering::Relaxed));
+        assert!(partner.is_none());
     }
 
     /// last_seen_status=Pending + 観測 status=Pending は match new_status の早期
@@ -4334,6 +4663,18 @@ mod startup_clear_acks_tests {
         dir
     }
 
+    fn enter_record_for_signal(record_sm: &RecordStateMachine, signal: &RecordSignal) {
+        record_sm
+            .try_enter_record_started_at_clock_window_transaction(
+                License::Os,
+                signal_started_at_ms(signal),
+                signal.started_at_position_samples,
+                signal.expected_end_position_samples_for_sample_rate(48_000),
+                signal.session_id.clone(),
+            )
+            .unwrap();
+    }
+
     /// Gap-3 / Gap-5: target_pre_instance_id == self_iid && status == Acknowledged の
     /// signal は startup で削除される。
     #[test]
@@ -4351,13 +4692,136 @@ mod startup_clear_acks_tests {
         let acked = mark_acknowledged(&pdr, TEST_PH, TEST_POST_IID).unwrap();
         assert!(acked, "precondition: signal must be marked Acknowledged");
 
-        clear_stale_self_acks_in(&pdr, TEST_PRE_IID);
+        let record_sm = RecordStateMachine::new();
+        let record_acknowledged = AtomicBool::new(true);
+        let partner =
+            initialize_pre_io_partner_in(&pdr, TEST_PRE_IID, &record_sm, &record_acknowledged);
 
         let after: Option<RecordSignal> =
             crate::record_signal::read_signal(&pdr, TEST_PH, TEST_POST_IID);
         assert!(
+            partner.is_none(),
+            "cold Watch startup has no active partner"
+        );
+        assert!(
+            !record_acknowledged.load(Ordering::Relaxed),
+            "cold Watch startup clears the stale ACK mirror"
+        );
+        assert!(
             after.is_none(),
             "stale Acknowledged signal targeting self must be deleted at startup"
+        );
+    }
+
+    #[test]
+    fn watchdog_restart_restores_exact_active_partner_without_deleting_ack() {
+        let pdr = isolated_pdr("restore_active_ack");
+        write_pending(
+            &pdr,
+            TEST_PH,
+            TEST_POST_IID,
+            TEST_PRE_IID.to_string(),
+            "daw-active".to_string(),
+        )
+        .unwrap();
+        let pending = crate::record_signal::read_signal(&pdr, TEST_PH, TEST_POST_IID).unwrap();
+        let record_sm = RecordStateMachine::new();
+        enter_record_for_signal(&record_sm, &pending);
+        assert!(mark_acknowledged(&pdr, TEST_PH, TEST_POST_IID).unwrap());
+
+        // Reproduce the narrow crash window where the durable ACK exists but the old IO thread
+        // did not yet publish the GUI atomic or retain its local PartnerInfo.
+        let record_acknowledged = AtomicBool::new(false);
+        let partner =
+            initialize_pre_io_partner_in(&pdr, TEST_PRE_IID, &record_sm, &record_acknowledged)
+                .expect("same Record session must restore its exact direct partner");
+
+        assert_eq!(partner.project_hash, TEST_PH);
+        assert_eq!(partner.post_instance_id, TEST_POST_IID);
+        assert_eq!(partner.session_id, pending.session_id);
+        assert_eq!(partner.signal_started_at_ms, signal_started_at_ms(&pending));
+        assert!(record_acknowledged.load(Ordering::Relaxed));
+        let after = crate::record_signal::read_signal(&pdr, TEST_PH, TEST_POST_IID)
+            .expect("watchdog restart must preserve the canonical live ACK");
+        assert_eq!(after.status, SignalStatus::Acknowledged);
+    }
+
+    #[test]
+    fn watchdog_restart_does_not_delete_or_adopt_wrong_session_ack() {
+        let pdr = isolated_pdr("wrong_session");
+        write_pending(
+            &pdr,
+            TEST_PH,
+            TEST_POST_IID,
+            TEST_PRE_IID.to_string(),
+            "daw-active".to_string(),
+        )
+        .unwrap();
+        let signal = crate::record_signal::read_signal(&pdr, TEST_PH, TEST_POST_IID).unwrap();
+        assert!(mark_acknowledged(&pdr, TEST_PH, TEST_POST_IID).unwrap());
+
+        let record_sm = RecordStateMachine::new();
+        record_sm
+            .try_enter_record_started_at_clock_window_transaction(
+                License::Os,
+                signal_started_at_ms(&signal),
+                None,
+                None,
+                "different-active-session",
+            )
+            .unwrap();
+        let record_acknowledged = AtomicBool::new(true);
+        let partner =
+            initialize_pre_io_partner_in(&pdr, TEST_PRE_IID, &record_sm, &record_acknowledged);
+
+        assert!(partner.is_none(), "wrong session must never be adopted");
+        assert!(
+            record_acknowledged.load(Ordering::Relaxed),
+            "Record restart must not demote ACK while exact recovery is unresolved"
+        );
+        assert!(
+            crate::record_signal::read_signal(&pdr, TEST_PH, TEST_POST_IID).is_some(),
+            "Record restart must never run cold-start deletion"
+        );
+    }
+
+    #[test]
+    fn watchdog_restart_follows_current_inbox_only_and_never_scans_history() {
+        let pdr = isolated_pdr("no_history_scan");
+        write_pending(
+            &pdr,
+            TEST_PH,
+            TEST_POST_IID,
+            TEST_PRE_IID.to_string(),
+            "daw-active".to_string(),
+        )
+        .unwrap();
+        let active = crate::record_signal::read_signal(&pdr, TEST_PH, TEST_POST_IID).unwrap();
+        assert!(mark_acknowledged(&pdr, TEST_PH, TEST_POST_IID).unwrap());
+        let record_sm = RecordStateMachine::new();
+        enter_record_for_signal(&record_sm, &active);
+
+        // A newer inbox owner intentionally hides the old canonical file. Recovery must not find
+        // the matching old session by enumerating projects; it waits for the fixed inbox contract.
+        write_pending(
+            &pdr,
+            TEST_PH_OTHER,
+            "post-iid-current",
+            TEST_PRE_IID.to_string(),
+            "daw-current".to_string(),
+        )
+        .unwrap();
+        assert!(mark_acknowledged(&pdr, TEST_PH_OTHER, "post-iid-current").unwrap());
+
+        let record_acknowledged = AtomicBool::new(true);
+        let partner =
+            initialize_pre_io_partner_in(&pdr, TEST_PRE_IID, &record_sm, &record_acknowledged);
+
+        assert!(partner.is_none());
+        assert!(record_acknowledged.load(Ordering::Relaxed));
+        assert!(crate::record_signal::read_signal(&pdr, TEST_PH, TEST_POST_IID).is_some());
+        assert!(
+            crate::record_signal::read_signal(&pdr, TEST_PH_OTHER, "post-iid-current").is_some()
         );
     }
 
@@ -4462,14 +4926,13 @@ mod startup_clear_acks_tests {
         .unwrap();
         mark_acknowledged(&pdr, TEST_PH, TEST_POST_IID).unwrap();
 
-        // top-level wrapper の guard で空文字 self_iid なら早期 return。
-        clear_stale_self_acks_at_startup("");
+        clear_stale_self_acks_in(&pdr, "");
 
-        // signal はそのまま (top-level guard が機能した間接確証)。
         let after = crate::record_signal::read_signal(&pdr, TEST_PH, TEST_POST_IID);
-        // 環境依存ホーム (StoragePaths::default_macos) を経由する経路の確証は
-        // self_iid="" 早期 return で本機の plugin_data には触らない (R-9 of code)。
-        let _ = after;
+        assert!(
+            after.is_some(),
+            "empty self identity must be a strict no-op"
+        );
     }
 }
 
@@ -4540,12 +5003,9 @@ mod capture_generation_commit_tests {
         pre_claim.mark_ready().unwrap();
         post_claim.mark_ready().unwrap();
         transaction.commit_when_ready(Duration::ZERO).unwrap();
-        assert!(signal_generation_is_authorized(
-            base.path(),
-            "project-a",
-            "post-a",
-            "pre-a",
-            &signal,
-        ));
+        assert!(
+            !signal_generation_is_authorized(base.path(), "project-a", "post-a", "pre-a", &signal,),
+            "active Drop roster must not retain producer start authority"
+        );
     }
 }

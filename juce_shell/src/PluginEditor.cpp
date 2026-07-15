@@ -118,6 +118,8 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         addAndMakeVisible (*postControls);
         postControls->onKeep = [this] {
             if (processorRef.keepPair()) return;
+            const juce::String notice = processorRef.drainKeepActionNotice();
+            if (notice.isNotEmpty()) { showToast (notice); return; }
             const juce::String err = processorRef.recordErrorMessage();
             if (err.isNotEmpty()) { showToast (err); return; }
             // B-118 (①): keep 失敗 = 非Os か no-PRE（egui trigger_keep の LicenseDenied / None と同文言）。
@@ -133,6 +135,8 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         // B-102: ▼ dropdown beside the pair field — All Keep / All Stop / candidate list.
         // The free-text pair field (nameField) is retained; this only adds the egui ComboBox.
         pairDropdown.setButtonText (juce::String::charToString ((juce::juce_wchar) 0x25BC)); // ▼
+        pairDropdown.setTitle ("Pair and Keep menu");
+        pairDropdown.setDescription ("Choose an exact PRE pair or start and stop all ready pairs");
         pairDropdown.setColour (juce::TextButton::buttonColourId, hypha::kFieldFill);
         pairDropdown.setColour (juce::TextButton::textColourOnId,  COL_FLORA);
         pairDropdown.setColour (juce::TextButton::textColourOffId, COL_FLORA);
@@ -145,25 +149,14 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         nameField.setFallback (instanceId8());
     }
 
-    bannerLabel.setFont (hypha::monoFont (ui::bannerFontHeight));
-    bannerLabel.setColour (juce::Label::textColourId, COL_FLORA);
-    bannerLabel.setText ("Keeping", juce::dontSendNotification);
-    bannerLabel.setJustificationType (juce::Justification::centredLeft);
-    bannerLabel.setInterceptsMouseClicks (false, false);
-    addChildComponent (bannerLabel);
-
-    toastLabel.setFont (hypha::monoFont (ui::statusFontHeight));
-    toastLabel.setColour (juce::Label::textColourId, COL_MUTED);
-    toastLabel.setJustificationType (juce::Justification::centredLeft);
-    toastLabel.setInterceptsMouseClicks (false, false);
-    addChildComponent (toastLabel);
-
-    // B-118 (③): io_thread 連続失敗の永続 status label（toast とは別・R-26 で文言ありの間表示）。
-    recordErrorLabel.setFont (hypha::monoFont (ui::statusFontHeight));
-    recordErrorLabel.setColour (juce::Label::textColourId, COL_MUTED);
-    recordErrorLabel.setJustificationType (juce::Justification::centredLeft);
-    recordErrorLabel.setInterceptsMouseClicks (false, false);
-    addChildComponent (recordErrorLabel);
+    // A single role-independent slot prevents the old banner/toast/error rows from painting over
+    // one another. updateFeedback() owns both priority and colour, while this component owns the
+    // only bottom-row rectangle in the AU/VST3 contract.
+    feedbackLabel.setFont (hypha::monoFont (ui::feedbackFontHeight));
+    feedbackLabel.setJustificationType (juce::Justification::centredLeft);
+    feedbackLabel.setMinimumHorizontalScale (1.0f);
+    feedbackLabel.setInterceptsMouseClicks (false, false);
+    addChildComponent (feedbackLabel);
 
     configureForKind (Kind::WatchAbs6); // current | MAX, three rows
     resized();                     // finalise positions now that postControls exists
@@ -219,9 +212,7 @@ void KirinHyphaEditor::resized()
     layoutMetrics (currentSix);
     if (isPost && postControls != nullptr)
         postControls->setBounds (juceRect (layout.postControls));
-    bannerLabel.setBounds (juceRect (layout.banner));
-    toastLabel.setBounds (juceRect (layout.banner));
-    recordErrorLabel.setBounds (juceRect (layout.recordError));
+    feedbackLabel.setBounds (juceRect (layout.feedback));
 }
 
 void KirinHyphaEditor::layoutMetrics (bool)
@@ -278,8 +269,44 @@ void KirinHyphaEditor::fillDelta (int cell, double v, bool isTp, juce::Colour de
 void KirinHyphaEditor::showToast (const juce::String& msg)
 {
     toastUntil = nowSecs() + 3.0; // TOAST_DURATION_SECS
-    toastLabel.setText (msg, juce::dontSendNotification);
-    toastLabel.setVisible (true);
+    toastText = msg;
+    updateFeedback (nowSecs(), false, {});
+}
+
+void KirinHyphaEditor::updateFeedback (
+    double now, bool keeping, const juce::String& persistentError)
+{
+    juce::String text;
+    juce::Colour colour = COL_MUTED;
+
+    // Direct user-action feedback must remain visible even while a persistent producer error is
+    // present (R-28). After the three-second toast, the persistent error automatically returns;
+    // the short acknowledgement is the lowest-priority informational state.
+    if (now < toastUntil && toastText.isNotEmpty())
+    {
+        text = toastText;
+        colour = COL_NORMAL;
+    }
+    else if (persistentError.isNotEmpty())
+    {
+        text = persistentError;
+        colour = hypha::COL_LED_YELLOW;
+    }
+    else if (keeping)
+    {
+        text = "Keeping";
+        colour = COL_FLORA;
+    }
+
+    if (now >= toastUntil)
+        toastText.clear();
+
+    feedbackLabel.setVisible (text.isNotEmpty());
+    if (text.isNotEmpty())
+    {
+        feedbackLabel.setText (text, juce::dontSendNotification);
+        feedbackLabel.setColour (juce::Label::textColourId, colour);
+    }
 }
 
 void KirinHyphaEditor::showCandidateMenu()
@@ -291,13 +318,14 @@ void KirinHyphaEditor::showCandidateMenu()
     // Every live PRE is offered, including unnamed instances. Selection commits its exact
     // instance_id; the name remains only the convenient persisted display/search value.
     const bool rec = processorRef.isRecording();
+    const bool keepActive = rec
+        || processorRef.keepPhase() != (int) KIRIN_KEEP_PHASE_IDLE;
     const bool playing = processorRef.isPlaying(); // W-280: pair change locked during playback
     // B-115: lock only when playing AND live (processBlock running). A frozen `playing` with a
     // stalled heartbeat does not lock (false-release prevention; signal_state is silence-conflated).
     const bool pairLocked = playing && processorRef.heartbeatLive();
     const auto cands = processorRef.enumeratePreCandidates();
     const auto claims = processorRef.enumeratePostPairClaims();
-    const juce::String currentPairName = processorRef.pairName();
     const juce::String ownInstanceId = processorRef.instanceId();
 
     juce::StringArray labels;
@@ -308,11 +336,17 @@ void KirinHyphaEditor::showCandidateMenu()
     for (const auto& c : cands)
     {
         const bool keepReady = currentPreInstanceId.isNotEmpty()
-                                 ? c.instanceId == currentPreInstanceId
-                                 : (c.hasName && c.name.isNotEmpty() && c.name == currentPairName);
+                                 && c.instanceId == currentPreInstanceId;
         const bool inUse = claimedByOtherPost (c, ownInstanceId, claims);
+        int sameNameCount = 0;
+        if (c.hasName && c.name.isNotEmpty())
+            for (const auto& other : cands)
+                if (other.hasName && other.name == c.name)
+                    ++sameNameCount;
         const juce::String shown = c.hasName && c.name.isNotEmpty()
-                                     ? c.name
+                                     ? c.name + (sameNameCount > 1
+                                                     ? " · " + c.instanceId.substring (0, 8)
+                                                     : juce::String())
                                      : c.instanceId.substring (0, 8);
         labels.add ((inUse ? "In use: " : (keepReady ? "Keep ready: " : "Can Keep: ")) + shown);
         labelEnabled.add (! inUse);
@@ -325,13 +359,13 @@ void KirinHyphaEditor::showCandidateMenu()
     const int nReady = processorRef.keepReadyCount();
     juce::PopupMenu menu;
     menu.setLookAndFeel (&pairMenuLookAndFeel());
-    if (! rec && processorRef.licenseIsOs() && nReady >= 1)
+    if (! keepActive && processorRef.licenseIsOs() && nReady >= 1)
         menu.addItem (1, allKeepMenuLabel (nReady));
-    if (rec)
-        menu.addItem (2, "All Stop: recording POSTs");
+    if (keepActive)
+        menu.addItem (2, "All Stop: active POSTs");
     if (menu.getNumItems() > 0)
         menu.addSeparator();
-    menu.addItem (4, "Pair choices (not Keep targets)", false, false);
+    menu.addSectionHeader ("Pair choices (not Keep targets)");
     if (cands.isEmpty())
         menu.addItem (3, "No pair choices", false, false); // disabled (R-26: silent when nothing)
     else
@@ -340,7 +374,10 @@ void KirinHyphaEditor::showCandidateMenu()
 
     const auto options = juce::PopupMenu::Options()
                              .withTargetComponent (&pairDropdown)
-                             .withDeletionCheck (*this);
+                             .withDeletionCheck (*this)
+                             .withMinimumWidth (ui::pairMenuMinimumWidth)
+                             .withMaximumNumColumns (ui::pairMenuMaximumColumns)
+                             .withStandardItemHeight (ui::pairMenuItemHeight);
     juce::Component::SafePointer<KirinHyphaEditor> safeThis (this);
     menu.showMenuAsync (options, [safeThis, candidates = cands] (int result)
     {
@@ -356,6 +393,8 @@ void KirinHyphaEditor::handleCandidateMenu (
     {
         if (! processorRef.keepAll())
         {
+            const juce::String notice = processorRef.drainKeepActionNotice();
+            if (notice.isNotEmpty()) { showToast (notice); return; }
             const juce::String err = processorRef.recordErrorMessage();
             if (err.isNotEmpty()) { showToast (err); return; }
             showToast (processorRef.licenseIsOs() ? "No PRE Paired" : "Record requires Kirin OS license");
@@ -408,21 +447,17 @@ void KirinHyphaEditor::updatePre()
     if (ack && ! prevAck)
         bannerUntil = t + 3.0; // RECORD_BANNER_DURATION_SECS
     prevAck = ack;
-    bannerLabel.setVisible (t < bannerUntil);
 
     // B-128 (G-115-371 D3): restore identity anomaly を drain して 5s latch（toast 相当の寿命）。
     const juce::String anomaly = processorRef.pathAnomalyMessage();
     if (anomaly.isNotEmpty()) { pathAnomalyText = anomaly; pathAnomalyUntil = t + 5.0; }
     const bool anomalyActive = (t < pathAnomalyUntil) && pathAnomalyText.isNotEmpty();
 
-    // B-118 追補 (2-2): PRE 殻も io_thread 連続失敗の固定文言を永続表示（egui hypha_pre editor.rs:278
-    // と parity / R-26: 文言ありの間のみ・"Keeping" banner の下）。従来 updatePre は recordErrorLabel を
-    // refresh しておらず PRE では不可視だった（POST のみ wired のバグ）。anomaly 在中は anomaly を優先表示。
+    // PRE and POST share one prioritized feedback row. A path anomaly supersedes the persistent
+    // I/O status; direct user toasts (POST only) are prioritized inside updateFeedback().
     const juce::String recErr = processorRef.recordErrorMessage();
     const juce::String status = anomalyActive ? pathAnomalyText : recErr;
-    recordErrorLabel.setVisible (status.isNotEmpty());
-    if (status.isNotEmpty())
-        recordErrorLabel.setText (status, juce::dontSendNotification);
+    updateFeedback (t, t < bannerUntil, status);
 
     const Kind want = rec ? Kind::Abs6 : Kind::WatchAbs6;
     if (want != currentKind)
@@ -493,6 +528,10 @@ void KirinHyphaEditor::updatePost()
     const bool alive  = processorRef.measureAlive();
     const int  sig    = processorRef.signalStateLive(); // B-113: heartbeat-aware (no stale Active)
     const bool rec    = processorRef.isRecording();
+    const int keepPhase = processorRef.keepPhase();
+    const bool preparing = keepPhase == (int) KIRIN_KEEP_PHASE_PREPARING;
+    const bool armed = keepPhase == (int) KIRIN_KEEP_PHASE_ARMED;
+    const bool keepActive = rec || preparing || armed;
     const bool ack    = processorRef.recordAcknowledged(); // POST: always false (egui parity)
     const bool preset = processorRef.presetAvailable();
     const bool playing = processorRef.isPlaying();
@@ -511,22 +550,30 @@ void KirinHyphaEditor::updatePost()
     const double t = nowSecs();
     if (ack && ! prevAck) bannerUntil = t + 3.0; // harmless (POST ack never true)
     prevAck = ack;
-    bannerLabel.setVisible (t < bannerUntil);
-    toastLabel.setVisible (t < toastUntil);
 
     // B-128 (G-115-371 D3): restore identity anomaly を drain して 5s latch。
     const juce::String anomaly = processorRef.pathAnomalyMessage();
     if (anomaly.isNotEmpty()) { pathAnomalyText = anomaly; pathAnomalyUntil = t + 5.0; }
     const bool anomalyActive = (t < pathAnomalyUntil) && pathAnomalyText.isNotEmpty();
 
-    // B-118 (③): io_thread 連続失敗の固定文言を永続表示（R-26: 文言ありの間のみ表示・toast とは独立寿命）。
-    const juce::String recErr = processorRef.recordErrorMessage();
-    const juce::String status = anomalyActive ? pathAnomalyText : recErr;
-    recordErrorLabel.setVisible (status.isNotEmpty());
-    if (status.isNotEmpty())
-        recordErrorLabel.setText (status, juce::dontSendNotification);
+    const juce::String keepNotice = processorRef.drainKeepActionNotice();
+    if (keepNotice.isNotEmpty())
+    {
+        toastText = keepNotice;
+        toastUntil = t + 3.0;
+    }
 
-    postControls->update (rec, processorRef.licenseCode(),
+    // The shared slot keeps persistent errors distinct from direct user-action toasts without
+    // letting independent labels overlap at the bottom of the fixed-size editor.
+    const juce::String recErr = processorRef.recordErrorMessage();
+    const juce::String status = anomalyActive ? pathAnomalyText
+                              : recErr.isNotEmpty() ? recErr
+                              : preparing ? juce::String ("Preparing pairs...")
+                              : armed ? juce::String ("Ready to bounce")
+                              : juce::String();
+    updateFeedback (t, t < bannerUntil, status);
+
+    postControls->update (keepActive, processorRef.licenseCode(),
                           pairStatus != KIRIN_PAIR_STATUS_UNPAIRED);
 
     // ── display-branch tree: raw Record/TRACE stays untouched, but paired Watch keeps the
@@ -738,5 +785,7 @@ void KirinHyphaEditor::updatePost()
 
     const int ledSig = (! rec && sig == KIRIN_SIGNAL_STATE_INACTIVE && watchHeldNormal)
         ? KIRIN_SIGNAL_STATE_ACTIVE : sig;
-    led.setState (hypha::deriveLedState (alive, ledSig, rec, ack, preset));
+    // PREPARING is intentionally not shown as an active Record light. The producer becomes
+    // user-ready only after every generation member has crossed the shared Armed barrier.
+    led.setState (hypha::deriveLedState (alive, ledSig, rec && armed, ack, preset));
 }

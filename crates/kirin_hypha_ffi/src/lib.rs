@@ -34,7 +34,6 @@
 //! が毎回 `heartbeat.fetch_add(1)`
 //! していた(hypha_pre.rs:390)。本 FFI では **`push_samples` が heartbeat を進める**。
 
-use std::cell::UnsafeCell;
 use std::collections::HashMap;
 use std::ffi::CStr;
 use std::os::raw::{c_char, c_void};
@@ -59,29 +58,74 @@ use kirin_measure::{
     enumerate_live_pre_pair_choices_for_post_project_in_session,
     enumerate_owned_post_pair_candidates_for_operation_group,
     enumerate_ready_post_pair_candidates_for_operation_group, identity_instance_attach,
-    identity_instance_detach, latch_selected_pre, live_post_project_uuids_for_operation_group,
-    live_window, load_license_safe, load_signal_state, mark_expected_metadata_consumed,
-    mark_released, mark_released_with_reason, new_record_mark_queue, new_record_take_tracker,
-    new_record_trace_queue, pair_status_for_post, pair_status_for_pre, paired_pre_instance_id,
+    identity_instance_detach, latch_selected_pre, live_window, load_license_safe,
+    load_signal_state, mark_generation_terminal, mark_released_if_current,
+    mark_released_with_reason, mark_released_with_reason_if_current, new_record_mark_queue,
+    new_record_take_tracker, new_record_trace_queue, pair_status_for_post, pair_status_for_pre,
+    paired_pre_instance_id, read_signal, record_ring_capacity_samples,
     resolve_arm_target_for_post_project_in_session, sanitize_name,
     select_live_pre_pair_choice_by_instance_for_post_project_in_session, set_daw_session_id,
     set_project_uuid, spawn_io_thread_post, spawn_io_thread_pre, spawn_measure_thread,
-    spawn_watchdog, store_signal_state, write_broadcast_for_generation, write_expected_metadata,
-    write_pending_claiming_expected_and_clock_for_generation, write_stop_broadcast,
-    CaptureClockSource, CaptureGeneration, CaptureGenerationMember, CaptureGenerationTransaction,
-    DeltaMode, DeltaResult, ExpectedWavMetadata, IoThreadHandle, LatchedPre, License, LiveLicense,
+    spawn_watchdog, store_signal_state, watch_ring_capacity_samples,
+    write_broadcast_for_generation, write_pending_claiming_expected_and_clock_for_generation,
+    write_stop_broadcast, write_stop_broadcast_for_generation, CaptureClockSource,
+    CaptureGeneration, CaptureGenerationMember, CaptureGenerationTransaction, DeltaMode,
+    DeltaResult, GenerationTerminalReason, IoThreadHandle, LatchedPre, License, LiveLicense,
     LivenessEvaluator, MeasureResult, PairStatus, PlatformPaths, PluginDataRole,
-    PresentationLatencySamples, PresentationLatencySource, PsbSummary, RecordMarkQueue,
-    RecordStateMachine, RecordTakeBlock, RecordTakeTracker, RecordTraceQueue, ReleaseReason,
-    RestartIoFn, SignalError, SignalState, StoragePaths, WatchMaxTracker, WatchdogIo,
-    WatchdogParams, MAX_ACTIVE_PER_PROJECT, N_CHANNELS, RING_BUFFER_SECONDS,
+    PresentationLatencySamples, PresentationLatencySource, PsbSummary, RecordIngress,
+    RecordMarkQueue, RecordStateMachine, RecordTakeBlock, RecordTakeTracker, RecordTraceQueue,
+    ReleaseReason, RestartIoFn, SignalError, SignalState, StoragePaths, WatchMaxTracker,
+    WatchProducerHandoff, WatchdogIo, WatchdogParams, CAPTURE_PRODUCER_READY_TIMEOUT,
+    MAX_ACTIVE_PER_PROJECT, MAX_AUDIO_BLOCK_FRAMES, MAX_CAPTURE_GENERATION_MEMBERS, N_CHANNELS,
 };
-
-const CAPTURE_PRODUCER_READY_TIMEOUT: Duration = Duration::from_secs(3);
 
 mod pair_binding;
 
 use pair_binding::{PairBinding, PairTargetTransition};
+
+pub const KIRIN_KEEP_PHASE_IDLE: u8 = 0;
+pub const KIRIN_KEEP_PHASE_PREPARING: u8 = 1;
+pub const KIRIN_KEEP_PHASE_ARMED: u8 = 2;
+
+#[inline]
+fn keep_phase_is_closed(
+    phase: u8,
+    expected_record_generation: u64,
+    observed_record_generation: u64,
+    recording: bool,
+) -> bool {
+    phase == KIRIN_KEEP_PHASE_ARMED
+        && expected_record_generation != 0
+        && observed_record_generation >= expected_record_generation
+        && !recording
+}
+
+#[cfg(test)]
+mod keep_phase_contract_tests {
+    use super::*;
+
+    #[test]
+    fn armed_survives_ui_poll_before_first_record_ack() {
+        assert!(!keep_phase_is_closed(KIRIN_KEEP_PHASE_ARMED, 4, 3, false));
+    }
+
+    #[test]
+    fn armed_survives_while_its_exact_record_generation_is_open() {
+        assert!(!keep_phase_is_closed(KIRIN_KEEP_PHASE_ARMED, 4, 4, true));
+    }
+
+    #[test]
+    fn armed_retires_only_after_its_exact_record_generation_closed() {
+        assert!(keep_phase_is_closed(KIRIN_KEEP_PHASE_ARMED, 4, 4, false));
+        assert!(keep_phase_is_closed(KIRIN_KEEP_PHASE_ARMED, 4, 5, false));
+        assert!(!keep_phase_is_closed(
+            KIRIN_KEEP_PHASE_PREPARING,
+            4,
+            4,
+            false
+        ));
+    }
+}
 
 /// state chunk 往復する識別子（方式A: JUCE が chunk bytes を所有・FFI は文字列 get/set のみ）。
 /// `project_hash` は派生値（= 確定後の `project_uuid` / B-106 共有セル解決値）で永続対象外。
@@ -117,17 +161,6 @@ impl Default for KirinLegacyNihState {
             pair_pre_name: [0; ID_BUF_LEN],
         }
     }
-}
-
-#[derive(Debug, Clone)]
-pub struct ExpectedWavMetadataInput {
-    pub bounce_id: String,
-    pub expected_duration_samples: u64,
-    pub expected_sample_rate: u32,
-    pub wav_path: String,
-    pub wav_file_size: u64,
-    pub wav_mtime_ms: i64,
-    pub wav_hash: String,
 }
 
 fn supported_channel_count(num_channels: u32) -> usize {
@@ -249,11 +282,37 @@ fn epoch_secs_now() -> f64 {
 // Rust-safe core（tests/parity.rs はこの API 経由で FFI を駆動する）
 // ─────────────────────────────────────────────────────────────────────────────
 
+#[derive(Debug, Clone, Copy)]
+struct PendingCaptureWindow {
+    position_valid: bool,
+    position_samples: i64,
+    num_frames: u64,
+    clock_source: CaptureClockSource,
+    presentation_latency: PresentationLatencySamples,
+    force_new_epoch: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct PendingRecordBlock {
+    recording: bool,
+    rendered: bool,
+    playing: bool,
+    offline: bool,
+    position_valid: bool,
+    position_samples: i64,
+    num_frames: u64,
+    clock_start_samples: i64,
+    clock_end_samples: Option<i64>,
+}
+
 /// RT 計測ランタイムのハンドル。C ABI からは不透明ポインタ。
 pub struct KirinHyphaEngine {
-    /// Audio Thread → Measure Thread の rtrb Producer。
-    /// `UnsafeCell` 越しに **Audio Thread 単独** で push する（SPSC 契約）。
-    ring_producer: UnsafeCell<rtrb::Producer<f32>>,
+    /// Audio Thread → Measure Thread の rtrb Producer 所有権。
+    /// Audio Thread は atomic pointer の読み/差し替えだけを行い、旧 Producer の
+    /// deallocation は Watchdog Thread へ返す（R-12: lock / alloc / free なし）。
+    producer_handoff: Arc<WatchProducerHandoff>,
+    /// Dedicated bounded Record producer, preallocated by the IO/control plane before entry.
+    record_ingress: Arc<RecordIngress>,
     /// Measure Thread が 100ms cadence で更新、UI Thread が読む。
     measure_result: Arc<Mutex<MeasureResult>>,
     /// POST の Δ 結果（B-060 3d-a）。POST io_thread の run_tick が select_target_pre で
@@ -266,6 +325,38 @@ pub struct KirinHyphaEngine {
     record_trace_queue: RecordTraceQueue,
     /// Audio Thread が積む実レンダー長。Record close 時に bounce_take の正本になる。
     record_take_tracker: Arc<RecordTakeTracker>,
+    /// One Audio-callback-local clock descriptor staged by
+    /// `kirin_hypha_note_capture_window` and consumed by the immediately following
+    /// `push_samples`. The descriptor is committed to `RecordTakeTracker` only after the
+    /// destination SPSC proves it has room for the complete block. This keeps the immutable
+    /// sample clock and accepted audio cardinality inseparable when a lane is full.
+    pending_capture_version: AtomicU64,
+    pending_capture_valid: AtomicBool,
+    pending_position_valid: AtomicBool,
+    pending_position_samples: AtomicI64,
+    pending_num_frames: AtomicU64,
+    pending_clock_source: AtomicU8,
+    pending_presentation_source: AtomicU8,
+    pending_input_presentation_samples: AtomicU64,
+    pending_output_presentation_samples: AtomicU64,
+    pending_force_new_epoch: AtomicBool,
+    /// Record-take facts are staged by the JUCE callback beside the capture descriptor. A
+    /// rendered block becomes visible to the immutable take selector only after `push_samples`
+    /// admits the complete clock+audio transaction.
+    pending_record_valid: AtomicBool,
+    pending_recording: AtomicBool,
+    pending_record_rendered: AtomicBool,
+    pending_record_playing: AtomicBool,
+    pending_record_offline: AtomicBool,
+    pending_record_position_valid: AtomicBool,
+    pending_record_position_samples: AtomicI64,
+    pending_record_num_frames: AtomicU64,
+    pending_record_clock_start_samples: AtomicI64,
+    pending_record_clock_end_valid: AtomicBool,
+    pending_record_clock_end_samples: AtomicI64,
+    /// Last fully admitted callback's host render mode. The FFI, rather than the JUCE wrapper,
+    /// owns this edge so a Watch callback can establish the offline epoch before Keep ACK.
+    capture_last_offline: AtomicBool,
     /// UI Thread → POST IO writer. PRE engines keep the queue empty.
     record_mark_queue: RecordMarkQueue,
     /// Audio Thread が宣言する信号状態（Measure Thread が読む）。
@@ -296,6 +387,13 @@ pub struct KirinHyphaEngine {
     /// Record 状態機械。`enter_record`/`exit_record` で flip し、Measure Thread が
     /// `is_recording()` を見て自律 finalize する（Phase 3a で実配線）。
     record_sm: Arc<RecordStateMachine>,
+    /// User-facing Keep control state. Record capture may enter before all 1–12 members are ready;
+    /// only `Armed` authorizes the user to start an offline bounce.
+    keep_phase: Arc<AtomicU8>,
+    keep_phase_generation_started_at_ms: Arc<AtomicI64>,
+    /// State-machine generation reserved by the current Keep. ARMED may precede the first ACK,
+    /// therefore a UI read can retire it only after this exact generation entered and closed.
+    keep_record_generation: Arc<AtomicU64>,
     /// JUCE shell が最後に通知した host transport sample position。Keep 時に
     /// record_signal の native start barrier を作るために読む。
     latest_position_valid: Arc<AtomicBool>,
@@ -314,10 +412,10 @@ pub struct KirinHyphaEngine {
     io_thread: Arc<Mutex<Option<IoThreadHandle>>>,
     /// B-118: io 再起動クロージャ（enable が全 spawn 引数 capture でセット）。watchdog が io crash 時に呼ぶ。
     io_restart_slot: Arc<Mutex<Option<RestartIoFn>>>,
-    /// B-118: watchdog の measure 再起動が新 Producer を投函するスロット（push_samples が低頻度 take）。
-    pending_producer: Arc<Mutex<Option<rtrb::Producer<f32>>>>,
     /// B-118: Measure Thread 生存フラグ（watchdog が crash で false / 復帰で true）。measure_alive() が読む。
     measure_alive: Arc<AtomicBool>,
+    /// Durable worker generation for restart observability; the initial Measure worker is one.
+    measure_worker_generation: Arc<AtomicU64>,
     /// B-118: watchdog 自身の停止フラグ（Drop でセット）。
     watchdog_shutdown: Arc<AtomicBool>,
     /// B-118: watchdog Thread の JoinHandle（Drop で shutdown→join / 内部で io→measure を join）。
@@ -325,6 +423,10 @@ pub struct KirinHyphaEngine {
     /// B-118 Phase 3 (③): io_thread 連続失敗時の固定文言（RecordError::ui_message / G-115-29）。
     /// enable_*_writes で io と Arc 共有し、`record_error_message()` getter（JUCE status label）が読む。
     record_error_message: Arc<RwLock<Option<String>>>,
+    /// Direct user-action feedback is a consumable edge, never persistent producer state.
+    /// Keep conflicts, capacity limits, and pair-readiness failures are drained once by the shell
+    /// and rendered as a bounded toast. Only real IO/producer faults use `record_error_message`.
+    keep_action_notice: Arc<RwLock<Option<String>>>,
     /// state chunk 往復する識別子（B-058 3c / 方式A）。`set_identity` で復元値を入れ、
     /// 未設定なら `enable_pre_writes` が生成する。`get_identity` で JUCE が読み戻す。
     identity: Mutex<IdentityState>,
@@ -369,7 +471,7 @@ pub struct KirinHyphaEngine {
     preset_available: Arc<AtomicBool>,
 }
 
-// SAFETY: `ring_producer`(UnsafeCell<rtrb::Producer>) は push_samples からのみ触れ、
+// SAFETY: `producer_handoff` の active Producer mutable access は push_samples からのみ行い、
 // その push_samples は「Audio Thread 単独」という FFI 契約で単一スレッドアクセスに限定される。
 // 他の全フィールドは Arc<Mutex>/Arc<Atomic>/AtomicU64/AtomicU8 で Sync。よって
 // `&KirinHyphaEngine` を Audio/UI 2 スレッドで共有しても（契約を守る限り）健全。
@@ -640,7 +742,7 @@ pub fn __reset_shared_ids_for_tests() {
 /// POST単独 Record を作らないため、ここでは RecordStateMachine を Record にしない。
 /// double-keep guard → select_target_pre → reservation → write_pending の順で arming し、
 /// PRE ACK 後に POST IO Thread が Record へ入る。Keep は dropped WAV metadata を読まず、
-/// Drop 後の [`KirinHyphaEngine::set_expected_wav_metadata`] が今回世代だけを結び付ける。
+/// Drop は generation archive の immutable rosterだけを受理して今回WAVを結び付ける。
 #[allow(clippy::too_many_arguments)]
 fn resolve_and_enter_keep(
     license: License,
@@ -653,9 +755,13 @@ fn resolve_and_enter_keep(
     // B-108: ラッチ済みならラッチ先を直接 Arm target に使う（同名2台目でも結合不変）。未ラッチ時のみ
     // select_target_pre_for_arm にフォールバックする（resolve_arm_target 内で分岐）。
     latched: &Mutex<Option<LatchedPre>>,
-    // B-127: cap 到達拒否を UI に通知する永続ステータス（両殻が B-118 で表示）。cap 到達時に
-    // "Maximum 12 pairs reached" を書く（R-28: silent drop 禁止）。正常 enter で None に消す。
-    record_error_message: &RwLock<Option<String>>,
+    // Persistent IO/producer faults only. Direct Keep conflicts and capacity/readiness feedback
+    // use the one-shot action channel below (R-28 without stale UI state).
+    record_error_message: &Arc<RwLock<Option<String>>>,
+    keep_action_notice: &Arc<RwLock<Option<String>>>,
+    keep_phase: &Arc<AtomicU8>,
+    keep_phase_generation_started_at_ms: &Arc<AtomicI64>,
+    keep_record_generation: &Arc<AtomicU64>,
     started_at_position_samples: Option<i64>,
     capture_generation: Option<&CaptureGeneration>,
 ) -> bool {
@@ -695,7 +801,7 @@ fn resolve_and_enter_keep(
             Ok(reservation::ReserveOutcome::Created) => true,
             Ok(reservation::ReserveOutcome::AlreadyReserved) => false,
             Ok(reservation::ReserveOutcome::PreInUse) => {
-                if let Ok(mut g) = record_error_message.write() {
+                if let Ok(mut g) = keep_action_notice.write() {
                     *g = Some("PRE already in use".to_string());
                 }
                 return false;
@@ -703,7 +809,7 @@ fn resolve_and_enter_keep(
             // G-115-365 (3): 枠が取れない（write_all 失敗等の Err / 不完全枠は内部で unlink 済）= reject。
             // 枠なしで keep に入らない。
             Err(_) => {
-                if let Ok(mut g) = record_error_message.write() {
+                if let Ok(mut g) = keep_action_notice.write() {
                     *g = Some("Maximum 12 pairs reached".to_string());
                 }
                 return false;
@@ -717,7 +823,7 @@ fn resolve_and_enter_keep(
             reservation::release_pairing(&base, project_hash, &target, post_iid);
         }
         // R-28: 13 ペア目を hard reject し silent drop しない（既存文言流用）。
-        if let Ok(mut g) = record_error_message.write() {
+        if let Ok(mut g) = keep_action_notice.write() {
             *g = Some("Maximum 12 pairs reached".to_string());
         }
         return false;
@@ -770,18 +876,16 @@ fn resolve_and_enter_keep(
                 if reservation_created {
                     reservation::release_pairing(&base, project_hash, &target, post_iid);
                 }
-                if let Ok(mut message) = record_error_message.write() {
-                    *message = Some(
-                        match error {
-                            kirin_measure::CaptureGenerationError::Io(ref error)
-                                if error.kind() == std::io::ErrorKind::WouldBlock =>
-                            {
-                                "Another Keep is active"
-                            }
-                            _ => "Failed to start record",
-                        }
-                        .to_string(),
-                    );
+                if matches!(
+                    error,
+                    kirin_measure::CaptureGenerationError::Io(ref error)
+                        if error.kind() == std::io::ErrorKind::WouldBlock
+                ) {
+                    if let Ok(mut message) = keep_action_notice.write() {
+                        *message = Some("Another Keep is active".to_string());
+                    }
+                } else if let Ok(mut message) = record_error_message.write() {
+                    *message = Some("Failed to start record".to_string());
                 }
                 return false;
             }
@@ -799,6 +903,9 @@ fn resolve_and_enter_keep(
     } else {
         None
     };
+    keep_phase_generation_started_at_ms.store(generation.started_at_ms, Ordering::Release);
+    keep_record_generation.store(record_sm.generation().saturating_add(1), Ordering::Release);
+    keep_phase.store(KIRIN_KEEP_PHASE_PREPARING, Ordering::Release);
     // target_pre_instance_id = 選定 PRE。PRE が自宛て signal を発見し ack する。
     let write_result = write_pending_claiming_expected_and_clock_for_generation(
         &base,
@@ -832,44 +939,58 @@ fn resolve_and_enter_keep(
                 readiness: kirin_measure::LatchedPreReadiness::Confirmed,
             });
         }
-        if let Some(transaction) = owned_transaction.as_mut() {
+        if let Some(transaction) = owned_transaction.take() {
+            let action_notice = Arc::clone(keep_action_notice);
+            let phase = Arc::clone(keep_phase);
+            let phase_generation = Arc::clone(keep_phase_generation_started_at_ms);
+            let generation_started_at_ms = generation.started_at_ms;
             if transaction
-                .commit_when_ready(CAPTURE_PRODUCER_READY_TIMEOUT)
+                .commit_when_ready_async(CAPTURE_PRODUCER_READY_TIMEOUT, move |result| {
+                    if phase_generation.load(Ordering::Acquire) != generation_started_at_ms {
+                        return;
+                    }
+                    if result.is_ok() {
+                        phase.store(KIRIN_KEEP_PHASE_ARMED, Ordering::Release);
+                    } else {
+                        phase.store(KIRIN_KEEP_PHASE_IDLE, Ordering::Release);
+                        if let Ok(mut message) = action_notice.write() {
+                            *message = Some("Failed to arm PRE and POST".to_string());
+                        }
+                    }
+                })
                 .is_err()
             {
-                let _ = mark_released_with_reason(
-                    &base,
-                    project_hash,
-                    post_iid,
-                    ReleaseReason::ManualStop,
-                );
-                if reservation_created {
-                    reservation::release_pairing(&base, project_hash, &target, post_iid);
-                }
-                if let Ok(mut g) = paired_pre_target.lock() {
-                    *g = None;
-                }
-                record_sm.exit_record();
-                if let Ok(mut message) = record_error_message.write() {
+                keep_phase.store(KIRIN_KEEP_PHASE_IDLE, Ordering::Release);
+                if let Ok(mut message) = keep_action_notice.write() {
                     *message = Some("Failed to arm PRE and POST".to_string());
                 }
                 return false;
             }
+        } else if !spawn_keep_phase_observer(
+            base.clone(),
+            generation.capture_generation_id.clone(),
+            generation.started_at_ms,
+            Arc::clone(keep_phase),
+            Arc::clone(keep_phase_generation_started_at_ms),
+        ) {
+            keep_phase.store(KIRIN_KEEP_PHASE_IDLE, Ordering::Release);
+            if let Ok(mut message) = keep_action_notice.write() {
+                *message = Some("Failed to arm PRE and POST".to_string());
+            }
+            return false;
         }
         true
     } else {
-        if let Ok(mut g) = record_error_message.write() {
-            *g = Some(
-                match write_result {
-                    Err(SignalError::Io(ref error))
-                        if error.kind() == std::io::ErrorKind::WouldBlock =>
-                    {
-                        "Another Keep is active"
-                    }
-                    _ => "Failed to start record",
-                }
-                .to_string(),
-            );
+        if matches!(
+            write_result,
+            Err(SignalError::Io(ref error))
+                if error.kind() == std::io::ErrorKind::WouldBlock
+        ) {
+            if let Ok(mut g) = keep_action_notice.write() {
+                *g = Some("Another Keep is active".to_string());
+            }
+        } else if let Ok(mut g) = record_error_message.write() {
+            *g = Some("Failed to start record".to_string());
         }
         // write_pending 失敗時も予約枠を戻す（自分が作った場合のみ）。
         if reservation_created {
@@ -878,8 +999,55 @@ fn resolve_and_enter_keep(
         if let Ok(mut g) = paired_pre_target.lock() {
             *g = None;
         }
+        keep_phase.store(KIRIN_KEEP_PHASE_IDLE, Ordering::Release);
+        keep_record_generation.store(0, Ordering::Release);
         false
     }
+}
+
+fn spawn_keep_phase_observer(
+    base: std::path::PathBuf,
+    capture_generation_id: String,
+    generation_started_at_ms: i64,
+    phase: Arc<AtomicU8>,
+    phase_generation: Arc<AtomicI64>,
+) -> bool {
+    std::thread::Builder::new()
+        .name("hypha-arm-observer".to_string())
+        .spawn(move || {
+            let deadline = std::time::Instant::now() + CAPTURE_PRODUCER_READY_TIMEOUT;
+            loop {
+                if phase_generation.load(Ordering::Acquire) != generation_started_at_ms {
+                    return;
+                }
+                if kirin_measure::read_active_generation(&base)
+                    .ok()
+                    .flatten()
+                    .is_some_and(|active| {
+                        active.capture_generation_id == capture_generation_id
+                            && active.started_at_ms == generation_started_at_ms
+                    })
+                {
+                    phase.store(KIRIN_KEEP_PHASE_ARMED, Ordering::Release);
+                    return;
+                }
+                if kirin_measure::read_generation_terminal(
+                    &base,
+                    &capture_generation_id,
+                    generation_started_at_ms,
+                )
+                .ok()
+                .flatten()
+                .is_some()
+                    || std::time::Instant::now() >= deadline
+                {
+                    phase.store(KIRIN_KEEP_PHASE_IDLE, Ordering::Release);
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        })
+        .is_ok()
 }
 
 /// B-102: stop の解決本体（`stop()` と broadcast 受信 closure が共有）。exit_record + linkage
@@ -914,12 +1082,37 @@ fn resolve_and_exit_stop(
         if let Some(pre) = released_pre.as_deref() {
             reservation::release_pairing(&base, project_hash, pre, post_iid);
         }
-        let _ = match release_reason {
-            Some(reason) => mark_released_with_reason(&base, project_hash, post_iid, reason),
-            None => mark_released(&base, project_hash, post_iid),
-        };
+        let owned_session = record_sm
+            .record_session_id()
+            .or_else(|| record_sm.last_closed_session_id());
+        if let Some(current) = read_signal(&base, project_hash, post_iid) {
+            // Explicit user/broadcast Stop owns the currently addressed member, including the
+            // Pending-before-ACK interval. Teardown without a Stop reason owns only the exact
+            // session this engine entered or closed; a recreated engine may already have replaced
+            // the canonical path with its next Keep. An ownership mismatch must be a no-op, never
+            // an unconditional fallback release of the newer incarnation.
+            let _ = match release_reason {
+                Some(reason) => mark_released_with_reason_if_current(
+                    &base,
+                    project_hash,
+                    post_iid,
+                    &current,
+                    reason,
+                ),
+                None if owned_session.as_deref() == Some(current.session_id.as_str()) => {
+                    mark_released_if_current(&base, project_hash, post_iid, &current)
+                }
+                None => Ok(false),
+            };
+        }
     }
     record_sm.exit_record();
+}
+
+fn clear_keep_action_notice(keep_action_notice: &RwLock<Option<String>>) {
+    if let Ok(mut message) = keep_action_notice.write() {
+        *message = None;
+    }
 }
 
 /// 内部 `SignalState` を C ABI コード（0=Inactive 1=Active 2=Bypassed）へ写像する。
@@ -942,8 +1135,12 @@ impl KirinHyphaEngine {
     /// dual-mono 化による loudness +3.01 dB バイアスを入れない。
     pub fn new(sample_rate: u32, num_channels: u32) -> Self {
         let num_channels = supported_channel_count(num_channels);
-        let capacity = (sample_rate as usize) * RING_BUFFER_SECONDS * num_channels;
+        let capacity = watch_ring_capacity_samples(num_channels);
         let (producer, consumer) = rtrb::RingBuffer::new(capacity);
+        let producer_handoff = Arc::new(WatchProducerHandoff::new(producer));
+        let record_ingress = Arc::new(RecordIngress::new(record_ring_capacity_samples(
+            num_channels,
+        )));
 
         let measure_result = Arc::new(Mutex::new(MeasureResult::default()));
         let delta_result = Arc::new(Mutex::new(DeltaResult::default()));
@@ -968,12 +1165,15 @@ impl KirinHyphaEngine {
         ));
         // 実 RecordStateMachine（既定 Watch）。FFI が enter/exit で flip する。
         let record_sm = Arc::new(RecordStateMachine::new());
+        let keep_phase = Arc::new(AtomicU8::new(KIRIN_KEEP_PHASE_IDLE));
+        let keep_phase_generation_started_at_ms = Arc::new(AtomicI64::new(0));
+        let keep_record_generation = Arc::new(AtomicU64::new(0));
 
         // B-118: watchdog（Lazy）と共有する slot / フラグ群。
         let io_thread: Arc<Mutex<Option<IoThreadHandle>>> = Arc::new(Mutex::new(None));
         let io_restart_slot: Arc<Mutex<Option<RestartIoFn>>> = Arc::new(Mutex::new(None));
-        let pending_producer: Arc<Mutex<Option<rtrb::Producer<f32>>>> = Arc::new(Mutex::new(None));
         let measure_alive = Arc::new(AtomicBool::new(true));
+        let measure_worker_generation = Arc::new(AtomicU64::new(1));
         let watchdog_shutdown = Arc::new(AtomicBool::new(false));
 
         let measure_handle = spawn_measure_thread(
@@ -993,6 +1193,7 @@ impl KirinHyphaEngine {
             Arc::clone(&session_summary),
             Arc::clone(&record_trace_queue),
             Arc::clone(&record_take_tracker),
+            Arc::clone(&record_ingress),
         );
 
         // B-118: T-8 watchdog 再採用（B-056 opt-out 撤回）。Measure Thread crash を再起動し、io は
@@ -1013,7 +1214,9 @@ impl KirinHyphaEngine {
             evaluator: Arc::clone(&liveness),
             measure_shutdown: Arc::clone(&shutdown),
             measure_alive: Arc::clone(&measure_alive),
-            pending_producer: Arc::clone(&pending_producer),
+            measure_worker_generation: Arc::clone(&measure_worker_generation),
+            producer_handoff: Arc::clone(&producer_handoff),
+            record_ingress: Arc::clone(&record_ingress),
             measure_handle,
             io: WatchdogIo::Lazy {
                 io_slot: Arc::clone(&io_thread),
@@ -1032,12 +1235,35 @@ impl KirinHyphaEngine {
         identity_instance_attach();
 
         Self {
-            ring_producer: UnsafeCell::new(producer),
+            producer_handoff,
+            record_ingress,
             measure_result,
             delta_result,
             session_summary,
             record_trace_queue,
             record_take_tracker,
+            pending_capture_version: AtomicU64::new(0),
+            pending_capture_valid: AtomicBool::new(false),
+            pending_position_valid: AtomicBool::new(false),
+            pending_position_samples: AtomicI64::new(i64::MIN),
+            pending_num_frames: AtomicU64::new(0),
+            pending_clock_source: AtomicU8::new(CaptureClockSource::Unknown as u8),
+            pending_presentation_source: AtomicU8::new(PresentationLatencySource::Unknown as u8),
+            pending_input_presentation_samples: AtomicU64::new(u64::MAX),
+            pending_output_presentation_samples: AtomicU64::new(u64::MAX),
+            pending_force_new_epoch: AtomicBool::new(false),
+            pending_record_valid: AtomicBool::new(false),
+            pending_recording: AtomicBool::new(false),
+            pending_record_rendered: AtomicBool::new(false),
+            pending_record_playing: AtomicBool::new(false),
+            pending_record_offline: AtomicBool::new(false),
+            pending_record_position_valid: AtomicBool::new(false),
+            pending_record_position_samples: AtomicI64::new(i64::MIN),
+            pending_record_num_frames: AtomicU64::new(0),
+            pending_record_clock_start_samples: AtomicI64::new(0),
+            pending_record_clock_end_valid: AtomicBool::new(false),
+            pending_record_clock_end_samples: AtomicI64::new(0),
+            capture_last_offline: AtomicBool::new(false),
             record_mark_queue,
             signal_state,
             shutdown,
@@ -1055,6 +1281,9 @@ impl KirinHyphaEngine {
             watch_ring_replacing,
             liveness,
             record_sm,
+            keep_phase,
+            keep_phase_generation_started_at_ms,
+            keep_record_generation,
             latest_position_valid: Arc::new(AtomicBool::new(false)),
             latest_position_samples: Arc::new(AtomicI64::new(i64::MIN)),
             // 既定 Unknown（set_license(Os) されるまで Record 不可・安全側）。
@@ -1063,11 +1292,12 @@ impl KirinHyphaEngine {
             num_channels,
             io_thread,
             io_restart_slot,
-            pending_producer,
             measure_alive,
+            measure_worker_generation,
             watchdog_shutdown,
             watchdog_handle: Mutex::new(Some(watchdog_handle)),
             record_error_message: Arc::new(RwLock::new(None)),
+            keep_action_notice: Arc::new(RwLock::new(None)),
             identity: Mutex::new(IdentityState::default()),
             project_hash_cell: Arc::new(RwLock::new(String::new())),
             daw_session_id_cell: Arc::new(RwLock::new(String::new())),
@@ -1133,6 +1363,10 @@ impl KirinHyphaEngine {
     /// integration test）が状態機械を直接検証するために呼ぶため。C ABI 経由でこの crate の
     /// 外（JUCE 側）から呼べる経路は存在しない。
     pub fn enter_record(&self) -> bool {
+        let next_generation = self.record_sm.generation().saturating_add(1);
+        if !self.record_ingress.prepare_for_generation(next_generation) {
+            return false;
+        }
         self.record_sm
             .try_enter_record_started_at_clock(
                 self.current_license(),
@@ -1170,6 +1404,26 @@ impl KirinHyphaEngine {
         self.record_sm.is_recording()
     }
 
+    pub fn keep_phase(&self) -> u8 {
+        let phase = self.keep_phase.load(Ordering::Acquire);
+        let expected_record_generation = self.keep_record_generation.load(Ordering::Acquire);
+        if keep_phase_is_closed(
+            phase,
+            expected_record_generation,
+            self.record_sm.generation(),
+            self.record_sm.is_recording(),
+        ) {
+            self.keep_phase_generation_started_at_ms
+                .store(0, Ordering::Release);
+            self.keep_record_generation.store(0, Ordering::Release);
+            self.keep_phase
+                .store(KIRIN_KEEP_PHASE_IDLE, Ordering::Release);
+            KIRIN_KEEP_PHASE_IDLE
+        } else {
+            phase
+        }
+    }
+
     /// Audio Thread から Record take の実レンダー長を通知する。
     ///
     /// 計測 ring とは独立した sample-count clock で、手動 Keep/Stop の余白を
@@ -1204,6 +1458,79 @@ impl KirinHyphaEngine {
         self.record_take_tracker.note_block(block);
     }
 
+    /// Stage one JUCE callback's take facts. The single Audio Thread consumes this immediately in
+    /// `push_samples`; atomics keep `KirinHyphaEngine: Sync` truthful without introducing a lock.
+    fn stage_record_block(&self, block: RecordTakeBlock) {
+        self.pending_record_valid.store(false, Ordering::Relaxed);
+        self.pending_recording
+            .store(block.recording, Ordering::Relaxed);
+        self.pending_record_rendered
+            .store(block.rendered, Ordering::Relaxed);
+        self.pending_record_playing
+            .store(block.playing, Ordering::Relaxed);
+        self.pending_record_offline
+            .store(block.offline, Ordering::Relaxed);
+        self.pending_record_position_valid
+            .store(block.position_valid, Ordering::Relaxed);
+        self.pending_record_position_samples
+            .store(block.position_samples, Ordering::Relaxed);
+        self.pending_record_num_frames
+            .store(block.num_frames, Ordering::Relaxed);
+        self.pending_record_clock_start_samples
+            .store(block.clock_start_samples, Ordering::Relaxed);
+        self.pending_record_clock_end_valid
+            .store(block.clock_end_samples.is_some(), Ordering::Relaxed);
+        self.pending_record_clock_end_samples.store(
+            block.clock_end_samples.unwrap_or_default(),
+            Ordering::Relaxed,
+        );
+        self.pending_record_valid.store(true, Ordering::Release);
+    }
+
+    #[inline]
+    fn take_pending_record_block(&self, expected_frames: u64) -> Option<PendingRecordBlock> {
+        if !self.pending_record_valid.swap(false, Ordering::AcqRel) {
+            return None;
+        }
+        let block = PendingRecordBlock {
+            recording: self.pending_recording.load(Ordering::Relaxed),
+            rendered: self.pending_record_rendered.load(Ordering::Relaxed),
+            playing: self.pending_record_playing.load(Ordering::Relaxed),
+            offline: self.pending_record_offline.load(Ordering::Relaxed),
+            position_valid: self.pending_record_position_valid.load(Ordering::Relaxed),
+            position_samples: self.pending_record_position_samples.load(Ordering::Relaxed),
+            num_frames: self.pending_record_num_frames.load(Ordering::Relaxed),
+            clock_start_samples: self
+                .pending_record_clock_start_samples
+                .load(Ordering::Relaxed),
+            clock_end_samples: self
+                .pending_record_clock_end_valid
+                .load(Ordering::Relaxed)
+                .then(|| {
+                    self.pending_record_clock_end_samples
+                        .load(Ordering::Relaxed)
+                }),
+        };
+        (block.num_frames == expected_frames || (!block.rendered && expected_frames == 0))
+            .then_some(block)
+    }
+
+    #[inline]
+    fn commit_pending_record_block(&self, block: PendingRecordBlock) {
+        self.note_record_block(RecordTakeBlock {
+            generation: 0,
+            recording: block.recording,
+            rendered: block.rendered,
+            playing: block.playing,
+            offline: block.offline,
+            position_valid: block.position_valid,
+            position_samples: block.position_samples,
+            num_frames: block.num_frames,
+            clock_start_samples: block.clock_start_samples,
+            clock_end_samples: block.clock_end_samples,
+        });
+    }
+
     /// Audio Thread が measurement ring へ投入する窓の host sample clock を通知する。
     /// `note_record_block` とは独立させ、Watch pre-roll と Record の両方を同じ clock に載せる。
     pub fn note_capture_window(
@@ -1219,6 +1546,7 @@ impl KirinHyphaEngine {
             num_frames,
             clock_source,
             PresentationLatencySamples::default(),
+            false,
         );
     }
 
@@ -1229,15 +1557,76 @@ impl KirinHyphaEngine {
         num_frames: u64,
         clock_source: CaptureClockSource,
         presentation_latency: PresentationLatencySamples,
+        force_new_epoch: bool,
     ) {
-        self.record_take_tracker
-            .note_capture_window_with_presentation(
-                position_valid,
-                position_samples,
-                num_frames,
-                clock_source,
-                presentation_latency,
-            );
+        // This call deliberately stages facts only. `push_samples` first proves whole-block SPSC
+        // capacity, then commits this descriptor and all samples as one producer transaction.
+        // Advancing the clock here would let a partially accepted callback permanently shift every
+        // later TRACE sample.
+        self.pending_capture_version.fetch_add(1, Ordering::AcqRel);
+        self.pending_capture_valid.store(false, Ordering::Relaxed);
+        self.pending_position_valid
+            .store(position_valid, Ordering::Relaxed);
+        self.pending_position_samples
+            .store(position_samples, Ordering::Relaxed);
+        self.pending_num_frames.store(num_frames, Ordering::Relaxed);
+        self.pending_clock_source
+            .store(clock_source as u8, Ordering::Relaxed);
+        self.pending_presentation_source
+            .store(presentation_latency.source as u8, Ordering::Relaxed);
+        self.pending_input_presentation_samples.store(
+            presentation_latency.input.map_or(u64::MAX, u64::from),
+            Ordering::Relaxed,
+        );
+        self.pending_output_presentation_samples.store(
+            presentation_latency.output.map_or(u64::MAX, u64::from),
+            Ordering::Relaxed,
+        );
+        self.pending_force_new_epoch
+            .store(force_new_epoch, Ordering::Relaxed);
+        self.pending_capture_valid.store(true, Ordering::Relaxed);
+        self.pending_capture_version.fetch_add(1, Ordering::Release);
+    }
+
+    #[inline]
+    fn take_pending_capture_window(&self, expected_frames: u64) -> Option<PendingCaptureWindow> {
+        for _ in 0..4 {
+            let before = self.pending_capture_version.load(Ordering::Acquire);
+            if before & 1 != 0 || !self.pending_capture_valid.load(Ordering::Relaxed) {
+                continue;
+            }
+            let pending = PendingCaptureWindow {
+                position_valid: self.pending_position_valid.load(Ordering::Relaxed),
+                position_samples: self.pending_position_samples.load(Ordering::Relaxed),
+                num_frames: self.pending_num_frames.load(Ordering::Relaxed),
+                clock_source: CaptureClockSource::from_abi(
+                    self.pending_clock_source.load(Ordering::Relaxed),
+                ),
+                presentation_latency: PresentationLatencySamples {
+                    source: PresentationLatencySource::from_abi(
+                        self.pending_presentation_source.load(Ordering::Relaxed),
+                    ),
+                    input: u32::try_from(
+                        self.pending_input_presentation_samples
+                            .load(Ordering::Relaxed),
+                    )
+                    .ok(),
+                    output: u32::try_from(
+                        self.pending_output_presentation_samples
+                            .load(Ordering::Relaxed),
+                    )
+                    .ok(),
+                },
+                force_new_epoch: self.pending_force_new_epoch.load(Ordering::Relaxed),
+            };
+            let after = self.pending_capture_version.load(Ordering::Acquire);
+            if before == after && after & 1 == 0 {
+                self.pending_capture_valid.store(false, Ordering::Release);
+                return (pending.num_frames == expected_frames).then_some(pending);
+            }
+        }
+        self.pending_capture_valid.store(false, Ordering::Release);
+        None
     }
 
     /// Publish one host transport block. Audio Thread only; atomics and the
@@ -1392,6 +1781,7 @@ impl KirinHyphaEngine {
             let session_summary = Arc::clone(&self.session_summary);
             let record_trace_queue = Arc::clone(&self.record_trace_queue);
             let record_take_tracker = Arc::clone(&self.record_take_tracker);
+            let record_ingress = Arc::clone(&self.record_ingress);
             let push_overflow = Arc::clone(&self.push_overflow);
             let oversized_drop = Arc::clone(&self.oversized_drop); // B-125
             let sample_rate = self.sample_rate;
@@ -1414,6 +1804,7 @@ impl KirinHyphaEngine {
                     Arc::clone(&session_summary),
                     Arc::clone(&record_trace_queue),
                     Arc::clone(&record_take_tracker),
+                    Arc::clone(&record_ingress),
                     Arc::clone(&push_overflow), // B-076: per-Record dropped_samples
                     Arc::clone(&oversized_drop), // B-125: per-Record oversized block drop
                 );
@@ -1531,6 +1922,11 @@ impl KirinHyphaEngine {
             let latched = self.pair_binding.latched_pre();
             // B-127: broadcast 受信 keep も engine cap を通す。cap 到達通知の宛先 Arc を capture。
             let record_error_message = Arc::clone(&self.record_error_message);
+            let keep_action_notice = Arc::clone(&self.keep_action_notice);
+            let keep_phase = Arc::clone(&self.keep_phase);
+            let keep_phase_generation_started_at_ms =
+                Arc::clone(&self.keep_phase_generation_started_at_ms);
+            let keep_record_generation = Arc::clone(&self.keep_record_generation);
             Arc::new(
                 move |_originator: &str, _started_at: &str, generation: &CaptureGeneration| {
                     let lic = license.refresh_for_user_action();
@@ -1544,6 +1940,10 @@ impl KirinHyphaEngine {
                         &daw,
                         &latched,
                         &record_error_message,
+                        &keep_action_notice,
+                        &keep_phase,
+                        &keep_phase_generation_started_at_ms,
+                        &keep_record_generation,
                         None,
                         Some(generation),
                     )
@@ -1595,6 +1995,7 @@ impl KirinHyphaEngine {
             let session_summary = Arc::clone(&self.session_summary);
             let record_trace_queue = Arc::clone(&self.record_trace_queue);
             let record_take_tracker = Arc::clone(&self.record_take_tracker);
+            let record_ingress = Arc::clone(&self.record_ingress);
             let record_mark_queue = Arc::clone(&self.record_mark_queue);
             let push_overflow = Arc::clone(&self.push_overflow);
             let oversized_drop = Arc::clone(&self.oversized_drop); // B-125
@@ -1628,6 +2029,7 @@ impl KirinHyphaEngine {
                     Arc::clone(&session_summary),
                     Arc::clone(&record_trace_queue),
                     Arc::clone(&record_take_tracker),
+                    Arc::clone(&record_ingress),
                     Arc::clone(&record_mark_queue),
                     Arc::clone(&push_overflow), // B-076: per-Record dropped_samples
                     Arc::clone(&oversized_drop), // B-125: per-Record oversized block drop
@@ -1876,6 +2278,12 @@ impl KirinHyphaEngine {
         self.measure_alive.load(Ordering::Relaxed)
     }
 
+    /// Durable Measure worker generation used by restart acceptance tests and diagnostics.
+    #[doc(hidden)]
+    pub fn __measure_worker_generation_for_test(&self) -> u64 {
+        self.measure_worker_generation.load(Ordering::Acquire)
+    }
+
     /// テスト専用: Measure Thread を強制終了させ watchdog の再起動経路を駆動する（B-118 test iii/iv）。
     /// `shutdown` をセットすると measure loop が抜けて exit → watchdog が is_finished を検出し
     /// （watchdog_shutdown は false のため）再 spawn して shutdown を false へ戻す。本番経路は使わない。
@@ -1885,10 +2293,10 @@ impl KirinHyphaEngine {
     }
 
     /// Compatibility advisory for older shells. This getter is deliberately memory-only: UI
-    /// polling must never enumerate reservation files. The authoritative Keep attempt records a
-    /// factual error message when it cannot obtain the 13th slot.
+    /// polling must never enumerate reservation files. The authoritative Keep attempt publishes
+    /// a one-shot action result when it cannot obtain the 13th slot.
     pub fn record_exclusion_conflict(&self) -> bool {
-        self.record_error_message
+        self.keep_action_notice
             .read()
             .ok()
             .and_then(|message| message.clone())
@@ -1903,6 +2311,15 @@ impl KirinHyphaEngine {
             .read()
             .ok()
             .and_then(|g| g.clone())
+    }
+
+    /// Drain exactly one direct user-action result. This channel has edge semantics: polling it
+    /// cannot recreate Keep authority and a consumed notice never becomes persistent UI state.
+    pub fn drain_keep_action_notice(&self) -> Option<String> {
+        self.keep_action_notice
+            .write()
+            .ok()
+            .and_then(|mut notice| notice.take())
     }
 
     /// B-118: heartbeat 鮮度（processBlock が呼ばれている事実 / read-only poller・非 RT）。
@@ -1936,85 +2353,6 @@ impl KirinHyphaEngine {
             .and_then(|g| g.clone())
     }
 
-    /// Kirin OS/JUCE runtime が Drop 後の WAV 正本 metadata を渡す入口。
-    ///
-    /// `current.json` を atomic 書込みした同じ呼出しで、既に閉じた今回 Record を
-    /// WAV の `0..duration_samples` へ再照合する。Recordが固定したsession/PRE/POSTの
-    /// deterministic pathだけを読み、project棚や履歴は走査しない。
-    pub fn set_expected_wav_metadata(&self, input: ExpectedWavMetadataInput) -> bool {
-        let (project_hash, post_instance_id) = match self.identity.lock() {
-            Ok(id) => (id.project_hash.clone(), id.instance_id.clone()),
-            Err(_) => return false,
-        };
-        if project_hash.is_empty() || post_instance_id.is_empty() {
-            return false;
-        }
-        let base = match StoragePaths::default_platform() {
-            Ok(p) => p.plugin_data_dir(),
-            Err(_) => return false,
-        };
-        let metadata = ExpectedWavMetadata {
-            expected_duration_samples: input.expected_duration_samples,
-            expected_sample_rate: input.expected_sample_rate,
-            wav_time_reference_samples: None,
-            wav_path: input.wav_path,
-            bounce_id: input.bounce_id,
-            created_at_ms: kirin_measure::record_writer::now_epoch_ms(),
-            wav_file_size: Some(input.wav_file_size),
-            wav_mtime_ms: input.wav_mtime_ms,
-            wav_hash: Some(input.wav_hash),
-            consumed_at_ms: None,
-            consumed_by_session_id: None,
-        };
-        let Some(session_id) = self.record_sm.last_closed_session_id() else {
-            if let Ok(mut g) = self.record_error_message.write() {
-                *g = Some("WAV metadata has no closed Keep session".to_string());
-            }
-            return false;
-        };
-        let Some(pre_instance_id) = self
-            .paired_pre_target_snapshot()
-            .or_else(|| self.paired_pre_instance_id())
-        else {
-            if let Ok(mut g) = self.record_error_message.write() {
-                *g = Some("WAV metadata has no exact PRE transaction owner".to_string());
-            }
-            return false;
-        };
-        match write_expected_metadata(&base, &project_hash, &metadata) {
-            Ok(()) => {
-                if !matches!(
-                    mark_expected_metadata_consumed(
-                        &base,
-                        &project_hash,
-                        Some(&metadata.bounce_id),
-                        &session_id,
-                    ),
-                    Ok(true)
-                ) {
-                    if let Ok(mut g) = self.record_error_message.write() {
-                        *g = Some("WAV metadata could not bind to closed Keep session".to_string());
-                    }
-                    return false;
-                }
-                kirin_measure::plugin_data::reconcile_drop_committed_closed_session(
-                    &base,
-                    &project_hash,
-                    &session_id,
-                    &pre_instance_id,
-                    &post_instance_id,
-                );
-                true
-            }
-            Err(e) => {
-                if let Ok(mut g) = self.record_error_message.write() {
-                    *g = Some(format!("WAV metadata invalid: {e}"));
-                }
-                false
-            }
-        }
-    }
-
     /// POST「Keep」: 厳格選定（select_target_pre）で対 PRE を一意決定し record_signal(pending)
     /// を書く（B-061 3d-b）。PRE 側 io_thread が autonomous に discover→ack する。
     /// `License::Os` かつ一意 PRE のとき `true`。選定 None（空名/不在/曖昧/Bypassed/古t）/
@@ -2028,6 +2366,9 @@ impl KirinHyphaEngine {
     }
 
     fn keep_with_optional_generation(&self, generation: Option<&CaptureGeneration>) -> bool {
+        if generation.is_none() {
+            clear_keep_action_notice(&self.keep_action_notice);
+        }
         let (project_hash, post_iid, daw) = {
             let id = match self.identity.lock() {
                 Ok(g) => g,
@@ -2057,7 +2398,11 @@ impl KirinHyphaEngine {
             &post_iid,
             &daw,
             &latched_pre, // B-108: ラッチ済みならラッチ先を直接 target に使う
-            &self.record_error_message, // B-127: cap 到達通知の宛先（両殻 B-118 表示）
+            &self.record_error_message, // persistent producer/I/O fault channel
+            &self.keep_action_notice,
+            &self.keep_phase,
+            &self.keep_phase_generation_started_at_ms,
+            &self.keep_record_generation,
             None,
             generation,
         )
@@ -2069,6 +2414,7 @@ impl KirinHyphaEngine {
     /// これによりAU/VST3のidentity棚が分かれても届き、別host・不可視PRE claimは混ぜない。
     /// 自 keep の結果（有効ペアありなら true）を返す。broadcast 書込失敗は best-effort（無視）。
     pub fn keep_all(&self) -> bool {
+        clear_keep_action_notice(&self.keep_action_notice);
         let post_iid = {
             let id = match self.identity.lock() {
                 Ok(g) => g,
@@ -2096,7 +2442,7 @@ impl KirinHyphaEngine {
             &daw,
             host_process_id,
         );
-        let members = ready
+        let members: Vec<_> = ready
             .iter()
             .filter_map(|candidate| {
                 Some((
@@ -2110,6 +2456,12 @@ impl KirinHyphaEngine {
                 ))
             })
             .collect();
+        if members.len() > MAX_CAPTURE_GENERATION_MEMBERS {
+            if let Ok(mut error) = self.keep_action_notice.write() {
+                *error = Some("Maximum 12 pairs reached".to_string());
+            }
+            return false;
+        }
         let generation = CaptureGeneration::new_for_named_members(
             post_iid.clone(),
             daw.clone(),
@@ -2124,6 +2476,11 @@ impl KirinHyphaEngine {
             match CaptureGenerationTransaction::begin(&plugin_data_dir, &generation) {
                 Ok(transaction) => transaction,
                 Err(error) => {
+                    let is_active_generation = matches!(
+                        &error,
+                        kirin_measure::CaptureGenerationError::Io(error)
+                            if error.kind() == std::io::ErrorKind::WouldBlock
+                    );
                     let message = match &error {
                         kirin_measure::CaptureGenerationError::Io(error)
                             if error.kind() == std::io::ErrorKind::WouldBlock =>
@@ -2132,8 +2489,12 @@ impl KirinHyphaEngine {
                         }
                         _ => "All Keep failed (file write error)",
                     };
-                    if let Ok(mut error) = self.record_error_message.write() {
-                        *error = Some(message.to_string());
+                    if is_active_generation {
+                        if let Ok(mut notice) = self.keep_action_notice.write() {
+                            *notice = Some(message.to_string());
+                        }
+                    } else if let Ok(mut persistent) = self.record_error_message.write() {
+                        *persistent = Some(message.to_string());
                     }
                     return false;
                 }
@@ -2169,15 +2530,30 @@ impl KirinHyphaEngine {
         if !self.keep_with_generation(&generation) {
             return false;
         }
+        let action_notice = Arc::clone(&self.keep_action_notice);
+        let phase = Arc::clone(&self.keep_phase);
+        let phase_generation = Arc::clone(&self.keep_phase_generation_started_at_ms);
+        let generation_started_at_ms = generation.started_at_ms;
         if transaction
-            .commit_when_ready(CAPTURE_PRODUCER_READY_TIMEOUT)
+            .commit_when_ready_async(CAPTURE_PRODUCER_READY_TIMEOUT, move |result| {
+                if phase_generation.load(Ordering::Acquire) != generation_started_at_ms {
+                    return;
+                }
+                if result.is_ok() {
+                    phase.store(KIRIN_KEEP_PHASE_ARMED, Ordering::Release);
+                } else {
+                    phase.store(KIRIN_KEEP_PHASE_IDLE, Ordering::Release);
+                    if let Ok(mut error) = action_notice.write() {
+                        *error = Some("All Keep: pair not ready".to_string());
+                    }
+                }
+            })
             .is_err()
         {
-            // The transaction rollback releases and broadcasts to its immutable exact roster;
-            // only the originator's in-memory state needs the direct local stop here.
-            self.stop();
-            if let Ok(mut error) = self.record_error_message.write() {
-                *error = Some("All Keep failed to arm every PRE and POST".to_string());
+            self.keep_phase
+                .store(KIRIN_KEEP_PHASE_IDLE, Ordering::Release);
+            if let Ok(mut error) = self.keep_action_notice.write() {
+                *error = Some("All Keep: pair not ready".to_string());
             }
             return false;
         }
@@ -2187,6 +2563,12 @@ impl KirinHyphaEngine {
     /// POST「Stop」: pair を解除（record_signal released）し Watch へ戻す（B-061 3d-b）。
     /// PRE 側は released を検出して自身も Record を抜ける（io_thread_pre）。
     pub fn stop(&self) {
+        clear_keep_action_notice(&self.keep_action_notice);
+        self.keep_phase_generation_started_at_ms
+            .store(0, Ordering::Release);
+        self.keep_record_generation.store(0, Ordering::Release);
+        self.keep_phase
+            .store(KIRIN_KEEP_PHASE_IDLE, Ordering::Release);
         // 元 stop() と同一: exit_record + linkage クリアは常に行い、mark_released は enable 済
         // （identity 非空）のときだけ。共有 free 関数で broadcast 受信 closure と同一経路にする。
         let (project_hash, post_iid) = match self.identity.lock() {
@@ -2206,27 +2588,55 @@ impl KirinHyphaEngine {
     /// POST「All Stop」: all_stop broadcast を書いてから自身の stop を発火する（B-102 /
     /// egui ComboBox 先頭行と同一ライフサイクル: broadcast → self stop）。
     pub fn stop_all(&self) {
+        clear_keep_action_notice(&self.keep_action_notice);
         let post_iid = match self.identity.lock() {
             Ok(id) => id.instance_id.clone(),
             Err(_) => String::new(),
         };
         let project_hash = read_shared_id(&self.project_hash_cell);
         let daw = read_shared_id(&self.daw_session_id_cell);
-        let host_process_id = current_host_process_id();
         if !project_hash.is_empty() && !post_iid.is_empty() {
             if let Ok(p) = StoragePaths::default_platform() {
-                let kirin_root = PlatformPaths::current_kirin_tmp_root();
-                let mut project_hashes = live_post_project_uuids_for_operation_group(
-                    &kirin_root,
-                    &project_hash,
-                    &daw,
-                    host_process_id,
-                );
-                if project_hashes.is_empty() {
-                    project_hashes.push(project_hash.clone());
+                let base = p.plugin_data_dir();
+                let active =
+                    kirin_measure::read_stop_target_generation(&base, &project_hash, &post_iid)
+                        .ok()
+                        .flatten();
+                let mut wrote_generation_stop = false;
+                if let Some(generation) = active {
+                    if mark_generation_terminal(
+                        &base,
+                        &generation,
+                        GenerationTerminalReason::AllStop,
+                    )
+                    .is_ok()
+                    {
+                        let projects = generation
+                            .members
+                            .iter()
+                            .map(|member| member.project_hash.as_str())
+                            .collect::<std::collections::BTreeSet<_>>();
+                        wrote_generation_stop = true;
+                        for ph in projects {
+                            if write_stop_broadcast_for_generation(
+                                &base,
+                                ph,
+                                &post_iid,
+                                generation.daw_session_id.clone(),
+                                generation.host_process_id,
+                                &generation,
+                            )
+                            .is_err()
+                            {
+                                wrote_generation_stop = false;
+                            }
+                        }
+                    }
                 }
-                for ph in project_hashes {
-                    let _ = write_stop_broadcast(&p.plugin_data_dir(), &ph, &post_iid, daw.clone());
+                // Legacy/no-active fallback is deliberately one known shelf. New producers never
+                // rediscover an All Stop group by scanning live/history directories.
+                if !wrote_generation_stop {
+                    let _ = write_stop_broadcast(&base, &project_hash, &post_iid, daw.clone());
                 }
             }
         }
@@ -2414,6 +2824,27 @@ impl KirinHyphaEngine {
     /// 不一致ブロックは heartbeat だけ進め、測定 ring には入れない（防御ガード）。
     /// `interleaved.len()` は `num_frames * num_channels` を想定。
     pub fn push_samples(&self, interleaved: &[f32], num_channels: u32) {
+        // Rust-safe compatibility surface used by the historical direct-engine tests. It still
+        // publishes an explicit Unknown span, so audio and clock cardinality remain inseparable;
+        // the shipping C ABI bypasses this shelf and rejects a missing host descriptor below.
+        if !interleaved.is_empty()
+            && num_channels as usize == self.num_channels
+            && interleaved.len().is_multiple_of(self.num_channels)
+            && !self.pending_capture_valid.load(Ordering::Acquire)
+        {
+            self.note_capture_window(
+                false,
+                i64::MIN,
+                (interleaved.len() / self.num_channels) as u64,
+                CaptureClockSource::Unknown,
+            );
+        }
+        let _ = self.push_samples_transaction(interleaved, num_channels);
+    }
+
+    /// Shipping Audio-Thread transaction. A non-empty callback must already have an exact host
+    /// descriptor staged by the wrapper; the direct Rust shelf above is never used by JUCE.
+    fn push_samples_transaction(&self, interleaved: &[f32], num_channels: u32) -> bool {
         // (1) heartbeat は常に進める（空ブロック keepalive でも Active を維持できる）。
         self.heartbeat.fetch_add(1, Ordering::Relaxed);
         if self.watch_playback_pass_id.load(Ordering::Acquire) == 0 {
@@ -2426,43 +2857,160 @@ impl KirinHyphaEngine {
             );
         }
 
-        // B-118: watchdog が Measure Thread を再起動したとき pending_producer に新 Producer が来る。
-        // 毎 call の先頭で try_lock（非ブロッキング）し、再起動後の Watch 欠落を1 callback以内に抑える。
-        if let Ok(mut slot) = self.pending_producer.try_lock() {
-            if let Some(new_producer) = slot.take() {
-                self.record_take_tracker.reset_capture_clock();
-                // SAFETY: push_samples は Audio Thread 単独（SPSC）。Producer 差し替えも同契約内。
-                unsafe {
-                    *self.ring_producer.get() = new_producer;
-                }
-                let pass_id = self.watch_playback_pass_id.load(Ordering::Acquire);
-                reset_watch_ring_cursor(
-                    &self.watch_ring_cursor_epoch,
-                    &self.watch_ring_cursor_pass_id,
-                    &self.watch_ring_cursor_samples,
-                    pass_id,
-                );
-                self.watch_ring_replacing.store(false, Ordering::Release);
-            }
+        // Watchdog 再起動後の Producer 所有権を atomic pointer だけで取り込む。
+        // 旧 Producer は retired slot へ移し、Watchdog Thread が破棄するため、この
+        // Audio Thread 経路に lock / allocation / deallocation はない。
+        // SAFETY: push_samples は FFI 契約上、単一 Audio Thread からのみ呼ばれる。
+        if unsafe { self.producer_handoff.swap_pending_from_audio() } {
+            self.record_take_tracker.reset_capture_clock();
+            self.capture_last_offline.store(false, Ordering::Release);
+            let pass_id = self.watch_playback_pass_id.load(Ordering::Acquire);
+            reset_watch_ring_cursor(
+                &self.watch_ring_cursor_epoch,
+                &self.watch_ring_cursor_pass_id,
+                &self.watch_ring_cursor_samples,
+                pass_id,
+            );
+            self.watch_ring_replacing.store(false, Ordering::Release);
         }
+        // SAFETY: same single Audio Thread. Record adoption only moves atomic pointers.
+        unsafe { self.record_ingress.adopt_from_audio() };
 
         // (2) create 時の layout と異なるブロックは測定に入れない。
         if num_channels as usize != self.num_channels {
-            return;
+            self.pending_capture_valid.store(false, Ordering::Release);
+            self.pending_record_valid.store(false, Ordering::Release);
+            return false;
         }
 
-        // SAFETY: push_samples は Audio Thread 単独という FFI 契約。Producer への
-        // 排他アクセスは単一スレッドに限定される（SPSC）。
-        let producer = unsafe { &mut *self.ring_producer.get() };
-        let mut pushed = 0_u64;
-        for &s in interleaved {
-            if producer.push(s).is_err() {
-                self.push_overflow.fetch_add(1, Ordering::Relaxed);
-            } else {
-                pushed += 1;
+        let recording = self.record_sm.is_recording();
+        if !interleaved.len().is_multiple_of(self.num_channels) {
+            self.pending_capture_valid.store(false, Ordering::Release);
+            self.pending_record_valid.store(false, Ordering::Release);
+            self.push_overflow
+                .fetch_add(interleaved.len() as u64, Ordering::Relaxed);
+            return false;
+        }
+        let frames = (interleaved.len() / self.num_channels) as u64;
+        if frames > MAX_AUDIO_BLOCK_FRAMES as u64 {
+            self.pending_capture_valid.store(false, Ordering::Release);
+            self.pending_record_valid.store(false, Ordering::Release);
+            self.push_overflow
+                .fetch_add(interleaved.len() as u64, Ordering::Relaxed);
+            return false;
+        }
+        let had_pending_clock = self.pending_capture_valid.load(Ordering::Acquire);
+        let pending_clock = self.take_pending_capture_window(frames);
+        let had_pending_record = self.pending_record_valid.load(Ordering::Acquire);
+        let pending_record = self.take_pending_record_block(frames);
+        if had_pending_clock && pending_clock.is_none() {
+            // A descriptor/sample cardinality mismatch is an invalid callback transaction. Drop
+            // it whole; accepting unclocked audio would shift every later producer coordinate.
+            self.push_overflow
+                .fetch_add(interleaved.len() as u64, Ordering::Relaxed);
+            return false;
+        }
+        if had_pending_record && pending_record.is_none() {
+            self.push_overflow
+                .fetch_add(interleaved.len() as u64, Ordering::Relaxed);
+            return false;
+        }
+        if interleaved.is_empty() {
+            if let Some(block) = pending_record {
+                self.commit_pending_record_block(block);
+            }
+            return false;
+        }
+        if pending_clock.is_none() {
+            // A sample without an immutable producer coordinate can never enter raw pre-roll or
+            // Record truthfully. The JUCE ABI guarantees note_capture_window immediately before
+            // every non-empty push, so this is a malformed transaction.
+            self.push_overflow
+                .fetch_add(interleaved.len() as u64, Ordering::Relaxed);
+            return false;
+        }
+        let accepted_offline_mode = pending_record.map(|block| block.offline);
+        let offline_capture_boundary = accepted_offline_mode.is_some_and(|offline| offline)
+            && !self.capture_last_offline.load(Ordering::Acquire);
+        let pushed = if recording {
+            let generation = self.record_sm.generation();
+            // SAFETY: producer access is closure-bounded to this one Audio callback.
+            let accepted = unsafe {
+                self.record_ingress
+                    .with_producer_from_audio(generation, |producer| {
+                        if producer.slots() < interleaved.len() {
+                            self.push_overflow
+                                .fetch_add(interleaved.len() as u64, Ordering::Relaxed);
+                            return 0;
+                        }
+                        let capture_origin = self.record_take_tracker.captured_frames_total();
+                        self.record_ingress
+                            .begin_generation_from_audio(generation, capture_origin);
+                        if let Some(block) = pending_record {
+                            self.commit_pending_record_block(block);
+                        }
+                        if let Some(clock) = pending_clock {
+                            self.record_take_tracker
+                                .note_capture_window_with_presentation_boundary(
+                                    clock.position_valid,
+                                    clock.position_samples,
+                                    clock.num_frames,
+                                    clock.clock_source,
+                                    clock.presentation_latency,
+                                    clock.force_new_epoch || offline_capture_boundary,
+                                );
+                        }
+                        for &sample in interleaved {
+                            // The single producer checked the complete cardinality above. A
+                            // concurrent consumer can only increase, never consume, free slots.
+                            let _ = producer.push(sample);
+                        }
+                        interleaved.len() as u64
+                    })
+            };
+            if accepted.is_none() {
+                self.push_overflow
+                    .fetch_add(interleaved.len() as u64, Ordering::Relaxed);
+            }
+            accepted.unwrap_or(0)
+        } else {
+            // SAFETY: push_samples is the sole Audio Thread owner. Producer access cannot cross
+            // the callback or a handoff swap.
+            unsafe {
+                self.producer_handoff
+                    .with_active_producer_from_audio(|producer| {
+                        if producer.slots() < interleaved.len() {
+                            self.push_overflow
+                                .fetch_add(interleaved.len() as u64, Ordering::Relaxed);
+                            return 0;
+                        }
+                        if let Some(block) = pending_record {
+                            self.commit_pending_record_block(block);
+                        }
+                        if let Some(clock) = pending_clock {
+                            self.record_take_tracker
+                                .note_capture_window_with_presentation_boundary(
+                                    clock.position_valid,
+                                    clock.position_samples,
+                                    clock.num_frames,
+                                    clock.clock_source,
+                                    clock.presentation_latency,
+                                    clock.force_new_epoch || offline_capture_boundary,
+                                );
+                        }
+                        for &sample in interleaved {
+                            let _ = producer.push(sample);
+                        }
+                        interleaved.len() as u64
+                    })
+            }
+        };
+        if pushed > 0 {
+            if let Some(offline) = accepted_offline_mode {
+                self.capture_last_offline.store(offline, Ordering::Release);
             }
         }
-        if pushed > 0 && !self.watch_ring_replacing.load(Ordering::Acquire) {
+        if !recording && pushed > 0 && !self.watch_ring_replacing.load(Ordering::Acquire) {
             let pass_id = self.watch_playback_pass_id.load(Ordering::Acquire);
             add_watch_ring_cursor_samples(
                 &self.watch_ring_cursor_epoch,
@@ -2472,6 +3020,7 @@ impl KirinHyphaEngine {
                 pushed,
             );
         }
+        pushed == interleaved.len() as u64
     }
 
     /// 最新の RT 計測結果を取得（UI Thread / try_lock 非ブロッキング）。
@@ -2520,17 +3069,20 @@ impl KirinHyphaEngine {
     /// （sample_rate * RING_BUFFER_SECONDS * num_channels）と同一に算出するため、watchdog の
     /// Producer 差し替え後も不変。
     ///
-    /// SAFETY: `ring_producer`(UnsafeCell<rtrb::Producer>) は SPSC 契約で「Audio/test 単独スレッド」
+    /// SAFETY: handoff 内の active Producer は SPSC 契約で「Audio/test 単独スレッド」
     /// からのみ触れる（struct の `unsafe impl Sync` 根拠と同一）。本メソッドも push_samples と同一
-    /// スレッドから順次呼ばれ時間的に重ならない（&mut と & の同時生成なし）。`Producer::slots()` は
+    /// スレッドから順次呼ばれ時間的に重ならない。`Producer::slots()` は
     /// `&self` の read-only で head（consumer 位置）を Acquire load するのみで、consumer 側の pop と
     /// 並行しても rtrb SPSC 設計上健全。
     #[doc(hidden)]
     pub fn __ring_drained_for_test(&self) -> bool {
-        let capacity = (self.sample_rate as usize) * RING_BUFFER_SECONDS * self.num_channels;
+        if self.record_sm.is_recording() {
+            // SAFETY: test calls this from the same thread as push_samples.
+            return unsafe { self.record_ingress.drained_from_audio() };
+        }
+        let capacity = watch_ring_capacity_samples(self.num_channels);
         // SAFETY: 上記参照（SPSC・push_samples と同一スレッド・read-only slots()）。
-        let producer = unsafe { &*self.ring_producer.get() };
-        producer.slots() == capacity
+        unsafe { self.producer_handoff.active_slots_from_audio() == capacity }
     }
 }
 
@@ -3132,6 +3684,36 @@ pub unsafe extern "C" fn kirin_hypha_record_error_message(
     .unwrap_or(false)
 }
 
+/// Drain one direct Keep/All Keep user-action notice. Unlike `record_error_message`, this is an
+/// edge and therefore cannot remain visible after the shell has acknowledged it.
+///
+/// # Safety
+/// `handle` は有効なハンドル。`out` は `out_len` バイト以上の有効バッファ。
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_drain_keep_action_notice(
+    handle: *mut KirinHyphaEngine,
+    out: *mut c_char,
+    out_len: usize,
+) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() || out.is_null() || out_len == 0 {
+            return false;
+        }
+        match unsafe { (*handle).drain_keep_action_notice() } {
+            Some(message) => {
+                let bytes = message.as_bytes();
+                let n = bytes.len().min(out_len - 1);
+                let dst = unsafe { std::slice::from_raw_parts_mut(out as *mut u8, out_len) };
+                dst[..n].copy_from_slice(&bytes[..n]);
+                dst[n] = 0;
+                true
+            }
+            None => false,
+        }
+    }))
+    .unwrap_or(false)
+}
+
 /// PRE が POST の record_signal を ack 済みか（B-054 LED / Keeping バナー poller / UI Thread）。
 /// enable_pre_writes 前 / POST engine / null は false。
 ///
@@ -3180,44 +3762,6 @@ pub unsafe extern "C" fn kirin_hypha_keep(handle: *mut KirinHyphaEngine) -> bool
     .unwrap_or(false)
 }
 
-/// Drop 後の WAV expected metadata を登録し、閉じた今回 Record を即時再照合する。
-/// Keep はこの事前登録を必要としない。
-///
-/// # Safety
-/// `handle` は有効なハンドル。文字列ポインタは null または有効な null 終端 C 文字列。
-#[no_mangle]
-pub unsafe extern "C" fn kirin_hypha_set_expected_wav_metadata(
-    handle: *mut KirinHyphaEngine,
-    bounce_id: *const c_char,
-    expected_duration_samples: u64,
-    expected_sample_rate: u32,
-    wav_path: *const c_char,
-    wav_file_size: u64,
-    wav_mtime_ms: i64,
-    wav_hash: *const c_char,
-) -> bool {
-    catch_unwind(AssertUnwindSafe(|| {
-        if handle.is_null() {
-            return false;
-        }
-        let bounce_id = unsafe { read_c_str(bounce_id) };
-        let wav_path = unsafe { read_c_str(wav_path) };
-        let wav_hash = unsafe { read_c_str(wav_hash) };
-        unsafe {
-            (*handle).set_expected_wav_metadata(ExpectedWavMetadataInput {
-                bounce_id,
-                expected_duration_samples,
-                expected_sample_rate,
-                wav_path,
-                wav_file_size,
-                wav_mtime_ms,
-                wav_hash,
-            })
-        }
-    }))
-    .unwrap_or(false)
-}
-
 /// POST が Record 中か（true=Record / false=Watch）。pairing UI が Keep(Watch)/Stop(Record)
 /// を出し分けるための読み取り（3d-b）。null は false。
 ///
@@ -3232,6 +3776,22 @@ pub unsafe extern "C" fn kirin_hypha_is_recording(handle: *mut KirinHyphaEngine)
         unsafe { (*handle).is_recording() }
     }))
     .unwrap_or(false)
+}
+
+/// Keep control phase. `PREPARING` is not yet safe to bounce; `ARMED` means every exact 1–12
+/// member crossed the same writer/measure barrier.
+///
+/// # Safety
+/// `handle` は有効なハンドル。null は `KIRIN_KEEP_PHASE_IDLE` として扱う。
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_keep_phase(handle: *mut KirinHyphaEngine) -> u8 {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() {
+            return KIRIN_KEEP_PHASE_IDLE;
+        }
+        unsafe { (*handle).keep_phase() }
+    }))
+    .unwrap_or(KIRIN_KEEP_PHASE_IDLE)
 }
 
 /// Record take の実レンダー長を通知する（Audio Thread 単独・RT-safe）。
@@ -3254,7 +3814,7 @@ pub unsafe extern "C" fn kirin_hypha_note_record_block(
             return;
         }
         unsafe {
-            (*handle).note_record_block(RecordTakeBlock {
+            (*handle).stage_record_block(RecordTakeBlock {
                 generation: 0,
                 recording,
                 rendered,
@@ -3293,7 +3853,7 @@ pub unsafe extern "C" fn kirin_hypha_note_record_window(
             return;
         }
         unsafe {
-            (*handle).note_record_block(RecordTakeBlock {
+            (*handle).stage_record_block(RecordTakeBlock {
                 generation: 0,
                 recording,
                 rendered,
@@ -3325,6 +3885,7 @@ pub unsafe extern "C" fn kirin_hypha_note_capture_window(
     input_presentation_samples: u32,
     output_presentation_valid: bool,
     output_presentation_samples: u32,
+    force_new_epoch: bool,
 ) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         if handle.is_null() {
@@ -3341,6 +3902,7 @@ pub unsafe extern "C" fn kirin_hypha_note_capture_window(
                     input: input_presentation_valid.then_some(input_presentation_samples),
                     output: output_presentation_valid.then_some(output_presentation_samples),
                 },
+                force_new_epoch,
             );
         }
     }));
@@ -3684,22 +4246,22 @@ pub unsafe extern "C" fn kirin_hypha_push_samples(
     interleaved: *const f32,
     num_frames: usize,
     num_channels: u32,
-) {
+) -> bool {
     // panic 捕捉時は no-op（Audio Thread / 音声素通しに影響させない）。
-    let _ = catch_unwind(AssertUnwindSafe(|| {
+    catch_unwind(AssertUnwindSafe(|| {
         if handle.is_null() {
-            return;
+            return false;
         }
         let engine = unsafe { &*handle };
         let len = num_frames.saturating_mul(num_channels as usize);
         if len == 0 || interleaved.is_null() {
             // 0-frame keepalive（heartbeat のみ進める）。
-            engine.push_samples(&[], num_channels);
-            return;
+            return engine.push_samples_transaction(&[], num_channels);
         }
         let slice = unsafe { std::slice::from_raw_parts(interleaved, len) };
-        engine.push_samples(slice, num_channels);
-    }));
+        engine.push_samples_transaction(slice, num_channels)
+    }))
+    .unwrap_or(false)
 }
 
 /// B-125: prealloc-max 超の病的 block を drop した interleaved sample 数を計上（Audio Thread 単独）。
@@ -3881,6 +4443,79 @@ mod record_start_latch_tests {
             engine.record_sm.record_started_at_position_samples(),
             Some(96_000)
         );
+    }
+}
+
+#[cfg(test)]
+mod admission_contract_tests {
+    use super::{KirinHyphaEngine, RecordTakeBlock, MAX_AUDIO_BLOCK_FRAMES};
+
+    #[test]
+    fn shipping_transaction_rejects_channel_remainder_without_advancing_clock() {
+        let engine = KirinHyphaEngine::new(48_000, 2);
+        assert!(!engine.push_samples_transaction(&[0.0, 1.0, 2.0], 2));
+        assert_eq!(engine.overflow_count(), 3);
+        assert_eq!(engine.record_take_tracker.captured_frames_total(), 0);
+    }
+
+    #[test]
+    fn shipping_transaction_reports_success_only_after_audio_and_clock_commit() {
+        let engine = KirinHyphaEngine::new(48_000, 2);
+        engine.note_capture_window(
+            true,
+            42,
+            1,
+            kirin_measure::CaptureClockSource::ProjectTimeline,
+        );
+        assert!(engine.push_samples_transaction(&[0.25, -0.25], 2));
+        assert_eq!(engine.record_take_tracker.captured_frames_total(), 1);
+
+        assert!(!engine.push_samples_transaction(&[0.0, 0.0], 2));
+        assert_eq!(engine.record_take_tracker.captured_frames_total(), 1);
+    }
+
+    #[test]
+    fn shipping_transaction_rejects_nonempty_unclocked_watch_and_record() {
+        let watch = KirinHyphaEngine::new(48_000, 2);
+        assert!(!watch.push_samples_transaction(&[0.0, 0.0], 2));
+        assert_eq!(watch.overflow_count(), 2);
+        assert_eq!(watch.record_take_tracker.captured_frames_total(), 0);
+
+        let record = KirinHyphaEngine::new(48_000, 2);
+        record.set_license(super::LICENSE_OS);
+        assert!(record.enter_record());
+        record.stage_record_block(RecordTakeBlock {
+            generation: 0,
+            recording: true,
+            rendered: true,
+            playing: true,
+            offline: true,
+            position_valid: true,
+            position_samples: 0,
+            num_frames: 1,
+            clock_start_samples: 0,
+            clock_end_samples: None,
+        });
+        assert!(!record.push_samples_transaction(&[0.0, 0.0], 2));
+        assert_eq!(record.overflow_count(), 2);
+        assert_eq!(record.record_take_tracker.captured_frames_total(), 0);
+        assert_eq!(record.record_sm.record_started_at_position_samples(), None);
+    }
+
+    #[test]
+    fn shipping_transaction_rejects_frames_above_declared_host_maximum() {
+        let engine = KirinHyphaEngine::new(48_000, 2);
+        let frames = MAX_AUDIO_BLOCK_FRAMES + 1;
+        let block = vec![0.0; frames * 2];
+        engine.note_capture_window(
+            true,
+            0,
+            frames as u64,
+            kirin_measure::CaptureClockSource::ProjectTimeline,
+        );
+        assert!(!engine.push_samples_transaction(&block, 2));
+        assert_eq!(engine.overflow_count(), block.len() as u64);
+        assert_eq!(engine.record_take_tracker.captured_frames_total(), 0);
     }
 }
 
@@ -4157,5 +4792,27 @@ mod post_controls_parity_tests {
                 "Keep と Sense ヒントは同時に出ない: {license:?}"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod keep_action_notice_tests {
+    use super::*;
+
+    #[test]
+    fn user_action_notice_is_one_shot_and_never_pollutes_persistent_io_error() {
+        let engine = KirinHyphaEngine::new(48_000, 2);
+        *engine
+            .keep_action_notice
+            .write()
+            .expect("keep action notice lock") = Some("Another Keep is active".to_string());
+
+        assert_eq!(engine.record_error_message(), None);
+        assert_eq!(
+            engine.drain_keep_action_notice().as_deref(),
+            Some("Another Keep is active")
+        );
+        assert_eq!(engine.drain_keep_action_notice(), None);
+        assert_eq!(engine.record_error_message(), None);
     }
 }

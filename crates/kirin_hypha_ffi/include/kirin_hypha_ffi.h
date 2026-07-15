@@ -47,6 +47,10 @@ typedef struct KirinHypha KirinHypha;
 #define KIRIN_PAIR_STATUS_WAITING 1u
 #define KIRIN_PAIR_STATUS_PAIRED 2u
 
+#define KIRIN_KEEP_PHASE_IDLE 0u
+#define KIRIN_KEEP_PHASE_PREPARING 1u
+#define KIRIN_KEEP_PHASE_ARMED 2u
+
 #define KIRIN_DELTA_MODE_ACTIVE 0u
 #define KIRIN_DELTA_MODE_STALE 1u
 #define KIRIN_DELTA_MODE_NO_PRE 2u
@@ -230,6 +234,10 @@ bool kirin_hypha_record_exclusion_conflict(KirinHypha* handle);
  * 文言あり=true / 通常(None)・null・panic=false（out 不変）. read-only poller・UI Thread. */
 bool kirin_hypha_record_error_message(KirinHypha* handle, char* out, size_t out_len);
 
+/* Direct Keep/All Keep feedback is a one-shot edge, separate from persistent IO faults.
+ * Returns and consumes at most one message. */
+bool kirin_hypha_drain_keep_action_notice(KirinHypha* handle, char* out, size_t out_len);
+
 /* B-128 (G-115-373 / D3): restore identity の anomaly を当該 instance の分だけ out（最大 len-1 + null
  * 終端）へ 1 件 drain する（per-instance routing）. handle の instance_id に tag された materialize event か
  * instance context のない wall event（global）を返す（他 instance の event は返さない）. event あり=true /
@@ -249,17 +257,12 @@ bool kirin_hypha_preset_available(KirinHypha* handle);
  * 選定 None（空名/不在/曖昧/Inactive/古t）・非 Os・既 Record(no-op) は false. */
 bool kirin_hypha_keep(KirinHypha* handle);
 
-/* Drop 後の WAV expected metadata を登録し、閉じた今回 Record を即時再照合する
- * （Kirin OS/JUCE runtime 入口）. Keep は事前登録を必要とせず、前回世代を結ばない.
- * bounce_id / wav_hash / wav_path は null 終端 C 文字列（NULL 不可・空不可）. */
-bool kirin_hypha_set_expected_wav_metadata(KirinHypha* handle, const char* bounce_id,
-                                           uint64_t expected_duration_samples,
-                                           uint32_t expected_sample_rate,
-                                           const char* wav_path, uint64_t wav_file_size,
-                                           int64_t wav_mtime_ms, const char* wav_hash);
-
 /* POST が Record 中か（true=Record / false=Watch）. pairing UI の Keep/Stop 出し分け用. */
 bool kirin_hypha_is_recording(KirinHypha* handle);
+
+/* Keep transaction phase. PREPARING must not be presented as bounce-ready; ARMED means every
+ * exact generation member owns its writer/measure barrier. */
+uint8_t kirin_hypha_keep_phase(KirinHypha* handle);
 
 /* Record take の実レンダー長を通知する（Audio Thread 単独・RT-safe）.
  * rendered はこの block をDAWが実処理したことを示す. position_* は host の
@@ -292,7 +295,8 @@ void kirin_hypha_note_capture_window(KirinHypha* handle, bool position_valid,
                                      bool input_presentation_valid,
                                      uint32_t input_presentation_samples,
                                      bool output_presentation_valid,
-                                     uint32_t output_presentation_samples);
+                                     uint32_t output_presentation_samples,
+                                     bool force_new_epoch);
 
 /* Watch MAX pass boundary notification (Audio Thread, RT-safe). */
 void kirin_hypha_note_transport_block(KirinHypha* handle, bool playing,
@@ -337,8 +341,10 @@ bool kirin_hypha_add_annotation(KirinHypha* handle, const char* memo);
 /* Record中の最新producer sample境界へ Good/Fix/Hold MARKを追加する. */
 bool kirin_hypha_add_mark(KirinHypha* handle, const char* tag);
 
-/* interleaved f32 を供給（Audio Thread 単独・RT-safe）. num_frames==0 は keepalive 可. */
-void kirin_hypha_push_samples(KirinHypha* handle, const float* interleaved,
+/* interleaved f32 を全ブロック原子的に供給（Audio Thread 単独・RT-safe）.
+ * 非空ブロックを音声+producer座標ごと受理したときだけ true。num_frames==0 は
+ * keepaliveとしてheartbeatだけ進め、falseを返す。 */
+bool kirin_hypha_push_samples(KirinHypha* handle, const float* interleaved,
                               size_t num_frames, uint32_t num_channels);
 
 /* B-125: prealloc-max 超の病的 block を drop した interleaved sample 数を計上（Audio Thread 単独）.

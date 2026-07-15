@@ -7,7 +7,10 @@ pub mod all_keep_signal;
 pub mod all_stop_signal;
 mod atomic_claim;
 pub mod atomic_file;
+mod broadcast_edge;
+pub mod capture_contract;
 pub mod capture_generation;
+pub mod capture_generation_lifecycle;
 pub mod capture_generation_tx;
 pub mod channel_identity;
 pub mod cleanup;
@@ -16,6 +19,7 @@ pub mod engine;
 pub mod exclusion;
 pub mod hardware;
 pub mod identity;
+pub mod ingest_contract;
 pub mod io_thread_post;
 pub mod io_thread_pre;
 pub mod license;
@@ -33,11 +37,13 @@ pub mod pre_discovery;
 pub mod preset;
 pub mod preset_dispatch;
 pub mod preset_v2;
+mod raw_pre_roll;
 pub mod record;
 pub mod record_clock;
 pub mod record_drop_commit;
 mod record_entry_lock;
 pub mod record_expected;
+pub mod record_ingress;
 pub mod record_mark;
 pub mod record_signal;
 pub mod record_take;
@@ -53,6 +59,7 @@ pub mod watch_max;
 pub mod watch_playback_pass;
 mod watch_snapshot_lease;
 pub mod watchdog;
+mod watchdog_handoff;
 
 pub use all_keep_signal::{
     delete_broadcast, is_broadcast_stale, read_broadcast, read_current_broadcast,
@@ -63,17 +70,24 @@ pub use all_keep_signal::{
 pub use all_stop_signal::{
     delete_stop_broadcast, is_stop_broadcast_stale, read_current_stop_broadcast,
     read_stop_broadcast, stop_signal_path as all_stop_signal_path,
-    stop_signals_dir as all_stop_signals_dir, write_stop_broadcast, write_stop_broadcast_signal,
-    AllStopBroadcast, AllStopError, ALL_STOP_BROADCAST_STALE_SECS, ALL_STOP_SCHEMA_VERSION,
-    ALL_STOP_SIGNAL_SUBDIR,
+    stop_signals_dir as all_stop_signals_dir, write_stop_broadcast,
+    write_stop_broadcast_for_generation, write_stop_broadcast_signal, AllStopBroadcast,
+    AllStopError, ALL_STOP_BROADCAST_STALE_SECS, ALL_STOP_SCHEMA_VERSION, ALL_STOP_SIGNAL_SUBDIR,
 };
+pub use capture_contract::{CAPTURE_PRODUCER_READY_TIMEOUT, MAX_CAPTURE_PAIRS};
 pub use capture_generation::{
-    active_generation_path, current_generation_path, preparing_generation_path,
-    publish_current_generation, read_active_generation, read_current_generation,
-    read_preparing_generation, read_producer_authorized_generation, CaptureGeneration,
+    active_generation_path, archive_generation, archived_generation_path, current_generation_path,
+    preparing_generation_path, publish_current_generation, read_active_generation,
+    read_archived_generation, read_current_generation, read_preparing_generation,
+    read_producer_authorized_generation, read_stop_target_generation, CaptureGeneration,
     CaptureGenerationError, CaptureGenerationMember, CaptureGenerationMemberIdentity,
-    CAPTURE_GENERATION_CURRENT, CAPTURE_GENERATION_PREPARING, CAPTURE_GENERATION_SCHEMA,
-    CAPTURE_GENERATION_SUBDIR,
+    CAPTURE_GENERATION_ARCHIVE_SUBDIR, CAPTURE_GENERATION_CURRENT, CAPTURE_GENERATION_PREPARING,
+    CAPTURE_GENERATION_SCHEMA, CAPTURE_GENERATION_SUBDIR, MAX_CAPTURE_GENERATION_MEMBERS,
+};
+pub use capture_generation_lifecycle::{
+    generation_terminal_path, mark_generation_terminal, mark_generation_terminal_by_identity,
+    read_generation_terminal, CaptureGenerationTerminal, GenerationLifecycleError,
+    GenerationTerminalReason, GENERATION_TERMINAL_SCHEMA,
 };
 pub use capture_generation_tx::CaptureGenerationTransaction;
 pub use channel_identity::{canonical_channel_role, display_name_snapshot};
@@ -87,6 +101,12 @@ pub use exclusion::{
 };
 pub use hardware::{HardwareComponents, Match};
 pub use identity::{Identity, License};
+pub use ingest_contract::{
+    interleave_scratch_capacity_samples, max_generation_ingest_bytes,
+    max_generation_known_pipeline_bytes, measure_chunk_capacity_samples,
+    record_ring_capacity_samples, watch_ring_capacity_samples, CAPTURE_GENERATION_RSS_BUDGET_BYTES,
+    MAX_AUDIO_BLOCK_FRAMES, RECORD_UNCONSUMED_BURST_BLOCKS,
+};
 pub use io_thread_post::{
     format_pair_label, serialize_post_json, spawn_io_thread_post, PairBindingGenerationFn,
     ReleasePairBindingIfCurrentFn, TriggerPairResolutionFn, TriggerStopResolutionFn,
@@ -174,17 +194,20 @@ pub use record_expected::{
     mark_expected_metadata_consumed, read_expected_metadata, write_expected_metadata,
     ExpectedMetadataError, ExpectedWavMetadata, EXPECTED_FILENAME, EXPECTED_SUBDIR,
 };
+pub use record_ingress::RecordIngress;
 pub use record_mark::{
     enqueue_record_mark, new_record_mark_queue, PendingRecordMark, RecordMarkError,
     RecordMarkQueue, RECORD_MARK_BASIS,
 };
 pub use record_signal::{
-    delete_signal, is_timed_out, mark_acknowledged, mark_released, mark_released_with_reason,
-    read_signal, read_target_signal, scan_signals_dir, signal_path, signals_dir,
-    target_signal_path, write_pending, write_pending_claiming_expected_and_clock_for_generation,
-    write_pending_with_expected, write_pending_with_expected_and_clock, write_signal, RecordSignal,
-    ReleaseReason, SignalError, SignalStatus, ACK_TIMEOUT_SECONDS, RECORD_START_BARRIER_DELAY_MS,
-    SIGNALS_SUBDIR, SIGNAL_FILENAME, TARGET_SIGNALS_SUBDIR,
+    delete_signal, is_timed_out, mark_acknowledged, mark_acknowledged_with_name_if_current,
+    mark_released, mark_released_if_current, mark_released_with_reason,
+    mark_released_with_reason_if_current, read_signal, read_target_signal, scan_signals_dir,
+    signal_path, signals_dir, target_signal_path, write_pending,
+    write_pending_claiming_expected_and_clock_for_generation, write_pending_with_expected,
+    write_pending_with_expected_and_clock, write_signal, RecordSignal, ReleaseReason, SignalError,
+    SignalStatus, ACK_TIMEOUT_SECONDS, RECORD_START_BARRIER_DELAY_MS, SIGNALS_SUBDIR,
+    SIGNAL_FILENAME, TARGET_SIGNALS_SUBDIR,
 };
 pub use record_take::{
     new_record_take_tracker, CaptureClockPoint, CaptureClockSource, PresentationLatencySamples,
@@ -208,6 +231,7 @@ pub use watch_playback_pass::{
     watch_ring_cursor_samples_for_pass,
 };
 pub use watchdog::{spawn_watchdog, IoThreadHandle, RestartIoFn, WatchdogIo, WatchdogParams};
+pub use watchdog_handoff::WatchProducerHandoff;
 
 use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};

@@ -6,7 +6,7 @@ namespace hypha
         : juce::TextButton (text),
           framed (shouldDrawFrame)
     {
-        setWantsKeyboardFocus (false);
+        setWantsKeyboardFocus (true);
     }
 
     void HyphaTextButton::paintButton (juce::Graphics& g,
@@ -64,18 +64,18 @@ namespace hypha
         senseBtn.onClick = [this] { if (onSenseHint) onSenseHint(); };
     }
 
-    void PostControls::update (bool recording, int license, bool pairSelected)
+    void PostControls::update (bool keepActive, int license, bool pairSelected)
     {
         const bool os    = (license == 0);
         const bool sense = (license == 1);
 
         // Keep owns a fixed layout slot in both AU and VST3. Pair state changes availability, not
         // geometry, so opening or losing a pair never moves controls or metrics around the panel.
-        keepBtn  .setVisible (! recording && os);
+        keepBtn  .setVisible (! keepActive && os);
         keepBtn  .setEnabled (pairSelected);
-        senseBtn .setVisible (! recording && sense);
+        senseBtn .setVisible (! keepActive && sense);
 
-        stopBtn  .setVisible (recording && os);
+        stopBtn  .setVisible (keepActive && os);
 
         layoutVisible();
     }

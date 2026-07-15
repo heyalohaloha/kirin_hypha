@@ -26,18 +26,182 @@ fn same_session_role_instance_rejects_second_active_claim() {
 }
 
 #[test]
-fn ownership_is_not_writer_readiness_until_initial_flush_is_published() {
+fn exact_generation_ownership_is_not_ready_until_initial_flush_is_published() {
     let base = isolated_base();
-    let mut claim = claim_writer(&base, "ph", "session-ready", Role::Post, "post-1").unwrap();
+    let capture_generation_id = uuid::Uuid::new_v4().to_string();
+    let generation_started_at_ms = now_epoch_ms();
+    let mut claim = claim_writer_for_generation(
+        &base,
+        "ph",
+        "session-ready",
+        Role::Post,
+        "post-1",
+        &capture_generation_id,
+        generation_started_at_ms,
+    )
+    .unwrap();
 
     assert!(writer_claim_active(&base, "ph", "session-ready", Role::Post, "post-1").unwrap());
-    assert!(!writer_claim_ready(&base, "ph", "session-ready", Role::Post, "post-1").unwrap());
+    assert!(!writer_claim_ready_for_generation(
+        &base,
+        "ph",
+        "session-ready",
+        Role::Post,
+        "post-1",
+        &capture_generation_id,
+        generation_started_at_ms,
+        std::process::id(),
+    )
+    .unwrap());
 
     claim.mark_ready().unwrap();
-    assert!(writer_claim_ready(&base, "ph", "session-ready", Role::Post, "post-1").unwrap());
+    assert!(writer_claim_ready_for_generation(
+        &base,
+        "ph",
+        "session-ready",
+        Role::Post,
+        "post-1",
+        &capture_generation_id,
+        generation_started_at_ms,
+        std::process::id(),
+    )
+    .unwrap());
+    assert!(!writer_claim_ready_for_generation(
+        &base,
+        "ph",
+        "session-ready",
+        Role::Post,
+        "post-1",
+        &uuid::Uuid::new_v4().to_string(),
+        generation_started_at_ms,
+        std::process::id(),
+    )
+    .unwrap());
+    assert!(!writer_claim_ready_for_generation(
+        &base,
+        "ph",
+        "session-ready",
+        Role::Post,
+        "post-1",
+        &capture_generation_id,
+        generation_started_at_ms + 1,
+        std::process::id(),
+    )
+    .unwrap());
 
     claim.mark_closed().unwrap();
-    assert!(!writer_claim_ready(&base, "ph", "session-ready", Role::Post, "post-1").unwrap());
+    assert!(!writer_claim_ready_for_generation(
+        &base,
+        "ph",
+        "session-ready",
+        Role::Post,
+        "post-1",
+        &capture_generation_id,
+        generation_started_at_ms,
+        std::process::id(),
+    )
+    .unwrap());
+}
+
+#[test]
+fn generationless_current_claim_can_never_arm_a_generation() {
+    let base = isolated_base();
+    let mut claim =
+        claim_writer(&base, "ph", "session-generationless", Role::Post, "post-1").unwrap();
+    claim.mark_ready().unwrap();
+
+    assert!(
+        writer_claim_active(&base, "ph", "session-generationless", Role::Post, "post-1",).unwrap()
+    );
+    assert!(!writer_claim_ready_for_generation(
+        &base,
+        "ph",
+        "session-generationless",
+        Role::Post,
+        "post-1",
+        &uuid::Uuid::new_v4().to_string(),
+        now_epoch_ms(),
+        std::process::id(),
+    )
+    .unwrap());
+}
+
+#[test]
+fn generationless_claim_does_not_infer_attestation_from_roster_pointers() {
+    let base = isolated_base();
+    let generation = crate::capture_generation::CaptureGeneration::new_single(
+        "ph".into(),
+        "post-1".into(),
+        "pre-1".into(),
+        "daw-a".into(),
+        std::process::id(),
+    );
+    let member = generation.members.first().unwrap();
+    let mut transaction =
+        crate::capture_generation_tx::CaptureGenerationTransaction::begin(&base, &generation)
+            .unwrap();
+    transaction.stage().unwrap();
+    let mut claim = claim_writer(
+        &base,
+        &member.project_hash,
+        &member.record_session_id,
+        Role::Post,
+        &member.post_instance_id,
+    )
+    .unwrap();
+    claim.mark_ready().unwrap();
+
+    assert!(!writer_claim_ready_for_generation(
+        &base,
+        &member.project_hash,
+        &member.record_session_id,
+        Role::Post,
+        &member.post_instance_id,
+        &generation.capture_generation_id,
+        generation.started_at_ms,
+        generation.host_process_id,
+    )
+    .unwrap());
+}
+
+#[test]
+fn live_pid_without_renewing_exact_lease_is_not_execution_authority() {
+    let base = isolated_base();
+    let capture_generation_id = uuid::Uuid::new_v4().to_string();
+    let generation_started_at_ms = now_epoch_ms();
+    let mut claim = claim_writer_for_generation(
+        &base,
+        "ph",
+        "session-expired-execution",
+        Role::Post,
+        "post-1",
+        &capture_generation_id,
+        generation_started_at_ms,
+    )
+    .unwrap();
+    claim.mark_ready().unwrap();
+    let expired_heartbeat = now_epoch_ms() - WRITER_EXECUTION_LEASE_STALE_MS - 1;
+    claim.claim.heartbeat_at_ms = expired_heartbeat;
+    write_state_atomic(
+        &claim.path,
+        &claim.claim.owner_id,
+        expired_heartbeat,
+        claim.claim.ready_at_ms,
+        claim.claim.closed_at_ms,
+    )
+    .unwrap();
+
+    assert!(!writer_claim_execution_active_for_generation(
+        &base,
+        "ph",
+        "session-expired-execution",
+        Role::Post,
+        "post-1",
+        &capture_generation_id,
+        generation_started_at_ms,
+        std::process::id(),
+    )
+    .unwrap());
 }
 
 #[test]

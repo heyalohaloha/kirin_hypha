@@ -45,6 +45,7 @@ public:
     int  licenseCode() const { return cachedLicenseCode.load (std::memory_order_acquire); } // 0=Os 1=Sense 2=Unknown
     void refreshLicenseForUserAction();                 // editor open / Keep / pair menu only; no periodic disk polling
     bool isRecording() const;                          // FFI kirin_hypha_is_recording (Watch/Record toggle)
+    int keepPhase() const;                             // IDLE / PREPARING / ARMED transaction barrier
     juce::String pairName() const { return persistPairName; }
     void setPairName (const juce::String& name);       // persist + set_pair_target (sanitized in FFI)
     bool setPairCandidate (const juce::String& instanceId, const juce::String& name);
@@ -54,6 +55,7 @@ public:
     bool keepPair();                                    // kirin_hypha_keep (Os + unique PRE)
     bool recordExclusionConflict() const;               // B-118 (②): kirin_hypha_record_exclusion_conflict (advisory only)
     juce::String recordErrorMessage() const;            // B-118 (③): kirin_hypha_record_error_message (io fail status / G-115-29)
+    juce::String drainKeepActionNotice();               // one-shot user action feedback; never persistent
     juce::String pathAnomalyMessage() const;            // B-128 (G-115-371 D3): kirin_hypha_drain_path_event (restore identity anomaly surface)
     bool licenseIsOs() const;                           // shared cached/live entitlement
     void stopPair();                                    // kirin_hypha_stop
@@ -130,6 +132,7 @@ private:
     bool lastProcessPositionValid = false;             // audio-thread local transport position cache
     int64_t lastProcessPositionSamples = 0;            // audio-thread local transport position cache
     bool recordStartWindowLatched = false;             // audio-thread Record start gate; reset outside Record
+    bool recordNativeRangeLatched = false;              // first host native-range callback per Record
 
     // Persisted identity (4 keys) + POST pair target, round-tripped via get/setState as a
     // JUCE-native XML chunk. Source of truth for the chunk; synced from the FFI at enable

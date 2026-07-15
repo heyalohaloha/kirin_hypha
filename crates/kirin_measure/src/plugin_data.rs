@@ -234,6 +234,14 @@ pub struct HostPresentationLatencyObservation {
     pub output_samples: Option<u32>,
 }
 
+/// Unmodified host render range retained as diagnostics after TRACE is normalized to the output
+/// presentation/WAV axis. It is never used by consumers to shift a curve.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub struct HostClockRange {
+    pub start_position_samples: i64,
+    pub end_position_samples: i64,
+}
+
 /// Final TRACE axis bound to the exact WAV selected by Drop.
 ///
 /// Host callback positions remain in trace_clock as per-instance diagnostics. This reference is
@@ -391,6 +399,8 @@ pub struct PluginDataFile {
     /// preserved. `source` keeps VST3 and Audio Unit v2 evidence distinguishable.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub host_presentation_latency_observations: Vec<HostPresentationLatencyObservation>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raw_host_clock_range: Option<HostClockRange>,
     /// Producer-canonical native-sample endpoint of every `frames[]` entry. Before pair
     /// finalization this is the host callback position; afterwards both roles carry the same
     /// absolute host-sample endpoint selected by the producer-owned WAV-start clock.
@@ -403,13 +413,12 @@ pub struct PluginDataFile {
     /// consumer は内容推定も時刻補正も行わない。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trace_content_alignment: Option<crate::trace_alignment::TraceContentAlignment>,
-    /// Pair finalization-only measurement neighborhood. Legacy B-356 staging files also deserialize
-    /// here; new producers pair it with `trace_context_slot_positions`. Always removed on publish.
+    /// Legacy B-356 staging field. Current producers always leave this empty and current pair
+    /// publication never reads it; it remains only so older on-disk JSON can deserialize safely.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub trace_context_frames: Vec<Frame>,
-    /// Absolute endpoints for `trace_context_frames`. Closed pair candidates retain the complete
-    /// measured neighborhood until the pair finalizer has selected the exact dropped-WAV start
-    /// window. Published files clear both context vectors.
+    /// Legacy endpoints for `trace_context_frames`. Current producer truth is exclusively
+    /// `frames + trace_slot_positions`; missing current slots are not repaired from this field.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub trace_context_slot_positions: Vec<i64>,
     /// Current v3 pair-finalization proof. It records which factual start anchor selected the
@@ -527,6 +536,7 @@ impl PluginDataFile {
             trace_time_axis: None,
             trace_clock: None,
             host_presentation_latency_observations: Vec::new(),
+            raw_host_clock_range: None,
             trace_slot_positions: Vec::new(),
             trace_wav_reference: None,
             trace_content_alignment: None,
@@ -792,6 +802,10 @@ impl PluginDataWriter {
         observations: Vec<HostPresentationLatencyObservation>,
     ) {
         self.data.host_presentation_latency_observations = observations;
+    }
+
+    pub(crate) fn set_raw_host_clock_range(&mut self, range: Option<HostClockRange>) {
+        self.data.raw_host_clock_range = range;
     }
 
     pub(crate) fn set_trace_slot_positions(&mut self, positions: Vec<i64>) {
@@ -3971,9 +3985,10 @@ mod tests {
             Some("iid-pre-content-clock".to_string()),
             None,
         );
-        let positions: Vec<i64> = (0..8).map(|index| 475_200 + index * 4_800).collect();
-        let shape = [-28.0, -20.0, -13.0, -22.0, -9.0, -18.0, -11.0, -24.0];
-        let pre_context: Vec<Frame> = shape
+        let positions: Vec<i64> = (1..=5).map(|index| 480_000 + index * 4_800).collect();
+        let pre_shape = [-13.0, -22.0, -9.0, -18.0, -11.0];
+        let post_shape = [-16.0, 31.0, -42.0, 7.0, -25.0];
+        let pre_frames: Vec<Frame> = pre_shape
             .iter()
             .enumerate()
             .map(|(index, value)| {
@@ -3988,9 +4003,9 @@ mod tests {
                 )
             })
             .collect();
-        let post_context: Vec<Frame> = std::iter::once(-60.0)
-            .chain(shape.iter().copied().map(|value| value + 4.0))
-            .take(8)
+        let post_frames: Vec<Frame> = post_shape
+            .iter()
+            .copied()
             .enumerate()
             .map(|(index, value)| {
                 make_frame_optional(
@@ -4004,10 +4019,19 @@ mod tests {
                 )
             })
             .collect();
-        for (writer, context) in [(&mut pre, pre_context), (&mut post, post_context)] {
+        for (writer, frames) in [(&mut pre, pre_frames), (&mut post, post_frames)] {
             configure_render_clock_take(writer, 38_400);
-            writer.data.trace_context_frames = context;
-            writer.data.trace_context_slot_positions = positions.clone();
+            writer.data.frames = frames;
+            writer.data.trace_slot_positions = positions.clone();
+            writer.data.trace_context_frames.clear();
+            writer.data.trace_context_slot_positions.clear();
+            writer.data.trace_clock = Some(TraceClock {
+                basis: crate::trace_alignment::TRACE_CLOCK_BASIS.to_string(),
+                origin_position_samples: 480_000,
+                end_position_samples: 504_000,
+                sample_rate: 48_000,
+                sources: vec!["project_timeline".to_string()],
+            });
             writer.data.expected_wav = Some(expected.clone());
             writer.data.record_session_id = Some("session-content-clock".to_string());
             writer.data.status = Status::Closed;
@@ -4038,8 +4062,12 @@ mod tests {
         );
         assert_eq!(pre.data.frames.len(), 5);
         assert_eq!(post.data.frames.len(), 5);
-        assert_eq!(pre.data.frames[0].lufs_m, -13.0);
-        assert_eq!(post.data.frames[0].lufs_m, -16.0);
+        assert_eq!(pre.data.frames[0].lufs_m, pre_shape[0]);
+        assert_eq!(post.data.frames[0].lufs_m, post_shape[0]);
+        assert_ne!(
+            pre_shape, post_shape,
+            "metric shape never selects the time axis"
+        );
         for (pre_frame, post_frame) in pre.data.frames.iter().zip(&post.data.frames) {
             assert_eq!(pre_frame.t_ms, post_frame.t_ms);
         }
@@ -4131,6 +4159,573 @@ mod tests {
         w.data.trace_pair_wav_start_basis =
             Some(crate::trace_alignment::TRACE_ALIGNMENT_START_BWF.to_string());
         w
+    }
+
+    const RELEASE_GATE_SAMPLE_RATE: u32 = 96_000;
+    const RELEASE_GATE_DURATION_SAMPLES: u64 = 1_440_000;
+    const RELEASE_GATE_SLOT_SAMPLES: i64 = 9_600;
+    const RELEASE_GATE_FRAME_COUNT: usize = 150;
+    const RELEASE_GATE_WAV_START: i64 = 6_480_000;
+    const RELEASE_GATE_PRESENTATION_LATENCY: u32 = 7_676;
+
+    struct ReleaseGateClockFixture {
+        epoch: u64,
+        exact_slots: Vec<i64>,
+        raw_wav_range: HostClockRange,
+    }
+
+    /// Exercise the Audio-Thread clock producer instead of manufacturing already-shifted slots.
+    /// Keep's producer barrier has already armed every PRE/POST Record lane before this current
+    /// render pass begins. A prior, distant pass remains in the tracker only to prove that a
+    /// transport rewind creates a separate immutable epoch and cannot supply a missing slot.
+    fn release_gate_clock_fixture(
+        presentation_source: crate::record_take::PresentationLatencySource,
+        output_latency: u32,
+    ) -> ReleaseGateClockFixture {
+        use crate::record_take::{
+            CaptureClockSource, PresentationLatencySamples, RecordTakeTracker,
+        };
+
+        let tracker = RecordTakeTracker::new();
+        let latency = PresentationLatencySamples {
+            source: presentation_source,
+            input: Some(0),
+            output: Some(output_latency),
+        };
+        let raw_wav_start = RELEASE_GATE_WAV_START - i64::from(output_latency);
+        let raw_wav_end = raw_wav_start + RELEASE_GATE_DURATION_SAMPLES as i64;
+        let old_raw_start = raw_wav_start + RELEASE_GATE_DURATION_SAMPLES as i64 * 4;
+
+        tracker.note_capture_window_with_presentation(
+            true,
+            old_raw_start,
+            RELEASE_GATE_DURATION_SAMPLES,
+            CaptureClockSource::ProjectTimeline,
+            latency,
+        );
+        let old_epoch = tracker
+            .clock_point_for_raw_host_position(old_raw_start + RELEASE_GATE_SLOT_SAMPLES)
+            .expect("old render epoch")
+            .epoch;
+
+        tracker.note_capture_window_with_presentation(
+            true,
+            raw_wav_start,
+            RELEASE_GATE_DURATION_SAMPLES,
+            CaptureClockSource::ProjectTimeline,
+            latency,
+        );
+        let current_start = tracker
+            .clock_point_for_raw_host_position(raw_wav_start)
+            .expect("current output-presentation WAV start");
+        assert_eq!(current_start.position_samples, RELEASE_GATE_WAV_START);
+        assert_eq!(current_start.raw_host_position_samples, raw_wav_start);
+        assert_eq!(
+            current_start
+                .position_samples
+                .saturating_sub(current_start.raw_host_position_samples),
+            i64::from(output_latency),
+            "latency is applied once at the producer boundary"
+        );
+        assert_ne!(
+            old_epoch, current_start.epoch,
+            "rewind must open a new epoch"
+        );
+        assert_eq!(
+            tracker.capture_epoch_for_raw_host_range(raw_wav_start, raw_wav_end),
+            Some(current_start.epoch)
+        );
+        assert_eq!(
+            tracker.presentation_range_for_capture_epoch(
+                current_start.epoch,
+                raw_wav_start,
+                raw_wav_end,
+            ),
+            Some((
+                RELEASE_GATE_WAV_START,
+                RELEASE_GATE_WAV_START + RELEASE_GATE_DURATION_SAMPLES as i64,
+            ))
+        );
+        assert!(
+            tracker
+                .capture_epoch_for_raw_host_range(raw_wav_start, old_raw_start + 1)
+                .is_none(),
+            "a range crossing the transport jump must never become one WAV take"
+        );
+
+        let exact_slots = (1..=RELEASE_GATE_FRAME_COUNT)
+            .map(|index| {
+                let raw_position = raw_wav_start + index as i64 * RELEASE_GATE_SLOT_SAMPLES;
+                let point = tracker
+                    .clock_point_for_raw_host_position(raw_position)
+                    .expect("current render slot");
+                assert_eq!(point.epoch, current_start.epoch);
+                assert_eq!(
+                    point.position_samples,
+                    RELEASE_GATE_WAV_START + index as i64 * RELEASE_GATE_SLOT_SAMPLES
+                );
+                point.position_samples
+            })
+            .collect();
+        let old_point = tracker
+            .clock_point_for_raw_host_position(old_raw_start + RELEASE_GATE_SLOT_SAMPLES)
+            .expect("old render slot retained for audit");
+        assert_eq!(old_point.epoch, old_epoch);
+
+        ReleaseGateClockFixture {
+            epoch: current_start.epoch,
+            exact_slots,
+            raw_wav_range: HostClockRange {
+                start_position_samples: raw_wav_start,
+                end_position_samples: raw_wav_end,
+            },
+        }
+    }
+
+    fn release_gate_expected_wav(session_id: &str) -> ExpectedWavMetadata {
+        ExpectedWavMetadata {
+            expected_duration_samples: RELEASE_GATE_DURATION_SAMPLES,
+            expected_sample_rate: RELEASE_GATE_SAMPLE_RATE,
+            wav_time_reference_samples: Some(RELEASE_GATE_WAV_START as u64),
+            wav_path: format!("/tmp/{session_id}.wav"),
+            bounce_id: format!("bounce-{session_id}"),
+            created_at_ms: 1_800_000_000_000,
+            wav_file_size: Some(RELEASE_GATE_DURATION_SAMPLES * 8 + 44),
+            wav_mtime_ms: 1_800_000_000_000,
+            wav_hash: Some(format!("hash-{session_id}")),
+            consumed_at_ms: None,
+            consumed_by_session_id: None,
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn release_gate_pair_writer(
+        base: &Path,
+        generation: &crate::capture_generation::CaptureGeneration,
+        member: &crate::capture_generation::CaptureGenerationMember,
+        role: Role,
+        presentation_source: crate::record_take::PresentationLatencySource,
+        output_latency: u32,
+        missing_exact_slot: Option<usize>,
+    ) -> PluginDataWriter {
+        let instance_id = match role {
+            Role::Pre => member.pre_instance_id.as_str(),
+            Role::Post => member.post_instance_id.as_str(),
+        };
+        let paths = WriterPaths::build(
+            base,
+            &member.project_hash,
+            instance_id,
+            role,
+            "2026-07-15T00:00:00.000Z",
+        );
+        let mut writer = PluginDataWriter::create(
+            paths,
+            "release-gate-installation".to_string(),
+            member.project_hash.clone(),
+            instance_id.to_string(),
+            role,
+            None,
+            RELEASE_GATE_SAMPLE_RATE,
+            (role == Role::Post).then(|| member.pre_instance_id.clone()),
+            (role == Role::Pre).then(|| member.post_instance_id.clone()),
+            None,
+            None,
+        )
+        .unwrap();
+        writer.set_record_start_wall_clock("2026-07-15T00:00:00.000Z".to_string());
+        writer.set_record_session_id(Some(member.record_session_id.clone()));
+        writer.set_capture_generation(
+            Some(generation.capture_generation_id.clone()),
+            generation.started_at_ms,
+        );
+        let expected = release_gate_expected_wav(&member.record_session_id);
+        writer.set_expected_wav(Some(expected));
+
+        let clock = release_gate_clock_fixture(presentation_source, output_latency);
+        assert!(clock.epoch > 0);
+        let source = presentation_source
+            .as_str()
+            .expect("fixture uses AU or VST3");
+        writer.set_host_presentation_latency_observations(vec![
+            HostPresentationLatencyObservation {
+                source: Some(source.to_string()),
+                input_samples: Some(0),
+                output_samples: Some(output_latency),
+            },
+        ]);
+        writer.set_raw_host_clock_range(Some(clock.raw_wav_range));
+        writer.set_trace_clock(Some(TraceClock {
+            basis: crate::trace_alignment::TRACE_CLOCK_BASIS.to_string(),
+            origin_position_samples: RELEASE_GATE_WAV_START,
+            end_position_samples: RELEASE_GATE_WAV_START + RELEASE_GATE_DURATION_SAMPLES as i64,
+            sample_rate: RELEASE_GATE_SAMPLE_RATE,
+            sources: vec!["project_timeline".to_string()],
+        }));
+        writer.set_trace_time_axis(Some(
+            crate::trace_alignment::TRACE_HOST_TIME_AXIS.to_string(),
+        ));
+
+        let exact_positions: Vec<i64> = clock
+            .exact_slots
+            .into_iter()
+            .enumerate()
+            .filter_map(|(index, position)| (Some(index) != missing_exact_slot).then_some(position))
+            .collect();
+        let provisional_count = exact_positions.len();
+        for index in 0..provisional_count {
+            let value = match role {
+                Role::Pre => -30.0 + index as f64 * 0.01,
+                Role::Post => -20.0 + index as f64 * 0.02,
+            };
+            writer.append_frame(
+                (index as u64 + 1) * TRACE_FRAME_INTERVAL_MS,
+                [0.0; 20],
+                0.0,
+                value,
+                value + 10.0,
+                12.0,
+                Some(9.0),
+            );
+        }
+        writer.set_trace_slot_positions(exact_positions);
+        writer.set_bounce_take(BounceTake {
+            source: BOUNCE_SOURCE_RENDER_CLOCK.to_string(),
+            time_axis: "native_samples".to_string(),
+            alignment_status: BOUNCE_ALIGNMENT_SAMPLE_COUNT_READY.to_string(),
+            sample_rate: RELEASE_GATE_SAMPLE_RATE,
+            wav_start_sample: 0,
+            wav_end_sample: RELEASE_GATE_DURATION_SAMPLES,
+            duration_samples: RELEASE_GATE_DURATION_SAMPLES,
+            duration_frames_48k: RELEASE_GATE_DURATION_SAMPLES / 2,
+            start_t_ms: 0,
+            end_t_ms: 15_000,
+            trace_sample_count: provisional_count as u64,
+            frame_count: provisional_count as u64,
+            host_start_position_samples: Some(clock.raw_wav_range.start_position_samples),
+            host_end_position_samples: Some(clock.raw_wav_range.end_position_samples),
+        });
+        writer.set_trace_diagnostics(TraceDiagnostics {
+            raw_trace_count: provisional_count as u64,
+            expected_frame_count: RELEASE_GATE_FRAME_COUNT as u64,
+            measured_frame_count: provisional_count as u64,
+            missing_slots: (RELEASE_GATE_FRAME_COUNT - provisional_count) as u64,
+            explicit_silence_frame_count: 0,
+        });
+        writer.data.status = Status::Closed;
+        writer.data.commit_status = Some("pair_pending".to_string());
+        writer
+    }
+
+    fn stage_and_finalize_release_gate_pair(
+        pre: &mut PluginDataWriter,
+        post: &mut PluginDataWriter,
+    ) {
+        let pre_paths = self_paths_for(&pre.paths, &pre.data);
+        let post_paths = self_paths_for(&post.paths, &post.data);
+        pre.write_atomic(pre_paths.pair_pending_path).unwrap();
+        post.write_atomic(post_paths.pair_pending_path).unwrap();
+        try_finalize_pair_session(&pre.paths, &pre.data).unwrap();
+    }
+
+    fn release_gate_consumer_members<'a>(
+        base: &Path,
+        generation: &'a crate::capture_generation::CaptureGeneration,
+    ) -> Vec<&'a crate::capture_generation::CaptureGenerationMember> {
+        let ready = generation.members.iter().all(|member| {
+            pair_record_session_manifest_exists(
+                base,
+                &member.project_hash,
+                &member.record_session_id,
+            )
+        });
+        if ready {
+            generation.members.iter().collect()
+        } else {
+            Vec::new()
+        }
+    }
+
+    fn release_gate_generation(
+        member_count: usize,
+    ) -> crate::capture_generation::CaptureGeneration {
+        use crate::capture_generation::{CaptureGeneration, CaptureGenerationMember};
+        assert!((1..=crate::capture_contract::MAX_CAPTURE_PAIRS).contains(&member_count));
+        CaptureGeneration::new_for_named_members(
+            "post-channel-00".to_string(),
+            "studio-one-release-gate".to_string(),
+            std::process::id(),
+            (0..member_count)
+                .map(|index| {
+                    let key = format!("channel-{index:02}");
+                    let name = match index {
+                        0 => "2Mix".to_string(),
+                        1 => "Drum".to_string(),
+                        2 => "Music".to_string(),
+                        _ => format!("Stem {index:02}"),
+                    };
+                    (
+                        CaptureGenerationMember {
+                            project_hash: "release-gate-project".to_string(),
+                            post_instance_id: format!("post-{key}"),
+                            pre_instance_id: format!("pre-{key}"),
+                            record_session_id: String::new(),
+                        },
+                        Some(name),
+                    )
+                })
+                .collect(),
+        )
+    }
+
+    fn release_gate_format(
+        index: usize,
+    ) -> (
+        crate::record_take::PresentationLatencySource,
+        u32,
+        crate::record_take::PresentationLatencySource,
+        u32,
+    ) {
+        use crate::record_take::PresentationLatencySource::{AudioUnitV2, Vst3};
+        match index % 3 {
+            0 => (AudioUnitV2, RELEASE_GATE_PRESENTATION_LATENCY, Vst3, 0),
+            1 => (Vst3, RELEASE_GATE_PRESENTATION_LATENCY, AudioUnitV2, 0),
+            _ => (AudioUnitV2, 0, Vst3, RELEASE_GATE_PRESENTATION_LATENCY),
+        }
+    }
+
+    fn assert_release_gate_producer_side(writer: &PluginDataWriter, expected_count: usize) {
+        assert_eq!(writer.data.frames.len(), expected_count);
+        assert_eq!(writer.data.trace_slot_positions.len(), expected_count);
+        assert!(writer.data.trace_context_frames.is_empty());
+        assert!(writer.data.trace_context_slot_positions.is_empty());
+        if expected_count == RELEASE_GATE_FRAME_COUNT {
+            assert_eq!(
+                writer.data.trace_slot_positions.first(),
+                Some(&(RELEASE_GATE_WAV_START + RELEASE_GATE_SLOT_SAMPLES))
+            );
+            assert_eq!(
+                writer.data.trace_slot_positions.last(),
+                Some(&(RELEASE_GATE_WAV_START + RELEASE_GATE_DURATION_SAMPLES as i64))
+            );
+            assert_eq!(
+                writer.data.trace_diagnostics.as_ref().map(|diagnostics| (
+                    diagnostics.expected_frame_count,
+                    diagnostics.measured_frame_count,
+                    diagnostics.missing_slots,
+                )),
+                Some((
+                    RELEASE_GATE_FRAME_COUNT as u64,
+                    RELEASE_GATE_FRAME_COUNT as u64,
+                    0,
+                ))
+            );
+        }
+    }
+
+    #[test]
+    fn release_gate_three_pairs_require_exact_96k_15s_presentation_sets() {
+        let complete_root = isolated_dir();
+        let complete_generation = release_gate_generation(3);
+        for (member, (pre_source, pre_latency, post_source, post_latency)) in complete_generation
+            .members
+            .iter()
+            .enumerate()
+            .map(|(index, member)| (member, release_gate_format(index)))
+        {
+            let mut pre = release_gate_pair_writer(
+                &complete_root,
+                &complete_generation,
+                member,
+                Role::Pre,
+                pre_source,
+                pre_latency,
+                None,
+            );
+            let mut post = release_gate_pair_writer(
+                &complete_root,
+                &complete_generation,
+                member,
+                Role::Post,
+                post_source,
+                post_latency,
+                None,
+            );
+            assert_release_gate_producer_side(&pre, RELEASE_GATE_FRAME_COUNT);
+            assert_release_gate_producer_side(&post, RELEASE_GATE_FRAME_COUNT);
+            stage_and_finalize_release_gate_pair(&mut pre, &mut post);
+
+            let manifest_path = pair_commit_manifest_path(&pre.paths, &pre.data).unwrap();
+            let manifest: PairCommitManifest =
+                serde_json::from_slice(&fs::read(&manifest_path).unwrap()).unwrap();
+            assert_eq!(
+                manifest.capture_generation_id,
+                complete_generation.capture_generation_id
+            );
+            for (member_path, expected_source, expected_latency) in [
+                (manifest.pre.path, pre_source, pre_latency),
+                (manifest.post.path, post_source, post_latency),
+            ] {
+                let published: PluginDataFile =
+                    serde_json::from_slice(&fs::read(member_path).unwrap()).unwrap();
+                assert_eq!(published.frames.len(), RELEASE_GATE_FRAME_COUNT);
+                assert_eq!(
+                    published.trace_slot_positions.first(),
+                    Some(&RELEASE_GATE_SLOT_SAMPLES)
+                );
+                assert_eq!(
+                    published.trace_slot_positions.last(),
+                    Some(&(RELEASE_GATE_DURATION_SAMPLES as i64))
+                );
+                assert_eq!(
+                    published
+                        .trace_content_alignment
+                        .as_ref()
+                        .map(|alignment| alignment.method.as_str()),
+                    Some(crate::trace_alignment::TRACE_ALIGNMENT_METHOD)
+                );
+                assert!(published.trace_context_frames.is_empty());
+                assert!(published.trace_context_slot_positions.is_empty());
+                assert_eq!(
+                    published
+                        .record_quality
+                        .as_ref()
+                        .map(|quality| (quality.complete, quality.measured_frame_count)),
+                    Some((true, RELEASE_GATE_FRAME_COUNT as u64))
+                );
+                assert_eq!(
+                    published.host_presentation_latency_observations,
+                    vec![HostPresentationLatencyObservation {
+                        source: expected_source.as_str().map(str::to_string),
+                        input_samples: Some(0),
+                        output_samples: Some(expected_latency),
+                    }]
+                );
+                let raw_range = published
+                    .raw_host_clock_range
+                    .expect("raw host range audit");
+                assert_eq!(
+                    raw_range.start_position_samples + i64::from(expected_latency),
+                    RELEASE_GATE_WAV_START,
+                    "raw host and output-presentation coordinates stay separately auditable"
+                );
+                let trace_clock = published.trace_clock.as_ref().expect("presentation clock");
+                assert_eq!(trace_clock.origin_position_samples, RELEASE_GATE_WAV_START);
+                assert_eq!(
+                    trace_clock.end_position_samples,
+                    RELEASE_GATE_WAV_START + RELEASE_GATE_DURATION_SAMPLES as i64
+                );
+                let expected_first = if published.role == Role::Pre {
+                    -30.0
+                } else {
+                    -20.0
+                };
+                assert_eq!(published.frames[0].lufs_m, expected_first);
+            }
+        }
+        assert_eq!(
+            release_gate_consumer_members(&complete_root, &complete_generation).len(),
+            3,
+            "all three exact pair manifests become one consumer-ready generation"
+        );
+
+        let incomplete_root = isolated_dir();
+        let incomplete_generation = release_gate_generation(3);
+        for (member_index, (member, (pre_source, pre_latency, post_source, post_latency))) in
+            incomplete_generation
+                .members
+                .iter()
+                .enumerate()
+                .map(|(index, member)| (index, (member, release_gate_format(index))))
+        {
+            let mut pre = release_gate_pair_writer(
+                &incomplete_root,
+                &incomplete_generation,
+                member,
+                Role::Pre,
+                pre_source,
+                pre_latency,
+                None,
+            );
+            let mut post = release_gate_pair_writer(
+                &incomplete_root,
+                &incomplete_generation,
+                member,
+                Role::Post,
+                post_source,
+                post_latency,
+                (member_index == 1).then_some(74),
+            );
+            assert_release_gate_producer_side(&pre, RELEASE_GATE_FRAME_COUNT);
+            assert_release_gate_producer_side(
+                &post,
+                if member_index == 1 {
+                    RELEASE_GATE_FRAME_COUNT - 1
+                } else {
+                    RELEASE_GATE_FRAME_COUNT
+                },
+            );
+            stage_and_finalize_release_gate_pair(&mut pre, &mut post);
+        }
+        assert!(
+            release_gate_consumer_members(&incomplete_root, &incomplete_generation).is_empty(),
+            "149/150 on one side must expose zero generation members, never a partial TRACE set"
+        );
+        let missing_member = &incomplete_generation.members[1];
+        assert!(
+            !pair_record_session_manifest_exists(
+                &incomplete_root,
+                &missing_member.project_hash,
+                &missing_member.record_session_id,
+            ),
+            "the incomplete pair itself must not cross the manifest publish barrier"
+        );
+    }
+
+    #[test]
+    fn release_gate_one_and_twelve_pair_rosters_are_exact_before_any_consumer_visibility() {
+        for member_count in [1_usize, crate::capture_contract::MAX_CAPTURE_PAIRS] {
+            let root = isolated_dir();
+            let generation = release_gate_generation(member_count);
+            assert!(release_gate_consumer_members(&root, &generation).is_empty());
+
+            for (index, member) in generation.members.iter().enumerate() {
+                let (pre_source, pre_latency, post_source, post_latency) =
+                    release_gate_format(index);
+                let mut pre = release_gate_pair_writer(
+                    &root,
+                    &generation,
+                    member,
+                    Role::Pre,
+                    pre_source,
+                    pre_latency,
+                    None,
+                );
+                let mut post = release_gate_pair_writer(
+                    &root,
+                    &generation,
+                    member,
+                    Role::Post,
+                    post_source,
+                    post_latency,
+                    None,
+                );
+                assert_release_gate_producer_side(&pre, RELEASE_GATE_FRAME_COUNT);
+                assert_release_gate_producer_side(&post, RELEASE_GATE_FRAME_COUNT);
+                stage_and_finalize_release_gate_pair(&mut pre, &mut post);
+
+                let expected_visible = if index + 1 == member_count {
+                    member_count
+                } else {
+                    0
+                };
+                assert_eq!(
+                    release_gate_consumer_members(&root, &generation).len(),
+                    expected_visible,
+                    "a {member_count}-pair generation is visible only after its last exact pair"
+                );
+            }
+        }
     }
 
     fn write_final_for_annotation_test(mut w: PluginDataWriter) -> PathBuf {
@@ -5694,7 +6289,7 @@ mod tests {
     }
 
     #[test]
-    fn stopped_record_drop_promotes_au_partial_context_onto_public_wav_axis() {
+    fn stopped_record_drop_never_repairs_missing_current_slots_from_legacy_context() {
         let base = isolated_dir();
         let session_id = "session-stopped-drop-au-partial";
         crate::record_expected::begin_expected_session(&base, "project_hash_test", session_id)
@@ -5775,60 +6370,22 @@ mod tests {
         assert_eq!(inspected, expected);
         let mut proof_pre = pre.data.clone();
         let mut proof_post = post.data.clone();
-        assert!(normalize_late_expected_pair(
-            &mut proof_pre,
-            &mut proof_post,
-            &inspected
-        ));
         assert!(
-            prepare_late_expected_pair(&mut proof_pre, &mut proof_post),
-            "normalized pair must satisfy publication: pre={:?} post={:?}",
-            pair_publish_failure_reasons(&proof_pre, &proof_post),
-            pair_publish_failure_reasons(&proof_post, &proof_pre)
+            !normalize_late_expected_pair(&mut proof_pre, &mut proof_post, &inspected),
+            "legacy context must not repair an incomplete current producer side"
         );
 
         assert_eq!(
             reconcile_late_expected_wav_project(&base, "project_hash_test"),
-            2
+            0
         );
-
-        assert!(!pre_paths.pair_pending_path.exists());
-        assert!(!post_paths.pair_pending_path.exists());
-        let pre_trace_path = pair_trace_shelf_path(&pre_paths, &pre.data).unwrap();
-        let post_trace_path = pair_trace_shelf_path(&post_paths, &post.data).unwrap();
-        for path in [
-            &pre_paths.member_path,
-            &post_paths.member_path,
-            &pre_trace_path,
-            &post_trace_path,
-        ] {
-            let data: PluginDataFile = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
-            assert_eq!(data.commit_status.as_deref(), Some("committed"));
-            assert_eq!(data.frames.len(), 10);
-            assert_eq!(
-                data.trace_slot_positions,
-                (1..=10).map(|index| index * 4_800).collect::<Vec<_>>(),
-                "the BWF origin selects the exact context internally, but the public TRACE axis is WAV sample 0"
-            );
-            assert_eq!(
-                data.trace_pair_wav_start_basis, None,
-                "staging proof must be removed after publication"
-            );
-            assert!(data.trace_context_frames.is_empty());
-            assert!(data.trace_context_slot_positions.is_empty());
-            assert!(crate::trace_alignment::has_canonical_wav_reference(&data));
-            assert!(verify_checksum(&data));
-        }
-        let marker = crate::record_expected::read_claim_marker_for_session(
-            &base,
-            "project_hash_test",
-            session_id,
-        )
-        .unwrap()
-        .unwrap();
-        assert_eq!(marker.metadata, Some(expected));
-        assert!(marker.closed_at_ms.is_some());
-        assert_eq!(reconcile_late_expected_wav(&base), 0);
+        assert!(pre_paths.pair_pending_path.exists());
+        assert!(post_paths.pair_pending_path.exists());
+        assert!(!pre_paths.member_path.exists());
+        assert!(!post_paths.member_path.exists());
+        assert!(!pair_commit_manifest_path(&pre.paths, &pre.data)
+            .unwrap()
+            .exists());
     }
 
     #[test]
@@ -5900,8 +6457,6 @@ mod tests {
             writer.set_record_session_id(Some(session_id.to_string()));
             set_late_expected_record_time(writer, start_ms, end_ms);
             configure_render_clock_take(writer, 57_600);
-            writer.data.trace_context_frames = writer.data.frames.clone();
-            writer.data.trace_context_slot_positions = writer.data.trace_slot_positions.clone();
             writer.data.status = Status::Closed;
             writer.data.commit_status = Some("pair_pending".to_string());
         }
