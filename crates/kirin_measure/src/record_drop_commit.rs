@@ -17,9 +17,11 @@ use crate::record_expected::{
 
 pub const DROP_COMMIT_SCHEMA: &str = "drop_record_commit.v1";
 pub const DROP_TRANSACTION_SCHEMA: &str = "drop_record_transaction.v1";
+pub const DROP_GENERATION_TRANSACTION_SCHEMA: &str = "drop_record_generation_transaction.v1";
 const DROP_COMMITS_SUBDIR: &str = "drop_commits";
 const DROP_COMMITS_BY_SESSION_SUBDIR: &str = "by_session";
 const DROP_TRANSACTIONS_SUBDIR: &str = "drop_transactions";
+const DROP_GENERATION_TRANSACTIONS_SUBDIR: &str = "drop_transactions";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DropRecordCommit {
@@ -50,6 +52,26 @@ pub struct DropRecordTransaction {
     pub record_session_ids: Vec<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DropRecordGenerationProject {
+    pub project_hash: String,
+    pub record_session_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DropRecordGenerationTransaction {
+    pub schema_version: String,
+    pub drop_commit_id: String,
+    #[serde(default)]
+    pub capture_generation_id: String,
+    #[serde(default)]
+    pub generation_started_at_ms: i64,
+    pub created_at_ms: i64,
+    pub bounce_id: String,
+    pub wav_hash: String,
+    pub projects: Vec<DropRecordGenerationProject>,
+}
+
 pub fn drop_commit_path(base_dir: &Path, project_hash: &str, session_id: &str) -> PathBuf {
     let session =
         crate::path_identity::guard_path_component(session_id, "record_drop_commit.session_id");
@@ -66,6 +88,17 @@ pub fn drop_transaction_path(base_dir: &Path, project_hash: &str, drop_commit_id
     );
     expected_dir(base_dir, project_hash)
         .join(DROP_TRANSACTIONS_SUBDIR)
+        .join(format!("{commit}.json"))
+}
+
+pub fn drop_generation_transaction_path(base_dir: &Path, drop_commit_id: &str) -> PathBuf {
+    let commit = crate::path_identity::guard_path_component(
+        drop_commit_id,
+        "record_drop_commit.generation_transaction.commit_id",
+    );
+    base_dir
+        .join(crate::capture_generation::CAPTURE_GENERATION_SUBDIR)
+        .join(DROP_GENERATION_TRANSACTIONS_SUBDIR)
         .join(format!("{commit}.json"))
 }
 
@@ -190,6 +223,16 @@ fn read_drop_commit_for_session(
         Err(e) => return Err(ExpectedMetadataError::Io(e)),
     };
     let transaction: DropRecordTransaction = serde_json::from_slice(&transaction_bytes)?;
+    let generation_transaction_bytes = match fs::read(drop_generation_transaction_path(
+        base_dir,
+        &commit.drop_commit_id,
+    )) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(ExpectedMetadataError::Io(e)),
+    };
+    let generation_transaction: DropRecordGenerationTransaction =
+        serde_json::from_slice(&generation_transaction_bytes)?;
     let now_ms = now_epoch_ms();
     let Some(marker) = read_claim_marker_for_session(base_dir, project_hash, session_id)? else {
         return Ok(None);
@@ -227,11 +270,59 @@ fn read_drop_commit_for_session(
             .record_session_ids
             .iter()
             .any(|id| id.trim().is_empty())
+        || generation_transaction.schema_version != DROP_GENERATION_TRANSACTION_SCHEMA
+        || generation_transaction.drop_commit_id != commit.drop_commit_id
+        || generation_transaction.capture_generation_id != commit.capture_generation_id
+        || generation_transaction.generation_started_at_ms != commit.generation_started_at_ms
+        || generation_transaction.created_at_ms != commit.created_at_ms
+        || generation_transaction.bounce_id != commit.metadata.bounce_id
+        || generation_transaction.wav_hash != expected_hash
+        || !generation_transaction_authorizes_project(
+            &generation_transaction,
+            &transaction,
+            project_hash,
+        )
         || marker
             .metadata
             .as_ref()
             .is_some_and(|existing| existing != &commit.metadata);
     Ok((!invalid).then_some((commit.metadata.without_consumed_marker(), marker)))
+}
+
+fn generation_transaction_authorizes_project(
+    generation: &DropRecordGenerationTransaction,
+    project_transaction: &DropRecordTransaction,
+    project_hash: &str,
+) -> bool {
+    if generation.projects.is_empty()
+        || !generation
+            .projects
+            .windows(2)
+            .all(|pair| pair[0].project_hash < pair[1].project_hash)
+    {
+        return false;
+    }
+    let mut matched = None;
+    for project in &generation.projects {
+        if project.project_hash.trim().is_empty()
+            || project.record_session_ids.is_empty()
+            || project
+                .record_session_ids
+                .iter()
+                .any(|session_id| session_id.trim().is_empty())
+            || !project
+                .record_session_ids
+                .windows(2)
+                .all(|pair| pair[0] < pair[1])
+        {
+            return false;
+        }
+        if project.project_hash == project_hash {
+            matched = Some(project);
+        }
+    }
+    matched
+        .is_some_and(|project| project.record_session_ids == project_transaction.record_session_ids)
 }
 
 #[cfg(test)]

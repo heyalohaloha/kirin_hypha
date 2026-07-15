@@ -23,8 +23,9 @@ use kirin_measure::engine::{MeasureEngine, SessionSummary};
 use kirin_measure::phase_d::stream::{PhaseDResult, PhaseDStream};
 use kirin_measure::phase_d::tables::FieldType;
 use kirin_measure::record_drop_commit::{
-    drop_commit_path, drop_transaction_path, DropRecordCommit, DropRecordTransaction,
-    DROP_COMMIT_SCHEMA, DROP_TRANSACTION_SCHEMA,
+    drop_commit_path, drop_generation_transaction_path, drop_transaction_path, DropRecordCommit,
+    DropRecordGenerationProject, DropRecordGenerationTransaction, DropRecordTransaction,
+    DROP_COMMIT_SCHEMA, DROP_GENERATION_TRANSACTION_SCHEMA, DROP_TRANSACTION_SCHEMA,
 };
 use kirin_measure::record_expected::ExpectedWavMetadata;
 use kirin_measure::record_take::{
@@ -103,6 +104,24 @@ fn drop_expected_wav(
     kirin_measure::atomic_file::write_bytes_atomic(
         &drop_transaction_path(plugin_data_root, project_hash, &drop_commit_id),
         &serde_json::to_vec(&transaction).unwrap(),
+    )
+    .unwrap();
+    let generation_transaction = DropRecordGenerationTransaction {
+        schema_version: DROP_GENERATION_TRANSACTION_SCHEMA.to_string(),
+        drop_commit_id: drop_commit_id.clone(),
+        capture_generation_id: transaction.capture_generation_id.clone(),
+        generation_started_at_ms: transaction.generation_started_at_ms,
+        created_at_ms: transaction.created_at_ms,
+        bounce_id: transaction.bounce_id.clone(),
+        wav_hash: transaction.wav_hash.clone(),
+        projects: vec![DropRecordGenerationProject {
+            project_hash: project_hash.to_string(),
+            record_session_ids: transaction.record_session_ids.clone(),
+        }],
+    };
+    kirin_measure::atomic_file::write_bytes_atomic(
+        &drop_generation_transaction_path(plugin_data_root, &drop_commit_id),
+        &serde_json::to_vec(&generation_transaction).unwrap(),
     )
     .unwrap();
 }
@@ -342,6 +361,11 @@ fn drive_ffi(
 ) -> (kirin_measure::MeasureResult, usize, u64) {
     let engine = KirinHyphaEngine::new(SR, 2);
     engine.set_signal_state(1); // Active (ABI code)
+    engine.set_license(0); // Os
+    assert!(
+        engine.enter_record(),
+        "Phase D is produced only inside Record"
+    );
 
     // 0.1s ブロックを実時間より少し遅く投入する。workspace test の並列実行中でも
     // 2s ring を超えず、Phase D steady-state parity のサンプル列を落とさない。

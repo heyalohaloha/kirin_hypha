@@ -75,6 +75,24 @@ fn write_drop_commit(
         &serde_json::to_vec(&transaction).unwrap(),
     )
     .unwrap();
+    let generation_transaction = DropRecordGenerationTransaction {
+        schema_version: DROP_GENERATION_TRANSACTION_SCHEMA.to_string(),
+        drop_commit_id: transaction.drop_commit_id.clone(),
+        capture_generation_id: transaction.capture_generation_id.clone(),
+        generation_started_at_ms: transaction.generation_started_at_ms,
+        created_at_ms: transaction.created_at_ms,
+        bounce_id: transaction.bounce_id.clone(),
+        wav_hash: transaction.wav_hash.clone(),
+        projects: vec![DropRecordGenerationProject {
+            project_hash: project_hash.to_string(),
+            record_session_ids: transaction.record_session_ids.clone(),
+        }],
+    };
+    crate::atomic_file::write_bytes_atomic(
+        &drop_generation_transaction_path(base, &generation_transaction.drop_commit_id),
+        &serde_json::to_vec(&generation_transaction).unwrap(),
+    )
+    .unwrap();
 }
 
 #[test]
@@ -214,6 +232,20 @@ fn drop_commit_is_inert_until_transaction_manifest_is_ready() {
 }
 
 #[test]
+fn project_transaction_is_inert_until_generation_manifest_is_ready() {
+    let base = isolated_dir();
+    begin_expected_session(&base, "project-a", "session-a").unwrap();
+    let metadata = metadata_fixture("drop-generation-not-ready");
+    write_drop_commit(&base, "project-a", "session-a", &metadata);
+    fs::remove_file(drop_generation_transaction_path(&base, "drop-session-a")).unwrap();
+
+    assert_eq!(
+        inspect_drop_commit_for_open_session(&base, "project-a", "session-a").unwrap(),
+        None
+    );
+}
+
+#[test]
 fn transaction_cannot_authorize_a_session_not_in_its_batch() {
     let base = isolated_dir();
     begin_expected_session(&base, "project-a", "session-a").unwrap();
@@ -223,6 +255,28 @@ fn transaction_cannot_authorize_a_session_not_in_its_batch() {
     let mut transaction: DropRecordTransaction =
         serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
     transaction.record_session_ids = vec!["session-other".to_string()];
+    crate::atomic_file::write_bytes_atomic(&path, &serde_json::to_vec(&transaction).unwrap())
+        .unwrap();
+
+    assert_eq!(
+        inspect_drop_commit_for_open_session(&base, "project-a", "session-a").unwrap(),
+        None
+    );
+}
+
+#[test]
+fn generation_transaction_cannot_omit_the_project_batch() {
+    let base = isolated_dir();
+    begin_expected_session(&base, "project-a", "session-a").unwrap();
+    let metadata = metadata_fixture("drop-generation-wrong-batch");
+    write_drop_commit(&base, "project-a", "session-a", &metadata);
+    let path = drop_generation_transaction_path(&base, "drop-session-a");
+    let mut transaction: DropRecordGenerationTransaction =
+        serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    transaction.projects = vec![DropRecordGenerationProject {
+        project_hash: "project-other".to_string(),
+        record_session_ids: vec!["session-other".to_string()],
+    }];
     crate::atomic_file::write_bytes_atomic(&path, &serde_json::to_vec(&transaction).unwrap())
         .unwrap();
 
