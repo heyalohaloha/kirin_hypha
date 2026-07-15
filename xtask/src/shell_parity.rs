@@ -583,7 +583,7 @@ mod tests {
                 && body.contains("display::deltaIsStale (d.mode)"),
             "POST Record inactive display must keep recent delta values until the display mute boundary instead of immediately falling to ---"
         );
-        assert!(HYPHA_DISPLAY_CONTRACT_H.contains("haveDelta && preUnavailableForDelta (mode)"));
+        assert!(HYPHA_DISPLAY_CONTRACT_H.contains("return preUnavailableForDelta (mode)"));
     }
 
     #[test]
@@ -612,7 +612,7 @@ mod tests {
             "JUCE POST Watch may fall back to POST absolute values only when the pair is empty or PRE is explicitly OFF"
         );
         assert!(HYPHA_DISPLAY_CONTRACT_H.contains("if (! pairSelected)"));
-        assert!(HYPHA_DISPLAY_CONTRACT_H.contains("haveDelta && preUnavailableForDelta (mode)"));
+        assert!(HYPHA_DISPLAY_CONTRACT_H.contains("if (preUnavailableForDelta (mode))"));
         assert!(
             window.contains("watchMaximum.lufs_m")
                 && window.contains("watchMaximum.true_peak")
