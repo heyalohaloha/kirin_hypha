@@ -1486,7 +1486,20 @@ fn producer_take_slot_positions(
     {
         return None;
     }
-    let first = start.checked_add(slot_samples)?;
+    // Measure Thread publishes on one absolute content grid. Before a WAV is known, close must
+    // select that same grid instead of inventing a second grid relative to the capture start.
+    // Once BWF sample zero is known, the public WAV contract remains explicitly start-relative.
+    let first = if bwf_start.is_some() {
+        start.checked_add(slot_samples)?
+    } else {
+        let phase = start.rem_euclid(slot_samples);
+        let remaining = if phase == 0 {
+            slot_samples
+        } else {
+            slot_samples.checked_sub(phase)?
+        };
+        start.checked_add(remaining)?
+    };
     let positions = (0..expected_len)
         .map(|index| {
             i64::try_from(index)
@@ -4156,15 +4169,23 @@ mod tests {
     fn make_sample_count_ready_pending_ctx(base: &Path, role: Role) -> RecordingCtx {
         let mut ctx = make_ctx(base, role, now_epoch_ms());
         ctx.record_generation = 1;
+        ctx.selected_capture_epoch = Some(1);
+        ctx.presentation_range = Some((0, 48_000));
         ctx.clean_take = Some(RecordTakeSnapshot {
             generation: 1,
             duration_samples: 48_000,
             source: crate::record_take::RECORD_TAKE_SOURCE_WAV_CLOCK,
-            host_start_position_samples: None,
-            host_end_position_samples: None,
+            host_start_position_samples: Some(0),
+            host_end_position_samples: Some(48_000),
         });
         for t_ms in (100_u64..=1_000).step_by(FRAME_INTERVAL_MS as usize) {
-            assert!(writer_append_frame(&mut ctx, t_ms, &full_measure_result()));
+            let native = t_ms.saturating_mul(48_000) / 1_000;
+            let mut sample =
+                trace_sample_frames_with_native(native, Some(native), full_measure_result(), false);
+            sample.position_samples = Some(native as i64);
+            sample.raw_host_position_samples = Some(native as i64);
+            sample.capture_epoch = Some(1);
+            ctx.trace_samples.push(sample);
             mark_trace_time(
                 &mut ctx,
                 t_ms,
@@ -4172,7 +4193,7 @@ mod tests {
                 Some(t_ms.saturating_mul(48_000) / 1_000),
             );
         }
-        ctx.trace_sample_count = 10;
+        ctx.trace_sample_count = ctx.trace_samples.len();
         ctx.writer
             .set_record_session_id(Some("session-pair-pending-tmp".to_string()));
         ctx
@@ -4527,9 +4548,16 @@ mod tests {
         )));
 
         mark_trace_time(&mut ctx, 4_100, 196_800, Some(196_800));
+        ctx.selected_capture_epoch = Some(1);
+        ctx.presentation_range = Some((0, 192_000));
         for t_ms in (100_u64..=4_100).step_by(FRAME_INTERVAL_MS as usize) {
-            ctx.trace_samples
-                .push(trace_sample(t_ms, m.clone(), t_ms == 100));
+            let native = t_ms.saturating_mul(48_000) / 1_000;
+            let mut sample =
+                trace_sample_frames_with_native(native, Some(native), m.clone(), t_ms == 100);
+            sample.position_samples = Some(native as i64);
+            sample.raw_host_position_samples = Some(native as i64);
+            sample.capture_epoch = Some(if t_ms <= 4_000 { 1 } else { 2 });
+            ctx.trace_samples.push(sample);
         }
         ctx.trace_sample_count = ctx.trace_samples.len();
         let final_path = ctx.final_path.clone();
@@ -6049,6 +6077,67 @@ mod tests {
     }
 
     #[test]
+    fn studio_one_failed_generation_bakes_all_152_absolute_slots() {
+        let base = isolated_base();
+        let mut ctx = make_ctx_with_sample_rate(&base, Role::Post, now_epoch_ms(), 96_000);
+        ctx.record_generation = 409;
+        ctx.selected_capture_epoch = Some(409);
+        ctx.presentation_range = Some((6_461_383, 7_921_607));
+        ctx.clean_take = Some(RecordTakeSnapshot {
+            generation: 409,
+            duration_samples: 1_460_224,
+            source: crate::record_take::RECORD_TAKE_SOURCE_WAV_CLOCK,
+            host_start_position_samples: Some(6_461_383),
+            host_end_position_samples: Some(7_921_607),
+        });
+        for (index, position) in (6_470_400_i64..=7_920_000).step_by(9_600).enumerate() {
+            let t_ms = (index as u64 + 1) * FRAME_INTERVAL_MS;
+            let mut sample = trace_sample_frames_with_native(
+                t_ms * TRACE_TIMEBASE_HZ / 1_000,
+                Some(t_ms * 96_000 / 1_000),
+                full_measure_result(),
+                false,
+            );
+            sample.position_samples = Some(position);
+            sample.raw_host_position_samples = Some(position + 11_964);
+            sample.capture_epoch = Some(409);
+            sample.clock_source = CaptureClockSource::ProjectTimeline;
+            sample.presentation_latency = PresentationLatencySamples {
+                source: PresentationLatencySource::Vst3,
+                input: Some(0),
+                output: Some(11_964),
+            };
+            ctx.trace_samples.push(sample);
+        }
+        ctx.trace_sample_count = ctx.trace_samples.len();
+
+        bake_continuous_record_timeline(&mut ctx);
+
+        assert_eq!(ctx.writer.data().frames.len(), 152);
+        assert_eq!(ctx.writer.data().trace_slot_positions.len(), 152);
+        assert_eq!(
+            ctx.writer.data().trace_slot_positions.first(),
+            Some(&6_470_400)
+        );
+        assert_eq!(
+            ctx.writer.data().trace_slot_positions.last(),
+            Some(&7_920_000)
+        );
+        let diagnostics = ctx
+            .writer
+            .data()
+            .trace_diagnostics
+            .as_ref()
+            .expect("trace diagnostics");
+        assert_eq!(diagnostics.expected_frame_count, 152);
+        assert_eq!(diagnostics.measured_frame_count, 152);
+        assert_eq!(diagnostics.missing_slots, 0);
+        let clock = ctx.writer.data().trace_clock.as_ref().expect("trace clock");
+        assert_eq!(clock.origin_position_samples, 6_460_800);
+        assert_eq!(clock.end_position_samples, 7_920_000);
+    }
+
+    #[test]
     fn conflicting_absolute_origins_never_become_a_canonical_trace_clock() {
         let base = isolated_base();
         let mut ctx = make_ctx_with_sample_rate(&base, Role::Post, now_epoch_ms(), 48_000);
@@ -6143,14 +6232,14 @@ mod tests {
             playing: false,
             offline: true,
             position_valid: true,
-            position_samples: 1_000,
+            position_samples: 1_200,
             num_frames: 500,
             clock_start_samples: 0,
             clock_end_samples: None,
         });
         tracker.note_capture_window_with_presentation_boundary(
             true,
-            1_000,
+            1_200,
             500,
             CaptureClockSource::ProjectTimeline,
             latency,
@@ -6165,14 +6254,14 @@ mod tests {
             playing: false,
             offline: true,
             position_valid: true,
-            position_samples: 0,
+            position_samples: 200,
             num_frames: 1_000,
             clock_start_samples: 0,
             clock_end_samples: None,
         });
         tracker.note_capture_window_with_presentation_boundary(
             true,
-            0,
+            200,
             1_000,
             CaptureClockSource::ProjectTimeline,
             latency,
@@ -6196,8 +6285,8 @@ mod tests {
         assert_eq!(
             ctx.writer.data().raw_host_clock_range,
             Some(crate::plugin_data::HostClockRange {
-                start_position_samples: 1_000,
-                end_position_samples: 1_500,
+                start_position_samples: 1_200,
+                end_position_samples: 1_700,
             }),
             "post-bounce position jumps cannot overwrite the selected take diagnostics"
         );
@@ -6218,7 +6307,7 @@ mod tests {
             input: Some(0),
             output: Some(100),
         };
-        for raw_start in [0, 512] {
+        for raw_start in [200, 712] {
             tracker.note_block(RecordTakeBlock {
                 generation: 0,
                 recording: false,
@@ -6252,14 +6341,14 @@ mod tests {
             playing: false,
             offline: true,
             position_valid: true,
-            position_samples: 1_024,
+            position_samples: 1_224,
             num_frames: 512,
             clock_start_samples: 0,
             clock_end_samples: None,
         });
         tracker.note_capture_window_with_presentation_boundary(
             true,
-            1_024,
+            1_224,
             512,
             CaptureClockSource::ProjectTimeline,
             latency,
@@ -6273,8 +6362,8 @@ mod tests {
         assert_eq!(
             ctx.writer.data().raw_host_clock_range,
             Some(crate::plugin_data::HostClockRange {
-                start_position_samples: 0,
-                end_position_samples: 1_536,
+                start_position_samples: 200,
+                end_position_samples: 1_736,
             }),
             "BWF sample zero selects the producer span containing the ACK pre-roll"
         );
@@ -6297,14 +6386,14 @@ mod tests {
             playing: false,
             offline: true,
             position_valid: true,
-            position_samples: 0,
+            position_samples: 200,
             num_frames: 1_000,
             clock_start_samples: 0,
             clock_end_samples: None,
         });
         tracker.note_capture_window_with_presentation_boundary(
             true,
-            0,
+            200,
             1_000,
             CaptureClockSource::ProjectTimeline,
             PresentationLatencySamples {

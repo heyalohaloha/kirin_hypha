@@ -1,9 +1,10 @@
 //! Producer-owned PRE/POST TRACE axis contract.
 //!
 //! Every metric frame is formed on one producer-owned output-presentation sample position. The
-//! Audio Thread converts raw host position + output presentation latency exactly once and retains
-//! both raw facts separately. Pair finalization validates equal presentation slots, then publishes
-//! them on dropped-WAV sample 0..N. Metric values never participate in the clock decision.
+//! Audio Thread normalizes the raw host position with the host-reported output presentation
+//! latency exactly once and retains both raw facts separately. Pair finalization validates equal
+//! presentation slots, then publishes them on dropped-WAV sample 0..N. Metric values never
+//! participate in the clock decision.
 
 use serde::{Deserialize, Serialize};
 
