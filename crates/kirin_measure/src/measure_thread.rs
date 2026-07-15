@@ -67,6 +67,10 @@ fn idle_sleep_for_record_state(is_recording: bool) -> Duration {
     }
 }
 
+fn should_process_phase_d(is_recording: bool) -> bool {
+    is_recording
+}
+
 fn record_grid_alignment(position_start: i64, sample_rate: u32) -> (usize, i64) {
     let slot_frames = (sample_rate as i64 / 10).max(1);
     let phase_frames = position_start.rem_euclid(slot_frames) as usize;
@@ -535,6 +539,19 @@ pub fn spawn_measure_thread(
                         "[MeasureThread] Record→Watch drain incomplete — seal NOT bumped (IO bake → integrity_degraded)"
                     );
                 }
+                // Phase D belongs to the bounded Record producer. Do not carry its final snapshot
+                // back into Watch, where the public contract is LUFS-M / TP / Crest only.
+                phase_d.reset();
+                latest_pd = None;
+                phase_d_slot_pending.clear();
+                record_core_pending.clear();
+                record_phase_pending.clear();
+                let mut guard = crate::sync_recovery::lock_recover(
+                    &result,
+                    "MeasureThread Record-to-Watch phase reset",
+                );
+                clear_phase_d_fields(&mut guard);
+                stamp_shared_measure_result(&mut guard, &mut measure_sequence, playback_pass_id);
             }
             prev_recording = is_recording;
 
@@ -867,18 +884,22 @@ pub fn spawn_measure_thread(
                     }
                 }
 
-                // Phase D: mono is identity; stereo is averaged to mono. Do not duplicate mono
-                // into two channels, because that would also bias EBU loudness by +3 dB.
-                feed_phase_d_slots(
-                    chunk_48k,
-                    n_channels,
-                    &mut phase_d_mono_buf,
-                    &mut phase_d_slot_pending,
-                    &mut phase_d,
-                    &mut latest_pd,
-                    &mut record_phase_pending,
-                    is_recording,
-                );
+                // Phase D is a Record/TRACE metric. Keep Watch lightweight; the Keep transaction
+                // does not become ready until this Record state has been entered and reset.
+                if should_process_phase_d(is_recording) {
+                    // Mono is identity; stereo is averaged to mono. Do not duplicate mono into
+                    // two channels, because that would bias loudness by +3 dB.
+                    feed_phase_d_slots(
+                        chunk_48k,
+                        n_channels,
+                        &mut phase_d_mono_buf,
+                        &mut phase_d_slot_pending,
+                        &mut phase_d,
+                        &mut latest_pd,
+                        &mut record_phase_pending,
+                        true,
+                    );
+                }
 
                 // 100ms チャンク単位で計測し、揃ったら結果を共有領域に書き込む。
                 // Offline bounce では 1 drain 内で複数結果が出るため、observer で全件を
@@ -1046,6 +1067,14 @@ fn merge_phase_d_fields(
     }
 }
 
+fn clear_phase_d_fields(result: &mut MeasureResult) {
+    result.n_prime_total = None;
+    result.sharpness = None;
+    result.psb_summary = None;
+    result.n_prime = None;
+    result.psb_bark = None;
+}
+
 fn next_nonzero_counter(counter: &mut u64) -> u64 {
     *counter = counter.wrapping_add(1);
     if *counter == 0 {
@@ -1198,15 +1227,17 @@ fn feed_phase_d_slots(
     mono_scratch.clear();
     append_phase_d_mono(input_48k, n_channels, mono_scratch);
     slot_pending.extend_from_slice(mono_scratch);
-    while slot_pending.len() >= ENGINE_SR as usize / 10 {
-        let slot: Vec<f64> = slot_pending.drain(..ENGINE_SR as usize / 10).collect();
-        if let Some(result) = phase_d.push(&slot).last().cloned() {
+    let slot_frames = ENGINE_SR as usize / 10;
+    let complete_frames = slot_pending.len() / slot_frames * slot_frames;
+    for slot in slot_pending[..complete_frames].chunks_exact(slot_frames) {
+        if let Some(result) = phase_d.push(slot).last().cloned() {
             *latest_pd = Some(result.clone());
             if is_recording {
                 record_phase_pending.push_back(result);
             }
         }
     }
+    slot_pending.drain(..complete_frames);
 }
 
 fn join_record_trace_slots(
@@ -1853,6 +1884,12 @@ pub mod tests {
             super::idle_sleep_for_record_state(true) < super::LOOP_SLEEP,
             "Record mode must poll faster than Watch mode"
         );
+    }
+
+    #[test]
+    fn phase_d_processing_is_scoped_to_record() {
+        assert!(!super::should_process_phase_d(false));
+        assert!(super::should_process_phase_d(true));
     }
 
     #[test]

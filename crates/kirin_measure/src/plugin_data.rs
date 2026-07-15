@@ -3853,6 +3853,25 @@ mod tests {
             &serde_json::to_vec(&transaction).unwrap(),
         )
         .unwrap();
+        let generation_transaction = crate::record_drop_commit::DropRecordGenerationTransaction {
+            schema_version: crate::record_drop_commit::DROP_GENERATION_TRANSACTION_SCHEMA
+                .to_string(),
+            drop_commit_id: drop_commit_id.clone(),
+            capture_generation_id: transaction.capture_generation_id.clone(),
+            generation_started_at_ms: transaction.generation_started_at_ms,
+            created_at_ms: transaction.created_at_ms,
+            bounce_id: transaction.bounce_id.clone(),
+            wav_hash: transaction.wav_hash.clone(),
+            projects: vec![crate::record_drop_commit::DropRecordGenerationProject {
+                project_hash: "project_hash_test".to_string(),
+                record_session_ids: transaction.record_session_ids.clone(),
+            }],
+        };
+        crate::atomic_file::write_bytes_atomic(
+            &crate::record_drop_commit::drop_generation_transaction_path(base, &drop_commit_id),
+            &serde_json::to_vec(&generation_transaction).unwrap(),
+        )
+        .unwrap();
     }
 
     fn iso_ms(ms: i64) -> String {
