@@ -986,14 +986,19 @@ fn record_duration_ms(ctx: &RecordingCtx) -> u64 {
     }
     let sample_rate = ctx.writer.data().sample_rate as u64;
     if let Some(clean) = ctx.clean_take {
-        if sample_rate > 0 {
-            return clean.duration_samples.saturating_mul(1_000) / sample_rate;
+        if let Some(duration_ms) = clean
+            .duration_samples
+            .saturating_mul(1_000)
+            .checked_div(sample_rate)
+        {
+            return duration_ms;
         }
     }
-    if sample_rate > 0 {
-        if let Some(native_frames) = ctx.last_trace_native_frames {
-            return native_frames.saturating_mul(1_000) / sample_rate;
-        }
+    if let Some(duration_ms) = ctx
+        .last_trace_native_frames
+        .and_then(|frames| frames.saturating_mul(1_000).checked_div(sample_rate))
+    {
+        return duration_ms;
     }
     if let Some(frames_48k) = ctx.last_trace_frame_48k {
         return frames_48k.saturating_mul(1_000) / TRACE_TIMEBASE_HZ;
@@ -1033,11 +1038,10 @@ fn build_bounce_take(ctx: &RecordingCtx, duration_ms: u64, duration_samples: u64
     let clean_take_ready = clean_take_is_sample_count_ready(ctx, duration_ms);
     let duration_frames_48k = if expected_wav(ctx).is_some() || clean_take_ready {
         let sr = sample_rate as u64;
-        if sr > 0 {
-            duration_samples.saturating_mul(TRACE_TIMEBASE_HZ) / sr
-        } else {
-            duration_ms.saturating_mul(TRACE_TIMEBASE_HZ) / 1_000
-        }
+        duration_samples
+            .saturating_mul(TRACE_TIMEBASE_HZ)
+            .checked_div(sr)
+            .unwrap_or(duration_ms.saturating_mul(TRACE_TIMEBASE_HZ) / 1_000)
     } else {
         ctx.last_trace_frame_48k
             .unwrap_or_else(|| duration_ms.saturating_mul(TRACE_TIMEBASE_HZ) / 1_000)
