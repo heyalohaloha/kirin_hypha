@@ -2296,9 +2296,9 @@ fn b125_overflow_and_oversized_drop_are_independent_counters() {
 #[test]
 fn b125_oversized_drop_surfaces_in_c_abi_dropped_samples() {
     use kirin_hypha_ffi::{
-        kirin_hypha_create, kirin_hypha_destroy, kirin_hypha_note_oversized_drop,
-        kirin_hypha_poll_result, kirin_hypha_push_samples, kirin_hypha_set_signal_state,
-        KirinMeasureResult,
+        kirin_hypha_create, kirin_hypha_destroy, kirin_hypha_note_capture_window,
+        kirin_hypha_note_oversized_drop, kirin_hypha_poll_result, kirin_hypha_push_samples,
+        kirin_hypha_set_signal_state, KirinMeasureResult,
     };
     unsafe {
         let h = kirin_hypha_create(SR, 2);
@@ -2312,10 +2312,26 @@ fn b125_oversized_drop_surfaces_in_c_abi_dropped_samples() {
 
         let mut out: KirinMeasureResult = std::mem::zeroed();
         let mut got = false;
-        for _ in 0..20 {
+        for block_index in 0..20 {
             // 容量内（256 frames × 2ch）= overflow を起こさず measure result を生成。
             let blk = [0.01f32; 512];
-            kirin_hypha_push_samples(h, blk.as_ptr(), 256, 2);
+            kirin_hypha_note_capture_window(
+                h,
+                true,
+                block_index * 256,
+                256,
+                1,
+                0,
+                false,
+                0,
+                false,
+                0,
+                false,
+            );
+            assert!(
+                kirin_hypha_push_samples(h, blk.as_ptr(), 256, 2),
+                "clocked capacity-sized block must commit without overflow"
+            );
             sleep(Duration::from_millis(30));
             if kirin_hypha_poll_result(h, &mut out) {
                 got = true;
