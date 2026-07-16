@@ -1015,6 +1015,62 @@ impl RecordTakeTracker {
         ))
     }
 
+    /// Map one producer take across a factual chain of presentation-latency epochs.
+    ///
+    /// A DAW may change its reported presentation latency during one render. Each mapping remains
+    /// immutable, but the exported audio and presentation clock can stay continuous across the
+    /// boundary. Only adjacent epochs that pass the latency-continuation proof and meet exactly on
+    /// the producer presentation axis may contribute to the requested take range.
+    pub fn presentation_range_for_latency_epoch_chain(
+        &self,
+        first_epoch: u64,
+        raw_start_samples: i64,
+        duration_samples: u64,
+    ) -> Option<(i64, i64)> {
+        if first_epoch == 0 || duration_samples == 0 {
+            return None;
+        }
+        let mut span = self.capture_span_for_epoch(first_epoch)?;
+        let span_raw_start = span.raw_host_position_start_samples?;
+        let offset = raw_start_samples.checked_sub(span_raw_start)?;
+        let offset = u64::try_from(offset).ok()?;
+        let span_len = span
+            .capture_end_frame
+            .checked_sub(span.capture_start_frame)?;
+        if offset >= span_len {
+            return None;
+        }
+        let presentation_start = span
+            .position_start_samples?
+            .checked_add(i64::try_from(offset).ok()?)?;
+        let capture_start = span.capture_start_frame.checked_add(offset)?;
+        let capture_end = capture_start.checked_add(duration_samples)?;
+
+        while span.capture_end_frame < capture_end {
+            let next_epoch = span.epoch.checked_add(1)?;
+            let next = self.capture_span_for_epoch(next_epoch)?;
+            if !self.capture_epochs_are_latency_continuation(span.epoch, next.epoch) {
+                return None;
+            }
+            let span_presentation_end = span.position_start_samples?.checked_add(
+                i64::try_from(
+                    span.capture_end_frame
+                        .checked_sub(span.capture_start_frame)?,
+                )
+                .ok()?,
+            )?;
+            if next.position_start_samples != Some(span_presentation_end) {
+                return None;
+            }
+            span = next;
+        }
+
+        Some((
+            presentation_start,
+            presentation_start.checked_add(i64::try_from(duration_samples).ok()?)?,
+        ))
+    }
+
     /// Recover the raw host diagnostic interval corresponding to an already selected producer
     /// presentation interval. This is an offset within one immutable mapping; it does not inspect,
     /// choose, add, or subtract a latency value downstream.
@@ -1762,6 +1818,61 @@ mod tests {
                 .load(std::sync::atomic::Ordering::Acquire),
             3,
             "each latency mapping owns one immutable presentation epoch"
+        );
+    }
+
+    #[test]
+    fn presentation_range_crosses_only_contiguous_latency_epoch_chain() {
+        let tracker = RecordTakeTracker::new();
+        let first_latency = PresentationLatencySamples {
+            source: PresentationLatencySource::Vst3,
+            input: Some(0),
+            output: Some(256),
+        };
+        tracker.note_block(block(91, 100_256, 4_800));
+        tracker.note_capture_window_with_presentation_boundary(
+            true,
+            100_256,
+            4_800,
+            CaptureClockSource::ProjectTimeline,
+            first_latency,
+            true,
+        );
+        let first_epoch = tracker.selected_capture_epoch(91).unwrap();
+
+        let changed_latency = PresentationLatencySamples {
+            source: PresentationLatencySource::Vst3,
+            input: Some(0),
+            output: Some(512),
+        };
+        tracker.note_block(block(91, 105_312, 4_800));
+        tracker.note_capture_window_with_presentation_boundary(
+            true,
+            105_312,
+            4_800,
+            CaptureClockSource::ProjectTimeline,
+            changed_latency,
+            false,
+        );
+
+        assert_eq!(
+            tracker.presentation_range_for_latency_epoch_chain(first_epoch, 100_256, 9_600,),
+            Some((100_000, 109_600))
+        );
+
+        tracker.note_block(block(91, 110_112, 4_800));
+        tracker.note_capture_window_with_presentation_boundary(
+            true,
+            110_112,
+            4_800,
+            CaptureClockSource::ProjectTimeline,
+            changed_latency,
+            true,
+        );
+        assert_eq!(
+            tracker.presentation_range_for_latency_epoch_chain(first_epoch, 100_256, 14_400,),
+            None,
+            "an explicit take boundary must not be stitched into one WAV range"
         );
     }
 
