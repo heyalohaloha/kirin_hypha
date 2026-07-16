@@ -100,7 +100,7 @@ mod tests {
             version_line(HYPHA_PRE_CARGO),
             version_line(HYPHA_POST_CARGO)
         );
-        assert_eq!(version_line(HYPHA_PRE_CARGO).trim(), "version = \"1.1.29\"");
+        assert_eq!(version_line(HYPHA_PRE_CARGO).trim(), "version = \"1.1.30\"");
     }
 
     #[test]
