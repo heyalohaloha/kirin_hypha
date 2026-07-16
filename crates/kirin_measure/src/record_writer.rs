@@ -6526,9 +6526,10 @@ mod tests {
             4_800,
         )
         .expect("production snapshot must retain an exact no-BWF origin");
-        assert_eq!(resolved.model, "producer_position");
-        assert_eq!(resolved.producer_slots, vec![104_800, 109_600]);
-        assert_eq!(resolved.frames.len(), 2);
+        assert_eq!(resolved.model, "producer_plus_output_latency");
+        assert_eq!(resolved.producer_slots, vec![105_056]);
+        assert_eq!(resolved.wav_slots, vec![5_056]);
+        assert_eq!(resolved.frames.len(), 1);
 
         let mut pre_data = ctx.writer.data().clone();
         pre_data.role = Role::Pre;
@@ -6542,8 +6543,8 @@ mod tests {
             pair_plan.start_basis,
             crate::trace_alignment::TRACE_ALIGNMENT_START_RENDER_RANGE
         );
-        assert_eq!(pair_plan.pre_producer_slots, vec![104_800, 109_600]);
-        assert_eq!(pair_plan.post_producer_slots, vec![104_800, 109_600]);
+        assert_eq!(pair_plan.pre_producer_slots, vec![105_056]);
+        assert_eq!(pair_plan.post_producer_slots, vec![105_056]);
     }
 
     #[test]
