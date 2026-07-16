@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::plugin_data::PluginDataFile;
 
-pub const TRACE_ALIGNMENT_METHOD: &str = "producer_wav_sample_axis_v9";
+pub const TRACE_ALIGNMENT_METHOD: &str = "producer_latency_mapped_wav_axis_v10";
 pub const TRACE_ALIGNMENT_STATUS: &str = "canonical_wav_clock";
 pub const TRACE_ALIGNMENT_START_BWF: &str = "bwf_time_reference";
 pub const TRACE_ALIGNMENT_START_RENDER_RANGE: &str = "producer_render_range";
@@ -19,7 +19,6 @@ pub const TRACE_HOST_TIME_AXIS: &str = "host_content_samples_v3";
 pub const TRACE_CLOCK_BASIS: &str = "output_presentation_wav_samples_v1";
 pub const TRACE_WAV_REFERENCE_BASIS: &str = "dropped_wav_sample_index_v1";
 pub const TRACE_CAPTURE_BASIS: &str = "paired_record_session_v1";
-const TRACE_FRAME_INTERVAL_MS: u64 = 100;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TraceContentAlignment {
@@ -43,10 +42,9 @@ pub(crate) fn canonical_wav_alignment(
         || left.trace_wav_reference != right.trace_wav_reference
         || left.expected_wav != right.expected_wav
         || left.frames.is_empty()
-        || left.frames.len() != right.frames.len()
-        || !has_dense_frame_grid(left)
-        || !has_dense_frame_grid(right)
-        || !has_shared_native_slots(left, right)
+        || right.frames.is_empty()
+        || !has_latency_mapped_wav_slots(left)
+        || !has_latency_mapped_wav_slots(right)
         || !has_wav_bounded_slots(left)
         || !has_wav_bounded_slots(right)
     {
@@ -62,10 +60,10 @@ pub(crate) fn canonical_wav_alignment(
     {
         return None;
     }
-    // A BWF time reference plus the identical native slots is the final sample-axis proof. The
-    // per-instance host clock remains diagnostic and can legitimately be absent on AU when its
-    // first callback is a partial 100 ms block. Without `bext`, the render-range fallback still
-    // requires matching host-clock provenance.
+    // Each side's latency-mapped WAV slots are the final sample-axis proof. The per-instance host
+    // clock remains diagnostic and can legitimately be absent on AU when its first callback is a
+    // partial 100 ms block. A render-range artifact without a resolved clock model still requires
+    // matching host-clock provenance.
     let resolved_render_clocks = [left, right].iter().all(|data| {
         data.trace_clock_resolution
             .as_deref()
@@ -80,25 +78,32 @@ pub(crate) fn canonical_wav_alignment(
     Some(TraceContentAlignment {
         status: TRACE_ALIGNMENT_STATUS.to_string(),
         confidence: 1.0,
-        compared_frame_count: left.frames.len() as u64,
+        compared_frame_count: left.frames.len().min(right.frames.len()) as u64,
         method: TRACE_ALIGNMENT_METHOD.to_string(),
         start_basis: Some(start_basis.to_string()),
         pre_to_post_offset_samples: None,
     })
 }
 
-fn has_shared_native_slots(left: &PluginDataFile, right: &PluginDataFile) -> bool {
-    if left.sample_rate == 0
-        || left.sample_rate != right.sample_rate
-        || left.trace_slot_positions.len() != left.frames.len()
-        || left.trace_slot_positions != right.trace_slot_positions
+fn has_latency_mapped_wav_slots(data: &PluginDataFile) -> bool {
+    if data.sample_rate == 0
+        || data.trace_clock_resolution.as_deref() != Some("producer_plus_output_latency")
+        || data.trace_slot_positions.len() != data.frames.len()
     {
         return false;
     }
-    let slot_samples = (left.sample_rate as i64 / 10).max(1);
-    left.trace_slot_positions
+    data.trace_slot_positions
         .windows(2)
-        .all(|pair| pair[1].saturating_sub(pair[0]) == slot_samples)
+        .all(|pair| pair[1] > pair[0])
+        && data
+            .trace_slot_positions
+            .iter()
+            .zip(&data.frames)
+            .all(|(slot, frame)| {
+                u64::try_from(*slot).ok().is_some_and(|slot| {
+                    frame.t_ms == slot.saturating_mul(1_000) / u64::from(data.sample_rate)
+                })
+            })
 }
 
 fn has_wav_bounded_slots(data: &PluginDataFile) -> bool {
@@ -110,22 +115,13 @@ fn has_wav_bounded_slots(data: &PluginDataFile) -> bool {
         return false;
     };
     let slot_samples = (data.sample_rate as i64 / 10).max(1);
-    let Ok(frame_count) = i64::try_from(data.trace_slot_positions.len()) else {
-        return false;
-    };
     let Some(duration_samples) = reference.end_sample.checked_sub(reference.start_sample) else {
         return false;
     };
     let Ok(reference_duration) = i64::try_from(duration_samples) else {
         return false;
     };
-    let Some(measured_span) = frame_count.checked_mul(slot_samples) else {
-        return false;
-    };
-    let Some(unmeasured_tail) = reference_duration.checked_sub(measured_span) else {
-        return false;
-    };
-    first == slot_samples && last == measured_span && unmeasured_tail < slot_samples
+    first >= slot_samples && last <= reference_duration
 }
 
 pub(crate) fn has_canonical_wav_reference(data: &PluginDataFile) -> bool {
@@ -155,12 +151,6 @@ pub(crate) fn has_canonical_wav_reference(data: &PluginDataFile) -> bool {
         && reference.bounce_id == expected.bounce_id
         && !expected_hash.is_empty()
         && reference.wav_hash == expected_hash
-}
-
-fn has_dense_frame_grid(data: &PluginDataFile) -> bool {
-    data.frames.iter().enumerate().all(|(index, frame)| {
-        frame.t_ms == (index as u64 + 1).saturating_mul(TRACE_FRAME_INTERVAL_MS)
-    })
 }
 
 #[cfg(test)]
@@ -213,6 +203,7 @@ mod tests {
             sources: vec!["project_timeline".to_string()],
         });
         data.trace_slot_positions = vec![9_600];
+        data.trace_clock_resolution = Some("producer_plus_output_latency".to_string());
         data.trace_pair_wav_start_basis = Some(TRACE_ALIGNMENT_START_BWF.to_string());
         data.expected_wav
             .as_mut()
@@ -268,6 +259,38 @@ mod tests {
     }
 
     #[test]
+    fn pair_contract_accepts_role_specific_latency_mapped_slots() {
+        let mut pre = data(Role::Pre);
+        let mut post = data(Role::Post);
+        for side in [&mut pre, &mut post] {
+            side.expected_wav
+                .as_mut()
+                .unwrap()
+                .expected_duration_samples = 20_000;
+            side.trace_wav_reference.as_mut().unwrap().end_sample = 20_000;
+            side.trace_clock.as_mut().unwrap().end_position_samples =
+                side.trace_clock.as_ref().unwrap().origin_position_samples + 20_000;
+        }
+        let source_frame = pre.frames[0].clone();
+        pre.trace_slot_positions = vec![11_964, 19_640];
+        pre.frames = pre
+            .trace_slot_positions
+            .iter()
+            .map(|slot| Frame {
+                t_ms: (*slot as u64).saturating_mul(1_000) / 96_000,
+                ..source_frame.clone()
+            })
+            .collect();
+        post.trace_slot_positions = vec![13_888];
+        post.frames[0].t_ms = 144;
+
+        let alignment = canonical_wav_alignment(&pre, &post).expect("latency mapped pair");
+        assert_eq!(alignment.method, TRACE_ALIGNMENT_METHOD);
+        assert_eq!(alignment.compared_frame_count, 1);
+        assert_ne!(pre.trace_slot_positions, post.trace_slot_positions);
+    }
+
+    #[test]
     fn pair_contract_requires_one_shared_wav_identity() {
         let pre = data(Role::Pre);
         let mut post = data(Role::Post);
@@ -308,7 +331,7 @@ mod tests {
                 .wav_time_reference_samples = None;
             side.trace_pair_wav_start_basis = Some(TRACE_ALIGNMENT_START_RENDER_RANGE.to_string());
         }
-        assert!(canonical_wav_alignment(&render_pre, &render_post).is_none());
+        assert!(canonical_wav_alignment(&render_pre, &render_post).is_some());
     }
 
     #[test]
@@ -363,7 +386,7 @@ mod tests {
     }
 
     #[test]
-    fn pair_contract_accepts_a_wav_with_an_unmeasured_sub_frame_tail() {
+    fn pair_contract_keeps_exact_timing_with_an_unmeasured_wav_tail() {
         let mut pre = data(Role::Pre);
         let mut post = data(Role::Post);
         for side in [&mut pre, &mut post] {
@@ -388,7 +411,7 @@ mod tests {
                 .expected_duration_samples = 19_200;
             side.trace_wav_reference.as_mut().unwrap().end_sample = 19_200;
         }
-        assert!(canonical_wav_alignment(&pre, &post).is_none());
+        assert!(canonical_wav_alignment(&pre, &post).is_some());
     }
 
     #[test]

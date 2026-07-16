@@ -2671,14 +2671,14 @@ fn prepare_late_expected_pair(
     synchronize_pair_annotations(pre_data, post_data);
     let content_alignment = crate::trace_alignment::canonical_wav_alignment(pre_data, post_data);
     let timing_reasons = pair_publish_failure_reasons(pre_data, post_data);
-    let timing_exact = content_alignment.is_some() && timing_reasons.is_empty();
-    pre_data.trace_content_alignment = timing_exact.then(|| {
+    let alignment_exact = content_alignment.is_some();
+    pre_data.trace_content_alignment = alignment_exact.then(|| {
         content_alignment
             .clone()
             .expect("exact timing has alignment")
     });
     post_data.trace_content_alignment =
-        timing_exact.then(|| content_alignment.expect("exact timing has alignment"));
+        alignment_exact.then(|| content_alignment.expect("exact timing has alignment"));
     pre_data.trace_pair_offset_samples = None;
     post_data.trace_pair_offset_samples = None;
     pre_data.trace_pair_alignment_score = None;
@@ -2691,15 +2691,11 @@ fn prepare_late_expected_pair(
     post_data.trace_pair_wav_start_basis = None;
     pre_data.trace_context_psb_snapshots.clear();
     post_data.trace_context_psb_snapshots.clear();
-    let publication_reasons = if timing_exact {
-        pair_publish_failure_reasons(pre_data, post_data)
-    } else {
-        pair_visibility_failure_reasons(pre_data, post_data)
-    };
+    let publication_reasons = pair_visibility_failure_reasons(pre_data, post_data);
     if !publication_reasons.is_empty() {
         return false;
     }
-    if !timing_exact {
+    if !timing_reasons.is_empty() {
         add_integrity_reasons(pre_data, &timing_reasons);
         add_integrity_reasons(post_data, &timing_reasons);
     }
@@ -2952,10 +2948,8 @@ fn normalize_late_expected_record(
     if data.trace_slot_positions.len() != data.frames.len() {
         return false;
     }
-    let slot_samples = (expected.expected_sample_rate as i64 / 10).max(1);
     let slots_are_factual_wav_positions = data.trace_slot_positions.iter().all(|slot| {
         *slot > 0
-            && *slot % slot_samples == 0
             && u64::try_from(*slot)
                 .ok()
                 .is_some_and(|slot| slot <= expected.expected_duration_samples)

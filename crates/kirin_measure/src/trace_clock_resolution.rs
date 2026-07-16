@@ -10,6 +10,7 @@ use crate::record_expected::ExpectedWavMetadata;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ClockModel {
+    ProducerPlusOutput,
     Producer,
     RawMinusOutput,
     Raw,
@@ -26,6 +27,7 @@ impl ClockModel {
 
     fn name(self) -> &'static str {
         match self {
+            Self::ProducerPlusOutput => "producer_plus_output_latency",
             Self::Producer => "producer_position",
             Self::RawMinusOutput => "raw_minus_output_latency",
             Self::Raw => "raw_host_position",
@@ -35,6 +37,9 @@ impl ClockModel {
 
     fn position(self, observation: &TraceClockObservation) -> Option<i64> {
         match self {
+            Self::ProducerPlusOutput => observation
+                .producer_position_samples?
+                .checked_add(i64::from(observation.output_presentation_latency_samples?)),
             Self::Producer => observation.producer_position_samples,
             Self::RawMinusOutput => observation
                 .raw_host_position_samples?
@@ -53,6 +58,10 @@ impl ClockModel {
         first: Option<&TraceClockObservation>,
     ) -> Option<i64> {
         match self {
+            // Keep the producer-owned render origin fixed while each observation receives its own
+            // epoch's output latency. Moving the origin by the first epoch would cancel the very
+            // PRE/POST difference this model is required to preserve.
+            Self::ProducerPlusOutput => Some(presentation_start),
             // `BounceTake.host_*` is the producer-owned output-presentation range. Producer
             // positions and raw-minus-output positions are already on that axis; applying the
             // first callback's latency here would shift the WAV origin a second time.
@@ -83,6 +92,33 @@ pub(crate) fn resolve_exact_side(
     if expected_len == 0 || slot_samples <= 0 || data.trace_clock_observations.is_empty() {
         return None;
     }
+    // Current producers retain output latency on every 100 ms observation. Apply it exactly once
+    // at WAV binding: the metric payload remains untouched and only its factual sample position
+    // changes. This path intentionally wins over the legacy grid-count models below.
+    let aligned_model = ClockModel::ProducerPlusOutput;
+    let aligned_origin = match expected.wav_time_reference_samples {
+        Some(start) => i64::try_from(start).ok(),
+        None => render_origin(data, expected, aligned_model),
+    };
+    if let Some(origin) = aligned_origin {
+        if let Some((frames, producer_slots, wav_slots)) = select_latency_mapped_frames(
+            &data.trace_clock_observations,
+            origin,
+            expected.expected_duration_samples,
+            expected.expected_sample_rate,
+            expected_len,
+            slot_samples,
+        ) {
+            return Some(SideClockResolution {
+                frames,
+                producer_slots,
+                wav_slots,
+                origin_position_samples: origin,
+                model: aligned_model.name(),
+            });
+        }
+    }
+
     let mut best = None::<SideClockResolution>;
     for model in ClockModel::ALL {
         let origin = match expected.wav_time_reference_samples {
@@ -115,6 +151,64 @@ pub(crate) fn resolve_exact_side(
         }
     }
     best
+}
+
+fn select_latency_mapped_frames(
+    observations: &[TraceClockObservation],
+    origin: i64,
+    duration_samples: u64,
+    sample_rate: u32,
+    expected_len: usize,
+    slot_samples: i64,
+) -> Option<(Vec<Frame>, Vec<i64>, Vec<i64>)> {
+    if expected_len == 0 || slot_samples <= 0 || sample_rate == 0 {
+        return None;
+    }
+    let duration = i64::try_from(duration_samples).ok()?;
+    let end = origin.checked_add(duration)?;
+    let first_full_window = origin.checked_add(slot_samples)?;
+    let mut candidates = observations
+        .iter()
+        .filter_map(|observation| {
+            let latency = observation.output_presentation_latency_samples?;
+            let aligned = observation
+                .producer_position_samples?
+                .checked_add(i64::from(latency))?;
+            (aligned >= first_full_window && aligned <= end).then_some((
+                aligned,
+                observation.frame.t_ms,
+                observation.capture_epoch.unwrap_or(0),
+                &observation.frame,
+            ))
+        })
+        .collect::<Vec<_>>();
+    candidates.sort_by_key(|(position, t_ms, epoch, _)| (*t_ms, *epoch, *position));
+
+    let mut frames = Vec::with_capacity(candidates.len().min(expected_len));
+    let mut producer_slots = Vec::with_capacity(frames.capacity());
+    let mut wav_slots = Vec::with_capacity(frames.capacity());
+    let mut previous_position = None;
+    let mut previous_time = None;
+    for (position, t_ms, _, source_frame) in candidates {
+        if previous_position.is_some_and(|previous| position <= previous)
+            || previous_time.is_some_and(|previous| t_ms <= previous)
+        {
+            return None;
+        }
+        let relative = position.checked_sub(origin)?;
+        let mut frame = source_frame.clone();
+        frame.t_ms = u64::try_from(relative).ok()?.saturating_mul(1_000) / u64::from(sample_rate);
+        frames.push(frame);
+        producer_slots.push(position);
+        wav_slots.push(relative);
+        previous_position = Some(position);
+        previous_time = Some(t_ms);
+    }
+    (!frames.is_empty() && frames.len() <= expected_len).then_some((
+        frames,
+        producer_slots,
+        wav_slots,
+    ))
 }
 
 fn render_origin(
@@ -333,12 +427,12 @@ mod tests {
     #[test]
     fn output_latency_changes_are_resolved_per_observation_across_epochs() {
         let data = data(vec![
-            observation(100, 105_056, 256, 10),
-            observation(200, 110_112, 512, 11),
+            observation(100, 104_800, 256, 10),
+            observation(200, 109_600, 512, 11),
         ]);
         let resolved = resolve_exact_side(&data, &expected(Some(100_000)), 2, 4_800)
             .expect("piecewise output latency");
-        assert_eq!(resolved.model, "producer_position");
+        assert_eq!(resolved.model, "producer_plus_output_latency");
         assert_eq!(resolved.producer_slots, vec![104_800, 109_600]);
         assert_eq!(resolved.wav_slots, vec![4_800, 9_600]);
         assert_eq!(resolved.origin_position_samples, 100_000);
@@ -348,12 +442,17 @@ mod tests {
     #[test]
     fn missing_bext_uses_presentation_origin_without_applying_latency_twice() {
         let data = data(vec![
-            observation(100, 105_056, 256, 10),
-            observation(200, 110_112, 512, 11),
+            observation(100, 104_800, 256, 10),
+            observation(200, 109_600, 512, 11),
         ]);
+        let mut data = data;
+        data.raw_host_clock_range = Some(crate::plugin_data::HostClockRange {
+            start_position_samples: 100_000,
+            end_position_samples: 109_600,
+        });
         let resolved = resolve_exact_side(&data, &expected(None), 2, 4_800)
             .expect("producer presentation range resolves without BWF");
-        assert_eq!(resolved.model, "producer_position");
+        assert_eq!(resolved.model, "producer_plus_output_latency");
         assert_eq!(resolved.producer_slots, vec![104_800, 109_600]);
     }
 
@@ -446,12 +545,14 @@ mod tests {
 
     #[test]
     fn anchored_resolution_keeps_a_missing_middle_slot_absent() {
+        let mut expected = expected(Some(100_000));
+        expected.expected_duration_samples = 14_400;
         let resolved = resolve_exact_side(
             &data(vec![
-                observation(100, 105_056, 256, 10),
-                observation(300, 114_656, 256, 10),
+                observation(100, 104_800, 256, 10),
+                observation(300, 114_400, 256, 10),
             ]),
-            &expected(Some(100_000)),
+            &expected,
             3,
             4_800,
         )
