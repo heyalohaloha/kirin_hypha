@@ -234,6 +234,30 @@ pub struct HostPresentationLatencyObservation {
     pub output_samples: Option<u32>,
 }
 
+/// Record-only measurement candidate with the untouched host clock facts that formed it.
+///
+/// Unlike `trace_slot_positions`, this journal is not a public TRACE axis. It survives until the
+/// dropped WAV is known so pair finalization can test host-specific presentation-clock models per
+/// side and per latency epoch without touching metric values or retaining unbounded raw audio.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TraceClockObservation {
+    pub frame: Frame,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub producer_position_samples: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raw_host_position_samples: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capture_epoch: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub clock_source: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub presentation_latency_source: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_presentation_latency_samples: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_presentation_latency_samples: Option<u32>,
+}
+
 /// Unmodified host render range retained as diagnostics after TRACE is normalized to the output
 /// presentation/WAV axis. It is never used by consumers to shift a curve.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -261,8 +285,8 @@ pub struct TraceWavReference {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RecordQuality {
     /// `complete` = sample-count aligned full product.
-    /// `usable_fallback` = diagnostic/internal compatibility state; normal TRACE shelf publish is
-    /// gated by `complete`.
+    /// `usable_fallback` = identified measured data whose timing/integrity proof is incomplete;
+    /// TRACE may display it while keeping exactness separate.
     /// `failed` = diagnostic artifact only.
     pub status: String,
     pub complete: bool,
@@ -399,6 +423,13 @@ pub struct PluginDataFile {
     /// preserved. `source` keeps VST3 and Audio Unit v2 evidence distinguishable.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub host_presentation_latency_observations: Vec<HostPresentationLatencyObservation>,
+    /// 10 fps Record clock journal. One entry corresponds to one measured candidate; it
+    /// is cleared after WAV binding and is never read by Kirin OS as a display axis.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub trace_clock_observations: Vec<TraceClockObservation>,
+    /// Clock model selected for this side at Drop, or the explicit chronological fallback.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trace_clock_resolution: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub raw_host_clock_range: Option<HostClockRange>,
     /// Producer-canonical native-sample endpoint of every `frames[]` entry. Before pair
@@ -536,6 +567,8 @@ impl PluginDataFile {
             trace_time_axis: None,
             trace_clock: None,
             host_presentation_latency_observations: Vec::new(),
+            trace_clock_observations: Vec::new(),
+            trace_clock_resolution: None,
             raw_host_clock_range: None,
             trace_slot_positions: Vec::new(),
             trace_wav_reference: None,
@@ -804,6 +837,13 @@ impl PluginDataWriter {
         self.data.host_presentation_latency_observations = observations;
     }
 
+    pub(crate) fn set_trace_clock_observations(
+        &mut self,
+        observations: Vec<TraceClockObservation>,
+    ) {
+        self.data.trace_clock_observations = observations;
+    }
+
     pub(crate) fn set_raw_host_clock_range(&mut self, range: Option<HostClockRange>) {
         self.data.raw_host_clock_range = range;
     }
@@ -1068,7 +1108,7 @@ impl PluginDataWriter {
     }
 
     fn commit_failure_reasons(&self) -> Vec<&'static str> {
-        normal_publish_failure_reasons(&self.data)
+        side_visibility_failure_reasons(&self.data)
     }
 
     fn commit_integrity_reasons(&self) -> Vec<&'static str> {
@@ -1082,6 +1122,47 @@ fn side_publish_failure_reasons(data: &PluginDataFile) -> Vec<&'static str> {
         reasons.push("validity_false");
     }
     if data.frames.is_empty() {
+        reasons.push("zero_trace_frames");
+    }
+    if data.sample_rate == 0 {
+        reasons.push("missing_sample_rate");
+    }
+    if data.record_session_id.as_deref().is_none_or(str::is_empty) {
+        reasons.push("missing_record_session_id");
+    }
+    match data.role {
+        Role::Pre
+            if data
+                .paired_post_instance_id
+                .as_deref()
+                .is_none_or(str::is_empty) =>
+        {
+            reasons.push("missing_paired_post_instance_id")
+        }
+        Role::Post
+            if data
+                .paired_pre_instance_id
+                .as_deref()
+                .is_none_or(str::is_empty) =>
+        {
+            reasons.push("missing_paired_pre_instance_id")
+        }
+        _ => {}
+    }
+    dedup_reasons(reasons)
+}
+
+/// Facts whose absence makes a Record lane impossible to identify or display. Timing density,
+/// canonical WAV proof and integrity quality are intentionally excluded: they remain diagnostics
+/// and must not move measured user data to `.failed`.
+fn side_visibility_failure_reasons(data: &PluginDataFile) -> Vec<&'static str> {
+    let mut reasons = Vec::new();
+    let belongs_to_capture_generation = data
+        .capture_generation_id
+        .as_deref()
+        .is_some_and(|generation| !generation.is_empty())
+        && data.generation_started_at_ms > 0;
+    if data.frames.is_empty() && !belongs_to_capture_generation {
         reasons.push("zero_trace_frames");
     }
     if data.sample_rate == 0 {
@@ -1442,9 +1523,9 @@ pub(crate) fn refresh_record_quality(data: &mut PluginDataFile) {
             ),
             None => (0, data.frames.len() as u64, 0, false),
         };
-    let usable = side_publish_failure_reasons(data).is_empty()
-        && side_measurement_failure_reasons(data).is_empty();
-    let complete = usable && side_publish_integrity_reasons(data).is_empty();
+    let usable = data.commit_status.as_deref() != Some("failed")
+        && side_visibility_failure_reasons(data).is_empty();
+    let complete = usable && normal_publish_failure_reasons(data).is_empty();
     let status = if complete {
         "complete"
     } else if usable {
@@ -1538,7 +1619,30 @@ fn try_finalize_pair_session(
     synchronize_pair_annotations(&mut self_data, &mut peer_data);
     let content_alignment = crate::trace_alignment::canonical_wav_alignment(&self_data, &peer_data);
     let reasons = pair_publish_failure_reasons(&self_data, &peer_data);
-    if content_alignment.is_none() {
+    let visibility_reasons = pair_visibility_failure_reasons(&self_data, &peer_data);
+    let timing_exact = content_alignment.is_some() && reasons.is_empty();
+    let measured_wav_fallback = !timing_exact
+        && visibility_reasons.is_empty()
+        && self_data.trace_time_axis.as_deref() == Some(crate::trace_alignment::TRACE_TIME_AXIS)
+        && peer_data.trace_time_axis.as_deref() == Some(crate::trace_alignment::TRACE_TIME_AXIS);
+    if measured_wav_fallback && prepare_late_expected_pair(&mut self_data, &mut peer_data) {
+        publish_pair_committed_files(
+            paths,
+            &self_paths,
+            &mut self_data,
+            &peer_paths,
+            &mut peer_data,
+        )?;
+        mark_pair_expected_metadata_consumed(paths, &self_data);
+        let _ = fs::remove_file(&self_pending);
+        let _ = fs::remove_file(&peer_paths.pair_pending_path);
+        log::info!(
+            "[pair_record_session] published measured fallback session={}",
+            self_data.record_session_id.as_deref().unwrap_or("")
+        );
+        return Ok(());
+    }
+    if !timing_exact {
         let expected_metadata_was_lost = reasons.contains(&"missing_expected_wav_metadata")
             && [&self_data, &peer_data].iter().any(|data| {
                 data.bounce_take
@@ -1575,7 +1679,7 @@ fn try_finalize_pair_session(
         );
         return Ok(());
     }
-    let content_alignment = content_alignment.expect("checked canonical WAV alignment");
+    let content_alignment = content_alignment.expect("checked exact WAV alignment");
     self_data.trace_content_alignment = Some(content_alignment.clone());
     peer_data.trace_content_alignment = Some(content_alignment);
     self_data.trace_pair_offset_samples = None;
@@ -2563,13 +2667,16 @@ fn prepare_late_expected_pair(
         _ => return false,
     };
     synchronize_pair_annotations(pre_data, post_data);
-    let Some(content_alignment) =
-        crate::trace_alignment::canonical_wav_alignment(pre_data, post_data)
-    else {
-        return false;
-    };
-    pre_data.trace_content_alignment = Some(content_alignment.clone());
-    post_data.trace_content_alignment = Some(content_alignment);
+    let content_alignment = crate::trace_alignment::canonical_wav_alignment(pre_data, post_data);
+    let timing_reasons = pair_publish_failure_reasons(pre_data, post_data);
+    let timing_exact = content_alignment.is_some() && timing_reasons.is_empty();
+    pre_data.trace_content_alignment = timing_exact.then(|| {
+        content_alignment
+            .clone()
+            .expect("exact timing has alignment")
+    });
+    post_data.trace_content_alignment =
+        timing_exact.then(|| content_alignment.expect("exact timing has alignment"));
     pre_data.trace_pair_offset_samples = None;
     post_data.trace_pair_offset_samples = None;
     pre_data.trace_pair_alignment_score = None;
@@ -2582,9 +2689,20 @@ fn prepare_late_expected_pair(
     post_data.trace_pair_wav_start_basis = None;
     pre_data.trace_context_psb_snapshots.clear();
     post_data.trace_context_psb_snapshots.clear();
-    if !pair_publish_failure_reasons(pre_data, post_data).is_empty() {
+    let publication_reasons = if timing_exact {
+        pair_publish_failure_reasons(pre_data, post_data)
+    } else {
+        pair_visibility_failure_reasons(pre_data, post_data)
+    };
+    if !publication_reasons.is_empty() {
         return false;
     }
+    if !timing_exact {
+        add_integrity_reasons(pre_data, &timing_reasons);
+        add_integrity_reasons(post_data, &timing_reasons);
+    }
+    pre_data.trace_clock_observations.clear();
+    post_data.trace_clock_observations.clear();
     pre_data.commit_status = Some("committed".to_string());
     post_data.commit_status = Some("committed".to_string());
     refresh_record_quality(pre_data);
@@ -2667,39 +2785,87 @@ fn normalize_late_expected_pair(
     let Some(plan) = plan else {
         return false;
     };
-    let rebuild = |data: &mut PluginDataFile, frames: Vec<Frame>| {
+    let rebuild = |data: &mut PluginDataFile,
+                   frames: Vec<Frame>,
+                   producer_slots: &[i64],
+                   clock_model: &str| {
         data.frames = frames;
-        data.trace_slot_positions = plan.wav_slots.clone();
+        data.trace_slot_positions = plan
+            .wav_slots
+            .iter()
+            .copied()
+            .take(data.frames.len())
+            .collect();
         data.trace_pair_wav_start_basis = Some(plan.start_basis.to_string());
+        data.trace_clock_resolution = Some(clock_model.to_string());
         data.trace_pair_offset_samples = None;
         data.trace_pair_alignment_score = None;
-        if let Some(clock) = data.trace_clock.as_mut() {
-            clock.origin_position_samples = plan.producer_slots[0].saturating_sub(slot_samples);
-            clock.end_position_samples = *plan
-                .producer_slots
-                .last()
-                .expect("producer slots are non-empty");
-            clock.sample_rate = expected.expected_sample_rate;
+        if plan.exact {
+            if let (Some(clock), Some(first), Some(last)) = (
+                data.trace_clock.as_mut(),
+                producer_slots.first(),
+                producer_slots.last(),
+            ) {
+                clock.origin_position_samples = first.saturating_sub(slot_samples);
+                clock.end_position_samples = *last;
+                clock.sample_rate = expected.expected_sample_rate;
+            }
+        } else {
+            // A chronological lane has a WAV-relative display order but no proven host clock.
+            // Retaining the provisional absolute clock here would let a consumer overstate it.
+            data.trace_clock = None;
         }
     };
     match (left.role, right.role) {
         (Role::Pre, Role::Post) => {
-            rebuild(left, plan.pre_frames);
-            rebuild(right, plan.post_frames);
+            rebuild(
+                left,
+                plan.pre_frames,
+                &plan.pre_producer_slots,
+                plan.pre_clock_model,
+            );
+            rebuild(
+                right,
+                plan.post_frames,
+                &plan.post_producer_slots,
+                plan.post_clock_model,
+            );
         }
         (Role::Post, Role::Pre) => {
-            rebuild(left, plan.post_frames);
-            rebuild(right, plan.pre_frames);
+            rebuild(
+                left,
+                plan.post_frames,
+                &plan.post_producer_slots,
+                plan.post_clock_model,
+            );
+            rebuild(
+                right,
+                plan.pre_frames,
+                &plan.pre_producer_slots,
+                plan.pre_clock_model,
+            );
         }
         _ => return false,
     }
-    let wav_origin_samples = plan.producer_slots[0].saturating_sub(slot_samples);
-    bind_annotation_marks_to_wav(left, wav_origin_samples, expected.expected_duration_samples);
-    bind_annotation_marks_to_wav(
-        right,
-        wav_origin_samples,
-        expected.expected_duration_samples,
-    );
+    if plan.exact {
+        let pre_origin = plan.pre_producer_slots[0].saturating_sub(slot_samples);
+        let post_origin = plan.post_producer_slots[0].saturating_sub(slot_samples);
+        match (left.role, right.role) {
+            (Role::Pre, Role::Post) => {
+                bind_annotation_marks_to_wav(left, pre_origin, expected.expected_duration_samples);
+                bind_annotation_marks_to_wav(
+                    right,
+                    post_origin,
+                    expected.expected_duration_samples,
+                );
+            }
+            (Role::Post, Role::Pre) => {
+                bind_annotation_marks_to_wav(left, post_origin, expected.expected_duration_samples);
+                bind_annotation_marks_to_wav(right, pre_origin, expected.expected_duration_samples);
+            }
+            _ => return false,
+        }
+    }
     normalize_late_expected_record(left, expected)
         && normalize_late_expected_record(right, expected)
 }
@@ -2765,7 +2931,7 @@ fn normalize_late_expected_record(
     let Ok(expected_len) = usize::try_from(expected_frame_count) else {
         return false;
     };
-    if expected_len == 0 || data.frames.len() < expected_len {
+    if expected_len == 0 {
         return false;
     }
 
@@ -2777,12 +2943,11 @@ fn normalize_late_expected_record(
             return false;
         }
     }
-    if data.frames.len() != expected_len
-        || data
-            .frames
-            .iter()
-            .enumerate()
-            .any(|(idx, frame)| frame.t_ms != (idx as u64 + 1) * TRACE_FRAME_INTERVAL_MS)
+    if data
+        .frames
+        .iter()
+        .enumerate()
+        .any(|(idx, frame)| frame.t_ms != (idx as u64 + 1) * TRACE_FRAME_INTERVAL_MS)
     {
         return false;
     }
@@ -2829,11 +2994,13 @@ fn normalize_late_expected_record(
         host_start_position_samples: producer_host_range.map(|range| range.0),
         host_end_position_samples: producer_host_range.map(|range| range.1),
     });
+    let measured_frame_count = data.frames.len() as u64;
+    let missing_slots = expected_frame_count.saturating_sub(measured_frame_count);
     data.trace_diagnostics = Some(TraceDiagnostics {
         raw_trace_count,
         expected_frame_count,
-        measured_frame_count: data.frames.len() as u64,
-        missing_slots: 0,
+        measured_frame_count,
+        missing_slots,
         explicit_silence_frame_count,
     });
     let Some(record_session_id) = data
@@ -2867,11 +3034,15 @@ fn normalize_late_expected_record(
     });
     data.integrity_reasons
         .retain(|reason| !late_expected_reconcilable_reason(reason));
+    if missing_slots > 0 {
+        data.integrity_reasons
+            .push("missing_trace_slots".to_string());
+    }
     data.integrity_degraded = data.dropped_samples > 0 || !data.integrity_reasons.is_empty();
     data.validity = !data.integrity_degraded;
     data.commit_status = Some("committed".to_string());
     refresh_record_quality(data);
-    normal_publish_failure_reasons(data).is_empty()
+    side_visibility_failure_reasons(data).is_empty()
 }
 
 fn late_expected_record_is_aligned(data: &PluginDataFile, expected: &ExpectedWavMetadata) -> bool {
@@ -2940,11 +3111,9 @@ fn late_expected_can_own_record(data: &PluginDataFile, expected: &ExpectedWavMet
 }
 
 fn late_expected_prior_reasons_are_reconcilable(data: &PluginDataFile) -> bool {
-    data.dropped_samples == 0
-        && data
-            .integrity_reasons
-            .iter()
-            .all(|reason| late_expected_reconcilable_reason(reason))
+    data.integrity_reasons
+        .iter()
+        .all(|reason| late_expected_reconcilable_reason(reason))
 }
 
 fn late_expected_reconcilable_reason(reason: &str) -> bool {
@@ -3365,6 +3534,63 @@ fn pair_publish_failure_reasons(
         reasons.push("pair_post_pre_link_mismatch");
     }
     reasons.extend(pair_publish_consistency_failure_reasons(pre, post));
+    dedup_reasons(reasons)
+}
+
+fn pair_visibility_failure_reasons(
+    left: &PluginDataFile,
+    right: &PluginDataFile,
+) -> Vec<&'static str> {
+    let mut reasons = side_visibility_failure_reasons(left);
+    reasons.extend(side_visibility_failure_reasons(right));
+    let (pre, post) = match (left.role, right.role) {
+        (Role::Pre, Role::Post) => (left, right),
+        (Role::Post, Role::Pre) => (right, left),
+        _ => {
+            reasons.push("pair_roles_not_pre_post");
+            return dedup_reasons(reasons);
+        }
+    };
+    if pre.project_hash != post.project_hash {
+        reasons.push("pair_project_hash_mismatch");
+    }
+    if pre.record_session_id != post.record_session_id {
+        reasons.push("pair_record_session_id_mismatch");
+    }
+    if pre.capture_generation_id != post.capture_generation_id
+        && (pre.capture_generation_id.is_some() || post.capture_generation_id.is_some())
+    {
+        reasons.push("pair_capture_generation_mismatch");
+    }
+    if pre.paired_post_instance_id.as_deref() != Some(post.instance_id.as_str()) {
+        reasons.push("pair_pre_post_link_mismatch");
+    }
+    if post.paired_pre_instance_id.as_deref() != Some(pre.instance_id.as_str()) {
+        reasons.push("pair_post_pre_link_mismatch");
+    }
+    if pre.sample_rate != post.sample_rate {
+        reasons.push("pair_sample_rate_mismatch");
+    }
+    if pre.expected_wav != post.expected_wav {
+        reasons.push("pair_expected_wav_mismatch");
+    }
+    if !pre
+        .expected_wav
+        .as_ref()
+        .is_some_and(ExpectedWavMetadata::is_usable)
+        || !post
+            .expected_wav
+            .as_ref()
+            .is_some_and(ExpectedWavMetadata::is_usable)
+    {
+        reasons.push("missing_expected_wav_metadata");
+    }
+    if !crate::trace_alignment::has_canonical_wav_reference(pre)
+        || !crate::trace_alignment::has_canonical_wav_reference(post)
+        || pre.trace_wav_reference != post.trace_wav_reference
+    {
+        reasons.push("pair_wav_identity_unavailable");
+    }
     dedup_reasons(reasons)
 }
 
@@ -4006,6 +4232,122 @@ mod tests {
                 })
                 .collect(),
         );
+    }
+
+    #[test]
+    fn one_missing_timing_slot_publishes_the_measured_pair_as_usable_fallback() {
+        let base = isolated_dir();
+        let expected = fresh_expected_wav_fixture(48_000);
+        let session_id = "session-one-missing-slot";
+        let mut pre = complete_pair_writer(
+            &base,
+            Role::Pre,
+            "iid-pre-one-missing",
+            None,
+            Some("iid-post-one-missing".to_string()),
+        );
+        let mut post = complete_pair_writer(
+            &base,
+            Role::Post,
+            "iid-post-one-missing",
+            Some("iid-pre-one-missing".to_string()),
+            None,
+        );
+        let start_ms = expected.created_at_ms.saturating_sub(2_000);
+        for writer in [&mut pre, &mut post] {
+            writer.set_record_session_id(Some(session_id.to_string()));
+            writer
+                .set_capture_generation(Some("generation-one-missing-slot".to_string()), start_ms);
+            set_late_expected_record_time(writer, start_ms, expected.created_at_ms);
+            configure_render_clock_take(writer, 48_000);
+            writer.data.status = Status::Closed;
+            writer.data.commit_status = Some("pair_pending".to_string());
+        }
+        post.data.frames.pop();
+        post.data.trace_slot_positions.pop();
+
+        assert!(normalize_late_expected_pair(
+            &mut pre.data,
+            &mut post.data,
+            &expected
+        ));
+        assert_eq!(pre.data.frames.len(), 10);
+        assert_eq!(post.data.frames.len(), 9);
+        assert_eq!(
+            pre.data.trace_diagnostics.as_ref().unwrap().missing_slots,
+            0
+        );
+        assert_eq!(
+            post.data.trace_diagnostics.as_ref().unwrap().missing_slots,
+            1
+        );
+        assert!(prepare_late_expected_pair(&mut pre.data, &mut post.data));
+        for data in [&pre.data, &post.data] {
+            assert_eq!(data.commit_status.as_deref(), Some("committed"));
+            assert_eq!(
+                data.record_quality
+                    .as_ref()
+                    .map(|quality| quality.status.as_str()),
+                Some("usable_fallback")
+            );
+            assert!(data.trace_content_alignment.is_none());
+        }
+    }
+
+    #[test]
+    fn zero_frame_side_keeps_the_exact_pair_identity_visible_after_drop() {
+        let base = isolated_dir();
+        let expected = fresh_expected_wav_fixture(48_000);
+        let session_id = "session-zero-frame-side";
+        let mut pre = complete_pair_writer(
+            &base,
+            Role::Pre,
+            "iid-pre-zero-frame",
+            None,
+            Some("iid-post-zero-frame".to_string()),
+        );
+        let mut post = complete_pair_writer(
+            &base,
+            Role::Post,
+            "iid-post-zero-frame",
+            Some("iid-pre-zero-frame".to_string()),
+            None,
+        );
+        let start_ms = expected.created_at_ms.saturating_sub(2_000);
+        for writer in [&mut pre, &mut post] {
+            writer.set_record_session_id(Some(session_id.to_string()));
+            writer.set_capture_generation(Some("generation-zero-frame-side".to_string()), start_ms);
+            set_late_expected_record_time(writer, start_ms, expected.created_at_ms);
+            configure_render_clock_take(writer, 48_000);
+            writer.data.status = Status::Closed;
+            writer.data.commit_status = Some("pair_pending".to_string());
+        }
+        post.data.frames.clear();
+        post.data.trace_slot_positions.clear();
+
+        assert!(normalize_late_expected_pair(
+            &mut pre.data,
+            &mut post.data,
+            &expected
+        ));
+        assert_eq!(pre.data.frames.len(), 10);
+        assert!(post.data.frames.is_empty());
+        assert_eq!(
+            post.data.trace_diagnostics.as_ref().unwrap().missing_slots,
+            10
+        );
+        assert!(prepare_late_expected_pair(&mut pre.data, &mut post.data));
+        for data in [&pre.data, &post.data] {
+            assert_eq!(data.commit_status.as_deref(), Some("committed"));
+            assert_eq!(
+                data.record_quality
+                    .as_ref()
+                    .map(|quality| quality.status.as_str()),
+                Some("usable_fallback")
+            );
+            assert!(data.trace_content_alignment.is_none());
+            assert!(crate::trace_alignment::has_canonical_wav_reference(data));
+        }
     }
 
     #[test]
@@ -4735,18 +5077,19 @@ mod tests {
             );
             stage_and_finalize_release_gate_pair(&mut pre, &mut post);
         }
-        assert!(
-            release_gate_consumer_members(&incomplete_root, &incomplete_generation).is_empty(),
-            "149/150 on one side must expose zero generation members, never a partial TRACE set"
+        assert_eq!(
+            release_gate_consumer_members(&incomplete_root, &incomplete_generation).len(),
+            3,
+            "149/150 lowers timing quality but keeps the complete generation roster visible"
         );
         let missing_member = &incomplete_generation.members[1];
         assert!(
-            !pair_record_session_manifest_exists(
+            pair_record_session_manifest_exists(
                 &incomplete_root,
                 &missing_member.project_hash,
                 &missing_member.record_session_id,
             ),
-            "the incomplete pair itself must not cross the manifest publish barrier"
+            "the measured fallback pair must cross the identity manifest barrier"
         );
     }
 
@@ -5433,13 +5776,10 @@ mod tests {
         assert_eq!(stored_expected, expected_wav_fixture());
     }
 
-    /// 2026-07-10 (stopし忘れ検出): データ不完全で `.failed` へ落ちた pair session も、
-    /// Keep 時の claim marker には close 時刻 (`closed_at_ms`) が刻まれなければならない
-    /// — さもないと Kirin OS 側は「まだ open（stop 忘れ中）」と誤判定してしまう。
-    /// 同時に、`.failed` は通常棚 (final/member/manifest) には一切現れないことも確認する
-    /// （「closed claimはfailedをTRACE候補にしない」）。
+    /// Timing diagnostics may be incomplete, but an identity-complete measured pair remains a
+    /// visible fallback and still closes the Keep claim marker.
     #[test]
-    fn closed_but_failed_claim_is_not_a_trace_candidate() {
+    fn closed_identity_complete_claim_remains_a_trace_candidate() {
         let base = isolated_dir();
         let mut pre = complete_pair_writer(
             &base,
@@ -5455,7 +5795,7 @@ mod tests {
             Some("iid-pre-failed-claim".to_string()),
             None,
         );
-        // POST 側のデータ完全性を意図的に崩し、pair 全体を .failed へ落とす。
+        // POST 側の時刻診断だけを意図的に崩す。計測値とWAV identityは残る。
         post.data.trace_diagnostics = None;
         post.data.bounce_take = None;
 
@@ -5493,23 +5833,11 @@ mod tests {
 
         try_finalize_pair_session(&pre.paths, &pre.data).unwrap();
 
-        assert!(
-            pre_paths.failed_path.exists(),
-            "incomplete pair must quarantine PRE to .failed"
-        );
-        assert!(
-            post_paths.failed_path.exists(),
-            "incomplete pair must quarantine POST to .failed"
-        );
-        assert!(
-            !pre_paths.member_path.exists() && !post_paths.member_path.exists(),
-            ".failed sessions must never publish a hidden committed member"
-        );
+        assert!(!pre_paths.failed_path.exists());
+        assert!(!post_paths.failed_path.exists());
+        assert!(pre_paths.member_path.exists() && post_paths.member_path.exists());
         let manifest_path = pair_commit_manifest_path(&pre.paths, &pre.data).unwrap();
-        assert!(
-            !manifest_path.exists(),
-            ".failed sessions must never publish a commit manifest"
-        );
+        assert!(manifest_path.exists());
 
         let closed_at_ms = crate::record_expected::claim_marker_closed_at_ms_for_session(
             &base,
@@ -5524,9 +5852,18 @@ mod tests {
              distinguish it from a session that is still open (stop忘れ)"
         );
 
-        let failed_json: PluginDataFile =
-            serde_json::from_slice(&fs::read(&pre_paths.failed_path).unwrap()).unwrap();
-        assert_eq!(failed_json.commit_status.as_deref(), Some("failed"));
+        let published: PluginDataFile =
+            serde_json::from_slice(&fs::read(&pre_paths.member_path).unwrap()).unwrap();
+        assert_eq!(published.commit_status.as_deref(), Some("committed"));
+        assert_eq!(
+            published
+                .record_quality
+                .as_ref()
+                .map(|quality| quality.status.as_str()),
+            Some("usable_fallback")
+        );
+        assert!(published.trace_content_alignment.is_none());
+        assert!(verify_checksum(&published));
     }
 
     #[test]
@@ -5879,7 +6216,7 @@ mod tests {
     }
 
     #[test]
-    fn pair_finalize_quarantines_missing_trace_slots() {
+    fn pair_finalize_publishes_missing_trace_slots_as_visible_fallback() {
         let base = isolated_dir();
         let mut pre = complete_pair_writer(
             &base,
@@ -5919,19 +6256,18 @@ mod tests {
         try_finalize_pair_session(&pre.paths, &pre.data).unwrap();
 
         let manifest_path = pair_commit_manifest_path(&pre.paths, &pre.data).unwrap();
-        assert!(!manifest_path.exists());
-        assert!(!pre_paths.member_path.exists());
-        assert!(!post_paths.member_path.exists());
-        assert!(pre_paths.failed_path.exists());
-        assert!(post_paths.failed_path.exists());
+        assert!(manifest_path.exists());
+        assert!(pre_paths.member_path.exists());
+        assert!(post_paths.member_path.exists());
+        assert!(!pre_paths.failed_path.exists());
+        assert!(!post_paths.failed_path.exists());
 
         let pre_data: PluginDataFile =
-            serde_json::from_slice(&fs::read(&pre_paths.failed_path).unwrap()).unwrap();
+            serde_json::from_slice(&fs::read(&pre_paths.member_path).unwrap()).unwrap();
         let post_data: PluginDataFile =
-            serde_json::from_slice(&fs::read(&post_paths.failed_path).unwrap()).unwrap();
+            serde_json::from_slice(&fs::read(&post_paths.member_path).unwrap()).unwrap();
         for data in [&pre_data, &post_data] {
-            assert_eq!(data.commit_status.as_deref(), Some("failed"));
-            assert!(!data.validity);
+            assert_eq!(data.commit_status.as_deref(), Some("committed"));
             assert!(data.integrity_degraded);
             assert!(data
                 .integrity_reasons
@@ -5942,9 +6278,9 @@ mod tests {
                 .iter()
                 .any(|reason| reason == "trace_frame_count_mismatch"));
             let quality = data.record_quality.as_ref().expect("record_quality");
-            assert_eq!(quality.status, "failed");
+            assert_eq!(quality.status, "usable_fallback");
             assert!(!quality.complete);
-            assert!(!quality.usable);
+            assert!(quality.usable);
             assert!(quality.expected_wav_ready);
             assert!(quality.sample_count_ready);
             assert!(!quality.trace_slots_complete);
@@ -5956,7 +6292,7 @@ mod tests {
     }
 
     #[test]
-    fn pair_finalize_quarantines_duration_mismatched_pair() {
+    fn pair_finalize_publishes_duration_mismatch_as_visible_fallback() {
         let base = isolated_dir();
         let mut pre = complete_pair_writer(
             &base,
@@ -6003,29 +6339,35 @@ mod tests {
         try_finalize_pair_session(&pre.paths, &pre.data).unwrap();
 
         let manifest_path = pair_commit_manifest_path(&pre.paths, &pre.data).unwrap();
-        assert!(!manifest_path.exists());
-        assert!(!pre_paths.member_path.exists());
-        assert!(!post_paths.member_path.exists());
-        assert!(pre_paths.failed_path.exists());
-        assert!(post_paths.failed_path.exists());
+        assert!(manifest_path.exists());
+        assert!(pre_paths.member_path.exists());
+        assert!(post_paths.member_path.exists());
+        assert!(!pre_paths.failed_path.exists());
+        assert!(!post_paths.failed_path.exists());
 
         let pre_data: PluginDataFile =
-            serde_json::from_slice(&fs::read(&pre_paths.failed_path).unwrap()).unwrap();
+            serde_json::from_slice(&fs::read(&pre_paths.member_path).unwrap()).unwrap();
         let post_data: PluginDataFile =
-            serde_json::from_slice(&fs::read(&post_paths.failed_path).unwrap()).unwrap();
+            serde_json::from_slice(&fs::read(&post_paths.member_path).unwrap()).unwrap();
         for data in [&pre_data, &post_data] {
-            assert_eq!(data.commit_status.as_deref(), Some("failed"));
-            assert!(!data.validity);
+            assert_eq!(data.commit_status.as_deref(), Some("committed"));
             assert!(data
                 .integrity_reasons
                 .iter()
                 .any(|reason| reason == "pair_bounce_take_duration_mismatch"));
+            assert_eq!(
+                data.record_quality
+                    .as_ref()
+                    .map(|quality| quality.status.as_str()),
+                Some("usable_fallback")
+            );
+            assert!(data.trace_content_alignment.is_none());
             assert!(verify_checksum(data));
         }
     }
 
     #[test]
-    fn pair_finalize_quarantines_render_clock_shorter_than_expected_wav() {
+    fn pair_finalize_keeps_render_clock_shorter_than_expected_wav_visible() {
         let base = isolated_dir();
         let mut pre = complete_pair_writer(
             &base,
@@ -6066,23 +6408,23 @@ mod tests {
         try_finalize_pair_session(&pre.paths, &pre.data).unwrap();
 
         let manifest_path = pair_commit_manifest_path(&pre.paths, &pre.data).unwrap();
-        assert!(!manifest_path.exists());
-        assert!(!pre_paths.member_path.exists());
-        assert!(!post_paths.member_path.exists());
-        assert!(pre_paths.failed_path.exists());
-        assert!(post_paths.failed_path.exists());
+        assert!(manifest_path.exists());
+        assert!(pre_paths.member_path.exists());
+        assert!(post_paths.member_path.exists());
+        assert!(!pre_paths.failed_path.exists());
+        assert!(!post_paths.failed_path.exists());
 
         let pre_data: PluginDataFile =
-            serde_json::from_slice(&fs::read(&pre_paths.failed_path).unwrap()).unwrap();
+            serde_json::from_slice(&fs::read(&pre_paths.member_path).unwrap()).unwrap();
         let post_data: PluginDataFile =
-            serde_json::from_slice(&fs::read(&post_paths.failed_path).unwrap()).unwrap();
+            serde_json::from_slice(&fs::read(&post_paths.member_path).unwrap()).unwrap();
         for data in [&pre_data, &post_data] {
-            assert_eq!(data.commit_status.as_deref(), Some("failed"));
-            assert!(!data.validity);
-            assert!(data
-                .integrity_reasons
-                .iter()
-                .any(|reason| reason == "bounce_take_duration_mismatch"));
+            assert_eq!(data.commit_status.as_deref(), Some("committed"));
+            let quality = data.record_quality.as_ref().expect("record_quality");
+            assert_eq!(quality.status, "usable_fallback");
+            assert!(quality.usable);
+            assert!(!quality.complete);
+            assert!(data.trace_content_alignment.is_none());
             assert!(verify_checksum(data));
         }
     }
@@ -6213,7 +6555,7 @@ mod tests {
     }
 
     #[test]
-    fn pair_finalize_quarantines_derived_48k_frame_count_mismatch() {
+    fn pair_finalize_publishes_derived_48k_mismatch_as_visible_fallback() {
         let base = isolated_dir();
         let mut pre = complete_pair_writer(
             &base,
@@ -6247,23 +6589,29 @@ mod tests {
         try_finalize_pair_session(&pre.paths, &pre.data).unwrap();
 
         let manifest_path = pair_commit_manifest_path(&pre.paths, &pre.data).unwrap();
-        assert!(!manifest_path.exists());
-        assert!(!pre_paths.member_path.exists());
-        assert!(!post_paths.member_path.exists());
-        assert!(pre_paths.failed_path.exists());
-        assert!(post_paths.failed_path.exists());
+        assert!(manifest_path.exists());
+        assert!(pre_paths.member_path.exists());
+        assert!(post_paths.member_path.exists());
+        assert!(!pre_paths.failed_path.exists());
+        assert!(!post_paths.failed_path.exists());
 
         let pre_data: PluginDataFile =
-            serde_json::from_slice(&fs::read(&pre_paths.failed_path).unwrap()).unwrap();
+            serde_json::from_slice(&fs::read(&pre_paths.member_path).unwrap()).unwrap();
         let post_data: PluginDataFile =
-            serde_json::from_slice(&fs::read(&post_paths.failed_path).unwrap()).unwrap();
+            serde_json::from_slice(&fs::read(&post_paths.member_path).unwrap()).unwrap();
         for data in [&pre_data, &post_data] {
-            assert_eq!(data.commit_status.as_deref(), Some("failed"));
-            assert!(!data.validity);
+            assert_eq!(data.commit_status.as_deref(), Some("committed"));
             assert!(data
                 .integrity_reasons
                 .iter()
                 .any(|reason| reason == "pair_bounce_take_48k_duration_mismatch"));
+            assert_eq!(
+                data.record_quality
+                    .as_ref()
+                    .map(|quality| quality.status.as_str()),
+                Some("usable_fallback")
+            );
+            assert!(data.trace_content_alignment.is_none());
             assert!(verify_checksum(data));
         }
     }
@@ -6438,20 +6786,30 @@ mod tests {
         assert_eq!(inspected, expected);
         let mut proof_pre = pre.data.clone();
         let mut proof_post = post.data.clone();
-        assert!(
-            !normalize_late_expected_pair(&mut proof_pre, &mut proof_post, &inspected),
-            "legacy context must not repair an incomplete current producer side"
+        assert!(normalize_late_expected_pair(
+            &mut proof_pre,
+            &mut proof_post,
+            &inspected
+        ));
+        assert_eq!(
+            proof_post.trace_clock_resolution.as_deref(),
+            Some("chronological_fallback")
+        );
+        assert!(proof_post.trace_content_alignment.is_none());
+        assert_ne!(
+            proof_post.frames[0].lufs_m, proof_post.trace_context_frames[0].lufs_m,
+            "legacy context must not manufacture the current producer side"
         );
 
         assert_eq!(
             reconcile_late_expected_wav_project(&base, "project_hash_test"),
-            0
+            2
         );
-        assert!(pre_paths.pair_pending_path.exists());
-        assert!(post_paths.pair_pending_path.exists());
-        assert!(!pre_paths.member_path.exists());
-        assert!(!post_paths.member_path.exists());
-        assert!(!pair_commit_manifest_path(&pre.paths, &pre.data)
+        assert!(!pre_paths.pair_pending_path.exists());
+        assert!(!post_paths.pair_pending_path.exists());
+        assert!(pre_paths.member_path.exists());
+        assert!(post_paths.member_path.exists());
+        assert!(pair_commit_manifest_path(&pre.paths, &pre.data)
             .unwrap()
             .exists());
     }

@@ -1,10 +1,9 @@
 //! Producer-owned PRE/POST TRACE axis contract.
 //!
-//! Every metric frame is formed on one producer-owned output-presentation sample position. The
-//! Audio Thread normalizes the raw host position with the host-reported output presentation
-//! latency exactly once and retains both raw facts separately. Pair finalization validates equal
-//! presentation slots, then publishes them on dropped-WAV sample 0..N. Metric values never
-//! participate in the clock decision.
+//! Every metric frame retains its producer position, raw host position and reported presentation
+//! latency. Pair finalization resolves each plug-in node against the dropped WAV from those facts,
+//! then publishes exact matches on WAV sample 0..N. Metric values never participate in the clock
+//! decision, and unresolved timing never erases the measured generation.
 
 use serde::{Deserialize, Serialize};
 
@@ -14,6 +13,7 @@ pub const TRACE_ALIGNMENT_METHOD: &str = "producer_wav_sample_axis_v9";
 pub const TRACE_ALIGNMENT_STATUS: &str = "canonical_wav_clock";
 pub const TRACE_ALIGNMENT_START_BWF: &str = "bwf_time_reference";
 pub const TRACE_ALIGNMENT_START_RENDER_RANGE: &str = "producer_render_range";
+pub const TRACE_ALIGNMENT_START_ORDER_FALLBACK: &str = "record_order_fallback";
 pub const TRACE_TIME_AXIS: &str = "wav_samples_v1";
 pub const TRACE_HOST_TIME_AXIS: &str = "host_content_samples_v3";
 pub const TRACE_CLOCK_BASIS: &str = "output_presentation_wav_samples_v1";
@@ -66,7 +66,13 @@ pub(crate) fn canonical_wav_alignment(
     // per-instance host clock remains diagnostic and can legitimately be absent on AU when its
     // first callback is a partial 100 ms block. Without `bext`, the render-range fallback still
     // requires matching host-clock provenance.
+    let resolved_render_clocks = [left, right].iter().all(|data| {
+        data.trace_clock_resolution
+            .as_deref()
+            .is_some_and(|model| model != "chronological_fallback")
+    });
     if start_basis == TRACE_ALIGNMENT_START_RENDER_RANGE
+        && !resolved_render_clocks
         && !crate::trace_content_clock::has_compatible_host_clocks(left, right)
     {
         return None;

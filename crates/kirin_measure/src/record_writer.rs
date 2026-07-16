@@ -27,7 +27,7 @@ use crate::engine::SessionSummary;
 use crate::plugin_data::{
     compute_checksum, normal_publish_failure_reasons, verify_checksum, BounceTake,
     ExpectedWavMetadata, HostPresentationLatencyObservation, PluginDataFile, PluginDataWriter,
-    Role, Status, TraceClock, TraceDiagnostics, WriterPaths,
+    Role, Status, TraceClock, TraceClockObservation, TraceDiagnostics, WriterPaths,
 };
 use crate::record::RecordStateMachine;
 use crate::record_mark::{
@@ -1232,6 +1232,13 @@ fn expected_duration_ms(expected: &ExpectedWavMetadata) -> u64 {
 }
 
 fn bake_continuous_record_timeline(ctx: &mut RecordingCtx) {
+    let clock_observations = ctx
+        .trace_samples
+        .iter()
+        .filter(|sample| sample.generation == ctx.record_generation)
+        .filter_map(trace_clock_observation)
+        .collect();
+    ctx.writer.set_trace_clock_observations(clock_observations);
     let has_epoch_samples = ctx
         .trace_samples
         .iter()
@@ -1463,6 +1470,37 @@ fn bake_continuous_record_timeline(ctx: &mut RecordingCtx) {
         ctx.writer.mark_integrity_degraded();
         ctx.writer.add_integrity_reason("missing_trace_slots");
     }
+}
+
+fn trace_clock_observation(sample: &RecordTraceSample) -> Option<TraceClockObservation> {
+    let result = measured_trace_result_for_bake(sample)?;
+    let (Some(lufs_m), Some(true_peak), Some(crest)) =
+        (result.lufs_m, result.true_peak, result.crest)
+    else {
+        return None;
+    };
+    Some(TraceClockObservation {
+        frame: crate::plugin_data::make_frame_optional(
+            sample.t_ms,
+            result.n_prime,
+            result.sharpness,
+            lufs_m,
+            true_peak,
+            crest,
+            result.psr,
+        ),
+        producer_position_samples: sample.position_samples,
+        raw_host_position_samples: sample.raw_host_position_samples,
+        capture_epoch: sample.capture_epoch,
+        clock_source: sample.clock_source.as_str().map(str::to_string),
+        presentation_latency_source: sample
+            .presentation_latency
+            .source
+            .as_str()
+            .map(str::to_string),
+        input_presentation_latency_samples: sample.presentation_latency.input,
+        output_presentation_latency_samples: sample.presentation_latency.output,
+    })
 }
 
 fn producer_take_slot_positions(
@@ -4548,6 +4586,7 @@ mod tests {
         )));
 
         mark_trace_time(&mut ctx, 4_100, 196_800, Some(196_800));
+        ctx.record_generation = 1;
         ctx.selected_capture_epoch = Some(1);
         ctx.presentation_range = Some((0, 192_000));
         for t_ms in (100_u64..=4_100).step_by(FRAME_INTERVAL_MS as usize) {
@@ -4572,6 +4611,15 @@ mod tests {
         assert_eq!(take.end_t_ms, 4_000);
         assert_eq!(take.frame_count, 40);
         assert_eq!(loaded.frames.last().map(|frame| frame.t_ms), Some(4_000));
+        assert_eq!(loaded.trace_clock_observations.len(), 41);
+        assert_eq!(
+            loaded
+                .trace_clock_observations
+                .iter()
+                .map(|observation| observation.capture_epoch)
+                .collect::<BTreeSet<_>>(),
+            BTreeSet::from([Some(1), Some(2)])
+        );
         assert!(loaded
             .integrity_reasons
             .iter()
