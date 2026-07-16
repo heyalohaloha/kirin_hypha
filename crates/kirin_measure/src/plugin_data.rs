@@ -191,7 +191,9 @@ pub struct BounceTake {
     pub end_t_ms: u64,
     pub trace_sample_count: u64,
     pub frame_count: u64,
-    /// Producer-observed contiguous DAW/render range corresponding to WAV sample `0..N`.
+    /// Producer-owned output-presentation range corresponding to WAV sample `0..N`.
+    /// The legacy field name contains `host`, but current producers never store the untouched raw
+    /// callback clock here; that independent diagnostic belongs to `raw_host_clock_range`.
     /// Legacy artifacts and hosts without an exact range omit both fields.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host_start_position_samples: Option<i64>,

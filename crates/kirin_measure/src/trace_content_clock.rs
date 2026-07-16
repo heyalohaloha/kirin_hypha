@@ -604,6 +604,48 @@ mod tests {
     }
 
     #[test]
+    fn missing_bext_dynamic_latency_resolves_from_the_producer_presentation_range() {
+        let mut pre = plugin_data(Role::Pre, "session", "project_timeline");
+        let mut post = plugin_data(Role::Post, "session", "audio_render_timeline");
+        let targets = [100_800_i64, 105_600, 110_400];
+        for (side, base) in [(&mut pre, -30.0), (&mut post, -20.0)] {
+            side.trace_slot_positions.clear();
+            side.trace_clock_observations = targets
+                .iter()
+                .enumerate()
+                .map(|(index, target)| {
+                    let output = if index == 0 { 256 } else { 512 };
+                    TraceClockObservation {
+                        frame: Frame {
+                            t_ms: (index as u64 + 1) * 100,
+                            ..frame(base + index as f64)
+                        },
+                        producer_position_samples: Some(*target),
+                        raw_host_position_samples: target.checked_add(i64::from(output)),
+                        capture_epoch: Some(index as u64 + 10),
+                        clock_source: Some("project_timeline".to_string()),
+                        presentation_latency_source: Some("vst3".to_string()),
+                        input_presentation_latency_samples: Some(0),
+                        output_presentation_latency_samples: Some(output),
+                    }
+                })
+                .collect();
+        }
+
+        let plan = build_wav_start_clock_plan(&pre, &post, &expected(None), 3, 4_800)
+            .expect("non-BWF presentation clock with dynamic latency");
+
+        assert!(plan.exact);
+        assert_eq!(
+            plan.start_basis,
+            crate::trace_alignment::TRACE_ALIGNMENT_START_RENDER_RANGE
+        );
+        assert_eq!(plan.pre_clock_model, "producer_position");
+        assert_eq!(plan.post_clock_model, "producer_position");
+        assert_eq!(plan.wav_slots, vec![4_800, 9_600, 14_400]);
+    }
+
+    #[test]
     fn missing_bext_plan_uses_producer_render_range_with_different_metric_shapes() {
         let pre = plugin_data(Role::Pre, "session", "project_timeline");
         let mut post = plugin_data(Role::Post, "session", "project_timeline");
