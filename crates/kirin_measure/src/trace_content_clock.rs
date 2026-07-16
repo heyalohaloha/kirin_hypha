@@ -809,10 +809,10 @@ mod tests {
             plan.start_basis,
             crate::trace_alignment::TRACE_ALIGNMENT_START_RENDER_RANGE
         );
-        assert_eq!(plan.pre_clock_model, "producer_position");
-        assert_eq!(plan.post_clock_model, "producer_position");
-        assert_eq!(plan.pre_wav_slots, vec![4_800, 9_600, 14_400]);
-        assert_eq!(plan.post_wav_slots, vec![4_800, 9_600, 14_400]);
+        assert_eq!(plan.pre_clock_model, "producer_plus_output_latency");
+        assert_eq!(plan.post_clock_model, "producer_plus_output_latency");
+        assert_eq!(plan.pre_wav_slots, vec![5_056, 10_112]);
+        assert_eq!(plan.post_wav_slots, vec![5_056, 10_112]);
     }
 
     #[test]
