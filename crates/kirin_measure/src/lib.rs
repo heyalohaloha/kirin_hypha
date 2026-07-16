@@ -526,7 +526,8 @@ pub fn ensure_legacy_cleanup_done() {
 /// Audio Thread が宣言する信号状態。パイプライン全体がこの値に従う。
 ///
 /// - Audio Thread が毎 `process()` で `AtomicU8` に書き込む（ロックフリー）
-/// - Measure Thread が毎サイクル先頭で読み取り、Active 以外なら compute() スキップ
+/// - Measure Thread が毎サイクル先頭で読み取り、Watch は Active 以外なら compute() スキップ
+/// - Record 中は RecordStateMachine / capture clock が admission を所有し、無音も継続計測
 /// - IO Thread が JSON に `"signal_state"` として出力
 #[repr(u8)]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

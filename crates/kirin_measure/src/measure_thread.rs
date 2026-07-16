@@ -68,6 +68,15 @@ fn should_process_phase_d(is_recording: bool) -> bool {
     is_recording
 }
 
+/// SignalState controls Watch freshness and GUI visibility. Record admission is owned by the
+/// Record state machine and capture clock; once Audio Thread has admitted a buffer, silence is
+/// still factual audio and must pass through every Record engine. Treating Inactive as a Record
+/// boundary resets Phase D and creates sparse 100 ms optional fields on quiet buses.
+#[inline]
+fn should_suspend_measurement(state: SignalState, is_recording: bool) -> bool {
+    !is_recording && state != SignalState::Active
+}
+
 fn record_grid_alignment(position_start: i64, sample_rate: u32) -> (usize, i64) {
     let slot_frames = (sample_rate as i64 / 10).max(1);
     let phase_frames = position_start.rem_euclid(slot_frames) as usize;
@@ -581,92 +590,11 @@ pub fn spawn_measure_thread(
                     continue;
                 }
             }
-            if state != SignalState::Active {
+            if should_suspend_measurement(state, is_recording) {
                 prev_active = false;
-                // ── B-132 (G-115-382) 共通A: finalize-before-discard ──────────────
-                // 録音継続中（is_recording）に transport stop / DAW stall で Inactive に落ちた場合、
-                // ring 残量を破棄する前に finalize して session_summary に算入する。これで
-                // (ii)① 自然 Inactive discard と (ii)② heartbeat-stale override（line ~243 で
-                // state=Inactive に畳んで本ブロックに合流）の両経路をカバーする。純 Watch（非録音）の
-                // silent 破棄は is_recording gate で従来通り維持。seal は進めない（セッション継続中 /
-                // seal は Record→Watch エッジのみ）。`slots()>0` が冪等 latch（drain 後 ring 空 →
-                // 後続ループは skip / 長時間 stall でも再 finalize しない）。
-                if is_recording && consumer.slots() > 0 {
-                    let _ = drain_ring_into_session(
-                        DrainRingSession {
-                            consumer: &mut consumer,
-                            resampler: &mut resampler,
-                            trace_engine: &mut record_trace_engine,
-                            summary_engine: &mut record_summary_engine,
-                            session_summary: &session_summary,
-                            chunk_f64: &mut chunk_f64,
-                            resampled_buf: &mut resampled_buf,
-                            phase_d: &mut phase_d,
-                            phase_d_mono_buf: &mut phase_d_mono_buf,
-                            phase_d_slot_pending: &mut phase_d_slot_pending,
-                            latest_pd: &mut latest_pd,
-                            record_core_pending: &mut record_core_pending,
-                            record_phase_pending: &mut record_phase_pending,
-                            sample_rate,
-                            n_channels,
-                            native_frames_total: &mut native_frames_total,
-                            consumed_samples: &mut consumed_samples,
-                            record_take_tracker: &record_take_tracker,
-                            last_capture_position_end: &mut last_capture_position_end,
-                            finalize_capture: false,
-                        },
-                        Some(RecordTraceDrain {
-                            queue: &record_trace_queue,
-                            timeline: RecordTraceTimeline {
-                                generation: record_sm.generation(),
-                                origin_frames_48k: record_origin_frames,
-                                origin_native_frames: record_origin_native_frames,
-                                offset_frames_48k: record_trace_frame_offset_48k,
-                                offset_native_frames: record_trace_native_frame_offset,
-                                origin_position_samples: record_origin_position_samples,
-                            },
-                            cursor: RecordTraceCursor {
-                                next_trace_ms: &mut next_record_trace_ms,
-                                next_psb_ms: &mut next_record_psb_ms,
-                            },
-                        }),
-                    );
-                }
-                if is_recording {
-                    // Phase D may be one result behind the core engine at a transport/stall edge.
-                    // The core LUFS/TP/Crest window is still a factual measured slot; publish it
-                    // without optional Phase-D fields instead of deleting the whole 100 ms frame.
-                    let mut trace = RecordTraceDrain {
-                        queue: &record_trace_queue,
-                        timeline: RecordTraceTimeline {
-                            generation: record_sm.generation(),
-                            origin_frames_48k: record_origin_frames,
-                            origin_native_frames: record_origin_native_frames,
-                            offset_frames_48k: record_trace_frame_offset_48k,
-                            offset_native_frames: record_trace_native_frame_offset,
-                            origin_position_samples: record_origin_position_samples,
-                        },
-                        cursor: RecordTraceCursor {
-                            next_trace_ms: &mut next_record_trace_ms,
-                            next_psb_ms: &mut next_record_psb_ms,
-                        },
-                    };
-                    join_record_trace_slots(
-                        &mut trace,
-                        sample_rate,
-                        &mut record_core_pending,
-                        &mut record_phase_pending,
-                    );
-                    flush_record_core_without_phase_d(
-                        &mut trace,
-                        sample_rate,
-                        &mut record_core_pending,
-                    );
-                    record_phase_pending.clear();
-                }
                 // Bypassed / Inactive → compute() スキップ。
-                // リングバッファに残っているサンプルは破棄する（共通A で drain 済なら no-op）。
-                // （Active に戻ったとき古いデータで計測しないため）。
+                // Watch のリングバッファに残っているサンプルは破棄する。
+                // Record 中はこの分岐に入らず、無音を含む admitted audio を継続計測する。
                 drain_consumer_all(&mut consumer, &mut consumed_samples);
                 // 計測結果をクリア（GUI が即座に `---` 表示できるようにする）
                 let mut guard =
@@ -2052,6 +1980,56 @@ pub mod tests {
     fn phase_d_processing_is_scoped_to_record() {
         assert!(!super::should_process_phase_d(false));
         assert!(super::should_process_phase_d(true));
+    }
+
+    #[test]
+    fn signal_state_suspends_watch_but_never_admitted_record_audio() {
+        for state in [
+            crate::SignalState::Active,
+            crate::SignalState::Inactive,
+            crate::SignalState::Bypassed,
+        ] {
+            assert!(
+                !super::should_suspend_measurement(state, true),
+                "Record admission must remain authoritative for {state:?}"
+            );
+        }
+        assert!(!super::should_suspend_measurement(
+            crate::SignalState::Active,
+            false
+        ));
+        assert!(super::should_suspend_measurement(
+            crate::SignalState::Inactive,
+            false
+        ));
+        assert!(super::should_suspend_measurement(
+            crate::SignalState::Bypassed,
+            false
+        ));
+    }
+
+    #[test]
+    fn quiet_record_slots_continue_through_phase_d_without_state_resets() {
+        let record_states = [
+            crate::SignalState::Active,
+            crate::SignalState::Inactive,
+            crate::SignalState::Inactive,
+            crate::SignalState::Active,
+        ];
+        let admitted_record_slots = record_states
+            .into_iter()
+            .filter(|state| !super::should_suspend_measurement(*state, true))
+            .count();
+        let admitted_watch_slots = record_states
+            .into_iter()
+            .filter(|state| !super::should_suspend_measurement(*state, false))
+            .count();
+
+        assert_eq!(
+            admitted_record_slots, 4,
+            "quiet Record slots must stay dense"
+        );
+        assert_eq!(admitted_watch_slots, 2, "Watch keeps its silence gate");
     }
 
     #[test]
