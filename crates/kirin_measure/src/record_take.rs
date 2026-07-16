@@ -1119,6 +1119,50 @@ impl RecordTakeTracker {
         None
     }
 
+    /// A presentation-latency callback may split the clock mapping while the captured audio and
+    /// raw host stream remain contiguous. Measure Thread must keep measuring across that boundary;
+    /// only the late WAV resolver chooses the correct mapping model.
+    pub(crate) fn capture_epochs_are_latency_continuation(
+        &self,
+        previous_epoch: u64,
+        next_epoch: u64,
+    ) -> bool {
+        let (Some(previous), Some(next)) = (
+            self.capture_span_for_epoch(previous_epoch),
+            self.capture_span_for_epoch(next_epoch),
+        ) else {
+            return false;
+        };
+        let previous_frames = previous
+            .capture_end_frame
+            .saturating_sub(previous.capture_start_frame);
+        let raw_shift = previous
+            .raw_host_position_start_samples
+            .and_then(|start| i64::try_from(previous_frames).ok()?.checked_add(start))
+            .zip(next.raw_host_position_start_samples)
+            .map(|(previous_end, next_start)| next_start.saturating_sub(previous_end));
+        previous.epoch != next.epoch
+            && previous.generation == next.generation
+            && previous.capture_end_frame == next.capture_start_frame
+            && previous.source == next.source
+            && previous.presentation_latency != next.presentation_latency
+            && raw_shift.is_some_and(|shift| {
+                presentation_latency_shift_matches(
+                    shift,
+                    previous.presentation_latency,
+                    next.presentation_latency,
+                )
+            })
+    }
+
+    fn capture_span_for_epoch(&self, epoch: u64) -> Option<CaptureClockSpan> {
+        if epoch == 0 {
+            return None;
+        }
+        let index = epoch as usize % self.capture_clock_slots.len();
+        self.capture_clock_slots[index].read(epoch)
+    }
+
     /// Audio-thread note. This is atomics only: no allocation, lock, filesystem,
     /// logging, or blocking call.
     pub fn note_block(&self, block: RecordTakeBlock) {
@@ -1533,6 +1577,30 @@ impl RecordTakeTracker {
     }
 }
 
+fn presentation_latency_shift_matches(
+    raw_shift: i64,
+    previous: PresentationLatencySamples,
+    next: PresentationLatencySamples,
+) -> bool {
+    let changed_by = |left: Option<u32>, right: Option<u32>| {
+        left.zip(right)
+            .map(|(left, right)| i64::from(right).saturating_sub(i64::from(left)))
+    };
+    let output_shift = changed_by(previous.output, next.output);
+    let input_shift = changed_by(previous.input, next.input);
+    let combined_shift = output_shift
+        .zip(input_shift)
+        .map(|(output, input)| [output.saturating_add(input), output.saturating_sub(input)]);
+    raw_shift == 0
+        || output_shift.is_some_and(|shift| raw_shift == shift || raw_shift == -shift)
+        || input_shift.is_some_and(|shift| raw_shift == shift || raw_shift == -shift)
+        || combined_shift.is_some_and(|shifts| {
+            shifts
+                .iter()
+                .any(|shift| raw_shift == *shift || raw_shift == -*shift)
+        })
+}
+
 /// Convert the raw processing position to the sample presented on the exported WAV timeline.
 /// This function is intentionally producer-only; downstream code receives the converted sample
 /// plus the separately retained raw facts and must not apply latency again.
@@ -1656,6 +1724,7 @@ mod tests {
             first,
         );
         assert_eq!(tracker.presentation_latency(), first);
+        let first_epoch = tracker.clock_point_for_captured_frame(512).unwrap().epoch;
 
         let changed = PresentationLatencySamples {
             source: PresentationLatencySource::AudioUnitV2,
@@ -1670,6 +1739,8 @@ mod tests {
             changed,
         );
         assert_eq!(tracker.presentation_latency(), changed);
+        let changed_epoch = tracker.clock_point_for_captured_frame(768).unwrap().epoch;
+        assert!(tracker.capture_epochs_are_latency_continuation(first_epoch, changed_epoch));
         let boundary = PresentationLatencySamples {
             source: PresentationLatencySource::AudioUnitV2,
             input: Some(u32::MAX),
@@ -1683,6 +1754,8 @@ mod tests {
             boundary,
         );
         assert_eq!(tracker.presentation_latency(), boundary);
+        let boundary_epoch = tracker.clock_point_for_captured_frame(1_024).unwrap().epoch;
+        assert!(tracker.capture_epochs_are_latency_continuation(changed_epoch, boundary_epoch));
         assert_eq!(
             tracker
                 .capture_span_sequence

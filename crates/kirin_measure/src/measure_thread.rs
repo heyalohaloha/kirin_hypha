@@ -751,10 +751,25 @@ pub fn spawn_measure_thread(
             let selected_record_epoch = is_recording
                 .then(|| record_take_tracker.selected_capture_epoch(record_sm.generation()))
                 .flatten();
+            let capture_epoch_changed = is_recording
+                && capture_plan.capture_epoch.is_some()
+                && capture_plan.capture_epoch != record_capture_epoch;
+            let latency_epoch_transition = capture_epoch_changed
+                && record_capture_epoch
+                    .zip(capture_plan.capture_epoch)
+                    .is_some_and(|(previous, next)| {
+                        capture_plan.capture_generation == Some(record_sm.generation())
+                            && record_take_tracker
+                                .capture_epochs_are_latency_continuation(previous, next)
+                    });
             if is_recording
                 && available > 0
-                && selected_record_epoch.is_some()
-                && capture_plan.capture_epoch != selected_record_epoch
+                && should_drop_unselected_record_epoch(
+                    selected_record_epoch,
+                    record_capture_epoch,
+                    capture_plan.capture_epoch,
+                    latency_epoch_transition,
+                )
             {
                 // This callback belongs to a lower/equal-priority transport pass after the
                 // immutable take was selected (typically the DAW's post-bounce position jump).
@@ -780,16 +795,12 @@ pub fn spawn_measure_thread(
                 last_capture_position_end = capture_plan.position_end_samples;
                 continue;
             }
-            let selected_epoch_changed = is_recording
-                && selected_record_epoch.is_some()
-                && selected_record_epoch != record_capture_epoch;
             if available > 0 {
                 if capture_plan
                     .position_start_samples
                     .zip(last_capture_position_end)
                     .is_some_and(|(start, previous_end)| start != previous_end)
                     && !is_recording
-                    || selected_epoch_changed
                 {
                     engine.reset();
                     record_trace_engine.reset();
@@ -817,6 +828,13 @@ pub fn spawn_measure_thread(
                         "[MeasureThread] host sample discontinuity: measurement state reset at {:?}",
                         capture_plan.position_start_samples
                     );
+                }
+                if latency_epoch_transition {
+                    // Keep the DSP window continuous. Only the sample-coordinate mapping changed;
+                    // resetting here would inject artificial silence and lose 400 ms of TRACE.
+                    record_next_grid_end = None;
+                    record_capture_epoch = capture_plan.capture_epoch;
+                    record_grid_cursor = capture_plan.position_start_samples;
                 }
                 chunk_f64.clear();
                 for _ in 0..available {
@@ -1445,8 +1463,21 @@ struct CaptureChunkPlan {
     position_end_samples: Option<i64>,
     raw_host_position_start_samples: Option<i64>,
     capture_epoch: Option<u64>,
+    capture_generation: Option<u64>,
     clock_source: CaptureClockSource,
     presentation_latency: PresentationLatencySamples,
+}
+
+fn should_drop_unselected_record_epoch(
+    selected_epoch: Option<u64>,
+    admitted_epoch: Option<u64>,
+    candidate_epoch: Option<u64>,
+    latency_epoch_transition: bool,
+) -> bool {
+    selected_epoch.is_some()
+        && candidate_epoch != selected_epoch
+        && candidate_epoch != admitted_epoch
+        && !latency_epoch_transition
 }
 
 impl CaptureChunkPlan {
@@ -1532,6 +1563,7 @@ fn capture_chunk_plan(
         raw_host_position_start_samples: span
             .raw_host_position_at_capture_boundary(captured_frames),
         capture_epoch: Some(span.epoch),
+        capture_generation: Some(span.generation),
         clock_source: span.source,
         presentation_latency: span.presentation_latency,
     }
@@ -1951,6 +1983,7 @@ pub mod tests {
             position_end_samples: Some(6_489_600),
             raw_host_position_start_samples: Some(6_487_676),
             capture_epoch: Some(9),
+            capture_generation: Some(1),
             clock_source: CaptureClockSource::AudioRenderTimeline,
             presentation_latency: latency,
         };
@@ -1985,6 +2018,7 @@ pub mod tests {
             position_end_samples: Some(7_225),
             raw_host_position_start_samples: Some(2_425),
             capture_epoch: Some(4),
+            capture_generation: Some(1),
             clock_source: CaptureClockSource::ProjectTimeline,
             presentation_latency: PresentationLatencySamples::default(),
         };
@@ -3056,5 +3090,27 @@ mod b132_drain_tests {
             ..unclocked
         };
         assert_eq!(trusted_pre_roll_epoch(clocked), Some(7));
+    }
+
+    #[test]
+    fn admitted_latency_epoch_keeps_every_following_chunk() {
+        assert!(!super::should_drop_unselected_record_epoch(
+            Some(10),
+            Some(10),
+            Some(11),
+            true,
+        ));
+        assert!(!super::should_drop_unselected_record_epoch(
+            Some(10),
+            Some(11),
+            Some(11),
+            false,
+        ));
+        assert!(super::should_drop_unselected_record_epoch(
+            Some(10),
+            Some(11),
+            Some(12),
+            false,
+        ));
     }
 }

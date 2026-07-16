@@ -54,6 +54,7 @@ pub mod reservation;
 pub mod storage;
 mod sync_recovery;
 pub mod trace_alignment;
+mod trace_clock_resolution;
 mod trace_content_clock;
 pub mod watch_max;
 pub mod watch_playback_pass;

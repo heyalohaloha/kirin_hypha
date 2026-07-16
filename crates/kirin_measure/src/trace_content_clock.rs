@@ -16,11 +16,15 @@ pub(crate) struct WavStartClockPlan {
     pub pre_frames: Vec<Frame>,
     pub post_frames: Vec<Frame>,
     /// Producer/DAW positions used only to select the exact source frames.
-    pub producer_slots: Vec<i64>,
+    pub pre_producer_slots: Vec<i64>,
+    pub post_producer_slots: Vec<i64>,
     /// Public TRACE positions on the dropped WAV axis. The first frame is the end of the first
     /// 100 ms measurement window, so this always starts at `slot_samples`, never at a DAW offset.
     pub wav_slots: Vec<i64>,
     pub start_basis: &'static str,
+    pub pre_clock_model: &'static str,
+    pub post_clock_model: &'static str,
+    pub exact: bool,
 }
 
 pub(crate) fn build_wav_start_clock_plan(
@@ -49,37 +53,99 @@ pub(crate) fn build_wav_start_clock_plan(
     {
         return None;
     }
-    // BWF is the exact WAV sample-0 anchor, so host-clock provenance is optional on that path.
-    // Without BWF, the shared producer render range still needs two compatible native clocks.
-    if expected.wav_time_reference_samples.is_none() && !has_compatible_host_clocks(pre, post) {
-        return None;
-    }
-    // Current producers commit exactly one direct frame for every direct slot. The direct Record
-    // epoch may include measured lead/tail, but the exact BWF/render window must be present on both
-    // sides. Legacy context fields may deserialize but can never repair a missing direct slot.
-    let pre_source = direct_trace_source(pre, expected_len)?;
-    let post_source = direct_trace_source(post, expected_len)?;
-    let render_range = shared_producer_render_range(pre, post, expected);
-    let (selected_positions, start_basis) = select_wav_window(
-        &pre_source,
-        &post_source,
+    // Resolve each plug-in node independently. DAWs may report PRE and POST project positions with
+    // different PDC semantics, and a latency change creates multiple immutable capture epochs.
+    // The observation journal retains all of those factual segments for this late decision.
+    let pre_observed = crate::trace_clock_resolution::resolve_exact_side(
+        pre,
         expected,
         expected_len,
         slot_samples,
-        render_range,
-    )?;
-    let pre_frames = selected_frames(&pre_source, &selected_positions)?;
-    let post_frames = selected_frames(&post_source, &selected_positions)?;
-    let wav_slots = (1..=expected_len)
-        .map(|index| i64::try_from(index).ok()?.checked_mul(slot_samples))
-        .collect::<Option<Vec<_>>>()?;
+    );
+    let post_observed = crate::trace_clock_resolution::resolve_exact_side(
+        post,
+        expected,
+        expected_len,
+        slot_samples,
+    );
+    if let (Some(pre_side), Some(post_side)) = (pre_observed, post_observed) {
+        let start_basis = if expected.wav_time_reference_samples.is_some() {
+            crate::trace_alignment::TRACE_ALIGNMENT_START_BWF
+        } else {
+            crate::trace_alignment::TRACE_ALIGNMENT_START_RENDER_RANGE
+        };
+        return Some(WavStartClockPlan {
+            pre_frames: pre_side.frames,
+            post_frames: post_side.frames,
+            pre_producer_slots: pre_side.producer_slots,
+            post_producer_slots: post_side.producer_slots,
+            wav_slots: wav_slots(expected_len, slot_samples)?,
+            start_basis,
+            pre_clock_model: pre_side.model,
+            post_clock_model: post_side.model,
+            exact: true,
+        });
+    }
+
+    // Legacy/current direct slots remain an exact compatibility path when no observation journal
+    // exists. They are never repaired from the old Watch-context fields.
+    let pre_source = direct_trace_source(pre, expected_len);
+    let post_source = direct_trace_source(post, expected_len);
+    let render_range = shared_producer_render_range(pre, post, expected);
+    let direct_clock_is_eligible =
+        expected.wav_time_reference_samples.is_some() || has_compatible_host_clocks(pre, post);
+    if direct_clock_is_eligible {
+        if let (Some(pre_source), Some(post_source)) = (pre_source, post_source) {
+            if let Some((selected_positions, start_basis)) = select_wav_window(
+                &pre_source,
+                &post_source,
+                expected,
+                expected_len,
+                slot_samples,
+                render_range,
+            ) {
+                return Some(WavStartClockPlan {
+                    pre_frames: selected_frames(&pre_source, &selected_positions)?,
+                    post_frames: selected_frames(&post_source, &selected_positions)?,
+                    pre_producer_slots: selected_positions.clone(),
+                    post_producer_slots: selected_positions,
+                    wav_slots: wav_slots(expected_len, slot_samples)?,
+                    start_basis,
+                    pre_clock_model: "direct_producer_slots",
+                    post_clock_model: "direct_producer_slots",
+                    exact: true,
+                });
+            }
+        }
+    }
+
+    // Timing quality must never erase measured tracks. This path preserves only real measured
+    // frames, aligns them by their Record order, and labels the result non-canonical so consumers
+    // can display it while keeping exactness as separate quality metadata.
+    let mut pre_frames =
+        crate::trace_clock_resolution::chronological_fallback_frames(pre, expected_len);
+    let mut post_frames =
+        crate::trace_clock_resolution::chronological_fallback_frames(post, expected_len);
+    pre_frames.truncate(expected_len);
+    post_frames.truncate(expected_len);
+    let fallback_slots = wav_slots(expected_len, slot_samples)?;
     Some(WavStartClockPlan {
         pre_frames,
         post_frames,
-        producer_slots: selected_positions,
-        wav_slots,
-        start_basis,
+        pre_producer_slots: fallback_slots.clone(),
+        post_producer_slots: fallback_slots.clone(),
+        wav_slots: fallback_slots,
+        start_basis: crate::trace_alignment::TRACE_ALIGNMENT_START_ORDER_FALLBACK,
+        pre_clock_model: "chronological_fallback",
+        post_clock_model: "chronological_fallback",
+        exact: false,
     })
+}
+
+fn wav_slots(expected_len: usize, slot_samples: i64) -> Option<Vec<i64>> {
+    (1..=expected_len)
+        .map(|index| i64::try_from(index).ok()?.checked_mul(slot_samples))
+        .collect()
 }
 
 pub(crate) fn has_compatible_host_clocks(pre: &PluginDataFile, post: &PluginDataFile) -> bool {
@@ -216,7 +282,7 @@ fn shared_producer_render_range(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::plugin_data::{BounceTake, Role, TraceClock};
+    use crate::plugin_data::{BounceTake, Role, TraceClock, TraceClockObservation};
 
     fn frame(value: f64) -> Frame {
         Frame {
@@ -411,9 +477,10 @@ mod tests {
         );
 
         post.trace_slot_positions.pop();
-        assert!(
-            build_wav_start_clock_plan(&pre, &post, &expected(Some(96_000)), 3, 4_800).is_none()
-        );
+        let fallback = build_wav_start_clock_plan(&pre, &post, &expected(Some(96_000)), 3, 4_800)
+            .expect("measured pair remains reachable");
+        assert!(!fallback.exact);
+        assert_eq!(fallback.post_clock_model, "chronological_fallback");
     }
 
     #[test]
@@ -441,7 +508,8 @@ mod tests {
         let plan = build_wav_start_clock_plan(&pre, &post, &expected(Some(96_000)), 3, 4_800)
             .expect("direct Record lead/tail may surround the exact WAV window");
 
-        assert_eq!(plan.producer_slots, vec![100_800, 105_600, 110_400]);
+        assert_eq!(plan.pre_producer_slots, vec![100_800, 105_600, 110_400]);
+        assert_eq!(plan.post_producer_slots, vec![100_800, 105_600, 110_400]);
         assert_eq!(
             plan.pre_frames
                 .iter()
@@ -459,16 +527,20 @@ mod tests {
     }
 
     #[test]
-    fn render_range_plan_still_requires_compatible_known_host_clocks() {
+    fn render_range_without_compatible_clocks_is_visible_but_not_exact() {
         let pre = plugin_data(Role::Pre, "session", "project_timeline");
         let mut post = plugin_data(Role::Post, "session", "project_timeline");
         assert!(build_wav_start_clock_plan(&pre, &post, &expected(None), 3, 4_800).is_some());
 
         post.trace_clock = None;
-        assert!(build_wav_start_clock_plan(&pre, &post, &expected(None), 3, 4_800).is_none());
+        let fallback = build_wav_start_clock_plan(&pre, &post, &expected(None), 3, 4_800)
+            .expect("measured render remains visible");
+        assert!(!fallback.exact);
 
         post.trace_clock = plugin_data(Role::Post, "session", "unknown_clock").trace_clock;
-        assert!(build_wav_start_clock_plan(&pre, &post, &expected(None), 3, 4_800).is_none());
+        let fallback = build_wav_start_clock_plan(&pre, &post, &expected(None), 3, 4_800)
+            .expect("unknown clock is a quality issue, not visibility loss");
+        assert!(!fallback.exact);
     }
 
     #[test]
@@ -480,6 +552,55 @@ mod tests {
         assert!(
             build_wav_start_clock_plan(&pre, &post, &expected(Some(96_000)), 3, 4_800).is_some()
         );
+    }
+
+    #[test]
+    fn pre_and_post_resolve_different_host_pdc_semantics_on_one_wav_axis() {
+        let mut pre = plugin_data(Role::Pre, "session", "project_timeline");
+        let mut post = plugin_data(Role::Post, "session", "audio_render_timeline");
+        let targets = [100_800_i64, 105_600, 110_400];
+        pre.trace_clock_observations = targets
+            .iter()
+            .enumerate()
+            .map(|(index, target)| TraceClockObservation {
+                frame: Frame {
+                    t_ms: (index as u64 + 1) * 100,
+                    ..frame(-30.0 + index as f64)
+                },
+                producer_position_samples: None,
+                raw_host_position_samples: Some(*target),
+                capture_epoch: Some(10),
+                clock_source: Some("project_timeline".to_string()),
+                presentation_latency_source: Some("vst3".to_string()),
+                input_presentation_latency_samples: Some(0),
+                output_presentation_latency_samples: Some(256),
+            })
+            .collect();
+        post.trace_clock_observations = targets
+            .iter()
+            .enumerate()
+            .map(|(index, target)| TraceClockObservation {
+                frame: Frame {
+                    t_ms: (index as u64 + 1) * 100,
+                    ..frame(-20.0 + index as f64)
+                },
+                producer_position_samples: None,
+                raw_host_position_samples: target.checked_sub(512),
+                capture_epoch: Some(20),
+                clock_source: Some("audio_render_timeline".to_string()),
+                presentation_latency_source: Some("audio_unit_v2".to_string()),
+                input_presentation_latency_samples: Some(0),
+                output_presentation_latency_samples: Some(512),
+            })
+            .collect();
+
+        let plan = build_wav_start_clock_plan(&pre, &post, &expected(Some(96_000)), 3, 4_800)
+            .expect("independent host models");
+
+        assert!(plan.exact);
+        assert_eq!(plan.pre_clock_model, "raw_host_position");
+        assert_eq!(plan.post_clock_model, "raw_plus_output_latency");
+        assert_eq!(plan.wav_slots, vec![4_800, 9_600, 14_400]);
     }
 
     #[test]
@@ -523,10 +644,13 @@ mod tests {
         pre.trace_clock = None;
         post.trace_clock = None;
 
-        assert!(
-            build_wav_start_clock_plan(&pre, &post, &expected(Some(96_000)), 3, 4_800).is_none(),
-            "Watch context must never manufacture a missing producer-direct POST"
-        );
+        let fallback = build_wav_start_clock_plan(&pre, &post, &expected(Some(96_000)), 3, 4_800)
+            .expect("the measured pair identity remains reachable");
+        assert!(!fallback.exact);
+        assert_eq!(fallback.pre_frames.len(), 3);
+        assert!(fallback.post_frames.is_empty());
+        assert_eq!(fallback.pre_frames[0].lufs_m, -30.0);
+        assert_ne!(fallback.pre_frames[0].lufs_m, -31.0);
     }
 
     #[test]
@@ -542,9 +666,11 @@ mod tests {
         pre.trace_clock = None;
         post.trace_clock = None;
 
-        assert!(
-            build_wav_start_clock_plan(&pre, &post, &expected(Some(96_000)), 3, 4_800).is_none()
-        );
+        let fallback = build_wav_start_clock_plan(&pre, &post, &expected(Some(96_000)), 3, 4_800)
+            .expect("current measured frames remain reachable");
+        assert!(!fallback.exact);
+        assert_eq!(fallback.post_frames[0].lufs_m, -30.0);
+        assert_ne!(fallback.post_frames[0].lufs_m, 4.0);
     }
 
     #[test]
@@ -589,9 +715,9 @@ mod tests {
         )
         .expect("exact 96 kHz BWF window");
 
-        assert_eq!(plan.producer_slots.len(), 150);
-        assert_eq!(plan.producer_slots.first(), Some(&6_489_600));
-        assert_eq!(plan.producer_slots.last(), Some(&7_920_000));
+        assert_eq!(plan.pre_producer_slots.len(), 150);
+        assert_eq!(plan.pre_producer_slots.first(), Some(&6_489_600));
+        assert_eq!(plan.pre_producer_slots.last(), Some(&7_920_000));
         assert_eq!(plan.wav_slots.first(), Some(&9_600));
         assert_eq!(plan.wav_slots.last(), Some(&1_440_000));
         assert_eq!(plan.pre_frames.len(), 150);
