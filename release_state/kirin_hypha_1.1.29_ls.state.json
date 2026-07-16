@@ -1,0 +1,67 @@
+{
+  "schema": "kirin-release-ls-state-v1",
+  "generatedAt": "2026-07-16T11:44:01.493Z",
+  "product": {
+    "name": "Kirin Hypha",
+    "version": "1.1.29"
+  },
+  "local": {
+    "releaseDir": "dist/LS_UPLOAD"
+  },
+  "artifacts": [
+    {
+      "label": "Universal Installer",
+      "type": "pkg",
+      "fileName": "Kirin-Hypha-1.1.29-macOS-Universal.pkg",
+      "path": "dist/LS_UPLOAD/Kirin-Hypha-1.1.29-macOS-Universal.pkg",
+      "size": 36815106,
+      "sha512": "/gb01IcXOmBD9kcshvpug77VZYOVy8UHzN7n6z7Rn+4lfhN4wXRV6ZAvP0/uvOHrWsLJfFsHHPd5iRmjdBuTzA==",
+      "sha256": "b0be312e4a2aa906aeeaa645c8d49fdcbf75e20df299711b4fcef2b2dfba5f39",
+      "lsDisplaySize": "35.11 MB"
+    }
+  ],
+  "expectedPayloads": [
+    "Library/Audio/Plug-Ins/Components/Kirin Hypha PRE.component",
+    "Library/Audio/Plug-Ins/Components/Kirin Hypha POST.component",
+    "Library/Audio/Plug-Ins/VST3/PRE Kirin Hypha.vst3",
+    "Library/Audio/Plug-Ins/VST3/POST Kirin Hypha.vst3"
+  ],
+  "lemonSqueezy": {
+    "storeName": "Kirin Mastering",
+    "deliveryName": "Kirin Hypha installer",
+    "products": [
+      {
+        "productName": "Kirin OS",
+        "productId": 1115751,
+        "variantId": 1746981,
+        "productAdminUrl": "https://app.lemonsqueezy.com/products/1115751",
+        "expectedStatus": "Published",
+        "expectedFilesCount": null,
+        "notes": [
+          "Daisuke confirmed this existing Kirin OS product includes Hypha."
+        ]
+      },
+      {
+        "productName": "Kirin Sense",
+        "productId": 1120268,
+        "variantId": 1753806,
+        "productAdminUrl": "https://app.lemonsqueezy.com/products/1120268",
+        "expectedStatus": "Published",
+        "expectedFilesCount": null,
+        "notes": [
+          "Daisuke confirmed this existing Kirin Sense product includes Hypha."
+        ]
+      }
+    ],
+    "notes": [
+      "Upload the same signed/notarized Hypha .pkg to both existing products; do not create a standalone Hypha product for this release.",
+      "Lemon Squeezy displays rounded MiB labels, not raw byte counts.",
+      "expectedFilesCount is intentionally null because the existing product file counts can vary during bundle updates; verify by file name and display size."
+    ]
+  },
+  "handoff": {
+    "runbook": "docs/ls_release/kirin_hypha_ls_runbook.md",
+    "buildScript": "scripts/ls_release/build_kirin_hypha_pkg.mjs",
+    "dryRunScript": "scripts/ls_release/kirin_hypha_ls_dry_run.mjs"
+  }
+}
