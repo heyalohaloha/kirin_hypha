@@ -20,7 +20,10 @@ pub(crate) struct WavStartClockPlan {
     pub post_producer_slots: Vec<i64>,
     /// Public TRACE positions on the dropped WAV axis. The first frame is the end of the first
     /// 100 ms measurement window, so this always starts at `slot_samples`, never at a DAW offset.
-    pub wav_slots: Vec<i64>,
+    pub pre_wav_slots: Vec<i64>,
+    pub post_wav_slots: Vec<i64>,
+    pub pre_origin_position_samples: Option<i64>,
+    pub post_origin_position_samples: Option<i64>,
     pub start_basis: &'static str,
     pub pre_clock_model: &'static str,
     pub post_clock_model: &'static str,
@@ -79,7 +82,10 @@ pub(crate) fn build_wav_start_clock_plan(
             post_frames: post_side.frames,
             pre_producer_slots: pre_side.producer_slots,
             post_producer_slots: post_side.producer_slots,
-            wav_slots: wav_slots(expected_len, slot_samples)?,
+            pre_wav_slots: pre_side.wav_slots,
+            post_wav_slots: post_side.wav_slots,
+            pre_origin_position_samples: Some(pre_side.origin_position_samples),
+            post_origin_position_samples: Some(post_side.origin_position_samples),
             start_basis,
             pre_clock_model: pre_side.model,
             post_clock_model: post_side.model,
@@ -89,8 +95,8 @@ pub(crate) fn build_wav_start_clock_plan(
 
     // Legacy/current direct slots remain an exact compatibility path when no observation journal
     // exists. They are never repaired from the old Watch-context fields.
-    let pre_source = direct_trace_source(pre, expected_len);
-    let post_source = direct_trace_source(post, expected_len);
+    let pre_source = direct_trace_source(pre);
+    let post_source = direct_trace_source(post);
     let render_range = shared_producer_render_range(pre, post, expected);
     let direct_clock_is_eligible =
         expected.wav_time_reference_samples.is_some() || has_compatible_host_clocks(pre, post);
@@ -104,13 +110,50 @@ pub(crate) fn build_wav_start_clock_plan(
                 slot_samples,
                 render_range,
             ) {
+                let producer_origin = selected_positions
+                    .first()
+                    .and_then(|first| first.checked_sub(slot_samples));
                 return Some(WavStartClockPlan {
                     pre_frames: selected_frames(&pre_source, &selected_positions)?,
                     post_frames: selected_frames(&post_source, &selected_positions)?,
                     pre_producer_slots: selected_positions.clone(),
                     post_producer_slots: selected_positions,
-                    wav_slots: wav_slots(expected_len, slot_samples)?,
+                    pre_wav_slots: wav_slots(expected_len, slot_samples)?,
+                    post_wav_slots: wav_slots(expected_len, slot_samples)?,
+                    pre_origin_position_samples: producer_origin,
+                    post_origin_position_samples: producer_origin,
                     start_basis,
+                    pre_clock_model: "direct_producer_slots",
+                    post_clock_model: "direct_producer_slots",
+                    exact: true,
+                });
+            }
+            if let (Some(pre_side), Some(post_side)) = (
+                select_sparse_wav_side(
+                    &pre_source,
+                    expected,
+                    expected_len,
+                    slot_samples,
+                    render_range,
+                ),
+                select_sparse_wav_side(
+                    &post_source,
+                    expected,
+                    expected_len,
+                    slot_samples,
+                    render_range,
+                ),
+            ) {
+                return Some(WavStartClockPlan {
+                    pre_frames: pre_side.frames,
+                    post_frames: post_side.frames,
+                    pre_producer_slots: pre_side.producer_slots,
+                    post_producer_slots: post_side.producer_slots,
+                    pre_wav_slots: pre_side.wav_slots,
+                    post_wav_slots: post_side.wav_slots,
+                    pre_origin_position_samples: Some(pre_side.origin),
+                    post_origin_position_samples: Some(post_side.origin),
+                    start_basis: pre_side.start_basis,
                     pre_clock_model: "direct_producer_slots",
                     post_clock_model: "direct_producer_slots",
                     exact: true,
@@ -128,18 +171,43 @@ pub(crate) fn build_wav_start_clock_plan(
         crate::trace_clock_resolution::chronological_fallback_frames(post, expected_len);
     pre_frames.truncate(expected_len);
     post_frames.truncate(expected_len);
-    let fallback_slots = wav_slots(expected_len, slot_samples)?;
+    let pre_fallback_slots = wav_slots_for_frames(&pre_frames, expected_len, slot_samples)?;
+    let post_fallback_slots = wav_slots_for_frames(&post_frames, expected_len, slot_samples)?;
     Some(WavStartClockPlan {
         pre_frames,
         post_frames,
-        pre_producer_slots: fallback_slots.clone(),
-        post_producer_slots: fallback_slots.clone(),
-        wav_slots: fallback_slots,
+        pre_producer_slots: pre_fallback_slots.clone(),
+        post_producer_slots: post_fallback_slots.clone(),
+        pre_wav_slots: pre_fallback_slots,
+        post_wav_slots: post_fallback_slots,
+        pre_origin_position_samples: None,
+        post_origin_position_samples: None,
         start_basis: crate::trace_alignment::TRACE_ALIGNMENT_START_ORDER_FALLBACK,
         pre_clock_model: "chronological_fallback",
         post_clock_model: "chronological_fallback",
         exact: false,
     })
+}
+
+fn wav_slots_for_frames(
+    frames: &[Frame],
+    expected_len: usize,
+    slot_samples: i64,
+) -> Option<Vec<i64>> {
+    let max_ms = u64::try_from(expected_len)
+        .ok()?
+        .checked_mul(FRAME_INTERVAL_MS)?;
+    frames
+        .iter()
+        .map(|frame| {
+            if frame.t_ms == 0 || frame.t_ms > max_ms || frame.t_ms % FRAME_INTERVAL_MS != 0 {
+                return None;
+            }
+            i64::try_from(frame.t_ms / FRAME_INTERVAL_MS)
+                .ok()?
+                .checked_mul(slot_samples)
+        })
+        .collect()
 }
 
 fn wav_slots(expected_len: usize, slot_samples: i64) -> Option<Vec<i64>> {
@@ -170,8 +238,8 @@ pub(crate) fn has_compatible_host_clocks(pre: &PluginDataFile, post: &PluginData
         && sources_are_known(&post_clock.sources)
 }
 
-fn direct_trace_source(data: &PluginDataFile, expected_len: usize) -> Option<BTreeMap<i64, Frame>> {
-    if data.frames.len() < expected_len
+fn direct_trace_source(data: &PluginDataFile) -> Option<BTreeMap<i64, Frame>> {
+    if data.frames.is_empty()
         || data.frames.len() != data.trace_slot_positions.len()
         || !data
             .trace_slot_positions
@@ -187,6 +255,61 @@ fn direct_trace_source(data: &PluginDataFile, expected_len: usize) -> Option<BTr
             .zip(data.frames.iter().cloned())
             .collect(),
     )
+}
+
+struct SparseDirectSide {
+    frames: Vec<Frame>,
+    producer_slots: Vec<i64>,
+    wav_slots: Vec<i64>,
+    origin: i64,
+    start_basis: &'static str,
+}
+
+fn select_sparse_wav_side(
+    source: &BTreeMap<i64, Frame>,
+    expected: &ExpectedWavMetadata,
+    expected_len: usize,
+    slot_samples: i64,
+    render_range: Option<(i64, i64)>,
+) -> Option<SparseDirectSide> {
+    let (origin, start_basis) = if let Some(start) = expected.wav_time_reference_samples {
+        (
+            i64::try_from(start).ok()?,
+            crate::trace_alignment::TRACE_ALIGNMENT_START_BWF,
+        )
+    } else {
+        (
+            render_range?.0,
+            crate::trace_alignment::TRACE_ALIGNMENT_START_RENDER_RANGE,
+        )
+    };
+    let mut frames = Vec::new();
+    let mut producer_slots = Vec::new();
+    let mut wav_slots = Vec::new();
+    for (position, source_frame) in source {
+        let relative = position.checked_sub(origin)?;
+        if relative <= 0 || relative % slot_samples != 0 {
+            continue;
+        }
+        let slot_index = usize::try_from(relative / slot_samples).ok()?;
+        if slot_index == 0 || slot_index > expected_len {
+            continue;
+        }
+        let mut frame = source_frame.clone();
+        frame.t_ms = u64::try_from(slot_index)
+            .ok()?
+            .checked_mul(FRAME_INTERVAL_MS)?;
+        frames.push(frame);
+        producer_slots.push(*position);
+        wav_slots.push(relative);
+    }
+    (!frames.is_empty()).then_some(SparseDirectSide {
+        frames,
+        producer_slots,
+        wav_slots,
+        origin,
+        start_basis,
+    })
 }
 
 fn selected_frames(source: &BTreeMap<i64, Frame>, positions: &[i64]) -> Option<Vec<Frame>> {
@@ -600,7 +723,53 @@ mod tests {
         assert!(plan.exact);
         assert_eq!(plan.pre_clock_model, "raw_host_position");
         assert_eq!(plan.post_clock_model, "raw_plus_output_latency");
-        assert_eq!(plan.wav_slots, vec![4_800, 9_600, 14_400]);
+        assert_eq!(plan.pre_wav_slots, vec![4_800, 9_600, 14_400]);
+        assert_eq!(plan.post_wav_slots, vec![4_800, 9_600, 14_400]);
+    }
+
+    #[test]
+    fn one_missing_post_window_keeps_its_exact_wav_gap() {
+        let mut pre = plugin_data(Role::Pre, "session", "project_timeline");
+        let mut post = plugin_data(Role::Post, "session", "project_timeline");
+        let targets = [100_800_i64, 105_600, 110_400];
+        pre.trace_clock_observations = targets
+            .iter()
+            .enumerate()
+            .map(|(index, target)| TraceClockObservation {
+                frame: Frame {
+                    t_ms: (index as u64 + 1) * 100,
+                    ..frame(-30.0 + index as f64)
+                },
+                producer_position_samples: Some(*target),
+                raw_host_position_samples: Some(*target),
+                capture_epoch: Some(10),
+                clock_source: Some("project_timeline".to_string()),
+                presentation_latency_source: Some("vst3".to_string()),
+                input_presentation_latency_samples: Some(0),
+                output_presentation_latency_samples: Some(0),
+            })
+            .collect();
+        post.trace_clock_observations = pre
+            .trace_clock_observations
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| *index != 1)
+            .map(|(_, observation)| observation.clone())
+            .collect();
+
+        let plan = build_wav_start_clock_plan(&pre, &post, &expected(Some(96_000)), 3, 4_800)
+            .expect("anchored sparse pair");
+
+        assert!(plan.exact, "the surviving slots remain sample-anchored");
+        assert_eq!(plan.pre_wav_slots, vec![4_800, 9_600, 14_400]);
+        assert_eq!(plan.post_wav_slots, vec![4_800, 14_400]);
+        assert_eq!(
+            plan.post_frames
+                .iter()
+                .map(|frame| frame.t_ms)
+                .collect::<Vec<_>>(),
+            vec![100, 300]
+        );
     }
 
     #[test]
@@ -642,7 +811,8 @@ mod tests {
         );
         assert_eq!(plan.pre_clock_model, "producer_position");
         assert_eq!(plan.post_clock_model, "producer_position");
-        assert_eq!(plan.wav_slots, vec![4_800, 9_600, 14_400]);
+        assert_eq!(plan.pre_wav_slots, vec![4_800, 9_600, 14_400]);
+        assert_eq!(plan.post_wav_slots, vec![4_800, 9_600, 14_400]);
     }
 
     #[test]
@@ -696,7 +866,7 @@ mod tests {
     }
 
     #[test]
-    fn context_cannot_replace_a_missing_anchored_direct_slot() {
+    fn context_cannot_replace_a_missing_anchored_direct_slot_and_gap_stays_sparse() {
         let mut pre = plugin_data(Role::Pre, "session", "project_timeline");
         let mut post = plugin_data(Role::Post, "session", "project_timeline");
         let exact_context = vec![100_800, 105_600, 110_400];
@@ -708,11 +878,12 @@ mod tests {
         pre.trace_clock = None;
         post.trace_clock = None;
 
-        let fallback = build_wav_start_clock_plan(&pre, &post, &expected(Some(96_000)), 3, 4_800)
+        let plan = build_wav_start_clock_plan(&pre, &post, &expected(Some(96_000)), 3, 4_800)
             .expect("current measured frames remain reachable");
-        assert!(!fallback.exact);
-        assert_eq!(fallback.post_frames[0].lufs_m, -30.0);
-        assert_ne!(fallback.post_frames[0].lufs_m, 4.0);
+        assert!(plan.exact);
+        assert_eq!(plan.post_wav_slots, vec![4_800, 14_400]);
+        assert_eq!(plan.post_frames[0].lufs_m, -30.0);
+        assert_ne!(plan.post_frames[0].lufs_m, 4.0);
     }
 
     #[test]
@@ -760,8 +931,9 @@ mod tests {
         assert_eq!(plan.pre_producer_slots.len(), 150);
         assert_eq!(plan.pre_producer_slots.first(), Some(&6_489_600));
         assert_eq!(plan.pre_producer_slots.last(), Some(&7_920_000));
-        assert_eq!(plan.wav_slots.first(), Some(&9_600));
-        assert_eq!(plan.wav_slots.last(), Some(&1_440_000));
+        assert_eq!(plan.pre_wav_slots.first(), Some(&9_600));
+        assert_eq!(plan.pre_wav_slots.last(), Some(&1_440_000));
+        assert_eq!(plan.post_wav_slots, plan.pre_wav_slots);
         assert_eq!(plan.pre_frames.len(), 150);
         assert_eq!(plan.post_frames.len(), 150);
         assert_eq!(plan.pre_frames[0].lufs_m, -29.98);

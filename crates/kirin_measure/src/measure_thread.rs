@@ -632,6 +632,38 @@ pub fn spawn_measure_thread(
                         }),
                     );
                 }
+                if is_recording {
+                    // Phase D may be one result behind the core engine at a transport/stall edge.
+                    // The core LUFS/TP/Crest window is still a factual measured slot; publish it
+                    // without optional Phase-D fields instead of deleting the whole 100 ms frame.
+                    let mut trace = RecordTraceDrain {
+                        queue: &record_trace_queue,
+                        timeline: RecordTraceTimeline {
+                            generation: record_sm.generation(),
+                            origin_frames_48k: record_origin_frames,
+                            origin_native_frames: record_origin_native_frames,
+                            offset_frames_48k: record_trace_frame_offset_48k,
+                            offset_native_frames: record_trace_native_frame_offset,
+                            origin_position_samples: record_origin_position_samples,
+                        },
+                        cursor: RecordTraceCursor {
+                            next_trace_ms: &mut next_record_trace_ms,
+                            next_psb_ms: &mut next_record_psb_ms,
+                        },
+                    };
+                    join_record_trace_slots(
+                        &mut trace,
+                        sample_rate,
+                        &mut record_core_pending,
+                        &mut record_phase_pending,
+                    );
+                    flush_record_core_without_phase_d(
+                        &mut trace,
+                        sample_rate,
+                        &mut record_core_pending,
+                    );
+                    record_phase_pending.clear();
+                }
                 // Bypassed / Inactive → compute() スキップ。
                 // リングバッファに残っているサンプルは破棄する（共通A で drain 済なら no-op）。
                 // （Active に戻ったとき古いデータで計測しないため）。
@@ -897,6 +929,32 @@ pub fn spawn_measure_thread(
                 if is_recording {
                     if let Some(position_start) = capture_plan.position_start_samples {
                         if record_grid_cursor != Some(position_start) {
+                            let mut boundary_trace = RecordTraceDrain {
+                                queue: &record_trace_queue,
+                                timeline: RecordTraceTimeline {
+                                    generation: record_sm.generation(),
+                                    origin_frames_48k: record_origin_frames,
+                                    origin_native_frames: record_origin_native_frames,
+                                    offset_frames_48k: record_trace_frame_offset_48k,
+                                    offset_native_frames: record_trace_native_frame_offset,
+                                    origin_position_samples: record_origin_position_samples,
+                                },
+                                cursor: RecordTraceCursor {
+                                    next_trace_ms: &mut next_record_trace_ms,
+                                    next_psb_ms: &mut next_record_psb_ms,
+                                },
+                            };
+                            join_record_trace_slots(
+                                &mut boundary_trace,
+                                sample_rate,
+                                &mut record_core_pending,
+                                &mut record_phase_pending,
+                            );
+                            flush_record_core_without_phase_d(
+                                &mut boundary_trace,
+                                sample_rate,
+                                &mut record_core_pending,
+                            );
                             record_trace_engine.reset();
                             phase_d.reset();
                             latest_pd = None;
@@ -1267,6 +1325,32 @@ fn join_record_trace_slots(
                 observed_silence_floor: core.observed_silence_floor,
             },
             &result,
+        );
+    }
+}
+
+fn flush_record_core_without_phase_d(
+    trace: &mut RecordTraceDrain<'_>,
+    sample_rate: u32,
+    core_pending: &mut VecDeque<PendingRecordCore>,
+) {
+    while let Some(core) = core_pending.pop_front() {
+        let _ = maybe_push_record_trace(
+            trace.queue,
+            trace.timeline,
+            &mut trace.cursor,
+            sample_rate,
+            RecordTraceObserved {
+                frames_48k: core.frames_48k,
+                native_frames: Some(core.native_frames),
+                position_samples: core.position_samples,
+                raw_host_position_samples: core.raw_host_position_samples,
+                capture_epoch: core.capture_epoch,
+                clock_source: core.clock_source,
+                presentation_latency: core.presentation_latency,
+                observed_silence_floor: core.observed_silence_floor,
+            },
+            &core.result,
         );
     }
 }
@@ -1739,6 +1823,15 @@ fn drain_ring_into_session(
             .zip(*ctx.last_capture_position_end)
             .is_some_and(|(start, previous_end)| start != previous_end)
         {
+            if let Some(trace) = record_trace.as_mut() {
+                join_record_trace_slots(
+                    trace,
+                    ctx.sample_rate,
+                    ctx.record_core_pending,
+                    ctx.record_phase_pending,
+                );
+                flush_record_core_without_phase_d(trace, ctx.sample_rate, ctx.record_core_pending);
+            }
             ctx.trace_engine.reset();
             ctx.summary_engine.reset();
             ctx.phase_d.reset();
@@ -1865,6 +1958,8 @@ fn drain_ring_into_session(
                 ctx.record_core_pending,
                 ctx.record_phase_pending,
             );
+            flush_record_core_without_phase_d(trace, ctx.sample_rate, ctx.record_core_pending);
+            ctx.record_phase_pending.clear();
         }
     }
     if let Some(trace) = record_trace.as_mut() {
@@ -2213,6 +2308,62 @@ pub mod tests {
         assert_eq!(drained[5].t_native_frames, Some(48_000));
         assert_eq!(drained[5].result.lufs_m, Some(-18.0));
         assert_eq!(next_trace_ms, 600);
+    }
+
+    #[test]
+    fn transport_boundary_keeps_core_slot_when_phase_d_is_late() {
+        let queue = crate::record_writer::new_record_trace_queue();
+        let mut next_trace_ms = 0;
+        let mut next_psb_ms = 0;
+        let mut pending = std::collections::VecDeque::from([super::PendingRecordCore {
+            frames_48k: 4_800,
+            native_frames: 9_600,
+            position_samples: Some(109_600),
+            raw_host_position_samples: Some(109_856),
+            capture_epoch: Some(7),
+            clock_source: CaptureClockSource::ProjectTimeline,
+            presentation_latency: PresentationLatencySamples {
+                input: Some(0),
+                output: Some(256),
+                source: crate::PresentationLatencySource::Vst3,
+            },
+            observed_silence_floor: false,
+            result: crate::MeasureResult {
+                lufs_m: Some(-18.0),
+                true_peak: Some(-2.0),
+                crest: Some(10.0),
+                ..Default::default()
+            },
+        }]);
+        let mut trace = super::RecordTraceDrain {
+            queue: &queue,
+            timeline: super::RecordTraceTimeline {
+                generation: 7,
+                origin_frames_48k: 0,
+                origin_native_frames: 0,
+                offset_frames_48k: 0,
+                offset_native_frames: 0,
+                origin_position_samples: Some(100_000),
+            },
+            cursor: super::RecordTraceCursor {
+                next_trace_ms: &mut next_trace_ms,
+                next_psb_ms: &mut next_psb_ms,
+            },
+        };
+
+        super::flush_record_core_without_phase_d(&mut trace, 96_000, &mut pending);
+
+        let drained = crate::record_writer::drain_record_trace_queue(&queue);
+        assert_eq!(drained.len(), 2);
+        let measured = drained.last().unwrap();
+        assert_eq!(
+            measured.kind,
+            crate::record_writer::RecordTraceKind::Measured
+        );
+        assert_eq!(measured.t_ms, 100);
+        assert_eq!(measured.result.lufs_m, Some(-18.0));
+        assert!(measured.result.n_prime.is_none());
+        assert!(pending.is_empty());
     }
 
     #[test]

@@ -2790,26 +2790,23 @@ fn normalize_late_expected_pair(
     let rebuild = |data: &mut PluginDataFile,
                    frames: Vec<Frame>,
                    producer_slots: &[i64],
+                   public_wav_slots: &[i64],
+                   producer_origin: Option<i64>,
                    clock_model: &str| {
         data.frames = frames;
-        data.trace_slot_positions = plan
-            .wav_slots
-            .iter()
-            .copied()
-            .take(data.frames.len())
-            .collect();
+        debug_assert_eq!(data.frames.len(), producer_slots.len());
+        debug_assert_eq!(data.frames.len(), public_wav_slots.len());
+        data.trace_slot_positions = public_wav_slots.to_vec();
         data.trace_pair_wav_start_basis = Some(plan.start_basis.to_string());
         data.trace_clock_resolution = Some(clock_model.to_string());
         data.trace_pair_offset_samples = None;
         data.trace_pair_alignment_score = None;
         if plan.exact {
-            if let (Some(clock), Some(first), Some(last)) = (
-                data.trace_clock.as_mut(),
-                producer_slots.first(),
-                producer_slots.last(),
-            ) {
-                clock.origin_position_samples = first.saturating_sub(slot_samples);
-                clock.end_position_samples = *last;
+            if let (Some(clock), Some(origin)) = (data.trace_clock.as_mut(), producer_origin) {
+                clock.origin_position_samples = origin;
+                clock.end_position_samples = origin.saturating_add(
+                    i64::try_from(expected.expected_duration_samples).unwrap_or(i64::MAX),
+                );
                 clock.sample_rate = expected.expected_sample_rate;
             }
         } else {
@@ -2824,12 +2821,16 @@ fn normalize_late_expected_pair(
                 left,
                 plan.pre_frames,
                 &plan.pre_producer_slots,
+                &plan.pre_wav_slots,
+                plan.pre_origin_position_samples,
                 plan.pre_clock_model,
             );
             rebuild(
                 right,
                 plan.post_frames,
                 &plan.post_producer_slots,
+                &plan.post_wav_slots,
+                plan.post_origin_position_samples,
                 plan.post_clock_model,
             );
         }
@@ -2838,20 +2839,28 @@ fn normalize_late_expected_pair(
                 left,
                 plan.post_frames,
                 &plan.post_producer_slots,
+                &plan.post_wav_slots,
+                plan.post_origin_position_samples,
                 plan.post_clock_model,
             );
             rebuild(
                 right,
                 plan.pre_frames,
                 &plan.pre_producer_slots,
+                &plan.pre_wav_slots,
+                plan.pre_origin_position_samples,
                 plan.pre_clock_model,
             );
         }
         _ => return false,
     }
     if plan.exact {
-        let pre_origin = plan.pre_producer_slots[0].saturating_sub(slot_samples);
-        let post_origin = plan.post_producer_slots[0].saturating_sub(slot_samples);
+        let (Some(pre_origin), Some(post_origin)) = (
+            plan.pre_origin_position_samples,
+            plan.post_origin_position_samples,
+        ) else {
+            return false;
+        };
         match (left.role, right.role) {
             (Role::Pre, Role::Post) => {
                 bind_annotation_marks_to_wav(left, pre_origin, expected.expected_duration_samples);
@@ -2939,18 +2948,31 @@ fn normalize_late_expected_record(
 
     data.frames.retain(|frame| frame.t_ms <= duration_ms);
     data.frames.truncate(expected_len);
-    if !data.trace_slot_positions.is_empty() {
-        data.trace_slot_positions.truncate(expected_len);
-        if data.trace_slot_positions.len() != data.frames.len() {
-            return false;
-        }
+    data.trace_slot_positions.truncate(expected_len);
+    if data.trace_slot_positions.len() != data.frames.len() {
+        return false;
     }
-    if data
-        .frames
-        .iter()
-        .enumerate()
-        .any(|(idx, frame)| frame.t_ms != (idx as u64 + 1) * TRACE_FRAME_INTERVAL_MS)
-    {
+    let slot_samples = (expected.expected_sample_rate as i64 / 10).max(1);
+    let slots_are_factual_wav_positions = data.trace_slot_positions.iter().all(|slot| {
+        *slot > 0
+            && *slot % slot_samples == 0
+            && u64::try_from(*slot)
+                .ok()
+                .is_some_and(|slot| slot <= expected.expected_duration_samples)
+    }) && data
+        .trace_slot_positions
+        .windows(2)
+        .all(|pair| pair[0] < pair[1]);
+    let frames_match_sparse_slots =
+        data.frames
+            .iter()
+            .zip(&data.trace_slot_positions)
+            .all(|(frame, slot)| {
+                u64::try_from(*slot).ok().is_some_and(|slot| {
+                    frame.t_ms == slot.saturating_mul(1_000) / expected.expected_sample_rate as u64
+                })
+            });
+    if !slots_are_factual_wav_positions || !frames_match_sparse_slots {
         return false;
     }
     if let Some(psb) = &mut data.psb_snapshots {
@@ -3115,7 +3137,7 @@ fn late_expected_can_own_record(data: &PluginDataFile, expected: &ExpectedWavMet
 fn late_expected_prior_reasons_are_reconcilable(data: &PluginDataFile) -> bool {
     data.integrity_reasons
         .iter()
-        .all(|reason| late_expected_reconcilable_reason(reason))
+        .all(|reason| reason == "lifecycle_shutdown" || late_expected_reconcilable_reason(reason))
 }
 
 fn late_expected_reconcilable_reason(reason: &str) -> bool {
@@ -4239,7 +4261,8 @@ mod tests {
     #[test]
     fn one_missing_timing_slot_publishes_the_measured_pair_as_usable_fallback() {
         let base = isolated_dir();
-        let expected = fresh_expected_wav_fixture(48_000);
+        let mut expected = fresh_expected_wav_fixture(48_000);
+        expected.wav_time_reference_samples = Some(0);
         let session_id = "session-one-missing-slot";
         let mut pre = complete_pair_writer(
             &base,
@@ -4265,8 +4288,8 @@ mod tests {
             writer.data.status = Status::Closed;
             writer.data.commit_status = Some("pair_pending".to_string());
         }
-        post.data.frames.pop();
-        post.data.trace_slot_positions.pop();
+        post.data.frames.remove(7);
+        post.data.trace_slot_positions.remove(7);
 
         assert!(normalize_late_expected_pair(
             &mut pre.data,
@@ -4275,6 +4298,19 @@ mod tests {
         ));
         assert_eq!(pre.data.frames.len(), 10);
         assert_eq!(post.data.frames.len(), 9);
+        assert_eq!(
+            post.data.trace_slot_positions,
+            vec![4_800, 9_600, 14_400, 19_200, 24_000, 28_800, 33_600, 43_200, 48_000],
+            "the missing 800 ms slot must remain absent rather than shifting later frames"
+        );
+        assert_eq!(
+            post.data
+                .frames
+                .iter()
+                .map(|frame| frame.t_ms)
+                .collect::<Vec<_>>(),
+            vec![100, 200, 300, 400, 500, 600, 700, 900, 1_000]
+        );
         assert_eq!(
             pre.data.trace_diagnostics.as_ref().unwrap().missing_slots,
             0
@@ -6814,6 +6850,124 @@ mod tests {
         assert!(pair_commit_manifest_path(&pre.paths, &pre.data)
             .unwrap()
             .exists());
+    }
+
+    #[test]
+    fn restart_after_daw_crash_promotes_only_durable_partial_facts_without_clean_stop() {
+        let base = isolated_dir();
+        let session_id = "session-daw-crash-no-clean-stop";
+        crate::record_expected::begin_expected_session(&base, "project_hash_test", session_id)
+            .unwrap();
+        let marker_before = crate::record_expected::read_claim_marker_for_session(
+            &base,
+            "project_hash_test",
+            session_id,
+        )
+        .unwrap()
+        .expect("active Record marker");
+        assert!(
+            marker_before.closed_at_ms.is_none(),
+            "the fixture must model a DAW exit where all_stop/clean Stop never closed the claim"
+        );
+
+        let mut expected = fresh_expected_wav_fixture(48_000);
+        expected.wav_time_reference_samples = Some(0);
+        let start_ms = expected.created_at_ms.saturating_sub(2_000);
+        let crash_ms = expected.created_at_ms.saturating_sub(500);
+        let mut pre = complete_pair_writer(
+            &base,
+            Role::Pre,
+            "iid-pre-daw-crash",
+            None,
+            Some("iid-post-daw-crash".to_string()),
+        );
+        let mut post = complete_pair_writer(
+            &base,
+            Role::Post,
+            "iid-post-daw-crash",
+            Some("iid-pre-daw-crash".to_string()),
+            None,
+        );
+        for writer in [&mut pre, &mut post] {
+            writer.set_record_session_id(Some(session_id.to_string()));
+            set_late_expected_record_time(writer, start_ms, crash_ms);
+            configure_render_clock_take(writer, 48_000);
+            writer.add_integrity_reason("lifecycle_shutdown");
+            writer.mark_integrity_degraded();
+            writer.data.status = Status::Closed;
+            writer.data.commit_status = Some("pair_pending".to_string());
+        }
+        post.data.frames.remove(7);
+        post.data.trace_slot_positions.remove(7);
+
+        let pre_paths = self_paths_for(&pre.paths, &pre.data);
+        let post_paths = self_paths_for(&post.paths, &post.data);
+        pre.write_atomic(pre_paths.pair_pending_path.clone())
+            .unwrap();
+        post.write_atomic(post_paths.pair_pending_path.clone())
+            .unwrap();
+        write_drop_commit_fixture(&base, session_id, &expected, true);
+
+        // Restart recovery has no live plugin state and must use only the exact durable identities.
+        assert_eq!(
+            reconcile_drop_committed_closed_session(
+                &base,
+                "project_hash_test",
+                session_id,
+                "iid-pre-daw-crash",
+                "iid-post-daw-crash",
+            ),
+            2
+        );
+        assert!(!pre_paths.pair_pending_path.exists());
+        assert!(!post_paths.pair_pending_path.exists());
+        assert!(pair_commit_manifest_path(&pre.paths, &pre.data)
+            .unwrap()
+            .exists());
+
+        let committed_pre = read_plugin_data_file(&pre_paths.member_path).unwrap();
+        let committed_post = read_plugin_data_file(&post_paths.member_path).unwrap();
+        assert_eq!(committed_pre.frames.len(), 10);
+        assert_eq!(committed_post.frames.len(), 9);
+        assert_eq!(
+            committed_post.trace_slot_positions,
+            vec![4_800, 9_600, 14_400, 19_200, 24_000, 28_800, 33_600, 43_200, 48_000],
+            "restart recovery must preserve the missing 800 ms slot as a gap"
+        );
+        assert_eq!(
+            committed_post
+                .frames
+                .iter()
+                .map(|frame| frame.t_ms)
+                .collect::<Vec<_>>(),
+            vec![100, 200, 300, 400, 500, 600, 700, 900, 1_000]
+        );
+        for committed in [&committed_pre, &committed_post] {
+            assert_eq!(
+                committed
+                    .record_quality
+                    .as_ref()
+                    .map(|quality| quality.status.as_str()),
+                Some("usable_fallback")
+            );
+            assert!(committed
+                .integrity_reasons
+                .iter()
+                .any(|reason| reason == "lifecycle_shutdown"));
+            assert!(verify_checksum(committed));
+        }
+        let marker_after = crate::record_expected::read_claim_marker_for_session(
+            &base,
+            "project_hash_test",
+            session_id,
+        )
+        .unwrap()
+        .expect("bound crash recovery marker");
+        assert!(marker_after.closed_at_ms.is_some());
+        assert_eq!(
+            marker_after.metadata,
+            Some(expected.without_consumed_marker())
+        );
     }
 
     #[test]

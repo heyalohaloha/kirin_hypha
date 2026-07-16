@@ -69,6 +69,8 @@ impl ClockModel {
 pub(crate) struct SideClockResolution {
     pub frames: Vec<Frame>,
     pub producer_slots: Vec<i64>,
+    pub wav_slots: Vec<i64>,
+    pub origin_position_samples: i64,
     pub model: &'static str,
 }
 
@@ -81,6 +83,7 @@ pub(crate) fn resolve_exact_side(
     if expected_len == 0 || slot_samples <= 0 || data.trace_clock_observations.is_empty() {
         return None;
     }
+    let mut best = None::<SideClockResolution>;
     for model in ClockModel::ALL {
         let origin = match expected.wav_time_reference_samples {
             Some(start) => i64::try_from(start).ok(),
@@ -89,20 +92,29 @@ pub(crate) fn resolve_exact_side(
         let Some(origin) = origin else {
             continue;
         };
-        let Some(targets) = target_slots(origin, expected_len, slot_samples) else {
-            continue;
-        };
-        if let Some(frames) =
-            select_monotonic_frames(&data.trace_clock_observations, &targets, model)
-        {
-            return Some(SideClockResolution {
+        if let Some((frames, producer_slots, wav_slots)) = select_sparse_monotonic_frames(
+            &data.trace_clock_observations,
+            origin,
+            expected_len,
+            slot_samples,
+            model,
+        ) {
+            let candidate = SideClockResolution {
                 frames,
-                producer_slots: targets,
+                producer_slots,
+                wav_slots,
+                origin_position_samples: origin,
                 model: model.name(),
-            });
+            };
+            if best
+                .as_ref()
+                .is_none_or(|current| candidate.frames.len() > current.frames.len())
+            {
+                best = Some(candidate);
+            }
         }
     }
-    None
+    best
 }
 
 fn render_origin(
@@ -132,51 +144,57 @@ fn render_origin(
     model.render_origin(presentation_start, raw_start, first)
 }
 
-fn target_slots(origin: i64, expected_len: usize, slot_samples: i64) -> Option<Vec<i64>> {
-    (1..=expected_len)
-        .map(|index| {
-            i64::try_from(index)
-                .ok()?
-                .checked_mul(slot_samples)?
-                .checked_add(origin)
-        })
-        .collect()
-}
-
-fn select_monotonic_frames(
+fn select_sparse_monotonic_frames(
     observations: &[TraceClockObservation],
-    targets: &[i64],
+    origin: i64,
+    expected_len: usize,
+    slot_samples: i64,
     model: ClockModel,
-) -> Option<Vec<Frame>> {
+) -> Option<(Vec<Frame>, Vec<i64>, Vec<i64>)> {
+    if expected_len == 0 || slot_samples <= 0 {
+        return None;
+    }
     let mut candidates = observations
         .iter()
         .filter_map(|observation| {
+            let position = model.position(observation)?;
+            let relative = position.checked_sub(origin)?;
+            if relative <= 0 || relative % slot_samples != 0 {
+                return None;
+            }
+            let slot_index = usize::try_from(relative / slot_samples).ok()?;
+            if slot_index == 0 || slot_index > expected_len {
+                return None;
+            }
             Some((
+                slot_index,
                 observation.frame.t_ms,
                 observation.capture_epoch.unwrap_or(0),
-                model.position(observation)?,
+                position,
                 &observation.frame,
             ))
         })
         .collect::<Vec<_>>();
-    candidates.sort_by_key(|(t_ms, epoch, position, _)| (*t_ms, *epoch, *position));
-    let mut selected = Vec::with_capacity(targets.len());
+    candidates.sort_by_key(|(slot, t_ms, epoch, position, _)| (*slot, *t_ms, *epoch, *position));
+    let mut selected_frames = Vec::with_capacity(candidates.len().min(expected_len));
+    let mut producer_slots = Vec::with_capacity(selected_frames.capacity());
+    let mut wav_slots = Vec::with_capacity(selected_frames.capacity());
     let mut last_time = None;
-    let mut cursor = 0;
-    for (index, target) in targets.iter().enumerate() {
-        let candidate = loop {
-            let candidate = candidates.get(cursor)?;
-            cursor += 1;
-            if candidate.2 == *target && last_time.is_none_or(|last| candidate.0 > last) {
-                break candidate;
-            }
-        };
-        last_time = Some(candidate.0);
-        let mut frame = candidate.3.clone();
-        frame.t_ms = (index as u64 + 1).checked_mul(100)?;
-        selected.push(frame);
+    let mut last_slot = 0;
+    for (slot_index, t_ms, _, position, source_frame) in candidates {
+        if slot_index == last_slot || last_time.is_some_and(|last| t_ms <= last) {
+            continue;
+        }
+        let relative = i64::try_from(slot_index).ok()?.checked_mul(slot_samples)?;
+        let mut frame = source_frame.clone();
+        frame.t_ms = u64::try_from(slot_index).ok()?.checked_mul(100)?;
+        selected_frames.push(frame);
+        producer_slots.push(position);
+        wav_slots.push(relative);
+        last_slot = slot_index;
+        last_time = Some(t_ms);
     }
-    Some(selected)
+    (!selected_frames.is_empty()).then_some((selected_frames, producer_slots, wav_slots))
 }
 
 /// Preserve reachability without inventing metrics when no factual clock model covers the WAV.
@@ -197,16 +215,34 @@ pub(crate) fn chronological_fallback_frames(
         .into_iter()
         .map(|observation| observation.frame.clone())
         .collect::<Vec<_>>();
-    let mut frames = if observed_frames.len() > data.frames.len() {
+    let frames = if observed_frames.len() > data.frames.len() {
         observed_frames
     } else {
         data.frames.clone()
     };
-    frames.truncate(expected_len);
-    for (index, frame) in frames.iter_mut().enumerate() {
-        frame.t_ms = (index as u64 + 1).saturating_mul(100);
+    let max_ms = (expected_len as u64).saturating_mul(100);
+    let mut by_slot = std::collections::BTreeMap::new();
+    for frame in frames {
+        if frame.t_ms == 0 || frame.t_ms > max_ms || frame.t_ms % 100 != 0 {
+            continue;
+        }
+        by_slot.entry(frame.t_ms).or_insert(frame);
     }
-    frames
+    if !by_slot.is_empty() {
+        return by_slot.into_values().collect();
+    }
+    // Pre-v1.3 artifacts sometimes carried no usable per-frame t_ms. Keep their historical
+    // record-order compatibility path, but only when there is no factual slot timestamp at all.
+    data.frames
+        .iter()
+        .take(expected_len)
+        .cloned()
+        .enumerate()
+        .map(|(index, mut frame)| {
+            frame.t_ms = (index as u64 + 1).saturating_mul(100);
+            frame
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -304,6 +340,8 @@ mod tests {
             .expect("piecewise output latency");
         assert_eq!(resolved.model, "producer_position");
         assert_eq!(resolved.producer_slots, vec![104_800, 109_600]);
+        assert_eq!(resolved.wav_slots, vec![4_800, 9_600]);
+        assert_eq!(resolved.origin_position_samples, 100_000);
         assert_eq!(resolved.frames.len(), 2);
     }
 
@@ -407,6 +445,30 @@ mod tests {
     }
 
     #[test]
+    fn anchored_resolution_keeps_a_missing_middle_slot_absent() {
+        let resolved = resolve_exact_side(
+            &data(vec![
+                observation(100, 105_056, 256, 10),
+                observation(300, 114_656, 256, 10),
+            ]),
+            &expected(Some(100_000)),
+            3,
+            4_800,
+        )
+        .expect("two factual anchored slots");
+
+        assert_eq!(resolved.wav_slots, vec![4_800, 14_400]);
+        assert_eq!(
+            resolved
+                .frames
+                .iter()
+                .map(|frame| frame.t_ms)
+                .collect::<Vec<_>>(),
+            vec![100, 300]
+        );
+    }
+
+    #[test]
     fn overflow_never_creates_a_false_clock_match() {
         let data = data(vec![observation(100, i64::MAX, 0, 1)]);
         assert!(resolve_exact_side(&data, &expected(Some(u64::MAX)), 1, 4_800).is_none());
@@ -421,10 +483,17 @@ mod tests {
                 observation(index as u64 * 100, position, 0, 1)
             })
             .collect::<Vec<_>>();
-        let targets = target_slots(0, FRAME_COUNT, 4_800).unwrap();
-        let frames = select_monotonic_frames(&observations, &targets, ClockModel::Producer)
-            .expect("ten-minute generation");
+        let (frames, producer_slots, wav_slots) = select_sparse_monotonic_frames(
+            &observations,
+            0,
+            FRAME_COUNT,
+            4_800,
+            ClockModel::Producer,
+        )
+        .expect("ten-minute generation");
         assert_eq!(frames.len(), FRAME_COUNT);
         assert_eq!(frames.last().map(|frame| frame.t_ms), Some(600_000));
+        assert_eq!(producer_slots.last(), Some(&28_800_000));
+        assert_eq!(wav_slots.last(), Some(&28_800_000));
     }
 }

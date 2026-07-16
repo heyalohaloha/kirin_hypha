@@ -125,6 +125,28 @@ mod keep_phase_contract_tests {
             false
         ));
     }
+
+    #[test]
+    fn stop_closes_record_but_preserves_exact_pre_for_post_stop_drop() {
+        let record_sm = RecordStateMachine::new();
+        record_sm.try_enter_record(License::Os).unwrap();
+        let paired_pre_target = Mutex::new(Some("pre-exact".to_string()));
+
+        resolve_and_exit_stop(
+            &record_sm,
+            &paired_pre_target,
+            "",
+            "",
+            Some(ReleaseReason::ManualStop),
+        );
+
+        assert!(!record_sm.is_recording());
+        assert_eq!(
+            paired_pre_target.lock().unwrap().as_deref(),
+            Some("pre-exact"),
+            "closed-session Drop polling must retain its deterministic PRE address"
+        );
+    }
 }
 
 /// state chunk 往復する識別子（方式A: JUCE が chunk bytes を所有・FFI は文字列 get/set のみ）。
@@ -1050,8 +1072,12 @@ fn spawn_keep_phase_observer(
         .is_ok()
 }
 
-/// B-102: stop の解決本体（`stop()` と broadcast 受信 closure が共有）。exit_record + linkage
-/// クリアは常に行い、`mark_released` は identity 非空のときだけ（元 `stop()` と同一）。
+/// Stop resolution shared by the direct control and All Stop receiver.
+///
+/// Record lifecycle, reservation ownership and pair selection are deliberately separate. Stop
+/// closes the current session and releases its reservation, but the exact PRE selection remains
+/// available to the stopped-session Drop reconciler. Only an explicit selector transition/unpair
+/// clears `paired_pre_target` through `PairBinding`.
 fn resolve_and_exit_stop(
     record_sm: &RecordStateMachine,
     paired_pre_target: &Mutex<Option<String>>,
@@ -1059,12 +1085,9 @@ fn resolve_and_exit_stop(
     post_iid: &str,
     release_reason: Option<ReleaseReason>,
 ) {
-    // B-127: linkage クリア前に対 PRE iid を捕捉し、本 pairing の O_EXCL reservation 枠を解放する
-    // （両 marker が Closed/stale になる前でも stop で明示解放。孤児は sweep が age-based で回収）。
+    // Capture the selected PRE without consuming it. The reservation is Record-scoped, while this
+    // identity is also the deterministic address for a WAV dropped after Stop.
     let released_pre = paired_pre_target.lock().ok().and_then(|g| g.clone());
-    if let Ok(mut g) = paired_pre_target.lock() {
-        *g = None; // linkage クリア（次 Keep まで）。
-    }
     // 2026-07-10 構造修正（ACK re-entry race）: shared signal を Released にしてから
     // record_sm.exit_record() する。逆順だと、record_sm が既に Watch なのに on-disk signal は
     // まだ Acknowledged のままという間隙が生まれ、その間に ACK poller（io_thread_pre.rs /
@@ -2569,8 +2592,8 @@ impl KirinHyphaEngine {
         self.keep_record_generation.store(0, Ordering::Release);
         self.keep_phase
             .store(KIRIN_KEEP_PHASE_IDLE, Ordering::Release);
-        // 元 stop() と同一: exit_record + linkage クリアは常に行い、mark_released は enable 済
-        // （identity 非空）のときだけ。共有 free 関数で broadcast 受信 closure と同一経路にする。
+        // Stop preserves the exact pair identity for a later WAV Drop. Reservation release and
+        // record_signal teardown still share the same resolver with broadcast Stop.
         let (project_hash, post_iid) = match self.identity.lock() {
             Ok(id) => (id.project_hash.clone(), id.instance_id.clone()),
             Err(_) => (String::new(), String::new()),
