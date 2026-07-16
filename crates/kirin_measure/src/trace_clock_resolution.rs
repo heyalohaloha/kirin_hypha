@@ -46,19 +46,20 @@ impl ClockModel {
         }
     }
 
-    fn origin(self, raw_start: i64, first: &TraceClockObservation) -> Option<i64> {
+    fn render_origin(
+        self,
+        presentation_start: i64,
+        raw_start: Option<i64>,
+        first: Option<&TraceClockObservation>,
+    ) -> Option<i64> {
         match self {
-            Self::Producer => {
-                let raw = first.raw_host_position_samples?;
-                let producer = first.producer_position_samples?;
-                raw_start.checked_add(producer.checked_sub(raw)?)
-            }
-            Self::RawMinusOutput => {
-                raw_start.checked_sub(i64::from(first.output_presentation_latency_samples?))
-            }
-            Self::Raw => Some(raw_start),
+            // `BounceTake.host_*` is the producer-owned output-presentation range. Producer
+            // positions and raw-minus-output positions are already on that axis; applying the
+            // first callback's latency here would shift the WAV origin a second time.
+            Self::Producer | Self::RawMinusOutput => Some(presentation_start),
+            Self::Raw => raw_start,
             Self::RawPlusOutput => {
-                raw_start.checked_add(i64::from(first.output_presentation_latency_samples?))
+                raw_start?.checked_add(i64::from(first?.output_presentation_latency_samples?))
             }
         }
     }
@@ -110,21 +111,25 @@ fn render_origin(
     model: ClockModel,
 ) -> Option<i64> {
     let take = data.bounce_take.as_ref()?;
-    let raw_start = take.host_start_position_samples?;
-    let raw_end = take.host_end_position_samples?;
+    let presentation_start = take.host_start_position_samples?;
+    let presentation_end = take.host_end_position_samples?;
     let expected_duration = i64::try_from(expected.expected_duration_samples).ok()?;
     if take.sample_rate != expected.expected_sample_rate
         || take.duration_samples != expected.expected_duration_samples
-        || raw_end.checked_sub(raw_start) != Some(expected_duration)
+        || presentation_end.checked_sub(presentation_start) != Some(expected_duration)
     {
         return None;
     }
+    let raw_start = data
+        .raw_host_clock_range
+        .as_ref()
+        .map(|range| range.start_position_samples);
     let first = data
         .trace_clock_observations
         .iter()
         .filter(|observation| observation.raw_host_position_samples.is_some())
-        .min_by_key(|observation| observation.frame.t_ms)?;
-    model.origin(raw_start, first)
+        .min_by_key(|observation| observation.frame.t_ms);
+    model.render_origin(presentation_start, raw_start, first)
 }
 
 fn target_slots(origin: i64, expected_len: usize, slot_samples: i64) -> Option<Vec<i64>> {
@@ -157,10 +162,15 @@ fn select_monotonic_frames(
     candidates.sort_by_key(|(t_ms, epoch, position, _)| (*t_ms, *epoch, *position));
     let mut selected = Vec::with_capacity(targets.len());
     let mut last_time = None;
+    let mut cursor = 0;
     for (index, target) in targets.iter().enumerate() {
-        let candidate = candidates.iter().find(|(t_ms, _, position, _)| {
-            *position == *target && last_time.is_none_or(|last| *t_ms > last)
-        })?;
+        let candidate = loop {
+            let candidate = candidates.get(cursor)?;
+            cursor += 1;
+            if candidate.2 == *target && last_time.is_none_or(|last| candidate.0 > last) {
+                break candidate;
+            }
+        };
         last_time = Some(candidate.0);
         let mut frame = candidate.3.clone();
         frame.t_ms = (index as u64 + 1).checked_mul(100)?;
@@ -243,6 +253,10 @@ mod tests {
             None,
         );
         data.trace_clock_observations = observations;
+        data.raw_host_clock_range = Some(crate::plugin_data::HostClockRange {
+            start_position_samples: 100_256,
+            end_position_samples: 110_112,
+        });
         data.bounce_take = Some(BounceTake {
             source: "render_clock_native".into(),
             time_axis: "native_samples".into(),
@@ -256,8 +270,10 @@ mod tests {
             end_t_ms: 200,
             trace_sample_count: 2,
             frame_count: 2,
-            host_start_position_samples: Some(100_256),
-            host_end_position_samples: Some(109_856),
+            // Current producers store the output-presentation range here. The raw host range is
+            // retained independently above and may have a different span when latency changes.
+            host_start_position_samples: Some(100_000),
+            host_end_position_samples: Some(109_600),
         });
         data
     }
@@ -289,6 +305,64 @@ mod tests {
         assert_eq!(resolved.model, "producer_position");
         assert_eq!(resolved.producer_slots, vec![104_800, 109_600]);
         assert_eq!(resolved.frames.len(), 2);
+    }
+
+    #[test]
+    fn missing_bext_uses_presentation_origin_without_applying_latency_twice() {
+        let data = data(vec![
+            observation(100, 105_056, 256, 10),
+            observation(200, 110_112, 512, 11),
+        ]);
+        let resolved = resolve_exact_side(&data, &expected(None), 2, 4_800)
+            .expect("producer presentation range resolves without BWF");
+        assert_eq!(resolved.model, "producer_position");
+        assert_eq!(resolved.producer_slots, vec![104_800, 109_600]);
+    }
+
+    #[test]
+    fn missing_bext_raw_minus_output_uses_the_same_presentation_origin() {
+        let mut first = observation(100, 105_056, 256, 10);
+        let mut second = observation(200, 110_112, 512, 11);
+        first.producer_position_samples = None;
+        second.producer_position_samples = None;
+        let resolved = resolve_exact_side(&data(vec![first, second]), &expected(None), 2, 4_800)
+            .expect("raw-minus-output presentation range resolves without BWF");
+        assert_eq!(resolved.model, "raw_minus_output_latency");
+        assert_eq!(resolved.producer_slots, vec![104_800, 109_600]);
+    }
+
+    #[test]
+    fn missing_bext_raw_host_model_uses_the_independent_raw_origin() {
+        let mut first = observation(100, 104_800, 256, 10);
+        let mut second = observation(200, 109_600, 512, 11);
+        first.producer_position_samples = None;
+        second.producer_position_samples = None;
+        let mut data = data(vec![first, second]);
+        data.raw_host_clock_range = Some(crate::plugin_data::HostClockRange {
+            start_position_samples: 100_000,
+            end_position_samples: 109_600,
+        });
+        let resolved = resolve_exact_side(&data, &expected(None), 2, 4_800)
+            .expect("raw host range resolves without BWF");
+        assert_eq!(resolved.model, "raw_host_position");
+        assert_eq!(resolved.producer_slots, vec![104_800, 109_600]);
+    }
+
+    #[test]
+    fn missing_bext_raw_plus_output_uses_raw_origin_and_first_latency() {
+        let mut first = observation(100, 104_544, 256, 10);
+        let mut second = observation(200, 109_088, 512, 11);
+        first.producer_position_samples = None;
+        second.producer_position_samples = None;
+        let mut data = data(vec![first, second]);
+        data.raw_host_clock_range = Some(crate::plugin_data::HostClockRange {
+            start_position_samples: 99_744,
+            end_position_samples: 109_088,
+        });
+        let resolved = resolve_exact_side(&data, &expected(None), 2, 4_800)
+            .expect("raw-plus-output range resolves without BWF");
+        assert_eq!(resolved.model, "raw_plus_output_latency");
+        assert_eq!(resolved.producer_slots, vec![104_800, 109_600]);
     }
 
     #[test]
@@ -336,5 +410,21 @@ mod tests {
     fn overflow_never_creates_a_false_clock_match() {
         let data = data(vec![observation(100, i64::MAX, 0, 1)]);
         assert!(resolve_exact_side(&data, &expected(Some(u64::MAX)), 1, 4_800).is_none());
+    }
+
+    #[test]
+    fn long_generation_selection_advances_through_candidates_once() {
+        const FRAME_COUNT: usize = 6_000;
+        let observations = (1..=FRAME_COUNT)
+            .map(|index| {
+                let position = i64::try_from(index).unwrap() * 4_800;
+                observation(index as u64 * 100, position, 0, 1)
+            })
+            .collect::<Vec<_>>();
+        let targets = target_slots(0, FRAME_COUNT, 4_800).unwrap();
+        let frames = select_monotonic_frames(&observations, &targets, ClockModel::Producer)
+            .expect("ten-minute generation");
+        assert_eq!(frames.len(), FRAME_COUNT);
+        assert_eq!(frames.last().map(|frame| frame.t_ms), Some(600_000));
     }
 }
