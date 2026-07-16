@@ -17,7 +17,7 @@ use crate::capture_generation::{
 };
 use crate::record_expected::{
     now_epoch_ms, read_claim_marker_for_session, ExpectedMetadataError, ExpectedWavMetadata,
-    EXPECTED_METADATA_FUTURE_SKEW_MS, EXPECTED_METADATA_MAX_AGE_MS,
+    EXPECTED_METADATA_FUTURE_SKEW_MS,
 };
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
@@ -236,10 +236,8 @@ fn build_acceptance_from_exact_artifacts(
                 || commit.metadata.created_at_ms != commit.created_at_ms
                 || commit.metadata.bounce_id != generation_transaction.bounce_id
                 || expected_hash != generation_transaction.wav_hash
-                || !commit.metadata.is_fresh_complete_for_arm(now_ms)
+                || !generation_metadata_is_attestable(&commit.metadata, now_ms)
                 || commit.created_at_ms < marker.claimed_at_ms
-                || commit.created_at_ms > now_ms.saturating_add(EXPECTED_METADATA_FUTURE_SKEW_MS)
-                || now_ms.saturating_sub(commit.created_at_ms) > EXPECTED_METADATA_MAX_AGE_MS
                 || marker.session_id != *session_id
                 || marker.capture_generation_id != capture_generation_id
                 || marker.generation_started_at_ms != generation_started_at_ms
@@ -347,6 +345,14 @@ fn read_optional(path: &Path) -> Result<Option<Vec<u8>>, ExpectedMetadataError> 
     }
 }
 
+/// Current generation Drop artifacts are immutable and bound to an archived exact roster. Their
+/// wall-clock age is not an identity check: a DAW or Kirin OS restart may delay attestation well
+/// beyond ten minutes. Freshness remains enforced only by the legacy mutable `current.json` path.
+fn generation_metadata_is_attestable(metadata: &ExpectedWavMetadata, now_ms: i64) -> bool {
+    metadata.is_complete()
+        && metadata.created_at_ms <= now_ms.saturating_add(EXPECTED_METADATA_FUTURE_SKEW_MS)
+}
+
 impl DropRecordGenerationAcceptance {
     fn is_valid_for(&self, capture_generation_id: &str, generation_started_at_ms: i64) -> bool {
         let unique_session_ids = self
@@ -399,7 +405,8 @@ impl DropRecordGenerationAcceptance {
 
 #[cfg(test)]
 mod tests {
-    use super::artifact_sha256;
+    use super::{artifact_sha256, generation_metadata_is_attestable};
+    use crate::record_expected::ExpectedWavMetadata;
 
     #[test]
     fn artifact_fingerprint_commits_exact_bytes_and_unambiguous_identities() {
@@ -424,5 +431,28 @@ mod tests {
         assert_ne!(baseline, whitespace);
         assert_ne!(baseline, other_identity);
         assert_ne!(split, joined);
+    }
+
+    #[test]
+    fn immutable_generation_attestation_survives_a_delayed_restart() {
+        let now_ms = 1_800_000_000_000;
+        let metadata = ExpectedWavMetadata {
+            expected_duration_samples: 48_000,
+            expected_sample_rate: 48_000,
+            wav_time_reference_samples: Some(0),
+            wav_path: "/tmp/drop.wav".to_string(),
+            bounce_id: "bounce-delayed-restart".to_string(),
+            created_at_ms: now_ms - 11 * 60 * 1_000,
+            wav_file_size: Some(192_044),
+            wav_mtime_ms: now_ms - 11 * 60 * 1_000,
+            wav_hash: Some("a".repeat(64)),
+            consumed_at_ms: None,
+            consumed_by_session_id: None,
+        };
+
+        assert!(generation_metadata_is_attestable(&metadata, now_ms));
+        let mut future = metadata;
+        future.created_at_ms = now_ms + 60 * 1_000 + 1;
+        assert!(!generation_metadata_is_attestable(&future, now_ms));
     }
 }
