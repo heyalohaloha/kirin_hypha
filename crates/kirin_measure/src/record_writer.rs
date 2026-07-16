@@ -1027,8 +1027,23 @@ pub fn apply_record_take_snapshot(ctx: &mut RecordingCtx, tracker: Option<&Recor
     } else if let Some(epoch) = tracker.selected_capture_epoch(ctx.record_generation) {
         ctx.selected_capture_epoch = Some(epoch);
         if let Some((raw_start, raw_end)) = raw_range {
-            ctx.presentation_range =
-                tracker.presentation_range_for_capture_epoch(epoch, raw_start, raw_end);
+            let expected_render_duration = ctx
+                .writer
+                .data()
+                .expected_wav
+                .as_ref()
+                .filter(|expected| {
+                    expected.wav_time_reference_samples.is_none()
+                        && expected.expected_sample_rate == ctx.writer.data().sample_rate
+                })
+                .map(|expected| expected.expected_duration_samples);
+            ctx.presentation_range = expected_render_duration
+                .and_then(|duration| {
+                    tracker.presentation_range_for_latency_epoch_chain(epoch, raw_start, duration)
+                })
+                .or_else(|| {
+                    tracker.presentation_range_for_capture_epoch(epoch, raw_start, raw_end)
+                });
         }
     }
     ctx.clean_take = snapshot;
@@ -6415,6 +6430,120 @@ mod tests {
             }),
             "BWF sample zero selects the producer span containing the ACK pre-roll"
         );
+    }
+
+    #[test]
+    fn apply_snapshot_publishes_exact_no_bwf_range_across_dynamic_latency_epochs() {
+        let base = isolated_base();
+        let mut ctx = make_ctx_with_sample_rate(&base, Role::Post, now_epoch_ms(), 48_000);
+        ctx.record_generation = 734;
+        ctx.writer
+            .set_record_session_id(Some("record-session-dynamic-latency".to_string()));
+        let expected = expected_wav_metadata(48_000, 9_600, "no-bwf-dynamic-latency");
+        ctx.writer.set_expected_wav(Some(expected.clone()));
+
+        let tracker = RecordTakeTracker::new();
+        let first_latency = PresentationLatencySamples {
+            source: PresentationLatencySource::Vst3,
+            input: Some(0),
+            output: Some(256),
+        };
+        tracker.note_block(RecordTakeBlock {
+            generation: 734,
+            recording: true,
+            rendered: true,
+            playing: false,
+            offline: true,
+            position_valid: true,
+            position_samples: 100_256,
+            num_frames: 4_800,
+            clock_start_samples: 0,
+            clock_end_samples: None,
+        });
+        tracker.note_capture_window_with_presentation_boundary(
+            true,
+            100_256,
+            4_800,
+            CaptureClockSource::ProjectTimeline,
+            first_latency,
+            true,
+        );
+
+        let changed_latency = PresentationLatencySamples {
+            source: PresentationLatencySource::Vst3,
+            input: Some(0),
+            output: Some(512),
+        };
+        tracker.note_block(RecordTakeBlock {
+            generation: 734,
+            recording: true,
+            rendered: true,
+            playing: false,
+            offline: true,
+            position_valid: true,
+            position_samples: 105_312,
+            num_frames: 4_800,
+            clock_start_samples: 0,
+            clock_end_samples: None,
+        });
+        tracker.note_capture_window_with_presentation_boundary(
+            true,
+            105_312,
+            4_800,
+            CaptureClockSource::ProjectTimeline,
+            changed_latency,
+            false,
+        );
+
+        for (captured_frames, t_ms) in [(4_800, 100), (9_600, 200)] {
+            let point = tracker
+                .clock_point_for_captured_frame(captured_frames)
+                .expect("producer clock point");
+            let mut sample = trace_sample_for_generation(734, t_ms, full_measure_result(), false);
+            sample.t_native_frames = Some(captured_frames);
+            sample.position_samples = Some(point.position_samples);
+            sample.raw_host_position_samples = Some(point.raw_host_position_samples);
+            sample.capture_epoch = Some(point.epoch);
+            sample.clock_source = point.source;
+            sample.presentation_latency = point.presentation_latency;
+            ctx.trace_samples.push(sample);
+        }
+
+        apply_record_take_snapshot(&mut ctx, Some(&tracker));
+        assert_eq!(ctx.presentation_range, Some((100_000, 109_600)));
+
+        seal_bounce_marker(&mut ctx);
+        bake_continuous_record_timeline(&mut ctx);
+        let take = ctx.writer.data().bounce_take.as_ref().expect("bounce take");
+        assert_eq!(take.host_start_position_samples, Some(100_000));
+        assert_eq!(take.host_end_position_samples, Some(109_600));
+        assert_eq!(ctx.writer.data().trace_clock_observations.len(), 2);
+
+        let resolved = crate::trace_clock_resolution::resolve_exact_side(
+            ctx.writer.data(),
+            &expected,
+            2,
+            4_800,
+        )
+        .expect("production snapshot must retain an exact no-BWF origin");
+        assert_eq!(resolved.model, "producer_position");
+        assert_eq!(resolved.producer_slots, vec![104_800, 109_600]);
+        assert_eq!(resolved.frames.len(), 2);
+
+        let mut pre_data = ctx.writer.data().clone();
+        pre_data.role = Role::Pre;
+        let post_data = ctx.writer.data().clone();
+        let pair_plan = crate::trace_content_clock::build_wav_start_clock_plan(
+            &pre_data, &post_data, &expected, 2, 4_800,
+        )
+        .expect("the completed PRE/POST path must remain TRACE-visible");
+        assert!(pair_plan.exact);
+        assert_eq!(
+            pair_plan.start_basis,
+            crate::trace_alignment::TRACE_ALIGNMENT_START_RENDER_RANGE
+        );
+        assert_eq!(pair_plan.pre_producer_slots, vec![104_800, 109_600]);
+        assert_eq!(pair_plan.post_producer_slots, vec![104_800, 109_600]);
     }
 
     #[test]
