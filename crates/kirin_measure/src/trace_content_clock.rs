@@ -11,6 +11,7 @@ use crate::plugin_data::{Frame, PluginDataFile};
 use crate::record_expected::ExpectedWavMetadata;
 
 const FRAME_INTERVAL_MS: u64 = 100;
+pub(crate) const TRACE_COMPARISON_RAW_HOST_EXACT: &str = "raw_host_clock_exact";
 
 pub(crate) struct WavStartClockPlan {
     pub pre_frames: Vec<Frame>,
@@ -22,6 +23,11 @@ pub(crate) struct WavStartClockPlan {
     /// may move the first complete 100 ms window inside `[slot_samples, 2 * slot_samples)`.
     pub pre_wav_slots: Vec<i64>,
     pub post_wav_slots: Vec<i64>,
+    /// Untouched raw-host endpoints retained only as an independent PRE/POST comparison proof.
+    /// These are not positions on the dropped-WAV axis.
+    pub pre_comparison_slots: Vec<i64>,
+    pub post_comparison_slots: Vec<i64>,
+    pub comparison_resolution: Option<&'static str>,
     pub pre_origin_position_samples: Option<i64>,
     pub post_origin_position_samples: Option<i64>,
     pub start_basis: &'static str,
@@ -84,6 +90,9 @@ pub(crate) fn build_wav_start_clock_plan(
             post_producer_slots: post_side.producer_slots,
             pre_wav_slots: pre_side.wav_slots,
             post_wav_slots: post_side.wav_slots,
+            pre_comparison_slots: Vec::new(),
+            post_comparison_slots: Vec::new(),
+            comparison_resolution: None,
             pre_origin_position_samples: Some(pre_side.origin_position_samples),
             post_origin_position_samples: Some(post_side.origin_position_samples),
             start_basis,
@@ -120,6 +129,9 @@ pub(crate) fn build_wav_start_clock_plan(
                     post_producer_slots: selected_positions,
                     pre_wav_slots: wav_slots(expected_len, slot_samples)?,
                     post_wav_slots: wav_slots(expected_len, slot_samples)?,
+                    pre_comparison_slots: Vec::new(),
+                    post_comparison_slots: Vec::new(),
+                    comparison_resolution: None,
                     pre_origin_position_samples: producer_origin,
                     post_origin_position_samples: producer_origin,
                     start_basis,
@@ -151,6 +163,9 @@ pub(crate) fn build_wav_start_clock_plan(
                     post_producer_slots: post_side.producer_slots,
                     pre_wav_slots: pre_side.wav_slots,
                     post_wav_slots: post_side.wav_slots,
+                    pre_comparison_slots: Vec::new(),
+                    post_comparison_slots: Vec::new(),
+                    comparison_resolution: None,
                     pre_origin_position_samples: Some(pre_side.origin),
                     post_origin_position_samples: Some(post_side.origin),
                     start_basis: pre_side.start_basis,
@@ -162,7 +177,32 @@ pub(crate) fn build_wav_start_clock_plan(
         }
     }
 
-    // Timing quality must never erase measured tracks. This path preserves only real measured
+    // Absolute placement on a non-BWF file may remain unresolved even when both plug-ins observed
+    // the exact same raw host clock. Preserve that producer fact separately: it qualifies only
+    // PRE/POST subtraction on an elapsed axis and never promotes the dropped-WAV axis to exact.
+    if let Some((pre_side, post_side)) =
+        shared_raw_host_comparison(pre, post, expected_len, slot_samples)
+    {
+        return Some(WavStartClockPlan {
+            pre_frames: pre_side.frames,
+            post_frames: post_side.frames,
+            pre_producer_slots: pre_side.raw_slots.clone(),
+            post_producer_slots: post_side.raw_slots.clone(),
+            pre_wav_slots: pre_side.elapsed_slots,
+            post_wav_slots: post_side.elapsed_slots,
+            pre_comparison_slots: pre_side.raw_slots,
+            post_comparison_slots: post_side.raw_slots,
+            comparison_resolution: Some(TRACE_COMPARISON_RAW_HOST_EXACT),
+            pre_origin_position_samples: None,
+            post_origin_position_samples: None,
+            start_basis: crate::trace_alignment::TRACE_ALIGNMENT_START_ORDER_FALLBACK,
+            pre_clock_model: "chronological_fallback",
+            post_clock_model: "chronological_fallback",
+            exact: false,
+        });
+    }
+
+    // Timing quality must never erase measured tracks. This last path preserves only real measured
     // frames, aligns them by their Record order, and labels the result non-canonical so consumers
     // can display it while keeping exactness as separate quality metadata.
     let mut pre_frames =
@@ -180,6 +220,9 @@ pub(crate) fn build_wav_start_clock_plan(
         post_producer_slots: post_fallback_slots.clone(),
         pre_wav_slots: pre_fallback_slots,
         post_wav_slots: post_fallback_slots,
+        pre_comparison_slots: Vec::new(),
+        post_comparison_slots: Vec::new(),
+        comparison_resolution: None,
         pre_origin_position_samples: None,
         post_origin_position_samples: None,
         start_basis: crate::trace_alignment::TRACE_ALIGNMENT_START_ORDER_FALLBACK,
@@ -187,6 +230,121 @@ pub(crate) fn build_wav_start_clock_plan(
         post_clock_model: "chronological_fallback",
         exact: false,
     })
+}
+
+struct RawHostComparisonSide {
+    frames: Vec<Frame>,
+    raw_slots: Vec<i64>,
+    elapsed_slots: Vec<i64>,
+}
+
+/// Select factual measured frames on one untouched host clock. A capture epoch is never mixed
+/// with another epoch: a DAW position jump therefore disables this proof instead of being hidden.
+fn raw_host_comparison_side(
+    data: &PluginDataFile,
+    shared_origin: i64,
+    expected_len: usize,
+    slot_samples: i64,
+) -> Option<RawHostComparisonSide> {
+    let duration = i64::try_from(expected_len)
+        .ok()?
+        .checked_mul(slot_samples)?;
+    let raw_range = data.raw_host_clock_range?;
+    if raw_range.start_position_samples != shared_origin
+        || raw_range.end_position_samples <= shared_origin
+    {
+        return None;
+    }
+    let mut selected = data
+        .trace_clock_observations
+        .iter()
+        .filter_map(|observation| {
+            let position = observation.raw_host_position_samples?;
+            let relative = position.checked_sub(shared_origin)?;
+            if relative <= 0
+                || relative > duration
+                || relative % slot_samples != 0
+                || position > raw_range.end_position_samples
+                || !matches!(
+                    observation.clock_source.as_deref(),
+                    Some("project_timeline" | "audio_render_timeline")
+                )
+            {
+                return None;
+            }
+            let elapsed_ms =
+                u64::try_from(relative).ok()?.checked_mul(1_000)? / u64::from(data.sample_rate);
+            if observation.frame.t_ms != elapsed_ms {
+                return None;
+            }
+            Some((
+                position,
+                relative,
+                observation.capture_epoch?,
+                observation.frame.clone(),
+            ))
+        })
+        .collect::<Vec<_>>();
+    let factual_frame_count =
+        crate::trace_clock_resolution::chronological_fallback_frames(data, expected_len).len();
+    if selected.len() != factual_frame_count {
+        // Comparison metadata is secondary. Never discard a measured frame merely because that
+        // frame lacks the raw-clock fact needed for subtraction qualification.
+        return None;
+    }
+    selected.sort_by_key(|(position, _, _, _)| *position);
+    if selected.len() < 2 || !selected.windows(2).all(|pair| pair[0].0 < pair[1].0) {
+        return None;
+    }
+    let capture_epoch = selected.first()?.2;
+    if selected
+        .iter()
+        .any(|(_, _, epoch, _)| *epoch != capture_epoch)
+    {
+        return None;
+    }
+    let mut frames = Vec::with_capacity(selected.len());
+    let mut raw_slots = Vec::with_capacity(selected.len());
+    let mut elapsed_slots = Vec::with_capacity(selected.len());
+    for (raw, elapsed, _, mut frame) in selected {
+        frame.t_ms = u64::try_from(elapsed).ok()?.checked_mul(1_000)? / u64::from(data.sample_rate);
+        frames.push(frame);
+        raw_slots.push(raw);
+        elapsed_slots.push(elapsed);
+    }
+    Some(RawHostComparisonSide {
+        frames,
+        raw_slots,
+        elapsed_slots,
+    })
+}
+
+fn shared_raw_host_comparison(
+    pre: &PluginDataFile,
+    post: &PluginDataFile,
+    expected_len: usize,
+    slot_samples: i64,
+) -> Option<(RawHostComparisonSide, RawHostComparisonSide)> {
+    let pre_range = pre.raw_host_clock_range?;
+    let post_range = post.raw_host_clock_range?;
+    if pre_range.start_position_samples != post_range.start_position_samples {
+        return None;
+    }
+    let origin = pre_range.start_position_samples;
+    let pre_side = raw_host_comparison_side(pre, origin, expected_len, slot_samples)?;
+    let post_side = raw_host_comparison_side(post, origin, expected_len, slot_samples)?;
+    let post_positions = post_side
+        .raw_slots
+        .iter()
+        .copied()
+        .collect::<std::collections::BTreeSet<_>>();
+    let common_count = pre_side
+        .raw_slots
+        .iter()
+        .filter(|position| post_positions.contains(position))
+        .take(2)
+        .count();
+    (common_count >= 2).then_some((pre_side, post_side))
 }
 
 fn wav_slots_for_frames(
@@ -405,7 +563,7 @@ fn shared_producer_render_range(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::plugin_data::{BounceTake, Role, TraceClock, TraceClockObservation};
+    use crate::plugin_data::{BounceTake, HostClockRange, Role, TraceClock, TraceClockObservation};
 
     fn frame(value: f64) -> Frame {
         Frame {
@@ -498,6 +656,38 @@ mod tests {
             host_start_position_samples: Some(96_000),
             host_end_position_samples: Some(110_400),
         });
+        data
+    }
+
+    fn raw_host_comparison_data(role: Role, origin: i64, positions: &[i64]) -> PluginDataFile {
+        let mut data = plugin_data(role, "session", "audio_render_timeline");
+        data.trace_slot_positions.clear();
+        data.frames.clear();
+        data.raw_host_clock_range = Some(HostClockRange {
+            start_position_samples: origin,
+            end_position_samples: origin + 19_200,
+        });
+        data.trace_clock_observations = positions
+            .iter()
+            .enumerate()
+            .map(|(index, position)| TraceClockObservation {
+                frame: Frame {
+                    t_ms: u64::try_from(*position - origin).unwrap() * 1_000 / 48_000,
+                    ..frame(-30.0 + index as f64)
+                },
+                producer_position_samples: None,
+                raw_host_position_samples: Some(*position),
+                capture_epoch: Some(7),
+                clock_source: Some("audio_render_timeline".to_string()),
+                presentation_latency_source: Some("audio_unit_v2".to_string()),
+                input_presentation_latency_samples: Some(0),
+                output_presentation_latency_samples: Some(512),
+            })
+            .collect();
+        let take = data.bounce_take.as_mut().unwrap();
+        take.duration_samples = 19_200;
+        take.host_start_position_samples = Some(origin - 512);
+        take.host_end_position_samples = Some(origin + 18_688);
         data
     }
 
@@ -664,6 +854,71 @@ mod tests {
         let fallback = build_wav_start_clock_plan(&pre, &post, &expected(None), 3, 4_800)
             .expect("unknown clock is a quality issue, not visibility loss");
         assert!(!fallback.exact);
+    }
+
+    #[test]
+    fn unresolved_wav_start_preserves_exact_raw_host_comparison_with_sparse_gaps() {
+        let origin = 15_594_720;
+        let pre = raw_host_comparison_data(
+            Role::Pre,
+            origin,
+            &[origin + 4_800, origin + 9_600, origin + 14_400],
+        );
+        let post = raw_host_comparison_data(Role::Post, origin, &[origin + 4_800, origin + 14_400]);
+
+        let plan = build_wav_start_clock_plan(&pre, &post, &expected(None), 3, 4_800)
+            .expect("same raw host clock remains comparable");
+
+        assert!(!plan.exact, "the non-BWF file start remains unresolved");
+        assert_eq!(
+            plan.comparison_resolution,
+            Some(TRACE_COMPARISON_RAW_HOST_EXACT)
+        );
+        assert_eq!(
+            plan.pre_comparison_slots,
+            vec![origin + 4_800, origin + 9_600, origin + 14_400]
+        );
+        assert_eq!(
+            plan.post_comparison_slots,
+            vec![origin + 4_800, origin + 14_400]
+        );
+        assert_eq!(plan.pre_wav_slots, vec![4_800, 9_600, 14_400]);
+        assert_eq!(plan.post_wav_slots, vec![4_800, 14_400]);
+        assert_eq!(
+            plan.post_frames
+                .iter()
+                .map(|frame| frame.t_ms)
+                .collect::<Vec<_>>(),
+            vec![100, 300]
+        );
+    }
+
+    #[test]
+    fn different_raw_host_origins_never_qualify_pre_post_comparison() {
+        let pre_origin = 15_594_720;
+        let post_origin = pre_origin + 512;
+        let pre = raw_host_comparison_data(
+            Role::Pre,
+            pre_origin,
+            &[pre_origin + 4_800, pre_origin + 9_600, pre_origin + 14_400],
+        );
+        let post = raw_host_comparison_data(
+            Role::Post,
+            post_origin,
+            &[
+                post_origin + 4_800,
+                post_origin + 9_600,
+                post_origin + 14_400,
+            ],
+        );
+
+        let plan = build_wav_start_clock_plan(&pre, &post, &expected(None), 3, 4_800)
+            .expect("measured frames remain visible");
+
+        assert!(!plan.exact);
+        assert_eq!(plan.comparison_resolution, None);
+        assert!(plan.pre_comparison_slots.is_empty());
+        assert!(plan.post_comparison_slots.is_empty());
     }
 
     #[test]
