@@ -298,6 +298,18 @@ pub(crate) fn chronological_fallback_frames(
     data: &PluginDataFile,
     expected_len: usize,
 ) -> Vec<Frame> {
+    let max_ms = (expected_len as u64).saturating_mul(100);
+    let normalize = |frames: Vec<Frame>| {
+        let mut by_slot = std::collections::BTreeMap::new();
+        for frame in frames {
+            if frame.t_ms == 0 || frame.t_ms > max_ms || frame.t_ms % 100 != 0 {
+                continue;
+            }
+            by_slot.entry(frame.t_ms).or_insert(frame);
+        }
+        by_slot.into_values().collect::<Vec<_>>()
+    };
+    let baked_frames = normalize(data.frames.clone());
     let mut observations = data.trace_clock_observations.iter().collect::<Vec<_>>();
     observations.sort_by_key(|observation| {
         (
@@ -309,21 +321,17 @@ pub(crate) fn chronological_fallback_frames(
         .into_iter()
         .map(|observation| observation.frame.clone())
         .collect::<Vec<_>>();
-    let frames = if observed_frames.len() > data.frames.len() {
+    let observed_frames = normalize(observed_frames);
+    // Compare usable coverage after duration/grid normalization. Raw observation count also
+    // includes callbacks before/after an offline render and therefore must not displace an already
+    // complete producer-selected take merely because the journal is longer.
+    let frames = if observed_frames.len() > baked_frames.len() {
         observed_frames
     } else {
-        data.frames.clone()
+        baked_frames
     };
-    let max_ms = (expected_len as u64).saturating_mul(100);
-    let mut by_slot = std::collections::BTreeMap::new();
-    for frame in frames {
-        if frame.t_ms == 0 || frame.t_ms > max_ms || frame.t_ms % 100 != 0 {
-            continue;
-        }
-        by_slot.entry(frame.t_ms).or_insert(frame);
-    }
-    if !by_slot.is_empty() {
-        return by_slot.into_values().collect();
+    if !frames.is_empty() {
+        return frames;
     }
     // Pre-v1.3 artifacts sometimes carried no usable per-frame t_ms. Keep their historical
     // record-order compatibility path, but only when there is no factual slot timestamp at all.
@@ -541,6 +549,22 @@ mod tests {
         assert_eq!(frames.len(), 2);
         assert_eq!(frames[0].t_ms, 100);
         assert_eq!(frames[1].t_ms, 200);
+    }
+
+    #[test]
+    fn chronological_fallback_keeps_complete_baked_take_when_journal_has_extra_epochs() {
+        let mut data = data(vec![
+            observation(100, 104_800, 512, 1),
+            observation(100, 104_800, 512, 2),
+            observation(200, 109_600, 512, 2),
+        ]);
+        data.frames = vec![frame(100, -31.0), frame(200, -29.0)];
+
+        let frames = chronological_fallback_frames(&data, 2);
+
+        assert_eq!(frames.len(), 2);
+        assert_eq!(frames[0].lufs_m, -31.0);
+        assert_eq!(frames[1].lufs_m, -29.0);
     }
 
     #[test]

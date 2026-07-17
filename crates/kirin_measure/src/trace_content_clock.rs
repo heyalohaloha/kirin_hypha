@@ -255,68 +255,84 @@ fn raw_host_comparison_side(
     {
         return None;
     }
-    let mut selected = data
-        .trace_clock_observations
+    let factual_frames =
+        crate::trace_clock_resolution::chronological_fallback_frames(data, expected_len);
+    if factual_frames.len() < 2 {
+        return None;
+    }
+    let factual_times = factual_frames
         .iter()
-        .filter_map(|observation| {
-            let position = observation.raw_host_position_samples?;
-            let relative = position.checked_sub(shared_origin)?;
-            if relative <= 0
-                || relative > duration
-                || relative % slot_samples != 0
-                || position > raw_range.end_position_samples
-                || !matches!(
-                    observation.clock_source.as_deref(),
-                    Some("project_timeline" | "audio_render_timeline")
-                )
+        .map(|frame| frame.t_ms)
+        .collect::<Vec<_>>();
+    let mut observations_by_epoch = std::collections::BTreeMap::<u64, Vec<(i64, i64, u64)>>::new();
+    for observation in &data.trace_clock_observations {
+        let (Some(position), Some(capture_epoch)) = (
+            observation.raw_host_position_samples,
+            observation.capture_epoch,
+        ) else {
+            continue;
+        };
+        let Some(relative) = position.checked_sub(shared_origin) else {
+            continue;
+        };
+        if relative <= 0
+            || relative > duration
+            || relative % slot_samples != 0
+            || position > raw_range.end_position_samples
+            || !matches!(
+                observation.clock_source.as_deref(),
+                Some("project_timeline" | "audio_render_timeline")
+            )
+        {
+            continue;
+        }
+        let Some(elapsed_ms) = u64::try_from(relative)
+            .ok()
+            .and_then(|relative| relative.checked_mul(1_000))
+            .map(|relative| relative / u64::from(data.sample_rate))
+        else {
+            continue;
+        };
+        if observation.frame.t_ms != elapsed_ms {
+            continue;
+        }
+        observations_by_epoch
+            .entry(capture_epoch)
+            .or_default()
+            .push((position, relative, elapsed_ms));
+    }
+
+    // The observation journal intentionally spans DAW position jumps. Select only a complete
+    // epoch whose raw-clock timestamps match every producer-selected public frame. A partial
+    // pre/post-bounce epoch cannot invalidate that proof; two different complete mappings remain
+    // ambiguous and therefore produce no comparison qualification.
+    let mut candidate = None::<RawHostComparisonSide>;
+    for mut selected in observations_by_epoch.into_values() {
+        selected.sort_by_key(|(position, _, _)| *position);
+        if selected.len() != factual_frames.len()
+            || !selected.windows(2).all(|pair| pair[0].0 < pair[1].0)
+            || selected
+                .iter()
+                .map(|(_, _, elapsed_ms)| *elapsed_ms)
+                .ne(factual_times.iter().copied())
+        {
+            continue;
+        }
+        let side = RawHostComparisonSide {
+            frames: factual_frames.clone(),
+            raw_slots: selected.iter().map(|(raw, _, _)| *raw).collect(),
+            elapsed_slots: selected.iter().map(|(_, elapsed, _)| *elapsed).collect(),
+        };
+        if let Some(existing) = &candidate {
+            if existing.raw_slots != side.raw_slots || existing.elapsed_slots != side.elapsed_slots
             {
                 return None;
             }
-            let elapsed_ms =
-                u64::try_from(relative).ok()?.checked_mul(1_000)? / u64::from(data.sample_rate);
-            if observation.frame.t_ms != elapsed_ms {
-                return None;
-            }
-            Some((
-                position,
-                relative,
-                observation.capture_epoch?,
-                observation.frame.clone(),
-            ))
-        })
-        .collect::<Vec<_>>();
-    let factual_frame_count =
-        crate::trace_clock_resolution::chronological_fallback_frames(data, expected_len).len();
-    if selected.len() != factual_frame_count {
-        // Comparison metadata is secondary. Never discard a measured frame merely because that
-        // frame lacks the raw-clock fact needed for subtraction qualification.
-        return None;
+        } else {
+            candidate = Some(side);
+        }
     }
-    selected.sort_by_key(|(position, _, _, _)| *position);
-    if selected.len() < 2 || !selected.windows(2).all(|pair| pair[0].0 < pair[1].0) {
-        return None;
-    }
-    let capture_epoch = selected.first()?.2;
-    if selected
-        .iter()
-        .any(|(_, _, epoch, _)| *epoch != capture_epoch)
-    {
-        return None;
-    }
-    let mut frames = Vec::with_capacity(selected.len());
-    let mut raw_slots = Vec::with_capacity(selected.len());
-    let mut elapsed_slots = Vec::with_capacity(selected.len());
-    for (raw, elapsed, _, mut frame) in selected {
-        frame.t_ms = u64::try_from(elapsed).ok()?.checked_mul(1_000)? / u64::from(data.sample_rate);
-        frames.push(frame);
-        raw_slots.push(raw);
-        elapsed_slots.push(elapsed);
-    }
-    Some(RawHostComparisonSide {
-        frames,
-        raw_slots,
-        elapsed_slots,
-    })
+    candidate
 }
 
 fn shared_raw_host_comparison(
@@ -891,6 +907,53 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![100, 300]
         );
+    }
+
+    #[test]
+    fn raw_host_comparison_ignores_partial_epochs_around_the_selected_offline_render() {
+        let origin = 15_594_720;
+        let mut pre = raw_host_comparison_data(
+            Role::Pre,
+            origin,
+            &[origin + 4_800, origin + 9_600, origin + 14_400],
+        );
+        let mut post = raw_host_comparison_data(
+            Role::Post,
+            origin,
+            &[origin + 4_800, origin + 9_600, origin + 14_400],
+        );
+        pre.frames = pre
+            .trace_clock_observations
+            .iter()
+            .map(|observation| observation.frame.clone())
+            .collect();
+        post.frames = post
+            .trace_clock_observations
+            .iter()
+            .map(|observation| observation.frame.clone())
+            .collect();
+        for data in [&mut pre, &mut post] {
+            let mut pre_bounce_observation = data.trace_clock_observations[0].clone();
+            pre_bounce_observation.capture_epoch = Some(6);
+            pre_bounce_observation.frame.lufs_m = -90.0;
+            data.trace_clock_observations
+                .insert(0, pre_bounce_observation);
+        }
+
+        let plan = build_wav_start_clock_plan(&pre, &post, &expected(None), 3, 4_800)
+            .expect("the unique complete render epoch remains provable");
+
+        assert_eq!(
+            plan.comparison_resolution,
+            Some(TRACE_COMPARISON_RAW_HOST_EXACT)
+        );
+        assert_eq!(plan.pre_frames[0].lufs_m, -30.0);
+        assert_eq!(plan.post_frames[0].lufs_m, -30.0);
+        assert_eq!(
+            plan.pre_comparison_slots,
+            vec![origin + 4_800, origin + 9_600, origin + 14_400]
+        );
+        assert_eq!(plan.pre_comparison_slots, plan.post_comparison_slots);
     }
 
     #[test]
