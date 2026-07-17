@@ -1257,6 +1257,161 @@ fn bounce_take_duration_frames_48k(take: &BounceTake) -> Option<u64> {
     ))
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct LatencyMappedTraceCoverage {
+    expected_frame_count: u64,
+    measured_frame_count: u64,
+    missing_slots: u64,
+}
+
+fn uses_latency_mapped_wav_grid(data: &PluginDataFile) -> bool {
+    data.trace_clock_resolution.as_deref() == Some("producer_plus_output_latency")
+}
+
+fn latency_mapped_source_times(data: &PluginDataFile) -> Option<Vec<u64>> {
+    if data.trace_clock_observations.is_empty() {
+        return None;
+    }
+    let origin = data
+        .expected_wav
+        .as_ref()
+        .and_then(|expected| expected.wav_time_reference_samples)
+        .and_then(|origin| i64::try_from(origin).ok())
+        .or_else(|| {
+            data.trace_clock
+                .as_ref()
+                .map(|clock| clock.origin_position_samples)
+        })?;
+    let mut source_times_by_wav_slot = HashMap::new();
+    for observation in &data.trace_clock_observations {
+        let (Some(producer_position), Some(output_latency)) = (
+            observation.producer_position_samples,
+            observation.output_presentation_latency_samples,
+        ) else {
+            continue;
+        };
+        let aligned = producer_position.checked_add(i64::from(output_latency))?;
+        let wav_slot = aligned.checked_sub(origin)?;
+        if !data.trace_slot_positions.contains(&wav_slot) {
+            continue;
+        }
+        if source_times_by_wav_slot
+            .insert(wav_slot, observation.frame.t_ms)
+            .is_some()
+        {
+            return None;
+        }
+    }
+    let source_times = data
+        .trace_slot_positions
+        .iter()
+        .map(|slot| source_times_by_wav_slot.get(slot).copied())
+        .collect::<Option<Vec<_>>>()?;
+    source_times
+        .windows(2)
+        .all(|pair| pair[0] < pair[1])
+        .then_some(source_times)
+}
+
+/// Count only complete 100 ms windows that can exist on this side's factual latency-mapped
+/// lattice. A non-zero presentation-latency phase normally leaves complementary partial ranges at
+/// the WAV head and tail; those two edge remainders are not a missing measurement. Missing first,
+/// middle, or last lattice positions remain explicit gaps.
+fn latency_mapped_trace_coverage(
+    data: &PluginDataFile,
+    duration_samples: u64,
+    sample_rate: u32,
+) -> Option<LatencyMappedTraceCoverage> {
+    if !uses_latency_mapped_wav_grid(data)
+        || sample_rate == 0
+        || data.frames.is_empty()
+        || data.trace_slot_positions.len() != data.frames.len()
+    {
+        return None;
+    }
+    let slot_samples = i64::from(sample_rate / 10).max(1);
+    let half_slot = (slot_samples / 2).max(1);
+    let duration = i64::try_from(duration_samples).ok()?;
+    let first = *data.trace_slot_positions.first()?;
+    let last = *data.trace_slot_positions.last()?;
+    if first < slot_samples || last > duration {
+        return None;
+    }
+    if data
+        .trace_slot_positions
+        .iter()
+        .zip(&data.frames)
+        .any(|(slot, frame)| {
+            u64::try_from(*slot).ok().is_none_or(|slot| {
+                frame.t_ms != slot.saturating_mul(1_000) / u64::from(sample_rate)
+            })
+        })
+    {
+        return None;
+    }
+    if !data
+        .trace_slot_positions
+        .windows(2)
+        .all(|pair| pair[0] < pair[1])
+    {
+        return None;
+    }
+
+    // The earliest complete window on any phase ends in [slot, 2*slot). Every full slot beyond
+    // that boundary is a real missing head window, not an arbitrary phase remainder.
+    let mut missing_slots = u64::try_from(first / slot_samples).ok()?.saturating_sub(1);
+    if !data.trace_clock_observations.is_empty() {
+        // Presentation latency may change by more than half a 100 ms interval between epochs.
+        // Count internal gaps on the untouched producer journal, not by rounding the shifted WAV
+        // distance. This preserves every factual latency change without hiding a missing frame.
+        for pair in latency_mapped_source_times(data)?.windows(2) {
+            let delta_ms = pair[1].checked_sub(pair[0])?;
+            if delta_ms < TRACE_FRAME_INTERVAL_MS || delta_ms % TRACE_FRAME_INTERVAL_MS != 0 {
+                return None;
+            }
+            missing_slots = missing_slots.checked_add(
+                delta_ms
+                    .checked_div(TRACE_FRAME_INTERVAL_MS)?
+                    .saturating_sub(1),
+            )?;
+        }
+    } else if let Some(diagnostics) = data.trace_diagnostics.as_ref().filter(|diagnostics| {
+        diagnostics.measured_frame_count == data.frames.len() as u64
+            && diagnostics.expected_frame_count
+                == diagnostics
+                    .measured_frame_count
+                    .saturating_add(diagnostics.missing_slots)
+    }) {
+        // The journal is deliberately removed after commit. Its already-derived counts remain the
+        // signed fact; re-inferring from shifted distances could disagree with the commit decision.
+        return Some(LatencyMappedTraceCoverage {
+            expected_frame_count: diagnostics.expected_frame_count,
+            measured_frame_count: diagnostics.measured_frame_count,
+            missing_slots: diagnostics.missing_slots,
+        });
+    } else {
+        for pair in data.trace_slot_positions.windows(2) {
+            let delta = pair[1].checked_sub(pair[0])?;
+            if delta < half_slot {
+                return None;
+            }
+            // Compatibility for an unsigned in-memory fixture with no producer journal or
+            // diagnostics. Committed current artifacts always use one of the factual paths above.
+            let cadence_count = delta.checked_add(half_slot)?.checked_div(slot_samples)?;
+            missing_slots = missing_slots
+                .checked_add(u64::try_from(cadence_count.max(1)).ok()?.saturating_sub(1))?;
+        }
+    }
+    let tail_samples = duration.checked_sub(last)?;
+    missing_slots = missing_slots.checked_add(u64::try_from(tail_samples / slot_samples).ok()?)?;
+    let measured_frame_count = u64::try_from(data.frames.len()).ok()?;
+    Some(LatencyMappedTraceCoverage {
+        expected_frame_count: measured_frame_count.checked_add(missing_slots)?,
+        measured_frame_count,
+        missing_slots,
+    })
+}
+
 fn trace_bounce_take_failure_reasons(data: &PluginDataFile) -> Vec<&'static str> {
     let Some(take) = data.bounce_take.as_ref() else {
         return Vec::new();
@@ -1265,7 +1420,12 @@ fn trace_bounce_take_failure_reasons(data: &PluginDataFile) -> Vec<&'static str>
     let Some(duration_ms) = bounce_take_duration_ms(take) else {
         return reasons;
     };
-    let expected_frame_count = duration_ms / TRACE_FRAME_INTERVAL_MS;
+    let mapped_coverage =
+        latency_mapped_trace_coverage(data, take.duration_samples, take.sample_rate);
+    let expected_frame_count = mapped_coverage
+        .map_or(duration_ms / TRACE_FRAME_INTERVAL_MS, |coverage| {
+            coverage.expected_frame_count
+        });
     if take.wav_start_sample != 0 {
         reasons.push("bounce_take_start_sample_nonzero");
     }
@@ -1302,12 +1462,22 @@ fn trace_bounce_take_failure_reasons(data: &PluginDataFile) -> Vec<&'static str>
             if data.frames.len() != expected_len {
                 reasons.push("trace_frame_payload_count_bounce_take_mismatch");
             }
-            if data
-                .frames
-                .iter()
-                .enumerate()
-                .any(|(idx, frame)| frame.t_ms != (idx as u64 + 1) * TRACE_FRAME_INTERVAL_MS)
-            {
+            let timeline_mismatch = if mapped_coverage.is_some() {
+                data.trace_slot_positions
+                    .iter()
+                    .zip(&data.frames)
+                    .any(|(slot, frame)| {
+                        u64::try_from(*slot).ok().is_none_or(|slot| {
+                            frame.t_ms != slot.saturating_mul(1_000) / u64::from(take.sample_rate)
+                        })
+                    })
+            } else {
+                data.frames
+                    .iter()
+                    .enumerate()
+                    .any(|(idx, frame)| frame.t_ms != (idx as u64 + 1) * TRACE_FRAME_INTERVAL_MS)
+            };
+            if timeline_mismatch {
                 reasons.push("trace_frame_timeline_mismatch");
             }
         }
@@ -1328,15 +1498,15 @@ fn trace_slot_identity_is_complete(data: &PluginDataFile) -> bool {
         return false;
     }
     let slot_samples = (data.sample_rate as i64 / 10).max(1);
-    if !data
-        .trace_slot_positions
-        .windows(2)
-        .all(|pair| pair[1].checked_sub(pair[0]) == Some(slot_samples))
-    {
-        return false;
-    }
     match data.trace_time_axis.as_deref() {
         Some(axis) if axis == crate::trace_alignment::TRACE_HOST_TIME_AXIS => {
+            if !data
+                .trace_slot_positions
+                .windows(2)
+                .all(|pair| pair[1].checked_sub(pair[0]) == Some(slot_samples))
+            {
+                return false;
+            }
             let (Some(first), Some(last), Some(clock)) = (
                 data.trace_slot_positions.first().copied(),
                 data.trace_slot_positions.last().copied(),
@@ -1351,7 +1521,27 @@ fn trace_slot_identity_is_complete(data: &PluginDataFile) -> bool {
                 && last == clock.end_position_samples
         }
         Some(axis) if axis == crate::trace_alignment::TRACE_TIME_AXIS => {
-            crate::trace_alignment::has_canonical_wav_reference(data)
+            if !crate::trace_alignment::has_canonical_wav_reference(data) {
+                return false;
+            }
+            if uses_latency_mapped_wav_grid(data) {
+                let Some(reference) = data.trace_wav_reference.as_ref() else {
+                    return false;
+                };
+                let Some(duration_samples) =
+                    reference.end_sample.checked_sub(reference.start_sample)
+                else {
+                    return false;
+                };
+                return latency_mapped_trace_coverage(data, duration_samples, data.sample_rate)
+                    .is_some_and(|coverage| {
+                        coverage.missing_slots == 0
+                            && coverage.measured_frame_count == coverage.expected_frame_count
+                    });
+            }
+            data.trace_slot_positions
+                .windows(2)
+                .all(|pair| pair[1].checked_sub(pair[0]) == Some(slot_samples))
                 && data.trace_slot_positions.first().copied() == Some(slot_samples)
                 && i64::try_from(data.trace_slot_positions.len())
                     .ok()
@@ -3013,7 +3203,25 @@ fn normalize_late_expected_record(
         host_end_position_samples: producer_host_range.map(|range| range.1),
     });
     let measured_frame_count = data.frames.len() as u64;
-    let missing_slots = expected_frame_count.saturating_sub(measured_frame_count);
+    let mapped_coverage = latency_mapped_trace_coverage(
+        data,
+        expected.expected_duration_samples,
+        expected.expected_sample_rate,
+    );
+    let (expected_frame_count, measured_frame_count, missing_slots) = mapped_coverage.map_or(
+        (
+            expected_frame_count,
+            measured_frame_count,
+            expected_frame_count.saturating_sub(measured_frame_count),
+        ),
+        |coverage| {
+            (
+                coverage.expected_frame_count,
+                coverage.measured_frame_count,
+                coverage.missing_slots,
+            )
+        },
+    );
     data.trace_diagnostics = Some(TraceDiagnostics {
         raw_trace_count,
         expected_frame_count,
@@ -3624,6 +3832,10 @@ fn pair_publish_consistency_failure_reasons(
     if pre.expected_wav != post.expected_wav {
         reasons.push("pair_expected_wav_mismatch");
     }
+    let role_specific_mapped_axes = uses_latency_mapped_wav_grid(pre)
+        && uses_latency_mapped_wav_grid(post)
+        && pre.trace_time_axis.as_deref() == Some(crate::trace_alignment::TRACE_TIME_AXIS)
+        && post.trace_time_axis.as_deref() == Some(crate::trace_alignment::TRACE_TIME_AXIS);
     if let (Some(pre_take), Some(post_take)) = (&pre.bounce_take, &post.bounce_take) {
         if pre_take.source != post_take.source {
             reasons.push("pair_bounce_take_source_mismatch");
@@ -3655,15 +3867,19 @@ fn pair_publish_consistency_failure_reasons(
         if pre_take.end_t_ms != post_take.end_t_ms {
             reasons.push("pair_bounce_take_end_time_mismatch");
         }
-        if pre_take.frame_count != post_take.frame_count {
+        if !role_specific_mapped_axes && pre_take.frame_count != post_take.frame_count {
             reasons.push("pair_bounce_take_frame_count_mismatch");
         }
     }
     if let (Some(pre_diag), Some(post_diag)) = (&pre.trace_diagnostics, &post.trace_diagnostics) {
-        if pre_diag.expected_frame_count != post_diag.expected_frame_count {
+        if !role_specific_mapped_axes
+            && pre_diag.expected_frame_count != post_diag.expected_frame_count
+        {
             reasons.push("pair_trace_expected_frame_count_mismatch");
         }
-        if pre_diag.measured_frame_count != post_diag.measured_frame_count {
+        if !role_specific_mapped_axes
+            && pre_diag.measured_frame_count != post_diag.measured_frame_count
+        {
             reasons.push("pair_trace_measured_frame_count_mismatch");
         }
     }
@@ -3687,6 +3903,10 @@ fn pair_publish_integrity_reasons(
     if pre.expected_wav != post.expected_wav {
         reasons.push("pair_expected_wav_mismatch");
     }
+    let role_specific_mapped_axes = uses_latency_mapped_wav_grid(pre)
+        && uses_latency_mapped_wav_grid(post)
+        && pre.trace_time_axis.as_deref() == Some(crate::trace_alignment::TRACE_TIME_AXIS)
+        && post.trace_time_axis.as_deref() == Some(crate::trace_alignment::TRACE_TIME_AXIS);
     if let (Some(pre_take), Some(post_take)) = (&pre.bounce_take, &post.bounce_take) {
         if pre_take.source != post_take.source {
             reasons.push("pair_bounce_take_source_mismatch");
@@ -3718,15 +3938,19 @@ fn pair_publish_integrity_reasons(
         if pre_take.end_t_ms != post_take.end_t_ms {
             reasons.push("pair_bounce_take_end_time_mismatch");
         }
-        if pre_take.frame_count != post_take.frame_count {
+        if !role_specific_mapped_axes && pre_take.frame_count != post_take.frame_count {
             reasons.push("pair_bounce_take_frame_count_mismatch");
         }
     }
     if let (Some(pre_diag), Some(post_diag)) = (&pre.trace_diagnostics, &post.trace_diagnostics) {
-        if pre_diag.expected_frame_count != post_diag.expected_frame_count {
+        if !role_specific_mapped_axes
+            && pre_diag.expected_frame_count != post_diag.expected_frame_count
+        {
             reasons.push("pair_trace_expected_frame_count_mismatch");
         }
-        if pre_diag.measured_frame_count != post_diag.measured_frame_count {
+        if !role_specific_mapped_axes
+            && pre_diag.measured_frame_count != post_diag.measured_frame_count
+        {
             reasons.push("pair_trace_measured_frame_count_mismatch");
         }
     }
@@ -4603,6 +4827,278 @@ mod tests {
         );
     }
 
+    fn latency_mapped_96k_data(start_sample: i64, frame_count: usize) -> PluginDataFile {
+        let base = isolated_dir();
+        let mut writer = complete_pair_writer(
+            &base,
+            Role::Pre,
+            "iid-pre-latency-phase",
+            None,
+            Some("iid-post-latency-phase".to_string()),
+        );
+        let mut expected = fresh_expected_wav_fixture(1_440_000);
+        expected.expected_sample_rate = 96_000;
+        expected.wav_time_reference_samples = Some(6_480_000);
+        expected.wav_file_size = Some(1_440_000 * 8 + 44);
+        writer.data.sample_rate = 96_000;
+        writer.data.source_format = 96_000;
+        writer.data.expected_wav = Some(expected.clone());
+        writer.data.status = Status::Closed;
+        writer.data.commit_status = Some("committed".to_string());
+        writer.data.validity = true;
+        writer.data.integrity_degraded = false;
+        writer.data.integrity_reasons.clear();
+        writer.data.trace_clock_resolution = Some("producer_plus_output_latency".to_string());
+        writer.data.trace_time_axis = Some(crate::trace_alignment::TRACE_TIME_AXIS.to_string());
+        writer.data.trace_slot_positions = (0..frame_count)
+            .map(|index| start_sample + index as i64 * 9_600)
+            .collect();
+        writer.data.frames = writer
+            .data
+            .trace_slot_positions
+            .iter()
+            .map(|position| {
+                make_frame_optional(
+                    u64::try_from(*position).unwrap() * 1_000 / 96_000,
+                    Some([0.0; 20]),
+                    Some(0.0),
+                    -20.0,
+                    -1.0,
+                    12.0,
+                    Some(10.0),
+                )
+            })
+            .collect();
+        let output_latency = u32::try_from(start_sample.saturating_sub(9_600)).unwrap();
+        writer.data.trace_clock_observations = writer
+            .data
+            .trace_slot_positions
+            .iter()
+            .zip(&writer.data.frames)
+            .enumerate()
+            .map(|(index, (wav_slot, frame))| {
+                let mut source_frame = frame.clone();
+                source_frame.t_ms = (index as u64 + 1) * TRACE_FRAME_INTERVAL_MS;
+                TraceClockObservation {
+                    frame: source_frame,
+                    producer_position_samples: Some(
+                        6_480_000 + *wav_slot - i64::from(output_latency),
+                    ),
+                    raw_host_position_samples: Some(6_480_000 + *wav_slot),
+                    capture_epoch: Some(1),
+                    clock_source: Some("project_timeline".to_string()),
+                    presentation_latency_source: Some("vst3".to_string()),
+                    input_presentation_latency_samples: Some(0),
+                    output_presentation_latency_samples: Some(output_latency),
+                }
+            })
+            .collect();
+        writer.data.trace_wav_reference = Some(TraceWavReference {
+            basis: crate::trace_alignment::TRACE_WAV_REFERENCE_BASIS.to_string(),
+            capture_basis: crate::trace_alignment::TRACE_CAPTURE_BASIS.to_string(),
+            start_sample: 0,
+            end_sample: expected.expected_duration_samples,
+            sample_rate: expected.expected_sample_rate,
+            record_session_id: writer
+                .data
+                .record_session_id
+                .clone()
+                .expect("fixture record session"),
+            bounce_id: expected.bounce_id,
+            wav_hash: expected.wav_hash.expect("fixture WAV hash"),
+        });
+        writer.data.bounce_take = Some(BounceTake {
+            source: BOUNCE_SOURCE_EXPECTED_WAV.to_string(),
+            time_axis: "native_samples".to_string(),
+            alignment_status: BOUNCE_ALIGNMENT_SAMPLE_COUNT_READY.to_string(),
+            sample_rate: 96_000,
+            wav_start_sample: 0,
+            wav_end_sample: 1_440_000,
+            duration_samples: 1_440_000,
+            duration_frames_48k: 720_000,
+            start_t_ms: 0,
+            end_t_ms: 15_000,
+            trace_sample_count: frame_count as u64 + 4,
+            frame_count: frame_count as u64,
+            host_start_position_samples: Some(6_459_473),
+            host_end_position_samples: Some(7_921_745),
+        });
+        writer.data.trace_diagnostics = Some(TraceDiagnostics {
+            raw_trace_count: frame_count as u64 + 4,
+            expected_frame_count: frame_count as u64,
+            measured_frame_count: frame_count as u64,
+            missing_slots: 0,
+            explicit_silence_frame_count: 0,
+        });
+        writer.data
+    }
+
+    #[test]
+    fn latency_mapped_phase_edges_are_complete_without_inventing_a_150th_frame() {
+        let mut data = latency_mapped_96k_data(13_874, 149);
+        data.trace_clock_observations.push(TraceClockObservation {
+            frame: make_frame_optional(
+                1,
+                Some([0.0; 20]),
+                Some(0.0),
+                -20.0,
+                -1.0,
+                12.0,
+                Some(10.0),
+            ),
+            producer_position_samples: None,
+            raw_host_position_samples: None,
+            capture_epoch: None,
+            clock_source: None,
+            presentation_latency_source: None,
+            input_presentation_latency_samples: None,
+            output_presentation_latency_samples: None,
+        });
+        let coverage = latency_mapped_trace_coverage(&data, 1_440_000, 96_000)
+            .expect("factual latency-mapped grid");
+        assert_eq!(
+            coverage,
+            LatencyMappedTraceCoverage {
+                expected_frame_count: 149,
+                measured_frame_count: 149,
+                missing_slots: 0,
+            }
+        );
+        assert!(trace_slot_identity_is_complete(&data));
+        refresh_record_quality(&mut data);
+        assert_eq!(
+            data.record_quality.as_ref().map(|quality| (
+                quality.status.as_str(),
+                quality.expected_frame_count,
+                quality.measured_frame_count,
+                quality.missing_trace_slots,
+            )),
+            Some(("complete", 149, 149, 0))
+        );
+    }
+
+    #[test]
+    fn latency_mapped_grid_keeps_real_head_middle_and_tail_gaps_strict() {
+        let complete = latency_mapped_96k_data(13_874, 149);
+        for missing_index in [0, 74, 148] {
+            let mut missing = complete.clone();
+            missing.frames.remove(missing_index);
+            missing.trace_slot_positions.remove(missing_index);
+            let coverage = latency_mapped_trace_coverage(&missing, 1_440_000, 96_000)
+                .expect("remaining factual mapped slots");
+            assert_eq!(coverage.expected_frame_count, 149);
+            assert_eq!(coverage.measured_frame_count, 148);
+            assert_eq!(coverage.missing_slots, 1);
+            assert!(!trace_slot_identity_is_complete(&missing));
+        }
+    }
+
+    #[test]
+    fn latency_epoch_change_does_not_become_a_missing_measurement() {
+        let mut data = latency_mapped_96k_data(13_874, 148);
+        for index in 1..data.trace_slot_positions.len() {
+            data.trace_slot_positions[index] += 6_000;
+            data.frames[index].t_ms =
+                u64::try_from(data.trace_slot_positions[index]).unwrap() * 1_000 / 96_000;
+            data.trace_clock_observations[index].output_presentation_latency_samples = Some(10_274);
+        }
+
+        let coverage = latency_mapped_trace_coverage(&data, 1_440_000, 96_000)
+            .expect("piecewise factual latency mapping");
+        assert_eq!(
+            coverage,
+            LatencyMappedTraceCoverage {
+                expected_frame_count: 148,
+                measured_frame_count: 148,
+                missing_slots: 0,
+            }
+        );
+
+        data.frames.remove(74);
+        data.trace_slot_positions.remove(74);
+        let missing = latency_mapped_trace_coverage(&data, 1_440_000, 96_000)
+            .expect("piecewise mapping with one factual gap");
+        assert_eq!(missing.expected_frame_count, 148);
+        assert_eq!(missing.measured_frame_count, 147);
+        assert_eq!(missing.missing_slots, 1);
+    }
+
+    #[test]
+    fn latency_mapped_normalization_replaces_the_old_false_missing_diagnostic() {
+        let mut data = latency_mapped_96k_data(13_874, 149);
+        let expected = data.expected_wav.clone().expect("latched expected WAV");
+        data.trace_diagnostics = Some(TraceDiagnostics {
+            raw_trace_count: 153,
+            expected_frame_count: 150,
+            measured_frame_count: 149,
+            missing_slots: 1,
+            explicit_silence_frame_count: 0,
+        });
+        data.validity = false;
+        data.integrity_degraded = true;
+        data.integrity_reasons = vec![
+            "validity_false".to_string(),
+            "integrity_degraded".to_string(),
+            "missing_trace_slots".to_string(),
+            "trace_frame_count_mismatch".to_string(),
+            "trace_frame_payload_count_bounce_take_mismatch".to_string(),
+            "trace_slots_not_complete".to_string(),
+        ];
+
+        assert!(normalize_late_expected_record(&mut data, &expected));
+        assert_eq!(
+            data.trace_diagnostics.as_ref().map(|diagnostics| (
+                diagnostics.raw_trace_count,
+                diagnostics.expected_frame_count,
+                diagnostics.measured_frame_count,
+                diagnostics.missing_slots,
+            )),
+            Some((153, 149, 149, 0))
+        );
+        assert!(data.validity);
+        assert!(!data.integrity_degraded);
+        assert!(data.integrity_reasons.is_empty());
+        assert!(normal_publish_failure_reasons(&data).is_empty());
+        assert_eq!(
+            data.record_quality
+                .as_ref()
+                .map(|quality| (quality.status.as_str(), quality.complete)),
+            Some(("complete", true))
+        );
+    }
+
+    #[test]
+    fn latency_mapped_pair_allows_factual_role_specific_edge_counts() {
+        let mut pre = latency_mapped_96k_data(13_874, 149);
+        pre.instance_id = "iid-pre-latency-phase".to_string();
+        pre.paired_post_instance_id = Some("iid-post-latency-phase".to_string());
+        pre.paired_pre_instance_id = None;
+
+        let mut post = latency_mapped_96k_data(9_600, 150);
+        post.role = Role::Post;
+        post.instance_id = "iid-post-latency-phase".to_string();
+        post.paired_pre_instance_id = Some("iid-pre-latency-phase".to_string());
+        post.paired_post_instance_id = None;
+        post.project_hash.clone_from(&pre.project_hash);
+        post.record_session_id.clone_from(&pre.record_session_id);
+        post.expected_wav.clone_from(&pre.expected_wav);
+        post.trace_wav_reference
+            .clone_from(&pre.trace_wav_reference);
+        if let Some(reference) = post.trace_wav_reference.as_mut() {
+            reference.record_session_id = post
+                .record_session_id
+                .clone()
+                .expect("shared record session");
+        }
+        refresh_record_quality(&mut pre);
+        refresh_record_quality(&mut post);
+
+        assert!(normal_publish_failure_reasons(&pre).is_empty());
+        assert!(normal_publish_failure_reasons(&post).is_empty());
+        assert!(pair_publish_failure_reasons(&pre, &post).is_empty());
+        assert!(pair_publish_integrity_reasons(&pre, &post).is_empty());
+    }
+
     const RELEASE_GATE_SAMPLE_RATE: u32 = 96_000;
     const RELEASE_GATE_DURATION_SAMPLES: u64 = 1_440_000;
     const RELEASE_GATE_SLOT_SAMPLES: i64 = 9_600;
@@ -4808,20 +5304,20 @@ mod tests {
             crate::trace_alignment::TRACE_HOST_TIME_AXIS.to_string(),
         ));
 
-        let exact_positions: Vec<i64> = clock
+        let exact_positions: Vec<(usize, i64)> = clock
             .exact_slots
             .into_iter()
             .enumerate()
-            .filter_map(|(index, position)| (Some(index) != missing_exact_slot).then_some(position))
+            .filter(|(index, _)| Some(*index) != missing_exact_slot)
             .collect();
         let provisional_count = exact_positions.len();
-        for index in 0..provisional_count {
+        for (index, _) in &exact_positions {
             let value = match role {
-                Role::Pre => -30.0 + index as f64 * 0.01,
-                Role::Post => -20.0 + index as f64 * 0.02,
+                Role::Pre => -30.0 + *index as f64 * 0.01,
+                Role::Post => -20.0 + *index as f64 * 0.02,
             };
             writer.append_frame(
-                (index as u64 + 1) * TRACE_FRAME_INTERVAL_MS,
+                (*index as u64 + 1) * TRACE_FRAME_INTERVAL_MS,
                 [0.0; 20],
                 0.0,
                 value,
@@ -4830,7 +5326,28 @@ mod tests {
                 Some(9.0),
             );
         }
-        writer.set_trace_slot_positions(exact_positions);
+        writer.set_trace_clock_observations(
+            exact_positions
+                .iter()
+                .zip(&writer.data.frames)
+                .map(|((_, position), frame)| TraceClockObservation {
+                    frame: frame.clone(),
+                    producer_position_samples: Some(*position),
+                    raw_host_position_samples: position.checked_add(i64::from(output_latency)),
+                    capture_epoch: Some(clock.epoch),
+                    clock_source: Some("project_timeline".to_string()),
+                    presentation_latency_source: Some(source.to_string()),
+                    input_presentation_latency_samples: Some(0),
+                    output_presentation_latency_samples: Some(output_latency),
+                })
+                .collect(),
+        );
+        writer.set_trace_slot_positions(
+            exact_positions
+                .iter()
+                .map(|(_, position)| *position)
+                .collect(),
+        );
         writer.set_bounce_take(BounceTake {
             source: BOUNCE_SOURCE_RENDER_CLOCK.to_string(),
             time_axis: "native_samples".to_string(),
@@ -4857,6 +5374,22 @@ mod tests {
         writer.data.status = Status::Closed;
         writer.data.commit_status = Some("pair_pending".to_string());
         writer
+    }
+
+    fn release_gate_mapped_wav_slots(
+        output_latency: u32,
+        missing_exact_slot: Option<usize>,
+    ) -> Vec<i64> {
+        (1..=RELEASE_GATE_FRAME_COUNT)
+            .enumerate()
+            .filter(|(index, _)| Some(*index) != missing_exact_slot)
+            .filter_map(|(_, slot)| {
+                let position = (slot as i64)
+                    .checked_mul(RELEASE_GATE_SLOT_SAMPLES)?
+                    .checked_add(i64::from(output_latency))?;
+                (position <= RELEASE_GATE_DURATION_SAMPLES as i64).then_some(position)
+            })
+            .collect()
     }
 
     fn stage_and_finalize_release_gate_pair(
@@ -5010,15 +5543,9 @@ mod tests {
             ] {
                 let published: PluginDataFile =
                     serde_json::from_slice(&fs::read(member_path).unwrap()).unwrap();
-                assert_eq!(published.frames.len(), RELEASE_GATE_FRAME_COUNT);
-                assert_eq!(
-                    published.trace_slot_positions.first(),
-                    Some(&RELEASE_GATE_SLOT_SAMPLES)
-                );
-                assert_eq!(
-                    published.trace_slot_positions.last(),
-                    Some(&(RELEASE_GATE_DURATION_SAMPLES as i64))
-                );
+                let expected_slots = release_gate_mapped_wav_slots(expected_latency, None);
+                assert_eq!(published.frames.len(), expected_slots.len());
+                assert_eq!(published.trace_slot_positions, expected_slots);
                 assert_eq!(
                     published
                         .trace_content_alignment
@@ -5033,7 +5560,7 @@ mod tests {
                         .record_quality
                         .as_ref()
                         .map(|quality| (quality.complete, quality.measured_frame_count)),
-                    Some((true, RELEASE_GATE_FRAME_COUNT as u64))
+                    Some((true, published.frames.len() as u64))
                 );
                 assert_eq!(
                     published.host_presentation_latency_observations,
@@ -5122,6 +5649,24 @@ mod tests {
                 &missing_member.record_session_id,
             ),
             "the measured fallback pair must cross the identity manifest barrier"
+        );
+        let manifest_path = incomplete_root
+            .join(&missing_member.project_hash)
+            .join(PAIR_RECORD_SESSIONS_DIR)
+            .join(format!("{}.json", missing_member.record_session_id));
+        let manifest: PairCommitManifest =
+            serde_json::from_slice(&fs::read(manifest_path).unwrap()).unwrap();
+        let published_post: PluginDataFile =
+            serde_json::from_slice(&fs::read(manifest.post.path).unwrap()).unwrap();
+        assert_eq!(published_post.frames.len(), 149);
+        assert_eq!(
+            published_post.record_quality.as_ref().map(|quality| (
+                quality.status.as_str(),
+                quality.expected_frame_count,
+                quality.measured_frame_count,
+                quality.missing_trace_slots,
+            )),
+            Some(("usable_fallback", 150, 149, 1))
         );
     }
 
@@ -5686,6 +6231,9 @@ mod tests {
             Some("iid-pre-atomic".to_string()),
             None,
         );
+        for writer in [&mut pre, &mut post] {
+            writer.data.trace_clock_resolution = Some("producer_plus_output_latency".to_string());
+        }
         crate::record_expected::write_expected_metadata(
             &base,
             "project_hash_test",
