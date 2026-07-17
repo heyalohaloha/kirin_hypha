@@ -260,6 +260,26 @@ fn raw_host_comparison_side(
     if factual_frames.len() < 2 {
         return None;
     }
+    // New producers bind the raw host endpoint at the same moment each public frame is chosen.
+    // Prefer that immutable one-to-one fact over reconstructing frame identity from the broader
+    // observation journal at Drop time. The journal deliberately contains callbacks outside the
+    // selected take; its range is diagnostic and may be longer than the dropped file.
+    if data.trace_raw_host_slot_positions.len() == factual_frames.len()
+        && data
+            .trace_raw_host_slot_positions
+            .windows(2)
+            .all(|pair| pair[0] < pair[1])
+        && data.trace_raw_host_slot_positions.iter().all(|position| {
+            *position >= raw_range.start_position_samples
+                && *position <= raw_range.end_position_samples
+        })
+    {
+        return Some(RawHostComparisonSide {
+            elapsed_slots: wav_slots_for_frames(&factual_frames, expected_len, slot_samples)?,
+            frames: factual_frames,
+            raw_slots: data.trace_raw_host_slot_positions.clone(),
+        });
+    }
     let factual_times = factual_frames
         .iter()
         .map(|frame| frame.t_ms)
@@ -954,6 +974,36 @@ mod tests {
             vec![origin + 4_800, origin + 9_600, origin + 14_400]
         );
         assert_eq!(plan.pre_comparison_slots, plan.post_comparison_slots);
+    }
+
+    #[test]
+    fn producer_baked_raw_slots_survive_a_longer_diagnostic_capture_range() {
+        let origin = 15_594_720;
+        let selected_raw_slots = vec![origin + 512, origin + 5_312, origin + 10_112];
+        let mut pre = raw_host_comparison_data(Role::Pre, origin, &[origin + 4_800]);
+        let mut post = raw_host_comparison_data(Role::Post, origin, &[origin + 4_800]);
+        for (role_index, data) in [&mut pre, &mut post].into_iter().enumerate() {
+            data.frames = (1_u64..=3)
+                .map(|index| Frame {
+                    t_ms: index * 100,
+                    ..frame(-30.0 + role_index as f64 + index as f64)
+                })
+                .collect();
+            data.trace_raw_host_slot_positions = selected_raw_slots.clone();
+        }
+
+        let plan = build_wav_start_clock_plan(&pre, &post, &expected(None), 3, 4_800)
+            .expect("baked raw frame identity must not depend on the longer callback journal");
+
+        assert!(!plan.exact);
+        assert_eq!(
+            plan.comparison_resolution,
+            Some(TRACE_COMPARISON_RAW_HOST_EXACT)
+        );
+        assert_eq!(plan.pre_comparison_slots, selected_raw_slots);
+        assert_eq!(plan.pre_comparison_slots, plan.post_comparison_slots);
+        assert_eq!(plan.pre_wav_slots, vec![4_800, 9_600, 14_400]);
+        assert_eq!(plan.post_wav_slots, vec![4_800, 9_600, 14_400]);
     }
 
     #[test]

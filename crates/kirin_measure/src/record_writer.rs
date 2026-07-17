@@ -1339,13 +1339,21 @@ fn bake_continuous_record_timeline(ctx: &mut RecordingCtx) {
     let slot_frames = (sample_rate as i64 / 10).max(1);
     let producer_take_slots = producer_take_slot_positions(ctx, slots.len(), slot_frames);
 
-    let mut best_by_ms: BTreeMap<u64, MeasureResult> = BTreeMap::new();
-    let mut best_by_position: BTreeMap<i64, MeasureResult> = BTreeMap::new();
+    let mut best_by_ms: BTreeMap<u64, TraceBakeCandidate> = BTreeMap::new();
+    let mut best_by_position: BTreeMap<i64, TraceBakeCandidate> = BTreeMap::new();
     let mut clock_sources = BTreeSet::new();
     for frame in &ctx.writer.data().frames {
         if frame.t_ms <= duration_ms {
             if let Some(slot_ms) = nearest_timeline_slot(&slots, frame.t_ms) {
-                insert_best_measure(&mut best_by_ms, slot_ms, measure_from_frame(frame));
+                insert_best_trace_candidate(
+                    &mut best_by_ms,
+                    slot_ms,
+                    TraceBakeCandidate {
+                        result: measure_from_frame(frame),
+                        raw_host_position_samples: None,
+                        raw_host_clock_is_known: false,
+                    },
+                );
             }
         }
     }
@@ -1358,12 +1366,20 @@ fn bake_continuous_record_timeline(ctx: &mut RecordingCtx) {
         if let (Some(position), Some(source)) =
             (sample.position_samples, sample.clock_source.as_str())
         {
-            insert_best_measure(&mut best_by_position, position, result.clone());
+            insert_best_trace_candidate(
+                &mut best_by_position,
+                position,
+                TraceBakeCandidate::from_sample(sample, result.clone()),
+            );
             clock_sources.insert(source.to_string());
         }
         if sample.t_ms <= duration_ms {
             if let Some(slot_ms) = nearest_timeline_slot(&slots, sample.t_ms) {
-                insert_best_measure(&mut best_by_ms, slot_ms, result);
+                insert_best_trace_candidate(
+                    &mut best_by_ms,
+                    slot_ms,
+                    TraceBakeCandidate::from_sample(sample, result),
+                );
             }
         }
     }
@@ -1386,6 +1402,8 @@ fn bake_continuous_record_timeline(ctx: &mut RecordingCtx) {
     ctx.writer.clear_frames();
     ctx.first_frame_logged = false;
     let mut trace_slot_positions = Vec::with_capacity(slots.len());
+    let mut raw_host_slot_positions = Vec::with_capacity(slots.len());
+    let mut raw_host_slots_complete = true;
     let expected_frame_count = slots.len() as u64;
     let mut missing_slots = 0_u64;
     if let Some(producer_take_slots) = producer_take_slots.as_ref().filter(|positions| {
@@ -1394,33 +1412,49 @@ fn bake_continuous_record_timeline(ctx: &mut RecordingCtx) {
             .all(|position| best_by_position.contains_key(position))
     }) {
         for (index, position) in producer_take_slots.iter().enumerate() {
-            let result = best_by_position
+            let candidate = best_by_position
                 .get(position)
                 .expect("producer slot completeness checked");
             let t_ms = (index as u64 + 1).saturating_mul(FRAME_INTERVAL_MS);
-            if writer_append_trace_frame(ctx, t_ms, result) {
+            if writer_append_trace_frame(ctx, t_ms, &candidate.result) {
                 trace_slot_positions.push(*position);
+                append_raw_host_slot(
+                    candidate,
+                    &mut raw_host_slot_positions,
+                    &mut raw_host_slots_complete,
+                );
             }
         }
         missing_slots = expected_frame_count.saturating_sub(trace_slot_positions.len() as u64);
     } else if !has_epoch_samples && !best_by_position.is_empty() {
         // Legacy artifacts have no epoch proof. Preserve their prior provisional path for read
         // compatibility, but new producers can only enter the exact range above.
-        for (index, (position, result)) in best_by_position
+        for (index, (position, candidate)) in best_by_position
             .iter()
             .take(expected_frame_count as usize)
             .enumerate()
         {
             let t_ms = (index as u64 + 1).saturating_mul(FRAME_INTERVAL_MS);
-            if writer_append_trace_frame(ctx, t_ms, result) {
+            if writer_append_trace_frame(ctx, t_ms, &candidate.result) {
                 trace_slot_positions.push(*position);
+                append_raw_host_slot(
+                    candidate,
+                    &mut raw_host_slot_positions,
+                    &mut raw_host_slots_complete,
+                );
             }
         }
         missing_slots = expected_frame_count.saturating_sub(trace_slot_positions.len() as u64);
     } else {
         for t_ms in slots {
-            if let Some(result) = best_by_ms.get(&t_ms) {
-                let _ = writer_append_trace_frame(ctx, t_ms, result);
+            if let Some(candidate) = best_by_ms.get(&t_ms) {
+                if writer_append_trace_frame(ctx, t_ms, &candidate.result) {
+                    append_raw_host_slot(
+                        candidate,
+                        &mut raw_host_slot_positions,
+                        &mut raw_host_slots_complete,
+                    );
+                }
             } else {
                 missing_slots = missing_slots.saturating_add(1);
             }
@@ -1477,6 +1511,25 @@ fn bake_continuous_record_timeline(ctx: &mut RecordingCtx) {
     } else {
         Vec::new()
     });
+    let raw_host_slots_are_factual = raw_host_slots_complete
+        && raw_host_slot_positions.len() == ctx.writer.data().frames.len()
+        && raw_host_slot_positions
+            .windows(2)
+            .all(|window| window[0] < window[1])
+        && ctx.writer.data().raw_host_clock_range.is_some_and(|range| {
+            raw_host_slot_positions.first().is_some_and(|first| {
+                *first >= range.start_position_samples
+                    && raw_host_slot_positions
+                        .last()
+                        .is_some_and(|last| *last <= range.end_position_samples)
+            })
+        });
+    ctx.writer
+        .set_trace_raw_host_slot_positions(if raw_host_slots_are_factual {
+            raw_host_slot_positions
+        } else {
+            Vec::new()
+        });
     ctx.writer.set_trace_time_axis(
         canonical_clock.then(|| crate::trace_alignment::TRACE_HOST_TIME_AXIS.to_string()),
     );
@@ -1621,13 +1674,49 @@ fn measure_from_frame(frame: &crate::plugin_data::Frame) -> MeasureResult {
     }
 }
 
-fn insert_best_measure<K: Copy + Ord>(
-    map: &mut BTreeMap<K, MeasureResult>,
+#[derive(Clone)]
+struct TraceBakeCandidate {
+    result: MeasureResult,
+    raw_host_position_samples: Option<i64>,
+    raw_host_clock_is_known: bool,
+}
+
+impl TraceBakeCandidate {
+    fn from_sample(sample: &RecordTraceSample, result: MeasureResult) -> Self {
+        Self {
+            result,
+            raw_host_position_samples: sample.raw_host_position_samples,
+            raw_host_clock_is_known: matches!(
+                sample.clock_source.as_str(),
+                Some("project_timeline" | "audio_render_timeline")
+            ),
+        }
+    }
+}
+
+fn append_raw_host_slot(
+    candidate: &TraceBakeCandidate,
+    positions: &mut Vec<i64>,
+    complete: &mut bool,
+) {
+    if !candidate.raw_host_clock_is_known {
+        *complete = false;
+        return;
+    }
+    if let Some(position) = candidate.raw_host_position_samples {
+        positions.push(position);
+    } else {
+        *complete = false;
+    }
+}
+
+fn insert_best_trace_candidate<K: Copy + Ord>(
+    map: &mut BTreeMap<K, TraceBakeCandidate>,
     key: K,
-    candidate: MeasureResult,
+    candidate: TraceBakeCandidate,
 ) {
     let should_replace = map.get(&key).is_none_or(|existing| {
-        measure_quality_score(&candidate) >= measure_quality_score(existing)
+        measure_quality_score(&candidate.result) >= measure_quality_score(&existing.result)
     });
     if should_replace {
         map.insert(key, candidate);
@@ -6198,6 +6287,54 @@ mod tests {
         let clock = ctx.writer.data().trace_clock.as_ref().expect("trace clock");
         assert_eq!(clock.origin_position_samples, 6_460_800);
         assert_eq!(clock.end_position_samples, 7_920_000);
+    }
+
+    #[test]
+    fn elapsed_fallback_binds_each_baked_frame_to_its_selected_raw_host_slot() {
+        let base = isolated_base();
+        let mut ctx = make_ctx_with_sample_rate(&base, Role::Pre, now_epoch_ms(), 48_000);
+        ctx.record_generation = 410;
+        ctx.selected_capture_epoch = Some(410);
+        // Logic can retain callbacks surrounding the 400 ms render in the diagnostic range. That
+        // makes the producer-position WAV grid unresolved, but it must not erase the raw identity
+        // of the four frames actually chosen from the selected epoch.
+        ctx.presentation_range = Some((100_000, 124_000));
+        ctx.clean_take = Some(RecordTakeSnapshot {
+            generation: 410,
+            duration_samples: 19_200,
+            source: crate::record_take::RECORD_TAKE_SOURCE_WAV_CLOCK,
+            host_start_position_samples: Some(100_000),
+            host_end_position_samples: Some(124_000),
+        });
+        ctx.writer
+            .set_raw_host_clock_range(Some(crate::plugin_data::HostClockRange {
+                start_position_samples: 100_512,
+                end_position_samples: 124_512,
+            }));
+        let expected_raw_slots = vec![105_312, 110_112, 114_912, 119_712];
+        for (index, raw_position) in expected_raw_slots.iter().copied().enumerate() {
+            let t_ms = (index as u64 + 1) * FRAME_INTERVAL_MS;
+            let mut sample = trace_sample_for_generation(410, t_ms, full_measure_result(), false);
+            sample.position_samples = Some(raw_position - 512);
+            sample.raw_host_position_samples = Some(raw_position);
+            sample.capture_epoch = Some(410);
+            sample.clock_source = CaptureClockSource::ProjectTimeline;
+            sample.presentation_latency = PresentationLatencySamples {
+                source: PresentationLatencySource::AudioUnitV2,
+                input: Some(0),
+                output: Some(512),
+            };
+            ctx.trace_samples.push(sample);
+        }
+
+        bake_continuous_record_timeline(&mut ctx);
+
+        assert_eq!(ctx.writer.data().frames.len(), 4);
+        assert!(ctx.writer.data().trace_slot_positions.is_empty());
+        assert_eq!(
+            ctx.writer.data().trace_raw_host_slot_positions,
+            expected_raw_slots
+        );
     }
 
     #[test]

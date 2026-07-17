@@ -440,6 +440,11 @@ pub struct PluginDataFile {
     /// `trace_comparison_resolution=raw_host_clock_exact`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub trace_comparison_slot_positions: Vec<i64>,
+    /// Producer-private raw host endpoint corresponding one-to-one with the baked Record frames.
+    /// This is captured at Record close while frame identity is still known, consumed only during
+    /// late WAV binding, and cleared before the committed pair becomes visible to Kirin OS.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub trace_raw_host_slot_positions: Vec<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub raw_host_clock_range: Option<HostClockRange>,
     /// Producer-canonical native-sample endpoint of every `frames[]` entry. Before pair
@@ -581,6 +586,7 @@ impl PluginDataFile {
             trace_clock_resolution: None,
             trace_comparison_resolution: None,
             trace_comparison_slot_positions: Vec::new(),
+            trace_raw_host_slot_positions: Vec::new(),
             raw_host_clock_range: None,
             trace_slot_positions: Vec::new(),
             trace_wav_reference: None,
@@ -862,6 +868,10 @@ impl PluginDataWriter {
 
     pub(crate) fn set_trace_slot_positions(&mut self, positions: Vec<i64>) {
         self.data.trace_slot_positions = positions;
+    }
+
+    pub(crate) fn set_trace_raw_host_slot_positions(&mut self, positions: Vec<i64>) {
+        self.data.trace_raw_host_slot_positions = positions;
     }
 
     #[cfg(test)]
@@ -2901,6 +2911,8 @@ fn prepare_late_expected_pair(
     }
     pre_data.trace_clock_observations.clear();
     post_data.trace_clock_observations.clear();
+    pre_data.trace_raw_host_slot_positions.clear();
+    post_data.trace_raw_host_slot_positions.clear();
     pre_data.commit_status = Some("committed".to_string());
     post_data.commit_status = Some("committed".to_string());
     refresh_record_quality(pre_data);
@@ -4638,6 +4650,9 @@ mod tests {
                     })
                     .collect(),
             );
+            writer.set_trace_raw_host_slot_positions(
+                (1_i64..=10).map(|index| origin + index * 4_800).collect(),
+            );
             writer.data.status = Status::Closed;
             writer.data.commit_status = Some("pair_pending".to_string());
         }
@@ -4665,6 +4680,7 @@ mod tests {
         for data in [&pre.data, &post.data] {
             assert_eq!(data.commit_status.as_deref(), Some("committed"));
             assert!(data.trace_clock_observations.is_empty());
+            assert!(data.trace_raw_host_slot_positions.is_empty());
             assert_eq!(
                 data.trace_comparison_resolution.as_deref(),
                 Some(crate::trace_content_clock::TRACE_COMPARISON_RAW_HOST_EXACT)
