@@ -1,9 +1,11 @@
-//! Expected WAV metadata bridge for PairRecordSession.
+//! Expected audio-artifact metadata bridge for PairRecordSession.
 //!
-//! Kirin OS owns the dropped/exported WAV header truth. Keep first creates a
+//! Kirin OS owns the original dropped/exported WAVE, RF64, AIFF, or AIFC header truth.
+//! The serialized `wav_*` keys remain compatibility aliases and always identify that
+//! original file; an analysis-only conversion must never replace this identity. Keep creates a
 //! metadata-free Record session lifecycle; it never reads the previous
 //! `plugin_data/{project_hash}/record_expected/current.json`. After Drop, Hypha
-//! binds the new WAV generation to pending PRE/POST artifacts and completes the
+//! binds the new audio generation to pending PRE/POST artifacts and completes the
 //! same session marker. Explicit legacy claims remain immutable for compatibility.
 
 use serde::{Deserialize, Serialize};
@@ -130,9 +132,9 @@ impl std::fmt::Display for ExpectedMetadataError {
         match self {
             Self::Io(e) => write!(f, "IO error: {e}"),
             Self::Serde(e) => write!(f, "JSON error: {e}"),
-            Self::Invalid => write!(f, "expected WAV metadata is incomplete"),
-            Self::Stale => write!(f, "expected WAV metadata is stale"),
-            Self::Consumed => write!(f, "expected WAV metadata has already been consumed"),
+            Self::Invalid => write!(f, "expected audio metadata is incomplete"),
+            Self::Stale => write!(f, "expected audio metadata is stale"),
+            Self::Consumed => write!(f, "expected audio metadata has already been consumed"),
         }
     }
 }

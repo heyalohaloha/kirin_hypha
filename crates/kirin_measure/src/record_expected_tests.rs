@@ -106,6 +106,20 @@ fn expected_metadata_roundtrips_under_project_dir() {
 }
 
 #[test]
+fn original_aiff_is_accepted_without_a_conversion_identity() {
+    let base = isolated_dir();
+    let mut metadata = metadata_fixture("logic-aiff");
+    metadata.wav_path = "/Volumes/Exports/Logic Master.aiff".to_string();
+
+    write_expected_metadata(&base, "ph", &metadata).unwrap();
+
+    let stored = read_expected_metadata(&base, "ph").unwrap();
+    assert_eq!(stored.wav_path, "/Volumes/Exports/Logic Master.aiff");
+    assert_eq!(stored.wav_hash, metadata.wav_hash);
+    assert_eq!(stored.expected_duration_samples, 48_000);
+}
+
+#[test]
 fn empty_wav_path_is_invalid() {
     let base = isolated_dir();
     let metadata = ExpectedWavMetadata {
