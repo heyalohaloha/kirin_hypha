@@ -796,32 +796,38 @@ pub fn spawn_io_thread_post(
             // `.failed/.pair_pending` files. No project recursion or history convergence runs in
             // the steady-state IO loop.
             if !record_sm.is_recording() && Instant::now() >= next_closed_drop_poll {
-                if let (Some(session_id), Some(pre_instance_id), Ok(paths)) = (
-                    record_sm.last_closed_session_id(),
-                    paired_pre_target
+                if let Ok(paths) = StoragePaths::default_platform() {
+                    let base = paths.plugin_data_dir();
+                    let memory_session = record_sm.last_closed_session_id();
+                    let memory_pre = paired_pre_target
                         .lock()
                         .ok()
-                        .and_then(|guard| guard.clone()),
-                    StoragePaths::default_platform(),
-                ) {
-                    if completed_closed_drop_session.as_deref() != Some(session_id.as_str()) {
-                        let base = paths.plugin_data_dir();
-                        let reconciled =
-                            crate::plugin_data::reconcile_drop_committed_closed_session(
-                                &base,
-                                project_hash_ref,
-                                &session_id,
-                                &pre_instance_id,
-                                instance_id_ref,
-                            );
-                        if reconciled > 0
-                            || crate::plugin_data::pair_record_session_manifest_exists(
-                                &base,
-                                project_hash_ref,
-                                &session_id,
-                            )
-                        {
-                            completed_closed_drop_session = Some(session_id);
+                        .and_then(|guard| guard.clone());
+                    if let Some((session_id, pre_instance_id)) = resolve_closed_drop_target(
+                        &base,
+                        project_hash_ref,
+                        instance_id_ref,
+                        memory_session.as_deref(),
+                        memory_pre.as_deref(),
+                    ) {
+                        if completed_closed_drop_session.as_deref() != Some(session_id.as_str()) {
+                            let reconciled =
+                                crate::plugin_data::reconcile_drop_committed_closed_session(
+                                    &base,
+                                    project_hash_ref,
+                                    &session_id,
+                                    &pre_instance_id,
+                                    instance_id_ref,
+                                );
+                            if reconciled > 0
+                                || crate::plugin_data::pair_record_session_manifest_exists(
+                                    &base,
+                                    project_hash_ref,
+                                    &session_id,
+                                )
+                            {
+                                completed_closed_drop_session = Some(session_id);
+                            }
                         }
                     }
                 }
@@ -2603,6 +2609,114 @@ fn release_record_reservation(
             reason,
             pre,
             post_iid
+        );
+    }
+}
+
+/// Resolve one stopped-session Drop address without scanning project history.
+///
+/// The canonical `record_signal/{post}.json` survives Stop and contains both immutable session
+/// and PRE identities. Reading it here makes post-Stop reconciliation survive an engine/DAW
+/// restart where the in-memory pair latch and `last_closed_session_id` no longer exist. A live
+/// Pending/Acknowledged signal is never treated as a stopped session; the in-memory pair remains
+/// the compatibility fallback when no released disk identity is available.
+fn resolve_closed_drop_target(
+    base: &Path,
+    project_hash: &str,
+    post_instance_id: &str,
+    memory_session_id: Option<&str>,
+    memory_pre_instance_id: Option<&str>,
+) -> Option<(String, String)> {
+    let safe = |value: &str| crate::path_identity::is_path_safe_component(value);
+    if let Some(signal) = record_signal::read_signal(base, project_hash, post_instance_id) {
+        if signal.status == SignalStatus::Released
+            && signal.requested_by == post_instance_id
+            && safe(&signal.session_id)
+            && safe(&signal.target_pre_instance_id)
+        {
+            return Some((signal.session_id, signal.target_pre_instance_id));
+        }
+    }
+    let session_id = memory_session_id.filter(|value| safe(value))?;
+    let pre_instance_id = memory_pre_instance_id.filter(|value| safe(value))?;
+    Some((session_id.to_string(), pre_instance_id.to_string()))
+}
+
+#[cfg(test)]
+mod closed_drop_target_tests {
+    use super::*;
+    use crate::record_signal::{RecordSignal, ReleaseReason};
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    const PROJECT: &str = "project-a";
+    const POST: &str = "post-a";
+
+    fn isolated_base() -> PathBuf {
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let base = std::env::temp_dir().join(format!(
+            "kirin-closed-drop-target-{}-{n}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&base);
+        fs::create_dir_all(&base).unwrap();
+        base
+    }
+
+    fn write_signal(base: &Path, status: SignalStatus, session_id: &str, pre_id: &str) {
+        let mut signal = RecordSignal::new_pending(
+            POST.to_string(),
+            pre_id.to_string(),
+            "daw-a".to_string(),
+            None,
+            None,
+        );
+        signal.status = status;
+        signal.session_id = session_id.to_string();
+        signal.release_reason =
+            (status == SignalStatus::Released).then_some(ReleaseReason::ManualStop);
+        record_signal::write_signal(base, PROJECT, POST, &signal).unwrap();
+    }
+
+    #[test]
+    fn released_signal_recovers_target_after_all_memory_is_lost() {
+        let base = isolated_base();
+        write_signal(&base, SignalStatus::Released, "session-a", "pre-a");
+
+        assert_eq!(
+            resolve_closed_drop_target(&base, PROJECT, POST, None, None),
+            Some(("session-a".to_string(), "pre-a".to_string()))
+        );
+    }
+
+    #[test]
+    fn active_signal_never_claims_to_be_a_stopped_drop_target() {
+        let base = isolated_base();
+        write_signal(
+            &base,
+            SignalStatus::Acknowledged,
+            "session-live",
+            "pre-live",
+        );
+
+        assert_eq!(
+            resolve_closed_drop_target(&base, PROJECT, POST, None, None),
+            None
+        );
+    }
+
+    #[test]
+    fn in_memory_target_remains_the_legacy_fallback() {
+        let base = isolated_base();
+        assert_eq!(
+            resolve_closed_drop_target(
+                &base,
+                PROJECT,
+                POST,
+                Some("session-memory"),
+                Some("pre-memory"),
+            ),
+            Some(("session-memory".to_string(), "pre-memory".to_string()))
         );
     }
 }
