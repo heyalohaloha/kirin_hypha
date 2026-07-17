@@ -18,8 +18,8 @@ pub(crate) struct WavStartClockPlan {
     /// Producer/DAW positions used only to select the exact source frames.
     pub pre_producer_slots: Vec<i64>,
     pub post_producer_slots: Vec<i64>,
-    /// Public TRACE positions on the dropped WAV axis. The first frame is the end of the first
-    /// 100 ms measurement window, so this always starts at `slot_samples`, never at a DAW offset.
+    /// Public TRACE positions on the dropped WAV axis. A role-specific presentation-latency phase
+    /// may move the first complete 100 ms window inside `[slot_samples, 2 * slot_samples)`.
     pub pre_wav_slots: Vec<i64>,
     pub post_wav_slots: Vec<i64>,
     pub pre_origin_position_samples: Option<i64>,
