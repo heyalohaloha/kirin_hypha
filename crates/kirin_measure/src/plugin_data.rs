@@ -440,9 +440,10 @@ pub struct PluginDataFile {
     /// `trace_comparison_resolution=raw_host_clock_exact`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub trace_comparison_slot_positions: Vec<i64>,
-    /// Producer-private raw host endpoint corresponding one-to-one with the baked Record frames.
-    /// This is captured at Record close while frame identity is still known, consumed only during
-    /// late WAV binding, and cleared before the committed pair becomes visible to Kirin OS.
+    /// Producer-private raw host endpoint corresponding one-to-one with the factual Record frames.
+    /// The initial list is baked at Record close. Late WAV binding windows frames and endpoints as
+    /// one unit, then retains only an exact selected pair list so a repeated Drop resolves
+    /// identically. Kirin OS never uses this field as a display axis or comparison proof.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub trace_raw_host_slot_positions: Vec<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2911,8 +2912,6 @@ fn prepare_late_expected_pair(
     }
     pre_data.trace_clock_observations.clear();
     post_data.trace_clock_observations.clear();
-    pre_data.trace_raw_host_slot_positions.clear();
-    post_data.trace_raw_host_slot_positions.clear();
     pre_data.commit_status = Some("committed".to_string());
     post_data.commit_status = Some("committed".to_string());
     refresh_record_quality(pre_data);
@@ -3013,9 +3012,14 @@ fn normalize_late_expected_pair(
             debug_assert_eq!(data.frames.len(), comparison_slots.len());
             data.trace_comparison_resolution = Some(resolution.to_string());
             data.trace_comparison_slot_positions = comparison_slots.to_vec();
+            // Keep the producer-private identity in the same post-window shape as the public
+            // factual frames. A later idempotent Drop must not compare trimmed frames with the
+            // broader close-time list and silently lose an already-proven comparison.
+            data.trace_raw_host_slot_positions = comparison_slots.to_vec();
         } else {
             data.trace_comparison_resolution = None;
             data.trace_comparison_slot_positions.clear();
+            data.trace_raw_host_slot_positions.clear();
         }
         data.trace_pair_offset_samples = None;
         data.trace_pair_alignment_score = None;
@@ -3341,7 +3345,7 @@ fn late_expected_record_is_aligned(data: &PluginDataFile, expected: &ExpectedWav
         && data
             .record_quality
             .as_ref()
-            .is_some_and(|quality| quality.expected_wav_ready && quality.trace_slots_complete)
+            .is_some_and(|quality| quality.expected_wav_ready && quality.usable)
         && crate::trace_alignment::has_canonical_wav_reference(data)
 }
 
@@ -4651,7 +4655,9 @@ mod tests {
                     .collect(),
             );
             writer.set_trace_raw_host_slot_positions(
-                (1_i64..=10).map(|index| origin + index * 4_800).collect(),
+                // Record close retained one factual 100 ms tail beyond the later 1 s WAV.
+                // Frame/slot pairs must be windowed together during Drop, not rejected by count.
+                (1_i64..=11).map(|index| origin + index * 4_800).collect(),
             );
             writer.data.status = Status::Closed;
             writer.data.commit_status = Some("pair_pending".to_string());
@@ -4680,12 +4686,48 @@ mod tests {
         for data in [&pre.data, &post.data] {
             assert_eq!(data.commit_status.as_deref(), Some("committed"));
             assert!(data.trace_clock_observations.is_empty());
-            assert!(data.trace_raw_host_slot_positions.is_empty());
+            assert_eq!(data.trace_raw_host_slot_positions.len(), 10);
+            assert_eq!(
+                data.trace_raw_host_slot_positions,
+                data.trace_comparison_slot_positions
+            );
             assert_eq!(
                 data.trace_comparison_resolution.as_deref(),
                 Some(crate::trace_content_clock::TRACE_COMPARISON_RAW_HOST_EXACT)
             );
             assert_eq!(data.trace_comparison_slot_positions.len(), 10);
+        }
+
+        assert!(normalize_late_expected_pair(
+            &mut pre.data,
+            &mut post.data,
+            &expected
+        ));
+        for data in [&pre.data, &post.data] {
+            assert_eq!(
+                data.trace_comparison_resolution.as_deref(),
+                Some(crate::trace_content_clock::TRACE_COMPARISON_RAW_HOST_EXACT)
+            );
+            assert_eq!(data.trace_comparison_slot_positions.len(), 10);
+            assert_eq!(
+                data.trace_raw_host_slot_positions,
+                data.trace_comparison_slot_positions
+            );
+        }
+
+        let mut fallback_pre = pre.data.clone();
+        let mut fallback_post = post.data.clone();
+        fallback_post.trace_raw_host_slot_positions[5] += 1;
+        assert!(normalize_late_expected_pair(
+            &mut fallback_pre,
+            &mut fallback_post,
+            &expected
+        ));
+        for data in [&fallback_pre, &fallback_post] {
+            assert!(data.trace_comparison_resolution.is_none());
+            assert!(data.trace_comparison_slot_positions.is_empty());
+            assert!(data.trace_raw_host_slot_positions.is_empty());
+            assert!(!data.frames.is_empty());
         }
     }
 
@@ -4964,6 +5006,44 @@ mod tests {
                 .map(|quality| (quality.complete, quality.trace_slots_complete)),
             Some((false, false))
         );
+    }
+
+    #[test]
+    fn usable_sparse_record_is_already_aligned_for_same_drop_retry() {
+        let base = isolated_dir();
+        let mut writer = complete_pair_writer(
+            &base,
+            Role::Post,
+            "iid-post-sparse-idempotent",
+            Some("iid-pre-sparse-idempotent".to_string()),
+            None,
+        );
+        let expected = writer
+            .data
+            .expected_wav
+            .clone()
+            .expect("complete fixture expected WAV");
+        writer.data.frames.remove(4);
+        writer.data.trace_slot_positions.remove(4);
+        writer.data.trace_diagnostics = Some(TraceDiagnostics {
+            raw_trace_count: 9,
+            expected_frame_count: 10,
+            measured_frame_count: 9,
+            missing_slots: 1,
+            explicit_silence_frame_count: 0,
+        });
+        writer.data.integrity_degraded = true;
+        writer
+            .data
+            .integrity_reasons
+            .push("missing_trace_slots".to_string());
+        refresh_record_quality(&mut writer.data);
+
+        let quality = writer.data.record_quality.as_ref().expect("record quality");
+        assert!(quality.usable);
+        assert!(!quality.complete);
+        assert!(!quality.trace_slots_complete);
+        assert!(late_expected_record_is_aligned(&writer.data, &expected));
     }
 
     fn latency_mapped_96k_data(start_sample: i64, frame_count: usize) -> PluginDataFile {
