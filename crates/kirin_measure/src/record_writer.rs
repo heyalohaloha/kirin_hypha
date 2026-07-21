@@ -316,7 +316,6 @@ const CLEAN_TAKE_MIN_TRACE_RATIO_DEN: usize = 4;
 /// frames[] が WAV 0..duration を覆っているとみなす許容幅。
 const FRAME_COVERAGE_MAX_GAP_MS: u64 = FRAME_INTERVAL_MS * 2;
 const FRAME_COVERAGE_EDGE_TOLERANCE_MS: u64 = FRAME_INTERVAL_MS * 2;
-const TRACE_SLOT_ASSIGNMENT_TOLERANCE_MS: u64 = FRAME_INTERVAL_MS / 10;
 
 /// B-132 (G-115-382 共通B): Record→Watch close 時に Measure Thread の post-drain seal が
 /// `seal_at_start` を超えるまで **lock-free bounded** に待つ。
@@ -1343,18 +1342,16 @@ fn bake_continuous_record_timeline(ctx: &mut RecordingCtx) {
     let mut best_by_position: BTreeMap<i64, TraceBakeCandidate> = BTreeMap::new();
     let mut clock_sources = BTreeSet::new();
     for frame in &ctx.writer.data().frames {
-        if frame.t_ms <= duration_ms {
-            if let Some(slot_ms) = nearest_timeline_slot(&slots, frame.t_ms) {
-                insert_best_trace_candidate(
-                    &mut best_by_ms,
-                    slot_ms,
-                    TraceBakeCandidate {
-                        result: measure_from_frame(frame),
-                        raw_host_position_samples: None,
-                        raw_host_clock_is_known: false,
-                    },
-                );
-            }
+        if frame.t_ms <= duration_ms && slots.binary_search(&frame.t_ms).is_ok() {
+            insert_best_trace_candidate(
+                &mut best_by_ms,
+                frame.t_ms,
+                TraceBakeCandidate {
+                    result: measure_from_frame(frame),
+                    raw_host_position_samples: None,
+                    raw_host_clock_is_known: false,
+                },
+            );
         }
     }
     for sample in &selected_trace_samples {
@@ -1373,14 +1370,12 @@ fn bake_continuous_record_timeline(ctx: &mut RecordingCtx) {
             );
             clock_sources.insert(source.to_string());
         }
-        if sample.t_ms <= duration_ms {
-            if let Some(slot_ms) = nearest_timeline_slot(&slots, sample.t_ms) {
-                insert_best_trace_candidate(
-                    &mut best_by_ms,
-                    slot_ms,
-                    TraceBakeCandidate::from_sample(sample, result),
-                );
-            }
+        if sample.t_ms <= duration_ms && slots.binary_search(&sample.t_ms).is_ok() {
+            insert_best_trace_candidate(
+                &mut best_by_ms,
+                sample.t_ms,
+                TraceBakeCandidate::from_sample(sample, result),
+            );
         }
     }
 
@@ -1406,15 +1401,12 @@ fn bake_continuous_record_timeline(ctx: &mut RecordingCtx) {
     let mut raw_host_slots_complete = true;
     let expected_frame_count = slots.len() as u64;
     let mut missing_slots = 0_u64;
-    if let Some(producer_take_slots) = producer_take_slots.as_ref().filter(|positions| {
-        positions
-            .iter()
-            .all(|position| best_by_position.contains_key(position))
-    }) {
+    if let Some(producer_take_slots) = producer_take_slots.as_ref() {
         for (index, position) in producer_take_slots.iter().enumerate() {
-            let candidate = best_by_position
-                .get(position)
-                .expect("producer slot completeness checked");
+            let Some(candidate) = best_by_position.get(position) else {
+                missing_slots = missing_slots.saturating_add(1);
+                continue;
+            };
             let t_ms = (index as u64 + 1).saturating_mul(FRAME_INTERVAL_MS);
             if writer_append_trace_frame(ctx, t_ms, &candidate.result) {
                 trace_slot_positions.push(*position);
@@ -1423,9 +1415,10 @@ fn bake_continuous_record_timeline(ctx: &mut RecordingCtx) {
                     &mut raw_host_slot_positions,
                     &mut raw_host_slots_complete,
                 );
+            } else {
+                missing_slots = missing_slots.saturating_add(1);
             }
         }
-        missing_slots = expected_frame_count.saturating_sub(trace_slot_positions.len() as u64);
     } else if !has_epoch_samples && !best_by_position.is_empty() {
         // Legacy artifacts have no epoch proof. Preserve their prior provisional path for read
         // compatibility, but new producers can only enter the exact range above.
@@ -1454,6 +1447,8 @@ fn bake_continuous_record_timeline(ctx: &mut RecordingCtx) {
                         &mut raw_host_slot_positions,
                         &mut raw_host_slots_complete,
                     );
+                } else {
+                    missing_slots = missing_slots.saturating_add(1);
                 }
             } else {
                 missing_slots = missing_slots.saturating_add(1);
@@ -1479,7 +1474,11 @@ fn bake_continuous_record_timeline(ctx: &mut RecordingCtx) {
         missing_slots,
         explicit_silence_frame_count,
     });
-    let positions_are_dense = trace_slot_positions.len() == ctx.writer.data().frames.len()
+    let positions_are_factual = trace_slot_positions.len() == ctx.writer.data().frames.len()
+        && trace_slot_positions
+            .windows(2)
+            .all(|window| window[0] < window[1]);
+    let positions_are_dense = positions_are_factual
         && trace_slot_positions
             .windows(2)
             .all(|window| window[1].saturating_sub(window[0]) == slot_frames);
@@ -1503,14 +1502,15 @@ fn bake_continuous_record_timeline(ctx: &mut RecordingCtx) {
             sources: clock_sources.into_iter().collect(),
         }
     });
-    // Preserve only a dense producer-owned slot identity. A late WAV Drop is allowed to translate
-    // this complete absolute grid to WAV-relative samples, never to search surrounding history or
-    // synthesize a missing slot.
-    ctx.writer.set_trace_slot_positions(if positions_are_dense {
-        trace_slot_positions
-    } else {
-        Vec::new()
-    });
+    // Preserve every factual producer-owned slot identity, including a sparse take. A late WAV
+    // Drop may translate these measured absolute positions to WAV-relative samples, but may never
+    // search surrounding history or synthesize a missing slot.
+    ctx.writer
+        .set_trace_slot_positions(if positions_are_factual {
+            trace_slot_positions
+        } else {
+            Vec::new()
+        });
     let raw_host_slots_are_factual = raw_host_slots_complete
         && raw_host_slot_positions.len() == ctx.writer.data().frames.len()
         && raw_host_slot_positions
@@ -1631,35 +1631,6 @@ fn continuous_timeline_slots(duration_ms: u64) -> Vec<u64> {
         t_ms = t_ms.saturating_add(FRAME_INTERVAL_MS);
     }
     slots
-}
-
-fn nearest_timeline_slot(slots: &[u64], t_ms: u64) -> Option<u64> {
-    if slots.is_empty() {
-        return None;
-    }
-    match slots.binary_search(&t_ms) {
-        Ok(idx) => Some(slots[idx]),
-        Err(idx) => {
-            let prev = idx.checked_sub(1).map(|i| slots[i]);
-            let next = slots.get(idx).copied();
-            let best = match (prev, next) {
-                (Some(a), Some(b)) => {
-                    let da = t_ms.saturating_sub(a);
-                    let db = b.saturating_sub(t_ms);
-                    if da <= db {
-                        a
-                    } else {
-                        b
-                    }
-                }
-                (Some(a), None) => a,
-                (None, Some(b)) => b,
-                (None, None) => return None,
-            };
-            let distance = best.abs_diff(t_ms);
-            (distance <= TRACE_SLOT_ASSIGNMENT_TOLERANCE_MS).then_some(best)
-        }
-    }
 }
 
 fn measure_from_frame(frame: &crate::plugin_data::Frame) -> MeasureResult {
@@ -5739,7 +5710,7 @@ mod tests {
     }
 
     #[test]
-    fn jittered_trace_samples_snap_to_nearest_100ms_slot() {
+    fn jittered_trace_samples_leave_unmeasured_100ms_slots_empty() {
         let base = isolated_base();
         let mut ctx = make_ctx_with_sample_rate(&base, Role::Post, now_epoch_ms(), 48_000);
         let final_path = ctx.final_path.clone();
@@ -5779,9 +5750,9 @@ mod tests {
             .as_ref()
             .expect("trace diagnostics");
         assert_eq!(diag.expected_frame_count, 10);
-        assert_eq!(diag.measured_frame_count, 10);
-        assert_eq!(diag.missing_slots, 0);
-        assert_eq!(loaded.frames.first().map(|frame| frame.t_ms), Some(100));
+        assert_eq!(diag.measured_frame_count, 1);
+        assert_eq!(diag.missing_slots, 9);
+        assert_eq!(loaded.frames.first().map(|frame| frame.t_ms), Some(1_000));
         assert_eq!(loaded.frames.last().map(|frame| frame.t_ms), Some(1_000));
     }
 

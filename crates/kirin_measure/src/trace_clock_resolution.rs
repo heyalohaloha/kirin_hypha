@@ -79,6 +79,12 @@ pub(crate) struct SideClockResolution {
     pub frames: Vec<Frame>,
     pub producer_slots: Vec<i64>,
     pub wav_slots: Vec<i64>,
+    /// Producer content positions relative to this side's factual WAV origin. Output
+    /// presentation latency is deliberately absent: this is the independent subtraction clock.
+    pub comparison_slots: Vec<i64>,
+    /// Untouched host positions retained one-to-one with `frames` when every selected
+    /// observation carried that diagnostic.
+    pub raw_host_slots: Vec<i64>,
     pub origin_position_samples: i64,
     pub model: &'static str,
 }
@@ -101,7 +107,7 @@ pub(crate) fn resolve_exact_side(
         None => render_origin(data, expected, aligned_model),
     };
     if let Some(origin) = aligned_origin {
-        if let Some((frames, producer_slots, wav_slots)) = select_latency_mapped_frames(
+        if let Some(selection) = select_latency_mapped_frames(
             &data.trace_clock_observations,
             origin,
             expected.expected_duration_samples,
@@ -110,9 +116,11 @@ pub(crate) fn resolve_exact_side(
             slot_samples,
         ) {
             return Some(SideClockResolution {
-                frames,
-                producer_slots,
-                wav_slots,
+                frames: selection.frames,
+                producer_slots: selection.producer_slots,
+                wav_slots: selection.wav_slots,
+                comparison_slots: selection.comparison_slots,
+                raw_host_slots: selection.raw_host_slots,
                 origin_position_samples: origin,
                 model: aligned_model.name(),
             });
@@ -139,6 +147,8 @@ pub(crate) fn resolve_exact_side(
                 frames,
                 producer_slots,
                 wav_slots,
+                comparison_slots: Vec::new(),
+                raw_host_slots: Vec::new(),
                 origin_position_samples: origin,
                 model: model.name(),
             };
@@ -153,6 +163,14 @@ pub(crate) fn resolve_exact_side(
     best
 }
 
+struct LatencyMappedSelection {
+    frames: Vec<Frame>,
+    producer_slots: Vec<i64>,
+    wav_slots: Vec<i64>,
+    comparison_slots: Vec<i64>,
+    raw_host_slots: Vec<i64>,
+}
+
 fn select_latency_mapped_frames(
     observations: &[TraceClockObservation],
     origin: i64,
@@ -160,7 +178,7 @@ fn select_latency_mapped_frames(
     sample_rate: u32,
     expected_len: usize,
     slot_samples: i64,
-) -> Option<(Vec<Frame>, Vec<i64>, Vec<i64>)> {
+) -> Option<LatencyMappedSelection> {
     if expected_len == 0 || slot_samples <= 0 || sample_rate == 0 {
         return None;
     }
@@ -171,44 +189,66 @@ fn select_latency_mapped_frames(
         .iter()
         .filter_map(|observation| {
             let latency = observation.output_presentation_latency_samples?;
-            let aligned = observation
-                .producer_position_samples?
-                .checked_add(i64::from(latency))?;
+            let producer = observation.producer_position_samples?;
+            let aligned = producer.checked_add(i64::from(latency))?;
             (aligned >= first_full_window && aligned <= end).then_some((
                 aligned,
+                producer,
+                observation.raw_host_position_samples,
                 observation.frame.t_ms,
                 observation.capture_epoch.unwrap_or(0),
                 &observation.frame,
             ))
         })
         .collect::<Vec<_>>();
-    candidates.sort_by_key(|(position, t_ms, epoch, _)| (*t_ms, *epoch, *position));
+    candidates.sort_by_key(|(position, _, _, t_ms, epoch, _)| (*t_ms, *epoch, *position));
 
     let mut frames = Vec::with_capacity(candidates.len().min(expected_len));
     let mut producer_slots = Vec::with_capacity(frames.capacity());
     let mut wav_slots = Vec::with_capacity(frames.capacity());
+    let mut comparison_slots = Vec::with_capacity(frames.capacity());
+    let mut raw_host_slots = Vec::with_capacity(frames.capacity());
+    let mut raw_host_slots_complete = true;
     let mut previous_position = None;
+    let mut previous_comparison_position = None;
     let mut previous_time = None;
-    for (position, t_ms, _, source_frame) in candidates {
+    for (position, producer_position, raw_host_position, t_ms, _, source_frame) in candidates {
         if previous_position.is_some_and(|previous| position <= previous)
+            || previous_comparison_position.is_some_and(|previous| producer_position <= previous)
             || previous_time.is_some_and(|previous| t_ms <= previous)
         {
             return None;
         }
         let relative = position.checked_sub(origin)?;
+        let comparison_relative = producer_position.checked_sub(origin)?;
+        if comparison_relative < 0 || comparison_relative > duration {
+            return None;
+        }
         let mut frame = source_frame.clone();
         frame.t_ms = u64::try_from(relative).ok()?.saturating_mul(1_000) / u64::from(sample_rate);
         frames.push(frame);
         producer_slots.push(position);
         wav_slots.push(relative);
+        comparison_slots.push(comparison_relative);
+        if let Some(raw_host_position) = raw_host_position {
+            raw_host_slots.push(raw_host_position);
+        } else {
+            raw_host_slots_complete = false;
+        }
         previous_position = Some(position);
+        previous_comparison_position = Some(producer_position);
         previous_time = Some(t_ms);
     }
-    (!frames.is_empty() && frames.len() <= expected_len).then_some((
+    if !raw_host_slots_complete {
+        raw_host_slots.clear();
+    }
+    (!frames.is_empty() && frames.len() <= expected_len).then_some(LatencyMappedSelection {
         frames,
         producer_slots,
         wav_slots,
-    ))
+        comparison_slots,
+        raw_host_slots,
+    })
 }
 
 fn render_origin(

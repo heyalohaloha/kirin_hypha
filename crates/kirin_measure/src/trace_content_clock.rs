@@ -12,6 +12,7 @@ use crate::record_expected::ExpectedWavMetadata;
 
 const FRAME_INTERVAL_MS: u64 = 100;
 pub(crate) const TRACE_COMPARISON_RAW_HOST_EXACT: &str = "raw_host_clock_exact";
+pub(crate) const TRACE_COMPARISON_PRODUCER_CONTENT_EXACT: &str = "producer_content_samples_exact";
 
 pub(crate) struct WavStartClockPlan {
     pub pre_frames: Vec<Frame>,
@@ -27,6 +28,10 @@ pub(crate) struct WavStartClockPlan {
     /// These are not positions on the dropped-WAV axis.
     pub pre_comparison_slots: Vec<i64>,
     pub post_comparison_slots: Vec<i64>,
+    /// Untouched host endpoints remain diagnostic evidence and are never substituted for the
+    /// producer content clock above.
+    pub pre_raw_host_slots: Vec<i64>,
+    pub post_raw_host_slots: Vec<i64>,
     pub comparison_resolution: Option<&'static str>,
     pub pre_origin_position_samples: Option<i64>,
     pub post_origin_position_samples: Option<i64>,
@@ -78,6 +83,10 @@ pub(crate) fn build_wav_start_clock_plan(
         slot_samples,
     );
     if let (Some(pre_side), Some(post_side)) = (pre_observed, post_observed) {
+        let comparison_exact = shared_producer_content_comparison(
+            &pre_side.comparison_slots,
+            &post_side.comparison_slots,
+        );
         let start_basis = if expected.wav_time_reference_samples.is_some() {
             crate::trace_alignment::TRACE_ALIGNMENT_START_BWF
         } else {
@@ -90,9 +99,20 @@ pub(crate) fn build_wav_start_clock_plan(
             post_producer_slots: post_side.producer_slots,
             pre_wav_slots: pre_side.wav_slots,
             post_wav_slots: post_side.wav_slots,
-            pre_comparison_slots: Vec::new(),
-            post_comparison_slots: Vec::new(),
-            comparison_resolution: None,
+            pre_comparison_slots: if comparison_exact {
+                pre_side.comparison_slots
+            } else {
+                Vec::new()
+            },
+            post_comparison_slots: if comparison_exact {
+                post_side.comparison_slots
+            } else {
+                Vec::new()
+            },
+            pre_raw_host_slots: pre_side.raw_host_slots,
+            post_raw_host_slots: post_side.raw_host_slots,
+            comparison_resolution: comparison_exact
+                .then_some(TRACE_COMPARISON_PRODUCER_CONTENT_EXACT),
             pre_origin_position_samples: Some(pre_side.origin_position_samples),
             post_origin_position_samples: Some(post_side.origin_position_samples),
             start_basis,
@@ -131,6 +151,8 @@ pub(crate) fn build_wav_start_clock_plan(
                     post_wav_slots: wav_slots(expected_len, slot_samples)?,
                     pre_comparison_slots: Vec::new(),
                     post_comparison_slots: Vec::new(),
+                    pre_raw_host_slots: Vec::new(),
+                    post_raw_host_slots: Vec::new(),
                     comparison_resolution: None,
                     pre_origin_position_samples: producer_origin,
                     post_origin_position_samples: producer_origin,
@@ -165,6 +187,8 @@ pub(crate) fn build_wav_start_clock_plan(
                     post_wav_slots: post_side.wav_slots,
                     pre_comparison_slots: Vec::new(),
                     post_comparison_slots: Vec::new(),
+                    pre_raw_host_slots: Vec::new(),
+                    post_raw_host_slots: Vec::new(),
                     comparison_resolution: None,
                     pre_origin_position_samples: Some(pre_side.origin),
                     post_origin_position_samples: Some(post_side.origin),
@@ -190,8 +214,10 @@ pub(crate) fn build_wav_start_clock_plan(
             post_producer_slots: post_side.raw_slots.clone(),
             pre_wav_slots: pre_side.elapsed_slots,
             post_wav_slots: post_side.elapsed_slots,
-            pre_comparison_slots: pre_side.raw_slots,
-            post_comparison_slots: post_side.raw_slots,
+            pre_comparison_slots: pre_side.raw_slots.clone(),
+            post_comparison_slots: post_side.raw_slots.clone(),
+            pre_raw_host_slots: pre_side.raw_slots,
+            post_raw_host_slots: post_side.raw_slots,
             comparison_resolution: Some(TRACE_COMPARISON_RAW_HOST_EXACT),
             pre_origin_position_samples: None,
             post_origin_position_samples: None,
@@ -222,6 +248,8 @@ pub(crate) fn build_wav_start_clock_plan(
         post_wav_slots: post_fallback_slots,
         pre_comparison_slots: Vec::new(),
         post_comparison_slots: Vec::new(),
+        pre_raw_host_slots: Vec::new(),
+        post_raw_host_slots: Vec::new(),
         comparison_resolution: None,
         pre_origin_position_samples: None,
         post_origin_position_samples: None,
@@ -230,6 +258,27 @@ pub(crate) fn build_wav_start_clock_plan(
         post_clock_model: "chronological_fallback",
         exact: false,
     })
+}
+
+fn shared_producer_content_comparison(pre: &[i64], post: &[i64]) -> bool {
+    if pre.len() < 2
+        || post.len() < 2
+        || pre.iter().any(|position| *position < 0)
+        || post.iter().any(|position| *position < 0)
+        || !pre.windows(2).all(|pair| pair[0] < pair[1])
+        || !post.windows(2).all(|pair| pair[0] < pair[1])
+    {
+        return false;
+    }
+    let post_positions = post
+        .iter()
+        .copied()
+        .collect::<std::collections::BTreeSet<_>>();
+    pre.iter()
+        .filter(|position| post_positions.contains(position))
+        .take(2)
+        .count()
+        >= 2
 }
 
 struct RawHostComparisonSide {
@@ -995,6 +1044,56 @@ mod tests {
     }
 
     #[test]
+    fn studio_one_role_latency_keeps_wav_placement_and_content_comparison_separate() {
+        let origin = 100_000_i64;
+        let mut expected = expected(Some(origin as u64));
+        expected.expected_sample_rate = 96_000;
+        expected.expected_duration_samples = 38_400;
+        let mut pre = plugin_data(Role::Pre, "session", "project_timeline");
+        let mut post = plugin_data(Role::Post, "session", "project_timeline");
+        pre.sample_rate = 96_000;
+        post.sample_rate = 96_000;
+
+        let observations = |start: i64, latency: u32, base: f64| {
+            (0_i64..3)
+                .map(|index| {
+                    let producer = origin + start + index * 9_600;
+                    TraceClockObservation {
+                        frame: Frame {
+                            t_ms: (index as u64 + 1) * 100,
+                            ..frame(base + index as f64)
+                        },
+                        producer_position_samples: Some(producer),
+                        raw_host_position_samples: producer.checked_add(i64::from(latency)),
+                        capture_epoch: Some(10),
+                        clock_source: Some("project_timeline".to_string()),
+                        presentation_latency_source: Some("vst3".to_string()),
+                        input_presentation_latency_samples: Some(0),
+                        output_presentation_latency_samples: Some(latency),
+                    }
+                })
+                .collect::<Vec<_>>()
+        };
+        // The first POST measurement starts one factual 100 ms interval later. Its WAV placement
+        // also retains the observed 78-sample residual after role-specific latency is applied.
+        pre.trace_clock_observations = observations(0, 13_810, -30.0);
+        post.trace_clock_observations = observations(9_600, 4_288, -20.0);
+
+        let plan = build_wav_start_clock_plan(&pre, &post, &expected, 4, 9_600)
+            .expect("factual Studio One role clocks");
+
+        assert!(plan.exact);
+        assert_eq!(plan.pre_wav_slots, vec![13_810, 23_410, 33_010]);
+        assert_eq!(plan.post_wav_slots, vec![13_888, 23_488, 33_088]);
+        assert_eq!(plan.pre_comparison_slots, vec![0, 9_600, 19_200]);
+        assert_eq!(plan.post_comparison_slots, vec![9_600, 19_200, 28_800]);
+        assert_eq!(
+            plan.comparison_resolution,
+            Some(TRACE_COMPARISON_PRODUCER_CONTENT_EXACT)
+        );
+    }
+
+    #[test]
     fn raw_host_comparison_ignores_partial_epochs_around_the_selected_offline_render() {
         let origin = 15_594_720;
         let mut pre = raw_host_comparison_data(
@@ -1303,6 +1402,12 @@ mod tests {
         assert!(plan.exact, "the surviving slots remain sample-anchored");
         assert_eq!(plan.pre_wav_slots, vec![4_800, 9_600, 14_400]);
         assert_eq!(plan.post_wav_slots, vec![4_800, 14_400]);
+        assert_eq!(
+            plan.comparison_resolution,
+            Some(TRACE_COMPARISON_PRODUCER_CONTENT_EXACT)
+        );
+        assert_eq!(plan.pre_comparison_slots, vec![4_800, 9_600, 14_400]);
+        assert_eq!(plan.post_comparison_slots, vec![4_800, 14_400]);
         assert_eq!(
             plan.post_frames
                 .iter()
