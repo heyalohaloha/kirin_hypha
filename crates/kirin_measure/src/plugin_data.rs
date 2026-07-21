@@ -432,12 +432,15 @@ pub struct PluginDataFile {
     /// Clock model selected for this side at Drop, or the explicit chronological fallback.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trace_clock_resolution: Option<String>,
-    /// Independent PRE/POST comparison qualification. This never claims a dropped-WAV position;
-    /// it only states that both members were selected on the same untouched raw host clock.
+    /// Independent PRE/POST comparison qualification. This never changes the role-specific WAV
+    /// placement above. Current captures publish the producer content-sample clock; legacy
+    /// fallback captures may publish an untouched raw-host clock.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trace_comparison_resolution: Option<String>,
-    /// Raw host endpoint corresponding one-to-one with every public `frames[]` entry when
-    /// `trace_comparison_resolution=raw_host_clock_exact`.
+    /// Comparison-clock position corresponding one-to-one with every public `frames[]` entry.
+    /// `producer_content_samples_exact` uses samples relative to the producer's factual WAV
+    /// origin before role-specific output latency; `raw_host_clock_exact` uses absolute raw-host
+    /// endpoints. Neither form may be inferred from metric shape.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub trace_comparison_slot_positions: Vec<i64>,
     /// Producer-private raw host endpoint corresponding one-to-one with the factual Record frames.
@@ -2999,6 +3002,7 @@ fn normalize_late_expected_pair(
                    producer_slots: &[i64],
                    public_wav_slots: &[i64],
                    comparison_slots: &[i64],
+                   raw_host_slots: &[i64],
                    comparison_resolution: Option<&str>,
                    producer_origin: Option<i64>,
                    clock_model: &str| {
@@ -3012,15 +3016,15 @@ fn normalize_late_expected_pair(
             debug_assert_eq!(data.frames.len(), comparison_slots.len());
             data.trace_comparison_resolution = Some(resolution.to_string());
             data.trace_comparison_slot_positions = comparison_slots.to_vec();
-            // Keep the producer-private identity in the same post-window shape as the public
-            // factual frames. A later idempotent Drop must not compare trimmed frames with the
-            // broader close-time list and silently lose an already-proven comparison.
-            data.trace_raw_host_slot_positions = comparison_slots.to_vec();
         } else {
             data.trace_comparison_resolution = None;
             data.trace_comparison_slot_positions.clear();
-            data.trace_raw_host_slot_positions.clear();
         }
+        data.trace_raw_host_slot_positions = if raw_host_slots.len() == data.frames.len() {
+            raw_host_slots.to_vec()
+        } else {
+            Vec::new()
+        };
         data.trace_pair_offset_samples = None;
         data.trace_pair_alignment_score = None;
         if plan.exact {
@@ -3045,6 +3049,7 @@ fn normalize_late_expected_pair(
                 &plan.pre_producer_slots,
                 &plan.pre_wav_slots,
                 &plan.pre_comparison_slots,
+                &plan.pre_raw_host_slots,
                 plan.comparison_resolution,
                 plan.pre_origin_position_samples,
                 plan.pre_clock_model,
@@ -3055,6 +3060,7 @@ fn normalize_late_expected_pair(
                 &plan.post_producer_slots,
                 &plan.post_wav_slots,
                 &plan.post_comparison_slots,
+                &plan.post_raw_host_slots,
                 plan.comparison_resolution,
                 plan.post_origin_position_samples,
                 plan.post_clock_model,
@@ -3067,6 +3073,7 @@ fn normalize_late_expected_pair(
                 &plan.post_producer_slots,
                 &plan.post_wav_slots,
                 &plan.post_comparison_slots,
+                &plan.post_raw_host_slots,
                 plan.comparison_resolution,
                 plan.post_origin_position_samples,
                 plan.post_clock_model,
@@ -3077,6 +3084,7 @@ fn normalize_late_expected_pair(
                 &plan.pre_producer_slots,
                 &plan.pre_wav_slots,
                 &plan.pre_comparison_slots,
+                &plan.pre_raw_host_slots,
                 plan.comparison_resolution,
                 plan.pre_origin_position_samples,
                 plan.pre_clock_model,
@@ -3203,13 +3211,29 @@ fn normalize_late_expected_record(
     if !slots_are_factual_wav_positions || !frames_match_sparse_slots {
         return false;
     }
-    let comparison_proof_is_valid = data.trace_comparison_resolution.as_deref()
-        == Some(crate::trace_content_clock::TRACE_COMPARISON_RAW_HOST_EXACT)
-        && data.trace_comparison_slot_positions.len() == data.frames.len()
-        && data
-            .trace_comparison_slot_positions
-            .windows(2)
-            .all(|pair| pair[0] < pair[1]);
+    let comparison_proof_is_valid = match data.trace_comparison_resolution.as_deref() {
+        Some(crate::trace_content_clock::TRACE_COMPARISON_PRODUCER_CONTENT_EXACT) => {
+            data.trace_comparison_slot_positions.len() == data.frames.len()
+                && data.trace_comparison_slot_positions.iter().all(|position| {
+                    *position >= 0
+                        && u64::try_from(*position)
+                            .ok()
+                            .is_some_and(|position| position <= expected.expected_duration_samples)
+                })
+                && data
+                    .trace_comparison_slot_positions
+                    .windows(2)
+                    .all(|pair| pair[0] < pair[1])
+        }
+        Some(crate::trace_content_clock::TRACE_COMPARISON_RAW_HOST_EXACT) => {
+            data.trace_comparison_slot_positions.len() == data.frames.len()
+                && data
+                    .trace_comparison_slot_positions
+                    .windows(2)
+                    .all(|pair| pair[0] < pair[1])
+        }
+        _ => false,
+    };
     if !comparison_proof_is_valid {
         data.trace_comparison_resolution = None;
         data.trace_comparison_slot_positions.clear();
@@ -4728,6 +4752,108 @@ mod tests {
             assert!(data.trace_comparison_slot_positions.is_empty());
             assert!(data.trace_raw_host_slot_positions.is_empty());
             assert!(!data.frames.is_empty());
+        }
+    }
+
+    #[test]
+    fn late_drop_publishes_role_wav_slots_and_producer_comparison_as_separate_facts() {
+        let base = isolated_dir();
+        let expected = fresh_expected_wav_fixture(48_000);
+        let start_ms = expected.created_at_ms.saturating_sub(2_000);
+        let origin = 100_000_i64;
+        let mut pre = complete_pair_writer(
+            &base,
+            Role::Pre,
+            "iid-pre-producer-comparison",
+            None,
+            Some("iid-post-producer-comparison".to_string()),
+        );
+        let mut post = complete_pair_writer(
+            &base,
+            Role::Post,
+            "iid-post-producer-comparison",
+            Some("iid-pre-producer-comparison".to_string()),
+            None,
+        );
+        for writer in [&mut pre, &mut post] {
+            writer.set_record_session_id(Some("session-producer-comparison".to_string()));
+            writer.set_capture_generation(
+                Some("generation-producer-comparison".to_string()),
+                start_ms,
+            );
+            set_late_expected_record_time(writer, start_ms, expected.created_at_ms);
+            configure_render_clock_take(writer, 48_000);
+            let take = writer.data.bounce_take.as_mut().expect("render take");
+            take.host_start_position_samples = Some(origin);
+            take.host_end_position_samples = Some(origin + 48_000);
+            writer.data.status = Status::Closed;
+            writer.data.commit_status = Some("pair_pending".to_string());
+        }
+        let observations = |first_slot: i64, output_latency: u32, base_value: f64| {
+            (0_i64..10)
+                .map(|index| {
+                    let producer = origin + first_slot + index * 4_800;
+                    TraceClockObservation {
+                        frame: Frame {
+                            t_ms: (index as u64 + 1) * TRACE_FRAME_INTERVAL_MS,
+                            n_prime: Some([base_value + index as f64; 20]),
+                            sharpness: Some(base_value),
+                            lufs_m: base_value,
+                            true_peak: base_value,
+                            crest: base_value.abs(),
+                            psr: Some(base_value),
+                        },
+                        producer_position_samples: Some(producer),
+                        raw_host_position_samples: producer.checked_add(i64::from(output_latency)),
+                        capture_epoch: Some(7),
+                        clock_source: Some("audio_render_timeline".to_string()),
+                        presentation_latency_source: Some("vst3".to_string()),
+                        input_presentation_latency_samples: Some(0),
+                        output_presentation_latency_samples: Some(output_latency),
+                    }
+                })
+                .collect::<Vec<_>>()
+        };
+        pre.set_trace_clock_observations(observations(4_800, 512, -30.0));
+        post.set_trace_clock_observations(observations(9_600, 256, -20.0));
+
+        assert!(normalize_late_expected_pair(
+            &mut pre.data,
+            &mut post.data,
+            &expected
+        ));
+        assert_eq!(pre.data.trace_slot_positions.first(), Some(&5_312));
+        assert_eq!(post.data.trace_slot_positions.first(), Some(&9_856));
+        assert_eq!(
+            pre.data.trace_comparison_slot_positions.first(),
+            Some(&4_800)
+        );
+        assert_eq!(
+            post.data.trace_comparison_slot_positions.first(),
+            Some(&9_600)
+        );
+        for data in [&pre.data, &post.data] {
+            assert_eq!(
+                data.trace_comparison_resolution.as_deref(),
+                Some(crate::trace_content_clock::TRACE_COMPARISON_PRODUCER_CONTENT_EXACT)
+            );
+            assert_eq!(
+                data.trace_comparison_slot_positions.len(),
+                data.frames.len(),
+                "comparison proof must remain one-to-one with measured frames"
+            );
+            assert_eq!(data.trace_raw_host_slot_positions.len(), data.frames.len());
+        }
+
+        assert!(prepare_late_expected_pair(&mut pre.data, &mut post.data));
+        for data in [&pre.data, &post.data] {
+            assert_eq!(data.commit_status.as_deref(), Some("committed"));
+            assert_eq!(
+                data.trace_comparison_resolution.as_deref(),
+                Some(crate::trace_content_clock::TRACE_COMPARISON_PRODUCER_CONTENT_EXACT)
+            );
+            assert!(data.trace_clock_observations.is_empty());
+            assert!(!data.trace_comparison_slot_positions.is_empty());
         }
     }
 
