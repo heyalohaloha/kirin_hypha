@@ -1,0 +1,93 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-07-21T07:38:03.223Z",
+  "purpose": "windows_ls_vst3_zip",
+  "release_status": "ls_candidate_manual_vst3_zip",
+  "ls_upload": "ready_manual_zip_after_external_validation",
+  "known_limitations": [
+    "Windows installer is not implemented; package is a manual VST3 zip.",
+    "Authenticode signing is not implemented for this Windows VST3 zip.",
+    "Upload as a Windows VST3 zip, not as a macOS installer package."
+  ],
+  "package": {
+    "name": "Kirin-Hypha-1.1.33-Windows-VST3-B-440-e05702f.zip",
+    "path": "dist/WINDOWS_LS/Kirin-Hypha-1.1.33-Windows-VST3-B-440-e05702f.zip",
+    "size_bytes": 7097636,
+    "sha256": "8336c5946ccb10491a20845c443fafeaad83aede4ef6aab4eb04ae76a011bf5d",
+    "format": "zip",
+    "contains_top_level_folder": true
+  },
+  "binary_artifact": {
+    "source": "GitHub Actions artifact or windows-latest build output",
+    "artifact_name": "kirin-hypha-windows-vst3",
+    "run_url": null,
+    "commit": "e05702f719cf7dd4ad29124dd884fed02d1392e8",
+    "b_number": "B-440",
+    "ci_result": "windows_job_success_required",
+    "windows_job": "windows VST3 preflight",
+    "windows_job_gates": [
+      "Build kirin_hypha_ffi staticlib (MSVC)",
+      "Windows preflight gate",
+      "Configure JUCE VST3 shell (Windows)",
+      "Build JUCE VST3 shell (Windows)",
+      "Verify Windows VST3 artifacts",
+      "Upload Windows VST3 artifacts",
+      "Validate Windows VST3 with pluginval",
+      "Package Windows VST3 LS candidate"
+    ]
+  },
+  "external_validation": {
+    "status": "reported_complete_by_daisuke",
+    "note": "Daisuke reported Windows validation complete before this LS zip was produced."
+  },
+  "contents": [
+    {
+      "path": "COMMIT.txt",
+      "sha256": "94510d7754527559fdf002ef3cdd2024dfb6871c317a9e3320568b224481a292"
+    },
+    {
+      "path": "Kirin Hypha POST.vst3/Contents/Resources/moduleinfo.json",
+      "sha256": "0ddef9c1e8f67b3a875c183f9084f99659ee8752475e27c20d036f31b2a1d678"
+    },
+    {
+      "path": "Kirin Hypha POST.vst3/Contents/x86_64-win/Kirin Hypha POST.vst3",
+      "sha256": "311ac37b3a4f042573212af95c7724735e0a9a8f029732766f4593b4fc39c7b1"
+    },
+    {
+      "path": "Kirin Hypha PRE.vst3/Contents/Resources/moduleinfo.json",
+      "sha256": "f8221f74ad45544b7ee0bea514f9d2756bca19e7ceeb34f5d975a446c901138b"
+    },
+    {
+      "path": "Kirin Hypha PRE.vst3/Contents/x86_64-win/Kirin Hypha PRE.vst3",
+      "sha256": "0baca1d9fe8dcc3e4196678156565f5c086a22dce0f445dc2f3d88211b2c8e37"
+    },
+    {
+      "path": "README_FIRST.txt",
+      "sha256": "817505bc78cda08efc1b3543d7eeba48a256e2be88d6ac0b79b660255b6224b5"
+    },
+    {
+      "path": "SHA256SUMS.txt",
+      "sha256": "16decb817eed9815ba04f77e31f28c55f7fe55a09e544da41c6ce5ac298cf896"
+    },
+    {
+      "path": "WINDOWS_EXTERNAL_VALIDATION.md",
+      "sha256": "c2ab6609696f3f2c0d270309761c401db299bacaf358e2bf4e4910f6ada0f6a8"
+    }
+  ],
+  "validation": {
+    "local_zip_test": "zip integrity test passed",
+    "local_sha256_file": "dist/WINDOWS_LS/Kirin-Hypha-1.1.33-Windows-VST3-B-440-e05702f.zip.sha256",
+    "binaries": [
+      {
+        "label": "PRE VST3",
+        "path": "Kirin Hypha PRE.vst3/Contents/x86_64-win/Kirin Hypha PRE.vst3",
+        "sha256": "0baca1d9fe8dcc3e4196678156565f5c086a22dce0f445dc2f3d88211b2c8e37"
+      },
+      {
+        "label": "POST VST3",
+        "path": "Kirin Hypha POST.vst3/Contents/x86_64-win/Kirin Hypha POST.vst3",
+        "sha256": "311ac37b3a4f042573212af95c7724735e0a9a8f029732766f4593b4fc39c7b1"
+      }
+    ]
+  }
+}
