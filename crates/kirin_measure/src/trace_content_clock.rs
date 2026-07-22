@@ -446,6 +446,7 @@ fn baked_raw_host_comparison_side(
 fn same_frame_measurement(left: &Frame, right: &Frame) -> bool {
     left.t_ms == right.t_ms
         && left.n_prime == right.n_prime
+        && left.n_prime_total == right.n_prime_total
         && left.sharpness == right.sharpness
         && left.lufs_m == right.lufs_m
         && left.true_peak == right.true_peak
@@ -726,6 +727,18 @@ mod tests {
             crest: value.abs(),
             psr: None,
         }
+    }
+
+    #[test]
+    fn frame_measurement_identity_includes_total_loudness_n() {
+        let mut factual = frame(-20.0);
+        factual.n_prime_total = Some(4.25);
+        let mut observation = factual.clone();
+
+        assert!(same_frame_measurement(&factual, &observation));
+
+        observation.n_prime_total = Some(4.26);
+        assert!(!same_frame_measurement(&factual, &observation));
     }
 
     fn source(positions: &[i64], values: &[f64]) -> BTreeMap<i64, Frame> {
