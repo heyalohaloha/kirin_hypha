@@ -396,6 +396,7 @@ mod tests {
         Frame {
             t_ms,
             n_prime: None,
+            n_prime_total: None,
             sharpness: None,
             lufs_m: value,
             true_peak: value,

@@ -18,6 +18,7 @@
 //! T-2 でストリーミングアダプタを追加する。
 
 pub mod calc_slopes;
+pub mod channels;
 pub mod core_loudness;
 pub mod filter_bank;
 pub mod nonlinear_decay;

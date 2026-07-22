@@ -1548,9 +1548,10 @@ fn trace_clock_observation(sample: &RecordTraceSample) -> Option<TraceClockObser
         return None;
     };
     Some(TraceClockObservation {
-        frame: crate::plugin_data::make_frame_optional(
+        frame: crate::plugin_data::make_frame_optional_with_n(
             sample.t_ms,
             result.n_prime,
+            result.n_prime_total,
             result.sharpness,
             lufs_m,
             true_peak,
@@ -1640,6 +1641,7 @@ fn measure_from_frame(frame: &crate::plugin_data::Frame) -> MeasureResult {
         crest: Some(frame.crest),
         psr: frame.psr,
         n_prime: frame.n_prime,
+        n_prime_total: frame.n_prime_total,
         sharpness: frame.sharpness,
         ..MeasureResult::default()
     }
@@ -2062,6 +2064,7 @@ pub fn writer_append_frame(ctx: &mut RecordingCtx, t_ms: u64, m: &MeasureResult)
     ctx.writer.append_frame_optional(
         t_ms,
         m.n_prime,
+        m.n_prime_total,
         m.sharpness,
         lufs_m,
         true_peak,
@@ -2089,8 +2092,16 @@ fn writer_append_trace_frame(ctx: &mut RecordingCtx, t_ms: u64, m: &MeasureResul
     };
     let n_prime = m.n_prime;
     let sharpness = m.sharpness;
-    ctx.writer
-        .append_frame_optional(t_ms, n_prime, sharpness, lufs_m, true_peak, crest, m.psr);
+    ctx.writer.append_frame_optional(
+        t_ms,
+        n_prime,
+        m.n_prime_total,
+        sharpness,
+        lufs_m,
+        true_peak,
+        crest,
+        m.psr,
+    );
     if !ctx.first_frame_logged {
         match n_prime {
             Some(n_prime) => log::info!(
@@ -4479,10 +4490,12 @@ mod tests {
         let mut ctx = make_ctx(&base, Role::Post, now_epoch_ms());
         let mut m = full_measure_result();
         m.n_prime = None;
+        m.n_prime_total = None;
         m.sharpness = None;
         assert!(writer_append_frame(&mut ctx, 100, &m));
         assert_eq!(ctx.data().frames.len(), 1);
         assert!(ctx.data().frames[0].n_prime.is_none());
+        assert!(ctx.data().frames[0].n_prime_total.is_none());
         assert!(ctx.data().frames[0].sharpness.is_none());
         assert_eq!(ctx.data().frames[0].lufs_m, -14.2);
         assert!(ctx.first_frame_logged);
@@ -4498,6 +4511,7 @@ mod tests {
         assert_eq!(frames.len(), 1);
         assert_eq!(frames[0].t_ms, 200);
         assert_eq!(frames[0].n_prime.unwrap()[0], 0.5);
+        assert_eq!(frames[0].n_prime_total, Some(5.0));
         assert_eq!(frames[0].lufs_m, -14.2);
         assert!(ctx.first_frame_logged);
     }
