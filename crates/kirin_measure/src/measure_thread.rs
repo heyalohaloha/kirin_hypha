@@ -6,7 +6,7 @@
 //! - IO Thread（T-4/T-5）は measure_result を読むだけ
 
 use crate::ingest_contract::{measure_chunk_capacity_samples, raw_pre_roll_capacity_samples};
-use crate::phase_d::stream::PhaseDStream;
+use crate::phase_d::channels::PhaseDChannelStream;
 use crate::phase_d::tables::FieldType;
 use crate::raw_pre_roll::RawPreRollHistory;
 use crate::record::RecordStateMachine;
@@ -262,10 +262,9 @@ pub fn spawn_measure_thread(
         };
 
         //  streaming processor（ v2: 全 SR 対応のため常に Some 相当）。
-        let mut phase_d = PhaseDStream::new(FieldType::Free);
-        // Phase D は mono stream 入力。mono はそのまま、stereo は (L+R)/2 に落とす。
-        let mut phase_d_mono_buf: Vec<f64> = Vec::with_capacity(ENGINE_SR as usize);
-        let mut phase_d_slot_pending: Vec<f64> = Vec::with_capacity(ENGINE_SR as usize / 5);
+        let mut phase_d = PhaseDChannelStream::new(FieldType::Free, n_channels);
+        let mut phase_d_slot_pending: Vec<f64> =
+            Vec::with_capacity(ENGINE_SR as usize * n_channels / 5);
         //  最新結果（ループをまたいで保持。engine が結果を返した時にマージ）
         let mut latest_pd: Option<crate::phase_d::stream::PhaseDResult> = None;
         let mut record_core_pending: VecDeque<PendingRecordCore> = VecDeque::new();
@@ -434,7 +433,6 @@ pub fn spawn_measure_thread(
                         chunk_f64: &mut chunk_f64,
                         resampled_buf: &mut resampled_buf,
                         phase_d: &mut phase_d,
-                        phase_d_mono_buf: &mut phase_d_mono_buf,
                         phase_d_slot_pending: &mut phase_d_slot_pending,
                         latest_pd: &mut latest_pd,
                         record_core_pending: &mut record_core_pending,
@@ -909,7 +907,6 @@ pub fn spawn_measure_thread(
                             feed_phase_d_slots(
                                 &record_alignment_silence,
                                 n_channels,
-                                &mut phase_d_mono_buf,
                                 &mut phase_d_slot_pending,
                                 &mut phase_d,
                                 &mut latest_pd,
@@ -928,12 +925,9 @@ pub fn spawn_measure_thread(
                 // Phase D is a Record/TRACE metric. Keep Watch lightweight; the Keep transaction
                 // does not become ready until this Record state has been entered and reset.
                 if should_process_phase_d(is_recording) {
-                    // Mono is identity; stereo is averaged to mono. Do not duplicate mono into
-                    // two channels, because that would bias loudness by +3 dB.
                     feed_phase_d_slots(
                         chunk_48k,
                         n_channels,
-                        &mut phase_d_mono_buf,
                         &mut phase_d_slot_pending,
                         &mut phase_d,
                         &mut latest_pd,
@@ -1066,22 +1060,6 @@ pub fn spawn_measure_thread(
     })
 }
 
-fn append_phase_d_mono(input_interleaved: &[f64], n_channels: usize, out: &mut Vec<f64>) {
-    match n_channels {
-        1 => out.extend_from_slice(input_interleaved),
-        2 => {
-            for frame in input_interleaved.chunks_exact(2) {
-                out.push((frame[0] + frame[1]) * 0.5);
-            }
-        }
-        _ => {
-            for frame in input_interleaved.chunks_exact(n_channels) {
-                out.push(frame.iter().sum::<f64>() / n_channels as f64);
-            }
-        }
-    }
-}
-
 fn merge_phase_d_fields(
     result: &mut MeasureResult,
     pd: Option<&crate::phase_d::stream::PhaseDResult>,
@@ -1203,27 +1181,24 @@ struct PendingRecordCore {
 fn feed_phase_d_slots(
     input_48k: &[f64],
     n_channels: usize,
-    mono_scratch: &mut Vec<f64>,
     slot_pending: &mut Vec<f64>,
-    phase_d: &mut PhaseDStream,
+    phase_d: &mut PhaseDChannelStream,
     latest_pd: &mut Option<crate::phase_d::stream::PhaseDResult>,
     record_phase_pending: &mut VecDeque<crate::phase_d::stream::PhaseDResult>,
     is_recording: bool,
 ) {
-    mono_scratch.clear();
-    append_phase_d_mono(input_48k, n_channels, mono_scratch);
-    slot_pending.extend_from_slice(mono_scratch);
-    let slot_frames = ENGINE_SR as usize / 10;
-    let complete_frames = slot_pending.len() / slot_frames * slot_frames;
-    for slot in slot_pending[..complete_frames].chunks_exact(slot_frames) {
-        if let Some(result) = phase_d.push(slot).last().cloned() {
+    slot_pending.extend_from_slice(input_48k);
+    let slot_samples = ENGINE_SR as usize / 10 * n_channels;
+    let complete_samples = slot_pending.len() / slot_samples * slot_samples;
+    for slot in slot_pending[..complete_samples].chunks_exact(slot_samples) {
+        if let Some(result) = phase_d.push_interleaved_slot(slot) {
             *latest_pd = Some(result.clone());
             if is_recording {
                 record_phase_pending.push_back(result);
             }
         }
     }
-    slot_pending.drain(..complete_frames);
+    slot_pending.drain(..complete_samples);
 }
 
 fn join_record_trace_slots(
@@ -1411,8 +1386,7 @@ struct DrainRingSession<'a> {
     session_summary: &'a Arc<Mutex<Option<SessionSummary>>>,
     chunk_f64: &'a mut Vec<f64>,
     resampled_buf: &'a mut Vec<f64>,
-    phase_d: &'a mut PhaseDStream,
-    phase_d_mono_buf: &'a mut Vec<f64>,
+    phase_d: &'a mut PhaseDChannelStream,
     phase_d_slot_pending: &'a mut Vec<f64>,
     latest_pd: &'a mut Option<crate::phase_d::stream::PhaseDResult>,
     record_core_pending: &'a mut VecDeque<PendingRecordCore>,
@@ -1805,7 +1779,6 @@ fn drain_ring_into_session(
         feed_phase_d_slots(
             chunk_48k,
             ctx.n_channels,
-            ctx.phase_d_mono_buf,
             ctx.phase_d_slot_pending,
             ctx.phase_d,
             ctx.latest_pd,
@@ -1871,7 +1844,6 @@ fn drain_ring_into_session(
             feed_phase_d_slots(
                 ctx.resampled_buf,
                 ctx.n_channels,
-                ctx.phase_d_mono_buf,
                 ctx.phase_d_slot_pending,
                 ctx.phase_d,
                 ctx.latest_pd,
@@ -2666,9 +2638,10 @@ pub mod tests {
         let summary = std::sync::Arc::new(std::sync::Mutex::new(None));
         let mut chunk = Vec::new();
         let mut resampled = Vec::new();
-        let mut phase =
-            crate::phase_d::stream::PhaseDStream::new(crate::phase_d::tables::FieldType::Free);
-        let mut phase_mono = Vec::new();
+        let mut phase = crate::phase_d::channels::PhaseDChannelStream::new(
+            crate::phase_d::tables::FieldType::Free,
+            2,
+        );
         let mut phase_slots = Vec::new();
         let mut latest_phase = None;
         let mut core_pending = std::collections::VecDeque::new();
@@ -2686,7 +2659,6 @@ pub mod tests {
                 chunk_f64: &mut chunk,
                 resampled_buf: &mut resampled,
                 phase_d: &mut phase,
-                phase_d_mono_buf: &mut phase_mono,
                 phase_d_slot_pending: &mut phase_slots,
                 latest_pd: &mut latest_phase,
                 record_core_pending: &mut core_pending,
@@ -3023,7 +2995,7 @@ mod b132_drain_tests {
         drain_ring_into_session, trusted_pre_roll_epoch, CaptureChunkPlan, DrainRingSession,
     };
     use crate::engine::MeasureEngine;
-    use crate::phase_d::stream::PhaseDStream;
+    use crate::phase_d::channels::PhaseDChannelStream;
     use crate::phase_d::tables::FieldType;
     use crate::record_take::{CaptureClockSource, RecordTakeTracker};
     use std::sync::{Arc, Mutex};
@@ -3085,8 +3057,7 @@ mod b132_drain_tests {
         let mut resampler = None;
         let mut native_frames_total = SR as u64;
         let mut consumed_samples = 0_u64;
-        let mut phase_d = PhaseDStream::new(FieldType::Free);
-        let mut phase_d_mono = Vec::new();
+        let mut phase_d = PhaseDChannelStream::new(FieldType::Free, 2);
         let mut phase_d_slots = Vec::new();
         let mut latest_pd = None;
         let mut record_core_pending = std::collections::VecDeque::new();
@@ -3103,7 +3074,6 @@ mod b132_drain_tests {
                 chunk_f64: &mut chunk,
                 resampled_buf: &mut resampled,
                 phase_d: &mut phase_d,
-                phase_d_mono_buf: &mut phase_d_mono,
                 phase_d_slot_pending: &mut phase_d_slots,
                 latest_pd: &mut latest_pd,
                 record_core_pending: &mut record_core_pending,
@@ -3155,8 +3125,7 @@ mod b132_drain_tests {
         let mut resampler = None;
         let mut native_frames_total = SR as u64;
         let mut consumed_samples = 0_u64;
-        let mut phase_d = PhaseDStream::new(FieldType::Free);
-        let mut phase_d_mono = Vec::new();
+        let mut phase_d = PhaseDChannelStream::new(FieldType::Free, 2);
         let mut phase_d_slots = Vec::new();
         let mut latest_pd = None;
         let mut record_core_pending = std::collections::VecDeque::new();
@@ -3173,7 +3142,6 @@ mod b132_drain_tests {
                 chunk_f64: &mut chunk,
                 resampled_buf: &mut resampled,
                 phase_d: &mut phase_d,
-                phase_d_mono_buf: &mut phase_d_mono,
                 phase_d_slot_pending: &mut phase_d_slots,
                 latest_pd: &mut latest_pd,
                 record_core_pending: &mut record_core_pending,

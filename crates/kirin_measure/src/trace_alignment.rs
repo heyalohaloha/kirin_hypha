@@ -222,6 +222,7 @@ mod tests {
         data.frames.push(Frame {
             t_ms: 100,
             n_prime: None,
+            n_prime_total: None,
             sharpness: None,
             lufs_m: -20.0,
             true_peak: -1.0,

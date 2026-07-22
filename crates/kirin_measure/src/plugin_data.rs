@@ -119,6 +119,10 @@ pub enum Status {
 pub struct Frame {
     pub t_ms: u64,
     pub n_prime: Option<[f64; 20]>,
+    /// ISO 532-1 total loudness N(t), as produced by Phase D. This is persisted separately from
+    /// n_prime[20]; consumers must not reconstruct it by summing the Bark-band means.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub n_prime_total: Option<f64>,
     pub sharpness: Option<f64>,
     pub lufs_m: f64,
     pub true_peak: f64,
@@ -913,6 +917,7 @@ impl PluginDataWriter {
         self.append_frame_optional(
             t_ms,
             Some(n_prime),
+            None,
             Some(sharpness),
             lufs_m,
             true_peak,
@@ -927,14 +932,22 @@ impl PluginDataWriter {
         &mut self,
         t_ms: u64,
         n_prime: Option<[f64; 20]>,
+        n_prime_total: Option<f64>,
         sharpness: Option<f64>,
         lufs_m: f64,
         true_peak: f64,
         crest: f64,
         psr: Option<f64>,
     ) {
-        self.data.frames.push(make_frame_optional(
-            t_ms, n_prime, sharpness, lufs_m, true_peak, crest, psr,
+        self.data.frames.push(make_frame_optional_with_n(
+            t_ms,
+            n_prime,
+            n_prime_total,
+            sharpness,
+            lufs_m,
+            true_peak,
+            crest,
+            psr,
         ));
     }
 
@@ -4243,9 +4256,26 @@ pub fn compact_wall_clock(iso: &str) -> String {
 
 /// 1 桁丸め。
 #[allow(clippy::too_many_arguments)]
+#[cfg(test)]
 pub(crate) fn make_frame_optional(
     t_ms: u64,
     n_prime: Option<[f64; 20]>,
+    sharpness: Option<f64>,
+    lufs_m: f64,
+    true_peak: f64,
+    crest: f64,
+    psr: Option<f64>,
+) -> Frame {
+    make_frame_optional_with_n(
+        t_ms, n_prime, None, sharpness, lufs_m, true_peak, crest, psr,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn make_frame_optional_with_n(
+    t_ms: u64,
+    n_prime: Option<[f64; 20]>,
+    n_prime_total: Option<f64>,
     sharpness: Option<f64>,
     lufs_m: f64,
     true_peak: f64,
@@ -4262,6 +4292,7 @@ pub(crate) fn make_frame_optional(
     Frame {
         t_ms,
         n_prime: rounded_n,
+        n_prime_total: n_prime_total.filter(|v| v.is_finite()).map(round2),
         sharpness: sharpness.filter(|v| v.is_finite()).map(round2),
         lufs_m: round1(lufs_m),
         true_peak: round1(true_peak),
@@ -4797,6 +4828,7 @@ mod tests {
                         frame: Frame {
                             t_ms: (index as u64 + 1) * TRACE_FRAME_INTERVAL_MS,
                             n_prime: Some([base_value + index as f64; 20]),
+                            n_prime_total: Some(base_value),
                             sharpness: Some(base_value),
                             lufs_m: base_value,
                             true_peak: base_value,
@@ -6286,6 +6318,29 @@ mod tests {
         assert_eq!(frame.lufs_m, -14.2);
         assert_eq!(frame.true_peak, -1.1);
         assert_eq!(frame.crest, 12.3);
+    }
+
+    #[test]
+    fn total_loudness_n_is_persisted_without_reconstructing_it_from_n_prime() {
+        let frame = make_frame_optional_with_n(
+            100,
+            Some([99.0; 20]),
+            Some(4.256),
+            Some(1.0),
+            -14.0,
+            -1.0,
+            12.0,
+            None,
+        );
+        assert_eq!(frame.n_prime_total, Some(4.26));
+        let json = serde_json::to_string(&frame).unwrap();
+        assert!(json.contains("\"n_prime_total\":4.26"));
+
+        let legacy: Frame = serde_json::from_str(
+            r#"{"t_ms":100,"n_prime":null,"sharpness":null,"lufs_m":-14.0,"true_peak":-1.0,"crest":12.0}"#,
+        )
+        .unwrap();
+        assert_eq!(legacy.n_prime_total, None);
     }
 
     // ── B-125: set_integrity（push_overflow と oversized_drop の合算）──────────────
