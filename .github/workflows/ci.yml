@@ -18,7 +18,11 @@ jobs:
     runs-on: macos-14
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
+        with:
+          # Release provenance and release_state history guards inspect tags and
+          # public branch history, so the source-contract job needs full history.
+          fetch-depth: 0
 
       - name: Install Rust (stable)
         uses: dtolnay/rust-toolchain@stable
@@ -37,7 +41,7 @@ jobs:
     runs-on: macos-14
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: recursive # JUCE is a pinned submodule (juce_shell/JUCE)
 
@@ -109,7 +113,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: recursive # JUCE is required for the Windows VST3 shell build.
 

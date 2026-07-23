@@ -41,7 +41,7 @@ Published artifacts, their filenames, checksums, signatures, and embedded manife
 
 1. Compare the original artifact commit with the rewritten commit across every tracked path outside the intentionally removed path.
 2. Proceed only when that comparison is tree-identical.
-3. Add the original artifact commit, current public commit, removed path, and verification result to `docs/release_commit_map.json`.
+3. Add the original artifact commit, current public commit, removed path, verification result, and canonical filtered-tree digest to `docs/release_commit_map.json`. The digest format is `git-ls-tree-r-z-v1`: SHA-256 over the NUL-terminated records emitted by `git ls-tree -r -z --full-tree <commit>` after removing records whose path starts with the declared excluded prefix.
 4. Add the same mapping to the existing GitHub Release notes.
 5. Recheck the published asset hashes, signatures, and notarization without replacing the assets.
 

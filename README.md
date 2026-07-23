@@ -2,7 +2,13 @@
 
 **A free, open-source audio measurement plugin for macOS (VST3 and Audio Unit).**
 
+The supported release is currently macOS-only. A manual Windows VST3 validation package is also built and published for external testing, but it is not yet a supported Windows release.
+
 Kirin Hypha operates as paired instances — a **PRE** plugin and a **POST** plugin — to measure signal states before and after a processing chain and display the difference.
+
+![Kirin Hypha PRE and POST showing the current Watch interface](docs/media/kirin-hypha-pre-post.jpg)
+
+[Watch the 25-second PRE/POST demo (MP4)](docs/media/kirin-hypha-pre-post-demo.mp4)
 
 ---
 
@@ -63,7 +69,7 @@ PRE displays all six values. POST displays Δ values for all six.
 
 ## Download
 
-Download the latest signed and notarized release from the [Releases page](https://github.com/heyalohaloha/kirin_hypha/releases).
+Download the latest signed and notarized macOS release from the [Releases page](https://github.com/heyalohaloha/kirin_hypha/releases).
 
 The macOS installer package and the plug-in bundles inside it are signed with Apple Developer ID certificates and notarized by Apple, so Gatekeeper normally opens them without a warning. If a downloaded file is still flagged — for instance when the quarantine attribute persists — you can inspect it and clear the flag yourself:
 
@@ -79,6 +85,8 @@ xattr -d com.apple.quarantine "Kirin-Hypha-<version>-macOS-Universal.pkg"
 ```
 
 The installer package has companion `.pkg.sha256` and artifact JSON assets on the Releases page. Older zip archives are manual-install fallback artifacts.
+
+The Windows VST3 zip on the Releases page is a **validation candidate**, not a supported installer. It is a manual PRE/POST VST3 package for Windows 10/11 64-bit, has no installer or Authenticode signature, and remains blocked from supported release status until the external DAW and audio-transparency gates in [`docs/windows_external_validation.md`](docs/windows_external_validation.md) are complete.
 
 ### Release provenance
 
@@ -158,7 +166,9 @@ Kirin OS is available now. More at [kirinmastering.com](https://kirinmastering.c
 
 Tested on macOS 14 (Sonoma).
 
-**Not currently supported:** Windows · Linux · CLAP
+**Windows validation candidate:** Windows 10 or 11, 64-bit, VST3 only. External validation is pending; this is not yet a supported release.
+
+**Not currently supported:** Linux · CLAP
 
 ---
 

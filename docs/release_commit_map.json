@@ -15,7 +15,14 @@
       "verification": {
         "scope": "Every tracked path except release_state/",
         "result": "tree-identical",
-        "verified_at": "2026-07-23"
+        "verified_at": "2026-07-23",
+        "tree_digest": {
+          "algorithm": "sha256",
+          "record_format": "git-ls-tree-r-z-v1",
+          "excluded_path_prefix": "release_state/",
+          "entry_count": 392,
+          "value": "c59d1aae5999ce15a4547fb02787899e6022415ccacc407406d2b065966927f3"
+        }
       }
     }
   ]
