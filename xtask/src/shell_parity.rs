@@ -4,6 +4,11 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/../juce_shell/src/PostControls.cpp"
     ));
+    const POST_CONTROLS_H: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../juce_shell/src/PostControls.h"
+    ));
+    const README: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../README.md"));
     const PLUGIN_EDITOR_CPP: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../juce_shell/src/PluginEditor.cpp"
@@ -57,6 +62,24 @@ mod tests {
 
     fn count_occurrences(source: &str, needle: &str) -> usize {
         source.match_indices(needle).count()
+    }
+
+    #[test]
+    fn readme_record_controls_match_shipped_post_ui() {
+        let record_mode = README
+            .split("\n## ")
+            .find(|section| section.starts_with("Record mode (Kirin OS required)\n"))
+            .expect("README Record mode section");
+        assert!(record_mode.contains("1. Press **Keep**"));
+        assert!(record_mode.contains("2. Press **Stop**"));
+        assert!(
+            !record_mode.contains("**Mark**"),
+            "README must not advertise a Mark control absent from the shipping UI"
+        );
+        assert!(POST_CONTROLS_H.contains("HyphaTextButton keepBtn"));
+        assert!(POST_CONTROLS_H.contains("HyphaTextButton stopBtn"));
+        assert!(!POST_CONTROLS_H.contains("markBtn"));
+        assert!(!POST_CONTROLS_CPP.contains("onMark"));
     }
 
     #[test]

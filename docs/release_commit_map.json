@@ -1,0 +1,22 @@
+{
+  "schema": "kirin-hypha-release-commit-map-v1",
+  "schema_version": 1,
+  "releases": [
+    {
+      "tag": "v1.1.34",
+      "build": "B-444",
+      "published_artifact_commit": "ec2121e97789bf3859f72623a1053a0f506251ee",
+      "current_public_commit": "eb99f1ad17e54dc32b8ad959e1798193b6f39d1b",
+      "rewrite": {
+        "date": "2026-07-23",
+        "reason": "Removed release-operator state from public Git history.",
+        "removed_path": "release_state/"
+      },
+      "verification": {
+        "scope": "Every tracked path except release_state/",
+        "result": "tree-identical",
+        "verified_at": "2026-07-23"
+      }
+    }
+  ]
+}

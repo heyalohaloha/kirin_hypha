@@ -6,7 +6,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
+const THIS_FILE = fileURLToPath(import.meta.url);
+const SCRIPT_DIR = path.dirname(THIS_FILE);
 const ROOT = path.resolve(SCRIPT_DIR, '..', '..');
 const VERSION = readCargoVersion();
 const DEFAULT_ARTIFACT_DIR = process.env.KIRIN_WINDOWS_ARTIFACT_DIR
@@ -30,7 +31,7 @@ Options:
 `;
 }
 
-function parseArgs(argv) {
+export function parseArgs(argv) {
   if (argv.includes('--help') || argv.includes('-h')) return { help: true };
   const opts = {
     artifactDir: DEFAULT_ARTIFACT_DIR,
@@ -67,7 +68,7 @@ function parseArgs(argv) {
   if (!['ls', 'ci', 'beta'].includes(opts.releaseKind)) {
     throw new Error(`--release-kind must be ls, ci, or beta: ${opts.releaseKind}`);
   }
-  if (!['complete', 'pending', 'reported_complete_by_daisuke'].includes(opts.externalValidation)) {
+  if (!['complete', 'pending'].includes(opts.externalValidation)) {
     throw new Error(`--external-validation must be complete or pending: ${opts.externalValidation}`);
   }
   if (!opts.bNumber) opts.bNumber = inferBNumber();
@@ -285,23 +286,26 @@ function validateZip(zipPath) {
   }
 }
 
-function stateFor(opts, packageBase, zipPath, packageRoot, bundles) {
-  const externalComplete = opts.externalValidation === 'complete' || opts.externalValidation === 'reported_complete_by_daisuke';
+function artifactPurposeFor(releaseKind) {
+  return releaseKind === 'ls' ? 'windows_ls_vst3_zip' : `windows_${releaseKind}_vst3_zip`;
+}
+
+export function artifactManifestFor(opts, packageBase, zipPath, packageRoot, bundles) {
+  const externalComplete = opts.externalValidation === 'complete';
   const size = fs.statSync(zipPath).size;
   const contents = listFiles(packageRoot).map((item) => ({
     path: path.relative(packageRoot, item).split(path.sep).join('/'),
     sha256: sha256Hex(item),
   }));
   return {
-    schema_version: 1,
+    schema: 'kirin-hypha-windows-vst3-artifact-v2',
+    schema_version: 2,
+    product: {
+      name: 'Kirin Hypha',
+      version: VERSION,
+    },
     generated_at: new Date().toISOString(),
-    purpose: opts.releaseKind === 'ls' ? 'windows_ls_vst3_zip' : `windows_${opts.releaseKind}_vst3_zip`,
-    release_status: opts.releaseKind === 'ls' && externalComplete
-      ? 'ls_candidate_manual_vst3_zip'
-      : 'blocked_pending_external_validation',
-    ls_upload: opts.releaseKind === 'ls' && externalComplete
-      ? 'ready_manual_zip_after_external_validation'
-      : 'blocker_pending_external_validation',
+    purpose: artifactPurposeFor(opts.releaseKind),
     known_limitations: [
       'Windows installer is not implemented; package is a manual VST3 zip.',
       'Authenticode signing is not implemented for this Windows VST3 zip.',
@@ -335,10 +339,10 @@ function stateFor(opts, packageBase, zipPath, packageRoot, bundles) {
       ],
     },
     external_validation: {
-      status: externalComplete ? 'reported_complete_by_daisuke' : 'pending',
+      status: externalComplete ? 'complete' : 'pending',
       note: externalComplete
-        ? 'Daisuke reported Windows validation complete before this LS zip was produced.'
-        : 'Do not mark LS ready until Windows DAW validation is complete.',
+        ? 'Windows DAW validation was reported complete before this artifact was produced.'
+        : 'Windows DAW validation is pending.',
     },
     contents,
     validation: {
@@ -350,6 +354,37 @@ function stateFor(opts, packageBase, zipPath, packageRoot, bundles) {
         sha256: sha256Hex(path.join(packageRoot, bundle.fileName, 'Contents', 'x86_64-win', bundle.fileName)),
       })),
     },
+  };
+}
+
+export function localReleaseStateFor(opts, artifactManifest) {
+  const expectedPurpose = artifactPurposeFor(opts.releaseKind);
+  if (artifactManifest?.purpose !== expectedPurpose) {
+    throw new Error(
+      `artifact purpose does not match release kind: expected ${expectedPurpose}, got ${artifactManifest?.purpose}`,
+    );
+  }
+  const artifactValidation = artifactManifest?.external_validation?.status;
+  if (!['complete', 'pending'].includes(artifactValidation)) {
+    throw new Error(`unsupported artifact validation state: ${artifactValidation}`);
+  }
+  if (artifactValidation !== opts.externalValidation) {
+    throw new Error(
+      `artifact validation does not match release state: expected ${opts.externalValidation}, got ${artifactValidation}`,
+    );
+  }
+  const ready = opts.releaseKind === 'ls' && artifactValidation === 'complete';
+  return {
+    schema: 'kirin-hypha-windows-release-state-v1',
+    generatedAt: new Date().toISOString(),
+    releaseKind: opts.releaseKind,
+    releaseStatus: ready
+      ? 'ls_candidate_manual_vst3_zip'
+      : 'blocked_pending_external_validation',
+    lsUpload: ready
+      ? 'ready_manual_zip_after_external_validation'
+      : 'blocker_pending_external_validation',
+    artifact: artifactManifest,
   };
 }
 
@@ -407,25 +442,29 @@ function runMain() {
   zipPackage(packageRoot, zipPath);
   validateZip(zipPath);
 
-  const state = stateFor(opts, packageBase, zipPath, packageRoot, bundles);
-  fs.writeFileSync(shaPath, `${state.package.sha256}  ${path.basename(zipPath)}\n`);
-  fs.writeFileSync(sidecarPath, `${JSON.stringify(state, null, 2)}\n`);
+  const manifest = artifactManifestFor(opts, packageBase, zipPath, packageRoot, bundles);
+  const releaseState = localReleaseStateFor(opts, manifest);
+  fs.writeFileSync(shaPath, `${manifest.package.sha256}  ${path.basename(zipPath)}\n`);
+  fs.writeFileSync(sidecarPath, `${JSON.stringify(manifest, null, 2)}\n`);
 
   if (opts.releaseKind === 'ls') {
     const stateName = `kirin_hypha_${VERSION}_windows_ls_${opts.bNumber.toLowerCase().replace(/[^a-z0-9]/g, '')}.state.json`;
     const statePath = path.join(ROOT, 'release_state', stateName);
-    fs.writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`);
+    fs.mkdirSync(path.dirname(statePath), { recursive: true });
+    fs.writeFileSync(statePath, `${JSON.stringify(releaseState, null, 2)}\n`);
     log(`wrote ${statePath}`);
   }
 
   log(`wrote ${zipPath}`);
-  log(`sha256 ${state.package.sha256}`);
-  log(`ls_upload ${state.ls_upload}`);
+  log(`sha256 ${manifest.package.sha256}`);
+  log(`ls_upload ${releaseState.lsUpload}`);
 }
 
-try {
-  runMain();
-} catch (error) {
-  console.error(`[build-kirin-hypha-windows-vst3-zip] ERROR: ${error.message}`);
-  process.exit(1);
+if (process.argv[1] && path.resolve(process.argv[1]) === THIS_FILE) {
+  try {
+    runMain();
+  } catch (error) {
+    console.error(`[build-kirin-hypha-windows-vst3-zip] ERROR: ${error.message}`);
+    process.exit(1);
+  }
 }

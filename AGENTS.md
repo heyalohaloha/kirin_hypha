@@ -20,14 +20,18 @@ Lemon Squeezy 用 `.pkg` まで準備する。
 ```bash
 node scripts/ls_release/build_kirin_hypha_pkg.mjs
 node scripts/ls_release/kirin_hypha_ls_dry_run.mjs \
-  --state release_state/kirin_hypha_1.1.1_ls.state.json \
+  --state release_state/kirin_hypha_X.Y.Z_ls.state.json \
   --with-apple-verification
 ```
 
+`release_state/` はローカル専用かつ gitignore 対象。
+`docs/ls_release/kirin_hypha_ls_state.example.json` から作成し、商品ID・管理URL・担当者メモをコミットしない。
+公開する検証情報は `dist/` に生成される `.pkg.json` / `.sha256` を GitHub Release に添付する。
+
 成果物:
-- `dist/LS_UPLOAD/Kirin-Hypha-1.1.1-macOS-Universal.pkg`
-- `dist/LS_UPLOAD/Kirin-Hypha-1.1.1-macOS-Universal.pkg.sha256`
-- `dist/LS_UPLOAD/Kirin-Hypha-1.1.1-macOS-Universal.pkg.json`
+- `dist/LS_UPLOAD/Kirin-Hypha-X.Y.Z-macOS-Universal.pkg`
+- `dist/LS_UPLOAD/Kirin-Hypha-X.Y.Z-macOS-Universal.pkg.sha256`
+- `dist/LS_UPLOAD/Kirin-Hypha-X.Y.Z-macOS-Universal.pkg.json`
 
 `Developer ID Installer` 証明書が無く signed `.pkg` を作れない場合は、LSアップ用を ready と言わない。
 `blocker: Developer ID Installer certificate missing` と明記する。`UNSIGNED-DO-NOT-UPLOAD.pkg`
@@ -247,4 +251,3 @@ BoolParam bypass は残存（対応 DAW では即時 Bypassed 検出に使える
 
 ### テスト
 30テスト全通過、clippy clean。
-

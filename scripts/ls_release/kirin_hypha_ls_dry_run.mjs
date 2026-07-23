@@ -5,16 +5,18 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
+const THIS_FILE = fileURLToPath(import.meta.url);
+const SCRIPT_DIR = path.dirname(THIS_FILE);
 const ROOT = path.resolve(SCRIPT_DIR, '..', '..');
-const DEFAULT_STATE = 'release_state/kirin_hypha_1.1.1_ls.state.json';
+const STATE_TEMPLATE = 'docs/ls_release/kirin_hypha_ls_state.example.json';
 
 function usage() {
   return `Usage:
   node scripts/ls_release/kirin_hypha_ls_dry_run.mjs [options]
 
 Options:
-  --state <path>              State JSON path. Default: ${DEFAULT_STATE}
+  --state <path>              Local state JSON path. Required.
+                              Start from ${STATE_TEMPLATE}.
   --with-apple-verification   Run pkgutil/spctl/stapler verification on PKGs.
   --with-ls-chrome            Read logged-in Lemon Squeezy admin page from Google Chrome.
   --print-artifacts-json      Print current artifact values for manual state updates.
@@ -23,9 +25,9 @@ Options:
 `;
 }
 
-function parseArgs(argv) {
+export function parseArgs(argv) {
   const opts = {
-    state: DEFAULT_STATE,
+    state: null,
     withAppleVerification: false,
     withLsChrome: false,
     printArtifactsJson: false,
@@ -52,6 +54,9 @@ function parseArgs(argv) {
     } else {
       throw new Error(`unknown option: ${arg}`);
     }
+  }
+  if (!opts.help && !opts.state) {
+    throw new Error(`--state is required; copy ${STATE_TEMPLATE} to an ignored release_state/*.state.json file`);
   }
   return opts;
 }
@@ -401,7 +406,9 @@ async function main() {
   if (!result.ok) process.exitCode = 1;
 }
 
-main().catch((error) => {
-  console.error(`[kirin_hypha_ls_dry_run] ERROR: ${error.message}`);
-  process.exit(1);
-});
+if (process.argv[1] && path.resolve(process.argv[1]) === THIS_FILE) {
+  main().catch((error) => {
+    console.error(`[kirin_hypha_ls_dry_run] ERROR: ${error.message}`);
+    process.exit(1);
+  });
+}

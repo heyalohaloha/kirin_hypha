@@ -1,0 +1,50 @@
+{
+  "schema": "kirin-release-ls-state-v1",
+  "generatedAt": null,
+  "product": {
+    "name": "Kirin Hypha",
+    "version": "X.Y.Z"
+  },
+  "local": {
+    "releaseDir": "dist/LS_UPLOAD"
+  },
+  "artifacts": [
+    {
+      "label": "Universal Installer",
+      "type": "pkg",
+      "fileName": "Kirin-Hypha-X.Y.Z-macOS-Universal.pkg",
+      "path": "dist/LS_UPLOAD/Kirin-Hypha-X.Y.Z-macOS-Universal.pkg",
+      "size": null,
+      "sha512": "",
+      "sha256": "",
+      "lsDisplaySize": ""
+    }
+  ],
+  "expectedPayloads": [
+    "Library/Audio/Plug-Ins/Components/Kirin Hypha PRE.component",
+    "Library/Audio/Plug-Ins/Components/Kirin Hypha POST.component",
+    "Library/Audio/Plug-Ins/VST3/PRE Kirin Hypha.vst3",
+    "Library/Audio/Plug-Ins/VST3/POST Kirin Hypha.vst3"
+  ],
+  "lemonSqueezy": {
+    "storeName": null,
+    "deliveryName": "Kirin Hypha installer",
+    "products": [
+      {
+        "productName": null,
+        "productId": null,
+        "variantId": null,
+        "productAdminUrl": null,
+        "expectedStatus": "Published",
+        "expectedFilesCount": null,
+        "notes": []
+      }
+    ],
+    "notes": []
+  },
+  "handoff": {
+    "runbook": "docs/ls_release/kirin_hypha_ls_runbook.md",
+    "buildScript": "scripts/ls_release/build_kirin_hypha_pkg.mjs",
+    "dryRunScript": "scripts/ls_release/kirin_hypha_ls_dry_run.mjs"
+  }
+}
