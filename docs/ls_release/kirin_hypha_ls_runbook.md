@@ -35,6 +35,18 @@ The macOS paid/free channels reuse the SAME signed+notarized universal bundles f
 - The release operator builds and verifies the package, provides the Apple `Developer ID Installer` certificate when needed, and performs the browser upload if no authenticated automation is available.
 - Windows is part of the release set. If the current Windows artifact is not present, the release is blocked instead of silently shipping macOS only.
 
+## Immutable Release Provenance
+
+Published artifacts, their filenames, checksums, signatures, and embedded manifests remain unchanged after publication. If necessary repository maintenance rewrites a release commit:
+
+1. Compare the original artifact commit with the rewritten commit across every tracked path outside the intentionally removed path.
+2. Proceed only when that comparison is tree-identical.
+3. Add the original artifact commit, current public commit, removed path, and verification result to `docs/release_commit_map.json`.
+4. Add the same mapping to the existing GitHub Release notes.
+5. Recheck the published asset hashes, signatures, and notarization without replacing the assets.
+
+Do not rename, regenerate, or re-upload an existing artifact merely to make its embedded commit match rewritten history. The original commit is part of the artifact's immutable build record; the additive mapping preserves the audit trail.
+
 ## One Script Release Set
 
 After the macOS source bundles are built/notarized and the latest green Windows CI artifact `kirin-hypha-windows-vst3` has been downloaded, run:

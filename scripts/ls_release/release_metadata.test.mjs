@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import { parseArgs as parseDryRunArgs } from './kirin_hypha_ls_dry_run.mjs';
 import {
@@ -10,6 +11,54 @@ import {
   localReleaseStateFor,
   parseArgs as parseWindowsArgs,
 } from './build_kirin_hypha_windows_vst3_zip.mjs';
+
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+
+test('published release commit rewrites retain an explicit immutable provenance map', () => {
+  const mapPath = path.join(repoRoot, 'docs', 'release_commit_map.json');
+  const provenance = JSON.parse(fs.readFileSync(mapPath, 'utf8'));
+
+  assert.equal(provenance.schema, 'kirin-hypha-release-commit-map-v1');
+  assert.equal(provenance.schema_version, 1);
+  assert.ok(Array.isArray(provenance.releases));
+  assert.ok(provenance.releases.length > 0);
+
+  const releaseKeys = new Set();
+  for (const release of provenance.releases) {
+    assert.match(release.tag, /^v\d+\.\d+\.\d+$/);
+    assert.match(release.build, /^B-\d+$/);
+    assert.match(release.published_artifact_commit, /^[0-9a-f]{40}$/);
+    assert.match(release.current_public_commit, /^[0-9a-f]{40}$/);
+    assert.notEqual(release.published_artifact_commit, release.current_public_commit);
+    assert.equal(release.rewrite.removed_path, 'release_state/');
+    assert.equal(release.verification.result, 'tree-identical');
+    assert.match(release.verification.scope, /except release_state\//);
+
+    const key = `${release.tag}:${release.build}`;
+    assert.equal(releaseKeys.has(key), false, `duplicate release provenance entry: ${key}`);
+    releaseKeys.add(key);
+  }
+
+  assert.deepEqual(
+    provenance.releases.find((release) => release.tag === 'v1.1.34'),
+    {
+      tag: 'v1.1.34',
+      build: 'B-444',
+      published_artifact_commit: 'ec2121e97789bf3859f72623a1053a0f506251ee',
+      current_public_commit: 'eb99f1ad17e54dc32b8ad959e1798193b6f39d1b',
+      rewrite: {
+        date: '2026-07-23',
+        reason: 'Removed release-operator state from public Git history.',
+        removed_path: 'release_state/',
+      },
+      verification: {
+        scope: 'Every tracked path except release_state/',
+        result: 'tree-identical',
+        verified_at: '2026-07-23',
+      },
+    },
+  );
+});
 
 test('LS dry run requires an explicit local state path', () => {
   assert.throws(() => parseDryRunArgs([]), /--state is required/);

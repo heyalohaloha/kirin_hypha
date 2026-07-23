@@ -80,6 +80,10 @@ xattr -d com.apple.quarantine "Kirin-Hypha-<version>-macOS-Universal.pkg"
 
 The installer package has companion `.pkg.sha256` and artifact JSON assets on the Releases page. Older zip archives are manual-install fallback artifacts.
 
+### Release provenance
+
+Published artifacts are immutable. If repository maintenance changes a public commit ID after a release, the commit recorded in that artifact remains its original build commit. [`docs/release_commit_map.json`](docs/release_commit_map.json) maps an affected artifact commit to the commit currently referenced by its release tag and records the verified source-equivalence scope.
+
 ---
 
 ## Installation
