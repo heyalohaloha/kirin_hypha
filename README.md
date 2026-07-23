@@ -61,18 +61,6 @@ PRE displays all six values. POST displays Δ values for all six.
 
 ---
 
-## Screenshots
-
-![Kirin Hypha in Watch mode](docs/images/hypha_watch_mode.jpg)
-
-*Watch mode — real-time measurement. PRE shows absolute values, POST shows Δ relative to the paired PRE.*
-
-![Kirin Hypha in Record mode](docs/images/hypha_record_mode.jpg)
-
-*Record mode — the session is written to the `.kirin` record (Kirin OS required). After Stop, POST returns to the live readout.*
-
----
-
 ## Download
 
 Download the latest signed and notarized release from the [Releases page](https://github.com/heyalohaloha/kirin_hypha/releases).
@@ -140,7 +128,6 @@ With a Kirin OS license, the POST plugin shows a **Keep** button in Watch mode.
 
 1. Press **Keep** to begin a session recording.
 2. Press **Stop** to end the session. The session is written to the `.kirin` record.
-3. Optionally press **Mark** during Record to pin [Good] / [Fix] / [Hold] to the exact producer sample position. The completed pair also stores the corresponding WAV sample position when Drop metadata is available.
 
 During an offline bounce/export, POST auto-runs the same cleanup as **Stop** when the host reports that offline processing has ended. If a host does not emit that offline-end edge, Keep remains armed until manual **Stop** or the idle auto-stop backstop after 10 minutes without Active signal.
 
@@ -191,10 +178,15 @@ On the release machine, after signing and notarizing the four source plug-in bun
 
 ```bash
 node scripts/ls_release/build_kirin_hypha_pkg.mjs
+mkdir -p release_state
+cp docs/ls_release/kirin_hypha_ls_state.example.json \
+  release_state/kirin_hypha_X.Y.Z_ls.state.json
 node scripts/ls_release/kirin_hypha_ls_dry_run.mjs \
-  --state release_state/kirin_hypha_1.1.1_ls.state.json \
+  --state release_state/kirin_hypha_X.Y.Z_ls.state.json \
   --with-apple-verification
 ```
+
+`release_state/` is deliberately ignored: it contains release-operator targets and upload readiness, not source. Fill the local state from the generated `.pkg.json` sidecar and keep it out of commits. Publish the `.pkg.json` artifact manifest and `.pkg.sha256` with the GitHub Release.
 
 The installer package requires a `Developer ID Installer` certificate in the keychain. A `Developer ID Application` certificate signs the plug-in bundles, but it is not enough to sign the `.pkg`.
 
@@ -212,7 +204,7 @@ cargo run --package xtask -- release-package
 ```
 
 Do not run the signed release checks inside a sandboxed child process; macOS `codesign` can report a false `invalid signature` for valid notarized plugin bundles in that context.
-Upload only `Kirin-Hypha-<version>-macOS-Universal.pkg` to the existing Kirin OS and Kirin Sense Lemon Squeezy products after local verification passes. Publish the companion `.pkg.sha256` and artifact JSON with the GitHub Release.
+Upload only `Kirin-Hypha-<version>-macOS-Universal.pkg` to the configured Lemon Squeezy products after local verification passes.
 
 ---
 

@@ -1,8 +1,8 @@
 # Kirin Hypha Lemon Squeezy Release Runbook
 
-Purpose: build the Kirin Hypha macOS installer package safely, verify it locally, let Daisuke upload it to Lemon Squeezy, then verify the uploaded Lemon Squeezy file against local release state.
+Purpose: build the Kirin Hypha macOS installer package safely, verify it locally, let an authorized release operator upload it to Lemon Squeezy, then verify the uploaded file against local release state.
 
-This follows the Kirin OS release style: state JSON is the handoff source, the dry-run script verifies local artifact facts, and Lemon Squeezy upload is performed by Daisuke.
+Release-operator state is local-only and ignored by Git. Public artifact facts are emitted as `.json` and `.sha256` sidecars under `dist/` and published with the corresponding GitHub Release.
 
 ## Distribution channels (ALL updated every release)
 
@@ -17,7 +17,8 @@ The macOS paid/free channels reuse the SAME signed+notarized universal bundles f
 ## Files
 
 - Runbook: `docs/ls_release/kirin_hypha_ls_runbook.md`
-- State JSON: `release_state/kirin_hypha_1.1.1_ls.state.json`
+- Local state template: `docs/ls_release/kirin_hypha_ls_state.example.json`
+- Local state: `release_state/kirin_hypha_X.Y.Z_ls.state.json` (ignored; never commit)
 - Build script: `scripts/ls_release/build_kirin_hypha_pkg.mjs`
 - Dry-run script: `scripts/ls_release/kirin_hypha_ls_dry_run.mjs`
 - Full release set script: `scripts/ls_release/build_kirin_hypha_release_set.mjs`
@@ -29,10 +30,9 @@ The macOS paid/free channels reuse the SAME signed+notarized universal bundles f
 - Do not upload unsigned packages to Lemon Squeezy.
 - The signed package requires a `Developer ID Installer` certificate. `Developer ID Application` is sufficient for the plug-in bundles, but not for the installer package.
 - Lemon Squeezy displays file sizes as rounded MiB labels. Compare local bytes to `bytes / 1024 / 1024`, rounded to 2 decimals.
-- Kirin Hypha is delivered through the existing Kirin OS and Kirin Sense products, not through a standalone Hypha product for this release:
-  - Kirin OS: product `1115751`, variant `1746981`
-  - Kirin Sense: product `1120268`, variant `1753806`
-- The release operator builds and verifies the package. Daisuke only needs to provide/install the Apple `Developer ID Installer` certificate when missing and perform the Lemon Squeezy browser upload if no authenticated automation is available.
+- Kirin Hypha is delivered through configured existing products, not through a new standalone product unless the distribution policy changes.
+- Product IDs, variant IDs, admin URLs, upload readiness, and operator notes belong only in the ignored local state file.
+- The release operator builds and verifies the package, provides the Apple `Developer ID Installer` certificate when needed, and performs the browser upload if no authenticated automation is available.
 - Windows is part of the release set. If the current Windows artifact is not present, the release is blocked instead of silently shipping macOS only.
 
 ## One Script Release Set
@@ -53,14 +53,16 @@ If the Windows artifact is missing, the script fails before reporting release re
 
 ```bash
 sed -n '1,220p' docs/ls_release/kirin_hypha_ls_runbook.md
-sed -n '1,220p' release_state/kirin_hypha_1.1.1_ls.state.json
+mkdir -p release_state
+cp docs/ls_release/kirin_hypha_ls_state.example.json \
+  release_state/kirin_hypha_X.Y.Z_ls.state.json
 ```
 
-Check current state:
+Replace `X.Y.Z` and populate the local artifact and product-target fields. Check current state:
 
 ```bash
 node scripts/ls_release/kirin_hypha_ls_dry_run.mjs \
-  --state release_state/kirin_hypha_1.1.1_ls.state.json
+  --state release_state/kirin_hypha_X.Y.Z_ls.state.json
 ```
 
 Before the first signed package exists, this intentionally fails because the `.pkg` artifact and state hashes are not populated.
@@ -91,9 +93,9 @@ node scripts/ls_release/build_kirin_hypha_pkg.mjs
 
 This writes:
 
-- `dist/LS_UPLOAD/Kirin-Hypha-1.1.1-macOS-Universal.pkg`
-- `dist/LS_UPLOAD/Kirin-Hypha-1.1.1-macOS-Universal.pkg.sha256`
-- `dist/LS_UPLOAD/Kirin-Hypha-1.1.1-macOS-Universal.pkg.json`
+- `dist/LS_UPLOAD/Kirin-Hypha-X.Y.Z-macOS-Universal.pkg`
+- `dist/LS_UPLOAD/Kirin-Hypha-X.Y.Z-macOS-Universal.pkg.sha256`
+- `dist/LS_UPLOAD/Kirin-Hypha-X.Y.Z-macOS-Universal.pkg.json`
 
 Unsigned smoke package, for payload testing only:
 
@@ -110,17 +112,17 @@ After a signed package is built, print current artifact facts:
 
 ```bash
 node scripts/ls_release/kirin_hypha_ls_dry_run.mjs \
-  --state release_state/kirin_hypha_1.1.1_ls.state.json \
+  --state release_state/kirin_hypha_X.Y.Z_ls.state.json \
   --print-artifacts-json
 ```
 
-Copy the printed `size`, `sha512`, `sha256`, and `lsDisplaySize` values into `release_state/kirin_hypha_1.1.1_ls.state.json`.
+Copy the printed `size`, `sha512`, `sha256`, and `lsDisplaySize` values into the ignored local state file. These artifact facts must match the generated public `.pkg.json` sidecar.
 
 ## Phase 4: Verify Local Package
 
 ```bash
 node scripts/ls_release/kirin_hypha_ls_dry_run.mjs \
-  --state release_state/kirin_hypha_1.1.1_ls.state.json \
+  --state release_state/kirin_hypha_X.Y.Z_ls.state.json \
   --with-apple-verification
 ```
 
@@ -138,14 +140,11 @@ The local verification checks:
 
 ## Phase 5: Upload To Lemon Squeezy
 
-Daisuke, or the release operator using Daisuke's authenticated Lemon Squeezy browser session, uploads only:
+The authorized release operator uploads only:
 
-- `dist/LS_UPLOAD/Kirin-Hypha-1.1.1-macOS-Universal.pkg`
+- `dist/LS_UPLOAD/Kirin-Hypha-X.Y.Z-macOS-Universal.pkg`
 
-Upload the same package to both existing products:
-
-- Kirin OS: `https://app.lemonsqueezy.com/products/1115751`
-- Kirin Sense: `https://app.lemonsqueezy.com/products/1120268`
+Upload the package to every product configured in the ignored local state. Do not copy product IDs or admin URLs into tracked documentation.
 
 Do not upload:
 
@@ -155,17 +154,17 @@ Do not upload:
 
 ## Phase 6: Verify Lemon Squeezy After Upload
 
-After the upload, Chrome must be logged into Lemon Squeezy. The state JSON contains the Kirin OS and Kirin Sense product admin URLs under `lemonSqueezy.products[]`.
+After the upload, Chrome must be logged into Lemon Squeezy. The local state JSON contains the configured product admin URLs under `lemonSqueezy.products[]`.
 
 ```bash
 node scripts/ls_release/kirin_hypha_ls_dry_run.mjs \
-  --state release_state/kirin_hypha_1.1.1_ls.state.json \
+  --state release_state/kirin_hypha_X.Y.Z_ls.state.json \
   --with-ls-chrome
 ```
 
 The Lemon Squeezy check verifies:
 
-- Product pages include `Kirin OS` and `Kirin Sense`.
+- Product pages include every configured product name.
 - Product pages include `Published`.
 - Product page includes the installer file name.
 - Product page includes the rounded Lemon Squeezy display size from state.
@@ -199,24 +198,18 @@ curl -sIL -o /dev/null -w '%{http_code}\n' \
   "https://github.com/heyalohaloha/kirin_hypha/releases/download/vX.Y.Z/Kirin-Hypha-X.Y.Z-macOS-Universal.zip"
 ```
 
-### HP-3: Bump the HP download links (repo `~/Dev/kirin_hp`)
+### HP-3: Bump the website download links
 
 Update BOTH files (EN + JA) from the old `vN/...N...zip` to the new `vX.Y.Z/...X.Y.Z...zip`:
 
 - `hypha.html` (EN, the `Download for macOS — Free` link)
 - `ja/hypha.html` (JA, the `macOS版を無料ダウンロード` link)
 
-```bash
-cd ~/Dev/kirin_hp && git add hypha.html ja/hypha.html && git commit -m "hypha: bump free download link -> vX.Y.Z"
-```
+The website repository and deployment credentials are maintained separately from this public source repository. Update both language variants through that repository's documented release workflow.
 
-### HP-4: Deploy the HP (Daisuke)
+### HP-4: Deploy the website
 
-`kirin_hp` has no git remote — deploy is manual Vercel:
-
-```bash
-cd ~/Dev/kirin_hp && vercel --prod
-```
+Use the website repository's authorized production deployment workflow.
 
 **Order matters:** create the GitHub Release (HP-2) BEFORE deploying (HP-4) so the live page's link is not a 404.
 
@@ -257,9 +250,9 @@ This writes:
 - `dist/WINDOWS_LS/Kirin-Hypha-X.Y.Z-Windows-VST3-BNNN-<commit>.zip`
 - `dist/WINDOWS_LS/Kirin-Hypha-X.Y.Z-Windows-VST3-BNNN-<commit>.zip.sha256`
 - `dist/WINDOWS_LS/Kirin-Hypha-X.Y.Z-Windows-VST3-BNNN-<commit>.zip.json`
-- `release_state/kirin_hypha_X.Y.Z_windows_ls_bNNN.state.json`
+- `release_state/kirin_hypha_X.Y.Z_windows_ls_bNNN.state.json` (ignored local workflow state)
 
-If Windows external validation is not complete, use `--external-validation pending`; the state will be generated as a blocker and must not be reported as LS-ready.
+The public `.zip.json` uses schema `kirin-hypha-windows-vst3-artifact-v2` and contains artifact identity, hashes, source commit, limitations, and validation facts. Schema v2 removes the operator-only `release_status` and `ls_upload` fields from legacy schema v1 and uses `complete` or `pending` for external validation. Upload readiness exists only in the ignored local state. If Windows external validation is not complete, use `--external-validation pending`; the local state will be generated as a blocker and must not be reported as LS-ready.
 
 ## Phase 7: Report
 
