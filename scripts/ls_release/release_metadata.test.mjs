@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -14,10 +16,139 @@ import {
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
-test('published release commit rewrites retain an explicit immutable provenance map', () => {
+function git(args, options = {}) {
+  return execFileSync('git', args, { cwd: repoRoot, ...options });
+}
+
+function assertExactKeys(value, expected, label) {
+  assert.deepEqual(Object.keys(value).sort(), [...expected].sort(), `${label} keys`);
+}
+
+function sha256File(filePath) {
+  return createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
+}
+
+function filteredTreeDigest(commit, excludedPathPrefix) {
+  const raw = git(['ls-tree', '-r', '-z', '--full-tree', commit]);
+  const hash = createHash('sha256');
+  let entryCount = 0;
+  let recordStart = 0;
+
+  for (let cursor = 0; cursor < raw.length; cursor += 1) {
+    if (raw[cursor] !== 0) continue;
+    const record = raw.subarray(recordStart, cursor);
+    recordStart = cursor + 1;
+    const tab = record.indexOf(0x09);
+    assert.notEqual(tab, -1, 'git ls-tree record must contain a tab-delimited path');
+    const recordPath = record.subarray(tab + 1).toString('utf8');
+    if (recordPath.startsWith(excludedPathPrefix)) continue;
+    hash.update(record);
+    hash.update(Buffer.from([0]));
+    entryCount += 1;
+  }
+
+  assert.equal(recordStart, raw.length, 'git ls-tree output must end with NUL');
+  return { entryCount, value: hash.digest('hex') };
+}
+
+function verifyReleaseStateBoundary({ trackedPathBytes, ignoreProbePasses, publicHistory }) {
+  if (trackedPathBytes !== 0) {
+    throw new Error('release_state is tracked in the current source tree');
+  }
+  if (!ignoreProbePasses) {
+    throw new Error('release_state ignore rule is missing');
+  }
+  if (publicHistory.trim() !== '') {
+    throw new Error('release_state is reachable from public source history');
+  }
+}
+
+test('release_state stays ignored and absent from public source history', () => {
+  const trackedPathBytes = git(['ls-files', '-z', '--', 'release_state']).length;
+  let ignoreProbePasses = true;
+  try {
+    git(['check-ignore', '-q', 'release_state/.contract-probe']);
+  } catch {
+    ignoreProbePasses = false;
+  }
+
+  // Deliberately exclude local refs/codex/* checkpoint trees and refs/stash.
+  // HEAD, fetched origin branches, and tags are the source surfaces published by GitHub.
+  const publicHistory = git(
+    [
+      'rev-list',
+      '--full-history',
+      'HEAD',
+      '--tags',
+      '--remotes=origin',
+      '--',
+      'release_state/',
+    ],
+    { encoding: 'utf8' },
+  );
+  verifyReleaseStateBoundary({ trackedPathBytes, ignoreProbePasses, publicHistory });
+});
+
+test('release_state boundary rejects each reinsertion path', () => {
+  const clean = { trackedPathBytes: 0, ignoreProbePasses: true, publicHistory: '' };
+  assert.throws(
+    () => verifyReleaseStateBoundary({ ...clean, trackedPathBytes: 1 }),
+    /tracked in the current source tree/,
+  );
+  assert.throws(
+    () => verifyReleaseStateBoundary({ ...clean, ignoreProbePasses: false }),
+    /ignore rule is missing/,
+  );
+  assert.throws(
+    () => verifyReleaseStateBoundary({ ...clean, publicHistory: '0123456789abcdef\n' }),
+    /reachable from public source history/,
+  );
+});
+
+test('README uses the verified current Hypha UI media', () => {
+  const readme = fs.readFileSync(path.join(repoRoot, 'README.md'), 'utf8');
+  const media = [
+    {
+      relativePath: 'docs/media/kirin-hypha-pre-post.jpg',
+      sha256: '02c413118d0c7d7c5698c47c13ffe06e8e713fbf782029667dc5d4c9fd5e18f6',
+      signature: Buffer.from([0xff, 0xd8, 0xff]),
+    },
+    {
+      relativePath: 'docs/media/kirin-hypha-pre-post-demo.mp4',
+      sha256: '96838ebfcc20f4278aa57269ddcdc07f446423fddd7a3b2481392144dc4cb660',
+      signature: Buffer.from('ftyp'),
+      signatureOffset: 4,
+    },
+  ];
+
+  for (const asset of media) {
+    const assetPath = path.join(repoRoot, asset.relativePath);
+    assert.match(readme, new RegExp(asset.relativePath.replaceAll('.', '\\.')));
+    assert.ok(fs.statSync(assetPath).size > 10_000, `${asset.relativePath} must not be empty`);
+    assert.equal(sha256File(assetPath), asset.sha256, `${asset.relativePath} digest`);
+    const contents = fs.readFileSync(assetPath);
+    const offset = asset.signatureOffset ?? 0;
+    assert.deepEqual(
+      contents.subarray(offset, offset + asset.signature.length),
+      asset.signature,
+      `${asset.relativePath} signature`,
+    );
+  }
+
+  for (const retired of [
+    'docs/images/hypha_record_mode.jpg',
+    'docs/images/hypha_watch_mode.jpg',
+  ]) {
+    assert.equal(fs.existsSync(path.join(repoRoot, retired)), false, `${retired} must stay retired`);
+    assert.doesNotMatch(readme, new RegExp(retired.replaceAll('.', '\\.')));
+  }
+});
+
+test('published release commit rewrites retain verifiable immutable provenance', () => {
   const mapPath = path.join(repoRoot, 'docs', 'release_commit_map.json');
   const provenance = JSON.parse(fs.readFileSync(mapPath, 'utf8'));
 
+  assertExactKeys(provenance, ['schema', 'schema_version', 'releases'], 'provenance');
   assert.equal(provenance.schema, 'kirin-hypha-release-commit-map-v1');
   assert.equal(provenance.schema_version, 1);
   assert.ok(Array.isArray(provenance.releases));
@@ -33,31 +164,85 @@ test('published release commit rewrites retain an explicit immutable provenance 
     assert.equal(release.rewrite.removed_path, 'release_state/');
     assert.equal(release.verification.result, 'tree-identical');
     assert.match(release.verification.scope, /except release_state\//);
+    assertExactKeys(
+      release,
+      [
+        'tag',
+        'build',
+        'published_artifact_commit',
+        'current_public_commit',
+        'rewrite',
+        'verification',
+      ],
+      `${release.tag} release`,
+    );
+    assertExactKeys(release.rewrite, ['date', 'reason', 'removed_path'], `${release.tag} rewrite`);
+    assertExactKeys(
+      release.verification,
+      ['scope', 'result', 'verified_at', 'tree_digest'],
+      `${release.tag} verification`,
+    );
+    assertExactKeys(
+      release.verification.tree_digest,
+      ['algorithm', 'record_format', 'excluded_path_prefix', 'entry_count', 'value'],
+      `${release.tag} tree digest`,
+    );
+    assert.equal(release.verification.tree_digest.algorithm, 'sha256');
+    assert.equal(release.verification.tree_digest.record_format, 'git-ls-tree-r-z-v1');
+    assert.equal(
+      release.verification.tree_digest.excluded_path_prefix,
+      release.rewrite.removed_path,
+    );
+    assert.match(release.verification.tree_digest.value, /^[0-9a-f]{64}$/);
 
     const key = `${release.tag}:${release.build}`;
     assert.equal(releaseKeys.has(key), false, `duplicate release provenance entry: ${key}`);
     releaseKeys.add(key);
+
+    const taggedCommit = git(['rev-list', '-n', '1', release.tag], { encoding: 'utf8' }).trim();
+    assert.equal(taggedCommit, release.current_public_commit, `${release.tag} commit`);
+    const actualDigest = filteredTreeDigest(
+      release.current_public_commit,
+      release.verification.tree_digest.excluded_path_prefix,
+    );
+    assert.deepEqual(
+      actualDigest,
+      {
+        entryCount: release.verification.tree_digest.entry_count,
+        value: release.verification.tree_digest.value,
+      },
+      `${release.tag} filtered tree digest`,
+    );
+
+    // The original artifact commit may be intentionally unreachable after a
+    // public-history rewrite. When the object is present in an audit clone,
+    // verify both sides of the recorded equivalence instead of only the tag side.
+    let publishedCommitAvailable = true;
+    try {
+      git(['cat-file', '-e', `${release.published_artifact_commit}^{commit}`]);
+    } catch {
+      publishedCommitAvailable = false;
+    }
+    if (publishedCommitAvailable) {
+      assert.deepEqual(
+        filteredTreeDigest(
+          release.published_artifact_commit,
+          release.verification.tree_digest.excluded_path_prefix,
+        ),
+        actualDigest,
+        `${release.tag} published/current filtered trees`,
+      );
+    }
   }
 
-  assert.deepEqual(
-    provenance.releases.find((release) => release.tag === 'v1.1.34'),
-    {
-      tag: 'v1.1.34',
-      build: 'B-444',
-      published_artifact_commit: 'ec2121e97789bf3859f72623a1053a0f506251ee',
-      current_public_commit: 'eb99f1ad17e54dc32b8ad959e1798193b6f39d1b',
-      rewrite: {
-        date: '2026-07-23',
-        reason: 'Removed release-operator state from public Git history.',
-        removed_path: 'release_state/',
-      },
-      verification: {
-        scope: 'Every tracked path except release_state/',
-        result: 'tree-identical',
-        verified_at: '2026-07-23',
-      },
-    },
+  const release = provenance.releases.find((entry) => entry.tag === 'v1.1.34');
+  assert.ok(release, 'v1.1.34 provenance entry');
+  assert.equal(release.build, 'B-444');
+  assert.equal(
+    release.published_artifact_commit,
+    'ec2121e97789bf3859f72623a1053a0f506251ee',
   );
+  assert.equal(release.current_public_commit, 'eb99f1ad17e54dc32b8ad959e1798193b6f39d1b');
 });
 
 test('LS dry run requires an explicit local state path', () => {
@@ -92,12 +277,68 @@ test('Windows public manifest excludes operator workflow state', (context) => {
   const manifest = artifactManifestFor(opts, 'Kirin-Hypha-test', zipPath, packageRoot, bundles);
   const publicJson = JSON.stringify(manifest);
 
+  assertExactKeys(
+    manifest,
+    [
+      'schema',
+      'schema_version',
+      'product',
+      'generated_at',
+      'purpose',
+      'known_limitations',
+      'package',
+      'binary_artifact',
+      'external_validation',
+      'contents',
+      'validation',
+    ],
+    'Windows public manifest',
+  );
+  assertExactKeys(manifest.product, ['name', 'version'], 'Windows public product');
+  assertExactKeys(
+    manifest.package,
+    ['name', 'path', 'size_bytes', 'sha256', 'format', 'contains_top_level_folder'],
+    'Windows public package',
+  );
+  assertExactKeys(
+    manifest.binary_artifact,
+    [
+      'source',
+      'artifact_name',
+      'run_url',
+      'commit',
+      'b_number',
+      'ci_result',
+      'windows_job',
+      'windows_job_gates',
+    ],
+    'Windows public binary artifact',
+  );
+  assertExactKeys(
+    manifest.external_validation,
+    ['status', 'note'],
+    'Windows public external validation',
+  );
+  assertExactKeys(
+    manifest.validation,
+    ['local_zip_test', 'local_sha256_file', 'binaries'],
+    'Windows public validation',
+  );
+  for (const content of manifest.contents) {
+    assertExactKeys(content, ['path', 'sha256'], `Windows public content ${content.path}`);
+  }
+  for (const binary of manifest.validation.binaries) {
+    assertExactKeys(binary, ['label', 'path', 'sha256'], `Windows public binary ${binary.label}`);
+  }
   assert.equal(manifest.schema, 'kirin-hypha-windows-vst3-artifact-v2');
   assert.equal(manifest.schema_version, 2);
   assert.equal(manifest.external_validation.status, 'complete');
   assert.equal(manifest.package.name, 'Kirin-Hypha-test.zip');
   assert.equal(manifest.binary_artifact.commit, opts.commit);
-  assert.doesNotMatch(publicJson, /Daisuke|lsUpload|ls_upload|releaseStatus|release_status|productId|variantId/);
+  assert.doesNotMatch(
+    publicJson,
+    /Daisuke|lsUpload|ls_upload|releaseStatus|release_status|productId|variantId|productAdminUrl|storeName|expectedFilesCount|operator/,
+  );
   assert.equal(manifest.contents.length, 2);
 
   const localState = localReleaseStateFor(opts, manifest);
