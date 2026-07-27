@@ -31,10 +31,26 @@ namespace hypha::display_contract
             || mode == KIRIN_DELTA_MODE_PRE_INACTIVE;
     }
 
-    // Record owns the six-cell layout. Without a published delta it keeps the delta placeholders;
-    // an explicit PRE OFF state switches those same cells to POST absolute values.
-    constexpr MetricMode recordMetricMode (bool, std::uint8_t mode) noexcept
+    // During a live Keep the current pairing is frozen by the engine. Once stopped, only the
+    // exact PRE captured by that Keep may own its held delta; changing pairs falls back to the
+    // POST's absolute held result without discarding I.
+    constexpr bool recordPairContext (bool recording,
+                                      bool pairSelected,
+                                      bool haveHeldDelta,
+                                      bool heldPairMatchesCurrent) noexcept
     {
+        return recording ? pairSelected
+                         : haveHeldDelta && heldPairMatchesCurrent;
+    }
+
+    // Record owns the six-cell layout. An unpaired POST is absolute; a selected pair stays in
+    // delta mode across transient missing/stale reads. Explicit PRE OFF switches to absolute.
+    constexpr MetricMode recordMetricMode (bool pairSelected,
+                                            bool,
+                                            std::uint8_t mode) noexcept
+    {
+        if (! pairSelected)
+            return MetricMode::absolute;
         return preUnavailableForDelta (mode)
             ? MetricMode::absolute : MetricMode::delta;
     }

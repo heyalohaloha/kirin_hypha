@@ -143,6 +143,102 @@ namespace hypha
                     juce::Justification::centredLeft);
     }
 
+    // ── M/S display selector ─────────────────────────────────────────────────────────────
+    LoudnessSelector::SegmentButton::SegmentButton (const juce::String& textIn)
+        : juce::Button (textIn + " loudness"), text (textIn)
+    {
+        setWantsKeyboardFocus (true);
+        setMouseCursor (juce::MouseCursor::PointingHandCursor);
+    }
+
+    void LoudnessSelector::SegmentButton::setSelected (bool selectedIn)
+    {
+        if (selected == selectedIn)
+            return;
+        selected = selectedIn;
+        repaint();
+    }
+
+    void LoudnessSelector::SegmentButton::paintButton (
+        juce::Graphics& g, bool highlighted, bool down)
+    {
+        auto area = getLocalBounds().toFloat();
+        if (selected || highlighted || down)
+        {
+            g.setColour (selected ? kFieldFill.brighter (0.08f) : kFieldFill);
+            g.fillRect (area);
+        }
+        g.setColour (selected ? COL_FLORA : COL_MUTED);
+        g.setFont (monoFont (ui_contract::metricLabelFontHeight));
+        g.drawText (text, getLocalBounds(), juce::Justification::centred);
+        if (hasKeyboardFocus (true))
+        {
+            g.setColour (COL_FLORA);
+            g.drawRect (area, 1.0f);
+        }
+    }
+
+    LoudnessSelector::LoudnessSelector()
+    {
+        momentary.setTitle ("Momentary loudness");
+        momentary.setDescription ("Show the 400 millisecond Momentary loudness measurement");
+        shortTerm.setTitle ("Short-term loudness");
+        shortTerm.setDescription ("Show the 3 second Short-term loudness measurement");
+        momentary.onClick = [this]
+        {
+            setShortTerm (false);
+            if (onChange) onChange (false);
+        };
+        shortTerm.onClick = [this]
+        {
+            setShortTerm (true);
+            if (onChange) onChange (true);
+        };
+        addAndMakeVisible (momentary);
+        addAndMakeVisible (shortTerm);
+        setShortTerm (false);
+    }
+
+    void LoudnessSelector::setShortTerm (bool shortTermIn)
+    {
+        selectedShortTerm = shortTermIn;
+        momentary.setSelected (! selectedShortTerm);
+        shortTerm.setSelected (selectedShortTerm);
+    }
+
+    void LoudnessSelector::setDeltaMode (bool delta)
+    {
+        if (deltaMode == delta)
+            return;
+        deltaMode = delta;
+        resized();
+        repaint();
+    }
+
+    void LoudnessSelector::paint (juce::Graphics& g)
+    {
+        const int prefix = deltaMode ? 8 : 0;
+        if (deltaMode)
+        {
+            g.setColour (COL_MUTED);
+            g.setFont (labelFont (ui_contract::metricLabelFontHeight));
+            g.drawText (delta(), 0, 0, prefix, getHeight(), juce::Justification::centredLeft);
+        }
+        g.setColour (COL_MUTED);
+        g.drawRect ((float) prefix, 3.0f,
+                    (float) juce::jmax (0, getWidth() - prefix),
+                    (float) juce::jmax (0, getHeight() - 6), 1.0f);
+    }
+
+    void LoudnessSelector::resized()
+    {
+        const int prefix = deltaMode ? 8 : 0;
+        auto segments = getLocalBounds().withTrimmedLeft (prefix).reduced (1, 4);
+        const int firstWidth = segments.getWidth() / 2;
+        momentary.setBounds (segments.removeFromLeft (firstWidth));
+        shortTerm.setBounds (segments);
+    }
+
     // ── EditableName ─────────────────────────────────────────────────────────────────────
     EditableName::EditableName()
     {

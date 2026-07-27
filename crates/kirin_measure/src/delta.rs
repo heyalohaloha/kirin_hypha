@@ -32,6 +32,7 @@ pub enum DeltaMode {
 #[derive(Debug, Clone, Default)]
 pub struct DeltaSnapshot {
     pub lufs: Option<f64>,
+    pub lufs_s: Option<f64>,
     pub psr: Option<f64>,
     pub tp: Option<f64>,
     pub n_prime_total: Option<f64>,
@@ -50,6 +51,9 @@ pub struct DeltaSnapshot {
 pub struct DeltaResult {
     /// Δ LUFS-M = POST_lufs_m − PRE_lufs_m。PRE/POST どちらかが None → None。
     pub lufs: Option<f64>,
+
+    /// Δ LUFS-S = POST_lufs_s − PRE_lufs_s。PRE/POST どちらかが None → None。
+    pub lufs_s: Option<f64>,
 
     /// Δ PSR = POST_psr − PRE_psr。PRE/POST どちらかが None → None。
     pub psr: Option<f64>,
@@ -89,6 +93,7 @@ mod tests {
     fn delta_snapshot_default_all_none() {
         let snap = DeltaSnapshot::default();
         assert!(snap.lufs.is_none());
+        assert!(snap.lufs_s.is_none());
         assert!(snap.psr.is_none());
         assert!(snap.tp.is_none());
         assert!(snap.n_prime_total.is_none());
@@ -103,6 +108,7 @@ mod tests {
         let result = DeltaResult::default();
         assert!(result.last_active.is_none());
         assert!(result.lufs.is_none());
+        assert!(result.lufs_s.is_none());
         assert!(result.psr.is_none());
         assert!(result.tp.is_none());
         assert!(result.n_prime_total.is_none());

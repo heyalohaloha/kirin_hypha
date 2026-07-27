@@ -39,6 +39,12 @@ public:
     // Editor (message thread) reads the latest RT result. Null handle / lock contention -> false.
     bool pollMeasureResult (KirinMeasureResult& out) const;
     bool pollWatchDisplay (KirinWatchDisplay& out) const;
+    bool pollRecordDisplay (KirinRecordDisplay& out) const;
+    bool useShortTermLoudness() const
+    {
+        return persistShortTermLoudness.load (std::memory_order_acquire);
+    }
+    void setUseShortTermLoudness (bool shortTerm);
 
     // --- B-072: POST pairing surface (used by the editor only when isPostRole()) ----------
     bool isPostRole() const { return role == Role::Post; }
@@ -141,6 +147,7 @@ private:
     juce::String persistPairName;                      // POST pair target (B-072)
     juce::String persistPairInstanceId;                // exact PRE target; survives DAW restart
     juce::String persistPairProjectHash;               // exact PRE shelf; no cross-format guess
+    std::atomic<bool> persistShortTermLoudness { false }; // display-only M/S choice; legacy default M
 
     std::atomic<int>  cachedLicenseCode { 2 };         // live non-RT entitlement cache (0=Os)
     std::atomic<bool> lastPlaying { false };           // B-054: transport playing (POST pair lock during playback)

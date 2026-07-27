@@ -10,10 +10,11 @@
 use kirin_hypha_ffi::{
     kirin_hypha_create, kirin_hypha_decode_legacy_nih_state, kirin_hypha_destroy,
     kirin_hypha_enumerate_post_pair_claims, kirin_hypha_get_paired_pre_instance_id,
-    kirin_hypha_get_paired_pre_locator, kirin_hypha_pair_status, kirin_hypha_poll_result,
-    kirin_hypha_poll_session, kirin_hypha_push_samples, kirin_hypha_restore_pair_candidate,
-    kirin_hypha_select_pair_candidate, kirin_hypha_set_signal_state, KirinLegacyNihState,
-    KirinMeasureResult, KirinPostPairClaim, KirinSessionSummary,
+    kirin_hypha_get_paired_pre_locator, kirin_hypha_pair_status, kirin_hypha_poll_record_display,
+    kirin_hypha_poll_result, kirin_hypha_poll_session, kirin_hypha_push_samples,
+    kirin_hypha_restore_pair_candidate, kirin_hypha_select_pair_candidate,
+    kirin_hypha_set_signal_state, KirinLegacyNihState, KirinMeasureResult, KirinPostPairClaim,
+    KirinRecordDisplay, KirinSessionSummary,
 };
 
 #[test]
@@ -33,6 +34,11 @@ fn null_handle_calls_are_safe_noops() {
         assert!(
             !kirin_hypha_poll_session(std::ptr::null_mut(), &mut ss),
             "poll_session(null) must be false"
+        );
+        let mut display = std::mem::zeroed::<KirinRecordDisplay>();
+        assert!(
+            !kirin_hypha_poll_record_display(std::ptr::null_mut(), &mut display),
+            "poll_record_display(null) must be false"
         );
 
         let mut claims: [KirinPostPairClaim; 1] = std::array::from_fn(|_| std::mem::zeroed());
@@ -121,6 +127,8 @@ fn normal_lifecycle_intact_through_c_abi() {
         // 未計測でも poll_result は安全に戻る（true=default 値 / false=競合、どちらも UB なし）。
         let mut mr = std::mem::zeroed::<KirinMeasureResult>();
         let _ = kirin_hypha_poll_result(h, &mut mr);
+        let mut display = std::mem::zeroed::<KirinRecordDisplay>();
+        let _ = kirin_hypha_poll_record_display(h, &mut display);
 
         // poll_session は Phase 1 で常に false。
         let mut ss = std::mem::zeroed::<KirinSessionSummary>();

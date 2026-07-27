@@ -1671,7 +1671,7 @@ fn serialize_pre_json_with_daw_session_id_and_owner(
         serde_json::to_string(watch_owner_id).unwrap_or_else(|_| "\"\"".to_string());
     let host_process_id = current_host_process_id();
     format!(
-        r#"{{"v":2,"role":"PRE","instance_id":{instance_id_json},"name":{name_json},"daw_session_id":{daw_session_id_json},"host_process_id":{host_process_id},"watch_owner_id":{watch_owner_id_json},"signal_state":"{signal_state}","t":"{t}","lufs_m":{lufs_m},"true_peak":{true_peak},"crest":{crest},"psr":{psr}{phase_d}}}"#,
+        r#"{{"v":2,"role":"PRE","instance_id":{instance_id_json},"name":{name_json},"daw_session_id":{daw_session_id_json},"host_process_id":{host_process_id},"watch_owner_id":{watch_owner_id_json},"signal_state":"{signal_state}","t":"{t}","lufs_m":{lufs_m},"lufs_s":{lufs_s},"true_peak":{true_peak},"crest":{crest},"psr":{psr}{phase_d}}}"#,
         instance_id_json = instance_id_json,
         name_json = name_json,
         daw_session_id_json = daw_session_id_json,
@@ -1680,6 +1680,7 @@ fn serialize_pre_json_with_daw_session_id_and_owner(
         signal_state = state.as_str(),
         t = t,
         lufs_m = opt_f64(result.lufs_m),
+        lufs_s = opt_f64(result.lufs_s),
         true_peak = opt_f64(result.true_peak),
         crest = opt_f64(result.crest),
         psr = opt_f64(result.psr),
@@ -4291,6 +4292,7 @@ mod tests {
     fn serialize_pre_json_active_contains_instance_id() {
         let r = MeasureResult {
             lufs_m: Some(-14.0),
+            lufs_s: Some(-15.0),
             ..Default::default()
         };
         let json = serialize_pre_json("pre-xyz", "Snare", SignalState::Active, &r);
@@ -4302,6 +4304,7 @@ mod tests {
             current_host_process_id()
         )));
         assert!(json.contains(r#""lufs_m":-14.000"#));
+        assert!(json.contains(r#""lufs_s":-15.000"#));
         // bus フィールドは削除済（A-3 修正後）
         assert!(!json.contains(r#""bus""#));
     }
@@ -4368,6 +4371,7 @@ mod tests {
             current_host_process_id()
         )));
         assert!(!json.contains("lufs_m"));
+        assert!(!json.contains("lufs_s"));
         assert!(!json.contains(r#""bus""#));
     }
 
@@ -4382,6 +4386,7 @@ mod tests {
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed["daw_session_id"].as_str(), Some("daw-session-pre"));
         assert!(!json.contains("lufs_m"));
+        assert!(!json.contains("lufs_s"));
     }
 
     /// B-027 段階 2: serialize_pre_json は空文字 name でも `"name":""` を出力する

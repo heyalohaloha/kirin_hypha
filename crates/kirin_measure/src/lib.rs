@@ -40,6 +40,7 @@ pub mod preset_v2;
 mod raw_pre_roll;
 pub mod record;
 pub mod record_clock;
+mod record_display;
 pub mod record_drop_commit;
 mod record_entry_lock;
 pub mod record_expected;
@@ -190,6 +191,7 @@ pub use record_clock::{
     record_clock_bounds_for_record, record_window_for_buffer, record_window_for_buffer_with_bounds,
     record_window_for_record_capture, RecordClockBounds, RecordWindow,
 };
+pub use record_display::{RecordDisplaySnapshot, RecordDisplayStatus};
 pub use record_expected::{
     claim_expected_metadata_for_session, expected_dir, expected_path,
     mark_expected_metadata_consumed, read_expected_metadata, write_expected_metadata,
@@ -614,6 +616,20 @@ pub struct MeasureResult {
     /// 信号なし・ウィンドウ未満は `None`（GUI 表示 `---`）。
     pub lufs_m: Option<f64>,
 
+    /// LUFS-S: ITU-R BS.1770-4 Short-term Loudness（3s sliding）。
+    /// 信号なし・3秒窓未満は `None`（GUI 表示 `---`）。
+    ///
+    /// PSR 算出時に既に取得している同じ ebur128 値を表示経路へ露出するだけであり、
+    /// Record/TRACE/plugin_data の既存 schema には追加しない。
+    pub lufs_s: Option<f64>,
+
+    /// 100ms の実測チャンクから生成された結果なら `true`。
+    ///
+    /// reset / Inactive / playback-pass cutover が公開する空スナップショットは `false`。
+    /// Stop 後の最終 Record 表示から Watch へ戻す際、transport flag だけでなく
+    /// 「新しい Watch 実測が届いた」ことを識別する表示専用メタデータ。
+    pub computed: bool,
+
     /// True Peak「直近」tp_recent: ITU-R BS.1770-4 Annex 2（4× oversampling, dBTP）。
     /// 直近 400ms（LUFS-M と同窓・フレーム基準）の inter-sample 最大値（B-074）。Watch 表示用。
     /// （B-074 以前: wall-clock 2 秒窓を「400ms 累積max」と誤記していた。実体を 400ms に統一）。
@@ -635,7 +651,8 @@ pub struct MeasureResult {
     pub psr: Option<f64>,
 
     /// ISO 532-1 Zwicker の総ラウドネス N (specific loudness N'(z) ではない)
-    /// を `temporal_weighting` LP IIR で時系列平滑化した値。GUI label は "N"。
+    /// を `temporal_weighting` LP IIR で時系列平滑化した値。DAWの固定6セルからは外すが、
+    /// Record/TRACE/plugin_data/Kirin OS向けの計測・保存は従来どおり継続する。
     /// field 名 `n_prime_total` は履歴互換維持 (Phase 2 で rename 候補)。
     /// Measure Thread が host sample rate から 48 kHz mono へ変換した Phase D 結果なので、
     /// 対応 sample rate では 48 kHz 以外も `Some` になり得る。

@@ -70,6 +70,11 @@ int main()
     static_assert (KIRIN_DELTA_MODE_NO_PRE == 2u);
     static_assert (KIRIN_DELTA_MODE_BYPASSED == 3u);
     static_assert (KIRIN_DELTA_MODE_PRE_INACTIVE == 4u);
+    static_assert (KIRIN_RECORD_DISPLAY_WATCH == 0u);
+    static_assert (KIRIN_RECORD_DISPLAY_LIVE == 1u);
+    static_assert (KIRIN_RECORD_DISPLAY_FINALIZING == 2u);
+    static_assert (KIRIN_RECORD_DISPLAY_RESULT_HOLD == 3u);
+    static_assert (KIRIN_RECORD_DISPLAY_UNAVAILABLE == 4u);
     static_assert (display::deltaIsActive (KIRIN_DELTA_MODE_ACTIVE));
     static_assert (display::deltaIsStale (KIRIN_DELTA_MODE_STALE));
     static_assert (! display::preUnavailableForDelta (KIRIN_DELTA_MODE_ACTIVE));
@@ -77,13 +82,17 @@ int main()
     static_assert (! display::preUnavailableForDelta (KIRIN_DELTA_MODE_NO_PRE));
     static_assert (display::preUnavailableForDelta (KIRIN_DELTA_MODE_BYPASSED));
     static_assert (display::preUnavailableForDelta (KIRIN_DELTA_MODE_PRE_INACTIVE));
-    static_assert (display::recordMetricMode (false, KIRIN_DELTA_MODE_NO_PRE)
-                   == display::MetricMode::delta);
-    static_assert (display::recordMetricMode (true, KIRIN_DELTA_MODE_ACTIVE)
-                   == display::MetricMode::delta);
-    static_assert (display::recordMetricMode (true, KIRIN_DELTA_MODE_PRE_INACTIVE)
+    static_assert (display::recordPairContext (true, true, false, false));
+    static_assert (display::recordPairContext (false, true, true, true));
+    static_assert (! display::recordPairContext (false, true, true, false));
+    static_assert (! display::recordPairContext (false, true, false, true));
+    static_assert (display::recordMetricMode (false, false, KIRIN_DELTA_MODE_NO_PRE)
                    == display::MetricMode::absolute);
-    static_assert (display::recordMetricMode (false, KIRIN_DELTA_MODE_PRE_INACTIVE)
+    static_assert (display::recordMetricMode (true, true, KIRIN_DELTA_MODE_ACTIVE)
+                   == display::MetricMode::delta);
+    static_assert (display::recordMetricMode (true, true, KIRIN_DELTA_MODE_PRE_INACTIVE)
+                   == display::MetricMode::absolute);
+    static_assert (display::recordMetricMode (false, false, KIRIN_DELTA_MODE_PRE_INACTIVE)
                    == display::MetricMode::absolute);
     static_assert (display::watchMetricMode (true, false, KIRIN_DELTA_MODE_NO_PRE)
                    == display::MetricMode::delta);
@@ -117,6 +126,10 @@ int main()
     assert (post.feedback.y == 178 && post.feedback.height == 20);
     assert (pre.feedback.y == post.feedback.y);
     assert (ui::bottom (post.feedback) == ui::editorHeight - 2);
+    assert (ui::loudnessSelectorBounds (pre.metricTop).width == ui::loudnessSelectorWidth);
+    assert (ui::loudnessSelectorBounds (post.metricTop).width == ui::loudnessSelectorWidth);
+    assert (fitsEditor (ui::loudnessSelectorBounds (pre.metricTop)));
+    assert (fitsEditor (ui::loudnessSelectorBounds (post.metricTop)));
 
     for (const auto rect : { pre.title, pre.led, pre.pairStatus, pre.name, pre.feedback,
                              post.title, post.led, post.pairStatus, post.name,
@@ -178,15 +191,20 @@ int main()
     assert (ui::watchMetrics[4].metric == M::crest && ! ui::watchMetrics[4].maximum);
     assert (ui::watchMetrics[5].metric == M::crest && ui::watchMetrics[5].maximum);
 
-    assert (std::strcmp (ui::metricText (M::lufs).absoluteLabel, "LUFS-M") == 0);
+    assert (std::strcmp (ui::metricText (M::lufs).absoluteLabel, "") == 0);
+    assert (std::strcmp (ui::metricText (M::lufs).absoluteUnit, "LUFS") == 0);
     assert (std::strcmp (ui::metricText (M::truePeak).absoluteUnit, "dBTP") == 0);
+    assert (std::strcmp (ui::metricText (M::maxTruePeak).absoluteLabel, "Max TP") == 0);
+    assert (std::strcmp (ui::metricText (M::integrated).absoluteLabel, "I") == 0);
     assert (std::strcmp (ui::metricText (M::sharpness).absoluteUnit, "acum") == 0);
     assert (ui::recordMetrics[0].metric == M::lufs);
     assert (ui::recordMetrics[1].metric == M::psr);
-    assert (ui::recordMetrics[2].metric == M::truePeak);
-    assert (ui::recordMetrics[3].metric == M::loudness);
+    assert (ui::recordMetrics[2].metric == M::maxTruePeak);
+    assert (ui::recordMetrics[3].metric == M::integrated);
     assert (ui::recordMetrics[4].metric == M::crest);
     assert (ui::recordMetrics[5].metric == M::sharpness);
+    assert (! ui::recordMetrics[2].deltaEligible);
+    assert (! ui::recordMetrics[3].deltaEligible);
 
     return 0;
 }

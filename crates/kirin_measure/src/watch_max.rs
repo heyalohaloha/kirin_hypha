@@ -69,6 +69,7 @@ impl WatchMaxTracker {
         }
         self.last_sequence = raw.measure_sequence;
         self.max.lufs_m = max_option(self.max.lufs_m, raw.lufs_m);
+        self.max.lufs_s = max_option(self.max.lufs_s, raw.lufs_s);
         self.max.true_peak = max_option(self.max.true_peak, raw.tp_session_max.or(raw.true_peak));
         self.max.crest = max_option(self.max.crest, raw.crest);
         self.max.clone()
@@ -103,6 +104,7 @@ mod tests {
             measure_sequence: sequence,
             playback_pass_id: pass,
             lufs_m: Some(lufs),
+            lufs_s: Some(lufs - 1.0),
             true_peak: Some(tp),
             crest: Some(crest),
             ..MeasureResult::default()
@@ -115,6 +117,7 @@ mod tests {
         tracker.update(&measure(1, 1, -18.0, -2.0, 8.0), true, 1, false);
         let max = tracker.update(&measure(2, 1, -12.0, -6.0, 5.0), true, 1, false);
         assert_eq!(max.lufs_m, Some(-12.0));
+        assert_eq!(max.lufs_s, Some(-13.0));
         assert_eq!(max.true_peak, Some(-2.0));
         assert_eq!(max.crest, Some(8.0));
     }
@@ -126,6 +129,7 @@ mod tests {
         tracker.update(&MeasureResult::default(), false, 1, false);
         let max = tracker.update(&measure(2, 2, -24.0, -9.0, 3.0), true, 2, false);
         assert_eq!(max.lufs_m, Some(-24.0));
+        assert_eq!(max.lufs_s, Some(-25.0));
         assert_eq!(max.true_peak, Some(-9.0));
         assert_eq!(max.crest, Some(3.0));
     }
@@ -136,6 +140,7 @@ mod tests {
         tracker.update(&measure(1, 1, -8.0, 0.0, 20.0), true, 1, true);
         let max = tracker.update(&measure(2, 1, -8.0, 0.0, 20.0), true, 1, false);
         assert_eq!(max.lufs_m, None);
+        assert_eq!(max.lufs_s, None);
         assert_eq!(max.true_peak, None);
         assert_eq!(max.crest, None);
     }
@@ -154,6 +159,7 @@ mod tests {
         let mut tracker = WatchMaxTracker::default();
         let max = tracker.update(&measure(1, 1, -8.0, -0.2, 12.0), false, 1, false);
         assert_eq!(max.lufs_m, None);
+        assert_eq!(max.lufs_s, None);
         assert_eq!(max.true_peak, None);
         assert_eq!(max.crest, None);
     }
@@ -173,6 +179,7 @@ mod tests {
             false,
         );
         assert_eq!(max.lufs_m, Some(-15.0));
+        assert_eq!(max.lufs_s, Some(-16.0));
         assert_eq!(max.true_peak, Some(-2.0));
         assert_eq!(max.crest, Some(7.0));
     }

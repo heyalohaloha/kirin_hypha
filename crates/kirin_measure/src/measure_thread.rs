@@ -318,6 +318,8 @@ pub fn spawn_measure_thread(
         let mut next_record_psb_ms = 0_u64;
         let mut record_origin_position_samples: Option<i64> = None;
         let mut record_capture_epoch: Option<u64> = None;
+        let mut latest_record_measure: Option<MeasureResult> = None;
+        let mut record_display_generation: Option<u64> = None;
 
         // heartbeat stall detection: process() が停止したことを検出する。
         // Studio One 等、バイパス時に process() を呼ばなくなる DAW に対応。
@@ -380,6 +382,9 @@ pub fn spawn_measure_thread(
                 watch_consumed_samples = consumed_samples;
                 watch_native_frames_total = native_frames_total;
                 parked_watch_consumer = Some(std::mem::replace(&mut consumer, record_consumer));
+                let record_generation = record_sm.generation();
+                record_display_generation = Some(record_generation);
+                record_sm.mark_record_display_measure_started(record_generation);
                 consumed_samples = 0;
                 native_frames_total = 0;
                 engine.reset();
@@ -400,6 +405,7 @@ pub fn spawn_measure_thread(
                 // that timestamp; no Watch result enters either Record engine.
                 record_origin_position_samples = None;
                 record_capture_epoch = None;
+                latest_record_measure = None;
                 record_prefix_pending = true;
                 record_prefix_samples.clear();
                 record_prefix_owns_history_storage = false;
@@ -423,6 +429,9 @@ pub fn spawn_measure_thread(
                 // 「停止前に drain 済み」の clean 録音では ring 空 → finalize は同一サンプル集合を
                 // 再抽出するだけ（parity abs=0 維持）。完了後に seal を 1 前進させ、IO の bake arm が
                 // post-drain 確定スナップショットを読む handshake を成立させる（共通B）。
+                let record_generation = record_display_generation
+                    .take()
+                    .unwrap_or_else(|| record_sm.generation());
                 let drained = drain_ring_into_session(
                     DrainRingSession {
                         consumer: &mut consumer,
@@ -448,7 +457,7 @@ pub fn spawn_measure_thread(
                     Some(RecordTraceDrain {
                         queue: &record_trace_queue,
                         timeline: RecordTraceTimeline {
-                            generation: record_sm.generation(),
+                            generation: record_generation,
                             origin_frames_48k: record_origin_frames,
                             origin_native_frames: record_origin_native_frames,
                             offset_frames_48k: record_trace_frame_offset_48k,
@@ -463,7 +472,7 @@ pub fn spawn_measure_thread(
                 );
                 let completed_trace = push_record_trace_to_record_take_clock(
                     &record_trace_queue,
-                    record_sm.generation(),
+                    record_generation,
                     &record_take_tracker,
                     &mut RecordTraceCursor {
                         next_trace_ms: &mut next_record_trace_ms,
@@ -472,13 +481,19 @@ pub fn spawn_measure_thread(
                     sample_rate,
                 );
                 if drained {
+                    let final_summary = *crate::sync_recovery::lock_recover(
+                        &session_summary,
+                        "MeasureThread final Record display summary",
+                    );
+                    record_sm.finalize_record_display(record_generation, final_summary);
                     record_sm.bump_seal();
-                    record_ingress.mark_drained_from_measure(record_sm.generation());
+                    record_ingress.mark_drained_from_measure(record_generation);
                     log::info!(
                         "[MeasureThread] Record→Watch tight-drain complete (seal bumped, clock_trace_completed={})",
                         completed_trace
                     );
                 } else {
+                    record_sm.mark_record_display_unavailable(record_generation);
                     log::warn!(
                         "[MeasureThread] Record→Watch drain incomplete — seal NOT bumped (IO bake → integrity_degraded)"
                     );
@@ -952,8 +967,17 @@ pub fn spawn_measure_thread(
                     last_result = Some(new_result);
                 });
                 if let Some(new_result) = last_result {
+                    let dismiss_record_display = !is_recording && new_result.computed;
+                    if is_recording {
+                        latest_record_measure = Some(new_result.clone());
+                    }
                     *crate::sync_recovery::lock_recover(&result, "MeasureThread result publish") =
                         new_result;
+                    // Publish the fresh Watch payload before releasing RESULT_HOLD so a UI poll
+                    // can never observe Watch mode while only the reset placeholder is available.
+                    if dismiss_record_display {
+                        record_sm.dismiss_record_display_on_watch_result();
+                    }
                 }
 
                 if is_recording {
@@ -1045,6 +1069,13 @@ pub fn spawn_measure_thread(
                     let summary = record_summary_engine.finalize();
                     if let Ok(mut g) = session_summary.lock() {
                         *g = Some(summary);
+                    }
+                    if let Some(measure) = latest_record_measure.clone() {
+                        record_sm.publish_record_display_measure(
+                            record_display_generation.unwrap_or_else(|| record_sm.generation()),
+                            measure,
+                            summary,
+                        );
                     }
                 }
             }
@@ -1735,7 +1766,9 @@ fn drain_ring_into_session(
                 flush_record_core_without_phase_d(trace, ctx.sample_rate, ctx.record_core_pending);
             }
             ctx.trace_engine.reset();
-            ctx.summary_engine.reset();
+            // Recordのsession summaryは通常ループと同じくtransport位置の不連続を
+            // またいで維持する。tight-drainだけで最後のjumpを観測してもI/Max TPを
+            // 直前区間へ縮めない。TRACE/Phase Dの座標系リセットとは独立。
             ctx.phase_d.reset();
             if let Some(rs) = ctx.resampler.as_mut() {
                 rs.reset();
@@ -3165,6 +3198,87 @@ mod b132_drain_tests {
         assert!(
             (reference.lufs_i.unwrap() - drained.lufs_i.unwrap()).abs() < 1e-9,
             "empty-ring drain must not disturb lufs_i"
+        );
+    }
+
+    /// Record本体ではtransport位置の不連続をまたいで集計を維持する。
+    /// Stop境界のtight-drainだけが最後の不連続を観測した場合も、同じセッション定義を
+    /// 変えてはならない。bodyを既に集計済み、jump後のtailだけをringに残して再現する。
+    #[test]
+    fn drain_position_jump_preserves_record_session_summary() {
+        let body = sine_stereo(SR as usize, 0.4);
+        let tail = sine_stereo(SR as usize, 0.1);
+        let body_f64 = to_f64(&body);
+        let tail_f64 = to_f64(&tail);
+
+        let mut reference_engine = MeasureEngine::new(SR, 2).unwrap();
+        let _ = reference_engine.push(&body_f64);
+        let _ = reference_engine.push(&tail_f64);
+        let reference = reference_engine.finalize();
+
+        let mut summary_engine = MeasureEngine::new(SR, 2).unwrap();
+        let _ = summary_engine.push(&body_f64);
+        let mut trace_engine = MeasureEngine::new(SR, 2).unwrap();
+        let (mut producer, mut consumer) = rtrb::RingBuffer::<f32>::new(tail.len() + 16);
+        for &sample in &tail {
+            producer.push(sample).unwrap();
+        }
+
+        let tracker = RecordTakeTracker::new();
+        tracker.note_capture_window(true, 0, SR as u64);
+        tracker.note_capture_window(true, (SR * 2) as i64, SR as u64);
+
+        let session_summary: Arc<Mutex<Option<crate::engine::SessionSummary>>> =
+            Arc::new(Mutex::new(None));
+        let mut chunk = Vec::new();
+        let mut resampled = Vec::new();
+        let mut resampler = None;
+        let mut native_frames_total = SR as u64;
+        let mut consumed_samples = 0_u64;
+        let mut last_capture_position_end = Some(SR as i64);
+        let mut phase_d = PhaseDChannelStream::new(FieldType::Free, 2);
+        let mut phase_d_slots = Vec::new();
+        let mut latest_pd = None;
+        let mut record_core_pending = std::collections::VecDeque::new();
+        let mut record_phase_pending = std::collections::VecDeque::new();
+
+        let ok = drain_ring_into_session(
+            DrainRingSession {
+                consumer: &mut consumer,
+                resampler: &mut resampler,
+                trace_engine: &mut trace_engine,
+                summary_engine: &mut summary_engine,
+                session_summary: &session_summary,
+                chunk_f64: &mut chunk,
+                resampled_buf: &mut resampled,
+                phase_d: &mut phase_d,
+                phase_d_slot_pending: &mut phase_d_slots,
+                latest_pd: &mut latest_pd,
+                record_core_pending: &mut record_core_pending,
+                record_phase_pending: &mut record_phase_pending,
+                sample_rate: SR,
+                n_channels: 2,
+                native_frames_total: &mut native_frames_total,
+                consumed_samples: &mut consumed_samples,
+                record_take_tracker: &tracker,
+                last_capture_position_end: &mut last_capture_position_end,
+                finalize_capture: false,
+            },
+            None,
+        );
+        assert!(ok);
+
+        let drained = session_summary
+            .lock()
+            .unwrap()
+            .expect("session summary written");
+        assert!(
+            (reference.max_true_peak.unwrap() - drained.max_true_peak.unwrap()).abs() < 1e-6,
+            "position jump at Stop must not discard the earlier Record peak"
+        );
+        assert!(
+            (reference.lufs_i.unwrap() - drained.lufs_i.unwrap()).abs() < 1e-6,
+            "position jump at Stop must not restart the Record integrated loudness"
         );
     }
 

@@ -57,6 +57,12 @@ typedef struct KirinHypha KirinHypha;
 #define KIRIN_DELTA_MODE_BYPASSED 3u
 #define KIRIN_DELTA_MODE_PRE_INACTIVE 4u
 
+#define KIRIN_RECORD_DISPLAY_WATCH 0u
+#define KIRIN_RECORD_DISPLAY_LIVE 1u
+#define KIRIN_RECORD_DISPLAY_FINALIZING 2u
+#define KIRIN_RECORD_DISPLAY_RESULT_HOLD 3u
+#define KIRIN_RECORD_DISPLAY_UNAVAILABLE 4u
+
 /* RT 計測結果. 各 double の「値なし」は NaN. */
 typedef struct {
   double lufs_m;        /* LUFS-M (ITU-R BS.1770-4 Momentary, 400ms) */
@@ -74,6 +80,7 @@ typedef struct {
                            (Record 正本と同定義 / B-074: 末尾追加で既存 offset 不変) */
   uint64_t dropped_samples;/* ring 満杯で測定 ring に push できなかった累積サンプル数
                               (>0 = integrity 低下 / B-075: 計測値は不変・欠落の露出のみ) */
+  double lufs_s;        /* LUFS-S (ITU-R BS.1770-4 Short-term, 3s / 末尾追加) */
 } KirinMeasureResult;
 
 typedef struct {
@@ -122,7 +129,22 @@ typedef struct {
   double psr;
   double n_prime_total;
   double sharpness;
+  double lufs_s;        /* Δ LUFS-S (末尾追加で既存 offset 不変) */
 } KirinDelta;
+
+/* Keep/Record専用の世代付き表示スナップショット.
+ * 計測・TRACE・plugin_dataの正本とは独立し、GUIがStop後の最終Iを保持するためだけに使う. */
+typedef struct {
+  uint8_t phase;       /* KIRIN_RECORD_DISPLAY_* */
+  uint8_t has_measure;
+  uint8_t has_session;
+  uint8_t has_delta;
+  uint64_t generation;
+  KirinMeasureResult measure;
+  KirinSessionSummary session;
+  KirinDelta delta;
+  uint8_t pair_matches_current; /* held Δ belongs to the currently selected exact PRE */
+} KirinRecordDisplay;
 
 /* pair 候補 1 件（B-102 / GUI ドロップダウン用）. instance_id は null 終端（最大 63 文字）.
  * name は PRE 表示名（has_name=0 のとき内容不定）. enumerate_pre_candidates が固定長配列へ書く. */
@@ -332,6 +354,9 @@ size_t kirin_hypha_enumerate_post_pair_claims(KirinHypha* handle, KirinPostPairC
 /* POST の Δ を out へ（3d-b / GUI 表示用）. 値あり=true / 競合・未計測=false（UI Thread）.
  * post.json には Δ でなく POST 生メトリクスが入る（Δ はこの API で公開）. */
 bool kirin_hypha_poll_delta(KirinHypha* handle, KirinDelta* out);
+
+/* Keep/Record表示を1スナップショットで取得. UI Thread専用・ロック競合時false. */
+bool kirin_hypha_poll_record_display(KirinHypha* handle, KirinRecordDisplay* out);
 
 /* Record の最新 plugin_data .json に利用者メモを追記する（Note / 方式A）.
  * 書込先はこの engine の役割（enable_pre_writes=PRE / enable_post_writes=POST）の .json.

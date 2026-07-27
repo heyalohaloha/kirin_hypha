@@ -152,7 +152,7 @@ Hypha は利用者に制限や複雑な操作を課さず、普通に計測し�
 | INV-S1 | 候補メニューは pair 名非依存で PRE 候補を列挙 | `candidate_menu_enumerates_pre_candidates_independent_of_current_pair` |
 | INV-S2 | 候補選択は processor と入力欄へ即反映 | `candidate_selection_commits_pair_name_to_processor_and_field` |
 | INV-S3 | JUCE Keep は 12-cap を事前 reject せず FFI reserve→count>MAX が権威。失敗は FFI error message を出す | `juce_keep_does_not_pre_reject_at_twelve_reservations` |
-| INV-S4 | POST Record 表示は host inactive でも 6軸+N+Sharp を保持してから signal fallback | `juce_post_record_display_keeps_six_metrics_before_signal_fallback` |
+| INV-S4 | POST Record表示は世代付きsnapshotを使い、host inactive／finalize／Stop後も6セルを保持する。Max TP/Iは絶対値、選択M/S・PSR・Crest・SharpだけがΔ対象 | `juce_post_record_display_keeps_six_metrics_before_signal_fallback` |
 | INV-S5 | RT 安全 — processBlock が呼べる C ABI は allowlist、push_samples に fs/alloc/blocking lock 再混入なし | `process_block_calls_only_rt_safe_ffi_surface` / `ffi_push_samples_core_avoids_io_allocation_and_blocking_locks` / `audio_thread_c_abi_wrappers_remain_thin` |
 | INV-S6 | 出荷AU/VST3は同一JUCE processor/editor/control sourceと単一`HyphaUiContract`をcompileする。300×200矩形、全bounds、font family/size、palette、Watch current/MAX 6セル、Record 6セル、Keep/Stop表記をbundle build前にpure C++ testで固定する | `shipped_au_and_vst3_compile_the_same_editor_processor_and_control_contract` / `juce_shell/tests/ui_contract_test.cpp` |
 

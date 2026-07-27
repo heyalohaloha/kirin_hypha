@@ -40,30 +40,36 @@ Kirin Hypha is free and fully functional as a standalone plugin. Record mode req
 
 | Metric | Window / Unit | Standard |
 |---|---|---|
-| LUFS-M | Momentary loudness, 400 ms (LUFS) | ITU-R BS.1770-4 |
+| LUFS-M / LUFS-S | Selectable Momentary (400 ms) or Short-term (3 s) loudness (LUFS) | ITU-R BS.1770-4 |
 | True Peak | Recent peak, last 400 ms (dBTP) | ITU-R BS.1770-4 |
 | Crest Factor | Peak − RMS, 400 ms (dB) | — |
 
-PRE displays absolute values. POST displays Δ values relative to the paired PRE.
+PRE displays absolute values. POST displays Δ values relative to the paired PRE. The M/S choice
+also selects the independent MAX value for the current Watch playback pass.
 
 ### Record mode (Kirin OS required)
 
 | Metric | Window / Unit | Standard |
 |---|---|---|
-| LUFS-M | Momentary loudness, 400 ms (LUFS) | ITU-R BS.1770-4 |
-| True Peak | Session maximum (dBTP) | ITU-R BS.1770-4 |
+| LUFS-M / LUFS-S | Selectable Momentary (400 ms) or Short-term (3 s) loudness (LUFS) | ITU-R BS.1770-4 |
+| Integrated Loudness | Current Keep session (LUFS) | ITU-R BS.1770-4 |
+| Max True Peak | Current Keep session maximum (dBTP) | ITU-R BS.1770-4 |
 | Crest Factor | Peak − RMS, 400 ms (dB) | — |
 | PSR | Peak-to-Short-term Ratio, 3 s (dB) | — |
-| N (Zwicker loudness) | sone, mono sum | ISO 532-1 |
 | Sharpness | acum, mono sum | DIN 45692 |
 
-PRE displays all six values. POST displays Δ values for all six.
+PRE displays all six values. A paired POST displays Δ for the selected M/S loudness, PSR, Crest,
+and Sharpness; Integrated Loudness and Max True Peak remain absolute POST session values. The
+Integrated value spans transport stops within one Keep. After Stop, the final Record result remains
+visible until the first newly computed Watch result arrives.
 
 **On True Peak.** Two distinct True Peak quantities are reported. The *recent peak* is the maximum inter-sample peak within the last 400 ms (the same window as LUFS-M) and is shown live in Watch mode; it is not held, so a transient drops out of the reading once that window has passed. The *session maximum* is the running maximum inter-sample peak over the whole recording and is what the Record data stores. When a single dBTP figure is quoted for a file, it is the session maximum. Peak windows are tracked by sample count, so offline / faster-than-real-time rendering does not shift them.
 
 **On Crest Factor.** Crest Factor is the sample-peak level minus the RMS level (both in dBFS) over the same 400 ms window. Peak and RMS are both computed across the pooled samples of all channels — not a mono sum — and the peak is a sample peak, not the inter-sample True Peak. A silent window produces no value (shown as `---`).
 
-**On the psychoacoustic metrics.** N (Zwicker loudness) and Sharpness are computed from a mono sum, (L+R)/2.
+**On the psychoacoustic metrics.** N (Zwicker loudness) remains measured and stored for Kirin OS
+even though it is no longer one of the six DAW display cells. N and Sharpness are computed from a
+mono sum, (L+R)/2.
 
 ---
 

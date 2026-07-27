@@ -36,6 +36,9 @@ namespace hypha
             out.psr           = update (measure[3], raw.psr,           dt, false);
             out.n_prime_total = update (measure[4], raw.n_prime_total, dt, false);
             out.sharpness     = update (measure[5], raw.sharpness,     dt, false);
+            // LUFS-S is the exact 3 s engine window. Never EMA-smooth it or borrow an older
+            // playback epoch while the new window is still unavailable.
+            out.lufs_s        = updateDirect (measure[6], raw.lufs_s);
             return out;
         }
 
@@ -57,6 +60,7 @@ namespace hypha
             out.psr           = update (delta[3], raw.psr,           dt, false);
             out.n_prime_total = update (delta[4], raw.n_prime_total, dt, false);
             out.sharpness     = update (delta[5], raw.sharpness,     dt, false);
+            out.lufs_s        = updateDirect (delta[6], raw.lufs_s);
             return out;
         }
 
@@ -82,6 +86,7 @@ namespace hypha
             out.value.psr           = valueOrNan (measure[3]);
             out.value.n_prime_total = valueOrNan (measure[4]);
             out.value.sharpness     = valueOrNan (measure[5]);
+            out.value.lufs_s        = valueOrNan (measure[6]);
             out.muted = muted (lastMeasureSecs, nowSecs);
             return true;
         }
@@ -109,6 +114,7 @@ namespace hypha
             out.value.psr           = valueOrNan (delta[3]);
             out.value.n_prime_total = valueOrNan (delta[4]);
             out.value.sharpness     = valueOrNan (delta[5]);
+            out.value.lufs_s        = valueOrNan (delta[6]);
             out.muted = muted (lastDeltaSecs, nowSecs);
             return true;
         }
@@ -132,8 +138,8 @@ namespace hypha
         static constexpr double kHoldSecs = 9.0;
         static constexpr double kMutedAfterSecs = 5.0;
 
-        std::array<Slot, 6> measure {};
-        std::array<Slot, 6> delta {};
+        std::array<Slot, 7> measure {};
+        std::array<Slot, 7> delta {};
         double lastMeasureSecs = -1.0;
         double lastDeltaSecs = -1.0;
 
@@ -170,6 +176,18 @@ namespace hypha
             return slot.value;
         }
 
+        static double updateDirect (Slot& slot, double raw)
+        {
+            if (! finite (raw))
+            {
+                slot = {};
+                return nan();
+            }
+            slot.value = raw;
+            slot.valid = true;
+            return raw;
+        }
+
         static bool held (double previous, double now)
         {
             return previous >= 0.0 && now >= previous && (now - previous) <= kHoldSecs;
@@ -185,12 +203,12 @@ namespace hypha
             return previous >= 0.0 && now >= previous && (now - previous) >= kMutedAfterSecs;
         }
 
-        static void clearSlots (std::array<Slot, 6>& slots)
+        static void clearSlots (std::array<Slot, 7>& slots)
         {
             for (auto& s : slots) s = {};
         }
 
-        static bool hasCore (const std::array<Slot, 6>& slots)
+        static bool hasCore (const std::array<Slot, 7>& slots)
         {
             return slots[0].valid || slots[1].valid || slots[2].valid;
         }
@@ -205,6 +223,7 @@ namespace hypha
             KirinMeasureResult r {};
             r.lufs_m = r.true_peak = r.crest = r.psr = r.n_prime_total = r.sharpness = nan();
             r.psb_low = r.psb_mid = r.psb_high = r.tp_session_max = nan();
+            r.lufs_s = nan();
             for (auto& v : r.n_prime) v = nan();
             for (auto& v : r.psb_bark) v = nan();
             r.dropped_samples = 0;
@@ -216,6 +235,7 @@ namespace hypha
             KirinDelta d {};
             d.mode = 2;
             d.lufs = d.true_peak = d.crest = d.psr = d.n_prime_total = d.sharpness = nan();
+            d.lufs_s = nan();
             return d;
         }
     };
