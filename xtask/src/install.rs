@@ -74,6 +74,17 @@ impl Bundle {
     fn system_dest(&self) -> PathBuf {
         Path::new(self.system_dir).join(self.file())
     }
+    /// Executable inside the build output. A VST3 bundle is installed under its public
+    /// role-first filename, while the signed executable retains the JUCE source name.
+    fn source_binary(&self) -> PathBuf {
+        self.src.join("Contents/MacOS").join(&self.binary_name)
+    }
+    /// Executable inside the system-level installed bundle.
+    fn system_binary(&self) -> PathBuf {
+        self.system_dest()
+            .join("Contents/MacOS")
+            .join(&self.binary_name)
+    }
     /// user-level bundle path (removed first; never the install target).
     fn user_dest(&self) -> Result<PathBuf> {
         let home = std::env::var_os("HOME").context("HOME env var not set")?;
@@ -392,8 +403,8 @@ fn deploy_system_level(b: &Bundle) -> Result<()> {
 
 /// 配置後の binary size を src と dst で比較 (受入確認支援)。
 fn verify_deployment(b: &Bundle) -> Result<()> {
-    let src_bin = b.src.join("Contents/MacOS").join(&b.name);
-    let dst_bin = b.system_dest().join("Contents/MacOS").join(&b.name);
+    let src_bin = b.source_binary();
+    let dst_bin = b.system_binary();
     let src_size = fs::metadata(&src_bin)
         .with_context(|| format!("stat src {}", src_bin.display()))?
         .len();
@@ -594,6 +605,37 @@ mod tests {
             .iter()
             .filter(|bundle| bundle.ext == "component")
             .all(|bundle| bundle.legacy_file().is_none()));
+    }
+
+    #[test]
+    fn role_first_vst3_bundle_names_keep_the_signed_juce_executable_names() {
+        let bundles = bundles(Path::new("."));
+        let vst3: Vec<_> = bundles
+            .iter()
+            .filter(|bundle| bundle.ext == "vst3")
+            .collect();
+        assert_eq!(vst3.len(), 2);
+
+        for bundle in vst3 {
+            assert_ne!(
+                bundle.name, bundle.binary_name,
+                "the public bundle name must remain distinct from the signed executable name"
+            );
+            assert_eq!(
+                bundle
+                    .source_binary()
+                    .file_name()
+                    .and_then(|name| name.to_str()),
+                Some(bundle.binary_name.as_str())
+            );
+            assert_eq!(
+                bundle
+                    .system_binary()
+                    .file_name()
+                    .and_then(|name| name.to_str()),
+                Some(bundle.binary_name.as_str())
+            );
+        }
     }
 
     #[test]
