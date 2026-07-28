@@ -72,11 +72,12 @@ use kirin_measure::{
     CaptureGeneration, CaptureGenerationMember, CaptureGenerationTransaction, DeltaMode,
     DeltaResult, GenerationTerminalReason, IoThreadHandle, LatchedPre, License, LiveLicense,
     LivenessEvaluator, MeasureResult, PairStatus, PlatformPaths, PluginDataRole,
-    PresentationLatencySamples, PresentationLatencySource, PsbSummary, RecordIngress,
-    RecordMarkQueue, RecordStateMachine, RecordTakeBlock, RecordTakeTracker, RecordTraceQueue,
-    ReleaseReason, RestartIoFn, SignalError, SignalState, StoragePaths, WatchMaxTracker,
-    WatchProducerHandoff, WatchdogIo, WatchdogParams, CAPTURE_PRODUCER_READY_TIMEOUT,
-    MAX_ACTIVE_PER_PROJECT, MAX_AUDIO_BLOCK_FRAMES, MAX_CAPTURE_GENERATION_MEMBERS, N_CHANNELS,
+    PresentationLatencySamples, PresentationLatencySource, PsbSummary, RecordDisplaySnapshot,
+    RecordDisplayStatus, RecordIngress, RecordMarkQueue, RecordStateMachine, RecordTakeBlock,
+    RecordTakeTracker, RecordTraceQueue, ReleaseReason, RestartIoFn, SignalError, SignalState,
+    StoragePaths, WatchMaxTracker, WatchProducerHandoff, WatchdogIo, WatchdogParams,
+    CAPTURE_PRODUCER_READY_TIMEOUT, MAX_ACTIVE_PER_PROJECT, MAX_AUDIO_BLOCK_FRAMES,
+    MAX_CAPTURE_GENERATION_MEMBERS, N_CHANNELS,
 };
 
 mod pair_binding;
@@ -2084,6 +2085,12 @@ impl KirinHyphaEngine {
         }
     }
 
+    /// Keep/Record専用の世代付き表示スナップショット。
+    /// 計測・writer・pairingの正本とは独立し、UI Threadから非ブロッキングで読む。
+    pub fn poll_record_display(&self) -> Option<RecordDisplaySnapshot> {
+        self.record_sm.try_record_display_snapshot()
+    }
+
     fn begin_pair_reselection(&self) -> (String, String) {
         let (project_hash, post_iid) = match self.identity.lock() {
             Ok(id) => (id.project_hash.clone(), id.instance_id.clone()),
@@ -3174,6 +3181,8 @@ pub struct KirinMeasureResult {
     // B-075: ring 満杯で測定 ring に push できなかった累積サンプル数（>0 = integrity 低下）。
     // 計測値は汚さない「欠落の露出」のみ。poll_result が engine の overflow_count() から注入する。
     pub dropped_samples: u64,
+    // LUFS-S は既存 ABI offset を変えないよう末尾追加。
+    pub lufs_s: f64,
 }
 
 #[repr(C)]
@@ -3233,7 +3242,30 @@ pub struct KirinDelta {
     pub psr: f64,
     pub n_prime_total: f64,
     pub sharpness: f64,
+    // Δ LUFS-S は既存 ABI offset を変えないよう末尾追加。
+    pub lufs_s: f64,
 }
+
+/// `KirinRecordDisplay` — Keep/Record専用の世代付き表示スナップショット。
+#[repr(C)]
+pub struct KirinRecordDisplay {
+    pub phase: u8,
+    pub has_measure: u8,
+    pub has_session: u8,
+    pub has_delta: u8,
+    pub generation: u64,
+    pub measure: KirinMeasureResult,
+    pub session: KirinSessionSummary,
+    pub delta: KirinDelta,
+    /// 保持差分のPREと現在選択中のPREが同一なら1。表示分岐専用。
+    pub pair_matches_current: u8,
+}
+
+pub const KIRIN_RECORD_DISPLAY_WATCH: u8 = 0;
+pub const KIRIN_RECORD_DISPLAY_LIVE: u8 = 1;
+pub const KIRIN_RECORD_DISPLAY_FINALIZING: u8 = 2;
+pub const KIRIN_RECORD_DISPLAY_RESULT_HOLD: u8 = 3;
+pub const KIRIN_RECORD_DISPLAY_UNAVAILABLE: u8 = 4;
 
 #[inline]
 fn opt_f64(v: Option<f64>) -> f64 {
@@ -3264,6 +3296,7 @@ fn to_c_result(r: &MeasureResult) -> KirinMeasureResult {
         psb_bark: opt_arr20(r.psb_bark),
         tp_session_max: opt_f64(r.tp_session_max), // B-074: 末尾
         dropped_samples: 0, // B-075: poll_result wrapper が engine の overflow_count() で上書きする
+        lufs_s: opt_f64(r.lufs_s),
     }
 }
 
@@ -3319,6 +3352,53 @@ fn to_c_delta(d: &DeltaResult) -> KirinDelta {
         psr: opt_f64(d.psr),
         n_prime_total: opt_f64(d.n_prime_total),
         sharpness: opt_f64(d.sharpness),
+        lufs_s: opt_f64(d.lufs_s),
+    }
+}
+
+fn record_display_phase_to_abi(status: RecordDisplayStatus) -> u8 {
+    match status {
+        RecordDisplayStatus::Empty | RecordDisplayStatus::Dismissed => KIRIN_RECORD_DISPLAY_WATCH,
+        RecordDisplayStatus::Live => KIRIN_RECORD_DISPLAY_LIVE,
+        RecordDisplayStatus::Finalizing => KIRIN_RECORD_DISPLAY_FINALIZING,
+        RecordDisplayStatus::Finalized => KIRIN_RECORD_DISPLAY_RESULT_HOLD,
+        RecordDisplayStatus::Unavailable => KIRIN_RECORD_DISPLAY_UNAVAILABLE,
+    }
+}
+
+fn to_c_record_display(
+    snapshot: RecordDisplaySnapshot,
+    current_pair_pre_instance_id: Option<&str>,
+) -> KirinRecordDisplay {
+    let has_measure = snapshot.measure.is_some() as u8;
+    let has_session = snapshot.summary.is_some() as u8;
+    let has_delta = snapshot.delta.is_some() as u8;
+    let pair_matches_current = matches!(
+        (
+            snapshot.pair_pre_instance_id.as_deref(),
+            current_pair_pre_instance_id
+        ),
+        (Some(recorded), Some(current)) if recorded == current
+    ) as u8;
+    KirinRecordDisplay {
+        phase: record_display_phase_to_abi(snapshot.status),
+        has_measure,
+        has_session,
+        has_delta,
+        generation: snapshot.generation,
+        measure: snapshot
+            .measure
+            .as_ref()
+            .map_or_else(|| to_c_result(&MeasureResult::default()), to_c_result),
+        session: snapshot
+            .summary
+            .as_ref()
+            .map_or_else(|| to_c_session(&SessionSummary::default()), to_c_session),
+        delta: snapshot
+            .delta
+            .as_ref()
+            .map_or_else(|| to_c_delta(&DeltaResult::default()), to_c_delta),
+        pair_matches_current,
     }
 }
 
@@ -3333,6 +3413,111 @@ mod delta_mode_abi_tests {
         assert_eq!(delta_mode_to_abi(&DeltaMode::NoPre), 2);
         assert_eq!(delta_mode_to_abi(&DeltaMode::Bypassed), 3);
         assert_eq!(delta_mode_to_abi(&DeltaMode::PreInactive), 4);
+    }
+}
+
+#[cfg(test)]
+mod record_display_abi_tests {
+    use super::*;
+
+    #[test]
+    fn every_record_display_phase_has_a_stable_c_code() {
+        assert_eq!(
+            record_display_phase_to_abi(RecordDisplayStatus::Empty),
+            KIRIN_RECORD_DISPLAY_WATCH
+        );
+        assert_eq!(
+            record_display_phase_to_abi(RecordDisplayStatus::Dismissed),
+            KIRIN_RECORD_DISPLAY_WATCH
+        );
+        assert_eq!(
+            record_display_phase_to_abi(RecordDisplayStatus::Live),
+            KIRIN_RECORD_DISPLAY_LIVE
+        );
+        assert_eq!(
+            record_display_phase_to_abi(RecordDisplayStatus::Finalizing),
+            KIRIN_RECORD_DISPLAY_FINALIZING
+        );
+        assert_eq!(
+            record_display_phase_to_abi(RecordDisplayStatus::Finalized),
+            KIRIN_RECORD_DISPLAY_RESULT_HOLD
+        );
+        assert_eq!(
+            record_display_phase_to_abi(RecordDisplayStatus::Unavailable),
+            KIRIN_RECORD_DISPLAY_UNAVAILABLE
+        );
+    }
+
+    #[test]
+    fn record_display_marshalling_keeps_presence_flags_and_short_term_values() {
+        let snapshot = RecordDisplaySnapshot {
+            generation: 19,
+            status: RecordDisplayStatus::Finalized,
+            measure: Some(MeasureResult {
+                lufs_m: Some(-14.0),
+                lufs_s: Some(-13.5),
+                ..MeasureResult::default()
+            }),
+            summary: Some(SessionSummary {
+                lufs_i: Some(-14.2),
+                lra: Some(3.0),
+                max_true_peak: Some(-0.7),
+            }),
+            delta: Some(DeltaResult {
+                lufs: Some(0.2),
+                lufs_s: Some(0.4),
+                ..DeltaResult::default()
+            }),
+            pair_pre_instance_id: Some("pre-19".to_string()),
+            measure_started: true,
+        };
+        let out = to_c_record_display(snapshot, Some("pre-19"));
+        assert_eq!(out.phase, KIRIN_RECORD_DISPLAY_RESULT_HOLD);
+        assert_eq!(out.generation, 19);
+        assert_eq!((out.has_measure, out.has_session, out.has_delta), (1, 1, 1));
+        assert_eq!(out.pair_matches_current, 1);
+        assert_eq!(out.measure.lufs_s, -13.5);
+        assert_eq!(out.session.lufs_i, -14.2);
+        assert_eq!(out.delta.lufs_s, 0.4);
+    }
+
+    #[test]
+    fn absent_record_values_are_flagged_and_marshaled_as_nan() {
+        let out = to_c_record_display(RecordDisplaySnapshot::default(), None);
+        assert_eq!(out.phase, KIRIN_RECORD_DISPLAY_WATCH);
+        assert_eq!((out.has_measure, out.has_session, out.has_delta), (0, 0, 0));
+        assert_eq!(out.pair_matches_current, 0);
+        assert!(out.measure.lufs_m.is_nan());
+        assert!(out.measure.lufs_s.is_nan());
+        assert!(out.session.lufs_i.is_nan());
+        assert!(out.delta.lufs_s.is_nan());
+    }
+
+    #[test]
+    fn changed_pair_cannot_claim_a_held_delta() {
+        let snapshot = RecordDisplaySnapshot {
+            pair_pre_instance_id: Some("pre-original".to_string()),
+            ..RecordDisplaySnapshot::default()
+        };
+        assert_eq!(
+            to_c_record_display(snapshot.clone(), Some("pre-other")).pair_matches_current,
+            0
+        );
+        assert_eq!(
+            to_c_record_display(snapshot, Some("pre-original")).pair_matches_current,
+            1
+        );
+    }
+
+    #[test]
+    fn additive_lufs_s_fields_follow_the_preexisting_abi_tail() {
+        assert!(
+            std::mem::offset_of!(KirinMeasureResult, lufs_s)
+                > std::mem::offset_of!(KirinMeasureResult, dropped_samples)
+        );
+        assert!(
+            std::mem::offset_of!(KirinDelta, lufs_s) > std::mem::offset_of!(KirinDelta, sharpness)
+        );
     }
 }
 
@@ -4124,6 +4309,29 @@ pub unsafe extern "C" fn kirin_hypha_poll_delta(
             }
             None => false,
         }
+    }))
+    .unwrap_or(false)
+}
+
+/// Keep/Record表示スナップショットを`out`へ書く。UI Thread専用。
+///
+/// # Safety
+/// `handle`/`out`は有効。`out`は書込可能な`KirinRecordDisplay`。
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_poll_record_display(
+    handle: *mut KirinHyphaEngine,
+    out: *mut KirinRecordDisplay,
+) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() || out.is_null() {
+            return false;
+        }
+        let Some(snapshot) = (unsafe { &*handle }).poll_record_display() else {
+            return false;
+        };
+        let current_pair = (unsafe { &*handle }).paired_pre_instance_id();
+        unsafe { *out = to_c_record_display(snapshot, current_pair.as_deref()) };
+        true
     }))
     .unwrap_or(false)
 }

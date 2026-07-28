@@ -293,17 +293,26 @@ impl MeasureEngine {
         // ebur128 の running max（init=reset 以降）。Watch でも live に見えるよう毎 compute 算出。
         let tp_session_max = self.session_true_peak_dbtp();
 
-        // ── Crest Factor + PSR ───────────────────────────────────────────
+        // ── LUFS-S + Crest Factor + PSR ──────────────────────────────────
+        // PSR が従来から読んでいた同じ short-term 値を一度だけ取得し、表示経路にも露出する。
+        // 3秒未満は -inf、サブサイレンス・フロア以下は None（GUI は ---）。
+        let raw_shortterm = self.ebu.loudness_shortterm().ok().filter(|v| v.is_finite());
+        let lufs_s = raw_shortterm.filter(|v| *v > LUFS_VALID_FLOOR_LUFS);
+
         // B-207 #2: サブサイレンス・フロア帯では Crest/PSR も None に倒し、絶対値グリッドの行を
         // 一斉に --- へ収束させる（半埋まり行の回避）。それ以外は通常算出。
         let (crest, psr) = if momentary_floored {
             (None, None)
         } else {
-            self.compute_crest_psr()
+            self.compute_crest_psr(lufs_s)
         };
 
         MeasureResult {
             lufs_m,
+            // S owns its 3 s window. A quiet final 400 ms can floor M/Crest/PSR without erasing
+            // valid earlier energy that is still inside the Short-term window.
+            lufs_s,
+            computed: true,
             true_peak: tp_recent, // B-074: `true_peak` フィールドは直近 400ms（tp_recent）の値
             tp_session_max,
             crest,
@@ -318,7 +327,7 @@ impl MeasureEngine {
     /// - PSR   = peak_dBFS - LUFS_S（3s Short-term）
     ///
     ///  "peak = サンプルピーク（True Peakではない）"
-    fn compute_crest_psr(&self) -> (Option<f64>, Option<f64>) {
+    fn compute_crest_psr(&self, lufs_s: Option<f64>) -> (Option<f64>, Option<f64>) {
         if self.window_400ms.is_empty() {
             return (None, None);
         }
@@ -343,12 +352,7 @@ impl MeasureEngine {
 
         // PSR: peak_dBFS - LUFS_S。
         // LUFS_S は 3 秒ウィンドウが揃うまで -inf を返す → None になる。
-        let psr = self
-            .ebu
-            .loudness_shortterm()
-            .ok()
-            .filter(|v| v.is_finite())
-            .map(|lufs_s| peak_db - lufs_s);
+        let psr = lufs_s.map(|shortterm| peak_db - shortterm);
 
         (crest, psr)
     }
@@ -467,6 +471,32 @@ mod tp_recent_golden {
             tiny.psr.is_none(),
             "sub-floor psr must collapse to None (was {:?})",
             tiny.psr
+        );
+    }
+
+    #[test]
+    fn short_term_window_remains_independent_when_momentary_tail_is_floored() {
+        let mut eng = MeasureEngine::new(SR, 2).unwrap();
+        let mut last = MeasureResult::default();
+        for _ in 0..30 {
+            last = eng.push(&sine_100ms(0.1)).expect("100 ms result");
+        }
+        assert!(last.lufs_s.is_some(), "3 s loud segment must establish S");
+
+        for _ in 0..5 {
+            last = eng.push(&sine_100ms(1e-6)).expect("100 ms result");
+        }
+        assert!(
+            last.lufs_m.is_none(),
+            "the final 400 ms sub-floor tail must clear M"
+        );
+        assert!(
+            last.lufs_s.is_some(),
+            "S must retain valid energy from its independent 3 s window"
+        );
+        assert!(
+            last.psr.is_none(),
+            "PSR still needs a valid current peak and remains suppressed"
         );
     }
 

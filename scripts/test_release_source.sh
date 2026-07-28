@@ -49,12 +49,13 @@ run cargo test -p kirin_hypha_ffi --locked
 # The C++ shell consumes the static C ABI, not Rust's rlib symbols. Build that exact archive and
 # require the restart locator entry points to be exported definitions before any plugin bundle.
 run cargo build -p kirin_hypha_ffi --locked
-FFI_ARCHIVE="target/debug/libkirin_hypha_ffi.a"
+FFI_ARCHIVE="${CARGO_TARGET_DIR:-target}/debug/libkirin_hypha_ffi.a"
 # Apple nm from the installed Xcode can be older than rustc's LLVM and report unsupported debug
 # attributes for unrelated dependency objects. It still emits the public symbol table for this
 # crate; discard those diagnostic-only failures and require our entries to be defined (`T`).
 FFI_SYMBOLS="$(nm -g "$FFI_ARCHIVE" 2>/dev/null || true)"
-for symbol in kirin_hypha_restore_pair_candidate kirin_hypha_get_paired_pre_locator; do
+for symbol in kirin_hypha_restore_pair_candidate kirin_hypha_get_paired_pre_locator \
+              kirin_hypha_poll_record_display; do
   if ! grep -Eq "[[:space:]]T[[:space:]]_?${symbol}$" <<<"$FFI_SYMBOLS"; then
     echo "release gate missing defined C ABI symbol: $symbol" >&2
     exit 1

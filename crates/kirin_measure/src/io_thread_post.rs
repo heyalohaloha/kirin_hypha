@@ -588,6 +588,12 @@ pub fn spawn_io_thread_post(
             let pair_pre_name_snapshot = snapshot_pair_pre_name(&pair_pre_name_for_thread);
             let pair_claimed_at_snapshot =
                 pair_claimed_at_for_thread.read().map(|g| *g).unwrap_or(0.0);
+            let record_generation_before_tick = record_sm.generation();
+            let recording_for_tick = record_sm.is_recording();
+            let record_generation_after_tick = record_sm.generation();
+            let stable_record_generation = (recording_for_tick
+                && record_generation_before_tick == record_generation_after_tick)
+                .then_some(record_generation_after_tick);
 
             let post_snapshot_written = match run_tick(
                 &project_dir_hint,
@@ -605,7 +611,7 @@ pub fn spawn_io_thread_post(
                 project_hash_ref,
                 daw_session_id_ref,
                 // B-108: Record 中はラッチ凍結（W-284 self_check-skip と同型）。latched は共有実体。
-                record_sm.is_recording(),
+                recording_for_tick,
                 &latched_pre,
             ) {
                 Ok(()) => true,
@@ -614,6 +620,20 @@ pub fn spawn_io_thread_post(
                     false
                 }
             };
+            if post_snapshot_written {
+                if let Some(generation) = stable_record_generation {
+                    let delta = crate::sync_recovery::lock_recover(
+                        &delta_result,
+                        "POST Record display delta",
+                    )
+                    .clone();
+                    record_sm.publish_record_display_delta(
+                        generation,
+                        delta,
+                        crate::paired_pre_instance_id(&latched_pre),
+                    );
+                }
+            }
 
             // The exact PRE ownership index is published only after this POST's atomic snapshot
             // already contains the same binding generation. A PRE UI and a competing POST read
@@ -1813,6 +1833,7 @@ pub fn merge_last_active(
         DeltaMode::Active => {
             let snapshot = DeltaSnapshot {
                 lufs: new_delta.lufs,
+                lufs_s: new_delta.lufs_s,
                 psr: new_delta.psr,
                 tp: new_delta.tp,
                 n_prime_total: new_delta.n_prime_total,
@@ -1834,6 +1855,7 @@ pub fn merge_last_active(
 
 fn snapshot_from_delta(d: &DeltaResult) -> Option<DeltaSnapshot> {
     if d.lufs.is_none()
+        && d.lufs_s.is_none()
         && d.psr.is_none()
         && d.tp.is_none()
         && d.n_prime_total.is_none()
@@ -1844,6 +1866,7 @@ fn snapshot_from_delta(d: &DeltaResult) -> Option<DeltaSnapshot> {
     } else {
         Some(DeltaSnapshot {
             lufs: d.lufs,
+            lufs_s: d.lufs_s,
             psr: d.psr,
             tp: d.tp,
             n_prime_total: d.n_prime_total,
@@ -2014,6 +2037,7 @@ fn compute_delta_for_pre_file(
         return Ok((
             DeltaResult {
                 lufs: None,
+                lufs_s: None,
                 psr: None,
                 tp: None,
                 n_prime_total: None,
@@ -2042,6 +2066,7 @@ fn compute_delta_for_pre_file(
     }
 
     let pre_lufs = parsed["lufs_m"].as_f64();
+    let pre_lufs_s = parsed["lufs_s"].as_f64();
     let pre_psr = parsed["psr"].as_f64();
     let pre_tp = parsed["true_peak"].as_f64();
     // (io_thread_pre.rs:856-862 / opt_f64 ではなく conditional concat)、欠落時の
@@ -2051,6 +2076,7 @@ fn compute_delta_for_pre_file(
     let pre_sharpness = parsed["sharpness"].as_f64();
 
     let delta_lufs = post.lufs_m.zip(pre_lufs).map(|(p, r)| p - r);
+    let delta_lufs_s = post.lufs_s.zip(pre_lufs_s).map(|(p, r)| p - r);
     let delta_psr = post.psr.zip(pre_psr).map(|(p, r)| p - r);
     let delta_tp = post.true_peak.zip(pre_tp).map(|(p, r)| p - r);
     let delta_n = post
@@ -2063,6 +2089,7 @@ fn compute_delta_for_pre_file(
     Ok((
         DeltaResult {
             lufs: delta_lufs,
+            lufs_s: delta_lufs_s,
             psr: delta_psr,
             tp: delta_tp,
             n_prime_total: delta_n,
@@ -2251,7 +2278,7 @@ fn serialize_post_json_with_daw_owner_and_pair_instance(
     let paired_pre_instance_id_json =
         serde_json::to_string(paired_pre_instance_id).unwrap_or_else(|_| "\"\"".to_string());
     format!(
-        r#"{{"v":2,"role":"POST","instance_id":{instance_id_json},"daw_session_id":{daw_session_id},"host_process_id":{host_process_id},"watch_owner_id":{watch_owner_id},"signal_state":"{signal_state}","pre_signal_state":{pre_signal_state},"t":"{t}","pair_pre_name":{pair_pre_name},"paired_pre_instance_id":{paired_pre_instance_id},"pair_claimed_at":{pair_claimed_at},"lufs_m":{lufs_m},"true_peak":{true_peak},"crest":{crest},"psr":{psr}{phase_d}}}"#,
+        r#"{{"v":2,"role":"POST","instance_id":{instance_id_json},"daw_session_id":{daw_session_id},"host_process_id":{host_process_id},"watch_owner_id":{watch_owner_id},"signal_state":"{signal_state}","pre_signal_state":{pre_signal_state},"t":"{t}","pair_pre_name":{pair_pre_name},"paired_pre_instance_id":{paired_pre_instance_id},"pair_claimed_at":{pair_claimed_at},"lufs_m":{lufs_m},"lufs_s":{lufs_s},"true_peak":{true_peak},"crest":{crest},"psr":{psr}{phase_d}}}"#,
         instance_id_json = instance_id_json,
         daw_session_id = daw_session_id_json,
         host_process_id = host_process_id,
@@ -2263,6 +2290,7 @@ fn serialize_post_json_with_daw_owner_and_pair_instance(
         paired_pre_instance_id = paired_pre_instance_id_json,
         pair_claimed_at = pair_claimed_at,
         lufs_m = opt_f64(result.lufs_m),
+        lufs_s = opt_f64(result.lufs_s),
         true_peak = opt_f64(result.true_peak),
         crest = opt_f64(result.crest),
         psr = opt_f64(result.psr),
@@ -3331,6 +3359,21 @@ mod compute_delta_tests {
         fs::write(dir.join("pre.json"), json).unwrap();
     }
 
+    fn write_pre_with_short_term(
+        project_dir: &Path,
+        instance_id: &str,
+        t: &str,
+        lufs_m: f64,
+        lufs_s: f64,
+    ) {
+        let dir = project_dir.join(instance_id);
+        fs::create_dir_all(&dir).unwrap();
+        let json = format!(
+            r#"{{"v":2,"role":"PRE","instance_id":"{instance_id}","signal_state":"active","t":"{t}","lufs_m":{lufs_m},"lufs_s":{lufs_s},"true_peak":-1.0,"crest":12.0,"psr":8.0}}"#
+        );
+        fs::write(dir.join("pre.json"), json).unwrap();
+    }
+
     /// W-280: pair filter テスト用 — `name` field 付き pre.json を書き出す。
     fn write_pre_named(project_dir: &Path, instance_id: &str, name: &str, t: &str, lufs: f64) {
         let dir = project_dir.join(instance_id);
@@ -3356,6 +3399,35 @@ mod compute_delta_tests {
         )
         .unwrap();
         assert_eq!(r.0.mode, DeltaMode::NoPre);
+    }
+
+    #[test]
+    fn short_term_delta_is_additive_across_old_and_new_pre_json() {
+        let pd = isolated_project_dir();
+        let now = chrono::Utc::now()
+            .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+            .to_string();
+        let post = MeasureResult {
+            lufs_m: Some(-10.0),
+            lufs_s: Some(-11.0),
+            ..MeasureResult::default()
+        };
+
+        write_pre(&pd, "pre-old", &now, -14.0);
+        let old = compute_delta_with_state(&pd, &post, None).unwrap().0;
+        assert_eq!(old.mode, DeltaMode::Active);
+        assert_eq!(old.lufs, Some(4.0));
+        assert_eq!(
+            old.lufs_s, None,
+            "a legacy PRE without lufs_s must keep existing deltas and expose ΔS as unavailable"
+        );
+
+        fs::remove_dir_all(pd.join("pre-old")).unwrap();
+        write_pre_with_short_term(&pd, "pre-new", &now, -14.0, -15.0);
+        let new = compute_delta_with_state(&pd, &post, None).unwrap().0;
+        assert_eq!(new.mode, DeltaMode::Active);
+        assert_eq!(new.lufs, Some(4.0));
+        assert_eq!(new.lufs_s, Some(4.0));
     }
 
     // ── B-108: pairing latch（compute_latched_display）─────────────────────────
@@ -4489,6 +4561,7 @@ mod post_tmp_json_tests {
     fn deserialize_active_full_roundtrip() {
         let result = MeasureResult {
             lufs_m: Some(-12.0),
+            lufs_s: Some(-13.0),
             true_peak: Some(-0.5),
             crest: Some(10.0),
             psr: Some(7.0),
@@ -4517,6 +4590,7 @@ mod post_tmp_json_tests {
         assert_eq!(parsed.pair_pre_name, "PRE-Master");
         assert!((parsed.pair_claimed_at - 123.456).abs() < 1e-6);
         assert_eq!(parsed.lufs_m, Some(-12.0));
+        assert_eq!(parsed.lufs_s, Some(-13.0));
         assert_eq!(parsed.true_peak, Some(-0.5));
         assert_eq!(parsed.crest, Some(10.0));
         assert_eq!(parsed.psr, Some(7.0));
@@ -4618,6 +4692,7 @@ mod post_tmp_json_tests {
         assert_eq!(parsed.pair_pre_name, "PRE-Mix");
         assert!(parsed.pre_signal_state.is_none());
         assert!(parsed.lufs_m.is_none());
+        assert!(parsed.lufs_s.is_none());
         assert!(parsed.true_peak.is_none());
         assert!(parsed.crest.is_none());
         assert!(parsed.psr.is_none());
@@ -4636,6 +4711,10 @@ mod post_tmp_json_tests {
             "pair_pre_name must default to empty for legacy schema"
         );
         assert_eq!(parsed.lufs_m, Some(-14.0));
+        assert!(
+            parsed.lufs_s.is_none(),
+            "old v2 POST JSON without lufs_s must remain readable"
+        );
     }
 
     /// pair_pre_name が空文字で書込まれた場合の roundtrip (Active の POST が PRE 未選択)。
@@ -6148,6 +6227,7 @@ mod release_delta_reset_tests {
         // 解放前: last_active=Some / mode=Active / 6 field=Some (W-281 release 直前状態)。
         let delta = Arc::new(Mutex::new(DeltaResult {
             lufs: Some(-2.0),
+            lufs_s: Some(-1.0),
             psr: Some(1.5),
             tp: Some(-0.5),
             n_prime_total: Some(0.1),
@@ -6156,6 +6236,7 @@ mod release_delta_reset_tests {
             mode: DeltaMode::Active,
             last_active: Some(DeltaSnapshot {
                 lufs: Some(-2.0),
+                lufs_s: Some(-1.0),
                 psr: Some(1.5),
                 tp: Some(-0.5),
                 n_prime_total: Some(0.1),
@@ -6181,6 +6262,7 @@ mod release_delta_reset_tests {
             "release must reset mode to NoPre (Default)"
         );
         assert!(r.lufs.is_none());
+        assert!(r.lufs_s.is_none());
         assert!(r.psr.is_none());
         assert!(r.tp.is_none());
         assert!(r.n_prime_total.is_none());
@@ -6221,6 +6303,7 @@ mod resolve_delta_for_store_tests {
     fn snap(lufs: f64) -> DeltaSnapshot {
         DeltaSnapshot {
             lufs: Some(lufs),
+            lufs_s: None,
             psr: None,
             tp: None,
             n_prime_total: None,
@@ -6289,6 +6372,7 @@ mod non_active_delta_store_tests {
             crest: Some(3.0),
             last_active: Some(DeltaSnapshot {
                 lufs: Some(1.0),
+                lufs_s: Some(1.5),
                 psr: Some(4.0),
                 tp: Some(2.0),
                 n_prime_total: Some(5.0),
@@ -6303,6 +6387,7 @@ mod non_active_delta_store_tests {
         assert_eq!(r.mode, DeltaMode::Stale);
         let snap = r.last_active.expect("inactive pair must keep frozen delta");
         assert_eq!(snap.lufs, Some(1.0));
+        assert_eq!(snap.lufs_s, Some(1.5));
         assert_eq!(snap.tp, Some(2.0));
         assert_eq!(snap.crest, Some(3.0));
     }

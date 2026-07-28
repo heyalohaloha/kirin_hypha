@@ -47,6 +47,8 @@ pub(crate) struct PostTmpJson {
     #[serde(default)]
     pub lufs_m: Option<f64>,
     #[serde(default)]
+    pub lufs_s: Option<f64>,
+    #[serde(default)]
     pub true_peak: Option<f64>,
     #[serde(default)]
     pub crest: Option<f64>,

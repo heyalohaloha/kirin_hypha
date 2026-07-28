@@ -75,6 +75,40 @@ namespace hypha
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MetricCell)
     };
 
+    // Display-only M/S selector occupying the existing first metric label column. The two
+    // accessible buttons never alter either measurement engine; they only choose which already
+    // computed loudness value the six fixed cells render.
+    class LoudnessSelector : public juce::Component
+    {
+    public:
+        LoudnessSelector();
+
+        std::function<void (bool shortTerm)> onChange;
+
+        void setShortTerm (bool shortTerm);
+        void setDeltaMode (bool delta);
+        void paint (juce::Graphics&) override;
+        void resized() override;
+
+    private:
+        class SegmentButton final : public juce::Button
+        {
+        public:
+            explicit SegmentButton (const juce::String& text);
+            void setSelected (bool selectedIn);
+            void paintButton (juce::Graphics&, bool highlighted, bool down) override;
+        private:
+            const juce::String text;
+            bool selected = false;
+        };
+
+        SegmentButton momentary { "M" };
+        SegmentButton shortTerm { "S" };
+        bool selectedShortTerm = false;
+        bool deltaMode = false;
+        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LoudnessSelector)
+    };
+
     // ── click-to-edit name (egui PRE name / POST pair name) ─────────────────────────────────
     // Shows display text (optional prefix + raw name, or a fallback when the name is empty) in
     // COL_FLORA monospace; single click opens an inline editor seeded with the RAW name. Enter

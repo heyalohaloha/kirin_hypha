@@ -47,6 +47,7 @@ namespace hypha::ui_contract
     constexpr float framelessButtonFontHeight = 13.0f;
     constexpr float metricMinimumLabelWidth = 40.0f;
     constexpr float metricHorizontalSpacing = 4.0f;
+    constexpr int loudnessSelectorWidth = 40;
 
     constexpr const char* preTitle = "PRE";
     constexpr const char* postTitle = "POST";
@@ -150,13 +151,20 @@ namespace hypha::ui_contract
                  metricRowHeight };
     }
 
+    constexpr Rect loudnessSelectorBounds (int metricTop, int width = editorWidth) noexcept
+    {
+        const auto first = metricCellBounds (0, metricTop, width);
+        return { first.x, first.y, loudnessSelectorWidth, first.height };
+    }
+
     enum class Metric
     {
         lufs,
         truePeak,
+        maxTruePeak,
         crest,
         psr,
-        loudness,
+        integrated,
         sharpness,
     };
 
@@ -172,11 +180,12 @@ namespace hypha::ui_contract
     {
         switch (metric)
         {
-            case Metric::lufs:      return { "LUFS-M", "LUFS", "LUFS", "LU" };
+            case Metric::lufs:      return { "", "", "LUFS", "LU" };
             case Metric::truePeak:  return { "TP", "TP", "dBTP", "dB" };
+            case Metric::maxTruePeak: return { "Max TP", "Max TP", "dBTP", "dBTP" };
             case Metric::crest:     return { "Crest", "Crest", "dB", "dB" };
             case Metric::psr:       return { "PSR", "PSR", "dB", "dB" };
-            case Metric::loudness:  return { "N", "N", "sone", "sone" };
+            case Metric::integrated:return { "I", "I", "LUFS", "LUFS" };
             case Metric::sharpness: return { "Sharp", "Sharp", "acum", "acum" };
         }
         return { "", "", "", "" };
@@ -186,19 +195,20 @@ namespace hypha::ui_contract
     {
         Metric metric;
         bool maximum;
+        bool deltaEligible;
     };
 
     // Watch is always a 2x3 current/MAX grid. Record is always a 2x3 six-metric grid.
     constexpr std::array<MetricSlot, 6> watchMetrics {{
-        { Metric::lufs, false }, { Metric::lufs, true },
-        { Metric::truePeak, false }, { Metric::truePeak, true },
-        { Metric::crest, false }, { Metric::crest, true },
+        { Metric::lufs, false, true }, { Metric::lufs, true, false },
+        { Metric::truePeak, false, true }, { Metric::truePeak, true, false },
+        { Metric::crest, false, true }, { Metric::crest, true, false },
     }};
 
     constexpr std::array<MetricSlot, 6> recordMetrics {{
-        { Metric::lufs, false }, { Metric::psr, false },
-        { Metric::truePeak, false }, { Metric::loudness, false },
-        { Metric::crest, false }, { Metric::sharpness, false },
+        { Metric::lufs, false, true }, { Metric::psr, false, true },
+        { Metric::maxTruePeak, false, false }, { Metric::integrated, false, false },
+        { Metric::crest, false, true }, { Metric::sharpness, false, true },
     }};
 
     static_assert (metricValueFontHeight >= 17.0f
@@ -225,4 +235,6 @@ namespace hypha::ui_contract
                    "Every valid 16-character PRE name must fit at the release font size");
     static_assert (watchMetrics[1].maximum && watchMetrics[3].maximum && watchMetrics[5].maximum,
                    "Watch right column must remain MAX for all three metrics");
+    static_assert (! recordMetrics[2].deltaEligible && ! recordMetrics[3].deltaEligible,
+                   "Record Max TP and I are absolute session values in PRE and POST");
 }

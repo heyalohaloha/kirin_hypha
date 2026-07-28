@@ -28,6 +28,7 @@
 //! Watch 時の既存 Step 1 挙動への副作用をゼロに保つため。
 
 use crate::identity::License;
+use crate::record_display::RecordDisplayStore;
 use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::sync::RwLock;
 
@@ -174,6 +175,8 @@ pub struct RecordStateMachine {
     /// Measure Thread が Watch→Record 遷移を観測し、Record TRACE を受けられる状態に
     /// なった最新 generation。PRE はこの値を待ってから `record_signal` を Acknowledged にする。
     measure_ready_generation: AtomicU64,
+    /// GUI表示専用の世代付きRecord snapshot。計測・writer・pairingの正本には使わない。
+    record_display: RecordDisplayStore,
 }
 
 impl RecordStateMachine {
@@ -190,6 +193,7 @@ impl RecordStateMachine {
             record_session: RwLock::new(SessionSlot::default()),
             closed_session_id: RwLock::new(None),
             measure_ready_generation: AtomicU64::new(0),
+            record_display: RecordDisplayStore::default(),
         }
     }
 
@@ -469,7 +473,10 @@ impl RecordStateMachine {
             Ordering::Release,
             Ordering::Acquire,
         ) {
-            Ok(_) => Ok(()),
+            Ok(_) => {
+                self.record_display.begin(self.generation());
+                Ok(())
+            }
             Err(_) => {
                 self.clear_record_session_if_owned_by(token);
                 Err(TransitionError::AlreadyRecording)
@@ -562,6 +569,10 @@ impl RecordStateMachine {
     /// - 10 分 idle timeout
     /// - プラグインアンロード時のローカル終了処理
     pub fn exit_record(&self) {
+        // Watch を公開して次の entrant を許可する前に、閉じる世代を固定して表示側へ伝える。
+        // state.store(WATCH) 後に self.generation() を読むと、その隙間で次の Keep が generation
+        // を進め、新しい Live 表示を旧 Stop が閉じる ABA が成立する。
+        let closing_generation = self.generation();
         self.record_started_at_ms.store(0, Ordering::Release);
         self.record_started_at_position_samples
             .store(i64::MIN, Ordering::Release);
@@ -569,7 +580,48 @@ impl RecordStateMachine {
             .store(i64::MIN, Ordering::Release);
         self.clear_record_session();
         self.measure_ready_generation.store(0, Ordering::Release);
+        self.record_display.request_stop(closing_generation);
         self.state.store(STATE_WATCH, Ordering::Release);
+    }
+
+    pub fn mark_record_display_measure_started(&self, generation: u64) {
+        self.record_display.mark_measure_started(generation);
+    }
+
+    pub fn publish_record_display_measure(
+        &self,
+        generation: u64,
+        measure: crate::MeasureResult,
+        summary: crate::SessionSummary,
+    ) {
+        self.record_display
+            .publish_measure(generation, measure, summary);
+    }
+
+    pub fn publish_record_display_delta(
+        &self,
+        generation: u64,
+        delta: crate::DeltaResult,
+        pair_pre_instance_id: Option<String>,
+    ) {
+        self.record_display
+            .publish_delta(generation, delta, pair_pre_instance_id);
+    }
+
+    pub fn finalize_record_display(&self, generation: u64, summary: Option<crate::SessionSummary>) {
+        self.record_display.finalize(generation, summary);
+    }
+
+    pub fn mark_record_display_unavailable(&self, generation: u64) {
+        self.record_display.mark_unavailable(generation);
+    }
+
+    pub fn dismiss_record_display_on_watch_result(&self) {
+        self.record_display.dismiss_on_watch_result();
+    }
+
+    pub fn try_record_display_snapshot(&self) -> Option<crate::RecordDisplaySnapshot> {
+        self.record_display.try_snapshot()
     }
 }
 

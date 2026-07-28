@@ -88,6 +88,8 @@ namespace hypha
 
     // ── exact hover help strings (common.rs / editor.rs). em dash = U+2014, UTF-8. ──────────
     inline juce::String helpLufsM() { return juce::CharPointer_UTF8 ("Momentary Loudness \xe2\x80\x94 ITU BS.1770 (LUFS)"); }
+    inline juce::String helpLufsS() { return juce::CharPointer_UTF8 ("Short-term Loudness \xe2\x80\x94 ITU BS.1770, 3 s (LUFS)"); }
+    inline juce::String helpLufsI() { return juce::CharPointer_UTF8 ("Integrated Loudness \xe2\x80\x94 current Keep session (LUFS)"); }
     inline juce::String helpTp()    { return juce::CharPointer_UTF8 ("True Peak \xe2\x80\x94 inter-sample peak, ITU BS.1770 (dBTP)"); }
     inline juce::String helpCrest() { return juce::CharPointer_UTF8 ("Crest Factor \xe2\x80\x94 peak vs RMS difference (dB)"); }
     inline juce::String helpPsr()   { return juce::CharPointer_UTF8 ("Peak to Short-term Loudness Ratio (dB)"); }

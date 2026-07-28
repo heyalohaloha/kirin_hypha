@@ -40,30 +40,36 @@ Kirin Hypha is free and fully functional as a standalone plugin. Record mode req
 
 | Metric | Window / Unit | Standard |
 |---|---|---|
-| LUFS-M | Momentary loudness, 400 ms (LUFS) | ITU-R BS.1770-4 |
+| LUFS-M / LUFS-S | Selectable Momentary (400 ms) or Short-term (3 s) loudness (LUFS) | ITU-R BS.1770-4 |
 | True Peak | Recent peak, last 400 ms (dBTP) | ITU-R BS.1770-4 |
 | Crest Factor | Peak − RMS, 400 ms (dB) | — |
 
-PRE displays absolute values. POST displays Δ values relative to the paired PRE.
+PRE displays absolute values. POST displays Δ values relative to the paired PRE. The M/S choice
+also selects the independent MAX value for the current Watch playback pass.
 
 ### Record mode (Kirin OS required)
 
 | Metric | Window / Unit | Standard |
 |---|---|---|
-| LUFS-M | Momentary loudness, 400 ms (LUFS) | ITU-R BS.1770-4 |
-| True Peak | Session maximum (dBTP) | ITU-R BS.1770-4 |
+| LUFS-M / LUFS-S | Selectable Momentary (400 ms) or Short-term (3 s) loudness (LUFS) | ITU-R BS.1770-4 |
+| Integrated Loudness | Current Keep session (LUFS) | ITU-R BS.1770-4 |
+| Max True Peak | Current Keep session maximum (dBTP) | ITU-R BS.1770-4 |
 | Crest Factor | Peak − RMS, 400 ms (dB) | — |
 | PSR | Peak-to-Short-term Ratio, 3 s (dB) | — |
-| N (Zwicker loudness) | sone, mono sum | ISO 532-1 |
 | Sharpness | acum, mono sum | DIN 45692 |
 
-PRE displays all six values. POST displays Δ values for all six.
+PRE displays all six values. A paired POST displays Δ for the selected M/S loudness, PSR, Crest,
+and Sharpness; Integrated Loudness and Max True Peak remain absolute POST session values. The
+Integrated value spans transport stops within one Keep. After Stop, the final Record result remains
+visible until the first newly computed Watch result arrives.
 
 **On True Peak.** Two distinct True Peak quantities are reported. The *recent peak* is the maximum inter-sample peak within the last 400 ms (the same window as LUFS-M) and is shown live in Watch mode; it is not held, so a transient drops out of the reading once that window has passed. The *session maximum* is the running maximum inter-sample peak over the whole recording and is what the Record data stores. When a single dBTP figure is quoted for a file, it is the session maximum. Peak windows are tracked by sample count, so offline / faster-than-real-time rendering does not shift them.
 
 **On Crest Factor.** Crest Factor is the sample-peak level minus the RMS level (both in dBFS) over the same 400 ms window. Peak and RMS are both computed across the pooled samples of all channels — not a mono sum — and the peak is a sample peak, not the inter-sample True Peak. A silent window produces no value (shown as `---`).
 
-**On the psychoacoustic metrics.** N (Zwicker loudness) and Sharpness are computed from a mono sum, (L+R)/2.
+**On the psychoacoustic metrics.** N (Zwicker loudness) remains measured and stored for Kirin OS
+even though it is no longer one of the six DAW display cells. N and Sharpness are computed from a
+mono sum, (L+R)/2.
 
 ---
 
@@ -127,8 +133,9 @@ Multiple PRE / POST pairs can run simultaneously (up to 12 active pairs per proj
 
 ## Watch mode
 
-Real-time display of LUFS-M, True Peak (recent), and Crest Factor during playback.
-POST displays the difference between its own measurements and the paired PRE.
+Real-time display of selectable LUFS-M / LUFS-S, True Peak (recent), and Crest Factor during
+playback. The M and S selections retain independent playback-pass maximums. POST displays the
+difference between its own measurements and the paired PRE.
 
 Closing the GUI does not stop measurement. The audio thread continues running as long as the plugin is loaded in the DAW.
 
@@ -141,9 +148,15 @@ With a Kirin OS license, the POST plugin shows a **Keep** button in Watch mode.
 1. Press **Keep** to begin a session recording.
 2. Press **Stop** to end the session. The session is written to the `.kirin` record.
 
-During an offline bounce/export, POST auto-runs the same cleanup as **Stop** when the host reports that offline processing has ended. If a host does not emit that offline-end edge, Keep remains armed until manual **Stop** or the idle auto-stop backstop after 10 minutes without Active signal.
+Integrated Loudness and session-maximum True Peak accumulate across DAW transport stops while the
+same Keep remains active. During an offline bounce/export, POST auto-runs the same cleanup as
+**Stop** when the host reports that offline processing has ended. If a host does not emit that
+offline-end edge, Keep remains armed until manual **Stop** or the idle auto-stop backstop after
+10 minutes without Active signal.
 
-After Stop, the POST display does not hold a frozen value — it returns to the live Watch readout (Δ while audio plays, `---` when the transport is stopped). Multiple pairs record independently.
+After Stop, the final Record display remains visible until the next playback produces its first
+newly computed Watch result; that result returns the grid to Watch without showing stale Watch data
+in between. Multiple pairs record independently.
 
 If measurement samples are ever dropped during a recording (for example, on a buffer overflow), the dropped-sample count and an integrity flag are written into the session data. Incomplete measurement is recorded as incomplete, never presented as complete.
 

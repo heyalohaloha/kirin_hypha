@@ -451,6 +451,21 @@ bool KirinHyphaProcessorBase::pollWatchDisplay (KirinWatchDisplay& out) const
         &out);
 }
 
+bool KirinHyphaProcessorBase::pollRecordDisplay (KirinRecordDisplay& out) const
+{
+    const juce::ScopedLock sl (handleLock);
+    if (hyphaHandle == nullptr)
+        return false;
+    return kirin_hypha_poll_record_display (hyphaHandle, &out);
+}
+
+void KirinHyphaProcessorBase::setUseShortTermLoudness (bool shortTerm)
+{
+    if (persistShortTermLoudness.exchange (shortTerm, std::memory_order_acq_rel) == shortTerm)
+        return;
+    updateHostDisplay (ChangeDetails {}.withNonParameterStateChanged (true));
+}
+
 // --- B-072: POST pairing surface ---------------------------------------------------------
 
 bool KirinHyphaProcessorBase::isRecording() const
@@ -798,6 +813,8 @@ void KirinHyphaProcessorBase::getStateInformation (juce::MemoryBlock& destData)
     xml.setAttribute ("pair_pre_name",    persistPairName);
     xml.setAttribute ("paired_pre_instance_id", persistPairInstanceId);
     xml.setAttribute ("paired_pre_project_hash", persistPairProjectHash);
+    xml.setAttribute ("loudness_view",
+                      persistShortTermLoudness.load (std::memory_order_acquire) ? "S" : "M");
     copyXmlToBinary (xml, destData);
 }
 
@@ -810,6 +827,7 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
 
     juce::String restoredInstanceId, restoredProjectUuid, restoredDawSessionUuid;
     juce::String restoredName, restoredPairName, restoredPairInstanceId, restoredPairProjectHash;
+    bool restoredShortTermLoudness = false;
     bool restored = false;
 
     if (auto xml = getXmlFromBinary (data, sizeInBytes))
@@ -823,6 +841,7 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
             restoredPairName       = xml->getStringAttribute ("pair_pre_name");
             restoredPairInstanceId = xml->getStringAttribute ("paired_pre_instance_id");
             restoredPairProjectHash = xml->getStringAttribute ("paired_pre_project_hash");
+            restoredShortTermLoudness = xml->getStringAttribute ("loudness_view") == "S";
             restored = true;
         }
     }
@@ -847,6 +866,9 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
 
     if (restored)
     {
+        // Additive display-only state. Old JUCE states, legacy nih-plug JSON, and invalid values
+        // all resolve to the established Momentary default without touching identity/pair fields.
+        persistShortTermLoudness.store (restoredShortTermLoudness, std::memory_order_release);
         // Once writes are enabled, the io_thread has already snapshotted path identity. Only the
         // live-editable name/pair fields may be applied at that point; the exact-path writer stays
         // coherent with its established identity.

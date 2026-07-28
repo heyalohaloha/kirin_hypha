@@ -80,6 +80,7 @@ private:
     hypha::EditableName       nameField;                  // PRE name / POST pair name
     juce::Label               pairStatusLabel;            // PRE/POST: PAIR — / ◌ / ●
     std::array<hypha::MetricCell, 6> cells;
+    hypha::LoudnessSelector   loudnessSelector;           // occupies cell 0's existing label column
     juce::Label               feedbackLabel;              // toast > persistent error > Keeping
     std::unique_ptr<hypha::PostControls> postControls;    // POST button row
     juce::TextButton          pairDropdown;                // POST: ▼ candidate / All Keep / All Stop
@@ -100,6 +101,8 @@ private:
     hypha::DisplaySmoother displaySmoother;
     KirinMeasureResult watchMaximum {};
     bool haveWatchMaximum = false;
+    KirinRecordDisplay cachedRecordDisplay {};
+    bool haveRecordDisplay = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (KirinHyphaEditor)
 };

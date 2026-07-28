@@ -98,7 +98,8 @@ mod tests {
             "shared AU/VST3 editor must retain MAX in both roles"
         );
         for metric in [
-            "watchMaximum.lufs_m",
+            "return useShortTerm ? value.lufs_s : value.lufs_m",
+            "selectedMeasure (watchMaximum)",
             "watchMaximum.true_peak",
             "watchMaximum.crest",
         ] {

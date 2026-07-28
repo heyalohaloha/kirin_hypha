@@ -22,6 +22,7 @@ fn shipped_au_and_vst3_compile_the_same_editor_processor_and_control_contract() 
         "kirin_hypha_pair_status",
         "kirin_hypha_get_paired_pre_instance_id",
         "kirin_hypha_drain_keep_action_notice",
+        "kirin_hypha_poll_record_display",
     ] {
         assert!(ffi_header.contains(symbol), "FFI must expose {symbol}");
     }
@@ -41,6 +42,8 @@ fn shipped_au_and_vst3_compile_the_same_editor_processor_and_control_contract() 
     assert!(juce_editor.contains("ui::metricValueFontHeight"));
     assert!(juce_editor.contains("ui::metricUnitFontHeight"));
     assert!(juce_editor.contains("ui::maximumLabel"));
+    assert!(juce_editor.contains("ui::loudnessSelectorBounds"));
+    assert!(juce_editor.contains("cachedRecordDisplay.session"));
     assert!(juce_editor.contains("menu.addSectionHeader"));
     assert!(juce_editor.contains("withMinimumWidth (ui::pairMenuMinimumWidth)"));
     assert!(juce_editor.contains("withMaximumNumColumns (ui::pairMenuMaximumColumns)"));
@@ -112,6 +115,7 @@ fn shipped_au_and_vst3_compile_the_same_editor_processor_and_control_contract() 
     assert!(source_gate.contains("cargo build -p kirin_hypha_ffi --locked"));
     assert!(source_gate.contains("kirin_hypha_restore_pair_candidate"));
     assert!(source_gate.contains("kirin_hypha_get_paired_pre_locator"));
+    assert!(source_gate.contains("kirin_hypha_poll_record_display"));
 }
 
 #[test]
@@ -180,7 +184,9 @@ fn paired_pre_inactive_uses_post_absolute_without_releasing_binding() {
     assert!(display_contract.contains("mode == KIRIN_DELTA_MODE_PRE_INACTIVE"));
     assert!(display_contract.contains("mode == KIRIN_DELTA_MODE_ACTIVE"));
     assert!(editor.contains("display::preUnavailableForDelta (rawD.mode)"));
-    assert!(editor.contains("display::recordMetricMode (haveD, d.mode)"));
+    assert!(editor.contains("display::recordPairContext ("));
+    assert!(editor.contains("cachedRecordDisplay.pair_matches_current != 0"));
+    assert!(editor.contains("display::recordMetricMode (recordPairSelected, haveD, d.mode)"));
     assert!(editor.contains("display::watchMetricMode (pairSelected, haveRawD, rawD.mode)"));
     assert!(!editor.contains("rawD.mode == 0"));
     assert!(editor.contains("Kind::Abs6"));
@@ -194,6 +200,40 @@ fn paired_pre_inactive_uses_post_absolute_without_releasing_binding() {
     assert!(producer.contains("Some(SignalState::Inactive) => DeltaMode::PreInactive"));
     assert!(producer.contains("POST absolute until it resumes"));
     assert!(!producer.contains("idle はラッチ維持で Stale"));
+}
+
+#[test]
+fn loudness_view_and_integrated_result_are_additive_display_only_state() {
+    let header = read_repo("crates/kirin_hypha_ffi/include/kirin_hypha_ffi.h");
+    assert!(header.contains("double lufs_s"));
+    assert!(header.contains("KirinRecordDisplay"));
+    assert!(header.contains("KIRIN_RECORD_DISPLAY_RESULT_HOLD 3u"));
+
+    let processor = read_repo("juce_shell/src/PluginProcessor.cpp");
+    assert!(processor.contains("xml.setAttribute (\"loudness_view\""));
+    assert!(processor.contains("getStringAttribute (\"loudness_view\") == \"S\""));
+    assert!(processor.contains("withNonParameterStateChanged (true)"));
+
+    let contract = read_repo("juce_shell/src/HyphaUiContract.h");
+    assert!(contract.contains("Metric::maxTruePeak"));
+    assert!(contract.contains("Metric::integrated"));
+    assert!(!contract.contains("Metric::loudness"));
+
+    let editor = read_repo("juce_shell/src/PluginEditor.cpp");
+    assert!(editor.contains("return useShortTerm ? value.lufs_s : value.lufs_m"));
+    assert!(editor.contains("summary.max_true_peak"));
+    assert!(editor.contains("summary.lufs_i"));
+    assert!(!editor.contains("fillAbs (3, V (m.n_prime_total)"));
+
+    let pre_json = read_repo("crates/kirin_measure/src/io_thread_pre.rs");
+    let post_json = read_repo("crates/kirin_measure/src/io_thread_post.rs");
+    assert!(pre_json.contains("\"lufs_s\""));
+    assert!(post_json.contains("\"lufs_s\""));
+    let plugin_data = read_repo("crates/kirin_measure/src/plugin_data.rs");
+    assert!(
+        !plugin_data.contains("\"lufs_s\""),
+        "plugin_data/.kirin schema must remain unchanged"
+    );
 }
 
 #[test]

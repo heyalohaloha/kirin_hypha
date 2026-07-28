@@ -189,27 +189,28 @@
             .find("void KirinHyphaEditor::updatePost()")
             .expect("updatePost");
         let body = &PLUGIN_EDITOR_CPP[start..];
-        let record_branch = body.find("if (rec)").expect("record branch");
+        let record_branch = body.find("if (displayRecord)").expect("record branch");
         let signal_branch = body
             .find("else if (sig != KIRIN_SIGNAL_STATE_ACTIVE)")
             .expect("signal fallback");
 
         assert!(
             record_branch < signal_branch,
-            "POST Record must keep Delta6/N/Sharp visible even if the host goes inactive during bounce"
+            "POST Record must keep its six fixed cells visible through finalize and result hold"
         );
         assert!(
-            body.contains("if (sig == KIRIN_SIGNAL_STATE_ACTIVE && processorRef.pollDelta (rawD))",)
-                && body.contains("display::deltaIsActive (rawD.mode)")
-                && body.contains("d = displaySmoother.smoothDelta (rawD, t);"),
-            "POST Record active display must pass delta values through the GUI-only smoother"
+            body.contains("cachedRecordDisplay.has_delta != 0")
+                && body.contains("d = cachedRecordDisplay.delta")
+                && body.contains("display::recordPairContext (")
+                && body.contains("cachedRecordDisplay.pair_matches_current != 0")
+                && body.contains("display::recordMetricMode (recordPairSelected, haveD, d.mode)"),
+            "POST Record must bind its held delta and final I to one display generation and PRE"
         );
         assert!(
-            body.contains("else if (sig == KIRIN_SIGNAL_STATE_INACTIVE)")
-                && body.contains("displaySmoother.heldDeltaDisplay (held, t)")
-                && body.contains("display::recordMetricMode (haveD, d.mode)")
-                && body.contains("display::deltaIsStale (d.mode)"),
-            "POST Record inactive display must keep recent delta values until the display mute boundary instead of immediately falling to ---"
+            body.contains("summary.max_true_peak")
+                && body.contains("summary.lufs_i")
+                && body.contains("recordPhase == KIRIN_RECORD_DISPLAY_LIVE"),
+            "POST Record must show absolute Max TP/I and bypass the timed Watch hold after finalize"
         );
         assert!(HYPHA_DISPLAY_CONTRACT_H.contains("return preUnavailableForDelta (mode)"));
     }
@@ -242,10 +243,10 @@
         assert!(HYPHA_DISPLAY_CONTRACT_H.contains("if (! pairSelected)"));
         assert!(HYPHA_DISPLAY_CONTRACT_H.contains("if (preUnavailableForDelta (mode))"));
         assert!(
-            window.contains("watchMaximum.lufs_m")
+            window.contains("selectedMeasure (watchMaximum)")
                 && window.contains("watchMaximum.true_peak")
                 && window.contains("watchMaximum.crest"),
-            "JUCE POST Watch must expose all three absolute MAX values in both paired and unpaired layouts"
+            "JUCE POST Watch must expose selected M/S, TP, and Crest absolute MAX values in both paired and unpaired layouts"
         );
     }
 
@@ -261,7 +262,7 @@
                 && body.contains("watchHeldNormal = ! mutedHeldD;")
                 && body.contains("watchHeldNormal = haveM && ! mutedM;")
                 && body.contains(
-                    "const int ledSig = (! rec && sig == KIRIN_SIGNAL_STATE_INACTIVE && watchHeldNormal)"
+                    "const int ledSig = (! displayRecord && sig == KIRIN_SIGNAL_STATE_INACTIVE && watchHeldNormal)"
                 )
                 && body.contains("? KIRIN_SIGNAL_STATE_ACTIVE : sig;"),
             "JUCE POST Watch LED must remain active only while the displayed held values are not muted"
