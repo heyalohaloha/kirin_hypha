@@ -34,137 +34,60 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::macos_codesign;
+#[cfg(test)]
+use crate::ship_bundle::BundleKind;
+use crate::ship_bundle::{self, MacBundleSpec};
 
 /// Developer ID team. Source bundles must be signed by this team (not ad-hoc / unsigned).
 const TEAM_ID: &str = "7N8BSMA684";
 
-/// universal common-shell build root (scripts/build_juce_universal.sh output).
-const BUILD_UNIVERSAL: &str = "juce_shell/build-universal";
+const SYSTEM_ROOT: &str = "/";
 
-/// system-level plugin dirs (root-owned / sudo required).
-const SYSTEM_AU_DIR: &str = "/Library/Audio/Plug-Ins/Components";
-const SYSTEM_VST3_DIR: &str = "/Library/Audio/Plug-Ins/VST3";
-
-/// One installable bundle (PRE/POST × AU/VST3).
-struct Bundle {
-    /// Physical bundle and executable name.
-    name: String,
-    /// Executable and JUCE metadata name inside the source bundle.
-    binary_name: String,
-    /// Previous physical name removed during migration. VST3 only.
-    legacy_name: Option<String>,
-    /// e.g. "PRE Kirin Hypha" — the role-first name DAWs/scanners must surface.
-    display_name: String,
-    /// bundle extension: "component" (AU) | "vst3" (VST3).
-    ext: &'static str,
-    /// source bundle path under build-universal.
-    src: PathBuf,
-    /// system-level destination dir.
-    system_dir: &'static str,
-    /// Original shipped nih-plug component CID; VST3 only.
-    component_cid: Option<&'static str>,
+/// A manifest-defined bundle resolved against one build root.
+struct InstallBundle {
+    spec: MacBundleSpec,
+    source: PathBuf,
 }
 
-impl Bundle {
-    /// "Kirin Hypha PRE.component" / "PRE Kirin Hypha.vst3".
-    fn file(&self) -> String {
-        format!("{}.{}", self.name, self.ext)
+impl InstallBundle {
+    fn file(&self) -> Result<&str> {
+        self.spec.installed_file_name()
     }
-    /// system-level destination bundle path.
+
     fn system_dest(&self) -> PathBuf {
-        Path::new(self.system_dir).join(self.file())
+        self.spec.installed_path(Path::new(SYSTEM_ROOT))
     }
-    /// Executable inside the build output. A VST3 bundle is installed under its public
-    /// role-first filename, while the signed executable retains the JUCE source name.
-    fn source_binary(&self) -> PathBuf {
-        self.src.join("Contents/MacOS").join(&self.binary_name)
-    }
-    /// Executable inside the system-level installed bundle.
-    fn system_binary(&self) -> PathBuf {
-        self.system_dest()
-            .join("Contents/MacOS")
-            .join(&self.binary_name)
-    }
-    /// user-level bundle path (removed first; never the install target).
+
     fn user_dest(&self) -> Result<PathBuf> {
         let home = std::env::var_os("HOME").context("HOME env var not set")?;
-        let leaf = if self.ext == "component" {
-            "Library/Audio/Plug-Ins/Components"
-        } else {
-            "Library/Audio/Plug-Ins/VST3"
-        };
-        Ok(PathBuf::from(home).join(leaf).join(self.file()))
+        Ok(self.spec.installed_path(&PathBuf::from(home)))
     }
 
-    fn legacy_file(&self) -> Option<String> {
-        self.legacy_name
-            .as_ref()
-            .map(|name| format!("{name}.{}", self.ext))
-    }
-
-    fn legacy_user_dest(&self) -> Result<Option<PathBuf>> {
-        let Some(file) = self.legacy_file() else {
-            return Ok(None);
-        };
+    fn legacy_user_dests(&self) -> Result<Vec<PathBuf>> {
         let home = std::env::var_os("HOME").context("HOME env var not set")?;
-        let leaf = if self.ext == "component" {
-            "Library/Audio/Plug-Ins/Components"
-        } else {
-            "Library/Audio/Plug-Ins/VST3"
-        };
-        Ok(Some(PathBuf::from(home).join(leaf).join(file)))
+        Ok(self.spec.legacy_installed_paths(&PathBuf::from(home)))
     }
 }
 
-/// Four formats from one role-parameterised shell source. Physical JUCE VST3 source names remain
-/// format-native; install destinations retain the public role-first names used by Studio One.
-fn bundles(root: &Path) -> Vec<Bundle> {
-    let mut out = Vec::with_capacity(4);
-    for role in ["PRE", "POST"] {
-        let name = format!("Kirin Hypha {role}");
-        let display_name = format!("{role} Kirin Hypha");
-        // JUCE AU — build-universal/Release/AU → /Library/Audio/Plug-Ins/Components
-        out.push(Bundle {
-            src: root
-                .join(BUILD_UNIVERSAL)
-                .join(format!("KirinHypha{role}_artefacts/Release/AU"))
-                .join(format!("{name}.component")),
-            name: name.clone(),
-            binary_name: name.clone(),
-            legacy_name: None,
-            display_name: display_name.clone(),
-            ext: "component",
-            system_dir: SYSTEM_AU_DIR,
-            component_cid: None,
-        });
-        // JUCE VST3 — the same PluginProcessor/PluginEditor as the AU above.
-        out.push(Bundle {
-            src: root
-                .join(BUILD_UNIVERSAL)
-                .join(format!("KirinHypha{role}_artefacts/Release/VST3"))
-                .join(format!("{name}.vst3")),
-            name: display_name.clone(),
-            binary_name: name.clone(),
-            legacy_name: Some(name),
-            display_name,
-            ext: "vst3",
-            system_dir: SYSTEM_VST3_DIR,
-            component_cid: Some(if role == "PRE" {
-                "4B6972696E4879706861505245763031"
-            } else {
-                "4B6972696E4879706861504F53547631"
-            }),
-        });
-    }
-    out
+fn bundles(root: &Path) -> Result<Vec<InstallBundle>> {
+    let build_root = root.join(ship_bundle::default_build_root()?);
+    Ok(ship_bundle::macos_bundles()?
+        .into_iter()
+        .map(|spec| InstallBundle {
+            source: spec.source_path(&build_root),
+            spec,
+        })
+        .collect())
 }
 
 /// `cargo xtask install --release` のエントリポイント。
 pub fn run(args: Vec<String>) -> Result<()> {
     let mut release_flag = false;
+    let mut verify_only = false;
     for arg in args {
         match arg.as_str() {
             "--release" => release_flag = true,
+            "--verify-only" => verify_only = true,
             "-h" | "--help" => {
                 print_usage();
                 return Ok(());
@@ -179,41 +102,53 @@ pub fn run(args: Vec<String>) -> Result<()> {
         );
     }
 
-    let bundles = bundles(Path::new("."));
+    let bundles = bundles(Path::new("."))?;
 
     // 1. all 4 sources must exist and be Developer-ID signed + notarized (B-099 guard).
     for b in &bundles {
-        if !b.src.is_dir() {
+        if !b.source.is_dir() {
             bail!(
                 "{} not found. Run scripts/build_juce_universal.sh, then sign with \
                  `cargo xtask notarize ...` (B-098) before installing.",
-                b.src.display()
+                b.source.display()
             );
         }
     }
     for b in &bundles {
-        verify_signed(&b.src)?;
-        verify_display_metadata(&b.src, b)?;
+        verify_signed(&b.source)?;
+        ship_bundle::verify_bundle_contract(&b.source, &b.spec)?;
     }
     eprintln!(
         "[install] all 4 source bundles are Developer-ID signed ({TEAM_ID}) + notarized, display metadata OK"
     );
 
-    // 2. remove user-level copies first (B-022: a stale user-level binary makes a DAW load the
+    if verify_only {
+        for bundle in &bundles {
+            verify_deployment(bundle)?;
+        }
+        eprintln!("[install] verify-only complete. 4 system-level bundle(s) match the source.");
+        return Ok(());
+    }
+
+    // 2. Reproduce the exact role-first installed layout without privileges and verify it before
+    //    removing or replacing any live plug-in.
+    verify_staged_install_layout(&bundles)?;
+
+    // 3. remove user-level copies first (B-022: a stale user-level binary makes a DAW load the
     //    wrong plugin; the canonical install target is system-level only).
     for b in &bundles {
         remove_user_level(&b.user_dest()?)?;
-        if let Some(legacy) = b.legacy_user_dest()? {
+        for legacy in b.legacy_user_dests()? {
             remove_user_level(&legacy)?;
         }
     }
 
-    // 3. deploy each bundle system-level (sudo).
+    // 4. deploy each bundle system-level (sudo).
     for b in &bundles {
         deploy_system_level(b)?;
     }
 
-    // 4. verify the deployed copy matches the source.
+    // 5. verify the deployed copy matches the source.
     for b in &bundles {
         verify_deployment(b)?;
     }
@@ -224,14 +159,15 @@ pub fn run(args: Vec<String>) -> Result<()> {
 
 fn print_usage() {
     eprintln!(
-        "Usage: cargo run --package xtask -- install --release\n\n\
+        "Usage: cargo run --package xtask -- install --release [--verify-only]\n\n\
          Deploys the signed JUCE common-shell bundles to the system plugin folders:\n\
          \x20 AU  -> /Library/Audio/Plug-Ins/Components/Kirin Hypha {{PRE,POST}}.component (JUCE)\n\
          \x20 VST3-> /Library/Audio/Plug-Ins/VST3/{{PRE,POST}} Kirin Hypha.vst3 (JUCE)\n\n\
          Source: juce_shell/build-universal/.../Release/{{AU,VST3}}.\n\
          VST3 preserves the original component CIDs and migrates old nih-plug state.\n\
          Each source must be Developer-ID signed ({TEAM_ID}) + notarized (B-098), else install\n\
-         aborts. user-level copies are removed first (sudo prompt for the system deploy).\n\n\
+         aborts. An exact non-privileged staging layout is verified before any removal or sudo.\n\
+         --verify-only performs the source/system comparison without modifying installed files.\n\n\
          Build both shells + `cargo xtask notarize ...` beforehand."
     );
 }
@@ -368,17 +304,18 @@ fn remove_user_level(path: &Path) -> Result<()> {
 }
 
 /// system-level 旧 bundle を sudo で除去 → 署名済 build 出力を sudo cp -R で配置 (B-022 踏襲)。
-fn deploy_system_level(b: &Bundle) -> Result<()> {
-    let sys_dir = Path::new(b.system_dir);
+fn deploy_system_level(b: &InstallBundle) -> Result<()> {
+    let dst = b.system_dest();
+    let sys_dir = dst
+        .parent()
+        .with_context(|| format!("system destination has no parent: {}", dst.display()))?;
     if !sys_dir.exists() {
         bail!(
             "{} does not exist on this system. Cannot install.",
             sys_dir.display()
         );
     }
-    let dst = b.system_dest();
-    if let Some(legacy_file) = b.legacy_file() {
-        let legacy = sys_dir.join(legacy_file);
+    for legacy in b.spec.legacy_installed_paths(Path::new(SYSTEM_ROOT)) {
         eprintln!("[install]   sudo rm -rf {}", legacy.display());
         run_sudo(&["rm", "-rf", path_str(&legacy)?])
             .with_context(|| format!("sudo rm -rf failed for {}", legacy.display()))?;
@@ -388,40 +325,27 @@ fn deploy_system_level(b: &Bundle) -> Result<()> {
         .with_context(|| format!("sudo rm -rf failed for {}", dst.display()))?;
     eprintln!(
         "[install]   sudo cp -R {} {}",
-        b.src.display(),
+        b.source.display(),
         dst.display()
     );
-    run_sudo(&["cp", "-R", path_str(&b.src)?, path_str(&dst)?]).with_context(|| {
+    run_sudo(&["cp", "-R", path_str(&b.source)?, path_str(&dst)?]).with_context(|| {
         format!(
             "sudo cp -R failed for {} -> {}",
-            b.src.display(),
+            b.source.display(),
             dst.display()
         )
     })?;
     Ok(())
 }
 
-/// 配置後の binary size を src と dst で比較 (受入確認支援)。
-fn verify_deployment(b: &Bundle) -> Result<()> {
-    let src_bin = b.source_binary();
-    let dst_bin = b.system_binary();
-    let src_size = fs::metadata(&src_bin)
-        .with_context(|| format!("stat src {}", src_bin.display()))?
-        .len();
-    let dst_size = fs::metadata(&dst_bin)
-        .with_context(|| format!("stat dst {}", dst_bin.display()))?
-        .len();
-    if src_size != dst_size {
-        bail!(
-            "size mismatch after install: {} src={} dst={}",
-            b.file(),
-            src_size,
-            dst_size
-        );
-    }
+/// 配置後の実行ファイルを CFBundleExecutable から解決し、source と byte 同一であることを確認。
+fn verify_deployment(b: &InstallBundle) -> Result<()> {
+    let system_dest = b.system_dest();
+    let (src_bin, dst_bin) = ship_bundle::verify_binary_copy(&b.source, &system_dest, &b.spec)?;
+    let src_size = fs::metadata(&src_bin)?.len();
     eprintln!(
-        "[install]   verified {}: size={} bytes (src=dst)",
-        b.file(),
+        "[install]   verified {}: byte-identical executable, size={} bytes",
+        b.file()?,
         src_size
     );
     // B-116: source / 配置物の両バイナリが universal (x86_64 + arm64) であることを lipo -archs で
@@ -436,111 +360,80 @@ fn verify_deployment(b: &Bundle) -> Result<()> {
     })?;
     eprintln!(
         "[install]   verified {}: lipo -archs = x86_64 + arm64 (src + dst)",
-        b.file()
+        b.file()?
     );
     // B-112/B-139: destination 側も Developer-ID 署名 + notarized を検証する（cp -R / sudo で署名や
     // notarization ticket 参照が破損していないこと、配置後に Gatekeeper が通る状態であることを確認）。
     // 検証失敗（codesign TeamIdentifier 不一致 / notarization ticket 不在）は明示エラーで停止する。
-    verify_signed(&b.system_dest()).with_context(|| {
+    verify_signed(&system_dest).with_context(|| {
         format!(
             "B-112/B-139: destination verify failed for {} (installed copy not Developer-ID signed + notarized)",
-            b.system_dest().display()
+            system_dest.display()
         )
     })?;
-    verify_display_metadata(&b.system_dest(), b).with_context(|| {
+    ship_bundle::verify_bundle_contract(&system_dest, &b.spec).with_context(|| {
         format!(
             "B-213: destination display metadata mismatch for {}",
-            b.system_dest().display()
+            system_dest.display()
         )
     })?;
     eprintln!(
         "[install]   verified {}: destination codesign + notarization + display metadata OK",
-        b.file()
+        b.file()?
     );
     Ok(())
 }
 
-fn verify_display_metadata(bundle_path: &Path, bundle: &Bundle) -> Result<()> {
-    let plist = bundle_path.join("Contents/Info.plist");
-    if bundle.ext == "component" {
-        let expected = format!("Kirin: {}", bundle.display_name);
-        let actual = plist_value(&plist, "AudioComponents:0:name")?;
-        if actual != expected {
-            bail!(
-                "{} AudioComponents:0:name = {}, expected {}",
-                bundle_path.display(),
-                actual,
-                expected
-            );
-        }
-        return Ok(());
-    }
+struct StagingRoot(PathBuf);
 
-    for key in ["CFBundleDisplayName", "CFBundleName"] {
-        let actual = plist_value(&plist, key)?;
-        if actual != bundle.binary_name {
-            bail!(
-                "{} {} = {}, expected {}. Rebuild with scripts/build_juce_universal.sh.",
-                bundle_path.display(),
-                key,
-                actual,
-                bundle.binary_name
-            );
-        }
+impl StagingRoot {
+    fn create() -> Result<Self> {
+        let path = std::env::temp_dir().join(format!(
+            "kirin_hypha_install_preflight_{}_{}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        fs::create_dir_all(&path)
+            .with_context(|| format!("create install preflight root {}", path.display()))?;
+        Ok(Self(path))
     }
-    let moduleinfo = fs::read_to_string(bundle_path.join("Contents/Resources/moduleinfo.json"))
-        .with_context(|| format!("read VST3 moduleinfo for {}", bundle_path.display()))?;
-    let cid = bundle.component_cid.context("VST3 component CID missing")?;
-    if !moduleinfo.contains(&format!("\"CID\": \"{cid}\""))
-        || !moduleinfo.contains(&format!("\"Name\": \"{}\"", bundle.display_name))
-    {
-        bail!(
-            "{} VST3 CID/display contract mismatch",
-            bundle_path.display()
-        );
-    }
-    verify_binary_contains_display_name(
-        &bundle_path.join("Contents/MacOS").join(&bundle.binary_name),
-        &bundle.display_name,
-    )
 }
 
-fn plist_value(plist: &Path, key: &str) -> Result<String> {
-    let out = Command::new("/usr/libexec/PlistBuddy")
-        .args(["-c", &format!("Print :{key}")])
-        .arg(plist)
-        .output()
-        .with_context(|| format!("spawn PlistBuddy for {}", plist.display()))?;
-    if !out.status.success() {
-        bail!(
-            "PlistBuddy failed for {}: {}",
-            plist.display(),
-            String::from_utf8_lossy(&out.stderr)
-        );
+impl Drop for StagingRoot {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
     }
-    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
-fn verify_binary_contains_display_name(binary: &Path, expected: &str) -> Result<()> {
-    let out = Command::new("strings")
-        .arg(binary)
-        .output()
-        .with_context(|| format!("spawn strings for {}", binary.display()))?;
-    if !out.status.success() {
-        bail!(
-            "strings failed for {}: {}",
-            binary.display(),
-            String::from_utf8_lossy(&out.stderr)
-        );
+fn verify_staged_install_layout(bundles: &[InstallBundle]) -> Result<()> {
+    let staging = StagingRoot::create()?;
+    for bundle in bundles {
+        let staged = bundle.spec.installed_path(&staging.0);
+        let parent = staged
+            .parent()
+            .with_context(|| format!("staged destination has no parent: {}", staged.display()))?;
+        fs::create_dir_all(parent)
+            .with_context(|| format!("create staged install directory {}", parent.display()))?;
+        let status = Command::new("ditto")
+            .arg(&bundle.source)
+            .arg(&staged)
+            .status()
+            .with_context(|| format!("stage {}", bundle.spec.label()))?;
+        if !status.success() {
+            bail!(
+                "ditto staging failed for {} with status {status}",
+                bundle.spec.label()
+            );
+        }
+        let (_, staged_binary) =
+            ship_bundle::verify_binary_copy(&bundle.source, &staged, &bundle.spec)?;
+        verify_universal(&staged_binary)?;
+        verify_signed(&staged)?;
+        ship_bundle::verify_bundle_contract(&staged, &bundle.spec)?;
     }
-    let text = String::from_utf8_lossy(&out.stdout);
-    if !text.contains(expected) {
-        bail!(
-            "{} does not contain display name {}",
-            binary.display(),
-            expected
-        );
-    }
+    eprintln!(
+        "[install] exact role-first staging layout verified before user/system-level changes"
+    );
     Ok(())
 }
 
@@ -573,213 +466,5 @@ fn sudo_args_for<'a>(args: &'a [&'a str], use_askpass: bool) -> Vec<&'a str> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn bundles_returns_four_au_and_vst3() {
-        let b = bundles(Path::new("."));
-        assert_eq!(b.len(), 4);
-        let names: Vec<_> = b.iter().map(|x| x.file()).collect();
-        assert!(names.contains(&"Kirin Hypha PRE.component".to_string()));
-        assert!(names.contains(&"PRE Kirin Hypha.vst3".to_string()));
-        assert!(names.contains(&"Kirin Hypha POST.component".to_string()));
-        assert!(names.contains(&"POST Kirin Hypha.vst3".to_string()));
-    }
-
-    #[test]
-    fn role_first_vst3_migration_removes_only_the_two_legacy_vst3_names() {
-        let bundles = bundles(Path::new("."));
-        let legacy: Vec<_> = bundles
-            .iter()
-            .filter_map(|bundle| bundle.legacy_file())
-            .collect();
-        assert_eq!(
-            legacy,
-            vec![
-                "Kirin Hypha PRE.vst3".to_string(),
-                "Kirin Hypha POST.vst3".to_string()
-            ]
-        );
-        assert!(bundles
-            .iter()
-            .filter(|bundle| bundle.ext == "component")
-            .all(|bundle| bundle.legacy_file().is_none()));
-    }
-
-    #[test]
-    fn role_first_vst3_bundle_names_keep_the_signed_juce_executable_names() {
-        let bundles = bundles(Path::new("."));
-        let vst3: Vec<_> = bundles
-            .iter()
-            .filter(|bundle| bundle.ext == "vst3")
-            .collect();
-        assert_eq!(vst3.len(), 2);
-
-        for bundle in vst3 {
-            assert_ne!(
-                bundle.name, bundle.binary_name,
-                "the public bundle name must remain distinct from the signed executable name"
-            );
-            assert_eq!(
-                bundle
-                    .source_binary()
-                    .file_name()
-                    .and_then(|name| name.to_str()),
-                Some(bundle.binary_name.as_str())
-            );
-            assert_eq!(
-                bundle
-                    .system_binary()
-                    .file_name()
-                    .and_then(|name| name.to_str()),
-                Some(bundle.binary_name.as_str())
-            );
-        }
-    }
-
-    #[test]
-    fn au_goes_to_components_vst3_to_vst3_system_dir() {
-        for x in bundles(Path::new(".")) {
-            match x.ext {
-                "component" => assert_eq!(x.system_dir, SYSTEM_AU_DIR),
-                "vst3" => assert_eq!(x.system_dir, SYSTEM_VST3_DIR),
-                other => panic!("unexpected ext {other}"),
-            }
-        }
-    }
-
-    #[test]
-    fn all_source_paths_use_the_common_juce_build() {
-        for x in bundles(Path::new(".")) {
-            let s = x.src.to_string_lossy();
-            assert!(s.contains("juce_shell/build-universal/"), "{s}");
-            match x.ext {
-                "component" => {
-                    assert!(
-                        s.contains("juce_shell/build-universal/"),
-                        "AU src not under build-universal: {s}"
-                    );
-                    assert!(s.contains("/Release/AU/"), "AU src not Release/AU: {s}");
-                }
-                "vst3" => {
-                    assert!(
-                        s.contains("/Release/VST3/"),
-                        "VST3 src not Release/VST3: {s}"
-                    );
-                    assert!(
-                        !s.contains("target/bundled"),
-                        "legacy egui source returned: {s}"
-                    );
-                }
-                other => panic!("unexpected ext {other}"),
-            }
-        }
-    }
-
-    #[test]
-    fn team_id_is_the_developer_id() {
-        assert_eq!(TEAM_ID, "7N8BSMA684");
-    }
-
-    #[test]
-    fn system_dirs_are_macos_standard() {
-        assert_eq!(SYSTEM_AU_DIR, "/Library/Audio/Plug-Ins/Components");
-        assert_eq!(SYSTEM_VST3_DIR, "/Library/Audio/Plug-Ins/VST3");
-    }
-
-    #[test]
-    fn sudo_args_adds_askpass_flag_only_when_requested() {
-        assert_eq!(
-            sudo_args_for(&["rm", "-rf", "/tmp/x"], false),
-            vec!["rm", "-rf", "/tmp/x"]
-        );
-        assert_eq!(
-            sudo_args_for(&["rm", "-rf", "/tmp/x"], true),
-            vec!["-A", "rm", "-rf", "/tmp/x"]
-        );
-    }
-
-    #[test]
-    fn user_dest_resolves_under_home_per_format() {
-        let original = std::env::var_os("HOME");
-        unsafe {
-            std::env::set_var("HOME", "/tmp/fake-home");
-        }
-        for x in bundles(Path::new(".")) {
-            let ud = x.user_dest().expect("HOME set");
-            let s = ud.to_string_lossy();
-            if x.ext == "component" {
-                assert_eq!(
-                    s,
-                    "/tmp/fake-home/Library/Audio/Plug-Ins/Components/Kirin Hypha {}.component"
-                        .replace(
-                            "{}",
-                            if x.name.ends_with("PRE") {
-                                "PRE"
-                            } else {
-                                "POST"
-                            }
-                        )
-                );
-            } else {
-                assert!(s.contains("/tmp/fake-home/Library/Audio/Plug-Ins/VST3/"));
-            }
-        }
-        unsafe {
-            match original {
-                Some(v) => std::env::set_var("HOME", v),
-                None => std::env::remove_var("HOME"),
-            }
-        }
-    }
-
-    #[test]
-    fn run_rejects_missing_release_flag() {
-        let err = run(vec![]).expect_err("must require --release");
-        assert!(format!("{err}").contains("--release"));
-    }
-
-    #[test]
-    fn run_rejects_unknown_argument() {
-        let err = run(vec!["--unknown".into(), "--release".into()])
-            .expect_err("unknown arg must be rejected");
-        assert!(format!("{err}").contains("unknown argument"));
-    }
-
-    #[test]
-    fn verify_signed_bails_on_unsigned() {
-        // An unsigned plain directory: codesign -dvv reports "not signed", no TeamIdentifier ->
-        // the guard must error (this is what protects against deploying an ad-hoc/unsigned rebuild).
-        let tmp =
-            std::env::temp_dir().join(format!("kirin_install_unsigned_{}", std::process::id()));
-        let _ = fs::remove_dir_all(&tmp);
-        fs::create_dir_all(&tmp).unwrap();
-        let err = verify_signed(&tmp).expect_err("unsigned must be rejected");
-        let msg = format!("{err}");
-        assert!(
-            msg.contains("Developer-ID") || msg.contains(TEAM_ID),
-            "error must mention the signing requirement, got: {msg}"
-        );
-        let _ = fs::remove_dir_all(&tmp);
-    }
-
-    #[test]
-    fn remove_user_level_is_idempotent_when_absent() {
-        let tmp = std::env::temp_dir().join(format!("kirin_install_idem_{}", std::process::id()));
-        let _ = fs::remove_dir_all(&tmp);
-        // path does not exist
-        remove_user_level(&tmp.join("Kirin Hypha PRE.component")).expect("absent must be ok");
-    }
-
-    #[test]
-    fn remove_user_level_actually_removes_existing() {
-        let tmp = std::env::temp_dir().join(format!("kirin_install_rm_{}", std::process::id()));
-        let _ = fs::remove_dir_all(&tmp);
-        let b = tmp.join("Kirin Hypha PRE.component");
-        fs::create_dir_all(&b).unwrap();
-        remove_user_level(&b).expect("removal ok");
-        assert!(!b.exists(), "bundle must be gone");
-        let _ = fs::remove_dir_all(&tmp);
-    }
-}
+#[path = "install/tests.rs"]
+mod tests;

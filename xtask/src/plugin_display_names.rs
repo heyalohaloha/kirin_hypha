@@ -34,6 +34,10 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/../scripts/ls_release/build_kirin_hypha_pkg.mjs"
     ));
+    const SHIP_BUNDLE_JS: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../scripts/ls_release/kirin_hypha_ship_bundles.mjs"
+    ));
     const BUNDLER_TOML: &str =
         include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../bundler.toml"));
 
@@ -104,46 +108,43 @@ mod tests {
     }
 
     #[test]
-    fn ship_tooling_uses_and_gates_the_juce_common_shell() {
-        for source in [RELEASE_PACKAGE_RS, NOTARIZE_RS, LS_PKG_JS] {
-            assert!(source.contains("KirinHyphaPRE_artefacts/Release/VST3/Kirin Hypha PRE.vst3"));
-            assert!(source.contains("KirinHyphaPOST_artefacts/Release/VST3/Kirin Hypha POST.vst3"));
-            assert!(!source.contains("target/bundled/PRE Kirin Hypha.vst3"));
-            assert!(!source.contains("target/bundled/POST Kirin Hypha.vst3"));
-            assert!(source.contains("4B6972696E4879706861505245763031"));
-            assert!(source.contains("4B6972696E4879706861504F53547631"));
+    fn ship_tooling_uses_one_manifest_and_one_behavioral_verifier() {
+        let bundles = crate::ship_bundle::macos_bundles().unwrap();
+        let pre_vst3 = bundles
+            .iter()
+            .find(|bundle| {
+                bundle.role == "PRE" && bundle.kind == crate::ship_bundle::BundleKind::Vst3
+            })
+            .unwrap();
+        assert_eq!(
+            pre_vst3.source_relative.to_string_lossy(),
+            "KirinHyphaPRE_artefacts/Release/VST3/Kirin Hypha PRE.vst3"
+        );
+        assert_eq!(
+            pre_vst3.install_relative.to_string_lossy(),
+            "Library/Audio/Plug-Ins/VST3/PRE Kirin Hypha.vst3"
+        );
+        assert_eq!(pre_vst3.executable_name, "Kirin Hypha PRE");
+        assert_eq!(pre_vst3.display_name, "PRE Kirin Hypha");
+        assert_eq!(
+            pre_vst3.component_cid.as_deref(),
+            Some("4B6972696E4879706861505245763031")
+        );
+
+        for source in [RELEASE_PACKAGE_RS, INSTALL_RS, NOTARIZE_RS] {
+            assert!(
+                source.contains("ship_bundle::verify_bundle_contract"),
+                "every Rust ship consumer must call the shared behavioral verifier"
+            );
+            assert!(
+                !source.contains("4B6972696E4879706861505245763031"),
+                "component identities must not be duplicated outside the manifest"
+            );
         }
-        assert!(INSTALL_RS.contains("KirinHypha{role}_artefacts/Release/VST3"));
-        assert!(INSTALL_RS.contains("4B6972696E4879706861505245763031"));
-        assert!(INSTALL_RS.contains("4B6972696E4879706861504F53547631"));
-        assert!(!INSTALL_RS.contains("target/bundled/PRE Kirin Hypha.vst3"));
-        assert!(
-            RELEASE_PACKAGE_RS.contains("verify_display_metadata")
-                && RELEASE_PACKAGE_RS.contains("\"AudioComponents:0:name\"")
-                && RELEASE_PACKAGE_RS.contains("\"CFBundleDisplayName\"")
-                && RELEASE_PACKAGE_RS.contains("moduleinfo.json"),
-            "release-package must fail if ship bundles lose role-first display metadata"
-        );
-        assert!(
-            INSTALL_RS.contains("verify_display_metadata")
-                && INSTALL_RS.contains("\"AudioComponents:0:name\"")
-                && INSTALL_RS.contains("\"CFBundleDisplayName\"")
-                && INSTALL_RS.contains("moduleinfo.json"),
-            "install must fail if DAW-bound bundles lose role-first display metadata"
-        );
-        assert!(
-            NOTARIZE_RS.contains("verify_display_metadata")
-                && NOTARIZE_RS.contains("\"AudioComponents:0:name\"")
-                && NOTARIZE_RS.contains("\"CFBundleDisplayName\"")
-                && NOTARIZE_RS.contains("moduleinfo.json"),
-            "notarize must fail before signing if ship bundles lose role-first display metadata"
-        );
-        assert!(
-            LS_PKG_JS.contains("verifyDisplayMetadata")
-                && LS_PKG_JS.contains("'AudioComponents:0:name'")
-                && LS_PKG_JS.contains("'CFBundleDisplayName'")
-                && LS_PKG_JS.contains("moduleinfo.json"),
-            "LS pkg builder must fail if upload bundles lose role-first display metadata"
-        );
+        assert!(LS_PKG_JS.contains("loadMacShipBundleManifest"));
+        assert!(LS_PKG_JS.contains("ship-bundle-verify"));
+        assert!(!LS_PKG_JS.contains("4B6972696E4879706861505245763031"));
+        assert!(SHIP_BUNDLE_JS.contains("config/hypha_macos_ship_bundles.json"));
+        assert!(SHIP_BUNDLE_JS.contains("install path is outside the approved plug-in directory"));
     }
 }

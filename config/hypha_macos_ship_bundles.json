@@ -1,0 +1,54 @@
+{
+  "schema": "kirin-hypha-macos-ship-bundles-v1",
+  "default_build_root": "juce_shell/build-universal",
+  "bundles": [
+    {
+      "role": "PRE",
+      "kind": "au",
+      "source_relative": "KirinHyphaPRE_artefacts/Release/AU/Kirin Hypha PRE.component",
+      "install_relative": "Library/Audio/Plug-Ins/Components/Kirin Hypha PRE.component",
+      "archive_relative": "Audio Unit/Kirin Hypha PRE.component",
+      "executable_name": "Kirin Hypha PRE",
+      "display_name": "PRE Kirin Hypha",
+      "component_cid": null,
+      "legacy_install_relative": []
+    },
+    {
+      "role": "POST",
+      "kind": "au",
+      "source_relative": "KirinHyphaPOST_artefacts/Release/AU/Kirin Hypha POST.component",
+      "install_relative": "Library/Audio/Plug-Ins/Components/Kirin Hypha POST.component",
+      "archive_relative": "Audio Unit/Kirin Hypha POST.component",
+      "executable_name": "Kirin Hypha POST",
+      "display_name": "POST Kirin Hypha",
+      "component_cid": null,
+      "legacy_install_relative": []
+    },
+    {
+      "role": "PRE",
+      "kind": "vst3",
+      "source_relative": "KirinHyphaPRE_artefacts/Release/VST3/Kirin Hypha PRE.vst3",
+      "install_relative": "Library/Audio/Plug-Ins/VST3/PRE Kirin Hypha.vst3",
+      "archive_relative": "VST3/PRE Kirin Hypha.vst3",
+      "executable_name": "Kirin Hypha PRE",
+      "display_name": "PRE Kirin Hypha",
+      "component_cid": "4B6972696E4879706861505245763031",
+      "legacy_install_relative": [
+        "Library/Audio/Plug-Ins/VST3/Kirin Hypha PRE.vst3"
+      ]
+    },
+    {
+      "role": "POST",
+      "kind": "vst3",
+      "source_relative": "KirinHyphaPOST_artefacts/Release/VST3/Kirin Hypha POST.vst3",
+      "install_relative": "Library/Audio/Plug-Ins/VST3/POST Kirin Hypha.vst3",
+      "archive_relative": "VST3/POST Kirin Hypha.vst3",
+      "executable_name": "Kirin Hypha POST",
+      "display_name": "POST Kirin Hypha",
+      "component_cid": "4B6972696E4879706861504F53547631",
+      "legacy_install_relative": [
+        "Library/Audio/Plug-Ins/VST3/Kirin Hypha POST.vst3"
+      ]
+    }
+  ]
+}
