@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Validate the macOS ship-set VST3 bundles with Tracktion pluginval.
+# Recreate the macOS role-first installed VST3 layout and validate it with Tracktion pluginval.
 #
 # Usage:
 #   scripts/validate_macos_pluginval.sh [juce_build_dir]
@@ -114,54 +114,35 @@ if command -v xattr >/dev/null 2>&1; then
   xattr -dr com.apple.quarantine "$XATTR_TARGET" 2>/dev/null || true
 fi
 
-BUNDLES=(
-  "$BUILD_DIR/KirinHyphaPRE_artefacts/Release/VST3/Kirin Hypha PRE.vst3"
-  "$BUILD_DIR/KirinHyphaPOST_artefacts/Release/VST3/Kirin Hypha POST.vst3"
-)
-PHYSICAL_NAMES=(
-  "Kirin Hypha PRE"
-  "Kirin Hypha POST"
-)
-DISPLAY_NAMES=(
-  "PRE Kirin Hypha"
-  "POST Kirin Hypha"
-)
-COMPONENT_CIDS=(
-  "4B6972696E4879706861505245763031"
-  "4B6972696E4879706861504F53547631"
+STAGE_ROOT="$RUNTIME_DIR/ship-set"
+mkdir -p "$STAGE_ROOT"
+BUNDLES=()
+while IFS=$'\t' read -r SOURCE_BUNDLE INSTALL_RELATIVE LABEL; do
+  if [[ ! -d "$SOURCE_BUNDLE" ]]; then
+    echo "ERROR: missing ship-set VST3 bundle: $SOURCE_BUNDLE" >&2
+    exit 1
+  fi
+  STAGED_BUNDLE="$STAGE_ROOT/$INSTALL_RELATIVE"
+  mkdir -p "$(dirname "$STAGED_BUNDLE")"
+  ditto "$SOURCE_BUNDLE" "$STAGED_BUNDLE"
+  BUNDLES+=("$STAGED_BUNDLE")
+  echo "==> staged $LABEL: $STAGED_BUNDLE"
+done < <(
+  node scripts/ls_release/kirin_hypha_ship_bundles.mjs \
+    --build-root "$BUILD_DIR" \
+    --kind vst3
 )
 
-for idx in "${!BUNDLES[@]}"; do
-  BUNDLE="${BUNDLES[$idx]}"
-  DISPLAY_NAME="${DISPLAY_NAMES[$idx]}"
-  PHYSICAL_NAME="${PHYSICAL_NAMES[$idx]}"
-  if [[ ! -d "$BUNDLE" ]]; then
-    echo "ERROR: missing ship-set VST3 bundle: $BUNDLE" >&2
-    exit 1
-  fi
-  PLIST="$BUNDLE/Contents/Info.plist"
-  if [[ ! -f "$PLIST" ]]; then
-    echo "ERROR: missing Info.plist in VST3 bundle: $BUNDLE" >&2
-    exit 1
-  fi
-  for key in CFBundleDisplayName CFBundleName; do
-    ACTUAL="$(/usr/libexec/PlistBuddy -c "Print :$key" "$PLIST" 2>/dev/null || true)"
-    if [[ "$ACTUAL" != "$PHYSICAL_NAME" ]]; then
-      echo "ERROR: $BUNDLE $key=$ACTUAL, expected $PHYSICAL_NAME." >&2
-      echo "Run: scripts/build_juce_universal.sh" >&2
-      exit 1
-    fi
-  done
-  MODULEINFO="$BUNDLE/Contents/Resources/moduleinfo.json"
-  if [[ ! -f "$MODULEINFO" ]] || ! grep -q "\"CID\": \"${COMPONENT_CIDS[$idx]}\"" "$MODULEINFO"; then
-    echo "ERROR: $BUNDLE does not preserve the shipped component CID ${COMPONENT_CIDS[$idx]}." >&2
-    exit 1
-  fi
-  if ! grep -q "\"Name\": \"$DISPLAY_NAME\"" "$MODULEINFO"; then
-    echo "ERROR: $BUNDLE does not expose role-first display name $DISPLAY_NAME." >&2
-    exit 1
-  fi
-done
+if [[ "${#BUNDLES[@]}" -ne 2 ]]; then
+  echo "ERROR: ship bundle manifest did not resolve exactly two VST3 bundles." >&2
+  exit 1
+fi
+
+cargo run --quiet --package xtask -- \
+  ship-bundle-verify \
+  --build-root "$BUILD_DIR" \
+  --installed-root "$STAGE_ROOT" \
+  --format vst3
 
 echo "==> pluginval strictness level: $STRICTNESS"
 echo "==> pluginval timeout ms: $TIMEOUT_MS"
@@ -193,4 +174,4 @@ while IFS= read -r BUNDLE; do
   env HOME="$RUN_HOME" TMPDIR="$RUN_TMP" "$PLUGINVAL_EXE" "${PLUGINVAL_ARGS[@]}" "$BUNDLE"
 done < <(printf '%s\n' "${BUNDLES[@]}")
 
-echo "==> pluginval OK: ${#BUNDLES[@]} macOS ship-set VST3 bundles"
+echo "==> pluginval OK: ${#BUNDLES[@]} role-first installed-layout VST3 bundles"

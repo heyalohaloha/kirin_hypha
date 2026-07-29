@@ -13,6 +13,7 @@ import {
   localReleaseStateFor,
   parseArgs as parseWindowsArgs,
 } from './build_kirin_hypha_windows_vst3_zip.mjs';
+import { loadMacShipBundleManifest } from './kirin_hypha_ship_bundles.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
@@ -87,6 +88,41 @@ test('release_state stays ignored and absent from public source history', () => 
     { encoding: 'utf8' },
   );
   verifyReleaseStateBoundary({ trackedPathBytes, ignoreProbePasses, publicHistory });
+});
+
+test('macOS ship manifest separates installed VST3 names from declared executables', () => {
+  const manifest = loadMacShipBundleManifest({ root: repoRoot });
+  assert.equal(manifest.bundles.length, 4);
+  const vst3 = manifest.bundles.filter((bundle) => bundle.kind === 'vst3');
+  assert.deepEqual(
+    vst3.map((bundle) => path.basename(bundle.install_relative)),
+    ['PRE Kirin Hypha.vst3', 'POST Kirin Hypha.vst3'],
+  );
+  assert.deepEqual(
+    vst3.map((bundle) => bundle.executable_name),
+    ['Kirin Hypha PRE', 'Kirin Hypha POST'],
+  );
+  assert.ok(vst3.every((bundle) => bundle.sourcePath.startsWith(manifest.defaultBuildRoot)));
+});
+
+test('macOS ship manifest rejects a preinstall path outside approved plug-in folders', (context) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'kirin-hypha-ship-manifest-'));
+  context.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const source = JSON.parse(fs.readFileSync(
+    path.join(repoRoot, 'config/hypha_macos_ship_bundles.json'),
+    'utf8',
+  ));
+  source.bundles[2].install_relative = '../../Library/unsafe/PRE Kirin Hypha.vst3';
+  fs.mkdirSync(path.join(root, 'config'), { recursive: true });
+  fs.writeFileSync(
+    path.join(root, 'config/hypha_macos_ship_bundles.json'),
+    `${JSON.stringify(source)}\n`,
+  );
+
+  assert.throws(
+    () => loadMacShipBundleManifest({ root }),
+    /must be a safe POSIX relative path/,
+  );
 });
 
 test('release_state boundary rejects each reinsertion path', () => {

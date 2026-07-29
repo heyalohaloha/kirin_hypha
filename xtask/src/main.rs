@@ -12,6 +12,7 @@ mod release_gate;
 mod release_package;
 mod rt_safety;
 mod shell_parity;
+mod ship_bundle;
 mod stamp_version;
 mod windows_preflight;
 mod windows_readiness;
@@ -43,6 +44,10 @@ fn main() -> nih_plug_xtask::Result<()> {
         Some("release-package") => {
             args.remove(0);
             release_package::run(args)
+        }
+        Some("ship-bundle-verify") => {
+            args.remove(0);
+            ship_bundle::run_verify(args)
         }
         // B-109: nih_plug_xtask が Info.plist 版を 1.0.0 固定で出力するため、bundle 後に egui VST3
         // の版を crate 版へ stamp する（版統一 / G-115-345）。プラグイン挙動・計測は無変更。

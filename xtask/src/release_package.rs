@@ -5,6 +5,7 @@ use std::process::Command;
 
 use crate::macos_codesign;
 use crate::release_gate::{git_dirty_for_manifest, verify_package_mode, UNSIGNED_SUFFIX};
+use crate::ship_bundle::{self, BundleKind, MacBundleSpec};
 
 const TEAM_ID: &str = "7N8BSMA684";
 const DIST_DIR: &str = "dist";
@@ -12,14 +13,8 @@ const PACKAGE_SUFFIX: &str = "macOS-Universal";
 const FORBIDDEN_FRAMEWORKS: &[&str] = &["WebKit.framework", "DiscRecording.framework"];
 
 struct ShipBundle {
-    label: &'static str,
-    format_dir: &'static str,
-    src: PathBuf,
-    file_name: &'static str,
-    binary_name: &'static str,
-    display_name: &'static str,
-    is_au: bool,
-    component_cid: Option<&'static str>,
+    spec: MacBundleSpec,
+    source: PathBuf,
 }
 
 pub fn run(args: Vec<String>) -> Result<()> {
@@ -44,7 +39,7 @@ pub fn run(args: Vec<String>) -> Result<()> {
     }
 
     let version = read_version()?;
-    let bundles = ship_bundles();
+    let bundles = ship_bundles()?;
     verify_ship_set_shape(&bundles)?;
     if !dry_run {
         verify_package_mode(&dist_dir, allow_unsigned)?;
@@ -74,8 +69,11 @@ pub fn run(args: Vec<String>) -> Result<()> {
         eprintln!("  sha256:       {}", sha_path.display());
         eprintln!("  manifest:     {}", manifest_path.display());
         for b in &bundles {
-            let dst = format!("{}/{}", b.format_dir, b.file_name);
-            eprintln!("  include:      {} -> {dst}", b.src.display());
+            eprintln!(
+                "  include:      {} -> {}",
+                b.source.display(),
+                b.spec.archive_relative.display()
+            );
         }
         return Ok(());
     }
@@ -89,14 +87,19 @@ pub fn run(args: Vec<String>) -> Result<()> {
     fs::create_dir_all(&package_root)
         .with_context(|| format!("create {}", package_root.display()))?;
     for b in &bundles {
-        let format_dir = package_root.join(b.format_dir);
-        fs::create_dir_all(&format_dir)
-            .with_context(|| format!("create {}", format_dir.display()))?;
-        let dst = format_dir.join(b.file_name);
+        let dst = b.spec.archive_path(&package_root);
+        let parent = dst
+            .parent()
+            .with_context(|| format!("archive destination has no parent: {}", dst.display()))?;
+        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
         run_status(
-            Command::new("ditto").arg(&b.src).arg(&dst),
+            Command::new("ditto").arg(&b.source).arg(&dst),
             "ditto bundle into package",
         )?;
+        ship_bundle::verify_binary_copy(&b.source, &dst, &b.spec)
+            .with_context(|| format!("{} archive copy mismatch", b.spec.label()))?;
+        ship_bundle::verify_bundle_contract(&dst, &b.spec)
+            .with_context(|| format!("{} archive metadata mismatch", b.spec.label()))?;
     }
 
     copy_required("README.md", &package_root.join("README.md"))?;
@@ -143,71 +146,31 @@ fn print_help() {
     );
 }
 
-fn ship_bundles() -> Vec<ShipBundle> {
-    vec![
-        ShipBundle {
-            label: "PRE AU",
-            format_dir: "Audio Unit",
-            src: PathBuf::from(
-                "juce_shell/build-universal/KirinHyphaPRE_artefacts/Release/AU/Kirin Hypha PRE.component",
-            ),
-            file_name: "Kirin Hypha PRE.component",
-            binary_name: "Kirin Hypha PRE",
-            display_name: "PRE Kirin Hypha",
-            is_au: true,
-            component_cid: None,
-        },
-        ShipBundle {
-            label: "POST AU",
-            format_dir: "Audio Unit",
-            src: PathBuf::from(
-                "juce_shell/build-universal/KirinHyphaPOST_artefacts/Release/AU/Kirin Hypha POST.component",
-            ),
-            file_name: "Kirin Hypha POST.component",
-            binary_name: "Kirin Hypha POST",
-            display_name: "POST Kirin Hypha",
-            is_au: true,
-            component_cid: None,
-        },
-        ShipBundle {
-            label: "PRE VST3",
-            format_dir: "VST3",
-            src: PathBuf::from(
-                "juce_shell/build-universal/KirinHyphaPRE_artefacts/Release/VST3/Kirin Hypha PRE.vst3",
-            ),
-            file_name: "PRE Kirin Hypha.vst3",
-            binary_name: "Kirin Hypha PRE",
-            display_name: "PRE Kirin Hypha",
-            is_au: false,
-            component_cid: Some("4B6972696E4879706861505245763031"),
-        },
-        ShipBundle {
-            label: "POST VST3",
-            format_dir: "VST3",
-            src: PathBuf::from(
-                "juce_shell/build-universal/KirinHyphaPOST_artefacts/Release/VST3/Kirin Hypha POST.vst3",
-            ),
-            file_name: "POST Kirin Hypha.vst3",
-            binary_name: "Kirin Hypha POST",
-            display_name: "POST Kirin Hypha",
-            is_au: false,
-            component_cid: Some("4B6972696E4879706861504F53547631"),
-        },
-    ]
+fn ship_bundles() -> Result<Vec<ShipBundle>> {
+    let build_root = ship_bundle::default_build_root()?;
+    Ok(ship_bundle::macos_bundles()?
+        .into_iter()
+        .map(|spec| ShipBundle {
+            source: spec.source_path(&build_root),
+            spec,
+        })
+        .collect())
 }
 
 fn verify_ship_set_shape(bundles: &[ShipBundle]) -> Result<()> {
     if bundles.len() != 4 {
         bail!("common-shell ship set must contain exactly 4 bundles");
     }
+    let build_root = ship_bundle::default_build_root()?;
     for b in bundles {
-        let s = b.src.to_string_lossy();
-        if !s.starts_with("juce_shell/build-universal/") {
-            bail!("non-JUCE source forbidden in ship set: {}", b.src.display());
+        if !b.source.starts_with(&build_root) {
+            bail!(
+                "non-JUCE source forbidden in ship set: {}",
+                b.source.display()
+            );
         }
-        match (b.is_au, b.src.extension().and_then(|x| x.to_str())) {
-            (true, Some("component")) | (false, Some("vst3")) => {}
-            _ => bail!("unexpected bundle extension for {}", b.src.display()),
+        if b.source.extension().and_then(|value| value.to_str()) != Some(b.spec.kind.extension()) {
+            bail!("unexpected bundle extension for {}", b.source.display());
         }
     }
     Ok(())
@@ -215,97 +178,29 @@ fn verify_ship_set_shape(bundles: &[ShipBundle]) -> Result<()> {
 
 fn verify_sources(bundles: &[ShipBundle], version: &str, allow_unsigned: bool) -> Result<()> {
     for b in bundles {
-        if !b.src.is_dir() {
-            bail!("{} missing: {}", b.label, b.src.display());
+        let label = b.spec.label();
+        if !b.source.is_dir() {
+            bail!("{} missing: {}", label, b.source.display());
         }
-        let bin = b.src.join("Contents/MacOS").join(b.binary_name);
-        verify_universal(&bin).with_context(|| format!("{} is not universal", b.label))?;
+        let bin = ship_bundle::verify_bundle_contract(&b.source, &b.spec)
+            .with_context(|| format!("{} display metadata mismatch", label))?;
+        verify_universal(&bin).with_context(|| format!("{} is not universal", label))?;
         verify_forbidden_frameworks_absent(&bin)
-            .with_context(|| format!("{} forbidden framework check failed", b.label))?;
-        verify_bundle_version(&b.src, version)
-            .with_context(|| format!("{} version mismatch", b.label))?;
-        verify_display_metadata(b)
-            .with_context(|| format!("{} display metadata mismatch", b.label))?;
-        if b.is_au {
-            verify_au_resource_usage(&b.src)
-                .with_context(|| format!("{} AU resourceUsage check failed", b.label))?;
+            .with_context(|| format!("{} forbidden framework check failed", label))?;
+        verify_bundle_version(&b.source, version)
+            .with_context(|| format!("{} version mismatch", label))?;
+        if b.spec.kind == BundleKind::Au {
+            verify_au_resource_usage(&b.source)
+                .with_context(|| format!("{} AU resourceUsage check failed", label))?;
         }
         if !allow_unsigned {
-            verify_signed_and_notarized(&b.src)
-                .with_context(|| format!("{} signing/notarization check failed", b.label))?;
+            verify_signed_and_notarized(&b.source)
+                .with_context(|| format!("{} signing/notarization check failed", label))?;
         }
         eprintln!(
             "[release-package] verified {} ({})",
-            b.label,
-            b.src.display()
-        );
-    }
-    Ok(())
-}
-
-fn verify_display_metadata(bundle: &ShipBundle) -> Result<()> {
-    let plist = bundle.src.join("Contents/Info.plist");
-    if bundle.is_au {
-        let expected = format!("Kirin: {}", bundle.display_name);
-        let actual = plist_value(&plist, "AudioComponents:0:name")?;
-        if actual != expected {
-            bail!(
-                "{} AudioComponents:0:name = {}, expected {}",
-                bundle.src.display(),
-                actual,
-                expected
-            );
-        }
-        return Ok(());
-    }
-
-    for key in ["CFBundleDisplayName", "CFBundleName"] {
-        let actual = plist_value(&plist, key)?;
-        if actual != bundle.binary_name {
-            bail!(
-                "{} {} = {}, expected {}. Rebuild with scripts/build_juce_universal.sh.",
-                bundle.src.display(),
-                key,
-                actual,
-                bundle.binary_name
-            );
-        }
-    }
-    let moduleinfo = fs::read_to_string(bundle.src.join("Contents/Resources/moduleinfo.json"))
-        .with_context(|| format!("read VST3 moduleinfo for {}", bundle.src.display()))?;
-    let cid = bundle.component_cid.context("VST3 component CID missing")?;
-    if !moduleinfo.contains(&format!("\"CID\": \"{cid}\""))
-        || !moduleinfo.contains(&format!("\"Name\": \"{}\"", bundle.display_name))
-    {
-        bail!(
-            "{} VST3 CID/display contract mismatch",
-            bundle.src.display()
-        );
-    }
-    verify_binary_contains_display_name(
-        &bundle.src.join("Contents/MacOS").join(bundle.binary_name),
-        bundle.display_name,
-    )
-}
-
-fn verify_binary_contains_display_name(binary: &Path, expected: &str) -> Result<()> {
-    let out = Command::new("strings")
-        .arg(binary)
-        .output()
-        .with_context(|| format!("spawn strings for {}", binary.display()))?;
-    if !out.status.success() {
-        bail!(
-            "strings failed for {}: {}",
-            binary.display(),
-            String::from_utf8_lossy(&out.stderr)
-        );
-    }
-    let text = String::from_utf8_lossy(&out.stdout);
-    if !text.contains(expected) {
-        bail!(
-            "{} does not contain display name {}",
-            binary.display(),
-            expected
+            label,
+            b.source.display()
         );
     }
     Ok(())
@@ -358,7 +253,7 @@ fn verify_forbidden_frameworks_absent(bin: &Path) -> Result<()> {
 fn verify_bundle_version(bundle: &Path, expected: &str) -> Result<()> {
     let plist = bundle.join("Contents/Info.plist");
     for key in ["CFBundleShortVersionString", "CFBundleVersion"] {
-        let value = plist_value(&plist, key)?;
+        let value = ship_bundle::plist_value(&plist, key)?;
         if value.trim() != expected {
             bail!(
                 "{} {} = {}, expected {}",
@@ -435,22 +330,6 @@ fn verify_signed_and_notarized(bundle: &Path) -> Result<()> {
     Ok(())
 }
 
-fn plist_value(plist: &Path, key: &str) -> Result<String> {
-    let out = Command::new("/usr/libexec/PlistBuddy")
-        .args(["-c", &format!("Print :{key}")])
-        .arg(plist)
-        .output()
-        .with_context(|| format!("spawn PlistBuddy for {}", plist.display()))?;
-    if !out.status.success() {
-        bail!(
-            "PlistBuddy failed for {}: {}",
-            plist.display(),
-            String::from_utf8_lossy(&out.stderr)
-        );
-    }
-    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
-}
-
 fn read_version() -> Result<String> {
     let toml = fs::read_to_string("crates/hypha_pre/Cargo.toml")
         .context("read crates/hypha_pre/Cargo.toml")?;
@@ -515,11 +394,23 @@ fn manifest_json(
     s.push_str("  \"ship_set\": \"juce-common-shell\",\n  \"bundles\": [\n");
     for (i, b) in bundles.iter().enumerate() {
         let comma = if i + 1 == bundles.len() { "" } else { "," };
+        let format = b
+            .spec
+            .archive_relative
+            .parent()
+            .and_then(Path::to_str)
+            .context("archive format path must be UTF-8")?;
+        let file = b
+            .spec
+            .archive_relative
+            .file_name()
+            .and_then(|value| value.to_str())
+            .context("archive bundle file name must be UTF-8")?;
         s.push_str(&format!(
             "    {{ \"label\": \"{}\", \"format\": \"{}\", \"file\": \"{}\" }}{comma}\n",
-            json_escape(b.label),
-            json_escape(b.format_dir),
-            json_escape(b.file_name)
+            json_escape(&b.spec.label()),
+            json_escape(format),
+            json_escape(file)
         ));
     }
     s.push_str("  ]\n}\n");
@@ -587,38 +478,5 @@ fn json_escape(value: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn ship_set_is_juce_common_shell_only() {
-        let bundles = ship_bundles();
-        verify_ship_set_shape(&bundles).unwrap();
-        assert!(bundles
-            .iter()
-            .all(|b| b.src.starts_with("juce_shell/build-universal")));
-        assert_eq!(bundles.iter().filter(|b| b.is_au).count(), 2);
-        assert_eq!(bundles.iter().filter(|b| !b.is_au).count(), 2);
-        assert!(bundles
-            .iter()
-            .filter(|b| !b.is_au)
-            .all(|b| b.src.to_string_lossy().contains("/Release/VST3/")));
-    }
-
-    #[test]
-    fn manifest_mentions_all_four_files() {
-        let bundles = ship_bundles();
-        let leaf = package_leaf("1.1.1", false);
-        let json = manifest_json("1.1.1", &leaf, "abc", false, "false", &bundles).unwrap();
-        for file in [
-            "Kirin Hypha PRE.component",
-            "Kirin Hypha POST.component",
-            "PRE Kirin Hypha.vst3",
-            "POST Kirin Hypha.vst3",
-        ] {
-            assert!(json.contains(file));
-        }
-        assert!(json.contains("\"ship_set\": \"juce-common-shell\""));
-        assert!(json.contains("\"unsigned_smoke_test\": false"));
-    }
-}
+#[path = "release_package/tests.rs"]
+mod tests;

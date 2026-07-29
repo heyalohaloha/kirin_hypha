@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { loadMacShipBundleManifest } from './kirin_hypha_ship_bundles.mjs';
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(SCRIPT_DIR, '..', '..');
@@ -22,47 +23,8 @@ const PACKAGE_NAME = SKIP_SIGN ? `${PACKAGE_BASE}-UNSIGNED-DO-NOT-UPLOAD.pkg` : 
 const PACKAGE_PATH = path.join(RELEASE_DIR, PACKAGE_NAME);
 const COMPONENT_ID = 'com.kirinmastering.hypha.plugins';
 const PRODUCT_ID = 'com.kirinmastering.hypha.installer';
-
-const bundles = [
-  {
-    label: 'PRE AU',
-    src: 'juce_shell/build-universal/KirinHyphaPRE_artefacts/Release/AU/Kirin Hypha PRE.component',
-    payload: 'Library/Audio/Plug-Ins/Components/Kirin Hypha PRE.component',
-    binary: 'Kirin Hypha PRE',
-    displayName: 'PRE Kirin Hypha',
-    physicalName: 'Kirin Hypha PRE',
-    kind: 'component',
-  },
-  {
-    label: 'POST AU',
-    src: 'juce_shell/build-universal/KirinHyphaPOST_artefacts/Release/AU/Kirin Hypha POST.component',
-    payload: 'Library/Audio/Plug-Ins/Components/Kirin Hypha POST.component',
-    binary: 'Kirin Hypha POST',
-    displayName: 'POST Kirin Hypha',
-    physicalName: 'Kirin Hypha POST',
-    kind: 'component',
-  },
-  {
-    label: 'PRE VST3',
-    src: 'juce_shell/build-universal/KirinHyphaPRE_artefacts/Release/VST3/Kirin Hypha PRE.vst3',
-    payload: 'Library/Audio/Plug-Ins/VST3/PRE Kirin Hypha.vst3',
-    binary: 'Kirin Hypha PRE',
-    displayName: 'PRE Kirin Hypha',
-    physicalName: 'Kirin Hypha PRE',
-    componentCid: '4B6972696E4879706861505245763031',
-    kind: 'vst3',
-  },
-  {
-    label: 'POST VST3',
-    src: 'juce_shell/build-universal/KirinHyphaPOST_artefacts/Release/VST3/Kirin Hypha POST.vst3',
-    payload: 'Library/Audio/Plug-Ins/VST3/POST Kirin Hypha.vst3',
-    binary: 'Kirin Hypha POST',
-    displayName: 'POST Kirin Hypha',
-    physicalName: 'Kirin Hypha POST',
-    componentCid: '4B6972696E4879706861504F53547631',
-    kind: 'vst3',
-  },
-];
+const shipManifest = loadMacShipBundleManifest({ root: ROOT });
+const bundles = shipManifest.bundles;
 
 function usage() {
   return `Usage:
@@ -119,9 +81,11 @@ function plistValue(plist, key) {
 }
 
 function verifySourceBundle(bundle) {
-  const source = path.join(ROOT, bundle.src);
-  if (!fs.existsSync(source)) throw new Error(`${bundle.label} missing: ${bundle.src}`);
-  const binary = path.join(source, 'Contents/MacOS', bundle.binary);
+  const source = bundle.sourcePath;
+  if (!fs.existsSync(source)) {
+    throw new Error(`${bundle.label} missing: ${path.relative(ROOT, source)}`);
+  }
+  const binary = path.join(source, 'Contents/MacOS', bundle.executable_name);
   const archs = run('lipo', ['-archs', binary], { capture: true }).trim().split(/\s+/);
   if (!archs.includes('x86_64') || !archs.includes('arm64')) {
     throw new Error(`${bundle.label} is not universal: ${archs.join(' ')}`);
@@ -135,8 +99,7 @@ function verifySourceBundle(bundle) {
     const actual = plistValue(plist, key);
     if (actual !== VERSION) throw new Error(`${bundle.label} ${key}=${actual}, expected ${VERSION}`);
   }
-  verifyDisplayMetadata(bundle, plist, binary);
-  if (bundle.kind === 'component') {
+  if (bundle.kind === 'au') {
     const usage = run('plutil', ['-p', plist], { capture: true });
     if (!usage.includes('temporary-exception.files.all.read-write')) {
       throw new Error(`${bundle.label} AU resourceUsage missing files.all`);
@@ -147,33 +110,35 @@ function verifySourceBundle(bundle) {
   run('codesign', ['--verify', '--deep', '--strict', '--check-notarization', '--verbose=2', source]);
 }
 
-function verifyDisplayMetadata(bundle, plist, binary) {
-  if (bundle.kind === 'component') {
-    const actual = plistValue(plist, 'AudioComponents:0:name');
-    const expected = `Kirin: ${bundle.displayName}`;
-    if (actual !== expected) {
-      throw new Error(`${bundle.label} AudioComponents:0:name=${actual}, expected ${expected}`);
-    }
-    return;
-  }
+function verifyShipBundleContract(installedRoot) {
+  const args = [
+    'run', '--quiet', '--package', 'xtask', '--',
+    'ship-bundle-verify',
+    '--build-root', shipManifest.defaultBuildRoot,
+  ];
+  if (installedRoot) args.push('--installed-root', installedRoot);
+  run('cargo', args);
+}
 
-  for (const key of ['CFBundleDisplayName', 'CFBundleName']) {
-    const actual = plistValue(plist, key);
-    if (actual !== bundle.physicalName) {
-      throw new Error(`${bundle.label} ${key}=${actual}, expected ${bundle.physicalName}. Rebuild with scripts/build_juce_universal.sh.`);
-    }
-  }
-  const moduleInfo = fs.readFileSync(path.join(path.dirname(path.dirname(binary)), 'Resources', 'moduleinfo.json'), 'utf8');
-  if (!moduleInfo.includes(`"CID": "${bundle.componentCid}"`) || !moduleInfo.includes(`"Name": "${bundle.displayName}"`)) {
-    throw new Error(`${bundle.label} VST3 CID/display contract mismatch`);
-  }
-  const binaryStrings = run('strings', [binary], { capture: true });
-  if (!binaryStrings.includes(bundle.displayName)) {
-    throw new Error(`${bundle.label} binary does not contain display name ${bundle.displayName}`);
-  }
+function shellSingleQuote(value) {
+  return `'${value.replaceAll("'", "'\"'\"'")}'`;
 }
 
 function writePreinstall(filePath) {
+  const removalPaths = [
+    ...new Set(
+      bundles.flatMap((bundle) => [
+        bundle.install_relative,
+        ...bundle.legacy_install_relative,
+      ]),
+    ),
+  ];
+  const systemRemovals = removalPaths
+    .map((relative) => `remove_bundle ${shellSingleQuote(`/${relative}`)}`)
+    .join('\n');
+  const userRemovals = removalPaths
+    .map((relative) => `  remove_bundle "$home"/${shellSingleQuote(relative)}`)
+    .join('\n');
   const script = `#!/bin/sh
 set -eu
 
@@ -183,21 +148,11 @@ remove_bundle() {
   fi
 }
 
-remove_bundle "/Library/Audio/Plug-Ins/Components/Kirin Hypha PRE.component"
-remove_bundle "/Library/Audio/Plug-Ins/Components/Kirin Hypha POST.component"
-remove_bundle "/Library/Audio/Plug-Ins/VST3/Kirin Hypha PRE.vst3"
-remove_bundle "/Library/Audio/Plug-Ins/VST3/Kirin Hypha POST.vst3"
-remove_bundle "/Library/Audio/Plug-Ins/VST3/PRE Kirin Hypha.vst3"
-remove_bundle "/Library/Audio/Plug-Ins/VST3/POST Kirin Hypha.vst3"
+${systemRemovals}
 
 for home in /Users/*; do
   [ -d "$home" ] || continue
-  remove_bundle "$home/Library/Audio/Plug-Ins/Components/Kirin Hypha PRE.component"
-  remove_bundle "$home/Library/Audio/Plug-Ins/Components/Kirin Hypha POST.component"
-  remove_bundle "$home/Library/Audio/Plug-Ins/VST3/Kirin Hypha PRE.vst3"
-  remove_bundle "$home/Library/Audio/Plug-Ins/VST3/Kirin Hypha POST.vst3"
-  remove_bundle "$home/Library/Audio/Plug-Ins/VST3/PRE Kirin Hypha.vst3"
-  remove_bundle "$home/Library/Audio/Plug-Ins/VST3/POST Kirin Hypha.vst3"
+${userRemovals}
 done
 
 exit 0
@@ -228,6 +183,7 @@ function buildPackage() {
     return;
   }
 
+  verifyShipBundleContract();
   for (const bundle of bundles) verifySourceBundle(bundle);
   const identity = SKIP_SIGN ? null : findInstallerIdentity();
   if (identity) log(`using Developer ID Installer identity ${identity}`);
@@ -242,10 +198,11 @@ function buildPackage() {
   writePreinstall(path.join(scriptsDir, 'preinstall'));
 
   for (const bundle of bundles) {
-    const destination = path.join(payloadRoot, bundle.payload);
+    const destination = path.join(payloadRoot, bundle.install_relative);
     fs.mkdirSync(path.dirname(destination), { recursive: true });
-    run('ditto', [path.join(ROOT, bundle.src), destination]);
+    run('ditto', [bundle.sourcePath, destination]);
   }
+  verifyShipBundleContract(payloadRoot);
 
   const componentPkg = path.join(workDir, 'KirinHyphaPlugins.pkg');
   run('pkgbuild', [

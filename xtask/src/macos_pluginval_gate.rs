@@ -56,33 +56,38 @@ fn macos_pluginval_script_is_a_reusable_strict_preflight_gate() {
     );
     require(
         PLUGINVAL_SCRIPT,
-        "KirinHyphaPRE_artefacts/Release/VST3/Kirin Hypha PRE.vst3",
-        "script must validate the PRE ship-set VST3 by exact path",
+        "node scripts/ls_release/kirin_hypha_ship_bundles.mjs",
+        "script must resolve VST3 paths from the canonical ship bundle manifest",
     );
     require(
         PLUGINVAL_SCRIPT,
-        "KirinHyphaPOST_artefacts/Release/VST3/Kirin Hypha POST.vst3",
-        "script must validate the POST ship-set VST3 by exact path",
+        "STAGE_ROOT=\"$RUNTIME_DIR/ship-set\"",
+        "script must build an isolated copy of the exact installed layout",
     );
     require(
         PLUGINVAL_SCRIPT,
-        "COMPONENT_CIDS=(",
-        "script must pin the existing VST3 component identities",
+        "ditto \"$SOURCE_BUNDLE\" \"$STAGED_BUNDLE\"",
+        "script must preserve each signed bundle while applying its installed outer name",
     );
     require(
         PLUGINVAL_SCRIPT,
-        "CFBundleDisplayName CFBundleName",
-        "script must verify role-first display names before pluginval",
+        "ship-bundle-verify",
+        "script must use the shared behavioral bundle contract before pluginval",
     );
     require(
         PLUGINVAL_SCRIPT,
-        "PRE Kirin Hypha",
-        "script must verify the PRE role-first display name",
+        "--installed-root \"$STAGE_ROOT\"",
+        "shared verification must inspect the staged installed-layout paths",
     );
     require(
         PLUGINVAL_SCRIPT,
-        "POST Kirin Hypha",
-        "script must verify the POST role-first display name",
+        "--format vst3",
+        "shared verification must be limited to the two VST3 bundles for this gate",
+    );
+    require(
+        PLUGINVAL_SCRIPT,
+        "\"${#BUNDLES[@]}\" -ne 2",
+        "script must fail closed unless PRE and POST both resolve",
     );
     require(
         PLUGINVAL_SCRIPT,
@@ -160,8 +165,8 @@ fn readme_exposes_the_local_pluginval_gate() {
     );
     require(
         README,
-        "JUCE common-shell PRE/POST VST3 bundles",
-        "README must make clear that pluginval checks the actual common-shell ship set",
+        "exact role-first installed layout",
+        "README must make clear that pluginval checks the host-visible installed layout",
     );
     require(
         README,

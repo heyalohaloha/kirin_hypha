@@ -103,6 +103,10 @@ Public release package:
 node scripts/ls_release/build_kirin_hypha_pkg.mjs
 ```
 
+The four source, installed, archive, executable, display-name, and VST3 CID contracts come from
+`config/hypha_macos_ship_bundles.json`. Before `pkgbuild`, the script verifies the exact payload
+layout—including the role-first VST3 outer names—against each bundle's `CFBundleExecutable`.
+
 This writes:
 
 - `dist/LS_UPLOAD/Kirin-Hypha-X.Y.Z-macOS-Universal.pkg`

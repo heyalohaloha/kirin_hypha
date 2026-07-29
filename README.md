@@ -197,7 +197,7 @@ scripts/validate_macos_pluginval.sh juce_shell/build-universal
 Requires Rust stable toolchain, CMake, Xcode command line tools, and the pinned JUCE submodule.
 The macOS release ship set is one JUCE role-parameterised processor/editor compiled as AU and VST3. The VST3 wrapper preserves the original component IDs and migrates legacy nih-plug state so existing DAW sessions keep their identities and pair names.
 
-Run the macOS pluginval gate before opening Studio One for manual validation. It validates the actual JUCE common-shell PRE/POST VST3 bundles with strictness level 5, pins their legacy component IDs and role-first host names, and writes logs to `target/pluginval/logs/macos`. Runtime writes are isolated under `target/pluginval/runtime/macos/`. Override with `PLUGINVAL_STRICTNESS_LEVEL=10` only for the slower stress pass. If Steinberg's VST3 validator is installed, pass it with `VST3_VALIDATOR_BIN=/path/to/validator`.
+Run the macOS pluginval gate before opening Studio One for manual validation. It recreates the exact role-first installed layout (`PRE Kirin Hypha.vst3` / `POST Kirin Hypha.vst3`) in an isolated runtime directory, resolves each executable through `CFBundleExecutable`, verifies the preserved component IDs and host names, and then runs pluginval at strictness level 5 against those staged bundles. Logs are written to `target/pluginval/logs/macos`, while plug-in runtime writes stay under `target/pluginval/runtime/macos/`. Override with `PLUGINVAL_STRICTNESS_LEVEL=10` only for the slower stress pass. If Steinberg's VST3 validator is installed, pass it with `VST3_VALIDATOR_BIN=/path/to/validator`.
 
 ## Maintainer release packaging
 
