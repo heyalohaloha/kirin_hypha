@@ -103,14 +103,28 @@ fn replace_pair_pre_name(state: &PostEditorState, new_name: String, claimed_at: 
     replace_pair_selection(state, new_name, claimed_at, None);
 }
 
-fn replace_pair_pre_candidate(state: &PostEditorState, candidate: &PreCandidate, claimed_at: f64) {
+fn replace_pair_pre_candidate(
+    state: &PostEditorState,
+    candidate: &PreCandidate,
+    claimed_at: f64,
+) -> bool {
+    let project_hash = read_project_hash_arc(&state.project_hash);
+    let post_instance_id = read_instance_id_arc(&state.instance_id);
+    if kirin_measure::pair_claim_owned_by_other_post(
+        &PlatformPaths::current_kirin_tmp_root(),
+        &candidate.instance_id,
+        &project_hash,
+        &post_instance_id,
+    ) {
+        return false;
+    }
     let Some(project_dir) = candidate
         .path
         .parent()
         .and_then(|instance_dir| instance_dir.parent())
         .map(std::path::Path::to_path_buf)
     else {
-        return;
+        return false;
     };
     let name = candidate.name.clone().unwrap_or_default();
     let selected = LatchedPre {
@@ -123,6 +137,7 @@ fn replace_pair_pre_candidate(state: &PostEditorState, candidate: &PreCandidate,
         readiness: kirin_measure::LatchedPreReadiness::Confirmed,
     };
     replace_pair_selection(state, name, claimed_at, Some(selected));
+    true
 }
 
 fn replace_pair_selection(
@@ -540,7 +555,21 @@ pub fn create_post_editor(args: PostEditorArgs) -> Option<Box<dyn Editor>> {
                 .ok()
                 .map(|g| g.clone())
                 .unwrap_or_default();
-            let pair_status = pair_status_for_post(&pair_pre_name_snapshot, &state.latched_pre);
+            let project_hash_snapshot = read_project_hash_arc(&state.project_hash);
+            let post_instance_id = read_instance_id_arc(&state.instance_id);
+            let pair_claimed_at = state
+                .pair_claimed_at
+                .read()
+                .map(|value| *value)
+                .unwrap_or(0.0);
+            let pair_status = pair_status_for_post(
+                &PlatformPaths::current_kirin_tmp_root(),
+                &project_hash_snapshot,
+                &post_instance_id,
+                pair_claimed_at,
+                &pair_pre_name_snapshot,
+                &state.latched_pre,
+            );
             let pair_empty_for_display = pair_status == PairStatus::Unpaired;
             let license = state.license.load();
 
@@ -1561,12 +1590,15 @@ fn draw_pair_pre_combo(
                             })
                             .inner;
                         if clicked {
-                            replace_pair_pre_candidate(state, cand, epoch_secs_now());
-                            log::info!(
-                                "[POST pair-combo] selected: instance_id={} name={:?}",
-                                cand.instance_id,
-                                cand.name
-                            );
+                            if replace_pair_pre_candidate(state, cand, epoch_secs_now()) {
+                                log::info!(
+                                    "[POST pair-combo] selected: instance_id={} name={:?}",
+                                    cand.instance_id,
+                                    cand.name
+                                );
+                            } else {
+                                state.toast = Some(Toast::new("PRE already in use", now));
+                            }
                         }
                     });
                 }

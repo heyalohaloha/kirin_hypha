@@ -1914,6 +1914,9 @@ impl KirinHyphaEngine {
         let cb_project_hash = project_hash.clone();
         let cb_post_iid = iid_str.clone();
         let cb_daw = daw_uuid.clone();
+        // Exact pair ownership belongs to the plugin engine, not a restartable IO generation.
+        // The restart closure below retains this Arc until the POST engine itself is destroyed.
+        let pair_owner = Arc::new(kirin_measure::PairOwnershipLease::new());
 
         // POST 固有の共有 Arc（hypha_post params と同型）。
         let instance_id = Arc::new(RwLock::new(iid_str));
@@ -2023,6 +2026,7 @@ impl KirinHyphaEngine {
             let record_mark_queue = Arc::clone(&self.record_mark_queue);
             let push_overflow = Arc::clone(&self.push_overflow);
             let oversized_drop = Arc::clone(&self.oversized_drop); // B-125
+            let pair_owner = Arc::clone(&pair_owner);
             let latched_pre = self.pair_binding.latched_pre();
             let sample_rate = self.sample_rate;
             Box::new(move || {
@@ -2057,6 +2061,7 @@ impl KirinHyphaEngine {
                     Arc::clone(&record_mark_queue),
                     Arc::clone(&push_overflow), // B-076: per-Record dropped_samples
                     Arc::clone(&oversized_drop), // B-125: per-Record oversized block drop
+                    Arc::clone(&pair_owner),    // exact pair survives IO worker restart
                     Arc::clone(&latched_pre),   // B-108: display/keep 共有ラッチ
                 );
                 IoThreadHandle {
@@ -2198,6 +2203,22 @@ impl KirinHyphaEngine {
         if self.pair_binding.matches_exact(&name, &latch) {
             return true;
         }
+        let post_instance_id = self
+            .identity
+            .lock()
+            .map(|identity| identity.instance_id.clone())
+            .unwrap_or_default();
+        if kirin_measure::pair_claim_owned_by_other_post(
+            &kirin_root,
+            instance_id,
+            &project_hash,
+            &post_instance_id,
+        ) {
+            if let Ok(mut notice) = self.keep_action_notice.write() {
+                *notice = Some("PRE already in use".to_string());
+            }
+            return false;
+        }
         let (project_hash, post_iid) = self.begin_pair_reselection();
         let transition = self.pair_binding.replace_exact(name, latch);
         self.finish_pair_reselection(transition, &project_hash, &post_iid, epoch_secs_now());
@@ -2243,6 +2264,16 @@ impl KirinHyphaEngine {
         let role = self.write_role.lock().ok().and_then(|role| *role);
         match role {
             Some(PluginDataRole::Post) => {
+                let (project_hash, post_instance_id) = self
+                    .identity
+                    .lock()
+                    .map(|identity| (identity.project_hash.clone(), identity.instance_id.clone()))
+                    .unwrap_or_default();
+                let pair_claimed_at = self
+                    .pair_claimed_at
+                    .read()
+                    .map(|value| *value)
+                    .unwrap_or(0.0);
                 let desired = self
                     .pair_binding
                     .desired_name()
@@ -2250,7 +2281,14 @@ impl KirinHyphaEngine {
                     .unwrap_or_else(|poisoned| poisoned.into_inner())
                     .clone();
                 let latched = self.pair_binding.latched_pre();
-                pair_status_for_post(&desired, &latched)
+                pair_status_for_post(
+                    &PlatformPaths::current_kirin_tmp_root(),
+                    &project_hash,
+                    &post_instance_id,
+                    pair_claimed_at,
+                    &desired,
+                    &latched,
+                )
             }
             Some(PluginDataRole::Pre) => {
                 let iid = self

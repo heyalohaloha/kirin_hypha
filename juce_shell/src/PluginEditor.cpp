@@ -434,7 +434,10 @@ void KirinHyphaEditor::handleCandidateMenu (
                                                       : juce::String ("___"));
             }
             else
-                showToast ("PRE no longer available");
+            {
+                const juce::String notice = processorRef.drainKeepActionNotice();
+                showToast (notice.isNotEmpty() ? notice : juce::String ("PRE no longer available"));
+            }
         }
     }
 }

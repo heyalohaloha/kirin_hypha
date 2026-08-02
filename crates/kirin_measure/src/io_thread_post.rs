@@ -347,6 +347,9 @@ pub fn spawn_io_thread_post(
     // B-125: 累積 oversized_drop（JUCE 殻のみ計上 / egui は常に 0）。overflow とは別カウンタ。
     // run_record_tick が同位相で snapshot/差分し、合算を dropped_samples へ焼く。
     oversized_drop: Arc<std::sync::atomic::AtomicU64>,
+    // Engine-lifetime exact-pair owner. Unlike the Watch lease below, this Arc is created outside
+    // the watchdog restart closure and remains locked while IO worker generations are replaced.
+    pair_owner: Arc<crate::PairOwnershipLease>,
     // B-108: display と keep/Arm が共有する単一ラッチ。io_thread が毎 tick 維持し、shell 側の
     // keep/keep_all/broadcast 受信が `resolve_arm_target` で読む（egui/JUCE 両殻が同実体を渡す）。
     latched_pre: Arc<Mutex<Option<LatchedPre>>>,
@@ -515,7 +518,7 @@ pub fn spawn_io_thread_post(
             let pair_claimed_at_snapshot =
                 pair_claimed_at_for_thread.read().map(|g| *g).unwrap_or(0.0);
 
-            // W-281 / C-3: 1 sec interval で後着優先 self check を発火。
+            // W-281 / C-3: 1 sec interval で固定所有権の競合 self check を発火。
             // PRE 固有の1本の claim と、その所有 POST lease だけを直接確認する。project 配下の
             // POST 列挙は行わない。exact PRE が未確定なら競合を断定できないため release しない。
             // 解放対象 → C-4 経路で pair_pre_name="" / pair_claimed_at=0.0 + Toast 通知。
@@ -526,7 +529,7 @@ pub fn spawn_io_thread_post(
             // B-253: 再生/バウンス中は pair を外さない。
             // SignalState::Active は無音 gap で Inactive になり得るため、transport.playing も
             // self-check release の gate に含める。名前で結ばれた pair は transport が
-            // 動いている間は保持し、後着優先 release は停止中のみ許容する。
+            // 動いている間は保持し、競合による選択解除は停止中のみ許容する。
             let tick_now = Instant::now();
             let transport_playing = is_playing.load(Ordering::Relaxed);
             let self_check_allowed = !record_sm.is_recording()
@@ -560,7 +563,7 @@ pub fn spawn_io_thread_post(
                         );
                     if released {
                         log::info!(
-                            "[POST self_check] release pair: instance_id={} pair_pre_name={} paired_pre_instance_id={:?} (newer claim detected)",
+                            "[POST self_check] reject pair: instance_id={} pair_pre_name={} paired_pre_instance_id={:?} (PRE owned by another POST)",
                             instance_id_ref,
                             pair_pre_name_snapshot,
                             paired_pre_instance_id_snapshot
@@ -569,7 +572,7 @@ pub fn spawn_io_thread_post(
                             *c = 0.0;
                         }
                         if let Ok(mut n) = pair_release_notice_for_thread.write() {
-                            *n = Some("Released (paired elsewhere)".to_string());
+                            *n = Some("PRE already in use".to_string());
                         }
                         // W-282 / G-115-250 / A-1: Δ 表示完全リセット。
                         // B-048 LKG (`last_active=Some(snap)`) を bypass し、解放された POST に
@@ -643,6 +646,11 @@ pub fn spawn_io_thread_post(
                 .read()
                 .map(|value| *value)
                 .unwrap_or(0.0);
+            if let Err(error) =
+                pair_owner.bind(&instance_dir, current_pre.as_deref(), current_claimed_at)
+            {
+                log::warn!("[IOThread POST] pair owner bind error: {}", error);
+            }
             if let Some(owned) = owned_pair_claim.as_ref() {
                 if Instant::now() >= next_pair_claim_publish {
                     let current = crate::pair_claim_index::read_pair_claim(
@@ -651,7 +659,7 @@ pub fn spawn_io_thread_post(
                         &owned.pre_instance_id,
                     );
                     if current.as_ref() != Some(owned)
-                        || !crate::pair_claim_index::pair_claim_is_live(&kirin_root, owned)
+                        || !crate::pair_claim_index::pair_claim_is_owned(&kirin_root, owned)
                     {
                         owned_pair_claim = None;
                     }
@@ -662,7 +670,7 @@ pub fn spawn_io_thread_post(
                 current_pre.as_deref() == Some(owned.pre_instance_id.as_str())
                     && owned.project_hash == project_hash_ref
                     && owned.post_instance_id == instance_id_ref
-                    && owned.post_watch_owner_id == watch_lease.owner_id()
+                    && owned.post_watch_owner_id == pair_owner.owner_id()
                     && owned.pair_claimed_at_bits == current_claimed_at.to_bits()
             });
             if !desired_matches_owned {
@@ -683,7 +691,7 @@ pub fn spawn_io_thread_post(
                         pre_instance_id,
                         project_hash_ref,
                         instance_id_ref,
-                        watch_lease.owner_id(),
+                        pair_owner.owner_id(),
                         crate::post_candidates::current_host_process_id(),
                         current_claimed_at,
                     ) {
@@ -1180,12 +1188,9 @@ pub fn spawn_io_thread_post(
             thread::sleep(LOOP_SLEEP);
         }
 
-        // Conditional release is serialized by the same per-PRE OS lock. If a newer POST already
-        // replaced this claim, the old teardown cannot remove the new owner's pointer.
-        if let Some(claim) = owned_pair_claim.take() {
-            let _ = crate::pair_claim_index::release_pair_claim(&kirin_root, &claim);
-        }
-
+        // Do not release the exact claim here. The IO worker is restartable and does not own the
+        // relationship. The engine-held pair lease makes this claim invalid automatically when the
+        // POST instance is actually destroyed; a restarted worker adopts the same fixed claim.
         // 終了処理: 直近 tick の instance_id でクリーンアップ。
         // `set_state` 復元後に instance_id が切り替わった場合は旧 instance dir
         // (Default UUID) の post.json が残骸として残るが、次回起動時の同関数で
@@ -1507,8 +1512,8 @@ fn compute_latched_display_for_post_project(
         }
     }
 
-    // (2) ラッチ維持中。現行leaseの明示終了だけは完全切断し、同じnameの再作成PREを
-    // 同tickで再解決できるようにする。Record中は上のfreeze分岐が先に返るため不変。
+    // (2) ラッチ維持中。Watch lease・snapshot freshnessは計測可否だけを決め、ユーザーが
+    // 確定した exact binding は変更しない。Record中は上のfreeze分岐が先に返るため不変。
     if keep {
         let l = current.expect("keep implies current is Some");
         // A saved exact locator first waits for a current-process owner at that same path. The
@@ -1519,37 +1524,22 @@ fn compute_latched_display_for_post_project(
         {
             return Ok(delta_latched_idle());
         }
-        if crate::watch_snapshot_lease::snapshot_file_has_released_current_owner(&l.pre_json) {
-            let mut binding = latched
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            if binding.as_ref().is_some_and(|current| {
-                current.instance_id == l.instance_id && current.pre_json == l.pre_json
-            }) {
-                binding.take();
-                log::info!(
-                    "[POST pairing] released PRE runtime detached: instance_id={}",
-                    l.instance_id
-                );
+        match read_pre_at(&l.pre_json) {
+            // fresh + active → 通常 Δ。名前の一時不一致では解除しない。
+            Some(st) if st.fresh && st.active => {
+                let (d, ss) = compute_delta_for_pre_file(&l.pre_json, post)?;
+                return Ok((d, false, ss));
             }
-        } else {
-            match read_pre_at(&l.pre_json) {
-                // fresh + active → 通常 Δ。名前の一時不一致では解除しない。
-                Some(st) if st.fresh && st.active => {
-                    let (d, ss) = compute_delta_for_pre_file(&l.pre_json, post)?;
-                    return Ok((d, false, ss));
-                }
-                // 明示 OFF は pair 維持のまま POST 単独表示に戻す。
-                Some(st) if st.signal_state == Some(SignalState::Bypassed) => {
-                    return Ok(delta_pre_bypassed());
-                }
-                // PRE process inactive: keep exact binding, show POST absolute until it resumes.
-                Some(st) if st.signal_state == Some(SignalState::Inactive) => {
-                    return Ok(delta_pre_inactive());
-                }
-                // stale / missing / rename → ラッチ維持のまま muted Δ/---。
-                _ => return Ok(delta_latched_idle()),
+            // 明示 OFF は pair 維持のまま POST 単独表示に戻す。
+            Some(st) if st.signal_state == Some(SignalState::Bypassed) => {
+                return Ok(delta_pre_bypassed());
             }
+            // PRE process inactive: keep exact binding, show POST absolute until it resumes.
+            Some(st) if st.signal_state == Some(SignalState::Inactive) => {
+                return Ok(delta_pre_inactive());
+            }
+            // stopped writer / stale / missing / rename → ラッチ維持のまま muted Δ/---。
+            _ => return Ok(delta_latched_idle()),
         }
     }
 
@@ -3702,9 +3692,9 @@ mod compute_delta_tests {
         );
     }
 
-    /// 現行PRE leaseの終了はexact latchを完全に外し、同名の再作成へ即再接続する。
+    /// PRE Watch lease終了は計測をstaleにするだけで、exact latchを別instanceへ移さない。
     #[test]
-    fn released_owner_detaches_and_recreated_name_relatches() {
+    fn released_watch_owner_keeps_exact_pair_and_rejects_name_retargeting() {
         let root = isolated_dir("latch_recreate");
         let old = write_pre_latch(&root, "puid-1", "iid-A", "snare", "active", &latch_now());
         let lease = attach_pre_owner(&old);
@@ -3721,6 +3711,10 @@ mod compute_delta_tests {
         assert!(latched.lock().unwrap().is_some());
 
         drop(lease);
+        // Watch owner release and metric freshness are separate signals. The just-written snapshot
+        // remains usable until its timestamp TTL expires; age that exact snapshot to exercise the
+        // unavailable-measurement path without changing the pair identity.
+        write_pre_latch(&root, "puid-1", "iid-A", "snare", "active", &latch_old(20));
         let (d, _, _) = compute_latched_display(
             &root,
             "snare",
@@ -3731,10 +3725,10 @@ mod compute_delta_tests {
         )
         .unwrap();
         assert!(
-            latched.lock().unwrap().is_none(),
-            "released owner must detach"
+            latched.lock().unwrap().is_some(),
+            "released Watch owner must not detach the exact pair"
         );
-        assert_eq!(d.mode, DeltaMode::NoPre);
+        assert_eq!(d.mode, DeltaMode::Stale);
 
         write_pre_latch(&root, "puid-2", "iid-B", "snare", "active", &latch_now());
         let (d2, _, _) = compute_latched_display(
@@ -3746,14 +3740,18 @@ mod compute_delta_tests {
             &latched,
         )
         .unwrap();
-        assert_eq!(d2.mode, DeltaMode::Active, "recreated PRE must reconnect");
+        assert_eq!(
+            d2.mode,
+            DeltaMode::Stale,
+            "same-name PRE must not steal the pair"
+        );
         assert_eq!(
             latched
                 .lock()
                 .unwrap()
                 .as_ref()
                 .map(|pre| pre.instance_id.as_str()),
-            Some("iid-B")
+            Some("iid-A")
         );
     }
 

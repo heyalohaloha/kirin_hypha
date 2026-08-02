@@ -148,8 +148,8 @@ pub struct HyphaPost {
     /// W-281 / G-115-249 / D-1: pair release toast 通知 channel (IO Thread → GUI Thread)。
     /// non-persist。`None` = 通常 / `Some(msg)` = 次 GUI 描画で `Toast::new(msg, now)` 化。
     /// 既存 `record_error_message` (上記 record_error_message field) と同パターン。
-    /// IO Thread の `self_check_pair_claim` が後着優先で自身を release したとき
-    /// "Released (paired elsewhere)" を書き込み、GUI 側 update closure 入口で
+    /// IO Thread の所有権確認で、選択した PRE が既存 POST に所有されていたとき
+    /// "PRE already in use" を書き込み、GUI 側 update closure 入口で
     /// `take()` で読出+クリアし `state.toast` に詰める。
     pair_release_notice: Arc<RwLock<Option<String>>>,
 
@@ -206,7 +206,7 @@ struct HyphaPostParams {
     /// `pair_pre_name` 設定操作 (TextEdit Enter / ComboBox PRE 選択) のときのみ
     /// 値が `epoch_secs_now()` で更新される。空文字書換 (手動クリア / IO Thread release)
     /// 時は 0.0。post.json `pair_claimed_at` field に毎 tick snapshot 書込まれ、
-    /// 後着優先 1対1 強制 (`self_check_pair_claim`) の判定軸となる。
+    /// ペア選択世代と固定所有権の一致確認 (`self_check_pair_claim`) の判定軸となる。
     /// nih-plug `impl_persistent_arc!` 経由で `Arc<RwLock<f64>>` も chunk 永続化対応。
     #[persist = "pair_claimed_at"]
     pub pair_claimed_at: Arc<RwLock<f64>>,
@@ -823,6 +823,9 @@ impl Plugin for HyphaPost {
         // B-125: egui POST は oversized 経路を持たない（全 frame を per-sample で overflow に計上済）。
         // spawn 契約を満たすため常に 0 の専用ゼロカウンタを渡す（io 再起動跨ぎで同実体を共有）。
         let oversized_drop = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        // Pair identity is held by the plugin runtime, outside both the initial IO worker and the
+        // watchdog restart closure. Watch freshness continues to use its independent worker lease.
+        let pair_owner = Arc::new(kirin_measure::PairOwnershipLease::new());
         let io_handle = spawn_io_thread_post(
             Arc::clone(&instance_id_arc),
             Arc::clone(&project_hash_arc),
@@ -862,6 +865,7 @@ impl Plugin for HyphaPost {
             Arc::clone(&self.record_mark_queue),
             Arc::clone(&self.overflow), // B-076: per-Record dropped_samples
             Arc::clone(&oversized_drop), // B-125: egui は常に 0（per-sample で overflow に計上済）
+            Arc::clone(&pair_owner),    // exact pair survives IO worker restart
             Arc::clone(&self.latched_pre), // B-108: display/keep 共有ラッチ
         );
 
@@ -903,6 +907,7 @@ impl Plugin for HyphaPost {
             let record_mark_queue = Arc::clone(&self.record_mark_queue);
             let overflow = Arc::clone(&self.overflow); // B-076
             let oversized_drop = Arc::clone(&oversized_drop); // B-125: egui ゼロカウンタを再起動跨ぎ共有
+            let pair_owner = Arc::clone(&pair_owner);
             let latched_pre = Arc::clone(&self.latched_pre); // B-108
             move |new_shutdown: Arc<AtomicBool>| {
                 spawn_io_thread_post(
@@ -935,6 +940,7 @@ impl Plugin for HyphaPost {
                     Arc::clone(&record_mark_queue),
                     Arc::clone(&overflow), // B-076: per-Record dropped_samples
                     Arc::clone(&oversized_drop), // B-125: egui は常に 0
+                    Arc::clone(&pair_owner), // exact pair survives IO worker restart
                     Arc::clone(&latched_pre), // B-108: display/keep 共有ラッチ
                 )
             }

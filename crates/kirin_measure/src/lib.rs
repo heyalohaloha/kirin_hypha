@@ -26,6 +26,7 @@ pub mod license;
 pub mod measure_thread;
 pub mod pair_claim_index;
 pub mod pair_operation_group;
+mod pair_ownership_lease;
 pub mod pair_status;
 pub mod pairing_scope;
 pub mod path_identity;
@@ -120,8 +121,9 @@ pub use license::{
 };
 pub use measure_thread::{live_window, pair_lock_active, spawn_measure_thread, LivenessEvaluator};
 pub use pair_claim_index::{
-    live_claim_owned_by_other, pair_claim_is_live, publish_pair_claim, read_pair_claim,
-    release_pair_claim, PairClaim, PublishPairClaimOutcome, PAIR_CLAIM_SCHEMA,
+    live_claim_owned_by_other, pair_claim_is_live, pair_claim_is_owned,
+    pair_claim_owned_by_other_post, publish_pair_claim, read_pair_claim, release_pair_claim,
+    PairClaim, PublishPairClaimOutcome, PAIR_CLAIM_SCHEMA,
 };
 pub use pair_operation_group::{
     active_post_project_uuids_for_operation_group,
@@ -131,6 +133,7 @@ pub use pair_operation_group::{
     enumerate_ready_post_pair_candidates_for_operation_group,
     live_post_project_uuids_for_operation_group,
 };
+pub use pair_ownership_lease::PairOwnershipLease;
 pub use pair_status::{
     pair_status_for_post, pair_status_for_pre, paired_pre_instance_id, PairStatus,
 };
