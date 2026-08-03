@@ -17,6 +17,53 @@ pub enum PairStatus {
     Paired = 2,
 }
 
+/// Resolve POST presentation state from one coherent in-process binding observation.
+///
+/// `owns_exact_marker` is authoritative only when the same snapshot contained an exact PRE latch.
+/// Watch/claim-file freshness is deliberately absent: repairable filesystem churn must not make a
+/// live engine-owned pair disappear from the UI.
+pub fn pair_status_from_owned_binding(
+    pair_pre_name: &str,
+    has_exact_binding: bool,
+    owns_exact_marker: bool,
+) -> PairStatus {
+    pair_status_from_owned_binding_with_intent(
+        !pair_pre_name.is_empty(),
+        has_exact_binding,
+        owns_exact_marker,
+    )
+}
+
+/// Name-independent variant for explicit exact selection. An unnamed PRE remains Waiting after
+/// an internal exact-release; only an explicit user clear removes `selection_intent`.
+pub fn pair_status_from_owned_binding_with_intent(
+    selection_intent: bool,
+    has_exact_binding: bool,
+    owns_exact_marker: bool,
+) -> PairStatus {
+    if has_exact_binding {
+        if owns_exact_marker {
+            PairStatus::Paired
+        } else {
+            PairStatus::Waiting
+        }
+    } else if !selection_intent {
+        PairStatus::Unpaired
+    } else {
+        PairStatus::Waiting
+    }
+}
+
+/// Keep the last coherent observation while the nonblocking lease observer is busy. Before the
+/// first coherent observation, `Waiting` is the truthful neutral state: it avoids a false
+/// one-frame `Unpaired` result during startup/restore contention.
+pub fn pair_status_or_last_known(
+    observed: Option<PairStatus>,
+    last_known: Option<PairStatus>,
+) -> PairStatus {
+    observed.or(last_known).unwrap_or(PairStatus::Waiting)
+}
+
 pub fn pair_status_for_post(
     kirin_root: &Path,
     post_project_hash: &str,
@@ -30,27 +77,24 @@ pub fn pair_status_for_post(
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .clone();
     let Some(latched) = latched else {
-        return if pair_pre_name.is_empty() {
-            PairStatus::Unpaired
-        } else {
-            PairStatus::Waiting
-        };
+        return pair_status_from_owned_binding(pair_pre_name, false, false);
     };
 
     let current_host = crate::post_candidates::current_host_process_id();
-    let owned =
-        crate::pair_claim_index::read_pair_claim(kirin_root, current_host, &latched.instance_id)
-            .is_some_and(|claim| {
-                claim.project_hash == post_project_hash
-                    && claim.post_instance_id == post_instance_id
-                    && claim.pair_claimed_at_bits == pair_claimed_at.to_bits()
-                    && crate::pair_claim_index::pair_claim_is_owned(kirin_root, &claim)
-            });
-    if owned {
-        PairStatus::Paired
-    } else {
-        PairStatus::Waiting
-    }
+    let owned = matches!(
+        crate::pair_claim_index::try_observe_pair_claim(
+            kirin_root,
+            current_host,
+            &latched.instance_id,
+        ),
+        Ok(crate::pair_claim_index::StablePairClaimObservation::Stable {
+            claim: Some(claim),
+            owned: true,
+        }) if claim.project_hash == post_project_hash
+            && claim.post_instance_id == post_instance_id
+            && claim.pair_claimed_at_bits == pair_claimed_at.to_bits()
+    );
+    pair_status_from_owned_binding(pair_pre_name, true, owned)
 }
 
 pub fn paired_pre_instance_id(latched: &Mutex<Option<LatchedPre>>) -> Option<String> {
@@ -61,34 +105,10 @@ pub fn paired_pre_instance_id(latched: &Mutex<Option<LatchedPre>>) -> Option<Str
         .map(|pre| pre.instance_id.clone())
 }
 
-/// Resolve the PRE-side view from its one exact POST ownership claim.
-pub fn pair_status_for_pre(
-    kirin_root: &Path,
-    pre_instance_id: &str,
-    _pre_name: &str,
-) -> PairStatus {
-    if pre_instance_id.is_empty() {
-        return PairStatus::Unpaired;
-    }
-
-    let current_host = crate::post_candidates::current_host_process_id();
-    let Some(claim) =
-        crate::pair_claim_index::read_pair_claim(kirin_root, current_host, pre_instance_id)
-    else {
-        return PairStatus::Unpaired;
-    };
-    if crate::pair_claim_index::pair_claim_is_owned(kirin_root, &claim) {
-        PairStatus::Paired
-    } else {
-        // A released/crashed POST must not leave PRE looking half-paired forever. The stale fixed
-        // pointer is non-authoritative and a later POST can replace it under the per-PRE lock.
-        PairStatus::Unpaired
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::pre_pair_status::PrePairStatusObserver;
     use std::fs;
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -156,12 +176,70 @@ mod tests {
         }
     }
 
+    fn pair_status_for_pre(root: &Path, pre_instance_id: &str, pre_name: &str) -> PairStatus {
+        crate::pre_pair_status::pair_status_for_pre(
+            &PrePairStatusObserver::new(),
+            root,
+            pre_instance_id,
+            pre_name,
+        )
+    }
+
     #[test]
     fn post_without_selector_is_unpaired() {
         let root = isolated_root();
         assert_eq!(
             pair_status_for_post(&root, "project", "post-1", 0.0, "", &Mutex::new(None)),
             PairStatus::Unpaired
+        );
+    }
+
+    #[test]
+    fn in_memory_binding_status_requires_an_exact_owned_marker() {
+        assert_eq!(
+            pair_status_from_owned_binding("2Mix", true, true),
+            PairStatus::Paired
+        );
+        assert_eq!(
+            pair_status_from_owned_binding("2Mix", true, false),
+            PairStatus::Waiting
+        );
+        assert_eq!(
+            pair_status_from_owned_binding("2Mix", false, false),
+            PairStatus::Waiting
+        );
+        assert_eq!(
+            pair_status_from_owned_binding("", false, false),
+            PairStatus::Unpaired
+        );
+        assert_eq!(
+            pair_status_from_owned_binding("", false, true),
+            PairStatus::Unpaired,
+            "an owned bit without an exact latch is not a valid pair observation"
+        );
+        assert_eq!(
+            pair_status_from_owned_binding_with_intent(true, false, false),
+            PairStatus::Waiting,
+            "an unnamed exact selection remains waiting after internal release"
+        );
+        assert_eq!(
+            pair_status_from_owned_binding_with_intent(false, false, false),
+            PairStatus::Unpaired,
+            "fresh or explicitly cleared selection is unpaired"
+        );
+    }
+
+    #[test]
+    fn unknown_observation_uses_lkg_and_never_defaults_to_unpaired() {
+        assert_eq!(pair_status_or_last_known(None, None), PairStatus::Waiting);
+        assert_eq!(
+            pair_status_or_last_known(None, Some(PairStatus::Paired)),
+            PairStatus::Paired
+        );
+        assert_eq!(
+            pair_status_or_last_known(Some(PairStatus::Unpaired), Some(PairStatus::Paired)),
+            PairStatus::Unpaired,
+            "a coherent unpaired observation must replace the cache"
         );
     }
 
@@ -310,7 +388,8 @@ mod tests {
                 pre_instance_id: "pre-1".to_string(),
                 project_hash: "project".to_string(),
                 post_instance_id: "post-1".to_string(),
-                post_watch_owner_id: uuid::Uuid::new_v4().to_string(),
+                post_watch_owner_id: String::new(),
+                pair_owner_id: uuid::Uuid::new_v4().to_string(),
                 host_process_id: std::process::id().saturating_add(1),
                 pair_claimed_at_bits: 1.0f64.to_bits(),
             })

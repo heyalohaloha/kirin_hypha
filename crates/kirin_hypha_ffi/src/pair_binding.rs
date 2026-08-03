@@ -53,6 +53,26 @@ impl PairBinding {
         self.generation.load(Ordering::Acquire)
     }
 
+    /// Return one coherent GUI/status view of selection intent and exact PRE identity.
+    pub(crate) fn status_snapshot(&self) -> (bool, Option<String>) {
+        let _transition = self
+            .transition
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let selection_intent = !self
+            .desired_name
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .is_empty();
+        let pre_instance_id = self
+            .latched_pre
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .as_ref()
+            .map(|pre| pre.instance_id.clone());
+        (selection_intent, pre_instance_id)
+    }
+
     pub(crate) fn matches_exact(&self, name: &str, selected: &LatchedPre) -> bool {
         let _transition = self
             .transition

@@ -37,15 +37,16 @@ use kirin_measure::{
     enumerate_owned_post_pair_candidates_for_operation_group,
     enumerate_ready_post_pair_candidates_for_operation_group, exit_record_preserve_pair,
     format_pair_label, live_post_project_uuids_for_operation_group, load_signal_state,
-    lookup_section_label, mark_released_with_reason, pair_lock_active, pair_status_for_post,
-    read_current_v2_preset, resolve_arm_target_for_post_project_in_session, sanitize_name,
-    show_save_button, show_stop_record_button, write_broadcast_for_generation,
+    lookup_section_label, mark_released_with_reason, pair_lock_active, pair_owner_instance_dir,
+    pair_status_from_owned_binding_with_intent, pair_status_or_last_known, read_current_v2_preset,
+    resolve_arm_target_for_post_project_in_session, sanitize_name, show_save_button,
+    show_stop_record_button, write_broadcast_for_generation,
     write_pending_claiming_expected_and_clock_for_generation, write_stop_broadcast,
     CaptureGeneration, CaptureGenerationMember, CaptureGenerationTransaction, DeltaMode,
     DeltaResult, DeltaSnapshot, LatchedPre, License, LiveLicense, LivenessEvaluator, MeasureResult,
-    PairStatus, PlatformPaths, PostCandidate, PreCandidate, PresetFileV2, RecordStateMachine,
-    ReleaseReason, SignalState, StoragePaths, CAPTURE_PRODUCER_READY_TIMEOUT,
-    MAX_ACTIVE_PER_PROJECT, SENSE_RECORD_HINT, SENSE_UPSELL_URL,
+    PairOwnershipBinding, PairOwnershipLease, PairStatus, PlatformPaths, PostCandidate,
+    PreCandidate, PresetFileV2, RecordStateMachine, ReleaseReason, SignalState, StoragePaths,
+    CAPTURE_PRODUCER_READY_TIMEOUT, MAX_ACTIVE_PER_PROJECT, SENSE_RECORD_HINT, SENSE_UPSELL_URL,
 };
 use nih_plug::prelude::Editor;
 use nih_plug_egui::{
@@ -54,7 +55,7 @@ use nih_plug_egui::{
     EguiState,
 };
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, AtomicU8, Ordering};
-use std::sync::{Arc, LazyLock, Mutex, RwLock};
+use std::sync::{Arc, LazyLock, Mutex, RwLock, Weak};
 use std::time::Duration;
 
 /// B-027 段階 2: pair PRE Name 編集 TextEdit の egui focus ID。
@@ -335,6 +336,8 @@ pub struct PostEditorState {
 
     /// B-108: display/keep 共有ラッチ。trigger_keep が `resolve_arm_target` で読む（io_thread と同実体）。
     pub latched_pre: Arc<Mutex<Option<LatchedPre>>>,
+    /// Engine-owned pair authority shared with initial and restarted IO workers.
+    pub pair_owner: Weak<PairOwnershipLease>,
 
     /// W-281 / G-115-249: pair_claimed_at (Unix epoch sec) Arc 共有。
     /// editor.rs TextEdit Enter / ComboBox PRE click で write、IO Thread が read。
@@ -373,6 +376,8 @@ pub struct PostEditorState {
     display_smoother: DisplaySmoother,
     /// GUI 表示専用の playback 最大値。Record/TRACE の raw 計測値には触れない。
     playback_max: PlaybackMaxTracker,
+    /// GUI-only last coherent pair presentation. Explicit clear overwrites it with Unpaired.
+    last_pair_status: Option<PairStatus>,
 }
 
 impl PostEditorState {
@@ -402,6 +407,7 @@ impl PostEditorState {
             pair_release_notice: args.pair_release_notice,
             record_error_message: args.record_error_message,
             latched_pre: args.latched_pre,
+            pair_owner: args.pair_owner,
             bg: BackgroundTexture::new(),
             prev_ack: false,
             banner_until: None,
@@ -415,6 +421,7 @@ impl PostEditorState {
             pair_pre_name_edit_buffer: String::new(),
             display_smoother: DisplaySmoother::default(),
             playback_max: PlaybackMaxTracker::default(),
+            last_pair_status: None,
         }
     }
 }
@@ -513,6 +520,8 @@ pub struct PostEditorArgs {
     pub record_error_message: Arc<RwLock<Option<String>>>,
     /// B-108: display/keep 共有ラッチ。
     pub latched_pre: Arc<Mutex<Option<LatchedPre>>>,
+    /// Engine-owned pair authority shared with the plugin runtime.
+    pub pair_owner: Weak<PairOwnershipLease>,
 }
 
 // ── 公開エントリポイント ─────────────────────────────────────────────────
@@ -562,14 +571,50 @@ pub fn create_post_editor(args: PostEditorArgs) -> Option<Box<dyn Editor>> {
                 .read()
                 .map(|value| *value)
                 .unwrap_or(0.0);
-            let pair_status = pair_status_for_post(
-                &PlatformPaths::current_kirin_tmp_root(),
-                &project_hash_snapshot,
-                &post_instance_id,
-                pair_claimed_at,
-                &pair_pre_name_snapshot,
-                &state.latched_pre,
-            );
+            let kirin_root = PlatformPaths::current_kirin_tmp_root();
+            let pair_owner = state.pair_owner.upgrade();
+            let observed_pair_status = pair_owner.as_ref().and_then(|pair_owner| {
+                pair_owner.observe_binding_if_stable(|| {
+                    let latched = state
+                        .latched_pre
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner())
+                        .clone();
+                    let selection_intent = !pair_pre_name_snapshot.is_empty();
+                    let has_exact_binding = latched.is_some();
+                    let binding = latched.and_then(|pre| {
+                        pair_owner_instance_dir(
+                            &kirin_root,
+                            &project_hash_snapshot,
+                            &post_instance_id,
+                        )
+                        .map(|instance_dir| {
+                            PairOwnershipBinding::new(
+                                instance_dir,
+                                pre.instance_id,
+                                pair_claimed_at,
+                            )
+                        })
+                    });
+                    ((selection_intent, has_exact_binding), binding)
+                })
+            });
+            let observed_pair_status = if pair_owner.is_none() {
+                Some(PairStatus::Unpaired)
+            } else {
+                observed_pair_status.map(
+                    |((selection_intent, has_exact_binding), owns_exact_marker)| {
+                        pair_status_from_owned_binding_with_intent(
+                            selection_intent,
+                            has_exact_binding,
+                            owns_exact_marker,
+                        )
+                    },
+                )
+            };
+            let pair_status =
+                pair_status_or_last_known(observed_pair_status, state.last_pair_status);
+            state.last_pair_status = Some(pair_status);
             let pair_empty_for_display = pair_status == PairStatus::Unpaired;
             let license = state.license.load();
 

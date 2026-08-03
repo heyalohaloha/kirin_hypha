@@ -27,6 +27,7 @@ pub mod measure_thread;
 pub mod pair_claim_index;
 pub mod pair_operation_group;
 mod pair_ownership_lease;
+mod pair_ownership_marker;
 pub mod pair_status;
 pub mod pairing_scope;
 pub mod path_identity;
@@ -35,6 +36,7 @@ pub mod plugin_data;
 pub mod post_candidates;
 pub mod pre_candidates;
 pub mod pre_discovery;
+mod pre_pair_status;
 pub mod preset;
 pub mod preset_dispatch;
 pub mod preset_v2;
@@ -123,7 +125,7 @@ pub use measure_thread::{live_window, pair_lock_active, spawn_measure_thread, Li
 pub use pair_claim_index::{
     live_claim_owned_by_other, pair_claim_is_live, pair_claim_is_owned,
     pair_claim_owned_by_other_post, publish_pair_claim, read_pair_claim, release_pair_claim,
-    PairClaim, PublishPairClaimOutcome, PAIR_CLAIM_SCHEMA,
+    release_pair_claim_for_engine_binding, PairClaim, PublishPairClaimOutcome, PAIR_CLAIM_SCHEMA,
 };
 pub use pair_operation_group::{
     active_post_project_uuids_for_operation_group,
@@ -133,9 +135,11 @@ pub use pair_operation_group::{
     enumerate_ready_post_pair_candidates_for_operation_group,
     live_post_project_uuids_for_operation_group,
 };
-pub use pair_ownership_lease::PairOwnershipLease;
+pub use pair_ownership_lease::{pair_owner_instance_dir, PairOwnershipBinding, PairOwnershipLease};
 pub use pair_status::{
-    pair_status_for_post, pair_status_for_pre, paired_pre_instance_id, PairStatus,
+    pair_status_for_post, pair_status_from_owned_binding,
+    pair_status_from_owned_binding_with_intent, pair_status_or_last_known, paired_pre_instance_id,
+    PairStatus,
 };
 pub use pairing_scope::{
     discover_pre_dirs_for_post_project, enumerate_active_pre_pair_candidates_for_post_project,
@@ -176,6 +180,7 @@ pub use pre_discovery::{
     discover_active_pre_dir_for_pair, discover_active_pre_dirs, PostDiscoveryState,
     DISCOVERY_STALE_SECS,
 };
+pub use pre_pair_status::{pair_status_for_pre, PrePairStatusObserver};
 pub use preset::{
     compute_preset_checksum, preset_dir, region_resolved, scan_valid_presets, verify_preset,
     PresetFile, Region as PresetRegion, VerifyError as PresetVerifyError, PRESET_SUBDIR,

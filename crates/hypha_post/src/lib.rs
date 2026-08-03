@@ -62,6 +62,8 @@ pub struct HyphaPost {
     /// B-108: display と keep/Arm が共有する単一ラッチ。`spawn_io_thread_post` に渡して io_thread が
     /// 毎 tick 維持し、editor の trigger_keep / broadcast 受信 closure が `resolve_arm_target` で読む。
     latched_pre: Arc<Mutex<Option<LatchedPre>>>,
+    /// POST engine-lifetime pair authority. Initial/restarted IO workers and GUI share this lease.
+    pair_owner: Arc<kirin_measure::PairOwnershipLease>,
 
     producer_handoff: Option<Arc<WatchProducerHandoff>>,
     record_ingress: Arc<RecordIngress>,
@@ -251,6 +253,7 @@ impl Default for HyphaPost {
             daw_session_id: Arc::new(RwLock::new(daw_session_id())),
             // B-108: 未ラッチで起動。editor()/initialize() で io_thread と Arc 共有する。
             latched_pre: Arc::new(Mutex::new(None)),
+            pair_owner: Arc::new(kirin_measure::PairOwnershipLease::new()),
             producer_handoff: None,
             record_ingress: Arc::new(RecordIngress::new(record_ring_capacity_samples(N_CHANNELS))),
             measure_result: Arc::new(Mutex::new(MeasureResult::default())),
@@ -515,6 +518,7 @@ impl Plugin for HyphaPost {
             record_error_message: Arc::clone(&self.record_error_message),
             // B-108: display/keep 共有ラッチ。trigger_keep が resolve_arm_target で読む。
             latched_pre: Arc::clone(&self.latched_pre),
+            pair_owner: Arc::downgrade(&self.pair_owner),
         })
     }
 
@@ -825,7 +829,7 @@ impl Plugin for HyphaPost {
         let oversized_drop = Arc::new(std::sync::atomic::AtomicU64::new(0));
         // Pair identity is held by the plugin runtime, outside both the initial IO worker and the
         // watchdog restart closure. Watch freshness continues to use its independent worker lease.
-        let pair_owner = Arc::new(kirin_measure::PairOwnershipLease::new());
+        let pair_owner = Arc::clone(&self.pair_owner);
         let io_handle = spawn_io_thread_post(
             Arc::clone(&instance_id_arc),
             Arc::clone(&project_hash_arc),

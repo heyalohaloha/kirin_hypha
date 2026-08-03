@@ -221,6 +221,7 @@ pub(crate) fn snapshot_file_is_live_pair_choice(
 
 /// Fresh peer evidence requires both a live runtime owner (for current snapshots) and a recently
 /// published file. Pair choices can outlive this window, but the blue Paired state cannot.
+#[cfg(test)]
 pub(crate) fn snapshot_file_is_fresh_runtime_evidence(
     snapshot_path: &Path,
     max_age: Duration,

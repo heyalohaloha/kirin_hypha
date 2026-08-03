@@ -20,7 +20,8 @@ use hypha_gui::{
     BackgroundTexture, PlaybackMaxTracker, BG, COL_FLORA, COL_MUTED, COL_NORMAL,
 };
 use kirin_measure::{
-    load_signal_state, pair_status_for_pre, MeasureResult, PairStatus, PlatformPaths, SignalState,
+    load_signal_state, pair_status_for_pre, MeasureResult, PairStatus, PlatformPaths,
+    PrePairStatusObserver, SignalState,
 };
 use nih_plug::prelude::Editor;
 use nih_plug_egui::{
@@ -107,6 +108,9 @@ pub struct PreEditorState {
     display_smoother: DisplaySmoother,
     /// GUI 表示専用の playback 最大値。Record/TRACE の raw 計測値には触れない。
     playback_max: PlaybackMaxTracker,
+    /// 所有 marker が生きている間、claim index の置換競合を表示へ漏らさない。
+    /// GUI 状態に閉じ、Audio/Measure/Record/TRACE 経路からは参照しない。
+    pre_pair_status: PrePairStatusObserver,
 }
 
 impl PreEditorState {
@@ -143,6 +147,7 @@ impl PreEditorState {
             edit_buffer: String::new(),
             display_smoother: DisplaySmoother::default(),
             playback_max: PlaybackMaxTracker::default(),
+            pre_pair_status: PrePairStatusObserver::new(),
         }
     }
 }
@@ -255,6 +260,7 @@ pub fn create_pre_editor(
                 .map(|value| value.clone())
                 .unwrap_or_default();
             let pair_status = pair_status_for_pre(
+                &state.pre_pair_status,
                 &PlatformPaths::current_kirin_tmp_root(),
                 &instance_id,
                 &name,
