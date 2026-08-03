@@ -6,9 +6,11 @@ The supported release is currently macOS-only. A manual Windows VST3 validation 
 
 Kirin Hypha operates as paired instances — a **PRE** plugin and a **POST** plugin — to measure signal states before and after a processing chain and display the difference.
 
-![Kirin Hypha PRE and POST showing the current Watch interface](docs/media/kirin-hypha-pre-post.jpg)
+![Kirin Hypha PRE and POST showing Short-term Watch values and independent MAX values](docs/media/kirin-hypha-pre-post.jpg)
 
-[Watch the 25-second PRE/POST demo (MP4)](docs/media/kirin-hypha-pre-post-demo.mp4)
+[Watch PRE/POST with the M/S selector and independent Watch MAX values (32-second silent MP4)](docs/media/kirin-hypha-pre-post-demo.mp4)
+
+[Watch POST move from Watch to Keep/Record and hold the final result after Stop (45-second silent MP4)](docs/media/kirin-hypha-record-keep-demo.mp4)
 
 ---
 
@@ -46,6 +48,9 @@ Kirin Hypha is free and fully functional as a standalone plugin. Record mode req
 
 PRE displays absolute values. POST displays Δ values relative to the paired PRE. The M/S choice
 also selects the independent MAX value for the current Watch playback pass.
+In the Watch grid, the live 400 ms True Peak and its playback-pass MAX are shown side by side.
+Pressing **Keep** changes the grid labels; **Max TP** then means the maximum for the whole Keep
+session, including across transport stops.
 
 ### Record mode (Kirin OS required)
 
@@ -62,6 +67,8 @@ PRE displays all six values. A paired POST displays Δ for the selected M/S loud
 and Sharpness; Integrated Loudness and Max True Peak remain absolute POST session values. The
 Integrated value spans transport stops within one Keep. After Stop, the final Record result remains
 visible until the first newly computed Watch result arrives.
+PSR always uses the engine's 3 s Short-term loudness, regardless of the M/S selector. The selector
+changes the loudness value displayed and compared; it does not redefine PSR.
 
 **On True Peak.** Two distinct True Peak quantities are reported. The *recent peak* is the maximum inter-sample peak within the last 400 ms (the same window as LUFS-M) and is shown live in Watch mode; it is not held, so a transient drops out of the reading once that window has passed. The *session maximum* is the running maximum inter-sample peak over the whole recording and is what the Record data stores. When a single dBTP figure is quoted for a file, it is the session maximum. Peak windows are tracked by sample count, so offline / faster-than-real-time rendering does not shift them.
 

@@ -731,7 +731,7 @@ fn editor_rs_text_edit_clear_pair_resets_delta_result() {
     let helper = src
         .find("fn replace_pair_pre_name(")
         .expect("pair transition helper missing");
-    let helper_window = &src[helper..helper + 3500.min(src.len() - helper)];
+    let helper_window = &src[helper..helper + 7000.min(src.len() - helper)];
     let compact: String = helper_window.split_whitespace().collect();
     assert!(
         compact.contains("state.delta.lock()") && compact.contains("DeltaResult::default()"),
@@ -745,7 +745,7 @@ fn editor_rs_text_edit_clear_pair_resets_delta_result() {
 fn editor_rs_combobox_exact_pair_resets_delta_result() {
     let src = read("src/editor.rs");
     let combo_idx = src
-        .find("replace_pair_pre_candidate(state, cand, epoch_secs_now());")
+        .find("if replace_pair_pre_candidate(state, cand, epoch_secs_now()) {")
         .expect("draw_pair_pre_combo exact candidate transition missing");
     let helper_idx = src
         .find("fn replace_pair_pre_candidate(")
@@ -756,6 +756,10 @@ fn editor_rs_combobox_exact_pair_resets_delta_result() {
             && helper_window
                 .contains("replace_pair_selection(state, name, claimed_at, Some(selected));"),
         "ComboBox must retain exact instance identity and use the full transition helper"
+    );
+    assert!(
+        helper_window.contains("pair_claim_owned_by_other_post"),
+        "exact selection must reject a PRE already owned by another POST"
     );
     assert!(
         combo_idx > helper_idx,
@@ -774,9 +778,9 @@ fn io_thread_post_release_block_clears_delta_result() {
             .join("kirin_measure/src/io_thread_post.rs"),
     )
     .expect("read io_thread_post.rs");
-    // release 経路の起点 = pair_release_notice.write() = Some("Released ...")
+    // release 経路の起点 = pair_release_notice.write() = Some("PRE already in use")
     let release_idx = src
-        .find(r#"*n = Some("Released (paired elsewhere)".to_string());"#)
+        .find(r#"*n = Some("PRE already in use".to_string());"#)
         .expect("W-281 C-4 release marker not found");
     // 当該 release write から 1000 byte 以内に回復lock + DeltaResult::default()
     // (UTF-8 Japanese 注釈 byte 膨張を考慮)。

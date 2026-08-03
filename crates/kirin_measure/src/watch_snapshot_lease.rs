@@ -193,19 +193,6 @@ pub(crate) fn snapshot_file_has_current_live_owner(snapshot_path: &Path) -> bool
         && snapshot_owner_is_live(&instance_dir, &snapshot.watch_owner_id)
 }
 
-/// A current runtime explicitly released the lease named by this still-present snapshot.
-///
-/// Teardown intentionally leaves Watch JSON in place; the missing marker is therefore immediate,
-/// non-timeout evidence that an exact latch may be detached and re-resolved by name. Missing or
-/// legacy snapshots return false because they do not carry that proof.
-pub(crate) fn snapshot_file_has_released_current_owner(snapshot_path: &Path) -> bool {
-    let Some((instance_dir, snapshot)) = read_snapshot_owner(snapshot_path) else {
-        return false;
-    };
-    !snapshot.watch_owner_id.is_empty()
-        && !snapshot_owner_is_live(&instance_dir, &snapshot.watch_owner_id)
-}
-
 /// Pair-choice discovery separates runtime presence from measurement freshness.
 ///
 /// Snapshots produced by current Hypha builds carry a unique owner lease. While that lease is
@@ -234,6 +221,7 @@ pub(crate) fn snapshot_file_is_live_pair_choice(
 
 /// Fresh peer evidence requires both a live runtime owner (for current snapshots) and a recently
 /// published file. Pair choices can outlive this window, but the blue Paired state cannot.
+#[cfg(test)]
 pub(crate) fn snapshot_file_is_fresh_runtime_evidence(
     snapshot_path: &Path,
     max_age: Duration,
@@ -467,20 +455,6 @@ mod tests {
             &snapshot,
             Duration::from_secs(1)
         ));
-        let _ = fs::remove_dir_all(instance_dir);
-    }
-
-    #[test]
-    fn dropped_current_owner_is_explicit_release_evidence() {
-        let instance_dir = isolated_dir("released_owner");
-        let mut lease = WatchSnapshotLease::new();
-        lease.bind(&instance_dir).unwrap();
-        let snapshot = write_owned_snapshot(&instance_dir, lease.owner_id());
-        assert!(!snapshot_file_has_released_current_owner(&snapshot));
-
-        drop(lease);
-
-        assert!(snapshot_file_has_released_current_owner(&snapshot));
         let _ = fs::remove_dir_all(instance_dir);
     }
 }

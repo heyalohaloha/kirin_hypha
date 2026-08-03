@@ -305,39 +305,11 @@ pub fn select_live_pre_pair_choice_by_instance_for_post_project_in_session(
     ))
 }
 
-fn select_unique_live_pre_pair_choice_by_name_for_explicit_reconnect(
-    kirin_root: &Path,
-    pair_pre_name: &str,
-    post_project_hash: &str,
-    post_daw_session_id: &str,
-) -> Option<SelectedPre> {
-    let mut matches = enumerate_live_pre_pair_choices_for_post_project_in_session(
-        kirin_root,
-        post_project_hash,
-        post_daw_session_id,
-    )
-    .into_iter()
-    .filter(|candidate| candidate.name.as_deref() == Some(pair_pre_name));
-    let candidate = matches.next()?;
-    if matches.next().is_some() {
-        return None;
-    }
-    let project_dir = candidate_project_dir(&candidate)?;
-    Some(SelectedPre {
-        instance_id: candidate.instance_id,
-        pre_json: candidate.path,
-        project_dir,
-        daw_session_id: candidate.daw_session_id,
-        host_process_id: candidate.host_process_id,
-    })
-}
-
 /// Resolve a POST's published pair claim for All Keep/readiness checks.
 ///
-/// Current POSTs publish an exact PRE instance. That identity is attempted first and remains valid
-/// while its runtime lease exists, even when Watch measurements are temporarily stale. A missing
-/// exact runtime falls back to the human name so delete/recreate can reconnect immediately. Legacy
-/// name-only POSTs keep the strict fresh+unique Arm resolver.
+/// Current POSTs publish an exact PRE instance. That identity is authoritative and is never
+/// reinterpreted as a same-name replacement. Legacy name-only POSTs keep the strict fresh+unique
+/// Arm resolver because they have no exact relationship to preserve.
 pub fn resolve_published_pair_claim_for_arm(
     kirin_root: &Path,
     pair_pre_name: Option<&str>,
@@ -357,26 +329,8 @@ pub fn resolve_published_pair_claim_for_arm(
             return Some(selected);
         }
 
-        // Do not reinterpret an exact ID that is still owned outside this POST's explicit scope.
-        // Only a genuinely absent runtime may use the delete/recreate name contract.
-        if enumerate_live_pre_pair_choices(kirin_root)
-            .iter()
-            .any(|candidate| candidate.instance_id == instance_id)
-        {
-            return None;
-        }
-
-        // The missing exact ID proves that this is a previously explicit claim, not a new
-        // automatic name match. Preserve that intent across delete/recreate only when the same
-        // host process exposes exactly one live PRE with the published name.
-        if let Some(name) = pair_pre_name.filter(|name| !name.is_empty()) {
-            return select_unique_live_pre_pair_choice_by_name_for_explicit_reconnect(
-                kirin_root,
-                name,
-                post_project_hash,
-                post_daw_session_id,
-            );
-        }
+        // Missing/out-of-scope exact runtime is an unavailable established pair, not permission to
+        // migrate the relationship to another instance that happens to share its display name.
         return None;
     }
 
@@ -947,9 +901,6 @@ fn selected_from_latch(pair_pre_name: &str, latched: &Mutex<Option<LatchedPre>>)
         && !confirm_restored_latch_runtime(latched)
     {
         return LatchedTarget::RestoredWaiting;
-    }
-    if crate::watch_snapshot_lease::snapshot_file_has_released_current_owner(&l.pre_json) {
-        return LatchedTarget::None;
     }
     LatchedTarget::Selected(SelectedPre {
         instance_id: l.instance_id.clone(),

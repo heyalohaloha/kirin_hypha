@@ -1090,7 +1090,7 @@ fn published_exact_unnamed_claim_is_all_keep_ready_while_runtime_is_live() {
 }
 
 #[test]
-fn published_exact_claim_reconnects_to_one_recreated_same_host_pre_only() {
+fn published_exact_claim_never_retargets_to_a_same_name_replacement() {
     let root = isolated_dir();
     let current_host = std::process::id();
     write_pre_for_select_with_identity(
@@ -1105,15 +1105,14 @@ fn published_exact_claim_reconnects_to_one_recreated_same_host_pre_only() {
     );
     let _lease = attach_live_owner(&root, "pre-vst-project", "pre-drum-recreated");
 
-    let selected = resolve_published_pair_claim_for_arm(
+    assert!(resolve_published_pair_claim_for_arm(
         &root,
         Some("Drum"),
         Some("pre-drum-deleted"),
         "post-au-project",
         "daw-au-instance",
     )
-    .expect("one same-host replacement preserves the prior explicit pair intent");
-    assert_eq!(selected.instance_id, "pre-drum-recreated");
+    .is_none());
 
     write_pre_for_select_with_identity(
         &root,

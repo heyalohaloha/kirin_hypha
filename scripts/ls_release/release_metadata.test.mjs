@@ -146,12 +146,18 @@ test('README uses the verified current Hypha UI media', () => {
   const media = [
     {
       relativePath: 'docs/media/kirin-hypha-pre-post.jpg',
-      sha256: '02c413118d0c7d7c5698c47c13ffe06e8e713fbf782029667dc5d4c9fd5e18f6',
+      sha256: 'c38f068db726a4172850a0cd4099a7dcf116fe1ef29f123eda647612217c5416',
       signature: Buffer.from([0xff, 0xd8, 0xff]),
     },
     {
       relativePath: 'docs/media/kirin-hypha-pre-post-demo.mp4',
-      sha256: '96838ebfcc20f4278aa57269ddcdc07f446423fddd7a3b2481392144dc4cb660',
+      sha256: '7d1ce8ad1f8fab4e6245c08fb25a1b5b733dd40c5e1f876d7a1527b5fef0bc13',
+      signature: Buffer.from('ftyp'),
+      signatureOffset: 4,
+    },
+    {
+      relativePath: 'docs/media/kirin-hypha-record-keep-demo.mp4',
+      sha256: '24db4c35289ce82678d476017fb509f63d52435d95e79fdacaadfd3c559b77eb',
       signature: Buffer.from('ftyp'),
       signatureOffset: 4,
     },

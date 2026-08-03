@@ -61,21 +61,22 @@ use kirin_measure::{
     identity_instance_detach, latch_selected_pre, live_window, load_license_safe,
     load_signal_state, mark_generation_terminal, mark_released_if_current,
     mark_released_with_reason, mark_released_with_reason_if_current, new_record_mark_queue,
-    new_record_take_tracker, new_record_trace_queue, pair_status_for_post, pair_status_for_pre,
-    paired_pre_instance_id, read_signal, record_ring_capacity_samples,
-    resolve_arm_target_for_post_project_in_session, sanitize_name,
-    select_live_pre_pair_choice_by_instance_for_post_project_in_session, set_daw_session_id,
-    set_project_uuid, spawn_io_thread_post, spawn_io_thread_pre, spawn_measure_thread,
-    spawn_watchdog, store_signal_state, watch_ring_capacity_samples,
+    new_record_take_tracker, new_record_trace_queue, pair_owner_instance_dir, pair_status_for_pre,
+    pair_status_from_owned_binding_with_intent, pair_status_or_last_known, paired_pre_instance_id,
+    read_signal, record_ring_capacity_samples, resolve_arm_target_for_post_project_in_session,
+    sanitize_name, select_live_pre_pair_choice_by_instance_for_post_project_in_session,
+    set_daw_session_id, set_project_uuid, spawn_io_thread_post, spawn_io_thread_pre,
+    spawn_measure_thread, spawn_watchdog, store_signal_state, watch_ring_capacity_samples,
     write_broadcast_for_generation, write_pending_claiming_expected_and_clock_for_generation,
     write_stop_broadcast, write_stop_broadcast_for_generation, CaptureClockSource,
     CaptureGeneration, CaptureGenerationMember, CaptureGenerationTransaction, DeltaMode,
     DeltaResult, GenerationTerminalReason, IoThreadHandle, LatchedPre, License, LiveLicense,
-    LivenessEvaluator, MeasureResult, PairStatus, PlatformPaths, PluginDataRole,
-    PresentationLatencySamples, PresentationLatencySource, PsbSummary, RecordDisplaySnapshot,
-    RecordDisplayStatus, RecordIngress, RecordMarkQueue, RecordStateMachine, RecordTakeBlock,
-    RecordTakeTracker, RecordTraceQueue, ReleaseReason, RestartIoFn, SignalError, SignalState,
-    StoragePaths, WatchMaxTracker, WatchProducerHandoff, WatchdogIo, WatchdogParams,
+    LivenessEvaluator, MeasureResult, PairOwnershipBinding, PairOwnershipLease, PairStatus,
+    PlatformPaths, PluginDataRole, PrePairStatusObserver, PresentationLatencySamples,
+    PresentationLatencySource, PsbSummary, RecordDisplaySnapshot, RecordDisplayStatus,
+    RecordIngress, RecordMarkQueue, RecordStateMachine, RecordTakeBlock, RecordTakeTracker,
+    RecordTraceQueue, ReleaseReason, RestartIoFn, SignalError, SignalState, StoragePaths,
+    WatchMaxTracker, WatchProducerHandoff, WatchdogIo, WatchdogParams,
     CAPTURE_PRODUCER_READY_TIMEOUT, MAX_ACTIVE_PER_PROJECT, MAX_AUDIO_BLOCK_FRAMES,
     MAX_CAPTURE_GENERATION_MEMBERS, N_CHANNELS,
 };
@@ -464,6 +465,13 @@ pub struct KirinHyphaEngine {
     /// Human-readable selection + exact PRE instance state. Name changes clear
     /// every exact-instance field as one transition.
     pair_binding: Arc<PairBinding>,
+    /// POST engine-lifetime pair authority. Worker restarts receive clones of this same lease.
+    pair_owner: Arc<PairOwnershipLease>,
+    /// POST GUI/ABI status only; unknown observations retain the last coherent state.
+    last_post_pair_status: Mutex<Option<PairStatus>>,
+    /// PRE 表示専用。所有 marker が生きている間、claim index の置換競合を表示へ漏らさない。
+    /// Audio/Measure/Record/TRACE 経路からは参照しない。
+    pre_pair_status: PrePairStatusObserver,
     /// Monotonic ownership ordering published with the current POST pair claim.
     pair_claimed_at: Arc<RwLock<f64>>,
     /// この engine の plugin_data 書込 role（B-067 / F3）。`enable_pre_writes`→Pre /
@@ -1326,6 +1334,9 @@ impl KirinHyphaEngine {
             project_hash_cell: Arc::new(RwLock::new(String::new())),
             daw_session_id_cell: Arc::new(RwLock::new(String::new())),
             pair_binding: Arc::new(PairBinding::new()),
+            pair_owner: Arc::new(PairOwnershipLease::new()),
+            last_post_pair_status: Mutex::new(None),
+            pre_pair_status: PrePairStatusObserver::new(),
             pair_claimed_at: Arc::new(RwLock::new(0.0)),
             write_role: Mutex::new(None),
             push_overflow: Arc::new(AtomicU64::new(0)),
@@ -1914,6 +1925,9 @@ impl KirinHyphaEngine {
         let cb_project_hash = project_hash.clone();
         let cb_post_iid = iid_str.clone();
         let cb_daw = daw_uuid.clone();
+        // Exact pair ownership belongs to the plugin engine, not a restartable IO generation.
+        // The restart closure below retains this Arc until the POST engine itself is destroyed.
+        let pair_owner = Arc::clone(&self.pair_owner);
 
         // POST 固有の共有 Arc（hypha_post params と同型）。
         let instance_id = Arc::new(RwLock::new(iid_str));
@@ -2023,6 +2037,7 @@ impl KirinHyphaEngine {
             let record_mark_queue = Arc::clone(&self.record_mark_queue);
             let push_overflow = Arc::clone(&self.push_overflow);
             let oversized_drop = Arc::clone(&self.oversized_drop); // B-125
+            let pair_owner = Arc::clone(&pair_owner);
             let latched_pre = self.pair_binding.latched_pre();
             let sample_rate = self.sample_rate;
             Box::new(move || {
@@ -2057,6 +2072,7 @@ impl KirinHyphaEngine {
                     Arc::clone(&record_mark_queue),
                     Arc::clone(&push_overflow), // B-076: per-Record dropped_samples
                     Arc::clone(&oversized_drop), // B-125: per-Record oversized block drop
+                    Arc::clone(&pair_owner),    // exact pair survives IO worker restart
                     Arc::clone(&latched_pre),   // B-108: display/keep 共有ラッチ
                 );
                 IoThreadHandle {
@@ -2198,6 +2214,22 @@ impl KirinHyphaEngine {
         if self.pair_binding.matches_exact(&name, &latch) {
             return true;
         }
+        let post_instance_id = self
+            .identity
+            .lock()
+            .map(|identity| identity.instance_id.clone())
+            .unwrap_or_default();
+        if kirin_measure::pair_claim_owned_by_other_post(
+            &kirin_root,
+            instance_id,
+            &project_hash,
+            &post_instance_id,
+        ) {
+            if let Ok(mut notice) = self.keep_action_notice.write() {
+                *notice = Some("PRE already in use".to_string());
+            }
+            return false;
+        }
         let (project_hash, post_iid) = self.begin_pair_reselection();
         let transition = self.pair_binding.replace_exact(name, latch);
         self.finish_pair_reselection(transition, &project_hash, &post_iid, epoch_secs_now());
@@ -2243,14 +2275,49 @@ impl KirinHyphaEngine {
         let role = self.write_role.lock().ok().and_then(|role| *role);
         match role {
             Some(PluginDataRole::Post) => {
-                let desired = self
-                    .pair_binding
-                    .desired_name()
+                let (project_hash, post_instance_id) = self
+                    .identity
+                    .lock()
+                    .map(|identity| (identity.project_hash.clone(), identity.instance_id.clone()))
+                    .unwrap_or_default();
+                let pair_claimed_at = self
+                    .pair_claimed_at
                     .read()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner())
-                    .clone();
-                let latched = self.pair_binding.latched_pre();
-                pair_status_for_post(&desired, &latched)
+                    .map(|value| *value)
+                    .unwrap_or(0.0);
+                let kirin_root = PlatformPaths::current_kirin_tmp_root();
+                let observed = self.pair_owner.observe_binding_if_stable(|| {
+                    let (selection_intent, pre_instance_id) = self.pair_binding.status_snapshot();
+                    let has_exact_binding = pre_instance_id.is_some();
+                    let binding = pre_instance_id.and_then(|pre_instance_id| {
+                        pair_owner_instance_dir(&kirin_root, &project_hash, &post_instance_id).map(
+                            |instance_dir| {
+                                PairOwnershipBinding::new(
+                                    instance_dir,
+                                    pre_instance_id,
+                                    pair_claimed_at,
+                                )
+                            },
+                        )
+                    });
+                    ((selection_intent, has_exact_binding), binding)
+                });
+                let observed = observed.map(
+                    |((selection_intent, has_exact_binding), owns_exact_marker)| {
+                        pair_status_from_owned_binding_with_intent(
+                            selection_intent,
+                            has_exact_binding,
+                            owns_exact_marker,
+                        )
+                    },
+                );
+                let mut last_known = self
+                    .last_post_pair_status
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                let status = pair_status_or_last_known(observed, *last_known);
+                *last_known = Some(status);
+                status
             }
             Some(PluginDataRole::Pre) => {
                 let iid = self
@@ -2263,7 +2330,12 @@ impl KirinHyphaEngine {
                     .read()
                     .unwrap_or_else(|poisoned| poisoned.into_inner())
                     .clone();
-                pair_status_for_pre(&PlatformPaths::current_kirin_tmp_root(), &iid, &name)
+                pair_status_for_pre(
+                    &self.pre_pair_status,
+                    &PlatformPaths::current_kirin_tmp_root(),
+                    &iid,
+                    &name,
+                )
             }
             None => PairStatus::Unpaired,
         }

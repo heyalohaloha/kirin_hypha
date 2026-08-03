@@ -138,18 +138,14 @@ fn io_thread_startup_never_sweeps_shared_history() {
 /// GUI を開くだけで `/tmp/kirin` 全体を毎秒何度も走査する退行になる。
 #[test]
 fn pre_pair_status_reads_one_exact_claim_without_enumeration() {
-    let src = read("src/pair_status.rs");
-    let start = src
-        .find("pub fn pair_status_for_pre(")
-        .expect("pair_status_for_pre must exist");
-    let end = src[start..]
+    let src = read("src/pre_pair_status.rs");
+    let end = src
         .find("\n#[cfg(test)]")
-        .map(|offset| start + offset)
         .expect("pair_status_for_pre production block must end before tests");
-    let body = &src[start..end];
+    let body = &src[..end];
 
     assert!(
-        body.contains("read_pair_claim"),
+        body.contains("try_observe_pair_claim"),
         "PRE pair status must start from its fixed ownership claim"
     );
     for forbidden in [

@@ -21,22 +21,13 @@ use crate::pre_candidates::{enumerate_live_pre_pair_choices, PreCandidate};
 fn claims_visible_pre(
     candidate: &PostCandidate,
     visible_pre: &[PreCandidate],
-    all_live_pre: &[PreCandidate],
+    _all_live_pre: &[PreCandidate],
 ) -> bool {
     if let Some(instance_id) = candidate.paired_pre_instance_id.as_deref() {
-        if visible_pre.iter().any(|pre| pre.instance_id == instance_id) {
-            return true;
-        }
-        if all_live_pre
-            .iter()
-            .any(|pre| pre.instance_id == instance_id)
-        {
-            return false;
-        }
+        return visible_pre.iter().any(|pre| pre.instance_id == instance_id);
     }
 
-    // Match the arm resolver's delete/recreate contract: an absent exact runtime may reconnect by
-    // its human selector, but only when that selector resolves to one visible PRE.
+    // Legacy name-only claims have no exact identity and retain the bounded unique-name bridge.
     let Some(name) = candidate.pair_pre_name.as_deref() else {
         return false;
     };
@@ -442,7 +433,7 @@ mod tests {
     }
 
     #[test]
-    fn stale_exact_claim_reconnects_only_by_unique_visible_name() {
+    fn unavailable_exact_claim_never_retargets_by_visible_name() {
         let host = 42;
         let stale_exact = post(
             "post-drum",
@@ -452,17 +443,14 @@ mod tests {
             Some("pre-deleted"),
             Some("Drum"),
         );
-        assert_eq!(
-            merge_operation_group(
-                Vec::new(),
-                vec![stale_exact.clone()],
-                &[pre("pre-recreated", "Drum")],
-                &[pre("pre-recreated", "Drum")],
-                host,
-            )
-            .len(),
-            1
-        );
+        assert!(merge_operation_group(
+            Vec::new(),
+            vec![stale_exact.clone()],
+            &[pre("pre-recreated", "Drum")],
+            &[pre("pre-recreated", "Drum")],
+            host,
+        )
+        .is_empty());
         assert!(merge_operation_group(
             Vec::new(),
             vec![stale_exact],
