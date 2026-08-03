@@ -6,9 +6,11 @@ The supported release is currently macOS-only. A manual Windows VST3 validation 
 
 Kirin Hypha operates as paired instances — a **PRE** plugin and a **POST** plugin — to measure signal states before and after a processing chain and display the difference.
 
-![Kirin Hypha PRE and POST showing the current Watch interface](docs/media/kirin-hypha-pre-post.jpg)
+![Kirin Hypha PRE and POST showing Short-term Watch values and independent MAX values](docs/media/kirin-hypha-pre-post.jpg)
 
-[Watch the 25-second PRE/POST demo (MP4)](docs/media/kirin-hypha-pre-post-demo.mp4)
+[Watch PRE/POST with the M/S selector and independent Watch MAX values (32-second silent MP4)](docs/media/kirin-hypha-pre-post-demo.mp4)
+
+[Watch POST move from Watch to Keep/Record and hold the final result after Stop (45-second silent MP4)](docs/media/kirin-hypha-record-keep-demo.mp4)
 
 ---
 
