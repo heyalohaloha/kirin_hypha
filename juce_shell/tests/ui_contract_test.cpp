@@ -1,5 +1,6 @@
 #include "../src/HyphaUiContract.h"
 #include "../src/HyphaDisplayContract.h"
+#include "../src/HyphaClockSourceContract.h"
 #include "../../crates/kirin_hypha_ffi/include/kirin_hypha_ffi.h"
 
 #include <cassert>
@@ -7,6 +8,7 @@
 
 namespace ui = hypha::ui_contract;
 namespace display = hypha::display_contract;
+namespace clockSource = hypha::clock_source_contract;
 
 namespace
 {
@@ -75,6 +77,8 @@ int main()
     static_assert (KIRIN_RECORD_DISPLAY_FINALIZING == 2u);
     static_assert (KIRIN_RECORD_DISPLAY_RESULT_HOLD == 3u);
     static_assert (KIRIN_RECORD_DISPLAY_UNAVAILABLE == 4u);
+    static_assert (! clockSource::audioUnitV2UsesRenderTimeline (true));
+    static_assert (clockSource::audioUnitV2UsesRenderTimeline (false));
     static_assert (display::deltaIsActive (KIRIN_DELTA_MODE_ACTIVE));
     static_assert (display::deltaIsStale (KIRIN_DELTA_MODE_STALE));
     static_assert (! display::preUnavailableForDelta (KIRIN_DELTA_MODE_ACTIVE));

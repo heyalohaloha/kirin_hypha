@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "HyphaClockSourceContract.h"
 #include <algorithm>
 #include <cmath> // B-107: std::abs(float) for the silence peak threshold
 #include <limits>
@@ -224,8 +225,14 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
                 hasPosition = true;
                 positionSamples = *timeSamples;
                 clockSource = KIRIN_HYPHA_CLOCK_PROJECT_TIMELINE;
-               #if JucePlugin_Build_AU && KIRIN_HYPHA_AU_CLOCK_PROVENANCE
-                if (! pos->getKirinAuUsesHostTransportTimeline())
+               #if KIRIN_HYPHA_AU_CLOCK_PROVENANCE
+                // Processor.cpp is shared by the AU and VST3 products. JucePlugin_Build_AU is
+                // therefore true in this translation unit even for a VST3 instance and cannot
+                // identify the active wrapper. Read the AU-only provenance marker only for an
+                // actual Audio Unit v2 instance; VST3 always keeps the host project timeline.
+                if (wrapperType == juce::AudioProcessor::wrapperType_AudioUnit
+                    && hypha::clock_source_contract::audioUnitV2UsesRenderTimeline (
+                        pos->getKirinAuUsesHostTransportTimeline()))
                     clockSource = KIRIN_HYPHA_CLOCK_AUDIO_RENDER_TIMELINE;
                #endif
             }

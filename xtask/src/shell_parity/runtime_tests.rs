@@ -119,6 +119,10 @@
             "void KirinHyphaProcessorBase::processBlock",
             "bool KirinHyphaProcessorBase::bufferIsSilent",
         );
+        assert!(body.contains(
+            "wrapperType == juce::AudioProcessor::wrapperType_AudioUnit\n                    && hypha::clock_source_contract::audioUnitV2UsesRenderTimeline ("
+        ));
+        assert!(!body.contains("#if JucePlugin_Build_AU && KIRIN_HYPHA_AU_CLOCK_PROVENANCE"));
         assert!(body.contains("KIRIN_HYPHA_CLOCK_AUDIO_RENDER_TIMELINE"));
         assert!(body.contains(
             "const bool measurementTimelineActive = playing\n                                        || clockSource == KIRIN_HYPHA_CLOCK_AUDIO_RENDER_TIMELINE;"
