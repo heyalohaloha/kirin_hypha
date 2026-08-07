@@ -188,6 +188,28 @@
     }
 
     #[test]
+    fn juce_watch_silence_continuity_is_isolated_from_record_and_transport_stop() {
+        let body = between(
+            PLUGIN_PROCESSOR_CPP,
+            "void KirinHyphaProcessorBase::processBlock",
+            "bool KirinHyphaProcessorBase::bufferIsSilent",
+        );
+
+        assert!(body.contains(
+            "WatchSilenceGate::eligible (\n            bypassed, recording, measurementTimelineActive)"
+        ));
+        assert!(body.contains(
+            "const bool stateSilent = silent && ! watchActiveThroughSilence;"
+        ));
+        assert!(body.contains(
+            "resolveSignalStateCode (bypassed, measurementTimelineActive,\n                                                      stateSilent, recording, nonRealtime)"
+        ));
+        assert!(body.contains(
+            "const bool pushBuffer = recording ? renderedRecordWindow : captureBuffer;"
+        ));
+    }
+
+    #[test]
     fn juce_post_record_display_keeps_six_metrics_before_signal_fallback() {
         let start = PLUGIN_EDITOR_CPP
             .find("void KirinHyphaEditor::updatePost()")

@@ -115,6 +115,7 @@ void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBl
         return;
 
     lastProcessPositionValid = false;
+    watchSilenceGate.reset();
 
     if (hyphaHandle != nullptr)
     {
@@ -283,6 +284,17 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
     const bool measurementTimelineActive = playing
                                         || clockSource == KIRIN_HYPHA_CLOCK_AUDIO_RENDER_TIMELINE;
     lastMeasurementTimelineActive.store (measurementTimelineActive, std::memory_order_release);
+    // A single silent callback used to collapse PRE to Inactive, clear its measurement engine,
+    // and make the paired POST lose its delta for one or more UI ticks. Preserve Watch continuity
+    // across musical rests shorter than the exact 3 s LUFS-S window. Transport stop, bypass, and
+    // every Record/TRACE path remain outside this gate and retain their existing state rules.
+    const bool watchActiveThroughSilence = watchSilenceGate.observeBlock (
+        hypha::signal_state_contract::WatchSilenceGate::eligible (
+            bypassed, recording, measurementTimelineActive),
+        silent,
+        (uint64_t) juce::jmax (0, numFrames),
+        preparedSampleRate);
+    const bool stateSilent = silent && ! watchActiveThroughSilence;
     int windowStartFrame = 0;
     int windowEndFrame = numFrames;
     int64_t windowPositionSamples = positionSamples;
@@ -312,7 +324,7 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
 
     // C ABI signal-state codes: 0 = Inactive, 1 = Active, 2 = Bypassed.
     const uint8_t stateCode = resolveSignalStateCode (bypassed, measurementTimelineActive,
-                                                      silent, recording, nonRealtime);
+                                                      stateSilent, recording, nonRealtime);
     kirin_hypha_set_signal_state (hyphaHandle, stateCode);
     kirin_hypha_note_transport_block (hyphaHandle, measurementTimelineActive, hasPosition,
                                       positionSamples, (uint64_t) numFrames);

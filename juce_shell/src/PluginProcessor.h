@@ -6,6 +6,7 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
+#include "HyphaSignalStateContract.h"
 #include "kirin_hypha_ffi.h" // C ABI to the Rust RT-measure engine (Phase 1 / B-052)
 
 // Role-parameterized base for both the Kirin Hypha PRE and POST JUCE shells (B-070).
@@ -139,6 +140,7 @@ private:
     int64_t lastProcessPositionSamples = 0;            // audio-thread local transport position cache
     bool recordStartWindowLatched = false;             // audio-thread Record start gate; reset outside Record
     bool recordNativeRangeLatched = false;              // first host native-range callback per Record
+    hypha::signal_state_contract::WatchSilenceGate watchSilenceGate; // Watch-only; sample-counted, RT-safe
 
     // Persisted identity (4 keys) + POST pair target, round-tripped via get/setState as a
     // JUCE-native XML chunk. Source of truth for the chunk; synced from the FFI at enable

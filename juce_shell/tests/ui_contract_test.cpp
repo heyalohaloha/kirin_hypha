@@ -1,6 +1,7 @@
 #include "../src/HyphaUiContract.h"
 #include "../src/HyphaDisplayContract.h"
 #include "../src/HyphaClockSourceContract.h"
+#include "../src/HyphaSignalStateContract.h"
 #include "../../crates/kirin_hypha_ffi/include/kirin_hypha_ffi.h"
 
 #include <cassert>
@@ -9,6 +10,7 @@
 namespace ui = hypha::ui_contract;
 namespace display = hypha::display_contract;
 namespace clockSource = hypha::clock_source_contract;
+namespace signalState = hypha::signal_state_contract;
 
 namespace
 {
@@ -118,6 +120,28 @@ int main()
     assert (std::strcmp (ui::maximumLabel, "MAX") == 0);
     assert (std::strcmp (ui::keepLabel, "Keep") == 0);
     assert (std::strcmp (ui::stopLabel, "Stop") == 0);
+
+    // A silent project start is still Inactive. Once Watch has heard audio, short musical rests
+    // remain Active and feed zero samples through the meter; one complete LUFS-S window of silence
+    // ends the grace. Transport/Record exclusion resets the gate immediately.
+    signalState::WatchSilenceGate silenceGate;
+    static_assert (signalState::WatchSilenceGate::eligible (false, false, true));
+    static_assert (! signalState::WatchSilenceGate::eligible (true, false, true));
+    static_assert (! signalState::WatchSilenceGate::eligible (false, true, true));
+    static_assert (! signalState::WatchSilenceGate::eligible (false, false, false));
+    assert (! silenceGate.observeBlock (true, true, 4'800, 48'000.0));
+    assert (silenceGate.observeBlock (true, false, 4'800, 48'000.0));
+    for (int gap = 0; gap < 20; ++gap)
+    {
+        assert (silenceGate.observeBlock (true, true, 4'800, 48'000.0));
+        assert (silenceGate.observeBlock (true, false, 4'800, 48'000.0));
+    }
+    assert (silenceGate.observeBlock (true, true, 143'999, 48'000.0));
+    assert (! silenceGate.observeBlock (true, true, 1, 48'000.0));
+    assert (! silenceGate.observeBlock (true, true, 4'800, 48'000.0));
+    assert (silenceGate.observeBlock (true, false, 4'800, 48'000.0));
+    assert (! silenceGate.observeBlock (false, false, 4'800, 48'000.0));
+    assert (! silenceGate.observeBlock (true, true, 4'800, 48'000.0));
 
     const auto pre = ui::editorLayout (false);
     const auto post = ui::editorLayout (true);
