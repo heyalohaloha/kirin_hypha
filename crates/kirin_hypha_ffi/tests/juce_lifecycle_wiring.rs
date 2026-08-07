@@ -163,7 +163,7 @@ fn juce_commits_take_start_only_after_whole_block_admission() {
 }
 
 #[test]
-fn paired_pre_inactive_uses_post_absolute_without_releasing_binding() {
+fn paired_pre_inactive_preserves_delta_layout_without_releasing_binding() {
     let ffi_header = read_repo("crates/kirin_hypha_ffi/include/kirin_hypha_ffi.h");
     for required in [
         "KIRIN_DELTA_MODE_ACTIVE 0u",
@@ -190,10 +190,10 @@ fn paired_pre_inactive_uses_post_absolute_without_releasing_binding() {
     assert!(editor.contains("display::watchMetricMode (pairSelected, haveRawD, rawD.mode)"));
     assert!(!editor.contains("rawD.mode == 0"));
     assert!(editor.contains("Kind::Abs6"));
-    assert!(editor.contains("paired PRE bypassed/inactive -> POST absolute"));
-    assert!(display_contract.contains("if (! pairSelected)"));
-    assert!(display_contract.contains("return preUnavailableForDelta (mode)"));
-    assert!(display_contract.contains("if (preUnavailableForDelta (mode))"));
+    assert!(editor.contains("const bool unavailable = ! haveHeldD;"));
+    assert!(editor.contains("else // no selected pair -> POST absolute"));
+    assert!(display_contract
+        .contains("return pairSelected ? MetricMode::delta : MetricMode::absolute;"));
 
     let producer = read_repo("crates/kirin_measure/src/io_thread_post.rs");
     assert!(producer.contains("mode: DeltaMode::PreInactive"));

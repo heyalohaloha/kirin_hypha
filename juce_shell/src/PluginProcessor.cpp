@@ -116,6 +116,7 @@ void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBl
 
     lastProcessPositionValid = false;
     watchSilenceGate.reset();
+    watchLastProcessInstantValid = false;
 
     if (hyphaHandle != nullptr)
     {
@@ -284,6 +285,20 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
     const bool measurementTimelineActive = playing
                                         || clockSource == KIRIN_HYPHA_CLOCK_AUDIO_RENDER_TIMELINE;
     lastMeasurementTimelineActive.store (measurementTimelineActive, std::memory_order_release);
+    // Same bounded callback-gap rule as the legacy nih shell: a gap greater than both 250 ms and
+    // two current blocks is a new Watch pass. steady_clock is monotonic and this audio-thread path
+    // performs no allocation, lock, blocking I/O, or wall-clock conversion.
+    const auto watchProcessInstant = std::chrono::steady_clock::now();
+    const double watchCallbackGapSeconds = watchLastProcessInstantValid
+        ? std::chrono::duration<double> (watchProcessInstant - watchLastProcessInstant).count()
+        : 0.0;
+    watchLastProcessInstant = watchProcessInstant;
+    watchLastProcessInstantValid = true;
+    const bool watchCallbackGapStartedNewPass =
+        hypha::signal_state_contract::WatchSilenceGate::callbackGapStartsNewPass (
+            watchCallbackGapSeconds,
+            (uint64_t) juce::jmax (0, numFrames),
+            preparedSampleRate);
     // A single silent callback used to collapse PRE to Inactive, clear its measurement engine,
     // and make the paired POST lose its delta for one or more UI ticks. Preserve Watch continuity
     // across musical rests shorter than the exact 3 s LUFS-S window. Transport stop, bypass, and
@@ -291,6 +306,7 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
     const bool watchActiveThroughSilence = watchSilenceGate.observeBlock (
         hypha::signal_state_contract::WatchSilenceGate::eligible (
             bypassed, recording, measurementTimelineActive),
+        watchCallbackGapStartedNewPass,
         silent,
         (uint64_t) juce::jmax (0, numFrames),
         preparedSampleRate);

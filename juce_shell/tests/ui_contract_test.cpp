@@ -97,7 +97,7 @@ int main()
     static_assert (display::recordMetricMode (true, true, KIRIN_DELTA_MODE_ACTIVE)
                    == display::MetricMode::delta);
     static_assert (display::recordMetricMode (true, true, KIRIN_DELTA_MODE_PRE_INACTIVE)
-                   == display::MetricMode::absolute);
+                   == display::MetricMode::delta);
     static_assert (display::recordMetricMode (false, false, KIRIN_DELTA_MODE_PRE_INACTIVE)
                    == display::MetricMode::absolute);
     static_assert (display::watchMetricMode (true, false, KIRIN_DELTA_MODE_NO_PRE)
@@ -105,11 +105,11 @@ int main()
     static_assert (display::watchMetricMode (true, true, KIRIN_DELTA_MODE_STALE)
                    == display::MetricMode::delta);
     static_assert (display::watchMetricMode (true, true, KIRIN_DELTA_MODE_PRE_INACTIVE)
-                   == display::MetricMode::absolute);
+                   == display::MetricMode::delta);
     static_assert (display::watchMetricMode (true, false, KIRIN_DELTA_MODE_PRE_INACTIVE)
-                   == display::MetricMode::absolute);
+                   == display::MetricMode::delta);
     static_assert (display::watchMetricMode (true, true, KIRIN_DELTA_MODE_BYPASSED)
-                   == display::MetricMode::absolute);
+                   == display::MetricMode::delta);
     static_assert (display::watchMetricMode (false, true, KIRIN_DELTA_MODE_ACTIVE)
                    == display::MetricMode::absolute);
 
@@ -129,19 +129,30 @@ int main()
     static_assert (! signalState::WatchSilenceGate::eligible (true, false, true));
     static_assert (! signalState::WatchSilenceGate::eligible (false, true, true));
     static_assert (! signalState::WatchSilenceGate::eligible (false, false, false));
-    assert (! silenceGate.observeBlock (true, true, 4'800, 48'000.0));
-    assert (silenceGate.observeBlock (true, false, 4'800, 48'000.0));
+    assert (! signalState::WatchSilenceGate::callbackGapStartsNewPass (
+        0.250, 4'800, 48'000.0));
+    assert (signalState::WatchSilenceGate::callbackGapStartsNewPass (
+        0.251, 4'800, 48'000.0));
+    assert (! signalState::WatchSilenceGate::callbackGapStartsNewPass (
+        2.0, 48'000, 48'000.0));
+    assert (signalState::WatchSilenceGate::callbackGapStartsNewPass (
+        2.001, 48'000, 48'000.0));
+    assert (! silenceGate.observeBlock (true, false, true, 4'800, 48'000.0));
+    assert (silenceGate.observeBlock (true, false, false, 4'800, 48'000.0));
     for (int gap = 0; gap < 20; ++gap)
     {
-        assert (silenceGate.observeBlock (true, true, 4'800, 48'000.0));
-        assert (silenceGate.observeBlock (true, false, 4'800, 48'000.0));
+        assert (silenceGate.observeBlock (true, false, true, 4'800, 48'000.0));
+        assert (silenceGate.observeBlock (true, false, false, 4'800, 48'000.0));
     }
-    assert (silenceGate.observeBlock (true, true, 143'999, 48'000.0));
-    assert (! silenceGate.observeBlock (true, true, 1, 48'000.0));
-    assert (! silenceGate.observeBlock (true, true, 4'800, 48'000.0));
-    assert (silenceGate.observeBlock (true, false, 4'800, 48'000.0));
-    assert (! silenceGate.observeBlock (false, false, 4'800, 48'000.0));
-    assert (! silenceGate.observeBlock (true, true, 4'800, 48'000.0));
+    assert (silenceGate.observeBlock (true, false, true, 143'999, 48'000.0));
+    assert (! silenceGate.observeBlock (true, false, true, 1, 48'000.0));
+    assert (! silenceGate.observeBlock (true, false, true, 4'800, 48'000.0));
+    assert (silenceGate.observeBlock (true, false, false, 4'800, 48'000.0));
+    assert (! silenceGate.observeBlock (true, true, true, 4'800, 48'000.0));
+    assert (! silenceGate.observeBlock (true, false, true, 4'800, 48'000.0));
+    assert (silenceGate.observeBlock (true, false, false, 4'800, 48'000.0));
+    assert (! silenceGate.observeBlock (false, false, false, 4'800, 48'000.0));
+    assert (! silenceGate.observeBlock (true, false, true, 4'800, 48'000.0));
 
     const auto pre = ui::editorLayout (false);
     const auto post = ui::editorLayout (true);

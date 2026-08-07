@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <vector>
 
@@ -141,6 +142,8 @@ private:
     bool recordStartWindowLatched = false;             // audio-thread Record start gate; reset outside Record
     bool recordNativeRangeLatched = false;              // first host native-range callback per Record
     hypha::signal_state_contract::WatchSilenceGate watchSilenceGate; // Watch-only; sample-counted, RT-safe
+    std::chrono::steady_clock::time_point watchLastProcessInstant {}; // audio-thread callback-gap boundary
+    bool watchLastProcessInstantValid = false;          // false until the first process callback
 
     // Persisted identity (4 keys) + POST pair target, round-tripped via get/setState as a
     // JUCE-native XML chunk. Source of truth for the chunk; synced from the FFI at enable

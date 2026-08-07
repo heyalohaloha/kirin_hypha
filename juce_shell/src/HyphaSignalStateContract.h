@@ -12,6 +12,9 @@ namespace hypha::signal_state_contract
     class WatchSilenceGate
     {
     public:
+        static constexpr double minimumCallbackGapSeconds = 0.25;
+        static constexpr double callbackGapBlockMultiplier = 2.0;
+
         static constexpr bool eligible (bool bypassed,
                                         bool recording,
                                         bool measurementTimelineActive) noexcept
@@ -19,11 +22,33 @@ namespace hypha::signal_state_contract
             return ! bypassed && ! recording && measurementTimelineActive;
         }
 
+        static bool callbackGapStartsNewPass (double callbackGapSeconds,
+                                              uint64_t numFrames,
+                                              double sampleRate) noexcept
+        {
+            if (! std::isfinite (callbackGapSeconds) || callbackGapSeconds <= 0.0
+                || ! std::isfinite (sampleRate) || sampleRate <= 0.0)
+                return false;
+
+            const double blockDurationSeconds = static_cast<double> (numFrames) / sampleRate;
+            const double blockThreshold = blockDurationSeconds * callbackGapBlockMultiplier;
+            const double threshold = blockThreshold > minimumCallbackGapSeconds
+                                   ? blockThreshold : minimumCallbackGapSeconds;
+            return callbackGapSeconds > threshold;
+        }
+
         bool observeBlock (bool watchTimelineEligible,
+                           bool callbackGapStartedNewPass,
                            bool silent,
                            uint64_t numFrames,
                            double sampleRate) noexcept
         {
+            // Studio Pro may stop processBlock entirely while transport/bypass is stopped. In
+            // that case there is no ineligible callback to reset this audio-thread-local gate.
+            // A bounded callback gap is therefore an explicit Watch pass boundary.
+            if (callbackGapStartedNewPass)
+                reset();
+
             if (! watchTimelineEligible || ! std::isfinite (sampleRate) || sampleRate <= 0.0)
             {
                 reset();

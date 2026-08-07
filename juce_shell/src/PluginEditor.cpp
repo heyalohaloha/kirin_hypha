@@ -759,16 +759,20 @@ void KirinHyphaEditor::updatePost()
                 mutedHeldD = held.muted;
             }
         }
-        if (haveHeldD)
+        if (pairSelected)
         {
             if (currentKind != Kind::WatchDelta6) configureForKind (Kind::WatchDelta6);
-            const juce::Colour base = mutedHeldD ? COL_MUTED : COL_NORMAL;
-            watchHeldNormal = ! mutedHeldD;
-            fillDelta (0, selectedDelta (heldD), false, base, false, mutedHeldD);
+            const bool unavailable = ! haveHeldD;
+            const juce::Colour base = mutedHeldD || unavailable ? COL_MUTED : COL_NORMAL;
+            watchHeldNormal = haveHeldD && ! mutedHeldD;
+            fillDelta (0, haveHeldD ? selectedDelta (heldD) : kNaN,
+                       false, base, false, mutedHeldD || unavailable);
             fillAbs (1, haveWatchMaximum ? selectedMeasure (watchMaximum) : kNaN, false, true);
-            fillDelta (2, heldD.true_peak, true,  base, false, mutedHeldD);
+            fillDelta (2, haveHeldD ? heldD.true_peak : kNaN,
+                       true, base, false, mutedHeldD || unavailable);
             fillAbs (3, haveWatchMaximum ? watchMaximum.true_peak : kNaN, true, true);
-            fillDelta (4, heldD.crest,     false, base, false, mutedHeldD);
+            fillDelta (4, haveHeldD ? heldD.crest : kNaN,
+                       false, base, false, mutedHeldD || unavailable);
             fillAbs (5, haveWatchMaximum ? watchMaximum.crest : kNaN, false, true);
         }
         else
@@ -827,7 +831,7 @@ void KirinHyphaEditor::updatePost()
             fillDelta (4, haveD ? d.crest     : kNaN, false, base, warn, ! liveDelta);
             fillAbs (5, haveWatchMaximum ? watchMaximum.crest : kNaN, false, ! liveDelta);
         }
-        else // pair empty or paired PRE bypassed/inactive -> POST absolute
+        else // no selected pair -> POST absolute
         {
             if (currentKind != Kind::WatchAbs6) configureForKind (Kind::WatchAbs6);
             auto V = [&] (double x) { return haveM ? x : kNaN; };

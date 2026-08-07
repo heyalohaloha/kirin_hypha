@@ -198,6 +198,8 @@
         assert!(body.contains(
             "WatchSilenceGate::eligible (\n            bypassed, recording, measurementTimelineActive)"
         ));
+        assert!(body.contains("WatchSilenceGate::callbackGapStartsNewPass ("));
+        assert!(body.contains("watchCallbackGapStartedNewPass,"));
         assert!(body.contains(
             "const bool stateSilent = silent && ! watchActiveThroughSilence;"
         ));
@@ -238,7 +240,8 @@
                 && body.contains("recordPhase == KIRIN_RECORD_DISPLAY_LIVE"),
             "POST Record must show absolute Max TP/I and bypass the timed Watch hold after finalize"
         );
-        assert!(HYPHA_DISPLAY_CONTRACT_H.contains("return preUnavailableForDelta (mode)"));
+        assert!(HYPHA_DISPLAY_CONTRACT_H
+            .contains("return pairSelected ? MetricMode::delta : MetricMode::absolute;"));
     }
 
     #[test]
@@ -263,11 +266,19 @@
             "JUCE POST Watch must use held/muted delta values for transient stale PRE reads"
         );
         assert!(
-            window.contains("else // pair empty or paired PRE bypassed/inactive -> POST absolute"),
-            "JUCE POST Watch may fall back to POST absolute values only when the pair is empty or PRE is explicitly OFF"
+            PLUGIN_EDITOR_CPP.contains(
+                "if (pairSelected)\n        {\n            if (currentKind != Kind::WatchDelta6)"
+            ) && PLUGIN_EDITOR_CPP.contains("const bool unavailable = ! haveHeldD;"),
+            "JUCE POST Watch must keep the paired delta grid even when PRE measurements are unavailable"
         );
-        assert!(HYPHA_DISPLAY_CONTRACT_H.contains("if (! pairSelected)"));
-        assert!(HYPHA_DISPLAY_CONTRACT_H.contains("if (preUnavailableForDelta (mode))"));
+        assert_eq!(
+            count_occurrences(
+                HYPHA_DISPLAY_CONTRACT_H,
+                "return pairSelected ? MetricMode::delta : MetricMode::absolute;"
+            ),
+            2,
+            "Watch and Record layouts must both be owned only by pair context"
+        );
         assert!(
             window.contains("selectedMeasure (watchMaximum)")
                 && window.contains("watchMaximum.true_peak")
@@ -285,7 +296,7 @@
 
         assert!(
             body.contains("bool watchHeldNormal = false;")
-                && body.contains("watchHeldNormal = ! mutedHeldD;")
+                && body.contains("watchHeldNormal = haveHeldD && ! mutedHeldD;")
                 && body.contains("watchHeldNormal = haveM && ! mutedM;")
                 && body.contains(
                     "const int ledSig = (! displayRecord && sig == KIRIN_SIGNAL_STATE_INACTIVE && watchHeldNormal)"
