@@ -12,9 +12,6 @@ namespace hypha::signal_state_contract
     class WatchSilenceGate
     {
     public:
-        static constexpr double minimumCallbackGapSeconds = 0.25;
-        static constexpr double callbackGapBlockMultiplier = 2.0;
-
         static constexpr bool eligible (bool bypassed,
                                         bool recording,
                                         bool measurementTimelineActive) noexcept
@@ -22,31 +19,31 @@ namespace hypha::signal_state_contract
             return ! bypassed && ! recording && measurementTimelineActive;
         }
 
-        static bool callbackGapStartsNewPass (double callbackGapSeconds,
-                                              uint64_t numFrames,
-                                              double sampleRate) noexcept
+        // A wall-clock callback delay is not a transport fact: CPU overload and offline render
+        // scheduling can pause processBlock while the musical sample timeline remains continuous.
+        // Start a new Watch pass only when the host-provided sample range is discontinuous.
+        static constexpr bool sampleTimelineStartsNewPass (bool hasPosition,
+                                                           bool previousPositionValid,
+                                                           int64_t positionSamples,
+                                                           int64_t previousPositionSamples,
+                                                           uint64_t previousNumFrames) noexcept
         {
-            if (! std::isfinite (callbackGapSeconds) || callbackGapSeconds <= 0.0
-                || ! std::isfinite (sampleRate) || sampleRate <= 0.0)
+            if (! hasPosition || ! previousPositionValid
+                || previousNumFrames > static_cast<uint64_t> (std::numeric_limits<int64_t>::max()))
                 return false;
-
-            const double blockDurationSeconds = static_cast<double> (numFrames) / sampleRate;
-            const double blockThreshold = blockDurationSeconds * callbackGapBlockMultiplier;
-            const double threshold = blockThreshold > minimumCallbackGapSeconds
-                                   ? blockThreshold : minimumCallbackGapSeconds;
-            return callbackGapSeconds > threshold;
+            const auto frames = static_cast<int64_t> (previousNumFrames);
+            if (previousPositionSamples > std::numeric_limits<int64_t>::max() - frames)
+                return true;
+            return positionSamples != previousPositionSamples + frames;
         }
 
         bool observeBlock (bool watchTimelineEligible,
-                           bool callbackGapStartedNewPass,
+                           bool sampleTimelineStartedNewPass,
                            bool silent,
                            uint64_t numFrames,
                            double sampleRate) noexcept
         {
-            // Studio Pro may stop processBlock entirely while transport/bypass is stopped. In
-            // that case there is no ineligible callback to reset this audio-thread-local gate.
-            // A bounded callback gap is therefore an explicit Watch pass boundary.
-            if (callbackGapStartedNewPass)
+            if (sampleTimelineStartedNewPass)
                 reset();
 
             if (! watchTimelineEligible || ! std::isfinite (sampleRate) || sampleRate <= 0.0)

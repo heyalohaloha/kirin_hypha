@@ -50,6 +50,7 @@ pub mod record_expected;
 pub mod record_ingress;
 pub mod record_mark;
 pub mod record_signal;
+mod record_spool;
 pub mod record_take;
 pub mod record_writer;
 mod record_writer_claim;

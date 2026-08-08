@@ -2920,14 +2920,25 @@ fn prepare_late_expected_pair(
     post_data.trace_context_psb_snapshots.clear();
     let publication_reasons = pair_visibility_failure_reasons(pre_data, post_data);
     if !publication_reasons.is_empty() {
+        add_integrity_reasons(pre_data, &publication_reasons);
+        add_integrity_reasons(post_data, &publication_reasons);
+        log::warn!(
+            "[RecordPair] late publish rejected for session {:?}: {}",
+            pre_data.record_session_id,
+            publication_reasons.join(",")
+        );
         return false;
     }
     if !timing_reasons.is_empty() {
         add_integrity_reasons(pre_data, &timing_reasons);
         add_integrity_reasons(post_data, &timing_reasons);
     }
-    pre_data.trace_clock_observations.clear();
-    post_data.trace_clock_observations.clear();
+    let comparison_exact = pre_data.trace_comparison_resolution.is_some()
+        && pre_data.trace_comparison_resolution == post_data.trace_comparison_resolution;
+    if alignment_exact || comparison_exact {
+        pre_data.trace_clock_observations.clear();
+        post_data.trace_clock_observations.clear();
+    }
     pre_data.commit_status = Some("committed".to_string());
     post_data.commit_status = Some("committed".to_string());
     refresh_record_quality(pre_data);
@@ -2978,16 +2989,16 @@ fn normalize_late_expected_pair(
         || left.sample_rate != right.sample_rate
         || left.sample_rate != expected.expected_sample_rate
     {
-        return false;
+        return reject_late_expected_pair(left, right, "late_pair_sample_rate_mismatch");
     }
     let Some(duration_ms) = expected_wav_duration_ms(expected) else {
-        return false;
+        return reject_late_expected_pair(left, right, "late_pair_wav_duration_unavailable");
     };
     let Ok(expected_len) = usize::try_from(duration_ms / TRACE_FRAME_INTERVAL_MS) else {
-        return false;
+        return reject_late_expected_pair(left, right, "late_pair_frame_count_overflow");
     };
     if expected_len == 0 {
-        return false;
+        return reject_late_expected_pair(left, right, "late_pair_empty_wav_window");
     }
     let slot_samples = (left.sample_rate as i64 / 10).max(1);
     let plan = match (left.role, right.role) {
@@ -3005,10 +3016,10 @@ fn normalize_late_expected_pair(
             expected_len,
             slot_samples,
         ),
-        _ => return false,
+        _ => return reject_late_expected_pair(left, right, "late_pair_roles_not_pre_post"),
     };
     let Some(plan) = plan else {
-        return false;
+        return reject_late_expected_pair(left, right, "late_pair_clock_plan_unavailable");
     };
     let rebuild = |data: &mut PluginDataFile,
                    frames: Vec<Frame>,
@@ -3103,14 +3114,14 @@ fn normalize_late_expected_pair(
                 plan.pre_clock_model,
             );
         }
-        _ => return false,
+        _ => return reject_late_expected_pair(left, right, "late_pair_roles_not_pre_post"),
     }
     if plan.exact {
         let (Some(pre_origin), Some(post_origin)) = (
             plan.pre_origin_position_samples,
             plan.post_origin_position_samples,
         ) else {
-            return false;
+            return reject_late_expected_pair(left, right, "late_pair_exact_origin_unavailable");
         };
         match (left.role, right.role) {
             (Role::Pre, Role::Post) => {
@@ -3125,11 +3136,41 @@ fn normalize_late_expected_pair(
                 bind_annotation_marks_to_wav(left, post_origin, expected.expected_duration_samples);
                 bind_annotation_marks_to_wav(right, pre_origin, expected.expected_duration_samples);
             }
-            _ => return false,
+            _ => return reject_late_expected_pair(left, right, "late_pair_roles_not_pre_post"),
         }
     }
-    normalize_late_expected_record(left, expected)
-        && normalize_late_expected_record(right, expected)
+    let left_ready = normalize_late_expected_record(left, expected);
+    let right_ready = normalize_late_expected_record(right, expected);
+    if !left_ready {
+        add_integrity_reasons(left, &["late_pair_left_record_not_visible"]);
+    }
+    if !right_ready {
+        add_integrity_reasons(right, &["late_pair_right_record_not_visible"]);
+    }
+    if !left_ready || !right_ready {
+        log::warn!(
+            "[RecordPair] late normalization incomplete for session {:?}: left_ready={}, right_ready={}",
+            left.record_session_id,
+            left_ready,
+            right_ready
+        );
+    }
+    left_ready && right_ready
+}
+
+fn reject_late_expected_pair(
+    left: &mut PluginDataFile,
+    right: &mut PluginDataFile,
+    reason: &'static str,
+) -> bool {
+    add_integrity_reasons(left, &[reason]);
+    add_integrity_reasons(right, &[reason]);
+    log::warn!(
+        "[RecordPair] late normalization rejected for session {:?}: {}",
+        left.record_session_id,
+        reason
+    );
+    false
 }
 
 fn bind_annotation_marks_to_wav(
@@ -4886,6 +4927,88 @@ mod tests {
             );
             assert!(data.trace_clock_observations.is_empty());
             assert!(!data.trace_comparison_slot_positions.is_empty());
+        }
+    }
+
+    #[test]
+    fn late_drop_commits_large_latency_au_pair_on_the_exact_wav_axis() {
+        let base = isolated_dir();
+        let origin = 2_880_000_i64;
+        let mut expected = fresh_expected_wav_fixture(96_000);
+        expected.expected_sample_rate = 96_000;
+        expected.wav_time_reference_samples = Some(origin as u64);
+        let start_ms = expected.created_at_ms.saturating_sub(2_000);
+        let mut pre = complete_pair_writer(
+            &base,
+            Role::Pre,
+            "iid-pre-large-au-latency",
+            None,
+            Some("iid-post-large-au-latency".to_string()),
+        );
+        let mut post = complete_pair_writer(
+            &base,
+            Role::Post,
+            "iid-post-large-au-latency",
+            Some("iid-pre-large-au-latency".to_string()),
+            None,
+        );
+        for writer in [&mut pre, &mut post] {
+            writer.data.sample_rate = 96_000;
+            writer.set_record_session_id(Some("session-large-au-latency".to_string()));
+            writer
+                .set_capture_generation(Some("generation-large-au-latency".to_string()), start_ms);
+            set_late_expected_record_time(writer, start_ms, expected.created_at_ms);
+            configure_render_clock_take(writer, 96_000);
+            writer.data.status = Status::Closed;
+            writer.data.commit_status = Some("pair_pending".to_string());
+        }
+        let observations = |writer: &PluginDataWriter, latency: u32| {
+            writer
+                .data
+                .frames
+                .iter()
+                .enumerate()
+                .map(|(index, frame)| {
+                    let presented = origin + (index as i64 + 1) * 9_600;
+                    let producer = presented - i64::from(latency);
+                    TraceClockObservation {
+                        frame: frame.clone(),
+                        producer_position_samples: Some(producer),
+                        raw_host_position_samples: Some(producer),
+                        capture_epoch: Some(10),
+                        clock_source: Some("audio_render_timeline".to_string()),
+                        presentation_latency_source: Some("audio_unit_v2".to_string()),
+                        input_presentation_latency_samples: Some(0),
+                        output_presentation_latency_samples: Some(latency),
+                    }
+                })
+                .collect::<Vec<_>>()
+        };
+        pre.set_trace_clock_observations(observations(&pre, 53_243));
+        post.set_trace_clock_observations(observations(&post, 52_722));
+
+        assert!(normalize_late_expected_pair(
+            &mut pre.data,
+            &mut post.data,
+            &expected
+        ));
+        for data in [&pre.data, &post.data] {
+            assert_eq!(
+                data.trace_clock_resolution.as_deref(),
+                Some("producer_plus_output_latency")
+            );
+            assert_eq!(data.trace_slot_positions.len(), 10);
+        }
+        assert!(prepare_late_expected_pair(&mut pre.data, &mut post.data));
+        for data in [&pre.data, &post.data] {
+            assert_eq!(data.commit_status.as_deref(), Some("committed"));
+            assert_eq!(
+                data.trace_content_alignment
+                    .as_ref()
+                    .map(|alignment| alignment.status.as_str()),
+                Some(crate::trace_alignment::TRACE_ALIGNMENT_STATUS)
+            );
+            assert!(data.trace_clock_observations.is_empty());
         }
     }
 

@@ -129,14 +129,14 @@ int main()
     static_assert (! signalState::WatchSilenceGate::eligible (true, false, true));
     static_assert (! signalState::WatchSilenceGate::eligible (false, true, true));
     static_assert (! signalState::WatchSilenceGate::eligible (false, false, false));
-    assert (! signalState::WatchSilenceGate::callbackGapStartsNewPass (
-        0.250, 4'800, 48'000.0));
-    assert (signalState::WatchSilenceGate::callbackGapStartsNewPass (
-        0.251, 4'800, 48'000.0));
-    assert (! signalState::WatchSilenceGate::callbackGapStartsNewPass (
-        2.0, 48'000, 48'000.0));
-    assert (signalState::WatchSilenceGate::callbackGapStartsNewPass (
-        2.001, 48'000, 48'000.0));
+    static_assert (! signalState::WatchSilenceGate::sampleTimelineStartsNewPass (
+        false, true, 4'800, 0, 4'800));
+    static_assert (! signalState::WatchSilenceGate::sampleTimelineStartsNewPass (
+        true, false, 4'800, 0, 4'800));
+    static_assert (! signalState::WatchSilenceGate::sampleTimelineStartsNewPass (
+        true, true, 4'800, 0, 4'800));
+    static_assert (signalState::WatchSilenceGate::sampleTimelineStartsNewPass (
+        true, true, 4'801, 0, 4'800));
     assert (! silenceGate.observeBlock (true, false, true, 4'800, 48'000.0));
     assert (silenceGate.observeBlock (true, false, false, 4'800, 48'000.0));
     for (int gap = 0; gap < 20; ++gap)

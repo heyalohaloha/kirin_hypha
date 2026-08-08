@@ -1108,6 +1108,58 @@ mod tests {
     }
 
     #[test]
+    fn large_au_output_latency_keeps_the_exact_wav_axis() {
+        let origin = 2_880_000_i64;
+        let mut expected = expected(Some(origin as u64));
+        expected.expected_sample_rate = 96_000;
+        expected.expected_duration_samples = 96_000;
+        let mut pre = plugin_data(Role::Pre, "session", "audio_render_timeline");
+        let mut post = plugin_data(Role::Post, "session", "audio_render_timeline");
+        pre.sample_rate = 96_000;
+        post.sample_rate = 96_000;
+
+        let observations = |latency: u32, base: f64| {
+            (1_i64..=10)
+                .map(|slot| {
+                    let presented = origin + slot * 9_600;
+                    let producer = presented - i64::from(latency);
+                    TraceClockObservation {
+                        frame: Frame {
+                            t_ms: slot as u64 * 100,
+                            ..frame(base + slot as f64)
+                        },
+                        producer_position_samples: Some(producer),
+                        raw_host_position_samples: Some(producer),
+                        capture_epoch: Some(10),
+                        clock_source: Some("audio_render_timeline".to_string()),
+                        presentation_latency_source: Some("audio_unit_v2".to_string()),
+                        input_presentation_latency_samples: Some(0),
+                        output_presentation_latency_samples: Some(latency),
+                    }
+                })
+                .collect::<Vec<_>>()
+        };
+        // These are the role-specific latencies recorded by the failing Drum pair.
+        pre.trace_clock_observations = observations(53_243, -30.0);
+        post.trace_clock_observations = observations(52_722, -20.0);
+
+        let plan = build_wav_start_clock_plan(&pre, &post, &expected, 10, 9_600)
+            .expect("large AU latency still has an exact presentation/WAV axis");
+
+        assert!(plan.exact);
+        assert_eq!(plan.pre_clock_model, "producer_plus_output_latency");
+        assert_eq!(plan.post_clock_model, "producer_plus_output_latency");
+        assert_eq!(
+            plan.pre_wav_slots,
+            (1_i64..=10).map(|slot| slot * 9_600).collect::<Vec<_>>()
+        );
+        assert_eq!(plan.pre_wav_slots, plan.post_wav_slots);
+        assert_eq!(plan.comparison_resolution, None);
+        assert!(plan.pre_comparison_slots.is_empty());
+        assert!(plan.post_comparison_slots.is_empty());
+    }
+
+    #[test]
     fn raw_host_comparison_ignores_partial_epochs_around_the_selected_offline_render() {
         let origin = 15_594_720;
         let mut pre = raw_host_comparison_data(

@@ -507,8 +507,13 @@ void KirinHyphaEditor::updatePre()
     KirinSessionSummary summary {};
     bool haveSummary = false;
     KirinWatchDisplay watch {};
-    const bool haveWatch = ! displayRecord && sig == KIRIN_SIGNAL_STATE_ACTIVE
-        && processorRef.pollWatchDisplay (watch);
+    const bool polledWatch = ! displayRecord && processorRef.pollWatchDisplay (watch);
+    if (polledWatch)
+    {
+        watchMaximum = watch.maximum;
+        haveWatchMaximum = true;
+    }
+    const bool haveWatch = polledWatch && sig == KIRIN_SIGNAL_STATE_ACTIVE;
     if (displayRecord)
     {
         if (haveRecordDisplay && cachedRecordDisplay.has_measure != 0)
@@ -528,8 +533,6 @@ void KirinHyphaEditor::updatePre()
     }
     else if (haveWatch)
     {
-        watchMaximum = watch.maximum;
-        haveWatchMaximum = true;
         r = displaySmoother.smoothMeasure (watch.current, t);
         have = true;
     }
@@ -655,8 +658,13 @@ void KirinHyphaEditor::updatePost()
     KirinSessionSummary summary {};
     bool haveSummary = false;
     KirinWatchDisplay watch {};
-    const bool haveWatch = ! displayRecord && sig == KIRIN_SIGNAL_STATE_ACTIVE
-        && processorRef.pollWatchDisplay (watch);
+    const bool polledWatch = ! displayRecord && processorRef.pollWatchDisplay (watch);
+    if (polledWatch)
+    {
+        watchMaximum = watch.maximum;
+        haveWatchMaximum = true;
+    }
+    const bool haveWatch = polledWatch && sig == KIRIN_SIGNAL_STATE_ACTIVE;
     if (displayRecord)
     {
         if (haveRecordDisplay && cachedRecordDisplay.has_measure != 0)
@@ -676,8 +684,6 @@ void KirinHyphaEditor::updatePost()
     }
     else if (haveWatch)
     {
-        watchMaximum = watch.maximum;
-        haveWatchMaximum = true;
         m = displaySmoother.smoothMeasure (watch.current, t);
         haveM = true;
     }

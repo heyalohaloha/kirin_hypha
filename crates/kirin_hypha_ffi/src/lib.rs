@@ -3163,24 +3163,17 @@ impl KirinHyphaEngine {
         self.oversized_drop.load(Ordering::Relaxed)
     }
 
-    /// B-129 reopen (G-115-380): **test-only** — Audio→Measure ring が全消費されたか。
-    /// `producer.slots()`（書込可能空きスロット数）== ring 容量 ⟺ consumer が push 済み全サンプルを
-    /// pop しきった状態。parity の session_finalize gate が「lufs_i 値プラトー」でなく ring 全消費を
-    /// 直接確認するための read-only introspection。**計測数値サーフェスではない**（bool を返すのみ・
-    /// engine.rs / 本番 finalize / FFI 計測数値は不変）。容量は `new()` の構築式
-    /// （sample_rate * RING_BUFFER_SECONDS * num_channels）と同一に算出するため、watchdog の
-    /// Producer 差し替え後も不変。
+    /// B-129 reopen (G-115-380): **test-only** — Audio→spool ring が空で、spool に publish 済みの
+    /// 全サンプルを Measure reader が消費したか。parity の session_finalize gate が `lufs_i` の値
+    /// プラトーでなく取り込み全体の実 drain を確認するための read-only introspection。
+    /// **計測数値サーフェスではない**（bool を返すのみ・本番計測値は不変）。
     ///
-    /// SAFETY: handoff 内の active Producer は SPSC 契約で「Audio/test 単独スレッド」
-    /// からのみ触れる（struct の `unsafe impl Sync` 根拠と同一）。本メソッドも push_samples と同一
-    /// スレッドから順次呼ばれ時間的に重ならない。`Producer::slots()` は
-    /// `&self` の read-only で head（consumer 位置）を Acquire load するのみで、consumer 側の pop と
-    /// 並行しても rtrb SPSC 設計上健全。
+    /// Test harness から `push_samples` と直列に呼ぶ。Record 経路では control mutex を読むため、
+    /// shipping Audio callback から呼んではならない。
     #[doc(hidden)]
     pub fn __ring_drained_for_test(&self) -> bool {
         if self.record_sm.is_recording() {
-            // SAFETY: test calls this from the same thread as push_samples.
-            return unsafe { self.record_ingress.drained_from_audio() };
+            return self.record_ingress.drained_for_test();
         }
         let capacity = watch_ring_capacity_samples(self.num_channels);
         // SAFETY: 上記参照（SPSC・push_samples と同一スレッド・read-only slots()）。

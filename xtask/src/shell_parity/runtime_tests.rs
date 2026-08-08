@@ -198,8 +198,9 @@
         assert!(body.contains(
             "WatchSilenceGate::eligible (\n            bypassed, recording, measurementTimelineActive)"
         ));
-        assert!(body.contains("WatchSilenceGate::callbackGapStartsNewPass ("));
-        assert!(body.contains("watchCallbackGapStartedNewPass,"));
+        assert!(body.contains("WatchSilenceGate::sampleTimelineStartsNewPass ("));
+        assert!(body.contains("watchSampleTimelineStartedNewPass,"));
+        assert!(!body.contains("steady_clock::now"));
         assert!(body.contains(
             "const bool stateSilent = silent && ! watchActiveThroughSilence;"
         ));

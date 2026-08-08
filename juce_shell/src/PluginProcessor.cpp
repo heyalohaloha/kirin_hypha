@@ -115,8 +115,9 @@ void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBl
         return;
 
     lastProcessPositionValid = false;
+    lastProcessHadPosition = false;
+    lastProcessNumFrames = 0;
     watchSilenceGate.reset();
-    watchLastProcessInstantValid = false;
 
     if (hyphaHandle != nullptr)
     {
@@ -264,11 +265,20 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
     lastPlaying.store (playing, std::memory_order_release); // B-054: POST pair lock reads this
     const bool positionChanged = hasPosition && lastProcessPositionValid
                               && positionSamples != lastProcessPositionSamples;
+    const bool watchSampleTimelineStartedNewPass =
+        hypha::signal_state_contract::WatchSilenceGate::sampleTimelineStartsNewPass (
+            hasPosition,
+            lastProcessPositionValid && lastProcessHadPosition,
+            positionSamples,
+            lastProcessPositionSamples,
+            lastProcessNumFrames);
     if (hasPosition)
     {
         lastProcessPositionValid = true;
         lastProcessPositionSamples = positionSamples;
+        lastProcessNumFrames = (uint64_t) juce::jmax (0, numFrames);
     }
+    lastProcessHadPosition = hasPosition;
 
     const bool silent = bufferIsSilent (buffer);
     const bool recording = kirin_hypha_is_recording (hyphaHandle);
@@ -285,20 +295,6 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
     const bool measurementTimelineActive = playing
                                         || clockSource == KIRIN_HYPHA_CLOCK_AUDIO_RENDER_TIMELINE;
     lastMeasurementTimelineActive.store (measurementTimelineActive, std::memory_order_release);
-    // Same bounded callback-gap rule as the legacy nih shell: a gap greater than both 250 ms and
-    // two current blocks is a new Watch pass. steady_clock is monotonic and this audio-thread path
-    // performs no allocation, lock, blocking I/O, or wall-clock conversion.
-    const auto watchProcessInstant = std::chrono::steady_clock::now();
-    const double watchCallbackGapSeconds = watchLastProcessInstantValid
-        ? std::chrono::duration<double> (watchProcessInstant - watchLastProcessInstant).count()
-        : 0.0;
-    watchLastProcessInstant = watchProcessInstant;
-    watchLastProcessInstantValid = true;
-    const bool watchCallbackGapStartedNewPass =
-        hypha::signal_state_contract::WatchSilenceGate::callbackGapStartsNewPass (
-            watchCallbackGapSeconds,
-            (uint64_t) juce::jmax (0, numFrames),
-            preparedSampleRate);
     // A single silent callback used to collapse PRE to Inactive, clear its measurement engine,
     // and make the paired POST lose its delta for one or more UI ticks. Preserve Watch continuity
     // across musical rests shorter than the exact 3 s LUFS-S window. Transport stop, bypass, and
@@ -306,7 +302,7 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
     const bool watchActiveThroughSilence = watchSilenceGate.observeBlock (
         hypha::signal_state_contract::WatchSilenceGate::eligible (
             bypassed, recording, measurementTimelineActive),
-        watchCallbackGapStartedNewPass,
+        watchSampleTimelineStartedNewPass,
         silent,
         (uint64_t) juce::jmax (0, numFrames),
         preparedSampleRate);

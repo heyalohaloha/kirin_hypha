@@ -4379,6 +4379,9 @@ mod record_signal_ack_barrier_tests {
 
         // The failed poll must not have claimed this new session. Once the prior lane drain is
         // acknowledged, the same durable ACK enters Record on its next ordinary poll.
+        let mut prior_consumer = record_ingress.take_consumer_for_measure(7).unwrap();
+        assert!(record_ingress.finish_capture_from_measure(7, std::time::Duration::from_secs(1)));
+        while prior_consumer.pop().is_ok() {}
         record_ingress.mark_drained_from_measure(7);
         poll_record_signal_ack_with_base(
             &base,

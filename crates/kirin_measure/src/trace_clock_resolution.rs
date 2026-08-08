@@ -208,6 +208,7 @@ fn select_latency_mapped_frames(
     let mut wav_slots = Vec::with_capacity(frames.capacity());
     let mut comparison_slots = Vec::with_capacity(frames.capacity());
     let mut raw_host_slots = Vec::with_capacity(frames.capacity());
+    let mut comparison_slots_complete = true;
     let mut raw_host_slots_complete = true;
     let mut previous_position = None;
     let mut previous_comparison_position = None;
@@ -220,16 +221,23 @@ fn select_latency_mapped_frames(
             return None;
         }
         let relative = position.checked_sub(origin)?;
-        let comparison_relative = producer_position.checked_sub(origin)?;
-        if comparison_relative < 0 || comparison_relative > duration {
-            return None;
-        }
+        let comparison_relative = producer_position.checked_sub(origin);
         let mut frame = source_frame.clone();
         frame.t_ms = u64::try_from(relative).ok()?.saturating_mul(1_000) / u64::from(sample_rate);
         frames.push(frame);
         producer_slots.push(position);
         wav_slots.push(relative);
-        comparison_slots.push(comparison_relative);
+        if let Some(comparison_relative) =
+            comparison_relative.filter(|relative| *relative >= 0 && *relative <= duration)
+        {
+            comparison_slots.push(comparison_relative);
+        } else {
+            // A large factual output latency can place the first producer-side windows before
+            // WAV sample zero while their presentation endpoints are inside the WAV. That does
+            // not invalidate the role-specific WAV mapping. It only means this side cannot also
+            // publish a one-to-one producer-content comparison clock for the complete lane.
+            comparison_slots_complete = false;
+        }
         if let Some(raw_host_position) = raw_host_position {
             raw_host_slots.push(raw_host_position);
         } else {
@@ -241,6 +249,9 @@ fn select_latency_mapped_frames(
     }
     if !raw_host_slots_complete {
         raw_host_slots.clear();
+    }
+    if !comparison_slots_complete {
+        comparison_slots.clear();
     }
     (!frames.is_empty() && frames.len() <= expected_len).then_some(LatencyMappedSelection {
         frames,
