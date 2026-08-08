@@ -323,7 +323,7 @@ void kirin_hypha_note_capture_window(KirinHypha* handle, bool position_valid,
 /* Watch MAX pass boundary notification (Audio Thread, RT-safe). */
 void kirin_hypha_note_transport_block(KirinHypha* handle, bool playing,
                                       bool position_valid, int64_t position_samples,
-                                      uint64_t num_frames);
+                                      uint64_t num_frames, bool force_new_pass);
 
 /* Current Watch values + current playback-pass MAX (UI thread). */
 bool kirin_hypha_poll_watch_display(KirinHypha* handle, bool playing,

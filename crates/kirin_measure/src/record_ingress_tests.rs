@@ -118,6 +118,63 @@ fn rearm_is_rejected_until_previous_generation_is_drained() {
 }
 
 #[test]
+fn completed_generation_releases_the_control_spool_before_the_next_keep() {
+    let ingress = RecordIngress::new(16);
+    assert!(ingress.prepare_for_generation(1));
+    // SAFETY: test owns the single Audio producer.
+    assert!(unsafe { ingress.adopt_from_audio() });
+    let mut consumer = ingress.take_consumer_for_measure(1).unwrap();
+    assert_eq!(unsafe { ingress.push_from_audio(1, &[0.5; 8]) }, 8);
+    finish_and_mark_drained(&ingress, 1, &mut consumer);
+    assert!(
+        !ingress.has_current_spool_for_test(),
+        "a completed generation must not retain its unlinked backing file"
+    );
+    drop(consumer);
+    assert!(ingress.prepare_for_generation(2));
+}
+
+#[test]
+fn premature_drain_ack_keeps_the_generation_and_spool_owned() {
+    let ingress = RecordIngress::new(16);
+    assert!(ingress.prepare_for_generation(1));
+    // SAFETY: test owns the single Audio producer.
+    assert!(unsafe { ingress.adopt_from_audio() });
+    let mut consumer = ingress.take_consumer_for_measure(1).unwrap();
+    assert_eq!(unsafe { ingress.push_from_audio(1, &[0.5; 8]) }, 8);
+    assert!(ingress.finish_capture_from_measure(1, Duration::from_secs(2)));
+
+    ingress.mark_drained_from_measure(1);
+    assert!(
+        ingress.has_current_spool_for_test(),
+        "control seed must remain until the Measure reader consumes the complete generation"
+    );
+    assert!(!ingress.prepare_for_generation(2));
+
+    while consumer.pop().is_ok() {}
+    ingress.mark_drained_from_measure(1);
+    assert!(!ingress.has_current_spool_for_test());
+    assert!(ingress.prepare_for_generation(2));
+}
+
+#[test]
+fn failed_generation_is_terminal_and_does_not_poison_the_next_keep() {
+    let ingress = RecordIngress::new(16);
+    assert!(ingress.prepare_for_generation(7));
+    // SAFETY: test owns the single Audio producer.
+    assert!(unsafe { ingress.adopt_from_audio() });
+    let consumer = ingress.take_consumer_for_measure(7).unwrap();
+    assert_eq!(unsafe { ingress.push_from_audio(7, &[0.25; 8]) }, 8);
+    assert!(ingress.mark_failed_from_measure(7));
+    assert!(!ingress.has_current_spool_for_test());
+    drop(consumer);
+    assert!(
+        ingress.prepare_for_generation(8),
+        "one unavailable TRACE must not disable every later explicit Keep"
+    );
+}
+
+#[test]
 fn take_start_is_emitted_only_for_first_pushed_callback_of_each_generation() {
     let ingress = RecordIngress::new(16);
     assert!(ingress.prepare_for_generation(1));
@@ -151,6 +208,10 @@ fn measure_restart_retires_only_an_exact_entered_and_closed_generation() {
 
     ingress.replace_after_measure_restart(record_observation(false, 1, false));
 
+    assert!(
+        !ingress.has_current_spool_for_test(),
+        "a closed generation retired during restart must release its control seed"
+    );
     assert!(
         ingress.prepare_for_generation(2),
         "a generation already entered and closed while Measure was down must not block Keep 2"

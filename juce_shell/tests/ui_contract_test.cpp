@@ -137,6 +137,14 @@ int main()
         true, true, 4'800, 0, 4'800));
     static_assert (signalState::WatchSilenceGate::sampleTimelineStartsNewPass (
         true, true, 4'801, 0, 4'800));
+    static_assert (signalState::availabilityStartsNewPass (
+        KIRIN_SIGNAL_STATE_INACTIVE, KIRIN_SIGNAL_STATE_ACTIVE, false));
+    static_assert (signalState::availabilityStartsNewPass (
+        KIRIN_SIGNAL_STATE_BYPASSED, KIRIN_SIGNAL_STATE_ACTIVE, false));
+    static_assert (! signalState::availabilityStartsNewPass (
+        KIRIN_SIGNAL_STATE_ACTIVE, KIRIN_SIGNAL_STATE_ACTIVE, false));
+    static_assert (! signalState::availabilityStartsNewPass (
+        KIRIN_SIGNAL_STATE_INACTIVE, KIRIN_SIGNAL_STATE_ACTIVE, true));
     assert (! silenceGate.observeBlock (true, false, true, 4'800, 48'000.0));
     assert (silenceGate.observeBlock (true, false, false, 4'800, 48'000.0));
     for (int gap = 0; gap < 20; ++gap)

@@ -91,4 +91,18 @@ namespace hypha::signal_state_contract
         uint64_t silentFrames = 0;
         bool heardAudibleSignal = false;
     };
+
+    /// The shared heartbeat evaluator distinguishes a stopped processor from a scheduling gap.
+    /// Start a pass only when that shared state returns from unavailable to Active.
+    static constexpr bool availabilityStartsNewPass (uint8_t previousSignalState,
+                                                      uint8_t currentSignalState,
+                                                      bool recording) noexcept
+    {
+        constexpr uint8_t inactive = 0;
+        constexpr uint8_t active = 1;
+        constexpr uint8_t bypassed = 2;
+        return ! recording
+            && (previousSignalState == inactive || previousSignalState == bypassed)
+            && currentSignalState == active;
+    }
 }

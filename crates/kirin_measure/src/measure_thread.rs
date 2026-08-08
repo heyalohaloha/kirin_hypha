@@ -496,8 +496,9 @@ pub fn spawn_measure_thread(
                     );
                 } else {
                     record_sm.mark_record_display_unavailable(record_generation);
+                    let terminalized = record_ingress.mark_failed_from_measure(record_generation);
                     log::warn!(
-                        "[MeasureThread] Record→Watch drain incomplete — seal NOT bumped (IO bake → integrity_degraded)"
+                        "[MeasureThread] Record→Watch drain incomplete — seal NOT bumped (IO bake → integrity_degraded, ingress_terminalized={terminalized})"
                     );
                 }
                 if record_prefix_owns_history_storage {

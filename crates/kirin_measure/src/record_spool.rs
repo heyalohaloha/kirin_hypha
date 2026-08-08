@@ -28,13 +28,23 @@ struct Shared {
     closed: AtomicBool,
     failed: AtomicBool,
     draining: AtomicBool,
+    /// POSIX unlinks the file immediately. Platforms which cannot unlink an open file retain the
+    /// path until the last worker/reader/control owner disappears.
+    retained_path: Option<PathBuf>,
+}
+
+impl Drop for Shared {
+    fn drop(&mut self) {
+        if let Some(path) = self.retained_path.take() {
+            let _ = std::fs::remove_file(path);
+        }
+    }
 }
 
 pub(crate) struct RecordSpool {
     reader_seed: File,
     shared: Arc<Shared>,
     worker: Option<JoinHandle<()>>,
-    retained_path: Option<PathBuf>,
 }
 
 impl RecordSpool {
@@ -71,6 +81,7 @@ impl RecordSpool {
             closed: AtomicBool::new(false),
             failed: AtomicBool::new(false),
             draining: AtomicBool::new(false),
+            retained_path,
         });
         let worker_shared = Arc::clone(&shared);
         let worker = match thread::Builder::new()
@@ -107,10 +118,18 @@ impl RecordSpool {
                     thread::sleep(Duration::from_millis(1));
                 }
                 worker_shared.closed.store(true, Ordering::Release);
+                // Make the close ordering explicit for platforms which cannot unlink an open
+                // file. If this worker owns the final Shared reference, its retained-path cleanup
+                // must run only after the writer handle has closed.
+                drop(writer);
+                drop(worker_shared);
             }) {
             Ok(worker) => worker,
             Err(error) => {
-                if let Some(path) = retained_path.as_ref() {
+                let failed_path = shared.retained_path.clone();
+                drop(shared);
+                drop(reader_seed);
+                if let Some(path) = failed_path {
                     let _ = std::fs::remove_file(path);
                 }
                 return Err(error);
@@ -120,7 +139,6 @@ impl RecordSpool {
             reader_seed,
             shared,
             worker: Some(worker),
-            retained_path,
         })
     }
 
@@ -172,13 +190,19 @@ impl RecordSpool {
 impl Drop for RecordSpool {
     fn drop(&mut self) {
         self.seal();
-        if let Some(worker) = self.worker.take() {
-            let _ = worker.join();
-        }
-        if let Some(path) = self.retained_path.take() {
-            let _ = std::fs::remove_file(path);
-        }
+        // A dropped control seed has no future reader. Ask a still-running worker to abandon any
+        // remaining backlog; a worker already blocked inside local I/O remains safely detached.
+        self.shared.failed.store(true, Ordering::Release);
+        // Never let a stalled local filesystem hold the DAW's plug-in teardown thread. The worker
+        // owns its consumer, writer and Shared lifetime, so dropping JoinHandle safely detaches it;
+        // Shared removes a retained non-POSIX path after the last file owner is gone.
+        detach_worker(&mut self.worker);
     }
+}
+
+#[inline]
+fn detach_worker(worker: &mut Option<JoinHandle<()>>) {
+    drop(worker.take());
 }
 
 pub(crate) struct RecordSpoolReader {
@@ -257,5 +281,25 @@ impl MeasureSampleConsumer {
             Self::Watch(consumer) => consumer.pop().map_err(|_| ()),
             Self::Record(reader) => reader.pop(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::detach_worker;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn detaching_a_stalled_worker_never_waits_for_its_completion() {
+        let mut worker = Some(std::thread::spawn(|| {
+            std::thread::sleep(Duration::from_millis(500));
+        }));
+        let started = Instant::now();
+        detach_worker(&mut worker);
+        assert!(worker.is_none());
+        assert!(
+            started.elapsed() < Duration::from_millis(200),
+            "plug-in lifetime must not join a stalled spool worker"
+        );
     }
 }

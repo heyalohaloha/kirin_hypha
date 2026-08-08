@@ -269,18 +269,15 @@ impl RecordIngress {
 
     pub fn mark_drained_from_measure(&self, generation: u64) {
         if generation != 0 && self.armed_generation.load(Ordering::Acquire) == generation {
-            let fully_consumed = match self.control.lock() {
-                Ok(control) => control
-                    .spool
-                    .as_ref()
-                    .is_some_and(|spool| spool.fully_consumed()),
-                Err(poisoned) => poisoned
-                    .into_inner()
-                    .spool
-                    .as_ref()
-                    .is_some_and(|spool| spool.fully_consumed()),
+            let mut control = match self.control.lock() {
+                Ok(control) => control,
+                Err(poisoned) => poisoned.into_inner(),
             };
-            if !fully_consumed {
+            if !control
+                .spool
+                .as_ref()
+                .is_some_and(|spool| spool.fully_consumed())
+            {
                 return;
             }
             self.drained_generation
@@ -292,6 +289,54 @@ impl RecordIngress {
                 Ordering::AcqRel,
                 Ordering::Acquire,
             );
+            control.allocated = false;
+            // The Measure reader keeps the unlinked file alive until the caller swaps back to its
+            // Watch lane. Removing the seed here guarantees the completed multi-GB spool is freed
+            // immediately when that reader is dropped, not at the next Keep or plug-in teardown.
+            drop(control.spool.take());
+        }
+    }
+
+    /// Terminalize a generation whose spool or Measure finalization failed. The failed TRACE stays
+    /// unavailable and never advances the Record seal, but one local I/O fault must not permanently
+    /// reject every later explicit Keep for this plug-in instance.
+    pub fn mark_failed_from_measure(&self, generation: u64) -> bool {
+        if generation == 0 || self.armed_generation.load(Ordering::Acquire) != generation {
+            return false;
+        }
+        self.accepting_audio.store(false, Ordering::Release);
+        let mut control = match self.control.lock() {
+            Ok(control) => control,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        if self.armed_generation.load(Ordering::Acquire) != generation {
+            return false;
+        }
+        if let Some(spool) = control.spool.as_ref() {
+            spool.seal();
+        }
+        control.allocated = false;
+        let failed_spool = control.spool.take();
+        self.drained_generation
+            .fetch_max(generation, Ordering::AcqRel);
+        self.measure_attached.store(false, Ordering::Release);
+        let _ = self.restart_pending_generation.compare_exchange(
+            generation,
+            0,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        );
+        drop(control);
+        // RecordSpool::drop is non-blocking; an in-flight disk worker owns its remaining lifetime.
+        drop(failed_spool);
+        true
+    }
+
+    #[cfg(test)]
+    fn has_current_spool_for_test(&self) -> bool {
+        match self.control.lock() {
+            Ok(control) => control.spool.is_some(),
+            Err(poisoned) => poisoned.into_inner().spool.is_some(),
         }
     }
 
@@ -407,19 +452,14 @@ impl RecordIngress {
             return false;
         }
         if !self.finish_capture_from_measure(generation, Duration::from_secs(1)) {
-            return false;
+            // A close timeout is itself terminal for this TRACE. Release the failed generation so
+            // it cannot retain disk or permanently poison later explicit Keeps.
+            return self.mark_failed_from_measure(generation);
         }
-        if self
-            .restart_pending_generation
-            .compare_exchange(generation, 0, Ordering::AcqRel, Ordering::Acquire)
-            .is_err()
-        {
-            return false;
-        }
-        self.measure_attached.store(false, Ordering::Release);
-        self.drained_generation
-            .fetch_max(generation, Ordering::AcqRel);
-        true
+        // No replacement Measure worker owns this closed generation, so retirement is a failed
+        // TRACE outcome rather than a successful drain/seal. The same terminalization path also
+        // removes the control seed immediately.
+        self.mark_failed_from_measure(generation)
     }
 
     fn install_fresh_lane(&self, control: &mut ControlState, generation: u64) -> bool {

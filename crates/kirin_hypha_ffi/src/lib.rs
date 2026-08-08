@@ -1672,6 +1672,7 @@ impl KirinHyphaEngine {
         position_valid: bool,
         position_samples: i64,
         num_frames: u64,
+        force_new_pass: bool,
     ) {
         let previous_playing = self
             .transport_previous_playing
@@ -1691,7 +1692,8 @@ impl KirinHyphaEngine {
             && position_valid
             && previous_valid
             && previous_position.checked_add(previous_frames as i64) != Some(position_samples);
-        if playing && (!previous_playing || discontinuity) {
+        if watch_transport_starts_new_pass(playing, previous_playing, discontinuity, force_new_pass)
+        {
             publish_watch_playback_pass_boundary(
                 &self.watch_playback_pass_id,
                 &self.watch_ring_cursor_epoch,
@@ -3181,6 +3183,16 @@ impl KirinHyphaEngine {
     }
 }
 
+#[inline]
+fn watch_transport_starts_new_pass(
+    playing: bool,
+    previous_playing: bool,
+    discontinuity: bool,
+    force_new_pass: bool,
+) -> bool {
+    playing && (force_new_pass || !previous_playing || discontinuity)
+}
+
 impl Drop for KirinHyphaEngine {
     fn drop(&mut self) {
         let is_post = self.write_role.lock().ok().and_then(|g| *g) == Some(PluginDataRole::Post);
@@ -4193,6 +4205,7 @@ pub unsafe extern "C" fn kirin_hypha_note_transport_block(
     position_valid: bool,
     position_samples: i64,
     num_frames: u64,
+    force_new_pass: bool,
 ) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         if !handle.is_null() {
@@ -4202,6 +4215,7 @@ pub unsafe extern "C" fn kirin_hypha_note_transport_block(
                     position_valid,
                     position_samples,
                     num_frames,
+                    force_new_pass,
                 )
             };
         }
@@ -4959,6 +4973,26 @@ mod b113_signal_state_tests {
             2,
             "Bypassed → 2"
         );
+    }
+}
+
+#[cfg(test)]
+mod b474_watch_restart_tests {
+    use super::watch_transport_starts_new_pass;
+
+    #[test]
+    fn shared_unavailable_to_active_boundary_starts_a_new_watch_pass() {
+        assert!(watch_transport_starts_new_pass(true, true, false, true));
+    }
+
+    #[test]
+    fn continuous_playback_without_a_shared_boundary_keeps_the_current_pass() {
+        assert!(!watch_transport_starts_new_pass(true, true, false, false));
+    }
+
+    #[test]
+    fn unavailable_boundary_cannot_start_a_pass_while_transport_is_stopped() {
+        assert!(!watch_transport_starts_new_pass(false, true, false, true));
     }
 }
 

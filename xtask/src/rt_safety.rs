@@ -66,6 +66,7 @@ mod tests {
         );
         let calls = ffi_calls(&body);
         let expected = BTreeSet::from([
+            "kirin_hypha_get_signal_state".to_string(),
             "kirin_hypha_is_recording".to_string(),
             "kirin_hypha_note_capture_window".to_string(),
             "kirin_hypha_note_transport_block".to_string(),
@@ -198,6 +199,7 @@ mod tests {
     #[test]
     fn audio_thread_c_abi_wrappers_remain_thin() {
         for signature in [
+            "pub unsafe extern \"C\" fn kirin_hypha_get_signal_state",
             "pub unsafe extern \"C\" fn kirin_hypha_push_samples",
             "pub unsafe extern \"C\" fn kirin_hypha_note_record_block",
             "pub unsafe extern \"C\" fn kirin_hypha_note_record_window",

@@ -295,6 +295,11 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
     const bool measurementTimelineActive = playing
                                         || clockSource == KIRIN_HYPHA_CLOCK_AUDIO_RENDER_TIMELINE;
     lastMeasurementTimelineActive.store (measurementTimelineActive, std::memory_order_release);
+    const uint8_t previousSignalState = kirin_hypha_get_signal_state (hyphaHandle);
+    const bool watchAvailabilityBoundary = ! recording
+                                        && ! bypassed
+                                        && measurementTimelineActive
+                                        && previousSignalState != KIRIN_SIGNAL_STATE_ACTIVE;
     // A single silent callback used to collapse PRE to Inactive, clear its measurement engine,
     // and make the paired POST lose its delta for one or more UI ticks. Preserve Watch continuity
     // across musical rests shorter than the exact 3 s LUFS-S window. Transport stop, bypass, and
@@ -302,7 +307,7 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
     const bool watchActiveThroughSilence = watchSilenceGate.observeBlock (
         hypha::signal_state_contract::WatchSilenceGate::eligible (
             bypassed, recording, measurementTimelineActive),
-        watchSampleTimelineStartedNewPass,
+        watchSampleTimelineStartedNewPass || watchAvailabilityBoundary,
         silent,
         (uint64_t) juce::jmax (0, numFrames),
         preparedSampleRate);
@@ -338,8 +343,12 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
     const uint8_t stateCode = resolveSignalStateCode (bypassed, measurementTimelineActive,
                                                       stateSilent, recording, nonRealtime);
     kirin_hypha_set_signal_state (hyphaHandle, stateCode);
+    const bool watchAvailabilityStartedNewPass =
+        hypha::signal_state_contract::availabilityStartsNewPass (
+            previousSignalState, stateCode, recording);
     kirin_hypha_note_transport_block (hyphaHandle, measurementTimelineActive, hasPosition,
-                                      positionSamples, (uint64_t) numFrames);
+                                      positionSamples, (uint64_t) numFrames,
+                                      watchAvailabilityStartedNewPass);
     // B-113: 旧 lastSignalState キャッシュは廃止。editor は signalStateLive()（FFI 直読 / heartbeat-aware）で表示分岐する。
 
     // --- Feed the engine ---------------------------------------------------------
