@@ -42,7 +42,7 @@
 use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -68,6 +68,10 @@ fn non_empty_string(value: Option<String>) -> Option<String> {
     value
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
+}
+
+fn known_presentation_latency_source(value: Option<&str>) -> bool {
+    matches!(value, Some("vst3" | "audio_unit_v2"))
 }
 
 // ── Role ─────────────────────────────────────────────────────────────────────
@@ -443,8 +447,10 @@ pub struct PluginDataFile {
     pub trace_comparison_resolution: Option<String>,
     /// Comparison-clock position corresponding one-to-one with every public `frames[]` entry.
     /// `producer_content_samples_exact` uses samples relative to the producer's factual WAV
-    /// origin before role-specific output latency; `raw_host_clock_exact` uses absolute raw-host
-    /// endpoints. Neither form may be inferred from metric shape.
+    /// origin before role-specific output latency. A negative producer-content position is valid
+    /// when downstream PDC presents that measured frame inside the public WAV range; it remains a
+    /// private PRE/POST join key and never becomes a WAV display position. `raw_host_clock_exact`
+    /// uses absolute raw-host endpoints. Neither form may be inferred from metric shape.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub trace_comparison_slot_positions: Vec<i64>,
     /// Producer-private raw host endpoint corresponding one-to-one with the factual Record frames.
@@ -3267,13 +3273,36 @@ fn normalize_late_expected_record(
     }
     let comparison_proof_is_valid = match data.trace_comparison_resolution.as_deref() {
         Some(crate::trace_content_clock::TRACE_COMPARISON_PRODUCER_CONTENT_EXACT) => {
-            data.trace_comparison_slot_positions.len() == data.frames.len()
-                && data.trace_comparison_slot_positions.iter().all(|position| {
-                    *position >= 0
-                        && u64::try_from(*position)
-                            .ok()
-                            .is_some_and(|position| position <= expected.expected_duration_samples)
+            let observed_output_latencies = data
+                .host_presentation_latency_observations
+                .iter()
+                .filter(|observation| {
+                    known_presentation_latency_source(observation.source.as_deref())
                 })
+                .filter_map(|observation| observation.output_samples)
+                .chain(
+                    data.trace_clock_observations
+                        .iter()
+                        .filter(|observation| {
+                            known_presentation_latency_source(
+                                observation.presentation_latency_source.as_deref(),
+                            )
+                        })
+                        .filter_map(|observation| observation.output_presentation_latency_samples),
+                )
+                .collect::<HashSet<_>>();
+            data.trace_comparison_slot_positions.len() == data.frames.len()
+                && !observed_output_latencies.is_empty()
+                && data
+                    .trace_slot_positions
+                    .iter()
+                    .zip(&data.trace_comparison_slot_positions)
+                    .all(|(wav_position, comparison_position)| {
+                        wav_position
+                            .checked_sub(*comparison_position)
+                            .and_then(|latency| u32::try_from(latency).ok())
+                            .is_some_and(|latency| observed_output_latencies.contains(&latency))
+                    })
                 && data
                     .trace_comparison_slot_positions
                     .windows(2)
@@ -4829,10 +4858,19 @@ mod tests {
 
     #[test]
     fn late_drop_publishes_role_wav_slots_and_producer_comparison_as_separate_facts() {
+        const SAMPLE_RATE: u32 = 96_000;
+        const SLOT_SAMPLES: i64 = 9_600;
+        const DURATION_SAMPLES: u64 = 4_500_000;
+        const EXPECTED_FRAMES: usize = 468;
+        const ORIGIN: i64 = 10_080_000;
+        const PRE_OUTPUT_LATENCY: u32 = 52_722;
+        const POST_OUTPUT_LATENCY: u32 = 43_122;
+
         let base = isolated_dir();
-        let expected = fresh_expected_wav_fixture(48_000);
+        let mut expected = fresh_expected_wav_fixture(DURATION_SAMPLES);
+        expected.expected_sample_rate = SAMPLE_RATE;
+        expected.wav_time_reference_samples = Some(ORIGIN as u64);
         let start_ms = expected.created_at_ms.saturating_sub(2_000);
-        let origin = 100_000_i64;
         let mut pre = complete_pair_writer(
             &base,
             Role::Pre,
@@ -4848,85 +4886,164 @@ mod tests {
             None,
         );
         for writer in [&mut pre, &mut post] {
+            writer.data.sample_rate = SAMPLE_RATE;
+            writer.data.source_format = SAMPLE_RATE;
             writer.set_record_session_id(Some("session-producer-comparison".to_string()));
             writer.set_capture_generation(
                 Some("generation-producer-comparison".to_string()),
                 start_ms,
             );
             set_late_expected_record_time(writer, start_ms, expected.created_at_ms);
-            configure_render_clock_take(writer, 48_000);
+            configure_render_clock_take(writer, DURATION_SAMPLES);
             let take = writer.data.bounce_take.as_mut().expect("render take");
-            take.host_start_position_samples = Some(origin);
-            take.host_end_position_samples = Some(origin + 48_000);
+            take.host_start_position_samples = Some(ORIGIN);
+            take.host_end_position_samples = Some(ORIGIN + DURATION_SAMPLES as i64);
             writer.data.status = Status::Closed;
             writer.data.commit_status = Some("pair_pending".to_string());
         }
-        let observations = |first_slot: i64, output_latency: u32, base_value: f64| {
-            (0_i64..10)
+        let observations = |output_latency: u32, base_value: f64| {
+            (0_i64..474)
                 .map(|index| {
-                    let producer = origin + first_slot + index * 4_800;
+                    let comparison_position = -48_000 + index * SLOT_SAMPLES;
+                    let producer = ORIGIN + comparison_position;
+                    let value = base_value - index as f64 / 100.0;
                     TraceClockObservation {
                         frame: Frame {
                             t_ms: (index as u64 + 1) * TRACE_FRAME_INTERVAL_MS,
-                            n_prime: Some([base_value + index as f64; 20]),
-                            n_prime_total: Some(base_value),
-                            sharpness: Some(base_value),
-                            lufs_m: base_value,
-                            true_peak: base_value,
-                            crest: base_value.abs(),
-                            psr: Some(base_value),
+                            n_prime: Some([value; 20]),
+                            n_prime_total: Some(value),
+                            sharpness: Some(value),
+                            lufs_m: value,
+                            true_peak: value,
+                            crest: value.abs(),
+                            psr: Some(value),
                         },
                         producer_position_samples: Some(producer),
                         raw_host_position_samples: producer.checked_add(i64::from(output_latency)),
                         capture_epoch: Some(7),
                         clock_source: Some("audio_render_timeline".to_string()),
-                        presentation_latency_source: Some("vst3".to_string()),
+                        presentation_latency_source: Some("audio_unit_v2".to_string()),
                         input_presentation_latency_samples: Some(0),
                         output_presentation_latency_samples: Some(output_latency),
                     }
                 })
                 .collect::<Vec<_>>()
         };
-        pre.set_trace_clock_observations(observations(4_800, 512, -30.0));
-        post.set_trace_clock_observations(observations(9_600, 256, -20.0));
+        pre.set_host_presentation_latency_observations(vec![HostPresentationLatencyObservation {
+            source: Some("audio_unit_v2".to_string()),
+            input_samples: Some(0),
+            output_samples: Some(PRE_OUTPUT_LATENCY),
+        }]);
+        post.set_host_presentation_latency_observations(vec![HostPresentationLatencyObservation {
+            source: Some("audio_unit_v2".to_string()),
+            input_samples: Some(0),
+            output_samples: Some(POST_OUTPUT_LATENCY),
+        }]);
+        pre.set_trace_clock_observations(observations(PRE_OUTPUT_LATENCY, -30.0));
+        post.set_trace_clock_observations(observations(POST_OUTPUT_LATENCY, -20.0));
 
         assert!(normalize_late_expected_pair(
             &mut pre.data,
             &mut post.data,
             &expected
         ));
-        assert_eq!(pre.data.trace_slot_positions.first(), Some(&5_312));
-        assert_eq!(post.data.trace_slot_positions.first(), Some(&9_856));
+        assert_eq!(pre.data.trace_slot_positions.first(), Some(&14_322));
+        assert_eq!(post.data.trace_slot_positions.first(), Some(&14_322));
         assert_eq!(
             pre.data.trace_comparison_slot_positions.first(),
-            Some(&4_800)
+            Some(&-38_400)
         );
         assert_eq!(
             post.data.trace_comparison_slot_positions.first(),
-            Some(&9_600)
+            Some(&-28_800)
         );
-        for data in [&pre.data, &post.data] {
+        for (data, output_latency) in [
+            (&pre.data, PRE_OUTPUT_LATENCY),
+            (&post.data, POST_OUTPUT_LATENCY),
+        ] {
             assert_eq!(
                 data.trace_comparison_resolution.as_deref(),
                 Some(crate::trace_content_clock::TRACE_COMPARISON_PRODUCER_CONTENT_EXACT)
             );
+            assert_eq!(data.frames.len(), EXPECTED_FRAMES);
             assert_eq!(
                 data.trace_comparison_slot_positions.len(),
                 data.frames.len(),
                 "comparison proof must remain one-to-one with measured frames"
             );
             assert_eq!(data.trace_raw_host_slot_positions.len(), data.frames.len());
+            assert!(data
+                .trace_slot_positions
+                .iter()
+                .zip(&data.trace_comparison_slot_positions)
+                .all(
+                    |(wav_position, comparison_position)| wav_position - comparison_position
+                        == i64::from(output_latency)
+                ));
+            assert!(data
+                .frames
+                .iter()
+                .zip(&data.trace_slot_positions)
+                .all(|(frame, position)| frame.t_ms
+                    == u64::try_from(*position).unwrap() * 1_000 / u64::from(SAMPLE_RATE)));
         }
+        assert_eq!(
+            pre.data.frames.first().map(|frame| frame.lufs_m),
+            Some(-30.01)
+        );
+        assert_eq!(
+            pre.data.frames.first().and_then(|frame| frame.n_prime),
+            Some([-30.01; 20])
+        );
+
+        let mut impossible_signed_proof = pre.data.clone();
+        impossible_signed_proof.trace_comparison_slot_positions[0] = i64::MIN;
+        assert!(normalize_late_expected_record(
+            &mut impossible_signed_proof,
+            &expected
+        ));
+        assert!(
+            impossible_signed_proof
+                .trace_comparison_resolution
+                .is_none(),
+            "a signed comparison key without an observed output-latency cause must lose exactness"
+        );
+        assert!(impossible_signed_proof
+            .trace_comparison_slot_positions
+            .is_empty());
+        assert_eq!(
+            impossible_signed_proof.frames.len(),
+            pre.data.frames.len(),
+            "invalid timing proof must never erase measured frames"
+        );
 
         assert!(prepare_late_expected_pair(&mut pre.data, &mut post.data));
-        for data in [&pre.data, &post.data] {
+        for (data, first_comparison_position) in [(&pre.data, -38_400), (&post.data, -28_800)] {
             assert_eq!(data.commit_status.as_deref(), Some("committed"));
             assert_eq!(
                 data.trace_comparison_resolution.as_deref(),
                 Some(crate::trace_content_clock::TRACE_COMPARISON_PRODUCER_CONTENT_EXACT)
             );
             assert!(data.trace_clock_observations.is_empty());
-            assert!(!data.trace_comparison_slot_positions.is_empty());
+            assert_eq!(
+                data.trace_comparison_slot_positions.first(),
+                Some(&first_comparison_position)
+            );
+            assert_eq!(data.frames.len(), EXPECTED_FRAMES);
+
+            let json = serde_json::to_vec(data).expect("committed signed comparison serializes");
+            let roundtrip: PluginDataFile =
+                serde_json::from_slice(&json).expect("committed signed comparison deserializes");
+            assert_eq!(roundtrip.frames.len(), EXPECTED_FRAMES);
+            assert_eq!(
+                roundtrip.trace_comparison_slot_positions,
+                data.trace_comparison_slot_positions
+            );
+            assert_eq!(roundtrip.trace_slot_positions, data.trace_slot_positions);
+            assert_eq!(
+                roundtrip.frames.first().and_then(|frame| frame.n_prime),
+                data.frames.first().and_then(|frame| frame.n_prime)
+            );
         }
     }
 
