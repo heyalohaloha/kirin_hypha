@@ -38,6 +38,7 @@ namespace hypha::pre_display
         DisplaySnapshot display;
         juce::File ownPresenceFile;
         juce::File ownAcknowledgementFile;
+        juce::File ownCapabilityFile;
         std::unique_ptr<WorkerState> workerState;
     };
 }

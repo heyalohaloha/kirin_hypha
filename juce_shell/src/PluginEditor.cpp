@@ -197,14 +197,18 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         preDisplayPrimaryLabel.setJustificationType (juce::Justification::centredLeft);
         preDisplayPrimaryLabel.setMinimumHorizontalScale (1.0f);
         preDisplayPrimaryLabel.setInterceptsMouseClicks (false, false);
-        preDisplayPrimaryLabel.setColour (juce::Label::textColourId, COL_FLORA_BR);
+        preDisplayPrimaryLabel.setColour (
+            juce::Label::textColourId,
+            juce::Colour (ui::preDisplayPrimaryColour (ui::PreDisplayTone::context)));
         addChildComponent (preDisplayPrimaryLabel);
 
         preDisplayDetailLabel.setFont (hypha::monoFont (ui::preDisplayDetailFontHeight));
         preDisplayDetailLabel.setJustificationType (juce::Justification::centredLeft);
         preDisplayDetailLabel.setMinimumHorizontalScale (1.0f);
         preDisplayDetailLabel.setInterceptsMouseClicks (false, false);
-        preDisplayDetailLabel.setColour (juce::Label::textColourId, COL_MUTED.brighter (0.35f));
+        preDisplayDetailLabel.setColour (
+            juce::Label::textColourId,
+            juce::Colour (ui::preDisplayDetailColour (ui::PreDisplayTone::context)));
         addChildComponent (preDisplayDetailLabel);
     }
 #endif
@@ -503,6 +507,15 @@ void KirinHyphaEditor::updatePre()
 {
 #if KIRIN_HYPHA_PRE_DISPLAY
     const auto preDisplay = processorRef.preDisplaySnapshot();
+    const auto preDisplayTone = preDisplay.sectionActive
+        ? ui::PreDisplayTone::sectionActive
+        : ui::PreDisplayTone::context;
+    preDisplayPrimaryLabel.setColour (
+        juce::Label::textColourId,
+        juce::Colour (ui::preDisplayPrimaryColour (preDisplayTone)));
+    preDisplayDetailLabel.setColour (
+        juce::Label::textColourId,
+        juce::Colour (ui::preDisplayDetailColour (preDisplayTone)));
     preDisplayPrimaryLabel.setText (fitLabelText (preDisplayPrimaryLabel, preDisplay.primary),
                                     juce::dontSendNotification);
     preDisplayDetailLabel.setText (fitLabelText (preDisplayDetailLabel, preDisplay.detail),

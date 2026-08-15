@@ -94,6 +94,10 @@ int main()
     static_assert (ui::normal == 0xffe0e0e0);
     static_assert (ui::muted == 0xff606060);
     static_assert (ui::flora == 0xffd4a043);
+    static_assert (ui::preDisplayPrimaryColour (ui::PreDisplayTone::context) == ui::normal);
+    static_assert (ui::preDisplayPrimaryColour (ui::PreDisplayTone::sectionActive) == ui::flora);
+    static_assert (ui::preDisplayDetailColour (ui::PreDisplayTone::context) == ui::muted);
+    static_assert (ui::preDisplayDetailColour (ui::PreDisplayTone::sectionActive) == ui::flora);
     static_assert (ui::ledBlue == 0xff4488cc);
     static_assert (ui::ledGreen == 0xff4cc07a);
     static_assert (ui::watchMetrics.size() == 6);

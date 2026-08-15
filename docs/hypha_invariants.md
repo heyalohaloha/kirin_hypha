@@ -11,8 +11,11 @@ PRE/POST の状態遷移と pairing / identity / record / shell parity の不変
 | INV-PD1 | PRE DisplayはPRE targetだけへlinkし、TRACE、POST、Watch、Record、Keep、Pairingを参照しない | `shell_parity` PRE Display source boundary / `pre_display_ui_contract` |
 | INV-PD2 | audio threadだけがproject clockを書き、reader missは最後の完全snapshotを保持する | `KirinHyphaUiContractTests` ClockTap / `pre_display_runtime_test` ClockReaderState |
 | INV-PD3 | GuideはEndまたは置換まで保持し、presence／ack lease失効や再生停止では消さない | `pre_display_runtime_test` repository clear / retained projection |
-| INV-PD4 | 既存reader互換のpresence v1.0を維持し、acknowledgement v1.1がprocess／project／session／Guideの完全identityと投影状態をinstance別に返す。ack不在presenceは受信失敗へ昇格しない | `pre_display_runtime_test` acknowledgement contract / OS `presenceContract.test.cjs` / `acknowledgementContract.test.cjs` |
-| INV-PD5 | INSPECTは現在activeのFactをHELDより優先し、同一状態内だけでfocusを優先する | `pre_display_runtime_test` active versus focused held |
+| INV-PD4 | 既存reader互換のpresence v1.0を維持し、独立capability v1.0がreceipt対応を宣言する。acknowledgement v1.2はprocess／project／session／Guideの完全identityをinstance別に返し、acceptedだけが投影状態を持ち、rejectedは固定public codeだけを持つ。ack不在presenceは受信失敗へ昇格しない | `pre_display_runtime_test` capability／receipt contract / OS `capabilityContract.test.cjs` / `acknowledgementContract.test.cjs` |
+| INV-PD5 | `content_hash`はproducer identityとして保持し、runtimeを跨いだJSON再serializeでは検証しない。consumerはactive pointerの`artifact_sha256`でGuide artifactのbyte完全性を検証し、不一致時は旧Guideを保持してrejected receiptを返す | `pre_display_runtime_test` cross-boundary fixture／repository rejection / OS `crossBoundaryFixture.test.cjs` |
+| INV-PD6 | presence／capability／ack leaseは現在時刻から10秒を超える未来をliveと認めず、破損したprivate cache leaseを継続再読込しない | `pre_display_runtime_test` safe lease write / OS `presenceContract.test.cjs` / `acknowledgementContract.test.cjs` / `store.test.cjs` |
+| INV-PD7 | INSPECTは現在activeのFactをHELDより優先し、同一状態内だけでfocusを優先する | `pre_display_runtime_test` active versus focused held |
+| INV-PD8 | PREのGuideは対象区間内だけ内部`sectionActive`を立てて2行を静的なflora色へ変え、区間外とINSPECT HELDでは通常色へ戻す。点滅、グロー、alpha animationを使わず、POSTとreceipt schemaに表示状態を持ち込まない | `KirinHyphaUiContractTests` PRE tone / `pre_display_runtime_test` active／HELD boundary / `shell_parity` PRE-only wiring |
 
 ## 使い方
 

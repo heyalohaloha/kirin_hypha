@@ -14,7 +14,7 @@ namespace hypha::pre_display
         explicit GuideRepository (juce::File transportRootIn)
             : root (std::move (transportRootIn)) {}
 
-        void refresh (GuideModel& retainedGuide) const;
+        GuideReceipt refresh (GuideModel& retainedGuide) const;
 
     private:
         juce::File root;

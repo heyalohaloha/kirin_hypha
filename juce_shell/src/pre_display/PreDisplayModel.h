@@ -25,6 +25,7 @@ namespace hypha::pre_display
         juce::String payloadKind;
         juce::String primary;
         juce::String detail;
+        bool sectionActive = false;
     };
 
     struct RuntimeIdentity
@@ -73,6 +74,30 @@ namespace hypha::pre_display
         {
             return payloadKind == "masking" && items.empty()
                 && maskingMeasurementState == "measured";
+        }
+    };
+
+    enum class GuideRefreshState
+    {
+        unavailable,
+        cleared,
+        accepted,
+        rejected,
+    };
+
+    struct GuideReceipt
+    {
+        GuideRefreshState state = GuideRefreshState::unavailable;
+        juce::String groupId;
+        juce::String guideId;
+        juce::String contentHash;
+        juce::String payloadKind;
+        std::int64_t revision = 0;
+
+        bool hasGuideIdentity() const noexcept
+        {
+            return groupId.isNotEmpty() && guideId.isNotEmpty()
+                && contentHash.isNotEmpty() && payloadKind.isNotEmpty() && revision > 0;
         }
     };
 }

@@ -185,6 +185,7 @@ namespace hypha::pre_display
         if (chosen != nullptr)
         {
             out.status = DisplayStatus::active;
+            out.sectionActive = chosenActive != nullptr;
             out.primary = heading + "  " + timeText (sourceNs);
             if (guide.payloadKind == "inspect")
                 out.primary += factSeparator() + chosen->label;

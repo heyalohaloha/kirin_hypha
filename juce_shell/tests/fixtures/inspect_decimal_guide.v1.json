@@ -4,7 +4,7 @@
   "guide_id": "33333333-3333-4333-8333-333333333333",
   "revision": 3,
   "created_at": "2026-08-15T12:00:00.000Z",
-  "content_hash": "e7a0b6fdbc463d3ebfc0651a3bb8bdd7b3fe79c70b09147c0a055ef4ab26e5c3",
+  "content_hash": "413656b9604d36b6f38db5945fb628eca6e135f38d254e618aa4cb4e034c9096",
   "producer": {
     "session_id": "44444444-4444-4444-8444-444444444444",
     "work_id": null,
@@ -17,7 +17,7 @@
   "source_set": [
     {
       "source_ref": "source_1",
-      "display_label": "VOICE",
+      "display_label": "日本語音源",
       "duration_ns": 10000000000
     }
   ],
@@ -37,14 +37,14 @@
       {
         "item_id": "event_1",
         "type_id": "mouth_click",
-        "display_label": "Mouth click",
+        "display_label": "マウスクリック",
         "source_ref": "source_1",
         "channel_key": "vocal",
         "start_ns": 3250000000,
         "end_ns": 3500000000,
         "band": {
-          "low_hz": 1200.5,
-          "high_hz": 5400.25
+          "low_hz": 0.12345678901234566,
+          "high_hz": 12345.678901234567
         }
       }
     ]

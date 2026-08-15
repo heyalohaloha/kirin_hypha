@@ -67,25 +67,33 @@ namespace hypha::pre_display
 
         juce::File previousPresenceFile;
         juce::File previousAcknowledgementFile;
+        juce::File previousCapabilityFile;
         juce::File currentPresenceFile;
         juce::File currentAcknowledgementFile;
+        juce::File currentCapabilityFile;
         {
             const juce::ScopedLock lock (identityLock);
             previousPresenceFile = ownPresenceFile;
             previousAcknowledgementFile = ownAcknowledgementFile;
+            previousCapabilityFile = ownCapabilityFile;
             identity = std::move (identityIn);
             configured = true;
             ownPresenceFile = root.getChildFile ("presence")
                                   .getChildFile (identity.instanceId + ".json");
             ownAcknowledgementFile = root.getChildFile ("ack")
                                          .getChildFile (identity.instanceId + ".json");
+            ownCapabilityFile = root.getChildFile ("capability")
+                                    .getChildFile (identity.instanceId + ".json");
             currentPresenceFile = ownPresenceFile;
             currentAcknowledgementFile = ownAcknowledgementFile;
+            currentCapabilityFile = ownCapabilityFile;
         }
         if (previousPresenceFile != currentPresenceFile)
             removePresence (previousPresenceFile);
         if (previousAcknowledgementFile != currentAcknowledgementFile)
             removeAcknowledgement (previousAcknowledgementFile);
+        if (previousCapabilityFile != currentCapabilityFile)
+            removeCapability (previousCapabilityFile);
         if (! isThreadRunning())
             startThread (juce::Thread::Priority::low);
         notify();
@@ -103,35 +111,6 @@ namespace hypha::pre_display
         return display;
     }
 
-    juce::File Controller::transportRoot()
-    {
-       #if JUCE_WINDOWS
-        auto local = juce::SystemStats::getEnvironmentVariable ("LOCALAPPDATA", {});
-        if (local.isEmpty())
-            local = juce::File::getSpecialLocation (juce::File::windowsLocalAppData)
-                        .getFullPathName();
-        if (local.isEmpty())
-        {
-            const auto profile = juce::SystemStats::getEnvironmentVariable ("USERPROFILE", {});
-            if (profile.isNotEmpty())
-                local = juce::File (profile).getChildFile ("AppData").getChildFile ("Local")
-                                            .getFullPathName();
-        }
-        if (local.isEmpty())
-            return {};
-        return juce::File (local).getChildFile ("Kirin OS").getChildFile ("plugin_data")
-                                 .getChildFile ("pre_display").getChildFile ("v1");
-       #else
-        const auto home = juce::File::getSpecialLocation (juce::File::userHomeDirectory);
-        if (home.getFullPathName().isEmpty())
-            return {};
-        return home
-            .getChildFile ("Library").getChildFile ("Application Support")
-            .getChildFile ("Kirin OS").getChildFile ("plugin_data")
-            .getChildFile ("pre_display").getChildFile ("v1");
-       #endif
-    }
-
     void Controller::run()
     {
         while (! threadShouldExit())
@@ -147,12 +126,16 @@ namespace hypha::pre_display
             {
                 const auto now = juce::Time::currentTimeMillis();
                 workerState->clock.refresh (clockTap, now);
+                GuideReceipt receipt;
+                bool scannedGuide = false;
                 if (workerState->pollsUntilGuideScan <= 0)
                 {
+                    writeCapability (root, currentIdentity, now);
                     writePresence (root, currentIdentity,
                                    workerState->clock.snapshot(),
                                    workerState->clock.observedAtMs(), now);
-                    workerState->repository.refresh (workerState->guide);
+                    receipt = workerState->repository.refresh (workerState->guide);
+                    scannedGuide = true;
                     workerState->pollsUntilGuideScan = guideScanEveryPolls;
                 }
                 --workerState->pollsUntilGuideScan;
@@ -160,12 +143,15 @@ namespace hypha::pre_display
                                                          workerState->clock.snapshot(),
                                                          workerState->clock.observedAtMs(), now);
                 publishDisplay (nextDisplay);
-                if (workerState->pollsUntilGuideScan == guideScanEveryPolls - 1)
+                if (scannedGuide)
                 {
-                    if (workerState->guide.valid())
+                    if (receipt.state == GuideRefreshState::accepted
+                        && workerState->guide.valid())
                         writeAcknowledgement (root, currentIdentity,
                                               workerState->guide, nextDisplay, now);
-                    else
+                    else if (receipt.state == GuideRefreshState::rejected)
+                        writeRejectedAcknowledgement (root, currentIdentity, receipt, now);
+                    else if (receipt.state == GuideRefreshState::cleared)
                         removeAcknowledgement (root.getChildFile ("ack")
                             .getChildFile (currentIdentity.instanceId + ".json"));
                 }
@@ -184,12 +170,15 @@ namespace hypha::pre_display
     {
         juce::File presenceFile;
         juce::File acknowledgementFile;
+        juce::File capabilityFile;
         {
             const juce::ScopedLock lock (identityLock);
             presenceFile = ownPresenceFile;
             acknowledgementFile = ownAcknowledgementFile;
+            capabilityFile = ownCapabilityFile;
         }
         removePresence (presenceFile);
         removeAcknowledgement (acknowledgementFile);
+        removeCapability (capabilityFile);
     }
 }

@@ -8,8 +8,6 @@
 #include <string>
 #include <utility>
 
-#include <juce_cryptography/juce_cryptography.h>
-
 namespace hypha::pre_display
 {
     namespace
@@ -63,31 +61,6 @@ namespace hypha::pre_display
                     && ! (character >= 'a' && character <= 'f'))
                     return false;
             return true;
-        }
-
-        juce::String canonicalJson (const juce::var& value)
-        {
-            if (const auto* object = value.getDynamicObject())
-            {
-                juce::StringArray names;
-                const auto& properties = object->getProperties();
-                for (int index = 0; index < properties.size(); ++index)
-                    names.add (properties.getName (index).toString());
-                names.sort (false);
-                juce::StringArray members;
-                for (const auto& name : names)
-                    members.add (juce::JSON::toString (juce::var (name), true) + ":"
-                                 + canonicalJson (object->getProperty (name)));
-                return "{" + members.joinIntoString (",") + "}";
-            }
-            if (const auto* array = value.getArray())
-            {
-                juce::StringArray members;
-                for (const auto& item : *array)
-                    members.add (canonicalJson (item));
-                return "[" + members.joinIntoString (",") + "]";
-            }
-            return juce::JSON::toString (value, true);
         }
 
         bool safeDisplayLabel (const juce::String& value)
@@ -246,22 +219,6 @@ namespace hypha::pre_display
         }
     }
 
-    juce::String guideContentHash (const juce::DynamicObject& guide)
-    {
-        auto body = new juce::DynamicObject();
-        const auto& properties = guide.getProperties();
-        for (int index = 0; index < properties.size(); ++index)
-        {
-            const auto name = properties.getName (index);
-            if (name != juce::Identifier ("content_hash"))
-                body->setProperty (name, properties.getValueAt (index));
-        }
-        const auto json = canonicalJson (juce::var (body));
-        const auto bytes = json.toUTF8();
-        return juce::SHA256 (bytes.getAddress(), static_cast<std::size_t> (bytes.sizeInBytes() - 1))
-            .toHexString();
-    }
-
     bool safeId (const juce::String& value)
     {
         if (value.isEmpty() || value.length() > 128)
@@ -295,40 +252,6 @@ namespace hypha::pre_display
             && ! value.containsAnyOf ("/\\");
     }
 
-    bool canonicalIsoInstant (const juce::String& value)
-    {
-        if (value.length() != 24 || value[4] != '-' || value[7] != '-'
-            || value[10] != 'T' || value[13] != ':' || value[16] != ':'
-            || value[19] != '.' || value[23] != 'Z')
-            return false;
-        for (int index = 0; index < value.length(); ++index)
-        {
-            if (index == 4 || index == 7 || index == 10 || index == 13
-                || index == 16 || index == 19 || index == 23)
-                continue;
-            if (! juce::CharacterFunctions::isDigit (value[index]))
-                return false;
-        }
-        const auto year = value.substring (0, 4).getIntValue();
-        const auto month = value.substring (5, 7).getIntValue();
-        const auto day = value.substring (8, 10).getIntValue();
-        const auto hour = value.substring (11, 13).getIntValue();
-        const auto minute = value.substring (14, 16).getIntValue();
-        const auto second = value.substring (17, 19).getIntValue();
-        const auto millisecond = value.substring (20, 23).getIntValue();
-        if (year < 1 || month < 1 || month > 12 || hour > 23
-            || minute > 59 || second > 59 || millisecond > 999)
-            return false;
-        static constexpr std::array<int, 12> daysPerMonth {
-            31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31,
-        };
-        auto maximumDay = daysPerMonth[static_cast<std::size_t> (month - 1)];
-        const bool leapYear = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
-        if (month == 2 && leapYear)
-            ++maximumDay;
-        return day >= 1 && day <= maximumDay;
-    }
-
     juce::String objectString (const juce::DynamicObject& object, const char* name)
     {
         const auto value = object.getProperty (name);
@@ -345,8 +268,9 @@ namespace hypha::pre_display
         return result >= minimum && result <= maximum;
     }
 
-    bool parseGuideModel (const juce::DynamicObject& guide, const juce::String& cacheKey,
-                          GuideModel& model)
+    bool parseArtifactVerifiedGuideModel (const juce::DynamicObject& guide,
+                                          const juce::String& cacheKey,
+                                          GuideModel& model)
     {
         GuideModel candidate;
         if (! hasOnlyProperties (guide, { "format", "version", "guide_id", "revision",
@@ -357,8 +281,7 @@ namespace hypha::pre_display
                                          "source_set", "time_basis", "payload" })
             || objectString (guide, "format") != "kirin_pre_display_guide"
             || objectString (guide, "version") != "1.0"
-            || ! canonicalIsoInstant (objectString (guide, "created_at"))
-            || guideContentHash (guide) != objectString (guide, "content_hash"))
+            || ! canonicalIsoInstant (objectString (guide, "created_at")))
             return false;
         candidate.cacheKey = cacheKey;
         candidate.guideId = objectString (guide, "guide_id");

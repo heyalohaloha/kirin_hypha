@@ -1,7 +1,7 @@
 #include "PreDisplayRepository.h"
 
-#include <utility>
 #include <set>
+#include <utility>
 
 #include <juce_cryptography/juce_cryptography.h>
 
@@ -75,13 +75,15 @@ namespace hypha::pre_display
         }
     }
 
-    void GuideRepository::refresh (GuideModel& retainedGuide) const
+    GuideReceipt GuideRepository::refresh (GuideModel& retainedGuide) const
     {
         if (validClearAuthority (root.getChildFile ("retired")
                                     .getChildFile ("kirin_os.clear.json")))
         {
             retainedGuide = {};
-            return;
+            GuideReceipt receipt;
+            receipt.state = GuideRefreshState::cleared;
+            return receipt;
         }
 
         const auto pointerValue = parseBoundedJson (
@@ -93,7 +95,7 @@ namespace hypha::pre_display
                                               "guide_file", "payload_kind", "activated_at" })
             || objectString (*pointer, "format") != "kirin_pre_display_active"
             || objectString (*pointer, "version") != "1.0")
-            return;
+            return {};
 
         const auto guideFileName = objectString (*pointer, "guide_file");
         const auto artifactHash = objectString (*pointer, "artifact_sha256");
@@ -110,7 +112,15 @@ namespace hypha::pre_display
             || pointerGroupId != "kirin_os"
             || (pointerPayloadKind != "masking" && pointerPayloadKind != "inspect")
             || ! objectInteger (*pointer, "revision", 1, maxSafeJsonInteger, revision))
-            return;
+            return {};
+
+        GuideReceipt receipt;
+        receipt.state = GuideRefreshState::rejected;
+        receipt.groupId = pointerGroupId;
+        receipt.guideId = guideId;
+        receipt.contentHash = contentHash;
+        receipt.payloadKind = pointerPayloadKind;
+        receipt.revision = revision;
 
         if (retainedGuide.valid() && retainedGuide.cacheKey == cacheKey
             && retainedGuide.guideId == guideId
@@ -118,24 +128,29 @@ namespace hypha::pre_display
             && retainedGuide.groupId == pointerGroupId
             && retainedGuide.payloadKind == pointerPayloadKind
             && retainedGuide.revision == revision)
-            return;
+        {
+            receipt.state = GuideRefreshState::accepted;
+            return receipt;
+        }
 
         const auto guideFile = root.getChildFile ("guides").getChildFile (guideFileName);
         juce::MemoryBlock guideBytes;
         if (! readBoundedFile (guideFile, maxGuideBytes, guideBytes)
             || juce::SHA256 (guideBytes).toHexString() != artifactHash)
-            return;
+            return receipt;
         const auto guideValue = parseJson (guideBytes);
         const auto* guide = guideValue.getDynamicObject();
         GuideModel parsed;
         if (guide == nullptr || objectString (*guide, "guide_id") != guideId
             || objectString (*guide, "content_hash") != contentHash
-            || ! parseGuideModel (*guide, cacheKey, parsed)
+            || ! parseArtifactVerifiedGuideModel (*guide, cacheKey, parsed)
             || parsed.groupId != "kirin_os" || parsed.groupId != pointerGroupId
             || parsed.payloadKind != pointerPayloadKind || parsed.revision != revision)
-            return;
+            return receipt;
         retainedGuide = std::move (parsed);
+        receipt.state = GuideRefreshState::accepted;
         // Corrupt or momentarily missing transport files intentionally leave the
         // last valid guide untouched. Only a valid group clear removes it.
+        return receipt;
     }
 }

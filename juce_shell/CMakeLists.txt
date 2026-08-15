@@ -135,7 +135,9 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
             src/pre_display/PreDisplayPresence.cpp
             src/pre_display/PreDisplayProjection.cpp
             src/pre_display/PreDisplayProtocol.cpp
-            src/pre_display/PreDisplayRepository.cpp)
+            src/pre_display/PreDisplayProtocolTime.cpp
+            src/pre_display/PreDisplayRepository.cpp
+            src/pre_display/PreDisplayTransport.cpp)
         target_compile_definitions(${TARGET} PRIVATE KIRIN_HYPHA_PRE_DISPLAY=1)
         target_link_libraries(${TARGET} PRIVATE juce::juce_cryptography)
     else()
@@ -219,7 +221,9 @@ if(KIRIN_HYPHA_BUILD_PRE_DISPLAY_TESTS)
         src/pre_display/PreDisplayPresence.cpp
         src/pre_display/PreDisplayProjection.cpp
         src/pre_display/PreDisplayProtocol.cpp
-        src/pre_display/PreDisplayRepository.cpp)
+        src/pre_display/PreDisplayProtocolTime.cpp
+        src/pre_display/PreDisplayRepository.cpp
+        src/pre_display/PreDisplayTransport.cpp)
     target_compile_definitions(KirinPreDisplayRuntimeTests PRIVATE
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0)

@@ -68,6 +68,22 @@ namespace hypha::ui_contract
     constexpr std::uint32_t ledYellow  = 0xffccaa44;
     constexpr std::uint32_t ledGrey    = 0xff555558;
 
+    enum class PreDisplayTone
+    {
+        context,
+        sectionActive,
+    };
+
+    constexpr std::uint32_t preDisplayPrimaryColour (PreDisplayTone tone) noexcept
+    {
+        return tone == PreDisplayTone::sectionActive ? flora : normal;
+    }
+
+    constexpr std::uint32_t preDisplayDetailColour (PreDisplayTone tone) noexcept
+    {
+        return tone == PreDisplayTone::sectionActive ? flora : muted;
+    }
+
     struct Rect
     {
         int x = 0;
@@ -250,6 +266,11 @@ namespace hypha::ui_contract
     static_assert (editorLayout (true).preDisplayPrimary.width == 0
                        && editorLayout (true).preDisplayDetail.width == 0,
                    "POST must not acquire PRE display geometry");
+    static_assert (preDisplayPrimaryColour (PreDisplayTone::context)
+                       != preDisplayPrimaryColour (PreDisplayTone::sectionActive)
+                       && preDisplayDetailColour (PreDisplayTone::context)
+                       != preDisplayDetailColour (PreDisplayTone::sectionActive),
+                   "Only the active PRE guide section must have a distinct static tone");
     static_assert (editorLayout (false).name.width >= 160,
                    "Every valid 16-character PRE name must fit at the release font size");
     static_assert (watchMetrics[1].maximum && watchMetrics[3].maximum && watchMetrics[5].maximum,

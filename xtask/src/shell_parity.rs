@@ -57,6 +57,14 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/../juce_shell/src/pre_display/PreDisplayProtocol.cpp"
     ));
+    const PRE_DISPLAY_PROTOCOL_TIME_CPP: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../juce_shell/src/pre_display/PreDisplayProtocolTime.cpp"
+    ));
+    const PRE_DISPLAY_TRANSPORT_CPP: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../juce_shell/src/pre_display/PreDisplayTransport.cpp"
+    ));
 
     fn read_juce_au_wrapper() -> Option<String> {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
@@ -180,17 +188,27 @@ mod tests {
             "PreDisplayPresence.cpp",
             "PreDisplayProjection.cpp",
             "PreDisplayProtocol.cpp",
+            "PreDisplayProtocolTime.cpp",
             "PreDisplayRepository.cpp",
+            "PreDisplayTransport.cpp",
         ] {
             assert_eq!(count_occurrences(JUCE_CMAKE, source), 2, "{source}");
         }
         assert!(JUCE_CMAKE.contains("if(\"${TARGET}\" STREQUAL \"KirinHyphaPRE\")"));
         assert!(JUCE_CMAKE.contains("KIRIN_HYPHA_PRE_DISPLAY=1"));
         assert!(JUCE_CMAKE.contains("KIRIN_HYPHA_PRE_DISPLAY=0"));
+        assert!(PRE_DISPLAY_PROTOCOL_TIME_CPP.contains("bool canonicalIsoInstant"));
+        assert!(!PRE_DISPLAY_PROTOCOL_CPP.contains("bool canonicalIsoInstant"));
         assert!(
             JUCE_CMAKE.contains("target_link_libraries(${TARGET} PRIVATE juce::juce_cryptography)")
         );
         assert!(PLUGIN_EDITOR_H.contains("#if KIRIN_HYPHA_PRE_DISPLAY"));
+        assert!(PLUGIN_EDITOR_CPP.contains("const auto preDisplayTone = preDisplay.sectionActive"));
+        assert!(PLUGIN_EDITOR_CPP.contains("ui::PreDisplayTone::sectionActive"));
+        assert!(PLUGIN_EDITOR_CPP.contains("ui::preDisplayPrimaryColour (preDisplayTone)"));
+        assert!(PLUGIN_EDITOR_CPP.contains("ui::preDisplayDetailColour (preDisplayTone)"));
+        assert!(HYPHA_UI_CONTRACT_H
+            .contains("Only the active PRE guide section must have a distinct static tone"));
         assert_eq!(
             count_occurrences(PLUGIN_PROCESSOR_CPP, "preDisplayClock.publish"),
             1,
@@ -203,16 +221,20 @@ mod tests {
             PRE_DISPLAY_CONTROLLER_CPP,
             PRE_DISPLAY_REPOSITORY_CPP,
             PRE_DISPLAY_PROTOCOL_CPP,
+            PRE_DISPLAY_PROTOCOL_TIME_CPP,
+            PRE_DISPLAY_TRANSPORT_CPP,
         ] {
             assert!(!source.contains("TRACE"));
         }
         assert!(PRE_DISPLAY_CONTROLLER_CPP.lines().count() < 200);
         assert!(PRE_DISPLAY_CONTROLLER_CPP.contains("stopThread (-1)"));
         assert!(!PRE_DISPLAY_CONTROLLER_CPP.contains("stopThread (2'000)"));
-        assert!(PRE_DISPLAY_CONTROLLER_CPP.contains("juce::File::windowsLocalAppData"));
-        assert!(!PRE_DISPLAY_CONTROLLER_CPP.contains("juce::File::userApplicationDataDirectory"));
+        assert!(PRE_DISPLAY_TRANSPORT_CPP.contains("juce::File::windowsLocalAppData"));
+        assert!(!PRE_DISPLAY_TRANSPORT_CPP.contains("juce::File::userApplicationDataDirectory"));
         assert!(PRE_DISPLAY_CONTROLLER_CPP.contains("root.getFullPathName().isEmpty()"));
         assert!(PRE_DISPLAY_CONTROLLER_CPP.contains("writeAcknowledgement"));
+        assert!(!PLUGIN_EDITOR_CPP.contains("preDisplayPrimaryLabel.setAlpha"));
+        assert!(!PLUGIN_EDITOR_CPP.contains("preDisplayDetailLabel.setAlpha"));
         for forbidden in ["juce::JSON::parse", "juce::SHA256", "kirin_os.clear.json"] {
             assert!(!PRE_DISPLAY_CONTROLLER_CPP.contains(forbidden));
         }
