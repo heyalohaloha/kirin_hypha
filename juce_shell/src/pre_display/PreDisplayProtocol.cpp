@@ -4,13 +4,92 @@
 #include <array>
 #include <cmath>
 #include <map>
+#include <set>
 #include <string>
 #include <utility>
+
+#include <juce_cryptography/juce_cryptography.h>
 
 namespace hypha::pre_display
 {
     namespace
     {
+        bool hasOnlyProperties (const juce::DynamicObject& object,
+                                std::initializer_list<const char*> allowed)
+        {
+            std::set<std::string> names;
+            for (const auto* name : allowed)
+                names.emplace (name);
+            const auto& properties = object.getProperties();
+            for (int index = 0; index < properties.size(); ++index)
+                if (names.find (properties.getName (index).toString().toStdString()) == names.end())
+                    return false;
+            return true;
+        }
+
+        bool hasProperties (const juce::DynamicObject& object,
+                            std::initializer_list<const char*> required)
+        {
+            for (const auto* name : required)
+                if (! object.hasProperty (name))
+                    return false;
+            return true;
+        }
+
+        bool canonicalUuid (const juce::String& value)
+        {
+            if (value.length() != 36 || value[8] != '-' || value[13] != '-'
+                || value[18] != '-' || value[23] != '-')
+                return false;
+            for (int index = 0; index < value.length(); ++index)
+            {
+                if (index == 8 || index == 13 || index == 18 || index == 23)
+                    continue;
+                const auto character = value[index];
+                if (! ((character >= '0' && character <= '9')
+                       || (character >= 'a' && character <= 'f')
+                       || (character >= 'A' && character <= 'F')))
+                    return false;
+            }
+            return true;
+        }
+
+        bool safeLowerHex (const juce::String& value, int length)
+        {
+            if (value.length() != length)
+                return false;
+            for (const auto character : value)
+                if (! (character >= '0' && character <= '9')
+                    && ! (character >= 'a' && character <= 'f'))
+                    return false;
+            return true;
+        }
+
+        juce::String canonicalJson (const juce::var& value)
+        {
+            if (const auto* object = value.getDynamicObject())
+            {
+                juce::StringArray names;
+                const auto& properties = object->getProperties();
+                for (int index = 0; index < properties.size(); ++index)
+                    names.add (properties.getName (index).toString());
+                names.sort (false);
+                juce::StringArray members;
+                for (const auto& name : names)
+                    members.add (juce::JSON::toString (juce::var (name), true) + ":"
+                                 + canonicalJson (object->getProperty (name)));
+                return "{" + members.joinIntoString (",") + "}";
+            }
+            if (const auto* array = value.getArray())
+            {
+                juce::StringArray members;
+                for (const auto& item : *array)
+                    members.add (canonicalJson (item));
+                return "[" + members.joinIntoString (",") + "]";
+            }
+            return juce::JSON::toString (value, true);
+        }
+
         bool safeDisplayLabel (const juce::String& value)
         {
             if (value.isEmpty() || value.length() > 48 || value != value.trim())
@@ -43,6 +122,9 @@ namespace hypha::pre_display
             const auto* band = value.getDynamicObject();
             if (band == nullptr)
                 return value.isVoid();
+            if (! hasOnlyProperties (*band, { "low_hz", "high_hz" })
+                || ! hasProperties (*band, { "low_hz", "high_hz" }))
+                return false;
             const auto lowValue = band->getProperty ("low_hz");
             const auto highValue = band->getProperty ("high_hz");
             const auto isNumber = [] (const juce::var& number)
@@ -93,6 +175,20 @@ namespace hypha::pre_display
                              const std::map<std::string, std::int64_t>& sourceDurations,
                              GuideItem& item)
         {
+            if (model.payloadKind == "inspect")
+            {
+                if (! hasOnlyProperties (object, { "item_id", "type_id", "display_label",
+                                                   "source_ref", "channel_key", "start_ns",
+                                                   "end_ns", "band" })
+                    || ! hasProperties (object, { "item_id", "type_id", "source_ref",
+                                                  "start_ns", "end_ns" }))
+                    return false;
+            }
+            else if (! hasOnlyProperties (object, { "item_id", "start_ns", "end_ns",
+                                                     "frequency_state", "frequency_basis", "band" })
+                     || ! hasProperties (object, { "item_id", "start_ns", "end_ns",
+                                                   "frequency_state" }))
+                return false;
             item.itemId = objectString (object, "item_id");
             if (! safeId (item.itemId)
                 || ! objectInteger (object, "start_ns", 0, maxSafeJsonInteger, item.startNs)
@@ -108,11 +204,19 @@ namespace hypha::pre_display
                 if (! safeId (typeId) || ! safeId (sourceRef))
                     return false;
                 const auto displayLabel = objectString (object, "display_label");
+                if (object.hasProperty ("display_label")
+                    && (! object.getProperty ("display_label").isString()
+                        || ! safeDisplayLabel (displayLabel)))
+                    return false;
                 item.label = displayLabel.isEmpty() ? typeId.substring (0, 48) : displayLabel;
                 item.sourceLabel = sourceLabelFor (sourceLabels, sourceRef);
                 item.channel = objectString (object, "channel_key");
                 const auto duration = sourceDurations.find (sourceRef.toStdString());
-                return safeDisplayLabel (item.label)
+                const auto channelValue = object.getProperty ("channel_key");
+                const bool channelValid = ! object.hasProperty ("channel_key")
+                    || channelValue.isVoid() || channelValue.isUndefined()
+                    || (channelValue.isString() && safeId (item.channel));
+                return safeDisplayLabel (item.label) && channelValid
                     && duration != sourceDurations.end() && item.endNs <= duration->second
                     && (item.channel.isEmpty() || safeId (item.channel));
             }
@@ -122,6 +226,10 @@ namespace hypha::pre_display
                 && state != "missing" && state != "invalid")
                 return false;
             item.frequencyBasis = objectString (object, "frequency_basis");
+            if (object.hasProperty ("frequency_basis")
+                && (! object.getProperty ("frequency_basis").isString()
+                    || item.frequencyBasis.isEmpty()))
+                return false;
             if (state != "measured")
                 return ! item.hasBand && item.frequencyBasis.isEmpty();
             if (! item.hasBand)
@@ -136,6 +244,22 @@ namespace hypha::pre_display
             item.hasBand = false;
             return true;
         }
+    }
+
+    juce::String guideContentHash (const juce::DynamicObject& guide)
+    {
+        auto body = new juce::DynamicObject();
+        const auto& properties = guide.getProperties();
+        for (int index = 0; index < properties.size(); ++index)
+        {
+            const auto name = properties.getName (index);
+            if (name != juce::Identifier ("content_hash"))
+                body->setProperty (name, properties.getValueAt (index));
+        }
+        const auto json = canonicalJson (juce::var (body));
+        const auto bytes = json.toUTF8();
+        return juce::SHA256 (bytes.getAddress(), static_cast<std::size_t> (bytes.sizeInBytes() - 1))
+            .toHexString();
     }
 
     bool safeId (const juce::String& value)
@@ -225,8 +349,16 @@ namespace hypha::pre_display
                           GuideModel& model)
     {
         GuideModel candidate;
-        if (objectString (guide, "format") != "kirin_pre_display_guide"
-            || objectString (guide, "version") != "1.0")
+        if (! hasOnlyProperties (guide, { "format", "version", "guide_id", "revision",
+                                          "created_at", "content_hash", "producer", "target",
+                                          "source_set", "time_basis", "display_locale", "payload" })
+            || ! hasProperties (guide, { "format", "version", "guide_id", "revision",
+                                         "created_at", "content_hash", "producer", "target",
+                                         "source_set", "time_basis", "payload" })
+            || objectString (guide, "format") != "kirin_pre_display_guide"
+            || objectString (guide, "version") != "1.0"
+            || ! canonicalIsoInstant (objectString (guide, "created_at"))
+            || guideContentHash (guide) != objectString (guide, "content_hash"))
             return false;
         candidate.cacheKey = cacheKey;
         candidate.guideId = objectString (guide, "guide_id");
@@ -235,13 +367,34 @@ namespace hypha::pre_display
         const auto* timeBasis = guide.getProperty ("time_basis").getDynamicObject();
         const auto* payload = guide.getProperty ("payload").getDynamicObject();
         const auto* sourceSet = guide.getProperty ("source_set").getArray();
-        if (! safeId (candidate.guideId) || ! safeHash (candidate.contentHash)
+        const auto* producer = guide.getProperty ("producer").getDynamicObject();
+        const auto displayLocale = guide.getProperty ("display_locale");
+        if (! canonicalUuid (candidate.guideId) || ! safeHash (candidate.contentHash)
             || target == nullptr || timeBasis == nullptr || payload == nullptr
-            || sourceSet == nullptr || sourceSet->isEmpty() || sourceSet->size() > 32)
+            || producer == nullptr || sourceSet == nullptr || sourceSet->isEmpty() || sourceSet->size() > 32
+            || ! hasOnlyProperties (*producer, { "session_id", "work_id", "report_id" })
+            || ! hasProperties (*producer, { "session_id" })
+            || ! canonicalUuid (objectString (*producer, "session_id"))
+            || (guide.hasProperty ("display_locale")
+                && (! displayLocale.isString()
+                    || (displayLocale.toString() != "ja" && displayLocale.toString() != "en"))))
             return false;
+        for (const auto* optionalId : { "work_id", "report_id" })
+        {
+            const auto value = producer->getProperty (optionalId);
+            if (! value.isVoid() && ! value.isUndefined()
+                && (! value.isString() || ! canonicalUuid (value.toString())))
+                return false;
+        }
         candidate.groupId = objectString (*target, "group_id");
         candidate.payloadKind = objectString (*payload, "kind");
-        if (! safeId (candidate.groupId)
+        if (! hasOnlyProperties (*target, { "group_id", "selection_mode" })
+            || ! hasProperties (*target, { "group_id", "selection_mode" })
+            || ! hasOnlyProperties (*timeBasis, { "kind", "unit", "interval_convention",
+                                                   "source_zero_project_ns", "alignment_method" })
+            || ! hasProperties (*timeBasis, { "kind", "unit", "interval_convention",
+                                              "source_zero_project_ns", "alignment_method" })
+            || ! safeId (candidate.groupId)
             || objectString (*target, "selection_mode") != "all_pre_instances"
             || (candidate.payloadKind != "masking" && candidate.payloadKind != "inspect")
             || ! objectInteger (guide, "revision", 1, maxSafeJsonInteger, candidate.revision)
@@ -262,12 +415,51 @@ namespace hypha::pre_display
             const auto* source = sourceValue.getDynamicObject();
             if (source == nullptr)
                 return false;
+            if (! hasOnlyProperties (*source, { "source_ref", "display_label", "sha256_pcm",
+                                                "duration_ns", "sample_rate", "alignment_landmarks" })
+                || ! hasProperties (*source, { "source_ref", "duration_ns" }))
+                return false;
             const auto ref = objectString (*source, "source_ref");
             auto label = objectString (*source, "display_label");
             std::int64_t duration = 0;
-            if (! safeId (ref) || (! label.isEmpty() && ! safeDisplayLabel (label))
+            if (! safeId (ref)
+                || (source->hasProperty ("display_label")
+                    && (! source->getProperty ("display_label").isString()
+                        || ! safeDisplayLabel (label)))
                 || ! objectInteger (*source, "duration_ns", 0, maxSafeJsonInteger, duration))
                 return false;
+            const auto pcmHash = source->getProperty ("sha256_pcm");
+            if (source->hasProperty ("sha256_pcm")
+                && (! pcmHash.isString() || ! safeHash (pcmHash.toString())))
+                return false;
+            const auto sampleRate = source->getProperty ("sample_rate");
+            if (source->hasProperty ("sample_rate"))
+            {
+                std::int64_t parsedSampleRate = 0;
+                if (! objectInteger (*source, "sample_rate", 8'000, 768'000, parsedSampleRate))
+                    return false;
+            }
+            const auto landmarksValue = source->getProperty ("alignment_landmarks");
+            if (source->hasProperty ("alignment_landmarks"))
+            {
+                const auto* landmarks = landmarksValue.getArray();
+                if (landmarks == nullptr || landmarks->size() > 4'096)
+                    return false;
+                for (const auto& landmarkValue : *landmarks)
+                {
+                    const auto* landmark = landmarkValue.getDynamicObject();
+                    std::int64_t sourceSample = 0;
+                    const auto landmarkHash = landmark != nullptr
+                        ? objectString (*landmark, "hash") : juce::String();
+                    if (landmark == nullptr
+                        || ! hasOnlyProperties (*landmark, { "source_sample", "hash" })
+                        || ! hasProperties (*landmark, { "source_sample", "hash" })
+                        || ! objectInteger (*landmark, "source_sample", 0,
+                                            maxSafeJsonInteger, sourceSample)
+                        || ! safeLowerHex (landmarkHash, 16))
+                        return false;
+                }
+            }
             if (label.isEmpty())
                 label = ref.substring (0, 48);
             if (! sourceLabels.emplace (ref.toStdString(), label).second
@@ -279,10 +471,16 @@ namespace hypha::pre_display
         std::int64_t maskingDuration = maxSafeJsonInteger;
         if (candidate.payloadKind == "masking")
         {
+            if (! hasOnlyProperties (*payload, { "kind", "measurement_state", "pair_key",
+                                                 "source_order", "intervals" })
+                || ! hasProperties (*payload, { "kind", "pair_key", "source_order", "intervals" })
+                || ! safeId (objectString (*payload, "pair_key")))
+                return false;
             candidate.maskingMeasurementState = objectString (*payload, "measurement_state");
-            if (candidate.maskingMeasurementState.isNotEmpty()
-                && candidate.maskingMeasurementState != "measured"
-                && candidate.maskingMeasurementState != "legacy_non_directional")
+            if (payload->hasProperty ("measurement_state")
+                && (! payload->getProperty ("measurement_state").isString()
+                    || (candidate.maskingMeasurementState != "measured"
+                        && candidate.maskingMeasurementState != "legacy_non_directional")))
                 return false;
             items = payload->getProperty ("intervals").getArray();
             const auto* order = payload->getProperty ("source_order").getArray();
@@ -300,18 +498,25 @@ namespace hypha::pre_display
                 return false;
             maskingDuration = juce::jmin (sourceDurations.at (a.toStdString()),
                                           sourceDurations.at (b.toStdString()));
-            candidate.sourcePairLabel = compactText (sourceLabelFor (sourceLabels, a), 16) + " × "
+            candidate.sourcePairLabel = compactText (sourceLabelFor (sourceLabels, a), 16)
+                                      + " " + juce::String::charToString (0x00d7) + " "
                                       + compactText (sourceLabelFor (sourceLabels, b), 16);
         }
         else
         {
+            if (! hasOnlyProperties (*payload, { "kind", "source_ref", "focus_event_id", "events" })
+                || ! hasProperties (*payload, { "kind", "source_ref", "events" }))
+                return false;
             items = payload->getProperty ("events").getArray();
             const auto sourceRef = objectString (*payload, "source_ref");
             if (! safeId (sourceRef)
                 || sourceLabels.find (sourceRef.toStdString()) == sourceLabels.end())
                 return false;
             candidate.focusEventId = objectString (*payload, "focus_event_id");
-            if (! candidate.focusEventId.isEmpty() && ! safeId (candidate.focusEventId))
+            const auto focusValue = payload->getProperty ("focus_event_id");
+            if (payload->hasProperty ("focus_event_id")
+                && ! focusValue.isVoid() && ! focusValue.isUndefined()
+                && (! focusValue.isString() || ! safeId (candidate.focusEventId)))
                 return false;
         }
         if (items == nullptr || items->size() > maxGuideItems)

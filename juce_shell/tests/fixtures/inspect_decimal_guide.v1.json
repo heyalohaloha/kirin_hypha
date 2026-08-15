@@ -1,0 +1,52 @@
+{
+  "format": "kirin_pre_display_guide",
+  "version": "1.0",
+  "guide_id": "33333333-3333-4333-8333-333333333333",
+  "revision": 3,
+  "created_at": "2026-08-15T12:00:00.000Z",
+  "content_hash": "e7a0b6fdbc463d3ebfc0651a3bb8bdd7b3fe79c70b09147c0a055ef4ab26e5c3",
+  "producer": {
+    "session_id": "44444444-4444-4444-8444-444444444444",
+    "work_id": null,
+    "report_id": null
+  },
+  "target": {
+    "group_id": "kirin_os",
+    "selection_mode": "all_pre_instances"
+  },
+  "source_set": [
+    {
+      "source_ref": "source_1",
+      "display_label": "VOICE",
+      "duration_ns": 10000000000
+    }
+  ],
+  "time_basis": {
+    "kind": "source_to_project_offset",
+    "unit": "nanoseconds",
+    "interval_convention": "half_open",
+    "source_zero_project_ns": 0,
+    "alignment_method": "project_zero"
+  },
+  "display_locale": "en",
+  "payload": {
+    "kind": "inspect",
+    "source_ref": "source_1",
+    "focus_event_id": "event_1",
+    "events": [
+      {
+        "item_id": "event_1",
+        "type_id": "mouth_click",
+        "display_label": "Mouth click",
+        "source_ref": "source_1",
+        "channel_key": "vocal",
+        "start_ns": 3250000000,
+        "end_ns": 3500000000,
+        "band": {
+          "low_hz": 1200.5,
+          "high_hz": 5400.25
+        }
+      }
+    ]
+  }
+}

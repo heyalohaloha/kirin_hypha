@@ -12,7 +12,8 @@ namespace hypha::pre_display
     class Controller final : private juce::Thread
     {
     public:
-        explicit Controller (const ClockTap& clockTapIn);
+        explicit Controller (const ClockTap& clockTapIn,
+                             juce::File transportRootIn = transportRoot());
         ~Controller() override;
 
         void configureAndStart (RuntimeIdentity identityIn);
@@ -26,15 +27,17 @@ namespace hypha::pre_display
 
         void run() override;
         void publishDisplay (DisplaySnapshot);
-        void removeOwnPresence();
+        void removeOwnLeaseFiles();
 
         const ClockTap& clockTap;
+        const juce::File root;
         mutable juce::CriticalSection identityLock;
         RuntimeIdentity identity;
         bool configured = false;
         mutable juce::CriticalSection displayLock;
         DisplaySnapshot display;
         juce::File ownPresenceFile;
+        juce::File ownAcknowledgementFile;
         std::unique_ptr<WorkerState> workerState;
     };
 }

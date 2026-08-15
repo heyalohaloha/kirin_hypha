@@ -1,6 +1,7 @@
 #include "PreDisplayRepository.h"
 
 #include <utility>
+#include <set>
 
 #include <juce_cryptography/juce_cryptography.h>
 
@@ -10,6 +11,21 @@ namespace hypha::pre_display
 {
     namespace
     {
+        bool exactProperties (const juce::DynamicObject& object,
+                              std::initializer_list<const char*> names)
+        {
+            std::set<std::string> expected;
+            for (const auto* name : names)
+                expected.emplace (name);
+            const auto& properties = object.getProperties();
+            if (properties.size() != static_cast<int> (expected.size()))
+                return false;
+            for (int index = 0; index < properties.size(); ++index)
+                if (expected.find (properties.getName (index).toString().toStdString()) == expected.end())
+                    return false;
+            return true;
+        }
+
         bool readBoundedFile (const juce::File& file, std::int64_t maximumBytes,
                               juce::MemoryBlock& bytes)
         {
@@ -49,6 +65,8 @@ namespace hypha::pre_display
             const auto value = parseBoundedJson (file, maxPointerBytes);
             const auto* clear = value.getDynamicObject();
             return clear != nullptr
+                && exactProperties (*clear, { "format", "version", "scope", "group_id",
+                                              "retired_at" })
                 && objectString (*clear, "format") == "kirin_pre_display_retired"
                 && objectString (*clear, "version") == "1.0"
                 && objectString (*clear, "scope") == "group"
@@ -69,7 +87,11 @@ namespace hypha::pre_display
         const auto pointerValue = parseBoundedJson (
             root.getChildFile ("active").getChildFile ("kirin_os.json"), maxPointerBytes);
         const auto* pointer = pointerValue.getDynamicObject();
-        if (pointer == nullptr || objectString (*pointer, "format") != "kirin_pre_display_active"
+        if (pointer == nullptr
+            || ! exactProperties (*pointer, { "format", "version", "group_id", "guide_id",
+                                              "revision", "content_hash", "artifact_sha256",
+                                              "guide_file", "payload_kind", "activated_at" })
+            || objectString (*pointer, "format") != "kirin_pre_display_active"
             || objectString (*pointer, "version") != "1.0")
             return;
 

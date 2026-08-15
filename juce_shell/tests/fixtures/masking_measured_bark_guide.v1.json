@@ -4,7 +4,7 @@
   "guide_id": "11111111-1111-4111-8111-111111111111",
   "revision": 7,
   "created_at": "2026-08-15T12:00:00.000Z",
-  "content_hash": "3eed987c304ad5662ba3b9eac2ff7e91b3056358591584c0832e4f928f8d976c",
+  "content_hash": "3370963ab66613cfa63bb7b642822dfd75245a84a961e5611b16e14a8fdedb9b",
   "producer": {
     "session_id": "22222222-2222-4222-8222-222222222222",
     "work_id": null,
@@ -18,22 +18,20 @@
     {
       "source_ref": "source_a",
       "display_label": "Source A",
-      "duration_ns": 4000000000,
-      "sample_rate": 48000
+      "duration_ns": 4000000000
     },
     {
       "source_ref": "source_b",
       "display_label": "Source B",
-      "duration_ns": 4000000000,
-      "sample_rate": 48000
+      "duration_ns": 4000000000
     }
   ],
   "time_basis": {
     "kind": "source_to_project_offset",
     "unit": "nanoseconds",
     "interval_convention": "half_open",
-    "source_zero_project_ns": 500000000,
-    "alignment_method": "captured_playhead"
+    "source_zero_project_ns": 0,
+    "alignment_method": "project_zero"
   },
   "display_locale": "en",
   "payload": {

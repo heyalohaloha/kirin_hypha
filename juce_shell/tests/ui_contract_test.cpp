@@ -219,7 +219,8 @@ int main()
     assert (fitsEditor (ui::loudnessSelectorBounds (pre.metricTop)));
     assert (fitsEditor (ui::loudnessSelectorBounds (post.metricTop)));
 
-    for (const auto rect : { pre.title, pre.led, pre.pairStatus, pre.name, pre.feedback,
+    for (const auto rect : { pre.title, pre.led, pre.pairStatus, pre.name,
+                             pre.preDisplayPrimary, pre.preDisplayDetail, pre.feedback,
                              post.title, post.led, post.pairStatus, post.name,
                              post.pairDropdown, post.postControls, post.feedback })
     {
@@ -230,6 +231,7 @@ int main()
     assert (! overlaps (pre.title, pre.name));
     assert (! overlaps (pre.name, pre.pairStatus));
     assert (! overlaps (pre.pairStatus, pre.led));
+    assert (! overlaps (ui::metricCellBounds (5, pre.metricTop), pre.preDisplayPrimary));
     assert (! overlaps (pre.preDisplayPrimary, pre.preDisplayDetail));
     assert (! overlaps (pre.preDisplayDetail, pre.feedback));
     assert (! overlaps (post.title, post.pairStatus));
@@ -240,7 +242,8 @@ int main()
     // AU and VST3 share logical bounds; a 2x host scale must be a pure transform with no
     // independently rounded/reflowed geometry. This catches a format-specific pixel layout from
     // being reintroduced outside the common 300x200 contract.
-    for (const auto rect : { pre.title, pre.led, pre.pairStatus, pre.name, pre.feedback,
+    for (const auto rect : { pre.title, pre.led, pre.pairStatus, pre.name,
+                             pre.preDisplayPrimary, pre.preDisplayDetail, pre.feedback,
                              post.title, post.led, post.pairStatus, post.name,
                              post.pairDropdown, post.postControls, post.feedback })
     {

@@ -215,6 +215,7 @@ if(KIRIN_HYPHA_BUILD_PRE_DISPLAY_TESTS)
         PRODUCT_NAME "Kirin PRE Display Runtime Tests")
     target_sources(KirinPreDisplayRuntimeTests PRIVATE
         tests/pre_display_runtime_test.cpp
+        src/pre_display/PreDisplayController.cpp
         src/pre_display/PreDisplayPresence.cpp
         src/pre_display/PreDisplayProjection.cpp
         src/pre_display/PreDisplayProtocol.cpp

@@ -4,6 +4,16 @@
 PRE/POST の状態遷移と pairing / identity / record / shell parity の不変条件を 1 か所に集約し、
 各不変条件に対応する**実在テスト名**を紐づける。
 
+## PRE Display配送（INV-PD）
+
+| ID | 不変条件 | 紐づくテスト |
+|----|----------|--------------|
+| INV-PD1 | PRE DisplayはPRE targetだけへlinkし、TRACE、POST、Watch、Record、Keep、Pairingを参照しない | `shell_parity` PRE Display source boundary / `pre_display_ui_contract` |
+| INV-PD2 | audio threadだけがproject clockを書き、reader missは最後の完全snapshotを保持する | `KirinHyphaUiContractTests` ClockTap / `pre_display_runtime_test` ClockReaderState |
+| INV-PD3 | GuideはEndまたは置換まで保持し、presence／ack lease失効や再生停止では消さない | `pre_display_runtime_test` repository clear / retained projection |
+| INV-PD4 | 既存reader互換のpresence v1.0を維持し、acknowledgement v1.1がprocess／project／session／Guideの完全identityと投影状態をinstance別に返す。ack不在presenceは受信失敗へ昇格しない | `pre_display_runtime_test` acknowledgement contract / OS `presenceContract.test.cjs` / `acknowledgementContract.test.cjs` |
+| INV-PD5 | INSPECTは現在activeのFactをHELDより優先し、同一状態内だけでfocusを優先する | `pre_display_runtime_test` active versus focused held |
+
 ## 使い方
 
 - 不具合報告を受けたら、まずこの表で「**どの不変条件の違反か**」を特定する。

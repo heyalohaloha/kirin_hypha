@@ -1,5 +1,7 @@
 #include "PreDisplayPresence.h"
 
+#include "PreDisplayProtocol.h"
+
 namespace hypha::pre_display
 {
     namespace
@@ -35,6 +37,20 @@ namespace hypha::pre_display
             }
             return "unknown";
         }
+
+        juce::String displayStatusName (DisplayStatus status)
+        {
+            switch (status)
+            {
+                case DisplayStatus::received: return "received";
+                case DisplayStatus::waitingForProjectClock: return "waiting_for_project_clock";
+                case DisplayStatus::active: return "active";
+                case DisplayStatus::next: return "next";
+                case DisplayStatus::end: return "end";
+                case DisplayStatus::none: break;
+            }
+            return {};
+        }
     }
 
     bool writePresence (const juce::File& transportRoot,
@@ -43,6 +59,11 @@ namespace hypha::pre_display
                         std::int64_t clockObservedAtMs,
                         std::int64_t nowMs)
     {
+        if (transportRoot.getFullPathName().isEmpty()
+            || ! safeId (identity.instanceId) || ! safeId (identity.projectUuid)
+            || (identity.dawSessionUuid.isNotEmpty() && ! safeId (identity.dawSessionUuid))
+            || identity.hostProcessId == 0)
+            return false;
         auto root = new juce::DynamicObject();
         root->setProperty ("format", "kirin_pre_display_presence");
         root->setProperty ("version", "1.0");
@@ -79,7 +100,49 @@ namespace hypha::pre_display
         return replaceJsonAtomically (file, juce::var (root));
     }
 
+    bool writeAcknowledgement (const juce::File& transportRoot,
+                               const RuntimeIdentity& identity,
+                               const GuideModel& guide,
+                               const DisplaySnapshot& display,
+                               std::int64_t nowMs)
+    {
+        const auto displayStatus = displayStatusName (display.status);
+        if (transportRoot.getFullPathName().isEmpty()
+            || ! safeId (identity.instanceId) || ! safeId (identity.projectUuid)
+            || (identity.dawSessionUuid.isNotEmpty() && ! safeId (identity.dawSessionUuid))
+            || identity.hostProcessId == 0 || ! guide.valid() || displayStatus.isEmpty()
+            || display.guideId != guide.guideId || display.contentHash != guide.contentHash
+            || display.payloadKind != guide.payloadKind)
+            return false;
+
+        auto root = new juce::DynamicObject();
+        root->setProperty ("format", "kirin_pre_display_acknowledgement");
+        root->setProperty ("version", "1.1");
+        root->setProperty ("instance_id", identity.instanceId);
+        root->setProperty ("host_process_id", static_cast<juce::int64> (identity.hostProcessId));
+        root->setProperty ("project_uuid", identity.projectUuid);
+        root->setProperty ("daw_session_uuid", identity.dawSessionUuid.isEmpty()
+                                                   ? juce::var() : juce::var (identity.dawSessionUuid));
+        root->setProperty ("group_id", guide.groupId);
+        root->setProperty ("guide_id", guide.guideId);
+        root->setProperty ("revision", static_cast<juce::int64> (guide.revision));
+        root->setProperty ("content_hash", guide.contentHash);
+        root->setProperty ("payload_kind", guide.payloadKind);
+        root->setProperty ("display_status", displayStatus);
+        root->setProperty ("observed_at_ms", nowMs);
+        root->setProperty ("lease_expires_at_ms", nowMs + presenceLeaseMs);
+        const auto file = transportRoot.getChildFile ("ack")
+                                       .getChildFile (identity.instanceId + ".json");
+        return replaceJsonAtomically (file, juce::var (root));
+    }
+
     void removePresence (const juce::File& file)
+    {
+        if (file != juce::File() && file.existsAsFile())
+            file.deleteFile();
+    }
+
+    void removeAcknowledgement (const juce::File& file)
     {
         if (file != juce::File() && file.existsAsFile())
             file.deleteFile();

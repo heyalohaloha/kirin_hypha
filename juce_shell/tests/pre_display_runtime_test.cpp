@@ -1,4 +1,5 @@
 #include "../src/pre_display/PreDisplayClock.h"
+#include "../src/pre_display/PreDisplayController.h"
 #include "../src/pre_display/PreDisplayModel.h"
 #include "../src/pre_display/PreDisplayPresence.h"
 #include "../src/pre_display/PreDisplayProjection.h"
@@ -28,6 +29,14 @@ namespace
         }
     }
 
+    juce::String testUuid (const juce::String& seed)
+    {
+        const auto digest = juce::MD5 (seed.toRawUTF8(), seed.getNumBytesAsUTF8()).toHexString();
+        return digest.substring (0, 8) + "-" + digest.substring (8, 12) + "-"
+             + digest.substring (12, 16) + "-" + digest.substring (16, 20) + "-"
+             + digest.substring (20, 32);
+    }
+
     juce::var source (const juce::String& ref, const juce::String& label)
     {
         auto object = new juce::DynamicObject();
@@ -44,11 +53,19 @@ namespace
                             bool includeInterval)
     {
         auto root = new juce::DynamicObject();
+        juce::ignoreUnused (contentHash);
         root->setProperty ("format", "kirin_pre_display_guide");
         root->setProperty ("version", "1.0");
-        root->setProperty ("guide_id", guideId);
-        root->setProperty ("content_hash", contentHash);
+        root->setProperty ("guide_id", testUuid (guideId));
+        root->setProperty ("created_at", "2026-08-15T12:00:00.000Z");
+        root->setProperty ("content_hash", juce::String::repeatedString ("0", 64));
         root->setProperty ("revision", static_cast<juce::int64> (1));
+
+        auto producer = new juce::DynamicObject();
+        producer->setProperty ("session_id", "22222222-2222-4222-8222-222222222222");
+        producer->setProperty ("work_id", juce::var());
+        producer->setProperty ("report_id", juce::var());
+        root->setProperty ("producer", juce::var (producer));
 
         auto target = new juce::DynamicObject();
         target->setProperty ("group_id", "kirin_os");
@@ -70,6 +87,7 @@ namespace
 
         auto payload = new juce::DynamicObject();
         payload->setProperty ("kind", "masking");
+        payload->setProperty ("pair_key", "source_a:source_b");
         if (includeMeasurementState)
             payload->setProperty ("measurement_state", "measured");
         juce::Array<juce::var> sourceOrder;
@@ -95,6 +113,7 @@ namespace
         }
         payload->setProperty ("intervals", juce::var (intervals));
         root->setProperty ("payload", juce::var (payload));
+        root->setProperty ("content_hash", pre::guideContentHash (*root));
         return juce::var (root);
     }
 
@@ -104,6 +123,7 @@ namespace
         auto* root = value.getDynamicObject();
         auto* payload = root->getProperty ("payload").getDynamicObject();
         payload->setProperty ("kind", "inspect");
+        payload->removeProperty ("pair_key");
         payload->removeProperty ("source_order");
         payload->removeProperty ("intervals");
         payload->setProperty ("source_ref", "source_a");
@@ -119,6 +139,7 @@ namespace
         juce::Array<juce::var> events;
         events.add (juce::var (event));
         payload->setProperty ("events", juce::var (events));
+        root->setProperty ("content_hash", pre::guideContentHash (*root));
         return value;
     }
 
@@ -187,7 +208,7 @@ int main()
         .getChildFile ("masking_measured_bark_guide.v1.json");
     require (fixtureFile.existsAsFile(), "locate the shared producer-consumer guide fixture");
     require (juce::SHA256 (fixtureFile).toHexString()
-                 == "b161f0d96d4f81cf23d215e0b1762cb1846f4b4a04c2ba4116c42bef22146f4a",
+                 == "8739c51429ac225cb3d2dc6b2e7aaecc62408bbab7fd88bcb4fc3b1d5db00e06",
              "retain byte-exact parity with the Kirin OS fixture");
     const auto fixtureValue = juce::JSON::parse (fixtureFile);
     pre::GuideModel fixtureModel;
@@ -202,8 +223,23 @@ int main()
     fixtureClock.source = pre::ClockSource::projectTimeline;
     const auto fixtureDisplay = pre::projectDisplay (fixtureModel, fixtureClock, 1'000, 1'000);
     require (fixtureDisplay.status == pre::DisplayStatus::active
-             && fixtureDisplay.primary.contains ("100–200 Hz"),
+             && fixtureDisplay.primary.contains (juce::CharPointer_UTF8 ("100\xe2\x80\x93" "200 Hz")),
              "apply the fixture's source-to-project offset and exact Bark band");
+    const auto inspectFixtureFile = juce::File::getCurrentWorkingDirectory()
+        .getChildFile ("tests").getChildFile ("fixtures")
+        .getChildFile ("inspect_decimal_guide.v1.json");
+    require (juce::SHA256 (inspectFixtureFile).toHexString()
+                 == "47ba7d34fc6c5b0dc6b06e338453bd71237168ee9bc4714e4b66329de0a132b4",
+             "retain byte-exact INSPECT fixture parity with Kirin OS");
+    const auto inspectFixtureValue = juce::JSON::parse (inspectFixtureFile);
+    pre::GuideModel inspectFixtureModel;
+    require (inspectFixtureValue.getDynamicObject() != nullptr
+             && pre::parseGuideModel (*inspectFixtureValue.getDynamicObject(),
+                                      "inspect-fixture", inspectFixtureModel)
+             && inspectFixtureModel.items.size() == 1
+             && inspectFixtureModel.items.front().lowHz == 1'200.5
+             && inspectFixtureModel.items.front().highHz == 5'400.25,
+             "parse the exact production INSPECT decimal fixture");
 
     const auto root = juce::File::getSpecialLocation (juce::File::tempDirectory)
         .getNonexistentChildFile ("kirin-pre-display-runtime", {}, false);
@@ -216,9 +252,9 @@ int main()
     require (writeJson (root.getChildFile ("active").getChildFile ("kirin_os.json"),
                         activePointer (
                             fixtureArtifact,
-                            "b161f0d96d4f81cf23d215e0b1762cb1846f4b4a04c2ba4116c42bef22146f4a",
+                            "8739c51429ac225cb3d2dc6b2e7aaecc62408bbab7fd88bcb4fc3b1d5db00e06",
                             "11111111-1111-4111-8111-111111111111",
-                            "3eed987c304ad5662ba3b9eac2ff7e91b3056358591584c0832e4f928f8d976c",
+                            "3370963ab66613cfa63bb7b642822dfd75245a84a961e5611b16e14a8fdedb9b",
                             "masking", 7)),
              "write fixture pointer");
     pre::GuideModel fixtureFromRepository;
@@ -246,8 +282,10 @@ int main()
     clock.source = pre::ClockSource::projectTimeline;
     auto display = pre::projectDisplay (retained, clock, 1'000, 1'000);
     require (display.status == pre::DisplayStatus::active, "start boundary is inclusive");
-    require (display.primary.contains ("100–200 Hz"), "show an exact measured frequency band");
-    require (! display.detail.contains ("100–200 Hz"),
+    const auto measuredBandText = juce::String ("100")
+                                + juce::String::charToString (0x2013) + "200 Hz";
+    require (display.primary.contains (measuredBandText), "show an exact measured frequency band");
+    require (! display.detail.contains (measuredBandText),
              "do not duplicate a masking band across both compact display lines");
     require (display.primary.length() <= 48 && display.detail.length() <= 48,
              "bound both PRE display lines to the available UI width");
@@ -278,11 +316,11 @@ int main()
     pointerWithoutInstant.getDynamicObject()->removeProperty ("activated_at");
     require (writeJson (pointerFile, pointerWithoutInstant), "write pointer without instant");
     repository.refresh (retained);
-    require (retained.guideId == "masking_guide",
+    require (retained.guideId == testUuid ("masking_guide"),
              "pointer without canonical instant retains last valid guide");
     require (pointerFile.replaceWithText ("{broken"), "corrupt pointer fixture");
     repository.refresh (retained);
-    require (retained.guideId == "masking_guide", "corrupt pointer retains last valid guide");
+    require (retained.guideId == testUuid ("masking_guide"), "corrupt pointer retains last valid guide");
 
     const auto clearFile = root.getChildFile ("retired").getChildFile ("kirin_os.clear.json");
     require (writeJson (clearFile, clearAuthority ("not_kirin_os")), "write invalid clear");
@@ -313,7 +351,7 @@ int main()
     const auto replacement = maskingGuide ("replacement_guide", hashB, true, true, true);
     publishGuide (root, replacement, hashA);
     repository.refresh (first);
-    require (first.guideId == "masking_guide", "artifact hash mismatch retains last valid guide");
+    require (first.guideId == testUuid ("masking_guide"), "artifact hash mismatch retains last valid guide");
 
     pre::GuideModel legacy;
     auto legacyValue = maskingGuide ("legacy_guide", hashA, false, false, true);
@@ -341,6 +379,8 @@ int main()
     threeBandInterval->setProperty ("frequency_basis", "three_band_edges");
     threeBandInterval->getProperty ("band").getDynamicObject()->setProperty ("low_hz", 20.0);
     threeBandInterval->getProperty ("band").getDynamicObject()->setProperty ("high_hz", 250.0);
+    threeBandValue.getDynamicObject()->setProperty (
+        "content_hash", pre::guideContentHash (*threeBandValue.getDynamicObject()));
     pre::GuideModel threeBand;
     require (pre::parseGuideModel (*threeBandValue.getDynamicObject(), "three-band", threeBand),
              "accept the native 20–250 Hz sub measurement boundary");
@@ -350,6 +390,19 @@ int main()
     require (! pre::parseGuideModel (*wrongTypeValue.getDynamicObject(), "type", wrongType),
              "reject non-string protocol identifiers instead of coercing them");
     require (! wrongType.valid(), "failed parse does not leak a partial guide model");
+    auto unknownFieldValue = maskingGuide ("unknown_field", hashA, true, true, true);
+    unknownFieldValue.getDynamicObject()->setProperty ("hidden", true);
+    unknownFieldValue.getDynamicObject()->setProperty (
+        "content_hash", pre::guideContentHash (*unknownFieldValue.getDynamicObject()));
+    pre::GuideModel unknownField;
+    require (! pre::parseGuideModel (*unknownFieldValue.getDynamicObject(), "unknown", unknownField),
+             "reject a hash-valid guide with an unknown protocol field");
+    auto mutatedHashValue = maskingGuide ("mutated_hash", hashA, true, true, true);
+    mutatedHashValue.getDynamicObject()->getProperty ("payload").getDynamicObject()
+        ->setProperty ("pair_key", "mutated_pair");
+    pre::GuideModel mutatedHash;
+    require (! pre::parseGuideModel (*mutatedHashValue.getDynamicObject(), "mutated", mutatedHash),
+             "recompute and reject a content hash after body mutation");
 
     pre::GuideModel emptyMeasured;
     auto emptyMeasuredValue = maskingGuide ("empty_measured", hashA, true, true, false);
@@ -367,6 +420,19 @@ int main()
     display = pre::projectDisplay (inspect, clock, 1'000, 1'000);
     require (display.status == pre::DisplayStatus::active
              && display.primary.contains ("True Peak"), "project an INSPECT event");
+    auto overlappingInspect = inspect;
+    pre::GuideItem heldEvent;
+    heldEvent.itemId = "held_event";
+    heldEvent.label = "Finished Event";
+    heldEvent.sourceLabel = "Source A";
+    heldEvent.startNs = 1'200'000'000;
+    heldEvent.endNs = 1'400'000'000;
+    overlappingInspect.items.push_back (heldEvent);
+    overlappingInspect.focusEventId = heldEvent.itemId;
+    clock.positionSamples = 72'000;
+    display = pre::projectDisplay (overlappingInspect, clock, 1'000, 1'000);
+    require (display.primary.contains ("True Peak") && ! display.primary.contains ("Finished Event"),
+             "an active INSPECT fact always outranks a focused held fact");
 
     pre::ClockReaderState reader;
     reader.accept (clock, 12'345);
@@ -386,12 +452,72 @@ int main()
     identity.hostProcessId = 42;
     require (pre::writePresence (root, identity, clock, 12'345, 13'000),
              "write presence independently from guide projection");
+    auto invalidIdentity = identity;
+    invalidIdentity.instanceId = "../escape";
+    require (! pre::writePresence (root, invalidIdentity, clock, 12'345, 13'000),
+             "reject a lease identity that could escape its transport shelf");
     const auto presence = juce::JSON::parse (
         root.getChildFile ("presence").getChildFile ("pre_instance_1.json"));
     require (presence.getDynamicObject() != nullptr
+             && presence.getDynamicObject()->getProperty ("version") == "1.0"
+             && ! presence.getDynamicObject()->getProperty ("capabilities")
+                    .getDynamicObject()->hasProperty ("guide_acknowledgement")
              && presence.getDynamicObject()->getProperty ("lease_expires_at_ms")
                     == juce::var (static_cast<juce::int64> (14'500)),
              "presence lease uses the supplied poll time");
+    require (pre::writeAcknowledgement (root, identity, inspect, display, 13'000),
+             "write acknowledgement only after strict guide projection");
+    const auto acknowledgement = juce::JSON::parse (
+        root.getChildFile ("ack").getChildFile ("pre_instance_1.json"));
+    require (acknowledgement.getDynamicObject() != nullptr
+             && acknowledgement.getDynamicObject()->getProperty ("version") == "1.1"
+             && acknowledgement.getDynamicObject()->getProperty ("instance_id") == identity.instanceId
+             && acknowledgement.getDynamicObject()->getProperty ("host_process_id")
+                    == juce::var (static_cast<juce::int64> (identity.hostProcessId))
+             && acknowledgement.getDynamicObject()->getProperty ("project_uuid") == identity.projectUuid
+             && acknowledgement.getDynamicObject()->getProperty ("guide_id") == inspect.guideId
+             && acknowledgement.getDynamicObject()->getProperty ("content_hash") == inspect.contentHash
+             && acknowledgement.getDynamicObject()->getProperty ("display_status") == "active"
+             && acknowledgement.getDynamicObject()->getProperty ("lease_expires_at_ms")
+                    == juce::var (static_cast<juce::int64> (14'500)),
+             "acknowledgement binds instance, guide, projection state, and lease");
+
+    for (int iteration = 0; iteration < 32; ++iteration)
+    {
+        pre::ClockTap lifecycleClock;
+        lifecycleClock.publish (iteration, 48'000.0, 512, false,
+                                pre::ClockSource::projectTimeline);
+        pre::Controller controller (lifecycleClock, root);
+        auto lifecycleIdentity = identity;
+        lifecycleIdentity.instanceId = "lifecycle_" + juce::String (iteration);
+        controller.configureAndStart (std::move (lifecycleIdentity));
+    }
+    require (true, "repeated controller destruction joins its worker without forced termination");
+
+    const auto activeLifecyclePresence = root.getChildFile ("presence")
+        .getChildFile ("lifecycle_active.json");
+    {
+        pre::ClockTap lifecycleClock;
+        lifecycleClock.publish (0, 48'000.0, 512, false,
+                                pre::ClockSource::projectTimeline);
+        pre::Controller controller (lifecycleClock, root);
+        auto lifecycleIdentity = identity;
+        lifecycleIdentity.instanceId = "lifecycle_active";
+        controller.configureAndStart (std::move (lifecycleIdentity));
+        for (int attempt = 0; attempt < 100 && ! activeLifecyclePresence.existsAsFile(); ++attempt)
+            juce::Thread::sleep (10);
+        require (activeLifecyclePresence.existsAsFile(),
+                 "run the lifecycle test with an active file-writing worker");
+    }
+    require (! activeLifecyclePresence.existsAsFile(),
+             "joined controller removes its own presence after active I/O");
+
+    {
+        pre::ClockTap disabledClock;
+        pre::Controller disabledController (disabledClock, {});
+        disabledController.configureAndStart (identity);
+    }
+    require (true, "an unresolved transport root disables delivery instead of using a relative path");
 
     require (root.deleteRecursively(), "remove isolated transport root");
     std::cout << "PRE display runtime contract: PASS\n";

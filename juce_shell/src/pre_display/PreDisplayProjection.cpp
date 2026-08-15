@@ -12,6 +12,9 @@ namespace hypha::pre_display
         constexpr std::int64_t kClockStaleMs = 2'000;
         constexpr std::int64_t kInspectHoldNs = 1'000'000'000;
 
+        juce::String rangeSeparator() { return juce::String::charToString (0x2013); }
+        juce::String factSeparator() { return "  " + juce::String::charToString (0x00b7) + "  "; }
+
         juce::String compactText (const juce::String& text, int maximumCharacters)
         {
             if (text.length() <= maximumCharacters)
@@ -35,10 +38,12 @@ namespace hypha::pre_display
             if (! item.hasBand)
                 return {};
             if (item.lowHz >= 1'000.0)
-                return conciseNumber (item.lowHz) + "–" + conciseNumber (item.highHz) + " kHz";
+                return conciseNumber (item.lowHz) + rangeSeparator() + conciseNumber (item.highHz) + " kHz";
             if (item.highHz >= 1'000.0)
-                return conciseNumber (item.lowHz) + " Hz–" + conciseNumber (item.highHz) + " kHz";
-            return conciseNumber (item.lowHz) + "–" + conciseNumber (item.highHz) + " Hz";
+                return conciseNumber (item.lowHz) + " Hz" + rangeSeparator()
+                     + conciseNumber (item.highHz) + " kHz";
+            return conciseNumber (item.lowHz) + rangeSeparator()
+                 + conciseNumber (item.highHz) + " Hz";
         }
 
         juce::String timeText (std::int64_t nanoseconds)
@@ -73,7 +78,7 @@ namespace hypha::pre_display
                 if (band.isNotEmpty()) parts.add (band);
             }
             if (overlapCount > 0) parts.add ("+" + juce::String (overlapCount));
-            return compactText (parts.joinIntoString ("  ·  "), 48);
+            return compactText (parts.joinIntoString (factSeparator()), 48);
         }
 
         void compact (DisplaySnapshot& snapshot)
@@ -105,7 +110,8 @@ namespace hypha::pre_display
             else
             {
                 out.primary = "MASKING  RECEIVED";
-                out.detail = "Legacy guide  ·  No timed items  ·  Retained";
+                out.detail = "Legacy guide" + factSeparator() + "No timed items"
+                           + factSeparator() + "Retained";
             }
             compact (out);
             return out;
@@ -121,10 +127,11 @@ namespace hypha::pre_display
             {
                 const auto& first = guide.items.front();
                 const auto fact = guide.payloadKind == "inspect" ? first.label : bandText (first);
-                out.detail = "NEXT " + timeText (first.startNs) + (fact.isNotEmpty() ? "  ·  " + fact : "");
+                out.detail = "NEXT " + timeText (first.startNs)
+                           + (fact.isNotEmpty() ? factSeparator() + fact : "");
             }
             else
-                out.detail = "No timed items  ·  Guide retained";
+                out.detail = "No timed items" + factSeparator() + "Guide retained";
             compact (out);
             return out;
         }
@@ -134,46 +141,61 @@ namespace hypha::pre_display
         {
             out.status = DisplayStatus::waitingForProjectClock;
             out.primary = heading + "  RECEIVED";
-            out.detail = "Timeline outside guide range  ·  Guide retained";
+            out.detail = "Timeline outside guide range" + factSeparator() + "Guide retained";
             compact (out);
             return out;
         }
 
-        const GuideItem* chosen = nullptr;
-        bool held = false;
-        int overlapCount = 0;
+        const GuideItem* chosenActive = nullptr;
+        const GuideItem* chosenHeld = nullptr;
+        int activeCount = 0;
+        int heldCount = 0;
+        const auto prefer = [&guide] (const GuideItem& item, const GuideItem* chosen)
+        {
+            if (chosen == nullptr)
+                return true;
+            const bool itemFocused = item.itemId == guide.focusEventId;
+            const bool chosenFocused = chosen->itemId == guide.focusEventId;
+            return (itemFocused && ! chosenFocused)
+                || (itemFocused == chosenFocused
+                    && (item.startNs > chosen->startNs
+                        || (item.startNs == chosen->startNs && item.itemId < chosen->itemId)));
+        };
         for (const auto& item : guide.items)
         {
             const bool active = containsHalfOpen (item.startNs, item.endNs, sourceNs);
             const bool isHeld = guide.payloadKind == "inspect" && sourceNs >= item.endNs
                              && sourceNs < item.endNs + kInspectHoldNs;
-            if (! active && ! isHeld)
-                continue;
-            const bool itemFocused = item.itemId == guide.focusEventId;
-            const bool chosenFocused = chosen != nullptr && chosen->itemId == guide.focusEventId;
-            if (chosen == nullptr
-                || (itemFocused && ! chosenFocused)
-                || (itemFocused == chosenFocused && item.startNs > chosen->startNs))
+            if (active)
             {
-                chosen = &item;
-                held = isHeld && ! active;
+                ++activeCount;
+                if (prefer (item, chosenActive))
+                    chosenActive = &item;
             }
-            ++overlapCount;
+            else if (isHeld)
+            {
+                ++heldCount;
+                if (prefer (item, chosenHeld))
+                    chosenHeld = &item;
+            }
         }
+        const auto* chosen = chosenActive != nullptr ? chosenActive : chosenHeld;
+        const bool held = chosenActive == nullptr && chosenHeld != nullptr;
+        const int overlapCount = activeCount > 0 ? activeCount : heldCount;
         if (chosen != nullptr)
         {
             out.status = DisplayStatus::active;
             out.primary = heading + "  " + timeText (sourceNs);
             if (guide.payloadKind == "inspect")
-                out.primary += "  ·  " + chosen->label;
+                out.primary += factSeparator() + chosen->label;
             else
             {
                 const auto band = bandText (*chosen);
-                if (band.isNotEmpty()) out.primary += "  ·  " + band;
+                if (band.isNotEmpty()) out.primary += factSeparator() + band;
             }
             out.detail = itemDetail (guide, *chosen, juce::jmax (0, overlapCount - 1),
                                      guide.payloadKind != "masking");
-            if (held) out.detail += (out.detail.isEmpty() ? "HELD" : "  ·  HELD");
+            if (held) out.detail += (out.detail.isEmpty() ? "HELD" : factSeparator() + "HELD");
         }
         else
         {
@@ -187,7 +209,8 @@ namespace hypha::pre_display
                 out.primary = heading + "  NEXT " + timeText (next->startNs);
                 out.detail = itemDetail (guide, *next, 0);
                 if (guide.payloadKind == "inspect" && next->label.isNotEmpty())
-                    out.detail = next->label + (out.detail.isNotEmpty() ? "  ·  " + out.detail : "");
+                    out.detail = next->label
+                               + (out.detail.isNotEmpty() ? factSeparator() + out.detail : "");
             }
             else
             {
@@ -199,7 +222,9 @@ namespace hypha::pre_display
 
         const bool clockStale = clockObservedAtMs > 0 && nowMs - clockObservedAtMs > kClockStaleMs;
         if (clockStale || ! clock.playing)
-            out.detail += (out.detail.isEmpty() ? "PAUSED  ·  Guide retained" : "  ·  PAUSED");
+            out.detail += (out.detail.isEmpty()
+                ? "PAUSED" + factSeparator() + "Guide retained"
+                : factSeparator() + "PAUSED");
         compact (out);
         return out;
     }

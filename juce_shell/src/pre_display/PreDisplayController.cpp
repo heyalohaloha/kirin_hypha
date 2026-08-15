@@ -39,10 +39,11 @@ namespace hypha::pre_display
         int pollsUntilGuideScan = 0;
     };
 
-    Controller::Controller (const ClockTap& clockTapIn)
+    Controller::Controller (const ClockTap& clockTapIn, juce::File transportRootIn)
         : juce::Thread ("Kirin PRE display"),
           clockTap (clockTapIn),
-          workerState (std::make_unique<WorkerState> (transportRoot()))
+          root (std::move (transportRootIn)),
+          workerState (std::make_unique<WorkerState> (root))
     {
     }
 
@@ -50,30 +51,41 @@ namespace hypha::pre_display
     {
         signalThreadShouldExit();
         notify();
-        stopThread (2'000);
-        removeOwnPresence();
+        const auto stoppedCleanly = stopThread (-1);
+        jassert (stoppedCleanly);
+        removeOwnLeaseFiles();
     }
 
     void Controller::configureAndStart (RuntimeIdentity identityIn)
     {
-        if (! safeId (identityIn.instanceId) || ! safeId (identityIn.projectUuid))
+        if (root.getFullPathName().isEmpty()
+            || ! safeId (identityIn.instanceId) || ! safeId (identityIn.projectUuid)
+            || (identityIn.dawSessionUuid.isNotEmpty() && ! safeId (identityIn.dawSessionUuid)))
             return;
         if (identityIn.hostProcessId == 0)
             identityIn.hostProcessId = currentProcessId();
 
         juce::File previousPresenceFile;
+        juce::File previousAcknowledgementFile;
         juce::File currentPresenceFile;
+        juce::File currentAcknowledgementFile;
         {
             const juce::ScopedLock lock (identityLock);
             previousPresenceFile = ownPresenceFile;
+            previousAcknowledgementFile = ownAcknowledgementFile;
             identity = std::move (identityIn);
             configured = true;
-            ownPresenceFile = transportRoot().getChildFile ("presence")
-                                             .getChildFile (identity.instanceId + ".json");
+            ownPresenceFile = root.getChildFile ("presence")
+                                  .getChildFile (identity.instanceId + ".json");
+            ownAcknowledgementFile = root.getChildFile ("ack")
+                                         .getChildFile (identity.instanceId + ".json");
             currentPresenceFile = ownPresenceFile;
+            currentAcknowledgementFile = ownAcknowledgementFile;
         }
         if (previousPresenceFile != currentPresenceFile)
             removePresence (previousPresenceFile);
+        if (previousAcknowledgementFile != currentAcknowledgementFile)
+            removeAcknowledgement (previousAcknowledgementFile);
         if (! isThreadRunning())
             startThread (juce::Thread::Priority::low);
         notify();
@@ -96,12 +108,24 @@ namespace hypha::pre_display
        #if JUCE_WINDOWS
         auto local = juce::SystemStats::getEnvironmentVariable ("LOCALAPPDATA", {});
         if (local.isEmpty())
-            local = juce::File::getSpecialLocation (
-                juce::File::userApplicationDataDirectory).getFullPathName();
+            local = juce::File::getSpecialLocation (juce::File::windowsLocalAppData)
+                        .getFullPathName();
+        if (local.isEmpty())
+        {
+            const auto profile = juce::SystemStats::getEnvironmentVariable ("USERPROFILE", {});
+            if (profile.isNotEmpty())
+                local = juce::File (profile).getChildFile ("AppData").getChildFile ("Local")
+                                            .getFullPathName();
+        }
+        if (local.isEmpty())
+            return {};
         return juce::File (local).getChildFile ("Kirin OS").getChildFile ("plugin_data")
                                  .getChildFile ("pre_display").getChildFile ("v1");
        #else
-        return juce::File::getSpecialLocation (juce::File::userHomeDirectory)
+        const auto home = juce::File::getSpecialLocation (juce::File::userHomeDirectory);
+        if (home.getFullPathName().isEmpty())
+            return {};
+        return home
             .getChildFile ("Library").getChildFile ("Application Support")
             .getChildFile ("Kirin OS").getChildFile ("plugin_data")
             .getChildFile ("pre_display").getChildFile ("v1");
@@ -125,16 +149,26 @@ namespace hypha::pre_display
                 workerState->clock.refresh (clockTap, now);
                 if (workerState->pollsUntilGuideScan <= 0)
                 {
-                    writePresence (transportRoot(), currentIdentity,
+                    writePresence (root, currentIdentity,
                                    workerState->clock.snapshot(),
                                    workerState->clock.observedAtMs(), now);
                     workerState->repository.refresh (workerState->guide);
                     workerState->pollsUntilGuideScan = guideScanEveryPolls;
                 }
                 --workerState->pollsUntilGuideScan;
-                publishDisplay (projectDisplay (workerState->guide,
-                                                workerState->clock.snapshot(),
-                                                workerState->clock.observedAtMs(), now));
+                const auto nextDisplay = projectDisplay (workerState->guide,
+                                                         workerState->clock.snapshot(),
+                                                         workerState->clock.observedAtMs(), now);
+                publishDisplay (nextDisplay);
+                if (workerState->pollsUntilGuideScan == guideScanEveryPolls - 1)
+                {
+                    if (workerState->guide.valid())
+                        writeAcknowledgement (root, currentIdentity,
+                                              workerState->guide, nextDisplay, now);
+                    else
+                        removeAcknowledgement (root.getChildFile ("ack")
+                            .getChildFile (currentIdentity.instanceId + ".json"));
+                }
             }
             wait (static_cast<int> (projectionPollMs));
         }
@@ -146,13 +180,16 @@ namespace hypha::pre_display
         display = std::move (next);
     }
 
-    void Controller::removeOwnPresence()
+    void Controller::removeOwnLeaseFiles()
     {
-        juce::File file;
+        juce::File presenceFile;
+        juce::File acknowledgementFile;
         {
             const juce::ScopedLock lock (identityLock);
-            file = ownPresenceFile;
+            presenceFile = ownPresenceFile;
+            acknowledgementFile = ownAcknowledgementFile;
         }
-        removePresence (file);
+        removePresence (presenceFile);
+        removeAcknowledgement (acknowledgementFile);
     }
 }

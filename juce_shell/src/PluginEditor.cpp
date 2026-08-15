@@ -20,6 +20,30 @@ namespace
         return { rect.x, rect.y, rect.width, rect.height };
     }
 
+   #if KIRIN_HYPHA_PRE_DISPLAY
+    juce::String fitLabelText (const juce::Label& label, const juce::String& text)
+    {
+        const auto available = static_cast<float> (juce::jmax (
+            0, label.getWidth() - label.getBorderSize().getLeftAndRight()));
+        const auto font = label.getFont();
+        if (font.getStringWidthFloat (text) <= available)
+            return text;
+        const auto ellipsis = juce::String::charToString (0x2026);
+        int low = 0;
+        int high = text.length();
+        while (low < high)
+        {
+            const auto middle = (low + high + 1) / 2;
+            const auto candidate = text.substring (0, middle).trimEnd() + ellipsis;
+            if (font.getStringWidthFloat (candidate) <= available)
+                low = middle;
+            else
+                high = middle - 1;
+        }
+        return text.substring (0, low).trimEnd() + ellipsis;
+    }
+   #endif
+
     juce::String metricHelp (ui::Metric metric)
     {
         switch (metric)
@@ -171,14 +195,14 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
     {
         preDisplayPrimaryLabel.setFont (hypha::monoFont (ui::preDisplayPrimaryFontHeight));
         preDisplayPrimaryLabel.setJustificationType (juce::Justification::centredLeft);
-        preDisplayPrimaryLabel.setMinimumHorizontalScale (0.82f);
+        preDisplayPrimaryLabel.setMinimumHorizontalScale (1.0f);
         preDisplayPrimaryLabel.setInterceptsMouseClicks (false, false);
         preDisplayPrimaryLabel.setColour (juce::Label::textColourId, COL_FLORA_BR);
         addChildComponent (preDisplayPrimaryLabel);
 
         preDisplayDetailLabel.setFont (hypha::monoFont (ui::preDisplayDetailFontHeight));
         preDisplayDetailLabel.setJustificationType (juce::Justification::centredLeft);
-        preDisplayDetailLabel.setMinimumHorizontalScale (0.82f);
+        preDisplayDetailLabel.setMinimumHorizontalScale (1.0f);
         preDisplayDetailLabel.setInterceptsMouseClicks (false, false);
         preDisplayDetailLabel.setColour (juce::Label::textColourId, COL_MUTED.brighter (0.35f));
         addChildComponent (preDisplayDetailLabel);
@@ -479,8 +503,10 @@ void KirinHyphaEditor::updatePre()
 {
 #if KIRIN_HYPHA_PRE_DISPLAY
     const auto preDisplay = processorRef.preDisplaySnapshot();
-    preDisplayPrimaryLabel.setText (preDisplay.primary, juce::dontSendNotification);
-    preDisplayDetailLabel.setText (preDisplay.detail, juce::dontSendNotification);
+    preDisplayPrimaryLabel.setText (fitLabelText (preDisplayPrimaryLabel, preDisplay.primary),
+                                    juce::dontSendNotification);
+    preDisplayDetailLabel.setText (fitLabelText (preDisplayDetailLabel, preDisplay.detail),
+                                   juce::dontSendNotification);
     preDisplayPrimaryLabel.setVisible (preDisplay.primary.isNotEmpty());
     preDisplayDetailLabel.setVisible (preDisplay.detail.isNotEmpty());
 #endif

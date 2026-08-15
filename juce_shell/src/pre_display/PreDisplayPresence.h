@@ -13,5 +13,12 @@ namespace hypha::pre_display
                         std::int64_t clockObservedAtMs,
                         std::int64_t nowMs);
 
+    bool writeAcknowledgement (const juce::File& transportRoot,
+                               const RuntimeIdentity& identity,
+                               const GuideModel& guide,
+                               const DisplaySnapshot& display,
+                               std::int64_t nowMs);
+
     void removePresence (const juce::File& file);
+    void removeAcknowledgement (const juce::File& file);
 }

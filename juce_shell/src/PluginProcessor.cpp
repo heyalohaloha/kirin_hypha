@@ -1061,10 +1061,6 @@ void KirinHyphaProcessorBase::enableWritesNow()
 #if KIRIN_HYPHA_PRE_DISPLAY
     if (role == Role::Pre)
     {
-        hypha::pre_display::ClockSnapshot initialClock;
-        if (! preDisplayClock.read (initialClock))
-            preDisplayClock.publish (0, preparedSampleRate, 0, false,
-                                     hypha::pre_display::ClockSource::unknown);
         if (preDisplayController == nullptr)
             preDisplayController = std::make_unique<hypha::pre_display::Controller> (preDisplayClock);
         hypha::pre_display::RuntimeIdentity displayIdentity;

@@ -241,6 +241,9 @@ namespace hypha::ui_contract
                    "POST metric grid must fit the editor");
     static_assert (bottom (metricCellBounds (5, editorLayout (false).metricTop)) <= editorHeight,
                    "PRE metric grid must fit the editor");
+    static_assert (bottom (metricCellBounds (5, editorLayout (false).metricTop))
+                       < editorLayout (false).preDisplayPrimary.y,
+                   "PRE metric grid and guide display must not overlap");
     static_assert (bottom (editorLayout (false).preDisplayDetail)
                        <= editorLayout (false).feedback.y,
                    "PRE two-line guide and feedback must not overlap");

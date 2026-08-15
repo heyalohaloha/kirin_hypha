@@ -174,7 +174,7 @@ mod tests {
         assert!(JUCE_PLUGIN_CONFIG.contains("#define KIRIN_HYPHA_PRE_DISPLAY 0"));
         assert_eq!(
             count_occurrences(JUCE_CMAKE, "src/pre_display/PreDisplayController.cpp"),
-            1
+            2
         );
         for source in [
             "PreDisplayPresence.cpp",
@@ -191,7 +191,11 @@ mod tests {
             JUCE_CMAKE.contains("target_link_libraries(${TARGET} PRIVATE juce::juce_cryptography)")
         );
         assert!(PLUGIN_EDITOR_H.contains("#if KIRIN_HYPHA_PRE_DISPLAY"));
-        assert!(PLUGIN_PROCESSOR_CPP.contains("preDisplayClock.publish"));
+        assert_eq!(
+            count_occurrences(PLUGIN_PROCESSOR_CPP, "preDisplayClock.publish"),
+            1,
+            "the audio callback is the only PRE display clock writer"
+        );
         assert!(HYPHA_UI_CONTRACT_H.contains("POST must not acquire PRE display geometry"));
         assert!(PRE_DISPLAY_REPOSITORY_CPP
             .contains(".getChildFile (\"active\").getChildFile (\"kirin_os.json\")"));
@@ -202,7 +206,13 @@ mod tests {
         ] {
             assert!(!source.contains("TRACE"));
         }
-        assert!(PRE_DISPLAY_CONTROLLER_CPP.lines().count() < 180);
+        assert!(PRE_DISPLAY_CONTROLLER_CPP.lines().count() < 200);
+        assert!(PRE_DISPLAY_CONTROLLER_CPP.contains("stopThread (-1)"));
+        assert!(!PRE_DISPLAY_CONTROLLER_CPP.contains("stopThread (2'000)"));
+        assert!(PRE_DISPLAY_CONTROLLER_CPP.contains("juce::File::windowsLocalAppData"));
+        assert!(!PRE_DISPLAY_CONTROLLER_CPP.contains("juce::File::userApplicationDataDirectory"));
+        assert!(PRE_DISPLAY_CONTROLLER_CPP.contains("root.getFullPathName().isEmpty()"));
+        assert!(PRE_DISPLAY_CONTROLLER_CPP.contains("writeAcknowledgement"));
         for forbidden in ["juce::JSON::parse", "juce::SHA256", "kirin_os.clear.json"] {
             assert!(!PRE_DISPLAY_CONTROLLER_CPP.contains(forbidden));
         }

@@ -17,6 +17,7 @@ namespace hypha::pre_display
     bool safeHash (const juce::String& value);
     bool safeGuideFileName (const juce::String& value);
     bool canonicalIsoInstant (const juce::String& value);
+    juce::String guideContentHash (const juce::DynamicObject& guide);
     juce::String objectString (const juce::DynamicObject& object, const char* name);
     bool objectInteger (const juce::DynamicObject& object, const char* name,
                         std::int64_t minimum, std::int64_t maximum, std::int64_t& result);
