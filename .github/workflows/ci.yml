@@ -23,6 +23,10 @@ jobs:
           # Release provenance and release_state history guards inspect tags and
           # public branch history, so the source-contract job needs full history.
           fetch-depth: 0
+          # The source contract builds the PRE display runtime test against the
+          # pinned JUCE tree. A clean runner must not depend on a locally-present
+          # submodule checkout.
+          submodules: recursive
 
       - name: Install Rust (stable)
         uses: dtolnay/rust-toolchain@stable
