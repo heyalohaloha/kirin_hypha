@@ -4,8 +4,13 @@
 #include <cstdint>
 #include <limits>
 
+#include "PreDisplayClock.h"
+
 namespace hypha::pre_display
 {
+    struct DisplaySnapshot;
+    struct GuideModel;
+
     inline bool projectSamplesToNanoseconds (std::int64_t samples, double sampleRate,
                                              std::int64_t& nanoseconds) noexcept
     {
@@ -40,4 +45,7 @@ namespace hypha::pre_display
         sourceNanoseconds = projectNanoseconds - sourceZeroProjectNanoseconds;
         return true;
     }
+
+    DisplaySnapshot projectDisplay (const GuideModel& guide, const ClockSnapshot& clock,
+                                    std::int64_t clockObservedAtMs, std::int64_t nowMs);
 }

@@ -101,4 +101,37 @@ namespace hypha::pre_display
         std::atomic<bool> isPlaying { false };
         std::atomic<std::uint8_t> sourceCode { 0 };
     };
+
+    // The seqlock reader may legitimately miss a poll while the audio thread is
+    // publishing. Keep the last coherent snapshot; a transient miss must never
+    // make a guide disappear or jump to an unknown clock.
+    class ClockReaderState final
+    {
+    public:
+        bool refresh (const ClockTap& tap, std::int64_t nowMs) noexcept
+        {
+            ClockSnapshot candidate;
+            if (! tap.read (candidate))
+                return false;
+            accept (candidate, nowMs);
+            return true;
+        }
+
+        void accept (const ClockSnapshot& candidate, std::int64_t nowMs) noexcept
+        {
+            if (! hasSnapshot || candidate.generation != retained.generation)
+                retainedObservedAtMs = nowMs;
+            retained = candidate;
+            hasSnapshot = true;
+        }
+
+        const ClockSnapshot& snapshot() const noexcept { return retained; }
+        std::int64_t observedAtMs() const noexcept { return retainedObservedAtMs; }
+        bool hasValue() const noexcept { return hasSnapshot; }
+
+    private:
+        ClockSnapshot retained;
+        std::int64_t retainedObservedAtMs = 0;
+        bool hasSnapshot = false;
+    };
 }

@@ -131,7 +131,11 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
 
     if("${TARGET}" STREQUAL "KirinHyphaPRE")
         target_sources(${TARGET} PRIVATE
-            src/pre_display/PreDisplayController.cpp)
+            src/pre_display/PreDisplayController.cpp
+            src/pre_display/PreDisplayPresence.cpp
+            src/pre_display/PreDisplayProjection.cpp
+            src/pre_display/PreDisplayProtocol.cpp
+            src/pre_display/PreDisplayRepository.cpp)
         target_compile_definitions(${TARGET} PRIVATE KIRIN_HYPHA_PRE_DISPLAY=1)
         target_link_libraries(${TARGET} PRIVATE juce::juce_cryptography)
     else()
@@ -202,3 +206,28 @@ endfunction()
 
 add_kirin_plugin(KirinHyphaPRE  Khpr "Kirin Hypha PRE"  "PRE Kirin Hypha"  src/PluginMainPRE.cpp  "com.kirinmastering.hypha.pre")
 add_kirin_plugin(KirinHyphaPOST Khpo "Kirin Hypha POST" "POST Kirin Hypha" src/PluginMainPOST.cpp "com.kirinmastering.hypha.post")
+
+option(KIRIN_HYPHA_BUILD_PRE_DISPLAY_TESTS
+    "Build the executable PRE display protocol and repository tests" OFF)
+if(KIRIN_HYPHA_BUILD_PRE_DISPLAY_TESTS)
+    enable_testing()
+    juce_add_console_app(KirinPreDisplayRuntimeTests
+        PRODUCT_NAME "Kirin PRE Display Runtime Tests")
+    target_sources(KirinPreDisplayRuntimeTests PRIVATE
+        tests/pre_display_runtime_test.cpp
+        src/pre_display/PreDisplayPresence.cpp
+        src/pre_display/PreDisplayProjection.cpp
+        src/pre_display/PreDisplayProtocol.cpp
+        src/pre_display/PreDisplayRepository.cpp)
+    target_compile_definitions(KirinPreDisplayRuntimeTests PRIVATE
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0)
+    target_link_libraries(KirinPreDisplayRuntimeTests PRIVATE
+        juce::juce_core
+        juce::juce_cryptography
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_warning_flags)
+    add_test(NAME kirin_pre_display_runtime COMMAND KirinPreDisplayRuntimeTests)
+    set_tests_properties(kirin_pre_display_runtime PROPERTIES
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+endif()

@@ -49,6 +49,14 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/../juce_shell/src/pre_display/PreDisplayController.cpp"
     ));
+    const PRE_DISPLAY_REPOSITORY_CPP: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../juce_shell/src/pre_display/PreDisplayRepository.cpp"
+    ));
+    const PRE_DISPLAY_PROTOCOL_CPP: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../juce_shell/src/pre_display/PreDisplayProtocol.cpp"
+    ));
 
     fn read_juce_au_wrapper() -> Option<String> {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
@@ -168,6 +176,14 @@ mod tests {
             count_occurrences(JUCE_CMAKE, "src/pre_display/PreDisplayController.cpp"),
             1
         );
+        for source in [
+            "PreDisplayPresence.cpp",
+            "PreDisplayProjection.cpp",
+            "PreDisplayProtocol.cpp",
+            "PreDisplayRepository.cpp",
+        ] {
+            assert_eq!(count_occurrences(JUCE_CMAKE, source), 2, "{source}");
+        }
         assert!(JUCE_CMAKE.contains("if(\"${TARGET}\" STREQUAL \"KirinHyphaPRE\")"));
         assert!(JUCE_CMAKE.contains("KIRIN_HYPHA_PRE_DISPLAY=1"));
         assert!(JUCE_CMAKE.contains("KIRIN_HYPHA_PRE_DISPLAY=0"));
@@ -177,29 +193,34 @@ mod tests {
         assert!(PLUGIN_EDITOR_H.contains("#if KIRIN_HYPHA_PRE_DISPLAY"));
         assert!(PLUGIN_PROCESSOR_CPP.contains("preDisplayClock.publish"));
         assert!(HYPHA_UI_CONTRACT_H.contains("POST must not acquire PRE display geometry"));
-        assert!(PRE_DISPLAY_CONTROLLER_CPP
+        assert!(PRE_DISPLAY_REPOSITORY_CPP
             .contains(".getChildFile (\"active\").getChildFile (\"kirin_os.json\")"));
-        assert!(!PRE_DISPLAY_CONTROLLER_CPP.contains("TRACE"));
+        for source in [
+            PRE_DISPLAY_CONTROLLER_CPP,
+            PRE_DISPLAY_REPOSITORY_CPP,
+            PRE_DISPLAY_PROTOCOL_CPP,
+        ] {
+            assert!(!source.contains("TRACE"));
+        }
+        assert!(PRE_DISPLAY_CONTROLLER_CPP.lines().count() < 180);
+        for forbidden in ["juce::JSON::parse", "juce::SHA256", "kirin_os.clear.json"] {
+            assert!(!PRE_DISPLAY_CONTROLLER_CPP.contains(forbidden));
+        }
     }
 
     #[test]
     fn pre_display_explicit_clear_precedes_active_pointer_recovery() {
-        let refresh = between(
-            PRE_DISPLAY_CONTROLLER_CPP,
-            "void Controller::refreshActiveGuide()",
-            "DisplaySnapshot Controller::projectDisplay",
-        );
-        let clear = refresh
+        let clear = PRE_DISPLAY_REPOSITORY_CPP
             .find("kirin_os.clear.json")
             .expect("group clear authority must be read");
-        let pointer = refresh
+        let pointer = PRE_DISPLAY_REPOSITORY_CPP
             .find("kirin_os.json")
             .expect("active pointer must be read");
         assert!(
             clear < pointer,
             "explicit clear must be resolved before any active pointer"
         );
-        assert!(refresh.contains("workerState->guide = {};"));
+        assert!(PRE_DISPLAY_REPOSITORY_CPP.contains("retainedGuide = {};"));
     }
 
     #[test]

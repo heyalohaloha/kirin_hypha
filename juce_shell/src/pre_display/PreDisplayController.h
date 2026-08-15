@@ -1,44 +1,14 @@
 #pragma once
 
+#include <memory>
+
 #include <juce_core/juce_core.h>
 
 #include "PreDisplayClock.h"
+#include "PreDisplayModel.h"
 
 namespace hypha::pre_display
 {
-    enum class DisplayStatus
-    {
-        none,
-        received,
-        waitingForProjectClock,
-        active,
-        next,
-        end,
-    };
-
-    struct DisplaySnapshot
-    {
-        DisplayStatus status = DisplayStatus::none;
-        juce::String guideId;
-        juce::String contentHash;
-        juce::String payloadKind;
-        juce::String primary;
-        juce::String detail;
-    };
-
-    struct RuntimeIdentity
-    {
-        juce::String instanceId;
-        juce::String projectUuid;
-        juce::String dawSessionUuid;
-        juce::String name;
-        juce::String pluginVersion;
-        juce::String pluginFormat;
-        juce::String platform;
-        juce::String architecture;
-        std::uint32_t hostProcessId = 0;
-    };
-
     class Controller final : private juce::Thread
     {
     public:
@@ -55,9 +25,6 @@ namespace hypha::pre_display
         struct WorkerState;
 
         void run() override;
-        bool writePresence (const RuntimeIdentity&, const ClockSnapshot&);
-        void refreshActiveGuide();
-        DisplaySnapshot projectDisplay (const ClockSnapshot&, std::int64_t nowMs) const;
         void publishDisplay (DisplaySnapshot);
         void removeOwnPresence();
 
