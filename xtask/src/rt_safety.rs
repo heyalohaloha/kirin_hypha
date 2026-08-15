@@ -14,6 +14,10 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/../crates/kirin_measure/src/record_take.rs"
     ));
+    const PRE_DISPLAY_CLOCK_H: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../juce_shell/src/pre_display/PreDisplayClock.h"
+    ));
 
     fn strip_line_comments(source: &str) -> String {
         source
@@ -120,6 +124,36 @@ mod tests {
 
         assert!(body.contains("getReadPointer"));
         assert!(!body.contains("getWritePointer"));
+        assert!(body.contains("preDisplayClock.publish"));
+    }
+
+    #[test]
+    fn pre_display_audio_handoff_is_lock_free_and_has_no_io_surface() {
+        for required in [
+            "std::atomic<std::uint64_t>",
+            "std::atomic<std::int64_t>",
+            "std::memory_order_release",
+            "is_always_lock_free",
+        ] {
+            assert!(PRE_DISPLAY_CLOCK_H.contains(required), "missing {required}");
+        }
+        for forbidden in [
+            "juce::File",
+            "std::filesystem",
+            "std::mutex",
+            "CriticalSection",
+            "String",
+            "vector",
+            "new ",
+            "malloc",
+            "sleep",
+            "wait",
+        ] {
+            assert!(
+                !PRE_DISPLAY_CLOCK_H.contains(forbidden),
+                "PRE display audio handoff must not contain {forbidden}"
+            );
+        }
     }
 
     #[test]

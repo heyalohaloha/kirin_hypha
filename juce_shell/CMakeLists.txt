@@ -129,6 +129,15 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         src/PostControls.cpp     # B-054: POST Keep/Stop/Mark/Sense button row
         ${MAIN_SRC})
 
+    if("${TARGET}" STREQUAL "KirinHyphaPRE")
+        target_sources(${TARGET} PRIVATE
+            src/pre_display/PreDisplayController.cpp)
+        target_compile_definitions(${TARGET} PRIVATE KIRIN_HYPHA_PRE_DISPLAY=1)
+        target_link_libraries(${TARGET} PRIVATE juce::juce_cryptography)
+    else()
+        target_compile_definitions(${TARGET} PRIVATE KIRIN_HYPHA_PRE_DISPLAY=0)
+    endif()
+
     if(TARGET KirinHyphaRustFFI)
         add_dependencies(${TARGET} KirinHyphaRustFFI)
     endif()

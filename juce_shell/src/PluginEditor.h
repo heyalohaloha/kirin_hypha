@@ -82,6 +82,10 @@ private:
     std::array<hypha::MetricCell, 6> cells;
     hypha::LoudnessSelector   loudnessSelector;           // occupies cell 0's existing label column
     juce::Label               feedbackLabel;              // toast > persistent error > Keeping
+#if KIRIN_HYPHA_PRE_DISPLAY
+    juce::Label               preDisplayPrimaryLabel;      // PRE-only current/next measured fact
+    juce::Label               preDisplayDetailLabel;       // PRE-only bounded context line
+#endif
     std::unique_ptr<hypha::PostControls> postControls;    // POST button row
     juce::TextButton          pairDropdown;                // POST: ▼ candidate / All Keep / All Stop
     juce::TooltipWindow       tooltip { this };           // drives per-cell hover help

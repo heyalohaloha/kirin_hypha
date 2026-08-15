@@ -2,10 +2,13 @@
 #include "../src/HyphaDisplayContract.h"
 #include "../src/HyphaClockSourceContract.h"
 #include "../src/HyphaSignalStateContract.h"
+#include "../src/pre_display/PreDisplayClock.h"
+#include "../src/pre_display/PreDisplayProjection.h"
 #include "../../crates/kirin_hypha_ffi/include/kirin_hypha_ffi.h"
 
 #include <cassert>
 #include <cstring>
+#include <limits>
 
 namespace ui = hypha::ui_contract;
 namespace display = hypha::display_contract;
@@ -40,6 +43,41 @@ namespace
 
 int main()
 {
+    hypha::pre_display::ClockTap preDisplayClock;
+    hypha::pre_display::ClockSnapshot preDisplaySnapshot;
+    assert (! preDisplayClock.read (preDisplaySnapshot));
+    preDisplayClock.publish (-512, 48'000.0, 512, true,
+                             hypha::pre_display::ClockSource::projectTimeline);
+    assert (preDisplayClock.read (preDisplaySnapshot));
+    assert (preDisplaySnapshot.generation == 1);
+    assert (preDisplaySnapshot.positionSamples == -512);
+    assert (preDisplaySnapshot.sampleRate == 48'000.0);
+    assert (preDisplaySnapshot.blockFrames == 512);
+    assert (preDisplaySnapshot.playing);
+    assert (preDisplaySnapshot.source == hypha::pre_display::ClockSource::projectTimeline);
+    static_assert (hypha::pre_display::canProjectGuideTime (
+        hypha::pre_display::ClockSource::projectTimeline));
+    static_assert (! hypha::pre_display::canProjectGuideTime (
+        hypha::pre_display::ClockSource::audioRenderTimeline));
+    static_assert (! hypha::pre_display::canProjectGuideTime (
+        hypha::pre_display::ClockSource::unknown));
+    std::int64_t projectedNanoseconds = 0;
+    assert (hypha::pre_display::projectSamplesToNanoseconds (48'000, 48'000.0,
+                                                             projectedNanoseconds));
+    assert (projectedNanoseconds == 1'000'000'000);
+    assert (hypha::pre_display::projectSamplesToNanoseconds (-24'000, 48'000.0,
+                                                             projectedNanoseconds));
+    assert (projectedNanoseconds == -500'000'000);
+    assert (! hypha::pre_display::projectSamplesToNanoseconds (1, 0.0, projectedNanoseconds));
+    static_assert (hypha::pre_display::containsHalfOpen (10, 20, 10));
+    static_assert (! hypha::pre_display::containsHalfOpen (10, 20, 20));
+    std::int64_t sourceNanoseconds = 0;
+    assert (hypha::pre_display::subtractNanoseconds (2'000, 500, sourceNanoseconds));
+    assert (sourceNanoseconds == 1'500);
+    assert (! hypha::pre_display::subtractNanoseconds (
+        std::numeric_limits<std::int64_t>::min(), 1, sourceNanoseconds));
+    assert (! hypha::pre_display::subtractNanoseconds (
+        std::numeric_limits<std::int64_t>::max(), -1, sourceNanoseconds));
     static_assert (ui::editorWidth == 300 && ui::editorHeight == 200);
     static_assert (ui::titleFontHeight == 20.0f);
     static_assert (ui::metricLabelFontHeight >= 12.0f);
@@ -172,6 +210,9 @@ int main()
     assert (post.postControls.y == 149 && post.postControls.height == 28);
     assert (post.feedback.y == 178 && post.feedback.height == 20);
     assert (pre.feedback.y == post.feedback.y);
+    assert (pre.preDisplayPrimary.y == 126 && pre.preDisplayPrimary.height == 18);
+    assert (pre.preDisplayDetail.y == 144 && pre.preDisplayDetail.height == 18);
+    assert (! hasArea (post.preDisplayPrimary) && ! hasArea (post.preDisplayDetail));
     assert (ui::bottom (post.feedback) == ui::editorHeight - 2);
     assert (ui::loudnessSelectorBounds (pre.metricTop).width == ui::loudnessSelectorWidth);
     assert (ui::loudnessSelectorBounds (post.metricTop).width == ui::loudnessSelectorWidth);
@@ -189,6 +230,8 @@ int main()
     assert (! overlaps (pre.title, pre.name));
     assert (! overlaps (pre.name, pre.pairStatus));
     assert (! overlaps (pre.pairStatus, pre.led));
+    assert (! overlaps (pre.preDisplayPrimary, pre.preDisplayDetail));
+    assert (! overlaps (pre.preDisplayDetail, pre.feedback));
     assert (! overlaps (post.title, post.pairStatus));
     assert (! overlaps (post.pairStatus, post.led));
     assert (! overlaps (post.name, post.pairDropdown));

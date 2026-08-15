@@ -25,6 +25,7 @@ namespace hypha::ui_contract
     constexpr int metricHeight      = metricRowPitch * 2 + metricRowHeight;
     constexpr int postControlHeight = 28;
     constexpr int feedbackHeight    = 20;
+    constexpr int preDisplayLineHeight = 18;
 
     // PopupMenu is a separate native window in desktop AU/VST3 hosts. Its geometry therefore
     // cannot inherit the 300x200 editor scale and must be explicit in the shared contract.
@@ -38,6 +39,8 @@ namespace hypha::ui_contract
     constexpr float titleFontHeight       = 20.0f;
     constexpr float pairStatusFontHeight  = 13.0f;
     constexpr float feedbackFontHeight    = 13.0f;
+    constexpr float preDisplayPrimaryFontHeight = 12.0f;
+    constexpr float preDisplayDetailFontHeight = 11.0f;
     constexpr float metricLabelFontHeight = 12.0f;
     constexpr float metricValueFontHeight = 17.0f;
     constexpr float metricUnitFontHeight  = 12.0f;
@@ -84,6 +87,8 @@ namespace hypha::ui_contract
         Rect name;
         Rect pairDropdown;
         Rect postControls;
+        Rect preDisplayPrimary;
+        Rect preDisplayDetail;
         Rect feedback;
         int floraY = 0;
         int metricTop = 0;
@@ -128,6 +133,11 @@ namespace hypha::ui_contract
             layout.name = { fieldLeft, topSpace, fieldRight - fieldLeft, titleHeight };
             layout.floraY = topSpace + titleHeight + 4;
             layout.metricTop = layout.floraY + 1 + 4;
+            const int displayTop = layout.metricTop + metricHeight + 4;
+            layout.preDisplayPrimary = { margin, displayTop,
+                                         width - 2 * margin, preDisplayLineHeight };
+            layout.preDisplayDetail = { margin, displayTop + preDisplayLineHeight,
+                                        width - 2 * margin, preDisplayLineHeight };
         }
 
         // One bottom-aligned feedback row is shared by both roles. Transient user feedback,
@@ -231,6 +241,12 @@ namespace hypha::ui_contract
                    "POST metric grid must fit the editor");
     static_assert (bottom (metricCellBounds (5, editorLayout (false).metricTop)) <= editorHeight,
                    "PRE metric grid must fit the editor");
+    static_assert (bottom (editorLayout (false).preDisplayDetail)
+                       <= editorLayout (false).feedback.y,
+                   "PRE two-line guide and feedback must not overlap");
+    static_assert (editorLayout (true).preDisplayPrimary.width == 0
+                       && editorLayout (true).preDisplayDetail.width == 0,
+                   "POST must not acquire PRE display geometry");
     static_assert (editorLayout (false).name.width >= 160,
                    "Every valid 16-character PRE name must fit at the release font size");
     static_assert (watchMetrics[1].maximum && watchMetrics[3].maximum && watchMetrics[5].maximum,

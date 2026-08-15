@@ -45,6 +45,10 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/../juce_shell/src/HyphaDisplayContract.h"
     ));
+    const PRE_DISPLAY_CONTROLLER_CPP: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../juce_shell/src/pre_display/PreDisplayController.cpp"
+    ));
 
     fn read_juce_au_wrapper() -> Option<String> {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
@@ -155,6 +159,47 @@ mod tests {
                 "format-specific UI branch can make AU and VST3 visually diverge: {forbidden}"
             );
         }
+    }
+
+    #[test]
+    fn pre_display_is_compiled_only_into_pre_while_au_and_vst3_share_it() {
+        assert!(JUCE_PLUGIN_CONFIG.contains("#define KIRIN_HYPHA_PRE_DISPLAY 0"));
+        assert_eq!(
+            count_occurrences(JUCE_CMAKE, "src/pre_display/PreDisplayController.cpp"),
+            1
+        );
+        assert!(JUCE_CMAKE.contains("if(\"${TARGET}\" STREQUAL \"KirinHyphaPRE\")"));
+        assert!(JUCE_CMAKE.contains("KIRIN_HYPHA_PRE_DISPLAY=1"));
+        assert!(JUCE_CMAKE.contains("KIRIN_HYPHA_PRE_DISPLAY=0"));
+        assert!(
+            JUCE_CMAKE.contains("target_link_libraries(${TARGET} PRIVATE juce::juce_cryptography)")
+        );
+        assert!(PLUGIN_EDITOR_H.contains("#if KIRIN_HYPHA_PRE_DISPLAY"));
+        assert!(PLUGIN_PROCESSOR_CPP.contains("preDisplayClock.publish"));
+        assert!(HYPHA_UI_CONTRACT_H.contains("POST must not acquire PRE display geometry"));
+        assert!(PRE_DISPLAY_CONTROLLER_CPP
+            .contains(".getChildFile (\"active\").getChildFile (\"kirin_os.json\")"));
+        assert!(!PRE_DISPLAY_CONTROLLER_CPP.contains("TRACE"));
+    }
+
+    #[test]
+    fn pre_display_explicit_clear_precedes_active_pointer_recovery() {
+        let refresh = between(
+            PRE_DISPLAY_CONTROLLER_CPP,
+            "void Controller::refreshActiveGuide()",
+            "DisplaySnapshot Controller::projectDisplay",
+        );
+        let clear = refresh
+            .find("kirin_os.clear.json")
+            .expect("group clear authority must be read");
+        let pointer = refresh
+            .find("kirin_os.json")
+            .expect("active pointer must be read");
+        assert!(
+            clear < pointer,
+            "explicit clear must be resolved before any active pointer"
+        );
+        assert!(refresh.contains("workerState->guide = {};"));
     }
 
     #[test]

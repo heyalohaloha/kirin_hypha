@@ -7,6 +7,15 @@
 
 namespace
 {
+#if KIRIN_HYPHA_PRE_DISPLAY
+    static_assert (static_cast<std::uint8_t> (hypha::pre_display::ClockSource::unknown)
+                       == KIRIN_HYPHA_CLOCK_UNKNOWN);
+    static_assert (static_cast<std::uint8_t> (hypha::pre_display::ClockSource::projectTimeline)
+                       == KIRIN_HYPHA_CLOCK_PROJECT_TIMELINE);
+    static_assert (static_cast<std::uint8_t> (hypha::pre_display::ClockSource::audioRenderTimeline)
+                       == KIRIN_HYPHA_CLOCK_AUDIO_RENDER_TIMELINE);
+#endif
+
     // Logic stopped-state fix: expose Inactive PRE/POST presence without waiting for the first audio callback.
     // The 50 ms Timer grants a bounded state-restore window before enabling from prepareToPlay.
     constexpr int kPrepareEnableDelayTicks = 10;
@@ -74,6 +83,9 @@ KirinHyphaProcessorBase::KirinHyphaProcessorBase (Role roleIn)
 KirinHyphaProcessorBase::~KirinHyphaProcessorBase()
 {
     stopTimer(); // B-126: stop the non-RT enable poll before teardown (was cancelPendingUpdate / B-070).
+#if KIRIN_HYPHA_PRE_DISPLAY
+    preDisplayController.reset();
+#endif
     const juce::ScopedLock sl (handleLock);
     if (hyphaHandle != nullptr)
     {
@@ -263,6 +275,12 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
     // promote those values to wav_clock_native; render span remains a lower-trust fallback
     // until a host-supplied native sample range exists.
     lastPlaying.store (playing, std::memory_order_release); // B-054: POST pair lock reads this
+#if KIRIN_HYPHA_PRE_DISPLAY
+    if (role == Role::Pre)
+        preDisplayClock.publish (positionSamples, preparedSampleRate,
+                                 static_cast<std::uint32_t> (juce::jmax (0, numFrames)), playing,
+                                 static_cast<hypha::pre_display::ClockSource> (clockSource));
+#endif
     const bool positionChanged = hasPosition && lastProcessPositionValid
                               && positionSamples != lastProcessPositionSamples;
     const bool watchSampleTimelineStartedNewPass =
@@ -506,6 +524,15 @@ void KirinHyphaProcessorBase::setUseShortTermLoudness (bool shortTerm)
     updateHostDisplay (ChangeDetails {}.withNonParameterStateChanged (true));
 }
 
+#if KIRIN_HYPHA_PRE_DISPLAY
+hypha::pre_display::DisplaySnapshot KirinHyphaProcessorBase::preDisplaySnapshot() const
+{
+    return preDisplayController != nullptr
+        ? preDisplayController->displaySnapshot()
+        : hypha::pre_display::DisplaySnapshot {};
+}
+#endif
+
 // --- B-072: POST pairing surface ---------------------------------------------------------
 
 bool KirinHyphaProcessorBase::isRecording() const
@@ -685,6 +712,10 @@ void KirinHyphaProcessorBase::setPreName (const juce::String& name)
     // io_thread via the FFI (sanitized to ASCII graphic + space / 16 there). Mirrors how the
     // egui PRE writes its shared name Arc; persistName keeps DAW save/load consistent.
     persistName = name;
+#if KIRIN_HYPHA_PRE_DISPLAY
+    if (preDisplayController != nullptr)
+        preDisplayController->setName (name);
+#endif
     const juce::ScopedLock sl (handleLock);
     if (hyphaHandle != nullptr)
         kirin_hypha_set_pre_name (hyphaHandle, name.toRawUTF8());
@@ -1026,6 +1057,36 @@ void KirinHyphaProcessorBase::enableWritesNow()
     persistProjectUuid    = juce::String::fromUTF8 (id.project_uuid);
     persistDawSessionUuid = juce::String::fromUTF8 (id.daw_session_uuid);
     persistName           = juce::String::fromUTF8 (id.name);
+
+#if KIRIN_HYPHA_PRE_DISPLAY
+    if (role == Role::Pre)
+    {
+        hypha::pre_display::ClockSnapshot initialClock;
+        if (! preDisplayClock.read (initialClock))
+            preDisplayClock.publish (0, preparedSampleRate, 0, false,
+                                     hypha::pre_display::ClockSource::unknown);
+        if (preDisplayController == nullptr)
+            preDisplayController = std::make_unique<hypha::pre_display::Controller> (preDisplayClock);
+        hypha::pre_display::RuntimeIdentity displayIdentity;
+        displayIdentity.instanceId = persistInstanceId;
+        displayIdentity.projectUuid = persistProjectUuid;
+        displayIdentity.dawSessionUuid = persistDawSessionUuid;
+        displayIdentity.name = persistName;
+        displayIdentity.pluginVersion = JucePlugin_VersionString;
+        displayIdentity.pluginFormat = wrapperType == juce::AudioProcessor::wrapperType_AudioUnit ? "AU" : "VST3";
+       #if JUCE_WINDOWS
+        displayIdentity.platform = "windows";
+       #else
+        displayIdentity.platform = "macos";
+       #endif
+       #if JUCE_ARM
+        displayIdentity.architecture = "arm64";
+       #else
+        displayIdentity.architecture = "x86_64";
+       #endif
+        preDisplayController->configureAndStart (std::move (displayIdentity));
+    }
+#endif
 
     writesEnabled.store (true, std::memory_order_release);
 }

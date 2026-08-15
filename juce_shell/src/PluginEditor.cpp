@@ -166,6 +166,25 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
     feedbackLabel.setInterceptsMouseClicks (false, false);
     addChildComponent (feedbackLabel);
 
+#if KIRIN_HYPHA_PRE_DISPLAY
+    if (! isPost)
+    {
+        preDisplayPrimaryLabel.setFont (hypha::monoFont (ui::preDisplayPrimaryFontHeight));
+        preDisplayPrimaryLabel.setJustificationType (juce::Justification::centredLeft);
+        preDisplayPrimaryLabel.setMinimumHorizontalScale (0.82f);
+        preDisplayPrimaryLabel.setInterceptsMouseClicks (false, false);
+        preDisplayPrimaryLabel.setColour (juce::Label::textColourId, COL_FLORA_BR);
+        addChildComponent (preDisplayPrimaryLabel);
+
+        preDisplayDetailLabel.setFont (hypha::monoFont (ui::preDisplayDetailFontHeight));
+        preDisplayDetailLabel.setJustificationType (juce::Justification::centredLeft);
+        preDisplayDetailLabel.setMinimumHorizontalScale (0.82f);
+        preDisplayDetailLabel.setInterceptsMouseClicks (false, false);
+        preDisplayDetailLabel.setColour (juce::Label::textColourId, COL_MUTED.brighter (0.35f));
+        addChildComponent (preDisplayDetailLabel);
+    }
+#endif
+
     configureForKind (Kind::WatchAbs6); // current | MAX, three rows
     resized();                     // finalise positions now that postControls exists
     // Producer JSON and meter snapshots advance at 100 ms. Polling faster cannot reveal newer
@@ -221,6 +240,13 @@ void KirinHyphaEditor::resized()
     loudnessSelector.setBounds (juceRect (ui::loudnessSelectorBounds (metricTop, getWidth())));
     if (isPost && postControls != nullptr)
         postControls->setBounds (juceRect (layout.postControls));
+#if KIRIN_HYPHA_PRE_DISPLAY
+    if (! isPost)
+    {
+        preDisplayPrimaryLabel.setBounds (juceRect (layout.preDisplayPrimary));
+        preDisplayDetailLabel.setBounds (juceRect (layout.preDisplayDetail));
+    }
+#endif
     feedbackLabel.setBounds (juceRect (layout.feedback));
 }
 
@@ -451,6 +477,13 @@ void KirinHyphaEditor::timerCallback()
 
 void KirinHyphaEditor::updatePre()
 {
+#if KIRIN_HYPHA_PRE_DISPLAY
+    const auto preDisplay = processorRef.preDisplaySnapshot();
+    preDisplayPrimaryLabel.setText (preDisplay.primary, juce::dontSendNotification);
+    preDisplayDetailLabel.setText (preDisplay.detail, juce::dontSendNotification);
+    preDisplayPrimaryLabel.setVisible (preDisplay.primary.isNotEmpty());
+    preDisplayDetailLabel.setVisible (preDisplay.detail.isNotEmpty());
+#endif
     const bool alive  = processorRef.measureAlive();
     const int  sig    = processorRef.signalStateLive(); // 0=Inactive 1=Active 2=Bypassed (B-113: heartbeat-aware)
     const bool rec    = processorRef.isRecording();    // record_sm (PRE autonomous record too)
