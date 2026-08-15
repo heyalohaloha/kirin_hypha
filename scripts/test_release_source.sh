@@ -48,6 +48,11 @@ run "${CXX:-c++}" -std=c++17 -Wall -Wextra -Wpedantic -Werror \
   juce_shell/tests/ui_contract_test.cpp -o "$UI_CONTRACT_BIN"
 run "$UI_CONTRACT_BIN"
 
+# The pinned JUCE submodule is intentionally pristine in a clean checkout. Both the runtime
+# build below and xtask's wrapper parity checks consume the tracked build-time patch stack, so
+# materialize that exact state here instead of relying on a developer's existing submodule tree.
+run bash scripts/apply_juce_patches.sh
+
 # Execute the file-backed PRE consumer itself: bounded parser, SHA-verified pointer recovery,
 # explicit clear authority, multiple-instance fan-out, time boundaries, and clock retention.
 PRE_DISPLAY_CMAKE_ARGS=(
