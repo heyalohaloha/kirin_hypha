@@ -71,6 +71,9 @@ private:
     void updateFeedback (double now, bool keeping, const juce::String& persistentError);
     juce::String instanceId8() const; // first 8 chars of instance_id (empty-name fallback)
     double nowSecs() const { return juce::Time::getMillisecondCounterHiRes() * 0.001; }
+#if KIRIN_HYPHA_PRE_DISPLAY
+    void layoutPreDisplayState (const juce::String& stateText);
+#endif
 
     KirinHyphaProcessorBase& processorRef;
     const bool isPost;
@@ -85,6 +88,7 @@ private:
 #if KIRIN_HYPHA_PRE_DISPLAY
     juce::Label               preDisplayPrimaryLabel;      // PRE-only current/next measured fact
     juce::Label               preDisplayDetailLabel;       // PRE-only bounded context line
+    juce::Label               preDisplayStateLabel;        // PRE-only state; reserved from context clipping
 #endif
     std::unique_ptr<hypha::PostControls> postControls;    // POST button row
     juce::TextButton          pairDropdown;                // POST: ▼ candidate / All Keep / All Stop

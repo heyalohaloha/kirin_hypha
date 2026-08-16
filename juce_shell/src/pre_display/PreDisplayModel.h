@@ -25,7 +25,9 @@ namespace hypha::pre_display
         juce::String payloadKind;
         juce::String primary;
         juce::String detail;
+        juce::String stateText;
         bool sectionActive = false;
+        bool cueActive = false;
     };
 
     struct RuntimeIdentity
@@ -41,6 +43,12 @@ namespace hypha::pre_display
         std::uint32_t hostProcessId = 0;
     };
 
+    enum class TemporalFactKind
+    {
+        measuredInterval,
+        instantMarker,
+    };
+
     struct GuideItem
     {
         juce::String itemId;
@@ -50,6 +58,7 @@ namespace hypha::pre_display
         juce::String frequencyBasis;
         std::int64_t startNs = 0;
         std::int64_t endNs = 0;
+        TemporalFactKind temporalKind = TemporalFactKind::measuredInterval;
         double lowHz = 0.0;
         double highHz = 0.0;
         bool hasBand = false;

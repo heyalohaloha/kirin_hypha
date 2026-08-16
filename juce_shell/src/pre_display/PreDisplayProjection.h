@@ -8,6 +8,12 @@
 
 namespace hypha::pre_display
 {
+    constexpr std::int64_t projectionPollMs = 100;
+    constexpr std::int64_t minimumCueWindowNs = 500'000'000;
+    constexpr std::int64_t inspectHoldWindowNs = 1'000'000'000;
+    static_assert (minimumCueWindowNs >= projectionPollMs * 4 * 1'000'000,
+                   "A short PRE fact must span several worker/UI presentation samples");
+
     struct DisplaySnapshot;
     struct GuideModel;
 
@@ -29,6 +35,16 @@ namespace hypha::pre_display
                                      std::int64_t position) noexcept
     {
         return position >= start && position < end;
+    }
+
+    constexpr std::int64_t saturatingAddNanoseconds (std::int64_t value,
+                                                      std::int64_t delta) noexcept
+    {
+        if (delta > 0 && value > std::numeric_limits<std::int64_t>::max() - delta)
+            return std::numeric_limits<std::int64_t>::max();
+        if (delta < 0 && value < std::numeric_limits<std::int64_t>::min() - delta)
+            return std::numeric_limits<std::int64_t>::min();
+        return value + delta;
     }
 
     constexpr bool subtractNanoseconds (std::int64_t projectNanoseconds,

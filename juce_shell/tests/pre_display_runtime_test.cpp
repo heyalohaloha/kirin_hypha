@@ -316,12 +316,29 @@ int main()
              "compact simultaneous masking bands without silently hiding their count");
     display = pre::projectDisplay (retained, clock, 1'000, 3'001);
     require (display.status == pre::DisplayStatus::active
-             && display.detail.contains ("PAUSED"),
+             && display.stateText.contains ("PAUSED")
+             && ! display.detail.contains ("PAUSED"),
              "retain the active guide while the project clock is paused or stale");
     clock.positionSamples = 96'000;
     display = pre::projectDisplay (retained, clock, 1'000, 1'000);
     require (display.status == pre::DisplayStatus::end && ! display.sectionActive,
              "end boundary is exclusive and restores the PRE context tone");
+
+    auto shortMasking = retained;
+    shortMasking.items.front().endNs = 1'050'000'000;
+    clock.positionSamples = 52'800; // 1.1 s: the next 100 ms worker sample crossed the interval.
+    display = pre::projectDisplay (shortMasking, clock, 1'000, 1'000);
+    require (display.status == pre::DisplayStatus::active
+             && ! display.sectionActive && display.cueActive
+             && display.stateText.contains ("CUE")
+             && display.primary.contains ("0:01.0")
+             && display.primary.contains (measuredBandText),
+             "give a crossed short MASKING interval a bounded cue at its factual location");
+    clock.positionSamples = 72'000; // 1.5 s: half-open cue end.
+    display = pre::projectDisplay (shortMasking, clock, 1'000, 1'000);
+    require (display.status == pre::DisplayStatus::end
+             && ! display.sectionActive && ! display.cueActive,
+             "end the short MASKING presentation cue at the shared bounded window");
 
     const auto pointerFile = root.getChildFile ("active").getChildFile ("kirin_os.json");
     auto pointerWithoutInstant = juce::JSON::parse (pointerFile);
@@ -446,8 +463,61 @@ int main()
     clock.positionSamples = 120'000;
     display = pre::projectDisplay (inspect, clock, 1'000, 1'000);
     require (display.status == pre::DisplayStatus::active
-             && ! display.sectionActive && display.detail.contains ("HELD"),
-             "retain INSPECT context after an event without retaining its active section tone");
+             && ! display.sectionActive && ! display.cueActive
+             && display.stateText.contains ("HELD")
+             && display.primary.contains ("0:01.0")
+             && ! display.detail.contains ("HELD"),
+             "retain INSPECT context at the event location without retaining its active tone");
+
+    auto pointValue = inspectGuide();
+    auto* pointEvent = pointValue.getDynamicObject()->getProperty ("payload")
+        .getDynamicObject()->getProperty ("events").getArray()->getReference (0)
+        .getDynamicObject();
+    pointEvent->setProperty ("start_ns", static_cast<juce::int64> (3'250'000'000));
+    pointEvent->setProperty ("end_ns", static_cast<juce::int64> (3'250'000'001));
+    pre::GuideModel pointInspect;
+    require (pre::parseArtifactVerifiedGuideModel (
+                 *pointValue.getDynamicObject(), "point-inspect", pointInspect)
+             && pointInspect.items.front().temporalKind == pre::TemporalFactKind::instantMarker,
+             "classify the one-nanosecond INSPECT wire interval as an instant marker");
+    clock.positionSamples = 153'600; // 3.2 s: the 100 ms worker sample before the point.
+    display = pre::projectDisplay (pointInspect, clock, 1'000, 1'000);
+    require (display.status == pre::DisplayStatus::next && ! display.cueActive,
+             "keep an instant marker in NEXT before its factual start");
+    clock.positionSamples = 158'400; // 3.3 s: the next worker sample has crossed the point.
+    display = pre::projectDisplay (pointInspect, clock, 1'000, 1'000);
+    require (display.status == pre::DisplayStatus::active
+             && ! display.sectionActive && display.cueActive
+             && display.stateText.contains ("CUE"),
+             "give a crossed instant marker a visible cue without extending its factual interval");
+    clock.playing = false;
+    display = pre::projectDisplay (pointInspect, clock, 1'000, 1'000);
+    require (display.cueActive && display.stateText.contains ("CUE")
+             && display.stateText.contains ("PAUSED"),
+             "retain the positional cue when the user pauses inside its presentation window");
+    clock.playing = true;
+    clock.positionSamples = 180'000; // 3.75 s: half-open cue end.
+    display = pre::projectDisplay (pointInspect, clock, 1'000, 1'000);
+    require (! display.sectionActive && ! display.cueActive
+             && display.primary.contains ("0:03.3")
+             && ! display.primary.contains ("0:03.8")
+             && display.stateText.contains ("HELD"),
+             "end the cue before retained INSPECT context without replacing the fact time");
+
+    auto longContext = pointInspect;
+    longContext.items.front().label = juce::String::repeatedString ("L", 48);
+    longContext.items.front().sourceLabel = juce::String::repeatedString ("S", 48);
+    longContext.items.front().channel = "very_long_channel_identifier";
+    clock.positionSamples = 180'000;
+    clock.playing = false;
+    display = pre::projectDisplay (longContext, clock, 1'000, 1'000);
+    require (display.primary.length() > 48
+             && display.detail.length() > 48
+             && display.stateText.contains ("HELD")
+             && display.stateText.contains ("PAUSED")
+             && ! display.detail.contains ("HELD")
+             && ! display.detail.contains ("PAUSED"),
+             "keep full bounded context separate from mandatory held and paused states");
     auto overlappingInspect = inspect;
     pre::GuideItem heldEvent;
     heldEvent.itemId = "held_event";

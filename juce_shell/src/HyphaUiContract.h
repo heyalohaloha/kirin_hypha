@@ -26,6 +26,9 @@ namespace hypha::ui_contract
     constexpr int postControlHeight = 28;
     constexpr int feedbackHeight    = 20;
     constexpr int preDisplayLineHeight = 18;
+    constexpr int preDisplayStateGap = 4;
+    constexpr int preDisplayDetailMinimumWidth = 72;
+    constexpr int preDisplayPresentationHz = 10;
 
     // PopupMenu is a separate native window in desktop AU/VST3 hosts. Its geometry therefore
     // cannot inherit the 300x200 editor scale and must be explicit in the shared contract.
@@ -61,6 +64,7 @@ namespace hypha::ui_contract
     constexpr std::uint32_t background = 0xff0d0f1a;
     constexpr std::uint32_t normal     = 0xffe0e0e0;
     constexpr std::uint32_t muted      = 0xff606060;
+    constexpr std::uint32_t preDisplayContextDetail = 0xff898989;
     constexpr std::uint32_t flora      = 0xffd4a043;
     constexpr std::uint32_t floraBright = 0xffffe0a0;
     constexpr std::uint32_t ledBlue    = 0xff4488cc;
@@ -71,17 +75,17 @@ namespace hypha::ui_contract
     enum class PreDisplayTone
     {
         context,
-        sectionActive,
+        emphasis,
     };
 
     constexpr std::uint32_t preDisplayPrimaryColour (PreDisplayTone tone) noexcept
     {
-        return tone == PreDisplayTone::sectionActive ? flora : normal;
+        return tone == PreDisplayTone::emphasis ? flora : normal;
     }
 
     constexpr std::uint32_t preDisplayDetailColour (PreDisplayTone tone) noexcept
     {
-        return tone == PreDisplayTone::sectionActive ? flora : muted;
+        return tone == PreDisplayTone::emphasis ? flora : preDisplayContextDetail;
     }
 
     struct Rect
@@ -94,6 +98,31 @@ namespace hypha::ui_contract
 
     constexpr int right (Rect r) noexcept  { return r.x + r.width; }
     constexpr int bottom (Rect r) noexcept { return r.y + r.height; }
+
+    struct PreDisplayDetailLayout
+    {
+        Rect detail;
+        Rect state;
+    };
+
+    constexpr PreDisplayDetailLayout preDisplayDetailLayout (
+        Rect fullLine, int requestedStateWidth) noexcept
+    {
+        if (requestedStateWidth <= 0)
+            return { fullLine, {} };
+        const int maximumStateWidth = fullLine.width - preDisplayStateGap
+                                    - preDisplayDetailMinimumWidth;
+        if (maximumStateWidth <= 0)
+            return { fullLine, {} };
+        const int stateWidth = requestedStateWidth > maximumStateWidth
+            ? maximumStateWidth : requestedStateWidth;
+        return {
+            { fullLine.x, fullLine.y,
+              fullLine.width - preDisplayStateGap - stateWidth, fullLine.height },
+            { fullLine.x + fullLine.width - stateWidth, fullLine.y,
+              stateWidth, fullLine.height },
+        };
+    }
 
     struct EditorLayout
     {
@@ -267,10 +296,10 @@ namespace hypha::ui_contract
                        && editorLayout (true).preDisplayDetail.width == 0,
                    "POST must not acquire PRE display geometry");
     static_assert (preDisplayPrimaryColour (PreDisplayTone::context)
-                       != preDisplayPrimaryColour (PreDisplayTone::sectionActive)
+                       != preDisplayPrimaryColour (PreDisplayTone::emphasis)
                        && preDisplayDetailColour (PreDisplayTone::context)
-                       != preDisplayDetailColour (PreDisplayTone::sectionActive),
-                   "Only the active PRE guide section must have a distinct static tone");
+                       != preDisplayDetailColour (PreDisplayTone::emphasis),
+                   "Only a factual PRE section or bounded positional cue has emphasis tone");
     static_assert (editorLayout (false).name.width >= 160,
                    "Every valid 16-character PRE name must fit at the release font size");
     static_assert (watchMetrics[1].maximum && watchMetrics[3].maximum && watchMetrics[5].maximum,

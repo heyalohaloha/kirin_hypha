@@ -15,7 +15,6 @@ namespace hypha::pre_display
 {
     namespace
     {
-        constexpr std::int64_t projectionPollMs = 100;
         constexpr int guideScanEveryPolls = 5;
 
         std::uint32_t currentProcessId() noexcept

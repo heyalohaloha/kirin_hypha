@@ -172,6 +172,11 @@ namespace hypha::pre_display
 
             if (model.payloadKind == "inspect")
             {
+                // Guide v1 represents an event without a measured end as a one-nanosecond
+                // half-open wire interval. Keep that fact distinct from the presentation cue.
+                item.temporalKind = item.endNs - item.startNs == 1
+                    ? TemporalFactKind::instantMarker
+                    : TemporalFactKind::measuredInterval;
                 const auto typeId = objectString (object, "type_id");
                 const auto sourceRef = objectString (object, "source_ref");
                 if (! safeId (typeId) || ! safeId (sourceRef))

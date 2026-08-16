@@ -196,7 +196,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         preDisplayPrimaryLabel.setFont (hypha::monoFont (ui::preDisplayPrimaryFontHeight));
         preDisplayPrimaryLabel.setJustificationType (juce::Justification::centredLeft);
         preDisplayPrimaryLabel.setMinimumHorizontalScale (1.0f);
-        preDisplayPrimaryLabel.setInterceptsMouseClicks (false, false);
+        preDisplayPrimaryLabel.setInterceptsMouseClicks (true, false);
         preDisplayPrimaryLabel.setColour (
             juce::Label::textColourId,
             juce::Colour (ui::preDisplayPrimaryColour (ui::PreDisplayTone::context)));
@@ -205,11 +205,20 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         preDisplayDetailLabel.setFont (hypha::monoFont (ui::preDisplayDetailFontHeight));
         preDisplayDetailLabel.setJustificationType (juce::Justification::centredLeft);
         preDisplayDetailLabel.setMinimumHorizontalScale (1.0f);
-        preDisplayDetailLabel.setInterceptsMouseClicks (false, false);
+        preDisplayDetailLabel.setInterceptsMouseClicks (true, false);
         preDisplayDetailLabel.setColour (
             juce::Label::textColourId,
             juce::Colour (ui::preDisplayDetailColour (ui::PreDisplayTone::context)));
         addChildComponent (preDisplayDetailLabel);
+
+        preDisplayStateLabel.setFont (hypha::monoFont (ui::preDisplayDetailFontHeight));
+        preDisplayStateLabel.setJustificationType (juce::Justification::centredRight);
+        preDisplayStateLabel.setMinimumHorizontalScale (1.0f);
+        preDisplayStateLabel.setInterceptsMouseClicks (true, false);
+        preDisplayStateLabel.setColour (
+            juce::Label::textColourId,
+            juce::Colour (ui::preDisplayDetailColour (ui::PreDisplayTone::context)));
+        addChildComponent (preDisplayStateLabel);
     }
 #endif
 
@@ -217,7 +226,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
     resized();                     // finalise positions now that postControls exists
     // Producer JSON and meter snapshots advance at 100 ms. Polling faster cannot reveal newer
     // facts, so the shared AU/VST3 editor uses one 10 Hz presentation clock.
-    startTimerHz (10);
+    startTimerHz (ui::preDisplayPresentationHz);
 }
 
 KirinHyphaEditor::~KirinHyphaEditor()
@@ -272,11 +281,24 @@ void KirinHyphaEditor::resized()
     if (! isPost)
     {
         preDisplayPrimaryLabel.setBounds (juceRect (layout.preDisplayPrimary));
-        preDisplayDetailLabel.setBounds (juceRect (layout.preDisplayDetail));
+        layoutPreDisplayState (preDisplayStateLabel.getText());
     }
 #endif
     feedbackLabel.setBounds (juceRect (layout.feedback));
 }
+
+#if KIRIN_HYPHA_PRE_DISPLAY
+void KirinHyphaEditor::layoutPreDisplayState (const juce::String& stateText)
+{
+    const auto fullLine = ui::editorLayout (false, getWidth()).preDisplayDetail;
+    const auto requestedWidth = stateText.isEmpty() ? 0 : juce::roundToInt (
+        std::ceil (preDisplayStateLabel.getFont().getStringWidthFloat (stateText)))
+        + preDisplayStateLabel.getBorderSize().getLeftAndRight();
+    const auto split = ui::preDisplayDetailLayout (fullLine, requestedWidth);
+    preDisplayDetailLabel.setBounds (juceRect (split.detail));
+    preDisplayStateLabel.setBounds (juceRect (split.state));
+}
+#endif
 
 void KirinHyphaEditor::layoutMetrics (bool)
 {
@@ -507,8 +529,8 @@ void KirinHyphaEditor::updatePre()
 {
 #if KIRIN_HYPHA_PRE_DISPLAY
     const auto preDisplay = processorRef.preDisplaySnapshot();
-    const auto preDisplayTone = preDisplay.sectionActive
-        ? ui::PreDisplayTone::sectionActive
+    const auto preDisplayTone = preDisplay.sectionActive || preDisplay.cueActive
+        ? ui::PreDisplayTone::emphasis
         : ui::PreDisplayTone::context;
     preDisplayPrimaryLabel.setColour (
         juce::Label::textColourId,
@@ -516,12 +538,22 @@ void KirinHyphaEditor::updatePre()
     preDisplayDetailLabel.setColour (
         juce::Label::textColourId,
         juce::Colour (ui::preDisplayDetailColour (preDisplayTone)));
-    preDisplayPrimaryLabel.setText (fitLabelText (preDisplayPrimaryLabel, preDisplay.primary),
-                                    juce::dontSendNotification);
-    preDisplayDetailLabel.setText (fitLabelText (preDisplayDetailLabel, preDisplay.detail),
-                                   juce::dontSendNotification);
+    preDisplayStateLabel.setColour (
+        juce::Label::textColourId,
+        juce::Colour (ui::preDisplayDetailColour (preDisplayTone)));
+    preDisplayStateLabel.setText (preDisplay.stateText, juce::dontSendNotification);
+    layoutPreDisplayState (preDisplay.stateText);
+    const auto fittedPrimary = fitLabelText (preDisplayPrimaryLabel, preDisplay.primary);
+    const auto fittedDetail = fitLabelText (preDisplayDetailLabel, preDisplay.detail);
+    preDisplayPrimaryLabel.setText (fittedPrimary, juce::dontSendNotification);
+    preDisplayDetailLabel.setText (fittedDetail, juce::dontSendNotification);
+    preDisplayPrimaryLabel.setTooltip (
+        fittedPrimary == preDisplay.primary ? juce::String() : preDisplay.primary);
+    preDisplayDetailLabel.setTooltip (
+        fittedDetail == preDisplay.detail ? juce::String() : preDisplay.detail);
     preDisplayPrimaryLabel.setVisible (preDisplay.primary.isNotEmpty());
     preDisplayDetailLabel.setVisible (preDisplay.detail.isNotEmpty());
+    preDisplayStateLabel.setVisible (preDisplay.stateText.isNotEmpty());
 #endif
     const bool alive  = processorRef.measureAlive();
     const int  sig    = processorRef.signalStateLive(); // 0=Inactive 1=Active 2=Bypassed (B-113: heartbeat-aware)

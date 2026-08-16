@@ -10,17 +10,14 @@ namespace hypha::pre_display
     namespace
     {
         constexpr std::int64_t kClockStaleMs = 2'000;
-        constexpr std::int64_t kInspectHoldNs = 1'000'000'000;
-
         juce::String rangeSeparator() { return juce::String::charToString (0x2013); }
         juce::String factSeparator() { return "  " + juce::String::charToString (0x00b7) + "  "; }
 
-        juce::String compactText (const juce::String& text, int maximumCharacters)
+        void appendState (DisplaySnapshot& snapshot, const juce::String& state)
         {
-            if (text.length() <= maximumCharacters)
-                return text;
-            return text.substring (0, juce::jmax (1, maximumCharacters - 1)).trimEnd()
-                 + juce::String::charToString (0x2026);
+            if (state.isEmpty())
+                return;
+            snapshot.stateText += snapshot.stateText.isEmpty() ? state : factSeparator() + state;
         }
 
         juce::String conciseNumber (double value)
@@ -48,7 +45,9 @@ namespace hypha::pre_display
 
         juce::String timeText (std::int64_t nanoseconds)
         {
-            const auto tenths = juce::jmax<std::int64_t> (0, (nanoseconds + 50'000'000) / 100'000'000);
+            const auto nonNegative = juce::jmax<std::int64_t> (0, nanoseconds);
+            const auto tenths = nonNegative / 100'000'000
+                              + (nonNegative % 100'000'000 >= 50'000'000 ? 1 : 0);
             const auto totalSeconds = tenths / 10;
             const auto hours = totalSeconds / 3'600;
             const auto minutes = (totalSeconds / 60) % 60;
@@ -78,13 +77,7 @@ namespace hypha::pre_display
                 if (band.isNotEmpty()) parts.add (band);
             }
             if (overlapCount > 0) parts.add ("+" + juce::String (overlapCount));
-            return compactText (parts.joinIntoString (factSeparator()), 48);
-        }
-
-        void compact (DisplaySnapshot& snapshot)
-        {
-            snapshot.primary = compactText (snapshot.primary, 48);
-            snapshot.detail = compactText (snapshot.detail, 48);
+            return parts.joinIntoString (factSeparator());
         }
     }
 
@@ -113,7 +106,6 @@ namespace hypha::pre_display
                 out.detail = "Legacy guide" + factSeparator() + "No timed items"
                            + factSeparator() + "Retained";
             }
-            compact (out);
             return out;
         }
 
@@ -132,7 +124,6 @@ namespace hypha::pre_display
             }
             else
                 out.detail = "No timed items" + factSeparator() + "Guide retained";
-            compact (out);
             return out;
         }
 
@@ -142,13 +133,14 @@ namespace hypha::pre_display
             out.status = DisplayStatus::waitingForProjectClock;
             out.primary = heading + "  RECEIVED";
             out.detail = "Timeline outside guide range" + factSeparator() + "Guide retained";
-            compact (out);
             return out;
         }
 
         const GuideItem* chosenActive = nullptr;
+        const GuideItem* chosenCue = nullptr;
         const GuideItem* chosenHeld = nullptr;
         int activeCount = 0;
+        int cueCount = 0;
         int heldCount = 0;
         const auto prefer = [&guide] (const GuideItem& item, const GuideItem* chosen)
         {
@@ -164,13 +156,24 @@ namespace hypha::pre_display
         for (const auto& item : guide.items)
         {
             const bool active = containsHalfOpen (item.startNs, item.endNs, sourceNs);
-            const bool isHeld = guide.payloadKind == "inspect" && sourceNs >= item.endNs
-                             && sourceNs < item.endNs + kInspectHoldNs;
+            const auto cueEnd = juce::jmax (
+                item.endNs, saturatingAddNanoseconds (item.startNs, minimumCueWindowNs));
+            const bool cue = ! active && containsHalfOpen (item.startNs, cueEnd, sourceNs);
+            const bool isHeld = guide.payloadKind == "inspect" && ! cue
+                             && sourceNs >= cueEnd
+                             && sourceNs < saturatingAddNanoseconds (
+                                    item.endNs, inspectHoldWindowNs);
             if (active)
             {
                 ++activeCount;
                 if (prefer (item, chosenActive))
                     chosenActive = &item;
+            }
+            else if (cue)
+            {
+                ++cueCount;
+                if (prefer (item, chosenCue))
+                    chosenCue = &item;
             }
             else if (isHeld)
             {
@@ -179,14 +182,23 @@ namespace hypha::pre_display
                     chosenHeld = &item;
             }
         }
-        const auto* chosen = chosenActive != nullptr ? chosenActive : chosenHeld;
-        const bool held = chosenActive == nullptr && chosenHeld != nullptr;
-        const int overlapCount = activeCount > 0 ? activeCount : heldCount;
+        const auto* chosen = chosenActive != nullptr ? chosenActive
+                           : chosenCue != nullptr ? chosenCue : chosenHeld;
+        const bool cue = chosenActive == nullptr && chosenCue != nullptr;
+        const bool held = chosenActive == nullptr && chosenCue == nullptr
+                       && chosenHeld != nullptr;
+        const int overlapCount = activeCount > 0 ? activeCount
+                               : cueCount > 0 ? cueCount : heldCount;
         if (chosen != nullptr)
         {
             out.status = DisplayStatus::active;
             out.sectionActive = chosenActive != nullptr;
-            out.primary = heading + "  " + timeText (sourceNs);
+            out.cueActive = cue;
+            // During an exact interval, time follows the playhead. A presentation-only cue or
+            // retained INSPECT context must keep the fact's own location instead of falsely
+            // relabelling it with the later playhead position.
+            out.primary = heading + "  " + timeText (
+                out.sectionActive ? sourceNs : chosen->startNs);
             if (guide.payloadKind == "inspect")
                 out.primary += factSeparator() + chosen->label;
             else
@@ -196,7 +208,8 @@ namespace hypha::pre_display
             }
             out.detail = itemDetail (guide, *chosen, juce::jmax (0, overlapCount - 1),
                                      guide.payloadKind != "masking");
-            if (held) out.detail += (out.detail.isEmpty() ? "HELD" : factSeparator() + "HELD");
+            if (cue) appendState (out, "CUE");
+            if (held) appendState (out, "HELD");
         }
         else
         {
@@ -223,10 +236,7 @@ namespace hypha::pre_display
 
         const bool clockStale = clockObservedAtMs > 0 && nowMs - clockObservedAtMs > kClockStaleMs;
         if (clockStale || ! clock.playing)
-            out.detail += (out.detail.isEmpty()
-                ? "PAUSED" + factSeparator() + "Guide retained"
-                : factSeparator() + "PAUSED");
-        compact (out);
+            appendState (out, "PAUSED");
         return out;
     }
 }

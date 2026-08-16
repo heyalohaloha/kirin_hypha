@@ -203,12 +203,20 @@ mod tests {
             JUCE_CMAKE.contains("target_link_libraries(${TARGET} PRIVATE juce::juce_cryptography)")
         );
         assert!(PLUGIN_EDITOR_H.contains("#if KIRIN_HYPHA_PRE_DISPLAY"));
-        assert!(PLUGIN_EDITOR_CPP.contains("const auto preDisplayTone = preDisplay.sectionActive"));
-        assert!(PLUGIN_EDITOR_CPP.contains("ui::PreDisplayTone::sectionActive"));
+        assert!(PLUGIN_EDITOR_CPP.contains(
+            "const auto preDisplayTone = preDisplay.sectionActive || preDisplay.cueActive"
+        ));
+        assert!(PLUGIN_EDITOR_CPP.contains("ui::PreDisplayTone::emphasis"));
         assert!(PLUGIN_EDITOR_CPP.contains("ui::preDisplayPrimaryColour (preDisplayTone)"));
         assert!(PLUGIN_EDITOR_CPP.contains("ui::preDisplayDetailColour (preDisplayTone)"));
+        assert!(PLUGIN_EDITOR_CPP.contains("preDisplayStateLabel.setText (preDisplay.stateText"));
+        assert!(
+            PLUGIN_EDITOR_CPP.contains("preDisplayStateLabel.getBorderSize().getLeftAndRight()")
+        );
+        assert!(PLUGIN_EDITOR_CPP.contains("preDisplayPrimaryLabel.setTooltip"));
+        assert!(PLUGIN_EDITOR_CPP.contains("preDisplayDetailLabel.setTooltip"));
         assert!(HYPHA_UI_CONTRACT_H
-            .contains("Only the active PRE guide section must have a distinct static tone"));
+            .contains("Only a factual PRE section or bounded positional cue has emphasis tone"));
         assert_eq!(
             count_occurrences(PLUGIN_PROCESSOR_CPP, "preDisplayClock.publish"),
             1,

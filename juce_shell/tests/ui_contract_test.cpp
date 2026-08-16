@@ -7,6 +7,7 @@
 #include "../../crates/kirin_hypha_ffi/include/kirin_hypha_ffi.h"
 
 #include <cassert>
+#include <cmath>
 #include <cstring>
 #include <limits>
 
@@ -38,6 +39,29 @@ namespace
     constexpr ui::Rect scaled (ui::Rect r, int scale)
     {
         return { r.x * scale, r.y * scale, r.width * scale, r.height * scale };
+    }
+
+    double linearChannel (std::uint32_t channel)
+    {
+        const auto value = static_cast<double> (channel) / 255.0;
+        return value <= 0.04045 ? value / 12.92
+                                : std::pow ((value + 0.055) / 1.055, 2.4);
+    }
+
+    double luminance (std::uint32_t argb)
+    {
+        return 0.2126 * linearChannel ((argb >> 16) & 0xffu)
+             + 0.7152 * linearChannel ((argb >> 8) & 0xffu)
+             + 0.0722 * linearChannel (argb & 0xffu);
+    }
+
+    double contrastRatio (std::uint32_t a, std::uint32_t b)
+    {
+        const auto aLuminance = luminance (a);
+        const auto bLuminance = luminance (b);
+        const auto lighter = aLuminance > bLuminance ? aLuminance : bLuminance;
+        const auto darker = aLuminance > bLuminance ? bLuminance : aLuminance;
+        return (lighter + 0.05) / (darker + 0.05);
     }
 }
 
@@ -78,6 +102,9 @@ int main()
         std::numeric_limits<std::int64_t>::min(), 1, sourceNanoseconds));
     assert (! hypha::pre_display::subtractNanoseconds (
         std::numeric_limits<std::int64_t>::max(), -1, sourceNanoseconds));
+    static_assert (hypha::pre_display::saturatingAddNanoseconds (
+        std::numeric_limits<std::int64_t>::max() - 1, 2)
+        == std::numeric_limits<std::int64_t>::max());
     static_assert (ui::editorWidth == 300 && ui::editorHeight == 200);
     static_assert (ui::titleFontHeight == 20.0f);
     static_assert (ui::metricLabelFontHeight >= 12.0f);
@@ -86,6 +113,7 @@ int main()
     static_assert (ui::nameFontHeight >= 16.0f);
     static_assert (ui::pairStatusFontHeight >= 13.0f);
     static_assert (ui::feedbackFontHeight >= 13.0f);
+    static_assert (ui::preDisplayPresentationHz == 10);
     static_assert (ui::menuFontHeight >= 16.0f);
     static_assert (ui::pairMenuItemHeight >= 28);
     static_assert (ui::pairMenuMinimumWidth >= ui::editorWidth);
@@ -93,11 +121,19 @@ int main()
     static_assert (ui::background == 0xff0d0f1a);
     static_assert (ui::normal == 0xffe0e0e0);
     static_assert (ui::muted == 0xff606060);
+    static_assert (ui::preDisplayContextDetail == 0xff898989);
     static_assert (ui::flora == 0xffd4a043);
     static_assert (ui::preDisplayPrimaryColour (ui::PreDisplayTone::context) == ui::normal);
-    static_assert (ui::preDisplayPrimaryColour (ui::PreDisplayTone::sectionActive) == ui::flora);
-    static_assert (ui::preDisplayDetailColour (ui::PreDisplayTone::context) == ui::muted);
-    static_assert (ui::preDisplayDetailColour (ui::PreDisplayTone::sectionActive) == ui::flora);
+    static_assert (ui::preDisplayPrimaryColour (ui::PreDisplayTone::emphasis) == ui::flora);
+    static_assert (ui::preDisplayDetailColour (ui::PreDisplayTone::context)
+                   == ui::preDisplayContextDetail);
+    static_assert (ui::preDisplayDetailColour (ui::PreDisplayTone::emphasis) == ui::flora);
+    assert (contrastRatio (ui::preDisplayPrimaryColour (ui::PreDisplayTone::context),
+                           ui::background) >= 4.5);
+    assert (contrastRatio (ui::preDisplayDetailColour (ui::PreDisplayTone::context),
+                           ui::background) >= 4.5);
+    assert (contrastRatio (ui::preDisplayPrimaryColour (ui::PreDisplayTone::emphasis),
+                           ui::background) >= 4.5);
     static_assert (ui::ledBlue == 0xff4488cc);
     static_assert (ui::ledGreen == 0xff4cc07a);
     static_assert (ui::watchMetrics.size() == 6);
@@ -216,6 +252,20 @@ int main()
     assert (pre.feedback.y == post.feedback.y);
     assert (pre.preDisplayPrimary.y == 126 && pre.preDisplayPrimary.height == 18);
     assert (pre.preDisplayDetail.y == 144 && pre.preDisplayDetail.height == 18);
+    const auto detailWithoutState = ui::preDisplayDetailLayout (pre.preDisplayDetail, 0);
+    assert (detailWithoutState.detail.x == pre.preDisplayDetail.x
+            && detailWithoutState.detail.width == pre.preDisplayDetail.width
+            && ! hasArea (detailWithoutState.state));
+    const auto detailWithState = ui::preDisplayDetailLayout (pre.preDisplayDetail, 100);
+    assert (detailWithState.detail.width >= ui::preDisplayDetailMinimumWidth);
+    assert (detailWithState.state.width == 100);
+    assert (! overlaps (detailWithState.detail, detailWithState.state));
+    assert (ui::right (detailWithState.state) == ui::right (pre.preDisplayDetail));
+    const auto oversizedState = ui::preDisplayDetailLayout (pre.preDisplayDetail, 10'000);
+    assert (oversizedState.detail.width == ui::preDisplayDetailMinimumWidth);
+    assert (! overlaps (oversizedState.detail, oversizedState.state));
+    const auto undersizedLine = ui::preDisplayDetailLayout ({ 0, 0, 60, 18 }, 40);
+    assert (undersizedLine.detail.width == 60 && ! hasArea (undersizedLine.state));
     assert (! hasArea (post.preDisplayPrimary) && ! hasArea (post.preDisplayDetail));
     assert (ui::bottom (post.feedback) == ui::editorHeight - 2);
     assert (ui::loudnessSelectorBounds (pre.metricTop).width == ui::loudnessSelectorWidth);
