@@ -50,8 +50,8 @@ namespace hypha::pre_display
     {
         signalThreadShouldExit();
         notify();
-        const auto stoppedCleanly = stopThread (-1);
-        jassert (stoppedCleanly);
+        if (! stopThread (-1))
+            jassertfalse;
         removeOwnLeaseFiles();
     }
 
