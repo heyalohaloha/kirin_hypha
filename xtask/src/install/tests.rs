@@ -86,13 +86,22 @@ fn macos_system_destinations_are_manifest_derived() {
 #[test]
 fn all_source_paths_use_the_common_juce_build() {
     for bundle in bundles(Path::new(".")).unwrap() {
-        let source = bundle.source.to_string_lossy();
-        assert!(source.contains("juce_shell/build-universal/"), "{source}");
+        let source_components: Vec<_> = bundle.source.iter().collect();
+        let contains_pair = |first: &str, second: &str| {
+            source_components
+                .windows(2)
+                .any(|parts| parts[0] == first && parts[1] == second)
+        };
+        assert!(
+            contains_pair("juce_shell", "build-universal"),
+            "{}",
+            bundle.source.display()
+        );
         match bundle.spec.kind {
-            BundleKind::Au => assert!(source.contains("/Release/AU/")),
+            BundleKind::Au => assert!(contains_pair("Release", "AU")),
             BundleKind::Vst3 => {
-                assert!(source.contains("/Release/VST3/"));
-                assert!(!source.contains("target/bundled"));
+                assert!(contains_pair("Release", "VST3"));
+                assert!(!contains_pair("target", "bundled"));
             }
         }
     }

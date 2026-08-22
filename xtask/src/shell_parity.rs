@@ -70,7 +70,9 @@ mod tests {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
             "../juce_shell/JUCE/modules/juce_audio_plugin_client/juce_audio_plugin_client_AU_1.mm",
         );
-        std::fs::read_to_string(path).ok()
+        std::fs::read_to_string(path)
+            .ok()
+            .map(|source| source.replace("\r\n", "\n"))
     }
 
     fn between<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
