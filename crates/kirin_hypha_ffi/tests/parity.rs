@@ -224,7 +224,9 @@ fn direct_phase_d_publish_candidates(stereo_f32: &[f32]) -> Vec<PhaseDResult> {
     let mut frames = Vec::new();
     for block in stereo_f32.chunks(block_len) {
         let mono: Vec<f64> = block
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|c| (c[0] as f64 + c[1] as f64) * 0.5)
             .collect();
         if let Some(last) = stream.push(&mono).last() {
