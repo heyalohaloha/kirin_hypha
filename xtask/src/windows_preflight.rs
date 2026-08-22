@@ -85,6 +85,11 @@ fn verify_cmake_platform_split(cmake: &str) -> Result<()> {
     )?;
     require(
         cmake,
+        "set(KIRIN_FORCE_INCLUDE_ARGS \"/FI${CMAKE_CURRENT_LIST_DIR}/src/KirinJucePluginConfig.h\")\n    set(KIRIN_SOURCE_ENCODING_ARGS /utf-8)",
+        "MSVC must compile UTF-8 Kirin and JUCE sources as UTF-8",
+    )?;
+    require(
+        cmake,
         "set(KIRIN_FORCE_INCLUDE_ARGS -include \"${CMAKE_CURRENT_LIST_DIR}/src/KirinJucePluginConfig.h\")",
         "non-MSVC compilers must keep the existing -include forced header",
     )?;
@@ -115,8 +120,8 @@ fn verify_cmake_platform_split(cmake: &str) -> Result<()> {
     )?;
     require(
         cmake,
-        "target_compile_options(${TARGET} PUBLIC ${KIRIN_FORCE_INCLUDE_ARGS})",
-        "compile options must consume the platform forced-include variable",
+        "target_compile_options(${TARGET} PUBLIC\n        ${KIRIN_FORCE_INCLUDE_ARGS}\n        ${KIRIN_SOURCE_ENCODING_ARGS})",
+        "compile options must consume the platform forced-include and source-encoding variables",
     )?;
     require(
         cmake,

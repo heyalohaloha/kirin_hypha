@@ -71,8 +71,10 @@ endif()
 
 if(MSVC)
     set(KIRIN_FORCE_INCLUDE_ARGS "/FI${CMAKE_CURRENT_LIST_DIR}/src/KirinJucePluginConfig.h")
+    set(KIRIN_SOURCE_ENCODING_ARGS /utf-8)
 else()
     set(KIRIN_FORCE_INCLUDE_ARGS -include "${CMAKE_CURRENT_LIST_DIR}/src/KirinJucePluginConfig.h")
+    set(KIRIN_SOURCE_ENCODING_ARGS)
 endif()
 
 if(WIN32)
@@ -178,7 +180,9 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
             KIRIN_HYPHA_VST3_COMPONENT_UID_4=0x53547631)
     endif()
 
-    target_compile_options(${TARGET} PUBLIC ${KIRIN_FORCE_INCLUDE_ARGS})
+    target_compile_options(${TARGET} PUBLIC
+        ${KIRIN_FORCE_INCLUDE_ARGS}
+        ${KIRIN_SOURCE_ENCODING_ARGS})
 
     # B-130 (G-115-373): juce_audio_utils（AudioThumbnail/CD/DeviceSelector 用・実使用 grep 0）を
     # plugin に必要な最小モジュールへ差し替え。これで juce_audio_utils 由来の DiscRecording.framework
