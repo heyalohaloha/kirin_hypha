@@ -15,10 +15,10 @@ namespace hypha
     {
         auto area = getLocalBounds().toFloat().reduced (0.5f);
         const auto fill = findColour (juce::TextButton::buttonColourId, true);
-        const auto text = findColour (getToggleState()
-                                          ? juce::TextButton::textColourOnId
-                                          : juce::TextButton::textColourOffId,
-                                      true);
+        const auto textColour = findColour (getToggleState()
+                                                ? juce::TextButton::textColourOnId
+                                                : juce::TextButton::textColourOffId,
+                                            true);
 
         if (framed)
         {
@@ -34,7 +34,7 @@ namespace hypha
             g.drawRoundedRectangle (area, 3.0f, 1.0f);
         }
 
-        g.setColour (isEnabled() ? text : COL_MUTED);
+        g.setColour (isEnabled() ? textColour : COL_MUTED);
         g.setFont (monoFont (framed ? ui_contract::framedButtonFontHeight
                                     : ui_contract::framelessButtonFontHeight));
         g.drawFittedText (getButtonText(), getLocalBounds().reduced (6, 2),

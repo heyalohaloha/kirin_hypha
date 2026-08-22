@@ -59,12 +59,12 @@
             "processBlock must separate display signal state from Record capture eligibility"
         );
         assert!(
-            body.contains("const bool nonRealtime = isNonRealtime();"),
+            body.contains("const bool nonRealtimeMode = isNonRealtime();"),
             "processBlock must still observe the host non-realtime/offline mode"
         );
         assert!(
             body.contains("shouldCaptureBufferForMeasurement (stateCode")
-                && body.contains("positionChanged,\n                                                                  nonRealtime"),
+                && body.contains("positionChanged,\n                                                                  nonRealtimeMode"),
             "offline mode must still feed Record capture eligibility"
         );
         assert!(
@@ -127,7 +127,8 @@
         assert!(body.contains(
             "const bool measurementTimelineActive = playing\n                                        || clockSource == KIRIN_HYPHA_CLOCK_AUDIO_RENDER_TIMELINE;"
         ));
-        assert!(body.contains("&& (stateCode == 1 || playing || nonRealtime || hasClockEnd);"));
+        assert!(body
+            .contains("&& (stateCode == 1 || playing || nonRealtimeMode || hasClockEnd);"));
         assert!(!body.contains("&& (stateCode == 1 || measurementTimelineActive"));
         assert!(body.contains("windowPositionSamples, windowNumFrames, clockSource"));
         assert!(body
@@ -209,7 +210,7 @@
             "const bool stateSilent = silent && ! watchActiveThroughSilence;"
         ));
         assert!(body.contains(
-            "resolveSignalStateCode (bypassed, measurementTimelineActive,\n                                                      stateSilent, recording, nonRealtime)"
+            "resolveSignalStateCode (bypassed, measurementTimelineActive,\n                                                      stateSilent, recording, nonRealtimeMode)"
         ));
         assert!(body.contains(
             "const bool pushBuffer = recording ? renderedRecordWindow : captureBuffer;"

@@ -305,7 +305,7 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
         recordStartWindowLatched = false;
         recordNativeRangeLatched = false;
     }
-    const bool nonRealtime = isNonRealtime();
+    const bool nonRealtimeMode = isNonRealtime();
     // Some AU hosts omit the optional transport callback. A valid AudioUnit render timestamp is
     // still an exact processing timeline, so non-silent Watch audio and an already-started Record
     // can advance on it. Clock availability alone is not transport authority: otherwise silent
@@ -359,7 +359,7 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
 
     // C ABI signal-state codes: 0 = Inactive, 1 = Active, 2 = Bypassed.
     const uint8_t stateCode = resolveSignalStateCode (bypassed, measurementTimelineActive,
-                                                      stateSilent, recording, nonRealtime);
+                                                      stateSilent, recording, nonRealtimeMode);
     kirin_hypha_set_signal_state (hyphaHandle, stateCode);
     const bool watchAvailabilityStartedNewPass =
         hypha::signal_state_contract::availabilityStartsNewPass (
@@ -378,13 +378,13 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
                                                                   recording,
                                                                   measurementTimelineActive,
                                                                   positionChanged,
-                                                                  nonRealtime);
+                                                                  nonRealtimeMode);
     const bool recordStartCandidateWindow = captureBuffer
                                          && recording
                                          && hasPosition
                                          && windowNumFrames > 0
                                          && numCh > 0
-                                         && (stateCode == 1 || playing || nonRealtime || hasClockEnd);
+                                         && (stateCode == 1 || playing || nonRealtimeMode || hasClockEnd);
     const bool renderedRecordWindow = recording
                                    && hasPosition
                                    && windowNumFrames > 0
@@ -403,7 +403,7 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
                                     recording,
                                     renderedRecordWindow,
                                     playing,
-                                    nonRealtime,
+                                    nonRealtimeMode,
                                     hasPosition,
                                     windowPositionSamples,
                                     windowNumFrames,
