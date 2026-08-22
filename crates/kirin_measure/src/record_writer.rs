@@ -3553,6 +3553,11 @@ mod tests {
         dir
     }
 
+    fn set_modified(path: &Path, modified: SystemTime) {
+        let file = fs::OpenOptions::new().write(true).open(path).unwrap();
+        file.set_modified(modified).unwrap();
+    }
+
     #[test]
     fn resolve_record_session_id_reads_post_signal() {
         let base = isolated_base();
@@ -7571,9 +7576,7 @@ mod tests {
         let staging_path = ctx.staging_path.clone();
 
         let stale = SystemTime::now() - Duration::from_secs(STALE_ACTIVE_SWEEP_SECS + 1);
-        let f = std::fs::File::open(&staging_path).unwrap();
-        f.set_modified(stale).unwrap();
-        drop(f);
+        set_modified(&staging_path, stale);
 
         let report = recover_orphan_tmps(&base);
         assert_eq!(report.recovered, 1);
@@ -7616,9 +7619,7 @@ mod tests {
         let failed_path = ctx.failed_path.clone();
 
         let stale = SystemTime::now() - Duration::from_secs(STALE_ACTIVE_SWEEP_SECS + 1);
-        let f = std::fs::File::open(&staging_path).unwrap();
-        f.set_modified(stale).unwrap();
-        drop(f);
+        set_modified(&staging_path, stale);
 
         let report = recover_orphan_tmps(&base);
         assert_eq!(report.recovered, 1);
@@ -7667,9 +7668,7 @@ mod tests {
 
         // mtime を 61 秒過去に巻き戻す。
         let stale = SystemTime::now() - Duration::from_secs(STALE_ACTIVE_SWEEP_SECS + 1);
-        let f = std::fs::File::open(&final_path).unwrap();
-        f.set_modified(stale).unwrap();
-        drop(f);
+        set_modified(&final_path, stale);
 
         let report = sweep_stale_active_at_startup(&base);
         assert_eq!(report.closed, 1, "stale Active file must be closed");
@@ -7734,9 +7733,7 @@ mod tests {
 
         // mtime を 61 秒過去に巻き戻す。
         let stale = SystemTime::now() - Duration::from_secs(STALE_ACTIVE_SWEEP_SECS + 1);
-        let f = std::fs::File::open(&final_path).unwrap();
-        f.set_modified(stale).unwrap();
-        drop(f);
+        set_modified(&final_path, stale);
 
         let report = sweep_stale_active_at_startup(&base);
         assert_eq!(report.closed, 0, "Closed file must not be re-closed");

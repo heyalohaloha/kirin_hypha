@@ -6714,8 +6714,14 @@ mod tests {
         let base = isolated_dir();
         let mut w = sample_writer(&base, Role::Post);
         w.flush().unwrap();
-        let p = w.paths.final_path.to_string_lossy().to_string();
-        assert!(p.contains("/post/"), "path should contain /post/: {p}");
+        assert!(
+            w.paths
+                .final_path
+                .components()
+                .any(|component| component.as_os_str() == std::ffi::OsStr::new("post")),
+            "path should contain a post directory: {}",
+            w.paths.final_path.display()
+        );
     }
 
     #[test]

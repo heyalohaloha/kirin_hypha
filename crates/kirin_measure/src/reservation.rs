@@ -550,7 +550,10 @@ mod tests {
         reserve_pairing_at(&base, "ph", "live-pre", "live-post", old).unwrap();
         let old_time: SystemTime = old.into();
         for pre in ["orphan-pre", "live-pre"] {
-            let file = File::open(reservation_path(&base, "ph", pre)).unwrap();
+            let file = OpenOptions::new()
+                .write(true)
+                .open(reservation_path(&base, "ph", pre))
+                .unwrap();
             file.set_times(FileTimes::new().set_modified(old_time))
                 .unwrap();
         }
