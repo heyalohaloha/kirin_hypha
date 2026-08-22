@@ -241,7 +241,7 @@ const TOAST_DURATION_SECS: f64 = 3.0;
 fn apply_pair_combo_dropdown_visuals(ui: &mut egui::Ui) {
     let visuals = &mut ui.style_mut().visuals;
     visuals.selection.bg_fill = egui::Color32::from_rgba_unmultiplied(212, 160, 67, 64);
-    visuals.selection.stroke = Stroke::new(1.0, COL_FLORA);
+    visuals.selection.stroke = Stroke::new(1.0_f32, COL_FLORA);
     visuals.widgets.hovered.bg_fill = egui::Color32::from_rgba_unmultiplied(212, 160, 67, 36);
     visuals.widgets.active.bg_fill = egui::Color32::from_rgba_unmultiplied(212, 160, 67, 56);
     visuals.widgets.open.bg_fill = egui::Color32::from_rgba_unmultiplied(212, 160, 67, 32);
@@ -805,8 +805,11 @@ fn draw_post(
                 ui.add_space(10.0);
                 let w = ui.available_width() - 10.0;
                 let (rect, _) = ui.allocate_exact_size(Vec2::new(w, 1.0), egui::Sense::hover());
-                ui.painter()
-                    .hline(rect.x_range(), rect.center().y, Stroke::new(1.0, COL_FLORA));
+                ui.painter().hline(
+                    rect.x_range(),
+                    rect.center().y,
+                    Stroke::new(1.0_f32, COL_FLORA),
+                );
             });
             ui.add_space(4.0);
 

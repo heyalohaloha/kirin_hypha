@@ -1,5 +1,6 @@
 use super::*;
 
+#[cfg(target_os = "macos")]
 fn pre_vst3() -> MacBundleSpec {
     macos_bundles()
         .unwrap()
