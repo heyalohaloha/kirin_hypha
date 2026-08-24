@@ -94,6 +94,7 @@ add_subdirectory(JUCE)
 # editor can draw it without a runtime file dependency. Shared by both plugin targets.
 juce_add_binary_data(KirinHyphaData
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../crates/hypha_gui/assets/bg_mycelium.png)
+set(KIRIN_HYPHA_WIDGETS_SOURCE src/HyphaWidgets.cpp)
 
 # B-070: PRE and POST are two plugin targets sharing one role-parameterized base
 # (KirinHyphaProcessorBase). They link the same kirin_hypha_ffi staticlib and compile the
@@ -127,7 +128,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
     target_sources(${TARGET} PRIVATE
         src/PluginProcessor.cpp
         src/PluginEditor.cpp
-        src/HyphaWidgets.cpp     # B-054: LED / mycelium bg / metric cells / editable name
+        ${KIRIN_HYPHA_WIDGETS_SOURCE} # B-054: LED / mycelium bg / metric cells / editable name
         src/PostControls.cpp     # B-054: POST Keep/Stop/Mark/Sense button row
         ${MAIN_SRC})
 
@@ -212,6 +213,29 @@ endfunction()
 
 add_kirin_plugin(KirinHyphaPRE  Khpr "Kirin Hypha PRE"  "PRE Kirin Hypha"  src/PluginMainPRE.cpp  "com.kirinmastering.hypha.pre")
 add_kirin_plugin(KirinHyphaPOST Khpo "Kirin Hypha POST" "POST Kirin Hypha" src/PluginMainPOST.cpp "com.kirinmastering.hypha.post")
+
+option(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS
+    "Build the native-font and fixed-geometry UI render contract test" OFF)
+if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
+    enable_testing()
+    juce_add_console_app(KirinUiRenderContractTests
+        PRODUCT_NAME "Kirin UI Render Contract Tests")
+    target_sources(KirinUiRenderContractTests PRIVATE
+        tests/ui_render_contract_test.cpp
+        ${KIRIN_HYPHA_WIDGETS_SOURCE})
+    target_compile_definitions(KirinUiRenderContractTests PRIVATE
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0
+        JUCE_DISPLAY_SPLASH_SCREEN=0)
+    target_compile_options(KirinUiRenderContractTests PRIVATE
+        ${KIRIN_SOURCE_ENCODING_ARGS})
+    target_link_libraries(KirinUiRenderContractTests PRIVATE
+        KirinHyphaData
+        juce::juce_gui_basics
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_warning_flags)
+    add_test(NAME kirin_ui_render_contract COMMAND KirinUiRenderContractTests)
+endif()
 
 option(KIRIN_HYPHA_BUILD_PRE_DISPLAY_TESTS
     "Build the executable PRE display protocol and repository tests" OFF)

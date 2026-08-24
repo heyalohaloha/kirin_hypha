@@ -193,6 +193,8 @@ int main()
 
     assert (std::strcmp (ui::labelFontFamily, ".SF NS") == 0);
     assert (std::strcmp (ui::monoFontFamily, ".SF NS Mono") == 0);
+    assert (std::strcmp (ui::windowsLabelFontFamily, "Segoe UI") == 0);
+    assert (std::strcmp (ui::windowsMonoFontFamily, "Consolas") == 0);
     assert (std::strcmp (ui::preTitle, "PRE") == 0);
     assert (std::strcmp (ui::postTitle, "POST") == 0);
     assert (std::strcmp (ui::maximumLabel, "MAX") == 0);
@@ -244,6 +246,10 @@ int main()
     const auto post = ui::editorLayout (true);
     assert (pre.metricTop == 43);
     assert (post.metricTop == 67);
+    assert (pre.title.x == 10 && pre.title.width == ui::preTitleWidth);
+    assert (post.title.x == 10 && post.title.width == 206);
+    assert (ui::right (post.title) + ui::titlePairGap == post.pairStatus.x);
+    assert (post.title.width > pre.title.width);
     assert (pre.name.x == 56 && pre.name.width == 160);
     assert (post.name.x == 10 && post.name.width == 248);
     assert (post.pairDropdown.width == 28 && post.pairDropdown.height == 24);
@@ -272,6 +278,36 @@ int main()
     assert (ui::loudnessSelectorBounds (post.metricTop).width == ui::loudnessSelectorWidth);
     assert (fitsEditor (ui::loudnessSelectorBounds (pre.metricTop)));
     assert (fitsEditor (ui::loudnessSelectorBounds (post.metricTop)));
+
+    // The selector stays 40 px wide. Only the Δ prefix grows with the actual platform font;
+    // each M/S hit target retains at least 12 px and all regions remain disjoint.
+    const auto absoluteSelector = ui::loudnessSelectorLayout (false, 100);
+    assert (absoluteSelector.deltaPrefixWidth == 0);
+    assert (absoluteSelector.momentary.x == 1 && absoluteSelector.momentary.width == 19);
+    assert (absoluteSelector.shortTerm.x == 20 && absoluteSelector.shortTerm.width == 19);
+    const auto minimumDeltaSelector = ui::loudnessSelectorLayout (true, 8);
+    assert (minimumDeltaSelector.deltaPrefixWidth == 8);
+    assert (minimumDeltaSelector.momentary.width == 15);
+    assert (minimumDeltaSelector.shortTerm.width == 15);
+    const auto measuredDeltaSelector = ui::loudnessSelectorLayout (true, 10);
+    assert (measuredDeltaSelector.deltaPrefixWidth == 10);
+    assert (measuredDeltaSelector.momentary.width == 14);
+    assert (measuredDeltaSelector.shortTerm.width == 14);
+    const auto boundedDeltaSelector = ui::loudnessSelectorLayout (true, 10'000);
+    assert (boundedDeltaSelector.deltaPrefixWidth
+            == ui::loudnessDeltaMaximumPrefixWidth());
+    assert (boundedDeltaSelector.momentary.width == ui::loudnessSegmentMinimumWidth);
+    assert (boundedDeltaSelector.shortTerm.width == ui::loudnessSegmentMinimumWidth);
+    for (const auto layout : { minimumDeltaSelector, measuredDeltaSelector,
+                               boundedDeltaSelector })
+    {
+        assert (layout.deltaPrefixWidth > 0);
+        assert (layout.momentary.x >= layout.deltaPrefixWidth);
+        assert (! overlaps ({ 0, 0, layout.deltaPrefixWidth, ui::metricRowHeight },
+                            layout.momentary));
+        assert (! overlaps (layout.momentary, layout.shortTerm));
+        assert (ui::right (layout.shortTerm) <= ui::loudnessSelectorWidth);
+    }
 
     for (const auto rect : { pre.title, pre.led, pre.pairStatus, pre.name,
                              pre.preDisplayPrimary, pre.preDisplayDetail, pre.feedback,

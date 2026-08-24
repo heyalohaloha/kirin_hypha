@@ -14,7 +14,8 @@ namespace hypha::ui_contract
     constexpr int margin            = 10;
     constexpr int topSpace          = 7;
     constexpr int titleHeight       = 27;
-    constexpr int titleWidth        = 42;
+    constexpr int preTitleWidth     = 42;
+    constexpr int titlePairGap      = 6;
     constexpr int ledSize           = 12;
     constexpr int pairStatusWidth   = 50;
     constexpr int nameFieldHeight   = 24;
@@ -36,8 +37,13 @@ namespace hypha::ui_contract
     constexpr int pairMenuMinimumWidth   = editorWidth;
     constexpr int pairMenuMaximumColumns = 1;
 
+    // The release UI uses native platform fonts without redistributing either vendor's files.
+    // Keep the established macOS appearance, but never ask Windows to resolve Apple's private
+    // family names through the non-deterministic GDI fallback path.
     constexpr const char* labelFontFamily = ".SF NS";
     constexpr const char* monoFontFamily  = ".SF NS Mono";
+    constexpr const char* windowsLabelFontFamily = "Segoe UI";
+    constexpr const char* windowsMonoFontFamily  = "Consolas";
 
     constexpr float titleFontHeight       = 20.0f;
     constexpr float pairStatusFontHeight  = 13.0f;
@@ -53,7 +59,11 @@ namespace hypha::ui_contract
     constexpr float framelessButtonFontHeight = 13.0f;
     constexpr float metricMinimumLabelWidth = 40.0f;
     constexpr float metricHorizontalSpacing = 4.0f;
-    constexpr int loudnessSelectorWidth = 40;
+    constexpr int loudnessSelectorWidth             = 40;
+    constexpr int loudnessDeltaMinimumPrefixWidth   = 8;
+    constexpr int loudnessSelectorHorizontalInset   = 1;
+    constexpr int loudnessSelectorVerticalInset     = 4;
+    constexpr int loudnessSegmentMinimumWidth       = 12;
 
     constexpr const char* preTitle = "PRE";
     constexpr const char* postTitle = "POST";
@@ -99,6 +109,55 @@ namespace hypha::ui_contract
     constexpr int right (Rect r) noexcept  { return r.x + r.width; }
     constexpr int bottom (Rect r) noexcept { return r.y + r.height; }
 
+    struct LoudnessSelectorLayout
+    {
+        int deltaPrefixWidth = 0;
+        Rect momentary;
+        Rect shortTerm;
+    };
+
+    constexpr int loudnessDeltaMaximumPrefixWidth (
+        int width = loudnessSelectorWidth) noexcept
+    {
+        const int available = width - 2 * loudnessSelectorHorizontalInset
+                            - 2 * loudnessSegmentMinimumWidth;
+        return available > 0 ? available : 0;
+    }
+
+    // `measuredGlyphWidth` is ceil(Font::getStringWidthFloat (U+0394)) from the same font used
+    // for paint. The old hard-coded 8 px happened to fit SF NS but dropped the entire one-glyph
+    // string when Windows selected a wider face. Bound the measured prefix while preserving at
+    // least 12 logical pixels for each interactive M/S segment.
+    constexpr int loudnessDeltaPrefixWidth (
+        bool deltaMode, int measuredGlyphWidth,
+        int width = loudnessSelectorWidth) noexcept
+    {
+        if (! deltaMode)
+            return 0;
+        const int maximum = loudnessDeltaMaximumPrefixWidth (width);
+        const int requested = measuredGlyphWidth > loudnessDeltaMinimumPrefixWidth
+            ? measuredGlyphWidth : loudnessDeltaMinimumPrefixWidth;
+        return requested < maximum ? requested : maximum;
+    }
+
+    constexpr LoudnessSelectorLayout loudnessSelectorLayout (
+        bool deltaMode, int measuredGlyphWidth,
+        int width = loudnessSelectorWidth,
+        int height = metricRowHeight) noexcept
+    {
+        const int prefix = loudnessDeltaPrefixWidth (deltaMode, measuredGlyphWidth, width);
+        const int innerX = prefix + loudnessSelectorHorizontalInset;
+        const int innerY = loudnessSelectorVerticalInset;
+        const int innerWidth = width - prefix - 2 * loudnessSelectorHorizontalInset;
+        const int innerHeight = height - 2 * loudnessSelectorVerticalInset;
+        const int firstWidth = innerWidth / 2;
+        return {
+            prefix,
+            { innerX, innerY, firstWidth, innerHeight },
+            { innerX + firstWidth, innerY, innerWidth - firstWidth, innerHeight },
+        };
+    }
+
     struct PreDisplayDetailLayout
     {
         Rect detail;
@@ -142,7 +201,6 @@ namespace hypha::ui_contract
     constexpr EditorLayout editorLayout (bool post, int width = editorWidth) noexcept
     {
         EditorLayout layout {};
-        layout.title = { margin, topSpace, titleWidth, titleHeight };
         layout.led = { width - margin - ledSize,
                        topSpace + (titleHeight - ledSize) / 2,
                        ledSize,
@@ -151,6 +209,12 @@ namespace hypha::ui_contract
                               topSpace,
                               pairStatusWidth,
                               titleHeight };
+        // PRE shares this row with its editable name and keeps the established 42 px title slot.
+        // POST's name is on the next row, so its title owns all otherwise-empty space up to PAIR.
+        layout.title = { margin,
+                         topSpace,
+                         post ? layout.pairStatus.x - titlePairGap - margin : preTitleWidth,
+                         titleHeight };
 
         if (post)
         {
@@ -173,7 +237,7 @@ namespace hypha::ui_contract
         }
         else
         {
-            const int fieldLeft = margin + titleWidth + 4;
+            const int fieldLeft = margin + preTitleWidth + 4;
             const int fieldRight = layout.pairStatus.x - 6;
             layout.name = { fieldLeft, topSpace, fieldRight - fieldLeft, titleHeight };
             layout.floraY = topSpace + titleHeight + 4;
@@ -272,6 +336,12 @@ namespace hypha::ui_contract
                        && nameFontHeight >= 16.0f
                        && pairStatusFontHeight >= 13.0f,
                    "The 300x200 editor must retain the legibility floor agreed for release");
+    static_assert (loudnessDeltaMaximumPrefixWidth() >= loudnessDeltaMinimumPrefixWidth
+                       && loudnessSelectorLayout (true, 10).momentary.width
+                              >= loudnessSegmentMinimumWidth
+                       && loudnessSelectorLayout (true, 10).shortTerm.width
+                              >= loudnessSegmentMinimumWidth,
+                   "Delta and both M/S hit targets must fit the fixed loudness selector");
     static_assert (menuFontHeight >= 16.0f && pairMenuItemHeight >= 28
                        && pairMenuMinimumWidth >= editorWidth && pairMenuMaximumColumns == 1,
                    "The pair menu must remain readable and single-column in every plugin format");

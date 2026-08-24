@@ -2,6 +2,8 @@
 
 #include "BinaryData.h"
 
+#include <cmath>
+
 namespace hypha
 {
     namespace
@@ -66,6 +68,41 @@ namespace hypha
         g.setColour (c);
         const auto b = getLocalBounds().toFloat();
         g.fillEllipse (b.getCentreX() - 5.0f, b.getCentreY() - 5.0f, 10.0f, 10.0f); // radius 5 (led.rs)
+    }
+
+    // ── PairDropdownButton ───────────────────────────────────────────────────────────────
+    PairDropdownButton::PairDropdownButton()
+        : juce::TextButton ("Pair and Keep menu")
+    {
+        setWantsKeyboardFocus (true);
+        setMouseCursor (juce::MouseCursor::PointingHandCursor);
+    }
+
+    void PairDropdownButton::paintButton (
+        juce::Graphics& g, bool highlighted, bool down)
+    {
+        const auto background = findColour (getToggleState()
+                                                ? juce::TextButton::buttonOnColourId
+                                                : juce::TextButton::buttonColourId,
+                                            true);
+        getLookAndFeel().drawButtonBackground (g, *this, background, highlighted, down);
+
+        const auto bounds = getLocalBounds().toFloat();
+        const float centreX = bounds.getCentreX();
+        const float centreY = bounds.getCentreY() + (down ? 1.0f : 0.0f);
+        constexpr float halfWidth = 4.0f;
+        constexpr float halfHeight = 2.5f;
+        juce::Path arrow;
+        arrow.addTriangle (centreX - halfWidth, centreY - halfHeight,
+                           centreX + halfWidth, centreY - halfHeight,
+                           centreX, centreY + halfHeight);
+        g.setColour (isEnabled()
+                         ? findColour (getToggleState()
+                                           ? juce::TextButton::textColourOnId
+                                           : juce::TextButton::textColourOffId,
+                                       true)
+                         : COL_MUTED);
+        g.fillPath (arrow);
     }
 
     // ── MyceliumBackground ───────────────────────────────────────────────────────────────
@@ -215,28 +252,38 @@ namespace hypha
         repaint();
     }
 
+    ui_contract::LoudnessSelectorLayout LoudnessSelector::currentLayout() const
+    {
+        const auto font = labelFont (ui_contract::metricLabelFontHeight);
+        const int measuredGlyphWidth = static_cast<int> (
+            std::ceil (font.getStringWidthFloat (delta())));
+        return ui_contract::loudnessSelectorLayout (
+            deltaMode, measuredGlyphWidth, getWidth(), getHeight());
+    }
+
     void LoudnessSelector::paint (juce::Graphics& g)
     {
-        const int prefix = deltaMode ? 8 : 0;
+        const auto layout = currentLayout();
         if (deltaMode)
         {
             g.setColour (COL_MUTED);
             g.setFont (labelFont (ui_contract::metricLabelFontHeight));
-            g.drawText (delta(), 0, 0, prefix, getHeight(), juce::Justification::centredLeft);
+            g.drawFittedText (delta(), 0, 0, layout.deltaPrefixWidth, getHeight(),
+                              juce::Justification::centredLeft, 1, 0.75f);
         }
         g.setColour (COL_MUTED);
-        g.drawRect ((float) prefix, 3.0f,
-                    (float) juce::jmax (0, getWidth() - prefix),
+        g.drawRect ((float) layout.deltaPrefixWidth, 3.0f,
+                    (float) juce::jmax (0, getWidth() - layout.deltaPrefixWidth),
                     (float) juce::jmax (0, getHeight() - 6), 1.0f);
     }
 
     void LoudnessSelector::resized()
     {
-        const int prefix = deltaMode ? 8 : 0;
-        auto segments = getLocalBounds().withTrimmedLeft (prefix).reduced (1, 4);
-        const int firstWidth = segments.getWidth() / 2;
-        momentary.setBounds (segments.removeFromLeft (firstWidth));
-        shortTerm.setBounds (segments);
+        const auto layout = currentLayout();
+        momentary.setBounds (layout.momentary.x, layout.momentary.y,
+                             layout.momentary.width, layout.momentary.height);
+        shortTerm.setBounds (layout.shortTerm.x, layout.shortTerm.y,
+                             layout.shortTerm.width, layout.shortTerm.height);
     }
 
     // ── EditableName ─────────────────────────────────────────────────────────────────────

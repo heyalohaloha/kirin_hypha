@@ -91,7 +91,7 @@ private:
     juce::Label               preDisplayStateLabel;        // PRE-only state; reserved from context clipping
 #endif
     std::unique_ptr<hypha::PostControls> postControls;    // POST button row
-    juce::TextButton          pairDropdown;                // POST: ▼ candidate / All Keep / All Stop
+    hypha::PairDropdownButton pairDropdown;                // POST: vector arrow / candidate / All Keep / All Stop
     juce::TooltipWindow       tooltip { this };           // drives per-cell hover help
 
     Kind   currentKind = Kind::WatchAbs6;

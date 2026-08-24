@@ -59,15 +59,17 @@ PRE_DISPLAY_CMAKE_ARGS=(
   -S juce_shell
   -B "$PRE_DISPLAY_BUILD"
   -DKIRIN_HYPHA_BUILD_PRE_DISPLAY_TESTS=ON
+  -DKIRIN_HYPHA_BUILD_UI_RENDER_TESTS=ON
   -DCMAKE_BUILD_TYPE=Debug
 )
 if [[ "$(uname -s)" == "Darwin" ]]; then
   PRE_DISPLAY_CMAKE_ARGS+=("-DCMAKE_OSX_ARCHITECTURES=$(uname -m)")
 fi
 run cmake "${PRE_DISPLAY_CMAKE_ARGS[@]}"
-run cmake --build "$PRE_DISPLAY_BUILD" --target KirinPreDisplayRuntimeTests --config Debug
+run cmake --build "$PRE_DISPLAY_BUILD" \
+  --target KirinPreDisplayRuntimeTests KirinUiRenderContractTests --config Debug
 run ctest --test-dir "$PRE_DISPLAY_BUILD" --build-config Debug \
-  --output-on-failure -R '^kirin_pre_display_runtime$'
+  --output-on-failure -R '^(kirin_pre_display_runtime|kirin_ui_render_contract)$'
 
 run cargo test -p kirin_measure --locked
 run cargo test -p kirin_hypha_ffi --locked

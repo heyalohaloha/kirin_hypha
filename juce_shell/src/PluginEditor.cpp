@@ -164,9 +164,8 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
                 showToast ("Could not open browser");
         };
 
-        // B-102: ▼ dropdown beside the pair field — All Keep / All Stop / candidate list.
+        // B-102/B-492: vector-arrow dropdown beside the pair field — All Keep / All Stop / candidates.
         // The free-text pair field (nameField) is retained; this only adds the egui ComboBox.
-        pairDropdown.setButtonText (juce::String::charToString ((juce::juce_wchar) 0x25BC)); // ▼
         pairDropdown.setTitle ("Pair and Keep menu");
         pairDropdown.setDescription ("Choose an exact PRE pair or start and stop all ready pairs");
         pairDropdown.setColour (juce::TextButton::buttonColourId, hypha::kFieldFill);

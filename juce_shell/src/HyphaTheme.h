@@ -30,14 +30,32 @@ namespace hypha
     // (Dark Cockpit). Defined after BG so its static initialisation is sequenced after it.
     inline const juce::Colour kFieldFill = BG.brighter (0.05f);
 
-    // ── fonts: exact native families also loaded by hypha_gui::install_native_font_contract ─
+    // ── fonts: native platform families; never depend on a cross-platform fallback ─────────
+    inline const char* nativeLabelFontFamily() noexcept
+    {
+       #if JUCE_WINDOWS
+        return ui_contract::windowsLabelFontFamily;
+       #else
+        return ui_contract::labelFontFamily;
+       #endif
+    }
+
+    inline const char* nativeMonoFontFamily() noexcept
+    {
+       #if JUCE_WINDOWS
+        return ui_contract::windowsMonoFontFamily;
+       #else
+        return ui_contract::monoFontFamily;
+       #endif
+    }
+
     inline juce::Font labelFont (float h)
     {
-        return juce::Font (ui_contract::labelFontFamily, h, juce::Font::plain);
+        return juce::Font (nativeLabelFontFamily(), h, juce::Font::plain);
     }
     inline juce::Font monoFont  (float h)
     {
-        return juce::Font (ui_contract::monoFontFamily, h, juce::Font::plain);
+        return juce::Font (nativeMonoFontFamily(), h, juce::Font::plain);
     }
 
     // Δ (U+0394) built from its codepoint to avoid non-ASCII source/escape issues.
