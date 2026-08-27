@@ -53,22 +53,23 @@ run "$UI_CONTRACT_BIN"
 # materialize that exact state here instead of relying on a developer's existing submodule tree.
 run bash scripts/apply_juce_patches.sh
 
-# Execute the file-backed PRE consumer itself: bounded parser, SHA-verified pointer recovery,
-# explicit clear authority, multiple-instance fan-out, time boundaries, and clock retention.
+# Execute the file-backed PRE consumer and native UI contract in the same optimized configuration
+# that ships. The UI contract includes hard paint-time ceilings, so a Debug build would measure
+# assertion/instrumentation overhead instead of the production renderer and vary by runner class.
 PRE_DISPLAY_CMAKE_ARGS=(
   -S juce_shell
   -B "$PRE_DISPLAY_BUILD"
   -DKIRIN_HYPHA_BUILD_PRE_DISPLAY_TESTS=ON
   -DKIRIN_HYPHA_BUILD_UI_RENDER_TESTS=ON
-  -DCMAKE_BUILD_TYPE=Debug
+  -DCMAKE_BUILD_TYPE=Release
 )
 if [[ "$(uname -s)" == "Darwin" ]]; then
   PRE_DISPLAY_CMAKE_ARGS+=("-DCMAKE_OSX_ARCHITECTURES=$(uname -m)")
 fi
 run cmake "${PRE_DISPLAY_CMAKE_ARGS[@]}"
 run cmake --build "$PRE_DISPLAY_BUILD" \
-  --target KirinPreDisplayRuntimeTests KirinUiRenderContractTests --config Debug
-run ctest --test-dir "$PRE_DISPLAY_BUILD" --build-config Debug \
+  --target KirinPreDisplayRuntimeTests KirinUiRenderContractTests --config Release
+run ctest --test-dir "$PRE_DISPLAY_BUILD" --build-config Release \
   --output-on-failure -R '^(kirin_pre_display_runtime|kirin_ui_render_contract)$'
 
 run cargo test -p kirin_measure --locked
