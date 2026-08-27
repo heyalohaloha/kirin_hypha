@@ -1,9 +1,11 @@
 #include "../src/HyphaWidgets.h"
+#include "../src/HyphaSpectrumBallistics.h"
 #include "../src/HyphaSpectrumComponent.h"
 
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
+#include <limits>
 
 namespace ui = hypha::ui_contract;
 
@@ -167,11 +169,92 @@ namespace
         }
         return result;
     }
+
+    KirinSpectrumView flatSpectrum (float preDbfs, float postDbfs, float deltaDb)
+    {
+        KirinSpectrumView view {};
+        view.status = KIRIN_SPECTRUM_ACTIVE;
+        view.has_data = 1;
+        view.sample_rate = 48'000;
+        view.min_hz = 10.0f;
+        view.max_hz = 22'000.0f;
+        for (size_t index = 0; index < KIRIN_SPECTRUM_BAND_COUNT; ++index)
+        {
+            view.pre_dbfs[index] = preDbfs;
+            view.post_dbfs[index] = postDbfs;
+            view.display_db[index] = deltaDb;
+        }
+        return view;
+    }
+
+    void verifySpectrumBallistics()
+    {
+        constexpr size_t lowBand = 0;
+        constexpr size_t highBand = KIRIN_SPECTRUM_BAND_COUNT - 1u;
+        constexpr float tickSeconds = 0.1f;
+        const auto neutral = flatSpectrum (-60.0f, -60.0f, 0.0f);
+
+        hypha::SpectrumBallistics positive;
+        KIRIN_REQUIRE (positive.setTarget (neutral));
+        auto positiveTarget = flatSpectrum (-20.0f, -20.0f, 12.0f);
+        KIRIN_REQUIRE (! positive.setTarget (positiveTarget));
+        KIRIN_REQUIRE (positive.advance (tickSeconds));
+        KIRIN_REQUIRE (positive.frame().display_db[lowBand] > 0.0f);
+        KIRIN_REQUIRE (positive.frame().display_db[highBand]
+                       > positive.frame().display_db[lowBand]);
+        KIRIN_REQUIRE (positive.frame().pre_dbfs[highBand]
+                       > positive.frame().pre_dbfs[lowBand]);
+
+        hypha::SpectrumBallistics negative;
+        KIRIN_REQUIRE (negative.setTarget (neutral));
+        auto negativeTarget = flatSpectrum (-20.0f, -20.0f, -12.0f);
+        KIRIN_REQUIRE (! negative.setTarget (negativeTarget));
+        KIRIN_REQUIRE (negative.advance (tickSeconds));
+        KIRIN_REQUIRE (std::abs (positive.frame().display_db[highBand]
+                                + negative.frame().display_db[highBand]) < 0.0001f);
+
+        hypha::SpectrumBallistics returning;
+        KIRIN_REQUIRE (returning.setTarget (flatSpectrum (-20.0f, -20.0f, 12.0f)));
+        KIRIN_REQUIRE (! returning.setTarget (flatSpectrum (-60.0f, -60.0f, 0.0f)));
+        KIRIN_REQUIRE (returning.advance (tickSeconds));
+        const float awayTravel = positive.frame().display_db[highBand];
+        const float returnTravel = 12.0f - returning.frame().display_db[highBand];
+        KIRIN_REQUIRE (awayTravel > returnTravel);
+        KIRIN_REQUIRE (positive.frame().pre_dbfs[highBand] + 60.0f
+                       > -20.0f - returning.frame().pre_dbfs[highBand]);
+
+        KIRIN_REQUIRE (! returning.advance (0.0f));
+        KIRIN_REQUIRE (! returning.advance (std::numeric_limits<float>::quiet_NaN()));
+        auto changedDomain = flatSpectrum (-48.0f, -42.0f, -6.0f);
+        changedDomain.sample_rate = 44'100;
+        KIRIN_REQUIRE (returning.setTarget (changedDomain));
+        KIRIN_REQUIRE (std::abs (returning.frame().display_db[highBand] + 6.0f) < 0.0001f);
+        returning.reset();
+        KIRIN_REQUIRE (! returning.hasFrame());
+        KIRIN_REQUIRE (! returning.advance (tickSeconds));
+
+        hypha::SpectrumBallistics benchmark;
+        benchmark.setTarget (neutral);
+        auto movingTarget = positiveTarget;
+        constexpr int motionIterations = 2'000;
+        const double motionStartedMs = juce::Time::getMillisecondCounterHiRes();
+        for (int iteration = 0; iteration < motionIterations; ++iteration)
+        {
+            movingTarget.display_db[highBand] = iteration % 2 == 0 ? 12.0f : -12.0f;
+            benchmark.setTarget (movingTarget);
+            benchmark.advance (tickSeconds);
+        }
+        const double motionMs = (juce::Time::getMillisecondCounterHiRes() - motionStartedMs)
+                              / motionIterations;
+        KIRIN_REQUIRE (motionMs < 0.5);
+        std::cout << "Spectrum motion: " << motionMs << " ms/tick\n";
+    }
 }
 
 int main()
 {
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
+    verifySpectrumBallistics();
 
     const auto label = hypha::labelFont (ui::titleFontHeight);
     const auto mono = hypha::monoFont (ui::pairStatusFontHeight);

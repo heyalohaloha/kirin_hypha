@@ -144,7 +144,9 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         target_compile_definitions(${TARGET} PRIVATE KIRIN_HYPHA_PRE_DISPLAY=1)
         target_link_libraries(${TARGET} PRIVATE juce::juce_cryptography)
     else()
-        target_sources(${TARGET} PRIVATE src/HyphaSpectrumComponent.cpp)
+        target_sources(${TARGET} PRIVATE
+            src/HyphaSpectrumBallistics.cpp
+            src/HyphaSpectrumComponent.cpp)
         target_compile_definitions(${TARGET} PRIVATE KIRIN_HYPHA_PRE_DISPLAY=0)
     endif()
 
@@ -223,6 +225,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         PRODUCT_NAME "Kirin UI Render Contract Tests")
     target_sources(KirinUiRenderContractTests PRIVATE
         tests/ui_render_contract_test.cpp
+        src/HyphaSpectrumBallistics.cpp
         src/HyphaSpectrumComponent.cpp
         ${KIRIN_HYPHA_WIDGETS_SOURCE})
     target_compile_definitions(KirinUiRenderContractTests PRIVATE

@@ -378,10 +378,13 @@ fn spectrum_is_post_only_on_demand_and_isolated_from_existing_schemas() {
     let cmake = read_repo("juce_shell/CMakeLists.txt");
     let post_only_branch = slice_between(
         &cmake,
-        "else()\n        target_sources(${TARGET} PRIVATE src/HyphaSpectrumComponent.cpp)",
+        "else()\n        target_sources(${TARGET} PRIVATE\n            src/HyphaSpectrumBallistics.cpp",
         "endif()",
     );
-    assert!(post_only_branch.contains("KIRIN_HYPHA_PRE_DISPLAY=0"));
+    assert!(
+        post_only_branch.contains("KIRIN_HYPHA_PRE_DISPLAY=0")
+            && post_only_branch.contains("src/HyphaSpectrumComponent.cpp")
+    );
 
     let plugin_data = read_repo("crates/kirin_measure/src/plugin_data.rs");
     assert!(!plugin_data.contains("spectrum"));
