@@ -152,6 +152,13 @@ int main()
     static_assert (KIRIN_DELTA_MODE_NO_PRE == 2u);
     static_assert (KIRIN_DELTA_MODE_BYPASSED == 3u);
     static_assert (KIRIN_DELTA_MODE_PRE_INACTIVE == 4u);
+    static_assert (KIRIN_SPECTRUM_BAND_COUNT == 256u);
+    static_assert (KIRIN_SPECTRUM_DISPLAY_RANGE_DB == 18.0f);
+    static_assert (KIRIN_SPECTRUM_HIDDEN == 0u);
+    static_assert (KIRIN_SPECTRUM_NO_PAIR == 1u);
+    static_assert (KIRIN_SPECTRUM_WARMING_UP == 2u);
+    static_assert (KIRIN_SPECTRUM_ACTIVE == 3u);
+    static_assert (KIRIN_SPECTRUM_UNAVAILABLE == 4u);
     static_assert (KIRIN_RECORD_DISPLAY_WATCH == 0u);
     static_assert (KIRIN_RECORD_DISPLAY_LIVE == 1u);
     static_assert (KIRIN_RECORD_DISPLAY_FINALIZING == 2u);
@@ -254,6 +261,14 @@ int main()
     assert (post.name.x == 10 && post.name.width == 248);
     assert (post.pairDropdown.width == 28 && post.pairDropdown.height == 24);
     assert (post.postControls.y == 149 && post.postControls.height == 28);
+    const auto spectrumToggle = ui::spectrumToggleBounds();
+    const auto spectrumPlot = ui::spectrumPlotBounds();
+    assert (hasArea (spectrumToggle) && fitsEditor (spectrumToggle));
+    assert (hasArea (spectrumPlot) && fitsEditor (spectrumPlot));
+    assert (! overlaps (spectrumToggle, post.pairStatus));
+    assert (! overlaps (spectrumPlot, post.postControls));
+    assert (spectrumPlot.x == ui::margin && spectrumPlot.y == post.metricTop);
+    assert (spectrumPlot.width == ui::editorWidth - 2 * ui::margin);
     assert (post.feedback.y == 178 && post.feedback.height == 20);
     assert (pre.feedback.y == post.feedback.y);
     assert (pre.preDisplayPrimary.y == 126 && pre.preDisplayPrimary.height == 18);

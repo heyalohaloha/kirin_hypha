@@ -173,6 +173,17 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         pairDropdown.setColour (juce::TextButton::textColourOffId, COL_FLORA);
         pairDropdown.onClick = [this] { showCandidateMenu(); };
         addAndMakeVisible (pairDropdown);
+
+       #if ! KIRIN_HYPHA_PRE_DISPLAY
+        spectrumToggle.setButtonText ("SPECTRUM");
+        spectrumToggle.setTooltip ("Show the signed POST minus PRE frequency difference");
+        spectrumToggle.setColour (juce::TextButton::buttonColourId, hypha::kFieldFill);
+        spectrumToggle.setColour (juce::TextButton::textColourOnId, COL_FLORA);
+        spectrumToggle.setColour (juce::TextButton::textColourOffId, COL_MUTED);
+        spectrumToggle.onClick = [this] { setSpectrumMode (! spectrumMode); };
+        addAndMakeVisible (spectrumToggle);
+        addChildComponent (spectrumView);
+       #endif
     }
     else
     {
@@ -231,6 +242,8 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
 KirinHyphaEditor::~KirinHyphaEditor()
 {
     stopTimer();
+    if (isPost)
+        processorRef.setSpectrumVisible (false);
 }
 
 KirinHyphaEditor::PairMenuLookAndFeel& KirinHyphaEditor::pairMenuLookAndFeel()
@@ -269,6 +282,13 @@ void KirinHyphaEditor::resized()
     nameField.setBounds (juceRect (layout.name));
     if (isPost)
         pairDropdown.setBounds (juceRect (layout.pairDropdown));
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (isPost)
+    {
+        spectrumToggle.setBounds (juceRect (ui::spectrumToggleBounds (getWidth())));
+        spectrumView.setBounds (juceRect (ui::spectrumPlotBounds (getWidth())));
+    }
+   #endif
     floraY = layout.floraY;
     metricTop = layout.metricTop;
 
@@ -304,6 +324,25 @@ void KirinHyphaEditor::layoutMetrics (bool)
     for (int i = 0; i < 6; ++i)
         cells[(size_t) i].setBounds (juceRect (ui::metricCellBounds (i, metricTop, getWidth())));
 }
+
+#if ! KIRIN_HYPHA_PRE_DISPLAY
+void KirinHyphaEditor::setSpectrumMode (bool enabled)
+{
+    if (! isPost || spectrumMode == enabled)
+        return;
+    spectrumMode = enabled;
+    for (auto& cell : cells)
+        cell.setVisible (! enabled);
+    loudnessSelector.setVisible (! enabled);
+    spectrumView.setVisible (enabled);
+    spectrumToggle.setButtonText (enabled ? "METERS" : "SPECTRUM");
+    spectrumToggle.setColour (juce::TextButton::textColourOffId,
+                              enabled ? COL_FLORA : COL_MUTED);
+    processorRef.setSpectrumVisible (enabled);
+    if (! enabled)
+        configureForKind (currentKind);
+}
+#endif
 
 void KirinHyphaEditor::configureForKind (Kind k)
 {
@@ -752,6 +791,19 @@ void KirinHyphaEditor::updatePost()
 
     postControls->update (keepActive, processorRef.licenseCode(),
                           pairStatus != KIRIN_PAIR_STATUS_UNPAIRED);
+
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (spectrumMode)
+    {
+        KirinSpectrumView spectrum {};
+        if (processorRef.pollSpectrum (spectrum))
+            spectrumView.setSnapshot (spectrum);
+        // Spectrum is presentation-only. Pair/Keep/feedback and the existing status LED remain
+        // live, while meter polling and smoothing are skipped for this page.
+        led.setState (hypha::deriveLedState (alive, sig, rec && armed, ack, preset));
+        return;
+    }
+   #endif
 
     // ── display-branch tree: Record uses one generation-bound presentation snapshot, while
     //    paired Watch keeps the delta grid through short PRE idle/stale gaps.

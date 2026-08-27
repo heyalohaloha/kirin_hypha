@@ -89,6 +89,8 @@ KirinHyphaProcessorBase::~KirinHyphaProcessorBase()
     const juce::ScopedLock sl (handleLock);
     if (hyphaHandle != nullptr)
     {
+        if (role == Role::Post)
+            kirin_hypha_set_spectrum_visible (hyphaHandle, false);
         kirin_hypha_destroy (hyphaHandle);
         hyphaHandle = nullptr;
     }
@@ -704,6 +706,33 @@ bool KirinHyphaProcessorBase::pollDelta (KirinDelta& out) const
     return kirin_hypha_poll_delta (hyphaHandle, &out);
 }
 
+bool KirinHyphaProcessorBase::setSpectrumVisible (bool visible)
+{
+    if (role != Role::Post)
+        return false;
+    spectrumVisibleRequested.store (visible, std::memory_order_release);
+    const juce::ScopedLock sl (handleLock);
+    if (hyphaHandle == nullptr || ! writesEnabled.load (std::memory_order_acquire))
+        return false;
+    return kirin_hypha_set_spectrum_visible (hyphaHandle, visible);
+}
+
+bool KirinHyphaProcessorBase::pollSpectrum (KirinSpectrumView& out) const
+{
+    if (role != Role::Post)
+        return false;
+    const juce::ScopedLock sl (handleLock);
+    return hyphaHandle != nullptr && kirin_hypha_poll_spectrum (hyphaHandle, &out);
+}
+
+bool KirinHyphaProcessorBase::spectrumStats (KirinSpectrumStats& out) const
+{
+    if (role != Role::Post)
+        return false;
+    const juce::ScopedLock sl (handleLock);
+    return hyphaHandle != nullptr && kirin_hypha_spectrum_stats (hyphaHandle, &out);
+}
+
 // --- B-054: PRE live name + LED pollers ---------------------------------------------------
 
 void KirinHyphaProcessorBase::setPreName (const juce::String& name)
@@ -1043,6 +1072,8 @@ void KirinHyphaProcessorBase::enableWritesNow()
                 persistPairProjectHash.clear();
             }
         }
+        if (spectrumVisibleRequested.load (std::memory_order_acquire))
+            kirin_hypha_set_spectrum_visible (hyphaHandle, true);
     }
     else
     {

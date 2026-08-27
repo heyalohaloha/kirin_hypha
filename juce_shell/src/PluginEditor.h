@@ -10,6 +10,9 @@
 #include "HyphaTheme.h"
 #include "HyphaWidgets.h"
 #include "PostControls.h"
+#if ! KIRIN_HYPHA_PRE_DISPLAY
+ #include "HyphaSpectrumComponent.h"
+#endif
 
 // B-054: full UI rebuild to egui parity (crates/hypha_pre/editor.rs + hypha_post/editor.rs +
 // hypha_gui). 300×200 mycelium-textured panel. No measurement logic lives here (R-12 / R-22):
@@ -55,6 +58,9 @@ private:
     void timerCallback() override;
     void updatePre();
     void updatePost();
+#if ! KIRIN_HYPHA_PRE_DISPLAY
+    void setSpectrumMode (bool enabled);
+#endif
 
     // Which metric grid is configured (label/unit/font set). Abs* uses absolute labels
     // (LUFS-M/TP/…); Delta* uses Δ labels (ΔLUFS/…). Watch is current|MAX; Record is 2×3.
@@ -92,10 +98,17 @@ private:
 #endif
     std::unique_ptr<hypha::PostControls> postControls;    // POST button row
     hypha::PairDropdownButton pairDropdown;                // POST: vector arrow / candidate / All Keep / All Stop
+#if ! KIRIN_HYPHA_PRE_DISPLAY
+    juce::TextButton          spectrumToggle;               // POST: meters / Spectrum page
+    hypha::SpectrumComponent  spectrumView;                 // POST-only signed difference plot
+#endif
     juce::TooltipWindow       tooltip { this };           // drives per-cell hover help
 
     Kind   currentKind = Kind::WatchAbs6;
     bool   currentSix  = false;
+#if ! KIRIN_HYPHA_PRE_DISPLAY
+    bool   spectrumMode = false;
+#endif
     int    metricTop   = 0;       // y of the first metric row (set in resized())
     int    floraY      = 0;       // y of the flora separator line
     juce::Rectangle<int> titleArea;

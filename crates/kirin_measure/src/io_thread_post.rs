@@ -353,6 +353,7 @@ pub fn spawn_io_thread_post(
     // B-108: display と keep/Arm が共有する単一ラッチ。io_thread が毎 tick 維持し、shell 側の
     // keep/keep_all/broadcast 受信が `resolve_arm_target` で読む（egui/JUCE 両殻が同実体を渡す）。
     latched_pre: Arc<Mutex<Option<LatchedPre>>>,
+    spectrum: Arc<crate::SpectrumCoordinator>,
 ) -> JoinHandle<()> {
     thread::spawn(move || {
         // B-128 (G-115-370): 観測 family（io_thread）入口の identity materialize（唯一の検証点）。
@@ -638,6 +639,16 @@ pub fn spawn_io_thread_post(
                     );
                 }
             }
+
+            let spectrum_target = latched_pre
+                .lock()
+                .ok()
+                .and_then(|latched| latched.clone())
+                .filter(|latched| latched.readiness == crate::LatchedPreReadiness::Confirmed)
+                .and_then(|latched| {
+                    crate::SpectrumTarget::from_pre_json(latched.instance_id, &latched.pre_json)
+                });
+            spectrum.post_tick(instance_id_ref, spectrum_target);
 
             // The exact PRE ownership index is published only after this POST's atomic snapshot
             // already contains the same binding generation. A PRE UI and a competing POST read

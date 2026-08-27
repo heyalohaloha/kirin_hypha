@@ -77,6 +77,9 @@ public:
     // --- B-073: POST Δ readout (editor display branching) --------------------------------
     int  signalStateLive() const;                      // B-113: FFI kirin_hypha_get_signal_state (heartbeat-aware, no stale Active)
     bool pollDelta (KirinDelta& out) const;            // FFI kirin_hypha_poll_delta (mode + Δ values)
+    bool setSpectrumVisible (bool visible);             // POST-only; request work stays on IO thread
+    bool pollSpectrum (KirinSpectrumView& out) const;   // signed POST-PRE display snapshot
+    bool spectrumStats (KirinSpectrumStats& out) const; // read-only validation counters
     bool isPlaying() const { return lastPlaying.load (std::memory_order_acquire); } // transport (POST pair lock)
 
     // --- B-054: PRE live name + LED pollers (egui parity) --------------------------------
@@ -167,6 +170,7 @@ private:
     std::atomic<bool> enablePending { false };         // B-126: set by prepare/processBlock, observed by the Timer
     std::atomic<int>  enableDelayTicks { 0 };          // prepare fallback restore grace; setState clears it
     std::atomic<bool> stateInformationSeen { false };  // setStateInformation reached this instance at least once
+    std::atomic<bool> spectrumVisibleRequested { false }; // editor lifetime; not persisted in DAW state
 
 #if KIRIN_HYPHA_PRE_DISPLAY
     hypha::pre_display::ClockTap preDisplayClock;

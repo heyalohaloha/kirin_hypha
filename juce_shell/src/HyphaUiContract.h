@@ -64,6 +64,9 @@ namespace hypha::ui_contract
     constexpr int loudnessSelectorHorizontalInset   = 1;
     constexpr int loudnessSelectorVerticalInset     = 4;
     constexpr int loudnessSegmentMinimumWidth       = 12;
+    constexpr int spectrumToggleWidth               = 84;
+    constexpr int spectrumToggleHeight              = 21;
+    constexpr int spectrumTitleGap                  = 8;
 
     constexpr const char* preTitle = "PRE";
     constexpr const char* postTitle = "POST";
@@ -276,6 +279,21 @@ namespace hypha::ui_contract
         return { first.x, first.y, loudnessSelectorWidth, first.height };
     }
 
+    constexpr Rect spectrumToggleBounds (int width = editorWidth) noexcept
+    {
+        const int centredOffset = (width - editorWidth) / 2;
+        return { centredOffset + margin + preTitleWidth + spectrumTitleGap,
+                 topSpace + (titleHeight - spectrumToggleHeight) / 2,
+                 spectrumToggleWidth,
+                 spectrumToggleHeight };
+    }
+
+    constexpr Rect spectrumPlotBounds (int width = editorWidth) noexcept
+    {
+        const auto layout = editorLayout (true, width);
+        return { margin, layout.metricTop, width - 2 * margin, metricHeight };
+    }
+
     enum class Metric
     {
         lufs,
@@ -350,6 +368,10 @@ namespace hypha::ui_contract
     static_assert (bottom (metricCellBounds (5, editorLayout (true).metricTop))
                        < editorLayout (true).postControls.y,
                    "POST metrics and controls must not overlap");
+    static_assert (right (spectrumToggleBounds()) < editorLayout (true).pairStatus.x,
+                   "POST Spectrum mode control must not overlap pair status");
+    static_assert (bottom (spectrumPlotBounds()) < editorLayout (true).postControls.y,
+                   "POST Spectrum plot and controls must not overlap");
     static_assert (bottom (editorLayout (true).postControls) <= editorLayout (true).feedback.y,
                    "POST controls and feedback must not overlap");
     static_assert (bottom (metricCellBounds (5, editorLayout (true).metricTop)) <= editorHeight,

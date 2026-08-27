@@ -310,6 +310,60 @@ fn juce_wrappers_forward_host_presentation_latency_as_diagnostics() {
     assert!(cmake.contains("FORMATS ${KIRIN_PLUGIN_FORMATS}"));
 }
 
+#[test]
+fn spectrum_is_post_only_on_demand_and_isolated_from_existing_schemas() {
+    let header = read_repo("crates/kirin_hypha_ffi/include/kirin_hypha_ffi.h");
+    for required in [
+        "KIRIN_SPECTRUM_BAND_COUNT 256u",
+        "KIRIN_SPECTRUM_DISPLAY_RANGE_DB 18.0f",
+        "kirin_hypha_set_spectrum_visible",
+        "kirin_hypha_poll_spectrum",
+    ] {
+        assert!(header.contains(required), "Spectrum ABI missing {required}");
+    }
+
+    let runtime = read_repo("crates/kirin_measure/src/spectrum_runtime.rs");
+    let ingress = slice_between(
+        &runtime,
+        "pub fn push_block_from_audio",
+        "pub fn try_history",
+    );
+    let enabled_check = ingress
+        .find("if !self.enabled.load")
+        .expect("hidden Spectrum path must start with an atomic enabled gate");
+    let producer_access = ingress
+        .find("self.sample_producer.get()")
+        .expect("enabled Spectrum path must use its own bounded producer");
+    assert!(enabled_check < producer_access);
+    for forbidden in ["Mutex", "fs::", "SpectrumAnalyzer", "spawn(", "Vec::"] {
+        assert!(
+            !ingress.contains(forbidden),
+            "Audio ingress contains {forbidden}"
+        );
+    }
+
+    let exchange = read_repo("crates/kirin_measure/src/spectrum_exchange.rs");
+    assert!(exchange.contains("join(\"spectrum\").join(\"request.json\")"));
+    assert!(exchange.contains("join(\"spectrum\").join(\"pre.bin\")"));
+    assert!(!exchange.contains("plugin_data"));
+
+    let editor = read_repo("juce_shell/src/PluginEditor.cpp");
+    assert!(editor.contains("#if ! KIRIN_HYPHA_PRE_DISPLAY"));
+    assert!(editor.contains("setSpectrumMode (! spectrumMode)"));
+    assert!(editor.contains("processorRef.setSpectrumVisible (false)"));
+
+    let cmake = read_repo("juce_shell/CMakeLists.txt");
+    let post_only_branch = slice_between(
+        &cmake,
+        "else()\n        target_sources(${TARGET} PRIVATE src/HyphaSpectrumComponent.cpp)",
+        "endif()",
+    );
+    assert!(post_only_branch.contains("KIRIN_HYPHA_PRE_DISPLAY=0"));
+
+    let plugin_data = read_repo("crates/kirin_measure/src/plugin_data.rs");
+    assert!(!plugin_data.contains("spectrum"));
+}
+
 fn slice_between<'a>(src: &'a str, start_marker: &str, end_marker: &str) -> &'a str {
     let start = src.find(start_marker).expect("start marker must exist");
     let end = src[start..]

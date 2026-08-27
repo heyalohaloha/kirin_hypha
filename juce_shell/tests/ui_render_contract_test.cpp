@@ -1,4 +1,5 @@
 #include "../src/HyphaWidgets.h"
+#include "../src/HyphaSpectrumComponent.h"
 
 #include <cmath>
 #include <cstdlib>
@@ -50,6 +51,17 @@ namespace
         for (int y = 0; y < image.getHeight(); ++y)
             for (int x = 0; x < image.getWidth(); ++x)
                 if (image.getPixelAt (x, y).getARGB() == colour.getARGB())
+                    ++count;
+        return count;
+    }
+
+    int countDifferentPixels (const juce::Image& a, const juce::Image& b)
+    {
+        KIRIN_REQUIRE (a.getBounds() == b.getBounds());
+        int count = 0;
+        for (int y = 0; y < a.getHeight(); ++y)
+            for (int x = 0; x < a.getWidth(); ++x)
+                if (a.getPixelAt (x, y).getARGB() != b.getPixelAt (x, y).getARGB())
                     ++count;
         return count;
     }
@@ -153,6 +165,32 @@ int main()
     }
     const int arrowPixels = countExactPixels (dropdownImage, hypha::COL_FLORA);
     KIRIN_REQUIRE (arrowPixels >= 8);
+
+    hypha::SpectrumComponent spectrum;
+    const auto spectrumBounds = ui::spectrumPlotBounds();
+    spectrum.setSize (spectrumBounds.width, spectrumBounds.height);
+    juce::Image warmingSpectrumImage (
+        juce::Image::ARGB, spectrum.getWidth(), spectrum.getHeight(), true);
+    {
+        juce::Graphics graphics (warmingSpectrumImage);
+        spectrum.paintEntireComponent (graphics, true);
+    }
+    KirinSpectrumView spectrumSnapshot {};
+    spectrumSnapshot.status = KIRIN_SPECTRUM_ACTIVE;
+    spectrumSnapshot.has_data = 1;
+    spectrumSnapshot.sample_rate = 48'000;
+    spectrumSnapshot.min_hz = 10.0f;
+    spectrumSnapshot.max_hz = 22'000.0f;
+    for (size_t index = 0; index < KIRIN_SPECTRUM_BAND_COUNT; ++index)
+        spectrumSnapshot.display_db[index] = 6.0f * std::sin ((float) index * 0.08f);
+    spectrum.setSnapshot (spectrumSnapshot);
+    juce::Image spectrumImage (
+        juce::Image::ARGB, spectrum.getWidth(), spectrum.getHeight(), true);
+    {
+        juce::Graphics graphics (spectrumImage);
+        spectrum.paintEntireComponent (graphics, true);
+    }
+    KIRIN_REQUIRE (countDifferentPixels (warmingSpectrumImage, spectrumImage) > 100);
 
     std::cout << "UI render contract passed: label="
               << label.getTypefaceName().toStdString()

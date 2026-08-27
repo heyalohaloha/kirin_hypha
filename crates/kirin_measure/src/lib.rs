@@ -56,6 +56,9 @@ pub mod record_writer;
 mod record_writer_claim;
 pub mod resampler;
 pub mod reservation;
+pub mod spectrum;
+pub mod spectrum_exchange;
+pub mod spectrum_runtime;
 pub mod storage;
 mod sync_recovery;
 pub mod trace_alignment;
@@ -228,6 +231,17 @@ pub use record_take::{
 };
 pub use record_writer::{
     new_record_trace_queue, RecordTraceKind, RecordTraceQueue, RecordTraceSample,
+};
+pub use spectrum::{
+    difference_post_minus_pre, SpectrumAnalyzer, SpectrumDifference, SpectrumError, SpectrumFrame,
+    SPECTRUM_BAND_COUNT, SPECTRUM_DIFF_RANGE_DB, SPECTRUM_FFT_SIZE, SPECTRUM_FLOOR_DBFS,
+    SPECTRUM_PRESENTATION_HZ, SPECTRUM_SCHEMA_VERSION,
+};
+pub use spectrum_exchange::{
+    SpectrumCoordinator, SpectrumTarget, SpectrumViewSnapshot, SpectrumViewStatus,
+};
+pub use spectrum_runtime::{
+    SpectrumHistory, SpectrumRuntime, SpectrumRuntimeStats, SPECTRUM_HISTORY_CAPACITY,
 };
 pub use storage::{
     cleanup_legacy_v1, load_installation_id_safe, load_or_recover, read_identity, write_both,
