@@ -479,6 +479,7 @@ int main()
     KIRIN_REQUIRE (compactSpectrum.paintMs < 4.0);
     KIRIN_REQUIRE (mediumSpectrum.paintMs < 6.0);
     KIRIN_REQUIRE (largeSpectrum.paintMs < 8.0);
+    KIRIN_REQUIRE (largeSpectrum.paintMs * ui::spectrumPresentationHz < 240.0);
 
     std::cout << "UI render contract passed: label="
               << label.getTypefaceName().toStdString()

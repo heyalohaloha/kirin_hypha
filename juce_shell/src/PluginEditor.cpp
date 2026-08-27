@@ -252,6 +252,9 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
 KirinHyphaEditor::~KirinHyphaEditor()
 {
     stopTimer();
+#if ! KIRIN_HYPHA_PRE_DISPLAY
+    spectrumView.setPresentationActive (false);
+#endif
     if (isPost)
         processorRef.setSpectrumVisible (false);
 }
@@ -353,6 +356,7 @@ void KirinHyphaEditor::setSpectrumMode (bool enabled)
     if (! isPost || spectrumMode == enabled)
         return;
     spectrumView.clearSnapshot();
+    spectrumView.setPresentationActive (enabled);
     spectrumMode = enabled;
     for (auto& cell : cells)
         cell.setVisible (! enabled);
@@ -845,7 +849,6 @@ void KirinHyphaEditor::updatePost()
         KirinSpectrumView spectrum {};
         if (processorRef.pollSpectrum (spectrum))
             spectrumView.setSnapshot (spectrum);
-        spectrumView.presentationTick();
         // Spectrum is presentation-only. Pair/Keep/feedback and the existing status LED remain
         // live, while meter polling and smoothing are skipped for this page.
         led.setState (hypha::deriveLedState (alive, sig, rec && armed, ack, preset));

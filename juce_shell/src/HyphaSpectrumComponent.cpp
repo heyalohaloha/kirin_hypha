@@ -88,14 +88,27 @@ void SpectrumComponent::clearSnapshot()
     repaint();
 }
 
+void SpectrumComponent::setPresentationActive (bool active)
+{
+    if (active)
+        startTimerHz (ui_contract::spectrumPresentationHz);
+    else
+        stopTimer();
+}
+
 void SpectrumComponent::presentationTick()
 {
     const bool motionChanged = ballistics.advance (
-        1.0f / static_cast<float> (ui_contract::preDisplayPresentationHz));
+        1.0f / static_cast<float> (ui_contract::spectrumPresentationHz));
     if (! hoverNeedsRepaint && ! motionChanged)
         return;
     hoverNeedsRepaint = false;
     repaint();
+}
+
+void SpectrumComponent::timerCallback()
+{
+    presentationTick();
 }
 
 void SpectrumComponent::mouseMove (const juce::MouseEvent& event)

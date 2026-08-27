@@ -9,21 +9,24 @@
 namespace hypha
 {
 // POST-only presentation component. It receives fixed Rust snapshots and owns only display
-// ballistics; it owns no timer, file, FFT, pairing, or audio state. Raw analysis remains in Rust,
-// and a missing/incompatible exact frame is rendered as a factual status.
-class SpectrumComponent final : public juce::Component
+// ballistics plus their on-demand presentation timer; it owns no file, FFT, pairing, or audio
+// state. Raw analysis remains in Rust, and a missing/incompatible frame is rendered factually.
+class SpectrumComponent final : public juce::Component,
+                                private juce::Timer
 {
 public:
     SpectrumComponent();
 
     void setSnapshot (const KirinSpectrumView& next);
     void clearSnapshot();
+    void setPresentationActive (bool active);
     void presentationTick();
     void paint (juce::Graphics&) override;
     void mouseMove (const juce::MouseEvent&) override;
     void mouseExit (const juce::MouseEvent&) override;
 
 private:
+    void timerCallback() override;
     static juce::String statusText (uint8_t status);
     static juce::String hoverFrequencyText (float hz);
     static float yForDeltaDb (float db, juce::Rectangle<float> plot) noexcept;
