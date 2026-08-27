@@ -1,7 +1,7 @@
 use super::*;
 
 fn sine(sample_rate: u32, frequency: f32, phase: f32) -> Vec<f32> {
-    (0..SPECTRUM_FFT_SIZE)
+    (0..SPECTRUM_WINDOW_SIZE)
         .map(|index| {
             (std::f32::consts::TAU * frequency * index as f32 / sample_rate as f32 + phase).sin()
         })
@@ -10,10 +10,18 @@ fn sine(sample_rate: u32, frequency: f32, phase: f32) -> Vec<f32> {
 
 #[test]
 fn silence_is_finite_and_stays_at_the_floor() {
+    assert_eq!(SPECTRUM_WINDOW_SIZE, 4_096);
+    assert_eq!(SPECTRUM_FFT_SIZE, 8_192);
     let mut analyzer = SpectrumAnalyzer::new(48_000).unwrap();
     let frame = analyzer
-        .analyze(&[0.0; SPECTRUM_FFT_SIZE], None, 8_192, 1)
+        .analyze(
+            &[0.0; SPECTRUM_WINDOW_SIZE],
+            None,
+            SPECTRUM_WINDOW_SIZE as i64,
+            1,
+        )
         .unwrap();
+    assert_eq!(frame.min_hz.to_bits(), SPECTRUM_MIN_HZ.to_bits());
     assert!(frame
         .dbfs
         .iter()
@@ -37,12 +45,19 @@ fn inverted_stereo_does_not_cancel() {
 fn forty_four_one_uses_real_bin_floor_and_its_own_nyquist() {
     let mut analyzer = SpectrumAnalyzer::new(44_100).unwrap();
     let frame = analyzer
-        .analyze(&[0.0; SPECTRUM_FFT_SIZE], None, 44_100, 1)
+        .analyze(&[0.0; SPECTRUM_WINDOW_SIZE], None, 44_100, 1)
         .unwrap();
     let first_bin = 44_100.0 / SPECTRUM_FFT_SIZE as f32;
     assert_eq!(frame.sample_rate, 44_100);
     assert!((frame.min_hz - first_bin.max(SPECTRUM_MIN_HZ)).abs() < 1.0e-6);
     assert!(frame.max_hz < 22_050.0);
+}
+
+#[test]
+fn interactive_window_stays_below_86_ms_at_the_reference_rate() {
+    let aperture_ms = SPECTRUM_WINDOW_SIZE as f64 * 1_000.0 / 48_000.0;
+    assert!(aperture_ms <= 86.0, "aperture was {aperture_ms:.3} ms");
+    assert!(48_000.0 / SPECTRUM_FFT_SIZE as f64 <= 12.0);
 }
 
 #[test]
@@ -93,7 +108,7 @@ fn reference_48k_stereo_fft_budget_is_quantified() {
     use std::time::Instant;
 
     let mut analyzer = SpectrumAnalyzer::new(48_000).unwrap();
-    let left = (0..SPECTRUM_FFT_SIZE)
+    let left = (0..SPECTRUM_WINDOW_SIZE)
         .map(|index| (std::f32::consts::TAU * 997.0 * index as f32 / 48_000.0).sin() * 0.5)
         .collect::<Vec<_>>();
     let right = left.iter().map(|sample| -*sample).collect::<Vec<_>>();
@@ -128,10 +143,35 @@ fn reference_48k_stereo_fft_budget_is_quantified() {
 #[test]
 fn nonfinite_input_is_rejected_without_a_partial_frame() {
     let mut analyzer = SpectrumAnalyzer::new(48_000).unwrap();
-    let mut samples = [0.0; SPECTRUM_FFT_SIZE];
+    let mut samples = [0.0; SPECTRUM_WINDOW_SIZE];
     samples[123] = f32::INFINITY;
     assert_eq!(
-        analyzer.analyze(&samples, None, 8_192, 1),
+        analyzer.analyze(&samples, None, SPECTRUM_WINDOW_SIZE as i64, 1),
         Err(SpectrumError::NonFiniteInput)
     );
+}
+
+#[test]
+fn short_and_long_windows_fail_closed() {
+    let mut analyzer = SpectrumAnalyzer::new(48_000).unwrap();
+    for length in [SPECTRUM_WINDOW_SIZE - 1, SPECTRUM_WINDOW_SIZE + 1] {
+        assert_eq!(
+            analyzer.analyze(&vec![0.0; length], None, length as i64, 1),
+            Err(SpectrumError::WrongWindowLength)
+        );
+    }
+}
+
+#[test]
+fn zero_padding_never_reuses_the_previous_transform_tail() {
+    let mut analyzer = SpectrumAnalyzer::new(48_000).unwrap();
+    let signal = sine(48_000, 1_000.0, 0.0);
+    analyzer.analyze(&signal, None, 4_800, 1).unwrap();
+    let silence = analyzer
+        .analyze(&[0.0; SPECTRUM_WINDOW_SIZE], None, 6_400, 1)
+        .unwrap();
+    assert!(silence
+        .dbfs
+        .iter()
+        .all(|value| value.to_bits() == SPECTRUM_FLOOR_DBFS.to_bits()));
 }

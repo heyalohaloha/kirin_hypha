@@ -11,6 +11,7 @@ use rustfft::num_complex::Complex32;
 use rustfft::{Fft, FftPlanner};
 
 pub const SPECTRUM_SCHEMA_VERSION: u16 = 1;
+pub const SPECTRUM_WINDOW_SIZE: usize = 4_096;
 pub const SPECTRUM_FFT_SIZE: usize = 8_192;
 pub const SPECTRUM_BAND_COUNT: usize = 256;
 pub const SPECTRUM_PRESENTATION_HZ: u32 = 30;
@@ -105,7 +106,7 @@ impl fmt::Display for SpectrumError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         let message = match self {
             Self::InvalidSampleRate => "invalid Spectrum sample rate",
-            Self::WrongWindowLength => "Spectrum window must contain exactly 8192 samples",
+            Self::WrongWindowLength => "Spectrum window must contain exactly 4096 samples",
             Self::NonFiniteInput => "Spectrum input contains a non-finite sample",
         };
         formatter.write_str(message)
@@ -148,10 +149,10 @@ impl SpectrumAnalyzer {
         }
         let mut planner = FftPlanner::<f32>::new();
         let fft = planner.plan_fft_forward(SPECTRUM_FFT_SIZE);
-        let window = (0..SPECTRUM_FFT_SIZE)
+        let window = (0..SPECTRUM_WINDOW_SIZE)
             .map(|index| {
                 let phase = std::f32::consts::TAU * index as f32
-                    / (SPECTRUM_FFT_SIZE.saturating_sub(1)) as f32;
+                    / (SPECTRUM_WINDOW_SIZE.saturating_sub(1)) as f32;
                 0.5 - 0.5 * phase.cos()
             })
             .collect::<Vec<_>>();
@@ -191,8 +192,8 @@ impl SpectrumAnalyzer {
         presentation_end_samples: i64,
         generation: u64,
     ) -> Result<SpectrumFrame, SpectrumError> {
-        if left.len() != SPECTRUM_FFT_SIZE
-            || right.is_some_and(|samples| samples.len() != SPECTRUM_FFT_SIZE)
+        if left.len() != SPECTRUM_WINDOW_SIZE
+            || right.is_some_and(|samples| samples.len() != SPECTRUM_WINDOW_SIZE)
         {
             return Err(SpectrumError::WrongWindowLength);
         }
@@ -262,6 +263,7 @@ impl SpectrumAnalyzer {
         power: &mut [f32],
         samples: &[f32],
     ) {
+        fft_buffer.fill(Complex32::ZERO);
         for ((slot, sample), window) in fft_buffer.iter_mut().zip(samples).zip(window) {
             *slot = Complex32::new(*sample * *window, 0.0);
         }

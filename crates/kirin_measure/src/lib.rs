@@ -236,7 +236,7 @@ pub use record_writer::{
 pub use spectrum::{
     difference_post_minus_pre, SpectrumAnalyzer, SpectrumDifference, SpectrumError, SpectrumFrame,
     SPECTRUM_BAND_COUNT, SPECTRUM_DIFF_RANGE_DB, SPECTRUM_FFT_SIZE, SPECTRUM_FLOOR_DBFS,
-    SPECTRUM_PRESENTATION_HZ, SPECTRUM_SCHEMA_VERSION,
+    SPECTRUM_PRESENTATION_HZ, SPECTRUM_SCHEMA_VERSION, SPECTRUM_WINDOW_SIZE,
 };
 pub use spectrum_exchange::{
     SpectrumCoordinator, SpectrumTarget, SpectrumViewSnapshot, SpectrumViewStatus,

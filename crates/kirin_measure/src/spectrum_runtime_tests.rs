@@ -20,12 +20,13 @@ fn feed(runtime: &SpectrumRuntime, sample_rate: u32, frames: usize, block: usize
     }
 }
 
-fn wait_for_frame(runtime: &SpectrumRuntime) -> SpectrumFrame {
+fn wait_for_frame_at_or_after(runtime: &SpectrumRuntime, expected_end: i64) -> SpectrumFrame {
     let deadline = Instant::now() + Duration::from_secs(2);
     while Instant::now() < deadline {
         if let Some(frame) = runtime
             .try_history()
             .and_then(|history| history.newest().cloned())
+            .filter(|frame| frame.presentation_end_samples >= expected_end)
         {
             return frame;
         }
@@ -103,7 +104,7 @@ fn enabled_runtime_publishes_on_the_shared_48k_30hz_grid() {
     let runtime = SpectrumRuntime::new(48_000, 2);
     assert!(runtime.set_enabled(true));
     feed(&runtime, 48_000, 10_000, 256);
-    let frame = wait_for_frame(&runtime);
+    let frame = wait_for_frame_at_or_after(&runtime, 9_600);
     assert_eq!(frame.presentation_end_samples, 9_600);
     assert_eq!(frame.presentation_end_samples % 1_600, 0);
     assert!(runtime.stats().analyzed_frames >= 1);
@@ -115,7 +116,7 @@ fn forty_four_one_uses_a_1470_sample_grid_without_drift() {
     let runtime = SpectrumRuntime::new(44_100, 2);
     assert!(runtime.set_enabled(true));
     feed(&runtime, 44_100, 9_000, 147);
-    let frame = wait_for_frame(&runtime);
+    let frame = wait_for_frame_at_or_after(&runtime, 8_820);
     assert_eq!(frame.presentation_end_samples, 8_820);
     assert_eq!(frame.presentation_end_samples % 1_470, 0);
     runtime.shutdown_and_join();
@@ -126,11 +127,11 @@ fn discontinuity_requires_a_new_complete_window() {
     let analyzer = SpectrumAnalyzer::new(48_000).unwrap();
     let mut assembler = SpectrumAssembler::new(analyzer, 1);
     assert!(assembler.begin_block(0, 1));
-    for _ in 0..8_000 {
+    for _ in 0..SPECTRUM_WINDOW_SIZE - 1 {
         assert!(assembler.push_frame(0.0, None).is_none());
     }
-    assert!(assembler.begin_block(9_000, 1));
-    for _ in 0..8_191 {
+    assert!(assembler.begin_block(SPECTRUM_WINDOW_SIZE as i64 + 1_000, 1));
+    for _ in 0..SPECTRUM_WINDOW_SIZE - 1 {
         assert!(assembler.push_frame(0.0, None).is_none());
     }
 }

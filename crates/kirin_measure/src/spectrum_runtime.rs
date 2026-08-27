@@ -15,13 +15,13 @@ use std::time::Duration;
 use rtrb::{Consumer, Producer, RingBuffer};
 
 use crate::spectrum::{
-    SpectrumAnalyzer, SpectrumFrame, SPECTRUM_FFT_SIZE, SPECTRUM_PRESENTATION_HZ,
+    SpectrumAnalyzer, SpectrumFrame, SPECTRUM_PRESENTATION_HZ, SPECTRUM_WINDOW_SIZE,
 };
 
 pub const SPECTRUM_HISTORY_CAPACITY: usize = 8;
-// Two complete FFT windows (128 KiB for stereo f32) cover worker scheduling jitter without
+// Two complete FFT windows (64 KiB for stereo f32) cover worker scheduling jitter without
 // charging every hidden plug-in instance for a larger resident ring.
-const SPECTRUM_RING_FRAMES: usize = SPECTRUM_FFT_SIZE * 2;
+const SPECTRUM_RING_FRAMES: usize = SPECTRUM_WINDOW_SIZE * 2;
 const SPECTRUM_BLOCK_RING_CAPACITY: usize = 64;
 // The producer ring absorbs normal realtime callbacks. A 10 ms idle poll keeps the optional pair
 // responsive at its 30 Hz presentation cadence without creating a high-frequency wake loop.
@@ -391,10 +391,10 @@ impl SpectrumAssembler {
             analyzer,
             channels,
             cadence_samples,
-            left: vec![0.0; SPECTRUM_FFT_SIZE],
-            right: vec![0.0; SPECTRUM_FFT_SIZE],
-            ordered_left: vec![0.0; SPECTRUM_FFT_SIZE],
-            ordered_right: vec![0.0; SPECTRUM_FFT_SIZE],
+            left: vec![0.0; SPECTRUM_WINDOW_SIZE],
+            right: vec![0.0; SPECTRUM_WINDOW_SIZE],
+            ordered_left: vec![0.0; SPECTRUM_WINDOW_SIZE],
+            ordered_right: vec![0.0; SPECTRUM_WINDOW_SIZE],
             write_index: 0,
             filled: 0,
             next_position: None,
@@ -422,11 +422,11 @@ impl SpectrumAssembler {
         }
         self.left[self.write_index] = left;
         self.right[self.write_index] = right.unwrap_or(0.0);
-        self.write_index = (self.write_index + 1) % SPECTRUM_FFT_SIZE;
-        self.filled = self.filled.saturating_add(1).min(SPECTRUM_FFT_SIZE);
+        self.write_index = (self.write_index + 1) % SPECTRUM_WINDOW_SIZE;
+        self.filled = self.filled.saturating_add(1).min(SPECTRUM_WINDOW_SIZE);
         let end = self.next_position?.checked_add(1)?;
         self.next_position = Some(end);
-        if self.filled != SPECTRUM_FFT_SIZE || end.rem_euclid(self.cadence_samples) != 0 {
+        if self.filled != SPECTRUM_WINDOW_SIZE || end.rem_euclid(self.cadence_samples) != 0 {
             return None;
         }
         copy_ordered(&self.left, self.write_index, &mut self.ordered_left);

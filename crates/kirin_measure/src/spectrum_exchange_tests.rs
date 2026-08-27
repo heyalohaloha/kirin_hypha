@@ -16,6 +16,32 @@ fn frame(end: i64, value: f32) -> SpectrumFrame {
     }
 }
 
+fn push_stereo_pair_in_blocks(
+    pre_runtime: &SpectrumRuntime,
+    post_runtime: &SpectrumRuntime,
+    pre_samples: &[f32],
+    post_samples: &[f32],
+) {
+    const BLOCK_FRAMES: usize = 256;
+    assert_eq!(pre_samples.len(), post_samples.len());
+    assert_eq!(pre_samples.len() % 2, 0);
+    for start in (0..pre_samples.len() / 2).step_by(BLOCK_FRAMES) {
+        let end = (start + BLOCK_FRAMES).min(pre_samples.len() / 2);
+        let sample_range = start * 2..end * 2;
+        assert!(pre_runtime.push_block_from_audio(
+            &pre_samples[sample_range.clone()],
+            2,
+            Some(start as i64),
+        ));
+        assert!(post_runtime.push_block_from_audio(
+            &post_samples[sample_range],
+            2,
+            Some(start as i64),
+        ));
+        thread::sleep(Duration::from_millis(1));
+    }
+}
+
 #[test]
 fn fixed_snapshot_roundtrip_preserves_history_and_request() {
     let request_id = Uuid::new_v4();
@@ -159,19 +185,18 @@ fn visible_exact_pair_exchanges_audio_derived_difference_end_to_end() {
         pre_samples.extend_from_slice(&[sample, -sample]);
         post_samples.extend_from_slice(&[sample * 0.5, sample * -0.5]);
     }
-    assert!(pre_runtime.push_block_from_audio(&pre_samples, 2, Some(0)));
-    assert!(post_runtime.push_block_from_audio(&post_samples, 2, Some(0)));
+    push_stereo_pair_in_blocks(&pre_runtime, &post_runtime, &pre_samples, &post_samples);
 
     let deadline = Instant::now() + Duration::from_secs(2);
     while Instant::now() < deadline
         && (pre_runtime
             .try_history()
             .and_then(|history| history.newest().cloned())
-            .is_none()
+            .is_none_or(|frame| frame.presentation_end_samples < 9_600)
             || post_runtime
                 .try_history()
                 .and_then(|history| history.newest().cloned())
-                .is_none())
+                .is_none_or(|frame| frame.presentation_end_samples < 9_600))
     {
         thread::sleep(Duration::from_millis(2));
     }
@@ -232,8 +257,7 @@ fn isolated_worker_advances_exact_pair_without_reentering_normal_io() {
         pre_samples.extend_from_slice(&[sample, -sample]);
         post_samples.extend_from_slice(&[sample * 0.5, sample * -0.5]);
     }
-    assert!(pre_runtime.push_block_from_audio(&pre_samples, 2, Some(0)));
-    assert!(post_runtime.push_block_from_audio(&post_samples, 2, Some(0)));
+    push_stereo_pair_in_blocks(&pre_runtime, &post_runtime, &pre_samples, &post_samples);
 
     let deadline = Instant::now() + Duration::from_secs(2);
     while Instant::now() < deadline
