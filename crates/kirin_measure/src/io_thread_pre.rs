@@ -918,7 +918,10 @@ pub fn spawn_io_thread_pre(
     // B-125: 累積 oversized_drop（JUCE 殻のみ計上 / egui は常に 0）。overflow とは別カウンタ。
     // run_record_tick が同位相で snapshot/差分し、合算を dropped_samples へ焼く。
     oversized_drop: Arc<std::sync::atomic::AtomicU64>,
-    spectrum: Arc<crate::SpectrumCoordinator>,
+    // JUCE measurement shell supplies the optional on-demand Spectrum coordinator. The legacy
+    // egui shell passes None so its IO cadence, filesystem surface, and worker lifecycle remain
+    // exactly as before B-494.
+    spectrum: Option<Arc<crate::SpectrumCoordinator>>,
 ) -> JoinHandle<()> {
     let license = license.into();
     thread::spawn(move || {
@@ -986,7 +989,9 @@ pub fn spawn_io_thread_pre(
             // POST-only Spectrum UI requests one exact PRE through this dedicated namespace.
             // The existing 100 ms IO cadence owns the fixed-path read and snapshot write; the
             // Audio Thread only sees SpectrumRuntime's atomic enable flag.
-            spectrum.pre_tick(instance_id_ref, &dir);
+            if let Some(spectrum) = spectrum.as_ref() {
+                spectrum.pre_tick(instance_id_ref, &dir);
+            }
 
             // ① pre.json（Watch 値）書き込み
             // path は PRE 自身の `project_hash` で構築する。POST 側 io_thread

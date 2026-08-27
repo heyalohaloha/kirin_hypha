@@ -55,6 +55,10 @@ pub struct SpectrumDifference {
     pub sample_rate: u32,
     pub min_hz: f32,
     pub max_hz: f32,
+    /// Exact PRE magnitude used for this difference. Presentation only; never fed back to DSP.
+    pub pre_dbfs: [f32; SPECTRUM_BAND_COUNT],
+    /// Exact POST magnitude used for this difference. Presentation only; never fed back to DSP.
+    pub post_dbfs: [f32; SPECTRUM_BAND_COUNT],
     /// Signed POST - PRE difference. This raw fact is never clipped.
     pub raw_db: [f32; SPECTRUM_BAND_COUNT],
     /// Display-only floor confidence. The raw difference above remains untouched.
@@ -83,6 +87,8 @@ pub fn difference_post_minus_pre(
         sample_rate: post.sample_rate,
         min_hz: post.min_hz,
         max_hz: post.max_hz,
+        pre_dbfs: pre.dbfs,
+        post_dbfs: post.dbfs,
         raw_db,
         display_db,
     })

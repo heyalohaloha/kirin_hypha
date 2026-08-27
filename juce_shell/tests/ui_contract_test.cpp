@@ -123,6 +123,10 @@ int main()
     static_assert (ui::muted == 0xff606060);
     static_assert (ui::preDisplayContextDetail == 0xff898989);
     static_assert (ui::flora == 0xffd4a043);
+    static_assert (ui::spectrumDelta == 0xff75d6e8);
+    static_assert (ui::spectrumDeltaBright == 0xffcdeff5);
+    static_assert (ui::spectrumPre == 0xff74808f);
+    static_assert (ui::spectrumPost == 0xffa695d6);
     static_assert (ui::preDisplayPrimaryColour (ui::PreDisplayTone::context) == ui::normal);
     static_assert (ui::preDisplayPrimaryColour (ui::PreDisplayTone::emphasis) == ui::flora);
     static_assert (ui::preDisplayDetailColour (ui::PreDisplayTone::context)

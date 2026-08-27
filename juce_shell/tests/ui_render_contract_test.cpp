@@ -7,6 +7,9 @@
 
 namespace ui = hypha::ui_contract;
 
+static_assert (sizeof (KirinSpectrumView) == 3'088,
+               "Rust/C Spectrum view ABI size must remain exact");
+
 namespace
 {
     void require (bool condition, const char* expression, int line)
@@ -182,7 +185,18 @@ int main()
     spectrumSnapshot.min_hz = 10.0f;
     spectrumSnapshot.max_hz = 22'000.0f;
     for (size_t index = 0; index < KIRIN_SPECTRUM_BAND_COUNT; ++index)
-        spectrumSnapshot.display_db[index] = 6.0f * std::sin ((float) index * 0.08f);
+    {
+        const float position = static_cast<float> (index)
+                             / static_cast<float> (KIRIN_SPECTRUM_BAND_COUNT - 1u);
+        const float body = -78.0f + 62.0f * std::exp (-std::pow ((position - 0.53f) / 0.42f, 2.0f));
+        const float strongRegion = 0.38f
+                                 + 0.62f * std::exp (-std::pow ((position - 0.61f) / 0.24f, 2.0f));
+        spectrumSnapshot.display_db[index] = 14.0f * strongRegion
+                                           * std::sin ((float) index * 0.065f);
+        spectrumSnapshot.pre_dbfs[index] = body + 2.0f * std::sin ((float) index * 0.045f);
+        spectrumSnapshot.post_dbfs[index] = spectrumSnapshot.pre_dbfs[index]
+                                           + spectrumSnapshot.display_db[index];
+    }
     spectrum.setSnapshot (spectrumSnapshot);
     juce::Image spectrumImage (
         juce::Image::ARGB, spectrum.getWidth(), spectrum.getHeight(), true);
@@ -192,12 +206,36 @@ int main()
     }
     KIRIN_REQUIRE (countDifferentPixels (warmingSpectrumImage, spectrumImage) > 100);
 
+    juce::Image spectrumPreview (
+        juce::Image::ARGB, spectrum.getWidth(), spectrum.getHeight(), true);
+    constexpr int spectrumPaintIterations = 200;
+    const double spectrumPaintStartedMs = juce::Time::getMillisecondCounterHiRes();
+    for (int iteration = 0; iteration < spectrumPaintIterations; ++iteration)
+    {
+        spectrumPreview.clear (spectrumPreview.getBounds(), hypha::BG);
+        juce::Graphics graphics (spectrumPreview);
+        spectrum.paintEntireComponent (graphics, true);
+    }
+    const double spectrumPaintMs = (juce::Time::getMillisecondCounterHiRes()
+                                  - spectrumPaintStartedMs) / spectrumPaintIterations;
+    KIRIN_REQUIRE (spectrumPaintMs < 4.0);
+
+    const auto outputPath = juce::SystemStats::getEnvironmentVariable (
+        "KIRIN_UI_RENDER_OUTPUT", {});
+    if (outputPath.isNotEmpty())
+    {
+        auto output = juce::File (outputPath).createOutputStream();
+        KIRIN_REQUIRE (output != nullptr);
+        KIRIN_REQUIRE (juce::PNGImageFormat().writeImageToStream (spectrumPreview, *output));
+    }
+
     std::cout << "UI render contract passed: label="
               << label.getTypefaceName().toStdString()
               << ", mono=" << mono.getTypefaceName().toStdString()
               << ", POST=" << postTitleWidth << '/' << postLayout.title.width << "px"
               << ", delta=" << deltaWidth << '/' << deltaLayout.deltaPrefixWidth << "px"
               << " (" << deltaPixels << " pixels)"
-              << ", vector-arrow=" << arrowPixels << " pixels\n";
+              << ", vector-arrow=" << arrowPixels << " pixels"
+              << ", spectrum-paint=" << spectrumPaintMs << " ms/frame\n";
     return 0;
 }

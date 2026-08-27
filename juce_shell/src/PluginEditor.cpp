@@ -8,6 +8,7 @@ using hypha::COL_FLORA;
 using hypha::COL_FLORA_BR;
 using hypha::COL_MUTED;
 using hypha::COL_NORMAL;
+using hypha::COL_SPECTRUM_DELTA;
 
 namespace
 {
@@ -176,9 +177,9 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
 
        #if ! KIRIN_HYPHA_PRE_DISPLAY
         spectrumToggle.setButtonText ("SPECTRUM");
-        spectrumToggle.setTooltip ("Show the signed POST minus PRE frequency difference");
+        spectrumToggle.setTooltip ("Show POST - PRE difference (±18 dB) over exact PRE/POST spectra (-96 to 0 dBFS)");
         spectrumToggle.setColour (juce::TextButton::buttonColourId, hypha::kFieldFill);
-        spectrumToggle.setColour (juce::TextButton::textColourOnId, COL_FLORA);
+        spectrumToggle.setColour (juce::TextButton::textColourOnId, COL_SPECTRUM_DELTA);
         spectrumToggle.setColour (juce::TextButton::textColourOffId, COL_MUTED);
         spectrumToggle.onClick = [this] { setSpectrumMode (! spectrumMode); };
         addAndMakeVisible (spectrumToggle);
@@ -267,8 +268,12 @@ void KirinHyphaEditor::paint (juce::Graphics& g)
                 titleArea,
                 juce::Justification::centredLeft);
 
-    // flora line (#d4a043, 1px) — the mycelium tip joining Hypha to Kirin OS.
+    // Spectrum page changes only this separator to its cool accent; meter pages keep flora.
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    g.setColour (spectrumMode ? COL_SPECTRUM_DELTA : COL_FLORA);
+   #else
     g.setColour (COL_FLORA);
+   #endif
     g.fillRect ((float) ui::margin, (float) floraY,
                 (float) (getWidth() - 2 * ui::margin), 1.0f);
 }
@@ -337,7 +342,8 @@ void KirinHyphaEditor::setSpectrumMode (bool enabled)
     spectrumView.setVisible (enabled);
     spectrumToggle.setButtonText (enabled ? "METERS" : "SPECTRUM");
     spectrumToggle.setColour (juce::TextButton::textColourOffId,
-                              enabled ? COL_FLORA : COL_MUTED);
+                              enabled ? COL_SPECTRUM_DELTA : COL_MUTED);
+    repaint();
     processorRef.setSpectrumVisible (enabled);
     if (! enabled)
         configureForKind (currentKind);

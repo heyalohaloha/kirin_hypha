@@ -1873,7 +1873,7 @@ impl KirinHyphaEngine {
                     Arc::clone(&record_ingress),
                     Arc::clone(&push_overflow), // B-076: per-Record dropped_samples
                     Arc::clone(&oversized_drop), // B-125: per-Record oversized block drop
-                    Arc::clone(&spectrum),
+                    Some(Arc::clone(&spectrum)),
                 );
                 IoThreadHandle {
                     shutdown: io_shutdown,
@@ -2107,7 +2107,7 @@ impl KirinHyphaEngine {
                     Arc::clone(&oversized_drop), // B-125: per-Record oversized block drop
                     Arc::clone(&pair_owner),    // exact pair survives IO worker restart
                     Arc::clone(&latched_pre),   // B-108: display/keep 共有ラッチ
-                    Arc::clone(&spectrum),
+                    Some(Arc::clone(&spectrum)),
                 );
                 IoThreadHandle {
                     shutdown: io_shutdown,
@@ -3399,8 +3399,8 @@ pub const KIRIN_SPECTRUM_WARMING_UP: u8 = 2;
 pub const KIRIN_SPECTRUM_ACTIVE: u8 = 3;
 pub const KIRIN_SPECTRUM_UNAVAILABLE: u8 = 4;
 
-/// POST-only Spectrum view. `display_db` is signed POST - PRE and bounded only by the renderer;
-/// the Rust exchange retains its unclipped raw difference separately.
+/// POST-only Spectrum view. PRE/POST are the exact magnitudes behind `display_db`, which is signed
+/// POST - PRE and bounded only by the renderer. Rust retains the unclipped raw difference.
 #[repr(C)]
 pub struct KirinSpectrumView {
     pub status: u8,
@@ -3409,6 +3409,8 @@ pub struct KirinSpectrumView {
     pub sample_rate: u32,
     pub min_hz: f32,
     pub max_hz: f32,
+    pub pre_dbfs: [f32; SPECTRUM_BAND_COUNT],
+    pub post_dbfs: [f32; SPECTRUM_BAND_COUNT],
     pub display_db: [f32; SPECTRUM_BAND_COUNT],
 }
 
@@ -3545,17 +3547,27 @@ fn spectrum_status_to_abi(status: SpectrumViewStatus) -> u8 {
 
 fn to_c_spectrum(snapshot: SpectrumViewSnapshot) -> KirinSpectrumView {
     let has_data = snapshot.difference.is_some() as u8;
-    let (sample_rate, min_hz, max_hz, display_db) =
-        snapshot
-            .difference
-            .map_or((0, 0.0, 0.0, [0.0; SPECTRUM_BAND_COUNT]), |difference| {
+    let (sample_rate, min_hz, max_hz, pre_dbfs, post_dbfs, display_db) =
+        snapshot.difference.map_or(
+            (
+                0,
+                0.0,
+                0.0,
+                [0.0; SPECTRUM_BAND_COUNT],
+                [0.0; SPECTRUM_BAND_COUNT],
+                [0.0; SPECTRUM_BAND_COUNT],
+            ),
+            |difference| {
                 (
                     difference.sample_rate,
                     difference.min_hz,
                     difference.max_hz,
+                    difference.pre_dbfs,
+                    difference.post_dbfs,
                     difference.display_db,
                 )
-            });
+            },
+        );
     KirinSpectrumView {
         status: spectrum_status_to_abi(snapshot.status),
         has_data,
@@ -3563,6 +3575,8 @@ fn to_c_spectrum(snapshot: SpectrumViewSnapshot) -> KirinSpectrumView {
         sample_rate,
         min_hz,
         max_hz,
+        pre_dbfs,
+        post_dbfs,
         display_db,
     }
 }
@@ -3645,6 +3659,7 @@ mod spectrum_abi_tests {
 
     #[test]
     fn spectrum_status_and_signed_display_values_have_stable_c_mapping() {
+        assert_eq!(std::mem::size_of::<KirinSpectrumView>(), 3_088);
         assert_eq!(spectrum_status_to_abi(SpectrumViewStatus::Hidden), 0);
         assert_eq!(spectrum_status_to_abi(SpectrumViewStatus::NoPair), 1);
         assert_eq!(spectrum_status_to_abi(SpectrumViewStatus::WarmingUp), 2);
@@ -3658,6 +3673,8 @@ mod spectrum_abi_tests {
                 sample_rate: 48_000,
                 min_hz: 10.0,
                 max_hz: 22_000.0,
+                pre_dbfs: [-42.0; SPECTRUM_BAND_COUNT],
+                post_dbfs: [-45.5; SPECTRUM_BAND_COUNT],
                 raw_db: [15.0; SPECTRUM_BAND_COUNT],
                 display_db: [-3.5; SPECTRUM_BAND_COUNT],
             }),
@@ -3666,6 +3683,8 @@ mod spectrum_abi_tests {
         assert_eq!(out.status, KIRIN_SPECTRUM_ACTIVE);
         assert_eq!(out.has_data, 1);
         assert_eq!(out.sample_rate, 48_000);
+        assert_eq!(out.pre_dbfs[0], -42.0);
+        assert_eq!(out.post_dbfs[SPECTRUM_BAND_COUNT - 1], -45.5);
         assert_eq!(out.display_db[0], -3.5);
         assert_eq!(out.display_db[SPECTRUM_BAND_COUNT - 1], -3.5);
     }

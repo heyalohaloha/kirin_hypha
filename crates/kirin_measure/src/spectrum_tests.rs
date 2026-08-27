@@ -64,6 +64,8 @@ fn post_minus_pre_is_signed_unclipped_and_exactly_timed() {
         .max_by(|(_, left), (_, right)| left.total_cmp(right))
         .map(|(index, _)| index)
         .unwrap();
+    assert_eq!(difference.pre_dbfs, pre.dbfs);
+    assert_eq!(difference.post_dbfs, post.dbfs);
     assert!((difference.raw_db[strongest] + 20.0).abs() < 0.05);
     assert!(difference.raw_db[strongest] < -SPECTRUM_DIFF_RANGE_DB);
 }

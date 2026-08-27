@@ -140,8 +140,9 @@ typedef struct {
   double lufs_s;        /* Δ LUFS-S (末尾追加で既存 offset 不変) */
 } KirinDelta;
 
-/* POST専用Spectrum表示. display_dbは符号付きPOST-PRE。描画側が±18 dBへ収めるが、
- * Rust内部のraw差分はclipしない。has_data=0時はstatusだけが有効。 */
+/* POST専用Spectrum表示. pre/post_dbfsはdisplay_dbの正確な元フレーム、display_dbは
+ * 符号付きPOST-PRE。描画側が±18 dBへ収めるが、Rust内部のraw差分はclipしない。
+ * has_data=0時はstatusだけが有効。 */
 typedef struct {
   uint8_t status;       /* KIRIN_SPECTRUM_* */
   uint8_t has_data;
@@ -149,6 +150,8 @@ typedef struct {
   uint32_t sample_rate;
   float min_hz;
   float max_hz;
+  float pre_dbfs[KIRIN_SPECTRUM_BAND_COUNT];
+  float post_dbfs[KIRIN_SPECTRUM_BAND_COUNT];
   float display_db[KIRIN_SPECTRUM_BAND_COUNT];
 } KirinSpectrumView;
 
