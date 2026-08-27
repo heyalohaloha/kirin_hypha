@@ -20,6 +20,7 @@ pub use led::{derive_led_state, display_signal_state_for_led, led_color, LedStat
 pub use pair_indicator::{draw_pair_indicator, pair_indicator_color, pair_indicator_text};
 pub use palette::{
     BG, COL_FLORA, COL_FLORA_BRIGHT, COL_LED_BLUE, COL_LED_GREEN, COL_LED_GREY, COL_LED_YELLOW,
-    COL_MUTED, COL_NORMAL,
+    COL_MUTED, COL_NORMAL, COL_SPECTRUM_DELTA, COL_SPECTRUM_DELTA_BRIGHT, COL_SPECTRUM_POST,
+    COL_SPECTRUM_PRE,
 };
 pub use playback_max::PlaybackMaxTracker;

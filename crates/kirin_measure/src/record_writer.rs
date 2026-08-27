@@ -65,7 +65,7 @@ pub const FLUSH_INTERVAL: Duration = Duration::from_secs(30);
 ///
 /// `t_ms` は壁時計ではなく、MeasureEngine が処理した音声フレーム数から作る音声時間。
 /// Offline bounce では壁時計がほとんど進まないため、このキューを正本にして TRACE を焼く。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum RecordTraceKind {
     /// MeasureEngine が実際に計測したフレーム。真の無音も core metrics を持つ measured frame。
     Measured,
@@ -97,6 +97,42 @@ pub struct RecordTraceSample {
     pub presentation_latency: PresentationLatencySamples,
     pub result: MeasureResult,
     pub include_psb: bool,
+}
+
+/// Producer identity of one TRACE observation. A replacement Measure worker replays the same
+/// Record spool from sample zero; this key removes only that exact replay and deliberately keeps
+/// observations from another capture epoch, clock source or latency state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+struct RecordTraceReplayKey {
+    kind: RecordTraceKind,
+    generation: u64,
+    t_ms: u64,
+    t_frames_48k: u64,
+    t_native_frames: Option<u64>,
+    position_samples: Option<i64>,
+    raw_host_position_samples: Option<i64>,
+    capture_epoch: Option<u64>,
+    clock_source: CaptureClockSource,
+    presentation_latency: PresentationLatencySamples,
+    include_psb: bool,
+}
+
+impl From<&RecordTraceSample> for RecordTraceReplayKey {
+    fn from(sample: &RecordTraceSample) -> Self {
+        Self {
+            kind: sample.kind,
+            generation: sample.generation,
+            t_ms: sample.t_ms,
+            t_frames_48k: sample.t_frames_48k,
+            t_native_frames: sample.t_native_frames,
+            position_samples: sample.position_samples,
+            raw_host_position_samples: sample.raw_host_position_samples,
+            capture_epoch: sample.capture_epoch,
+            clock_source: sample.clock_source,
+            presentation_latency: sample.presentation_latency,
+            include_psb: sample.include_psb,
+        }
+    }
 }
 
 impl RecordTraceSample {
@@ -1246,6 +1282,7 @@ fn expected_duration_ms(expected: &ExpectedWavMetadata) -> u64 {
 }
 
 fn bake_continuous_record_timeline(ctx: &mut RecordingCtx) {
+    deduplicate_replayed_trace_samples(&mut ctx.trace_samples);
     let clock_observations = ctx
         .trace_samples
         .iter()
@@ -1318,12 +1355,12 @@ fn bake_continuous_record_timeline(ctx: &mut RecordingCtx) {
     if selected_trace_samples.is_empty() && ctx.writer.data().frames.is_empty() {
         return;
     }
-    if has_epoch_samples {
+    if !ctx.trace_samples.is_empty() {
+        // The queue counter includes replayed observations drained before a Measure restart.
+        // Keep public diagnostics on the same deduplicated population used for clock selection.
         ctx.trace_sample_count = selected_trace_samples.len();
     } else if ctx.trace_sample_count == 0 {
-        ctx.trace_sample_count = selected_trace_samples
-            .len()
-            .saturating_add(ctx.writer.data().frames.len());
+        ctx.trace_sample_count = ctx.writer.data().frames.len();
     }
     if ctx.raw_trace_timeline_covers_duration.is_none() {
         ctx.raw_trace_timeline_covers_duration =
@@ -1538,6 +1575,24 @@ fn bake_continuous_record_timeline(ctx: &mut RecordingCtx) {
         ctx.writer.mark_integrity_degraded();
         ctx.writer.add_integrity_reason("missing_trace_slots");
     }
+}
+
+fn deduplicate_replayed_trace_samples(samples: &mut Vec<RecordTraceSample>) {
+    let mut index_by_key = BTreeMap::<RecordTraceReplayKey, usize>::new();
+    let mut unique = Vec::<RecordTraceSample>::with_capacity(samples.len());
+    for sample in samples.drain(..) {
+        let key = RecordTraceReplayKey::from(&sample);
+        if let Some(index) = index_by_key.get(&key).copied() {
+            if measure_quality_score(&sample.result) >= measure_quality_score(&unique[index].result)
+            {
+                unique[index] = sample;
+            }
+        } else {
+            index_by_key.insert(key, unique.len());
+            unique.push(sample);
+        }
+    }
+    *samples = unique;
 }
 
 fn trace_clock_observation(sample: &RecordTraceSample) -> Option<TraceClockObservation> {
@@ -3498,6 +3553,11 @@ mod tests {
         dir
     }
 
+    fn set_modified(path: &Path, modified: SystemTime) {
+        let file = fs::OpenOptions::new().write(true).open(path).unwrap();
+        file.set_modified(modified).unwrap();
+    }
+
     #[test]
     fn resolve_record_session_id_reads_post_signal() {
         let base = isolated_base();
@@ -4431,6 +4491,58 @@ mod tests {
         let mut sample = trace_sample(t_ms, result, include_psb);
         sample.generation = generation;
         sample
+    }
+
+    #[test]
+    fn measure_restart_replay_is_deduplicated_without_merging_capture_epochs() {
+        let mut result = full_measure_result();
+        result.lufs_m = Some(-20.0);
+        result.true_peak = Some(-2.0);
+        result.crest = Some(8.0);
+        result.sharpness = None;
+        let mut first = trace_sample(100, result, false);
+        first.position_samples = Some(9_600);
+        first.raw_host_position_samples = Some(9_600);
+        first.capture_epoch = Some(7);
+        first.clock_source = CaptureClockSource::AudioRenderTimeline;
+
+        let mut replay = first.clone();
+        replay.result.sharpness = Some(1.25);
+        let mut next_epoch = replay.clone();
+        next_epoch.capture_epoch = Some(8);
+
+        let mut samples = vec![first, replay, next_epoch];
+        deduplicate_replayed_trace_samples(&mut samples);
+
+        assert_eq!(
+            samples.len(),
+            2,
+            "only the exact same producer observation is a replay"
+        );
+        assert_eq!(samples[0].capture_epoch, Some(7));
+        assert_eq!(samples[0].result.sharpness, Some(1.25));
+        assert_eq!(samples[1].capture_epoch, Some(8));
+    }
+
+    #[test]
+    fn replay_deduplication_also_corrects_public_raw_trace_count_without_epochs() {
+        let base = isolated_base();
+        let mut ctx = make_sample_count_ready_pending_ctx(&base, Role::Post);
+        for sample in &mut ctx.trace_samples {
+            sample.capture_epoch = None;
+        }
+        ctx.selected_capture_epoch = None;
+        let unique_count = ctx.trace_samples.len();
+        ctx.trace_samples.extend(ctx.trace_samples.clone());
+        ctx.trace_sample_count = ctx.trace_samples.len();
+
+        bake_continuous_record_timeline(&mut ctx);
+
+        assert_eq!(ctx.trace_samples.len(), unique_count);
+        assert_eq!(
+            ctx.trace_sample_count, unique_count,
+            "raw trace diagnostics must describe the deduplicated clock population"
+        );
     }
 
     #[test]
@@ -7464,9 +7576,7 @@ mod tests {
         let staging_path = ctx.staging_path.clone();
 
         let stale = SystemTime::now() - Duration::from_secs(STALE_ACTIVE_SWEEP_SECS + 1);
-        let f = std::fs::File::open(&staging_path).unwrap();
-        f.set_modified(stale).unwrap();
-        drop(f);
+        set_modified(&staging_path, stale);
 
         let report = recover_orphan_tmps(&base);
         assert_eq!(report.recovered, 1);
@@ -7509,9 +7619,7 @@ mod tests {
         let failed_path = ctx.failed_path.clone();
 
         let stale = SystemTime::now() - Duration::from_secs(STALE_ACTIVE_SWEEP_SECS + 1);
-        let f = std::fs::File::open(&staging_path).unwrap();
-        f.set_modified(stale).unwrap();
-        drop(f);
+        set_modified(&staging_path, stale);
 
         let report = recover_orphan_tmps(&base);
         assert_eq!(report.recovered, 1);
@@ -7560,9 +7668,7 @@ mod tests {
 
         // mtime を 61 秒過去に巻き戻す。
         let stale = SystemTime::now() - Duration::from_secs(STALE_ACTIVE_SWEEP_SECS + 1);
-        let f = std::fs::File::open(&final_path).unwrap();
-        f.set_modified(stale).unwrap();
-        drop(f);
+        set_modified(&final_path, stale);
 
         let report = sweep_stale_active_at_startup(&base);
         assert_eq!(report.closed, 1, "stale Active file must be closed");
@@ -7627,9 +7733,7 @@ mod tests {
 
         // mtime を 61 秒過去に巻き戻す。
         let stale = SystemTime::now() - Duration::from_secs(STALE_ACTIVE_SWEEP_SECS + 1);
-        let f = std::fs::File::open(&final_path).unwrap();
-        f.set_modified(stale).unwrap();
-        drop(f);
+        set_modified(&final_path, stale);
 
         let report = sweep_stale_active_at_startup(&base);
         assert_eq!(report.closed, 0, "Closed file must not be re-closed");

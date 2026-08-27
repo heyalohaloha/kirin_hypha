@@ -35,7 +35,7 @@ fn shipped_au_and_vst3_compile_the_same_editor_processor_and_control_contract() 
         );
     }
     assert!(juce_editor.contains("setSize (ui::editorWidth, ui::editorHeight)"));
-    assert!(juce_editor.contains("ui::editorLayout (isPost, getWidth())"));
+    assert!(juce_editor.contains("ui::editorLayout (isPost, getWidth(), getHeight())"));
     assert!(juce_editor.contains("ui::watchMetrics"));
     assert!(juce_editor.contains("ui::recordMetrics"));
     assert!(juce_editor.contains("ui::metricLabelFontHeight"));
@@ -163,7 +163,7 @@ fn juce_commits_take_start_only_after_whole_block_admission() {
 }
 
 #[test]
-fn paired_pre_inactive_uses_post_absolute_without_releasing_binding() {
+fn paired_pre_inactive_preserves_delta_layout_without_releasing_binding() {
     let ffi_header = read_repo("crates/kirin_hypha_ffi/include/kirin_hypha_ffi.h");
     for required in [
         "KIRIN_DELTA_MODE_ACTIVE 0u",
@@ -190,10 +190,10 @@ fn paired_pre_inactive_uses_post_absolute_without_releasing_binding() {
     assert!(editor.contains("display::watchMetricMode (pairSelected, haveRawD, rawD.mode)"));
     assert!(!editor.contains("rawD.mode == 0"));
     assert!(editor.contains("Kind::Abs6"));
-    assert!(editor.contains("paired PRE bypassed/inactive -> POST absolute"));
-    assert!(display_contract.contains("if (! pairSelected)"));
-    assert!(display_contract.contains("return preUnavailableForDelta (mode)"));
-    assert!(display_contract.contains("if (preUnavailableForDelta (mode))"));
+    assert!(editor.contains("const bool unavailable = ! haveHeldD;"));
+    assert!(editor.contains("else // no selected pair -> POST absolute"));
+    assert!(display_contract
+        .contains("return pairSelected ? MetricMode::delta : MetricMode::absolute;"));
 
     let producer = read_repo("crates/kirin_measure/src/io_thread_post.rs");
     assert!(producer.contains("mode: DeltaMode::PreInactive"));
@@ -308,6 +308,83 @@ fn juce_wrappers_forward_host_presentation_latency_as_diagnostics() {
     let cmake = read_repo("juce_shell/CMakeLists.txt");
     assert!(cmake.contains("set(KIRIN_PLUGIN_FORMATS AU VST3)"));
     assert!(cmake.contains("FORMATS ${KIRIN_PLUGIN_FORMATS}"));
+}
+
+#[test]
+fn spectrum_is_post_only_on_demand_and_isolated_from_existing_schemas() {
+    let header = read_repo("crates/kirin_hypha_ffi/include/kirin_hypha_ffi.h");
+    for required in [
+        "KIRIN_SPECTRUM_BAND_COUNT 256u",
+        "KIRIN_SPECTRUM_DISPLAY_RANGE_DB 18.0f",
+        "kirin_hypha_set_spectrum_visible",
+        "kirin_hypha_poll_spectrum",
+    ] {
+        assert!(header.contains(required), "Spectrum ABI missing {required}");
+    }
+
+    let runtime = read_repo("crates/kirin_measure/src/spectrum_runtime.rs");
+    let ingress = slice_between(
+        &runtime,
+        "pub fn push_block_from_audio",
+        "pub fn try_history",
+    );
+    let enabled_check = ingress
+        .find("if !self.enabled.load")
+        .expect("hidden Spectrum path must start with an atomic enabled gate");
+    let producer_access = ingress
+        .find("self.sample_producer.get()")
+        .expect("enabled Spectrum path must use its own bounded producer");
+    assert!(enabled_check < producer_access);
+    for forbidden in ["Mutex", "fs::", "SpectrumAnalyzer", "spawn(", "Vec::"] {
+        assert!(
+            !ingress.contains(forbidden),
+            "Audio ingress contains {forbidden}"
+        );
+    }
+
+    let exchange = read_repo("crates/kirin_measure/src/spectrum_exchange.rs");
+    assert!(exchange.contains("join(\"spectrum\").join(\"request.json\")"));
+    assert!(exchange.contains("join(\"spectrum\").join(\"pre.bin\")"));
+    assert!(!exchange.contains("plugin_data"));
+
+    let editor = read_repo("juce_shell/src/PluginEditor.cpp");
+    assert!(editor.contains("#if ! KIRIN_HYPHA_PRE_DISPLAY"));
+    assert!(editor.contains("setSpectrumMode (! spectrumMode)"));
+    assert!(editor.contains("processorRef.setSpectrumVisible (false)"));
+    assert!(editor.contains("spectrumSizeIndex + 1u"));
+    assert!(editor.contains("ui::spectrumSizePresets[spectrumSizeIndex]"));
+    assert!(editor.contains(": ui::spectrumSizePresets[0]"));
+    assert!(editor.contains("setSize (preset.width, preset.height)"));
+    assert!(!editor.contains("setResizable (true"));
+
+    let ui_contract = read_repo("juce_shell/src/HyphaUiContract.h");
+    for fixed_size in [
+        "{ 300, 200, \"100%\"",
+        "{ 375, 250, \"125%\"",
+        "{ 450, 300, \"150%\"",
+    ] {
+        assert!(
+            ui_contract.contains(fixed_size),
+            "POST Spectrum fixed size missing {fixed_size}"
+        );
+    }
+
+    let processor = read_repo("juce_shell/src/PluginProcessor.cpp");
+    assert!(
+        !processor.contains("spectrum_size"),
+        "editor size must not enter DAW/plugin state"
+    );
+
+    let cmake = read_repo("juce_shell/CMakeLists.txt");
+    let post_only_branch = slice_between(
+        &cmake,
+        "else()\n        target_sources(${TARGET} PRIVATE src/HyphaSpectrumComponent.cpp)",
+        "endif()",
+    );
+    assert!(post_only_branch.contains("KIRIN_HYPHA_PRE_DISPLAY=0"));
+
+    let plugin_data = read_repo("crates/kirin_measure/src/plugin_data.rs");
+    assert!(!plugin_data.contains("spectrum"));
 }
 
 fn slice_between<'a>(src: &'a str, start_marker: &str, end_marker: &str) -> &'a str {

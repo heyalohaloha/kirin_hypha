@@ -81,6 +81,18 @@ fn preflight_requires_msvc_force_include_flag() {
 }
 
 #[test]
+fn preflight_requires_msvc_utf8_source_encoding() {
+    let bad = JUCE_CMAKE.replace(
+        "set(KIRIN_SOURCE_ENCODING_ARGS /utf-8)",
+        "set(KIRIN_SOURCE_ENCODING_ARGS)",
+    );
+    let err = verify_cmake_platform_split(&bad).unwrap_err();
+    assert!(err
+        .to_string()
+        .contains("MSVC must compile UTF-8 Kirin and JUCE sources as UTF-8"));
+}
+
+#[test]
 fn preflight_requires_windows_rust_native_libs() {
     let bad = JUCE_CMAKE.replace(
         "set(KIRIN_RUST_NATIVE_LIBS ntdll userenv bcrypt ws2_32 advapi32)",
@@ -95,7 +107,7 @@ fn preflight_requires_windows_rust_native_libs() {
 #[test]
 fn preflight_rejects_unconditional_dash_include() {
     let bad = JUCE_CMAKE.replace(
-        "target_compile_options(${TARGET} PUBLIC ${KIRIN_FORCE_INCLUDE_ARGS})",
+        "target_compile_options(${TARGET} PUBLIC\n        ${KIRIN_FORCE_INCLUDE_ARGS}\n        ${KIRIN_SOURCE_ENCODING_ARGS})",
         "target_compile_options(${TARGET} PUBLIC\n        -include \"${CMAKE_CURRENT_LIST_DIR}/src/KirinJucePluginConfig.h\")",
     );
     let err = verify_cmake_platform_split(&bad).unwrap_err();

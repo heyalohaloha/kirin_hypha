@@ -40,6 +40,17 @@ namespace hypha
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (StatusLed)
     };
 
+    // TextButton-compatible POST menu trigger whose arrow is geometry, not a font glyph. This
+    // keeps the existing click/menu/accessibility path while avoiding Windows font fallback.
+    class PairDropdownButton final : public juce::TextButton
+    {
+    public:
+        PairDropdownButton();
+        void paintButton (juce::Graphics&, bool highlighted, bool down) override;
+    private:
+        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PairDropdownButton)
+    };
+
     // ── background.rs: mycelium PNG (300×200), drawn OPAQUE over the BG fill. ───────────────
     // The "15%" is the asset's baked-in brightness (RGB <= 96), not an opacity multiplier —
     // egui draws it with Color32::WHITE (background.rs:84). A draw-helper (not a Component) so
@@ -104,6 +115,7 @@ namespace hypha
 
         SegmentButton momentary { "M" };
         SegmentButton shortTerm { "S" };
+        ui_contract::LoudnessSelectorLayout currentLayout() const;
         bool selectedShortTerm = false;
         bool deltaMode = false;
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LoudnessSelector)

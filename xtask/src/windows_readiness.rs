@@ -262,6 +262,10 @@ fn readiness_checks() -> Vec<Check> {
                         "dirty `juce_shell/JUCE` checkout is **only** this tracked patch",
                     ][..],
                 ),
+                (
+                    RELEASE_SOURCE_GATE,
+                    &["bash scripts/apply_juce_patches.sh"][..],
+                ),
             ],
         ),
         check_all(

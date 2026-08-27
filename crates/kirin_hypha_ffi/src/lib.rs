@@ -75,10 +75,11 @@ use kirin_measure::{
     PlatformPaths, PluginDataRole, PrePairStatusObserver, PresentationLatencySamples,
     PresentationLatencySource, PsbSummary, RecordDisplaySnapshot, RecordDisplayStatus,
     RecordIngress, RecordMarkQueue, RecordStateMachine, RecordTakeBlock, RecordTakeTracker,
-    RecordTraceQueue, ReleaseReason, RestartIoFn, SignalError, SignalState, StoragePaths,
+    RecordTraceQueue, ReleaseReason, RestartIoFn, SignalError, SignalState, SpectrumCoordinator,
+    SpectrumRuntime, SpectrumRuntimeStats, SpectrumViewSnapshot, SpectrumViewStatus, StoragePaths,
     WatchMaxTracker, WatchProducerHandoff, WatchdogIo, WatchdogParams,
     CAPTURE_PRODUCER_READY_TIMEOUT, MAX_ACTIVE_PER_PROJECT, MAX_AUDIO_BLOCK_FRAMES,
-    MAX_CAPTURE_GENERATION_MEMBERS, N_CHANNELS,
+    MAX_CAPTURE_GENERATION_MEMBERS, N_CHANNELS, SPECTRUM_BAND_COUNT,
 };
 
 mod pair_binding;
@@ -329,6 +330,22 @@ struct PendingRecordBlock {
     clock_end_samples: Option<i64>,
 }
 
+#[inline]
+fn spectrum_presentation_start(clock: PendingCaptureWindow) -> Option<i64> {
+    if !clock.position_valid
+        || !matches!(
+            clock.presentation_latency.source,
+            PresentationLatencySource::Vst3 | PresentationLatencySource::AudioUnitV2
+        )
+    {
+        return None;
+    }
+    clock
+        .presentation_latency
+        .output
+        .and_then(|latency| clock.position_samples.checked_add(i64::from(latency)))
+}
+
 /// RT 計測ランタイムのハンドル。C ABI からは不透明ポインタ。
 pub struct KirinHyphaEngine {
     /// Audio Thread → Measure Thread の rtrb Producer 所有権。
@@ -342,6 +359,13 @@ pub struct KirinHyphaEngine {
     /// POST の Δ 結果（B-060 3d-a）。POST io_thread の run_tick が select_target_pre で
     /// 選んだ PRE との差分を書き、`poll_delta` が読む（GUI 表示用）。PRE では未更新。
     delta_result: Arc<Mutex<DeltaResult>>,
+    /// Optional POST-requested Spectrum path. The bounded SPSC producer is always allocated at
+    /// prepare time, but its worker remains absent and its audio ingress returns after one atomic
+    /// read until the POST Spectrum page is visible (or an exact PRE is serving that request).
+    spectrum_runtime: Arc<SpectrumRuntime>,
+    /// Exact-pair request/snapshot coordination. All filesystem work runs on the existing IO
+    /// worker; the UI only changes visibility and polls the latest immutable view.
+    spectrum: Arc<SpectrumCoordinator>,
     /// Record 中、Measure Thread が毎ループ `engine.finalize()` を書き込む
     /// （measure_thread.rs:290-295）。Watch では未更新（Record→Watch で直近値を保持）。
     session_summary: Arc<Mutex<Option<SessionSummary>>>,
@@ -1176,6 +1200,8 @@ impl KirinHyphaEngine {
 
         let measure_result = Arc::new(Mutex::new(MeasureResult::default()));
         let delta_result = Arc::new(Mutex::new(DeltaResult::default()));
+        let spectrum_runtime = SpectrumRuntime::new(sample_rate, num_channels);
+        let spectrum = SpectrumCoordinator::new(sample_rate, Arc::clone(&spectrum_runtime));
         let session_summary: Arc<Mutex<Option<SessionSummary>>> = Arc::new(Mutex::new(None));
         let record_trace_queue = new_record_trace_queue();
         let record_take_tracker = new_record_take_tracker();
@@ -1271,6 +1297,8 @@ impl KirinHyphaEngine {
             record_ingress,
             measure_result,
             delta_result,
+            spectrum_runtime,
+            spectrum,
             session_summary,
             record_trace_queue,
             record_take_tracker,
@@ -1672,6 +1700,7 @@ impl KirinHyphaEngine {
         position_valid: bool,
         position_samples: i64,
         num_frames: u64,
+        force_new_pass: bool,
     ) {
         let previous_playing = self
             .transport_previous_playing
@@ -1691,7 +1720,8 @@ impl KirinHyphaEngine {
             && position_valid
             && previous_valid
             && previous_position.checked_add(previous_frames as i64) != Some(position_samples);
-        if playing && (!previous_playing || discontinuity) {
+        if watch_transport_starts_new_pass(playing, previous_playing, discontinuity, force_new_pass)
+        {
             publish_watch_playback_pass_boundary(
                 &self.watch_playback_pass_id,
                 &self.watch_ring_cursor_epoch,
@@ -1819,6 +1849,7 @@ impl KirinHyphaEngine {
             let record_ingress = Arc::clone(&self.record_ingress);
             let push_overflow = Arc::clone(&self.push_overflow);
             let oversized_drop = Arc::clone(&self.oversized_drop); // B-125
+            let spectrum = Arc::clone(&self.spectrum);
             let sample_rate = self.sample_rate;
             Box::new(move || {
                 let io_shutdown = Arc::new(AtomicBool::new(false));
@@ -1842,6 +1873,7 @@ impl KirinHyphaEngine {
                     Arc::clone(&record_ingress),
                     Arc::clone(&push_overflow), // B-076: per-Record dropped_samples
                     Arc::clone(&oversized_drop), // B-125: per-Record oversized block drop
+                    Some(Arc::clone(&spectrum)),
                 );
                 IoThreadHandle {
                     shutdown: io_shutdown,
@@ -2039,6 +2071,7 @@ impl KirinHyphaEngine {
             let oversized_drop = Arc::clone(&self.oversized_drop); // B-125
             let pair_owner = Arc::clone(&pair_owner);
             let latched_pre = self.pair_binding.latched_pre();
+            let spectrum = Arc::clone(&self.spectrum);
             let sample_rate = self.sample_rate;
             Box::new(move || {
                 let io_shutdown = Arc::new(AtomicBool::new(false));
@@ -2074,6 +2107,7 @@ impl KirinHyphaEngine {
                     Arc::clone(&oversized_drop), // B-125: per-Record oversized block drop
                     Arc::clone(&pair_owner),    // exact pair survives IO worker restart
                     Arc::clone(&latched_pre),   // B-108: display/keep 共有ラッチ
+                    Some(Arc::clone(&spectrum)),
                 );
                 IoThreadHandle {
                     shutdown: io_shutdown,
@@ -2099,6 +2133,29 @@ impl KirinHyphaEngine {
             Ok(g) => Some(g.clone()),
             Err(_) => None,
         }
+    }
+
+    /// POST editor visibility edge. PRE has no public Spectrum page and therefore rejects it.
+    /// The call is control-plane only; request-file work is deferred to the next POST IO tick.
+    pub fn set_spectrum_visible(&self, visible: bool) -> bool {
+        let is_post =
+            self.write_role.lock().ok().and_then(|role| *role) == Some(PluginDataRole::Post);
+        if !is_post {
+            return false;
+        }
+        self.spectrum.set_post_visible(visible);
+        true
+    }
+
+    /// Latest POST-minus-PRE Spectrum display snapshot. Lock contention is a silent skipped
+    /// presentation tick; it never reaches the audio or measurement paths.
+    pub fn poll_spectrum(&self) -> Option<SpectrumViewSnapshot> {
+        self.spectrum.try_view()
+    }
+
+    /// Read-only performance counters used by regression tests and validation builds.
+    pub fn spectrum_stats(&self) -> SpectrumRuntimeStats {
+        self.spectrum_runtime.stats()
     }
 
     /// Keep/Record専用の世代付き表示スナップショット。
@@ -3031,6 +3088,16 @@ impl KirinHyphaEngine {
                 .fetch_add(interleaved.len() as u64, Ordering::Relaxed);
             return false;
         }
+        // Optional Spectrum ingress is independent from the established Watch/Record ring. Its
+        // first operation is an atomic enabled check; hidden PRE/POST instances do no copy, FFT,
+        // allocation, lock, I/O, wake, or repaint. Alignment is fail-closed unless the format
+        // wrapper supplied an exact producer coordinate plus output presentation latency.
+        let spectrum_presentation_start = pending_clock.and_then(spectrum_presentation_start);
+        let _ = self.spectrum_runtime.push_block_from_audio(
+            interleaved,
+            self.num_channels,
+            spectrum_presentation_start,
+        );
         let accepted_offline_mode = pending_record.map(|block| block.offline);
         let offline_capture_boundary = accepted_offline_mode.is_some_and(|offline| offline)
             && !self.capture_last_offline.load(Ordering::Acquire);
@@ -3163,24 +3230,17 @@ impl KirinHyphaEngine {
         self.oversized_drop.load(Ordering::Relaxed)
     }
 
-    /// B-129 reopen (G-115-380): **test-only** — Audio→Measure ring が全消費されたか。
-    /// `producer.slots()`（書込可能空きスロット数）== ring 容量 ⟺ consumer が push 済み全サンプルを
-    /// pop しきった状態。parity の session_finalize gate が「lufs_i 値プラトー」でなく ring 全消費を
-    /// 直接確認するための read-only introspection。**計測数値サーフェスではない**（bool を返すのみ・
-    /// engine.rs / 本番 finalize / FFI 計測数値は不変）。容量は `new()` の構築式
-    /// （sample_rate * RING_BUFFER_SECONDS * num_channels）と同一に算出するため、watchdog の
-    /// Producer 差し替え後も不変。
+    /// B-129 reopen (G-115-380): **test-only** — Audio→spool ring が空で、spool に publish 済みの
+    /// 全サンプルを Measure reader が消費したか。parity の session_finalize gate が `lufs_i` の値
+    /// プラトーでなく取り込み全体の実 drain を確認するための read-only introspection。
+    /// **計測数値サーフェスではない**（bool を返すのみ・本番計測値は不変）。
     ///
-    /// SAFETY: handoff 内の active Producer は SPSC 契約で「Audio/test 単独スレッド」
-    /// からのみ触れる（struct の `unsafe impl Sync` 根拠と同一）。本メソッドも push_samples と同一
-    /// スレッドから順次呼ばれ時間的に重ならない。`Producer::slots()` は
-    /// `&self` の read-only で head（consumer 位置）を Acquire load するのみで、consumer 側の pop と
-    /// 並行しても rtrb SPSC 設計上健全。
+    /// Test harness から `push_samples` と直列に呼ぶ。Record 経路では control mutex を読むため、
+    /// shipping Audio callback から呼んではならない。
     #[doc(hidden)]
     pub fn __ring_drained_for_test(&self) -> bool {
         if self.record_sm.is_recording() {
-            // SAFETY: test calls this from the same thread as push_samples.
-            return unsafe { self.record_ingress.drained_from_audio() };
+            return self.record_ingress.drained_for_test();
         }
         let capacity = watch_ring_capacity_samples(self.num_channels);
         // SAFETY: 上記参照（SPSC・push_samples と同一スレッド・read-only slots()）。
@@ -3188,8 +3248,22 @@ impl KirinHyphaEngine {
     }
 }
 
+#[inline]
+fn watch_transport_starts_new_pass(
+    playing: bool,
+    previous_playing: bool,
+    discontinuity: bool,
+    force_new_pass: bool,
+) -> bool {
+    playing && (force_new_pass || !previous_playing || discontinuity)
+}
+
 impl Drop for KirinHyphaEngine {
     fn drop(&mut self) {
+        // Stop renewing the exact PRE request before either IO generation is signalled. Runtime
+        // join happens after the watchdog has joined IO/measure, so no worker can observe freed
+        // engine state and no request survives a closed POST editor/instance.
+        self.spectrum.shutdown();
         let is_post = self.write_role.lock().ok().and_then(|g| *g) == Some(PluginDataRole::Post);
         if is_post {
             let (project_hash, post_iid) = match self.identity.lock() {
@@ -3223,6 +3297,7 @@ impl Drop for KirinHyphaEngine {
                 let _ = h.join(); // watchdog が io→measure を join してから終了
             }
         }
+        self.spectrum_runtime.shutdown_and_join();
         // B-110: live インスタンス refcount −1。watchdog が全世代の io→measure を join した後なので、
         // refcount 0 到達時の共有セル clear が生存 thread の Arc live-read と競合しない。
         identity_instance_detach(clear_role_scoped_cells);
@@ -3316,6 +3391,38 @@ pub struct KirinDelta {
     pub sharpness: f64,
     // Δ LUFS-S は既存 ABI offset を変えないよう末尾追加。
     pub lufs_s: f64,
+}
+
+pub const KIRIN_SPECTRUM_HIDDEN: u8 = 0;
+pub const KIRIN_SPECTRUM_NO_PAIR: u8 = 1;
+pub const KIRIN_SPECTRUM_WARMING_UP: u8 = 2;
+pub const KIRIN_SPECTRUM_ACTIVE: u8 = 3;
+pub const KIRIN_SPECTRUM_UNAVAILABLE: u8 = 4;
+
+/// POST-only Spectrum view. PRE/POST are the exact magnitudes behind `display_db`, which is signed
+/// POST - PRE and bounded only by the renderer. Rust retains the unclipped raw difference.
+#[repr(C)]
+pub struct KirinSpectrumView {
+    pub status: u8,
+    pub has_data: u8,
+    pub reserved: [u8; 2],
+    pub sample_rate: u32,
+    pub min_hz: f32,
+    pub max_hz: f32,
+    pub pre_dbfs: [f32; SPECTRUM_BAND_COUNT],
+    pub post_dbfs: [f32; SPECTRUM_BAND_COUNT],
+    pub display_db: [f32; SPECTRUM_BAND_COUNT],
+}
+
+/// Read-only validation counters. No counter is used to make display or DSP decisions.
+#[repr(C)]
+pub struct KirinSpectrumStats {
+    pub enabled: u8,
+    pub worker_running: u8,
+    pub reserved: [u8; 6],
+    pub pushed_blocks: u64,
+    pub dropped_blocks: u64,
+    pub analyzed_frames: u64,
 }
 
 /// `KirinRecordDisplay` — Keep/Record専用の世代付き表示スナップショット。
@@ -3428,6 +3535,63 @@ fn to_c_delta(d: &DeltaResult) -> KirinDelta {
     }
 }
 
+fn spectrum_status_to_abi(status: SpectrumViewStatus) -> u8 {
+    match status {
+        SpectrumViewStatus::Hidden => KIRIN_SPECTRUM_HIDDEN,
+        SpectrumViewStatus::NoPair => KIRIN_SPECTRUM_NO_PAIR,
+        SpectrumViewStatus::WarmingUp => KIRIN_SPECTRUM_WARMING_UP,
+        SpectrumViewStatus::Active => KIRIN_SPECTRUM_ACTIVE,
+        SpectrumViewStatus::Unavailable => KIRIN_SPECTRUM_UNAVAILABLE,
+    }
+}
+
+fn to_c_spectrum(snapshot: SpectrumViewSnapshot) -> KirinSpectrumView {
+    let has_data = snapshot.difference.is_some() as u8;
+    let (sample_rate, min_hz, max_hz, pre_dbfs, post_dbfs, display_db) =
+        snapshot.difference.map_or(
+            (
+                0,
+                0.0,
+                0.0,
+                [0.0; SPECTRUM_BAND_COUNT],
+                [0.0; SPECTRUM_BAND_COUNT],
+                [0.0; SPECTRUM_BAND_COUNT],
+            ),
+            |difference| {
+                (
+                    difference.sample_rate,
+                    difference.min_hz,
+                    difference.max_hz,
+                    difference.pre_dbfs,
+                    difference.post_dbfs,
+                    difference.display_db,
+                )
+            },
+        );
+    KirinSpectrumView {
+        status: spectrum_status_to_abi(snapshot.status),
+        has_data,
+        reserved: [0; 2],
+        sample_rate,
+        min_hz,
+        max_hz,
+        pre_dbfs,
+        post_dbfs,
+        display_db,
+    }
+}
+
+fn to_c_spectrum_stats(stats: SpectrumRuntimeStats) -> KirinSpectrumStats {
+    KirinSpectrumStats {
+        enabled: stats.enabled as u8,
+        worker_running: stats.worker_running as u8,
+        reserved: [0; 6],
+        pushed_blocks: stats.pushed_blocks,
+        dropped_blocks: stats.dropped_blocks,
+        analyzed_frames: stats.analyzed_frames,
+    }
+}
+
 fn record_display_phase_to_abi(status: RecordDisplayStatus) -> u8 {
     match status {
         RecordDisplayStatus::Empty | RecordDisplayStatus::Dismissed => KIRIN_RECORD_DISPLAY_WATCH,
@@ -3485,6 +3649,84 @@ mod delta_mode_abi_tests {
         assert_eq!(delta_mode_to_abi(&DeltaMode::NoPre), 2);
         assert_eq!(delta_mode_to_abi(&DeltaMode::Bypassed), 3);
         assert_eq!(delta_mode_to_abi(&DeltaMode::PreInactive), 4);
+    }
+}
+
+#[cfg(test)]
+mod spectrum_abi_tests {
+    use super::*;
+    use kirin_measure::spectrum::SpectrumDifference;
+
+    #[test]
+    fn spectrum_status_and_signed_display_values_have_stable_c_mapping() {
+        assert_eq!(std::mem::size_of::<KirinSpectrumView>(), 3_088);
+        assert_eq!(spectrum_status_to_abi(SpectrumViewStatus::Hidden), 0);
+        assert_eq!(spectrum_status_to_abi(SpectrumViewStatus::NoPair), 1);
+        assert_eq!(spectrum_status_to_abi(SpectrumViewStatus::WarmingUp), 2);
+        assert_eq!(spectrum_status_to_abi(SpectrumViewStatus::Active), 3);
+        assert_eq!(spectrum_status_to_abi(SpectrumViewStatus::Unavailable), 4);
+
+        let snapshot = SpectrumViewSnapshot {
+            status: SpectrumViewStatus::Active,
+            difference: Some(SpectrumDifference {
+                presentation_end_samples: 48_000,
+                sample_rate: 48_000,
+                min_hz: 10.0,
+                max_hz: 22_000.0,
+                pre_dbfs: [-42.0; SPECTRUM_BAND_COUNT],
+                post_dbfs: [-45.5; SPECTRUM_BAND_COUNT],
+                raw_db: [15.0; SPECTRUM_BAND_COUNT],
+                display_db: [-3.5; SPECTRUM_BAND_COUNT],
+            }),
+        };
+        let out = to_c_spectrum(snapshot);
+        assert_eq!(out.status, KIRIN_SPECTRUM_ACTIVE);
+        assert_eq!(out.has_data, 1);
+        assert_eq!(out.sample_rate, 48_000);
+        assert_eq!(out.pre_dbfs[0], -42.0);
+        assert_eq!(out.post_dbfs[SPECTRUM_BAND_COUNT - 1], -45.5);
+        assert_eq!(out.display_db[0], -3.5);
+        assert_eq!(out.display_db[SPECTRUM_BAND_COUNT - 1], -3.5);
+    }
+
+    #[test]
+    fn presentation_alignment_requires_known_wrapper_output_latency() {
+        let exact = PendingCaptureWindow {
+            position_valid: true,
+            position_samples: 9_600,
+            num_frames: 480,
+            clock_source: CaptureClockSource::ProjectTimeline,
+            presentation_latency: PresentationLatencySamples {
+                source: PresentationLatencySource::Vst3,
+                input: Some(0),
+                output: Some(2_048),
+            },
+            force_new_epoch: false,
+        };
+        assert_eq!(spectrum_presentation_start(exact), Some(11_648));
+        assert_eq!(
+            spectrum_presentation_start(PendingCaptureWindow {
+                presentation_latency: PresentationLatencySamples::default(),
+                ..exact
+            }),
+            None
+        );
+        assert_eq!(
+            spectrum_presentation_start(PendingCaptureWindow {
+                position_valid: false,
+                ..exact
+            }),
+            None
+        );
+    }
+
+    #[test]
+    fn pre_role_cannot_expose_the_post_spectrum_page() {
+        let engine = KirinHyphaEngine::new(48_000, 2);
+        assert!(!engine.set_spectrum_visible(true));
+        *engine.write_role.lock().unwrap() = Some(PluginDataRole::Pre);
+        assert!(!engine.set_spectrum_visible(true));
+        assert!(!engine.spectrum_stats().enabled);
     }
 }
 
@@ -4200,6 +4442,7 @@ pub unsafe extern "C" fn kirin_hypha_note_transport_block(
     position_valid: bool,
     position_samples: i64,
     num_frames: u64,
+    force_new_pass: bool,
 ) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         if !handle.is_null() {
@@ -4209,6 +4452,7 @@ pub unsafe extern "C" fn kirin_hypha_note_transport_block(
                     position_valid,
                     position_samples,
                     num_frames,
+                    force_new_pass,
                 )
             };
         }
@@ -4381,6 +4625,68 @@ pub unsafe extern "C" fn kirin_hypha_poll_delta(
             }
             None => false,
         }
+    }))
+    .unwrap_or(false)
+}
+
+/// Enable or disable the POST-only Spectrum page. The visibility edge itself performs no file
+/// access; the existing POST IO worker owns request renewal and exact-PRE snapshot reads.
+/// PRE and not-yet-enabled engines return false.
+///
+/// # Safety
+/// `handle` must be null or a live pointer returned by [`kirin_hypha_create`].
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_set_spectrum_visible(
+    handle: *mut KirinHyphaEngine,
+    visible: bool,
+) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() {
+            return false;
+        }
+        unsafe { (*handle).set_spectrum_visible(visible) }
+    }))
+    .unwrap_or(false)
+}
+
+/// Poll the latest POST-minus-PRE Spectrum view. Status-only snapshots are successful reads and
+/// carry `has_data=0`; lock contention or a null argument returns false without changing `out`.
+///
+/// # Safety
+/// `handle` and `out` must be live writable pointers. UI Thread only.
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_poll_spectrum(
+    handle: *mut KirinHyphaEngine,
+    out: *mut KirinSpectrumView,
+) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() || out.is_null() {
+            return false;
+        }
+        let Some(snapshot) = (unsafe { &*handle }).poll_spectrum() else {
+            return false;
+        };
+        unsafe { *out = to_c_spectrum(snapshot) };
+        true
+    }))
+    .unwrap_or(false)
+}
+
+/// Read optional Spectrum worker counters for performance/regression validation.
+///
+/// # Safety
+/// `handle` and `out` must be live writable pointers. Control/UI Thread only.
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_spectrum_stats(
+    handle: *mut KirinHyphaEngine,
+    out: *mut KirinSpectrumStats,
+) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() || out.is_null() {
+            return false;
+        }
+        unsafe { *out = to_c_spectrum_stats((*handle).spectrum_stats()) };
+        true
     }))
     .unwrap_or(false)
 }
@@ -4966,6 +5272,26 @@ mod b113_signal_state_tests {
             2,
             "Bypassed → 2"
         );
+    }
+}
+
+#[cfg(test)]
+mod b474_watch_restart_tests {
+    use super::watch_transport_starts_new_pass;
+
+    #[test]
+    fn shared_unavailable_to_active_boundary_starts_a_new_watch_pass() {
+        assert!(watch_transport_starts_new_pass(true, true, false, true));
+    }
+
+    #[test]
+    fn continuous_playback_without_a_shared_boundary_keeps_the_current_pass() {
+        assert!(!watch_transport_starts_new_pass(true, true, false, false));
+    }
+
+    #[test]
+    fn unavailable_boundary_cannot_start_a_pass_while_transport_is_stopped() {
+        assert!(!watch_transport_starts_new_pass(false, true, false, true));
     }
 }
 

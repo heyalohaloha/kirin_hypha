@@ -2,15 +2,27 @@
 //!
 //! Allocation, consumer publication and reclamation belong to control/Measure/Watchdog threads.
 //! The Audio Thread only performs atomic pointer adoption and copies samples into an rtrb
-//! producer. The lane is armed before `RecordStateMachine` enters Record and is reused only after
-//! the previous generation has been completely drained.
+//! producer. The lane and its non-audio spool are armed before `RecordStateMachine` enters Record;
+//! a new generation is published only after the previous generation has been completely drained.
 
 use crate::watchdog_handoff::WatchProducerHandoff;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
+
+struct AudioPushGuard<'a> {
+    in_flight: &'a AtomicU64,
+}
+
+impl Drop for AudioPushGuard<'_> {
+    fn drop(&mut self) {
+        self.in_flight.fetch_sub(1, Ordering::AcqRel);
+    }
+}
 
 struct ControlState {
-    consumer: Option<rtrb::Consumer<f32>>,
+    spool: Option<crate::record_spool::RecordSpool>,
+    retired_spools: Vec<crate::record_spool::RecordSpool>,
     allocated: bool,
 }
 
@@ -34,6 +46,8 @@ pub struct RecordIngress {
     capture_origin_frame: AtomicU64,
     producer_installed: AtomicBool,
     measure_attached: AtomicBool,
+    accepting_audio: AtomicBool,
+    audio_pushes_in_flight: AtomicU64,
 }
 
 impl RecordIngress {
@@ -45,7 +59,8 @@ impl RecordIngress {
         Self {
             producer_handoff: WatchProducerHandoff::new(bootstrap_producer),
             control: Mutex::new(ControlState {
-                consumer: None,
+                spool: None,
+                retired_spools: Vec::new(),
                 allocated: false,
             }),
             capacity: capacity.max(1),
@@ -57,6 +72,8 @@ impl RecordIngress {
             capture_origin_frame: AtomicU64::new(0),
             producer_installed: AtomicBool::new(false),
             measure_attached: AtomicBool::new(false),
+            accepting_audio: AtomicBool::new(false),
+            audio_pushes_in_flight: AtomicU64::new(0),
         }
     }
 
@@ -84,16 +101,23 @@ impl RecordIngress {
         if previous != 0 && self.drained_generation.load(Ordering::Acquire) < previous {
             return false;
         }
-        if !control.allocated {
-            let (producer, consumer) = rtrb::RingBuffer::new(self.capacity);
-            control.consumer = Some(consumer);
-            control.allocated = true;
-            self.measure_attached.store(false, Ordering::Release);
-            self.producer_handoff.publish_from_watchdog(producer);
+        if (!control.allocated || previous != generation)
+            && !self.install_fresh_lane(&mut control, generation)
+        {
+            return false;
         }
         self.armed_generation.store(generation, Ordering::Release);
+        if previous != 0 && previous != generation {
+            let _ = self.restart_pending_generation.compare_exchange(
+                previous,
+                0,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            );
+        }
         self.capture_origin_generation.store(0, Ordering::Release);
         self.capture_origin_frame.store(0, Ordering::Release);
+        self.accepting_audio.store(true, Ordering::Release);
         true
     }
 
@@ -117,7 +141,7 @@ impl RecordIngress {
     /// Must be called by the single Audio Thread owner after `adopt_from_audio`.
     #[inline]
     pub unsafe fn push_from_audio(&self, generation: u64, samples: &[f32]) -> usize {
-        let mut pushed = 0;
+        let mut pushed = 0_usize;
         // SAFETY: forwarded single-Audio-Thread ownership contract.
         let _ = unsafe {
             self.with_producer_from_audio(generation, |producer| {
@@ -125,10 +149,13 @@ impl RecordIngress {
                     return;
                 }
                 for &sample in samples {
-                    // The complete block was admitted above; the sole consumer can only free
-                    // more slots while this producer commits the callback.
-                    let _ = producer.push(sample);
-                    pushed += 1;
+                    // The spool consumer normally only frees more slots. A disk-write failure can
+                    // close it concurrently, though, and that failure must become an observable
+                    // partial/failed callback instead of being counted as accepted audio.
+                    if producer.push(sample).is_err() {
+                        break;
+                    }
+                    pushed = pushed.saturating_add(1);
                 }
             })
         };
@@ -146,7 +173,12 @@ impl RecordIngress {
         generation: u64,
         operation: impl FnOnce(&mut rtrb::Producer<f32>) -> R,
     ) -> Option<R> {
-        if !self.producer_installed.load(Ordering::Acquire)
+        self.audio_pushes_in_flight.fetch_add(1, Ordering::AcqRel);
+        let _push_guard = AudioPushGuard {
+            in_flight: &self.audio_pushes_in_flight,
+        };
+        if !self.accepting_audio.load(Ordering::Acquire)
+            || !self.producer_installed.load(Ordering::Acquire)
             || self.armed_generation.load(Ordering::Acquire) != generation
         {
             return None;
@@ -182,29 +214,129 @@ impl RecordIngress {
             .then(|| self.capture_origin_frame.load(Ordering::Acquire))
     }
 
-    /// Measure Thread takes the consumer once. It retains ownership across successive Records.
-    pub fn take_consumer_for_measure(&self) -> Option<rtrb::Consumer<f32>> {
-        let mut control = match self.control.lock() {
+    /// Measure Thread opens a replayable reader over the non-audio spool. A replacement Measure
+    /// worker can reopen the same generation from sample zero after a worker failure.
+    pub(crate) fn take_consumer_for_measure(
+        &self,
+        generation: u64,
+    ) -> Option<crate::record_spool::MeasureSampleConsumer> {
+        if generation == 0 || self.armed_generation.load(Ordering::Acquire) != generation {
+            return None;
+        }
+        if self
+            .measure_attached
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            return None;
+        }
+        let control = match self.control.lock() {
             Ok(control) => control,
             Err(poisoned) => poisoned.into_inner(),
         };
-        let consumer = control.consumer.take();
-        if consumer.is_some() {
-            self.measure_attached.store(true, Ordering::Release);
+        let reader = control.spool.as_ref().and_then(|spool| spool.reader().ok());
+        if reader.is_none() {
+            self.measure_attached.store(false, Ordering::Release);
         }
-        consumer
+        reader.map(crate::record_spool::MeasureSampleConsumer::record)
+    }
+
+    /// Stop Record admission, wait for the last Audio callback to leave its atomic copy section,
+    /// then seal and fully drain the Audio -> spool lane. The Measure worker may only finalize
+    /// after this returns true.
+    pub fn finish_capture_from_measure(&self, generation: u64, timeout: Duration) -> bool {
+        if generation == 0 || self.armed_generation.load(Ordering::Acquire) != generation {
+            return false;
+        }
+        self.accepting_audio.store(false, Ordering::Release);
+        let deadline = Instant::now() + timeout;
+        while self.audio_pushes_in_flight.load(Ordering::Acquire) != 0 {
+            if Instant::now() >= deadline {
+                return false;
+            }
+            std::thread::yield_now();
+        }
+        let control = match self.control.lock() {
+            Ok(control) => control,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        let Some(spool) = control.spool.as_ref() else {
+            return false;
+        };
+        spool.seal();
+        spool.wait_closed(deadline.saturating_duration_since(Instant::now()))
     }
 
     pub fn mark_drained_from_measure(&self, generation: u64) {
         if generation != 0 && self.armed_generation.load(Ordering::Acquire) == generation {
+            let mut control = match self.control.lock() {
+                Ok(control) => control,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+            if !control
+                .spool
+                .as_ref()
+                .is_some_and(|spool| spool.fully_consumed())
+            {
+                return;
+            }
             self.drained_generation
                 .fetch_max(generation, Ordering::AcqRel);
+            self.measure_attached.store(false, Ordering::Release);
             let _ = self.restart_pending_generation.compare_exchange(
                 generation,
                 0,
                 Ordering::AcqRel,
                 Ordering::Acquire,
             );
+            control.allocated = false;
+            // The Measure reader keeps the unlinked file alive until the caller swaps back to its
+            // Watch lane. Removing the seed here guarantees the completed multi-GB spool is freed
+            // immediately when that reader is dropped, not at the next Keep or plug-in teardown.
+            drop(control.spool.take());
+        }
+    }
+
+    /// Terminalize a generation whose spool or Measure finalization failed. The failed TRACE stays
+    /// unavailable and never advances the Record seal, but one local I/O fault must not permanently
+    /// reject every later explicit Keep for this plug-in instance.
+    pub fn mark_failed_from_measure(&self, generation: u64) -> bool {
+        if generation == 0 || self.armed_generation.load(Ordering::Acquire) != generation {
+            return false;
+        }
+        self.accepting_audio.store(false, Ordering::Release);
+        let mut control = match self.control.lock() {
+            Ok(control) => control,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        if self.armed_generation.load(Ordering::Acquire) != generation {
+            return false;
+        }
+        if let Some(spool) = control.spool.as_ref() {
+            spool.seal();
+        }
+        control.allocated = false;
+        let failed_spool = control.spool.take();
+        self.drained_generation
+            .fetch_max(generation, Ordering::AcqRel);
+        self.measure_attached.store(false, Ordering::Release);
+        let _ = self.restart_pending_generation.compare_exchange(
+            generation,
+            0,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        );
+        drop(control);
+        // RecordSpool::drop is non-blocking; an in-flight disk worker owns its remaining lifetime.
+        drop(failed_spool);
+        true
+    }
+
+    #[cfg(test)]
+    fn has_current_spool_for_test(&self) -> bool {
+        match self.control.lock() {
+            Ok(control) => control.spool.is_some(),
+            Err(poisoned) => poisoned.into_inner().spool.is_some(),
         }
     }
 
@@ -215,23 +347,42 @@ impl RecordIngress {
             && self.measure_attached.load(Ordering::Acquire)
     }
 
-    /// Read-only Audio/test-thread drain introspection.
-    ///
-    /// # Safety
-    /// Same single Audio Thread ownership as producer push methods.
-    pub unsafe fn drained_from_audio(&self) -> bool {
-        self.producer_installed.load(Ordering::Acquire)
-            // SAFETY: read-only slots query under the single Audio Thread contract.
-            && unsafe { self.producer_handoff.active_slots_from_audio() } == self.capacity
+    /// Test-only end-to-end drain introspection. This intentionally takes the control mutex and
+    /// must never be called from a shipping Audio callback.
+    pub fn drained_for_test(&self) -> bool {
+        if !self.producer_installed.load(Ordering::Acquire)
+            // SAFETY: this test-only probe is called serially with the sole producer owner.
+            || unsafe { self.producer_handoff.active_slots_from_audio() } != self.capacity
+        {
+            return false;
+        }
+        let spool_caught_up = match self.control.lock() {
+            Ok(control) => control
+                .spool
+                .as_ref()
+                .is_some_and(|spool| spool.caught_up()),
+            Err(poisoned) => poisoned
+                .into_inner()
+                .spool
+                .as_ref()
+                .is_some_and(|spool| spool.caught_up()),
+        };
+        spool_caught_up
     }
 
     /// Reclaim retired producers outside the Audio Thread.
     pub fn reclaim_from_watchdog(&self) {
         self.producer_handoff.reclaim_retired_from_watchdog();
+        let mut control = match self.control.lock() {
+            Ok(control) => control,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        control.retired_spools.retain(|spool| !spool.is_closed());
     }
 
-    /// Replace an allocated lane after the Measure Thread owning its consumer terminates.
-    /// Allocation/publication happen on the Watchdog Thread; Audio adopts the producer later.
+    /// Detach a terminated Measure reader without replacing the live Audio -> spool lane. A new
+    /// Measure worker replays the same generation from sample zero, so a worker crash cannot erase
+    /// already admitted Record audio.
     ///
     /// `observation` is an exact snapshot of the shared Record state. A generation is retired here
     /// only when it is already known to have entered (`record_generation == armed_generation`) and
@@ -241,20 +392,22 @@ impl RecordIngress {
         &self,
         observation: RecordIngressGenerationObservation,
     ) {
-        let mut control = match self.control.lock() {
-            Ok(control) => control,
-            Err(poisoned) => poisoned.into_inner(),
+        let armed_generation = {
+            let control = match self.control.lock() {
+                Ok(control) => control,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+            if !control.allocated {
+                return;
+            }
+            let armed_generation = self.armed_generation.load(Ordering::Acquire);
+            self.measure_attached.store(false, Ordering::Release);
+            self.restart_pending_generation
+                .store(armed_generation, Ordering::Release);
+            armed_generation
         };
-        if !control.allocated {
-            return;
-        }
-        self.install_fresh_lane(&mut control);
-        let armed_generation = self.armed_generation.load(Ordering::Acquire);
-        self.restart_pending_generation
-            .store(armed_generation, Ordering::Release);
         if observation.proves_closed(armed_generation) {
-            // The lane was replaced immediately above and cannot contain old-generation samples.
-            self.retire_restart_generation(armed_generation, false);
+            let _ = self.retire_restart_generation(armed_generation);
         }
     }
 
@@ -273,7 +426,7 @@ impl RecordIngress {
             return RecordIngressRestartOutcome::None;
         }
         if observation.proves_closed(pending) || observation.record_generation > pending {
-            return if self.retire_restart_generation(pending, true) {
+            return if self.retire_restart_generation(pending) {
                 RecordIngressRestartOutcome::Retired
             } else {
                 RecordIngressRestartOutcome::None
@@ -293,47 +446,39 @@ impl RecordIngress {
         RecordIngressRestartOutcome::Pending
     }
 
-    fn retire_restart_generation(&self, generation: u64, replace_unconsumed_lane: bool) -> bool {
-        if generation == 0
-            || self
-                .restart_pending_generation
-                .compare_exchange(generation, 0, Ordering::AcqRel, Ordering::Acquire)
-                .is_err()
+    fn retire_restart_generation(&self, generation: u64) -> bool {
+        if generation == 0 || self.restart_pending_generation.load(Ordering::Acquire) != generation
         {
             return false;
         }
-        if replace_unconsumed_lane {
-            let mut control = match self.control.lock() {
-                Ok(control) => control,
-                Err(poisoned) => poisoned.into_inner(),
-            };
-            if control.allocated {
-                // The replacement worker has not acknowledged this generation live, so it has not
-                // taken the Record consumer. Audio may nevertheless have adopted/pushed while Stop
-                // raced startup. Drop that consumer and publish a fresh lane before allowing the
-                // next generation; otherwise old samples could contaminate Keep 2.
-                self.install_fresh_lane(&mut control);
-            }
-            // `prepare_for_generation` takes the same control lock before reading this barrier.
-            // Publish retirement while still holding it so lane replacement + reuse authority are
-            // one control-plane transaction.
-            self.drained_generation
-                .fetch_max(generation, Ordering::AcqRel);
-            return true;
+        if !self.finish_capture_from_measure(generation, Duration::from_secs(1)) {
+            // A close timeout is itself terminal for this TRACE. Release the failed generation so
+            // it cannot retain disk or permanently poison later explicit Keeps.
+            return self.mark_failed_from_measure(generation);
         }
-        self.drained_generation
-            .fetch_max(generation, Ordering::AcqRel);
-        true
+        // No replacement Measure worker owns this closed generation, so retirement is a failed
+        // TRACE outcome rather than a successful drain/seal. The same terminalization path also
+        // removes the control seed immediately.
+        self.mark_failed_from_measure(generation)
     }
 
-    fn install_fresh_lane(&self, control: &mut ControlState) {
+    fn install_fresh_lane(&self, control: &mut ControlState, generation: u64) -> bool {
         let (producer, consumer) = rtrb::RingBuffer::new(self.capacity);
-        control.consumer = Some(consumer);
+        let Ok(spool) = crate::record_spool::RecordSpool::start(consumer, generation) else {
+            return false;
+        };
+        if let Some(previous) = control.spool.replace(spool) {
+            previous.seal();
+            control.retired_spools.push(previous);
+        }
+        control.allocated = true;
+        self.accepting_audio.store(false, Ordering::Release);
         self.measure_attached.store(false, Ordering::Release);
         self.producer_installed.store(false, Ordering::Release);
         self.capture_origin_generation.store(0, Ordering::Release);
         self.capture_origin_frame.store(0, Ordering::Release);
         self.producer_handoff.publish_from_watchdog(producer);
+        true
     }
 }
 

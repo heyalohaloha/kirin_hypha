@@ -10,6 +10,7 @@ use crate::phase_d::channels::PhaseDChannelStream;
 use crate::phase_d::tables::FieldType;
 use crate::raw_pre_roll::RawPreRollHistory;
 use crate::record::RecordStateMachine;
+use crate::record_spool::MeasureSampleConsumer;
 use crate::record_take::{
     CaptureClockPoint, CaptureClockSource, PresentationLatencySamples, RecordTakeTracker,
 };
@@ -181,7 +182,7 @@ impl LivenessEvaluator {
 ///   `PluginDataWriter::set_session_aggregates()` 経由で JSON に焼き込む。
 #[allow(clippy::too_many_arguments)]
 pub fn spawn_measure_thread(
-    mut consumer: rtrb::Consumer<f32>,
+    consumer: rtrb::Consumer<f32>,
     sample_rate: u32,
     n_channels: usize,
     result: Arc<Mutex<MeasureResult>>,
@@ -200,6 +201,7 @@ pub fn spawn_measure_thread(
     record_ingress: Arc<crate::RecordIngress>,
 ) -> JoinHandle<()> {
     thread::spawn(move || {
+        let mut consumer = MeasureSampleConsumer::watch(consumer);
         let n_channels = match n_channels {
             1 | 2 => n_channels,
             _ => N_CHANNELS,
@@ -304,8 +306,7 @@ pub fn spawn_measure_thread(
         let mut consumed_samples = 0_u64;
         let mut watch_consumed_samples = 0_u64;
         let mut watch_native_frames_total = 0_u64;
-        let mut parked_watch_consumer: Option<rtrb::Consumer<f32>> = None;
-        let mut parked_record_consumer: Option<rtrb::Consumer<f32>> = None;
+        let mut parked_watch_consumer: Option<MeasureSampleConsumer> = None;
 
         // B-043: Record mode 遷移を検出し、Watch→Record 開始時に engine をリセットする。
         // Record 中の SS-8 reset 抑止と組み合わせて、LUFS-I / LRA のセッション通算性を確保する。
@@ -354,9 +355,8 @@ pub fn spawn_measure_thread(
                 ),
             );
             if !prev_recording && is_recording {
-                let record_consumer = parked_record_consumer
-                    .take()
-                    .or_else(|| record_ingress.take_consumer_for_measure());
+                let record_generation = record_sm.generation();
+                let record_consumer = record_ingress.take_consumer_for_measure(record_generation);
                 let Some(record_consumer) = record_consumer else {
                     // The IO/control thread publishes the complete Record lane before entering
                     // Record. If this thread observes the state in the publication instant, retry
@@ -382,7 +382,6 @@ pub fn spawn_measure_thread(
                 watch_consumed_samples = consumed_samples;
                 watch_native_frames_total = native_frames_total;
                 parked_watch_consumer = Some(std::mem::replace(&mut consumer, record_consumer));
-                let record_generation = record_sm.generation();
                 record_display_generation = Some(record_generation);
                 record_sm.mark_record_display_measure_started(record_generation);
                 consumed_samples = 0;
@@ -432,44 +431,47 @@ pub fn spawn_measure_thread(
                 let record_generation = record_display_generation
                     .take()
                     .unwrap_or_else(|| record_sm.generation());
-                let drained = drain_ring_into_session(
-                    DrainRingSession {
-                        consumer: &mut consumer,
-                        resampler: &mut resampler,
-                        trace_engine: &mut record_trace_engine,
-                        summary_engine: &mut record_summary_engine,
-                        session_summary: &session_summary,
-                        chunk_f64: &mut chunk_f64,
-                        resampled_buf: &mut resampled_buf,
-                        phase_d: &mut phase_d,
-                        phase_d_slot_pending: &mut phase_d_slot_pending,
-                        latest_pd: &mut latest_pd,
-                        record_core_pending: &mut record_core_pending,
-                        record_phase_pending: &mut record_phase_pending,
-                        sample_rate,
-                        n_channels,
-                        native_frames_total: &mut native_frames_total,
-                        consumed_samples: &mut consumed_samples,
-                        record_take_tracker: &record_take_tracker,
-                        last_capture_position_end: &mut last_capture_position_end,
-                        finalize_capture: true,
-                    },
-                    Some(RecordTraceDrain {
-                        queue: &record_trace_queue,
-                        timeline: RecordTraceTimeline {
-                            generation: record_generation,
-                            origin_frames_48k: record_origin_frames,
-                            origin_native_frames: record_origin_native_frames,
-                            offset_frames_48k: record_trace_frame_offset_48k,
-                            offset_native_frames: record_trace_native_frame_offset,
-                            origin_position_samples: record_origin_position_samples,
+                let capture_finished = record_ingress
+                    .finish_capture_from_measure(record_generation, Duration::from_secs(10));
+                let drained = capture_finished
+                    && drain_ring_into_session(
+                        DrainRingSession {
+                            consumer: &mut consumer,
+                            resampler: &mut resampler,
+                            trace_engine: &mut record_trace_engine,
+                            summary_engine: &mut record_summary_engine,
+                            session_summary: &session_summary,
+                            chunk_f64: &mut chunk_f64,
+                            resampled_buf: &mut resampled_buf,
+                            phase_d: &mut phase_d,
+                            phase_d_slot_pending: &mut phase_d_slot_pending,
+                            latest_pd: &mut latest_pd,
+                            record_core_pending: &mut record_core_pending,
+                            record_phase_pending: &mut record_phase_pending,
+                            sample_rate,
+                            n_channels,
+                            native_frames_total: &mut native_frames_total,
+                            consumed_samples: &mut consumed_samples,
+                            record_take_tracker: &record_take_tracker,
+                            last_capture_position_end: &mut last_capture_position_end,
+                            finalize_capture: true,
                         },
-                        cursor: RecordTraceCursor {
-                            next_trace_ms: &mut next_record_trace_ms,
-                            next_psb_ms: &mut next_record_psb_ms,
-                        },
-                    }),
-                );
+                        Some(RecordTraceDrain {
+                            queue: &record_trace_queue,
+                            timeline: RecordTraceTimeline {
+                                generation: record_generation,
+                                origin_frames_48k: record_origin_frames,
+                                origin_native_frames: record_origin_native_frames,
+                                offset_frames_48k: record_trace_frame_offset_48k,
+                                offset_native_frames: record_trace_native_frame_offset,
+                                origin_position_samples: record_origin_position_samples,
+                            },
+                            cursor: RecordTraceCursor {
+                                next_trace_ms: &mut next_record_trace_ms,
+                                next_psb_ms: &mut next_record_psb_ms,
+                            },
+                        }),
+                    );
                 let completed_trace = push_record_trace_to_record_take_clock(
                     &record_trace_queue,
                     record_generation,
@@ -494,8 +496,9 @@ pub fn spawn_measure_thread(
                     );
                 } else {
                     record_sm.mark_record_display_unavailable(record_generation);
+                    let terminalized = record_ingress.mark_failed_from_measure(record_generation);
                     log::warn!(
-                        "[MeasureThread] Record→Watch drain incomplete — seal NOT bumped (IO bake → integrity_degraded)"
+                        "[MeasureThread] Record→Watch drain incomplete — seal NOT bumped (IO bake → integrity_degraded, ingress_terminalized={terminalized})"
                     );
                 }
                 if record_prefix_owns_history_storage {
@@ -507,7 +510,8 @@ pub fn spawn_measure_thread(
                 record_prefix_owns_history_storage = false;
                 record_prefix_pending = false;
                 if let Some(watch_consumer) = parked_watch_consumer.take() {
-                    parked_record_consumer = Some(std::mem::replace(&mut consumer, watch_consumer));
+                    let _finished_record_consumer =
+                        std::mem::replace(&mut consumer, watch_consumer);
                     consumed_samples = watch_consumed_samples;
                     native_frames_total = watch_native_frames_total;
                 }
@@ -1124,7 +1128,7 @@ fn next_nonzero_counter(counter: &mut u64) -> u64 {
     *counter
 }
 
-fn drain_consumer_all(consumer: &mut rtrb::Consumer<f32>, consumed_samples: &mut u64) -> usize {
+fn drain_consumer_all(consumer: &mut MeasureSampleConsumer, consumed_samples: &mut u64) -> usize {
     let available = consumer.slots();
     let mut drained = 0_usize;
     for _ in 0..available {
@@ -1138,7 +1142,7 @@ fn drain_consumer_all(consumer: &mut rtrb::Consumer<f32>, consumed_samples: &mut
 }
 
 fn drain_consumer_until_sample(
-    consumer: &mut rtrb::Consumer<f32>,
+    consumer: &mut MeasureSampleConsumer,
     consumed_samples: &mut u64,
     cutover_samples: u64,
 ) -> usize {
@@ -1410,7 +1414,7 @@ struct RecordTraceDrain<'a> {
 }
 
 struct DrainRingSession<'a> {
-    consumer: &'a mut rtrb::Consumer<f32>,
+    consumer: &'a mut MeasureSampleConsumer,
     resampler: &'a mut Option<ResamplerTo48k>,
     trace_engine: &'a mut MeasureEngine,
     summary_engine: &'a mut MeasureEngine,
@@ -1588,7 +1592,7 @@ fn capture_chunk_plan(
 
 #[allow(clippy::too_many_arguments)]
 fn drain_watch_into_raw_pre_roll(
-    consumer: &mut rtrb::Consumer<f32>,
+    consumer: &mut MeasureSampleConsumer,
     tracker: &RecordTakeTracker,
     history: &mut RawPreRollHistory,
     scratch: &mut Vec<f64>,
@@ -2121,7 +2125,7 @@ pub mod tests {
 
     #[test]
     fn watch_pass_cutover_drain_preserves_samples_pushed_after_cutover() {
-        let (mut producer, mut consumer) = rtrb::RingBuffer::new(8);
+        let (mut producer, consumer) = rtrb::RingBuffer::new(8);
         let mut pushed = 0_u64;
         for sample in [1.0_f32, 2.0] {
             producer.push(sample).unwrap();
@@ -2133,6 +2137,7 @@ pub mod tests {
             pushed += 1;
         }
 
+        let mut consumer = super::MeasureSampleConsumer::watch(consumer);
         let mut consumed = 0_u64;
         let drained = super::drain_consumer_until_sample(&mut consumer, &mut consumed, cutover);
         assert_eq!(drained, 2);
@@ -2657,10 +2662,11 @@ pub mod tests {
             let sample = 0.25 * (frame as f32 * 997.0 * std::f32::consts::TAU / SR as f32).sin();
             signal.extend_from_slice(&[sample, sample]);
         }
-        let (mut producer, mut consumer) = rtrb::RingBuffer::new(silence.len() + signal.len() + 16);
+        let (mut producer, consumer) = rtrb::RingBuffer::new(silence.len() + signal.len() + 16);
         for sample in silence.iter().chain(signal.iter()) {
             producer.push(*sample).unwrap();
         }
+        let mut consumer = super::MeasureSampleConsumer::watch(consumer);
 
         let queue = new_record_trace_queue();
         let mut next_trace_ms = 0;
@@ -3026,6 +3032,7 @@ pub mod tests {
 mod b132_drain_tests {
     use super::{
         drain_ring_into_session, trusted_pre_roll_epoch, CaptureChunkPlan, DrainRingSession,
+        MeasureSampleConsumer,
     };
     use crate::engine::MeasureEngine;
     use crate::phase_d::channels::PhaseDChannelStream;
@@ -3080,10 +3087,11 @@ mod b132_drain_tests {
         let mut eng_on = MeasureEngine::new(SR, 2).unwrap();
         let _ = eng_on.push(&body_f64);
         let mut trace_engine = MeasureEngine::new(SR, 2).unwrap();
-        let (mut prod, mut cons) = rtrb::RingBuffer::<f32>::new(tail.len() + 16);
+        let (mut prod, cons) = rtrb::RingBuffer::<f32>::new(tail.len() + 16);
         for &s in &tail {
             prod.push(s).unwrap();
         }
+        let mut cons = MeasureSampleConsumer::watch(cons);
         let ss: Arc<Mutex<Option<crate::engine::SessionSummary>>> = Arc::new(Mutex::new(None));
         let mut chunk = Vec::new();
         let mut resampled = Vec::new();
@@ -3151,7 +3159,8 @@ mod b132_drain_tests {
         let mut trace_engine = MeasureEngine::new(SR, 2).unwrap();
         let reference = eng.finalize();
 
-        let (_prod, mut cons) = rtrb::RingBuffer::<f32>::new(16); // 空
+        let (_prod, cons) = rtrb::RingBuffer::<f32>::new(16); // 空
+        let mut cons = MeasureSampleConsumer::watch(cons);
         let ss: Arc<Mutex<Option<crate::engine::SessionSummary>>> = Arc::new(Mutex::new(None));
         let mut chunk = Vec::new();
         let mut resampled = Vec::new();
@@ -3219,10 +3228,11 @@ mod b132_drain_tests {
         let mut summary_engine = MeasureEngine::new(SR, 2).unwrap();
         let _ = summary_engine.push(&body_f64);
         let mut trace_engine = MeasureEngine::new(SR, 2).unwrap();
-        let (mut producer, mut consumer) = rtrb::RingBuffer::<f32>::new(tail.len() + 16);
+        let (mut producer, consumer) = rtrb::RingBuffer::<f32>::new(tail.len() + 16);
         for &sample in &tail {
             producer.push(sample).unwrap();
         }
+        let mut consumer = MeasureSampleConsumer::watch(consumer);
 
         let tracker = RecordTakeTracker::new();
         tracker.note_capture_window(true, 0, SR as u64);

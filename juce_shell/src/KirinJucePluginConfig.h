@@ -18,3 +18,9 @@
 #ifndef KIRIN_HYPHA_PRESENTATION_CLOCK
 #define KIRIN_HYPHA_PRESENTATION_CLOCK 1
 #endif
+
+// Target-specific CMake wiring enables the independent PRE display controller only in PRE.
+// POST compiles the established processor/editor without the controller, filesystem scan, or UI.
+#ifndef KIRIN_HYPHA_PRE_DISPLAY
+#define KIRIN_HYPHA_PRE_DISPLAY 0
+#endif

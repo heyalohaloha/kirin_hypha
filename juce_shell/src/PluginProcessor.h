@@ -6,7 +6,12 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
+#include "HyphaSignalStateContract.h"
 #include "kirin_hypha_ffi.h" // C ABI to the Rust RT-measure engine (Phase 1 / B-052)
+#if KIRIN_HYPHA_PRE_DISPLAY
+ #include "pre_display/PreDisplayClock.h"
+ #include "pre_display/PreDisplayController.h"
+#endif
 
 // Role-parameterized base for both the Kirin Hypha PRE and POST JUCE shells (B-070).
 // All FFI wiring (create / set_license / push_samples / poll_result), the identity state
@@ -45,6 +50,9 @@ public:
         return persistShortTermLoudness.load (std::memory_order_acquire);
     }
     void setUseShortTermLoudness (bool shortTerm);
+#if KIRIN_HYPHA_PRE_DISPLAY
+    hypha::pre_display::DisplaySnapshot preDisplaySnapshot() const;
+#endif
 
     // --- B-072: POST pairing surface (used by the editor only when isPostRole()) ----------
     bool isPostRole() const { return role == Role::Post; }
@@ -69,6 +77,9 @@ public:
     // --- B-073: POST Δ readout (editor display branching) --------------------------------
     int  signalStateLive() const;                      // B-113: FFI kirin_hypha_get_signal_state (heartbeat-aware, no stale Active)
     bool pollDelta (KirinDelta& out) const;            // FFI kirin_hypha_poll_delta (mode + Δ values)
+    bool setSpectrumVisible (bool visible);             // POST-only; request work stays on IO thread
+    bool pollSpectrum (KirinSpectrumView& out) const;   // signed POST-PRE display snapshot
+    bool spectrumStats (KirinSpectrumStats& out) const; // read-only validation counters
     bool isPlaying() const { return lastPlaying.load (std::memory_order_acquire); } // transport (POST pair lock)
 
     // --- B-054: PRE live name + LED pollers (egui parity) --------------------------------
@@ -136,9 +147,12 @@ private:
     double preparedSampleRate = 0.0;                   // format bound to hyphaHandle
     int preparedInputChannels = 0;                     // format bound to hyphaHandle
     bool lastProcessPositionValid = false;             // audio-thread local transport position cache
+    bool lastProcessHadPosition = false;               // previous callback had an adjacent sample range
     int64_t lastProcessPositionSamples = 0;            // audio-thread local transport position cache
+    uint64_t lastProcessNumFrames = 0;                 // previous host range length for continuity
     bool recordStartWindowLatched = false;             // audio-thread Record start gate; reset outside Record
     bool recordNativeRangeLatched = false;              // first host native-range callback per Record
+    hypha::signal_state_contract::WatchSilenceGate watchSilenceGate; // Watch-only; sample-counted, RT-safe
 
     // Persisted identity (4 keys) + POST pair target, round-tripped via get/setState as a
     // JUCE-native XML chunk. Source of truth for the chunk; synced from the FFI at enable
@@ -156,6 +170,12 @@ private:
     std::atomic<bool> enablePending { false };         // B-126: set by prepare/processBlock, observed by the Timer
     std::atomic<int>  enableDelayTicks { 0 };          // prepare fallback restore grace; setState clears it
     std::atomic<bool> stateInformationSeen { false };  // setStateInformation reached this instance at least once
+    std::atomic<bool> spectrumVisibleRequested { false }; // editor lifetime; not persisted in DAW state
+
+#if KIRIN_HYPHA_PRE_DISPLAY
+    hypha::pre_display::ClockTap preDisplayClock;
+    std::unique_ptr<hypha::pre_display::Controller> preDisplayController;
+#endif
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (KirinHyphaProcessorBase)
 };

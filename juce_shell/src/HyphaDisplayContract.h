@@ -43,28 +43,21 @@ namespace hypha::display_contract
                          : haveHeldDelta && heldPairMatchesCurrent;
     }
 
-    // Record owns the six-cell layout. An unpaired POST is absolute; a selected pair stays in
-    // delta mode across transient missing/stale reads. Explicit PRE OFF switches to absolute.
+    // Pair identity owns the six-cell layout; signal availability only owns the values/muting.
+    // This prevents PRE silence/bypass/stale reads from presenting as a detached pair.
     constexpr MetricMode recordMetricMode (bool pairSelected,
                                             bool,
-                                            std::uint8_t mode) noexcept
+                                            std::uint8_t) noexcept
     {
-        if (! pairSelected)
-            return MetricMode::absolute;
-        return preUnavailableForDelta (mode)
-            ? MetricMode::absolute : MetricMode::delta;
+        return pairSelected ? MetricMode::delta : MetricMode::absolute;
     }
 
-    // A selected pair keeps its delta+MAX grid across transient missing/stale reads. Only an
-    // explicit PRE OFF mode switches to POST absolute; no selected pair is always absolute.
+    // Watch follows the same separation: once selected, the pair keeps its delta+MAX grid until
+    // the user actually unpairs it. Unavailable PRE measurements render muted/empty in that grid.
     constexpr MetricMode watchMetricMode (bool pairSelected,
                                            bool,
-                                           std::uint8_t mode) noexcept
+                                           std::uint8_t) noexcept
     {
-        if (! pairSelected)
-            return MetricMode::absolute;
-        if (preUnavailableForDelta (mode))
-            return MetricMode::absolute;
-        return MetricMode::delta;
+        return pairSelected ? MetricMode::delta : MetricMode::absolute;
     }
 }

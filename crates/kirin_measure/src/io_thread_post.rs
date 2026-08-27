@@ -353,6 +353,9 @@ pub fn spawn_io_thread_post(
     // B-108: display と keep/Arm が共有する単一ラッチ。io_thread が毎 tick 維持し、shell 側の
     // keep/keep_all/broadcast 受信が `resolve_arm_target` で読む（egui/JUCE 両殻が同実体を渡す）。
     latched_pre: Arc<Mutex<Option<LatchedPre>>>,
+    // JUCE measurement shell supplies the optional on-demand Spectrum coordinator. The legacy
+    // egui shell passes None so its pair/IO behavior remains unchanged.
+    spectrum: Option<Arc<crate::SpectrumCoordinator>>,
 ) -> JoinHandle<()> {
     thread::spawn(move || {
         // B-128 (G-115-370): 観測 family（io_thread）入口の identity materialize（唯一の検証点）。
@@ -637,6 +640,18 @@ pub fn spawn_io_thread_post(
                         crate::paired_pre_instance_id(&latched_pre),
                     );
                 }
+            }
+
+            let spectrum_target = latched_pre
+                .lock()
+                .ok()
+                .and_then(|latched| latched.clone())
+                .filter(|latched| latched.readiness == crate::LatchedPreReadiness::Confirmed)
+                .and_then(|latched| {
+                    crate::SpectrumTarget::from_pre_json(latched.instance_id, &latched.pre_json)
+                });
+            if let Some(spectrum) = spectrum.as_ref() {
+                spectrum.service_post_endpoint(instance_id_ref, spectrum_target);
             }
 
             // The exact PRE ownership index is published only after this POST's atomic snapshot
@@ -4379,6 +4394,9 @@ mod record_signal_ack_barrier_tests {
 
         // The failed poll must not have claimed this new session. Once the prior lane drain is
         // acknowledged, the same durable ACK enters Record on its next ordinary poll.
+        let mut prior_consumer = record_ingress.take_consumer_for_measure(7).unwrap();
+        assert!(record_ingress.finish_capture_from_measure(7, std::time::Duration::from_secs(1)));
+        while prior_consumer.pop().is_ok() {}
         record_ingress.mark_drained_from_measure(7);
         poll_record_signal_ack_with_base(
             &base,

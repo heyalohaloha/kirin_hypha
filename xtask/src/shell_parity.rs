@@ -45,12 +45,34 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/../juce_shell/src/HyphaDisplayContract.h"
     ));
+    const PRE_DISPLAY_CONTROLLER_CPP: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../juce_shell/src/pre_display/PreDisplayController.cpp"
+    ));
+    const PRE_DISPLAY_REPOSITORY_CPP: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../juce_shell/src/pre_display/PreDisplayRepository.cpp"
+    ));
+    const PRE_DISPLAY_PROTOCOL_CPP: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../juce_shell/src/pre_display/PreDisplayProtocol.cpp"
+    ));
+    const PRE_DISPLAY_PROTOCOL_TIME_CPP: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../juce_shell/src/pre_display/PreDisplayProtocolTime.cpp"
+    ));
+    const PRE_DISPLAY_TRANSPORT_CPP: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../juce_shell/src/pre_display/PreDisplayTransport.cpp"
+    ));
 
     fn read_juce_au_wrapper() -> Option<String> {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
             "../juce_shell/JUCE/modules/juce_audio_plugin_client/juce_audio_plugin_client_AU_1.mm",
         );
-        std::fs::read_to_string(path).ok()
+        std::fs::read_to_string(path)
+            .ok()
+            .map(|source| source.replace("\r\n", "\n"))
     }
 
     fn between<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
@@ -122,9 +144,8 @@ mod tests {
 
     #[test]
     fn shipped_post_pair_selector_has_one_geometry_source() {
-        assert!(
-            PLUGIN_EDITOR_CPP.contains("const auto layout = ui::editorLayout (isPost, getWidth())")
-        );
+        assert!(PLUGIN_EDITOR_CPP
+            .contains("const auto layout = ui::editorLayout (isPost, getWidth(), getHeight())"));
         assert!(PLUGIN_EDITOR_CPP.contains("nameField.setBounds (juceRect (layout.name))"));
         assert!(
             PLUGIN_EDITOR_CPP.contains("pairDropdown.setBounds (juceRect (layout.pairDropdown))")
@@ -155,6 +176,92 @@ mod tests {
                 "format-specific UI branch can make AU and VST3 visually diverge: {forbidden}"
             );
         }
+    }
+
+    #[test]
+    fn pre_display_is_compiled_only_into_pre_while_au_and_vst3_share_it() {
+        assert!(JUCE_PLUGIN_CONFIG.contains("#define KIRIN_HYPHA_PRE_DISPLAY 0"));
+        assert_eq!(
+            count_occurrences(JUCE_CMAKE, "src/pre_display/PreDisplayController.cpp"),
+            2
+        );
+        for source in [
+            "PreDisplayPresence.cpp",
+            "PreDisplayProjection.cpp",
+            "PreDisplayProtocol.cpp",
+            "PreDisplayProtocolTime.cpp",
+            "PreDisplayRepository.cpp",
+            "PreDisplayTransport.cpp",
+        ] {
+            assert_eq!(count_occurrences(JUCE_CMAKE, source), 2, "{source}");
+        }
+        assert!(JUCE_CMAKE.contains("if(\"${TARGET}\" STREQUAL \"KirinHyphaPRE\")"));
+        assert!(JUCE_CMAKE.contains("KIRIN_HYPHA_PRE_DISPLAY=1"));
+        assert!(JUCE_CMAKE.contains("KIRIN_HYPHA_PRE_DISPLAY=0"));
+        assert!(PRE_DISPLAY_PROTOCOL_TIME_CPP.contains("bool canonicalIsoInstant"));
+        assert!(!PRE_DISPLAY_PROTOCOL_CPP.contains("bool canonicalIsoInstant"));
+        assert!(
+            JUCE_CMAKE.contains("target_link_libraries(${TARGET} PRIVATE juce::juce_cryptography)")
+        );
+        assert!(PLUGIN_EDITOR_H.contains("#if KIRIN_HYPHA_PRE_DISPLAY"));
+        assert!(PLUGIN_EDITOR_CPP.contains(
+            "const auto preDisplayTone = preDisplay.sectionActive || preDisplay.cueActive"
+        ));
+        assert!(PLUGIN_EDITOR_CPP.contains("ui::PreDisplayTone::emphasis"));
+        assert!(PLUGIN_EDITOR_CPP.contains("ui::preDisplayPrimaryColour (preDisplayTone)"));
+        assert!(PLUGIN_EDITOR_CPP.contains("ui::preDisplayDetailColour (preDisplayTone)"));
+        assert!(PLUGIN_EDITOR_CPP.contains("preDisplayStateLabel.setText (preDisplay.stateText"));
+        assert!(
+            PLUGIN_EDITOR_CPP.contains("preDisplayStateLabel.getBorderSize().getLeftAndRight()")
+        );
+        assert!(PLUGIN_EDITOR_CPP.contains("preDisplayPrimaryLabel.setTooltip"));
+        assert!(PLUGIN_EDITOR_CPP.contains("preDisplayDetailLabel.setTooltip"));
+        assert!(HYPHA_UI_CONTRACT_H
+            .contains("Only a factual PRE section or bounded positional cue has emphasis tone"));
+        assert_eq!(
+            count_occurrences(PLUGIN_PROCESSOR_CPP, "preDisplayClock.publish"),
+            1,
+            "the audio callback is the only PRE display clock writer"
+        );
+        assert!(HYPHA_UI_CONTRACT_H.contains("POST must not acquire PRE display geometry"));
+        assert!(PRE_DISPLAY_REPOSITORY_CPP
+            .contains(".getChildFile (\"active\").getChildFile (\"kirin_os.json\")"));
+        for source in [
+            PRE_DISPLAY_CONTROLLER_CPP,
+            PRE_DISPLAY_REPOSITORY_CPP,
+            PRE_DISPLAY_PROTOCOL_CPP,
+            PRE_DISPLAY_PROTOCOL_TIME_CPP,
+            PRE_DISPLAY_TRANSPORT_CPP,
+        ] {
+            assert!(!source.contains("TRACE"));
+        }
+        assert!(PRE_DISPLAY_CONTROLLER_CPP.lines().count() < 200);
+        assert!(PRE_DISPLAY_CONTROLLER_CPP.contains("stopThread (-1)"));
+        assert!(!PRE_DISPLAY_CONTROLLER_CPP.contains("stopThread (2'000)"));
+        assert!(PRE_DISPLAY_TRANSPORT_CPP.contains("juce::File::windowsLocalAppData"));
+        assert!(!PRE_DISPLAY_TRANSPORT_CPP.contains("juce::File::userApplicationDataDirectory"));
+        assert!(PRE_DISPLAY_CONTROLLER_CPP.contains("root.getFullPathName().isEmpty()"));
+        assert!(PRE_DISPLAY_CONTROLLER_CPP.contains("writeAcknowledgement"));
+        assert!(!PLUGIN_EDITOR_CPP.contains("preDisplayPrimaryLabel.setAlpha"));
+        assert!(!PLUGIN_EDITOR_CPP.contains("preDisplayDetailLabel.setAlpha"));
+        for forbidden in ["juce::JSON::parse", "juce::SHA256", "kirin_os.clear.json"] {
+            assert!(!PRE_DISPLAY_CONTROLLER_CPP.contains(forbidden));
+        }
+    }
+
+    #[test]
+    fn pre_display_explicit_clear_precedes_active_pointer_recovery() {
+        let clear = PRE_DISPLAY_REPOSITORY_CPP
+            .find("kirin_os.clear.json")
+            .expect("group clear authority must be read");
+        let pointer = PRE_DISPLAY_REPOSITORY_CPP
+            .find("kirin_os.json")
+            .expect("active pointer must be read");
+        assert!(
+            clear < pointer,
+            "explicit clear must be resolved before any active pointer"
+        );
+        assert!(PRE_DISPLAY_REPOSITORY_CPP.contains("retainedGuide = {};"));
     }
 
     #[test]

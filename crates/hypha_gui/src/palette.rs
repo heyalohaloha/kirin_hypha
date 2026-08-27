@@ -26,6 +26,20 @@ pub const COL_FLORA: Color32 = Color32::from_rgb(0xD4, 0xA0, 0x43);
 /// 赤系・ネオン・純白の禁止（G-54-16）を避けるための代替表現。
 pub const COL_FLORA_BRIGHT: Color32 = Color32::from_rgb(0xFF, 0xE0, 0xA0);
 
+// ── POST Spectrum palette ────────────────────────────────────────────────────
+
+/// Δ protagonist: controlled ice cyan for high contrast without pure-white glare.
+pub const COL_SPECTRUM_DELTA: Color32 = Color32::from_rgb(0x75, 0xD6, 0xE8);
+
+/// Δ local highlight: same cool family, raised lightness for changed bands.
+pub const COL_SPECTRUM_DELTA_BRIGHT: Color32 = Color32::from_rgb(0xCD, 0xEF, 0xF5);
+
+/// Exact PRE magnitude: desaturated blue-grey context behind the signed difference.
+pub const COL_SPECTRUM_PRE: Color32 = Color32::from_rgb(0x74, 0x80, 0x8F);
+
+/// Exact POST magnitude: restrained amethyst, visible but subordinate to Δ.
+pub const COL_SPECTRUM_POST: Color32 = Color32::from_rgb(0xA6, 0x95, 0xD6);
+
 // ── LED 色（5状態 LED で使用） ──────────────────────────────────────────
 
 /// Watch 青（呼吸アニメーションのベース色）。

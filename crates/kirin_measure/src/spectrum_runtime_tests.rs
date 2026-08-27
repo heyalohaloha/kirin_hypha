@@ -1,0 +1,137 @@
+use std::thread;
+use std::time::{Duration, Instant};
+
+use super::*;
+
+fn feed(runtime: &SpectrumRuntime, sample_rate: u32, frames: usize, block: usize) {
+    let mut position = 0_i64;
+    while position < frames as i64 {
+        let count = block.min(frames - position as usize);
+        let mut samples = Vec::with_capacity(count * 2);
+        for index in 0..count {
+            let phase = std::f32::consts::TAU * 1_000.0 * (position as usize + index) as f32
+                / sample_rate as f32;
+            let sample = phase.sin();
+            samples.extend_from_slice(&[sample, -sample]);
+        }
+        assert!(runtime.push_block_from_audio(&samples, 2, Some(position)));
+        position += count as i64;
+        thread::sleep(Duration::from_millis(1));
+    }
+}
+
+fn wait_for_frame_at_or_after(runtime: &SpectrumRuntime, expected_end: i64) -> SpectrumFrame {
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while Instant::now() < deadline {
+        if let Some(frame) = runtime
+            .try_history()
+            .and_then(|history| history.newest().cloned())
+            .filter(|frame| frame.presentation_end_samples >= expected_end)
+        {
+            return frame;
+        }
+        thread::sleep(Duration::from_millis(2));
+    }
+    panic!("Spectrum worker did not publish a frame");
+}
+
+#[test]
+fn disabled_runtime_does_not_start_worker_or_accept_audio() {
+    let runtime = SpectrumRuntime::new(48_000, 2);
+    let samples = [0.0; 32];
+    assert!(!runtime.push_block_from_audio(&samples, 2, Some(0)));
+    assert_eq!(runtime.stats(), SpectrumRuntimeStats::default());
+    runtime.shutdown_and_join();
+}
+
+#[test]
+#[ignore = "release-mode hidden-path performance probe; run explicitly with --nocapture"]
+fn disabled_audio_path_cost_is_quantified_without_starting_worker() {
+    use std::hint::black_box;
+
+    let runtime = SpectrumRuntime::new(48_000, 2);
+    let samples = [0.0; 32];
+    let iterations = 1_000_000;
+    let started = Instant::now();
+    for _ in 0..iterations {
+        black_box(runtime.push_block_from_audio(&samples, 2, Some(0)));
+    }
+    let nanos_per_call = started.elapsed().as_secs_f64() * 1_000_000_000.0 / iterations as f64;
+    eprintln!("hidden Spectrum ingress: {nanos_per_call:.2} ns/callback");
+    assert_eq!(runtime.stats(), SpectrumRuntimeStats::default());
+    runtime.shutdown_and_join();
+}
+
+#[test]
+#[ignore = "release-mode enabled audio-ingress performance probe; run explicitly with --nocapture"]
+fn enabled_48k_audio_ingress_budget_is_quantified() {
+    use std::hint::black_box;
+
+    let runtime = SpectrumRuntime::new(48_000, 2);
+    assert!(runtime.set_enabled(true));
+    let block_frames = 512_usize;
+    let samples = [0.125_f32; 1_024];
+    let mut accepted = 0_u64;
+    let mut presentation_start = 0_i64;
+    let mut measured = Duration::ZERO;
+    while accepted < 1_000 {
+        let started = Instant::now();
+        let pushed =
+            runtime.push_block_from_audio(black_box(&samples), 2, Some(presentation_start));
+        measured += started.elapsed();
+        if pushed {
+            accepted += 1;
+            presentation_start += block_frames as i64;
+        }
+        // The probe drives about twice realtime. This keeps capacity backpressure in scope while
+        // excluding the deliberate wait from the measured Audio Thread section.
+        thread::sleep(Duration::from_millis(5));
+    }
+    let micros_per_block = measured.as_secs_f64() * 1_000_000.0 / accepted as f64;
+    let callbacks_per_second = 48_000.0 / block_frames as f64;
+    let projected_pair_cpu_percent = micros_per_block * callbacks_per_second * 2.0 / 10_000.0;
+    eprintln!(
+        "48k Spectrum ingress: {micros_per_block:.2} us/block, \
+         projected PRE+POST Audio Thread CPU {projected_pair_cpu_percent:.3}%"
+    );
+    assert!(projected_pair_cpu_percent < 0.5);
+    assert_eq!(runtime.stats().dropped_blocks, 0);
+    runtime.shutdown_and_join();
+}
+
+#[test]
+fn enabled_runtime_publishes_on_the_shared_48k_30hz_grid() {
+    let runtime = SpectrumRuntime::new(48_000, 2);
+    assert!(runtime.set_enabled(true));
+    feed(&runtime, 48_000, 10_000, 256);
+    let frame = wait_for_frame_at_or_after(&runtime, 9_600);
+    assert_eq!(frame.presentation_end_samples, 9_600);
+    assert_eq!(frame.presentation_end_samples % 1_600, 0);
+    assert!(runtime.stats().analyzed_frames >= 1);
+    runtime.shutdown_and_join();
+}
+
+#[test]
+fn forty_four_one_uses_a_1470_sample_grid_without_drift() {
+    let runtime = SpectrumRuntime::new(44_100, 2);
+    assert!(runtime.set_enabled(true));
+    feed(&runtime, 44_100, 9_000, 147);
+    let frame = wait_for_frame_at_or_after(&runtime, 8_820);
+    assert_eq!(frame.presentation_end_samples, 8_820);
+    assert_eq!(frame.presentation_end_samples % 1_470, 0);
+    runtime.shutdown_and_join();
+}
+
+#[test]
+fn discontinuity_requires_a_new_complete_window() {
+    let analyzer = SpectrumAnalyzer::new(48_000).unwrap();
+    let mut assembler = SpectrumAssembler::new(analyzer, 1);
+    assert!(assembler.begin_block(0, 1));
+    for _ in 0..SPECTRUM_WINDOW_SIZE - 1 {
+        assert!(assembler.push_frame(0.0, None).is_none());
+    }
+    assert!(assembler.begin_block(SPECTRUM_WINDOW_SIZE as i64 + 1_000, 1));
+    for _ in 0..SPECTRUM_WINDOW_SIZE - 1 {
+        assert!(assembler.push_frame(0.0, None).is_none());
+    }
+}

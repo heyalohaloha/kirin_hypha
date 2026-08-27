@@ -5,7 +5,12 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 UI_CONTRACT_BIN="${TMPDIR:-/tmp}/kirin-hypha-ui-contract-$$"
-trap 'rm -f "$UI_CONTRACT_BIN"' EXIT
+PRE_DISPLAY_BUILD="$(mktemp -d "${TMPDIR:-/tmp}/kirin-pre-display-test.XXXXXX")"
+cleanup() {
+  cmake -E rm -f "$UI_CONTRACT_BIN"
+  cmake -E remove_directory "$PRE_DISPLAY_BUILD"
+}
+trap cleanup EXIT
 
 run() {
   echo "==> $*"
@@ -42,6 +47,30 @@ run node --test scripts/ls_release/release_metadata.test.mjs
 run "${CXX:-c++}" -std=c++17 -Wall -Wextra -Wpedantic -Werror \
   juce_shell/tests/ui_contract_test.cpp -o "$UI_CONTRACT_BIN"
 run "$UI_CONTRACT_BIN"
+
+# The pinned JUCE submodule is intentionally pristine in a clean checkout. Both the runtime
+# build below and xtask's wrapper parity checks consume the tracked build-time patch stack, so
+# materialize that exact state here instead of relying on a developer's existing submodule tree.
+run bash scripts/apply_juce_patches.sh
+
+# Execute the file-backed PRE consumer and native UI contract in the same optimized configuration
+# that ships. The UI contract includes hard paint-time ceilings, so a Debug build would measure
+# assertion/instrumentation overhead instead of the production renderer and vary by runner class.
+PRE_DISPLAY_CMAKE_ARGS=(
+  -S juce_shell
+  -B "$PRE_DISPLAY_BUILD"
+  -DKIRIN_HYPHA_BUILD_PRE_DISPLAY_TESTS=ON
+  -DKIRIN_HYPHA_BUILD_UI_RENDER_TESTS=ON
+  -DCMAKE_BUILD_TYPE=Release
+)
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  PRE_DISPLAY_CMAKE_ARGS+=("-DCMAKE_OSX_ARCHITECTURES=$(uname -m)")
+fi
+run cmake "${PRE_DISPLAY_CMAKE_ARGS[@]}"
+run cmake --build "$PRE_DISPLAY_BUILD" \
+  --target KirinPreDisplayRuntimeTests KirinUiRenderContractTests --config Release
+run ctest --test-dir "$PRE_DISPLAY_BUILD" --build-config Release \
+  --output-on-failure -R '^(kirin_pre_display_runtime|kirin_ui_render_contract)$'
 
 run cargo test -p kirin_measure --locked
 run cargo test -p kirin_hypha_ffi --locked

@@ -89,17 +89,23 @@ Do not delete existing Kirin data on a machine where the tester relies on Kirin 
    - `POST Kirin Hypha`
 4. Insert each plug-in on a stereo bus.
 5. Open each plug-in GUI.
+6. At the Windows display scale used for the test, inspect the complete PRE and POST screens.
 
 Pass:
 
 - Both plug-ins appear in the DAW.
 - Both plug-ins instantiate.
 - Both GUIs open without crashing the DAW.
+- The header reads `PRE` / `POST` in full; neither title is replaced by an ellipsis.
+- In POST, the loudness row shows the `Δ` prefix and the pair-menu trigger shows a downward
+  triangle, not a missing-glyph square.
+- `PAIR ●`, `PAIR ◌`, `PAIR —`, metric labels/units, PRE name, POST pair name, feedback text,
+  buttons, and pair-menu rows contain no missing-glyph squares or unintended truncation.
 
 Fail data:
 
 - DAW name/version.
-- Screenshot of the plug-in scan or error.
+- Screenshot of the plug-in scan or error, plus full PRE and POST GUI screenshots.
 - Any crash report.
 
 ## Test 2: Watch Files

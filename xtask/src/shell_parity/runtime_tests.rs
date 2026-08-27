@@ -59,12 +59,12 @@
             "processBlock must separate display signal state from Record capture eligibility"
         );
         assert!(
-            body.contains("const bool nonRealtime = isNonRealtime();"),
+            body.contains("const bool nonRealtimeMode = isNonRealtime();"),
             "processBlock must still observe the host non-realtime/offline mode"
         );
         assert!(
             body.contains("shouldCaptureBufferForMeasurement (stateCode")
-                && body.contains("positionChanged,\n                                                                  nonRealtime"),
+                && body.contains("positionChanged,\n                                                                  nonRealtimeMode"),
             "offline mode must still feed Record capture eligibility"
         );
         assert!(
@@ -119,11 +119,16 @@
             "void KirinHyphaProcessorBase::processBlock",
             "bool KirinHyphaProcessorBase::bufferIsSilent",
         );
+        assert!(body.contains(
+            "wrapperType == juce::AudioProcessor::wrapperType_AudioUnit\n                    && hypha::clock_source_contract::audioUnitV2UsesRenderTimeline ("
+        ));
+        assert!(!body.contains("#if JucePlugin_Build_AU && KIRIN_HYPHA_AU_CLOCK_PROVENANCE"));
         assert!(body.contains("KIRIN_HYPHA_CLOCK_AUDIO_RENDER_TIMELINE"));
         assert!(body.contains(
             "const bool measurementTimelineActive = playing\n                                        || clockSource == KIRIN_HYPHA_CLOCK_AUDIO_RENDER_TIMELINE;"
         ));
-        assert!(body.contains("&& (stateCode == 1 || playing || nonRealtime || hasClockEnd);"));
+        assert!(body
+            .contains("&& (stateCode == 1 || playing || nonRealtimeMode || hasClockEnd);"));
         assert!(!body.contains("&& (stateCode == 1 || measurementTimelineActive"));
         assert!(body.contains("windowPositionSamples, windowNumFrames, clockSource"));
         assert!(body
@@ -184,6 +189,35 @@
     }
 
     #[test]
+    fn juce_watch_silence_continuity_is_isolated_from_record_and_transport_stop() {
+        let body = between(
+            PLUGIN_PROCESSOR_CPP,
+            "void KirinHyphaProcessorBase::processBlock",
+            "bool KirinHyphaProcessorBase::bufferIsSilent",
+        );
+
+        assert!(body.contains(
+            "WatchSilenceGate::eligible (\n            bypassed, recording, measurementTimelineActive)"
+        ));
+        assert!(body.contains("WatchSilenceGate::sampleTimelineStartsNewPass ("));
+        assert!(body.contains("kirin_hypha_get_signal_state (hyphaHandle)"));
+        assert!(body.contains("availabilityStartsNewPass ("));
+        assert!(body.contains(
+            "watchSampleTimelineStartedNewPass || watchAvailabilityBoundary,"
+        ));
+        assert!(!body.contains("steady_clock::now"));
+        assert!(body.contains(
+            "const bool stateSilent = silent && ! watchActiveThroughSilence;"
+        ));
+        assert!(body.contains(
+            "resolveSignalStateCode (bypassed, measurementTimelineActive,\n                                                      stateSilent, recording, nonRealtimeMode)"
+        ));
+        assert!(body.contains(
+            "const bool pushBuffer = recording ? renderedRecordWindow : captureBuffer;"
+        ));
+    }
+
+    #[test]
     fn juce_post_record_display_keeps_six_metrics_before_signal_fallback() {
         let start = PLUGIN_EDITOR_CPP
             .find("void KirinHyphaEditor::updatePost()")
@@ -212,7 +246,8 @@
                 && body.contains("recordPhase == KIRIN_RECORD_DISPLAY_LIVE"),
             "POST Record must show absolute Max TP/I and bypass the timed Watch hold after finalize"
         );
-        assert!(HYPHA_DISPLAY_CONTRACT_H.contains("return preUnavailableForDelta (mode)"));
+        assert!(HYPHA_DISPLAY_CONTRACT_H
+            .contains("return pairSelected ? MetricMode::delta : MetricMode::absolute;"));
     }
 
     #[test]
@@ -237,11 +272,19 @@
             "JUCE POST Watch must use held/muted delta values for transient stale PRE reads"
         );
         assert!(
-            window.contains("else // pair empty or paired PRE bypassed/inactive -> POST absolute"),
-            "JUCE POST Watch may fall back to POST absolute values only when the pair is empty or PRE is explicitly OFF"
+            PLUGIN_EDITOR_CPP.contains(
+                "if (pairSelected)\n        {\n            if (currentKind != Kind::WatchDelta6)"
+            ) && PLUGIN_EDITOR_CPP.contains("const bool unavailable = ! haveHeldD;"),
+            "JUCE POST Watch must keep the paired delta grid even when PRE measurements are unavailable"
         );
-        assert!(HYPHA_DISPLAY_CONTRACT_H.contains("if (! pairSelected)"));
-        assert!(HYPHA_DISPLAY_CONTRACT_H.contains("if (preUnavailableForDelta (mode))"));
+        assert_eq!(
+            count_occurrences(
+                HYPHA_DISPLAY_CONTRACT_H,
+                "return pairSelected ? MetricMode::delta : MetricMode::absolute;"
+            ),
+            2,
+            "Watch and Record layouts must both be owned only by pair context"
+        );
         assert!(
             window.contains("selectedMeasure (watchMaximum)")
                 && window.contains("watchMaximum.true_peak")
@@ -259,7 +302,7 @@
 
         assert!(
             body.contains("bool watchHeldNormal = false;")
-                && body.contains("watchHeldNormal = ! mutedHeldD;")
+                && body.contains("watchHeldNormal = haveHeldD && ! mutedHeldD;")
                 && body.contains("watchHeldNormal = haveM && ! mutedM;")
                 && body.contains(
                     "const int ledSig = (! displayRecord && sig == KIRIN_SIGNAL_STATE_INACTIVE && watchHeldNormal)"

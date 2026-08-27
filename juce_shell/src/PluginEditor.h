@@ -10,6 +10,9 @@
 #include "HyphaTheme.h"
 #include "HyphaWidgets.h"
 #include "PostControls.h"
+#if ! KIRIN_HYPHA_PRE_DISPLAY
+ #include "HyphaSpectrumComponent.h"
+#endif
 
 // B-054: full UI rebuild to egui parity (crates/hypha_pre/editor.rs + hypha_post/editor.rs +
 // hypha_gui). 300×200 mycelium-textured panel. No measurement logic lives here (R-12 / R-22):
@@ -55,6 +58,11 @@ private:
     void timerCallback() override;
     void updatePre();
     void updatePost();
+#if ! KIRIN_HYPHA_PRE_DISPLAY
+    void setSpectrumMode (bool enabled);
+    void cycleSpectrumSize();
+    void updateSpectrumSizeControl();
+#endif
 
     // Which metric grid is configured (label/unit/font set). Abs* uses absolute labels
     // (LUFS-M/TP/…); Delta* uses Δ labels (ΔLUFS/…). Watch is current|MAX; Record is 2×3.
@@ -71,6 +79,9 @@ private:
     void updateFeedback (double now, bool keeping, const juce::String& persistentError);
     juce::String instanceId8() const; // first 8 chars of instance_id (empty-name fallback)
     double nowSecs() const { return juce::Time::getMillisecondCounterHiRes() * 0.001; }
+#if KIRIN_HYPHA_PRE_DISPLAY
+    void layoutPreDisplayState (const juce::String& stateText);
+#endif
 
     KirinHyphaProcessorBase& processorRef;
     const bool isPost;
@@ -82,12 +93,26 @@ private:
     std::array<hypha::MetricCell, 6> cells;
     hypha::LoudnessSelector   loudnessSelector;           // occupies cell 0's existing label column
     juce::Label               feedbackLabel;              // toast > persistent error > Keeping
+#if KIRIN_HYPHA_PRE_DISPLAY
+    juce::Label               preDisplayPrimaryLabel;      // PRE-only current/next measured fact
+    juce::Label               preDisplayDetailLabel;       // PRE-only bounded context line
+    juce::Label               preDisplayStateLabel;        // PRE-only state; reserved from context clipping
+#endif
     std::unique_ptr<hypha::PostControls> postControls;    // POST button row
-    juce::TextButton          pairDropdown;                // POST: ▼ candidate / All Keep / All Stop
+    hypha::PairDropdownButton pairDropdown;                // POST: vector arrow / candidate / All Keep / All Stop
+#if ! KIRIN_HYPHA_PRE_DISPLAY
+    juce::TextButton          spectrumToggle;               // POST: meters / Spectrum page
+    juce::TextButton          spectrumSizeToggle;           // POST Spectrum: 100/125/150 percent
+    hypha::SpectrumComponent  spectrumView;                 // POST-only signed difference plot
+#endif
     juce::TooltipWindow       tooltip { this };           // drives per-cell hover help
 
     Kind   currentKind = Kind::WatchAbs6;
     bool   currentSix  = false;
+#if ! KIRIN_HYPHA_PRE_DISPLAY
+    bool   spectrumMode = false;
+    size_t spectrumSizeIndex = 0;
+#endif
     int    metricTop   = 0;       // y of the first metric row (set in resized())
     int    floraY      = 0;       // y of the flora separator line
     juce::Rectangle<int> titleArea;

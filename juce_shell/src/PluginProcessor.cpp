@@ -1,11 +1,21 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "HyphaClockSourceContract.h"
 #include <algorithm>
 #include <cmath> // B-107: std::abs(float) for the silence peak threshold
 #include <limits>
 
 namespace
 {
+#if KIRIN_HYPHA_PRE_DISPLAY
+    static_assert (static_cast<std::uint8_t> (hypha::pre_display::ClockSource::unknown)
+                       == KIRIN_HYPHA_CLOCK_UNKNOWN);
+    static_assert (static_cast<std::uint8_t> (hypha::pre_display::ClockSource::projectTimeline)
+                       == KIRIN_HYPHA_CLOCK_PROJECT_TIMELINE);
+    static_assert (static_cast<std::uint8_t> (hypha::pre_display::ClockSource::audioRenderTimeline)
+                       == KIRIN_HYPHA_CLOCK_AUDIO_RENDER_TIMELINE);
+#endif
+
     // Logic stopped-state fix: expose Inactive PRE/POST presence without waiting for the first audio callback.
     // The 50 ms Timer grants a bounded state-restore window before enabling from prepareToPlay.
     constexpr int kPrepareEnableDelayTicks = 10;
@@ -73,9 +83,14 @@ KirinHyphaProcessorBase::KirinHyphaProcessorBase (Role roleIn)
 KirinHyphaProcessorBase::~KirinHyphaProcessorBase()
 {
     stopTimer(); // B-126: stop the non-RT enable poll before teardown (was cancelPendingUpdate / B-070).
+#if KIRIN_HYPHA_PRE_DISPLAY
+    preDisplayController.reset();
+#endif
     const juce::ScopedLock sl (handleLock);
     if (hyphaHandle != nullptr)
     {
+        if (role == Role::Post)
+            kirin_hypha_set_spectrum_visible (hyphaHandle, false);
         kirin_hypha_destroy (hyphaHandle);
         hyphaHandle = nullptr;
     }
@@ -114,6 +129,9 @@ void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBl
         return;
 
     lastProcessPositionValid = false;
+    lastProcessHadPosition = false;
+    lastProcessNumFrames = 0;
+    watchSilenceGate.reset();
 
     if (hyphaHandle != nullptr)
     {
@@ -224,8 +242,14 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
                 hasPosition = true;
                 positionSamples = *timeSamples;
                 clockSource = KIRIN_HYPHA_CLOCK_PROJECT_TIMELINE;
-               #if JucePlugin_Build_AU && KIRIN_HYPHA_AU_CLOCK_PROVENANCE
-                if (! pos->getKirinAuUsesHostTransportTimeline())
+               #if KIRIN_HYPHA_AU_CLOCK_PROVENANCE
+                // Processor.cpp is shared by the AU and VST3 products. JucePlugin_Build_AU is
+                // therefore true in this translation unit even for a VST3 instance and cannot
+                // identify the active wrapper. Read the AU-only provenance marker only for an
+                // actual Audio Unit v2 instance; VST3 always keeps the host project timeline.
+                if (wrapperType == juce::AudioProcessor::wrapperType_AudioUnit
+                    && hypha::clock_source_contract::audioUnitV2UsesRenderTimeline (
+                        pos->getKirinAuUsesHostTransportTimeline()))
                     clockSource = KIRIN_HYPHA_CLOCK_AUDIO_RENDER_TIMELINE;
                #endif
             }
@@ -253,13 +277,28 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
     // promote those values to wav_clock_native; render span remains a lower-trust fallback
     // until a host-supplied native sample range exists.
     lastPlaying.store (playing, std::memory_order_release); // B-054: POST pair lock reads this
+#if KIRIN_HYPHA_PRE_DISPLAY
+    if (role == Role::Pre)
+        preDisplayClock.publish (positionSamples, preparedSampleRate,
+                                 static_cast<std::uint32_t> (juce::jmax (0, numFrames)), playing,
+                                 static_cast<hypha::pre_display::ClockSource> (clockSource));
+#endif
     const bool positionChanged = hasPosition && lastProcessPositionValid
                               && positionSamples != lastProcessPositionSamples;
+    const bool watchSampleTimelineStartedNewPass =
+        hypha::signal_state_contract::WatchSilenceGate::sampleTimelineStartsNewPass (
+            hasPosition,
+            lastProcessPositionValid && lastProcessHadPosition,
+            positionSamples,
+            lastProcessPositionSamples,
+            lastProcessNumFrames);
     if (hasPosition)
     {
         lastProcessPositionValid = true;
         lastProcessPositionSamples = positionSamples;
+        lastProcessNumFrames = (uint64_t) juce::jmax (0, numFrames);
     }
+    lastProcessHadPosition = hasPosition;
 
     const bool silent = bufferIsSilent (buffer);
     const bool recording = kirin_hypha_is_recording (hyphaHandle);
@@ -268,7 +307,7 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
         recordStartWindowLatched = false;
         recordNativeRangeLatched = false;
     }
-    const bool nonRealtime = isNonRealtime();
+    const bool nonRealtimeMode = isNonRealtime();
     // Some AU hosts omit the optional transport callback. A valid AudioUnit render timestamp is
     // still an exact processing timeline, so non-silent Watch audio and an already-started Record
     // can advance on it. Clock availability alone is not transport authority: otherwise silent
@@ -276,6 +315,23 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
     const bool measurementTimelineActive = playing
                                         || clockSource == KIRIN_HYPHA_CLOCK_AUDIO_RENDER_TIMELINE;
     lastMeasurementTimelineActive.store (measurementTimelineActive, std::memory_order_release);
+    const uint8_t previousSignalState = kirin_hypha_get_signal_state (hyphaHandle);
+    const bool watchAvailabilityBoundary = ! recording
+                                        && ! bypassed
+                                        && measurementTimelineActive
+                                        && previousSignalState != KIRIN_SIGNAL_STATE_ACTIVE;
+    // A single silent callback used to collapse PRE to Inactive, clear its measurement engine,
+    // and make the paired POST lose its delta for one or more UI ticks. Preserve Watch continuity
+    // across musical rests shorter than the exact 3 s LUFS-S window. Transport stop, bypass, and
+    // every Record/TRACE path remain outside this gate and retain their existing state rules.
+    const bool watchActiveThroughSilence = watchSilenceGate.observeBlock (
+        hypha::signal_state_contract::WatchSilenceGate::eligible (
+            bypassed, recording, measurementTimelineActive),
+        watchSampleTimelineStartedNewPass || watchAvailabilityBoundary,
+        silent,
+        (uint64_t) juce::jmax (0, numFrames),
+        preparedSampleRate);
+    const bool stateSilent = silent && ! watchActiveThroughSilence;
     int windowStartFrame = 0;
     int windowEndFrame = numFrames;
     int64_t windowPositionSamples = positionSamples;
@@ -305,10 +361,14 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
 
     // C ABI signal-state codes: 0 = Inactive, 1 = Active, 2 = Bypassed.
     const uint8_t stateCode = resolveSignalStateCode (bypassed, measurementTimelineActive,
-                                                      silent, recording, nonRealtime);
+                                                      stateSilent, recording, nonRealtimeMode);
     kirin_hypha_set_signal_state (hyphaHandle, stateCode);
+    const bool watchAvailabilityStartedNewPass =
+        hypha::signal_state_contract::availabilityStartsNewPass (
+            previousSignalState, stateCode, recording);
     kirin_hypha_note_transport_block (hyphaHandle, measurementTimelineActive, hasPosition,
-                                      positionSamples, (uint64_t) numFrames);
+                                      positionSamples, (uint64_t) numFrames,
+                                      watchAvailabilityStartedNewPass);
     // B-113: 旧 lastSignalState キャッシュは廃止。editor は signalStateLive()（FFI 直読 / heartbeat-aware）で表示分岐する。
 
     // --- Feed the engine ---------------------------------------------------------
@@ -320,13 +380,13 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
                                                                   recording,
                                                                   measurementTimelineActive,
                                                                   positionChanged,
-                                                                  nonRealtime);
+                                                                  nonRealtimeMode);
     const bool recordStartCandidateWindow = captureBuffer
                                          && recording
                                          && hasPosition
                                          && windowNumFrames > 0
                                          && numCh > 0
-                                         && (stateCode == 1 || playing || nonRealtime || hasClockEnd);
+                                         && (stateCode == 1 || playing || nonRealtimeMode || hasClockEnd);
     const bool renderedRecordWindow = recording
                                    && hasPosition
                                    && windowNumFrames > 0
@@ -345,7 +405,7 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
                                     recording,
                                     renderedRecordWindow,
                                     playing,
-                                    nonRealtime,
+                                    nonRealtimeMode,
                                     hasPosition,
                                     windowPositionSamples,
                                     windowNumFrames,
@@ -465,6 +525,15 @@ void KirinHyphaProcessorBase::setUseShortTermLoudness (bool shortTerm)
         return;
     updateHostDisplay (ChangeDetails {}.withNonParameterStateChanged (true));
 }
+
+#if KIRIN_HYPHA_PRE_DISPLAY
+hypha::pre_display::DisplaySnapshot KirinHyphaProcessorBase::preDisplaySnapshot() const
+{
+    return preDisplayController != nullptr
+        ? preDisplayController->displaySnapshot()
+        : hypha::pre_display::DisplaySnapshot {};
+}
+#endif
 
 // --- B-072: POST pairing surface ---------------------------------------------------------
 
@@ -637,6 +706,33 @@ bool KirinHyphaProcessorBase::pollDelta (KirinDelta& out) const
     return kirin_hypha_poll_delta (hyphaHandle, &out);
 }
 
+bool KirinHyphaProcessorBase::setSpectrumVisible (bool visible)
+{
+    if (role != Role::Post)
+        return false;
+    spectrumVisibleRequested.store (visible, std::memory_order_release);
+    const juce::ScopedLock sl (handleLock);
+    if (hyphaHandle == nullptr || ! writesEnabled.load (std::memory_order_acquire))
+        return false;
+    return kirin_hypha_set_spectrum_visible (hyphaHandle, visible);
+}
+
+bool KirinHyphaProcessorBase::pollSpectrum (KirinSpectrumView& out) const
+{
+    if (role != Role::Post)
+        return false;
+    const juce::ScopedLock sl (handleLock);
+    return hyphaHandle != nullptr && kirin_hypha_poll_spectrum (hyphaHandle, &out);
+}
+
+bool KirinHyphaProcessorBase::spectrumStats (KirinSpectrumStats& out) const
+{
+    if (role != Role::Post)
+        return false;
+    const juce::ScopedLock sl (handleLock);
+    return hyphaHandle != nullptr && kirin_hypha_spectrum_stats (hyphaHandle, &out);
+}
+
 // --- B-054: PRE live name + LED pollers ---------------------------------------------------
 
 void KirinHyphaProcessorBase::setPreName (const juce::String& name)
@@ -645,6 +741,10 @@ void KirinHyphaProcessorBase::setPreName (const juce::String& name)
     // io_thread via the FFI (sanitized to ASCII graphic + space / 16 there). Mirrors how the
     // egui PRE writes its shared name Arc; persistName keeps DAW save/load consistent.
     persistName = name;
+#if KIRIN_HYPHA_PRE_DISPLAY
+    if (preDisplayController != nullptr)
+        preDisplayController->setName (name);
+#endif
     const juce::ScopedLock sl (handleLock);
     if (hyphaHandle != nullptr)
         kirin_hypha_set_pre_name (hyphaHandle, name.toRawUTF8());
@@ -972,6 +1072,8 @@ void KirinHyphaProcessorBase::enableWritesNow()
                 persistPairProjectHash.clear();
             }
         }
+        if (spectrumVisibleRequested.load (std::memory_order_acquire))
+            kirin_hypha_set_spectrum_visible (hyphaHandle, true);
     }
     else
     {
@@ -986,6 +1088,32 @@ void KirinHyphaProcessorBase::enableWritesNow()
     persistProjectUuid    = juce::String::fromUTF8 (id.project_uuid);
     persistDawSessionUuid = juce::String::fromUTF8 (id.daw_session_uuid);
     persistName           = juce::String::fromUTF8 (id.name);
+
+#if KIRIN_HYPHA_PRE_DISPLAY
+    if (role == Role::Pre)
+    {
+        if (preDisplayController == nullptr)
+            preDisplayController = std::make_unique<hypha::pre_display::Controller> (preDisplayClock);
+        hypha::pre_display::RuntimeIdentity displayIdentity;
+        displayIdentity.instanceId = persistInstanceId;
+        displayIdentity.projectUuid = persistProjectUuid;
+        displayIdentity.dawSessionUuid = persistDawSessionUuid;
+        displayIdentity.name = persistName;
+        displayIdentity.pluginVersion = JucePlugin_VersionString;
+        displayIdentity.pluginFormat = wrapperType == juce::AudioProcessor::wrapperType_AudioUnit ? "AU" : "VST3";
+       #if JUCE_WINDOWS
+        displayIdentity.platform = "windows";
+       #else
+        displayIdentity.platform = "macos";
+       #endif
+       #if JUCE_ARM
+        displayIdentity.architecture = "arm64";
+       #else
+        displayIdentity.architecture = "x86_64";
+       #endif
+        preDisplayController->configureAndStart (std::move (displayIdentity));
+    }
+#endif
 
     writesEnabled.store (true, std::memory_order_release);
 }

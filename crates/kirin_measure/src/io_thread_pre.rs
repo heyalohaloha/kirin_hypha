@@ -918,6 +918,10 @@ pub fn spawn_io_thread_pre(
     // B-125: 累積 oversized_drop（JUCE 殻のみ計上 / egui は常に 0）。overflow とは別カウンタ。
     // run_record_tick が同位相で snapshot/差分し、合算を dropped_samples へ焼く。
     oversized_drop: Arc<std::sync::atomic::AtomicU64>,
+    // JUCE measurement shell supplies the optional on-demand Spectrum coordinator. The legacy
+    // egui shell passes None so its IO cadence, filesystem surface, and worker lifecycle remain
+    // exactly as before B-494.
+    spectrum: Option<Arc<crate::SpectrumCoordinator>>,
 ) -> JoinHandle<()> {
     let license = license.into();
     thread::spawn(move || {
@@ -980,6 +984,14 @@ pub fn spawn_io_thread_pre(
             let file_path = dir.join("pre.json");
             if let Err(e) = watch_lease.bind(&dir) {
                 log::warn!("[IOThread PRE] watch lease bind error: {}", e);
+            }
+
+            // POST-only Spectrum UI requests one exact PRE through this dedicated namespace.
+            // The normal IO work remains 10 Hz; an active exact Spectrum pair advances on its own
+            // isolated exchange worker. The Audio Thread only sees SpectrumRuntime's atomic
+            // enable flag.
+            if let Some(spectrum) = spectrum.as_ref() {
+                spectrum.service_pre_endpoint(instance_id_ref, &dir);
             }
 
             // ① pre.json（Watch 値）書き込み

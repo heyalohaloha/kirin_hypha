@@ -79,16 +79,19 @@ pub const fn max_generation_ingest_bytes() -> usize {
         .saturating_mul(std::mem::size_of::<f32>())
 }
 
-/// Known per-generation ingest plus the bounded f32→f64 Measure conversion workspace at the
-/// maximum supported sample rate. DSP engine internals and control state use the remaining RSS
-/// reserve; they are never sized by bounce duration or callback count.
+/// Known per-generation ingest, non-audio spool copy/read buffers, and the bounded f32→f64
+/// Measure conversion workspace at the maximum supported sample rate. Spool file contents live on
+/// disk, not RSS. DSP engine internals and control state use the remaining reserve; neither is
+/// sized by bounce duration or callback count.
 pub const fn max_generation_known_pipeline_bytes() -> usize {
     let instances = MAX_CAPTURE_PAIRS.saturating_mul(2);
-    max_generation_ingest_bytes().saturating_add(
-        instances
-            .saturating_mul(measure_chunk_capacity_samples(192_000, MAX_AUDIO_CHANNELS))
-            .saturating_mul(std::mem::size_of::<f64>()),
-    )
+    max_generation_ingest_bytes()
+        .saturating_add(instances.saturating_mul(crate::record_spool::memory_bytes_per_instance()))
+        .saturating_add(
+            instances
+                .saturating_mul(measure_chunk_capacity_samples(192_000, MAX_AUDIO_CHANNELS))
+                .saturating_mul(std::mem::size_of::<f64>()),
+        )
 }
 
 /// Hard RSS allocation envelope reserved for ingest, engines and bounded control state.
@@ -110,7 +113,7 @@ mod tests {
     #[test]
     fn twelve_pairs_stay_below_the_process_rss_budget() {
         assert_eq!(max_generation_ingest_bytes(), 338_853_888);
-        assert_eq!(max_generation_known_pipeline_bytes(), 346_226_688);
+        assert_eq!(max_generation_known_pipeline_bytes(), 349_372_416);
         assert!(max_generation_known_pipeline_bytes() <= CAPTURE_GENERATION_RSS_BUDGET_BYTES);
     }
 

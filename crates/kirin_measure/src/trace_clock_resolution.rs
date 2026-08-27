@@ -81,6 +81,8 @@ pub(crate) struct SideClockResolution {
     pub wav_slots: Vec<i64>,
     /// Producer content positions relative to this side's factual WAV origin. Output
     /// presentation latency is deliberately absent: this is the independent subtraction clock.
+    /// A position may be negative when downstream PDC presents pre-origin producer content inside
+    /// the WAV. It remains a private join key and never replaces the public WAV slot above.
     pub comparison_slots: Vec<i64>,
     /// Untouched host positions retained one-to-one with `frames` when every selected
     /// observation carried that diagnostic.
@@ -188,6 +190,12 @@ fn select_latency_mapped_frames(
     let mut candidates = observations
         .iter()
         .filter_map(|observation| {
+            if !matches!(
+                observation.presentation_latency_source.as_deref(),
+                Some("vst3" | "audio_unit_v2")
+            ) {
+                return None;
+            }
             let latency = observation.output_presentation_latency_samples?;
             let producer = observation.producer_position_samples?;
             let aligned = producer.checked_add(i64::from(latency))?;
@@ -213,15 +221,18 @@ fn select_latency_mapped_frames(
     let mut previous_comparison_position = None;
     let mut previous_time = None;
     for (position, producer_position, raw_host_position, t_ms, _, source_frame) in candidates {
+        let relative = position.checked_sub(origin)?;
+        let comparison_relative = producer_position.checked_sub(origin)?;
+        // A large positive output latency can make pre-origin producer content presentation-valid
+        // inside the WAV. Preserve that measured frame and its negative private comparison key;
+        // PRE/POST subtraction later uses only factual positions shared by both sides.
+        if comparison_relative > duration {
+            return None;
+        }
         if previous_position.is_some_and(|previous| position <= previous)
             || previous_comparison_position.is_some_and(|previous| producer_position <= previous)
             || previous_time.is_some_and(|previous| t_ms <= previous)
         {
-            return None;
-        }
-        let relative = position.checked_sub(origin)?;
-        let comparison_relative = producer_position.checked_sub(origin)?;
-        if comparison_relative < 0 || comparison_relative > duration {
             return None;
         }
         let mut frame = source_frame.clone();
@@ -489,6 +500,23 @@ mod tests {
     }
 
     #[test]
+    fn unknown_latency_source_falls_back_without_erasing_observations() {
+        let mut first = observation(100, 104_800, 256, 10);
+        let mut second = observation(200, 109_600, 512, 11);
+        first.presentation_latency_source = Some("au".to_string());
+        second.presentation_latency_source = None;
+        let data = data(vec![first, second]);
+
+        let resolved = resolve_exact_side(&data, &expected(Some(100_000)), 2, 4_800)
+            .expect("raw host fallback preserves both factual observations");
+
+        assert_eq!(resolved.model, "raw_host_position");
+        assert_eq!(resolved.frames.len(), 2);
+        assert_eq!(resolved.wav_slots, vec![4_800, 9_600]);
+        assert!(resolved.comparison_slots.is_empty());
+    }
+
+    #[test]
     fn missing_bext_uses_presentation_origin_without_applying_latency_twice() {
         let data = data(vec![
             observation(100, 104_800, 256, 10),
@@ -631,6 +659,78 @@ mod tests {
                 .map(|frame| frame.t_ms)
                 .collect::<Vec<_>>(),
             vec![100, 300]
+        );
+    }
+
+    #[test]
+    fn large_pdc_preserves_pre_origin_content_observations_and_exact_clock() {
+        const ORIGIN: i64 = 10_080_000;
+        const SAMPLE_RATE: u32 = 96_000;
+        const SLOT_SAMPLES: i64 = 9_600;
+        const OUTPUT_LATENCY: u32 = 52_722;
+        const DURATION: u64 = 4_500_000;
+        const EXPECTED_FRAMES: usize = 468;
+
+        let observations = (0..474)
+            .map(|index| {
+                let comparison_relative = -48_000 + i64::from(index) * SLOT_SAMPLES;
+                let producer = ORIGIN + comparison_relative;
+                let aligned = producer + i64::from(OUTPUT_LATENCY);
+                TraceClockObservation {
+                    frame: frame((index as u64 + 1) * 100, index as f64),
+                    producer_position_samples: Some(producer),
+                    raw_host_position_samples: Some(aligned),
+                    capture_epoch: Some(1),
+                    clock_source: Some("project_timeline".to_string()),
+                    presentation_latency_source: Some("audio_unit_v2".to_string()),
+                    input_presentation_latency_samples: None,
+                    output_presentation_latency_samples: Some(OUTPUT_LATENCY),
+                }
+            })
+            .collect::<Vec<_>>();
+        let mut data = PluginDataFile::new(
+            "music-pre".into(),
+            "project".into(),
+            "session".into(),
+            Role::Pre,
+            None,
+            SAMPLE_RATE,
+            None,
+            None,
+            None,
+            None,
+        );
+        data.trace_clock_observations = observations;
+        let expected = ExpectedWavMetadata {
+            expected_duration_samples: DURATION,
+            expected_sample_rate: SAMPLE_RATE,
+            wav_time_reference_samples: Some(ORIGIN as u64),
+            wav_path: "/tmp/music.wav".into(),
+            bounce_id: "music-bounce".into(),
+            created_at_ms: 1,
+            wav_file_size: Some(1),
+            wav_mtime_ms: 1,
+            wav_hash: Some("music-hash".into()),
+            consumed_at_ms: None,
+            consumed_by_session_id: None,
+        };
+
+        let resolved = resolve_exact_side(&data, &expected, EXPECTED_FRAMES, SLOT_SAMPLES)
+            .expect("later in-WAV producer observations remain exact");
+
+        assert_eq!(resolved.model, "producer_plus_output_latency");
+        assert_eq!(resolved.comparison_slots.len(), EXPECTED_FRAMES);
+        assert_eq!(resolved.comparison_slots.first(), Some(&-38_400));
+        assert_eq!(resolved.comparison_slots.last(), Some(&4_444_800));
+        assert_eq!(resolved.wav_slots.len(), EXPECTED_FRAMES);
+        assert_eq!(resolved.wav_slots.first(), Some(&14_322));
+        assert_eq!(resolved.wav_slots.last(), Some(&4_497_522));
+        assert_eq!(resolved.raw_host_slots, resolved.producer_slots);
+        assert_eq!(resolved.frames.len(), EXPECTED_FRAMES);
+        assert_eq!(resolved.frames.first().map(|frame| frame.lufs_m), Some(1.0));
+        assert_eq!(
+            resolved.frames.last().map(|frame| frame.lufs_m),
+            Some(468.0)
         );
     }
 

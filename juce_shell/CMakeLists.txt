@@ -71,8 +71,10 @@ endif()
 
 if(MSVC)
     set(KIRIN_FORCE_INCLUDE_ARGS "/FI${CMAKE_CURRENT_LIST_DIR}/src/KirinJucePluginConfig.h")
+    set(KIRIN_SOURCE_ENCODING_ARGS /utf-8)
 else()
     set(KIRIN_FORCE_INCLUDE_ARGS -include "${CMAKE_CURRENT_LIST_DIR}/src/KirinJucePluginConfig.h")
+    set(KIRIN_SOURCE_ENCODING_ARGS)
 endif()
 
 if(WIN32)
@@ -92,6 +94,7 @@ add_subdirectory(JUCE)
 # editor can draw it without a runtime file dependency. Shared by both plugin targets.
 juce_add_binary_data(KirinHyphaData
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../crates/hypha_gui/assets/bg_mycelium.png)
+set(KIRIN_HYPHA_WIDGETS_SOURCE src/HyphaWidgets.cpp)
 
 # B-070: PRE and POST are two plugin targets sharing one role-parameterized base
 # (KirinHyphaProcessorBase). They link the same kirin_hypha_ffi staticlib and compile the
@@ -125,9 +128,25 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
     target_sources(${TARGET} PRIVATE
         src/PluginProcessor.cpp
         src/PluginEditor.cpp
-        src/HyphaWidgets.cpp     # B-054: LED / mycelium bg / metric cells / editable name
+        ${KIRIN_HYPHA_WIDGETS_SOURCE} # B-054: LED / mycelium bg / metric cells / editable name
         src/PostControls.cpp     # B-054: POST Keep/Stop/Mark/Sense button row
         ${MAIN_SRC})
+
+    if("${TARGET}" STREQUAL "KirinHyphaPRE")
+        target_sources(${TARGET} PRIVATE
+            src/pre_display/PreDisplayController.cpp
+            src/pre_display/PreDisplayPresence.cpp
+            src/pre_display/PreDisplayProjection.cpp
+            src/pre_display/PreDisplayProtocol.cpp
+            src/pre_display/PreDisplayProtocolTime.cpp
+            src/pre_display/PreDisplayRepository.cpp
+            src/pre_display/PreDisplayTransport.cpp)
+        target_compile_definitions(${TARGET} PRIVATE KIRIN_HYPHA_PRE_DISPLAY=1)
+        target_link_libraries(${TARGET} PRIVATE juce::juce_cryptography)
+    else()
+        target_sources(${TARGET} PRIVATE src/HyphaSpectrumComponent.cpp)
+        target_compile_definitions(${TARGET} PRIVATE KIRIN_HYPHA_PRE_DISPLAY=0)
+    endif()
 
     if(TARGET KirinHyphaRustFFI)
         add_dependencies(${TARGET} KirinHyphaRustFFI)
@@ -163,7 +182,9 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
             KIRIN_HYPHA_VST3_COMPONENT_UID_4=0x53547631)
     endif()
 
-    target_compile_options(${TARGET} PUBLIC ${KIRIN_FORCE_INCLUDE_ARGS})
+    target_compile_options(${TARGET} PUBLIC
+        ${KIRIN_FORCE_INCLUDE_ARGS}
+        ${KIRIN_SOURCE_ENCODING_ARGS})
 
     # B-130 (G-115-373): juce_audio_utils（AudioThumbnail/CD/DeviceSelector 用・実使用 grep 0）を
     # plugin に必要な最小モジュールへ差し替え。これで juce_audio_utils 由来の DiscRecording.framework
@@ -193,3 +214,58 @@ endfunction()
 
 add_kirin_plugin(KirinHyphaPRE  Khpr "Kirin Hypha PRE"  "PRE Kirin Hypha"  src/PluginMainPRE.cpp  "com.kirinmastering.hypha.pre")
 add_kirin_plugin(KirinHyphaPOST Khpo "Kirin Hypha POST" "POST Kirin Hypha" src/PluginMainPOST.cpp "com.kirinmastering.hypha.post")
+
+option(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS
+    "Build the native-font and fixed-geometry UI render contract test" OFF)
+if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
+    enable_testing()
+    juce_add_console_app(KirinUiRenderContractTests
+        PRODUCT_NAME "Kirin UI Render Contract Tests")
+    target_sources(KirinUiRenderContractTests PRIVATE
+        tests/ui_render_contract_test.cpp
+        tests/SpectrumPresentationContractTest.cpp
+        src/HyphaSpectrumComponent.cpp
+        ${KIRIN_HYPHA_WIDGETS_SOURCE})
+    target_compile_definitions(KirinUiRenderContractTests PRIVATE
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0
+        JUCE_DISPLAY_SPLASH_SCREEN=0)
+    target_compile_options(KirinUiRenderContractTests PRIVATE
+        ${KIRIN_SOURCE_ENCODING_ARGS})
+    target_include_directories(KirinUiRenderContractTests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../crates/kirin_hypha_ffi/include)
+    target_link_libraries(KirinUiRenderContractTests PRIVATE
+        KirinHyphaData
+        juce::juce_gui_basics
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_warning_flags)
+    add_test(NAME kirin_ui_render_contract COMMAND KirinUiRenderContractTests)
+endif()
+
+option(KIRIN_HYPHA_BUILD_PRE_DISPLAY_TESTS
+    "Build the executable PRE display protocol and repository tests" OFF)
+if(KIRIN_HYPHA_BUILD_PRE_DISPLAY_TESTS)
+    enable_testing()
+    juce_add_console_app(KirinPreDisplayRuntimeTests
+        PRODUCT_NAME "Kirin PRE Display Runtime Tests")
+    target_sources(KirinPreDisplayRuntimeTests PRIVATE
+        tests/pre_display_runtime_test.cpp
+        src/pre_display/PreDisplayController.cpp
+        src/pre_display/PreDisplayPresence.cpp
+        src/pre_display/PreDisplayProjection.cpp
+        src/pre_display/PreDisplayProtocol.cpp
+        src/pre_display/PreDisplayProtocolTime.cpp
+        src/pre_display/PreDisplayRepository.cpp
+        src/pre_display/PreDisplayTransport.cpp)
+    target_compile_definitions(KirinPreDisplayRuntimeTests PRIVATE
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0)
+    target_link_libraries(KirinPreDisplayRuntimeTests PRIVATE
+        juce::juce_core
+        juce::juce_cryptography
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_warning_flags)
+    add_test(NAME kirin_pre_display_runtime COMMAND KirinPreDisplayRuntimeTests)
+    set_tests_properties(kirin_pre_display_runtime PROPERTIES
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+endif()

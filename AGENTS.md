@@ -11,7 +11,20 @@ Codexセッションは Notion へのいかなる書き込みも行わない。
 - Commit hash / B番号 / 変更ファイル数 (+N / -N)
 - Test: pass/fail/skip
 - LSアップ用: ready/blocker/skip（リリース・配置・notarizeを行った場合は原則 ready まで作る）
+- HPアップ用: macOS ready/blocker/skip、Windows ready/blocker/skip
 - 未処理申し送り（番人裁定待ち等）
+
+## 公開リリース3チャネル（全件必須）
+Hyphaの公開リリースは、以下の3チャネルを同じバージョンで揃えて初めて完了とする。
+
+1. Lemon Squeezy: signed / notarized済みmacOS Universal `.pkg`
+2. HP無料配布: signed / notarized済みmacOS Universal `.zip` + GitHub Release + 英日HPリンク
+3. Windows: 同一コミットのgreenな`windows-latest` CI artifactから作るPRE/POST VST3 `.zip`
+
+Windows版を暗黙に外すこと、macOSだけを先に公開してリリース完了とすることは禁止。
+同一コミットのWindows artifactが無い、CI / pluginvalが未完了、または必要な外部検証が未完了の場合は、
+Windowsを省略せず公開リリース全体のblockerとして報告する。
+詳細は`docs/ls_release/kirin_hypha_ls_runbook.md`の「Distribution channels (ALL updated every release)」に従う。
 
 ## LSアップ用パッケージ準備（リリース作業では必須）
 Hyphaを release build / notarize / install したセッションでは、作業完了前に必ず Kirin OS 式の

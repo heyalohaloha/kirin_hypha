@@ -57,6 +57,14 @@ typedef struct KirinHypha KirinHypha;
 #define KIRIN_DELTA_MODE_BYPASSED 3u
 #define KIRIN_DELTA_MODE_PRE_INACTIVE 4u
 
+#define KIRIN_SPECTRUM_BAND_COUNT 256u
+#define KIRIN_SPECTRUM_DISPLAY_RANGE_DB 18.0f
+#define KIRIN_SPECTRUM_HIDDEN 0u
+#define KIRIN_SPECTRUM_NO_PAIR 1u
+#define KIRIN_SPECTRUM_WARMING_UP 2u
+#define KIRIN_SPECTRUM_ACTIVE 3u
+#define KIRIN_SPECTRUM_UNAVAILABLE 4u
+
 #define KIRIN_RECORD_DISPLAY_WATCH 0u
 #define KIRIN_RECORD_DISPLAY_LIVE 1u
 #define KIRIN_RECORD_DISPLAY_FINALIZING 2u
@@ -131,6 +139,31 @@ typedef struct {
   double sharpness;
   double lufs_s;        /* Δ LUFS-S (末尾追加で既存 offset 不変) */
 } KirinDelta;
+
+/* POST専用Spectrum表示. pre/post_dbfsはdisplay_dbの正確な元フレーム、display_dbは
+ * 符号付きPOST-PRE。描画側が±18 dBへ収めるが、Rust内部のraw差分はclipしない。
+ * has_data=0時はstatusだけが有効。 */
+typedef struct {
+  uint8_t status;       /* KIRIN_SPECTRUM_* */
+  uint8_t has_data;
+  uint8_t reserved[2];
+  uint32_t sample_rate;
+  float min_hz;
+  float max_hz;
+  float pre_dbfs[KIRIN_SPECTRUM_BAND_COUNT];
+  float post_dbfs[KIRIN_SPECTRUM_BAND_COUNT];
+  float display_db[KIRIN_SPECTRUM_BAND_COUNT];
+} KirinSpectrumView;
+
+/* 検証用のread-only負荷カウンタ。表示・計測判断には使用しない。 */
+typedef struct {
+  uint8_t enabled;
+  uint8_t worker_running;
+  uint8_t reserved[6];
+  uint64_t pushed_blocks;
+  uint64_t dropped_blocks;
+  uint64_t analyzed_frames;
+} KirinSpectrumStats;
 
 /* Keep/Record専用の世代付き表示スナップショット.
  * 計測・TRACE・plugin_dataの正本とは独立し、GUIがStop後の最終Iを保持するためだけに使う. */
@@ -323,7 +356,7 @@ void kirin_hypha_note_capture_window(KirinHypha* handle, bool position_valid,
 /* Watch MAX pass boundary notification (Audio Thread, RT-safe). */
 void kirin_hypha_note_transport_block(KirinHypha* handle, bool playing,
                                       bool position_valid, int64_t position_samples,
-                                      uint64_t num_frames);
+                                      uint64_t num_frames, bool force_new_pass);
 
 /* Current Watch values + current playback-pass MAX (UI thread). */
 bool kirin_hypha_poll_watch_display(KirinHypha* handle, bool playing,
@@ -354,6 +387,15 @@ size_t kirin_hypha_enumerate_post_pair_claims(KirinHypha* handle, KirinPostPairC
 /* POST の Δ を out へ（3d-b / GUI 表示用）. 値あり=true / 競合・未計測=false（UI Thread）.
  * post.json には Δ でなく POST 生メトリクスが入る（Δ はこの API で公開）. */
 bool kirin_hypha_poll_delta(KirinHypha* handle, KirinDelta* out);
+
+/* POST Spectrumページの表示edge。PRE/未enableはfalse。filesystem処理はIO threadへ遅延する。 */
+bool kirin_hypha_set_spectrum_visible(KirinHypha* handle, bool visible);
+
+/* 最新のPOST-PRE Spectrumを取得。status-onlyもtrue（has_data=0）、競合/nullはfalse。 */
+bool kirin_hypha_poll_spectrum(KirinHypha* handle, KirinSpectrumView* out);
+
+/* Spectrum optional workerの検証カウンタを取得。 */
+bool kirin_hypha_spectrum_stats(KirinHypha* handle, KirinSpectrumStats* out);
 
 /* Keep/Record表示を1スナップショットで取得. UI Thread専用・ロック競合時false. */
 bool kirin_hypha_poll_record_display(KirinHypha* handle, KirinRecordDisplay* out);

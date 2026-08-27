@@ -1,0 +1,66 @@
+{
+  "format": "kirin_pre_display_guide",
+  "version": "1.0",
+  "guide_id": "11111111-1111-4111-8111-111111111111",
+  "revision": 7,
+  "created_at": "2026-08-15T12:00:00.000Z",
+  "content_hash": "76c628baf4188b63ea16533659ef7763070082fda622908f9ae1a44bc998336f",
+  "producer": {
+    "session_id": "22222222-2222-4222-8222-222222222222",
+    "work_id": null,
+    "report_id": null
+  },
+  "target": {
+    "group_id": "kirin_os",
+    "selection_mode": "all_pre_instances"
+  },
+  "source_set": [
+    {
+      "source_ref": "source_a",
+      "display_label": "ボーカル A",
+      "duration_ns": 4000000000
+    },
+    {
+      "source_ref": "source_b",
+      "display_label": "伴奏 B",
+      "duration_ns": 4000000000
+    }
+  ],
+  "time_basis": {
+    "kind": "source_to_project_offset",
+    "unit": "nanoseconds",
+    "interval_convention": "half_open",
+    "source_zero_project_ns": 0,
+    "alignment_method": "project_zero"
+  },
+  "display_locale": "en",
+  "payload": {
+    "kind": "masking",
+    "measurement_state": "measured",
+    "pair_key": "source_a:source_b",
+    "source_order": [
+      "source_a",
+      "source_b"
+    ],
+    "intervals": [
+      {
+        "item_id": "mask_0001",
+        "start_ns": 1000000000,
+        "end_ns": 2000000000,
+        "frequency_state": "measured",
+        "frequency_basis": "bark24_edges",
+        "band": {
+          "low_hz": 100,
+          "high_hz": 200
+        }
+      },
+      {
+        "item_id": "mask_0002",
+        "start_ns": 2000000000,
+        "end_ns": 2500000000,
+        "frequency_state": "unlocated",
+        "band": null
+      }
+    ]
+  }
+}

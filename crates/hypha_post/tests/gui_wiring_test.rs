@@ -4,15 +4,21 @@
 //! 「proposals が生成されても Hypha GUI が沈黙する」サイレント断線になる。
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 fn crate_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
 
+fn read_path(path: impl AsRef<Path>) -> String {
+    let path = path.as_ref();
+    fs::read_to_string(path)
+        .unwrap_or_else(|e| panic!("read {}: {e}", path.display()))
+        .replace("\r\n", "\n")
+}
+
 fn read(rel: &str) -> String {
-    let path = crate_root().join(rel);
-    fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {rel}: {e}"))
+    read_path(crate_root().join(rel))
 }
 
 fn count_occurrences(source: &str, needle: &str) -> usize {
@@ -543,12 +549,11 @@ fn editor_rs_watch_keeps_delta_grid_except_unavailable_pre() {
 /// - else 分岐に `draw_inactive_grid(ui)` (既存 fallback / 初回起動)
 #[test]
 fn editor_rs_inactive_branch_has_last_known_good_and_fallback() {
-    let src = std::fs::read_to_string(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+    let src = read_path(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("src")
             .join("editor.rs"),
-    )
-    .expect("read editor.rs");
+    );
 
     // Inactive arm の開始位置から、次の arm (SignalState::Active) までを抽出。
     let inactive_idx = src
@@ -579,12 +584,11 @@ fn editor_rs_inactive_branch_has_last_known_good_and_fallback() {
 /// `last_active` / `draw_delta_grid_frozen` 参照が無いことを確認する。
 #[test]
 fn editor_rs_bypassed_branch_unchanged_no_last_active_ref() {
-    let src = std::fs::read_to_string(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+    let src = read_path(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("src")
             .join("editor.rs"),
-    )
-    .expect("read editor.rs");
+    );
 
     let draw_post_idx = src.find("fn draw_post(").expect("draw_post not found");
     let draw_post = &src[draw_post_idx..];
@@ -771,13 +775,12 @@ fn editor_rs_combobox_exact_pair_resets_delta_result() {
 /// poisonを解除するworker lock + `DeltaResult::default()` reset が走る配線を invariant 化。
 #[test]
 fn io_thread_post_release_block_clears_delta_result() {
-    let src = fs::read_to_string(
+    let src = read_path(
         crate_root()
             .parent()
             .expect("hypha_post -> crates parent")
             .join("kirin_measure/src/io_thread_post.rs"),
-    )
-    .expect("read io_thread_post.rs");
+    );
     // release 経路の起点 = pair_release_notice.write() = Some("PRE already in use")
     let release_idx = src
         .find(r#"*n = Some("PRE already in use".to_string());"#)
@@ -955,13 +958,12 @@ fn editor_rs_pair_dropdown_distinguishes_keep_from_pair_choices() {
 /// delta_result clear / pair_label 切替で pair 継続を破綻させる regression を防ぐ。
 #[test]
 fn io_thread_post_self_check_gated_when_recording() {
-    let src = fs::read_to_string(
+    let src = read_path(
         crate_root()
             .parent()
             .expect("hypha_post -> crates parent")
             .join("kirin_measure/src/io_thread_post.rs"),
-    )
-    .expect("read io_thread_post.rs");
+    );
     // W-281 C-3 self_check 発火条件 block (W-284 で Record gate 追加)。
     // B-263以降は条件を `self_check_allowed` に分離し、禁止状態で release
     // 候補も reset する。

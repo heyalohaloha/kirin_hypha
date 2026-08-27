@@ -331,8 +331,11 @@ fn draw_pre(
                 ui.add_space(10.0);
                 let w = ui.available_width() - 10.0;
                 let (rect, _) = ui.allocate_exact_size(Vec2::new(w, 1.0), egui::Sense::hover());
-                ui.painter()
-                    .hline(rect.x_range(), rect.center().y, Stroke::new(1.0, COL_FLORA));
+                ui.painter().hline(
+                    rect.x_range(),
+                    rect.center().y,
+                    Stroke::new(1.0_f32, COL_FLORA),
+                );
             });
             ui.add_space(6.0);
 
