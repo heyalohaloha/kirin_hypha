@@ -223,6 +223,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         PRODUCT_NAME "Kirin UI Render Contract Tests")
     target_sources(KirinUiRenderContractTests PRIVATE
         tests/ui_render_contract_test.cpp
+        tests/SpectrumPresentationContractTest.cpp
         src/HyphaSpectrumComponent.cpp
         ${KIRIN_HYPHA_WIDGETS_SOURCE})
     target_compile_definitions(KirinUiRenderContractTests PRIVATE

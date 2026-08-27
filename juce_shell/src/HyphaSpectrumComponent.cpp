@@ -1,4 +1,5 @@
 #include "HyphaSpectrumComponent.h"
+#include "HyphaSpectrumPresentation.h"
 
 #include <algorithm>
 #include <array>
@@ -71,12 +72,32 @@ void SpectrumComponent::setSnapshot (const KirinSpectrumView& next)
         return;
     snapshot = next;
     haveSnapshot = true;
+    if (validSnapshot (snapshot))
+    {
+        const auto calmWeights = spectrum_presentation::lowFrequencyCalmWeights<
+            KIRIN_SPECTRUM_BAND_COUNT> (snapshot.min_hz, snapshot.max_hz);
+        displayedPre = spectrum_presentation::calmLowFrequencies (
+            snapshot.pre_dbfs, calmWeights);
+        displayedPost = spectrum_presentation::calmLowFrequencies (
+            snapshot.post_dbfs, calmWeights);
+        displayedDelta = spectrum_presentation::calmLowFrequencies (
+            snapshot.display_db, calmWeights);
+    }
+    else
+    {
+        displayedPre.fill (0.0f);
+        displayedPost.fill (0.0f);
+        displayedDelta.fill (0.0f);
+    }
     repaint();
 }
 
 void SpectrumComponent::clearSnapshot()
 {
     snapshot = {};
+    displayedPre.fill (0.0f);
+    displayedPost.fill (0.0f);
+    displayedDelta.fill (0.0f);
     haveSnapshot = false;
     hoverNormalisedX = -1.0f;
     hoverNeedsRepaint = false;
@@ -243,9 +264,9 @@ void SpectrumComponent::paint (juce::Graphics& g)
         x[index] = juce::jmap (static_cast<float> (index), 0.0f,
                                static_cast<float> (KIRIN_SPECTRUM_BAND_COUNT - 1u),
                                plot.getX(), plot.getRight());
-        preY[index] = yForMagnitudeDbfs (snapshot.pre_dbfs[index], plot);
-        postY[index] = yForMagnitudeDbfs (snapshot.post_dbfs[index], plot);
-        deltaY[index] = yForDeltaDb (snapshot.display_db[index], plot);
+        preY[index] = yForMagnitudeDbfs (displayedPre[index], plot);
+        postY[index] = yForMagnitudeDbfs (displayedPost[index], plot);
+        deltaY[index] = yForDeltaDb (displayedDelta[index], plot);
     }
 
     const juce::Path preCurve = makeCurve (x, preY);
@@ -271,8 +292,8 @@ void SpectrumComponent::paint (juce::Graphics& g)
     };
     for (size_t index = 1; index < KIRIN_SPECTRUM_BAND_COUNT; ++index)
     {
-        const float magnitude = 0.5f * (std::abs (snapshot.display_db[index - 1])
-                                      + std::abs (snapshot.display_db[index]));
+        const float magnitude = 0.5f * (std::abs (displayedDelta[index - 1])
+                                      + std::abs (displayedDelta[index]));
         const size_t bucket = std::min (intensityLevelCount - 1u,
                                         static_cast<size_t> (magnitude / intensityStepDb));
         if (bucket > 0u)
@@ -282,9 +303,9 @@ void SpectrumComponent::paint (juce::Graphics& g)
                 auto& tip = intensityTips[layer][bucket];
                 tip.startNewSubPath (x[index - 1], deltaY[index - 1]);
                 tip.lineTo (x[index], deltaY[index]);
-                tip.lineTo (x[index], innerTipY (snapshot.display_db[index],
+                tip.lineTo (x[index], innerTipY (displayedDelta[index],
                                                   tipDepthCoverage[layer]));
-                tip.lineTo (x[index - 1], innerTipY (snapshot.display_db[index - 1],
+                tip.lineTo (x[index - 1], innerTipY (displayedDelta[index - 1],
                                                       tipDepthCoverage[layer]));
                 tip.closeSubPath();
             }
@@ -398,8 +419,8 @@ void SpectrumComponent::paint (juce::Graphics& g)
         const size_t upper = std::min (
             lower + 1u, static_cast<size_t> (KIRIN_SPECTRUM_BAND_COUNT - 1u));
         const float blend = bandPosition - (float) lower;
-        const float deltaDb = juce::jmap (blend, snapshot.display_db[lower],
-                                         snapshot.display_db[upper]);
+        const float deltaDb = juce::jmap (blend, displayedDelta[lower],
+                                         displayedDelta[upper]);
         const float pointY = yForDeltaDb (deltaDb, plot);
 
         g.setColour (COL_NORMAL.withAlpha (0.30f));

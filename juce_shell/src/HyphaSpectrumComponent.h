@@ -1,5 +1,7 @@
 #pragma once
 
+#include <array>
+
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "HyphaTheme.h"
@@ -8,8 +10,8 @@
 namespace hypha
 {
 // POST-only presentation component. It receives a fixed Rust snapshot and owns no timer, file,
-// FFT, pairing, or audio state. The renderer clips only its y-coordinate; raw analysis remains in
-// Rust and a missing/incompatible exact frame is rendered as a factual status.
+// FFT, pairing, or audio state. The renderer uses only state-free frequency-axis presentation and
+// y clipping; raw analysis remains in Rust and an incompatible exact frame becomes a factual status.
 class SpectrumComponent final : public juce::Component
 {
 public:
@@ -33,6 +35,9 @@ private:
                                           float maxHz) noexcept;
 
     KirinSpectrumView snapshot {};
+    std::array<float, KIRIN_SPECTRUM_BAND_COUNT> displayedPre {};
+    std::array<float, KIRIN_SPECTRUM_BAND_COUNT> displayedPost {};
+    std::array<float, KIRIN_SPECTRUM_BAND_COUNT> displayedDelta {};
     bool haveSnapshot = false;
     float hoverNormalisedX = -1.0f;
     bool hoverNeedsRepaint = false;

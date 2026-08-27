@@ -1,5 +1,6 @@
 #include "../src/HyphaWidgets.h"
 #include "../src/HyphaSpectrumComponent.h"
+#include "SpectrumPresentationContractTest.h"
 
 #include <cmath>
 #include <cstdlib>
@@ -172,6 +173,7 @@ namespace
 
 int main()
 {
+    hypha::tests::verifySpectrumPresentationContract();
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
 
     const auto label = hypha::labelFont (ui::titleFontHeight);
