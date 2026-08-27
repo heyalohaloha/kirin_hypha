@@ -2,7 +2,6 @@
 
 #include <array>
 #include <cstdint>
-
 // Pure C++ release UI contract. This header deliberately has no JUCE dependency so the exact
 // geometry, typography, palette, and metric inventory can be validated before building either
 // plugin format. AU and VST3 both compile the same JUCE editor, which consumes this contract.
@@ -36,7 +35,6 @@ namespace hypha::ui_contract
     constexpr int pairMenuItemHeight     = 28;
     constexpr int pairMenuMinimumWidth   = editorWidth;
     constexpr int pairMenuMaximumColumns = 1;
-
     // The release UI uses native platform fonts without redistributing either vendor's files.
     // Keep the established macOS appearance, but never ask Windows to resolve Apple's private
     // family names through the non-deterministic GDI fallback path.
@@ -44,7 +42,6 @@ namespace hypha::ui_contract
     constexpr const char* monoFontFamily  = ".SF NS Mono";
     constexpr const char* windowsLabelFontFamily = "Segoe UI";
     constexpr const char* windowsMonoFontFamily  = "Consolas";
-
     constexpr float titleFontHeight       = 20.0f;
     constexpr float pairStatusFontHeight  = 13.0f;
     constexpr float feedbackFontHeight    = 13.0f;
@@ -82,20 +79,23 @@ namespace hypha::ui_contract
     constexpr float spectrumLegendFontHeight         = 8.5f;
     constexpr int spectrumLegendTop                  = 1;
     constexpr int spectrumLegendHeight               = 10;
+    constexpr int spectrumDeltaLegendLabelX          = 3;
+    constexpr int spectrumDeltaLegendLabelWidth      = 12;
     constexpr int spectrumPreLegendSampleWidth       = 0;
-    constexpr int spectrumPreLegendLabelX            = 3;
+    constexpr int spectrumPreLegendLabelX            = 19;
     constexpr int spectrumPreLegendLabelWidth        = 20;
     constexpr int spectrumPostLegendSampleWidth      = 0;
-    constexpr int spectrumPostLegendLabelX           = 29;
+    constexpr int spectrumPostLegendLabelX           = 45;
     constexpr int spectrumPostLegendLabelWidth       = 28;
-    constexpr float spectrumPreStrokeWidth           = 0.95f;
-    constexpr float spectrumPreCurveAlpha            = 0.55f;
-    constexpr float spectrumPostGlowStrokeWidth      = 2.80f;
-    constexpr float spectrumPostGlowAlpha            = 0.12f;
-    constexpr float spectrumPostStrokeWidth          = 1.20f;
-    constexpr float spectrumPostCurveAlpha           = 0.88f;
-    constexpr float spectrumPreLegendAlpha           = 0.74f;
-    constexpr float spectrumPostLegendAlpha          = 0.98f;
+    constexpr float spectrumPreStrokeWidth           = 1.10f;
+    constexpr float spectrumPreCurveAlpha            = 0.82f;
+    constexpr float spectrumPostGlowStrokeWidth      = 2.60f;
+    constexpr float spectrumPostGlowAlpha            = 0.07f;
+    constexpr float spectrumPostStrokeWidth          = 1.10f;
+    constexpr float spectrumPostCurveAlpha           = 0.74f;
+    constexpr float spectrumDeltaLegendAlpha         = 0.98f;
+    constexpr float spectrumPreLegendAlpha           = 0.92f;
+    constexpr float spectrumPostLegendAlpha          = 0.90f;
     constexpr int spectrumHoverReadoutWidth          = 96;
     constexpr int spectrumHoverReadoutHeight         = 15;
     constexpr int spectrumHoverReadoutInset          = 2;

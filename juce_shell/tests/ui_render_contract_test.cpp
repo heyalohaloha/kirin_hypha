@@ -219,6 +219,9 @@ int main()
                          preLayout.name.width));
     KIRIN_REQUIRE (fits (hypha::monoFont (ui::nameFontHeight),
                          "pair: WWWWWWWWWWWWWWWW", postLayout.name.width));
+    KIRIN_REQUIRE (fits (hypha::monoFont (ui::spectrumLegendFontHeight),
+                         juce::CharPointer_UTF8 ("\xCE\x94"),
+                         ui::spectrumDeltaLegendLabelWidth));
     KIRIN_REQUIRE (fits (hypha::monoFont (ui::spectrumLegendFontHeight), "PRE",
                          ui::spectrumPreLegendLabelWidth));
     KIRIN_REQUIRE (fits (hypha::monoFont (ui::spectrumLegendFontHeight), "POST",

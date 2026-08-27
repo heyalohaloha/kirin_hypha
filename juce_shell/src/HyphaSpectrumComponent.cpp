@@ -366,6 +366,14 @@ void SpectrumComponent::paint (juce::Graphics& g)
 
     const float legendTop = plot.getY() + scaled ((float) ui_contract::spectrumLegendTop);
     g.setFont (monoFont (scaled (ui_contract::spectrumLegendFontHeight)));
+    g.setColour (COL_SPECTRUM_DELTA.withAlpha (ui_contract::spectrumDeltaLegendAlpha));
+    g.drawText (juce::CharPointer_UTF8 ("\xCE\x94"),
+                juce::roundToInt (plot.getX())
+                    + scaledInt (ui_contract::spectrumDeltaLegendLabelX),
+                juce::roundToInt (legendTop),
+                scaledInt (ui_contract::spectrumDeltaLegendLabelWidth),
+                scaledInt (ui_contract::spectrumLegendHeight),
+                juce::Justification::centredLeft);
     g.setColour (COL_SPECTRUM_PRE.withAlpha (ui_contract::spectrumPreLegendAlpha));
     g.drawText ("PRE", juce::roundToInt (plot.getX())
                          + scaledInt (ui_contract::spectrumPreLegendLabelX),

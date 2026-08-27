@@ -136,13 +136,16 @@ int main()
     static_assert (ui::spectrumPre == 0xff74808f);
     static_assert (ui::spectrumPost == 0xffa695d6);
     static_assert (ui::spectrumLegendFontHeight >= 8.5f);
+    static_assert (ui::spectrumDeltaLegendLabelX + ui::spectrumDeltaLegendLabelWidth
+                   < ui::spectrumPreLegendLabelX);
     static_assert (ui::spectrumPreLegendSampleWidth == 0);
     static_assert (ui::spectrumPostLegendSampleWidth == 0);
-    static_assert (ui::spectrumPreStrokeWidth < ui::spectrumPostStrokeWidth);
-    static_assert (ui::spectrumPreCurveAlpha < ui::spectrumPostCurveAlpha);
+    static_assert (ui::spectrumPreStrokeWidth >= ui::spectrumPostStrokeWidth);
+    static_assert (ui::spectrumPreCurveAlpha > ui::spectrumPostCurveAlpha);
     static_assert (ui::spectrumPostGlowStrokeWidth > ui::spectrumPostStrokeWidth);
     static_assert (ui::spectrumPostGlowAlpha < ui::spectrumPostCurveAlpha);
-    static_assert (ui::spectrumPreLegendAlpha < ui::spectrumPostLegendAlpha);
+    static_assert (ui::spectrumDeltaLegendAlpha > ui::spectrumPreLegendAlpha);
+    static_assert (ui::spectrumPreLegendAlpha > ui::spectrumPostLegendAlpha);
     static_assert (ui::spectrumSizePresets.size() == 3);
     static_assert (ui::spectrumSizePresets[0].width == 300
                    && ui::spectrumSizePresets[0].height == 200);
@@ -335,6 +338,8 @@ int main()
     assert (! overlaps (spectrumPlot, post.postControls));
     assert (spectrumPlot.x == ui::margin && spectrumPlot.y == post.metricTop);
     assert (spectrumPlot.width == ui::editorWidth - 2 * ui::margin);
+    assert (ui::spectrumDeltaLegendLabelX + ui::spectrumDeltaLegendLabelWidth
+            < ui::spectrumPreLegendLabelX);
     assert (ui::spectrumPreLegendLabelX + ui::spectrumPreLegendLabelWidth
             < ui::spectrumPostLegendLabelX);
     assert (ui::spectrumPostLegendLabelX + ui::spectrumPostLegendLabelWidth
