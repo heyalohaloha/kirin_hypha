@@ -127,6 +127,26 @@ int main()
     static_assert (ui::spectrumDeltaBright == 0xffcdeff5);
     static_assert (ui::spectrumPre == 0xff74808f);
     static_assert (ui::spectrumPost == 0xffa695d6);
+    static_assert (ui::spectrumLegendFontHeight >= 8.5f);
+    static_assert (ui::spectrumPreLegendSampleWidth == 0);
+    static_assert (ui::spectrumPostLegendSampleWidth == 0);
+    static_assert (ui::spectrumPreStrokeWidth < ui::spectrumPostStrokeWidth);
+    static_assert (ui::spectrumPreCurveAlpha < ui::spectrumPostCurveAlpha);
+    static_assert (ui::spectrumPostGlowStrokeWidth > ui::spectrumPostStrokeWidth);
+    static_assert (ui::spectrumPostGlowAlpha < ui::spectrumPostCurveAlpha);
+    static_assert (ui::spectrumPreLegendAlpha < ui::spectrumPostLegendAlpha);
+    static_assert (ui::spectrumHoverReadoutWidth >= 90);
+    static_assert (ui::spectrumHoverReadoutHeight >= 14);
+    static_assert (ui::spectrumHoverFrequencyX + ui::spectrumHoverFrequencyWidth
+                   <= ui::spectrumHoverDeltaX);
+    static_assert (ui::spectrumHoverDeltaX + ui::spectrumHoverDeltaWidth
+                   <= ui::spectrumHoverReadoutWidth);
+    static_assert (ui::spectrumHoverLineWidth <= 1.0f);
+    static_assert (ui::spectrumTipAlpha.size() == 7);
+    static_assert (ui::spectrumTipAlpha[3] < ui::spectrumTipAlpha[4]);
+    static_assert (ui::spectrumTipAlpha[4] < ui::spectrumTipAlpha[5]);
+    static_assert (ui::spectrumTipAlpha[5] < ui::spectrumTipAlpha[6]);
+    static_assert (ui::spectrumTipAlpha[6] >= 0.43f);
     static_assert (ui::preDisplayPrimaryColour (ui::PreDisplayTone::context) == ui::normal);
     static_assert (ui::preDisplayPrimaryColour (ui::PreDisplayTone::emphasis) == ui::flora);
     static_assert (ui::preDisplayDetailColour (ui::PreDisplayTone::context)
@@ -273,6 +293,10 @@ int main()
     assert (! overlaps (spectrumPlot, post.postControls));
     assert (spectrumPlot.x == ui::margin && spectrumPlot.y == post.metricTop);
     assert (spectrumPlot.width == ui::editorWidth - 2 * ui::margin);
+    assert (ui::spectrumPreLegendLabelX + ui::spectrumPreLegendLabelWidth
+            < ui::spectrumPostLegendLabelX);
+    assert (ui::spectrumPostLegendLabelX + ui::spectrumPostLegendLabelWidth
+            <= spectrumPlot.width - ui::spectrumPlotLeftInset - ui::spectrumPlotRightInset);
     assert (std::strcmp (ui::spectrumTooltip (false), "Show POST - PRE spectrum") == 0);
     assert (std::strcmp (ui::spectrumTooltip (true), "Return to meters") == 0);
     assert (std::strlen (ui::spectrumTooltip (false))

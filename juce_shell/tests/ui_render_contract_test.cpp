@@ -58,6 +58,34 @@ namespace
         return count;
     }
 
+    bool nearRgb (juce::Colour pixel, juce::Colour target)
+    {
+        constexpr int tolerance = 12;
+        return pixel.getAlpha() > 16
+            && std::abs ((int) pixel.getRed() - (int) target.getRed()) <= tolerance
+            && std::abs ((int) pixel.getGreen() - (int) target.getGreen()) <= tolerance
+            && std::abs ((int) pixel.getBlue() - (int) target.getBlue()) <= tolerance;
+    }
+
+    int countColourRunsAcross (const juce::Image& image,
+                               juce::Rectangle<int> requested,
+                               juce::Colour target)
+    {
+        const auto area = requested.getIntersection (image.getBounds());
+        int runs = 0;
+        bool previousColumn = false;
+        for (int x = area.getX(); x < area.getRight(); ++x)
+        {
+            bool currentColumn = false;
+            for (int y = area.getY(); y < area.getBottom(); ++y)
+                currentColumn = currentColumn || nearRgb (image.getPixelAt (x, y), target);
+            if (currentColumn && ! previousColumn)
+                ++runs;
+            previousColumn = currentColumn;
+        }
+        return runs;
+    }
+
     int countDifferentPixels (const juce::Image& a, const juce::Image& b)
     {
         KIRIN_REQUIRE (a.getBounds() == b.getBounds());
@@ -134,6 +162,14 @@ int main()
                          preLayout.name.width));
     KIRIN_REQUIRE (fits (hypha::monoFont (ui::nameFontHeight),
                          "pair: WWWWWWWWWWWWWWWW", postLayout.name.width));
+    KIRIN_REQUIRE (fits (hypha::monoFont (ui::spectrumLegendFontHeight), "PRE",
+                         ui::spectrumPreLegendLabelWidth));
+    KIRIN_REQUIRE (fits (hypha::monoFont (ui::spectrumLegendFontHeight), "POST",
+                         ui::spectrumPostLegendLabelWidth));
+    KIRIN_REQUIRE (fits (hypha::monoFont (8.5f), "22.0 kHz",
+                         ui::spectrumHoverFrequencyWidth));
+    KIRIN_REQUIRE (fits (hypha::monoFont (8.5f), juce::CharPointer_UTF8 ("Δ+18.0"),
+                         ui::spectrumHoverDeltaWidth));
     // JUCE's TooltipWindow lays out 13 px bold text and adds 14 px of horizontal padding.
     // Keep the complete native tooltip inside the 300 px editor instead of relying on clipping.
     const juce::Font tooltipFont (13.0f, juce::Font::bold);
@@ -204,6 +240,19 @@ int main()
                                            + spectrumSnapshot.display_db[index];
     }
     spectrum.setSnapshot (spectrumSnapshot);
+    const float previewHoverX = (float) ui::spectrumPlotLeftInset
+                              + 0.70f * (float) (spectrumBounds.width
+                                               - ui::spectrumPlotLeftInset
+                                               - ui::spectrumPlotRightInset);
+    const float previewHoverY = (float) ui::spectrumPlotTopInset + 20.0f;
+    const auto eventTime = juce::Time::getCurrentTime();
+    const juce::MouseEvent hoverEvent (
+        juce::Desktop::getInstance().getMainMouseSource(),
+        { previewHoverX, previewHoverY }, {}, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+        &spectrum, &spectrum, eventTime,
+        { previewHoverX, previewHoverY }, eventTime, 0, false);
+    spectrum.mouseMove (hoverEvent);
+    spectrum.presentationTick();
     juce::Image spectrumImage (
         juce::Image::ARGB, spectrum.getWidth(), spectrum.getHeight(), true);
     {
@@ -211,6 +260,54 @@ int main()
         spectrum.paintEntireComponent (graphics, true);
     }
     KIRIN_REQUIRE (countDifferentPixels (warmingSpectrumImage, spectrumImage) > 100);
+    spectrum.mouseExit (hoverEvent);
+    spectrum.presentationTick();
+    juce::Image spectrumWithoutHover (
+        juce::Image::ARGB, spectrum.getWidth(), spectrum.getHeight(), true);
+    {
+        juce::Graphics graphics (spectrumWithoutHover);
+        spectrum.paintEntireComponent (graphics, true);
+    }
+    KIRIN_REQUIRE (countDifferentPixels (spectrumImage, spectrumWithoutHover) > 30);
+    spectrum.mouseMove (hoverEvent);
+    spectrum.presentationTick();
+
+    hypha::SpectrumComponent lineEncodingSpectrum;
+    lineEncodingSpectrum.setSize (spectrumBounds.width, spectrumBounds.height);
+    KirinSpectrumView lineEncodingSnapshot = spectrumSnapshot;
+    for (size_t index = 0; index < KIRIN_SPECTRUM_BAND_COUNT; ++index)
+    {
+        lineEncodingSnapshot.display_db[index] = 0.0f;
+        lineEncodingSnapshot.pre_dbfs[index] = -32.0f;
+        lineEncodingSnapshot.post_dbfs[index] = -72.0f;
+    }
+    lineEncodingSpectrum.setSnapshot (lineEncodingSnapshot);
+    juce::Image lineEncodingImage (
+        juce::Image::ARGB, lineEncodingSpectrum.getWidth(), lineEncodingSpectrum.getHeight(), true);
+    {
+        juce::Graphics graphics (lineEncodingImage);
+        lineEncodingSpectrum.paintEntireComponent (graphics, true);
+    }
+    const int innerPlotWidth = spectrumBounds.width - ui::spectrumPlotLeftInset
+                            - ui::spectrumPlotRightInset;
+    const int innerPlotHeight = spectrumBounds.height - ui::spectrumPlotTopInset
+                             - ui::spectrumPlotBottomInset;
+    const int preCurveY = ui::spectrumPlotTopInset
+                        + juce::roundToInt ((32.0f / 96.0f) * (float) innerPlotHeight);
+    const int postCurveY = ui::spectrumPlotTopInset
+                         + juce::roundToInt ((72.0f / 96.0f) * (float) innerPlotHeight);
+    const juce::Rectangle<int> curveProbe (
+        ui::spectrumPlotLeftInset, preCurveY - 2, innerPlotWidth, 5);
+    const juce::Rectangle<int> postCurveProbe (
+        ui::spectrumPlotLeftInset, postCurveY - 2, innerPlotWidth, 5);
+    const int preCurveRuns = countColourRunsAcross (
+        lineEncodingImage, curveProbe, hypha::COL_SPECTRUM_PRE);
+    const int postCurveRuns = countColourRunsAcross (
+        lineEncodingImage, postCurveProbe, hypha::COL_SPECTRUM_POST);
+    // The translucent hairline can form a few colour-probe runs through antialiasing,
+    // but must remain visually continuous rather than returning to a dashed encoding.
+    KIRIN_REQUIRE (preCurveRuns >= 1 && preCurveRuns <= 5);
+    KIRIN_REQUIRE (postCurveRuns == 1);
 
     juce::Image spectrumPreview (
         juce::Image::ARGB, spectrum.getWidth(), spectrum.getHeight(), true);
@@ -242,6 +339,8 @@ int main()
               << ", delta=" << deltaWidth << '/' << deltaLayout.deltaPrefixWidth << "px"
               << " (" << deltaPixels << " pixels)"
               << ", vector-arrow=" << arrowPixels << " pixels"
+              << ", PRE-runs=" << preCurveRuns
+              << ", POST-runs=" << postCurveRuns
               << ", spectrum-paint=" << spectrumPaintMs << " ms/frame\n";
     return 0;
 }

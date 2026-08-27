@@ -802,6 +802,7 @@ void KirinHyphaEditor::updatePost()
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     if (spectrumMode)
     {
+        spectrumView.presentationTick();
         KirinSpectrumView spectrum {};
         if (processorRef.pollSpectrum (spectrum))
             spectrumView.setSnapshot (spectrum);

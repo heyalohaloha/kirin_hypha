@@ -67,6 +67,39 @@ namespace hypha::ui_contract
     constexpr int spectrumToggleWidth               = 84;
     constexpr int spectrumToggleHeight              = 21;
     constexpr int spectrumTitleGap                  = 8;
+    constexpr int spectrumPlotLeftInset              = 24;
+    constexpr int spectrumPlotRightInset             = 25;
+    constexpr int spectrumPlotTopInset               = 6;
+    constexpr int spectrumPlotBottomInset            = 12;
+    constexpr float spectrumLegendFontHeight         = 8.5f;
+    constexpr int spectrumLegendTop                  = 1;
+    constexpr int spectrumLegendHeight               = 10;
+    constexpr int spectrumPreLegendSampleWidth       = 0;
+    constexpr int spectrumPreLegendLabelX            = 3;
+    constexpr int spectrumPreLegendLabelWidth        = 20;
+    constexpr int spectrumPostLegendSampleWidth      = 0;
+    constexpr int spectrumPostLegendLabelX           = 29;
+    constexpr int spectrumPostLegendLabelWidth       = 28;
+    constexpr float spectrumPreStrokeWidth           = 0.95f;
+    constexpr float spectrumPreCurveAlpha            = 0.55f;
+    constexpr float spectrumPostGlowStrokeWidth      = 2.80f;
+    constexpr float spectrumPostGlowAlpha            = 0.12f;
+    constexpr float spectrumPostStrokeWidth          = 1.20f;
+    constexpr float spectrumPostCurveAlpha           = 0.88f;
+    constexpr float spectrumPreLegendAlpha           = 0.74f;
+    constexpr float spectrumPostLegendAlpha          = 0.98f;
+    constexpr int spectrumHoverReadoutWidth          = 96;
+    constexpr int spectrumHoverReadoutHeight         = 15;
+    constexpr int spectrumHoverReadoutInset          = 2;
+    constexpr int spectrumHoverFrequencyX            = 6;
+    constexpr int spectrumHoverFrequencyWidth        = 52;
+    constexpr int spectrumHoverDeltaX                = 58;
+    constexpr int spectrumHoverDeltaWidth            = 34;
+    constexpr float spectrumHoverReadoutRadius       = 4.5f;
+    constexpr float spectrumHoverLineWidth           = 0.75f;
+    constexpr std::array<float, 7> spectrumTipAlpha {
+        0.0f, 0.06f, 0.10f, 0.16f, 0.24f, 0.33f, 0.43f
+    };
 
     constexpr const char* preTitle = "PRE";
     constexpr const char* postTitle = "POST";

@@ -16,17 +16,25 @@ public:
     SpectrumComponent();
 
     void setSnapshot (const KirinSpectrumView& next);
+    void presentationTick();
     void paint (juce::Graphics&) override;
+    void mouseMove (const juce::MouseEvent&) override;
+    void mouseExit (const juce::MouseEvent&) override;
 
 private:
     static juce::String statusText (uint8_t status);
+    static juce::String hoverFrequencyText (float hz);
     static float yForDeltaDb (float db, juce::Rectangle<float> plot) noexcept;
     static float yForMagnitudeDbfs (float dbfs, juce::Rectangle<float> plot) noexcept;
     static float xForFrequency (float hz, float minHz, float maxHz,
                                 juce::Rectangle<float> plot) noexcept;
+    static float frequencyForNormalisedX (float position, float minHz,
+                                          float maxHz) noexcept;
 
     KirinSpectrumView snapshot {};
     bool haveSnapshot = false;
+    float hoverNormalisedX = -1.0f;
+    bool hoverNeedsRepaint = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SpectrumComponent)
 };

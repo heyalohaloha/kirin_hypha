@@ -47,7 +47,7 @@ namespace
 
 SpectrumComponent::SpectrumComponent()
 {
-    setInterceptsMouseClicks (false, false);
+    setInterceptsMouseClicks (true, false);
     setAccessible (false);
 }
 
@@ -58,6 +58,40 @@ void SpectrumComponent::setSnapshot (const KirinSpectrumView& next)
     snapshot = next;
     haveSnapshot = true;
     repaint();
+}
+
+void SpectrumComponent::presentationTick()
+{
+    if (! hoverNeedsRepaint)
+        return;
+    hoverNeedsRepaint = false;
+    repaint();
+}
+
+void SpectrumComponent::mouseMove (const juce::MouseEvent& event)
+{
+    const auto plot = getLocalBounds().toFloat()
+                          .withTrimmedLeft ((float) ui_contract::spectrumPlotLeftInset)
+                          .withTrimmedRight ((float) ui_contract::spectrumPlotRightInset)
+                          .withTrimmedTop ((float) ui_contract::spectrumPlotTopInset)
+                          .withTrimmedBottom ((float) ui_contract::spectrumPlotBottomInset);
+    const auto position = event.position;
+    const float next = plot.contains (position)
+                         ? juce::jlimit (0.0f, 1.0f,
+                                        (position.x - plot.getX()) / plot.getWidth())
+                         : -1.0f;
+    if (juce::approximatelyEqual (next, hoverNormalisedX))
+        return;
+    hoverNormalisedX = next;
+    hoverNeedsRepaint = true;
+}
+
+void SpectrumComponent::mouseExit (const juce::MouseEvent&)
+{
+    if (hoverNormalisedX < 0.0f)
+        return;
+    hoverNormalisedX = -1.0f;
+    hoverNeedsRepaint = true;
 }
 
 float SpectrumComponent::yForDeltaDb (float db, juce::Rectangle<float> plot) noexcept
@@ -76,11 +110,25 @@ float SpectrumComponent::yForMagnitudeDbfs (float dbfs,
 }
 
 float SpectrumComponent::xForFrequency (float hz, float minHz, float maxHz,
-                                        juce::Rectangle<float> plot) noexcept
+                                         juce::Rectangle<float> plot) noexcept
 {
     const float clipped = juce::jlimit (minHz, maxHz, hz);
     const float position = std::log (clipped / minHz) / std::log (maxHz / minHz);
     return juce::jmap (position, 0.0f, 1.0f, plot.getX(), plot.getRight());
+}
+
+float SpectrumComponent::frequencyForNormalisedX (float position, float minHz,
+                                                   float maxHz) noexcept
+{
+    return minHz * std::pow (maxHz / minHz, juce::jlimit (0.0f, 1.0f, position));
+}
+
+juce::String SpectrumComponent::hoverFrequencyText (float hz)
+{
+    if (hz < 1'000.0f)
+        return juce::String (juce::roundToInt (hz)) + " Hz";
+    const int decimals = hz < 10'000.0f ? 2 : 1;
+    return juce::String (hz / 1'000.0f, decimals) + " kHz";
 }
 
 juce::String SpectrumComponent::statusText (uint8_t status)
@@ -94,8 +142,10 @@ juce::String SpectrumComponent::statusText (uint8_t status)
 void SpectrumComponent::paint (juce::Graphics& g)
 {
     const auto bounds = getLocalBounds().toFloat();
-    const auto plot = bounds.withTrimmedLeft (24.0f).withTrimmedRight (25.0f)
-                            .withTrimmedTop (6.0f).withTrimmedBottom (12.0f);
+    const auto plot = bounds.withTrimmedLeft ((float) ui_contract::spectrumPlotLeftInset)
+                            .withTrimmedRight ((float) ui_contract::spectrumPlotRightInset)
+                            .withTrimmedTop ((float) ui_contract::spectrumPlotTopInset)
+                            .withTrimmedBottom ((float) ui_contract::spectrumPlotBottomInset);
     const float minimumHz = haveSnapshot && snapshot.min_hz > 0.0f ? snapshot.min_hz : 10.0f;
     const float maximumHz = haveSnapshot && snapshot.max_hz > minimumHz ? snapshot.max_hz : 22'000.0f;
     const float zeroY = yForDeltaDb (0.0f, plot);
@@ -202,13 +252,18 @@ void SpectrumComponent::paint (juce::Graphics& g)
         highlights[bucket].lineTo (x[index], deltaY[index]);
     }
 
-    juce::Path dashedPre;
-    const float dashLengths[] { 3.0f, 2.5f };
-    juce::PathStrokeType (0.9f).createDashedStroke (dashedPre, preCurve, dashLengths, 2);
-    g.setColour (COL_SPECTRUM_PRE.withAlpha (0.74f));
-    g.fillPath (dashedPre);
-    g.setColour (COL_SPECTRUM_POST.withAlpha (0.72f));
-    g.strokePath (postCurve, juce::PathStrokeType (1.05f));
+    g.setColour (COL_SPECTRUM_PRE.withAlpha (ui_contract::spectrumPreCurveAlpha));
+    g.strokePath (preCurve, juce::PathStrokeType (ui_contract::spectrumPreStrokeWidth,
+                                                  juce::PathStrokeType::curved,
+                                                  juce::PathStrokeType::rounded));
+    g.setColour (COL_SPECTRUM_POST.withAlpha (ui_contract::spectrumPostGlowAlpha));
+    g.strokePath (postCurve, juce::PathStrokeType (ui_contract::spectrumPostGlowStrokeWidth,
+                                                   juce::PathStrokeType::curved,
+                                                   juce::PathStrokeType::rounded));
+    g.setColour (COL_SPECTRUM_POST.withAlpha (ui_contract::spectrumPostCurveAlpha));
+    g.strokePath (postCurve, juce::PathStrokeType (ui_contract::spectrumPostStrokeWidth,
+                                                   juce::PathStrokeType::curved,
+                                                   juce::PathStrokeType::rounded));
 
     juce::Path deltaFill;
     deltaFill.setUsingNonZeroWinding (false);
@@ -229,12 +284,10 @@ void SpectrumComponent::paint (juce::Graphics& g)
 
     // A fact-derived tip ribbon adds density beside the Δ edge, never across the whole body.
     // It has no hold state or animation: every filled segment belongs to this exact snapshot.
-    constexpr std::array<float, intensityLevelCount> tipAlpha {
-        0.0f, 0.06f, 0.10f, 0.15f, 0.21f, 0.27f, 0.34f
-    };
     for (size_t bucket = 1; bucket < intensityTips.size(); ++bucket)
     {
-        g.setColour (COL_SPECTRUM_DELTA_BR.withAlpha (tipAlpha[bucket]));
+        g.setColour (COL_SPECTRUM_DELTA_BR.withAlpha (
+            ui_contract::spectrumTipAlpha[bucket]));
         g.fillPath (intensityTips[bucket]);
     }
 
@@ -261,14 +314,69 @@ void SpectrumComponent::paint (juce::Graphics& g)
                                                                juce::PathStrokeType::rounded));
     }
 
-    g.setFont (monoFont (7.5f));
-    g.setColour (COL_SPECTRUM_PRE.withAlpha (0.92f));
-    g.drawText ("PRE", juce::roundToInt (plot.getX()) + 3,
-                juce::roundToInt (plot.getY()) + 1, 24, 9,
+    const float legendTop = plot.getY() + (float) ui_contract::spectrumLegendTop;
+    g.setFont (monoFont (ui_contract::spectrumLegendFontHeight));
+    g.setColour (COL_SPECTRUM_PRE.withAlpha (ui_contract::spectrumPreLegendAlpha));
+    g.drawText ("PRE", juce::roundToInt (plot.getX()) + ui_contract::spectrumPreLegendLabelX,
+                juce::roundToInt (legendTop), ui_contract::spectrumPreLegendLabelWidth,
+                ui_contract::spectrumLegendHeight,
                 juce::Justification::centredLeft);
-    g.setColour (COL_SPECTRUM_POST.withAlpha (0.92f));
-    g.drawText ("POST", juce::roundToInt (plot.getX()) + 29,
-                juce::roundToInt (plot.getY()) + 1, 30, 9,
+    g.setColour (COL_SPECTRUM_POST.withAlpha (ui_contract::spectrumPostLegendAlpha));
+    g.drawText ("POST", juce::roundToInt (plot.getX()) + ui_contract::spectrumPostLegendLabelX,
+                juce::roundToInt (legendTop), ui_contract::spectrumPostLegendLabelWidth,
+                ui_contract::spectrumLegendHeight,
                 juce::Justification::centredLeft);
+
+    if (hoverNormalisedX >= 0.0f)
+    {
+        const float hoverX = juce::jmap (hoverNormalisedX, plot.getX(), plot.getRight());
+        const float bandPosition = hoverNormalisedX
+                                 * (float) (KIRIN_SPECTRUM_BAND_COUNT - 1u);
+        const size_t lower = static_cast<size_t> (std::floor (bandPosition));
+        const size_t upper = std::min (
+            lower + 1u, static_cast<size_t> (KIRIN_SPECTRUM_BAND_COUNT - 1u));
+        const float blend = bandPosition - (float) lower;
+        const float deltaDb = juce::jmap (blend, snapshot.display_db[lower],
+                                         snapshot.display_db[upper]);
+        const float pointY = yForDeltaDb (deltaDb, plot);
+
+        g.setColour (COL_NORMAL.withAlpha (0.30f));
+        g.drawLine (hoverX, plot.getY(), hoverX, plot.getBottom(),
+                    ui_contract::spectrumHoverLineWidth);
+        g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.18f));
+        g.fillEllipse (hoverX - 3.5f, pointY - 3.5f, 7.0f, 7.0f);
+        g.setColour (COL_SPECTRUM_DELTA_BR.withAlpha (0.98f));
+        g.fillEllipse (hoverX - 1.65f, pointY - 1.65f, 3.3f, 3.3f);
+
+        const auto readout = juce::Rectangle<float> (
+            plot.getRight() - (float) ui_contract::spectrumHoverReadoutWidth,
+            plot.getY() + (float) ui_contract::spectrumHoverReadoutInset,
+            (float) ui_contract::spectrumHoverReadoutWidth,
+            (float) ui_contract::spectrumHoverReadoutHeight);
+        g.setColour (BG.brighter (0.10f).withAlpha (0.96f));
+        g.fillRoundedRectangle (readout, ui_contract::spectrumHoverReadoutRadius);
+        g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.38f));
+        g.drawRoundedRectangle (readout, ui_contract::spectrumHoverReadoutRadius, 0.75f);
+
+        const float frequency = frequencyForNormalisedX (
+            hoverNormalisedX, minimumHz, maximumHz);
+        const auto frequencyText = hoverFrequencyText (frequency);
+        const auto deltaText = juce::String (deltaDb >= 0.0f ? "+" : "")
+                             + juce::String (deltaDb, 1);
+        const int textY = juce::roundToInt (readout.getY());
+        g.setFont (monoFont (8.5f));
+        g.setColour (COL_NORMAL.withAlpha (0.94f));
+        g.drawText (frequencyText,
+                    juce::roundToInt (readout.getX()) + ui_contract::spectrumHoverFrequencyX,
+                    textY, ui_contract::spectrumHoverFrequencyWidth,
+                    ui_contract::spectrumHoverReadoutHeight,
+                    juce::Justification::centredLeft);
+        g.setColour (COL_SPECTRUM_DELTA_BR.withAlpha (0.98f));
+        g.drawText (juce::String (juce::CharPointer_UTF8 ("Δ")) + deltaText,
+                    juce::roundToInt (readout.getX()) + ui_contract::spectrumHoverDeltaX,
+                    textY, ui_contract::spectrumHoverDeltaWidth,
+                    ui_contract::spectrumHoverReadoutHeight,
+                    juce::Justification::centredRight);
+    }
 }
 }
