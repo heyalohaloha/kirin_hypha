@@ -58,6 +58,7 @@ pub mod resampler;
 pub mod reservation;
 pub mod spectrum;
 pub mod spectrum_exchange;
+mod spectrum_exchange_worker;
 pub mod spectrum_runtime;
 pub mod storage;
 mod sync_recovery;

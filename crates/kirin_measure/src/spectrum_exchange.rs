@@ -17,6 +17,7 @@ use crate::spectrum::{
     difference_post_minus_pre, SpectrumDifference, SpectrumFrame, SPECTRUM_BAND_COUNT,
     SPECTRUM_FFT_SIZE, SPECTRUM_SCHEMA_VERSION,
 };
+use crate::spectrum_exchange_worker::SpectrumExchangeWorker;
 use crate::spectrum_runtime::{SpectrumHistory, SpectrumRuntime};
 
 const REQUEST_SCHEMA: &str = "kirin_hypha_spectrum_request_v1";
@@ -89,6 +90,7 @@ pub struct SpectrumCoordinator {
     post_session: Mutex<Option<PostSession>>,
     pre_session: Mutex<Option<PreSession>>,
     view: Mutex<SpectrumViewSnapshot>,
+    pub(crate) exchange_worker: SpectrumExchangeWorker,
 }
 
 impl SpectrumCoordinator {
@@ -100,6 +102,7 @@ impl SpectrumCoordinator {
             post_session: Mutex::new(None),
             pre_session: Mutex::new(None),
             view: Mutex::new(SpectrumViewSnapshot::default()),
+            exchange_worker: SpectrumExchangeWorker::new(),
         })
     }
 
@@ -119,6 +122,7 @@ impl SpectrumCoordinator {
             let _ = self.runtime.set_enabled(false);
             self.store_view(SpectrumViewStatus::Hidden, None);
         }
+        self.exchange_worker.notify();
     }
 
     pub fn post_visible(&self) -> bool {
@@ -126,16 +130,16 @@ impl SpectrumCoordinator {
     }
 
     /// POST IO-thread tick. `target` must come from the already-confirmed exact pair latch.
-    pub fn post_tick(&self, post_instance_id: &str, target: Option<SpectrumTarget>) {
+    pub(crate) fn post_tick(&self, post_instance_id: &str, target: Option<SpectrumTarget>) -> bool {
         let mut session_slot = match self.post_session.lock() {
             Ok(session) => session,
-            Err(_) => return,
+            Err(_) => return false,
         };
         if !self.post_visible() {
             if let Some(session) = session_slot.take() {
                 cleanup_owned_request(session.target.as_ref(), session.request_id);
             }
-            return;
+            return false;
         }
         let session = session_slot.get_or_insert_with(|| PostSession {
             request_id: Uuid::new_v4(),
@@ -150,7 +154,7 @@ impl SpectrumCoordinator {
             session.started_at = None;
             let _ = self.runtime.set_enabled(false);
             self.store_view(SpectrumViewStatus::NoPair, None);
-            return;
+            return false;
         };
         if session.target.as_ref() != Some(&target) {
             cleanup_owned_request(session.target.as_ref(), session.request_id);
@@ -175,7 +179,7 @@ impl SpectrumCoordinator {
             if write_request(&target.instance_dir, &request).is_err() {
                 let _ = self.runtime.set_enabled(false);
                 self.store_view(SpectrumViewStatus::Unavailable, None);
-                return;
+                return false;
             }
             session.last_renewed = Some(now);
         }
@@ -183,7 +187,7 @@ impl SpectrumCoordinator {
             cleanup_owned_request(Some(&target), session.request_id);
             session.last_renewed = None;
             self.store_view(SpectrumViewStatus::Unavailable, None);
-            return;
+            return false;
         }
         if session.started_at.is_none() {
             session.started_at = Some(now);
@@ -215,10 +219,11 @@ impl SpectrumCoordinator {
             }
             None => self.store_view(SpectrumViewStatus::WarmingUp, None),
         }
+        true
     }
 
-    /// PRE IO-thread tick. Reading one exact request path shares the existing 100 ms IO cadence.
-    pub fn pre_tick(&self, pre_instance_id: &str, instance_dir: &Path) {
+    /// PRE IO-thread tick. An active exact request may be called at the 30 Hz Spectrum cadence.
+    pub(crate) fn pre_tick(&self, pre_instance_id: &str, instance_dir: &Path) -> bool {
         let request = read_request(instance_dir).and_then(|request| {
             (request.schema == REQUEST_SCHEMA
                 && request.target_pre_instance_id == pre_instance_id
@@ -230,20 +235,20 @@ impl SpectrumCoordinator {
         });
         let mut session = match self.pre_session.lock() {
             Ok(session) => session,
-            Err(_) => return,
+            Err(_) => return false,
         };
         let Some(request_id) = request else {
             if session.take().is_some() {
                 let _ = self.runtime.set_enabled(false);
                 let _ = fs::remove_file(snapshot_path(instance_dir));
             }
-            return;
+            return false;
         };
         if session.as_ref().map(|state| state.request_id) != Some(request_id) {
             let _ = self.runtime.set_enabled(false);
             let _ = fs::remove_file(snapshot_path(instance_dir));
             if !self.runtime.set_enabled(true) {
-                return;
+                return false;
             }
             *session = Some(PreSession {
                 request_id,
@@ -252,17 +257,18 @@ impl SpectrumCoordinator {
             });
         }
         let Some(history) = self.runtime.try_history() else {
-            return;
+            return true;
         };
         let newest_end = history.newest().map(|frame| frame.presentation_end_samples);
         let state = session.as_mut().expect("PRE session established above");
         if newest_end.is_none() || newest_end == state.last_written_end {
-            return;
+            return true;
         }
         let bytes = encode_snapshot(state.request_id, &history);
         if crate::atomic_file::write_bytes_atomic(&snapshot_path(instance_dir), &bytes).is_ok() {
             state.last_written_end = newest_end;
         }
+        true
     }
 
     pub fn try_view(&self) -> Option<SpectrumViewSnapshot> {
@@ -271,6 +277,7 @@ impl SpectrumCoordinator {
 
     pub fn shutdown(&self) {
         self.post_visible.store(false, Ordering::Release);
+        self.exchange_worker.shutdown_and_join();
         if let Ok(mut session) = self.post_session.lock() {
             if let Some(session) = session.take() {
                 cleanup_owned_request(session.target.as_ref(), session.request_id);

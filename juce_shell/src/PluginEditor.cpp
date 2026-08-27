@@ -244,8 +244,8 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
 
     configureForKind (Kind::WatchAbs6); // current | MAX, three rows
     resized();                     // finalise positions now that postControls exists
-    // Producer JSON and meter snapshots advance at 100 ms. Polling faster cannot reveal newer
-    // facts, so the shared AU/VST3 editor uses one 10 Hz presentation clock.
+    // Producer JSON and meter snapshots advance at 100 ms. Spectrum raises this same timer to
+    // 30 Hz only while its exact-pair exchange is active; every normal meter stays at 10 Hz.
     startTimerHz (ui::preDisplayPresentationHz);
 }
 
@@ -363,6 +363,7 @@ void KirinHyphaEditor::setSpectrumMode (bool enabled)
     spectrumToggle.setTooltip (ui::spectrumTooltip (enabled));
     spectrumToggle.setColour (juce::TextButton::textColourOffId,
                               enabled ? COL_SPECTRUM_DELTA : COL_MUTED);
+    startTimerHz (enabled ? ui::spectrumPresentationHz : ui::preDisplayPresentationHz);
     const auto preset = enabled ? ui::spectrumSizePresets[spectrumSizeIndex]
                                 : ui::spectrumSizePresets[0];
     if (getWidth() != preset.width || getHeight() != preset.height)

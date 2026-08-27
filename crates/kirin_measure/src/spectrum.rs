@@ -13,7 +13,7 @@ use rustfft::{Fft, FftPlanner};
 pub const SPECTRUM_SCHEMA_VERSION: u16 = 1;
 pub const SPECTRUM_FFT_SIZE: usize = 8_192;
 pub const SPECTRUM_BAND_COUNT: usize = 256;
-pub const SPECTRUM_PRESENTATION_HZ: u32 = 10;
+pub const SPECTRUM_PRESENTATION_HZ: u32 = 30;
 pub const SPECTRUM_MIN_HZ: f32 = 10.0;
 pub const SPECTRUM_MAX_HZ: f32 = 22_000.0;
 pub const SPECTRUM_FLOOR_DBFS: f32 = -144.0;

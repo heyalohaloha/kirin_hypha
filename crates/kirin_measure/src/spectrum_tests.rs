@@ -116,8 +116,8 @@ fn reference_48k_stereo_fft_budget_is_quantified() {
     }
     let elapsed = started.elapsed();
     let micros_per_stereo_snapshot = elapsed.as_secs_f64() * 1_000_000.0 / iterations as f64;
-    // One visible exact pair runs one stereo analyzer in PRE and one in POST, each at 10 Hz.
-    let projected_pair_cpu_percent = micros_per_stereo_snapshot * 20.0 / 10_000.0;
+    // One visible exact pair runs one stereo analyzer in PRE and one in POST, each at 30 Hz.
+    let projected_pair_cpu_percent = micros_per_stereo_snapshot * 60.0 / 10_000.0;
     eprintln!(
         "48k Spectrum: {micros_per_stereo_snapshot:.2} us/stereo snapshot, \
          projected PRE+POST FFT CPU {projected_pair_cpu_percent:.3}%"

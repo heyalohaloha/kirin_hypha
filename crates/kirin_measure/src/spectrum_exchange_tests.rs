@@ -1,4 +1,5 @@
 use super::*;
+use crate::SPECTRUM_HISTORY_CAPACITY;
 use std::thread;
 
 fn frame(end: i64, value: f32) -> SpectrumFrame {
@@ -26,6 +27,39 @@ fn fixed_snapshot_roundtrip_preserves_history_and_request() {
     assert_eq!(decoded.request_id, request_id);
     assert_eq!(decoded.history.frames().count(), 2);
     assert_eq!(decoded.history.newest().unwrap(), &frame(9_600, -18.0));
+}
+
+#[test]
+#[ignore = "release-mode 30 Hz atomic exchange performance probe; run explicitly with --nocapture"]
+fn active_pair_30hz_atomic_exchange_budget_is_quantified() {
+    use std::hint::black_box;
+
+    let temp = tempfile::tempdir().unwrap();
+    let instance_dir = temp.path().join("project").join("pre");
+    fs::create_dir_all(instance_dir.join("spectrum")).unwrap();
+    let request_id = Uuid::new_v4();
+    let mut history = SpectrumHistory::with_capacity();
+    for index in 1..=SPECTRUM_HISTORY_CAPACITY {
+        history.push(frame(index as i64 * 1_600, -20.0 + index as f32));
+    }
+    let bytes = encode_snapshot(request_id, &history);
+    assert!(bytes.len() <= SNAPSHOT_MAX_BYTES as usize);
+
+    let iterations = 300;
+    let started = Instant::now();
+    for _ in 0..iterations {
+        crate::atomic_file::write_bytes_atomic(&snapshot_path(&instance_dir), &bytes).unwrap();
+        let decoded = black_box(read_snapshot(&instance_dir).unwrap());
+        assert_eq!(decoded.request_id, request_id);
+    }
+    let micros_per_exchange = started.elapsed().as_secs_f64() * 1_000_000.0 / iterations as f64;
+    let projected_worker_percent = micros_per_exchange * 30.0 / 10_000.0;
+    eprintln!(
+        "30 Hz Spectrum file exchange: {} bytes, {micros_per_exchange:.2} us/cycle, \
+         projected one-pair IO worker time {projected_worker_percent:.3}%",
+        bytes.len()
+    );
+    assert!(projected_worker_percent < 10.0);
 }
 
 #[test]
@@ -167,6 +201,69 @@ fn visible_exact_pair_exchanges_audio_derived_difference_end_to_end() {
         .map(|(index, _)| index)
         .unwrap();
     assert!((difference.raw_db[strongest] + 6.0206).abs() < 0.05);
+
+    pre.shutdown();
+    post.shutdown();
+    pre_runtime.shutdown_and_join();
+    post_runtime.shutdown_and_join();
+}
+
+#[test]
+fn isolated_worker_advances_exact_pair_without_reentering_normal_io() {
+    let temp = tempfile::tempdir().unwrap();
+    let pre_dir = temp.path().join("project").join("pre");
+    let pre_json = pre_dir.join("pre.json");
+    crate::atomic_file::write_bytes_atomic(&pre_json, b"{}").unwrap();
+    let pre_runtime = SpectrumRuntime::new(48_000, 2);
+    let post_runtime = SpectrumRuntime::new(48_000, 2);
+    let pre = SpectrumCoordinator::new(48_000, Arc::clone(&pre_runtime));
+    let post = SpectrumCoordinator::new(48_000, Arc::clone(&post_runtime));
+    let target = SpectrumTarget::from_pre_json("pre".to_string(), &pre_json).unwrap();
+
+    post.set_post_visible(true);
+    post.service_post_endpoint("post", Some(target));
+    pre.service_pre_endpoint("pre", &pre_dir);
+
+    let frames = 12_800_usize;
+    let mut pre_samples = Vec::with_capacity(frames * 2);
+    let mut post_samples = Vec::with_capacity(frames * 2);
+    for index in 0..frames {
+        let sample = (std::f32::consts::TAU * 1_000.0 * index as f32 / 48_000.0).sin();
+        pre_samples.extend_from_slice(&[sample, -sample]);
+        post_samples.extend_from_slice(&[sample * 0.5, sample * -0.5]);
+    }
+    assert!(pre_runtime.push_block_from_audio(&pre_samples, 2, Some(0)));
+    assert!(post_runtime.push_block_from_audio(&post_samples, 2, Some(0)));
+
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while Instant::now() < deadline
+        && post.try_view().is_none_or(|view| {
+            view.status != SpectrumViewStatus::Active || view.difference.is_none()
+        })
+    {
+        thread::sleep(Duration::from_millis(5));
+    }
+    let view = post.try_view().unwrap();
+    assert_eq!(view.status, SpectrumViewStatus::Active);
+    let difference = view.difference.unwrap();
+    let strongest = difference
+        .display_db
+        .iter()
+        .enumerate()
+        .min_by(|(_, left), (_, right)| left.total_cmp(right))
+        .map(|(index, _)| index)
+        .unwrap();
+    assert!((difference.raw_db[strongest] + 6.0206).abs() < 0.05);
+
+    post.set_post_visible(false);
+    let cleanup_deadline = Instant::now() + Duration::from_secs(1);
+    while Instant::now() < cleanup_deadline
+        && (request_path(&pre_dir).exists() || pre_runtime.is_enabled())
+    {
+        thread::sleep(Duration::from_millis(5));
+    }
+    assert!(!request_path(&pre_dir).exists());
+    assert!(!pre_runtime.is_enabled());
 
     pre.shutdown();
     post.shutdown();

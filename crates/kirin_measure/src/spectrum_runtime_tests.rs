@@ -99,25 +99,25 @@ fn enabled_48k_audio_ingress_budget_is_quantified() {
 }
 
 #[test]
-fn enabled_runtime_publishes_on_the_shared_48k_grid() {
+fn enabled_runtime_publishes_on_the_shared_48k_30hz_grid() {
     let runtime = SpectrumRuntime::new(48_000, 2);
     assert!(runtime.set_enabled(true));
     feed(&runtime, 48_000, 10_000, 256);
     let frame = wait_for_frame(&runtime);
     assert_eq!(frame.presentation_end_samples, 9_600);
-    assert_eq!(frame.presentation_end_samples % 4_800, 0);
+    assert_eq!(frame.presentation_end_samples % 1_600, 0);
     assert!(runtime.stats().analyzed_frames >= 1);
     runtime.shutdown_and_join();
 }
 
 #[test]
-fn forty_four_one_uses_a_4410_sample_grid_without_drift() {
+fn forty_four_one_uses_a_1470_sample_grid_without_drift() {
     let runtime = SpectrumRuntime::new(44_100, 2);
     assert!(runtime.set_enabled(true));
     feed(&runtime, 44_100, 9_000, 147);
     let frame = wait_for_frame(&runtime);
     assert_eq!(frame.presentation_end_samples, 8_820);
-    assert_eq!(frame.presentation_end_samples % 4_410, 0);
+    assert_eq!(frame.presentation_end_samples % 1_470, 0);
     runtime.shutdown_and_join();
 }
 

@@ -987,10 +987,11 @@ pub fn spawn_io_thread_pre(
             }
 
             // POST-only Spectrum UI requests one exact PRE through this dedicated namespace.
-            // The existing 100 ms IO cadence owns the fixed-path read and snapshot write; the
-            // Audio Thread only sees SpectrumRuntime's atomic enable flag.
+            // The normal IO work remains 10 Hz; an active exact Spectrum pair advances on its own
+            // isolated exchange worker. The Audio Thread only sees SpectrumRuntime's atomic
+            // enable flag.
             if let Some(spectrum) = spectrum.as_ref() {
-                spectrum.pre_tick(instance_id_ref, &dir);
+                spectrum.service_pre_endpoint(instance_id_ref, &dir);
             }
 
             // ① pre.json（Watch 値）書き込み

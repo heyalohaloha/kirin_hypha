@@ -651,7 +651,7 @@ pub fn spawn_io_thread_post(
                     crate::SpectrumTarget::from_pre_json(latched.instance_id, &latched.pre_json)
                 });
             if let Some(spectrum) = spectrum.as_ref() {
-                spectrum.post_tick(instance_id_ref, spectrum_target);
+                spectrum.service_post_endpoint(instance_id_ref, spectrum_target);
             }
 
             // The exact PRE ownership index is published only after this POST's atomic snapshot

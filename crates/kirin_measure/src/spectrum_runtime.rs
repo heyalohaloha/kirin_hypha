@@ -24,7 +24,7 @@ pub const SPECTRUM_HISTORY_CAPACITY: usize = 8;
 const SPECTRUM_RING_FRAMES: usize = SPECTRUM_FFT_SIZE * 2;
 const SPECTRUM_BLOCK_RING_CAPACITY: usize = 64;
 // The producer ring absorbs normal realtime callbacks. A 10 ms idle poll keeps the optional pair
-// responsive at its 100 ms presentation cadence without creating a high-frequency wake loop.
+// responsive at its 30 Hz presentation cadence without creating a high-frequency wake loop.
 const SPECTRUM_WORKER_IDLE: Duration = Duration::from_millis(10);
 
 #[derive(Clone, Copy, Debug)]
