@@ -144,9 +144,8 @@ mod tests {
 
     #[test]
     fn shipped_post_pair_selector_has_one_geometry_source() {
-        assert!(
-            PLUGIN_EDITOR_CPP.contains("const auto layout = ui::editorLayout (isPost, getWidth())")
-        );
+        assert!(PLUGIN_EDITOR_CPP
+            .contains("const auto layout = ui::editorLayout (isPost, getWidth(), getHeight())"));
         assert!(PLUGIN_EDITOR_CPP.contains("nameField.setBounds (juceRect (layout.name))"));
         assert!(
             PLUGIN_EDITOR_CPP.contains("pairDropdown.setBounds (juceRect (layout.pairDropdown))")

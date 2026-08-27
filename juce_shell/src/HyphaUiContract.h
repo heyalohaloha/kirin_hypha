@@ -67,6 +67,14 @@ namespace hypha::ui_contract
     constexpr int spectrumToggleWidth               = 84;
     constexpr int spectrumToggleHeight              = 21;
     constexpr int spectrumTitleGap                  = 8;
+    constexpr int spectrumSizeToggleGap             = 6;
+    constexpr int spectrumSizeToggleWidth           = 46;
+    struct SpectrumSizePreset { int width, height; const char* buttonText; const char* tooltip; };
+    constexpr std::array<SpectrumSizePreset, 3> spectrumSizePresets {{
+        { 300, 200, "100%", "Spectrum size: 100%" },
+        { 375, 250, "125%", "Spectrum size: 125%" },
+        { 450, 300, "150%", "Spectrum size: 150%" },
+    }};
     constexpr int spectrumPlotLeftInset              = 24;
     constexpr int spectrumPlotRightInset             = 25;
     constexpr int spectrumPlotTopInset               = 6;
@@ -97,9 +105,9 @@ namespace hypha::ui_contract
     constexpr int spectrumHoverDeltaWidth            = 34;
     constexpr float spectrumHoverReadoutRadius       = 4.5f;
     constexpr float spectrumHoverLineWidth           = 0.75f;
-    constexpr std::array<float, 7> spectrumTipAlpha {
-        0.0f, 0.06f, 0.10f, 0.16f, 0.24f, 0.33f, 0.43f
-    };
+    constexpr std::array<float, 13> spectrumTipAlpha {
+        0.0f, 0.025f, 0.05f, 0.08f, 0.115f, 0.15f, 0.19f,
+        0.235f, 0.28f, 0.325f, 0.365f, 0.40f, 0.43f };
 
     constexpr const char* preTitle = "PRE";
     constexpr const char* postTitle = "POST";
@@ -246,7 +254,8 @@ namespace hypha::ui_contract
         int metricTop = 0;
     };
 
-    constexpr EditorLayout editorLayout (bool post, int width = editorWidth) noexcept
+    constexpr EditorLayout editorLayout (bool post, int width = editorWidth,
+                                         int height = editorHeight) noexcept
     {
         EditorLayout layout {};
         layout.led = { width - margin - ledSize,
@@ -300,7 +309,7 @@ namespace hypha::ui_contract
         // One bottom-aligned feedback row is shared by both roles. Transient user feedback,
         // persistent I/O errors, and the short Keeping acknowledgement never overlap each other.
         layout.feedback = { margin,
-                            editorHeight - feedbackHeight - 2,
+                            height - feedbackHeight - 2,
                             width - 2 * margin,
                             feedbackHeight };
         return layout;
@@ -333,12 +342,37 @@ namespace hypha::ui_contract
                  spectrumToggleHeight };
     }
 
-    constexpr Rect spectrumPlotBounds (int width = editorWidth) noexcept
+    constexpr Rect spectrumSizeToggleBounds (int width = editorWidth) noexcept
     {
-        const auto layout = editorLayout (true, width);
-        return { margin, layout.metricTop, width - 2 * margin, metricHeight };
+        const auto toggle = spectrumToggleBounds (width);
+        return { right (toggle) + spectrumSizeToggleGap,
+                 toggle.y,
+                 spectrumSizeToggleWidth,
+                 spectrumToggleHeight };
     }
 
+    constexpr Rect spectrumPostControlsBounds (int width = editorWidth, int height = editorHeight) noexcept
+    {
+        const auto layout = editorLayout (true, width, height);
+        return { margin,
+                 layout.feedback.y - postControlHeight - 1,
+                 width - 2 * margin,
+                 postControlHeight };
+    }
+
+    constexpr Rect spectrumPlotBounds (int width = editorWidth, int height = editorHeight) noexcept
+    {
+        const auto layout = editorLayout (true, width, height);
+        const auto controls = spectrumPostControlsBounds (width, height);
+        return { margin, layout.metricTop, width - 2 * margin,
+                 controls.y - 3 - layout.metricTop };
+    }
+
+    constexpr float spectrumVisualScale (int plotWidth) noexcept
+    {
+        return static_cast<float> (plotWidth + 2 * margin)
+             / static_cast<float> (editorWidth);
+    }
     enum class Metric
     {
         lufs,
@@ -415,8 +449,28 @@ namespace hypha::ui_contract
                    "POST metrics and controls must not overlap");
     static_assert (right (spectrumToggleBounds()) < editorLayout (true).pairStatus.x,
                    "POST Spectrum mode control must not overlap pair status");
-    static_assert (bottom (spectrumPlotBounds()) < editorLayout (true).postControls.y,
+    static_assert (spectrumSizePresets[0].width == editorWidth
+                       && spectrumSizePresets[0].height == editorHeight
+                       && spectrumSizePresets[1].width == 375 && spectrumSizePresets[1].height == 250
+                       && spectrumSizePresets[2].width == 450 && spectrumSizePresets[2].height == 300,
+                   "POST Spectrum must expose only the fixed 100/125/150 percent sizes");
+    static_assert (right (spectrumSizeToggleBounds()) < editorLayout (true).pairStatus.x
+                       && right (spectrumSizeToggleBounds (375)) < editorLayout (true, 375, 250).pairStatus.x
+                       && right (spectrumSizeToggleBounds (450)) < editorLayout (true, 450, 300).pairStatus.x,
+                   "POST Spectrum size control must never overlap pair status");
+    static_assert (bottom (spectrumPlotBounds()) < spectrumPostControlsBounds().y,
                    "POST Spectrum plot and controls must not overlap");
+    static_assert (bottom (spectrumPlotBounds (375, 250)) < spectrumPostControlsBounds (375, 250).y
+                       && bottom (spectrumPlotBounds (450, 300)) < spectrumPostControlsBounds (450, 300).y,
+                   "Expanded Spectrum plots and controls must not overlap");
+    static_assert (spectrumPostControlsBounds().x == editorLayout (true).postControls.x
+                       && spectrumPostControlsBounds().y == editorLayout (true).postControls.y
+                       && spectrumPostControlsBounds().width == editorLayout (true).postControls.width
+                       && spectrumPostControlsBounds().height == editorLayout (true).postControls.height,
+                   "Compact Spectrum must retain the established control geometry");
+    static_assert (spectrumVisualScale (spectrumPlotBounds().width) == 1.0f
+                       && spectrumVisualScale (spectrumPlotBounds (450, 300).width) == 1.5f,
+                   "Spectrum visual scale must follow the exact fixed window widths");
     static_assert (bottom (editorLayout (true).postControls) <= editorLayout (true).feedback.y,
                    "POST controls and feedback must not overlap");
     static_assert (bottom (metricCellBounds (5, editorLayout (true).metricTop)) <= editorHeight,

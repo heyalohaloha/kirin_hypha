@@ -183,6 +183,15 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         spectrumToggle.setColour (juce::TextButton::textColourOffId, COL_MUTED);
         spectrumToggle.onClick = [this] { setSpectrumMode (! spectrumMode); };
         addAndMakeVisible (spectrumToggle);
+        spectrumSizeToggle.setTitle ("Spectrum size");
+        spectrumSizeToggle.setDescription (
+            "Cycle POST Spectrum between 100, 125, and 150 percent");
+        spectrumSizeToggle.setColour (juce::TextButton::buttonColourId, hypha::kFieldFill);
+        spectrumSizeToggle.setColour (juce::TextButton::textColourOnId, COL_SPECTRUM_DELTA);
+        spectrumSizeToggle.setColour (juce::TextButton::textColourOffId, COL_SPECTRUM_DELTA);
+        spectrumSizeToggle.onClick = [this] { cycleSpectrumSize(); };
+        updateSpectrumSizeControl();
+        addChildComponent (spectrumSizeToggle);
         addChildComponent (spectrumView);
        #endif
     }
@@ -280,7 +289,7 @@ void KirinHyphaEditor::paint (juce::Graphics& g)
 
 void KirinHyphaEditor::resized()
 {
-    const auto layout = ui::editorLayout (isPost, getWidth());
+    const auto layout = ui::editorLayout (isPost, getWidth(), getHeight());
     titleArea = juceRect (layout.title);
     led.setBounds (juceRect (layout.led));
     pairStatusLabel.setBounds (juceRect (layout.pairStatus));
@@ -291,7 +300,8 @@ void KirinHyphaEditor::resized()
     if (isPost)
     {
         spectrumToggle.setBounds (juceRect (ui::spectrumToggleBounds (getWidth())));
-        spectrumView.setBounds (juceRect (ui::spectrumPlotBounds (getWidth())));
+        spectrumSizeToggle.setBounds (juceRect (ui::spectrumSizeToggleBounds (getWidth())));
+        spectrumView.setBounds (juceRect (ui::spectrumPlotBounds (getWidth(), getHeight())));
     }
    #endif
     floraY = layout.floraY;
@@ -300,7 +310,14 @@ void KirinHyphaEditor::resized()
     layoutMetrics (currentSix);
     loudnessSelector.setBounds (juceRect (ui::loudnessSelectorBounds (metricTop, getWidth())));
     if (isPost && postControls != nullptr)
-        postControls->setBounds (juceRect (layout.postControls));
+    {
+        auto controlsBounds = layout.postControls;
+       #if ! KIRIN_HYPHA_PRE_DISPLAY
+        if (spectrumMode)
+            controlsBounds = ui::spectrumPostControlsBounds (getWidth(), getHeight());
+       #endif
+        postControls->setBounds (juceRect (controlsBounds));
+    }
 #if KIRIN_HYPHA_PRE_DISPLAY
     if (! isPost)
     {
@@ -340,14 +357,36 @@ void KirinHyphaEditor::setSpectrumMode (bool enabled)
         cell.setVisible (! enabled);
     loudnessSelector.setVisible (! enabled);
     spectrumView.setVisible (enabled);
+    spectrumSizeToggle.setVisible (enabled);
     spectrumToggle.setButtonText (enabled ? "METERS" : "SPECTRUM");
     spectrumToggle.setTooltip (ui::spectrumTooltip (enabled));
     spectrumToggle.setColour (juce::TextButton::textColourOffId,
                               enabled ? COL_SPECTRUM_DELTA : COL_MUTED);
+    const auto preset = enabled ? ui::spectrumSizePresets[spectrumSizeIndex]
+                                : ui::spectrumSizePresets[0];
+    if (getWidth() != preset.width || getHeight() != preset.height)
+        setSize (preset.width, preset.height);
     repaint();
     processorRef.setSpectrumVisible (enabled);
     if (! enabled)
         configureForKind (currentKind);
+}
+
+void KirinHyphaEditor::cycleSpectrumSize()
+{
+    if (! spectrumMode)
+        return;
+    spectrumSizeIndex = (spectrumSizeIndex + 1u) % ui::spectrumSizePresets.size();
+    updateSpectrumSizeControl();
+    const auto preset = ui::spectrumSizePresets[spectrumSizeIndex];
+    setSize (preset.width, preset.height);
+}
+
+void KirinHyphaEditor::updateSpectrumSizeControl()
+{
+    const auto preset = ui::spectrumSizePresets[spectrumSizeIndex];
+    spectrumSizeToggle.setButtonText (preset.buttonText);
+    spectrumSizeToggle.setTooltip (preset.tooltip);
 }
 #endif
 

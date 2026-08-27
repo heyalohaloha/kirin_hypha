@@ -111,6 +111,62 @@ namespace
              + valueWidth + ui::metricHorizontalSpacing
              + hypha::labelFont (ui::metricUnitFontHeight).getStringWidthFloat (unit);
     }
+
+    struct SpectrumRenderResult
+    {
+        juce::Image image;
+        double paintMs = 0.0;
+    };
+
+    SpectrumRenderResult renderSpectrumAtSize (
+        const KirinSpectrumView& snapshot,
+        const ui::SpectrumSizePreset& preset,
+        const char* outputEnvironmentVariable)
+    {
+        hypha::SpectrumComponent component;
+        const auto bounds = ui::spectrumPlotBounds (preset.width, preset.height);
+        component.setSize (bounds.width, bounds.height);
+        component.setSnapshot (snapshot);
+
+        const float scale = ui::spectrumVisualScale (bounds.width);
+        const float leftInset = (float) ui::spectrumPlotLeftInset * scale;
+        const float rightInset = (float) ui::spectrumPlotRightInset * scale;
+        const float hoverX = leftInset + 0.70f * ((float) bounds.width
+                                                 - leftInset - rightInset);
+        const float hoverY = (float) ui::spectrumPlotTopInset * scale + 20.0f * scale;
+        const auto eventTime = juce::Time::getCurrentTime();
+        const juce::MouseEvent hoverEvent (
+            juce::Desktop::getInstance().getMainMouseSource(),
+            { hoverX, hoverY }, {}, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+            &component, &component, eventTime,
+            { hoverX, hoverY }, eventTime, 0, false);
+        component.mouseMove (hoverEvent);
+        component.presentationTick();
+
+        SpectrumRenderResult result {
+            juce::Image (juce::Image::ARGB, bounds.width, bounds.height, true), 0.0
+        };
+        constexpr int paintIterations = 200;
+        const double startedMs = juce::Time::getMillisecondCounterHiRes();
+        for (int iteration = 0; iteration < paintIterations; ++iteration)
+        {
+            result.image.clear (result.image.getBounds(), hypha::BG);
+            juce::Graphics graphics (result.image);
+            component.paintEntireComponent (graphics, true);
+        }
+        result.paintMs = (juce::Time::getMillisecondCounterHiRes() - startedMs)
+                       / paintIterations;
+
+        const auto outputPath = juce::SystemStats::getEnvironmentVariable (
+            outputEnvironmentVariable, {});
+        if (outputPath.isNotEmpty())
+        {
+            auto output = juce::File (outputPath).createOutputStream();
+            KIRIN_REQUIRE (output != nullptr);
+            KIRIN_REQUIRE (juce::PNGImageFormat().writeImageToStream (result.image, *output));
+        }
+        return result;
+    }
 }
 
 int main()
@@ -170,6 +226,15 @@ int main()
                          ui::spectrumHoverFrequencyWidth));
     KIRIN_REQUIRE (fits (hypha::monoFont (8.5f), juce::CharPointer_UTF8 ("Δ+18.0"),
                          ui::spectrumHoverDeltaWidth));
+    for (const auto& preset : ui::spectrumSizePresets)
+    {
+        juce::TextButton sizeButton (preset.buttonText);
+        sizeButton.setSize (ui::spectrumSizeToggleWidth, ui::spectrumToggleHeight);
+        const auto buttonFont = sizeButton.getLookAndFeel().getTextButtonFont (
+            sizeButton, ui::spectrumToggleHeight);
+        KIRIN_REQUIRE (fits (buttonFont, preset.buttonText,
+                             ui::spectrumSizeToggleWidth - 8));
+    }
     // JUCE's TooltipWindow lays out 13 px bold text and adds 14 px of horizontal padding.
     // Keep the complete native tooltip inside the 300 px editor instead of relying on clipping.
     const juce::Font tooltipFont (13.0f, juce::Font::bold);
@@ -309,28 +374,28 @@ int main()
     KIRIN_REQUIRE (preCurveRuns >= 1 && preCurveRuns <= 5);
     KIRIN_REQUIRE (postCurveRuns == 1);
 
-    juce::Image spectrumPreview (
-        juce::Image::ARGB, spectrum.getWidth(), spectrum.getHeight(), true);
-    constexpr int spectrumPaintIterations = 200;
-    const double spectrumPaintStartedMs = juce::Time::getMillisecondCounterHiRes();
-    for (int iteration = 0; iteration < spectrumPaintIterations; ++iteration)
-    {
-        spectrumPreview.clear (spectrumPreview.getBounds(), hypha::BG);
-        juce::Graphics graphics (spectrumPreview);
-        spectrum.paintEntireComponent (graphics, true);
-    }
-    const double spectrumPaintMs = (juce::Time::getMillisecondCounterHiRes()
-                                  - spectrumPaintStartedMs) / spectrumPaintIterations;
-    KIRIN_REQUIRE (spectrumPaintMs < 4.0);
-
-    const auto outputPath = juce::SystemStats::getEnvironmentVariable (
-        "KIRIN_UI_RENDER_OUTPUT", {});
-    if (outputPath.isNotEmpty())
-    {
-        auto output = juce::File (outputPath).createOutputStream();
-        KIRIN_REQUIRE (output != nullptr);
-        KIRIN_REQUIRE (juce::PNGImageFormat().writeImageToStream (spectrumPreview, *output));
-    }
+    const auto compactSpectrum = renderSpectrumAtSize (
+        spectrumSnapshot, ui::spectrumSizePresets[0], "KIRIN_UI_RENDER_OUTPUT");
+    const auto mediumSpectrum = renderSpectrumAtSize (
+        spectrumSnapshot, ui::spectrumSizePresets[1], "KIRIN_UI_RENDER_OUTPUT_MEDIUM");
+    const auto largeSpectrum = renderSpectrumAtSize (
+        spectrumSnapshot, ui::spectrumSizePresets[2], "KIRIN_UI_RENDER_OUTPUT_LARGE");
+    const auto mediumBounds = ui::spectrumPlotBounds (375, 250);
+    const auto largeBounds = ui::spectrumPlotBounds (450, 300);
+    KIRIN_REQUIRE (mediumSpectrum.image.getWidth() == mediumBounds.width);
+    KIRIN_REQUIRE (mediumSpectrum.image.getHeight() == mediumBounds.height);
+    KIRIN_REQUIRE (largeSpectrum.image.getWidth() == largeBounds.width);
+    KIRIN_REQUIRE (largeSpectrum.image.getHeight() == largeBounds.height);
+    KIRIN_REQUIRE (countVisiblePixels (mediumSpectrum.image,
+                                       mediumSpectrum.image.getBounds()) > 1'000);
+    KIRIN_REQUIRE (countVisiblePixels (largeSpectrum.image,
+                                       largeSpectrum.image.getBounds()) > 1'500);
+    std::cout << "Spectrum paint samples: " << compactSpectrum.paintMs
+              << '/' << mediumSpectrum.paintMs
+              << '/' << largeSpectrum.paintMs << " ms/frame\n";
+    KIRIN_REQUIRE (compactSpectrum.paintMs < 4.0);
+    KIRIN_REQUIRE (mediumSpectrum.paintMs < 6.0);
+    KIRIN_REQUIRE (largeSpectrum.paintMs < 8.0);
 
     std::cout << "UI render contract passed: label="
               << label.getTypefaceName().toStdString()
@@ -341,6 +406,8 @@ int main()
               << ", vector-arrow=" << arrowPixels << " pixels"
               << ", PRE-runs=" << preCurveRuns
               << ", POST-runs=" << postCurveRuns
-              << ", spectrum-paint=" << spectrumPaintMs << " ms/frame\n";
+              << ", spectrum-paint=" << compactSpectrum.paintMs
+              << '/' << mediumSpectrum.paintMs
+              << '/' << largeSpectrum.paintMs << " ms/frame\n";
     return 0;
 }

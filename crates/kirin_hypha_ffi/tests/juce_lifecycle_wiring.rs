@@ -35,7 +35,7 @@ fn shipped_au_and_vst3_compile_the_same_editor_processor_and_control_contract() 
         );
     }
     assert!(juce_editor.contains("setSize (ui::editorWidth, ui::editorHeight)"));
-    assert!(juce_editor.contains("ui::editorLayout (isPost, getWidth())"));
+    assert!(juce_editor.contains("ui::editorLayout (isPost, getWidth(), getHeight())"));
     assert!(juce_editor.contains("ui::watchMetrics"));
     assert!(juce_editor.contains("ui::recordMetrics"));
     assert!(juce_editor.contains("ui::metricLabelFontHeight"));
@@ -351,6 +351,29 @@ fn spectrum_is_post_only_on_demand_and_isolated_from_existing_schemas() {
     assert!(editor.contains("#if ! KIRIN_HYPHA_PRE_DISPLAY"));
     assert!(editor.contains("setSpectrumMode (! spectrumMode)"));
     assert!(editor.contains("processorRef.setSpectrumVisible (false)"));
+    assert!(editor.contains("spectrumSizeIndex + 1u"));
+    assert!(editor.contains("ui::spectrumSizePresets[spectrumSizeIndex]"));
+    assert!(editor.contains(": ui::spectrumSizePresets[0]"));
+    assert!(editor.contains("setSize (preset.width, preset.height)"));
+    assert!(!editor.contains("setResizable (true"));
+
+    let ui_contract = read_repo("juce_shell/src/HyphaUiContract.h");
+    for fixed_size in [
+        "{ 300, 200, \"100%\"",
+        "{ 375, 250, \"125%\"",
+        "{ 450, 300, \"150%\"",
+    ] {
+        assert!(
+            ui_contract.contains(fixed_size),
+            "POST Spectrum fixed size missing {fixed_size}"
+        );
+    }
+
+    let processor = read_repo("juce_shell/src/PluginProcessor.cpp");
+    assert!(
+        !processor.contains("spectrum_size"),
+        "editor size must not enter DAW/plugin state"
+    );
 
     let cmake = read_repo("juce_shell/CMakeLists.txt");
     let post_only_branch = slice_between(

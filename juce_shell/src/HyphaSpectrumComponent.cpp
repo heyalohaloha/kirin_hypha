@@ -43,6 +43,20 @@ namespace
             curve.lineTo (x[index], y[index]);
         return curve;
     }
+
+    float visualScaleFor (juce::Rectangle<float> bounds) noexcept
+    {
+        return ui_contract::spectrumVisualScale (juce::roundToInt (bounds.getWidth()));
+    }
+
+    juce::Rectangle<float> plotBoundsFor (juce::Rectangle<float> bounds) noexcept
+    {
+        const float scale = visualScaleFor (bounds);
+        return bounds.withTrimmedLeft ((float) ui_contract::spectrumPlotLeftInset * scale)
+                     .withTrimmedRight ((float) ui_contract::spectrumPlotRightInset * scale)
+                     .withTrimmedTop ((float) ui_contract::spectrumPlotTopInset * scale)
+                     .withTrimmedBottom ((float) ui_contract::spectrumPlotBottomInset * scale);
+    }
 }
 
 SpectrumComponent::SpectrumComponent()
@@ -70,11 +84,7 @@ void SpectrumComponent::presentationTick()
 
 void SpectrumComponent::mouseMove (const juce::MouseEvent& event)
 {
-    const auto plot = getLocalBounds().toFloat()
-                          .withTrimmedLeft ((float) ui_contract::spectrumPlotLeftInset)
-                          .withTrimmedRight ((float) ui_contract::spectrumPlotRightInset)
-                          .withTrimmedTop ((float) ui_contract::spectrumPlotTopInset)
-                          .withTrimmedBottom ((float) ui_contract::spectrumPlotBottomInset);
+    const auto plot = plotBoundsFor (getLocalBounds().toFloat());
     const auto position = event.position;
     const float next = plot.contains (position)
                          ? juce::jlimit (0.0f, 1.0f,
@@ -142,30 +152,36 @@ juce::String SpectrumComponent::statusText (uint8_t status)
 void SpectrumComponent::paint (juce::Graphics& g)
 {
     const auto bounds = getLocalBounds().toFloat();
-    const auto plot = bounds.withTrimmedLeft ((float) ui_contract::spectrumPlotLeftInset)
-                            .withTrimmedRight ((float) ui_contract::spectrumPlotRightInset)
-                            .withTrimmedTop ((float) ui_contract::spectrumPlotTopInset)
-                            .withTrimmedBottom ((float) ui_contract::spectrumPlotBottomInset);
+    const float scale = visualScaleFor (bounds);
+    const auto scaled = [scale] (float value) { return value * scale; };
+    const auto scaledInt = [scale] (int value) { return juce::roundToInt ((float) value * scale); };
+    const auto plot = plotBoundsFor (bounds);
     const float minimumHz = haveSnapshot && snapshot.min_hz > 0.0f ? snapshot.min_hz : 10.0f;
     const float maximumHz = haveSnapshot && snapshot.max_hz > minimumHz ? snapshot.max_hz : 22'000.0f;
     const float zeroY = yForDeltaDb (0.0f, plot);
 
-    g.setFont (monoFont (8.5f));
+    g.setFont (monoFont (scaled (8.5f)));
     g.setColour (COL_MUTED.withAlpha (0.86f));
-    g.drawText ("+18", 0, juce::roundToInt (plot.getY()) - 4, 21, 10,
+    g.drawText ("+18", 0, juce::roundToInt (plot.getY()) - scaledInt (4),
+                scaledInt (21), scaledInt (10),
                 juce::Justification::centredRight);
-    g.drawText ("0", 0, juce::roundToInt (zeroY) - 5, 21, 10,
+    g.drawText ("0", 0, juce::roundToInt (zeroY) - scaledInt (5),
+                scaledInt (21), scaledInt (10),
                 juce::Justification::centredRight);
-    g.drawText ("-18", 0, juce::roundToInt (plot.getBottom()) - 6, 21, 10,
+    g.drawText ("-18", 0, juce::roundToInt (plot.getBottom()) - scaledInt (6),
+                scaledInt (21), scaledInt (10),
                 juce::Justification::centredRight);
-    g.drawText ("0", juce::roundToInt (plot.getRight()) + 3,
-                juce::roundToInt (plot.getY()) - 4, 21, 10,
+    g.drawText ("0", juce::roundToInt (plot.getRight()) + scaledInt (3),
+                juce::roundToInt (plot.getY()) - scaledInt (4),
+                scaledInt (21), scaledInt (10),
                 juce::Justification::centredLeft);
-    g.drawText ("-48", juce::roundToInt (plot.getRight()) + 3,
-                juce::roundToInt (plot.getCentreY()) - 5, 21, 10,
+    g.drawText ("-48", juce::roundToInt (plot.getRight()) + scaledInt (3),
+                juce::roundToInt (plot.getCentreY()) - scaledInt (5),
+                scaledInt (21), scaledInt (10),
                 juce::Justification::centredLeft);
-    g.drawText ("-96", juce::roundToInt (plot.getRight()) + 3,
-                juce::roundToInt (plot.getBottom()) - 6, 21, 10,
+    g.drawText ("-96", juce::roundToInt (plot.getRight()) + scaledInt (3),
+                juce::roundToInt (plot.getBottom()) - scaledInt (6),
+                scaledInt (21), scaledInt (10),
                 juce::Justification::centredLeft);
 
     for (float db : { -12.0f, -6.0f, 6.0f, 12.0f })
@@ -183,14 +199,17 @@ void SpectrumComponent::paint (juce::Graphics& g)
     }
 
     g.setColour (COL_MUTED.withAlpha (0.9f));
-    g.drawText ("10", juce::roundToInt (plot.getX()), juce::roundToInt (plot.getBottom()) + 1,
-                30, 10, juce::Justification::centredLeft);
+    g.drawText ("10", juce::roundToInt (plot.getX()),
+                juce::roundToInt (plot.getBottom()) + scaledInt (1),
+                scaledInt (30), scaledInt (10), juce::Justification::centredLeft);
     const float oneKhzX = xForFrequency (1'000.0f, minimumHz, maximumHz, plot);
-    g.drawText ("1k", juce::roundToInt (oneKhzX) - 15,
-                juce::roundToInt (plot.getBottom()) + 1, 30, 10,
+    g.drawText ("1k", juce::roundToInt (oneKhzX) - scaledInt (15),
+                juce::roundToInt (plot.getBottom()) + scaledInt (1),
+                scaledInt (30), scaledInt (10),
                 juce::Justification::centred);
-    g.drawText ("22k", juce::roundToInt (plot.getRight()) - 30,
-                juce::roundToInt (plot.getBottom()) + 1, 30, 10,
+    g.drawText ("22k", juce::roundToInt (plot.getRight()) - scaledInt (30),
+                juce::roundToInt (plot.getBottom()) + scaledInt (1),
+                scaledInt (30), scaledInt (10),
                 juce::Justification::centredRight);
 
     if (! haveSnapshot || ! validSnapshot (snapshot))
@@ -200,7 +219,7 @@ void SpectrumComponent::paint (juce::Graphics& g)
         if (text.isNotEmpty())
         {
             g.setColour (COL_MUTED);
-            g.setFont (monoFont (13.0f));
+            g.setFont (monoFont (scaled (13.0f)));
             g.drawText (text, plot, juce::Justification::centred);
         }
         return;
@@ -224,12 +243,20 @@ void SpectrumComponent::paint (juce::Graphics& g)
     const juce::Path postCurve = makeCurve (x, postY);
     const juce::Path deltaCurve = makeCurve (x, deltaY);
 
-    constexpr size_t intensityLevelCount = 7u;
-    std::array<juce::Path, intensityLevelCount> intensityTips;
+    constexpr size_t intensityLevelCount = ui_contract::spectrumTipAlpha.size();
+    constexpr float intensityStepDb = kDeltaRangeDb / (float) (intensityLevelCount - 1u);
+    constexpr std::array<float, 6> tipDepthCoverage {
+        1.00f, 0.79f, 0.60f, 0.43f, 0.28f, 0.14f
+    };
+    constexpr std::array<float, tipDepthCoverage.size()> tipAlphaShare {
+        0.055f, 0.080f, 0.130f, 0.200f, 0.310f, 0.480f
+    };
+    std::array<std::array<juce::Path, intensityLevelCount>, tipDepthCoverage.size()>
+        intensityTips;
     std::array<juce::Path, intensityLevelCount> highlights;
-    const auto innerTipY = [&plot] (float db) {
+    const auto innerTipY = [&plot] (float db, float coverage) {
         const float magnitudeDb = std::abs (db);
-        const float tipDepthDb = std::min (3.0f, magnitudeDb * 0.38f);
+        const float tipDepthDb = std::min (3.0f, magnitudeDb * 0.38f) * coverage;
         const float innerDb = std::copysign (magnitudeDb - tipDepthDb, db);
         return yForDeltaDb (innerDb, plot);
     };
@@ -238,32 +265,40 @@ void SpectrumComponent::paint (juce::Graphics& g)
         const float magnitude = 0.5f * (std::abs (snapshot.display_db[index - 1])
                                       + std::abs (snapshot.display_db[index]));
         const size_t bucket = std::min (intensityLevelCount - 1u,
-                                        static_cast<size_t> (magnitude / 3.0f));
+                                        static_cast<size_t> (magnitude / intensityStepDb));
         if (bucket > 0u)
         {
-            intensityTips[bucket].startNewSubPath (x[index - 1], deltaY[index - 1]);
-            intensityTips[bucket].lineTo (x[index], deltaY[index]);
-            intensityTips[bucket].lineTo (x[index], innerTipY (snapshot.display_db[index]));
-            intensityTips[bucket].lineTo (x[index - 1],
-                                           innerTipY (snapshot.display_db[index - 1]));
-            intensityTips[bucket].closeSubPath();
+            for (size_t layer = 0; layer < tipDepthCoverage.size(); ++layer)
+            {
+                auto& tip = intensityTips[layer][bucket];
+                tip.startNewSubPath (x[index - 1], deltaY[index - 1]);
+                tip.lineTo (x[index], deltaY[index]);
+                tip.lineTo (x[index], innerTipY (snapshot.display_db[index],
+                                                  tipDepthCoverage[layer]));
+                tip.lineTo (x[index - 1], innerTipY (snapshot.display_db[index - 1],
+                                                      tipDepthCoverage[layer]));
+                tip.closeSubPath();
+            }
         }
         highlights[bucket].startNewSubPath (x[index - 1], deltaY[index - 1]);
         highlights[bucket].lineTo (x[index], deltaY[index]);
     }
 
     g.setColour (COL_SPECTRUM_PRE.withAlpha (ui_contract::spectrumPreCurveAlpha));
-    g.strokePath (preCurve, juce::PathStrokeType (ui_contract::spectrumPreStrokeWidth,
-                                                  juce::PathStrokeType::curved,
-                                                  juce::PathStrokeType::rounded));
+    g.strokePath (preCurve,
+                  juce::PathStrokeType (scaled (ui_contract::spectrumPreStrokeWidth),
+                                        juce::PathStrokeType::curved,
+                                        juce::PathStrokeType::rounded));
     g.setColour (COL_SPECTRUM_POST.withAlpha (ui_contract::spectrumPostGlowAlpha));
-    g.strokePath (postCurve, juce::PathStrokeType (ui_contract::spectrumPostGlowStrokeWidth,
-                                                   juce::PathStrokeType::curved,
-                                                   juce::PathStrokeType::rounded));
+    g.strokePath (postCurve,
+                  juce::PathStrokeType (scaled (ui_contract::spectrumPostGlowStrokeWidth),
+                                        juce::PathStrokeType::curved,
+                                        juce::PathStrokeType::rounded));
     g.setColour (COL_SPECTRUM_POST.withAlpha (ui_contract::spectrumPostCurveAlpha));
-    g.strokePath (postCurve, juce::PathStrokeType (ui_contract::spectrumPostStrokeWidth,
-                                                   juce::PathStrokeType::curved,
-                                                   juce::PathStrokeType::rounded));
+    g.strokePath (postCurve,
+                  juce::PathStrokeType (scaled (ui_contract::spectrumPostStrokeWidth),
+                                        juce::PathStrokeType::curved,
+                                        juce::PathStrokeType::rounded));
 
     juce::Path deltaFill;
     deltaFill.setUsingNonZeroWinding (false);
@@ -284,47 +319,57 @@ void SpectrumComponent::paint (juce::Graphics& g)
 
     // A fact-derived tip ribbon adds density beside the Δ edge, never across the whole body.
     // It has no hold state or animation: every filled segment belongs to this exact snapshot.
-    for (size_t bucket = 1; bucket < intensityTips.size(); ++bucket)
+    for (size_t layer = 0; layer < intensityTips.size(); ++layer)
     {
-        g.setColour (COL_SPECTRUM_DELTA_BR.withAlpha (
-            ui_contract::spectrumTipAlpha[bucket]));
-        g.fillPath (intensityTips[bucket]);
+        for (size_t bucket = 1; bucket < intensityTips[layer].size(); ++bucket)
+        {
+            g.setColour (COL_SPECTRUM_DELTA_BR.withAlpha (
+                ui_contract::spectrumTipAlpha[bucket] * tipAlphaShare[layer]));
+            g.fillPath (intensityTips[layer][bucket]);
+        }
     }
 
     g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.21f));
-    g.drawLine (plot.getX(), zeroY, plot.getRight(), zeroY, 3.2f);
+    g.drawLine (plot.getX(), zeroY, plot.getRight(), zeroY, scaled (3.2f));
     g.setColour (COL_SPECTRUM_DELTA_BR.withAlpha (0.76f));
-    g.drawLine (plot.getX(), zeroY, plot.getRight(), zeroY, 1.0f);
+    g.drawLine (plot.getX(), zeroY, plot.getRight(), zeroY, scaled (1.0f));
 
     g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.17f));
-    g.strokePath (deltaCurve, juce::PathStrokeType (4.6f, juce::PathStrokeType::curved,
+    g.strokePath (deltaCurve, juce::PathStrokeType (scaled (4.6f),
+                                                    juce::PathStrokeType::curved,
                                                     juce::PathStrokeType::rounded));
     g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.94f));
-    g.strokePath (deltaCurve, juce::PathStrokeType (2.15f, juce::PathStrokeType::curved,
+    g.strokePath (deltaCurve, juce::PathStrokeType (scaled (2.15f),
+                                                    juce::PathStrokeType::curved,
                                                     juce::PathStrokeType::rounded));
 
     constexpr std::array<float, intensityLevelCount> highlightAlpha {
-        0.10f, 0.24f, 0.38f, 0.53f, 0.68f, 0.82f, 0.94f
+        0.10f, 0.16f, 0.22f, 0.29f, 0.36f, 0.44f, 0.52f,
+        0.60f, 0.68f, 0.75f, 0.82f, 0.89f, 0.94f
     };
     for (size_t bucket = 0; bucket < highlights.size(); ++bucket)
     {
         g.setColour (COL_SPECTRUM_DELTA_BR.withAlpha (highlightAlpha[bucket]));
-        g.strokePath (highlights[bucket], juce::PathStrokeType (1.15f,
+        g.strokePath (highlights[bucket], juce::PathStrokeType (scaled (1.15f),
                                                                juce::PathStrokeType::curved,
                                                                juce::PathStrokeType::rounded));
     }
 
-    const float legendTop = plot.getY() + (float) ui_contract::spectrumLegendTop;
-    g.setFont (monoFont (ui_contract::spectrumLegendFontHeight));
+    const float legendTop = plot.getY() + scaled ((float) ui_contract::spectrumLegendTop);
+    g.setFont (monoFont (scaled (ui_contract::spectrumLegendFontHeight)));
     g.setColour (COL_SPECTRUM_PRE.withAlpha (ui_contract::spectrumPreLegendAlpha));
-    g.drawText ("PRE", juce::roundToInt (plot.getX()) + ui_contract::spectrumPreLegendLabelX,
-                juce::roundToInt (legendTop), ui_contract::spectrumPreLegendLabelWidth,
-                ui_contract::spectrumLegendHeight,
+    g.drawText ("PRE", juce::roundToInt (plot.getX())
+                         + scaledInt (ui_contract::spectrumPreLegendLabelX),
+                juce::roundToInt (legendTop),
+                scaledInt (ui_contract::spectrumPreLegendLabelWidth),
+                scaledInt (ui_contract::spectrumLegendHeight),
                 juce::Justification::centredLeft);
     g.setColour (COL_SPECTRUM_POST.withAlpha (ui_contract::spectrumPostLegendAlpha));
-    g.drawText ("POST", juce::roundToInt (plot.getX()) + ui_contract::spectrumPostLegendLabelX,
-                juce::roundToInt (legendTop), ui_contract::spectrumPostLegendLabelWidth,
-                ui_contract::spectrumLegendHeight,
+    g.drawText ("POST", juce::roundToInt (plot.getX())
+                          + scaledInt (ui_contract::spectrumPostLegendLabelX),
+                juce::roundToInt (legendTop),
+                scaledInt (ui_contract::spectrumPostLegendLabelWidth),
+                scaledInt (ui_contract::spectrumLegendHeight),
                 juce::Justification::centredLeft);
 
     if (hoverNormalisedX >= 0.0f)
@@ -342,21 +387,24 @@ void SpectrumComponent::paint (juce::Graphics& g)
 
         g.setColour (COL_NORMAL.withAlpha (0.30f));
         g.drawLine (hoverX, plot.getY(), hoverX, plot.getBottom(),
-                    ui_contract::spectrumHoverLineWidth);
+                    scaled (ui_contract::spectrumHoverLineWidth));
         g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.18f));
-        g.fillEllipse (hoverX - 3.5f, pointY - 3.5f, 7.0f, 7.0f);
+        g.fillEllipse (hoverX - scaled (3.5f), pointY - scaled (3.5f),
+                       scaled (7.0f), scaled (7.0f));
         g.setColour (COL_SPECTRUM_DELTA_BR.withAlpha (0.98f));
-        g.fillEllipse (hoverX - 1.65f, pointY - 1.65f, 3.3f, 3.3f);
+        g.fillEllipse (hoverX - scaled (1.65f), pointY - scaled (1.65f),
+                       scaled (3.3f), scaled (3.3f));
 
         const auto readout = juce::Rectangle<float> (
-            plot.getRight() - (float) ui_contract::spectrumHoverReadoutWidth,
-            plot.getY() + (float) ui_contract::spectrumHoverReadoutInset,
-            (float) ui_contract::spectrumHoverReadoutWidth,
-            (float) ui_contract::spectrumHoverReadoutHeight);
+            plot.getRight() - scaled ((float) ui_contract::spectrumHoverReadoutWidth),
+            plot.getY() + scaled ((float) ui_contract::spectrumHoverReadoutInset),
+            scaled ((float) ui_contract::spectrumHoverReadoutWidth),
+            scaled ((float) ui_contract::spectrumHoverReadoutHeight));
         g.setColour (BG.brighter (0.10f).withAlpha (0.96f));
-        g.fillRoundedRectangle (readout, ui_contract::spectrumHoverReadoutRadius);
+        g.fillRoundedRectangle (readout, scaled (ui_contract::spectrumHoverReadoutRadius));
         g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.38f));
-        g.drawRoundedRectangle (readout, ui_contract::spectrumHoverReadoutRadius, 0.75f);
+        g.drawRoundedRectangle (readout, scaled (ui_contract::spectrumHoverReadoutRadius),
+                                scaled (0.75f));
 
         const float frequency = frequencyForNormalisedX (
             hoverNormalisedX, minimumHz, maximumHz);
@@ -364,18 +412,20 @@ void SpectrumComponent::paint (juce::Graphics& g)
         const auto deltaText = juce::String (deltaDb >= 0.0f ? "+" : "")
                              + juce::String (deltaDb, 1);
         const int textY = juce::roundToInt (readout.getY());
-        g.setFont (monoFont (8.5f));
+        g.setFont (monoFont (scaled (8.5f)));
         g.setColour (COL_NORMAL.withAlpha (0.94f));
         g.drawText (frequencyText,
-                    juce::roundToInt (readout.getX()) + ui_contract::spectrumHoverFrequencyX,
-                    textY, ui_contract::spectrumHoverFrequencyWidth,
-                    ui_contract::spectrumHoverReadoutHeight,
+                    juce::roundToInt (readout.getX())
+                        + scaledInt (ui_contract::spectrumHoverFrequencyX),
+                    textY, scaledInt (ui_contract::spectrumHoverFrequencyWidth),
+                    scaledInt (ui_contract::spectrumHoverReadoutHeight),
                     juce::Justification::centredLeft);
         g.setColour (COL_SPECTRUM_DELTA_BR.withAlpha (0.98f));
         g.drawText (juce::String (juce::CharPointer_UTF8 ("Δ")) + deltaText,
-                    juce::roundToInt (readout.getX()) + ui_contract::spectrumHoverDeltaX,
-                    textY, ui_contract::spectrumHoverDeltaWidth,
-                    ui_contract::spectrumHoverReadoutHeight,
+                    juce::roundToInt (readout.getX())
+                        + scaledInt (ui_contract::spectrumHoverDeltaX),
+                    textY, scaledInt (ui_contract::spectrumHoverDeltaWidth),
+                    scaledInt (ui_contract::spectrumHoverReadoutHeight),
                     juce::Justification::centredRight);
     }
 }

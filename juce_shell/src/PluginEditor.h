@@ -60,6 +60,8 @@ private:
     void updatePost();
 #if ! KIRIN_HYPHA_PRE_DISPLAY
     void setSpectrumMode (bool enabled);
+    void cycleSpectrumSize();
+    void updateSpectrumSizeControl();
 #endif
 
     // Which metric grid is configured (label/unit/font set). Abs* uses absolute labels
@@ -100,6 +102,7 @@ private:
     hypha::PairDropdownButton pairDropdown;                // POST: vector arrow / candidate / All Keep / All Stop
 #if ! KIRIN_HYPHA_PRE_DISPLAY
     juce::TextButton          spectrumToggle;               // POST: meters / Spectrum page
+    juce::TextButton          spectrumSizeToggle;           // POST Spectrum: 100/125/150 percent
     hypha::SpectrumComponent  spectrumView;                 // POST-only signed difference plot
 #endif
     juce::TooltipWindow       tooltip { this };           // drives per-cell hover help
@@ -108,6 +111,7 @@ private:
     bool   currentSix  = false;
 #if ! KIRIN_HYPHA_PRE_DISPLAY
     bool   spectrumMode = false;
+    size_t spectrumSizeIndex = 0;
 #endif
     int    metricTop   = 0;       // y of the first metric row (set in resized())
     int    floraY      = 0;       // y of the flora separator line
