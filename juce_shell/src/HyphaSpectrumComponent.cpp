@@ -71,10 +71,6 @@ void SpectrumComponent::setSnapshot (const KirinSpectrumView& next)
         return;
     snapshot = next;
     haveSnapshot = true;
-    if (validSnapshot (next))
-        ballistics.setTarget (next);
-    else
-        ballistics.reset();
     repaint();
 }
 
@@ -82,33 +78,17 @@ void SpectrumComponent::clearSnapshot()
 {
     snapshot = {};
     haveSnapshot = false;
-    ballistics.reset();
     hoverNormalisedX = -1.0f;
     hoverNeedsRepaint = false;
     repaint();
 }
 
-void SpectrumComponent::setPresentationActive (bool active)
-{
-    if (active)
-        startTimerHz (ui_contract::spectrumPresentationHz);
-    else
-        stopTimer();
-}
-
 void SpectrumComponent::presentationTick()
 {
-    const bool motionChanged = ballistics.advance (
-        1.0f / static_cast<float> (ui_contract::spectrumPresentationHz));
-    if (! hoverNeedsRepaint && ! motionChanged)
+    if (! hoverNeedsRepaint)
         return;
     hoverNeedsRepaint = false;
     repaint();
-}
-
-void SpectrumComponent::timerCallback()
-{
-    presentationTick();
 }
 
 void SpectrumComponent::mouseMove (const juce::MouseEvent& event)
@@ -241,7 +221,7 @@ void SpectrumComponent::paint (juce::Graphics& g)
                 scaledInt (30), scaledInt (10),
                 juce::Justification::centredRight);
 
-    if (! haveSnapshot || ! validSnapshot (snapshot) || ! ballistics.hasFrame())
+    if (! haveSnapshot || ! validSnapshot (snapshot))
     {
         const auto text = haveSnapshot ? statusText (snapshot.status)
                                        : juce::String ("SYNC");
@@ -254,7 +234,6 @@ void SpectrumComponent::paint (juce::Graphics& g)
         return;
     }
 
-    const auto& presented = ballistics.frame();
     std::array<float, KIRIN_SPECTRUM_BAND_COUNT> x {};
     std::array<float, KIRIN_SPECTRUM_BAND_COUNT> preY {};
     std::array<float, KIRIN_SPECTRUM_BAND_COUNT> postY {};
@@ -264,9 +243,9 @@ void SpectrumComponent::paint (juce::Graphics& g)
         x[index] = juce::jmap (static_cast<float> (index), 0.0f,
                                static_cast<float> (KIRIN_SPECTRUM_BAND_COUNT - 1u),
                                plot.getX(), plot.getRight());
-        preY[index] = yForMagnitudeDbfs (presented.pre_dbfs[index], plot);
-        postY[index] = yForMagnitudeDbfs (presented.post_dbfs[index], plot);
-        deltaY[index] = yForDeltaDb (presented.display_db[index], plot);
+        preY[index] = yForMagnitudeDbfs (snapshot.pre_dbfs[index], plot);
+        postY[index] = yForMagnitudeDbfs (snapshot.post_dbfs[index], plot);
+        deltaY[index] = yForDeltaDb (snapshot.display_db[index], plot);
     }
 
     const juce::Path preCurve = makeCurve (x, preY);
@@ -292,8 +271,8 @@ void SpectrumComponent::paint (juce::Graphics& g)
     };
     for (size_t index = 1; index < KIRIN_SPECTRUM_BAND_COUNT; ++index)
     {
-        const float magnitude = 0.5f * (std::abs (presented.display_db[index - 1])
-                                      + std::abs (presented.display_db[index]));
+        const float magnitude = 0.5f * (std::abs (snapshot.display_db[index - 1])
+                                      + std::abs (snapshot.display_db[index]));
         const size_t bucket = std::min (intensityLevelCount - 1u,
                                         static_cast<size_t> (magnitude / intensityStepDb));
         if (bucket > 0u)
@@ -303,9 +282,9 @@ void SpectrumComponent::paint (juce::Graphics& g)
                 auto& tip = intensityTips[layer][bucket];
                 tip.startNewSubPath (x[index - 1], deltaY[index - 1]);
                 tip.lineTo (x[index], deltaY[index]);
-                tip.lineTo (x[index], innerTipY (presented.display_db[index],
+                tip.lineTo (x[index], innerTipY (snapshot.display_db[index],
                                                   tipDepthCoverage[layer]));
-                tip.lineTo (x[index - 1], innerTipY (presented.display_db[index - 1],
+                tip.lineTo (x[index - 1], innerTipY (snapshot.display_db[index - 1],
                                                       tipDepthCoverage[layer]));
                 tip.closeSubPath();
             }
@@ -348,7 +327,7 @@ void SpectrumComponent::paint (juce::Graphics& g)
     g.fillPath (deltaFill);
 
     // A fact-derived tip ribbon adds density beside the Δ edge, never across the whole body.
-    // It follows the same presented Δ values as the line and base fill, with no separate hold.
+    // It has no hold state or animation: every filled segment belongs to this exact snapshot.
     for (size_t layer = 0; layer < intensityTips.size(); ++layer)
     {
         for (size_t bucket = 1; bucket < intensityTips[layer].size(); ++bucket)
@@ -411,8 +390,8 @@ void SpectrumComponent::paint (juce::Graphics& g)
         const size_t upper = std::min (
             lower + 1u, static_cast<size_t> (KIRIN_SPECTRUM_BAND_COUNT - 1u));
         const float blend = bandPosition - (float) lower;
-        const float deltaDb = juce::jmap (blend, presented.display_db[lower],
-                                         presented.display_db[upper]);
+        const float deltaDb = juce::jmap (blend, snapshot.display_db[lower],
+                                         snapshot.display_db[upper]);
         const float pointY = yForDeltaDb (deltaDb, plot);
 
         g.setColour (COL_NORMAL.withAlpha (0.30f));

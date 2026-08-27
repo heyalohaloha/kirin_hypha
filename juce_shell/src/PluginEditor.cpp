@@ -252,9 +252,6 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
 KirinHyphaEditor::~KirinHyphaEditor()
 {
     stopTimer();
-#if ! KIRIN_HYPHA_PRE_DISPLAY
-    spectrumView.setPresentationActive (false);
-#endif
     if (isPost)
         processorRef.setSpectrumVisible (false);
 }
@@ -356,7 +353,6 @@ void KirinHyphaEditor::setSpectrumMode (bool enabled)
     if (! isPost || spectrumMode == enabled)
         return;
     spectrumView.clearSnapshot();
-    spectrumView.setPresentationActive (enabled);
     spectrumMode = enabled;
     for (auto& cell : cells)
         cell.setVisible (! enabled);
@@ -846,6 +842,7 @@ void KirinHyphaEditor::updatePost()
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     if (spectrumMode)
     {
+        spectrumView.presentationTick();
         KirinSpectrumView spectrum {};
         if (processorRef.pollSpectrum (spectrum))
             spectrumView.setSnapshot (spectrum);

@@ -121,7 +121,6 @@ int main()
     static_assert (ui::pairStatusFontHeight >= 13.0f);
     static_assert (ui::feedbackFontHeight >= 13.0f);
     static_assert (ui::preDisplayPresentationHz == 10);
-    static_assert (ui::spectrumPresentationHz == 30);
     static_assert (ui::menuFontHeight >= 16.0f);
     static_assert (ui::pairMenuItemHeight >= 28);
     static_assert (ui::pairMenuMinimumWidth >= ui::editorWidth);
