@@ -73,6 +73,14 @@ namespace hypha::ui_contract
     constexpr const char* maximumLabel = "MAX";
     constexpr const char* keepLabel = "Keep";
     constexpr const char* stopLabel = "Stop";
+    constexpr const char* spectrumShowTooltip = "Show POST - PRE spectrum";
+    constexpr const char* spectrumHideTooltip = "Return to meters";
+    constexpr int spectrumTooltipMaximumCharacters = 24;
+
+    constexpr const char* spectrumTooltip (bool spectrumMode) noexcept
+    {
+        return spectrumMode ? spectrumHideTooltip : spectrumShowTooltip;
+    }
 
     constexpr std::uint32_t background = 0xff0d0f1a;
     constexpr std::uint32_t normal     = 0xffe0e0e0;

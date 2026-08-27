@@ -273,6 +273,12 @@ int main()
     assert (! overlaps (spectrumPlot, post.postControls));
     assert (spectrumPlot.x == ui::margin && spectrumPlot.y == post.metricTop);
     assert (spectrumPlot.width == ui::editorWidth - 2 * ui::margin);
+    assert (std::strcmp (ui::spectrumTooltip (false), "Show POST - PRE spectrum") == 0);
+    assert (std::strcmp (ui::spectrumTooltip (true), "Return to meters") == 0);
+    assert (std::strlen (ui::spectrumTooltip (false))
+            <= static_cast<std::size_t> (ui::spectrumTooltipMaximumCharacters));
+    assert (std::strlen (ui::spectrumTooltip (true))
+            <= static_cast<std::size_t> (ui::spectrumTooltipMaximumCharacters));
     assert (post.feedback.y == 178 && post.feedback.height == 20);
     assert (pre.feedback.y == post.feedback.y);
     assert (pre.preDisplayPrimary.y == 126 && pre.preDisplayPrimary.height == 18);

@@ -134,6 +134,12 @@ int main()
                          preLayout.name.width));
     KIRIN_REQUIRE (fits (hypha::monoFont (ui::nameFontHeight),
                          "pair: WWWWWWWWWWWWWWWW", postLayout.name.width));
+    // JUCE's TooltipWindow lays out 13 px bold text and adds 14 px of horizontal padding.
+    // Keep the complete native tooltip inside the 300 px editor instead of relying on clipping.
+    const juce::Font tooltipFont (13.0f, juce::Font::bold);
+    const int tooltipMaximumWidth = ui::editorWidth - 2 * ui::margin - 14;
+    KIRIN_REQUIRE (fits (tooltipFont, ui::spectrumTooltip (false), tooltipMaximumWidth));
+    KIRIN_REQUIRE (fits (tooltipFont, ui::spectrumTooltip (true), tooltipMaximumWidth));
 
     const float metricWidth = static_cast<float> (
         ui::metricCellBounds (0, postLayout.metricTop).width);

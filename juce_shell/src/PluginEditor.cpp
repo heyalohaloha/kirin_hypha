@@ -177,7 +177,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
 
        #if ! KIRIN_HYPHA_PRE_DISPLAY
         spectrumToggle.setButtonText ("SPECTRUM");
-        spectrumToggle.setTooltip ("Show POST - PRE difference (±18 dB) over exact PRE/POST spectra (-96 to 0 dBFS)");
+        spectrumToggle.setTooltip (ui::spectrumTooltip (false));
         spectrumToggle.setColour (juce::TextButton::buttonColourId, hypha::kFieldFill);
         spectrumToggle.setColour (juce::TextButton::textColourOnId, COL_SPECTRUM_DELTA);
         spectrumToggle.setColour (juce::TextButton::textColourOffId, COL_MUTED);
@@ -341,6 +341,7 @@ void KirinHyphaEditor::setSpectrumMode (bool enabled)
     loudnessSelector.setVisible (! enabled);
     spectrumView.setVisible (enabled);
     spectrumToggle.setButtonText (enabled ? "METERS" : "SPECTRUM");
+    spectrumToggle.setTooltip (ui::spectrumTooltip (enabled));
     spectrumToggle.setColour (juce::TextButton::textColourOffId,
                               enabled ? COL_SPECTRUM_DELTA : COL_MUTED);
     repaint();
