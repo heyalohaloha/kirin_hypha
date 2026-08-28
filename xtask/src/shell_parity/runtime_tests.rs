@@ -311,3 +311,28 @@
             "JUCE POST Watch LED must remain active only while the displayed held values are not muted"
         );
     }
+    #[test]
+    fn readme_exposes_the_post_spectrum_measurement_boundary() {
+        let spectrum = README
+            .split("\n### ")
+            .find(|section| section.starts_with("POST Spectrum (on demand)\n"))
+            .expect("README POST Spectrum section");
+        let spectrum = spectrum.split_whitespace().collect::<Vec<_>>().join(" ");
+        for required_fact in [
+            "Analysis runs only while this page is open",
+            "Δ (POST − PRE)",
+            "±18 dB",
+            "output-presentation sample endpoint",
+            "−120 dBFS",
+            "−96 dBFS",
+            "4096-sample Hann window",
+            "8192-point FFT",
+            "averages their power",
+            "`(L+R)/2`",
+        ] {
+            assert!(
+                spectrum.contains(required_fact),
+                "README Spectrum contract missing {required_fact}"
+            );
+        }
+    }

@@ -52,6 +52,25 @@ In the Watch grid, the live 400 ms True Peak and its playback-pass MAX are shown
 Pressing **Keep** changes the grid labels; **Max TP** then means the maximum for the whole Keep
 session, including across transport stops.
 
+### POST Spectrum (on demand)
+
+A paired POST provides an optional **Spectrum** page for inspecting the processing between PRE and
+POST. Analysis runs only while this page is open. The signed **Δ (POST − PRE)** curve is the primary
+display, with absolute PRE and POST spectra retained as reference curves. Δ is shown on a ±18 dB
+scale; the underlying difference is not clipped. A difference is produced only when PRE and POST
+frames have the same sample rate, FFT layout, and output-presentation sample endpoint.
+
+Where both spectra are extremely quiet, the displayed Δ alone is faded toward zero: it is fully
+suppressed at and below −120 dBFS and reaches full strength at −96 dBFS. This display floor does not
+alter the captured PRE or POST values. The analyzer uses a 4096-sample Hann window, an 8192-point
+FFT, and a 30 Hz presentation cadence at the 48 kHz reference rate. It compares measured programme
+energy rather than reconstructing a plug-in transfer function, so narrow low-frequency EQ shapes can
+appear broader than the corresponding EQ control graph.
+
+Stereo Spectrum analysis transforms L and R independently and averages their power, so opposite-
+polarity channels do not cancel. N and Sharpness instead use the mono waveform `(L+R)/2`; the two
+views can therefore differ on wide or phase-opposed material.
+
 ### Record mode (Kirin OS required)
 
 | Metric | Window / Unit | Standard |

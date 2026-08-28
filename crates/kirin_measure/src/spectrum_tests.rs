@@ -8,6 +8,186 @@ fn sine(sample_rate: u32, frequency: f32, phase: f32) -> Vec<f32> {
         .collect()
 }
 
+#[derive(Clone, Copy)]
+struct ReferencePeakingEq {
+    b0: f64,
+    b1: f64,
+    b2: f64,
+    a1: f64,
+    a2: f64,
+    z1: f64,
+    z2: f64,
+}
+
+impl ReferencePeakingEq {
+    fn new(sample_rate: f64, frequency: f64, q: f64, gain_db: f64) -> Self {
+        let amplitude = 10.0_f64.powf(gain_db / 40.0);
+        let omega = std::f64::consts::TAU * frequency / sample_rate;
+        let alpha = omega.sin() / (2.0 * q);
+        let a0 = 1.0 + alpha / amplitude;
+        Self {
+            b0: (1.0 + alpha * amplitude) / a0,
+            b1: (-2.0 * omega.cos()) / a0,
+            b2: (1.0 - alpha * amplitude) / a0,
+            a1: (-2.0 * omega.cos()) / a0,
+            a2: (1.0 - alpha / amplitude) / a0,
+            z1: 0.0,
+            z2: 0.0,
+        }
+    }
+
+    fn process(&mut self, input: f32) -> f32 {
+        let output = self.b0 * f64::from(input) + self.z1;
+        self.z1 = self.b1 * f64::from(input) - self.a1 * output + self.z2;
+        self.z2 = self.b2 * f64::from(input) - self.a2 * output;
+        output as f32
+    }
+
+    fn response_db(self, sample_rate: f64, frequency: f64) -> f64 {
+        let omega = std::f64::consts::TAU * frequency / sample_rate;
+        let numerator_real = self.b0 + self.b1 * omega.cos() + self.b2 * (2.0 * omega).cos();
+        let numerator_imag = -self.b1 * omega.sin() - self.b2 * (2.0 * omega).sin();
+        let denominator_real = 1.0 + self.a1 * omega.cos() + self.a2 * (2.0 * omega).cos();
+        let denominator_imag = -self.a1 * omega.sin() - self.a2 * (2.0 * omega).sin();
+        let magnitude_squared = (numerator_real * numerator_real + numerator_imag * numerator_imag)
+            / (denominator_real * denominator_real + denominator_imag * denominator_imag);
+        10.0 * magnitude_squared.log10()
+    }
+}
+
+fn deterministic_noise(length: usize) -> Vec<f32> {
+    let mut state = 0x4d59_5df4_d0f3_3173_u64;
+    (0..length)
+        .map(|_| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            let unit = ((state >> 40) as u32) as f32 / ((1_u32 << 24) - 1) as f32;
+            (unit * 2.0 - 1.0) * 0.25
+        })
+        .collect()
+}
+
+fn spectrum_band_frequency(index: usize, minimum_hz: f32, maximum_hz: f32) -> f32 {
+    let ratio = maximum_hz / minimum_hz;
+    minimum_hz * ratio.powf((index as f32 + 0.5) / SPECTRUM_BAND_COUNT as f32)
+}
+
+#[test]
+fn eighty_hz_peaking_eq_matrix_pins_latency_first_accuracy() {
+    const SAMPLE_RATE: u32 = 48_000;
+    const CENTER_HZ: f32 = 80.0;
+    const CADENCE: usize = SAMPLE_RATE as usize / SPECTRUM_PRESENTATION_HZ as usize;
+    const FRAME_COUNT: usize = 24;
+    const WARMUP: usize = SPECTRUM_WINDOW_SIZE * 2;
+    let total = WARMUP + SPECTRUM_WINDOW_SIZE + CADENCE * (FRAME_COUNT - 1);
+    let input = deterministic_noise(total);
+
+    let mut pre_analyzer = SpectrumAnalyzer::new(SAMPLE_RATE).unwrap();
+    let pre_frames = (0..FRAME_COUNT)
+        .map(|frame| {
+            let end = WARMUP + SPECTRUM_WINDOW_SIZE + frame * CADENCE;
+            pre_analyzer
+                .analyze(&input[end - SPECTRUM_WINDOW_SIZE..end], None, end as i64, 1)
+                .unwrap()
+        })
+        .collect::<Vec<_>>();
+    let minimum_hz = pre_frames[0].min_hz;
+    let maximum_hz = pre_frames[0].max_hz;
+    let center_band = (0..SPECTRUM_BAND_COUNT)
+        .min_by(|left, right| {
+            let left_error =
+                (spectrum_band_frequency(*left, minimum_hz, maximum_hz) - CENTER_HZ).abs();
+            let right_error =
+                (spectrum_band_frequency(*right, minimum_hz, maximum_hz) - CENTER_HZ).abs();
+            left_error.total_cmp(&right_error)
+        })
+        .unwrap();
+
+    for q in [0.7_f64, 2.0, 4.0, 8.0] {
+        for gain_db in [-18.0_f64, -12.0, -6.0, -3.0, 3.0, 6.0, 12.0, 18.0] {
+            let reference =
+                ReferencePeakingEq::new(f64::from(SAMPLE_RATE), f64::from(CENTER_HZ), q, gain_db);
+            let mut filter = reference;
+            let output = input
+                .iter()
+                .map(|sample| filter.process(*sample))
+                .collect::<Vec<_>>();
+            let mut post_analyzer = SpectrumAnalyzer::new(SAMPLE_RATE).unwrap();
+            let mut mean = [0.0_f64; SPECTRUM_BAND_COUNT];
+            let mut center_values = Vec::with_capacity(FRAME_COUNT);
+            for (frame, pre) in pre_frames.iter().enumerate() {
+                let end = WARMUP + SPECTRUM_WINDOW_SIZE + frame * CADENCE;
+                let post = post_analyzer
+                    .analyze(
+                        &output[end - SPECTRUM_WINDOW_SIZE..end],
+                        None,
+                        end as i64,
+                        1,
+                    )
+                    .unwrap();
+                let difference = difference_post_minus_pre(&post, pre).unwrap();
+                for (total, value) in mean.iter_mut().zip(difference.raw_db) {
+                    *total += f64::from(value);
+                }
+                center_values.push(f64::from(difference.raw_db[center_band]));
+            }
+            for value in &mut mean {
+                *value /= FRAME_COUNT as f64;
+            }
+
+            let center_frequency = spectrum_band_frequency(center_band, minimum_hz, maximum_hz);
+            let expected_center =
+                reference.response_db(f64::from(SAMPLE_RATE), f64::from(center_frequency));
+            let center_error = (mean[center_band] - expected_center).abs();
+            let center_motion = center_values
+                .iter()
+                .map(|value| (value - mean[center_band]).abs())
+                .fold(0.0_f64, f64::max);
+            let shape_error = mean
+                .iter()
+                .enumerate()
+                .filter_map(|(index, measured)| {
+                    let frequency = spectrum_band_frequency(index, minimum_hz, maximum_hz);
+                    (40.0..=160.0).contains(&frequency).then(|| {
+                        (measured
+                            - reference.response_db(f64::from(SAMPLE_RATE), f64::from(frequency)))
+                        .abs()
+                    })
+                })
+                .fold(0.0_f64, f64::max);
+            eprintln!(
+                "80 Hz EQ Q={q:.1} gain={gain_db:+.0}: center error={center_error:.3} dB, \
+                 frame motion={center_motion:.3} dB, shape error={shape_error:.3} dB"
+            );
+            assert!(
+                center_error.is_finite() && center_motion.is_finite() && shape_error.is_finite()
+            );
+            assert_eq!(
+                mean[center_band].is_sign_positive(),
+                gain_db.is_sign_positive()
+            );
+            assert!(mean[center_band].abs() <= gain_db.abs() + 0.1);
+
+            // The 85.3 ms aperture deliberately prioritises visual timing. Broad low-frequency
+            // moves must remain quantitatively close; progressively narrower bells are bounded
+            // and directionally correct but are not claimed to reconstruct a transfer function.
+            let (maximum_error, maximum_motion) = if q < 1.0 {
+                (1.75, 3.6)
+            } else if q <= 2.0 {
+                (4.0, 8.0)
+            } else if q <= 4.0 {
+                (7.0, 10.5)
+            } else {
+                (10.0, 10.5)
+            };
+            assert!(center_error <= maximum_error);
+            assert!(shape_error <= maximum_error);
+            assert!(center_motion <= maximum_motion);
+        }
+    }
+}
+
 #[test]
 fn silence_is_finite_and_stays_at_the_floor() {
     assert_eq!(SPECTRUM_WINDOW_SIZE, 4_096);
