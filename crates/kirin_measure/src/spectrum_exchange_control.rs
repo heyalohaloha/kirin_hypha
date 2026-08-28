@@ -102,6 +102,8 @@ impl SpectrumCoordinator {
             target: None,
             last_renewed: None,
             started_at: None,
+            last_presented_at: None,
+            last_presented_end_samples: None,
             analysis_mode: self.runtime.analysis_mode(),
             channel_mode: self.runtime.channel_mode(),
             state_epoch_samples: None,

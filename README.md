@@ -100,11 +100,13 @@ Focus Trail retains only fixed-capacity display snapshots while Spectrum is open
 does not smooth or delay the live Δ, and is discarded on pair, rate, layout, channel-mode, or page
 changes.
 
-The optional PRE/POST file exchange is supervised by the existing 10 Hz IO update. If its dedicated
-presentation worker stops making progress, that stable path performs one non-blocking exact exchange
-before the 1.5-second request lease can expire. It does not start a second analyzer, join mismatched
-frames, or move any filesystem work onto the Audio Thread. This recovery applies equally to FREQ and
-SHARP.
+The optional PRE/POST file exchange is supervised by the existing 10 Hz IO update. The watchdog
+advances only after a request, readiness fact, or PRE snapshot was actually published; a failed
+filesystem attempt is never counted as progress. If publication stops, the stable IO path retries
+one non-blocking exact exchange before the 1.5-second request lease can expire. During a transient
+gap, the last exact FREQ or SHARP presentation is held only within that same lease boundary instead
+of flashing an empty page. No second analyzer is started, no mismatched frames are joined, and no
+filesystem work enters the Audio Thread.
 
 Where both spectra are extremely quiet, the displayed Δ alone is faded toward zero: it is fully
 suppressed at and below −120 dBFS and reaches full strength at −96 dBFS. This display floor does not

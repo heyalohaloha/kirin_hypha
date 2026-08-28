@@ -1,6 +1,8 @@
 use std::time::Instant;
 
-use super::{PostSession, SpectrumCoordinator, SpectrumViewStatus, WARMUP_LIMIT};
+use super::{
+    PostSession, SpectrumCoordinator, SpectrumViewStatus, PRESENTATION_HOLD, WARMUP_LIMIT,
+};
 use crate::perceptual::{
     difference_post_minus_pre as perceptual_difference_post_minus_pre, PerceptualDifference,
 };
@@ -60,7 +62,7 @@ fn joined_status<T>(
 
 pub(super) fn store_joined_spectrum(
     coordinator: &SpectrumCoordinator,
-    session: &PostSession,
+    session: &mut PostSession,
     now: Instant,
     local: Option<&SpectrumHistory>,
     remote: Option<&SpectrumHistory>,
@@ -69,7 +71,28 @@ pub(super) fn store_joined_spectrum(
         .zip(remote)
         .and_then(|(post, pre)| newest_exact_difference(post, pre))
     {
-        coordinator.store_view(SpectrumViewStatus::Active, Some(difference), None);
+        let endpoint = difference.presentation_end_samples;
+        let exact_endpoint_is_current = local
+            .and_then(|history| history.newest())
+            .zip(remote.and_then(|history| history.newest()))
+            .is_some_and(|(post, pre)| {
+                post.presentation_end_samples == endpoint
+                    && pre.presentation_end_samples == endpoint
+            });
+        if session.last_presented_end_samples != Some(endpoint) {
+            coordinator.store_view(SpectrumViewStatus::Active, Some(difference), None);
+            session.last_presented_at = Some(now);
+            session.last_presented_end_samples = Some(endpoint);
+            return;
+        }
+        if exact_endpoint_is_current {
+            return;
+        }
+    }
+    if session
+        .last_presented_at
+        .is_some_and(|presented| now.duration_since(presented) < PRESENTATION_HOLD)
+    {
         return;
     }
     let status = joined_status(session, now, local, remote, |history| {
@@ -80,7 +103,7 @@ pub(super) fn store_joined_spectrum(
 
 pub(super) fn store_joined_perceptual(
     coordinator: &SpectrumCoordinator,
-    session: &PostSession,
+    session: &mut PostSession,
     now: Instant,
     local: Option<&PerceptualHistory>,
     remote: Option<&PerceptualHistory>,
@@ -88,8 +111,29 @@ pub(super) fn store_joined_perceptual(
     let differences = local.zip(remote).map_or_else(Vec::new, |(post, pre)| {
         exact_perceptual_differences(post, pre)
     });
-    if !differences.is_empty() {
-        coordinator.store_perceptual_view(SpectrumViewStatus::Active, &differences);
+    if let Some(newest) = differences.last() {
+        let endpoint = newest.presentation_end_samples;
+        let exact_endpoint_is_current = local
+            .and_then(|history| history.newest())
+            .zip(remote.and_then(|history| history.newest()))
+            .is_some_and(|(post, pre)| {
+                post.presentation_end_samples == endpoint
+                    && pre.presentation_end_samples == endpoint
+            });
+        if session.last_presented_end_samples != Some(endpoint) {
+            coordinator.store_perceptual_view(SpectrumViewStatus::Active, &differences);
+            session.last_presented_at = Some(now);
+            session.last_presented_end_samples = Some(endpoint);
+            return;
+        }
+        if exact_endpoint_is_current {
+            return;
+        }
+    }
+    if session
+        .last_presented_at
+        .is_some_and(|presented| now.duration_since(presented) < PRESENTATION_HOLD)
+    {
         return;
     }
     let status = joined_status(session, now, local, remote, |history| {

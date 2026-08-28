@@ -74,8 +74,11 @@ impl SpectrumCoordinator {
                     true,
                     unix_ms_now().saturating_add(REQUEST_LEASE_MS),
                 );
-                let _ = write_ready(instance_dir, &ready);
-                return true;
+                let written = write_ready(instance_dir, &ready).is_ok();
+                if written {
+                    self.exchange_worker.record_published_update();
+                }
+                return written;
             }
             let Some(epoch) = requested_epoch else {
                 if state.state_epoch_samples.is_some() {
@@ -95,6 +98,7 @@ impl SpectrumCoordinator {
                 if write_ready(instance_dir, &ready).is_err() {
                     return false;
                 }
+                self.exchange_worker.record_published_update();
                 return true;
             };
             if state.state_epoch_samples != Some(epoch) {
@@ -109,8 +113,11 @@ impl SpectrumCoordinator {
                         true,
                         unix_ms_now().saturating_add(REQUEST_LEASE_MS),
                     );
-                    let _ = write_ready(instance_dir, &ready);
-                    return true;
+                    let written = write_ready(instance_dir, &ready).is_ok();
+                    if written {
+                        self.exchange_worker.record_published_update();
+                    }
+                    return written;
                 }
                 state.state_epoch_samples = Some(epoch);
                 state.last_written_end = None;
@@ -143,9 +150,11 @@ impl SpectrumCoordinator {
         if newest_end.is_none() || newest_end == state.last_written_end {
             return true;
         }
-        if crate::atomic_file::write_bytes_atomic(&path, &bytes).is_ok() {
-            state.last_written_end = newest_end;
+        if crate::atomic_file::write_bytes_atomic(&path, &bytes).is_err() {
+            return false;
         }
+        state.last_written_end = newest_end;
+        self.exchange_worker.record_published_update();
         true
     }
 }

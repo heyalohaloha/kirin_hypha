@@ -49,6 +49,7 @@ use perceptual_codec::{encode_perceptual_snapshot, read_perceptual_snapshot};
 const REQUEST_RENEW_INTERVAL: Duration = Duration::from_millis(500);
 pub(crate) const REQUEST_LEASE_MS: i64 = 1_500;
 const WARMUP_LIMIT: Duration = Duration::from_secs(2);
+const PRESENTATION_HOLD: Duration = Duration::from_millis(REQUEST_LEASE_MS as u64);
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SpectrumTarget {
@@ -93,6 +94,8 @@ struct PostSession {
     target: Option<SpectrumTarget>,
     last_renewed: Option<Instant>,
     started_at: Option<Instant>,
+    last_presented_at: Option<Instant>,
+    last_presented_end_samples: Option<i64>,
     analysis_mode: AnalysisViewMode,
     channel_mode: SpectrumChannelMode,
     state_epoch_samples: Option<i64>,
@@ -163,6 +166,16 @@ impl SpectrumCoordinator {
         self.post_visible.load(Ordering::Acquire)
     }
 
+    pub(crate) fn has_valid_pre_request(&self, pre_instance_id: &str, instance_dir: &Path) -> bool {
+        validated_request(
+            instance_dir,
+            pre_instance_id,
+            self.sample_rate,
+            unix_ms_now(),
+        )
+        .is_some()
+    }
+
     /// POST IO-thread tick. `target` must come from the already-confirmed exact pair latch.
     pub(crate) fn post_tick(&self, post_instance_id: &str, target: Option<SpectrumTarget>) -> bool {
         let mut session_slot = match self.post_session.try_lock() {
@@ -198,6 +211,8 @@ impl SpectrumCoordinator {
             target: None,
             last_renewed: None,
             started_at: None,
+            last_presented_at: None,
+            last_presented_end_samples: None,
             analysis_mode: self.runtime.analysis_mode(),
             channel_mode: self.runtime.channel_mode(),
             state_epoch_samples: None,
@@ -207,6 +222,8 @@ impl SpectrumCoordinator {
             session.target = None;
             session.last_renewed = None;
             session.started_at = None;
+            session.last_presented_at = None;
+            session.last_presented_end_samples = None;
             let _ = self.runtime.set_enabled(false);
             self.store_view(SpectrumViewStatus::NoPair, None, None);
             return false;
@@ -224,6 +241,8 @@ impl SpectrumCoordinator {
             session.target = Some(target.clone());
             session.last_renewed = None;
             session.started_at = None;
+            session.last_presented_at = None;
+            session.last_presented_end_samples = None;
             session.analysis_mode = analysis_mode;
             session.channel_mode = channel_mode;
             session.state_epoch_samples = None;
@@ -246,11 +265,17 @@ impl SpectrumCoordinator {
             )
             .is_err()
             {
-                let _ = self.runtime.set_enabled(false);
-                self.store_view(SpectrumViewStatus::Unavailable, None, None);
+                if session
+                    .last_renewed
+                    .is_none_or(|renewed| now.duration_since(renewed) >= PRESENTATION_HOLD)
+                {
+                    let _ = self.runtime.set_enabled(false);
+                    self.store_view(SpectrumViewStatus::Unavailable, None, None);
+                }
                 return false;
             }
             session.last_renewed = Some(now);
+            self.exchange_worker.record_published_update();
         }
         if !self.runtime.set_enabled(true) {
             cleanup_owned_request(Some(&target), session.request_id);
@@ -309,6 +334,7 @@ impl SpectrumCoordinator {
                 return false;
             }
             session.last_renewed = Some(now);
+            self.exchange_worker.record_published_update();
             return true;
         }
         if session.started_at.is_none() {
@@ -401,6 +427,12 @@ fn unix_ms_now() -> i64 {
         .unwrap_or(0)
 }
 
+#[cfg(test)]
+#[path = "spectrum_exchange_integration_tests.rs"]
+mod integration_tests;
+#[cfg(test)]
+#[path = "spectrum_exchange_recovery_tests.rs"]
+mod recovery_tests;
 #[cfg(test)]
 #[path = "spectrum_exchange_tests.rs"]
 mod tests;
