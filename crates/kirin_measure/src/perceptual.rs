@@ -222,9 +222,11 @@ impl SharpnessApertureAnalyzer {
             } else {
                 -1.0_f64
             };
+            let (frames, remainder) = input.as_chunks::<2>();
+            debug_assert!(remainder.is_empty());
             self.mono_samples.extend(
-                input
-                    .chunks_exact(2)
+                frames
+                    .iter()
                     .map(|frame| (f64::from(frame[0]) + polarity * f64::from(frame[1])) * 0.5),
             );
         }
