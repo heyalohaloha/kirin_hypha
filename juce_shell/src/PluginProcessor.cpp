@@ -717,6 +717,8 @@ bool KirinHyphaProcessorBase::setSpectrumVisible (bool visible)
 {
     if (role != Role::Post)
         return false;
+    if (visible)
+        perceptualAnalysisRequested.store (false, std::memory_order_release);
     spectrumVisibleRequested.store (visible, std::memory_order_release);
     const juce::ScopedLock sl (handleLock);
     if (hyphaHandle == nullptr || ! writesEnabled.load (std::memory_order_acquire))
@@ -726,6 +728,23 @@ bool KirinHyphaProcessorBase::setSpectrumVisible (bool visible)
             preferredSpectrumChannelMode.load (std::memory_order_acquire)))
         return false;
     return kirin_hypha_set_spectrum_visible (hyphaHandle, visible);
+}
+
+bool KirinHyphaProcessorBase::setPerceptualVisible (bool visible)
+{
+    if (role != Role::Post)
+        return false;
+    if (visible)
+        perceptualAnalysisRequested.store (true, std::memory_order_release);
+    spectrumVisibleRequested.store (visible, std::memory_order_release);
+    const juce::ScopedLock sl (handleLock);
+    if (hyphaHandle == nullptr || ! writesEnabled.load (std::memory_order_acquire))
+        return false;
+    if (visible && ! kirin_hypha_set_spectrum_channel_mode (
+            hyphaHandle,
+            preferredSpectrumChannelMode.load (std::memory_order_acquire)))
+        return false;
+    return kirin_hypha_set_perceptual_visible (hyphaHandle, visible);
 }
 
 bool KirinHyphaProcessorBase::setSpectrumChannelMode (uint8_t channelMode)
@@ -753,6 +772,14 @@ bool KirinHyphaProcessorBase::pollSpectrum (KirinSpectrumView& out) const
         return false;
     const juce::ScopedLock sl (handleLock);
     return hyphaHandle != nullptr && kirin_hypha_poll_spectrum (hyphaHandle, &out);
+}
+
+bool KirinHyphaProcessorBase::pollPerceptual (KirinPerceptualView& out) const
+{
+    if (role != Role::Post)
+        return false;
+    const juce::ScopedLock sl (handleLock);
+    return hyphaHandle != nullptr && kirin_hypha_poll_perceptual (hyphaHandle, &out);
 }
 
 bool KirinHyphaProcessorBase::spectrumStats (KirinSpectrumStats& out) const
@@ -1107,7 +1134,10 @@ void KirinHyphaProcessorBase::enableWritesNow()
             kirin_hypha_set_spectrum_channel_mode (
                 hyphaHandle,
                 preferredSpectrumChannelMode.load (std::memory_order_acquire));
-            kirin_hypha_set_spectrum_visible (hyphaHandle, true);
+            if (perceptualAnalysisRequested.load (std::memory_order_acquire))
+                kirin_hypha_set_perceptual_visible (hyphaHandle, true);
+            else
+                kirin_hypha_set_spectrum_visible (hyphaHandle, true);
         }
     }
     else

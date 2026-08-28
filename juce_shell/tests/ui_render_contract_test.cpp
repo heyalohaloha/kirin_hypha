@@ -1,5 +1,6 @@
 #include "../src/HyphaWidgets.h"
 #include "../src/HyphaSpectrumComponent.h"
+#include "PerceptualHistoryContractTest.h"
 #include "SpectrumFocusTrailContractTest.h"
 #include "SpectrumInteractionContractTest.h"
 #include "SpectrumPresentationContractTest.h"
@@ -191,9 +192,11 @@ namespace
 
 int main()
 {
+    hypha::tests::verifyPerceptualHistoryContract();
     hypha::tests::verifySpectrumFocusTrailContract();
     hypha::tests::verifySpectrumPresentationContract();
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
+    hypha::tests::verifyPerceptualRenderingContract();
 
     const auto label = hypha::labelFont (ui::titleFontHeight);
     const auto mono = hypha::monoFont (ui::pairStatusFontHeight);

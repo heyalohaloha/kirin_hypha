@@ -68,11 +68,11 @@ use kirin_measure::{
     set_daw_session_id, set_project_uuid, spawn_io_thread_post, spawn_io_thread_pre,
     spawn_measure_thread, spawn_watchdog, store_signal_state, watch_ring_capacity_samples,
     write_broadcast_for_generation, write_pending_claiming_expected_and_clock_for_generation,
-    write_stop_broadcast, write_stop_broadcast_for_generation, CaptureClockSource,
-    CaptureGeneration, CaptureGenerationMember, CaptureGenerationTransaction, DeltaMode,
-    DeltaResult, GenerationTerminalReason, IoThreadHandle, LatchedPre, License, LiveLicense,
-    LivenessEvaluator, MeasureResult, PairOwnershipBinding, PairOwnershipLease, PairStatus,
-    PlatformPaths, PluginDataRole, PrePairStatusObserver, PresentationLatencySamples,
+    write_stop_broadcast, write_stop_broadcast_for_generation, AnalysisViewMode,
+    CaptureClockSource, CaptureGeneration, CaptureGenerationMember, CaptureGenerationTransaction,
+    DeltaMode, DeltaResult, GenerationTerminalReason, IoThreadHandle, LatchedPre, License,
+    LiveLicense, LivenessEvaluator, MeasureResult, PairOwnershipBinding, PairOwnershipLease,
+    PairStatus, PlatformPaths, PluginDataRole, PrePairStatusObserver, PresentationLatencySamples,
     PresentationLatencySource, PsbSummary, RecordDisplaySnapshot, RecordDisplayStatus,
     RecordIngress, RecordMarkQueue, RecordStateMachine, RecordTakeBlock, RecordTakeTracker,
     RecordTraceQueue, ReleaseReason, RestartIoFn, SignalError, SignalState, SpectrumChannelMode,
@@ -2143,6 +2143,31 @@ impl KirinHyphaEngine {
         if !is_post {
             return false;
         }
+        if visible
+            && !self
+                .spectrum
+                .set_post_analysis_mode(AnalysisViewMode::Spectrum)
+        {
+            return false;
+        }
+        self.spectrum.set_post_visible(visible);
+        true
+    }
+
+    /// POST-only Perceptual Delta visibility edge. FFT and Sharpness analysis are exclusive.
+    pub fn set_perceptual_visible(&self, visible: bool) -> bool {
+        let is_post =
+            self.write_role.lock().ok().and_then(|role| *role) == Some(PluginDataRole::Post);
+        if !is_post {
+            return false;
+        }
+        if visible
+            && !self
+                .spectrum
+                .set_post_analysis_mode(AnalysisViewMode::Perceptual)
+        {
+            return false;
+        }
         self.spectrum.set_post_visible(visible);
         true
     }
@@ -2161,6 +2186,10 @@ impl KirinHyphaEngine {
     /// Latest POST-minus-PRE Spectrum display snapshot. Lock contention is a silent skipped
     /// presentation tick; it never reaches the audio or measurement paths.
     pub fn poll_spectrum(&self) -> Option<SpectrumViewSnapshot> {
+        self.spectrum.try_view()
+    }
+
+    pub fn poll_perceptual(&self) -> Option<SpectrumViewSnapshot> {
         self.spectrum.try_view()
     }
 
@@ -3431,6 +3460,21 @@ pub struct KirinSpectrumView {
     pub presentation_end_samples: i64,
 }
 
+/// POST-only exact-aperture Perceptual Delta view. It carries measured facts, never a verdict.
+#[repr(C)]
+pub struct KirinPerceptualView {
+    pub status: u8,
+    pub has_data: u8,
+    pub channel_mode: u8,
+    pub channels: u8,
+    pub sample_rate: u32,
+    pub aperture_samples: u32,
+    pub pre_sharpness: f64,
+    pub post_sharpness: f64,
+    pub delta_sharpness: f64,
+    pub presentation_end_samples: i64,
+}
+
 /// Read-only validation counters. No counter is used to make display or DSP decisions.
 #[repr(C)]
 pub struct KirinSpectrumStats {
@@ -3565,9 +3609,12 @@ fn spectrum_status_to_abi(status: SpectrumViewStatus) -> u8 {
 }
 
 fn to_c_spectrum(snapshot: SpectrumViewSnapshot) -> KirinSpectrumView {
-    let has_data = snapshot.difference.is_some() as u8;
+    let difference = (snapshot.analysis_mode == AnalysisViewMode::Spectrum)
+        .then_some(snapshot.difference)
+        .flatten();
+    let has_data = difference.is_some() as u8;
     let (sample_rate, min_hz, max_hz, pre_dbfs, post_dbfs, display_db, presentation_end_samples) =
-        snapshot.difference.map_or(
+        difference.map_or(
             (
                 0,
                 0.0,
@@ -3600,6 +3647,36 @@ fn to_c_spectrum(snapshot: SpectrumViewSnapshot) -> KirinSpectrumView {
         pre_dbfs,
         post_dbfs,
         display_db,
+        presentation_end_samples,
+    }
+}
+
+fn to_c_perceptual(snapshot: SpectrumViewSnapshot) -> KirinPerceptualView {
+    let difference = (snapshot.analysis_mode == AnalysisViewMode::Perceptual)
+        .then_some(snapshot.perceptual_difference)
+        .flatten();
+    let has_data = difference.is_some() as u8;
+    let (sample_rate, aperture_samples, pre, post, delta, presentation_end_samples) = difference
+        .map_or((0, 0, f64::NAN, f64::NAN, f64::NAN, 0), |difference| {
+            (
+                difference.sample_rate,
+                difference.aperture_samples,
+                difference.pre_sharpness,
+                difference.post_sharpness,
+                difference.delta_sharpness,
+                difference.presentation_end_samples,
+            )
+        });
+    KirinPerceptualView {
+        status: spectrum_status_to_abi(snapshot.status),
+        has_data,
+        channel_mode: snapshot.channel_mode as u8,
+        channels: snapshot.channels,
+        sample_rate,
+        aperture_samples,
+        pre_sharpness: pre,
+        post_sharpness: post,
+        delta_sharpness: delta,
         presentation_end_samples,
     }
 }
@@ -3697,6 +3774,7 @@ mod spectrum_abi_tests {
 
         let snapshot = SpectrumViewSnapshot {
             status: SpectrumViewStatus::Active,
+            analysis_mode: AnalysisViewMode::Spectrum,
             channel_mode: SpectrumChannelMode::Side,
             channels: 2,
             difference: Some(SpectrumDifference {
@@ -3711,6 +3789,7 @@ mod spectrum_abi_tests {
                 raw_db: [15.0; SPECTRUM_BAND_COUNT],
                 display_db: [-3.5; SPECTRUM_BAND_COUNT],
             }),
+            perceptual_difference: None,
         };
         let out = to_c_spectrum(snapshot);
         assert_eq!(out.status, KIRIN_SPECTRUM_ACTIVE);
@@ -3723,6 +3802,47 @@ mod spectrum_abi_tests {
         assert_eq!(out.display_db[0], -3.5);
         assert_eq!(out.display_db[SPECTRUM_BAND_COUNT - 1], -3.5);
         assert_eq!(out.presentation_end_samples, 48_000);
+    }
+
+    #[test]
+    fn perceptual_view_preserves_signed_raw_sharpness_and_exact_endpoint() {
+        assert_eq!(std::mem::size_of::<KirinPerceptualView>(), 48);
+        assert_eq!(
+            std::mem::offset_of!(KirinPerceptualView, presentation_end_samples),
+            40
+        );
+        let snapshot = SpectrumViewSnapshot {
+            status: SpectrumViewStatus::Active,
+            analysis_mode: AnalysisViewMode::Perceptual,
+            channel_mode: SpectrumChannelMode::Mid,
+            channels: 2,
+            difference: None,
+            perceptual_difference: Some(kirin_measure::PerceptualDifference {
+                presentation_end_samples: 96_000,
+                sample_rate: 48_000,
+                aperture_samples: 4_800,
+                channel_mode: SpectrumChannelMode::Mid,
+                channels: 2,
+                pre_sharpness: 1.25,
+                post_sharpness: 0.85,
+                delta_sharpness: -0.40,
+            }),
+        };
+        let out = to_c_perceptual(snapshot.clone());
+        assert_eq!(out.status, KIRIN_SPECTRUM_ACTIVE);
+        assert_eq!(out.has_data, 1);
+        assert_eq!(out.channel_mode, KIRIN_SPECTRUM_CHANNEL_MID);
+        assert_eq!(out.aperture_samples, 4_800);
+        assert_eq!(out.pre_sharpness, 1.25);
+        assert_eq!(out.post_sharpness, 0.85);
+        assert_eq!(out.delta_sharpness, -0.40);
+        assert_eq!(out.presentation_end_samples, 96_000);
+
+        let mut wrong_mode = snapshot;
+        wrong_mode.analysis_mode = AnalysisViewMode::Spectrum;
+        let hidden = to_c_perceptual(wrong_mode);
+        assert_eq!(hidden.has_data, 0);
+        assert!(hidden.delta_sharpness.is_nan());
     }
 
     #[test]
@@ -4710,6 +4830,25 @@ pub unsafe extern "C" fn kirin_hypha_set_spectrum_visible(
     .unwrap_or(false)
 }
 
+/// Enable or disable the POST-only Perceptual Delta page. Its Sharpness analyzer replaces the
+/// optional FFT while visible; the two analysis modes never run in parallel.
+///
+/// # Safety
+/// `handle` must be null or a live pointer returned by [`kirin_hypha_create`].
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_set_perceptual_visible(
+    handle: *mut KirinHyphaEngine,
+    visible: bool,
+) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() {
+            return false;
+        }
+        unsafe { (*handle).set_perceptual_visible(visible) }
+    }))
+    .unwrap_or(false)
+}
+
 /// Select one POST Spectrum channel definition. The edge performs no filesystem access and
 /// invalidates prior presentation frames. SIDE is rejected for mono engines.
 ///
@@ -4747,6 +4886,28 @@ pub unsafe extern "C" fn kirin_hypha_poll_spectrum(
             return false;
         };
         unsafe { *out = to_c_spectrum(snapshot) };
+        true
+    }))
+    .unwrap_or(false)
+}
+
+/// Poll the latest exact-aperture POST-minus-PRE Sharpness observation.
+///
+/// # Safety
+/// `handle` and `out` must be live writable pointers. UI Thread only.
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_poll_perceptual(
+    handle: *mut KirinHyphaEngine,
+    out: *mut KirinPerceptualView,
+) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() || out.is_null() {
+            return false;
+        }
+        let Some(snapshot) = (unsafe { &*handle }).poll_perceptual() else {
+            return false;
+        };
+        unsafe { *out = to_c_perceptual(snapshot) };
         true
     }))
     .unwrap_or(false)

@@ -184,8 +184,22 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         spectrumToggle.setColour (juce::TextButton::buttonColourId, hypha::kFieldFill);
         spectrumToggle.setColour (juce::TextButton::textColourOnId, COL_SPECTRUM_DELTA);
         spectrumToggle.setColour (juce::TextButton::textColourOffId, COL_MUTED);
-        spectrumToggle.onClick = [this] { setSpectrumMode (! spectrumMode); };
+        spectrumToggle.onClick = [this]
+        {
+            setAnalysisPage (analysisPage == AnalysisPage::meters
+                               ? AnalysisPage::spectrum : AnalysisPage::meters);
+        };
         addAndMakeVisible (spectrumToggle);
+        analysisModeToggle.setTitle ("Analysis view");
+        analysisModeToggle.setDescription ("Switch between frequency and Sharpness Delta");
+        analysisModeToggle.setColour (juce::TextButton::buttonColourId, hypha::kFieldFill);
+        analysisModeToggle.setColour (juce::TextButton::textColourOnId, COL_SPECTRUM_DELTA);
+        analysisModeToggle.setColour (juce::TextButton::textColourOffId, COL_SPECTRUM_DELTA);
+        analysisModeToggle.onClick = [this]
+        {
+            setAnalysisPage (analysisPage == AnalysisPage::spectrum
+                               ? AnalysisPage::perceptual : AnalysisPage::spectrum);
+        };
         spectrumSizeToggle.setTitle ("Spectrum size");
         spectrumSizeToggle.setDescription (
             "Cycle POST Spectrum between 100, 125, and 150 percent");
@@ -197,9 +211,15 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         {
             return processorRef.setSpectrumChannelMode (channelMode);
         };
+        perceptualView.onChannelModeChange = [this] (uint8_t channelMode)
+        {
+            return processorRef.setSpectrumChannelMode (channelMode);
+        };
         updateSpectrumSizeControl();
+        addChildComponent (analysisModeToggle);
         addChildComponent (spectrumSizeToggle);
         addChildComponent (spectrumView);
+        addChildComponent (perceptualView);
        #endif
     }
     else
@@ -260,7 +280,10 @@ KirinHyphaEditor::~KirinHyphaEditor()
 {
     stopTimer();
     if (isPost)
+    {
         processorRef.setSpectrumVisible (false);
+        processorRef.setPerceptualVisible (false);
+    }
 }
 
 KirinHyphaEditor::PairMenuLookAndFeel& KirinHyphaEditor::pairMenuLookAndFeel()
@@ -286,7 +309,7 @@ void KirinHyphaEditor::paint (juce::Graphics& g)
 
     // Spectrum page changes only this separator to its cool accent; meter pages keep flora.
    #if ! KIRIN_HYPHA_PRE_DISPLAY
-    g.setColour (spectrumMode ? COL_SPECTRUM_DELTA : COL_FLORA);
+    g.setColour (analysisPage != AnalysisPage::meters ? COL_SPECTRUM_DELTA : COL_FLORA);
    #else
     g.setColour (COL_FLORA);
    #endif
@@ -306,9 +329,16 @@ void KirinHyphaEditor::resized()
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     if (isPost)
     {
-        spectrumToggle.setBounds (juceRect (ui::spectrumToggleBounds (getWidth())));
-        spectrumSizeToggle.setBounds (juceRect (ui::spectrumSizeToggleBounds (getWidth())));
+        const bool analysisOpen = analysisPage != AnalysisPage::meters;
+        spectrumToggle.setBounds (juceRect (analysisOpen
+            ? ui::analysisMetersToggleBounds (getWidth())
+            : ui::spectrumToggleBounds (getWidth())));
+        analysisModeToggle.setBounds (juceRect (ui::analysisModeToggleBounds (getWidth())));
+        spectrumSizeToggle.setBounds (juceRect (analysisOpen
+            ? ui::analysisSizeToggleBounds (getWidth())
+            : ui::spectrumSizeToggleBounds (getWidth())));
         spectrumView.setBounds (juceRect (ui::spectrumPlotBounds (getWidth(), getHeight())));
+        perceptualView.setBounds (juceRect (ui::spectrumPlotBounds (getWidth(), getHeight())));
     }
    #endif
     floraY = layout.floraY;
@@ -320,7 +350,7 @@ void KirinHyphaEditor::resized()
     {
         auto controlsBounds = layout.postControls;
        #if ! KIRIN_HYPHA_PRE_DISPLAY
-        if (spectrumMode)
+        if (analysisPage != AnalysisPage::meters)
             controlsBounds = ui::spectrumPostControlsBounds (getWidth(), getHeight());
        #endif
         postControls->setBounds (juceRect (controlsBounds));
@@ -355,35 +385,50 @@ void KirinHyphaEditor::layoutMetrics (bool)
 }
 
 #if ! KIRIN_HYPHA_PRE_DISPLAY
-void KirinHyphaEditor::setSpectrumMode (bool enabled)
+void KirinHyphaEditor::setAnalysisPage (AnalysisPage page)
 {
-    if (! isPost || spectrumMode == enabled)
+    if (! isPost || analysisPage == page)
         return;
     spectrumView.clearSnapshot();
-    spectrumMode = enabled;
+    perceptualView.clearSnapshot();
+    if (analysisPage == AnalysisPage::spectrum)
+        processorRef.setSpectrumVisible (false);
+    else if (analysisPage == AnalysisPage::perceptual)
+        processorRef.setPerceptualVisible (false);
+    analysisPage = page;
+    const bool analysisOpen = page != AnalysisPage::meters;
     for (auto& cell : cells)
-        cell.setVisible (! enabled);
-    loudnessSelector.setVisible (! enabled);
-    spectrumView.setVisible (enabled);
-    spectrumSizeToggle.setVisible (enabled);
-    spectrumToggle.setButtonText (enabled ? "METERS" : "SPECTRUM");
-    spectrumToggle.setTooltip (ui::spectrumTooltip (enabled));
+        cell.setVisible (! analysisOpen);
+    loudnessSelector.setVisible (! analysisOpen);
+    spectrumView.setVisible (page == AnalysisPage::spectrum);
+    perceptualView.setVisible (page == AnalysisPage::perceptual);
+    analysisModeToggle.setVisible (analysisOpen);
+    spectrumSizeToggle.setVisible (analysisOpen);
+    spectrumToggle.setButtonText (analysisOpen ? "METERS" : "SPECTRUM");
+    spectrumToggle.setTooltip (ui::spectrumTooltip (analysisOpen));
     spectrumToggle.setColour (juce::TextButton::textColourOffId,
-                              enabled ? COL_SPECTRUM_DELTA : COL_MUTED);
-    startTimerHz (enabled ? ui::spectrumPresentationHz : ui::preDisplayPresentationHz);
-    const auto preset = enabled ? ui::spectrumSizePresets[spectrumSizeIndex]
-                                : ui::spectrumSizePresets[0];
+                              analysisOpen ? COL_SPECTRUM_DELTA : COL_MUTED);
+    analysisModeToggle.setButtonText (page == AnalysisPage::spectrum ? "SHARP" : "FREQ");
+    analysisModeToggle.setTooltip (page == AnalysisPage::spectrum
+                                     ? "Show Perceptual Delta" : "Show frequency Delta");
+    startTimerHz (analysisOpen ? ui::spectrumPresentationHz : ui::preDisplayPresentationHz);
+    const auto preset = analysisOpen ? ui::spectrumSizePresets[spectrumSizeIndex]
+                                     : ui::spectrumSizePresets[0];
     if (getWidth() != preset.width || getHeight() != preset.height)
         setSize (preset.width, preset.height);
+    resized();
     repaint();
-    processorRef.setSpectrumVisible (enabled);
-    if (! enabled)
+    if (page == AnalysisPage::spectrum)
+        processorRef.setSpectrumVisible (true);
+    else if (page == AnalysisPage::perceptual)
+        processorRef.setPerceptualVisible (true);
+    else
         configureForKind (currentKind);
 }
 
 void KirinHyphaEditor::cycleSpectrumSize()
 {
-    if (! spectrumMode)
+    if (analysisPage == AnalysisPage::meters)
         return;
     spectrumSizeIndex = (spectrumSizeIndex + 1u) % ui::spectrumSizePresets.size();
     processorRef.setSpectrumSizePreference ((uint8_t) spectrumSizeIndex);
@@ -601,6 +646,7 @@ void KirinHyphaEditor::handleCandidateMenu (
             {
                #if ! KIRIN_HYPHA_PRE_DISPLAY
                 spectrumView.clearSnapshot();
+                perceptualView.clearSnapshot();
                #endif
                 nameField.setModelName (name);
                 nameField.setFallback (name.isEmpty() ? candidate.instanceId.substring (0, 8)
@@ -852,7 +898,7 @@ void KirinHyphaEditor::updatePost()
                           pairStatus != KIRIN_PAIR_STATUS_UNPAIRED);
 
    #if ! KIRIN_HYPHA_PRE_DISPLAY
-    if (spectrumMode)
+    if (analysisPage == AnalysisPage::spectrum)
     {
         spectrumView.presentationTick();
         KirinSpectrumView spectrum {};
@@ -860,6 +906,15 @@ void KirinHyphaEditor::updatePost()
             spectrumView.setSnapshot (spectrum);
         // Spectrum is presentation-only. Pair/Keep/feedback and the existing status LED remain
         // live, while meter polling and smoothing are skipped for this page.
+        led.setState (hypha::deriveLedState (alive, sig, rec && armed, ack, preset));
+        return;
+    }
+    if (analysisPage == AnalysisPage::perceptual)
+    {
+        perceptualView.presentationTick();
+        KirinPerceptualView perceptual {};
+        if (processorRef.pollPerceptual (perceptual))
+            perceptualView.setSnapshot (perceptual);
         led.setState (hypha::deriveLedState (alive, sig, rec && armed, ack, preset));
         return;
     }

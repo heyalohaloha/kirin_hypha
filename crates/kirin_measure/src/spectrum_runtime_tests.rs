@@ -35,6 +35,24 @@ fn wait_for_frame_at_or_after(runtime: &SpectrumRuntime, expected_end: i64) -> S
     panic!("Spectrum worker did not publish a frame");
 }
 
+fn wait_for_perceptual_frame_at_or_after(
+    runtime: &SpectrumRuntime,
+    expected_end: i64,
+) -> PerceptualFrame {
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while Instant::now() < deadline {
+        if let Some(frame) = runtime
+            .try_perceptual_history()
+            .and_then(|history| history.newest().cloned())
+            .filter(|frame| frame.presentation_end_samples >= expected_end)
+        {
+            return frame;
+        }
+        thread::sleep(Duration::from_millis(2));
+    }
+    panic!("Perceptual worker did not publish a frame");
+}
+
 #[test]
 fn disabled_runtime_does_not_start_worker_or_accept_audio() {
     let runtime = SpectrumRuntime::new(48_000, 2);
@@ -48,6 +66,49 @@ fn disabled_runtime_does_not_start_worker_or_accept_audio() {
     assert_eq!(stats.pushed_blocks, 0);
     assert_eq!(stats.dropped_blocks, 0);
     assert_eq!(stats.analyzed_frames, 0);
+    assert_eq!(stats.analyzed_perceptual_frames, 0);
+    runtime.shutdown_and_join();
+}
+
+#[test]
+fn perceptual_mode_is_exclusive_and_publishes_exact_100ms_apertures() {
+    let runtime = SpectrumRuntime::new(48_000, 2);
+    assert!(runtime.set_analysis_mode(AnalysisViewMode::Perceptual));
+    assert!(runtime.set_enabled(true));
+    feed(&runtime, 48_000, 11_000, 256);
+    let frame = wait_for_perceptual_frame_at_or_after(&runtime, 9_600);
+    assert_eq!(frame.presentation_end_samples, 9_600);
+    assert_eq!(frame.aperture_samples, 4_800);
+    assert_eq!(frame.channel_mode, SpectrumChannelMode::Lr);
+    assert!(frame.sharpness.is_finite() && frame.sharpness > 0.0);
+    assert!(runtime
+        .try_history()
+        .is_some_and(|history| history.newest().is_none()));
+    let stats = runtime.stats();
+    assert_eq!(stats.analysis_mode, AnalysisViewMode::Perceptual);
+    assert_eq!(stats.analyzed_frames, 0);
+    assert!(stats.analyzed_perceptual_frames >= 2);
+    runtime.shutdown_and_join();
+}
+
+#[test]
+fn perceptual_44k1_grid_is_exact_and_mode_edges_clear_both_histories() {
+    let runtime = SpectrumRuntime::new(44_100, 2);
+    assert!(runtime.set_analysis_mode(AnalysisViewMode::Perceptual));
+    assert!(runtime.set_enabled(true));
+    feed(&runtime, 44_100, 10_000, 147);
+    let frame = wait_for_perceptual_frame_at_or_after(&runtime, 8_820);
+    assert_eq!(frame.presentation_end_samples, 8_820);
+    assert_eq!(frame.aperture_samples, 4_410);
+    assert_eq!(frame.presentation_end_samples % 4_410, 0);
+
+    assert!(runtime.set_analysis_mode(AnalysisViewMode::Spectrum));
+    assert!(runtime
+        .try_perceptual_history()
+        .is_some_and(|history| history.newest().is_none()));
+    assert!(runtime
+        .try_history()
+        .is_some_and(|history| history.newest().is_none()));
     runtime.shutdown_and_join();
 }
 

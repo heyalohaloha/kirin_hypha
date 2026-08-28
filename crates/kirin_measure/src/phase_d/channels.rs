@@ -18,6 +18,56 @@ pub struct PhaseDChannelStream {
     channel_samples: Vec<Vec<f64>>,
 }
 
+/// Sharpness-only channel adapter for the isolated on-demand Perceptual Delta worker.
+/// Record keeps using [`PhaseDChannelStream`] and its complete result unchanged.
+pub struct PhaseDSharpnessChannelStream {
+    streams: Vec<PhaseDStream>,
+    channel_samples: Vec<Vec<f64>>,
+}
+
+impl PhaseDSharpnessChannelStream {
+    pub fn new(field_type: FieldType, n_channels: usize) -> Self {
+        assert!(n_channels > 0, "Phase D requires at least one channel");
+        Self {
+            streams: (0..n_channels)
+                .map(|_| PhaseDStream::new(field_type))
+                .collect(),
+            channel_samples: (0..n_channels).map(|_| Vec::new()).collect(),
+        }
+    }
+
+    pub fn push_interleaved_slot(&mut self, input: &[f64]) -> Option<f64> {
+        let n_channels = self.streams.len();
+        if input.is_empty() || !input.len().is_multiple_of(n_channels) {
+            return None;
+        }
+        let frames = input.len() / n_channels;
+        for samples in &mut self.channel_samples {
+            samples.clear();
+            samples.reserve(frames);
+        }
+        for frame in input.chunks_exact(n_channels) {
+            for (channel, &sample) in frame.iter().enumerate() {
+                self.channel_samples[channel].push(sample);
+            }
+        }
+        let mut sum = 0.0;
+        for (stream, samples) in self.streams.iter_mut().zip(&self.channel_samples) {
+            sum += stream.push_sharpness_only(samples)?;
+        }
+        Some(sum / n_channels as f64)
+    }
+
+    pub fn reset(&mut self) {
+        for stream in &mut self.streams {
+            stream.reset();
+        }
+        for samples in &mut self.channel_samples {
+            samples.clear();
+        }
+    }
+}
+
 impl PhaseDChannelStream {
     pub fn new(field_type: FieldType, n_channels: usize) -> Self {
         assert!(n_channels > 0, "Phase D requires at least one channel");
@@ -193,5 +243,16 @@ mod tests {
     fn incomplete_interleaved_frame_is_rejected() {
         let mut stream = PhaseDChannelStream::new(FieldType::Free, 2);
         assert!(stream.push_interleaved_slot(&[0.1, 0.2, 0.3]).is_none());
+    }
+
+    #[test]
+    fn sharpness_only_adapter_matches_the_complete_fresh_slot() {
+        let mono = sine_slot();
+        let input = stereo_slot(&mono, -1.0);
+        let mut complete = PhaseDChannelStream::new(FieldType::Free, 2);
+        let mut sharpness_only = PhaseDSharpnessChannelStream::new(FieldType::Free, 2);
+        let expected = complete.push_interleaved_slot(&input).unwrap().sharpness;
+        let observed = sharpness_only.push_interleaved_slot(&input).unwrap();
+        assert!((observed - expected).abs() < 1.0e-12);
     }
 }

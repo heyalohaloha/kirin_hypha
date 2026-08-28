@@ -119,26 +119,9 @@ impl PhaseDStream {
             }
         }
 
-        // 1. Filter bank → SPL frames at 2 kHz
-        let spl_frames = self.fb.process(mono_48k);
-        if spl_frames.is_empty() {
+        let Some((slopes, filtered)) = self.push_iso_core(mono_48k) else {
             return vec![];
-        }
-
-        // 2. Core loudness (stateless per frame)
-        let core = core_loudness::compute(&spl_frames, self.field_type);
-
-        // 3. Nonlinear decay (stateful: uo/u2 per band)
-        let decayed = self.decay.process(&core);
-        if decayed.is_empty() {
-            return vec![];
-        }
-
-        // 4. Calc slopes (stateless per frame)
-        let slopes = calc_slopes::compute(&decayed);
-
-        // 5. Temporal weighting (stateful: dual LP IIR)
-        let filtered = self.tw.process(&slopes.n_total);
+        };
 
         // 6. Sharpness + PSB + n_prime (stateless per frame)
         let n = filtered.len();
@@ -157,6 +140,33 @@ impl PhaseDStream {
                 psb_high_ext_15_5k_20k: self.latest_psb_high_ext,
             })
             .collect()
+    }
+
+    /// Feed one display-only Sharpness aperture without running the independent STFT/PSB branch.
+    ///
+    /// This is reserved for a dedicated Perceptual Delta stream. Do not alternate it with
+    /// [`Self::push`] on one instance: the ISO 532-1 state advances here, while the independent
+    /// high-band STFT state intentionally does not.
+    pub(crate) fn push_sharpness_only(&mut self, mono_48k: &[f64]) -> Option<f64> {
+        let (slopes, filtered) = self.push_iso_core(mono_48k)?;
+        sharpness::compute(&slopes.n_specific[..filtered.len()], &filtered)
+            .last()
+            .copied()
+    }
+
+    fn push_iso_core(&mut self, mono_48k: &[f64]) -> Option<(calc_slopes::SlopesResult, Vec<f64>)> {
+        let spl_frames = self.fb.process(mono_48k);
+        if spl_frames.is_empty() {
+            return None;
+        }
+        let core = core_loudness::compute(&spl_frames, self.field_type);
+        let decayed = self.decay.process(&core);
+        if decayed.is_empty() {
+            return None;
+        }
+        let slopes = calc_slopes::compute(&decayed);
+        let filtered = self.tw.process(&slopes.n_total);
+        Some((slopes, filtered))
     }
 
     /// Clear all internal state (SS-8: non-Active → Active transition).

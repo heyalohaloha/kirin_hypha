@@ -160,6 +160,21 @@ typedef struct {
   int64_t presentation_end_samples; /* 末尾追加: 既存field offsetを不変に保つ */
 } KirinSpectrumView;
 
+/* POST専用Perceptual Delta表示. 同一100 ms aperture / presentation endpointで一致した
+ * PRE/POST Sharpnessだけを公開する。delta_sharpnessは符号付きPOST-PREでclipしない。 */
+typedef struct {
+  uint8_t status;       /* KIRIN_SPECTRUM_*（共通のpair/sync状態） */
+  uint8_t has_data;
+  uint8_t channel_mode; /* KIRIN_SPECTRUM_CHANNEL_* */
+  uint8_t channels;
+  uint32_t sample_rate;
+  uint32_t aperture_samples;
+  double pre_sharpness;
+  double post_sharpness;
+  double delta_sharpness;
+  int64_t presentation_end_samples;
+} KirinPerceptualView;
+
 /* 検証用のread-only負荷カウンタ。表示・計測判断には使用しない。 */
 typedef struct {
   uint8_t enabled;
@@ -398,11 +413,17 @@ bool kirin_hypha_poll_delta(KirinHypha* handle, KirinDelta* out);
 /* POST Spectrumページの表示edge。PRE/未enableはfalse。filesystem処理はIO threadへ遅延する。 */
 bool kirin_hypha_set_spectrum_visible(KirinHypha* handle, bool visible);
 
+/* POST Perceptual Deltaページの表示edge。Spectrum FFTとは排他的にSharpnessを解析する。 */
+bool kirin_hypha_set_perceptual_visible(KirinHypha* handle, bool visible);
+
 /* POST Spectrumの単一解析モードを切替。SIDEはstereoのみ。PRE/不正値/mono SIDEはfalse。 */
 bool kirin_hypha_set_spectrum_channel_mode(KirinHypha* handle, uint8_t channel_mode);
 
 /* 最新のPOST-PRE Spectrumを取得。status-onlyもtrue（has_data=0）、競合/nullはfalse。 */
 bool kirin_hypha_poll_spectrum(KirinHypha* handle, KirinSpectrumView* out);
+
+/* 最新のexact-aperture POST-PRE Sharpnessを取得。status-onlyもtrue。 */
+bool kirin_hypha_poll_perceptual(KirinHypha* handle, KirinPerceptualView* out);
 
 /* Spectrum optional workerの検証カウンタを取得。 */
 bool kirin_hypha_spectrum_stats(KirinHypha* handle, KirinSpectrumStats* out);

@@ -296,6 +296,29 @@ namespace hypha::ui_contract
                  spectrumToggleHeight };
     }
 
+    constexpr Rect analysisMetersToggleBounds (int width = editorWidth) noexcept
+    {
+        const int centredOffset = (width - editorWidth) / 2;
+        return { centredOffset + margin + preTitleWidth + spectrumTitleGap,
+                 topSpace + (titleHeight - spectrumToggleHeight) / 2,
+                 analysisMetersToggleWidth,
+                 spectrumToggleHeight };
+    }
+
+    constexpr Rect analysisModeToggleBounds (int width = editorWidth) noexcept
+    {
+        const auto meters = analysisMetersToggleBounds (width);
+        return { right (meters) + analysisHeaderGap, meters.y,
+                 analysisModeToggleWidth, spectrumToggleHeight };
+    }
+
+    constexpr Rect analysisSizeToggleBounds (int width = editorWidth) noexcept
+    {
+        const auto mode = analysisModeToggleBounds (width);
+        return { right (mode) + analysisHeaderGap, mode.y,
+                 analysisSizeToggleWidth, spectrumToggleHeight };
+    }
+
     constexpr Rect spectrumPostControlsBounds (int width = editorWidth, int height = editorHeight) noexcept
     {
         const auto layout = editorLayout (true, width, height);

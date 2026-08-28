@@ -21,6 +21,19 @@ fn frame(end: i64, value: f32) -> SpectrumFrame {
     }
 }
 
+fn perceptual_frame(end: i64, value: f64) -> crate::PerceptualFrame {
+    crate::PerceptualFrame {
+        schema_version: crate::PERCEPTUAL_SCHEMA_VERSION,
+        sample_rate: 48_000,
+        aperture_samples: 4_800,
+        presentation_end_samples: end,
+        generation: 7,
+        channel_mode: SpectrumChannelMode::Lr,
+        channels: 2,
+        sharpness: value,
+    }
+}
+
 fn push_stereo_pair_in_blocks(
     pre_runtime: &SpectrumRuntime,
     post_runtime: &SpectrumRuntime,
@@ -61,6 +74,23 @@ fn fixed_snapshot_roundtrip_preserves_history_and_request() {
 }
 
 #[test]
+fn perceptual_snapshot_roundtrip_preserves_exact_apertures() {
+    let request_id = Uuid::new_v4();
+    let mut history = crate::PerceptualHistory::with_capacity();
+    history.push(perceptual_frame(4_800, 1.1));
+    history.push(perceptual_frame(9_600, 1.3));
+    let bytes = encode_perceptual_snapshot(request_id, &history);
+    assert!(bytes.len() <= perceptual_codec::PERCEPTUAL_SNAPSHOT_MAX_BYTES as usize);
+    let decoded = perceptual_codec::decode_perceptual_snapshot(&bytes).unwrap();
+    assert_eq!(decoded.request_id, request_id);
+    assert_eq!(decoded.history.frames().count(), 2);
+    assert_eq!(
+        decoded.history.newest(),
+        Some(&perceptual_frame(9_600, 1.3))
+    );
+}
+
+#[test]
 #[ignore = "release-mode 30 Hz atomic exchange performance probe; run explicitly with --nocapture"]
 fn active_pair_30hz_atomic_exchange_budget_is_quantified() {
     use std::hint::black_box;
@@ -94,6 +124,43 @@ fn active_pair_30hz_atomic_exchange_budget_is_quantified() {
 }
 
 #[test]
+#[ignore = "release-mode 10 Hz Perceptual Delta exchange probe; run explicitly with --nocapture"]
+fn perceptual_pair_10hz_atomic_exchange_budget_is_quantified() {
+    use std::hint::black_box;
+
+    let temp = tempfile::tempdir().unwrap();
+    let instance_dir = temp.path().join("project").join("pre");
+    fs::create_dir_all(instance_dir.join("spectrum")).unwrap();
+    let request_id = Uuid::new_v4();
+    let mut history = crate::PerceptualHistory::with_capacity();
+    for index in 1..=crate::PERCEPTUAL_HISTORY_CAPACITY {
+        history.push(perceptual_frame(
+            index as i64 * 4_800,
+            1.0 + index as f64 * 0.01,
+        ));
+    }
+    let bytes = encode_perceptual_snapshot(request_id, &history);
+    assert!(bytes.len() <= perceptual_codec::PERCEPTUAL_SNAPSHOT_MAX_BYTES as usize);
+
+    let iterations = 300;
+    let started = Instant::now();
+    for _ in 0..iterations {
+        crate::atomic_file::write_bytes_atomic(&perceptual_snapshot_path(&instance_dir), &bytes)
+            .unwrap();
+        let decoded = black_box(read_perceptual_snapshot(&instance_dir).unwrap());
+        assert_eq!(decoded.request_id, request_id);
+    }
+    let micros_per_exchange = started.elapsed().as_secs_f64() * 1_000_000.0 / iterations as f64;
+    let projected_worker_percent = micros_per_exchange * 10.0 / 10_000.0;
+    eprintln!(
+        "10 Hz Perceptual Delta file exchange: {} bytes, {micros_per_exchange:.2} us/cycle, \
+         projected one-pair IO worker time {projected_worker_percent:.3}%",
+        bytes.len()
+    );
+    assert!(projected_worker_percent < 5.0);
+}
+
+#[test]
 fn truncated_trailing_or_nonfinite_snapshot_fails_closed() {
     let mut history = SpectrumHistory::with_capacity();
     history.push(frame(4_800, -20.0));
@@ -118,6 +185,39 @@ fn difference_joins_only_an_exact_presentation_endpoint() {
     post.push(frame(4_800, -14.0));
     let difference = newest_exact_difference(&post, &pre).unwrap();
     assert!((difference.raw_db[0] - 6.0).abs() < 1.0e-6);
+}
+
+#[test]
+fn perceptual_difference_joins_only_exact_endpoint_and_aperture() {
+    let mut pre = crate::PerceptualHistory::with_capacity();
+    let mut post = crate::PerceptualHistory::with_capacity();
+    pre.push(perceptual_frame(4_800, 1.2));
+    post.push(perceptual_frame(4_801, 1.6));
+    assert!(newest_exact_perceptual_difference(&post, &pre).is_none());
+    post.push(perceptual_frame(4_800, 1.6));
+    let difference = newest_exact_perceptual_difference(&post, &pre).unwrap();
+    assert!((difference.delta_sharpness - 0.4).abs() < 1.0e-12);
+
+    let mut incompatible = perceptual_frame(4_800, 1.7);
+    incompatible.aperture_samples = 4_799;
+    let mut incompatible_post = crate::PerceptualHistory::with_capacity();
+    incompatible_post.push(incompatible);
+    assert!(newest_exact_perceptual_difference(&incompatible_post, &pre).is_none());
+}
+
+#[test]
+fn malformed_perceptual_payload_fails_closed() {
+    let mut history = crate::PerceptualHistory::with_capacity();
+    history.push(perceptual_frame(4_800, 1.2));
+    let bytes = encode_perceptual_snapshot(Uuid::new_v4(), &history);
+    assert!(perceptual_codec::decode_perceptual_snapshot(&bytes[..bytes.len() - 1]).is_none());
+    let mut trailing = bytes.clone();
+    trailing.push(0);
+    assert!(perceptual_codec::decode_perceptual_snapshot(&trailing).is_none());
+    let mut nonfinite = bytes;
+    let sharpness_offset = 32 + 24;
+    nonfinite[sharpness_offset..sharpness_offset + 8].copy_from_slice(&f64::NAN.to_le_bytes());
+    assert!(perceptual_codec::decode_perceptual_snapshot(&nonfinite).is_none());
 }
 
 #[test]
