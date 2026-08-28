@@ -325,8 +325,11 @@
             "output-presentation sample endpoint",
             "−120 dBFS",
             "−96 dBFS",
+            "follows the host sample rate",
             "4096-sample Hann window",
             "8192-point FFT",
+            "At 48 kHz the window spans about 85 ms",
+            "FFT-point spacing changes with the host rate",
             "averages their power",
             "`(L+R)/2`",
         ] {
@@ -335,4 +338,16 @@
                 "README Spectrum contract missing {required_fact}"
             );
         }
+
+        let watch = README
+            .split("\n## ")
+            .find(|section| section.starts_with("Watch mode\n"))
+            .expect("README Watch mode section");
+        let watch = watch.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(
+            watch.contains("Spectrum")
+                && watch.contains("on demand")
+                && watch.contains("signed POST − PRE frequency difference"),
+            "README Watch mode must connect its grid description to POST Spectrum"
+        );
     }

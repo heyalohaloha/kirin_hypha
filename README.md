@@ -62,10 +62,11 @@ frames have the same sample rate, FFT layout, and output-presentation sample end
 
 Where both spectra are extremely quiet, the displayed Δ alone is faded toward zero: it is fully
 suppressed at and below −120 dBFS and reaches full strength at −96 dBFS. This display floor does not
-alter the captured PRE or POST values. The analyzer uses a 4096-sample Hann window, an 8192-point
-FFT, and a 30 Hz presentation cadence at the 48 kHz reference rate. It compares measured programme
-energy rather than reconstructing a plug-in transfer function, so narrow low-frequency EQ shapes can
-appear broader than the corresponding EQ control graph.
+alter the captured PRE or POST values. The analyzer follows the host sample rate, using a 4096-sample
+Hann window, an 8192-point FFT, and a 30 Hz presentation cadence. At 48 kHz the window spans about
+85 ms; FFT-point spacing changes with the host rate. It compares measured programme energy rather
+than reconstructing a plug-in transfer function, so narrow low-frequency EQ shapes can appear broader
+than the corresponding EQ control graph.
 
 Stereo Spectrum analysis transforms L and R independently and averages their power, so opposite-
 polarity channels do not cancel. N and Sharpness instead use the mono waveform `(L+R)/2`; the two
@@ -162,6 +163,8 @@ Multiple PRE / POST pairs can run simultaneously (up to 12 active pairs per proj
 Real-time display of selectable LUFS-M / LUFS-S, True Peak (recent), and Crest Factor during
 playback. The M and S selections retain independent playback-pass maximums. POST displays the
 difference between its own measurements and the paired PRE.
+On a paired POST, **Spectrum** can be opened on demand to inspect the signed POST − PRE frequency
+difference.
 
 Closing the GUI does not stop measurement. The audio thread continues running as long as the plugin is loaded in the DAW.
 
