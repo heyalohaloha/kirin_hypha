@@ -79,7 +79,8 @@ use kirin_measure::{
     SpectrumCoordinator, SpectrumRuntime, SpectrumRuntimeStats, SpectrumViewSnapshot,
     SpectrumViewStatus, StoragePaths, WatchMaxTracker, WatchProducerHandoff, WatchdogIo,
     WatchdogParams, CAPTURE_PRODUCER_READY_TIMEOUT, MAX_ACTIVE_PER_PROJECT, MAX_AUDIO_BLOCK_FRAMES,
-    MAX_CAPTURE_GENERATION_MEMBERS, N_CHANNELS, SPECTRUM_BAND_COUNT,
+    MAX_CAPTURE_GENERATION_MEMBERS, N_CHANNELS, PERCEPTUAL_DIFFERENCE_TIMELINE_CAPACITY,
+    SPECTRUM_BAND_COUNT,
 };
 
 mod pair_binding;
@@ -2193,6 +2194,10 @@ impl KirinHyphaEngine {
         self.spectrum.try_view()
     }
 
+    pub fn poll_perceptual_batch(&self) -> Option<SpectrumViewSnapshot> {
+        self.spectrum.try_view()
+    }
+
     /// Read-only performance counters used by regression tests and validation builds.
     pub fn spectrum_stats(&self) -> SpectrumRuntimeStats {
         self.spectrum_runtime.stats()
@@ -3462,6 +3467,7 @@ pub struct KirinSpectrumView {
 }
 
 /// POST-only exact-aperture Perceptual Delta view. It carries measured facts, never a verdict.
+#[derive(Clone, Copy)]
 #[repr(C)]
 pub struct KirinPerceptualView {
     pub status: u8,
@@ -3476,6 +3482,16 @@ pub struct KirinPerceptualView {
     pub presentation_end_samples: i64,
     /// Shared PRE/POST state reset boundary. Tail-appended for ABI prefix stability.
     pub state_epoch_samples: i64,
+}
+
+/// A non-destructive UI snapshot of the complete visible Perceptual Delta timeline.
+/// The newest single view remains first for status-only and backwards-compatible consumers.
+#[repr(C)]
+pub struct KirinPerceptualBatch {
+    pub latest: KirinPerceptualView,
+    pub count: u32,
+    pub reserved: u32,
+    pub frames: [KirinPerceptualView; PERCEPTUAL_DIFFERENCE_TIMELINE_CAPACITY],
 }
 
 /// Read-only validation counters. No counter is used to make display or DSP decisions.
@@ -3687,6 +3703,54 @@ fn to_c_perceptual(snapshot: SpectrumViewSnapshot) -> KirinPerceptualView {
     }
 }
 
+fn empty_c_perceptual() -> KirinPerceptualView {
+    KirinPerceptualView {
+        status: KIRIN_SPECTRUM_HIDDEN,
+        has_data: 0,
+        channel_mode: KIRIN_SPECTRUM_CHANNEL_LR,
+        channels: 0,
+        sample_rate: 0,
+        aperture_samples: 0,
+        pre_sharpness: f64::NAN,
+        post_sharpness: f64::NAN,
+        delta_sharpness: f64::NAN,
+        presentation_end_samples: 0,
+        state_epoch_samples: 0,
+    }
+}
+
+fn to_c_perceptual_batch(snapshot: SpectrumViewSnapshot) -> KirinPerceptualBatch {
+    let latest = to_c_perceptual(snapshot.clone());
+    let mut frames = [empty_c_perceptual(); PERCEPTUAL_DIFFERENCE_TIMELINE_CAPACITY];
+    let mut count = 0usize;
+    if snapshot.status == SpectrumViewStatus::Active
+        && snapshot.analysis_mode == AnalysisViewMode::Perceptual
+    {
+        for difference in snapshot.perceptual_timeline.frames() {
+            frames[count] = KirinPerceptualView {
+                status: KIRIN_SPECTRUM_ACTIVE,
+                has_data: 1,
+                channel_mode: difference.channel_mode as u8,
+                channels: difference.channels,
+                sample_rate: difference.sample_rate,
+                aperture_samples: difference.aperture_samples,
+                pre_sharpness: difference.pre_sharpness,
+                post_sharpness: difference.post_sharpness,
+                delta_sharpness: difference.delta_sharpness,
+                presentation_end_samples: difference.presentation_end_samples,
+                state_epoch_samples: difference.state_epoch_samples,
+            };
+            count += 1;
+        }
+    }
+    KirinPerceptualBatch {
+        latest,
+        count: count as u32,
+        reserved: 0,
+        frames,
+    }
+}
+
 fn to_c_spectrum_stats(stats: SpectrumRuntimeStats) -> KirinSpectrumStats {
     KirinSpectrumStats {
         enabled: stats.enabled as u8,
@@ -3797,6 +3861,7 @@ mod spectrum_abi_tests {
                 display_db: [-3.5; SPECTRUM_BAND_COUNT],
             }),
             perceptual_difference: None,
+            perceptual_timeline: Default::default(),
         };
         let out = to_c_spectrum(snapshot);
         assert_eq!(out.status, KIRIN_SPECTRUM_ACTIVE);
@@ -3822,23 +3887,27 @@ mod spectrum_abi_tests {
             std::mem::offset_of!(KirinPerceptualView, state_epoch_samples),
             48
         );
+        let difference = kirin_measure::PerceptualDifference {
+            presentation_end_samples: 96_000,
+            state_epoch_samples: 0,
+            sample_rate: 48_000,
+            aperture_samples: 4_800,
+            channel_mode: SpectrumChannelMode::Mid,
+            channels: 2,
+            pre_sharpness: 1.25,
+            post_sharpness: 0.85,
+            delta_sharpness: -0.40,
+        };
+        let mut perceptual_timeline = kirin_measure::PerceptualDifferenceTimeline::default();
+        perceptual_timeline.push(difference);
         let snapshot = SpectrumViewSnapshot {
             status: SpectrumViewStatus::Active,
             analysis_mode: AnalysisViewMode::Perceptual,
             channel_mode: SpectrumChannelMode::Mid,
             channels: 2,
             difference: None,
-            perceptual_difference: Some(kirin_measure::PerceptualDifference {
-                presentation_end_samples: 96_000,
-                state_epoch_samples: 0,
-                sample_rate: 48_000,
-                aperture_samples: 4_800,
-                channel_mode: SpectrumChannelMode::Mid,
-                channels: 2,
-                pre_sharpness: 1.25,
-                post_sharpness: 0.85,
-                delta_sharpness: -0.40,
-            }),
+            perceptual_difference: Some(difference),
+            perceptual_timeline,
         };
         let out = to_c_perceptual(snapshot.clone());
         assert_eq!(out.status, KIRIN_SPECTRUM_ACTIVE);
@@ -3850,6 +3919,13 @@ mod spectrum_abi_tests {
         assert_eq!(out.delta_sharpness, -0.40);
         assert_eq!(out.presentation_end_samples, 96_000);
         assert_eq!(out.state_epoch_samples, 0);
+
+        let batch = to_c_perceptual_batch(snapshot.clone());
+        assert_eq!(std::mem::size_of::<KirinPerceptualBatch>(), 3_648);
+        assert_eq!(batch.count, 1);
+        assert_eq!(batch.latest.presentation_end_samples, 96_000);
+        assert_eq!(batch.frames[0].presentation_end_samples, 96_000);
+        assert_eq!(batch.frames[0].delta_sharpness, -0.40);
 
         let mut wrong_mode = snapshot;
         wrong_mode.analysis_mode = AnalysisViewMode::Spectrum;
@@ -4921,6 +4997,29 @@ pub unsafe extern "C" fn kirin_hypha_poll_perceptual(
             return false;
         };
         unsafe { *out = to_c_perceptual(snapshot) };
+        true
+    }))
+    .unwrap_or(false)
+}
+
+/// Poll a non-destructive six-second exact Perceptual Delta timeline. A delayed UI reader receives
+/// every retained measured frame; no sample is interpolated and no consumer cursor mutates Rust.
+///
+/// # Safety
+/// `handle` and `out` must be live writable pointers. UI Thread only.
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_poll_perceptual_batch(
+    handle: *mut KirinHyphaEngine,
+    out: *mut KirinPerceptualBatch,
+) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() || out.is_null() {
+            return false;
+        }
+        let Some(snapshot) = (unsafe { &*handle }).poll_perceptual_batch() else {
+            return false;
+        };
+        unsafe { *out = to_c_perceptual_batch(snapshot) };
         true
     }))
     .unwrap_or(false)

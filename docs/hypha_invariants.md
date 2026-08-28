@@ -170,6 +170,7 @@ Hypha は利用者に制限や複雑な操作を課さず、普通に計測し�
 | INV-S5 | RT 安全 — processBlock が呼べる C ABI は allowlist、push_samples に fs/alloc/blocking lock 再混入なし | `process_block_calls_only_rt_safe_ffi_surface` / `ffi_push_samples_core_avoids_io_allocation_and_blocking_locks` / `audio_thread_c_abi_wrappers_remain_thin` |
 | INV-S6 | 出荷AU/VST3は同一JUCE processor/editor/control sourceと単一`HyphaUiContract`をcompileする。300×200矩形、全bounds、font family/size、palette、Watch current/MAX 6セル、Record 6セル、Keep/Stop表記をbundle build前にpure C++ testで固定する | `shipped_au_and_vst3_compile_the_same_editor_processor_and_control_contract` / `juce_shell/tests/ui_contract_test.cpp` |
 | INV-S7 | POSTのoptional analysisはMeters=全停止、FREQ=FFTのみ、SHARP=Sharpnessのみの排他状態。DAW process内でkernel leaseを持つPOST 1個だけがPRE/POST workerを起動し、他は`ANALYSIS — IN USE`で解析しない。Audio Threadは既存のlock-free copy以上を行わない | `exactly_one_post_analysis_runtime_is_active_per_process_lease` / `perceptual_mode_is_exclusive_and_publishes_exact_100ms_apertures` / `disabled_runtime_does_not_start_worker_or_accept_audio` / `process_block_calls_only_rt_safe_ffi_surface` / `verifyPerceptualHistoryContract` |
+| INV-S8 | SHARPはRust側の最新64実測点を非破壊batchで取得し、UI遅延で欠測を作らない。UIは60点/六秒、curve 5 Hz、数値 2 Hz、濃い先端は実測時間の直近1秒。真の欠測時は補間せず、前の表示runを捨てて新しく始める | `perceptual_join_recovers_every_exact_endpoint_after_a_delayed_presentation_tick` / `repeated_sixteen_frame_exchange_windows_accumulate_without_rewinding` / `verifyPerceptualHistoryContract` |
 
 ---
 

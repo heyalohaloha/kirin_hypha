@@ -40,6 +40,16 @@ namespace
         return value;
     }
 
+    KirinPerceptualBatch batch (int firstIndex, int lastIndex)
+    {
+        KirinPerceptualBatch value {};
+        for (int index = firstIndex; index <= lastIndex; ++index)
+            value.frames[value.count++] = snapshot (
+                (int64_t) index * 4'800, 0.02 * (double) index);
+        value.latest = value.frames[value.count - 1u];
+        return value;
+    }
+
     int visiblePixels (const juce::Image& image)
     {
         int count = 0;
@@ -100,6 +110,7 @@ namespace
 void verifyPerceptualHistoryContract()
 {
     using namespace perceptual_history;
+    static_assert (recentEmphasisSeconds == 1.0);
     History history;
     KIRIN_PERCEPTUAL_REQUIRE (
         history.append (4'800, 48'000, 4'800, 1.0, 1.2, 0.2)
@@ -142,11 +153,55 @@ void verifyPerceptualHistoryContract()
     newEpoch.state_epoch_samples = 9'600;
     component.setSnapshot (newEpoch);
     KIRIN_PERCEPTUAL_REQUIRE (component.historySizeForTest() == 1u);
+
+    PerceptualComponent delayedUi;
+    delayedUi.setBatch (batch (1, 1));
+    delayedUi.setBatch (batch (1, 6));
+    KIRIN_PERCEPTUAL_REQUIRE (delayedUi.historySizeForTest() == 6u);
+    KIRIN_PERCEPTUAL_REQUIRE (! delayedUi.historyHasGapsForTest());
+    KIRIN_PERCEPTUAL_REQUIRE (delayedUi.newestEndpointForTest() == 28'800);
+
+    const auto curveCount = delayedUi.curvePresentationCountForTest();
+    const auto numericCount = delayedUi.numericPresentationCountForTest();
+    delayedUi.setBatch (batch (1, 7));
+    const double now = juce::Time::getMillisecondCounterHiRes();
+    delayedUi.presentationTickAt (now + 100.0);
+    KIRIN_PERCEPTUAL_REQUIRE (
+        delayedUi.curvePresentationCountForTest() == curveCount);
+    KIRIN_PERCEPTUAL_REQUIRE (
+        delayedUi.numericPresentationCountForTest() == numericCount);
+    delayedUi.presentationTickAt (now + 210.0);
+    KIRIN_PERCEPTUAL_REQUIRE (
+        delayedUi.curvePresentationCountForTest() == curveCount + 1u);
+    KIRIN_PERCEPTUAL_REQUIRE (
+        delayedUi.numericPresentationCountForTest() == numericCount);
+    delayedUi.presentationTickAt (now + 510.0);
+    KIRIN_PERCEPTUAL_REQUIRE (
+        delayedUi.numericPresentationCountForTest() == numericCount + 1u);
+
+    delayedUi.setBatch (batch (1, 64));
+    KIRIN_PERCEPTUAL_REQUIRE (delayedUi.historySizeForTest() == historyCapacity);
+    KIRIN_PERCEPTUAL_REQUIRE (! delayedUi.historyHasGapsForTest());
+    KIRIN_PERCEPTUAL_REQUIRE (delayedUi.newestEndpointForTest() == 307'200);
+
+    History emphasisHistory;
+    for (int index = 1; index <= 60; ++index)
+        emphasisHistory.append ((int64_t) index * 4'800, 48'000, 4'800,
+                                1.0, 1.2, 0.02 * (double) index);
+    KIRIN_PERCEPTUAL_REQUIRE (emphasisHistory.recentEmphasisStart() == 49u);
+    KIRIN_PERCEPTUAL_REQUIRE (
+        emphasisHistory.ageSecondsAt (emphasisHistory.recentEmphasisStart()) == 1.0);
+
+    delayedUi.setBatch (batch (70, 71));
+    KIRIN_PERCEPTUAL_REQUIRE (delayedUi.historySizeForTest() == 2u);
+    KIRIN_PERCEPTUAL_REQUIRE (! delayedUi.historyHasGapsForTest());
+    KIRIN_PERCEPTUAL_REQUIRE (delayedUi.newestEndpointForTest() == 340'800);
 }
 
 void verifyPerceptualRenderingContract()
 {
     static_assert (sizeof (KirinPerceptualView) == 56u);
+    static_assert (sizeof (KirinPerceptualBatch) == 3'648u);
     const double compact = renderAt (
         ui_contract::spectrumSizePresets[0], "KIRIN_PERCEPTUAL_RENDER_OUTPUT");
     const double medium = renderAt (

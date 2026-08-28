@@ -2,6 +2,7 @@
 #include "../src/HyphaDisplayContract.h"
 #include "../src/HyphaClockSourceContract.h"
 #include "../src/HyphaSignalStateContract.h"
+#include "../src/HyphaSpectrumUiContract.h"
 #include "../src/pre_display/PreDisplayClock.h"
 #include "../src/pre_display/PreDisplayProjection.h"
 #include "../../crates/kirin_hypha_ffi/include/kirin_hypha_ffi.h"
@@ -219,7 +220,11 @@ int main()
     static_assert (KIRIN_DELTA_MODE_BYPASSED == 3u);
     static_assert (KIRIN_DELTA_MODE_PRE_INACTIVE == 4u);
     static_assert (KIRIN_SPECTRUM_BAND_COUNT == 256u);
-    static_assert (KIRIN_SPECTRUM_DISPLAY_RANGE_DB == 18.0f);
+    static_assert (KIRIN_SPECTRUM_DISPLAY_RANGE_DB == 24.0f);
+    static_assert (KIRIN_PERCEPTUAL_BATCH_CAPACITY == 64u);
+    static_assert (hypha::ui_contract::spectrumCurvePresentationHz == 12);
+    static_assert (hypha::ui_contract::perceptualCurvePresentationHz == 5);
+    static_assert (hypha::ui_contract::analysisNumericPresentationHz == 2);
     static_assert (KIRIN_SPECTRUM_HIDDEN == 0u);
     static_assert (KIRIN_SPECTRUM_NO_PAIR == 1u);
     static_assert (KIRIN_SPECTRUM_WARMING_UP == 2u);

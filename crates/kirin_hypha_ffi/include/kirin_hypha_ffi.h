@@ -58,7 +58,7 @@ typedef struct KirinHypha KirinHypha;
 #define KIRIN_DELTA_MODE_PRE_INACTIVE 4u
 
 #define KIRIN_SPECTRUM_BAND_COUNT 256u
-#define KIRIN_SPECTRUM_DISPLAY_RANGE_DB 18.0f
+#define KIRIN_SPECTRUM_DISPLAY_RANGE_DB 24.0f
 #define KIRIN_SPECTRUM_HIDDEN 0u
 #define KIRIN_SPECTRUM_NO_PAIR 1u
 #define KIRIN_SPECTRUM_WARMING_UP 2u
@@ -145,7 +145,7 @@ typedef struct {
 } KirinDelta;
 
 /* POST専用Spectrum表示. pre/post_dbfsはdisplay_dbの正確な元フレーム、display_dbは
- * 符号付きPOST-PRE。描画側が±18 dBへ収めるが、Rust内部のraw差分はclipしない。
+ * 符号付きPOST-PRE。描画側が±24 dBへ収めるが、Rust内部のraw差分はclipしない。
  * presentation_end_samplesは両者が一致した実フレームの終端。has_data=0時はstatusだけが有効。 */
 typedef struct {
   uint8_t status;       /* KIRIN_SPECTRUM_* */
@@ -176,6 +176,16 @@ typedef struct {
   int64_t presentation_end_samples;
   int64_t state_epoch_samples; /* 末尾追加: PRE/POSTの共通状態開始点 */
 } KirinPerceptualView;
+
+#define KIRIN_PERCEPTUAL_BATCH_CAPACITY 64
+
+/* UI遅延後も実測済み100 ms frameを失わない非破壊snapshot。framesは古い順。 */
+typedef struct {
+  KirinPerceptualView latest; /* status-only時も有効 */
+  uint32_t count;
+  uint32_t reserved;
+  KirinPerceptualView frames[KIRIN_PERCEPTUAL_BATCH_CAPACITY];
+} KirinPerceptualBatch;
 
 /* 検証用のread-only負荷カウンタ。表示・計測判断には使用しない。 */
 typedef struct {
@@ -426,6 +436,7 @@ bool kirin_hypha_poll_spectrum(KirinHypha* handle, KirinSpectrumView* out);
 
 /* 最新のexact-aperture POST-PRE Sharpnessを取得。status-onlyもtrue。 */
 bool kirin_hypha_poll_perceptual(KirinHypha* handle, KirinPerceptualView* out);
+bool kirin_hypha_poll_perceptual_batch(KirinHypha* handle, KirinPerceptualBatch* out);
 
 /* Spectrum optional workerの検証カウンタを取得。 */
 bool kirin_hypha_spectrum_stats(KirinHypha* handle, KirinSpectrumStats* out);

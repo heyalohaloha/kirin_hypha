@@ -14,6 +14,9 @@ namespace hypha::spectrum_chrome
         const spectrum_painter::SpectrumBins& pre;
         const spectrum_painter::SpectrumBins& post;
         const spectrum_painter::SpectrumBins& delta;
+        const spectrum_painter::SpectrumBins& readoutPre;
+        const spectrum_painter::SpectrumBins& readoutPost;
+        const spectrum_painter::SpectrumBins& readoutDelta;
         const spectrum_painter::SpectrumBins& mark;
         const spectrum_focus::FocusTrailHistory* focusTrail;
         const juce::String& actionNotice;

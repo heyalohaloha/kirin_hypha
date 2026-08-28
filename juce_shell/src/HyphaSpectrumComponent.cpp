@@ -85,6 +85,12 @@ void SpectrumComponent::setSnapshot (const KirinSpectrumView& next)
             snapshot.post_dbfs, calmWeights);
         displayedDelta = spectrum_presentation::calmLowFrequencies (
             snapshot.display_db, calmWeights);
+        readoutPre = displayedPre;
+        readoutPost = displayedPost;
+        readoutDelta = displayedDelta;
+        pendingPre = displayedPre;
+        pendingPost = displayedPost;
+        pendingDelta = displayedDelta;
         if (focusTrail == nullptr)
             focusTrail = std::make_unique<spectrum_focus::FocusTrailHistory>();
         focusTrail->append (snapshot.presentation_end_samples,
@@ -96,41 +102,137 @@ void SpectrumComponent::setSnapshot (const KirinSpectrumView& next)
         displayedPre.fill (0.0f);
         displayedPost.fill (0.0f);
         displayedDelta.fill (0.0f);
+        readoutPre.fill (0.0f);
+        readoutPost.fill (0.0f);
+        readoutDelta.fill (0.0f);
+        pendingPre.fill (0.0f);
+        pendingPost.fill (0.0f);
+        pendingDelta.fill (0.0f);
     }
+    pendingSnapshot = next;
+    havePendingSnapshot = true;
+    curveDirty = false;
+    numericDirty = false;
+    const auto nowMs = juce::Time::getMillisecondCounterHiRes();
+    lastCurvePresentationMs = nowMs;
+    lastNumericPresentationMs = nowMs;
     repaint();
+}
+
+void SpectrumComponent::queueSnapshot (const KirinSpectrumView& next)
+{
+    if (havePendingSnapshot
+        && std::memcmp (&pendingSnapshot, &next, sizeof (next)) == 0)
+        return;
+    const bool previousValid = havePendingSnapshot && validSnapshot (pendingSnapshot);
+    const bool nextValid = validSnapshot (next);
+    const bool layoutChanged = previousValid && nextValid
+        && (pendingSnapshot.sample_rate != next.sample_rate
+            || pendingSnapshot.channel_mode != next.channel_mode
+            || pendingSnapshot.channels != next.channels
+            || ! sameFloatBits (pendingSnapshot.min_hz, next.min_hz)
+            || ! sameFloatBits (pendingSnapshot.max_hz, next.max_hz));
+    if (! haveSnapshot || ! previousValid || ! nextValid || layoutChanged)
+    {
+        setSnapshot (next);
+        return;
+    }
+
+    const auto calmWeights = spectrum_presentation::lowFrequencyCalmWeights<
+        KIRIN_SPECTRUM_BAND_COUNT> (next.min_hz, next.max_hz);
+    pendingPre = spectrum_presentation::calmLowFrequencies (next.pre_dbfs, calmWeights);
+    pendingPost = spectrum_presentation::calmLowFrequencies (next.post_dbfs, calmWeights);
+    pendingDelta = spectrum_presentation::calmLowFrequencies (next.display_db, calmWeights);
+    if (focusTrail == nullptr)
+        focusTrail = std::make_unique<spectrum_focus::FocusTrailHistory>();
+    focusTrail->append (next.presentation_end_samples, next.sample_rate, pendingDelta);
+    pendingSnapshot = next;
+    havePendingSnapshot = true;
+    curveDirty = true;
+    numericDirty = true;
+    if (next.channel_mode <= KIRIN_SPECTRUM_CHANNEL_SIDE)
+        channelMode = next.channel_mode;
+    if (next.channels == 1u || next.channels == 2u)
+        inputChannels = next.channels;
 }
 
 void SpectrumComponent::clearSnapshot()
 {
     snapshot = {};
+    pendingSnapshot = {};
     displayedPre.fill (0.0f);
     displayedPost.fill (0.0f);
     displayedDelta.fill (0.0f);
+    readoutPre.fill (0.0f);
+    readoutPost.fill (0.0f);
+    readoutDelta.fill (0.0f);
+    pendingPre.fill (0.0f);
+    pendingPost.fill (0.0f);
+    pendingDelta.fill (0.0f);
     markedDelta.fill (0.0f);
     focusTrail.reset();
     haveSnapshot = false;
+    havePendingSnapshot = false;
+    curveDirty = false;
+    numericDirty = false;
     haveMark = false;
     hoverNormalisedX = -1.0f;
     focusFrequencyHz = -1.0f;
     hoverNeedsRepaint = false;
     modeActionNotice.clear();
     modeActionNoticeUntilMs = 0.0;
+    lastCurvePresentationMs = 0.0;
+    lastNumericPresentationMs = 0.0;
     repaint();
 }
 
 void SpectrumComponent::presentationTick()
 {
+    presentationTickAt (juce::Time::getMillisecondCounterHiRes());
+}
+
+void SpectrumComponent::presentationTickAt (double nowMs)
+{
     const bool noticeExpired = modeActionNotice.isNotEmpty()
-        && juce::Time::getMillisecondCounterHiRes() >= modeActionNoticeUntilMs;
-    if (! hoverNeedsRepaint && ! noticeExpired)
-        return;
+        && nowMs >= modeActionNoticeUntilMs;
+    bool needsRepaint = hoverNeedsRepaint || noticeExpired;
     hoverNeedsRepaint = false;
+    if (curveDirty && havePendingSnapshot
+        && nowMs - lastCurvePresentationMs >= 1'000.0
+            / (double) ui_contract::spectrumCurvePresentationHz)
+    {
+        const double intervalMs = 1'000.0
+            / (double) ui_contract::spectrumCurvePresentationHz;
+        snapshot = pendingSnapshot;
+        displayedPre = pendingPre;
+        displayedPost = pendingPost;
+        displayedDelta = pendingDelta;
+        curveDirty = false;
+        lastCurvePresentationMs = nowMs - lastCurvePresentationMs > 2.0 * intervalMs
+                                ? nowMs : lastCurvePresentationMs + intervalMs;
+        needsRepaint = true;
+    }
+    if (numericDirty && havePendingSnapshot
+        && nowMs - lastNumericPresentationMs >= 1'000.0
+            / (double) ui_contract::analysisNumericPresentationHz)
+    {
+        const double intervalMs = 1'000.0
+            / (double) ui_contract::analysisNumericPresentationHz;
+        readoutPre = pendingPre;
+        readoutPost = pendingPost;
+        readoutDelta = pendingDelta;
+        numericDirty = false;
+        lastNumericPresentationMs = nowMs - lastNumericPresentationMs > 2.0 * intervalMs
+                                  ? nowMs : lastNumericPresentationMs + intervalMs;
+        needsRepaint = true;
+    }
     if (noticeExpired)
     {
         modeActionNotice.clear();
         modeActionNoticeUntilMs = 0.0;
     }
-    repaint();
+    if (needsRepaint)
+        repaint();
 }
 
 void SpectrumComponent::mouseMove (const juce::MouseEvent& event)
@@ -187,12 +289,22 @@ void SpectrumComponent::mouseDown (const juce::MouseEvent& event)
             return;
         }
         snapshot = {};
+        pendingSnapshot = {};
         displayedPre.fill (0.0f);
         displayedPost.fill (0.0f);
         displayedDelta.fill (0.0f);
+        readoutPre.fill (0.0f);
+        readoutPost.fill (0.0f);
+        readoutDelta.fill (0.0f);
+        pendingPre.fill (0.0f);
+        pendingPost.fill (0.0f);
+        pendingDelta.fill (0.0f);
         markedDelta.fill (0.0f);
         focusTrail.reset();
         haveSnapshot = false;
+        havePendingSnapshot = false;
+        curveDirty = false;
+        numericDirty = false;
         haveMark = false;
         hoverNormalisedX = -1.0f;
         focusFrequencyHz = -1.0f;
@@ -257,7 +369,8 @@ void SpectrumComponent::mouseDown (const juce::MouseEvent& event)
 void SpectrumComponent::paint (juce::Graphics& g)
 {
     const spectrum_chrome::PaintState state {
-        snapshot, displayedPre, displayedPost, displayedDelta, markedDelta,
+        snapshot, displayedPre, displayedPost, displayedDelta,
+        readoutPre, readoutPost, readoutDelta, markedDelta,
         focusTrail.get(), modeActionNotice,
         haveSnapshot, haveSnapshot && validSnapshot (snapshot),
         haveMark, hoverNormalisedX, focusFrequencyHz, channelMode, inputChannels

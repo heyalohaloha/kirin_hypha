@@ -34,6 +34,7 @@ pub mod pair_status;
 pub mod pairing_scope;
 pub mod path_identity;
 pub mod perceptual;
+mod perceptual_difference_timeline;
 pub mod phase_d;
 pub mod plugin_data;
 pub mod post_candidates;
@@ -170,6 +171,9 @@ pub use perceptual::{
     difference_post_minus_pre as perceptual_difference_post_minus_pre, PerceptualDifference,
     PerceptualError, PerceptualFrame, SharpnessContinuousAnalyzer, PERCEPTUAL_PRESENTATION_HZ,
     PERCEPTUAL_SCHEMA_VERSION,
+};
+pub use perceptual_difference_timeline::{
+    PerceptualDifferenceTimeline, TimelinePushResult, PERCEPTUAL_DIFFERENCE_TIMELINE_CAPACITY,
 };
 pub use plugin_data::{
     append_annotation_to_latest, compact_wall_clock, verify_checksum, Annotation, AnnotationMark,

@@ -252,13 +252,13 @@ int main()
                          ui::spectrumPostLegendLabelWidth));
     KIRIN_REQUIRE (fits (hypha::monoFont (8.5f), "22.0 kHz",
                          ui::spectrumHoverFrequencyWidth));
-    KIRIN_REQUIRE (fits (hypha::monoFont (8.5f), juce::CharPointer_UTF8 ("Δ+18.0"),
+    KIRIN_REQUIRE (fits (hypha::monoFont (8.5f), juce::CharPointer_UTF8 ("Δ+24.0"),
                          ui::spectrumHoverDeltaWidth));
     KIRIN_REQUIRE (fits (hypha::monoFont (8.0f), "PRE -144.0",
                          ui::spectrumExpandedPreWidth));
     KIRIN_REQUIRE (fits (hypha::monoFont (8.0f), "POST -144.0",
                          ui::spectrumExpandedPostWidth));
-    KIRIN_REQUIRE (fits (hypha::monoFont (8.0f), juce::CharPointer_UTF8 ("Δ+18.0"),
+    KIRIN_REQUIRE (fits (hypha::monoFont (8.0f), juce::CharPointer_UTF8 ("Δ+24.0"),
                          ui::spectrumExpandedDeltaWidth));
     KIRIN_REQUIRE (std::abs (ui::spectrumStrokeScale (1.0f) - 1.0f) < 1.0e-6f);
     KIRIN_REQUIRE (std::abs (ui::spectrumStrokeScale (1.25f) - 1.12f) < 1.0e-6f);

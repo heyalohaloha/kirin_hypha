@@ -17,6 +17,8 @@ mod joining;
 mod perceptual_codec;
 #[path = "spectrum_exchange_pre.rs"]
 mod pre_tick;
+#[path = "spectrum_exchange_view.rs"]
+mod view_state;
 
 #[cfg(test)]
 use crate::analysis_exchange_protocol::JSON_MAX_BYTES as REQUEST_MAX_BYTES;
@@ -26,6 +28,7 @@ use crate::analysis_exchange_protocol::{
 };
 use crate::analysis_lease::AnalysisLease;
 use crate::perceptual::PerceptualDifference;
+use crate::perceptual_difference_timeline::PerceptualDifferenceTimeline;
 use crate::spectrum::{AnalysisViewMode, SpectrumChannelMode, SpectrumDifference};
 use crate::spectrum_exchange_worker::SpectrumExchangeWorker;
 #[cfg(test)]
@@ -35,7 +38,9 @@ use crate::spectrum_runtime::SpectrumRuntime;
 use codec::{decode_snapshot, SNAPSHOT_MAX_BYTES};
 use codec::{encode_snapshot, read_snapshot};
 #[cfg(test)]
-use joining::{newest_exact_difference, newest_exact_perceptual_difference};
+use joining::{
+    exact_perceptual_differences, newest_exact_difference, newest_exact_perceptual_difference,
+};
 use joining::{store_joined_perceptual, store_joined_spectrum};
 use perceptual_codec::{encode_perceptual_snapshot, read_perceptual_snapshot};
 
@@ -78,6 +83,7 @@ pub struct SpectrumViewSnapshot {
     pub channels: u8,
     pub difference: Option<SpectrumDifference>,
     pub perceptual_difference: Option<PerceptualDifference>,
+    pub perceptual_timeline: PerceptualDifferenceTimeline,
 }
 
 struct PostSession {
@@ -388,10 +394,6 @@ impl SpectrumCoordinator {
         true
     }
 
-    pub fn try_view(&self) -> Option<SpectrumViewSnapshot> {
-        self.view.try_lock().ok().map(|view| view.clone())
-    }
-
     pub fn shutdown(&self) {
         self.post_visible.store(false, Ordering::Release);
         self.exchange_worker.shutdown_and_join();
@@ -409,24 +411,6 @@ impl SpectrumCoordinator {
         }
         let _ = self.runtime.set_enabled(false);
         self.release_analysis_lease();
-    }
-
-    fn store_view(
-        &self,
-        status: SpectrumViewStatus,
-        difference: Option<SpectrumDifference>,
-        perceptual_difference: Option<PerceptualDifference>,
-    ) {
-        if let Ok(mut view) = self.view.lock() {
-            *view = SpectrumViewSnapshot {
-                status,
-                analysis_mode: self.runtime.analysis_mode(),
-                channel_mode: self.runtime.channel_mode(),
-                channels: self.runtime.num_channels() as u8,
-                difference,
-                perceptual_difference,
-            };
-        }
     }
 
     fn ensure_analysis_lease(&self) -> std::io::Result<bool> {

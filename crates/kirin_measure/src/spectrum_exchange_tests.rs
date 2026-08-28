@@ -241,6 +241,24 @@ fn perceptual_difference_joins_only_exact_endpoint_aperture_and_epoch() {
 }
 
 #[test]
+fn perceptual_join_recovers_every_exact_endpoint_after_a_delayed_presentation_tick() {
+    let mut pre = crate::PerceptualHistory::with_capacity();
+    let mut post = crate::PerceptualHistory::with_capacity();
+    for index in 1..=6 {
+        let endpoint = index * 4_800;
+        pre.push(perceptual_frame(endpoint, 1.0 + index as f64 * 0.01));
+        post.push(perceptual_frame(endpoint, 1.2 + index as f64 * 0.02));
+    }
+    let differences = exact_perceptual_differences(&post, &pre);
+    assert_eq!(differences.len(), 6);
+    assert_eq!(differences[0].presentation_end_samples, 4_800);
+    assert_eq!(differences[5].presentation_end_samples, 28_800);
+    assert!(differences.windows(2).all(|pair| {
+        pair[1].presentation_end_samples - pair[0].presentation_end_samples == 4_800
+    }));
+}
+
+#[test]
 fn malformed_perceptual_payload_fails_closed() {
     let mut history = crate::PerceptualHistory::with_capacity();
     history.push(perceptual_frame(4_800, 1.2));

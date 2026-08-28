@@ -73,30 +73,172 @@ void PerceptualComponent::setSnapshot (const KirinPerceptualView& next)
     modeActionNotice.clear();
     modeActionNoticeUntilMs = 0.0;
     if (nextValid)
-        history.append (next.presentation_end_samples, next.sample_rate,
-                        next.aperture_samples, next.pre_sharpness,
-                        next.post_sharpness, next.delta_sharpness);
+    {
+        const auto appended = history.append (
+            next.presentation_end_samples, next.sample_rate,
+            next.aperture_samples, next.pre_sharpness,
+            next.post_sharpness, next.delta_sharpness);
+        if (appended == perceptual_history::AppendResult::gapAppended)
+        {
+            history.clear();
+            history.append (next.presentation_end_samples, next.sample_rate,
+                            next.aperture_samples, next.pre_sharpness,
+                            next.post_sharpness, next.delta_sharpness);
+        }
+    }
+    pendingSnapshot = next;
+    havePendingSnapshot = true;
+    curveDirty = false;
+    numericDirty = false;
+    const auto nowMs = juce::Time::getMillisecondCounterHiRes();
+    lastCurvePresentationMs = nowMs;
+    lastNumericPresentationMs = nowMs;
     repaint();
+}
+
+void PerceptualComponent::setBatch (const KirinPerceptualBatch& batch)
+{
+    if (batch.count > KIRIN_PERCEPTUAL_BATCH_CAPACITY)
+        return;
+    const auto& next = batch.latest;
+    const bool nextValid = validSnapshot (next);
+    if (nextValid != (batch.count > 0u))
+        return;
+    for (uint32_t index = 0u; index < batch.count; ++index)
+    {
+        const auto& frame = batch.frames[index];
+        if (! validSnapshot (frame)
+            || frame.sample_rate != next.sample_rate
+            || frame.aperture_samples != next.aperture_samples
+            || frame.channel_mode != next.channel_mode
+            || frame.channels != next.channels
+            || frame.state_epoch_samples != next.state_epoch_samples
+            || (index > 0u && frame.presentation_end_samples
+                <= batch.frames[index - 1u].presentation_end_samples))
+            return;
+    }
+    if (nextValid
+        && batch.frames[batch.count - 1u].presentation_end_samples
+            != next.presentation_end_samples)
+        return;
+
+    const bool previousValid = havePendingSnapshot && validSnapshot (pendingSnapshot);
+    const bool layoutChanged = previousValid && nextValid
+        && (pendingSnapshot.sample_rate != next.sample_rate
+            || pendingSnapshot.aperture_samples != next.aperture_samples
+            || pendingSnapshot.channel_mode != next.channel_mode
+            || pendingSnapshot.channels != next.channels
+            || pendingSnapshot.state_epoch_samples != next.state_epoch_samples);
+    if (! nextValid || layoutChanged)
+        history.clear();
+
+    bool appendedAny = false;
+    if (nextValid)
+    {
+        for (uint32_t index = 0u; index < batch.count; ++index)
+        {
+            const auto& frame = batch.frames[index];
+            if (! history.empty()
+                && frame.presentation_end_samples <= history.newestEndpoint())
+                continue;
+            const auto appended = history.append (
+                frame.presentation_end_samples, frame.sample_rate,
+                frame.aperture_samples, frame.pre_sharpness,
+                frame.post_sharpness, frame.delta_sharpness);
+            if (appended == perceptual_history::AppendResult::gapAppended)
+            {
+                // A true overrun is recorded internally by the endpoint jump, but the user gets
+                // one clean new run instead of a screen full of disconnected fragments.
+                history.clear();
+                history.append (frame.presentation_end_samples, frame.sample_rate,
+                                frame.aperture_samples, frame.pre_sharpness,
+                                frame.post_sharpness, frame.delta_sharpness);
+            }
+            appendedAny = true;
+        }
+    }
+
+    const bool firstPresentation = ! haveSnapshot || ! previousValid || layoutChanged;
+    pendingSnapshot = next;
+    havePendingSnapshot = true;
+    haveSnapshot = true;
+    if (next.channel_mode <= KIRIN_SPECTRUM_CHANNEL_SIDE)
+        channelMode = next.channel_mode;
+    if (next.channels == 1u || next.channels == 2u)
+        inputChannels = next.channels;
+    modeActionNotice.clear();
+    modeActionNoticeUntilMs = 0.0;
+    if (firstPresentation || ! nextValid)
+    {
+        snapshot = next;
+        curveDirty = false;
+        numericDirty = false;
+        const auto nowMs = juce::Time::getMillisecondCounterHiRes();
+        lastCurvePresentationMs = nowMs;
+        lastNumericPresentationMs = nowMs;
+        ++curvePresentationCount;
+        ++numericPresentationCount;
+        repaint();
+        return;
+    }
+    curveDirty = curveDirty || appendedAny;
+    numericDirty = numericDirty || ! sameSnapshot (snapshot, next);
 }
 
 void PerceptualComponent::clearSnapshot()
 {
     snapshot = {};
+    pendingSnapshot = {};
     history.clear();
     haveSnapshot = false;
+    havePendingSnapshot = false;
+    curveDirty = false;
+    numericDirty = false;
     modeActionNotice.clear();
     modeActionNoticeUntilMs = 0.0;
+    lastCurvePresentationMs = 0.0;
+    lastNumericPresentationMs = 0.0;
     repaint();
 }
 
 void PerceptualComponent::presentationTick()
 {
-    if (modeActionNotice.isEmpty()
-        || juce::Time::getMillisecondCounterHiRes() < modeActionNoticeUntilMs)
-        return;
-    modeActionNotice.clear();
-    modeActionNoticeUntilMs = 0.0;
-    repaint();
+    presentationTickAt (juce::Time::getMillisecondCounterHiRes());
+}
+
+void PerceptualComponent::presentationTickAt (double nowMs)
+{
+    bool needsRepaint = false;
+    const double curveIntervalMs = 1'000.0
+        / (double) ui_contract::perceptualCurvePresentationHz;
+    const double numericIntervalMs = 1'000.0
+        / (double) ui_contract::analysisNumericPresentationHz;
+    if (curveDirty && nowMs - lastCurvePresentationMs >= curveIntervalMs)
+    {
+        curveDirty = false;
+        lastCurvePresentationMs = nowMs - lastCurvePresentationMs > 2.0 * curveIntervalMs
+                                ? nowMs : lastCurvePresentationMs + curveIntervalMs;
+        ++curvePresentationCount;
+        needsRepaint = true;
+    }
+    if (numericDirty && havePendingSnapshot
+        && nowMs - lastNumericPresentationMs >= numericIntervalMs)
+    {
+        snapshot = pendingSnapshot;
+        numericDirty = false;
+        lastNumericPresentationMs = nowMs - lastNumericPresentationMs > 2.0 * numericIntervalMs
+                                  ? nowMs : lastNumericPresentationMs + numericIntervalMs;
+        ++numericPresentationCount;
+        needsRepaint = true;
+    }
+    if (modeActionNotice.isNotEmpty() && nowMs >= modeActionNoticeUntilMs)
+    {
+        modeActionNotice.clear();
+        modeActionNoticeUntilMs = 0.0;
+        needsRepaint = true;
+    }
+    if (needsRepaint)
+        repaint();
 }
 
 void PerceptualComponent::mouseDown (const juce::MouseEvent& event)
@@ -124,8 +266,12 @@ void PerceptualComponent::mouseDown (const juce::MouseEvent& event)
             return;
         }
         snapshot = {};
+        pendingSnapshot = {};
         history.clear();
         haveSnapshot = false;
+        havePendingSnapshot = false;
+        curveDirty = false;
+        numericDirty = false;
         channelMode = requestedMode;
         repaint();
         return;

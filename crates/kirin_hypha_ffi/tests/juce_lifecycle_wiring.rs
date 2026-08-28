@@ -315,12 +315,14 @@ fn optional_analysis_is_post_only_on_demand_and_isolated_from_existing_schemas()
     let header = read_repo("crates/kirin_hypha_ffi/include/kirin_hypha_ffi.h");
     for required in [
         "KIRIN_SPECTRUM_BAND_COUNT 256u",
-        "KIRIN_SPECTRUM_DISPLAY_RANGE_DB 18.0f",
+        "KIRIN_SPECTRUM_DISPLAY_RANGE_DB 24.0f",
         "kirin_hypha_set_spectrum_visible",
         "kirin_hypha_set_perceptual_visible",
         "kirin_hypha_set_spectrum_channel_mode",
         "kirin_hypha_poll_spectrum",
         "kirin_hypha_poll_perceptual",
+        "kirin_hypha_poll_perceptual_batch",
+        "KIRIN_PERCEPTUAL_BATCH_CAPACITY 64",
     ] {
         assert!(header.contains(required), "Spectrum ABI missing {required}");
     }

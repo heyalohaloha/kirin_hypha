@@ -903,7 +903,7 @@ void KirinHyphaEditor::updatePost()
         spectrumView.presentationTick();
         KirinSpectrumView spectrum {};
         if (processorRef.pollSpectrum (spectrum))
-            spectrumView.setSnapshot (spectrum);
+            spectrumView.queueSnapshot (spectrum);
         // Spectrum is presentation-only. Pair/Keep/feedback and the existing status LED remain
         // live, while meter polling and smoothing are skipped for this page.
         led.setState (hypha::deriveLedState (alive, sig, rec && armed, ack, preset));
@@ -912,9 +912,9 @@ void KirinHyphaEditor::updatePost()
     if (analysisPage == AnalysisPage::perceptual)
     {
         perceptualView.presentationTick();
-        KirinPerceptualView perceptual {};
-        if (processorRef.pollPerceptual (perceptual))
-            perceptualView.setSnapshot (perceptual);
+        KirinPerceptualBatch perceptual {};
+        if (processorRef.pollPerceptualBatch (perceptual))
+            perceptualView.setBatch (perceptual);
         led.setState (hypha::deriveLedState (alive, sig, rec && armed, ack, preset));
         return;
     }

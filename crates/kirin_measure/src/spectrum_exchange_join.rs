@@ -17,6 +17,7 @@ pub(super) fn newest_exact_difference(
     })
 }
 
+#[cfg(test)]
 pub(super) fn newest_exact_perceptual_difference(
     post: &PerceptualHistory,
     pre: &PerceptualHistory,
@@ -25,6 +26,18 @@ pub(super) fn newest_exact_perceptual_difference(
         pre.matching_presentation_end(post_frame.presentation_end_samples)
             .and_then(|pre_frame| perceptual_difference_post_minus_pre(post_frame, pre_frame))
     })
+}
+
+pub(super) fn exact_perceptual_differences(
+    post: &PerceptualHistory,
+    pre: &PerceptualHistory,
+) -> Vec<PerceptualDifference> {
+    post.frames()
+        .filter_map(|post_frame| {
+            pre.matching_presentation_end(post_frame.presentation_end_samples)
+                .and_then(|pre_frame| perceptual_difference_post_minus_pre(post_frame, pre_frame))
+        })
+        .collect()
 }
 
 fn joined_status<T>(
@@ -72,15 +85,15 @@ pub(super) fn store_joined_perceptual(
     local: Option<&PerceptualHistory>,
     remote: Option<&PerceptualHistory>,
 ) {
-    if let Some(difference) = local
-        .zip(remote)
-        .and_then(|(post, pre)| newest_exact_perceptual_difference(post, pre))
-    {
-        coordinator.store_view(SpectrumViewStatus::Active, None, Some(difference));
+    let differences = local.zip(remote).map_or_else(Vec::new, |(post, pre)| {
+        exact_perceptual_differences(post, pre)
+    });
+    if !differences.is_empty() {
+        coordinator.store_perceptual_view(SpectrumViewStatus::Active, &differences);
         return;
     }
     let status = joined_status(session, now, local, remote, |history| {
         history.newest().is_some()
     });
-    coordinator.store_view(status, None, None);
+    coordinator.store_perceptual_view(status, &[]);
 }

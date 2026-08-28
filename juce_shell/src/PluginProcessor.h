@@ -82,6 +82,7 @@ public:
     bool setSpectrumChannelMode (uint8_t channelMode);  // LR/MID/SIDE; SIDE is stereo-only
     bool pollSpectrum (KirinSpectrumView& out) const;   // signed POST-PRE display snapshot
     bool pollPerceptual (KirinPerceptualView& out) const;
+    bool pollPerceptualBatch (KirinPerceptualBatch& out) const;
     bool spectrumStats (KirinSpectrumStats& out) const; // read-only validation counters
     uint8_t spectrumSizePreference() const              // editor-lifetime recreation only; not DAW state
     {

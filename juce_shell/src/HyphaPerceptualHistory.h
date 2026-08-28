@@ -9,6 +9,7 @@ namespace hypha::perceptual_history
 {
     constexpr size_t historyCapacity = 60u;
     constexpr double historySeconds = 6.0;
+    constexpr double recentEmphasisSeconds = 1.0;
 
     struct Sample
     {
@@ -89,6 +90,30 @@ namespace hypha::perceptual_history
         bool empty() const noexcept { return count == 0u; }
         size_t size() const noexcept { return count; }
         uint32_t sampleRate() const noexcept { return currentSampleRate; }
+        int64_t newestEndpoint() const noexcept
+        {
+            return count == 0u ? 0 : sampleAt (count - 1u).endpoint;
+        }
+
+        bool hasDiscontinuity() const noexcept
+        {
+            for (size_t index = 1u; index < count; ++index)
+                if (! sampleAt (index).continuesPrevious)
+                    return true;
+            return false;
+        }
+
+        size_t recentEmphasisStart() const noexcept
+        {
+            if (count == 0u)
+                return 0u;
+            size_t first = count - 1u;
+            while (first > 0u
+                   && ageSecondsAt (first - 1u) <= recentEmphasisSeconds
+                   && sampleAt (first).continuesPrevious)
+                --first;
+            return first;
+        }
 
         const Sample& sampleAt (size_t logicalIndex) const noexcept
         {

@@ -60,11 +60,11 @@ namespace
         const float zeroY = spectrum_geometry::yForDeltaDb (0.0f, plot);
         g.setFont (monoFont (scaled (8.5f)));
         g.setColour (COL_MUTED.withAlpha (0.86f));
-        g.drawText ("+18", 0, juce::roundToInt (plot.getY()) - scaledInt (4),
+        g.drawText ("+24", 0, juce::roundToInt (plot.getY()) - scaledInt (4),
                     scaledInt (21), scaledInt (10), juce::Justification::centredRight);
         g.drawText ("0", 0, juce::roundToInt (zeroY) - scaledInt (5),
                     scaledInt (21), scaledInt (10), juce::Justification::centredRight);
-        g.drawText ("-18", 0, juce::roundToInt (plot.getBottom()) - scaledInt (6),
+        g.drawText ("-24", 0, juce::roundToInt (plot.getBottom()) - scaledInt (6),
                     scaledInt (21), scaledInt (10), juce::Justification::centredRight);
         g.drawText ("0", juce::roundToInt (plot.getRight()) + scaledInt (3),
                     juce::roundToInt (plot.getY()) - scaledInt (4),
@@ -272,9 +272,12 @@ namespace
         const size_t upper = std::min (
             lower + 1u, static_cast<size_t> (KIRIN_SPECTRUM_BAND_COUNT - 1u));
         const float blend = bandPosition - (float) lower;
-        const float preDbfs = juce::jmap (blend, state.pre[lower], state.pre[upper]);
-        const float postDbfs = juce::jmap (blend, state.post[lower], state.post[upper]);
-        const float deltaDb = juce::jmap (blend, state.delta[lower], state.delta[upper]);
+        const float preDbfs = juce::jmap (
+            blend, state.readoutPre[lower], state.readoutPre[upper]);
+        const float postDbfs = juce::jmap (
+            blend, state.readoutPost[lower], state.readoutPost[upper]);
+        const float deltaDb = juce::jmap (
+            blend, state.readoutDelta[lower], state.readoutDelta[upper]);
         const float pointY = spectrum_geometry::yForDeltaDb (deltaDb, plot);
 
         g.setColour (COL_NORMAL.withAlpha (focusLocked ? 0.48f : 0.30f));

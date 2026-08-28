@@ -4,6 +4,7 @@
 #include "../src/HyphaUiContract.h"
 
 #include <cstdlib>
+#include <cmath>
 #include <iostream>
 
 namespace hypha::tests
@@ -140,5 +141,30 @@ void verifySpectrumInteractionContract (SpectrumComponent& spectrum,
     KIRIN_INTERACTION_REQUIRE (monoModeCallbacks == 0);
     KIRIN_INTERACTION_REQUIRE (
         monoSpectrum.channelModeForTest() == KIRIN_SPECTRUM_CHANNEL_LR);
+
+    SpectrumComponent pacedSpectrum;
+    pacedSpectrum.setSize (width, height);
+    pacedSpectrum.setSnapshot (snapshot);
+    KirinSpectrumView queuedSnapshot = snapshot;
+    queuedSnapshot.presentation_end_samples += 1'600;
+    queuedSnapshot.display_db[0] += 6.0f;
+    queuedSnapshot.post_dbfs[0] += 6.0f;
+    const float heldDelta = pacedSpectrum.readoutDeltaForTest (0u);
+    pacedSpectrum.queueSnapshot (queuedSnapshot);
+    KIRIN_INTERACTION_REQUIRE (
+        pacedSpectrum.presentedEndpointForTest() == snapshot.presentation_end_samples);
+    const double now = juce::Time::getMillisecondCounterHiRes();
+    pacedSpectrum.presentationTickAt (now + 50.0);
+    KIRIN_INTERACTION_REQUIRE (
+        pacedSpectrum.presentedEndpointForTest() == snapshot.presentation_end_samples);
+    pacedSpectrum.presentationTickAt (now + 90.0);
+    KIRIN_INTERACTION_REQUIRE (
+        pacedSpectrum.presentedEndpointForTest()
+            == queuedSnapshot.presentation_end_samples);
+    KIRIN_INTERACTION_REQUIRE (
+        std::abs (pacedSpectrum.readoutDeltaForTest (0u) - heldDelta) < 1.0e-6f);
+    pacedSpectrum.presentationTickAt (now + 510.0);
+    KIRIN_INTERACTION_REQUIRE (
+        std::abs (pacedSpectrum.readoutDeltaForTest (0u) - heldDelta) > 0.1f);
 }
 }

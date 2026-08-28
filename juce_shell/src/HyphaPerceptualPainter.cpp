@@ -249,10 +249,9 @@ namespace
             }
         }
 
-        size_t recentStart = points.count > 10u ? points.count - 10u : 0u;
-        for (size_t index = recentStart + 1u; index < points.count; ++index)
-            if (! history.sampleAt (index).continuesPrevious)
-                recentStart = index;
+        // The bright edge belongs to one measured second, not to an incidental number of JUCE
+        // timer callbacks. A delayed Windows paint therefore catches up without losing emphasis.
+        const size_t recentStart = history.recentEmphasisStart();
         const auto recent = smoothPath (points, recentStart, points.count);
         g.setColour (COL_SPECTRUM_DELTA_BR.withAlpha (0.86f));
         g.strokePath (recent, juce::PathStrokeType (1.8f * scale,

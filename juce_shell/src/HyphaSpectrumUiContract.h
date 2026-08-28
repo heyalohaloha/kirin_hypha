@@ -5,6 +5,9 @@
 namespace hypha::ui_contract
 {
     constexpr int spectrumPresentationHz = 30;
+    constexpr int spectrumCurvePresentationHz = 12;
+    constexpr int perceptualCurvePresentationHz = 5;
+    constexpr int analysisNumericPresentationHz = 2;
     constexpr int spectrumToggleWidth = 84;
     constexpr int spectrumToggleHeight = 21;
     constexpr int spectrumTitleGap = 8;

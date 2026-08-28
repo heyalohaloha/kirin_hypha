@@ -782,6 +782,14 @@ bool KirinHyphaProcessorBase::pollPerceptual (KirinPerceptualView& out) const
     return hyphaHandle != nullptr && kirin_hypha_poll_perceptual (hyphaHandle, &out);
 }
 
+bool KirinHyphaProcessorBase::pollPerceptualBatch (KirinPerceptualBatch& out) const
+{
+    if (role != Role::Post)
+        return false;
+    const juce::ScopedLock sl (handleLock);
+    return hyphaHandle != nullptr && kirin_hypha_poll_perceptual_batch (hyphaHandle, &out);
+}
+
 bool KirinHyphaProcessorBase::spectrumStats (KirinSpectrumStats& out) const
 {
     if (role != Role::Post)

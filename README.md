@@ -67,7 +67,7 @@ session, including across transport stops.
 
 A paired POST provides an optional **ANALYSIS** page for inspecting the processing between PRE and
 POST. Analysis runs only while this page is open. The signed **Δ (POST − PRE)** curve is the primary
-display, with absolute PRE and POST spectra retained as reference curves. Δ is shown on a ±18 dB
+display, with absolute PRE and POST spectra retained as reference curves. Δ is shown on a ±24 dB
 scale; the underlying difference is not clipped. A difference is produced only when PRE and POST
 frames have the same sample rate, FFT layout, channel mode, channel count, and output-presentation
 sample endpoint.
@@ -103,7 +103,9 @@ changes.
 Where both spectra are extremely quiet, the displayed Δ alone is faded toward zero: it is fully
 suppressed at and below −120 dBFS and reaches full strength at −96 dBFS. This display floor does not
 alter the captured PRE or POST values. The analyzer follows the host sample rate, using a 4096-sample
-Hann window, an 8192-point FFT, and a 30 Hz presentation cadence. At 48 kHz the window spans about
+Hann window, an 8192-point FFT, and a 30 Hz analysis cadence. The live curve presents the newest
+frame at 12 Hz and numeric probe values at 2 Hz, without averaging or changing the measured
+endpoint. At 48 kHz the window spans about
 85 ms; FFT-point spacing changes with the host rate. It compares measured programme energy rather
 than reconstructing a plug-in transfer function, so narrow low-frequency EQ shapes can appear broader
 than the corresponding EQ control graph.
@@ -114,8 +116,11 @@ From the POST analysis page, **SHARP** opens Perceptual Δ and **FREQ** returns 
 Perceptual Δ observation is **Δ Sharpness History**. It plots the signed Sharpness difference
 `POST − PRE` over the latest six seconds, with the newest exact value shown in acum. The measured
 difference is not clipped; the stable display scale is ±2 acum. The curve is spatially rounded for
-legibility, but no temporal smoothing delays it. A missed UI update is shown as a gap rather than
-joined with an invented line.
+legibility, but no temporal smoothing delays it. All measured 10 Hz points remain in a retained
+six-second timeline: the curve is repainted at 5 Hz and the exact PRE / POST / Δ numbers are held
+for 500 ms. A delayed UI update catches up from that factual timeline instead of exposing scheduling
+jitter as broken segments. A true measurement discontinuity starts one clean new run; no missing
+value is interpolated.
 
 Each point comes from one non-overlapping 100 ms aperture and is published at 10 Hz. Before the
 first point, PRE reports readiness and POST commits one shared, aperture-aligned presentation epoch

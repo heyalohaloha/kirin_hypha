@@ -12,6 +12,7 @@ namespace hypha::spectrum_painter
 namespace
 {
     constexpr float kDeltaRangeDb = KIRIN_SPECTRUM_DISPLAY_RANGE_DB;
+    constexpr float kIntensityReferenceDb = 18.0f;
     constexpr float kMagnitudeFloorDbfs = -96.0f;
 
     float yForDeltaDb (float db, juce::Rectangle<float> plot) noexcept
@@ -75,7 +76,10 @@ void paintCurves (juce::Graphics& g,
     const juce::Path markCurve = mark != nullptr ? makeCurve (x, markY) : juce::Path {};
 
     constexpr size_t intensityLevelCount = ui_contract::spectrumTipAlpha.size();
-    constexpr float intensityStepDb = kDeltaRangeDb / (float) (intensityLevelCount - 1u);
+    // The wider ±24 dB geometry must not make ordinary 1–6 dB work look dimmer. Brightness keeps
+    // the proven ±18 dB response and simply reaches its maximum before the new display edge.
+    constexpr float intensityStepDb = kIntensityReferenceDb
+                                    / (float) (intensityLevelCount - 1u);
     constexpr std::array<float, 6> tipDepthCoverage {
         1.00f, 0.79f, 0.60f, 0.43f, 0.28f, 0.14f
     };

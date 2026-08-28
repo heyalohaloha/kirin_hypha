@@ -7,16 +7,21 @@ than advice, and a difference is never fabricated from frames that describe diff
 ## First observation: Delta Sharpness History
 
 - Quantity: signed `POST - PRE` Sharpness in acum.
-- Presentation: 10 points per second, six seconds retained by the UI, fixed ±2 acum plot.
+- Measurement: 10 exact points per second. Rust retains 64 points so a delayed UI poll can recover
+  the complete factual window; the UI shows the newest 60 points (six seconds).
+- Presentation: curve repaint at 5 Hz, exact PRE / POST / Δ readout at 2 Hz, fixed ±2 acum plot.
 - Raw truth: the measured difference is never clipped. Only plot coordinates are bounded.
 - Timing: one non-overlapping 100 ms host-presentation aperture per point.
 - Host rates: common rates whose sample count represents 100 ms exactly; an incompatible rate fails
   closed instead of rounding the observation boundary.
 - Exact join: schema, host sample rate, aperture samples, shared state epoch, channel mode, channel
   count, and output-presentation endpoint must all match.
-- Responsiveness: no temporal display smoothing. Curve rounding is spatial only.
-- Missing data: forward gaps remain gaps; a backward transport edge or definition change starts a
-  new history.
+- Responsiveness: no temporal display smoothing or endpoint averaging. Curve rounding is spatial
+  only. The brighter recent edge is selected from the newest one measured second, not from paint
+  callback count.
+- Missing data: a delayed UI poll recovers every retained exact endpoint. A true forward gap,
+  backward transport edge, or definition change discards the prior visible run and starts one clean
+  new history; no line is drawn across a missing point.
 - Semantics: no score, target, warning colour, recommendation, or pass/fail state.
 
 ## Channel definitions

@@ -21,8 +21,10 @@ public:
     SpectrumComponent();
 
     void setSnapshot (const KirinSpectrumView& next);
+    void queueSnapshot (const KirinSpectrumView& next);
     void clearSnapshot();
     void presentationTick();
+    void presentationTickAt (double nowMs);
     void paint (juce::Graphics&) override;
     void mouseMove (const juce::MouseEvent&) override;
     void mouseExit (const juce::MouseEvent&) override;
@@ -36,17 +38,35 @@ public:
     {
         return focusTrail != nullptr ? focusTrail->size() : 0u;
     }
+    int64_t presentedEndpointForTest() const noexcept
+    {
+        return snapshot.presentation_end_samples;
+    }
+    float readoutDeltaForTest (size_t index) const noexcept
+    {
+        return index < readoutDelta.size() ? readoutDelta[index] : 0.0f;
+    }
 
     std::function<bool(uint8_t)> onChannelModeChange;
 
 private:
     KirinSpectrumView snapshot {};
+    KirinSpectrumView pendingSnapshot {};
     std::array<float, KIRIN_SPECTRUM_BAND_COUNT> displayedPre {};
     std::array<float, KIRIN_SPECTRUM_BAND_COUNT> displayedPost {};
     std::array<float, KIRIN_SPECTRUM_BAND_COUNT> displayedDelta {};
+    std::array<float, KIRIN_SPECTRUM_BAND_COUNT> readoutPre {};
+    std::array<float, KIRIN_SPECTRUM_BAND_COUNT> readoutPost {};
+    std::array<float, KIRIN_SPECTRUM_BAND_COUNT> readoutDelta {};
+    std::array<float, KIRIN_SPECTRUM_BAND_COUNT> pendingPre {};
+    std::array<float, KIRIN_SPECTRUM_BAND_COUNT> pendingPost {};
+    std::array<float, KIRIN_SPECTRUM_BAND_COUNT> pendingDelta {};
     std::array<float, KIRIN_SPECTRUM_BAND_COUNT> markedDelta {};
     std::unique_ptr<spectrum_focus::FocusTrailHistory> focusTrail;
     bool haveSnapshot = false;
+    bool havePendingSnapshot = false;
+    bool curveDirty = false;
+    bool numericDirty = false;
     bool haveMark = false;
     float hoverNormalisedX = -1.0f;
     float focusFrequencyHz = -1.0f;
@@ -55,6 +75,8 @@ private:
     juce::String modeActionNotice;
     double modeActionNoticeUntilMs = 0.0;
     bool hoverNeedsRepaint = false;
+    double lastCurvePresentationMs = 0.0;
+    double lastNumericPresentationMs = 0.0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SpectrumComponent)
 };
