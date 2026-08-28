@@ -71,6 +71,125 @@ namespace
         return maximum;
     }
 
+    juce::Rectangle<float> perceptualPlotFor (juce::Rectangle<int> bounds)
+    {
+        const auto componentBounds = bounds.toFloat();
+        const float scale = spectrum_geometry::visualScaleFor (componentBounds);
+        auto plot = spectrum_geometry::plotBoundsFor (componentBounds);
+        plot.removeFromTop ((scale > 1.1f ? 27.0f : 17.0f) * scale);
+        plot.removeFromBottom (10.0f * scale);
+        return plot;
+    }
+
+    float yForDelta (double delta, juce::Rectangle<float> plot)
+    {
+        return juce::jmap (static_cast<float> (delta), 2.0f, -2.0f,
+                           plot.getY(), plot.getBottom());
+    }
+
+    juce::Point<int> pointAt (juce::Rectangle<float> plot,
+                              double ageSeconds,
+                              double delta)
+    {
+        const float x = plot.getRight()
+                      - static_cast<float> (ageSeconds / perceptual_history::historySeconds)
+                            * plot.getWidth();
+        return { juce::roundToInt (x), juce::roundToInt (yForDelta (delta, plot)) };
+    }
+
+    void setSteadyHistory (PerceptualComponent& component,
+                           double firstDelta,
+                           double steadyDelta)
+    {
+        for (int index = 1; index <= 60; ++index)
+        {
+            const double delta = index == 1 ? firstDelta : steadyDelta;
+            auto value = snapshot ((int64_t) index * 4'800, delta);
+            value.pre_sharpness = 2.5;
+            value.post_sharpness = value.pre_sharpness + delta;
+            component.setSnapshot (value);
+        }
+    }
+
+    juce::Image renderComponent (PerceptualComponent& component)
+    {
+        juce::Image image (juce::Image::ARGB,
+                           component.getWidth(), component.getHeight(), true);
+        juce::Graphics graphics (image);
+        component.paintEntireComponent (graphics, true);
+        return image;
+    }
+
+    juce::Image renderSteadyHistory (double firstDelta, double steadyDelta)
+    {
+        const auto& preset = ui_contract::spectrumSizePresets[2];
+        const auto bounds = ui_contract::spectrumPlotBounds (preset.width, preset.height);
+        PerceptualComponent component;
+        component.setSize (bounds.width, bounds.height);
+        setSteadyHistory (component, firstDelta, steadyDelta);
+        return renderComponent (component);
+    }
+
+    void verifyFillUsesZeroDistanceOnly()
+    {
+        const auto& preset = ui_contract::spectrumSizePresets[2];
+        const auto bounds = ui_contract::spectrumPlotBounds (preset.width, preset.height);
+        const auto plot = perceptualPlotFor (
+            juce::Rectangle<int> (0, 0, bounds.width, bounds.height));
+
+        const auto positive = renderSteadyHistory (1.6, 1.6);
+        const int positiveNear = positive.getPixelAt (
+            pointAt (plot, 0.7, 0.25).x, pointAt (plot, 0.7, 0.25).y).getAlpha();
+        const int positiveFar = positive.getPixelAt (
+            pointAt (plot, 0.7, 1.25).x, pointAt (plot, 0.7, 1.25).y).getAlpha();
+        std::cout << "Sharpness positive fill near/far alpha: "
+                  << positiveNear << '/' << positiveFar << '\n';
+        KIRIN_PERCEPTUAL_REQUIRE (positiveNear > 0);
+        KIRIN_PERCEPTUAL_REQUIRE (positiveFar >= positiveNear + 20);
+
+        const auto negative = renderSteadyHistory (-1.6, -1.6);
+        const int negativeNear = negative.getPixelAt (
+            pointAt (plot, 0.7, -0.25).x, pointAt (plot, 0.7, -0.25).y).getAlpha();
+        const int negativeFar = negative.getPixelAt (
+            pointAt (plot, 0.7, -1.25).x, pointAt (plot, 0.7, -1.25).y).getAlpha();
+        std::cout << "Sharpness negative fill near/far alpha: "
+                  << negativeNear << '/' << negativeFar << '\n';
+        KIRIN_PERCEPTUAL_REQUIRE (negativeNear > 0);
+        KIRIN_PERCEPTUAL_REQUIRE (negativeFar >= negativeNear + 20);
+
+        const auto zeroHead = renderSteadyHistory (0.0, 1.6);
+        const auto highHead = renderSteadyHistory (1.6, 1.6);
+        const auto sample = pointAt (plot, 0.7, 0.8);
+        const int zeroHeadAlpha = zeroHead.getPixelAt (sample.x, sample.y).getAlpha();
+        const int highHeadAlpha = highHead.getPixelAt (sample.x, sample.y).getAlpha();
+        std::cout << "Sharpness fill history-head independence alpha: "
+                  << zeroHeadAlpha << '/' << highHeadAlpha << '\n';
+        KIRIN_PERCEPTUAL_REQUIRE (zeroHeadAlpha > 0);
+        KIRIN_PERCEPTUAL_REQUIRE (std::abs (zeroHeadAlpha - highHeadAlpha) <= 2);
+    }
+
+    void verifyHeldFillPersistsAfterPresentationStops()
+    {
+        const auto& preset = ui_contract::spectrumSizePresets[2];
+        const auto bounds = ui_contract::spectrumPlotBounds (preset.width, preset.height);
+        const auto plot = perceptualPlotFor (
+            juce::Rectangle<int> (0, 0, bounds.width, bounds.height));
+        PerceptualComponent component;
+        component.setSize (bounds.width, bounds.height);
+        setSteadyHistory (component, 0.0, -1.6);
+
+        const auto live = renderComponent (component);
+        component.presentationTickAt (juce::Time::getMillisecondCounterHiRes() + 10'000.0);
+        const auto held = renderComponent (component);
+        const auto sample = pointAt (plot, 0.7, -0.8);
+        const int liveAlpha = live.getPixelAt (sample.x, sample.y).getAlpha();
+        const int heldAlpha = held.getPixelAt (sample.x, sample.y).getAlpha();
+        std::cout << "Sharpness stopped fill persistence alpha: "
+                  << liveAlpha << '/' << heldAlpha << '\n';
+        KIRIN_PERCEPTUAL_REQUIRE (liveAlpha > 0);
+        KIRIN_PERCEPTUAL_REQUIRE (heldAlpha == liveAlpha);
+    }
+
     void verifyUniformHistoryInk()
     {
         const auto& preset = ui_contract::spectrumSizePresets[2];
@@ -84,22 +203,9 @@ namespace
         juce::Graphics graphics (image);
         component.paintEntireComponent (graphics, true);
 
-        const auto componentBounds = component.getLocalBounds().toFloat();
-        const float scale = spectrum_geometry::visualScaleFor (componentBounds);
-        auto plot = spectrum_geometry::plotBoundsFor (componentBounds);
-        plot.removeFromTop ((scale > 1.1f ? 27.0f : 17.0f) * scale);
-        plot.removeFromBottom (10.0f * scale);
-        const float curveY = juce::jmap (1.0f, 2.0f, -2.0f,
-                                         plot.getY(), plot.getBottom());
-        const auto pointAtAge = [&plot, curveY] (double ageSeconds)
-        {
-            const float x = plot.getRight()
-                          - (float) (ageSeconds / perceptual_history::historySeconds)
-                                * plot.getWidth();
-            return juce::Point<int> (juce::roundToInt (x), juce::roundToInt (curveY));
-        };
-        const int olderAlpha = maximumAlphaAround (image, pointAtAge (4.0));
-        const int newerAlpha = maximumAlphaAround (image, pointAtAge (0.5));
+        const auto plot = perceptualPlotFor (component.getLocalBounds());
+        const int olderAlpha = maximumAlphaAround (image, pointAt (plot, 4.0, 1.0));
+        const int newerAlpha = maximumAlphaAround (image, pointAt (plot, 0.5, 1.0));
         std::cout << "Sharpness uniform ink alpha: " << olderAlpha
                   << '/' << newerAlpha << '\n';
         KIRIN_PERCEPTUAL_REQUIRE (olderAlpha > 0);
@@ -243,6 +349,8 @@ void verifyPerceptualRenderingContract()
 {
     static_assert (sizeof (KirinPerceptualView) == 56u);
     static_assert (sizeof (KirinPerceptualBatch) == 3'648u);
+    verifyFillUsesZeroDistanceOnly();
+    verifyHeldFillPersistsAfterPresentationStops();
     verifyUniformHistoryInk();
     const double compact = renderAt (
         ui_contract::spectrumSizePresets[0], "KIRIN_PERCEPTUAL_RENDER_OUTPUT");

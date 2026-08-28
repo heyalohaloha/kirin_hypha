@@ -131,8 +131,10 @@ From the POST analysis page, **SHARP** opens Perceptual Δ and **FREQ** returns 
 Perceptual Δ observation is **Δ Sharpness History**. It plots the signed Sharpness difference
 `POST − PRE` over the latest six seconds, with the newest exact value shown in acum. The measured
 difference is not clipped; the stable display scale is ±2 acum. The curve is spatially rounded for
-legibility, but no temporal smoothing delays it. Its curve and fill keep the same visual strength
-across the full history; only a small dot identifies the newest exact observation. All measured
+legibility, but no temporal smoothing delays it. The curve keeps the same visual strength across the
+full history. Its fill is controlled only by distance from zero: quiet at zero and progressively
+denser toward either display edge, never by sample age. Only a small dot identifies the newest exact
+observation. All measured
 10 Hz points remain in a retained six-second timeline: the curve is repainted at 5 Hz and the exact
 PRE / POST / Δ numbers are held for 500 ms. A delayed UI update catches up from that factual
 timeline instead of exposing scheduling jitter as broken segments. A true measurement discontinuity

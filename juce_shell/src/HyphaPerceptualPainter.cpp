@@ -204,6 +204,7 @@ namespace
                    const PlotPoints& points,
                    size_t first,
                    size_t end,
+                   juce::Rectangle<float> plot,
                    float zeroY,
                    float scale)
     {
@@ -214,13 +215,35 @@ namespace
             fill.lineTo (points.values[end - 1u].x, zeroY);
             fill.lineTo (points.values[first].x, zeroY);
             fill.closeSubPath();
-            juce::ColourGradient gradient (
-                COL_SPECTRUM_DELTA.withAlpha (0.34f), points.values[first].x,
-                points.values[first].y,
-                COL_SPECTRUM_DELTA.withAlpha (0.055f), points.values[first].x, zeroY, false);
-            gradient.addColour (0.58, COL_SPECTRUM_DELTA.withAlpha (0.18f));
-            g.setGradientFill (gradient);
-            g.fillPath (fill);
+
+            // Fill density is a fact about distance from zero, never about the age or value of
+            // the first history point. Anchoring this gradient to points[first] made the whole
+            // fill fade or collapse as that point moved out of the six-second window. Clip two
+            // fixed plot-space gradients to the factual curve instead: quiet at zero, denser
+            // toward either display edge, and identical at every point in time.
+            const auto distanceGradient = [] (float edgeY, float zeroLineY)
+            {
+                juce::ColourGradient gradient (
+                    COL_SPECTRUM_DELTA.withAlpha (0.46f), 0.0f, edgeY,
+                    COL_SPECTRUM_DELTA.withAlpha (0.045f), 0.0f, zeroLineY, false);
+                gradient.addColour (0.25, COL_SPECTRUM_DELTA.withAlpha (0.34f));
+                gradient.addColour (0.50, COL_SPECTRUM_DELTA.withAlpha (0.22f));
+                gradient.addColour (0.75, COL_SPECTRUM_DELTA.withAlpha (0.12f));
+                return gradient;
+            };
+
+            juce::Graphics::ScopedSaveState clippedFill (g);
+            g.reduceClipRegion (fill);
+
+            auto positiveGradient = distanceGradient (plot.getY(), zeroY);
+            g.setGradientFill (positiveGradient);
+            g.fillRect (juce::Rectangle<float> (
+                plot.getX(), plot.getY(), plot.getWidth(), zeroY - plot.getY()));
+
+            auto negativeGradient = distanceGradient (plot.getBottom(), zeroY);
+            g.setGradientFill (negativeGradient);
+            g.fillRect (juce::Rectangle<float> (
+                plot.getX(), zeroY, plot.getWidth(), plot.getBottom() - zeroY));
         }
         g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.16f));
         g.strokePath (curve, juce::PathStrokeType (4.2f * scale,
@@ -244,7 +267,7 @@ namespace
         {
             if (index == points.count || ! history.sampleAt (index).continuesPrevious)
             {
-                paintRun (g, points, runStart, index, zeroY, scale);
+                paintRun (g, points, runStart, index, plot, zeroY, scale);
                 runStart = index;
             }
         }
