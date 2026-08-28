@@ -99,6 +99,13 @@ KirinHyphaProcessorBase::~KirinHyphaProcessorBase()
 void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
     const int numCh = getTotalNumInputChannels();
+    if (role == Role::Post && numCh != 2
+        && preferredSpectrumChannelMode.load (std::memory_order_acquire)
+            == KIRIN_SPECTRUM_CHANNEL_SIDE)
+    {
+        preferredSpectrumChannelMode.store (
+            KIRIN_SPECTRUM_CHANNEL_LR, std::memory_order_release);
+    }
 
     // Pre-allocate the interleave scratch so processBlock never allocates (RT-safe).
     // B-125 (b): prealloc-max — size to max(declared block, kOversizeHeadroomFrames) frames
@@ -714,7 +721,30 @@ bool KirinHyphaProcessorBase::setSpectrumVisible (bool visible)
     const juce::ScopedLock sl (handleLock);
     if (hyphaHandle == nullptr || ! writesEnabled.load (std::memory_order_acquire))
         return false;
+    if (visible && ! kirin_hypha_set_spectrum_channel_mode (
+            hyphaHandle,
+            preferredSpectrumChannelMode.load (std::memory_order_acquire)))
+        return false;
     return kirin_hypha_set_spectrum_visible (hyphaHandle, visible);
+}
+
+bool KirinHyphaProcessorBase::setSpectrumChannelMode (uint8_t channelMode)
+{
+    if (role != Role::Post || channelMode > KIRIN_SPECTRUM_CHANNEL_SIDE)
+        return false;
+    const juce::ScopedLock sl (handleLock);
+    if (hyphaHandle != nullptr && writesEnabled.load (std::memory_order_acquire))
+    {
+        if (! kirin_hypha_set_spectrum_channel_mode (hyphaHandle, channelMode))
+            return false;
+    }
+    else if (channelMode == KIRIN_SPECTRUM_CHANNEL_SIDE
+             && getTotalNumInputChannels() != 2)
+    {
+        return false;
+    }
+    preferredSpectrumChannelMode.store (channelMode, std::memory_order_release);
+    return true;
 }
 
 bool KirinHyphaProcessorBase::pollSpectrum (KirinSpectrumView& out) const
@@ -1073,7 +1103,12 @@ void KirinHyphaProcessorBase::enableWritesNow()
             }
         }
         if (spectrumVisibleRequested.load (std::memory_order_acquire))
+        {
+            kirin_hypha_set_spectrum_channel_mode (
+                hyphaHandle,
+                preferredSpectrumChannelMode.load (std::memory_order_acquire));
             kirin_hypha_set_spectrum_visible (hyphaHandle, true);
+        }
     }
     else
     {

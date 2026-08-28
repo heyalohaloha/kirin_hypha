@@ -1,5 +1,6 @@
 #include "../src/HyphaWidgets.h"
 #include "../src/HyphaSpectrumComponent.h"
+#include "SpectrumInteractionContractTest.h"
 #include "SpectrumPresentationContractTest.h"
 
 #include <cmath>
@@ -232,11 +233,11 @@ int main()
                          ui::spectrumHoverFrequencyWidth));
     KIRIN_REQUIRE (fits (hypha::monoFont (8.5f), juce::CharPointer_UTF8 ("Δ+18.0"),
                          ui::spectrumHoverDeltaWidth));
-    KIRIN_REQUIRE (fits (hypha::monoFont (8.5f), "PRE -144.0",
+    KIRIN_REQUIRE (fits (hypha::monoFont (8.0f), "PRE -144.0",
                          ui::spectrumExpandedPreWidth));
-    KIRIN_REQUIRE (fits (hypha::monoFont (8.5f), "POST -144.0",
+    KIRIN_REQUIRE (fits (hypha::monoFont (8.0f), "POST -144.0",
                          ui::spectrumExpandedPostWidth));
-    KIRIN_REQUIRE (fits (hypha::monoFont (8.5f), juce::CharPointer_UTF8 ("Δ+18.0"),
+    KIRIN_REQUIRE (fits (hypha::monoFont (8.0f), juce::CharPointer_UTF8 ("Δ+18.0"),
                          ui::spectrumExpandedDeltaWidth));
     KIRIN_REQUIRE (std::abs (ui::spectrumStrokeScale (1.0f) - 1.0f) < 1.0e-6f);
     KIRIN_REQUIRE (std::abs (ui::spectrumStrokeScale (1.25f) - 1.12f) < 1.0e-6f);
@@ -304,6 +305,8 @@ int main()
     KirinSpectrumView spectrumSnapshot {};
     spectrumSnapshot.status = KIRIN_SPECTRUM_ACTIVE;
     spectrumSnapshot.has_data = 1;
+    spectrumSnapshot.channel_mode = KIRIN_SPECTRUM_CHANNEL_LR;
+    spectrumSnapshot.channels = 2;
     spectrumSnapshot.sample_rate = 48'000;
     spectrumSnapshot.min_hz = 10.0f;
     spectrumSnapshot.max_hz = 22'000.0f;
@@ -375,6 +378,9 @@ int main()
         { clearX, clearY }, eventTime, 0, false);
     spectrum.mouseDown (clearEvent);
     KIRIN_REQUIRE (! spectrum.hasFocusLock());
+
+    hypha::tests::verifySpectrumInteractionContract (
+        spectrum, spectrumSnapshot, spectrumBounds.width, spectrumBounds.height, eventTime);
 
     hypha::SpectrumComponent lineEncodingSpectrum;
     lineEncodingSpectrum.setSize (spectrumBounds.width, spectrumBounds.height);

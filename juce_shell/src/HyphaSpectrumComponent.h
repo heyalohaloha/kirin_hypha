@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <functional>
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
@@ -27,24 +28,25 @@ public:
 
     bool hasFocusLock() const noexcept { return focusFrequencyHz > 0.0f; }
     float focusLockFrequencyHz() const noexcept { return focusFrequencyHz; }
+    bool hasMark() const noexcept { return haveMark; }
+    uint8_t channelModeForTest() const noexcept { return channelMode; }
+
+    std::function<bool(uint8_t)> onChannelModeChange;
 
 private:
-    static juce::String statusText (uint8_t status);
-    static juce::String hoverFrequencyText (float hz);
-    static float yForDeltaDb (float db, juce::Rectangle<float> plot) noexcept;
-    static float xForFrequency (float hz, float minHz, float maxHz,
-                                juce::Rectangle<float> plot) noexcept;
-    static float frequencyForNormalisedX (float position, float minHz,
-                                          float maxHz) noexcept;
-    static float normalisedXForFrequency (float hz, float minHz, float maxHz) noexcept;
-
     KirinSpectrumView snapshot {};
     std::array<float, KIRIN_SPECTRUM_BAND_COUNT> displayedPre {};
     std::array<float, KIRIN_SPECTRUM_BAND_COUNT> displayedPost {};
     std::array<float, KIRIN_SPECTRUM_BAND_COUNT> displayedDelta {};
+    std::array<float, KIRIN_SPECTRUM_BAND_COUNT> markedDelta {};
     bool haveSnapshot = false;
+    bool haveMark = false;
     float hoverNormalisedX = -1.0f;
     float focusFrequencyHz = -1.0f;
+    uint8_t channelMode = KIRIN_SPECTRUM_CHANNEL_LR;
+    uint8_t inputChannels = 0;
+    juce::String modeActionNotice;
+    double modeActionNoticeUntilMs = 0.0;
     bool hoverNeedsRepaint = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SpectrumComponent)

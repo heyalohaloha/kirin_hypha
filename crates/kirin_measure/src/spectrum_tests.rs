@@ -222,6 +222,57 @@ fn inverted_stereo_does_not_cancel() {
 }
 
 #[test]
+fn mid_and_side_use_waveform_sum_and_difference_without_running_lr_in_parallel() {
+    let signal = sine(48_000, 1_000.0, 0.0);
+    let inverted = signal.iter().map(|sample| -*sample).collect::<Vec<_>>();
+    let mut analyzer = SpectrumAnalyzer::new(48_000).unwrap();
+
+    let mono = analyzer
+        .analyze_mode(&signal, None, SpectrumChannelMode::Mid, 9_600, 1)
+        .unwrap();
+    let mid_same = analyzer
+        .analyze_mode(&signal, Some(&signal), SpectrumChannelMode::Mid, 9_600, 1)
+        .unwrap();
+    let side_same = analyzer
+        .analyze_mode(&signal, Some(&signal), SpectrumChannelMode::Side, 9_600, 1)
+        .unwrap();
+    let mid_inverted = analyzer
+        .analyze_mode(&signal, Some(&inverted), SpectrumChannelMode::Mid, 9_600, 1)
+        .unwrap();
+    let side_inverted = analyzer
+        .analyze_mode(
+            &signal,
+            Some(&inverted),
+            SpectrumChannelMode::Side,
+            9_600,
+            1,
+        )
+        .unwrap();
+
+    assert_eq!(mono.channel_mode, SpectrumChannelMode::Mid);
+    assert_eq!(mono.channels, 1);
+    assert_eq!(mid_same.channel_mode, SpectrumChannelMode::Mid);
+    assert_eq!(side_inverted.channel_mode, SpectrumChannelMode::Side);
+    assert_eq!(side_inverted.channels, 2);
+    for index in 0..SPECTRUM_BAND_COUNT {
+        assert!((mono.dbfs[index] - mid_same.dbfs[index]).abs() < 1.0e-5);
+        assert_eq!(
+            side_same.dbfs[index].to_bits(),
+            SPECTRUM_FLOOR_DBFS.to_bits()
+        );
+        assert_eq!(
+            mid_inverted.dbfs[index].to_bits(),
+            SPECTRUM_FLOOR_DBFS.to_bits()
+        );
+        assert!((mono.dbfs[index] - side_inverted.dbfs[index]).abs() < 1.0e-5);
+    }
+    assert_eq!(
+        analyzer.analyze_mode(&signal, None, SpectrumChannelMode::Side, 9_600, 1,),
+        Err(SpectrumError::SideRequiresStereo)
+    );
+}
+
+#[test]
 fn forty_four_one_uses_real_bin_floor_and_its_own_nyquist() {
     let mut analyzer = SpectrumAnalyzer::new(44_100).unwrap();
     let frame = analyzer
@@ -277,6 +328,12 @@ fn mismatched_position_rate_or_nonfinite_frame_fails_closed() {
     mismatch.sample_rate = 44_100;
     assert!(difference_post_minus_pre(&reference, &mismatch).is_none());
     mismatch = reference.clone();
+    mismatch.channel_mode = SpectrumChannelMode::Mid;
+    assert!(difference_post_minus_pre(&reference, &mismatch).is_none());
+    mismatch = reference.clone();
+    mismatch.channels = 2;
+    assert!(difference_post_minus_pre(&reference, &mismatch).is_none());
+    mismatch = reference.clone();
     mismatch.dbfs[0] = f32::NAN;
     assert!(difference_post_minus_pre(&reference, &mismatch).is_none());
 }
@@ -292,32 +349,36 @@ fn reference_48k_stereo_fft_budget_is_quantified() {
         .map(|index| (std::f32::consts::TAU * 997.0 * index as f32 / 48_000.0).sin() * 0.5)
         .collect::<Vec<_>>();
     let right = left.iter().map(|sample| -*sample).collect::<Vec<_>>();
-    for iteration in 0..20 {
-        black_box(
-            analyzer
-                .analyze(&left, Some(&right), iteration * 4_800, 1)
-                .unwrap(),
-        );
-    }
-
     let iterations = 200;
-    let started = Instant::now();
-    for iteration in 0..iterations {
-        black_box(
-            analyzer
-                .analyze(&left, Some(&right), iteration * 4_800, 1)
-                .unwrap(),
+    for mode in [
+        SpectrumChannelMode::Lr,
+        SpectrumChannelMode::Mid,
+        SpectrumChannelMode::Side,
+    ] {
+        for iteration in 0..20 {
+            black_box(
+                analyzer
+                    .analyze_mode(&left, Some(&right), mode, iteration * 4_800, 1)
+                    .unwrap(),
+            );
+        }
+        let started = Instant::now();
+        for iteration in 0..iterations {
+            black_box(
+                analyzer
+                    .analyze_mode(&left, Some(&right), mode, iteration * 4_800, 1)
+                    .unwrap(),
+            );
+        }
+        let micros_per_snapshot = started.elapsed().as_secs_f64() * 1_000_000.0 / iterations as f64;
+        // One selected mode runs in PRE and POST at 30 Hz; modes never run in parallel.
+        let projected_pair_cpu_percent = micros_per_snapshot * 60.0 / 10_000.0;
+        eprintln!(
+            "48k Spectrum {mode:?}: {micros_per_snapshot:.2} us/snapshot, \
+             projected PRE+POST FFT CPU {projected_pair_cpu_percent:.3}%"
         );
+        assert!(projected_pair_cpu_percent < 2.0);
     }
-    let elapsed = started.elapsed();
-    let micros_per_stereo_snapshot = elapsed.as_secs_f64() * 1_000_000.0 / iterations as f64;
-    // One visible exact pair runs one stereo analyzer in PRE and one in POST, each at 30 Hz.
-    let projected_pair_cpu_percent = micros_per_stereo_snapshot * 60.0 / 10_000.0;
-    eprintln!(
-        "48k Spectrum: {micros_per_stereo_snapshot:.2} us/stereo snapshot, \
-         projected PRE+POST FFT CPU {projected_pair_cpu_percent:.3}%"
-    );
-    assert!(projected_pair_cpu_percent < 2.0);
 }
 
 #[test]

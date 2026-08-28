@@ -16,5 +16,6 @@ namespace hypha::spectrum_painter
                       float visualScale,
                       const SpectrumBins& pre,
                       const SpectrumBins& post,
-                      const SpectrumBins& delta);
+                      const SpectrumBins& delta,
+                      const SpectrumBins* mark);
 }

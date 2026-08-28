@@ -44,7 +44,8 @@ void paintCurves (juce::Graphics& g,
                   float visualScale,
                   const SpectrumBins& pre,
                   const SpectrumBins& post,
-                  const SpectrumBins& delta)
+                  const SpectrumBins& delta,
+                  const SpectrumBins* mark)
 {
     const float strokeScale = ui_contract::spectrumStrokeScale (visualScale);
     const float glowScale = ui_contract::spectrumGlowScale (visualScale);
@@ -55,6 +56,7 @@ void paintCurves (juce::Graphics& g,
     SpectrumBins preY {};
     SpectrumBins postY {};
     SpectrumBins deltaY {};
+    SpectrumBins markY {};
     for (size_t index = 0; index < KIRIN_SPECTRUM_BAND_COUNT; ++index)
     {
         x[index] = juce::jmap (static_cast<float> (index), 0.0f,
@@ -63,11 +65,14 @@ void paintCurves (juce::Graphics& g,
         preY[index] = yForMagnitudeDbfs (pre[index], plot);
         postY[index] = yForMagnitudeDbfs (post[index], plot);
         deltaY[index] = yForDeltaDb (delta[index], plot);
+        if (mark != nullptr)
+            markY[index] = yForDeltaDb ((*mark)[index], plot);
     }
 
     const juce::Path preCurve = makeCurve (x, preY);
     const juce::Path postCurve = makeCurve (x, postY);
     const juce::Path deltaCurve = makeCurve (x, deltaY);
+    const juce::Path markCurve = mark != nullptr ? makeCurve (x, markY) : juce::Path {};
 
     constexpr size_t intensityLevelCount = ui_contract::spectrumTipAlpha.size();
     constexpr float intensityStepDb = kDeltaRangeDb / (float) (intensityLevelCount - 1u);
@@ -152,6 +157,19 @@ void paintCurves (juce::Graphics& g,
             if (! intensityTips[layer][bucket].isEmpty())
                 g.fillPath (intensityTips[layer][bucket]);
         }
+    }
+
+    // MARK is a presentation-only frozen Δ. Keep it subordinate: one continuous hairline,
+    // without fill, glow, persistence, or a second comparison calculation.
+    if (! markCurve.isEmpty())
+    {
+        g.setColour (COL_SPECTRUM_DELTA_BR.withAlpha (
+            ui_contract::spectrumMarkCurveAlpha));
+        g.strokePath (markCurve,
+                      juce::PathStrokeType (
+                          scaledStroke (ui_contract::spectrumMarkStrokeWidth),
+                          juce::PathStrokeType::curved,
+                          juce::PathStrokeType::rounded));
     }
 
     g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.21f));

@@ -183,12 +183,12 @@ int main()
     static_assert (ui::spectrumHoverDeltaX + ui::spectrumHoverDeltaWidth
                    <= ui::spectrumHoverReadoutWidth);
     static_assert (ui::spectrumHoverLineWidth <= 1.0f);
-    static_assert (ui::spectrumTipAlpha.size() == 13);
+    static_assert (ui::spectrumTipAlpha.size() == 25);
     static_assert (ui::spectrumTipAlpha[0] == 0.0f);
     static_assert (ui::spectrumTipAlpha[3] < ui::spectrumTipAlpha[6]);
     static_assert (ui::spectrumTipAlpha[6] < ui::spectrumTipAlpha[9]);
     static_assert (ui::spectrumTipAlpha[9] < ui::spectrumTipAlpha[12]);
-    static_assert (ui::spectrumTipAlpha[12] >= 0.43f);
+    static_assert (ui::spectrumTipAlpha[24] >= 0.43f);
     static_assert (ui::preDisplayPrimaryColour (ui::PreDisplayTone::context) == ui::normal);
     static_assert (ui::preDisplayPrimaryColour (ui::PreDisplayTone::emphasis) == ui::flora);
     static_assert (ui::preDisplayDetailColour (ui::PreDisplayTone::context)

@@ -1,0 +1,30 @@
+#pragma once
+
+#include <juce_graphics/juce_graphics.h>
+
+#include "HyphaSpectrumPainter.h"
+#include "kirin_hypha_ffi.h"
+
+namespace hypha::spectrum_chrome
+{
+    struct PaintState
+    {
+        const KirinSpectrumView& snapshot;
+        const spectrum_painter::SpectrumBins& pre;
+        const spectrum_painter::SpectrumBins& post;
+        const spectrum_painter::SpectrumBins& delta;
+        const spectrum_painter::SpectrumBins& mark;
+        const juce::String& actionNotice;
+        bool haveSnapshot;
+        bool snapshotValid;
+        bool haveMark;
+        float hoverNormalisedX;
+        float focusFrequencyHz;
+        uint8_t channelMode;
+        uint8_t inputChannels;
+    };
+
+    void paint (juce::Graphics& graphics,
+                juce::Rectangle<float> bounds,
+                const PaintState& state);
+}

@@ -64,6 +64,9 @@ typedef struct KirinHypha KirinHypha;
 #define KIRIN_SPECTRUM_WARMING_UP 2u
 #define KIRIN_SPECTRUM_ACTIVE 3u
 #define KIRIN_SPECTRUM_UNAVAILABLE 4u
+#define KIRIN_SPECTRUM_CHANNEL_LR 0u
+#define KIRIN_SPECTRUM_CHANNEL_MID 1u
+#define KIRIN_SPECTRUM_CHANNEL_SIDE 2u
 
 #define KIRIN_RECORD_DISPLAY_WATCH 0u
 #define KIRIN_RECORD_DISPLAY_LIVE 1u
@@ -146,7 +149,8 @@ typedef struct {
 typedef struct {
   uint8_t status;       /* KIRIN_SPECTRUM_* */
   uint8_t has_data;
-  uint8_t reserved[2];
+  uint8_t channel_mode; /* KIRIN_SPECTRUM_CHANNEL_* */
+  uint8_t channels;     /* 1=mono / 2=stereo */
   uint32_t sample_rate;
   float min_hz;
   float max_hz;
@@ -159,7 +163,9 @@ typedef struct {
 typedef struct {
   uint8_t enabled;
   uint8_t worker_running;
-  uint8_t reserved[6];
+  uint8_t channel_mode;
+  uint8_t channels;
+  uint8_t reserved[4];
   uint64_t pushed_blocks;
   uint64_t dropped_blocks;
   uint64_t analyzed_frames;
@@ -390,6 +396,9 @@ bool kirin_hypha_poll_delta(KirinHypha* handle, KirinDelta* out);
 
 /* POST Spectrumページの表示edge。PRE/未enableはfalse。filesystem処理はIO threadへ遅延する。 */
 bool kirin_hypha_set_spectrum_visible(KirinHypha* handle, bool visible);
+
+/* POST Spectrumの単一解析モードを切替。SIDEはstereoのみ。PRE/不正値/mono SIDEはfalse。 */
+bool kirin_hypha_set_spectrum_channel_mode(KirinHypha* handle, uint8_t channel_mode);
 
 /* 最新のPOST-PRE Spectrumを取得。status-onlyもtrue（has_data=0）、競合/nullはfalse。 */
 bool kirin_hypha_poll_spectrum(KirinHypha* handle, KirinSpectrumView* out);

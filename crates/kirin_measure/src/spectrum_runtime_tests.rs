@@ -40,7 +40,14 @@ fn disabled_runtime_does_not_start_worker_or_accept_audio() {
     let runtime = SpectrumRuntime::new(48_000, 2);
     let samples = [0.0; 32];
     assert!(!runtime.push_block_from_audio(&samples, 2, Some(0)));
-    assert_eq!(runtime.stats(), SpectrumRuntimeStats::default());
+    let stats = runtime.stats();
+    assert!(!stats.enabled);
+    assert!(!stats.worker_running);
+    assert_eq!(stats.channel_mode, SpectrumChannelMode::Lr);
+    assert_eq!(stats.channels, 2);
+    assert_eq!(stats.pushed_blocks, 0);
+    assert_eq!(stats.dropped_blocks, 0);
+    assert_eq!(stats.analyzed_frames, 0);
     runtime.shutdown_and_join();
 }
 
@@ -58,7 +65,14 @@ fn disabled_audio_path_cost_is_quantified_without_starting_worker() {
     }
     let nanos_per_call = started.elapsed().as_secs_f64() * 1_000_000_000.0 / iterations as f64;
     eprintln!("hidden Spectrum ingress: {nanos_per_call:.2} ns/callback");
-    assert_eq!(runtime.stats(), SpectrumRuntimeStats::default());
+    let stats = runtime.stats();
+    assert!(!stats.enabled);
+    assert!(!stats.worker_running);
+    assert_eq!(stats.channel_mode, SpectrumChannelMode::Lr);
+    assert_eq!(stats.channels, 2);
+    assert_eq!(stats.pushed_blocks, 0);
+    assert_eq!(stats.dropped_blocks, 0);
+    assert_eq!(stats.analyzed_frames, 0);
     runtime.shutdown_and_join();
 }
 
@@ -112,6 +126,39 @@ fn enabled_runtime_publishes_on_the_shared_48k_30hz_grid() {
 }
 
 #[test]
+fn channel_mode_edge_clears_history_and_mono_side_fails_closed() {
+    let runtime = SpectrumRuntime::new(48_000, 2);
+    assert!(runtime.set_enabled(true));
+    feed(&runtime, 48_000, 10_000, 256);
+    let lr = wait_for_frame_at_or_after(&runtime, 9_600);
+    assert_eq!(lr.channel_mode, SpectrumChannelMode::Lr);
+    assert_eq!(lr.channels, 2);
+    assert!(lr
+        .dbfs
+        .iter()
+        .any(|value| *value > crate::SPECTRUM_FLOOR_DBFS + 20.0));
+
+    assert!(runtime.set_channel_mode(SpectrumChannelMode::Mid));
+    assert!(runtime
+        .try_history()
+        .is_some_and(|history| history.newest().is_none()));
+    feed(&runtime, 48_000, 10_000, 256);
+    let mid = wait_for_frame_at_or_after(&runtime, 9_600);
+    assert_eq!(mid.channel_mode, SpectrumChannelMode::Mid);
+    assert!(mid
+        .dbfs
+        .iter()
+        .all(|value| value.to_bits() == crate::SPECTRUM_FLOOR_DBFS.to_bits()));
+    runtime.shutdown_and_join();
+
+    let mono = SpectrumRuntime::new(48_000, 1);
+    assert!(mono.set_channel_mode(SpectrumChannelMode::Mid));
+    assert!(!mono.set_channel_mode(SpectrumChannelMode::Side));
+    assert_eq!(mono.channel_mode(), SpectrumChannelMode::Mid);
+    mono.shutdown_and_join();
+}
+
+#[test]
 fn forty_four_one_uses_a_1470_sample_grid_without_drift() {
     let runtime = SpectrumRuntime::new(44_100, 2);
     assert!(runtime.set_enabled(true));
@@ -128,10 +175,14 @@ fn discontinuity_requires_a_new_complete_window() {
     let mut assembler = SpectrumAssembler::new(analyzer, 1);
     assert!(assembler.begin_block(0, 1));
     for _ in 0..SPECTRUM_WINDOW_SIZE - 1 {
-        assert!(assembler.push_frame(0.0, None).is_none());
+        assert!(assembler
+            .push_frame(0.0, None, SpectrumChannelMode::Lr)
+            .is_none());
     }
     assert!(assembler.begin_block(SPECTRUM_WINDOW_SIZE as i64 + 1_000, 1));
     for _ in 0..SPECTRUM_WINDOW_SIZE - 1 {
-        assert!(assembler.push_frame(0.0, None).is_none());
+        assert!(assembler
+            .push_frame(0.0, None, SpectrumChannelMode::Lr)
+            .is_none());
     }
 }

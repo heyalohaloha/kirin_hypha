@@ -1,4 +1,7 @@
 use super::*;
+use crate::spectrum::{
+    SpectrumFrame, SPECTRUM_BAND_COUNT, SPECTRUM_FFT_SIZE, SPECTRUM_SCHEMA_VERSION,
+};
 use crate::SPECTRUM_HISTORY_CAPACITY;
 use std::thread;
 
@@ -10,6 +13,8 @@ fn frame(end: i64, value: f32) -> SpectrumFrame {
         band_count: SPECTRUM_BAND_COUNT as u16,
         presentation_end_samples: end,
         generation: 7,
+        channel_mode: SpectrumChannelMode::Lr,
+        channels: 2,
         min_hz: 10.0,
         max_hz: 22_000.0,
         dbfs: [value; SPECTRUM_BAND_COUNT],

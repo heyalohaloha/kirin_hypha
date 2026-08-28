@@ -193,6 +193,10 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         spectrumSizeToggle.setColour (juce::TextButton::textColourOnId, COL_SPECTRUM_DELTA);
         spectrumSizeToggle.setColour (juce::TextButton::textColourOffId, COL_SPECTRUM_DELTA);
         spectrumSizeToggle.onClick = [this] { cycleSpectrumSize(); };
+        spectrumView.onChannelModeChange = [this] (uint8_t channelMode)
+        {
+            return processorRef.setSpectrumChannelMode (channelMode);
+        };
         updateSpectrumSizeControl();
         addChildComponent (spectrumSizeToggle);
         addChildComponent (spectrumView);

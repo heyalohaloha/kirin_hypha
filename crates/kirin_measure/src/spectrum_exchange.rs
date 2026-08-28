@@ -13,20 +13,21 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::spectrum::{
-    difference_post_minus_pre, SpectrumDifference, SpectrumFrame, SPECTRUM_BAND_COUNT,
-    SPECTRUM_FFT_SIZE, SPECTRUM_SCHEMA_VERSION,
-};
+#[path = "spectrum_exchange_codec.rs"]
+mod codec;
+
+use crate::spectrum::{difference_post_minus_pre, SpectrumChannelMode, SpectrumDifference};
 use crate::spectrum_exchange_worker::SpectrumExchangeWorker;
 use crate::spectrum_runtime::{SpectrumHistory, SpectrumRuntime};
+#[cfg(test)]
+use codec::{decode_snapshot, SNAPSHOT_MAX_BYTES};
+use codec::{encode_snapshot, read_bounded, read_snapshot};
 
-const REQUEST_SCHEMA: &str = "kirin_hypha_spectrum_request_v1";
-const SNAPSHOT_MAGIC: &[u8; 8] = b"KHSPEC01";
+const REQUEST_SCHEMA: &str = "kirin_hypha_spectrum_request_v2";
 const REQUEST_RENEW_INTERVAL: Duration = Duration::from_millis(500);
 const REQUEST_LEASE_MS: i64 = 1_500;
 const WARMUP_LIMIT: Duration = Duration::from_secs(2);
 const REQUEST_MAX_BYTES: u64 = 2_048;
-const SNAPSHOT_MAX_BYTES: u64 = 16_384;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SpectrumTarget {
@@ -57,6 +58,8 @@ pub enum SpectrumViewStatus {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct SpectrumViewSnapshot {
     pub status: SpectrumViewStatus,
+    pub channel_mode: SpectrumChannelMode,
+    pub channels: u8,
     pub difference: Option<SpectrumDifference>,
 }
 
@@ -67,6 +70,7 @@ struct SpectrumRequest {
     requested_by_post_instance_id: String,
     target_pre_instance_id: String,
     sample_rate: u32,
+    channel_mode: u8,
     expires_at_unix_ms: i64,
 }
 
@@ -75,6 +79,7 @@ struct PostSession {
     target: Option<SpectrumTarget>,
     last_renewed: Option<Instant>,
     started_at: Option<Instant>,
+    channel_mode: SpectrumChannelMode,
 }
 
 struct PreSession {
@@ -116,6 +121,7 @@ impl SpectrumCoordinator {
                     target: None,
                     last_renewed: None,
                     started_at: None,
+                    channel_mode: self.runtime.channel_mode(),
                 });
             }
         } else if !visible {
@@ -127,6 +133,22 @@ impl SpectrumCoordinator {
 
     pub fn post_visible(&self) -> bool {
         self.post_visible.load(Ordering::Acquire)
+    }
+
+    /// UI/control thread only. The next isolated exchange tick renews the exact request; this
+    /// edge itself performs no filesystem access.
+    pub fn set_post_channel_mode(&self, mode: SpectrumChannelMode) -> bool {
+        if !self.runtime.set_channel_mode(mode) {
+            return false;
+        }
+        let status = if self.post_visible() {
+            SpectrumViewStatus::WarmingUp
+        } else {
+            SpectrumViewStatus::Hidden
+        };
+        self.store_view(status, None);
+        self.exchange_worker.notify();
+        true
     }
 
     /// POST IO-thread tick. `target` must come from the already-confirmed exact pair latch.
@@ -146,6 +168,7 @@ impl SpectrumCoordinator {
             target: None,
             last_renewed: None,
             started_at: None,
+            channel_mode: self.runtime.channel_mode(),
         });
         let Some(target) = target else {
             cleanup_owned_request(session.target.as_ref(), session.request_id);
@@ -163,6 +186,14 @@ impl SpectrumCoordinator {
             session.started_at = None;
             let _ = self.runtime.set_enabled(false);
         }
+        let channel_mode = self.runtime.channel_mode();
+        if session.channel_mode != channel_mode {
+            cleanup_owned_request(session.target.as_ref(), session.request_id);
+            session.request_id = Uuid::new_v4();
+            session.last_renewed = None;
+            session.started_at = None;
+            session.channel_mode = channel_mode;
+        }
         let now = Instant::now();
         if session
             .last_renewed
@@ -174,6 +205,7 @@ impl SpectrumCoordinator {
                 requested_by_post_instance_id: post_instance_id.to_string(),
                 target_pre_instance_id: target.pre_instance_id.clone(),
                 sample_rate: self.sample_rate,
+                channel_mode: channel_mode as u8,
                 expires_at_unix_ms: unix_ms_now().saturating_add(REQUEST_LEASE_MS),
             };
             if write_request(&target.instance_dir, &request).is_err() {
@@ -225,25 +257,37 @@ impl SpectrumCoordinator {
     /// PRE IO-thread tick. An active exact request may be called at the 30 Hz Spectrum cadence.
     pub(crate) fn pre_tick(&self, pre_instance_id: &str, instance_dir: &Path) -> bool {
         let request = read_request(instance_dir).and_then(|request| {
+            let channel_mode = SpectrumChannelMode::try_from(request.channel_mode).ok()?;
             (request.schema == REQUEST_SCHEMA
                 && request.target_pre_instance_id == pre_instance_id
                 && request.sample_rate == self.sample_rate
                 && request.expires_at_unix_ms >= unix_ms_now()
                 && !request.requested_by_post_instance_id.is_empty())
-            .then(|| Uuid::parse_str(&request.request_id).ok())
+            .then(|| {
+                Uuid::parse_str(&request.request_id)
+                    .ok()
+                    .map(|id| (id, channel_mode))
+            })
             .flatten()
         });
         let mut session = match self.pre_session.lock() {
             Ok(session) => session,
             Err(_) => return false,
         };
-        let Some(request_id) = request else {
+        let Some((request_id, channel_mode)) = request else {
             if session.take().is_some() {
                 let _ = self.runtime.set_enabled(false);
                 let _ = fs::remove_file(snapshot_path(instance_dir));
             }
             return false;
         };
+        if !self.runtime.set_channel_mode(channel_mode) {
+            if session.take().is_some() {
+                let _ = self.runtime.set_enabled(false);
+                let _ = fs::remove_file(snapshot_path(instance_dir));
+            }
+            return false;
+        }
         if session.as_ref().map(|state| state.request_id) != Some(request_id) {
             let _ = self.runtime.set_enabled(false);
             let _ = fs::remove_file(snapshot_path(instance_dir));
@@ -293,7 +337,12 @@ impl SpectrumCoordinator {
 
     fn store_view(&self, status: SpectrumViewStatus, difference: Option<SpectrumDifference>) {
         if let Ok(mut view) = self.view.lock() {
-            *view = SpectrumViewSnapshot { status, difference };
+            *view = SpectrumViewSnapshot {
+                status,
+                channel_mode: self.runtime.channel_mode(),
+                channels: self.runtime.num_channels() as u8,
+                difference,
+            };
         }
     }
 }
@@ -336,140 +385,6 @@ fn cleanup_owned_request(target: Option<&SpectrumTarget>, request_id: Uuid) {
         .is_some_and(|request| request.request_id == request_id.to_string())
     {
         let _ = fs::remove_file(path);
-    }
-}
-
-struct DecodedSnapshot {
-    request_id: Uuid,
-    history: SpectrumHistory,
-}
-
-fn read_snapshot(instance_dir: &Path) -> Option<DecodedSnapshot> {
-    decode_snapshot(&read_bounded(
-        &snapshot_path(instance_dir),
-        SNAPSHOT_MAX_BYTES,
-    )?)
-}
-
-fn read_bounded(path: &Path, maximum_bytes: u64) -> Option<Vec<u8>> {
-    (fs::metadata(path).ok()?.len() <= maximum_bytes)
-        .then(|| fs::read(path).ok())
-        .flatten()
-}
-
-fn encode_snapshot(request_id: Uuid, history: &SpectrumHistory) -> Vec<u8> {
-    let frame_count = history.frames().len().min(u16::MAX as usize) as u16;
-    let mut bytes = Vec::with_capacity(40 + frame_count as usize * (24 + SPECTRUM_BAND_COUNT * 4));
-    bytes.extend_from_slice(SNAPSHOT_MAGIC);
-    bytes.extend_from_slice(&SPECTRUM_SCHEMA_VERSION.to_le_bytes());
-    bytes.extend_from_slice(&(SPECTRUM_BAND_COUNT as u16).to_le_bytes());
-    bytes.extend_from_slice(
-        &history
-            .newest()
-            .map_or(0, |frame| frame.sample_rate)
-            .to_le_bytes(),
-    );
-    bytes.extend_from_slice(&(SPECTRUM_FFT_SIZE as u32).to_le_bytes());
-    bytes.extend_from_slice(&frame_count.to_le_bytes());
-    bytes.extend_from_slice(&0_u16.to_le_bytes());
-    bytes.extend_from_slice(request_id.as_bytes());
-    for frame in history.frames() {
-        bytes.extend_from_slice(&frame.presentation_end_samples.to_le_bytes());
-        bytes.extend_from_slice(&frame.generation.to_le_bytes());
-        bytes.extend_from_slice(&frame.min_hz.to_le_bytes());
-        bytes.extend_from_slice(&frame.max_hz.to_le_bytes());
-        for value in frame.dbfs {
-            bytes.extend_from_slice(&value.to_le_bytes());
-        }
-    }
-    bytes
-}
-
-fn decode_snapshot(bytes: &[u8]) -> Option<DecodedSnapshot> {
-    let mut cursor = Cursor::new(bytes);
-    (cursor.take(8)? == SNAPSHOT_MAGIC).then_some(())?;
-    (cursor.u16()? == SPECTRUM_SCHEMA_VERSION).then_some(())?;
-    (cursor.u16()? as usize == SPECTRUM_BAND_COUNT).then_some(())?;
-    let sample_rate = cursor.u32()?;
-    ((8_000..=384_000).contains(&sample_rate)).then_some(())?;
-    (cursor.u32()? as usize == SPECTRUM_FFT_SIZE).then_some(())?;
-    let frame_count = cursor.u16()? as usize;
-    (frame_count <= crate::SPECTRUM_HISTORY_CAPACITY).then_some(())?;
-    let _reserved = cursor.u16()?;
-    let request_id = Uuid::from_slice(cursor.take(16)?).ok()?;
-    let mut history = SpectrumHistory::with_capacity();
-    for _ in 0..frame_count {
-        let presentation_end_samples = cursor.i64()?;
-        let generation = cursor.u64()?;
-        let min_hz = cursor.f32()?;
-        let max_hz = cursor.f32()?;
-        if !(min_hz.is_finite() && max_hz.is_finite() && max_hz > min_hz) {
-            return None;
-        }
-        let mut dbfs = [0.0; SPECTRUM_BAND_COUNT];
-        for value in &mut dbfs {
-            *value = cursor.f32()?;
-            if !value.is_finite() || !(-300.0..=100.0).contains(value) {
-                return None;
-            }
-        }
-        history.push(SpectrumFrame {
-            schema_version: SPECTRUM_SCHEMA_VERSION,
-            sample_rate,
-            fft_size: SPECTRUM_FFT_SIZE as u32,
-            band_count: SPECTRUM_BAND_COUNT as u16,
-            presentation_end_samples,
-            generation,
-            min_hz,
-            max_hz,
-            dbfs,
-        });
-    }
-    (cursor.remaining() == 0).then_some(DecodedSnapshot {
-        request_id,
-        history,
-    })
-}
-
-struct Cursor<'a> {
-    bytes: &'a [u8],
-    offset: usize,
-}
-
-impl<'a> Cursor<'a> {
-    fn new(bytes: &'a [u8]) -> Self {
-        Self { bytes, offset: 0 }
-    }
-
-    fn take(&mut self, count: usize) -> Option<&'a [u8]> {
-        let end = self.offset.checked_add(count)?;
-        let value = self.bytes.get(self.offset..end)?;
-        self.offset = end;
-        Some(value)
-    }
-
-    fn u16(&mut self) -> Option<u16> {
-        Some(u16::from_le_bytes(self.take(2)?.try_into().ok()?))
-    }
-
-    fn u32(&mut self) -> Option<u32> {
-        Some(u32::from_le_bytes(self.take(4)?.try_into().ok()?))
-    }
-
-    fn u64(&mut self) -> Option<u64> {
-        Some(u64::from_le_bytes(self.take(8)?.try_into().ok()?))
-    }
-
-    fn i64(&mut self) -> Option<i64> {
-        Some(i64::from_le_bytes(self.take(8)?.try_into().ok()?))
-    }
-
-    fn f32(&mut self) -> Option<f32> {
-        Some(f32::from_le_bytes(self.take(4)?.try_into().ok()?))
-    }
-
-    fn remaining(&self) -> usize {
-        self.bytes.len().saturating_sub(self.offset)
     }
 }
 
