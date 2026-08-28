@@ -346,10 +346,16 @@ fn optional_analysis_is_post_only_on_demand_and_isolated_from_existing_schemas()
     }
 
     let exchange = read_repo("crates/kirin_measure/src/spectrum_exchange.rs");
-    assert!(exchange.contains("join(\"spectrum\").join(\"request.json\")"));
+    let protocol = read_repo("crates/kirin_measure/src/analysis_exchange_protocol.rs");
+    let lease = read_repo("crates/kirin_measure/src/analysis_lease.rs");
+    assert!(protocol.contains("join(\"spectrum\").join(\"request.json\")"));
+    assert!(protocol.contains("state_epoch_samples"));
+    assert!(exchange.contains("AnalysisLease::for_current_process()"));
+    assert!(lease.contains("file.try_lock()"));
     assert!(exchange.contains("join(\"spectrum\").join(\"pre.bin\")"));
     assert!(exchange.contains("join(\"spectrum\").join(\"pre_perceptual.bin\")"));
     assert!(!exchange.contains("plugin_data"));
+    assert!(!protocol.contains("plugin_data"));
 
     let processor = read_repo("juce_shell/src/PluginProcessor.cpp");
     assert!(processor.contains("perceptualAnalysisRequested.store (true"));

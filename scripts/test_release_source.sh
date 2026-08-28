@@ -74,6 +74,11 @@ run ctest --test-dir "$PRE_DISPLAY_BUILD" --build-config Release \
 
 run cargo test -p kirin_measure --locked
 run cargo test -p kirin_hypha_ffi --locked
+# One Analysis owner runs exactly one PRE/POST pair. Keep its 48 kHz continuous Sharpness cost
+# below the measured single-core ceiling in the optimized configuration that ships.
+run cargo test -p kirin_measure --release --locked \
+  one_visible_pair_continuous_sharpness_worker_budget_is_quantified \
+  --lib -- --ignored --nocapture
 
 # The C++ shell consumes the static C ABI, not Rust's rlib symbols. Build that exact archive and
 # require the restart locator entry points to be exported definitions before any plugin bundle.

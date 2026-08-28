@@ -4,6 +4,16 @@ use std::time::{Duration, Instant};
 use super::*;
 
 fn feed(runtime: &SpectrumRuntime, sample_rate: u32, frames: usize, block: usize) {
+    feed_with_delay(runtime, sample_rate, frames, block, 1);
+}
+
+fn feed_with_delay(
+    runtime: &SpectrumRuntime,
+    sample_rate: u32,
+    frames: usize,
+    block: usize,
+    delay_ms: u64,
+) {
     let mut position = 0_i64;
     while position < frames as i64 {
         let count = block.min(frames - position as usize);
@@ -16,7 +26,7 @@ fn feed(runtime: &SpectrumRuntime, sample_rate: u32, frames: usize, block: usize
         }
         assert!(runtime.push_block_from_audio(&samples, 2, Some(position)));
         position += count as i64;
-        thread::sleep(Duration::from_millis(1));
+        thread::sleep(Duration::from_millis(delay_ms));
     }
 }
 
@@ -74,11 +84,13 @@ fn disabled_runtime_does_not_start_worker_or_accept_audio() {
 fn perceptual_mode_is_exclusive_and_publishes_exact_100ms_apertures() {
     let runtime = SpectrumRuntime::new(48_000, 2);
     assert!(runtime.set_analysis_mode(AnalysisViewMode::Perceptual));
+    assert!(runtime.set_perceptual_state_epoch(Some(0)));
     assert!(runtime.set_enabled(true));
     feed(&runtime, 48_000, 11_000, 256);
     let frame = wait_for_perceptual_frame_at_or_after(&runtime, 9_600);
     assert_eq!(frame.presentation_end_samples, 9_600);
     assert_eq!(frame.aperture_samples, 4_800);
+    assert_eq!(frame.state_epoch_samples, 0);
     assert_eq!(frame.channel_mode, SpectrumChannelMode::Lr);
     assert!(frame.sharpness.is_finite() && frame.sharpness > 0.0);
     assert!(runtime
@@ -95,10 +107,13 @@ fn perceptual_mode_is_exclusive_and_publishes_exact_100ms_apertures() {
 fn perceptual_44k1_grid_is_exact_and_mode_edges_clear_both_histories() {
     let runtime = SpectrumRuntime::new(44_100, 2);
     assert!(runtime.set_analysis_mode(AnalysisViewMode::Perceptual));
+    assert!(runtime.set_perceptual_state_epoch(Some(0)));
     assert!(runtime.set_enabled(true));
-    feed(&runtime, 44_100, 10_000, 147);
+    // The continuous FFT resampler may retain one converter chunk before the first complete
+    // 48 kHz Phase D aperture becomes publishable. Endpoints remain on the 44.1 kHz grid.
+    feed_with_delay(&runtime, 44_100, 20_000, 441, 10);
     let frame = wait_for_perceptual_frame_at_or_after(&runtime, 8_820);
-    assert_eq!(frame.presentation_end_samples, 8_820);
+    assert!(frame.presentation_end_samples >= 8_820);
     assert_eq!(frame.aperture_samples, 4_410);
     assert_eq!(frame.presentation_end_samples % 4_410, 0);
 
@@ -109,6 +124,30 @@ fn perceptual_44k1_grid_is_exact_and_mode_edges_clear_both_histories() {
     assert!(runtime
         .try_history()
         .is_some_and(|history| history.newest().is_none()));
+    runtime.shutdown_and_join();
+}
+
+#[test]
+fn perceptual_discontinuity_clears_history_and_requires_a_new_shared_epoch() {
+    let runtime = SpectrumRuntime::new(48_000, 2);
+    assert!(runtime.set_analysis_mode(AnalysisViewMode::Perceptual));
+    assert!(runtime.set_perceptual_state_epoch(Some(0)));
+    assert!(runtime.set_enabled(true));
+    feed(&runtime, 48_000, 9_600, 256);
+    let _ = wait_for_perceptual_frame_at_or_after(&runtime, 9_600);
+
+    let samples = [0.125_f32; 512];
+    assert!(runtime.push_block_from_audio(&samples, 2, Some(12_000)));
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while Instant::now() < deadline && !runtime.perceptual_rearm_required.load(Ordering::Acquire) {
+        thread::sleep(Duration::from_millis(2));
+    }
+    assert!(runtime.take_perceptual_rearm_required());
+    assert!(runtime
+        .try_perceptual_history()
+        .is_some_and(|history| history.newest().is_none()));
+    assert!(runtime.set_perceptual_state_epoch(None));
+    assert_eq!(runtime.perceptual_state_epoch(), None);
     runtime.shutdown_and_join();
 }
 

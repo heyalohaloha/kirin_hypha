@@ -27,6 +27,7 @@ fn perceptual_frame(end: i64, value: f64) -> crate::PerceptualFrame {
         sample_rate: 48_000,
         aperture_samples: 4_800,
         presentation_end_samples: end,
+        state_epoch_samples: 0,
         generation: 7,
         channel_mode: SpectrumChannelMode::Lr,
         channels: 2,
@@ -56,6 +57,34 @@ fn push_stereo_pair_in_blocks(
             2,
             Some(start as i64),
         ));
+        thread::sleep(Duration::from_millis(1));
+    }
+}
+
+fn push_tone_pair_segment(
+    pre_runtime: &SpectrumRuntime,
+    post_runtime: &SpectrumRuntime,
+    start_frame: i64,
+    end_frame: i64,
+    pre_hz: f32,
+    post_hz: f32,
+) {
+    const BLOCK_FRAMES: usize = 256;
+    let mut position = start_frame;
+    while position < end_frame {
+        let frames = BLOCK_FRAMES.min((end_frame - position) as usize);
+        let mut pre_samples = Vec::with_capacity(frames * 2);
+        let mut post_samples = Vec::with_capacity(frames * 2);
+        for offset in 0..frames {
+            let absolute = position as usize + offset;
+            let pre = (std::f32::consts::TAU * pre_hz * absolute as f32 / 48_000.0).sin();
+            let post = (std::f32::consts::TAU * post_hz * absolute as f32 / 48_000.0).sin();
+            pre_samples.extend_from_slice(&[pre, -pre]);
+            post_samples.extend_from_slice(&[post, -post]);
+        }
+        assert!(pre_runtime.push_block_from_audio(&pre_samples, 2, Some(position)));
+        assert!(post_runtime.push_block_from_audio(&post_samples, 2, Some(position)));
+        position += frames as i64;
         thread::sleep(Duration::from_millis(1));
     }
 }
@@ -188,7 +217,7 @@ fn difference_joins_only_an_exact_presentation_endpoint() {
 }
 
 #[test]
-fn perceptual_difference_joins_only_exact_endpoint_and_aperture() {
+fn perceptual_difference_joins_only_exact_endpoint_aperture_and_epoch() {
     let mut pre = crate::PerceptualHistory::with_capacity();
     let mut post = crate::PerceptualHistory::with_capacity();
     pre.push(perceptual_frame(4_800, 1.2));
@@ -203,6 +232,12 @@ fn perceptual_difference_joins_only_exact_endpoint_and_aperture() {
     let mut incompatible_post = crate::PerceptualHistory::with_capacity();
     incompatible_post.push(incompatible);
     assert!(newest_exact_perceptual_difference(&incompatible_post, &pre).is_none());
+
+    let mut wrong_epoch = perceptual_frame(4_800, 1.7);
+    wrong_epoch.state_epoch_samples = -4_800;
+    let mut wrong_epoch_post = crate::PerceptualHistory::with_capacity();
+    wrong_epoch_post.push(wrong_epoch);
+    assert!(newest_exact_perceptual_difference(&wrong_epoch_post, &pre).is_none());
 }
 
 #[test]
@@ -218,6 +253,61 @@ fn malformed_perceptual_payload_fails_closed() {
     let sharpness_offset = 32 + 24;
     nonfinite[sharpness_offset..sharpness_offset + 8].copy_from_slice(&f64::NAN.to_le_bytes());
     assert!(perceptual_codec::decode_perceptual_snapshot(&nonfinite).is_none());
+}
+
+#[test]
+fn exactly_one_post_analysis_runtime_is_active_per_process_lease() {
+    let temp = tempfile::tempdir().unwrap();
+    let lease_path = temp.path().join("one-analysis.lease");
+    let first_runtime = SpectrumRuntime::new(48_000, 2);
+    let second_runtime = SpectrumRuntime::new(48_000, 2);
+    let first = SpectrumCoordinator::new_with_lease(
+        48_000,
+        first_runtime,
+        crate::analysis_lease::AnalysisLease::at_path(lease_path.clone()),
+    );
+    let second = SpectrumCoordinator::new_with_lease(
+        48_000,
+        second_runtime,
+        crate::analysis_lease::AnalysisLease::at_path(lease_path),
+    );
+    first.set_post_visible(true);
+    second.set_post_visible(true);
+
+    assert!(!first.post_tick("post-a", None));
+    assert!(!second.post_tick("post-b", None));
+    assert_eq!(first.try_view().unwrap().status, SpectrumViewStatus::NoPair);
+    assert_eq!(second.try_view().unwrap().status, SpectrumViewStatus::InUse);
+
+    first.set_post_visible(false);
+    assert!(!second.post_tick("post-b", None));
+    assert_eq!(
+        second.try_view().unwrap().status,
+        SpectrumViewStatus::NoPair
+    );
+    second.shutdown();
+    first.shutdown();
+}
+
+#[test]
+fn analysis_lease_io_failure_is_unavailable_not_in_use() {
+    let temp = tempfile::tempdir().unwrap();
+    let blocker = temp.path().join("file");
+    fs::write(&blocker, b"not a directory").unwrap();
+    let runtime = SpectrumRuntime::new(48_000, 2);
+    let coordinator = SpectrumCoordinator::new_with_lease(
+        48_000,
+        Arc::clone(&runtime),
+        crate::analysis_lease::AnalysisLease::at_path(blocker.join("analysis.lease")),
+    );
+    coordinator.set_post_visible(true);
+    assert!(!coordinator.post_tick("post", None));
+    assert_eq!(
+        coordinator.try_view().unwrap().status,
+        SpectrumViewStatus::Unavailable
+    );
+    coordinator.shutdown();
+    runtime.shutdown_and_join();
 }
 
 #[test]
@@ -331,6 +421,112 @@ fn visible_exact_pair_exchanges_audio_derived_difference_end_to_end() {
         .map(|(index, _)| index)
         .unwrap();
     assert!((difference.raw_db[strongest] + 6.0206).abs() < 0.05);
+
+    pre.shutdown();
+    post.shutdown();
+    pre_runtime.shutdown_and_join();
+    post_runtime.shutdown_and_join();
+}
+
+#[test]
+fn perceptual_pair_arms_one_future_epoch_and_joins_only_continuous_state() {
+    let temp = tempfile::tempdir().unwrap();
+    let pre_dir = temp.path().join("project").join("pre");
+    let pre_json = pre_dir.join("pre.json");
+    crate::atomic_file::write_bytes_atomic(&pre_json, b"{}").unwrap();
+    let pre_runtime = SpectrumRuntime::new(48_000, 2);
+    let post_runtime = SpectrumRuntime::new(48_000, 2);
+    let pre = SpectrumCoordinator::new(48_000, Arc::clone(&pre_runtime));
+    let post = SpectrumCoordinator::new(48_000, Arc::clone(&post_runtime));
+    let target = SpectrumTarget::from_pre_json("pre".to_string(), &pre_json).unwrap();
+
+    assert!(post.set_post_analysis_mode(AnalysisViewMode::Perceptual));
+    post.set_post_visible(true);
+    assert!(post.post_tick("post", Some(target.clone())));
+    assert!(pre.pre_tick("pre", &pre_dir));
+    assert_eq!(pre_runtime.perceptual_state_epoch(), None);
+    assert_eq!(post_runtime.perceptual_state_epoch(), None);
+
+    push_tone_pair_segment(&pre_runtime, &post_runtime, 0, 2_048, 1_000.0, 6_000.0);
+    assert!(pre.pre_tick("pre", &pre_dir));
+    assert!(post.post_tick("post", Some(target.clone())));
+    let epoch = post_runtime
+        .perceptual_state_epoch()
+        .expect("POST commits a future epoch after PRE readiness");
+    assert!(epoch >= 2_048 + 9_600);
+    assert_eq!(epoch % 4_800, 0);
+    assert!(pre.pre_tick("pre", &pre_dir));
+    assert_eq!(pre_runtime.perceptual_state_epoch(), Some(epoch));
+
+    let final_endpoint = epoch + 9_600;
+    push_tone_pair_segment(
+        &pre_runtime,
+        &post_runtime,
+        2_048,
+        final_endpoint,
+        1_000.0,
+        6_000.0,
+    );
+    let deadline = Instant::now() + Duration::from_secs(4);
+    while Instant::now() < deadline
+        && (pre_runtime
+            .try_perceptual_history()
+            .and_then(|history| history.newest().cloned())
+            .is_none_or(|frame| frame.presentation_end_samples < final_endpoint)
+            || post_runtime
+                .try_perceptual_history()
+                .and_then(|history| history.newest().cloned())
+                .is_none_or(|frame| frame.presentation_end_samples < final_endpoint))
+    {
+        thread::sleep(Duration::from_millis(2));
+    }
+    let pre_frames = pre_runtime
+        .try_perceptual_history()
+        .unwrap()
+        .frames()
+        .map(|frame| (frame.presentation_end_samples, frame.state_epoch_samples))
+        .collect::<Vec<_>>();
+    let post_frames = post_runtime
+        .try_perceptual_history()
+        .unwrap()
+        .frames()
+        .map(|frame| (frame.presentation_end_samples, frame.state_epoch_samples))
+        .collect::<Vec<_>>();
+    assert!(
+        pre_frames.iter().any(|frame| frame.0 == final_endpoint),
+        "PRE frames: {pre_frames:?}"
+    );
+    assert!(
+        post_frames.iter().any(|frame| frame.0 == final_endpoint),
+        "POST frames: {post_frames:?}"
+    );
+    assert!(
+        !pre_runtime.take_perceptual_rearm_required(),
+        "PRE requested re-arm after publishing {pre_frames:?}"
+    );
+    assert!(
+        !post_runtime.take_perceptual_rearm_required(),
+        "POST requested re-arm after publishing {post_frames:?}"
+    );
+    assert!(pre.pre_tick("pre", &pre_dir));
+    let remote = read_perceptual_snapshot(&pre_dir).expect("PRE perceptual snapshot");
+    let local = post_runtime.try_perceptual_history().unwrap();
+    assert!(
+        newest_exact_perceptual_difference(&local, &remote.history).is_some(),
+        "local={post_frames:?} remote={:?}",
+        remote
+            .history
+            .frames()
+            .map(|frame| (frame.presentation_end_samples, frame.state_epoch_samples))
+            .collect::<Vec<_>>()
+    );
+    assert!(post.post_tick("post", Some(target)));
+    let view = post.try_view().unwrap();
+    assert_eq!(view.status, SpectrumViewStatus::Active);
+    let difference = view.perceptual_difference.unwrap();
+    assert_eq!(difference.state_epoch_samples, epoch);
+    assert_eq!(difference.presentation_end_samples, final_endpoint);
+    assert!(difference.delta_sharpness > 0.0);
 
     pre.shutdown();
     post.shutdown();

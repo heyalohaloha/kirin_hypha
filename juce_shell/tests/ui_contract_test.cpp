@@ -225,6 +225,7 @@ int main()
     static_assert (KIRIN_SPECTRUM_WARMING_UP == 2u);
     static_assert (KIRIN_SPECTRUM_ACTIVE == 3u);
     static_assert (KIRIN_SPECTRUM_UNAVAILABLE == 4u);
+    static_assert (KIRIN_SPECTRUM_IN_USE == 5u);
     static_assert (KIRIN_RECORD_DISPLAY_WATCH == 0u);
     static_assert (KIRIN_RECORD_DISPLAY_LIVE == 1u);
     static_assert (KIRIN_RECORD_DISPLAY_FINALIZING == 2u);
@@ -344,7 +345,7 @@ int main()
             < ui::spectrumPostLegendLabelX);
     assert (ui::spectrumPostLegendLabelX + ui::spectrumPostLegendLabelWidth
             <= spectrumPlot.width - ui::spectrumPlotLeftInset - ui::spectrumPlotRightInset);
-    assert (std::strcmp (ui::spectrumTooltip (false), "Show POST - PRE spectrum") == 0);
+    assert (std::strcmp (ui::spectrumTooltip (false), "Show POST - PRE analysis") == 0);
     assert (std::strcmp (ui::spectrumTooltip (true), "Return to meters") == 0);
     assert (std::strlen (ui::spectrumTooltip (false))
             <= static_cast<std::size_t> (ui::spectrumTooltipMaximumCharacters));

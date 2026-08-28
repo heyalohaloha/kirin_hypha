@@ -1,4 +1,4 @@
-use crate::perceptual::{PerceptualFrame, SharpnessApertureAnalyzer};
+use crate::perceptual::{PerceptualFrame, SharpnessContinuousAnalyzer};
 use crate::spectrum::{
     SpectrumAnalyzer, SpectrumChannelMode, SpectrumFrame, SPECTRUM_PRESENTATION_HZ,
     SPECTRUM_WINDOW_SIZE,
@@ -101,18 +101,21 @@ fn copy_ordered(source: &[f32], start: usize, destination: &mut [f32]) {
 }
 
 pub(super) struct PerceptualAssembler {
-    analyzer: SharpnessApertureAnalyzer,
+    analyzer: SharpnessContinuousAnalyzer,
     channels: usize,
     aperture_samples: i64,
     samples: Vec<f32>,
     collecting: bool,
     next_position: Option<i64>,
     generation: u64,
+    state_epoch_samples: Option<i64>,
+    sequence_started: bool,
+    rearm_required: bool,
 }
 
 impl PerceptualAssembler {
     pub(super) fn new(sample_rate: u32, channels: usize) -> Result<Self, crate::PerceptualError> {
-        let analyzer = SharpnessApertureAnalyzer::new(sample_rate, channels)?;
+        let analyzer = SharpnessContinuousAnalyzer::new(sample_rate, channels)?;
         let aperture_samples = analyzer.aperture_samples() as i64;
         Ok(Self {
             analyzer,
@@ -122,17 +125,37 @@ impl PerceptualAssembler {
             collecting: false,
             next_position: None,
             generation: 0,
+            state_epoch_samples: None,
+            sequence_started: false,
+            rearm_required: false,
         })
     }
 
-    pub(super) fn begin_block(&mut self, start: i64, generation: u64) -> bool {
+    pub(super) fn begin_block(
+        &mut self,
+        start: i64,
+        generation: u64,
+        state_epoch_samples: Option<i64>,
+    ) -> bool {
+        let Some(state_epoch_samples) = state_epoch_samples else {
+            self.reset();
+            return false;
+        };
         if generation == 0 {
             self.reset();
             return false;
         }
-        if self.generation != generation || self.next_position.is_some_and(|next| next != start) {
+        if self.generation != generation || self.state_epoch_samples != Some(state_epoch_samples) {
             self.reset();
+            if self.analyzer.reset_at_epoch(state_epoch_samples).is_err() {
+                return false;
+            }
             self.generation = generation;
+            self.state_epoch_samples = Some(state_epoch_samples);
+        } else if self.next_position.is_some_and(|next| next != start) {
+            self.reset();
+            self.rearm_required = true;
+            return false;
         }
         self.next_position = Some(start);
         true
@@ -143,20 +166,43 @@ impl PerceptualAssembler {
         left: f32,
         right: Option<f32>,
         channel_mode: SpectrumChannelMode,
-    ) -> Option<PerceptualFrame> {
+    ) -> Option<&[PerceptualFrame]> {
         let start = self.next_position?;
         let end = start.checked_add(1)?;
         self.next_position = Some(end);
         if !self.collecting {
-            if start.rem_euclid(self.aperture_samples) != 0 {
+            let epoch = self.state_epoch_samples?;
+            if !self.sequence_started {
+                if start < epoch {
+                    return None;
+                }
+                if start != epoch {
+                    self.reset();
+                    self.rearm_required = true;
+                    return None;
+                }
+                self.sequence_started = true;
+            } else if start.rem_euclid(self.aperture_samples) != 0 {
+                self.reset();
+                self.rearm_required = true;
                 return None;
             }
             self.samples.clear();
             self.collecting = true;
         }
+        if !left.is_finite() || right.is_some_and(|sample| !sample.is_finite()) {
+            self.reset();
+            self.rearm_required = true;
+            return None;
+        }
         self.samples.push(left);
         if self.channels == 2 {
-            self.samples.push(right?);
+            let Some(right) = right else {
+                self.reset();
+                self.rearm_required = true;
+                return None;
+            };
+            self.samples.push(right);
         }
         if end.rem_euclid(self.aperture_samples) != 0
             || self.samples.len() != self.aperture_samples as usize * self.channels
@@ -164,9 +210,20 @@ impl PerceptualAssembler {
             return None;
         }
         self.collecting = false;
-        self.analyzer
-            .analyze(&self.samples, channel_mode, end, self.generation)
-            .ok()
+        if self
+            .analyzer
+            .analyze_aperture(&self.samples, channel_mode, end, self.generation)
+            .is_err()
+        {
+            self.reset();
+            self.rearm_required = true;
+            return None;
+        }
+        Some(self.analyzer.output_frames())
+    }
+
+    pub(super) fn take_rearm_required(&mut self) -> bool {
+        std::mem::take(&mut self.rearm_required)
     }
 
     pub(super) fn reset(&mut self) {
@@ -174,5 +231,29 @@ impl PerceptualAssembler {
         self.collecting = false;
         self.next_position = None;
         self.generation = 0;
+        self.state_epoch_samples = None;
+        self.sequence_started = false;
+        self.rearm_required = false;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn analyzer_error_clears_state_and_requires_a_new_epoch() {
+        let mut assembler = PerceptualAssembler::new(48_000, 2).unwrap();
+        assert!(assembler.begin_block(0, 1, Some(0)));
+        for _ in 0..4_800 {
+            let _ = assembler.push_frame(0.1, Some(0.1), SpectrumChannelMode::Lr);
+        }
+        assert!(assembler.begin_block(4_800, 1, Some(0)));
+        for _ in 0..4_800 {
+            assert!(assembler
+                .push_frame(0.1, Some(0.1), SpectrumChannelMode::Mid)
+                .is_none());
+        }
+        assert!(assembler.take_rearm_required());
     }
 }

@@ -2,7 +2,7 @@
 
 use std::cell::UnsafeCell;
 use std::panic::{catch_unwind, AssertUnwindSafe};
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
@@ -28,8 +28,8 @@ pub use state::{
 // Two FFT windows cover worker scheduling jitter without charging hidden instances more memory.
 const SPECTRUM_RING_FRAMES: usize = SPECTRUM_WINDOW_SIZE * 2;
 const SPECTRUM_BLOCK_RING_CAPACITY: usize = 64;
-// A 10 ms idle poll serves the optional 30 Hz pair without a high-frequency wake loop.
 const SPECTRUM_WORKER_IDLE: Duration = Duration::from_millis(10);
+pub(super) const NO_PRESENTATION_POSITION: i64 = i64::MIN;
 
 #[derive(Clone, Copy, Debug)]
 struct SpectrumIngressBlock {
@@ -52,6 +52,9 @@ pub struct SpectrumRuntime {
     generation: AtomicU64,
     analysis_mode: AtomicU8,
     channel_mode: AtomicU8,
+    perceptual_state_epoch: AtomicI64,
+    latest_presentation_end: AtomicI64,
+    perceptual_rearm_required: AtomicBool,
     sample_producer: UnsafeCell<Producer<f32>>,
     block_producer: UnsafeCell<Producer<SpectrumIngressBlock>>,
     consumers: Mutex<Option<SpectrumConsumers>>,
@@ -85,6 +88,9 @@ impl SpectrumRuntime {
             generation: AtomicU64::new(1),
             analysis_mode: AtomicU8::new(AnalysisViewMode::Spectrum as u8),
             channel_mode: AtomicU8::new(SpectrumChannelMode::Lr as u8),
+            perceptual_state_epoch: AtomicI64::new(NO_PRESENTATION_POSITION),
+            latest_presentation_end: AtomicI64::new(NO_PRESENTATION_POSITION),
+            perceptual_rearm_required: AtomicBool::new(false),
             sample_producer: UnsafeCell::new(sample_producer),
             block_producer: UnsafeCell::new(block_producer),
             consumers: Mutex::new(Some(SpectrumConsumers {
@@ -119,6 +125,10 @@ impl SpectrumRuntime {
         let previous = self.enabled.swap(enabled, Ordering::AcqRel);
         if previous != enabled {
             self.generation.fetch_add(1, Ordering::AcqRel);
+            self.latest_presentation_end
+                .store(NO_PRESENTATION_POSITION, Ordering::Release);
+            self.perceptual_rearm_required
+                .store(false, Ordering::Release);
             if let Ok(mut history) = self.history.lock() {
                 *history = SpectrumHistory::with_capacity();
             }
@@ -142,22 +152,6 @@ impl SpectrumRuntime {
     pub fn analysis_mode(&self) -> AnalysisViewMode {
         AnalysisViewMode::try_from(self.analysis_mode.load(Ordering::Acquire))
             .unwrap_or(AnalysisViewMode::Spectrum)
-    }
-
-    /// Control/worker thread only. Spectrum and Perceptual analysis are intentionally exclusive.
-    pub fn set_analysis_mode(&self, mode: AnalysisViewMode) -> bool {
-        let previous = self.analysis_mode.swap(mode as u8, Ordering::AcqRel);
-        if previous != mode as u8 {
-            self.generation.fetch_add(1, Ordering::AcqRel);
-            if let Ok(mut history) = self.history.lock() {
-                *history = SpectrumHistory::with_capacity();
-            }
-            if let Ok(mut history) = self.perceptual_history.lock() {
-                *history = PerceptualHistory::with_capacity();
-            }
-            self.wake.1.notify_all();
-        }
-        true
     }
 
     pub fn num_channels(&self) -> usize {
@@ -210,6 +204,13 @@ impl SpectrumRuntime {
             self.note_drop();
             return false;
         };
+        let Some(presentation_end_samples) = presentation_start_samples.checked_add(frames as i64)
+        else {
+            self.note_drop();
+            return false;
+        };
+        self.latest_presentation_end
+            .store(presentation_end_samples, Ordering::Release);
         // SAFETY: see the Sync contract above. Both producers belong to the one Audio Thread.
         let sample_producer = unsafe { &mut *self.sample_producer.get() };
         // SAFETY: same sole-producer contract.
@@ -273,6 +274,10 @@ impl SpectrumRuntime {
     fn note_drop(&self) {
         self.dropped_blocks.fetch_add(1, Ordering::Relaxed);
         self.generation.fetch_add(1, Ordering::AcqRel);
+        if self.analysis_mode() == AnalysisViewMode::Perceptual {
+            self.perceptual_rearm_required
+                .store(true, Ordering::Release);
+        }
     }
 
     fn ensure_worker(self: &Arc<Self>) -> bool {
@@ -344,22 +349,39 @@ impl SpectrumRuntime {
             };
             let current_generation = self.generation.load(Ordering::Acquire);
             let analysis_mode = self.analysis_mode();
-            let began_block = match analysis_mode {
-                AnalysisViewMode::Spectrum => {
-                    assembler.begin_block(block.presentation_start_samples, block.generation)
-                }
-                AnalysisViewMode::Perceptual => perceptual.as_mut().is_some_and(|perceptual| {
-                    perceptual.begin_block(block.presentation_start_samples, block.generation)
-                }),
-            };
             if block.generation != current_generation
                 || block.channels as usize != self.num_channels
-                || !began_block
             {
                 discard_samples(
                     &mut consumers.samples,
                     block.frames as usize * block.channels as usize,
                 );
+                continue;
+            }
+            let began_block = match analysis_mode {
+                AnalysisViewMode::Spectrum => {
+                    assembler.begin_block(block.presentation_start_samples, block.generation)
+                }
+                AnalysisViewMode::Perceptual => perceptual.as_mut().is_some_and(|perceptual| {
+                    perceptual.begin_block(
+                        block.presentation_start_samples,
+                        block.generation,
+                        self.perceptual_state_epoch(),
+                    )
+                }),
+            };
+            if !began_block {
+                discard_samples(
+                    &mut consumers.samples,
+                    block.frames as usize * block.channels as usize,
+                );
+                if analysis_mode == AnalysisViewMode::Perceptual
+                    && perceptual
+                        .as_mut()
+                        .is_some_and(PerceptualAssembler::take_rearm_required)
+                {
+                    self.require_perceptual_rearm();
+                }
                 continue;
             }
             let mut complete = true;
@@ -398,15 +420,17 @@ impl SpectrumRuntime {
                         let Some(perceptual) = perceptual.as_mut() else {
                             continue;
                         };
-                        if let Some(frame) = perceptual.push_frame(left, right, channel_mode) {
-                            if !self.perceptual_frame_is_current(&frame) {
-                                continue;
-                            }
-                            self.analyzed_perceptual_frames
-                                .fetch_add(1, Ordering::Relaxed);
-                            if let Ok(mut history) = self.perceptual_history.lock() {
-                                if self.perceptual_frame_is_current(&frame) {
-                                    history.push(frame);
+                        if let Some(frames) = perceptual.push_frame(left, right, channel_mode) {
+                            for frame in frames {
+                                if !self.perceptual_frame_is_current(frame) {
+                                    continue;
+                                }
+                                self.analyzed_perceptual_frames
+                                    .fetch_add(1, Ordering::Relaxed);
+                                if let Ok(mut history) = self.perceptual_history.lock() {
+                                    if self.perceptual_frame_is_current(frame) {
+                                        history.push(frame.clone());
+                                    }
                                 }
                             }
                         }
@@ -417,6 +441,9 @@ impl SpectrumRuntime {
                 assembler.reset();
                 if let Some(perceptual) = perceptual.as_mut() {
                     perceptual.reset();
+                }
+                if analysis_mode == AnalysisViewMode::Perceptual {
+                    self.require_perceptual_rearm();
                 }
             }
         }
@@ -433,8 +460,17 @@ impl SpectrumRuntime {
         self.enabled.load(Ordering::Acquire)
             && self.analysis_mode() == AnalysisViewMode::Perceptual
             && frame.generation == self.generation.load(Ordering::Acquire)
+            && Some(frame.state_epoch_samples) == self.perceptual_state_epoch()
             && frame.channel_mode == self.channel_mode()
             && frame.channels as usize == self.num_channels
+    }
+
+    fn require_perceptual_rearm(&self) {
+        self.perceptual_rearm_required
+            .store(true, Ordering::Release);
+        if let Ok(mut history) = self.perceptual_history.lock() {
+            *history = PerceptualHistory::with_capacity();
+        }
     }
 }
 

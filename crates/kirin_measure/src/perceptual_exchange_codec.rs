@@ -7,8 +7,8 @@ use crate::perceptual::{PerceptualFrame, PERCEPTUAL_SCHEMA_VERSION};
 use crate::spectrum::SpectrumChannelMode;
 use crate::spectrum_runtime::{PerceptualHistory, PERCEPTUAL_HISTORY_CAPACITY};
 
-const SNAPSHOT_MAGIC: &[u8; 8] = b"KHPERC01";
-pub(super) const PERCEPTUAL_SNAPSHOT_MAX_BYTES: u64 = 1_024;
+const SNAPSHOT_MAGIC: &[u8; 8] = b"KHPERC02";
+pub(super) const PERCEPTUAL_SNAPSHOT_MAX_BYTES: u64 = 1_280;
 
 pub(super) struct DecodedPerceptualSnapshot {
     pub(super) request_id: Uuid,
@@ -24,7 +24,7 @@ pub(super) fn read_perceptual_snapshot(instance_dir: &Path) -> Option<DecodedPer
 
 pub(super) fn encode_perceptual_snapshot(request_id: Uuid, history: &PerceptualHistory) -> Vec<u8> {
     let frame_count = history.frames().len().min(u16::MAX as usize) as u16;
-    let mut bytes = Vec::with_capacity(32 + frame_count as usize * 32);
+    let mut bytes = Vec::with_capacity(32 + frame_count as usize * 40);
     bytes.extend_from_slice(SNAPSHOT_MAGIC);
     bytes.extend_from_slice(&PERCEPTUAL_SCHEMA_VERSION.to_le_bytes());
     bytes.extend_from_slice(&frame_count.to_le_bytes());
@@ -37,6 +37,7 @@ pub(super) fn encode_perceptual_snapshot(request_id: Uuid, history: &PerceptualH
     bytes.extend_from_slice(request_id.as_bytes());
     for frame in history.frames() {
         bytes.extend_from_slice(&frame.presentation_end_samples.to_le_bytes());
+        bytes.extend_from_slice(&frame.state_epoch_samples.to_le_bytes());
         bytes.extend_from_slice(&frame.generation.to_le_bytes());
         bytes.push(frame.channel_mode as u8);
         bytes.push(frame.channels);
@@ -61,6 +62,7 @@ pub(super) fn decode_perceptual_snapshot(bytes: &[u8]) -> Option<DecodedPerceptu
     let mut history = PerceptualHistory::with_capacity();
     for _ in 0..frame_count {
         let presentation_end_samples = cursor.i64()?;
+        let state_epoch_samples = cursor.i64()?;
         let generation = cursor.u64()?;
         let channel_mode = SpectrumChannelMode::try_from(cursor.u8()?).ok()?;
         let channels = cursor.u8()?;
@@ -71,6 +73,9 @@ pub(super) fn decode_perceptual_snapshot(bytes: &[u8]) -> Option<DecodedPerceptu
         let _reserved = cursor.u16()?;
         let aperture_samples = cursor.u32()?;
         (aperture_samples == sample_rate / crate::PERCEPTUAL_PRESENTATION_HZ).then_some(())?;
+        (state_epoch_samples.rem_euclid(i64::from(aperture_samples)) == 0
+            && presentation_end_samples > state_epoch_samples)
+            .then_some(())?;
         let sharpness = cursor.f64()?;
         (sharpness.is_finite() && (0.0..=100.0).contains(&sharpness)).then_some(())?;
         history.push(PerceptualFrame {
@@ -78,6 +83,7 @@ pub(super) fn decode_perceptual_snapshot(bytes: &[u8]) -> Option<DecodedPerceptu
             sample_rate,
             aperture_samples,
             presentation_end_samples,
+            state_epoch_samples,
             generation,
             channel_mode,
             channels,
