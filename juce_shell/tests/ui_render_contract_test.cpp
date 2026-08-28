@@ -88,6 +88,22 @@ namespace
         return runs;
     }
 
+    int countColourColumnsAcross (const juce::Image& image,
+                                  juce::Rectangle<int> requested,
+                                  juce::Colour target)
+    {
+        const auto area = requested.getIntersection (image.getBounds());
+        int columns = 0;
+        for (int x = area.getX(); x < area.getRight(); ++x)
+        {
+            bool currentColumn = false;
+            for (int y = area.getY(); y < area.getBottom(); ++y)
+                currentColumn = currentColumn || nearRgb (image.getPixelAt (x, y), target);
+            columns += currentColumn ? 1 : 0;
+        }
+        return columns;
+    }
+
     int countDifferentPixels (const juce::Image& a, const juce::Image& b)
     {
         KIRIN_REQUIRE (a.getBounds() == b.getBounds());
@@ -414,10 +430,25 @@ int main()
         lineEncodingImage, curveProbe, hypha::COL_SPECTRUM_PRE);
     const int postCurveRuns = countColourRunsAcross (
         lineEncodingImage, postCurveProbe, hypha::COL_SPECTRUM_POST);
-    // The translucent hairline can form a few colour-probe runs through antialiasing,
-    // but must remain visually continuous rather than returning to a dashed encoding.
+    const int preCurveColumns = countColourColumnsAcross (
+        lineEncodingImage, curveProbe, hypha::COL_SPECTRUM_PRE);
+    const int postCurveColumns = countColourColumnsAcross (
+        lineEncodingImage, postCurveProbe, hypha::COL_SPECTRUM_POST);
+    std::cout << "Spectrum reference continuity: PRE-runs=" << preCurveRuns
+              << ", PRE-columns=" << preCurveColumns << '/' << innerPlotWidth
+              << ", POST-runs=" << postCurveRuns
+              << ", POST-columns=" << postCurveColumns << '/' << innerPlotWidth << '\n';
+    // Software rasterizers can leave a handful of one-pixel colour-probe gaps where a
+    // translucent antialiased hairline crosses a pixel centre. Require near-full coverage
+    // and only a few runs, which rejects a dashed encoding without assuming identical
+    // subpixel rasterization on CoreGraphics and Windows.
+    constexpr float minimumContinuousCoverage = 0.90f;
     KIRIN_REQUIRE (preCurveRuns >= 1 && preCurveRuns <= 5);
-    KIRIN_REQUIRE (postCurveRuns == 1);
+    KIRIN_REQUIRE (postCurveRuns >= 1 && postCurveRuns <= 5);
+    KIRIN_REQUIRE ((float) preCurveColumns
+                       >= (float) innerPlotWidth * minimumContinuousCoverage);
+    KIRIN_REQUIRE ((float) postCurveColumns
+                       >= (float) innerPlotWidth * minimumContinuousCoverage);
 
     const auto compactSpectrum = renderSpectrumAtSize (
         spectrumSnapshot, ui::spectrumSizePresets[0], "KIRIN_UI_RENDER_OUTPUT");
