@@ -105,7 +105,10 @@ advances only after a request, readiness fact, or PRE snapshot was actually publ
 filesystem attempt is never counted as progress. If publication stops, the stable IO path retries
 one non-blocking exact exchange before the 1.5-second request lease can expire. During a transient
 gap, the last exact FREQ or SHARP presentation is held only within that same lease boundary instead
-of flashing an empty page. No second analyzer is started, no mismatched frames are joined, and no
+of flashing an empty page. Request, readiness, and snapshot file operations never retain the
+PRE/POST analysis-session lock while Windows completes an atomic update, so a delayed writer cannot
+exclude that exact retry. A write that completes after its lease has already expired is not counted
+as a live publication. No second analyzer is started, no mismatched frames are joined, and no
 filesystem work enters the Audio Thread.
 
 Where both spectra are extremely quiet, the displayed Δ alone is faded toward zero: it is fully

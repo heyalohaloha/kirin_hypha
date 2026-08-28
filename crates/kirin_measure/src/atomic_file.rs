@@ -11,12 +11,19 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+#[cfg(test)]
+use std::sync::{Condvar, Mutex, OnceLock};
+#[cfg(test)]
+use std::time::{Duration, Instant};
+
 #[cfg(unix)]
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 
 static TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 pub fn write_bytes_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    #[cfg(test)]
+    pause_atomic_write_if_requested(path);
     if let Some(parent) = path.parent() {
         create_private_dir_all(parent)?;
     }
@@ -54,6 +61,105 @@ pub fn write_bytes_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
             "could not allocate unique atomic temp path",
         )
     }))
+}
+
+#[cfg(test)]
+#[derive(Default)]
+struct AtomicWritePauseState {
+    path: Option<PathBuf>,
+    entered: bool,
+    released: bool,
+}
+
+#[cfg(test)]
+fn atomic_write_pause_state() -> &'static (Mutex<AtomicWritePauseState>, Condvar) {
+    static STATE: OnceLock<(Mutex<AtomicWritePauseState>, Condvar)> = OnceLock::new();
+    STATE.get_or_init(|| (Mutex::new(AtomicWritePauseState::default()), Condvar::new()))
+}
+
+#[cfg(test)]
+pub(crate) struct AtomicWritePause {
+    path: PathBuf,
+}
+
+#[cfg(test)]
+impl AtomicWritePause {
+    pub(crate) fn install(path: PathBuf) -> Self {
+        let (lock, _) = atomic_write_pause_state();
+        let mut state = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        assert!(
+            state.path.is_none(),
+            "only one atomic write pause may be active"
+        );
+        state.path = Some(path.clone());
+        state.entered = false;
+        state.released = false;
+        Self { path }
+    }
+
+    pub(crate) fn wait_until_entered(&self) {
+        let (lock, wake) = atomic_write_pause_state();
+        let mut state = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while state.path.as_ref() == Some(&self.path) && !state.entered {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            assert!(
+                !remaining.is_zero(),
+                "target atomic write did not enter the pause: {}",
+                self.path.display()
+            );
+            let (next, timeout) = wake
+                .wait_timeout(state, remaining)
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            state = next;
+            assert!(
+                !timeout.timed_out() || state.entered,
+                "target atomic write did not enter the pause: {}",
+                self.path.display()
+            );
+        }
+        assert!(
+            state.entered,
+            "target atomic write did not enter the pause: {}",
+            self.path.display()
+        );
+    }
+
+    pub(crate) fn release(&self) {
+        let (lock, wake) = atomic_write_pause_state();
+        let mut state = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if state.path.as_ref() == Some(&self.path) {
+            state.released = true;
+            wake.notify_all();
+        }
+    }
+}
+
+#[cfg(test)]
+impl Drop for AtomicWritePause {
+    fn drop(&mut self) {
+        self.release();
+    }
+}
+
+#[cfg(test)]
+fn pause_atomic_write_if_requested(path: &Path) {
+    let (lock, wake) = atomic_write_pause_state();
+    let mut state = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    // Stall one concrete operation, not every writer for the path. This models the Windows case
+    // where one filesystem call is retained while an independent writer can still publish.
+    if state.path.as_deref() != Some(path) || state.entered {
+        return;
+    }
+    state.entered = true;
+    wake.notify_all();
+    while !state.released {
+        state = wake
+            .wait(state)
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+    }
+    state.path = None;
+    wake.notify_all();
 }
 
 /// Publish immutable bytes exactly once without an overwrite window.

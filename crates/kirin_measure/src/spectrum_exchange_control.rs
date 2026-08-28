@@ -75,32 +75,33 @@ impl SpectrumCoordinator {
     pub fn shutdown(&self) {
         self.post_visible.store(false, Ordering::Release);
         self.exchange_worker.shutdown_and_join();
-        let mut post_session = match self.post_session.lock() {
-            Ok(session) => session,
-            Err(poisoned) => poisoned.into_inner(),
-        };
-        if let Some(session) = post_session.take() {
-            cleanup_owned_request(session.target.as_ref(), session.request_id);
+        {
+            let mut post_session = match self.post_session.lock() {
+                Ok(session) => session,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+            let _ = post_session.take();
         }
-        drop(post_session);
-        let mut pre_session = match self.pre_session.lock() {
-            Ok(session) => session,
-            Err(poisoned) => poisoned.into_inner(),
-        };
-        if let Some(session) = pre_session.take() {
-            let _ = fs::remove_file(snapshot_path(&session.instance_dir));
-            let _ = fs::remove_file(perceptual_snapshot_path(&session.instance_dir));
-            remove_ready(&session.instance_dir);
+        {
+            let mut pre_session = match self.pre_session.lock() {
+                Ok(session) => session,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+            let _ = pre_session.take();
         }
+        // The normal close edge already notified the exchange worker to remove its exact request.
+        // If Windows is retaining that filesystem operation, teardown must not start another
+        // blocking read/remove. Any unpublished request expires after its bounded lease.
         let _ = self.runtime.set_enabled(false);
         self.release_analysis_lease();
     }
 
-    fn new_post_session(&self) -> PostSession {
+    pub(super) fn new_post_session(&self) -> PostSession {
         PostSession {
             request_id: Uuid::new_v4(),
             target: None,
             last_renewed: None,
+            last_renewal_attempt: None,
             started_at: None,
             last_presented_at: None,
             last_presented_end_samples: None,

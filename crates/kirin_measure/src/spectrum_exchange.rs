@@ -4,7 +4,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, TryLockError};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use uuid::Uuid;
@@ -17,6 +17,8 @@ mod control;
 mod joining;
 #[path = "perceptual_exchange_codec.rs"]
 mod perceptual_codec;
+#[path = "spectrum_exchange_post.rs"]
+mod post_tick;
 #[path = "spectrum_exchange_pre.rs"]
 mod pre_tick;
 #[path = "spectrum_exchange_view.rs"]
@@ -89,10 +91,12 @@ pub struct SpectrumViewSnapshot {
     pub perceptual_timeline: PerceptualDifferenceTimeline,
 }
 
+#[derive(Clone)]
 struct PostSession {
     request_id: Uuid,
     target: Option<SpectrumTarget>,
     last_renewed: Option<Instant>,
+    last_renewal_attempt: Option<Instant>,
     started_at: Option<Instant>,
     last_presented_at: Option<Instant>,
     last_presented_end_samples: Option<i64>,
@@ -101,9 +105,13 @@ struct PostSession {
     state_epoch_samples: Option<i64>,
 }
 
+#[derive(Clone)]
 struct PreSession {
     request_id: Uuid,
     last_written_end: Option<i64>,
+    last_write_attempt_end: Option<i64>,
+    last_write_attempt_at: Option<Instant>,
+    last_ready_written_at: Option<Instant>,
     instance_dir: PathBuf,
     state_epoch_samples: Option<i64>,
 }
@@ -174,189 +182,6 @@ impl SpectrumCoordinator {
             unix_ms_now(),
         )
         .is_some()
-    }
-
-    /// POST IO-thread tick. `target` must come from the already-confirmed exact pair latch.
-    pub(crate) fn post_tick(&self, post_instance_id: &str, target: Option<SpectrumTarget>) -> bool {
-        let mut session_slot = match self.post_session.try_lock() {
-            Ok(session) => session,
-            Err(TryLockError::WouldBlock) => return false,
-            Err(TryLockError::Poisoned(poisoned)) => {
-                let mut session = poisoned.into_inner();
-                *session = None;
-                session
-            }
-        };
-        if !self.post_visible() {
-            if let Some(session) = session_slot.take() {
-                cleanup_owned_request(session.target.as_ref(), session.request_id);
-            }
-            return false;
-        }
-        match self.ensure_analysis_lease() {
-            Ok(true) => {}
-            Ok(false) => {
-                let _ = self.runtime.set_enabled(false);
-                self.store_view(SpectrumViewStatus::InUse, None, None);
-                return false;
-            }
-            Err(_) => {
-                let _ = self.runtime.set_enabled(false);
-                self.store_view(SpectrumViewStatus::Unavailable, None, None);
-                return false;
-            }
-        }
-        let session = session_slot.get_or_insert_with(|| PostSession {
-            request_id: Uuid::new_v4(),
-            target: None,
-            last_renewed: None,
-            started_at: None,
-            last_presented_at: None,
-            last_presented_end_samples: None,
-            analysis_mode: self.runtime.analysis_mode(),
-            channel_mode: self.runtime.channel_mode(),
-            state_epoch_samples: None,
-        });
-        let Some(target) = target else {
-            cleanup_owned_request(session.target.as_ref(), session.request_id);
-            session.target = None;
-            session.last_renewed = None;
-            session.started_at = None;
-            session.last_presented_at = None;
-            session.last_presented_end_samples = None;
-            let _ = self.runtime.set_enabled(false);
-            self.store_view(SpectrumViewStatus::NoPair, None, None);
-            return false;
-        };
-        let analysis_mode = self.runtime.analysis_mode();
-        let channel_mode = self.runtime.channel_mode();
-        let definition_changed = session.target.as_ref() != Some(&target)
-            || session.analysis_mode != analysis_mode
-            || session.channel_mode != channel_mode;
-        let rearm_required = analysis_mode == AnalysisViewMode::Perceptual
-            && self.runtime.take_perceptual_rearm_required();
-        if definition_changed || rearm_required {
-            cleanup_owned_request(session.target.as_ref(), session.request_id);
-            session.request_id = Uuid::new_v4();
-            session.target = Some(target.clone());
-            session.last_renewed = None;
-            session.started_at = None;
-            session.last_presented_at = None;
-            session.last_presented_end_samples = None;
-            session.analysis_mode = analysis_mode;
-            session.channel_mode = channel_mode;
-            session.state_epoch_samples = None;
-            let _ = self.runtime.set_enabled(false);
-            if analysis_mode == AnalysisViewMode::Perceptual {
-                let _ = self.runtime.set_perceptual_state_epoch(None);
-            }
-        }
-        let now = Instant::now();
-        if session
-            .last_renewed
-            .is_none_or(|last| now.duration_since(last) >= REQUEST_RENEW_INTERVAL)
-        {
-            if renew_request(
-                session,
-                post_instance_id,
-                &target,
-                self.sample_rate,
-                unix_ms_now(),
-            )
-            .is_err()
-            {
-                if session
-                    .last_renewed
-                    .is_none_or(|renewed| now.duration_since(renewed) >= PRESENTATION_HOLD)
-                {
-                    let _ = self.runtime.set_enabled(false);
-                    self.store_view(SpectrumViewStatus::Unavailable, None, None);
-                }
-                return false;
-            }
-            session.last_renewed = Some(now);
-            self.exchange_worker.record_published_update();
-        }
-        if !self.runtime.set_enabled(true) {
-            cleanup_owned_request(Some(&target), session.request_id);
-            session.last_renewed = None;
-            self.store_view(SpectrumViewStatus::Unavailable, None, None);
-            return false;
-        }
-        if analysis_mode == AnalysisViewMode::Perceptual && session.state_epoch_samples.is_none() {
-            self.store_view(SpectrumViewStatus::WarmingUp, None, None);
-            let ready = read_ready(&target.instance_dir).filter(|ready| {
-                ready.matches(
-                    session.request_id,
-                    &target.pre_instance_id,
-                    self.sample_rate,
-                    unix_ms_now(),
-                )
-            });
-            let Some(ready) = ready else {
-                return true;
-            };
-            if ready.rearm_required() {
-                cleanup_owned_request(Some(&target), session.request_id);
-                session.request_id = Uuid::new_v4();
-                session.last_renewed = None;
-                let _ = self.runtime.set_perceptual_state_epoch(None);
-                return true;
-            }
-            let Some(local_end) = self.runtime.latest_presentation_end() else {
-                return true;
-            };
-            let aperture = i64::from(self.sample_rate / crate::PERCEPTUAL_PRESENTATION_HZ);
-            let Some(epoch) = common_future_epoch(local_end, ready.observed_end(), aperture) else {
-                let _ = self.runtime.set_enabled(false);
-                self.store_view(SpectrumViewStatus::Unavailable, None, None);
-                return false;
-            };
-            if !self.runtime.set_perceptual_state_epoch(Some(epoch)) {
-                let _ = self.runtime.set_enabled(false);
-                self.store_view(SpectrumViewStatus::Unavailable, None, None);
-                return false;
-            }
-            session.state_epoch_samples = Some(epoch);
-            session.last_renewed = None;
-            session.started_at = Some(now);
-            if renew_request(
-                session,
-                post_instance_id,
-                &target,
-                self.sample_rate,
-                unix_ms_now(),
-            )
-            .is_err()
-            {
-                let _ = self.runtime.set_enabled(false);
-                self.store_view(SpectrumViewStatus::Unavailable, None, None);
-                return false;
-            }
-            session.last_renewed = Some(now);
-            self.exchange_worker.record_published_update();
-            return true;
-        }
-        if session.started_at.is_none() {
-            session.started_at = Some(now);
-        }
-        match analysis_mode {
-            AnalysisViewMode::Spectrum => {
-                let local = self.runtime.try_history();
-                let remote = read_snapshot(&target.instance_dir)
-                    .filter(|snapshot| snapshot.request_id == session.request_id)
-                    .map(|snapshot| snapshot.history);
-                store_joined_spectrum(self, session, now, local.as_ref(), remote.as_ref());
-            }
-            AnalysisViewMode::Perceptual => {
-                let local = self.runtime.try_perceptual_history();
-                let remote = read_perceptual_snapshot(&target.instance_dir)
-                    .filter(|snapshot| snapshot.request_id == session.request_id)
-                    .map(|snapshot| snapshot.history);
-                store_joined_perceptual(self, session, now, local.as_ref(), remote.as_ref());
-            }
-        }
-        true
     }
 
     fn ensure_analysis_lease(&self) -> std::io::Result<bool> {
@@ -430,6 +255,9 @@ fn unix_ms_now() -> i64 {
 #[cfg(test)]
 #[path = "spectrum_exchange_integration_tests.rs"]
 mod integration_tests;
+#[cfg(test)]
+#[path = "spectrum_exchange_lock_tests.rs"]
+mod lock_tests;
 #[cfg(test)]
 #[path = "spectrum_exchange_recovery_tests.rs"]
 mod recovery_tests;
