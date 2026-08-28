@@ -1,7 +1,6 @@
 //! Optional RT handoff; FFT planning, assembly, and analysis stay on the isolated worker.
 
 use std::cell::UnsafeCell;
-use std::collections::VecDeque;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
@@ -15,7 +14,10 @@ use crate::spectrum::{
     SPECTRUM_WINDOW_SIZE,
 };
 
-pub const SPECTRUM_HISTORY_CAPACITY: usize = 8;
+#[path = "spectrum_runtime_state.rs"]
+mod state;
+pub use state::{SpectrumHistory, SpectrumRuntimeStats, SPECTRUM_HISTORY_CAPACITY};
+
 // Two FFT windows cover worker scheduling jitter without charging hidden instances more memory.
 const SPECTRUM_RING_FRAMES: usize = SPECTRUM_WINDOW_SIZE * 2;
 const SPECTRUM_BLOCK_RING_CAPACITY: usize = 64;
@@ -33,55 +35,6 @@ struct SpectrumIngressBlock {
 struct SpectrumConsumers {
     samples: Consumer<f32>,
     blocks: Consumer<SpectrumIngressBlock>,
-}
-
-#[derive(Clone, Debug, Default)]
-pub struct SpectrumHistory {
-    frames: VecDeque<SpectrumFrame>,
-}
-
-impl SpectrumHistory {
-    pub(crate) fn with_capacity() -> Self {
-        Self {
-            frames: VecDeque::with_capacity(SPECTRUM_HISTORY_CAPACITY),
-        }
-    }
-
-    pub(crate) fn push(&mut self, frame: SpectrumFrame) {
-        if self.frames.len() == SPECTRUM_HISTORY_CAPACITY {
-            self.frames.pop_front();
-        }
-        self.frames.push_back(frame);
-    }
-
-    pub fn newest(&self) -> Option<&SpectrumFrame> {
-        self.frames.back()
-    }
-
-    pub fn matching_presentation_end(
-        &self,
-        presentation_end_samples: i64,
-    ) -> Option<&SpectrumFrame> {
-        self.frames
-            .iter()
-            .rev()
-            .find(|frame| frame.presentation_end_samples == presentation_end_samples)
-    }
-
-    pub fn frames(&self) -> impl DoubleEndedIterator<Item = &SpectrumFrame> + ExactSizeIterator {
-        self.frames.iter()
-    }
-}
-
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct SpectrumRuntimeStats {
-    pub enabled: bool,
-    pub worker_running: bool,
-    pub channel_mode: SpectrumChannelMode,
-    pub channels: u8,
-    pub pushed_blocks: u64,
-    pub dropped_blocks: u64,
-    pub analyzed_frames: u64,
 }
 
 pub struct SpectrumRuntime {
@@ -336,7 +289,9 @@ impl SpectrumRuntime {
                 thread::sleep(SPECTRUM_WORKER_IDLE);
                 continue;
             };
-            if block.channels as usize != self.num_channels
+            let current_generation = self.generation.load(Ordering::Acquire);
+            if block.generation != current_generation
+                || block.channels as usize != self.num_channels
                 || !assembler.begin_block(block.presentation_start_samples, block.generation)
             {
                 discard_samples(
@@ -364,9 +319,14 @@ impl SpectrumRuntime {
                     None
                 };
                 if let Some(frame) = assembler.push_frame(left, right, channel_mode) {
+                    if !self.frame_is_current(&frame) {
+                        continue;
+                    }
                     self.analyzed_frames.fetch_add(1, Ordering::Relaxed);
                     if let Ok(mut history) = self.history.lock() {
-                        history.push(frame);
+                        if self.frame_is_current(&frame) {
+                            history.push(frame);
+                        }
                     }
                 }
             }
@@ -374,6 +334,13 @@ impl SpectrumRuntime {
                 assembler.reset();
             }
         }
+    }
+
+    fn frame_is_current(&self, frame: &SpectrumFrame) -> bool {
+        self.enabled.load(Ordering::Acquire)
+            && frame.generation == self.generation.load(Ordering::Acquire)
+            && frame.channel_mode == self.channel_mode()
+            && frame.channels as usize == self.num_channels
     }
 }
 

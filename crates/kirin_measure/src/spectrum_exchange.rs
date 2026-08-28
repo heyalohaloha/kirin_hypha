@@ -138,6 +138,13 @@ impl SpectrumCoordinator {
     /// UI/control thread only. The next isolated exchange tick renews the exact request; this
     /// edge itself performs no filesystem access.
     pub fn set_post_channel_mode(&self, mode: SpectrumChannelMode) -> bool {
+        // Serialize the mode edge with POST exchange publication. Without this guard, one tick
+        // could clone an old exact pair, then publish it after the UI had already selected a new
+        // channel definition and cleared the visible frame.
+        let _session = match self.post_session.lock() {
+            Ok(session) => session,
+            Err(_) => return false,
+        };
         if !self.runtime.set_channel_mode(mode) {
             return false;
         }

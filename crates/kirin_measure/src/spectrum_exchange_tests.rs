@@ -103,7 +103,7 @@ fn truncated_trailing_or_nonfinite_snapshot_fails_closed() {
     trailing.push(0);
     assert!(decode_snapshot(&trailing).is_none());
     let mut nonfinite = bytes;
-    let first_value = 40 + 24;
+    let first_value = 40 + 28;
     nonfinite[first_value..first_value + 4].copy_from_slice(&f32::NAN.to_le_bytes());
     assert!(decode_snapshot(&nonfinite).is_none());
 }

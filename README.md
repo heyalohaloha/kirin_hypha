@@ -6,6 +6,10 @@ The supported release is currently macOS-only. A manual Windows VST3 validation 
 
 Kirin Hypha operates as paired instances — a **PRE** plugin and a **POST** plugin — to measure signal states before and after a processing chain and display the difference.
 
+On a paired POST, the on-demand Spectrum turns that comparison into a signed **Δ (POST − PRE)**
+frequency view, with selectable LR / MID / SIDE observation, a lockable probe, and one temporary
+MARK reference. Closing the page stops its optional analysis.
+
 ![Kirin Hypha PRE and POST showing Short-term Watch values and independent MAX values](docs/media/kirin-hypha-pre-post.jpg)
 
 [Watch PRE/POST with the M/S selector and independent Watch MAX values (32-second silent MP4)](docs/media/kirin-hypha-pre-post-demo.mp4)
@@ -60,6 +64,13 @@ display, with absolute PRE and POST spectra retained as reference curves. Δ is 
 scale; the underlying difference is not clipped. A difference is produced only when PRE and POST
 frames have the same sample rate, FFT layout, channel mode, channel count, and output-presentation
 sample endpoint.
+
+| Control | Observation behavior |
+|---|---|
+| LR / MID / SIDE | Selects exactly one channel definition; the three analyzers never run in parallel |
+| Hover / click | Reads frequency and Δ; click locks the probe and its × releases it |
+| MARK | Captures or replaces one temporary display-only Δ reference; × clears it |
+| 100% / 125% / 150% | Resizes the POST Spectrum page and remembers the choice for the loaded instance |
 
 The page analyzes one selected channel view at a time. **LR** transforms L and R independently and
 averages their power, so opposite-polarity channels do not cancel. **MID** analyzes the `(L+R)/2`
