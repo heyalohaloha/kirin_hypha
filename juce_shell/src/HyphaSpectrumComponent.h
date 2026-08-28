@@ -2,10 +2,12 @@
 
 #include <array>
 #include <functional>
+#include <memory>
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "HyphaTheme.h"
+#include "HyphaSpectrumFocusTrail.h"
 #include "kirin_hypha_ffi.h"
 
 namespace hypha
@@ -30,6 +32,10 @@ public:
     float focusLockFrequencyHz() const noexcept { return focusFrequencyHz; }
     bool hasMark() const noexcept { return haveMark; }
     uint8_t channelModeForTest() const noexcept { return channelMode; }
+    size_t focusTrailSizeForTest() const noexcept
+    {
+        return focusTrail != nullptr ? focusTrail->size() : 0u;
+    }
 
     std::function<bool(uint8_t)> onChannelModeChange;
 
@@ -39,6 +45,7 @@ private:
     std::array<float, KIRIN_SPECTRUM_BAND_COUNT> displayedPost {};
     std::array<float, KIRIN_SPECTRUM_BAND_COUNT> displayedDelta {};
     std::array<float, KIRIN_SPECTRUM_BAND_COUNT> markedDelta {};
+    std::unique_ptr<spectrum_focus::FocusTrailHistory> focusTrail;
     bool haveSnapshot = false;
     bool haveMark = false;
     float hoverNormalisedX = -1.0f;

@@ -599,6 +599,9 @@ void KirinHyphaEditor::handleCandidateMenu (
             const juce::String name = candidate.hasName ? candidate.name : juce::String();
             if (processorRef.setPairCandidate (candidate.instanceId, name))
             {
+               #if ! KIRIN_HYPHA_PRE_DISPLAY
+                spectrumView.clearSnapshot();
+               #endif
                 nameField.setModelName (name);
                 nameField.setFallback (name.isEmpty() ? candidate.instanceId.substring (0, 8)
                                                       : juce::String ("___"));

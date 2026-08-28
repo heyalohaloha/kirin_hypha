@@ -29,8 +29,28 @@ namespace hypha::spectrum_geometry
         const float scale = visualScaleFor (bounds);
         auto plot = plotBoundsFor (bounds);
         if (scale > 1.1f)
+        {
             plot.removeFromTop (18.0f * scale);
+            plot.removeFromBottom (
+                ui_contract::spectrumFocusTrailHeight (scale)
+                + ui_contract::spectrumFocusTrailAxisGap * scale);
+        }
         return plot;
+    }
+
+    inline juce::Rectangle<float> focusTrailBoundsFor (
+        juce::Rectangle<float> bounds) noexcept
+    {
+        const float scale = visualScaleFor (bounds);
+        auto region = plotBoundsFor (bounds);
+        if (scale > 1.1f)
+        {
+            region.removeFromTop (18.0f * scale);
+            return region.removeFromBottom (ui_contract::spectrumFocusTrailHeight (scale));
+        }
+        const float inset = ui_contract::spectrumFocusTrailInset * scale;
+        return region.removeFromBottom (ui_contract::spectrumFocusTrailHeight (scale))
+                     .reduced (inset, 0.0f);
     }
 
     inline juce::Rectangle<float> readoutBoundsFor (juce::Rectangle<float> plot,

@@ -343,6 +343,7 @@ int main()
                                            + spectrumSnapshot.display_db[index];
     }
     spectrum.setSnapshot (spectrumSnapshot);
+    hypha::tests::verifySpectrumFocusTrailRendering (spectrumSnapshot);
     const float previewHoverX = (float) ui::spectrumPlotLeftInset
                               + 0.70f * (float) (spectrumBounds.width
                                                - ui::spectrumPlotLeftInset

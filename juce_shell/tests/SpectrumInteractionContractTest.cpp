@@ -92,7 +92,17 @@ void verifySpectrumInteractionContract (SpectrumComponent& spectrum,
     warmingSnapshot.has_data = 0u;
     spectrum.setSnapshot (warmingSnapshot);
     KIRIN_INTERACTION_REQUIRE (! spectrum.hasMark());
+    KIRIN_INTERACTION_REQUIRE (spectrum.focusTrailSizeForTest() == 0u);
     spectrum.setSnapshot (snapshot);
+    KIRIN_INTERACTION_REQUIRE (spectrum.focusTrailSizeForTest() == 1u);
+    KirinSpectrumView nextEndpoint = snapshot;
+    nextEndpoint.presentation_end_samples += 1'600;
+    spectrum.setSnapshot (nextEndpoint);
+    KIRIN_INTERACTION_REQUIRE (spectrum.focusTrailSizeForTest() == 2u);
+    KirinSpectrumView skippedEndpoint = nextEndpoint;
+    skippedEndpoint.presentation_end_samples += 3'200;
+    spectrum.setSnapshot (skippedEndpoint);
+    KIRIN_INTERACTION_REQUIRE (spectrum.focusTrailSizeForTest() == 1u);
 
     uint8_t requestedChannelMode = 0xffu;
     spectrum.onChannelModeChange = [&requestedChannelMode] (uint8_t mode) {
@@ -107,7 +117,8 @@ void verifySpectrumInteractionContract (SpectrumComponent& spectrum,
     KIRIN_INTERACTION_REQUIRE (requestedChannelMode == KIRIN_SPECTRUM_CHANNEL_MID);
     KIRIN_INTERACTION_REQUIRE (
         spectrum.channelModeForTest() == KIRIN_SPECTRUM_CHANNEL_MID);
-    KIRIN_INTERACTION_REQUIRE (! spectrum.hasFocusLock() && ! spectrum.hasMark());
+    KIRIN_INTERACTION_REQUIRE (! spectrum.hasFocusLock() && ! spectrum.hasMark()
+                               && spectrum.focusTrailSizeForTest() == 0u);
 
     SpectrumComponent monoSpectrum;
     monoSpectrum.setSize (width, height);

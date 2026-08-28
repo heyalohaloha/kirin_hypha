@@ -1,6 +1,7 @@
 #include "HyphaSpectrumChromePainter.h"
 
 #include "HyphaSpectrumGeometry.h"
+#include "HyphaSpectrumFocusTrailPainter.h"
 #include "HyphaSpectrumUiContract.h"
 #include "HyphaTheme.h"
 
@@ -398,6 +399,13 @@ void paint (juce::Graphics& g,
 
     spectrum_painter::paintCurves (g, plot, scale, state.pre, state.post,
                                    state.delta, state.haveMark ? &state.mark : nullptr);
+    if (probeNormalisedX >= 0.0f && state.focusFrequencyHz > 0.0f
+        && state.focusTrail != nullptr && ! state.focusTrail->empty())
+    {
+        spectrum_focus_painter::paint (
+            g, spectrum_geometry::focusTrailBoundsFor (bounds), scale,
+            *state.focusTrail, probeNormalisedX, scale <= 1.1f);
+    }
     if (probeNormalisedX >= 0.0f)
         paintProbe (g, outerPlot, plot, scale, probeNormalisedX,
                     minimumHz, maximumHz, state);
