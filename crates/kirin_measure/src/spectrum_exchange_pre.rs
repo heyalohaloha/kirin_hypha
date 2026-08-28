@@ -202,7 +202,7 @@ impl SpectrumCoordinator {
         analysis_mode: AnalysisViewMode,
         instance_dir: &Path,
     ) -> bool {
-        let (newest_end, bytes, path, expected_epoch) = match analysis_mode {
+        let (newest_end, bytes, expected_epoch) = match analysis_mode {
             AnalysisViewMode::Spectrum => {
                 let Some(history) = self.runtime.try_history() else {
                     return true;
@@ -210,7 +210,6 @@ impl SpectrumCoordinator {
                 (
                     history.newest().map(|frame| frame.presentation_end_samples),
                     encode_snapshot(request_id, &history),
-                    snapshot_path(instance_dir),
                     None,
                 )
             }
@@ -221,7 +220,6 @@ impl SpectrumCoordinator {
                 (
                     history.newest().map(|frame| frame.presentation_end_samples),
                     encode_perceptual_snapshot(request_id, &history),
-                    perceptual_snapshot_path(instance_dir),
                     self.runtime.perceptual_state_epoch(),
                 )
             }
@@ -259,7 +257,11 @@ impl SpectrumCoordinator {
             return true;
         }
         let write_started = Instant::now();
-        if crate::atomic_file::write_bytes_atomic(&path, &bytes).is_err() {
+        let write_result = match analysis_mode {
+            AnalysisViewMode::Spectrum => write_snapshot(instance_dir, &bytes),
+            AnalysisViewMode::Perceptual => write_perceptual_snapshot(instance_dir, &bytes),
+        };
+        if write_result.is_err() {
             let mut slot = match self.try_pre_session() {
                 Some(slot) => slot,
                 None => return false,

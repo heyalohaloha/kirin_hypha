@@ -1,9 +1,11 @@
+#[cfg(not(windows))]
 use std::fs;
 use std::path::Path;
 
 use uuid::Uuid;
 
 use super::snapshot_path;
+use crate::analysis_exchange_transport::{self, AnalysisSlot};
 use crate::spectrum::{
     SpectrumChannelMode, SpectrumFrame, SPECTRUM_BAND_COUNT, SPECTRUM_FFT_SIZE,
     SPECTRUM_SCHEMA_VERSION,
@@ -19,12 +21,32 @@ pub(super) struct DecodedSnapshot {
 }
 
 pub(super) fn read_snapshot(instance_dir: &Path) -> Option<DecodedSnapshot> {
-    decode_snapshot(&read_bounded(
+    decode_snapshot(&analysis_exchange_transport::read(
+        instance_dir,
         &snapshot_path(instance_dir),
+        AnalysisSlot::Spectrum,
         SNAPSHOT_MAX_BYTES,
     )?)
 }
 
+pub(super) fn write_snapshot(instance_dir: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    analysis_exchange_transport::write(
+        instance_dir,
+        &snapshot_path(instance_dir),
+        AnalysisSlot::Spectrum,
+        bytes,
+    )
+}
+
+pub(super) fn remove_snapshot(instance_dir: &Path) {
+    let _ = analysis_exchange_transport::remove(
+        instance_dir,
+        &snapshot_path(instance_dir),
+        AnalysisSlot::Spectrum,
+    );
+}
+
+#[cfg(not(windows))]
 pub(crate) fn read_bounded(path: &Path, maximum_bytes: u64) -> Option<Vec<u8>> {
     (fs::metadata(path).ok()?.len() <= maximum_bytes)
         .then(|| fs::read(path).ok())

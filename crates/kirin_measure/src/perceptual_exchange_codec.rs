@@ -3,6 +3,7 @@ use std::path::Path;
 use uuid::Uuid;
 
 use super::perceptual_snapshot_path;
+use crate::analysis_exchange_transport::{self, AnalysisSlot};
 use crate::perceptual::{PerceptualFrame, PERCEPTUAL_SCHEMA_VERSION};
 use crate::spectrum::SpectrumChannelMode;
 use crate::spectrum_runtime::{PerceptualHistory, PERCEPTUAL_HISTORY_CAPACITY};
@@ -16,10 +17,29 @@ pub(super) struct DecodedPerceptualSnapshot {
 }
 
 pub(super) fn read_perceptual_snapshot(instance_dir: &Path) -> Option<DecodedPerceptualSnapshot> {
-    decode_perceptual_snapshot(&super::codec::read_bounded(
+    decode_perceptual_snapshot(&analysis_exchange_transport::read(
+        instance_dir,
         &perceptual_snapshot_path(instance_dir),
+        AnalysisSlot::Perceptual,
         PERCEPTUAL_SNAPSHOT_MAX_BYTES,
     )?)
+}
+
+pub(super) fn write_perceptual_snapshot(instance_dir: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    analysis_exchange_transport::write(
+        instance_dir,
+        &perceptual_snapshot_path(instance_dir),
+        AnalysisSlot::Perceptual,
+        bytes,
+    )
+}
+
+pub(super) fn remove_perceptual_snapshot(instance_dir: &Path) {
+    let _ = analysis_exchange_transport::remove(
+        instance_dir,
+        &perceptual_snapshot_path(instance_dir),
+        AnalysisSlot::Perceptual,
+    );
 }
 
 pub(super) fn encode_perceptual_snapshot(request_id: Uuid, history: &PerceptualHistory) -> Vec<u8> {

@@ -11,9 +11,9 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 use std::sync::{Condvar, Mutex, OnceLock};
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 use std::time::{Duration, Instant};
 
 #[cfg(unix)]
@@ -22,7 +22,7 @@ use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 static TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 pub fn write_bytes_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    #[cfg(test)]
+    #[cfg(all(test, not(windows)))]
     pause_atomic_write_if_requested(path);
     if let Some(parent) = path.parent() {
         create_private_dir_all(parent)?;
@@ -63,7 +63,7 @@ pub fn write_bytes_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
     }))
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 #[derive(Default)]
 struct AtomicWritePauseState {
     path: Option<PathBuf>,
@@ -71,18 +71,18 @@ struct AtomicWritePauseState {
     released: bool,
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 fn atomic_write_pause_state() -> &'static (Mutex<AtomicWritePauseState>, Condvar) {
     static STATE: OnceLock<(Mutex<AtomicWritePauseState>, Condvar)> = OnceLock::new();
     STATE.get_or_init(|| (Mutex::new(AtomicWritePauseState::default()), Condvar::new()))
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 pub(crate) struct AtomicWritePause {
     path: PathBuf,
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 impl AtomicWritePause {
     pub(crate) fn install(path: PathBuf) -> Self {
         let (lock, _) = atomic_write_pause_state();
@@ -135,14 +135,14 @@ impl AtomicWritePause {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 impl Drop for AtomicWritePause {
     fn drop(&mut self) {
         self.release();
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 fn pause_atomic_write_if_requested(path: &Path) {
     let (lock, wake) = atomic_write_pause_state();
     let mut state = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());

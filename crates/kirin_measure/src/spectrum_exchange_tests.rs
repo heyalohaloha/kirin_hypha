@@ -66,8 +66,8 @@ fn perceptual_snapshot_roundtrip_preserves_exact_apertures() {
 }
 
 #[test]
-#[ignore = "release-mode 30 Hz atomic exchange performance probe; run explicitly with --nocapture"]
-fn active_pair_30hz_atomic_exchange_budget_is_quantified() {
+#[ignore = "release-mode 30 Hz Analysis transport performance probe; run explicitly with --nocapture"]
+fn active_pair_30hz_analysis_transport_budget_is_quantified() {
     use std::hint::black_box;
 
     let temp = tempfile::tempdir().unwrap();
@@ -84,14 +84,14 @@ fn active_pair_30hz_atomic_exchange_budget_is_quantified() {
     let iterations = 300;
     let started = Instant::now();
     for _ in 0..iterations {
-        crate::atomic_file::write_bytes_atomic(&snapshot_path(&instance_dir), &bytes).unwrap();
+        write_snapshot(&instance_dir, &bytes).unwrap();
         let decoded = black_box(read_snapshot(&instance_dir).unwrap());
         assert_eq!(decoded.request_id, request_id);
     }
     let micros_per_exchange = started.elapsed().as_secs_f64() * 1_000_000.0 / iterations as f64;
     let projected_worker_percent = micros_per_exchange * 30.0 / 10_000.0;
     eprintln!(
-        "30 Hz Spectrum file exchange: {} bytes, {micros_per_exchange:.2} us/cycle, \
+        "30 Hz Spectrum transport: {} bytes, {micros_per_exchange:.2} us/cycle, \
          projected one-pair IO worker time {projected_worker_percent:.3}%",
         bytes.len()
     );
@@ -99,8 +99,8 @@ fn active_pair_30hz_atomic_exchange_budget_is_quantified() {
 }
 
 #[test]
-#[ignore = "release-mode 10 Hz Perceptual Delta exchange probe; run explicitly with --nocapture"]
-fn perceptual_pair_10hz_atomic_exchange_budget_is_quantified() {
+#[ignore = "release-mode 10 Hz Perceptual Delta transport probe; run explicitly with --nocapture"]
+fn perceptual_pair_10hz_analysis_transport_budget_is_quantified() {
     use std::hint::black_box;
 
     let temp = tempfile::tempdir().unwrap();
@@ -120,15 +120,14 @@ fn perceptual_pair_10hz_atomic_exchange_budget_is_quantified() {
     let iterations = 300;
     let started = Instant::now();
     for _ in 0..iterations {
-        crate::atomic_file::write_bytes_atomic(&perceptual_snapshot_path(&instance_dir), &bytes)
-            .unwrap();
+        write_perceptual_snapshot(&instance_dir, &bytes).unwrap();
         let decoded = black_box(read_perceptual_snapshot(&instance_dir).unwrap());
         assert_eq!(decoded.request_id, request_id);
     }
     let micros_per_exchange = started.elapsed().as_secs_f64() * 1_000_000.0 / iterations as f64;
     let projected_worker_percent = micros_per_exchange * 10.0 / 10_000.0;
     eprintln!(
-        "10 Hz Perceptual Delta file exchange: {} bytes, {micros_per_exchange:.2} us/cycle, \
+        "10 Hz Perceptual Delta transport: {} bytes, {micros_per_exchange:.2} us/cycle, \
          projected one-pair IO worker time {projected_worker_percent:.3}%",
         bytes.len()
     );

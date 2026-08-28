@@ -21,6 +21,13 @@ libc = "0.2"
 rustfft = "6"
 rubato = { version = "2", features = ["fft_resampler"] }
 
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_Memory",
+] }
+
 [dev-dependencies]
 symphonia = { version = "0.5", features = ["wav", "pcm"] }
 # G-79-01 (2026-04-24 Daisuke approved): MoSQITo tolerance assertions.

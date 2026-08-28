@@ -28,6 +28,7 @@ fn push_spectrum_audio(runtime: &SpectrumRuntime) {
 }
 
 #[test]
+#[cfg(not(windows))]
 fn filesystem_stalls_never_hold_post_or_pre_session_locks() {
     let temp = tempfile::tempdir().unwrap();
     let pre_dir = temp.path().join("pre");

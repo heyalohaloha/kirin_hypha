@@ -1,6 +1,7 @@
 //! Exact-pair, renewable optional-analysis exchange between a visible POST and its latched PRE.
-//! Its atomic control and payload files remain isolated from existing Watch and Record schemas.
+//! Its platform transport remains isolated from existing Watch and Record schemas.
 
+#[cfg(test)]
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -25,9 +26,11 @@ mod pre_tick;
 mod view_state;
 
 #[cfg(test)]
+use crate::analysis_exchange_protocol::request_path;
+#[cfg(test)]
 use crate::analysis_exchange_protocol::JSON_MAX_BYTES as REQUEST_MAX_BYTES;
 use crate::analysis_exchange_protocol::{
-    common_future_epoch, read_ready, read_request, remove_ready, request_path, validated_request,
+    common_future_epoch, read_ready, read_request, remove_ready, remove_request, validated_request,
     write_ready, write_request, AnalysisReady, AnalysisRequest, REQUEST_SCHEMA,
 };
 use crate::analysis_lease::AnalysisLease;
@@ -40,13 +43,16 @@ use crate::spectrum_runtime::SpectrumHistory;
 use crate::spectrum_runtime::SpectrumRuntime;
 #[cfg(test)]
 use codec::{decode_snapshot, SNAPSHOT_MAX_BYTES};
-use codec::{encode_snapshot, read_snapshot};
+use codec::{encode_snapshot, read_snapshot, remove_snapshot, write_snapshot};
 #[cfg(test)]
 use joining::{
     exact_perceptual_differences, newest_exact_difference, newest_exact_perceptual_difference,
 };
 use joining::{store_joined_perceptual, store_joined_spectrum};
-use perceptual_codec::{encode_perceptual_snapshot, read_perceptual_snapshot};
+use perceptual_codec::{
+    encode_perceptual_snapshot, read_perceptual_snapshot, remove_perceptual_snapshot,
+    write_perceptual_snapshot,
+};
 
 const REQUEST_RENEW_INTERVAL: Duration = Duration::from_millis(500);
 pub(crate) const REQUEST_LEASE_MS: i64 = 1_500;
@@ -233,13 +239,12 @@ fn renew_request(
 
 fn cleanup_owned_request(target: Option<&SpectrumTarget>, request_id: Uuid) {
     let Some(target) = target else { return };
-    let path = request_path(&target.instance_dir);
     if read_request(&target.instance_dir)
         .is_some_and(|request| request.request_id == request_id.to_string())
     {
-        let _ = fs::remove_file(path);
-        let _ = fs::remove_file(snapshot_path(&target.instance_dir));
-        let _ = fs::remove_file(perceptual_snapshot_path(&target.instance_dir));
+        remove_request(&target.instance_dir);
+        remove_snapshot(&target.instance_dir);
+        remove_perceptual_snapshot(&target.instance_dir);
         remove_ready(&target.instance_dir);
     }
 }
@@ -255,7 +260,7 @@ fn unix_ms_now() -> i64 {
 #[cfg(test)]
 #[path = "spectrum_exchange_integration_tests.rs"]
 mod integration_tests;
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 #[path = "spectrum_exchange_lock_tests.rs"]
 mod lock_tests;
 #[cfg(test)]

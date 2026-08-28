@@ -6,6 +6,7 @@
 pub mod all_keep_signal;
 pub mod all_stop_signal;
 mod analysis_exchange_protocol;
+mod analysis_exchange_transport;
 mod analysis_lease;
 mod atomic_claim;
 pub mod atomic_file;

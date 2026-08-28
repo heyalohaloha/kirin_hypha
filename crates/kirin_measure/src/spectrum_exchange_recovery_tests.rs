@@ -34,6 +34,7 @@ fn perceptual_frame(end: i64, value: f64) -> crate::PerceptualFrame {
     }
 }
 
+#[cfg(not(windows))]
 fn push_stereo_pair_in_blocks(
     pre_runtime: &SpectrumRuntime,
     post_runtime: &SpectrumRuntime,
@@ -139,6 +140,7 @@ fn failed_worker_attempts_do_not_hide_a_stalled_request_from_the_supervisor() {
 }
 
 #[test]
+#[cfg(not(windows))]
 fn failed_pre_snapshot_write_is_not_reported_as_exchange_progress() {
     let temp = tempfile::tempdir().unwrap();
     let pre_dir = temp.path().join("pre");
@@ -408,6 +410,7 @@ fn repeated_stale_sharpness_endpoint_does_not_extend_the_gap_hold() {
 }
 
 #[test]
+#[cfg(not(windows))]
 fn transient_request_renewal_failure_keeps_the_last_view_and_analysis_runtime_alive() {
     let temp = tempfile::tempdir().unwrap();
     let pre_dir = temp.path().join("pre");
@@ -436,6 +439,7 @@ fn transient_request_renewal_failure_keeps_the_last_view_and_analysis_runtime_al
 }
 
 #[test]
+#[cfg(not(windows))]
 fn request_write_failure_is_unavailable_and_does_not_leave_fft_running() {
     let temp = tempfile::tempdir().unwrap();
     let blocked = temp.path().join("not-a-directory");

@@ -38,7 +38,10 @@ N or Sharpness, whose multichannel definition remains an independent-channel ari
 
 The existing optional analysis ingress is reused. The Audio Thread performs the same bounded
 lock-free copy and metadata handoff; it never runs FFT or psychoacoustic work. Analysis is performed
-on the isolated worker and file exchange remains on the IO thread.
+on the isolated worker and exchange remains on the IO thread. Windows uses a pagefile-backed named
+shared mapping for the short-lived request, readiness, Spectrum, and Perceptual payloads; macOS uses
+the atomic-file transport. This platform split is limited to optional Analysis. Watch, Record, and
+`plugin_data` keep their established file contracts.
 
 Exactly one optional analyzer mode may be active for the lease-owning POST:
 
