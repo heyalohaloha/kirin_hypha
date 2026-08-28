@@ -179,7 +179,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         spectrumSizeIndex = juce::jmin (
             (size_t) processorRef.spectrumSizePreference(),
             ui::spectrumSizePresets.size() - 1u);
-        spectrumToggle.setButtonText ("SPECTRUM");
+        spectrumToggle.setButtonText ("ANALYSIS");
         spectrumToggle.setTooltip (ui::spectrumTooltip (false));
         spectrumToggle.setColour (juce::TextButton::buttonColourId, hypha::kFieldFill);
         spectrumToggle.setColour (juce::TextButton::textColourOnId, COL_SPECTRUM_DELTA);
@@ -404,7 +404,7 @@ void KirinHyphaEditor::setAnalysisPage (AnalysisPage page)
     perceptualView.setVisible (page == AnalysisPage::perceptual);
     analysisModeToggle.setVisible (analysisOpen);
     spectrumSizeToggle.setVisible (analysisOpen);
-    spectrumToggle.setButtonText (analysisOpen ? "METERS" : "SPECTRUM");
+    spectrumToggle.setButtonText (analysisOpen ? "METERS" : "ANALYSIS");
     spectrumToggle.setTooltip (ui::spectrumTooltip (analysisOpen));
     spectrumToggle.setColour (juce::TextButton::textColourOffId,
                               analysisOpen ? COL_SPECTRUM_DELTA : COL_MUTED);

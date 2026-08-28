@@ -36,6 +36,7 @@ namespace
         value.post_sharpness = value.pre_sharpness + delta;
         value.delta_sharpness = delta;
         value.presentation_end_samples = endpoint;
+        value.state_epoch_samples = 0;
         return value;
     }
 
@@ -62,6 +63,17 @@ namespace
         }
         KIRIN_PERCEPTUAL_REQUIRE (component.historySizeForTest() == 60u);
         juce::Image image (juce::Image::ARGB, bounds.width, bounds.height, true);
+        // Font fallback and CoreGraphics caches are process-cold only for the first preset in
+        // this console test. The shipped editor has already painted its meter page before SHARP
+        // can be opened, so exclude that unrelated one-time initialization from the steady-frame
+        // budget and measure every preset under the same warmed conditions.
+        constexpr int warmupIterations = 8;
+        for (int iteration = 0; iteration < warmupIterations; ++iteration)
+        {
+            image.clear (image.getBounds(), juce::Colours::transparentBlack);
+            juce::Graphics graphics (image);
+            component.paintEntireComponent (graphics, true);
+        }
         constexpr int iterations = 200;
         const double started = juce::Time::getMillisecondCounterHiRes();
         for (int iteration = 0; iteration < iterations; ++iteration)
@@ -121,11 +133,20 @@ void verifyPerceptualHistoryContract()
     KIRIN_PERCEPTUAL_REQUIRE (history.size() == historyCapacity);
     KIRIN_PERCEPTUAL_REQUIRE (history.sampleAt (0u).endpoint == 76'800);
     KIRIN_PERCEPTUAL_REQUIRE (std::abs (history.ageSecondsAt (0u) - 5.9) < 1.0e-12);
+
+    PerceptualComponent component;
+    component.setSnapshot (snapshot (4'800, 0.1));
+    component.setSnapshot (snapshot (9'600, 0.2));
+    KIRIN_PERCEPTUAL_REQUIRE (component.historySizeForTest() == 2u);
+    auto newEpoch = snapshot (14'400, 0.3);
+    newEpoch.state_epoch_samples = 9'600;
+    component.setSnapshot (newEpoch);
+    KIRIN_PERCEPTUAL_REQUIRE (component.historySizeForTest() == 1u);
 }
 
 void verifyPerceptualRenderingContract()
 {
-    static_assert (sizeof (KirinPerceptualView) == 48u);
+    static_assert (sizeof (KirinPerceptualView) == 56u);
     const double compact = renderAt (
         ui_contract::spectrumSizePresets[0], "KIRIN_PERCEPTUAL_RENDER_OUTPUT");
     const double medium = renderAt (

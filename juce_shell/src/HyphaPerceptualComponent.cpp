@@ -22,7 +22,9 @@ namespace
             && ! (view.channel_mode == KIRIN_SPECTRUM_CHANNEL_SIDE && view.channels != 2u)
             && std::isfinite (view.pre_sharpness) && view.pre_sharpness >= 0.0
             && std::isfinite (view.post_sharpness) && view.post_sharpness >= 0.0
-            && std::isfinite (view.delta_sharpness);
+            && std::isfinite (view.delta_sharpness)
+            && view.state_epoch_samples % static_cast<int64_t> (view.aperture_samples) == 0
+            && view.presentation_end_samples > view.state_epoch_samples;
     }
 
     bool sameSnapshot (const KirinPerceptualView& left,
@@ -37,7 +39,8 @@ namespace
             && std::memcmp (&left.pre_sharpness, &right.pre_sharpness, sizeof (double)) == 0
             && std::memcmp (&left.post_sharpness, &right.post_sharpness, sizeof (double)) == 0
             && std::memcmp (&left.delta_sharpness, &right.delta_sharpness, sizeof (double)) == 0
-            && left.presentation_end_samples == right.presentation_end_samples;
+            && left.presentation_end_samples == right.presentation_end_samples
+            && left.state_epoch_samples == right.state_epoch_samples;
     }
 }
 
@@ -57,7 +60,8 @@ void PerceptualComponent::setSnapshot (const KirinPerceptualView& next)
         && (snapshot.sample_rate != next.sample_rate
             || snapshot.aperture_samples != next.aperture_samples
             || snapshot.channel_mode != next.channel_mode
-            || snapshot.channels != next.channels);
+            || snapshot.channels != next.channels
+            || snapshot.state_epoch_samples != next.state_epoch_samples);
     if (! nextValid || layoutChanged)
         history.clear();
     snapshot = next;

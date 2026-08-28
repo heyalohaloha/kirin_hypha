@@ -116,9 +116,9 @@ namespace hypha::ui_contract
                                     : spectrumFocusTrailLargeHeight;
     }
 
-    constexpr const char* spectrumShowTooltip = "Show POST - PRE spectrum";
+    constexpr const char* spectrumShowTooltip = "Show POST - PRE analysis";
     constexpr const char* spectrumHideTooltip = "Return to meters";
-    constexpr int spectrumTooltipMaximumCharacters = 24;
+    constexpr int spectrumTooltipMaximumCharacters = 25;
 
     constexpr const char* spectrumTooltip (bool spectrumMode) noexcept
     {

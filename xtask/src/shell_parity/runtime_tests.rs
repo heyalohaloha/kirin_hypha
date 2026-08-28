@@ -315,8 +315,8 @@
     fn readme_exposes_the_post_spectrum_measurement_boundary() {
         let spectrum = README
             .split("\n### ")
-            .find(|section| section.starts_with("POST Spectrum (on demand)\n"))
-            .expect("README POST Spectrum section");
+            .find(|section| section.starts_with("POST Analysis: Spectrum (on demand)\n"))
+            .expect("README POST Analysis Spectrum section");
         let spectrum = spectrum.split_whitespace().collect::<Vec<_>>().join(" ");
         for required_fact in [
             "Analysis runs only while this page is open",
@@ -358,8 +358,8 @@
     fn readme_exposes_the_post_perceptual_delta_measurement_boundary() {
         let perceptual = README
             .split("\n### ")
-            .find(|section| section.starts_with("POST Perceptual Δ (on demand)\n"))
-            .expect("README POST Perceptual Delta section");
+            .find(|section| section.starts_with("POST Analysis: Perceptual Δ (on demand)\n"))
+            .expect("README POST Analysis Perceptual Delta section");
         let perceptual = perceptual.split_whitespace().collect::<Vec<_>>().join(" ");
         for required_fact in [
             "signed Sharpness difference",

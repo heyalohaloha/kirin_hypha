@@ -11,10 +11,11 @@ frequency view, with selectable LR / MID / SIDE observation, a lockable probe, a
 MARK reference. A locked probe also shows the selected frequency's exact six-second **Focus Trail**.
 Closing the page stops its optional analysis and discards that short display history.
 
-The same POST analysis page can switch to **Perceptual Δ**. Its first observation is a six-second
+The POST **ANALYSIS** page can switch between **FREQ** and **SHARP**. SHARP's first observation is a six-second
 **Δ Sharpness History**: a signed POST − PRE Sharpness trace that responds at 10 Hz without scoring,
 traffic-light judgment, or audio-path changes. Spectrum and Perceptual Δ are mutually exclusive, so
-only the visible analyzer runs.
+only the visible analyzer runs. One POST Analysis page per DAW process owns the optional PRE/POST
+analyzers; another open page remains idle and reports `ANALYSIS — IN USE`.
 
 ![Kirin Hypha PRE and POST showing Short-term Watch values and independent MAX values](docs/media/kirin-hypha-pre-post.jpg)
 
@@ -62,9 +63,9 @@ In the Watch grid, the live 400 ms True Peak and its playback-pass MAX are shown
 Pressing **Keep** changes the grid labels; **Max TP** then means the maximum for the whole Keep
 session, including across transport stops.
 
-### POST Spectrum (on demand)
+### POST Analysis: Spectrum (on demand)
 
-A paired POST provides an optional **Spectrum** page for inspecting the processing between PRE and
+A paired POST provides an optional **ANALYSIS** page for inspecting the processing between PRE and
 POST. Analysis runs only while this page is open. The signed **Δ (POST − PRE)** curve is the primary
 display, with absolute PRE and POST spectra retained as reference curves. Δ is shown on a ±18 dB
 scale; the underlying difference is not clipped. A difference is produced only when PRE and POST
@@ -107,7 +108,7 @@ Hann window, an 8192-point FFT, and a 30 Hz presentation cadence. At 48 kHz the 
 than reconstructing a plug-in transfer function, so narrow low-frequency EQ shapes can appear broader
 than the corresponding EQ control graph.
 
-### POST Perceptual Δ (on demand)
+### POST Analysis: Perceptual Δ (on demand)
 
 From the POST analysis page, **SHARP** opens Perceptual Δ and **FREQ** returns to Spectrum. The first
 Perceptual Δ observation is **Δ Sharpness History**. It plots the signed Sharpness difference
@@ -116,11 +117,19 @@ difference is not clipped; the stable display scale is ±2 acum. The curve is sp
 legibility, but no temporal smoothing delays it. A missed UI update is shown as a gap rather than
 joined with an invented line.
 
-Each point comes from one non-overlapping 100 ms aperture and is published at 10 Hz. PRE and POST
-must match in host sample rate, aperture length, channel definition, channel count, and
-output-presentation sample endpoint. If any of those facts differ, no Δ point is produced. The
-psychoacoustic engine runs at its defined 48 kHz analysis rate after following the host-rate input;
-at 44.1, 48, 96, or 192 kHz the aperture still represents 100 ms of host presentation time.
+Each point comes from one non-overlapping 100 ms aperture and is published at 10 Hz. Before the
+first point, PRE reports readiness and POST commits one shared, aperture-aligned presentation epoch
+at least 200 ms in the future. PRE and POST reset their Phase D and optional sample-rate-converter
+state once at that epoch, then preserve that state continuously across later apertures. They must
+match in schema, host sample rate, aperture length, state epoch, channel definition, channel count,
+and output-presentation sample endpoint. If any of those facts differ, no Δ point is produced.
+
+The psychoacoustic engine runs at its defined 48 kHz analysis rate after following the host-rate
+input; at 44.1, 48, 96, or 192 kHz each endpoint still represents exactly 100 ms of host
+presentation time. A non-48 kHz converter may buffer an additional chunk before publishing an
+already-measured endpoint; it does not shift or interpolate that endpoint. A dropped block,
+timeline discontinuity, mode edge, or missed epoch clears the short history and requires a new
+shared future epoch instead of continuing state across a gap.
 
 **LR** measures L and R independently and uses their arithmetic mean, so channel polarity cannot
 cancel the observation. **MID** measures `(L+R)/2`; **SIDE** measures `(L−R)/2` and remains stereo-
@@ -221,9 +230,11 @@ Multiple PRE / POST pairs can run simultaneously (up to 12 active pairs per proj
 Real-time display of selectable LUFS-M / LUFS-S, True Peak (recent), and Crest Factor during
 playback. The M and S selections retain independent playback-pass maximums. POST displays the
 difference between its own measurements and the paired PRE.
-On a paired POST, **Spectrum** can be opened on demand to inspect the signed POST − PRE frequency
-difference. The same analysis page can switch to the on-demand **Perceptual Δ** view for a six-second
-Δ Sharpness History; only the currently visible analyzer runs.
+On a paired POST, **ANALYSIS** can be opened on demand. Its **FREQ** Spectrum view shows the signed
+POST − PRE frequency difference, and **SHARP** switches the same page to on-demand **Perceptual Δ**
+with a six-second Δ Sharpness History. The views are mutually exclusive: only the currently visible
+analyzer runs, and only one POST Analysis page per DAW process may own the optional PRE/POST analysis
+pair at a time.
 
 Closing the GUI does not stop measurement. The audio thread continues running as long as the plugin is loaded in the DAW.
 

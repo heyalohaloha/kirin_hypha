@@ -64,6 +64,7 @@ typedef struct KirinHypha KirinHypha;
 #define KIRIN_SPECTRUM_WARMING_UP 2u
 #define KIRIN_SPECTRUM_ACTIVE 3u
 #define KIRIN_SPECTRUM_UNAVAILABLE 4u
+#define KIRIN_SPECTRUM_IN_USE 5u
 #define KIRIN_SPECTRUM_CHANNEL_LR 0u
 #define KIRIN_SPECTRUM_CHANNEL_MID 1u
 #define KIRIN_SPECTRUM_CHANNEL_SIDE 2u
@@ -173,6 +174,7 @@ typedef struct {
   double post_sharpness;
   double delta_sharpness;
   int64_t presentation_end_samples;
+  int64_t state_epoch_samples; /* 末尾追加: PRE/POSTの共通状態開始点 */
 } KirinPerceptualView;
 
 /* 検証用のread-only負荷カウンタ。表示・計測判断には使用しない。 */

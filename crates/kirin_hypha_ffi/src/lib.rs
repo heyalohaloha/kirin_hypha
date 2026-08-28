@@ -3438,6 +3438,7 @@ pub const KIRIN_SPECTRUM_NO_PAIR: u8 = 1;
 pub const KIRIN_SPECTRUM_WARMING_UP: u8 = 2;
 pub const KIRIN_SPECTRUM_ACTIVE: u8 = 3;
 pub const KIRIN_SPECTRUM_UNAVAILABLE: u8 = 4;
+pub const KIRIN_SPECTRUM_IN_USE: u8 = 5;
 pub const KIRIN_SPECTRUM_CHANNEL_LR: u8 = SpectrumChannelMode::Lr as u8;
 pub const KIRIN_SPECTRUM_CHANNEL_MID: u8 = SpectrumChannelMode::Mid as u8;
 pub const KIRIN_SPECTRUM_CHANNEL_SIDE: u8 = SpectrumChannelMode::Side as u8;
@@ -3473,6 +3474,8 @@ pub struct KirinPerceptualView {
     pub post_sharpness: f64,
     pub delta_sharpness: f64,
     pub presentation_end_samples: i64,
+    /// Shared PRE/POST state reset boundary. Tail-appended for ABI prefix stability.
+    pub state_epoch_samples: i64,
 }
 
 /// Read-only validation counters. No counter is used to make display or DSP decisions.
@@ -3605,6 +3608,7 @@ fn spectrum_status_to_abi(status: SpectrumViewStatus) -> u8 {
         SpectrumViewStatus::WarmingUp => KIRIN_SPECTRUM_WARMING_UP,
         SpectrumViewStatus::Active => KIRIN_SPECTRUM_ACTIVE,
         SpectrumViewStatus::Unavailable => KIRIN_SPECTRUM_UNAVAILABLE,
+        SpectrumViewStatus::InUse => KIRIN_SPECTRUM_IN_USE,
     }
 }
 
@@ -3656,8 +3660,8 @@ fn to_c_perceptual(snapshot: SpectrumViewSnapshot) -> KirinPerceptualView {
         .then_some(snapshot.perceptual_difference)
         .flatten();
     let has_data = difference.is_some() as u8;
-    let (sample_rate, aperture_samples, pre, post, delta, presentation_end_samples) = difference
-        .map_or((0, 0, f64::NAN, f64::NAN, f64::NAN, 0), |difference| {
+    let (sample_rate, aperture_samples, pre, post, delta, presentation_end_samples, state_epoch) =
+        difference.map_or((0, 0, f64::NAN, f64::NAN, f64::NAN, 0, 0), |difference| {
             (
                 difference.sample_rate,
                 difference.aperture_samples,
@@ -3665,6 +3669,7 @@ fn to_c_perceptual(snapshot: SpectrumViewSnapshot) -> KirinPerceptualView {
                 difference.post_sharpness,
                 difference.delta_sharpness,
                 difference.presentation_end_samples,
+                difference.state_epoch_samples,
             )
         });
     KirinPerceptualView {
@@ -3678,6 +3683,7 @@ fn to_c_perceptual(snapshot: SpectrumViewSnapshot) -> KirinPerceptualView {
         post_sharpness: post,
         delta_sharpness: delta,
         presentation_end_samples,
+        state_epoch_samples: state_epoch,
     }
 }
 
@@ -3771,6 +3777,7 @@ mod spectrum_abi_tests {
         assert_eq!(spectrum_status_to_abi(SpectrumViewStatus::WarmingUp), 2);
         assert_eq!(spectrum_status_to_abi(SpectrumViewStatus::Active), 3);
         assert_eq!(spectrum_status_to_abi(SpectrumViewStatus::Unavailable), 4);
+        assert_eq!(spectrum_status_to_abi(SpectrumViewStatus::InUse), 5);
 
         let snapshot = SpectrumViewSnapshot {
             status: SpectrumViewStatus::Active,
@@ -3806,10 +3813,14 @@ mod spectrum_abi_tests {
 
     #[test]
     fn perceptual_view_preserves_signed_raw_sharpness_and_exact_endpoint() {
-        assert_eq!(std::mem::size_of::<KirinPerceptualView>(), 48);
+        assert_eq!(std::mem::size_of::<KirinPerceptualView>(), 56);
         assert_eq!(
             std::mem::offset_of!(KirinPerceptualView, presentation_end_samples),
             40
+        );
+        assert_eq!(
+            std::mem::offset_of!(KirinPerceptualView, state_epoch_samples),
+            48
         );
         let snapshot = SpectrumViewSnapshot {
             status: SpectrumViewStatus::Active,
@@ -3819,6 +3830,7 @@ mod spectrum_abi_tests {
             difference: None,
             perceptual_difference: Some(kirin_measure::PerceptualDifference {
                 presentation_end_samples: 96_000,
+                state_epoch_samples: 0,
                 sample_rate: 48_000,
                 aperture_samples: 4_800,
                 channel_mode: SpectrumChannelMode::Mid,
@@ -3837,6 +3849,7 @@ mod spectrum_abi_tests {
         assert_eq!(out.post_sharpness, 0.85);
         assert_eq!(out.delta_sharpness, -0.40);
         assert_eq!(out.presentation_end_samples, 96_000);
+        assert_eq!(out.state_epoch_samples, 0);
 
         let mut wrong_mode = snapshot;
         wrong_mode.analysis_mode = AnalysisViewMode::Spectrum;

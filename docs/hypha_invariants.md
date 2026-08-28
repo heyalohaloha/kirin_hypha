@@ -107,7 +107,7 @@ Hypha は利用者に制限や複雑な操作を課さず、普通に計測し�
 | INV-D6 | ラッチ先 t > TTL(10s)だけではpairを外さず、同exact instanceの一時停止として扱う | `latch_stale_beyond_ttl_keeps_pair_latched` |
 | INV-D7 | pair 未指定で instance 1件は pass-through、2件以上は曖昧で NoPre | `single_instance_pass_through_when_no_pair` / `no_pre_dir_returns_no_pre_mode` |
 | INV-D8 | 非 Active state では Delta=default(NoPre) + 最小 post.json | 要追加（`run_tick` の `state != Active` 分岐に直接の単体テストなし） |
-| INV-D9 | POST Perceptual Δは同一schema/sample rate/100ms aperture/channel定義/channel数/output-presentation endpointのPRE/POST Sharpnessだけを差分化する。欠測を補間せず、raw Δをclipしない | `exact_endpoint_and_aperture_are_required_for_difference` / `perceptual_difference_joins_only_exact_endpoint_and_aperture` / `malformed_perceptual_payload_fails_closed` |
+| INV-D9 | POST Perceptual Δは同一schema/sample rate/100ms aperture/state epoch/channel定義/channel数/output-presentation endpointのPRE/POST Sharpnessだけを差分化する。Phase Dとresamplerは共通epochで一度だけresetし、以後は連続状態を保つ。欠測を補間せず、raw Δをclipしない | `exact_endpoint_epoch_and_aperture_are_required_for_difference` / `perceptual_pair_arms_one_future_epoch_and_joins_only_continuous_state` / `perceptual_discontinuity_clears_history_and_requires_a_new_shared_epoch` / `continuous_post_minus_pre_matches_mosqito_at_every_100ms_endpoint` |
 
 ---
 
@@ -169,7 +169,7 @@ Hypha は利用者に制限や複雑な操作を課さず、普通に計測し�
 | INV-S4 | POST Record表示は世代付きsnapshotを使い、host inactive／finalize／Stop後も6セルを保持する。Max TP/Iは絶対値、選択M/S・PSR・Crest・SharpだけがΔ対象 | `juce_post_record_display_keeps_six_metrics_before_signal_fallback` |
 | INV-S5 | RT 安全 — processBlock が呼べる C ABI は allowlist、push_samples に fs/alloc/blocking lock 再混入なし | `process_block_calls_only_rt_safe_ffi_surface` / `ffi_push_samples_core_avoids_io_allocation_and_blocking_locks` / `audio_thread_c_abi_wrappers_remain_thin` |
 | INV-S6 | 出荷AU/VST3は同一JUCE processor/editor/control sourceと単一`HyphaUiContract`をcompileする。300×200矩形、全bounds、font family/size、palette、Watch current/MAX 6セル、Record 6セル、Keep/Stop表記をbundle build前にpure C++ testで固定する | `shipped_au_and_vst3_compile_the_same_editor_processor_and_control_contract` / `juce_shell/tests/ui_contract_test.cpp` |
-| INV-S7 | POSTのoptional analysisはMeters=全停止、Spectrum=FFTのみ、Perceptual Δ=Sharpnessのみの排他状態。PREはrenewable leaseがある時だけ同一modeを動かし、Audio Threadは既存のlock-free copy以上を行わない | `perceptual_mode_is_exclusive_and_publishes_exact_100ms_apertures` / `disabled_runtime_does_not_start_worker_or_accept_audio` / `process_block_calls_only_rt_safe_ffi_surface` / `verifyPerceptualHistoryContract` |
+| INV-S7 | POSTのoptional analysisはMeters=全停止、FREQ=FFTのみ、SHARP=Sharpnessのみの排他状態。DAW process内でkernel leaseを持つPOST 1個だけがPRE/POST workerを起動し、他は`ANALYSIS — IN USE`で解析しない。Audio Threadは既存のlock-free copy以上を行わない | `exactly_one_post_analysis_runtime_is_active_per_process_lease` / `perceptual_mode_is_exclusive_and_publishes_exact_100ms_apertures` / `disabled_runtime_does_not_start_worker_or_accept_audio` / `process_block_calls_only_rt_safe_ffi_surface` / `verifyPerceptualHistoryContract` |
 
 ---
 

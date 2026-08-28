@@ -5,6 +5,8 @@
 
 pub mod all_keep_signal;
 pub mod all_stop_signal;
+mod analysis_exchange_protocol;
+mod analysis_lease;
 mod atomic_claim;
 pub mod atomic_file;
 mod broadcast_edge;
@@ -166,7 +168,7 @@ pub use path_identity::{
 };
 pub use perceptual::{
     difference_post_minus_pre as perceptual_difference_post_minus_pre, PerceptualDifference,
-    PerceptualError, PerceptualFrame, SharpnessApertureAnalyzer, PERCEPTUAL_PRESENTATION_HZ,
+    PerceptualError, PerceptualFrame, SharpnessContinuousAnalyzer, PERCEPTUAL_PRESENTATION_HZ,
     PERCEPTUAL_SCHEMA_VERSION,
 };
 pub use plugin_data::{
