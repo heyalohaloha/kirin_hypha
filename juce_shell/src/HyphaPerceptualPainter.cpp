@@ -224,11 +224,11 @@ namespace
             const auto distanceGradient = [] (float edgeY, float zeroLineY)
             {
                 juce::ColourGradient gradient (
-                    COL_SPECTRUM_DELTA.withAlpha (0.46f), 0.0f, edgeY,
-                    COL_SPECTRUM_DELTA.withAlpha (0.045f), 0.0f, zeroLineY, false);
-                gradient.addColour (0.25, COL_SPECTRUM_DELTA.withAlpha (0.34f));
-                gradient.addColour (0.50, COL_SPECTRUM_DELTA.withAlpha (0.22f));
-                gradient.addColour (0.75, COL_SPECTRUM_DELTA.withAlpha (0.12f));
+                    COL_SPECTRUM_DELTA.withAlpha (0.68f), 0.0f, edgeY,
+                    COL_SPECTRUM_DELTA.withAlpha (0.07f), 0.0f, zeroLineY, false);
+                gradient.addColour (0.25, COL_SPECTRUM_DELTA.withAlpha (0.54f));
+                gradient.addColour (0.50, COL_SPECTRUM_DELTA.withAlpha (0.38f));
+                gradient.addColour (0.75, COL_SPECTRUM_DELTA.withAlpha (0.22f));
                 return gradient;
             };
 

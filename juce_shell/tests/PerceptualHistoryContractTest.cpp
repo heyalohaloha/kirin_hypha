@@ -144,8 +144,8 @@ namespace
             pointAt (plot, 0.7, 1.25).x, pointAt (plot, 0.7, 1.25).y).getAlpha();
         std::cout << "Sharpness positive fill near/far alpha: "
                   << positiveNear << '/' << positiveFar << '\n';
-        KIRIN_PERCEPTUAL_REQUIRE (positiveNear > 0);
-        KIRIN_PERCEPTUAL_REQUIRE (positiveFar >= positiveNear + 20);
+        KIRIN_PERCEPTUAL_REQUIRE (positiveNear >= 32);
+        KIRIN_PERCEPTUAL_REQUIRE (positiveFar >= positiveNear + 50);
 
         const auto negative = renderSteadyHistory (-1.6, -1.6);
         const int negativeNear = negative.getPixelAt (
@@ -154,8 +154,8 @@ namespace
             pointAt (plot, 0.7, -1.25).x, pointAt (plot, 0.7, -1.25).y).getAlpha();
         std::cout << "Sharpness negative fill near/far alpha: "
                   << negativeNear << '/' << negativeFar << '\n';
-        KIRIN_PERCEPTUAL_REQUIRE (negativeNear > 0);
-        KIRIN_PERCEPTUAL_REQUIRE (negativeFar >= negativeNear + 20);
+        KIRIN_PERCEPTUAL_REQUIRE (negativeNear >= 32);
+        KIRIN_PERCEPTUAL_REQUIRE (negativeFar >= negativeNear + 50);
 
         const auto zeroHead = renderSteadyHistory (0.0, 1.6);
         const auto highHead = renderSteadyHistory (1.6, 1.6);
@@ -186,7 +186,7 @@ namespace
         const int heldAlpha = held.getPixelAt (sample.x, sample.y).getAlpha();
         std::cout << "Sharpness stopped fill persistence alpha: "
                   << liveAlpha << '/' << heldAlpha << '\n';
-        KIRIN_PERCEPTUAL_REQUIRE (liveAlpha > 0);
+        KIRIN_PERCEPTUAL_REQUIRE (liveAlpha >= 50);
         KIRIN_PERCEPTUAL_REQUIRE (heldAlpha == liveAlpha);
     }
 
