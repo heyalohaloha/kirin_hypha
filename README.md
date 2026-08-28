@@ -8,7 +8,8 @@ Kirin Hypha operates as paired instances — a **PRE** plugin and a **POST** plu
 
 On a paired POST, the on-demand Spectrum turns that comparison into a signed **Δ (POST − PRE)**
 frequency view, with selectable LR / MID / SIDE observation, a lockable probe, and one temporary
-MARK reference. Closing the page stops its optional analysis.
+MARK reference. A locked probe also shows the selected frequency's exact six-second **Focus Trail**.
+Closing the page stops its optional analysis and discards that short display history.
 
 ![Kirin Hypha PRE and POST showing Short-term Watch values and independent MAX values](docs/media/kirin-hypha-pre-post.jpg)
 
@@ -68,7 +69,7 @@ sample endpoint.
 | Control | Observation behavior |
 |---|---|
 | LR / MID / SIDE | Selects exactly one channel definition; the three analyzers never run in parallel |
-| Hover / click | Reads frequency and Δ; click locks the probe and its × releases it |
+| Hover / click | Reads frequency and Δ; click locks the probe, shows its six-second Focus Trail, and × releases it |
 | MARK | Captures or replaces one temporary display-only Δ reference; × clears it |
 | 100% / 125% / 150% | Resizes the POST Spectrum page and remembers the choice for the loaded instance |
 
@@ -80,11 +81,18 @@ the newly selected mode. N and Sharpness continue to use `(L+R)/2`, so they can 
 SIDE Spectrum on wide or phase-opposed material.
 
 Hovering the plot shows frequency and Δ; the 125% and 150% views also show PRE and POST values. A
-click in the plot locks that readout to the same frequency until its × is pressed. **MARK** freezes one
-display-only Δ curve beneath the live curve; pressing MARK again replaces it, and its × clears it.
+click in the plot locks that readout to the same frequency until its × is pressed. While locked,
+**Focus Trail** shows the last six seconds of Δ at that frequency: compact at 100%, with its own lane
+at 125% and 150%. Its newest point is the same exact PRE/POST presentation frame as the live Δ, not a
+UI-clock estimate. Missing, reversed, or incompatible frames clear the trail instead of joining a
+false history. **MARK** freezes one display-only Δ curve beneath the live curve; pressing MARK again
+replaces it, and its × clears it.
 MARK is temporary and is cleared when the pair, sample rate, FFT layout, channel mode, or page changes.
 It neither adds another analyzer nor changes the measured values. The 100% / 125% / 150% size choice
 is remembered while that plug-in instance remains loaded, while Spectrum itself still opens off.
+Focus Trail retains only fixed-capacity display snapshots while Spectrum is open. It adds no analyzer,
+does not smooth or delay the live Δ, and is discarded on pair, rate, layout, channel-mode, or page
+changes.
 
 Where both spectra are extremely quiet, the displayed Δ alone is faded toward zero: it is fully
 suppressed at and below −120 dBFS and reaches full strength at −96 dBFS. This display floor does not

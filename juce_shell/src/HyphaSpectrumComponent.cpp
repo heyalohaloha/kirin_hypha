@@ -65,6 +65,7 @@ void SpectrumComponent::setSnapshot (const KirinSpectrumView& next)
         focusFrequencyHz = -1.0f;
         haveMark = false;
         markedDelta.fill (0.0f);
+        focusTrail.reset();
     }
     snapshot = next;
     haveSnapshot = true;
@@ -84,6 +85,11 @@ void SpectrumComponent::setSnapshot (const KirinSpectrumView& next)
             snapshot.post_dbfs, calmWeights);
         displayedDelta = spectrum_presentation::calmLowFrequencies (
             snapshot.display_db, calmWeights);
+        if (focusTrail == nullptr)
+            focusTrail = std::make_unique<spectrum_focus::FocusTrailHistory>();
+        focusTrail->append (snapshot.presentation_end_samples,
+                            snapshot.sample_rate,
+                            displayedDelta);
     }
     else
     {
@@ -101,6 +107,7 @@ void SpectrumComponent::clearSnapshot()
     displayedPost.fill (0.0f);
     displayedDelta.fill (0.0f);
     markedDelta.fill (0.0f);
+    focusTrail.reset();
     haveSnapshot = false;
     haveMark = false;
     hoverNormalisedX = -1.0f;
@@ -184,6 +191,7 @@ void SpectrumComponent::mouseDown (const juce::MouseEvent& event)
         displayedPost.fill (0.0f);
         displayedDelta.fill (0.0f);
         markedDelta.fill (0.0f);
+        focusTrail.reset();
         haveSnapshot = false;
         haveMark = false;
         hoverNormalisedX = -1.0f;
@@ -250,7 +258,8 @@ void SpectrumComponent::paint (juce::Graphics& g)
 {
     const spectrum_chrome::PaintState state {
         snapshot, displayedPre, displayedPost, displayedDelta, markedDelta,
-        modeActionNotice, haveSnapshot, haveSnapshot && validSnapshot (snapshot),
+        focusTrail.get(), modeActionNotice,
+        haveSnapshot, haveSnapshot && validSnapshot (snapshot),
         haveMark, hoverNormalisedX, focusFrequencyHz, channelMode, inputChannels
     };
     spectrum_chrome::paint (g, getLocalBounds().toFloat(), state);

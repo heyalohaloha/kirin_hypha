@@ -3427,6 +3427,8 @@ pub struct KirinSpectrumView {
     pub pre_dbfs: [f32; SPECTRUM_BAND_COUNT],
     pub post_dbfs: [f32; SPECTRUM_BAND_COUNT],
     pub display_db: [f32; SPECTRUM_BAND_COUNT],
+    /// Exact shared PRE/POST presentation endpoint. Tail-appended for ABI prefix stability.
+    pub presentation_end_samples: i64,
 }
 
 /// Read-only validation counters. No counter is used to make display or DSP decisions.
@@ -3564,7 +3566,7 @@ fn spectrum_status_to_abi(status: SpectrumViewStatus) -> u8 {
 
 fn to_c_spectrum(snapshot: SpectrumViewSnapshot) -> KirinSpectrumView {
     let has_data = snapshot.difference.is_some() as u8;
-    let (sample_rate, min_hz, max_hz, pre_dbfs, post_dbfs, display_db) =
+    let (sample_rate, min_hz, max_hz, pre_dbfs, post_dbfs, display_db, presentation_end_samples) =
         snapshot.difference.map_or(
             (
                 0,
@@ -3573,6 +3575,7 @@ fn to_c_spectrum(snapshot: SpectrumViewSnapshot) -> KirinSpectrumView {
                 [0.0; SPECTRUM_BAND_COUNT],
                 [0.0; SPECTRUM_BAND_COUNT],
                 [0.0; SPECTRUM_BAND_COUNT],
+                0,
             ),
             |difference| {
                 (
@@ -3582,6 +3585,7 @@ fn to_c_spectrum(snapshot: SpectrumViewSnapshot) -> KirinSpectrumView {
                     difference.pre_dbfs,
                     difference.post_dbfs,
                     difference.display_db,
+                    difference.presentation_end_samples,
                 )
             },
         );
@@ -3596,6 +3600,7 @@ fn to_c_spectrum(snapshot: SpectrumViewSnapshot) -> KirinSpectrumView {
         pre_dbfs,
         post_dbfs,
         display_db,
+        presentation_end_samples,
     }
 }
 
@@ -3679,7 +3684,11 @@ mod spectrum_abi_tests {
 
     #[test]
     fn spectrum_status_and_signed_display_values_have_stable_c_mapping() {
-        assert_eq!(std::mem::size_of::<KirinSpectrumView>(), 3_088);
+        assert_eq!(std::mem::size_of::<KirinSpectrumView>(), 3_096);
+        assert_eq!(
+            std::mem::offset_of!(KirinSpectrumView, presentation_end_samples),
+            3_088
+        );
         assert_eq!(spectrum_status_to_abi(SpectrumViewStatus::Hidden), 0);
         assert_eq!(spectrum_status_to_abi(SpectrumViewStatus::NoPair), 1);
         assert_eq!(spectrum_status_to_abi(SpectrumViewStatus::WarmingUp), 2);
@@ -3713,6 +3722,7 @@ mod spectrum_abi_tests {
         assert_eq!(out.post_dbfs[SPECTRUM_BAND_COUNT - 1], -45.5);
         assert_eq!(out.display_db[0], -3.5);
         assert_eq!(out.display_db[SPECTRUM_BAND_COUNT - 1], -3.5);
+        assert_eq!(out.presentation_end_samples, 48_000);
     }
 
     #[test]

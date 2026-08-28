@@ -145,7 +145,7 @@ typedef struct {
 
 /* POST専用Spectrum表示. pre/post_dbfsはdisplay_dbの正確な元フレーム、display_dbは
  * 符号付きPOST-PRE。描画側が±18 dBへ収めるが、Rust内部のraw差分はclipしない。
- * has_data=0時はstatusだけが有効。 */
+ * presentation_end_samplesは両者が一致した実フレームの終端。has_data=0時はstatusだけが有効。 */
 typedef struct {
   uint8_t status;       /* KIRIN_SPECTRUM_* */
   uint8_t has_data;
@@ -157,6 +157,7 @@ typedef struct {
   float pre_dbfs[KIRIN_SPECTRUM_BAND_COUNT];
   float post_dbfs[KIRIN_SPECTRUM_BAND_COUNT];
   float display_db[KIRIN_SPECTRUM_BAND_COUNT];
+  int64_t presentation_end_samples; /* 末尾追加: 既存field offsetを不変に保つ */
 } KirinSpectrumView;
 
 /* 検証用のread-only負荷カウンタ。表示・計測判断には使用しない。 */

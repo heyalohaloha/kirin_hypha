@@ -78,6 +78,13 @@ namespace hypha::ui_contract
     constexpr int spectrumMarkClearWidth = 11;
     constexpr float spectrumMarkCurveAlpha = 0.38f;
     constexpr float spectrumMarkStrokeWidth = 1.0f;
+    constexpr float spectrumFocusTrailCompactHeight = 15.0f;
+    constexpr float spectrumFocusTrailMediumHeight = 22.0f;
+    constexpr float spectrumFocusTrailLargeHeight = 30.0f;
+    constexpr float spectrumFocusTrailAxisGap = 12.0f;
+    constexpr float spectrumFocusTrailInset = 3.0f;
+    constexpr float spectrumFocusTrailRadius = 4.0f;
+    constexpr float spectrumFocusTrailStrokeWidth = 1.35f;
     constexpr std::array<float, 25> spectrumTipAlpha {
         0.0f, 0.012f, 0.025f, 0.037f, 0.05f, 0.065f, 0.08f,
         0.098f, 0.115f, 0.132f, 0.15f, 0.17f, 0.19f,
@@ -96,6 +103,13 @@ namespace hypha::ui_contract
         return visualScale < 1.125f ? 1.0f
              : visualScale < 1.375f ? 1.08f
                                     : 1.15f;
+    }
+
+    constexpr float spectrumFocusTrailHeight (float visualScale) noexcept
+    {
+        return visualScale < 1.125f ? spectrumFocusTrailCompactHeight
+             : visualScale < 1.375f ? spectrumFocusTrailMediumHeight
+                                    : spectrumFocusTrailLargeHeight;
     }
 
     constexpr const char* spectrumShowTooltip = "Show POST - PRE spectrum";

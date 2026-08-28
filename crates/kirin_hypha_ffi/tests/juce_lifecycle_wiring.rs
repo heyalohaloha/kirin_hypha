@@ -384,7 +384,16 @@ fn spectrum_is_post_only_on_demand_and_isolated_from_existing_schemas() {
     );
     assert!(post_only_branch.contains("src/HyphaSpectrumPainter.cpp"));
     assert!(post_only_branch.contains("src/HyphaSpectrumChromePainter.cpp"));
+    assert!(post_only_branch.contains("src/HyphaSpectrumFocusTrail.cpp"));
+    assert!(post_only_branch.contains("src/HyphaSpectrumFocusTrailPainter.cpp"));
     assert!(post_only_branch.contains("KIRIN_HYPHA_PRE_DISPLAY=0"));
+
+    let focus_trail = read_repo("juce_shell/src/HyphaSpectrumFocusTrail.h");
+    assert!(focus_trail.contains("focusTrailCapacity"));
+    assert!(focus_trail.contains("sizeof (FocusTrailHistory) < 256u * 1024u"));
+    let component = read_repo("juce_shell/src/HyphaSpectrumComponent.cpp");
+    assert!(component.contains("snapshot.presentation_end_samples"));
+    assert!(component.contains("focusTrail.reset()"));
 
     let plugin_data = read_repo("crates/kirin_measure/src/plugin_data.rs");
     assert!(!plugin_data.contains("spectrum"));

@@ -3,6 +3,7 @@
 #include <juce_graphics/juce_graphics.h>
 
 #include "HyphaSpectrumPainter.h"
+#include "HyphaSpectrumFocusTrail.h"
 #include "kirin_hypha_ffi.h"
 
 namespace hypha::spectrum_chrome
@@ -14,6 +15,7 @@ namespace hypha::spectrum_chrome
         const spectrum_painter::SpectrumBins& post;
         const spectrum_painter::SpectrumBins& delta;
         const spectrum_painter::SpectrumBins& mark;
+        const spectrum_focus::FocusTrailHistory* focusTrail;
         const juce::String& actionNotice;
         bool haveSnapshot;
         bool snapshotValid;

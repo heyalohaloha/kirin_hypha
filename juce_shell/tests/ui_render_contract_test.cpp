@@ -1,5 +1,6 @@
 #include "../src/HyphaWidgets.h"
 #include "../src/HyphaSpectrumComponent.h"
+#include "SpectrumFocusTrailContractTest.h"
 #include "SpectrumInteractionContractTest.h"
 #include "SpectrumPresentationContractTest.h"
 
@@ -9,7 +10,7 @@
 
 namespace ui = hypha::ui_contract;
 
-static_assert (sizeof (KirinSpectrumView) == 3'088,
+static_assert (sizeof (KirinSpectrumView) == 3'096,
                "Rust/C Spectrum view ABI size must remain exact");
 
 namespace
@@ -190,6 +191,7 @@ namespace
 
 int main()
 {
+    hypha::tests::verifySpectrumFocusTrailContract();
     hypha::tests::verifySpectrumPresentationContract();
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
 
@@ -324,6 +326,7 @@ int main()
     spectrumSnapshot.channel_mode = KIRIN_SPECTRUM_CHANNEL_LR;
     spectrumSnapshot.channels = 2;
     spectrumSnapshot.sample_rate = 48'000;
+    spectrumSnapshot.presentation_end_samples = 48'000;
     spectrumSnapshot.min_hz = 10.0f;
     spectrumSnapshot.max_hz = 22'000.0f;
     for (size_t index = 0; index < KIRIN_SPECTRUM_BAND_COUNT; ++index)
@@ -340,6 +343,7 @@ int main()
                                            + spectrumSnapshot.display_db[index];
     }
     spectrum.setSnapshot (spectrumSnapshot);
+    hypha::tests::verifySpectrumFocusTrailRendering (spectrumSnapshot);
     const float previewHoverX = (float) ui::spectrumPlotLeftInset
                               + 0.70f * (float) (spectrumBounds.width
                                                - ui::spectrumPlotLeftInset

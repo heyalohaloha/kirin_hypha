@@ -147,6 +147,8 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         target_sources(${TARGET} PRIVATE
             src/HyphaSpectrumComponent.cpp
             src/HyphaSpectrumChromePainter.cpp
+            src/HyphaSpectrumFocusTrail.cpp
+            src/HyphaSpectrumFocusTrailPainter.cpp
             src/HyphaSpectrumPainter.cpp)
         target_compile_definitions(${TARGET} PRIVATE KIRIN_HYPHA_PRE_DISPLAY=0)
     endif()
@@ -227,9 +229,12 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
     target_sources(KirinUiRenderContractTests PRIVATE
         tests/ui_render_contract_test.cpp
         tests/SpectrumInteractionContractTest.cpp
+        tests/SpectrumFocusTrailContractTest.cpp
         tests/SpectrumPresentationContractTest.cpp
         src/HyphaSpectrumComponent.cpp
         src/HyphaSpectrumChromePainter.cpp
+        src/HyphaSpectrumFocusTrail.cpp
+        src/HyphaSpectrumFocusTrailPainter.cpp
         src/HyphaSpectrumPainter.cpp
         ${KIRIN_HYPHA_WIDGETS_SOURCE})
     target_compile_definitions(KirinUiRenderContractTests PRIVATE
