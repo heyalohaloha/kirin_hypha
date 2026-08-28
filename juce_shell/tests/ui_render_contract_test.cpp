@@ -1,5 +1,6 @@
 #include "../src/HyphaWidgets.h"
 #include "../src/HyphaSpectrumComponent.h"
+#include "SpectrumFocusTrailContractTest.h"
 #include "SpectrumInteractionContractTest.h"
 #include "SpectrumPresentationContractTest.h"
 
@@ -190,6 +191,7 @@ namespace
 
 int main()
 {
+    hypha::tests::verifySpectrumFocusTrailContract();
     hypha::tests::verifySpectrumPresentationContract();
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
 
