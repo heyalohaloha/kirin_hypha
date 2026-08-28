@@ -176,6 +176,9 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         addAndMakeVisible (pairDropdown);
 
        #if ! KIRIN_HYPHA_PRE_DISPLAY
+        spectrumSizeIndex = juce::jmin (
+            (size_t) processorRef.spectrumSizePreference(),
+            ui::spectrumSizePresets.size() - 1u);
         spectrumToggle.setButtonText ("SPECTRUM");
         spectrumToggle.setTooltip (ui::spectrumTooltip (false));
         spectrumToggle.setColour (juce::TextButton::buttonColourId, hypha::kFieldFill);
@@ -190,6 +193,10 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         spectrumSizeToggle.setColour (juce::TextButton::textColourOnId, COL_SPECTRUM_DELTA);
         spectrumSizeToggle.setColour (juce::TextButton::textColourOffId, COL_SPECTRUM_DELTA);
         spectrumSizeToggle.onClick = [this] { cycleSpectrumSize(); };
+        spectrumView.onChannelModeChange = [this] (uint8_t channelMode)
+        {
+            return processorRef.setSpectrumChannelMode (channelMode);
+        };
         updateSpectrumSizeControl();
         addChildComponent (spectrumSizeToggle);
         addChildComponent (spectrumView);
@@ -379,6 +386,7 @@ void KirinHyphaEditor::cycleSpectrumSize()
     if (! spectrumMode)
         return;
     spectrumSizeIndex = (spectrumSizeIndex + 1u) % ui::spectrumSizePresets.size();
+    processorRef.setSpectrumSizePreference ((uint8_t) spectrumSizeIndex);
     updateSpectrumSizeControl();
     const auto preset = ui::spectrumSizePresets[spectrumSizeIndex];
     setSize (preset.width, preset.height);

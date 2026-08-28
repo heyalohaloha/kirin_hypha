@@ -1,4 +1,7 @@
 use super::*;
+use crate::spectrum::{
+    SpectrumFrame, SPECTRUM_BAND_COUNT, SPECTRUM_FFT_SIZE, SPECTRUM_SCHEMA_VERSION,
+};
 use crate::SPECTRUM_HISTORY_CAPACITY;
 use std::thread;
 
@@ -10,6 +13,8 @@ fn frame(end: i64, value: f32) -> SpectrumFrame {
         band_count: SPECTRUM_BAND_COUNT as u16,
         presentation_end_samples: end,
         generation: 7,
+        channel_mode: SpectrumChannelMode::Lr,
+        channels: 2,
         min_hz: 10.0,
         max_hz: 22_000.0,
         dbfs: [value; SPECTRUM_BAND_COUNT],
@@ -98,7 +103,7 @@ fn truncated_trailing_or_nonfinite_snapshot_fails_closed() {
     trailing.push(0);
     assert!(decode_snapshot(&trailing).is_none());
     let mut nonfinite = bytes;
-    let first_value = 40 + 24;
+    let first_value = 40 + 28;
     nonfinite[first_value..first_value + 4].copy_from_slice(&f32::NAN.to_le_bytes());
     assert!(decode_snapshot(&nonfinite).is_none());
 }

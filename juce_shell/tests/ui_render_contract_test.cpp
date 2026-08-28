@@ -1,5 +1,6 @@
 #include "../src/HyphaWidgets.h"
 #include "../src/HyphaSpectrumComponent.h"
+#include "SpectrumInteractionContractTest.h"
 #include "SpectrumPresentationContractTest.h"
 
 #include <cmath>
@@ -85,6 +86,22 @@ namespace
             previousColumn = currentColumn;
         }
         return runs;
+    }
+
+    int countColourColumnsAcross (const juce::Image& image,
+                                  juce::Rectangle<int> requested,
+                                  juce::Colour target)
+    {
+        const auto area = requested.getIntersection (image.getBounds());
+        int columns = 0;
+        for (int x = area.getX(); x < area.getRight(); ++x)
+        {
+            bool currentColumn = false;
+            for (int y = area.getY(); y < area.getBottom(); ++y)
+                currentColumn = currentColumn || nearRgb (image.getPixelAt (x, y), target);
+            columns += currentColumn ? 1 : 0;
+        }
+        return columns;
     }
 
     int countDifferentPixels (const juce::Image& a, const juce::Image& b)
@@ -232,6 +249,16 @@ int main()
                          ui::spectrumHoverFrequencyWidth));
     KIRIN_REQUIRE (fits (hypha::monoFont (8.5f), juce::CharPointer_UTF8 ("Δ+18.0"),
                          ui::spectrumHoverDeltaWidth));
+    KIRIN_REQUIRE (fits (hypha::monoFont (8.0f), "PRE -144.0",
+                         ui::spectrumExpandedPreWidth));
+    KIRIN_REQUIRE (fits (hypha::monoFont (8.0f), "POST -144.0",
+                         ui::spectrumExpandedPostWidth));
+    KIRIN_REQUIRE (fits (hypha::monoFont (8.0f), juce::CharPointer_UTF8 ("Δ+18.0"),
+                         ui::spectrumExpandedDeltaWidth));
+    KIRIN_REQUIRE (std::abs (ui::spectrumStrokeScale (1.0f) - 1.0f) < 1.0e-6f);
+    KIRIN_REQUIRE (std::abs (ui::spectrumStrokeScale (1.25f) - 1.12f) < 1.0e-6f);
+    KIRIN_REQUIRE (std::abs (ui::spectrumStrokeScale (1.5f) - 1.22f) < 1.0e-6f);
+    KIRIN_REQUIRE (std::abs (ui::spectrumGlowScale (1.5f) - 1.15f) < 1.0e-6f);
     for (const auto& preset : ui::spectrumSizePresets)
     {
         juce::TextButton sizeButton (preset.buttonText);
@@ -294,6 +321,8 @@ int main()
     KirinSpectrumView spectrumSnapshot {};
     spectrumSnapshot.status = KIRIN_SPECTRUM_ACTIVE;
     spectrumSnapshot.has_data = 1;
+    spectrumSnapshot.channel_mode = KIRIN_SPECTRUM_CHANNEL_LR;
+    spectrumSnapshot.channels = 2;
     spectrumSnapshot.sample_rate = 48'000;
     spectrumSnapshot.min_hz = 10.0f;
     spectrumSnapshot.max_hz = 22'000.0f;
@@ -342,6 +371,32 @@ int main()
     KIRIN_REQUIRE (countDifferentPixels (spectrumImage, spectrumWithoutHover) > 30);
     spectrum.mouseMove (hoverEvent);
     spectrum.presentationTick();
+    spectrum.mouseDown (hoverEvent);
+    KIRIN_REQUIRE (spectrum.hasFocusLock());
+    const float lockedFrequency = spectrum.focusLockFrequencyHz();
+    KIRIN_REQUIRE (lockedFrequency > 1'000.0f && lockedFrequency < 22'000.0f);
+    spectrum.mouseExit (hoverEvent);
+    spectrum.presentationTick();
+    juce::Image spectrumWithFocusLock (
+        juce::Image::ARGB, spectrum.getWidth(), spectrum.getHeight(), true);
+    {
+        juce::Graphics graphics (spectrumWithFocusLock);
+        spectrum.paintEntireComponent (graphics, true);
+    }
+    KIRIN_REQUIRE (countDifferentPixels (spectrumWithoutHover, spectrumWithFocusLock) > 30);
+    const float clearX = (float) spectrumBounds.width
+                       - (float) ui::spectrumPlotRightInset - 3.0f;
+    const float clearY = (float) ui::spectrumPlotTopInset + 8.0f;
+    const juce::MouseEvent clearEvent (
+        juce::Desktop::getInstance().getMainMouseSource(),
+        { clearX, clearY }, {}, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+        &spectrum, &spectrum, eventTime,
+        { clearX, clearY }, eventTime, 0, false);
+    spectrum.mouseDown (clearEvent);
+    KIRIN_REQUIRE (! spectrum.hasFocusLock());
+
+    hypha::tests::verifySpectrumInteractionContract (
+        spectrum, spectrumSnapshot, spectrumBounds.width, spectrumBounds.height, eventTime);
 
     hypha::SpectrumComponent lineEncodingSpectrum;
     lineEncodingSpectrum.setSize (spectrumBounds.width, spectrumBounds.height);
@@ -375,10 +430,25 @@ int main()
         lineEncodingImage, curveProbe, hypha::COL_SPECTRUM_PRE);
     const int postCurveRuns = countColourRunsAcross (
         lineEncodingImage, postCurveProbe, hypha::COL_SPECTRUM_POST);
-    // The translucent hairline can form a few colour-probe runs through antialiasing,
-    // but must remain visually continuous rather than returning to a dashed encoding.
+    const int preCurveColumns = countColourColumnsAcross (
+        lineEncodingImage, curveProbe, hypha::COL_SPECTRUM_PRE);
+    const int postCurveColumns = countColourColumnsAcross (
+        lineEncodingImage, postCurveProbe, hypha::COL_SPECTRUM_POST);
+    std::cout << "Spectrum reference continuity: PRE-runs=" << preCurveRuns
+              << ", PRE-columns=" << preCurveColumns << '/' << innerPlotWidth
+              << ", POST-runs=" << postCurveRuns
+              << ", POST-columns=" << postCurveColumns << '/' << innerPlotWidth << '\n';
+    // Software rasterizers can leave a handful of one-pixel colour-probe gaps where a
+    // translucent antialiased hairline crosses a pixel centre. Require near-full coverage
+    // and only a few runs, which rejects a dashed encoding without assuming identical
+    // subpixel rasterization on CoreGraphics and Windows.
+    constexpr float minimumContinuousCoverage = 0.90f;
     KIRIN_REQUIRE (preCurveRuns >= 1 && preCurveRuns <= 5);
-    KIRIN_REQUIRE (postCurveRuns == 1);
+    KIRIN_REQUIRE (postCurveRuns >= 1 && postCurveRuns <= 5);
+    KIRIN_REQUIRE ((float) preCurveColumns
+                       >= (float) innerPlotWidth * minimumContinuousCoverage);
+    KIRIN_REQUIRE ((float) postCurveColumns
+                       >= (float) innerPlotWidth * minimumContinuousCoverage);
 
     const auto compactSpectrum = renderSpectrumAtSize (
         spectrumSnapshot, ui::spectrumSizePresets[0], "KIRIN_UI_RENDER_OUTPUT");

@@ -2,6 +2,8 @@
 
 #include <array>
 #include <cstdint>
+
+#include "HyphaSpectrumUiContract.h"
 // Pure C++ release UI contract. This header deliberately has no JUCE dependency so the exact
 // geometry, typography, palette, and metric inventory can be validated before building either
 // plugin format. AU and VST3 both compile the same JUCE editor, which consumes this contract.
@@ -29,7 +31,6 @@ namespace hypha::ui_contract
     constexpr int preDisplayStateGap = 4;
     constexpr int preDisplayDetailMinimumWidth = 72;
     constexpr int preDisplayPresentationHz = 10;
-    constexpr int spectrumPresentationHz = 30;
     // PopupMenu is a separate native window in desktop AU/VST3 hosts. Its geometry therefore
     // cannot inherit the 300x200 editor scale and must be explicit in the shared contract.
     constexpr int pairMenuItemHeight     = 28;
@@ -61,68 +62,12 @@ namespace hypha::ui_contract
     constexpr int loudnessSelectorHorizontalInset   = 1;
     constexpr int loudnessSelectorVerticalInset     = 4;
     constexpr int loudnessSegmentMinimumWidth       = 12;
-    constexpr int spectrumToggleWidth               = 84;
-    constexpr int spectrumToggleHeight              = 21;
-    constexpr int spectrumTitleGap                  = 8;
-    constexpr int spectrumSizeToggleGap             = 6;
-    constexpr int spectrumSizeToggleWidth           = 46;
-    struct SpectrumSizePreset { int width, height; const char* buttonText; const char* tooltip; };
-    constexpr std::array<SpectrumSizePreset, 3> spectrumSizePresets {{
-        { 300, 200, "100%", "Spectrum size: 100%" },
-        { 375, 250, "125%", "Spectrum size: 125%" },
-        { 450, 300, "150%", "Spectrum size: 150%" },
-    }};
-    constexpr int spectrumPlotLeftInset              = 24;
-    constexpr int spectrumPlotRightInset             = 25;
-    constexpr int spectrumPlotTopInset               = 6;
-    constexpr int spectrumPlotBottomInset            = 12;
-    constexpr float spectrumLegendFontHeight         = 8.5f;
-    constexpr int spectrumLegendTop                  = 1;
-    constexpr int spectrumLegendHeight               = 10;
-    constexpr int spectrumDeltaLegendLabelX          = 3;
-    constexpr int spectrumDeltaLegendLabelWidth      = 12;
-    constexpr int spectrumPreLegendSampleWidth       = 0;
-    constexpr int spectrumPreLegendLabelX            = 19;
-    constexpr int spectrumPreLegendLabelWidth        = 20;
-    constexpr int spectrumPostLegendSampleWidth      = 0;
-    constexpr int spectrumPostLegendLabelX           = 45;
-    constexpr int spectrumPostLegendLabelWidth       = 28;
-    constexpr float spectrumPreStrokeWidth           = 1.10f;
-    constexpr float spectrumPreCurveAlpha            = 0.82f;
-    constexpr float spectrumPostGlowStrokeWidth      = 2.60f;
-    constexpr float spectrumPostGlowAlpha            = 0.07f;
-    constexpr float spectrumPostStrokeWidth          = 1.10f;
-    constexpr float spectrumPostCurveAlpha           = 0.74f;
-    constexpr float spectrumDeltaLegendAlpha         = 0.98f;
-    constexpr float spectrumPreLegendAlpha           = 0.92f;
-    constexpr float spectrumPostLegendAlpha          = 0.90f;
-    constexpr int spectrumHoverReadoutWidth          = 96;
-    constexpr int spectrumHoverReadoutHeight         = 15;
-    constexpr int spectrumHoverReadoutInset          = 2;
-    constexpr int spectrumHoverFrequencyX            = 6;
-    constexpr int spectrumHoverFrequencyWidth        = 52;
-    constexpr int spectrumHoverDeltaX                = 58;
-    constexpr int spectrumHoverDeltaWidth            = 34;
-    constexpr float spectrumHoverReadoutRadius       = 4.5f;
-    constexpr float spectrumHoverLineWidth           = 0.75f;
-    constexpr std::array<float, 13> spectrumTipAlpha {
-        0.0f, 0.025f, 0.05f, 0.08f, 0.115f, 0.15f, 0.19f,
-        0.235f, 0.28f, 0.325f, 0.365f, 0.40f, 0.43f };
 
     constexpr const char* preTitle = "PRE";
     constexpr const char* postTitle = "POST";
     constexpr const char* maximumLabel = "MAX";
     constexpr const char* keepLabel = "Keep";
     constexpr const char* stopLabel = "Stop";
-    constexpr const char* spectrumShowTooltip = "Show POST - PRE spectrum";
-    constexpr const char* spectrumHideTooltip = "Return to meters";
-    constexpr int spectrumTooltipMaximumCharacters = 24;
-
-    constexpr const char* spectrumTooltip (bool spectrumMode) noexcept
-    {
-        return spectrumMode ? spectrumHideTooltip : spectrumShowTooltip;
-    }
-
     constexpr std::uint32_t background = 0xff0d0f1a;
     constexpr std::uint32_t normal     = 0xffe0e0e0;
     constexpr std::uint32_t muted      = 0xff606060;

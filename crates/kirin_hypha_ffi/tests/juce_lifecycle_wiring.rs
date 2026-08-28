@@ -317,6 +317,7 @@ fn spectrum_is_post_only_on_demand_and_isolated_from_existing_schemas() {
         "KIRIN_SPECTRUM_BAND_COUNT 256u",
         "KIRIN_SPECTRUM_DISPLAY_RANGE_DB 18.0f",
         "kirin_hypha_set_spectrum_visible",
+        "kirin_hypha_set_spectrum_channel_mode",
         "kirin_hypha_poll_spectrum",
     ] {
         assert!(header.contains(required), "Spectrum ABI missing {required}");
@@ -357,7 +358,7 @@ fn spectrum_is_post_only_on_demand_and_isolated_from_existing_schemas() {
     assert!(editor.contains("setSize (preset.width, preset.height)"));
     assert!(!editor.contains("setResizable (true"));
 
-    let ui_contract = read_repo("juce_shell/src/HyphaUiContract.h");
+    let ui_contract = read_repo("juce_shell/src/HyphaSpectrumUiContract.h");
     for fixed_size in [
         "{ 300, 200, \"100%\"",
         "{ 375, 250, \"125%\"",
@@ -378,9 +379,11 @@ fn spectrum_is_post_only_on_demand_and_isolated_from_existing_schemas() {
     let cmake = read_repo("juce_shell/CMakeLists.txt");
     let post_only_branch = slice_between(
         &cmake,
-        "else()\n        target_sources(${TARGET} PRIVATE src/HyphaSpectrumComponent.cpp)",
+        "else()\n        target_sources(${TARGET} PRIVATE\n            src/HyphaSpectrumComponent.cpp",
         "endif()",
     );
+    assert!(post_only_branch.contains("src/HyphaSpectrumPainter.cpp"));
+    assert!(post_only_branch.contains("src/HyphaSpectrumChromePainter.cpp"));
     assert!(post_only_branch.contains("KIRIN_HYPHA_PRE_DISPLAY=0"));
 
     let plugin_data = read_repo("crates/kirin_measure/src/plugin_data.rs");

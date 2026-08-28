@@ -6,6 +6,10 @@ The supported release is currently macOS-only. A manual Windows VST3 validation 
 
 Kirin Hypha operates as paired instances — a **PRE** plugin and a **POST** plugin — to measure signal states before and after a processing chain and display the difference.
 
+On a paired POST, the on-demand Spectrum turns that comparison into a signed **Δ (POST − PRE)**
+frequency view, with selectable LR / MID / SIDE observation, a lockable probe, and one temporary
+MARK reference. Closing the page stops its optional analysis.
+
 ![Kirin Hypha PRE and POST showing Short-term Watch values and independent MAX values](docs/media/kirin-hypha-pre-post.jpg)
 
 [Watch PRE/POST with the M/S selector and independent Watch MAX values (32-second silent MP4)](docs/media/kirin-hypha-pre-post-demo.mp4)
@@ -58,7 +62,29 @@ A paired POST provides an optional **Spectrum** page for inspecting the processi
 POST. Analysis runs only while this page is open. The signed **Δ (POST − PRE)** curve is the primary
 display, with absolute PRE and POST spectra retained as reference curves. Δ is shown on a ±18 dB
 scale; the underlying difference is not clipped. A difference is produced only when PRE and POST
-frames have the same sample rate, FFT layout, and output-presentation sample endpoint.
+frames have the same sample rate, FFT layout, channel mode, channel count, and output-presentation
+sample endpoint.
+
+| Control | Observation behavior |
+|---|---|
+| LR / MID / SIDE | Selects exactly one channel definition; the three analyzers never run in parallel |
+| Hover / click | Reads frequency and Δ; click locks the probe and its × releases it |
+| MARK | Captures or replaces one temporary display-only Δ reference; × clears it |
+| 100% / 125% / 150% | Resizes the POST Spectrum page and remembers the choice for the loaded instance |
+
+The page analyzes one selected channel view at a time. **LR** transforms L and R independently and
+averages their power, so opposite-polarity channels do not cancel. **MID** analyzes the `(L+R)/2`
+waveform. **SIDE** analyzes `(L−R)/2` and is available only for stereo input; mono never fabricates a
+SIDE result. Switching LR / MID / SIDE clears the old frame and waits for an exact PRE/POST match in
+the newly selected mode. N and Sharpness continue to use `(L+R)/2`, so they can differ from the LR or
+SIDE Spectrum on wide or phase-opposed material.
+
+Hovering the plot shows frequency and Δ; the 125% and 150% views also show PRE and POST values. A
+click in the plot locks that readout to the same frequency until its × is pressed. **MARK** freezes one
+display-only Δ curve beneath the live curve; pressing MARK again replaces it, and its × clears it.
+MARK is temporary and is cleared when the pair, sample rate, FFT layout, channel mode, or page changes.
+It neither adds another analyzer nor changes the measured values. The 100% / 125% / 150% size choice
+is remembered while that plug-in instance remains loaded, while Spectrum itself still opens off.
 
 Where both spectra are extremely quiet, the displayed Δ alone is faded toward zero: it is fully
 suppressed at and below −120 dBFS and reaches full strength at −96 dBFS. This display floor does not
@@ -67,10 +93,6 @@ Hann window, an 8192-point FFT, and a 30 Hz presentation cadence. At 48 kHz the 
 85 ms; FFT-point spacing changes with the host rate. It compares measured programme energy rather
 than reconstructing a plug-in transfer function, so narrow low-frequency EQ shapes can appear broader
 than the corresponding EQ control graph.
-
-Stereo Spectrum analysis transforms L and R independently and averages their power, so opposite-
-polarity channels do not cancel. N and Sharpness instead use the mono waveform `(L+R)/2`; the two
-views can therefore differ on wide or phase-opposed material.
 
 ### Record mode (Kirin OS required)
 

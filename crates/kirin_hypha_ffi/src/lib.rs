@@ -75,10 +75,10 @@ use kirin_measure::{
     PlatformPaths, PluginDataRole, PrePairStatusObserver, PresentationLatencySamples,
     PresentationLatencySource, PsbSummary, RecordDisplaySnapshot, RecordDisplayStatus,
     RecordIngress, RecordMarkQueue, RecordStateMachine, RecordTakeBlock, RecordTakeTracker,
-    RecordTraceQueue, ReleaseReason, RestartIoFn, SignalError, SignalState, SpectrumCoordinator,
-    SpectrumRuntime, SpectrumRuntimeStats, SpectrumViewSnapshot, SpectrumViewStatus, StoragePaths,
-    WatchMaxTracker, WatchProducerHandoff, WatchdogIo, WatchdogParams,
-    CAPTURE_PRODUCER_READY_TIMEOUT, MAX_ACTIVE_PER_PROJECT, MAX_AUDIO_BLOCK_FRAMES,
+    RecordTraceQueue, ReleaseReason, RestartIoFn, SignalError, SignalState, SpectrumChannelMode,
+    SpectrumCoordinator, SpectrumRuntime, SpectrumRuntimeStats, SpectrumViewSnapshot,
+    SpectrumViewStatus, StoragePaths, WatchMaxTracker, WatchProducerHandoff, WatchdogIo,
+    WatchdogParams, CAPTURE_PRODUCER_READY_TIMEOUT, MAX_ACTIVE_PER_PROJECT, MAX_AUDIO_BLOCK_FRAMES,
     MAX_CAPTURE_GENERATION_MEMBERS, N_CHANNELS, SPECTRUM_BAND_COUNT,
 };
 
@@ -2147,6 +2147,17 @@ impl KirinHyphaEngine {
         true
     }
 
+    /// POST-only Spectrum channel definition. The active runtime analyzes one definition at a
+    /// time; SIDE fails closed for a mono engine.
+    pub fn set_spectrum_channel_mode(&self, channel_mode: u8) -> bool {
+        let is_post =
+            self.write_role.lock().ok().and_then(|role| *role) == Some(PluginDataRole::Post);
+        let Ok(channel_mode) = SpectrumChannelMode::try_from(channel_mode) else {
+            return false;
+        };
+        is_post && self.spectrum.set_post_channel_mode(channel_mode)
+    }
+
     /// Latest POST-minus-PRE Spectrum display snapshot. Lock contention is a silent skipped
     /// presentation tick; it never reaches the audio or measurement paths.
     pub fn poll_spectrum(&self) -> Option<SpectrumViewSnapshot> {
@@ -3398,6 +3409,9 @@ pub const KIRIN_SPECTRUM_NO_PAIR: u8 = 1;
 pub const KIRIN_SPECTRUM_WARMING_UP: u8 = 2;
 pub const KIRIN_SPECTRUM_ACTIVE: u8 = 3;
 pub const KIRIN_SPECTRUM_UNAVAILABLE: u8 = 4;
+pub const KIRIN_SPECTRUM_CHANNEL_LR: u8 = SpectrumChannelMode::Lr as u8;
+pub const KIRIN_SPECTRUM_CHANNEL_MID: u8 = SpectrumChannelMode::Mid as u8;
+pub const KIRIN_SPECTRUM_CHANNEL_SIDE: u8 = SpectrumChannelMode::Side as u8;
 
 /// POST-only Spectrum view. PRE/POST are the exact magnitudes behind `display_db`, which is signed
 /// POST - PRE and bounded only by the renderer. Rust retains the unclipped raw difference.
@@ -3405,7 +3419,8 @@ pub const KIRIN_SPECTRUM_UNAVAILABLE: u8 = 4;
 pub struct KirinSpectrumView {
     pub status: u8,
     pub has_data: u8,
-    pub reserved: [u8; 2],
+    pub channel_mode: u8,
+    pub channels: u8,
     pub sample_rate: u32,
     pub min_hz: f32,
     pub max_hz: f32,
@@ -3419,7 +3434,9 @@ pub struct KirinSpectrumView {
 pub struct KirinSpectrumStats {
     pub enabled: u8,
     pub worker_running: u8,
-    pub reserved: [u8; 6],
+    pub channel_mode: u8,
+    pub channels: u8,
+    pub reserved: [u8; 4],
     pub pushed_blocks: u64,
     pub dropped_blocks: u64,
     pub analyzed_frames: u64,
@@ -3571,7 +3588,8 @@ fn to_c_spectrum(snapshot: SpectrumViewSnapshot) -> KirinSpectrumView {
     KirinSpectrumView {
         status: spectrum_status_to_abi(snapshot.status),
         has_data,
-        reserved: [0; 2],
+        channel_mode: snapshot.channel_mode as u8,
+        channels: snapshot.channels,
         sample_rate,
         min_hz,
         max_hz,
@@ -3585,7 +3603,9 @@ fn to_c_spectrum_stats(stats: SpectrumRuntimeStats) -> KirinSpectrumStats {
     KirinSpectrumStats {
         enabled: stats.enabled as u8,
         worker_running: stats.worker_running as u8,
-        reserved: [0; 6],
+        channel_mode: stats.channel_mode as u8,
+        channels: stats.channels,
+        reserved: [0; 4],
         pushed_blocks: stats.pushed_blocks,
         dropped_blocks: stats.dropped_blocks,
         analyzed_frames: stats.analyzed_frames,
@@ -3668,11 +3688,15 @@ mod spectrum_abi_tests {
 
         let snapshot = SpectrumViewSnapshot {
             status: SpectrumViewStatus::Active,
+            channel_mode: SpectrumChannelMode::Side,
+            channels: 2,
             difference: Some(SpectrumDifference {
                 presentation_end_samples: 48_000,
                 sample_rate: 48_000,
                 min_hz: 10.0,
                 max_hz: 22_000.0,
+                channel_mode: SpectrumChannelMode::Side,
+                channels: 2,
                 pre_dbfs: [-42.0; SPECTRUM_BAND_COUNT],
                 post_dbfs: [-45.5; SPECTRUM_BAND_COUNT],
                 raw_db: [15.0; SPECTRUM_BAND_COUNT],
@@ -3683,6 +3707,8 @@ mod spectrum_abi_tests {
         assert_eq!(out.status, KIRIN_SPECTRUM_ACTIVE);
         assert_eq!(out.has_data, 1);
         assert_eq!(out.sample_rate, 48_000);
+        assert_eq!(out.channel_mode, KIRIN_SPECTRUM_CHANNEL_SIDE);
+        assert_eq!(out.channels, 2);
         assert_eq!(out.pre_dbfs[0], -42.0);
         assert_eq!(out.post_dbfs[SPECTRUM_BAND_COUNT - 1], -45.5);
         assert_eq!(out.display_db[0], -3.5);
@@ -3724,9 +3750,34 @@ mod spectrum_abi_tests {
     fn pre_role_cannot_expose_the_post_spectrum_page() {
         let engine = KirinHyphaEngine::new(48_000, 2);
         assert!(!engine.set_spectrum_visible(true));
+        assert!(!engine.set_spectrum_channel_mode(KIRIN_SPECTRUM_CHANNEL_MID));
         *engine.write_role.lock().unwrap() = Some(PluginDataRole::Pre);
         assert!(!engine.set_spectrum_visible(true));
+        assert!(!engine.set_spectrum_channel_mode(KIRIN_SPECTRUM_CHANNEL_MID));
         assert!(!engine.spectrum_stats().enabled);
+    }
+
+    #[test]
+    fn post_channel_mode_is_single_select_and_side_requires_stereo() {
+        let stereo = KirinHyphaEngine::new(48_000, 2);
+        *stereo.write_role.lock().unwrap() = Some(PluginDataRole::Post);
+        assert!(stereo.set_spectrum_channel_mode(KIRIN_SPECTRUM_CHANNEL_MID));
+        assert_eq!(
+            stereo.spectrum_stats().channel_mode,
+            SpectrumChannelMode::Mid
+        );
+        assert!(stereo.set_spectrum_channel_mode(KIRIN_SPECTRUM_CHANNEL_SIDE));
+        assert_eq!(
+            stereo.spectrum_stats().channel_mode,
+            SpectrumChannelMode::Side
+        );
+        assert!(!stereo.set_spectrum_channel_mode(3));
+
+        let mono = KirinHyphaEngine::new(48_000, 1);
+        *mono.write_role.lock().unwrap() = Some(PluginDataRole::Post);
+        assert!(mono.set_spectrum_channel_mode(KIRIN_SPECTRUM_CHANNEL_MID));
+        assert!(!mono.set_spectrum_channel_mode(KIRIN_SPECTRUM_CHANNEL_SIDE));
+        assert_eq!(mono.spectrum_stats().channel_mode, SpectrumChannelMode::Mid);
     }
 }
 
@@ -4645,6 +4696,25 @@ pub unsafe extern "C" fn kirin_hypha_set_spectrum_visible(
             return false;
         }
         unsafe { (*handle).set_spectrum_visible(visible) }
+    }))
+    .unwrap_or(false)
+}
+
+/// Select one POST Spectrum channel definition. The edge performs no filesystem access and
+/// invalidates prior presentation frames. SIDE is rejected for mono engines.
+///
+/// # Safety
+/// `handle` must be null or a live pointer returned by [`kirin_hypha_create`].
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_set_spectrum_channel_mode(
+    handle: *mut KirinHyphaEngine,
+    channel_mode: u8,
+) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() {
+            return false;
+        }
+        unsafe { (*handle).set_spectrum_channel_mode(channel_mode) }
     }))
     .unwrap_or(false)
 }
