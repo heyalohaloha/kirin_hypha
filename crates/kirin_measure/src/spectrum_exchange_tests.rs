@@ -329,6 +329,51 @@ fn analysis_lease_io_failure_is_unavailable_not_in_use() {
 }
 
 #[test]
+fn poisoned_post_session_resets_instead_of_permanently_stalling_analysis() {
+    let runtime = SpectrumRuntime::new(48_000, 2);
+    let coordinator = SpectrumCoordinator::new(48_000, Arc::clone(&runtime));
+    coordinator.set_post_visible(true);
+
+    let poisoned = Arc::clone(&coordinator);
+    assert!(thread::spawn(move || {
+        let _session = poisoned.post_session.lock().unwrap();
+        panic!("intentional POST session poison");
+    })
+    .join()
+    .is_err());
+
+    assert!(!coordinator.post_tick("post", None));
+    assert_eq!(
+        coordinator.try_view().unwrap().status,
+        SpectrumViewStatus::NoPair
+    );
+    coordinator.shutdown();
+    runtime.shutdown_and_join();
+}
+
+#[test]
+fn poisoned_pre_session_resets_instead_of_permanently_stalling_analysis() {
+    let temp = tempfile::tempdir().unwrap();
+    let pre_dir = temp.path().join("project").join("pre");
+    fs::create_dir_all(&pre_dir).unwrap();
+    let runtime = SpectrumRuntime::new(48_000, 2);
+    let coordinator = SpectrumCoordinator::new(48_000, Arc::clone(&runtime));
+
+    let poisoned = Arc::clone(&coordinator);
+    assert!(thread::spawn(move || {
+        let _session = poisoned.pre_session.lock().unwrap();
+        panic!("intentional PRE session poison");
+    })
+    .join()
+    .is_err());
+
+    assert!(!coordinator.pre_tick("pre", &pre_dir));
+    assert!(!runtime.is_enabled());
+    coordinator.shutdown();
+    runtime.shutdown_and_join();
+}
+
+#[test]
 fn post_without_exact_pair_never_enables_fft() {
     let runtime = SpectrumRuntime::new(48_000, 2);
     let coordinator = SpectrumCoordinator::new(48_000, Arc::clone(&runtime));
@@ -612,6 +657,51 @@ fn isolated_worker_advances_exact_pair_without_reentering_normal_io() {
     post.shutdown();
     pre_runtime.shutdown_and_join();
     post_runtime.shutdown_and_join();
+}
+
+#[test]
+fn normal_io_supervisor_renews_freq_and_sharp_requests_when_worker_stops_progressing() {
+    let temp = tempfile::tempdir().unwrap();
+    for (suffix, mode) in [
+        ("freq", AnalysisViewMode::Spectrum),
+        ("sharp", AnalysisViewMode::Perceptual),
+    ] {
+        let pre_dir = temp.path().join(suffix).join("pre");
+        let pre_json = pre_dir.join("pre.json");
+        crate::atomic_file::write_bytes_atomic(&pre_json, b"{}").unwrap();
+        let runtime = SpectrumRuntime::new(48_000, 2);
+        let coordinator = SpectrumCoordinator::new(48_000, Arc::clone(&runtime));
+        let target = SpectrumTarget::from_pre_json("pre".to_string(), &pre_json).unwrap();
+
+        assert!(coordinator.set_post_analysis_mode(mode));
+        coordinator.set_post_visible(true);
+        coordinator.service_post_endpoint("post", Some(target.clone()));
+        let first = read_request(&pre_dir).unwrap();
+        assert_eq!(first.analysis_mode, mode as u8);
+        coordinator
+            .exchange_worker
+            .pause_dedicated_ticks_for_test(true);
+        thread::sleep(REQUEST_RENEW_INTERVAL + Duration::from_millis(25));
+
+        // One call may observe the last completed heartbeat; the following unchanged 10 Hz calls
+        // cross the watchdog boundary without starting a second Analysis owner.
+        for _ in 0..=crate::spectrum_exchange_worker::SUPERVISOR_STALL_SERVICE_TICKS {
+            coordinator.service_post_endpoint("post", Some(target.clone()));
+        }
+        let renewed = read_request(&pre_dir).unwrap();
+        assert!(renewed.expires_at_unix_ms > first.expires_at_unix_ms);
+        assert_eq!(renewed.requested_by_post_instance_id, "post");
+        assert_eq!(renewed.request_id, first.request_id);
+        assert_eq!(renewed.analysis_mode, mode as u8);
+        assert!(runtime.is_enabled());
+
+        coordinator
+            .exchange_worker
+            .pause_dedicated_ticks_for_test(false);
+        coordinator.set_post_visible(false);
+        coordinator.shutdown();
+        runtime.shutdown_and_join();
+    }
 }
 
 #[test]

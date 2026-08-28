@@ -4,13 +4,15 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, TryLockError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use uuid::Uuid;
 
 #[path = "spectrum_exchange_codec.rs"]
 pub(crate) mod codec;
+#[path = "spectrum_exchange_control.rs"]
+mod control;
 #[path = "spectrum_exchange_join.rs"]
 mod joining;
 #[path = "perceptual_exchange_codec.rs"]
@@ -45,7 +47,7 @@ use joining::{store_joined_perceptual, store_joined_spectrum};
 use perceptual_codec::{encode_perceptual_snapshot, read_perceptual_snapshot};
 
 const REQUEST_RENEW_INTERVAL: Duration = Duration::from_millis(500);
-const REQUEST_LEASE_MS: i64 = 1_500;
+pub(crate) const REQUEST_LEASE_MS: i64 = 1_500;
 const WARMUP_LIMIT: Duration = Duration::from_secs(2);
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -157,83 +159,20 @@ impl SpectrumCoordinator {
         )
     }
 
-    /// Message/control thread only. Filesystem work remains deferred to the existing IO thread.
-    pub fn set_post_visible(&self, visible: bool) {
-        let previous = self.post_visible.swap(visible, Ordering::AcqRel);
-        if visible && !previous {
-            if let Ok(mut session) = self.post_session.lock() {
-                *session = Some(PostSession {
-                    request_id: Uuid::new_v4(),
-                    target: None,
-                    last_renewed: None,
-                    started_at: None,
-                    analysis_mode: self.runtime.analysis_mode(),
-                    channel_mode: self.runtime.channel_mode(),
-                    state_epoch_samples: None,
-                });
-            }
-        } else if !visible {
-            // Serialize the close edge with an in-flight exchange tick before releasing the
-            // process-wide lease. A new POST can never overlap the previous owner's worker.
-            let _tick_guard = self.post_session.lock().ok();
-            let _ = self.runtime.set_enabled(false);
-            self.release_analysis_lease();
-            self.store_view(SpectrumViewStatus::Hidden, None, None);
-        }
-        self.exchange_worker.notify();
-    }
-
     pub fn post_visible(&self) -> bool {
         self.post_visible.load(Ordering::Acquire)
     }
 
-    /// UI/control thread only. Spectrum and Perceptual Delta never analyze in parallel.
-    pub fn set_post_analysis_mode(&self, mode: AnalysisViewMode) -> bool {
-        let _session = match self.post_session.lock() {
-            Ok(session) => session,
-            Err(_) => return false,
-        };
-        if !self.runtime.set_analysis_mode(mode) {
-            return false;
-        }
-        let status = if self.post_visible() {
-            SpectrumViewStatus::WarmingUp
-        } else {
-            SpectrumViewStatus::Hidden
-        };
-        self.store_view(status, None, None);
-        self.exchange_worker.notify();
-        true
-    }
-
-    /// UI/control thread only. The next isolated exchange tick renews the exact request; this
-    /// edge itself performs no filesystem access.
-    pub fn set_post_channel_mode(&self, mode: SpectrumChannelMode) -> bool {
-        // Serialize the mode edge with POST exchange publication. Without this guard, one tick
-        // could clone an old exact pair, then publish it after the UI had already selected a new
-        // channel definition and cleared the visible frame.
-        let _session = match self.post_session.lock() {
-            Ok(session) => session,
-            Err(_) => return false,
-        };
-        if !self.runtime.set_channel_mode(mode) {
-            return false;
-        }
-        let status = if self.post_visible() {
-            SpectrumViewStatus::WarmingUp
-        } else {
-            SpectrumViewStatus::Hidden
-        };
-        self.store_view(status, None, None);
-        self.exchange_worker.notify();
-        true
-    }
-
     /// POST IO-thread tick. `target` must come from the already-confirmed exact pair latch.
     pub(crate) fn post_tick(&self, post_instance_id: &str, target: Option<SpectrumTarget>) -> bool {
-        let mut session_slot = match self.post_session.lock() {
+        let mut session_slot = match self.post_session.try_lock() {
             Ok(session) => session,
-            Err(_) => return false,
+            Err(TryLockError::WouldBlock) => return false,
+            Err(TryLockError::Poisoned(poisoned)) => {
+                let mut session = poisoned.into_inner();
+                *session = None;
+                session
+            }
         };
         if !self.post_visible() {
             if let Some(session) = session_slot.take() {
@@ -394,36 +333,19 @@ impl SpectrumCoordinator {
         true
     }
 
-    pub fn shutdown(&self) {
-        self.post_visible.store(false, Ordering::Release);
-        self.exchange_worker.shutdown_and_join();
-        if let Ok(mut session) = self.post_session.lock() {
-            if let Some(session) = session.take() {
-                cleanup_owned_request(session.target.as_ref(), session.request_id);
-            }
-        }
-        if let Ok(mut session) = self.pre_session.lock() {
-            if let Some(session) = session.take() {
-                let _ = fs::remove_file(snapshot_path(&session.instance_dir));
-                let _ = fs::remove_file(perceptual_snapshot_path(&session.instance_dir));
-                remove_ready(&session.instance_dir);
-            }
-        }
-        let _ = self.runtime.set_enabled(false);
-        self.release_analysis_lease();
-    }
-
     fn ensure_analysis_lease(&self) -> std::io::Result<bool> {
-        self.analysis_lease
-            .lock()
-            .map_err(|_| std::io::Error::other("analysis lease lock poisoned"))?
-            .try_acquire()
+        match self.analysis_lease.lock() {
+            Ok(mut lease) => lease.try_acquire(),
+            Err(poisoned) => poisoned.into_inner().try_acquire(),
+        }
     }
 
     fn release_analysis_lease(&self) {
-        if let Ok(mut lease) = self.analysis_lease.lock() {
-            lease.release();
-        }
+        let mut lease = match self.analysis_lease.lock() {
+            Ok(lease) => lease,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        lease.release();
     }
 }
 

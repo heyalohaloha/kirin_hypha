@@ -64,6 +64,14 @@ Closing either page disables the shared ingress and clears its display history. 
 Perceptual Delta page; it analyzes only while an exact paired POST holds a renewable request lease.
 Request expiry or page close removes the PRE snapshot and stops its optional worker.
 
+The normal PRE/POST IO service also supervises the dedicated exchange worker's completed-tick
+heartbeat. At the unchanged 10 Hz IO cadence, eight unchanged observations trigger one non-blocking
+tick through the same coordinator, before the 1.5-second request lease can expire. The fallback
+does not create a second owner or a second analyzer and preserves the same request ID, exact endpoint
+join, mode, and channel definition. A busy session is skipped and retried; a poisoned session is
+cleared and re-armed from factual input. This is exchange liveness only: it does not smooth,
+interpolate, or retain a stale curve, and it never enters the Audio Thread.
+
 ## Failure behavior
 
 - No exact pair: show pair-unavailable state; do not start POST analysis.

@@ -5,7 +5,7 @@
 //! therefore delay Spectrum without delaying Watch, Record, pairing, or the Audio Thread.
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
@@ -16,6 +16,11 @@ use crate::spectrum_exchange::{SpectrumCoordinator, SpectrumTarget};
 const INACTIVE_WAIT: Duration = Duration::from_millis(250);
 const ACTIVE_WAIT: Duration =
     Duration::from_nanos(1_000_000_000_u64 / SPECTRUM_PRESENTATION_HZ as u64);
+/// The normal PRE/POST IO loop calls `service_*_endpoint()` at 10 Hz. Eight unchanged calls
+/// detect an exchange worker that has made no progress for about 800 ms, leaving margin before
+/// the 1.5 s request lease expires. The rescue tick stays on the IO thread and is non-blocking on
+/// the exchange session lock, so it can never delay the Audio Thread or create a second owner.
+pub(crate) const SUPERVISOR_STALL_SERVICE_TICKS: u8 = 8;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum Endpoint {
@@ -34,11 +39,21 @@ struct WorkerState {
     endpoint: Mutex<Endpoint>,
     shutdown: AtomicBool,
     wake: (Mutex<()>, Condvar),
+    completed_ticks: AtomicU64,
+    #[cfg(test)]
+    pause_ticks: AtomicBool,
+}
+
+#[derive(Default)]
+struct SupervisorState {
+    observed_completed_ticks: u64,
+    unchanged_service_ticks: u8,
 }
 
 pub(crate) struct SpectrumExchangeWorker {
     state: Arc<WorkerState>,
     handle: Mutex<Option<JoinHandle<()>>>,
+    supervisor: Mutex<SupervisorState>,
 }
 
 impl SpectrumExchangeWorker {
@@ -48,8 +63,12 @@ impl SpectrumExchangeWorker {
                 endpoint: Mutex::new(Endpoint::None),
                 shutdown: AtomicBool::new(false),
                 wake: (Mutex::new(()), Condvar::new()),
+                completed_ticks: AtomicU64::new(0),
+                #[cfg(test)]
+                pause_ticks: AtomicBool::new(false),
             }),
             handle: Mutex::new(None),
+            supervisor: Mutex::new(SupervisorState::default()),
         }
     }
 
@@ -68,11 +87,49 @@ impl SpectrumExchangeWorker {
     }
 
     pub(crate) fn is_started(&self) -> bool {
-        self.handle
-            .lock()
-            .ok()
-            .and_then(|handle| handle.as_ref().map(|handle| !handle.is_finished()))
-            .unwrap_or(false)
+        let handle = match self.handle.lock() {
+            Ok(handle) => handle,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        handle.as_ref().is_some_and(|handle| !handle.is_finished())
+    }
+
+    /// Called only by the existing 10 Hz PRE/POST IO thread. A healthy dedicated worker advances
+    /// this heartbeat several times between service calls. If it stops advancing, one factual
+    /// exchange tick is allowed through the stable IO path instead of leaving `DATA —` forever.
+    fn needs_supervisor_tick(&self) -> bool {
+        let completed = self.state.completed_ticks.load(Ordering::Acquire);
+        let mut supervisor = match self.supervisor.lock() {
+            Ok(supervisor) => supervisor,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        if completed != supervisor.observed_completed_ticks {
+            supervisor.observed_completed_ticks = completed;
+            supervisor.unchanged_service_ticks = 0;
+            return false;
+        }
+        supervisor.unchanged_service_ticks = supervisor.unchanged_service_ticks.saturating_add(1);
+        if supervisor.unchanged_service_ticks < SUPERVISOR_STALL_SERVICE_TICKS {
+            return false;
+        }
+        true
+    }
+
+    fn complete_supervisor_tick(&self, active: bool) {
+        if !active {
+            return;
+        }
+        let mut supervisor = match self.supervisor.lock() {
+            Ok(supervisor) => supervisor,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        supervisor.unchanged_service_ticks = 0;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn pause_dedicated_ticks_for_test(&self, paused: bool) {
+        self.state.pause_ticks.store(paused, Ordering::Release);
+        self.notify();
     }
 
     pub(crate) fn ensure_started(&self, coordinator: &Arc<SpectrumCoordinator>) -> bool {
@@ -81,7 +138,7 @@ impl SpectrumExchangeWorker {
         }
         let mut slot = match self.handle.lock() {
             Ok(slot) => slot,
-            Err(_) => return false,
+            Err(poisoned) => poisoned.into_inner(),
         };
         if slot.as_ref().is_some_and(|handle| !handle.is_finished()) {
             self.notify();
@@ -98,6 +155,7 @@ impl SpectrumExchangeWorker {
         {
             Ok(handle) => {
                 *slot = Some(handle);
+                self.reset_supervisor();
                 true
             }
             Err(_) => false,
@@ -111,24 +169,39 @@ impl SpectrumExchangeWorker {
     pub(crate) fn shutdown_and_join(&self) {
         self.state.shutdown.store(true, Ordering::Release);
         self.notify();
-        if let Ok(mut slot) = self.handle.lock() {
-            if let Some(handle) = slot.take() {
-                let _ = handle.join();
-            }
+        let mut slot = match self.handle.lock() {
+            Ok(slot) => slot,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        if let Some(handle) = slot.take() {
+            let _ = handle.join();
         }
     }
 
     fn update_endpoint(&self, endpoint: Endpoint) {
         let mut changed = false;
-        if let Ok(mut current) = self.state.endpoint.lock() {
-            if *current != endpoint {
-                *current = endpoint;
-                changed = true;
-            }
+        let mut current = match self.state.endpoint.lock() {
+            Ok(current) => current,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        if *current != endpoint {
+            *current = endpoint;
+            changed = true;
         }
+        drop(current);
         if changed {
+            self.reset_supervisor();
             self.notify();
         }
+    }
+
+    fn reset_supervisor(&self) {
+        let mut supervisor = match self.supervisor.lock() {
+            Ok(supervisor) => supervisor,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        supervisor.observed_completed_ticks = self.state.completed_ticks.load(Ordering::Acquire);
+        supervisor.unchanged_service_ticks = 0;
     }
 }
 
@@ -144,6 +217,11 @@ impl SpectrumCoordinator {
         self.exchange_worker
             .update_post(post_instance_id, target.clone());
         if self.exchange_worker.is_started() {
+            if self.exchange_worker.needs_supervisor_tick() {
+                let active = self.post_tick(post_instance_id, target);
+                self.exchange_worker.complete_supervisor_tick(active);
+                self.exchange_worker.notify();
+            }
             return;
         }
         if self.post_tick(post_instance_id, target) {
@@ -157,6 +235,11 @@ impl SpectrumCoordinator {
         self.exchange_worker
             .update_pre(pre_instance_id, instance_dir);
         if self.exchange_worker.is_started() {
+            if self.exchange_worker.needs_supervisor_tick() {
+                let active = self.pre_tick(pre_instance_id, instance_dir);
+                self.exchange_worker.complete_supervisor_tick(active);
+                self.exchange_worker.notify();
+            }
             return;
         }
         if self.pre_tick(pre_instance_id, instance_dir) {
@@ -177,10 +260,11 @@ fn run_worker(state: Arc<WorkerState>, coordinator: Weak<SpectrumCoordinator>) {
     while !state.shutdown.load(Ordering::Acquire) {
         let guard = match state.wake.0.lock() {
             Ok(guard) => guard,
-            Err(_) => break,
+            Err(poisoned) => poisoned.into_inner(),
         };
-        let Ok((_guard, _timeout)) = state.wake.1.wait_timeout(guard, wait) else {
-            break;
+        let (_guard, _timeout) = match state.wake.1.wait_timeout(guard, wait) {
+            Ok(result) => result,
+            Err(poisoned) => poisoned.into_inner(),
         };
         if state.shutdown.load(Ordering::Acquire) {
             break;
@@ -190,8 +274,13 @@ fn run_worker(state: Arc<WorkerState>, coordinator: Weak<SpectrumCoordinator>) {
         };
         let endpoint = match state.endpoint.lock() {
             Ok(endpoint) => endpoint.clone(),
-            Err(_) => break,
+            Err(poisoned) => poisoned.into_inner().clone(),
         };
+        #[cfg(test)]
+        if state.pause_ticks.load(Ordering::Acquire) {
+            wait = INACTIVE_WAIT;
+            continue;
+        }
         let active = match endpoint {
             Endpoint::None => false,
             Endpoint::Pre {
@@ -203,6 +292,7 @@ fn run_worker(state: Arc<WorkerState>, coordinator: Weak<SpectrumCoordinator>) {
                 target,
             } => coordinator.post_tick(&instance_id, target),
         };
+        state.completed_ticks.fetch_add(1, Ordering::Release);
         wait = if active { ACTIVE_WAIT } else { INACTIVE_WAIT };
     }
 }
@@ -216,5 +306,26 @@ mod tests {
         assert_eq!(SPECTRUM_PRESENTATION_HZ, 30);
         assert_eq!(ACTIVE_WAIT, Duration::from_nanos(33_333_333));
         assert!(ACTIVE_WAIT < Duration::from_millis(100));
+    }
+
+    #[test]
+    fn supervisor_rescues_before_the_request_lease_can_expire() {
+        let worker = SpectrumExchangeWorker::new();
+        for _ in 1..SUPERVISOR_STALL_SERVICE_TICKS {
+            assert!(!worker.needs_supervisor_tick());
+        }
+        assert!(worker.needs_supervisor_tick());
+        // A busy exchange session is retried on the next 10 Hz service call rather than waiting
+        // through another full watchdog interval and letting the request lease expire.
+        worker.complete_supervisor_tick(false);
+        assert!(worker.needs_supervisor_tick());
+        worker.complete_supervisor_tick(true);
+        assert!(!worker.needs_supervisor_tick());
+
+        assert!(
+            Duration::from_millis(
+                u64::from(SUPERVISOR_STALL_SERVICE_TICKS.saturating_add(1)) * 100
+            ) < Duration::from_millis(crate::spectrum_exchange::REQUEST_LEASE_MS as u64)
+        );
     }
 }

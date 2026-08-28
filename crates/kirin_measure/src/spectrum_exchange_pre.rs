@@ -9,9 +9,14 @@ impl SpectrumCoordinator {
             self.sample_rate,
             unix_ms_now(),
         );
-        let mut session = match self.pre_session.lock() {
+        let mut session = match self.pre_session.try_lock() {
             Ok(session) => session,
-            Err(_) => return false,
+            Err(TryLockError::WouldBlock) => return false,
+            Err(TryLockError::Poisoned(poisoned)) => {
+                let mut session = poisoned.into_inner();
+                *session = None;
+                session
+            }
         };
         let Some((request_id, analysis_mode, channel_mode, requested_epoch)) = request else {
             if session.take().is_some() {
