@@ -23,6 +23,10 @@ public:
     void paint (juce::Graphics&) override;
     void mouseMove (const juce::MouseEvent&) override;
     void mouseExit (const juce::MouseEvent&) override;
+    void mouseDown (const juce::MouseEvent&) override;
+
+    bool hasFocusLock() const noexcept { return focusFrequencyHz > 0.0f; }
+    float focusLockFrequencyHz() const noexcept { return focusFrequencyHz; }
 
 private:
     static juce::String statusText (uint8_t status);
@@ -32,6 +36,7 @@ private:
                                 juce::Rectangle<float> plot) noexcept;
     static float frequencyForNormalisedX (float position, float minHz,
                                           float maxHz) noexcept;
+    static float normalisedXForFrequency (float hz, float minHz, float maxHz) noexcept;
 
     KirinSpectrumView snapshot {};
     std::array<float, KIRIN_SPECTRUM_BAND_COUNT> displayedPre {};
@@ -39,6 +44,7 @@ private:
     std::array<float, KIRIN_SPECTRUM_BAND_COUNT> displayedDelta {};
     bool haveSnapshot = false;
     float hoverNormalisedX = -1.0f;
+    float focusFrequencyHz = -1.0f;
     bool hoverNeedsRepaint = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SpectrumComponent)

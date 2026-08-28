@@ -232,6 +232,16 @@ int main()
                          ui::spectrumHoverFrequencyWidth));
     KIRIN_REQUIRE (fits (hypha::monoFont (8.5f), juce::CharPointer_UTF8 ("Δ+18.0"),
                          ui::spectrumHoverDeltaWidth));
+    KIRIN_REQUIRE (fits (hypha::monoFont (8.5f), "PRE -144.0",
+                         ui::spectrumExpandedPreWidth));
+    KIRIN_REQUIRE (fits (hypha::monoFont (8.5f), "POST -144.0",
+                         ui::spectrumExpandedPostWidth));
+    KIRIN_REQUIRE (fits (hypha::monoFont (8.5f), juce::CharPointer_UTF8 ("Δ+18.0"),
+                         ui::spectrumExpandedDeltaWidth));
+    KIRIN_REQUIRE (std::abs (ui::spectrumStrokeScale (1.0f) - 1.0f) < 1.0e-6f);
+    KIRIN_REQUIRE (std::abs (ui::spectrumStrokeScale (1.25f) - 1.12f) < 1.0e-6f);
+    KIRIN_REQUIRE (std::abs (ui::spectrumStrokeScale (1.5f) - 1.22f) < 1.0e-6f);
+    KIRIN_REQUIRE (std::abs (ui::spectrumGlowScale (1.5f) - 1.15f) < 1.0e-6f);
     for (const auto& preset : ui::spectrumSizePresets)
     {
         juce::TextButton sizeButton (preset.buttonText);
@@ -342,6 +352,29 @@ int main()
     KIRIN_REQUIRE (countDifferentPixels (spectrumImage, spectrumWithoutHover) > 30);
     spectrum.mouseMove (hoverEvent);
     spectrum.presentationTick();
+    spectrum.mouseDown (hoverEvent);
+    KIRIN_REQUIRE (spectrum.hasFocusLock());
+    const float lockedFrequency = spectrum.focusLockFrequencyHz();
+    KIRIN_REQUIRE (lockedFrequency > 1'000.0f && lockedFrequency < 22'000.0f);
+    spectrum.mouseExit (hoverEvent);
+    spectrum.presentationTick();
+    juce::Image spectrumWithFocusLock (
+        juce::Image::ARGB, spectrum.getWidth(), spectrum.getHeight(), true);
+    {
+        juce::Graphics graphics (spectrumWithFocusLock);
+        spectrum.paintEntireComponent (graphics, true);
+    }
+    KIRIN_REQUIRE (countDifferentPixels (spectrumWithoutHover, spectrumWithFocusLock) > 30);
+    const float clearX = (float) spectrumBounds.width
+                       - (float) ui::spectrumPlotRightInset - 3.0f;
+    const float clearY = (float) ui::spectrumPlotTopInset + 8.0f;
+    const juce::MouseEvent clearEvent (
+        juce::Desktop::getInstance().getMainMouseSource(),
+        { clearX, clearY }, {}, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+        &spectrum, &spectrum, eventTime,
+        { clearX, clearY }, eventTime, 0, false);
+    spectrum.mouseDown (clearEvent);
+    KIRIN_REQUIRE (! spectrum.hasFocusLock());
 
     hypha::SpectrumComponent lineEncodingSpectrum;
     lineEncodingSpectrum.setSize (spectrumBounds.width, spectrumBounds.height);

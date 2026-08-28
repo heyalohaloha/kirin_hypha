@@ -34,6 +34,11 @@ namespace
             && finiteBins (view.display_db);
     }
 
+    bool sameFloatBits (float left, float right) noexcept
+    {
+        return std::memcmp (&left, &right, sizeof (float)) == 0;
+    }
+
     float visualScaleFor (juce::Rectangle<float> bounds) noexcept
     {
         return ui_contract::spectrumVisualScale (juce::roundToInt (bounds.getWidth()));
@@ -47,6 +52,35 @@ namespace
                      .withTrimmedTop ((float) ui_contract::spectrumPlotTopInset * scale)
                      .withTrimmedBottom ((float) ui_contract::spectrumPlotBottomInset * scale);
     }
+
+    juce::Rectangle<float> dataPlotBoundsFor (juce::Rectangle<float> bounds) noexcept
+    {
+        const float scale = visualScaleFor (bounds);
+        auto plot = plotBoundsFor (bounds);
+        if (scale > 1.1f)
+            plot.removeFromTop (18.0f * scale);
+        return plot;
+    }
+
+    juce::Rectangle<float> readoutBoundsFor (juce::Rectangle<float> plot,
+                                             float scale,
+                                             bool expanded,
+                                             bool focusLocked) noexcept
+    {
+        const int logicalWidth = expanded ? ui_contract::spectrumExpandedReadoutWidth
+                               : focusLocked ? ui_contract::spectrumFocusReadoutWidth
+                                             : ui_contract::spectrumHoverReadoutWidth;
+        return { plot.getRight() - (float) logicalWidth * scale,
+                 plot.getY() + (float) ui_contract::spectrumHoverReadoutInset * scale,
+                 (float) logicalWidth * scale,
+                 (float) ui_contract::spectrumHoverReadoutHeight * scale };
+    }
+
+    juce::Rectangle<float> focusClearBoundsFor (juce::Rectangle<float> readout,
+                                                float scale) noexcept
+    {
+        return readout.removeFromRight ((float) ui_contract::spectrumFocusClearWidth * scale);
+    }
 }
 
 SpectrumComponent::SpectrumComponent()
@@ -59,6 +93,14 @@ void SpectrumComponent::setSnapshot (const KirinSpectrumView& next)
 {
     if (haveSnapshot && std::memcmp (&snapshot, &next, sizeof (snapshot)) == 0)
         return;
+    const bool previousValid = haveSnapshot && validSnapshot (snapshot);
+    const bool nextValid = validSnapshot (next);
+    const bool layoutChanged = previousValid && nextValid
+        && (snapshot.sample_rate != next.sample_rate
+            || ! sameFloatBits (snapshot.min_hz, next.min_hz)
+            || ! sameFloatBits (snapshot.max_hz, next.max_hz));
+    if (! nextValid || layoutChanged)
+        focusFrequencyHz = -1.0f;
     snapshot = next;
     haveSnapshot = true;
     if (validSnapshot (snapshot))
@@ -89,6 +131,7 @@ void SpectrumComponent::clearSnapshot()
     displayedDelta.fill (0.0f);
     haveSnapshot = false;
     hoverNormalisedX = -1.0f;
+    focusFrequencyHz = -1.0f;
     hoverNeedsRepaint = false;
     repaint();
 }
@@ -103,7 +146,7 @@ void SpectrumComponent::presentationTick()
 
 void SpectrumComponent::mouseMove (const juce::MouseEvent& event)
 {
-    const auto plot = plotBoundsFor (getLocalBounds().toFloat());
+    const auto plot = dataPlotBoundsFor (getLocalBounds().toFloat());
     const auto position = event.position;
     const float next = plot.contains (position)
                          ? juce::jlimit (0.0f, 1.0f,
@@ -121,6 +164,36 @@ void SpectrumComponent::mouseExit (const juce::MouseEvent&)
         return;
     hoverNormalisedX = -1.0f;
     hoverNeedsRepaint = true;
+}
+
+void SpectrumComponent::mouseDown (const juce::MouseEvent& event)
+{
+    if (! haveSnapshot || ! validSnapshot (snapshot))
+        return;
+    const auto bounds = getLocalBounds().toFloat();
+    const float scale = visualScaleFor (bounds);
+    const auto outerPlot = plotBoundsFor (bounds);
+    const auto plot = dataPlotBoundsFor (bounds);
+    const bool expanded = scale > 1.1f;
+    if (focusFrequencyHz > 0.0f)
+    {
+        auto readout = readoutBoundsFor (outerPlot, scale, expanded, true);
+        if (focusClearBoundsFor (readout, scale).contains (event.position))
+        {
+            focusFrequencyHz = -1.0f;
+            hoverNormalisedX = -1.0f;
+            repaint();
+            return;
+        }
+    }
+    if (! plot.contains (event.position))
+        return;
+    const float normalised = juce::jlimit (0.0f, 1.0f,
+        (event.position.x - plot.getX()) / plot.getWidth());
+    focusFrequencyHz = frequencyForNormalisedX (
+        normalised, snapshot.min_hz, snapshot.max_hz);
+    hoverNormalisedX = normalised;
+    repaint();
 }
 
 float SpectrumComponent::yForDeltaDb (float db, juce::Rectangle<float> plot) noexcept
@@ -142,6 +215,13 @@ float SpectrumComponent::frequencyForNormalisedX (float position, float minHz,
                                                    float maxHz) noexcept
 {
     return minHz * std::pow (maxHz / minHz, juce::jlimit (0.0f, 1.0f, position));
+}
+
+float SpectrumComponent::normalisedXForFrequency (float hz, float minHz,
+                                                   float maxHz) noexcept
+{
+    const float clipped = juce::jlimit (minHz, maxHz, hz);
+    return std::log (clipped / minHz) / std::log (maxHz / minHz);
 }
 
 juce::String SpectrumComponent::hoverFrequencyText (float hz)
@@ -166,7 +246,8 @@ void SpectrumComponent::paint (juce::Graphics& g)
     const float scale = visualScaleFor (bounds);
     const auto scaled = [scale] (float value) { return value * scale; };
     const auto scaledInt = [scale] (int value) { return juce::roundToInt ((float) value * scale); };
-    const auto plot = plotBoundsFor (bounds);
+    const auto outerPlot = plotBoundsFor (bounds);
+    const auto plot = dataPlotBoundsFor (bounds);
     const float minimumHz = haveSnapshot && snapshot.min_hz > 0.0f ? snapshot.min_hz : 10.0f;
     const float maximumHz = haveSnapshot && snapshot.max_hz > minimumHz ? snapshot.max_hz : 22'000.0f;
     const float zeroY = yForDeltaDb (0.0f, plot);
@@ -209,6 +290,19 @@ void SpectrumComponent::paint (juce::Graphics& g)
         g.drawVerticalLine (juce::roundToInt (x), plot.getY(), plot.getBottom());
     }
 
+    if (scale > 1.375f)
+    {
+        g.setColour (COL_MUTED.withAlpha (0.20f));
+        const float tickLength = scaled (3.0f);
+        for (float hz : { 20.0f, 50.0f, 200.0f, 500.0f,
+                          2'000.0f, 5'000.0f, 20'000.0f })
+        {
+            const float x = xForFrequency (hz, minimumHz, maximumHz, plot);
+            g.drawLine (x, plot.getY(), x, plot.getY() + tickLength, 1.0f);
+            g.drawLine (x, plot.getBottom() - tickLength, x, plot.getBottom(), 1.0f);
+        }
+    }
+
     g.setColour (COL_MUTED.withAlpha (0.9f));
     g.drawText ("10", juce::roundToInt (plot.getX()),
                 juce::roundToInt (plot.getBottom()) + scaledInt (1),
@@ -222,6 +316,18 @@ void SpectrumComponent::paint (juce::Graphics& g)
                 juce::roundToInt (plot.getBottom()) + scaledInt (1),
                 scaledInt (30), scaledInt (10),
                 juce::Justification::centredRight);
+    if (scale > 1.125f)
+    {
+        const float hundredX = xForFrequency (100.0f, minimumHz, maximumHz, plot);
+        const float tenKhzX = xForFrequency (10'000.0f, minimumHz, maximumHz, plot);
+        g.setColour (COL_MUTED.withAlpha (0.72f));
+        g.drawText ("100", juce::roundToInt (hundredX) - scaledInt (15),
+                    juce::roundToInt (plot.getBottom()) + scaledInt (1),
+                    scaledInt (30), scaledInt (10), juce::Justification::centred);
+        g.drawText ("10k", juce::roundToInt (tenKhzX) - scaledInt (15),
+                    juce::roundToInt (plot.getBottom()) + scaledInt (1),
+                    scaledInt (30), scaledInt (10), juce::Justification::centred);
+    }
 
     if (! haveSnapshot || ! validSnapshot (snapshot))
     {
@@ -239,47 +345,62 @@ void SpectrumComponent::paint (juce::Graphics& g)
     spectrum_painter::paintCurves (g, plot, scale,
                                    displayedPre, displayedPost, displayedDelta);
 
-    const float legendTop = plot.getY() + scaled ((float) ui_contract::spectrumLegendTop);
-    g.setFont (monoFont (scaled (ui_contract::spectrumLegendFontHeight)));
-    g.setColour (COL_SPECTRUM_DELTA.withAlpha (ui_contract::spectrumDeltaLegendAlpha));
-    g.drawText (juce::CharPointer_UTF8 ("\xCE\x94"),
-                juce::roundToInt (plot.getX())
-                    + scaledInt (ui_contract::spectrumDeltaLegendLabelX),
-                juce::roundToInt (legendTop),
-                scaledInt (ui_contract::spectrumDeltaLegendLabelWidth),
-                scaledInt (ui_contract::spectrumLegendHeight),
-                juce::Justification::centredLeft);
-    g.setColour (COL_SPECTRUM_PRE.withAlpha (ui_contract::spectrumPreLegendAlpha));
-    g.drawText ("PRE", juce::roundToInt (plot.getX())
-                         + scaledInt (ui_contract::spectrumPreLegendLabelX),
-                juce::roundToInt (legendTop),
-                scaledInt (ui_contract::spectrumPreLegendLabelWidth),
-                scaledInt (ui_contract::spectrumLegendHeight),
-                juce::Justification::centredLeft);
-    g.setColour (COL_SPECTRUM_POST.withAlpha (ui_contract::spectrumPostLegendAlpha));
-    g.drawText ("POST", juce::roundToInt (plot.getX())
-                          + scaledInt (ui_contract::spectrumPostLegendLabelX),
-                juce::roundToInt (legendTop),
-                scaledInt (ui_contract::spectrumPostLegendLabelWidth),
-                scaledInt (ui_contract::spectrumLegendHeight),
-                juce::Justification::centredLeft);
-
-    if (hoverNormalisedX >= 0.0f)
+    const float probeNormalisedX = hoverNormalisedX >= 0.0f
+        ? hoverNormalisedX
+        : focusFrequencyHz > 0.0f
+            ? normalisedXForFrequency (focusFrequencyHz, minimumHz, maximumHz)
+            : -1.0f;
+    if (! (scale > 1.1f && probeNormalisedX >= 0.0f))
     {
-        const float hoverX = juce::jmap (hoverNormalisedX, plot.getX(), plot.getRight());
-        const float bandPosition = hoverNormalisedX
+        const float legendTop = outerPlot.getY()
+                              + scaled ((float) ui_contract::spectrumLegendTop);
+        g.setFont (monoFont (scaled (ui_contract::spectrumLegendFontHeight)));
+        g.setColour (COL_SPECTRUM_DELTA.withAlpha (ui_contract::spectrumDeltaLegendAlpha));
+        g.drawText (juce::CharPointer_UTF8 ("\xCE\x94"),
+                    juce::roundToInt (outerPlot.getX())
+                        + scaledInt (ui_contract::spectrumDeltaLegendLabelX),
+                    juce::roundToInt (legendTop),
+                    scaledInt (ui_contract::spectrumDeltaLegendLabelWidth),
+                    scaledInt (ui_contract::spectrumLegendHeight),
+                    juce::Justification::centredLeft);
+        g.setColour (COL_SPECTRUM_PRE.withAlpha (ui_contract::spectrumPreLegendAlpha));
+        g.drawText ("PRE", juce::roundToInt (outerPlot.getX())
+                             + scaledInt (ui_contract::spectrumPreLegendLabelX),
+                    juce::roundToInt (legendTop),
+                    scaledInt (ui_contract::spectrumPreLegendLabelWidth),
+                    scaledInt (ui_contract::spectrumLegendHeight),
+                    juce::Justification::centredLeft);
+        g.setColour (COL_SPECTRUM_POST.withAlpha (ui_contract::spectrumPostLegendAlpha));
+        g.drawText ("POST", juce::roundToInt (outerPlot.getX())
+                              + scaledInt (ui_contract::spectrumPostLegendLabelX),
+                    juce::roundToInt (legendTop),
+                    scaledInt (ui_contract::spectrumPostLegendLabelWidth),
+                    scaledInt (ui_contract::spectrumLegendHeight),
+                    juce::Justification::centredLeft);
+    }
+    if (probeNormalisedX >= 0.0f)
+    {
+        const bool focusLocked = focusFrequencyHz > 0.0f;
+        const bool expanded = scale > 1.1f;
+        const float hoverX = juce::jmap (probeNormalisedX, plot.getX(), plot.getRight());
+        const float bandPosition = probeNormalisedX
                                  * (float) (KIRIN_SPECTRUM_BAND_COUNT - 1u);
         const size_t lower = static_cast<size_t> (std::floor (bandPosition));
         const size_t upper = std::min (
             lower + 1u, static_cast<size_t> (KIRIN_SPECTRUM_BAND_COUNT - 1u));
         const float blend = bandPosition - (float) lower;
+        const float preDbfs = juce::jmap (blend, displayedPre[lower],
+                                         displayedPre[upper]);
+        const float postDbfs = juce::jmap (blend, displayedPost[lower],
+                                          displayedPost[upper]);
         const float deltaDb = juce::jmap (blend, displayedDelta[lower],
                                          displayedDelta[upper]);
         const float pointY = yForDeltaDb (deltaDb, plot);
 
-        g.setColour (COL_NORMAL.withAlpha (0.30f));
+        g.setColour (COL_NORMAL.withAlpha (focusLocked ? 0.48f : 0.30f));
         g.drawLine (hoverX, plot.getY(), hoverX, plot.getBottom(),
-                    scaled (ui_contract::spectrumHoverLineWidth));
+                    ui_contract::spectrumStrokeScale (scale)
+                        * ui_contract::spectrumHoverLineWidth);
         g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.18f));
         g.fillEllipse (hoverX - scaled (3.5f), pointY - scaled (3.5f),
                        scaled (7.0f), scaled (7.0f));
@@ -287,11 +408,7 @@ void SpectrumComponent::paint (juce::Graphics& g)
         g.fillEllipse (hoverX - scaled (1.65f), pointY - scaled (1.65f),
                        scaled (3.3f), scaled (3.3f));
 
-        const auto readout = juce::Rectangle<float> (
-            plot.getRight() - scaled ((float) ui_contract::spectrumHoverReadoutWidth),
-            plot.getY() + scaled ((float) ui_contract::spectrumHoverReadoutInset),
-            scaled ((float) ui_contract::spectrumHoverReadoutWidth),
-            scaled ((float) ui_contract::spectrumHoverReadoutHeight));
+        const auto readout = readoutBoundsFor (outerPlot, scale, expanded, focusLocked);
         g.setColour (BG.brighter (0.10f).withAlpha (0.96f));
         g.fillRoundedRectangle (readout, scaled (ui_contract::spectrumHoverReadoutRadius));
         g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.38f));
@@ -299,26 +416,62 @@ void SpectrumComponent::paint (juce::Graphics& g)
                                 scaled (0.75f));
 
         const float frequency = frequencyForNormalisedX (
-            hoverNormalisedX, minimumHz, maximumHz);
+            probeNormalisedX, minimumHz, maximumHz);
         const auto frequencyText = hoverFrequencyText (frequency);
         const auto deltaText = juce::String (deltaDb >= 0.0f ? "+" : "")
                              + juce::String (deltaDb, 1);
         const int textY = juce::roundToInt (readout.getY());
         g.setFont (monoFont (scaled (8.5f)));
-        g.setColour (COL_NORMAL.withAlpha (0.94f));
-        g.drawText (frequencyText,
-                    juce::roundToInt (readout.getX())
-                        + scaledInt (ui_contract::spectrumHoverFrequencyX),
-                    textY, scaledInt (ui_contract::spectrumHoverFrequencyWidth),
-                    scaledInt (ui_contract::spectrumHoverReadoutHeight),
-                    juce::Justification::centredLeft);
-        g.setColour (COL_SPECTRUM_DELTA_BR.withAlpha (0.98f));
-        g.drawText (juce::String (juce::CharPointer_UTF8 ("Δ")) + deltaText,
-                    juce::roundToInt (readout.getX())
-                        + scaledInt (ui_contract::spectrumHoverDeltaX),
-                    textY, scaledInt (ui_contract::spectrumHoverDeltaWidth),
-                    scaledInt (ui_contract::spectrumHoverReadoutHeight),
-                    juce::Justification::centredRight);
+        const auto drawReadoutText = [&] (const juce::String& text, juce::Colour colour,
+                                          int logicalX, int logicalWidth,
+                                          juce::Justification justification)
+        {
+            g.setColour (colour);
+            g.drawText (text, juce::roundToInt (readout.getX()) + scaledInt (logicalX),
+                        textY, scaledInt (logicalWidth),
+                        scaledInt (ui_contract::spectrumHoverReadoutHeight), justification);
+        };
+        if (expanded)
+        {
+            drawReadoutText (frequencyText, COL_NORMAL.withAlpha (0.94f),
+                             ui_contract::spectrumExpandedFrequencyX,
+                             ui_contract::spectrumExpandedFrequencyWidth,
+                             juce::Justification::centredLeft);
+            drawReadoutText ("PRE " + juce::String (preDbfs, 1),
+                             COL_SPECTRUM_PRE.withAlpha (0.98f),
+                             ui_contract::spectrumExpandedPreX,
+                             ui_contract::spectrumExpandedPreWidth,
+                             juce::Justification::centredRight);
+            drawReadoutText ("POST " + juce::String (postDbfs, 1),
+                             COL_SPECTRUM_POST.withAlpha (0.98f),
+                             ui_contract::spectrumExpandedPostX,
+                             ui_contract::spectrumExpandedPostWidth,
+                             juce::Justification::centredRight);
+            drawReadoutText (juce::String (juce::CharPointer_UTF8 ("Δ")) + deltaText,
+                             COL_SPECTRUM_DELTA_BR.withAlpha (0.98f),
+                             ui_contract::spectrumExpandedDeltaX,
+                             ui_contract::spectrumExpandedDeltaWidth,
+                             juce::Justification::centredRight);
+        }
+        else
+        {
+            drawReadoutText (frequencyText, COL_NORMAL.withAlpha (0.94f),
+                             ui_contract::spectrumHoverFrequencyX,
+                             ui_contract::spectrumHoverFrequencyWidth,
+                             juce::Justification::centredLeft);
+            drawReadoutText (juce::String (juce::CharPointer_UTF8 ("Δ")) + deltaText,
+                             COL_SPECTRUM_DELTA_BR.withAlpha (0.98f),
+                             ui_contract::spectrumHoverDeltaX,
+                             ui_contract::spectrumHoverDeltaWidth,
+                             juce::Justification::centredRight);
+        }
+        if (focusLocked)
+        {
+            auto clearBounds = focusClearBoundsFor (readout, scale);
+            g.setColour (COL_NORMAL.withAlpha (0.72f));
+            g.drawText (juce::CharPointer_UTF8 ("×"), clearBounds.toNearestInt(),
+                        juce::Justification::centred);
+        }
     }
 }
 }

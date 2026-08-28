@@ -80,6 +80,14 @@ public:
     bool setSpectrumVisible (bool visible);             // POST-only; request work stays on IO thread
     bool pollSpectrum (KirinSpectrumView& out) const;   // signed POST-PRE display snapshot
     bool spectrumStats (KirinSpectrumStats& out) const; // read-only validation counters
+    uint8_t spectrumSizePreference() const              // editor-lifetime recreation only; not DAW state
+    {
+        return preferredSpectrumSize.load (std::memory_order_acquire);
+    }
+    void setSpectrumSizePreference (uint8_t index)
+    {
+        preferredSpectrumSize.store (index < 3u ? index : 0u, std::memory_order_release);
+    }
     bool isPlaying() const { return lastPlaying.load (std::memory_order_acquire); } // transport (POST pair lock)
 
     // --- B-054: PRE live name + LED pollers (egui parity) --------------------------------
@@ -171,6 +179,7 @@ private:
     std::atomic<int>  enableDelayTicks { 0 };          // prepare fallback restore grace; setState clears it
     std::atomic<bool> stateInformationSeen { false };  // setStateInformation reached this instance at least once
     std::atomic<bool> spectrumVisibleRequested { false }; // editor lifetime; not persisted in DAW state
+    std::atomic<uint8_t> preferredSpectrumSize { 0 };      // processor lifetime; Spectrum still opens off
 
 #if KIRIN_HYPHA_PRE_DISPLAY
     hypha::pre_display::ClockTap preDisplayClock;

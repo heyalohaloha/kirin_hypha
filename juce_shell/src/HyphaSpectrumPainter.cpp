@@ -46,7 +46,10 @@ void paintCurves (juce::Graphics& g,
                   const SpectrumBins& post,
                   const SpectrumBins& delta)
 {
-    const auto scaled = [visualScale] (float value) { return value * visualScale; };
+    const float strokeScale = ui_contract::spectrumStrokeScale (visualScale);
+    const float glowScale = ui_contract::spectrumGlowScale (visualScale);
+    const auto scaledStroke = [strokeScale] (float value) { return value * strokeScale; };
+    const auto scaledGlow = [glowScale] (float value) { return value * glowScale; };
     const float zeroY = yForDeltaDb (0.0f, plot);
     SpectrumBins x {};
     SpectrumBins preY {};
@@ -108,17 +111,17 @@ void paintCurves (juce::Graphics& g,
 
     g.setColour (COL_SPECTRUM_PRE.withAlpha (ui_contract::spectrumPreCurveAlpha));
     g.strokePath (preCurve,
-                  juce::PathStrokeType (scaled (ui_contract::spectrumPreStrokeWidth),
+                  juce::PathStrokeType (scaledStroke (ui_contract::spectrumPreStrokeWidth),
                                         juce::PathStrokeType::curved,
                                         juce::PathStrokeType::rounded));
     g.setColour (COL_SPECTRUM_POST.withAlpha (ui_contract::spectrumPostGlowAlpha));
     g.strokePath (postCurve,
-                  juce::PathStrokeType (scaled (ui_contract::spectrumPostGlowStrokeWidth),
+                  juce::PathStrokeType (scaledGlow (ui_contract::spectrumPostGlowStrokeWidth),
                                         juce::PathStrokeType::curved,
                                         juce::PathStrokeType::rounded));
     g.setColour (COL_SPECTRUM_POST.withAlpha (ui_contract::spectrumPostCurveAlpha));
     g.strokePath (postCurve,
-                  juce::PathStrokeType (scaled (ui_contract::spectrumPostStrokeWidth),
+                  juce::PathStrokeType (scaledStroke (ui_contract::spectrumPostStrokeWidth),
                                         juce::PathStrokeType::curved,
                                         juce::PathStrokeType::rounded));
 
@@ -146,34 +149,39 @@ void paintCurves (juce::Graphics& g,
         {
             g.setColour (COL_SPECTRUM_DELTA_BR.withAlpha (
                 ui_contract::spectrumTipAlpha[bucket] * tipAlphaShare[layer]));
-            g.fillPath (intensityTips[layer][bucket]);
+            if (! intensityTips[layer][bucket].isEmpty())
+                g.fillPath (intensityTips[layer][bucket]);
         }
     }
 
     g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.21f));
-    g.drawLine (plot.getX(), zeroY, plot.getRight(), zeroY, scaled (3.2f));
+    g.drawLine (plot.getX(), zeroY, plot.getRight(), zeroY, scaledGlow (3.2f));
     g.setColour (COL_SPECTRUM_DELTA_BR.withAlpha (0.76f));
-    g.drawLine (plot.getX(), zeroY, plot.getRight(), zeroY, scaled (1.0f));
+    g.drawLine (plot.getX(), zeroY, plot.getRight(), zeroY, scaledStroke (1.0f));
 
     g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.17f));
-    g.strokePath (deltaCurve, juce::PathStrokeType (scaled (4.6f),
+    g.strokePath (deltaCurve, juce::PathStrokeType (scaledGlow (4.6f),
                                                     juce::PathStrokeType::curved,
                                                     juce::PathStrokeType::rounded));
     g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.94f));
-    g.strokePath (deltaCurve, juce::PathStrokeType (scaled (2.15f),
+    g.strokePath (deltaCurve, juce::PathStrokeType (scaledStroke (2.15f),
                                                     juce::PathStrokeType::curved,
                                                     juce::PathStrokeType::rounded));
 
     constexpr std::array<float, intensityLevelCount> highlightAlpha {
-        0.10f, 0.16f, 0.22f, 0.29f, 0.36f, 0.44f, 0.52f,
-        0.60f, 0.68f, 0.75f, 0.82f, 0.89f, 0.94f
+        0.10f, 0.13f, 0.16f, 0.19f, 0.22f, 0.255f, 0.29f,
+        0.325f, 0.36f, 0.40f, 0.44f, 0.48f, 0.52f,
+        0.56f, 0.60f, 0.64f, 0.68f, 0.715f, 0.75f,
+        0.785f, 0.82f, 0.855f, 0.89f, 0.915f, 0.94f
     };
     for (size_t bucket = 0; bucket < highlights.size(); ++bucket)
     {
         g.setColour (COL_SPECTRUM_DELTA_BR.withAlpha (highlightAlpha[bucket]));
-        g.strokePath (highlights[bucket], juce::PathStrokeType (scaled (1.15f),
-                                                               juce::PathStrokeType::curved,
-                                                               juce::PathStrokeType::rounded));
+        if (! highlights[bucket].isEmpty())
+            g.strokePath (highlights[bucket],
+                          juce::PathStrokeType (scaledStroke (1.15f),
+                                                juce::PathStrokeType::curved,
+                                                juce::PathStrokeType::rounded));
     }
 }
 }
