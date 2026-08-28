@@ -249,13 +249,9 @@ namespace
             }
         }
 
-        // The bright edge belongs to one measured second, not to an incidental number of JUCE
-        // timer callbacks. A delayed Windows paint therefore catches up without losing emphasis.
-        const size_t recentStart = history.recentEmphasisStart();
-        const auto recent = smoothPath (points, recentStart, points.count);
-        g.setColour (COL_SPECTRUM_DELTA_BR.withAlpha (0.86f));
-        g.strokePath (recent, juce::PathStrokeType (1.8f * scale,
-                      juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        // Sharpness is a six-second history, so its ink must not age or acquire a moving
+        // high-emphasis tail. The curve and fill above remain uniform across the factual run;
+        // only this point identifies the newest exact observation.
         const auto newest = points.values[points.count - 1u];
         g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.20f));
         g.fillEllipse (newest.x - 4.0f * scale, newest.y - 4.0f * scale,

@@ -2,8 +2,10 @@
 
 #include "../src/HyphaPerceptualComponent.h"
 #include "../src/HyphaPerceptualHistory.h"
+#include "../src/HyphaSpectrumGeometry.h"
 #include "../src/HyphaUiContract.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
@@ -59,6 +61,52 @@ namespace
         return count;
     }
 
+    int maximumAlphaAround (const juce::Image& image, juce::Point<int> centre)
+    {
+        int maximum = 0;
+        for (int y = centre.y - 2; y <= centre.y + 2; ++y)
+            for (int x = centre.x - 2; x <= centre.x + 2; ++x)
+                if (image.getBounds().contains (x, y))
+                    maximum = std::max (maximum, (int) image.getPixelAt (x, y).getAlpha());
+        return maximum;
+    }
+
+    void verifyUniformHistoryInk()
+    {
+        const auto& preset = ui_contract::spectrumSizePresets[2];
+        const auto bounds = ui_contract::spectrumPlotBounds (preset.width, preset.height);
+        PerceptualComponent component;
+        component.setSize (bounds.width, bounds.height);
+        for (int index = 1; index <= 60; ++index)
+            component.setSnapshot (snapshot ((int64_t) index * 4'800, 1.0));
+
+        juce::Image image (juce::Image::ARGB, bounds.width, bounds.height, true);
+        juce::Graphics graphics (image);
+        component.paintEntireComponent (graphics, true);
+
+        const auto componentBounds = component.getLocalBounds().toFloat();
+        const float scale = spectrum_geometry::visualScaleFor (componentBounds);
+        auto plot = spectrum_geometry::plotBoundsFor (componentBounds);
+        plot.removeFromTop ((scale > 1.1f ? 27.0f : 17.0f) * scale);
+        plot.removeFromBottom (10.0f * scale);
+        const float curveY = juce::jmap (1.0f, 2.0f, -2.0f,
+                                         plot.getY(), plot.getBottom());
+        const auto pointAtAge = [&plot, curveY] (double ageSeconds)
+        {
+            const float x = plot.getRight()
+                          - (float) (ageSeconds / perceptual_history::historySeconds)
+                                * plot.getWidth();
+            return juce::Point<int> (juce::roundToInt (x), juce::roundToInt (curveY));
+        };
+        const int olderAlpha = maximumAlphaAround (image, pointAtAge (4.0));
+        const int newerAlpha = maximumAlphaAround (image, pointAtAge (0.5));
+        std::cout << "Sharpness uniform ink alpha: " << olderAlpha
+                  << '/' << newerAlpha << '\n';
+        KIRIN_PERCEPTUAL_REQUIRE (olderAlpha > 0);
+        KIRIN_PERCEPTUAL_REQUIRE (newerAlpha > 0);
+        KIRIN_PERCEPTUAL_REQUIRE (std::abs (olderAlpha - newerAlpha) <= 2);
+    }
+
     double renderAt (const ui_contract::SpectrumSizePreset& preset,
                      const char* outputVariable)
     {
@@ -110,7 +158,8 @@ namespace
 void verifyPerceptualHistoryContract()
 {
     using namespace perceptual_history;
-    static_assert (recentEmphasisSeconds == 1.0);
+    static_assert (historyCapacity == 60u);
+    static_assert (historySeconds == 6.0);
     History history;
     KIRIN_PERCEPTUAL_REQUIRE (
         history.append (4'800, 48'000, 4'800, 1.0, 1.2, 0.2)
@@ -184,14 +233,6 @@ void verifyPerceptualHistoryContract()
     KIRIN_PERCEPTUAL_REQUIRE (! delayedUi.historyHasGapsForTest());
     KIRIN_PERCEPTUAL_REQUIRE (delayedUi.newestEndpointForTest() == 307'200);
 
-    History emphasisHistory;
-    for (int index = 1; index <= 60; ++index)
-        emphasisHistory.append ((int64_t) index * 4'800, 48'000, 4'800,
-                                1.0, 1.2, 0.02 * (double) index);
-    KIRIN_PERCEPTUAL_REQUIRE (emphasisHistory.recentEmphasisStart() == 49u);
-    KIRIN_PERCEPTUAL_REQUIRE (
-        emphasisHistory.ageSecondsAt (emphasisHistory.recentEmphasisStart()) == 1.0);
-
     delayedUi.setBatch (batch (70, 71));
     KIRIN_PERCEPTUAL_REQUIRE (delayedUi.historySizeForTest() == 2u);
     KIRIN_PERCEPTUAL_REQUIRE (! delayedUi.historyHasGapsForTest());
@@ -202,6 +243,7 @@ void verifyPerceptualRenderingContract()
 {
     static_assert (sizeof (KirinPerceptualView) == 56u);
     static_assert (sizeof (KirinPerceptualBatch) == 3'648u);
+    verifyUniformHistoryInk();
     const double compact = renderAt (
         ui_contract::spectrumSizePresets[0], "KIRIN_PERCEPTUAL_RENDER_OUTPUT");
     const double medium = renderAt (
