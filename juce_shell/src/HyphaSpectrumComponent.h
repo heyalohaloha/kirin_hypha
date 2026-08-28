@@ -28,7 +28,6 @@ private:
     static juce::String statusText (uint8_t status);
     static juce::String hoverFrequencyText (float hz);
     static float yForDeltaDb (float db, juce::Rectangle<float> plot) noexcept;
-    static float yForMagnitudeDbfs (float dbfs, juce::Rectangle<float> plot) noexcept;
     static float xForFrequency (float hz, float minHz, float maxHz,
                                 juce::Rectangle<float> plot) noexcept;
     static float frequencyForNormalisedX (float position, float minHz,
