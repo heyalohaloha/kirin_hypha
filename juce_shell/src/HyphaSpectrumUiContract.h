@@ -10,6 +10,10 @@ namespace hypha::ui_contract
     constexpr int spectrumTitleGap = 8;
     constexpr int spectrumSizeToggleGap = 6;
     constexpr int spectrumSizeToggleWidth = 46;
+    constexpr int analysisMetersToggleWidth = 54;
+    constexpr int analysisModeToggleWidth = 46;
+    constexpr int analysisSizeToggleWidth = 40;
+    constexpr int analysisHeaderGap = 4;
 
     struct SpectrumSizePreset
     {
@@ -20,9 +24,9 @@ namespace hypha::ui_contract
     };
 
     constexpr std::array<SpectrumSizePreset, 3> spectrumSizePresets {{
-        { 300, 200, "100%", "Spectrum size: 100%" },
-        { 375, 250, "125%", "Spectrum size: 125%" },
-        { 450, 300, "150%", "Spectrum size: 150%" },
+        { 300, 200, "100%", "Analysis size: 100%" },
+        { 375, 250, "125%", "Analysis size: 125%" },
+        { 450, 300, "150%", "Analysis size: 150%" },
     }};
 
     constexpr int spectrumPlotLeftInset = 24;

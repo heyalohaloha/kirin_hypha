@@ -12,6 +12,7 @@
 #include "PostControls.h"
 #if ! KIRIN_HYPHA_PRE_DISPLAY
  #include "HyphaSpectrumComponent.h"
+ #include "HyphaPerceptualComponent.h"
 #endif
 
 // B-054: full UI rebuild to egui parity (crates/hypha_pre/editor.rs + hypha_post/editor.rs +
@@ -59,7 +60,8 @@ private:
     void updatePre();
     void updatePost();
 #if ! KIRIN_HYPHA_PRE_DISPLAY
-    void setSpectrumMode (bool enabled);
+    enum class AnalysisPage { meters, spectrum, perceptual };
+    void setAnalysisPage (AnalysisPage page);
     void cycleSpectrumSize();
     void updateSpectrumSizeControl();
 #endif
@@ -102,15 +104,17 @@ private:
     hypha::PairDropdownButton pairDropdown;                // POST: vector arrow / candidate / All Keep / All Stop
 #if ! KIRIN_HYPHA_PRE_DISPLAY
     juce::TextButton          spectrumToggle;               // POST: meters / Spectrum page
+    juce::TextButton          analysisModeToggle;            // POST: FREQ / SHARP page switch
     juce::TextButton          spectrumSizeToggle;           // POST Spectrum: 100/125/150 percent
     hypha::SpectrumComponent  spectrumView;                 // POST-only signed difference plot
+    hypha::PerceptualComponent perceptualView;               // POST-only Δ Sharpness History
 #endif
     juce::TooltipWindow       tooltip { this };           // drives per-cell hover help
 
     Kind   currentKind = Kind::WatchAbs6;
     bool   currentSix  = false;
 #if ! KIRIN_HYPHA_PRE_DISPLAY
-    bool   spectrumMode = false;
+    AnalysisPage analysisPage = AnalysisPage::meters;
     size_t spectrumSizeIndex = 0;
 #endif
     int    metricTop   = 0;       // y of the first metric row (set in resized())

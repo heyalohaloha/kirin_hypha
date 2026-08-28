@@ -311,14 +311,16 @@ fn juce_wrappers_forward_host_presentation_latency_as_diagnostics() {
 }
 
 #[test]
-fn spectrum_is_post_only_on_demand_and_isolated_from_existing_schemas() {
+fn optional_analysis_is_post_only_on_demand_and_isolated_from_existing_schemas() {
     let header = read_repo("crates/kirin_hypha_ffi/include/kirin_hypha_ffi.h");
     for required in [
         "KIRIN_SPECTRUM_BAND_COUNT 256u",
         "KIRIN_SPECTRUM_DISPLAY_RANGE_DB 18.0f",
         "kirin_hypha_set_spectrum_visible",
+        "kirin_hypha_set_perceptual_visible",
         "kirin_hypha_set_spectrum_channel_mode",
         "kirin_hypha_poll_spectrum",
+        "kirin_hypha_poll_perceptual",
     ] {
         assert!(header.contains(required), "Spectrum ABI missing {required}");
     }
@@ -346,12 +348,20 @@ fn spectrum_is_post_only_on_demand_and_isolated_from_existing_schemas() {
     let exchange = read_repo("crates/kirin_measure/src/spectrum_exchange.rs");
     assert!(exchange.contains("join(\"spectrum\").join(\"request.json\")"));
     assert!(exchange.contains("join(\"spectrum\").join(\"pre.bin\")"));
+    assert!(exchange.contains("join(\"spectrum\").join(\"pre_perceptual.bin\")"));
     assert!(!exchange.contains("plugin_data"));
+
+    let processor = read_repo("juce_shell/src/PluginProcessor.cpp");
+    assert!(processor.contains("perceptualAnalysisRequested.store (true"));
+    assert!(processor.contains("perceptualAnalysisRequested.load"));
+    assert!(processor.contains("kirin_hypha_set_perceptual_visible (hyphaHandle, true)"));
 
     let editor = read_repo("juce_shell/src/PluginEditor.cpp");
     assert!(editor.contains("#if ! KIRIN_HYPHA_PRE_DISPLAY"));
-    assert!(editor.contains("setSpectrumMode (! spectrumMode)"));
+    assert!(editor.contains("setAnalysisPage (analysisPage == AnalysisPage::meters"));
     assert!(editor.contains("processorRef.setSpectrumVisible (false)"));
+    assert!(editor.contains("processorRef.setPerceptualVisible (false)"));
+    assert!(editor.contains("AnalysisPage::perceptual"));
     assert!(editor.contains("spectrumSizeIndex + 1u"));
     assert!(editor.contains("ui::spectrumSizePresets[spectrumSizeIndex]"));
     assert!(editor.contains(": ui::spectrumSizePresets[0]"));
@@ -379,9 +389,11 @@ fn spectrum_is_post_only_on_demand_and_isolated_from_existing_schemas() {
     let cmake = read_repo("juce_shell/CMakeLists.txt");
     let post_only_branch = slice_between(
         &cmake,
-        "else()\n        target_sources(${TARGET} PRIVATE\n            src/HyphaSpectrumComponent.cpp",
+        "else()\n        target_sources(${TARGET} PRIVATE\n            src/HyphaPerceptualComponent.cpp",
         "endif()",
     );
+    assert!(post_only_branch.contains("src/HyphaPerceptualPainter.cpp"));
+    assert!(post_only_branch.contains("src/HyphaSpectrumComponent.cpp"));
     assert!(post_only_branch.contains("src/HyphaSpectrumPainter.cpp"));
     assert!(post_only_branch.contains("src/HyphaSpectrumChromePainter.cpp"));
     assert!(post_only_branch.contains("src/HyphaSpectrumFocusTrail.cpp"));
@@ -394,6 +406,14 @@ fn spectrum_is_post_only_on_demand_and_isolated_from_existing_schemas() {
     let component = read_repo("juce_shell/src/HyphaSpectrumComponent.cpp");
     assert!(component.contains("snapshot.presentation_end_samples"));
     assert!(component.contains("focusTrail.reset()"));
+
+    let perceptual_history = read_repo("juce_shell/src/HyphaPerceptualHistory.h");
+    assert!(perceptual_history.contains("historyCapacity = 60u"));
+    assert!(perceptual_history.contains("continuesPrevious"));
+    let perceptual = read_repo("crates/kirin_measure/src/perceptual.rs");
+    assert!(perceptual.contains("presentation_end_samples"));
+    assert!(perceptual.contains("aperture_samples"));
+    assert!(perceptual.contains("post.sharpness - pre.sharpness"));
 
     let plugin_data = read_repo("crates/kirin_measure/src/plugin_data.rs");
     assert!(!plugin_data.contains("spectrum"));

@@ -15,15 +15,26 @@ use uuid::Uuid;
 
 #[path = "spectrum_exchange_codec.rs"]
 mod codec;
+#[path = "spectrum_exchange_join.rs"]
+mod joining;
+#[path = "perceptual_exchange_codec.rs"]
+mod perceptual_codec;
 
-use crate::spectrum::{difference_post_minus_pre, SpectrumChannelMode, SpectrumDifference};
+use crate::perceptual::PerceptualDifference;
+use crate::spectrum::{AnalysisViewMode, SpectrumChannelMode, SpectrumDifference};
 use crate::spectrum_exchange_worker::SpectrumExchangeWorker;
-use crate::spectrum_runtime::{SpectrumHistory, SpectrumRuntime};
+#[cfg(test)]
+use crate::spectrum_runtime::SpectrumHistory;
+use crate::spectrum_runtime::SpectrumRuntime;
 #[cfg(test)]
 use codec::{decode_snapshot, SNAPSHOT_MAX_BYTES};
 use codec::{encode_snapshot, read_bounded, read_snapshot};
+#[cfg(test)]
+use joining::{newest_exact_difference, newest_exact_perceptual_difference};
+use joining::{store_joined_perceptual, store_joined_spectrum};
+use perceptual_codec::{encode_perceptual_snapshot, read_perceptual_snapshot};
 
-const REQUEST_SCHEMA: &str = "kirin_hypha_spectrum_request_v2";
+const REQUEST_SCHEMA: &str = "kirin_hypha_analysis_request_v3";
 const REQUEST_RENEW_INTERVAL: Duration = Duration::from_millis(500);
 const REQUEST_LEASE_MS: i64 = 1_500;
 const WARMUP_LIMIT: Duration = Duration::from_secs(2);
@@ -58,9 +69,11 @@ pub enum SpectrumViewStatus {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct SpectrumViewSnapshot {
     pub status: SpectrumViewStatus,
+    pub analysis_mode: AnalysisViewMode,
     pub channel_mode: SpectrumChannelMode,
     pub channels: u8,
     pub difference: Option<SpectrumDifference>,
+    pub perceptual_difference: Option<PerceptualDifference>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -70,6 +83,7 @@ struct SpectrumRequest {
     requested_by_post_instance_id: String,
     target_pre_instance_id: String,
     sample_rate: u32,
+    analysis_mode: u8,
     channel_mode: u8,
     expires_at_unix_ms: i64,
 }
@@ -79,6 +93,7 @@ struct PostSession {
     target: Option<SpectrumTarget>,
     last_renewed: Option<Instant>,
     started_at: Option<Instant>,
+    analysis_mode: AnalysisViewMode,
     channel_mode: SpectrumChannelMode,
 }
 
@@ -121,18 +136,38 @@ impl SpectrumCoordinator {
                     target: None,
                     last_renewed: None,
                     started_at: None,
+                    analysis_mode: self.runtime.analysis_mode(),
                     channel_mode: self.runtime.channel_mode(),
                 });
             }
         } else if !visible {
             let _ = self.runtime.set_enabled(false);
-            self.store_view(SpectrumViewStatus::Hidden, None);
+            self.store_view(SpectrumViewStatus::Hidden, None, None);
         }
         self.exchange_worker.notify();
     }
 
     pub fn post_visible(&self) -> bool {
         self.post_visible.load(Ordering::Acquire)
+    }
+
+    /// UI/control thread only. Spectrum and Perceptual Delta never analyze in parallel.
+    pub fn set_post_analysis_mode(&self, mode: AnalysisViewMode) -> bool {
+        let _session = match self.post_session.lock() {
+            Ok(session) => session,
+            Err(_) => return false,
+        };
+        if !self.runtime.set_analysis_mode(mode) {
+            return false;
+        }
+        let status = if self.post_visible() {
+            SpectrumViewStatus::WarmingUp
+        } else {
+            SpectrumViewStatus::Hidden
+        };
+        self.store_view(status, None, None);
+        self.exchange_worker.notify();
+        true
     }
 
     /// UI/control thread only. The next isolated exchange tick renews the exact request; this
@@ -153,7 +188,7 @@ impl SpectrumCoordinator {
         } else {
             SpectrumViewStatus::Hidden
         };
-        self.store_view(status, None);
+        self.store_view(status, None, None);
         self.exchange_worker.notify();
         true
     }
@@ -175,6 +210,7 @@ impl SpectrumCoordinator {
             target: None,
             last_renewed: None,
             started_at: None,
+            analysis_mode: self.runtime.analysis_mode(),
             channel_mode: self.runtime.channel_mode(),
         });
         let Some(target) = target else {
@@ -183,7 +219,7 @@ impl SpectrumCoordinator {
             session.last_renewed = None;
             session.started_at = None;
             let _ = self.runtime.set_enabled(false);
-            self.store_view(SpectrumViewStatus::NoPair, None);
+            self.store_view(SpectrumViewStatus::NoPair, None, None);
             return false;
         };
         if session.target.as_ref() != Some(&target) {
@@ -193,7 +229,15 @@ impl SpectrumCoordinator {
             session.started_at = None;
             let _ = self.runtime.set_enabled(false);
         }
+        let analysis_mode = self.runtime.analysis_mode();
         let channel_mode = self.runtime.channel_mode();
+        if session.analysis_mode != analysis_mode {
+            cleanup_owned_request(session.target.as_ref(), session.request_id);
+            session.request_id = Uuid::new_v4();
+            session.last_renewed = None;
+            session.started_at = None;
+            session.analysis_mode = analysis_mode;
+        }
         if session.channel_mode != channel_mode {
             cleanup_owned_request(session.target.as_ref(), session.request_id);
             session.request_id = Uuid::new_v4();
@@ -212,12 +256,13 @@ impl SpectrumCoordinator {
                 requested_by_post_instance_id: post_instance_id.to_string(),
                 target_pre_instance_id: target.pre_instance_id.clone(),
                 sample_rate: self.sample_rate,
+                analysis_mode: analysis_mode as u8,
                 channel_mode: channel_mode as u8,
                 expires_at_unix_ms: unix_ms_now().saturating_add(REQUEST_LEASE_MS),
             };
             if write_request(&target.instance_dir, &request).is_err() {
                 let _ = self.runtime.set_enabled(false);
-                self.store_view(SpectrumViewStatus::Unavailable, None);
+                self.store_view(SpectrumViewStatus::Unavailable, None, None);
                 return false;
             }
             session.last_renewed = Some(now);
@@ -225,38 +270,27 @@ impl SpectrumCoordinator {
         if !self.runtime.set_enabled(true) {
             cleanup_owned_request(Some(&target), session.request_id);
             session.last_renewed = None;
-            self.store_view(SpectrumViewStatus::Unavailable, None);
+            self.store_view(SpectrumViewStatus::Unavailable, None, None);
             return false;
         }
         if session.started_at.is_none() {
             session.started_at = Some(now);
         }
-        let local = self.runtime.try_history();
-        let remote = read_snapshot(&target.instance_dir)
-            .filter(|snapshot| snapshot.request_id == session.request_id)
-            .map(|snapshot| snapshot.history);
-        match local
-            .as_ref()
-            .zip(remote.as_ref())
-            .and_then(|(post, pre)| newest_exact_difference(post, pre))
-        {
-            Some(difference) => self.store_view(SpectrumViewStatus::Active, Some(difference)),
-            None if local
-                .as_ref()
-                .is_some_and(|history| history.newest().is_some())
-                && remote
-                    .as_ref()
-                    .is_some_and(|history| history.newest().is_some()) =>
-            {
-                self.store_view(SpectrumViewStatus::Unavailable, None)
+        match analysis_mode {
+            AnalysisViewMode::Spectrum => {
+                let local = self.runtime.try_history();
+                let remote = read_snapshot(&target.instance_dir)
+                    .filter(|snapshot| snapshot.request_id == session.request_id)
+                    .map(|snapshot| snapshot.history);
+                store_joined_spectrum(self, session, now, local.as_ref(), remote.as_ref());
             }
-            None if session
-                .started_at
-                .is_some_and(|started| now.duration_since(started) >= WARMUP_LIMIT) =>
-            {
-                self.store_view(SpectrumViewStatus::Unavailable, None)
+            AnalysisViewMode::Perceptual => {
+                let local = self.runtime.try_perceptual_history();
+                let remote = read_perceptual_snapshot(&target.instance_dir)
+                    .filter(|snapshot| snapshot.request_id == session.request_id)
+                    .map(|snapshot| snapshot.history);
+                store_joined_perceptual(self, session, now, local.as_ref(), remote.as_ref());
             }
-            None => self.store_view(SpectrumViewStatus::WarmingUp, None),
         }
         true
     }
@@ -264,6 +298,7 @@ impl SpectrumCoordinator {
     /// PRE IO-thread tick. An active exact request may be called at the 30 Hz Spectrum cadence.
     pub(crate) fn pre_tick(&self, pre_instance_id: &str, instance_dir: &Path) -> bool {
         let request = read_request(instance_dir).and_then(|request| {
+            let analysis_mode = AnalysisViewMode::try_from(request.analysis_mode).ok()?;
             let channel_mode = SpectrumChannelMode::try_from(request.channel_mode).ok()?;
             (request.schema == REQUEST_SCHEMA
                 && request.target_pre_instance_id == pre_instance_id
@@ -273,7 +308,7 @@ impl SpectrumCoordinator {
             .then(|| {
                 Uuid::parse_str(&request.request_id)
                     .ok()
-                    .map(|id| (id, channel_mode))
+                    .map(|id| (id, analysis_mode, channel_mode))
             })
             .flatten()
         });
@@ -281,23 +316,28 @@ impl SpectrumCoordinator {
             Ok(session) => session,
             Err(_) => return false,
         };
-        let Some((request_id, channel_mode)) = request else {
+        let Some((request_id, analysis_mode, channel_mode)) = request else {
             if session.take().is_some() {
                 let _ = self.runtime.set_enabled(false);
                 let _ = fs::remove_file(snapshot_path(instance_dir));
+                let _ = fs::remove_file(perceptual_snapshot_path(instance_dir));
             }
             return false;
         };
-        if !self.runtime.set_channel_mode(channel_mode) {
+        if !self.runtime.set_analysis_mode(analysis_mode)
+            || !self.runtime.set_channel_mode(channel_mode)
+        {
             if session.take().is_some() {
                 let _ = self.runtime.set_enabled(false);
                 let _ = fs::remove_file(snapshot_path(instance_dir));
+                let _ = fs::remove_file(perceptual_snapshot_path(instance_dir));
             }
             return false;
         }
         if session.as_ref().map(|state| state.request_id) != Some(request_id) {
             let _ = self.runtime.set_enabled(false);
             let _ = fs::remove_file(snapshot_path(instance_dir));
+            let _ = fs::remove_file(perceptual_snapshot_path(instance_dir));
             if !self.runtime.set_enabled(true) {
                 return false;
             }
@@ -307,16 +347,33 @@ impl SpectrumCoordinator {
                 instance_dir: instance_dir.to_path_buf(),
             });
         }
-        let Some(history) = self.runtime.try_history() else {
-            return true;
+        let (newest_end, bytes, path) = match analysis_mode {
+            AnalysisViewMode::Spectrum => {
+                let Some(history) = self.runtime.try_history() else {
+                    return true;
+                };
+                (
+                    history.newest().map(|frame| frame.presentation_end_samples),
+                    encode_snapshot(request_id, &history),
+                    snapshot_path(instance_dir),
+                )
+            }
+            AnalysisViewMode::Perceptual => {
+                let Some(history) = self.runtime.try_perceptual_history() else {
+                    return true;
+                };
+                (
+                    history.newest().map(|frame| frame.presentation_end_samples),
+                    encode_perceptual_snapshot(request_id, &history),
+                    perceptual_snapshot_path(instance_dir),
+                )
+            }
         };
-        let newest_end = history.newest().map(|frame| frame.presentation_end_samples);
         let state = session.as_mut().expect("PRE session established above");
         if newest_end.is_none() || newest_end == state.last_written_end {
             return true;
         }
-        let bytes = encode_snapshot(state.request_id, &history);
-        if crate::atomic_file::write_bytes_atomic(&snapshot_path(instance_dir), &bytes).is_ok() {
+        if crate::atomic_file::write_bytes_atomic(&path, &bytes).is_ok() {
             state.last_written_end = newest_end;
         }
         true
@@ -337,31 +394,29 @@ impl SpectrumCoordinator {
         if let Ok(mut session) = self.pre_session.lock() {
             if let Some(session) = session.take() {
                 let _ = fs::remove_file(snapshot_path(&session.instance_dir));
+                let _ = fs::remove_file(perceptual_snapshot_path(&session.instance_dir));
             }
         }
         let _ = self.runtime.set_enabled(false);
     }
 
-    fn store_view(&self, status: SpectrumViewStatus, difference: Option<SpectrumDifference>) {
+    fn store_view(
+        &self,
+        status: SpectrumViewStatus,
+        difference: Option<SpectrumDifference>,
+        perceptual_difference: Option<PerceptualDifference>,
+    ) {
         if let Ok(mut view) = self.view.lock() {
             *view = SpectrumViewSnapshot {
                 status,
+                analysis_mode: self.runtime.analysis_mode(),
                 channel_mode: self.runtime.channel_mode(),
                 channels: self.runtime.num_channels() as u8,
                 difference,
+                perceptual_difference,
             };
         }
     }
-}
-
-fn newest_exact_difference(
-    post: &SpectrumHistory,
-    pre: &SpectrumHistory,
-) -> Option<SpectrumDifference> {
-    post.frames().rev().find_map(|post_frame| {
-        pre.matching_presentation_end(post_frame.presentation_end_samples)
-            .and_then(|pre_frame| difference_post_minus_pre(post_frame, pre_frame))
-    })
 }
 
 fn request_path(instance_dir: &Path) -> PathBuf {
@@ -370,6 +425,10 @@ fn request_path(instance_dir: &Path) -> PathBuf {
 
 fn snapshot_path(instance_dir: &Path) -> PathBuf {
     instance_dir.join("spectrum").join("pre.bin")
+}
+
+fn perceptual_snapshot_path(instance_dir: &Path) -> PathBuf {
+    instance_dir.join("spectrum").join("pre_perceptual.bin")
 }
 
 fn write_request(instance_dir: &Path, request: &SpectrumRequest) -> std::io::Result<()> {
@@ -392,6 +451,8 @@ fn cleanup_owned_request(target: Option<&SpectrumTarget>, request_id: Uuid) {
         .is_some_and(|request| request.request_id == request_id.to_string())
     {
         let _ = fs::remove_file(path);
+        let _ = fs::remove_file(snapshot_path(&target.instance_dir));
+        let _ = fs::remove_file(perceptual_snapshot_path(&target.instance_dir));
     }
 }
 

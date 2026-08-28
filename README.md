@@ -11,6 +11,11 @@ frequency view, with selectable LR / MID / SIDE observation, a lockable probe, a
 MARK reference. A locked probe also shows the selected frequency's exact six-second **Focus Trail**.
 Closing the page stops its optional analysis and discards that short display history.
 
+The same POST analysis page can switch to **Perceptual Δ**. Its first observation is a six-second
+**Δ Sharpness History**: a signed POST − PRE Sharpness trace that responds at 10 Hz without scoring,
+traffic-light judgment, or audio-path changes. Spectrum and Perceptual Δ are mutually exclusive, so
+only the visible analyzer runs.
+
 ![Kirin Hypha PRE and POST showing Short-term Watch values and independent MAX values](docs/media/kirin-hypha-pre-post.jpg)
 
 [Watch PRE/POST with the M/S selector and independent Watch MAX values (32-second silent MP4)](docs/media/kirin-hypha-pre-post-demo.mp4)
@@ -77,8 +82,8 @@ The page analyzes one selected channel view at a time. **LR** transforms L and R
 averages their power, so opposite-polarity channels do not cancel. **MID** analyzes the `(L+R)/2`
 waveform. **SIDE** analyzes `(L−R)/2` and is available only for stereo input; mono never fabricates a
 SIDE result. Switching LR / MID / SIDE clears the old frame and waits for an exact PRE/POST match in
-the newly selected mode. N and Sharpness continue to use `(L+R)/2`, so they can differ from the LR or
-SIDE Spectrum on wide or phase-opposed material.
+the newly selected mode. Record-mode N and Sharpness use their own independent-channel definition,
+described below, so they can differ from MID or SIDE Spectrum on wide or phase-opposed material.
 
 Hovering the plot shows frequency and Δ; the 125% and 150% views also show PRE and POST values. A
 click in the plot locks that readout to the same frequency until its × is pressed. While locked,
@@ -102,6 +107,27 @@ Hann window, an 8192-point FFT, and a 30 Hz presentation cadence. At 48 kHz the 
 than reconstructing a plug-in transfer function, so narrow low-frequency EQ shapes can appear broader
 than the corresponding EQ control graph.
 
+### POST Perceptual Δ (on demand)
+
+From the POST analysis page, **SHARP** opens Perceptual Δ and **FREQ** returns to Spectrum. The first
+Perceptual Δ observation is **Δ Sharpness History**. It plots the signed Sharpness difference
+`POST − PRE` over the latest six seconds, with the newest exact value shown in acum. The measured
+difference is not clipped; the stable display scale is ±2 acum. The curve is spatially rounded for
+legibility, but no temporal smoothing delays it. A missed UI update is shown as a gap rather than
+joined with an invented line.
+
+Each point comes from one non-overlapping 100 ms aperture and is published at 10 Hz. PRE and POST
+must match in host sample rate, aperture length, channel definition, channel count, and
+output-presentation sample endpoint. If any of those facts differ, no Δ point is produced. The
+psychoacoustic engine runs at its defined 48 kHz analysis rate after following the host-rate input;
+at 44.1, 48, 96, or 192 kHz the aperture still represents 100 ms of host presentation time.
+
+**LR** measures L and R independently and uses their arithmetic mean, so channel polarity cannot
+cancel the observation. **MID** measures `(L+R)/2`; **SIDE** measures `(L−R)/2` and remains stereo-
+only. Changing channel mode starts a new history. Closing the page stops Sharpness analysis and
+discards the display history. Switching to Spectrum stops Sharpness before the FFT starts, and vice
+versa. All of this is display-only: it neither changes audio nor rewrites Watch or Record results.
+
 ### Record mode (Kirin OS required)
 
 | Metric | Window / Unit | Standard |
@@ -111,7 +137,7 @@ than the corresponding EQ control graph.
 | Max True Peak | Current Keep session maximum (dBTP) | ITU-R BS.1770-4 |
 | Crest Factor | Peak − RMS, 400 ms (dB) | — |
 | PSR | Peak-to-Short-term Ratio, 3 s (dB) | — |
-| Sharpness | acum, mono sum | DIN 45692 |
+| Sharpness | acum, independent-channel arithmetic mean | DIN 45692 |
 
 PRE displays all six values. A paired POST displays Δ for the selected M/S loudness, PSR, Crest,
 and Sharpness; Integrated Loudness and Max True Peak remain absolute POST session values. The
@@ -125,8 +151,10 @@ changes the loudness value displayed and compared; it does not redefine PSR.
 **On Crest Factor.** Crest Factor is the sample-peak level minus the RMS level (both in dBFS) over the same 400 ms window. Peak and RMS are both computed across the pooled samples of all channels — not a mono sum — and the peak is a sample peak, not the inter-sample True Peak. A silent window produces no value (shown as `---`).
 
 **On the psychoacoustic metrics.** N (Zwicker loudness) remains measured and stored for Kirin OS
-even though it is no longer one of the six DAW display cells. N and Sharpness are computed from a
-mono sum, (L+R)/2.
+even though it is no longer one of the six DAW display cells. For multichannel Record data, N and
+Sharpness are measured independently per input channel and combined by arithmetic mean. They do not
+sum the waveform before the nonlinear psychoacoustic pipeline. Perceptual Δ uses that same definition
+for LR, while its explicit MID and SIDE selections intentionally measure `(L+R)/2` and `(L−R)/2`.
 
 ---
 
@@ -194,7 +222,8 @@ Real-time display of selectable LUFS-M / LUFS-S, True Peak (recent), and Crest F
 playback. The M and S selections retain independent playback-pass maximums. POST displays the
 difference between its own measurements and the paired PRE.
 On a paired POST, **Spectrum** can be opened on demand to inspect the signed POST − PRE frequency
-difference.
+difference. The same analysis page can switch to the on-demand **Perceptual Δ** view for a six-second
+Δ Sharpness History; only the currently visible analyzer runs.
 
 Closing the GUI does not stop measurement. The audio thread continues running as long as the plugin is loaded in the DAW.
 

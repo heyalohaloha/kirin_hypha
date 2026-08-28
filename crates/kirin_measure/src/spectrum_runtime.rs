@@ -9,14 +9,21 @@ use std::time::Duration;
 
 use rtrb::{Consumer, Producer, RingBuffer};
 
+use crate::perceptual::PerceptualFrame;
 use crate::spectrum::{
-    SpectrumAnalyzer, SpectrumChannelMode, SpectrumFrame, SPECTRUM_PRESENTATION_HZ,
-    SPECTRUM_WINDOW_SIZE,
+    AnalysisViewMode, SpectrumAnalyzer, SpectrumChannelMode, SpectrumFrame, SPECTRUM_WINDOW_SIZE,
 };
+
+#[path = "spectrum_runtime_assemblers.rs"]
+mod assemblers;
+use assemblers::{PerceptualAssembler, SpectrumAssembler};
 
 #[path = "spectrum_runtime_state.rs"]
 mod state;
-pub use state::{SpectrumHistory, SpectrumRuntimeStats, SPECTRUM_HISTORY_CAPACITY};
+pub use state::{
+    PerceptualHistory, SpectrumHistory, SpectrumRuntimeStats, PERCEPTUAL_HISTORY_CAPACITY,
+    SPECTRUM_HISTORY_CAPACITY,
+};
 
 // Two FFT windows cover worker scheduling jitter without charging hidden instances more memory.
 const SPECTRUM_RING_FRAMES: usize = SPECTRUM_WINDOW_SIZE * 2;
@@ -43,6 +50,7 @@ pub struct SpectrumRuntime {
     enabled: AtomicBool,
     shutdown: AtomicBool,
     generation: AtomicU64,
+    analysis_mode: AtomicU8,
     channel_mode: AtomicU8,
     sample_producer: UnsafeCell<Producer<f32>>,
     block_producer: UnsafeCell<Producer<SpectrumIngressBlock>>,
@@ -50,10 +58,12 @@ pub struct SpectrumRuntime {
     worker: Mutex<Option<JoinHandle<SpectrumConsumers>>>,
     wake: (Mutex<()>, Condvar),
     history: Mutex<SpectrumHistory>,
+    perceptual_history: Mutex<PerceptualHistory>,
     worker_running: AtomicBool,
     pushed_blocks: AtomicU64,
     dropped_blocks: AtomicU64,
     analyzed_frames: AtomicU64,
+    analyzed_perceptual_frames: AtomicU64,
 }
 
 // SAFETY: only the one Audio Thread calls `push_block_from_audio`, which is the sole mutable
@@ -73,6 +83,7 @@ impl SpectrumRuntime {
             enabled: AtomicBool::new(false),
             shutdown: AtomicBool::new(false),
             generation: AtomicU64::new(1),
+            analysis_mode: AtomicU8::new(AnalysisViewMode::Spectrum as u8),
             channel_mode: AtomicU8::new(SpectrumChannelMode::Lr as u8),
             sample_producer: UnsafeCell::new(sample_producer),
             block_producer: UnsafeCell::new(block_producer),
@@ -83,10 +94,12 @@ impl SpectrumRuntime {
             worker: Mutex::new(None),
             wake: (Mutex::new(()), Condvar::new()),
             history: Mutex::new(SpectrumHistory::with_capacity()),
+            perceptual_history: Mutex::new(PerceptualHistory::with_capacity()),
             worker_running: AtomicBool::new(false),
             pushed_blocks: AtomicU64::new(0),
             dropped_blocks: AtomicU64::new(0),
             analyzed_frames: AtomicU64::new(0),
+            analyzed_perceptual_frames: AtomicU64::new(0),
         })
     }
 
@@ -109,6 +122,9 @@ impl SpectrumRuntime {
             if let Ok(mut history) = self.history.lock() {
                 *history = SpectrumHistory::with_capacity();
             }
+            if let Ok(mut history) = self.perceptual_history.lock() {
+                *history = PerceptualHistory::with_capacity();
+            }
         }
         self.wake.1.notify_all();
         true
@@ -121,6 +137,27 @@ impl SpectrumRuntime {
     pub fn channel_mode(&self) -> SpectrumChannelMode {
         SpectrumChannelMode::try_from(self.channel_mode.load(Ordering::Acquire))
             .unwrap_or(SpectrumChannelMode::Lr)
+    }
+
+    pub fn analysis_mode(&self) -> AnalysisViewMode {
+        AnalysisViewMode::try_from(self.analysis_mode.load(Ordering::Acquire))
+            .unwrap_or(AnalysisViewMode::Spectrum)
+    }
+
+    /// Control/worker thread only. Spectrum and Perceptual analysis are intentionally exclusive.
+    pub fn set_analysis_mode(&self, mode: AnalysisViewMode) -> bool {
+        let previous = self.analysis_mode.swap(mode as u8, Ordering::AcqRel);
+        if previous != mode as u8 {
+            self.generation.fetch_add(1, Ordering::AcqRel);
+            if let Ok(mut history) = self.history.lock() {
+                *history = SpectrumHistory::with_capacity();
+            }
+            if let Ok(mut history) = self.perceptual_history.lock() {
+                *history = PerceptualHistory::with_capacity();
+            }
+            self.wake.1.notify_all();
+        }
+        true
     }
 
     pub fn num_channels(&self) -> usize {
@@ -138,6 +175,9 @@ impl SpectrumRuntime {
             self.generation.fetch_add(1, Ordering::AcqRel);
             if let Ok(mut history) = self.history.lock() {
                 *history = SpectrumHistory::with_capacity();
+            }
+            if let Ok(mut history) = self.perceptual_history.lock() {
+                *history = PerceptualHistory::with_capacity();
             }
             self.wake.1.notify_all();
         }
@@ -198,15 +238,24 @@ impl SpectrumRuntime {
         self.history.try_lock().ok().map(|history| history.clone())
     }
 
+    pub fn try_perceptual_history(&self) -> Option<PerceptualHistory> {
+        self.perceptual_history
+            .try_lock()
+            .ok()
+            .map(|history| history.clone())
+    }
+
     pub fn stats(&self) -> SpectrumRuntimeStats {
         SpectrumRuntimeStats {
             enabled: self.enabled.load(Ordering::Acquire),
             worker_running: self.worker_running.load(Ordering::Acquire),
+            analysis_mode: self.analysis_mode(),
             channel_mode: self.channel_mode(),
             channels: self.num_channels as u8,
             pushed_blocks: self.pushed_blocks.load(Ordering::Relaxed),
             dropped_blocks: self.dropped_blocks.load(Ordering::Relaxed),
             analyzed_frames: self.analyzed_frames.load(Ordering::Relaxed),
+            analyzed_perceptual_frames: self.analyzed_perceptual_frames.load(Ordering::Relaxed),
         }
     }
 
@@ -274,10 +323,14 @@ impl SpectrumRuntime {
             return;
         };
         let mut assembler = SpectrumAssembler::new(analyzer, self.num_channels);
+        let mut perceptual = PerceptualAssembler::new(self.sample_rate, self.num_channels).ok();
         while !self.shutdown.load(Ordering::Acquire) {
             if !self.enabled.load(Ordering::Acquire) {
                 drain_consumers(consumers);
                 assembler.reset();
+                if let Some(perceptual) = perceptual.as_mut() {
+                    perceptual.reset();
+                }
                 let guard = match self.wake.0.lock() {
                     Ok(guard) => guard,
                     Err(_) => return,
@@ -290,9 +343,18 @@ impl SpectrumRuntime {
                 continue;
             };
             let current_generation = self.generation.load(Ordering::Acquire);
+            let analysis_mode = self.analysis_mode();
+            let began_block = match analysis_mode {
+                AnalysisViewMode::Spectrum => {
+                    assembler.begin_block(block.presentation_start_samples, block.generation)
+                }
+                AnalysisViewMode::Perceptual => perceptual.as_mut().is_some_and(|perceptual| {
+                    perceptual.begin_block(block.presentation_start_samples, block.generation)
+                }),
+            };
             if block.generation != current_generation
                 || block.channels as usize != self.num_channels
-                || !assembler.begin_block(block.presentation_start_samples, block.generation)
+                || !began_block
             {
                 discard_samples(
                     &mut consumers.samples,
@@ -318,26 +380,58 @@ impl SpectrumRuntime {
                 } else {
                     None
                 };
-                if let Some(frame) = assembler.push_frame(left, right, channel_mode) {
-                    if !self.frame_is_current(&frame) {
-                        continue;
+                match analysis_mode {
+                    AnalysisViewMode::Spectrum => {
+                        if let Some(frame) = assembler.push_frame(left, right, channel_mode) {
+                            if !self.frame_is_current(&frame) {
+                                continue;
+                            }
+                            self.analyzed_frames.fetch_add(1, Ordering::Relaxed);
+                            if let Ok(mut history) = self.history.lock() {
+                                if self.frame_is_current(&frame) {
+                                    history.push(frame);
+                                }
+                            }
+                        }
                     }
-                    self.analyzed_frames.fetch_add(1, Ordering::Relaxed);
-                    if let Ok(mut history) = self.history.lock() {
-                        if self.frame_is_current(&frame) {
-                            history.push(frame);
+                    AnalysisViewMode::Perceptual => {
+                        let Some(perceptual) = perceptual.as_mut() else {
+                            continue;
+                        };
+                        if let Some(frame) = perceptual.push_frame(left, right, channel_mode) {
+                            if !self.perceptual_frame_is_current(&frame) {
+                                continue;
+                            }
+                            self.analyzed_perceptual_frames
+                                .fetch_add(1, Ordering::Relaxed);
+                            if let Ok(mut history) = self.perceptual_history.lock() {
+                                if self.perceptual_frame_is_current(&frame) {
+                                    history.push(frame);
+                                }
+                            }
                         }
                     }
                 }
             }
             if !complete {
                 assembler.reset();
+                if let Some(perceptual) = perceptual.as_mut() {
+                    perceptual.reset();
+                }
             }
         }
     }
 
     fn frame_is_current(&self, frame: &SpectrumFrame) -> bool {
         self.enabled.load(Ordering::Acquire)
+            && frame.generation == self.generation.load(Ordering::Acquire)
+            && frame.channel_mode == self.channel_mode()
+            && frame.channels as usize == self.num_channels
+    }
+
+    fn perceptual_frame_is_current(&self, frame: &PerceptualFrame) -> bool {
+        self.enabled.load(Ordering::Acquire)
+            && self.analysis_mode() == AnalysisViewMode::Perceptual
             && frame.generation == self.generation.load(Ordering::Acquire)
             && frame.channel_mode == self.channel_mode()
             && frame.channels as usize == self.num_channels
@@ -363,102 +457,6 @@ fn discard_samples(consumer: &mut Consumer<f32>, count: usize) {
             break;
         }
     }
-}
-
-struct SpectrumAssembler {
-    analyzer: SpectrumAnalyzer,
-    channels: usize,
-    cadence_samples: i64,
-    left: Vec<f32>,
-    right: Vec<f32>,
-    ordered_left: Vec<f32>,
-    ordered_right: Vec<f32>,
-    write_index: usize,
-    filled: usize,
-    next_position: Option<i64>,
-    generation: u64,
-}
-
-impl SpectrumAssembler {
-    fn new(analyzer: SpectrumAnalyzer, channels: usize) -> Self {
-        let cadence_samples = i64::from(analyzer.sample_rate() / SPECTRUM_PRESENTATION_HZ);
-        Self {
-            analyzer,
-            channels,
-            cadence_samples,
-            left: vec![0.0; SPECTRUM_WINDOW_SIZE],
-            right: vec![0.0; SPECTRUM_WINDOW_SIZE],
-            ordered_left: vec![0.0; SPECTRUM_WINDOW_SIZE],
-            ordered_right: vec![0.0; SPECTRUM_WINDOW_SIZE],
-            write_index: 0,
-            filled: 0,
-            next_position: None,
-            generation: 0,
-        }
-    }
-
-    fn begin_block(&mut self, start: i64, generation: u64) -> bool {
-        if generation == 0 {
-            self.reset();
-            return false;
-        }
-        if self.generation != generation || self.next_position.is_some_and(|next| next != start) {
-            self.reset();
-            self.generation = generation;
-        }
-        self.next_position = Some(start);
-        true
-    }
-
-    fn push_frame(
-        &mut self,
-        left: f32,
-        right: Option<f32>,
-        channel_mode: SpectrumChannelMode,
-    ) -> Option<SpectrumFrame> {
-        if !left.is_finite() || right.is_some_and(|value| !value.is_finite()) {
-            self.reset();
-            return None;
-        }
-        self.left[self.write_index] = left;
-        self.right[self.write_index] = right.unwrap_or(0.0);
-        self.write_index = (self.write_index + 1) % SPECTRUM_WINDOW_SIZE;
-        self.filled = self.filled.saturating_add(1).min(SPECTRUM_WINDOW_SIZE);
-        let end = self.next_position?.checked_add(1)?;
-        self.next_position = Some(end);
-        if self.filled != SPECTRUM_WINDOW_SIZE || end.rem_euclid(self.cadence_samples) != 0 {
-            return None;
-        }
-        copy_ordered(&self.left, self.write_index, &mut self.ordered_left);
-        let right = if self.channels == 2 {
-            copy_ordered(&self.right, self.write_index, &mut self.ordered_right);
-            Some(self.ordered_right.as_slice())
-        } else {
-            None
-        };
-        self.analyzer
-            .analyze_mode(
-                &self.ordered_left,
-                right,
-                channel_mode,
-                end,
-                self.generation,
-            )
-            .ok()
-    }
-
-    fn reset(&mut self) {
-        self.write_index = 0;
-        self.filled = 0;
-        self.next_position = None;
-        self.generation = 0;
-    }
-}
-
-fn copy_ordered(source: &[f32], start: usize, destination: &mut [f32]) {
-    let tail = source.len() - start;
-    destination[..tail].copy_from_slice(&source[start..]);
-    destination[tail..].copy_from_slice(&source[..start]);
 }
 
 #[cfg(test)]

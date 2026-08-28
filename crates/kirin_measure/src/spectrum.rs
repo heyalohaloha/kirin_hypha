@@ -24,6 +24,26 @@ pub const SPECTRUM_DIFF_RANGE_DB: f32 = 18.0;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 #[repr(u8)]
+pub enum AnalysisViewMode {
+    #[default]
+    Spectrum = 0,
+    Perceptual = 1,
+}
+
+impl TryFrom<u8> for AnalysisViewMode {
+    type Error = ();
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::Spectrum),
+            1 => Ok(Self::Perceptual),
+            _ => Err(()),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[repr(u8)]
 pub enum SpectrumChannelMode {
     #[default]
     Lr = 0,

@@ -31,6 +31,7 @@ mod pair_ownership_marker;
 pub mod pair_status;
 pub mod pairing_scope;
 pub mod path_identity;
+pub mod perceptual;
 pub mod phase_d;
 pub mod plugin_data;
 pub mod post_candidates;
@@ -163,6 +164,11 @@ pub use path_identity::{
     materialize_restore_field, normalize_restore_cell, surface_path_event, surface_path_event_for,
     take_path_event, MAX_COMPONENT_LEN,
 };
+pub use perceptual::{
+    difference_post_minus_pre as perceptual_difference_post_minus_pre, PerceptualDifference,
+    PerceptualError, PerceptualFrame, SharpnessApertureAnalyzer, PERCEPTUAL_PRESENTATION_HZ,
+    PERCEPTUAL_SCHEMA_VERSION,
+};
 pub use plugin_data::{
     append_annotation_to_latest, compact_wall_clock, verify_checksum, Annotation, AnnotationMark,
     BounceMarker, Frame, PluginDataFile, PluginDataWriter, PsbSnapshot, Role as PluginDataRole,
@@ -234,15 +240,17 @@ pub use record_writer::{
     new_record_trace_queue, RecordTraceKind, RecordTraceQueue, RecordTraceSample,
 };
 pub use spectrum::{
-    difference_post_minus_pre, SpectrumAnalyzer, SpectrumChannelMode, SpectrumDifference,
-    SpectrumError, SpectrumFrame, SPECTRUM_BAND_COUNT, SPECTRUM_DIFF_RANGE_DB, SPECTRUM_FFT_SIZE,
-    SPECTRUM_FLOOR_DBFS, SPECTRUM_PRESENTATION_HZ, SPECTRUM_SCHEMA_VERSION, SPECTRUM_WINDOW_SIZE,
+    difference_post_minus_pre, AnalysisViewMode, SpectrumAnalyzer, SpectrumChannelMode,
+    SpectrumDifference, SpectrumError, SpectrumFrame, SPECTRUM_BAND_COUNT, SPECTRUM_DIFF_RANGE_DB,
+    SPECTRUM_FFT_SIZE, SPECTRUM_FLOOR_DBFS, SPECTRUM_PRESENTATION_HZ, SPECTRUM_SCHEMA_VERSION,
+    SPECTRUM_WINDOW_SIZE,
 };
 pub use spectrum_exchange::{
     SpectrumCoordinator, SpectrumTarget, SpectrumViewSnapshot, SpectrumViewStatus,
 };
 pub use spectrum_runtime::{
-    SpectrumHistory, SpectrumRuntime, SpectrumRuntimeStats, SPECTRUM_HISTORY_CAPACITY,
+    PerceptualHistory, SpectrumHistory, SpectrumRuntime, SpectrumRuntimeStats,
+    PERCEPTUAL_HISTORY_CAPACITY, SPECTRUM_HISTORY_CAPACITY,
 };
 pub use storage::{
     cleanup_legacy_v1, load_installation_id_safe, load_or_recover, read_identity, write_both,

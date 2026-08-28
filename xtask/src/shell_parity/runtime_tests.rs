@@ -347,7 +347,39 @@
         assert!(
             watch.contains("Spectrum")
                 && watch.contains("on demand")
-                && watch.contains("signed POST − PRE frequency difference"),
-            "README Watch mode must connect its grid description to POST Spectrum"
+                && watch.contains("signed POST − PRE frequency difference")
+                && watch.contains("Perceptual Δ")
+                && watch.contains("only the currently visible analyzer runs"),
+            "README Watch mode must connect its grid description to both POST analysis views"
         );
+    }
+
+    #[test]
+    fn readme_exposes_the_post_perceptual_delta_measurement_boundary() {
+        let perceptual = README
+            .split("\n### ")
+            .find(|section| section.starts_with("POST Perceptual Δ (on demand)\n"))
+            .expect("README POST Perceptual Delta section");
+        let perceptual = perceptual.split_whitespace().collect::<Vec<_>>().join(" ");
+        for required_fact in [
+            "signed Sharpness difference",
+            "six seconds",
+            "not clipped",
+            "±2 acum",
+            "no temporal smoothing",
+            "shown as a gap",
+            "non-overlapping 100 ms aperture",
+            "published at 10 Hz",
+            "output-presentation sample endpoint",
+            "**LR** measures L and R independently",
+            "`(L+R)/2`",
+            "`(L−R)/2`",
+            "stops Sharpness before the FFT starts",
+            "neither changes audio nor rewrites Watch or Record results",
+        ] {
+            assert!(
+                perceptual.contains(required_fact),
+                "README Perceptual Delta contract missing {required_fact}"
+            );
+        }
     }

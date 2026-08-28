@@ -25,7 +25,7 @@ pub(super) fn read_snapshot(instance_dir: &Path) -> Option<DecodedSnapshot> {
     )?)
 }
 
-pub(super) fn read_bounded(path: &Path, maximum_bytes: u64) -> Option<Vec<u8>> {
+pub(crate) fn read_bounded(path: &Path, maximum_bytes: u64) -> Option<Vec<u8>> {
     (fs::metadata(path).ok()?.len() <= maximum_bytes)
         .then(|| fs::read(path).ok())
         .flatten()
