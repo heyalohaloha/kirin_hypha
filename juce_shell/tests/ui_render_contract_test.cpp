@@ -9,7 +9,7 @@
 
 namespace ui = hypha::ui_contract;
 
-static_assert (sizeof (KirinSpectrumView) == 3'088,
+static_assert (sizeof (KirinSpectrumView) == 3'096,
                "Rust/C Spectrum view ABI size must remain exact");
 
 namespace
@@ -324,6 +324,7 @@ int main()
     spectrumSnapshot.channel_mode = KIRIN_SPECTRUM_CHANNEL_LR;
     spectrumSnapshot.channels = 2;
     spectrumSnapshot.sample_rate = 48'000;
+    spectrumSnapshot.presentation_end_samples = 48'000;
     spectrumSnapshot.min_hz = 10.0f;
     spectrumSnapshot.max_hz = 22'000.0f;
     for (size_t index = 0; index < KIRIN_SPECTRUM_BAND_COUNT; ++index)
