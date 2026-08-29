@@ -162,6 +162,28 @@ void verifyAbsoluteTimelineContract()
         { compactBounds.width - 35, 18, 14, compactBounds.height - 28 },
         COL_SPECTRUM_DELTA) > 0);
 
+    // A move-only JUCE Path still reports isEmpty(). Guard the real multi-point pixels rather
+    // than only the one-point fallback, otherwise every frame can become an invisible moveTo.
+    AbsoluteComponent multiPoint;
+    multiPoint.setSize (compactBounds.width, compactBounds.height);
+    multiPoint.setBatchAt (batch (1, 60), 0.0);
+    juce::Image multiPointImage (juce::Image::ARGB,
+                                 compactBounds.width, compactBounds.height, true);
+    multiPointImage.clear (multiPointImage.getBounds(), BG);
+    {
+        juce::Graphics graphics (multiPointImage);
+        multiPoint.paintEntireComponent (graphics, true);
+    }
+    const juce::Rectangle<int> historyInterior {
+        32, 20, compactBounds.width - 64, compactBounds.height - 35
+    };
+    KIRIN_ABSOLUTE_REQUIRE (
+        countNearColour (multiPointImage, historyInterior, COL_SPECTRUM_DELTA) > 8);
+    KIRIN_ABSOLUTE_REQUIRE (
+        countNearColour (multiPointImage, historyInterior, COL_SPECTRUM_POST) > 8);
+    KIRIN_ABSOLUTE_REQUIRE (
+        countNearColour (multiPointImage, historyInterior, COL_FLORA) > 8);
+
     AbsoluteComponent gated;
     gated.setBatchAt (batch (1, 1), 0.0);
     KIRIN_ABSOLUTE_REQUIRE (gated.curvePresentationCountForTest() == 1u);

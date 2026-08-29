@@ -136,6 +136,7 @@ namespace
         const auto band = valueBand (plot, bandTop, bandBottom);
         juce::Path path;
         juce::Point<float> newestPoint;
+        bool pathStarted = false;
         const auto newest = batch.latest.presentation_end_samples;
         const auto rate = static_cast<double> (batch.latest.sample_rate);
         for (uint32_t index = 0u; index < batch.count; ++index)
@@ -147,10 +148,17 @@ namespace
                           - static_cast<float> (age / historySeconds) * plot.getWidth();
             const juce::Point<float> point { x, yFor (value, minimum, maximum, band) };
             newestPoint = point;
-            if (! path.isEmpty())
+            // JUCE deliberately reports a move-only Path as empty because it has no drawable
+            // segment. Using Path::isEmpty() as the start sentinel therefore emits another
+            // moveTo for every history point and the complete multi-point LIVE curve vanishes.
+            // Track the first point explicitly so every later verified point becomes a line.
+            if (pathStarted)
                 path.lineTo (point);
             else
+            {
                 path.startNewSubPath (point);
+                pathStarted = true;
+            }
         }
         if (batch.count == 1u)
         {
