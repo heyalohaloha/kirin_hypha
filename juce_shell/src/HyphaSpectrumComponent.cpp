@@ -56,6 +56,19 @@ namespace
     {
         return std::memcmp (&left, &right, sizeof (float)) == 0;
     }
+
+    bool sameLayoutDefinition (const KirinSpectrumView& left,
+                               const KirinSpectrumView& right) noexcept
+    {
+        return left.sample_rate == right.sample_rate
+            && left.aperture_samples == right.aperture_samples
+            && left.fft_size == right.fft_size
+            && sameFloatBits (left.approximate_below_hz, right.approximate_below_hz)
+            && left.channel_mode == right.channel_mode
+            && left.channels == right.channels
+            && sameFloatBits (left.min_hz, right.min_hz)
+            && sameFloatBits (left.max_hz, right.max_hz);
+    }
 }
 
 SpectrumComponent::SpectrumComponent()
@@ -76,25 +89,11 @@ void SpectrumComponent::setSnapshot (const KirinSpectrumView& next)
 {
     if (haveSnapshot && std::memcmp (&snapshot, &next, sizeof (snapshot)) == 0)
         return;
-    const bool previousValid = haveSnapshot && validSnapshot (snapshot);
     const bool nextValid = validSnapshot (next);
-    const bool layoutChanged = previousValid && nextValid
-        && (snapshot.sample_rate != next.sample_rate
-            || snapshot.aperture_samples != next.aperture_samples
-            || snapshot.fft_size != next.fft_size
-            || ! sameFloatBits (snapshot.approximate_below_hz,
-                                next.approximate_below_hz)
-            || snapshot.channel_mode != next.channel_mode
-            || snapshot.channels != next.channels
-            || ! sameFloatBits (snapshot.min_hz, next.min_hz)
-            || ! sameFloatBits (snapshot.max_hz, next.max_hz));
-    if (! nextValid || layoutChanged)
-    {
-        focusFrequencyHz = -1.0f;
-        haveMark = false;
-        markedDelta.fill (0.0f);
-        focusTrail.reset();
-    }
+    const bool layoutChanged = nextValid && haveInteractionDefinition
+        && ! sameLayoutDefinition (interactionDefinition, next);
+    if (layoutChanged)
+        clearInteractionState();
     snapshot = next;
     haveSnapshot = true;
     if (next.channel_mode <= KIRIN_SPECTRUM_CHANNEL_SIDE)
@@ -105,6 +104,8 @@ void SpectrumComponent::setSnapshot (const KirinSpectrumView& next)
     modeActionNoticeUntilMs = 0.0;
     if (nextValid)
     {
+        interactionDefinition = next;
+        haveInteractionDefinition = true;
         const auto calmWeights = spectrum_presentation::lowFrequencyCalmWeights<
             KIRIN_SPECTRUM_BAND_COUNT> (snapshot.min_hz, snapshot.max_hz);
         displayedPre = spectrum_presentation::calmLowFrequencies (
@@ -163,15 +164,7 @@ void SpectrumComponent::setBatch (const KirinSpectrumBatch& batch)
     {
         const auto& frame = batch.frames[index];
         if (! validSnapshot (frame)
-            || frame.sample_rate != batch.latest.sample_rate
-            || frame.aperture_samples != batch.latest.aperture_samples
-            || frame.fft_size != batch.latest.fft_size
-            || ! sameFloatBits (frame.approximate_below_hz,
-                                batch.latest.approximate_below_hz)
-            || frame.channel_mode != batch.latest.channel_mode
-            || frame.channels != batch.latest.channels
-            || ! sameFloatBits (frame.min_hz, batch.latest.min_hz)
-            || ! sameFloatBits (frame.max_hz, batch.latest.max_hz)
+            || ! sameLayoutDefinition (frame, batch.latest)
             || (index > 0u && frame.presentation_end_samples
                 <= batch.frames[index - 1u].presentation_end_samples))
         {
@@ -186,15 +179,7 @@ void SpectrumComponent::setBatch (const KirinSpectrumBatch& batch)
 
     const bool pendingValid = havePendingSnapshot && validSnapshot (pendingSnapshot);
     const bool definitionChanged = pendingValid
-        && (pendingSnapshot.sample_rate != batch.latest.sample_rate
-            || pendingSnapshot.aperture_samples != batch.latest.aperture_samples
-            || pendingSnapshot.fft_size != batch.latest.fft_size
-            || ! sameFloatBits (pendingSnapshot.approximate_below_hz,
-                                batch.latest.approximate_below_hz)
-            || pendingSnapshot.channel_mode != batch.latest.channel_mode
-            || pendingSnapshot.channels != batch.latest.channels
-            || ! sameFloatBits (pendingSnapshot.min_hz, batch.latest.min_hz)
-            || ! sameFloatBits (pendingSnapshot.max_hz, batch.latest.max_hz));
+        && ! sameLayoutDefinition (pendingSnapshot, batch.latest);
     const bool presentationMovedBackwards = pendingValid
         && batch.latest.presentation_end_samples
             < pendingSnapshot.presentation_end_samples;
@@ -222,15 +207,7 @@ void SpectrumComponent::queueSnapshot (const KirinSpectrumView& next)
     const bool previousValid = havePendingSnapshot && validSnapshot (pendingSnapshot);
     const bool nextValid = validSnapshot (next);
     const bool layoutChanged = previousValid && nextValid
-        && (pendingSnapshot.sample_rate != next.sample_rate
-            || pendingSnapshot.aperture_samples != next.aperture_samples
-            || pendingSnapshot.fft_size != next.fft_size
-            || ! sameFloatBits (pendingSnapshot.approximate_below_hz,
-                                next.approximate_below_hz)
-            || pendingSnapshot.channel_mode != next.channel_mode
-            || pendingSnapshot.channels != next.channels
-            || ! sameFloatBits (pendingSnapshot.min_hz, next.min_hz)
-            || ! sameFloatBits (pendingSnapshot.max_hz, next.max_hz));
+        && ! sameLayoutDefinition (pendingSnapshot, next);
     if (! haveSnapshot || ! previousValid || ! nextValid || layoutChanged)
     {
         setSnapshot (next);
@@ -268,21 +245,28 @@ void SpectrumComponent::clearSnapshot()
     pendingPre.fill (0.0f);
     pendingPost.fill (0.0f);
     pendingDelta.fill (0.0f);
-    markedDelta.fill (0.0f);
-    focusTrail.reset();
+    clearInteractionState();
     haveSnapshot = false;
     havePendingSnapshot = false;
     curveDirty = false;
     numericDirty = false;
-    haveMark = false;
-    hoverNormalisedX = -1.0f;
-    focusFrequencyHz = -1.0f;
     hoverNeedsRepaint = false;
     modeActionNotice.clear();
     modeActionNoticeUntilMs = 0.0;
     lastCurvePresentationMs = 0.0;
     lastNumericPresentationMs = 0.0;
     repaint();
+}
+
+void SpectrumComponent::clearInteractionState() noexcept
+{
+    interactionDefinition = {};
+    markedDelta.fill (0.0f);
+    focusTrail.reset();
+    haveInteractionDefinition = false;
+    haveMark = false;
+    hoverNormalisedX = -1.0f;
+    focusFrequencyHz = -1.0f;
 }
 
 void SpectrumComponent::presentationTick()
@@ -370,15 +354,11 @@ void SpectrumComponent::mouseDown (const juce::MouseEvent& event)
         pendingPre.fill (0.0f);
         pendingPost.fill (0.0f);
         pendingDelta.fill (0.0f);
-        markedDelta.fill (0.0f);
-        focusTrail.reset();
+        clearInteractionState();
         haveSnapshot = false;
         havePendingSnapshot = false;
         curveDirty = false;
         numericDirty = false;
-        haveMark = false;
-        hoverNormalisedX = -1.0f;
-        focusFrequencyHz = -1.0f;
         channelMode = requestedMode;
         repaint();
         return;

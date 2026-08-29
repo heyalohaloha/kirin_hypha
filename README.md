@@ -104,7 +104,9 @@ missing endpoint so Windows scheduling jitter does not look like a broken curve;
 still retained as gap metadata and no measurement is inserted. Reversed or incompatible frames, and
 a forward discontinuity beyond the six-second view, start a clean trail. After a backwards transport
 move, PRE and POST may resume one analysis cadence apart; FREQ waits until both have crossed the old
-endpoint, then resumes from their newest exact shared endpoint. **MARK** freezes one display-only full-band Δ curve as a solid amber reference beneath
+endpoint, then resumes from their newest exact shared endpoint. The frequency lock and MARK remain
+where the user placed them across a loop, silence, temporary warming state, or short I/O gap; only
+the factual trail restarts on the new exact time axis. **MARK** freezes one display-only full-band Δ curve as a solid amber reference beneath
 the cyan live curve; pressing MARK again replaces it, and its × clears it.
 MARK is temporary and is cleared when the pair, sample rate, FFT layout, channel mode, or page changes.
 It neither adds another analyzer nor changes the measured values. The 100% / 125% / 150% / 200% size choice
