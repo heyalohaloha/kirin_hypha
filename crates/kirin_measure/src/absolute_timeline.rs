@@ -318,7 +318,11 @@ mod tests {
         let mut analyzer = AbsoluteContinuousAnalyzer::new(48_000, 2).unwrap();
         analyzer.reset_at_epoch(0).unwrap();
         let mut timeline = AbsoluteTimeline::default();
-        for (index, aperture) in samples.chunks_exact(9_600).enumerate() {
+        let interleaved_aperture_samples = 9_600;
+        for (index, aperture) in samples
+            .chunks_exact(interleaved_aperture_samples)
+            .enumerate()
+        {
             let frames = analyzer
                 .analyze_aperture(aperture, (index as i64 + 1) * 4_800, 1)
                 .unwrap();
