@@ -354,6 +354,7 @@ fn stale_generation_or_channel_mode_can_never_be_republished() {
     let frame = SpectrumFrame {
         schema_version: crate::SPECTRUM_SCHEMA_VERSION,
         sample_rate: 48_000,
+        aperture_samples: crate::SPECTRUM_WINDOW_SIZE as u32,
         fft_size: crate::SPECTRUM_FFT_SIZE as u32,
         band_count: crate::SPECTRUM_BAND_COUNT as u16,
         presentation_end_samples: 4_800,
@@ -387,6 +388,26 @@ fn forty_four_one_uses_a_1470_sample_grid_without_drift() {
     assert_eq!(frame.presentation_end_samples, 8_820);
     assert_eq!(frame.presentation_end_samples % 1_470, 0);
     runtime.shutdown_and_join();
+}
+
+#[test]
+fn high_rate_runtime_publishes_the_time_normalized_layout_without_drops() {
+    for (sample_rate, aperture_samples, fft_size, expected_end) in [
+        (96_000, 8_192, 16_384, 9_600),
+        (192_000, 16_384, 32_768, 19_200),
+        (384_000, 32_768, 65_536, 38_400),
+    ] {
+        let runtime = SpectrumRuntime::new(sample_rate, 2);
+        assert!(runtime.set_enabled(true));
+        feed(&runtime, sample_rate, expected_end as usize + 1_024, 256);
+        let frame = wait_for_frame_at_or_after(&runtime, expected_end);
+        assert_eq!(frame.sample_rate, sample_rate);
+        assert_eq!(frame.aperture_samples, aperture_samples);
+        assert_eq!(frame.fft_size, fft_size);
+        assert_eq!(frame.presentation_end_samples, expected_end);
+        assert_eq!(runtime.stats().dropped_blocks, 0);
+        runtime.shutdown_and_join();
+    }
 }
 
 #[test]

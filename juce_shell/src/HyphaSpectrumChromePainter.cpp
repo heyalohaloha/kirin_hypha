@@ -11,6 +11,15 @@
 
 namespace hypha::spectrum_chrome
 {
+juce::String frequencyReadoutText (float hz, float approximateBelowHz)
+{
+    const juce::String prefix = hz < approximateBelowHz ? "~" : "";
+    if (hz < 1'000.0f)
+        return prefix + juce::String (juce::roundToInt (hz)) + " Hz";
+    const int decimals = hz < 10'000.0f ? 2 : 1;
+    return prefix + juce::String (hz / 1'000.0f, decimals) + " kHz";
+}
+
 namespace
 {
     const char* channelModeText (uint8_t mode) noexcept
@@ -28,14 +37,6 @@ namespace
         if (status == KIRIN_SPECTRUM_IN_USE)
             return analysis_ui::slotsInUse (analysisOwnerNames);
         return {};
-    }
-
-    juce::String frequencyText (float hz)
-    {
-        if (hz < 1'000.0f)
-            return juce::String (juce::roundToInt (hz)) + " Hz";
-        const int decimals = hz < 10'000.0f ? 2 : 1;
-        return juce::String (hz / 1'000.0f, decimals) + " kHz";
     }
 
     juce::String axisFrequencyText (float hz)
@@ -275,9 +276,11 @@ namespace
         };
         const bool focusLocked = state.focusFrequencyHz > 0.0f;
         const bool expanded = scale > 1.1f;
-        const float hoverX = juce::jmap (probeNormalisedX, plot.getX(), plot.getRight());
-        const float bandPosition = probeNormalisedX
-                                 * (float) (KIRIN_SPECTRUM_BAND_COUNT - 1u);
+        const float effectiveNormalisedX = spectrum_geometry::clampToBandCentreRange (
+            probeNormalisedX);
+        const float hoverX = juce::jmap (effectiveNormalisedX, plot.getX(), plot.getRight());
+        const float bandPosition = spectrum_geometry::bandPositionForNormalisedX (
+            effectiveNormalisedX);
         const size_t lower = static_cast<size_t> (std::floor (bandPosition));
         const size_t upper = std::min (
             lower + 1u, static_cast<size_t> (KIRIN_SPECTRUM_BAND_COUNT - 1u));
@@ -309,8 +312,8 @@ namespace
         g.drawRoundedRectangle (readout, scaled (ui_contract::spectrumHoverReadoutRadius),
                                 scaled (0.75f));
 
-        const float frequency = spectrum_geometry::frequencyForNormalisedX (
-            probeNormalisedX, minimumHz, maximumHz);
+        const float frequency = spectrum_geometry::frequencyForProbeNormalisedX (
+            effectiveNormalisedX, minimumHz, maximumHz);
         const auto deltaText = juce::String (deltaDb >= 0.0f ? "+" : "")
                              + juce::String (deltaDb, 1);
         const int textY = juce::roundToInt (readout.getY());
@@ -327,7 +330,9 @@ namespace
         };
         if (expanded)
         {
-            drawText (frequencyText (frequency), COL_NORMAL.withAlpha (0.94f),
+            drawText (frequencyReadoutText (
+                          frequency, state.snapshot.approximate_below_hz),
+                      COL_NORMAL.withAlpha (0.94f),
                       ui_contract::spectrumExpandedFrequencyX,
                       ui_contract::spectrumExpandedFrequencyWidth,
                       juce::Justification::centredLeft);
@@ -349,7 +354,9 @@ namespace
         }
         else
         {
-            drawText (frequencyText (frequency), COL_NORMAL.withAlpha (0.94f),
+            drawText (frequencyReadoutText (
+                          frequency, state.snapshot.approximate_below_hz),
+                      COL_NORMAL.withAlpha (0.94f),
                       ui_contract::spectrumHoverFrequencyX,
                       ui_contract::spectrumHoverFrequencyWidth,
                       juce::Justification::centredLeft);
@@ -382,14 +389,16 @@ void paint (juce::Graphics& g,
     const float maximumHz = state.haveSnapshot && state.snapshot.max_hz > minimumHz
                           ? state.snapshot.max_hz : 22'000.0f;
     const float probeNormalisedX = state.snapshotValid && state.hoverNormalisedX >= 0.0f
-        ? state.hoverNormalisedX
+        ? spectrum_geometry::clampToBandCentreRange (state.hoverNormalisedX)
         : state.snapshotValid && state.focusFrequencyHz > 0.0f
-            ? spectrum_geometry::normalisedXForFrequency (
-                state.focusFrequencyHz, minimumHz, maximumHz)
+            ? spectrum_geometry::clampToBandCentreRange (
+                spectrum_geometry::normalisedXForFrequency (
+                    state.focusFrequencyHz, minimumHz, maximumHz))
             : -1.0f;
     const float focusNormalisedX = state.snapshotValid && state.focusFrequencyHz > 0.0f
-        ? spectrum_geometry::normalisedXForFrequency (
-            state.focusFrequencyHz, minimumHz, maximumHz)
+        ? spectrum_geometry::clampToBandCentreRange (
+            spectrum_geometry::normalisedXForFrequency (
+                state.focusFrequencyHz, minimumHz, maximumHz))
         : -1.0f;
 
     paintAxes (g, plot, scale, minimumHz, maximumHz);

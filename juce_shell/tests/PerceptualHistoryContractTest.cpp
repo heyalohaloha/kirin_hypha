@@ -1,6 +1,7 @@
 #include "PerceptualHistoryContractTest.h"
 
 #include "../src/HyphaPerceptualComponent.h"
+#include "../src/HyphaAnalysisUiText.h"
 #include "../src/HyphaPerceptualHistory.h"
 #include "../src/HyphaSpectrumGeometry.h"
 #include "../src/HyphaUiContract.h"
@@ -59,6 +60,16 @@ namespace
             for (int x = 0; x < image.getWidth(); ++x)
                 count += image.getPixelAt (x, y).getAlpha() != 0 ? 1 : 0;
         return count;
+    }
+
+    juce::MouseEvent mouseEvent (juce::Component& component, float x, float y)
+    {
+        const auto now = juce::Time::getCurrentTime();
+        return {
+            juce::Desktop::getInstance().getMainMouseSource(),
+            { x, y }, {}, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+            &component, &component, now, { x, y }, now, 0, false
+        };
     }
 
     int maximumAlphaAround (const juce::Image& image, juce::Point<int> centre)
@@ -338,6 +349,18 @@ void verifyPerceptualHistoryContract()
     KIRIN_PERCEPTUAL_REQUIRE (delayedUi.historySizeForTest() == historyCapacity);
     KIRIN_PERCEPTUAL_REQUIRE (! delayedUi.historyHasGapsForTest());
     KIRIN_PERCEPTUAL_REQUIRE (delayedUi.newestEndpointForTest() == 307'200);
+
+    const auto compactBounds = ui_contract::spectrumPlotBounds (
+        ui_contract::spectrumSizePresets[0].width,
+        ui_contract::spectrumSizePresets[0].height);
+    delayedUi.setSize (compactBounds.width, compactBounds.height);
+    delayedUi.mouseMove (mouseEvent (
+        delayedUi, (float) compactBounds.width * 0.5f,
+        (float) compactBounds.height * 0.5f));
+    KIRIN_PERCEPTUAL_REQUIRE (
+        delayedUi.getTooltip() == analysis_ui::sharpnessDeltaTooltip());
+    delayedUi.mouseExit (mouseEvent (delayedUi, 0.0f, 0.0f));
+    KIRIN_PERCEPTUAL_REQUIRE (delayedUi.getTooltip().isEmpty());
 
     delayedUi.setBatch (batch (70, 71));
     KIRIN_PERCEPTUAL_REQUIRE (delayedUi.historySizeForTest() == 2u);

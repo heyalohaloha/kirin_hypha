@@ -25,6 +25,9 @@ pub struct SpectrumDifferenceTimeline {
 pub struct SpectrumTimelineFrame {
     pub presentation_end_samples: i64,
     pub sample_rate: u32,
+    pub aperture_samples: u32,
+    pub fft_size: u32,
+    pub approximate_below_hz: f32,
     pub min_hz: f32,
     pub max_hz: f32,
     pub channel_mode: SpectrumChannelMode,
@@ -39,6 +42,9 @@ impl From<&SpectrumDifference> for SpectrumTimelineFrame {
         Self {
             presentation_end_samples: frame.presentation_end_samples,
             sample_rate: frame.sample_rate,
+            aperture_samples: frame.aperture_samples,
+            fft_size: frame.fft_size,
+            approximate_below_hz: frame.approximate_below_hz,
             min_hz: frame.min_hz,
             max_hz: frame.max_hz,
             channel_mode: frame.channel_mode,
@@ -120,6 +126,9 @@ impl SpectrumDifferenceTimeline {
 
 fn same_definition(left: &SpectrumTimelineFrame, right: &SpectrumTimelineFrame) -> bool {
     left.sample_rate == right.sample_rate
+        && left.aperture_samples == right.aperture_samples
+        && left.fft_size == right.fft_size
+        && left.approximate_below_hz.to_bits() == right.approximate_below_hz.to_bits()
         && left.channel_mode == right.channel_mode
         && left.channels == right.channels
         && left.min_hz.to_bits() == right.min_hz.to_bits()
@@ -133,6 +142,9 @@ mod tests {
         SpectrumDifference {
             presentation_end_samples: endpoint,
             sample_rate: 48_000,
+            aperture_samples: 4_096,
+            fft_size: 8_192,
+            approximate_below_hz: 35.15625,
             min_hz: 10.0,
             max_hz: 22_000.0,
             channel_mode: SpectrumChannelMode::Lr,

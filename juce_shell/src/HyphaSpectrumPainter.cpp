@@ -1,5 +1,6 @@
 #include "HyphaSpectrumPainter.h"
 
+#include "HyphaSpectrumGeometry.h"
 #include "HyphaSpectrumUiContract.h"
 #include "HyphaTheme.h"
 
@@ -60,8 +61,7 @@ void paintCurves (juce::Graphics& g,
     SpectrumBins markY {};
     for (size_t index = 0; index < KIRIN_SPECTRUM_BAND_COUNT; ++index)
     {
-        x[index] = juce::jmap (static_cast<float> (index), 0.0f,
-                               static_cast<float> (KIRIN_SPECTRUM_BAND_COUNT - 1u),
+        x[index] = juce::jmap (spectrum_geometry::bandCentreNormalisedX (index),
                                plot.getX(), plot.getRight());
         preY[index] = yForMagnitudeDbfs (pre[index], plot);
         postY[index] = yForMagnitudeDbfs (post[index], plot);

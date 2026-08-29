@@ -255,9 +255,9 @@ pub use record_writer::{
 };
 pub use spectrum::{
     difference_post_minus_pre, AnalysisViewMode, SpectrumAnalyzer, SpectrumChannelMode,
-    SpectrumDifference, SpectrumError, SpectrumFrame, SPECTRUM_BAND_COUNT, SPECTRUM_DIFF_RANGE_DB,
-    SPECTRUM_FFT_SIZE, SPECTRUM_FLOOR_DBFS, SPECTRUM_PRESENTATION_HZ, SPECTRUM_SCHEMA_VERSION,
-    SPECTRUM_WINDOW_SIZE,
+    SpectrumDifference, SpectrumError, SpectrumFrame, SpectrumLayout, SPECTRUM_APPROXIMATE_CYCLES,
+    SPECTRUM_BAND_COUNT, SPECTRUM_FFT_SIZE, SPECTRUM_FLOOR_DBFS, SPECTRUM_PRESENTATION_HZ,
+    SPECTRUM_REFERENCE_SAMPLE_RATE, SPECTRUM_SCHEMA_VERSION, SPECTRUM_WINDOW_SIZE,
 };
 pub use spectrum_difference_timeline::{
     SpectrumDifferenceTimeline, SpectrumTimelineFrame, SpectrumTimelinePushResult,

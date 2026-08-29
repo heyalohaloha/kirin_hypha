@@ -161,6 +161,9 @@ typedef struct {
   float post_dbfs[KIRIN_SPECTRUM_BAND_COUNT];
   float display_db[KIRIN_SPECTRUM_BAND_COUNT];
   int64_t presentation_end_samples; /* 末尾追加: 既存field offsetを不変に保つ */
+  uint32_t aperture_samples; /* host rate追従のexact aperture */
+  uint32_t fft_size;         /* apertureに対応する2x以上のFFT layout */
+  float approximate_below_hz; /* 3周期未満: 値は保持し周波数labelだけ近似表示 */
 } KirinSpectrumView;
 
 #define KIRIN_SPECTRUM_BATCH_CAPACITY 8

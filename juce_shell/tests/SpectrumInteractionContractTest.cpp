@@ -1,5 +1,6 @@
 #include "SpectrumInteractionContractTest.h"
 
+#include "../src/HyphaAnalysisUiText.h"
 #include "../src/HyphaSpectrumGeometry.h"
 #include "../src/HyphaSpectrumUiContract.h"
 #include "../src/HyphaUiContract.h"
@@ -133,6 +134,50 @@ void verifySpectrumInteractionContract (SpectrumComponent& spectrum,
     const auto markBounds = spectrum_geometry::markBoundsFor (outerPlot, scale);
     const float controlY = markBounds.getCentreY();
     const float markX = markBounds.getCentreX();
+
+    SpectrumComponent bandMappingSpectrum;
+    bandMappingSpectrum.setSize (width, height);
+    bandMappingSpectrum.setSnapshot (snapshot);
+    const auto mappingPlot = spectrum_geometry::dataPlotBoundsFor (componentBounds);
+    bandMappingSpectrum.mouseMove (mouseEvent (
+        bandMappingSpectrum, mappingPlot.getX(), mappingPlot.getCentreY(), eventTime));
+    KIRIN_INTERACTION_REQUIRE (
+        bandMappingSpectrum.getTooltip() == analysis_ui::approximateFrequencyTooltip());
+    bandMappingSpectrum.mouseExit (mouseEvent (
+        bandMappingSpectrum, mappingPlot.getX(), mappingPlot.getCentreY(), eventTime));
+    KIRIN_INTERACTION_REQUIRE (bandMappingSpectrum.getTooltip().isEmpty());
+    const auto midTooltipBounds = spectrum_geometry::channelModeBoundsFor (1u, outerPlot, scale);
+    bandMappingSpectrum.mouseMove (mouseEvent (
+        bandMappingSpectrum, midTooltipBounds.getCentreX(), midTooltipBounds.getCentreY(),
+        eventTime));
+    KIRIN_INTERACTION_REQUIRE (
+        bandMappingSpectrum.getTooltip() == analysis_ui::channelModeTooltip (1u));
+    bandMappingSpectrum.mouseMove (mouseEvent (
+        bandMappingSpectrum, markX, controlY, eventTime));
+    KIRIN_INTERACTION_REQUIRE (
+        bandMappingSpectrum.getTooltip() == analysis_ui::markTooltip (false));
+    bandMappingSpectrum.mouseDown (mouseEvent (
+        bandMappingSpectrum, mappingPlot.getX(), mappingPlot.getCentreY(), eventTime));
+    const float firstCentreFrequency = spectrum_geometry::frequencyForNormalisedX (
+        spectrum_geometry::bandCentreNormalisedX (0u), snapshot.min_hz, snapshot.max_hz);
+    KIRIN_INTERACTION_REQUIRE (std::abs (
+        bandMappingSpectrum.focusLockFrequencyHz() - firstCentreFrequency) < 0.001f);
+    bandMappingSpectrum.mouseDown (mouseEvent (
+        bandMappingSpectrum, mappingPlot.getRight() - 0.01f,
+        mappingPlot.getCentreY(), eventTime));
+    const float lastCentreFrequency = spectrum_geometry::frequencyForNormalisedX (
+        spectrum_geometry::bandCentreNormalisedX (KIRIN_SPECTRUM_BAND_COUNT - 1u),
+        snapshot.min_hz, snapshot.max_hz);
+    KIRIN_INTERACTION_REQUIRE (std::abs (
+        bandMappingSpectrum.focusLockFrequencyHz() - lastCentreFrequency) < 0.1f);
+
+    KirinSpectrumView invalidLayout = snapshot;
+    --invalidLayout.aperture_samples;
+    SpectrumComponent failClosedSpectrum;
+    failClosedSpectrum.setSize (width, height);
+    failClosedSpectrum.setSnapshot (invalidLayout);
+    KIRIN_INTERACTION_REQUIRE (failClosedSpectrum.focusTrailSizeForTest() == 0u);
+
     spectrum.mouseDown (mouseEvent (spectrum, markX, controlY, eventTime));
     KIRIN_INTERACTION_REQUIRE (spectrum.hasMark());
 

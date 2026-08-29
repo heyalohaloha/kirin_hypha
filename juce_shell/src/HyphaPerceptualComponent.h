@@ -9,7 +9,8 @@
 
 namespace hypha
 {
-class PerceptualComponent final : public juce::Component
+class PerceptualComponent final : public juce::Component,
+                                  public juce::SettableTooltipClient
 {
 public:
     PerceptualComponent();
@@ -21,6 +22,8 @@ public:
     void presentationTickAt (double nowMs);
     void setAnalysisOwnerNames (const juce::String& names);
     void paint (juce::Graphics&) override;
+    void mouseMove (const juce::MouseEvent&) override;
+    void mouseExit (const juce::MouseEvent&) override;
     void mouseDown (const juce::MouseEvent&) override;
 
     size_t historySizeForTest() const noexcept { return history.size(); }

@@ -1,5 +1,6 @@
 #include "HyphaPerceptualComponent.h"
 
+#include "HyphaAnalysisUiText.h"
 #include "HyphaPerceptualPainter.h"
 #include "HyphaSpectrumGeometry.h"
 
@@ -249,6 +250,26 @@ void PerceptualComponent::presentationTickAt (double nowMs)
         repaint();
 }
 
+void PerceptualComponent::mouseMove (const juce::MouseEvent& event)
+{
+    const auto bounds = getLocalBounds().toFloat();
+    const float scale = spectrum_geometry::visualScaleFor (bounds);
+    const auto outer = spectrum_geometry::plotBoundsFor (bounds);
+    juce::String tip = analysis_ui::sharpnessDeltaTooltip();
+    for (size_t index = 0; index < ui_contract::spectrumChannelModeWidths.size(); ++index)
+        if (spectrum_geometry::channelModeBoundsFor (index, outer, scale)
+                .contains (event.position))
+            tip = analysis_ui::channelModeTooltip (static_cast<uint8_t> (index));
+    if (tip != getTooltip())
+        setTooltip (tip);
+}
+
+void PerceptualComponent::mouseExit (const juce::MouseEvent&)
+{
+    if (getTooltip().isNotEmpty())
+        setTooltip ({});
+}
+
 void PerceptualComponent::mouseDown (const juce::MouseEvent& event)
 {
     const auto bounds = getLocalBounds().toFloat();
@@ -268,7 +289,7 @@ void PerceptualComponent::mouseDown (const juce::MouseEvent& event)
                            && onChannelModeChange (requestedMode);
         if (! accepted)
         {
-            modeActionNotice = monoSide ? "SIDE — MONO" : "MODE —";
+            modeActionNotice = monoSide ? "SIDE -- MONO" : "MODE --";
             modeActionNoticeUntilMs = juce::Time::getMillisecondCounterHiRes() + 1'500.0;
             repaint();
             return;

@@ -1,6 +1,8 @@
 #include "HyphaAbsoluteComponent.h"
 
+#include "HyphaAnalysisUiText.h"
 #include "HyphaAbsolutePainter.h"
+#include "HyphaSpectrumGeometry.h"
 
 #include <cmath>
 
@@ -60,7 +62,7 @@ namespace
 
 AbsoluteComponent::AbsoluteComponent()
 {
-    setInterceptsMouseClicks (false, false);
+    setInterceptsMouseClicks (true, false);
     setAccessible (false);
 }
 
@@ -144,6 +146,34 @@ void AbsoluteComponent::clearSnapshot()
     curvePresentationCount = 0u;
     numericPresentationCount = 0u;
     repaint();
+}
+
+void AbsoluteComponent::mouseMove (const juce::MouseEvent& event)
+{
+    const auto bounds = getLocalBounds().toFloat();
+    const float scale = spectrum_geometry::visualScaleFor (bounds);
+    auto outer = bounds
+        .withTrimmedLeft ((float) ui_contract::spectrumPlotLeftInset * scale)
+        .withTrimmedRight ((float) ui_contract::spectrumPlotRightInset * scale)
+        .withTrimmedTop (ui_contract::absolutePlotTopInset * scale)
+        .withTrimmedBottom (ui_contract::absolutePlotBottomInset * scale);
+    const auto header = outer.removeFromTop ((scale > 1.1f ? 23.0f : 17.0f) * scale);
+    juce::String tip = analysis_ui::liveOverviewTooltip();
+    if (header.contains (event.position))
+    {
+        const auto index = static_cast<size_t> (juce::jlimit (
+            0, 2, static_cast<int> (
+                (event.position.x - header.getX()) * 3.0f / header.getWidth())));
+        tip = analysis_ui::liveMetricTooltip (index);
+    }
+    if (tip != getTooltip())
+        setTooltip (tip);
+}
+
+void AbsoluteComponent::mouseExit (const juce::MouseEvent&)
+{
+    if (getTooltip().isNotEmpty())
+        setTooltip ({});
 }
 
 void AbsoluteComponent::paint (juce::Graphics& g)

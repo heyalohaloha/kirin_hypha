@@ -9,7 +9,9 @@ use std::thread::{self, JoinHandle};
 use rtrb::{Consumer, Producer, RingBuffer};
 
 use crate::absolute_timeline::AbsoluteTimeline;
-use crate::spectrum::{AnalysisViewMode, SpectrumChannelMode, SPECTRUM_WINDOW_SIZE};
+use crate::spectrum::{
+    AnalysisViewMode, SpectrumChannelMode, SpectrumLayout, SPECTRUM_WINDOW_SIZE,
+};
 
 #[path = "spectrum_runtime_assemblers.rs"]
 mod assemblers;
@@ -30,8 +32,8 @@ pub use state::{
     SPECTRUM_HISTORY_CAPACITY,
 };
 
-// Two FFT windows cover worker scheduling jitter without charging hidden instances more memory.
-const SPECTRUM_RING_FRAMES: usize = SPECTRUM_WINDOW_SIZE * 2;
+// Two time-normalized apertures cover worker scheduling jitter. The ring exists even while hidden,
+// but FFT storage and work are still created only by the on-demand worker.
 const SPECTRUM_BLOCK_RING_CAPACITY: usize = 64;
 pub(super) const NO_PRESENTATION_POSITION: i64 = i64::MIN;
 
@@ -83,8 +85,11 @@ unsafe impl Sync for SpectrumRuntime {}
 impl SpectrumRuntime {
     pub fn new(sample_rate: u32, num_channels: usize) -> Arc<Self> {
         let num_channels = num_channels.clamp(1, 2);
+        let aperture_samples = SpectrumLayout::new(sample_rate)
+            .map(|layout| layout.aperture_samples)
+            .unwrap_or(SPECTRUM_WINDOW_SIZE);
         let (sample_producer, sample_consumer) =
-            RingBuffer::new(SPECTRUM_RING_FRAMES * num_channels);
+            RingBuffer::new(aperture_samples * 2 * num_channels);
         let (block_producer, block_consumer) = RingBuffer::new(SPECTRUM_BLOCK_RING_CAPACITY);
         Arc::new(Self {
             sample_rate,

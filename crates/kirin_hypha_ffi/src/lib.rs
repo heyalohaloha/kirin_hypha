@@ -3510,6 +3510,11 @@ pub struct KirinSpectrumView {
     pub display_db: [f32; SPECTRUM_BAND_COUNT],
     /// Exact shared PRE/POST presentation endpoint. Tail-appended for ABI prefix stability.
     pub presentation_end_samples: i64,
+    /// Exact host-rate aperture and FFT layout used by both frames.
+    pub aperture_samples: u32,
+    pub fft_size: u32,
+    /// Frequencies below this cycle-derived boundary remain visible but use an approximate label.
+    pub approximate_below_hz: f32,
 }
 
 /// Eight already-computed exact Spectrum differences, oldest first. This bounded recovery window
@@ -3739,29 +3744,45 @@ fn to_c_spectrum(snapshot: SpectrumViewSnapshot) -> KirinSpectrumView {
         .then_some(snapshot.difference)
         .flatten();
     let has_data = difference.is_some() as u8;
-    let (sample_rate, min_hz, max_hz, pre_dbfs, post_dbfs, display_db, presentation_end_samples) =
-        difference.map_or(
+    let (
+        sample_rate,
+        min_hz,
+        max_hz,
+        pre_dbfs,
+        post_dbfs,
+        display_db,
+        presentation_end_samples,
+        aperture_samples,
+        fft_size,
+        approximate_below_hz,
+    ) = difference.map_or(
+        (
+            0,
+            0.0,
+            0.0,
+            [0.0; SPECTRUM_BAND_COUNT],
+            [0.0; SPECTRUM_BAND_COUNT],
+            [0.0; SPECTRUM_BAND_COUNT],
+            0,
+            0,
+            0,
+            0.0,
+        ),
+        |difference| {
             (
-                0,
-                0.0,
-                0.0,
-                [0.0; SPECTRUM_BAND_COUNT],
-                [0.0; SPECTRUM_BAND_COUNT],
-                [0.0; SPECTRUM_BAND_COUNT],
-                0,
-            ),
-            |difference| {
-                (
-                    difference.sample_rate,
-                    difference.min_hz,
-                    difference.max_hz,
-                    difference.pre_dbfs,
-                    difference.post_dbfs,
-                    difference.display_db,
-                    difference.presentation_end_samples,
-                )
-            },
-        );
+                difference.sample_rate,
+                difference.min_hz,
+                difference.max_hz,
+                difference.pre_dbfs,
+                difference.post_dbfs,
+                difference.display_db,
+                difference.presentation_end_samples,
+                difference.aperture_samples,
+                difference.fft_size,
+                difference.approximate_below_hz,
+            )
+        },
+    );
     KirinSpectrumView {
         status: spectrum_status_to_abi(snapshot.status),
         has_data,
@@ -3774,6 +3795,9 @@ fn to_c_spectrum(snapshot: SpectrumViewSnapshot) -> KirinSpectrumView {
         post_dbfs,
         display_db,
         presentation_end_samples,
+        aperture_samples,
+        fft_size,
+        approximate_below_hz,
     }
 }
 
@@ -3790,6 +3814,9 @@ fn empty_c_spectrum() -> KirinSpectrumView {
         post_dbfs: [0.0; SPECTRUM_BAND_COUNT],
         display_db: [0.0; SPECTRUM_BAND_COUNT],
         presentation_end_samples: 0,
+        aperture_samples: 0,
+        fft_size: 0,
+        approximate_below_hz: 0.0,
     }
 }
 
@@ -3813,6 +3840,9 @@ fn to_c_spectrum_batch(snapshot: SpectrumViewSnapshot) -> KirinSpectrumBatch {
                 post_dbfs: difference.post_dbfs,
                 display_db: difference.display_db,
                 presentation_end_samples: difference.presentation_end_samples,
+                aperture_samples: difference.aperture_samples,
+                fft_size: difference.fft_size,
+                approximate_below_hz: difference.approximate_below_hz,
             };
             count += 1;
         }
@@ -4040,10 +4070,19 @@ mod spectrum_abi_tests {
 
     #[test]
     fn spectrum_status_and_signed_display_values_have_stable_c_mapping() {
-        assert_eq!(std::mem::size_of::<KirinSpectrumView>(), 3_096);
+        assert_eq!(std::mem::size_of::<KirinSpectrumView>(), 3_112);
         assert_eq!(
             std::mem::offset_of!(KirinSpectrumView, presentation_end_samples),
             3_088
+        );
+        assert_eq!(
+            std::mem::offset_of!(KirinSpectrumView, aperture_samples),
+            3_096
+        );
+        assert_eq!(std::mem::offset_of!(KirinSpectrumView, fft_size), 3_100);
+        assert_eq!(
+            std::mem::offset_of!(KirinSpectrumView, approximate_below_hz),
+            3_104
         );
         assert_eq!(spectrum_status_to_abi(SpectrumViewStatus::Hidden), 0);
         assert_eq!(spectrum_status_to_abi(SpectrumViewStatus::NoPair), 1);
@@ -4055,6 +4094,9 @@ mod spectrum_abi_tests {
         let difference = SpectrumDifference {
             presentation_end_samples: 48_000,
             sample_rate: 48_000,
+            aperture_samples: 4_096,
+            fft_size: 8_192,
+            approximate_below_hz: 35.15625,
             min_hz: 10.0,
             max_hz: 22_000.0,
             channel_mode: SpectrumChannelMode::Side,
@@ -4089,8 +4131,11 @@ mod spectrum_abi_tests {
         assert_eq!(out.display_db[0], -3.5);
         assert_eq!(out.display_db[SPECTRUM_BAND_COUNT - 1], -3.5);
         assert_eq!(out.presentation_end_samples, 48_000);
+        assert_eq!(out.aperture_samples, 4_096);
+        assert_eq!(out.fft_size, 8_192);
+        assert_eq!(out.approximate_below_hz, 35.15625);
         let batch = to_c_spectrum_batch(snapshot);
-        assert_eq!(std::mem::size_of::<KirinSpectrumBatch>(), 27_872);
+        assert_eq!(std::mem::size_of::<KirinSpectrumBatch>(), 28_016);
         assert_eq!(batch.count, 1);
         assert_eq!(batch.latest.presentation_end_samples, 48_000);
         assert_eq!(batch.frames[0].presentation_end_samples, 48_000);

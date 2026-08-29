@@ -21,9 +21,25 @@ namespace
 
     bool validSnapshot (const KirinSpectrumView& view) noexcept
     {
+        const uint64_t apertureNumerator = static_cast<uint64_t> (view.sample_rate) * 4'096u
+                                         + 24'000u;
+        const uint32_t expectedAperture = static_cast<uint32_t> (
+            apertureNumerator / 48'000u);
+        uint32_t expectedFft = 1u;
+        while (expectedFft < expectedAperture * 2u && expectedFft <= 65'536u)
+            expectedFft <<= 1u;
+        const float expectedApproximateBelow = expectedAperture > 0u
+            ? 3.0f * static_cast<float> (view.sample_rate)
+                / static_cast<float> (expectedAperture)
+            : 0.0f;
         return view.has_data != 0
             && view.status == KIRIN_SPECTRUM_ACTIVE
             && view.sample_rate >= 8000u
+            && view.sample_rate <= 384000u
+            && view.aperture_samples == expectedAperture
+            && view.fft_size == expectedFft
+            && std::isfinite (view.approximate_below_hz)
+            && std::abs (view.approximate_below_hz - expectedApproximateBelow) < 0.001f
             && std::isfinite (view.min_hz)
             && std::isfinite (view.max_hz)
             && view.min_hz > 0.0f
@@ -64,6 +80,10 @@ void SpectrumComponent::setSnapshot (const KirinSpectrumView& next)
     const bool nextValid = validSnapshot (next);
     const bool layoutChanged = previousValid && nextValid
         && (snapshot.sample_rate != next.sample_rate
+            || snapshot.aperture_samples != next.aperture_samples
+            || snapshot.fft_size != next.fft_size
+            || ! sameFloatBits (snapshot.approximate_below_hz,
+                                next.approximate_below_hz)
             || snapshot.channel_mode != next.channel_mode
             || snapshot.channels != next.channels
             || ! sameFloatBits (snapshot.min_hz, next.min_hz)
@@ -144,6 +164,10 @@ void SpectrumComponent::setBatch (const KirinSpectrumBatch& batch)
         const auto& frame = batch.frames[index];
         if (! validSnapshot (frame)
             || frame.sample_rate != batch.latest.sample_rate
+            || frame.aperture_samples != batch.latest.aperture_samples
+            || frame.fft_size != batch.latest.fft_size
+            || ! sameFloatBits (frame.approximate_below_hz,
+                                batch.latest.approximate_below_hz)
             || frame.channel_mode != batch.latest.channel_mode
             || frame.channels != batch.latest.channels
             || ! sameFloatBits (frame.min_hz, batch.latest.min_hz)
@@ -163,6 +187,10 @@ void SpectrumComponent::setBatch (const KirinSpectrumBatch& batch)
     const bool pendingValid = havePendingSnapshot && validSnapshot (pendingSnapshot);
     const bool definitionChanged = pendingValid
         && (pendingSnapshot.sample_rate != batch.latest.sample_rate
+            || pendingSnapshot.aperture_samples != batch.latest.aperture_samples
+            || pendingSnapshot.fft_size != batch.latest.fft_size
+            || ! sameFloatBits (pendingSnapshot.approximate_below_hz,
+                                batch.latest.approximate_below_hz)
             || pendingSnapshot.channel_mode != batch.latest.channel_mode
             || pendingSnapshot.channels != batch.latest.channels
             || ! sameFloatBits (pendingSnapshot.min_hz, batch.latest.min_hz)
@@ -195,6 +223,10 @@ void SpectrumComponent::queueSnapshot (const KirinSpectrumView& next)
     const bool nextValid = validSnapshot (next);
     const bool layoutChanged = previousValid && nextValid
         && (pendingSnapshot.sample_rate != next.sample_rate
+            || pendingSnapshot.aperture_samples != next.aperture_samples
+            || pendingSnapshot.fft_size != next.fft_size
+            || ! sameFloatBits (pendingSnapshot.approximate_below_hz,
+                                next.approximate_below_hz)
             || pendingSnapshot.channel_mode != next.channel_mode
             || pendingSnapshot.channels != next.channels
             || ! sameFloatBits (pendingSnapshot.min_hz, next.min_hz)
@@ -302,34 +334,6 @@ void SpectrumComponent::presentationTickAt (double nowMs)
         repaint();
 }
 
-void SpectrumComponent::mouseMove (const juce::MouseEvent& event)
-{
-    const auto bounds = getLocalBounds().toFloat();
-    const float scale = spectrum_geometry::visualScaleFor (bounds);
-    const auto outerPlot = spectrum_geometry::plotBoundsFor (bounds);
-    const auto plot = spectrum_geometry::dataPlotBoundsFor (bounds);
-    const float controlsBottom = outerPlot.getY()
-        + (float) (ui_contract::spectrumChannelModeTop
-                 + ui_contract::spectrumChannelModeHeight) * scale;
-    const auto position = event.position;
-    const float next = plot.contains (position) && position.y >= controlsBottom
-                         ? juce::jlimit (0.0f, 1.0f,
-                                        (position.x - plot.getX()) / plot.getWidth())
-                         : -1.0f;
-    if (juce::approximatelyEqual (next, hoverNormalisedX))
-        return;
-    hoverNormalisedX = next;
-    hoverNeedsRepaint = true;
-}
-
-void SpectrumComponent::mouseExit (const juce::MouseEvent&)
-{
-    if (hoverNormalisedX < 0.0f)
-        return;
-    hoverNormalisedX = -1.0f;
-    hoverNeedsRepaint = true;
-}
-
 void SpectrumComponent::mouseDown (const juce::MouseEvent& event)
 {
     const auto bounds = getLocalBounds().toFloat();
@@ -350,7 +354,7 @@ void SpectrumComponent::mouseDown (const juce::MouseEvent& event)
                            && onChannelModeChange (requestedMode);
         if (! accepted)
         {
-            modeActionNotice = monoSide ? "SIDE — MONO" : "MODE —";
+            modeActionNotice = monoSide ? "SIDE -- MONO" : "MODE --";
             modeActionNoticeUntilMs = juce::Time::getMillisecondCounterHiRes() + 1'500.0;
             repaint();
             return;
@@ -397,7 +401,7 @@ void SpectrumComponent::mouseDown (const juce::MouseEvent& event)
         }
         else
         {
-            modeActionNotice = "MARK —";
+            modeActionNotice = "MARK --";
             modeActionNoticeUntilMs = juce::Time::getMillisecondCounterHiRes() + 1'500.0;
         }
         repaint();
@@ -425,9 +429,10 @@ void SpectrumComponent::mouseDown (const juce::MouseEvent& event)
                  + ui_contract::spectrumChannelModeHeight) * scale;
     if (! plot.contains (event.position) || event.position.y < controlsBottom)
         return;
-    const float normalised = juce::jlimit (0.0f, 1.0f,
-        (event.position.x - plot.getX()) / plot.getWidth());
-    focusFrequencyHz = spectrum_geometry::frequencyForNormalisedX (
+    const float normalised = spectrum_geometry::clampToBandCentreRange (
+        juce::jlimit (0.0f, 1.0f,
+            (event.position.x - plot.getX()) / plot.getWidth()));
+    focusFrequencyHz = spectrum_geometry::frequencyForProbeNormalisedX (
         normalised, snapshot.min_hz, snapshot.max_hz);
     hoverNormalisedX = normalised;
     repaint();

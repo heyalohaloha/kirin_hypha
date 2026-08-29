@@ -1,5 +1,7 @@
 #include "HyphaSpectrumFocusTrail.h"
 
+#include "HyphaSpectrumGeometry.h"
+
 #include <algorithm>
 #include <cmath>
 
@@ -116,8 +118,7 @@ float FocusTrailHistory::valueAt (size_t chronologicalIndex, float normalisedBan
     if (empty())
         return 0.0f;
     const auto& bins = frames[physicalIndex (chronologicalIndex)].displayDelta;
-    const float position = std::clamp (normalisedBand, 0.0f, 1.0f)
-                         * static_cast<float> (KIRIN_SPECTRUM_BAND_COUNT - 1u);
+    const float position = spectrum_geometry::bandPositionForNormalisedX (normalisedBand);
     const size_t lower = static_cast<size_t> (std::floor (position));
     const size_t upper = std::min (lower + 1u,
                                    static_cast<size_t> (KIRIN_SPECTRUM_BAND_COUNT - 1u));

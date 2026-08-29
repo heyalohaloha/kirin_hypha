@@ -4,13 +4,13 @@ use crate::absolute_timeline::{
 use crate::perceptual::{PerceptualFrame, SharpnessContinuousAnalyzer};
 use crate::spectrum::{
     SpectrumAnalyzer, SpectrumChannelMode, SpectrumFrame, SPECTRUM_PRESENTATION_HZ,
-    SPECTRUM_WINDOW_SIZE,
 };
 
 pub(super) struct SpectrumAssembler {
     analyzer: SpectrumAnalyzer,
     channels: usize,
     cadence_samples: i64,
+    window_size: usize,
     left: Vec<f32>,
     right: Vec<f32>,
     ordered_left: Vec<f32>,
@@ -24,14 +24,16 @@ pub(super) struct SpectrumAssembler {
 impl SpectrumAssembler {
     pub(super) fn new(analyzer: SpectrumAnalyzer, channels: usize) -> Self {
         let cadence_samples = i64::from(analyzer.sample_rate() / SPECTRUM_PRESENTATION_HZ);
+        let window_size = analyzer.aperture_samples();
         Self {
             analyzer,
             channels,
             cadence_samples,
-            left: vec![0.0; SPECTRUM_WINDOW_SIZE],
-            right: vec![0.0; SPECTRUM_WINDOW_SIZE],
-            ordered_left: vec![0.0; SPECTRUM_WINDOW_SIZE],
-            ordered_right: vec![0.0; SPECTRUM_WINDOW_SIZE],
+            window_size,
+            left: vec![0.0; window_size],
+            right: vec![0.0; window_size],
+            ordered_left: vec![0.0; window_size],
+            ordered_right: vec![0.0; window_size],
             write_index: 0,
             filled: 0,
             next_position: None,
@@ -64,11 +66,11 @@ impl SpectrumAssembler {
         }
         self.left[self.write_index] = left;
         self.right[self.write_index] = right.unwrap_or(0.0);
-        self.write_index = (self.write_index + 1) % SPECTRUM_WINDOW_SIZE;
-        self.filled = self.filled.saturating_add(1).min(SPECTRUM_WINDOW_SIZE);
+        self.write_index = (self.write_index + 1) % self.window_size;
+        self.filled = self.filled.saturating_add(1).min(self.window_size);
         let end = self.next_position?.checked_add(1)?;
         self.next_position = Some(end);
-        if self.filled != SPECTRUM_WINDOW_SIZE || end.rem_euclid(self.cadence_samples) != 0 {
+        if self.filled != self.window_size || end.rem_euclid(self.cadence_samples) != 0 {
             return None;
         }
         copy_ordered(&self.left, self.write_index, &mut self.ordered_left);

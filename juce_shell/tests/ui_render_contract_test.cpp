@@ -2,6 +2,7 @@
 #include "../src/HyphaAnalysisNavigation.h"
 #include "../src/HyphaAnalysisUiText.h"
 #include "../src/HyphaSpectrumComponent.h"
+#include "../src/HyphaTooltipLookAndFeel.h"
 #include "PerceptualHistoryContractTest.h"
 #include "AbsoluteTimelineContractTest.h"
 #include "SpectrumFocusTrailContractTest.h"
@@ -11,8 +12,8 @@
 #include <cstdlib>
 #include <iostream>
 namespace ui = hypha::ui_contract;
-static_assert (sizeof (KirinSpectrumView) == 3'096, "Spectrum view ABI size must remain exact");
-static_assert (sizeof (KirinSpectrumBatch) == 27'872, "Spectrum batch ABI size must remain exact");
+static_assert (sizeof (KirinSpectrumView) == 3'112, "Spectrum view ABI size must remain exact");
+static_assert (sizeof (KirinSpectrumBatch) == 28'016, "Spectrum batch ABI size must remain exact");
 namespace
 {
     void require (bool condition, const char* expression, int line)
@@ -287,6 +288,48 @@ int main()
         while (*utf8 != 0u)
             KIRIN_REQUIRE (*utf8++ <= 0x7fu);
     }
+    const juce::StringArray boundedTooltipTexts {
+        hypha::analysis_ui::channelModeTooltip (0u),
+        hypha::analysis_ui::channelModeTooltip (1u),
+        hypha::analysis_ui::channelModeTooltip (2u),
+        hypha::analysis_ui::spectrumPlotTooltip(),
+        hypha::analysis_ui::approximateFrequencyTooltip(),
+        hypha::analysis_ui::deltaLegendTooltip(),
+        hypha::analysis_ui::preLegendTooltip(),
+        hypha::analysis_ui::postLegendTooltip(),
+        hypha::analysis_ui::markTooltip (false),
+        hypha::analysis_ui::markTooltip (true),
+        hypha::analysis_ui::focusTrailTooltip (false),
+        hypha::analysis_ui::focusTrailTooltip (true),
+        hypha::analysis_ui::sharpnessDeltaTooltip(),
+        hypha::analysis_ui::liveOverviewTooltip(),
+        hypha::analysis_ui::liveMetricTooltip (0u),
+        hypha::analysis_ui::liveMetricTooltip (1u),
+        hypha::analysis_ui::liveMetricTooltip (2u),
+        hypha::helpLufsM(), hypha::helpLufsS(), hypha::helpTp(), hypha::helpSharp()
+    };
+    hypha::TooltipLookAndFeel boundedTooltipLookAndFeel;
+    for (const auto& preset : ui::spectrumSizePresets)
+    {
+        const juce::Rectangle<int> parent (0, 0, preset.width, preset.height);
+        const auto available = parent.reduced (ui::margin);
+        for (const auto& tooltipText : boundedTooltipTexts)
+        {
+            KIRIN_REQUIRE (tooltipText.isNotEmpty());
+            for (const auto position : {
+                     juce::Point<int> (0, 0),
+                     juce::Point<int> (parent.getRight(), 0),
+                     juce::Point<int> (0, parent.getBottom()),
+                     juce::Point<int> (parent.getRight(), parent.getBottom()) })
+            {
+                const auto tooltipBounds = boundedTooltipLookAndFeel.getTooltipBounds (
+                    tooltipText, position, parent);
+                KIRIN_REQUIRE (available.contains (tooltipBounds));
+                KIRIN_REQUIRE (tooltipBounds.getWidth() <= available.getWidth());
+                KIRIN_REQUIRE (tooltipBounds.getHeight() <= available.getHeight());
+            }
+        }
+    }
     const auto slotsText = hypha::analysis_ui::slotsInUse ("Mix, Vocal");
     const auto expectedSlotsText = juce::String ("Both slots in use ")
                                  + juce::String::charToString (0x2014)
@@ -363,6 +406,9 @@ int main()
     spectrumSnapshot.channel_mode = KIRIN_SPECTRUM_CHANNEL_LR;
     spectrumSnapshot.channels = 2;
     spectrumSnapshot.sample_rate = 48'000;
+    spectrumSnapshot.aperture_samples = 4'096;
+    spectrumSnapshot.fft_size = 8'192;
+    spectrumSnapshot.approximate_below_hz = 35.15625f;
     spectrumSnapshot.presentation_end_samples = 48'000;
     spectrumSnapshot.min_hz = 10.0f;
     spectrumSnapshot.max_hz = 22'000.0f;

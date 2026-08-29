@@ -36,8 +36,8 @@ std::array<float, Size> lowFrequencyCalmWeights (float minimumHz,
         return weights;
 
     const float ratio = std::pow (maximumHz / minimumHz,
-                                  1.0f / static_cast<float> (Size - 1u));
-    float frequencyHz = minimumHz;
+                                  1.0f / static_cast<float> (Size));
+    float frequencyHz = minimumHz * std::sqrt (ratio);
     for (std::size_t index = 0; index < Size; ++index)
     {
         weights[index] = lowFrequencyCalmBlend (frequencyHz);

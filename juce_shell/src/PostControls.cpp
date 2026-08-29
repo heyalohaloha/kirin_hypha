@@ -52,11 +52,14 @@ namespace hypha
         };
         for (auto* b : { &keepBtn, &stopBtn })
             styleButton (*b);
+        keepBtn.setTooltip ("Start a Keep session for this PRE and POST pair.");
+        stopBtn.setTooltip ("Stop the current Keep session.");
 
         // Sense hint: frameless amber text (no fill / blends into BG) — opens the upsell URL.
         senseBtn.setColour (juce::TextButton::buttonColourId, BG);
         senseBtn.setColour (juce::TextButton::textColourOnId,  COL_FLORA);
         senseBtn.setColour (juce::TextButton::textColourOffId, COL_FLORA);
+        senseBtn.setTooltip ("Open Kirin OS information for Record mode.");
         addChildComponent (senseBtn);
 
         keepBtn.onClick = [this] { if (onKeep) onKeep(); };

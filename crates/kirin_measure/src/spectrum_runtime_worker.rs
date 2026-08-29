@@ -186,8 +186,17 @@ impl SpectrumRuntime {
     }
 
     pub(super) fn frame_is_current(&self, frame: &SpectrumFrame) -> bool {
+        let layout_matches =
+            crate::spectrum::SpectrumLayout::new(self.sample_rate).is_ok_and(|layout| {
+                frame.sample_rate == layout.sample_rate
+                    && frame.aperture_samples as usize == layout.aperture_samples
+                    && frame.fft_size as usize == layout.fft_size
+                    && frame.min_hz.to_bits() == layout.min_hz.to_bits()
+                    && frame.max_hz.to_bits() == layout.max_hz.to_bits()
+            });
         self.enabled.load(Ordering::Acquire)
             && self.analysis_mode() == AnalysisViewMode::Spectrum
+            && layout_matches
             && frame.generation == self.generation.load(Ordering::Acquire)
             && frame.channel_mode == self.channel_mode()
             && frame.channels as usize == self.num_channels
