@@ -73,8 +73,8 @@ A paired POST provides an optional **ANALYSIS** page for inspecting the processi
 POST. Analysis runs only while this page is open. The signed **Δ (POST − PRE)** curve is the primary
 display, with absolute PRE and POST spectra retained as reference curves. Δ is shown on a ±24 dB
 scale; the underlying difference is not clipped. A difference is produced only when PRE and POST
-frames have the same sample rate, FFT layout, channel mode, channel count, and output-presentation
-sample endpoint.
+frames have the same sample rate, aperture length, FFT layout, channel mode, channel count, and
+output-presentation sample endpoint.
 
 | Control | Observation behavior |
 |---|---|
@@ -90,8 +90,10 @@ SIDE result. Switching LR / MID / SIDE clears the old frame and waits for an exa
 the newly selected mode. Record-mode N and Sharpness use their own independent-channel definition,
 described below, so they can differ from MID or SIDE Spectrum on wide or phase-opposed material.
 
-Hovering the plot shows frequency and Δ; the 125%, 150%, and 200% views also show PRE and POST values. A
-click in the plot locks that readout to the same frequency until its × is pressed. While locked,
+Hovering the plot shows frequency and Δ; the 125%, 150%, and 200% views also show PRE and POST values.
+Below the cycle-derived low-frequency confidence boundary (about 35 Hz), the frequency alone carries
+an unobtrusive `~` prefix. The measured band and Δ remain visible and are not dimmed, hidden, or
+replaced by a warning. A click in the plot locks that readout to the same frequency until its × is pressed. While locked,
 **Focus Trail** shows the last six seconds of Δ at that frequency: compact at 100%, with its own lane
 at 125%, 150%, and 200%. Its newest point is the same exact PRE/POST presentation frame as the live Δ, not a
 UI-clock estimate. A missed UI poll does not erase valid older observations: retained points keep
@@ -133,11 +135,15 @@ Audio Thread.
 
 Where both spectra are extremely quiet, the displayed Δ alone is faded toward zero: it is fully
 suppressed at and below −120 dBFS and reaches full strength at −96 dBFS. This display floor does not
-alter the captured PRE or POST values. The analyzer follows the host sample rate, using a 4096-sample
-Hann window, an 8192-point FFT, and a 30 Hz analysis cadence. The live curve presents the newest
-frame at 12 Hz and numeric probe values at 2 Hz, without averaging or changing the measured
-endpoint. At 48 kHz the window spans about
-85 ms; FFT-point spacing changes with the host rate. It compares measured programme energy rather
+alter the captured PRE or POST values. The analyzer follows the host sample rate without resampling.
+Its Hann aperture is rounded from the 48 kHz reference time of `4096 / 48000` seconds (about
+85.33 ms), and its FFT is the smallest power of two that preserves at least 2× zero-padding. Thus
+48 kHz remains exactly 4096 samples / 8192 FFT points, while 44.1, 96, 192, and 384 kHz use
+3763/8192, 8192/16384, 16384/32768, and 32768/65536 respectively. Analysis remains at 30 Hz. The live
+curve presents the newest frame at 12 Hz and numeric probe values at 2 Hz, without averaging or
+changing the measured endpoint. All curve points, hover interpolation, MARK, and Focus Trail use the
+same logarithmic band centres `(index + 0.5) / 256`. The first and last edge labels remain plot
+boundaries, not invented samples. It compares measured programme energy rather
 than reconstructing a plug-in transfer function, so narrow low-frequency EQ shapes can appear broader
 than the corresponding EQ control graph.
 

@@ -14,6 +14,13 @@ double displayValueOrFloor (double measuredValue, double displayMinimum) noexcep
     return std::isfinite (measuredValue) ? measuredValue : displayMinimum;
 }
 
+juce::String factValueText (double measuredValue, int decimals)
+{
+    // Keep the unavailable token ASCII-only. A raw em dash passed to juce::String's narrow-char
+    // constructor follows the Windows system code page and becomes mojibake in Studio One.
+    return std::isfinite (measuredValue) ? juce::String (measuredValue, decimals) : "--";
+}
+
 namespace
 {
     constexpr double historySeconds = 6.0;
@@ -64,8 +71,7 @@ namespace
                            double value, int decimals, float scale)
     {
         const auto label = scale > 1.1f ? full : compact;
-        return juce::String (label) + " "
-             + (std::isfinite (value) ? juce::String (value, decimals) : juce::String ("—"));
+        return juce::String (label) + " " + factValueText (value, decimals);
     }
 
     void paintHeader (juce::Graphics& g, juce::Rectangle<float> area,
@@ -200,7 +206,7 @@ void paint (juce::Graphics& g, juce::Rectangle<float> bounds, const PaintState& 
         const auto status = state.haveBatch
                               ? statusText (state.batch.latest.status,
                                             state.analysisOwnerNames)
-                                            : juce::String ("OBSERVE —");
+                                            : juce::String ("OBSERVE --");
         g.setFont (monoFont (10.0f * ui_contract::analysisTextScale (scale)));
         g.setColour (COL_MUTED.withAlpha (0.84f));
         g.drawFittedText (status, plot.toNearestInt(), juce::Justification::centred,

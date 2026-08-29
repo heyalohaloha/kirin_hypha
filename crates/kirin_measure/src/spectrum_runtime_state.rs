@@ -59,6 +59,14 @@ impl SpectrumHistory {
     }
 
     pub(crate) fn push(&mut self, frame: SpectrumFrame) {
+        if !frame.has_valid_layout() {
+            return;
+        }
+        if self.frames.back().is_some_and(|newest| {
+            !newest.same_analysis_layout(&frame) || newest.generation != frame.generation
+        }) {
+            self.frames.clear();
+        }
         if self.frames.len() == SPECTRUM_HISTORY_CAPACITY {
             self.frames.pop_front();
         }

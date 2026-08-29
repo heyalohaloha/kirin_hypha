@@ -116,6 +116,10 @@ void verifyAbsoluteTimelineContract()
     KIRIN_ABSOLUTE_REQUIRE (std::abs (
         absolute_painter::displayValueOrFloor (-17.25, -42.0)
         + 17.25) < 1.0e-12);
+    KIRIN_ABSOLUTE_REQUIRE (
+        absolute_painter::factValueText (std::numeric_limits<double>::quiet_NaN(), 1)
+        == "--");
+    KIRIN_ABSOLUTE_REQUIRE (absolute_painter::factValueText (-17.26, 1) == "-17.3");
 
     auto broken = batch (1, 3);
     broken.frames[1].presentation_end_samples = broken.frames[0].presentation_end_samples;

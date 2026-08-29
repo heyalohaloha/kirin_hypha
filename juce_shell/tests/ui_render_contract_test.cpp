@@ -11,8 +11,8 @@
 #include <cstdlib>
 #include <iostream>
 namespace ui = hypha::ui_contract;
-static_assert (sizeof (KirinSpectrumView) == 3'096, "Spectrum view ABI size must remain exact");
-static_assert (sizeof (KirinSpectrumBatch) == 27'872, "Spectrum batch ABI size must remain exact");
+static_assert (sizeof (KirinSpectrumView) == 3'112, "Spectrum view ABI size must remain exact");
+static_assert (sizeof (KirinSpectrumBatch) == 28'016, "Spectrum batch ABI size must remain exact");
 namespace
 {
     void require (bool condition, const char* expression, int line)
@@ -363,6 +363,9 @@ int main()
     spectrumSnapshot.channel_mode = KIRIN_SPECTRUM_CHANNEL_LR;
     spectrumSnapshot.channels = 2;
     spectrumSnapshot.sample_rate = 48'000;
+    spectrumSnapshot.aperture_samples = 4'096;
+    spectrumSnapshot.fft_size = 8'192;
+    spectrumSnapshot.approximate_below_hz = 35.15625f;
     spectrumSnapshot.presentation_end_samples = 48'000;
     spectrumSnapshot.min_hz = 10.0f;
     spectrumSnapshot.max_hz = 22'000.0f;

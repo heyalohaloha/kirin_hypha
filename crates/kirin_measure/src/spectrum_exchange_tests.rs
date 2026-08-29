@@ -1,6 +1,7 @@
 use super::*;
 use crate::spectrum::{
     SpectrumFrame, SPECTRUM_BAND_COUNT, SPECTRUM_FFT_SIZE, SPECTRUM_SCHEMA_VERSION,
+    SPECTRUM_WINDOW_SIZE,
 };
 use crate::SPECTRUM_HISTORY_CAPACITY;
 use std::thread;
@@ -9,6 +10,7 @@ fn frame(end: i64, value: f32) -> SpectrumFrame {
     SpectrumFrame {
         schema_version: SPECTRUM_SCHEMA_VERSION,
         sample_rate: 48_000,
+        aperture_samples: SPECTRUM_WINDOW_SIZE as u32,
         fft_size: SPECTRUM_FFT_SIZE as u32,
         band_count: SPECTRUM_BAND_COUNT as u16,
         presentation_end_samples: end,
@@ -144,9 +146,29 @@ fn truncated_trailing_or_nonfinite_snapshot_fails_closed() {
     trailing.push(0);
     assert!(decode_snapshot(&trailing).is_none());
     let mut nonfinite = bytes;
-    let first_value = 40 + 28;
+    let first_value = 44 + 28;
     nonfinite[first_value..first_value + 4].copy_from_slice(&f32::NAN.to_le_bytes());
     assert!(decode_snapshot(&nonfinite).is_none());
+}
+
+#[test]
+fn host_rate_layout_metadata_is_exact_and_mismatch_fails_closed() {
+    let mut history = SpectrumHistory::with_capacity();
+    history.push(frame(4_800, -20.0));
+    let bytes = encode_snapshot(Uuid::new_v4(), &history);
+
+    // Header: magic(8), schema(2), bands(2), rate(4), aperture(4), FFT(4).
+    let mut wrong_aperture = bytes.clone();
+    wrong_aperture[16..20].copy_from_slice(&4_095_u32.to_le_bytes());
+    assert!(decode_snapshot(&wrong_aperture).is_none());
+
+    let mut wrong_fft = bytes.clone();
+    wrong_fft[20..24].copy_from_slice(&16_384_u32.to_le_bytes());
+    assert!(decode_snapshot(&wrong_fft).is_none());
+
+    let mut legacy_magic = bytes;
+    legacy_magic[..8].copy_from_slice(b"KHSPEC02");
+    assert!(decode_snapshot(&legacy_magic).is_none());
 }
 
 #[test]

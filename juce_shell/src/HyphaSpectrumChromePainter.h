@@ -8,6 +8,8 @@
 
 namespace hypha::spectrum_chrome
 {
+    juce::String frequencyReadoutText (float hz, float approximateBelowHz);
+
     struct PaintState
     {
         const KirinSpectrumView& snapshot;

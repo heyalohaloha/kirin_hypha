@@ -273,27 +273,7 @@ fn mid_and_side_use_waveform_sum_and_difference_without_running_lr_in_parallel()
 }
 
 #[test]
-fn forty_four_one_uses_real_bin_floor_and_its_own_nyquist() {
-    let mut analyzer = SpectrumAnalyzer::new(44_100).unwrap();
-    let frame = analyzer
-        .analyze(&[0.0; SPECTRUM_WINDOW_SIZE], None, 44_100, 1)
-        .unwrap();
-    let first_bin = 44_100.0 / SPECTRUM_FFT_SIZE as f32;
-    assert_eq!(frame.sample_rate, 44_100);
-    assert!((frame.min_hz - first_bin.max(SPECTRUM_MIN_HZ)).abs() < 1.0e-6);
-    assert!(frame.max_hz < 22_050.0);
-}
-
-#[test]
-fn interactive_window_stays_below_86_ms_at_the_reference_rate() {
-    let aperture_ms = SPECTRUM_WINDOW_SIZE as f64 * 1_000.0 / 48_000.0;
-    assert!(aperture_ms <= 86.0, "aperture was {aperture_ms:.3} ms");
-    assert!(48_000.0 / SPECTRUM_FFT_SIZE as f64 <= 12.0);
-}
-
-#[test]
 fn post_minus_pre_is_signed_unclipped_and_exactly_timed() {
-    assert_eq!(SPECTRUM_DIFF_RANGE_DB, 18.0);
     let mut analyzer = SpectrumAnalyzer::new(48_000).unwrap();
     let signal = sine(48_000, 1_000.0, 0.0);
     let pre = analyzer.analyze(&signal, None, 48_000, 1).unwrap();
@@ -313,7 +293,12 @@ fn post_minus_pre_is_signed_unclipped_and_exactly_timed() {
     assert_eq!(difference.pre_dbfs, pre.dbfs);
     assert_eq!(difference.post_dbfs, post.dbfs);
     assert!((difference.raw_db[strongest] + 20.0).abs() < 0.05);
-    assert!(difference.raw_db[strongest] < -SPECTRUM_DIFF_RANGE_DB);
+    assert_eq!(difference.aperture_samples, 4_096);
+    assert_eq!(difference.fft_size, 8_192);
+    assert_eq!(
+        difference.approximate_below_hz.to_bits(),
+        35.15625_f32.to_bits()
+    );
 }
 
 #[test]
@@ -326,6 +311,12 @@ fn mismatched_position_rate_or_nonfinite_frame_fails_closed() {
     assert!(difference_post_minus_pre(&reference, &mismatch).is_none());
     mismatch = reference.clone();
     mismatch.sample_rate = 44_100;
+    assert!(difference_post_minus_pre(&reference, &mismatch).is_none());
+    mismatch = reference.clone();
+    mismatch.aperture_samples -= 1;
+    assert!(difference_post_minus_pre(&reference, &mismatch).is_none());
+    mismatch = reference.clone();
+    mismatch.fft_size *= 2;
     assert!(difference_post_minus_pre(&reference, &mismatch).is_none());
     mismatch = reference.clone();
     mismatch.channel_mode = SpectrumChannelMode::Mid;

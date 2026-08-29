@@ -1,6 +1,8 @@
 #include "SpectrumPresentationContractTest.h"
 
 #include "../src/HyphaSpectrumPresentation.h"
+#include "../src/HyphaSpectrumGeometry.h"
+#include "../src/HyphaSpectrumChromePainter.h"
 #include "kirin_hypha_ffi.h"
 
 #include <algorithm>
@@ -31,8 +33,7 @@ namespace
 
     float frequencyForBand (std::size_t index, float minimumHz, float maximumHz)
     {
-        const float position = static_cast<float> (index)
-                             / static_cast<float> (bandCount - 1u);
+        const float position = spectrum_geometry::bandCentreNormalisedX (index);
         return minimumHz * std::pow (maximumHz / minimumHz, position);
     }
 
@@ -78,12 +79,28 @@ namespace
 
 void verifySpectrumPresentationContract()
 {
-    // 44.1/48 kHz use 10 Hz; 96 kHz begins at its first real 8192-point FFT bin.
+    // The host-rate aperture keeps the zero-padded bin below 10 Hz at common rates.
     verifyWeightSpan (10.0f, 22'000.0f);
-    verifyWeightSpan (96'000.0f / 8'192.0f, 22'000.0f);
+    verifyWeightSpan (96'000.0f / 16'384.0f, 22'000.0f);
     requireZeroWeights (0.0f, 22'000.0f);
     requireZeroWeights (22'000.0f, 10.0f);
     requireZeroWeights (std::numeric_limits<float>::quiet_NaN(), 22'000.0f);
+
+    KIRIN_SPECTRUM_REQUIRE (
+        std::abs (spectrum_geometry::bandPositionForNormalisedX (
+                      spectrum_geometry::bandCentreNormalisedX (37u))
+                  - 37.0f) < 1.0e-5f);
+    KIRIN_SPECTRUM_REQUIRE (
+        spectrum_geometry::bandPositionForNormalisedX (0.0f) == 0.0f);
+    KIRIN_SPECTRUM_REQUIRE (std::abs (
+        spectrum_geometry::bandPositionForNormalisedX (1.0f)
+        - static_cast<float> (bandCount - 1u)) < 1.0e-6f);
+    KIRIN_SPECTRUM_REQUIRE (
+        spectrum_chrome::frequencyReadoutText (17.0f, 35.15625f) == "~17 Hz");
+    KIRIN_SPECTRUM_REQUIRE (
+        spectrum_chrome::frequencyReadoutText (30.0f, 35.15625f) == "~30 Hz");
+    KIRIN_SPECTRUM_REQUIRE (
+        spectrum_chrome::frequencyReadoutText (36.0f, 35.15625f) == "36 Hz");
 
     const auto weights = spectrum_presentation::lowFrequencyCalmWeights<bandCount> (
         10.0f, 22'000.0f);

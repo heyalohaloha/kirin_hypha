@@ -268,7 +268,7 @@ void PerceptualComponent::mouseDown (const juce::MouseEvent& event)
                            && onChannelModeChange (requestedMode);
         if (! accepted)
         {
-            modeActionNotice = monoSide ? "SIDE — MONO" : "MODE —";
+            modeActionNotice = monoSide ? "SIDE -- MONO" : "MODE --";
             modeActionNoticeUntilMs = juce::Time::getMillisecondCounterHiRes() + 1'500.0;
             repaint();
             return;
