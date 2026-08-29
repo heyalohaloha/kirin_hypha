@@ -34,6 +34,25 @@ namespace
         return count;
     }
 
+    int countDifferentPixelsOutsideColumns (const juce::Image& a,
+                                            const juce::Image& b,
+                                            juce::Rectangle<int> requested,
+                                            float firstExcludedX,
+                                            float secondExcludedX,
+                                            float exclusionRadius)
+    {
+        KIRIN_INTERACTION_REQUIRE (a.getBounds() == b.getBounds());
+        const auto area = requested.getIntersection (a.getBounds());
+        int count = 0;
+        for (int y = area.getY(); y < area.getBottom(); ++y)
+            for (int x = area.getX(); x < area.getRight(); ++x)
+                if (std::abs ((float) x - firstExcludedX) > exclusionRadius
+                    && std::abs ((float) x - secondExcludedX) > exclusionRadius
+                    && a.getPixelAt (x, y).getARGB() != b.getPixelAt (x, y).getARGB())
+                    ++count;
+        return count;
+    }
+
     int countWarmChangedPixels (const juce::Image& withMark,
                                 const juce::Image& withoutMark,
                                 juce::Rectangle<int> requested)
@@ -186,6 +205,39 @@ void verifySpectrumInteractionContract (SpectrumComponent& spectrum,
     recovery.latest = recovery.frames[recovery.count - 1u];
     recoveredSpectrum.setBatch (recovery);
     KIRIN_INTERACTION_REQUIRE (recoveredSpectrum.focusTrailSizeForTest() == 4u);
+    const auto recoveredPlot = spectrum_geometry::dataPlotBoundsFor (componentBounds);
+    const float lockedX = juce::jmap (
+        0.25f, recoveredPlot.getX(), recoveredPlot.getRight());
+    const float movedHoverX = juce::jmap (
+        0.75f, recoveredPlot.getX(), recoveredPlot.getRight());
+    recoveredSpectrum.mouseDown (mouseEvent (
+        recoveredSpectrum,
+        lockedX,
+        recoveredPlot.getCentreY(), eventTime));
+    KIRIN_INTERACTION_REQUIRE (recoveredSpectrum.hasFocusLock());
+    const float lockedFrequency = recoveredSpectrum.focusLockFrequencyHz();
+    juce::Image trailAtLock (
+        juce::Image::ARGB, recoveredSpectrum.getWidth(), recoveredSpectrum.getHeight(), true);
+    {
+        juce::Graphics graphics (trailAtLock);
+        recoveredSpectrum.paintEntireComponent (graphics, true);
+    }
+    recoveredSpectrum.mouseMove (mouseEvent (
+        recoveredSpectrum, movedHoverX,
+        recoveredPlot.getCentreY(), eventTime));
+    KIRIN_INTERACTION_REQUIRE (
+        std::abs (recoveredSpectrum.focusLockFrequencyHz() - lockedFrequency) < 1.0e-4f);
+    juce::Image trailAfterHoverMove (
+        juce::Image::ARGB, recoveredSpectrum.getWidth(), recoveredSpectrum.getHeight(), true);
+    {
+        juce::Graphics graphics (trailAfterHoverMove);
+        recoveredSpectrum.paintEntireComponent (graphics, true);
+    }
+    KIRIN_INTERACTION_REQUIRE (
+        countDifferentPixelsOutsideColumns (
+            trailAtLock, trailAfterHoverMove,
+            spectrum_geometry::focusTrailBoundsFor (componentBounds).toNearestInt(),
+            lockedX, movedHoverX, 8.0f * scale) == 0);
     KirinSpectrumBatch invalidRecovery = recovery;
     invalidRecovery.frames[2].presentation_end_samples
         = invalidRecovery.frames[1].presentation_end_samples;

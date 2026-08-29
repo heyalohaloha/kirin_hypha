@@ -36,6 +36,27 @@ namespace hypha::ui_contract
     constexpr int spectrumPlotRightInset = 25;
     constexpr int spectrumPlotTopInset = 6;
     constexpr int spectrumPlotBottomInset = 12;
+    // Analysis is still usable at the 300 x 200 host size. Geometry keeps its exact preset
+    // scale, while type receives a readability floor and a small proportional lift at every
+    // size. This is presentation-only and never changes the analysis cadence or values.
+    constexpr float analysisTextScale (float visualScale) noexcept
+    {
+        const float proportional = visualScale * 1.08f;
+        return proportional < 1.25f ? 1.25f : proportional;
+    }
+
+    // LIVE uses one shared time field, but its three unrelated units must not collapse into the
+    // same upper strip. The original fixed value ranges remain intact; only their optical bands
+    // are distributed through the field. Slight overlap keeps the result one cockpit surface,
+    // rather than three boxed charts.
+    constexpr float absoluteLufsBandTop = 0.03f;
+    constexpr float absoluteLufsBandBottom = 0.40f;
+    constexpr float absolutePeakBandTop = 0.31f;
+    constexpr float absolutePeakBandBottom = 0.68f;
+    constexpr float absoluteSharpnessBandTop = 0.60f;
+    constexpr float absoluteSharpnessBandBottom = 0.97f;
+    constexpr float absolutePlotTopInset = 2.0f;
+    constexpr float absolutePlotBottomInset = 5.0f;
     constexpr float spectrumLegendFontHeight = 8.5f;
     constexpr int spectrumLegendTop = 1;
     constexpr int spectrumLegendHeight = 10;

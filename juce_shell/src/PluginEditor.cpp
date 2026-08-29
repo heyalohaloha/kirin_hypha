@@ -417,12 +417,13 @@ void KirinHyphaEditor::setAnalysisPage (AnalysisPage page)
     spectrumToggle.setTooltip (ui::spectrumTooltip (analysisOpen));
     spectrumToggle.setColour (juce::TextButton::textColourOffId,
                               analysisOpen ? COL_SPECTRUM_DELTA : COL_MUTED);
-    analysisModeToggle.setButtonText (page == AnalysisPage::spectrum ? "SHARP"
-                                       : page == AnalysisPage::perceptual ? "LIVE" : "FREQ");
+    analysisModeToggle.setButtonText (page == AnalysisPage::spectrum ? "FREQ"
+                                       : page == AnalysisPage::perceptual ? "SHARP" : "LIVE");
     analysisModeToggle.setTooltip (page == AnalysisPage::spectrum
-                                     ? "Show Perceptual Delta"
+                                     ? "Frequency Delta — click to switch view"
                                      : page == AnalysisPage::perceptual
-                                         ? "Show POST live facts" : "Show frequency Delta");
+                                         ? "Sharpness Delta — click to switch view"
+                                         : "POST live facts — click to switch view");
     startTimerHz (page == AnalysisPage::absolute
                     ? ui::absoluteTimelineSourceHz
                     : analysisOpen ? ui::spectrumPresentationHz

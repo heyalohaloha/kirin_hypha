@@ -282,7 +282,13 @@ int main()
     assert (std::strcmp (ui::spectrumSizePresets[0].buttonText, "100%") == 0);
     assert (std::strcmp (ui::spectrumSizePresets[1].buttonText, "125%") == 0);
     assert (std::strcmp (ui::spectrumSizePresets[2].buttonText, "150%") == 0);
-
+    assert (std::abs (ui::analysisTextScale (1.0f) - 1.25f) < 0.0001f);
+    assert (std::abs (ui::analysisTextScale (1.25f) - 1.35f) < 0.0001f);
+    assert (std::abs (ui::analysisTextScale (1.5f) - 1.62f) < 0.0001f);
+    static_assert (ui::absoluteLufsBandTop < ui::absoluteLufsBandBottom
+                   && ui::absoluteLufsBandBottom > ui::absolutePeakBandTop
+                   && ui::absolutePeakBandBottom > ui::absoluteSharpnessBandTop
+                   && ui::absoluteSharpnessBandBottom <= 1.0f);
     // A silent project start is still Inactive. Once Watch has heard audio, short musical rests
     // remain Active and feed zero samples through the meter; one complete LUFS-S window of silence
     // ends the grace. Transport/Record exclusion resets the gate immediately.
@@ -490,6 +496,5 @@ int main()
     assert (ui::recordMetrics[5].metric == M::sharpness);
     assert (! ui::recordMetrics[2].deltaEligible);
     assert (! ui::recordMetrics[3].deltaEligible);
-
     return 0;
 }

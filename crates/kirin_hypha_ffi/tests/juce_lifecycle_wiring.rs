@@ -372,6 +372,8 @@ fn optional_analysis_is_post_only_on_demand_and_isolated_from_existing_schemas()
     let editor = read_repo("juce_shell/src/PluginEditor.cpp");
     assert!(editor.contains("#if ! KIRIN_HYPHA_PRE_DISPLAY"));
     assert!(editor.contains("setAnalysisPage (analysisPage == AnalysisPage::meters"));
+    assert!(editor.contains("page == AnalysisPage::spectrum ? \"FREQ\""));
+    assert!(editor.contains("page == AnalysisPage::perceptual ? \"SHARP\" : \"LIVE\""));
     assert!(editor.contains("processorRef.setSpectrumVisible (false)"));
     assert!(editor.contains("processorRef.setPerceptualVisible (false)"));
     assert!(editor.contains("AnalysisPage::perceptual"));

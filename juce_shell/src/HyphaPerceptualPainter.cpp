@@ -52,7 +52,7 @@ namespace
                     float scale,
                     const PaintState& state)
     {
-        g.setFont (monoFont (7.5f * scale));
+        g.setFont (monoFont (7.5f * ui_contract::analysisTextScale (scale)));
         if (state.actionNotice.isNotEmpty())
         {
             g.setColour (COL_MUTED.withAlpha (0.90f));
@@ -90,7 +90,7 @@ namespace
     {
         const float left = outer.getX() + 84.0f * scale;
         const float right = outer.getRight();
-        g.setFont (monoFont (8.0f * scale));
+        g.setFont (monoFont (8.0f * ui_contract::analysisTextScale (scale)));
         g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.96f));
         g.drawText (juce::CharPointer_UTF8 ("Δ SHARPNESS"),
                     juce::Rectangle<float> (left, outer.getY(), 76.0f * scale, 13.0f * scale),
@@ -109,7 +109,7 @@ namespace
 
         if (scale > 1.1f)
         {
-            g.setFont (monoFont (7.0f * scale));
+            g.setFont (monoFont (7.0f * ui_contract::analysisTextScale (scale)));
             g.setColour (COL_SPECTRUM_PRE.withAlpha (0.88f));
             const auto text = "PRE " + juce::String (state.snapshot.pre_sharpness, 2)
                             + "   POST " + juce::String (state.snapshot.post_sharpness, 2);
@@ -123,7 +123,7 @@ namespace
     void paintAxes (juce::Graphics& g, juce::Rectangle<float> plot, float scale)
     {
         const float zeroY = yForValue (0.0, plot);
-        g.setFont (monoFont (8.0f * scale));
+        g.setFont (monoFont (8.0f * ui_contract::analysisTextScale (scale)));
         g.setColour (COL_MUTED.withAlpha (0.86f));
         const int labelWidth = juce::roundToInt (21.0f * scale);
         const int labelHeight = juce::roundToInt (10.0f * scale);

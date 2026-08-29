@@ -37,6 +37,24 @@ namespace
                            static_cast<float> (minimum), plot.getY(), plot.getBottom());
     }
 
+    juce::Rectangle<float> valueBand (juce::Rectangle<float> plot,
+                                      float topProportion,
+                                      float bottomProportion)
+    {
+        const float top = plot.getY() + topProportion * plot.getHeight();
+        const float bottom = plot.getY() + bottomProportion * plot.getHeight();
+        return { plot.getX(), top, plot.getWidth(), bottom - top };
+    }
+
+    juce::Rectangle<float> absoluteOuterPlot (juce::Rectangle<float> bounds, float scale)
+    {
+        return bounds
+            .withTrimmedLeft ((float) ui_contract::spectrumPlotLeftInset * scale)
+            .withTrimmedRight ((float) ui_contract::spectrumPlotRightInset * scale)
+            .withTrimmedTop (ui_contract::absolutePlotTopInset * scale)
+            .withTrimmedBottom (ui_contract::absolutePlotBottomInset * scale);
+    }
+
     juce::String factText (const char* compact, const char* full,
                            double value, int decimals, float scale)
     {
@@ -49,7 +67,7 @@ namespace
                       float scale, const PaintState& state)
     {
         const auto third = area.getWidth() / 3.0f;
-        g.setFont (monoFont (7.4f * scale));
+        g.setFont (monoFont (8.0f * ui_contract::analysisTextScale (scale)));
         const auto latest = state.haveNumericSnapshot ? state.numericSnapshot
                                                        : KirinAbsoluteView {};
         const std::array<juce::Colour, 3> colours {
@@ -85,24 +103,32 @@ namespace
             g.setColour (COL_MUTED.withAlpha (0.14f));
             g.drawVerticalLine (juce::roundToInt (x), plot.getY(), plot.getBottom());
         }
-        g.setFont (monoFont (7.5f * scale));
+        g.setFont (monoFont (8.0f * ui_contract::analysisTextScale (scale)));
         g.setColour (COL_MUTED.withAlpha (0.82f));
         const int y = juce::roundToInt (plot.getBottom());
-        g.drawText ("-6s", juce::roundToInt (plot.getX()), y, 28, 10,
+        const int labelWidth = juce::roundToInt (30.0f * scale);
+        const int labelHeight = juce::roundToInt (10.0f * scale);
+        g.drawText ("-6s", juce::roundToInt (plot.getX()), y,
+                    labelWidth, labelHeight,
                     juce::Justification::centredLeft);
-        g.drawText ("-3", juce::roundToInt (plot.getCentreX()) - 14, y, 28, 10,
+        g.drawText ("-3", juce::roundToInt (plot.getCentreX()) - labelWidth / 2, y,
+                    labelWidth, labelHeight,
                     juce::Justification::centred);
-        g.drawText ("NOW", juce::roundToInt (plot.getRight()) - 30, y, 30, 10,
+        g.drawText ("NOW", juce::roundToInt (plot.getRight()) - labelWidth, y,
+                    labelWidth, labelHeight,
                     juce::Justification::centredRight);
     }
 
     template <typename ValueFn>
     void paintSeries (juce::Graphics& g, const KirinAbsoluteBatch& batch,
                       juce::Rectangle<float> plot, juce::Colour colour,
-                      double minimum, double maximum, float scale, ValueFn valueFor)
+                      double minimum, double maximum,
+                      float bandTop, float bandBottom,
+                      float scale, ValueFn valueFor)
     {
         if (batch.count < 2u)
             return;
+        const auto band = valueBand (plot, bandTop, bandBottom);
         juce::Path path;
         bool activeRun = false;
         const auto newest = batch.latest.presentation_end_samples;
@@ -119,7 +145,7 @@ namespace
             const auto age = static_cast<double> (newest - frame.presentation_end_samples) / rate;
             const float x = plot.getRight()
                           - static_cast<float> (age / historySeconds) * plot.getWidth();
-            const juce::Point<float> point { x, yFor (value, minimum, maximum, plot) };
+            const juce::Point<float> point { x, yFor (value, minimum, maximum, band) };
             if (activeRun)
                 path.lineTo (point);
             else
@@ -140,7 +166,7 @@ namespace
 void paint (juce::Graphics& g, juce::Rectangle<float> bounds, const PaintState& state)
 {
     const float scale = spectrum_geometry::visualScaleFor (bounds);
-    auto outer = spectrum_geometry::plotBoundsFor (bounds);
+    auto outer = absoluteOuterPlot (bounds, scale);
     auto header = outer.removeFromTop ((scale > 1.1f ? 23.0f : 17.0f) * scale);
     paintHeader (g, header, scale, state);
     auto plot = outer;
@@ -151,7 +177,7 @@ void paint (juce::Graphics& g, juce::Rectangle<float> bounds, const PaintState& 
     {
         const auto status = state.haveBatch ? statusText (state.batch.latest.status)
                                             : juce::String ("OBSERVE —");
-        g.setFont (monoFont (10.0f * scale));
+        g.setFont (monoFont (10.0f * ui_contract::analysisTextScale (scale)));
         g.setColour (COL_MUTED.withAlpha (0.84f));
         g.drawFittedText (status, plot.toNearestInt(), juce::Justification::centred,
                           2, 0.72f);
@@ -159,13 +185,19 @@ void paint (juce::Graphics& g, juce::Rectangle<float> bounds, const PaintState& 
     }
 
     paintSeries (g, state.batch, plot, COL_SPECTRUM_DELTA,
-                 lufsMinimum, lufsMaximum, scale,
+                 lufsMinimum, lufsMaximum,
+                 ui_contract::absoluteLufsBandTop,
+                 ui_contract::absoluteLufsBandBottom, scale,
                  [] (const KirinAbsoluteView& frame) { return frame.lufs_m; });
     paintSeries (g, state.batch, plot, COL_SPECTRUM_POST,
-                 peakMinimum, peakMaximum, scale,
+                 peakMinimum, peakMaximum,
+                 ui_contract::absolutePeakBandTop,
+                 ui_contract::absolutePeakBandBottom, scale,
                  [] (const KirinAbsoluteView& frame) { return frame.true_peak; });
     paintSeries (g, state.batch, plot, COL_FLORA,
-                 sharpnessMinimum, sharpnessMaximum, scale,
+                 sharpnessMinimum, sharpnessMaximum,
+                 ui_contract::absoluteSharpnessBandTop,
+                 ui_contract::absoluteSharpnessBandBottom, scale,
                  [] (const KirinAbsoluteView& frame) { return frame.sharpness; });
 }
 }

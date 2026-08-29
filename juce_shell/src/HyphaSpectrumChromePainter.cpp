@@ -60,7 +60,7 @@ namespace
             return juce::roundToInt ((float) value * scale);
         };
         const float zeroY = spectrum_geometry::yForDeltaDb (0.0f, plot);
-        g.setFont (monoFont (scaled (8.5f)));
+        g.setFont (monoFont (8.5f * ui_contract::analysisTextScale (scale)));
         g.setColour (COL_MUTED.withAlpha (0.86f));
         g.drawText ("+24", 0, juce::roundToInt (plot.getY()) - scaledInt (4),
                     scaledInt (21), scaledInt (10), juce::Justification::centredRight);
@@ -154,7 +154,7 @@ namespace
         const auto scaledInt = [scale] (int value) {
             return juce::roundToInt ((float) value * scale);
         };
-        g.setFont (monoFont (scaled (7.5f)));
+        g.setFont (monoFont (7.5f * ui_contract::analysisTextScale (scale)));
         if (state.actionNotice.isNotEmpty())
         {
             g.setColour (COL_MUTED.withAlpha (0.90f));
@@ -204,7 +204,8 @@ namespace
         const int legendOffset = scaledInt (ui_contract::spectrumLegendAfterChannelModes);
         const float legendTop = outerPlot.getY()
                               + scaled ((float) ui_contract::spectrumLegendTop);
-        g.setFont (monoFont (scaled (ui_contract::spectrumLegendFontHeight)));
+        g.setFont (monoFont (ui_contract::spectrumLegendFontHeight
+                             * ui_contract::analysisTextScale (scale)));
         g.setColour (COL_SPECTRUM_DELTA.withAlpha (ui_contract::spectrumDeltaLegendAlpha));
         g.drawText (juce::CharPointer_UTF8 ("\xCE\x94"),
                     juce::roundToInt (outerPlot.getX()) + legendOffset
@@ -239,7 +240,7 @@ namespace
             state.haveMark ? ui_contract::spectrumMarkButtonActiveBorderAlpha
                            : ui_contract::spectrumMarkButtonInactiveBorderAlpha));
         g.drawRoundedRectangle (mark, scaled (3.0f), scaled (0.75f));
-        g.setFont (monoFont (scaled (7.0f)));
+        g.setFont (monoFont (7.0f * ui_contract::analysisTextScale (scale)));
         g.setColour (state.snapshotValid
                          ? (state.haveMark ? COL_FLORA_BR : COL_FLORA).withAlpha (
                                state.haveMark
@@ -313,7 +314,8 @@ namespace
         const auto deltaText = juce::String (deltaDb >= 0.0f ? "+" : "")
                              + juce::String (deltaDb, 1);
         const int textY = juce::roundToInt (readout.getY());
-        g.setFont (monoFont (scaled (expanded ? 8.0f : 8.5f)));
+        g.setFont (monoFont ((expanded ? 8.0f : 8.5f)
+                             * ui_contract::analysisTextScale (scale)));
         const auto drawText = [&] (const juce::String& text, juce::Colour colour,
                                     int logicalX, int logicalWidth,
                                     juce::Justification justification)
@@ -385,6 +387,10 @@ void paint (juce::Graphics& g,
             ? spectrum_geometry::normalisedXForFrequency (
                 state.focusFrequencyHz, minimumHz, maximumHz)
             : -1.0f;
+    const float focusNormalisedX = state.snapshotValid && state.focusFrequencyHz > 0.0f
+        ? spectrum_geometry::normalisedXForFrequency (
+            state.focusFrequencyHz, minimumHz, maximumHz)
+        : -1.0f;
 
     paintAxes (g, plot, scale, minimumHz, maximumHz);
     const bool expandedReadout = scale > 1.1f && probeNormalisedX >= 0.0f;
@@ -413,12 +419,12 @@ void paint (juce::Graphics& g,
 
     spectrum_painter::paintCurves (g, plot, scale, state.pre, state.post,
                                    state.delta, state.haveMark ? &state.mark : nullptr);
-    if (probeNormalisedX >= 0.0f && state.focusFrequencyHz > 0.0f
+    if (focusNormalisedX >= 0.0f
         && state.focusTrail != nullptr && ! state.focusTrail->empty())
     {
         spectrum_focus_painter::paint (
             g, spectrum_geometry::focusTrailBoundsFor (bounds), scale,
-            *state.focusTrail, probeNormalisedX, scale <= 1.1f);
+            *state.focusTrail, focusNormalisedX, scale <= 1.1f);
     }
     if (probeNormalisedX >= 0.0f)
         paintProbe (g, outerPlot, plot, scale, probeNormalisedX,

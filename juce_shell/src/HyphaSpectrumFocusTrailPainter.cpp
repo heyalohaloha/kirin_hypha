@@ -50,7 +50,7 @@ void paint (juce::Graphics& g,
     auto plot = bounds.reduced (3.0f * strokeScale, 2.0f * strokeScale);
     if (! compact)
     {
-        g.setFont (monoFont (7.0f * visualScale));
+        g.setFont (monoFont (7.0f * ui_contract::analysisTextScale (visualScale)));
         g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.68f));
         g.drawText (juce::String (juce::CharPointer_UTF8 ("\xCE\x94 \xC2\xB7 6s")),
                     plot.removeFromTop (6.5f * visualScale),
