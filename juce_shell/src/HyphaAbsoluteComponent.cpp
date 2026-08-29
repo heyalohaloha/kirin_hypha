@@ -33,25 +33,28 @@ namespace
             return false;
         if (value.count == 0u)
             return value.latest.has_data == 0u;
+        if (! validFrame (value.latest))
+            return false;
+        const auto historySamples = static_cast<int64_t> (value.latest.sample_rate) * 6;
         for (uint32_t index = 0u; index < value.count; ++index)
         {
             const auto& frame = value.frames[index];
             if (! validFrame (frame)
                 || frame.sample_rate != value.latest.sample_rate
                 || frame.aperture_samples != value.latest.aperture_samples
-                || frame.channels != value.latest.channels
-                || frame.state_epoch_samples != value.latest.state_epoch_samples
-                || frame.generation != value.latest.generation)
+                || frame.channels != value.latest.channels)
                 return false;
             if (index > 0u
                 && frame.presentation_end_samples
-                    != value.frames[index - 1u].presentation_end_samples
-                        + static_cast<int64_t> (frame.aperture_samples))
+                    <= value.frames[index - 1u].presentation_end_samples)
                 return false;
         }
-        return validFrame (value.latest)
-            && value.frames[value.count - 1u].presentation_end_samples
-                == value.latest.presentation_end_samples;
+        const auto& last = value.frames[value.count - 1u];
+        return last.presentation_end_samples == value.latest.presentation_end_samples
+            && last.state_epoch_samples == value.latest.state_epoch_samples
+            && last.generation == value.latest.generation
+            && value.latest.presentation_end_samples
+                   - value.frames[0u].presentation_end_samples <= historySamples;
     }
 }
 
@@ -69,6 +72,13 @@ void AbsoluteComponent::setBatch (const KirinAbsoluteBatch& next)
 void AbsoluteComponent::setBatchAt (const KirinAbsoluteBatch& next, double nowMs)
 {
     if (! validBatch (next))
+        return;
+    // A short worker re-arm publishes WARMING_UP before the next exact 100 ms fact. Retain the
+    // last verified field during that internal transition; switching page calls clearSnapshot(),
+    // while IN_USE / UNAVAILABLE still replace the field with their explicit user-facing state.
+    if (next.count == 0u
+        && next.latest.status == KIRIN_SPECTRUM_WARMING_UP
+        && haveBatch && batch.count > 0u)
         return;
     const bool firstPresentation = ! havePendingBatch;
     const bool definitionChanged = havePendingBatch

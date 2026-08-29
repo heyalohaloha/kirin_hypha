@@ -14,6 +14,7 @@ use crate::{MeasureEngine, MeasureResult};
 pub const ABSOLUTE_SCHEMA_VERSION: u16 = 1;
 pub const ABSOLUTE_PRESENTATION_HZ: u32 = 10;
 pub const ABSOLUTE_TIMELINE_CAPACITY: usize = 64;
+pub const ABSOLUTE_HISTORY_SECONDS: i64 = 6;
 const JOIN_CAPACITY: usize = 16;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -65,20 +66,39 @@ impl AbsoluteTimeline {
             return false;
         }
         if let Some(newest) = self.frames.back() {
-            if !same_definition(newest, &frame) {
+            if !same_format(newest, &frame) {
                 self.frames.clear();
             } else if frame.presentation_end_samples <= newest.presentation_end_samples {
-                return false;
-            } else if frame.presentation_end_samples - newest.presentation_end_samples
-                != i64::from(frame.aperture_samples)
-            {
-                self.frames.clear();
+                // A new state epoch moving backwards is a confirmed transport boundary. A
+                // duplicate or stale result inside the same epoch must never replace truth that
+                // has already been published.
+                if frame.presentation_end_samples < newest.presentation_end_samples
+                    && (frame.state_epoch_samples != newest.state_epoch_samples
+                        || frame.generation != newest.generation)
+                {
+                    self.frames.clear();
+                } else {
+                    return false;
+                }
+            } else {
+                let history_samples = i64::from(frame.sample_rate) * ABSOLUTE_HISTORY_SECONDS;
+                if frame.presentation_end_samples - newest.presentation_end_samples
+                    >= history_samples
+                {
+                    self.frames.clear();
+                }
             }
         }
         if self.frames.len() == ABSOLUTE_TIMELINE_CAPACITY {
             self.frames.pop_front();
         }
         self.frames.push_back(frame);
+        let history_samples = i64::from(frame.sample_rate) * ABSOLUTE_HISTORY_SECONDS;
+        while self.frames.front().is_some_and(|oldest| {
+            frame.presentation_end_samples - oldest.presentation_end_samples > history_samples
+        }) {
+            self.frames.pop_front();
+        }
         true
     }
 
@@ -95,12 +115,10 @@ impl AbsoluteTimeline {
     }
 }
 
-fn same_definition(left: &AbsoluteFrame, right: &AbsoluteFrame) -> bool {
+fn same_format(left: &AbsoluteFrame, right: &AbsoluteFrame) -> bool {
     left.schema_version == right.schema_version
         && left.sample_rate == right.sample_rate
         && left.aperture_samples == right.aperture_samples
-        && left.state_epoch_samples == right.state_epoch_samples
-        && left.generation == right.generation
         && left.channels == right.channels
 }
 
@@ -290,24 +308,58 @@ mod tests {
     }
 
     #[test]
-    fn timeline_clears_on_a_real_gap_and_rejects_duplicates() {
+    fn timeline_retains_exact_points_across_a_short_forward_gap() {
         let mut timeline = AbsoluteTimeline::default();
-        let frame = |endpoint| AbsoluteFrame {
+        let frame = |endpoint, epoch, generation| AbsoluteFrame {
             schema_version: ABSOLUTE_SCHEMA_VERSION,
             sample_rate: 48_000,
             aperture_samples: 4_800,
             presentation_end_samples: endpoint,
-            state_epoch_samples: 0,
-            generation: 1,
+            state_epoch_samples: epoch,
+            generation,
             channels: 2,
             lufs_m: Some(-20.0),
             true_peak: Some(-3.0),
             sharpness: Some(1.0),
         };
-        assert!(timeline.push(frame(4_800)));
-        assert!(!timeline.push(frame(4_800)));
-        assert!(timeline.push(frame(14_400)));
+        assert!(timeline.push(frame(4_800, 0, 1)));
+        assert!(!timeline.push(frame(4_800, 0, 1)));
+        assert!(timeline.push(frame(14_400, 9_600, 2)));
+        let endpoints = timeline
+            .frames()
+            .map(|frame| frame.presentation_end_samples)
+            .collect::<Vec<_>>();
+        assert_eq!(endpoints, [4_800, 14_400]);
+        assert!(
+            !endpoints.contains(&9_600),
+            "a missing fact must not be invented"
+        );
+    }
+
+    #[test]
+    fn timeline_starts_a_new_run_on_backwards_transport_or_six_second_gap() {
+        let mut timeline = AbsoluteTimeline::default();
+        let frame = |endpoint, epoch, generation| AbsoluteFrame {
+            schema_version: ABSOLUTE_SCHEMA_VERSION,
+            sample_rate: 48_000,
+            aperture_samples: 4_800,
+            presentation_end_samples: endpoint,
+            state_epoch_samples: epoch,
+            generation,
+            channels: 2,
+            lufs_m: Some(-20.0),
+            true_peak: Some(-3.0),
+            sharpness: Some(1.0),
+        };
+        assert!(timeline.push(frame(48_000, 0, 1)));
+        assert!(timeline.push(frame(52_800, 0, 1)));
+        assert!(timeline.push(frame(9_600, 4_800, 2)));
         assert_eq!(timeline.frames().len(), 1);
+        assert_eq!(timeline.newest().unwrap().presentation_end_samples, 9_600);
+
+        assert!(timeline.push(frame(297_600, 9_600, 3)));
+        assert_eq!(timeline.frames().len(), 1);
+        assert_eq!(timeline.newest().unwrap().presentation_end_samples, 297_600);
     }
 
     #[test]

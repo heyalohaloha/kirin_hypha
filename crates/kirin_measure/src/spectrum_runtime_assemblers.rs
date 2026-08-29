@@ -1,4 +1,6 @@
-use crate::absolute_timeline::{AbsoluteContinuousAnalyzer, AbsoluteFrame};
+use crate::absolute_timeline::{
+    AbsoluteContinuousAnalyzer, AbsoluteFrame, ABSOLUTE_HISTORY_SECONDS,
+};
 use crate::perceptual::{PerceptualFrame, SharpnessContinuousAnalyzer};
 use crate::spectrum::{
     SpectrumAnalyzer, SpectrumChannelMode, SpectrumFrame, SPECTRUM_PRESENTATION_HZ,
@@ -151,9 +153,18 @@ impl AbsoluteAssembler {
             return false;
         }
         if self.generation != generation || self.next_position.is_some_and(|next| next != start) {
+            let history_samples = self.aperture_samples
+                * i64::from(crate::absolute_timeline::ABSOLUTE_PRESENTATION_HZ)
+                * ABSOLUTE_HISTORY_SECONDS;
+            let history_reset_required = self.next_position.is_some_and(|expected| {
+                start < expected || start.saturating_sub(expected) >= history_samples
+            });
             self.reset();
             self.generation = generation;
-            self.history_reset_required = true;
+            // A short forward miss is an observation gap, not permission to erase already
+            // verified history. Backwards transport and a gap spanning the complete six-second
+            // field start a new run immediately.
+            self.history_reset_required = history_reset_required;
             self.aligned_start = start
                 .checked_add(self.aperture_samples - 1)
                 .map(|value| value - value.rem_euclid(self.aperture_samples));

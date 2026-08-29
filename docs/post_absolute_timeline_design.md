@@ -28,8 +28,12 @@ scale's lower edge so a factual silent interval is not mistaken for a failed pai
 - Curve segments join measured points directly. There is no temporal smoothing, averaging,
   animation extrapolation, or missing-value substitution in measurement state. A below-floor
   LUFS-M / True Peak aperture uses only the documented presentation-floor coordinate.
-- A gap, backward endpoint, sample-rate change, state-epoch change, generation change, or channel
-  layout change clears the old run before a new one begins.
+- A short forward gap retains the surrounding exact points and their true sample-time positions.
+  The presentation stroke joins those measured points without inserting a frame or value. One
+  verified frame is presented as a dot instead of an empty plot.
+- Backward transport, a sample-rate/aperture/channel-layout change, or a forward gap spanning the
+  six-second field clears the old run before a new one begins. A forward generation/state-epoch
+  edge alone does not erase compatible verified history.
 
 LUFS-M and recent True Peak use a private display instance of the established `MeasureEngine`.
 Sharpness uses the established continuous Phase D analyzer. These display states do not replace or
@@ -64,3 +68,5 @@ Record, or audio pass-through.
 - Invalid, non-finite, stale, duplicate, or incompatible frame: reject it without altering audio.
 - Worker failure: audio continues and the view becomes unavailable.
 - Rendering delay: the next batch recovers every retained exact frame; it does not invent points.
+- A transient warming response after verified data retains the last exact field until the next
+  frame; explicit unavailable or slot-in-use states replace it with their status message.

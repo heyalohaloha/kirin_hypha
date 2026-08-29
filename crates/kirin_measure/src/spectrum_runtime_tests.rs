@@ -194,7 +194,7 @@ fn absolute_mode_publishes_three_post_facts_on_one_exact_timeline() {
 }
 
 #[test]
-fn absolute_mode_clears_on_discontinuity_and_mode_change() {
+fn absolute_mode_retains_short_forward_gap_but_clears_backwards_and_mode_change() {
     let runtime = SpectrumRuntime::new(48_000, 2);
     assert!(runtime.set_analysis_mode(AnalysisViewMode::Absolute));
     assert!(runtime.set_enabled(true));
@@ -204,22 +204,33 @@ fn absolute_mode_clears_on_discontinuity_and_mode_change() {
 
     let first_block = [0.125_f32; 512];
     assert!(runtime.push_block_from_audio(&first_block, 2, Some(14_400)));
-    let clear_deadline = Instant::now() + Duration::from_secs(2);
-    while Instant::now() < clear_deadline
-        && runtime
-            .try_absolute_history()
-            .is_none_or(|history| history.newest().is_some())
-    {
-        thread::sleep(Duration::from_millis(2));
-    }
-    assert!(runtime
-        .try_absolute_history()
-        .is_some_and(|history| history.newest().is_none()));
     let remaining = vec![0.125_f32; (4_800 - 256) * 2];
     assert!(runtime.push_block_from_audio(&remaining, 2, Some(14_656)));
     let restarted = wait_for_absolute_frame_at_or_after(&runtime, 19_200);
     assert_eq!(restarted.state_epoch_samples, 14_400);
-    assert_eq!(runtime.try_absolute_history().unwrap().frames().len(), 1);
+    let retained = runtime.try_absolute_history().unwrap();
+    let retained_endpoints = retained
+        .frames()
+        .map(|frame| frame.presentation_end_samples)
+        .collect::<Vec<_>>();
+    assert_eq!(retained_endpoints, [4_800, 9_600, 19_200]);
+    assert!(!retained_endpoints.contains(&14_400));
+
+    let backwards = vec![0.125_f32; 4_800 * 2];
+    assert!(runtime.push_block_from_audio(&backwards, 2, Some(0)));
+    let backwards_deadline = Instant::now() + Duration::from_secs(3);
+    while Instant::now() < backwards_deadline
+        && runtime.try_absolute_history().is_none_or(|history| {
+            history.frames().len() != 1
+                || history.newest().map(|frame| frame.presentation_end_samples) != Some(4_800)
+        })
+    {
+        thread::sleep(Duration::from_millis(2));
+    }
+    let restarted = runtime.try_absolute_history().unwrap();
+    assert_eq!(restarted.frames().len(), 1);
+    assert_eq!(restarted.newest().unwrap().presentation_end_samples, 4_800);
+    assert_eq!(restarted.newest().unwrap().state_epoch_samples, 0);
 
     assert!(runtime.set_analysis_mode(AnalysisViewMode::Spectrum));
     assert!(runtime

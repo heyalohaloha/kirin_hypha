@@ -131,10 +131,11 @@ namespace
                       float bandTop, float bandBottom,
                       float scale, ValueFn valueFor)
     {
-        if (batch.count < 2u)
+        if (batch.count == 0u)
             return;
         const auto band = valueBand (plot, bandTop, bandBottom);
         juce::Path path;
+        juce::Point<float> newestPoint;
         const auto newest = batch.latest.presentation_end_samples;
         const auto rate = static_cast<double> (batch.latest.sample_rate);
         for (uint32_t index = 0u; index < batch.count; ++index)
@@ -145,10 +146,25 @@ namespace
             const float x = plot.getRight()
                           - static_cast<float> (age / historySeconds) * plot.getWidth();
             const juce::Point<float> point { x, yFor (value, minimum, maximum, band) };
+            newestPoint = point;
             if (! path.isEmpty())
                 path.lineTo (point);
             else
                 path.startNewSubPath (point);
+        }
+        if (batch.count == 1u)
+        {
+            const float glowDiameter = 5.2f * scale;
+            const float coreDiameter = 2.4f * scale;
+            g.setColour (colour.withAlpha (0.20f));
+            g.fillEllipse (newestPoint.x - glowDiameter * 0.5f,
+                           newestPoint.y - glowDiameter * 0.5f,
+                           glowDiameter, glowDiameter);
+            g.setColour (colour.withAlpha (0.96f));
+            g.fillEllipse (newestPoint.x - coreDiameter * 0.5f,
+                           newestPoint.y - coreDiameter * 0.5f,
+                           coreDiameter, coreDiameter);
+            return;
         }
         g.setColour (colour.withAlpha (0.16f));
         g.strokePath (path, juce::PathStrokeType (3.2f * scale,
