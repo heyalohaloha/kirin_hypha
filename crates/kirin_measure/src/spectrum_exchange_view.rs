@@ -19,11 +19,37 @@ impl SpectrumCoordinator {
         difference: Option<SpectrumDifference>,
         perceptual_difference: Option<PerceptualDifference>,
     ) {
+        self.store_view_with_spectrum_boundary(status, difference, perceptual_difference, false);
+    }
+
+    /// Replaces the short UI-recovery timeline at one confirmed transport boundary.
+    ///
+    /// A lower presentation endpoint can be either a late worker result or a real backwards
+    /// transport move. The join layer calls this path only when the endpoint is simultaneously
+    /// newest on the exact PRE and POST histories, so an out-of-order result still cannot replace
+    /// an already-published fact.
+    pub(super) fn store_spectrum_boundary(&self, difference: SpectrumDifference) {
+        self.store_view_with_spectrum_boundary(
+            SpectrumViewStatus::Active,
+            Some(difference),
+            None,
+            true,
+        );
+    }
+
+    fn store_view_with_spectrum_boundary(
+        &self,
+        status: SpectrumViewStatus,
+        difference: Option<SpectrumDifference>,
+        perceptual_difference: Option<PerceptualDifference>,
+        reset_spectrum_timeline: bool,
+    ) {
         let mut view = match self.view.lock() {
             Ok(view) => view,
             Err(poisoned) => poisoned.into_inner(),
         };
-        let continuing_spectrum = status == SpectrumViewStatus::Active
+        let continuing_spectrum = !reset_spectrum_timeline
+            && status == SpectrumViewStatus::Active
             && view.status == SpectrumViewStatus::Active
             && view.analysis_mode == crate::AnalysisViewMode::Spectrum;
         let previous_difference = if continuing_spectrum {

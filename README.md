@@ -93,9 +93,10 @@ click in the plot locks that readout to the same frequency until its × is press
 **Focus Trail** shows the last six seconds of Δ at that frequency: compact at 100%, with its own lane
 at 125% and 150%. Its newest point is the same exact PRE/POST presentation frame as the live Δ, not a
 UI-clock estimate. A missed UI poll does not erase valid older observations: retained points keep
-their true sample-time positions, and the stroke breaks across an unobserved endpoint instead of
-inventing a value. Reversed or incompatible frames, and a forward discontinuity beyond the six-second
-view, start a clean trail. **MARK** freezes one display-only full-band Δ curve as a solid amber reference beneath
+their true sample-time positions. The work-surface stroke joins the surrounding exact points across a
+missing endpoint so Windows scheduling jitter does not look like a broken curve; the missing time is
+still retained as gap metadata and no measurement is inserted. Reversed or incompatible frames, and
+a forward discontinuity beyond the six-second view, start a clean trail. **MARK** freezes one display-only full-band Δ curve as a solid amber reference beneath
 the cyan live curve; pressing MARK again replaces it, and its × clears it.
 MARK is temporary and is cleared when the pair, sample rate, FFT layout, channel mode, or page changes.
 It neither adds another analyzer nor changes the measured values. The 100% / 125% / 150% size choice
@@ -107,8 +108,9 @@ changes.
 Continuity has two bounded layers. POST keeps the newest eight already-computed exact Spectrum
 differences in a fixed recovery ring, so a short UI scheduling stall can collect missed frames on the
 next poll without another FFT. If a stall exceeds that ring, Focus Trail still keeps the surviving
-exact points at their sample-time positions and separates the unobserved interval. Both layers are
-display transport only: no dynamic growth, extra analyzer, filesystem polling, or Audio Thread work.
+exact points at their sample-time positions and connects only those surrounding observations for the
+work-surface stroke. Both layers are display transport only: no dynamic growth, extra analyzer,
+filesystem polling, or Audio Thread work.
 
 The optional PRE/POST exchange is supervised by the existing 10 Hz IO update. On Windows its
 short-lived request, readiness, and Analysis snapshots use a small pagefile-backed shared-memory
@@ -184,11 +186,15 @@ facts on the same latest-six-second time axis:
 
 Each trace has its own fixed scale, so vertical position is comparable over time within that metric,
 not numerically between the three metrics. Values outside a display scale remain measured facts and
-are only bounded at the plot edge. There are no targets, score bands, warning colours, or verdicts.
+are only bounded at the plot edge. In a sparse source, an exact aperture whose LUFS-M or recent True
+Peak is below the measurement floor remains unavailable internally and in the numeric readout; the
+curve alone reaches the lower plot edge so silence does not resemble a dropped UI frame. There are no
+targets, score bands, warning colours, or verdicts.
 
 All three values are committed at the same exact 100 ms POST presentation endpoint. Measurement runs
 at 10 Hz, Rust retains 64 exact points, the curve repaints at 5 Hz, and current numbers update at 2 Hz.
-No missing point is interpolated and no temporal smoothing delays the display. A discontinuity,
+No missing measurement is interpolated or stored as a value, and no temporal smoothing delays the
+display. A discontinuity,
 transport reversal, sample-rate change, or generation edge clears the prior run and begins a new one.
 LUFS-M and recent True Peak reuse Watch's measurement definitions; recent True Peak is the latest
 400 ms maximum rather than a session hold. Sharpness keeps the established independent-channel

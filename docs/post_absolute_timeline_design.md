@@ -13,7 +13,10 @@ visible on one time axis while a plug-in is adjusted.
 | Sharpness | Independent-channel arithmetic mean | Amber | 0..3 acum |
 
 The scales are independent. Vertical coincidence between different traces is not numerical
-equivalence. Raw measured values are not clipped; only their plot coordinates are bounded.
+equivalence. Raw measured values are not clipped; only their plot coordinates are bounded. If a
+sparse source places LUFS-M or recent True Peak below the measurement floor, the exact frame retains
+`None` and its numeric readout remains unavailable. The curve presents that aperture at the fixed
+scale's lower edge so a factual silent interval is not mistaken for a failed paint.
 
 ## Time contract
 
@@ -23,7 +26,8 @@ equivalence. Raw measured values are not clipped; only their plot coordinates ar
 - Measurement publishes at 10 Hz. Rust retains 64 frames. UI paints the newest six seconds at
   5 Hz and updates the current numeric readouts at 2 Hz.
 - Curve segments join measured points directly. There is no temporal smoothing, averaging,
-  animation extrapolation, or missing-point interpolation.
+  animation extrapolation, or missing-value substitution in measurement state. A below-floor
+  LUFS-M / True Peak aperture uses only the documented presentation-floor coordinate.
 - A gap, backward endpoint, sample-rate change, state-epoch change, generation change, or channel
   layout change clears the old run before a new one begins.
 

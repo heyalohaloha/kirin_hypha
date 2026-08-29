@@ -80,7 +80,19 @@ pub(super) fn store_joined_spectrum(
                     && pre.presentation_end_samples == endpoint
             });
         if session.last_presented_end_samples != Some(endpoint) {
-            coordinator.store_view(SpectrumViewStatus::Active, Some(difference), None);
+            const fn moved_backwards(previous: Option<i64>, current: i64) -> bool {
+                match previous {
+                    Some(previous) => current < previous,
+                    None => false,
+                }
+            }
+            if exact_endpoint_is_current
+                && moved_backwards(session.last_presented_end_samples, endpoint)
+            {
+                coordinator.store_spectrum_boundary(difference);
+            } else {
+                coordinator.store_view(SpectrumViewStatus::Active, Some(difference), None);
+            }
             session.last_presented_at = Some(now);
             session.last_presented_end_samples = Some(endpoint);
             return;

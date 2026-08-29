@@ -311,6 +311,34 @@ mod tests {
     }
 
     #[test]
+    fn sparse_source_keeps_exact_time_when_loudness_and_peak_are_below_floor() {
+        let tone = stereo_tone();
+        let mut samples = tone[..48_000].to_vec(); // 500 ms stereo tone.
+        samples.extend(std::iter::repeat_n(0.0, 57_600)); // 600 ms stereo silence.
+        let mut analyzer = AbsoluteContinuousAnalyzer::new(48_000, 2).unwrap();
+        analyzer.reset_at_epoch(0).unwrap();
+        let mut timeline = AbsoluteTimeline::default();
+        for (index, aperture) in samples.chunks_exact(9_600).enumerate() {
+            let frames = analyzer
+                .analyze_aperture(aperture, (index as i64 + 1) * 4_800, 1)
+                .unwrap();
+            assert_eq!(frames.len(), 1);
+            assert!(timeline.push(frames[0]));
+        }
+        assert_eq!(timeline.frames().len(), 11);
+        for (index, frame) in timeline.frames().enumerate() {
+            assert_eq!(
+                frame.presentation_end_samples,
+                (index as i64 + 1) * i64::from(frame.aperture_samples)
+            );
+            assert!(frame.sharpness.is_some_and(f64::is_finite));
+        }
+        let newest = timeline.newest().unwrap();
+        assert_eq!(newest.lufs_m, None);
+        assert_eq!(newest.true_peak, None);
+    }
+
+    #[test]
     #[ignore = "release-mode two-slot absolute observation performance probe"]
     fn two_post_absolute_workers_fit_the_optional_analysis_budget() {
         use std::hint::black_box;

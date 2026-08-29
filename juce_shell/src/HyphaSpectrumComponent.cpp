@@ -159,8 +159,11 @@ void SpectrumComponent::setBatch (const KirinSpectrumBatch& batch)
             || pendingSnapshot.channels != batch.latest.channels
             || ! sameFloatBits (pendingSnapshot.min_hz, batch.latest.min_hz)
             || ! sameFloatBits (pendingSnapshot.max_hz, batch.latest.max_hz));
+    const bool presentationMovedBackwards = pendingValid
+        && batch.latest.presentation_end_samples
+            < pendingSnapshot.presentation_end_samples;
     uint32_t first = 0u;
-    if (! pendingValid || definitionChanged)
+    if (! pendingValid || definitionChanged || presentationMovedBackwards)
     {
         setSnapshot (batch.frames[0]);
         first = 1u;

@@ -8,6 +8,11 @@
 
 namespace hypha::absolute_painter
 {
+double displayValueOrFloor (double measuredValue, double displayMinimum) noexcept
+{
+    return std::isfinite (measuredValue) ? measuredValue : displayMinimum;
+}
+
 namespace
 {
     constexpr double historySeconds = 6.0;
@@ -130,27 +135,20 @@ namespace
             return;
         const auto band = valueBand (plot, bandTop, bandBottom);
         juce::Path path;
-        bool activeRun = false;
         const auto newest = batch.latest.presentation_end_samples;
         const auto rate = static_cast<double> (batch.latest.sample_rate);
         for (uint32_t index = 0u; index < batch.count; ++index)
         {
             const auto& frame = batch.frames[index];
-            const auto value = valueFor (frame);
-            if (! std::isfinite (value))
-            {
-                activeRun = false;
-                continue;
-            }
+            const auto value = displayValueOrFloor (valueFor (frame), minimum);
             const auto age = static_cast<double> (newest - frame.presentation_end_samples) / rate;
             const float x = plot.getRight()
                           - static_cast<float> (age / historySeconds) * plot.getWidth();
             const juce::Point<float> point { x, yFor (value, minimum, maximum, band) };
-            if (activeRun)
+            if (! path.isEmpty())
                 path.lineTo (point);
             else
                 path.startNewSubPath (point);
-            activeRun = true;
         }
         g.setColour (colour.withAlpha (0.16f));
         g.strokePath (path, juce::PathStrokeType (3.2f * scale,

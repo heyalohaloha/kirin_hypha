@@ -358,6 +358,72 @@ fn stationary_exact_endpoint_remains_visible_when_both_sides_stop() {
 }
 
 #[test]
+fn confirmed_backwards_transport_boundary_restarts_the_freq_timeline() {
+    let runtime = SpectrumRuntime::new(48_000, 2);
+    let coordinator = SpectrumCoordinator::new(48_000, Arc::clone(&runtime));
+    let mut session = PostSession {
+        request_id: Uuid::new_v4(),
+        target: None,
+        last_renewed: None,
+        last_renewal_attempt: None,
+        started_at: Some(Instant::now() - WARMUP_LIMIT),
+        last_presented_at: None,
+        last_presented_end_samples: None,
+        analysis_mode: AnalysisViewMode::Spectrum,
+        channel_mode: SpectrumChannelMode::Lr,
+        state_epoch_samples: None,
+    };
+    let now = Instant::now();
+    let mut pre = SpectrumHistory::with_capacity();
+    let mut post = SpectrumHistory::with_capacity();
+    pre.push(frame(480_000, -20.0));
+    post.push(frame(480_000, -14.0));
+    store_joined_spectrum(&coordinator, &mut session, now, Some(&post), Some(&pre));
+    assert_eq!(
+        coordinator
+            .try_view()
+            .unwrap()
+            .difference
+            .unwrap()
+            .presentation_end_samples,
+        480_000
+    );
+
+    // Both newest histories now agree on a lower endpoint. This is a factual transport boundary,
+    // not one delayed worker result, and must replace the old UI-recovery generation.
+    pre.push(frame(4_800, -18.0));
+    post.push(frame(4_800, -12.0));
+    store_joined_spectrum(
+        &coordinator,
+        &mut session,
+        now + Duration::from_millis(34),
+        Some(&post),
+        Some(&pre),
+    );
+    let restarted = coordinator.try_view().unwrap();
+    assert_eq!(restarted.status, SpectrumViewStatus::Active);
+    assert_eq!(
+        restarted
+            .difference
+            .as_ref()
+            .unwrap()
+            .presentation_end_samples,
+        4_800
+    );
+    assert_eq!(
+        restarted
+            .spectrum_timeline
+            .frames()
+            .map(|frame| frame.presentation_end_samples)
+            .collect::<Vec<_>>(),
+        vec![4_800]
+    );
+
+    coordinator.shutdown();
+    runtime.shutdown_and_join();
+}
+
+#[test]
 fn repeated_stale_sharpness_endpoint_does_not_extend_the_gap_hold() {
     let runtime = SpectrumRuntime::new(48_000, 2);
     assert!(runtime.set_analysis_mode(AnalysisViewMode::Perceptual));

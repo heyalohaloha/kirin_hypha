@@ -1,11 +1,14 @@
 #include "AbsoluteTimelineContractTest.h"
 
 #include "../src/HyphaAbsoluteComponent.h"
+#include "../src/HyphaAbsolutePainter.h"
 #include "../src/HyphaTheme.h"
 #include "../src/HyphaUiContract.h"
 
+#include <cmath>
 #include <cstdlib>
 #include <iostream>
+#include <limits>
 
 namespace hypha::tests
 {
@@ -76,6 +79,25 @@ void verifyAbsoluteTimelineContract()
     component.setBatch (batch (1, 60));
     KIRIN_ABSOLUTE_REQUIRE (component.frameCountForTest() == 60u);
     KIRIN_ABSOLUTE_REQUIRE (component.newestEndpointForTest() == 288'000);
+
+    // A sparse source can have an exact timeline aperture whose LUFS-M / recent TP fact is below
+    // the measurement floor. The ABI keeps that state as NaN, while LIVE presents the point at the
+    // fixed display floor so the continuous observation does not look like a dropped UI frame.
+    auto sparse = batch (1, 60);
+    sparse.frames[18].lufs_m = std::numeric_limits<double>::quiet_NaN();
+    sparse.frames[18].true_peak = std::numeric_limits<double>::quiet_NaN();
+    sparse.latest = sparse.frames[sparse.count - 1u];
+    component.setBatch (sparse);
+    KIRIN_ABSOLUTE_REQUIRE (component.frameCountForTest() == 60u);
+    KIRIN_ABSOLUTE_REQUIRE (std::abs (
+        absolute_painter::displayValueOrFloor (sparse.frames[18].lufs_m, -42.0)
+        + 42.0) < 1.0e-12);
+    KIRIN_ABSOLUTE_REQUIRE (std::abs (
+        absolute_painter::displayValueOrFloor (sparse.frames[18].true_peak, -30.0)
+        + 30.0) < 1.0e-12);
+    KIRIN_ABSOLUTE_REQUIRE (std::abs (
+        absolute_painter::displayValueOrFloor (-17.25, -42.0)
+        + 17.25) < 1.0e-12);
 
     auto broken = batch (1, 3);
     broken.frames[1].presentation_end_samples += 1;

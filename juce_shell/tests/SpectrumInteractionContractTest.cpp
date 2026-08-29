@@ -244,6 +244,21 @@ void verifySpectrumInteractionContract (SpectrumComponent& spectrum,
     recoveredSpectrum.setBatch (invalidRecovery);
     KIRIN_INTERACTION_REQUIRE (recoveredSpectrum.focusTrailSizeForTest() == 4u);
 
+    KirinSpectrumBatch backwardsRecovery {};
+    backwardsRecovery.count = 3u;
+    const int64_t backwardsStart = snapshot.presentation_end_samples - 16'000;
+    for (uint32_t index = 0u; index < backwardsRecovery.count; ++index)
+    {
+        backwardsRecovery.frames[index] = snapshot;
+        backwardsRecovery.frames[index].presentation_end_samples
+            = backwardsStart + 1'600 * index;
+    }
+    backwardsRecovery.latest = backwardsRecovery.frames[backwardsRecovery.count - 1u];
+    recoveredSpectrum.setBatch (backwardsRecovery);
+    KIRIN_INTERACTION_REQUIRE (
+        recoveredSpectrum.presentedEndpointForTest() == backwardsStart);
+    KIRIN_INTERACTION_REQUIRE (recoveredSpectrum.focusTrailSizeForTest() == 3u);
+
     uint8_t requestedChannelMode = 0xffu;
     spectrum.onChannelModeChange = [&requestedChannelMode] (uint8_t mode) {
         requestedChannelMode = mode;

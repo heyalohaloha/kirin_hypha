@@ -289,6 +289,14 @@ int main()
                    && ui::absoluteLufsBandBottom > ui::absolutePeakBandTop
                    && ui::absolutePeakBandBottom > ui::absoluteSharpnessBandTop
                    && ui::absoluteSharpnessBandBottom <= 1.0f);
+    static_assert (ui::absoluteLufsBandBottom - ui::absoluteLufsBandTop >= 0.45f
+                   && ui::absolutePeakBandBottom - ui::absolutePeakBandTop >= 0.45f
+                   && ui::absoluteSharpnessBandBottom
+                        - ui::absoluteSharpnessBandTop >= 0.45f);
+    static_assert (ui::spectrumFocusTrailRangeDb == 12.0f
+                   && ui::spectrumFocusTrailCompactHeight >= 24.0f
+                   && ui::spectrumFocusTrailMediumHeight >= 38.0f
+                   && ui::spectrumFocusTrailLargeHeight >= 54.0f);
     // A silent project start is still Inactive. Once Watch has heard audio, short musical rests
     // remain Active and feed zero samples through the meter; one complete LUFS-S window of silence
     // ends the grace. Transport/Record exclusion resets the gate immediately.

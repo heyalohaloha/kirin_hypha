@@ -7,6 +7,7 @@
 #include "../src/HyphaUiContract.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
@@ -88,17 +89,26 @@ namespace
 
     double meanPaintMs (SpectrumComponent& component)
     {
-        constexpr int iterations = 200;
+        constexpr int iterations = 100;
         juce::Image image (
             juce::Image::ARGB, component.getWidth(), component.getHeight(), true);
-        const double started = juce::Time::getMillisecondCounterHiRes();
-        for (int iteration = 0; iteration < iterations; ++iteration)
+        // Keep the hard ceiling meaningful on shared CI runners: one scheduler interruption must
+        // not turn into either a false regression or a false pass. Three bounded samples and their
+        // median still exercise 300 complete paints without relaxing any size budget.
+        std::array<double, 3> samples {};
+        for (auto& sample : samples)
         {
-            image.clear (image.getBounds(), BG);
-            juce::Graphics graphics (image);
-            component.paintEntireComponent (graphics, true);
+            const double started = juce::Time::getMillisecondCounterHiRes();
+            for (int iteration = 0; iteration < iterations; ++iteration)
+            {
+                image.clear (image.getBounds(), BG);
+                juce::Graphics graphics (image);
+                component.paintEntireComponent (graphics, true);
+            }
+            sample = (juce::Time::getMillisecondCounterHiRes() - started) / iterations;
         }
-        return (juce::Time::getMillisecondCounterHiRes() - started) / iterations;
+        std::sort (samples.begin(), samples.end());
+        return samples[1];
     }
 
     double meanTrailPaintMs (const spectrum_focus::FocusTrailHistory& history,

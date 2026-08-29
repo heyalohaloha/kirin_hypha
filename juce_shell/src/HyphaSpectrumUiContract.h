@@ -49,12 +49,12 @@ namespace hypha::ui_contract
     // same upper strip. The original fixed value ranges remain intact; only their optical bands
     // are distributed through the field. Slight overlap keeps the result one cockpit surface,
     // rather than three boxed charts.
-    constexpr float absoluteLufsBandTop = 0.03f;
-    constexpr float absoluteLufsBandBottom = 0.40f;
-    constexpr float absolutePeakBandTop = 0.31f;
-    constexpr float absolutePeakBandBottom = 0.68f;
-    constexpr float absoluteSharpnessBandTop = 0.60f;
-    constexpr float absoluteSharpnessBandBottom = 0.97f;
+    constexpr float absoluteLufsBandTop = 0.01f;
+    constexpr float absoluteLufsBandBottom = 0.49f;
+    constexpr float absolutePeakBandTop = 0.26f;
+    constexpr float absolutePeakBandBottom = 0.74f;
+    constexpr float absoluteSharpnessBandTop = 0.51f;
+    constexpr float absoluteSharpnessBandBottom = 0.99f;
     constexpr float absolutePlotTopInset = 2.0f;
     constexpr float absolutePlotBottomInset = 5.0f;
     constexpr float spectrumLegendFontHeight = 8.5f;
@@ -113,9 +113,13 @@ namespace hypha::ui_contract
     constexpr float spectrumMarkButtonInactiveBorderAlpha = 0.34f;
     constexpr float spectrumMarkButtonActiveBorderAlpha = 0.82f;
     constexpr float spectrumMarkButtonActiveFillAlpha = 0.13f;
-    constexpr float spectrumFocusTrailCompactHeight = 15.0f;
-    constexpr float spectrumFocusTrailMediumHeight = 22.0f;
-    constexpr float spectrumFocusTrailLargeHeight = 30.0f;
+    // Focus Trail is a selected-band work surface, not a miniature copy of the ±24 dB FREQ
+    // overview. Its fixed ±12 dB scale keeps ordinary EQ moves legible without an auto-ranging
+    // axis that would make two identical changes look different.
+    constexpr float spectrumFocusTrailRangeDb = 12.0f;
+    constexpr float spectrumFocusTrailCompactHeight = 24.0f;
+    constexpr float spectrumFocusTrailMediumHeight = 38.0f;
+    constexpr float spectrumFocusTrailLargeHeight = 54.0f;
     constexpr float spectrumFocusTrailAxisGap = 12.0f;
     constexpr float spectrumFocusTrailInset = 3.0f;
     constexpr float spectrumFocusTrailRadius = 4.0f;

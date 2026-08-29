@@ -14,5 +14,10 @@ struct PaintState
     bool haveNumericSnapshot;
 };
 
+// LIVE keeps the measurement fact unavailable (NaN) while presenting it at the fixed scale's
+// lower boundary. This prevents a factual below-floor/silent aperture from looking like a broken
+// Windows paint path; no replacement value is stored or exposed in the numeric readout.
+double displayValueOrFloor (double measuredValue, double displayMinimum) noexcept;
+
 void paint (juce::Graphics&, juce::Rectangle<float>, const PaintState&);
 }
