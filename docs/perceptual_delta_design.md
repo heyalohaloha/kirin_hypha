@@ -54,7 +54,8 @@ Two POST Analysis pages in a DAW process may hold the two stable process-wide ke
 does not start its worker or request a PRE worker and reports the factual lease owners in one line,
 for example `Both slots in use — Mix, Vocal`. If both names cannot be verified, it reports only
 `Both slots in use`; it does not infer pair names or instruct the user to close an unseen page.
-Closing either owner lets the waiting page acquire that slot. The stable lock files are not removed,
+Returning either owner to METERS or closing its editor lets the waiting page acquire that slot.
+Changing FREQ / SHARP / LIVE retains the same owned slot. The stable lock files are not removed,
 avoiding an unlink-and-recreate race between new owners.
 
 For Perceptual Delta, POST first publishes an uncommitted request. PRE replies with its current

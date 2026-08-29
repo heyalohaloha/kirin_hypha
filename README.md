@@ -9,7 +9,8 @@ Kirin Hypha operates as paired instances — a **PRE** plugin and a **POST** plu
 On a paired POST, the on-demand Spectrum turns that comparison into a signed **Δ (POST − PRE)**
 frequency view, with selectable LR / MID / SIDE observation, a lockable probe, and one temporary
 MARK reference. A locked probe also shows the selected frequency's exact six-second **Focus Trail**.
-Closing the page stops its optional analysis and discards that short display history.
+Returning to **METERS** or closing the editor stops its optional analysis and discards that short
+display history.
 
 The POST **ANALYSIS** page can switch between **FREQ**, **SHARP**, and **LIVE**. SHARP's first observation is a six-second
 **Δ Sharpness History**: a signed POST − PRE Sharpness trace that responds at 10 Hz without scoring,
@@ -17,7 +18,8 @@ traffic-light judgment, or audio-path changes. LIVE overlays absolute POST LUFS-
 and Sharpness on one six-second time axis. The three modes are mutually exclusive within an instance,
 so only the visible analyzer runs. Two POST Analysis pages may be active in one DAW process. A third
 shows the factual owners as `Both slots in use — Mix, Vocal` (or `Both slots in use` if either name
-cannot be verified), then automatically acquires a slot after either active page closes.
+cannot be verified), then automatically acquires a slot after either owner returns to METERS or
+closes. Switching FREQ / SHARP / LIVE retains the same slot.
 
 ![Kirin Hypha PRE and POST showing Short-term Watch values and independent MAX values](docs/media/kirin-hypha-pre-post.jpg)
 
@@ -170,9 +172,10 @@ shared future epoch instead of continuing state across a gap.
 
 **LR** measures L and R independently and uses their arithmetic mean, so channel polarity cannot
 cancel the observation. **MID** measures `(L+R)/2`; **SIDE** measures `(L−R)/2` and remains stereo-
-only. Changing channel mode starts a new history. Closing the page stops Sharpness analysis and
-discards the display history. Switching to Spectrum stops Sharpness before the FFT starts, and vice
-versa. All of this is display-only: it neither changes audio nor rewrites Watch or Record results.
+only. Changing channel mode starts a new history. Returning to METERS or closing the editor stops
+Sharpness analysis and discards the display history. Switching to Spectrum stops Sharpness before
+the FFT starts, and vice versa, without releasing the owned Analysis slot. All of this is
+display-only: it neither changes audio nor rewrites Watch or Record results.
 
 ### POST Analysis: Live facts (on demand)
 
@@ -202,14 +205,17 @@ dot, and a temporary worker re-arm does not erase the last verified field. Backw
 incompatible format, or a gap spanning the six-second field starts a new run.
 LUFS-M and recent True Peak reuse Watch's measurement definitions; recent True Peak is the latest
 400 ms maximum rather than a session hold. Sharpness keeps the established independent-channel
-arithmetic-mean definition. Closing LIVE stops this optional analyzer and discards its display history.
+arithmetic-mean definition. Switching FREQ / SHARP / LIVE replaces only the analyzer inside the
+same owned slot. Returning to METERS or closing the editor releases the slot, stops optional
+analysis, and discards its display history.
 
 Across FREQ, SHARP, and LIVE, at most two POST Analysis pages can be active in one DAW process. This
 supports a persistent 2Mix observation plus one working track without silently starting 12 expensive
 analyzers. A third page remains idle, explains that both slots are active, and starts automatically
 when a slot becomes free. Its single-line status names the two pairs that actually hold the kernel
 slots, so those pages need not be visible on screen. Loaded PRE/POST pairs, Watch, Record, and audio
-pass-through are not limited by these two optional display slots.
+pass-through are not limited by these two optional display slots. A mode change between FREQ,
+SHARP, and LIVE never transfers the slot to a waiting page; only METERS or editor close does.
 
 ### Record mode (Kirin OS required)
 

@@ -7,6 +7,7 @@
 
 #include "PluginProcessor.h"
 #include "DisplaySmoother.h"
+#include "HyphaAnalysisNavigation.h"
 #include "HyphaTheme.h"
 #include "HyphaWidgets.h"
 #include "PostControls.h"
@@ -61,7 +62,7 @@ private:
     void updatePre();
     void updatePost();
 #if ! KIRIN_HYPHA_PRE_DISPLAY
-    enum class AnalysisPage { meters, spectrum, perceptual, absolute };
+    using AnalysisPage = hypha::analysis_navigation::Page;
     void setAnalysisPage (AnalysisPage page);
     void cycleSpectrumSize();
     void updateSpectrumSizeControl();

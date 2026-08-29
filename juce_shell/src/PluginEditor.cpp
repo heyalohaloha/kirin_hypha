@@ -395,15 +395,22 @@ void KirinHyphaEditor::setAnalysisPage (AnalysisPage page)
 {
     if (! isPost || analysisPage == page)
         return;
+    const auto previousPage = analysisPage;
     spectrumView.clearSnapshot();
     perceptualView.clearSnapshot();
     absoluteView.clearSnapshot();
-    if (analysisPage == AnalysisPage::spectrum)
-        processorRef.setSpectrumVisible (false);
-    else if (analysisPage == AnalysisPage::perceptual)
-        processorRef.setPerceptualVisible (false);
-    else if (analysisPage == AnalysisPage::absolute)
-        processorRef.setAbsoluteVisible (false);
+    // FREQ / SHARP / LIVE share the current Analysis lease. Their `true` edge atomically changes
+    // the isolated analyzer while post_visible remains set. Releasing the previous mode here gave
+    // a waiting third instance a brief chance to steal this user's slot.
+    if (hypha::analysis_navigation::releasesSlot (previousPage, page))
+    {
+        if (previousPage == AnalysisPage::spectrum)
+            processorRef.setSpectrumVisible (false);
+        else if (previousPage == AnalysisPage::perceptual)
+            processorRef.setPerceptualVisible (false);
+        else if (previousPage == AnalysisPage::absolute)
+            processorRef.setAbsoluteVisible (false);
+    }
     analysisPage = page;
     const bool analysisOpen = page != AnalysisPage::meters;
     for (auto& cell : cells)

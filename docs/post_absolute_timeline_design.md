@@ -46,8 +46,9 @@ lock-free sample copy and metadata notification as FREQ and SHARP. All measureme
 isolated analysis worker.
 
 LIVE is local to POST. It never publishes an Analysis request to PRE and never starts a PRE worker.
-Closing LIVE disables its worker and clears its retained display timeline. Switching mode disables
-the prior analyzer before enabling the next one.
+Returning to METERS or closing the editor disables its worker and clears its retained display
+timeline. Switching mode disables the prior analyzer before enabling the next one while retaining
+the same Analysis slot.
 
 The DAW process provides two stable kernel-backed Analysis slots across FREQ, SHARP, and LIVE. A
 third page stays idle and displays:
@@ -60,9 +61,9 @@ The two names come from the slots observed locked during that acquisition attemp
 cannot be verified, the fallback is `Both slots in use`; the UI never guesses names or commands the
 user to close a page that may be off screen.
 
-When either active page closes, the waiting page may acquire the released slot automatically. The
-two-slot bound affects only optional Analysis displays; it does not limit loaded pairs, Watch,
-Record, or audio pass-through.
+When either active owner returns to METERS or closes, the waiting page may acquire the released slot
+automatically. FREQ / SHARP / LIVE changes retain the owner's slot. The two-slot bound affects only
+optional Analysis displays; it does not limit loaded pairs, Watch, Record, or audio pass-through.
 
 ## Failure behavior
 

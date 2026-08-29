@@ -1,4 +1,5 @@
 #include "../src/HyphaWidgets.h"
+#include "../src/HyphaAnalysisNavigation.h"
 #include "../src/HyphaAnalysisUiText.h"
 #include "../src/HyphaSpectrumComponent.h"
 #include "PerceptualHistoryContractTest.h"
@@ -299,6 +300,19 @@ int main()
                          compactAnalysisBounds.width
                              - ui::spectrumPlotLeftInset
                              - ui::spectrumPlotRightInset));
+
+    using AnalysisPage = hypha::analysis_navigation::Page;
+    for (const auto previous : {
+             AnalysisPage::spectrum, AnalysisPage::perceptual, AnalysisPage::absolute })
+    {
+        KIRIN_REQUIRE (hypha::analysis_navigation::releasesSlot (
+            previous, AnalysisPage::meters));
+        for (const auto next : {
+                 AnalysisPage::spectrum, AnalysisPage::perceptual, AnalysisPage::absolute })
+            KIRIN_REQUIRE (! hypha::analysis_navigation::releasesSlot (previous, next));
+    }
+    KIRIN_REQUIRE (! hypha::analysis_navigation::releasesSlot (
+        AnalysisPage::meters, AnalysisPage::spectrum));
 
     const float metricWidth = static_cast<float> (
         ui::metricCellBounds (0, postLayout.metricTop).width);

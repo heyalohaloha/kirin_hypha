@@ -261,6 +261,20 @@ fn exactly_two_post_analysis_runtimes_are_active_per_process_lease() {
         ["Mix".to_string(), "Vocal".to_string()]
     );
 
+    // FREQ -> SHARP -> LIVE changes only the analyzer inside the first owner's existing slot.
+    // A waiting third page must not observe a release until the owner explicitly returns to
+    // METERS (set_post_visible(false)) or closes.
+    assert!(first.set_post_analysis_mode(AnalysisViewMode::Perceptual));
+    assert!(!third.post_tick_for_owner("post-c", None, "Music"));
+    assert_eq!(third.try_view().unwrap().status, SpectrumViewStatus::InUse);
+    assert_eq!(
+        third.try_view().unwrap().analysis_owner_names,
+        ["Mix".to_string(), "Vocal".to_string()]
+    );
+    assert!(first.set_post_analysis_mode(AnalysisViewMode::Absolute));
+    assert!(!third.post_tick_for_owner("post-c", None, "Music"));
+    assert_eq!(third.try_view().unwrap().status, SpectrumViewStatus::InUse);
+
     first.set_post_visible(false);
     assert!(!third.post_tick_for_owner("post-c", None, "Music"));
     assert_eq!(third.try_view().unwrap().status, SpectrumViewStatus::NoPair);
