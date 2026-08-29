@@ -6,7 +6,8 @@
 
 namespace hypha
 {
-class AbsoluteComponent final : public juce::Component
+class AbsoluteComponent final : public juce::Component,
+                                public juce::SettableTooltipClient
 {
 public:
     AbsoluteComponent();
@@ -16,6 +17,8 @@ public:
     void clearSnapshot();
     void setAnalysisOwnerNames (const juce::String& names);
     void paint (juce::Graphics&) override;
+    void mouseMove (const juce::MouseEvent&) override;
+    void mouseExit (const juce::MouseEvent&) override;
 
     uint32_t frameCountForTest() const noexcept { return batch.count; }
     int64_t newestEndpointForTest() const noexcept

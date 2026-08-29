@@ -1,5 +1,6 @@
 #include "SpectrumInteractionContractTest.h"
 
+#include "../src/HyphaAnalysisUiText.h"
 #include "../src/HyphaSpectrumGeometry.h"
 #include "../src/HyphaSpectrumUiContract.h"
 #include "../src/HyphaUiContract.h"
@@ -138,6 +139,23 @@ void verifySpectrumInteractionContract (SpectrumComponent& spectrum,
     bandMappingSpectrum.setSize (width, height);
     bandMappingSpectrum.setSnapshot (snapshot);
     const auto mappingPlot = spectrum_geometry::dataPlotBoundsFor (componentBounds);
+    bandMappingSpectrum.mouseMove (mouseEvent (
+        bandMappingSpectrum, mappingPlot.getX(), mappingPlot.getCentreY(), eventTime));
+    KIRIN_INTERACTION_REQUIRE (
+        bandMappingSpectrum.getTooltip() == analysis_ui::approximateFrequencyTooltip());
+    bandMappingSpectrum.mouseExit (mouseEvent (
+        bandMappingSpectrum, mappingPlot.getX(), mappingPlot.getCentreY(), eventTime));
+    KIRIN_INTERACTION_REQUIRE (bandMappingSpectrum.getTooltip().isEmpty());
+    const auto midTooltipBounds = spectrum_geometry::channelModeBoundsFor (1u, outerPlot, scale);
+    bandMappingSpectrum.mouseMove (mouseEvent (
+        bandMappingSpectrum, midTooltipBounds.getCentreX(), midTooltipBounds.getCentreY(),
+        eventTime));
+    KIRIN_INTERACTION_REQUIRE (
+        bandMappingSpectrum.getTooltip() == analysis_ui::channelModeTooltip (1u));
+    bandMappingSpectrum.mouseMove (mouseEvent (
+        bandMappingSpectrum, markX, controlY, eventTime));
+    KIRIN_INTERACTION_REQUIRE (
+        bandMappingSpectrum.getTooltip() == analysis_ui::markTooltip (false));
     bandMappingSpectrum.mouseDown (mouseEvent (
         bandMappingSpectrum, mappingPlot.getX(), mappingPlot.getCentreY(), eventTime));
     const float firstCentreFrequency = spectrum_geometry::frequencyForNormalisedX (

@@ -9,6 +9,7 @@
 #include "DisplaySmoother.h"
 #include "HyphaAnalysisNavigation.h"
 #include "HyphaTheme.h"
+#include "HyphaTooltipLookAndFeel.h"
 #include "HyphaWidgets.h"
 #include "PostControls.h"
 #if ! KIRIN_HYPHA_PRE_DISPLAY
@@ -112,7 +113,8 @@ private:
     hypha::PerceptualComponent perceptualView;               // POST-only Δ Sharpness History
     hypha::AbsoluteComponent absoluteView;                    // POST-only absolute observation timeline
 #endif
-    juce::TooltipWindow       tooltip { this };           // drives per-cell hover help
+    hypha::TooltipLookAndFeel tooltipLookAndFeel;
+    juce::TooltipWindow       tooltip { this, 550 };       // bounded in-panel hover help
 
     Kind   currentKind = Kind::WatchAbs6;
     bool   currentSix  = false;

@@ -334,34 +334,6 @@ void SpectrumComponent::presentationTickAt (double nowMs)
         repaint();
 }
 
-void SpectrumComponent::mouseMove (const juce::MouseEvent& event)
-{
-    const auto bounds = getLocalBounds().toFloat();
-    const float scale = spectrum_geometry::visualScaleFor (bounds);
-    const auto outerPlot = spectrum_geometry::plotBoundsFor (bounds);
-    const auto plot = spectrum_geometry::dataPlotBoundsFor (bounds);
-    const float controlsBottom = outerPlot.getY()
-        + (float) (ui_contract::spectrumChannelModeTop
-                 + ui_contract::spectrumChannelModeHeight) * scale;
-    const auto position = event.position;
-    const float next = plot.contains (position) && position.y >= controlsBottom
-                         ? juce::jlimit (0.0f, 1.0f,
-                                        (position.x - plot.getX()) / plot.getWidth())
-                         : -1.0f;
-    if (juce::approximatelyEqual (next, hoverNormalisedX))
-        return;
-    hoverNormalisedX = next;
-    hoverNeedsRepaint = true;
-}
-
-void SpectrumComponent::mouseExit (const juce::MouseEvent&)
-{
-    if (hoverNormalisedX < 0.0f)
-        return;
-    hoverNormalisedX = -1.0f;
-    hoverNeedsRepaint = true;
-}
-
 void SpectrumComponent::mouseDown (const juce::MouseEvent& event)
 {
     const auto bounds = getLocalBounds().toFloat();

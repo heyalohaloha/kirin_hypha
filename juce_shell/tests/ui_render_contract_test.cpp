@@ -2,6 +2,7 @@
 #include "../src/HyphaAnalysisNavigation.h"
 #include "../src/HyphaAnalysisUiText.h"
 #include "../src/HyphaSpectrumComponent.h"
+#include "../src/HyphaTooltipLookAndFeel.h"
 #include "PerceptualHistoryContractTest.h"
 #include "AbsoluteTimelineContractTest.h"
 #include "SpectrumFocusTrailContractTest.h"
@@ -286,6 +287,48 @@ int main()
         const auto* utf8 = reinterpret_cast<const unsigned char*> (tooltipText.toRawUTF8());
         while (*utf8 != 0u)
             KIRIN_REQUIRE (*utf8++ <= 0x7fu);
+    }
+    const juce::StringArray boundedTooltipTexts {
+        hypha::analysis_ui::channelModeTooltip (0u),
+        hypha::analysis_ui::channelModeTooltip (1u),
+        hypha::analysis_ui::channelModeTooltip (2u),
+        hypha::analysis_ui::spectrumPlotTooltip(),
+        hypha::analysis_ui::approximateFrequencyTooltip(),
+        hypha::analysis_ui::deltaLegendTooltip(),
+        hypha::analysis_ui::preLegendTooltip(),
+        hypha::analysis_ui::postLegendTooltip(),
+        hypha::analysis_ui::markTooltip (false),
+        hypha::analysis_ui::markTooltip (true),
+        hypha::analysis_ui::focusTrailTooltip (false),
+        hypha::analysis_ui::focusTrailTooltip (true),
+        hypha::analysis_ui::sharpnessDeltaTooltip(),
+        hypha::analysis_ui::liveOverviewTooltip(),
+        hypha::analysis_ui::liveMetricTooltip (0u),
+        hypha::analysis_ui::liveMetricTooltip (1u),
+        hypha::analysis_ui::liveMetricTooltip (2u),
+        hypha::helpLufsM(), hypha::helpLufsS(), hypha::helpTp(), hypha::helpSharp()
+    };
+    hypha::TooltipLookAndFeel boundedTooltipLookAndFeel;
+    for (const auto& preset : ui::spectrumSizePresets)
+    {
+        const juce::Rectangle<int> parent (0, 0, preset.width, preset.height);
+        const auto available = parent.reduced (ui::margin);
+        for (const auto& tooltipText : boundedTooltipTexts)
+        {
+            KIRIN_REQUIRE (tooltipText.isNotEmpty());
+            for (const auto position : {
+                     juce::Point<int> (0, 0),
+                     juce::Point<int> (parent.getRight(), 0),
+                     juce::Point<int> (0, parent.getBottom()),
+                     juce::Point<int> (parent.getRight(), parent.getBottom()) })
+            {
+                const auto tooltipBounds = boundedTooltipLookAndFeel.getTooltipBounds (
+                    tooltipText, position, parent);
+                KIRIN_REQUIRE (available.contains (tooltipBounds));
+                KIRIN_REQUIRE (tooltipBounds.getWidth() <= available.getWidth());
+                KIRIN_REQUIRE (tooltipBounds.getHeight() <= available.getHeight());
+            }
+        }
     }
     const auto slotsText = hypha::analysis_ui::slotsInUse ("Mix, Vocal");
     const auto expectedSlotsText = juce::String ("Both slots in use ")

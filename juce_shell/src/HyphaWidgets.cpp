@@ -40,7 +40,8 @@ namespace hypha
     // ── StatusLed ──────────────────────────────────────────────────────────────────────────
     StatusLed::StatusLed()
     {
-        setInterceptsMouseClicks (false, false); // purely indicative; never eats clicks
+        setInterceptsMouseClicks (true, false);
+        setTooltip ("No active signal.");
     }
 
     void StatusLed::setState (LedState s)
@@ -48,6 +49,15 @@ namespace hypha
         if (s != state)
         {
             state = s;
+            switch (state)
+            {
+                case LedState::Idle:            setTooltip ("No active signal."); break;
+                case LedState::Error:           setTooltip ("Measurement is unavailable."); break;
+                case LedState::RecordStandby:   setTooltip ("Keep is waiting for its pair."); break;
+                case LedState::WatchBreathing:  setTooltip ("Measurement is active."); break;
+                case LedState::RecordActive:    setTooltip ("Keep is recording."); break;
+                case LedState::PresetAvailable: setTooltip ("A kept result is available."); break;
+            }
             repaint();
         }
     }
@@ -221,6 +231,8 @@ namespace hypha
         momentary.setDescription ("Show the 400 millisecond Momentary loudness measurement");
         shortTerm.setTitle ("Short-term loudness");
         shortTerm.setDescription ("Show the 3 second Short-term loudness measurement");
+        momentary.setTooltip (helpLufsM());
+        shortTerm.setTooltip (helpLufsS());
         momentary.onClick = [this]
         {
             setShortTerm (false);
@@ -322,7 +334,7 @@ namespace hypha
         editingEnabled = enabled;
         if (! enabled && editing)
             cancelEditing();
-        setTooltip (enabled ? juce::String() : lockedTooltip);
+        setTooltip (enabled ? enabledTooltip : lockedTooltip);
     }
 
     void EditableName::startEditing()

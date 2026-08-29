@@ -93,7 +93,9 @@ described below, so they can differ from MID or SIDE Spectrum on wide or phase-o
 Hovering the plot shows frequency and Δ; the 125%, 150%, and 200% views also show PRE and POST values.
 Below the cycle-derived low-frequency confidence boundary (about 35 Hz), the frequency alone carries
 an unobtrusive `~` prefix. The measured band and Δ remain visible and are not dimmed, hidden, or
-replaced by a warning. A click in the plot locks that readout to the same frequency until its × is pressed. While locked,
+replaced by a warning. Hover help explains that `~` means an approximate low-frequency position.
+All Analysis hover help wraps and repositions inside the plug-in at every size. A click in the plot
+locks that readout to the same frequency until its × is pressed. While locked,
 **Focus Trail** shows the last six seconds of Δ at that frequency: compact at 100%, with its own lane
 at 125%, 150%, and 200%. Its newest point is the same exact PRE/POST presentation frame as the live Δ, not a
 UI-clock estimate. A missed UI poll does not erase valid older observations: retained points keep

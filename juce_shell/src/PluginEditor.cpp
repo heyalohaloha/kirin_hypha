@@ -105,11 +105,19 @@ namespace
         return COL_MUTED;
     }
 
+    juce::String pairStatusHelp (int status)
+    {
+        if (status == KIRIN_PAIR_STATUS_PAIRED) return "PRE and POST are paired.";
+        if (status == KIRIN_PAIR_STATUS_WAITING) return "Waiting for the selected PRE.";
+        return "No PRE pair is selected.";
+    }
+
 }
 
 KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
     : juce::AudioProcessorEditor (&p), processorRef (p), isPost (p.isPostRole())
 {
+    tooltip.setLookAndFeel (&tooltipLookAndFeel);
     setWantsKeyboardFocus (true);
     setFocusContainerType (juce::Component::FocusContainerType::keyboardFocusContainer);
     setSize (ui::editorWidth, ui::editorHeight);
@@ -138,7 +146,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
 
     pairStatusLabel.setFont (hypha::monoFont (ui::pairStatusFontHeight));
     pairStatusLabel.setJustificationType (juce::Justification::centredRight);
-    pairStatusLabel.setInterceptsMouseClicks (false, false);
+    pairStatusLabel.setInterceptsMouseClicks (true, false);
     addAndMakeVisible (pairStatusLabel);
 
     if (isPost)
@@ -146,6 +154,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         nameField.setPrefix ("pair: ");
         nameField.setFallback ("___");
         nameField.setLockedTooltip (juce::CharPointer_UTF8 ("Pair selection is locked during playback"));
+        nameField.setEnabledTooltip ("Click to edit the PRE pair name.");
         nameField.setModelName (processorRef.pairName());
 
         postControls = std::make_unique<hypha::PostControls>();
@@ -170,6 +179,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         // The free-text pair field (nameField) is retained; this only adds the egui ComboBox.
         pairDropdown.setTitle ("Pair and Keep menu");
         pairDropdown.setDescription ("Choose an exact PRE pair or start and stop all ready pairs");
+        pairDropdown.setTooltip ("Choose a PRE pair, or Keep and Stop all ready pairs.");
         pairDropdown.setColour (juce::TextButton::buttonColourId, hypha::kFieldFill);
         pairDropdown.setColour (juce::TextButton::textColourOnId,  COL_FLORA);
         pairDropdown.setColour (juce::TextButton::textColourOffId, COL_FLORA);
@@ -228,6 +238,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
     }
     else
     {
+        nameField.setEnabledTooltip ("Click to edit this PRE name.");
         nameField.setModelName (processorRef.preName());
         nameField.setFallback (instanceId8());
     }
@@ -283,6 +294,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
 KirinHyphaEditor::~KirinHyphaEditor()
 {
     stopTimer();
+    tooltip.setLookAndFeel (nullptr);
     if (isPost)
     {
         processorRef.setSpectrumVisible (false);
@@ -732,6 +744,7 @@ void KirinHyphaEditor::updatePre()
     const int pairStatus = processorRef.pairStatus();
     pairStatusLabel.setText (pairStatusText (pairStatus), juce::dontSendNotification);
     pairStatusLabel.setColour (juce::Label::textColourId, pairStatusColour (pairStatus));
+    pairStatusLabel.setTooltip (pairStatusHelp (pairStatus));
 
     nameField.setModelName (processorRef.preName());
     nameField.setFallback (instanceId8());
@@ -875,6 +888,7 @@ void KirinHyphaEditor::updatePost()
     const bool pairSelected = pairStatus != KIRIN_PAIR_STATUS_UNPAIRED;
     pairStatusLabel.setText (pairStatusText (pairStatus), juce::dontSendNotification);
     pairStatusLabel.setColour (juce::Label::textColourId, pairStatusColour (pairStatus));
+    pairStatusLabel.setTooltip (pairStatusHelp (pairStatus));
 
     nameField.setModelName (pairName);
     nameField.setEditingEnabled (! pairLocked); // W-280 + B-115 playback pair lock (playing AND live)

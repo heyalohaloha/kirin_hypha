@@ -2,6 +2,7 @@
 
 #include "../src/HyphaAbsoluteComponent.h"
 #include "../src/HyphaAbsolutePainter.h"
+#include "../src/HyphaAnalysisUiText.h"
 #include "../src/HyphaTheme.h"
 #include "../src/HyphaUiContract.h"
 
@@ -67,6 +68,16 @@ namespace
                     ++count;
             }
         return count;
+    }
+
+    juce::MouseEvent mouseEvent (juce::Component& component, float x, float y)
+    {
+        const auto now = juce::Time::getCurrentTime();
+        return {
+            juce::Desktop::getInstance().getMainMouseSource(),
+            { x, y }, {}, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+            &component, &component, now, { x, y }, now, 0, false
+        };
     }
 
     double renderAt (const ui_contract::SpectrumSizePreset& preset)
@@ -154,6 +165,16 @@ void verifyAbsoluteTimelineContract()
         ui_contract::spectrumSizePresets[0].height);
     onePoint.setSize (compactBounds.width, compactBounds.height);
     onePoint.setBatchAt (batch (1, 1), 0.0);
+    onePoint.mouseMove (mouseEvent (
+        onePoint, (float) compactBounds.width / 6.0f, 5.0f));
+    KIRIN_ABSOLUTE_REQUIRE (
+        onePoint.getTooltip() == analysis_ui::liveMetricTooltip (0u));
+    onePoint.mouseMove (mouseEvent (
+        onePoint, (float) compactBounds.width * 5.0f / 6.0f, 5.0f));
+    KIRIN_ABSOLUTE_REQUIRE (
+        onePoint.getTooltip() == analysis_ui::liveMetricTooltip (2u));
+    onePoint.mouseExit (mouseEvent (onePoint, 0.0f, 0.0f));
+    KIRIN_ABSOLUTE_REQUIRE (onePoint.getTooltip().isEmpty());
     juce::Image onePointImage (juce::Image::ARGB,
                                compactBounds.width, compactBounds.height, true);
     onePointImage.clear (onePointImage.getBounds(), BG);

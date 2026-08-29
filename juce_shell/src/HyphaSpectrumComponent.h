@@ -15,7 +15,8 @@ namespace hypha
 // POST-only presentation component. It receives a fixed Rust snapshot and owns no timer, file,
 // FFT, pairing, or audio state. The renderer uses only state-free frequency-axis presentation and
 // y clipping; raw analysis remains in Rust and an incompatible exact frame becomes a factual status.
-class SpectrumComponent final : public juce::Component
+class SpectrumComponent final : public juce::Component,
+                                public juce::SettableTooltipClient
 {
 public:
     SpectrumComponent();
