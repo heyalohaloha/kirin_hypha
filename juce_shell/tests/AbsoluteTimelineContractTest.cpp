@@ -51,6 +51,24 @@ namespace
         return value;
     }
 
+    int countNearColour (const juce::Image& image, juce::Rectangle<int> area,
+                         juce::Colour target)
+    {
+        int count = 0;
+        area = area.getIntersection (image.getBounds());
+        for (int y = area.getY(); y < area.getBottom(); ++y)
+            for (int x = area.getX(); x < area.getRight(); ++x)
+            {
+                const auto pixel = image.getPixelAt (x, y);
+                if (pixel.getAlpha() > 16
+                    && std::abs ((int) pixel.getRed() - (int) target.getRed()) <= 20
+                    && std::abs ((int) pixel.getGreen() - (int) target.getGreen()) <= 20
+                    && std::abs ((int) pixel.getBlue() - (int) target.getBlue()) <= 20)
+                    ++count;
+            }
+        return count;
+    }
+
     double renderAt (const ui_contract::SpectrumSizePreset& preset)
     {
         AbsoluteComponent component;
@@ -100,9 +118,49 @@ void verifyAbsoluteTimelineContract()
         + 17.25) < 1.0e-12);
 
     auto broken = batch (1, 3);
-    broken.frames[1].presentation_end_samples += 1;
+    broken.frames[1].presentation_end_samples = broken.frames[0].presentation_end_samples;
     component.setBatch (broken);
     KIRIN_ABSOLUTE_REQUIRE (component.frameCountForTest() == 60u);
+
+    auto shortGap = batch (1, 3);
+    shortGap.frames[1] = frame (3);
+    shortGap.frames[1].state_epoch_samples = 9'600;
+    shortGap.frames[1].generation = 2u;
+    shortGap.frames[2] = frame (4);
+    shortGap.frames[2].state_epoch_samples = 9'600;
+    shortGap.frames[2].generation = 2u;
+    shortGap.latest = shortGap.frames[2];
+    AbsoluteComponent gapTolerant;
+    gapTolerant.setBatchAt (shortGap, 0.0);
+    KIRIN_ABSOLUTE_REQUIRE (gapTolerant.frameCountForTest() == 3u);
+
+    KirinAbsoluteBatch warming {};
+    warming.latest.status = KIRIN_SPECTRUM_WARMING_UP;
+    gapTolerant.setBatchAt (warming, 1'000.0);
+    KIRIN_ABSOLUTE_REQUIRE (gapTolerant.frameCountForTest() == 3u);
+
+    KirinAbsoluteBatch unavailable {};
+    unavailable.latest.status = KIRIN_SPECTRUM_UNAVAILABLE;
+    gapTolerant.setBatchAt (unavailable, 2'000.0);
+    KIRIN_ABSOLUTE_REQUIRE (gapTolerant.frameCountForTest() == 0u);
+
+    AbsoluteComponent onePoint;
+    const auto compactBounds = ui_contract::spectrumPlotBounds (
+        ui_contract::spectrumSizePresets[0].width,
+        ui_contract::spectrumSizePresets[0].height);
+    onePoint.setSize (compactBounds.width, compactBounds.height);
+    onePoint.setBatchAt (batch (1, 1), 0.0);
+    juce::Image onePointImage (juce::Image::ARGB,
+                               compactBounds.width, compactBounds.height, true);
+    onePointImage.clear (onePointImage.getBounds(), BG);
+    {
+        juce::Graphics graphics (onePointImage);
+        onePoint.paintEntireComponent (graphics, true);
+    }
+    KIRIN_ABSOLUTE_REQUIRE (countNearColour (
+        onePointImage,
+        { compactBounds.width - 35, 18, 14, compactBounds.height - 28 },
+        COL_SPECTRUM_DELTA) > 0);
 
     AbsoluteComponent gated;
     gated.setBatchAt (batch (1, 1), 0.0);
@@ -123,10 +181,12 @@ void verifyAbsoluteTimelineContract()
     const double compact = renderAt (ui_contract::spectrumSizePresets[0]);
     const double medium = renderAt (ui_contract::spectrumSizePresets[1]);
     const double large = renderAt (ui_contract::spectrumSizePresets[2]);
+    const double extraLarge = renderAt (ui_contract::spectrumSizePresets[3]);
     std::cout << "Absolute timeline paint samples: " << compact << '/'
-              << medium << '/' << large << " ms/frame\n";
+              << medium << '/' << large << '/' << extraLarge << " ms/frame\n";
     KIRIN_ABSOLUTE_REQUIRE (compact < 1.5);
     KIRIN_ABSOLUTE_REQUIRE (medium < 2.5);
     KIRIN_ABSOLUTE_REQUIRE (large < 3.5);
+    KIRIN_ABSOLUTE_REQUIRE (extraLarge < 6.0);
 }
 }

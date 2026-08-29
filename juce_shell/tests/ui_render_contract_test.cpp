@@ -406,7 +406,7 @@ int main()
             markSpectrum, spectrumSnapshot,
             markSpectrumBounds.width, markSpectrumBounds.height, eventTime);
     }
-    // Keep the performance-sensitive trail gate after all three MARK size contracts.
+    // Keep the performance-sensitive trail gate after all four MARK size contracts.
     hypha::tests::verifySpectrumFocusTrailRendering (spectrumSnapshot);
     hypha::SpectrumComponent lineEncodingSpectrum;
     lineEncodingSpectrum.setSize (spectrumBounds.width, spectrumBounds.height);
@@ -466,22 +466,31 @@ int main()
         spectrumSnapshot, ui::spectrumSizePresets[1], "KIRIN_UI_RENDER_OUTPUT_MEDIUM");
     const auto largeSpectrum = renderSpectrumAtSize (
         spectrumSnapshot, ui::spectrumSizePresets[2], "KIRIN_UI_RENDER_OUTPUT_LARGE");
+    const auto extraLargeSpectrum = renderSpectrumAtSize (
+        spectrumSnapshot, ui::spectrumSizePresets[3], "KIRIN_UI_RENDER_OUTPUT_XLARGE");
     const auto mediumBounds = ui::spectrumPlotBounds (375, 250);
     const auto largeBounds = ui::spectrumPlotBounds (450, 300);
+    const auto extraLargeBounds = ui::spectrumPlotBounds (600, 400);
     KIRIN_REQUIRE (mediumSpectrum.image.getWidth() == mediumBounds.width);
     KIRIN_REQUIRE (mediumSpectrum.image.getHeight() == mediumBounds.height);
     KIRIN_REQUIRE (largeSpectrum.image.getWidth() == largeBounds.width);
     KIRIN_REQUIRE (largeSpectrum.image.getHeight() == largeBounds.height);
+    KIRIN_REQUIRE (extraLargeSpectrum.image.getWidth() == extraLargeBounds.width);
+    KIRIN_REQUIRE (extraLargeSpectrum.image.getHeight() == extraLargeBounds.height);
     KIRIN_REQUIRE (countVisiblePixels (mediumSpectrum.image,
                                        mediumSpectrum.image.getBounds()) > 1'000);
     KIRIN_REQUIRE (countVisiblePixels (largeSpectrum.image,
                                        largeSpectrum.image.getBounds()) > 1'500);
+    KIRIN_REQUIRE (countVisiblePixels (extraLargeSpectrum.image,
+                                       extraLargeSpectrum.image.getBounds()) > 2'500);
     std::cout << "Spectrum paint samples: " << compactSpectrum.paintMs
               << '/' << mediumSpectrum.paintMs
-              << '/' << largeSpectrum.paintMs << " ms/frame\n";
+              << '/' << largeSpectrum.paintMs
+              << '/' << extraLargeSpectrum.paintMs << " ms/frame\n";
     KIRIN_REQUIRE (compactSpectrum.paintMs < 4.0);
     KIRIN_REQUIRE (mediumSpectrum.paintMs < 6.0);
     KIRIN_REQUIRE (largeSpectrum.paintMs < 8.0);
+    KIRIN_REQUIRE (extraLargeSpectrum.paintMs < 12.0);
 
     std::cout << "UI render contract passed: label="
               << label.getTypefaceName().toStdString()
@@ -494,6 +503,7 @@ int main()
               << ", POST-runs=" << postCurveRuns
               << ", spectrum-paint=" << compactSpectrum.paintMs
               << '/' << mediumSpectrum.paintMs
-              << '/' << largeSpectrum.paintMs << " ms/frame\n";
+              << '/' << largeSpectrum.paintMs
+              << '/' << extraLargeSpectrum.paintMs << " ms/frame\n";
     return 0;
 }

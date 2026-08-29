@@ -79,7 +79,7 @@ sample endpoint.
 | LR / MID / SIDE | Selects exactly one channel definition; the three analyzers never run in parallel |
 | Hover / click | Reads frequency and Δ; click locks the probe, shows its six-second Focus Trail, and × releases it |
 | MARK | Captures or replaces one temporary display-only Δ reference; × clears it |
-| 100% / 125% / 150% | Resizes the POST Spectrum page and remembers the choice for the loaded instance |
+| 100% / 125% / 150% / 200% | Resizes every POST Analysis view and remembers the choice for the loaded instance |
 
 The page analyzes one selected channel view at a time. **LR** transforms L and R independently and
 averages their power, so opposite-polarity channels do not cancel. **MID** analyzes the `(L+R)/2`
@@ -88,10 +88,10 @@ SIDE result. Switching LR / MID / SIDE clears the old frame and waits for an exa
 the newly selected mode. Record-mode N and Sharpness use their own independent-channel definition,
 described below, so they can differ from MID or SIDE Spectrum on wide or phase-opposed material.
 
-Hovering the plot shows frequency and Δ; the 125% and 150% views also show PRE and POST values. A
+Hovering the plot shows frequency and Δ; the 125%, 150%, and 200% views also show PRE and POST values. A
 click in the plot locks that readout to the same frequency until its × is pressed. While locked,
 **Focus Trail** shows the last six seconds of Δ at that frequency: compact at 100%, with its own lane
-at 125% and 150%. Its newest point is the same exact PRE/POST presentation frame as the live Δ, not a
+at 125%, 150%, and 200%. Its newest point is the same exact PRE/POST presentation frame as the live Δ, not a
 UI-clock estimate. A missed UI poll does not erase valid older observations: retained points keep
 their true sample-time positions. The work-surface stroke joins the surrounding exact points across a
 missing endpoint so Windows scheduling jitter does not look like a broken curve; the missing time is
@@ -99,7 +99,7 @@ still retained as gap metadata and no measurement is inserted. Reversed or incom
 a forward discontinuity beyond the six-second view, start a clean trail. **MARK** freezes one display-only full-band Δ curve as a solid amber reference beneath
 the cyan live curve; pressing MARK again replaces it, and its × clears it.
 MARK is temporary and is cleared when the pair, sample rate, FFT layout, channel mode, or page changes.
-It neither adds another analyzer nor changes the measured values. The 100% / 125% / 150% size choice
+It neither adds another analyzer nor changes the measured values. The 100% / 125% / 150% / 200% size choice
 is remembered while that plug-in instance remains loaded, while Spectrum itself still opens off.
 Focus Trail retains only fixed-capacity display snapshots while Spectrum is open. It adds no analyzer,
 does not smooth or delay the live Δ, and is discarded on pair, rate, layout, channel-mode, or page
@@ -194,8 +194,10 @@ targets, score bands, warning colours, or verdicts.
 All three values are committed at the same exact 100 ms POST presentation endpoint. Measurement runs
 at 10 Hz, Rust retains 64 exact points, the curve repaints at 5 Hz, and current numbers update at 2 Hz.
 No missing measurement is interpolated or stored as a value, and no temporal smoothing delays the
-display. A discontinuity,
-transport reversal, sample-rate change, or generation edge clears the prior run and begins a new one.
+display. A short forward observation gap retains the verified points on both sides at their exact
+sample times and joins only those points for presentation. A single verified point is shown as a
+dot, and a temporary worker re-arm does not erase the last verified field. Backward transport, an
+incompatible format, or a gap spanning the six-second field starts a new run.
 LUFS-M and recent True Peak reuse Watch's measurement definitions; recent True Peak is the latest
 400 ms maximum rather than a session hold. Sharpness keeps the established independent-channel
 arithmetic-mean definition. Closing LIVE stops this optional analyzer and discards its display history.

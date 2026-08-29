@@ -147,36 +147,46 @@ int main()
     static_assert (ui::spectrumPostGlowAlpha < ui::spectrumPostCurveAlpha);
     static_assert (ui::spectrumDeltaLegendAlpha > ui::spectrumPreLegendAlpha);
     static_assert (ui::spectrumPreLegendAlpha > ui::spectrumPostLegendAlpha);
-    static_assert (ui::spectrumSizePresets.size() == 3);
+    static_assert (ui::spectrumSizePresets.size() == 4);
     static_assert (ui::spectrumSizePresets[0].width == 300
                    && ui::spectrumSizePresets[0].height == 200);
     static_assert (ui::spectrumSizePresets[1].width == 375
                    && ui::spectrumSizePresets[1].height == 250);
     static_assert (ui::spectrumSizePresets[2].width == 450
                    && ui::spectrumSizePresets[2].height == 300);
+    static_assert (ui::spectrumSizePresets[3].width == 600
+                   && ui::spectrumSizePresets[3].height == 400);
     static_assert (ui::spectrumPlotBounds().x == 10
                    && ui::spectrumPlotBounds().y == 67
                    && ui::spectrumPlotBounds().width == 280
                    && ui::spectrumPlotBounds().height == 79);
     static_assert (ui::spectrumPlotBounds (375, 250).height == 129);
     static_assert (ui::spectrumPlotBounds (450, 300).height == 179);
+    static_assert (ui::spectrumPlotBounds (600, 400).height == 279);
     static_assert (ui::spectrumVisualScale (ui::spectrumPlotBounds().width) == 1.0f);
     static_assert (ui::spectrumVisualScale (
                        ui::spectrumPlotBounds (375, 250).width) == 1.25f);
     static_assert (ui::spectrumVisualScale (
                        ui::spectrumPlotBounds (450, 300).width) == 1.5f);
+    static_assert (ui::spectrumVisualScale (
+                       ui::spectrumPlotBounds (600, 400).width) == 2.0f);
     static_assert (fitsWithin (ui::spectrumPlotBounds (375, 250), 375, 250));
     static_assert (fitsWithin (ui::spectrumPostControlsBounds (375, 250), 375, 250));
     static_assert (fitsWithin (ui::editorLayout (true, 375, 250).feedback, 375, 250));
     static_assert (fitsWithin (ui::spectrumPlotBounds (450, 300), 450, 300));
     static_assert (fitsWithin (ui::spectrumPostControlsBounds (450, 300), 450, 300));
     static_assert (fitsWithin (ui::editorLayout (true, 450, 300).feedback, 450, 300));
+    static_assert (fitsWithin (ui::spectrumPlotBounds (600, 400), 600, 400));
+    static_assert (fitsWithin (ui::spectrumPostControlsBounds (600, 400), 600, 400));
+    static_assert (fitsWithin (ui::editorLayout (true, 600, 400).feedback, 600, 400));
     static_assert (! overlaps (ui::spectrumSizeToggleBounds(),
                                ui::editorLayout (true).pairStatus));
     static_assert (! overlaps (ui::spectrumPlotBounds (375, 250),
                                ui::spectrumPostControlsBounds (375, 250)));
     static_assert (! overlaps (ui::spectrumPlotBounds (450, 300),
                                ui::spectrumPostControlsBounds (450, 300)));
+    static_assert (! overlaps (ui::spectrumPlotBounds (600, 400),
+                               ui::spectrumPostControlsBounds (600, 400)));
     static_assert (ui::spectrumHoverReadoutWidth >= 90);
     static_assert (ui::spectrumHoverReadoutHeight >= 14);
     static_assert (ui::spectrumHoverFrequencyX + ui::spectrumHoverFrequencyWidth
@@ -282,9 +292,11 @@ int main()
     assert (std::strcmp (ui::spectrumSizePresets[0].buttonText, "100%") == 0);
     assert (std::strcmp (ui::spectrumSizePresets[1].buttonText, "125%") == 0);
     assert (std::strcmp (ui::spectrumSizePresets[2].buttonText, "150%") == 0);
+    assert (std::strcmp (ui::spectrumSizePresets[3].buttonText, "200%") == 0);
     assert (std::abs (ui::analysisTextScale (1.0f) - 1.25f) < 0.0001f);
     assert (std::abs (ui::analysisTextScale (1.25f) - 1.35f) < 0.0001f);
     assert (std::abs (ui::analysisTextScale (1.5f) - 1.62f) < 0.0001f);
+    assert (std::abs (ui::analysisTextScale (2.0f) - 2.16f) < 0.0001f);
     static_assert (ui::absoluteLufsBandTop < ui::absoluteLufsBandBottom
                    && ui::absoluteLufsBandBottom > ui::absolutePeakBandTop
                    && ui::absolutePeakBandBottom > ui::absoluteSharpnessBandTop

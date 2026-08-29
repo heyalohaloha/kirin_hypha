@@ -368,6 +368,8 @@ fn optional_analysis_is_post_only_on_demand_and_isolated_from_existing_schemas()
     assert!(processor.contains("perceptualAnalysisRequested.load"));
     assert!(processor.contains("kirin_hypha_set_perceptual_visible (hyphaHandle, true)"));
     assert!(processor.contains("kirin_hypha_set_absolute_visible (hyphaHandle, true)"));
+    let processor_header = read_repo("juce_shell/src/PluginProcessor.h");
+    assert!(processor_header.contains("index < 4u ? index : 0u"));
 
     let editor = read_repo("juce_shell/src/PluginEditor.cpp");
     assert!(editor.contains("#if ! KIRIN_HYPHA_PRE_DISPLAY"));
@@ -390,6 +392,7 @@ fn optional_analysis_is_post_only_on_demand_and_isolated_from_existing_schemas()
         "{ 300, 200, \"100%\"",
         "{ 375, 250, \"125%\"",
         "{ 450, 300, \"150%\"",
+        "{ 600, 400, \"200%\"",
     ] {
         assert!(
             ui_contract.contains(fixed_size),

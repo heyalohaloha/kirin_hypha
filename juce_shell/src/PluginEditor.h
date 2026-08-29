@@ -106,7 +106,7 @@ private:
 #if ! KIRIN_HYPHA_PRE_DISPLAY
     juce::TextButton          spectrumToggle;               // POST: meters / Analysis page
     juce::TextButton          analysisModeToggle;            // POST: FREQ / SHARP page switch
-    juce::TextButton          spectrumSizeToggle;           // POST Spectrum: 100/125/150 percent
+    juce::TextButton          spectrumSizeToggle;           // POST Analysis: 100/125/150/200 percent
     hypha::SpectrumComponent  spectrumView;                 // POST-only signed difference plot
     hypha::PerceptualComponent perceptualView;               // POST-only Δ Sharpness History
     hypha::AbsoluteComponent absoluteView;                    // POST-only absolute observation timeline

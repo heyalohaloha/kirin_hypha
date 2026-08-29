@@ -93,7 +93,7 @@ public:
     }
     void setSpectrumSizePreference (uint8_t index)
     {
-        preferredSpectrumSize.store (index < 3u ? index : 0u, std::memory_order_release);
+        preferredSpectrumSize.store (index < 4u ? index : 0u, std::memory_order_release);
     }
     bool isPlaying() const { return lastPlaying.load (std::memory_order_acquire); } // transport (POST pair lock)
 
@@ -188,7 +188,7 @@ private:
     std::atomic<bool> spectrumVisibleRequested { false }; // editor lifetime; not persisted in DAW state
     std::atomic<bool> perceptualAnalysisRequested { false }; // restores the visible analyzer after engine recreation
     std::atomic<bool> absoluteAnalysisRequested { false }; // local POST absolute timeline restore
-    std::atomic<uint8_t> preferredSpectrumSize { 0 };      // processor lifetime; Spectrum still opens off
+    std::atomic<uint8_t> preferredSpectrumSize { 0 };      // processor lifetime; Analysis still opens off
     std::atomic<uint8_t> preferredSpectrumChannelMode { KIRIN_SPECTRUM_CHANNEL_LR };
 
 #if KIRIN_HYPHA_PRE_DISPLAY

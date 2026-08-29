@@ -358,10 +358,13 @@ void verifyPerceptualRenderingContract()
         ui_contract::spectrumSizePresets[1], "KIRIN_PERCEPTUAL_RENDER_OUTPUT_MEDIUM");
     const double large = renderAt (
         ui_contract::spectrumSizePresets[2], "KIRIN_PERCEPTUAL_RENDER_OUTPUT_LARGE");
+    const double extraLarge = renderAt (
+        ui_contract::spectrumSizePresets[3], "KIRIN_PERCEPTUAL_RENDER_OUTPUT_XLARGE");
     std::cout << "Perceptual paint samples: " << compact << '/' << medium
-              << '/' << large << " ms/frame\n";
+              << '/' << large << '/' << extraLarge << " ms/frame\n";
     KIRIN_PERCEPTUAL_REQUIRE (compact < 2.0);
     KIRIN_PERCEPTUAL_REQUIRE (medium < 3.0);
     KIRIN_PERCEPTUAL_REQUIRE (large < 4.0);
+    KIRIN_PERCEPTUAL_REQUIRE (extraLarge < 6.0);
 }
 }

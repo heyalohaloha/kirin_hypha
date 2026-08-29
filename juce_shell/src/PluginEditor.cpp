@@ -204,7 +204,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         };
         spectrumSizeToggle.setTitle ("Spectrum size");
         spectrumSizeToggle.setDescription (
-            "Cycle POST Spectrum between 100, 125, and 150 percent");
+            "Cycle POST Analysis between 100, 125, 150, and 200 percent");
         spectrumSizeToggle.setColour (juce::TextButton::buttonColourId, hypha::kFieldFill);
         spectrumSizeToggle.setColour (juce::TextButton::textColourOnId, COL_SPECTRUM_DELTA);
         spectrumSizeToggle.setColour (juce::TextButton::textColourOffId, COL_SPECTRUM_DELTA);
