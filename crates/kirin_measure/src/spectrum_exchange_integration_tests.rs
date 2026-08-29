@@ -55,6 +55,23 @@ fn push_tone_pair_segment(
     }
 }
 
+fn push_tone_segment(runtime: &SpectrumRuntime, start_frame: i64, end_frame: i64, hz: f32) {
+    const BLOCK_FRAMES: usize = 256;
+    let mut position = start_frame;
+    while position < end_frame {
+        let frames = BLOCK_FRAMES.min((end_frame - position) as usize);
+        let mut samples = Vec::with_capacity(frames * 2);
+        for offset in 0..frames {
+            let absolute = position as usize + offset;
+            let sample = (std::f32::consts::TAU * hz * absolute as f32 / 48_000.0).sin();
+            samples.extend_from_slice(&[sample, -sample]);
+        }
+        assert!(runtime.push_block_from_audio(&samples, 2, Some(position)));
+        position += frames as i64;
+        thread::sleep(Duration::from_millis(1));
+    }
+}
+
 #[test]
 fn visible_exact_pair_exchanges_audio_derived_difference_end_to_end() {
     let temp = tempfile::tempdir().unwrap();
@@ -120,6 +137,96 @@ fn visible_exact_pair_exchanges_audio_derived_difference_end_to_end() {
         .map(|(index, _)| index)
         .unwrap();
     assert!((difference.raw_db[strongest] + 6.0206).abs() < 0.05);
+
+    pre.shutdown();
+    post.shutdown();
+    pre_runtime.shutdown_and_join();
+    post_runtime.shutdown_and_join();
+}
+
+#[test]
+fn exact_pair_resumes_after_a_staggered_backwards_seek_end_to_end() {
+    let temp = tempfile::tempdir().unwrap();
+    let pre_dir = temp.path().join("project").join("pre");
+    let pre_json = pre_dir.join("pre.json");
+    crate::atomic_file::write_bytes_atomic(&pre_json, b"{}").unwrap();
+    let pre_runtime = SpectrumRuntime::new(48_000, 2);
+    let post_runtime = SpectrumRuntime::new(48_000, 2);
+    let pre = SpectrumCoordinator::new(48_000, Arc::clone(&pre_runtime));
+    let post = SpectrumCoordinator::new(48_000, Arc::clone(&post_runtime));
+    let target = SpectrumTarget::from_pre_json("pre".to_string(), &pre_json).unwrap();
+
+    post.set_post_visible(true);
+    assert!(post.post_tick("post", Some(target.clone())));
+    assert!(pre.pre_tick("pre", &pre_dir));
+    push_tone_pair_segment(
+        &pre_runtime,
+        &post_runtime,
+        480_000,
+        489_600,
+        1_000.0,
+        1_000.0,
+    );
+    let initial_deadline = Instant::now() + Duration::from_secs(2);
+    while Instant::now() < initial_deadline
+        && (pre_runtime
+            .try_history()
+            .and_then(|history| history.newest().cloned())
+            .is_none_or(|frame| frame.presentation_end_samples < 489_600)
+            || post_runtime
+                .try_history()
+                .and_then(|history| history.newest().cloned())
+                .is_none_or(|frame| frame.presentation_end_samples < 489_600))
+    {
+        thread::sleep(Duration::from_millis(2));
+    }
+    assert!(pre.pre_tick("pre", &pre_dir));
+    assert!(post.post_tick("post", Some(target.clone())));
+    assert_eq!(
+        post.try_view()
+            .unwrap()
+            .difference
+            .unwrap()
+            .presentation_end_samples,
+        489_600
+    );
+
+    // The two workers re-enter the earlier transport run one 1,600-sample cadence apart.
+    push_tone_segment(&pre_runtime, 0, 9_600, 1_000.0);
+    push_tone_segment(&post_runtime, 0, 8_000, 1_000.0);
+    let backwards_deadline = Instant::now() + Duration::from_secs(2);
+    while Instant::now() < backwards_deadline
+        && (pre_runtime
+            .try_history()
+            .and_then(|history| history.newest().cloned())
+            .is_none_or(|frame| frame.presentation_end_samples != 9_600)
+            || post_runtime
+                .try_history()
+                .and_then(|history| history.newest().cloned())
+                .is_none_or(|frame| frame.presentation_end_samples != 8_000))
+    {
+        thread::sleep(Duration::from_millis(2));
+    }
+    assert!(pre.pre_tick("pre", &pre_dir));
+    assert!(post.post_tick("post", Some(target)));
+    let restarted = post.try_view().unwrap();
+    assert_eq!(restarted.status, SpectrumViewStatus::Active);
+    assert_eq!(
+        restarted
+            .difference
+            .as_ref()
+            .unwrap()
+            .presentation_end_samples,
+        8_000
+    );
+    assert_eq!(
+        restarted
+            .spectrum_timeline
+            .frames()
+            .map(|frame| frame.presentation_end_samples)
+            .collect::<Vec<_>>(),
+        vec![8_000]
+    );
 
     pre.shutdown();
     post.shutdown();

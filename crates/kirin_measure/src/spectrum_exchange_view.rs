@@ -25,9 +25,9 @@ impl SpectrumCoordinator {
     /// Replaces the short UI-recovery timeline at one confirmed transport boundary.
     ///
     /// A lower presentation endpoint can be either a late worker result or a real backwards
-    /// transport move. The join layer calls this path only when the endpoint is simultaneously
-    /// newest on the exact PRE and POST histories, so an out-of-order result still cannot replace
-    /// an already-published fact.
+    /// transport move. The join layer calls this path only after the newest verified PRE and POST
+    /// endpoints have both crossed below the last published endpoint. They may be one cadence
+    /// apart; the boundary itself still starts on an exact shared endpoint.
     pub(super) fn store_spectrum_boundary(&self, difference: SpectrumDifference) {
         self.store_view_with_spectrum_boundary(
             SpectrumViewStatus::Active,

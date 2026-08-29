@@ -96,7 +96,9 @@ UI-clock estimate. A missed UI poll does not erase valid older observations: ret
 their true sample-time positions. The work-surface stroke joins the surrounding exact points across a
 missing endpoint so Windows scheduling jitter does not look like a broken curve; the missing time is
 still retained as gap metadata and no measurement is inserted. Reversed or incompatible frames, and
-a forward discontinuity beyond the six-second view, start a clean trail. **MARK** freezes one display-only full-band Δ curve as a solid amber reference beneath
+a forward discontinuity beyond the six-second view, start a clean trail. After a backwards transport
+move, PRE and POST may resume one analysis cadence apart; FREQ waits until both have crossed the old
+endpoint, then resumes from their newest exact shared endpoint. **MARK** freezes one display-only full-band Δ curve as a solid amber reference beneath
 the cyan live curve; pressing MARK again replaces it, and its × clears it.
 MARK is temporary and is cleared when the pair, sample rate, FFT layout, channel mode, or page changes.
 It neither adds another analyzer nor changes the measured values. The 100% / 125% / 150% / 200% size choice

@@ -72,26 +72,45 @@ pub(super) fn store_joined_spectrum(
         .and_then(|(post, pre)| newest_exact_difference(post, pre))
     {
         let endpoint = difference.presentation_end_samples;
-        let exact_endpoint_is_current = local
+        let latest_endpoints = local
             .and_then(|history| history.newest())
             .zip(remote.and_then(|history| history.newest()))
-            .is_some_and(|(post, pre)| {
-                post.presentation_end_samples == endpoint
-                    && pre.presentation_end_samples == endpoint
-            });
+            .map(|(post, pre)| (post.presentation_end_samples, pre.presentation_end_samples));
+        let exact_endpoint_is_current =
+            latest_endpoints.is_some_and(|(post, pre)| post == endpoint && pre == endpoint);
         if session.last_presented_end_samples != Some(endpoint) {
-            const fn moved_backwards(previous: Option<i64>, current: i64) -> bool {
-                match previous {
-                    Some(previous) => current < previous,
-                    None => false,
-                }
-            }
-            if exact_endpoint_is_current
-                && moved_backwards(session.last_presented_end_samples, endpoint)
-            {
+            let moved_backwards = session
+                .last_presented_end_samples
+                .is_some_and(|previous| endpoint < previous);
+            // PRE and POST workers do not have to publish the first frame of a new transport run
+            // in the same 30 Hz exchange tick. Confirm the backwards boundary from each side's
+            // newest verified endpoint, then restart at their newest exact intersection. Requiring
+            // both newest endpoints to be identical can reject every valid lower frame forever
+            // when the two workers remain one frame apart. A one-sided late result still cannot
+            // cross this gate.
+            let both_sides_moved_backwards = session
+                .last_presented_end_samples
+                .zip(latest_endpoints)
+                .is_some_and(|(previous, (post, pre))| post < previous && pre < previous);
+            if moved_backwards && both_sides_moved_backwards {
                 coordinator.store_spectrum_boundary(difference);
-            } else {
+            } else if !moved_backwards {
                 coordinator.store_view(SpectrumViewStatus::Active, Some(difference), None);
+            } else {
+                // Keep the prior exact fact only for the bounded presentation lease. If the
+                // second side never crosses the boundary, normal unavailable handling below
+                // remains authoritative instead of freezing the old frame indefinitely.
+                if session
+                    .last_presented_at
+                    .is_some_and(|presented| now.duration_since(presented) < PRESENTATION_HOLD)
+                {
+                    return;
+                }
+                let status = joined_status(session, now, local, remote, |history| {
+                    history.newest().is_some()
+                });
+                coordinator.store_view(status, None, None);
+                return;
             }
             session.last_presented_at = Some(now);
             session.last_presented_end_samples = Some(endpoint);
