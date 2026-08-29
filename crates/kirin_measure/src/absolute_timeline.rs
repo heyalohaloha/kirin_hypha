@@ -273,7 +273,8 @@ mod tests {
         let mut analyzer = AbsoluteContinuousAnalyzer::new(48_000, 2).unwrap();
         analyzer.reset_at_epoch(0).unwrap();
         let mut timeline = AbsoluteTimeline::default();
-        for (index, aperture) in samples.chunks_exact(9_600).enumerate() {
+        for (index, aperture) in samples.chunks(9_600).enumerate() {
+            assert_eq!(aperture.len(), 9_600);
             for frame in analyzer
                 .analyze_aperture(aperture, (index as i64 + 1) * 4_800, 1)
                 .unwrap()
