@@ -353,7 +353,7 @@ fn isolated_worker_advances_exact_pair_without_reentering_normal_io() {
     let target = SpectrumTarget::from_pre_json("pre".to_string(), &pre_json).unwrap();
 
     post.set_post_visible(true);
-    post.service_post_endpoint("post", Some(target));
+    post.service_post_endpoint("post", Some(target), "Mix");
     pre.service_pre_endpoint("pre", &pre_dir);
 
     let frames = 12_800_usize;

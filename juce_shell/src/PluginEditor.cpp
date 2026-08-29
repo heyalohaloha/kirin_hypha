@@ -1,4 +1,5 @@
 #include "PluginEditor.h"
+#include "HyphaAnalysisUiText.h"
 #include "HyphaDisplayContract.h"
 
 #include <cmath>
@@ -420,10 +421,10 @@ void KirinHyphaEditor::setAnalysisPage (AnalysisPage page)
     analysisModeToggle.setButtonText (page == AnalysisPage::spectrum ? "FREQ"
                                        : page == AnalysisPage::perceptual ? "SHARP" : "LIVE");
     analysisModeToggle.setTooltip (page == AnalysisPage::spectrum
-                                     ? "Frequency Delta — click to switch view"
+                                     ? hypha::analysis_ui::switchViewTooltip ("Frequency Delta")
                                      : page == AnalysisPage::perceptual
-                                         ? "Sharpness Delta — click to switch view"
-                                         : "POST live facts — click to switch view");
+                                         ? hypha::analysis_ui::switchViewTooltip ("Sharpness Delta")
+                                         : hypha::analysis_ui::switchViewTooltip ("POST live facts"));
     startTimerHz (page == AnalysisPage::absolute
                     ? ui::absoluteTimelineSourceHz
                     : analysisOpen ? ui::spectrumPresentationHz
@@ -916,8 +917,13 @@ void KirinHyphaEditor::updatePost()
                           pairStatus != KIRIN_PAIR_STATUS_UNPAIRED);
 
    #if ! KIRIN_HYPHA_PRE_DISPLAY
+    juce::String analysisOwnerNames;
+    const bool haveAnalysisOwnerNames = analysisPage != AnalysisPage::meters
+        && processorRef.pollAnalysisOwnerNames (analysisOwnerNames);
     if (analysisPage == AnalysisPage::spectrum)
     {
+        if (haveAnalysisOwnerNames)
+            spectrumView.setAnalysisOwnerNames (analysisOwnerNames);
         spectrumView.presentationTick();
         KirinSpectrumBatch spectrum {};
         if (processorRef.pollSpectrumBatch (spectrum))
@@ -929,6 +935,8 @@ void KirinHyphaEditor::updatePost()
     }
     if (analysisPage == AnalysisPage::perceptual)
     {
+        if (haveAnalysisOwnerNames)
+            perceptualView.setAnalysisOwnerNames (analysisOwnerNames);
         perceptualView.presentationTick();
         KirinPerceptualBatch perceptual {};
         if (processorRef.pollPerceptualBatch (perceptual))
@@ -938,6 +946,8 @@ void KirinHyphaEditor::updatePost()
     }
     if (analysisPage == AnalysisPage::absolute)
     {
+        if (haveAnalysisOwnerNames)
+            absoluteView.setAnalysisOwnerNames (analysisOwnerNames);
         KirinAbsoluteBatch absolute {};
         if (processorRef.pollAbsoluteBatch (absolute))
             absoluteView.setBatch (absolute);

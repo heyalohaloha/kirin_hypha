@@ -98,6 +98,7 @@ pub struct SpectrumViewSnapshot {
     pub perceptual_difference: Option<PerceptualDifference>,
     pub perceptual_timeline: PerceptualDifferenceTimeline,
     pub absolute_timeline: AbsoluteTimeline,
+    pub analysis_owner_names: [String; crate::ANALYSIS_SLOT_COUNT],
 }
 
 #[derive(Clone)]
@@ -193,10 +194,17 @@ impl SpectrumCoordinator {
         .is_some()
     }
 
-    fn ensure_analysis_lease(&self) -> std::io::Result<bool> {
+    fn ensure_analysis_lease(&self, owner_name: &str) -> std::io::Result<bool> {
         match self.analysis_lease.lock() {
-            Ok(mut lease) => lease.try_acquire(),
-            Err(poisoned) => poisoned.into_inner().try_acquire(),
+            Ok(mut lease) => lease.try_acquire_for(owner_name),
+            Err(poisoned) => poisoned.into_inner().try_acquire_for(owner_name),
+        }
+    }
+
+    fn observed_analysis_owner_names(&self) -> [String; crate::ANALYSIS_SLOT_COUNT] {
+        match self.analysis_lease.lock() {
+            Ok(lease) => lease.observed_owner_names(),
+            Err(poisoned) => poisoned.into_inner().observed_owner_names(),
         }
     }
 

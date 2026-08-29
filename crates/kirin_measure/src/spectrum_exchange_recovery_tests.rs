@@ -77,7 +77,7 @@ fn normal_io_supervisor_renews_freq_and_sharp_requests_when_worker_stops_progres
 
         assert!(coordinator.set_post_analysis_mode(mode));
         coordinator.set_post_visible(true);
-        coordinator.service_post_endpoint("post", Some(target.clone()));
+        coordinator.service_post_endpoint("post", Some(target.clone()), "Mix");
         let first = read_request(&pre_dir).unwrap();
         assert_eq!(first.analysis_mode, mode as u8);
         coordinator
@@ -88,7 +88,7 @@ fn normal_io_supervisor_renews_freq_and_sharp_requests_when_worker_stops_progres
         // One call may observe the last published update; the following unchanged 10 Hz calls
         // cross the watchdog boundary without starting a second Analysis owner.
         for _ in 0..=crate::spectrum_exchange_worker::SUPERVISOR_STALL_SERVICE_TICKS {
-            coordinator.service_post_endpoint("post", Some(target.clone()));
+            coordinator.service_post_endpoint("post", Some(target.clone()), "Mix");
         }
         let renewed = read_request(&pre_dir).unwrap();
         assert!(renewed.expires_at_unix_ms > first.expires_at_unix_ms);
@@ -117,7 +117,7 @@ fn failed_worker_attempts_do_not_hide_a_stalled_request_from_the_supervisor() {
     let target = SpectrumTarget::from_pre_json("pre".to_string(), &pre_json).unwrap();
 
     coordinator.set_post_visible(true);
-    coordinator.service_post_endpoint("post", Some(target.clone()));
+    coordinator.service_post_endpoint("post", Some(target.clone()), "Mix");
     let first = read_request(&pre_dir).unwrap();
     coordinator
         .exchange_worker
@@ -125,7 +125,7 @@ fn failed_worker_attempts_do_not_hide_a_stalled_request_from_the_supervisor() {
     thread::sleep(REQUEST_RENEW_INTERVAL + Duration::from_millis(50));
 
     for _ in 0..=crate::spectrum_exchange_worker::SUPERVISOR_STALL_SERVICE_TICKS {
-        coordinator.service_post_endpoint("post", Some(target.clone()));
+        coordinator.service_post_endpoint("post", Some(target.clone()), "Mix");
     }
     let renewed = read_request(&pre_dir).unwrap();
     assert!(renewed.expires_at_unix_ms > first.expires_at_unix_ms);

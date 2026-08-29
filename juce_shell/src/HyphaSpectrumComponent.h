@@ -26,6 +26,7 @@ public:
     void clearSnapshot();
     void presentationTick();
     void presentationTickAt (double nowMs);
+    void setAnalysisOwnerNames (const juce::String& names);
     void paint (juce::Graphics&) override;
     void mouseMove (const juce::MouseEvent&) override;
     void mouseExit (const juce::MouseEvent&) override;
@@ -74,6 +75,7 @@ private:
     uint8_t channelMode = KIRIN_SPECTRUM_CHANNEL_LR;
     uint8_t inputChannels = 0;
     juce::String modeActionNotice;
+    juce::String analysisOwnerNames;
     double modeActionNoticeUntilMs = 0.0;
     bool hoverNeedsRepaint = false;
     double lastCurvePresentationMs = 0.0;

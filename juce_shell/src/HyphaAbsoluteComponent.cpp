@@ -64,6 +64,14 @@ AbsoluteComponent::AbsoluteComponent()
     setAccessible (false);
 }
 
+void AbsoluteComponent::setAnalysisOwnerNames (const juce::String& names)
+{
+    if (analysisOwnerNames == names)
+        return;
+    analysisOwnerNames = names;
+    repaint();
+}
+
 void AbsoluteComponent::setBatch (const KirinAbsoluteBatch& next)
 {
     setBatchAt (next, juce::Time::getMillisecondCounterHiRes());
@@ -141,7 +149,7 @@ void AbsoluteComponent::clearSnapshot()
 void AbsoluteComponent::paint (juce::Graphics& g)
 {
     absolute_painter::paint (g, getLocalBounds().toFloat(), {
-        batch, numericSnapshot, haveBatch, haveNumericSnapshot
+        batch, numericSnapshot, analysisOwnerNames, haveBatch, haveNumericSnapshot
     });
 }
 }

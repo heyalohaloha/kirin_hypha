@@ -50,6 +50,14 @@ PerceptualComponent::PerceptualComponent()
     setAccessible (false);
 }
 
+void PerceptualComponent::setAnalysisOwnerNames (const juce::String& names)
+{
+    if (analysisOwnerNames == names)
+        return;
+    analysisOwnerNames = names;
+    repaint();
+}
+
 void PerceptualComponent::setSnapshot (const KirinPerceptualView& next)
 {
     if (haveSnapshot && sameSnapshot (snapshot, next))
@@ -281,7 +289,7 @@ void PerceptualComponent::mouseDown (const juce::MouseEvent& event)
 void PerceptualComponent::paint (juce::Graphics& g)
 {
     const perceptual_painter::PaintState state {
-        snapshot, history, modeActionNotice,
+        snapshot, history, modeActionNotice, analysisOwnerNames,
         haveSnapshot, haveSnapshot && validSnapshot (snapshot),
         channelMode, inputChannels
     };

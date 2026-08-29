@@ -51,9 +51,11 @@ Exactly one optional analyzer mode may be active within each lease-owning POST:
 4. Live facts visible: local POST LUFS-M / recent TP / Sharpness on; PRE exchange off.
 
 Two POST Analysis pages in a DAW process may hold the two stable process-wide kernel slots. A third
-does not start its worker or request a PRE worker and reports `2 ANALYSIS SLOTS — BOTH ACTIVE` plus
-`CLOSE ONE TO OPEN THIS VIEW`. Closing either owner lets the waiting page acquire that slot. The
-stable lock files are not removed, avoiding an unlink-and-recreate race between new owners.
+does not start its worker or request a PRE worker and reports the factual lease owners in one line,
+for example `Both slots in use — Mix, Vocal`. If both names cannot be verified, it reports only
+`Both slots in use`; it does not infer pair names or instruct the user to close an unseen page.
+Closing either owner lets the waiting page acquire that slot. The stable lock files are not removed,
+avoiding an unlink-and-recreate race between new owners.
 
 For Perceptual Delta, POST first publishes an uncommitted request. PRE replies with its current
 presentation endpoint, and POST chooses an aperture-aligned epoch at least two apertures beyond the
@@ -82,8 +84,8 @@ measured timeline, or enters the Audio Thread.
 
 - No exact pair: show pair-unavailable state; do not start POST analysis.
 - Pair warming or no matching endpoint: show sync state; do not retain a false point.
-- Both Analysis slots are owned: explain that two slots are active and one must close; do not start
-  another analyzer.
+- Both Analysis slots are owned: name both verified lease owners in one factual line, or use the
+  name-free fallback; do not start another analyzer.
 - Dropped input, timeline discontinuity, missed epoch, or definition edge: clear the display and
   negotiate a new future state epoch.
 - Malformed, oversized, non-finite, or incompatible snapshot: silently reject it.

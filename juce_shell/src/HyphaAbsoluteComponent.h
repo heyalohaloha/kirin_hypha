@@ -14,6 +14,7 @@ public:
     void setBatch (const KirinAbsoluteBatch& next);
     void setBatchAt (const KirinAbsoluteBatch& next, double nowMs);
     void clearSnapshot();
+    void setAnalysisOwnerNames (const juce::String& names);
     void paint (juce::Graphics&) override;
 
     uint32_t frameCountForTest() const noexcept { return batch.count; }
@@ -37,6 +38,7 @@ private:
     bool haveBatch = false;
     bool havePendingBatch = false;
     bool haveNumericSnapshot = false;
+    juce::String analysisOwnerNames;
     double lastCurvePresentationMs = 0.0;
     double lastNumericPresentationMs = 0.0;
     uint64_t curvePresentationCount = 0u;

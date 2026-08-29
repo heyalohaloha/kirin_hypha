@@ -2226,6 +2226,12 @@ impl KirinHyphaEngine {
         self.spectrum.try_view()
     }
 
+    pub fn poll_analysis_owner_names(
+        &self,
+    ) -> Option<[String; kirin_measure::ANALYSIS_SLOT_COUNT]> {
+        self.spectrum.try_analysis_owner_names()
+    }
+
     /// Read-only performance counters used by regression tests and validation builds.
     pub fn spectrum_stats(&self) -> SpectrumRuntimeStats {
         self.spectrum_runtime.stats()
@@ -3475,6 +3481,17 @@ pub const KIRIN_SPECTRUM_IN_USE: u8 = 5;
 pub const KIRIN_SPECTRUM_CHANNEL_LR: u8 = SpectrumChannelMode::Lr as u8;
 pub const KIRIN_SPECTRUM_CHANNEL_MID: u8 = SpectrumChannelMode::Mid as u8;
 pub const KIRIN_SPECTRUM_CHANNEL_SIDE: u8 = SpectrumChannelMode::Side as u8;
+pub const KIRIN_ANALYSIS_SLOT_COUNT: usize = kirin_measure::ANALYSIS_SLOT_COUNT;
+pub const KIRIN_ANALYSIS_OWNER_NAME_CAPACITY: usize =
+    kirin_measure::ANALYSIS_OWNER_NAME_MAX_BYTES + 1;
+
+#[derive(Clone, Copy)]
+#[repr(C)]
+pub struct KirinAnalysisOwners {
+    pub count: u8,
+    pub reserved: [u8; 7],
+    pub names: [[u8; KIRIN_ANALYSIS_OWNER_NAME_CAPACITY]; KIRIN_ANALYSIS_SLOT_COUNT],
+}
 
 /// POST-only Spectrum view. PRE/POST are the exact magnitudes behind `display_db`, which is signed
 /// POST - PRE and bounded only by the renderer. Rust retains the unclipped raw difference.
@@ -3692,6 +3709,29 @@ fn spectrum_status_to_abi(status: SpectrumViewStatus) -> u8 {
         SpectrumViewStatus::Unavailable => KIRIN_SPECTRUM_UNAVAILABLE,
         SpectrumViewStatus::InUse => KIRIN_SPECTRUM_IN_USE,
     }
+}
+
+fn to_c_analysis_owners(
+    owner_names: [String; kirin_measure::ANALYSIS_SLOT_COUNT],
+) -> KirinAnalysisOwners {
+    let mut out = KirinAnalysisOwners {
+        count: 0,
+        reserved: [0; 7],
+        names: [[0; KIRIN_ANALYSIS_OWNER_NAME_CAPACITY]; KIRIN_ANALYSIS_SLOT_COUNT],
+    };
+    for owner_name in owner_names.into_iter().filter(|name| !name.is_empty()) {
+        if out.count as usize >= KIRIN_ANALYSIS_SLOT_COUNT {
+            break;
+        }
+        let bytes = owner_name.as_bytes();
+        if bytes.len() >= KIRIN_ANALYSIS_OWNER_NAME_CAPACITY {
+            continue;
+        }
+        let index = out.count as usize;
+        out.names[index][..bytes.len()].copy_from_slice(bytes);
+        out.count += 1;
+    }
+    out
 }
 
 fn to_c_spectrum(snapshot: SpectrumViewSnapshot) -> KirinSpectrumView {
@@ -4036,6 +4076,7 @@ mod spectrum_abi_tests {
             perceptual_difference: None,
             perceptual_timeline: Default::default(),
             absolute_timeline: Default::default(),
+            analysis_owner_names: Default::default(),
         };
         let out = to_c_spectrum(snapshot.clone());
         assert_eq!(out.status, KIRIN_SPECTRUM_ACTIVE);
@@ -4090,6 +4131,7 @@ mod spectrum_abi_tests {
             perceptual_difference: Some(difference),
             perceptual_timeline,
             absolute_timeline: Default::default(),
+            analysis_owner_names: Default::default(),
         };
         let out = to_c_perceptual(snapshot.clone());
         assert_eq!(out.status, KIRIN_SPECTRUM_ACTIVE);
@@ -4143,6 +4185,7 @@ mod spectrum_abi_tests {
             perceptual_difference: None,
             perceptual_timeline: Default::default(),
             absolute_timeline,
+            analysis_owner_names: Default::default(),
         });
         assert_eq!(batch.count, 1);
         assert_eq!(batch.latest.lufs_m, -18.5);
@@ -4150,6 +4193,25 @@ mod spectrum_abi_tests {
         assert_eq!(batch.latest.sharpness, 1.25);
         assert_eq!(batch.latest.presentation_end_samples, 9_600);
         assert_eq!(batch.latest.generation, 7);
+    }
+
+    #[test]
+    fn analysis_owner_names_are_bounded_utf8_and_null_terminated() {
+        assert_eq!(std::mem::size_of::<KirinAnalysisOwners>(), 138);
+        let owners = to_c_analysis_owners(["Mix".to_string(), "Vocal".to_string()]);
+        assert_eq!(owners.count, 2);
+        assert_eq!(&owners.names[0][..4], b"Mix\0");
+        assert_eq!(&owners.names[1][..6], b"Vocal\0");
+        assert!(owners.names[0][4..].iter().all(|byte| *byte == 0));
+        assert!(owners.names[1][6..].iter().all(|byte| *byte == 0));
+
+        let unicode = to_c_analysis_owners(["ボーカル".to_string(), String::new()]);
+        assert_eq!(unicode.count, 1);
+        let nul = unicode.names[0].iter().position(|byte| *byte == 0).unwrap();
+        assert_eq!(
+            std::str::from_utf8(&unicode.names[0][..nul]).unwrap(),
+            "ボーカル"
+        );
     }
 
     #[test]
@@ -5302,6 +5364,28 @@ pub unsafe extern "C" fn kirin_hypha_poll_absolute_batch(
             return false;
         };
         unsafe { *out = to_c_absolute_batch(snapshot) };
+        true
+    }))
+    .unwrap_or(false)
+}
+
+/// Poll the factual pair names that currently own the two optional Analysis kernel leases.
+///
+/// # Safety
+/// `handle` and `out` must be live writable pointers. UI Thread only.
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_poll_analysis_owners(
+    handle: *mut KirinHyphaEngine,
+    out: *mut KirinAnalysisOwners,
+) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() || out.is_null() {
+            return false;
+        }
+        let Some(owner_names) = (unsafe { &*handle }).poll_analysis_owner_names() else {
+            return false;
+        };
+        unsafe { *out = to_c_analysis_owners(owner_names) };
         true
     }))
     .unwrap_or(false)

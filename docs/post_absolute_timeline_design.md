@@ -53,9 +53,12 @@ The DAW process provides two stable kernel-backed Analysis slots across FREQ, SH
 third page stays idle and displays:
 
 ```text
-2 ANALYSIS SLOTS — BOTH ACTIVE
-CLOSE ONE TO OPEN THIS VIEW
+Both slots in use — Mix, Vocal
 ```
+
+The two names come from the slots observed locked during that acquisition attempt. If both names
+cannot be verified, the fallback is `Both slots in use`; the UI never guesses names or commands the
+user to close a page that may be off screen.
 
 When either active page closes, the waiting page may acquire the released slot automatically. The
 two-slot bound affects only optional Analysis displays; it does not limit loaded pairs, Watch,
@@ -64,7 +67,8 @@ Record, or audio pass-through.
 ## Failure behavior
 
 - No retained exact frame yet: show the neutral warming state.
-- Both slots occupied: show the two-line limit explanation; do not analyze.
+- Both slots occupied: show the one-line factual owner status (or its name-free fallback); do not
+  analyze.
 - Invalid, non-finite, stale, duplicate, or incompatible frame: reject it without altering audio.
 - Worker failure: audio continues and the view becomes unavailable.
 - Rendering delay: the next batch recovers every retained exact frame; it does not invent points.

@@ -1,6 +1,7 @@
 #include "HyphaPerceptualPainter.h"
 
 #include "HyphaSpectrumGeometry.h"
+#include "HyphaAnalysisUiText.h"
 #include "HyphaTheme.h"
 
 #include <algorithm>
@@ -20,14 +21,13 @@ namespace
         return "LR";
     }
 
-    juce::String statusText (uint8_t status)
+    juce::String statusText (uint8_t status, const juce::String& analysisOwnerNames)
     {
         if (status == KIRIN_SPECTRUM_NO_PAIR) return juce::CharPointer_UTF8 ("PAIR —");
         if (status == KIRIN_SPECTRUM_WARMING_UP) return juce::CharPointer_UTF8 ("SYNC ◌");
         if (status == KIRIN_SPECTRUM_UNAVAILABLE) return juce::CharPointer_UTF8 ("DATA —");
         if (status == KIRIN_SPECTRUM_IN_USE)
-            return juce::CharPointer_UTF8 (
-                "2 ANALYSIS SLOTS — BOTH ACTIVE\nCLOSE ONE TO OPEN THIS VIEW");
+            return analysis_ui::slotsInUse (analysisOwnerNames);
         return {};
     }
 
@@ -300,7 +300,8 @@ void paint (juce::Graphics& g,
 
     if (! state.snapshotValid || state.history.empty())
     {
-        const auto text = state.haveSnapshot ? statusText (state.snapshot.status)
+        const auto text = state.haveSnapshot
+                            ? statusText (state.snapshot.status, state.analysisOwnerNames)
                                              : juce::String ("SYNC");
         if (text.isNotEmpty())
         {

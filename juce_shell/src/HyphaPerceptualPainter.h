@@ -12,6 +12,7 @@ namespace hypha::perceptual_painter
         const KirinPerceptualView& snapshot;
         const perceptual_history::History& history;
         const juce::String& actionNotice;
+        const juce::String& analysisOwnerNames;
         bool haveSnapshot;
         bool snapshotValid;
         uint8_t channelMode;

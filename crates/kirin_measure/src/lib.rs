@@ -95,6 +95,7 @@ pub use all_stop_signal::{
     write_stop_broadcast_for_generation, write_stop_broadcast_signal, AllStopBroadcast,
     AllStopError, ALL_STOP_BROADCAST_STALE_SECS, ALL_STOP_SCHEMA_VERSION, ALL_STOP_SIGNAL_SUBDIR,
 };
+pub use analysis_lease::{ANALYSIS_OWNER_NAME_MAX_BYTES, ANALYSIS_SLOT_COUNT};
 pub use capture_contract::{CAPTURE_PRODUCER_READY_TIMEOUT, MAX_CAPTURE_PAIRS};
 pub use capture_generation::{
     active_generation_path, archive_generation, archived_generation_path, current_generation_path,

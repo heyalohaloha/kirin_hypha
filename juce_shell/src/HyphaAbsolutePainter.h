@@ -10,6 +10,7 @@ struct PaintState
 {
     const KirinAbsoluteBatch& batch;
     const KirinAbsoluteView& numericSnapshot;
+    const juce::String& analysisOwnerNames;
     bool haveBatch;
     bool haveNumericSnapshot;
 };

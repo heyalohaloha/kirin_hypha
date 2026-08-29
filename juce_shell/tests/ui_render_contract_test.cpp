@@ -1,4 +1,5 @@
 #include "../src/HyphaWidgets.h"
+#include "../src/HyphaAnalysisUiText.h"
 #include "../src/HyphaSpectrumComponent.h"
 #include "PerceptualHistoryContractTest.h"
 #include "AbsoluteTimelineContractTest.h"
@@ -275,6 +276,29 @@ int main()
     const int tooltipMaximumWidth = ui::editorWidth - 2 * ui::margin - 14;
     KIRIN_REQUIRE (fits (tooltipFont, ui::spectrumTooltip (false), tooltipMaximumWidth));
     KIRIN_REQUIRE (fits (tooltipFont, ui::spectrumTooltip (true), tooltipMaximumWidth));
+    for (const auto& tooltipText : {
+             hypha::analysis_ui::switchViewTooltip ("Frequency Delta"),
+             hypha::analysis_ui::switchViewTooltip ("Sharpness Delta"),
+             hypha::analysis_ui::switchViewTooltip ("POST live facts") })
+    {
+        KIRIN_REQUIRE (fits (tooltipFont, tooltipText, tooltipMaximumWidth));
+        const auto* utf8 = reinterpret_cast<const unsigned char*> (tooltipText.toRawUTF8());
+        while (*utf8 != 0u)
+            KIRIN_REQUIRE (*utf8++ <= 0x7fu);
+    }
+    const auto slotsText = hypha::analysis_ui::slotsInUse ("Mix, Vocal");
+    const auto expectedSlotsText = juce::String ("Both slots in use ")
+                                 + juce::String::charToString (0x2014)
+                                 + " Mix, Vocal";
+    KIRIN_REQUIRE (slotsText == expectedSlotsText);
+    KIRIN_REQUIRE (! slotsText.containsChar ('\n'));
+    KIRIN_REQUIRE (hypha::analysis_ui::slotsInUse ({}) == "Both slots in use");
+    const auto compactAnalysisBounds = ui::spectrumPlotBounds (
+        ui::spectrumSizePresets[0].width, ui::spectrumSizePresets[0].height);
+    KIRIN_REQUIRE (fits (hypha::monoFont (13.0f), slotsText,
+                         compactAnalysisBounds.width
+                             - ui::spectrumPlotLeftInset
+                             - ui::spectrumPlotRightInset));
 
     const float metricWidth = static_cast<float> (
         ui::metricCellBounds (0, postLayout.metricTop).width);

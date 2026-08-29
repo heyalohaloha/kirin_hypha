@@ -86,6 +86,7 @@ public:
     bool pollPerceptual (KirinPerceptualView& out) const;
     bool pollPerceptualBatch (KirinPerceptualBatch& out) const;
     bool pollAbsoluteBatch (KirinAbsoluteBatch& out) const;
+    bool pollAnalysisOwnerNames (juce::String& out) const;
     bool spectrumStats (KirinSpectrumStats& out) const; // read-only validation counters
     uint8_t spectrumSizePreference() const              // editor-lifetime recreation only; not DAW state
     {

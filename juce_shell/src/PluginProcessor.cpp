@@ -836,6 +836,34 @@ bool KirinHyphaProcessorBase::pollAbsoluteBatch (KirinAbsoluteBatch& out) const
     return hyphaHandle != nullptr && kirin_hypha_poll_absolute_batch (hyphaHandle, &out);
 }
 
+bool KirinHyphaProcessorBase::pollAnalysisOwnerNames (juce::String& out) const
+{
+    if (role != Role::Post)
+        return false;
+    KirinAnalysisOwners owners {};
+    const juce::ScopedLock sl (handleLock);
+    if (hyphaHandle == nullptr || ! kirin_hypha_poll_analysis_owners (hyphaHandle, &owners))
+        return false;
+    if (owners.count != KIRIN_ANALYSIS_SLOT_COUNT)
+    {
+        out.clear();
+        return true;
+    }
+    juce::StringArray names;
+    for (size_t index = 0u; index < KIRIN_ANALYSIS_SLOT_COUNT; ++index)
+    {
+        const auto* utf8 = owners.names[index];
+        if (utf8[0] == '\0')
+        {
+            out.clear();
+            return true;
+        }
+        names.add (juce::String (juce::CharPointer_UTF8 (utf8)));
+    }
+    out = names.joinIntoString (", ");
+    return true;
+}
+
 bool KirinHyphaProcessorBase::spectrumStats (KirinSpectrumStats& out) const
 {
     if (role != Role::Post)

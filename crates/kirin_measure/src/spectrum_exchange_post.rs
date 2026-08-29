@@ -17,17 +17,27 @@ struct PreparedPostSession {
 }
 
 impl SpectrumCoordinator {
-    /// POST IO-thread tick. `target` comes from the already-confirmed exact pair latch.
+    /// Test convenience wrapper. Production supplies the pair name to the lease metadata.
+    #[cfg(test)]
     pub(crate) fn post_tick(&self, post_instance_id: &str, target: Option<SpectrumTarget>) -> bool {
+        self.post_tick_for_owner(post_instance_id, target, "")
+    }
+
+    pub(crate) fn post_tick_for_owner(
+        &self,
+        post_instance_id: &str,
+        target: Option<SpectrumTarget>,
+        owner_name: &str,
+    ) -> bool {
         if !self.post_visible() {
             self.retire_hidden_post_session();
             return false;
         }
-        match self.ensure_analysis_lease() {
+        match self.ensure_analysis_lease(owner_name) {
             Ok(true) => {}
             Ok(false) => {
                 let _ = self.runtime.set_enabled(false);
-                self.store_view(SpectrumViewStatus::InUse, None, None);
+                self.store_analysis_in_use(self.observed_analysis_owner_names());
                 return false;
             }
             Err(_) => {

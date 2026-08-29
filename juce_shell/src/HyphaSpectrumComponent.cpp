@@ -48,6 +48,14 @@ SpectrumComponent::SpectrumComponent()
     setAccessible (false);
 }
 
+void SpectrumComponent::setAnalysisOwnerNames (const juce::String& names)
+{
+    if (analysisOwnerNames == names)
+        return;
+    analysisOwnerNames = names;
+    repaint();
+}
+
 void SpectrumComponent::setSnapshot (const KirinSpectrumView& next)
 {
     if (haveSnapshot && std::memcmp (&snapshot, &next, sizeof (snapshot)) == 0)
@@ -430,7 +438,7 @@ void SpectrumComponent::paint (juce::Graphics& g)
     const spectrum_chrome::PaintState state {
         snapshot, displayedPre, displayedPost, displayedDelta,
         readoutPre, readoutPost, readoutDelta, markedDelta,
-        focusTrail.get(), modeActionNotice,
+        focusTrail.get(), modeActionNotice, analysisOwnerNames,
         haveSnapshot, haveSnapshot && validSnapshot (snapshot),
         haveMark, hoverNormalisedX, focusFrequencyHz, channelMode, inputChannels
     };

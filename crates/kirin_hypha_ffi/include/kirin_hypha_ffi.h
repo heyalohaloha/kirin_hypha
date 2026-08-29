@@ -68,6 +68,8 @@ typedef struct KirinHypha KirinHypha;
 #define KIRIN_SPECTRUM_CHANNEL_LR 0u
 #define KIRIN_SPECTRUM_CHANNEL_MID 1u
 #define KIRIN_SPECTRUM_CHANNEL_SIDE 2u
+#define KIRIN_ANALYSIS_SLOT_COUNT 2u
+#define KIRIN_ANALYSIS_OWNER_NAME_CAPACITY 65u
 
 #define KIRIN_RECORD_DISPLAY_WATCH 0u
 #define KIRIN_RECORD_DISPLAY_LIVE 1u
@@ -222,6 +224,13 @@ typedef struct {
   uint32_t reserved;
   KirinAbsoluteView frames[KIRIN_ABSOLUTE_BATCH_CAPACITY];
 } KirinAbsoluteBatch;
+
+/* 2枠が使用中のとき、そのkernel leaseを保持するpair名。UTF-8 null終端、slot順。 */
+typedef struct {
+  uint8_t count;
+  uint8_t reserved[7];
+  char names[KIRIN_ANALYSIS_SLOT_COUNT][KIRIN_ANALYSIS_OWNER_NAME_CAPACITY];
+} KirinAnalysisOwners;
 
 /* 検証用のread-only負荷カウンタ。表示・計測判断には使用しない。 */
 typedef struct {
@@ -480,6 +489,9 @@ bool kirin_hypha_poll_perceptual_batch(KirinHypha* handle, KirinPerceptualBatch*
 
 /* POST単独の6秒絶対値timelineを取得。status-onlyもtrue。 */
 bool kirin_hypha_poll_absolute_batch(KirinHypha* handle, KirinAbsoluteBatch* out);
+
+/* optional Analysisのkernel leaseを現在保持するpair名。競合/nullはfalse。 */
+bool kirin_hypha_poll_analysis_owners(KirinHypha* handle, KirinAnalysisOwners* out);
 
 /* Spectrum optional workerの検証カウンタを取得。 */
 bool kirin_hypha_spectrum_stats(KirinHypha* handle, KirinSpectrumStats* out);

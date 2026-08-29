@@ -1,6 +1,7 @@
 #include "HyphaAbsolutePainter.h"
 
 #include "HyphaSpectrumGeometry.h"
+#include "HyphaAnalysisUiText.h"
 #include "HyphaTheme.h"
 
 #include <array>
@@ -23,12 +24,11 @@ namespace
     constexpr double sharpnessMinimum = 0.0;
     constexpr double sharpnessMaximum = 3.0;
 
-    juce::String statusText (uint8_t status)
+    juce::String statusText (uint8_t status, const juce::String& analysisOwnerNames)
     {
         if (status == KIRIN_SPECTRUM_WARMING_UP) return juce::CharPointer_UTF8 ("OBSERVE ◌");
         if (status == KIRIN_SPECTRUM_IN_USE)
-            return juce::CharPointer_UTF8 (
-                "2 ANALYSIS SLOTS — BOTH ACTIVE\nCLOSE ONE TO OPEN THIS VIEW");
+            return analysis_ui::slotsInUse (analysisOwnerNames);
         if (status == KIRIN_SPECTRUM_UNAVAILABLE) return juce::CharPointer_UTF8 ("DATA —");
         return {};
     }
@@ -197,7 +197,9 @@ void paint (juce::Graphics& g, juce::Rectangle<float> bounds, const PaintState& 
 
     if (! state.haveBatch || state.batch.count == 0u)
     {
-        const auto status = state.haveBatch ? statusText (state.batch.latest.status)
+        const auto status = state.haveBatch
+                              ? statusText (state.batch.latest.status,
+                                            state.analysisOwnerNames)
                                             : juce::String ("OBSERVE —");
         g.setFont (monoFont (10.0f * ui_contract::analysisTextScale (scale)));
         g.setColour (COL_MUTED.withAlpha (0.84f));

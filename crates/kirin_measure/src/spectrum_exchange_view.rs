@@ -13,6 +13,16 @@ impl SpectrumCoordinator {
         }
     }
 
+    pub fn try_analysis_owner_names(&self) -> Option<[String; crate::ANALYSIS_SLOT_COUNT]> {
+        match self.view.try_lock() {
+            Ok(view) => Some(view.analysis_owner_names.clone()),
+            Err(TryLockError::WouldBlock) => None,
+            Err(TryLockError::Poisoned(poisoned)) => {
+                Some(poisoned.into_inner().analysis_owner_names.clone())
+            }
+        }
+    }
+
     pub(super) fn store_view(
         &self,
         status: SpectrumViewStatus,
@@ -87,6 +97,7 @@ impl SpectrumCoordinator {
             perceptual_difference,
             perceptual_timeline: PerceptualDifferenceTimeline::default(),
             absolute_timeline: Default::default(),
+            analysis_owner_names: Default::default(),
         };
     }
 
@@ -125,6 +136,7 @@ impl SpectrumCoordinator {
             perceptual_difference,
             perceptual_timeline: timeline,
             absolute_timeline: Default::default(),
+            analysis_owner_names: Default::default(),
         };
     }
 
@@ -147,6 +159,29 @@ impl SpectrumCoordinator {
             perceptual_difference: None,
             perceptual_timeline: Default::default(),
             absolute_timeline: timeline,
+            analysis_owner_names: Default::default(),
+        };
+    }
+
+    pub(super) fn store_analysis_in_use(
+        &self,
+        analysis_owner_names: [String; crate::ANALYSIS_SLOT_COUNT],
+    ) {
+        let mut view = match self.view.lock() {
+            Ok(view) => view,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        *view = SpectrumViewSnapshot {
+            status: SpectrumViewStatus::InUse,
+            analysis_mode: self.runtime.analysis_mode(),
+            channel_mode: self.runtime.channel_mode(),
+            channels: self.runtime.num_channels() as u8,
+            difference: None,
+            spectrum_timeline: Default::default(),
+            perceptual_difference: None,
+            perceptual_timeline: Default::default(),
+            absolute_timeline: Default::default(),
+            analysis_owner_names,
         };
     }
 }

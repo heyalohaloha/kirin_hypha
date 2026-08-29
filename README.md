@@ -16,8 +16,8 @@ The POST **ANALYSIS** page can switch between **FREQ**, **SHARP**, and **LIVE**.
 traffic-light judgment, or audio-path changes. LIVE overlays absolute POST LUFS-M, recent True Peak,
 and Sharpness on one six-second time axis. The three modes are mutually exclusive within an instance,
 so only the visible analyzer runs. Two POST Analysis pages may be active in one DAW process. A third
-shows `2 ANALYSIS SLOTS — BOTH ACTIVE` and `CLOSE ONE TO OPEN THIS VIEW`, then automatically acquires
-a slot after either active page closes.
+shows the factual owners as `Both slots in use — Mix, Vocal` (or `Both slots in use` if either name
+cannot be verified), then automatically acquires a slot after either active page closes.
 
 ![Kirin Hypha PRE and POST showing Short-term Watch values and independent MAX values](docs/media/kirin-hypha-pre-post.jpg)
 
@@ -207,8 +207,9 @@ arithmetic-mean definition. Closing LIVE stops this optional analyzer and discar
 Across FREQ, SHARP, and LIVE, at most two POST Analysis pages can be active in one DAW process. This
 supports a persistent 2Mix observation plus one working track without silently starting 12 expensive
 analyzers. A third page remains idle, explains that both slots are active, and starts automatically
-when a slot becomes free. Loaded PRE/POST pairs, Watch, Record, and audio pass-through are not limited
-by these two optional display slots.
+when a slot becomes free. Its single-line status names the two pairs that actually hold the kernel
+slots, so those pages need not be visible on screen. Loaded PRE/POST pairs, Watch, Record, and audio
+pass-through are not limited by these two optional display slots.
 
 ### Record mode (Kirin OS required)
 

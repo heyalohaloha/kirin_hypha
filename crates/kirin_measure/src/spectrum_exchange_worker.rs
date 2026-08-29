@@ -34,6 +34,7 @@ enum Endpoint {
     Post {
         instance_id: String,
         target: Option<SpectrumTarget>,
+        owner_name: String,
     },
 }
 
@@ -85,10 +86,16 @@ impl SpectrumExchangeWorker {
         });
     }
 
-    pub(crate) fn update_post(&self, instance_id: &str, target: Option<SpectrumTarget>) {
+    pub(crate) fn update_post(
+        &self,
+        instance_id: &str,
+        target: Option<SpectrumTarget>,
+        owner_name: &str,
+    ) {
         self.update_endpoint(Endpoint::Post {
             instance_id: instance_id.to_string(),
             target,
+            owner_name: owner_name.to_string(),
         });
     }
 
@@ -232,22 +239,23 @@ impl SpectrumCoordinator {
         self: &Arc<Self>,
         post_instance_id: &str,
         target: Option<SpectrumTarget>,
+        owner_name: &str,
     ) {
         self.exchange_worker
-            .update_post(post_instance_id, target.clone());
+            .update_post(post_instance_id, target.clone(), owner_name);
         if self.exchange_worker.is_started() {
             if !self.post_visible() || target.is_none() {
                 self.exchange_worker.reset_supervisor();
                 return;
             }
             if self.exchange_worker.needs_supervisor_tick() {
-                let _ = self.post_tick(post_instance_id, target);
+                let _ = self.post_tick_for_owner(post_instance_id, target, owner_name);
                 self.exchange_worker.observe_supervisor_progress();
                 self.exchange_worker.notify();
             }
             return;
         }
-        if self.post_tick(post_instance_id, target) {
+        if self.post_tick_for_owner(post_instance_id, target, owner_name) {
             let _ = self.exchange_worker.ensure_started(self);
         }
     }
@@ -324,7 +332,8 @@ fn run_worker(state: Arc<WorkerState>, coordinator: Weak<SpectrumCoordinator>) {
                 Endpoint::Post {
                     instance_id,
                     target,
-                } => coordinator.post_tick(&instance_id, target),
+                    owner_name,
+                } => coordinator.post_tick_for_owner(&instance_id, target, &owner_name),
             }
         };
         wait = if !active {

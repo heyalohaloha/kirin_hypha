@@ -247,18 +247,22 @@ fn exactly_two_post_analysis_runtimes_are_active_per_process_lease() {
     second.set_post_visible(true);
     third.set_post_visible(true);
 
-    assert!(!first.post_tick("post-a", None));
-    assert!(!second.post_tick("post-b", None));
-    assert!(!third.post_tick("post-c", None));
+    assert!(!first.post_tick_for_owner("post-a", None, "Mix"));
+    assert!(!second.post_tick_for_owner("post-b", None, "Vocal"));
+    assert!(!third.post_tick_for_owner("post-c", None, "Music"));
     assert_eq!(first.try_view().unwrap().status, SpectrumViewStatus::NoPair);
     assert_eq!(
         second.try_view().unwrap().status,
         SpectrumViewStatus::NoPair
     );
     assert_eq!(third.try_view().unwrap().status, SpectrumViewStatus::InUse);
+    assert_eq!(
+        third.try_view().unwrap().analysis_owner_names,
+        ["Mix".to_string(), "Vocal".to_string()]
+    );
 
     first.set_post_visible(false);
-    assert!(!third.post_tick("post-c", None));
+    assert!(!third.post_tick_for_owner("post-c", None, "Music"));
     assert_eq!(third.try_view().unwrap().status, SpectrumViewStatus::NoPair);
     third.shutdown();
     second.shutdown();

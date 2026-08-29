@@ -20,6 +20,7 @@ namespace hypha::spectrum_chrome
         const spectrum_painter::SpectrumBins& mark;
         const spectrum_focus::FocusTrailHistory* focusTrail;
         const juce::String& actionNotice;
+        const juce::String& analysisOwnerNames;
         bool haveSnapshot;
         bool snapshotValid;
         bool haveMark;
