@@ -246,8 +246,7 @@
                 && body.contains("recordPhase == KIRIN_RECORD_DISPLAY_LIVE"),
             "POST Record must show absolute Max TP/I and bypass the timed Watch hold after finalize"
         );
-        assert!(HYPHA_DISPLAY_CONTRACT_H
-            .contains("return pairSelected ? MetricMode::delta : MetricMode::absolute;"));
+        assert!(HYPHA_DISPLAY_CONTRACT_H.contains("pairedPreIsExplicitlyBypassed"));
     }
 
     #[test]
@@ -260,7 +259,9 @@
         let window = &body[watch_branch..body.len().min(watch_branch + 3600)];
 
         assert!(
-            window.contains("display::watchMetricMode (pairSelected, haveRawD, rawD.mode)")
+            window.contains(
+                "display::watchMetricMode (pairSelected, effectiveHaveD, effectiveMode)"
+            )
                 && window.contains("configureForKind (Kind::WatchDelta6)")
                 && window.contains("display::deltaIsActive (d.mode)"),
             "JUCE POST Watch must keep the Delta+MAX grid while an explicit pair is selected"
@@ -278,12 +279,10 @@
             "JUCE POST Watch must keep the paired delta grid even when PRE measurements are unavailable"
         );
         assert_eq!(
-            count_occurrences(
-                HYPHA_DISPLAY_CONTRACT_H,
-                "return pairSelected ? MetricMode::delta : MetricMode::absolute;"
-            ),
+            count_occurrences (HYPHA_DISPLAY_CONTRACT_H,
+                               "pairedPreIsExplicitlyBypassed (pairSelected, haveDelta, mode)"),
             2,
-            "Watch and Record layouts must both be owned only by pair context"
+            "Watch and Record must treat explicit PRE bypass identically"
         );
         assert!(
             window.contains("selectedMeasure (watchMaximum)")

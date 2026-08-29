@@ -10,6 +10,7 @@ using hypha::COL_FLORA_BR;
 using hypha::COL_MUTED;
 using hypha::COL_NORMAL;
 using hypha::COL_SPECTRUM_DELTA;
+using hypha::COL_SPECTRUM_POST;
 
 namespace
 {
@@ -91,22 +92,25 @@ namespace
         return latchedPreInstanceId;
     }
 
-    juce::String pairStatusText (int status)
+    juce::String pairStatusText (int status, bool postAbsolute = false)
     {
+        if (postAbsolute) return "ABS";
         if (status == KIRIN_PAIR_STATUS_PAIRED) return juce::CharPointer_UTF8 ("PAIR ●");
         if (status == KIRIN_PAIR_STATUS_WAITING) return juce::CharPointer_UTF8 ("PAIR ◌");
         return juce::CharPointer_UTF8 ("PAIR —");
     }
 
-    juce::Colour pairStatusColour (int status)
+    juce::Colour pairStatusColour (int status, bool postAbsolute = false)
     {
+        if (postAbsolute) return COL_SPECTRUM_POST;
         if (status == KIRIN_PAIR_STATUS_PAIRED) return hypha::COL_LED_BLUE;
         if (status == KIRIN_PAIR_STATUS_WAITING) return COL_FLORA;
         return COL_MUTED;
     }
 
-    juce::String pairStatusHelp (int status)
+    juce::String pairStatusHelp (int status, bool postAbsolute = false)
     {
+        if (postAbsolute) return "Paired PRE is off. Showing POST absolute values.";
         if (status == KIRIN_PAIR_STATUS_PAIRED) return "PRE and POST are paired.";
         if (status == KIRIN_PAIR_STATUS_WAITING) return "Waiting for the selected PRE.";
         return "No PRE pair is selected.";
@@ -138,6 +142,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
     {
         if (isPost)
         {
+            pairedPreExplicitlyBypassed = false;
             processorRef.setPairName (n);
             if (n.isEmpty()) nameField.setFallback ("___");
         }
@@ -177,9 +182,10 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
 
         // B-102/B-492: vector-arrow dropdown beside the pair field — All Keep / All Stop / candidates.
         // The free-text pair field (nameField) is retained; this only adds the egui ComboBox.
-        pairDropdown.setTitle ("Pair and Keep menu");
-        pairDropdown.setDescription ("Choose an exact PRE pair or start and stop all ready pairs");
-        pairDropdown.setTooltip ("Choose a PRE pair, or Keep and Stop all ready pairs.");
+        pairDropdown.setTitle ("Pair, Keep, and display menu");
+        pairDropdown.setDescription (
+            "Choose an exact PRE pair, control Keep, or change hover help");
+        pairDropdown.setTooltip ("Pair, Keep, and display options.");
         pairDropdown.setColour (juce::TextButton::buttonColourId, hypha::kFieldFill);
         pairDropdown.setColour (juce::TextButton::textColourOnId,  COL_FLORA);
         pairDropdown.setColour (juce::TextButton::textColourOffId, COL_FLORA);
@@ -630,6 +636,10 @@ void KirinHyphaEditor::showCandidateMenu()
     const int nReady = processorRef.keepReadyCount();
     juce::PopupMenu menu;
     menu.setLookAndFeel (&pairMenuLookAndFeel());
+    menu.addSectionHeader ("Display");
+    menu.addItem (10, "Show hover help", true,
+                  hypha::HoverHelpPreference::shared().isEnabled());
+    menu.addSeparator();
     if (! keepActive && processorRef.licenseIsOs() && nReady >= 1)
         menu.addItem (1, allKeepMenuLabel (nReady));
     if (keepActive)
@@ -673,6 +683,16 @@ void KirinHyphaEditor::handleCandidateMenu (
     }
     else if (result == 2)
         processorRef.stopAll();
+    else if (result == 10)
+    {
+        auto& preference = hypha::HoverHelpPreference::shared();
+        const bool enabled = ! preference.isEnabled();
+        const bool persisted = preference.setEnabled (enabled);
+        if (! enabled)
+            tooltip.hideTip();
+        if (! persisted)
+            showToast ("Hover help changed for this session only");
+    }
     else if (result >= 100)
     {
         const int idx = result - 100;
@@ -682,6 +702,7 @@ void KirinHyphaEditor::handleCandidateMenu (
             const juce::String name = candidate.hasName ? candidate.name : juce::String();
             if (processorRef.setPairCandidate (candidate.instanceId, name))
             {
+                pairedPreExplicitlyBypassed = false;
                #if ! KIRIN_HYPHA_PRE_DISPLAY
                 spectrumView.clearSnapshot();
                 perceptualView.clearSnapshot();
@@ -886,9 +907,20 @@ void KirinHyphaEditor::updatePost()
     const juce::String pairName = processorRef.pairName();
     const int pairStatus = processorRef.pairStatus();
     const bool pairSelected = pairStatus != KIRIN_PAIR_STATUS_UNPAIRED;
-    pairStatusLabel.setText (pairStatusText (pairStatus), juce::dontSendNotification);
-    pairStatusLabel.setColour (juce::Label::textColourId, pairStatusColour (pairStatus));
-    pairStatusLabel.setTooltip (pairStatusHelp (pairStatus));
+    KirinDelta observedDelta {};
+    const bool haveObservedDelta = pairSelected && processorRef.pollDelta (observedDelta);
+    if (pairStatus != KIRIN_PAIR_STATUS_PAIRED)
+        pairedPreExplicitlyBypassed = false;
+    else if (haveObservedDelta)
+        pairedPreExplicitlyBypassed = display::pairedPreIsExplicitlyBypassed (
+            true, true, observedDelta.mode);
+    const bool postAbsolute = pairStatus == KIRIN_PAIR_STATUS_PAIRED
+                           && pairedPreExplicitlyBypassed;
+    pairStatusLabel.setText (pairStatusText (pairStatus, postAbsolute),
+                             juce::dontSendNotification);
+    pairStatusLabel.setColour (juce::Label::textColourId,
+                               pairStatusColour (pairStatus, postAbsolute));
+    pairStatusLabel.setTooltip (pairStatusHelp (pairStatus, postAbsolute));
 
     nameField.setModelName (pairName);
     nameField.setEditingEnabled (! pairLocked); // W-280 + B-115 playback pair lock (playing AND live)
@@ -1052,7 +1084,8 @@ void KirinHyphaEditor::updatePost()
             rec, pairSelected, haveD,
             haveRecordDisplay && cachedRecordDisplay.pair_matches_current != 0);
 
-        if (display::recordMetricMode (recordPairSelected, haveD, d.mode)
+        if ((postAbsolute ? display::MetricMode::absolute
+                          : display::recordMetricMode (recordPairSelected, haveD, d.mode))
             == display::MetricMode::absolute)
         {
             if (currentKind != Kind::Abs6) configureForKind (Kind::Abs6);
@@ -1122,9 +1155,9 @@ void KirinHyphaEditor::updatePost()
     }
     else // Active + Watch
     {
-        KirinDelta rawD {};
+        KirinDelta rawD = observedDelta;
         KirinDelta d {};
-        const bool haveRawD = processorRef.pollDelta (rawD);
+        const bool haveRawD = haveObservedDelta;
         const bool preUnavailable = haveRawD && display::preUnavailableForDelta (rawD.mode);
         bool haveD = false;
         bool mutedD = false;
@@ -1150,7 +1183,10 @@ void KirinHyphaEditor::updatePost()
             mutedD = true;
         }
 
-        if (display::watchMetricMode (pairSelected, haveRawD, rawD.mode)
+        const bool effectiveHaveD = haveRawD || postAbsolute;
+        const uint8_t effectiveMode = haveRawD ? rawD.mode
+                                               : (uint8_t) KIRIN_DELTA_MODE_BYPASSED;
+        if (display::watchMetricMode (pairSelected, effectiveHaveD, effectiveMode)
             == display::MetricMode::delta)
         {
             if (currentKind != Kind::WatchDelta6) configureForKind (Kind::WatchDelta6);
@@ -1164,7 +1200,7 @@ void KirinHyphaEditor::updatePost()
             fillDelta (4, haveD ? d.crest     : kNaN, false, base, warn, ! liveDelta);
             fillAbs (5, haveWatchMaximum ? watchMaximum.crest : kNaN, false, ! liveDelta);
         }
-        else // no selected pair -> POST absolute
+        else // no selected pair, or paired PRE explicitly bypassed -> POST absolute
         {
             if (currentKind != Kind::WatchAbs6) configureForKind (Kind::WatchAbs6);
             auto V = [&] (double x) { return haveM ? x : kNaN; };

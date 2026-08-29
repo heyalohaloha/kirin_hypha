@@ -255,6 +255,12 @@ int main()
     static_assert (! display::preUnavailableForDelta (KIRIN_DELTA_MODE_NO_PRE));
     static_assert (display::preUnavailableForDelta (KIRIN_DELTA_MODE_BYPASSED));
     static_assert (display::preUnavailableForDelta (KIRIN_DELTA_MODE_PRE_INACTIVE));
+    static_assert (display::pairedPreIsExplicitlyBypassed (
+        true, true, KIRIN_DELTA_MODE_BYPASSED));
+    static_assert (! display::pairedPreIsExplicitlyBypassed (
+        true, true, KIRIN_DELTA_MODE_PRE_INACTIVE));
+    static_assert (! display::pairedPreIsExplicitlyBypassed (
+        true, true, KIRIN_DELTA_MODE_STALE));
     static_assert (display::recordPairContext (true, true, false, false));
     static_assert (display::recordPairContext (false, true, true, true));
     static_assert (! display::recordPairContext (false, true, true, false));
@@ -265,6 +271,8 @@ int main()
                    == display::MetricMode::delta);
     static_assert (display::recordMetricMode (true, true, KIRIN_DELTA_MODE_PRE_INACTIVE)
                    == display::MetricMode::delta);
+    static_assert (display::recordMetricMode (true, true, KIRIN_DELTA_MODE_BYPASSED)
+                   == display::MetricMode::absolute);
     static_assert (display::recordMetricMode (false, false, KIRIN_DELTA_MODE_PRE_INACTIVE)
                    == display::MetricMode::absolute);
     static_assert (display::watchMetricMode (true, false, KIRIN_DELTA_MODE_NO_PRE)
@@ -276,7 +284,7 @@ int main()
     static_assert (display::watchMetricMode (true, false, KIRIN_DELTA_MODE_PRE_INACTIVE)
                    == display::MetricMode::delta);
     static_assert (display::watchMetricMode (true, true, KIRIN_DELTA_MODE_BYPASSED)
-                   == display::MetricMode::delta);
+                   == display::MetricMode::absolute);
     static_assert (display::watchMetricMode (false, true, KIRIN_DELTA_MODE_ACTIVE)
                    == display::MetricMode::absolute);
 

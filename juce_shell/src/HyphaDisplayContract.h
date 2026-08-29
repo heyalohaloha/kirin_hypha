@@ -31,6 +31,16 @@ namespace hypha::display_contract
             || mode == KIRIN_DELTA_MODE_PRE_INACTIVE;
     }
 
+    // Only an explicit PRE bypass changes the observation back to POST absolute values. A stopped,
+    // silent, stale, or briefly unavailable PRE keeps the paired Delta layout and never fabricates
+    // an OFF state from absence. The exact binding remains owned by Rust in every case.
+    constexpr bool pairedPreIsExplicitlyBypassed (bool pairSelected,
+                                                  bool haveDelta,
+                                                  std::uint8_t mode) noexcept
+    {
+        return pairSelected && haveDelta && mode == KIRIN_DELTA_MODE_BYPASSED;
+    }
+
     // During a live Keep the current pairing is frozen by the engine. Once stopped, only the
     // exact PRE captured by that Keep may own its held delta; changing pairs falls back to the
     // POST's absolute held result without discarding I.
@@ -43,21 +53,23 @@ namespace hypha::display_contract
                          : haveHeldDelta && heldPairMatchesCurrent;
     }
 
-    // Pair identity owns the six-cell layout; signal availability only owns the values/muting.
-    // This prevents PRE silence/bypass/stale reads from presenting as a detached pair.
+    // Pair identity normally owns the six-cell layout. Explicit PRE bypass is the sole user action
+    // that requests POST absolute observation while retaining that exact pair for instant return.
     constexpr MetricMode recordMetricMode (bool pairSelected,
-                                            bool,
-                                            std::uint8_t) noexcept
+                                            bool haveDelta,
+                                            std::uint8_t mode) noexcept
     {
-        return pairSelected ? MetricMode::delta : MetricMode::absolute;
+        return pairSelected && ! pairedPreIsExplicitlyBypassed (pairSelected, haveDelta, mode)
+                 ? MetricMode::delta : MetricMode::absolute;
     }
 
     // Watch follows the same separation: once selected, the pair keeps its delta+MAX grid until
     // the user actually unpairs it. Unavailable PRE measurements render muted/empty in that grid.
     constexpr MetricMode watchMetricMode (bool pairSelected,
-                                           bool,
-                                           std::uint8_t) noexcept
+                                           bool haveDelta,
+                                           std::uint8_t mode) noexcept
     {
-        return pairSelected ? MetricMode::delta : MetricMode::absolute;
+        return pairSelected && ! pairedPreIsExplicitlyBypassed (pairSelected, haveDelta, mode)
+                 ? MetricMode::delta : MetricMode::absolute;
     }
 }

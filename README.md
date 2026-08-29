@@ -61,7 +61,10 @@ Kirin Hypha is free and fully functional as a standalone plugin. Record mode req
 | True Peak | Recent peak, last 400 ms (dBTP) | ITU-R BS.1770-4 |
 | Crest Factor | Peak − RMS, 400 ms (dB) | — |
 
-PRE displays absolute values. POST displays Δ values relative to the paired PRE. The M/S choice
+PRE displays absolute values. POST displays Δ values relative to the paired PRE. If that exact PRE
+is explicitly bypassed, POST returns to its own absolute values without releasing the pair; the
+upper-right state changes from blue **PAIR** to lavender **ABS** until PRE is enabled again. A stop,
+silence, stale read, or temporary absence never claims that PRE was bypassed. The M/S choice
 also selects the independent MAX value for the current Watch playback pass.
 In the Watch grid, the live 400 ms True Peak and its playback-pass MAX are shown side by side.
 Pressing **Keep** changes the grid labels; **Max TP** then means the maximum for the whole Keep
@@ -94,7 +97,10 @@ Hovering the plot shows frequency and Δ; the 125%, 150%, and 200% views also sh
 Below the cycle-derived low-frequency confidence boundary (about 35 Hz), the frequency alone carries
 an unobtrusive `~` prefix. The measured band and Δ remain visible and are not dimmed, hidden, or
 replaced by a warning. Hover help explains that `~` means an approximate low-frequency position.
-All Analysis hover help wraps and repositions inside the plug-in at every size. A click in the plot
+All Analysis hover help wraps and repositions inside the plug-in at every size. **Show hover help**
+in the POST arrow menu disables or restores explanatory popups for every PRE and POST; the user
+preference survives plug-in and DAW restarts. FREQ inspection, click lock, Focus Trail, and MARK stay
+available while help is hidden. A click in the plot
 locks that readout to the same frequency until its × is pressed. While locked,
 **Focus Trail** shows the last six seconds of Δ at that frequency: compact at 100%, with its own lane
 at 125%, 150%, and 200%. Its newest point is the same exact PRE/POST presentation frame as the live Δ, not a

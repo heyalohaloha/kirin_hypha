@@ -65,8 +65,8 @@ Hypha は利用者に制限や複雑な操作を課さず、普通に計測し�
 | PRE 状態 | 表示(Δ) | Keep / Arm | Delta 算出 | Record | All Keep |
 |----------|---------|------------|------------|--------|----------|
 | Active + fresh + 一意 + 名前一致 | Active（Δ表示） | 可 | 算出 | 可（Os） | 対象 |
-| Inactive + fresh（POSTはActive） | `PreInactive` = POST絶対値。exact pairは保持 | **可**（Arm 許可） | 非算出（PRE再開で同pairのΔへ復帰） | ラッチ凍結維持 | 対象（ラッチ先） |
-| Bypassed | POST絶対値。既存exact pairは保持 | 不可（新規候補から除外） | なし | 不可 | 除外 |
+| Inactive + fresh（POSTはActive） | `PreInactive` = muted Δ枠。exact pairは保持 | **可**（Arm 許可） | 非算出（PRE再開で同pairのΔへ復帰） | ラッチ凍結維持 | 対象（ラッチ先） |
+| Bypassed | POST絶対値 + `ABS`。既存exact pairは保持 | 不可（新規候補から除外） | なし | 不可 | 除外 |
 | Stale（t > TTL 10s） | ラッチ維持 + muted Δ/--- | 不可 | なし | 実消滅はlease終了でexit | 除外 |
 | 同名複数（曖昧・未ラッチ） | NoPre（沈黙） | 不可（None） | なし | 不可 | — |
 | 同名複数（ラッチ済み） | ラッチ先を維持 | ラッチ先 instance 不変 | ラッチ先で算出 | 凍結 | ラッチ先 |
@@ -100,7 +100,7 @@ Hypha は利用者に制限や複雑な操作を課さず、普通に計測し�
 | ID | 不変条件 | 紐づくテスト |
 |----|----------|--------------|
 | INV-D1 | ラッチ維持中は選定済み pre.json を直読し Δ 算出（再スキャンで別 PRE を拾わない） | `read_pre_at_fresh_active` / `resolve_arm_target_uses_latch_over_ambiguous` |
-| INV-D2 | POSTがActiveのままpaired PREだけInactiveになった場合、pairを外さず`PreInactive`へ遷移し、POST絶対値を表示する | `latch_inactive_switches_to_post_absolute_without_releasing_pair` / `paired_pre_inactive_uses_post_absolute_without_releasing_binding` |
+| INV-D2 | POSTがActiveのままpaired PREだけInactiveになった場合、pairを外さず`PreInactive`へ遷移する。停止・無音・stale・一時不在を明示OFFと推測せず、muted Δ枠を維持する | `latch_inactive_switches_to_post_absolute_without_releasing_pair` / `paired_pre_off_is_absolute_while_inactive_and_stale_preserve_delta_layout` |
 | INV-D3 | 停止→再生（inactive→active）でラッチ維持のまま live Δ(Active) | `latch_inactive_then_active_yields_live_delta`（B-194） |
 | INV-D4 | pair 名変更/クリアで即アンラッチ→NoPre | `latch_name_change_unlatches` |
 | INV-D5 | pre.json 実消滅でアンラッチ、同名 fresh 再出現で自動再ラッチ | `latch_delete_then_relatch` |
@@ -108,6 +108,7 @@ Hypha は利用者に制限や複雑な操作を課さず、普通に計測し�
 | INV-D7 | pair 未指定で instance 1件は pass-through、2件以上は曖昧で NoPre | `single_instance_pass_through_when_no_pair` / `no_pre_dir_returns_no_pre_mode` |
 | INV-D8 | 非 Active state では Delta=default(NoPre) + 最小 post.json | 要追加（`run_tick` の `state != Active` 分岐に直接の単体テストなし） |
 | INV-D9 | POST Perceptual Δは同一schema/sample rate/100ms aperture/state epoch/channel定義/channel数/output-presentation endpointのPRE/POST Sharpnessだけを差分化する。Phase Dとresamplerは共通epochで一度だけresetし、以後は連続状態を保つ。欠測を補間せず、raw Δをclipしない | `exact_endpoint_epoch_and_aperture_are_required_for_difference` / `perceptual_pair_arms_one_future_epoch_and_joins_only_continuous_state` / `perceptual_discontinuity_clears_history_and_requires_a_new_shared_epoch` / `continuous_post_minus_pre_matches_mosqito_at_every_100ms_endpoint` |
+| INV-D10 | paired PREの確定`Bypassed`だけがpairを保持したままPOST絶対値へ戻し、右上を淡い紫のASCII `ABS`にする。`PreInactive` / Stale / NoPre / poll失敗ではOFFを推測しない | `paired_pre_off_is_absolute_while_inactive_and_stale_preserve_delta_layout` / `juce_shell/tests/ui_contract_test.cpp` / `juce_shell/tests/ui_render_contract_test.cpp` |
 
 ---
 
@@ -175,6 +176,7 @@ Hypha は利用者に制限や複雑な操作を課さず、普通に計測し�
 | INV-S10 | LIVEはPOST単独のLUFS-M／直近400ms True Peak／Sharpnessを同一100ms presentation endpointで保持する。Rust最大64点、表示6秒、source 10 Hz、curve 5 Hz、数値2 Hz。3指標は独立固定scaleで、差分・採点・警告色・時間平滑・PRE requestを持たない。疎な素材でLUFS-M／TPが測定floor未満のexact apertureは正本と数値欄で未定義のまま保持し、curveだけを固定scale下端に描く。数値欄の未定義tokenはWindows code pageに依存しないASCII `--`。短いforward欠測では前後のexact点とsample時刻を保持し、値・frameを補間せずstrokeだけを接続する。1点はdot表示、2点以上は各隣接点を実線分として結び、3系列すべてのplot内実画素をrender testで固定する。一時warmingは直前のverified fieldを消さない。後方transport、非互換format、6秒以上の断絶だけが新run | `absolute_mode_publishes_three_post_facts_on_one_exact_timeline` / `timeline_retains_exact_points_across_a_short_forward_gap` / `timeline_starts_a_new_run_on_backwards_transport_or_six_second_gap` / `sparse_source_keeps_exact_time_when_loudness_and_peak_are_below_floor` / `absolute_mode_retains_short_forward_gap_but_clears_backwards_and_mode_change` / `post_absolute_timeline_needs_no_pair_and_never_creates_a_pre_request` / `verifyAbsoluteTimelineContract` |
 | INV-S11 | FREQ Focus Trailの継続性は二層。POSTは算出済みexact差分だけを固定8frame ringへ保持して短いUI stallをbatch回収する。ringを越えた欠測でもUIは六秒内の有効点とsample endpoint位置を維持する。work-surfaceのstrokeは周囲のexact点だけを結んでWindowsの描画欠けに見せず、欠測時刻はgap metadataのままで値を追加しない。PRE/POST双方の最新実測endpointが直前の表示endpointより下へ移ったtransport境界では、両workerが1 cadenceずれていても最新のexact交点から新runを始める。無音・一時warming・短いIO欠測・後方loopでは利用者が置いたMARKとFocus Trailの帯域lockを保持し、履歴だけを次のexact runから再開する。MARK／帯域lockを自動解除できるのはpair、sample rate、FFT layout、channel mode、pageの変更など観察定義が成立しなくなる場合だけで、通常の消去は利用者の明示操作に従う。片側だけの逆行、定義変更、六秒以上の断絶は従来どおりfail-closed。追加FFT、動的成長、filesystem poll、Audio Thread処理は禁止 | `fixed_eight_frame_window_recovers_short_ui_stalls_without_reanalysis` / `confirmed_backwards_transport_boundary_restarts_the_freq_timeline` / `staggered_backwards_transport_workers_restart_freq_at_their_exact_intersection` / `one_sided_lower_freq_result_cannot_move_the_presentation_backwards` / `verifySpectrumFocusTrailContract` / `verifySpectrumInteractionContract` |
 | INV-S12 | FREQはhost rateをresampleせず、48k基準4096sampleの時間長でapertureを丸め、2倍以上の最小power-of-two FFTを使う。48kの4096/8192と結果は不変。schema/sample rate/aperture/FFTの全一致なしにPRE/POSTをjoinしない。3周期未満（約35Hz以下）は値を隠さず、周波数readoutだけASCII `~`で近似を示し、hoverで意味を説明する。curve／hover／MARK／Focus Trailは同じ`(index+0.5)/256` band centre定義を使う。全tooltipは各editor sizeの内側で折り返し・再配置し、DAWへはみ出さない。Audio Threadは既存のlock-free copy以外を増やさない | `host_rate_layout_keeps_one_observation_time_without_resampling` / `host_rate_delta_remains_exact_for_identity_and_scalar_gain` / `host_rate_layout_metadata_is_exact_and_mismatch_fails_closed` / `high_rate_runtime_publishes_the_time_normalized_layout_without_drops` / `host_rate_fft_layout_keeps_four_x_pair_headroom` / `verifySpectrumPresentationContract` / `verifySpectrumInteractionContract` / `juce_shell/tests/ui_render_contract_test.cpp` |
+| INV-S13 | `Show hover help`は初期ONの利用者共通表示設定。POST menuの明示操作だけが変更し、同じDAWで開いているPRE/POSTへ反映し次回起動にも保持する。OFFはTooltipWindowだけを閉じ、FREQ hover readout、click lock、Focus Trail、MARK、計測、Audio Threadを変えない。保存失敗時は操作したinstanceだけ即時反映し一時設定であることを通知する | `juce_shell/tests/ui_render_contract_test.cpp` / `hover_help_is_one_user_preference_without_touching_measurement_state` |
 
 ---
 

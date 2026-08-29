@@ -164,7 +164,7 @@ fn juce_commits_take_start_only_after_whole_block_admission() {
 }
 
 #[test]
-fn paired_pre_inactive_preserves_delta_layout_without_releasing_binding() {
+fn paired_pre_off_is_absolute_while_inactive_and_stale_preserve_delta_layout() {
     let ffi_header = read_repo("crates/kirin_hypha_ffi/include/kirin_hypha_ffi.h");
     for required in [
         "KIRIN_DELTA_MODE_ACTIVE 0u",
@@ -184,17 +184,22 @@ fn paired_pre_inactive_preserves_delta_layout_without_releasing_binding() {
     assert!(display_contract.contains("mode == KIRIN_DELTA_MODE_BYPASSED"));
     assert!(display_contract.contains("mode == KIRIN_DELTA_MODE_PRE_INACTIVE"));
     assert!(display_contract.contains("mode == KIRIN_DELTA_MODE_ACTIVE"));
+    assert!(display_contract.contains("pairedPreIsExplicitlyBypassed"));
     assert!(editor.contains("display::preUnavailableForDelta (rawD.mode)"));
     assert!(editor.contains("display::recordPairContext ("));
     assert!(editor.contains("cachedRecordDisplay.pair_matches_current != 0"));
     assert!(editor.contains("display::recordMetricMode (recordPairSelected, haveD, d.mode)"));
-    assert!(editor.contains("display::watchMetricMode (pairSelected, haveRawD, rawD.mode)"));
+    assert!(
+        editor.contains("display::watchMetricMode (pairSelected, effectiveHaveD, effectiveMode)")
+    );
     assert!(!editor.contains("rawD.mode == 0"));
     assert!(editor.contains("Kind::Abs6"));
     assert!(editor.contains("const bool unavailable = ! haveHeldD;"));
-    assert!(editor.contains("else // no selected pair -> POST absolute"));
-    assert!(display_contract
-        .contains("return pairSelected ? MetricMode::delta : MetricMode::absolute;"));
+    assert!(editor
+        .contains("else // no selected pair, or paired PRE explicitly bypassed -> POST absolute"));
+    assert!(display_contract.contains("mode == KIRIN_DELTA_MODE_BYPASSED"));
+    assert!(editor.contains("Paired PRE is off. Showing POST absolute values."));
+    assert!(editor.contains("COL_SPECTRUM_POST"));
 
     let producer = read_repo("crates/kirin_measure/src/io_thread_post.rs");
     assert!(producer.contains("mode: DeltaMode::PreInactive"));
@@ -235,6 +240,25 @@ fn loudness_view_and_integrated_result_are_additive_display_only_state() {
         !plugin_data.contains("\"lufs_s\""),
         "plugin_data/.kirin schema must remain unchanged"
     );
+}
+
+#[test]
+fn hover_help_is_one_user_preference_without_touching_measurement_state() {
+    let header = read_repo("juce_shell/src/HyphaHoverHelpPreference.h");
+    let implementation = read_repo("juce_shell/src/HyphaHoverHelpPreference.cpp");
+    let editor = read_repo("juce_shell/src/PluginEditor.cpp");
+    let processor = read_repo("juce_shell/src/PluginProcessor.cpp");
+
+    assert!(header.contains("class HoverHelpTooltipWindow"));
+    assert!(header.contains("TooltipWindow::getTipFor (component)"));
+    assert!(implementation.contains("show_hover_help=1"));
+    assert!(implementation.contains("show_hover_help=0"));
+    assert!(implementation.contains("kRefreshIntervalMs = 1000u"));
+    assert!(editor.contains("menu.addItem (10, \"Show hover help\""));
+    assert!(editor.contains("tooltip.hideTip()"));
+    assert!(editor.contains("Hover help changed for this session only"));
+    assert!(!processor.contains("show_hover_help"));
+    assert!(!processor.contains("HoverHelpPreference"));
 }
 
 #[test]

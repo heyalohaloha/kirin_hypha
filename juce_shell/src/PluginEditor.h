@@ -8,6 +8,7 @@
 #include "PluginProcessor.h"
 #include "DisplaySmoother.h"
 #include "HyphaAnalysisNavigation.h"
+#include "HyphaHoverHelpPreference.h"
 #include "HyphaTheme.h"
 #include "HyphaTooltipLookAndFeel.h"
 #include "HyphaWidgets.h"
@@ -27,7 +28,7 @@
 //      Record(6) metric grid (per-cell hover help) + Keeping banner + 5-state static LED.
 // POST: title "POST" + Record pair label + click-to-edit pair name (→ set_pair_target) + flora +
 //      display-branch grid (Bypassed/Inactive→"---" ; pair-empty/PRE bypassed→absolute ;
-//      paired Stale/NoPre→muted Δ/--- ; PRE Bypassed/Inactive→POST absolute ; Δ Active ; Record→6) +
+//      paired Stale/NoPre/Inactive→muted Δ/--- ; PRE Bypassed→POST absolute ; Δ Active ; Record→6) +
 //      Keep/Stop/Sense hint + one prioritized feedback row + playback pair
 //      lock + LED + exact candidate dropdown + All Keep/All Stop. (Proposals cards remain egui-only.)
 class KirinHyphaEditor : public juce::AudioProcessorEditor,
@@ -114,7 +115,7 @@ private:
     hypha::AbsoluteComponent absoluteView;                    // POST-only absolute observation timeline
 #endif
     hypha::TooltipLookAndFeel tooltipLookAndFeel;
-    juce::TooltipWindow       tooltip { this, 550 };       // bounded in-panel hover help
+    hypha::HoverHelpTooltipWindow tooltip { this, 550 };    // user-level, bounded hover help
 
     Kind   currentKind = Kind::WatchAbs6;
     bool   currentSix  = false;
@@ -135,6 +136,7 @@ private:
     hypha::DisplaySmoother displaySmoother;
     KirinMeasureResult watchMaximum {};
     bool haveWatchMaximum = false;
+    bool pairedPreExplicitlyBypassed = false; // updated only from a successful exact delta poll
     KirinRecordDisplay cachedRecordDisplay {};
     bool haveRecordDisplay = false;
 

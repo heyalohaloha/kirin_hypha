@@ -1,6 +1,7 @@
 #include "../src/HyphaWidgets.h"
 #include "../src/HyphaAnalysisNavigation.h"
 #include "../src/HyphaAnalysisUiText.h"
+#include "../src/HyphaHoverHelpPreference.h"
 #include "../src/HyphaSpectrumComponent.h"
 #include "../src/HyphaTooltipLookAndFeel.h"
 #include "PerceptualHistoryContractTest.h"
@@ -197,6 +198,31 @@ int main()
     hypha::tests::verifyAbsoluteTimelineContract();
     hypha::tests::verifyPerceptualRenderingContract();
 
+    const auto preferenceDirectory = juce::File::getSpecialLocation (juce::File::tempDirectory)
+        .getNonexistentChildFile ("kirin-hypha-hover-help-contract", {}, false);
+    KIRIN_REQUIRE (preferenceDirectory.createDirectory().wasOk());
+    const auto preferenceFile = preferenceDirectory.getChildFile ("ui-preferences.txt");
+    {
+        hypha::HoverHelpPreference first (preferenceFile);
+        KIRIN_REQUIRE (first.isEnabled()); // missing file keeps the discoverable default
+        KIRIN_REQUIRE (first.setEnabled (false));
+        KIRIN_REQUIRE (! first.isEnabled());
+
+        hypha::HoverHelpPreference second (preferenceFile);
+        KIRIN_REQUIRE (! second.isEnabled()); // PRE/POST module recreation sees the same setting
+        KIRIN_REQUIRE (second.setEnabled (true));
+        first.refreshNowForTest();
+        KIRIN_REQUIRE (first.isEnabled());
+
+        const auto blockedParent = preferenceDirectory.getChildFile ("not-a-directory");
+        KIRIN_REQUIRE (blockedParent.replaceWithText ("blocker"));
+        hypha::HoverHelpPreference fallback (blockedParent.getChildFile ("ui-preferences.txt"));
+        KIRIN_REQUIRE (! fallback.setEnabled (false));
+        fallback.refreshNowForTest();
+        KIRIN_REQUIRE (! fallback.isEnabled()); // failed persistence keeps the session choice
+    }
+    KIRIN_REQUIRE (preferenceDirectory.deleteRecursively());
+
     const auto label = hypha::labelFont (ui::titleFontHeight);
     const auto mono = hypha::monoFont (ui::pairStatusFontHeight);
    #if JUCE_WINDOWS
@@ -238,6 +264,7 @@ int main()
     KIRIN_REQUIRE (fits (mono, juce::CharPointer_UTF8 ("PAIR ●"), ui::pairStatusWidth));
     KIRIN_REQUIRE (fits (mono, juce::CharPointer_UTF8 ("PAIR ◌"), ui::pairStatusWidth));
     KIRIN_REQUIRE (fits (mono, juce::CharPointer_UTF8 ("PAIR —"), ui::pairStatusWidth));
+    KIRIN_REQUIRE (fits (mono, "ABS", ui::pairStatusWidth));
     KIRIN_REQUIRE (fits (hypha::monoFont (ui::nameFontHeight), "WWWWWWWWWWWWWWWW",
                          preLayout.name.width));
     KIRIN_REQUIRE (fits (hypha::monoFont (ui::nameFontHeight),
