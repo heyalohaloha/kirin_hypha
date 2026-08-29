@@ -236,14 +236,21 @@ void verifySpectrumFocusTrailContract()
     KIRIN_FOCUS_REQUIRE (std::abs (history.valueAt (1u, 0.5f)) < 0.1f);
 
     KIRIN_FOCUS_REQUIRE (history.append (3'200, 48'000u, rising)
-                         == AppendResult::discontinuityReset);
-    KIRIN_FOCUS_REQUIRE (history.size() == 1u && history.endpointAt (0u) == 3'200);
+                         == AppendResult::gapAppended);
+    KIRIN_FOCUS_REQUIRE (history.size() == 3u);
+    KIRIN_FOCUS_REQUIRE (history.endpointAt (0u) == -1'600);
+    KIRIN_FOCUS_REQUIRE (history.endpointAt (2u) == 3'200);
+    KIRIN_FOCUS_REQUIRE (history.hasGapBetween (1u, 2u));
+    KIRIN_FOCUS_REQUIRE (! history.hasGapBetween (0u, 1u));
     KIRIN_FOCUS_REQUIRE (history.append (1'600, 48'000u, rising)
                          == AppendResult::discontinuityReset);
     KIRIN_FOCUS_REQUIRE (history.size() == 1u && history.endpointAt (0u) == 1'600);
     KIRIN_FOCUS_REQUIRE (history.append (2'940, 44'100u, rising)
                          == AppendResult::discontinuityReset);
     KIRIN_FOCUS_REQUIRE (history.currentSampleRate() == 44'100u);
+    KIRIN_FOCUS_REQUIRE (history.append (2'941, 44'100u, rising)
+                         == AppendResult::rejected);
+    KIRIN_FOCUS_REQUIRE (history.size() == 1u && history.endpointAt (0u) == 2'940);
 
     auto invalid = rising;
     invalid[7] = std::numeric_limits<float>::quiet_NaN();
@@ -262,6 +269,38 @@ void verifySpectrumFocusTrailContract()
     KIRIN_FOCUS_REQUIRE (history.endpointAt (history.size() - 1u)
                          == static_cast<int64_t> (
                              spectrum_focus::focusTrailCapacity + 1u) * cadence);
+    KIRIN_FOCUS_REQUIRE (history.append (
+        static_cast<int64_t> (spectrum_focus::focusTrailCapacity + 4u) * cadence,
+        48'000u, rising) == AppendResult::gapAppended);
+    KIRIN_FOCUS_REQUIRE (history.size() == spectrum_focus::focusTrailCapacity - 2u);
+    KIRIN_FOCUS_REQUIRE (history.endpointAt (0u) == 5 * cadence);
+    KIRIN_FOCUS_REQUIRE (history.hasGapBetween (
+        history.size() - 2u, history.size() - 1u));
+    const int64_t newest = history.endpointAt (history.size() - 1u);
+    KIRIN_FOCUS_REQUIRE (history.append (
+        newest + static_cast<int64_t> (spectrum_focus::focusTrailSeconds) * 48'000,
+        48'000u, rising) == AppendResult::discontinuityReset);
+    KIRIN_FOCUS_REQUIRE (history.size() == 1u);
+
+    history.clear();
+    KIRIN_FOCUS_REQUIRE (history.append (0, 48'000u, rising)
+                         == AppendResult::appended);
+    KIRIN_FOCUS_REQUIRE (history.append (5 * 48'000, 48'000u, rising)
+                         == AppendResult::gapAppended);
+    KIRIN_FOCUS_REQUIRE (history.size() == 2u);
+    KIRIN_FOCUS_REQUIRE (std::abs (history.ageSecondsAt (0u) - 5.0) < 1.0e-9);
+
+    const int64_t minimumAligned = std::numeric_limits<int64_t>::min()
+                                 / cadence * cadence;
+    const int64_t maximumAligned = std::numeric_limits<int64_t>::max()
+                                 / cadence * cadence;
+    history.clear();
+    KIRIN_FOCUS_REQUIRE (history.append (minimumAligned, 48'000u, rising)
+                         == AppendResult::appended);
+    KIRIN_FOCUS_REQUIRE (history.append (maximumAligned, 48'000u, rising)
+                         == AppendResult::discontinuityReset);
+    KIRIN_FOCUS_REQUIRE (history.size() == 1u
+                         && history.endpointAt (0u) == maximumAligned);
 }
 
 void verifySpectrumFocusTrailRendering (const KirinSpectrumView& snapshot)

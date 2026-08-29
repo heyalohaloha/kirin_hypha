@@ -131,9 +131,11 @@ jobs:
       - name: Build kirin_hypha_ffi staticlib (MSVC)
         run: cargo build --release -p kirin_hypha_ffi --locked
 
-      - name: Validate single-owner continuous Analysis contract
+      - name: Validate two-slot continuous Analysis contract
         run: |
-          cargo test -p kirin_measure --locked exactly_one_post_analysis_runtime_is_active_per_process_lease
+          cargo test -p kirin_measure --locked exactly_two_post_analysis_runtimes_are_active_per_process_lease
+          cargo test -p kirin_measure --locked absolute_mode_
+          cargo test -p kirin_measure --locked post_absolute_timeline_needs_no_pair
           cargo test -p kirin_measure --locked perceptual_pair_arms_one_future_epoch_and_joins_only_continuous_state
           cargo test -p kirin_measure --locked --test perceptual_delta_mosqito_golden
 

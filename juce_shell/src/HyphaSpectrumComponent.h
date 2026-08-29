@@ -21,6 +21,7 @@ public:
     SpectrumComponent();
 
     void setSnapshot (const KirinSpectrumView& next);
+    void setBatch (const KirinSpectrumBatch& batch);
     void queueSnapshot (const KirinSpectrumView& next);
     void clearSnapshot();
     void presentationTick();

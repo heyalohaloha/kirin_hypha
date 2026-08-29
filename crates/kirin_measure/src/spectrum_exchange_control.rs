@@ -1,6 +1,10 @@
 use super::*;
 
 impl SpectrumCoordinator {
+    pub(crate) fn active_analysis_mode(&self) -> AnalysisViewMode {
+        self.runtime.analysis_mode()
+    }
+
     /// Message/control thread only. Filesystem work remains deferred to the existing IO thread.
     pub fn set_post_visible(&self, visible: bool) {
         let previous = self.post_visible.swap(visible, Ordering::AcqRel);
@@ -24,7 +28,7 @@ impl SpectrumCoordinator {
         self.exchange_worker.notify();
     }
 
-    /// UI/control thread only. Spectrum and Perceptual Delta never analyze in parallel.
+    /// UI/control thread only. Optional analysis modes never run in parallel within one POST.
     pub fn set_post_analysis_mode(&self, mode: AnalysisViewMode) -> bool {
         let mut session = match self.post_session.lock() {
             Ok(session) => session,

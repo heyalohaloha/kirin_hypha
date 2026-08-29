@@ -161,6 +161,16 @@ typedef struct {
   int64_t presentation_end_samples; /* 末尾追加: 既存field offsetを不変に保つ */
 } KirinSpectrumView;
 
+#define KIRIN_SPECTRUM_BATCH_CAPACITY 8
+
+/* UI scheduling stall用の固定長回収窓。既に算出済みのexact差分だけを古い順に保持する。 */
+typedef struct {
+  KirinSpectrumView latest; /* status-only時も有効 */
+  uint32_t count;
+  uint32_t reserved;
+  KirinSpectrumView frames[KIRIN_SPECTRUM_BATCH_CAPACITY];
+} KirinSpectrumBatch;
+
 /* POST専用Perceptual Delta表示. 同一100 ms aperture / presentation endpointで一致した
  * PRE/POST Sharpnessだけを公開する。delta_sharpnessは符号付きPOST-PREでclipしない。 */
 typedef struct {
@@ -186,6 +196,32 @@ typedef struct {
   uint32_t reserved;
   KirinPerceptualView frames[KIRIN_PERCEPTUAL_BATCH_CAPACITY];
 } KirinPerceptualBatch;
+
+/* POST単独の100 ms絶対値観察frame。差分・採点・警告色を含まない。値なしはNaN。 */
+typedef struct {
+  uint8_t status;       /* KIRIN_SPECTRUM_*（解析枠と準備状態のみ） */
+  uint8_t has_data;
+  uint8_t channels;
+  uint8_t reserved;
+  uint32_t sample_rate;
+  uint32_t aperture_samples;
+  double lufs_m;
+  double true_peak;
+  double sharpness;
+  int64_t presentation_end_samples;
+  int64_t state_epoch_samples;
+  uint64_t generation;
+} KirinAbsoluteView;
+
+#define KIRIN_ABSOLUTE_BATCH_CAPACITY 64
+
+/* 同じ6秒時間軸へ重ねる絶対値timeline。各指標は独立した固定scale、framesは古い順。 */
+typedef struct {
+  KirinAbsoluteView latest;
+  uint32_t count;
+  uint32_t reserved;
+  KirinAbsoluteView frames[KIRIN_ABSOLUTE_BATCH_CAPACITY];
+} KirinAbsoluteBatch;
 
 /* 検証用のread-only負荷カウンタ。表示・計測判断には使用しない。 */
 typedef struct {
@@ -428,15 +464,22 @@ bool kirin_hypha_set_spectrum_visible(KirinHypha* handle, bool visible);
 /* POST Perceptual Deltaページの表示edge。Spectrum FFTとは排他的にSharpnessを解析する。 */
 bool kirin_hypha_set_perceptual_visible(KirinHypha* handle, bool visible);
 
+/* POST単独絶対値timelineの表示edge。PRE exchangeを作成せず、他の解析modeとは排他的。 */
+bool kirin_hypha_set_absolute_visible(KirinHypha* handle, bool visible);
+
 /* POST Spectrumの単一解析モードを切替。SIDEはstereoのみ。PRE/不正値/mono SIDEはfalse。 */
 bool kirin_hypha_set_spectrum_channel_mode(KirinHypha* handle, uint8_t channel_mode);
 
 /* 最新のPOST-PRE Spectrumを取得。status-onlyもtrue（has_data=0）、競合/nullはfalse。 */
 bool kirin_hypha_poll_spectrum(KirinHypha* handle, KirinSpectrumView* out);
+bool kirin_hypha_poll_spectrum_batch(KirinHypha* handle, KirinSpectrumBatch* out);
 
 /* 最新のexact-aperture POST-PRE Sharpnessを取得。status-onlyもtrue。 */
 bool kirin_hypha_poll_perceptual(KirinHypha* handle, KirinPerceptualView* out);
 bool kirin_hypha_poll_perceptual_batch(KirinHypha* handle, KirinPerceptualBatch* out);
+
+/* POST単独の6秒絶対値timelineを取得。status-onlyもtrue。 */
+bool kirin_hypha_poll_absolute_batch(KirinHypha* handle, KirinAbsoluteBatch* out);
 
 /* Spectrum optional workerの検証カウンタを取得。 */
 bool kirin_hypha_spectrum_stats(KirinHypha* handle, KirinSpectrumStats* out);

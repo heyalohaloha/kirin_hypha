@@ -23,14 +23,44 @@ impl SpectrumCoordinator {
             Ok(view) => view,
             Err(poisoned) => poisoned.into_inner(),
         };
+        let continuing_spectrum = status == SpectrumViewStatus::Active
+            && view.status == SpectrumViewStatus::Active
+            && view.analysis_mode == crate::AnalysisViewMode::Spectrum;
+        let previous_difference = if continuing_spectrum {
+            view.difference.take()
+        } else {
+            None
+        };
+        let mut spectrum_timeline = if continuing_spectrum {
+            std::mem::take(&mut view.spectrum_timeline)
+        } else {
+            Default::default()
+        };
+        let mut published_difference = difference;
+        if let Some(frame) = published_difference.as_ref() {
+            let result = spectrum_timeline.push(frame);
+            if matches!(
+                result,
+                crate::SpectrumTimelinePushResult::DuplicateIgnored
+                    | crate::SpectrumTimelinePushResult::StaleIgnored
+            ) {
+                // A presentation endpoint is immutable. Repeated or stale worker results must
+                // never replace the exact fact that the UI has already observed.
+                published_difference = previous_difference;
+            }
+        } else {
+            spectrum_timeline.clear();
+        }
         *view = SpectrumViewSnapshot {
             status,
             analysis_mode: self.runtime.analysis_mode(),
             channel_mode: self.runtime.channel_mode(),
             channels: self.runtime.num_channels() as u8,
-            difference,
+            difference: published_difference,
+            spectrum_timeline,
             perceptual_difference,
             perceptual_timeline: PerceptualDifferenceTimeline::default(),
+            absolute_timeline: Default::default(),
         };
     }
 
@@ -65,8 +95,32 @@ impl SpectrumCoordinator {
             channel_mode: self.runtime.channel_mode(),
             channels: self.runtime.num_channels() as u8,
             difference: None,
+            spectrum_timeline: Default::default(),
             perceptual_difference,
             perceptual_timeline: timeline,
+            absolute_timeline: Default::default(),
+        };
+    }
+
+    pub(super) fn store_absolute_view(
+        &self,
+        status: SpectrumViewStatus,
+        timeline: crate::AbsoluteTimeline,
+    ) {
+        let mut view = match self.view.lock() {
+            Ok(view) => view,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        *view = SpectrumViewSnapshot {
+            status,
+            analysis_mode: self.runtime.analysis_mode(),
+            channel_mode: self.runtime.channel_mode(),
+            channels: self.runtime.num_channels() as u8,
+            difference: None,
+            spectrum_timeline: Default::default(),
+            perceptual_difference: None,
+            perceptual_timeline: Default::default(),
+            absolute_timeline: timeline,
         };
     }
 }

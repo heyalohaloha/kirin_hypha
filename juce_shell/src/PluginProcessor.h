@@ -79,10 +79,13 @@ public:
     bool pollDelta (KirinDelta& out) const;            // FFI kirin_hypha_poll_delta (mode + Δ values)
     bool setSpectrumVisible (bool visible);             // POST-only; request work stays on IO thread
     bool setPerceptualVisible (bool visible);           // POST-only exact-aperture Sharpness page
+    bool setAbsoluteVisible (bool visible);             // POST-only LUFS-M / TP / Sharpness timeline
     bool setSpectrumChannelMode (uint8_t channelMode);  // LR/MID/SIDE; SIDE is stereo-only
     bool pollSpectrum (KirinSpectrumView& out) const;   // signed POST-PRE display snapshot
+    bool pollSpectrumBatch (KirinSpectrumBatch& out) const;
     bool pollPerceptual (KirinPerceptualView& out) const;
     bool pollPerceptualBatch (KirinPerceptualBatch& out) const;
+    bool pollAbsoluteBatch (KirinAbsoluteBatch& out) const;
     bool spectrumStats (KirinSpectrumStats& out) const; // read-only validation counters
     uint8_t spectrumSizePreference() const              // editor-lifetime recreation only; not DAW state
     {
@@ -184,6 +187,7 @@ private:
     std::atomic<bool> stateInformationSeen { false };  // setStateInformation reached this instance at least once
     std::atomic<bool> spectrumVisibleRequested { false }; // editor lifetime; not persisted in DAW state
     std::atomic<bool> perceptualAnalysisRequested { false }; // restores the visible analyzer after engine recreation
+    std::atomic<bool> absoluteAnalysisRequested { false }; // local POST absolute timeline restore
     std::atomic<uint8_t> preferredSpectrumSize { 0 };      // processor lifetime; Spectrum still opens off
     std::atomic<uint8_t> preferredSpectrumChannelMode { KIRIN_SPECTRUM_CHANNEL_LR };
 

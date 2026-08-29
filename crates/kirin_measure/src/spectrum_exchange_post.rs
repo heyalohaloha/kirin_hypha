@@ -36,6 +36,9 @@ impl SpectrumCoordinator {
                 return false;
             }
         }
+        if self.runtime.analysis_mode() == AnalysisViewMode::Absolute {
+            return self.post_absolute_tick();
+        }
         let Some(target) = target else {
             self.retire_unpaired_post_session();
             return false;
@@ -83,6 +86,41 @@ impl SpectrumCoordinator {
             return self.arm_perceptual_session(&session, post_instance_id, &target, now);
         }
         self.join_post_view(&session, &target, now)
+    }
+
+    fn post_absolute_tick(&self) -> bool {
+        let retired = self.try_post_session().map(|mut slot| {
+            let replace = slot
+                .as_ref()
+                .is_none_or(|session| session.analysis_mode != AnalysisViewMode::Absolute);
+            if !replace {
+                return None;
+            }
+            let retired = slot
+                .take()
+                .map(|session| (session.target, session.request_id));
+            let mut session = self.new_post_session();
+            session.analysis_mode = AnalysisViewMode::Absolute;
+            *slot = Some(session);
+            retired
+        });
+        if let Some(Some((target, request_id))) = retired {
+            cleanup_owned_request(target.as_ref(), request_id);
+        }
+        if !self.runtime.set_enabled(true) {
+            self.store_absolute_view(SpectrumViewStatus::Unavailable, Default::default());
+            return false;
+        }
+        let Some(history) = self.runtime.try_absolute_history() else {
+            return true;
+        };
+        let status = if history.newest().is_some() {
+            SpectrumViewStatus::Active
+        } else {
+            SpectrumViewStatus::WarmingUp
+        };
+        self.store_absolute_view(status, history);
+        true
     }
 
     fn prepare_post_session(
@@ -290,6 +328,7 @@ impl SpectrumCoordinator {
                 perceptual_local.as_ref(),
                 perceptual_remote.as_ref(),
             ),
+            AnalysisViewMode::Absolute => {}
         }
         true
     }

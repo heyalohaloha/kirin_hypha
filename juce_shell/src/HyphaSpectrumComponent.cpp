@@ -119,6 +119,62 @@ void SpectrumComponent::setSnapshot (const KirinSpectrumView& next)
     repaint();
 }
 
+void SpectrumComponent::setBatch (const KirinSpectrumBatch& batch)
+{
+    if (batch.count > KIRIN_SPECTRUM_BATCH_CAPACITY)
+        return;
+    const bool latestValid = validSnapshot (batch.latest);
+    if (latestValid != (batch.count > 0u))
+        return;
+    if (! latestValid)
+    {
+        setSnapshot (batch.latest);
+        return;
+    }
+    for (uint32_t index = 0u; index < batch.count; ++index)
+    {
+        const auto& frame = batch.frames[index];
+        if (! validSnapshot (frame)
+            || frame.sample_rate != batch.latest.sample_rate
+            || frame.channel_mode != batch.latest.channel_mode
+            || frame.channels != batch.latest.channels
+            || ! sameFloatBits (frame.min_hz, batch.latest.min_hz)
+            || ! sameFloatBits (frame.max_hz, batch.latest.max_hz)
+            || (index > 0u && frame.presentation_end_samples
+                <= batch.frames[index - 1u].presentation_end_samples))
+        {
+            return;
+        }
+    }
+    if (batch.frames[batch.count - 1u].presentation_end_samples
+        != batch.latest.presentation_end_samples)
+    {
+        return;
+    }
+
+    const bool pendingValid = havePendingSnapshot && validSnapshot (pendingSnapshot);
+    const bool definitionChanged = pendingValid
+        && (pendingSnapshot.sample_rate != batch.latest.sample_rate
+            || pendingSnapshot.channel_mode != batch.latest.channel_mode
+            || pendingSnapshot.channels != batch.latest.channels
+            || ! sameFloatBits (pendingSnapshot.min_hz, batch.latest.min_hz)
+            || ! sameFloatBits (pendingSnapshot.max_hz, batch.latest.max_hz));
+    uint32_t first = 0u;
+    if (! pendingValid || definitionChanged)
+    {
+        setSnapshot (batch.frames[0]);
+        first = 1u;
+    }
+    for (uint32_t index = first; index < batch.count; ++index)
+    {
+        if (batch.frames[index].presentation_end_samples
+            > pendingSnapshot.presentation_end_samples)
+        {
+            queueSnapshot (batch.frames[index]);
+        }
+    }
+}
+
 void SpectrumComponent::queueSnapshot (const KirinSpectrumView& next)
 {
     if (havePendingSnapshot

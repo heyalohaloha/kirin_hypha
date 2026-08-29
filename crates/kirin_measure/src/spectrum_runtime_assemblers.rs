@@ -1,3 +1,4 @@
+use crate::absolute_timeline::{AbsoluteContinuousAnalyzer, AbsoluteFrame};
 use crate::perceptual::{PerceptualFrame, SharpnessContinuousAnalyzer};
 use crate::spectrum::{
     SpectrumAnalyzer, SpectrumChannelMode, SpectrumFrame, SPECTRUM_PRESENTATION_HZ,
@@ -111,6 +112,116 @@ pub(super) struct PerceptualAssembler {
     state_epoch_samples: Option<i64>,
     sequence_started: bool,
     rearm_required: bool,
+}
+
+pub(super) struct AbsoluteAssembler {
+    analyzer: AbsoluteContinuousAnalyzer,
+    channels: usize,
+    aperture_samples: i64,
+    samples: Vec<f32>,
+    collecting: bool,
+    next_position: Option<i64>,
+    aligned_start: Option<i64>,
+    state_epoch: Option<i64>,
+    generation: u64,
+    history_reset_required: bool,
+}
+
+impl AbsoluteAssembler {
+    pub(super) fn new(sample_rate: u32, channels: usize) -> Result<Self, crate::AbsoluteError> {
+        let analyzer = AbsoluteContinuousAnalyzer::new(sample_rate, channels)?;
+        let aperture_samples = analyzer.aperture_samples() as i64;
+        Ok(Self {
+            analyzer,
+            channels,
+            aperture_samples,
+            samples: Vec::with_capacity(aperture_samples as usize * channels),
+            collecting: false,
+            next_position: None,
+            aligned_start: None,
+            state_epoch: None,
+            generation: 0,
+            history_reset_required: false,
+        })
+    }
+
+    pub(super) fn begin_block(&mut self, start: i64, generation: u64) -> bool {
+        if generation == 0 {
+            self.reset();
+            return false;
+        }
+        if self.generation != generation || self.next_position.is_some_and(|next| next != start) {
+            self.reset();
+            self.generation = generation;
+            self.history_reset_required = true;
+            self.aligned_start = start
+                .checked_add(self.aperture_samples - 1)
+                .map(|value| value - value.rem_euclid(self.aperture_samples));
+        }
+        self.next_position = Some(start);
+        self.aligned_start.is_some()
+    }
+
+    pub(super) fn take_history_reset_required(&mut self) -> bool {
+        std::mem::take(&mut self.history_reset_required)
+    }
+
+    pub(super) fn push_frame(&mut self, left: f32, right: Option<f32>) -> Option<&[AbsoluteFrame]> {
+        let start = self.next_position?;
+        let end = start.checked_add(1)?;
+        self.next_position = Some(end);
+        let aligned_start = self.aligned_start?;
+        if start < aligned_start {
+            return None;
+        }
+        if !self.collecting {
+            if start != aligned_start && start.rem_euclid(self.aperture_samples) != 0 {
+                self.reset();
+                return None;
+            }
+            if self.state_epoch.is_none() {
+                if self.analyzer.reset_at_epoch(start).is_err() {
+                    self.reset();
+                    return None;
+                }
+                self.state_epoch = Some(start);
+            }
+            self.samples.clear();
+            self.collecting = true;
+        }
+        if !left.is_finite() || right.is_some_and(|sample| !sample.is_finite()) {
+            self.reset();
+            return None;
+        }
+        self.samples.push(left);
+        if self.channels == 2 {
+            let Some(right) = right else {
+                self.reset();
+                return None;
+            };
+            self.samples.push(right);
+        }
+        if end.rem_euclid(self.aperture_samples) != 0
+            || self.samples.len() != self.aperture_samples as usize * self.channels
+        {
+            return None;
+        }
+        self.collecting = false;
+        self.aligned_start = Some(end);
+        self.analyzer
+            .analyze_aperture(&self.samples, end, self.generation)
+            .ok()
+    }
+
+    pub(super) fn reset(&mut self) {
+        self.samples.clear();
+        self.collecting = false;
+        self.next_position = None;
+        self.aligned_start = None;
+        self.state_epoch = None;
+        self.generation = 0;
+        self.history_reset_required = false;
+    }
 }
 
 impl PerceptualAssembler {

@@ -31,6 +31,7 @@ namespace hypha::ui_contract
     constexpr int preDisplayStateGap = 4;
     constexpr int preDisplayDetailMinimumWidth = 72;
     constexpr int preDisplayPresentationHz = 10;
+    constexpr int absoluteTimelineSourceHz = 10;
     // PopupMenu is a separate native window in desktop AU/VST3 hosts. Its geometry therefore
     // cannot inherit the 300x200 editor scale and must be explicit in the shared contract.
     constexpr int pairMenuItemHeight     = 28;

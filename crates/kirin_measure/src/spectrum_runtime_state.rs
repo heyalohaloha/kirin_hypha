@@ -95,6 +95,7 @@ pub struct SpectrumRuntimeStats {
     pub dropped_blocks: u64,
     pub analyzed_frames: u64,
     pub analyzed_perceptual_frames: u64,
+    pub analyzed_absolute_frames: u64,
 }
 
 impl SpectrumRuntime {
@@ -125,6 +126,9 @@ impl SpectrumRuntime {
             if let Ok(mut history) = self.perceptual_history.lock() {
                 *history = PerceptualHistory::with_capacity();
             }
+            if let Ok(mut history) = self.absolute_history.lock() {
+                history.clear();
+            }
             self.wake.1.notify_all();
         }
         true
@@ -134,7 +138,7 @@ impl SpectrumRuntime {
         self.perceptual_rearm_required.swap(false, Ordering::AcqRel)
     }
 
-    /// Control/worker thread only. Spectrum and Perceptual analysis are intentionally exclusive.
+    /// Control/worker thread only. Spectrum, Perceptual, and Absolute analysis are exclusive.
     pub fn set_analysis_mode(&self, mode: AnalysisViewMode) -> bool {
         let previous = self.analysis_mode.swap(mode as u8, Ordering::AcqRel);
         if previous != mode as u8 {
@@ -150,6 +154,9 @@ impl SpectrumRuntime {
             }
             if let Ok(mut history) = self.perceptual_history.lock() {
                 *history = PerceptualHistory::with_capacity();
+            }
+            if let Ok(mut history) = self.absolute_history.lock() {
+                history.clear();
             }
             self.wake.1.notify_all();
         }

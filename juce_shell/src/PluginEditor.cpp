@@ -191,14 +191,16 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         };
         addAndMakeVisible (spectrumToggle);
         analysisModeToggle.setTitle ("Analysis view");
-        analysisModeToggle.setDescription ("Switch between frequency and Sharpness Delta");
+        analysisModeToggle.setDescription ("Switch frequency, Sharpness Delta, and live facts");
         analysisModeToggle.setColour (juce::TextButton::buttonColourId, hypha::kFieldFill);
         analysisModeToggle.setColour (juce::TextButton::textColourOnId, COL_SPECTRUM_DELTA);
         analysisModeToggle.setColour (juce::TextButton::textColourOffId, COL_SPECTRUM_DELTA);
         analysisModeToggle.onClick = [this]
         {
             setAnalysisPage (analysisPage == AnalysisPage::spectrum
-                               ? AnalysisPage::perceptual : AnalysisPage::spectrum);
+                               ? AnalysisPage::perceptual
+                               : analysisPage == AnalysisPage::perceptual
+                                   ? AnalysisPage::absolute : AnalysisPage::spectrum);
         };
         spectrumSizeToggle.setTitle ("Spectrum size");
         spectrumSizeToggle.setDescription (
@@ -220,6 +222,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         addChildComponent (spectrumSizeToggle);
         addChildComponent (spectrumView);
         addChildComponent (perceptualView);
+        addChildComponent (absoluteView);
        #endif
     }
     else
@@ -283,6 +286,7 @@ KirinHyphaEditor::~KirinHyphaEditor()
     {
         processorRef.setSpectrumVisible (false);
         processorRef.setPerceptualVisible (false);
+        processorRef.setAbsoluteVisible (false);
     }
 }
 
@@ -339,6 +343,7 @@ void KirinHyphaEditor::resized()
             : ui::spectrumSizeToggleBounds (getWidth())));
         spectrumView.setBounds (juceRect (ui::spectrumPlotBounds (getWidth(), getHeight())));
         perceptualView.setBounds (juceRect (ui::spectrumPlotBounds (getWidth(), getHeight())));
+        absoluteView.setBounds (juceRect (ui::spectrumPlotBounds (getWidth(), getHeight())));
     }
    #endif
     floraY = layout.floraY;
@@ -391,10 +396,13 @@ void KirinHyphaEditor::setAnalysisPage (AnalysisPage page)
         return;
     spectrumView.clearSnapshot();
     perceptualView.clearSnapshot();
+    absoluteView.clearSnapshot();
     if (analysisPage == AnalysisPage::spectrum)
         processorRef.setSpectrumVisible (false);
     else if (analysisPage == AnalysisPage::perceptual)
         processorRef.setPerceptualVisible (false);
+    else if (analysisPage == AnalysisPage::absolute)
+        processorRef.setAbsoluteVisible (false);
     analysisPage = page;
     const bool analysisOpen = page != AnalysisPage::meters;
     for (auto& cell : cells)
@@ -402,16 +410,23 @@ void KirinHyphaEditor::setAnalysisPage (AnalysisPage page)
     loudnessSelector.setVisible (! analysisOpen);
     spectrumView.setVisible (page == AnalysisPage::spectrum);
     perceptualView.setVisible (page == AnalysisPage::perceptual);
+    absoluteView.setVisible (page == AnalysisPage::absolute);
     analysisModeToggle.setVisible (analysisOpen);
     spectrumSizeToggle.setVisible (analysisOpen);
     spectrumToggle.setButtonText (analysisOpen ? "METERS" : "ANALYSIS");
     spectrumToggle.setTooltip (ui::spectrumTooltip (analysisOpen));
     spectrumToggle.setColour (juce::TextButton::textColourOffId,
                               analysisOpen ? COL_SPECTRUM_DELTA : COL_MUTED);
-    analysisModeToggle.setButtonText (page == AnalysisPage::spectrum ? "SHARP" : "FREQ");
+    analysisModeToggle.setButtonText (page == AnalysisPage::spectrum ? "SHARP"
+                                       : page == AnalysisPage::perceptual ? "LIVE" : "FREQ");
     analysisModeToggle.setTooltip (page == AnalysisPage::spectrum
-                                     ? "Show Perceptual Delta" : "Show frequency Delta");
-    startTimerHz (analysisOpen ? ui::spectrumPresentationHz : ui::preDisplayPresentationHz);
+                                     ? "Show Perceptual Delta"
+                                     : page == AnalysisPage::perceptual
+                                         ? "Show POST live facts" : "Show frequency Delta");
+    startTimerHz (page == AnalysisPage::absolute
+                    ? ui::absoluteTimelineSourceHz
+                    : analysisOpen ? ui::spectrumPresentationHz
+                                   : ui::preDisplayPresentationHz);
     const auto preset = analysisOpen ? ui::spectrumSizePresets[spectrumSizeIndex]
                                      : ui::spectrumSizePresets[0];
     if (getWidth() != preset.width || getHeight() != preset.height)
@@ -422,6 +437,8 @@ void KirinHyphaEditor::setAnalysisPage (AnalysisPage page)
         processorRef.setSpectrumVisible (true);
     else if (page == AnalysisPage::perceptual)
         processorRef.setPerceptualVisible (true);
+    else if (page == AnalysisPage::absolute)
+        processorRef.setAbsoluteVisible (true);
     else
         configureForKind (currentKind);
 }
@@ -901,9 +918,9 @@ void KirinHyphaEditor::updatePost()
     if (analysisPage == AnalysisPage::spectrum)
     {
         spectrumView.presentationTick();
-        KirinSpectrumView spectrum {};
-        if (processorRef.pollSpectrum (spectrum))
-            spectrumView.queueSnapshot (spectrum);
+        KirinSpectrumBatch spectrum {};
+        if (processorRef.pollSpectrumBatch (spectrum))
+            spectrumView.setBatch (spectrum);
         // Spectrum is presentation-only. Pair/Keep/feedback and the existing status LED remain
         // live, while meter polling and smoothing are skipped for this page.
         led.setState (hypha::deriveLedState (alive, sig, rec && armed, ack, preset));
@@ -915,6 +932,14 @@ void KirinHyphaEditor::updatePost()
         KirinPerceptualBatch perceptual {};
         if (processorRef.pollPerceptualBatch (perceptual))
             perceptualView.setBatch (perceptual);
+        led.setState (hypha::deriveLedState (alive, sig, rec && armed, ack, preset));
+        return;
+    }
+    if (analysisPage == AnalysisPage::absolute)
+    {
+        KirinAbsoluteBatch absolute {};
+        if (processorRef.pollAbsoluteBatch (absolute))
+            absoluteView.setBatch (absolute);
         led.setState (hypha::deriveLedState (alive, sig, rec && armed, ack, preset));
         return;
     }

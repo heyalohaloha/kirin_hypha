@@ -25,6 +25,7 @@ mod pre_tick;
 #[path = "spectrum_exchange_view.rs"]
 mod view_state;
 
+use crate::absolute_timeline::AbsoluteTimeline;
 #[cfg(test)]
 use crate::analysis_exchange_protocol::request_path;
 #[cfg(test)]
@@ -93,8 +94,10 @@ pub struct SpectrumViewSnapshot {
     pub channel_mode: SpectrumChannelMode,
     pub channels: u8,
     pub difference: Option<SpectrumDifference>,
+    pub spectrum_timeline: crate::SpectrumDifferenceTimeline,
     pub perceptual_difference: Option<PerceptualDifference>,
     pub perceptual_timeline: PerceptualDifferenceTimeline,
+    pub absolute_timeline: AbsoluteTimeline,
 }
 
 #[derive(Clone)]

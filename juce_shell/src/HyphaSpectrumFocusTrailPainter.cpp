@@ -70,20 +70,37 @@ void paint (juce::Graphics& g,
     stroke.startNewSubPath (firstX, firstY);
     juce::Path recentGlow;
     bool glowStarted = false;
-    for (size_t index = 1u; index < history.size(); ++index)
+    // At 100% the lane is narrower than the 180 retained points. Painting every third exact
+    // observation preserves more points than there are useful horizontal pixels while avoiding
+    // redundant anti-aliased segments on Windows' software renderer. Storage and endpoints stay
+    // exact; this is pixel-aware presentation decimation, not smoothing or interpolation.
+    const size_t paintStride = compact ? 3u : 1u;
+    size_t previousIndex = 0u;
+    for (size_t index = paintStride; index < history.size(); index += paintStride)
     {
-        const double previousAge = history.ageSecondsAt (index - 1u);
+        const double previousAge = history.ageSecondsAt (previousIndex);
         const double currentAge = history.ageSecondsAt (index);
         const float previousX = xForAge (previousAge, plot);
         const float currentX = xForAge (currentAge, plot);
         if (currentX <= previousX)
             continue;
         const float previousY = yForDelta (
-            history.valueAt (index - 1u, normalisedBand), plot);
+            history.valueAt (previousIndex, normalisedBand), plot);
         const float currentY = yForDelta (
             history.valueAt (index, normalisedBand), plot);
-        stroke.lineTo (currentX, currentY);
-        if (previousAge <= 1.5)
+        const bool observationGap = history.hasGapBetween (previousIndex, index);
+        if (observationGap)
+        {
+            stroke.startNewSubPath (currentX, currentY);
+            if (currentAge <= 1.5)
+            {
+                recentGlow.startNewSubPath (currentX, currentY);
+                glowStarted = true;
+            }
+        }
+        else
+            stroke.lineTo (currentX, currentY);
+        if (! observationGap && previousAge <= 1.5)
         {
             if (! glowStarted)
             {
@@ -92,10 +109,31 @@ void paint (juce::Graphics& g,
             }
             recentGlow.lineTo (currentX, currentY);
         }
+        previousIndex = index;
     }
     const size_t newest = history.size() - 1u;
     const float newestX = xForAge (history.ageSecondsAt (newest), plot);
     const float newestY = yForDelta (history.valueAt (newest, normalisedBand), plot);
+    if (previousIndex != newest)
+    {
+        const bool observationGap = history.hasGapBetween (previousIndex, newest);
+        if (observationGap)
+        {
+            stroke.startNewSubPath (newestX, newestY);
+            recentGlow.startNewSubPath (newestX, newestY);
+            glowStarted = true;
+        }
+        else
+            stroke.lineTo (newestX, newestY);
+        if (! observationGap && history.ageSecondsAt (previousIndex) <= 1.5)
+        {
+            if (! glowStarted)
+                recentGlow.startNewSubPath (
+                    xForAge (history.ageSecondsAt (previousIndex), plot),
+                    yForDelta (history.valueAt (previousIndex, normalisedBand), plot));
+            recentGlow.lineTo (newestX, newestY);
+        }
+    }
     if (! compact && ! recentGlow.isEmpty())
     {
         g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.09f));

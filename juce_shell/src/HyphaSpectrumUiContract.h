@@ -83,8 +83,15 @@ namespace hypha::ui_contract
     constexpr int spectrumLegendAfterChannelModes = 84;
     constexpr int spectrumMarkWidth = 42;
     constexpr int spectrumMarkClearWidth = 11;
-    constexpr float spectrumMarkCurveAlpha = 0.38f;
-    constexpr float spectrumMarkStrokeWidth = 1.0f;
+    // MARK is one frozen full-band reference. It must remain visibly distinct from PRE/POST
+    // while staying below the live 2.15 px Δ curve, which also owns fill and glow.
+    constexpr float spectrumMarkCurveAlpha = 0.88f;
+    constexpr float spectrumMarkStrokeWidth = 1.50f;
+    constexpr float spectrumMarkButtonInactiveAlpha = 0.78f;
+    constexpr float spectrumMarkButtonActiveAlpha = 0.98f;
+    constexpr float spectrumMarkButtonInactiveBorderAlpha = 0.34f;
+    constexpr float spectrumMarkButtonActiveBorderAlpha = 0.82f;
+    constexpr float spectrumMarkButtonActiveFillAlpha = 0.13f;
     constexpr float spectrumFocusTrailCompactHeight = 15.0f;
     constexpr float spectrumFocusTrailMediumHeight = 22.0f;
     constexpr float spectrumFocusTrailLargeHeight = 30.0f;

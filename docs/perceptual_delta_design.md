@@ -43,16 +43,17 @@ shared mapping for the short-lived request, readiness, Spectrum, and Perceptual 
 the atomic-file transport. This platform split is limited to optional Analysis. Watch, Record, and
 `plugin_data` keep their established file contracts.
 
-Exactly one optional analyzer mode may be active for the lease-owning POST:
+Exactly one optional analyzer mode may be active within each lease-owning POST:
 
 1. Meters visible: Spectrum off, Perceptual Delta off.
 2. Spectrum visible: FFT on, Sharpness off.
 3. Perceptual Delta visible: Sharpness on, FFT off.
+4. Live facts visible: local POST LUFS-M / recent TP / Sharpness on; PRE exchange off.
 
-Only one POST Analysis page in a DAW process may hold the process-wide kernel lease. A second open
-page does not start its POST worker or request a PRE worker and reports `ANALYSIS — IN USE`. Closing
-the owner or terminating the DAW releases the lease; the stable lock file is not removed, avoiding
-an unlink-and-recreate race between new owners.
+Two POST Analysis pages in a DAW process may hold the two stable process-wide kernel slots. A third
+does not start its worker or request a PRE worker and reports `2 ANALYSIS SLOTS — BOTH ACTIVE` plus
+`CLOSE ONE TO OPEN THIS VIEW`. Closing either owner lets the waiting page acquire that slot. The
+stable lock files are not removed, avoiding an unlink-and-recreate race between new owners.
 
 For Perceptual Delta, POST first publishes an uncommitted request. PRE replies with its current
 presentation endpoint, and POST chooses an aperture-aligned epoch at least two apertures beyond the
@@ -81,7 +82,8 @@ measured timeline, or enters the Audio Thread.
 
 - No exact pair: show pair-unavailable state; do not start POST analysis.
 - Pair warming or no matching endpoint: show sync state; do not retain a false point.
-- Another POST owns Analysis: show `ANALYSIS — IN USE`; do not start either analyzer.
+- Both Analysis slots are owned: explain that two slots are active and one must close; do not start
+  another analyzer.
 - Dropped input, timeline discontinuity, missed epoch, or definition edge: clear the display and
   negotiate a new future state epoch.
 - Malformed, oversized, non-finite, or incompatible snapshot: silently reject it.

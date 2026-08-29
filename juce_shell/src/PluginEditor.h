@@ -13,6 +13,7 @@
 #if ! KIRIN_HYPHA_PRE_DISPLAY
  #include "HyphaSpectrumComponent.h"
  #include "HyphaPerceptualComponent.h"
+ #include "HyphaAbsoluteComponent.h"
 #endif
 
 // B-054: full UI rebuild to egui parity (crates/hypha_pre/editor.rs + hypha_post/editor.rs +
@@ -60,7 +61,7 @@ private:
     void updatePre();
     void updatePost();
 #if ! KIRIN_HYPHA_PRE_DISPLAY
-    enum class AnalysisPage { meters, spectrum, perceptual };
+    enum class AnalysisPage { meters, spectrum, perceptual, absolute };
     void setAnalysisPage (AnalysisPage page);
     void cycleSpectrumSize();
     void updateSpectrumSizeControl();
@@ -108,6 +109,7 @@ private:
     juce::TextButton          spectrumSizeToggle;           // POST Spectrum: 100/125/150 percent
     hypha::SpectrumComponent  spectrumView;                 // POST-only signed difference plot
     hypha::PerceptualComponent perceptualView;               // POST-only Δ Sharpness History
+    hypha::AbsoluteComponent absoluteView;                    // POST-only absolute observation timeline
 #endif
     juce::TooltipWindow       tooltip { this };           // drives per-cell hover help
 

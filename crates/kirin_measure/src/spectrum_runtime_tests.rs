@@ -63,6 +63,24 @@ fn wait_for_perceptual_frame_at_or_after(
     panic!("Perceptual worker did not publish a frame");
 }
 
+fn wait_for_absolute_frame_at_or_after(
+    runtime: &SpectrumRuntime,
+    expected_end: i64,
+) -> crate::AbsoluteFrame {
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while Instant::now() < deadline {
+        if let Some(frame) = runtime
+            .try_absolute_history()
+            .and_then(|history| history.newest().copied())
+            .filter(|frame| frame.presentation_end_samples >= expected_end)
+        {
+            return frame;
+        }
+        thread::sleep(Duration::from_millis(2));
+    }
+    panic!("Absolute timeline worker did not publish a frame");
+}
+
 #[test]
 fn disabled_runtime_does_not_start_worker_or_accept_audio() {
     let runtime = SpectrumRuntime::new(48_000, 2);
@@ -148,6 +166,65 @@ fn perceptual_discontinuity_clears_history_and_requires_a_new_shared_epoch() {
         .is_some_and(|history| history.newest().is_none()));
     assert!(runtime.set_perceptual_state_epoch(None));
     assert_eq!(runtime.perceptual_state_epoch(), None);
+    runtime.shutdown_and_join();
+}
+
+#[test]
+fn absolute_mode_publishes_three_post_facts_on_one_exact_timeline() {
+    let runtime = SpectrumRuntime::new(48_000, 2);
+    assert!(runtime.set_analysis_mode(AnalysisViewMode::Absolute));
+    assert!(runtime.set_enabled(true));
+    feed(&runtime, 48_000, 11_000, 256);
+    let frame = wait_for_absolute_frame_at_or_after(&runtime, 9_600);
+    assert_eq!(frame.presentation_end_samples, 9_600);
+    assert_eq!(frame.aperture_samples, 4_800);
+    assert_eq!(frame.state_epoch_samples, 0);
+    assert!(frame.lufs_m.is_some_and(f64::is_finite));
+    assert!(frame.true_peak.is_some_and(f64::is_finite));
+    assert!(frame
+        .sharpness
+        .is_some_and(|value| value.is_finite() && value > 0.0));
+    let history = runtime.try_absolute_history().unwrap();
+    assert_eq!(history.frames().len(), 2);
+    assert_eq!(runtime.stats().analyzed_absolute_frames, 2);
+    assert!(runtime
+        .try_history()
+        .is_some_and(|history| history.newest().is_none()));
+    runtime.shutdown_and_join();
+}
+
+#[test]
+fn absolute_mode_clears_on_discontinuity_and_mode_change() {
+    let runtime = SpectrumRuntime::new(48_000, 2);
+    assert!(runtime.set_analysis_mode(AnalysisViewMode::Absolute));
+    assert!(runtime.set_enabled(true));
+    feed(&runtime, 48_000, 9_600, 256);
+    let first = wait_for_absolute_frame_at_or_after(&runtime, 9_600);
+    assert_eq!(first.state_epoch_samples, 0);
+
+    let first_block = [0.125_f32; 512];
+    assert!(runtime.push_block_from_audio(&first_block, 2, Some(14_400)));
+    let clear_deadline = Instant::now() + Duration::from_secs(2);
+    while Instant::now() < clear_deadline
+        && runtime
+            .try_absolute_history()
+            .is_none_or(|history| history.newest().is_some())
+    {
+        thread::sleep(Duration::from_millis(2));
+    }
+    assert!(runtime
+        .try_absolute_history()
+        .is_some_and(|history| history.newest().is_none()));
+    let remaining = vec![0.125_f32; (4_800 - 256) * 2];
+    assert!(runtime.push_block_from_audio(&remaining, 2, Some(14_656)));
+    let restarted = wait_for_absolute_frame_at_or_after(&runtime, 19_200);
+    assert_eq!(restarted.state_epoch_samples, 14_400);
+    assert_eq!(runtime.try_absolute_history().unwrap().frames().len(), 1);
+
+    assert!(runtime.set_analysis_mode(AnalysisViewMode::Spectrum));
+    assert!(runtime
+        .try_absolute_history()
+        .is_some_and(|history| history.newest().is_none()));
     runtime.shutdown_and_join();
 }
 

@@ -11,11 +11,13 @@ frequency view, with selectable LR / MID / SIDE observation, a lockable probe, a
 MARK reference. A locked probe also shows the selected frequency's exact six-second **Focus Trail**.
 Closing the page stops its optional analysis and discards that short display history.
 
-The POST **ANALYSIS** page can switch between **FREQ** and **SHARP**. SHARP's first observation is a six-second
+The POST **ANALYSIS** page can switch between **FREQ**, **SHARP**, and **LIVE**. SHARP's first observation is a six-second
 **Δ Sharpness History**: a signed POST − PRE Sharpness trace that responds at 10 Hz without scoring,
-traffic-light judgment, or audio-path changes. Spectrum and Perceptual Δ are mutually exclusive, so
-only the visible analyzer runs. One POST Analysis page per DAW process owns the optional PRE/POST
-analyzers; another open page remains idle and reports `ANALYSIS — IN USE`.
+traffic-light judgment, or audio-path changes. LIVE overlays absolute POST LUFS-M, recent True Peak,
+and Sharpness on one six-second time axis. The three modes are mutually exclusive within an instance,
+so only the visible analyzer runs. Two POST Analysis pages may be active in one DAW process. A third
+shows `2 ANALYSIS SLOTS — BOTH ACTIVE` and `CLOSE ONE TO OPEN THIS VIEW`, then automatically acquires
+a slot after either active page closes.
 
 ![Kirin Hypha PRE and POST showing Short-term Watch values and independent MAX values](docs/media/kirin-hypha-pre-post.jpg)
 
@@ -90,15 +92,23 @@ Hovering the plot shows frequency and Δ; the 125% and 150% views also show PRE 
 click in the plot locks that readout to the same frequency until its × is pressed. While locked,
 **Focus Trail** shows the last six seconds of Δ at that frequency: compact at 100%, with its own lane
 at 125% and 150%. Its newest point is the same exact PRE/POST presentation frame as the live Δ, not a
-UI-clock estimate. Missing, reversed, or incompatible frames clear the trail instead of joining a
-false history. **MARK** freezes one display-only Δ curve beneath the live curve; pressing MARK again
-replaces it, and its × clears it.
+UI-clock estimate. A missed UI poll does not erase valid older observations: retained points keep
+their true sample-time positions, and the stroke breaks across an unobserved endpoint instead of
+inventing a value. Reversed or incompatible frames, and a forward discontinuity beyond the six-second
+view, start a clean trail. **MARK** freezes one display-only full-band Δ curve as a solid amber reference beneath
+the cyan live curve; pressing MARK again replaces it, and its × clears it.
 MARK is temporary and is cleared when the pair, sample rate, FFT layout, channel mode, or page changes.
 It neither adds another analyzer nor changes the measured values. The 100% / 125% / 150% size choice
 is remembered while that plug-in instance remains loaded, while Spectrum itself still opens off.
 Focus Trail retains only fixed-capacity display snapshots while Spectrum is open. It adds no analyzer,
 does not smooth or delay the live Δ, and is discarded on pair, rate, layout, channel-mode, or page
 changes.
+
+Continuity has two bounded layers. POST keeps the newest eight already-computed exact Spectrum
+differences in a fixed recovery ring, so a short UI scheduling stall can collect missed frames on the
+next poll without another FFT. If a stall exceeds that ring, Focus Trail still keeps the surviving
+exact points at their sample-time positions and separates the unobserved interval. Both layers are
+display transport only: no dynamic growth, extra analyzer, filesystem polling, or Audio Thread work.
 
 The optional PRE/POST exchange is supervised by the existing 10 Hz IO update. On Windows its
 short-lived request, readiness, and Analysis snapshots use a small pagefile-backed shared-memory
@@ -159,6 +169,36 @@ cancel the observation. **MID** measures `(L+R)/2`; **SIDE** measures `(L−R)/2
 only. Changing channel mode starts a new history. Closing the page stops Sharpness analysis and
 discards the display history. Switching to Spectrum stops Sharpness before the FFT starts, and vice
 versa. All of this is display-only: it neither changes audio nor rewrites Watch or Record results.
+
+### POST Analysis: Live facts (on demand)
+
+From SHARP, **LIVE** opens a POST-only absolute observation timeline; **FREQ** returns to Spectrum.
+LIVE does not subtract PRE and does not create a PRE analysis request. It overlays three measured
+facts on the same latest-six-second time axis:
+
+| Trace | Colour | Fixed display scale |
+|---|---|---|
+| LUFS-M | Cyan | −42 to 0 LUFS |
+| Recent True Peak | Pale violet | −30 to +6 dBTP |
+| Sharpness | Amber | 0 to 3 acum |
+
+Each trace has its own fixed scale, so vertical position is comparable over time within that metric,
+not numerically between the three metrics. Values outside a display scale remain measured facts and
+are only bounded at the plot edge. There are no targets, score bands, warning colours, or verdicts.
+
+All three values are committed at the same exact 100 ms POST presentation endpoint. Measurement runs
+at 10 Hz, Rust retains 64 exact points, the curve repaints at 5 Hz, and current numbers update at 2 Hz.
+No missing point is interpolated and no temporal smoothing delays the display. A discontinuity,
+transport reversal, sample-rate change, or generation edge clears the prior run and begins a new one.
+LUFS-M and recent True Peak reuse Watch's measurement definitions; recent True Peak is the latest
+400 ms maximum rather than a session hold. Sharpness keeps the established independent-channel
+arithmetic-mean definition. Closing LIVE stops this optional analyzer and discards its display history.
+
+Across FREQ, SHARP, and LIVE, at most two POST Analysis pages can be active in one DAW process. This
+supports a persistent 2Mix observation plus one working track without silently starting 12 expensive
+analyzers. A third page remains idle, explains that both slots are active, and starts automatically
+when a slot becomes free. Loaded PRE/POST pairs, Watch, Record, and audio pass-through are not limited
+by these two optional display slots.
 
 ### Record mode (Kirin OS required)
 
@@ -255,9 +295,10 @@ playback. The M and S selections retain independent playback-pass maximums. POST
 difference between its own measurements and the paired PRE.
 On a paired POST, **ANALYSIS** can be opened on demand. Its **FREQ** Spectrum view shows the signed
 POST − PRE frequency difference, and **SHARP** switches the same page to on-demand **Perceptual Δ**
-with a six-second Δ Sharpness History. The views are mutually exclusive: only the currently visible
-analyzer runs, and only one POST Analysis page per DAW process may own the optional PRE/POST analysis
-pair at a time.
+with a six-second Δ Sharpness History. **LIVE** adds a POST-only six-second timeline of absolute
+LUFS-M, recent True Peak, and Sharpness. The views are mutually exclusive: only the currently visible
+analyzer runs within an instance; two POST Analysis pages may run in a DAW process, while a third
+explains that both slots are active.
 
 Closing the GUI does not stop measurement. The audio thread continues running as long as the plugin is loaded in the DAW.
 

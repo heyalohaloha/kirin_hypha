@@ -28,6 +28,7 @@ pub enum AnalysisViewMode {
     #[default]
     Spectrum = 0,
     Perceptual = 1,
+    Absolute = 2,
 }
 
 impl TryFrom<u8> for AnalysisViewMode {
@@ -37,6 +38,7 @@ impl TryFrom<u8> for AnalysisViewMode {
         match value {
             0 => Ok(Self::Spectrum),
             1 => Ok(Self::Perceptual),
+            2 => Ok(Self::Absolute),
             _ => Err(()),
         }
     }

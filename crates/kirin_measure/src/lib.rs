@@ -3,6 +3,7 @@
 //! napi-rs 依存を持たない純粋な Rust ライブラリ。
 //! nih-plug の Audio Thread から独立した Measure Thread / IO Thread で使用する。
 
+pub mod absolute_timeline;
 pub mod all_keep_signal;
 pub mod all_stop_signal;
 mod analysis_exchange_protocol;
@@ -62,6 +63,7 @@ mod record_writer_claim;
 pub mod resampler;
 pub mod reservation;
 pub mod spectrum;
+mod spectrum_difference_timeline;
 pub mod spectrum_exchange;
 mod spectrum_exchange_worker;
 pub mod spectrum_runtime;
@@ -76,6 +78,10 @@ mod watch_snapshot_lease;
 pub mod watchdog;
 mod watchdog_handoff;
 
+pub use absolute_timeline::{
+    AbsoluteContinuousAnalyzer, AbsoluteError, AbsoluteFrame, AbsoluteTimeline,
+    ABSOLUTE_PRESENTATION_HZ, ABSOLUTE_SCHEMA_VERSION, ABSOLUTE_TIMELINE_CAPACITY,
+};
 pub use all_keep_signal::{
     delete_broadcast, is_broadcast_stale, read_broadcast, read_current_broadcast,
     signal_path as all_keep_signal_path, signals_dir as all_keep_signals_dir,
@@ -251,6 +257,10 @@ pub use spectrum::{
     SpectrumDifference, SpectrumError, SpectrumFrame, SPECTRUM_BAND_COUNT, SPECTRUM_DIFF_RANGE_DB,
     SPECTRUM_FFT_SIZE, SPECTRUM_FLOOR_DBFS, SPECTRUM_PRESENTATION_HZ, SPECTRUM_SCHEMA_VERSION,
     SPECTRUM_WINDOW_SIZE,
+};
+pub use spectrum_difference_timeline::{
+    SpectrumDifferenceTimeline, SpectrumTimelineFrame, SpectrumTimelinePushResult,
+    SPECTRUM_DIFFERENCE_TIMELINE_CAPACITY,
 };
 pub use spectrum_exchange::{
     SpectrumCoordinator, SpectrumTarget, SpectrumViewSnapshot, SpectrumViewStatus,

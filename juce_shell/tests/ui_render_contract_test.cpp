@@ -1,19 +1,16 @@
 #include "../src/HyphaWidgets.h"
 #include "../src/HyphaSpectrumComponent.h"
 #include "PerceptualHistoryContractTest.h"
+#include "AbsoluteTimelineContractTest.h"
 #include "SpectrumFocusTrailContractTest.h"
 #include "SpectrumInteractionContractTest.h"
 #include "SpectrumPresentationContractTest.h"
-
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
-
 namespace ui = hypha::ui_contract;
-
-static_assert (sizeof (KirinSpectrumView) == 3'096,
-               "Rust/C Spectrum view ABI size must remain exact");
-
+static_assert (sizeof (KirinSpectrumView) == 3'096, "Spectrum view ABI size must remain exact");
+static_assert (sizeof (KirinSpectrumBatch) == 27'872, "Spectrum batch ABI size must remain exact");
 namespace
 {
     void require (bool condition, const char* expression, int line)
@@ -176,7 +173,6 @@ namespace
         }
         result.paintMs = (juce::Time::getMillisecondCounterHiRes() - startedMs)
                        / paintIterations;
-
         const auto outputPath = juce::SystemStats::getEnvironmentVariable (
             outputEnvironmentVariable, {});
         if (outputPath.isNotEmpty())
@@ -187,7 +183,6 @@ namespace
         }
         return result;
     }
-
 }
 
 int main()
@@ -196,6 +191,7 @@ int main()
     hypha::tests::verifySpectrumFocusTrailContract();
     hypha::tests::verifySpectrumPresentationContract();
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
+    hypha::tests::verifyAbsoluteTimelineContract();
     hypha::tests::verifyPerceptualRenderingContract();
 
     const auto label = hypha::labelFont (ui::titleFontHeight);
@@ -346,7 +342,6 @@ int main()
                                            + spectrumSnapshot.display_db[index];
     }
     spectrum.setSnapshot (spectrumSnapshot);
-    hypha::tests::verifySpectrumFocusTrailRendering (spectrumSnapshot);
     const float previewHoverX = (float) ui::spectrumPlotLeftInset
                               + 0.70f * (float) (spectrumBounds.width
                                                - ui::spectrumPlotLeftInset
@@ -401,10 +396,18 @@ int main()
         { clearX, clearY }, eventTime, 0, false);
     spectrum.mouseDown (clearEvent);
     KIRIN_REQUIRE (! spectrum.hasFocusLock());
-
-    hypha::tests::verifySpectrumInteractionContract (
-        spectrum, spectrumSnapshot, spectrumBounds.width, spectrumBounds.height, eventTime);
-
+    for (const auto& preset : ui::spectrumSizePresets)
+    {
+        hypha::SpectrumComponent markSpectrum;
+        const auto markSpectrumBounds = ui::spectrumPlotBounds (preset.width, preset.height);
+        markSpectrum.setSize (markSpectrumBounds.width, markSpectrumBounds.height);
+        markSpectrum.setSnapshot (spectrumSnapshot);
+        hypha::tests::verifySpectrumInteractionContract (
+            markSpectrum, spectrumSnapshot,
+            markSpectrumBounds.width, markSpectrumBounds.height, eventTime);
+    }
+    // Keep the performance-sensitive trail gate after all three MARK size contracts.
+    hypha::tests::verifySpectrumFocusTrailRendering (spectrumSnapshot);
     hypha::SpectrumComponent lineEncodingSpectrum;
     lineEncodingSpectrum.setSize (spectrumBounds.width, spectrumBounds.height);
     KirinSpectrumView lineEncodingSnapshot = spectrumSnapshot;

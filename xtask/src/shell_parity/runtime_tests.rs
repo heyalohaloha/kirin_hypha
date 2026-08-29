@@ -349,8 +349,12 @@
                 && watch.contains("on demand")
                 && watch.contains("signed POST − PRE frequency difference")
                 && watch.contains("Perceptual Δ")
+                && watch.contains("LIVE")
+                && watch.contains(
+                    "POST-only six-second timeline of absolute LUFS-M, recent True Peak, and Sharpness"
+                )
                 && watch.contains("only the currently visible analyzer runs"),
-            "README Watch mode must connect its grid description to both POST analysis views"
+            "README Watch mode must connect its grid description to all three POST analysis views"
         );
     }
 

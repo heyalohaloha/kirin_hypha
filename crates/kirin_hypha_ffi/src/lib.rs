@@ -78,9 +78,10 @@ use kirin_measure::{
     RecordTraceQueue, ReleaseReason, RestartIoFn, SignalError, SignalState, SpectrumChannelMode,
     SpectrumCoordinator, SpectrumRuntime, SpectrumRuntimeStats, SpectrumViewSnapshot,
     SpectrumViewStatus, StoragePaths, WatchMaxTracker, WatchProducerHandoff, WatchdogIo,
-    WatchdogParams, CAPTURE_PRODUCER_READY_TIMEOUT, MAX_ACTIVE_PER_PROJECT, MAX_AUDIO_BLOCK_FRAMES,
-    MAX_CAPTURE_GENERATION_MEMBERS, N_CHANNELS, PERCEPTUAL_DIFFERENCE_TIMELINE_CAPACITY,
-    SPECTRUM_BAND_COUNT,
+    WatchdogParams, ABSOLUTE_TIMELINE_CAPACITY, CAPTURE_PRODUCER_READY_TIMEOUT,
+    MAX_ACTIVE_PER_PROJECT, MAX_AUDIO_BLOCK_FRAMES, MAX_CAPTURE_GENERATION_MEMBERS, N_CHANNELS,
+    PERCEPTUAL_DIFFERENCE_TIMELINE_CAPACITY, SPECTRUM_BAND_COUNT,
+    SPECTRUM_DIFFERENCE_TIMELINE_CAPACITY,
 };
 
 mod pair_binding;
@@ -2173,6 +2174,25 @@ impl KirinHyphaEngine {
         true
     }
 
+    /// POST-only absolute observation timeline. Unlike the paired views, this mode reads only
+    /// the local POST signal and never publishes a PRE exchange request.
+    pub fn set_absolute_visible(&self, visible: bool) -> bool {
+        let is_post =
+            self.write_role.lock().ok().and_then(|role| *role) == Some(PluginDataRole::Post);
+        if !is_post {
+            return false;
+        }
+        if visible
+            && !self
+                .spectrum
+                .set_post_analysis_mode(AnalysisViewMode::Absolute)
+        {
+            return false;
+        }
+        self.spectrum.set_post_visible(visible);
+        true
+    }
+
     /// POST-only Spectrum channel definition. The active runtime analyzes one definition at a
     /// time; SIDE fails closed for a mono engine.
     pub fn set_spectrum_channel_mode(&self, channel_mode: u8) -> bool {
@@ -2190,11 +2210,19 @@ impl KirinHyphaEngine {
         self.spectrum.try_view()
     }
 
+    pub fn poll_spectrum_batch(&self) -> Option<SpectrumViewSnapshot> {
+        self.spectrum.try_view()
+    }
+
     pub fn poll_perceptual(&self) -> Option<SpectrumViewSnapshot> {
         self.spectrum.try_view()
     }
 
     pub fn poll_perceptual_batch(&self) -> Option<SpectrumViewSnapshot> {
+        self.spectrum.try_view()
+    }
+
+    pub fn poll_absolute_batch(&self) -> Option<SpectrumViewSnapshot> {
         self.spectrum.try_view()
     }
 
@@ -3450,6 +3478,7 @@ pub const KIRIN_SPECTRUM_CHANNEL_SIDE: u8 = SpectrumChannelMode::Side as u8;
 
 /// POST-only Spectrum view. PRE/POST are the exact magnitudes behind `display_db`, which is signed
 /// POST - PRE and bounded only by the renderer. Rust retains the unclipped raw difference.
+#[derive(Clone, Copy)]
 #[repr(C)]
 pub struct KirinSpectrumView {
     pub status: u8,
@@ -3464,6 +3493,16 @@ pub struct KirinSpectrumView {
     pub display_db: [f32; SPECTRUM_BAND_COUNT],
     /// Exact shared PRE/POST presentation endpoint. Tail-appended for ABI prefix stability.
     pub presentation_end_samples: i64,
+}
+
+/// Eight already-computed exact Spectrum differences, oldest first. This bounded recovery window
+/// absorbs short UI stalls without adding FFT work or changing the latest-view ABI.
+#[repr(C)]
+pub struct KirinSpectrumBatch {
+    pub latest: KirinSpectrumView,
+    pub count: u32,
+    pub reserved: u32,
+    pub frames: [KirinSpectrumView; SPECTRUM_DIFFERENCE_TIMELINE_CAPACITY],
 }
 
 /// POST-only exact-aperture Perceptual Delta view. It carries measured facts, never a verdict.
@@ -3492,6 +3531,33 @@ pub struct KirinPerceptualBatch {
     pub count: u32,
     pub reserved: u32,
     pub frames: [KirinPerceptualView; PERCEPTUAL_DIFFERENCE_TIMELINE_CAPACITY],
+}
+
+/// One exact 100 ms POST-only absolute observation. Optional quantities use NaN at the ABI.
+#[derive(Clone, Copy)]
+#[repr(C)]
+pub struct KirinAbsoluteView {
+    pub status: u8,
+    pub has_data: u8,
+    pub channels: u8,
+    pub reserved: u8,
+    pub sample_rate: u32,
+    pub aperture_samples: u32,
+    pub lufs_m: f64,
+    pub true_peak: f64,
+    pub sharpness: f64,
+    pub presentation_end_samples: i64,
+    pub state_epoch_samples: i64,
+    pub generation: u64,
+}
+
+/// Non-destructive six-second POST-only observation timeline, oldest frame first.
+#[repr(C)]
+pub struct KirinAbsoluteBatch {
+    pub latest: KirinAbsoluteView,
+    pub count: u32,
+    pub reserved: u32,
+    pub frames: [KirinAbsoluteView; ABSOLUTE_TIMELINE_CAPACITY],
 }
 
 /// Read-only validation counters. No counter is used to make display or DSP decisions.
@@ -3671,6 +3737,54 @@ fn to_c_spectrum(snapshot: SpectrumViewSnapshot) -> KirinSpectrumView {
     }
 }
 
+fn empty_c_spectrum() -> KirinSpectrumView {
+    KirinSpectrumView {
+        status: KIRIN_SPECTRUM_HIDDEN,
+        has_data: 0,
+        channel_mode: KIRIN_SPECTRUM_CHANNEL_LR,
+        channels: 0,
+        sample_rate: 0,
+        min_hz: 0.0,
+        max_hz: 0.0,
+        pre_dbfs: [0.0; SPECTRUM_BAND_COUNT],
+        post_dbfs: [0.0; SPECTRUM_BAND_COUNT],
+        display_db: [0.0; SPECTRUM_BAND_COUNT],
+        presentation_end_samples: 0,
+    }
+}
+
+fn to_c_spectrum_batch(snapshot: SpectrumViewSnapshot) -> KirinSpectrumBatch {
+    let latest = to_c_spectrum(snapshot.clone());
+    let mut frames = [empty_c_spectrum(); SPECTRUM_DIFFERENCE_TIMELINE_CAPACITY];
+    let mut count = 0usize;
+    if snapshot.status == SpectrumViewStatus::Active
+        && snapshot.analysis_mode == AnalysisViewMode::Spectrum
+    {
+        for difference in snapshot.spectrum_timeline.frames() {
+            frames[count] = KirinSpectrumView {
+                status: KIRIN_SPECTRUM_ACTIVE,
+                has_data: 1,
+                channel_mode: difference.channel_mode as u8,
+                channels: difference.channels,
+                sample_rate: difference.sample_rate,
+                min_hz: difference.min_hz,
+                max_hz: difference.max_hz,
+                pre_dbfs: difference.pre_dbfs,
+                post_dbfs: difference.post_dbfs,
+                display_db: difference.display_db,
+                presentation_end_samples: difference.presentation_end_samples,
+            };
+            count += 1;
+        }
+    }
+    KirinSpectrumBatch {
+        latest,
+        count: count as u32,
+        reserved: 0,
+        frames,
+    }
+}
+
 fn to_c_perceptual(snapshot: SpectrumViewSnapshot) -> KirinPerceptualView {
     let difference = (snapshot.analysis_mode == AnalysisViewMode::Perceptual)
         .then_some(snapshot.perceptual_difference)
@@ -3744,6 +3858,61 @@ fn to_c_perceptual_batch(snapshot: SpectrumViewSnapshot) -> KirinPerceptualBatch
         }
     }
     KirinPerceptualBatch {
+        latest,
+        count: count as u32,
+        reserved: 0,
+        frames,
+    }
+}
+
+fn empty_c_absolute() -> KirinAbsoluteView {
+    KirinAbsoluteView {
+        status: KIRIN_SPECTRUM_HIDDEN,
+        has_data: 0,
+        channels: 0,
+        reserved: 0,
+        sample_rate: 0,
+        aperture_samples: 0,
+        lufs_m: f64::NAN,
+        true_peak: f64::NAN,
+        sharpness: f64::NAN,
+        presentation_end_samples: 0,
+        state_epoch_samples: 0,
+        generation: 0,
+    }
+}
+
+fn to_c_absolute_batch(snapshot: SpectrumViewSnapshot) -> KirinAbsoluteBatch {
+    let mut latest = empty_c_absolute();
+    latest.status = spectrum_status_to_abi(snapshot.status);
+    latest.channels = snapshot.channels;
+    let mut frames = [empty_c_absolute(); ABSOLUTE_TIMELINE_CAPACITY];
+    let mut count = 0usize;
+    if snapshot.status == SpectrumViewStatus::Active
+        && snapshot.analysis_mode == AnalysisViewMode::Absolute
+    {
+        for frame in snapshot.absolute_timeline.frames() {
+            frames[count] = KirinAbsoluteView {
+                status: KIRIN_SPECTRUM_ACTIVE,
+                has_data: 1,
+                channels: frame.channels,
+                reserved: 0,
+                sample_rate: frame.sample_rate,
+                aperture_samples: frame.aperture_samples,
+                lufs_m: opt_f64(frame.lufs_m),
+                true_peak: opt_f64(frame.true_peak),
+                sharpness: opt_f64(frame.sharpness),
+                presentation_end_samples: frame.presentation_end_samples,
+                state_epoch_samples: frame.state_epoch_samples,
+                generation: frame.generation,
+            };
+            count += 1;
+        }
+        if count > 0 {
+            latest = frames[count - 1];
+        }
+    }
+    KirinAbsoluteBatch {
         latest,
         count: count as u32,
         reserved: 0,
@@ -3843,27 +4012,32 @@ mod spectrum_abi_tests {
         assert_eq!(spectrum_status_to_abi(SpectrumViewStatus::Unavailable), 4);
         assert_eq!(spectrum_status_to_abi(SpectrumViewStatus::InUse), 5);
 
+        let difference = SpectrumDifference {
+            presentation_end_samples: 48_000,
+            sample_rate: 48_000,
+            min_hz: 10.0,
+            max_hz: 22_000.0,
+            channel_mode: SpectrumChannelMode::Side,
+            channels: 2,
+            pre_dbfs: [-42.0; SPECTRUM_BAND_COUNT],
+            post_dbfs: [-45.5; SPECTRUM_BAND_COUNT],
+            raw_db: [15.0; SPECTRUM_BAND_COUNT],
+            display_db: [-3.5; SPECTRUM_BAND_COUNT],
+        };
+        let mut spectrum_timeline = kirin_measure::SpectrumDifferenceTimeline::default();
+        spectrum_timeline.push(&difference);
         let snapshot = SpectrumViewSnapshot {
             status: SpectrumViewStatus::Active,
             analysis_mode: AnalysisViewMode::Spectrum,
             channel_mode: SpectrumChannelMode::Side,
             channels: 2,
-            difference: Some(SpectrumDifference {
-                presentation_end_samples: 48_000,
-                sample_rate: 48_000,
-                min_hz: 10.0,
-                max_hz: 22_000.0,
-                channel_mode: SpectrumChannelMode::Side,
-                channels: 2,
-                pre_dbfs: [-42.0; SPECTRUM_BAND_COUNT],
-                post_dbfs: [-45.5; SPECTRUM_BAND_COUNT],
-                raw_db: [15.0; SPECTRUM_BAND_COUNT],
-                display_db: [-3.5; SPECTRUM_BAND_COUNT],
-            }),
+            difference: Some(difference),
+            spectrum_timeline,
             perceptual_difference: None,
             perceptual_timeline: Default::default(),
+            absolute_timeline: Default::default(),
         };
-        let out = to_c_spectrum(snapshot);
+        let out = to_c_spectrum(snapshot.clone());
         assert_eq!(out.status, KIRIN_SPECTRUM_ACTIVE);
         assert_eq!(out.has_data, 1);
         assert_eq!(out.sample_rate, 48_000);
@@ -3874,6 +4048,12 @@ mod spectrum_abi_tests {
         assert_eq!(out.display_db[0], -3.5);
         assert_eq!(out.display_db[SPECTRUM_BAND_COUNT - 1], -3.5);
         assert_eq!(out.presentation_end_samples, 48_000);
+        let batch = to_c_spectrum_batch(snapshot);
+        assert_eq!(std::mem::size_of::<KirinSpectrumBatch>(), 27_872);
+        assert_eq!(batch.count, 1);
+        assert_eq!(batch.latest.presentation_end_samples, 48_000);
+        assert_eq!(batch.frames[0].presentation_end_samples, 48_000);
+        assert_eq!(batch.frames[0].display_db[0], -3.5);
     }
 
     #[test]
@@ -3906,8 +4086,10 @@ mod spectrum_abi_tests {
             channel_mode: SpectrumChannelMode::Mid,
             channels: 2,
             difference: None,
+            spectrum_timeline: Default::default(),
             perceptual_difference: Some(difference),
             perceptual_timeline,
+            absolute_timeline: Default::default(),
         };
         let out = to_c_perceptual(snapshot.clone());
         assert_eq!(out.status, KIRIN_SPECTRUM_ACTIVE);
@@ -3932,6 +4114,42 @@ mod spectrum_abi_tests {
         let hidden = to_c_perceptual(wrong_mode);
         assert_eq!(hidden.has_data, 0);
         assert!(hidden.delta_sharpness.is_nan());
+    }
+
+    #[test]
+    fn absolute_batch_preserves_exact_post_facts_without_delta() {
+        assert_eq!(std::mem::size_of::<KirinAbsoluteView>(), 64);
+        assert_eq!(std::mem::size_of::<KirinAbsoluteBatch>(), 4_168);
+        let mut absolute_timeline = kirin_measure::AbsoluteTimeline::default();
+        assert!(absolute_timeline.push(kirin_measure::AbsoluteFrame {
+            schema_version: kirin_measure::ABSOLUTE_SCHEMA_VERSION,
+            sample_rate: 48_000,
+            aperture_samples: 4_800,
+            presentation_end_samples: 9_600,
+            state_epoch_samples: 0,
+            generation: 7,
+            channels: 2,
+            lufs_m: Some(-18.5),
+            true_peak: Some(-2.0),
+            sharpness: Some(1.25),
+        }));
+        let batch = to_c_absolute_batch(SpectrumViewSnapshot {
+            status: SpectrumViewStatus::Active,
+            analysis_mode: AnalysisViewMode::Absolute,
+            channel_mode: SpectrumChannelMode::Lr,
+            channels: 2,
+            difference: None,
+            spectrum_timeline: Default::default(),
+            perceptual_difference: None,
+            perceptual_timeline: Default::default(),
+            absolute_timeline,
+        });
+        assert_eq!(batch.count, 1);
+        assert_eq!(batch.latest.lufs_m, -18.5);
+        assert_eq!(batch.latest.true_peak, -2.0);
+        assert_eq!(batch.latest.sharpness, 1.25);
+        assert_eq!(batch.latest.presentation_end_samples, 9_600);
+        assert_eq!(batch.latest.generation, 7);
     }
 
     #[test]
@@ -4920,7 +5138,7 @@ pub unsafe extern "C" fn kirin_hypha_set_spectrum_visible(
 }
 
 /// Enable or disable the POST-only Perceptual Delta page. Its Sharpness analyzer replaces the
-/// optional FFT while visible; the two analysis modes never run in parallel.
+/// optional FFT while visible; optional modes never run in parallel within one instance.
 ///
 /// # Safety
 /// `handle` must be null or a live pointer returned by [`kirin_hypha_create`].
@@ -4934,6 +5152,25 @@ pub unsafe extern "C" fn kirin_hypha_set_perceptual_visible(
             return false;
         }
         unsafe { (*handle).set_perceptual_visible(visible) }
+    }))
+    .unwrap_or(false)
+}
+
+/// Enable or disable the POST-only absolute observation timeline. This mode is local to POST and
+/// never creates a PRE exchange request.
+///
+/// # Safety
+/// `handle` must be null or a live pointer returned by [`kirin_hypha_create`].
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_set_absolute_visible(
+    handle: *mut KirinHyphaEngine,
+    visible: bool,
+) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() {
+            return false;
+        }
+        unsafe { (*handle).set_absolute_visible(visible) }
     }))
     .unwrap_or(false)
 }
@@ -4980,6 +5217,29 @@ pub unsafe extern "C" fn kirin_hypha_poll_spectrum(
     .unwrap_or(false)
 }
 
+/// Poll a bounded batch of already-computed POST-minus-PRE Spectrum views. Status-only snapshots
+/// carry `count=0`; lock contention is a silent skipped UI tick.
+///
+/// # Safety
+/// `handle` and `out` must be live writable pointers. UI Thread only.
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_poll_spectrum_batch(
+    handle: *mut KirinHyphaEngine,
+    out: *mut KirinSpectrumBatch,
+) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() || out.is_null() {
+            return false;
+        }
+        let Some(snapshot) = (unsafe { &*handle }).poll_spectrum_batch() else {
+            return false;
+        };
+        unsafe { *out = to_c_spectrum_batch(snapshot) };
+        true
+    }))
+    .unwrap_or(false)
+}
+
 /// Poll the latest exact-aperture POST-minus-PRE Sharpness observation.
 ///
 /// # Safety
@@ -5020,6 +5280,28 @@ pub unsafe extern "C" fn kirin_hypha_poll_perceptual_batch(
             return false;
         };
         unsafe { *out = to_c_perceptual_batch(snapshot) };
+        true
+    }))
+    .unwrap_or(false)
+}
+
+/// Poll the retained six-second POST-only absolute observation timeline.
+///
+/// # Safety
+/// `handle` and `out` must be live writable pointers. UI Thread only.
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_poll_absolute_batch(
+    handle: *mut KirinHyphaEngine,
+    out: *mut KirinAbsoluteBatch,
+) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() || out.is_null() {
+            return false;
+        }
+        let Some(snapshot) = (unsafe { &*handle }).poll_absolute_batch() else {
+            return false;
+        };
+        unsafe { *out = to_c_absolute_batch(snapshot) };
         true
     }))
     .unwrap_or(false)

@@ -23,6 +23,7 @@ fn shipped_au_and_vst3_compile_the_same_editor_processor_and_control_contract() 
         "kirin_hypha_get_paired_pre_instance_id",
         "kirin_hypha_drain_keep_action_notice",
         "kirin_hypha_poll_record_display",
+        "kirin_hypha_poll_spectrum_batch",
     ] {
         assert!(ffi_header.contains(symbol), "FFI must expose {symbol}");
     }
@@ -318,11 +319,14 @@ fn optional_analysis_is_post_only_on_demand_and_isolated_from_existing_schemas()
         "KIRIN_SPECTRUM_DISPLAY_RANGE_DB 24.0f",
         "kirin_hypha_set_spectrum_visible",
         "kirin_hypha_set_perceptual_visible",
+        "kirin_hypha_set_absolute_visible",
         "kirin_hypha_set_spectrum_channel_mode",
         "kirin_hypha_poll_spectrum",
         "kirin_hypha_poll_perceptual",
         "kirin_hypha_poll_perceptual_batch",
+        "kirin_hypha_poll_absolute_batch",
         "KIRIN_PERCEPTUAL_BATCH_CAPACITY 64",
+        "KIRIN_ABSOLUTE_BATCH_CAPACITY 64",
     ] {
         assert!(header.contains(required), "Spectrum ABI missing {required}");
     }
@@ -363,6 +367,7 @@ fn optional_analysis_is_post_only_on_demand_and_isolated_from_existing_schemas()
     assert!(processor.contains("perceptualAnalysisRequested.store (true"));
     assert!(processor.contains("perceptualAnalysisRequested.load"));
     assert!(processor.contains("kirin_hypha_set_perceptual_visible (hyphaHandle, true)"));
+    assert!(processor.contains("kirin_hypha_set_absolute_visible (hyphaHandle, true)"));
 
     let editor = read_repo("juce_shell/src/PluginEditor.cpp");
     assert!(editor.contains("#if ! KIRIN_HYPHA_PRE_DISPLAY"));
@@ -370,6 +375,8 @@ fn optional_analysis_is_post_only_on_demand_and_isolated_from_existing_schemas()
     assert!(editor.contains("processorRef.setSpectrumVisible (false)"));
     assert!(editor.contains("processorRef.setPerceptualVisible (false)"));
     assert!(editor.contains("AnalysisPage::perceptual"));
+    assert!(editor.contains("AnalysisPage::absolute"));
+    assert!(editor.contains("processorRef.pollAbsoluteBatch"));
     assert!(editor.contains("spectrumSizeIndex + 1u"));
     assert!(editor.contains("ui::spectrumSizePresets[spectrumSizeIndex]"));
     assert!(editor.contains(": ui::spectrumSizePresets[0]"));
@@ -397,10 +404,11 @@ fn optional_analysis_is_post_only_on_demand_and_isolated_from_existing_schemas()
     let cmake = read_repo("juce_shell/CMakeLists.txt");
     let post_only_branch = slice_between(
         &cmake,
-        "else()\n        target_sources(${TARGET} PRIVATE\n            src/HyphaPerceptualComponent.cpp",
+        "else()\n        target_sources(${TARGET} PRIVATE\n            src/HyphaAbsoluteComponent.cpp",
         "endif()",
     );
     assert!(post_only_branch.contains("src/HyphaPerceptualPainter.cpp"));
+    assert!(post_only_branch.contains("src/HyphaAbsolutePainter.cpp"));
     assert!(post_only_branch.contains("src/HyphaSpectrumComponent.cpp"));
     assert!(post_only_branch.contains("src/HyphaSpectrumPainter.cpp"));
     assert!(post_only_branch.contains("src/HyphaSpectrumChromePainter.cpp"));

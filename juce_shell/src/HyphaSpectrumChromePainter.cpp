@@ -24,7 +24,9 @@ namespace
         if (status == KIRIN_SPECTRUM_NO_PAIR) return juce::CharPointer_UTF8 ("PAIR —");
         if (status == KIRIN_SPECTRUM_WARMING_UP) return juce::CharPointer_UTF8 ("SYNC ◌");
         if (status == KIRIN_SPECTRUM_UNAVAILABLE) return juce::CharPointer_UTF8 ("DATA —");
-        if (status == KIRIN_SPECTRUM_IN_USE) return juce::CharPointer_UTF8 ("ANALYSIS — IN USE");
+        if (status == KIRIN_SPECTRUM_IN_USE)
+            return juce::CharPointer_UTF8 (
+                "2 ANALYSIS SLOTS — BOTH ACTIVE\nCLOSE ONE TO OPEN THIS VIEW");
         return {};
     }
 
@@ -229,13 +231,20 @@ namespace
         const auto mark = spectrum_geometry::markBoundsFor (outerPlot, scale);
         if (state.haveMark)
         {
-            g.setColour (BG.brighter (0.12f).withAlpha (0.90f));
+            g.setColour (COL_FLORA.withAlpha (
+                ui_contract::spectrumMarkButtonActiveFillAlpha));
             g.fillRoundedRectangle (mark, scaled (3.0f));
-            g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.42f));
-            g.drawRoundedRectangle (mark, scaled (3.0f), scaled (0.65f));
         }
+        g.setColour ((state.haveMark ? COL_FLORA_BR : COL_FLORA).withAlpha (
+            state.haveMark ? ui_contract::spectrumMarkButtonActiveBorderAlpha
+                           : ui_contract::spectrumMarkButtonInactiveBorderAlpha));
+        g.drawRoundedRectangle (mark, scaled (3.0f), scaled (0.75f));
         g.setFont (monoFont (scaled (7.0f)));
-        g.setColour (state.snapshotValid ? COL_NORMAL.withAlpha (state.haveMark ? 0.90f : 0.62f)
+        g.setColour (state.snapshotValid
+                         ? (state.haveMark ? COL_FLORA_BR : COL_FLORA).withAlpha (
+                               state.haveMark
+                                   ? ui_contract::spectrumMarkButtonActiveAlpha
+                                   : ui_contract::spectrumMarkButtonInactiveAlpha)
                                          : COL_MUTED.withAlpha (0.34f));
         auto labelBounds = mark;
         if (state.haveMark)
@@ -243,7 +252,7 @@ namespace
         g.drawText ("MARK", labelBounds.toNearestInt(), juce::Justification::centred);
         if (state.haveMark)
         {
-            g.setColour (COL_NORMAL.withAlpha (0.64f));
+            g.setColour (COL_FLORA_BR.withAlpha (0.82f));
             g.drawText (juce::CharPointer_UTF8 ("×"),
                         spectrum_geometry::markClearBoundsFor (mark, scale).toNearestInt(),
                         juce::Justification::centred);
@@ -396,7 +405,8 @@ void paint (juce::Graphics& g,
         {
             g.setColour (COL_MUTED);
             g.setFont (monoFont (13.0f * scale));
-            g.drawText (text, plot, juce::Justification::centred);
+            g.drawFittedText (text, plot.toNearestInt(), juce::Justification::centred,
+                              2, 0.72f);
         }
         return;
     }

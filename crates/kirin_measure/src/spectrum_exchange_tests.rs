@@ -219,35 +219,48 @@ fn malformed_perceptual_payload_fails_closed() {
 }
 
 #[test]
-fn exactly_one_post_analysis_runtime_is_active_per_process_lease() {
+fn exactly_two_post_analysis_runtimes_are_active_per_process_lease() {
     let temp = tempfile::tempdir().unwrap();
-    let lease_path = temp.path().join("one-analysis.lease");
+    let lease_paths = [
+        temp.path().join("analysis.0.lease"),
+        temp.path().join("analysis.1.lease"),
+    ];
     let first_runtime = SpectrumRuntime::new(48_000, 2);
     let second_runtime = SpectrumRuntime::new(48_000, 2);
+    let third_runtime = SpectrumRuntime::new(48_000, 2);
     let first = SpectrumCoordinator::new_with_lease(
         48_000,
         first_runtime,
-        crate::analysis_lease::AnalysisLease::at_path(lease_path.clone()),
+        crate::analysis_lease::AnalysisLease::at_paths(lease_paths.clone()),
     );
     let second = SpectrumCoordinator::new_with_lease(
         48_000,
         second_runtime,
-        crate::analysis_lease::AnalysisLease::at_path(lease_path),
+        crate::analysis_lease::AnalysisLease::at_paths(lease_paths.clone()),
+    );
+    let third = SpectrumCoordinator::new_with_lease(
+        48_000,
+        third_runtime,
+        crate::analysis_lease::AnalysisLease::at_paths(lease_paths),
     );
     first.set_post_visible(true);
     second.set_post_visible(true);
+    third.set_post_visible(true);
 
     assert!(!first.post_tick("post-a", None));
     assert!(!second.post_tick("post-b", None));
+    assert!(!third.post_tick("post-c", None));
     assert_eq!(first.try_view().unwrap().status, SpectrumViewStatus::NoPair);
-    assert_eq!(second.try_view().unwrap().status, SpectrumViewStatus::InUse);
-
-    first.set_post_visible(false);
-    assert!(!second.post_tick("post-b", None));
     assert_eq!(
         second.try_view().unwrap().status,
         SpectrumViewStatus::NoPair
     );
+    assert_eq!(third.try_view().unwrap().status, SpectrumViewStatus::InUse);
+
+    first.set_post_visible(false);
+    assert!(!third.post_tick("post-c", None));
+    assert_eq!(third.try_view().unwrap().status, SpectrumViewStatus::NoPair);
+    third.shutdown();
     second.shutdown();
     first.shutdown();
 }
@@ -328,6 +341,88 @@ fn post_without_exact_pair_never_enables_fft() {
     assert_eq!(
         coordinator.try_view().unwrap().status,
         SpectrumViewStatus::NoPair
+    );
+    coordinator.shutdown();
+    runtime.shutdown_and_join();
+}
+
+#[test]
+fn post_absolute_timeline_needs_no_pair_and_never_creates_a_pre_request() {
+    let temp = tempfile::tempdir().unwrap();
+    let runtime = SpectrumRuntime::new(48_000, 2);
+    assert!(runtime.set_analysis_mode(AnalysisViewMode::Absolute));
+    let coordinator = SpectrumCoordinator::new_with_lease(
+        48_000,
+        Arc::clone(&runtime),
+        crate::analysis_lease::AnalysisLease::at_paths([
+            temp.path().join("analysis.0.lease"),
+            temp.path().join("analysis.1.lease"),
+        ]),
+    );
+    coordinator.set_post_visible(true);
+    assert!(coordinator.post_tick("post", None));
+    assert!(runtime.is_enabled());
+    let view = coordinator.try_view().unwrap();
+    assert_eq!(view.status, SpectrumViewStatus::WarmingUp);
+    assert_eq!(view.analysis_mode, AnalysisViewMode::Absolute);
+    assert!(view.difference.is_none());
+    assert!(view.perceptual_difference.is_none());
+    assert!(!temp.path().join("spectrum").join("request.json").exists());
+    coordinator.shutdown();
+    runtime.shutdown_and_join();
+}
+
+#[test]
+fn active_spectrum_view_retains_eight_exact_differences_for_ui_recovery() {
+    let runtime = SpectrumRuntime::new(48_000, 2);
+    let coordinator = SpectrumCoordinator::new(48_000, Arc::clone(&runtime));
+
+    for index in 1..=10 {
+        let endpoint = index * 1_600;
+        let pre = frame(endpoint, -30.0);
+        let post = frame(endpoint, -27.0);
+        let difference = crate::difference_post_minus_pre(&post, &pre).unwrap();
+        coordinator.store_view(SpectrumViewStatus::Active, Some(difference), None);
+    }
+
+    let view = coordinator.try_view().unwrap();
+    let endpoints = view
+        .spectrum_timeline
+        .frames()
+        .map(|frame| frame.presentation_end_samples)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        endpoints,
+        (3..=10).map(|index| index * 1_600).collect::<Vec<_>>()
+    );
+    assert_eq!(
+        view.difference.as_ref().unwrap().presentation_end_samples,
+        10 * 1_600
+    );
+    assert!((view.difference.as_ref().unwrap().display_db[0] - 3.0).abs() < 1.0e-6);
+
+    let pre = frame(10 * 1_600, -30.0);
+    let conflicting_duplicate = frame(10 * 1_600, -12.0);
+    let conflicting_duplicate =
+        crate::difference_post_minus_pre(&conflicting_duplicate, &pre).unwrap();
+    coordinator.store_view(
+        SpectrumViewStatus::Active,
+        Some(conflicting_duplicate),
+        None,
+    );
+    let stable = coordinator.try_view().unwrap();
+    assert!((stable.difference.unwrap().display_db[0] - 3.0).abs() < 1.0e-6);
+    assert_eq!(stable.spectrum_timeline.frames().count(), 8);
+
+    coordinator.store_view(SpectrumViewStatus::WarmingUp, None, None);
+    assert_eq!(
+        coordinator
+            .try_view()
+            .unwrap()
+            .spectrum_timeline
+            .frames()
+            .count(),
+        0
     );
     coordinator.shutdown();
     runtime.shutdown_and_join();

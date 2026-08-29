@@ -85,6 +85,9 @@ pub(super) fn validated_request(
 ) -> Option<(Uuid, AnalysisViewMode, SpectrumChannelMode, Option<i64>)> {
     let request = read_request(instance_dir)?;
     let analysis_mode = AnalysisViewMode::try_from(request.analysis_mode).ok()?;
+    if analysis_mode == AnalysisViewMode::Absolute {
+        return None;
+    }
     let channel_mode = SpectrumChannelMode::try_from(request.channel_mode).ok()?;
     (request.schema == REQUEST_SCHEMA
         && request.target_pre_instance_id == pre_instance_id

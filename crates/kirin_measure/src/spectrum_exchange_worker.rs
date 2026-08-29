@@ -16,6 +16,7 @@ use crate::spectrum_exchange::{SpectrumCoordinator, SpectrumTarget};
 const INACTIVE_WAIT: Duration = Duration::from_millis(250);
 const ACTIVE_WAIT: Duration =
     Duration::from_nanos(1_000_000_000_u64 / SPECTRUM_PRESENTATION_HZ as u64);
+const ABSOLUTE_ACTIVE_WAIT: Duration = Duration::from_millis(100);
 /// The normal PRE/POST IO loop calls `service_*_endpoint()` at 10 Hz. Eight calls without a
 /// successfully published request/readiness/snapshot detect a stalled exchange after about
 /// 800 ms, leaving margin before the 1.5 s request lease expires. The rescue tick stays on the IO
@@ -326,7 +327,13 @@ fn run_worker(state: Arc<WorkerState>, coordinator: Weak<SpectrumCoordinator>) {
                 } => coordinator.post_tick(&instance_id, target),
             }
         };
-        wait = if active { ACTIVE_WAIT } else { INACTIVE_WAIT };
+        wait = if !active {
+            INACTIVE_WAIT
+        } else if coordinator.active_analysis_mode() == crate::AnalysisViewMode::Absolute {
+            ABSOLUTE_ACTIVE_WAIT
+        } else {
+            ACTIVE_WAIT
+        };
     }
 }
 
@@ -339,6 +346,7 @@ mod tests {
         assert_eq!(SPECTRUM_PRESENTATION_HZ, 30);
         assert_eq!(ACTIVE_WAIT, Duration::from_nanos(33_333_333));
         assert!(ACTIVE_WAIT < Duration::from_millis(100));
+        assert_eq!(ABSOLUTE_ACTIVE_WAIT, Duration::from_millis(100));
     }
 
     #[test]

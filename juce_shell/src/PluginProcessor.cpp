@@ -718,7 +718,10 @@ bool KirinHyphaProcessorBase::setSpectrumVisible (bool visible)
     if (role != Role::Post)
         return false;
     if (visible)
+    {
         perceptualAnalysisRequested.store (false, std::memory_order_release);
+        absoluteAnalysisRequested.store (false, std::memory_order_release);
+    }
     spectrumVisibleRequested.store (visible, std::memory_order_release);
     const juce::ScopedLock sl (handleLock);
     if (hyphaHandle == nullptr || ! writesEnabled.load (std::memory_order_acquire))
@@ -735,7 +738,14 @@ bool KirinHyphaProcessorBase::setPerceptualVisible (bool visible)
     if (role != Role::Post)
         return false;
     if (visible)
+    {
         perceptualAnalysisRequested.store (true, std::memory_order_release);
+        absoluteAnalysisRequested.store (false, std::memory_order_release);
+    }
+    else
+    {
+        perceptualAnalysisRequested.store (false, std::memory_order_release);
+    }
     spectrumVisibleRequested.store (visible, std::memory_order_release);
     const juce::ScopedLock sl (handleLock);
     if (hyphaHandle == nullptr || ! writesEnabled.load (std::memory_order_acquire))
@@ -745,6 +755,26 @@ bool KirinHyphaProcessorBase::setPerceptualVisible (bool visible)
             preferredSpectrumChannelMode.load (std::memory_order_acquire)))
         return false;
     return kirin_hypha_set_perceptual_visible (hyphaHandle, visible);
+}
+
+bool KirinHyphaProcessorBase::setAbsoluteVisible (bool visible)
+{
+    if (role != Role::Post)
+        return false;
+    if (visible)
+    {
+        perceptualAnalysisRequested.store (false, std::memory_order_release);
+        absoluteAnalysisRequested.store (true, std::memory_order_release);
+    }
+    else
+    {
+        absoluteAnalysisRequested.store (false, std::memory_order_release);
+    }
+    spectrumVisibleRequested.store (visible, std::memory_order_release);
+    const juce::ScopedLock sl (handleLock);
+    if (hyphaHandle == nullptr || ! writesEnabled.load (std::memory_order_acquire))
+        return false;
+    return kirin_hypha_set_absolute_visible (hyphaHandle, visible);
 }
 
 bool KirinHyphaProcessorBase::setSpectrumChannelMode (uint8_t channelMode)
@@ -774,6 +804,14 @@ bool KirinHyphaProcessorBase::pollSpectrum (KirinSpectrumView& out) const
     return hyphaHandle != nullptr && kirin_hypha_poll_spectrum (hyphaHandle, &out);
 }
 
+bool KirinHyphaProcessorBase::pollSpectrumBatch (KirinSpectrumBatch& out) const
+{
+    if (role != Role::Post)
+        return false;
+    const juce::ScopedLock sl (handleLock);
+    return hyphaHandle != nullptr && kirin_hypha_poll_spectrum_batch (hyphaHandle, &out);
+}
+
 bool KirinHyphaProcessorBase::pollPerceptual (KirinPerceptualView& out) const
 {
     if (role != Role::Post)
@@ -788,6 +826,14 @@ bool KirinHyphaProcessorBase::pollPerceptualBatch (KirinPerceptualBatch& out) co
         return false;
     const juce::ScopedLock sl (handleLock);
     return hyphaHandle != nullptr && kirin_hypha_poll_perceptual_batch (hyphaHandle, &out);
+}
+
+bool KirinHyphaProcessorBase::pollAbsoluteBatch (KirinAbsoluteBatch& out) const
+{
+    if (role != Role::Post)
+        return false;
+    const juce::ScopedLock sl (handleLock);
+    return hyphaHandle != nullptr && kirin_hypha_poll_absolute_batch (hyphaHandle, &out);
 }
 
 bool KirinHyphaProcessorBase::spectrumStats (KirinSpectrumStats& out) const
@@ -1142,7 +1188,9 @@ void KirinHyphaProcessorBase::enableWritesNow()
             kirin_hypha_set_spectrum_channel_mode (
                 hyphaHandle,
                 preferredSpectrumChannelMode.load (std::memory_order_acquire));
-            if (perceptualAnalysisRequested.load (std::memory_order_acquire))
+            if (absoluteAnalysisRequested.load (std::memory_order_acquire))
+                kirin_hypha_set_absolute_visible (hyphaHandle, true);
+            else if (perceptualAnalysisRequested.load (std::memory_order_acquire))
                 kirin_hypha_set_perceptual_visible (hyphaHandle, true);
             else
                 kirin_hypha_set_spectrum_visible (hyphaHandle, true);

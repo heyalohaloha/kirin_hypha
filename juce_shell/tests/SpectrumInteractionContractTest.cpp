@@ -1,5 +1,6 @@
 #include "SpectrumInteractionContractTest.h"
 
+#include "../src/HyphaSpectrumGeometry.h"
 #include "../src/HyphaSpectrumUiContract.h"
 #include "../src/HyphaUiContract.h"
 
@@ -33,6 +34,58 @@ namespace
         return count;
     }
 
+    int countWarmChangedPixels (const juce::Image& withMark,
+                                const juce::Image& withoutMark,
+                                juce::Rectangle<int> requested)
+    {
+        KIRIN_INTERACTION_REQUIRE (withMark.getBounds() == withoutMark.getBounds());
+        const auto area = requested.getIntersection (withMark.getBounds());
+        int count = 0;
+        for (int y = area.getY(); y < area.getBottom(); ++y)
+        {
+            for (int x = area.getX(); x < area.getRight(); ++x)
+            {
+                const auto marked = withMark.getPixelAt (x, y);
+                if (marked.getARGB() != withoutMark.getPixelAt (x, y).getARGB()
+                    && (int) marked.getRed() > (int) marked.getBlue() + 18
+                    && (int) marked.getGreen() > (int) marked.getBlue() + 8)
+                {
+                    ++count;
+                }
+            }
+        }
+        return count;
+    }
+
+    int countWarmPixels (const juce::Image& image, juce::Rectangle<int> requested)
+    {
+        const auto area = requested.getIntersection (image.getBounds());
+        int count = 0;
+        for (int y = area.getY(); y < area.getBottom(); ++y)
+            for (int x = area.getX(); x < area.getRight(); ++x)
+            {
+                const auto pixel = image.getPixelAt (x, y);
+                if ((int) pixel.getRed() > (int) pixel.getBlue() + 18
+                    && (int) pixel.getGreen() > (int) pixel.getBlue() + 8)
+                {
+                    ++count;
+                }
+            }
+        return count;
+    }
+
+    void writeReviewImage (const juce::Image& image, const char* environmentVariable)
+    {
+        const auto path = juce::SystemStats::getEnvironmentVariable (
+            environmentVariable, {});
+        if (path.isEmpty())
+            return;
+        auto output = juce::File (path).createOutputStream();
+        KIRIN_INTERACTION_REQUIRE (output != nullptr);
+        KIRIN_INTERACTION_REQUIRE (
+            juce::PNGImageFormat().writeImageToStream (image, *output));
+    }
+
     juce::MouseEvent mouseEvent (juce::Component& component,
                                   float x,
                                   float y,
@@ -54,12 +107,13 @@ void verifySpectrumInteractionContract (SpectrumComponent& spectrum,
                                         juce::Time eventTime)
 {
     namespace ui = ui_contract;
-    const float controlY = (float) ui::spectrumPlotTopInset
-                         + (float) ui::spectrumChannelModeTop
-                         + 0.5f * (float) ui::spectrumChannelModeHeight;
-    const float markX = (float) width
-                      - (float) ui::spectrumPlotRightInset
-                      - 0.5f * (float) ui::spectrumMarkWidth;
+    const auto componentBounds = juce::Rectangle<float> (
+        0.0f, 0.0f, (float) width, (float) height);
+    const auto outerPlot = spectrum_geometry::plotBoundsFor (componentBounds);
+    const float scale = spectrum_geometry::visualScaleFor (componentBounds);
+    const auto markBounds = spectrum_geometry::markBoundsFor (outerPlot, scale);
+    const float controlY = markBounds.getCentreY();
+    const float markX = markBounds.getCentreX();
     spectrum.mouseDown (mouseEvent (spectrum, markX, controlY, eventTime));
     KIRIN_INTERACTION_REQUIRE (spectrum.hasMark());
 
@@ -74,9 +128,14 @@ void verifySpectrumInteractionContract (SpectrumComponent& spectrum,
         juce::Graphics graphics (withMark);
         spectrum.paintEntireComponent (graphics, true);
     }
+    writeReviewImage (
+        withMark,
+        scale < 1.125f ? "KIRIN_UI_MARK_OUTPUT"
+          : scale < 1.375f ? "KIRIN_UI_MARK_OUTPUT_MEDIUM"
+                           : "KIRIN_UI_MARK_OUTPUT_LARGE");
 
-    const float markClearX = (float) width
-                           - (float) ui::spectrumPlotRightInset - 2.0f;
+    const float markClearX = spectrum_geometry::markClearBoundsFor (
+        markBounds, scale).getCentreX();
     spectrum.mouseDown (mouseEvent (spectrum, markClearX, controlY, eventTime));
     KIRIN_INTERACTION_REQUIRE (! spectrum.hasMark());
     juce::Image afterMarkClear (
@@ -86,6 +145,14 @@ void verifySpectrumInteractionContract (SpectrumComponent& spectrum,
         spectrum.paintEntireComponent (graphics, true);
     }
     KIRIN_INTERACTION_REQUIRE (countDifferentPixels (withMark, afterMarkClear) > 40);
+    const auto dataPlot = spectrum_geometry::dataPlotBoundsFor (
+        componentBounds).toNearestInt();
+    const auto markButton = markBounds.toNearestInt();
+    KIRIN_INTERACTION_REQUIRE (
+        countWarmChangedPixels (withMark, afterMarkClear, dataPlot) > 20);
+    KIRIN_INTERACTION_REQUIRE (
+        countWarmChangedPixels (withMark, afterMarkClear, markButton) > 8);
+    KIRIN_INTERACTION_REQUIRE (countWarmPixels (afterMarkClear, markButton) > 8);
     spectrum.mouseDown (mouseEvent (spectrum, markX, controlY, eventTime));
     KIRIN_INTERACTION_REQUIRE (spectrum.hasMark());
     KirinSpectrumView warmingSnapshot = movedSnapshot;
@@ -103,17 +170,35 @@ void verifySpectrumInteractionContract (SpectrumComponent& spectrum,
     KirinSpectrumView skippedEndpoint = nextEndpoint;
     skippedEndpoint.presentation_end_samples += 3'200;
     spectrum.setSnapshot (skippedEndpoint);
-    KIRIN_INTERACTION_REQUIRE (spectrum.focusTrailSizeForTest() == 1u);
+    KIRIN_INTERACTION_REQUIRE (spectrum.focusTrailSizeForTest() == 3u);
+
+    SpectrumComponent recoveredSpectrum;
+    recoveredSpectrum.setSize (width, height);
+    KirinSpectrumBatch recovery {};
+    recovery.count = 4u;
+    for (uint32_t index = 0u; index < recovery.count; ++index)
+    {
+        recovery.frames[index] = snapshot;
+        recovery.frames[index].presentation_end_samples += 1'600 * index;
+        recovery.frames[index].display_db[0] += (float) index;
+        recovery.frames[index].post_dbfs[0] += (float) index;
+    }
+    recovery.latest = recovery.frames[recovery.count - 1u];
+    recoveredSpectrum.setBatch (recovery);
+    KIRIN_INTERACTION_REQUIRE (recoveredSpectrum.focusTrailSizeForTest() == 4u);
+    KirinSpectrumBatch invalidRecovery = recovery;
+    invalidRecovery.frames[2].presentation_end_samples
+        = invalidRecovery.frames[1].presentation_end_samples;
+    recoveredSpectrum.setBatch (invalidRecovery);
+    KIRIN_INTERACTION_REQUIRE (recoveredSpectrum.focusTrailSizeForTest() == 4u);
 
     uint8_t requestedChannelMode = 0xffu;
     spectrum.onChannelModeChange = [&requestedChannelMode] (uint8_t mode) {
         requestedChannelMode = mode;
         return true;
     };
-    const float midX = (float) ui::spectrumPlotLeftInset
-                     + (float) ui::spectrumChannelModeWidths[0]
-                     + (float) ui::spectrumChannelModeGap
-                     + 0.5f * (float) ui::spectrumChannelModeWidths[1];
+    const float midX = spectrum_geometry::channelModeBoundsFor (
+        1u, outerPlot, scale).getCentreX();
     spectrum.mouseDown (mouseEvent (spectrum, midX, controlY, eventTime));
     KIRIN_INTERACTION_REQUIRE (requestedChannelMode == KIRIN_SPECTRUM_CHANNEL_MID);
     KIRIN_INTERACTION_REQUIRE (
@@ -131,12 +216,8 @@ void verifySpectrumInteractionContract (SpectrumComponent& spectrum,
         ++monoModeCallbacks;
         return true;
     };
-    const float sideX = (float) ui::spectrumPlotLeftInset
-                      + (float) ui::spectrumChannelModeWidths[0]
-                      + (float) ui::spectrumChannelModeGap
-                      + (float) ui::spectrumChannelModeWidths[1]
-                      + (float) ui::spectrumChannelModeGap
-                      + 0.5f * (float) ui::spectrumChannelModeWidths[2];
+    const float sideX = spectrum_geometry::channelModeBoundsFor (
+        2u, outerPlot, scale).getCentreX();
     monoSpectrum.mouseDown (mouseEvent (monoSpectrum, sideX, controlY, eventTime));
     KIRIN_INTERACTION_REQUIRE (monoModeCallbacks == 0);
     KIRIN_INTERACTION_REQUIRE (

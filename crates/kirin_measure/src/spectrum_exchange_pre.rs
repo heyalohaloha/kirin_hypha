@@ -223,6 +223,7 @@ impl SpectrumCoordinator {
                     self.runtime.perceptual_state_epoch(),
                 )
             }
+            AnalysisViewMode::Absolute => return false,
         };
         let Some(newest_end) = newest_end else {
             return true;
@@ -260,6 +261,7 @@ impl SpectrumCoordinator {
         let write_result = match analysis_mode {
             AnalysisViewMode::Spectrum => write_snapshot(instance_dir, &bytes),
             AnalysisViewMode::Perceptual => write_perceptual_snapshot(instance_dir, &bytes),
+            AnalysisViewMode::Absolute => return false,
         };
         if write_result.is_err() {
             let mut slot = match self.try_pre_session() {

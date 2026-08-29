@@ -163,11 +163,11 @@ void paintCurves (juce::Graphics& g,
         }
     }
 
-    // MARK is a presentation-only frozen Δ. Keep it subordinate: one continuous hairline,
-    // without fill, glow, persistence, or a second comparison calculation.
+    // MARK is a presentation-only frozen Δ. Amber separates the chosen moment from the cyan live
+    // fact, while its narrower stroke and lack of fill/glow keep the live Δ visually primary.
     if (! markCurve.isEmpty())
     {
-        g.setColour (COL_SPECTRUM_DELTA_BR.withAlpha (
+        g.setColour (COL_FLORA.withAlpha (
             ui_contract::spectrumMarkCurveAlpha));
         g.strokePath (markCurve,
                       juce::PathStrokeType (
