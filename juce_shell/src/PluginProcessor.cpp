@@ -161,6 +161,10 @@ void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBl
         const uint8_t lic = kirin_hypha_load_license();
         cachedLicenseCode.store ((int) lic, std::memory_order_release);
         kirin_hypha_set_license (hyphaHandle, lic);
+        // A recalled Studio Pro session may deliver setActive(false) before prepareToPlay creates
+        // the Rust engine. Apply the retained host fact to every fresh handle so an insert that
+        // was already OFF at project-open reaches the same ABS state as an explicit live click.
+        kirin_hypha_set_host_component_active (hyphaHandle, hostComponentActive);
         writesEnabled.store (false, std::memory_order_release);
         // Logic stopped-state fix: re-prepare needs a fresh enable, but Logic may not call processBlock until
         // playback. Start a message-thread fallback so Inactive presence/candidates are published
@@ -192,6 +196,7 @@ void KirinHyphaProcessorBase::hostComponentActivationChanged (bool active)
     // (sample-rate reconfigure / offline render / teardown). Rust applies the shared heartbeat
     // grace before publishing Bypassed, so transient host reconfiguration remains Inactive.
     const juce::ScopedLock sl (handleLock);
+    hostComponentActive = active;
     if (hyphaHandle != nullptr)
         kirin_hypha_set_host_component_active (hyphaHandle, active);
 }

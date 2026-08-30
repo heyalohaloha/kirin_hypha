@@ -161,6 +161,7 @@ private:
 
     juce::CriticalSection handleLock;                  // guards hyphaHandle vs editor poll / create / destroy
     KirinHypha* hyphaHandle = nullptr;                 // owned; reused across same-format prepareToPlay; destroyed on incompatible reprepare/dtor
+    bool hostComponentActive = true;                   // guarded by handleLock; retains VST3 setActive before engine creation
     double preparedSampleRate = 0.0;                   // format bound to hyphaHandle
     int preparedInputChannels = 0;                     // format bound to hyphaHandle
     bool lastProcessPositionValid = false;             // audio-thread local transport position cache

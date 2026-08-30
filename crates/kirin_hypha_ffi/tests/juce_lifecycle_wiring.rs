@@ -523,7 +523,21 @@ fn vst3_component_activation_is_distinct_from_release_resources() {
         "void KirinHyphaProcessorBase::hostComponentActivationChanged",
         "bool KirinHyphaProcessorBase::isBusesLayoutSupported",
     );
+    assert!(activation.contains("hostComponentActive = active"));
     assert!(activation.contains("kirin_hypha_set_host_component_active"));
+
+    let prepare = slice_between(
+        &processor,
+        "void KirinHyphaProcessorBase::prepareToPlay",
+        "void KirinHyphaProcessorBase::releaseResources",
+    );
+    assert!(
+        prepare
+            .contains("kirin_hypha_set_host_component_active (hyphaHandle, hostComponentActive)"),
+        "a host OFF delivered before engine creation must be applied to the fresh handle"
+    );
+
+    assert!(processor_header.contains("bool hostComponentActive = true"));
 
     let juce_patch = read_repo("juce_shell/patches/0007-vst3-host-component-activation.patch");
     assert!(juce_patch.contains("hostComponentActivationChanged (willBeActive)"));
