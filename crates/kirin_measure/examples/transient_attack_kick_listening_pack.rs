@@ -32,6 +32,8 @@ use input::{read_development_pilot_selection, read_mono_pcm_wav, Selection};
 const SAMPLE_RATE: u32 = 44_100;
 const PRE_SAMPLES: usize = 8_820;
 const POST_SAMPLES: usize = 13_230;
+const FOCUS_START_SAMPLES: usize = 6_615;
+const FOCUS_END_SAMPLES: usize = 13_230;
 const EVENTS_PER_CELL: usize = 5;
 const TARGET_DRUMMERS: [&str; 3] = ["drummer4", "drummer5", "drummer7"];
 const TARGET_CLASSES: [&str; 3] = [
@@ -87,6 +89,7 @@ struct KeyArtifact {
 struct KeyEvent {
     clip_id: String,
     clip_sha256: String,
+    focus_sha256: String,
     diagnostic: DiagnosticEvent,
 }
 
@@ -124,9 +127,15 @@ fn run() -> Result<(), String> {
     let clips_dir = cli.output_dir.join("clips");
     fs::create_dir(&clips_dir)
         .map_err(|error| format!("cannot create clips directory: {error}"))?;
+    let focus_dir = cli.output_dir.join("focus");
+    fs::create_dir(&focus_dir)
+        .map_err(|error| format!("cannot create focus directory: {error}"))?;
 
     let mut key_events = Vec::with_capacity(chosen.len());
-    let mut manifest = String::from("clip_id,filename,sha256,target_reference_ms,duration_ms\n");
+    let mut review_clips = Vec::with_capacity(chosen.len());
+    let mut manifest = String::from(
+        "clip_id,filename,sha256,focus_filename,focus_sha256,target_reference_ms,duration_ms\n",
+    );
     for (performance_id, events) in group_by_performance(&chosen) {
         let source = selections.get(&performance_id).ok_or_else(|| {
             format!("diagnostic performance is absent from manifest: {performance_id}")
@@ -153,18 +162,31 @@ fn run() -> Result<(), String> {
             let clip_sha256 = sha256_bytes(&bytes);
             let filename = format!("{}.wav", chosen_event.clip_id);
             publish_create_new(&clips_dir.join(&filename), &bytes)?;
+            let focus = clip
+                .get(FOCUS_START_SAMPLES..FOCUS_END_SAMPLES)
+                .ok_or("focus range is outside listening clip")?;
+            let focus_bytes = encode_pcm16_wav(focus)?;
+            let focus_sha256 = sha256_bytes(&focus_bytes);
+            let focus_filename = format!("{}_focus.wav", chosen_event.clip_id);
+            publish_create_new(&focus_dir.join(&focus_filename), &focus_bytes)?;
             manifest.push_str(&format!(
-                "{},{},{},200,500\n",
-                chosen_event.clip_id, filename, clip_sha256
+                "{},{},{},{},{},200,500\n",
+                chosen_event.clip_id, filename, clip_sha256, focus_filename, focus_sha256
             ));
+            review_clips.push(review::ReviewClip {
+                clip_id: chosen_event.clip_id.clone(),
+                waveform: review::waveform_envelope(clip),
+            });
             key_events.push(KeyEvent {
                 clip_id: chosen_event.clip_id.clone(),
                 clip_sha256,
+                focus_sha256,
                 diagnostic: chosen_event.event.clone(),
             });
         }
     }
     key_events.sort_by(|left, right| left.clip_id.cmp(&right.clip_id));
+    review_clips.sort_by(|left, right| left.clip_id.cmp(&right.clip_id));
     publish_create_new(&cli.output_dir.join("manifest.csv"), manifest.as_bytes())?;
     publish_create_new(
         &cli.output_dir.join("annotation.csv"),
@@ -174,11 +196,7 @@ fn run() -> Result<(), String> {
         &cli.output_dir.join("README.txt"),
         instructions().as_bytes(),
     )?;
-    let clip_ids = chosen
-        .iter()
-        .map(|event| event.clip_id.clone())
-        .collect::<Vec<_>>();
-    let review_bytes = review::render_review_html(&clip_ids)?;
+    let review_bytes = review::render_review_html(&review_clips)?;
     let review_sha256 = sha256_bytes(&review_bytes);
     publish_create_new(&cli.output_dir.join("review.html"), &review_bytes)?;
     let pack_sha256 = pack_digest(&manifest, &key_events);
@@ -338,7 +356,7 @@ fn encode_pcm16_wav(samples: &[f32]) -> Result<Vec<u8>, String> {
 
 fn annotation_template(chosen: &[ChosenEvent]) -> String {
     let mut csv = String::from(
-        "clip_id,target_reference_ms,audible_attack_yes_no_uncertain,nearest_attack_ms,confidence_1_to_3,notes\n",
+        "clip_id,target_reference_ms,audible_kick_yes_no_uncertain,nearest_kick_ms,confidence_1_to_5,notes\n",
     );
     for event in chosen {
         csv.push_str(&format!("{},200,,,,\n", event.clip_id));
@@ -347,7 +365,7 @@ fn annotation_template(chosen: &[ChosenEvent]) -> String {
 }
 
 fn instructions() -> &'static str {
-    "ATTACK kick 聴取確認\n\nreview.htmlをブラウザで開いてください。入力は自動保存され、途中または完了TSVを画面から保存できます。annotation.csvは予備の手入力用です。\n再生音量は全clipで固定してください。各clipは500 msで、MIDI上のkick位置は200 msです。\n全行を終えるまで、別置きのkeyファイルを開かないでください。\n各clipの150–250 ms内に、明瞭に聴こえるattackがあるかを判定します。\nyes / no / uncertainを記入し、yesの場合はclip先頭から最寄りattackまでのmsも記入してください。\n確信度は1=低〜5=高です。繰り返し再生は可、clipごとの音量正規化は不可です。\n"
+    "ATTACK kick 聴取確認\n\nreview.htmlをブラウザで開いてください。入力は自動保存され、途中または完了TSVを画面から保存できます。annotation.csvは予備の手入力用です。\n判定するのはattack全般ではなく、150–250 ms内に低いキック音が明瞭に聴こえるかです。スネアだけなら「キックなし」、混ざって区別できなければ「区別困難」です。\n波形の黄色線がMIDI上のkick位置200 ms、帯が150–250 msです。周辺500 msと判定区間150–300 msを聴き分けてください。\n再生音量は全clipで固定し、全行を終えるまで別置きのkeyファイルを開かないでください。\nキックありの場合はclip先頭から最寄りキックまでのmsも記入してください。確信度は1=低〜5=高です。繰り返し再生は可、clipごとの音量正規化は不可です。\n"
 }
 
 fn pack_digest(manifest: &str, events: &[KeyEvent]) -> String {

@@ -125,6 +125,13 @@ HTMLにはopaque clip IDだけを含み、drummer、performance、matched/miss c
 「ある」は150–250 msのattack位置入力を必須とし、別clipの再生開始時は既存再生を停止する。
 生成HTMLのSHA-256は`5fbd5abce332b7791747d7f27e9264e57dc0b2a178b397540c932c1ecfeea849`である。
 
+### B-558 kick判定の明確化
+
+最初のclipで先行するスネアが判定対象に見える問題を修正し、質問を「150–250 ms内に低いkickが明瞭にあるか」へ限定した。
+各clipに位置確認用波形、MIDI kickの200 ms線、150–250 ms帯、150–300 ms集中再生を追加した。スネア単独は`kickなし`とする。
+45本の500 ms音源と45本の150 ms集中音源を二回生成し、pack、HTML、別置きkeyの全てがbyte一致した。
+pack definition SHA-256は`0812ff567577d851da392bfdfab9eed057ed8945f1a9f3785a752c419423f5ab`、manifestは`d8a4a0947acb8af930650c63f44fd69058b7c414fc6b5c8da548b3a5d03a8e3a`、HTMLは`c77e9eb1fbeb6ec110cd11b5992f30b101dfa62fe8eb14aa6b0b1e5660d6fedb`である。
+
 timing P95はMIDI note-onと実際の可聴attack位置の差を含む。
 固定audioを候補出力なしで注釈し、検出器の時刻誤差とMIDI proxyの誤差を分離する。
 注釈結果を見る前にglobal offsetを調整しない。
