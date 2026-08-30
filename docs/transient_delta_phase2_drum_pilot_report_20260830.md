@@ -290,6 +290,43 @@ Windows Studio OneへB-570 CI artifactを配置し、kick-only 50件を含むE-G
 
 POST内部validatorのみ、まずoutput-presentation clockを使い、無い場合は有効なproject producer clockへfall backする。不明clockはfail-closedを維持し、公開PRE/POST joinとSpectrumの時計契約は変更しない。任意callbackなしのshipping相当transactionを固定テストに加えた。
 
+同commitのWindows artifactを再配置してStudio One Professionalで再検証した。
+`WARMING UP`は解消し、既知E-GMD stemの約4秒区間で16 event、約8秒区間で36 eventが内部表示された。
+これはWindows上の音声入口、worker、peak判定、表示時計が一続きで動くことの確認であり、検出精度のGoとは分ける。
+
+### B-572 聴感コントラストとtiming未達の局所診断
+
+B-564で人が`キックあり`と回答した実missを受け、低域の音色コントラストを二つの限定条件で追試した。
+第一は独立低域peakへ同時刻のlow-minus-high log-band levelを要求し、第二はそれを既存full-band eventの30–50 ms後だけへ限定した。
+
+| 方式 | threshold | Precision | F1 | FP/s | kick-only | timing P95 ms |
+|---|---:|---:|---:|---:|---:|---:|
+| B-553 | -- | 0.8720 | 0.8114 | 0.6541 | 0.6647 | 19.14 |
+| 独立低域 | 0.20 | 0.7224 | 0.7492 | 1.7559 | 0.7444 | 19.28 |
+| 30–50 ms followup | 0.20 | 0.8241 | 0.7929 | 0.9571 | 0.6833 | 19.14 |
+
+低域を広く足すとkick-onlyは上がるが誤検出が大幅に増え、時間順序まで限定すると改善量が不足した。
+この二経路は棄却し、製品workerと候補定義へ入れず、実験実装も残さない。
+
+次に、B-553と同じpredictionとmatchingを変えず、timing errorの所在だけを全290演奏で分解した。
+
+| timing参照 | all P95 ms | kick-only P95 ms | hat-only P95 ms |
+|---|---:|---:|---:|
+| 30 ms compound平均（正本） | 19.14 | 20.72 | 20.13 |
+| 最寄り構成note（診断） | 17.88 | 20.72 | 20.11 |
+| 演奏内signed medianを除去（診断） | 11.85 | 5.53 | 9.44 |
+
+10 ms以上の一方向biasを持つ演奏は43件、その中のmatched eventは2,258件だった。
+E-GMD公式説明はaudioを元MIDIへ2 ms以内で整列したとしているため、これはファイル全体の粗い同期不足だけでは説明できない。
+kitの発音包絡、30 ms compound、密な一対一matchingを含む「MIDI trigger時刻と可聴attack時刻」の差として扱う。
+
+演奏別recenterは製品補正にも合格値にも使用しない。
+同様に、MIDIへ数値を合わせるためのglobal offset、onset backtrack、低域event追加も行わない。
+次のtiming判断は波形目視ではなく、候補blindな音だけの可聴attack基準へ固定し、そこで15 ms未達が再現した場合だけ検出時刻を変更する。
+
+timing診断artifactのSHA-256は`21e00fbd8784c6df273b3d45436ba41bcff830383605716e90b6c362a9429575`である。
+独立低域、followup低域のresult SHA-256はそれぞれ`7835071681db8dcb807984e56edeccd085711bb0fc7bf6ce2cd1a3d6e80b08c6`、`a76b36f78f12788b90dcf8903f8c5f2f8251a1636e9a5b85c4e8a862a5ef95ff`である。
+
 ## 7. 再現性
 
 最良pilotは二回実行でbyte単位に一致した。
@@ -315,3 +352,4 @@ DRUM ATTACKは完成可能性がある。
 - `docs/transient_delta_phase2_audio_provenance_report_20260830.md`
 - `docs/transient_delta_phase2_formal_development_gate_report_20260830.md`
 - [SuperFlux](https://phenicx.upf.edu/system/files/publications/Boeck_DAFx-13.pdf)
+- [E-GMD公式dataset説明](https://magenta.tensorflow.org/datasets/e-gmd)
