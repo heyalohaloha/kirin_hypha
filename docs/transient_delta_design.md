@@ -1,14 +1,23 @@
 # POST ATTACK transient delta design contract
 
 **Status**: internal, default OFF until every public gate passes
-**Implementation label**: B-546
-**Measurement contract version**: `kirin-transient-v1`
+**Implementation label**: B-547
+**Measurement contract version**: `kirin-transient-v2-draft`
+
+Phase 2-R is governed by `docs/transient_delta_phase2_recovery_plan_20260830.md`.
+The draft version cannot enter a runtime request or public payload until the fresh holdout passes.
 
 ## Product boundary
 
 ATTACK is a POST-only, on-demand observation page. It shows where a transient observation occurred
 and how the same content event changed from PRE to POST. It does not classify instruments, score a
 sound, prescribe a target, suggest a setting, or process audio.
+
+The page has two explicit measurement profiles: `DRUM` for drum or percussion buses and `2MIX` for
+completed mixes. They are not separate plugin binaries or Analysis routes. Only one profile may run
+at a time, and the runtime never infers or switches profile from the material.
+The first ATTACK view has no selected profile and emits no analysis request until the user chooses
+one. The selection lasts only for the current editor lifetime.
 
 The main mark is a signed `POST - PRE` Onset Flux event stem on a six-second observation field.
 Event detail contains PRE, POST, and signed delta for Onset Flux, 30 ms Crest, 30 ms Sample Peak,
@@ -20,17 +29,20 @@ is never replaced with zero.
 - ATTACK owns one of the existing two process-wide Analysis leases.
 - FREQ, SHARP, LIVE, and ATTACK are mutually exclusive inside one POST instance.
 - Switching among Analysis pages retains the lease. METERS and editor close release it.
+- Switching between DRUM and 2MIX retains the lease but retires the request, clears history and
+  selection, and starts a new definition epoch.
 - ATTACK uses a new top-level `PostAnalysisRoute`; the existing wire-level `AnalysisViewMode`
   values `0`, `1`, and `2` and their decoder remain unchanged.
 - Transient request, readiness, payload, cleanup, file namespace, and Windows mapping are separate
   from the existing Analysis exchange layouts.
-- PRE has no ATTACK page and starts its transient worker only for an exact paired POST request.
+- PRE has no ATTACK page and starts its transient worker only for an exact paired POST request with
+  the same profile and definition hash.
 - An unpaired POST does not request PRE work. Confirmed PRE OFF shows
   `PRE OFF - ATTACK paused` and never falls back to an absolute value.
 - Audio Thread work remains the current bounded lock-free sample copy and notification. FFT, Mel,
   ODF, event matching, allocation, locks, I/O, and waiting stay off the Audio Thread.
 
-## Exact analysis layout
+## B-546 baseline analysis layout
 
 Layout is derived from the host sample rate without resampling audio:
 
@@ -47,38 +59,53 @@ Layout is derived from the host sample rate without resampling audio:
 - logarithm: `10*log10(power)`;
 - spectral lag: one hop.
 
-The versioned definition hash includes every item above plus Mel scale formula, band count, channel
-mode, peak rule, threshold, floor, matching tolerance, refractory interval, and event-window rules.
+This layout remains the frozen B-546 baseline rather than the selected public definition.
+The versioned definition hash includes every item above plus filterbank formula, realized centers,
+band count, channel mode, peak rule, threshold, floor, matching tolerance, refractory interval, and
+event-window rules.
 PRE and POST are never joined when hashes differ.
 
-## Candidate ODFs and Phase 2 selection
+## Candidate ODFs and Phase 2-R selection
 
-Phase 2 evaluates the following fixed candidates without session-relative normalization:
+The B-546 Mel 32, Mel 40, complex, and hybrid candidates remain diagnostic baselines.
+Their old threshold sweep is not the recovery path because the evaluator contract was not stable.
 
-1. `mel32`: 32 triangular Mel power bands and positive log-power flux.
-2. `mel40`: 40 triangular Mel power bands and positive log-power flux.
-3. `complex`: rectified complex-domain prediction error on the same FFT frames.
-4. `hybrid`: a fixed weighted sum of the winning Mel candidate and complex candidate.
+Evaluator v2 first reruns the frozen Mel 32 baseline as a DRUM diagnostic.
+DRUM compares a Mel 32 front end under the v2 common rule with a fixed-scale SuperFlux-style ODF.
+Only DRUM may add fixed low/broad/high late fusion for a remaining kick-only or hat-only failure.
+2MIX uses the fixed-scale SuperFlux-style ODF as its primary candidate because its frequency-neighbor
+maximum targets false onsets from vibrato and sustained material.
 
-For a Mel candidate:
+The B-546 Mel baseline is:
 
 `ODF(t) = mean_b max(0, log_power[b,t] - log_power[b,t-1])`
 
-LR transforms L and R independently, averages compensated linear power per FFT bin, and only then
-applies the Mel bank and logarithm. MID analyzes `(L+R)/2`; SIDE analyzes `(L-R)/2`; mono SIDE is
-invalid. No candidate uses track maximum, running maximum, percentile normalization, auto scale,
-or material-dependent gain.
+The SuperFlux-style candidate is:
 
-Phase 2 fixes one candidate, absolute ODF floor, common-event threshold, local-maximum radius,
-refractory interval, PRE/POST event tolerance, and public full-scale. Until the independent holdout
-passes, the public unit and navigation remain unset and the capability remains OFF.
+`S(t) = mean_b max(0, L(b,t) - max_j L(j,t-mu))`
+
+where `j` covers the same log-frequency band and a fixed number of immediate neighbors.
+LR transforms L and R independently, averages compensated linear power per FFT bin, and only then
+applies the selected bank and logarithm.
+MID analyzes `(L+R)/2`; SIDE analyzes `(L-R)/2`; mono SIDE is invalid.
+No candidate uses track maximum, running maximum, percentile normalization, adaptive whitening,
+auto scale, or material-dependent gain.
+
+Phase 2-R fixes a candidate, fixed amplitude reference, absolute ODF floor, common fixed local mean
+plus fixed offset, local-maximum widths, 30 ms event separation, ±25 ms evaluation tolerance, and
+public full-scale independently for each profile.
+Values from different profiles are not presented as numerically comparable.
+Each profile remains absent from the public selector until its own fresh holdout passes.
+The ATTACK route remains absent from public navigation until at least one profile passes.
 
 ## Common event decision
 
-PRE and POST publish continuous exact ODF frames; neither side performs an independent adaptive
-peak pick. After an exact-time join, POST forms `max(pre_odf, post_odf)` and applies one fixed event
-rule. Around each common candidate it finds bounded local maxima independently in PRE and POST and
-applies one-to-one matching with deterministic earliest-time then largest-value tie-breaking.
+PRE and POST publish continuous exact ODF frames; neither side performs an independent peak pick.
+After an exact-time join, POST forms `max(pre_odf, post_odf)` and applies one common fixed peak rule.
+Its moving mean is computed only from the joined common trace and never rescales the published PRE,
+POST, or delta values.
+Around each common candidate it finds bounded local maxima independently in PRE and POST and applies
+one-to-one matching with deterministic earliest-time then largest-value tie-breaking.
 
 Matched events retain both exact endpoints and expose the signed difference. A single-sided event
 is retained as PRE ONLY or POST ONLY without a delta. Ambiguous dense events are not promoted to a
@@ -100,8 +127,8 @@ interpolation is allowed.
 
 ## Event details
 
-- `event_sample` is the earliest sample in the winning ODF frame support that is selected by the
-  fixed onset backtrack rule.
+- `event_sample` is the center of the selected zero-padded ODF frame under the fixed Phase 2-R grid;
+  candidate, track, and session timing offsets or onset backtracking are not applied.
 - Crest is `sample_peak_dBFS - RMS_dBFS` over
   `[event_sample, event_sample + round(0.030*sample_rate))`.
 - Sample Peak is the maximum absolute sample over that same 30 ms window and is not True Peak.
@@ -139,10 +166,11 @@ exchange replacement, or real overflow start a new continuity epoch without join
 
 ## Publication gates
 
-The route remains internal and default OFF until all of these hold on one commit:
+Each profile remains internal and default OFF until all of these hold on one commit:
 
-- independent holdout onset precision, recall, timing, kick miss, hat false-positive, and
-  false-match limits fixed by the Phase 2 report are met;
+- its fresh holdout onset precision, recall, timing, and false-match limits fixed by the Phase 2-R
+  recovery plan are met, with DRUM also passing kick/hat and isolated-hat gates;
+- its real-performance PRE/POST transform pairs pass through one common decision trace;
 - identity and fixed-gain properties pass, and lookahead/fixed delay never create a false delta;
 - 48 kHz marker latency is P95 at most 50 ms and maximum at most 75 ms;
 - two slots at 192 kHz have zero ingress drops and do not increase Audio Thread work;

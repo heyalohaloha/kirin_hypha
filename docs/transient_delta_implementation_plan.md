@@ -1,16 +1,17 @@
 # Kirin Hypha POST Transient Delta 実装計画
 
 **日付**：2026-08-30
-**状態**：Phase 2 No-Go。公開ATTACKはOFF、Phase 3は未着手
-**実装ラベル**：B-546
+**状態**：Phase 2-R再開Go。公開ATTACKはOFF、Phase 3は評価gate待ち
+**実装ラベル**：B-547
 **画面名**：`ATTACK`（仮称）
 
-2026-08-30の実行結果は `docs/transient_delta_phase2_candidate_report_20260830.md` を正本とする。
-独立holdoutでprecision、recall、F1、false positive、kick recallが未達となったため、第19節に従ってworker以降へ進んでいない。
+Phase 2-Rの正本は`docs/transient_delta_phase2_recovery_plan_20260830.md`とする。
+B-546候補報告は診断履歴として残すが、評価契約の監査結果により公開Goまたは恒久No-Goの根拠には再利用しない。
+Evaluator v2とfresh holdoutが全gateを通るまでworker以降へ進まない。
 
 ## 1. 結論
 
-POST 限定の Analysis 画面として、トランジェントが PRE から POST でどう変化したかを六秒の時間軸で観察できる `ATTACK` を追加する。
+POST限定の一つのAnalysis画面として、六秒の時間軸を持つ`ATTACK`へ明示選択式の`DRUM`と`2MIX`を追加する。
 主表示は、同じイベント時刻における符号付き `POST − PRE` Onset Flux のイベントステムとする。
 補助値は、同じイベントに対する短時間 Crest、Sample Peak、Sharpness とする。
 キック、スネア、ハイハットなどの楽器名は推定しない。
@@ -20,8 +21,8 @@ POST 限定の Analysis 画面として、トランジェントが PRE から PO
 
 ## 2. 目的
 
-この機能の目的は、コンプレッサー、リミッター、トランジェントシェイパー、EQ などを操作した直後に、アタックの発生時刻と変化量を判断代行なしで確認できるようにすることである。
-対象はドラムに限定しないが、キック、スネア、ハイハット、パーカッションで実用になることを最初の合格条件とする。
+この機能の目的は、処理操作後のアタック発生時刻と変化量を、DRUMではdrum/percussion bus、2MIXでは完成mixについて判断代行なしで確認することである。
+二profileは別々のdevelopment、fresh holdout、definition hash、Go判定を持つ。
 音声は生成、変更、減衰、遅延させず、R-12 の製造境界を維持する。
 
 ## 3. 用語
@@ -47,6 +48,8 @@ POST 限定の Analysis 画面として、トランジェントが PRE から PO
 - PRE が明示 OFF の場合は絶対値へ代替せず、`PRE OFF - ATTACK paused` と事実だけを表示する。
 - 未ペアの場合は PRE worker を要求せず、ATTACK を開始しない。
 - ATTACK が visible なら未ペア、PRE OFF、起動失敗でも同じ lease を保持し、METERS または editor close 以外で別 POST へ移さない。
+- DRUMと2MIXを自動判定せず、一profileだけを動かし、切替時はrequest、history、selectionをclearしてPREへ同じprofileを要求する。
+- 初回はprofile未選択でrequestを発行せず、明示選択を同じeditor lifetimeだけ保持する。
 - 音声信号や差分音声を再生する機能は追加しない。
 
 ## 5. 外部調査から採用する考え方
@@ -97,7 +100,7 @@ PRE だけまたは POST だけで確認されたイベントは差分へ昇格�
 
 `Crest 30 ms` は同じイベント窓の `sample peak dB − RMS dB` と定義する。
 Sample Peak は True Peak ではなく、同じ 30 ms 窓内の sample peak とする。
-`event_sample` は ODF frame の支持区間と onset backtrack 規則から一意に決め、Crest と Sample Peak は `[event_sample, event_sample + 30 ms)` を使う。
+`event_sample`はPhase 2-Rで固定したzero-padded ODF frameのcenterとし、CrestとSample Peakは`[event_sample, event_sample + 30 ms)`を使う。
 Sharpness は連続した既存 100 ms endpoint のうち、event_sample との対応誤差が固定上限内にある値だけを関連付ける。
 計測 floor 未満で Crest を定義できない場合は未定義のまま保持し、ゼロを発明しない。
 Sharpness は既存の 100 ms 定義とチャンネル定義を再利用し、別の意味へ再定義しない。
@@ -117,28 +120,23 @@ Sharpness の目標表示遅延は約 150 ms 以下とする。
 
 ### 7.1 基準配置
 
-48 kHz の初期評価条件は Hann 窓約 1024 samples、約 21.3 ms、hop 約 256 samples、約 5.3 ms とする。
-44.1、48、88.2、96、176.4、192 kHz では同じ時間長を host-native samples へ決定的に写す。
-sample rate ごとの丸め結果、窓 sample 数、hop sample 数、FFT layout を payload metadata に含める。
-layout は純関数として version 化し、rational hop、FFT padding、Mel の fmin、fmax、係数、Hann energy compensation、log base、epsilon を definition hash に含める。
+48 kHz基準windowは1,024または2,048 sample、hopは256 sampleとしてPhase 2-Rで一つに絞る。
+44.1から192 kHzへ同じ時間長をhost-native sampleへ決定的に写し、layoutをpayload metadataへ含める。
+layoutは純関数としてversion化し、FFT、Hann補償、実現filterbank bin、log、lag、peak ruleをdefinition hashへ含める。
 PRE と POST の metadata が一致しない場合は join しない。
 Audio Thread では resample しない。
 
 ### 7.2 候補式
 
-Mel log-power を使う Spectral Flux を第一候補とする。
-候補式は `ODF(t) = mean_b max(0, S[b,t] − ref[b,t−spectral_lag])` とし、内容時刻の位置合わせとは別の parameter とする。
-Mel band 数は 32 から 40 の範囲を候補とし、実データ評価前に固定しない。
-比較候補として complex-domain ODF と固定構成の hybrid ODF を評価する。
-HFC 単独は低い onset を見落とし、ハイハットへ偏る恐れがあるため第一候補にしない。
-session 内最大値による正規化と auto scale は使用しない。
-固定 absolute floor を使い、素材が変わっても同じ入力が同じ値になるようにする。
-Onset Flux の公開単位は 0 から 100 の score にせず、固定式から導かれる単位として設計書で確定する。
-`dB/frame` 表記は候補であり、Phase 2 の数値分布を確認するまで公開仕様にしない。
+B-546 Mel 32の旧ruleは診断専用とし、採用候補には30 ms共通peak ruleを適用する。
+未達時の主候補はfixed-scale SuperFlux-style、kick-onlyまたはhat-only不足時だけ限定multibandとする。
+Complex、Hybrid、HFC、ML、adaptive whiteningを今回の主線にしない。
+session最大値、percentile正規化、auto scaleを使わず、固定reference、absolute floor、共通local meanと固定offsetを使う。
+公開単位は0から100のscoreにせず、fresh holdout通過後に固定式の単位として確定する。
 
 ### 7.3 チャンネル定義
 
-LR の Onset Flux は L/R を独立 STFT し、Mel-band power を平均してから ODF を算出して逆相打ち消しを避ける。
+LRのOnset FluxはL/Rを独立STFTし、binごとの補償済みlinear powerを平均してからmagnitude、bank、logへ進む。
 Crest、Sample Peak、Sharpness はそれぞれの既存意味を壊さない個別の channel aggregation 順を Phase 1 で固定する。
 MID は現行と同じ `(L+R)/2` 波形を解析する。
 SIDE は現行と同じ `(L−R)/2` 波形を解析する。
@@ -186,6 +184,7 @@ DAW が loop や locate で後方へ移動した場合は新しい計測 run と
 | 長い観察欠損 | 新 run | 補間せず次の exact event から再開 | 保持 |
 | worker または exchange panic、実 drop | 新 continuity epoch で再起動 | 直前の事実を保持し、新 run まで gap | 保持 |
 | pair、sample rate、channel 定義変更 | history と alignment を再初期化 | 旧定義の表示を消去 | 消去 |
+| DRUMと2MIXの切替 | request retire後に新definitionで開始 | 旧profileの表示を消去 | 消去 |
 | ATTACK 以外へ明示切替 | 専用解析を終了 | ATTACK history を終了 | 消去 |
 | session reopen | 新規開始 | history を復元しない | 復元しない |
 | offline bounce | 対応倍率内だけ sample endpoint 基準で継続 | 対応外は `ATTACK paused` | 保持 |
@@ -200,6 +199,8 @@ DAW が loop や locate で後方へ移動した場合は新しい計測 run と
 
 既存の POST Analysis navigation に `ATTACK` を追加する。
 内部検証中は公開 navigation から隠せる独立 route とし、検出器と alignment の合格後に公開する。
+plot上部にASCIIの`DRUM`と`2MIX` selectorを置き、初回は未選択とし、自動切替や推奨表示を行わない。
+一方だけが合格したbuildでは未達profileを表示せず、profile切替はleaseを維持したままhistoryをclearする。
 画面の主役は六秒のイベントステム plot とする。
 常時表示する数値は最小限にし、詳細は hover または click lock で表示する。
 クリックしたイベントは固定し、明示的な `x` 操作で解除する。
@@ -330,12 +331,12 @@ mono、stereo、dual-mono、逆相 stereo、MID、SIDE を検証する。
 
 ### 15.5 実演奏データ
 
-E-GMD の MIDI onset annotation を持つ小さなローカル subset を研究検証へ使う。
-E-GMD 全体または配布条件を確認していない audio を repository へ commit しない。
-CI には再配布可能な生成 fixture だけを入れる。
-評価指標は onset precision、recall、F1、timing error、kick miss、hat false positive、dense event ambiguity とする。
-アルゴリズム候補ごとに同じ素材と threshold sweep を使い、都合のよい一例だけで選ばない。
-候補選定用 dataset と最終 holdout を分離し、holdout の precision、recall、timing error、false-match 上限で公開可否を決める。
+E-GMDとblind acoustic audit付きSlakh2100-reduxを固定developmentとfresh holdoutへ使う。
+Evaluator v2の30 ms compound event、±25 ms最大一対一matching、決定的manifestを正本とする。
+実演奏へgain、EQ、compressor、lookahead limiterを固定適用し、`max(PRE, POST)`も同じgateで測る。
+E-GMD、Slakh、その他配布条件を確認していないaudioをrepositoryへcommitしない。
+CIには再配布可能な生成fixtureだけを入れる。
+`transient_delta_phase2_recovery_plan_20260830.md`のgrouped development、性能成立性、二つのfresh holdoutで公開可否を決める。
 
 ### 15.6 自動テスト
 
@@ -371,8 +372,9 @@ ATTACK の追加で変化してはならない file と symbol を列挙する�
 
 ### Phase 2: Offline 候補評価
 
-Mel Flux、complex ODF、固定 hybrid を同じ fixture と実演奏 subset で比較する。
-Mel band 数、窓、hop、spectral_lag、threshold、matching、refractory interval、固定 scale、gap 期限、offline 対応倍率、holdout 合格値を数値で決定する。
+Evaluator v2で30 ms compound event、±25 ms最大一対一matching、固定manifest、grouped cross-validationを先に確定する。
+DRUMはE-GMDでMel 32 v2、SuperFlux-style、必要時だけ限定multibandを比較し、2MIXはblind一般mixでSuperFlux-styleを評価する。
+窓、hop、bank、lag、floor、共通peak、固定scale、性能成立性、gap期限、offline倍率をfresh holdout前に決定する。
 この Phase が終わるまで公開 UI の scale と Onset 単位を固定しない。
 
 ### Phase 3: 独立 worker analyzer
@@ -415,7 +417,7 @@ No-Go 条件が一つでも残る場合は公開 navigation へ追加しない�
 
 ### Go 条件
 
-- 独立 holdout で Phase 2 に固定した onset、kick、hat、timing、false-match の全合格値を満たす。
+- 対象profileのfresh holdoutでPhase 2-Rに固定したonset、timing、false-matchを満たし、DRUMはkick/hat gateも満たす。
 - identity と固定 gain の期待値を満たす。
 - lookahead と fixed delay で内容時刻の対応を誤らない。
 - silence と観察欠損を区別できる。
@@ -427,7 +429,7 @@ No-Go 条件が一つでも残る場合は公開 navigation へ追加しない�
 
 ### No-Go 条件
 
-- 独立 holdout の onset、kick、hat、timing、false-match gate が一つでも未達になる。
+- 対象profileのfresh holdoutまたはpaired transform gateが一つでも未達になる。
 - dense event を別の onset と誤対応する。
 - lookahead で false delta を表示する。
 - 観察欠損を無音または event 0 として表示する。
@@ -450,8 +452,8 @@ ATTACK の未公開状態を DAW state へ保存せず、runtime OFF を設け�
 
 次の項目は推測で固定せず、Phase 2 の比較結果と fixture を設計書へ残す。
 
-- 採用する ODF を Mel Flux、complex、fixed hybrid のどれにするか。
-- Mel band 数。
+- profileごとに採用するODFをMel 32 v2またはfixed-scale SuperFlux-styleから選び、限定multibandはDRUMだけに許可する。
+- filterbankと実現band数。
 - 窓、hop、refractory interval。
 - fixed threshold と absolute floor。
 - Onset Flux の単位と表示 full-scale。
