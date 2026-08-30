@@ -36,3 +36,5 @@ symphonia = { version = "0.5", features = ["wav", "pcm"] }
 # - bit-identical: assert_abs_diff_eq!(epsilon = 1e-8)
 approx = "0.5"
 tempfile = "3"
+crc32fast = "=1.5.0"
+zip = { version = "=8.6.0", default-features = false, features = ["deflate-flate2-zlib-rs"] }

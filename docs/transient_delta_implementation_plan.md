@@ -1,13 +1,13 @@
 # Kirin Hypha POST Transient Delta 実装計画
 
 **日付**：2026-08-30
-**状態**：DRUM N=290 fold成立。formal evaluatorはfail-closed、公開ATTACKはOFF
-**実装ラベル**：B-550
+**状態**：DRUM N=290 foldとMIDI provenance成立。formal evaluatorはfail-closed、公開ATTACKはOFF
+**実装ラベル**：B-551
 **画面名**：`ATTACK`（仮称）
 
 Phase 2-Rの正本は`docs/transient_delta_phase2_recovery_plan_20260830.md`とする。
 B-546候補報告は診断履歴として残すが、評価契約の監査結果により公開Goまたは恒久No-Goの根拠には再利用しない。
-B-550の現行gateとblockerは`docs/transient_delta_phase2_formal_development_gate_report_20260830.md`に記録し、候補固定とfresh holdoutが全gateを通るまでworker以降へ進まない。
+B-550のfold gateとB-551のMIDI provenanceは各報告書に記録し、候補固定とfresh holdoutが全gateを通るまでworker以降へ進まない。
 
 ## 1. 結論
 
@@ -332,8 +332,9 @@ mono、stereo、dual-mono、逆相 stereo、MID、SIDE を検証する。
 ### 15.5 実演奏データ
 
 B-550でDRUMは290 ID、58 ID×5 fold、23列manifest、44.1 kHz整数sample境界、最大30秒の候補非依存hash-windowを固定し、negative excerptも保持する。
+B-551で公式MIDI archiveの選択290 member、sourceとexcerpt event、canonical重複0件を同一archive bufferから検証した。
 Evaluator v2の30 ms compound event、±25 ms最大一対一matchingを正本とし、物理source sample 0起点の実contextを解析してcoreだけを採点する。
-2MIXのSlakh2100-redux、blind annotation、候補、holdoutは将来の独立契約であり、B-550では開いていない。
+2MIXのSlakh2100-redux、blind annotation、候補、holdoutは将来の独立契約であり、B-551まで開いていない。
 E-GMD、Slakh、その他配布条件を確認していないaudioをrepositoryへcommitしない。
 CIには再配布可能な生成fixtureだけを入れる。
 `transient_delta_phase2_recovery_plan_20260830.md`のgrouped development、性能成立性、二つのfresh holdoutで公開可否を決める。
@@ -372,7 +373,7 @@ ATTACK の追加で変化してはならない file と symbol を列挙する�
 
 ### Phase 2: Offline 候補評価
 
-B-550で整数時刻の30 ms compound event、厳密±25 ms最大一対一matching、N=290 fold gate、23列formal manifest、SuperFlux候補config、macroとworst-fold集計を実装した。
+B-551までに整数時刻の30 ms compound event、厳密±25 ms最大一対一matching、N=290 fold gate、23列formal manifest、MIDI archive provenance、SuperFlux候補config、macroとworst-fold集計を実装した。
 formal authorizationのsource pin、audio provenance、blind audit、context guard、sealed candidate setが未成立なのでscoreとwinnerは存在しない。2MIXは設計だけでdata未着手である。
 窓、hop、bank、lag、floor、共通peak、固定scale、性能成立性、gap期限、offline倍率をfresh holdout前に決定する。
 この Phase が終わるまで公開 UI の scale と Onset 単位を固定しない。
