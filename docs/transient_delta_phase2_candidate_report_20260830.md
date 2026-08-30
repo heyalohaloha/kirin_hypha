@@ -9,6 +9,7 @@
 > この報告はB-546候補の診断履歴として保持する。
 > 8 ms正解集約、不完全なE-GMD instrument mapping、greedy matching、暗黙のmanifest優先、循環するtiming max gateを確認したため、公開Goまたは恒久No-Goの判定根拠には再利用しない。
 > 再開条件は`docs/transient_delta_phase2_recovery_plan_20260830.md`を正本とする。
+> B-548の修正済み評価器による既閲覧診断は`docs/transient_delta_evaluator_v2_report_20260830.md`へ分離した。
 
 ## 判定
 

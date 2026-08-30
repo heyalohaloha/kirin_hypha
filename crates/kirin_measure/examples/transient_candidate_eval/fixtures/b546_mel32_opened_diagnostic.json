@@ -1,0 +1,15 @@
+{
+  "schema": "kirin-hypha-attack-candidate-config-v1",
+  "candidate_id": "b546-mel32-opened-diagnostic",
+  "profile": "DRUM",
+  "eligibility": "diagnostic_only",
+  "analyzer": {
+    "odf_kind": "mel32"
+  },
+  "peak_picker": {
+    "mode": "legacy_absolute",
+    "threshold": 1.44459105,
+    "radius_hops": 2,
+    "refractory_ms": 20.0
+  }
+}

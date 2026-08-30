@@ -5,6 +5,8 @@
 **判定**：研究開発の再開はGo、公開は未判定
 **公開状態**：ATTACK route、request、worker、lease acquisitionは未実装かつOFF
 
+**B-548進捗**：Evaluator v2基盤と既閲覧DRUM診断を`docs/transient_delta_evaluator_v2_report_20260830.md`へ記録した。候補選定とfresh holdoutは未実施である。
+
 ## 1. 決定
 
 ATTACKは中止せず、Phase 2を評価器の修正からやり直す。

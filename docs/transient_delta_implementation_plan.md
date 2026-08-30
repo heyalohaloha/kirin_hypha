@@ -1,13 +1,13 @@
 # Kirin Hypha POST Transient Delta 実装計画
 
 **日付**：2026-08-30
-**状態**：Phase 2-R再開Go。公開ATTACKはOFF、Phase 3は評価gate待ち
-**実装ラベル**：B-547
+**状態**：Evaluator v2基盤完了。公開ATTACKはOFF、候補選定とPhase 3は評価gate待ち
+**実装ラベル**：B-548
 **画面名**：`ATTACK`（仮称）
 
 Phase 2-Rの正本は`docs/transient_delta_phase2_recovery_plan_20260830.md`とする。
 B-546候補報告は診断履歴として残すが、評価契約の監査結果により公開Goまたは恒久No-Goの根拠には再利用しない。
-Evaluator v2とfresh holdoutが全gateを通るまでworker以降へ進まない。
+B-548のEvaluator v2基盤は`docs/transient_delta_evaluator_v2_report_20260830.md`に記録し、候補固定とfresh holdoutが全gateを通るまでworker以降へ進まない。
 
 ## 1. 結論
 
@@ -372,8 +372,8 @@ ATTACK の追加で変化してはならない file と symbol を列挙する�
 
 ### Phase 2: Offline 候補評価
 
-Evaluator v2で30 ms compound event、±25 ms最大一対一matching、固定manifest、grouped cross-validationを先に確定する。
-DRUMはE-GMDでMel 32 v2、SuperFlux-style、必要時だけ限定multibandを比較し、2MIXはblind一般mixでSuperFlux-styleを評価する。
+B-548で30 ms compound event、±25 ms最大一対一matching、明示manifest、非上書き結果artifactを実装済みとし、B-549でgrouped cross-validationを固定する。
+DRUMは既閲覧developmentでMel 32 v2、SuperFlux-style、必要時だけ限定multibandを比較し、2MIXは独立したblind一般mixでSuperFlux-styleを評価する。
 窓、hop、bank、lag、floor、共通peak、固定scale、性能成立性、gap期限、offline倍率をfresh holdout前に決定する。
 この Phase が終わるまで公開 UI の scale と Onset 単位を固定しない。
 

@@ -1,10 +1,10 @@
 # POST ATTACK transient delta design contract
 
 **Status**: internal, default OFF until every public gate passes
-**Implementation label**: B-547
+**Implementation label**: B-548
 **Measurement contract version**: `kirin-transient-v2-draft`
 
-Phase 2-R is governed by `docs/transient_delta_phase2_recovery_plan_20260830.md`.
+Phase 2-R is governed by `docs/transient_delta_phase2_recovery_plan_20260830.md`; the implemented Evaluator v2 foundation is recorded in `docs/transient_delta_evaluator_v2_report_20260830.md`.
 The draft version cannot enter a runtime request or public payload until the fresh holdout passes.
 
 ## Product boundary
