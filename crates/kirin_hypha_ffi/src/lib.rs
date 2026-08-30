@@ -351,6 +351,25 @@ fn spectrum_presentation_start(clock: PendingCaptureWindow) -> Option<i64> {
         .and_then(|latency| clock.position_samples.checked_add(i64::from(latency)))
 }
 
+/// Clock for the POST-only internal ATTACK validator.
+///
+/// Prefer the host's output-presentation clock when the optional VST3/AU extension is present.
+/// Studio Pro can omit that optional callback while still supplying the exact project sample
+/// position on every rendered block. The internal validator may use that producer clock because it
+/// displays only relative POST event positions; it does not perform the public PRE/POST join.
+/// Unknown or invalid producer clocks remain fail-closed.
+#[inline]
+fn internal_attack_timeline_start(clock: PendingCaptureWindow) -> Option<i64> {
+    spectrum_presentation_start(clock).or_else(|| {
+        (clock.position_valid
+            && matches!(
+                clock.clock_source,
+                CaptureClockSource::ProjectTimeline | CaptureClockSource::AudioRenderTimeline
+            ))
+        .then_some(clock.position_samples)
+    })
+}
+
 /// RT 計測ランタイムのハンドル。C ABI からは不透明ポインタ。
 pub struct KirinHyphaEngine {
     /// Audio Thread → Measure Thread の rtrb Producer 所有権。
@@ -3193,9 +3212,11 @@ impl KirinHyphaEngine {
         }
         // Optional Spectrum ingress is independent from the established Watch/Record ring. Its
         // first operation is an atomic enabled check; hidden PRE/POST instances do no copy, FFT,
-        // allocation, lock, I/O, wake, or repaint. Alignment is fail-closed unless the format
-        // wrapper supplied an exact producer coordinate plus output presentation latency.
+        // allocation, lock, I/O, wake, or repaint. Spectrum remains strict about output
+        // presentation latency; the internal POST-only ATTACK validator may use an exact producer
+        // clock when the host omits that optional callback.
         let spectrum_presentation_start = pending_clock.and_then(spectrum_presentation_start);
+        let internal_attack_timeline_start = pending_clock.and_then(internal_attack_timeline_start);
         let _ = self.spectrum_runtime.push_block_from_audio(
             interleaved,
             self.num_channels,
@@ -3205,7 +3226,7 @@ impl KirinHyphaEngine {
             let _ = runtime.push_block_from_audio(
                 interleaved,
                 self.num_channels,
-                spectrum_presentation_start,
+                internal_attack_timeline_start,
             );
         }
         let accepted_offline_mode = pending_record.map(|block| block.offline);
@@ -4318,6 +4339,54 @@ mod spectrum_abi_tests {
         assert_eq!(
             spectrum_presentation_start(PendingCaptureWindow {
                 position_valid: false,
+                ..exact
+            }),
+            None
+        );
+    }
+
+    #[test]
+    fn internal_attack_uses_exact_project_clock_when_presentation_callback_is_absent() {
+        let exact = PendingCaptureWindow {
+            position_valid: true,
+            position_samples: 9_600,
+            num_frames: 480,
+            clock_source: CaptureClockSource::ProjectTimeline,
+            presentation_latency: PresentationLatencySamples {
+                source: PresentationLatencySource::Vst3,
+                input: Some(0),
+                output: Some(2_048),
+            },
+            force_new_epoch: false,
+        };
+        assert_eq!(internal_attack_timeline_start(exact), Some(11_648));
+        assert_eq!(
+            internal_attack_timeline_start(PendingCaptureWindow {
+                presentation_latency: PresentationLatencySamples::default(),
+                ..exact
+            }),
+            Some(9_600)
+        );
+        assert_eq!(
+            internal_attack_timeline_start(PendingCaptureWindow {
+                clock_source: CaptureClockSource::AudioRenderTimeline,
+                presentation_latency: PresentationLatencySamples::default(),
+                ..exact
+            }),
+            Some(9_600)
+        );
+        assert_eq!(
+            internal_attack_timeline_start(PendingCaptureWindow {
+                position_valid: false,
+                presentation_latency: PresentationLatencySamples::default(),
+                ..exact
+            }),
+            None
+        );
+        assert_eq!(
+            internal_attack_timeline_start(PendingCaptureWindow {
+                clock_source: CaptureClockSource::Unknown,
+                presentation_latency: PresentationLatencySamples::default(),
                 ..exact
             }),
             None

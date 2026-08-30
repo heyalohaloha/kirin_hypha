@@ -397,6 +397,41 @@ mod tests {
     }
 
     #[test]
+    fn studio_project_clock_without_optional_presentation_callback_reaches_attack_worker() {
+        let engine = KirinHyphaEngine::new(48_000, 2);
+        *engine.write_role.lock().unwrap() = Some(PluginDataRole::Post);
+        assert!(engine.set_internal_attack_enabled(true));
+
+        let mut position = 0_i64;
+        for block_index in 0..24 {
+            let mut block = vec![0.0_f32; 256 * 2];
+            if block_index == 8 {
+                block[0] = 1.0;
+                block[1] = 1.0;
+            }
+            engine.note_capture_window(true, position, 256, CaptureClockSource::ProjectTimeline);
+            assert!(engine.push_samples_transaction(&block, 2));
+            position += 256;
+        }
+
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while engine
+            .poll_internal_attack_events()
+            .is_none_or(|batch| batch.count == 0)
+            && Instant::now() < deadline
+        {
+            thread::sleep(Duration::from_millis(5));
+        }
+        let frames = engine.poll_internal_attack_batch().unwrap();
+        assert!(frames.count > 0);
+        assert!(frames.frames[..frames.count as usize]
+            .iter()
+            .any(|frame| frame.value > 0.0));
+        let events = engine.poll_internal_attack_events().unwrap();
+        assert!(events.count > 0);
+    }
+
+    #[test]
     fn c_functions_are_null_safe() {
         let mut stats = KirinAttackStats::default();
         let mut batch = KirinAttackBatch::default();

@@ -255,7 +255,7 @@ drop、無効入力、後方transportはgenerationを更新し、変更前後の
 
 `KirinHyphaEngine`へATTACK専用runtimeを追加し、JUCEの`processBlock`が既に使用する一つのinterleaved音声入口から専用SPSCへ分岐した。
 JUCE側で二重interleaveを行わず、既存計測、FREQ、SHARP、LIVEのringとworkerにも混ぜない。
-VST3が渡すproducer sample位置とoutput presentation latencyをATTACKへそのまま渡すため、raw ODFはsource sample 0基準の同じ時計に載る。
+VST3がoutput presentation latencyを渡す場合はその表示時計をATTACKへ使う。POST内部validatorに限り、Studio Oneがその任意callbackを渡さない場合は、正確なproject sample位置を使う。このfallbackは公開PRE/POST joinとSpectrumへは適用しない。
 
 POST内部検証専用C ABIはON/OFF、最新64 raw ODF、dropを含むruntime statsだけを公開する。
 既定はOFF、PREは有効化不可、未対応sample rateではHypha本体を失敗させずATTACKだけunavailableになる。
@@ -283,6 +283,12 @@ POST内部C ABIから最新240件を古い順に取得できる。
 表示はraw ODFの最新support endをNOWとし、同じgenerationとsample rateの確定eventだけを描く。
 30 ms超の最小event間隔から六秒に必要な最大200件を導き、C ABI snapshotを240件へ拡張した。
 環境変数がない通常起動はworkerも画面もOFFで、DAW state、公開Analysis navigation、PREには追加しない。
+
+### B-571 Windows Studio Oneの内部時計対応
+
+Windows Studio OneへB-570 CI artifactを配置し、kick-only 50件を含むE-GMDの既知30秒coreを48 kHz stereo PCM24へ固定変換して実機再生した。trackとbusのmeterは動いたが、ATTACKは`WARMING UP`のままだった。再生素材やroutingではなく、Studio Oneが任意のoutput-presentation-latency callbackを供給しないとraw frameをdropする経路へ原因を限定した。
+
+POST内部validatorのみ、まずoutput-presentation clockを使い、無い場合は有効なproject producer clockへfall backする。不明clockはfail-closedを維持し、公開PRE/POST joinとSpectrumの時計契約は変更しない。任意callbackなしのshipping相当transactionを固定テストに加えた。
 
 ## 7. 再現性
 

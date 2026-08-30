@@ -49,6 +49,7 @@ fn vst_audio_callback_reaches_the_internal_default_off_attack_lane() {
     assert!(transaction.contains("self.attack_runtime.as_ref()"));
     assert!(transaction.contains("runtime.push_block_from_audio("));
     assert!(transaction.contains("spectrum_presentation_start"));
+    assert!(transaction.contains("internal_attack_timeline_start"));
 
     let runtime = read_repo("crates/kirin_measure/src/attack_runtime.rs");
     let ingress = slice_between(
