@@ -24,6 +24,8 @@ mod drum_midi;
 #[allow(dead_code, unused_imports)]
 #[path = "transient_candidate_eval/input.rs"]
 mod input;
+#[path = "transient_attack_kick_listening_pack/review.rs"]
+mod review;
 
 use input::{read_development_pilot_selection, read_mono_pcm_wav, Selection};
 
@@ -76,6 +78,7 @@ struct KeyArtifact {
     status: &'static str,
     candidate_id: String,
     pack_sha256: String,
+    review_sha256: String,
     candidate_status_exposed_in_pack: bool,
     events: Vec<KeyEvent>,
 }
@@ -171,12 +174,20 @@ fn run() -> Result<(), String> {
         &cli.output_dir.join("README.txt"),
         instructions().as_bytes(),
     )?;
+    let clip_ids = chosen
+        .iter()
+        .map(|event| event.clip_id.clone())
+        .collect::<Vec<_>>();
+    let review_bytes = review::render_review_html(&clip_ids)?;
+    let review_sha256 = sha256_bytes(&review_bytes);
+    publish_create_new(&cli.output_dir.join("review.html"), &review_bytes)?;
     let pack_sha256 = pack_digest(&manifest, &key_events);
     let key = KeyArtifact {
         schema: "kirin-hypha-attack-kick-listening-key-v1",
         status: "development_acoustic_audit_pending_not_candidate_tuning",
         candidate_id: diagnostic.candidate_id,
         pack_sha256,
+        review_sha256,
         candidate_status_exposed_in_pack: false,
         events: key_events,
     };
@@ -336,7 +347,7 @@ fn annotation_template(chosen: &[ChosenEvent]) -> String {
 }
 
 fn instructions() -> &'static str {
-    "ATTACK kick 聴取確認\n\n再生音量は全clipで固定してください。各clipは500 msで、MIDI上のkick位置は200 msです。\n全行を終えるまで、別置きのkeyファイルを開かないでください。\n各clipの150–250 ms内に、明瞭に聴こえるattackがあるかを判定します。\nyes / no / uncertainを記入し、yesの場合はclip先頭から最寄りattackまでのmsも記入してください。\n確信度は1=低、2=中、3=高です。繰り返し再生は可、clipごとの音量正規化は不可です。\n"
+    "ATTACK kick 聴取確認\n\nreview.htmlをブラウザで開いてください。入力は自動保存され、途中または完了TSVを画面から保存できます。annotation.csvは予備の手入力用です。\n再生音量は全clipで固定してください。各clipは500 msで、MIDI上のkick位置は200 msです。\n全行を終えるまで、別置きのkeyファイルを開かないでください。\n各clipの150–250 ms内に、明瞭に聴こえるattackがあるかを判定します。\nyes / no / uncertainを記入し、yesの場合はclip先頭から最寄りattackまでのmsも記入してください。\n確信度は1=低〜5=高です。繰り返し再生は可、clipごとの音量正規化は不可です。\n"
 }
 
 fn pack_digest(manifest: &str, events: &[KeyEvent]) -> String {

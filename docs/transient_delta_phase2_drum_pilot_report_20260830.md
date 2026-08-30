@@ -118,6 +118,13 @@ WAVは全件44.1 kHz mono PCM16、44,144 bytesである。
 pack definition SHA-256は`c2750847b09f340bb5ddac2d0efabf76fc649d2d2f126b63c774bb06debde5f3`、manifestは`d12cbafab016f78deb803447fb4a02c3535191c7c14fceccdb93d60ccaca6b13`である。
 聴取完了までkeyを開かず、150–250 ms内の明瞭なattack有無、最寄り時刻、確信度だけを記録する。
 
+### B-557 review HTML
+
+参考ABX画面と同じく、再生系5項目、進捗、自動保存、次の未完了、途中TSV、完了TSVを一画面へ実装した。
+HTMLにはopaque clip IDだけを含み、drummer、performance、matched/miss class、candidate値を含めない。
+「ある」は150–250 msのattack位置入力を必須とし、別clipの再生開始時は既存再生を停止する。
+生成HTMLのSHA-256は`5fbd5abce332b7791747d7f27e9264e57dc0b2a178b397540c932c1ecfeea849`である。
+
 timing P95はMIDI note-onと実際の可聴attack位置の差を含む。
 固定audioを候補出力なしで注釈し、検出器の時刻誤差とMIDI proxyの誤差を分離する。
 注釈結果を見る前にglobal offsetを調整しない。

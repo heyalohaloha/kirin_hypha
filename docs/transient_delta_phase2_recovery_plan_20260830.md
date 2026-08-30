@@ -1,11 +1,11 @@
 # ATTACK Phase 2-R 復旧方針
 
 **日付**：2026-08-30
-**実装ラベル**：B-556
-**判定**：DRUM pilotの主要比率はGo、独立低域kick補助は棄却。kick missの候補blind聴取待ち、timing、worst-fold、候補freeze、公開はNo-Go
+**実装ラベル**：B-557
+**判定**：DRUM pilotの主要比率はGo、独立低域kick補助は棄却。kick missの候補blind HTML聴取待ち、timing、worst-fold、候補freeze、公開はNo-Go
 **公開状態**：ATTACK route、request、worker、lease acquisitionは未実装かつOFF
 
-**B-556進捗**：問題が集中したdrummer 4、5、7からmatched、25–50 ms時刻差、±50 ms内peakなしを各5件、合計45件へ固定した。候補状態を隠した500 ms clipで可聴attack有無と時刻を聴取し、完了までdetectorを調整しない。
+**B-557進捗**：候補blind 45 clipへ自動保存HTMLを追加した。再生系、進捗、未完了移動、途中/完了TSVを一画面にし、可聴attack有無と時刻の聴取完了までdetectorを調整しない。
 
 ## 1. 決定
 
