@@ -177,6 +177,17 @@ MIDI位置±25 msに低域eligible peakがあったのは、可聴target miss 11
 残る直接課題は、既存eligible peakがMIDI位置から31–41 msずれる6件を含む11件の可聴attack時刻を確定し、検出時刻の誤りかMIDI proxyのずれかを分けることである。
 診断artifactは45件でSHA-256 `b50c6fb62edd97bb7c9efbefef94f6b2c538d0c078033d3141063dd5c528a07a`、repository外へ保存した。
 
+### B-562 可聴kickの開始時刻確認
+
+B-560で指定位置付近のkickあり、かつB-553で未検出だった11件だけをopaque IDの時刻確認packへ固定した。
+画面の問いは「低いkickが始まった瞬間を波形上でクリック」の一つに限定し、先行するスネアとハットを選ばないことを明示した。
+クリック位置は青線で表示し、100–300 ms外を受け付けず、確信度と合わせて自動保存する。
+候補status、演奏者、performance、miss classはHTMLへ含めていない。
+
+11 clipを二回生成してbyte一致を確認した。
+HTML SHA-256は`c46d62497e2a6519bed7281b8cae0e5d5d1c39ccaaddd40d4e4868c099b49c4a`、manifest SHA-256は`e4f951624b73021abdef5dfdc94e62b418ca4ad0038bf785f0dcf89dda5a3537`である。
+実ブラウザで波形クリックによる180.3 ms記録、青線、確信度入力後の`1 / 11 完了`、再読込後の復元を確認した。
+
 ## 7. 再現性
 
 最良pilotは二回実行でbyte単位に一致した。
