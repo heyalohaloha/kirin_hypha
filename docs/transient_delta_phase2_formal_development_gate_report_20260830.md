@@ -8,7 +8,8 @@
 **公開判定**：No-Go、ATTACKはOFF
 
 > B-551でMIDI archive-member provenanceとcanonical重複監査がGoになった。
-> 現在のMIDI証拠と残るNo-Go条件は`docs/transient_delta_phase2_midi_provenance_report_20260830.md`を正本とする。
+> B-552でaudio archive-member、PCM、対応MIDIのprovenanceもGoになった。
+> 現在の入力証拠と残るNo-Go条件は`docs/transient_delta_phase2_audio_provenance_report_20260830.md`を正本とする。
 
 ## 1. 判定
 
@@ -17,7 +18,7 @@ B-550で、DRUM developmentを候補の成績から独立に選び、290 perform
 
 同時に、23列formal manifest、事前登録候補config、五fold集計、performance macro、kick/hat contributor macro、worst-fold marginの型と検証経路を接続した。
 ただしformal CLIはsource commitに認可hashが固定される前に、authorization、dataset root、manifest、candidate config、result pathのいずれにも触れず停止する。
-source contextを保つ採点、audio provenance、blind acoustic audit、sealed candidate setも未完成である。
+source contextを保つ採点、FormalAuthorization、blind acoustic audit、sealed candidate setも未完成である。
 
 したがって今回のGoは、DRUMのdevelopment selectionとfold成立性に限る。
 候補方式、threshold、definition hash、fresh holdout、runtime、Phase 3、公開ATTACKのGoではない。
@@ -27,7 +28,7 @@ source contextを保つ採点、audio provenance、blind acoustic audit、sealed
 | DRUM selection v2 | Go | N=290、23列manifest、二回実行byte一致 |
 | DRUM fold balance | Go | 五foldの全hard gate合格、deficit 0 |
 | DRUM formal candidate score | No-Go | filesystem入力前のsource-pin blockerとcontext blocker |
-| DRUM candidate freeze | No-Go | provenance、blind audit、candidate set、LODO/LOSO未完 |
+| DRUM candidate freeze | No-Go | FormalAuthorization、blind audit、candidate set、LODO/LOSO未完 |
 | 2MIX | No-Go、未着手 | B-550ではdata、audio、annotation、候補を開いていない |
 | 公開ATTACK | No-Go | route、request、worker、lease acquisition、UIはOFF |
 
@@ -143,8 +144,9 @@ receiptは元duration decimalと整数sampleのbinding hash、excerpt mapping、
 
 B-551で、固定MIDI archiveの同一bufferから全ZIP構造と選択290 memberを検証し、sourceとcropped note/eventのcanonical重複監査を完了した。
 MIDI receipt SHA-256は`7c923cf224f8201d0496c304cb160b0cc8859340cdb0b74c7b490b3cd6223447`であり、二回実行でbyte単位に一致した。
-ただし音声archive、source PCM、coreとguard PCMのhashは未取得である。
-したがってMIDI provenanceはformal inputの一要素として成立したが、formal candidate input全体の認可証拠ではない。
+B-552で、固定audio archiveの全体SHA-256とZIP64構造を検証し、選択290 WAVのsource、core、maximum-context PCMを固定した。
+audio receipt SHA-256は`788faee0f60c6173aac48b9681d98314bcdbb949a0e41d9c78b6a185f3056233`であり、二回実行でbyte単位に一致した。
+MIDIとaudio provenanceはformal inputの構成要素として成立したが、両receiptをsource commitへ結ぶFormalAuthorizationは未完成である。
 
 ## 7. formal evaluatorへ接続した範囲
 
@@ -172,10 +174,10 @@ timingはfoldのmicro gateとし、match 0のfoldを合格にしない。
 
 さらに、次のblockerを独立に保持する。
 
-- B-551 MIDI receiptを他のreceiptとsource commitへ結ぶFormalAuthorization semantic verifierが未実装。
-- audio ingest、blind audit、candidate planのverified receiptが未実装。
+- B-551 MIDI receiptとB-552 audio receiptをsource commitへ結ぶFormalAuthorization semantic verifierが未実装。
+- blind auditとcandidate planのverified receiptが未実装。
 - source sample 0を起点に実contextを解析し、coreだけを採点するcontext guardが未実装。
-- source audio、excerpt core、guard付きPCMのhashとduplicate検査が未実装。
+- candidate planから必要な左右contextを導出し、B-552 maximum-context証拠へ結ぶ検証が未実装。
 - blind acoustic auditがsynthetic fixture以外で未実施。
 - sealed candidate setの完走receiptが未実装。
 - leave-one-drummer-outとleave-one-session-outの実行resultが未取得。
@@ -190,6 +192,7 @@ formal実装はframe gridをsource sample 0へ固定し、必要な実source con
 
 B-550はofficial metadataとtrain/validation MIDIだけをDRUM development用に読んだ。
 audio、test MIDI、fresh holdout、2MIX data、Slakh、annotation、candidate outputは開いていない。
+B-552では公式audio archive全体を不透明な圧縮bytesとしてhashし、semantic decodeは固定train 246件とvalidation 44件のWAVと対応MIDIだけに限定した。
 
 2026-08-30のE-GMD test MIDI誤抽出事故は、独立immutable incident recordとしてrepoへhash固定済みである。
 original E-GMD testを未開封とは主張しない。
@@ -201,7 +204,7 @@ DRUMのmanifest、threshold、definition hash、gate合格を2MIXへ転用しな
 ## 10. 次工程
 
 1. B-551でverified MIDI archive member、sourceとcropped note/event hash、重複検査receiptを完了した。
-2. official audio archiveを固定し、source PCMとcore、guard PCMを同じbytesからhash、decodeする。
+2. B-552でofficial audio archive、source PCM、core、maximum-context PCM、対応MIDIのreceiptを完了した。
 3. 二人のannotatorへ同じ固定audio excerptを渡し、候補出力なしでblind acoustic auditを完了する。
 4. selection、fold、MIDI、audio、audit、candidate planをsource commitの固定hashへ結ぶ。
 5. source-origin context guardを実装し、formal CLIの入力前blockerを解除する。

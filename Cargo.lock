@@ -1238,6 +1238,7 @@ dependencies = [
  "chrono",
  "crc32fast",
  "ebur128",
+ "flate2",
  "hex",
  "hmac",
  "libc",

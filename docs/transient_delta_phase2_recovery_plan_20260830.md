@@ -1,11 +1,11 @@
 # ATTACK Phase 2-R 復旧方針
 
 **日付**：2026-08-30
-**実装ラベル**：B-551
-**判定**：DRUMのfold成立性とMIDI provenanceはGo、候補freezeと公開はNo-Go
+**実装ラベル**：B-552
+**判定**：DRUMのfold成立性、MIDI、audio provenanceはGo、候補freezeと公開はNo-Go
 **公開状態**：ATTACK route、request、worker、lease acquisitionは未実装かつOFF
 
-**B-551進捗**：N=290のDRUM selectionと五fold gateに加え、公式MIDI archiveの選択290 member、sourceとexcerpt event、canonical重複監査を`docs/transient_delta_phase2_midi_provenance_report_20260830.md`へ固定した。候補score、winner、fresh holdoutは未実施である。
+**B-552進捗**：N=290のDRUM selection、五fold、MIDI memberに加え、公式audio archiveの選択WAV、source、core、maximum-context PCM、重複、無響、MIDI終端監査を`docs/transient_delta_phase2_audio_provenance_report_20260830.md`へ固定した。候補score、winner、fresh holdoutは未実施である。
 
 ## 1. 決定
 
@@ -146,7 +146,7 @@ holdout scoreを見た後のthreshold、event contract、除外規則、候補�
 E-GMD v1.0.0の公式archive hashをdataset identityとし、選択した配布fileを変換せず保存する。
 canonical ingestは44.1 kHz、mono、integer PCM 16または24 bitをexact f32 scaleでdecodeし、それ以外をfailにする。
 AudioIngestは選択renderのmanifest decimal由来sample数と実audio sample_countを別々に型付きで記録、hashし、`core_end <= actual_sample_count`を必須にする。
-両sample数の差は10 ms以下、最初と最後のraw annotationは実音声範囲の前後2 ms以内を要求し、診断用`f64` duration比較をprovenanceの代用にしない。
+B-552の固定290件は両sample数のexact一致を要求し、最初と最後のraw annotationは実音声範囲の前後2 ms以内とする。診断用`f64` duration比較をprovenanceの代用にしない。
 
 metadata snapshot、selection algorithm version、固定seed `ATTACK-V2-20260830`をcommitし、version、seed、split、performance IDを長さprefix付きでdomain separationしたSHA-256順に候補とreserveを決める。
 excerpt位置はselection rankと異なるdomainで同じidentityをhashし、位置数へu128 multiply-highで写像する。
@@ -155,7 +155,7 @@ quota充足、fold割当、既知不良trackのreserve置換は同じ決定的sc
 manifest、fold、reserve順をcommitしてから対象audioを開く。
 
 `2MIX`にはCC BY 4.0のSlakh2100-reduxを使い、E-GMD scoreを2MIX判定へ流用しない。
-B-551まで2MIXのdata、audio、annotation、候補、holdoutを開いておらず、以下は将来の独立契約である。
+B-552まで2MIXのdata、audio、annotation、候補、holdoutを開いておらず、以下は将来の独立契約である。
 重複MIDIをsplit間から除いた公式redux splitから、train/validationに30秒excerptを20本、testに30秒excerptを20本、同じ固定seedで選ぶ。
 各集合は10分以上とし、piano、bass、guitar、drumsに加えて利用可能なstrings、brass、reedの比率をmanifestへ固定する。
 二人のannotatorがaudioだけを聴き、候補出力とMIDIを見ずにmusically relevant broadband attackを独立に記録する。
@@ -249,7 +249,7 @@ exact content join後にだけ`C[n] = max(S_PRE[n], S_POST[n])`を作り、共�
 frame centerは物理sourceのsample 0を起点に`0, hop, 2*hop, ...`とし、window supportを`[center-floor(N/2), center+ceil(N/2))`、物理source外だけをzero paddingとする。
 30秒coreを独立audioとして両端zero paddingせず、実source contextを解析してpredictionとlabelの採点だけをcore半開区間へ限定する。
 offline末尾は物理sourceの最後のsampleを含むcenterまでflushし、event sampleはselected frame center、plateauは最早frame、global offsetとonset backtrackは0へ固定する。
-B-551でもこのcontext guardが未実装であり、formal loadとscoreを`not_ready_context_guard_unimplemented`で停止する。
+B-552でもこのcontext guardが未実装であり、formal loadとscoreを`not_ready_context_guard_unimplemented`で停止する。
 
 共通peakは次の四条件をすべて満たすframeとする。
 
@@ -363,7 +363,7 @@ marker latencyは`decision availability - event_sample`、`worker publish - deci
 
 1. B-550でDRUMのN=290 selection、23列manifest、fold balance、formal candidate config、formal metric基盤を固定した。
 2. B-551でverified MIDI archive member、sourceとcropped note/event hash、cross-IDとcross-split重複検査を固定した。
-3. official audio archiveの同一bytesからsource、core、guard PCMをhash、decodeし、duplicate検査を作る。
+3. B-552でofficial audio archiveの同一full SHA読み取りからsource、core、maximum-context PCM、重複、無響、MIDI終端を固定した。
 4. E-GMD MIDI proxyのblind acoustic auditと一般mixdevelopment annotationを候補出力なしで完了する。
 5. source commitへauthorization、candidate plan、fold balance、全receipt hashを固定し、caller指定hashをtrust rootにしない。
 6. source sample 0起点のcontext guardを実装し、formal CLIのfilesystem入力前blockerを解除する。
@@ -373,7 +373,7 @@ marker latencyは`decision availability - event_sample`、`worker publish - deci
 10. 各profileのfresh holdoutと全paired transformをprofileごとに一度だけ評価する。
 11. 対象profileの全gateを通った場合だけPhase 3へ進み、worker、pairing、identity、性能、macOS、Windowsを同一commitで通した場合だけ公開Goとする。
 
-B-551のMIDI receiptは単独componentとしてGoだが、formal CLIは全receiptを結ぶsource pinが無いため、authorization file、dataset root、manifest、candidate config、result pathへ触れる前に`formal_authorization_not_pinned_in_source_commit`で停止する。
+B-551のMIDI receiptとB-552のaudio receiptは各単独componentとしてGoだが、formal CLIは全receiptを結ぶsource pinが無いため、authorization file、dataset root、manifest、candidate config、result pathへ触れる前に`formal_authorization_not_pinned_in_source_commit`で停止する。
 
 ## 12. 停止条件
 
@@ -406,7 +406,7 @@ Goの可能性はある。
 
 ただし、その外部結果はHyphaのE-GMD split、FP/s、kick、hat、PRE/POST exact pairingを保証しない。
 したがって、見通しは肯定するが、公開Goはfresh holdoutとruntime gateの実測だけで決める。
-B-551のGoはDRUM fold成立性とMIDI provenanceだけであり、candidate freeze、fresh holdout、runtime、公開のGoではない。
+B-552までのGoはDRUM fold成立性、MIDI、audio provenanceだけであり、candidate freeze、fresh holdout、runtime、公開のGoではない。
 
 ## 14. 参照資料
 

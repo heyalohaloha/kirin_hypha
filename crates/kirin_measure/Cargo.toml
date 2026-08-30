@@ -37,4 +37,5 @@ symphonia = { version = "0.5", features = ["wav", "pcm"] }
 approx = "0.5"
 tempfile = "3"
 crc32fast = "=1.5.0"
+flate2 = { version = "=1.1.9", default-features = false, features = ["zlib-rs"] }
 zip = { version = "=8.6.0", default-features = false, features = ["deflate-flate2-zlib-rs"] }

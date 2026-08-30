@@ -7,6 +7,9 @@
 **DRUM候補freeze判定**：No-Go、正式採点未実施
 **公開判定**：No-Go、ATTACKはOFF
 
+> B-552でaudio archive-memberとPCM provenanceもGoになった。
+> 現在の入力証拠と残るNo-Go条件は`docs/transient_delta_phase2_audio_provenance_report_20260830.md`を正本とする。
+
 ## 1. 判定範囲
 
 B-551は、B-550で固定した290件のDRUM development manifestを、公式E-GMD MIDI-only archiveの実memberへ結び付けた。
@@ -153,11 +156,11 @@ MIDI member provenanceが成立しても、MIDI compoundを可聴attackの公開
 固定audio excerptを二人が候補出力なしで注釈し、MIDI proxyのPrecisionとRecallを別々に検証する必要がある。
 
 formal scorerは引き続きfilesystem access前に停止する。
-B-551 receiptをFormalAuthorizationへ結ぶsource-pinned semantic verifier、audio ingest receipt、実source context、blind audit、sealed candidate planが未完成だからである。
+B-551とB-552のreceiptをsource commitへ結ぶFormalAuthorization、実source context、blind audit、sealed candidate planが未完成だからである。
 
 次工程を次の順序へ固定する。
 
-1. official audio archiveを同じone-buffer原則で検証し、source PCM、core PCM、guard付きPCMのhashと重複を記録する。
+1. B-552でofficial audio archive、source PCM、core PCM、maximum-context PCMのhashと重複監査を完了した。
 2. source sample 0をframe originとし、実contextをdecodeしながらcore半開区間だけを採点する。
 3. 固定audio bytesでblind acoustic auditを完了する。
 4. development、MIDI、audio、fold、audit、candidate planをsource commitの認可hashへ結ぶ。
@@ -175,4 +178,5 @@ B-551 receiptをFormalAuthorizationへ結ぶsource-pinned semantic verifier、au
 - [zip 8.6.0 API documentation](https://docs.rs/zip/8.6.0/zip/)
 - [Expanded Groove MIDI Dataset](https://magenta.withgoogle.com/datasets/e-gmd)
 - `docs/transient_delta_phase2_formal_development_gate_report_20260830.md`
+- `docs/transient_delta_phase2_audio_provenance_report_20260830.md`
 - `docs/transient_delta_phase2_recovery_plan_20260830.md`
