@@ -281,6 +281,17 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
             juce::Label::textColourId,
             juce::Colour (ui::preDisplayDetailColour (ui::PreDisplayTone::context)));
         addChildComponent (preDisplayStateLabel);
+
+        preDisplayConnectButton.setColour (juce::TextButton::buttonColourId, hypha::kFieldFill);
+        preDisplayConnectButton.setColour (juce::TextButton::buttonOnColourId, hypha::kFieldFill);
+        preDisplayConnectButton.setColour (juce::TextButton::textColourOffId, COL_FLORA_BR);
+        preDisplayConnectButton.setColour (juce::TextButton::textColourOnId, COL_FLORA_BR);
+        preDisplayConnectButton.onClick = [this]
+        {
+            if (! processorRef.acceptPreDisplayConnection())
+                showToast ("Connection request is no longer available");
+        };
+        addChildComponent (preDisplayConnectButton);
     }
 #endif
 
@@ -377,6 +388,7 @@ void KirinHyphaEditor::resized()
     if (! isPost)
     {
         preDisplayPrimaryLabel.setBounds (juceRect (layout.preDisplayPrimary));
+        preDisplayConnectButton.setBounds (juceRect (layout.preDisplayPrimary));
         layoutPreDisplayState (preDisplayStateLabel.getText());
     }
 #endif
@@ -710,6 +722,8 @@ void KirinHyphaEditor::updatePre()
 {
 #if KIRIN_HYPHA_PRE_DISPLAY
     const auto preDisplay = processorRef.preDisplaySnapshot();
+    const auto connection = processorRef.pendingPreDisplayConnection();
+    const bool connectionPending = connection.validAt (juce::Time::currentTimeMillis());
     const auto preDisplayTone = preDisplay.sectionActive || preDisplay.cueActive
         ? ui::PreDisplayTone::emphasis
         : ui::PreDisplayTone::context;
@@ -722,6 +736,13 @@ void KirinHyphaEditor::updatePre()
     preDisplayStateLabel.setColour (
         juce::Label::textColourId,
         juce::Colour (ui::preDisplayDetailColour (preDisplayTone)));
+    preDisplayConnectButton.setVisible (connectionPending);
+    if (connectionPending)
+    {
+        const auto title = connection.workTitle.isNotEmpty() ? connection.workTitle : connection.workId;
+        preDisplayConnectButton.setButtonText ("CONNECT  " + title.substring (0, 26));
+        preDisplayConnectButton.setTooltip ("Connect this PRE session to Work: " + title);
+    }
     preDisplayStateLabel.setText (preDisplay.stateText, juce::dontSendNotification);
     layoutPreDisplayState (preDisplay.stateText);
     const auto fittedPrimary = fitLabelText (preDisplayPrimaryLabel, preDisplay.primary);
@@ -732,9 +753,9 @@ void KirinHyphaEditor::updatePre()
         fittedPrimary == preDisplay.primary ? juce::String() : preDisplay.primary);
     preDisplayDetailLabel.setTooltip (
         fittedDetail == preDisplay.detail ? juce::String() : preDisplay.detail);
-    preDisplayPrimaryLabel.setVisible (preDisplay.primary.isNotEmpty());
-    preDisplayDetailLabel.setVisible (preDisplay.detail.isNotEmpty());
-    preDisplayStateLabel.setVisible (preDisplay.stateText.isNotEmpty());
+    preDisplayPrimaryLabel.setVisible (! connectionPending && preDisplay.primary.isNotEmpty());
+    preDisplayDetailLabel.setVisible (! connectionPending && preDisplay.detail.isNotEmpty());
+    preDisplayStateLabel.setVisible (! connectionPending && preDisplay.stateText.isNotEmpty());
 #endif
     const bool alive  = processorRef.measureAlive();
     const int  sig    = processorRef.signalStateLive(); // 0=Inactive 1=Active 2=Bypassed (B-113: heartbeat-aware)

@@ -102,6 +102,7 @@ private:
     juce::Label               preDisplayPrimaryLabel;      // PRE-only current/next measured fact
     juce::Label               preDisplayDetailLabel;       // PRE-only bounded context line
     juce::Label               preDisplayStateLabel;        // PRE-only state; reserved from context clipping
+    juce::TextButton          preDisplayConnectButton;      // PRE-only explicit Work/session connection
 #endif
     std::unique_ptr<hypha::PostControls> postControls;    // POST button row
     hypha::PairDropdownButton pairDropdown;                // POST: vector arrow / candidate / All Keep / All Stop

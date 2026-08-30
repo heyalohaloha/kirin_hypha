@@ -540,6 +540,18 @@ hypha::pre_display::DisplaySnapshot KirinHyphaProcessorBase::preDisplaySnapshot(
         ? preDisplayController->displaySnapshot()
         : hypha::pre_display::DisplaySnapshot {};
 }
+
+hypha::pre_display::ConnectionRequest KirinHyphaProcessorBase::pendingPreDisplayConnection() const
+{
+    return preDisplayController != nullptr
+        ? preDisplayController->pendingConnection()
+        : hypha::pre_display::ConnectionRequest {};
+}
+
+bool KirinHyphaProcessorBase::acceptPreDisplayConnection()
+{
+    return preDisplayController != nullptr && preDisplayController->acceptPendingConnection();
+}
 #endif
 
 // --- B-072: POST pairing surface ---------------------------------------------------------

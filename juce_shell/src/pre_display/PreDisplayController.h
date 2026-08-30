@@ -19,6 +19,8 @@ namespace hypha::pre_display
         void configureAndStart (RuntimeIdentity identityIn);
         void setName (const juce::String& name);
         DisplaySnapshot displaySnapshot() const;
+        ConnectionRequest pendingConnection() const;
+        bool acceptPendingConnection();
 
         static juce::File transportRoot();
 
@@ -36,6 +38,8 @@ namespace hypha::pre_display
         bool configured = false;
         mutable juce::CriticalSection displayLock;
         DisplaySnapshot display;
+        mutable juce::CriticalSection connectionLock;
+        ConnectionRequest connectionRequest;
         juce::File ownPresenceFile;
         juce::File ownAcknowledgementFile;
         juce::File ownCapabilityFile;

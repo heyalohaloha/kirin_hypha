@@ -35,6 +35,19 @@ namespace
         return std::memcmp (&left, &right, sizeof (double)) == 0;
     }
 
+    juce::File leaseFileForInstance (const juce::File& directory,
+                                     const juce::String& instanceId)
+    {
+        for (const auto& file : directory.findChildFiles (juce::File::findFiles, false, "*.json"))
+        {
+            const auto parsed = juce::JSON::parse (file);
+            if (parsed.getDynamicObject() != nullptr
+                && parsed.getDynamicObject()->getProperty ("instance_id") == instanceId)
+                return file;
+        }
+        return {};
+    }
+
     juce::String testUuid (const juce::String& seed)
     {
         const auto digest = juce::MD5 (seed.toRawUTF8(), seed.getNumBytesAsUTF8()).toHexString();
@@ -146,6 +159,61 @@ namespace
         return value;
     }
 
+    juce::var exactInspectGuide (const juce::String& workId,
+                                 const juce::String& bindingId,
+                                 const juce::String& runtimeInstanceId)
+    {
+        auto value = inspectGuide();
+        auto* root = value.getDynamicObject();
+        root->setProperty ("version", "2.0");
+        auto* producer = root->getProperty ("producer").getDynamicObject();
+        producer->setProperty ("work_id", workId);
+        producer->setProperty ("source_sha256_file", hashA);
+        auto target = new juce::DynamicObject();
+        target->setProperty ("group_id", "kirin_os");
+        target->setProperty ("selection_mode", "exact_pre_binding");
+        target->setProperty ("work_id", workId);
+        target->setProperty ("binding_id", bindingId);
+        target->setProperty ("runtime_instance_id", runtimeInstanceId);
+        root->setProperty ("target", juce::var (target));
+        return value;
+    }
+
+    juce::var exactMaskingGuide (const juce::String& workId,
+                                 const juce::String& bindingId,
+                                 const juce::String& runtimeInstanceId)
+    {
+        auto value = maskingGuide ("exact_masking", hashA, true, true, true);
+        auto* root = value.getDynamicObject();
+        root->setProperty ("version", "2.0");
+        auto* producer = root->getProperty ("producer").getDynamicObject();
+        producer->setProperty ("work_id", workId);
+        producer->setProperty ("source_sha256_file", hashB);
+        auto target = new juce::DynamicObject();
+        target->setProperty ("group_id", "kirin_os");
+        target->setProperty ("selection_mode", "exact_pre_binding");
+        target->setProperty ("work_id", workId);
+        target->setProperty ("binding_id", bindingId);
+        target->setProperty ("runtime_instance_id", runtimeInstanceId);
+        root->setProperty ("target", juce::var (target));
+
+        auto* payload = root->getProperty ("payload").getDynamicObject();
+        auto selection = new juce::DynamicObject();
+        selection->setProperty ("selection_id", "review_0001");
+        selection->setProperty ("start_ns", static_cast<juce::int64> (1'000'000'000));
+        selection->setProperty ("end_ns", static_cast<juce::int64> (2'000'000'000));
+        auto focusBand = new juce::DynamicObject();
+        focusBand->setProperty ("low_hz", 100.0);
+        focusBand->setProperty ("high_hz", 200.0);
+        selection->setProperty ("focus_band", juce::var (focusBand));
+        juce::Array<juce::var> selections;
+        selections.add (juce::var (selection));
+        payload->setProperty ("review_selections", juce::var (selections));
+        payload->getProperty ("intervals").getArray()->getReference (0)
+            .getDynamicObject()->setProperty ("selection_ref", "review_0001");
+        return value;
+    }
+
     bool writeJson (const juce::File& file, const juce::var& value)
     {
         return file.getParentDirectory().createDirectory()
@@ -171,6 +239,46 @@ namespace
         pointer->setProperty ("revision", static_cast<juce::int64> (revision));
         pointer->setProperty ("activated_at", "2026-08-15T12:00:00.000Z");
         return juce::var (pointer);
+    }
+
+    juce::var exactActivePointer (const juce::File& guideFile,
+                                  const juce::String& artifactHash,
+                                  const juce::String& guideId,
+                                  const juce::String& contentHash,
+                                  const juce::String& workId,
+                                  const juce::String& bindingId,
+                                  const juce::String& runtimeInstanceId)
+    {
+        auto pointer = new juce::DynamicObject();
+        pointer->setProperty ("format", "kirin_pre_display_active");
+        pointer->setProperty ("version", "2.0");
+        pointer->setProperty ("group_id", "kirin_os");
+        pointer->setProperty ("work_id", workId);
+        pointer->setProperty ("binding_id", bindingId);
+        pointer->setProperty ("runtime_instance_id", runtimeInstanceId);
+        pointer->setProperty ("guide_id", guideId);
+        pointer->setProperty ("revision", static_cast<juce::int64> (1));
+        pointer->setProperty ("content_hash", contentHash);
+        pointer->setProperty ("artifact_sha256", artifactHash);
+        pointer->setProperty ("guide_file", guideFile.getFileName());
+        pointer->setProperty ("payload_kind", "inspect");
+        pointer->setProperty ("activated_at", "2026-08-15T12:00:00.000Z");
+        return juce::var (pointer);
+    }
+
+    juce::var connectionRequest (const juce::String& workId,
+                                 const juce::String& bindingId,
+                                 std::int64_t nowMs)
+    {
+        auto request = new juce::DynamicObject();
+        request->setProperty ("format", "kirin_pre_display_connection_request");
+        request->setProperty ("version", "1.0");
+        request->setProperty ("binding_id", bindingId);
+        request->setProperty ("work_id", workId);
+        request->setProperty ("work_title", "Exact Work");
+        request->setProperty ("observed_at_ms", nowMs);
+        request->setProperty ("expires_at_ms", nowMs + 300'000);
+        return juce::var (request);
     }
 
     juce::File publishGuide (const juce::File& root, const juce::var& guide,
@@ -271,6 +379,89 @@ int main()
              && fixtureFromRepository.guideId == fixtureModel.guideId
              && fixtureFromRepository.contentHash == fixtureModel.contentHash,
              "load the exact cross-boundary fixture through the file repository");
+
+    const auto exactWorkId = testUuid ("exact_work");
+    const auto exactBindingId = testUuid ("exact_binding");
+    const juce::String exactRuntimeId = "runtime_exact_1";
+    const auto exactGuide = exactInspectGuide (exactWorkId, exactBindingId, exactRuntimeId);
+    const auto exactGuideId = pre::objectString (*exactGuide.getDynamicObject(), "guide_id");
+    const auto exactContentHash = pre::objectString (*exactGuide.getDynamicObject(), "content_hash");
+    const auto exactArtifact = root.getChildFile ("guides").getChildFile ("exact-inspect.json");
+    require (writeJson (exactArtifact, exactGuide), "write exact guide artifact");
+    require (writeJson (root.getChildFile ("active_exact").getChildFile (exactBindingId + ".json"),
+                        exactActivePointer (exactArtifact, juce::SHA256 (exactArtifact).toHexString(),
+                                            exactGuideId, exactContentHash, exactWorkId,
+                                            exactBindingId, exactRuntimeId)),
+             "write exact active pointer");
+    pre::RuntimeIdentity exactIdentity;
+    exactIdentity.runtimeInstanceId = exactRuntimeId;
+    exactIdentity.instanceId = "pre_exact_1";
+    exactIdentity.projectUuid = "project_exact_1";
+    exactIdentity.workId = exactWorkId;
+    exactIdentity.bindingId = exactBindingId;
+    pre::GuideModel exactLoaded;
+    const auto exactReceipt = pre::GuideRepository (root).refresh (exactLoaded, exactIdentity);
+    require (exactReceipt.state == pre::GuideRefreshState::accepted
+             && exactLoaded.workId == exactWorkId
+             && exactLoaded.bindingId == exactBindingId
+             && exactLoaded.runtimeInstanceId == exactRuntimeId,
+             "load only the guide addressed to this Work and PRE runtime");
+    auto reboundIdentity = exactIdentity;
+    reboundIdentity.workId = testUuid ("rebound_work");
+    reboundIdentity.bindingId = testUuid ("rebound_binding");
+    auto retainedAcrossRebind = exactLoaded;
+    require (pre::GuideRepository (root).refresh (retainedAcrossRebind, reboundIdentity).state
+                 == pre::GuideRefreshState::unavailable
+             && ! retainedAcrossRebind.valid(),
+             "clear the previous Work guide immediately when this PRE is rebound");
+    auto wrongExactIdentity = exactIdentity;
+    wrongExactIdentity.workId = testUuid ("other_work");
+    pre::GuideModel wrongExactLoaded;
+    require (pre::GuideRepository (root).refresh (wrongExactLoaded, wrongExactIdentity).state
+                 == pre::GuideRefreshState::unavailable
+             && ! wrongExactLoaded.valid(),
+             "ignore an exact guide when the open Work does not match");
+    wrongExactIdentity = exactIdentity;
+    wrongExactIdentity.runtimeInstanceId = "runtime_exact_2";
+    require (pre::GuideRepository (root).refresh (wrongExactLoaded, wrongExactIdentity).state
+                 == pre::GuideRefreshState::unavailable
+             && ! wrongExactLoaded.valid(),
+             "ignore an exact guide after the connected PRE runtime was recreated");
+
+    const auto connectionNowMs = juce::Time::currentTimeMillis();
+    require (writeJson (root.getChildFile ("connection").getChildFile ("request.json"),
+                        connectionRequest (exactWorkId, exactBindingId, connectionNowMs)),
+             "write a live exact Work connection request");
+    const auto pendingConnection = pre::GuideRepository (root).pendingConnection (connectionNowMs);
+    require (pendingConnection.validAt (connectionNowMs)
+             && pendingConnection.workId == exactWorkId
+             && pendingConnection.bindingId == exactBindingId,
+             "read the exact Work request that must be confirmed in the intended PRE");
+
+    pre::GuideModel exactMaskingModel;
+    auto exactMasking = exactMaskingGuide (exactWorkId, exactBindingId, exactRuntimeId);
+    require (pre::parseArtifactVerifiedGuideModel (
+                 *exactMasking.getDynamicObject(), "exact-masking", exactMaskingModel)
+             && exactMaskingModel.items.size() == 1
+             && exactMaskingModel.items.front().selectionRef == "review_0001",
+             "retain the selected MASKING range used to build the exact PRE guide");
+    auto intervalOutsideSelection = exactMaskingGuide (exactWorkId, exactBindingId, exactRuntimeId);
+    intervalOutsideSelection.getDynamicObject()->getProperty ("payload").getDynamicObject()
+        ->getProperty ("review_selections").getArray()->getReference (0).getDynamicObject()
+        ->setProperty ("end_ns", static_cast<juce::int64> (1'500'000'000));
+    pre::GuideModel invalidExactMasking;
+    require (! pre::parseArtifactVerifiedGuideModel (
+                 *intervalOutsideSelection.getDynamicObject(), "outside-selection", invalidExactMasking),
+             "reject a MASKING fact outside the selected time range");
+    auto intervalOutsideFocus = exactMaskingGuide (exactWorkId, exactBindingId, exactRuntimeId);
+    auto* invalidFocus = intervalOutsideFocus.getDynamicObject()->getProperty ("payload")
+        .getDynamicObject()->getProperty ("review_selections").getArray()->getReference (0)
+        .getDynamicObject()->getProperty ("focus_band").getDynamicObject();
+    invalidFocus->setProperty ("low_hz", 300.0);
+    invalidFocus->setProperty ("high_hz", 400.0);
+    require (! pre::parseArtifactVerifiedGuideModel (
+                 *intervalOutsideFocus.getDynamicObject(), "outside-focus", invalidExactMasking),
+             "reject a MASKING fact outside the selected frequency range");
 
     const auto measured = maskingGuide ("masking_guide", hashA, true, true, true);
     publishGuide (root, measured);
@@ -576,6 +767,21 @@ int main()
              && capability.getDynamicObject()->getProperty ("lease_expires_at_ms")
                     == juce::var (static_cast<juce::int64> (14'500)),
              "capability lease identifies the current receipt-capable runtime");
+
+    auto exactPresenceIdentity = identity;
+    exactPresenceIdentity.runtimeInstanceId = exactRuntimeId;
+    exactPresenceIdentity.workId = exactWorkId;
+    exactPresenceIdentity.bindingId = exactBindingId;
+    require (pre::writePresence (root, exactPresenceIdentity, clock, 12'345, 13'000),
+             "publish the exact Work and binding in the PRE runtime lease");
+    const auto exactPresence = juce::JSON::parse (
+        root.getChildFile ("presence").getChildFile (exactRuntimeId + ".json"));
+    require (exactPresence.getDynamicObject() != nullptr
+             && exactPresence.getDynamicObject()->getProperty ("version") == "2.0"
+             && exactPresence.getDynamicObject()->getProperty ("runtime_instance_id") == exactRuntimeId
+             && exactPresence.getDynamicObject()->getProperty ("work_id") == exactWorkId
+             && exactPresence.getDynamicObject()->getProperty ("binding_id") == exactBindingId,
+             "bind the live PRE lease to one Work and one fresh runtime");
     require (pre::writeAcknowledgement (root, identity, inspect, display, 13'000),
              "write acknowledgement only after strict guide projection");
     const auto acknowledgement = juce::JSON::parse (
@@ -609,6 +815,36 @@ int main()
                     == "guide_contract_rejected",
              "rejection receipt exposes no internal parser detail and never claims a display state");
 
+    {
+        pre::ClockTap reprepareClock;
+        reprepareClock.publish (0, 48'000.0, 512, false,
+                                pre::ClockSource::projectTimeline);
+        pre::Controller controller (reprepareClock, root);
+        auto reprepareIdentity = identity;
+        reprepareIdentity.instanceId = "reprepare_instance";
+        reprepareIdentity.runtimeInstanceId.clear();
+        controller.configureAndStart (reprepareIdentity);
+        juce::File firstRuntimeLease;
+        for (int attempt = 0; attempt < 100 && ! firstRuntimeLease.existsAsFile(); ++attempt)
+        {
+            juce::Thread::sleep (10);
+            firstRuntimeLease = leaseFileForInstance (root.getChildFile ("presence"),
+                                                      reprepareIdentity.instanceId);
+        }
+        require (firstRuntimeLease.existsAsFile(),
+                 "publish one generated runtime lease for an open PRE instance");
+        controller.configureAndStart (reprepareIdentity);
+        juce::File secondRuntimeLease;
+        for (int attempt = 0; attempt < 100 && ! secondRuntimeLease.existsAsFile(); ++attempt)
+        {
+            juce::Thread::sleep (10);
+            secondRuntimeLease = leaseFileForInstance (root.getChildFile ("presence"),
+                                                       reprepareIdentity.instanceId);
+        }
+        require (secondRuntimeLease == firstRuntimeLease,
+                 "retain the same runtime identity when the open PRE instance is prepared again");
+    }
+
     for (int iteration = 0; iteration < 32; ++iteration)
     {
         pre::ClockTap lifecycleClock;
@@ -617,16 +853,18 @@ int main()
         pre::Controller controller (lifecycleClock, root);
         auto lifecycleIdentity = identity;
         lifecycleIdentity.instanceId = "lifecycle_" + juce::String (iteration);
+        lifecycleIdentity.runtimeInstanceId = "lifecycle_runtime_" + juce::String (iteration);
         controller.configureAndStart (std::move (lifecycleIdentity));
     }
     require (true, "repeated controller destruction joins its worker without forced termination");
 
+    const juce::String activeLifecycleRuntimeId = "lifecycle_runtime_active";
     const auto activeLifecyclePresence = root.getChildFile ("presence")
-        .getChildFile ("lifecycle_active.json");
+        .getChildFile (activeLifecycleRuntimeId + ".json");
     const auto activeLifecycleCapability = root.getChildFile ("capability")
-        .getChildFile ("lifecycle_active.json");
+        .getChildFile (activeLifecycleRuntimeId + ".json");
     const auto activeLifecycleAcknowledgement = root.getChildFile ("ack")
-        .getChildFile ("lifecycle_active.json");
+        .getChildFile (activeLifecycleRuntimeId + ".json");
     {
         pre::ClockTap lifecycleClock;
         lifecycleClock.publish (0, 48'000.0, 512, false,
@@ -634,6 +872,7 @@ int main()
         pre::Controller controller (lifecycleClock, root);
         auto lifecycleIdentity = identity;
         lifecycleIdentity.instanceId = "lifecycle_active";
+        lifecycleIdentity.runtimeInstanceId = activeLifecycleRuntimeId;
         controller.configureAndStart (std::move (lifecycleIdentity));
         for (int attempt = 0; attempt < 100
              && (! activeLifecyclePresence.existsAsFile()

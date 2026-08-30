@@ -7,6 +7,24 @@
 
 namespace hypha::pre_display
 {
+    struct RuntimeLease
+    {
+        RuntimeIdentity identity;
+        juce::File presenceFile;
+        juce::File acknowledgementFile;
+        juce::File capabilityFile;
+
+        bool valid() const noexcept
+        {
+            return identity.runtimeInstanceId.isNotEmpty() && presenceFile != juce::File();
+        }
+    };
+
+    RuntimeLease prepareRuntimeLease (const juce::File& transportRoot,
+                                      RuntimeIdentity requested,
+                                      const RuntimeIdentity& current,
+                                      bool alreadyConfigured);
+
     bool writePresence (const juce::File& transportRoot,
                         const RuntimeIdentity& identity,
                         const ClockSnapshot& clock,

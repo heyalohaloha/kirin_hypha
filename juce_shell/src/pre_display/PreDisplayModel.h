@@ -32,6 +32,7 @@ namespace hypha::pre_display
 
     struct RuntimeIdentity
     {
+        juce::String runtimeInstanceId;
         juce::String instanceId;
         juce::String projectUuid;
         juce::String dawSessionUuid;
@@ -41,6 +42,24 @@ namespace hypha::pre_display
         juce::String platform;
         juce::String architecture;
         std::uint32_t hostProcessId = 0;
+        juce::String workId;
+        juce::String bindingId;
+    };
+
+    struct ConnectionRequest
+    {
+        juce::String bindingId;
+        juce::String workId;
+        juce::String workTitle;
+        std::int64_t observedAtMs = 0;
+        std::int64_t expiresAtMs = 0;
+
+        bool validAt (std::int64_t nowMs) const noexcept
+        {
+            return bindingId.isNotEmpty() && workId.isNotEmpty()
+                && observedAtMs >= 0 && expiresAtMs >= observedAtMs
+                && expiresAtMs >= nowMs;
+        }
     };
 
     enum class TemporalFactKind
@@ -52,6 +71,7 @@ namespace hypha::pre_display
     struct GuideItem
     {
         juce::String itemId;
+        juce::String selectionRef;
         juce::String label;
         juce::String sourceLabel;
         juce::String channel;
@@ -67,7 +87,11 @@ namespace hypha::pre_display
     struct GuideModel
     {
         juce::String cacheKey;
+        juce::String protocolVersion;
         juce::String groupId;
+        juce::String workId;
+        juce::String bindingId;
+        juce::String runtimeInstanceId;
         juce::String guideId;
         juce::String contentHash;
         juce::String payloadKind;
@@ -98,6 +122,9 @@ namespace hypha::pre_display
     {
         GuideRefreshState state = GuideRefreshState::unavailable;
         juce::String groupId;
+        juce::String workId;
+        juce::String bindingId;
+        juce::String runtimeInstanceId;
         juce::String guideId;
         juce::String contentHash;
         juce::String payloadKind;

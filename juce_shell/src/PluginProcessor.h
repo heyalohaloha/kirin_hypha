@@ -52,6 +52,8 @@ public:
     void setUseShortTermLoudness (bool shortTerm);
 #if KIRIN_HYPHA_PRE_DISPLAY
     hypha::pre_display::DisplaySnapshot preDisplaySnapshot() const;
+    hypha::pre_display::ConnectionRequest pendingPreDisplayConnection() const;
+    bool acceptPreDisplayConnection();
 #endif
 
     // --- B-072: POST pairing surface (used by the editor only when isPostRole()) ----------
