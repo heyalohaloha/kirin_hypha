@@ -2,248 +2,334 @@ use std::cmp::Ordering;
 
 use super::input::LabelEvent;
 
-pub(crate) const MATCH_TOLERANCE_SECS: f64 = 0.025;
+pub(crate) const MATCH_TOLERANCE_MICROS: u64 = 25_000;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct MatchRecord {
     pub(crate) prediction_index: usize,
     pub(crate) label_index: usize,
-    pub(crate) signed_error_secs: f64,
+    pub(crate) signed_error_units: i128,
+}
+
+impl MatchRecord {
+    pub(crate) fn signed_error_seconds(self, sample_rate: u32) -> f64 {
+        self.signed_error_units as f64 / (f64::from(sample_rate) * 1_000_000.0)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct Score {
+    match_count: usize,
+    total_abs_error_units: u128,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
-struct Score {
-    match_count: usize,
-    total_abs_error_secs: f64,
-}
-
-#[derive(Clone, Copy, Debug)]
 struct CandidateEdge {
     prediction_index: usize,
     label_index: usize,
-    abs_error_secs: f64,
+    abs_error_units: u128,
+    tail_score: Score,
 }
 
-/// Matches sorted predictions to sorted labels without reusing either event.
+/// Matches sorted prediction samples to sorted integer-microsecond labels.
 ///
 /// The objective is lexicographic: maximize match cardinality, minimize the
-/// total absolute timing error, then prefer earlier label and prediction
-/// indices. The returned records are ordered by both label and prediction.
-pub(crate) fn match_events(predictions: &[f64], labels: &[LabelEvent]) -> Vec<MatchRecord> {
-    let label_times = labels
-        .iter()
-        .map(|label| label.time_secs)
-        .collect::<Vec<_>>();
-    match_times(predictions, &label_times)
+/// exact total absolute timing error, then prefer earlier label and prediction
+/// indices. Memory is O(labels + admissible edges), never O(predictions*labels).
+pub(crate) fn match_events(
+    prediction_samples: &[i64],
+    sample_rate: u32,
+    labels: &[LabelEvent],
+) -> Result<Vec<MatchRecord>, String> {
+    let mut label_micros = try_vec_with_capacity(labels.len(), "label times")?;
+    label_micros.extend(labels.iter().map(|label| label.time_micros));
+    match_times(prediction_samples, sample_rate, &label_micros)
 }
 
-fn match_times(predictions: &[f64], label_times: &[f64]) -> Vec<MatchRecord> {
-    debug_assert!(is_sorted_and_finite(predictions));
-    debug_assert!(is_sorted_and_finite(label_times));
+pub(crate) fn is_within_tolerance(
+    prediction_sample: i64,
+    sample_rate: u32,
+    label_micros: u64,
+) -> bool {
+    sample_rate != 0
+        && signed_error_units(prediction_sample, sample_rate, label_micros).unsigned_abs()
+            <= tolerance_units(sample_rate) as u128
+}
 
-    if predictions.is_empty() || label_times.is_empty() {
-        return Vec::new();
+fn match_times(
+    prediction_samples: &[i64],
+    sample_rate: u32,
+    label_micros: &[u64],
+) -> Result<Vec<MatchRecord>, String> {
+    validate_inputs(prediction_samples, sample_rate, label_micros)?;
+    if prediction_samples.is_empty() || label_micros.is_empty() {
+        return Ok(Vec::new());
     }
 
-    let label_stride = label_times.len() + 1;
-    let mut scores = vec![Score::default(); (predictions.len() + 1) * label_stride];
-    for prediction_index in (0..predictions.len()).rev() {
-        for label_index in (0..label_times.len()).rev() {
-            let mut best = better_score(
-                scores[score_index(prediction_index + 1, label_index, label_stride)],
-                scores[score_index(prediction_index, label_index + 1, label_stride)],
-            );
-            let abs_error_secs = (predictions[prediction_index] - label_times[label_index]).abs();
-            if abs_error_secs <= MATCH_TOLERANCE_SECS {
-                let tail = scores[score_index(prediction_index + 1, label_index + 1, label_stride)];
-                let matched = Score {
-                    match_count: tail.match_count + 1,
-                    total_abs_error_secs: tail.total_abs_error_secs + abs_error_secs,
-                };
-                best = better_score(best, matched);
-            }
-            scores[score_index(prediction_index, label_index, label_stride)] = best;
+    let mut candidates = candidate_edges(prediction_samples, sample_rate, label_micros)?;
+    if candidates.is_empty() {
+        return Ok(Vec::new());
+    }
+    let edge_indices = indices_by_prediction(&candidates)?;
+    let label_slots = label_micros
+        .len()
+        .checked_add(1)
+        .ok_or("matching label row length overflow")?;
+    let mut next = try_default_scores(label_slots, "next matching row")?;
+    let mut current = try_default_scores(label_slots, "current matching row")?;
+    let global_score = populate_tail_scores(
+        prediction_samples.len(),
+        label_micros.len(),
+        &edge_indices,
+        &mut candidates,
+        &mut next,
+        &mut current,
+    )?;
+    reconstruct_matches(
+        prediction_samples,
+        sample_rate,
+        label_micros,
+        &candidates,
+        global_score,
+    )
+}
+
+fn populate_tail_scores(
+    prediction_count: usize,
+    label_count: usize,
+    edge_indices: &[usize],
+    candidates: &mut [CandidateEdge],
+    next: &mut Vec<Score>,
+    current: &mut Vec<Score>,
+) -> Result<Score, String> {
+    let mut group_end = edge_indices.len();
+    for prediction_index in (0..prediction_count).rev() {
+        let mut group_start = group_end;
+        while group_start > 0
+            && candidates[edge_indices[group_start - 1]].prediction_index == prediction_index
+        {
+            group_start -= 1;
         }
-    }
+        if group_start == group_end {
+            // With no admissible edge, this prediction can only be skipped,
+            // so Score(i, j) is exactly the already-retained Score(i + 1, j).
+            continue;
+        }
 
-    reconstruct_matches(predictions, label_times, label_stride, &scores)
+        current[label_count] = Score::default();
+        let mut edge_position = group_end;
+        for label_index in (0..label_count).rev() {
+            let edge_index = if edge_position > group_start
+                && candidates[edge_indices[edge_position - 1]].label_index == label_index
+            {
+                edge_position -= 1;
+                Some(edge_indices[edge_position])
+            } else {
+                None
+            };
+            let mut best = better_score(next[label_index], current[label_index + 1]);
+            if let Some(edge_index) = edge_index {
+                let tail = next[label_index + 1];
+                candidates[edge_index].tail_score = tail;
+                best = better_score(
+                    best,
+                    extend_score(tail, candidates[edge_index].abs_error_units)?,
+                );
+            }
+            current[label_index] = best;
+        }
+        if edge_position != group_start {
+            return Err("matching edge index order invariant failed".to_string());
+        }
+        std::mem::swap(next, current);
+        group_end = group_start;
+    }
+    if group_end != 0 {
+        return Err("matching prediction edge coverage invariant failed".to_string());
+    }
+    Ok(next[0])
 }
 
 fn reconstruct_matches(
-    predictions: &[f64],
-    label_times: &[f64],
-    label_stride: usize,
-    scores: &[Score],
-) -> Vec<MatchRecord> {
-    let candidates = candidate_edges(predictions, label_times);
-    let mut matches = Vec::with_capacity(scores[0].match_count);
+    prediction_samples: &[i64],
+    sample_rate: u32,
+    label_micros: &[u64],
+    candidates: &[CandidateEdge],
+    global_score: Score,
+) -> Result<Vec<MatchRecord>, String> {
+    let mut matches = try_vec_with_capacity(global_score.match_count, "matching result")?;
+    let mut remaining = global_score;
     let mut prediction_start = 0;
     let mut label_start = 0;
     let mut candidate_start = 0;
 
-    while matches.len() < scores[0].match_count {
-        let remaining = scores[score_index(prediction_start, label_start, label_stride)];
+    while matches.len() < global_score.match_count {
         let selected = candidates[candidate_start..]
             .iter()
             .position(|candidate| {
-                if candidate.prediction_index < prediction_start
-                    || candidate.label_index < label_start
-                {
-                    return false;
-                }
-                let tail = scores[score_index(
-                    candidate.prediction_index + 1,
-                    candidate.label_index + 1,
-                    label_stride,
-                )];
-                tail.match_count + 1 == remaining.match_count
-                    && (tail.total_abs_error_secs + candidate.abs_error_secs)
-                        .total_cmp(&remaining.total_abs_error_secs)
-                        == Ordering::Equal
+                candidate.prediction_index >= prediction_start
+                    && candidate.label_index >= label_start
+                    && extend_score(candidate.tail_score, candidate.abs_error_units)
+                        .is_ok_and(|score| score == remaining)
             })
             .map(|offset| candidate_start + offset)
-            .expect("an optimal matching edge must exist");
+            .ok_or("optimal matching edge reconstruction failed")?;
         let candidate = candidates[selected];
         matches.push(MatchRecord {
             prediction_index: candidate.prediction_index,
             label_index: candidate.label_index,
-            signed_error_secs: predictions[candidate.prediction_index]
-                - label_times[candidate.label_index],
+            signed_error_units: signed_error_units(
+                prediction_samples[candidate.prediction_index],
+                sample_rate,
+                label_micros[candidate.label_index],
+            ),
         });
-        prediction_start = candidate.prediction_index + 1;
-        label_start = candidate.label_index + 1;
-        candidate_start = selected + 1;
+        remaining = candidate.tail_score;
+        prediction_start = candidate
+            .prediction_index
+            .checked_add(1)
+            .ok_or("matching prediction index overflow")?;
+        label_start = candidate
+            .label_index
+            .checked_add(1)
+            .ok_or("matching label index overflow")?;
+        candidate_start = selected
+            .checked_add(1)
+            .ok_or("matching candidate index overflow")?;
         while candidate_start < candidates.len()
             && candidates[candidate_start].label_index < label_start
         {
             candidate_start += 1;
         }
     }
-
-    matches
+    Ok(matches)
 }
 
-fn candidate_edges(predictions: &[f64], label_times: &[f64]) -> Vec<CandidateEdge> {
+fn candidate_edges(
+    prediction_samples: &[i64],
+    sample_rate: u32,
+    label_micros: &[u64],
+) -> Result<Vec<CandidateEdge>, String> {
     let mut candidates = Vec::new();
     let mut first_prediction = 0;
-    for (label_index, &label_time) in label_times.iter().enumerate() {
-        while first_prediction < predictions.len()
-            && predictions[first_prediction] < label_time - MATCH_TOLERANCE_SECS
+    let tolerance = tolerance_units(sample_rate);
+    for (label_index, &label_time) in label_micros.iter().enumerate() {
+        while first_prediction < prediction_samples.len()
+            && signed_error_units(
+                prediction_samples[first_prediction],
+                sample_rate,
+                label_time,
+            ) < -tolerance
         {
             first_prediction += 1;
         }
         let mut prediction_index = first_prediction;
-        while prediction_index < predictions.len()
-            && predictions[prediction_index] <= label_time + MATCH_TOLERANCE_SECS
-        {
-            let abs_error_secs = (predictions[prediction_index] - label_time).abs();
-            if abs_error_secs <= MATCH_TOLERANCE_SECS {
-                candidates.push(CandidateEdge {
+        while prediction_index < prediction_samples.len() {
+            let error = signed_error_units(
+                prediction_samples[prediction_index],
+                sample_rate,
+                label_time,
+            );
+            if error > tolerance {
+                break;
+            }
+            try_push(
+                &mut candidates,
+                CandidateEdge {
                     prediction_index,
                     label_index,
-                    abs_error_secs,
-                });
-            }
+                    abs_error_units: error.unsigned_abs(),
+                    tail_score: Score::default(),
+                },
+                "candidate edges",
+            )?;
             prediction_index += 1;
         }
     }
-    candidates
+    Ok(candidates)
+}
+
+fn indices_by_prediction(candidates: &[CandidateEdge]) -> Result<Vec<usize>, String> {
+    let mut indices = try_vec_with_capacity(candidates.len(), "prediction edge index")?;
+    indices.extend(0..candidates.len());
+    indices.sort_unstable_by_key(|index| {
+        let edge = candidates[*index];
+        (edge.prediction_index, edge.label_index)
+    });
+    Ok(indices)
+}
+
+fn extend_score(tail: Score, abs_error_units: u128) -> Result<Score, String> {
+    Ok(Score {
+        match_count: tail
+            .match_count
+            .checked_add(1)
+            .ok_or("matching cardinality overflow")?,
+        total_abs_error_units: tail
+            .total_abs_error_units
+            .checked_add(abs_error_units)
+            .ok_or("matching total error overflow")?,
+    })
 }
 
 fn better_score(left: Score, right: Score) -> Score {
     match left.match_count.cmp(&right.match_count) {
         Ordering::Less => right,
         Ordering::Greater => left,
-        Ordering::Equal => {
-            if right
-                .total_abs_error_secs
-                .total_cmp(&left.total_abs_error_secs)
-                == Ordering::Less
-            {
-                right
-            } else {
-                left
-            }
-        }
+        Ordering::Equal if right.total_abs_error_units < left.total_abs_error_units => right,
+        Ordering::Equal => left,
     }
 }
 
-fn score_index(prediction_index: usize, label_index: usize, label_stride: usize) -> usize {
-    prediction_index * label_stride + label_index
+fn validate_inputs(
+    prediction_samples: &[i64],
+    sample_rate: u32,
+    label_micros: &[u64],
+) -> Result<(), String> {
+    if sample_rate == 0 {
+        return Err("matching sample rate must be nonzero".to_string());
+    }
+    if !prediction_samples.windows(2).all(|pair| pair[0] <= pair[1]) {
+        return Err("matching predictions must be sorted".to_string());
+    }
+    if !label_micros.windows(2).all(|pair| pair[0] <= pair[1]) {
+        return Err("matching labels must be sorted".to_string());
+    }
+    Ok(())
 }
 
-fn is_sorted_and_finite(values: &[f64]) -> bool {
-    values.iter().all(|value| value.is_finite()) && values.windows(2).all(|pair| pair[0] <= pair[1])
+fn signed_error_units(prediction_sample: i64, sample_rate: u32, label_micros: u64) -> i128 {
+    i128::from(prediction_sample) * 1_000_000 - i128::from(label_micros) * i128::from(sample_rate)
+}
+
+fn tolerance_units(sample_rate: u32) -> i128 {
+    i128::from(MATCH_TOLERANCE_MICROS) * i128::from(sample_rate)
+}
+
+fn try_default_scores(length: usize, name: &str) -> Result<Vec<Score>, String> {
+    let mut values = try_vec_with_capacity(length, name)?;
+    values.resize(length, Score::default());
+    Ok(values)
+}
+
+fn try_vec_with_capacity<T>(capacity: usize, name: &str) -> Result<Vec<T>, String> {
+    let mut values = Vec::new();
+    values
+        .try_reserve_exact(capacity)
+        .map_err(|_| format!("cannot allocate {name}"))?;
+    Ok(values)
+}
+
+fn try_push<T>(values: &mut Vec<T>, value: T, name: &str) -> Result<(), String> {
+    if values.len() == values.capacity() {
+        values
+            .try_reserve(1)
+            .map_err(|_| format!("cannot allocate {name}"))?;
+    }
+    values.push(value);
+    Ok(())
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{match_times, MatchRecord};
-
-    #[test]
-    fn maximizes_cardinality_before_distance() {
-        let actual = match_times(&[0.019, 0.044], &[0.0, 0.020]);
-
-        assert_eq!(actual.len(), 2);
-        assert_eq!((actual[0].prediction_index, actual[0].label_index), (0, 0));
-        assert_eq!((actual[1].prediction_index, actual[1].label_index), (1, 1));
-        assert!((actual[0].signed_error_secs - 0.019).abs() < 1.0e-12);
-        assert!((actual[1].signed_error_secs - 0.024).abs() < 1.0e-12);
-    }
-
-    #[test]
-    fn accepts_exact_twenty_five_millisecond_boundary() {
-        let actual = match_times(&[0.025], &[0.0]);
-
-        assert_eq!(
-            actual,
-            vec![MatchRecord {
-                prediction_index: 0,
-                label_index: 0,
-                signed_error_secs: 0.025,
-            }]
-        );
-    }
-
-    #[test]
-    fn rejects_event_beyond_twenty_five_milliseconds() {
-        assert!(match_times(&[0.025_000_001], &[0.0]).is_empty());
-    }
-
-    #[test]
-    fn matches_duplicate_times_one_to_one() {
-        let actual = match_times(&[1.0, 1.0], &[1.0, 1.0]);
-
-        assert_eq!(
-            actual,
-            vec![
-                MatchRecord {
-                    prediction_index: 0,
-                    label_index: 0,
-                    signed_error_secs: 0.0,
-                },
-                MatchRecord {
-                    prediction_index: 1,
-                    label_index: 1,
-                    signed_error_secs: 0.0,
-                },
-            ]
-        );
-    }
-
-    #[test]
-    fn empty_inputs_have_no_matches() {
-        assert!(match_times(&[], &[0.0]).is_empty());
-        assert!(match_times(&[0.0], &[]).is_empty());
-        assert!(match_times(&[], &[]).is_empty());
-    }
-
-    #[test]
-    fn equal_cost_ties_prefer_earlier_label_then_prediction() {
-        let earlier_label = match_times(&[0.0], &[-0.010, 0.010]);
-        assert_eq!(earlier_label[0].label_index, 0);
-
-        let earlier_prediction = match_times(&[-0.010, 0.010], &[0.0]);
-        assert_eq!(earlier_prediction[0].prediction_index, 0);
-    }
-}
+#[path = "matching_tests.rs"]
+mod tests;

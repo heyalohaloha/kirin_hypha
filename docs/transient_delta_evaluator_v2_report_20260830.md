@@ -64,6 +64,9 @@ PCM 16/24 bit、RIFF破損、manifest欠損、path逸脱、重複、tempo競合�
 fresh holdoutと2MIXを存在しないpathと同時に渡しても、path errorより先にpurpose/profile errorとなることを確認した。
 既存result pathを指定した場合も入力へ進まず、上書きを拒否することを確認した。
 
+**B-549追補**：B-548実行時はMIDI秒と予測秒をf64で比較し、末尾supportのflushも行っていなかった。
+B-549で正解を整数µs、予測を整数sampleのままi128で±25 ms判定し、EOF supportまでflushする契約へ改訂したため、以下のB-548数値とdigestはhistorical diagnosticとしてのみ保持する。
+
 ## 5. 既閲覧12演奏の診断結果
 
 manifest SHA-256は`151e876109722459b7d836525e5cf6e0d2e7fe1c41bc87b23c4ca6faadd6c8c3`である。
@@ -88,9 +91,8 @@ B-546との差には、対象演奏、30 ms compound化、公式pitch mapping、
 そのため、B-546の8 ms labelと±30 ms greedy matchingによる数値に対する検出器の性能向上とは解釈しない。
 
 同じ入力による二回の診断でdeterministic result SHA-256は一致した。
-pre-commit検証時のdigestは`6c965238cc621eff2a07ab6ff3eb2f8af1366a7022a7f07dfc575c7cac25f106`だった。
+B-548 commit後に再実行した最終digestは`ca78c7e573fa1e0703aa75b36420d5a941ba6722bac9e0c647a74acd29ce16d7`だった。
 measurement definition SHA-256は`4f09784cb737a8f3f280358b85e20d2943cd7419e11d6fc74e68acd3ee7e33a9`だった。
-source commitを含むdigestはB-548 commit後の最終再実行で更新する。
 
 ## 6. 判定と次工程
 

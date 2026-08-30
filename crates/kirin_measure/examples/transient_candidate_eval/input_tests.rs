@@ -33,11 +33,21 @@ fn compound_boundary_is_inclusive_without_adjacent_chaining() {
         } else {
             0.0
         };
+        let expected_micros = if gap <= 30 { u64::from(gap) * 500 } else { 0 };
+        assert_eq!(labels.events[0].time_micros, expected_micros);
         assert_eq!(labels.events[0].time_secs, expected_time);
     }
     let labels = read_midi_labels(tempo_and_notes(&[20, 20]).path()).unwrap();
     assert_eq!(labels.events.len(), 2);
     assert_eq!(labels.events[0].note_count, 2);
+    assert_eq!(
+        labels
+            .events
+            .iter()
+            .map(|event| event.time_micros)
+            .collect::<Vec<_>>(),
+        [10_000, 40_000]
+    );
     assert!((labels.events[0].time_secs - 0.010).abs() < 1e-12);
     assert!((labels.events[1].time_secs - 0.040).abs() < 1e-12);
 }
@@ -157,7 +167,8 @@ fn manifest_is_explicit_hashed_and_preserves_metadata() {
         row("same", "Kit B", "b.mid", "b.wav", "test"),
     ];
     let (root, path) = manifest_case(&rows);
-    let manifest = read_selection(root.path(), &path).unwrap();
+    let digest = hex::encode(Sha256::digest(fs::read(&path).unwrap()));
+    let manifest = read_selection(root.path(), &path, &digest).unwrap();
     assert_eq!(manifest.entries.len(), 2);
     assert_eq!(manifest.sha256.len(), 64);
     assert_eq!(manifest.path, fs::canonicalize(path).unwrap());
@@ -197,12 +208,14 @@ fn manifest_rejects_duplicate_split_and_path_failures() {
     ];
     for (rows, expected) in cases {
         let (root, path) = manifest_case(&rows);
-        let error = read_selection(root.path(), &path).unwrap_err();
+        let digest = hex::encode(Sha256::digest(fs::read(&path).unwrap()));
+        let error = read_selection(root.path(), &path, &digest).unwrap_err();
         assert!(error.contains(expected), "{error:?}");
     }
     let (root, path) = manifest_case(&[row("x", "K", "a.mid", "a.wav", "train")]);
     fs::write(&path, "wrong\n").unwrap();
-    assert!(read_selection(root.path(), &path)
+    let digest = hex::encode(Sha256::digest(fs::read(&path).unwrap()));
+    assert!(read_selection(root.path(), &path, &digest)
         .unwrap_err()
         .contains("header"));
 }

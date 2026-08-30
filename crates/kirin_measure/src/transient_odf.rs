@@ -27,6 +27,7 @@ pub struct TransientCandidateAnalyzer {
     window: Vec<f32>,
     window_energy: f32,
     fft_buffer: Vec<Complex32>,
+    fft_scratch: Vec<Complex32>,
     current_power: Vec<f32>,
     current_magnitude: Vec<f32>,
     current_phase: Vec<f32>,
@@ -44,6 +45,7 @@ impl TransientCandidateAnalyzer {
         let layout = TransientLayout::for_rate(sample_rate, kind)?;
         let mut planner = FftPlanner::<f32>::new();
         let fft = planner.plan_fft_forward(layout.fft_size);
+        let fft_scratch_len = fft.get_inplace_scratch_len();
         let window = periodic_hann(layout.window_samples);
         let window_energy = window.iter().map(|value| value * value).sum::<f32>();
         if !window_energy.is_finite() || window_energy <= 0.0 {
@@ -57,6 +59,7 @@ impl TransientCandidateAnalyzer {
             window,
             window_energy,
             fft_buffer: vec![Complex32::ZERO; layout.fft_size],
+            fft_scratch: vec![Complex32::ZERO; fft_scratch_len],
             current_power: vec![0.0; bins],
             current_magnitude: vec![0.0; bins],
             current_phase: vec![0.0; bins],
@@ -77,6 +80,7 @@ impl TransientCandidateAnalyzer {
 
     pub fn reset(&mut self) {
         self.fft_buffer.fill(Complex32::ZERO);
+        self.fft_scratch.fill(Complex32::ZERO);
         self.current_power.fill(0.0);
         self.current_magnitude.fill(0.0);
         self.current_phase.fill(0.0);
@@ -102,7 +106,8 @@ impl TransientCandidateAnalyzer {
         for ((bin, sample), window) in self.fft_buffer.iter_mut().zip(samples).zip(&self.window) {
             bin.re = sample * window;
         }
-        self.fft.process(&mut self.fft_buffer);
+        self.fft
+            .process_with_scratch(&mut self.fft_buffer, &mut self.fft_scratch);
         self.update_spectrum();
         self.update_mel();
 
@@ -352,5 +357,29 @@ mod tests {
         assert!(analyzer.analyze_window(&[0.0; 8], 0).is_err());
         let silence = vec![0.0; analyzer.layout().window_samples];
         assert!(analyzer.analyze_window(&silence, 0).unwrap().is_none());
+    }
+
+    #[test]
+    fn legacy_candidates_reuse_the_preallocated_fft_scratch() {
+        let mut analyzer =
+            TransientCandidateAnalyzer::new(48_000, TransientOdfKind::Mel40).unwrap();
+        let silence = vec![0.0; analyzer.layout().window_samples];
+        let buffer_pointer = analyzer.fft_buffer.as_ptr();
+        let scratch_pointer = analyzer.fft_scratch.as_ptr();
+        let buffer_capacity = analyzer.fft_buffer.capacity();
+        let scratch_capacity = analyzer.fft_scratch.capacity();
+        assert_eq!(
+            analyzer.fft_scratch.len(),
+            analyzer.fft.get_inplace_scratch_len()
+        );
+        for frame in 0..8 {
+            analyzer
+                .analyze_window(&silence, frame * analyzer.layout().hop_samples as i64)
+                .unwrap();
+        }
+        assert_eq!(analyzer.fft_buffer.as_ptr(), buffer_pointer);
+        assert_eq!(analyzer.fft_scratch.as_ptr(), scratch_pointer);
+        assert_eq!(analyzer.fft_buffer.capacity(), buffer_capacity);
+        assert_eq!(analyzer.fft_scratch.capacity(), scratch_capacity);
     }
 }

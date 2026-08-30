@@ -74,6 +74,8 @@ mod trace_clock_resolution;
 mod trace_content_clock;
 mod transient_layout;
 mod transient_odf;
+mod transient_superflux;
+mod transient_superflux_reference;
 pub mod watch_max;
 pub mod watch_playback_pass;
 mod watch_snapshot_lease;
@@ -282,6 +284,23 @@ pub use storage::{
 pub use trace_alignment::TraceContentAlignment;
 pub use transient_layout::{TransientLayout, TransientOdfKind};
 pub use transient_odf::{TransientCandidateAnalyzer, TransientOdfFrame};
+pub use transient_superflux::{
+    SuperFluxAnalyzer, SuperFluxChannelMode, SuperFluxConfig, SuperFluxFrame, SuperFluxLayout,
+    SuperFluxRuntimeVerification, SUPERFLUX_ALGORITHM_VERSION, SUPERFLUX_DEFINITION_VERSION,
+    SUPERFLUX_MAX_HZ, SUPERFLUX_MIN_HZ, SUPERFLUX_REFERENCE_HOP, SUPERFLUX_REFERENCE_RATE,
+    SUPERFLUX_SUPPORTED_RATES,
+};
+pub use transient_superflux_reference::{
+    build_superflux_reference_receipt, SuperFluxReferenceBandReduction,
+    SuperFluxReferenceBinRounding, SuperFluxReferenceCombineProvenance, SuperFluxReferenceContract,
+    SuperFluxReferenceDelta, SuperFluxReferenceId, SuperFluxReferenceLayoutStatus,
+    SuperFluxReferenceMagnitudeCompression, SuperFluxReferenceReceipt,
+    SuperFluxReferenceTraceStatus, SuperFluxReferenceUse, SuperFluxReferenceWindow,
+    CPJKU_1_03_BIN_GOLDEN_SHA256, CPJKU_1_03_ONLINE, CPJKU_1_03_ONLINE_DEFINITION_SHA256,
+    CPJKU_1_03_SOURCE_REVISION, CPJKU_1_03_SOURCE_SHA256, CPJKU_1_03_SOURCE_URL, PAPER_2013_ONLINE,
+    PAPER_2013_ONLINE_DEFINITION_SHA256, PAPER_2013_SOURCE_SHA256, PAPER_2013_SOURCE_URL,
+    SUPERFLUX_REFERENCE_CONTRACT_VERSION,
+};
 pub use watch_max::WatchMaxTracker;
 pub use watch_playback_pass::{
     add_watch_ring_cursor_samples, advance_watch_playback_pass_id,

@@ -10,10 +10,10 @@ use serde::Serialize;
 use super::contract::{sha256_bytes, CandidateArtifact, Cli};
 use super::evaluation::LoadedTrack;
 use super::input::SelectionManifest;
-use super::metrics::EvaluationReport;
+use super::metrics::{EvaluationReport, SIGNED_TIMING_MEDIAN_ABS_MAX_MS};
 
-const RESULT_SCHEMA: &str = "kirin-hypha-attack-evaluation-result-v2";
-const EVALUATOR_VERSION: &str = "B-548";
+const RESULT_SCHEMA: &str = "kirin-hypha-attack-evaluation-result-v3";
+const EVALUATOR_VERSION: &str = "B-549";
 
 #[derive(Serialize)]
 struct ResultArtifact<'a> {
@@ -80,6 +80,7 @@ struct CandidateResult<'a> {
 #[derive(Serialize)]
 struct PreflightResult {
     status: &'static str,
+    archive_members_authenticated: bool,
     checks: Vec<&'static str>,
     included_count: usize,
     excluded: Vec<String>,
@@ -145,12 +146,14 @@ struct LabelResult {
 #[derive(Clone, Copy, Serialize)]
 struct EvaluationContract {
     event_timebase: &'static str,
+    midi_event_contract: &'static str,
     compound_cluster_span_ms_inclusive: f64,
     matching_tolerance_ms_inclusive: f64,
     matcher: &'static str,
     percentile_method: &'static str,
     pitch_mapping: &'static str,
     frame_edges: &'static str,
+    refractory_timebase: &'static str,
     macro_aggregation: &'static str,
 }
 
@@ -220,8 +223,8 @@ pub(crate) fn write_result(
     layout_hashes.insert("44100".to_string(), layout_hash);
     let artifact = ResultArtifact {
         schema: RESULT_SCHEMA,
-        schema_version: 2,
-        status: "complete",
+        schema_version: 3,
+        status: "diagnostic_complete_unverified_archive_members",
         command: "evaluate",
         profile: "DRUM",
         purpose: cli.purpose,
@@ -244,7 +247,8 @@ pub(crate) fn write_result(
             measurement_definition_sha256: &definition_sha256,
         },
         preflight: PreflightResult {
-            status: "pass",
+            status: "diagnostic_only_unverified_archive_members",
+            archive_members_authenticated: false,
             checks: vec![
                 "explicit_manifest",
                 "canonical_paths_within_root",
@@ -254,6 +258,7 @@ pub(crate) fn write_result(
                 "duration_within_10_ms",
                 "midi_note_on_and_audio_range",
                 "manifest_unchanged",
+                "actual_input_sha256_recorded_but_not_archive_member_authenticated",
             ],
             included_count: tracks.len(),
             excluded: Vec::new(),
@@ -317,8 +322,8 @@ fn input_result(track: &LoadedTrack) -> InputResult<'_> {
         .events
         .windows(2)
         .filter(|pair| {
-            let distance = pair[1].time_secs - pair[0].time_secs;
-            distance > 0.030 && distance <= 0.050
+            let distance_micros = pair[1].time_micros - pair[0].time_micros;
+            distance_micros > 30_000 && distance_micros <= 50_000
         })
         .count();
     let kick_only_count = track
@@ -401,13 +406,15 @@ fn input_result(track: &LoadedTrack) -> InputResult<'_> {
 
 fn fixed_evaluation_contract() -> EvaluationContract {
     EvaluationContract {
-        event_timebase: "f64_seconds_from_midi_tempo_map",
+        event_timebase: "prediction_integer_samples_vs_label_integer_microseconds_i128_exact",
+        midi_event_contract: "tempo_integrated_then_note_half_up_integer_microseconds;first_tap_30000us_inclusive_nonchaining;event_mean_half_up",
         compound_cluster_span_ms_inclusive: 30.0,
         matching_tolerance_ms_inclusive: 25.0,
-        matcher: "maximum_cardinality_then_minimum_total_absolute_error",
+        matcher: "maximum_cardinality_then_exact_minimum_total_absolute_error_then_lexicographic",
         percentile_method: "nearest_rank_ceil_p_times_n",
         pitch_mapping: "kick=36;hat=22,26,42,44,46",
-        frame_edges: "zero_padded_center_grid_with_zero_state_warmup",
+        frame_edges: "zero_padded_center_grid_with_zero_state_warmup_and_eof_support_flush",
+        refractory_timebase: "integer_samples_round_ms_keep_larger_then_earliest",
         macro_aggregation: "performance_id_counts_then_metrics",
     }
 }
@@ -424,7 +431,7 @@ fn definition_hash(candidate: &CandidateArtifact, layout_hash: &str) -> Result<S
             "f1_min": 0.80,
             "timing_p95_ms_max": 15.0,
             "fp_per_second_max": 1.0,
-            "signed_median_abs_ms_max": 5.333,
+            "signed_median_abs_ms_max": SIGNED_TIMING_MEDIAN_ABS_MAX_MS,
             "kick_only_recall_min": 0.75,
             "hat_only_recall_min": 0.50
         }

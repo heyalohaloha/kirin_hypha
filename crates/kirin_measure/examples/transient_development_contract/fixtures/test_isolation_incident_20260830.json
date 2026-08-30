@@ -1,0 +1,29 @@
+{
+  "schema": "kirin-hypha-attack-test-isolation-incident-v1",
+  "incident_id": "attack-b549-egmd-test-extraction-20260830",
+  "started_at_jst": "2026-08-30T15:14:37+09:00",
+  "stopped_at_jst": "2026-08-30T15:15:57+09:00",
+  "operation": "bsdtar extraction from the verified E-GMD MIDI-only archive",
+  "cause": "a Ruby train-or-validation path-list comparison error produced empty stdin, causing bsdtar to begin extracting all archive entries",
+  "original_target": "/tmp/kirin-attack-development-representatives.ShlDUS",
+  "recoverable_trash_location": "~/.Trash/kirin-attack-development-representatives.ShlDUS",
+  "trash_must_not_be_touched_by_b549": true,
+  "files_extracted_total": 14506,
+  "official_metadata_path_counts": {
+    "train": 11366,
+    "validation": 1118,
+    "test_total_partial": 2021,
+    "test_eval_session": 430,
+    "test_session_based": 1591,
+    "non_metadata_files": 1
+  },
+  "candidate_evaluator_ran_on_incident_target": false,
+  "midi_parser_ran_on_incident_target": false,
+  "audio_opened": false,
+  "midi_content_displayed_or_scored": false,
+  "post_stop_checks": "path and file counts plus filename-presence comparison with official metadata only",
+  "security_secret_exposed": false,
+  "isolation_contract_breached": true,
+  "fresh_holdout_claim": "the original E-GMD test material must not be claimed unopened",
+  "required_resolution": "guardian adjudication or a new untouched holdout before any public ATTACK Go decision"
+}

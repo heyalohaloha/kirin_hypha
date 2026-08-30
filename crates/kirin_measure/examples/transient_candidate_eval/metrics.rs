@@ -2,6 +2,8 @@ use std::collections::BTreeMap;
 
 use serde::Serialize;
 
+pub(crate) const SIGNED_TIMING_MEDIAN_ABS_MAX_MS: f64 = 256.0 * 1_000.0 / 48_000.0;
+
 #[derive(Clone, Debug, Default, Serialize)]
 pub(crate) struct Counts {
     pub(crate) duration_seconds: f64,
@@ -171,7 +173,7 @@ pub(crate) fn gates(metrics: &MetricValues, timing: &TimingValues) -> Vec<GateRe
         ),
         upper_gate(
             "signed_timing_median_absolute_ms",
-            5.333,
+            SIGNED_TIMING_MEDIAN_ABS_MAX_MS,
             timing.signed_median_ms.map(f64::abs),
         ),
         lower_gate("kick_only_recall", 0.75, metrics.kick_only_recall),

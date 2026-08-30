@@ -1,0 +1,13 @@
+drummer,session,id,style,bpm,beat_type,time_signature,duration,split,midi_filename,audio_filename,kit_name
+drummer3,drummer3/session1,drummer3/session1/39,jazz,120,beat,4-4,8.0,validation,drummer3/session1/39_jazz_120_beat_4-4_1.midi,drummer3/session1/39_jazz_120_beat_4-4_1.wav,Acoustic Kit
+drummer7,drummer7/session1,drummer7/session1/33,hiphop,100,fill,4-4,2.4,validation,drummer7/session1/33_hiphop_100_fill_4-4_51.midi,drummer7/session1/33_hiphop_100_fill_4-4_51.wav,808 Simple
+drummer9,drummer9/session1,drummer9/session1/12,rock,100,beat,4-4,11.85,validation,drummer9/session1/12_rock_100_beat_4-4_52.midi,drummer9/session1/12_rock_100_beat_4-4_52.wav,909 Simple
+drummer7,drummer7/session2,drummer7/session2/70,rock,145,fill,4-4,3.255124716553288,validation,drummer7/session2/70_rock_145_fill_4-4_12.midi,drummer7/session2/70_rock_145_fill_4-4_12.wav,Classic Rock
+drummer7,drummer7/session2,drummer7/session2/102,pop,132,beat,4-4,12.727278911564627,validation,drummer7/session2/102_pop_132_beat_4-4_3.midi,drummer7/session2/102_pop_132_beat_4-4_3.wav,Jazz
+drummer1,drummer1/session1,drummer1/session1/16,jazz/funk,116,fill,4-4,4.137936507936508,validation,drummer1/session1/16_jazz-funk_116_fill_4-4_10.midi,drummer1/session1/16_jazz-funk_116_fill_4-4_10.wav,JingleStacks (2nd Hi-Hat)
+drummer3,drummer3/session1,drummer3/session1/32,jazz,120,beat,4-4,9.5,test,drummer3/session1/32_jazz_120_beat_4-4_1.midi,drummer3/session1/32_jazz_120_beat_4-4_1.wav,Acoustic Kit
+drummer7,drummer7/session1,drummer7/session1/27,hiphop,100,fill,4-4,2.4,test,drummer7/session1/27_hiphop_100_fill_4-4_51.midi,drummer7/session1/27_hiphop_100_fill_4-4_51.wav,808 Simple
+drummer3,drummer3/session2,drummer3/session2/11,rock,100,beat,4-4,9.6,test,drummer3/session2/11_rock_100_beat_4-4_52.midi,drummer3/session2/11_rock_100_beat_4-4_52.wav,909 Simple
+drummer1,drummer1/session1,drummer1/session1/189,reggae,78,fill,4-4,3.0769387755102042,test,drummer1/session1/189_reggae_78_fill_4-4_12.midi,drummer1/session1/189_reggae_78_fill_4-4_12.wav,Classic Rock
+drummer3,drummer3/session2,drummer3/session2/35,rock,92,beat,4-4,10.302403628117913,test,drummer3/session2/35_rock_92_beat_4-4_3.midi,drummer3/session2/35_rock_92_beat_4-4_3.wav,Jazz
+drummer7,drummer7/session3,drummer7/session3/5,rock,60,fill,4-4,4.0,test,drummer7/session3/5_rock_60_fill_4-4_10.midi,drummer7/session3/5_rock_60_fill_4-4_10.wav,JingleStacks (2nd Hi-Hat)

@@ -6,7 +6,7 @@ use super::contract::{sha256_bytes, PeakRule};
 use super::input::{
     read_midi_labels, read_mono_pcm_wav, LabelEvent, MidiLabels, MonoWav, Selection,
 };
-use super::matching::{match_events, MATCH_TOLERANCE_SECS};
+use super::matching::{is_within_tolerance, match_events};
 use super::metrics::{
     gates, macro_metrics, metrics, timing, Counts, EvaluationReport, TrackEvaluation,
 };
@@ -102,8 +102,9 @@ pub(crate) fn evaluate_tracks(
         let (counts, signed_timing_secs) = score_track(
             &predictions,
             &track.labels.events,
+            track.wav.metadata.sample_rate,
             track.wav.metadata.duration_secs,
-        );
+        )?;
         aggregate.counts.add(&counts);
         aggregate.signed_timing_secs.extend(&signed_timing_secs);
         reports.push(TrackEvaluation {
@@ -149,8 +150,15 @@ fn analyze_frames(
             .analyze_window(&buffer, -(((warmup - index) * hop) as i64))
             .map_err(str::to_string)?;
     }
-    let mut frames = Vec::with_capacity(samples.len().div_ceil(hop));
-    for center in (0..samples.len()).step_by(hop) {
+    if samples.is_empty() {
+        return Ok(Vec::new());
+    }
+    let flush_end = samples
+        .len()
+        .checked_add(window / 2)
+        .ok_or("analysis support end overflow")?;
+    let mut frames = Vec::with_capacity(flush_end.div_ceil(hop));
+    for center in (0..flush_end).step_by(hop) {
         buffer.fill(0.0);
         let support_start = center as i64 - (window / 2) as i64;
         for (window_index, value) in buffer.iter_mut().enumerate() {
@@ -171,7 +179,7 @@ fn analyze_frames(
     Ok(frames)
 }
 
-fn pick_peaks(frames: &[TransientOdfFrame], sample_rate: u32, rule: PeakRule) -> Vec<f64> {
+fn pick_peaks(frames: &[TransientOdfFrame], sample_rate: u32, rule: PeakRule) -> Vec<i64> {
     let mut candidates = Vec::new();
     for (index, frame) in frames.iter().enumerate() {
         let eligible = match rule {
@@ -199,16 +207,14 @@ fn pick_peaks(frames: &[TransientOdfFrame], sample_rate: u32, rule: PeakRule) ->
             }
         };
         if eligible {
-            candidates.push((
-                frame.event_sample as f64 / f64::from(sample_rate),
-                frame.value,
-            ));
+            candidates.push((frame.event_sample, frame.value));
         }
     }
-    let mut selected: Vec<(f64, f32)> = Vec::new();
+    let refractory_samples = rule.refractory_samples(sample_rate);
+    let mut selected: Vec<(i64, f32)> = Vec::new();
     for candidate in candidates {
         if let Some(previous) = selected.last_mut() {
-            if candidate.0 - previous.0 <= rule.refractory_secs() {
+            if candidate.0 - previous.0 <= refractory_samples {
                 if candidate.1 > previous.1 {
                     *previous = candidate;
                 }
@@ -217,7 +223,7 @@ fn pick_peaks(frames: &[TransientOdfFrame], sample_rate: u32, rule: PeakRule) ->
         }
         selected.push(candidate);
     }
-    selected.into_iter().map(|(time, _)| time).collect()
+    selected.into_iter().map(|(sample, _)| sample).collect()
 }
 
 fn is_earliest_maximum(
@@ -246,11 +252,12 @@ fn padded_mean(frames: &[TransientOdfFrame], index: usize, before: usize, after:
 }
 
 fn score_track(
-    predictions: &[f64],
+    prediction_samples: &[i64],
     labels: &[LabelEvent],
+    sample_rate: u32,
     duration_seconds: f64,
-) -> (Counts, Vec<f64>) {
-    let matches = match_events(predictions, labels);
+) -> Result<(Counts, Vec<f64>), String> {
+    let matches = match_events(prediction_samples, sample_rate, labels)?;
     let matched_predictions = matches
         .iter()
         .map(|record| record.prediction_index)
@@ -259,22 +266,22 @@ fn score_track(
         .iter()
         .map(|record| record.label_index)
         .collect::<HashSet<_>>();
-    let matched_label_times = matches
+    let matched_label_micros = matches
         .iter()
-        .map(|record| labels[record.label_index].time_secs)
+        .map(|record| labels[record.label_index].time_micros)
         .collect::<Vec<_>>();
-    let matched_prediction_times = matches
+    let matched_prediction_samples = matches
         .iter()
-        .map(|record| predictions[record.prediction_index])
+        .map(|record| prediction_samples[record.prediction_index])
         .collect::<Vec<_>>();
-    let duplicate_fp = predictions
+    let duplicate_fp = prediction_samples
         .iter()
         .enumerate()
         .filter(|(index, prediction)| {
             !matched_predictions.contains(index)
-                && matched_label_times
+                && matched_label_micros
                     .iter()
-                    .any(|label| (**prediction - label).abs() <= MATCH_TOLERANCE_SECS)
+                    .any(|label| is_within_tolerance(**prediction, sample_rate, *label))
         })
         .count();
     let merged_fn = labels
@@ -282,17 +289,17 @@ fn score_track(
         .enumerate()
         .filter(|(index, label)| {
             !matched_labels.contains(index)
-                && matched_prediction_times
-                    .iter()
-                    .any(|prediction| (*prediction - label.time_secs).abs() <= MATCH_TOLERANCE_SECS)
+                && matched_prediction_samples.iter().any(|prediction| {
+                    is_within_tolerance(*prediction, sample_rate, label.time_micros)
+                })
         })
         .count();
     let mut counts = Counts {
         duration_seconds,
         label_count: labels.len(),
-        prediction_count: predictions.len(),
+        prediction_count: prediction_samples.len(),
         tp: matches.len(),
-        fp: predictions.len() - matches.len(),
+        fp: prediction_samples.len() - matches.len(),
         fn_count: labels.len() - matches.len(),
         duplicate_fp,
         merged_fn,
@@ -317,13 +324,13 @@ fn score_track(
             counts.hat_containing_tp += usize::from(matched);
         }
     }
-    (
+    Ok((
         counts,
         matches
             .iter()
-            .map(|record| record.signed_error_secs)
+            .map(|record| record.signed_error_seconds(sample_rate))
             .collect(),
-    )
+    ))
 }
 
 fn is_kick_only(label: &LabelEvent) -> bool {

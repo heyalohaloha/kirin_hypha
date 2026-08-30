@@ -59,16 +59,16 @@ instrument tagは原因別診断にだけ使い、公開機能は楽器を分類
 
 `DRUM`のEvaluator v2は次の規則を固定する。
 
-1. velocityが0でない全MIDI note-onを時刻、pitch、velocity付きで保持する。
-2. 最初のnote-onを起点に、クラスタ内の最遅時刻と最早時刻の差が30.000 ms以下になるnote-onを一つのcompound eventへまとめる。
+1. tempo mapを積分した各MIDI note-on時刻をhalf-upで整数µsへ丸め、velocityが0でない時刻、pitch、velocityを保持する。
+2. 最初のnote-onを起点に、整数時刻差が30,000 µs以下になるnote-onを一つのcompound eventへまとめる。
 3. 連鎖的なroll全体を一eventへ潰さないため、直前noteとの間隔ではなくクラスタ全体のspanを判定する。
-4. event時刻はクラスタ内note-on時刻の算術平均とする。
+4. event時刻はクラスタ内の整数note-on時刻の算術平均をhalf-upで整数µsへ丸める。
 5. instrument tagはクラスタ内pitchの集合和とする。
 6. 同時kickとhatは全体指標では一eventとし、kick-containing、hat-containing、kick+hatの各診断にも含める。
 7. 30 msを超えて隣接するeventは別eventとして残し、30 ms超から50 ms以下のpairをdense診断へ別集計する。
 8. velocityによる正解除外は行わず、velocity帯別recallとmeasurement floor近傍を別に報告する。
 
-予測と正解は±25 msで厳密に一対一対応させる。
+予測sample `p`、sample rate `r`、正解µs `l`は`abs(p*1,000,000-l*r)<=25,000*r`をi128で満たす場合だけ対応可能とし、浮動小数へ変換しない。
 対応数を最大化し、対応数が同じ場合は総絶対時刻誤差を最小化し、さらに同値なら早い正解、早い予測の順で決定する。
 一つの正解付近にある二つ目以降の予測はfalse positiveとする。
 一つの予測で複数の正解を満たしたことにはしない。
@@ -102,9 +102,11 @@ tempo changeがtick 0にある場合はMIDI内の実tempoをdefault tempoより�
 
 ## 5. 評価データの分離
 
-一度開いたvalidationとholdoutの全18演奏はdevelopmentへ移す。
-この18演奏は今後の最終holdoutへ戻さない。
-旧test 12演奏はこの診断集合だけの例外であり、新規developmentの母集団には使わない。
+B-546の18演奏とB-548の12演奏には6演奏の重複があり、既閲覧集合は24 unique performance IDである。
+内訳はvalidation 6件、test 18件とし、24件すべてを今後のfresh holdoutから除外する。
+validation 6件はdevelopmentへ使用できるが、test 18件は`opened-diagnostic`だけに隔離し、新規developmentへ入れない。
+このvalidation 6件だけでは次の最低構成を満たさないため、正式なcandidate freezeには使用できない。
+2026-08-30のtest MIDI誤抽出事故によりoriginal E-GMD testを未開封とは主張せず、guardian裁定または新しい未接触holdoutをfresh評価の必須条件とする。
 
 新規developmentはE-GMDのtrainとvalidationから次の最低構成で固定する。
 
@@ -117,9 +119,11 @@ tempo changeがtick 0にある場合はMIDI内の実tempoをdefault tempoより�
 
 候補選定はperformance IDで分離した5-fold grouped cross-validationを使う。
 drummer、session、kit、beat/fill、tempo、densityの偏りをfold作成時に検査する。
+candidate scoreを見る前に上限付きexcerptまたはpool拡大を固定し、fold別duration、compound、kick-only、hat-onlyの比率と最小件数をmetadataだけで数値gate化する。
 別途leave-one-drummer/session-outの診断を出し、特定奏者だけで成立する候補を採用しない。
 
-fresh holdoutはE-GMD testの未評価performance IDから次の最低構成でmanifestを先に固定する。
+guardianが隔離事故後のE-GMD test再利用を明示許可した場合に限り、未評価performance IDから次の最低構成でfresh manifestを先に固定する。
+許可されない場合は、同じ最低構成を満たす新しい未接触holdoutへ置き換え、E-GMD testをfresh判定に使わない。
 
 - 30以上のunique performance ID。
 - unique sequence duration 15分以上。
@@ -135,7 +139,8 @@ E-GMD v1.0.0の公式archive hashをdataset identityとし、選択した配布f
 canonical ingestは44.1 kHz、mono、integer PCM 16または24 bitをexact f32 scaleでdecodeし、それ以外をfailにする。
 manifest durationとの差は10 ms以下、最初と最後のannotationは音声範囲の前後2 ms以内を要求する。
 
-metadata snapshot、selection algorithm version、固定seed `ATTACK-V2-20260830`をcommitし、`SHA-256(seed || split || performance_id || kit)`順で候補とreserveを決める。
+metadata snapshot、selection algorithm version、固定seed `ATTACK-V2-20260830`をcommitし、version、seed、split、performance IDを長さprefix付きでdomain separationしたSHA-256順に候補とreserveを決める。
+kit renderは順位を独立に持たず、同じperformance IDのfoldを継承する。
 quota充足、fold割当、既知不良trackのreserve置換は同じ決定的scriptだけで行い、人手でeasy trackを選ばない。
 manifest、fold、reserve順をcommitしてから対象audioを開く。
 
@@ -157,7 +162,7 @@ test annotationのSHA-256をcandidate freeze前にcommitし、内容はfresh hol
 | F1 | 0.80以上 |
 | timing absolute error P95 | 15.0 ms以下 |
 | false positive | 1.0回/秒以下 |
-| signed timing medianの絶対値 | 48 kHzの一hop、5.333 ms以下 |
+| signed timing medianの絶対値 | 48 kHzの一hop、`256 / 48000`秒以下 |
 | kick-only compound event recall | 0.75以上 |
 | hat-only compound event recall | 0.50以上 |
 
@@ -225,7 +230,7 @@ SuperFlux-style候補の連続値を次で定義する。
 PREとPOSTは独立にpeak pickしない。
 exact content join後にだけ`C[n] = max(S_PRE[n], S_POST[n])`を作り、共通eventを選ぶ。
 
-frame centerは`0, hop, 2*hop, ...`とし、even windowのsupportを`[center-N/2, center+N/2)`、音声外をzero paddingとする。
+frame centerは`0, hop, 2*hop, ...`とし、window supportを`[center-floor(N/2), center+ceil(N/2))`、音声外をzero paddingとする。
 offline末尾は最後のsampleを含むcenterまでflushし、event sampleはselected frame center、plateauは最早frame、global offsetとonset backtrackは0へ固定する。
 
 共通peakは次の四条件をすべて満たすframeとする。
@@ -234,6 +239,9 @@ offline末尾は最後のsampleを含むcenterまでflushし、event sampleはse
 2. inclusiveな`[n-pre_avg, n+post_avg]`のmeanへ固定`delta`を加えた値以上である。
 3. 固定absolute floor以上である。
 4. event centerが直前eventから`round(0.030*sample_rate)` sampleを超えている。
+
+refractoryは秒へ変換する前の整数sampleで判定する。
+refractory内の候補はcommon valueが大きい方を残し、同値なら早いevent centerを残す。
 
 local meanはevent選択専用であり、PRE値、POST値、公開deltaを再スケールしない。
 PREとPOSTへ別々のmoving thresholdを適用しない。
@@ -266,8 +274,10 @@ controlの`r=0` log-filtered fluxは同じ単位とgridを使う。
 旧Mel 32は単位が異なるためB-546の固定ruleで別に再採点し、Stage 1のthresholdを共有しない。
 採用可能なMel 32には`delta`を0.25、0.5、0.75、1.0、1.5、2.0 dB/frame、absolute floorを0、0.5、1.0、1.5、2.0、3.0 dB/frameとする専用gridを使う。
 
-論文相当の実装確認controlは44.1 kHz、window 2,048 sample、200 fps、24 bands/octave、27.5 Hzから16 kHz、`mu=2`、`r=1`、band sum、`log10(A+1)`、`delta=1.1`、absolute floor 0、online peak幅とする。
-同controlは外部式との照合専用であり、host-rate fixed scaleを満たさないため公開候補にはしない。
+外部式との照合には`paper_2013_online`と`cpjku_1_03_online`の二つのnamed controlを使う。
+前者は論文の27.5 Hzから16 kHz、pre-max 30 ms、pre-avg 100 msを、後者はCPJKU v1.03既定の30 Hzから17 kHz、pre-max 10 ms、pre-avg 150 msを固定する。
+両controlは44.1 kHz、window 2,048 sample、200 fps、24 bands/octave、`mu=2`、`r=1`、symmetric Hann、band sum、NumPy roundingを含む全parameterを別hashへ記録し、candidate rankingへ参加させない。
+CPJKU controlはsourceの字義どおり`combine=0.03`をさらに1,000で割るeffective 30 µsを再現し、意図された30 msのpaper controlと同一視しない。
 
 ### Stage 2: peak picker
 
@@ -333,7 +343,7 @@ marker latencyは`decision availability - event_sample`、`worker publish - deci
 
 1. Evaluator v2、決定的selection、fixture generator、paired transformを実装してunit testを通す。
 2. E-GMD MIDI proxyのblind acoustic auditと一般mixdevelopment annotationを候補出力なしで完了する。
-3. 既閲覧18演奏、新規E-GMD development、一般mixdevelopmentを固定し、`DRUM`の旧Mel 32を診断再採点する。
+3. 既閲覧24演奏を診断専用に隔離し、新規E-GMD developmentと一般mixdevelopmentを固定して`DRUM`の旧Mel 32を診断再採点する。
 4. `DRUM`はMel 32 v2と必要なSuperFlux-style、`2MIX`はSuperFlux-styleを独立に評価する。
 5. `DRUM`のkick-onlyまたはhat-only不足が残る場合だけStage 3を一度評価する。
 6. paired実演奏を含む全development foldを通った一方式、一parameter set、一definition hashをprofileごとに残す。

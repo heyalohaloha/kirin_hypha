@@ -8,6 +8,14 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 pub(crate) const CANDIDATE_SCHEMA: &str = "kirin-hypha-attack-candidate-config-v1";
+const DATASET_ID: &str = "E-GMD";
+const DATASET_VERSION: &str = "1.0.0";
+const DATASET_ARCHIVE_SHA256: &str =
+    "7d9a264fb4c9eabd9fec09d5f8e333192f529b1a1b845d170279a977ac436053";
+const OPENED_MANIFEST_SHA256: [&str; 2] = [
+    "adf8753f31ab655089a31434e66c6dbf8084a6589b5d0d32ca8358f92b5b66a3",
+    "151e876109722459b7d836525e5cf6e0d2e7fe1c41bc87b23c4ca6faadd6c8c3",
+];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -35,10 +43,10 @@ pub(crate) enum PeakRule {
 }
 
 impl PeakRule {
-    pub(crate) fn refractory_secs(self) -> f64 {
+    pub(crate) fn refractory_samples(self, sample_rate: u32) -> i64 {
         match self {
             Self::LegacyAbsolute { refractory_ms, .. } | Self::LocalMean { refractory_ms, .. } => {
-                refractory_ms / 1_000.0
+                (refractory_ms * f64::from(sample_rate) / 1_000.0).round() as i64
             }
         }
     }
@@ -196,15 +204,24 @@ impl Cli {
         if !is_git_commit(&git_commit) {
             return Err("--git-commit must be 40 lowercase hex digits".to_string());
         }
+        let dataset_id = take_nonempty(&mut values, "--dataset-id")?;
+        let dataset_version = take_nonempty(&mut values, "--dataset-version")?;
+        let dataset_archive_sha256 = take_nonempty(&mut values, "--dataset-archive-sha256")?;
+        if dataset_id != DATASET_ID
+            || dataset_version != DATASET_VERSION
+            || dataset_archive_sha256 != DATASET_ARCHIVE_SHA256
+        {
+            return Err("opened diagnostic requires pinned E-GMD v1.0.0 identity".to_string());
+        }
         let cli = Self {
             root: take_path(&mut values, "--root")?,
             manifest: take_path(&mut values, "--manifest")?,
             candidate_config: take_path(&mut values, "--candidate-config")?,
             result: take_path(&mut values, "--result")?,
             purpose: Purpose::OpenedDiagnostic,
-            dataset_id: take_nonempty(&mut values, "--dataset-id")?,
-            dataset_version: take_nonempty(&mut values, "--dataset-version")?,
-            dataset_archive_sha256: take_nonempty(&mut values, "--dataset-archive-sha256")?,
+            dataset_id,
+            dataset_version,
+            dataset_archive_sha256,
             git_commit,
         };
         if let Some(flag) = values.keys().next() {
@@ -212,6 +229,22 @@ impl Cli {
         }
         Ok(cli)
     }
+}
+
+pub(crate) fn verify_opened_diagnostic_manifest(path: &Path) -> Result<String, String> {
+    let bytes = fs::read(path).map_err(|error| {
+        format!(
+            "cannot read opened diagnostic manifest {}: {error}",
+            path.display()
+        )
+    })?;
+    let digest = sha256_bytes(&bytes);
+    if !OPENED_MANIFEST_SHA256.contains(&digest.as_str()) {
+        return Err(format!(
+            "manifest is not in the exact opened-diagnostic allowlist: {digest}"
+        ));
+    }
+    Ok(digest)
 }
 
 pub(crate) fn sha256_bytes(bytes: &[u8]) -> String {
@@ -282,7 +315,7 @@ mod tests {
             "--dataset-version",
             "1.0.0",
             "--dataset-archive-sha256",
-            "unavailable-opened-diagnostic",
+            "7d9a264fb4c9eabd9fec09d5f8e333192f529b1a1b845d170279a977ac436053",
         ]
         .into_iter()
         .map(OsString::from)
@@ -305,6 +338,34 @@ mod tests {
         let mut mix = base();
         replace(&mut mix, "--profile", "2MIX");
         assert!(Cli::parse(mix).unwrap_err().contains("DRUM"));
+
+        let mut dataset = base();
+        replace(&mut dataset, "--dataset-version", "fresh");
+        assert!(Cli::parse(dataset).unwrap_err().contains("pinned E-GMD"));
+
+        let mut archive = base();
+        replace(
+            &mut archive,
+            "--dataset-archive-sha256",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        );
+        assert!(Cli::parse(archive).unwrap_err().contains("pinned E-GMD"));
+    }
+
+    #[test]
+    fn only_exact_opened_manifests_are_allowlisted() {
+        let fixed = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("examples/transient_candidate_eval/fixtures/transient_egmd_selection_v1.csv");
+        assert_eq!(
+            verify_opened_diagnostic_manifest(&fixed).unwrap(),
+            OPENED_MANIFEST_SHA256[0]
+        );
+        let directory = tempdir().unwrap();
+        let fabricated = directory.path().join("fresh.csv");
+        fs::write(&fabricated, b"fresh").unwrap();
+        assert!(verify_opened_diagnostic_manifest(&fabricated)
+            .unwrap_err()
+            .contains("allowlist"));
     }
 
     #[test]

@@ -4,8 +4,9 @@ use std::path::{Component, Path, PathBuf};
 
 use sha2::{Digest, Sha256};
 
+use crate::drum_midi::parse_drum_midi;
+
 const MANIFEST_HEADER: &str = "drummer,session,id,style,bpm,beat_type,time_signature,duration,split,midi_filename,audio_filename,kit_name";
-const LABEL_CLUSTER_SECS: f64 = 0.030;
 const HAT_NOTES: [u8; 5] = [22, 26, 42, 44, 46];
 
 #[derive(Clone, Debug)]
@@ -40,6 +41,7 @@ pub(crate) struct MidiNote {
 
 #[derive(Clone, Debug)]
 pub(crate) struct LabelEvent {
+    pub(crate) time_micros: u64,
     pub(crate) time_secs: f64,
     pub(crate) kick: bool,
     pub(crate) hat: bool,
@@ -72,6 +74,7 @@ pub(crate) struct MonoWav {
 pub(crate) fn read_selection(
     root: &Path,
     explicit_manifest_path: &Path,
+    expected_sha256: &str,
 ) -> Result<SelectionManifest, String> {
     let root = fs::canonicalize(root).map_err(|error| format!("dataset root: {error}"))?;
     if !root.is_dir() {
@@ -82,6 +85,12 @@ pub(crate) fn read_selection(
     }
     let bytes = fs::read(explicit_manifest_path)
         .map_err(|error| format!("manifest {}: {error}", explicit_manifest_path.display()))?;
+    let manifest_sha256 = hex::encode(Sha256::digest(&bytes));
+    if manifest_sha256 != expected_sha256 {
+        return Err(format!(
+            "opened diagnostic manifest changed after allowlist check: expected {expected_sha256}, got {manifest_sha256}"
+        ));
+    }
     let path = fs::canonicalize(explicit_manifest_path)
         .map_err(|error| format!("manifest path: {error}"))?;
     let text = std::str::from_utf8(&bytes).map_err(|error| format!("manifest UTF-8: {error}"))?;
@@ -136,7 +145,7 @@ pub(crate) fn read_selection(
     }
     Ok(SelectionManifest {
         path,
-        sha256: hex::encode(Sha256::digest(&bytes)),
+        sha256: manifest_sha256,
         entries,
     })
 }
@@ -292,179 +301,39 @@ pub(crate) fn read_mono_pcm_wav(path: &Path) -> Result<MonoWav, String> {
 
 pub(crate) fn read_midi_labels(path: &Path) -> Result<MidiLabels, String> {
     let bytes = fs::read(path).map_err(|error| error.to_string())?;
-    if bytes.get(..4) != Some(b"MThd") || bytes.len() < 14 {
-        return Err(format!("invalid MIDI: {}", path.display()));
-    }
-    let header_len = u32::from_be_bytes(bytes[4..8].try_into().unwrap()) as usize;
-    if header_len < 6 || bytes.len() < 8 + header_len {
-        return Err("truncated MIDI header".to_string());
-    }
-    let format = u16::from_be_bytes([bytes[8], bytes[9]]);
-    let tracks = u16::from_be_bytes([bytes[10], bytes[11]]) as usize;
-    let division = u16::from_be_bytes([bytes[12], bytes[13]]);
-    if format > 1
-        || tracks == 0
-        || (format == 0 && tracks != 1)
-        || division & 0x8000 != 0
-        || division == 0
-    {
-        return Err("unsupported MIDI header".to_string());
-    }
-    let mut offset = 8 + header_len;
-    let mut tempos = Vec::new();
-    let mut notes = Vec::new();
-    for _ in 0..tracks {
-        let header = bytes
-            .get(offset..offset + 8)
-            .ok_or("truncated MIDI track header")?;
-        if header.get(..4) != Some(b"MTrk") {
-            return Err("missing MIDI track".to_string());
-        }
-        let len = u32::from_be_bytes(header[4..8].try_into().unwrap()) as usize;
-        let start = offset.checked_add(8).ok_or("MIDI track offset overflow")?;
-        let end = start.checked_add(len).ok_or("MIDI track length overflow")?;
-        parse_midi_track(
-            bytes.get(start..end).ok_or("truncated MIDI track")?,
-            &mut tempos,
-            &mut notes,
-        )?;
-        offset = end;
-    }
-    tempos.sort_by_key(|event| event.0);
-    if tempos
-        .windows(2)
-        .any(|pair| pair[0].0 == pair[1].0 && pair[0].1 != pair[1].1)
-    {
-        return Err("conflicting MIDI tempos at the same tick".to_string());
-    }
-    notes.sort_by_key(|event| event.0);
-    let raw_notes = notes
-        .into_iter()
-        .map(|(tick, pitch, velocity)| MidiNote {
-            time_secs: tick_to_seconds(tick, division, &tempos),
-            pitch,
-            velocity,
+    let parsed = parse_drum_midi(&bytes)
+        .map_err(|error| format!("invalid MIDI {}: {error}", path.display()))?;
+    let raw_note_count = parsed.raw_notes;
+    let events = parsed
+        .events
+        .iter()
+        .map(|event| {
+            let notes = parsed.notes[event.note_start..event.note_end]
+                .iter()
+                .map(|note| MidiNote {
+                    time_secs: note.time_micros as f64 / 1_000_000.0,
+                    pitch: note.pitch,
+                    velocity: note.velocity,
+                })
+                .collect::<Vec<_>>();
+            let mut pitches = notes.iter().map(|note| note.pitch).collect::<Vec<_>>();
+            pitches.sort_unstable();
+            pitches.dedup();
+            LabelEvent {
+                time_micros: event.time_micros,
+                time_secs: event.time_micros as f64 / 1_000_000.0,
+                kick: pitches.contains(&36),
+                hat: pitches.iter().any(|pitch| HAT_NOTES.contains(pitch)),
+                note_count: notes.len(),
+                pitches,
+                notes,
+            }
         })
-        .collect::<Vec<_>>();
-    let raw_note_count = raw_notes.len();
-    let mut events = Vec::new();
-    let mut start = 0;
-    while start < raw_notes.len() {
-        let mut end = start + 1;
-        while end < raw_notes.len()
-            && raw_notes[end].time_secs - raw_notes[start].time_secs <= LABEL_CLUSTER_SECS + 1e-12
-        {
-            end += 1;
-        }
-        let notes = raw_notes[start..end].to_vec();
-        let mut pitches = notes.iter().map(|note| note.pitch).collect::<Vec<_>>();
-        pitches.sort_unstable();
-        pitches.dedup();
-        events.push(LabelEvent {
-            time_secs: notes.iter().map(|note| note.time_secs).sum::<f64>() / notes.len() as f64,
-            kick: pitches.contains(&36),
-            hat: pitches.iter().any(|pitch| HAT_NOTES.contains(pitch)),
-            note_count: notes.len(),
-            pitches,
-            notes,
-        });
-        start = end;
-    }
+        .collect();
     Ok(MidiLabels {
         events,
         raw_note_count,
     })
-}
-
-fn parse_midi_track(
-    track: &[u8],
-    tempos: &mut Vec<(u64, u32)>,
-    notes: &mut Vec<(u64, u8, u8)>,
-) -> Result<(), String> {
-    let (mut offset, mut tick, mut running) = (0_usize, 0_u64, None);
-    while offset < track.len() {
-        tick = tick
-            .checked_add(u64::from(read_variable(track, &mut offset)?))
-            .ok_or("MIDI tick overflow")?;
-        let first = *track.get(offset).ok_or("truncated MIDI event")?;
-        let status = if first & 0x80 != 0 {
-            offset += 1;
-            if first < 0xf0 {
-                running = Some(first);
-            }
-            first
-        } else {
-            running.ok_or("missing MIDI running status")?
-        };
-        if status == 0xff {
-            let kind = *track.get(offset).ok_or("truncated MIDI meta")?;
-            offset += 1;
-            let len = read_variable(track, &mut offset)? as usize;
-            let end = offset.checked_add(len).ok_or("MIDI meta overflow")?;
-            let payload = track
-                .get(offset..end)
-                .ok_or("truncated MIDI meta payload")?;
-            if kind == 0x51 && len == 3 {
-                let tempo = u32::from_be_bytes([0, payload[0], payload[1], payload[2]]);
-                if tempo == 0 {
-                    return Err("zero MIDI tempo".to_string());
-                }
-                tempos.push((tick, tempo));
-            }
-            offset = end;
-        } else if matches!(status, 0xf0 | 0xf7) {
-            let len = read_variable(track, &mut offset)? as usize;
-            offset = offset.checked_add(len).ok_or("MIDI sysex overflow")?;
-            if offset > track.len() {
-                return Err("truncated MIDI sysex".to_string());
-            }
-        } else if status < 0xf0 {
-            let kind = status & 0xf0;
-            let data_len = if matches!(kind, 0xc0 | 0xd0) { 1 } else { 2 };
-            let payload = track
-                .get(offset..offset + data_len)
-                .ok_or("truncated MIDI channel event")?;
-            if payload.iter().any(|byte| byte & 0x80 != 0) {
-                return Err("invalid MIDI channel data".to_string());
-            }
-            if kind == 0x90 && payload[1] != 0 {
-                notes.push((tick, payload[0], payload[1]));
-            }
-            offset += data_len;
-        } else {
-            return Err(format!("unsupported MIDI status: {status:#x}"));
-        }
-    }
-    Ok(())
-}
-
-fn read_variable(bytes: &[u8], offset: &mut usize) -> Result<u32, String> {
-    let mut value = 0_u32;
-    for _ in 0..4 {
-        let byte = *bytes
-            .get(*offset)
-            .ok_or("truncated MIDI variable integer")?;
-        *offset += 1;
-        value = (value << 7) | u32::from(byte & 0x7f);
-        if byte & 0x80 == 0 {
-            return Ok(value);
-        }
-    }
-    Err("oversized MIDI variable integer".to_string())
-}
-
-fn tick_to_seconds(tick: u64, division: u16, tempos: &[(u64, u32)]) -> f64 {
-    let (mut seconds, mut cursor, mut tempo) = (0.0, 0_u64, 500_000_u32);
-    for &(change_tick, next_tempo) in tempos {
-        if change_tick > tick {
-            break;
-        }
-        seconds +=
-            (change_tick - cursor) as f64 * f64::from(tempo) / (f64::from(division) * 1_000_000.0);
-        cursor = change_tick;
-        tempo = next_tempo;
-    }
-    seconds + (tick - cursor) as f64 * f64::from(tempo) / (f64::from(division) * 1_000_000.0)
 }
 
 #[cfg(test)]

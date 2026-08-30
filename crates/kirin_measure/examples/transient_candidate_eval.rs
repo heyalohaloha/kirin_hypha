@@ -2,7 +2,7 @@
 //!
 //! The dataset stays outside the repository. The evaluator requires an
 //! explicit manifest, one explicit candidate config, and a new result path.
-//! B-548 rejects fresh holdout and 2MIX purposes before resolving input paths.
+//! B-549 still rejects fresh holdout and 2MIX purposes before resolving input paths.
 
 use std::fs;
 use std::process;
@@ -11,6 +11,8 @@ use chrono::Utc;
 
 #[path = "transient_candidate_eval/contract.rs"]
 mod contract;
+#[path = "transient_drum_midi/mod.rs"]
+mod drum_midi;
 #[path = "transient_candidate_eval/evaluation.rs"]
 mod evaluation;
 #[path = "transient_candidate_eval/input.rs"]
@@ -22,7 +24,7 @@ mod metrics;
 #[path = "transient_candidate_eval/result.rs"]
 mod result;
 
-use contract::{CandidateConfig, Cli};
+use contract::{verify_opened_diagnostic_manifest, CandidateConfig, Cli};
 use evaluation::{evaluate_tracks, load_track};
 use input::read_selection;
 use result::write_result;
@@ -36,11 +38,14 @@ fn main() {
             format!("result already exists: {}", cli.result.display()),
         );
     }
+    let manifest_sha256 =
+        verify_opened_diagnostic_manifest(&cli.manifest).unwrap_or_else(|error| fail(2, error));
     let root = fs::canonicalize(&cli.root)
         .unwrap_or_else(|error| fail(2, format!("dataset root: {error}")));
     let candidate =
         CandidateConfig::read(&cli.candidate_config).unwrap_or_else(|error| fail(2, error));
-    let manifest = read_selection(&root, &cli.manifest).unwrap_or_else(|error| fail(2, error));
+    let manifest = read_selection(&root, &cli.manifest, &manifest_sha256)
+        .unwrap_or_else(|error| fail(2, error));
     let tracks = manifest
         .entries
         .iter()
