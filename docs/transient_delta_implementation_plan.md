@@ -1,13 +1,13 @@
 # Kirin Hypha POST Transient Delta 実装計画
 
 **日付**：2026-08-30
-**状態**：DRUM主要比率は通過。45件のkick聴取を完了し、指定位置付近の実missを11件へ分離。次の検出器診断はこの11件に限定、公開ATTACKはOFF
-**実装ラベル**：B-560
+**状態**：DRUM主要比率は通過。実miss 11件のkick存在を再確認し、B-553 SuperFluxを独立default-OFF workerへ接続。公開ATTACKはOFF
+**実装ラベル**：B-566
 **画面名**：`ATTACK`（仮称）
 
 Phase 2-Rの正本は`docs/transient_delta_phase2_recovery_plan_20260830.md`とする。
 B-546候補報告は診断履歴として残すが、評価契約の監査結果により公開Goまたは恒久No-Goの根拠には再利用しない。
-B-550からB-552の入力契約とB-553の実測は各報告書に記録し、kick、timing、worst-fold、fresh holdoutが全gateを通るまでworker以降へ進まない。
+B-550からB-552の入力契約とB-553の実測は各報告書に記録する。内部default-OFF workerは実装するが、kick、timing、worst-fold、fresh holdoutが全gateを通るまで公開route、FFI request、UIへ進まない。
 
 ## 1. 結論
 

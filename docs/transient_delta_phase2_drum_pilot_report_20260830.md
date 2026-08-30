@@ -220,6 +220,37 @@ B-564は問いを「150–300 msの区間で低いkickが鳴っているか」�
 HTML SHA-256は`f2b63be26a170cf4c6934d588c49723380b49ee23a9974311624d22aadc8b90d`、manifest SHA-256は`c7f2a708fc9fd951448e299a4238b8b82d75c7ffc700b9350cd6f264cba7e4cf`である。
 実ブラウザで「キックあり」の選択後に`1 / 11 完了`となり、再読込後も回答が復元された。
 
+完了回答は10件が`キックあり`、1件が`わからない`、`キックなし`は0件だった。
+回答TSVのSHA-256は`a91fb0d59750bb428c66cf7645b5517ec20b746898e84e05cd4f842ffbada2a6`である。
+したがって11件を非可聴MIDI labelとして除外せず、少なくとも10件を検出器の実missとして扱う。
+
+### B-565 因果的な低域コントラスト追試
+
+B-553 full-band ODFへ、低域fluxと直前24 hopの低域log-level平均からの正方向差を掛けた因果的補助項を加えた。
+素材依存正規化、future lookahead、独立peak pickerは加えていない。
+
+| 補助重み | Precision | Recall | F1 | FP/s | kick-only | timing P95 ms |
+|---:|---:|---:|---:|---:|---:|---:|
+| 0、B-553 | 0.8720 | 0.7587 | 0.8114 | 0.6541 | 0.6647 | 19.14 |
+| 0.05 | 0.8704 | 0.7589 | 0.8108 | 0.6634 | 0.6721 | -- |
+| 0.20 | 0.8672 | 0.7590 | 0.8095 | 0.6824 | 0.6863 | -- |
+| 1.00 | 0.8584 | 0.7579 | 0.8050 | 0.7337 | 0.7235 | 19.46 |
+| 1.50 | 0.8534 | 0.7562 | 0.8019 | 0.7627 | 0.7303 | 19.60 |
+
+強くするとkick-onlyは上がるが0.75へ届かず、Precision、F1、FP/s、timingが一貫して悪化した。
+同じ補助項の追加調整を停止し、実験コードを製品経路へ残さない。
+
+### B-566 ATTACK独立workerの開始
+
+B-553で選んだ2,048 sample reference window、12 bands/octave、radius 0、reference -50 dBFSのSuperFluxを`AttackRuntime`へ接続した。
+既存FREQ、SHARP、LIVEのmode enumとworkerへ混ぜず、ATTACK専用の固定SPSC ingress、window assembler、1,200-frame ODF historyを持つ。
+Audio Thread側はinterleaved sampleとdescriptorのbounded copyだけを行い、FFT、window整列、SuperFlux、history publicationは独立workerで行う。
+
+workerはdefault OFFであり、FFI request、PRE/POST join、common peak decision、JUCE route、公開UIにはまだ接続しない。
+48 kHz source sample 0では左zero padding後に256 sample間隔のexact gridを生成し、無音はzero trace、impulseは正値となる。
+drop、無効入力、後方transportはgenerationを更新し、変更前後のODF historyを一つの系列へ結合しない。
+192 kHz stereoの二枠へ各1秒を同時投入し、両workerが100 frame以上を生成してingress drop 0となることも確認した。
+
 ## 7. 再現性
 
 最良pilotは二回実行でbyte単位に一致した。
@@ -235,7 +266,7 @@ DRUM ATTACKは完成可能性がある。
 主要比率がdevelopmentで同時通過したため、方式選定の中心課題は解消した。
 
 一方、kick-onlyとtiming、worst-foldが未達なので、完成したとは扱わない。
-kick miss条件の特定と音響時刻監査を通すまでATTACK route、worker、UIはOFFを維持する。
+内部workerは実装を開始したが、検出器の採用条件を緩めず、ATTACK route、FFI request、UIはOFFを維持する。
 
 2MIXは別profileとして未着手であり、この結果を転用しない。
 
