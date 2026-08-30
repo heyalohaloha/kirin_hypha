@@ -1,13 +1,13 @@
 # Kirin Hypha POST Transient Delta 実装計画
 
 **日付**：2026-08-30
-**状態**：DRUM主要比率は通過。実miss 11件のkick存在を再確認し、B-553 SuperFluxを独立default-OFF workerへ接続。公開ATTACKはOFF
-**実装ラベル**：B-566
+**状態**：DRUMのSuperFluxをHypha VST音声入口へdefault-OFFで接続し、POST内部C ABIからraw ODFを取得可能。公開ATTACKはOFF
+**実装ラベル**：B-567
 **画面名**：`ATTACK`（仮称）
 
 Phase 2-Rの正本は`docs/transient_delta_phase2_recovery_plan_20260830.md`とする。
 B-546候補報告は診断履歴として残すが、評価契約の監査結果により公開Goまたは恒久No-Goの根拠には再利用しない。
-B-550からB-552の入力契約とB-553の実測は各報告書に記録する。内部default-OFF workerは実装するが、kick、timing、worst-fold、fresh holdoutが全gateを通るまで公開route、FFI request、UIへ進まない。
+B-550からB-552の入力契約とB-553の実測は各報告書に記録する。内部default-OFF workerと検証C ABIは実装するが、kick、timing、worst-fold、fresh holdoutが全gateを通るまで公開route、PRE request、UIへ進まない。
 
 ## 1. 結論
 
@@ -381,8 +381,8 @@ formal authorizationのsource pin、blind audit、context guard、sealed candida
 
 ### Phase 3: 独立 worker analyzer
 
-Audio Thread を変更せず、既存 ingress のコピーを読み、既存単一 coordinator に所有される専用 analyzer を実装する。
-連続 exact ODF、30 ms detail、100 ms Sharpness、fixed history を生成する。
+既存VST音声入口から専用bounded ingressへ分岐し、Audio ThreadはOFF時atomic read、ON時sample copyだけを行う。
+B-567でPOST内部検証用の連続exact raw ODF、固定history、statsをC ABIから取得可能にした。
 
 ### Phase 4: PRE/POST alignment と共通判定
 

@@ -84,7 +84,10 @@ use kirin_measure::{
     SPECTRUM_DIFFERENCE_TIMELINE_CAPACITY,
 };
 
+mod attack_ffi;
 mod pair_binding;
+
+pub use attack_ffi::*;
 
 use pair_binding::{PairBinding, PairTargetTransition};
 
@@ -365,6 +368,10 @@ pub struct KirinHyphaEngine {
     /// prepare time, but its worker remains absent and its audio ingress returns after one atomic
     /// read until the POST Spectrum page is visible (or an exact PRE is serving that request).
     spectrum_runtime: Arc<SpectrumRuntime>,
+    /// Internal-only ATTACK DRUM measurement path. Unsupported host rates keep this absent;
+    /// supported rates allocate bounded ingress at prepare time, but remain default-OFF with no
+    /// worker until the POST validation control explicitly enables it.
+    attack_runtime: Option<Arc<kirin_measure::AttackRuntime>>,
     /// Exact-pair request/snapshot coordination. All filesystem work runs on the existing IO
     /// worker; the UI only changes visibility and polls the latest immutable view.
     spectrum: Arc<SpectrumCoordinator>,
@@ -1204,6 +1211,7 @@ impl KirinHyphaEngine {
         let delta_result = Arc::new(Mutex::new(DeltaResult::default()));
         let spectrum_runtime = SpectrumRuntime::new(sample_rate, num_channels);
         let spectrum = SpectrumCoordinator::new(sample_rate, Arc::clone(&spectrum_runtime));
+        let attack_runtime = kirin_measure::AttackRuntime::new(sample_rate, num_channels).ok();
         let session_summary: Arc<Mutex<Option<SessionSummary>>> = Arc::new(Mutex::new(None));
         let record_trace_queue = new_record_trace_queue();
         let record_take_tracker = new_record_take_tracker();
@@ -1300,6 +1308,7 @@ impl KirinHyphaEngine {
             measure_result,
             delta_result,
             spectrum_runtime,
+            attack_runtime,
             spectrum,
             session_summary,
             record_trace_queue,
@@ -3192,6 +3201,13 @@ impl KirinHyphaEngine {
             self.num_channels,
             spectrum_presentation_start,
         );
+        if let Some(runtime) = self.attack_runtime.as_ref() {
+            let _ = runtime.push_block_from_audio(
+                interleaved,
+                self.num_channels,
+                spectrum_presentation_start,
+            );
+        }
         let accepted_offline_mode = pending_record.map(|block| block.offline);
         let offline_capture_boundary = accepted_offline_mode.is_some_and(|offline| offline)
             && !self.capture_last_offline.load(Ordering::Acquire);
@@ -3392,6 +3408,9 @@ impl Drop for KirinHyphaEngine {
             }
         }
         self.spectrum_runtime.shutdown_and_join();
+        if let Some(runtime) = self.attack_runtime.as_ref() {
+            runtime.shutdown_and_join();
+        }
         // B-110: live インスタンス refcount −1。watchdog が全世代の io→measure を join した後なので、
         // refcount 0 到達時の共有セル clear が生存 thread の Arc live-read と競合しない。
         identity_instance_detach(clear_role_scoped_cells);

@@ -246,10 +246,24 @@ B-553で選んだ2,048 sample reference window、12 bands/octave、radius 0、re
 既存FREQ、SHARP、LIVEのmode enumとworkerへ混ぜず、ATTACK専用の固定SPSC ingress、window assembler、1,200-frame ODF historyを持つ。
 Audio Thread側はinterleaved sampleとdescriptorのbounded copyだけを行い、FFT、window整列、SuperFlux、history publicationは独立workerで行う。
 
-workerはdefault OFFであり、FFI request、PRE/POST join、common peak decision、JUCE route、公開UIにはまだ接続しない。
+B-566時点のworkerはdefault OFFであり、FFI request、PRE/POST join、common peak decision、JUCE route、公開UIにはまだ接続していなかった。
 48 kHz source sample 0では左zero padding後に256 sample間隔のexact gridを生成し、無音はzero trace、impulseは正値となる。
 drop、無効入力、後方transportはgenerationを更新し、変更前後のODF historyを一つの系列へ結合しない。
 192 kHz stereoの二枠へ各1秒を同時投入し、両workerが100 frame以上を生成してingress drop 0となることも確認した。
+
+### B-567 Hypha VST音声入口への接続
+
+`KirinHyphaEngine`へATTACK専用runtimeを追加し、JUCEの`processBlock`が既に使用する一つのinterleaved音声入口から専用SPSCへ分岐した。
+JUCE側で二重interleaveを行わず、既存計測、FREQ、SHARP、LIVEのringとworkerにも混ぜない。
+VST3が渡すproducer sample位置とoutput presentation latencyをATTACKへそのまま渡すため、raw ODFはsource sample 0基準の同じ時計に載る。
+
+POST内部検証専用C ABIはON/OFF、最新64 raw ODF、dropを含むruntime statsだけを公開する。
+既定はOFF、PREは有効化不可、未対応sample rateではHypha本体を失敗させずATTACKだけunavailableになる。
+OFF時はAudio Threadでatomic enabled確認後に即returnし、workerを起動しない。
+
+48 kHz stereoのshipping clock/audio transactionへimpulseを投入し、2,048 sample window、256 sample hop、正値ODFをC ABI batchで回収した。
+既存`AnalysisViewMode`、DAW state、JUCE navigation、PRE request、公開UIは変更していない。
+次はこのraw ODFへ固定common peak decisionを実装し、DRUMのATTACK eventを内部表示できる段階へ進む。
 
 ## 7. 再現性
 
@@ -266,7 +280,7 @@ DRUM ATTACKは完成可能性がある。
 主要比率がdevelopmentで同時通過したため、方式選定の中心課題は解消した。
 
 一方、kick-onlyとtiming、worst-foldが未達なので、完成したとは扱わない。
-内部workerは実装を開始したが、検出器の採用条件を緩めず、ATTACK route、FFI request、UIはOFFを維持する。
+内部workerは実VST音声入口と検証C ABIまで接続したが、検出器の採用条件を緩めず、公開ATTACK route、PRE request、UIはOFFを維持する。
 
 2MIXは別profileとして未着手であり、この結果を転用しない。
 

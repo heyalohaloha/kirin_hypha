@@ -248,6 +248,41 @@ typedef struct {
   uint64_t analyzed_frames;
 } KirinSpectrumStats;
 
+#define KIRIN_ATTACK_BATCH_CAPACITY 64u
+
+/* ATTACK DRUM内部検証用のraw SuperFlux ODF。公開Analysis route/stateには含めない。 */
+typedef struct {
+  uint64_t generation;
+  uint32_t sample_rate;
+  uint8_t channels;
+  uint8_t reserved[3];
+  uint8_t definition_hash[32];
+  uint32_t window_samples;
+  uint32_t hop_samples;
+  int64_t support_start_samples;
+  int64_t support_end_samples;
+  int64_t event_sample;
+  float value;
+} KirinAttackOdfFrame;
+
+/* UI/control threadが回収する固定長窓。framesは古い順。 */
+typedef struct {
+  uint32_t count;
+  uint32_t capacity;
+  KirinAttackOdfFrame frames[KIRIN_ATTACK_BATCH_CAPACITY];
+} KirinAttackBatch;
+
+typedef struct {
+  uint8_t available;
+  uint8_t enabled;
+  uint8_t worker_running;
+  uint8_t channels;
+  uint8_t reserved[4];
+  uint64_t pushed_blocks;
+  uint64_t dropped_blocks;
+  uint64_t analyzed_frames;
+} KirinAttackStats;
+
 /* Keep/Record専用の世代付き表示スナップショット.
  * 計測・TRACE・plugin_dataの正本とは独立し、GUIがStop後の最終Iを保持するためだけに使う. */
 typedef struct {
@@ -504,6 +539,11 @@ bool kirin_hypha_poll_analysis_owners(KirinHypha* handle, KirinAnalysisOwners* o
 
 /* Spectrum optional workerの検証カウンタを取得。 */
 bool kirin_hypha_spectrum_stats(KirinHypha* handle, KirinSpectrumStats* out);
+
+/* ATTACK DRUM内部検証専用。POSTだけが有効化可能で、既定OFF・state保存なし。 */
+bool kirin_hypha_set_internal_attack_enabled(KirinHypha* handle, bool enabled);
+bool kirin_hypha_poll_internal_attack_batch(KirinHypha* handle, KirinAttackBatch* out);
+bool kirin_hypha_internal_attack_stats(KirinHypha* handle, KirinAttackStats* out);
 
 /* Keep/Record表示を1スナップショットで取得. UI Thread専用・ロック競合時false. */
 bool kirin_hypha_poll_record_display(KirinHypha* handle, KirinRecordDisplay* out);
