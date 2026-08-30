@@ -1,11 +1,11 @@
 # ATTACK Phase 2-R 復旧方針
 
 **日付**：2026-08-30
-**実装ラベル**：B-559
-**判定**：DRUM pilotの主要比率はGo、独立低域kick補助は棄却。kick固有のHTML聴取待ち、timing、worst-fold、候補freeze、公開はNo-Go
+**実装ラベル**：B-560
+**判定**：DRUM pilotの主要比率はGo、独立低域kick補助は棄却。kick聴取でMIDI proxy誤差と実missを分離、timing、worst-fold、候補freeze、公開はNo-Go
 **公開状態**：ATTACK route、request、worker、lease acquisitionは未実装かつOFF
 
-**B-559進捗**：kick有無と確信度だけで完了件数へ加え、最寄りkick位置は任意入力へ修正した。既存の回答保存キーを維持し、聴取完了までdetectorを調整しない。
+**B-560進捗**：45件の聴取を完了した。kickあり29、なし14、区別困難2で、位置外7を除くと、指定位置付近のmatched 11件と実miss 11件へ分かれた。母集団推定には使わず、次の検出器診断を実miss 11件へ限定する。
 
 ## 1. 決定
 
@@ -366,7 +366,7 @@ marker latencyは`decision availability - event_sample`、`worker publish - deci
 3. B-552でofficial audio archiveの同一full SHA読み取りからsource、core、maximum-context PCM、重複、無響、MIDI終端を固定した。
 4. B-553でsource sample 0起点のdevelopment pilotを実行し、SuperFluxの主要比率通過とkick、timing、worst-fold不足を実測した。
 5. 30–200 Hzの独立低域SuperFluxはPrecisionとFP/sを悪化させたため棄却し、追加調整しない。
-6. kick不足が集中するdrummer 4、5、7をevent診断し、候補状態を隠した45 clipを固定した。聴取でkick有無と最寄りkick時刻だけを注釈する。
+6. kick不足が集中するdrummer 4、5、7の45 clip聴取を完了し、MIDI proxy誤差と指定位置付近の実miss 11件を分離した。
 7. 通過候補だけをLODO、LOSO、paired transform、runtimeで確認し、一方式、一parameter set、一definition hashを残す。
 8. candidate freeze前に必要なartifactをsource commitへ固定し、caller指定hashをtrust rootにしない。
 9. 対象profileのfresh holdout manifest、sealed annotation hash、transform hashをcommitする。

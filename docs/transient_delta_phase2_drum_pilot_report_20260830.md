@@ -139,6 +139,25 @@ pack definition SHA-256は`0812ff567577d851da392bfdfab9eed057ed8945f1a9f3785a752
 実ブラウザで`kickあり`、確信度5、位置欄`150–300 ms`の状態を作り、`1 / 45 完了`になることと再読込後の維持を確認した。
 二回生成はbyte一致し、HTML SHA-256は`9de54162adc8c9e0acce6dcae769c70a7eadd7032b7fd6a00fa4ca6df543240e`である。
 
+### B-560 kick聴取結果
+
+45件の回答TSVは行数、連番、opaque ID、選択値、確信度、再生環境が全て整合した。
+TSV SHA-256は`392df1d01a63a1832f7836c4401a866933153f4a5b43fb6672ccef27ce9458f9`、別置きkeyは`582d4003d02603063a75a349030e2d78f5cc900ee76681b93c9d74d0f6716598`である。個別回答と再生環境はrepositoryへ追加しない。
+
+| detector診断層 | 件数 | kickあり | kickなし | 区別困難 |
+|---|---:|---:|---:|---:|
+| matched | 15 | 11 | 2 | 2 |
+| 25–50 msにeligible peak | 15 | 10 | 5 | 0 |
+| ±50 msにeligible peakなし | 15 | 8 | 7 | 0 |
+
+kickあり29件のうち7件は回答上の位置が0–150 msまたは300 ms以後であり、MIDI参照位置の正解とは扱わない。
+残る指定位置付近または位置未確定の22件は、detector matched 11件、未検出11件へ分かれた。
+matched 11件と未検出11件の中央値は、MIDI velocityが48対43、peakが-28.49対-33.65 dBFS、attack riseが+16.26対-0.88 dB、最寄りselected event誤差が4.42対47.77 msだった。
+
+この45件はdrummerと診断層を各5件へ揃えた原因調査用標本なので、11/22をkick Recallとして母集団へ外挿しない。
+raw MIDI kick-only Recall 0.665には、非可聴label、時刻不一致、検出器の実missが混在するため、そのまま公開GoまたはNo-Goの判定値にしない。
+次工程は指定位置付近の実miss 11件だけを対象に低域時系列とfull-band ODFを比較し、全体PrecisionとFP/sを悪化させない一つの修正が成立するか確認する。
+
 timing P95はMIDI note-onと実際の可聴attack位置の差を含む。
 固定audioを候補出力なしで注釈し、検出器の時刻誤差とMIDI proxyの誤差を分離する。
 注釈結果を見る前にglobal offsetを調整しない。
