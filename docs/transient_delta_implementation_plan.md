@@ -1,13 +1,13 @@
 # Kirin Hypha POST Transient Delta 実装計画
 
 **日付**：2026-08-30
-**状態**：DRUM N=290 fold、MIDI、audio provenance成立。formal evaluatorはfail-closed、公開ATTACKはOFF
-**実装ラベル**：B-552
+**状態**：DRUM pilotでPrecision、Recall、F1通過。kick、timing、worst-foldは未達、公開ATTACKはOFF
+**実装ラベル**：B-553
 **画面名**：`ATTACK`（仮称）
 
 Phase 2-Rの正本は`docs/transient_delta_phase2_recovery_plan_20260830.md`とする。
 B-546候補報告は診断履歴として残すが、評価契約の監査結果により公開Goまたは恒久No-Goの根拠には再利用しない。
-B-550のfold gate、B-551のMIDI provenance、B-552のaudio provenanceは各報告書に記録し、候補固定とfresh holdoutが全gateを通るまでworker以降へ進まない。
+B-550からB-552の入力契約とB-553の実測は各報告書に記録し、kick、timing、worst-fold、fresh holdoutが全gateを通るまでworker以降へ進まない。
 
 ## 1. 結論
 

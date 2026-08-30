@@ -3,7 +3,7 @@ use std::fs;
 use std::path::Path;
 
 #[path = "formal_evaluation.rs"]
-mod formal_evaluation;
+pub(crate) mod formal_evaluation;
 
 use super::contract::{sha256_bytes, PeakRule};
 use super::input::{

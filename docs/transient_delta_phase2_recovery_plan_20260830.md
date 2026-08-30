@@ -1,11 +1,11 @@
 # ATTACK Phase 2-R 復旧方針
 
 **日付**：2026-08-30
-**実装ラベル**：B-552
-**判定**：DRUMのfold成立性、MIDI、audio provenanceはGo、候補freezeと公開はNo-Go
+**実装ラベル**：B-553
+**判定**：DRUM pilotの主要比率はGo、kick、timing、worst-fold、候補freeze、公開はNo-Go
 **公開状態**：ATTACK route、request、worker、lease acquisitionは未実装かつOFF
 
-**B-552進捗**：N=290のDRUM selection、五fold、MIDI memberに加え、公式audio archiveの選択WAV、source、core、maximum-context PCM、重複、無響、MIDI終端監査を`docs/transient_delta_phase2_audio_provenance_report_20260830.md`へ固定した。候補score、winner、fresh holdoutは未実施である。
+**B-553進捗**：N=290の実音源pilotでSuperFluxがPrecision 0.872、Recall 0.759、F1 0.811となり主要比率を通過した。kick-only 0.665、timing P95 19.14 ms、worst-foldは未達であり、詳細を`docs/transient_delta_phase2_drum_pilot_report_20260830.md`へ固定した。
 
 ## 1. 決定
 
@@ -364,11 +364,11 @@ marker latencyは`decision availability - event_sample`、`worker publish - deci
 1. B-550でDRUMのN=290 selection、23列manifest、fold balance、formal candidate config、formal metric基盤を固定した。
 2. B-551でverified MIDI archive member、sourceとcropped note/event hash、cross-IDとcross-split重複検査を固定した。
 3. B-552でofficial audio archiveの同一full SHA読み取りからsource、core、maximum-context PCM、重複、無響、MIDI終端を固定した。
-4. E-GMD MIDI proxyのblind acoustic auditと一般mixdevelopment annotationを候補出力なしで完了する。
-5. source commitへauthorization、candidate plan、fold balance、全receipt hashを固定し、caller指定hashをtrust rootにしない。
-6. source sample 0起点のcontext guardを実装し、formal CLIのfilesystem入力前blockerを解除する。
-7. sealed candidate setを全DRUM foldで一度だけ採点し、LODO、LOSO、paired transform、runtimeを含む一方式、一parameter set、一definition hashを残す。
-8. `DRUM`のkick-onlyまたはhat-only不足が残る場合だけStage 3を一度評価する。
+4. B-553でsource sample 0起点のdevelopment pilotを実行し、SuperFluxの主要比率通過とkick、timing、worst-fold不足を実測した。
+5. 30–200 Hzの低域SuperFluxを限定追加し、kick-onlyとworst-fold Precision、FP/sだけを比較する。
+6. E-GMD MIDI proxyのblind acoustic auditを候補出力なしで完了し、timing誤差を分離する。
+7. 通過候補だけをLODO、LOSO、paired transform、runtimeで確認し、一方式、一parameter set、一definition hashを残す。
+8. candidate freeze前に必要なartifactをsource commitへ固定し、caller指定hashをtrust rootにしない。
 9. 対象profileのfresh holdout manifest、sealed annotation hash、transform hashをcommitする。
 10. 各profileのfresh holdoutと全paired transformをprofileごとに一度だけ評価する。
 11. 対象profileの全gateを通った場合だけPhase 3へ進み、worker、pairing、identity、性能、macOS、Windowsを同一commitで通した場合だけ公開Goとする。
@@ -406,7 +406,7 @@ Goの可能性はある。
 
 ただし、その外部結果はHyphaのE-GMD split、FP/s、kick、hat、PRE/POST exact pairingを保証しない。
 したがって、見通しは肯定するが、公開Goはfresh holdoutとruntime gateの実測だけで決める。
-B-552までのGoはDRUM fold成立性、MIDI、audio provenanceだけであり、candidate freeze、fresh holdout、runtime、公開のGoではない。
+B-553までにDRUMの主要比率は通過したが、kick、timing、worst-fold、candidate freeze、fresh holdout、runtime、公開のGoではない。
 
 ## 14. 参照資料
 

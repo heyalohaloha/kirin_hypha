@@ -16,6 +16,9 @@ const DEVELOPMENT_HEADER: &str = "selection_rank,selection_key,fold,drummer,sess
 const FOLDS_HEADER: &str = "id,fold,drummer,session,lodo_holdout,loso_holdout,selection_rank";
 const FORMAL_PERFORMANCE_IDS: usize = 290;
 const MIN_EXCERPT_DURATION_SAMPLES_44100: u64 = 79_380_000;
+const PILOT_MANIFEST_SHA256: &str =
+    "80ebe2961ece9833f554f98430e6617aad2496603f0c105c611dfa710938ad8c";
+const PILOT_FOLDS_SHA256: &str = "51c0b30d535a2819dd17b0a49e410c378e2d436eb5f98be06caff5757be45675";
 const REQUIRED_DRUMMERS: [&str; 9] = [
     "drummer1",
     "drummer10",
@@ -89,6 +92,44 @@ pub(crate) fn read_formal_selection(
         },
         folds_path,
         folds_sha256: expected_folds_sha256.to_string(),
+    })
+}
+
+/// Reads the frozen B-550 development set for measurement work only.
+/// This route cannot authorize a winner or a public ATTACK build.
+pub(crate) fn read_development_pilot_selection(
+    root: &Path,
+    manifest_path: &Path,
+    folds_path: &Path,
+) -> Result<FormalSelectionManifest, String> {
+    let root = fs::canonicalize(root).map_err(|error| format!("dataset root: {error}"))?;
+    if !root.is_dir() {
+        return Err(format!(
+            "dataset root is not a directory: {}",
+            root.display()
+        ));
+    }
+    let (manifest_path, manifest_bytes) = read_pinned(
+        manifest_path,
+        PILOT_MANIFEST_SHA256,
+        "B-550 development pilot manifest",
+    )?;
+    let entries = parse_development_rows(&root, &manifest_bytes)?;
+    validate_development_minima(&entries)?;
+    let (folds_path, folds_bytes) = read_pinned(
+        folds_path,
+        PILOT_FOLDS_SHA256,
+        "B-550 development pilot folds",
+    )?;
+    validate_fold_metadata(&entries, &folds_bytes)?;
+    Ok(FormalSelectionManifest {
+        selection: SelectionManifest {
+            path: manifest_path,
+            sha256: PILOT_MANIFEST_SHA256.to_string(),
+            entries,
+        },
+        folds_path,
+        folds_sha256: PILOT_FOLDS_SHA256.to_string(),
     })
 }
 

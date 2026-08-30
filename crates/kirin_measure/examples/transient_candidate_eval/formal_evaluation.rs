@@ -1,8 +1,12 @@
-use kirin_measure::{SuperFluxAnalyzer, SuperFluxConfig, TransientOdfFrame};
+use kirin_measure::{SuperFluxAnalyzer, SuperFluxConfig, TransientOdfFrame, TransientOdfKind};
+use serde::Serialize;
 
-use super::LoadedTrack;
+use super::{analyze_frames, pick_peaks, score_track, LoadedTrack};
 use crate::contract::{FormalAnalyzer, PeakRule};
-use crate::metrics::FormalEvaluationReport;
+use crate::metrics::{
+    gates, macro_metrics, metrics, timing, Counts, EvaluationReport, FormalEvaluationReport,
+    TrackEvaluation,
+};
 
 #[allow(dead_code)] // Source pin and context-guarded scoring intentionally block this entrypoint.
 pub(crate) fn evaluate_formal_tracks(
@@ -11,6 +15,152 @@ pub(crate) fn evaluate_formal_tracks(
     _rule: PeakRule,
 ) -> Result<FormalEvaluationReport, String> {
     Err("formal evaluation blocked: not_ready_context_guard_unimplemented".to_string())
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[allow(dead_code)] // Used by the separate development-pilot example.
+pub(crate) struct DevelopmentPilotFold {
+    pub(crate) fold: u8,
+    pub(crate) evaluation: EvaluationReport,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[allow(dead_code)] // Used by the separate development-pilot example.
+pub(crate) struct DevelopmentPilotEvaluation {
+    pub(crate) aggregation_contract: &'static str,
+    pub(crate) pooled: EvaluationReport,
+    pub(crate) folds: [DevelopmentPilotFold; 5],
+    pub(crate) all_pooled_micro_gates_passed: bool,
+    pub(crate) all_fold_micro_gates_passed: bool,
+}
+
+#[derive(Clone)]
+#[allow(dead_code)] // Used by the separate development-pilot example.
+struct ScoredTrack {
+    fold: u8,
+    track: TrackEvaluation,
+    signed_timing_secs: Vec<f64>,
+}
+
+/// Scores the frozen development data without authorizing a winner.
+/// Full source audio is analyzed on the source-sample-zero frame grid, while
+/// predictions and labels are counted only inside each manifest core.
+#[allow(dead_code)] // Used by the separate development-pilot example.
+pub(crate) fn evaluate_development_pilot(
+    tracks: &[LoadedTrack],
+    analyzer: FormalAnalyzer,
+    rule: PeakRule,
+) -> Result<DevelopmentPilotEvaluation, String> {
+    if tracks.len() != 290 {
+        return Err("development pilot requires exactly 290 tracks".to_string());
+    }
+    let mut scored = Vec::with_capacity(tracks.len());
+    for track in tracks {
+        let formal = track
+            .selection
+            .formal
+            .as_ref()
+            .ok_or("development pilot received a row without core metadata")?;
+        let frames = match analyzer {
+            FormalAnalyzer::Mel32V2 => analyze_frames(
+                &track.wav.samples,
+                track.wav.metadata.sample_rate,
+                TransientOdfKind::Mel32,
+            )?,
+            FormalAnalyzer::FixedSuperflux(config) => analyze_superflux_frames(
+                &track.wav.samples,
+                track.wav.metadata.sample_rate,
+                config,
+            )?,
+        };
+        let core_start = i64::try_from(formal.excerpt_start_sample_44100)
+            .map_err(|_| "pilot core start does not fit i64")?;
+        let core_end = i64::try_from(formal.excerpt_end_sample_44100)
+            .map_err(|_| "pilot core end does not fit i64")?;
+        let predictions = pick_peaks(&frames, track.wav.metadata.sample_rate, rule)
+            .into_iter()
+            .filter(|sample| core_start <= *sample && *sample < core_end)
+            .collect::<Vec<_>>();
+        let duration_seconds = (formal.excerpt_end_sample_44100 - formal.excerpt_start_sample_44100)
+            as f64
+            / f64::from(track.wav.metadata.sample_rate);
+        let (counts, signed_timing_secs) = score_track(
+            &predictions,
+            &track.labels.events,
+            track.wav.metadata.sample_rate,
+            duration_seconds,
+        )?;
+        scored.push(ScoredTrack {
+            fold: formal.fold,
+            track: TrackEvaluation {
+                performance_id: track.selection.id.clone(),
+                kit_name: track.selection.kit_name.clone(),
+                source_split: track.selection.split.clone(),
+                metrics: metrics(&counts),
+                timing: timing(&signed_timing_secs),
+                counts,
+            },
+            signed_timing_secs,
+        });
+    }
+    let pooled = build_report(scored.iter());
+    let folds: [DevelopmentPilotFold; 5] = (0_u8..5)
+        .map(|fold| {
+            let members = scored
+                .iter()
+                .filter(|scored| scored.fold == fold)
+                .collect::<Vec<_>>();
+            if members.len() != 58 {
+                return Err(format!(
+                    "development pilot fold {fold} has {} tracks, expected 58",
+                    members.len()
+                ));
+            }
+            Ok(DevelopmentPilotFold {
+                fold,
+                evaluation: build_report(members.into_iter()),
+            })
+        })
+        .collect::<Result<Vec<_>, String>>()?
+        .try_into()
+        .map_err(|_| "development pilot fold count invariant failed".to_string())?;
+    Ok(DevelopmentPilotEvaluation {
+        aggregation_contract:
+            "development_measurement_only;full_source_grid;half_open_core_score;pooled_plus_each_fold;not_winner_eligible",
+        all_pooled_micro_gates_passed: pooled.all_gates_passed,
+        all_fold_micro_gates_passed: folds
+            .iter()
+            .all(|fold| fold.evaluation.all_gates_passed),
+        pooled,
+        folds,
+    })
+}
+
+#[allow(dead_code)] // Used by the separate development-pilot example.
+fn build_report<'a>(tracks: impl Iterator<Item = &'a ScoredTrack>) -> EvaluationReport {
+    let tracks = tracks.collect::<Vec<_>>();
+    let mut counts = Counts::default();
+    let mut signed_timing_secs = Vec::new();
+    for scored in &tracks {
+        counts.add(&scored.track.counts);
+        signed_timing_secs.extend_from_slice(&scored.signed_timing_secs);
+    }
+    let micro = metrics(&counts);
+    let timing = timing(&signed_timing_secs);
+    let gates = gates(&micro, &timing);
+    let track_reports = tracks
+        .into_iter()
+        .map(|scored| scored.track.clone())
+        .collect::<Vec<_>>();
+    EvaluationReport {
+        counts,
+        micro,
+        macro_values: macro_metrics(&track_reports),
+        timing,
+        all_gates_passed: gates.iter().all(|gate| gate.passed),
+        gates,
+        tracks: track_reports,
+    }
 }
 
 #[allow(dead_code)] // Algorithm fixture; formal scoring remains context-guard blocked.

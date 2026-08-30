@@ -70,6 +70,39 @@ fn opened_diagnostic_rows_also_stop_at_the_context_guard_blocker() {
     assert!(error.contains("not_ready_context_guard_unimplemented"));
 }
 
+#[test]
+fn development_pilot_uses_all_five_exact_core_partitions() {
+    let tracks = (0_u16..290)
+        .map(|index| {
+            let mut track = track((index % 5) as u8);
+            track.selection.id = format!("pilot-id-{index:03}");
+            let formal = track.selection.formal.as_mut().unwrap();
+            formal.selection_rank = u32::from(index) + 1;
+            track
+        })
+        .collect::<Vec<_>>();
+    let evaluation = evaluate_development_pilot(
+        &tracks,
+        FormalAnalyzer::Mel32V2,
+        PeakRule::LocalMean {
+            delta: 0.25,
+            absolute_floor: 0.0,
+            pre_max_hops: 3,
+            post_max_hops: 0,
+            pre_avg_hops: 12,
+            post_avg_hops: 0,
+            refractory_ms: 30.0,
+        },
+    )
+    .unwrap();
+    assert_eq!(evaluation.pooled.tracks.len(), 290);
+    assert_eq!(evaluation.pooled.counts.label_count, 290);
+    assert!(evaluation
+        .folds
+        .iter()
+        .all(|fold| fold.evaluation.tracks.len() == 58));
+}
+
 fn track(fold: u8) -> LoadedTrack {
     let sample_rate = 44_100;
     let sample_count = 2_048;

@@ -9,6 +9,9 @@ use crate::drum_midi::{parse_drum_midi, ParsedDrumMidi};
 #[path = "formal_manifest.rs"]
 mod formal_manifest;
 
+#[allow(unused_imports)] // Shared by the separate development-pilot example.
+pub(crate) use formal_manifest::read_development_pilot_selection;
+
 const MANIFEST_HEADER: &str = "drummer,session,id,style,bpm,beat_type,time_signature,duration,split,midi_filename,audio_filename,kit_name";
 const HAT_NOTES: [u8; 5] = [22, 26, 42, 44, 46];
 
@@ -336,7 +339,7 @@ pub(crate) fn decode_midi_labels(path: &Path, bytes: &[u8]) -> Result<MidiLabels
     labels_from_parsed(&parsed)
 }
 
-fn labels_from_parsed(parsed: &ParsedDrumMidi) -> Result<MidiLabels, String> {
+pub(crate) fn labels_from_parsed(parsed: &ParsedDrumMidi) -> Result<MidiLabels, String> {
     let raw_note_count = parsed.raw_notes;
     let events = parsed
         .events
