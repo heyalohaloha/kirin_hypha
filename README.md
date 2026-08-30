@@ -1,31 +1,57 @@
 # Kirin Hypha
 
-**A free, open-source audio measurement plugin for macOS (VST3 and Audio Unit).**
+**See what changed across a processing chain — without changing the audio.**
 
-The supported release is currently macOS-only. A manual Windows VST3 validation package is also built and published for external testing, but it is not yet a supported Windows release.
+Kirin Hypha is a free, open-source pass-through measurement plug-in for macOS and Windows. Place
+**PRE** before the processors you want to inspect and **POST** after them. POST then shows the measured
+difference between those two exact points. Hypha does not generate, modify, attenuate, or delay audio.
 
-Kirin Hypha operates as paired instances — a **PRE** plugin and a **POST** plugin — to measure signal states before and after a processing chain and display the difference.
+![Kirin Hypha FREQ showing the signed POST minus PRE spectrum and a locked six-second Focus Trail](docs/media/kirin-hypha-freq.jpg)
 
-On a paired POST, the on-demand Spectrum turns that comparison into a signed **Δ (POST − PRE)**
-frequency view, with selectable LR / MID / SIDE observation, a lockable probe, and one temporary
-MARK reference. A locked probe also shows the selected frequency's exact six-second **Focus Trail**.
-Returning to **METERS** or closing the editor stops its optional analysis and discards that short
-display history.
+[Watch FREQ react to the measured chain in Studio One (10-second silent MP4)](docs/media/kirin-hypha-freq-demo.mp4)
 
-The POST **ANALYSIS** page can switch between **FREQ**, **SHARP**, and **LIVE**. SHARP's first observation is a six-second
-**Δ Sharpness History**: a signed POST − PRE Sharpness trace that responds at 10 Hz without scoring,
-traffic-light judgment, or audio-path changes. LIVE overlays absolute POST LUFS-M, recent True Peak,
-and Sharpness on one six-second time axis. The three modes are mutually exclusive within an instance,
-so only the visible analyzer runs. Two POST Analysis pages may be active in one DAW process. A third
-shows the factual owners as `Both slots in use — Mix, Vocal` (or `Both slots in use` if either name
-cannot be verified), then automatically acquires a slot after either owner returns to METERS or
-closes. Switching FREQ / SHARP / LIVE retains the same slot.
+## Start in under a minute
 
-![Kirin Hypha PRE and POST showing Short-term Watch values and independent MAX values](docs/media/kirin-hypha-pre-post.jpg)
+1. Insert **PRE Kirin Hypha** before the processing chain.
+2. Insert **POST Kirin Hypha** after the processing chain.
+3. Open POST's arrow menu and choose that exact PRE under **Pair choices**.
+4. Open **ANALYSIS** and switch between **FREQ**, **SHARP**, and **LIVE**.
 
-[Watch PRE/POST with the M/S selector and independent Watch MAX values (32-second silent MP4)](docs/media/kirin-hypha-pre-post-demo.mp4)
+Names are optional labels. PRE and POST do not need matching names, and track position is never used
+to guess a pair. The two plug-ins are the measurement boundary: PRE captures the input state, while
+POST captures the output state and joins only verified matching observations.
 
-[Watch POST move from Watch to Keep/Record and hold the final result after Stop (45-second silent MP4)](docs/media/kirin-hypha-record-keep-demo.mp4)
+## Three observation views
+
+### FREQ — where the chain changed
+
+The cyan **Δ (POST − PRE)** curve is the primary view. PRE and POST remain visible as references.
+Choose LR, MID, or SIDE; click a frequency to keep its exact six-second **Focus Trail**; use **MARK**
+to retain one temporary full-spectrum reference. The display scale is ±24 dB.
+
+### SHARP — how perceptual brightness changed over time
+
+![Kirin Hypha SHARP showing six seconds of signed Sharpness difference](docs/media/kirin-hypha-sharp.jpg)
+
+SHARP shows six seconds of signed **Δ Sharpness** in acum. It reports observation only: no target,
+warning colour, score, or recommendation.
+
+### LIVE — three absolute POST facts on one timeline
+
+![Kirin Hypha LIVE showing LUFS-M, recent True Peak, and Sharpness on one six-second timeline](docs/media/kirin-hypha-live.jpg)
+
+LIVE overlays POST **LUFS-M**, **recent True Peak**, and **Sharpness** on one six-second time axis.
+Each metric keeps an independent fixed scale, and the current values update at a readable rate.
+
+Only the visible analyzer runs. Two POST Analysis pages may stay active in one DAW process, supporting
+a persistent 2Mix view plus one working track. A third page identifies the two current owners and
+acquires a slot only after one owner returns to METERS or closes. Switching FREQ / SHARP / LIVE keeps
+the same slot.
+
+macOS 12 or later is supported as signed and notarized VST3 and Audio Unit plug-ins. Windows 10/11
+64-bit is supported as VST3 and distributed as a manual ZIP. The Windows build passes CI and
+pluginval and is validated in Studio One Pro on a dedicated Windows machine; a signed Windows
+installer is not currently provided.
 
 ---
 
@@ -44,6 +70,7 @@ Every metric is backed by a known-signal golden test: the expected values are de
 | Feature | Standalone | With Kirin OS |
 |---|---|---|
 | Watch mode | ✓ | ✓ |
+| POST Analysis: FREQ / SHARP / LIVE | ✓ | ✓ |
 | Record mode | — | ✓ |
 | plugin_data output | — | ✓ |
 
@@ -265,7 +292,7 @@ for LR, while its explicit MID and SIDE selections intentionally measure `(L+R)/
 
 ## Download
 
-Download the latest signed and notarized macOS release from the [Releases page](https://github.com/heyalohaloha/kirin_hypha/releases).
+Download the latest macOS or Windows release from the [Releases page](https://github.com/heyalohaloha/kirin_hypha/releases).
 
 The macOS installer package and the plug-in bundles inside it are signed with Apple Developer ID certificates and notarized by Apple, so Gatekeeper normally opens them without a warning. If a downloaded file is still flagged — for instance when the quarantine attribute persists — you can inspect it and clear the flag yourself:
 
@@ -282,7 +309,11 @@ xattr -d com.apple.quarantine "Kirin-Hypha-<version>-macOS-Universal.pkg"
 
 The installer package has companion `.pkg.sha256` and artifact JSON assets on the Releases page. Older zip archives are manual-install fallback artifacts.
 
-The Windows VST3 zip on the Releases page is a **validation candidate**, not a supported installer. It is a manual PRE/POST VST3 package for Windows 10/11 64-bit, has no installer or Authenticode signature, and remains blocked from supported release status until the external DAW and audio-transparency gates in [`docs/windows_external_validation.md`](docs/windows_external_validation.md) are complete.
+The Windows 10/11 64-bit VST3 release is a supported manual PRE/POST ZIP package. It is built from the
+same release commit as macOS, passes the Windows CI and pluginval gates, and has completed Studio One
+Pro validation on a dedicated Windows machine. The ZIP does not include an installer or Authenticode
+signature. [`docs/windows_external_validation.md`](docs/windows_external_validation.md) remains the
+repeatable real-machine regression checklist.
 
 ### Release provenance
 
@@ -292,6 +323,8 @@ Published artifacts are immutable. If repository maintenance changes a public co
 
 ## Installation
 
+### macOS
+
 1. Download the latest `Kirin-Hypha-<version>-macOS-Universal.pkg` from the [Releases page](https://github.com/heyalohaloha/kirin_hypha/releases).
 2. Open the installer package and follow macOS Installer.
    - The package installs **VST3** to `/Library/Audio/Plug-Ins/VST3/`.
@@ -300,6 +333,15 @@ Published artifacts are immutable. If repository maintenance changes a public co
 3. Rescan plugins in your DAW.
 4. Insert **PRE Kirin Hypha** before your processing chain.
 5. Insert **POST Kirin Hypha** after your processing chain.
+
+### Windows
+
+1. Download the latest `Kirin-Hypha-<version>-Windows-VST3-<build>-<commit>.zip` from the
+   [Releases page](https://github.com/heyalohaloha/kirin_hypha/releases).
+2. Close the DAW and extract both VST3 folders to:
+   `%LOCALAPPDATA%\Programs\Common\VST3\`
+3. Start the DAW and rescan VST3 plug-ins if needed.
+4. Insert **PRE Kirin Hypha** before your processing chain and **POST Kirin Hypha** after it.
 
 ---
 
@@ -311,11 +353,17 @@ The Audio Unit declares a broad file-access entitlement (`temporary-exception.fi
 
 ## Pairing PRE and POST
 
-Pairing is by **name**, not by track position.
+Pairing is an explicit selection of one exact PRE instance. It is not inferred from track position or
+matching names.
 
-1. In the PRE plugin, enter a name in the **Name** field (e.g. `Mix Bus`, `Kick`, `Vocal`). Names accept UTF-8 text, including Japanese.
-2. In the POST plugin, enter the same name.
-3. POST detects the matching PRE and begins displaying Δ values.
+1. Insert PRE before the processors and POST after them.
+2. In POST, open the arrow menu beside the pair field.
+3. Under **Pair choices (not Keep targets)**, select the intended PRE.
+4. POST keeps that exact PRE identity and begins displaying Δ values.
+
+Giving PRE a name such as `Mix`, `Drum`, or `Vocal` makes the menu easier to scan, but naming is
+optional. UTF-8 labels, including Japanese, are supported. An unnamed PRE can still be selected by
+its exact instance identity.
 
 Multiple PRE / POST pairs can run simultaneously (up to 12 active pairs per project).
 
@@ -334,6 +382,10 @@ analyzer runs within an instance; two POST Analysis pages may run in a DAW proce
 explains that both slots are active.
 
 Closing the GUI does not stop measurement. The audio thread continues running as long as the plugin is loaded in the DAW.
+
+![Kirin Hypha PRE and POST showing Short-term Watch values and independent MAX values](docs/media/kirin-hypha-pre-post.jpg)
+
+[Watch PRE/POST with the M/S selector and independent Watch MAX values (32-second silent MP4)](docs/media/kirin-hypha-pre-post-demo.mp4)
 
 ---
 
@@ -356,6 +408,8 @@ in between. Multiple pairs record independently.
 
 If measurement samples are ever dropped during a recording (for example, on a buffer overflow), the dropped-sample count and an integrity flag are written into the session data. Incomplete measurement is recorded as incomplete, never presented as complete.
 
+[Watch POST move from Watch to Keep/Record and hold the final result after Stop (45-second silent MP4)](docs/media/kirin-hypha-record-keep-demo.mp4)
+
 ---
 
 ## Kirin OS ecosystem
@@ -371,11 +425,11 @@ Kirin OS is available now. More at [kirinmastering.com](https://kirinmastering.c
 ## Requirements
 
 - macOS 12 or later (Apple Silicon and Intel)
-- VST3- or Audio Unit-compatible DAW
+- Windows 10 or 11, 64-bit
+- VST3-compatible DAW, or an Audio Unit-compatible DAW on macOS
 
-Tested on macOS 14 (Sonoma).
-
-**Windows validation candidate:** Windows 10 or 11, 64-bit, VST3 only. External validation is pending; this is not yet a supported release.
+Validated on macOS 14 (Sonoma) and Windows with Studio One Pro. Windows is VST3-only and uses a
+manual ZIP package; a signed Windows installer is not currently provided.
 
 **Not currently supported:** Linux · CLAP
 

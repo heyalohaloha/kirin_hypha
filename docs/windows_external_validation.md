@@ -1,20 +1,26 @@
-# Kirin Hypha Windows External Validation
+# Kirin Hypha Windows Validation and Regression Checklist
 
-Purpose: validate the first Windows JUCE VST3 build before any Lemon Squeezy upload.
+Purpose: validate every Windows JUCE VST3 release on a real Windows DAW before public upload.
 
-Status: external validation gate. A Windows VST3 zip/state can be generated before validation, but it must stay blocked until the pass/fail gates below are complete.
+Status: Windows 10/11 64-bit VST3 is supported. The v1.1.47 release records Windows validation as
+complete after CI, pluginval, and Studio One Pro checks on the dedicated Windows validation machine.
+This document remains the required regression checklist for later release commits; a new package
+must stay blocked until these gates are complete for that commit.
 
 ## Current Boundary
 
 - Windows delivery target: JUCE VST3, PRE and POST.
-- Current proven state: GitHub Actions builds PRE/POST Windows VST3, validates them with pluginval, and packages a Windows VST3 zip candidate.
+- Current proven state: GitHub Actions builds PRE/POST Windows VST3, validates them with pluginval,
+  and packages the supported manual Windows VST3 ZIP.
 - Release packaging: `scripts/ls_release/build_kirin_hypha_windows_vst3_zip.mjs` creates the zip, SHA256 file, sidecar JSON, and LS state.
-- Validation gate: real Windows DAW load, PRE/POST discovery, Keep, Record, offline bounce, and audio transparency must be complete before LS-ready.
+- Per-release validation gate: real Windows DAW load, PRE/POST discovery, Keep, Record, offline
+  bounce, and audio transparency must be complete before LS-ready.
 - Not included yet: Windows installer and Authenticode signing.
 
 ## Artifact To Send
 
-Send a zip made from the latest green CI artifact named `kirin-hypha-windows-vst3`, or the packaged CI artifact named `kirin-hypha-windows-vst3-ls-package`.
+Validate a ZIP made from the latest green CI artifact named `kirin-hypha-windows-vst3`, or the
+packaged CI artifact named `kirin-hypha-windows-vst3-ls-package`.
 
 The handoff zip should include:
 
@@ -24,7 +30,9 @@ The handoff zip should include:
 - `SHA256SUMS.txt`
 - this validation document
 
-The recipient must treat it as a beta validation build, not a public installer.
+Before the checklist passes, treat that commit's package as a validation build. After it passes, the
+same verified package may be published as the supported manual ZIP. It is never represented as a
+Windows installer.
 
 ## Tester Requirements
 
@@ -135,9 +143,9 @@ Fail data:
 
 ## Test 3: Pairing And Keep
 
-1. Name the PRE instance with a simple label such as `Mix` or `Drum`.
+1. Optionally name the PRE instance with a simple label such as `Mix` or `Drum`.
 2. On POST, open the pair menu.
-3. Select the matching PRE.
+3. Select that exact PRE under **Pair choices (not Keep targets)**; matching names are not required.
 4. Press `Keep`.
 5. Confirm PRE acknowledges the record request and POST indicates active Keep/Record state.
 6. Stop Keep.

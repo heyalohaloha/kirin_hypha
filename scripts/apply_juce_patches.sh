@@ -72,3 +72,9 @@ apply_patch_idempotent \
   "0006-vst3-component-id-continuity.patch" \
   --unidiff-zero \
   --ignore-whitespace
+
+apply_patch_idempotent \
+  "0007" \
+  "0007-vst3-host-component-activation.patch" \
+  --unidiff-zero \
+  --ignore-whitespace

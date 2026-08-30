@@ -501,6 +501,36 @@ fn juce_prepare_does_not_destroy_engine_while_recording() {
 }
 
 #[test]
+fn vst3_component_activation_is_distinct_from_release_resources() {
+    let header = read_repo("crates/kirin_hypha_ffi/include/kirin_hypha_ffi.h");
+    assert!(header.contains("kirin_hypha_set_host_component_active"));
+
+    let processor_header = read_repo("juce_shell/src/PluginProcessor.h");
+    assert!(processor_header.contains("hostComponentActivationChanged (bool active) override"));
+
+    let processor = read_repo("juce_shell/src/PluginProcessor.cpp");
+    let release = slice_between(
+        &processor,
+        "void KirinHyphaProcessorBase::releaseResources",
+        "void KirinHyphaProcessorBase::hostComponentActivationChanged",
+    );
+    assert!(
+        !release.contains("kirin_hypha_set_host_component_active"),
+        "generic releaseResources must not fabricate a user OFF state"
+    );
+    let activation = slice_between(
+        &processor,
+        "void KirinHyphaProcessorBase::hostComponentActivationChanged",
+        "bool KirinHyphaProcessorBase::isBusesLayoutSupported",
+    );
+    assert!(activation.contains("kirin_hypha_set_host_component_active"));
+
+    let juce_patch = read_repo("juce_shell/patches/0007-vst3-host-component-activation.patch");
+    assert!(juce_patch.contains("hostComponentActivationChanged (willBeActive)"));
+    assert!(juce_patch.contains("virtual void hostComponentActivationChanged (bool)"));
+}
+
+#[test]
 fn io_thread_shutdown_paths_mark_lifecycle_shutdown() {
     for (path, start_marker, close_marker) in [
         (

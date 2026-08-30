@@ -185,6 +185,17 @@ void KirinHyphaProcessorBase::releaseResources()
     // Stop/All Stop and the IO-thread idle timeout; this callback intentionally does nothing.
 }
 
+void KirinHyphaProcessorBase::hostComponentActivationChanged (bool active)
+{
+    // VST3 IComponent::setActive is distinct from transport/silence. Studio Pro uses this path
+    // when the insert power button is changed, while releaseResources alone is too ambiguous
+    // (sample-rate reconfigure / offline render / teardown). Rust applies the shared heartbeat
+    // grace before publishing Bypassed, so transient host reconfiguration remains Inactive.
+    const juce::ScopedLock sl (handleLock);
+    if (hyphaHandle != nullptr)
+        kirin_hypha_set_host_component_active (hyphaHandle, active);
+}
+
 bool KirinHyphaProcessorBase::isBusesLayoutSupported (const BusesLayout& layouts) const
 {
     const auto& mainIn  = layouts.getMainInputChannelSet();

@@ -23,6 +23,7 @@
  *   - push_samples: Audio Thread 単独・RT-safe（内部は rtrb push + heartbeat++ のみ）.
  *   - poll_result : UI Thread（内部は try_lock 非ブロッキング）.
  *   - push_samples は毎オーディオブロック呼ぶこと（B-118/G-115-245: ~3s 呼ばないと計測が Inactive に落ちる）.
+ *   - set_host_component_active は VST3 lifecycle thread 専用。transport/無音と component OFF を分離する.
  */
 #ifndef KIRIN_HYPHA_FFI_H
 #define KIRIN_HYPHA_FFI_H
@@ -284,6 +285,11 @@ KirinHypha* kirin_hypha_create(uint32_t sample_rate, uint32_t num_channels);
 
 /* 信号状態（0=Inactive 1=Active 2=Bypassed）. */
 void kirin_hypha_set_signal_state(KirinHypha* handle, uint8_t state);
+
+/* VST3 host component activation（true=active / false=host deactivated）.
+ * false は即時 bypass ではない。heartbeat grace を越えて処理停止が続いた場合だけ Bypassed になり、
+ * 一時的な host 再構成・offline render 切替を利用者のOFFと誤認しない. */
+void kirin_hypha_set_host_component_active(KirinHypha* handle, bool active);
 
 /* 現在の信号状態を読む（0=Inactive 1=Active 2=Bypassed）. LED poller 系（read-only）.
  * Measure Thread の heartbeat 停止検出で Inactive へ上書きされた値も反映する（B-113）. */

@@ -1,0 +1,20 @@
+diff --git a/modules/juce_audio_plugin_client/juce_audio_plugin_client_VST3.cpp b/modules/juce_audio_plugin_client/juce_audio_plugin_client_VST3.cpp
+--- a/modules/juce_audio_plugin_client/juce_audio_plugin_client_VST3.cpp
++++ b/modules/juce_audio_plugin_client/juce_audio_plugin_client_VST3.cpp
+@@ -2589,1 +2589,3 @@ public:
+         const ScopeGuard scope { [&] { active = willBeActive; } };
++
++        getPluginInstance().hostComponentActivationChanged (willBeActive);
+diff --git a/modules/juce_audio_processors/processors/juce_AudioProcessor.h b/modules/juce_audio_processors/processors/juce_AudioProcessor.h
+--- a/modules/juce_audio_processors/processors/juce_AudioProcessor.h
++++ b/modules/juce_audio_processors/processors/juce_AudioProcessor.h
+@@ -912,1 +912,9 @@ public:
+     virtual void reset();
++
++    /** Called when a plug-in wrapper receives a host component activation change.
++
++        This is distinct from transport state, silence, and the bypass parameter. The default
++        implementation does nothing. Wrappers that expose an explicit component lifecycle may
++        call this before prepareToPlay() or releaseResources().
++    */
++    virtual void hostComponentActivationChanged (bool) {}

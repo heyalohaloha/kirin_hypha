@@ -138,7 +138,9 @@ pub use license::{
     can_enter_record, can_read_preset, can_write_plugin_data, load_license_safe, show_note_button,
     show_save_button, show_stop_record_button, LiveLicense, SENSE_RECORD_HINT, SENSE_UPSELL_URL,
 };
-pub use measure_thread::{live_window, pair_lock_active, spawn_measure_thread, LivenessEvaluator};
+pub use measure_thread::{
+    live_window, pair_lock_active, spawn_measure_thread, stalled_signal_state, LivenessEvaluator,
+};
 pub use pair_claim_index::{
     live_claim_owned_by_other, pair_claim_is_live, pair_claim_is_owned,
     pair_claim_owned_by_other_post, publish_pair_claim, read_pair_claim, release_pair_claim,

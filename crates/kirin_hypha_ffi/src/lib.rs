@@ -1390,6 +1390,21 @@ impl KirinHyphaEngine {
         store_signal_state(&self.signal_state, s);
     }
 
+    /// VST3 host の component activation を通知する。
+    ///
+    /// `active=false` を直ちに Bypassed へ変換しない。短い再構成や offline render の前後でも
+    /// setActive(false/true) は使われるため、共通 LivenessEvaluator の heartbeat が既に stale
+    /// の場合だけ停止理由を反映する。継続停止は Measure Thread が同じ契約で確定する。
+    pub fn set_host_component_active(&self, active: bool) {
+        self.liveness.set_host_component_active(active);
+        if !self.liveness.is_live() {
+            store_signal_state(
+                &self.signal_state,
+                kirin_measure::stalled_signal_state(active),
+            );
+        }
+    }
+
     /// 現在の信号状態を **C ABI コード**（0=Inactive 1=Active 2=Bypassed）で返す。
     /// `set_signal_state` の逆写像（写像本体は純粋関数 `signal_state_to_abi`）。`self.signal_state` は
     /// Measure Thread が heartbeat 停止検出時に `Inactive` へ上書きするため、processBlock 停止後は
@@ -4455,6 +4470,25 @@ pub unsafe extern "C" fn kirin_hypha_set_signal_state(handle: *mut KirinHyphaEng
             return;
         }
         unsafe { (*handle).set_signal_state(state) };
+    }));
+}
+
+/// VST3 component activation を通知する（true=active / false=host deactivated）。
+/// transport停止・無音・通常の bypass parameter とは別経路。短い host 再構成は heartbeat
+/// grace 内で無視し、継続した deactivation だけを Bypassed として公開する。
+///
+/// # Safety
+/// `handle` は `kirin_hypha_create` の戻り値（非 null・未解放）であること。
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_set_host_component_active(
+    handle: *mut KirinHyphaEngine,
+    active: bool,
+) {
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() {
+            return;
+        }
+        unsafe { (*handle).set_host_component_active(active) };
     }));
 }
 
