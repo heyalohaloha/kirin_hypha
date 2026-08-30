@@ -72,6 +72,8 @@ mod sync_recovery;
 pub mod trace_alignment;
 mod trace_clock_resolution;
 mod trace_content_clock;
+mod transient_layout;
+mod transient_odf;
 pub mod watch_max;
 pub mod watch_playback_pass;
 mod watch_snapshot_lease;
@@ -278,6 +280,8 @@ pub use storage::{
     PlatformPaths, StorageError, StoragePaths, CLEANUP_V1_DONE_FILENAME,
 };
 pub use trace_alignment::TraceContentAlignment;
+pub use transient_layout::{TransientLayout, TransientOdfKind};
+pub use transient_odf::{TransientCandidateAnalyzer, TransientOdfFrame};
 pub use watch_max::WatchMaxTracker;
 pub use watch_playback_pass::{
     add_watch_ring_cursor_samples, advance_watch_playback_pass_id,
