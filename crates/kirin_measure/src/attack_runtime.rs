@@ -282,6 +282,69 @@ pub(super) const fn drum_config(channels: usize) -> SuperFluxConfig {
     SuperFluxConfig::new(2_048, 12, 0, -50, SuperFluxChannelMode::Lr, channels)
 }
 
+/// Runs the exact ATTACK DRUM front end and causal peak decision on a mono buffer.
+///
+/// This allocates and is intended only for offline regression diagnostics. The VST Audio Thread
+/// continues to use [`AttackRuntime::push_block_from_audio`].
+#[doc(hidden)]
+pub fn analyze_drum_attacks_mono_offline(
+    samples: &[f32],
+    sample_rate: u32,
+) -> Result<Vec<AttackEvent>, &'static str> {
+    analyze_drum_attacks_interleaved_offline(samples, sample_rate, 1)
+}
+
+/// Offline ATTACK DRUM analysis for interleaved mono or stereo source audio.
+#[doc(hidden)]
+pub fn analyze_drum_attacks_interleaved_offline(
+    samples: &[f32],
+    sample_rate: u32,
+    channels: usize,
+) -> Result<Vec<AttackEvent>, &'static str> {
+    if samples.is_empty() {
+        return Err("offline ATTACK input is empty");
+    }
+    if !matches!(channels, 1 | 2) || !samples.len().is_multiple_of(channels) {
+        return Err("offline ATTACK input requires interleaved mono or stereo frames");
+    }
+    if samples.iter().any(|sample| !sample.is_finite()) {
+        return Err("offline ATTACK input contains a non-finite sample");
+    }
+    let analyzer = crate::SuperFluxAnalyzer::new(sample_rate, drum_config(channels))?;
+    let layout = analyzer.layout();
+    let tail_samples = layout
+        .window_samples
+        .checked_add((sample_rate as usize * 30_000).div_ceil(1_000_000))
+        .and_then(|value| value.checked_add(layout.hop_samples * 2))
+        .ok_or("offline ATTACK tail length overflow")?;
+    let source_frames = samples.len() / channels;
+    let source_end =
+        i64::try_from(source_frames).map_err(|_| "offline ATTACK input is too long")?;
+    let mut assembler = assembler::AttackAssembler::new(analyzer, channels);
+    let mut peak_picker = peak::AttackPeakPicker::new();
+    let mut events = Vec::new();
+    if !assembler.begin_block(0, 1) {
+        return Err("offline ATTACK could not start at source origin");
+    }
+    for input in samples
+        .chunks_exact(channels)
+        .map(|frame| (frame[0], frame.get(1).copied()))
+        .chain(std::iter::repeat_n(
+            (0.0, (channels == 2).then_some(0.0)),
+            tail_samples,
+        ))
+    {
+        if let Some(frame) = assembler.push_frame(input.0, input.1) {
+            if let Some(event) = peak_picker.push(frame) {
+                if (0..source_end).contains(&event.event_sample) {
+                    events.push(event);
+                }
+            }
+        }
+    }
+    Ok(events)
+}
+
 impl Drop for AttackRuntime {
     fn drop(&mut self) {
         self.enabled.store(false, Ordering::Release);

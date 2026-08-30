@@ -202,3 +202,39 @@ fn two_192k_slots_process_one_second_without_ingress_drop() {
     first.shutdown_and_join();
     second.shutdown_and_join();
 }
+
+#[test]
+fn offline_drum_path_reuses_the_selected_runtime_decision() {
+    let sample_rate = 44_100;
+    let mut samples = vec![0.0; sample_rate as usize];
+    samples[4_410] = 0.9;
+    let events = analyze_drum_attacks_mono_offline(&samples, sample_rate).unwrap();
+    assert_eq!(events.len(), 1);
+    assert!((3_940..=4_410).contains(&events[0].event_sample));
+    assert!(events[0].has_valid_layout());
+}
+
+#[test]
+fn offline_drum_path_rejects_empty_nonfinite_and_unsupported_rate() {
+    assert_eq!(
+        analyze_drum_attacks_mono_offline(&[], 44_100).unwrap_err(),
+        "offline ATTACK input is empty"
+    );
+    assert_eq!(
+        analyze_drum_attacks_mono_offline(&[f32::NAN], 44_100).unwrap_err(),
+        "offline ATTACK input contains a non-finite sample"
+    );
+    assert!(analyze_drum_attacks_mono_offline(&[0.0; 1_000], 32_000).is_err());
+    assert!(analyze_drum_attacks_interleaved_offline(&[0.0; 3], 44_100, 2).is_err());
+}
+
+#[test]
+fn offline_drum_path_accepts_stereo_with_the_product_lr_contract() {
+    let sample_rate = 44_100;
+    let mut samples = vec![0.0; sample_rate as usize * 2];
+    samples[4_410 * 2] = 0.9;
+    samples[4_410 * 2 + 1] = 0.9;
+    let events = analyze_drum_attacks_interleaved_offline(&samples, sample_rate, 2).unwrap();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].channels, 2);
+}

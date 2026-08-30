@@ -327,6 +327,25 @@ kitの発音包絡、30 ms compound、密な一対一matchingを含む「MIDI tr
 timing診断artifactのSHA-256は`21e00fbd8784c6df273b3d45436ba41bcff830383605716e90b6c362a9429575`である。
 独立低域、followup低域のresult SHA-256はそれぞれ`7835071681db8dcb807984e56edeccd085711bb0fc7bf6ce2cd1a3d6e80b08c6`、`a76b36f78f12788b90dcf8903f8c5f2f8251a1636e9a5b85c4e8a862a5ef95ff`である。
 
+### B-573 kick/snare単体trackの回帰境界
+
+DRUMをfull-kit busだけに限定せず、kickおよびsnare単体trackも正式な入力範囲へ含めた。
+parameterは難しいfull-kit materialで共通に決め、単体専用profileや自動楽器分類は追加しない。
+
+利用者所有の三つの独立sample群から、kick 69音とsnare 58音を読み、現在のshipping相当B-553 workerと同じmono/stereo LR、SuperFlux、causal peak decisionへ通した。
+
+| class | files | mono / stereo | source groups | 先頭250 msで検出 | coverage | event数P95 |
+|---|---:|---:|---:|---:|---:|---:|
+| kick | 69 | 30 / 39 | 3 | 69 | 1.000 | 6 |
+| snare | 58 | 30 / 28 | 3 | 58 | 1.000 | 4 |
+
+したがって、単体trackでATTACKが無反応になる退行は現在の検出器にない。
+一方、一つのsample内で複数eventが出る例がある。
+layered sample中の複数の可聴attackか、decayの過検出かはファイル名や波形だけでは決めないため、event数は診断値として残し、聴取基準なしの合否値には使わない。
+今後のDRUM変更は、最低50音・二群以上のkick/snareそれぞれで先頭250 ms coverage 0.95以上を維持する。
+音源bytesと絶対pathはrepositoryへ入れず、file名、SHA-256、format、eventだけを決定的artifactへ記録する。
+二回のartifactはbyte一致し、SHA-256は`8440f280842b22ed692b1c937e3054af89b90fc06065540ac1df23ca534d3fe4`である。
+
 ## 7. 再現性
 
 最良pilotは二回実行でbyte単位に一致した。

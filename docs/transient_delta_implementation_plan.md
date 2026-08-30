@@ -21,7 +21,7 @@ POST限定の一つのAnalysis画面として、六秒の時間軸を持つ`ATTA
 
 ## 2. 目的
 
-この機能の目的は、処理操作後のアタック発生時刻と変化量を、DRUMではdrum/percussion bus、2MIXでは完成mixについて判断代行なしで確認することである。
+この機能の目的は、処理操作後のアタック発生時刻と変化量を、DRUMではdrum/percussion busおよびkick/snare単体track、2MIXでは完成mixについて判断代行なしで確認することである。DRUMの共通parameterはfull-kit busで決め、単体専用modeは作らず回帰対象として保護する。
 二profileは別々のdevelopment、fresh holdout、definition hash、Go判定を持つ。
 音声は生成、変更、減衰、遅延させず、R-12 の製造境界を維持する。
 

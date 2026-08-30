@@ -102,7 +102,8 @@ pub use all_stop_signal::{
 };
 pub use analysis_lease::{ANALYSIS_OWNER_NAME_MAX_BYTES, ANALYSIS_SLOT_COUNT};
 pub use attack_runtime::{
-    AttackEvent, AttackHistory, AttackOdfFrame, AttackRuntime, AttackRuntimeStats,
+    analyze_drum_attacks_interleaved_offline, analyze_drum_attacks_mono_offline, AttackEvent,
+    AttackHistory, AttackOdfFrame, AttackRuntime, AttackRuntimeStats,
     ATTACK_EVENT_HISTORY_CAPACITY, ATTACK_ODF_HISTORY_CAPACITY,
 };
 pub use capture_contract::{CAPTURE_PRODUCER_READY_TIMEOUT, MAX_CAPTURE_PAIRS};
