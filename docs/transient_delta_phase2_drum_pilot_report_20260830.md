@@ -79,11 +79,22 @@ kick-only不足は全foldに共通しているため、データの一foldだけ
 
 ## 6. 次に厳密に見る箇所
 
-次の実装は30–200 Hzの低域SuperFluxを既存all-band系列へ限定的に加える。
-目的はkick-only Recallを上げることであり、別方式の探索ではない。
+### B-554限定追試
 
-低域追加でworst-fold PrecisionまたはFP/sが悪化した場合は採用しない。
-hat-onlyとall-bandの既存通過値も維持する。
+30–200 Hzの低域SuperFluxを独立にpeak判定し、既存all-band eventから30 msを超えて離れたeventだけを補う案を同じ290演奏へ一度適用した。
+
+| candidate | Precision | Recall | F1 | FP/s | kick-only | 判定 |
+|---|---:|---:|---:|---:|---:|---|
+| SuperFlux pilot best | 0.872 | 0.759 | 0.811 | 0.654 | 0.665 | 継続 |
+| 30–200 Hz独立kick assist | 0.582 | 0.831 | 0.684 | 3.510 | 0.832 | 棄却 |
+
+kickは上がったが、誤検出が5倍を超えた。
+停止条件に従ってparameter調整を追加せず、補助経路をコードから除いた。
+
+kick-only Recallをdrummer別に集計すると、drummer 4が0.397、drummer 5が0.212、drummer 7が0.641であり、他の6人は0.79以上だった。
+この三群だけでkick-only miss 450件中360件、80%を占めた。
+問題は全素材に均一ではない。
+次はこの三群のmissへ対象を限定し、独立検出器を増やさず既存共通trace内で成立する条件だけを見る。
 
 timing P95はMIDI note-onと実際の可聴attack位置の差を含む。
 固定audioを候補出力なしで注釈し、検出器の時刻誤差とMIDI proxyの誤差を分離する。
@@ -106,7 +117,7 @@ DRUM ATTACKは完成可能性がある。
 主要比率がdevelopmentで同時通過したため、方式選定の中心課題は解消した。
 
 一方、kick-onlyとtiming、worst-foldが未達なので、完成したとは扱わない。
-低域kick経路と音響時刻監査を通すまでATTACK route、worker、UIはOFFを維持する。
+kick miss条件の特定と音響時刻監査を通すまでATTACK route、worker、UIはOFFを維持する。
 
 2MIXは別profileとして未着手であり、この結果を転用しない。
 

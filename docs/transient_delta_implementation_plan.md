@@ -1,8 +1,8 @@
 # Kirin Hypha POST Transient Delta 実装計画
 
 **日付**：2026-08-30
-**状態**：DRUM pilotでPrecision、Recall、F1通過。kick、timing、worst-foldは未達、公開ATTACKはOFF
-**実装ラベル**：B-553
+**状態**：DRUM主要比率は通過。独立低域kick補助は誤検出増大で棄却、timingとworst-foldは未達、公開ATTACKはOFF
+**実装ラベル**：B-554
 **画面名**：`ATTACK`（仮称）
 
 Phase 2-Rの正本は`docs/transient_delta_phase2_recovery_plan_20260830.md`とする。
