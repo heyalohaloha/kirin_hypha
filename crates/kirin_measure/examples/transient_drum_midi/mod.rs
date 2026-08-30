@@ -115,6 +115,37 @@ pub(crate) fn parse_drum_midi(bytes: &[u8]) -> Result<ParsedDrumMidi, String> {
     })
 }
 
+/// Returns the raw note-on events in the exact half-open sample interval and
+/// rebuilds compounds from that excerpt. Absolute integer-microsecond times
+/// are retained so labels and audio share the original content clock.
+#[allow(dead_code)] // Some tools import the shared parser but do not excerpt labels.
+pub(crate) fn excerpt_drum_midi(
+    parsed: &ParsedDrumMidi,
+    start_sample: u64,
+    end_sample: u64,
+    sample_rate: u32,
+) -> Result<ParsedDrumMidi, String> {
+    if sample_rate == 0 || start_sample >= end_sample {
+        return Err("invalid MIDI excerpt sample bounds".to_string());
+    }
+    let rate = u128::from(sample_rate);
+    let start_scaled = u128::from(start_sample) * 1_000_000;
+    let end_scaled = u128::from(end_sample) * 1_000_000;
+    let notes = parsed
+        .notes
+        .iter()
+        .filter_map(|note| {
+            let note_scaled = u128::from(note.time_micros) * rate;
+            (start_scaled <= note_scaled && note_scaled < end_scaled).then_some(*note)
+        })
+        .collect::<Vec<_>>();
+    Ok(ParsedDrumMidi {
+        raw_notes: notes.len(),
+        events: compound(&notes)?,
+        notes,
+    })
+}
+
 fn parse_track(
     track: &[u8],
     tempos: &mut Vec<(u64, u32)>,
@@ -326,6 +357,68 @@ mod tests {
 
         let non_hat = midi_file(1_000, &tempo_and_notes(1_000_000, &[(0, 23, 100)]));
         assert!(!parse_drum_midi(&non_hat).unwrap().events[0].hat_only);
+    }
+
+    #[test]
+    fn excerpt_uses_exact_half_open_sample_bounds_then_recompounds() {
+        let parsed = ParsedDrumMidi {
+            raw_notes: 4,
+            notes: vec![
+                DrumNote {
+                    time_micros: 0,
+                    pitch: 36,
+                    velocity: 100,
+                },
+                DrumNote {
+                    time_micros: 22,
+                    pitch: 36,
+                    velocity: 100,
+                },
+                DrumNote {
+                    time_micros: 23,
+                    pitch: 42,
+                    velocity: 100,
+                },
+                DrumNote {
+                    time_micros: 30_000,
+                    pitch: 42,
+                    velocity: 100,
+                },
+            ],
+            events: Vec::new(),
+        };
+        // At 44.1 kHz, note 22 us is before sample 1 and note 23 us is after it.
+        let excerpt = excerpt_drum_midi(&parsed, 1, 1_324, 44_100).unwrap();
+        assert_eq!(excerpt.raw_notes, 2);
+        assert_eq!(excerpt.notes[0].pitch, 42);
+        assert_eq!(excerpt.notes[0].time_micros, 23);
+        assert_eq!(excerpt.events.len(), 1);
+        assert_eq!(excerpt.events[0].note_start, 0);
+        assert_eq!(excerpt.events[0].note_end, 2);
+        assert!(excerpt.events[0].hat_only);
+    }
+
+    #[test]
+    fn excerpt_excludes_exact_end_accepts_empty_and_rejects_invalid_bounds() {
+        let parsed = ParsedDrumMidi {
+            raw_notes: 1,
+            notes: vec![DrumNote {
+                time_micros: 1_000,
+                pitch: 36,
+                velocity: 100,
+            }],
+            events: Vec::new(),
+        };
+        let empty = excerpt_drum_midi(&parsed, 0, 1, 1_000).unwrap();
+        assert_eq!(empty.raw_notes, 0);
+        assert!(empty.notes.is_empty());
+        assert!(empty.events.is_empty());
+        assert_eq!(
+            excerpt_drum_midi(&parsed, 1, 2, 1_000).unwrap().notes[0].time_micros,
+            1_000
+        );
+        assert!(excerpt_drum_midi(&parsed, 1, 1, 1_000).is_err());
+        assert!(excerpt_drum_midi(&parsed, 0, 1, 0).is_err());
     }
 
     #[test]

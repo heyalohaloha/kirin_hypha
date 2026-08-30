@@ -2,11 +2,14 @@ use std::collections::{BTreeSet, HashSet};
 
 use sha2::{Digest, Sha256};
 
-use crate::contract::{SELECTION_SEED, SELECTION_VERSION};
+use crate::contract::{
+    LEGACY_BASELINE_PERFORMANCE_IDS, MAX_TARGET_PERFORMANCE_IDS, RENDER_KEY_VERSION,
+    SELECTION_SEED, TARGET_PERFORMANCE_IDS,
+};
+use crate::drum_excerpt;
 use crate::metadata::{MetadataRow, Performance};
 use crate::policy::{
-    assess_development, DevelopmentAssessment, MIN_BEAT_FILL_RATIO, MIN_KITS, MIN_PERFORMANCE_IDS,
-    MIN_STYLES,
+    assess_development, DevelopmentAssessment, MIN_BEAT_FILL_RATIO, MIN_KITS, MIN_STYLES,
 };
 
 #[derive(Clone, Debug)]
@@ -16,21 +19,18 @@ pub(crate) struct SelectionOutcome {
     pub(crate) assessment: DevelopmentAssessment,
 }
 
-const PERFORMANCE_RANK_DOMAIN: &str = "attack-drum-development-performance-rank-v1";
 const RENDER_CHOICE_DOMAIN: &str = "attack-drum-development-render-choice-v1";
 
 pub(crate) fn performance_rank_key(row: &MetadataRow) -> String {
-    domain_hash(
-        PERFORMANCE_RANK_DOMAIN,
-        &[SELECTION_VERSION, SELECTION_SEED, &row.split, &row.id],
-    )
+    drum_excerpt::performance_rank_key(&row.split, &row.id)
+        .expect("validated nonempty metadata identity")
 }
 
 pub(crate) fn render_choice_key(row: &MetadataRow) -> String {
     domain_hash(
         RENDER_CHOICE_DOMAIN,
         &[
-            SELECTION_VERSION,
+            RENDER_KEY_VERSION,
             SELECTION_SEED,
             &row.split,
             &row.id,
@@ -40,18 +40,27 @@ pub(crate) fn render_choice_key(row: &MetadataRow) -> String {
 }
 
 fn domain_hash(domain: &str, fields: &[&str]) -> String {
+    hex::encode(domain_digest(domain, fields))
+}
+
+fn domain_digest(domain: &str, fields: &[&str]) -> [u8; 32] {
     let mut hasher = Sha256::new();
     for field in std::iter::once(domain).chain(fields.iter().copied()) {
         hasher.update((field.len() as u64).to_be_bytes());
         hasher.update(field.as_bytes());
     }
-    hex::encode(hasher.finalize())
+    hasher.finalize().into()
 }
 
 pub(crate) fn select_development(
     candidates: &[Performance],
     required_drummers: &BTreeSet<String>,
 ) -> Result<SelectionOutcome, String> {
+    if TARGET_PERFORMANCE_IDS > MAX_TARGET_PERFORMANCE_IDS
+        || !TARGET_PERFORMANCE_IDS.is_multiple_of(usize::from(crate::folds::FOLD_COUNT))
+    {
+        return Err("invalid fixed development target policy".to_string());
+    }
     validate_candidates(candidates)?;
     let mut order = (0..candidates.len()).collect::<Vec<_>>();
     order.sort_by(|&left, &right| {
@@ -82,7 +91,10 @@ pub(crate) fn select_development(
     add_new_styles(candidates, &order, &mut chosen, &mut selected_indices);
     add_new_kits(candidates, &order, &mut chosen, &mut selected_indices);
 
-    let minimum_each = (MIN_BEAT_FILL_RATIO * MIN_PERFORMANCE_IDS as f64).ceil() as usize;
+    // Preserve the complete v1 60-ID selection before appending the old rank
+    // reserve. Changing the v2 target must never silently redraw that baseline.
+    let minimum_each =
+        (MIN_BEAT_FILL_RATIO * LEGACY_BASELINE_PERFORMANCE_IDS as f64).ceil() as usize;
     add_until_type_count(
         candidates,
         &order,
@@ -99,50 +111,32 @@ pub(crate) fn select_development(
         &mut chosen,
         &mut selected_indices,
     );
-    while selected_indices.len() < MIN_PERFORMANCE_IDS {
+    while selected_indices.len() < LEGACY_BASELINE_PERFORMANCE_IDS {
         if !add_next(&order, &mut chosen, &mut selected_indices, |_| true) {
             break;
         }
     }
-
-    loop {
-        let selected = selected_indices
-            .iter()
-            .map(|&index| candidates[index].clone())
-            .collect::<Vec<_>>();
-        let assessment = assess_development(&selected, required_drummers);
-        if assessment.ready() || chosen.len() == candidates.len() {
-            let reserve = order
-                .iter()
-                .filter(|index| !chosen.contains(index))
-                .map(|&index| candidates[index].clone())
-                .collect();
-            let outcome = SelectionOutcome {
-                selected,
-                reserve,
-                assessment,
-            };
-            validate_formal_manifest(&outcome, candidates, required_drummers)?;
-            return Ok(outcome);
-        }
-        let needs_beat = assessment.beat_ratio + 1e-12 < MIN_BEAT_FILL_RATIO;
-        let needs_fill = assessment.fill_ratio + 1e-12 < MIN_BEAT_FILL_RATIO;
-        let added = if needs_beat {
-            add_next(&order, &mut chosen, &mut selected_indices, |index| {
-                candidates[index].row.beat_type == "beat"
-            })
-        } else if needs_fill {
-            add_next(&order, &mut chosen, &mut selected_indices, |index| {
-                candidates[index].row.beat_type == "fill"
-            })
-        } else {
-            add_next(&order, &mut chosen, &mut selected_indices, |_| true)
-        };
-        if !added {
-            // The complete pool will produce a structured insufficient result.
-            add_next(&order, &mut chosen, &mut selected_indices, |_| true);
+    while selected_indices.len() < TARGET_PERFORMANCE_IDS {
+        if !add_next(&order, &mut chosen, &mut selected_indices, |_| true) {
+            break;
         }
     }
+    let selected = selected_indices
+        .iter()
+        .map(|&index| candidates[index].clone())
+        .collect::<Vec<_>>();
+    let reserve = order
+        .iter()
+        .filter(|index| !chosen.contains(index))
+        .map(|&index| candidates[index].clone())
+        .collect();
+    let outcome = SelectionOutcome {
+        assessment: assess_development(&selected, required_drummers),
+        selected,
+        reserve,
+    };
+    validate_formal_manifest(&outcome, candidates, required_drummers)?;
+    Ok(outcome)
 }
 
 pub(crate) fn validate_formal_manifest(
@@ -153,6 +147,8 @@ pub(crate) fn validate_formal_manifest(
     let assessment = assess_development(&outcome.selected, required_drummers);
     if assessment.status != outcome.assessment.status
         || assessment.unique_performance_ids != outcome.assessment.unique_performance_ids
+        || assessment.unique_duration_samples_44100
+            != outcome.assessment.unique_duration_samples_44100
         || assessment.kick_only_events != outcome.assessment.kick_only_events
         || assessment.hat_only_events != outcome.assessment.hat_only_events
     {
@@ -311,7 +307,7 @@ mod tests {
 
     #[test]
     fn selection_is_deterministic_quota_first_and_forces_opened_validation() {
-        let candidates = synthetic_pool(100);
+        let candidates = synthetic_pool(400);
         let drummers = (0..9).map(|index| format!("drummer{index}")).collect();
         let first = select_development(&candidates, &drummers).unwrap();
         let second = select_development(&candidates, &drummers).unwrap();
@@ -330,7 +326,14 @@ mod tests {
             .iter()
             .take(6)
             .all(|item| item.forced_opened_validation));
-        assert_eq!(first.selected.len(), 60);
+        assert_eq!(first.selected.len(), TARGET_PERFORMANCE_IDS);
+        let legacy_pool = synthetic_pool(250);
+        let legacy = select_development(&legacy_pool, &drummers).unwrap();
+        let prefix = ids(&legacy)[..LEGACY_BASELINE_PERFORMANCE_IDS].join("\n");
+        assert_eq!(
+            crate::contract::sha256_bytes(prefix.as_bytes()),
+            "84d3e8f3832b0a181b98949cb0943fd693ad73a11a05d538d2ddf3fd0547b484"
+        );
     }
 
     #[test]
@@ -362,7 +365,7 @@ mod tests {
 
     #[test]
     fn input_order_does_not_change_manifest_order() {
-        let candidates = synthetic_pool(80);
+        let candidates = synthetic_pool(400);
         let mut reversed = candidates.clone();
         reversed.reverse();
         let drummers = (0..9).map(|index| format!("drummer{index}")).collect();
@@ -393,7 +396,9 @@ mod tests {
                     bpm: 60.0 + index as f64,
                     beat_type: if index % 2 == 0 { "beat" } else { "fill" }.into(),
                     time_signature: "4-4".into(),
+                    duration_decimal: "31".into(),
                     duration: 31.0,
+                    duration_samples_44100: 31 * 44_100,
                     split: split.into(),
                     midi_filename: format!("midi/{index}.midi"),
                     audio_filename: format!("audio/{index}.wav"),
@@ -410,6 +415,12 @@ mod tests {
                         hat_only_events: 10,
                         first_event_time_secs: 0.0,
                         last_event_time_secs: 30.0,
+                        source_raw_notes: 30,
+                        source_compound_events: 20,
+                        source_kick_only_events: 10,
+                        source_hat_only_events: 10,
+                        source_first_raw_note_time_secs: 0.0,
+                        source_last_raw_note_time_secs: 30.0,
                     },
                     forced_opened_validation: index < 6,
                 }

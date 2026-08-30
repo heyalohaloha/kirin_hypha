@@ -6,6 +6,9 @@
 **公開判定**：ATTACKはNo-Go、未準備
 **対象範囲**：Offline候補研究、データ分離、fixed-scale SuperFlux、外部reference照合
 
+> この文書はB-549時点の履歴報告である。
+> 現在のDRUM selection、fold、formal evaluator状態は`docs/transient_delta_phase2_formal_development_gate_report_20260830.md`を正本とし、旧60 ID、21列案、fold不均衡、artifact hashをB-550へ流用しない。
+
 ## 1. 判定の境界
 
 B-549で、DRUM候補を再現可能な手順で研究するためのコード基盤は成立した。

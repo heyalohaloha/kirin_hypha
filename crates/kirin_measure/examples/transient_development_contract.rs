@@ -9,6 +9,8 @@ use std::process;
 mod contract;
 #[path = "transient_development_contract/csv.rs"]
 mod csv;
+#[path = "transient_drum_excerpt/mod.rs"]
+mod drum_excerpt;
 #[path = "transient_drum_midi/mod.rs"]
 mod drum_midi;
 #[path = "transient_development_contract/folds.rs"]
@@ -21,6 +23,12 @@ mod metadata;
 mod midi;
 #[path = "transient_development_contract/output.rs"]
 mod output;
+#[path = "transient_development_contract/output_csv.rs"]
+mod output_csv;
+#[path = "transient_development_contract/output_receipt.rs"]
+mod output_receipt;
+#[path = "transient_development_contract/output_stats.rs"]
+mod output_stats;
 #[path = "transient_development_contract/policy.rs"]
 mod policy;
 #[path = "transient_development_contract/publish.rs"]
@@ -33,7 +41,7 @@ use folds::assign_grouped_folds;
 use ledger::OpenedLedger;
 use metadata::{enrich_performances, read_official_metadata};
 use output::render_artifacts;
-use policy::{candidate_evaluation_gate, select_gate_margin_winner};
+use policy::candidate_evaluation_gate;
 use publish::publish_artifacts_create_new;
 use selector::select_development;
 
@@ -50,8 +58,6 @@ fn main() {
     candidate_evaluation_gate(&selection.assessment).expect_err(
         "unattached provenance, audio, fold, and acoustic gates must forbid evaluation",
     );
-    select_gate_margin_winner(&[])
-        .expect_err("an unscored development set must forbid winner selection");
     let folds = assign_grouped_folds(&selection.selected).unwrap_or_else(|error| fail(1, error));
     let artifacts = render_artifacts(
         &selection,
@@ -67,8 +73,11 @@ fn main() {
         .unwrap_or_else(|error| fail(1, error));
 
     println!(
-        "ATTACK DRUM development prepared: status={} selected={} reserve={} duration={:.3}s beat={} fill={} kick_only={} hat_only={} folds=5 winner_allowed=false output={}",
+        "ATTACK DRUM development prepared: selection_status={} fold_status={} fold_qualified={} fold_deficits={} selected={} reserve={} duration={:.3}s beat={} fill={} kick_only={} hat_only={} folds=5 winner_allowed=false output={}",
         selection.assessment.status_code(),
+        folds.qualification.status,
+        folds.qualification.qualified,
+        folds.qualification.deficits.len(),
         selection.selected.len(),
         selection.reserve.len(),
         selection.assessment.unique_duration_secs,

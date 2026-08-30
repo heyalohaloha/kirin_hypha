@@ -2,6 +2,9 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
 
+#[path = "formal_evaluation.rs"]
+mod formal_evaluation;
+
 use super::contract::{sha256_bytes, PeakRule};
 use super::input::{
     read_midi_labels, read_mono_pcm_wav, LabelEvent, MidiLabels, MonoWav, Selection,
@@ -38,6 +41,9 @@ struct Aggregate {
 }
 
 pub(crate) fn load_track(root: &Path, selection: Selection) -> Result<LoadedTrack, String> {
+    if selection.formal.is_some() {
+        return Err("formal evaluation blocked: not_ready_context_guard_unimplemented".to_string());
+    }
     let audio_bytes = fs::read(&selection.audio).map_err(|error| error.to_string())?;
     let midi_bytes = fs::read(&selection.midi).map_err(|error| error.to_string())?;
     let wav = read_mono_pcm_wav(&selection.audio)?;

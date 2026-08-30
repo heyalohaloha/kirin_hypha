@@ -6,7 +6,16 @@ use std::path::{Path, PathBuf};
 use sha2::{Digest, Sha256};
 
 pub(crate) const SELECTION_SEED: &str = "ATTACK-V2-20260830";
-pub(crate) const SELECTION_VERSION: &str = "attack-drum-development-quota-first-v1";
+pub(crate) const RENDER_KEY_VERSION: &str = "attack-drum-development-render-choice-v1";
+pub(crate) const SELECTION_VERSION: &str = "attack-drum-development-balanced-excerpt-v2";
+pub(crate) const LEGACY_BASELINE_PERFORMANCE_IDS: usize = 60;
+pub(crate) const LEGACY_BASELINE_ID_LIST_SHA256: &str =
+    "3047af1bb19b61cd4a38eb90f62be2612d67aa3974bc16cd148447c6521693ee";
+pub(crate) const TARGET_SEARCH_START_PERFORMANCE_IDS: usize = 175;
+pub(crate) const TARGET_SEARCH_STEP: usize = 5;
+pub(crate) const TARGET_PERFORMANCE_IDS: usize = 290;
+pub(crate) const LOWER_BOUND_IMPOSSIBLE_PERFORMANCE_IDS: usize = 285;
+pub(crate) const MAX_TARGET_PERFORMANCE_IDS: usize = 400;
 pub(crate) const METADATA_SHA256: &str =
     "80677e8fb00e973f33cb91ddaaf7f0cffe55359f9a76c1833ce56c84d1d92c64";
 pub(crate) const MIDI_ARCHIVE_SHA256: &str =

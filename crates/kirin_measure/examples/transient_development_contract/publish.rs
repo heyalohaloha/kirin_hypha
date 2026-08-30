@@ -47,7 +47,7 @@ pub(crate) fn publish_artifacts_create_new(
         return Err(error);
     }
     Ok(WrittenPaths {
-        receipt: target.join("attack_drum_development_receipt_v1.json"),
+        receipt: target.join("attack_drum_development_receipt_v2.json"),
     })
 }
 
@@ -95,7 +95,7 @@ mod tests {
     fn artifacts() -> Artifacts {
         Artifacts {
             files: vec![ArtifactFile {
-                name: "attack_drum_development_receipt_v1.json".into(),
+                name: "attack_drum_development_receipt_v2.json".into(),
                 bytes: b"receipt".to_vec(),
             }],
         }
@@ -107,7 +107,7 @@ mod tests {
         let target = parent.path().join("final");
         publish_artifacts_create_new(&target, &artifacts()).unwrap();
         assert_eq!(
-            fs::read(target.join("attack_drum_development_receipt_v1.json")).unwrap(),
+            fs::read(target.join("attack_drum_development_receipt_v2.json")).unwrap(),
             b"receipt"
         );
         assert!(publish_artifacts_create_new(&target, &artifacts())

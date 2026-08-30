@@ -2,6 +2,12 @@ use std::collections::BTreeMap;
 
 use serde::Serialize;
 
+#[allow(dead_code)] // Compiled result scaffold; formal execution is intentionally not ready.
+#[path = "formal_metrics.rs"]
+mod formal_metrics;
+
+pub(crate) use formal_metrics::FormalEvaluationReport;
+
 pub(crate) const SIGNED_TIMING_MEDIAN_ABS_MAX_MS: f64 = 256.0 * 1_000.0 / 48_000.0;
 
 #[derive(Clone, Debug, Default, Serialize)]

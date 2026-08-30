@@ -1,11 +1,11 @@
 # ATTACK Phase 2-R 復旧方針
 
 **日付**：2026-08-30
-**実装ラベル**：B-547
-**判定**：研究開発の再開はGo、公開は未判定
+**実装ラベル**：B-550
+**判定**：DRUMのfold成立性はGo、候補freezeと公開はNo-Go
 **公開状態**：ATTACK route、request、worker、lease acquisitionは未実装かつOFF
 
-**B-548進捗**：Evaluator v2基盤と既閲覧DRUM診断を`docs/transient_delta_evaluator_v2_report_20260830.md`へ記録した。候補選定とfresh holdoutは未実施である。
+**B-550進捗**：N=290のDRUM selectionと五fold gate、23列formal manifest parser、formal metric基盤を`docs/transient_delta_phase2_formal_development_gate_report_20260830.md`へ記録した。候補score、winner、fresh holdoutは未実施である。
 
 ## 1. 決定
 
@@ -88,13 +88,15 @@ annotator間F1が0.90未満またはMIDI proxyが未達なら、E-GMDのMIDIだ�
 
 - Git commitとmeasurement definition hash。
 - evaluator versionと候補parameter set。
-- manifest identifier、SHA-256、row数、split別件数、全performance ID。
+- 23列manifest identifier、SHA-256、row数、split別件数、全performance ID。
+- excerpt mapping version、元duration decimal、44.1 kHzの半開`[start_sample,end_sample)`、sourceとexcerptのhash。
 - MIDIとWAVの相対path、SHA-256、sample rate、channel数、sample数、duration。
-- raw note数、compound event数、instrument tag分布、velocity分布、density分布。
+- sourceとexcerptそれぞれのraw note数、compound event数、kick-only、hat-only、instrument tag分布、velocity分布、density分布。
 - prediction数、TP、FP、FN、duplicate、merged、track別指標、subgroup別指標。
 - 実行日時と候補選定前後のmanifest状態。
 
-入力preflightは欠損、重複ID、split漏洩、非finite、無音、空MIDI、annotationの音声範囲外、duration差、format不一致をfailにする。
+入力preflightは欠損、重複ID、split漏洩、非finite、source MIDIの空または破損、annotationの音声範囲外、duration差、format不一致をfailにする。
+選択excerpt内のnoteまたはeventが0でもnegative intervalとして保持し、無音coreもその事実だけでは除外しない。
 E-GMD側に既知の利用不能trackがあるため、除外規則はscoreを見る前に固定し、除外理由をresult artifactへ残す。
 
 tempo changeがtick 0にある場合はMIDI内の実tempoをdefault tempoより明示的に優先する。
@@ -108,18 +110,24 @@ validation 6件はdevelopmentへ使用できるが、test 18件は`opened-diagno
 このvalidation 6件だけでは次の最低構成を満たさないため、正式なcandidate freezeには使用できない。
 2026-08-30のtest MIDI誤抽出事故によりoriginal E-GMD testを未開封とは主張せず、guardian裁定または新しい未接触holdoutをfresh評価の必須条件とする。
 
-新規developmentはE-GMDのtrainとvalidationから次の最低構成で固定する。
+新規developmentはE-GMDのtrainとvalidationから290 unique performance IDを固定し、各foldへ58 IDずつ割り当てる。
+短尺は全区間、長尺は候補出力に依存しない最大30秒のhash-windowを使い、採点するexcerpt合計を30分以上にする。
+44.1 kHzで最大1,323,000 sample、startは441 sample単位、end exclusiveとする。
+selection rankとexcerpt位置は別domainとversionを持ち、score確認後にseedを引き直さない。
+元metadata durationはdecimal文字列から整数sampleへhalf-upし、`f64`を境界の正本にしない。
 
-- 60以上のunique performance ID。
-- kit違いを重複時間として数えないunique sequence duration 30分以上。
-- beatとfillを各30%以上。
-- 8以上のstyle、8以上のkit、利用可能な全drummerを含む。
-- 同じperformance IDの全kit renderを同じfoldへ置く。
-- kick-onlyとhat-onlyのcompound eventを各200件以上含む。
+候補選定はperformance IDで分離した5-fold grouped cross-validationを使い、次をhard gateとする。
 
-候補選定はperformance IDで分離した5-fold grouped cross-validationを使う。
-drummer、session、kit、beat/fill、tempo、densityの偏りをfold作成時に検査する。
-candidate scoreを見る前に上限付きexcerptまたはpool拡大を固定し、fold別duration、compound、kick-only、hat-onlyの比率と最小件数をmetadataだけで数値gate化する。
+- performance IDを各fold同数にする。
+- beatとfillのfold間ID数差を各1以下にする。
+- durationとcompoundのmax/minを各1.25以下にする。
+- kick-onlyとhat-onlyのmax/minを各1.50以下にする。
+- 各foldへkick-only 150 event以上、hat-only 300 event以上を含める。
+- 各foldへkick-positiveとhat-positive performance IDを各8以上含める。
+- duration、compound、kick-only、hat-onlyの単一ID shareを各foldで25%以下にする。
+
+drummer、session、kit、style、tempo、density、split、既閲覧validation配置は決定的な探索objectiveと監査値にし、追加hard gateにはしない。
+固定prefixは170 ID以下が30分未達、175から285 IDがhat必要総数未達であり、290 IDで全fold gateを初めて証明した。
 別途leave-one-drummer/session-outの診断を出し、特定奏者だけで成立する候補を採用しない。
 
 guardianが隔離事故後のE-GMD test再利用を明示許可した場合に限り、未評価performance IDから次の最低構成でfresh manifestを先に固定する。
@@ -137,14 +145,17 @@ holdout scoreを見た後のthreshold、event contract、除外規則、候補�
 
 E-GMD v1.0.0の公式archive hashをdataset identityとし、選択した配布fileを変換せず保存する。
 canonical ingestは44.1 kHz、mono、integer PCM 16または24 bitをexact f32 scaleでdecodeし、それ以外をfailにする。
-manifest durationとの差は10 ms以下、最初と最後のannotationは音声範囲の前後2 ms以内を要求する。
+AudioIngestは選択renderのmanifest decimal由来sample数と実audio sample_countを別々に型付きで記録、hashし、`core_end <= actual_sample_count`を必須にする。
+両sample数の差は10 ms以下、最初と最後のraw annotationは実音声範囲の前後2 ms以内を要求し、診断用`f64` duration比較をprovenanceの代用にしない。
 
 metadata snapshot、selection algorithm version、固定seed `ATTACK-V2-20260830`をcommitし、version、seed、split、performance IDを長さprefix付きでdomain separationしたSHA-256順に候補とreserveを決める。
+excerpt位置はselection rankと異なるdomainで同じidentityをhashし、位置数へu128 multiply-highで写像する。
 kit renderは順位を独立に持たず、同じperformance IDのfoldを継承する。
 quota充足、fold割当、既知不良trackのreserve置換は同じ決定的scriptだけで行い、人手でeasy trackを選ばない。
 manifest、fold、reserve順をcommitしてから対象audioを開く。
 
 `2MIX`にはCC BY 4.0のSlakh2100-reduxを使い、E-GMD scoreを2MIX判定へ流用しない。
+B-550では2MIXのdata、audio、annotation、候補、holdoutを開いておらず、以下は将来の独立契約である。
 重複MIDIをsplit間から除いた公式redux splitから、train/validationに30秒excerptを20本、testに30秒excerptを20本、同じ固定seedで選ぶ。
 各集合は10分以上とし、piano、bass、guitar、drumsに加えて利用可能なstrings、brass、reedの比率をmanifestへ固定する。
 二人のannotatorがaudioだけを聴き、候補出力とMIDIを見ずにmusically relevant broadband attackを独立に記録する。
@@ -169,10 +180,15 @@ test annotationのSHA-256をcandidate freeze前にcommitし、内容はfresh hol
 旧timing max 30 msは、旧matching幅と同値で独立したgateになっていなかったため、Evaluator v2では診断値として残す。
 
 全体指標はmicro値とperformance単位macro値を同時に出す。
+P/R/F1 macroは正解eventがあるperformance IDだけを対象とし、正解あり予測0を0として残す。
+negative-only performanceはP/R/F1 macroから除外するが、予測0を含む全performance IDをFP/s macroへ入れる。
+kick/hat macroは該当class正解がある全performance IDを対象とし、TP 0をrecall 0にする。
+timingはfold単位のmicro gateとし、match 0を合格にしない。
 `DRUM`のcandidate freezeにはE-GMD、`2MIX`には一般mixのpooled out-of-fold値と全foldが該当する上表のgateを満たすことを要求する。
 kick-onlyとhat-onlyのgateは`DRUM`だけへ適用し、その他のgateは各profileへ独立に適用する。
 一profileの余裕で他profileの未達を相殺しない。
 選定はF1単独最大ではなく、各gateまでの正規化marginのworst-fold値を最大にする。
+全候補を事前に封印したCandidateSetReceiptの完走を確認し、callerが渡すbooleanや無名marginだけでwinnerを選ばない。
 同値ならFP/s、timing P95、worker時間の順に小さい候補を選ぶ。
 
 次の値は原因診断として必ず報告する。
@@ -230,8 +246,10 @@ SuperFlux-style候補の連続値を次で定義する。
 PREとPOSTは独立にpeak pickしない。
 exact content join後にだけ`C[n] = max(S_PRE[n], S_POST[n])`を作り、共通eventを選ぶ。
 
-frame centerは`0, hop, 2*hop, ...`とし、window supportを`[center-floor(N/2), center+ceil(N/2))`、音声外をzero paddingとする。
-offline末尾は最後のsampleを含むcenterまでflushし、event sampleはselected frame center、plateauは最早frame、global offsetとonset backtrackは0へ固定する。
+frame centerは物理sourceのsample 0を起点に`0, hop, 2*hop, ...`とし、window supportを`[center-floor(N/2), center+ceil(N/2))`、物理source外だけをzero paddingとする。
+30秒coreを独立audioとして両端zero paddingせず、実source contextを解析してpredictionとlabelの採点だけをcore半開区間へ限定する。
+offline末尾は物理sourceの最後のsampleを含むcenterまでflushし、event sampleはselected frame center、plateauは最早frame、global offsetとonset backtrackは0へ固定する。
+B-550ではこのcontext guardが未実装であり、formal loadとscoreを`not_ready_context_guard_unimplemented`で停止する。
 
 共通peakは次の四条件をすべて満たすframeとする。
 
@@ -317,6 +335,8 @@ Evaluator v2と候補は、E-GMD評価前に次を通す。
 - ghost noteとmeasurement floorの上下。
 - 増大するroll、減衰するroll、cymbal tail、vibrato、tremolo。
 - 先頭0 ms付近、末尾、短いbuffer、sample rate切替。
+- note/event 0のnegative excerpt、source先頭以外から始まるcore、core境界直前と直後のevent。
+- source-origin frame grid不変、core外prediction非採点、core内prediction採点。
 - PRE/POST identity、固定gain、fixed delay、lookahead compressor、PRE-only、POST-only。
 - 無音、欠損、loop、transport後退、worker panic、restart。
 - 44.1、48、88.2、96、176.4、192 kHzとmono、stereo、dual-mono、MID、SIDE。
@@ -341,17 +361,19 @@ marker latencyは`decision availability - event_sample`、`worker publish - deci
 
 ## 11. 実行順序
 
-1. Evaluator v2、決定的selection、fixture generator、paired transformを実装してunit testを通す。
-2. E-GMD MIDI proxyのblind acoustic auditと一般mixdevelopment annotationを候補出力なしで完了する。
-3. 既閲覧24演奏を診断専用に隔離し、新規E-GMD developmentと一般mixdevelopmentを固定して`DRUM`の旧Mel 32を診断再採点する。
-4. `DRUM`はMel 32 v2と必要なSuperFlux-style、`2MIX`はSuperFlux-styleを独立に評価する。
-5. `DRUM`のkick-onlyまたはhat-only不足が残る場合だけStage 3を一度評価する。
-6. paired実演奏を含む全development foldを通った一方式、一parameter set、一definition hashをprofileごとに残す。
-7. 性能成立性とmarker latencyを先に通し、不可能なparameterを除外する。
-8. 対象profileのfresh holdout manifest、sealed annotation hash、transform hashをcommitする。
-9. 各profileのfresh holdoutと全paired transformをprofileごとに一度だけ評価する。
-10. そのprofileの全gateを通った場合だけ対応するPhase 3 worker profileへ進む。
-11. worker、pairing、identity、性能、macOS、Windowsのgateを同一commitで通した場合だけ公開Goとする。
+1. B-550でDRUMのN=290 selection、23列manifest、fold balance、formal candidate config、formal metric基盤を固定した。
+2. source commitへauthorization、candidate plan、fold balance、全receipt hashを固定し、caller指定hashをtrust rootにしない。
+3. verified MIDI archive memberからsourceとcropped note/event hash、cross-IDとcross-split重複検査を作る。
+4. official audio archiveの同一bytesからsource、core、guard PCMをhash、decodeし、duplicate検査を作る。
+5. E-GMD MIDI proxyのblind acoustic auditと一般mixdevelopment annotationを候補出力なしで完了する。
+6. source sample 0起点のcontext guardを実装し、formal CLIのfilesystem入力前blockerを解除する。
+7. sealed candidate setを全DRUM foldで一度だけ採点し、LODO、LOSO、paired transform、runtimeを含む一方式、一parameter set、一definition hashを残す。
+8. `DRUM`のkick-onlyまたはhat-only不足が残る場合だけStage 3を一度評価する。
+9. 対象profileのfresh holdout manifest、sealed annotation hash、transform hashをcommitする。
+10. 各profileのfresh holdoutと全paired transformをprofileごとに一度だけ評価する。
+11. 対象profileの全gateを通った場合だけPhase 3へ進み、worker、pairing、identity、性能、macOS、Windowsを同一commitで通した場合だけ公開Goとする。
+
+B-550のformal CLIはsource pinが無いため、authorization file、dataset root、manifest、candidate config、result pathへ触れる前に`formal_authorization_not_pinned_in_source_commit`で停止する。
 
 ## 12. 停止条件
 
@@ -384,6 +406,7 @@ Goの可能性はある。
 
 ただし、その外部結果はHyphaのE-GMD split、FP/s、kick、hat、PRE/POST exact pairingを保証しない。
 したがって、見通しは肯定するが、公開Goはfresh holdoutとruntime gateの実測だけで決める。
+B-550のGoはDRUM fold成立性だけであり、candidate freeze、fresh holdout、runtime、公開のGoではない。
 
 ## 14. 参照資料
 

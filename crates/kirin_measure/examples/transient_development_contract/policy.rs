@@ -2,15 +2,21 @@ use std::collections::{BTreeSet, HashSet};
 
 use serde::Serialize;
 
+use crate::contract::TARGET_PERFORMANCE_IDS;
+use crate::drum_excerpt::EXCERPT_SAMPLE_RATE;
+use crate::folds::{FOLD_COUNT, MIN_HAT_EVENTS_PER_FOLD, MIN_KICK_EVENTS_PER_FOLD};
 use crate::metadata::Performance;
 
-pub(crate) const MIN_PERFORMANCE_IDS: usize = 60;
+pub(crate) const MIN_PERFORMANCE_IDS: usize = TARGET_PERFORMANCE_IDS;
 pub(crate) const MIN_DURATION_SECS: f64 = 1_800.0;
+pub(crate) const MIN_DURATION_SAMPLES_44100: u64 = 1_800 * EXCERPT_SAMPLE_RATE as u64;
 pub(crate) const MIN_BEAT_FILL_RATIO: f64 = 0.30;
 pub(crate) const MIN_STYLES: usize = 8;
 pub(crate) const MIN_KITS: usize = 8;
-pub(crate) const MIN_KICK_ONLY_EVENTS: usize = 200;
-pub(crate) const MIN_HAT_ONLY_EVENTS: usize = 200;
+pub(crate) const MIN_KICK_ONLY_EVENTS: usize =
+    MIN_KICK_EVENTS_PER_FOLD as usize * FOLD_COUNT as usize;
+pub(crate) const MIN_HAT_ONLY_EVENTS: usize =
+    MIN_HAT_EVENTS_PER_FOLD as usize * FOLD_COUNT as usize;
 pub(crate) const REQUIRED_OPENED_VALIDATION_IDS: usize = 6;
 
 const STAGE1_WINDOWS: [u16; 2] = [1_024, 2_048];
@@ -37,6 +43,7 @@ pub(crate) struct DevelopmentAssessment {
     pub(crate) status: String,
     pub(crate) winner_allowed: bool,
     pub(crate) unique_performance_ids: usize,
+    pub(crate) unique_duration_samples_44100: u64,
     pub(crate) unique_duration_secs: f64,
     pub(crate) beat_ids: usize,
     pub(crate) fill_ids: usize,
@@ -71,7 +78,12 @@ pub(crate) fn assess_development(
         .map(|item| item.row.id.as_str())
         .collect::<HashSet<_>>();
     let unique_performance_ids = unique_ids.len();
-    let unique_duration_secs = selected.iter().map(|item| item.row.duration).sum::<f64>();
+    let unique_duration_samples_44100 = selected
+        .iter()
+        .map(|item| item.excerpt_end_sample_44100() - item.excerpt_start_sample_44100())
+        .sum::<u64>();
+    let unique_duration_secs =
+        unique_duration_samples_44100 as f64 / f64::from(EXCERPT_SAMPLE_RATE);
     let beat_ids = selected
         .iter()
         .filter(|item| item.row.beat_type == "beat")
@@ -115,11 +127,11 @@ pub(crate) fn assess_development(
         unique_performance_ids,
         MIN_PERFORMANCE_IDS,
     );
-    if unique_duration_secs + 1e-9 < MIN_DURATION_SECS {
+    if unique_duration_samples_44100 < MIN_DURATION_SAMPLES_44100 {
         deficits.push(Deficit {
-            metric: "unique_duration_secs".into(),
-            actual: format!("{unique_duration_secs:.9}"),
-            required: format!(">={MIN_DURATION_SECS:.1}"),
+            metric: "unique_duration_samples_44100".into(),
+            actual: unique_duration_samples_44100.to_string(),
+            required: format!(">={MIN_DURATION_SAMPLES_44100}"),
         });
     }
     deficit_ratio(&mut deficits, "beat_ratio", beat_ratio);
@@ -177,6 +189,7 @@ pub(crate) fn assess_development(
         status: status.into(),
         winner_allowed: false,
         unique_performance_ids,
+        unique_duration_samples_44100,
         unique_duration_secs,
         beat_ids,
         fill_ids,
@@ -197,7 +210,7 @@ pub(crate) fn candidate_evaluation_gate(assessment: &DevelopmentAssessment) -> R
     if !assessment.ready() {
         return Err("insufficient_development_data: winner selection forbidden".into());
     }
-    Err("candidate evaluation forbidden; verified typed prerequisite receipt chain is not implemented in B-549".into())
+    Err("candidate evaluation forbidden; sealed CandidateSetReceipt and evaluator-owned summary are not implemented in B-550".into())
 }
 
 pub(crate) fn stage1_grid_count() -> usize {
@@ -227,85 +240,6 @@ pub(crate) fn mel32_stage2_grid_count() -> usize {
         * STAGE2_PRE_AVG.len()
         * MEL_DELTAS_MILLI.len()
         * MEL_FLOORS_MILLI.len()
-}
-
-#[derive(Clone, Debug)]
-pub(crate) struct CandidateGateSummary {
-    pub(crate) candidate_id: String,
-    pub(crate) evaluable: bool,
-    pub(crate) normalized_gate_margins: Vec<f64>,
-    pub(crate) false_positives_per_second: f64,
-    pub(crate) timing_p95_ms: f64,
-    pub(crate) worker_micros_per_frame: Option<f64>,
-}
-
-pub(crate) fn select_gate_margin_winner(
-    candidates: &[CandidateGateSummary],
-) -> Result<String, String> {
-    let mut eligible = candidates
-        .iter()
-        .filter_map(|candidate| {
-            let worst = candidate
-                .normalized_gate_margins
-                .iter()
-                .copied()
-                .reduce(f64::min)?;
-            let finite = worst.is_finite()
-                && candidate.false_positives_per_second.is_finite()
-                && candidate.timing_p95_ms.is_finite();
-            (candidate.evaluable && finite && worst >= 0.0).then_some((candidate, worst))
-        })
-        .collect::<Vec<_>>();
-    if eligible.is_empty() {
-        return Err("no_eligible_candidate: winner selection forbidden".to_string());
-    }
-    eligible.sort_by(|(left, left_worst), (right, right_worst)| {
-        right_worst
-            .total_cmp(left_worst)
-            .then_with(|| {
-                left.false_positives_per_second
-                    .total_cmp(&right.false_positives_per_second)
-            })
-            .then_with(|| left.timing_p95_ms.total_cmp(&right.timing_p95_ms))
-    });
-    let (first, first_worst) = eligible[0];
-    let tied = eligible
-        .iter()
-        .take_while(|(candidate, worst)| {
-            worst.to_bits() == first_worst.to_bits()
-                && candidate.false_positives_per_second.to_bits()
-                    == first.false_positives_per_second.to_bits()
-                && candidate.timing_p95_ms.to_bits() == first.timing_p95_ms.to_bits()
-        })
-        .map(|(candidate, _)| *candidate)
-        .collect::<Vec<_>>();
-    if tied.len() > 1 {
-        if tied
-            .iter()
-            .any(|candidate| candidate.worker_micros_per_frame.is_none())
-        {
-            return Err("runtime_tie_break_missing: winner selection forbidden".to_string());
-        }
-        if tied.iter().any(|candidate| {
-            !candidate
-                .worker_micros_per_frame
-                .is_some_and(f64::is_finite)
-        }) {
-            return Err("runtime_tie_break_invalid: winner selection forbidden".to_string());
-        }
-        return Ok(tied
-            .into_iter()
-            .min_by(|left, right| {
-                left.worker_micros_per_frame
-                    .unwrap()
-                    .total_cmp(&right.worker_micros_per_frame.unwrap())
-                    .then_with(|| left.candidate_id.cmp(&right.candidate_id))
-            })
-            .unwrap()
-            .candidate_id
-            .clone());
-    }
-    Ok(first.candidate_id.clone())
 }
 
 fn deficit_usize(deficits: &mut Vec<Deficit>, metric: &str, actual: usize, required: usize) {
@@ -351,11 +285,12 @@ mod tests {
     }
 
     #[test]
-    fn midi_quota_readiness_cannot_bypass_the_typed_receipt_chain() {
+    fn midi_quota_readiness_cannot_construct_a_winner_summary() {
         let assessment = DevelopmentAssessment {
             status: "development_midi_quotas_ready".into(),
             winner_allowed: false,
-            unique_performance_ids: 60,
+            unique_performance_ids: 290,
+            unique_duration_samples_44100: MIN_DURATION_SAMPLES_44100,
             unique_duration_secs: 1_800.0,
             beat_ids: 30,
             fill_ids: 30,
@@ -365,52 +300,13 @@ mod tests {
             kits: 8,
             drummers: 9,
             required_drummers: 9,
-            kick_only_events: 200,
-            hat_only_events: 200,
+            kick_only_events: MIN_KICK_ONLY_EVENTS,
+            hat_only_events: MIN_HAT_ONLY_EVENTS,
             forced_opened_validation_ids: 6,
             deficits: Vec::new(),
         };
         assert!(candidate_evaluation_gate(&assessment)
             .unwrap_err()
-            .contains("typed prerequisite receipt chain"));
-    }
-
-    #[test]
-    fn zero_margin_is_eligible_and_nonevaluable_candidate_is_ignored() {
-        let candidates = [
-            candidate("target", true, 0.0, 1.0, 15.0, Some(2.0)),
-            candidate("not-evaluable", false, 10.0, 0.0, 0.0, Some(0.0)),
-            candidate("below", true, -0.001, 0.0, 0.0, Some(0.0)),
-        ];
-        assert_eq!(select_gate_margin_winner(&candidates).unwrap(), "target");
-    }
-
-    #[test]
-    fn missing_runtime_for_exact_tie_forbids_winner() {
-        let candidates = [
-            candidate("a", true, 0.1, 0.5, 5.0, None),
-            candidate("b", true, 0.1, 0.5, 5.0, Some(1.0)),
-        ];
-        assert!(select_gate_margin_winner(&candidates)
-            .unwrap_err()
-            .contains("runtime_tie_break_missing"));
-    }
-
-    fn candidate(
-        id: &str,
-        evaluable: bool,
-        margin: f64,
-        fp: f64,
-        timing: f64,
-        runtime: Option<f64>,
-    ) -> CandidateGateSummary {
-        CandidateGateSummary {
-            candidate_id: id.into(),
-            evaluable,
-            normalized_gate_margins: vec![margin, margin + 1.0],
-            false_positives_per_second: fp,
-            timing_p95_ms: timing,
-            worker_micros_per_frame: runtime,
-        }
+            .contains("sealed CandidateSetReceipt"));
     }
 }

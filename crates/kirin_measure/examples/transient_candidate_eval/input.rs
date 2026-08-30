@@ -4,7 +4,10 @@ use std::path::{Component, Path, PathBuf};
 
 use sha2::{Digest, Sha256};
 
-use crate::drum_midi::parse_drum_midi;
+use crate::drum_midi::{parse_drum_midi, ParsedDrumMidi};
+#[allow(dead_code)] // Compiled scaffold; the source-pin/context guard keeps formal mode closed.
+#[path = "formal_manifest.rs"]
+mod formal_manifest;
 
 const MANIFEST_HEADER: &str = "drummer,session,id,style,bpm,beat_type,time_signature,duration,split,midi_filename,audio_filename,kit_name";
 const HAT_NOTES: [u8; 5] = [22, 26, 42, 44, 46];
@@ -30,10 +33,28 @@ pub(crate) struct Selection {
     pub(crate) midi: PathBuf,
     pub(crate) audio: PathBuf,
     pub(crate) kit_name: String,
+    pub(crate) formal: Option<FormalSelectionMetadata>,
+}
+
+#[derive(Clone, Debug)]
+#[allow(dead_code)] // Retained formal provenance for the future context-guarded loader.
+pub(crate) struct FormalSelectionMetadata {
+    pub(crate) selection_rank: u32,
+    pub(crate) selection_key: String,
+    pub(crate) fold: u8,
+    pub(crate) expected_midi_sha256: String,
+    pub(crate) declared_excerpt_raw_notes: usize,
+    pub(crate) declared_excerpt_compound_events: usize,
+    pub(crate) declared_excerpt_kick_only_events: usize,
+    pub(crate) declared_excerpt_hat_only_events: usize,
+    pub(crate) declared_excerpt_density_events_per_second: f64,
+    pub(crate) excerpt_start_sample_44100: u64,
+    pub(crate) excerpt_end_sample_44100: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct MidiNote {
+    pub(crate) time_micros: u64,
     pub(crate) time_secs: f64,
     pub(crate) pitch: u8,
     pub(crate) velocity: u8,
@@ -138,6 +159,7 @@ pub(crate) fn read_selection(
             midi,
             audio,
             kit_name: fields[11].clone(),
+            formal: None,
         });
     }
     if entries.is_empty() {
@@ -217,6 +239,10 @@ fn parse_csv_line(line: &str) -> Result<Vec<String>, String> {
 
 pub(crate) fn read_mono_pcm_wav(path: &Path) -> Result<MonoWav, String> {
     let bytes = fs::read(path).map_err(|error| error.to_string())?;
+    decode_mono_pcm_wav(path, &bytes)
+}
+
+pub(crate) fn decode_mono_pcm_wav(path: &Path, bytes: &[u8]) -> Result<MonoWav, String> {
     if bytes.get(..4) != Some(b"RIFF") || bytes.get(8..12) != Some(b"WAVE") {
         return Err(format!("not a RIFF WAVE: {}", path.display()));
     }
@@ -301,8 +327,16 @@ pub(crate) fn read_mono_pcm_wav(path: &Path) -> Result<MonoWav, String> {
 
 pub(crate) fn read_midi_labels(path: &Path) -> Result<MidiLabels, String> {
     let bytes = fs::read(path).map_err(|error| error.to_string())?;
-    let parsed = parse_drum_midi(&bytes)
+    decode_midi_labels(path, &bytes)
+}
+
+pub(crate) fn decode_midi_labels(path: &Path, bytes: &[u8]) -> Result<MidiLabels, String> {
+    let parsed = parse_drum_midi(bytes)
         .map_err(|error| format!("invalid MIDI {}: {error}", path.display()))?;
+    labels_from_parsed(&parsed)
+}
+
+fn labels_from_parsed(parsed: &ParsedDrumMidi) -> Result<MidiLabels, String> {
     let raw_note_count = parsed.raw_notes;
     let events = parsed
         .events
@@ -311,6 +345,7 @@ pub(crate) fn read_midi_labels(path: &Path) -> Result<MidiLabels, String> {
             let notes = parsed.notes[event.note_start..event.note_end]
                 .iter()
                 .map(|note| MidiNote {
+                    time_micros: note.time_micros,
                     time_secs: note.time_micros as f64 / 1_000_000.0,
                     pitch: note.pitch,
                     velocity: note.velocity,

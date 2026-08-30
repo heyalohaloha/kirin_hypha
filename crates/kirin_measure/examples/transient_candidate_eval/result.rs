@@ -71,7 +71,7 @@ struct CandidateResult<'a> {
     id: &'a str,
     raw_config_sha256: &'a str,
     semantic_config_sha256: &'a str,
-    analyzer: &'a super::contract::AnalyzerConfig,
+    analyzer: &'a super::contract::DiagnosticAnalyzerConfig,
     peak_picker: super::contract::PeakRule,
     analyzer_layout_hashes: BTreeMap<String, String>,
     measurement_definition_sha256: &'a str,
@@ -187,7 +187,8 @@ pub(crate) fn write_result(
     if manifest_after_sha256 != manifest.sha256 {
         return Err("manifest changed during evaluation".to_string());
     }
-    let kind = candidate.config.kind()?;
+    let kind = candidate.config.diagnostic_kind()?;
+    let (analyzer, peak_picker) = candidate.config.diagnostic_parts()?;
     let layout_hash = TransientCandidateAnalyzer::new(44_100, kind)
         .map_err(str::to_string)?
         .layout()
@@ -238,11 +239,11 @@ pub(crate) fn write_result(
         },
         manifest: manifest_result(cli, manifest, &manifest_after_sha256),
         candidate: CandidateResult {
-            id: &candidate.config.candidate_id,
+            id: candidate.config.candidate_id(),
             raw_config_sha256: &candidate.raw_sha256,
             semantic_config_sha256: &candidate.semantic_sha256,
-            analyzer: &candidate.config.analyzer,
-            peak_picker: candidate.config.peak_picker,
+            analyzer,
+            peak_picker,
             analyzer_layout_hashes: layout_hashes,
             measurement_definition_sha256: &definition_sha256,
         },

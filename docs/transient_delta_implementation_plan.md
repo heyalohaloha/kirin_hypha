@@ -1,13 +1,13 @@
 # Kirin Hypha POST Transient Delta 実装計画
 
 **日付**：2026-08-30
-**状態**：DRUM研究基盤完了。公開ATTACKはOFF、formal候補選定とPhase 3は評価gate待ち
-**実装ラベル**：B-549
+**状態**：DRUM N=290 fold成立。formal evaluatorはfail-closed、公開ATTACKはOFF
+**実装ラベル**：B-550
 **画面名**：`ATTACK`（仮称）
 
 Phase 2-Rの正本は`docs/transient_delta_phase2_recovery_plan_20260830.md`とする。
 B-546候補報告は診断履歴として残すが、評価契約の監査結果により公開Goまたは恒久No-Goの根拠には再利用しない。
-B-549の研究基盤とblockerは`docs/transient_delta_phase2_research_foundation_report_20260830.md`に記録し、候補固定とfresh holdoutが全gateを通るまでworker以降へ進まない。
+B-550の現行gateとblockerは`docs/transient_delta_phase2_formal_development_gate_report_20260830.md`に記録し、候補固定とfresh holdoutが全gateを通るまでworker以降へ進まない。
 
 ## 1. 結論
 
@@ -331,9 +331,9 @@ mono、stereo、dual-mono、逆相 stereo、MID、SIDE を検証する。
 
 ### 15.5 実演奏データ
 
-blind acoustic auditを通したE-GMDとSlakh2100-reduxを固定developmentとfresh holdoutへ使う。
-Evaluator v2の30 ms compound event、±25 ms最大一対一matching、決定的manifestを正本とする。
-実演奏へgain、EQ、compressor、lookahead limiterを固定適用し、`max(PRE, POST)`も同じgateで測る。
+B-550でDRUMは290 ID、58 ID×5 fold、23列manifest、44.1 kHz整数sample境界、最大30秒の候補非依存hash-windowを固定し、negative excerptも保持する。
+Evaluator v2の30 ms compound event、±25 ms最大一対一matchingを正本とし、物理source sample 0起点の実contextを解析してcoreだけを採点する。
+2MIXのSlakh2100-redux、blind annotation、候補、holdoutは将来の独立契約であり、B-550では開いていない。
 E-GMD、Slakh、その他配布条件を確認していないaudioをrepositoryへcommitしない。
 CIには再配布可能な生成fixtureだけを入れる。
 `transient_delta_phase2_recovery_plan_20260830.md`のgrouped development、性能成立性、二つのfresh holdoutで公開可否を決める。
@@ -346,7 +346,7 @@ CIには再配布可能な生成fixtureだけを入れる。
 - exact content mapping の欠落、不一致、変更と、ODF 相関だけでは delta を許可しない test。
 - transport 後退、loop、stop、silence、短い gap、長い gap の state test。
 - PRE worker、POST worker、exchange の個別 panic、restart、実 overflow と復帰の test。
-- payload corruption、schema mismatch、non-finite、oversize の negative test。
+- payload corruption、schema mismatch、non-finite、oversize、formal source-pin、candidate-plan欠落、context-guard未実装の negative test。
 - 二枠 ownership と全 page transition の exhaustive test。
 - 100%、125%、150%、200% の render、contrast、tooltip containment test。
 - Windows の ASCII copy、文字化け、stem 消失、DPI scale の render test。
@@ -372,8 +372,8 @@ ATTACK の追加で変化してはならない file と symbol を列挙する�
 
 ### Phase 2: Offline 候補評価
 
-B-549で整数時刻の30 ms compound event、厳密±25 ms最大一対一matching、provisional selectionとgrouped fold基盤を実装したが、fold balanceとformal evaluator接続は未認証である。
-DRUMは新規developmentでMel 32 v2、SuperFlux-style、必要時だけ限定multibandを比較し、既閲覧testは診断に隔離する。2MIXは独立したblind一般mixでSuperFlux-styleを評価する。
+B-550で整数時刻の30 ms compound event、厳密±25 ms最大一対一matching、N=290 fold gate、23列formal manifest、SuperFlux候補config、macroとworst-fold集計を実装した。
+formal authorizationのsource pin、audio provenance、blind audit、context guard、sealed candidate setが未成立なのでscoreとwinnerは存在しない。2MIXは設計だけでdata未着手である。
 窓、hop、bank、lag、floor、共通peak、固定scale、性能成立性、gap期限、offline倍率をfresh holdout前に決定する。
 この Phase が終わるまで公開 UI の scale と Onset 単位を固定しない。
 

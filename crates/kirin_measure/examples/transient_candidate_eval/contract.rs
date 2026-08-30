@@ -3,11 +3,27 @@ use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use kirin_measure::TransientOdfKind;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use sha2::{Digest, Sha256};
 
-pub(crate) const CANDIDATE_SCHEMA: &str = "kirin-hypha-attack-candidate-config-v1";
+#[allow(dead_code)] // Formal realizers compile now but cannot run before prerequisite readiness.
+#[path = "candidate.rs"]
+mod candidate;
+#[allow(dead_code)] // Envelope parsing is tested but source pinning blocks it in production.
+#[path = "formal_contract.rs"]
+mod formal_contract;
+
+#[cfg(test)]
+pub(crate) use candidate::FormalAnalyzerConfig;
+pub(crate) use candidate::{
+    CandidateArtifact, CandidateConfig, DiagnosticAnalyzerConfig, FormalAnalyzer, PeakRule,
+};
+#[cfg(test)]
+pub(crate) use formal_contract::synthetic_formal_authorization;
+pub(crate) use formal_contract::{
+    verify_formal_prerequisites, FormalArguments, FormalAuthorization,
+};
+
 const DATASET_ID: &str = "E-GMD";
 const DATASET_VERSION: &str = "1.0.0";
 const DATASET_ARCHIVE_SHA256: &str =
@@ -21,139 +37,7 @@ const OPENED_MANIFEST_SHA256: [&str; 2] = [
 #[serde(rename_all = "snake_case")]
 pub(crate) enum Purpose {
     OpenedDiagnostic,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize)]
-#[serde(tag = "mode", rename_all = "snake_case", deny_unknown_fields)]
-pub(crate) enum PeakRule {
-    LegacyAbsolute {
-        threshold: f32,
-        radius_hops: usize,
-        refractory_ms: f64,
-    },
-    LocalMean {
-        delta: f32,
-        absolute_floor: f32,
-        pre_max_hops: usize,
-        post_max_hops: usize,
-        pre_avg_hops: usize,
-        post_avg_hops: usize,
-        refractory_ms: f64,
-    },
-}
-
-impl PeakRule {
-    pub(crate) fn refractory_samples(self, sample_rate: u32) -> i64 {
-        match self {
-            Self::LegacyAbsolute { refractory_ms, .. } | Self::LocalMean { refractory_ms, .. } => {
-                (refractory_ms * f64::from(sample_rate) / 1_000.0).round() as i64
-            }
-        }
-    }
-
-    fn validate(self) -> Result<(), String> {
-        match self {
-            Self::LegacyAbsolute {
-                threshold,
-                radius_hops,
-                refractory_ms,
-            } => {
-                if !threshold.is_finite()
-                    || threshold < 0.0
-                    || radius_hops == 0
-                    || !valid_positive(refractory_ms)
-                {
-                    return Err("invalid legacy peak rule".to_string());
-                }
-            }
-            Self::LocalMean {
-                delta,
-                absolute_floor,
-                pre_max_hops,
-                post_max_hops: _,
-                pre_avg_hops,
-                post_avg_hops: _,
-                refractory_ms,
-            } => {
-                if !delta.is_finite()
-                    || !absolute_floor.is_finite()
-                    || delta < 0.0
-                    || absolute_floor < 0.0
-                    || pre_max_hops == 0
-                    || pre_avg_hops == 0
-                    || (refractory_ms - 30.0).abs() > f64::EPSILON
-                {
-                    return Err("invalid v2 local-mean peak rule".to_string());
-                }
-            }
-        }
-        Ok(())
-    }
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct AnalyzerConfig {
-    pub(crate) odf_kind: String,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct CandidateConfig {
-    pub(crate) schema: String,
-    pub(crate) candidate_id: String,
-    pub(crate) profile: String,
-    pub(crate) eligibility: String,
-    pub(crate) analyzer: AnalyzerConfig,
-    pub(crate) peak_picker: PeakRule,
-}
-
-impl CandidateConfig {
-    pub(crate) fn read(path: &Path) -> Result<CandidateArtifact, String> {
-        let raw = fs::read(path)
-            .map_err(|error| format!("cannot read candidate config {}: {error}", path.display()))?;
-        let config: Self = serde_json::from_slice(&raw)
-            .map_err(|error| format!("invalid candidate config JSON: {error}"))?;
-        config.validate()?;
-        let semantic = serde_json::to_vec(&config)
-            .map_err(|error| format!("cannot canonicalize candidate config: {error}"))?;
-        Ok(CandidateArtifact {
-            config,
-            raw_sha256: sha256_bytes(&raw),
-            semantic_sha256: sha256_bytes(&semantic),
-        })
-    }
-
-    pub(crate) fn kind(&self) -> Result<TransientOdfKind, String> {
-        match self.analyzer.odf_kind.as_str() {
-            "mel32" => Ok(TransientOdfKind::Mel32),
-            "mel40" => Ok(TransientOdfKind::Mel40),
-            "complex" => Ok(TransientOdfKind::Complex),
-            "hybrid" => Ok(TransientOdfKind::Hybrid),
-            _ => Err("unsupported candidate ODF kind".to_string()),
-        }
-    }
-
-    fn validate(&self) -> Result<(), String> {
-        if self.schema != CANDIDATE_SCHEMA {
-            return Err("unexpected candidate config schema".to_string());
-        }
-        if self.candidate_id.is_empty() || self.profile != "DRUM" {
-            return Err("candidate ID/profile is invalid".to_string());
-        }
-        if self.eligibility != "diagnostic_only" {
-            return Err("B-548 accepts diagnostic_only candidates".to_string());
-        }
-        self.kind()?;
-        self.peak_picker.validate()
-    }
-}
-
-#[derive(Debug)]
-pub(crate) struct CandidateArtifact {
-    pub(crate) config: CandidateConfig,
-    pub(crate) raw_sha256: String,
-    pub(crate) semantic_sha256: String,
+    FormalDevelopment,
 }
 
 #[derive(Debug)]
@@ -167,6 +51,8 @@ pub(crate) struct Cli {
     pub(crate) dataset_version: String,
     pub(crate) dataset_archive_sha256: String,
     pub(crate) git_commit: String,
+    #[allow(dead_code)] // Deliberately unread until a source-pinned formal trust root exists.
+    pub(crate) formal: Option<FormalArguments>,
 }
 
 impl Cli {
@@ -193,12 +79,19 @@ impl Cli {
             }
         }
 
-        let purpose = take_string(&mut values, "--purpose")?;
-        if purpose != "opened-diagnostic" {
-            return Err("B-548 permits only --purpose opened-diagnostic".to_string());
-        }
+        let purpose = match take_string(&mut values, "--purpose")?.as_str() {
+            "opened-diagnostic" => Purpose::OpenedDiagnostic,
+            "formal-development" => Purpose::FormalDevelopment,
+            _ => {
+                return Err(
+                    "only --purpose opened-diagnostic|formal-development is permitted".to_string(),
+                )
+            }
+        };
         if take_string(&mut values, "--profile")? != "DRUM" {
-            return Err("B-548 permits only --profile DRUM".to_string());
+            return Err(
+                "ATTACK evaluator permits only --profile DRUM; 2MIX is isolated".to_string(),
+            );
         }
         let git_commit = take_string(&mut values, "--git-commit")?;
         if !is_git_commit(&git_commit) {
@@ -213,16 +106,25 @@ impl Cli {
         {
             return Err("opened diagnostic requires pinned E-GMD v1.0.0 identity".to_string());
         }
+        let formal = match purpose {
+            Purpose::OpenedDiagnostic => None,
+            Purpose::FormalDevelopment => Some(FormalArguments {
+                folds: take_path(&mut values, "--folds")?,
+                authorization: take_path(&mut values, "--formal-authorization")?,
+                authorization_sha256: take_nonempty(&mut values, "--formal-authorization-sha256")?,
+            }),
+        };
         let cli = Self {
             root: take_path(&mut values, "--root")?,
             manifest: take_path(&mut values, "--manifest")?,
             candidate_config: take_path(&mut values, "--candidate-config")?,
             result: take_path(&mut values, "--result")?,
-            purpose: Purpose::OpenedDiagnostic,
+            purpose,
             dataset_id,
             dataset_version,
             dataset_archive_sha256,
             git_commit,
+            formal,
         };
         if let Some(flag) = values.keys().next() {
             return Err(format!("unknown CLI flag: {flag}"));
@@ -285,10 +187,6 @@ fn is_git_commit(value: &str) -> bool {
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
-fn valid_positive(value: f64) -> bool {
-    value.is_finite() && value > 0.0
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -326,6 +224,31 @@ mod tests {
     fn opened_diagnostic_contract_is_explicit() {
         let cli = Cli::parse(base()).unwrap();
         assert_eq!(cli.purpose, Purpose::OpenedDiagnostic);
+        assert!(cli.formal.is_none());
+    }
+
+    #[test]
+    fn formal_cli_has_separate_required_arguments_but_no_2mix_route() {
+        let mut formal = base();
+        replace(&mut formal, "--purpose", "formal-development");
+        formal.extend([
+            OsString::from("--folds"),
+            OsString::from("/contracts/folds.csv"),
+            OsString::from("--formal-authorization"),
+            OsString::from("/contracts/authorization.json"),
+            OsString::from("--formal-authorization-sha256"),
+            OsString::from("11".repeat(32)),
+        ]);
+        let cli = Cli::parse(formal).unwrap();
+        assert_eq!(cli.purpose, Purpose::FormalDevelopment);
+        assert_eq!(
+            cli.formal.unwrap().folds,
+            PathBuf::from("/contracts/folds.csv")
+        );
+
+        let mut missing = base();
+        replace(&mut missing, "--purpose", "formal-development");
+        assert!(Cli::parse(missing).unwrap_err().contains("--folds"));
     }
 
     #[test]
@@ -418,6 +341,69 @@ mod tests {
         let second = CandidateConfig::read(&second).unwrap();
         assert_ne!(first.raw_sha256, second.raw_sha256);
         assert_eq!(first.semantic_sha256, second.semantic_sha256);
+        assert_eq!(serde_json::to_string(&first.config).unwrap(), compact);
+    }
+
+    #[test]
+    fn formal_candidate_schemas_accept_only_integer_preregistered_grids() {
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("formal.json");
+        let mel32 = r#"{
+          "schema":"kirin-hypha-attack-drum-formal-candidate-config-v1",
+          "candidate_id":"mel32-v2-grid-001",
+          "profile":"DRUM",
+          "eligibility":"formal_development_candidate",
+          "analyzer":{"front_end":"mel32_v2"},
+          "peak_picker":{"mode":"local_mean","delta_micro_units":250000,"absolute_floor_micro_units":0,"pre_max_hops":3,"post_max_hops":0,"pre_avg_hops":12,"post_avg_hops":0,"refractory_micros":30000}
+        }"#;
+        fs::write(&path, mel32).unwrap();
+        let artifact = CandidateConfig::read(&path).unwrap();
+        assert!(matches!(
+            artifact.config.formal_parts().unwrap().0,
+            FormalAnalyzerConfig::Mel32V2
+        ));
+        fs::write(&path, mel32.replace("250000", "249999")).unwrap();
+        assert!(CandidateConfig::read(&path)
+            .unwrap_err()
+            .contains("integer grid"));
+        fs::write(&path, mel32.replace("250000", "0.25")).unwrap();
+        assert!(CandidateConfig::read(&path).is_err());
+        fs::write(
+            &path,
+            mel32.replace("formal_development_candidate", "diagnostic_only"),
+        )
+        .unwrap();
+        assert!(CandidateConfig::read(&path).is_err());
+    }
+
+    #[test]
+    fn formal_superflux_window_fixes_lag_and_mono_lr_topology() {
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("superflux.json");
+        let config = |window| {
+            format!(
+                r#"{{
+          "schema":"kirin-hypha-attack-drum-formal-candidate-config-v1",
+          "candidate_id":"superflux-{window}",
+          "profile":"DRUM",
+          "eligibility":"formal_development_candidate",
+          "analyzer":{{"front_end":"fixed_superflux","reference_window_samples":{window},"bands_per_octave":24,"maximum_filter_radius":1,"reference_dbfs":-70}},
+          "peak_picker":{{"mode":"local_mean","delta_micro_units":6250,"absolute_floor_micro_units":0,"pre_max_hops":6,"post_max_hops":0,"pre_avg_hops":19,"post_avg_hops":0,"refractory_micros":30000}}
+        }}"#
+            )
+        };
+        for (window, expected_lag) in [(1_024, 1), (2_048, 2)] {
+            fs::write(&path, config(window)).unwrap();
+            let artifact = CandidateConfig::read(&path).unwrap();
+            let (_, analyzer, _) = artifact.config.formal_parts().unwrap();
+            let FormalAnalyzer::FixedSuperflux(config) = analyzer else {
+                panic!("expected fixed SuperFlux");
+            };
+            assert_eq!(config.channel_count, 1);
+            assert_eq!(config.channel_mode, kirin_measure::SuperFluxChannelMode::Lr);
+            let layout = kirin_measure::SuperFluxLayout::for_rate(44_100, config).unwrap();
+            assert_eq!(layout.spectral_lag_frames, expected_lag);
+        }
     }
 
     fn replace(arguments: &mut [OsString], flag: &str, replacement: &str) {

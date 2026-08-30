@@ -1,12 +1,14 @@
 use super::*;
 use crate::contract::PeakRule;
-use crate::input::MidiNote;
+use crate::input::{FormalSelectionMetadata, MidiNote, Selection};
+use std::path::{Path, PathBuf};
 
 fn label(time_micros: u64, pitches: &[u8]) -> LabelEvent {
     let time_secs = time_micros as f64 / 1_000_000.0;
     let notes = pitches
         .iter()
         .map(|pitch| MidiNote {
+            time_micros,
             time_secs,
             pitch: *pitch,
             velocity: 100,
@@ -135,6 +137,39 @@ fn local_mean_uses_fixed_zero_padding_at_trace_edges() {
         refractory_ms: 30.0,
     };
     assert_eq!(pick_peaks(&frames, 1_000, rule), [0]);
+}
+
+#[test]
+fn formal_load_stops_before_resolving_or_reading_track_paths() {
+    let selection = Selection {
+        drummer: "synthetic".to_string(),
+        session: "synthetic".to_string(),
+        id: "synthetic".to_string(),
+        style: "synthetic".to_string(),
+        bpm: 120.0,
+        beat_type: "beat".to_string(),
+        time_signature: "4-4".to_string(),
+        declared_duration: 30.0,
+        split: "train".to_string(),
+        midi: PathBuf::from("/synthetic/must-not-read.mid"),
+        audio: PathBuf::from("/synthetic/must-not-read.wav"),
+        kit_name: "synthetic".to_string(),
+        formal: Some(FormalSelectionMetadata {
+            selection_rank: 1,
+            selection_key: "11".repeat(32),
+            fold: 0,
+            expected_midi_sha256: "22".repeat(32),
+            declared_excerpt_raw_notes: 0,
+            declared_excerpt_compound_events: 0,
+            declared_excerpt_kick_only_events: 0,
+            declared_excerpt_hat_only_events: 0,
+            declared_excerpt_density_events_per_second: 0.0,
+            excerpt_start_sample_44100: 0,
+            excerpt_end_sample_44100: 1_323_000,
+        }),
+    };
+    let error = load_track(Path::new("/synthetic/must-not-resolve"), selection).unwrap_err();
+    assert!(error.contains("not_ready_context_guard_unimplemented"));
 }
 
 fn assert_eof_impulse_flush(sample_rate: u32, expected_window: usize) {
