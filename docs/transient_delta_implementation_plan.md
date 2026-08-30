@@ -1,8 +1,8 @@
 # Kirin Hypha POST Transient Delta 実装計画
 
 **日付**：2026-08-30
-**状態**：DRUMのSuperFluxをHypha VST音声入口へdefault-OFFで接続し、POST内部C ABIからraw ODFを取得可能。公開ATTACKはOFF
-**実装ラベル**：B-567
+**状態**：DRUMのSuperFluxをHypha VST音声入口へ接続し、固定common peak判定済みATTACK eventをPOST内部C ABIから取得可能。公開ATTACKはOFF
+**実装ラベル**：B-568
 **画面名**：`ATTACK`（仮称）
 
 Phase 2-Rの正本は`docs/transient_delta_phase2_recovery_plan_20260830.md`とする。
@@ -386,8 +386,8 @@ B-567でPOST内部検証用の連続exact raw ODF、固定history、statsをC AB
 
 ### Phase 4: PRE/POST alignment と共通判定
 
-exact content mapping、common event decision、PRE-only、POST-only、fail-closed を実装する。
-dense rhythm と lookahead を通過するまで UI へ public delta を出さない。
+B-568でPOST単独raw ODFへB-553固定local-mean、直前maximum、30 ms refractoryを因果的に適用した。
+PRE join、exact content mapping、PRE-only、dense rhythmを通過するまで UI へ public delta を出さない。
 
 ### Phase 5: Versioned transport と FFI
 

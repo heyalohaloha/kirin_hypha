@@ -265,6 +265,17 @@ OFF時はAudio Threadでatomic enabled確認後に即returnし、workerを起動
 既存`AnalysisViewMode`、DAW state、JUCE navigation、PRE request、公開UIは変更していない。
 次はこのraw ODFへ固定common peak decisionを実装し、DRUMのATTACK eventを内部表示できる段階へ進む。
 
+### B-568 固定ATTACK event判定
+
+B-553の最良pilotと同じdelta 0.00625、absolute floor 0、pre-max 3 hop、pre-average 24 hop、future lookahead 0、refractory 30 msをproduction workerへ固定した。
+判定は過去ODFと現在frameだけを使い、session normalization、素材依存threshold、future lookaheadを加えない。
+30 ms内に複数候補がある場合は最大値を保持し、確定前の候補は公開せず、refractory経過後にevent時刻とdecision時刻を分けて記録する。
+
+generation、sample rate、channel、SuperFlux definitionが変わると未確定候補と履歴を破棄し、異なるtransport区間を結合しない。
+POST内部C ABIから最新64件を古い順に取得できる。
+48 kHz stereoのshipping VST clock/audio transactionへimpulseを投入し、raw ODFに続いて確定ATTACK eventを回収した。
+公開UIとPRE/POST差分にはまだ接続していない。
+
 ## 7. 再現性
 
 最良pilotは二回実行でbyte単位に一致した。
@@ -280,7 +291,7 @@ DRUM ATTACKは完成可能性がある。
 主要比率がdevelopmentで同時通過したため、方式選定の中心課題は解消した。
 
 一方、kick-onlyとtiming、worst-foldが未達なので、完成したとは扱わない。
-内部workerは実VST音声入口と検証C ABIまで接続したが、検出器の採用条件を緩めず、公開ATTACK route、PRE request、UIはOFFを維持する。
+内部workerは実VST音声入口、固定event判定、検証C ABIまで接続したが、検出器の採用条件を緩めず、公開ATTACK route、PRE request、UIはOFFを維持する。
 
 2MIXは別profileとして未着手であり、この結果を転用しない。
 

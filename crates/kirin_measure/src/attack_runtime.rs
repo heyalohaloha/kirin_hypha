@@ -15,12 +15,17 @@ use crate::{SuperFluxChannelMode, SuperFluxConfig, SuperFluxLayout};
 
 #[path = "attack_runtime_assembler.rs"]
 mod assembler;
+#[path = "attack_peak.rs"]
+mod peak;
 #[path = "attack_runtime_state.rs"]
 mod state;
 #[path = "attack_runtime_worker.rs"]
 mod worker;
 
-pub use state::{AttackHistory, AttackOdfFrame, AttackRuntimeStats, ATTACK_ODF_HISTORY_CAPACITY};
+pub use state::{
+    AttackEvent, AttackHistory, AttackOdfFrame, AttackRuntimeStats, ATTACK_EVENT_HISTORY_CAPACITY,
+    ATTACK_ODF_HISTORY_CAPACITY,
+};
 
 const ATTACK_BLOCK_RING_CAPACITY: usize = 128;
 const ATTACK_INGRESS_SECONDS: usize = 2;

@@ -6,11 +6,14 @@
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
-use kirin_measure::{AttackHistory, AttackOdfFrame, AttackRuntimeStats, PluginDataRole};
+use kirin_measure::{
+    AttackEvent, AttackHistory, AttackOdfFrame, AttackRuntimeStats, PluginDataRole,
+};
 
 use super::KirinHyphaEngine;
 
 pub const KIRIN_ATTACK_BATCH_CAPACITY: usize = 64;
+pub const KIRIN_ATTACK_EVENT_BATCH_CAPACITY: usize = 64;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -42,6 +45,37 @@ impl Default for KirinAttackBatch {
             count: 0,
             capacity: KIRIN_ATTACK_BATCH_CAPACITY as u32,
             frames: [KirinAttackOdfFrame::default(); KIRIN_ATTACK_BATCH_CAPACITY],
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct KirinAttackEvent {
+    pub generation: u64,
+    pub sample_rate: u32,
+    pub channels: u8,
+    pub reserved: [u8; 3],
+    pub definition_hash: [u8; 32],
+    pub event_sample: i64,
+    pub decision_sample: i64,
+    pub value: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct KirinAttackEventBatch {
+    pub count: u32,
+    pub capacity: u32,
+    pub events: [KirinAttackEvent; KIRIN_ATTACK_EVENT_BATCH_CAPACITY],
+}
+
+impl Default for KirinAttackEventBatch {
+    fn default() -> Self {
+        Self {
+            count: 0,
+            capacity: KIRIN_ATTACK_EVENT_BATCH_CAPACITY as u32,
+            events: [KirinAttackEvent::default(); KIRIN_ATTACK_EVENT_BATCH_CAPACITY],
         }
     }
 }
@@ -79,6 +113,17 @@ impl KirinHyphaEngine {
             .try_history()
             .as_ref()
             .map(to_c_attack_batch)
+    }
+
+    pub fn poll_internal_attack_events(&self) -> Option<KirinAttackEventBatch> {
+        if self.write_role.lock().ok().and_then(|role| *role) != Some(PluginDataRole::Post) {
+            return None;
+        }
+        self.attack_runtime
+            .as_ref()?
+            .try_history()
+            .as_ref()
+            .map(to_c_attack_event_batch)
     }
 
     pub fn internal_attack_stats(&self) -> KirinAttackStats {
@@ -132,6 +177,32 @@ fn to_c_attack_stats(stats: AttackRuntimeStats) -> KirinAttackStats {
     }
 }
 
+fn to_c_attack_event(event: &AttackEvent) -> KirinAttackEvent {
+    KirinAttackEvent {
+        generation: event.generation,
+        sample_rate: event.sample_rate,
+        channels: event.channels,
+        reserved: [0; 3],
+        definition_hash: event.definition_hash,
+        event_sample: event.event_sample,
+        decision_sample: event.decision_sample,
+        value: event.value,
+    }
+}
+
+fn to_c_attack_event_batch(history: &AttackHistory) -> KirinAttackEventBatch {
+    let mut batch = KirinAttackEventBatch::default();
+    let skip = history
+        .events()
+        .len()
+        .saturating_sub(KIRIN_ATTACK_EVENT_BATCH_CAPACITY);
+    for (destination, source) in batch.events.iter_mut().zip(history.events().skip(skip)) {
+        *destination = to_c_attack_event(source);
+        batch.count += 1;
+    }
+    batch
+}
+
 /// Internal ATTACK DRUM validation switch. Not a public analysis route.
 ///
 /// # Safety
@@ -164,6 +235,28 @@ pub unsafe extern "C" fn kirin_hypha_poll_internal_attack_batch(
             return false;
         }
         let Some(batch) = (unsafe { &*handle }).poll_internal_attack_batch() else {
+            return false;
+        };
+        unsafe { *out = batch };
+        true
+    }))
+    .unwrap_or(false)
+}
+
+/// Copies at most the newest 64 fixed-rule ATTACK events, oldest first.
+///
+/// # Safety
+/// `handle` and `out` must be live writable pointers.
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_poll_internal_attack_events(
+    handle: *mut KirinHyphaEngine,
+    out: *mut KirinAttackEventBatch,
+) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() || out.is_null() {
+            return false;
+        }
+        let Some(batch) = (unsafe { &*handle }).poll_internal_attack_events() else {
             return false;
         };
         unsafe { *out = batch };
@@ -211,6 +304,10 @@ mod tests {
         assert_eq!(offset_of!(KirinAttackOdfFrame, value), 80);
         assert_eq!(size_of::<KirinAttackBatch>(), 5_640);
         assert_eq!(offset_of!(KirinAttackBatch, frames), 8);
+        assert_eq!(size_of::<KirinAttackEvent>(), 72);
+        assert_eq!(offset_of!(KirinAttackEvent, event_sample), 48);
+        assert_eq!(offset_of!(KirinAttackEvent, value), 64);
+        assert_eq!(size_of::<KirinAttackEventBatch>(), 4_616);
         assert_eq!(size_of::<KirinAttackStats>(), 32);
     }
 
@@ -274,7 +371,11 @@ mod tests {
         }
 
         let deadline = Instant::now() + Duration::from_secs(2);
-        while engine.internal_attack_stats().analyzed_frames == 0 && Instant::now() < deadline {
+        while engine
+            .poll_internal_attack_events()
+            .is_none_or(|batch| batch.count == 0)
+            && Instant::now() < deadline
+        {
             thread::sleep(Duration::from_millis(5));
         }
         let batch = engine.poll_internal_attack_batch().unwrap();
@@ -286,12 +387,18 @@ mod tests {
         assert!(frames.iter().all(|frame| frame.window_samples == 2_048));
         assert!(frames.iter().all(|frame| frame.hop_samples == 256));
         assert!(frames.iter().any(|frame| frame.value > 0.0));
+        let events = engine.poll_internal_attack_events().unwrap();
+        assert!(events.count > 0);
+        assert!(events.events[..events.count as usize]
+            .iter()
+            .all(|event| event.decision_sample > event.event_sample));
     }
 
     #[test]
     fn c_functions_are_null_safe() {
         let mut stats = KirinAttackStats::default();
         let mut batch = KirinAttackBatch::default();
+        let mut events = KirinAttackEventBatch::default();
         unsafe {
             assert!(!kirin_hypha_set_internal_attack_enabled(
                 std::ptr::null_mut(),
@@ -304,6 +411,10 @@ mod tests {
             assert!(!kirin_hypha_poll_internal_attack_batch(
                 std::ptr::null_mut(),
                 &mut batch
+            ));
+            assert!(!kirin_hypha_poll_internal_attack_events(
+                std::ptr::null_mut(),
+                &mut events
             ));
         }
     }

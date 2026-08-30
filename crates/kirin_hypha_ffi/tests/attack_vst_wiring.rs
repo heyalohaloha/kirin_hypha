@@ -72,9 +72,11 @@ fn attack_abi_is_internal_and_does_not_create_a_public_navigation_route() {
         "KIRIN_ATTACK_BATCH_CAPACITY 64u",
         "KirinAttackOdfFrame",
         "KirinAttackBatch",
+        "KirinAttackEventBatch",
         "KirinAttackStats",
         "kirin_hypha_set_internal_attack_enabled",
         "kirin_hypha_poll_internal_attack_batch",
+        "kirin_hypha_poll_internal_attack_events",
         "kirin_hypha_internal_attack_stats",
     ] {
         assert!(header.contains(required), "ATTACK ABI missing {required}");

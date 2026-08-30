@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 
 pub const ATTACK_ODF_HISTORY_CAPACITY: usize = 1_200;
+pub const ATTACK_EVENT_HISTORY_CAPACITY: usize = 240;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct AttackOdfFrame {
@@ -42,9 +43,49 @@ impl AttackOdfFrame {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct AttackEvent {
+    pub generation: u64,
+    pub sample_rate: u32,
+    pub channels: u8,
+    pub definition_hash: [u8; 32],
+    pub event_sample: i64,
+    pub decision_sample: i64,
+    pub value: f32,
+}
+
+impl AttackEvent {
+    pub(crate) fn from_odf(frame: AttackOdfFrame) -> Self {
+        Self {
+            generation: frame.generation,
+            sample_rate: frame.sample_rate,
+            channels: frame.channels,
+            definition_hash: frame.definition_hash,
+            event_sample: frame.event_sample,
+            decision_sample: i64::MIN,
+            value: frame.value,
+        }
+    }
+
+    pub(crate) fn decided_at(mut self, decision_sample: i64) -> Self {
+        self.decision_sample = decision_sample;
+        self
+    }
+
+    pub fn has_valid_layout(&self) -> bool {
+        self.generation > 0
+            && self.sample_rate > 0
+            && matches!(self.channels, 1 | 2)
+            && self.decision_sample >= self.event_sample
+            && self.value.is_finite()
+            && self.value >= 0.0
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct AttackHistory {
     frames: VecDeque<AttackOdfFrame>,
+    events: VecDeque<AttackEvent>,
 }
 
 impl Default for AttackHistory {
@@ -57,6 +98,7 @@ impl AttackHistory {
     pub(crate) fn with_capacity() -> Self {
         Self {
             frames: VecDeque::with_capacity(ATTACK_ODF_HISTORY_CAPACITY),
+            events: VecDeque::with_capacity(ATTACK_EVENT_HISTORY_CAPACITY),
         }
     }
 
@@ -71,11 +113,30 @@ impl AttackHistory {
                 || newest.channels != frame.channels
         }) {
             self.frames.clear();
+            self.events.clear();
         }
         if self.frames.len() == ATTACK_ODF_HISTORY_CAPACITY {
             self.frames.pop_front();
         }
         self.frames.push_back(frame);
+    }
+
+    pub(crate) fn push_event(&mut self, event: AttackEvent) {
+        if !event.has_valid_layout() {
+            return;
+        }
+        if self.frames.back().is_none_or(|newest| {
+            newest.generation != event.generation
+                || newest.definition_hash != event.definition_hash
+                || newest.sample_rate != event.sample_rate
+                || newest.channels != event.channels
+        }) {
+            return;
+        }
+        if self.events.len() == ATTACK_EVENT_HISTORY_CAPACITY {
+            self.events.pop_front();
+        }
+        self.events.push_back(event);
     }
 
     pub fn newest(&self) -> Option<&AttackOdfFrame> {
@@ -84,6 +145,10 @@ impl AttackHistory {
 
     pub fn frames(&self) -> impl DoubleEndedIterator<Item = &AttackOdfFrame> + ExactSizeIterator {
         self.frames.iter()
+    }
+
+    pub fn events(&self) -> impl DoubleEndedIterator<Item = &AttackEvent> + ExactSizeIterator {
+        self.events.iter()
     }
 }
 

@@ -5,6 +5,7 @@ use std::time::Duration;
 use rtrb::Consumer;
 
 use super::assembler::AttackAssembler;
+use super::peak::AttackPeakPicker;
 use super::{drum_config, AttackConsumers, AttackRuntime};
 use crate::SuperFluxAnalyzer;
 
@@ -17,10 +18,12 @@ impl AttackRuntime {
             return;
         };
         let mut assembler = AttackAssembler::new(analyzer, self.num_channels);
+        let mut peak_picker = AttackPeakPicker::new();
         while !self.shutdown.load(Ordering::Acquire) {
             if !self.enabled.load(Ordering::Acquire) {
                 drain(consumers);
                 assembler.reset();
+                peak_picker.reset();
                 let guard = match self.wake.0.lock() {
                     Ok(guard) => guard,
                     Err(_) => return,
@@ -38,6 +41,7 @@ impl AttackRuntime {
                     &mut consumers.samples,
                     block.frames as usize * block.channels as usize,
                 );
+                peak_picker.reset();
                 continue;
             }
             if !assembler.begin_block(block.presentation_start_samples, block.generation) {
@@ -45,10 +49,12 @@ impl AttackRuntime {
                     &mut consumers.samples,
                     block.frames as usize * block.channels as usize,
                 );
+                peak_picker.reset();
                 continue;
             }
-            if !self.consume_block(consumers, block.frames, &mut assembler) {
+            if !self.consume_block(consumers, block.frames, &mut assembler, &mut peak_picker) {
                 assembler.reset();
+                peak_picker.reset();
             }
         }
     }
@@ -58,6 +64,7 @@ impl AttackRuntime {
         consumers: &mut AttackConsumers,
         frames: u32,
         assembler: &mut AttackAssembler,
+        peak_picker: &mut AttackPeakPicker,
     ) -> bool {
         for _ in 0..frames {
             let Ok(left) = consumers.samples.pop() else {
@@ -72,20 +79,24 @@ impl AttackRuntime {
                 None
             };
             if let Some(frame) = assembler.push_frame(left, right) {
-                self.publish(frame);
+                self.publish(frame, peak_picker);
             }
         }
         true
     }
 
-    fn publish(&self, frame: super::AttackOdfFrame) {
+    fn publish(&self, frame: super::AttackOdfFrame, peak_picker: &mut AttackPeakPicker) {
         if !self.frame_is_current(&frame) {
             return;
         }
+        let event = peak_picker.push(frame);
         self.analyzed_frames.fetch_add(1, Ordering::Relaxed);
         if let Ok(mut history) = self.history.lock() {
             if self.frame_is_current(&frame) {
                 history.push(frame);
+                if let Some(event) = event {
+                    history.push_event(event);
+                }
             }
         }
     }

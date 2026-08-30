@@ -249,6 +249,7 @@ typedef struct {
 } KirinSpectrumStats;
 
 #define KIRIN_ATTACK_BATCH_CAPACITY 64u
+#define KIRIN_ATTACK_EVENT_BATCH_CAPACITY 64u
 
 /* ATTACK DRUM内部検証用のraw SuperFlux ODF。公開Analysis route/stateには含めない。 */
 typedef struct {
@@ -271,6 +272,24 @@ typedef struct {
   uint32_t capacity;
   KirinAttackOdfFrame frames[KIRIN_ATTACK_BATCH_CAPACITY];
 } KirinAttackBatch;
+
+/* B-553固定peak ruleを通過し、30 ms refractoryが確定したATTACK event。 */
+typedef struct {
+  uint64_t generation;
+  uint32_t sample_rate;
+  uint8_t channels;
+  uint8_t reserved[3];
+  uint8_t definition_hash[32];
+  int64_t event_sample;
+  int64_t decision_sample;
+  float value;
+} KirinAttackEvent;
+
+typedef struct {
+  uint32_t count;
+  uint32_t capacity;
+  KirinAttackEvent events[KIRIN_ATTACK_EVENT_BATCH_CAPACITY];
+} KirinAttackEventBatch;
 
 typedef struct {
   uint8_t available;
@@ -543,6 +562,7 @@ bool kirin_hypha_spectrum_stats(KirinHypha* handle, KirinSpectrumStats* out);
 /* ATTACK DRUM内部検証専用。POSTだけが有効化可能で、既定OFF・state保存なし。 */
 bool kirin_hypha_set_internal_attack_enabled(KirinHypha* handle, bool enabled);
 bool kirin_hypha_poll_internal_attack_batch(KirinHypha* handle, KirinAttackBatch* out);
+bool kirin_hypha_poll_internal_attack_events(KirinHypha* handle, KirinAttackEventBatch* out);
 bool kirin_hypha_internal_attack_stats(KirinHypha* handle, KirinAttackStats* out);
 
 /* Keep/Record表示を1スナップショットで取得. UI Thread専用・ロック競合時false. */
