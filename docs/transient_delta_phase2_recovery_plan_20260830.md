@@ -1,11 +1,11 @@
 # ATTACK Phase 2-R 復旧方針
 
 **日付**：2026-08-30
-**実装ラベル**：B-554
-**判定**：DRUM pilotの主要比率はGo、独立低域kick補助は棄却、kick、timing、worst-fold、候補freeze、公開はNo-Go
+**実装ラベル**：B-555
+**判定**：DRUM pilotの主要比率はGo、独立低域kick補助は棄却。kick missは音響正解監査待ち、timing、worst-fold、候補freeze、公開はNo-Go
 **公開状態**：ATTACK route、request、worker、lease acquisitionは未実装かつOFF
 
-**B-554進捗**：N=290の実音源pilotで主要比率を通過したSuperFluxへ30–200 Hzの独立補助を一度だけ加えた。kick-onlyは0.832へ上がったがPrecision 0.582、FP 3.510件/秒へ崩れたため、補助経路を棄却してコードから除いた。
+**B-555進捗**：kick-only 1,342件をevent単位で再診断した。miss 450件中233件は±50 ms内にeligible peakがなく、182件は25–50 msにpeakがあるが148件はMIDIより前だった。refractoryまたは一対一競合は35件だけで、追加検出器ではなく可聴attack正解の監査が必要と判定した。
 
 ## 1. 決定
 
@@ -366,7 +366,7 @@ marker latencyは`decision availability - event_sample`、`worker publish - deci
 3. B-552でofficial audio archiveの同一full SHA読み取りからsource、core、maximum-context PCM、重複、無響、MIDI終端を固定した。
 4. B-553でsource sample 0起点のdevelopment pilotを実行し、SuperFluxの主要比率通過とkick、timing、worst-fold不足を実測した。
 5. 30–200 Hzの独立低域SuperFluxはPrecisionとFP/sを悪化させたため棄却し、追加調整しない。
-6. kick不足が集中するdrummer 4、5、7のmissを調べ、既存共通trace内で成立する条件だけを一度比較する。同時にblind acoustic auditでtiming誤差を分離する。
+6. kick不足が集中するdrummer 4、5、7をevent診断し、missの主因がrefractoryでないことを確認した。次は候補状態を隠した音声clipで可聴attack有無と時刻だけを注釈する。
 7. 通過候補だけをLODO、LOSO、paired transform、runtimeで確認し、一方式、一parameter set、一definition hashを残す。
 8. candidate freeze前に必要なartifactをsource commitへ固定し、caller指定hashをtrust rootにしない。
 9. 対象profileのfresh holdout manifest、sealed annotation hash、transform hashをcommitする。

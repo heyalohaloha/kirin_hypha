@@ -96,6 +96,19 @@ kick-only Recallをdrummer別に集計すると、drummer 4が0.397、drummer 5�
 問題は全素材に均一ではない。
 次はこの三群のmissへ対象を限定し、独立検出器を増やさず既存共通trace内で成立する条件だけを見る。
 
+### B-555 event診断
+
+kick-only 1,342件をB-553候補のevent単位で再診断した。
+miss 450件のうち、233件はMIDI時刻の±50 ms内にthresholdとlocal maximumを通るpeakがなかった。
+182件は25–50 msにeligible peakがあったが、148件はMIDIより前であり、時刻差の中央値は−32.61 msだった。
+refractory抑制は26件、一対一競合は9件だけで、合わせてもmissの7.8%である。
+
+matched kickのMIDI velocity中央値は51、音声attack rise中央値は+14.99 dBだった。
+missはvelocity 20、attack rise −1.76 dBだった。
+低域補助が誤検出を増やした事実と合わせると、MIDI上の全kickを可聴attack正解としてRecall gateへ置く契約が過大である可能性が高い。
+音響監査前にdetectorを追加調整しない。
+event診断は二回の実行で589,421 bytes、SHA-256 `b0214bf3938d0087c7b07b9bbe8d31efd9bd48fe25907a96646ede700dd5ae8b`へbyte一致した。
+
 timing P95はMIDI note-onと実際の可聴attack位置の差を含む。
 固定audioを候補出力なしで注釈し、検出器の時刻誤差とMIDI proxyの誤差を分離する。
 注釈結果を見る前にglobal offsetを調整しない。

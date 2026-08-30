@@ -185,7 +185,29 @@ fn analyze_frames(
     Ok(frames)
 }
 
-fn pick_peaks(frames: &[TransientOdfFrame], sample_rate: u32, rule: PeakRule) -> Vec<i64> {
+pub(crate) fn pick_peaks(
+    frames: &[TransientOdfFrame],
+    sample_rate: u32,
+    rule: PeakRule,
+) -> Vec<i64> {
+    let candidates = peak_candidates(frames, rule);
+    let refractory_samples = rule.refractory_samples(sample_rate);
+    let mut selected: Vec<(i64, f32)> = Vec::new();
+    for candidate in candidates {
+        if let Some(previous) = selected.last_mut() {
+            if candidate.0 - previous.0 <= refractory_samples {
+                if candidate.1 > previous.1 {
+                    *previous = candidate;
+                }
+                continue;
+            }
+        }
+        selected.push(candidate);
+    }
+    selected.into_iter().map(|(sample, _)| sample).collect()
+}
+
+pub(crate) fn peak_candidates(frames: &[TransientOdfFrame], rule: PeakRule) -> Vec<(i64, f32)> {
     let mut candidates = Vec::new();
     for (index, frame) in frames.iter().enumerate() {
         let eligible = match rule {
@@ -216,20 +238,7 @@ fn pick_peaks(frames: &[TransientOdfFrame], sample_rate: u32, rule: PeakRule) ->
             candidates.push((frame.event_sample, frame.value));
         }
     }
-    let refractory_samples = rule.refractory_samples(sample_rate);
-    let mut selected: Vec<(i64, f32)> = Vec::new();
-    for candidate in candidates {
-        if let Some(previous) = selected.last_mut() {
-            if candidate.0 - previous.0 <= refractory_samples {
-                if candidate.1 > previous.1 {
-                    *previous = candidate;
-                }
-                continue;
-            }
-        }
-        selected.push(candidate);
-    }
-    selected.into_iter().map(|(sample, _)| sample).collect()
+    candidates
 }
 
 fn is_earliest_maximum(
@@ -339,7 +348,7 @@ fn score_track(
     ))
 }
 
-fn is_kick_only(label: &LabelEvent) -> bool {
+pub(crate) fn is_kick_only(label: &LabelEvent) -> bool {
     !label.pitches.is_empty() && label.pitches.iter().all(|pitch| *pitch == 36)
 }
 

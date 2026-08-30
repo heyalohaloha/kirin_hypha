@@ -164,7 +164,7 @@ fn build_report<'a>(tracks: impl Iterator<Item = &'a ScoredTrack>) -> Evaluation
 }
 
 #[allow(dead_code)] // Algorithm fixture; formal scoring remains context-guard blocked.
-pub(super) fn analyze_superflux_frames(
+pub(crate) fn analyze_superflux_frames(
     samples: &[f32],
     sample_rate: u32,
     config: SuperFluxConfig,
