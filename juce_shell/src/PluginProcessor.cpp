@@ -90,7 +90,10 @@ KirinHyphaProcessorBase::~KirinHyphaProcessorBase()
     if (hyphaHandle != nullptr)
     {
         if (role == Role::Post)
+        {
             kirin_hypha_set_spectrum_visible (hyphaHandle, false);
+            kirin_hypha_set_internal_attack_enabled (hyphaHandle, false);
+        }
         kirin_hypha_destroy (hyphaHandle);
         hyphaHandle = nullptr;
     }
@@ -880,6 +883,43 @@ bool KirinHyphaProcessorBase::pollAnalysisOwnerNames (juce::String& out) const
     return true;
 }
 
+bool KirinHyphaProcessorBase::setInternalAttackEnabled (bool enabled)
+{
+    if (role != Role::Post)
+        return false;
+    internalAttackRequested.store (enabled, std::memory_order_release);
+    const juce::ScopedLock sl (handleLock);
+    return hyphaHandle != nullptr
+        && kirin_hypha_set_internal_attack_enabled (hyphaHandle, enabled);
+}
+
+bool KirinHyphaProcessorBase::pollInternalAttackBatch (KirinAttackBatch& out) const
+{
+    if (role != Role::Post)
+        return false;
+    const juce::ScopedLock sl (handleLock);
+    return hyphaHandle != nullptr
+        && kirin_hypha_poll_internal_attack_batch (hyphaHandle, &out);
+}
+
+bool KirinHyphaProcessorBase::pollInternalAttackEvents (KirinAttackEventBatch& out) const
+{
+    if (role != Role::Post)
+        return false;
+    const juce::ScopedLock sl (handleLock);
+    return hyphaHandle != nullptr
+        && kirin_hypha_poll_internal_attack_events (hyphaHandle, &out);
+}
+
+bool KirinHyphaProcessorBase::internalAttackStats (KirinAttackStats& out) const
+{
+    if (role != Role::Post)
+        return false;
+    const juce::ScopedLock sl (handleLock);
+    return hyphaHandle != nullptr
+        && kirin_hypha_internal_attack_stats (hyphaHandle, &out);
+}
+
 bool KirinHyphaProcessorBase::spectrumStats (KirinSpectrumStats& out) const
 {
     if (role != Role::Post)
@@ -1239,6 +1279,8 @@ void KirinHyphaProcessorBase::enableWritesNow()
             else
                 kirin_hypha_set_spectrum_visible (hyphaHandle, true);
         }
+        if (internalAttackRequested.load (std::memory_order_acquire))
+            kirin_hypha_set_internal_attack_enabled (hyphaHandle, true);
     }
     else
     {

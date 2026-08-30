@@ -70,6 +70,7 @@ fn attack_abi_is_internal_and_does_not_create_a_public_navigation_route() {
     let header = read_repo("crates/kirin_hypha_ffi/include/kirin_hypha_ffi.h");
     for required in [
         "KIRIN_ATTACK_BATCH_CAPACITY 64u",
+        "KIRIN_ATTACK_EVENT_BATCH_CAPACITY 240u",
         "KirinAttackOdfFrame",
         "KirinAttackBatch",
         "KirinAttackEventBatch",
@@ -84,6 +85,10 @@ fn attack_abi_is_internal_and_does_not_create_a_public_navigation_route() {
 
     let editor = read_repo("juce_shell/src/PluginEditor.cpp");
     let processor = read_repo("juce_shell/src/PluginProcessor.cpp");
-    assert!(!editor.contains("set_internal_attack"));
-    assert!(!processor.contains("set_internal_attack"));
+    let navigation = read_repo("juce_shell/src/HyphaAnalysisNavigation.h");
+    assert!(editor.contains("activationEnvironmentVariable"));
+    assert!(editor.contains("processorRef.setInternalAttackEnabled (true)"));
+    assert!(processor.contains("kirin_hypha_set_internal_attack_enabled"));
+    assert!(!navigation.contains("attack"));
+    assert!(!navigation.contains("Attack"));
 }

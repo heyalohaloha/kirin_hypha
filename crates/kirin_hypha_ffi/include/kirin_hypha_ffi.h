@@ -249,7 +249,7 @@ typedef struct {
 } KirinSpectrumStats;
 
 #define KIRIN_ATTACK_BATCH_CAPACITY 64u
-#define KIRIN_ATTACK_EVENT_BATCH_CAPACITY 64u
+#define KIRIN_ATTACK_EVENT_BATCH_CAPACITY 240u
 
 /* ATTACK DRUM内部検証用のraw SuperFlux ODF。公開Analysis route/stateには含めない。 */
 typedef struct {

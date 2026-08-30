@@ -148,6 +148,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         target_sources(${TARGET} PRIVATE
             src/HyphaAbsoluteComponent.cpp
             src/HyphaAbsolutePainter.cpp
+            src/HyphaAttackInternalComponent.cpp
             src/HyphaPerceptualComponent.cpp
             src/HyphaPerceptualPainter.cpp
             src/HyphaSpectrumComponent.cpp
@@ -265,6 +266,25 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         juce::juce_recommended_config_flags
         juce::juce_recommended_warning_flags)
     add_test(NAME kirin_ui_render_contract COMMAND KirinUiRenderContractTests)
+
+    juce_add_console_app(KirinAttackUiContractTests
+        PRODUCT_NAME "Kirin ATTACK UI Contract Tests")
+    target_sources(KirinAttackUiContractTests PRIVATE
+        tests/AttackUiContractTest.cpp
+        src/HyphaAttackInternalComponent.cpp)
+    target_compile_definitions(KirinAttackUiContractTests PRIVATE
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0
+        JUCE_DISPLAY_SPLASH_SCREEN=0)
+    target_compile_options(KirinAttackUiContractTests PRIVATE
+        ${KIRIN_SOURCE_ENCODING_ARGS})
+    target_include_directories(KirinAttackUiContractTests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../crates/kirin_hypha_ffi/include)
+    target_link_libraries(KirinAttackUiContractTests PRIVATE
+        juce::juce_gui_basics
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_warning_flags)
+    add_test(NAME kirin_attack_ui_contract COMMAND KirinAttackUiContractTests)
 endif()
 
 option(KIRIN_HYPHA_BUILD_PRE_DISPLAY_TESTS

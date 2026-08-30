@@ -1,6 +1,7 @@
 #include "../src/HyphaUiContract.h"
 #include "../src/HyphaDisplayContract.h"
 #include "../src/HyphaClockSourceContract.h"
+#include "../src/HyphaAttackUiContract.h"
 #include "../src/HyphaSignalStateContract.h"
 #include "../src/HyphaSpectrumUiContract.h"
 #include "../src/pre_display/PreDisplayClock.h"
@@ -16,6 +17,7 @@ namespace ui = hypha::ui_contract;
 namespace display = hypha::display_contract;
 namespace clockSource = hypha::clock_source_contract;
 namespace signalState = hypha::signal_state_contract;
+namespace attackUi = hypha::attack_ui;
 
 namespace
 {
@@ -232,6 +234,22 @@ int main()
     static_assert (KIRIN_SPECTRUM_BAND_COUNT == 256u);
     static_assert (KIRIN_SPECTRUM_DISPLAY_RANGE_DB == 24.0f);
     static_assert (KIRIN_PERCEPTUAL_BATCH_CAPACITY == 64u);
+    static_assert (KIRIN_ATTACK_EVENT_BATCH_CAPACITY >= 200u);
+    static_assert (attackUi::presentationSeconds == 6);
+    static_assert (attackUi::presentationHz == 10);
+    static_assert (attackUi::activationEnvironmentVariable[0] == 'K');
+    static_assert (attackUi::activationValue[0] == '1');
+    static_assert (attackUi::windowSamples (48'000) == 288'000);
+    static_assert (attackUi::eventIsVisible (0, 288'000, 48'000));
+    static_assert (attackUi::eventIsVisible (-288'000, 0, 48'000));
+    static_assert (! attackUi::eventIsVisible (-288'001, 0, 48'000));
+    static_assert (! attackUi::eventIsVisible (288'001, 288'000, 48'000));
+    static_assert (attackUi::eventX (0, 288'000, 48'000, 281) == 0);
+    static_assert (attackUi::eventX (144'000, 288'000, 48'000, 281) == 140);
+    static_assert (attackUi::eventX (288'000, 288'000, 48'000, 281) == 280);
+    static_assert (attackUi::eventX (0, 0, 0, 281) == -1);
+    static_assert (! attackUi::validTimeline (
+        std::numeric_limits<std::int64_t>::min(), 48'000));
     static_assert (hypha::ui_contract::spectrumCurvePresentationHz == 12);
     static_assert (hypha::ui_contract::perceptualCurvePresentationHz == 5);
     static_assert (hypha::ui_contract::analysisNumericPresentationHz == 2);

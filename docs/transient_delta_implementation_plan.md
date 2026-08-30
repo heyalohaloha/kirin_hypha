@@ -1,13 +1,13 @@
 # Kirin Hypha POST Transient Delta 実装計画
 
 **日付**：2026-08-30
-**状態**：DRUMのSuperFluxをHypha VST音声入口へ接続し、固定common peak判定済みATTACK eventをPOST内部C ABIから取得可能。公開ATTACKはOFF
-**実装ラベル**：B-568
+**状態**：DRUMのSuperFlux、固定common peak判定、POST内部6秒event表示までHypha VSTへ接続済み。公開ATTACKはOFF
+**実装ラベル**：B-569
 **画面名**：`ATTACK`（仮称）
 
 Phase 2-Rの正本は`docs/transient_delta_phase2_recovery_plan_20260830.md`とする。
 B-546候補報告は診断履歴として残すが、評価契約の監査結果により公開Goまたは恒久No-Goの根拠には再利用しない。
-B-550からB-552の入力契約とB-553の実測は各報告書に記録する。内部default-OFF workerと検証C ABIは実装するが、kick、timing、worst-fold、fresh holdoutが全gateを通るまで公開route、PRE request、UIへ進まない。
+B-550からB-552の入力契約とB-553の実測は各報告書に記録する。内部default-OFF worker、検証C ABI、環境変数でだけ開くPOST検証表示は実装するが、kick、timing、worst-fold、fresh holdoutが全gateを通るまで公開route、PRE request、公開UIへ進まない。
 
 ## 1. 結論
 

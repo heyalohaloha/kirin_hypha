@@ -1,7 +1,7 @@
 # ATTACK DRUM development pilot報告
 
 **日付**：2026-08-30
-**実装ラベル**：B-553
+**実装ラベル**：B-553–B-569
 **対象profile**：DRUM
 **方式判定**：SuperFluxを継続
 **候補freeze判定**：No-Go
@@ -272,9 +272,17 @@ B-553の最良pilotと同じdelta 0.00625、absolute floor 0、pre-max 3 hop、p
 30 ms内に複数候補がある場合は最大値を保持し、確定前の候補は公開せず、refractory経過後にevent時刻とdecision時刻を分けて記録する。
 
 generation、sample rate、channel、SuperFlux definitionが変わると未確定候補と履歴を破棄し、異なるtransport区間を結合しない。
-POST内部C ABIから最新64件を古い順に取得できる。
+POST内部C ABIから最新240件を古い順に取得できる。
 48 kHz stereoのshipping VST clock/audio transactionへimpulseを投入し、raw ODFに続いて確定ATTACK eventを回収した。
 公開UIとPRE/POST差分にはまだ接続していない。
+
+### B-569 POST内部6秒表示
+
+`KIRIN_HYPHA_INTERNAL_ATTACK=1`で起動したPOSTだけに、確定ATTACK位置を六秒軸の等長stemで表示する内部validatorを追加した。
+波形、楽器分類、confidence、編集可能thresholdを出さず、利用者が確認する対象を「どこをATTACKとして数えたか」に限定する。
+表示はraw ODFの最新support endをNOWとし、同じgenerationとsample rateの確定eventだけを描く。
+30 ms超の最小event間隔から六秒に必要な最大200件を導き、C ABI snapshotを240件へ拡張した。
+環境変数がない通常起動はworkerも画面もOFFで、DAW state、公開Analysis navigation、PREには追加しない。
 
 ## 7. 再現性
 
@@ -291,7 +299,7 @@ DRUM ATTACKは完成可能性がある。
 主要比率がdevelopmentで同時通過したため、方式選定の中心課題は解消した。
 
 一方、kick-onlyとtiming、worst-foldが未達なので、完成したとは扱わない。
-内部workerは実VST音声入口、固定event判定、検証C ABIまで接続したが、検出器の採用条件を緩めず、公開ATTACK route、PRE request、UIはOFFを維持する。
+内部workerは実VST音声入口、固定event判定、検証C ABI、POST内部6秒表示まで接続したが、検出器の採用条件を緩めず、公開ATTACK route、PRE request、公開UIはOFFを維持する。
 
 2MIXは別profileとして未着手であり、この結果を転用しない。
 

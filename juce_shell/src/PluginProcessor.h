@@ -89,6 +89,10 @@ public:
     bool pollAbsoluteBatch (KirinAbsoluteBatch& out) const;
     bool pollAnalysisOwnerNames (juce::String& out) const;
     bool spectrumStats (KirinSpectrumStats& out) const; // read-only validation counters
+    bool setInternalAttackEnabled (bool enabled);       // POST-only, internal, never DAW state
+    bool pollInternalAttackBatch (KirinAttackBatch& out) const;
+    bool pollInternalAttackEvents (KirinAttackEventBatch& out) const;
+    bool internalAttackStats (KirinAttackStats& out) const;
     uint8_t spectrumSizePreference() const              // editor-lifetime recreation only; not DAW state
     {
         return preferredSpectrumSize.load (std::memory_order_acquire);
@@ -191,6 +195,7 @@ private:
     std::atomic<bool> spectrumVisibleRequested { false }; // editor lifetime; not persisted in DAW state
     std::atomic<bool> perceptualAnalysisRequested { false }; // restores the visible analyzer after engine recreation
     std::atomic<bool> absoluteAnalysisRequested { false }; // local POST absolute timeline restore
+    std::atomic<bool> internalAttackRequested { false }; // internal validation UI; default OFF
     std::atomic<uint8_t> preferredSpectrumSize { 0 };      // processor lifetime; Analysis still opens off
     std::atomic<uint8_t> preferredSpectrumChannelMode { KIRIN_SPECTRUM_CHANNEL_LR };
 

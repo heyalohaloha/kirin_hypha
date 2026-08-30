@@ -1,6 +1,9 @@
 #include "PluginEditor.h"
 #include "HyphaAnalysisUiText.h"
 #include "HyphaDisplayContract.h"
+#if ! KIRIN_HYPHA_PRE_DISPLAY
+ #include "HyphaAttackUiContract.h"
+#endif
 
 #include <cmath>
 #include <limits>
@@ -156,6 +159,11 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
 
     if (isPost)
     {
+       #if ! KIRIN_HYPHA_PRE_DISPLAY
+        internalAttackUi = juce::SystemStats::getEnvironmentVariable (
+            hypha::attack_ui::activationEnvironmentVariable, {})
+                .trim() == hypha::attack_ui::activationValue;
+       #endif
         nameField.setPrefix ("pair: ");
         nameField.setFallback ("___");
         nameField.setLockedTooltip (juce::CharPointer_UTF8 ("Pair selection is locked during playback"));
@@ -240,6 +248,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         addChildComponent (spectrumView);
         addChildComponent (perceptualView);
         addChildComponent (absoluteView);
+        addChildComponent (attackInternalView);
        #endif
     }
     else
@@ -291,6 +300,22 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
 #endif
 
     configureForKind (Kind::WatchAbs6); // current | MAX, three rows
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (internalAttackUi)
+    {
+        for (auto& cell : cells)
+            cell.setVisible (false);
+        loudnessSelector.setVisible (false);
+        spectrumToggle.setVisible (false);
+        analysisModeToggle.setVisible (false);
+        spectrumSizeToggle.setVisible (false);
+        spectrumView.setVisible (false);
+        perceptualView.setVisible (false);
+        absoluteView.setVisible (false);
+        attackInternalView.setVisible (true);
+        processorRef.setInternalAttackEnabled (true);
+    }
+   #endif
     resized();                     // finalise positions now that postControls exists
     // Producer JSON and meter snapshots advance at 100 ms. Spectrum raises this same timer to
     // 30 Hz only while its exact-pair exchange is active; every normal meter stays at 10 Hz.
@@ -306,6 +331,10 @@ KirinHyphaEditor::~KirinHyphaEditor()
         processorRef.setSpectrumVisible (false);
         processorRef.setPerceptualVisible (false);
         processorRef.setAbsoluteVisible (false);
+       #if ! KIRIN_HYPHA_PRE_DISPLAY
+        if (internalAttackUi)
+            processorRef.setInternalAttackEnabled (false);
+       #endif
     }
 }
 
@@ -332,7 +361,8 @@ void KirinHyphaEditor::paint (juce::Graphics& g)
 
     // Spectrum page changes only this separator to its cool accent; meter pages keep flora.
    #if ! KIRIN_HYPHA_PRE_DISPLAY
-    g.setColour (analysisPage != AnalysisPage::meters ? COL_SPECTRUM_DELTA : COL_FLORA);
+    g.setColour (internalAttackUi || analysisPage != AnalysisPage::meters
+                   ? COL_SPECTRUM_DELTA : COL_FLORA);
    #else
     g.setColour (COL_FLORA);
    #endif
@@ -363,6 +393,7 @@ void KirinHyphaEditor::resized()
         spectrumView.setBounds (juceRect (ui::spectrumPlotBounds (getWidth(), getHeight())));
         perceptualView.setBounds (juceRect (ui::spectrumPlotBounds (getWidth(), getHeight())));
         absoluteView.setBounds (juceRect (ui::spectrumPlotBounds (getWidth(), getHeight())));
+        attackInternalView.setBounds (juceRect (ui::spectrumPlotBounds (getWidth(), getHeight())));
     }
    #endif
     floraY = layout.floraY;
@@ -411,7 +442,7 @@ void KirinHyphaEditor::layoutMetrics (bool)
 #if ! KIRIN_HYPHA_PRE_DISPLAY
 void KirinHyphaEditor::setAnalysisPage (AnalysisPage page)
 {
-    if (! isPost || analysisPage == page)
+    if (! isPost || internalAttackUi || analysisPage == page)
         return;
     const auto previousPage = analysisPage;
     spectrumView.clearSnapshot();
@@ -970,6 +1001,33 @@ void KirinHyphaEditor::updatePost()
                           pairStatus != KIRIN_PAIR_STATUS_UNPAIRED);
 
    #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (internalAttackUi)
+    {
+        KirinAttackStats stats {};
+        if (processorRef.internalAttackStats (stats))
+            cachedAttackStats = stats;
+
+        KirinAttackEventBatch events {};
+        if (processorRef.pollInternalAttackEvents (events))
+            cachedAttackEvents = events;
+
+        KirinAttackBatch raw {};
+        if (processorRef.pollInternalAttackBatch (raw) && raw.count > 0)
+        {
+            const auto count = juce::jmin (
+                raw.count, static_cast<std::uint32_t> (KIRIN_ATTACK_BATCH_CAPACITY));
+            const auto& newest = raw.frames[count - 1];
+            cachedAttackLatest = newest.support_end_samples;
+            cachedAttackRate = newest.sample_rate;
+            cachedAttackGeneration = newest.generation;
+        }
+        attackInternalView.setSnapshot (cachedAttackEvents, cachedAttackLatest,
+                                        cachedAttackRate, cachedAttackGeneration,
+                                        cachedAttackStats);
+        led.setState (hypha::deriveLedState (alive, sig, rec && armed, ack, preset));
+        return;
+    }
+
     juce::String analysisOwnerNames;
     const bool haveAnalysisOwnerNames = analysisPage != AnalysisPage::meters
         && processorRef.pollAnalysisOwnerNames (analysisOwnerNames);

@@ -17,6 +17,7 @@
  #include "HyphaSpectrumComponent.h"
  #include "HyphaPerceptualComponent.h"
  #include "HyphaAbsoluteComponent.h"
+ #include "HyphaAttackInternalComponent.h"
 #endif
 
 // B-054: full UI rebuild to egui parity (crates/hypha_pre/editor.rs + hypha_post/editor.rs +
@@ -113,6 +114,7 @@ private:
     hypha::SpectrumComponent  spectrumView;                 // POST-only signed difference plot
     hypha::PerceptualComponent perceptualView;               // POST-only Δ Sharpness History
     hypha::AbsoluteComponent absoluteView;                    // POST-only absolute observation timeline
+    hypha::AttackInternalComponent attackInternalView;         // opt-in POST DRUM validator
 #endif
     hypha::TooltipLookAndFeel tooltipLookAndFeel;
     hypha::HoverHelpTooltipWindow tooltip { this, 550 };    // user-level, bounded hover help
@@ -122,6 +124,12 @@ private:
 #if ! KIRIN_HYPHA_PRE_DISPLAY
     AnalysisPage analysisPage = AnalysisPage::meters;
     size_t spectrumSizeIndex = 0;
+    bool internalAttackUi = false;
+    KirinAttackEventBatch cachedAttackEvents {};
+    KirinAttackStats cachedAttackStats {};
+    std::int64_t cachedAttackLatest = -1;
+    std::uint32_t cachedAttackRate = 0;
+    std::uint64_t cachedAttackGeneration = 0;
 #endif
     int    metricTop   = 0;       // y of the first metric row (set in resized())
     int    floraY      = 0;       // y of the flora separator line

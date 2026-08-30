@@ -13,7 +13,9 @@ use kirin_measure::{
 use super::KirinHyphaEngine;
 
 pub const KIRIN_ATTACK_BATCH_CAPACITY: usize = 64;
-pub const KIRIN_ATTACK_EVENT_BATCH_CAPACITY: usize = 64;
+// Six seconds at the strict >30 ms event separation can contain at most 200 confirmed events.
+// Keep one complete internal presentation window in a single lock-free snapshot.
+pub const KIRIN_ATTACK_EVENT_BATCH_CAPACITY: usize = 240;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -243,7 +245,7 @@ pub unsafe extern "C" fn kirin_hypha_poll_internal_attack_batch(
     .unwrap_or(false)
 }
 
-/// Copies at most the newest 64 fixed-rule ATTACK events, oldest first.
+/// Copies at most the newest 240 fixed-rule ATTACK events, oldest first.
 ///
 /// # Safety
 /// `handle` and `out` must be live writable pointers.
@@ -307,7 +309,7 @@ mod tests {
         assert_eq!(size_of::<KirinAttackEvent>(), 72);
         assert_eq!(offset_of!(KirinAttackEvent, event_sample), 48);
         assert_eq!(offset_of!(KirinAttackEvent, value), 64);
-        assert_eq!(size_of::<KirinAttackEventBatch>(), 4_616);
+        assert_eq!(size_of::<KirinAttackEventBatch>(), 17_288);
         assert_eq!(size_of::<KirinAttackStats>(), 32);
     }
 
