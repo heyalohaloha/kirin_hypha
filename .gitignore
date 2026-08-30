@@ -27,9 +27,8 @@ hypha_fork_debug*.log
 .vscode/
 *.swp
 *~
-# Per-machine local tool settings (Claude Code's "local" suffix follows
-# the same convention as .vscode/settings.local.json)
-.claude/settings.local.json
+# Per-machine local tool settings
+.*/settings.local.json
 # Cargo local overrides (if Daisuke adds a local .cargo/config.toml,
 # uncomment the line below; leave tracked by default so toolchain
 # pinning stays reproducible)
