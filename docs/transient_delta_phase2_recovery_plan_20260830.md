@@ -1,11 +1,11 @@
 # ATTACK Phase 2-R 復旧方針
 
 **日付**：2026-08-30
-**実装ラベル**：B-558
+**実装ラベル**：B-559
 **判定**：DRUM pilotの主要比率はGo、独立低域kick補助は棄却。kick固有のHTML聴取待ち、timing、worst-fold、候補freeze、公開はNo-Go
 **公開状態**：ATTACK route、request、worker、lease acquisitionは未実装かつOFF
 
-**B-558進捗**：45 clipの判定をkick有無へ限定し、波形上の200 ms参照線、150–250 ms帯、150–300 ms集中再生を追加した。スネア単独はkickなしとし、聴取完了までdetectorを調整しない。
+**B-559進捗**：kick有無と確信度だけで完了件数へ加え、最寄りkick位置は任意入力へ修正した。既存の回答保存キーを維持し、聴取完了までdetectorを調整しない。
 
 ## 1. 決定
 

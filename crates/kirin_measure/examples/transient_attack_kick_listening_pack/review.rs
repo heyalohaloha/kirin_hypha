@@ -45,7 +45,7 @@ pub(crate) fn render_review_html(clips: &[ReviewClip]) -> Result<Vec<u8>, String
   <div class="player">{waveform}<label>周辺 0–500 ms<audio controls preload="metadata" src="clips/{clip_id}.wav"></audio></label><label>判定区間 150–300 ms<audio controls preload="metadata" src="focus/{clip_id}_focus.wav"></audio></label></div>
   <fieldset><legend>150–250 ms内のキック</legend><label><input type="radio" name="choice-{number}" value="yes"> キックあり</label><label><input type="radio" name="choice-{number}" value="no"> キックなし</label><label><input type="radio" name="choice-{number}" value="uncertain"> 区別困難</label></fieldset>
   <label>確信度<select class="confidence"><option value="">選択</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></label>
-  <label>最寄りキック位置（ms）<input class="position" inputmode="decimal" placeholder="ありの場合 150–250"></label>
+  <label>最寄りキック位置（任意・ms）<input class="position" inputmode="decimal" placeholder="分かる場合 150–250の数値"></label>
   <label>メモ（任意）<input class="note"></label>
 </div>"#,
             number = index + 1,
@@ -95,9 +95,8 @@ const chainIds=['interface','monitor','sample-rate','playback-level','location']
 const progress=document.getElementById('progress'),warning=document.getElementById('warning'),complete=document.getElementById('complete');
 function load(){try{return JSON.parse(localStorage.getItem(KEY)||'{}')}catch{return {}}}
 function collect(){const chain=Object.fromEntries(chainIds.map(id=>[id,document.getElementById(id).value]));const rows=Object.fromEntries(trials.map(tr=>{const id=tr.dataset.reviewId;return[id,{clipId:tr.dataset.clipId,choice:tr.querySelector('input[type=radio]:checked')?.value||'',confidence:tr.querySelector('.confidence').value,position:tr.querySelector('.position').value,note:tr.querySelector('.note').value}]}));return{chain,rows}}
-function validPosition(value){if(value.choice!=='yes')return true;const n=Number(value.position);return value.position.trim()!==''&&Number.isFinite(n)&&n>=150&&n<=250}
-function validRow(value){return Boolean(value.choice&&value.confidence&&validPosition(value))}
-function refresh(persist=true){const state=collect();let done=0,hasInput=Object.values(state.chain).some(Boolean);for(const tr of trials){const value=state.rows[tr.dataset.reviewId];const ok=validRow(value);tr.classList.toggle('incomplete',!ok);tr.querySelector('.position').classList.toggle('invalid',value.choice==='yes'&&!validPosition(value));if(ok)done++;if(value.choice||value.confidence||value.position||value.note)hasInput=true}const chainOk=chainIds.every(id=>state.chain[id].trim());if(persist&&hasInput)localStorage.setItem(KEY,JSON.stringify(state));progress.textContent=done+' / '+trials.length+' 完了';warning.textContent=!chainOk?'再生系の5項目を入力してください':done===trials.length?'全件完了。TSVを保存できます':'未完了 '+(trials.length-done)+' 件';complete.disabled=done!==trials.length||!chainOk}
+function validRow(value){return Boolean(value.choice&&value.confidence)}
+function refresh(persist=true){const state=collect();let done=0,hasInput=Object.values(state.chain).some(Boolean);for(const tr of trials){const value=state.rows[tr.dataset.reviewId];const ok=validRow(value);tr.classList.toggle('incomplete',!ok);if(ok)done++;if(value.choice||value.confidence||value.position||value.note)hasInput=true}const chainOk=chainIds.every(id=>state.chain[id].trim());if(persist&&hasInput)localStorage.setItem(KEY,JSON.stringify(state));progress.textContent=done+' / '+trials.length+' 完了';warning.textContent=!chainOk?'再生系の5項目を入力してください':done===trials.length?'全件完了。TSVを保存できます':'未完了 '+(trials.length-done)+' 件';complete.disabled=done!==trials.length||!chainOk}
 const saved=load();for(const id of chainIds){document.getElementById(id).value=saved.chain?.[id]||'';document.getElementById(id).addEventListener('input',()=>refresh(true))}for(const tr of trials){const value=saved.rows?.[tr.dataset.reviewId]||{};for(const radio of tr.querySelectorAll('input[type=radio]'))radio.checked=radio.value===value.choice;tr.querySelector('.confidence').value=value.confidence||'';tr.querySelector('.position').value=value.position||'';tr.querySelector('.note').value=value.note||'';tr.addEventListener('input',()=>refresh(true));tr.addEventListener('change',()=>refresh(true))}
 for(const audio of document.querySelectorAll('audio'))audio.addEventListener('play',()=>{for(const other of document.querySelectorAll('audio'))if(other!==audio)other.pause()});
 function cell(value){const text=String(value??'');return /[\t\n\r"]/.test(text)?'"'+text.replaceAll('"','""')+'"':text}
@@ -128,6 +127,9 @@ mod tests {
         }
         assert!(text.contains("localStorage"));
         assert!(text.contains("全件完了TSVを保存"));
+        assert!(text
+            .contains("function validRow(value){return Boolean(value.choice&&value.confidence)}"));
+        assert!(text.contains("最寄りキック位置（任意・ms）"));
     }
 
     #[test]

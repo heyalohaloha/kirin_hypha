@@ -132,6 +132,13 @@ HTMLにはopaque clip IDだけを含み、drummer、performance、matched/miss c
 45本の500 ms音源と45本の150 ms集中音源を二回生成し、pack、HTML、別置きkeyの全てがbyte一致した。
 pack definition SHA-256は`0812ff567577d851da392bfdfab9eed057ed8945f1a9f3785a752c419423f5ab`、manifestは`d8a4a0947acb8af930650c63f44fd69058b7c414fc6b5c8da548b3a5d03a8e3a`、HTMLは`c77e9eb1fbeb6ec110cd11b5992f30b101dfa62fe8eb14aa6b0b1e5660d6fedb`である。
 
+### B-559 完了判定の修正
+
+`kickあり`でも最寄り位置が数値でなければ未完了になる問題を修正した。
+完了条件をkick有無と確信度の二項目へ限定し、最寄りkick位置は任意とした。回答保存キーはB-558と同一のため、再読込後も既存入力を引き継ぐ。
+実ブラウザで`kickあり`、確信度5、位置欄`150–300 ms`の状態を作り、`1 / 45 完了`になることと再読込後の維持を確認した。
+二回生成はbyte一致し、HTML SHA-256は`9de54162adc8c9e0acce6dcae769c70a7eadd7032b7fd6a00fa4ca6df543240e`である。
+
 timing P95はMIDI note-onと実際の可聴attack位置の差を含む。
 固定audioを候補出力なしで注釈し、検出器の時刻誤差とMIDI proxyの誤差を分離する。
 注釈結果を見る前にglobal offsetを調整しない。
