@@ -1,8 +1,8 @@
 # Kirin Hypha POST Transient Delta 実装計画
 
 **日付**：2026-08-30
-**状態**：DRUM主要比率は通過。kick missの92%はrefractory競合でなく、低velocity・非上昇audioまたは25–50 ms時刻差。音響監査前の追加調整は禁止、公開ATTACKはOFF
-**実装ラベル**：B-555
+**状態**：DRUM主要比率は通過。kick miss監査用の候補blind 45 clipを固定。聴取結果前の追加調整は禁止、公開ATTACKはOFF
+**実装ラベル**：B-556
 **画面名**：`ATTACK`（仮称）
 
 Phase 2-Rの正本は`docs/transient_delta_phase2_recovery_plan_20260830.md`とする。

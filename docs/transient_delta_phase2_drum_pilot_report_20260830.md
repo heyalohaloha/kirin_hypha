@@ -109,6 +109,15 @@ missはvelocity 20、attack rise −1.76 dBだった。
 音響監査前にdetectorを追加調整しない。
 event診断は二回の実行で589,421 bytes、SHA-256 `b0214bf3938d0087c7b07b9bbe8d31efd9bd48fe25907a96646ede700dd5ae8b`へbyte一致した。
 
+### B-556 candidate-blind聴取パック
+
+drummer 4、5、7について、matched、25–50 ms時刻差、±50 ms内peakなしを各5件ずつ、合計45件へ固定した。
+各clipは500 ms、MIDI参照位置は200 ms、元音量を保持し、class、performance、candidate出力を聴取側へ含めない。
+WAVは全件44.1 kHz mono PCM16、44,144 bytesである。
+二回の生成はpackと別置きkeyの双方でbyte一致した。
+pack definition SHA-256は`c2750847b09f340bb5ddac2d0efabf76fc649d2d2f126b63c774bb06debde5f3`、manifestは`d12cbafab016f78deb803447fb4a02c3535191c7c14fceccdb93d60ccaca6b13`である。
+聴取完了までkeyを開かず、150–250 ms内の明瞭なattack有無、最寄り時刻、確信度だけを記録する。
+
 timing P95はMIDI note-onと実際の可聴attack位置の差を含む。
 固定audioを候補出力なしで注釈し、検出器の時刻誤差とMIDI proxyの誤差を分離する。
 注釈結果を見る前にglobal offsetを調整しない。
