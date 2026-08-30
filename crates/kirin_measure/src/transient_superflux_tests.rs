@@ -238,6 +238,44 @@ fn repeated_deterministic_noise_is_stationary_for_the_odf() {
 }
 
 #[test]
+fn diagnostic_band_flux_mean_exactly_reconstructs_frame_value() {
+    let mut analyzer =
+        SuperFluxAnalyzer::new(48_000, config(1_024, 1, SuperFluxChannelMode::Lr)).unwrap();
+    let silence = vec![0.0; analyzer.layout().window_samples];
+    let onset = impulse(silence.len(), 1.0);
+    let mut bands = vec![f32::NAN; analyzer.layout().band_count];
+    assert!(analyzer
+        .analyze_window_with_band_flux(&silence, None, 0, &mut bands)
+        .unwrap()
+        .is_none());
+    assert!(bands.iter().all(|value| *value == 0.0));
+    let frame = analyzer
+        .analyze_window_with_band_flux(&onset, None, 256, &mut bands)
+        .unwrap()
+        .unwrap();
+    assert!(bands.iter().all(|value| value.is_finite() && *value >= 0.0));
+    assert_eq!(frame.value, bands.iter().sum::<f32>() / bands.len() as f32);
+}
+
+#[test]
+fn invalid_diagnostic_band_buffer_does_not_advance_history() {
+    let mut analyzer =
+        SuperFluxAnalyzer::new(48_000, config(1_024, 1, SuperFluxChannelMode::Lr)).unwrap();
+    let silence = vec![0.0; analyzer.layout().window_samples];
+    let mut short = vec![0.0; analyzer.layout().band_count - 1];
+    assert_eq!(
+        analyzer
+            .analyze_window_with_band_flux(&silence, None, 0, &mut short)
+            .unwrap_err(),
+        "invalid SuperFlux band-flux output length"
+    );
+    assert!(analyzer
+        .analyze_window(&silence, None, 0)
+        .unwrap()
+        .is_none());
+}
+
+#[test]
 fn impulse_is_positive_and_fixed_scale_preserves_gain_order() {
     let config = config(1_024, 1, SuperFluxChannelMode::Lr);
     let quiet = onset_after_silence(48_000, config, 0.1);

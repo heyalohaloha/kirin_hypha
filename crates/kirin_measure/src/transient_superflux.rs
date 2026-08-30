@@ -267,6 +267,30 @@ impl SuperFluxAnalyzer {
         right: Option<&[f32]>,
         support_start_samples: i64,
     ) -> Result<Option<SuperFluxFrame>, &'static str> {
+        self.analyze_window_impl(left, right, support_start_samples, None)
+    }
+
+    /// Expose per-band flux; output length must equal [`SuperFluxLayout::band_count`].
+    pub fn analyze_window_with_band_flux(
+        &mut self,
+        left: &[f32],
+        right: Option<&[f32]>,
+        support_start_samples: i64,
+        band_flux: &mut [f32],
+    ) -> Result<Option<SuperFluxFrame>, &'static str> {
+        if band_flux.len() != self.layout.band_count {
+            return Err("invalid SuperFlux band-flux output length");
+        }
+        self.analyze_window_impl(left, right, support_start_samples, Some(band_flux))
+    }
+
+    fn analyze_window_impl(
+        &mut self,
+        left: &[f32],
+        right: Option<&[f32]>,
+        support_start_samples: i64,
+        band_flux: Option<&mut [f32]>,
+    ) -> Result<Option<SuperFluxFrame>, &'static str> {
         self.validate_input(left, right)?;
         let support_end_samples = support_start_samples
             .checked_add(self.layout.window_samples as i64)
@@ -301,7 +325,17 @@ impl SuperFluxAnalyzer {
 
         let lag = self.layout.spectral_lag_frames;
         let history_slot = self.frames_seen % lag;
-        let value = (self.frames_seen >= lag).then(|| self.odf_value(history_slot));
+        let value = if self.frames_seen >= lag {
+            Some(match band_flux {
+                Some(output) => self.odf_value_with_bands(history_slot, output),
+                None => self.odf_value(history_slot),
+            })
+        } else {
+            if let Some(output) = band_flux {
+                output.fill(0.0);
+            }
+            None
+        };
         let offset = history_slot * self.layout.band_count;
         self.log_history[offset..offset + self.layout.band_count]
             .copy_from_slice(&self.current_log_bands);
@@ -380,17 +414,27 @@ impl SuperFluxAnalyzer {
     }
 
     fn odf_value(&self, history_slot: usize) -> f32 {
+        (0..self.layout.band_count)
+            .map(|band| self.band_flux(history_slot, band))
+            .sum::<f32>()
+            / self.layout.band_count as f32
+    }
+
+    fn odf_value_with_bands(&self, history_slot: usize, output: &mut [f32]) -> f32 {
+        for (band, value) in output.iter_mut().enumerate() {
+            *value = self.band_flux(history_slot, band);
+        }
+        output.iter().sum::<f32>() / output.len() as f32
+    }
+
+    fn band_flux(&self, history_slot: usize, band: usize) -> f32 {
         let offset = history_slot * self.layout.band_count;
         let reference = &self.log_history[offset..offset + self.layout.band_count];
         let radius = self.layout.config.maximum_filter_radius;
-        let mut sum = 0.0;
-        for (band, current) in self.current_log_bands.iter().enumerate() {
-            let start = band.saturating_sub(radius);
-            let end = (band + radius + 1).min(reference.len());
-            let maximum = reference[start..end].iter().copied().fold(0.0, f32::max);
-            sum += (current - maximum).max(0.0);
-        }
-        sum / self.layout.band_count as f32
+        let start = band.saturating_sub(radius);
+        let end = (band + radius + 1).min(reference.len());
+        let maximum = reference[start..end].iter().copied().fold(0.0, f32::max);
+        (self.current_log_bands[band] - maximum).max(0.0)
     }
 }
 

@@ -164,6 +164,19 @@ timing P95はMIDI note-onと実際の可聴attack位置の差を含む。
 
 これら二点以外のprovenanceや認可構造を追加してもATTACK精度は上がらないため、次工程の主作業にしない。
 
+### B-561 確認済みkick missの帯域診断
+
+B-558の固定500 ms clipへB-553と同じSuperFluxを適用し、各bandのhalf-wave fluxを30–200 Hz、200 Hz–2 kHz、2–17 kHzへ分けた。
+閾値探索やcandidate変更は行っていない。
+
+MIDI位置±25 msに低域eligible peakがあったのは、可聴target miss 11件中5件、kickなし14件中10件、target外kick 7件中5件だった。
+全帯域peakの25–75 ms後だけへ限定しても、可聴target miss 5件に対してkickなし4件、target外kick 3件が残った。
+低域peak中央値は可聴target miss 0.205、kickなし0.143だったが分布が大きく重なり、Precisionを保つ分離条件にはならない。
+
+したがって低域補助経路は追加せず棄却を維持する。
+残る直接課題は、既存eligible peakがMIDI位置から31–41 msずれる6件を含む11件の可聴attack時刻を確定し、検出時刻の誤りかMIDI proxyのずれかを分けることである。
+診断artifactは45件でSHA-256 `b50c6fb62edd97bb7c9efbefef94f6b2c538d0c078033d3141063dd5c528a07a`、repository外へ保存した。
+
 ## 7. 再現性
 
 最良pilotは二回実行でbyte単位に一致した。
