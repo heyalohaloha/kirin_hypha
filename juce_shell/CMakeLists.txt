@@ -274,6 +274,31 @@ endfunction()
 add_kirin_plugin(KirinHyphaPRE  Khpr "Kirin Hypha PRE"  "PRE Kirin Hypha"  src/PluginMainPRE.cpp  "com.kirinmastering.hypha.pre")
 add_kirin_plugin(KirinHyphaPOST Khpo "Kirin Hypha POST" "POST Kirin Hypha" src/PluginMainPOST.cpp "com.kirinmastering.hypha.post")
 
+option(KIRIN_HYPHA_BUILD_AUDIO_TRANSPARENCY_TESTS
+    "Build the Windows VST3 in-place bit-transparency host contract" OFF)
+if(KIRIN_HYPHA_BUILD_AUDIO_TRANSPARENCY_TESTS)
+    if(NOT WIN32)
+        message(FATAL_ERROR "The VST3 audio transparency host contract currently supports Windows only")
+    endif()
+    juce_add_console_app(KirinAudioTransparencyContractTests
+        PRODUCT_NAME "Kirin Audio Transparency Contract Tests")
+    target_sources(KirinAudioTransparencyContractTests PRIVATE
+        tests/audio_transparency_contract_test.cpp)
+    target_compile_definitions(KirinAudioTransparencyContractTests PRIVATE
+        JUCE_PLUGINHOST_VST3=1
+        JUCE_PLUGINHOST_VST=0
+        JUCE_VST3_CAN_REPLACE_VST2=0
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0)
+    target_compile_options(KirinAudioTransparencyContractTests PRIVATE
+        ${KIRIN_SOURCE_ENCODING_ARGS})
+    target_link_libraries(KirinAudioTransparencyContractTests PRIVATE
+        juce::juce_audio_processors
+        juce::juce_gui_basics
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_warning_flags)
+endif()
+
 option(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS
     "Build the native-font and fixed-geometry UI render contract test" OFF)
 if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)

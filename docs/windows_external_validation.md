@@ -168,8 +168,8 @@ Fail data:
 1. Select the same PRE/POST pair.
 2. Press `Keep`.
 3. Run an offline bounce/export for at least 20 seconds.
-4. Confirm POST closes Keep/Record after the bounce when the same Record generation has processed at least 1 second of offline audio. Short offline preflight fragments must not close Record. To test the manual-stop fallback only, launch with `KIRIN_HYPHA_OFFLINE_AUTOSTOP=0`.
-5. Press `Stop` manually to close the take.
+4. Confirm POST remains in the active Keep/Record generation after the bounce. Host offline-render state is evidence about processing mode; it does not own the Record lifecycle.
+5. Press `Stop` explicitly to close the take.
 6. Check Record/plugin_data output:
 
 ```powershell
@@ -212,7 +212,14 @@ Pass:
 
 - The two files null or compare bit-identical after alignment.
 
-If the tester cannot do a null test, this gate remains unresolved. Do not treat that as a full release pass.
+Some production sessions contain free-running modulation, reverbs, or other non-deterministic processors
+and cannot produce two bit-identical exports even when the insert state is unchanged. In that case, do not
+attribute the difference to Hypha. Run `KirinAudioTransparencyContractTests` against the exact installed
+PRE and POST VST3 bundles. The host contract exercises active realtime, active offline, stereo, and mono
+processing with known sample buffers and fails on the first changed sample bit or any non-zero latency.
+
+Pass requires either a deterministic DAW null or a passing exact-binary host contract for both PRE and POST.
+If neither can be completed, this gate remains unresolved. Do not treat that as a full release pass.
 
 ## Release Decision
 

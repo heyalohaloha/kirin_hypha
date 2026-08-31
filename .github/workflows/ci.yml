@@ -152,6 +152,7 @@ jobs:
           cmake -S juce_shell -B juce_shell/build-windows
           -DCMAKE_BUILD_TYPE=Release
           -DKIRIN_HYPHA_BUILD_UI_RENDER_TESTS=ON
+          -DKIRIN_HYPHA_BUILD_AUDIO_TRANSPARENCY_TESTS=ON
           -DKIRIN_FFI_LIB="${{ github.workspace }}\target\release\kirin_hypha_ffi.lib"
 
       - name: Validate Windows UI render contract
@@ -165,6 +166,18 @@ jobs:
           --config Release
           --target KirinHyphaPRE_VST3 KirinHyphaPOST_VST3
           --parallel 2
+
+      - name: Validate Windows VST3 audio transparency
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cmake --build juce_shell/build-windows --config Release --target KirinAudioTransparencyContractTests
+          $exe = (Get-ChildItem -Path juce_shell/build-windows -Recurse -File -Filter 'KirinAudioTransparencyContractTests.exe' | Select-Object -First 1).FullName
+          if (-not $exe) { throw 'audio transparency contract executable not found' }
+          $bundles = @(Get-ChildItem -Path juce_shell/build-windows -Recurse -Directory -Filter *.vst3 | Sort-Object FullName)
+          if ($bundles.Count -ne 2) { throw "expected exactly 2 VST3 bundles, found $($bundles.Count)" }
+          & $exe $bundles[0].FullName $bundles[1].FullName
+          if ($LASTEXITCODE -ne 0) { throw "audio transparency contract failed with exit code $LASTEXITCODE" }
 
       - name: Verify Windows VST3 artifacts
         shell: pwsh

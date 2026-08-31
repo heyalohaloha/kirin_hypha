@@ -203,6 +203,21 @@ fn verify_windows_ci_job(workflow: &str) -> Result<()> {
     )?;
     require(
         job_code,
+        "Validate Windows VST3 audio transparency",
+        "Windows preflight job must execute the PRE/POST bit-transparency host contract",
+    )?;
+    require(
+        job_code,
+        "--target KirinAudioTransparencyContractTests",
+        "Windows preflight job must build the audio transparency host contract",
+    )?;
+    require(
+        job_code,
+        "if ($LASTEXITCODE -ne 0) { throw \"audio transparency contract failed",
+        "Windows preflight job must fail when the audio transparency contract fails",
+    )?;
+    require(
+        job_code,
         "Verify Windows VST3 artifacts",
         "Windows preflight job must verify built VST3 artifacts",
     )?;
