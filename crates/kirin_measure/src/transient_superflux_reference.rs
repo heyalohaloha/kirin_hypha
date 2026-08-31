@@ -254,11 +254,8 @@ impl SuperFluxReferenceContract {
     }
 
     pub const fn effective_combine_micros(self) -> Option<u32> {
-        if self.combine_implementation_divisor == 0 {
-            None
-        } else {
-            Some(self.combine_declared_input_micros / self.combine_implementation_divisor)
-        }
+        self.combine_declared_input_micros
+            .checked_div(self.combine_implementation_divisor)
     }
 }
 

@@ -303,11 +303,15 @@ pub(crate) fn decode_mono_pcm_wav(path: &Path, bytes: &[u8]) -> Result<MonoWav, 
         ));
     }
     let samples = if bits_per_sample == 16 {
-        data.chunks_exact(2)
+        data.as_chunks::<2>()
+            .0
+            .iter()
             .map(|value| i16::from_le_bytes([value[0], value[1]]) as f32 / 32_768.0)
             .collect::<Vec<_>>()
     } else {
-        data.chunks_exact(3)
+        data.as_chunks::<3>()
+            .0
+            .iter()
             .map(|value| {
                 let raw =
                     i32::from(value[0]) | (i32::from(value[1]) << 8) | (i32::from(value[2]) << 16);

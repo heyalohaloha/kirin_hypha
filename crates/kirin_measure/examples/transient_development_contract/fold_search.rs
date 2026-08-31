@@ -323,11 +323,9 @@ fn add_ratio_gate(
     let right = u128::from(minimum) * u128::from(limit.numerator);
     if minimum == 0 || left > right {
         *failures += 1;
-        let ppm = if right == 0 {
-            10_000_000
-        } else {
-            (left - right) * 1_000_000 / right
-        };
+        let ppm = ((left - right) * 1_000_000)
+            .checked_div(right)
+            .unwrap_or(10_000_000);
         *excess += ppm.pow(2);
     }
 }

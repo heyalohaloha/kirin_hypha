@@ -85,11 +85,15 @@ pub(crate) fn decode_integer_pcm(bytes: &[u8]) -> Result<DecodedWav, String> {
         ));
     }
     let pcm24 = if bits_per_sample == 16 {
-        data.chunks_exact(2)
+        data.as_chunks::<2>()
+            .0
+            .iter()
             .map(|sample| i32::from(i16::from_le_bytes([sample[0], sample[1]])) << 8)
             .collect()
     } else {
-        data.chunks_exact(3)
+        data.as_chunks::<3>()
+            .0
+            .iter()
             .map(|sample| {
                 let raw = i32::from(sample[0])
                     | (i32::from(sample[1]) << 8)
