@@ -1,8 +1,9 @@
 //! リアルタイム計測エンジン。
 //!
 //! Measure Thread が呼び出す。Audio Thread のリングバッファから受け取った
-//! インターリーブ f64 サンプルを ebur128 と独自スライディングウィンドウで処理し、
-//! 4項目（LUFS-M / True Peak / Crest / PSR）を 100ms 単位で更新する。
+//! インターリーブ f64 サンプルを ebur128 と独自スライディングウィンドウで処理する。
+//! EBU Tech 3341の20ms alignment testを取りこぼさないよう内部解析は10ms、既存の
+//! MeasureResult / TRACE / GUI observer公開は100msのまま分離する。
 
 use ebur128::{EbuR128, Mode};
 use std::collections::VecDeque;
@@ -46,8 +47,27 @@ pub struct SessionSummary {
 /// transport 停止時は SignalState=Inactive が即座に --- を宣言し、再開時は
 /// `reset()` が tp_window をクリアするため、停止前ピークの持ち越しは起きない。
 fn tp_recent_window_frames(sample_rate: u32) -> u64 {
-    // 400ms = sample_rate × 0.4 フレーム（per-channel）。
-    (sample_rate as u64) * 4 / 10
+    // ebur128 と100ms境界を共有する。丸めも100msを4倍し、400ms窓にする。
+    ((sample_rate as u64 + 5) / 10) * 4
+}
+
+/// ebur128と同じ100msフレーム数を10個の解析区間へ分配する。
+///
+/// 標準sample rateでは各10msは同数フレームになる。例えば44,105Hzのように
+/// 100で割り切れない場合は、10区間の合計が必ず丸め後の100msと一致するよう、
+/// 441/442フレームの可変長区間に分ける。
+fn analysis_chunk_frames(publish_frames: usize, phase: u8) -> usize {
+    debug_assert!(phase < 10);
+    let start = usize::from(phase) * publish_frames / 10;
+    let end = (usize::from(phase) + 1) * publish_frames / 10;
+    end - start
+}
+
+fn maximum(current: Option<f64>, candidate: Option<f64>) -> Option<f64> {
+    match (current, candidate) {
+        (Some(current), Some(candidate)) => Some(current.max(candidate)),
+        (current, candidate) => current.or(candidate),
+    }
 }
 
 /// リアルタイム計測エンジン（Measure Thread 専用。Send 不要）。
@@ -62,25 +82,38 @@ pub struct MeasureEngine {
     /// 400ms ウィンドウの上限要素数（sample_rate × 0.4 × n_channels）
     window_400ms_cap: usize,
 
-    /// ebur128 への投入をまとめる 100ms 積算バッファ（インターリーブ f64）。
-    /// 100ms 分の要素数に達したら ebur128 に add_frames_f64() する。
+    /// ebur128 への投入をまとめる10ms解析バッファ（インターリーブ f64）。
     accum: Vec<f64>,
-    /// 100ms 分の要素数（sample_rate / 10 × n_channels）
-    accum_target: usize,
+    /// 次の約10ms解析区間の要素数。10区間の合計は常に`publish_target`。
+    analysis_target: usize,
+    /// 100ms内の次の解析区間番号（0..=9）。
+    analysis_phase: u8,
 
-    /// B-078: ebur128 投入用の再利用バッファ（事前確保）。100ms チャンクごとの
+    /// B-078/B-605: ebur128投入用の再利用バッファ（事前確保）。10msチャンクごとの
     /// `drain().collect()` 新 Vec 確保を排し、`clear()` + `extend` で使い回す。
-    /// Measure Thread 上の alloc churn を除去（処理データ列は同一＝計測値 byte-identical）。
+    /// Measure Thread上のalloc churnを除去する。
     chunk_buf: Vec<f64>,
 
-    /// add_frames 済みの累積フレーム数（per-channel）。`tp_window` の失効判定に使う
-    /// サンプル基準の時刻（B-074: wall-clock `Instant` を置換）。reset() では維持し、
-    /// 相対距離で窓を判定する（窓側は reset() でクリアされる）。
+    /// 既存observerへ渡す正本100ms PCM。内部10ms解析とUI/TRACE cadenceを分離する。
+    publish_buf: Vec<f64>,
+    /// ebur128と同じ丸め規則の100ms要素数。
+    publish_target: usize,
+
+    /// EBU Tech 3341 #10/#11/#13/#14用の、reset以降10ms cadence最大値。
+    /// 現在値の100ms公開やSessionSummary ABIには混ぜない。
+    max_lufs_m: Option<f64>,
+    max_lufs_s: Option<f64>,
+
+    /// observer公開済みの累積フレーム数（per-channel / 100ms境界）。既存TRACE clock契約。
     total_frames: u64,
+
+    /// ebur128投入済みの累積フレーム数（per-channel / 10ms境界）。`tp_window`専用clock。
+    /// 公開clockから分離し、pending PCMを二重計上しない。
+    analysis_frames: u64,
 
     /// True Peak「直近」窓（B-074: フレーム基準）。
     ///
-    /// エントリ = (per-chunk inter-sample true_peak linear値, 記録時点の total_frames)。
+    /// エントリ = (per-chunk inter-sample true_peak linear値, 記録時点の analysis_frames)。
     /// ebur128 の true_peak() は累積最大値（running max）で transport 停止後も古いピークが
     /// 残るため、prev_true_peak()（直近 add_frames チャンク内ピーク）を使い、フレーム基準で
     /// 直近 400ms 以内のエントリのみを最大化して tp_recent を得る（LUFS-M と同窓 / T-3）。
@@ -103,22 +136,37 @@ impl MeasureEngine {
         let ebu = EbuR128::new(n_channels as u32, sample_rate, mode)
             .map_err(|e| format!("EbuR128::new: {:?}", e))?;
 
-        // 400ms = sample_rate × 0.4 × n_channels（インターリーブ要素数）
-        let window_400ms_cap = (sample_rate as usize) * 4 / 10 * n_channels;
-        // 100ms = sample_rate / 10 × n_channels
-        let accum_target = (sample_rate as usize) / 10 * n_channels;
+        // ebur128が採用する丸め後の100msフレーム数を観測時刻の正本にする。
+        let publish_frames = (sample_rate as usize + 5) / 10;
+        if publish_frames < 10 {
+            return Err(format!(
+                "sample rate {sample_rate} Hz is too low for 10ms analysis cadence"
+            ));
+        }
+        let publish_target = publish_frames * n_channels;
+        let analysis_capacity = publish_frames.div_ceil(10) * n_channels;
+        let analysis_target = analysis_chunk_frames(publish_frames, 0) * n_channels;
+
+        // 400ms = 丸め後100ms × 4 × n_channels（インターリーブ要素数）
+        let window_400ms_cap = publish_frames * 4 * n_channels;
 
         Ok(Self {
             ebu,
             n_channels,
             window_400ms: VecDeque::with_capacity(window_400ms_cap + 16),
             window_400ms_cap,
-            accum: Vec::with_capacity(accum_target * 2),
-            accum_target,
-            chunk_buf: Vec::with_capacity(accum_target),
+            accum: Vec::with_capacity(analysis_capacity * 2),
+            analysis_target,
+            analysis_phase: 0,
+            chunk_buf: Vec::with_capacity(analysis_capacity),
+            publish_buf: Vec::with_capacity(publish_target),
+            publish_target,
+            max_lufs_m: None,
+            max_lufs_s: None,
             total_frames: 0,
-            // 最大 4 エントリ（400ms / 100ms）。フレーム基準で失効するので容量は余裕を持つ。
-            tp_window: VecDeque::with_capacity(8),
+            analysis_frames: 0,
+            // 最大40エントリ（400ms / 10ms）。フレーム基準で失効するので容量は余裕を持つ。
+            tp_window: VecDeque::with_capacity(48),
             tp_window_frames: tp_recent_window_frames(sample_rate),
         })
     }
@@ -136,9 +184,15 @@ impl MeasureEngine {
         self.tp_window.clear();
         self.window_400ms.clear();
         self.accum.clear();
+        self.analysis_phase = 0;
+        self.analysis_target =
+            analysis_chunk_frames(self.publish_target / self.n_channels, 0) * self.n_channels;
+        self.publish_buf.clear();
+        self.max_lufs_m = None;
+        self.max_lufs_s = None;
     }
 
-    /// add_frames 済みの累積フレーム数（48k/engine sample time）。
+    /// 100ms observerへ公開済みの累積フレーム数（48k/engine sample time）。
     pub fn total_frames(&self) -> u64 {
         self.total_frames
     }
@@ -146,10 +200,20 @@ impl MeasureEngine {
     /// Input frames retained below the next 100 ms observer boundary.
     ///
     /// A caller that causally primes this engine may begin a real-audio push with an already
-    /// populated accumulator. Observer `total_frames` counts the completed 100 ms slot, including
-    /// that prefix; this value is the exact bridge back to the real callback offset.
+    /// populated 10ms analysis buffer or 100ms publication buffer. Observer `total_frames` counts
+    /// the completed 100ms slot, including that prefix; this is the bridge to the callback offset.
     pub(crate) fn pending_frames(&self) -> u64 {
-        (self.accum.len() / self.n_channels) as u64
+        ((self.publish_buf.len() + self.accum.len()) / self.n_channels) as u64
+    }
+
+    /// reset以降の10ms cadence Maximum Momentary Loudness。UI current値とは独立。
+    pub fn max_lufs_m(&self) -> Option<f64> {
+        self.max_lufs_m
+    }
+
+    /// reset以降の10ms cadence Maximum Short-term Loudness。UI current値とは独立。
+    pub fn max_lufs_s(&self) -> Option<f64> {
+        self.max_lufs_s
     }
 
     /// インターリーブ f64 サンプルを受け取り、100ms チャンクが揃うたびに
@@ -194,49 +258,56 @@ impl MeasureEngine {
     ) -> Option<MeasureResult> {
         self.accum.extend_from_slice(samples);
 
-        // 100ms チャンクが揃ったら ebur128 に投入 → 結果を更新
-        // 複数チャンク分溜まっている場合は全て処理し、最後の結果を返す
-        let chunk_frames = (self.accum_target / self.n_channels) as u64;
+        // 10msごとにebur128と公式maximaを更新し、10個揃った100ms境界だけを公開する。
         let mut result: Option<MeasureResult> = None;
-        while self.accum.len() >= self.accum_target {
-            // B-078: 再利用バッファへ drain（per-chunk の新 Vec 確保を排す / Measure Thread）。
-            // 処理する f64 列は drain().collect() と同一順・同一値 → 計測 byte-identical。
+        while self.accum.len() >= self.analysis_target {
+            let chunk_frames = (self.analysis_target / self.n_channels) as u64;
+            // 再利用バッファへdrainし、同じPCMを100ms公開バッファにも保持する。
             self.chunk_buf.clear();
-            self.chunk_buf.extend(self.accum.drain(..self.accum_target));
+            self.chunk_buf
+                .extend(self.accum.drain(..self.analysis_target));
+            self.publish_buf.extend_from_slice(&self.chunk_buf);
 
-            // Crest/PSR の 400ms 窓も、この observer 結果を生成した 100ms チャンクまでだけ
-            // 進める。入力全体を先に窓へ入れると、offline bounce など 1 回の push で複数
-            // チャンクを処理した際に、中間結果まで最後の 400ms tail を参照してしまう。
+            // Crest/PSRの400ms窓も解析時刻に合わせて10msずつ進める。
             self.window_400ms.extend(self.chunk_buf.iter().copied());
             while self.window_400ms.len() > self.window_400ms_cap {
                 self.window_400ms.pop_front();
             }
-            // B-078: add_frames_f64 失敗を沈黙させない。正常運用では frames が n_channels で
-            // 割り切れ mode も有効なので発生しないが、NoMem 等で失敗した場合この 100ms チャンクは
-            // 計測に入らない（欠落相当）。UI には出さず log で可視化する（R-28 / integrity 思想）。
+            // add_frames_f64失敗を沈黙させず、利用者操作と非紐づきなのでlogだけに残す。
             if let Err(e) = self.ebu.add_frames_f64(&self.chunk_buf) {
                 log::warn!(
-                    "[engine] add_frames_f64 failed ({:?}): this 100ms chunk is not measured (frames lost)",
+                    "[engine] add_frames_f64 failed ({:?}): this 10ms chunk is not measured (frames lost)",
                     e
                 );
             }
 
             // フレーム基準の時刻を進めてから、prev_true_peak をタイムスタンプ付きで窓に追加。
             // prev_true_peak は直近 add_frames チャンク内のピークのみを返す（running max でない）。
-            self.total_frames += chunk_frames;
+            self.analysis_frames += chunk_frames;
             let chunk_tp = (0..self.n_channels as u32)
                 .filter_map(|ch| self.ebu.prev_true_peak(ch).ok())
                 .fold(0.0_f64, f64::max);
-            self.tp_window.push_back((chunk_tp, self.total_frames));
+            self.tp_window.push_back((chunk_tp, self.analysis_frames));
 
             // フレーム基準で 400ms より古いエントリを前から失効させる。
             while let Some(&(_, f)) = self.tp_window.front() {
-                if self.total_frames - f >= self.tp_window_frames {
+                if self.analysis_frames - f >= self.tp_window_frames {
                     self.tp_window.pop_front();
                 } else {
                     break;
                 }
             }
+
+            self.update_loudness_maxima();
+            self.analysis_phase = (self.analysis_phase + 1) % 10;
+            self.analysis_target =
+                analysis_chunk_frames(self.publish_target / self.n_channels, self.analysis_phase)
+                    * self.n_channels;
+            if self.publish_buf.len() < self.publish_target {
+                continue;
+            }
+            debug_assert_eq!(self.publish_buf.len(), self.publish_target);
+            self.total_frames += (self.publish_target / self.n_channels) as u64;
 
             let computed = self.compute();
             let plr = include_plr
@@ -251,10 +322,26 @@ impl MeasureEngine {
                 .flatten()
                 .map(|(peak, loudness)| peak - loudness)
                 .filter(|value| value.is_finite());
-            observe(self.total_frames, &computed, &self.chunk_buf, plr);
+            observe(self.total_frames, &computed, &self.publish_buf, plr);
             result = Some(computed);
+            self.publish_buf.clear();
         }
         result
+    }
+
+    fn update_loudness_maxima(&mut self) {
+        let momentary = self
+            .ebu
+            .loudness_momentary()
+            .ok()
+            .filter(|value| value.is_finite() && *value > LUFS_VALID_FLOOR_LUFS);
+        let shortterm = self
+            .ebu
+            .loudness_shortterm()
+            .ok()
+            .filter(|value| value.is_finite() && *value > LUFS_VALID_FLOOR_LUFS);
+        self.max_lufs_m = maximum(self.max_lufs_m, momentary);
+        self.max_lufs_s = maximum(self.max_lufs_s, shortterm);
     }
 
     /// Record セッション終了時に呼び、ebur128 から LUFS-I / LRA / max TP を抽出（B-043）。
@@ -314,7 +401,7 @@ impl MeasureEngine {
         let valid_tp: f64 = self
             .tp_window
             .iter()
-            .filter(|(_, f)| self.total_frames - f < self.tp_window_frames)
+            .filter(|(_, f)| self.analysis_frames - f < self.tp_window_frames)
             .map(|(v, _)| *v)
             .fold(f64::NEG_INFINITY, f64::max);
 
@@ -395,268 +482,5 @@ impl MeasureEngine {
 }
 
 #[cfg(test)]
-mod tp_recent_golden {
-    //! B-074: tp_recent（400ms / frame 基準）と tp_session_max（running max）の挙動を
-    //! 既知信号で実証する。期待値は信号定義からの理論値（帯域制限正弦の連続ピーク = 振幅）。
-    use super::*;
-
-    const SR: u32 = 48_000;
-
-    /// 1000Hz 正弦 @ amp の 100ms チャンク（interleaved stereo L=R）。100ms@1kHz=100 周期で
-    /// 末尾は zero-crossing（FIR 残差を最小化）。
-    fn sine_100ms(amp: f64) -> Vec<f64> {
-        let frames = (SR / 10) as usize; // 4800
-        let mut v = Vec::with_capacity(frames * 2);
-        for i in 0..frames {
-            let t = i as f64 / SR as f64;
-            let s = amp * (2.0 * std::f64::consts::PI * 1000.0 * t).sin();
-            v.push(s);
-            v.push(s);
-        }
-        v
-    }
-
-    fn silence_100ms() -> Vec<f64> {
-        vec![0.0; (SR / 10) as usize * 2]
-    }
-
-    #[test]
-    fn push_observed_reports_input_samples_per_100ms_chunk() {
-        let mut eng = MeasureEngine::new(SR, 2).unwrap();
-        let mut mixed = silence_100ms();
-        mixed.extend(sine_100ms(0.25));
-
-        let mut observed = Vec::new();
-        let result = eng.push_observed(&mixed, |frames, _, observed_samples| {
-            observed.push((
-                frames,
-                observed_samples.len(),
-                observed_samples.iter().all(|sample| *sample == 0.0),
-                observed_samples.iter().any(|sample| sample.abs() > 0.01),
-            ));
-        });
-
-        assert!(result.is_some());
-        assert_eq!(observed.len(), 2);
-        assert_eq!(observed[0], (4_800, 9_600, true, false));
-        assert_eq!(observed[1], (9_600, 9_600, false, true));
-    }
-
-    /// B-205: サブサイレンス・フロア。通常レベル(-20 dBFS)は Some を保ち、無音ゲート(-140 dBFS)を
-    /// 越えるが極端に小さい -120 dBFS 級は LUFS-M / True Peak を巨大負値ではなく None(---) にする。
-    /// 信号状態修正(B-205)が無音そのものを Inactive に倒すのに対し、本フロアは「Active のまま残る
-    /// 微小残渣」の深い負値表示を塞ぐ defense-in-depth。
-    #[test]
-    fn subsilence_floor_collapses_to_none() {
-        let drive = |amp: f64| -> MeasureResult {
-            let mut eng = MeasureEngine::new(SR, 2).unwrap();
-            eng.reset();
-            let mut last: Option<MeasureResult> = None;
-            for _ in 0..6 {
-                // 600ms（momentary 400ms 窓が充填される）
-                if let Some(r) = eng.push(&sine_100ms(amp)) {
-                    last = Some(r);
-                }
-            }
-            last.expect("result after 600ms")
-        };
-
-        // 通常 -20 dBFS（peak 0.1）: フロア(-100)の遥か上 → Some。
-        let normal = drive(0.1);
-        assert!(
-            normal.lufs_m.is_some_and(|v| v > LUFS_VALID_FLOOR_LUFS),
-            "normal -20 dBFS LUFS-M must be Some above floor: {:?}",
-            normal.lufs_m
-        );
-        assert!(
-            normal.true_peak.is_some(),
-            "normal -20 dBFS true_peak must be Some: {:?}",
-            normal.true_peak
-        );
-        // B-207 #2: 通常レベルでは Crest は通常通り Some（行は埋まる）。
-        assert!(
-            normal.crest.is_some(),
-            "normal -20 dBFS crest must be Some: {:?}",
-            normal.crest
-        );
-
-        // 微小 -120 dBFS（peak 1e-6, 無音ゲート -140 は越える）: LUFS≈-123 / TP=-120 < -100 → None。
-        let tiny = drive(1e-6);
-        assert!(
-            tiny.lufs_m.is_none(),
-            "-120 dBFS LUFS-M must floor to None (was {:?})",
-            tiny.lufs_m
-        );
-        assert!(
-            tiny.true_peak.is_none(),
-            "-120 dBTP true_peak must floor to None (was {:?})",
-            tiny.true_peak
-        );
-        assert!(
-            tiny.tp_session_max.is_none(),
-            "-120 dBTP tp_session_max must floor to None (was {:?})",
-            tiny.tp_session_max
-        );
-        // B-207 #2: フロア帯では Crest/PSR も None に倒れ、行全体が --- に収束する（半埋まり回避）。
-        assert!(
-            tiny.crest.is_none(),
-            "sub-floor crest must collapse to None (was {:?})",
-            tiny.crest
-        );
-        assert!(
-            tiny.psr.is_none(),
-            "sub-floor psr must collapse to None (was {:?})",
-            tiny.psr
-        );
-    }
-
-    #[test]
-    fn short_term_window_remains_independent_when_momentary_tail_is_floored() {
-        let mut eng = MeasureEngine::new(SR, 2).unwrap();
-        let mut last = MeasureResult::default();
-        for _ in 0..30 {
-            last = eng.push(&sine_100ms(0.1)).expect("100 ms result");
-        }
-        assert!(last.lufs_s.is_some(), "3 s loud segment must establish S");
-
-        for _ in 0..5 {
-            last = eng.push(&sine_100ms(1e-6)).expect("100 ms result");
-        }
-        assert!(
-            last.lufs_m.is_none(),
-            "the final 400 ms sub-floor tail must clear M"
-        );
-        assert!(
-            last.lufs_s.is_some(),
-            "S must retain valid energy from its independent 3 s window"
-        );
-        assert!(
-            last.psr.is_none(),
-            "PSR still needs a valid current peak and remains suppressed"
-        );
-    }
-
-    /// burst → 無音 で tp_recent が 400ms 窓で失効し、tp_session_max は hold し続ける。
-    /// 同期 fast test 内でも frame 基準で chunk 4（=400ms）に失効する（wall-clock 2s 窓なら
-    /// 微秒スケールの本 test では失効せず hold し続けるはず → frame 基準の実証）。
-    #[test]
-    fn tp_recent_expires_in_400ms_while_session_holds() {
-        let amp: f64 = 0.5; // -6.02 dBFS
-        let expected = 20.0 * amp.log10(); // ≈ -6.02 dBTP（正弦の連続ピーク = 振幅）
-
-        let mut eng = MeasureEngine::new(SR, 2).unwrap();
-        eng.reset();
-
-        let mut chunks: Vec<Vec<f64>> = vec![sine_100ms(amp)];
-        for _ in 0..5 {
-            chunks.push(silence_100ms());
-        }
-
-        let mut recent: Vec<Option<f64>> = Vec::new();
-        let mut session: Vec<Option<f64>> = Vec::new();
-        for c in &chunks {
-            if let Some(r) = eng.push(c) {
-                recent.push(r.true_peak);
-                session.push(r.tp_session_max);
-            }
-        }
-        assert_eq!(recent.len(), 6, "1 result per 100ms chunk");
-
-        // (a) burst 直後〜400ms 窓内（chunk 0..=3）: tp_recent = burst peak（理論 ±0.5 dBTP）。
-        for (i, r) in recent.iter().take(4).enumerate() {
-            let v = r.unwrap_or_else(|| panic!("recent[{i}] None (expected in 400ms window)"));
-            assert!(
-                (v - expected).abs() < 0.5,
-                "recent[{i}]={v} expected≈{expected} dBTP (burst held in 400ms window)"
-            );
-        }
-        // (b) burst が 400ms 窓を外れた後: tp_recent は burst peak を hold せず「窓内 max へ低下」。
-        //     chunk 4（burst entry が frame dist 19200 で失効）: 窓内 max は burst 直後の FIR 残差
-        //     （burst peak より低い）に落ちる → burst peak を hold しないことを判定（>2dB 低下）。
-        assert!(
-            recent[4].is_none_or(|v| v < expected - 2.0),
-            "recent[4]={:?} must drop below burst {expected} (burst expired from 400ms window)",
-            recent[4]
-        );
-        //     chunk 5: burst 直後 FIR 残差も 400ms 窓外 → 完全失効（clean silence のみ）→ None。
-        assert!(
-            recent[5].is_none(),
-            "recent[5]={:?} must be None (all burst energy out of 400ms window)",
-            recent[5]
-        );
-        // 対比: tp_session_max は running max なので全 chunk で burst peak を hold する。
-        for (i, s) in session.iter().enumerate() {
-            let v = s.unwrap_or_else(|| panic!("session[{i}] None"));
-            assert!(
-                (v - expected).abs() < 0.5,
-                "session_max[{i}]={v} must HOLD burst peak ≈{expected} (running max, contrast with recent)"
-            );
-        }
-    }
-
-    /// frame 基準の実証: 同信号を異なる push ブロックサイズで通しても tp_recent 時系列が一致
-    /// （内部 100ms チャンク処理は供給ブロック粒度に非依存 = offline/realtime 非依存）。
-    #[test]
-    fn tp_recent_independent_of_push_block_size() {
-        let amp = 0.5;
-        let mut sig: Vec<f64> = sine_100ms(amp);
-        for _ in 0..5 {
-            sig.extend(silence_100ms());
-        }
-
-        let drive = |block_frames: usize| -> Vec<Option<f64>> {
-            let mut eng = MeasureEngine::new(SR, 2).unwrap();
-            eng.reset();
-            let mut out = Vec::new();
-            let block = block_frames * 2; // interleaved
-            let mut i = 0;
-            while i < sig.len() {
-                let e = (i + block).min(sig.len());
-                if let Some(r) = eng.push(&sig[i..e]) {
-                    out.push(r.true_peak);
-                }
-                i = e;
-            }
-            out
-        };
-
-        let a = drive(4800); // 100ms blocks (1 chunk per push)
-        let b = drive(1200); // 25ms blocks (4 pushes per 100ms chunk)
-        assert_eq!(
-            a.len(),
-            b.len(),
-            "same number of 100ms results regardless of push block size"
-        );
-        for (i, (x, y)) in a.iter().zip(b.iter()).enumerate() {
-            match (x, y) {
-                (Some(xv), Some(yv)) => assert!(
-                    (xv - yv).abs() < 1e-9,
-                    "tp_recent differs by push block size @ {i}: {xv} vs {yv} (frame-base broken)"
-                ),
-                (None, None) => {}
-                _ => panic!("tp_recent None mismatch by block size @ {i}: {x:?} vs {y:?}"),
-            }
-        }
-    }
-}
-
-#[cfg(test)]
-mod add_frames_integrity {
-    //! B-078: add_frames_f64 失敗を沈黙させず log 化した（旧: `let _`）。ここでは ebur128 が
-    //! 実際に Err を返す条件（n_channels で割り切れない frame 長 = Interleaved::new が NoMem）を
-    //! 確認し、その Err が観測可能（沈黙でなく検出対象）であることを実証する。engine.push は
-    //! accum_target（常に n_channels の倍数）のみ投入するため通常運用では発生しない。
-    use ebur128::{EbuR128, Mode};
-
-    #[test]
-    fn add_frames_f64_errors_on_misaligned_frame_count_is_observable() {
-        let mut ebu = EbuR128::new(2, 48_000, Mode::M).unwrap();
-        // 2ch で 3 要素 = 割り切れない → Err（B-078 はこれをログ化 / 旧 let _ は沈黙）。
-        assert!(
-            ebu.add_frames_f64(&[0.0_f64; 3]).is_err(),
-            "misaligned frame count must be an observable Err (now logged, not silently dropped)"
-        );
-        // 整列長（4 要素 = 2 frames）は Ok。
-        assert!(ebu.add_frames_f64(&[0.0_f64; 4]).is_ok());
-    }
-}
+#[path = "engine_tests.rs"]
+mod tests;
