@@ -66,6 +66,19 @@ KirinDelta activeDelta()
     return delta;
 }
 
+KirinObservatoryFrame activeFrame()
+{
+    KirinObservatoryFrame frame {};
+    frame.version = KIRIN_OBSERVATORY_FRAME_VERSION;
+    frame.signal_state = KIRIN_SIGNAL_STATE_ACTIVE;
+    frame.lra_state = KIRIN_LRA_READY;
+    frame.delta_available = 1u;
+    frame.lra_elapsed_seconds = 272.0;
+    frame.meter = activeMeter();
+    frame.delta = activeDelta();
+    return frame;
+}
+
 std::vector<KirinMeterHistoryEntry> historyFixture()
 {
     std::vector<KirinMeterHistoryEntry> result (90);
@@ -159,6 +172,9 @@ void verifyObservatoryViewContract()
     observatory::View pre (observatory::Role::pre);
     pre.setTarget (observatory::ObservationTarget::delta);
     KIRIN_OBSERVATORY_REQUIRE (pre.target() == observatory::ObservationTarget::absolute);
+    pre.setDomain (observatory::Domain::frequency);
+    KIRIN_OBSERVATORY_REQUIRE (pre.domain() == observatory::Domain::level);
+    KIRIN_OBSERVATORY_REQUIRE (! pre.bodyOwnedByExternalAnalysis());
 
     observatory::View post (observatory::Role::post);
     post.setSize (600, 400);
@@ -167,6 +183,7 @@ void verifyObservatoryViewContract()
     post.setConnectionText ("PAIR DRUM", COL_LED_BLUE);
     post.setGuide ("MASKING 03:18", "3150-3700 HZ", true);
     post.setDomain (observatory::Domain::level);
+    post.setObservatoryFrame (activeFrame(), true);
     const auto absolute = render (post);
     auto noClipsMeter = meter;
     noClipsMeter.clip_events[0] = 0;
@@ -175,6 +192,23 @@ void verifyObservatoryViewContract()
     const auto noClips = render (post);
     KIRIN_OBSERVATORY_REQUIRE (differentPixels (absolute, noClips) > 20);
     post.setMeterSnapshot (meter, true);
+    auto inactiveFrame = activeFrame();
+    inactiveFrame.signal_state = KIRIN_SIGNAL_STATE_INACTIVE;
+    inactiveFrame.meter.state = KIRIN_METER_SESSION_PAUSED;
+    post.setObservatoryFrame (inactiveFrame, true);
+    const auto inactive = render (post);
+    KIRIN_OBSERVATORY_REQUIRE (differentPixels (absolute, inactive) > 500);
+    auto bypassedFrame = inactiveFrame;
+    bypassedFrame.signal_state = KIRIN_SIGNAL_STATE_BYPASSED;
+    post.setObservatoryFrame (bypassedFrame, true);
+    KIRIN_OBSERVATORY_REQUIRE (differentPixels (inactive, render (post)) > 10);
+    auto warmingFrame = activeFrame();
+    warmingFrame.lra_state = KIRIN_LRA_WARMING;
+    warmingFrame.lra_elapsed_seconds = 12.0;
+    warmingFrame.meter.lra = 0.0;
+    post.setObservatoryFrame (warmingFrame, true);
+    KIRIN_OBSERVATORY_REQUIRE (differentPixels (absolute, render (post)) > 20);
+    post.setObservatoryFrame (activeFrame(), true);
     const auto outputPath = juce::SystemStats::getEnvironmentVariable (
         "KIRIN_OBSERVATORY_RENDER_OUTPUT", {});
     if (outputPath.isNotEmpty())
@@ -187,6 +221,12 @@ void verifyObservatoryViewContract()
     post.setTarget (observatory::ObservationTarget::delta);
     const auto difference = render (post);
     KIRIN_OBSERVATORY_REQUIRE (differentPixels (absolute, difference) > 500);
+    auto staleDeltaFrame = activeFrame();
+    staleDeltaFrame.delta.mode = KIRIN_DELTA_MODE_STALE;
+    staleDeltaFrame.delta_available = 1u;
+    post.setObservatoryFrame (staleDeltaFrame, true);
+    KIRIN_OBSERVATORY_REQUIRE (differentPixels (difference, render (post)) > 100);
+    post.setObservatoryFrame (activeFrame(), true);
     KIRIN_OBSERVATORY_REQUIRE (post.domain() == observatory::Domain::level);
 
     post.setDomain (observatory::Domain::time);
@@ -203,6 +243,7 @@ void verifyObservatoryViewContract()
     const auto request = post.historyRequest();
     KIRIN_OBSERVATORY_REQUIRE (request.resolution == KIRIN_METER_HISTORY_10_HZ);
     KIRIN_OBSERVATORY_REQUIRE (request.maxEntries == 300);
+    KIRIN_OBSERVATORY_REQUIRE (request.maxOutputEntries <= 1'200);
     for (const auto dimensions : {
              std::pair { 1'200, 630 }, std::pair { 1'080, 1'080 },
              std::pair { 1'080, 1'350 } })
@@ -213,5 +254,19 @@ void verifyObservatoryViewContract()
         KIRIN_OBSERVATORY_REQUIRE (capture.getHeight() == dimensions.second);
         KIRIN_OBSERVATORY_REQUIRE (capture.getBounds().contains (body));
     }
+    post.setGuide ("MASKING PRIVATE", "3150-3700 HZ", true);
+    const auto defaultPrivate = post.createCaptureImage (
+        1'200, 630, false, "2026-09-01 00:00:00", "0.1.0");
+    post.clearGuide();
+    const auto withoutGuide = post.createCaptureImage (
+        1'200, 630, false, "2026-09-01 00:00:00", "0.1.0");
+    KIRIN_OBSERVATORY_REQUIRE (differentPixels (defaultPrivate, withoutGuide) == 0);
+    post.setGuide ("MASKING PRIVATE", "3150-3700 HZ", true);
+    const auto explicitGuide = post.createCaptureImage (
+        1'200, 630, true, "2026-09-01 00:00:00", "0.1.0");
+    KIRIN_OBSERVATORY_REQUIRE (differentPixels (defaultPrivate, explicitGuide) > 500);
+    const auto changedMetadata = post.createCaptureImage (
+        1'200, 630, false, "2026-09-02 12:34:56", "9.8.7");
+    KIRIN_OBSERVATORY_REQUIRE (differentPixels (defaultPrivate, changedMetadata) > 100);
 }
 }

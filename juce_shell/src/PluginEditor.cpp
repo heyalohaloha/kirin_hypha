@@ -111,7 +111,19 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
     tooltip.setLookAndFeel (&tooltipLookAndFeel);
     setWantsKeyboardFocus (true);
     setFocusContainerType (juce::Component::FocusContainerType::keyboardFocusContainer);
-    setSize (ui::editorWidth, ui::editorHeight);
+    observatorySizeIndex = juce::jmin (
+        (size_t) processorRef.spectrumSizePreference(),
+        hypha::observatory::sizePresets.size() - 1u);
+    observatoryDomain = hypha::observatory::domainFromState (
+        isPost ? hypha::observatory::Role::post : hypha::observatory::Role::pre,
+        processorRef.observatoryDomainPreference());
+    observatoryView.setTarget (hypha::observatory::targetFromState (
+        isPost ? hypha::observatory::Role::post : hypha::observatory::Role::pre,
+        processorRef.observatoryTargetPreference()));
+    observatoryView.setTimeRange (hypha::observatory::timeRangeFromState (
+        processorRef.observatoryTimeRangePreference()));
+    const auto initialPreset = hypha::observatory::sizePresets[observatorySizeIndex];
+    setSize (initialPreset.width, initialPreset.height);
     observatoryView.onDomainChange = [this] (hypha::observatory::Domain domain)
     {
         setObservatoryDomain (domain);
@@ -119,21 +131,24 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
     observatoryView.onTargetChange = [this] (hypha::observatory::ObservationTarget target)
     {
         observatoryView.setTarget (target);
+        processorRef.setObservatoryTargetPreference (hypha::observatory::stateValue (target));
        #if ! KIRIN_HYPHA_PRE_DISPLAY
         spectrumView.setAbsoluteObservation (
             target == hypha::observatory::ObservationTarget::absolute);
        #endif
     };
+    observatoryView.onTimeRangeChange = [this] (hypha::observatory::TimeRange range)
+    {
+        processorRef.setObservatoryTimeRangePreference (hypha::observatory::stateValue (range));
+    };
     observatoryView.onSizeChange = [this] (hypha::observatory::SizePreset preset)
     {
-       #if ! KIRIN_HYPHA_PRE_DISPLAY
         for (size_t index = 0; index < hypha::observatory::sizePresets.size(); ++index)
             if (hypha::observatory::sizePresets[index].width == preset.width)
             {
-                spectrumSizeIndex = index;
+                observatorySizeIndex = index;
                 processorRef.setSpectrumSizePreference ((uint8_t) index);
             }
-       #endif
         setSize (preset.width, preset.height);
     };
     observatoryView.onReset = [this]
@@ -211,7 +226,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         addAndMakeVisible (pairDropdown);
 
        #if ! KIRIN_HYPHA_PRE_DISPLAY
-        spectrumSizeIndex = juce::jmin (
+        observatorySizeIndex = juce::jmin (
             (size_t) processorRef.spectrumSizePreference(),
             ui::spectrumSizePresets.size() - 1u);
         spectrumToggle.setButtonText ("ANALYSIS");
@@ -303,7 +318,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         postControls->setVisible (false);
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     spectrumToggle.setVisible (false);
-    const auto launchPreset = hypha::observatory::sizePresets[spectrumSizeIndex];
+    const auto launchPreset = hypha::observatory::sizePresets[observatorySizeIndex];
     setSize (launchPreset.width, launchPreset.height);
    #endif
     setObservatoryDomain (observatoryDomain);
@@ -315,7 +330,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     if (openAttackAtLaunch)
     {
-        spectrumSizeIndex = ui::spectrumSizePresets.size() - 1u;
+        observatorySizeIndex = ui::spectrumSizePresets.size() - 1u;
         observatoryDomain = hypha::observatory::Domain::time;
         observatoryView.setDomain (observatoryDomain);
         setAnalysisPage (AnalysisPage::attack);
@@ -486,16 +501,16 @@ void KirinHyphaEditor::cycleSpectrumSize()
 {
     if (analysisPage == AnalysisPage::meters)
         return;
-    spectrumSizeIndex = (spectrumSizeIndex + 1u) % ui::spectrumSizePresets.size();
-    processorRef.setSpectrumSizePreference ((uint8_t) spectrumSizeIndex);
+    observatorySizeIndex = (observatorySizeIndex + 1u) % ui::spectrumSizePresets.size();
+    processorRef.setSpectrumSizePreference ((uint8_t) observatorySizeIndex);
     updateSpectrumSizeControl();
-    const auto preset = ui::spectrumSizePresets[spectrumSizeIndex];
+    const auto preset = ui::spectrumSizePresets[observatorySizeIndex];
     setSize (preset.width, preset.height);
 }
 
 void KirinHyphaEditor::updateSpectrumSizeControl()
 {
-    const auto preset = ui::spectrumSizePresets[spectrumSizeIndex];
+    const auto preset = ui::spectrumSizePresets[observatorySizeIndex];
     spectrumSizeToggle.setButtonText (preset.buttonText);
     spectrumSizeToggle.setTooltip (preset.tooltip);
 }

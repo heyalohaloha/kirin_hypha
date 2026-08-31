@@ -97,6 +97,11 @@ typedef struct KirinHypha KirinHypha;
 #define KIRIN_METER_HISTORY_0_1_HZ_CAPACITY 8640u
 #define KIRIN_METER_HISTORY_MAX_ENTRIES 8640u
 
+#define KIRIN_OBSERVATORY_FRAME_VERSION 1u
+#define KIRIN_LRA_UNAVAILABLE 0u
+#define KIRIN_LRA_WARMING 1u
+#define KIRIN_LRA_READY 2u
+
 /* RT 計測結果. 各 double の「値なし」は NaN. */
 typedef struct {
   double lufs_m;        /* LUFS-M (ITU-R BS.1770-4 Momentary, 400ms) */
@@ -222,6 +227,20 @@ typedef struct {
   double sharpness;
   double lufs_s;        /* Δ LUFS-S (末尾追加で既存 offset 不変) */
 } KirinDelta;
+
+/* Observatoryが1回のUI pollで受け取るversion付き正本。
+ * current値の表示可否はsignal_state、累積値はmeter.state、LRAはlra_stateが所有する。
+ * pair接続状態は別のcontrol-plane事実であり、この計測フレームには混ぜない。 */
+typedef struct {
+  uint32_t version;       /* KIRIN_OBSERVATORY_FRAME_VERSION */
+  uint8_t signal_state;   /* KIRIN_SIGNAL_STATE_* */
+  uint8_t lra_state;      /* KIRIN_LRA_* */
+  uint8_t delta_available;/* ActiveかつfiniteなPOST-PRE測定値が1つ以上ある */
+  uint8_t reserved;
+  double lra_elapsed_seconds;
+  KirinMeterSession meter;
+  KirinDelta delta;
+} KirinObservatoryFrame;
 
 /* POST専用Spectrum表示. pre/post_dbfsはdisplay_dbの正確な元フレーム、display_dbは
  * 符号付きPOST-PRE。描画側が±24 dBへ収めるが、Rust内部のraw差分はclipしない。
@@ -771,6 +790,11 @@ bool kirin_hypha_poll_session(KirinHypha* handle, KirinSessionSummary* out);
 /* Record/Keepとは独立した常設メーターを取得。Emptyも有効なsnapshotとしてtrue。 */
 bool kirin_hypha_poll_meter_session(KirinHypha* handle, KirinMeterSession* out);
 
+/* signal / meter / delta / readinessを同一UI poll境界で取得する。
+ * signal stateが組立中に遷移した場合はfalseにして混在フレームを公開しない。 */
+bool kirin_hypha_poll_observatory_frame(KirinHypha* handle,
+                                        KirinObservatoryFrame* out);
+
 /* TIME履歴を古い順で最大out_capacity件取得。競合時はfalse、out_countを変更しない。 */
 bool kirin_hypha_poll_meter_history(KirinHypha* handle,
                                     uint8_t resolution,
@@ -778,12 +802,26 @@ bool kirin_hypha_poll_meter_history(KirinHypha* handle,
                                     uint32_t out_capacity,
                                     uint32_t* out_count);
 
+/* 指定時間範囲を維持しつつ、min/max/meanを画面列数以下へ集約して返す。 */
+bool kirin_hypha_poll_meter_history_decimated(KirinHypha* handle,
+                                              uint8_t resolution,
+                                              uint32_t max_entries,
+                                              KirinMeterHistoryEntry* out,
+                                              uint32_t out_capacity,
+                                              uint32_t* out_count);
+
 /* POST−PRE TIME履歴。同一presentation sample終端で結合できた点だけを返す。 */
 bool kirin_hypha_poll_meter_delta_history(KirinHypha* handle,
                                           uint8_t resolution,
                                           KirinMeterHistoryEntry* out,
                                           uint32_t out_capacity,
                                           uint32_t* out_count);
+bool kirin_hypha_poll_meter_delta_history_decimated(KirinHypha* handle,
+                                                    uint8_t resolution,
+                                                    uint32_t max_entries,
+                                                    KirinMeterHistoryEntry* out,
+                                                    uint32_t out_capacity,
+                                                    uint32_t* out_count);
 
 /* 利用者操作で常設メーターだけをReset。競合・未生成時はfalse。 */
 bool kirin_hypha_reset_meter_session(KirinHypha* handle);

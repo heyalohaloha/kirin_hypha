@@ -47,12 +47,15 @@ public:
     bool pollWatchDisplay (KirinWatchDisplay& out) const;
     bool pollRecordDisplay (KirinRecordDisplay& out) const;
     bool pollMeterSession (KirinMeterSession& out) const;
+    bool pollObservatoryFrame (KirinObservatoryFrame& out) const;
     bool pollMeterHistory (uint8_t resolution,
                            std::vector<KirinMeterHistoryEntry>& out,
-                           size_t maxEntries) const;
+                           size_t maxEntries,
+                           size_t maxOutputEntries) const;
     bool pollMeterDeltaHistory (uint8_t resolution,
                                 std::vector<KirinMeterHistoryEntry>& out,
-                                size_t maxEntries) const;
+                                size_t maxEntries,
+                                size_t maxOutputEntries) const;
     bool resetMeterSession();
     bool useShortTermLoudness() const
     {
@@ -115,8 +118,25 @@ public:
     }
     void setSpectrumSizePreference (uint8_t index)
     {
-        preferredSpectrumSize.store (index < 4u ? index : 0u, std::memory_order_release);
+        const uint8_t bounded = index < 4u ? index : uint8_t { 0 };
+        if (preferredSpectrumSize.exchange (bounded, std::memory_order_acq_rel) != bounded)
+            updateHostDisplay (ChangeDetails {}.withNonParameterStateChanged (true));
     }
+    uint8_t observatoryDomainPreference() const
+    {
+        return preferredObservatoryDomain.load (std::memory_order_acquire);
+    }
+    uint8_t observatoryTargetPreference() const
+    {
+        return preferredObservatoryTarget.load (std::memory_order_acquire);
+    }
+    uint8_t observatoryTimeRangePreference() const
+    {
+        return preferredObservatoryTimeRange.load (std::memory_order_acquire);
+    }
+    void setObservatoryDomainPreference (uint8_t value);
+    void setObservatoryTargetPreference (uint8_t value);
+    void setObservatoryTimeRangePreference (uint8_t value);
     bool isPlaying() const { return lastPlaying.load (std::memory_order_acquire); } // transport (POST pair lock)
 
     // --- B-054: PRE live name + LED pollers (egui parity) --------------------------------
@@ -212,7 +232,10 @@ private:
     std::atomic<bool> perceptualAnalysisRequested { false }; // restores the visible analyzer after engine recreation
     std::atomic<bool> absoluteAnalysisRequested { false }; // local POST absolute timeline restore
     std::atomic<bool> internalAttackRequested { false }; // internal validation UI; default OFF
-    std::atomic<uint8_t> preferredSpectrumSize { 3 };      // rich 200% default; Analysis still opens off
+    std::atomic<uint8_t> preferredSpectrumSize { 0 };      // legacy/default state opens at 100%
+    std::atomic<uint8_t> preferredObservatoryDomain { 0 }; // DisplayState v2; LEVEL
+    std::atomic<uint8_t> preferredObservatoryTarget { 0 }; // DisplayState v2; absolute
+    std::atomic<uint8_t> preferredObservatoryTimeRange { 0 }; // DisplayState v2; 30 s
     std::atomic<uint8_t> preferredSpectrumChannelMode { KIRIN_SPECTRUM_CHANNEL_LR };
 
 #if KIRIN_HYPHA_GUIDE_TRANSPORT

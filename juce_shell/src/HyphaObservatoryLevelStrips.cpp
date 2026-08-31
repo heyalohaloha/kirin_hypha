@@ -51,6 +51,9 @@ void View::cycleSize()
 
 void View::paintChannelStrips (juce::Graphics& g, juce::Rectangle<int> area)
 {
+    const auto& meter = observatoryFrame.meter;
+    const bool currentAvailable = currentFactsAvailable();
+    const bool cumulativeAvailable = cumulativeFactsAvailable();
     g.setColour (BG.withAlpha (0.82f));
     g.fillRoundedRectangle (area.toFloat(), 4.0f);
     g.setColour (COL_MUTED.withAlpha (0.34f));
@@ -80,22 +83,24 @@ void View::paintChannelStrips (juce::Graphics& g, juce::Rectangle<int> area)
         for (int db = -48; db <= -6; db += 6)
             g.drawHorizontalLine (juce::roundToInt (mapY ((double) db)),
                                   (float) column.getX(), (float) column.getRight());
-        const bool available = meterAvailable && channel < meter.channels
+        const bool available = currentAvailable && channel < meter.channels
                             && std::isfinite (meter.sample_peak_dbfs[channel]);
-        if (! available)
-            continue;
-        const auto levelY = mapY (meter.sample_peak_dbfs[channel]);
-        g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.62f));
-        g.fillRect ((float) column.getX(), levelY,
-                    (float) column.getWidth(), (float) column.getBottom() - levelY);
-        if (std::isfinite (meter.channel_true_peak_dbtp[channel]))
+        if (available)
         {
-            g.setColour (COL_SPECTRUM_DELTA_BR);
-            g.drawHorizontalLine (juce::roundToInt (
-                mapY (meter.channel_true_peak_dbtp[channel])),
-                (float) column.getX(), (float) column.getRight());
+            const auto levelY = mapY (meter.sample_peak_dbfs[channel]);
+            g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.62f));
+            g.fillRect ((float) column.getX(), levelY,
+                        (float) column.getWidth(), (float) column.getBottom() - levelY);
+            if (std::isfinite (meter.channel_true_peak_dbtp[channel]))
+            {
+                g.setColour (COL_SPECTRUM_DELTA_BR);
+                g.drawHorizontalLine (juce::roundToInt (
+                    mapY (meter.channel_true_peak_dbtp[channel])),
+                    (float) column.getX(), (float) column.getRight());
+            }
         }
-        if (std::isfinite (meter.sample_peak_hold_dbfs[channel]))
+        if (cumulativeAvailable && channel < meter.channels
+            && std::isfinite (meter.sample_peak_hold_dbfs[channel]))
         {
             g.setColour (COL_FLORA_BR);
             g.fillRect ((float) column.getX(),
@@ -111,12 +116,14 @@ void View::paintChannelStrips (juce::Graphics& g, juce::Rectangle<int> area)
     g.drawText ("CLIP", clips.removeFromTop (10), juce::Justification::centred);
     const auto left = clips.removeFromLeft (columnWidth);
     clips.removeFromLeft (columnGap);
-    paintClipCount (g, left, "L", meter.clip_events[0], meterAvailable && meter.channels > 0);
-    paintClipCount (g, clips, "R", meter.clip_events[1], meterAvailable && meter.channels > 1);
+    paintClipCount (g, left, "L", meter.clip_events[0], cumulativeAvailable && meter.channels > 0);
+    paintClipCount (g, clips, "R", meter.clip_events[1], cumulativeAvailable && meter.channels > 1);
 }
 
 void View::paintClipEventRail (juce::Graphics& g, juce::Rectangle<int> area)
 {
+    const auto& meter = observatoryFrame.meter;
+    const bool cumulativeAvailable = cumulativeFactsAvailable();
     g.setColour (BG.withAlpha (0.82f));
     g.fillRoundedRectangle (area.toFloat(), 3.0f);
     g.setColour (COL_MUTED.withAlpha (0.34f));
@@ -127,13 +134,14 @@ void View::paintClipEventRail (juce::Graphics& g, juce::Rectangle<int> area)
     g.setFont (labelFont (7.5f));
     g.drawText ("CLIP EVENTS", label, juce::Justification::centredLeft);
     const auto left = area.removeFromLeft (area.getWidth() / 2);
-    paintClipCount (g, left, "L", meter.clip_events[0], meterAvailable && meter.channels > 0);
-    paintClipCount (g, area, "R", meter.clip_events[1], meterAvailable && meter.channels > 1);
+    paintClipCount (g, left, "L", meter.clip_events[0], cumulativeAvailable && meter.channels > 0);
+    paintClipCount (g, area, "R", meter.clip_events[1], cumulativeAvailable && meter.channels > 1);
 }
 
 void View::paintMeasuredMycelium (juce::Graphics& g, juce::Rectangle<int> area)
 {
-    if (! meterAvailable || meter.state != KIRIN_METER_SESSION_ACTIVE
+    const auto& meter = observatoryFrame.meter;
+    if (! currentFactsAvailable()
         || ! std::isfinite (meter.lufs_m))
         return;
     const auto energy = (float) juce::jlimit (0.0, 1.0, (meter.lufs_m + 48.0) / 48.0);

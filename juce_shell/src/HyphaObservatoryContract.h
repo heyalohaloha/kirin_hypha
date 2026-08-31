@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 
 // Pure C++ contract for the Hypha Observatory parent shell.
 //
@@ -28,6 +29,15 @@ enum class ObservationTarget
 {
     absolute,
     delta,
+};
+
+enum class TimeRange
+{
+    seconds30,
+    minutes2,
+    minutes10,
+    hours2,
+    hours24,
 };
 
 enum class GuidePresence
@@ -289,6 +299,85 @@ constexpr ObservationTarget effectiveTarget (Role role,
         ? preferred : ObservationTarget::absolute;
 }
 
+struct DomainCapabilities
+{
+    bool level = true;
+    bool time = true;
+    bool frequency = false;
+    bool space = true;
+
+    constexpr bool allows (Domain domain) const noexcept
+    {
+        switch (domain)
+        {
+            case Domain::level:     return level;
+            case Domain::time:      return time;
+            case Domain::frequency: return frequency;
+            case Domain::space:     return space;
+        }
+        return false;
+    }
+};
+
+constexpr DomainCapabilities domainCapabilities (Role role) noexcept
+{
+    return { true, true, role == Role::post, true };
+}
+
+constexpr Domain sanitizeDomain (Role role, Domain requested) noexcept
+{
+    return domainCapabilities (role).allows (requested) ? requested : Domain::level;
+}
+
+constexpr Domain nextDomain (Role role, Domain current) noexcept
+{
+    auto candidate = current;
+    for (int attempts = 0; attempts < 4; ++attempts)
+    {
+        candidate = candidate == Domain::level ? Domain::time
+                  : candidate == Domain::time ? Domain::frequency
+                  : candidate == Domain::frequency ? Domain::space : Domain::level;
+        if (domainCapabilities (role).allows (candidate))
+            return candidate;
+    }
+    return Domain::level;
+}
+
+constexpr std::uint8_t stateValue (Domain value) noexcept
+{
+    return static_cast<std::uint8_t> (value);
+}
+
+constexpr std::uint8_t stateValue (ObservationTarget value) noexcept
+{
+    return static_cast<std::uint8_t> (value);
+}
+
+constexpr std::uint8_t stateValue (TimeRange value) noexcept
+{
+    return static_cast<std::uint8_t> (value);
+}
+
+constexpr Domain domainFromState (Role role, std::uint8_t value) noexcept
+{
+    const auto decoded = value <= stateValue (Domain::space)
+        ? static_cast<Domain> (value) : Domain::level;
+    return sanitizeDomain (role, decoded);
+}
+
+constexpr ObservationTarget targetFromState (Role role, std::uint8_t value) noexcept
+{
+    const auto decoded = value <= stateValue (ObservationTarget::delta)
+        ? static_cast<ObservationTarget> (value) : ObservationTarget::absolute;
+    return targetAllowed (role, decoded) ? decoded : ObservationTarget::absolute;
+}
+
+constexpr TimeRange timeRangeFromState (std::uint8_t value) noexcept
+{
+    return value <= stateValue (TimeRange::hours24)
+        ? static_cast<TimeRange> (value) : TimeRange::seconds30;
+}
+
 struct NavigationState
 {
     Domain domain = Domain::level;
@@ -316,4 +405,7 @@ static_assert (targetAllowed (Role::post, ObservationTarget::delta));
 static_assert (! targetAllowed (Role::post, Domain::space, ObservationTarget::delta));
 static_assert (effectiveTarget (Role::post, Domain::space, ObservationTarget::delta)
                == ObservationTarget::absolute);
+static_assert (! domainCapabilities (Role::pre).allows (Domain::frequency));
+static_assert (domainCapabilities (Role::post).allows (Domain::frequency));
+static_assert (nextDomain (Role::pre, Domain::time) == Domain::space);
 }

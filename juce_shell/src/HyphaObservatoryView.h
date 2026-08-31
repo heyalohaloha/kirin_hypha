@@ -19,6 +19,7 @@ public:
 
     std::function<void (Domain)> onDomainChange;
     std::function<void (ObservationTarget)> onTargetChange;
+    std::function<void (TimeRange)> onTimeRangeChange;
     std::function<void (SizePreset)> onSizeChange;
     std::function<void()> onReset;
     std::function<void()> onCapture;
@@ -30,8 +31,12 @@ public:
     {
         return effectiveTarget (role, selectedDomain, selectedTarget);
     }
+    ObservationTarget preferredTarget() const noexcept { return selectedTarget; }
+    void setTimeRange (TimeRange);
+    TimeRange selectedTimeRange() const noexcept { return timeRange; }
     void setMeterSnapshot (const KirinMeterSession&, bool available);
     void setDeltaSnapshot (const KirinDelta&, bool available);
+    void setObservatoryFrame (const KirinObservatoryFrame&, bool available);
     void setConnectionText (juce::String text, juce::Colour colour);
     void setGuide (juce::String primary, juce::String detail, bool emphasized);
     void clearGuide();
@@ -41,27 +46,30 @@ public:
     {
         uint8_t resolution = KIRIN_METER_HISTORY_10_HZ;
         size_t maxEntries = 300;
+        size_t maxOutputEntries = 300;
         const char* label = "30 S / 10 HZ";
     };
 
     HistoryRequest historyRequest() const noexcept;
-    juce::Image createCaptureImage (int pixelWidth, int pixelHeight) const;
-    juce::Rectangle<int> captureBodyBounds (int pixelWidth, int pixelHeight) const;
+    juce::Image createCaptureImage (int pixelWidth, int pixelHeight,
+                                    bool includeGuide = false,
+                                    juce::String capturedAt = {},
+                                    juce::String productVersion = {}) const;
+    juce::Rectangle<int> captureBodyBounds (int pixelWidth, int pixelHeight,
+                                            bool includeGuide = false) const;
     juce::Rectangle<int> bodyBounds() const noexcept { return bodyArea; }
     juce::Rectangle<int> connectionBounds() const noexcept { return connectionArea; }
     juce::Rectangle<int> guideBounds() const noexcept { return guideArea; }
     juce::Rectangle<int> sessionBounds() const noexcept { return sessionArea; }
     bool bodyOwnedByExternalAnalysis() const noexcept
     {
-        return selectedDomain == Domain::frequency;
+        return role == Role::post && selectedDomain == Domain::frequency;
     }
 
     void paint (juce::Graphics&) override;
     void resized() override;
 
 private:
-    enum class TimeRange { seconds30, minutes2, minutes10, hours2, hours24 };
-
     void cycleDomain();
     void cycleTimeRange();
     void cycleSize();
@@ -76,21 +84,24 @@ private:
     void paintClipEventRail (juce::Graphics&, juce::Rectangle<int>);
     void paintTime (juce::Graphics&, juce::Rectangle<int>);
     void paintMeasuredMycelium (juce::Graphics&, juce::Rectangle<int>);
+    bool currentFactsAvailable() const noexcept;
+    bool cumulativeFactsAvailable() const noexcept;
+    bool deltaFactsAvailable() const noexcept;
 
     Role role;
     Domain selectedDomain = Domain::level;
     ObservationTarget selectedTarget = ObservationTarget::absolute;
     TimeRange timeRange = TimeRange::seconds30;
-    KirinMeterSession meter {};
-    KirinDelta delta {};
-    bool meterAvailable = false;
-    bool deltaAvailable = false;
+    KirinObservatoryFrame observatoryFrame {};
+    bool frameAvailable = false;
     juce::String connectionText;
     juce::Colour connectionColour = COL_MUTED;
     juce::String guidePrimary;
     juce::String guideDetail;
     bool guideEmphasized = false;
     bool captureFrame = false;
+    juce::String captureTimestamp;
+    juce::String captureVersion;
     std::vector<KirinMeterHistoryEntry> history;
     juce::Rectangle<int> bodyArea;
     juce::Rectangle<int> connectionArea;

@@ -28,7 +28,7 @@ ATTACK統合後のworkspace testがgreenになったため、Daisukeの2026-08-3
 
 精度を装飾で演出するのではなく、単位、時間窓、軸、状態、測定時刻を美しく組み立てる。
 
-この文書は実装済みの製品契約であり、B-590からB-602の実装と今後の公開判定を拘束する。
+この文書は実装済みの製品契約であり、B-590からB-604の実装と今後の公開判定を拘束する。
 
 ## 2. Isolation boundary
 
@@ -445,7 +445,9 @@ Captureは利用者の明示操作で現在の測定snapshotを画像に保存�
 
 既存test signalによるM、S、I、TP、LRAの数値比較はpassした。
 
-公式test setはEBU配布サーバーから取得できておらず、公開前の未完了gateとして残す。
+公式test set v05のTech 3342 LRA 6素材は、固定`ebur128 0.1.10`とHyphaの100 ms wrapperでpassした。
+
+Tech 3341と70素材全体によるM、S、I、TPの確認は、公開前の未完了gateとして残す。
 
 PLR、BAL、CORR、clip eventの正常系、境界値、無音、mono、逆相を検証する。
 
@@ -483,7 +485,11 @@ INSPECT instant、MASKING interval、optional band、unlocated frequencyを全4�
 
 ### Gate F: capture
 
-3 presetのpixel寸法、文字、snapshot一致、metadata不在を自動確認する。
+3 presetのpixel寸法、文字、snapshot一致、capture時刻、製品versionを自動確認する。
+
+Guideは既定で含めず、明示選択時だけ含める。
+
+ファイルパス、UUID、内部instance IDが画像へ入らないことを自動確認する。
 
 保存先なし、権限なし、disk full、連続操作を確認する。
 

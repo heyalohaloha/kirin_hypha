@@ -139,6 +139,16 @@ impl MeterSession {
         self.history.recent(resolution, max_entries)
     }
 
+    pub fn recent_history_decimated(
+        &self,
+        resolution: MeterHistoryResolution,
+        max_entries: usize,
+        max_output: usize,
+    ) -> Vec<MeterHistoryEntry> {
+        self.history
+            .recent_decimated(resolution, max_entries, max_output)
+    }
+
     pub fn pause(&mut self) {
         if self.state != MeterSessionState::Empty {
             self.state = MeterSessionState::Paused;

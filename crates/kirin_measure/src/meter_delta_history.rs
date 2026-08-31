@@ -99,6 +99,8 @@ struct DeltaHistoryState {
     history: MeterHistory,
     joined_order: VecDeque<JoinedPoint>,
     joined: HashSet<JoinedPoint>,
+    consumed_pre_order: VecDeque<JoinedPoint>,
+    consumed_pre: HashSet<JoinedPoint>,
 }
 
 impl DeltaHistoryState {
@@ -136,12 +138,31 @@ impl DeltaHistoryState {
         self.history.reset();
         self.joined_order.clear();
         self.joined.clear();
+        self.consumed_pre_order.clear();
+        self.consumed_pre.clear();
     }
 
     fn ingest(&mut self, pre: &[WirePoint], post: &[MeterHistoryEntry], sample_rate: u32) {
-        let pre_counts = key_counts(pre.iter().map(wire_key));
-        let post_counts = key_counts(post.iter().filter_map(history_key));
-        let pre_by_key: HashMap<_, _> = pre.iter().map(|point| (wire_key(point), point)).collect();
+        let available_pre = pre.iter().filter(|point| {
+            !self.consumed_pre.contains(&JoinedPoint {
+                generation: point.generation,
+                observed_frames: point.observed_frames,
+            })
+        });
+        let pre_counts = key_counts(available_pre.clone().map(wire_key));
+        let post_counts = key_counts(
+            post.iter()
+                .filter(|point| {
+                    !self.joined.contains(&JoinedPoint {
+                        generation: point.generation,
+                        observed_frames: point.last_observed_frames,
+                    })
+                })
+                .filter_map(history_key),
+        );
+        let pre_by_key: HashMap<_, _> = available_pre
+            .map(|point| (wire_key(point), point))
+            .collect();
 
         for post_point in post {
             let joined_id = JoinedPoint {
@@ -210,6 +231,10 @@ impl DeltaHistoryState {
             );
             self.last_joined_axis = Some((post_point.last_observed_frames, key.1, key.0));
             self.remember_joined(joined_id);
+            self.remember_consumed_pre(JoinedPoint {
+                generation: pre_point.generation,
+                observed_frames: pre_point.observed_frames,
+            });
         }
     }
 
@@ -219,6 +244,16 @@ impl DeltaHistoryState {
         while self.joined_order.len() > JOINED_POINT_CAPACITY {
             if let Some(oldest) = self.joined_order.pop_front() {
                 self.joined.remove(&oldest);
+            }
+        }
+    }
+
+    fn remember_consumed_pre(&mut self, point: JoinedPoint) {
+        self.consumed_pre.insert(point);
+        self.consumed_pre_order.push_back(point);
+        while self.consumed_pre_order.len() > JOINED_POINT_CAPACITY {
+            if let Some(oldest) = self.consumed_pre_order.pop_front() {
+                self.consumed_pre.remove(&oldest);
             }
         }
     }
@@ -313,6 +348,17 @@ impl MeterDeltaHistoryExchange {
         lock_recover(&self.delta)
             .history
             .recent(resolution, max_entries)
+    }
+
+    pub fn recent_decimated(
+        &self,
+        resolution: MeterHistoryResolution,
+        max_entries: usize,
+        max_output: usize,
+    ) -> Vec<MeterHistoryEntry> {
+        lock_recover(&self.delta)
+            .history
+            .recent_decimated(resolution, max_entries, max_output)
     }
 
     pub fn reset(&self) {

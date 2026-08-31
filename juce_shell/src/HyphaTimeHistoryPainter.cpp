@@ -1,4 +1,5 @@
 #include "HyphaTimeHistoryPainter.h"
+#include "HyphaTimeAxisContract.h"
 
 #include "HyphaTheme.h"
 
@@ -52,16 +53,11 @@ float yFor (juce::Rectangle<float> plot, Metric metric, double value, bool delta
 
 float xFor (juce::Rectangle<float> plot,
             const KirinMeterHistoryEntry& entry,
-            uint64_t firstObserved,
-            uint64_t observedSpan,
+            const HistoryAxis& axis,
             size_t index,
             size_t count) noexcept
 {
-    if (observedSpan > 0u && entry.last_observed_frames >= firstObserved)
-        return plot.getX() + (float) (entry.last_observed_frames - firstObserved)
-                           / (float) observedSpan * plot.getWidth();
-    return plot.getX() + (count > 1u ? (float) index / (float) (count - 1u) : 1.0f)
-                       * plot.getWidth();
+    return plot.getX() + (float) normalizedX (axis, entry, index, count) * plot.getWidth();
 }
 
 juce::String latestText (const std::vector<KirinMeterHistoryEntry>& history,
@@ -93,8 +89,7 @@ void paintAuxLane (juce::Graphics& g,
                    Metric metric,
                    const char* label,
                    juce::Colour colour,
-                   uint64_t firstObserved,
-                   uint64_t observedSpan,
+                   const HistoryAxis& axis,
                    bool delta)
 {
     g.setColour (COL_MUTED.withAlpha (0.16f));
@@ -109,7 +104,7 @@ void paintAuxLane (juce::Graphics& g,
     g.drawText (labelText, labelArea.reduced (2, 0), juce::Justification::centredLeft);
 
     const auto axisWidth = compact ? 17 : 23;
-    auto axis = area.removeFromRight (axisWidth);
+    auto axisArea = area.removeFromRight (axisWidth);
     auto plot = area.reduced (2, 2).toFloat();
     const auto zeroY = plot.getY() + normalizedAux (metric, 0.0, delta) * plot.getHeight();
     g.setColour (COL_MUTED.withAlpha (0.28f));
@@ -128,7 +123,7 @@ void paintAuxLane (juce::Graphics& g,
             open = false;
             continue;
         }
-        const auto x = xFor (plot, entry, firstObserved, observedSpan, index, history.size());
+        const auto x = xFor (plot, entry, axis, index, history.size());
         const auto y = plot.getY() + normalizedAux (metric, value, delta) * plot.getHeight();
         const bool newRun = ! open || entry.generation != previousGeneration
                          || entry.run_id != previousRun;
@@ -146,18 +141,9 @@ void paintAuxLane (juce::Graphics& g,
                                             : (delta ? "+2" : "+1");
     const auto bottom = metric == Metric::plr ? (delta ? "-12" : "0")
                                                : (delta ? "-2" : "-1");
-    g.drawText (top, axis.removeFromTop (axis.getHeight() / 2),
+    g.drawText (top, axisArea.removeFromTop (axisArea.getHeight() / 2),
                 juce::Justification::centredRight);
-    g.drawText (bottom, axis, juce::Justification::centredRight);
-}
-
-bool hasExactDawEndpoint (const std::vector<KirinMeterHistoryEntry>& history) noexcept
-{
-    constexpr auto unavailable = std::numeric_limits<int64_t>::min();
-    return ! history.empty()
-        && std::all_of (history.begin(), history.end(), [] (const auto& entry) {
-               return entry.last_timeline_endpoint_samples != unavailable;
-           });
+    g.drawText (bottom, axisArea, juce::Justification::centredRight);
 }
 
 void paintAxes (juce::Graphics& g, juce::Rectangle<float> plot, bool delta)
@@ -189,8 +175,7 @@ void paintMetric (juce::Graphics& g,
                   juce::Rectangle<float> plot,
                   const std::vector<KirinMeterHistoryEntry>& history,
                   const MetricVisual& visual,
-                  uint64_t firstObserved,
-                  uint64_t observedSpan,
+                  const HistoryAxis& axis,
                   bool delta)
 {
     juce::Path mean;
@@ -204,7 +189,7 @@ void paintMetric (juce::Graphics& g,
     {
         const auto& entry = history[index];
         const auto& range = rangeFor (entry, visual.metric);
-        const float x = xFor (plot, entry, firstObserved, observedSpan,
+        const float x = xFor (plot, entry, axis,
                               index, history.size());
         if (entry.observation_count > 1u
             && std::isfinite (range.min) && std::isfinite (range.max))
@@ -255,6 +240,7 @@ void paintLegend (juce::Graphics& g,
                   const std::vector<KirinMeterHistoryEntry>& history,
                   const juce::String& rangeLabel,
                   const std::array<MetricVisual, 3>& visuals,
+                  const HistoryAxis& axis,
                   bool delta)
 {
     const bool compact = area.getWidth() < 350;
@@ -272,8 +258,8 @@ void paintLegend (juce::Graphics& g,
         g.drawText (text, cell, juce::Justification::centredLeft);
     }
     g.setColour (COL_MUTED.withAlpha (0.82f));
-    const auto basis = delta ? "  EXACT Δ" : hasExactDawEndpoint (history)
-        ? "  DAW RUNS" : "  SESSION";
+    const auto basis = juce::String (delta ? "  EXACT Δ / " : "  ")
+                     + axisLabel (axis.mode);
     g.drawText (rangeLabel + (compact ? "" : basis), range,
                 juce::Justification::centredRight);
 }
@@ -304,7 +290,8 @@ void paint (juce::Graphics& g,
         { Metric::shortTerm, "S", COL_NORMAL, 3.0f, 1.05f },
         { Metric::truePeak, "TP", COL_FLORA_BR, 2.4f, 0.9f },
     }};
-    paintLegend (g, area.removeFromTop (16), history, rangeLabel, visuals, delta);
+    const auto axis = selectAxis (history);
+    paintLegend (g, area.removeFromTop (16), history, rangeLabel, visuals, axis, delta);
     const auto auxLaneHeight = juce::jlimit (13, 22, area.getHeight() / 7);
     auto auxArea = area.removeFromBottom (auxLaneHeight * 2 + 2);
     auto plrArea = auxArea.removeFromTop (auxLaneHeight);
@@ -314,16 +301,12 @@ void paint (juce::Graphics& g,
     plot.removeFromBottom (3.0f);
     paintAxes (g, plot, delta);
 
-    const uint64_t firstObserved = history.front().last_observed_frames;
-    const uint64_t lastObserved = history.back().last_observed_frames;
-    const uint64_t observedSpan = lastObserved >= firstObserved
-        ? lastObserved - firstObserved : 0u;
     for (const auto& visual : visuals)
-        paintMetric (g, plot, history, visual, firstObserved, observedSpan, delta);
+        paintMetric (g, plot, history, visual, axis, delta);
     paintAuxLane (g, plrArea, history, Metric::plr, "PLR", COL_GUIDE_BR,
-                  firstObserved, observedSpan, delta);
+                  axis, delta);
     paintAuxLane (g, correlationArea, history, Metric::correlation, "CORR",
-                  COL_SPECTRUM_DELTA_BR, firstObserved, observedSpan, delta);
+                  COL_SPECTRUM_DELTA_BR, axis, delta);
 
     g.setColour (COL_MUTED.withAlpha (0.62f));
     g.setFont (labelFont (7.5f));

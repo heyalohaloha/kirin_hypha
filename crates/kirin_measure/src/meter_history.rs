@@ -2,6 +2,7 @@
 
 use std::collections::VecDeque;
 
+use crate::meter_history_decimation::decimate_history;
 use crate::{CaptureClockSource, MeasureResult};
 
 pub const HISTORY_10_HZ_CAPACITY: usize = 10 * 60 * 10;
@@ -258,6 +259,19 @@ impl HistoryTier {
             .collect()
     }
 
+    fn recent_decimated(&self, max_entries: usize, max_output: usize) -> Vec<MeterHistoryEntry> {
+        let pending = self.pending.map(|pending| pending.finish(self.resolution));
+        let available = self.entries.len() + usize::from(pending.is_some());
+        let selected = available.min(max_entries);
+        let points = self
+            .entries
+            .iter()
+            .copied()
+            .chain(pending)
+            .skip(available.saturating_sub(selected));
+        decimate_history(points, selected, max_output, self.resolution)
+    }
+
     fn clear(&mut self) {
         self.entries.clear();
         self.pending = None;
@@ -333,6 +347,31 @@ impl MeterHistory {
         }
     }
 
+    pub fn recent_decimated(
+        &self,
+        resolution: MeterHistoryResolution,
+        max_entries: usize,
+        max_output: usize,
+    ) -> Vec<MeterHistoryEntry> {
+        match resolution {
+            MeterHistoryResolution::Hz10 => {
+                let selected = self.exact.len().min(max_entries);
+                let points = self
+                    .exact
+                    .iter()
+                    .copied()
+                    .skip(self.exact.len().saturating_sub(selected));
+                decimate_history(points, selected, max_output, resolution)
+            }
+            MeterHistoryResolution::Hz1 => {
+                self.one_second.recent_decimated(max_entries, max_output)
+            }
+            MeterHistoryResolution::Hz0_1 => {
+                self.ten_seconds.recent_decimated(max_entries, max_output)
+            }
+        }
+    }
+
     pub fn reset(&mut self) {
         self.exact.clear();
         self.one_second.clear();
@@ -365,111 +404,5 @@ fn recent_bounded<T: Copy>(queue: &VecDeque<T>, max_entries: usize) -> Vec<T> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn point_value(value: f64) -> MeasureResult {
-        MeasureResult {
-            lufs_m: Some(value),
-            lufs_s: Some(value - 1.0),
-            true_peak: Some(value + 10.0),
-            ..MeasureResult::default()
-        }
-    }
-
-    #[test]
-    fn product_capacities_match_ten_minutes_two_hours_and_twenty_four_hours() {
-        assert_eq!(HISTORY_10_HZ_CAPACITY, 6_000);
-        assert_eq!(HISTORY_1_HZ_CAPACITY, 7_200);
-        assert_eq!(HISTORY_0_1_HZ_CAPACITY, 8_640);
-    }
-
-    #[test]
-    fn one_second_bucket_keeps_min_max_mean_and_exact_endpoints() {
-        let mut history = MeterHistory::with_config(20, 20, 20, 10, 100);
-        for index in 0..10_u64 {
-            history.push(
-                1,
-                4,
-                (index + 1) * 4_800,
-                (
-                    Some(10_000 + ((index + 1) * 4_800) as i64),
-                    CaptureClockSource::ProjectTimeline,
-                ),
-                &point_value(index as f64),
-                MeterHistoryAux {
-                    correlation: Some(index as f64 / 10.0),
-                    plr: Some(10.0 + index as f64),
-                },
-            );
-        }
-        let entries = history.recent(MeterHistoryResolution::Hz1, 10);
-        assert_eq!(entries.len(), 1);
-        let entry = entries[0];
-        assert_eq!(entry.observation_count, 10);
-        assert_eq!(entry.first_observed_frames, 4_800);
-        assert_eq!(entry.last_observed_frames, 48_000);
-        assert_eq!(entry.first_timeline_endpoint_samples, Some(14_800));
-        assert_eq!(entry.last_timeline_endpoint_samples, Some(58_000));
-        assert_eq!(entry.lufs_m.min, Some(0.0));
-        assert_eq!(entry.lufs_m.max, Some(9.0));
-        assert_eq!(entry.lufs_m.mean, Some(4.5));
-        assert_eq!(entry.plr.min, Some(10.0));
-        assert_eq!(entry.plr.max, Some(19.0));
-        assert_eq!(entry.plr.mean, Some(14.5));
-    }
-
-    #[test]
-    fn run_change_flushes_partial_bucket_instead_of_joining_a_seek() {
-        let mut history = MeterHistory::with_config(20, 20, 20, 10, 100);
-        for index in 0..4_u64 {
-            history.push(
-                1,
-                1,
-                index + 1,
-                (Some(index as i64), CaptureClockSource::ProjectTimeline),
-                &point_value(1.0),
-                MeterHistoryAux::default(),
-            );
-        }
-        history.push(
-            1,
-            2,
-            5,
-            (Some(50_000), CaptureClockSource::ProjectTimeline),
-            &point_value(2.0),
-            MeterHistoryAux::default(),
-        );
-        let entries = history.recent(MeterHistoryResolution::Hz1, 10);
-        assert_eq!(entries.len(), 2);
-        assert_eq!(entries[0].run_id, 1);
-        assert_eq!(entries[0].observation_count, 4);
-        assert_eq!(entries[1].run_id, 2);
-        assert_eq!(entries[1].observation_count, 1);
-    }
-
-    #[test]
-    fn fixed_capacity_drops_only_the_oldest_entry_and_reset_clears_every_tier() {
-        let mut history = MeterHistory::with_config(2, 2, 2, 1, 1);
-        for index in 0..3_u64 {
-            history.push(
-                1,
-                1,
-                index + 1,
-                (None, CaptureClockSource::Unknown),
-                &point_value(index as f64),
-                MeterHistoryAux::default(),
-            );
-        }
-        let exact = history.recent(MeterHistoryResolution::Hz10, 10);
-        assert_eq!(exact.len(), 2);
-        assert_eq!(exact[0].last_observed_frames, 2);
-        assert_eq!(exact[1].last_observed_frames, 3);
-        assert_eq!(history.recent(MeterHistoryResolution::Hz1, 10).len(), 2);
-        assert_eq!(history.recent(MeterHistoryResolution::Hz0_1, 10).len(), 2);
-        history.reset();
-        assert!(history.recent(MeterHistoryResolution::Hz10, 10).is_empty());
-        assert!(history.recent(MeterHistoryResolution::Hz1, 10).is_empty());
-        assert!(history.recent(MeterHistoryResolution::Hz0_1, 10).is_empty());
-    }
-}
+#[path = "meter_history_tests.rs"]
+mod tests;

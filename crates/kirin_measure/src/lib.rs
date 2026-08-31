@@ -33,6 +33,7 @@ pub mod measure_thread;
 mod meter_clock;
 pub mod meter_delta_history;
 pub mod meter_history;
+mod meter_history_decimation;
 pub mod meter_session;
 pub mod pair_claim_index;
 pub mod pair_operation_group;

@@ -83,6 +83,59 @@ fn repeated_or_missing_endpoints_never_create_a_delta_fact() {
 }
 
 #[test]
+fn consumed_occurrences_allow_exact_short_loops_without_cross_loop_guessing() {
+    let mut delta = DeltaHistoryState::default();
+    let first_pre = [pre_point(4_800, -20.0), pre_point(9_600, -19.0)];
+    let first_post = [
+        post_point(4_800, 4_800, -18.0),
+        post_point(9_600, 9_600, -17.0),
+    ];
+    delta.ingest(&first_pre, &first_post, 48_000);
+
+    let mut second_pre_0 = pre_point(4_800, -21.0);
+    second_pre_0.run_id = 6;
+    second_pre_0.observed_frames = 14_400;
+    let mut second_pre_1 = pre_point(9_600, -20.0);
+    second_pre_1.run_id = 6;
+    second_pre_1.observed_frames = 19_200;
+    let mut second_post_0 = post_point(14_400, 4_800, -18.5);
+    second_post_0.run_id = 8;
+    let mut second_post_1 = post_point(19_200, 9_600, -17.5);
+    second_post_1.run_id = 8;
+
+    let all_pre = [
+        first_pre[0].clone(),
+        first_pre[1].clone(),
+        second_pre_0,
+        second_pre_1,
+    ];
+    let all_post = [first_post[0], first_post[1], second_post_0, second_post_1];
+    delta.ingest(&all_pre, &all_post, 48_000);
+    let history = delta.history.recent(MeterHistoryResolution::Hz10, 10);
+    assert_eq!(history.len(), 4);
+    assert_eq!(history[2].lufs_m.mean, Some(2.5));
+    assert_ne!(history[1].run_id, history[2].run_id);
+
+    let mut ambiguous_pre = pre_point(4_800, -22.0);
+    ambiguous_pre.run_id = 7;
+    ambiguous_pre.observed_frames = 24_000;
+    let mut another_ambiguous_pre = ambiguous_pre.clone();
+    another_ambiguous_pre.run_id = 8;
+    another_ambiguous_pre.observed_frames = 28_800;
+    let mut unmatched_post = post_point(24_000, 4_800, -18.0);
+    unmatched_post.run_id = 9;
+    delta.ingest(
+        &[ambiguous_pre, another_ambiguous_pre],
+        &[unmatched_post],
+        48_000,
+    );
+    assert_eq!(
+        delta.history.recent(MeterHistoryResolution::Hz10, 10).len(),
+        4
+    );
+}
+
+#[test]
 fn pair_change_discards_history_instead_of_blending_sources() {
     let mut delta = DeltaHistoryState::default();
     delta.bind(PairKey {

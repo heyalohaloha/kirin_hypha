@@ -27,24 +27,32 @@ juce::Rectangle<int> scaled (Rect rect)
 }
 }
 
-juce::Image View::createCaptureImage (int pixelWidth, int pixelHeight) const
+juce::Image View::createCaptureImage (int pixelWidth, int pixelHeight,
+                                      bool includeGuide,
+                                      juce::String capturedAt,
+                                      juce::String productVersion) const
 {
     const auto preset = capturePreset (pixelWidth, pixelHeight);
     View frame (role);
     frame.selectedDomain = selectedDomain;
     frame.selectedTarget = selectedTarget;
     frame.timeRange = timeRange;
-    frame.meter = meter;
-    frame.delta = delta;
-    frame.meterAvailable = meterAvailable;
-    frame.deltaAvailable = deltaAvailable;
+    frame.observatoryFrame = observatoryFrame;
+    frame.frameAvailable = frameAvailable;
     frame.connectionText = connectionText;
     frame.connectionColour = connectionColour;
-    frame.guidePrimary = guidePrimary;
-    frame.guideDetail = guideDetail;
-    frame.guideEmphasized = guideEmphasized;
+    if (includeGuide)
+    {
+        frame.guidePrimary = guidePrimary;
+        frame.guideDetail = guideDetail;
+        frame.guideEmphasized = guideEmphasized;
+    }
     frame.history = history;
     frame.captureFrame = true;
+    frame.captureTimestamp = capturedAt.isNotEmpty()
+        ? std::move (capturedAt)
+        : juce::Time::getCurrentTime().formatted ("%Y-%m-%d %H:%M:%S");
+    frame.captureVersion = std::move (productVersion);
     frame.onCapture = [] {};
     frame.updateControls();
     frame.setSize (preset.width, preset.height);
@@ -56,9 +64,12 @@ juce::Image View::createCaptureImage (int pixelWidth, int pixelHeight) const
     return image;
 }
 
-juce::Rectangle<int> View::captureBodyBounds (int pixelWidth, int pixelHeight) const
+juce::Rectangle<int> View::captureBodyBounds (int pixelWidth, int pixelHeight,
+                                              bool includeGuide) const
 {
     const auto preset = capturePreset (pixelWidth, pixelHeight);
-    return scaled (shellLayout (role, preset, guidePresence()).body);
+    const auto presence = includeGuide && guidePresence() == GuidePresence::present
+        ? GuidePresence::present : GuidePresence::absent;
+    return scaled (shellLayout (role, preset, presence).body);
 }
 }

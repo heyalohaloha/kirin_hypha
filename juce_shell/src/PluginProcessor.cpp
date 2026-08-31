@@ -9,6 +9,8 @@ namespace
 {
     static_assert (sizeof (KirinMeterSession) == 832u,
                    "Rust/C++ Meter Session ABI size must remain exact");
+    static_assert (sizeof (KirinObservatoryFrame) == 912u,
+                   "Rust/C++ Observatory frame ABI size must remain exact");
     static_assert (sizeof (KirinMeterHistoryEntry) == 176u,
                    "Rust/C++ Meter history ABI size must remain exact");
 #if KIRIN_HYPHA_GUIDE_TRANSPORT
@@ -554,22 +556,28 @@ bool KirinHyphaProcessorBase::pollMeterSession (KirinMeterSession& out) const
     return hyphaHandle != nullptr && kirin_hypha_poll_meter_session (hyphaHandle, &out);
 }
 
+bool KirinHyphaProcessorBase::pollObservatoryFrame (KirinObservatoryFrame& out) const
+{
+    const juce::ScopedLock sl (handleLock);
+    return hyphaHandle != nullptr && kirin_hypha_poll_observatory_frame (hyphaHandle, &out);
+}
+
 bool KirinHyphaProcessorBase::pollMeterHistory (
     uint8_t resolution,
     std::vector<KirinMeterHistoryEntry>& out,
-    size_t maxEntries) const
+    size_t maxEntries,
+    size_t maxOutputEntries) const
 {
-    const auto bounded = std::min (maxEntries,
-                                   static_cast<size_t> (KIRIN_METER_HISTORY_MAX_ENTRIES));
-    out.resize (bounded);
+    const auto boundedRange = std::min (maxEntries,
+                                        static_cast<size_t> (KIRIN_METER_HISTORY_MAX_ENTRIES));
+    const auto boundedOutput = std::min (maxOutputEntries, boundedRange);
+    out.resize (boundedOutput);
     uint32_t count = 0;
     const juce::ScopedLock sl (handleLock);
     const auto ok = hyphaHandle != nullptr
-                 && kirin_hypha_poll_meter_history (hyphaHandle,
-                                                    resolution,
-                                                    out.data(),
-                                                    static_cast<uint32_t> (bounded),
-                                                    &count);
+                 && kirin_hypha_poll_meter_history_decimated (
+                        hyphaHandle, resolution, static_cast<uint32_t> (boundedRange),
+                        out.data(), static_cast<uint32_t> (boundedOutput), &count);
     if (! ok)
     {
         out.clear();
@@ -582,19 +590,19 @@ bool KirinHyphaProcessorBase::pollMeterHistory (
 bool KirinHyphaProcessorBase::pollMeterDeltaHistory (
     uint8_t resolution,
     std::vector<KirinMeterHistoryEntry>& out,
-    size_t maxEntries) const
+    size_t maxEntries,
+    size_t maxOutputEntries) const
 {
-    const auto bounded = std::min (maxEntries,
-                                   static_cast<size_t> (KIRIN_METER_HISTORY_MAX_ENTRIES));
-    out.resize (bounded);
+    const auto boundedRange = std::min (maxEntries,
+                                        static_cast<size_t> (KIRIN_METER_HISTORY_MAX_ENTRIES));
+    const auto boundedOutput = std::min (maxOutputEntries, boundedRange);
+    out.resize (boundedOutput);
     uint32_t count = 0;
     const juce::ScopedLock sl (handleLock);
     const auto ok = hyphaHandle != nullptr
-                 && kirin_hypha_poll_meter_delta_history (hyphaHandle,
-                                                          resolution,
-                                                          out.data(),
-                                                          static_cast<uint32_t> (bounded),
-                                                          &count);
+                 && kirin_hypha_poll_meter_delta_history_decimated (
+                        hyphaHandle, resolution, static_cast<uint32_t> (boundedRange),
+                        out.data(), static_cast<uint32_t> (boundedOutput), &count);
     if (! ok)
     {
         out.clear();
@@ -615,6 +623,27 @@ void KirinHyphaProcessorBase::setUseShortTermLoudness (bool shortTerm)
     if (persistShortTermLoudness.exchange (shortTerm, std::memory_order_acq_rel) == shortTerm)
         return;
     updateHostDisplay (ChangeDetails {}.withNonParameterStateChanged (true));
+}
+
+void KirinHyphaProcessorBase::setObservatoryDomainPreference (uint8_t value)
+{
+    const uint8_t bounded = value < 4u ? value : uint8_t { 0 };
+    if (preferredObservatoryDomain.exchange (bounded, std::memory_order_acq_rel) != bounded)
+        updateHostDisplay (ChangeDetails {}.withNonParameterStateChanged (true));
+}
+
+void KirinHyphaProcessorBase::setObservatoryTargetPreference (uint8_t value)
+{
+    const uint8_t bounded = value < 2u ? value : uint8_t { 0 };
+    if (preferredObservatoryTarget.exchange (bounded, std::memory_order_acq_rel) != bounded)
+        updateHostDisplay (ChangeDetails {}.withNonParameterStateChanged (true));
+}
+
+void KirinHyphaProcessorBase::setObservatoryTimeRangePreference (uint8_t value)
+{
+    const uint8_t bounded = value < 5u ? value : uint8_t { 0 };
+    if (preferredObservatoryTimeRange.exchange (bounded, std::memory_order_acq_rel) != bounded)
+        updateHostDisplay (ChangeDetails {}.withNonParameterStateChanged (true));
 }
 
 #if KIRIN_HYPHA_GUIDE_TRANSPORT
@@ -1249,6 +1278,11 @@ void KirinHyphaProcessorBase::getStateInformation (juce::MemoryBlock& destData)
     xml.setAttribute ("paired_pre_project_hash", persistPairProjectHash);
     xml.setAttribute ("loudness_view",
                       persistShortTermLoudness.load (std::memory_order_acquire) ? "S" : "M");
+    xml.setAttribute ("display_state_version", 2);
+    xml.setAttribute ("observatory_domain", (int) observatoryDomainPreference());
+    xml.setAttribute ("observatory_target", (int) observatoryTargetPreference());
+    xml.setAttribute ("observatory_time_range", (int) observatoryTimeRangePreference());
+    xml.setAttribute ("observatory_size", (int) spectrumSizePreference());
     copyXmlToBinary (xml, destData);
 }
 
@@ -1262,6 +1296,10 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
     juce::String restoredInstanceId, restoredProjectUuid, restoredDawSessionUuid;
     juce::String restoredName, restoredPairName, restoredPairInstanceId, restoredPairProjectHash;
     bool restoredShortTermLoudness = false;
+    uint8_t restoredObservatoryDomain = 0;
+    uint8_t restoredObservatoryTarget = 0;
+    uint8_t restoredObservatoryTimeRange = 0;
+    uint8_t restoredObservatorySize = 0;
     bool restored = false;
 
     if (auto xml = getXmlFromBinary (data, sizeInBytes))
@@ -1276,6 +1314,17 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
             restoredPairInstanceId = xml->getStringAttribute ("paired_pre_instance_id");
             restoredPairProjectHash = xml->getStringAttribute ("paired_pre_project_hash");
             restoredShortTermLoudness = xml->getStringAttribute ("loudness_view") == "S";
+            if (xml->getIntAttribute ("display_state_version", 0) >= 2)
+            {
+                restoredObservatoryDomain = (uint8_t) juce::jlimit (
+                    0, 3, xml->getIntAttribute ("observatory_domain", 0));
+                restoredObservatoryTarget = (uint8_t) juce::jlimit (
+                    0, 1, xml->getIntAttribute ("observatory_target", 0));
+                restoredObservatoryTimeRange = (uint8_t) juce::jlimit (
+                    0, 4, xml->getIntAttribute ("observatory_time_range", 0));
+                restoredObservatorySize = (uint8_t) juce::jlimit (
+                    0, 3, xml->getIntAttribute ("observatory_size", 0));
+            }
             restored = true;
         }
     }
@@ -1303,6 +1352,11 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
         // Additive display-only state. Old JUCE states, legacy nih-plug JSON, and invalid values
         // all resolve to the established Momentary default without touching identity/pair fields.
         persistShortTermLoudness.store (restoredShortTermLoudness, std::memory_order_release);
+        preferredObservatoryDomain.store (restoredObservatoryDomain, std::memory_order_release);
+        preferredObservatoryTarget.store (restoredObservatoryTarget, std::memory_order_release);
+        preferredObservatoryTimeRange.store (restoredObservatoryTimeRange,
+                                              std::memory_order_release);
+        preferredSpectrumSize.store (restoredObservatorySize, std::memory_order_release);
         // Once writes are enabled, the io_thread has already snapshotted path identity. Only the
         // live-editable name/pair fields may be applied at that point; the exact-path writer stays
         // coherent with its established identity.

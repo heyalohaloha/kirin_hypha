@@ -35,7 +35,10 @@ fn shipped_au_and_vst3_compile_the_same_editor_processor_and_control_contract() 
             "common JUCE shell missing {text}"
         );
     }
-    assert!(juce_editor.contains("setSize (ui::editorWidth, ui::editorHeight)"));
+    assert!(juce_editor.contains(
+        "const auto initialPreset = hypha::observatory::sizePresets[observatorySizeIndex]"
+    ));
+    assert!(juce_editor.contains("setSize (initialPreset.width, initialPreset.height)"));
     assert!(juce_editor.contains("observatoryView.setBounds (getLocalBounds())"));
     assert!(juce_editor.contains("observatoryView.connectionBounds()"));
     assert!(juce_editor.contains("observatoryView.bodyBounds()"));
@@ -237,6 +240,9 @@ fn loudness_view_and_integrated_result_are_additive_display_only_state() {
     let processor = read_repo("juce_shell/src/PluginProcessor.cpp");
     assert!(processor.contains("xml.setAttribute (\"loudness_view\""));
     assert!(processor.contains("getStringAttribute (\"loudness_view\") == \"S\""));
+    assert!(processor.contains("xml.setAttribute (\"display_state_version\", 2)"));
+    assert!(processor.contains("observatory_time_range"));
+    assert!(processor.contains("observatory_size"));
     assert!(processor.contains("withNonParameterStateChanged (true)"));
 
     let contract = read_repo("juce_shell/src/HyphaUiContract.h");
@@ -412,8 +418,8 @@ fn optional_analysis_is_post_only_on_demand_and_isolated_from_existing_schemas()
     assert!(processor.contains("kirin_hypha_set_perceptual_visible (hyphaHandle, true)"));
     assert!(processor.contains("kirin_hypha_set_absolute_visible (hyphaHandle, true)"));
     let processor_header = read_repo("juce_shell/src/PluginProcessor.h");
-    assert!(processor_header.contains("index < 4u ? index : 0u"));
-    assert!(processor_header.contains("preferredSpectrumSize { 3 }"));
+    assert!(processor_header.contains("index < 4u ? index : uint8_t { 0 }"));
+    assert!(processor_header.contains("preferredSpectrumSize { 0 }"));
 
     let editor = read_repo("juce_shell/src/PluginEditor.cpp");
     assert!(editor.contains("#if ! KIRIN_HYPHA_PRE_DISPLAY"));
@@ -426,10 +432,11 @@ fn optional_analysis_is_post_only_on_demand_and_isolated_from_existing_schemas()
     assert!(editor.contains("AnalysisPage::perceptual"));
     assert!(editor.contains("AnalysisPage::absolute"));
     assert!(editor.contains("processorRef.pollAbsoluteBatch"));
-    assert!(editor.contains("spectrumSizeIndex + 1u"));
-    assert!(editor.contains("ui::spectrumSizePresets[spectrumSizeIndex]"));
-    assert!(editor
-        .contains("const auto launchPreset = hypha::observatory::sizePresets[spectrumSizeIndex]"));
+    assert!(editor.contains("observatorySizeIndex + 1u"));
+    assert!(editor.contains("ui::spectrumSizePresets[observatorySizeIndex]"));
+    assert!(editor.contains(
+        "const auto launchPreset = hypha::observatory::sizePresets[observatorySizeIndex]"
+    ));
     assert!(editor.contains("setSize (preset.width, preset.height)"));
     assert!(!editor.contains("setResizable (true"));
 

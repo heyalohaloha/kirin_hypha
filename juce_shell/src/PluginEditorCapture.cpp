@@ -23,6 +23,8 @@ void KirinHyphaEditor::beginObservatoryCapture()
     menu.addItem (1, "1200 x 630  Landscape");
     menu.addItem (2, "1080 x 1080  Square");
     menu.addItem (3, "1080 x 1350  Portrait");
+    menu.addSeparator();
+    menu.addItem (10, "Include OS Guide", true, captureIncludeGuide);
     const auto options = juce::PopupMenu::Options()
         .withTargetComponent (&observatoryView)
         .withDeletionCheck (*this)
@@ -35,6 +37,12 @@ void KirinHyphaEditor::beginObservatoryCapture()
         if (result == 1) safeThis->chooseObservatoryCapture (1'200, 630);
         else if (result == 2) safeThis->chooseObservatoryCapture (1'080, 1'080);
         else if (result == 3) safeThis->chooseObservatoryCapture (1'080, 1'350);
+        else if (result == 10)
+        {
+            safeThis->captureIncludeGuide = ! safeThis->captureIncludeGuide;
+            safeThis->showToast (safeThis->captureIncludeGuide
+                ? "OS Guide will be included" : "OS Guide will stay private");
+        }
     });
 }
 
@@ -43,7 +51,9 @@ void KirinHyphaEditor::chooseObservatoryCapture (int width, int height)
     // Freeze the complete visual fact before opening the asynchronous save panel. The meter and
     // any external analysis may keep advancing while the user chooses a filename, but the exported
     // image must remain the exact frame selected by the Capture action.
-    auto image = observatoryView.createCaptureImage (width, height);
+    const auto capturedAt = juce::Time::getCurrentTime().formatted ("%Y-%m-%d %H:%M:%S");
+    auto image = observatoryView.createCaptureImage (
+        width, height, captureIncludeGuide, capturedAt, JucePlugin_VersionString);
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     juce::Component* external = nullptr;
     if (analysisPage == AnalysisPage::spectrum)
@@ -56,7 +66,7 @@ void KirinHyphaEditor::chooseObservatoryCapture (int width, int height)
         external = &attackInternalView;
     if (external != nullptr && ! external->getLocalBounds().isEmpty())
     {
-        const auto body = observatoryView.captureBodyBounds (width, height);
+        const auto body = observatoryView.captureBodyBounds (width, height, captureIncludeGuide);
         const auto scale = juce::jmax (
             (float) body.getWidth() / (float) external->getWidth(),
             (float) body.getHeight() / (float) external->getHeight());

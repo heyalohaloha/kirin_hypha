@@ -1,6 +1,7 @@
 #include "TimeHistoryContractTest.h"
 
 #include "../src/HyphaObservatoryView.h"
+#include "../src/HyphaTimeAxisContract.h"
 
 #include <cmath>
 #include <cstdlib>
@@ -83,6 +84,20 @@ int changedPixels (const juce::Image& left, const juce::Image& right)
 void verifyTimeHistoryContract()
 {
     const auto normal = fixture (false);
+    KIRIN_TIME_HISTORY_REQUIRE (
+        time_history::selectAxis (normal).mode == time_history::AxisMode::sessionWithDawRuns);
+    auto dawAxisFixture = normal;
+    dawAxisFixture.resize (3);
+    for (auto& entry : dawAxisFixture)
+        entry.run_id = 1u;
+    dawAxisFixture.front().last_timeline_endpoint_samples = 0;
+    dawAxisFixture[1].last_timeline_endpoint_samples = 10;
+    dawAxisFixture.back().last_timeline_endpoint_samples = 100;
+    const auto dawAxis = time_history::selectAxis (dawAxisFixture);
+    KIRIN_TIME_HISTORY_REQUIRE (dawAxis.mode == time_history::AxisMode::daw);
+    KIRIN_TIME_HISTORY_REQUIRE (
+        std::abs (time_history::normalizedX (dawAxis, dawAxisFixture[1], 1,
+                                             dawAxisFixture.size()) - 0.1) < 1.0e-12);
     const auto alternate = fixture (true);
     const auto normalImage = render (normal, 600, 400);
     const auto alternateImage = render (alternate, 600, 400);

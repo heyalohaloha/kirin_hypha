@@ -49,7 +49,8 @@ void drawMetric (juce::Graphics& g,
                  const juce::String& unit,
                  float valueHeight,
                  bool signedValue = false,
-                 int decimals = 1)
+                 int decimals = 1,
+                 const juce::String& textOverride = {})
 {
     drawPanel (g, area);
     const auto labelArea = area.removeFromTop (juce::jmax (14, area.getHeight() / 4));
@@ -60,15 +61,19 @@ void drawMetric (juce::Graphics& g,
     {
         g.setFont (labelFont (juce::jlimit (7.0f, 10.0f, valueHeight * 0.23f)));
         g.drawText (unit, labelArea.reduced (6, 1), juce::Justification::centredRight);
-        g.setColour (std::isfinite (value) ? COL_NORMAL : COL_MUTED);
-        drawTabularText (g, monoFont (valueHeight), valueText (value, decimals, signedValue),
+        g.setColour (std::isfinite (value) && textOverride.isEmpty() ? COL_NORMAL : COL_MUTED);
+        drawTabularText (g, monoFont (valueHeight),
+                         textOverride.isNotEmpty() ? textOverride
+                                                   : valueText (value, decimals, signedValue),
                          area.reduced (5, 0).toFloat(), juce::Justification::centred);
         return;
     }
     const auto unitWidth = juce::jmin (46, area.getWidth() / 3);
     const auto unitArea = area.removeFromRight (unitWidth);
-    g.setColour (std::isfinite (value) ? COL_NORMAL : COL_MUTED);
-    drawTabularText (g, monoFont (valueHeight), valueText (value, decimals, signedValue),
+    g.setColour (std::isfinite (value) && textOverride.isEmpty() ? COL_NORMAL : COL_MUTED);
+    drawTabularText (g, monoFont (valueHeight),
+                     textOverride.isNotEmpty() ? textOverride
+                                               : valueText (value, decimals, signedValue),
                      area.reduced (5, 0).toFloat(), juce::Justification::centredRight);
     g.setColour (COL_MUTED);
     g.setFont (labelFont (juce::jlimit (8.0f, 11.0f, valueHeight * 0.28f)));
@@ -121,6 +126,7 @@ View::View (Role roleIn) : role (roleIn)
 
 void View::setDomain (Domain value)
 {
+    value = sanitizeDomain (role, value);
     if (selectedDomain == value)
         return;
     selectedDomain = value;
@@ -129,28 +135,24 @@ void View::setDomain (Domain value)
     repaint();
 }
 
+void View::setTimeRange (TimeRange value)
+{
+    if (timeRange == value)
+        return;
+    timeRange = value;
+    history.clear();
+    updateControls();
+    repaint (bodyArea);
+}
+
 void View::setTarget (ObservationTarget value)
 {
-    if (! targetAllowed (role, selectedDomain, value) || selectedTarget == value)
+    if (! targetAllowed (role, value) || selectedTarget == value)
         return;
     selectedTarget = value;
     history.clear();
     updateControls();
     repaint();
-}
-
-void View::setMeterSnapshot (const KirinMeterSession& value, bool available)
-{
-    meter = value;
-    meterAvailable = available;
-    repaint (bodyArea);
-}
-
-void View::setDeltaSnapshot (const KirinDelta& value, bool available)
-{
-    delta = value;
-    deltaAvailable = available;
-    repaint (bodyArea);
 }
 
 void View::setConnectionText (juce::String text, juce::Colour colour)
@@ -191,13 +193,15 @@ void View::setHistory (std::vector<KirinMeterHistoryEntry> entries)
 
 View::HistoryRequest View::historyRequest() const noexcept
 {
+    const auto maxOutput = static_cast<size_t> (juce::jlimit (
+        128, 1'200, juce::jmax (1, bodyArea.getWidth()) * 2));
     switch (timeRange)
     {
-        case TimeRange::seconds30: return { KIRIN_METER_HISTORY_10_HZ, 300, "30 S / 10 HZ" };
-        case TimeRange::minutes2:  return { KIRIN_METER_HISTORY_10_HZ, 1'200, "2 MIN / 10 HZ" };
-        case TimeRange::minutes10: return { KIRIN_METER_HISTORY_10_HZ, 6'000, "10 MIN / 10 HZ" };
-        case TimeRange::hours2:    return { KIRIN_METER_HISTORY_1_HZ, 7'200, "2 H / 1 HZ" };
-        case TimeRange::hours24:   return { KIRIN_METER_HISTORY_0_1_HZ, 8'640, "24 H / 0.1 HZ" };
+        case TimeRange::seconds30: return { KIRIN_METER_HISTORY_10_HZ, 300, maxOutput, "30 S / 10 HZ" };
+        case TimeRange::minutes2:  return { KIRIN_METER_HISTORY_10_HZ, 1'200, maxOutput, "2 MIN / 10 HZ" };
+        case TimeRange::minutes10: return { KIRIN_METER_HISTORY_10_HZ, 6'000, maxOutput, "10 MIN / 10 HZ" };
+        case TimeRange::hours2:    return { KIRIN_METER_HISTORY_1_HZ, 7'200, maxOutput, "2 H / 1 HZ" };
+        case TimeRange::hours24:   return { KIRIN_METER_HISTORY_0_1_HZ, 8'640, maxOutput, "24 H / 0.1 HZ" };
     }
     return {};
 }
@@ -210,9 +214,7 @@ GuidePresence View::guidePresence() const noexcept
 
 void View::cycleDomain()
 {
-    const auto next = selectedDomain == Domain::level ? Domain::time
-                    : selectedDomain == Domain::time ? Domain::frequency
-                    : selectedDomain == Domain::frequency ? Domain::space : Domain::level;
+    const auto next = nextDomain (role, selectedDomain);
     if (onDomainChange) onDomainChange (next);
 }
 
@@ -222,6 +224,8 @@ void View::cycleTimeRange()
               : timeRange == TimeRange::minutes2 ? TimeRange::minutes10
               : timeRange == TimeRange::minutes10 ? TimeRange::hours2
               : timeRange == TimeRange::hours2 ? TimeRange::hours24 : TimeRange::seconds30;
+    if (onTimeRangeChange)
+        onTimeRangeChange (timeRange);
     updateControls();
     history.clear();
     repaint (bodyArea);
@@ -254,17 +258,22 @@ void View::resized()
     const auto singleDomainControl = compact || preset.density == Density::focused;
     const auto navigation = toJuce (layout.domainNavigation);
     domainCycleButton.setVisible (singleDomainControl);
-    for (auto* button : { &levelButton, &timeButton, &frequencyButton, &spaceButton })
-        button->setVisible (! singleDomainControl);
+    levelButton.setVisible (! singleDomainControl);
+    timeButton.setVisible (! singleDomainControl);
+    frequencyButton.setVisible (! singleDomainControl
+                                && domainCapabilities (role).frequency);
+    spaceButton.setVisible (! singleDomainControl);
     if (singleDomainControl)
         domainCycleButton.setBounds (navigation);
     else
     {
         auto remaining = navigation;
-        const auto width = remaining.getWidth() / 4;
+        const auto domainCount = domainCapabilities (role).frequency ? 4 : 3;
+        const auto width = remaining.getWidth() / domainCount;
         levelButton.setBounds (remaining.removeFromLeft (width));
         timeButton.setBounds (remaining.removeFromLeft (width));
-        frequencyButton.setBounds (remaining.removeFromLeft (width));
+        if (domainCapabilities (role).frequency)
+            frequencyButton.setBounds (remaining.removeFromLeft (width));
         spaceButton.setBounds (remaining);
     }
 
@@ -272,8 +281,12 @@ void View::resized()
     targetButton.setBounds (toJuce (layout.observationTarget).reduced (0, 2));
     timeRangeButton.setVisible (selectedDomain == Domain::time && ! compact);
     if (timeRangeButton.isVisible())
-        timeRangeButton.setBounds (bodyArea.removeFromTop (juce::jmin (22, bodyArea.getHeight() / 5))
-                                       .removeFromRight (juce::jmin (110, bodyArea.getWidth() / 2)));
+    {
+        auto timeRangeArea = bodyArea;
+        timeRangeButton.setBounds (
+            timeRangeArea.removeFromTop (juce::jmin (22, timeRangeArea.getHeight() / 5))
+                         .removeFromRight (juce::jmin (110, timeRangeArea.getWidth() / 2)));
+    }
     sizeButton.setVisible (! captureFrame);
     if (! captureFrame)
     {
@@ -304,7 +317,7 @@ void View::paint (juce::Graphics& g)
     if (selectedDomain == Domain::level) paintLevel (g, bodyArea);
     else if (selectedDomain == Domain::time) paintTime (g, bodyArea);
     else if (selectedDomain == Domain::space)
-        space_field::paint (g, bodyArea, meter, meterAvailable);
+        space_field::paint (g, bodyArea, observatoryFrame.meter, currentFactsAvailable());
     else drawPanel (g, bodyArea);
     paintFooter (g, layout);
 }
@@ -346,22 +359,36 @@ void View::paintFooter (juce::Graphics& g, const ShellLayout& layout)
 {
     drawPanel (g, toJuce (layout.footer), 4.0f);
     const auto session = sessionArea.reduced (6, 0);
-    const auto state = ! meterAvailable ? juce::String ("SESSION —")
-                     : meter.state == KIRIN_METER_SESSION_ACTIVE ? juce::String ("SESSION ACTIVE  ")
-                     : meter.state == KIRIN_METER_SESSION_PAUSED ? juce::String ("SESSION PAUSED  ")
-                     : juce::String ("SESSION READY  ");
-    const auto seconds = meterAvailable && meter.sample_rate > 0
+    const auto& meter = observatoryFrame.meter;
+    const auto state = ! frameAvailable ? juce::String ("SESSION —")
+                     : meter.state == KIRIN_METER_SESSION_EMPTY ? juce::String ("READY  ")
+                     : observatoryFrame.signal_state == KIRIN_SIGNAL_STATE_BYPASSED
+                         ? juce::String ("BYPASSED  ")
+                     : observatoryFrame.signal_state == KIRIN_SIGNAL_STATE_INACTIVE
+                         ? juce::String ("INACTIVE  ")
+                     : juce::String ("ACTIVE  ");
+    const auto seconds = frameAvailable && meter.sample_rate > 0
         ? static_cast<double> (meter.active_frames) / static_cast<double> (meter.sample_rate) : 0.0;
-    g.setColour (meterAvailable ? COL_MUTED.brighter (0.25f) : COL_MUTED);
+    g.setColour (frameAvailable ? COL_MUTED.brighter (0.25f) : COL_MUTED);
     g.setFont (monoFont (currentPreset().density == Density::compact ? 8.5f : 10.5f));
-    const auto standard = captureFrame ? juce::String ("  |  ITU-R BS.1770")
-                                       : juce::String();
-    g.drawText (state + juce::String (seconds, 1) + " S" + standard, session,
+    auto captureFacts = juce::String();
+    if (captureFrame)
+    {
+        captureFacts = "  |  " + captureTimestamp;
+        if (captureVersion.isNotEmpty())
+            captureFacts += "  |  v" + captureVersion;
+        captureFacts += "  |  ITU-R BS.1770";
+    }
+    g.drawText (state + juce::String (seconds, 1) + " S" + captureFacts, session,
                 juce::Justification::centred);
 }
 
 void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area)
 {
+    const auto& meter = observatoryFrame.meter;
+    const auto& delta = observatoryFrame.delta;
+    const bool currentAvailable = currentFactsAvailable();
+    const bool cumulativeAvailable = cumulativeFactsAvailable();
     const auto density = currentPreset().density;
     const auto compact = density == Density::compact;
     juce::Rectangle<int> channelStrips;
@@ -380,7 +407,7 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area)
         for (int index = 0; index < (compact ? 2 : 3); ++index)
             drawMetric (g, area.removeFromLeft (cellWidth).reduced (2),
                         hypha::delta() + labels[(size_t) index],
-                        optionValue (values[(size_t) index], deltaAvailable),
+                        optionValue (values[(size_t) index], deltaFactsAvailable()),
                         index == 2 ? "dB" : "LU", compact ? 27.0f : 36.0f, true);
         return;
     }
@@ -393,7 +420,8 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area)
     for (int index = 0; index < mainCount; ++index)
         drawMetric (g, main.removeFromLeft (main.getWidth() / (mainCount - index)).reduced (2),
                     mainLabels[(size_t) index],
-                    optionValue (mainValues[(size_t) index], meterAvailable), "LUFS",
+                    optionValue (mainValues[(size_t) index],
+                                 index < 2 ? currentAvailable : cumulativeAvailable), "LUFS",
                     compact ? 28.0f : 42.0f);
     if (compact)
     {
@@ -405,13 +433,26 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area)
     const std::array<double, 5> supportValues {
         meter.true_peak, meter.max_true_peak, meter.lra, meter.plr, meter.correlation
     };
+    const std::array<bool, 5> supportAvailable {
+        currentAvailable, cumulativeAvailable,
+        cumulativeAvailable && observatoryFrame.lra_state == KIRIN_LRA_READY,
+        cumulativeAvailable, currentAvailable
+    };
     const std::array<const char*, 5> supportLabels { "TP", "MAX TP", "LRA", "PLR", "CORR" };
     const std::array<const char*, 5> supportUnits { "dBTP", "dBTP", "LU", "dB", "" };
     for (int index = 0; index < 5; ++index)
+    {
+        const auto warming = index == 2 && cumulativeAvailable
+                          && observatoryFrame.lra_state == KIRIN_LRA_WARMING;
+        const auto warmingText = warming
+            ? "WARM " + juce::String ((int) std::floor (observatoryFrame.lra_elapsed_seconds)) + "S"
+            : juce::String();
         drawMetric (g, area.removeFromLeft (area.getWidth() / (5 - index)).reduced (2),
                     supportLabels[(size_t) index],
-                    optionValue (supportValues[(size_t) index], meterAvailable),
-                    supportUnits[(size_t) index], 18.0f, index == 4, index == 4 ? 2 : 1);
+                    optionValue (supportValues[(size_t) index], supportAvailable[(size_t) index]),
+                    supportUnits[(size_t) index], 18.0f, index == 4, index == 4 ? 2 : 1,
+                    warmingText);
+    }
     if (! channelStrips.isEmpty())
         paintChannelStrips (g, channelStrips);
     else if (! clipEventRail.isEmpty())

@@ -147,6 +147,14 @@ int main()
         observatory::Role::pre, observatory::ObservationTarget::delta));
     static_assert (observatory::targetAllowed (
         observatory::Role::post, observatory::ObservationTarget::delta));
+    static_assert (! observatory::domainCapabilities (
+        observatory::Role::pre).allows (observatory::Domain::frequency));
+    static_assert (observatory::domainFromState (
+        observatory::Role::pre,
+        observatory::stateValue (observatory::Domain::frequency))
+        == observatory::Domain::level);
+    static_assert (observatory::timeRangeFromState (99u)
+        == observatory::TimeRange::seconds30);
 
     for (const auto domain : {
              observatory::Domain::level,

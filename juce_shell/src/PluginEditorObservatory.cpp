@@ -22,7 +22,10 @@ juce::Colour observatoryPairColour (int status)
 
 void KirinHyphaEditor::setObservatoryDomain (hypha::observatory::Domain domain)
 {
+    const auto role = isPost ? hypha::observatory::Role::post : hypha::observatory::Role::pre;
+    domain = hypha::observatory::sanitizeDomain (role, domain);
     observatoryDomain = domain;
+    processorRef.setObservatoryDomainPreference (hypha::observatory::stateValue (domain));
     observatoryView.setDomain (domain);
 #if ! KIRIN_HYPHA_PRE_DISPLAY
     spectrumView.setAbsoluteObservation (
@@ -38,14 +41,39 @@ void KirinHyphaEditor::setObservatoryDomain (hypha::observatory::Domain domain)
 
 void KirinHyphaEditor::refreshObservatory()
 {
-    KirinMeterSession meter {};
-    observatoryView.setMeterSnapshot (meter, processorRef.pollMeterSession (meter));
+    const auto role = isPost ? hypha::observatory::Role::post : hypha::observatory::Role::pre;
+    const auto restoredDomain = hypha::observatory::domainFromState (
+        role, processorRef.observatoryDomainPreference());
+    if (restoredDomain != observatoryDomain)
+        setObservatoryDomain (restoredDomain);
+    const auto restoredTarget = hypha::observatory::targetFromState (
+        role, processorRef.observatoryTargetPreference());
+    if (restoredTarget != observatoryView.preferredTarget())
+    {
+        observatoryView.setTarget (restoredTarget);
+       #if ! KIRIN_HYPHA_PRE_DISPLAY
+        spectrumView.setAbsoluteObservation (
+            restoredTarget == hypha::observatory::ObservationTarget::absolute);
+       #endif
+    }
+    const auto restoredRange = hypha::observatory::timeRangeFromState (
+        processorRef.observatoryTimeRangePreference());
+    if (restoredRange != observatoryView.selectedTimeRange())
+        observatoryView.setTimeRange (restoredRange);
+    const auto restoredSize = juce::jmin (
+        (size_t) processorRef.spectrumSizePreference(),
+        hypha::observatory::sizePresets.size() - 1u);
+    if (restoredSize != observatorySizeIndex)
+    {
+        observatorySizeIndex = restoredSize;
+        const auto preset = hypha::observatory::sizePresets[restoredSize];
+        setSize (preset.width, preset.height);
+    }
 
-    KirinDelta delta {};
+    KirinObservatoryFrame frame {};
+    observatoryView.setObservatoryFrame (frame, processorRef.pollObservatoryFrame (frame));
+
     const auto pairStatus = processorRef.pairStatus();
-    const bool haveDelta = isPost && pairStatus != KIRIN_PAIR_STATUS_UNPAIRED
-                        && processorRef.pollDelta (delta);
-    observatoryView.setDeltaSnapshot (delta, haveDelta);
 
     if (observatoryDomain == hypha::observatory::Domain::time)
     {
@@ -53,8 +81,10 @@ void KirinHyphaEditor::refreshObservatory()
         std::vector<KirinMeterHistoryEntry> history;
         const auto historyReady = observatoryView.target()
             == hypha::observatory::ObservationTarget::absolute
-            ? processorRef.pollMeterHistory (request.resolution, history, request.maxEntries)
-            : processorRef.pollMeterDeltaHistory (request.resolution, history, request.maxEntries);
+            ? processorRef.pollMeterHistory (request.resolution, history, request.maxEntries,
+                                             request.maxOutputEntries)
+            : processorRef.pollMeterDeltaHistory (request.resolution, history, request.maxEntries,
+                                                  request.maxOutputEntries);
         if (historyReady)
             observatoryView.setHistory (std::move (history));
     }

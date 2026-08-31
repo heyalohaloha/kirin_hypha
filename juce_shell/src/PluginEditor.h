@@ -106,6 +106,7 @@ private:
     juce::TextButton          guideConnectButton;          // role-neutral explicit Work/session connect
     std::unique_ptr<hypha::PostControls> postControls;    // POST button row
     std::unique_ptr<juce::FileChooser> captureChooser;
+    bool captureIncludeGuide = false;
     hypha::PairDropdownButton pairDropdown;                // POST: vector arrow / candidate / All Keep / All Stop
 #if ! KIRIN_HYPHA_PRE_DISPLAY
     juce::TextButton          spectrumToggle;               // POST: meters / Analysis page
@@ -122,9 +123,9 @@ private:
     Kind   currentKind = Kind::WatchAbs6;
     bool   currentSix  = false;
     hypha::observatory::Domain observatoryDomain = hypha::observatory::Domain::level;
+    size_t observatorySizeIndex = 0;
 #if ! KIRIN_HYPHA_PRE_DISPLAY
     AnalysisPage analysisPage = AnalysisPage::meters;
-    size_t spectrumSizeIndex = 0;
     KirinAttackEventBatch cachedAttackEvents {};
     KirinAttackWaveformBatch cachedAttackWaveform {};
     KirinAttackDetailBatch cachedAttackDetails {};

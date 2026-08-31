@@ -3408,6 +3408,19 @@ impl KirinHyphaEngine {
             .map(|session| session.recent_history(resolution, max_entries))
     }
 
+    pub fn poll_meter_history_decimated(
+        &self,
+        resolution: MeterHistoryResolution,
+        max_entries: usize,
+        max_output: usize,
+    ) -> Option<Vec<MeterHistoryEntry>> {
+        self.meter_session
+            .as_ref()?
+            .try_lock()
+            .ok()
+            .map(|session| session.recent_history_decimated(resolution, max_entries, max_output))
+    }
+
     /// Exact-pair POST−PRE TIME history. PRE/unenabled roles fail closed.
     pub fn poll_meter_delta_history(
         &self,
@@ -3420,6 +3433,21 @@ impl KirinHyphaEngine {
             self.meter_delta_history
                 .as_ref()
                 .map(|exchange| exchange.recent(resolution, max_entries))
+        })?
+    }
+
+    pub fn poll_meter_delta_history_decimated(
+        &self,
+        resolution: MeterHistoryResolution,
+        max_entries: usize,
+        max_output: usize,
+    ) -> Option<Vec<MeterHistoryEntry>> {
+        let is_post =
+            self.write_role.lock().ok().and_then(|role| *role) == Some(PluginDataRole::Post);
+        is_post.then(|| {
+            self.meter_delta_history
+                .as_ref()
+                .map(|exchange| exchange.recent_decimated(resolution, max_entries, max_output))
         })?
     }
 
@@ -3593,6 +3621,11 @@ pub const KIRIN_METER_HISTORY_10_HZ_CAPACITY: usize = HISTORY_10_HZ_CAPACITY;
 pub const KIRIN_METER_HISTORY_1_HZ_CAPACITY: usize = HISTORY_1_HZ_CAPACITY;
 pub const KIRIN_METER_HISTORY_0_1_HZ_CAPACITY: usize = HISTORY_0_1_HZ_CAPACITY;
 pub const KIRIN_METER_HISTORY_MAX_ENTRIES: usize = HISTORY_0_1_HZ_CAPACITY;
+pub const KIRIN_DELTA_MODE_ACTIVE: u8 = 0;
+pub const KIRIN_OBSERVATORY_FRAME_VERSION: u32 = 1;
+pub const KIRIN_LRA_UNAVAILABLE: u8 = 0;
+pub const KIRIN_LRA_WARMING: u8 = 1;
+pub const KIRIN_LRA_READY: u8 = 2;
 
 /// Record/Keepから独立した常設メーターの一貫したスナップショット。
 /// current値とsession値は同じ`observed_frames`境界から生成され、値なしはNaNで表す。
@@ -3699,6 +3732,20 @@ pub struct KirinDelta {
     pub sharpness: f64,
     // Δ LUFS-S は既存 ABI offset を変えないよう末尾追加。
     pub lufs_s: f64,
+}
+
+/// Observatory表示が一度に受け取る非RTスナップショット。
+/// 接続状態はcontrol-plane事実なので含めず、表示対象の測定事実だけを束ねる。
+#[repr(C)]
+pub struct KirinObservatoryFrame {
+    pub version: u32,
+    pub signal_state: u8,
+    pub lra_state: u8,
+    pub delta_available: u8,
+    pub reserved: u8,
+    pub lra_elapsed_seconds: f64,
+    pub meter: KirinMeterSession,
+    pub delta: KirinDelta,
 }
 
 pub const KIRIN_SPECTRUM_HIDDEN: u8 = 0;
@@ -4022,6 +4069,36 @@ fn to_c_delta(d: &DeltaResult) -> KirinDelta {
         n_prime_total: opt_f64(d.n_prime_total),
         sharpness: opt_f64(d.sharpness),
         lufs_s: opt_f64(d.lufs_s),
+    }
+}
+
+fn delta_has_finite_fact(delta: &KirinDelta) -> bool {
+    delta.mode == KIRIN_DELTA_MODE_ACTIVE
+        && [
+            delta.lufs,
+            delta.lufs_s,
+            delta.true_peak,
+            delta.crest,
+            delta.psr,
+            delta.n_prime_total,
+            delta.sharpness,
+        ]
+        .into_iter()
+        .any(f64::is_finite)
+}
+
+fn lra_readiness(snapshot: &MeterSessionSnapshot) -> (u8, f64) {
+    let elapsed = snapshot.active_seconds();
+    if snapshot.state == MeterSessionState::Empty {
+        return (KIRIN_LRA_UNAVAILABLE, elapsed);
+    }
+    if elapsed < 60.0 {
+        return (KIRIN_LRA_WARMING, elapsed);
+    }
+    if snapshot.summary.lra.is_some_and(f64::is_finite) {
+        (KIRIN_LRA_READY, elapsed)
+    } else {
+        (KIRIN_LRA_UNAVAILABLE, elapsed)
     }
 }
 
@@ -4393,6 +4470,7 @@ mod meter_session_abi_tests {
         assert_eq!(std::mem::size_of::<KirinMeterSession>(), 832);
         assert_eq!(std::mem::size_of::<KirinMeterHistoryRange>(), 24);
         assert_eq!(std::mem::size_of::<KirinMeterHistoryEntry>(), 176);
+        assert_eq!(std::mem::size_of::<KirinObservatoryFrame>(), 912);
         let current = MeasureResult {
             lufs_m: Some(-14.2),
             lufs_s: Some(-14.8),
@@ -4485,7 +4563,66 @@ mod meter_session_abi_tests {
     }
 
     #[test]
+    fn lra_readiness_never_presents_an_early_finite_value_as_ready() {
+        let mut snapshot = MeterSessionSnapshot {
+            generation: 1,
+            state: MeterSessionState::Active,
+            sample_rate: 48_000,
+            active_frames: 48_000 * 59,
+            observed_frames: 48_000 * 59,
+            current: MeasureResult::default(),
+            summary: SessionSummary {
+                lufs_i: Some(-14.0),
+                lra: Some(0.0),
+                max_true_peak: Some(-1.0),
+            },
+            plr: Some(13.0),
+            stereo: kirin_measure::StereoMeterSnapshot {
+                channels: 2,
+                sample_peak_dbfs: [None; 2],
+                sample_peak_hold_dbfs: [None; 2],
+                true_peak_dbtp: [None; 2],
+                max_true_peak_dbtp: [None; 2],
+                clip_events: [0; 2],
+                balance_db: None,
+                balance_state: BalanceState::Unavailable,
+                correlation: None,
+                field_density: [0; STEREO_FIELD_BINS],
+                field_observation_count: 0,
+            },
+        };
+        assert_eq!(lra_readiness(&snapshot).0, KIRIN_LRA_WARMING);
+        snapshot.active_frames = 48_000 * 60;
+        assert_eq!(lra_readiness(&snapshot).0, KIRIN_LRA_READY);
+        snapshot.summary.lra = None;
+        assert_eq!(lra_readiness(&snapshot).0, KIRIN_LRA_UNAVAILABLE);
+        snapshot.state = MeterSessionState::Empty;
+        assert_eq!(lra_readiness(&snapshot).0, KIRIN_LRA_UNAVAILABLE);
+    }
+
+    #[test]
+    fn observatory_delta_requires_active_freshness_even_when_stale_values_are_finite() {
+        let mut delta = KirinDelta {
+            mode: KIRIN_DELTA_MODE_ACTIVE,
+            lufs: 1.0,
+            true_peak: f64::NAN,
+            crest: f64::NAN,
+            psr: f64::NAN,
+            n_prime_total: f64::NAN,
+            sharpness: f64::NAN,
+            lufs_s: f64::NAN,
+        };
+        assert!(delta_has_finite_fact(&delta));
+        delta.mode = delta_mode_to_abi(&DeltaMode::Stale);
+        assert!(!delta_has_finite_fact(&delta));
+    }
+
+    #[test]
     fn null_meter_session_calls_fail_closed_without_touching_output() {
+        let mut frame: KirinObservatoryFrame = unsafe { std::mem::zeroed() };
+        frame.version = 41;
+        assert!(!unsafe { kirin_hypha_poll_observatory_frame(std::ptr::null_mut(), &mut frame) });
+        assert_eq!(frame.version, 41);
         let mut out = KirinMeterSession {
             generation: 41,
             active_frames: 0,
@@ -4521,6 +4658,17 @@ mod meter_session_abi_tests {
             kirin_hypha_poll_meter_history(
                 std::ptr::null_mut(),
                 KIRIN_METER_HISTORY_10_HZ,
+                std::ptr::null_mut(),
+                0,
+                &mut history_count,
+            )
+        });
+        assert_eq!(history_count, 41);
+        assert!(!unsafe {
+            kirin_hypha_poll_meter_history_decimated(
+                std::ptr::null_mut(),
+                KIRIN_METER_HISTORY_10_HZ,
+                300,
                 std::ptr::null_mut(),
                 0,
                 &mut history_count,
@@ -6524,6 +6672,50 @@ pub unsafe extern "C" fn kirin_hypha_poll_meter_session(
     .unwrap_or(false)
 }
 
+/// Observatoryの測定事実を1つのversion付きフレームとして取得する。
+/// 組立前後でsignal stateが変わった場合はfalseとし、異なる時点を混ぜない。
+///
+/// # Safety
+/// `handle`/`out` は有効。UI Threadから呼ぶこと。
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_poll_observatory_frame(
+    handle: *mut KirinHyphaEngine,
+    out: *mut KirinObservatoryFrame,
+) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() || out.is_null() {
+            return false;
+        }
+        let engine = unsafe { &*handle };
+        let signal_before = engine.signal_state_abi();
+        let Some(snapshot) = engine.poll_meter_session() else {
+            return false;
+        };
+        let delta = engine.poll_delta().map_or_else(
+            || to_c_delta(&DeltaResult::default()),
+            |value| to_c_delta(&value),
+        );
+        let signal_after = engine.signal_state_abi();
+        if signal_before != signal_after {
+            return false;
+        }
+        let (lra_state, lra_elapsed_seconds) = lra_readiness(&snapshot);
+        let frame = KirinObservatoryFrame {
+            version: KIRIN_OBSERVATORY_FRAME_VERSION,
+            signal_state: signal_after,
+            lra_state,
+            delta_available: delta_has_finite_fact(&delta) as u8,
+            reserved: 0,
+            lra_elapsed_seconds,
+            meter: to_c_meter_session(&snapshot),
+            delta,
+        };
+        unsafe { *out = frame };
+        true
+    }))
+    .unwrap_or(false)
+}
+
 /// 常設Meter SessionのTIME履歴を古い順で最大`out_capacity`件取得する。
 /// 10 Hzはexact、1 Hz/0.1 Hzはmin/max/mean集約であり、同じ線として偽装しない。
 ///
@@ -6563,6 +6755,48 @@ pub unsafe extern "C" fn kirin_hypha_poll_meter_history(
     .unwrap_or(false)
 }
 
+/// 指定時間範囲を最大`out_capacity`点へ集約して取得する。
+///
+/// # Safety
+/// `handle`は有効なエンジンを指すこと。`out_count`は書き込み可能で、`out_capacity > 0`
+/// のとき`out`は同数以上の要素を書き込める領域を指すこと。UI Threadから呼ぶこと。
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_poll_meter_history_decimated(
+    handle: *mut KirinHyphaEngine,
+    resolution: u8,
+    max_entries: u32,
+    out: *mut KirinMeterHistoryEntry,
+    out_capacity: u32,
+    out_count: *mut u32,
+) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null()
+            || out_count.is_null()
+            || (out_capacity > 0 && out.is_null())
+            || max_entries as usize > KIRIN_METER_HISTORY_MAX_ENTRIES
+            || out_capacity as usize > KIRIN_METER_HISTORY_MAX_ENTRIES
+        {
+            return false;
+        }
+        let Some(resolution) = meter_history_resolution_from_abi(resolution) else {
+            return false;
+        };
+        let Some(entries) = (unsafe { &*handle }).poll_meter_history_decimated(
+            resolution,
+            max_entries as usize,
+            out_capacity as usize,
+        ) else {
+            return false;
+        };
+        for (index, entry) in entries.iter().copied().enumerate() {
+            unsafe { out.add(index).write(to_c_history_entry(entry)) };
+        }
+        unsafe { *out_count = entries.len() as u32 };
+        true
+    }))
+    .unwrap_or(false)
+}
+
 /// 同じDAW presentation sample終端で結合できたPOST−PRE TIME履歴だけを返す。
 /// 欠測・重複時刻・PRE roleは値を生成しない。
 ///
@@ -6597,6 +6831,48 @@ pub unsafe extern "C" fn kirin_hypha_poll_meter_delta_history(
             unsafe { out.add(index).write(to_c_history_entry(entry)) };
         }
         unsafe { *out_count = out_capacity.min(count) };
+        true
+    }))
+    .unwrap_or(false)
+}
+
+/// exact join済みPOST−PRE履歴を最大`out_capacity`点へ集約して取得する。
+///
+/// # Safety
+/// `handle`は有効なエンジンを指すこと。`out_count`は書き込み可能で、`out_capacity > 0`
+/// のとき`out`は同数以上の要素を書き込める領域を指すこと。UI Threadから呼ぶこと。
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_poll_meter_delta_history_decimated(
+    handle: *mut KirinHyphaEngine,
+    resolution: u8,
+    max_entries: u32,
+    out: *mut KirinMeterHistoryEntry,
+    out_capacity: u32,
+    out_count: *mut u32,
+) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null()
+            || out_count.is_null()
+            || (out_capacity > 0 && out.is_null())
+            || max_entries as usize > KIRIN_METER_HISTORY_MAX_ENTRIES
+            || out_capacity as usize > KIRIN_METER_HISTORY_MAX_ENTRIES
+        {
+            return false;
+        }
+        let Some(resolution) = meter_history_resolution_from_abi(resolution) else {
+            return false;
+        };
+        let Some(entries) = (unsafe { &*handle }).poll_meter_delta_history_decimated(
+            resolution,
+            max_entries as usize,
+            out_capacity as usize,
+        ) else {
+            return false;
+        };
+        for (index, entry) in entries.iter().copied().enumerate() {
+            unsafe { out.add(index).write(to_c_history_entry(entry)) };
+        }
+        unsafe { *out_count = entries.len() as u32 };
         true
     }))
     .unwrap_or(false)
