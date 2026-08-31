@@ -1,6 +1,6 @@
 # Kirin Hypha Meter product contract
 
-Status: redesign baseline for review
+Status: implemented development baseline; release conformance and licensed Kimera artifact pending
 
 Date: 2026-08-31
 
@@ -28,7 +28,7 @@ ATTACK統合後のworkspace testがgreenになったため、Daisukeの2026-08-3
 
 精度を装飾で演出するのではなく、単位、時間窓、軸、状態、測定時刻を美しく組み立てる。
 
-この文書は設計契約であり、計測アルゴリズムや製品コードをまだ変更しない。
+この文書は実装済みの製品契約であり、B-590からB-602の実装と今後の公開判定を拘束する。
 
 ## 2. Isolation boundary
 
@@ -124,7 +124,7 @@ POST版の受信、表示、移行Gateが成立するまで、現行PREのtransp
 
 ## 5. Standards gate
 
-実装開始前に、次の現行一次資料との意味差分を確定する。
+現行一次資料との意味差分監査は`docs/hypha_bs1770_5_r128_v5_audit_20260831.md`を正本とする。
 
 1. [ITU-R BS.1770-5](https://www.itu.int/rec/R-REC-BS.1770)
 2. [EBU R 128 v5.0](https://tech.ebu.ch/publications/r128)
@@ -135,9 +135,11 @@ Mは400 ms、Sは3 s、Iは利用者がResetするまでのMeter Sessionとし�
 
 LRAは測定開始直後に安定しないため、値が成立していない期間は`WARMING`と経過時間を表示する。
 
-BS.1770-5への更新はラベル置換だけで行わない。
+BS.1770-5はobject-based audio用Annex 4と高度音響方式の構成を更新したが、Hyphaのmono、stereoが使うAnnex 1とAnnex 2の測定式は変更していない。
 
-monoとstereoに対するアルゴリズム差分、依存crateの実装、公式test setの結果を確認してから規格名を更新する。
+依存crateは`ebur128 0.1.10`で固定し、UIとCaptureは公式test set完走まで版番号を付けない`ITU-R BS.1770`を表示する。
+
+HyphaはMaximum M、Maximum S、EBU +9/+18 scaleを製品契約に含めていないため、製品全体を`EBU Mode`とは表示せず、EBU R 128 logoも使用しない。
 
 規格版、計測式、単位、丸め、更新周期を一つの測定仕様に固定し、GUIとexportが同じsnapshotを読む構造にする。
 
@@ -298,13 +300,13 @@ L/R Sample Peakのhold markerはMeter Session開始後のチャンネル別最�
 
 `BAL`は`10 log10(E_L / E_R)`の符号付き値とし、正値をL、負値をRとしてラベルにも明示する。
 
-`CORR`は`sum(LR) / sqrt(sum(L²) sum(R²))`を候補式とする。
+`CORR`は`sum(LR) / sqrt(sum(L²) sum(R²))`の固定式とする。
 
 無音または分母0では`CORR`を`---`にする。
 
-BAL、CORR、per-channel peak、clip countは新規計測である。
+BAL、CORR、per-channel peak、clip countはMeter Sessionへ実装済みである。
 
-実装前に境界値、無音、mono、逆相、片ch、同相信号のgolden testを用意する。
+境界値、無音、mono、逆相、片ch、同相信号のgolden testを実装し、workspace testで検証する。
 
 clip thresholdはチャンネル別に`abs(sample) >= 1.0`（0 dBFS）とする。
 
@@ -383,7 +385,11 @@ ivoryの数字、cool cyanの実測線、低彩度amberのholdと居住光を基
 
 数値はtabular figuresを使い、小数点、符号、単位の位置を揃える。
 
-製品UIの書体は有料版Kimera KMR Waldenburg Bookを採用する。
+製品UIの書体は有料版Kimera KMR Waldenburg Bookで確定する。
+
+既存のKimera App Licenseは購入済みであり、Kirin Hyphaへの適用可否をDaisukeが確認中である。
+
+追加licenseが必要な場合もKimeraの採用は変更せず、必要なlicenseを取得する。
 
 Font Software本体はGPLソースへ含めず、Kirin Hyphaを対象にしたApp Licenseの確認後、リポジトリ外の正規OTFからrelease buildへ埋め込む。
 
@@ -435,9 +441,11 @@ Captureは利用者の明示操作で現在の測定snapshotを画像に保存�
 
 ### Gate A: measurement semantics
 
-現行規格との差分表を作る。
+現行規格との差分表は`docs/hypha_bs1770_5_r128_v5_audit_20260831.md`として完了した。
 
-公式test setと既存test signalでM、S、I、TP、LRAを数値比較する。
+既存test signalによるM、S、I、TP、LRAの数値比較はpassした。
+
+公式test setはEBU配布サーバーから取得できておらず、公開前の未完了gateとして残す。
 
 PLR、BAL、CORR、clip eventの正常系、境界値、無音、mono、逆相を検証する。
 
@@ -500,3 +508,4 @@ visual方向はConcept Cで確定した。
 情報設計は既存動線を固定せず、`LEVEL / TIME / FREQ / SPACE`を上位構造として進める。
 Meter Sessionはplugin instanceの同一runtime中だけ保持し、DAW project reloadでは空のSessionから開始する。
 SPACEはPOST専用の実測MID/SIDE densityとして初回公開対象に含め、意味未定義のΔ表示は作らない。
+製品書体はKimera KMR Waldenburg Bookで確定し、OTF埋め込みだけをHypha対象App License確認後の公開gateとする。
