@@ -68,7 +68,7 @@ use kirin_measure::{
     set_daw_session_id, set_project_uuid, spawn_io_thread_post, spawn_io_thread_pre,
     spawn_measure_thread, spawn_watchdog, store_signal_state, watch_ring_capacity_samples,
     write_broadcast_for_generation, write_pending_claiming_expected_and_clock_for_generation,
-    write_stop_broadcast, write_stop_broadcast_for_generation, AnalysisViewMode,
+    write_stop_broadcast, write_stop_broadcast_for_generation, AnalysisViewMode, BalanceState,
     CaptureClockSource, CaptureGeneration, CaptureGenerationMember, CaptureGenerationTransaction,
     DeltaMode, DeltaResult, GenerationTerminalReason, IoThreadHandle, LatchedPre, License,
     LiveLicense, LivenessEvaluator, MeasureResult, MeterSession, MeterSessionSnapshot,
@@ -3536,6 +3536,10 @@ pub struct KirinSessionSummary {
 pub const KIRIN_METER_SESSION_EMPTY: u8 = 0;
 pub const KIRIN_METER_SESSION_ACTIVE: u8 = 1;
 pub const KIRIN_METER_SESSION_PAUSED: u8 = 2;
+pub const KIRIN_BALANCE_UNAVAILABLE: u8 = 0;
+pub const KIRIN_BALANCE_NUMERIC: u8 = 1;
+pub const KIRIN_BALANCE_LEFT_ONLY: u8 = 2;
+pub const KIRIN_BALANCE_RIGHT_ONLY: u8 = 3;
 
 /// Record/Keepから独立した常設メーターの一貫したスナップショット。
 /// current値とsession値は同じ`observed_frames`境界から生成され、値なしはNaNで表す。
@@ -3554,6 +3558,16 @@ pub struct KirinMeterSession {
     pub true_peak: f64,
     pub max_true_peak: f64,
     pub plr: f64,
+    pub channels: u8,
+    pub balance_state: u8,
+    pub stereo_reserved: [u8; 6],
+    pub sample_peak_dbfs: [f64; 2],
+    pub sample_peak_hold_dbfs: [f64; 2],
+    pub channel_true_peak_dbtp: [f64; 2],
+    pub channel_max_true_peak_dbtp: [f64; 2],
+    pub clip_events: [u64; 2],
+    pub balance_db: f64,
+    pub correlation: f64,
 }
 
 /// `KirinIdentity` — state chunk 往復する識別子（C struct / 方式A）。
@@ -3794,6 +3808,12 @@ fn to_c_meter_session(snapshot: &MeterSessionSnapshot) -> KirinMeterSession {
         MeterSessionState::Active => KIRIN_METER_SESSION_ACTIVE,
         MeterSessionState::Paused => KIRIN_METER_SESSION_PAUSED,
     };
+    let balance_state = match snapshot.stereo.balance_state {
+        BalanceState::Unavailable => KIRIN_BALANCE_UNAVAILABLE,
+        BalanceState::Numeric => KIRIN_BALANCE_NUMERIC,
+        BalanceState::LeftOnly => KIRIN_BALANCE_LEFT_ONLY,
+        BalanceState::RightOnly => KIRIN_BALANCE_RIGHT_ONLY,
+    };
     KirinMeterSession {
         generation: snapshot.generation,
         active_frames: snapshot.active_frames,
@@ -3808,6 +3828,16 @@ fn to_c_meter_session(snapshot: &MeterSessionSnapshot) -> KirinMeterSession {
         true_peak: opt_f64(snapshot.current.true_peak),
         max_true_peak: opt_f64(snapshot.summary.max_true_peak),
         plr: opt_f64(snapshot.plr),
+        channels: snapshot.stereo.channels,
+        balance_state,
+        stereo_reserved: [0; 6],
+        sample_peak_dbfs: snapshot.stereo.sample_peak_dbfs.map(opt_f64),
+        sample_peak_hold_dbfs: snapshot.stereo.sample_peak_hold_dbfs.map(opt_f64),
+        channel_true_peak_dbtp: snapshot.stereo.true_peak_dbtp.map(opt_f64),
+        channel_max_true_peak_dbtp: snapshot.stereo.max_true_peak_dbtp.map(opt_f64),
+        clip_events: snapshot.stereo.clip_events,
+        balance_db: opt_f64(snapshot.stereo.balance_db),
+        correlation: opt_f64(snapshot.stereo.correlation),
     }
 }
 
@@ -4209,7 +4239,7 @@ mod meter_session_abi_tests {
 
     #[test]
     fn snapshot_layout_and_mapping_are_stable() {
-        assert_eq!(std::mem::size_of::<KirinMeterSession>(), 88);
+        assert_eq!(std::mem::size_of::<KirinMeterSession>(), 192);
         let current = MeasureResult {
             lufs_m: Some(-14.2),
             lufs_s: Some(-14.8),
@@ -4229,6 +4259,17 @@ mod meter_session_abi_tests {
                 max_true_peak: Some(-0.8),
             },
             plr: Some(14.2),
+            stereo: kirin_measure::StereoMeterSnapshot {
+                channels: 2,
+                sample_peak_dbfs: [Some(-1.0), Some(-2.0)],
+                sample_peak_hold_dbfs: [Some(-0.5), Some(-1.5)],
+                true_peak_dbtp: [Some(-0.8), Some(-1.8)],
+                max_true_peak_dbtp: [Some(-0.3), Some(-1.3)],
+                clip_events: [2, 1],
+                balance_db: Some(0.75),
+                balance_state: BalanceState::Numeric,
+                correlation: Some(0.91),
+            },
         };
         let mapped = to_c_meter_session(&snapshot);
         assert_eq!(mapped.state, KIRIN_METER_SESSION_PAUSED);
@@ -4241,6 +4282,12 @@ mod meter_session_abi_tests {
         assert_eq!(mapped.true_peak, -1.1);
         assert_eq!(mapped.max_true_peak, -0.8);
         assert_eq!(mapped.plr, 14.2);
+        assert_eq!(mapped.channels, 2);
+        assert_eq!(mapped.balance_state, KIRIN_BALANCE_NUMERIC);
+        assert_eq!(mapped.sample_peak_dbfs, [-1.0, -2.0]);
+        assert_eq!(mapped.clip_events, [2, 1]);
+        assert_eq!(mapped.balance_db, 0.75);
+        assert_eq!(mapped.correlation, 0.91);
     }
 
     #[test]
@@ -4259,6 +4306,16 @@ mod meter_session_abi_tests {
             true_peak: 0.0,
             max_true_peak: 0.0,
             plr: 0.0,
+            channels: 0,
+            balance_state: 0,
+            stereo_reserved: [0; 6],
+            sample_peak_dbfs: [0.0; 2],
+            sample_peak_hold_dbfs: [0.0; 2],
+            channel_true_peak_dbtp: [0.0; 2],
+            channel_max_true_peak_dbtp: [0.0; 2],
+            clip_events: [0; 2],
+            balance_db: 0.0,
+            correlation: 0.0,
         };
         assert!(!unsafe { kirin_hypha_poll_meter_session(std::ptr::null_mut(), &mut out) });
         assert!(!unsafe { kirin_hypha_reset_meter_session(std::ptr::null_mut()) });
@@ -4307,6 +4364,15 @@ mod meter_session_abi_tests {
         assert_eq!(active.observed_frames, 48_000);
         assert!(active.current.lufs_m.is_some());
         assert!(active.summary.lufs_i.is_some());
+        assert_eq!(active.stereo.channels, 2);
+        assert!(active.stereo.sample_peak_dbfs.iter().all(Option::is_some));
+        assert!(active
+            .stereo
+            .sample_peak_hold_dbfs
+            .iter()
+            .all(Option::is_some));
+        assert!(active.stereo.true_peak_dbtp.iter().all(Option::is_some));
+        assert!(active.stereo.correlation.is_none());
 
         engine.set_signal_state(KIRIN_SIGNAL_STATE_INACTIVE);
         let deadline = std::time::Instant::now() + Duration::from_secs(1);

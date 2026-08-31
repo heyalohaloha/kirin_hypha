@@ -70,6 +70,7 @@ mod spectrum_difference_timeline;
 pub mod spectrum_exchange;
 mod spectrum_exchange_worker;
 pub mod spectrum_runtime;
+pub mod stereo_meter;
 pub mod storage;
 mod sync_recovery;
 pub mod trace_alignment;
@@ -292,6 +293,7 @@ pub use spectrum_runtime::{
     PerceptualHistory, SpectrumHistory, SpectrumRuntime, SpectrumRuntimeStats,
     PERCEPTUAL_HISTORY_CAPACITY, SPECTRUM_HISTORY_CAPACITY,
 };
+pub use stereo_meter::{BalanceState, StereoMeter, StereoMeterSnapshot};
 pub use storage::{
     cleanup_legacy_v1, load_installation_id_safe, load_or_recover, read_identity, write_both,
     write_identity_atomic, CleanupReport, IdentityCache, LoadStatus, LoadedIdentity, PlatformKind,

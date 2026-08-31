@@ -82,6 +82,11 @@ typedef struct KirinHypha KirinHypha;
 #define KIRIN_METER_SESSION_ACTIVE 1u
 #define KIRIN_METER_SESSION_PAUSED 2u
 
+#define KIRIN_BALANCE_UNAVAILABLE 0u
+#define KIRIN_BALANCE_NUMERIC 1u
+#define KIRIN_BALANCE_LEFT_ONLY 2u
+#define KIRIN_BALANCE_RIGHT_ONLY 3u
+
 /* RT 計測結果. 各 double の「値なし」は NaN. */
 typedef struct {
   double lufs_m;        /* LUFS-M (ITU-R BS.1770-4 Momentary, 400ms) */
@@ -130,6 +135,16 @@ typedef struct {
   double true_peak;
   double max_true_peak;
   double plr;
+  uint8_t channels;
+  uint8_t balance_state; /* KIRIN_BALANCE_* */
+  uint8_t stereo_reserved[6];
+  double sample_peak_dbfs[2];
+  double sample_peak_hold_dbfs[2];
+  double channel_true_peak_dbtp[2];
+  double channel_max_true_peak_dbtp[2];
+  uint64_t clip_events[2];
+  double balance_db;  /* positive=L, negative=R; one-sidedはbalance_stateで表す */
+  double correlation; /* fixed 3 s; denominator 0/mono/未成立はNaN */
 } KirinMeterSession;
 
 /* state chunk 往復する識別子（方式A）. 各フィールドは null 終端 C 文字列（最大 63 + null）.

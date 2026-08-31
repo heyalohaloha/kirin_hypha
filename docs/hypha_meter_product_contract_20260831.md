@@ -280,6 +280,10 @@ Record、Keep、Kirin OS接続の状態はMeter Sessionに影響しない。
 | BAL | dB | 3 sのL/R energy差 | 0.1 dB |
 | CORR | unitless | 3 s energy-normalized correlation | 0.01 |
 
+L/R Sample Peakのhold markerはMeter Session開始後のチャンネル別最大値とし、時間で自動解除しない。
+
+`RESET`だけがholdを解除する。
+
 `BAL`は`10 log10(E_L / E_R)`の符号付き値とし、正値をL、負値をRとしてラベルにも明示する。
 
 `CORR`は`sum(LR) / sqrt(sum(L²) sum(R²))`を候補式とする。
@@ -290,7 +294,13 @@ BAL、CORR、per-channel peak、clip countは新規計測である。
 
 実装前に境界値、無音、mono、逆相、片ch、同相信号のgolden testを用意する。
 
-clip countの閾値と連続sampleのevent集約規則は、実装前に別途固定する。
+clip thresholdはチャンネル別に`abs(sample) >= 1.0`（0 dBFS）とする。
+
+1 clip eventは、同一チャンネルでthreshold以上が連続する最大runとする。
+
+runが100 ms観測境界をまたいでも1 eventのまま保持し、threshold未満のsampleを1点以上挟んだ次のrunを新しいeventとして数える。
+
+L/R同時clipは各チャンネルの独立eventとして数え、総数へ暗黙に畳み込まない。
 
 ## 10. History and optional analysis
 

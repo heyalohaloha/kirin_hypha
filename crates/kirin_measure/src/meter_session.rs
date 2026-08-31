@@ -5,7 +5,7 @@
 //! accumulated statistics. The owner lives outside the replaceable Measure worker so a worker
 //! restart does not implicitly discard the session.
 
-use crate::{MeasureEngine, MeasureResult, SessionSummary};
+use crate::{MeasureEngine, MeasureResult, SessionSummary, StereoMeter, StereoMeterSnapshot};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MeterSessionState {
@@ -26,6 +26,7 @@ pub struct MeterSessionSnapshot {
     pub current: MeasureResult,
     pub summary: SessionSummary,
     pub plr: Option<f64>,
+    pub stereo: StereoMeterSnapshot,
 }
 
 impl MeterSessionSnapshot {
@@ -47,12 +48,16 @@ pub struct MeterSession {
     state: MeterSessionState,
     current: MeasureResult,
     summary: SessionSummary,
+    observed_frames: u64,
+    stereo: StereoMeter,
 }
 
 impl MeterSession {
     pub fn new(sample_rate: u32, n_channels: usize) -> Result<Self, String> {
+        let engine = MeasureEngine::new(sample_rate, n_channels)?;
+        let stereo = StereoMeter::new(sample_rate, n_channels)?;
         Ok(Self {
-            engine: MeasureEngine::new(sample_rate, n_channels)?,
+            engine,
             sample_rate,
             n_channels,
             generation: 1,
@@ -60,6 +65,8 @@ impl MeterSession {
             state: MeterSessionState::Empty,
             current: MeasureResult::default(),
             summary: SessionSummary::default(),
+            observed_frames: 0,
+            stereo,
         })
     }
 
@@ -76,8 +83,17 @@ impl MeterSession {
             .active_frames
             .saturating_add((interleaved.len() / self.n_channels) as u64);
         self.state = MeterSessionState::Active;
-        if let Some(current) = self.engine.push(interleaved) {
-            self.current = current;
+        let mut advanced = false;
+        self.engine
+            .push_observed(interleaved, |_, current, observed_samples| {
+                let _ = self.stereo.push_observation(observed_samples);
+                self.current = current.clone();
+                self.observed_frames = self
+                    .observed_frames
+                    .saturating_add((observed_samples.len() / self.n_channels) as u64);
+                advanced = true;
+            });
+        if advanced {
             self.summary = self.engine.finalize();
         }
         true
@@ -96,6 +112,8 @@ impl MeterSession {
         self.state = MeterSessionState::Empty;
         self.current = MeasureResult::default();
         self.summary = SessionSummary::default();
+        self.observed_frames = 0;
+        self.stereo.reset();
     }
 
     pub fn snapshot(&self) -> MeterSessionSnapshot {
@@ -104,12 +122,7 @@ impl MeterSession {
             state: self.state,
             sample_rate: self.sample_rate,
             active_frames: self.active_frames,
-            observed_frames: if self.sample_rate == 0 {
-                0
-            } else {
-                let cadence = (self.sample_rate as u64 / 10).max(1);
-                self.active_frames / cadence * cadence
-            },
+            observed_frames: self.observed_frames,
             current: self.current.clone(),
             summary: self.summary,
             plr: self
@@ -118,6 +131,7 @@ impl MeterSession {
                 .zip(self.summary.lufs_i)
                 .map(|(peak, integrated)| peak - integrated)
                 .filter(|value| value.is_finite()),
+            stereo: self.stereo.snapshot(),
         }
     }
 }
@@ -223,5 +237,46 @@ mod tests {
         let snapshot = session.snapshot();
         assert_eq!(snapshot.state, MeterSessionState::Empty);
         assert_eq!(snapshot.active_frames, 0);
+    }
+
+    #[test]
+    fn channel_and_stereo_facts_do_not_depend_on_caller_chunking() {
+        let mut samples = stereo_sine(3.2, 0.5);
+        for frame in (SR as usize / 2)..(SR as usize / 2 + 37) {
+            samples[frame * 2] = 1.1;
+        }
+        let mut whole = MeterSession::new(SR, 2).unwrap();
+        assert!(whole.push_active(&samples));
+
+        let mut chunked = MeterSession::new(SR, 2).unwrap();
+        for chunk in samples.chunks(742) {
+            assert!(chunked.push_active(chunk));
+        }
+        let whole = whole.snapshot();
+        let chunked = chunked.snapshot();
+        assert_eq!(whole.observed_frames, chunked.observed_frames);
+        assert_eq!(whole.stereo.clip_events, chunked.stereo.clip_events);
+        for channel in 0..2 {
+            assert!(close(
+                whole.stereo.sample_peak_hold_dbfs[channel],
+                chunked.stereo.sample_peak_hold_dbfs[channel],
+                1.0e-12
+            ));
+            assert!(close(
+                whole.stereo.max_true_peak_dbtp[channel],
+                chunked.stereo.max_true_peak_dbtp[channel],
+                1.0e-12
+            ));
+        }
+        assert!(close(
+            whole.stereo.balance_db,
+            chunked.stereo.balance_db,
+            1.0e-12
+        ));
+        assert!(close(
+            whole.stereo.correlation,
+            chunked.stereo.correlation,
+            1.0e-12
+        ));
     }
 }
