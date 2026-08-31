@@ -11,7 +11,7 @@ namespace hypha::attack_painter
     enum class WaveformStyle
     {
         continuous,
-        pulse
+        trace
     };
 
     void drawWaveform (juce::Graphics&,
@@ -25,7 +25,6 @@ namespace hypha::attack_painter
                        bool colourAbsoluteFeatures,
                        float alpha);
     void drawWaveformDifferences (juce::Graphics&,
-                                  const KirinAttackWaveformBatch& postWaveform,
                                   const KirinAttackDetailBatch& preDetails,
                                   const KirinAttackDetailBatch& postDetails,
                                   const KirinAttackPairEventBatch& pairs,
@@ -33,6 +32,10 @@ namespace hypha::attack_painter
                                   std::int64_t firstSample,
                                   std::int64_t latestSample,
                                   std::uint32_t sampleRate);
+    void drawEventFocus (juce::Graphics&,
+                         const KirinAttackDetail* preDetail,
+                         const KirinAttackDetail* postDetail,
+                         juce::Rectangle<int>);
     void drawMetricCard (juce::Graphics&,
                          juce::Rectangle<int>,
                          const juce::String& title,

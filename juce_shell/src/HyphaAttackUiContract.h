@@ -15,7 +15,7 @@ namespace hypha::attack_ui
     constexpr int minimumPlotWidth = 1;
     constexpr int headerHeight = 32;
     constexpr int axisLabelHeight = 22;
-    constexpr int detailMetricsHeight = 42;
+    constexpr int detailMetricsHeight = 74;
     constexpr int modeControlMaximumWidth = 112;
     constexpr float absoluteFloorDb = -72.0f;
     constexpr float strengthGlowOnDbfs = -42.0f;
@@ -34,21 +34,54 @@ namespace hypha::attack_ui
     constexpr float transientDifferenceGlowFullDb = 6.0f;
     constexpr float textureDifferenceGlowOn = 0.04f;
     constexpr float textureDifferenceGlowFull = 0.35f;
-    constexpr int featureTintRadiusMs = 120;
-    // A low-chroma, colour-vision-resilient family. Magnitude is carried by lightness, opacity,
-    // thickness and the fixed spatial grammar rather than by shifting hue between PRE and POST.
-    constexpr std::uint32_t waveformColour = 0xff7893a3;
-    constexpr std::uint32_t strengthColour = 0xffd6ad73;
-    constexpr std::uint32_t brightnessColour = 0xff8dc9dc;
-    constexpr std::uint32_t transientColour = 0xff88baaa;
-    constexpr std::uint32_t textureColour = 0xffbd837c;
+    constexpr float organismFeather = 0.12f;
+    constexpr float strengthCoreRadius = 0.38f;
+    constexpr float textureBodyRadius = 0.64f;
+    constexpr float brightnessShellRadius = 0.82f;
+    constexpr float brightnessShellHalfWidth = 0.045f;
+    constexpr float transientAuraRadius = 1.00f;
+    constexpr float transientAuraHalfWidth = 0.055f;
+    constexpr float transientAuraReach = 5.0f;
+    // A colour-vision-resilient gold/cyan family. Fixed radial bands retain each observation's
+    // chroma; magnitude is carried by lightness, opacity and thickness, never by hue movement.
+    constexpr std::uint32_t waveformColour = 0xff6f93a8;
+    constexpr std::uint32_t strengthColour = 0xffd8b36f;
+    constexpr std::uint32_t brightnessColour = 0xff83c8dc;
+    constexpr std::uint32_t transientColour = 0xff76c3bb;
+    constexpr std::uint32_t textureColour = 0xffc39268;
     constexpr std::uint32_t selectionColour = 0xffe7ddc6;
+
+    constexpr int rgbChromaRange (std::uint32_t colour) noexcept
+    {
+        const auto red = static_cast<int> ((colour >> 16) & 0xff);
+        const auto green = static_cast<int> ((colour >> 8) & 0xff);
+        const auto blue = static_cast<int> (colour & 0xff);
+        const auto maximum = red > green ? (red > blue ? red : blue)
+                                         : (green > blue ? green : blue);
+        const auto minimum = red < green ? (red < blue ? red : blue)
+                                         : (green < blue ? green : blue);
+        return maximum - minimum;
+    }
+
+    static_assert (rgbChromaRange (waveformColour) >= 56);
+    static_assert (rgbChromaRange (strengthColour) >= 56);
+    static_assert (rgbChromaRange (brightnessColour) >= 56);
+    static_assert (rgbChromaRange (transientColour) >= 56);
+    static_assert (rgbChromaRange (textureColour) >= 56);
+
+    static_assert (strengthCoreRadius < textureBodyRadius);
+    static_assert (textureBodyRadius < brightnessShellRadius
+                       - brightnessShellHalfWidth * (1.0f + organismFeather));
+    static_assert (brightnessShellRadius
+                       + brightnessShellHalfWidth * (1.0f + organismFeather)
+                   < transientAuraRadius
+                       - transientAuraHalfWidth * (1.0f + organismFeather));
 
     constexpr int metricsHeight (int totalHeight) noexcept
     {
         return totalHeight < 120 ? 0
              : totalHeight >= 220 ? detailMetricsHeight
-             : totalHeight >= 140 ? 32 : 20;
+             : totalHeight >= 140 ? 58 : 38;
     }
 
     constexpr int modeControlWidth (int totalWidth) noexcept

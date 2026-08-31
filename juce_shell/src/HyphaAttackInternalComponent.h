@@ -26,6 +26,8 @@ namespace hypha
                           const KirinAttackStats& stats);
         void clearSnapshot();
         void setOverlayMode (bool shouldOverlay);
+        void presentationTick (bool signalActive);
+        void presentationTickAt (double nowMs);
         void paint (juce::Graphics&) override;
         void mouseDown (const juce::MouseEvent&) override;
         void mouseDrag (const juce::MouseEvent&) override;
@@ -40,6 +42,9 @@ namespace hypha
         KirinAttackPairEventBatch pairEventBatch {};
         KirinAttackStats runtimeStats {};
         std::int64_t latest = -1;
+        std::int64_t presentationStartLatest = -1;
+        std::int64_t presentationTargetLatest = -1;
+        double presentationStartMs = 0.0;
         std::uint32_t rate = 0;
         std::uint64_t currentGeneration = 0;
         std::int64_t selectedEventSample = -1;
@@ -54,6 +59,7 @@ namespace hypha
         void selectNearestEventAtX (int x) noexcept;
         void selectBoundaryEvent (bool selectLast) noexcept;
         void selectAdjacentEvent (bool moveRight) noexcept;
+        void advancePresentation (double nowMs) noexcept;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AttackInternalComponent)
     };

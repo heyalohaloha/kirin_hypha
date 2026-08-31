@@ -8,21 +8,21 @@ SuperFluxはトランジェントの位置を決める内部検出器に限定�
 | 表示 | 実測量 | 見せ方 |
 |---|---|---|
 | STRENGTH | 30 ms attack RMS | 暖色の中心core。固定−48..0 dBFS、波形高と併記 |
-| BRIGHTNESS | 既存100 ms Sharpness | 低彩度アイスブルーの外側shell。固定0..3 acum |
-| TRANSIENT | 30 ms attack RMS − 直前100 ms RMS | 低彩度seafoamのenvelope aura。固定0..18 dB |
-| TEXTURE | sample-edge比、Crest、peak plateau幅 | 低彩度copperの追従する繊維。原因をSaturationとは断定しない |
+| BRIGHTNESS | 既存100 ms Sharpness | ice blueの外側shell。固定0..3 acum |
+| TRANSIENT | 30 ms attack RMS − 直前100 ms RMS | tealのenvelope aura。固定0..18 dB |
+| TEXTURE | sample-edge比、Crest、peak plateau幅 | copperの連続組織。原因をSaturationとは断定しない |
 
 色や文言で良い、悪い、改善、劣化を示さない。
-PREまたはPOST単体でも四成分を読めるよう、絶対値を同じ固定scaleで主scrubへ直接重ねる。
-色を境界線で区切らず、重なり合う半透明fieldとして連続的に溶かす。断面の中心傾向だけを固定し、波形中心のamberをStrength、その周囲のcopper密度をTexture、外層の低彩度iceをBrightness、envelope外周のseafoam auraをTransientとする。四角、三角、菱形、等間隔stripeのような記号形は使わず、波形へ追従する連続曲線と微細な密度揺らぎで、生き物の断面のように一体で見せる。
+六秒overviewへ四成分を同じ強さで重ねない。overviewは連続波形を背骨とし、イベントの体積と外光だけを即読できる形で残す。選択イベントは`−100 / +30 ms`のEVENT SHAPEへ拡大し、ここで四成分と四つの実測cardを同時に読む。PREまたはPOST単体でも同じ固定scaleを使い、focusの横軸を六秒overviewと混同させない。
+色を硬い境界線では区切らず、連続波形を背骨、実測attack shapeを各イベントの個体輪郭として描く。個体内部のamber体積をStrength、その周囲に連続するcopper組織の密度をTexture、外側のice表皮をBrightness、輪郭外のteal発光をTransientとする。暖色の内部二層と寒色の外部二層を分け、実測が同時に強いほど灰褐色へ収束する表示を禁止する。点、点線、短いdash、四角、三角、菱形、等間隔stripeのような記号形は使わず、実測shapeへ追従する連続曲線と連続面だけで、生き物の断面のように一体で見せる。
 四色を同じ彩度・面積で競わせない。量は色相の移動ではなく、固定色の明度、透明度、厚みで示す。色名が読めなくても、`CORE / FIELD / SHELL / AURA`の位置、形、密度、文字で四成分を区別できるようにする。
 各色は固定物理閾値を越えた時だけ発光し、発光開始からfull値までをsmooth-stepで連続表示する。初期値はStrength `−42..−6 dBFS attack RMS`、Brightness `0.60..2.50 acum`、Transient `3..15 dB contrast`、Texture composite `0.10..0.65`。比較表示の最小差はそれぞれ`0.50 dB / 0.05 acum / 0.50 dB / 0.04`とし、曲内max、percentile、material依存normalizationを使わない。
 TEXTUREは処理器を推定しない。sample-edge比、Crest、−3 dB peak plateauの固定観測からtexture-likeな状態だけを示し、`Saturation`という原因名へ置き換えない。
 
 ## Palette evidence
 
-同じ値の増加が色によって不均一に見えないよう、paletteはScientific Colour Mapsの知覚均一性、順序性、色覚多様性の原則を採用する。Hypha固有色は同資料の色を直接転載せず、暗いpanel上でfull発光時の各componentが3:1以上になる低彩度familyとして固定する。
-W3CのUse of ColorとNon-text Contrastに従い、色を唯一の識別手段にせず、四つの固定断面、Textureの繊維、Transientのaura、明示labelを併用する。薄いgradient部分ではなく、輪郭とlabelを必要contrastの正本にする。
+同じ値の増加が色によって不均一に見えないよう、paletteはScientific Colour Mapsの知覚均一性、順序性、色覚多様性の原則を採用する。Hypha固有色は同資料の色を直接転載せず、暗いpanel上でfull発光時の各componentが3:1以上になり、RGB chroma rangeが56未満へ落ちないgold/copper・cyan/teal familyとして固定する。
+W3CのUse of ColorとNon-text Contrastに従い、色を唯一の識別手段にせず、四つの固定断面、Textureの連続組織、Transientのaura、明示labelを併用する。薄いgradient部分ではなく、輪郭とlabelを必要contrastの正本にする。
 
 - Fabio Crameri, Scientific Colour Maps: https://www.fabiocrameri.ch/colourmaps/
 - Crameri et al., 2020, *The misuse of colour in science communication*: https://www.nature.com/articles/s41467-020-19160-7
@@ -61,7 +61,9 @@ W3CのUse of ColorとNon-text Contrastに従い、色を唯一の識別手段に
 `NOW`またはEndでLIVE追従へ戻し、LIVEとLOCKは常に画面内へ明示する。これは視覚選択だけであり、Hyphaから音声を生成、加工、seekしない。
 初期表示は主scrubをPRE/POST二段で大きく使う。明示ボタンで、同じ全領域を使う一段の重ね表示へ切り替える。小さな別comparison plotは置かない。
 二段はPRE/POSTで同じpaletteと絶対scaleを使い、identityでは同じ形・色にする。
-重ね表示はPREを離散pulse、POSTを連続outlineにする。色は絶対値を二重表示せず、Strength差を金、Brightness差をアイスブルー、Transient差をミント、Texture差を珊瑚色の繊維で示す。
+重ね表示はPREを細い連続trace、POSTを連続bodyにする。離散点や点線でPREを表さない。色は絶対値を二重表示せず、Strength差を金、Brightness差をアイスブルー、Transient差をteal、Texture差をcopperの連続膜で示す。
+EVENT SHAPEは150%と200%で常設し、四つのcardを右側の二行へ置く。125%は四card、100%はoverviewへ段階的に縮退し、読めない装飾を押し込まない。
+10 Hzの正本更新間は同じサンプル時刻を参照したまま100 msのsmooth-stepで横軸だけを補間する。transport世代変更、後方seek、無効状態では補間せず即時にsnapし、信号が止まっている間に自律的な呼吸や発光を作らない。
 見た目から楽器名、原因、推奨操作を推測しない。
 未対応event、欠測、floor-limited、Brightness pendingは輪郭または`---`で事実状態を保つ。
 
@@ -74,6 +76,6 @@ POSTの通常Analysis導線は最初にDRUM ATTACKを開き、同じ枠内でATT
 ATTACKは既存のexact-pair optional-analysis leaseを再利用し、別の常時通信を増やさない。
 POSTがATTACKを表示している間だけ10 HzでPREの六秒waveform、ODF、event detailを専用の固定上限payloadへ発行し、同じcontent sampleとdefinitionの系列だけを結合する。
 PRE未接続ではPOST実測だけを`POST ABSOLUTE`として表示し、PRE波形を複製しない。
-二段表示はPRE/POSTで同じ固定paletteと絶対scaleを使い、各scrubだけでStrength、Brightness、Transient、Textureを読めるようにする。
-重ね表示はPREを離散線、POSTを連続輪郭にし、四成分の差だけを各固定色で示す。
+二段表示はPRE/POSTで同じ固定paletteと絶対scaleを使い、overview、EVENT SHAPE、四cardを同じ選択eventへ同期する。
+重ね表示はPREを連続trace、POSTを連続bodyにし、選択EVENT SHAPEで四成分の差だけを各固定色で示す。
 同一音声では形と差分色が一致し、色だけでPRE/POSTを識別させない。

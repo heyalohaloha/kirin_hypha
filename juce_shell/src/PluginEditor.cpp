@@ -1033,6 +1033,7 @@ void KirinHyphaEditor::updatePost()
             cachedAttackEvents, cachedAttackWaveform, cachedAttackDetails,
             cachedAttackPreWaveform, cachedAttackPreDetails, cachedAttackPairEvents,
             cachedAttackLatest, cachedAttackRate, cachedAttackGeneration, cachedAttackStats);
+        attackInternalView.presentationTick (sig == KIRIN_SIGNAL_STATE_ACTIVE);
         led.setState (hypha::deriveLedState (alive, sig, rec && armed, ack, preset));
         return;
     }
