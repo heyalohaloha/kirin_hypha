@@ -201,9 +201,11 @@ namespace hypha::pre_display
 
             const auto state = objectString (object, "frequency_state");
             item.selectionRef = objectString (object, "selection_ref");
-            if (model.protocolVersion == "2.0" && ! safeId (item.selectionRef))
+            const bool hasReviewSelection = model.protocolVersion == "1.1"
+                                         || model.protocolVersion == "2.0";
+            if (hasReviewSelection && ! safeId (item.selectionRef))
                 return false;
-            if (model.protocolVersion != "2.0" && object.hasProperty ("selection_ref"))
+            if (! hasReviewSelection && object.hasProperty ("selection_ref"))
                 return false;
             if (state != "measured" && state != "unlocated"
                 && state != "missing" && state != "invalid")
@@ -291,7 +293,9 @@ namespace hypha::pre_display
                                          "created_at", "content_hash", "producer", "target",
                                          "source_set", "time_basis", "payload" })
             || objectString (guide, "format") != "kirin_pre_display_guide"
-            || (candidate.protocolVersion != "1.0" && candidate.protocolVersion != "2.0")
+            || (candidate.protocolVersion != "1.0"
+                && candidate.protocolVersion != "1.1"
+                && candidate.protocolVersion != "2.0")
             || ! canonicalIsoInstant (objectString (guide, "created_at")))
             return false;
         candidate.cacheKey = cacheKey;
@@ -328,6 +332,7 @@ namespace hypha::pre_display
         candidate.groupId = objectString (*target, "group_id");
         candidate.payloadKind = objectString (*payload, "kind");
         const auto exactTarget = candidate.protocolVersion == "2.0";
+        const auto reviewTarget = candidate.protocolVersion == "1.1" || exactTarget;
         if (! hasOnlyProperties (*target, exactTarget
                 ? std::initializer_list<const char*> { "group_id", "selection_mode", "work_id", "binding_id", "runtime_instance_id" }
                 : std::initializer_list<const char*> { "group_id", "selection_mode" })
@@ -433,7 +438,7 @@ namespace hypha::pre_display
         std::int64_t maskingDuration = maxSafeJsonInteger;
         if (candidate.payloadKind == "masking")
         {
-            if (! hasOnlyProperties (*payload, exactTarget
+            if (! hasOnlyProperties (*payload, reviewTarget
                     ? std::initializer_list<const char*> { "kind", "measurement_state", "pair_key", "source_order", "review_selections", "intervals" }
                     : std::initializer_list<const char*> { "kind", "measurement_state", "pair_key", "source_order", "intervals" })
                 || ! hasProperties (*payload, { "kind", "pair_key", "source_order", "intervals" })
@@ -464,7 +469,7 @@ namespace hypha::pre_display
             candidate.sourcePairLabel = compactText (sourceLabelFor (sourceLabels, a), 16)
                                       + " " + juce::String::charToString (0x00d7) + " "
                                       + compactText (sourceLabelFor (sourceLabels, b), 16);
-            if (exactTarget)
+            if (reviewTarget)
             {
                 const auto* selections = payload->getProperty ("review_selections").getArray();
                 if (selections == nullptr || selections->isEmpty() || selections->size() > maxGuideItems)
@@ -528,7 +533,7 @@ namespace hypha::pre_display
                 return false;
             candidate.items.push_back (std::move (item));
         }
-        if (candidate.payloadKind == "masking" && exactTarget)
+        if (candidate.payloadKind == "masking" && reviewTarget)
         {
             for (const auto& item : candidate.items)
             {

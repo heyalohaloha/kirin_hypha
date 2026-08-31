@@ -319,14 +319,18 @@ int main()
         .getChildFile ("masking_measured_bark_guide.v1.json");
     require (fixtureFile.existsAsFile(), "locate the shared producer-consumer guide fixture");
     require (juce::SHA256 (fixtureFile).toHexString()
-                 == "3875787a00fec525247063ef0c654ae70968457545e38f890baf334065d748c3",
+                 == "f8176aecd61cab9c553861629af2164af6f9a6fce3e860f1f50202bf7b6e8f73",
              "retain byte-exact parity with the Kirin OS fixture");
     const auto fixtureValue = juce::JSON::parse (fixtureFile);
     pre::GuideModel fixtureModel;
     require (fixtureValue.getDynamicObject() != nullptr
              && pre::parseArtifactVerifiedGuideModel (
                     *fixtureValue.getDynamicObject(), "fixture", fixtureModel),
-             "parse the exact Kirin OS MASKING fixture");
+             "parse the exact Kirin OS MASKING v1.1 fixture");
+    require (fixtureModel.protocolVersion == "1.1"
+             && fixtureModel.items.size() == 2
+             && fixtureModel.items.front().selectionRef == "review_0001",
+             "retain the v1.1 review selection binding without treating it as an exact runtime target");
     pre::ClockSnapshot fixtureClock;
     fixtureClock.generation = 1;
     fixtureClock.positionSamples = 72'000;
@@ -368,9 +372,9 @@ int main()
     require (writeJson (root.getChildFile ("active").getChildFile ("kirin_os.json"),
                         activePointer (
                             fixtureArtifact,
-                            "3875787a00fec525247063ef0c654ae70968457545e38f890baf334065d748c3",
+                            "f8176aecd61cab9c553861629af2164af6f9a6fce3e860f1f50202bf7b6e8f73",
                             "11111111-1111-4111-8111-111111111111",
-                            "76c628baf4188b63ea16533659ef7763070082fda622908f9ae1a44bc998336f",
+                            "54042d99e9e0c6f5f2543e49e4704a636147271a220d675ec527946f9cdaedef",
                             "masking", 7)),
              "write fixture pointer");
     pre::GuideModel fixtureFromRepository;

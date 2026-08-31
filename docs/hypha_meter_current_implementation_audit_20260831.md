@@ -275,6 +275,10 @@ eventは表示名、source、channel、start、end、optional bandを持ち、du
 
 MASKING payloadはsource pair、review selection、frequency focus、実測collision interval、frequency state、optional measured band、frequency basisを持つ。
 
+Kirin OSの現行MASKING互換fixtureはprotocol v1.1であり、review selectionと各intervalの`selection_ref`を含む。
+
+2026-08-31の再監査ではHypha側fixtureとparserがv1.0のまま止まっていたため、Kirin OS側1,907 bytes、SHA-256 `f8176aecd61cab9c553861629af2164af6f9a6fce3e860f1f50202bf7b6e8f73`へbyte同期し、v1.1のsemantic validationを復旧した。
+
 Hyphaはaudio threadが公開したproject clockをworker threadで読み、Guide timeを`RECEIVED`、`NEXT`、`CUE`、`ACTIVE`、`HELD`、`END`、`PAUSED`へ投影する。
 
 現在のGUIへ渡す`DisplaySnapshot`は、projection結果をprimary、detail、stateTextの二行相当へ圧縮する。

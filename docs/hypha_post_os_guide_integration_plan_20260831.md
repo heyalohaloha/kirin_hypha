@@ -186,7 +186,7 @@ PREとPOSTの4サイズを同じ変更単位で検証する。
 
 ## 10. Migration
 
-v1とv2のPRE Guide artifactは既存PRE readerで受信できる状態を保つ。
+v1.0、v1.1、v2.0のPRE Guide artifactは既存PRE readerで受信できる状態を保つ。
 
 v3対応Kirin OSは、利用者が接続したPOSTのcapabilityを確認できた場合にPOSTを主送信先とする。
 
@@ -196,7 +196,7 @@ POST送信に失敗した後、無言でPREへ送り先を変更しない。
 
 PRE互換送信を使った場合は、Kirin OS側に`Sent to legacy Hypha PRE`と事実を表示する。
 
-POST普及後もv1とv2 parserは既存projectのGuideを壊さないために保持する。
+POST普及後もv1.0、v1.1、v2.0 parserは既存projectのGuideを壊さないために保持する。
 
 PRE専用UIを削除する時期は、POST版のmacOSとWindowsが同一versionで公開され、Kirin OS側の接続migrationが完了した後に決める。
 
