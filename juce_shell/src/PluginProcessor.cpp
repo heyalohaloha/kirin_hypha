@@ -7,6 +7,8 @@
 
 namespace
 {
+    static_assert (sizeof (KirinMeterSession) == 88u,
+                   "Rust/C++ Meter Session ABI size must remain exact");
 #if KIRIN_HYPHA_GUIDE_TRANSPORT
     static_assert (static_cast<std::uint8_t> (hypha::pre_display::ClockSource::unknown)
                        == KIRIN_HYPHA_CLOCK_UNKNOWN);
@@ -542,6 +544,18 @@ bool KirinHyphaProcessorBase::pollRecordDisplay (KirinRecordDisplay& out) const
     if (hyphaHandle == nullptr)
         return false;
     return kirin_hypha_poll_record_display (hyphaHandle, &out);
+}
+
+bool KirinHyphaProcessorBase::pollMeterSession (KirinMeterSession& out) const
+{
+    const juce::ScopedLock sl (handleLock);
+    return hyphaHandle != nullptr && kirin_hypha_poll_meter_session (hyphaHandle, &out);
+}
+
+bool KirinHyphaProcessorBase::resetMeterSession()
+{
+    const juce::ScopedLock sl (handleLock);
+    return hyphaHandle != nullptr && kirin_hypha_reset_meter_session (hyphaHandle);
 }
 
 void KirinHyphaProcessorBase::setUseShortTermLoudness (bool shortTerm)

@@ -71,17 +71,17 @@ use kirin_measure::{
     write_stop_broadcast, write_stop_broadcast_for_generation, AnalysisViewMode,
     CaptureClockSource, CaptureGeneration, CaptureGenerationMember, CaptureGenerationTransaction,
     DeltaMode, DeltaResult, GenerationTerminalReason, IoThreadHandle, LatchedPre, License,
-    LiveLicense, LivenessEvaluator, MeasureResult, PairOwnershipBinding, PairOwnershipLease,
-    PairStatus, PlatformPaths, PluginDataRole, PrePairStatusObserver, PresentationLatencySamples,
-    PresentationLatencySource, PsbSummary, RecordDisplaySnapshot, RecordDisplayStatus,
-    RecordIngress, RecordMarkQueue, RecordStateMachine, RecordTakeBlock, RecordTakeTracker,
-    RecordTraceQueue, ReleaseReason, RestartIoFn, SignalError, SignalState, SpectrumChannelMode,
-    SpectrumCoordinator, SpectrumRuntime, SpectrumRuntimeStats, SpectrumViewSnapshot,
-    SpectrumViewStatus, StoragePaths, WatchMaxTracker, WatchProducerHandoff, WatchdogIo,
-    WatchdogParams, ABSOLUTE_TIMELINE_CAPACITY, CAPTURE_PRODUCER_READY_TIMEOUT,
-    MAX_ACTIVE_PER_PROJECT, MAX_AUDIO_BLOCK_FRAMES, MAX_CAPTURE_GENERATION_MEMBERS, N_CHANNELS,
-    PERCEPTUAL_DIFFERENCE_TIMELINE_CAPACITY, SPECTRUM_BAND_COUNT,
-    SPECTRUM_DIFFERENCE_TIMELINE_CAPACITY,
+    LiveLicense, LivenessEvaluator, MeasureResult, MeterSession, MeterSessionSnapshot,
+    MeterSessionState, PairOwnershipBinding, PairOwnershipLease, PairStatus, PlatformPaths,
+    PluginDataRole, PrePairStatusObserver, PresentationLatencySamples, PresentationLatencySource,
+    PsbSummary, RecordDisplaySnapshot, RecordDisplayStatus, RecordIngress, RecordMarkQueue,
+    RecordStateMachine, RecordTakeBlock, RecordTakeTracker, RecordTraceQueue, ReleaseReason,
+    RestartIoFn, SignalError, SignalState, SpectrumChannelMode, SpectrumCoordinator,
+    SpectrumRuntime, SpectrumRuntimeStats, SpectrumViewSnapshot, SpectrumViewStatus, StoragePaths,
+    WatchMaxTracker, WatchProducerHandoff, WatchdogIo, WatchdogParams, ABSOLUTE_TIMELINE_CAPACITY,
+    CAPTURE_PRODUCER_READY_TIMEOUT, MAX_ACTIVE_PER_PROJECT, MAX_AUDIO_BLOCK_FRAMES,
+    MAX_CAPTURE_GENERATION_MEMBERS, N_CHANNELS, PERCEPTUAL_DIFFERENCE_TIMELINE_CAPACITY,
+    SPECTRUM_BAND_COUNT, SPECTRUM_DIFFERENCE_TIMELINE_CAPACITY,
 };
 
 mod attack_ffi;
@@ -91,6 +91,9 @@ pub use attack_ffi::*;
 
 use pair_binding::{PairBinding, PairTargetTransition};
 
+pub const KIRIN_SIGNAL_STATE_INACTIVE: u8 = 0;
+pub const KIRIN_SIGNAL_STATE_ACTIVE: u8 = 1;
+pub const KIRIN_SIGNAL_STATE_BYPASSED: u8 = 2;
 pub const KIRIN_KEEP_PHASE_IDLE: u8 = 0;
 pub const KIRIN_KEEP_PHASE_PREPARING: u8 = 1;
 pub const KIRIN_KEEP_PHASE_ARMED: u8 = 2;
@@ -397,6 +400,9 @@ pub struct KirinHyphaEngine {
     /// Record 中、Measure Thread が毎ループ `engine.finalize()` を書き込む
     /// （measure_thread.rs:290-295）。Watch では未更新（Record→Watch で直近値を保持）。
     session_summary: Arc<Mutex<Option<SessionSummary>>>,
+    /// Record/Keep, Watch pass, pairing and editor lifetimeから独立した常設メーターセッション。
+    /// replace可能なMeasure workerの外側で所有し、worker再起動では破棄しない。
+    meter_session: Option<Arc<Mutex<MeterSession>>>,
     /// Offline bounce 用 TRACE queue（Measure → IO）。
     record_trace_queue: RecordTraceQueue,
     /// Audio Thread が積む実レンダー長。Record close 時に bounce_take の正本になる。
@@ -1236,6 +1242,9 @@ impl KirinHyphaEngine {
             attack_runtime.as_ref().map(Arc::clone),
         );
         let session_summary: Arc<Mutex<Option<SessionSummary>>> = Arc::new(Mutex::new(None));
+        let meter_session = MeterSession::new(sample_rate, num_channels)
+            .ok()
+            .map(|session| Arc::new(Mutex::new(session)));
         let record_trace_queue = new_record_trace_queue();
         let record_take_tracker = new_record_take_tracker();
         let record_mark_queue = new_record_mark_queue();
@@ -1272,6 +1281,7 @@ impl KirinHyphaEngine {
             sample_rate,
             num_channels,
             Arc::clone(&measure_result),
+            meter_session.as_ref().map(Arc::clone),
             Arc::clone(&watch_playback_pass_id),
             Arc::clone(&watch_playback_pass_cutover_samples),
             Arc::clone(&watch_ring_cursor_epoch),
@@ -1295,6 +1305,7 @@ impl KirinHyphaEngine {
             n_channels: num_channels,
             ring_capacity: capacity,
             measure_result: Arc::clone(&measure_result),
+            meter_session: meter_session.as_ref().map(Arc::clone),
             watch_playback_pass_id: Arc::clone(&watch_playback_pass_id),
             watch_playback_pass_cutover_samples: Arc::clone(&watch_playback_pass_cutover_samples),
             watch_ring_cursor_epoch: Arc::clone(&watch_ring_cursor_epoch),
@@ -1334,6 +1345,7 @@ impl KirinHyphaEngine {
             attack_runtime,
             spectrum,
             session_summary,
+            meter_session,
             record_trace_queue,
             record_take_tracker,
             pending_capture_version: AtomicU64::new(0),
@@ -3361,6 +3373,28 @@ impl KirinHyphaEngine {
         }
     }
 
+    /// Record/Keepから独立した常設メーターセッションを非ブロッキングで読む。
+    pub fn poll_meter_session(&self) -> Option<MeterSessionSnapshot> {
+        self.meter_session
+            .as_ref()?
+            .try_lock()
+            .ok()
+            .map(|session| session.snapshot())
+    }
+
+    /// 利用者操作だけが常設セッションを破棄できる。UI/control thread専用。
+    /// Measure workerとの競合時は待たずにfalseを返し、呼び出し側が操作失敗を通知する。
+    pub fn reset_meter_session(&self) -> bool {
+        let Some(session) = self.meter_session.as_ref() else {
+            return false;
+        };
+        let Ok(mut session) = session.try_lock() else {
+            return false;
+        };
+        session.reset();
+        true
+    }
+
     /// ring 満杯で drop した push 数（§8 RT-safety 検証用）。
     pub fn overflow_count(&self) -> u64 {
         self.push_overflow.load(Ordering::Relaxed)
@@ -3497,6 +3531,29 @@ pub struct KirinSessionSummary {
     pub lufs_i: f64,
     pub lra: f64,
     pub max_true_peak: f64,
+}
+
+pub const KIRIN_METER_SESSION_EMPTY: u8 = 0;
+pub const KIRIN_METER_SESSION_ACTIVE: u8 = 1;
+pub const KIRIN_METER_SESSION_PAUSED: u8 = 2;
+
+/// Record/Keepから独立した常設メーターの一貫したスナップショット。
+/// current値とsession値は同じ`observed_frames`境界から生成され、値なしはNaNで表す。
+#[repr(C)]
+pub struct KirinMeterSession {
+    pub generation: u64,
+    pub active_frames: u64,
+    pub observed_frames: u64,
+    pub sample_rate: u32,
+    pub state: u8,
+    pub reserved: [u8; 3],
+    pub lufs_m: f64,
+    pub lufs_s: f64,
+    pub lufs_i: f64,
+    pub lra: f64,
+    pub true_peak: f64,
+    pub max_true_peak: f64,
+    pub plr: f64,
 }
 
 /// `KirinIdentity` — state chunk 往復する識別子（C struct / 方式A）。
@@ -3728,6 +3785,29 @@ fn to_c_session(s: &SessionSummary) -> KirinSessionSummary {
         lufs_i: opt_f64(s.lufs_i),
         lra: opt_f64(s.lra),
         max_true_peak: opt_f64(s.max_true_peak),
+    }
+}
+
+fn to_c_meter_session(snapshot: &MeterSessionSnapshot) -> KirinMeterSession {
+    let state = match snapshot.state {
+        MeterSessionState::Empty => KIRIN_METER_SESSION_EMPTY,
+        MeterSessionState::Active => KIRIN_METER_SESSION_ACTIVE,
+        MeterSessionState::Paused => KIRIN_METER_SESSION_PAUSED,
+    };
+    KirinMeterSession {
+        generation: snapshot.generation,
+        active_frames: snapshot.active_frames,
+        observed_frames: snapshot.observed_frames,
+        sample_rate: snapshot.sample_rate,
+        state,
+        reserved: [0; 3],
+        lufs_m: opt_f64(snapshot.current.lufs_m),
+        lufs_s: opt_f64(snapshot.current.lufs_s),
+        lufs_i: opt_f64(snapshot.summary.lufs_i),
+        lra: opt_f64(snapshot.summary.lra),
+        true_peak: opt_f64(snapshot.current.true_peak),
+        max_true_peak: opt_f64(snapshot.summary.max_true_peak),
+        plr: opt_f64(snapshot.plr),
     }
 }
 
@@ -4120,6 +4200,134 @@ fn to_c_record_display(
             .as_ref()
             .map_or_else(|| to_c_delta(&DeltaResult::default()), to_c_delta),
         pair_matches_current,
+    }
+}
+
+#[cfg(test)]
+mod meter_session_abi_tests {
+    use super::*;
+
+    #[test]
+    fn snapshot_layout_and_mapping_are_stable() {
+        assert_eq!(std::mem::size_of::<KirinMeterSession>(), 88);
+        let current = MeasureResult {
+            lufs_m: Some(-14.2),
+            lufs_s: Some(-14.8),
+            true_peak: Some(-1.1),
+            ..MeasureResult::default()
+        };
+        let snapshot = MeterSessionSnapshot {
+            generation: 3,
+            state: MeterSessionState::Paused,
+            sample_rate: 48_000,
+            active_frames: 96_123,
+            observed_frames: 96_000,
+            current,
+            summary: SessionSummary {
+                lufs_i: Some(-15.0),
+                lra: Some(4.2),
+                max_true_peak: Some(-0.8),
+            },
+            plr: Some(14.2),
+        };
+        let mapped = to_c_meter_session(&snapshot);
+        assert_eq!(mapped.state, KIRIN_METER_SESSION_PAUSED);
+        assert_eq!(mapped.active_frames, 96_123);
+        assert_eq!(mapped.observed_frames, 96_000);
+        assert_eq!(mapped.lufs_m, -14.2);
+        assert_eq!(mapped.lufs_s, -14.8);
+        assert_eq!(mapped.lufs_i, -15.0);
+        assert_eq!(mapped.lra, 4.2);
+        assert_eq!(mapped.true_peak, -1.1);
+        assert_eq!(mapped.max_true_peak, -0.8);
+        assert_eq!(mapped.plr, 14.2);
+    }
+
+    #[test]
+    fn null_meter_session_calls_fail_closed_without_touching_output() {
+        let mut out = KirinMeterSession {
+            generation: 41,
+            active_frames: 0,
+            observed_frames: 0,
+            sample_rate: 0,
+            state: 0,
+            reserved: [0; 3],
+            lufs_m: 0.0,
+            lufs_s: 0.0,
+            lufs_i: 0.0,
+            lra: 0.0,
+            true_peak: 0.0,
+            max_true_peak: 0.0,
+            plr: 0.0,
+        };
+        assert!(!unsafe { kirin_hypha_poll_meter_session(std::ptr::null_mut(), &mut out) });
+        assert!(!unsafe { kirin_hypha_reset_meter_session(std::ptr::null_mut()) });
+        assert_eq!(out.generation, 41);
+    }
+
+    #[test]
+    fn live_measure_worker_advances_pauses_and_resets_independent_session() {
+        let engine = KirinHyphaEngine::new(48_000, 2);
+        engine.set_signal_state(KIRIN_SIGNAL_STATE_ACTIVE);
+        let mut samples = Vec::with_capacity(48_000 * 2);
+        for frame in 0..48_000 {
+            let sample =
+                (2.0 * std::f32::consts::PI * 1_000.0 * frame as f32 / 48_000.0).sin() * 0.25;
+            samples.extend_from_slice(&[sample, sample]);
+        }
+        for (index, chunk) in samples.chunks(480 * 2).enumerate() {
+            let deadline = std::time::Instant::now() + Duration::from_secs(1);
+            loop {
+                engine.note_capture_window(
+                    true,
+                    (index * 480) as i64,
+                    480,
+                    CaptureClockSource::ProjectTimeline,
+                );
+                if engine.push_samples_transaction(chunk, 2) {
+                    break;
+                }
+                assert!(std::time::Instant::now() < deadline);
+                std::thread::sleep(Duration::from_millis(1));
+            }
+        }
+
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        let active = loop {
+            if let Some(snapshot) = engine
+                .poll_meter_session()
+                .filter(|snapshot| snapshot.active_frames == 48_000)
+            {
+                break snapshot;
+            }
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::sleep(Duration::from_millis(5));
+        };
+        assert_eq!(active.state, MeterSessionState::Active);
+        assert_eq!(active.observed_frames, 48_000);
+        assert!(active.current.lufs_m.is_some());
+        assert!(active.summary.lufs_i.is_some());
+
+        engine.set_signal_state(KIRIN_SIGNAL_STATE_INACTIVE);
+        let deadline = std::time::Instant::now() + Duration::from_secs(1);
+        loop {
+            if engine
+                .poll_meter_session()
+                .is_some_and(|snapshot| snapshot.state == MeterSessionState::Paused)
+            {
+                break;
+            }
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        while !engine.reset_meter_session() {
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::yield_now();
+        }
+        let reset = engine.poll_meter_session().unwrap();
+        assert_eq!(reset.state, MeterSessionState::Empty);
+        assert_eq!(reset.generation, active.generation + 1);
+        assert_eq!(reset.active_frames, 0);
     }
 }
 
@@ -5884,6 +6092,41 @@ pub unsafe extern "C" fn kirin_hypha_poll_session(
             }
             None => false,
         }
+    }))
+    .unwrap_or(false)
+}
+
+/// Record/Keepから独立した常設メーターセッションを1スナップショットで取得する。
+/// Empty状態も成立した事実なのでtrueを返し、未成立値はNaNになる。
+///
+/// # Safety
+/// `handle`/`out` は有効。UI Threadから呼ぶこと。
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_poll_meter_session(
+    handle: *mut KirinHyphaEngine,
+    out: *mut KirinMeterSession,
+) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() || out.is_null() {
+            return false;
+        }
+        let Some(snapshot) = (unsafe { &*handle }).poll_meter_session() else {
+            return false;
+        };
+        unsafe { *out = to_c_meter_session(&snapshot) };
+        true
+    }))
+    .unwrap_or(false)
+}
+
+/// 利用者操作で常設メーターセッションを破棄する。競合・未生成時はfalse。
+///
+/// # Safety
+/// `handle` は有効。UI/control Threadから呼ぶこと。
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_reset_meter_session(handle: *mut KirinHyphaEngine) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        !handle.is_null() && unsafe { (&*handle).reset_meter_session() }
     }))
     .unwrap_or(false)
 }

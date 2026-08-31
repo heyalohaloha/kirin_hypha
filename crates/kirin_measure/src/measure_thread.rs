@@ -22,7 +22,7 @@ use crate::resampler::ResamplerTo48k;
 use crate::watch_playback_pass::watch_ring_cursor_samples_for_pass;
 use crate::{
     engine::SessionSummary, load_signal_state, store_signal_state, MeasureEngine, MeasureResult,
-    PsbSummary, SignalState, N_CHANNELS,
+    MeterSession, PsbSummary, SignalState, N_CHANNELS,
 };
 
 /// Watch core と PhaseD の内部処理 SR。Record core は host native SR で別 engine を動かし、
@@ -216,6 +216,7 @@ pub fn spawn_measure_thread(
     sample_rate: u32,
     n_channels: usize,
     result: Arc<Mutex<MeasureResult>>,
+    meter_session: Option<Arc<Mutex<MeterSession>>>,
     watch_playback_pass_id: Arc<AtomicU64>,
     watch_playback_pass_cutover_samples: Arc<AtomicU64>,
     watch_ring_cursor_epoch: Arc<AtomicU64>,
@@ -329,6 +330,7 @@ pub fn spawn_measure_thread(
 
         // 前回ループの SignalState を保持し、非Active→Active 遷移を検出する（SS-8）。
         let mut prev_active = false;
+        let mut meter_session_suspended = false;
         let mut measure_sequence = 0_u64;
         let mut playback_pass_id = watch_playback_pass_id.load(Ordering::Acquire);
         // A spawned Measure Thread always receives a fresh Consumer. Samples already queued in
@@ -408,6 +410,8 @@ pub fn spawn_measure_thread(
                     n_channels,
                     sample_rate,
                     measure_chunk_samples,
+                    &signal_state,
+                    meter_session.as_ref(),
                 );
                 watch_consumed_samples = consumed_samples;
                 watch_native_frames_total = native_frames_total;
@@ -471,6 +475,8 @@ pub fn spawn_measure_thread(
                             trace_engine: &mut record_trace_engine,
                             summary_engine: &mut record_summary_engine,
                             session_summary: &session_summary,
+                            meter_session: meter_session.as_ref(),
+                            meter_active: load_signal_state(&signal_state) == SignalState::Active,
                             chunk_f64: &mut chunk_f64,
                             resampled_buf: &mut resampled_buf,
                             phase_d: &mut phase_d,
@@ -643,6 +649,10 @@ pub fn spawn_measure_thread(
             }
             if should_suspend_measurement(state, is_recording) {
                 prev_active = false;
+                if !meter_session_suspended {
+                    pause_meter_session(meter_session.as_ref());
+                    meter_session_suspended = true;
+                }
                 // Bypassed / Inactive → compute() スキップ。
                 // Watch のリングバッファに残っているサンプルは破棄する。
                 // Record 中はこの分岐に入らず、無音を含む admitted audio を継続計測する。
@@ -848,6 +858,7 @@ pub fn spawn_measure_thread(
                     record_grid_cursor = capture_plan.position_start_samples;
                 }
                 chunk_f64.clear();
+                let mut replayed_prefix_samples = 0_usize;
                 for _ in 0..available {
                     let from_prefix = is_recording && !record_prefix_samples.is_empty();
                     let sample = if is_recording {
@@ -860,6 +871,9 @@ pub fn spawn_measure_thread(
                     };
                     match sample {
                         Ok(sample) => {
+                            if from_prefix {
+                                replayed_prefix_samples = replayed_prefix_samples.saturating_add(1);
+                            }
                             if !from_prefix {
                                 // Prefix samples are not part of the Record SPSC cursor.
                                 consumed_samples = consumed_samples.saturating_add(1);
@@ -870,6 +884,13 @@ pub fn spawn_measure_thread(
                     }
                 }
                 let chunk_native_frames = (chunk_f64.len() / n_channels) as u64;
+                if state == SignalState::Active {
+                    feed_meter_session(
+                        meter_session.as_ref(),
+                        &chunk_f64[replayed_prefix_samples.min(chunk_f64.len())..],
+                    );
+                    meter_session_suspended = false;
+                }
                 let captured_frames_before = native_frames_total;
                 if !is_recording {
                     let _ = raw_pre_roll.append_f64(
@@ -1453,6 +1474,8 @@ struct DrainRingSession<'a> {
     trace_engine: &'a mut MeasureEngine,
     summary_engine: &'a mut MeasureEngine,
     session_summary: &'a Arc<Mutex<Option<SessionSummary>>>,
+    meter_session: Option<&'a Arc<Mutex<MeterSession>>>,
+    meter_active: bool,
     chunk_f64: &'a mut Vec<f64>,
     resampled_buf: &'a mut Vec<f64>,
     phase_d: &'a mut PhaseDChannelStream,
@@ -1635,6 +1658,8 @@ fn drain_watch_into_raw_pre_roll(
     n_channels: usize,
     sample_rate: u32,
     chunk_limit_samples: usize,
+    signal_state: &AtomicU8,
+    meter_session: Option<&Arc<Mutex<MeterSession>>>,
 ) {
     loop {
         let available = consumer.slots().min(chunk_limit_samples);
@@ -1661,7 +1686,29 @@ fn drain_watch_into_raw_pre_roll(
             break;
         }
         let _ = history.append_f64(trusted_pre_roll_epoch(plan), *native_frames_total, scratch);
+        if load_signal_state(signal_state) == SignalState::Active {
+            feed_meter_session(meter_session, scratch);
+        }
         *native_frames_total = (*native_frames_total).saturating_add(frames);
+    }
+}
+
+fn feed_meter_session(
+    meter_session: Option<&Arc<Mutex<MeterSession>>>,
+    direct_active_samples: &[f64],
+) {
+    if direct_active_samples.is_empty() {
+        return;
+    }
+    if let Some(session) = meter_session {
+        let _ = crate::sync_recovery::lock_recover(session, "MeterSession active push")
+            .push_active(direct_active_samples);
+    }
+}
+
+fn pause_meter_session(meter_session: Option<&Arc<Mutex<MeterSession>>>) {
+    if let Some(session) = meter_session {
+        crate::sync_recovery::lock_recover(session, "MeterSession pause").pause();
     }
 }
 
@@ -1827,6 +1874,9 @@ fn drain_ring_into_session(
             }
         }
         let chunk_native_frames = (ctx.chunk_f64.len() / ctx.n_channels) as u64;
+        if ctx.meter_active {
+            feed_meter_session(ctx.meter_session, ctx.chunk_f64);
+        }
         *ctx.native_frames_total = (*ctx.native_frames_total).saturating_add(chunk_native_frames);
         let native_frames_after = *ctx.native_frames_total;
         let captured_frames_before = native_frames_after.saturating_sub(chunk_native_frames);
@@ -2729,6 +2779,8 @@ pub mod tests {
                 trace_engine: &mut trace_engine,
                 summary_engine: &mut summary_engine,
                 session_summary: &summary,
+                meter_session: None,
+                meter_active: false,
                 chunk_f64: &mut chunk,
                 resampled_buf: &mut resampled,
                 phase_d: &mut phase,
@@ -3166,6 +3218,7 @@ mod b132_drain_tests {
         }
         let mut cons = MeasureSampleConsumer::watch(cons);
         let ss: Arc<Mutex<Option<crate::engine::SessionSummary>>> = Arc::new(Mutex::new(None));
+        let meter_session = Arc::new(Mutex::new(crate::MeterSession::new(SR, 2).unwrap()));
         let mut chunk = Vec::new();
         let mut resampled = Vec::new();
         let mut resampler = None;
@@ -3185,6 +3238,8 @@ mod b132_drain_tests {
                 trace_engine: &mut trace_engine,
                 summary_engine: &mut eng_on,
                 session_summary: &ss,
+                meter_session: Some(&meter_session),
+                meter_active: true,
                 chunk_f64: &mut chunk,
                 resampled_buf: &mut resampled,
                 phase_d: &mut phase_d,
@@ -3203,6 +3258,11 @@ mod b132_drain_tests {
             None,
         );
         assert!(ok, "drain must succeed");
+        assert_eq!(
+            meter_session.lock().unwrap().snapshot().active_frames,
+            (tail.len() / 2) as u64,
+            "Record close tail must reach the independent Meter Session exactly once"
+        );
         let on = (*ss.lock().unwrap()).expect("session_summary written by drain");
 
         let fp = full.max_true_peak.expect("full tp");
@@ -3254,6 +3314,8 @@ mod b132_drain_tests {
                 trace_engine: &mut trace_engine,
                 summary_engine: &mut eng,
                 session_summary: &ss,
+                meter_session: None,
+                meter_active: false,
                 chunk_f64: &mut chunk,
                 resampled_buf: &mut resampled,
                 phase_d: &mut phase_d,
@@ -3332,6 +3394,8 @@ mod b132_drain_tests {
                 trace_engine: &mut trace_engine,
                 summary_engine: &mut summary_engine,
                 session_summary: &session_summary,
+                meter_session: None,
+                meter_active: false,
                 chunk_f64: &mut chunk,
                 resampled_buf: &mut resampled,
                 phase_d: &mut phase_d,

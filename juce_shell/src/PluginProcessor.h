@@ -46,6 +46,8 @@ public:
     bool pollMeasureResult (KirinMeasureResult& out) const;
     bool pollWatchDisplay (KirinWatchDisplay& out) const;
     bool pollRecordDisplay (KirinRecordDisplay& out) const;
+    bool pollMeterSession (KirinMeterSession& out) const;
+    bool resetMeterSession();
     bool useShortTermLoudness() const
     {
         return persistShortTermLoudness.load (std::memory_order_acquire);

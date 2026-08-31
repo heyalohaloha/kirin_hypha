@@ -78,6 +78,10 @@ typedef struct KirinHypha KirinHypha;
 #define KIRIN_RECORD_DISPLAY_RESULT_HOLD 3u
 #define KIRIN_RECORD_DISPLAY_UNAVAILABLE 4u
 
+#define KIRIN_METER_SESSION_EMPTY 0u
+#define KIRIN_METER_SESSION_ACTIVE 1u
+#define KIRIN_METER_SESSION_PAUSED 2u
+
 /* RT 計測結果. 各 double の「値なし」は NaN. */
 typedef struct {
   double lufs_m;        /* LUFS-M (ITU-R BS.1770-4 Momentary, 400ms) */
@@ -109,6 +113,24 @@ typedef struct {
   double lra;           /* EBU R128 Loudness Range [LU] */
   double max_true_peak; /* セッション内 True Peak 最大 [dBTP] */
 } KirinSessionSummary;
+
+/* Record/Keepから独立した常設メーターセッション。値なしはNaN。
+ * current/session値はobserved_framesの同一100ms境界から生成される。 */
+typedef struct {
+  uint64_t generation;
+  uint64_t active_frames;   /* 受理したActive音声の総フレーム数 */
+  uint64_t observed_frames; /* 全指標が共有する100ms測定境界 */
+  uint32_t sample_rate;
+  uint8_t state;            /* KIRIN_METER_SESSION_* */
+  uint8_t reserved[3];
+  double lufs_m;
+  double lufs_s;
+  double lufs_i;
+  double lra;
+  double true_peak;
+  double max_true_peak;
+  double plr;
+} KirinMeterSession;
 
 /* state chunk 往復する識別子（方式A）. 各フィールドは null 終端 C 文字列（最大 63 + null）.
  * project_hash は派生値のため含めない（JUCE は下記 4 キーを chunk に保存する）. */
@@ -688,6 +710,12 @@ bool kirin_hypha_poll_result(KirinHypha* handle, KirinMeasureResult* out);
 /* セッション集計を out へ. Record finalize 後に値あり=true / 未 Record・競合=false（UI Thread）.
  * ABI signature は Phase 1 と不変（Record 前は false のまま）. */
 bool kirin_hypha_poll_session(KirinHypha* handle, KirinSessionSummary* out);
+
+/* Record/Keepとは独立した常設メーターを取得。Emptyも有効なsnapshotとしてtrue。 */
+bool kirin_hypha_poll_meter_session(KirinHypha* handle, KirinMeterSession* out);
+
+/* 利用者操作で常設メーターだけをReset。競合・未生成時はfalse。 */
+bool kirin_hypha_reset_meter_session(KirinHypha* handle);
 
 /* 破棄（shutdown -> Measure Thread join）. */
 void kirin_hypha_destroy(KirinHypha* handle);

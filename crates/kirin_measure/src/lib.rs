@@ -30,6 +30,7 @@ pub mod io_thread_post;
 pub mod io_thread_pre;
 pub mod license;
 pub mod measure_thread;
+pub mod meter_session;
 pub mod pair_claim_index;
 pub mod pair_operation_group;
 mod pair_ownership_lease;
@@ -158,6 +159,7 @@ pub use license::{
 pub use measure_thread::{
     live_window, pair_lock_active, spawn_measure_thread, stalled_signal_state, LivenessEvaluator,
 };
+pub use meter_session::{MeterSession, MeterSessionSnapshot, MeterSessionState};
 pub use pair_claim_index::{
     live_claim_owned_by_other, pair_claim_is_live, pair_claim_is_owned,
     pair_claim_owned_by_other_post, publish_pair_claim, read_pair_claim, release_pair_claim,

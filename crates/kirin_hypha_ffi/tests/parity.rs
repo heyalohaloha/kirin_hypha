@@ -2448,6 +2448,17 @@ fn b118_measure_restart_recovers_via_watchdog() {
 
     for cycle in 1..=3 {
         let before_generation = engine.__measure_worker_generation_for_test();
+        let meter_deadline = Instant::now() + Duration::from_secs(1);
+        let meter_before = loop {
+            if let Some(snapshot) = engine.poll_meter_session() {
+                break snapshot;
+            }
+            assert!(
+                Instant::now() < meter_deadline,
+                "always-on Meter Session must be readable before restart"
+            );
+            sleep(Duration::from_millis(5));
+        };
 
         engine.__force_measure_restart_for_test();
 
@@ -2471,6 +2482,26 @@ fn b118_measure_restart_recovers_via_watchdog() {
         assert!(
             recovered,
             "cycle {cycle}: durable Measure worker generation + 計測再開を観測"
+        );
+
+        let meter_deadline = Instant::now() + Duration::from_secs(1);
+        let meter_after = loop {
+            if let Some(snapshot) = engine.poll_meter_session() {
+                break snapshot;
+            }
+            assert!(
+                Instant::now() < meter_deadline,
+                "replacement worker must retain the same Meter Session owner"
+            );
+            sleep(Duration::from_millis(5));
+        };
+        assert_eq!(
+            meter_after.generation, meter_before.generation,
+            "cycle {cycle}: worker restart must not create an implicit Meter Session reset"
+        );
+        assert!(
+            meter_after.active_frames >= meter_before.active_frames,
+            "cycle {cycle}: Meter Session time must never move backwards across restart"
         );
 
         for _ in 0..100 {
