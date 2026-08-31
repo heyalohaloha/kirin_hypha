@@ -202,7 +202,8 @@ namespace hypha::pre_display
             const auto state = objectString (object, "frequency_state");
             item.selectionRef = objectString (object, "selection_ref");
             const bool hasReviewSelection = model.protocolVersion == "1.1"
-                                         || model.protocolVersion == "2.0";
+                                         || model.protocolVersion == "2.0"
+                                         || model.protocolVersion == "3.0";
             if (hasReviewSelection && ! safeId (item.selectionRef))
                 return false;
             if (! hasReviewSelection && object.hasProperty ("selection_ref"))
@@ -295,7 +296,8 @@ namespace hypha::pre_display
             || objectString (guide, "format") != "kirin_pre_display_guide"
             || (candidate.protocolVersion != "1.0"
                 && candidate.protocolVersion != "1.1"
-                && candidate.protocolVersion != "2.0")
+                && candidate.protocolVersion != "2.0"
+                && candidate.protocolVersion != "3.0")
             || ! canonicalIsoInstant (objectString (guide, "created_at")))
             return false;
         candidate.cacheKey = cacheKey;
@@ -326,25 +328,37 @@ namespace hypha::pre_display
         }
         const auto producerWorkId = objectString (*producer, "work_id");
         const auto producerSourceHash = objectString (*producer, "source_sha256_file");
-        if (candidate.protocolVersion == "2.0"
+        const auto roleNeutralTarget = candidate.protocolVersion == "3.0";
+        const auto exactTarget = candidate.protocolVersion == "2.0" || roleNeutralTarget;
+        if (exactTarget
             && (! canonicalUuid (producerWorkId) || ! safeHash (producerSourceHash)))
             return false;
         candidate.groupId = objectString (*target, "group_id");
         candidate.payloadKind = objectString (*payload, "kind");
-        const auto exactTarget = candidate.protocolVersion == "2.0";
         const auto reviewTarget = candidate.protocolVersion == "1.1" || exactTarget;
-        if (! hasOnlyProperties (*target, exactTarget
-                ? std::initializer_list<const char*> { "group_id", "selection_mode", "work_id", "binding_id", "runtime_instance_id" }
-                : std::initializer_list<const char*> { "group_id", "selection_mode" })
-            || ! hasProperties (*target, exactTarget
-                ? std::initializer_list<const char*> { "group_id", "selection_mode", "work_id", "binding_id", "runtime_instance_id" }
-                : std::initializer_list<const char*> { "group_id", "selection_mode" })
+        const std::initializer_list<const char*> legacyTargetFields {
+            "group_id", "selection_mode"
+        };
+        const std::initializer_list<const char*> exactPreTargetFields {
+            "group_id", "selection_mode", "work_id", "binding_id", "runtime_instance_id"
+        };
+        const std::initializer_list<const char*> exactHyphaTargetFields {
+            "group_id", "selection_mode", "target_role", "work_id", "binding_id",
+            "runtime_instance_id"
+        };
+        const auto targetFields = roleNeutralTarget ? exactHyphaTargetFields
+                                : exactTarget ? exactPreTargetFields : legacyTargetFields;
+        if (! hasOnlyProperties (*target, targetFields)
+            || ! hasProperties (*target, targetFields)
             || ! hasOnlyProperties (*timeBasis, { "kind", "unit", "interval_convention",
                                                    "source_zero_project_ns", "alignment_method" })
             || ! hasProperties (*timeBasis, { "kind", "unit", "interval_convention",
                                               "source_zero_project_ns", "alignment_method" })
             || ! safeId (candidate.groupId)
-            || objectString (*target, "selection_mode") != (exactTarget ? "exact_pre_binding" : "all_pre_instances")
+            || objectString (*target, "selection_mode") != (roleNeutralTarget
+                    ? "exact_hypha_binding" : exactTarget
+                        ? "exact_pre_binding" : "all_pre_instances")
+            || (roleNeutralTarget && objectString (*target, "target_role") != "post")
             || (candidate.payloadKind != "masking" && candidate.payloadKind != "inspect")
             || ! objectInteger (guide, "revision", 1, maxSafeJsonInteger, candidate.revision)
             || objectString (*timeBasis, "kind") != "source_to_project_offset"
@@ -358,6 +372,8 @@ namespace hypha::pre_display
             return false;
         if (exactTarget)
         {
+            candidate.targetRole = roleNeutralTarget
+                ? GuideTargetRole::post : GuideTargetRole::pre;
             candidate.workId = objectString (*target, "work_id");
             candidate.bindingId = objectString (*target, "binding_id");
             candidate.runtimeInstanceId = objectString (*target, "runtime_instance_id");

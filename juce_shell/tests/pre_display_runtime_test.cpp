@@ -361,6 +361,35 @@ int main()
                                                "\xe3\x82\xaf\xe3\x83\xaa\xe3\x83\x83\xe3\x82\xaf"),
              "parse exact Unicode labels and difficult production INSPECT decimals");
 
+    const auto postFixtureFile = juce::File::getCurrentWorkingDirectory()
+        .getChildFile ("tests").getChildFile ("fixtures")
+        .getChildFile ("inspect_exact_post_guide.v3.json");
+    require (juce::SHA256 (postFixtureFile).toHexString()
+                 == "f8c9b2cb46f3b3612b7648651ae3a07dc526cb538acebcda6eb35b3e6f70f602",
+             "retain byte-exact v3 POST fixture parity with Kirin OS");
+    const auto postFixtureValue = juce::JSON::parse (postFixtureFile);
+    pre::GuideModel postFixtureModel;
+    require (postFixtureValue.getDynamicObject() != nullptr
+             && pre::parseArtifactVerifiedGuideModel (*postFixtureValue.getDynamicObject(),
+                                                      "post-fixture", postFixtureModel)
+             && postFixtureModel.protocolVersion == "3.0"
+             && postFixtureModel.targetRole == pre::GuideTargetRole::post
+             && postFixtureModel.workId == "55555555-5555-4555-8555-555555555555"
+             && postFixtureModel.bindingId == "66666666-6666-4666-8666-666666666666"
+             && postFixtureModel.runtimeInstanceId == "runtime_post_fixture_1"
+             && postFixtureModel.items.size() == 1
+             && postFixtureModel.items.front().hasBand
+             && exactDouble (postFixtureModel.items.front().lowHz, 3'150.0)
+             && exactDouble (postFixtureModel.items.front().highHz, 3'700.0),
+             "parse one exact v3 Hypha POST target with its time-frequency fact");
+    auto wrongPostRole = juce::JSON::parse (postFixtureFile);
+    wrongPostRole.getDynamicObject()->getProperty ("target").getDynamicObject()
+        ->setProperty ("target_role", "pre");
+    pre::GuideModel rejectedPostRole;
+    require (! pre::parseArtifactVerifiedGuideModel (*wrongPostRole.getDynamicObject(),
+                                                     "wrong-post-role", rejectedPostRole),
+             "reject a v3 guide addressed to PRE during the POST-only migration");
+
     const auto root = juce::File::getSpecialLocation (juce::File::tempDirectory)
         .getNonexistentChildFile ("kirin-pre-display-runtime", {}, false);
     require (root.createDirectory(), "create isolated transport root");

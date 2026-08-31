@@ -10,6 +10,12 @@ ATTACK統合後のworkspace testがgreenになったため、Daisukeの判断に
 
 POST版の受信、表示、移行Gateが成立するまで、現行PREのprotocol、receiver、routing、UIを維持する。
 
+Implementation status:
+
+- B-583: Kirin OSの現行MASKING v1.1 fixtureとHypha consumerをbyte同期した。
+- protocol v3 guide target: `exact_hypha_binding + target_role=post`のproducer/consumer fixtureを追加した。
+- 未接続: v3 presence、capability、connection、active pointer、acknowledgement、POST receiver、UI route。
+
 ## 1. Decision
 
 Kirin OSのINSPECTとMASKINGから送るGuideの主表示先を、Hypha PREからHypha POSTへ変更する。

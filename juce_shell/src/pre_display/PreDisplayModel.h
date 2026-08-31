@@ -7,6 +7,12 @@
 
 namespace hypha::pre_display
 {
+    enum class GuideTargetRole
+    {
+        pre,
+        post,
+    };
+
     enum class DisplayStatus
     {
         none,
@@ -32,6 +38,7 @@ namespace hypha::pre_display
 
     struct RuntimeIdentity
     {
+        GuideTargetRole role = GuideTargetRole::pre;
         juce::String runtimeInstanceId;
         juce::String instanceId;
         juce::String projectUuid;
@@ -86,6 +93,7 @@ namespace hypha::pre_display
 
     struct GuideModel
     {
+        GuideTargetRole targetRole = GuideTargetRole::pre;
         juce::String cacheKey;
         juce::String protocolVersion;
         juce::String groupId;
@@ -121,6 +129,7 @@ namespace hypha::pre_display
     struct GuideReceipt
     {
         GuideRefreshState state = GuideRefreshState::unavailable;
+        GuideTargetRole targetRole = GuideTargetRole::pre;
         juce::String groupId;
         juce::String workId;
         juce::String bindingId;
