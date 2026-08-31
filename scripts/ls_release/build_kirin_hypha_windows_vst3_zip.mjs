@@ -206,16 +206,20 @@ See WINDOWS_EXTERNAL_VALIDATION.md for the full validation checklist.
 `);
 }
 
-function writeCommit(filePath, opts) {
+export function commitReceiptFor(opts) {
   const runLine = opts.runUrl ? `GitHub Actions run: ${opts.runUrl}` : 'GitHub Actions run: unknown';
-  fs.writeFileSync(filePath, `Kirin Hypha ${VERSION} Windows VST3
+  return `Kirin Hypha ${VERSION} Windows VST3
 Commit: ${opts.commit}
 B-number: ${opts.bNumber}
 ${runLine}
 Artifact name: ${opts.artifactName}
-CI gates: build, layout verify, artifact upload, pluginval strictness 5
+CI gates: Analysis contract, UI render, exact audio transparency, layout verify, pluginval strictness 5, artifact packaging
 External validation: ${opts.externalValidation}
-`);
+`;
+}
+
+function writeCommit(filePath, opts) {
+  fs.writeFileSync(filePath, commitReceiptFor(opts));
 }
 
 function listFiles(root) {

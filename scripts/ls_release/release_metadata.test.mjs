@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs as parseDryRunArgs } from './kirin_hypha_ls_dry_run.mjs';
 import {
   artifactManifestFor,
+  commitReceiptFor,
   localReleaseStateFor,
   parseArgs as parseWindowsArgs,
 } from './build_kirin_hypha_windows_vst3_zip.mjs';
@@ -437,6 +438,10 @@ test('Windows public manifest excludes operator workflow state', (context) => {
     'Package Windows VST3 LS candidate',
     'Upload Windows VST3 LS package',
   ]);
+  const receipt = commitReceiptFor(opts);
+  assert.match(receipt, /CI gates: Analysis contract, UI render, exact audio transparency,/);
+  assert.match(receipt, /layout verify, pluginval strictness 5, artifact packaging/);
+  assert.match(receipt, /External validation: complete/);
   assert.doesNotMatch(
     publicJson,
     /Daisuke|lsUpload|ls_upload|releaseStatus|release_status|productId|variantId|productAdminUrl|storeName|expectedFilesCount|operator/,
