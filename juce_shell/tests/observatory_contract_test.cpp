@@ -103,6 +103,13 @@ int main()
     assert (! compact.capture);
     assert (! compact.guideRail);
 
+    const auto focused = observatory::visibleContent (
+        observatory::Role::post,
+        observatory::Density::focused,
+        observatory::GuidePresence::absent);
+    assert (! focused.domainTabs);
+    assert (focused.domainCycle);
+
     const auto standard = observatory::visibleContent (
         observatory::Role::post,
         observatory::Density::standard,

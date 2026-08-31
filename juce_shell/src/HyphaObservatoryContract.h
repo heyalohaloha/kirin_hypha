@@ -164,10 +164,10 @@ constexpr ShellLayout shellLayout (Role role,
     const int footerH = footerHeight (preset.density);
     const int railH = guideRailHeight (preset.density, guide);
     const Rect header { margin, margin, preset.width - 2 * margin, headerH };
-    const int titleWidth = preset.density == Density::compact ? 68
+    const int titleWidth = preset.density == Density::compact ? 74
                          : preset.density == Density::focused ? 92
                          : preset.density == Density::standard ? 108 : 128;
-    const int statusWidth = preset.density == Density::compact ? 70 : 104;
+    const int statusWidth = preset.density == Density::compact ? 64 : 104;
     const Rect roleTitle { header.x, header.y, titleWidth, header.height };
     const Rect connectionStatus {
         right (header) - statusWidth, header.y, statusWidth, header.height
@@ -250,12 +250,13 @@ constexpr VisibleContent visibleContent (Role role,
                                          GuidePresence guide) noexcept
 {
     const bool compact = density == Density::compact;
+    const bool singleDomainControl = compact || density == Density::focused;
     const bool visual = density == Density::standard
                      || density == Density::observatory;
     const bool full = density == Density::observatory;
     return {
-        ! compact,
-        compact,
+        ! singleDomainControl,
+        singleDomainControl,
         ! compact,
         visual,
         visual,
@@ -269,6 +270,23 @@ constexpr VisibleContent visibleContent (Role role,
 constexpr bool targetAllowed (Role role, ObservationTarget target) noexcept
 {
     return role == Role::post || target == ObservationTarget::absolute;
+}
+
+// SPACE currently has only factual POST meaning. Correlation and field subtraction are not
+// defined product facts, so selecting SPACE temporarily projects POST without destroying the
+// user's preferred target for LEVEL, TIME, and FREQ.
+constexpr bool targetAllowed (Role role, Domain domain, ObservationTarget target) noexcept
+{
+    return targetAllowed (role, target)
+        && (domain != Domain::space || target == ObservationTarget::absolute);
+}
+
+constexpr ObservationTarget effectiveTarget (Role role,
+                                               Domain domain,
+                                               ObservationTarget preferred) noexcept
+{
+    return targetAllowed (role, domain, preferred)
+        ? preferred : ObservationTarget::absolute;
 }
 
 struct NavigationState
@@ -295,4 +313,7 @@ static_assert (hasArea (shellLayout (Role::post, sizePresets[0],
                                     GuidePresence::present).guideRail));
 static_assert (! targetAllowed (Role::pre, ObservationTarget::delta));
 static_assert (targetAllowed (Role::post, ObservationTarget::delta));
+static_assert (! targetAllowed (Role::post, Domain::space, ObservationTarget::delta));
+static_assert (effectiveTarget (Role::post, Domain::space, ObservationTarget::delta)
+               == ObservationTarget::absolute);
 }

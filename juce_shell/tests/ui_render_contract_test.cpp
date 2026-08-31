@@ -13,13 +13,14 @@
 #include "GuideFrequencyOverlayContractTest.h"
 #include "ObservatoryViewContractTest.h"
 #include "TimeHistoryContractTest.h"
+#include "SpaceFieldContractTest.h"
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
 namespace ui = hypha::ui_contract;
 static_assert (sizeof (KirinSpectrumView) == 3'112, "Spectrum view ABI size must remain exact");
 static_assert (sizeof (KirinSpectrumBatch) == 28'016, "Spectrum batch ABI size must remain exact");
-static_assert (sizeof (KirinMeterSession) == 192u, "Meter Session ABI size must remain exact");
+static_assert (sizeof (KirinMeterSession) == 832u, "Meter Session ABI size must remain exact");
 static_assert (sizeof (KirinMeterHistoryEntry) == 152u, "Meter history ABI size must remain exact");
 namespace
 {
@@ -213,6 +214,7 @@ int main()
     hypha::tests::verifyPerceptualRenderingContract();
     hypha::tests::verifyObservatoryViewContract();
     hypha::tests::verifyTimeHistoryContract();
+    hypha::tests::verifySpaceFieldContract();
 
     const auto preferenceDirectory = juce::File::getSpecialLocation (juce::File::tempDirectory)
         .getNonexistentChildFile ("kirin-hypha-hover-help-contract", {}, false);

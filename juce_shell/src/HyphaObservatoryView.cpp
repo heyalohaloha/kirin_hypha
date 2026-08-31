@@ -1,4 +1,5 @@
 #include "HyphaObservatoryView.h"
+#include "HyphaSpacePainter.h"
 #include "HyphaTimeHistoryPainter.h"
 #include <array>
 #include <cmath>
@@ -130,7 +131,7 @@ void View::setDomain (Domain value)
 
 void View::setTarget (ObservationTarget value)
 {
-    if (! targetAllowed (role, value) || selectedTarget == value)
+    if (! targetAllowed (role, selectedDomain, value) || selectedTarget == value)
         return;
     selectedTarget = value;
     updateControls();
@@ -232,8 +233,9 @@ void View::updateControls()
     frequencyButton.setToggleState (selectedDomain == Domain::frequency, juce::dontSendNotification);
     spaceButton.setToggleState (selectedDomain == Domain::space, juce::dontSendNotification);
     domainCycleButton.setButtonText (domainName (selectedDomain));
-    targetButton.setButtonText (selectedTarget == ObservationTarget::absolute ? "POST" : hypha::delta());
-    targetButton.setToggleState (selectedTarget == ObservationTarget::delta, juce::dontSendNotification);
+    targetButton.setButtonText (target() == ObservationTarget::absolute ? "POST" : hypha::delta());
+    targetButton.setToggleState (target() == ObservationTarget::delta, juce::dontSendNotification);
+    targetButton.setEnabled (selectedDomain != Domain::space);
     timeRangeButton.setButtonText (historyRequest().label);
     sizeButton.setButtonText (currentPreset().label);
 }
@@ -248,11 +250,12 @@ void View::resized()
     guideArea = toJuce (layout.guideRail);
     sessionArea = toJuce (layout.session);
     const auto compact = preset.density == Density::compact;
+    const auto singleDomainControl = compact || preset.density == Density::focused;
     const auto navigation = toJuce (layout.domainNavigation);
-    domainCycleButton.setVisible (compact);
+    domainCycleButton.setVisible (singleDomainControl);
     for (auto* button : { &levelButton, &timeButton, &frequencyButton, &spaceButton })
-        button->setVisible (! compact);
-    if (compact)
+        button->setVisible (! singleDomainControl);
+    if (singleDomainControl)
         domainCycleButton.setBounds (navigation);
     else
     {
@@ -299,7 +302,8 @@ void View::paint (juce::Graphics& g)
     paintMeasuredMycelium (g, bodyArea);
     if (selectedDomain == Domain::level) paintLevel (g, bodyArea);
     else if (selectedDomain == Domain::time) paintTime (g, bodyArea);
-    else if (selectedDomain == Domain::space) paintSpace (g, bodyArea);
+    else if (selectedDomain == Domain::space)
+        space_field::paint (g, bodyArea, meter, meterAvailable);
     else drawPanel (g, bodyArea);
     paintFooter (g, layout);
 }
@@ -308,7 +312,11 @@ void View::paintHeader (juce::Graphics& g, const ShellLayout& layout)
 {
     drawPanel (g, toJuce (layout.header), 5.0f);
     g.setColour (COL_NORMAL);
-    g.setFont (labelFont (currentPreset().density == Density::compact ? 14.0f : 18.0f));
+    const auto density = currentPreset().density;
+    const auto titleHeight = density == Density::compact ? 12.0f
+                           : density == Density::focused ? 14.0f
+                           : density == Density::standard ? 16.0f : 18.0f;
+    g.setFont (labelFont (titleHeight));
     g.drawText (role == Role::post ? "HYPHA POST" : "HYPHA PRE",
                 toJuce (layout.roleTitle).reduced (6, 0), juce::Justification::centredLeft);
     g.setColour (connectionColour);
@@ -356,11 +364,11 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area)
     const auto density = currentPreset().density;
     const auto compact = density == Density::compact;
     juce::Rectangle<int> channelStrips;
-    if (selectedTarget == ObservationTarget::absolute
+    if (target() == ObservationTarget::absolute
         && (density == Density::standard || density == Density::observatory))
         channelStrips = area.removeFromRight (
             density == Density::observatory ? 76 : 62).reduced (2);
-    if (selectedTarget == ObservationTarget::delta)
+    if (target() == ObservationTarget::delta)
     {
         const std::array<double, 3> values { delta.lufs, delta.lufs_s, delta.true_peak };
         const std::array<const char*, 3> labels { "M", "S", "TP" };
@@ -402,7 +410,7 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area)
 
 void View::paintTime (juce::Graphics& g, juce::Rectangle<int> area)
 {
-    if (selectedTarget == ObservationTarget::delta)
+    if (target() == ObservationTarget::delta)
     {
         drawPanel (g, area);
         g.setColour (COL_MUTED);
@@ -412,46 +420,4 @@ void View::paintTime (juce::Graphics& g, juce::Rectangle<int> area)
     }
     time_history::paint (g, area, history, historyRequest().label);
 }
-void View::paintSpace (juce::Graphics& g, juce::Rectangle<int> area)
-{
-    drawPanel (g, area);
-    area.reduce (10, 8);
-    if (selectedTarget == ObservationTarget::delta)
-    {
-        g.setColour (COL_MUTED);
-        g.setFont (monoFont (12.0f));
-        g.drawText ("DELTA SPACE —", area, juce::Justification::centred);
-        return;
-    }
-    auto left = area.removeFromLeft (area.getWidth() / 2).reduced (4);
-    auto right = area.reduced (4);
-    drawMetric (g, left.removeFromTop (left.getHeight() / 2).reduced (2), "BALANCE",
-                optionValue (meter.balance_db, meterAvailable), "dB L/R", 28.0f, true);
-    drawMetric (g, left.reduced (2), "CORRELATION",
-                optionValue (meter.correlation, meterAvailable), "", 28.0f, true, 2);
-    drawPanel (g, right);
-    g.setColour (COL_MUTED);
-    g.setFont (monoFont (8.5f));
-    g.drawText ("BAL / CORR PROJECTION", right.reduced (6, 3),
-                juce::Justification::topLeft);
-    const auto centre = right.getCentreX();
-    g.setColour (COL_MUTED.withAlpha (0.5f));
-    g.drawVerticalLine (centre, (float) right.getY() + 8.0f, (float) right.getBottom() - 8.0f);
-    g.drawHorizontalLine (right.getCentreY(), (float) right.getX() + 8.0f,
-                          (float) right.getRight() - 8.0f);
-    if (meterAvailable && std::isfinite (meter.balance_db) && std::isfinite (meter.correlation))
-    {
-        const auto x = (float) centre
-                     + (float) juce::jlimit (-12.0, 12.0, meter.balance_db)
-                         / 12.0f * (float) right.getWidth() * 0.38f;
-        const auto y = (float) right.getBottom() - 9.0f
-                     - (float) ((meter.correlation + 1.0) * 0.5)
-                         * ((float) right.getHeight() - 18.0f);
-        g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.25f));
-        g.fillEllipse (x - 9.0f, y - 9.0f, 18.0f, 18.0f);
-        g.setColour (COL_SPECTRUM_DELTA_BR);
-        g.fillEllipse (x - 2.5f, y - 2.5f, 5.0f, 5.0f);
-    }
-}
-
 }

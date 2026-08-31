@@ -26,7 +26,10 @@ public:
     void setDomain (Domain);
     Domain domain() const noexcept { return selectedDomain; }
     void setTarget (ObservationTarget);
-    ObservationTarget target() const noexcept { return selectedTarget; }
+    ObservationTarget target() const noexcept
+    {
+        return effectiveTarget (role, selectedDomain, selectedTarget);
+    }
     void setMeterSnapshot (const KirinMeterSession&, bool available);
     void setDeltaSnapshot (const KirinDelta&, bool available);
     void setConnectionText (juce::String text, juce::Colour colour);
@@ -71,7 +74,6 @@ private:
     void paintLevel (juce::Graphics&, juce::Rectangle<int>);
     void paintChannelStrips (juce::Graphics&, juce::Rectangle<int>);
     void paintTime (juce::Graphics&, juce::Rectangle<int>);
-    void paintSpace (juce::Graphics&, juce::Rectangle<int>);
     void paintMeasuredMycelium (juce::Graphics&, juce::Rectangle<int>);
 
     Role role;

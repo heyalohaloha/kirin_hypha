@@ -83,7 +83,8 @@ use kirin_measure::{
     ABSOLUTE_TIMELINE_CAPACITY, CAPTURE_PRODUCER_READY_TIMEOUT, HISTORY_0_1_HZ_CAPACITY,
     HISTORY_10_HZ_CAPACITY, HISTORY_1_HZ_CAPACITY, MAX_ACTIVE_PER_PROJECT, MAX_AUDIO_BLOCK_FRAMES,
     MAX_CAPTURE_GENERATION_MEMBERS, N_CHANNELS, PERCEPTUAL_DIFFERENCE_TIMELINE_CAPACITY,
-    SPECTRUM_BAND_COUNT, SPECTRUM_DIFFERENCE_TIMELINE_CAPACITY,
+    SPECTRUM_BAND_COUNT, SPECTRUM_DIFFERENCE_TIMELINE_CAPACITY, STEREO_FIELD_BINS,
+    STEREO_FIELD_SIZE,
 };
 
 mod attack_ffi;
@@ -3555,6 +3556,8 @@ pub const KIRIN_BALANCE_UNAVAILABLE: u8 = 0;
 pub const KIRIN_BALANCE_NUMERIC: u8 = 1;
 pub const KIRIN_BALANCE_LEFT_ONLY: u8 = 2;
 pub const KIRIN_BALANCE_RIGHT_ONLY: u8 = 3;
+pub const KIRIN_STEREO_FIELD_SIZE: u8 = STEREO_FIELD_SIZE as u8;
+pub const KIRIN_STEREO_FIELD_BINS: usize = STEREO_FIELD_BINS;
 pub const KIRIN_METER_HISTORY_10_HZ: u8 = 0;
 pub const KIRIN_METER_HISTORY_1_HZ: u8 = 1;
 pub const KIRIN_METER_HISTORY_0_1_HZ: u8 = 2;
@@ -3590,6 +3593,10 @@ pub struct KirinMeterSession {
     pub clip_events: [u64; 2],
     pub balance_db: f64,
     pub correlation: f64,
+    pub field_size: u8,
+    pub field_observation_count: u8,
+    pub field_reserved: [u8; 6],
+    pub field_density: [u8; KIRIN_STEREO_FIELD_BINS],
 }
 
 /// TIME履歴1指標の範囲。10 Hzではmin=max=mean、値なしはNaN。
@@ -3889,6 +3896,14 @@ fn to_c_meter_session(snapshot: &MeterSessionSnapshot) -> KirinMeterSession {
         clip_events: snapshot.stereo.clip_events,
         balance_db: opt_f64(snapshot.stereo.balance_db),
         correlation: opt_f64(snapshot.stereo.correlation),
+        field_size: if snapshot.stereo.channels == 2 {
+            KIRIN_STEREO_FIELD_SIZE
+        } else {
+            0
+        },
+        field_observation_count: snapshot.stereo.field_observation_count,
+        field_reserved: [0; 6],
+        field_density: snapshot.stereo.field_density,
     }
 }
 
@@ -4345,7 +4360,7 @@ mod meter_session_abi_tests {
 
     #[test]
     fn snapshot_layout_and_mapping_are_stable() {
-        assert_eq!(std::mem::size_of::<KirinMeterSession>(), 192);
+        assert_eq!(std::mem::size_of::<KirinMeterSession>(), 832);
         assert_eq!(std::mem::size_of::<KirinMeterHistoryRange>(), 24);
         assert_eq!(std::mem::size_of::<KirinMeterHistoryEntry>(), 152);
         let current = MeasureResult {
@@ -4377,6 +4392,12 @@ mod meter_session_abi_tests {
                 balance_db: Some(0.75),
                 balance_state: BalanceState::Numeric,
                 correlation: Some(0.91),
+                field_density: {
+                    let mut density = [0; STEREO_FIELD_BINS];
+                    density[312] = 211;
+                    density
+                },
+                field_observation_count: 30,
             },
         };
         let mapped = to_c_meter_session(&snapshot);
@@ -4396,6 +4417,9 @@ mod meter_session_abi_tests {
         assert_eq!(mapped.clip_events, [2, 1]);
         assert_eq!(mapped.balance_db, 0.75);
         assert_eq!(mapped.correlation, 0.91);
+        assert_eq!(mapped.field_size, KIRIN_STEREO_FIELD_SIZE);
+        assert_eq!(mapped.field_observation_count, 30);
+        assert_eq!(mapped.field_density[312], 211);
 
         let history = to_c_history_entry(MeterHistoryEntry {
             resolution: MeterHistoryResolution::Hz1,
@@ -4449,6 +4473,10 @@ mod meter_session_abi_tests {
             clip_events: [0; 2],
             balance_db: 0.0,
             correlation: 0.0,
+            field_size: 0,
+            field_observation_count: 0,
+            field_reserved: [0; 6],
+            field_density: [0; KIRIN_STEREO_FIELD_BINS],
         };
         assert!(!unsafe { kirin_hypha_poll_meter_session(std::ptr::null_mut(), &mut out) });
         let mut history_count = 41_u32;

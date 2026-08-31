@@ -219,6 +219,12 @@ POSTとΔの切替は利用者の観測視点だけを変える。
 LEVEL、TIME、FREQはPOSTとΔを持つ。
 
 SPACEはcorrelation差分の定義と知覚上の意味を固定するまでPOSTだけを持つ。
+SPACEの主表示は、同じ100 ms観測境界からMeasure Threadが生成するrolling 3秒のMID/SIDE densityとする。
+MIDは`(L+R)/2`、SIDEは`(L-R)/2`とし、25×25の固定fieldへ各観測最大1024点を蓄積する。
+表示用に符号を保つ平方根compandingを行い、3秒窓内の最大cellを255としてdensityを正規化する。
+この正規化はstereo形状の事実だけを表し、絶対音量はLEVELが所有する。
+30観測未満は実際の観測数を`WARMING n/30`として表示し、mono、無音、未成立を数値で装わない。
+correlationとL/R balanceも同じrolling 3秒窓を参照し、SPACEの発光やcell色は品質判定へ使わない。
 
 ATTACKは現在の契約どおり、pair時はexact PRE/POST、未接続時はPOST absoluteを表示する。
 
@@ -488,9 +494,7 @@ INSPECT instant、MASKING interval、optional band、unlocated frequencyを全4�
 各段階は旧UIへ継ぎ足すpatchではなく、その段階で責務を満たす完全な層として実装する。
 
 ## 17. Remaining product decisions
-
 visual方向はConcept Cで確定した。
-
 情報設計は既存動線を固定せず、`LEVEL / TIME / FREQ / SPACE`を上位構造として進める。
-
-実装前に残る製品判断は、Meter SessionをDAW project stateへ復元するかどうかと、初回公開へSPACEを含めるかどうかの2点である。
+残る製品判断は、Meter SessionをDAW project stateへ復元するかどうかである。
+SPACEはPOST専用の実測MID/SIDE densityとして初回公開対象に含め、意味未定義のΔ表示は作らない。

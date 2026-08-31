@@ -56,11 +56,8 @@ void KirinHyphaEditor::refreshObservatory()
             observatoryView.setHistory (std::move (history));
     }
 
-    if (getWidth() < hypha::observatory::sizePresets[1].width)
-        observatoryView.setConnectionText (observatoryPairText (pairStatus),
-                                           observatoryPairColour (pairStatus));
-    else
-        observatoryView.setConnectionText ({}, COL_MUTED);
+    observatoryView.setConnectionText (observatoryPairText (pairStatus),
+                                       observatoryPairColour (pairStatus));
 
     const auto previousBody = observatoryView.bodyBounds();
 #if KIRIN_HYPHA_GUIDE_TRANSPORT

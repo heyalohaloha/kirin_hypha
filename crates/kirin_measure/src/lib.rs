@@ -300,7 +300,9 @@ pub use spectrum_runtime::{
     PerceptualHistory, SpectrumHistory, SpectrumRuntime, SpectrumRuntimeStats,
     PERCEPTUAL_HISTORY_CAPACITY, SPECTRUM_HISTORY_CAPACITY,
 };
-pub use stereo_meter::{BalanceState, StereoMeter, StereoMeterSnapshot};
+pub use stereo_meter::{
+    BalanceState, StereoMeter, StereoMeterSnapshot, STEREO_FIELD_BINS, STEREO_FIELD_SIZE,
+};
 pub use storage::{
     cleanup_legacy_v1, load_installation_id_safe, load_or_recover, read_identity, write_both,
     write_identity_atomic, CleanupReport, IdentityCache, LoadStatus, LoadedIdentity, PlatformKind,

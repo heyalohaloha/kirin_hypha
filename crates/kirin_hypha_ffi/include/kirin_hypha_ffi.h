@@ -86,6 +86,8 @@ typedef struct KirinHypha KirinHypha;
 #define KIRIN_BALANCE_NUMERIC 1u
 #define KIRIN_BALANCE_LEFT_ONLY 2u
 #define KIRIN_BALANCE_RIGHT_ONLY 3u
+#define KIRIN_STEREO_FIELD_SIZE 25u
+#define KIRIN_STEREO_FIELD_BINS 625u
 
 #define KIRIN_METER_HISTORY_10_HZ 0u
 #define KIRIN_METER_HISTORY_1_HZ 1u
@@ -153,6 +155,11 @@ typedef struct {
   uint64_t clip_events[2];
   double balance_db;  /* positive=L, negative=R; one-sidedはbalance_stateで表す */
   double correlation; /* fixed 3 s; denominator 0/mono/未成立はNaN */
+  uint8_t field_size; /* 0=unavailable, otherwise KIRIN_STEREO_FIELD_SIZE */
+  uint8_t field_observation_count; /* rolling 100 ms observations, maximum 30 */
+  uint8_t field_reserved[6];
+  /* rolling 3 s MID/SIDE density; row-major top-left, shape-normalized 0..255 */
+  uint8_t field_density[KIRIN_STEREO_FIELD_BINS];
 } KirinMeterSession;
 
 typedef struct {

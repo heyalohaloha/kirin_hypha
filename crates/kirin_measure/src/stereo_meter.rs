@@ -10,6 +10,9 @@ use ebur128::{EbuR128, Mode};
 
 const OBSERVATIONS_PER_THREE_SECONDS: usize = 30;
 const OBSERVATIONS_PER_TP_WINDOW: usize = 4;
+const FIELD_MAX_POINTS_PER_OBSERVATION: usize = 1_024;
+pub const STEREO_FIELD_SIZE: usize = 25;
+pub const STEREO_FIELD_BINS: usize = STEREO_FIELD_SIZE * STEREO_FIELD_SIZE;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BalanceState {
@@ -30,6 +33,10 @@ pub struct StereoMeterSnapshot {
     pub balance_db: Option<f64>,
     pub balance_state: BalanceState,
     pub correlation: Option<f64>,
+    /// Three-second MID/SIDE density, row-major from top-left. Zero means unoccupied and 255 is
+    /// the densest cell in the same factual window; it is a shape display, not a level metric.
+    pub field_density: [u8; STEREO_FIELD_BINS],
+    pub field_observation_count: u8,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -37,6 +44,11 @@ struct EnergyObservation {
     left: f64,
     right: f64,
     cross: f64,
+}
+
+#[derive(Debug, Clone)]
+struct FieldObservation {
+    bins: [u16; STEREO_FIELD_BINS],
 }
 
 pub struct StereoMeter {
@@ -49,6 +61,8 @@ pub struct StereoMeter {
     clip_open: [bool; 2],
     energy_window: VecDeque<EnergyObservation>,
     energy_sum: EnergyObservation,
+    field_window: VecDeque<FieldObservation>,
+    field_sum: [u32; STEREO_FIELD_BINS],
 }
 
 impl StereoMeter {
@@ -68,6 +82,8 @@ impl StereoMeter {
             clip_open: [false; 2],
             energy_window: VecDeque::with_capacity(OBSERVATIONS_PER_THREE_SECONDS + 1),
             energy_sum: EnergyObservation::default(),
+            field_window: VecDeque::with_capacity(OBSERVATIONS_PER_THREE_SECONDS + 1),
+            field_sum: [0; STEREO_FIELD_BINS],
         })
     }
 
@@ -81,9 +97,17 @@ impl StereoMeter {
 
         let mut peak = [0.0_f64; 2];
         let mut energy = EnergyObservation::default();
+        let mut field = FieldObservation {
+            bins: [0; STEREO_FIELD_BINS],
+        };
         let mut clip_events = self.clip_events;
         let mut clip_open = self.clip_open;
-        for frame in interleaved.chunks_exact(self.channels) {
+        let frame_count = interleaved.len() / self.channels;
+        const MAX_POINTS: usize = FIELD_MAX_POINTS_PER_OBSERVATION;
+        let field_point_count = frame_count.min(MAX_POINTS);
+        let mut field_point_index = 0usize;
+        let mut next_field_frame = 0usize;
+        for (frame_index, frame) in interleaved.chunks_exact(self.channels).enumerate() {
             for channel in 0..self.channels {
                 let magnitude = frame[channel].abs();
                 peak[channel] = peak[channel].max(magnitude);
@@ -97,6 +121,13 @@ impl StereoMeter {
                 energy.left += frame[0] * frame[0];
                 energy.right += frame[1] * frame[1];
                 energy.cross += frame[0] * frame[1];
+                if field_point_index < field_point_count && frame_index == next_field_frame {
+                    accumulate_field_point(&mut field.bins, frame[0], frame[1]);
+                    field_point_index += 1;
+                    if field_point_index < field_point_count {
+                        next_field_frame = field_point_index * frame_count / field_point_count;
+                    }
+                }
             }
         }
 
@@ -131,6 +162,18 @@ impl StereoMeter {
                     self.energy_sum.cross -= expired.cross;
                 }
             }
+            for (sum, value) in self.field_sum.iter_mut().zip(field.bins.iter().copied()) {
+                *sum = sum.saturating_add(u32::from(value));
+            }
+            self.field_window.push_back(field);
+            while self.field_window.len() > OBSERVATIONS_PER_THREE_SECONDS {
+                if let Some(expired) = self.field_window.pop_front() {
+                    for (sum, value) in self.field_sum.iter_mut().zip(expired.bins.iter().copied())
+                    {
+                        *sum = sum.saturating_sub(u32::from(value));
+                    }
+                }
+            }
         }
         true
     }
@@ -144,6 +187,8 @@ impl StereoMeter {
         self.clip_open = [false; 2];
         self.energy_window.clear();
         self.energy_sum = EnergyObservation::default();
+        self.field_window.clear();
+        self.field_sum = [0; STEREO_FIELD_BINS];
     }
 
     pub fn snapshot(&self) -> StereoMeterSnapshot {
@@ -172,6 +217,8 @@ impl StereoMeter {
             balance_db,
             balance_state,
             correlation,
+            field_density: normalized_field_density(&self.field_sum),
+            field_observation_count: self.field_window.len() as u8,
         }
     }
 
@@ -206,6 +253,44 @@ impl StereoMeter {
     }
 }
 
+fn accumulate_field_point(bins: &mut [u16; STEREO_FIELD_BINS], left: f64, right: f64) {
+    if left.abs() + right.abs() <= f64::EPSILON {
+        return;
+    }
+    // Rotate L/R into MID/SIDE. Square-root companding makes low-level shape visible while the
+    // histogram remains sign- and topology-faithful. Absolute level remains owned by LEVEL.
+    let warp = |value: f64| {
+        if value.abs() < 1.0e-12 {
+            0.0
+        } else {
+            value.signum() * value.abs().min(1.0).sqrt()
+        }
+    };
+    let mid = warp((left + right) * 0.5);
+    let side = warp((left - right) * 0.5);
+    let coordinate = |value: f64| {
+        (((value.clamp(-1.0, 1.0) + 1.0) * 0.5 * (STEREO_FIELD_SIZE - 1) as f64).round()) as usize
+    };
+    const LAST: usize = STEREO_FIELD_SIZE - 1;
+    let x = coordinate(side);
+    let y = LAST - coordinate(mid);
+    let index = y * STEREO_FIELD_SIZE + x;
+    bins[index] = bins[index].saturating_add(1);
+}
+
+fn normalized_field_density(sum: &[u32; STEREO_FIELD_BINS]) -> [u8; STEREO_FIELD_BINS] {
+    let mut density = [0; STEREO_FIELD_BINS];
+    let maximum = sum.iter().copied().max().unwrap_or(0);
+    if maximum == 0 {
+        return density;
+    }
+    for (out, count) in density.iter_mut().zip(sum.iter().copied()) {
+        let normalized = (count as f64 / maximum as f64).sqrt();
+        *out = (normalized * 255.0).round().clamp(0.0, 255.0) as u8;
+    }
+    density
+}
+
 fn linear_to_db(value: f64) -> Option<f64> {
     (value > 0.0)
         .then(|| 20.0 * value.log10())
@@ -221,6 +306,16 @@ mod tests {
 
     fn observation(left: f64, right: f64) -> Vec<f64> {
         [left, right].into_iter().cycle().take(FRAMES * 2).collect()
+    }
+
+    fn phase_observation(inverse: bool) -> Vec<f64> {
+        let mut result = Vec::with_capacity(FRAMES * 2);
+        for frame in 0..FRAMES {
+            let sample = (std::f64::consts::TAU * 997.0 * frame as f64 / SR as f64).sin() * 0.5;
+            result.push(sample);
+            result.push(if inverse { -sample } else { sample });
+        }
+        result
     }
 
     #[test]
@@ -315,5 +410,48 @@ mod tests {
         assert_eq!(reset.clip_events, [0, 0]);
         assert!(reset.sample_peak_hold_dbfs.iter().all(Option::is_none));
         assert!(reset.max_true_peak_dbtp.iter().all(Option::is_none));
+    }
+
+    #[test]
+    fn field_density_has_mid_side_orientation_and_an_exact_three_second_window() {
+        const CENTRE: usize = STEREO_FIELD_SIZE / 2;
+        let mut meter = StereoMeter::new(SR, 2).unwrap();
+        for _ in 0..30 {
+            assert!(meter.push_observation(&phase_observation(false)));
+        }
+        assert!(
+            meter
+                .field_window
+                .back()
+                .unwrap()
+                .bins
+                .iter()
+                .map(|value| usize::from(*value))
+                .sum::<usize>()
+                <= FIELD_MAX_POINTS_PER_OBSERVATION
+        );
+        let mid = meter.snapshot();
+        assert_eq!(mid.field_observation_count, 30);
+        assert!(mid.field_density.iter().any(|value| *value > 0));
+        for (index, value) in mid.field_density.iter().copied().enumerate() {
+            if value > 0 {
+                assert_eq!(index % STEREO_FIELD_SIZE, CENTRE);
+            }
+        }
+
+        for _ in 0..30 {
+            assert!(meter.push_observation(&phase_observation(true)));
+        }
+        let side = meter.snapshot();
+        assert_eq!(side.field_observation_count, 30);
+        for (index, value) in side.field_density.iter().copied().enumerate() {
+            if value > 0 {
+                assert_eq!(index / STEREO_FIELD_SIZE, CENTRE);
+            }
+        }
+        meter.reset();
+        let reset = meter.snapshot();
+        assert_eq!(reset.field_observation_count, 0);
+        assert!(reset.field_density.iter().all(|value| *value == 0));
     }
 }

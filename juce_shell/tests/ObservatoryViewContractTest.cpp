@@ -174,6 +174,13 @@ void verifyObservatoryViewContract()
     post.setHistory (history);
     KIRIN_OBSERVATORY_REQUIRE (post.domain() == observatory::Domain::time);
     KIRIN_OBSERVATORY_REQUIRE (post.target() == observatory::ObservationTarget::delta);
+    post.setDomain (observatory::Domain::space);
+    KIRIN_OBSERVATORY_REQUIRE (post.target() == observatory::ObservationTarget::absolute);
+    post.setTarget (observatory::ObservationTarget::delta);
+    KIRIN_OBSERVATORY_REQUIRE (post.target() == observatory::ObservationTarget::absolute);
+    post.setDomain (observatory::Domain::level);
+    KIRIN_OBSERVATORY_REQUIRE (post.target() == observatory::ObservationTarget::delta);
+    post.setDomain (observatory::Domain::time);
     const auto request = post.historyRequest();
     KIRIN_OBSERVATORY_REQUIRE (request.resolution == KIRIN_METER_HISTORY_10_HZ);
     KIRIN_OBSERVATORY_REQUIRE (request.maxEntries == 300);
