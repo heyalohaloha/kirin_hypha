@@ -422,6 +422,21 @@ test('Windows public manifest excludes operator workflow state', (context) => {
   assert.equal(manifest.external_validation.status, 'complete');
   assert.equal(manifest.package.name, 'Kirin-Hypha-test.zip');
   assert.equal(manifest.binary_artifact.commit, opts.commit);
+  assert.deepEqual(manifest.binary_artifact.windows_job_gates, [
+    'Build kirin_hypha_ffi staticlib (MSVC)',
+    'Validate two-slot continuous Analysis contract',
+    'Windows preflight gate',
+    'Apply tracked JUCE patches',
+    'Configure JUCE VST3 shell (Windows)',
+    'Validate Windows UI render contract',
+    'Build JUCE VST3 shell (Windows)',
+    'Validate Windows VST3 audio transparency',
+    'Verify Windows VST3 artifacts',
+    'Upload Windows VST3 artifacts',
+    'Validate Windows VST3 with pluginval',
+    'Package Windows VST3 LS candidate',
+    'Upload Windows VST3 LS package',
+  ]);
   assert.doesNotMatch(
     publicJson,
     /Daisuke|lsUpload|ls_upload|releaseStatus|release_status|productId|variantId|productAdminUrl|storeName|expectedFilesCount|operator/,
