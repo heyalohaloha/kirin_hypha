@@ -5,9 +5,11 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 UI_CONTRACT_BIN="${TMPDIR:-/tmp}/kirin-hypha-ui-contract-$$"
+OBSERVATORY_CONTRACT_BIN="${TMPDIR:-/tmp}/kirin-hypha-observatory-contract-$$"
 PRE_DISPLAY_BUILD="$(mktemp -d "${TMPDIR:-/tmp}/kirin-pre-display-test.XXXXXX")"
 cleanup() {
   cmake -E rm -f "$UI_CONTRACT_BIN"
+  cmake -E rm -f "$OBSERVATORY_CONTRACT_BIN"
   cmake -E remove_directory "$PRE_DISPLAY_BUILD"
 }
 trap cleanup EXIT
@@ -47,6 +49,12 @@ run node --test scripts/ls_release/release_metadata.test.mjs
 run "${CXX:-c++}" -std=c++17 -Wall -Wextra -Wpedantic -Werror \
   juce_shell/tests/ui_contract_test.cpp -o "$UI_CONTRACT_BIN"
 run "$UI_CONTRACT_BIN"
+
+# New shell anatomy is independent of the legacy Meters layout. Pin all four PRE/POST sizes and
+# the optional Guide rail before either transport or JUCE rendering is connected to it.
+run "${CXX:-c++}" -std=c++17 -Wall -Wextra -Wpedantic -Werror \
+  juce_shell/tests/observatory_contract_test.cpp -o "$OBSERVATORY_CONTRACT_BIN"
+run "$OBSERVATORY_CONTRACT_BIN"
 
 # The pinned JUCE submodule is intentionally pristine in a clean checkout. Both the runtime
 # build below and xtask's wrapper parity checks consume the tracked build-time patch stack, so
