@@ -10,6 +10,7 @@
 #include "SpectrumInteractionContractTest.h"
 #include "SpectrumPresentationContractTest.h"
 #include "GuideFrequencyOverlayContractTest.h"
+#include "ObservatoryViewContractTest.h"
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
@@ -207,6 +208,7 @@ int main()
     hypha::tests::verifyGuideFrequencyOverlayContract();
     hypha::tests::verifyAbsoluteTimelineContract();
     hypha::tests::verifyPerceptualRenderingContract();
+    hypha::tests::verifyObservatoryViewContract();
 
     const auto preferenceDirectory = juce::File::getSpecialLocation (juce::File::tempDirectory)
         .getNonexistentChildFile ("kirin-hypha-hover-help-contract", {}, false);

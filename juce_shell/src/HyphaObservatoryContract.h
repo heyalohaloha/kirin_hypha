@@ -164,7 +164,9 @@ constexpr ShellLayout shellLayout (Role role,
     const int footerH = footerHeight (preset.density);
     const int railH = guideRailHeight (preset.density, guide);
     const Rect header { margin, margin, preset.width - 2 * margin, headerH };
-    const int titleWidth = preset.density == Density::compact ? 68 : 88;
+    const int titleWidth = preset.density == Density::compact ? 68
+                         : preset.density == Density::focused ? 92
+                         : preset.density == Density::standard ? 108 : 128;
     const int statusWidth = preset.density == Density::compact ? 70 : 104;
     const Rect roleTitle { header.x, header.y, titleWidth, header.height };
     const Rect connectionStatus {
@@ -198,7 +200,9 @@ constexpr ShellLayout shellLayout (Role role,
 
     const int targetWidth = role == Role::post
         ? (preset.density == Density::compact ? 58 : 76) : 0;
-    const int actionWidth = preset.density == Density::compact ? 54 : 92;
+    const int actionWidth = preset.density == Density::compact ? 54
+                          : preset.density == Density::focused ? 92
+                          : preset.density == Density::standard ? 120 : 180;
     const Rect observationTarget {
         footer.x, footer.y, targetWidth, footer.height
     };
