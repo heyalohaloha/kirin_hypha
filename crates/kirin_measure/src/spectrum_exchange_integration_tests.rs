@@ -73,6 +73,39 @@ fn push_tone_segment(runtime: &SpectrumRuntime, start_frame: i64, end_frame: i64
 }
 
 #[test]
+fn unpaired_post_publishes_absolute_spectrum_without_inventing_a_difference() {
+    let runtime = SpectrumRuntime::new(48_000, 2);
+    let coordinator = SpectrumCoordinator::new(48_000, Arc::clone(&runtime));
+    coordinator.set_post_visible(true);
+    assert!(coordinator.post_tick("post", None));
+
+    push_tone_segment(&runtime, 0, 9_600, 1_000.0);
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while Instant::now() < deadline
+        && runtime
+            .try_history()
+            .and_then(|history| history.newest().cloned())
+            .is_none_or(|frame| frame.presentation_end_samples < 9_600)
+    {
+        thread::sleep(Duration::from_millis(10));
+    }
+    assert!(coordinator.post_tick("post", None));
+    let view = coordinator.try_view().unwrap();
+    assert_eq!(view.status, SpectrumViewStatus::NoPair);
+    assert!(view.difference.is_none());
+    assert_eq!(
+        view.post_spectrum
+            .as_ref()
+            .map(|frame| frame.presentation_end_samples),
+        Some(9_600)
+    );
+    assert_eq!(view.post_spectrum_history.frames().count(), 4);
+
+    coordinator.shutdown();
+    runtime.shutdown_and_join();
+}
+
+#[test]
 fn visible_exact_pair_exchanges_audio_derived_difference_end_to_end() {
     let temp = tempfile::tempdir().unwrap();
     let pre_dir = temp.path().join("project").join("pre");
@@ -128,6 +161,12 @@ fn visible_exact_pair_exchanges_audio_derived_difference_end_to_end() {
     post.post_tick("post", Some(target));
     let view = post.try_view().unwrap();
     assert_eq!(view.status, SpectrumViewStatus::Active);
+    assert_eq!(
+        view.post_spectrum
+            .as_ref()
+            .map(|frame| frame.presentation_end_samples),
+        Some(9_600)
+    );
     let difference = view.difference.unwrap();
     let strongest = difference
         .display_db

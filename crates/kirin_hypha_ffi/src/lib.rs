@@ -77,13 +77,13 @@ use kirin_measure::{
     PrePairStatusObserver, PresentationLatencySamples, PresentationLatencySource, PsbSummary,
     RecordDisplaySnapshot, RecordDisplayStatus, RecordIngress, RecordMarkQueue, RecordStateMachine,
     RecordTakeBlock, RecordTakeTracker, RecordTraceQueue, ReleaseReason, RestartIoFn, SignalError,
-    SignalState, SpectrumChannelMode, SpectrumCoordinator, SpectrumRuntime, SpectrumRuntimeStats,
-    SpectrumViewSnapshot, SpectrumViewStatus, StoragePaths, WatchMaxTracker, WatchProducerHandoff,
-    WatchdogIo, WatchdogParams, ABSOLUTE_TIMELINE_CAPACITY, CAPTURE_PRODUCER_READY_TIMEOUT,
-    HISTORY_0_1_HZ_CAPACITY, HISTORY_10_HZ_CAPACITY, HISTORY_1_HZ_CAPACITY, MAX_ACTIVE_PER_PROJECT,
-    MAX_AUDIO_BLOCK_FRAMES, MAX_CAPTURE_GENERATION_MEMBERS, N_CHANNELS,
-    PERCEPTUAL_DIFFERENCE_TIMELINE_CAPACITY, SPECTRUM_BAND_COUNT,
-    SPECTRUM_DIFFERENCE_TIMELINE_CAPACITY,
+    SignalState, SpectrumChannelMode, SpectrumCoordinator, SpectrumFrame, SpectrumRuntime,
+    SpectrumRuntimeStats, SpectrumTimelineFrame, SpectrumViewSnapshot, SpectrumViewStatus,
+    StoragePaths, WatchMaxTracker, WatchProducerHandoff, WatchdogIo, WatchdogParams,
+    ABSOLUTE_TIMELINE_CAPACITY, CAPTURE_PRODUCER_READY_TIMEOUT, HISTORY_0_1_HZ_CAPACITY,
+    HISTORY_10_HZ_CAPACITY, HISTORY_1_HZ_CAPACITY, MAX_ACTIVE_PER_PROJECT, MAX_AUDIO_BLOCK_FRAMES,
+    MAX_CAPTURE_GENERATION_MEMBERS, N_CHANNELS, PERCEPTUAL_DIFFERENCE_TIMELINE_CAPACITY,
+    SPECTRUM_BAND_COUNT, SPECTRUM_DIFFERENCE_TIMELINE_CAPACITY,
 };
 
 mod attack_ffi;
@@ -3708,6 +3708,9 @@ pub struct KirinSpectrumView {
     pub fft_size: u32,
     /// Frequencies below this cycle-derived boundary remain visible but use an approximate label.
     pub approximate_below_hz: f32,
+    /// A local POST Spectrum may exist without an exact PRE/POST difference.
+    pub post_has_data: u8,
+    pub post_reserved: [u8; 3],
 }
 
 /// Eight already-computed exact Spectrum differences, oldest first. This bounded recovery window
@@ -4012,64 +4015,85 @@ fn to_c_analysis_owners(
 }
 
 fn to_c_spectrum(snapshot: SpectrumViewSnapshot) -> KirinSpectrumView {
-    let difference = (snapshot.analysis_mode == AnalysisViewMode::Spectrum)
-        .then_some(snapshot.difference)
-        .flatten();
-    let has_data = difference.is_some() as u8;
-    let (
-        sample_rate,
-        min_hz,
-        max_hz,
-        pre_dbfs,
-        post_dbfs,
-        display_db,
-        presentation_end_samples,
-        aperture_samples,
-        fft_size,
-        approximate_below_hz,
-    ) = difference.map_or(
-        (
-            0,
-            0.0,
-            0.0,
-            [0.0; SPECTRUM_BAND_COUNT],
-            [0.0; SPECTRUM_BAND_COUNT],
-            [0.0; SPECTRUM_BAND_COUNT],
-            0,
-            0,
-            0,
-            0.0,
-        ),
-        |difference| {
-            (
-                difference.sample_rate,
-                difference.min_hz,
-                difference.max_hz,
-                difference.pre_dbfs,
-                difference.post_dbfs,
-                difference.display_db,
-                difference.presentation_end_samples,
-                difference.aperture_samples,
-                difference.fft_size,
-                difference.approximate_below_hz,
-            )
-        },
-    );
+    let status = spectrum_status_to_abi(snapshot.status);
+    if snapshot.analysis_mode == AnalysisViewMode::Spectrum {
+        if let Some(difference) = snapshot.difference {
+            return c_spectrum_from_difference(status, &difference);
+        }
+        if let Some(post) = snapshot.post_spectrum {
+            return c_spectrum_from_post(status, &post);
+        }
+    }
+    let mut empty = empty_c_spectrum();
+    empty.status = status;
+    empty.channel_mode = snapshot.channel_mode as u8;
+    empty.channels = snapshot.channels;
+    empty
+}
+
+fn c_spectrum_from_difference(
+    status: u8,
+    difference: &kirin_measure::SpectrumDifference,
+) -> KirinSpectrumView {
     KirinSpectrumView {
-        status: spectrum_status_to_abi(snapshot.status),
-        has_data,
-        channel_mode: snapshot.channel_mode as u8,
-        channels: snapshot.channels,
-        sample_rate,
-        min_hz,
-        max_hz,
-        pre_dbfs,
-        post_dbfs,
-        display_db,
-        presentation_end_samples,
-        aperture_samples,
-        fft_size,
-        approximate_below_hz,
+        status,
+        has_data: 1,
+        channel_mode: difference.channel_mode as u8,
+        channels: difference.channels,
+        sample_rate: difference.sample_rate,
+        min_hz: difference.min_hz,
+        max_hz: difference.max_hz,
+        pre_dbfs: difference.pre_dbfs,
+        post_dbfs: difference.post_dbfs,
+        display_db: difference.display_db,
+        presentation_end_samples: difference.presentation_end_samples,
+        aperture_samples: difference.aperture_samples,
+        fft_size: difference.fft_size,
+        approximate_below_hz: difference.approximate_below_hz,
+        post_has_data: 1,
+        post_reserved: [0; 3],
+    }
+}
+
+fn c_spectrum_from_post(status: u8, post: &SpectrumFrame) -> KirinSpectrumView {
+    KirinSpectrumView {
+        status,
+        has_data: 0,
+        channel_mode: post.channel_mode as u8,
+        channels: post.channels,
+        sample_rate: post.sample_rate,
+        min_hz: post.min_hz,
+        max_hz: post.max_hz,
+        pre_dbfs: [0.0; SPECTRUM_BAND_COUNT],
+        post_dbfs: post.dbfs,
+        display_db: [0.0; SPECTRUM_BAND_COUNT],
+        presentation_end_samples: post.presentation_end_samples,
+        aperture_samples: post.aperture_samples,
+        fft_size: post.fft_size,
+        approximate_below_hz: 3.0 * post.sample_rate as f32 / post.aperture_samples as f32,
+        post_has_data: 1,
+        post_reserved: [0; 3],
+    }
+}
+
+fn c_spectrum_from_timeline(status: u8, difference: &SpectrumTimelineFrame) -> KirinSpectrumView {
+    KirinSpectrumView {
+        status,
+        has_data: 1,
+        channel_mode: difference.channel_mode as u8,
+        channels: difference.channels,
+        sample_rate: difference.sample_rate,
+        min_hz: difference.min_hz,
+        max_hz: difference.max_hz,
+        pre_dbfs: difference.pre_dbfs,
+        post_dbfs: difference.post_dbfs,
+        display_db: difference.display_db,
+        presentation_end_samples: difference.presentation_end_samples,
+        aperture_samples: difference.aperture_samples,
+        fft_size: difference.fft_size,
+        approximate_below_hz: difference.approximate_below_hz,
+        post_has_data: 1,
+        post_reserved: [0; 3],
     }
 }
 
@@ -4089,6 +4113,8 @@ fn empty_c_spectrum() -> KirinSpectrumView {
         aperture_samples: 0,
         fft_size: 0,
         approximate_below_hz: 0.0,
+        post_has_data: 0,
+        post_reserved: [0; 3],
     }
 }
 
@@ -4096,27 +4122,19 @@ fn to_c_spectrum_batch(snapshot: SpectrumViewSnapshot) -> KirinSpectrumBatch {
     let latest = to_c_spectrum(snapshot.clone());
     let mut frames = [empty_c_spectrum(); SPECTRUM_DIFFERENCE_TIMELINE_CAPACITY];
     let mut count = 0usize;
-    if snapshot.status == SpectrumViewStatus::Active
-        && snapshot.analysis_mode == AnalysisViewMode::Spectrum
-    {
-        for difference in snapshot.spectrum_timeline.frames() {
-            frames[count] = KirinSpectrumView {
-                status: KIRIN_SPECTRUM_ACTIVE,
-                has_data: 1,
-                channel_mode: difference.channel_mode as u8,
-                channels: difference.channels,
-                sample_rate: difference.sample_rate,
-                min_hz: difference.min_hz,
-                max_hz: difference.max_hz,
-                pre_dbfs: difference.pre_dbfs,
-                post_dbfs: difference.post_dbfs,
-                display_db: difference.display_db,
-                presentation_end_samples: difference.presentation_end_samples,
-                aperture_samples: difference.aperture_samples,
-                fft_size: difference.fft_size,
-                approximate_below_hz: difference.approximate_below_hz,
-            };
-            count += 1;
+    if snapshot.analysis_mode == AnalysisViewMode::Spectrum {
+        if snapshot.status == SpectrumViewStatus::Active {
+            for difference in snapshot.spectrum_timeline.frames() {
+                frames[count] = c_spectrum_from_timeline(KIRIN_SPECTRUM_ACTIVE, difference);
+                count += 1;
+            }
+        }
+        if count == 0 {
+            let status = spectrum_status_to_abi(snapshot.status);
+            for post in snapshot.post_spectrum_history.frames() {
+                frames[count] = c_spectrum_from_post(status, post);
+                count += 1;
+            }
         }
     }
     KirinSpectrumBatch {
@@ -4631,6 +4649,8 @@ mod spectrum_abi_tests {
             channels: 2,
             difference: Some(difference),
             spectrum_timeline,
+            post_spectrum: None,
+            post_spectrum_history: Default::default(),
             perceptual_difference: None,
             perceptual_timeline: Default::default(),
             absolute_timeline: Default::default(),
@@ -4639,6 +4659,7 @@ mod spectrum_abi_tests {
         let out = to_c_spectrum(snapshot.clone());
         assert_eq!(out.status, KIRIN_SPECTRUM_ACTIVE);
         assert_eq!(out.has_data, 1);
+        assert_eq!(out.post_has_data, 1);
         assert_eq!(out.sample_rate, 48_000);
         assert_eq!(out.channel_mode, KIRIN_SPECTRUM_CHANNEL_SIDE);
         assert_eq!(out.channels, 2);
@@ -4651,11 +4672,52 @@ mod spectrum_abi_tests {
         assert_eq!(out.fft_size, 8_192);
         assert_eq!(out.approximate_below_hz, 35.15625);
         let batch = to_c_spectrum_batch(snapshot);
+        // The four-byte POST-presence tail occupies the struct's former alignment padding.
+        assert_eq!(std::mem::size_of::<KirinSpectrumView>(), 3_112);
         assert_eq!(std::mem::size_of::<KirinSpectrumBatch>(), 28_016);
         assert_eq!(batch.count, 1);
         assert_eq!(batch.latest.presentation_end_samples, 48_000);
         assert_eq!(batch.frames[0].presentation_end_samples, 48_000);
         assert_eq!(batch.frames[0].display_db[0], -3.5);
+    }
+
+    #[test]
+    fn unpaired_post_spectrum_is_distinct_from_exact_delta_at_the_abi() {
+        let snapshot = SpectrumViewSnapshot {
+            status: SpectrumViewStatus::NoPair,
+            analysis_mode: AnalysisViewMode::Spectrum,
+            channel_mode: SpectrumChannelMode::Lr,
+            channels: 2,
+            difference: None,
+            spectrum_timeline: Default::default(),
+            post_spectrum: Some(SpectrumFrame {
+                schema_version: kirin_measure::SPECTRUM_SCHEMA_VERSION,
+                sample_rate: 48_000,
+                aperture_samples: 4_096,
+                fft_size: 8_192,
+                band_count: SPECTRUM_BAND_COUNT as u16,
+                presentation_end_samples: 9_600,
+                generation: 4,
+                channel_mode: SpectrumChannelMode::Lr,
+                channels: 2,
+                min_hz: 10.0,
+                max_hz: 22_000.0,
+                dbfs: [-27.5; SPECTRUM_BAND_COUNT],
+            }),
+            post_spectrum_history: Default::default(),
+            perceptual_difference: None,
+            perceptual_timeline: Default::default(),
+            absolute_timeline: Default::default(),
+            analysis_owner_names: Default::default(),
+        };
+        let out = to_c_spectrum(snapshot);
+        assert_eq!(out.status, KIRIN_SPECTRUM_NO_PAIR);
+        assert_eq!(out.has_data, 0);
+        assert_eq!(out.post_has_data, 1);
+        assert_eq!(out.post_dbfs[0], -27.5);
+        assert_eq!(out.presentation_end_samples, 9_600);
+        assert_eq!(out.pre_dbfs, [0.0; SPECTRUM_BAND_COUNT]);
+        assert_eq!(out.display_db, [0.0; SPECTRUM_BAND_COUNT]);
     }
 
     #[test]
@@ -4689,6 +4751,8 @@ mod spectrum_abi_tests {
             channels: 2,
             difference: None,
             spectrum_timeline: Default::default(),
+            post_spectrum: None,
+            post_spectrum_history: Default::default(),
             perceptual_difference: Some(difference),
             perceptual_timeline,
             absolute_timeline: Default::default(),
@@ -4743,6 +4807,8 @@ mod spectrum_abi_tests {
             channels: 2,
             difference: None,
             spectrum_timeline: Default::default(),
+            post_spectrum: None,
+            post_spectrum_history: Default::default(),
             perceptual_difference: None,
             perceptual_timeline: Default::default(),
             absolute_timeline,

@@ -19,7 +19,7 @@ namespace
                             [] (float value) { return std::isfinite (value); });
     }
 
-    bool validSnapshot (const KirinSpectrumView& view) noexcept
+    bool validSnapshot (const KirinSpectrumView& view, bool absoluteObservation) noexcept
     {
         const uint64_t apertureNumerator = static_cast<uint64_t> (view.sample_rate) * 4'096u
                                          + 24'000u;
@@ -32,9 +32,7 @@ namespace
             ? 3.0f * static_cast<float> (view.sample_rate)
                 / static_cast<float> (expectedAperture)
             : 0.0f;
-        return view.has_data != 0
-            && view.status == KIRIN_SPECTRUM_ACTIVE
-            && view.sample_rate >= 8000u
+        const bool validLayout = view.sample_rate >= 8000u
             && view.sample_rate <= 384000u
             && view.aperture_samples == expectedAperture
             && view.fft_size == expectedFft
@@ -47,8 +45,14 @@ namespace
             && view.channel_mode <= KIRIN_SPECTRUM_CHANNEL_SIDE
             && (view.channels == 1u || view.channels == 2u)
             && ! (view.channel_mode == KIRIN_SPECTRUM_CHANNEL_SIDE && view.channels != 2u)
+            && finiteBins (view.post_dbfs);
+        if (! validLayout)
+            return false;
+        if (absoluteObservation)
+            return view.post_has_data != 0;
+        return view.has_data != 0
+            && view.status == KIRIN_SPECTRUM_ACTIVE
             && finiteBins (view.pre_dbfs)
-            && finiteBins (view.post_dbfs)
             && finiteBins (view.display_db);
     }
 
@@ -94,11 +98,28 @@ void SpectrumComponent::setGuideFrequencyOverlay (
     repaint();
 }
 
+void SpectrumComponent::setAbsoluteObservation (bool absolute)
+{
+    if (absoluteObservation == absolute)
+        return;
+    absoluteObservation = absolute;
+    clearInteractionState();
+    if (haveSnapshot)
+    {
+        const auto retained = snapshot;
+        haveSnapshot = false;
+        havePendingSnapshot = false;
+        setSnapshot (retained);
+    }
+    else
+        repaint();
+}
+
 void SpectrumComponent::setSnapshot (const KirinSpectrumView& next)
 {
     if (haveSnapshot && std::memcmp (&snapshot, &next, sizeof (snapshot)) == 0)
         return;
-    const bool nextValid = validSnapshot (next);
+    const bool nextValid = validSnapshot (next, absoluteObservation);
     const bool layoutChanged = nextValid && haveInteractionDefinition
         && ! sameLayoutDefinition (interactionDefinition, next);
     if (layoutChanged)
@@ -117,23 +138,33 @@ void SpectrumComponent::setSnapshot (const KirinSpectrumView& next)
         haveInteractionDefinition = true;
         const auto calmWeights = spectrum_presentation::lowFrequencyCalmWeights<
             KIRIN_SPECTRUM_BAND_COUNT> (snapshot.min_hz, snapshot.max_hz);
-        displayedPre = spectrum_presentation::calmLowFrequencies (
-            snapshot.pre_dbfs, calmWeights);
+        if (snapshot.has_data != 0)
+            displayedPre = spectrum_presentation::calmLowFrequencies (
+                snapshot.pre_dbfs, calmWeights);
+        else
+            displayedPre.fill (0.0f);
         displayedPost = spectrum_presentation::calmLowFrequencies (
             snapshot.post_dbfs, calmWeights);
-        displayedDelta = spectrum_presentation::calmLowFrequencies (
-            snapshot.display_db, calmWeights);
+        if (snapshot.has_data != 0)
+            displayedDelta = spectrum_presentation::calmLowFrequencies (
+                snapshot.display_db, calmWeights);
+        else
+            displayedDelta.fill (0.0f);
         readoutPre = displayedPre;
         readoutPost = displayedPost;
         readoutDelta = displayedDelta;
         pendingPre = displayedPre;
         pendingPost = displayedPost;
         pendingDelta = displayedDelta;
-        if (focusTrail == nullptr)
-            focusTrail = std::make_unique<spectrum_focus::FocusTrailHistory>();
-        focusTrail->append (snapshot.presentation_end_samples,
-                            snapshot.sample_rate,
-                            displayedDelta);
+        absoluteHistory.append (snapshot);
+        if (! absoluteObservation)
+        {
+            if (focusTrail == nullptr)
+                focusTrail = std::make_unique<spectrum_focus::FocusTrailHistory>();
+            focusTrail->append (snapshot.presentation_end_samples,
+                                snapshot.sample_rate,
+                                displayedDelta);
+        }
     }
     else
     {
@@ -161,10 +192,11 @@ void SpectrumComponent::setBatch (const KirinSpectrumBatch& batch)
 {
     if (batch.count > KIRIN_SPECTRUM_BATCH_CAPACITY)
         return;
-    const bool latestValid = validSnapshot (batch.latest);
-    if (latestValid != (batch.count > 0u))
-        return;
-    if (! latestValid)
+    const bool latestValid = validSnapshot (batch.latest, absoluteObservation);
+    // The FFI batch may carry POST-only history while this component is presenting exact delta.
+    // That history is invalid for the current target, but its latest status is still factual and
+    // must replace a previously active delta instead of being rejected with the batch.
+    if (! latestValid || batch.count == 0u)
     {
         setSnapshot (batch.latest);
         return;
@@ -172,7 +204,7 @@ void SpectrumComponent::setBatch (const KirinSpectrumBatch& batch)
     for (uint32_t index = 0u; index < batch.count; ++index)
     {
         const auto& frame = batch.frames[index];
-        if (! validSnapshot (frame)
+        if (! validSnapshot (frame, absoluteObservation)
             || ! sameLayoutDefinition (frame, batch.latest)
             || (index > 0u && frame.presentation_end_samples
                 <= batch.frames[index - 1u].presentation_end_samples))
@@ -186,7 +218,8 @@ void SpectrumComponent::setBatch (const KirinSpectrumBatch& batch)
         return;
     }
 
-    const bool pendingValid = havePendingSnapshot && validSnapshot (pendingSnapshot);
+    const bool pendingValid = havePendingSnapshot
+                           && validSnapshot (pendingSnapshot, absoluteObservation);
     const bool definitionChanged = pendingValid
         && ! sameLayoutDefinition (pendingSnapshot, batch.latest);
     const bool presentationMovedBackwards = pendingValid
@@ -213,8 +246,9 @@ void SpectrumComponent::queueSnapshot (const KirinSpectrumView& next)
     if (havePendingSnapshot
         && std::memcmp (&pendingSnapshot, &next, sizeof (next)) == 0)
         return;
-    const bool previousValid = havePendingSnapshot && validSnapshot (pendingSnapshot);
-    const bool nextValid = validSnapshot (next);
+    const bool previousValid = havePendingSnapshot
+                            && validSnapshot (pendingSnapshot, absoluteObservation);
+    const bool nextValid = validSnapshot (next, absoluteObservation);
     const bool layoutChanged = previousValid && nextValid
         && ! sameLayoutDefinition (pendingSnapshot, next);
     if (! haveSnapshot || ! previousValid || ! nextValid || layoutChanged)
@@ -225,12 +259,22 @@ void SpectrumComponent::queueSnapshot (const KirinSpectrumView& next)
 
     const auto calmWeights = spectrum_presentation::lowFrequencyCalmWeights<
         KIRIN_SPECTRUM_BAND_COUNT> (next.min_hz, next.max_hz);
-    pendingPre = spectrum_presentation::calmLowFrequencies (next.pre_dbfs, calmWeights);
+    if (next.has_data != 0)
+        pendingPre = spectrum_presentation::calmLowFrequencies (next.pre_dbfs, calmWeights);
+    else
+        pendingPre.fill (0.0f);
     pendingPost = spectrum_presentation::calmLowFrequencies (next.post_dbfs, calmWeights);
-    pendingDelta = spectrum_presentation::calmLowFrequencies (next.display_db, calmWeights);
-    if (focusTrail == nullptr)
-        focusTrail = std::make_unique<spectrum_focus::FocusTrailHistory>();
-    focusTrail->append (next.presentation_end_samples, next.sample_rate, pendingDelta);
+    if (next.has_data != 0)
+        pendingDelta = spectrum_presentation::calmLowFrequencies (next.display_db, calmWeights);
+    else
+        pendingDelta.fill (0.0f);
+    absoluteHistory.append (next);
+    if (! absoluteObservation)
+    {
+        if (focusTrail == nullptr)
+            focusTrail = std::make_unique<spectrum_focus::FocusTrailHistory>();
+        focusTrail->append (next.presentation_end_samples, next.sample_rate, pendingDelta);
+    }
     pendingSnapshot = next;
     havePendingSnapshot = true;
     curveDirty = true;
@@ -265,6 +309,7 @@ void SpectrumComponent::clearSnapshot()
     lastCurvePresentationMs = 0.0;
     lastNumericPresentationMs = 0.0;
     guideOverlay = {};
+    absoluteHistory.clear();
     repaint();
 }
 
@@ -375,7 +420,8 @@ void SpectrumComponent::mouseDown (const juce::MouseEvent& event)
     }
 
     const auto markBounds = spectrum_geometry::markBoundsFor (outerPlot, scale);
-    if (focusFrequencyHz <= 0.0f && hoverNormalisedX < 0.0f
+    if (! absoluteObservation
+        && focusFrequencyHz <= 0.0f && hoverNormalisedX < 0.0f
         && markBounds.contains (event.position))
     {
         if (haveMark && spectrum_geometry::markClearBoundsFor (
@@ -384,7 +430,7 @@ void SpectrumComponent::mouseDown (const juce::MouseEvent& event)
             markedDelta.fill (0.0f);
             haveMark = false;
         }
-        else if (haveSnapshot && validSnapshot (snapshot))
+        else if (haveSnapshot && validSnapshot (snapshot, absoluteObservation))
         {
             markedDelta = displayedDelta;
             haveMark = true;
@@ -398,7 +444,7 @@ void SpectrumComponent::mouseDown (const juce::MouseEvent& event)
         return;
     }
 
-    if (! haveSnapshot || ! validSnapshot (snapshot))
+    if (! haveSnapshot || ! validSnapshot (snapshot, absoluteObservation))
         return;
     const bool expanded = scale > 1.1f;
     if (focusFrequencyHz > 0.0f)
@@ -435,7 +481,8 @@ void SpectrumComponent::paint (juce::Graphics& g)
         readoutPre, readoutPost, readoutDelta, markedDelta,
         focusTrail.get(), modeActionNotice, analysisOwnerNames,
         guideOverlay,
-        haveSnapshot, haveSnapshot && validSnapshot (snapshot),
+        &absoluteHistory, absoluteHistory.peakHold(), absoluteObservation,
+        haveSnapshot, haveSnapshot && validSnapshot (snapshot, absoluteObservation),
         haveMark, hoverNormalisedX, focusFrequencyHz, channelMode, inputChannels
     };
     spectrum_chrome::paint (g, getLocalBounds().toFloat(), state);

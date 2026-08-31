@@ -1,6 +1,7 @@
 #include "HyphaSpectrumChromePainter.h"
 
 #include "HyphaSpectrumGeometry.h"
+#include "HyphaSpectrumMagnitudeChrome.h"
 #include "HyphaAnalysisUiText.h"
 #include "HyphaSpectrumFocusTrailPainter.h"
 #include "HyphaSpectrumUiContract.h"
@@ -54,36 +55,33 @@ namespace
                     juce::Rectangle<float> plot,
                     float scale,
                     float minimumHz,
-                    float maximumHz)
+                    float maximumHz,
+                    bool absoluteObservation)
     {
         const auto scaled = [scale] (float value) { return value * scale; };
         const auto scaledInt = [scale] (int value) {
             return juce::roundToInt ((float) value * scale);
         };
-        const float zeroY = spectrum_geometry::yForDeltaDb (0.0f, plot);
         g.setFont (monoFont (8.5f * ui_contract::analysisTextScale (scale)));
         g.setColour (COL_MUTED.withAlpha (0.86f));
-        g.drawText ("+24", 0, juce::roundToInt (plot.getY()) - scaledInt (4),
-                    scaledInt (21), scaledInt (10), juce::Justification::centredRight);
-        g.drawText ("0", 0, juce::roundToInt (zeroY) - scaledInt (5),
-                    scaledInt (21), scaledInt (10), juce::Justification::centredRight);
-        g.drawText ("-24", 0, juce::roundToInt (plot.getBottom()) - scaledInt (6),
-                    scaledInt (21), scaledInt (10), juce::Justification::centredRight);
-        g.drawText ("0", juce::roundToInt (plot.getRight()) + scaledInt (3),
-                    juce::roundToInt (plot.getY()) - scaledInt (4),
-                    scaledInt (21), scaledInt (10), juce::Justification::centredLeft);
-        g.drawText ("-48", juce::roundToInt (plot.getRight()) + scaledInt (3),
-                    juce::roundToInt (plot.getCentreY()) - scaledInt (5),
-                    scaledInt (21), scaledInt (10), juce::Justification::centredLeft);
-        g.drawText ("-96", juce::roundToInt (plot.getRight()) + scaledInt (3),
-                    juce::roundToInt (plot.getBottom()) - scaledInt (6),
-                    scaledInt (21), scaledInt (10), juce::Justification::centredLeft);
-
-        for (float db : { -12.0f, -6.0f, 6.0f, 12.0f })
+        if (absoluteObservation)
+            spectrum_magnitude_chrome::paintAxis (g, plot, scale, true, true);
+        else
         {
-            const float y = spectrum_geometry::yForDeltaDb (db, plot);
-            g.setColour (COL_MUTED.withAlpha (0.18f));
-            g.drawHorizontalLine (juce::roundToInt (y), plot.getX(), plot.getRight());
+            const float zeroY = spectrum_geometry::yForDeltaDb (0.0f, plot);
+            g.drawText ("+24", 0, juce::roundToInt (plot.getY()) - scaledInt (4),
+                        scaledInt (21), scaledInt (10), juce::Justification::centredRight);
+            g.drawText ("0", 0, juce::roundToInt (zeroY) - scaledInt (5),
+                        scaledInt (21), scaledInt (10), juce::Justification::centredRight);
+            g.drawText ("-24", 0, juce::roundToInt (plot.getBottom()) - scaledInt (6),
+                        scaledInt (21), scaledInt (10), juce::Justification::centredRight);
+            for (float db : { -12.0f, -6.0f, 6.0f, 12.0f })
+            {
+                const float y = spectrum_geometry::yForDeltaDb (db, plot);
+                g.setColour (COL_MUTED.withAlpha (0.18f));
+                g.drawHorizontalLine (juce::roundToInt (y), plot.getX(), plot.getRight());
+            }
+            spectrum_magnitude_chrome::paintAxis (g, plot, scale, false, false);
         }
         for (float hz : { 100.0f, 1'000.0f, 10'000.0f })
         {
@@ -207,6 +205,21 @@ namespace
                               + scaled ((float) ui_contract::spectrumLegendTop);
         g.setFont (monoFont (ui_contract::spectrumLegendFontHeight
                              * ui_contract::analysisTextScale (scale)));
+        if (state.absoluteObservation)
+        {
+            g.setColour (COL_SPECTRUM_POST.withAlpha (0.96f));
+            g.drawText ("POST ABS", juce::roundToInt (outerPlot.getX()) + legendOffset,
+                        juce::roundToInt (legendTop), scaledInt (48),
+                        scaledInt (ui_contract::spectrumLegendHeight),
+                        juce::Justification::centredLeft);
+            g.setColour (COL_FLORA_BR.withAlpha (0.64f));
+            g.drawText ("6 S FIELD  HOLD",
+                        juce::roundToInt (outerPlot.getX()) + legendOffset + scaledInt (52),
+                        juce::roundToInt (legendTop), scaledInt (92),
+                        scaledInt (ui_contract::spectrumLegendHeight),
+                        juce::Justification::centredLeft);
+            return;
+        }
         g.setColour (COL_SPECTRUM_DELTA.withAlpha (ui_contract::spectrumDeltaLegendAlpha));
         g.drawText (juce::CharPointer_UTF8 ("\xCE\x94"),
                     juce::roundToInt (outerPlot.getX()) + legendOffset
@@ -291,16 +304,22 @@ namespace
             blend, state.readoutPost[lower], state.readoutPost[upper]);
         const float deltaDb = juce::jmap (
             blend, state.readoutDelta[lower], state.readoutDelta[upper]);
-        const float pointY = spectrum_geometry::yForDeltaDb (deltaDb, plot);
+        const float pointY = state.absoluteObservation
+            ? juce::jmap (juce::jlimit (-96.0f, 0.0f, postDbfs),
+                          0.0f, -96.0f, plot.getY(), plot.getBottom())
+            : spectrum_geometry::yForDeltaDb (deltaDb, plot);
 
         g.setColour (COL_NORMAL.withAlpha (focusLocked ? 0.48f : 0.30f));
         g.drawLine (hoverX, plot.getY(), hoverX, plot.getBottom(),
                     ui_contract::spectrumStrokeScale (scale)
                         * ui_contract::spectrumHoverLineWidth);
-        g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.18f));
+        const auto pointColour = state.absoluteObservation
+            ? COL_SPECTRUM_POST : COL_SPECTRUM_DELTA;
+        g.setColour (pointColour.withAlpha (0.18f));
         g.fillEllipse (hoverX - scaled (3.5f), pointY - scaled (3.5f),
                        scaled (7.0f), scaled (7.0f));
-        g.setColour (COL_SPECTRUM_DELTA_BR.withAlpha (0.98f));
+        g.setColour ((state.absoluteObservation ? COL_SPECTRUM_POST.brighter (0.35f)
+                                                : COL_SPECTRUM_DELTA_BR).withAlpha (0.98f));
         g.fillEllipse (hoverX - scaled (1.65f), pointY - scaled (1.65f),
                        scaled (3.3f), scaled (3.3f));
 
@@ -308,7 +327,7 @@ namespace
             outerPlot, scale, expanded, focusLocked);
         g.setColour (BG.brighter (0.10f).withAlpha (0.96f));
         g.fillRoundedRectangle (readout, scaled (ui_contract::spectrumHoverReadoutRadius));
-        g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.38f));
+        g.setColour (pointColour.withAlpha (0.38f));
         g.drawRoundedRectangle (readout, scaled (ui_contract::spectrumHoverReadoutRadius),
                                 scaled (0.75f));
 
@@ -328,6 +347,33 @@ namespace
                         textY, scaledInt (logicalWidth),
                         scaledInt (ui_contract::spectrumHoverReadoutHeight), justification);
         };
+        if (state.absoluteObservation)
+        {
+            drawText (frequencyReadoutText (
+                          frequency, state.snapshot.approximate_below_hz),
+                      COL_NORMAL.withAlpha (0.94f),
+                      expanded ? ui_contract::spectrumExpandedFrequencyX
+                               : ui_contract::spectrumHoverFrequencyX,
+                      expanded ? ui_contract::spectrumExpandedFrequencyWidth
+                               : ui_contract::spectrumHoverFrequencyWidth,
+                      juce::Justification::centredLeft);
+            drawText ("POST " + juce::String (postDbfs, 1),
+                      COL_SPECTRUM_POST.withAlpha (0.98f),
+                      expanded ? ui_contract::spectrumExpandedPostX
+                               : ui_contract::spectrumHoverDeltaX,
+                      expanded ? ui_contract::spectrumExpandedPostWidth
+                               : ui_contract::spectrumHoverDeltaWidth,
+                      juce::Justification::centredRight);
+            if (focusLocked)
+            {
+                g.setColour (COL_NORMAL.withAlpha (0.72f));
+                g.drawText (juce::CharPointer_UTF8 ("×"),
+                            spectrum_geometry::focusClearBoundsFor (
+                                readout, scale).toNearestInt(),
+                            juce::Justification::centred);
+            }
+            return;
+        }
         if (expanded)
         {
             drawText (frequencyReadoutText (
@@ -401,7 +447,7 @@ void paint (juce::Graphics& g,
                 state.focusFrequencyHz, minimumHz, maximumHz))
         : -1.0f;
 
-    paintAxes (g, plot, scale, minimumHz, maximumHz);
+    paintAxes (g, plot, scale, minimumHz, maximumHz, state.absoluteObservation);
     const bool expandedReadout = scale > 1.1f && probeNormalisedX >= 0.0f;
     const float reservedReadoutWidth = probeNormalisedX >= 0.0f
         ? (float) (scale > 1.1f ? ui_contract::spectrumExpandedReadoutWidth
@@ -430,9 +476,14 @@ void paint (juce::Graphics& g,
     if (state.guideOverlay.visible())
         guide_frequency::paint (g, plot, scale, state.guideOverlay,
                                 minimumHz, maximumHz);
-    spectrum_painter::paintCurves (g, plot, scale, state.pre, state.post,
-                                   state.delta, state.haveMark ? &state.mark : nullptr);
-    if (focusNormalisedX >= 0.0f
+    if (state.absoluteObservation && state.absoluteHistory != nullptr)
+        spectrum_painter::paintAbsolute (g, plot, scale, state.post,
+                                         state.absolutePeakHold,
+                                         *state.absoluteHistory);
+    else
+        spectrum_painter::paintCurves (g, plot, scale, state.pre, state.post,
+                                       state.delta, state.haveMark ? &state.mark : nullptr);
+    if (! state.absoluteObservation && focusNormalisedX >= 0.0f
         && state.focusTrail != nullptr && ! state.focusTrail->empty())
     {
         spectrum_focus_painter::paint (

@@ -7,6 +7,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "HyphaTheme.h"
+#include "HyphaAbsoluteSpectrumHistory.h"
 #include "HyphaGuideFrequencyOverlay.h"
 #include "HyphaSpectrumFocusTrail.h"
 #include "kirin_hypha_ffi.h"
@@ -30,6 +31,7 @@ public:
     void presentationTickAt (double nowMs);
     void setAnalysisOwnerNames (const juce::String& names);
     void setGuideFrequencyOverlay (const guide_frequency::Overlay& next);
+    void setAbsoluteObservation (bool absolute);
     void paint (juce::Graphics&) override;
     void mouseMove (const juce::MouseEvent&) override;
     void mouseExit (const juce::MouseEvent&) override;
@@ -50,6 +52,13 @@ public:
     float readoutDeltaForTest (size_t index) const noexcept
     {
         return index < readoutDelta.size() ? readoutDelta[index] : 0.0f;
+    }
+    bool isAbsoluteObservationForTest() const noexcept { return absoluteObservation; }
+    size_t absoluteHistorySizeForTest() const noexcept { return absoluteHistory.size(); }
+    float absolutePeakHoldForTest (size_t index) const noexcept
+    {
+        return index < KIRIN_SPECTRUM_BAND_COUNT
+            ? absoluteHistory.peakHold()[index] : 0.0f;
     }
 
     std::function<bool(uint8_t)> onChannelModeChange;
@@ -84,6 +93,8 @@ private:
     juce::String modeActionNotice;
     juce::String analysisOwnerNames;
     guide_frequency::Overlay guideOverlay;
+    absolute_spectrum::History absoluteHistory;
+    bool absoluteObservation = false;
     double modeActionNoticeUntilMs = 0.0;
     bool hoverNeedsRepaint = false;
     double lastCurvePresentationMs = 0.0;

@@ -3,6 +3,7 @@
 #include <juce_graphics/juce_graphics.h>
 
 #include "HyphaSpectrumPainter.h"
+#include "HyphaAbsoluteSpectrumHistory.h"
 #include "HyphaGuideFrequencyOverlay.h"
 #include "HyphaSpectrumFocusTrail.h"
 #include "kirin_hypha_ffi.h"
@@ -25,6 +26,9 @@ namespace hypha::spectrum_chrome
         const juce::String& actionNotice;
         const juce::String& analysisOwnerNames;
         const guide_frequency::Overlay& guideOverlay;
+        const absolute_spectrum::History* absoluteHistory;
+        const spectrum_painter::SpectrumBins& absolutePeakHold;
+        bool absoluteObservation;
         bool haveSnapshot;
         bool snapshotValid;
         bool haveMark;

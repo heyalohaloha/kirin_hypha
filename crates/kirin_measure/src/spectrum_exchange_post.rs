@@ -50,6 +50,9 @@ impl SpectrumCoordinator {
             return self.post_absolute_tick();
         }
         let analysis_mode = self.runtime.analysis_mode();
+        if analysis_mode == AnalysisViewMode::Spectrum && target.is_none() {
+            return self.post_unpaired_spectrum_tick();
+        }
         if analysis_mode == AnalysisViewMode::Attack && target.is_none() {
             return self.post_unpaired_attack_tick();
         }
@@ -133,6 +136,29 @@ impl SpectrumCoordinator {
             SpectrumViewStatus::WarmingUp
         };
         self.store_absolute_view(status, history);
+        true
+    }
+
+    fn post_unpaired_spectrum_tick(&self) -> bool {
+        let retired = self.try_post_session().map(|mut slot| {
+            slot.take()
+                .map(|session| (session.target, session.request_id))
+        });
+        if let Some(Some((target, request_id))) = retired {
+            cleanup_owned_request(target.as_ref(), request_id);
+        }
+        if !self.set_active_runtime_enabled(AnalysisViewMode::Spectrum, true) {
+            self.store_spectrum_view(SpectrumViewStatus::Unavailable, None, None);
+            return false;
+        }
+        let Some(history) = self.runtime.try_history() else {
+            return true;
+        };
+        if history.newest().is_some() {
+            self.store_spectrum_view(SpectrumViewStatus::NoPair, None, Some(&history));
+        } else {
+            self.store_spectrum_view(SpectrumViewStatus::WarmingUp, None, None);
+        }
         true
     }
 

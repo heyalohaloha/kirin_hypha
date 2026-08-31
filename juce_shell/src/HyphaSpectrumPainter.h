@@ -5,6 +5,7 @@
 #include <juce_graphics/juce_graphics.h>
 
 #include "kirin_hypha_ffi.h"
+#include "HyphaAbsoluteSpectrumHistory.h"
 
 namespace hypha::spectrum_painter
 {
@@ -18,4 +19,11 @@ namespace hypha::spectrum_painter
                       const SpectrumBins& post,
                       const SpectrumBins& delta,
                       const SpectrumBins* mark);
+
+    void paintAbsolute (juce::Graphics& graphics,
+                        juce::Rectangle<float> plot,
+                        float visualScale,
+                        const SpectrumBins& post,
+                        const SpectrumBins& peakHold,
+                        const absolute_spectrum::History& history);
 }

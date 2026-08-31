@@ -93,9 +93,13 @@ pub(super) fn store_joined_spectrum(
                 .zip(latest_endpoints)
                 .is_some_and(|(previous, (post, pre))| post < previous && pre < previous);
             if moved_backwards && both_sides_moved_backwards {
-                coordinator.store_spectrum_boundary(difference);
+                coordinator.store_spectrum_boundary(difference, local);
             } else if !moved_backwards {
-                coordinator.store_view(SpectrumViewStatus::Active, Some(difference), None);
+                coordinator.store_spectrum_view(
+                    SpectrumViewStatus::Active,
+                    Some(difference),
+                    local,
+                );
             } else {
                 // Keep the prior exact fact only for the bounded presentation lease. If the
                 // second side never crosses the boundary, normal unavailable handling below
@@ -109,7 +113,7 @@ pub(super) fn store_joined_spectrum(
                 let status = joined_status(session, now, local, remote, |history| {
                     history.newest().is_some()
                 });
-                coordinator.store_view(status, None, None);
+                coordinator.store_spectrum_view(status, None, local);
                 return;
             }
             session.last_presented_at = Some(now);
@@ -129,7 +133,7 @@ pub(super) fn store_joined_spectrum(
     let status = joined_status(session, now, local, remote, |history| {
         history.newest().is_some()
     });
-    coordinator.store_view(status, None, None);
+    coordinator.store_spectrum_view(status, None, local);
 }
 
 pub(super) fn store_joined_perceptual(

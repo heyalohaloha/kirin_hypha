@@ -32,7 +32,8 @@ void SpectrumComponent::mouseMove (const juce::MouseEvent& event)
             tip = analysis_ui::channelModeTooltip (static_cast<uint8_t> (index));
 
     const auto mark = spectrum_geometry::markBoundsFor (outer, scale);
-    if (tip.isEmpty() && focusFrequencyHz <= 0.0f && mark.contains (position))
+    if (! absoluteObservation && tip.isEmpty()
+        && focusFrequencyHz <= 0.0f && mark.contains (position))
         tip = analysis_ui::markTooltip (
             haveMark && spectrum_geometry::markClearBoundsFor (mark, scale).contains (position));
 
@@ -46,16 +47,19 @@ void SpectrumComponent::mouseMove (const juce::MouseEvent& event)
                     : focusFrequencyHz < snapshot.approximate_below_hz
                         ? analysis_ui::approximateFrequencyTooltip()
                         : analysis_ui::focusTrailTooltip (false);
-        else if (spectrum_geometry::focusTrailBoundsFor (bounds).contains (position))
+        else if (! absoluteObservation
+                 && spectrum_geometry::focusTrailBoundsFor (bounds).contains (position))
             tip = analysis_ui::focusTrailTooltip (false);
     }
 
     if (tip.isEmpty() && focusFrequencyHz <= 0.0f)
     {
-        if (legendBounds (outer, scale, ui_contract::spectrumDeltaLegendLabelX,
+        if (! absoluteObservation
+            && legendBounds (outer, scale, ui_contract::spectrumDeltaLegendLabelX,
                           ui_contract::spectrumDeltaLegendLabelWidth).contains (position))
             tip = analysis_ui::deltaLegendTooltip();
-        else if (legendBounds (outer, scale, ui_contract::spectrumPreLegendLabelX,
+        else if (! absoluteObservation
+                 && legendBounds (outer, scale, ui_contract::spectrumPreLegendLabelX,
                                ui_contract::spectrumPreLegendLabelWidth).contains (position))
             tip = analysis_ui::preLegendTooltip();
         else if (legendBounds (outer, scale, ui_contract::spectrumPostLegendLabelX,
@@ -78,7 +82,8 @@ void SpectrumComponent::mouseMove (const juce::MouseEvent& event)
             : 0.0f;
         tip = frequency > 0.0f && frequency < snapshot.approximate_below_hz
                 ? analysis_ui::approximateFrequencyTooltip()
-                : analysis_ui::spectrumPlotTooltip();
+                : absoluteObservation ? analysis_ui::absoluteSpectrumPlotTooltip()
+                                      : analysis_ui::spectrumPlotTooltip();
     }
     if (tip != getTooltip())
         setTooltip (tip);

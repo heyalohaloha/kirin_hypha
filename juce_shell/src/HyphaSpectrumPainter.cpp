@@ -206,4 +206,97 @@ void paintCurves (juce::Graphics& g,
                                                 juce::PathStrokeType::rounded));
     }
 }
+
+void paintAbsolute (juce::Graphics& g,
+                    juce::Rectangle<float> plot,
+                    float visualScale,
+                    const SpectrumBins& post,
+                    const SpectrumBins& peakHold,
+                    const absolute_spectrum::History& history)
+{
+    constexpr float floorDbfs = -96.0f;
+    const auto yForMagnitude = [plot] (float value) {
+        return juce::jmap (juce::jlimit (floorDbfs, 0.0f, value),
+                           0.0f, floorDbfs, plot.getY(), plot.getBottom());
+    };
+
+    if (! history.empty())
+    {
+        const auto& newest = history.at (history.size() - 1u);
+        const size_t rowStride = std::max<size_t> (1u, history.size() / 32u);
+        constexpr size_t frequencyColumns = 64u;
+        const float cellWidth = plot.getWidth() / (float) frequencyColumns;
+        const float rowHeight = std::max (1.0f, plot.getHeight() / 40.0f);
+        for (size_t frameIndex = 0u; frameIndex < history.size(); frameIndex += rowStride)
+        {
+            const auto& frame = history.at (frameIndex);
+            const double ageSeconds = frame.sampleRate > 0u
+                ? (double) (newest.endpoint - frame.endpoint) / (double) frame.sampleRate
+                : absolute_spectrum::historySeconds;
+            if (ageSeconds < 0.0 || ageSeconds > absolute_spectrum::historySeconds)
+                continue;
+            const float y = plot.getBottom()
+                          - (float) (ageSeconds / absolute_spectrum::historySeconds)
+                              * plot.getHeight();
+            for (size_t column = 0u; column < frequencyColumns; ++column)
+            {
+                const size_t first = column * KIRIN_SPECTRUM_BAND_COUNT / frequencyColumns;
+                const size_t last = (column + 1u) * KIRIN_SPECTRUM_BAND_COUNT
+                                  / frequencyColumns;
+                float magnitude = floorDbfs;
+                for (size_t band = first; band < last; ++band)
+                    magnitude = std::max (magnitude, frame.postDbfs[band]);
+                const float intensity = juce::jlimit (0.0f, 1.0f,
+                    (magnitude - floorDbfs) / -floorDbfs);
+                if (intensity <= 0.015f)
+                    continue;
+                g.setColour (COL_SPECTRUM_POST.withAlpha (0.018f + 0.13f * intensity));
+                g.fillRect (plot.getX() + (float) column * cellWidth,
+                            y - rowHeight * 0.5f, cellWidth + 0.5f, rowHeight);
+            }
+        }
+    }
+
+    SpectrumBins x {};
+    SpectrumBins currentY {};
+    SpectrumBins holdY {};
+    for (size_t index = 0u; index < KIRIN_SPECTRUM_BAND_COUNT; ++index)
+    {
+        x[index] = juce::jmap (spectrum_geometry::bandCentreNormalisedX (index),
+                               plot.getX(), plot.getRight());
+        currentY[index] = yForMagnitude (post[index]);
+        holdY[index] = yForMagnitude (std::isfinite (peakHold[index])
+                                           ? peakHold[index] : floorDbfs);
+    }
+    const auto current = makeCurve (x, currentY);
+    const auto hold = makeCurve (x, holdY);
+
+    juce::Path fill;
+    fill.startNewSubPath (x.front(), plot.getBottom());
+    fill.lineTo (x.front(), currentY.front());
+    for (size_t index = 1u; index < KIRIN_SPECTRUM_BAND_COUNT; ++index)
+        fill.lineTo (x[index], currentY[index]);
+    fill.lineTo (x.back(), plot.getBottom());
+    fill.closeSubPath();
+    juce::ColourGradient gradient (COL_SPECTRUM_POST.withAlpha (0.19f),
+                                   plot.getX(), plot.getY(),
+                                   COL_SPECTRUM_POST.withAlpha (0.015f),
+                                   plot.getX(), plot.getBottom(), false);
+    g.setGradientFill (gradient);
+    g.fillPath (fill);
+
+    const float strokeScale = ui_contract::spectrumStrokeScale (visualScale);
+    g.setColour (COL_SPECTRUM_POST.withAlpha (0.18f));
+    g.strokePath (current, juce::PathStrokeType (4.2f * strokeScale,
+                                                  juce::PathStrokeType::curved,
+                                                  juce::PathStrokeType::rounded));
+    g.setColour (COL_SPECTRUM_POST.withAlpha (0.98f));
+    g.strokePath (current, juce::PathStrokeType (1.8f * strokeScale,
+                                                  juce::PathStrokeType::curved,
+                                                  juce::PathStrokeType::rounded));
+    g.setColour (COL_FLORA_BR.withAlpha (0.58f));
+    g.strokePath (hold, juce::PathStrokeType (0.85f * strokeScale,
+                                               juce::PathStrokeType::curved,
+                                               juce::PathStrokeType::rounded));
+}
 }

@@ -6,6 +6,7 @@
 #include "../src/HyphaTooltipLookAndFeel.h"
 #include "PerceptualHistoryContractTest.h"
 #include "AbsoluteTimelineContractTest.h"
+#include "AbsoluteSpectrumContractTest.h"
 #include "SpectrumFocusTrailContractTest.h"
 #include "SpectrumInteractionContractTest.h"
 #include "SpectrumPresentationContractTest.h"
@@ -207,6 +208,7 @@ int main()
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
     hypha::tests::verifyGuideFrequencyOverlayContract();
     hypha::tests::verifyAbsoluteTimelineContract();
+    hypha::tests::verifyAbsoluteSpectrumContract();
     hypha::tests::verifyPerceptualRenderingContract();
     hypha::tests::verifyObservatoryViewContract();
 

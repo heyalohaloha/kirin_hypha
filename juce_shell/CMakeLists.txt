@@ -280,6 +280,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
     target_sources(KirinUiRenderContractTests PRIVATE
         tests/ui_render_contract_test.cpp
         tests/AbsoluteTimelineContractTest.cpp
+        tests/AbsoluteSpectrumContractTest.cpp
         tests/PerceptualHistoryContractTest.cpp
         tests/SpectrumInteractionContractTest.cpp
         tests/SpectrumFocusTrailContractTest.cpp

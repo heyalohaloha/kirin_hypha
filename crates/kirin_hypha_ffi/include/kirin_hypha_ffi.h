@@ -217,7 +217,8 @@ typedef struct {
 
 /* POST専用Spectrum表示. pre/post_dbfsはdisplay_dbの正確な元フレーム、display_dbは
  * 符号付きPOST-PRE。描画側が±24 dBへ収めるが、Rust内部のraw差分はclipしない。
- * presentation_end_samplesは両者が一致した実フレームの終端。has_data=0時はstatusだけが有効。 */
+ * presentation_end_samplesは実フレームの終端。has_dataはexact Δ、post_has_dataはPOST絶対値を表し、
+ * PAIR不在ではhas_data=0かつpost_has_data=1になり得る。 */
 typedef struct {
   uint8_t status;       /* KIRIN_SPECTRUM_* */
   uint8_t has_data;
@@ -233,6 +234,8 @@ typedef struct {
   uint32_t aperture_samples; /* host rate追従のexact aperture */
   uint32_t fft_size;         /* apertureに対応する2x以上のFFT layout */
   float approximate_below_hz; /* 3周期未満: 値は保持し周波数labelだけ近似表示 */
+  uint8_t post_has_data; /* post_dbfsが実測POST Spectrumを持つ */
+  uint8_t post_reserved[3];
 } KirinSpectrumView;
 
 #define KIRIN_SPECTRUM_BATCH_CAPACITY 8

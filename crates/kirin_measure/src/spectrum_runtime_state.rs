@@ -8,7 +8,7 @@ use crate::spectrum::{AnalysisViewMode, SpectrumChannelMode, SpectrumFrame};
 pub const SPECTRUM_HISTORY_CAPACITY: usize = 8;
 pub const PERCEPTUAL_HISTORY_CAPACITY: usize = 16;
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct SpectrumHistory {
     frames: VecDeque<SpectrumFrame>,
 }

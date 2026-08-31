@@ -269,13 +269,16 @@ fn exactly_two_post_analysis_runtimes_are_active_per_process_lease() {
     second.set_post_visible(true);
     third.set_post_visible(true);
 
-    assert!(!first.post_tick_for_owner("post-a", None, "Mix"));
-    assert!(!second.post_tick_for_owner("post-b", None, "Vocal"));
+    assert!(first.post_tick_for_owner("post-a", None, "Mix"));
+    assert!(second.post_tick_for_owner("post-b", None, "Vocal"));
     assert!(!third.post_tick_for_owner("post-c", None, "Music"));
-    assert_eq!(first.try_view().unwrap().status, SpectrumViewStatus::NoPair);
+    assert_eq!(
+        first.try_view().unwrap().status,
+        SpectrumViewStatus::WarmingUp
+    );
     assert_eq!(
         second.try_view().unwrap().status,
-        SpectrumViewStatus::NoPair
+        SpectrumViewStatus::WarmingUp
     );
     assert_eq!(third.try_view().unwrap().status, SpectrumViewStatus::InUse);
     assert_eq!(
@@ -298,8 +301,11 @@ fn exactly_two_post_analysis_runtimes_are_active_per_process_lease() {
     assert_eq!(third.try_view().unwrap().status, SpectrumViewStatus::InUse);
 
     first.set_post_visible(false);
-    assert!(!third.post_tick_for_owner("post-c", None, "Music"));
-    assert_eq!(third.try_view().unwrap().status, SpectrumViewStatus::NoPair);
+    assert!(third.post_tick_for_owner("post-c", None, "Music"));
+    assert_eq!(
+        third.try_view().unwrap().status,
+        SpectrumViewStatus::WarmingUp
+    );
     third.shutdown();
     second.shutdown();
     first.shutdown();
@@ -340,10 +346,10 @@ fn poisoned_post_session_resets_instead_of_permanently_stalling_analysis() {
     .join()
     .is_err());
 
-    assert!(!coordinator.post_tick("post", None));
+    assert!(coordinator.post_tick("post", None));
     assert_eq!(
         coordinator.try_view().unwrap().status,
-        SpectrumViewStatus::NoPair
+        SpectrumViewStatus::WarmingUp
     );
     coordinator.shutdown();
     runtime.shutdown_and_join();
@@ -372,16 +378,16 @@ fn poisoned_pre_session_resets_instead_of_permanently_stalling_analysis() {
 }
 
 #[test]
-fn post_without_exact_pair_never_enables_fft() {
+fn post_without_exact_pair_enables_local_spectrum_without_claiming_delta() {
     let runtime = SpectrumRuntime::new(48_000, 2);
     let coordinator = SpectrumCoordinator::new(48_000, Arc::clone(&runtime));
     coordinator.set_post_visible(true);
-    coordinator.post_tick("post", None);
-    assert!(!runtime.is_enabled());
-    assert_eq!(
-        coordinator.try_view().unwrap().status,
-        SpectrumViewStatus::NoPair
-    );
+    assert!(coordinator.post_tick("post", None));
+    assert!(runtime.is_enabled());
+    let view = coordinator.try_view().unwrap();
+    assert_eq!(view.status, SpectrumViewStatus::WarmingUp);
+    assert!(view.difference.is_none());
+    assert!(view.post_spectrum.is_none());
     coordinator.shutdown();
     runtime.shutdown_and_join();
 }

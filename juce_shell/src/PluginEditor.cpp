@@ -119,6 +119,10 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
     observatoryView.onTargetChange = [this] (hypha::observatory::ObservationTarget target)
     {
         observatoryView.setTarget (target);
+       #if ! KIRIN_HYPHA_PRE_DISPLAY
+        spectrumView.setAbsoluteObservation (
+            target == hypha::observatory::ObservationTarget::absolute);
+       #endif
     };
     observatoryView.onSizeChange = [this] (hypha::observatory::SizePreset preset)
     {

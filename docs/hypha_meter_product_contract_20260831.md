@@ -330,7 +330,13 @@ FREQは画面を開いたときだけ既存Spectrum解析を取得する。
 
 TIMEのSHARPまたはATTACKも、該当subviewを開いたときだけ解析枠を取得する。
 
-Spectrogramは初期実装へ含めない。
+POST FREQは既存Spectrum解析の同じ実測frameから、現在Spectrum、6秒固定長の時間周波数field、rolling peak holdを生成する。
+
+このfieldのためにAudio Thread処理、FFT worker、解析slotを追加しない。
+
+履歴はUI側の固定容量180 frame（30 Hz、6秒）に限定し、GUIを閉じている間の永続保持や長時間Spectrogramを約束しない。
+
+PRE不在時もPOST absolute factsは表示できるが、Δ、MARK、Focus Trailを捏造または流用しない。
 
 ## 11. Responsive screens
 
@@ -364,6 +370,12 @@ Concept C Hybrid Observatoryをvisual baselineとする。
 ivoryの数字、cool cyanの実測線、低彩度amberのholdと居住光を基本とする。
 
 数値はtabular figuresを使い、小数点、符号、単位の位置を揃える。
+
+製品UIの書体は有料版Kimera KMR Waldenburg Bookを採用する。
+
+Font Software本体はGPLソースへ含めず、Kirin Hyphaを対象にしたApp Licenseの確認後、リポジトリ外の正規OTFからrelease buildへ埋め込む。
+
+ライセンス確認前の開発buildは同じ文字役割と固定digit cellを保ったnative fallbackで検証し、公開buildではKimera埋め込みを必須gateにする。
 
 グラフには時間軸、値軸、現在位置を表示する。
 

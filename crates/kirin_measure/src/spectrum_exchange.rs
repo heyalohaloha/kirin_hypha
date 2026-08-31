@@ -41,11 +41,9 @@ use crate::analysis_exchange_protocol::{
 use crate::analysis_lease::AnalysisLease;
 use crate::perceptual::PerceptualDifference;
 use crate::perceptual_difference_timeline::PerceptualDifferenceTimeline;
-use crate::spectrum::{AnalysisViewMode, SpectrumChannelMode, SpectrumDifference};
+use crate::spectrum::{AnalysisViewMode, SpectrumChannelMode, SpectrumDifference, SpectrumFrame};
 use crate::spectrum_exchange_worker::SpectrumExchangeWorker;
-#[cfg(test)]
-use crate::spectrum_runtime::SpectrumHistory;
-use crate::spectrum_runtime::SpectrumRuntime;
+use crate::spectrum_runtime::{SpectrumHistory, SpectrumRuntime};
 use crate::{AttackHistory, AttackPairEvent, AttackRuntime};
 use attack_codec::{
     encode_attack_snapshot, read_attack_snapshot, remove_attack_snapshot, write_attack_snapshot,
@@ -104,6 +102,10 @@ pub struct SpectrumViewSnapshot {
     pub channels: u8,
     pub difference: Option<SpectrumDifference>,
     pub spectrum_timeline: crate::SpectrumDifferenceTimeline,
+    /// Local POST facts remain available when no PRE is selected or the exact pair is warming.
+    /// They never substitute for `difference`, whose presence still proves an exact PRE/POST join.
+    pub post_spectrum: Option<SpectrumFrame>,
+    pub post_spectrum_history: SpectrumHistory,
     pub perceptual_difference: Option<PerceptualDifference>,
     pub perceptual_timeline: PerceptualDifferenceTimeline,
     pub absolute_timeline: AbsoluteTimeline,

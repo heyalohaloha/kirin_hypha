@@ -29,6 +29,11 @@ inline juce::String spectrumPlotTooltip()
     return "Move to inspect frequency and Delta. Click to lock Focus Trail.";
 }
 
+inline juce::String absoluteSpectrumPlotTooltip()
+{
+    return "POST Spectrum: current magnitude, six-second field, and rolling peak hold.";
+}
+
 inline juce::String approximateFrequencyTooltip()
 {
     return "~ means approximate frequency. Very low tones need a longer window to locate exactly.";

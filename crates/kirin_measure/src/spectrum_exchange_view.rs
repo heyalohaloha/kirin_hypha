@@ -2,6 +2,7 @@ use super::{SpectrumCoordinator, SpectrumViewSnapshot, SpectrumViewStatus};
 use crate::perceptual::PerceptualDifference;
 use crate::perceptual_difference_timeline::PerceptualDifferenceTimeline;
 use crate::spectrum::{AnalysisViewMode, SpectrumDifference};
+use crate::spectrum_runtime::SpectrumHistory;
 use std::sync::TryLockError;
 
 impl SpectrumCoordinator {
@@ -32,18 +33,32 @@ impl SpectrumCoordinator {
         self.store_view_with_spectrum_boundary(status, difference, perceptual_difference, false);
     }
 
+    pub(super) fn store_spectrum_view(
+        &self,
+        status: SpectrumViewStatus,
+        difference: Option<SpectrumDifference>,
+        post_history: Option<&SpectrumHistory>,
+    ) {
+        self.store_view_with_post_spectrum(status, difference, None, false, post_history);
+    }
+
     /// Replaces the short UI-recovery timeline at one confirmed transport boundary.
     ///
     /// A lower presentation endpoint can be either a late worker result or a real backwards
     /// transport move. The join layer calls this path only after the newest verified PRE and POST
     /// endpoints have both crossed below the last published endpoint. They may be one cadence
     /// apart; the boundary itself still starts on an exact shared endpoint.
-    pub(super) fn store_spectrum_boundary(&self, difference: SpectrumDifference) {
-        self.store_view_with_spectrum_boundary(
+    pub(super) fn store_spectrum_boundary(
+        &self,
+        difference: SpectrumDifference,
+        post_history: Option<&SpectrumHistory>,
+    ) {
+        self.store_view_with_post_spectrum(
             SpectrumViewStatus::Active,
             Some(difference),
             None,
             true,
+            post_history,
         );
     }
 
@@ -53,6 +68,23 @@ impl SpectrumCoordinator {
         difference: Option<SpectrumDifference>,
         perceptual_difference: Option<PerceptualDifference>,
         reset_spectrum_timeline: bool,
+    ) {
+        self.store_view_with_post_spectrum(
+            status,
+            difference,
+            perceptual_difference,
+            reset_spectrum_timeline,
+            None,
+        );
+    }
+
+    fn store_view_with_post_spectrum(
+        &self,
+        status: SpectrumViewStatus,
+        difference: Option<SpectrumDifference>,
+        perceptual_difference: Option<PerceptualDifference>,
+        reset_spectrum_timeline: bool,
+        post_history: Option<&SpectrumHistory>,
     ) {
         let mut view = match self.view.lock() {
             Ok(view) => view,
@@ -87,6 +119,8 @@ impl SpectrumCoordinator {
         } else {
             spectrum_timeline.clear();
         }
+        let post_spectrum_history = post_history.cloned().unwrap_or_default();
+        let post_spectrum = post_spectrum_history.newest().cloned();
         *view = SpectrumViewSnapshot {
             status,
             analysis_mode: self.runtime.analysis_mode(),
@@ -94,6 +128,8 @@ impl SpectrumCoordinator {
             channels: self.runtime.num_channels() as u8,
             difference: published_difference,
             spectrum_timeline,
+            post_spectrum,
+            post_spectrum_history,
             perceptual_difference,
             perceptual_timeline: PerceptualDifferenceTimeline::default(),
             absolute_timeline: Default::default(),
@@ -133,6 +169,8 @@ impl SpectrumCoordinator {
             channels: self.runtime.num_channels() as u8,
             difference: None,
             spectrum_timeline: Default::default(),
+            post_spectrum: None,
+            post_spectrum_history: Default::default(),
             perceptual_difference,
             perceptual_timeline: timeline,
             absolute_timeline: Default::default(),
@@ -156,6 +194,8 @@ impl SpectrumCoordinator {
             channels: self.runtime.num_channels() as u8,
             difference: None,
             spectrum_timeline: Default::default(),
+            post_spectrum: None,
+            post_spectrum_history: Default::default(),
             perceptual_difference: None,
             perceptual_timeline: Default::default(),
             absolute_timeline: timeline,
@@ -184,6 +224,8 @@ impl SpectrumCoordinator {
             channels: self.runtime.num_channels() as u8,
             difference: None,
             spectrum_timeline: Default::default(),
+            post_spectrum: None,
+            post_spectrum_history: Default::default(),
             perceptual_difference: None,
             perceptual_timeline: Default::default(),
             absolute_timeline: Default::default(),
