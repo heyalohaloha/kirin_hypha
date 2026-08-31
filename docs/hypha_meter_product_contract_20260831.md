@@ -1,0 +1,418 @@
+# Kirin Hypha Meter product contract
+
+Status: redesign baseline for review
+
+Date: 2026-08-31
+
+Branch: `codex/hypha-meter`
+
+Public baseline: `734a72ac17cb113b3ea4ec2da58150a3f39e2ddb`
+
+ATTACK baseline: `55d857a9ca1d7303a3e8a15ce97704269f12e213` and its read-only working snapshot at 2026-08-31 13:00 JST
+
+## 1. Product decision
+
+POSTを2MIXの最終段に常設したとき、Hyphaだけで日常的なメータリングを完結できる状態を作る。
+
+現在の`METERS / ANALYSIS`、`ATTACK / FREQ / SHARP / LIVE`、300×200固定Metersは完成仕様ではない。
+
+既存の画面遷移を互換性のために温存せず、情報設計とvisual shellを根本から再構成する。
+
+ただし、音声非加工、計測式、exact endpoint、固定容量payload、解析資源制御は実装資産として保持する。
+
+添付されたConcept C Hybrid Observatoryを、情報密度、階層、色、菌糸の抑制量を決める視覚基準にする。
+
+精度を装飾で演出するのではなく、単位、時間窓、軸、状態、測定時刻を美しく組み立てる。
+
+この文書は設計契約であり、計測アルゴリズムや製品コードをまだ変更しない。
+
+## 2. Isolation boundary
+
+本作業は専用worktree `/Users/nishiodaisuke/Dev/kirin_hypha_meter` と専用ブランチ `codex/hypha-meter`だけで行う。
+
+ATTACKセッションが使用するworktree、ブランチ、submodule、build成果物、VST3配置先には触れない。
+
+ATTACKの未コミット実装は読み取り専用の調査対象であり、このブランチへcopy、cherry-pick、rebaseしない。
+
+共用のStudio Oneプラグイン配置とリリース操作は、ATTACK確定後の統合セッションまで行わない。
+
+## 3. Preserved engineering contracts
+
+### 3.1 Audio boundary
+
+R-12を維持する。
+
+音声信号を生成、変更、遅延しない。
+
+Audio Threadは入力の読み取り、事前確保済みバッファへのコピー、atomic通知だけを行う。
+
+FFT、履歴集計、画像生成、ファイル保存、UI描画はAudio Threadで行わない。
+
+メーター機能の追加後もレイテンシーは0 samples、PREとPOSTの音声差分はbit identicalを合格条件とする。
+
+### 3.2 Measurement boundary
+
+現行のM、S、recent TP、Crest、PSR、Sharpness、I、LRA、MaxTPを別の意味へ読み替えない。
+
+FREQのhost-rate aperture、Hann窓、FFT layout、256 band centre、exact PRE/POST joinを保持する。
+
+SHARP、LIVE、ATTACKが持つsample endpointと欠測状態を、UI都合の補間で実測値へ変換しない。
+
+追加snapshotは固定容量または境界付きとし、GUIがMeasure Threadの可変内部状態を直接読まない。
+
+### 3.3 Resource boundary
+
+追加解析は画面が必要とする間だけ動作させる。
+
+process全体の解析枠は現行の2枠を初期上限として保持する。
+
+画面遷移を変更しても、解析枠の取得、継続、解放は一つのcoordinatorに集約する。
+
+通常のLEVELとloudness historyは追加FFTを起動せず、既存Watch snapshotから構成する。
+
+### 3.4 Product boundary
+
+R-22を維持する。
+
+良い、悪い、適正、危険などの価値判断を表示しない。
+
+赤、黄、緑の信号色で品質を採点しない。
+
+ターゲット値への誘導、配信規格への合否、推奨処置は初期スコープに含めない。
+
+R-28を維持する。
+
+互換fallbackなど利用者操作と無関係な失敗は無言でskipする。
+
+CaptureやResetなど明示操作の失敗は、成功と誤認されないよう事実だけを通知する。
+
+リミッター、ゲイントリム、ノーマライズ、ラウドネスマッチなど音を変える機能は追加しない。
+
+外部アカウント、サーバー、直接SNS投稿は追加しない。
+
+## 4. Current implementation and redesign boundary
+
+現行実装の詳細は`docs/hypha_meter_current_implementation_audit_20260831.md`を正本とする。
+
+現行POST Watchは2列3行のgridで、選択中のMまたはS、recent TP、Crestと各最大値を表示する。
+
+Record表示は選択中のMまたはS、PSR、MaxTP、I、Crest、Sharpnessを表示する。
+
+LRAはSessionSummaryに存在するが現行6-cell UIには出ない。
+
+PLRはplugin dataで算出されるが、現行UI snapshotにはない。
+
+per-channel TP、correlation、balance、長時間historyは未実装である。
+
+現行AnalysisのFREQ、SHARP、LIVEと進行中のATTACKは、計測器として再利用するが画面名と配置を固定しない。
+
+ペア選択時にΔ gridへ強制遷移する現行表示も、互換性のための不変条件とはしない。
+
+## 5. Standards gate
+
+実装開始前に、次の現行一次資料との意味差分を確定する。
+
+1. [ITU-R BS.1770-5](https://www.itu.int/rec/R-REC-BS.1770)
+2. [EBU R 128 v5.0](https://tech.ebu.ch/publications/r128)
+3. [EBU Loudness resources and test set](https://tech.ebu.ch/loudness/)
+4. [ITU-R BS.1771-1](https://www.itu.int/rec/R-REC-BS.1771/en)
+
+Mは400 ms、Sは3 s、Iは利用者がResetするまでのMeter Sessionとして扱う。
+
+LRAは測定開始直後に安定しないため、値が成立していない期間は`WARMING`と経過時間を表示する。
+
+BS.1770-5への更新はラベル置換だけで行わない。
+
+monoとstereoに対するアルゴリズム差分、依存crateの実装、公式test setの結果を確認してから規格名を更新する。
+
+規格版、計測式、単位、丸め、更新周期を一つの測定仕様に固定し、GUIとexportが同じsnapshotを読む構造にする。
+
+## 6. Competitive baseline and late-mover strategy
+
+2026-08-31時点の公開一次資料から、通常メーターの基準線を次のように置く。
+
+| Product | Publicly documented strengths | Hypha response |
+|---|---|---|
+| [Youlean Loudness Meter](https://youlean.co/youlean-loudness-meter/) | I、LRA、PLR、DR、loudness graph、distribution、A/B、PNG/PDF/SVG export | 主要loudness値と履歴を標準装備し、CaptureをSNS比率から逆算する |
+| [NUGEN VisLM](https://nugenaudio.com/vislm/) | 最大24時間のtimecode history、True Peak log、navigable flag | 固定容量の多段履歴と事実eventを持ち、品質alertは持たない |
+| [iZotope Insight](https://www.izotope.com/products/insight) | loudness、level、sound field、spectrogramのmodular表示 | LEVEL、TIME、FREQ、SPACEを一つの観測体系へ統合する |
+| [Process Audio Decibel](https://process.audio/en/products/decibel) | customizable meter、spectrum、spectrogram、phase scope、stereo cloud | 任意配置より一貫した情報階層を優先し、精密さとHypha固有性を両立する |
+
+I、LRA、PLR、per-channel peak、history、spectrum、correlationは差別化機能ではなく、常用メーターの基準線として扱う。
+
+後発優位は、別々に存在していた観測を同一時刻、同一snapshot、同一visual grammarへ統合することから作る。
+
+Hypha固有の差は、PREとPOSTのexactな差分を複数領域へ横断させられることである。
+
+単体メーターとしてのPOSTと処理差を観測するΔを、同じ画面構造で往復できるようにする。
+
+競合のtarget、alert、recommendation、normalizationは追随しない。
+
+観測と判断を分けることを、Hyphaの製品境界として明確にする。
+
+## 7. New information architecture
+
+画面は「観測領域」と「観測対象」の二軸で構成する。
+
+### 7.1 Global shell
+
+Header左にroleを含む`HYPHA POST`または`HYPHA PRE`を置く。
+
+Header中央に`LEVEL / TIME / FREQ / SPACE`を置く。
+
+Header右にpair名と信号状態を置く。
+
+POST画面ではFooterに`POST / Δ`、Meter Session、Reset、Captureを置く。
+
+PRE画面も同じ外形、背景、typography、status grammarへ更新し、一画面だけ旧世界に残さない。
+
+PREはpair側の測定sensorであり、POSTと同じ機能数を無理に持たせない。
+
+### 7.2 Observation domains
+
+| Domain | Default surface | Existing capability absorbed | Optional subview |
+|---|---|---|---|
+| LEVEL | M、S、I、recent TP、MaxTP、LRA、PLR、L/R meter | 現行Watch、Record、LIVEの現在値 | session facts |
+| TIME | M、S、TPの履歴 | LIVE timeline、SHARP timeline、ATTACK event timeline | LOUDNESS、SHARP、ATTACK |
+| FREQ | Spectrum | 現行FREQのPRE、POST、Δ、LR、MID、SIDE、probe、MARK、Focus Trail | SPECTRUM |
+| SPACE | correlation、L/R balance、goniometer density | なし | FIELD |
+
+`LIVE`は独立ページとして残さない。
+
+LIVEのM、TP、SharpnessはLEVELの現在値とTIMEの履歴へ吸収する。
+
+`SHARP`は時間変化を主表示とするためTIMEのsubviewに置く。
+
+`ATTACK`もeventの六秒scrubを主表示とするためTIMEのsubviewに置く。
+
+FREQは既存Spectrumの意味と操作を保ったまま、上位領域へ移す。
+
+### 7.3 Observation targets
+
+| Target | Meaning | PRE unavailable |
+|---|---|---|
+| POST | POSTの絶対値 | 常に使用可能 |
+| Δ | POST − PRE | `NO PAIR`を表示し、値は`---` |
+
+ペア選択は入力データの接続状態だけを変える。
+
+POSTとΔの切替は利用者の観測視点だけを変える。
+
+ペア接続によって画面を強制的にΔへ切り替えない。
+
+意味が固定できた領域だけにΔを提供する。
+
+LEVEL、TIME、FREQはPOSTとΔを持つ。
+
+SPACEはcorrelation差分の定義と知覚上の意味を固定するまでPOSTだけを持つ。
+
+ATTACKは現在の契約どおり、pair時はexact PRE/POST、未接続時はPOST absoluteを表示する。
+
+## 8. Meter Session
+
+通常メーターはプラグインを開いた直後から操作なしで読める。
+
+I、LRA、MaxTP、PLR、clip countは独立した`Meter Session`に蓄積する。
+
+最初のActive音声でSessionを開始する。
+
+transport停止、無音、DAW bypass中はSession時間と集計を進めない。
+
+再びActiveになったときは同じSessionを再開する。
+
+UIを閉じてもプラグインinstanceが生存する限りSessionを保持する。
+
+`RESET`だけが現在のSession統計を明示的に破棄する。
+
+Record、Keep、Kirin OS接続の状態はMeter Sessionに影響しない。
+
+プロジェクトreload後のSession復元は別の設計判断とし、この契約では自動復元を約束しない。
+
+## 9. Metric semantics
+
+| Label | Unit | Window or scope | Display precision |
+|---|---|---|---|
+| M | LUFS | 400 ms | 0.1 LU |
+| S | LUFS | 3 s | 0.1 LU |
+| I | LUFS | Meter Session | 0.1 LU |
+| TP | dBTP | recent 400 ms | 0.1 dB |
+| MAX TP | dBTP | Meter Session | 0.1 dB |
+| LRA | LU | Meter Session | 0.1 LU |
+| PLR | dB | MAX TP − I | 0.1 dB |
+| L/R SP | dBFS | current block and hold | 0.1 dB |
+| L/R TP | dBTP | recent 400 ms | 0.1 dB |
+| BAL | dB | 3 sのL/R energy差 | 0.1 dB |
+| CORR | unitless | 3 s energy-normalized correlation | 0.01 |
+
+`BAL`は`10 log10(E_L / E_R)`の符号付き値とし、正値をL、負値をRとしてラベルにも明示する。
+
+`CORR`は`sum(LR) / sqrt(sum(L²) sum(R²))`を候補式とする。
+
+無音または分母0では`CORR`を`---`にする。
+
+BAL、CORR、per-channel peak、clip countは新規計測である。
+
+実装前に境界値、無音、mono、逆相、片ch、同相信号のgolden testを用意する。
+
+clip countの閾値と連続sampleのevent集約規則は、実装前に別途固定する。
+
+## 10. History and optional analysis
+
+表示履歴はMeasure Thread側で固定容量の多段ring bufferへ集計する。
+
+初期候補はM、S、TP、CORRを10 Hzで10分、1 Hzで2時間、0.1 Hzで24時間保持する。
+
+10 Hz層は既存Watch snapshotのexact sample endpointを保持する。
+
+低rate層はbucketのmin、max、mean、first endpoint、last endpointを保持し、exact値と同じ線として描かない。
+
+UIは30 s、2 min、10 min、2 h、24 hを切り替える。
+
+表示中のresolutionを時間軸に明示する。
+
+UI再描画周期と履歴sample周期を分離する。
+
+UIを閉じても履歴計測を継続し、再表示時に直前の文脈を復元する。
+
+FREQは画面を開いたときだけ既存Spectrum解析を取得する。
+
+TIMEのSHARPまたはATTACKも、該当subviewを開いたときだけ解析枠を取得する。
+
+Spectrogramは初期実装へ含めない。
+
+## 11. Responsive screens
+
+4サイズとPRE、POSTを同じ変更単位として設計、実装、確認する。
+
+| Size | POST required content | PRE required content |
+|---|---|---|
+| 300×200 | 選択domainの主値、role、pair、POST/Δ、Session state | MまたはS、TP、Crest、name、pair state |
+| 375×250 | Compact内容、補助値、domain switch | Compact内容、I/O state、接続context |
+| 450×300 | 選択domainの主visual、軸、session facts | Standard内容、測定stateの詳細 |
+| 600×400 | Concept Cのfull cockpit、主visualと補助値、Capture | POSTと共通のshell、広い数値面、接続context |
+
+小さい画面で情報を単純に縮小しない。
+
+優先度の低い補助値を折り畳み、数字の最小可読サイズを守る。
+
+現行Analysisの4 presetを一般Editor sizeへ昇格し、Metersだけ固定という分断をなくす。
+
+## 12. Visual system
+
+Concept C Hybrid Observatoryをvisual baselineとする。
+
+主数値とunitはsolidなgraphite panelで保護する。
+
+菌糸は外周、構造境界、history下層、status周辺へ限定する。
+
+[Kirin OS 1.0](https://kirinmastering.com/kirin-os-1-0)下部のJungle世界から、巨大な有機構造、湿度を感じる奥行き、暖色の生活光、疎なcyan signalを取り入れる。
+
+細い蔓を画面へ貼り付けただけの装飾にはしない。
+
+ivoryの数字、cool cyanの実測線、低彩度amberのholdと居住光を基本とする。
+
+数値はtabular figuresを使い、小数点、符号、単位の位置を揃える。
+
+グラフには時間軸、値軸、現在位置を表示する。
+
+発光色は品質判定に使わない。
+
+更新停止、WARMING、NO PAIR、Inactive、Bypassed、analysis slot unavailableを視覚的に区別する。
+
+動きを減らすOS設定では、脈動と遷移を止めても全情報を読めるようにする。
+
+全画面overlayに`backdrop-filter`を使わない。
+
+既存のPRESENCE overlay値は変更しない。
+
+## 13. Capture contract
+
+Captureは利用者の明示操作で現在の測定snapshotを画像に保存する。
+
+出力presetは1200×630、1080×1080、1080×1350とする。
+
+画像には製品名、POSTまたはΔ、主要値、Session elapsed、capture時刻、Hypha versionを含める。
+
+プロジェクト名、ファイルpath、instance ID、UUIDは既定で含めない。
+
+プロジェクト名を含める場合は明示opt-inにする。
+
+画像は表示中のUIを拡大せず、同じimmutable snapshotから専用layoutで描く。
+
+保存とPNG encodeは非Audio Threadで行う。
+
+直接SNSへ送信せず、利用者が選んだローカル保存先だけへ書く。
+
+保存失敗時は対象pathを秘匿した短い事実通知を表示する。
+
+## 14. State migration
+
+既存のinstance identity、project identity、pair名、exact pair locator、M/S選択を失わない。
+
+新しいdomain、subview、size、POST/Δ選択は末尾追加の表示stateとして扱う。
+
+旧state、legacy nih-plug state、不正な新規値は、POSTのLEVEL、100%、POST perspectiveへ安全にfallbackする。
+
+表示stateの復元は計測、pairing、plugin dataのschemaを変更しない。
+
+## 15. Verification gates
+
+### Gate A: measurement semantics
+
+現行規格との差分表を作る。
+
+公式test setと既存test signalでM、S、I、TP、LRAを数値比較する。
+
+PLR、BAL、CORR、clip eventの正常系、境界値、無音、mono、逆相を検証する。
+
+### Gate B: real-time safety
+
+Audio Threadのallocation、lock、I/Oが0件であることをコードと計測で確認する。
+
+PREとPOSTのbit identical、0 samples latency、process CPU基準を再確認する。
+
+Measure Thread panic、UI close/reopen、history欠落、sample rate変更を検証する。
+
+### Gate C: visual system
+
+PREとPOSTの4サイズを同じfixtureでrenderする。
+
+文字切れ、unit誤記、小数桁、WARMING、NO PAIR、Inactive、Bypassedを画像差分で確認する。
+
+30分以上の表示でmotion、固定高輝度、背景による可読性低下を実機確認する。
+
+### Gate D: navigation and resource control
+
+全domainとsubviewの取得、継続、解放を2枠制限下で確認する。
+
+旧state復元、PREなし、PRE stale、explicit bypass、Editor再表示を確認する。
+
+ATTACKのevent、FREQのexact join、SHARPとLIVE由来のendpointが再配置後も変わらないことを確認する。
+
+### Gate E: capture
+
+3 presetのpixel寸法、文字、snapshot一致、metadata不在を自動確認する。
+
+保存先なし、権限なし、disk full、連続操作を確認する。
+
+## 16. Implementation order
+
+1. ATTACK側の作業がcommitされた時点で統合baselineを固定する。
+2. 規格差分と全metricの測定仕様を固定し、golden testを追加する。
+3. PREとPOST、4サイズのwireframeと共通visual tokenを完成させる。
+4. UI非依存の`MeterSnapshot`、`MeterSession`、固定容量historyを追加する。
+5. 新しいglobal shellと`LEVEL / TIME / FREQ / SPACE` routerを追加する。
+6. 現行FREQ、SHARP、LIVE由来の表示、ATTACKを新しい領域へ移し、旧routerを除去する。
+7. per-channel peak、BAL、CORR、SPACE visualを追加する。
+8. Captureをimmutable snapshotから実装する。
+9. conformance、RT safety、全状態、全サイズ、旧state migrationをまとめて検証する。
+
+各段階は旧UIへ継ぎ足すpatchではなく、その段階で責務を満たす完全な層として実装する。
+
+## 17. Remaining product decisions
+
+visual方向はConcept Cで確定した。
+
+情報設計は既存動線を固定せず、`LEVEL / TIME / FREQ / SPACE`を上位構造として進める。
+
+実装前に残る製品判断は、Meter SessionをDAW project stateへ復元するかどうかと、初回公開へSPACEを含めるかどうかの2点である。
