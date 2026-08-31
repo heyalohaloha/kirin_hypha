@@ -272,7 +272,9 @@ UIを閉じてもプラグインinstanceが生存する限りSessionを保持す
 
 Record、Keep、Kirin OS接続の状態はMeter Sessionに影響しない。
 
-プロジェクトreload後のSession復元は別の設計判断とし、この契約では自動復元を約束しない。
+プロジェクトreloadまたはplugin runtime再生成後は、新しいMeter Sessionを開始する。
+
+I/LRAのgating履歴を完全保存せず累積値だけ復元すると、reload前後で同じ測定事実にならないため、Meter SessionはDAW stateへ保存しない。
 
 ## 9. Metric semantics
 
@@ -493,8 +495,8 @@ INSPECT instant、MASKING interval、optional band、unlocated frequencyを全4�
 
 各段階は旧UIへ継ぎ足すpatchではなく、その段階で責務を満たす完全な層として実装する。
 
-## 17. Remaining product decisions
+## 17. Fixed product decisions
 visual方向はConcept Cで確定した。
 情報設計は既存動線を固定せず、`LEVEL / TIME / FREQ / SPACE`を上位構造として進める。
-残る製品判断は、Meter SessionをDAW project stateへ復元するかどうかである。
+Meter Sessionはplugin instanceの同一runtime中だけ保持し、DAW project reloadでは空のSessionから開始する。
 SPACEはPOST専用の実測MID/SIDE densityとして初回公開対象に含め、意味未定義のΔ表示は作らない。
