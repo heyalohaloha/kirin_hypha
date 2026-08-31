@@ -47,7 +47,10 @@ std::vector<KirinMeterHistoryEntry> fixture (bool alternate)
         entry.lufs_m = { momentary - 0.7, momentary + 0.7, momentary };
         entry.lufs_s = { shortTerm - 0.3, shortTerm + 0.3, shortTerm };
         entry.true_peak = { peak - 0.4, peak + 0.4, peak };
-        entry.correlation = { 0.8, 0.8, 0.8 };
+        const double correlation = 0.72 + wave * 0.16;
+        const double plr = 12.0 + wave * 1.8;
+        entry.correlation = { correlation - 0.03, correlation + 0.03, correlation };
+        entry.plr = { plr - 0.2, plr + 0.2, plr };
     }
     return result;
 }
@@ -92,9 +95,22 @@ void verifyTimeHistoryContract()
         difference[index].lufs_m = { value - 0.4, value + 0.4, value };
         difference[index].lufs_s = { value * 0.6 - 0.2, value * 0.6 + 0.2, value * 0.6 };
         difference[index].true_peak = { -value - 0.3, -value + 0.3, -value };
+        difference[index].correlation = { value * 0.08 - 0.03,
+                                          value * 0.08 + 0.03,
+                                          value * 0.08 };
+        difference[index].plr = { value * 0.4 - 0.2,
+                                  value * 0.4 + 0.2,
+                                  value * 0.4 };
     }
     const auto differenceImage = render (difference, 600, 400, true);
     KIRIN_TIME_HISTORY_REQUIRE (changedPixels (normalImage, differenceImage) > 1'000);
+
+    auto alternateAux = normal;
+    for (auto& entry : alternateAux)
+    {
+        entry.plr.mean += 4.0;
+        entry.correlation.mean -= 0.6;
+    }
 
     for (const auto dimensions : {
              std::pair { 300, 200 }, std::pair { 375, 250 },
@@ -106,6 +122,8 @@ void verifyTimeHistoryContract()
             for (int x = 0; x < image.getWidth(); ++x)
                 visible += image.getPixelAt (x, y).getAlpha() > 0 ? 1 : 0;
         KIRIN_TIME_HISTORY_REQUIRE (visible == image.getWidth() * image.getHeight());
+        KIRIN_TIME_HISTORY_REQUIRE (
+            changedPixels (image, render (alternateAux, dimensions.first, dimensions.second)) > 30);
     }
 
     constexpr int paintIterations = 30;
@@ -114,7 +132,7 @@ void verifyTimeHistoryContract()
         render (normal, 600, 400);
     const double paintMs = (juce::Time::getMillisecondCounterHiRes() - startedMs)
                          / paintIterations;
-    std::cout << "TIME three-fact paint: " << paintMs << " ms/frame\n";
+    std::cout << "TIME five-fact paint: " << paintMs << " ms/frame\n";
     KIRIN_TIME_HISTORY_REQUIRE (paintMs < 12.0);
 
     const auto outputPath = juce::SystemStats::getEnvironmentVariable (

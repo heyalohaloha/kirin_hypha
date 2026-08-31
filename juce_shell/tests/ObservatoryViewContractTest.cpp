@@ -85,6 +85,7 @@ std::vector<KirinMeterHistoryEntry> historyFixture()
         entry.lufs_s.min = entry.lufs_s.max = entry.lufs_s.mean = -20.0 + 2.0 * wave;
         entry.true_peak.min = entry.true_peak.max = entry.true_peak.mean = -5.0 + wave;
         entry.correlation.min = entry.correlation.max = entry.correlation.mean = 0.8;
+        entry.plr.min = entry.plr.max = entry.plr.mean = 12.0 + wave;
     }
     return result;
 }

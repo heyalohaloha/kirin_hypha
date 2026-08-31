@@ -9,7 +9,7 @@ namespace
 {
     static_assert (sizeof (KirinMeterSession) == 832u,
                    "Rust/C++ Meter Session ABI size must remain exact");
-    static_assert (sizeof (KirinMeterHistoryEntry) == 152u,
+    static_assert (sizeof (KirinMeterHistoryEntry) == 176u,
                    "Rust/C++ Meter history ABI size must remain exact");
 #if KIRIN_HYPHA_GUIDE_TRANSPORT
     static_assert (static_cast<std::uint8_t> (hypha::pre_display::ClockSource::unknown)

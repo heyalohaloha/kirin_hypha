@@ -21,6 +21,7 @@ fn post_point(observed: u64, endpoint: i64, value: f64) -> MeterHistoryEntry {
         lufs_s: exact(value - 1.0),
         true_peak: exact(value + 10.0),
         correlation: exact(0.8),
+        plr: exact(12.0),
     }
 }
 
@@ -35,6 +36,7 @@ fn pre_point(endpoint: i64, value: f64) -> WirePoint {
         lufs_s: Some(value - 1.0),
         true_peak: Some(value + 10.0),
         correlation: Some(0.5),
+        plr: Some(10.5),
     }
 }
 
@@ -59,6 +61,7 @@ fn joins_only_the_same_unique_presentation_endpoint() {
     assert_eq!(history[0].lufs_m.mean, Some(1.5));
     assert_eq!(history[1].lufs_m.mean, Some(1.0));
     assert!((history[0].correlation.mean.unwrap() - 0.3).abs() < 1.0e-12);
+    assert_eq!(history[0].plr.mean, Some(1.5));
 }
 
 #[test]
@@ -154,6 +157,7 @@ fn atomic_publication_and_exact_target_join_work_end_to_end() {
     assert_eq!(joined.len(), 10);
     let loudness_delta = joined.last().unwrap().lufs_m.mean.unwrap();
     assert!((loudness_delta - 6.020_599_913).abs() < 0.01);
+    assert!(joined.last().unwrap().plr.mean.unwrap().abs() < 0.01);
 
     fs::write(
         &pre_json,

@@ -168,6 +168,30 @@ impl MeasureEngine {
         samples: &[f64],
         mut observe: impl FnMut(u64, &MeasureResult, &[f64]),
     ) -> Option<MeasureResult> {
+        self.push_observed_internal(samples, false, |frames, result, observed, _| {
+            observe(frames, result, observed);
+        })
+    }
+
+    /// Meter Session専用observer。各100 ms境界のIとMaxTPから確定したPLRを、その境界の
+    /// current値と同時に返す。LRAはpush全体の最後にだけqueryし、通常の`push_observed`には
+    /// Integrated queryの追加costを負わせない。
+    pub fn push_observed_with_plr(
+        &mut self,
+        samples: &[f64],
+        mut observe: impl FnMut(u64, &MeasureResult, &[f64], Option<f64>),
+    ) -> Option<MeasureResult> {
+        self.push_observed_internal(samples, true, |frames, result, observed, plr| {
+            observe(frames, result, observed, plr);
+        })
+    }
+
+    fn push_observed_internal(
+        &mut self,
+        samples: &[f64],
+        include_plr: bool,
+        mut observe: impl FnMut(u64, &MeasureResult, &[f64], Option<f64>),
+    ) -> Option<MeasureResult> {
         self.accum.extend_from_slice(samples);
 
         // 100ms チャンクが揃ったら ebur128 に投入 → 結果を更新
@@ -215,7 +239,19 @@ impl MeasureEngine {
             }
 
             let computed = self.compute();
-            observe(self.total_frames, &computed, &self.chunk_buf);
+            let plr = include_plr
+                .then(|| {
+                    computed.tp_session_max.zip(
+                        self.ebu
+                            .loudness_global()
+                            .ok()
+                            .filter(|value| value.is_finite()),
+                    )
+                })
+                .flatten()
+                .map(|(peak, loudness)| peak - loudness)
+                .filter(|value| value.is_finite());
+            observe(self.total_frames, &computed, &self.chunk_buf, plr);
             result = Some(computed);
         }
         result

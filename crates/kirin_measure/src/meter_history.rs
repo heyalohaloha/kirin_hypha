@@ -38,6 +38,13 @@ pub struct MeterHistoryEntry {
     pub lufs_s: MeterHistoryRange,
     pub true_peak: MeterHistoryRange,
     pub correlation: MeterHistoryRange,
+    pub plr: MeterHistoryRange,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct MeterHistoryAux {
+    pub correlation: Option<f64>,
+    pub plr: Option<f64>,
 }
 
 impl MeterHistoryEntry {
@@ -47,7 +54,7 @@ impl MeterHistoryEntry {
         observed_frames: u64,
         timeline: (Option<i64>, CaptureClockSource),
         current: &MeasureResult,
-        correlation: Option<f64>,
+        aux: MeterHistoryAux,
     ) -> Self {
         Self {
             resolution: MeterHistoryResolution::Hz10,
@@ -62,7 +69,8 @@ impl MeterHistoryEntry {
             lufs_m: MeterHistoryRange::exact(current.lufs_m),
             lufs_s: MeterHistoryRange::exact(current.lufs_s),
             true_peak: MeterHistoryRange::exact(current.true_peak),
-            correlation: MeterHistoryRange::exact(correlation),
+            correlation: MeterHistoryRange::exact(aux.correlation),
+            plr: MeterHistoryRange::exact(aux.plr),
         }
     }
 }
@@ -120,6 +128,7 @@ struct BucketAccumulator {
     lufs_s: RangeAccumulator,
     true_peak: RangeAccumulator,
     correlation: RangeAccumulator,
+    plr: RangeAccumulator,
 }
 
 impl BucketAccumulator {
@@ -138,6 +147,7 @@ impl BucketAccumulator {
             lufs_s: RangeAccumulator::default(),
             true_peak: RangeAccumulator::default(),
             correlation: RangeAccumulator::default(),
+            plr: RangeAccumulator::default(),
         };
         bucket.push(point);
         bucket
@@ -155,6 +165,7 @@ impl BucketAccumulator {
         self.lufs_s.push(point.lufs_s.mean);
         self.true_peak.push(point.true_peak.mean);
         self.correlation.push(point.correlation.mean);
+        self.plr.push(point.plr.mean);
     }
 
     fn finish(self, resolution: MeterHistoryResolution) -> MeterHistoryEntry {
@@ -178,6 +189,7 @@ impl BucketAccumulator {
             lufs_s: self.lufs_s.finish(),
             true_peak: self.true_peak.finish(),
             correlation: self.correlation.finish(),
+            plr: self.plr.finish(),
         }
     }
 }
@@ -300,16 +312,10 @@ impl MeterHistory {
         observed_frames: u64,
         timeline: (Option<i64>, CaptureClockSource),
         current: &MeasureResult,
-        correlation: Option<f64>,
+        aux: MeterHistoryAux,
     ) {
-        let point = MeterHistoryEntry::exact(
-            generation,
-            run_id,
-            observed_frames,
-            timeline,
-            current,
-            correlation,
-        );
+        let point =
+            MeterHistoryEntry::exact(generation, run_id, observed_frames, timeline, current, aux);
         push_bounded(&mut self.exact, point, self.exact_capacity);
         self.one_second.push(point);
         self.ten_seconds.push(point);
@@ -391,7 +397,10 @@ mod tests {
                     CaptureClockSource::ProjectTimeline,
                 ),
                 &point_value(index as f64),
-                Some(index as f64 / 10.0),
+                MeterHistoryAux {
+                    correlation: Some(index as f64 / 10.0),
+                    plr: Some(10.0 + index as f64),
+                },
             );
         }
         let entries = history.recent(MeterHistoryResolution::Hz1, 10);
@@ -405,6 +414,9 @@ mod tests {
         assert_eq!(entry.lufs_m.min, Some(0.0));
         assert_eq!(entry.lufs_m.max, Some(9.0));
         assert_eq!(entry.lufs_m.mean, Some(4.5));
+        assert_eq!(entry.plr.min, Some(10.0));
+        assert_eq!(entry.plr.max, Some(19.0));
+        assert_eq!(entry.plr.mean, Some(14.5));
     }
 
     #[test]
@@ -417,7 +429,7 @@ mod tests {
                 index + 1,
                 (Some(index as i64), CaptureClockSource::ProjectTimeline),
                 &point_value(1.0),
-                None,
+                MeterHistoryAux::default(),
             );
         }
         history.push(
@@ -426,7 +438,7 @@ mod tests {
             5,
             (Some(50_000), CaptureClockSource::ProjectTimeline),
             &point_value(2.0),
-            None,
+            MeterHistoryAux::default(),
         );
         let entries = history.recent(MeterHistoryResolution::Hz1, 10);
         assert_eq!(entries.len(), 2);
@@ -446,7 +458,7 @@ mod tests {
                 index + 1,
                 (None, CaptureClockSource::Unknown),
                 &point_value(index as f64),
-                None,
+                MeterHistoryAux::default(),
             );
         }
         let exact = history.recent(MeterHistoryResolution::Hz10, 10);

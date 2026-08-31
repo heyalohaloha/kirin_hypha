@@ -183,6 +183,7 @@ typedef struct {
   KirinMeterHistoryRange lufs_s;
   KirinMeterHistoryRange true_peak;
   KirinMeterHistoryRange correlation;
+  KirinMeterHistoryRange plr;
 } KirinMeterHistoryEntry;
 
 /* state chunk 往復する識別子（方式A）. 各フィールドは null 終端 C 文字列（最大 63 + null）.

@@ -3651,6 +3651,7 @@ pub struct KirinMeterHistoryEntry {
     pub lufs_s: KirinMeterHistoryRange,
     pub true_peak: KirinMeterHistoryRange,
     pub correlation: KirinMeterHistoryRange,
+    pub plr: KirinMeterHistoryRange,
 }
 
 /// `KirinIdentity` — state chunk 往復する識別子（C struct / 方式A）。
@@ -3963,6 +3964,7 @@ fn to_c_history_entry(entry: MeterHistoryEntry) -> KirinMeterHistoryEntry {
         lufs_s: to_c_history_range(entry.lufs_s),
         true_peak: to_c_history_range(entry.true_peak),
         correlation: to_c_history_range(entry.correlation),
+        plr: to_c_history_range(entry.plr),
     }
 }
 
@@ -4390,7 +4392,7 @@ mod meter_session_abi_tests {
     fn snapshot_layout_and_mapping_are_stable() {
         assert_eq!(std::mem::size_of::<KirinMeterSession>(), 832);
         assert_eq!(std::mem::size_of::<KirinMeterHistoryRange>(), 24);
-        assert_eq!(std::mem::size_of::<KirinMeterHistoryEntry>(), 152);
+        assert_eq!(std::mem::size_of::<KirinMeterHistoryEntry>(), 176);
         let current = MeasureResult {
             lufs_m: Some(-14.2),
             lufs_s: Some(-14.8),
@@ -4467,10 +4469,16 @@ mod meter_session_abi_tests {
             lufs_s: MeterHistoryRange::default(),
             true_peak: MeterHistoryRange::default(),
             correlation: MeterHistoryRange::default(),
+            plr: MeterHistoryRange {
+                min: Some(12.0),
+                max: Some(14.0),
+                mean: Some(13.0),
+            },
         });
         assert_eq!(history.resolution, KIRIN_METER_HISTORY_1_HZ);
         assert_eq!(history.observation_count, 10);
         assert_eq!(history.first_timeline_endpoint_samples, 104_800);
+        assert_eq!(history.plr.mean, 13.0);
         assert_eq!(history.last_timeline_endpoint_samples, i64::MIN);
         assert_eq!(history.lufs_m.min, -16.0);
         assert!(history.lufs_s.mean.is_nan());

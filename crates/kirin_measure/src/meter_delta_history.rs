@@ -13,11 +13,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::meter_history::MeterHistory;
 use crate::{
-    CaptureClockSource, MeasureResult, MeterHistoryEntry, MeterHistoryResolution, MeterSession,
+    CaptureClockSource, MeasureResult, MeterHistoryAux, MeterHistoryEntry, MeterHistoryResolution,
+    MeterSession,
 };
 
 pub const METER_HISTORY_EXCHANGE_FILE: &str = "meter_history.json";
-pub const METER_HISTORY_EXCHANGE_SCHEMA: u8 = 1;
+pub const METER_HISTORY_EXCHANGE_SCHEMA: u8 = 2;
 pub const METER_HISTORY_EXCHANGE_POINTS: usize = 32;
 const LOCAL_JOIN_POINTS: usize = METER_HISTORY_EXCHANGE_POINTS * 2;
 const MAX_EXCHANGE_BYTES: u64 = 64 * 1024;
@@ -51,6 +52,7 @@ struct WirePoint {
     lufs_s: Option<f64>,
     true_peak: Option<f64>,
     correlation: Option<f64>,
+    plr: Option<f64>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -201,7 +203,10 @@ impl DeltaHistoryState {
                     post_point.timeline_source,
                 ),
                 &delta,
-                difference(post_point.correlation.mean, pre_point.correlation),
+                MeterHistoryAux {
+                    correlation: difference(post_point.correlation.mean, pre_point.correlation),
+                    plr: difference(post_point.plr.mean, pre_point.plr),
+                },
             );
             self.last_joined_axis = Some((post_point.last_observed_frames, key.1, key.0));
             self.remember_joined(joined_id);
@@ -327,15 +332,22 @@ impl WirePoint {
             lufs_s: finite(entry.lufs_s.mean),
             true_peak: finite(entry.true_peak.mean),
             correlation: finite(entry.correlation.mean),
+            plr: finite(entry.plr.mean),
         })
     }
 
     fn valid(&self) -> bool {
         matches!(self.source, 1 | 2)
-            && [self.lufs_m, self.lufs_s, self.true_peak, self.correlation]
-                .into_iter()
-                .flatten()
-                .all(f64::is_finite)
+            && [
+                self.lufs_m,
+                self.lufs_s,
+                self.true_peak,
+                self.correlation,
+                self.plr,
+            ]
+            .into_iter()
+            .flatten()
+            .all(f64::is_finite)
     }
 }
 

@@ -169,8 +169,8 @@ pub use meter_delta_history::{
     METER_HISTORY_EXCHANGE_POINTS, METER_HISTORY_EXCHANGE_SCHEMA,
 };
 pub use meter_history::{
-    MeterHistoryEntry, MeterHistoryRange, MeterHistoryResolution, HISTORY_0_1_HZ_CAPACITY,
-    HISTORY_10_HZ_CAPACITY, HISTORY_1_HZ_CAPACITY,
+    MeterHistoryAux, MeterHistoryEntry, MeterHistoryRange, MeterHistoryResolution,
+    HISTORY_0_1_HZ_CAPACITY, HISTORY_10_HZ_CAPACITY, HISTORY_1_HZ_CAPACITY,
 };
 pub use meter_session::{MeterSession, MeterSessionSnapshot, MeterSessionState};
 pub use pair_claim_index::{

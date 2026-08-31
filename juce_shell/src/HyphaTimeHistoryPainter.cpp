@@ -12,7 +12,7 @@ namespace hypha::time_history
 {
 namespace
 {
-enum class Metric { momentary, shortTerm, truePeak };
+enum class Metric { momentary, shortTerm, truePeak, plr, correlation };
 
 struct MetricVisual
 {
@@ -30,6 +30,10 @@ const KirinMeterHistoryRange& rangeFor (const KirinMeterHistoryEntry& entry,
         return entry.lufs_s;
     if (metric == Metric::truePeak)
         return entry.true_peak;
+    if (metric == Metric::plr)
+        return entry.plr;
+    if (metric == Metric::correlation)
+        return entry.correlation;
     return entry.lufs_m;
 }
 
@@ -68,9 +72,83 @@ juce::String latestText (const std::vector<KirinMeterHistoryEntry>& history,
     {
         const auto value = rangeFor (*iterator, metric).mean;
         if (std::isfinite (value))
-            return (delta && value >= 0.0 ? "+" : "") + juce::String (value, 1);
+            return ((delta || metric == Metric::correlation) && value >= 0.0 ? "+" : "")
+                 + juce::String (value, metric == Metric::correlation ? 2 : 1);
     }
     return "---";
+}
+
+float normalizedAux (Metric metric, double value, bool delta) noexcept
+{
+    const double minimum = metric == Metric::plr ? (delta ? -12.0 : 0.0)
+                                                  : (delta ? -2.0 : -1.0);
+    const double maximum = metric == Metric::plr ? (delta ? 12.0 : 24.0)
+                                                  : (delta ? 2.0 : 1.0);
+    return 1.0f - (float) juce::jlimit (0.0, 1.0, (value - minimum) / (maximum - minimum));
+}
+
+void paintAuxLane (juce::Graphics& g,
+                   juce::Rectangle<int> area,
+                   const std::vector<KirinMeterHistoryEntry>& history,
+                   Metric metric,
+                   const char* label,
+                   juce::Colour colour,
+                   uint64_t firstObserved,
+                   uint64_t observedSpan,
+                   bool delta)
+{
+    g.setColour (COL_MUTED.withAlpha (0.16f));
+    g.fillRoundedRectangle (area.toFloat(), 2.0f);
+    const bool compact = area.getWidth() < 350;
+    auto labelArea = area.removeFromLeft (compact ? 46 : 78);
+    g.setColour (colour.withAlpha (0.90f));
+    g.setFont (monoFont (compact ? 7.0f : 8.0f));
+    const auto labelText = compact ? juce::String (label)
+                                   : juce::String (label) + " "
+                                       + latestText (history, metric, delta);
+    g.drawText (labelText, labelArea.reduced (2, 0), juce::Justification::centredLeft);
+
+    const auto axisWidth = compact ? 17 : 23;
+    auto axis = area.removeFromRight (axisWidth);
+    auto plot = area.reduced (2, 2).toFloat();
+    const auto zeroY = plot.getY() + normalizedAux (metric, 0.0, delta) * plot.getHeight();
+    g.setColour (COL_MUTED.withAlpha (0.28f));
+    g.drawHorizontalLine (juce::roundToInt (zeroY), plot.getX(), plot.getRight());
+
+    juce::Path path;
+    bool open = false;
+    uint64_t previousGeneration = 0u;
+    uint64_t previousRun = 0u;
+    for (size_t index = 0u; index < history.size(); ++index)
+    {
+        const auto& entry = history[index];
+        const auto value = rangeFor (entry, metric).mean;
+        if (! std::isfinite (value))
+        {
+            open = false;
+            continue;
+        }
+        const auto x = xFor (plot, entry, firstObserved, observedSpan, index, history.size());
+        const auto y = plot.getY() + normalizedAux (metric, value, delta) * plot.getHeight();
+        const bool newRun = ! open || entry.generation != previousGeneration
+                         || entry.run_id != previousRun;
+        if (newRun) path.startNewSubPath (x, y); else path.lineTo (x, y);
+        open = true;
+        previousGeneration = entry.generation;
+        previousRun = entry.run_id;
+    }
+    g.setColour (colour.withAlpha (0.88f));
+    g.strokePath (path, juce::PathStrokeType (compact ? 0.8f : 1.0f));
+
+    g.setColour (COL_MUTED.withAlpha (0.72f));
+    g.setFont (monoFont (compact ? 5.5f : 6.5f));
+    const auto top = metric == Metric::plr ? (delta ? "+12" : "24")
+                                            : (delta ? "+2" : "+1");
+    const auto bottom = metric == Metric::plr ? (delta ? "-12" : "0")
+                                               : (delta ? "-2" : "-1");
+    g.drawText (top, axis.removeFromTop (axis.getHeight() / 2),
+                juce::Justification::centredRight);
+    g.drawText (bottom, axis, juce::Justification::centredRight);
 }
 
 bool hasExactDawEndpoint (const std::vector<KirinMeterHistoryEntry>& history) noexcept
@@ -227,6 +305,11 @@ void paint (juce::Graphics& g,
         { Metric::truePeak, "TP", COL_FLORA_BR, 2.4f, 0.9f },
     }};
     paintLegend (g, area.removeFromTop (16), history, rangeLabel, visuals, delta);
+    const auto auxLaneHeight = juce::jlimit (13, 22, area.getHeight() / 7);
+    auto auxArea = area.removeFromBottom (auxLaneHeight * 2 + 2);
+    auto plrArea = auxArea.removeFromTop (auxLaneHeight);
+    auxArea.removeFromTop (2);
+    auto correlationArea = auxArea;
     auto plot = area.reduced (27, 2).toFloat();
     plot.removeFromBottom (3.0f);
     paintAxes (g, plot, delta);
@@ -237,6 +320,10 @@ void paint (juce::Graphics& g,
         ? lastObserved - firstObserved : 0u;
     for (const auto& visual : visuals)
         paintMetric (g, plot, history, visual, firstObserved, observedSpan, delta);
+    paintAuxLane (g, plrArea, history, Metric::plr, "PLR", COL_GUIDE_BR,
+                  firstObserved, observedSpan, delta);
+    paintAuxLane (g, correlationArea, history, Metric::correlation, "CORR",
+                  COL_SPECTRUM_DELTA_BR, firstObserved, observedSpan, delta);
 
     g.setColour (COL_MUTED.withAlpha (0.62f));
     g.setFont (labelFont (7.5f));

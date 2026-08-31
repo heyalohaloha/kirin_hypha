@@ -8,8 +8,8 @@
 use crate::meter_clock::MeterClockTracker;
 use crate::meter_history::MeterHistory;
 use crate::{
-    MeasureEngine, MeasureResult, MeterClockStart, MeterHistoryEntry, MeterHistoryResolution,
-    SessionSummary, StereoMeter, StereoMeterSnapshot,
+    MeasureEngine, MeasureResult, MeterClockStart, MeterHistoryAux, MeterHistoryEntry,
+    MeterHistoryResolution, SessionSummary, StereoMeter, StereoMeterSnapshot,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -101,7 +101,7 @@ impl MeterSession {
             .push_span((interleaved.len() / self.n_channels) as u64, clock);
         let mut advanced = false;
         self.engine
-            .push_observed(interleaved, |_, current, observed_samples| {
+            .push_observed_with_plr(interleaved, |_, current, observed_samples, plr| {
                 let stereo_advanced = self.stereo.push_observation(observed_samples);
                 self.current = current.clone();
                 self.observed_frames = self
@@ -120,7 +120,7 @@ impl MeterSession {
                         self.observed_frames,
                         (clock.timeline_endpoint_samples, clock.timeline_source),
                         current,
-                        correlation,
+                        MeterHistoryAux { correlation, plr },
                     );
                 }
                 advanced = true;
@@ -302,6 +302,12 @@ mod tests {
         for chunk in samples.chunks(742) {
             assert!(chunked.push_active(chunk));
         }
+        let whole_history = whole.recent_history(MeterHistoryResolution::Hz10, 100);
+        let chunked_history = chunked.recent_history(MeterHistoryResolution::Hz10, 100);
+        assert_eq!(whole_history.len(), chunked_history.len());
+        for (whole_point, chunked_point) in whole_history.iter().zip(&chunked_history) {
+            assert!(close(whole_point.plr.mean, chunked_point.plr.mean, 1.0e-12));
+        }
         let whole = whole.snapshot();
         let chunked = chunked.snapshot();
         assert_eq!(whole.observed_frames, chunked.observed_frames);
@@ -328,6 +334,7 @@ mod tests {
             chunked.stereo.correlation,
             1.0e-12
         ));
+        assert!(close(whole.plr, chunked.plr, 1.0e-12));
     }
 
     #[test]
@@ -345,11 +352,14 @@ mod tests {
         assert_eq!(exact[0].last_timeline_endpoint_samples, Some(124_800));
         assert_eq!(exact[31].last_observed_frames, 153_600);
         assert_eq!(exact[31].last_timeline_endpoint_samples, Some(273_600));
+        assert!(exact[31].plr.mean.is_some());
+        assert!(close(exact[31].plr.mean, session.snapshot().plr, 1.0e-12));
 
         let one_second = session.recent_history(MeterHistoryResolution::Hz1, 100);
         assert_eq!(one_second.len(), 4);
         assert_eq!(one_second[0].observation_count, 10);
         assert_eq!(one_second[3].observation_count, 2);
+        assert!(one_second[0].plr.mean.is_some());
         let ten_seconds = session.recent_history(MeterHistoryResolution::Hz0_1, 100);
         assert_eq!(ten_seconds.len(), 1);
         assert_eq!(ten_seconds[0].observation_count, 32);

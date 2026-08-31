@@ -108,7 +108,7 @@ PLRはplugin dataで算出されるが、現行UI snapshotにはない。
 
 per-channel Peak/TP、correlation、balance、clip event、長時間historyはMeter Session coreとC ABIまで実装済みである。
 
-Meter再設計branchのObservatoryはper-channel Peak/TP、balance、correlationをLEVEL/SPACEへ接続し、TIMEでは同一履歴点のM、S、TP、集約min/max、run境界を同時表示する。
+Meter再設計branchのObservatoryはper-channel Peak/TP、balance、correlationをLEVEL/SPACEへ接続し、TIMEでは同一履歴点のM、S、TP、PLR、Correlation、集約min/max、run境界を同時表示する。
 
 TIME ΔはPREの直近32点とPOSTの直近64点をpresentation source＋sample endpointでexact結合し、重複・欠測を線で補わず、pair/runtime変更時に全履歴を分離する。clip eventはLEVELの全sizeでL/R別session累積値を表示する。
 
@@ -316,7 +316,7 @@ L/R同時clipは各チャンネルの独立eventとして数え、総数へ暗�
 
 表示履歴はMeasure Thread側で固定容量の多段ring bufferへ集計する。
 
-M、S、TP、CORRを10 Hzで10分、1 Hzで2時間、0.1 Hzで24時間保持する。
+M、S、TP、PLR、CORRを10 Hzで10分、1 Hzで2時間、0.1 Hzで24時間保持する。
 
 10 Hz層は既存Watch snapshotのexact sample endpointを保持する。
 
