@@ -1,9 +1,32 @@
 #include "HyphaObservatoryView.h"
 
 #include <cmath>
+#include <string>
 
 namespace hypha::observatory
 {
+namespace
+{
+juce::String clipCountText (uint64_t value)
+{
+    return juce::String (std::to_string (value));
+}
+
+void paintClipCount (juce::Graphics& g,
+                     juce::Rectangle<int> area,
+                     const char* channel,
+                     uint64_t count,
+                     bool available)
+{
+    g.setColour (available && count > 0 ? COL_FLORA_BR : COL_MUTED);
+    g.setFont (monoFont (area.getHeight() < 14 ? 7.0f : 8.0f));
+    const auto value = available ? clipCountText (count) : juce::String ("—");
+    drawTabularText (g, monoFont (area.getHeight() < 14 ? 7.0f : 8.0f),
+                     juce::String (channel) + " " + value,
+                     area.toFloat(), juce::Justification::centred);
+}
+}
+
 SizePreset View::currentPreset() const noexcept
 {
     for (const auto preset : sizePresets)
@@ -34,6 +57,7 @@ void View::paintChannelStrips (juce::Graphics& g, juce::Rectangle<int> area)
     g.drawRoundedRectangle (area.toFloat().reduced (0.5f), 4.0f, 1.0f);
     area.reduce (5, 5);
     auto labels = area.removeFromTop (15);
+    auto clips = area.removeFromBottom (23);
     const auto columnGap = 4;
     const auto columnWidth = (area.getWidth() - columnGap) / 2;
     const auto mapY = [&area] (double value)
@@ -79,6 +103,32 @@ void View::paintChannelStrips (juce::Graphics& g, juce::Rectangle<int> area)
                         (float) column.getWidth(), 1.0f);
         }
     }
+
+    g.setColour (COL_MUTED.withAlpha (0.34f));
+    g.drawHorizontalLine (clips.getY(), (float) clips.getX(), (float) clips.getRight());
+    g.setColour (COL_MUTED);
+    g.setFont (labelFont (7.0f));
+    g.drawText ("CLIP", clips.removeFromTop (10), juce::Justification::centred);
+    const auto left = clips.removeFromLeft (columnWidth);
+    clips.removeFromLeft (columnGap);
+    paintClipCount (g, left, "L", meter.clip_events[0], meterAvailable && meter.channels > 0);
+    paintClipCount (g, clips, "R", meter.clip_events[1], meterAvailable && meter.channels > 1);
+}
+
+void View::paintClipEventRail (juce::Graphics& g, juce::Rectangle<int> area)
+{
+    g.setColour (BG.withAlpha (0.82f));
+    g.fillRoundedRectangle (area.toFloat(), 3.0f);
+    g.setColour (COL_MUTED.withAlpha (0.34f));
+    g.drawRoundedRectangle (area.toFloat().reduced (0.5f), 3.0f, 1.0f);
+    area.reduce (5, 1);
+    auto label = area.removeFromLeft (juce::jmin (62, area.getWidth() / 3));
+    g.setColour (COL_MUTED);
+    g.setFont (labelFont (7.5f));
+    g.drawText ("CLIP EVENTS", label, juce::Justification::centredLeft);
+    const auto left = area.removeFromLeft (area.getWidth() / 2);
+    paintClipCount (g, left, "L", meter.clip_events[0], meterAvailable && meter.channels > 0);
+    paintClipCount (g, area, "R", meter.clip_events[1], meterAvailable && meter.channels > 1);
 }
 
 void View::paintMeasuredMycelium (juce::Graphics& g, juce::Rectangle<int> area)

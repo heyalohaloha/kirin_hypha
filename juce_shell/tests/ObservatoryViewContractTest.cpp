@@ -49,6 +49,8 @@ KirinMeterSession activeMeter()
     meter.channel_true_peak_dbtp[1] = -4.8;
     meter.channel_max_true_peak_dbtp[0] = -1.2;
     meter.channel_max_true_peak_dbtp[1] = -1.5;
+    meter.clip_events[0] = 2;
+    meter.clip_events[1] = 1;
     meter.balance_db = 0.7;
     meter.correlation = 0.82;
     return meter;
@@ -131,6 +133,15 @@ void verifyRoleAtEverySize (observatory::Role role,
             KIRIN_OBSERVATORY_REQUIRE (image.getPixelAt (0, 0).getAlpha() != 0);
             KIRIN_OBSERVATORY_REQUIRE (image.getPixelAt (
                 body.getCentreX(), body.getCentreY()).getAlpha() != 0);
+            if (domain == observatory::Domain::level)
+            {
+                auto noClipsMeter = meter;
+                noClipsMeter.clip_events[0] = 0;
+                noClipsMeter.clip_events[1] = 0;
+                view.setMeterSnapshot (noClipsMeter, true);
+                KIRIN_OBSERVATORY_REQUIRE (differentPixels (image, render (view)) > 8);
+                view.setMeterSnapshot (meter, true);
+            }
         }
     }
 }
@@ -156,6 +167,13 @@ void verifyObservatoryViewContract()
     post.setGuide ("MASKING 03:18", "3150-3700 HZ", true);
     post.setDomain (observatory::Domain::level);
     const auto absolute = render (post);
+    auto noClipsMeter = meter;
+    noClipsMeter.clip_events[0] = 0;
+    noClipsMeter.clip_events[1] = 0;
+    post.setMeterSnapshot (noClipsMeter, true);
+    const auto noClips = render (post);
+    KIRIN_OBSERVATORY_REQUIRE (differentPixels (absolute, noClips) > 20);
+    post.setMeterSnapshot (meter, true);
     const auto outputPath = juce::SystemStats::getEnvironmentVariable (
         "KIRIN_OBSERVATORY_RENDER_OUTPUT", {});
     if (outputPath.isNotEmpty())

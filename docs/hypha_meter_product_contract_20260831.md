@@ -110,7 +110,7 @@ per-channel Peak/TP、correlation、balance、clip event、長時間historyはMe
 
 Meter再設計branchのObservatoryはper-channel Peak/TP、balance、correlationをLEVEL/SPACEへ接続し、TIMEでは同一履歴点のM、S、TP、集約min/max、run境界を同時表示する。
 
-TIME ΔはPREの直近32点とPOSTの直近64点をpresentation source＋sample endpointでexact結合し、重複・欠測を線で補わず、pair/runtime変更時に全履歴を分離する。clip eventの画面接続は未実装である。
+TIME ΔはPREの直近32点とPOSTの直近64点をpresentation source＋sample endpointでexact結合し、重複・欠測を線で補わず、pair/runtime変更時に全履歴を分離する。clip eventはLEVELの全sizeでL/R別session累積値を表示する。
 
 現行AnalysisのFREQ、SHARP、LIVEと完了したATTACKは、計測器として再利用するが画面名と配置を固定しない。
 

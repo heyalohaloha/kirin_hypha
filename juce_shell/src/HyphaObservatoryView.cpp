@@ -365,10 +365,13 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area)
     const auto density = currentPreset().density;
     const auto compact = density == Density::compact;
     juce::Rectangle<int> channelStrips;
+    juce::Rectangle<int> clipEventRail;
     if (target() == ObservationTarget::absolute
         && (density == Density::standard || density == Density::observatory))
         channelStrips = area.removeFromRight (
             density == Density::observatory ? 76 : 62).reduced (2);
+    else if (target() == ObservationTarget::absolute)
+        clipEventRail = area.removeFromBottom (compact ? 17 : 19).reduced (2, 1);
     if (target() == ObservationTarget::delta)
     {
         const std::array<double, 3> values { delta.lufs, delta.lufs_s, delta.true_peak };
@@ -393,7 +396,11 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area)
                     optionValue (mainValues[(size_t) index], meterAvailable), "LUFS",
                     compact ? 28.0f : 42.0f);
     if (compact)
+    {
+        if (! clipEventRail.isEmpty())
+            paintClipEventRail (g, clipEventRail);
         return;
+    }
 
     const std::array<double, 5> supportValues {
         meter.true_peak, meter.max_true_peak, meter.lra, meter.plr, meter.correlation
@@ -407,6 +414,8 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area)
                     supportUnits[(size_t) index], 18.0f, index == 4, index == 4 ? 2 : 1);
     if (! channelStrips.isEmpty())
         paintChannelStrips (g, channelStrips);
+    else if (! clipEventRail.isEmpty())
+        paintClipEventRail (g, clipEventRail);
 }
 
 void View::paintTime (juce::Graphics& g, juce::Rectangle<int> area)

@@ -73,6 +73,7 @@ private:
     void paintFooter (juce::Graphics&, const ShellLayout&);
     void paintLevel (juce::Graphics&, juce::Rectangle<int>);
     void paintChannelStrips (juce::Graphics&, juce::Rectangle<int>);
+    void paintClipEventRail (juce::Graphics&, juce::Rectangle<int>);
     void paintTime (juce::Graphics&, juce::Rectangle<int>);
     void paintMeasuredMycelium (juce::Graphics&, juce::Rectangle<int>);
 
