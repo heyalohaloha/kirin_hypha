@@ -4,7 +4,7 @@ Status: verified implementation snapshot for redesign
 
 Date: 2026-08-31
 
-Inspection time: 13:00 JST
+Inspection time: 15:11 JST
 
 ## 1. Scope
 
@@ -21,18 +21,18 @@ Meter再設計が古いHypha像を前提にしないよう、公開系と進行�
 | Baseline | Path | Commit | State |
 |---|---|---|---|
 | Public and release line | `/Users/nishiodaisuke/Dev/kirin_hypha` | `734a72ac17cb113b3ea4ec2da58150a3f39e2ddb` | `[B-552] Bind PRE display to one Work and runtime` |
-| Meter design | `/Users/nishiodaisuke/Dev/kirin_hypha_meter` | `de16871685316bfba8a14c1b6d61055499bd2f1e` before this update | isolated documentation branch |
-| ATTACK development | `/Users/nishiodaisuke/Dev/kirin_hypha_perceptual_continuous` | `55d857a9ca1d7303a3e8a15ce97704269f12e213` | `[B-577] Connect exact ATTACK scrub presentation` plus uncommitted work |
+| Meter design | `/Users/nishiodaisuke/Dev/kirin_hypha_meter` | `a287050cd07914b24708d9ff84b46dc363acb77f` before this update | isolated documentation branch |
+| ATTACK development | `/Users/nishiodaisuke/Dev/kirin_hypha_perceptual_continuous` | `901a6e8a34af512b1c8dff83c4aa7c58ff7899a6` | `[B-578] Promote DRUM ATTACK into Analysis` plus uncommitted visual work |
 
 公開系とATTACK系のmerge baseは`cf2acd59c796258454c817f788a2dc42e8ead61f`である。
 
 公開系にはrelease 1.1.46、1.1.47、PRE表示bindingの独自変更がある。
 
-ATTACK系にはFREQ操作、host clock、DRUM ATTACK検出、event timeline、perceptual detail、scrub presentationの独自変更がある。
+ATTACK系にはFREQ操作、host clock、DRUM ATTACK検出、event timeline、perceptual detail、scrub presentation、通常Analysis routeへの昇格の独自変更がある。
 
 両者はfast-forward関係ではないため、Meter branchを一方へrebaseしても全実装を取り込んだことにはならない。
 
-ATTACK worktreeの13:00 JST時点の未コミット差分は15 path、`+119 / -64`であった。
+ATTACK worktreeの15:11 JST時点には8 tracked pathの`+619 / -302`と、未追跡の`HyphaAttackPainter.cpp` 449行、`HyphaAttackPainter.h` 43行があった。
 
 JUCE submoduleはmodified表示であるが、差分行数には含まれない。
 
@@ -145,7 +145,9 @@ POSTまたはΔを利用者が独立して選ぶglobal perspective controlはな
 
 公開系POST AnalysisはFREQ、SHARP、LIVEを持つ。
 
-ATTACK開発snapshotはATTACKを追加し、通常Analysisを開くとATTACKへ入り、`ATTACK → FREQ → SHARP → LIVE`を循環する。
+ATTACK commit `901a6e8`はDRUM ATTACKを通常Analysisへ昇格し、Analysisを開くとATTACKへ入り、`ATTACK → FREQ → SHARP → LIVE`を循環する。
+
+ATTACK初回表示は200%を使い、環境変数は直接起動する検証shortcutとして残る。
 
 現在の上位遷移は`METERS ↔ ANALYSIS`である。
 
@@ -189,11 +191,15 @@ ATTACK workerとpayloadはUI routeから分離されている。
 
 Audio Threadはenableされた専用runtimeへだけsampleを渡し、event決定とdetail算出をworker側で行う。
 
-ATTACKの現行visual contractはinstrument classificationを禁止する。
+ATTACKのcommitted visual contractはinstrument classificationを禁止する。
 
-CONTRAST、SHAPE、BRIGHTNESS、PEAK、条件付きTEXTUREを、価値判断なしの実測量として表示する。
+committed baselineはCONTRAST、SHAPE、BRIGHTNESS、PEAK、条件付きTEXTUREを、価値判断なしの実測量として表示する。
 
-進行中snapshotではATTACK、FREQ、SHARP、LIVEが一つのAnalysis leaseを共有し、METERSへ戻るときだけ解放する。
+15:11 JSTの未コミットvisual refactorはSTRENGTH、BRIGHTNESS、TRANSIENT、TEXTUREの固定scale表現へ変更中であり、専用Painter、LIVEとLOCK、drag scrub、二段とoverlayを追加している。
+
+この未コミットvisual inventoryは進行中snapshotであり、MeterとGuideの確定用語には使わない。
+
+committed baselineではATTACK、FREQ、SHARP、LIVEが一つのAnalysis leaseを共有し、METERSへ戻るときだけ解放する。
 
 2MIXはATTACK DRUMとは別profileとされ、精度契約が確定するまでATTACK routeへ入れない。
 
@@ -249,7 +255,37 @@ Analysis pageとsizeは現行計測identityの正本ではない。
 
 不正値と旧stateは一つの既定domainへfallbackさせる。
 
-## 12. Redesign integration boundary
+## 12. Current PRE Display transport
+
+現行Hyphaは、Kirin OSのINSPECTとMASKINGから構造化Guideを受け取るPRE専用subsystemを持つ。
+
+Kirin OSは保存済みWorkと利用者が確認したPRE一台をlocalにbindingする。
+
+Guide transportはpresence、capability、connection、active pointer、artifact、acknowledgementを分離する。
+
+artifactは最大1 MiB、itemは最大2048件であり、active pointerのSHA-256とartifact bytesを照合する。
+
+破損artifactはrejectし、直前の完全Guideを表示し続ける。
+
+GuideはEndまたはreplaceまで保持され、再生停止とlease失効だけでは消えない。
+
+INSPECT payloadは選択した一件のeventを持つ。
+
+eventは表示名、source、channel、start、end、optional bandを持ち、durationのないpointは1 nsのwire sentinelで区別する。
+
+MASKING payloadはsource pair、review selection、frequency focus、実測collision interval、frequency state、optional measured band、frequency basisを持つ。
+
+Hyphaはaudio threadが公開したproject clockをworker threadで読み、Guide timeを`RECEIVED`、`NEXT`、`CUE`、`ACTIVE`、`HELD`、`END`、`PAUSED`へ投影する。
+
+現在のGUIへ渡す`DisplaySnapshot`は、projection結果をprimary、detail、stateTextの二行相当へ圧縮する。
+
+検証済みGuideModelには時刻と帯域が型付きで残るが、GUIはその構造をTIMEまたはFREQへ描画していない。
+
+現行不変条件はPRE targetだけを許可し、POST、Watch、Record、Keep、PairingからGuide transportを分離する。
+
+このPRE限定は当時の画面余地に基づくproduct routeであり、transportの安全性そのものには必要ない。
+
+## 13. Redesign integration boundary
 
 次の実装はそのまま保持する。
 
@@ -273,13 +309,17 @@ Analysis pageとsizeは現行計測identityの正本ではない。
 - pair接続によるΔ layoutへの強制切替
 - WatchとRecordで同じ6-cell gridへ別metricを詰める構成
 - LIVEを独立pageとして置く構成
+- Guideの受信先をPREだけに限定する構成
+- 構造化Guideを二行テキストだけへ圧縮する構成
 
-## 13. Safe next step
+## 14. Safe next step
 
 ATTACK worktreeへ実装を加えず、Meter branchでPREとPOSTの4サイズwireframeと新しいrouter contractを作る。
 
 ATTACK側がcommitされた後に共通ancestorを再確認し、公開系のrelease変更とATTACK系を統合した新baselineを作る。
 
 そのbaseline上で計測payloadを`MeterSnapshot`へ整理し、既存Analysis workerを`LEVEL / TIME / FREQ / SPACE`から呼び出す。
+
+同時にGuide transportをrole-neutralなexact bindingへ拡張し、POSTの親Shellへ`GuidePresentationSnapshot`を追加する。
 
 この順序なら、進行中ATTACKへ影響を与えず、ATTACKの計測資産を旧navigationへ固定することも避けられる。

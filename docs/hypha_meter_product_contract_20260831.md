@@ -8,7 +8,7 @@ Branch: `codex/hypha-meter`
 
 Public baseline: `734a72ac17cb113b3ea4ec2da58150a3f39e2ddb`
 
-ATTACK baseline: `55d857a9ca1d7303a3e8a15ce97704269f12e213` and its read-only working snapshot at 2026-08-31 13:00 JST
+ATTACK baseline: `901a6e8a34af512b1c8dff83c4aa7c58ff7899a6` and its read-only working snapshot at 2026-08-31 15:11 JST
 
 ## 1. Product decision
 
@@ -21,6 +21,8 @@ POSTを2MIXの最終段に常設したとき、Hyphaだけで日常的なメー�
 ただし、音声非加工、計測式、exact endpoint、固定容量payload、解析資源制御は実装資産として保持する。
 
 添付されたConcept C Hybrid Observatoryを、情報密度、階層、色、菌糸の抑制量を決める視覚基準にする。
+
+Kirin OSのINSPECTとMASKINGから送るGuideは、常時表示されるPOSTを主送信先とし、親Shellのcontext layerへ統合する。
 
 精度を装飾で演出するのではなく、単位、時間窓、軸、状態、測定時刻を美しく組み立てる。
 
@@ -107,6 +109,10 @@ per-channel TP、correlation、balance、長時間historyは未実装である�
 現行AnalysisのFREQ、SHARP、LIVEと進行中のATTACKは、計測器として再利用するが画面名と配置を固定しない。
 
 ペア選択時にΔ gridへ強制遷移する現行表示も、互換性のための不変条件とはしない。
+
+現行PRE DisplayはINSPECTとMASKINGの構造化Guideをexact PRE一台へ送信し、project clockへ投影する。
+
+PRE送信は当時の表示余地に基づくため、再設計ではtransportの安全契約を保持して主送信先をPOSTへ移す。
 
 ## 5. Standards gate
 
@@ -207,6 +213,32 @@ LEVEL、TIME、FREQはPOSTとΔを持つ。
 SPACEはcorrelation差分の定義と知覚上の意味を固定するまでPOSTだけを持つ。
 
 ATTACKは現在の契約どおり、pair時はexact PRE/POST、未接続時はPOST absoluteを表示する。
+
+### 7.4 OS Guide layer
+
+Kirin OSのINSPECTとMASKINGは、POSTの第五domainではなく全domainへ作用できるGuide layerとする。
+
+Guideの実装計画は`docs/hypha_post_os_guide_integration_plan_20260831.md`を正本とする。
+
+Kirin OSは保存済みWorkから利用者が確認したPOST一台へ直接送信する。
+
+PREをrelayに使わず、POSTはPREとpairされていなくてもGuideを表示できる。
+
+Guide不在時は画面上の占有面積を0にする。
+
+Guide受信時も現在のdomainを自動変更しない。
+
+LEVELはGuide railだけを表示する。
+
+TIMEはINSPECTの時刻または区間と、MASKINGの選択範囲および実測collision intervalを表示する。
+
+FREQは存在する場合だけINSPECT bandを表示し、MASKINGのfrequency focusとmeasured bandを別の形で表示する。
+
+SPACEは対応するGuide事実がないため投影しない。
+
+`OS GUIDE`、`LIVE POST`、`LIVE Δ`は別のauthorityとしてlabelとsnapshotを分離する。
+
+2MIX POSTはMASKINGの二つのsourceを分離できないため、現在のMASKING再測定を称しない。
 
 ## 8. Meter Session
 
@@ -389,7 +421,15 @@ PREとPOSTの4サイズを同じfixtureでrenderする。
 
 ATTACKのevent、FREQのexact join、SHARPとLIVE由来のendpointが再配置後も変わらないことを確認する。
 
-### Gate E: capture
+### Gate E: OS Guide
+
+exact POST binding、receipt、artifact完全性、project clock、retention、End、legacy PRE fallbackを確認する。
+
+Guide受信がdomain、pair、Meter Session、Analysis selectionを変更しないことを確認する。
+
+INSPECT instant、MASKING interval、optional band、unlocated frequencyを全4サイズで確認する。
+
+### Gate F: capture
 
 3 presetのpixel寸法、文字、snapshot一致、metadata不在を自動確認する。
 
@@ -397,15 +437,17 @@ ATTACKのevent、FREQのexact join、SHARPとLIVE由来のendpointが再配置�
 
 ## 16. Implementation order
 
-1. ATTACK側の作業がcommitされた時点で統合baselineを固定する。
+1. ATTACK側の現在のvisual refactorがcommitされ、worktreeがcleanになった時点で統合baselineを固定する。
 2. 規格差分と全metricの測定仕様を固定し、golden testを追加する。
 3. PREとPOST、4サイズのwireframeと共通visual tokenを完成させる。
-4. UI非依存の`MeterSnapshot`、`MeterSession`、固定容量historyを追加する。
-5. 新しいglobal shellと`LEVEL / TIME / FREQ / SPACE` routerを追加する。
-6. 現行FREQ、SHARP、LIVE由来の表示、ATTACKを新しい領域へ移し、旧routerを除去する。
-7. per-channel peak、BAL、CORR、SPACE visualを追加する。
-8. Captureをimmutable snapshotから実装する。
-9. conformance、RT safety、全状態、全サイズ、旧state migrationをまとめて検証する。
+4. PRE専用Guide protocolをrole-neutralなexact POST bindingへ拡張する。
+5. UI非依存の`MeterSnapshot`、`MeterSession`、固定容量history、`GuidePresentationSnapshot`を追加する。
+6. 新しいglobal shellと`LEVEL / TIME / FREQ / SPACE` router、Guide railを追加する。
+7. 現行FREQ、SHARP、LIVE由来の表示、ATTACKを新しい領域へ移し、旧routerを除去する。
+8. TIMEとFREQへOS Guideを投影し、OS GUIDEとLIVE測定のauthorityを分離する。
+9. per-channel peak、BAL、CORR、SPACE visualを追加する。
+10. Captureをimmutable snapshotから実装する。
+11. conformance、RT safety、全状態、全サイズ、旧state migrationをまとめて検証する。
 
 各段階は旧UIへ継ぎ足すpatchではなく、その段階で責務を満たす完全な層として実装する。
 

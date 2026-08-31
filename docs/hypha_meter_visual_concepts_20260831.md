@@ -72,6 +72,10 @@ Header中央に`LEVEL  TIME  FREQ  SPACE`を置く。
 
 Header右に`PAIR DRUM`と青い静的status pointを置く。
 
+Kirin OSからINSPECTまたはMASKING Guideが届いた場合だけ、Header直下に一行のGuide railを追加する。
+
+Guideがない状態ではrail用の空白を残さない。
+
 主領域ではM、S、Iを最も大きく表示する。
 
 TP、MAX TP、LRA、PLRは主数値より一段小さく表示する。
@@ -83,6 +87,8 @@ TP、MAX TP、LRA、PLRは主数値より一段小さく表示する。
 Footerに`POST`、`Δ`、`SESSION 04:32`、`RESET`、`CAPTURE`を置く。
 
 ATTACK、SHARPなどの詳細viewは上位Headerへ並べず、該当domain内のsubviewに置く。
+
+Guide railは現在のdomainを自動変更せず、選択された場合だけTIMEまたはFREQへ移動する。
 
 選択中のPOSTは明度差と細い輪郭で示し、品質色は使わない。
 
@@ -245,5 +251,9 @@ Bの高密度networkは採用しない。
 生成画像に描かれた`LEVEL / TIME / FREQ / SPACE`は情報設計の起点として採用するが、各domain内のmetric配置とsubviewは実装contractで確定する。
 
 現行の`METERS / ANALYSIS`と`ATTACK / FREQ / SHARP / LIVE`はvisual baselineを拘束しない。
+
+INSPECTとMASKINGは第五tabにせず、`OS GUIDE`として全domain共通のcontext layerへ置く。
+
+TIMEとFREQではGuideのmarkerまたはbandと`LIVE POST`、`LIVE Δ`を併置できるが、authorityはlabelとline styleで分離する。
 
 次の設計出力は、同一fixtureによるPREとPOSTの300×200、375×250、450×300、600×400である。
