@@ -81,6 +81,7 @@ pub enum AnalysisViewMode {
     Spectrum = 0,
     Perceptual = 1,
     Absolute = 2,
+    Attack = 3,
 }
 
 impl TryFrom<u8> for AnalysisViewMode {
@@ -91,6 +92,7 @@ impl TryFrom<u8> for AnalysisViewMode {
             0 => Ok(Self::Spectrum),
             1 => Ok(Self::Perceptual),
             2 => Ok(Self::Absolute),
+            3 => Ok(Self::Attack),
             _ => Err(()),
         }
     }

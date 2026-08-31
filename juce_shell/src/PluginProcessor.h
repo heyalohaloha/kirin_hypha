@@ -94,6 +94,9 @@ public:
     bool pollInternalAttackEvents (KirinAttackEventBatch& out) const;
     bool pollInternalAttackWaveform (KirinAttackWaveformBatch& out) const;
     bool pollInternalAttackDetails (KirinAttackDetailBatch& out) const;
+    bool pollInternalAttackPreWaveform (KirinAttackWaveformBatch& out) const;
+    bool pollInternalAttackPreDetails (KirinAttackDetailBatch& out) const;
+    bool pollInternalAttackPairEvents (KirinAttackPairEventBatch& out) const;
     bool internalAttackStats (KirinAttackStats& out) const;
     uint8_t spectrumSizePreference() const              // editor-lifetime recreation only; not DAW state
     {

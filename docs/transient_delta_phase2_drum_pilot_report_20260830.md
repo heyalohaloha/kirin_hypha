@@ -374,6 +374,22 @@ C ABIはwaveform 600点、detail 240件を固定長snapshotでUI threadへ渡し
 opt-in POST内部画面は600×400でlive waveform、event marker、click scrub、選択event shapeと事実値を表示する。
 PREが未接続の間は`POST ABSOLUTE`と明示し、偽のPRE/POST比較を作らない。公開Analysis route、DAW state、閾値編集、楽器推定も引き続き追加しない。
 
+### B-577 exact PRE/POST scrub
+
+既存の二枠optional-analysis lease、renewable request、platform transportをATTACK内部試用へ接続した。
+POSTがATTACKを表示している間だけPREは同じDRUM analyzerを動かし、10 Hz以下で固定上限の専用payloadを発行する。
+POSTは相関shiftや時刻補間をせず、同じcontent sample、sample rate、channel、window、hop、definition hashのPRE/POSTだけを共通eventへ結合する。
+実音声を使うcross-instance testで、PREの0.9 peakとPOSTの0.45 peakが別historyとして往復し、共通matched eventへ到達することを確認した。
+
+Brightnessは別scoreを作らず、既存DIN Sharpness analyzerをATTACK worker内の連続100 ms source-gridへ接続した。
+各eventの30 ms attackを完全に含む最初のendpointを遅延追記し、PRE/POST両側が揃った場合だけ符号付きΔ acumを表示する。
+onset markerとContrastをSharpness完了まで遅らせず、Audio Threadのcopy回数、音声信号、報告latencyは変更しない。
+
+内部画面は二段表示と重ね表示を切り替えられる。
+二段表示はPRE/POSTで同じrenderer、palette、絶対scaleを使い、identityなら同じ形になる。
+重ね表示はPREを離散線、POSTを連続輪郭にし、Strength差を金、Brightness差をシアン、sample-edge比増加・Crest低下・plateau拡大の同時変化だけを珊瑚色の繊維で示す。
+このrouteは環境変数でdefault OFFの内部試用に限定し、公開Analysis選択やDAW stateにはまだ追加しない。
+
 ## 7. 再現性
 
 最良pilotは二回実行でbyte単位に一致した。
@@ -389,7 +405,7 @@ DRUM ATTACKは完成可能性がある。
 主要比率がdevelopmentで同時通過したため、方式選定の中心課題は解消した。
 
 一方、kick-onlyとtiming、worst-foldが未達なので、完成したとは扱わない。
-内部workerは実VST音声入口、固定event判定、検証C ABI、POST内部6秒表示まで接続したが、検出器の採用条件を緩めず、公開ATTACK route、PRE request、公開UIはOFFを維持する。
+内部workerは実VST音声入口、固定event判定、exact PRE request、検証C ABI、二段／重ね内部6秒表示まで接続したが、検出器の採用条件を緩めず、公開ATTACK routeと公開UIはOFFを維持する。
 
 2MIXは別profileとして未着手であり、この結果を転用しない。
 

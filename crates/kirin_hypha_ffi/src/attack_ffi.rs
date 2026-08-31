@@ -1,8 +1,7 @@
 //! Internal-only ATTACK DRUM C ABI.
 //!
-//! This deliberately does not extend `AnalysisViewMode`, publish a GUI route, or persist state.
-//! It exposes the already-isolated SuperFlux worker to validation builds while the shipping
-//! default remains OFF.
+//! It reuses the exact-pair optional-analysis lease and transport while remaining an internal,
+//! default-OFF presentation route with no persisted DAW state.
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
@@ -14,7 +13,10 @@ use super::KirinHyphaEngine;
 
 #[path = "attack_ffi_convert.rs"]
 mod convert;
+#[path = "attack_ffi_pair.rs"]
+mod pair;
 use convert::*;
+pub use pair::*;
 
 pub const KIRIN_ATTACK_BATCH_CAPACITY: usize = 64;
 // Six seconds at the strict >30 ms event separation can contain at most 200 confirmed events.
@@ -212,14 +214,27 @@ pub struct KirinAttackStats {
 }
 
 impl KirinHyphaEngine {
-    /// POST-only validation switch. It is intentionally absent from JUCE navigation/state.
+    /// POST-only validation switch. It is intentionally absent from persisted JUCE state.
     pub fn set_internal_attack_enabled(&self, enabled: bool) -> bool {
         if self.write_role.lock().ok().and_then(|role| *role) != Some(PluginDataRole::Post) {
             return false;
         }
-        self.attack_runtime
-            .as_ref()
-            .is_some_and(|runtime| runtime.set_enabled(enabled))
+        if enabled {
+            self.spectrum
+                .set_post_channel_mode(kirin_measure::SpectrumChannelMode::Lr)
+                && self
+                    .spectrum
+                    .set_post_analysis_mode(kirin_measure::AnalysisViewMode::Attack)
+                && {
+                    self.spectrum.set_post_visible(true);
+                    self.attack_runtime
+                        .as_ref()
+                        .is_some_and(|runtime| runtime.set_enabled(true))
+                }
+        } else {
+            self.spectrum.set_post_visible(false);
+            true
+        }
     }
 
     pub fn poll_internal_attack_batch(&self) -> Option<KirinAttackBatch> {

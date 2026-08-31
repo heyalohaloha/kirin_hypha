@@ -5,12 +5,16 @@ use std::collections::VecDeque;
 use crate::{
     AttackEventShape, AttackPerceptualFeatures, AttackWaveformPoint, ATTACK_CONTEXT_MICROS,
     ATTACK_DETAIL_MICROS, ATTACK_LEVEL_FLOOR_DBFS, ATTACK_SHAPE_POINT_CAPACITY,
+    PERCEPTUAL_PRESENTATION_HZ,
 };
+use crate::{SharpnessContinuousAnalyzer, SpectrumChannelMode};
 
 use super::state::{AttackDetailedEvent, AttackEvent};
 
-const RETENTION_MICROS: u32 = 200_000;
+const RETENTION_MICROS: u32 = 250_000;
 const WAVEFORM_BIN_MICROS: u32 = 10_000;
+const PENDING_EVENT_CAPACITY: usize = 16;
+const SHARPNESS_HISTORY_CAPACITY: usize = 8;
 
 #[derive(Clone, Copy, Debug)]
 struct StoredFrame {
@@ -34,6 +38,13 @@ pub(super) struct AttackDetailTracker {
     waveform_count: i64,
     waveform_power_sum: f64,
     waveform_peak: f64,
+    pending_events: VecDeque<AttackEvent>,
+    sharpness: Option<SharpnessContinuousAnalyzer>,
+    sharpness_aperture_frames: i64,
+    sharpness_epoch: Option<i64>,
+    sharpness_start: Option<i64>,
+    sharpness_samples: Vec<f32>,
+    sharpness_history: VecDeque<(i64, f32)>,
 }
 
 impl AttackDetailTracker {
@@ -43,6 +54,7 @@ impl AttackDetailTracker {
             frames_for_micros(sample_rate, ATTACK_CONTEXT_MICROS) as usize * channels;
         let attack_samples =
             frames_for_micros(sample_rate, ATTACK_DETAIL_MICROS) as usize * channels;
+        let sharpness_aperture_frames = i64::from(sample_rate / PERCEPTUAL_PRESENTATION_HZ);
         Self {
             sample_rate,
             channels,
@@ -58,6 +70,15 @@ impl AttackDetailTracker {
             waveform_count: 0,
             waveform_power_sum: 0.0,
             waveform_peak: 0.0,
+            pending_events: VecDeque::with_capacity(PENDING_EVENT_CAPACITY),
+            sharpness: SharpnessContinuousAnalyzer::new(sample_rate, channels).ok(),
+            sharpness_aperture_frames,
+            sharpness_epoch: None,
+            sharpness_start: None,
+            sharpness_samples: Vec::with_capacity(
+                sharpness_aperture_frames.max(0) as usize * channels,
+            ),
+            sharpness_history: VecDeque::with_capacity(SHARPNESS_HISTORY_CAPACITY),
         }
     }
 
@@ -70,6 +91,7 @@ impl AttackDetailTracker {
             self.reset();
             self.generation = generation;
             self.source_origin_available = start == 0;
+            self.start_sharpness(start);
         }
         self.next_position = Some(start);
         true
@@ -98,6 +120,7 @@ impl AttackDetailTracker {
             left,
             right: right.unwrap_or(0.0),
         });
+        self.push_sharpness(position, left, right.unwrap_or(0.0));
         self.next_position = position.checked_add(1);
         if self.next_position.is_none() {
             self.reset();
@@ -106,7 +129,35 @@ impl AttackDetailTracker {
         Ok(self.push_waveform_frame(position, left, right.unwrap_or(0.0)))
     }
 
+    #[cfg(test)]
     pub(super) fn capture(&mut self, event: AttackEvent) -> Option<AttackDetailedEvent> {
+        self.capture_internal(event)
+    }
+
+    pub(super) fn queue_event(&mut self, event: AttackEvent) {
+        if self.pending_events.len() == PENDING_EVENT_CAPACITY {
+            self.pending_events.pop_front();
+        }
+        self.pending_events.push_back(event);
+    }
+
+    pub(super) fn capture_next_ready(&mut self) -> Option<AttackDetailedEvent> {
+        let event = *self.pending_events.front()?;
+        let attack_end = event
+            .event_sample
+            .checked_add(frames_for_micros(self.sample_rate, ATTACK_DETAIL_MICROS) as i64)?;
+        let ready_at = self
+            .sharpness_target(event.event_sample)
+            .unwrap_or(attack_end)
+            .max(attack_end);
+        if self.next_position? < ready_at {
+            return None;
+        }
+        self.pending_events.pop_front();
+        self.capture_internal(event)
+    }
+
+    fn capture_internal(&mut self, event: AttackEvent) -> Option<AttackDetailedEvent> {
         if !event.has_valid_layout()
             || event.generation != self.generation
             || event.sample_rate != self.sample_rate
@@ -124,12 +175,21 @@ impl AttackDetailTracker {
         }
         self.fill_window(context_start, event.event_sample, true)?;
         self.fill_window(event.event_sample, attack_end, false)?;
+        let sharpness = self
+            .sharpness_target(event.event_sample)
+            .and_then(|target| {
+                self.sharpness_history
+                    .iter()
+                    .rev()
+                    .find(|(endpoint, _)| *endpoint == target)
+                    .map(|(_, value)| *value)
+            });
         let features = AttackPerceptualFeatures::analyze(
             &self.context,
             &self.attack,
             self.sample_rate,
             self.channels,
-            None,
+            sharpness,
         )
         .ok()?;
         let shape = self.event_shape(context_start, attack_end, event.event_sample)?;
@@ -148,6 +208,11 @@ impl AttackDetailTracker {
         self.context.fill(0.0);
         self.attack.fill(0.0);
         self.reset_waveform();
+        self.pending_events.clear();
+        self.sharpness_epoch = None;
+        self.sharpness_start = None;
+        self.sharpness_samples.clear();
+        self.sharpness_history.clear();
     }
 
     fn fill_window(&mut self, start: i64, end: i64, context: bool) -> Option<()> {
@@ -223,6 +288,79 @@ impl AttackDetailTracker {
         self.waveform_count = 0;
         self.waveform_power_sum = 0.0;
         self.waveform_peak = 0.0;
+    }
+
+    fn start_sharpness(&mut self, start: i64) {
+        let Some(analyzer) = self.sharpness.as_mut() else {
+            return;
+        };
+        if self.sharpness_aperture_frames <= 0 {
+            return;
+        }
+        let remainder = start.rem_euclid(self.sharpness_aperture_frames);
+        let aligned = if remainder == 0 {
+            start
+        } else {
+            start + self.sharpness_aperture_frames - remainder
+        };
+        if analyzer.reset_at_epoch(aligned).is_ok() {
+            self.sharpness_epoch = Some(aligned);
+            self.sharpness_start = Some(aligned);
+        }
+    }
+
+    fn push_sharpness(&mut self, position: i64, left: f32, right: f32) {
+        let Some(start) = self.sharpness_start else {
+            return;
+        };
+        if position < start {
+            return;
+        }
+        let frame_offset = self.sharpness_samples.len() / self.channels;
+        if position != start + frame_offset as i64 {
+            return;
+        }
+        self.sharpness_samples.push(left);
+        if self.channels == 2 {
+            self.sharpness_samples.push(right);
+        }
+        if frame_offset as i64 + 1 != self.sharpness_aperture_frames {
+            return;
+        }
+        let end = start + self.sharpness_aperture_frames;
+        let sharpness = self.sharpness.as_mut().and_then(|analyzer| {
+            analyzer
+                .analyze_aperture(
+                    &self.sharpness_samples,
+                    SpectrumChannelMode::Lr,
+                    end,
+                    self.generation,
+                )
+                .ok()?
+                .last()
+                .map(|frame| frame.sharpness as f32)
+        });
+        if let Some(value) = sharpness.filter(|value| value.is_finite() && *value >= 0.0) {
+            if self.sharpness_history.len() == SHARPNESS_HISTORY_CAPACITY {
+                self.sharpness_history.pop_front();
+            }
+            self.sharpness_history.push_back((end, value));
+        }
+        self.sharpness_samples.clear();
+        self.sharpness_start = Some(end);
+    }
+
+    fn sharpness_target(&self, event_sample: i64) -> Option<i64> {
+        let epoch = self.sharpness_epoch?;
+        let ready = event_sample
+            .checked_add(frames_for_micros(self.sample_rate, ATTACK_DETAIL_MICROS) as i64)?;
+        if ready <= epoch || self.sharpness_aperture_frames <= 0 {
+            return None;
+        }
+        let delta = ready.checked_sub(epoch)?;
+        let slots =
+            delta.checked_add(self.sharpness_aperture_frames - 1)? / self.sharpness_aperture_frames;
+        epoch.checked_add(slots.checked_mul(self.sharpness_aperture_frames)?)
     }
 
     fn event_shape(

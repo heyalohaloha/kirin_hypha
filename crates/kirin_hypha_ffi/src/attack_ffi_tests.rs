@@ -25,6 +25,8 @@ fn attack_c_layout_is_fixed_without_changing_existing_abi() {
     assert_eq!(size_of::<KirinAttackDetail>(), 512);
     assert_eq!(offset_of!(KirinAttackDetail, shape), 128);
     assert_eq!(size_of::<KirinAttackDetailBatch>(), 122_888);
+    assert_eq!(size_of::<KirinAttackPairEvent>(), 112);
+    assert_eq!(size_of::<KirinAttackPairEventBatch>(), 26_896);
     assert_eq!(size_of::<KirinAttackStats>(), 32);
 }
 
@@ -89,10 +91,13 @@ fn feed_shipping_audio(engine: &KirinHyphaEngine, with_presentation: bool) {
 
 fn wait_for_event(engine: &KirinHyphaEngine) {
     let deadline = Instant::now() + Duration::from_secs(2);
-    while engine
-        .poll_internal_attack_events()
-        .is_none_or(|batch| batch.count == 0)
-        && Instant::now() < deadline
+    while Instant::now() < deadline
+        && (engine
+            .poll_internal_attack_events()
+            .is_none_or(|batch| batch.count == 0)
+            || engine
+                .poll_internal_attack_details()
+                .is_none_or(|batch| batch.count == 0))
     {
         thread::sleep(Duration::from_millis(5));
     }
@@ -155,6 +160,7 @@ fn c_functions_are_null_safe() {
     let mut events = KirinAttackEventBatch::default();
     let mut waveform = KirinAttackWaveformBatch::default();
     let mut details = KirinAttackDetailBatch::default();
+    let mut pair_events = KirinAttackPairEventBatch::default();
     unsafe {
         assert!(!kirin_hypha_set_internal_attack_enabled(
             std::ptr::null_mut(),
@@ -179,6 +185,10 @@ fn c_functions_are_null_safe() {
         assert!(!kirin_hypha_poll_internal_attack_details(
             std::ptr::null_mut(),
             &mut details
+        ));
+        assert!(!kirin_hypha_poll_internal_attack_pair_events(
+            std::ptr::null_mut(),
+            &mut pair_events
         ));
     }
 }

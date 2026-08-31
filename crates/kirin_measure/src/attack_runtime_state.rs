@@ -211,10 +211,11 @@ impl AttackHistory {
 
     pub(crate) fn push_detail(&mut self, detail: AttackDetailedEvent) {
         if !detail.has_valid_layout()
+            || self.events.iter().all(|event| *event != detail.event)
             || self
-                .events
+                .details
                 .back()
-                .is_none_or(|event| *event != detail.event)
+                .is_some_and(|current| current.event.event_sample >= detail.event.event_sample)
         {
             return;
         }

@@ -39,7 +39,8 @@ TEXTUREは処理器を推定しない。POSTで高周波方向のsample-edge比�
 - contextは`[event−100 ms,event)`、attackは`[event,event+30 ms)`。content先頭不足だけzero padする。
 - レベルfloorは固定−120 dBFS。floorへ触れたContrastはpayloadで明示し、通常値と区別する。
 - Shapeは各frameの`max(frame_power−context_power,0)`をweightとする時間重心。正の超過energyが無ければ未定義。
-- Sharpnessが届くまでBrightnessはpending。片側だけの値からΔを作らない。
+- Sharpnessはsource-grid上で30 ms attack全体を最初に含む100 ms窓を使う。窓が届くまで
+  Brightnessはpendingとし、片側だけの値からΔを作らない。
 - 単純な固定gainではContrast、Shape、Crestが不変で、Peakだけgain量に一致することをfixture化する。
 - sample-edge比はattack内の一階差分power / signal power、peak plateauは最大frame周辺の−3 dB連続幅とし、固定gainで双方不変にする。
 
@@ -50,3 +51,12 @@ click、Left/Right、Home/Endで一eventを選び、詳細のPREとPOSTを同じ
 二段表示はPRE/POSTへ同じpaletteと絶対scaleを使い、identityでは同じ形・色にする。重ね表示は共通形を中立色、Brightness差を形の内側のcool tint、Peak/Contrast差を外側のgold aura、TEXTURE三条件の同時差を細い繊維で示す。
 見た目から楽器名、原因、推奨操作を推測しない。
 未対応event、欠測、floor-limited、Brightness pendingは輪郭または`---`で事実状態を保つ。
+
+## Internal live route
+
+内部試用routeは既存のexact-pair optional-analysis leaseを再利用し、別の常時通信を増やさない。
+POSTがATTACKを表示している間だけ10 HzでPREの六秒waveform、ODF、event detailを専用の固定上限payloadへ発行し、同じcontent sampleとdefinitionの系列だけを結合する。
+PRE未接続ではPOST実測だけを`POST ABSOLUTE`として表示し、PRE波形を複製しない。
+二段表示はPRE/POSTで同じ中立paletteと絶対scaleを使う。
+重ね表示はPREを離散線、POSTを連続輪郭にし、強さの差だけを金、Brightness差だけをシアン、三つのTexture条件が同時成立した部分だけを珊瑚色の繊維で示す。
+同一音声では形と差分色が一致し、色だけでPRE/POSTを識別させない。

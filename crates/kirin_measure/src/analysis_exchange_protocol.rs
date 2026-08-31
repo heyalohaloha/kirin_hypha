@@ -96,7 +96,10 @@ pub(super) fn validated_request(
         && !request.requested_by_post_instance_id.is_empty())
     .then_some(())?;
     let request_id = Uuid::parse_str(&request.request_id).ok()?;
-    if analysis_mode == AnalysisViewMode::Spectrum && request.state_epoch_samples.is_some() {
+    if analysis_mode != AnalysisViewMode::Perceptual && request.state_epoch_samples.is_some() {
+        return None;
+    }
+    if analysis_mode == AnalysisViewMode::Attack && channel_mode != SpectrumChannelMode::Lr {
         return None;
     }
     if let Some(epoch) = request.state_epoch_samples {

@@ -126,7 +126,9 @@ impl AttackRuntime {
             return;
         }
         let event = peak_picker.push(frame);
-        let detail = event.and_then(|event| detail_tracker.capture(event));
+        if let Some(event) = event {
+            detail_tracker.queue_event(event);
+        }
         self.analyzed_frames.fetch_add(1, Ordering::Relaxed);
         if let Ok(mut history) = self.history.lock() {
             if self.frame_is_current(&frame) {
@@ -134,7 +136,11 @@ impl AttackRuntime {
                 if let Some(event) = event {
                     history.push_event(event);
                 }
-                if let Some(detail) = detail {
+            }
+        }
+        while let Some(detail) = detail_tracker.capture_next_ready() {
+            if let Ok(mut history) = self.history.lock() {
+                if self.frame_is_current(&frame) {
                     history.push_detail(detail);
                 }
             }

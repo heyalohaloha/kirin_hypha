@@ -1021,6 +1021,18 @@ void KirinHyphaEditor::updatePost()
         if (processorRef.pollInternalAttackDetails (details))
             cachedAttackDetails = details;
 
+        KirinAttackWaveformBatch preWaveform {};
+        if (processorRef.pollInternalAttackPreWaveform (preWaveform))
+            cachedAttackPreWaveform = preWaveform;
+
+        KirinAttackDetailBatch preDetails {};
+        if (processorRef.pollInternalAttackPreDetails (preDetails))
+            cachedAttackPreDetails = preDetails;
+
+        KirinAttackPairEventBatch pairEvents {};
+        if (processorRef.pollInternalAttackPairEvents (pairEvents))
+            cachedAttackPairEvents = pairEvents;
+
         KirinAttackBatch raw {};
         if (processorRef.pollInternalAttackBatch (raw) && raw.count > 0)
         {
@@ -1031,10 +1043,10 @@ void KirinHyphaEditor::updatePost()
             cachedAttackRate = newest.sample_rate;
             cachedAttackGeneration = newest.generation;
         }
-        attackInternalView.setSnapshot (cachedAttackEvents, cachedAttackWaveform,
-                                        cachedAttackDetails, cachedAttackLatest,
-                                        cachedAttackRate, cachedAttackGeneration,
-                                        cachedAttackStats);
+        attackInternalView.setSnapshot (
+            cachedAttackEvents, cachedAttackWaveform, cachedAttackDetails,
+            cachedAttackPreWaveform, cachedAttackPreDetails, cachedAttackPairEvents,
+            cachedAttackLatest, cachedAttackRate, cachedAttackGeneration, cachedAttackStats);
         led.setState (hypha::deriveLedState (alive, sig, rec && armed, ack, preset));
         return;
     }

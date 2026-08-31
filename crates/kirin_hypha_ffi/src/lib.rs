@@ -1228,9 +1228,13 @@ impl KirinHyphaEngine {
 
         let measure_result = Arc::new(Mutex::new(MeasureResult::default()));
         let delta_result = Arc::new(Mutex::new(DeltaResult::default()));
-        let spectrum_runtime = SpectrumRuntime::new(sample_rate, num_channels);
-        let spectrum = SpectrumCoordinator::new(sample_rate, Arc::clone(&spectrum_runtime));
         let attack_runtime = kirin_measure::AttackRuntime::new(sample_rate, num_channels).ok();
+        let spectrum_runtime = SpectrumRuntime::new(sample_rate, num_channels);
+        let spectrum = SpectrumCoordinator::new_with_attack(
+            sample_rate,
+            Arc::clone(&spectrum_runtime),
+            attack_runtime.as_ref().map(Arc::clone),
+        );
         let session_summary: Arc<Mutex<Option<SessionSummary>>> = Arc::new(Mutex::new(None));
         let record_trace_queue = new_record_trace_queue();
         let record_take_tracker = new_record_take_tracker();

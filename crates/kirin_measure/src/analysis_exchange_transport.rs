@@ -13,6 +13,7 @@ pub(super) enum AnalysisSlot {
     Ready,
     Spectrum,
     Perceptual,
+    Attack,
 }
 
 pub(super) fn write(
@@ -95,6 +96,7 @@ mod windows {
     const READY_CAPACITY: usize = 2_048;
     const SPECTRUM_CAPACITY: usize = 16_384;
     const PERCEPTUAL_CAPACITY: usize = 1_280;
+    const ATTACK_CAPACITY: usize = 196_608;
     const MAX_READ_RETRIES: usize = 3;
 
     #[repr(C, align(64))]
@@ -192,6 +194,7 @@ mod windows {
         ready: SharedSlot<READY_CAPACITY>,
         spectrum: SharedSlot<SPECTRUM_CAPACITY>,
         perceptual: SharedSlot<PERCEPTUAL_CAPACITY>,
+        attack: SharedSlot<ATTACK_CAPACITY>,
     }
 
     struct Mapping {
@@ -242,6 +245,7 @@ mod windows {
                 AnalysisSlot::Ready => SlotRef::Ready(&exchange.ready),
                 AnalysisSlot::Spectrum => SlotRef::Spectrum(&exchange.spectrum),
                 AnalysisSlot::Perceptual => SlotRef::Perceptual(&exchange.perceptual),
+                AnalysisSlot::Attack => SlotRef::Attack(&exchange.attack),
             }
         }
     }
@@ -264,6 +268,7 @@ mod windows {
         Ready(&'a SharedSlot<READY_CAPACITY>),
         Spectrum(&'a SharedSlot<SPECTRUM_CAPACITY>),
         Perceptual(&'a SharedSlot<PERCEPTUAL_CAPACITY>),
+        Attack(&'a SharedSlot<ATTACK_CAPACITY>),
     }
 
     impl SlotRef<'_> {
@@ -273,6 +278,7 @@ mod windows {
                 Self::Ready(slot) => slot.write(bytes),
                 Self::Spectrum(slot) => slot.write(bytes),
                 Self::Perceptual(slot) => slot.write(bytes),
+                Self::Attack(slot) => slot.write(bytes),
             }
         }
 
@@ -282,6 +288,7 @@ mod windows {
                 Self::Ready(slot) => slot.read(maximum_bytes),
                 Self::Spectrum(slot) => slot.read(maximum_bytes),
                 Self::Perceptual(slot) => slot.read(maximum_bytes),
+                Self::Attack(slot) => slot.read(maximum_bytes),
             }
         }
 
@@ -291,6 +298,7 @@ mod windows {
                 Self::Ready(slot) => slot.clear(),
                 Self::Spectrum(slot) => slot.clear(),
                 Self::Perceptual(slot) => slot.clear(),
+                Self::Attack(slot) => slot.clear(),
             }
         }
     }

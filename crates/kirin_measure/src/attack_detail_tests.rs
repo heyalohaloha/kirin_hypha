@@ -112,3 +112,35 @@ fn detail_shape_preserves_the_event_position_and_peak() {
     assert_eq!(detail.shape.end_sample, 150);
     assert!(detail.shape.points.iter().copied().fold(0.0, f32::max) > 0.8);
 }
+
+#[test]
+fn queued_detail_waits_for_the_exact_sharpness_aperture() {
+    const RATE: u32 = 48_000;
+    let mut tracker = AttackDetailTracker::new(RATE, 1);
+    assert!(tracker.begin_block(0, 11));
+    let event = AttackEvent {
+        generation: 11,
+        sample_rate: RATE,
+        channels: 1,
+        definition_hash: [9; 32],
+        event_sample: 8_000,
+        decision_sample: 9_500,
+        value: 0.5,
+    };
+    for position in 0..9_500 {
+        let phase = std::f32::consts::TAU * 6_000.0 * position as f32 / RATE as f32;
+        tracker.push_frame(phase.sin() * 0.3, None).unwrap();
+    }
+    tracker.queue_event(event);
+    assert!(tracker.capture_next_ready().is_none());
+    for position in 9_500..9_600 {
+        let phase = std::f32::consts::TAU * 6_000.0 * position as f32 / RATE as f32;
+        tracker.push_frame(phase.sin() * 0.3, None).unwrap();
+    }
+    let detail = tracker.capture_next_ready().unwrap();
+    assert!(detail
+        .features
+        .sharpness_acum
+        .is_some_and(|value| value.is_finite() && value > 0.0));
+    assert!(detail.has_valid_layout());
+}

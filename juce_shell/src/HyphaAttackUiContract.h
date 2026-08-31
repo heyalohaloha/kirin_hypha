@@ -16,7 +16,7 @@ namespace hypha::attack_ui
     constexpr int headerHeight = 16;
     constexpr int axisLabelHeight = 12;
     constexpr int timelineMinimumHeight = 42;
-    constexpr int detailMetricsHeight = 30;
+    constexpr int detailMetricsHeight = 42;
     constexpr float absoluteFloorDb = -72.0f;
 
     constexpr std::int64_t windowSamples (std::uint32_t sampleRate) noexcept

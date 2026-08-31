@@ -283,7 +283,8 @@ pub use spectrum_difference_timeline::{
     SPECTRUM_DIFFERENCE_TIMELINE_CAPACITY,
 };
 pub use spectrum_exchange::{
-    SpectrumCoordinator, SpectrumTarget, SpectrumViewSnapshot, SpectrumViewStatus,
+    AttackPairViewSnapshot, SpectrumCoordinator, SpectrumTarget, SpectrumViewSnapshot,
+    SpectrumViewStatus,
 };
 pub use spectrum_runtime::{
     PerceptualHistory, SpectrumHistory, SpectrumRuntime, SpectrumRuntimeStats,

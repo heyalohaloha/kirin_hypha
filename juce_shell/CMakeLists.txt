@@ -149,6 +149,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
             src/HyphaAbsoluteComponent.cpp
             src/HyphaAbsolutePainter.cpp
             src/HyphaAttackInternalComponent.cpp
+            src/HyphaAttackInteraction.cpp
             src/HyphaPerceptualComponent.cpp
             src/HyphaPerceptualPainter.cpp
             src/HyphaSpectrumComponent.cpp
@@ -271,7 +272,8 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         PRODUCT_NAME "Kirin ATTACK UI Contract Tests")
     target_sources(KirinAttackUiContractTests PRIVATE
         tests/AttackUiContractTest.cpp
-        src/HyphaAttackInternalComponent.cpp)
+        src/HyphaAttackInternalComponent.cpp
+        src/HyphaAttackInteraction.cpp)
     target_compile_definitions(KirinAttackUiContractTests PRIVATE
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0

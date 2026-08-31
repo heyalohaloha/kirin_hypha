@@ -253,6 +253,7 @@ typedef struct {
 #define KIRIN_ATTACK_WAVEFORM_BATCH_CAPACITY 600u
 #define KIRIN_ATTACK_DETAIL_BATCH_CAPACITY 240u
 #define KIRIN_ATTACK_SHAPE_CAPACITY 96u
+#define KIRIN_ATTACK_PAIR_EVENT_BATCH_CAPACITY 240u
 
 /* ATTACK DRUM内部検証用のraw SuperFlux ODF。公開Analysis route/stateには含めない。 */
 typedef struct {
@@ -345,6 +346,37 @@ typedef struct {
   uint32_t capacity;
   KirinAttackDetail details[KIRIN_ATTACK_DETAIL_BATCH_CAPACITY];
 } KirinAttackDetailBatch;
+
+/* 同一content sample上の共通ATTACK判定。kind: 0=matched,1=PRE-only,2=POST-only,3=ambiguous. */
+typedef struct {
+  uint64_t pair_generation;
+  uint64_t pre_generation;
+  uint64_t post_generation;
+  uint32_t sample_rate;
+  uint8_t channels;
+  uint8_t kind;
+  uint8_t pre_available;
+  uint8_t post_available;
+  uint8_t definition_hash[32];
+  int64_t event_sample;
+  int64_t decision_sample;
+  int64_t pre_event_sample;
+  int64_t post_event_sample;
+  float pre_value;
+  float post_value;
+  float delta_value;
+  uint8_t delta_available;
+  uint8_t reserved[3];
+} KirinAttackPairEvent;
+
+typedef struct {
+  uint8_t status; /* KIRIN_SPECTRUM_*と同じ状態語彙 */
+  uint8_t reserved[3];
+  uint32_t count;
+  uint32_t capacity;
+  uint32_t reserved2;
+  KirinAttackPairEvent events[KIRIN_ATTACK_PAIR_EVENT_BATCH_CAPACITY];
+} KirinAttackPairEventBatch;
 
 typedef struct {
   uint8_t available;
@@ -620,6 +652,12 @@ bool kirin_hypha_poll_internal_attack_batch(KirinHypha* handle, KirinAttackBatch
 bool kirin_hypha_poll_internal_attack_events(KirinHypha* handle, KirinAttackEventBatch* out);
 bool kirin_hypha_poll_internal_attack_waveform(KirinHypha* handle, KirinAttackWaveformBatch* out);
 bool kirin_hypha_poll_internal_attack_details(KirinHypha* handle, KirinAttackDetailBatch* out);
+bool kirin_hypha_poll_internal_attack_pre_waveform(KirinHypha* handle,
+                                                    KirinAttackWaveformBatch* out);
+bool kirin_hypha_poll_internal_attack_pre_details(KirinHypha* handle,
+                                                   KirinAttackDetailBatch* out);
+bool kirin_hypha_poll_internal_attack_pair_events(KirinHypha* handle,
+                                                   KirinAttackPairEventBatch* out);
 bool kirin_hypha_internal_attack_stats(KirinHypha* handle, KirinAttackStats* out);
 
 /* Keep/Record表示を1スナップショットで取得. UI Thread専用・ロック競合時false. */

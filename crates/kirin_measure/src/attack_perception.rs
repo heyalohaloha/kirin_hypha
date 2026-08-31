@@ -30,7 +30,8 @@ pub struct AttackPerceptualFeatures {
     pub peak_plateau_ms: f32,
     /// Energy centroid inside the 30 ms aperture after subtracting preceding-context power.
     pub temporal_centroid_ms: Option<f32>,
-    /// Existing Hypha 100 ms psychoacoustic Sharpness endpoint; `None` while pending.
+    /// Hypha DIN 45692 Sharpness over the first source-grid 100 ms aperture containing the
+    /// complete 30 ms attack; `None` when that aperture is unavailable.
     pub sharpness_acum: Option<f32>,
 }
 

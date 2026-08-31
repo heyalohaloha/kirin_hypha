@@ -21,9 +21,10 @@ impl SpectrumCoordinator {
                 Ok(session) => session,
                 Err(poisoned) => poisoned.into_inner(),
             };
-            let _ = self.runtime.set_enabled(false);
+            self.disable_analysis_runtimes();
             self.release_analysis_lease();
             self.store_view(SpectrumViewStatus::Hidden, None, None);
+            self.store_attack_view(AttackPairViewSnapshot::default());
         }
         self.exchange_worker.notify();
     }
@@ -40,12 +41,17 @@ impl SpectrumCoordinator {
         if !self.runtime.set_analysis_mode(mode) {
             return false;
         }
+        self.disable_analysis_runtimes();
         let status = if self.post_visible() {
             SpectrumViewStatus::WarmingUp
         } else {
             SpectrumViewStatus::Hidden
         };
         self.store_view(status, None, None);
+        self.store_attack_view(AttackPairViewSnapshot {
+            status,
+            ..Default::default()
+        });
         self.exchange_worker.notify();
         true
     }
@@ -96,7 +102,7 @@ impl SpectrumCoordinator {
         // The normal close edge already notified the exchange worker to remove its exact request.
         // If Windows is retaining that filesystem operation, teardown must not start another
         // blocking read/remove. Any unpublished request expires after its bounded lease.
-        let _ = self.runtime.set_enabled(false);
+        self.disable_analysis_runtimes();
         self.release_analysis_lease();
     }
 
@@ -112,6 +118,30 @@ impl SpectrumCoordinator {
             analysis_mode: self.runtime.analysis_mode(),
             channel_mode: self.runtime.channel_mode(),
             state_epoch_samples: None,
+        }
+    }
+
+    pub(super) fn disable_analysis_runtimes(&self) {
+        let _ = self.runtime.set_enabled(false);
+        if let Some(runtime) = self.attack_runtime.as_ref() {
+            let _ = runtime.set_enabled(false);
+        }
+    }
+
+    pub(super) fn set_active_runtime_enabled(&self, mode: AnalysisViewMode, enabled: bool) -> bool {
+        match mode {
+            AnalysisViewMode::Attack => {
+                let _ = self.runtime.set_enabled(false);
+                self.attack_runtime
+                    .as_ref()
+                    .is_some_and(|runtime| runtime.set_enabled(enabled))
+            }
+            _ => {
+                if let Some(runtime) = self.attack_runtime.as_ref() {
+                    let _ = runtime.set_enabled(false);
+                }
+                self.runtime.set_enabled(enabled)
+            }
         }
     }
 }

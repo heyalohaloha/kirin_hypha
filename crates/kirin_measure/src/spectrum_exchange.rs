@@ -10,6 +10,10 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use uuid::Uuid;
 
+#[path = "attack_exchange_codec.rs"]
+mod attack_codec;
+#[path = "attack_exchange_join.rs"]
+mod attack_joining;
 #[path = "spectrum_exchange_codec.rs"]
 pub(crate) mod codec;
 #[path = "spectrum_exchange_control.rs"]
@@ -42,6 +46,11 @@ use crate::spectrum_exchange_worker::SpectrumExchangeWorker;
 #[cfg(test)]
 use crate::spectrum_runtime::SpectrumHistory;
 use crate::spectrum_runtime::SpectrumRuntime;
+use crate::{AttackHistory, AttackPairEvent, AttackRuntime};
+use attack_codec::{
+    encode_attack_snapshot, read_attack_snapshot, remove_attack_snapshot, write_attack_snapshot,
+};
+use attack_joining::store_joined_attack;
 #[cfg(test)]
 use codec::{decode_snapshot, SNAPSHOT_MAX_BYTES};
 use codec::{encode_snapshot, read_snapshot, remove_snapshot, write_snapshot};
@@ -101,6 +110,14 @@ pub struct SpectrumViewSnapshot {
     pub analysis_owner_names: [String; crate::ANALYSIS_SLOT_COUNT],
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct AttackPairViewSnapshot {
+    pub status: SpectrumViewStatus,
+    pub pre: Option<AttackHistory>,
+    pub post: Option<AttackHistory>,
+    pub pair_events: Vec<AttackPairEvent>,
+}
+
 #[derive(Clone)]
 struct PostSession {
     request_id: Uuid,
@@ -129,10 +146,12 @@ struct PreSession {
 pub struct SpectrumCoordinator {
     sample_rate: u32,
     runtime: Arc<SpectrumRuntime>,
+    attack_runtime: Option<Arc<AttackRuntime>>,
     post_visible: AtomicBool,
     post_session: Mutex<Option<PostSession>>,
     pre_session: Mutex<Option<PreSession>>,
     view: Mutex<SpectrumViewSnapshot>,
+    attack_view: Mutex<AttackPairViewSnapshot>,
     analysis_lease: Mutex<AnalysisLease>,
     pub(crate) exchange_worker: SpectrumExchangeWorker,
 }
@@ -149,18 +168,59 @@ impl SpectrumCoordinator {
         }
     }
 
+    pub fn new_with_attack(
+        sample_rate: u32,
+        runtime: Arc<SpectrumRuntime>,
+        attack_runtime: Option<Arc<AttackRuntime>>,
+    ) -> Arc<Self> {
+        #[cfg(not(test))]
+        {
+            Self::new_with_lease_and_attack(
+                sample_rate,
+                runtime,
+                attack_runtime,
+                AnalysisLease::for_current_process(),
+            )
+        }
+        #[cfg(test)]
+        {
+            Self::new_with_lease_and_attack(
+                sample_rate,
+                runtime,
+                attack_runtime,
+                AnalysisLease::at_path(
+                    std::env::temp_dir()
+                        .join("kirin")
+                        .join("analysis-tests")
+                        .join(format!("{}.lease", Uuid::new_v4())),
+                ),
+            )
+        }
+    }
+
     fn new_with_lease(
         sample_rate: u32,
         runtime: Arc<SpectrumRuntime>,
         analysis_lease: AnalysisLease,
     ) -> Arc<Self> {
+        Self::new_with_lease_and_attack(sample_rate, runtime, None, analysis_lease)
+    }
+
+    fn new_with_lease_and_attack(
+        sample_rate: u32,
+        runtime: Arc<SpectrumRuntime>,
+        attack_runtime: Option<Arc<AttackRuntime>>,
+        analysis_lease: AnalysisLease,
+    ) -> Arc<Self> {
         Arc::new(Self {
             sample_rate,
             runtime,
+            attack_runtime,
             post_visible: AtomicBool::new(false),
             post_session: Mutex::new(None),
             pre_session: Mutex::new(None),
             view: Mutex::new(SpectrumViewSnapshot::default()),
+            attack_view: Mutex::new(AttackPairViewSnapshot::default()),
             analysis_lease: Mutex::new(analysis_lease),
             exchange_worker: SpectrumExchangeWorker::new(),
         })
@@ -168,9 +228,10 @@ impl SpectrumCoordinator {
 
     #[cfg(test)]
     fn new_for_test(sample_rate: u32, runtime: Arc<SpectrumRuntime>) -> Arc<Self> {
-        Self::new_with_lease(
+        Self::new_with_lease_and_attack(
             sample_rate,
             runtime,
+            None,
             AnalysisLease::at_path(
                 std::env::temp_dir()
                     .join("kirin")
@@ -225,6 +286,10 @@ fn perceptual_snapshot_path(instance_dir: &Path) -> PathBuf {
     instance_dir.join("spectrum").join("pre_perceptual.bin")
 }
 
+fn attack_snapshot_path(instance_dir: &Path) -> PathBuf {
+    instance_dir.join("attack").join("pre.bin")
+}
+
 fn renew_request(
     session: &PostSession,
     post_instance_id: &str,
@@ -256,6 +321,7 @@ fn cleanup_owned_request(target: Option<&SpectrumTarget>, request_id: Uuid) {
         remove_request(&target.instance_dir);
         remove_snapshot(&target.instance_dir);
         remove_perceptual_snapshot(&target.instance_dir);
+        remove_attack_snapshot(&target.instance_dir);
         remove_ready(&target.instance_dir);
     }
 }
@@ -268,6 +334,9 @@ fn unix_ms_now() -> i64 {
         .unwrap_or(0)
 }
 
+#[cfg(test)]
+#[path = "attack_exchange_integration_tests.rs"]
+mod attack_integration_tests;
 #[cfg(test)]
 #[path = "spectrum_exchange_integration_tests.rs"]
 mod integration_tests;

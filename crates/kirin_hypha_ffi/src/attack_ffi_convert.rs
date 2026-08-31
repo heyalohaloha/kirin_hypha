@@ -1,6 +1,7 @@
 use kirin_measure::{
-    AttackDetailedEvent, AttackEvent, AttackHistory, AttackOdfFrame, AttackRuntimeStats,
-    AttackWaveformPoint,
+    AttackDetailedEvent, AttackEvent, AttackHistory, AttackOdfFrame, AttackPairEvent,
+    AttackPairEventKind, AttackPairViewSnapshot, AttackRuntimeStats, AttackWaveformPoint,
+    SpectrumViewStatus,
 };
 
 use super::*;
@@ -128,6 +129,63 @@ pub(super) fn to_c_attack_detail_batch(history: AttackHistory) -> KirinAttackDet
     let mut batch = KirinAttackDetailBatch::default();
     for (destination, source) in batch.details.iter_mut().zip(history.details()) {
         *destination = to_c_attack_detail(source);
+        batch.count += 1;
+    }
+    batch
+}
+
+fn to_c_attack_pair_event(event: AttackPairEvent) -> KirinAttackPairEvent {
+    KirinAttackPairEvent {
+        pair_generation: event.pair_generation,
+        pre_generation: event.pre_generation,
+        post_generation: event.post_generation,
+        sample_rate: event.sample_rate,
+        channels: event.channels,
+        kind: match event.kind {
+            AttackPairEventKind::Matched => 0,
+            AttackPairEventKind::PreOnly => 1,
+            AttackPairEventKind::PostOnly => 2,
+            AttackPairEventKind::Ambiguous => 3,
+        },
+        pre_available: event.pre_event_sample.is_some() as u8,
+        post_available: event.post_event_sample.is_some() as u8,
+        definition_hash: event.definition_hash,
+        event_sample: event.event_sample,
+        decision_sample: event.decision_sample,
+        pre_event_sample: event.pre_event_sample.unwrap_or(0),
+        post_event_sample: event.post_event_sample.unwrap_or(0),
+        pre_value: event.pre_value.unwrap_or(0.0),
+        post_value: event.post_value.unwrap_or(0.0),
+        delta_value: event.delta_value.unwrap_or(0.0),
+        delta_available: event.delta_value.is_some() as u8,
+        reserved: [0; 3],
+    }
+}
+
+pub(super) fn to_c_attack_pair_event_batch(
+    view: AttackPairViewSnapshot,
+) -> KirinAttackPairEventBatch {
+    let mut batch = KirinAttackPairEventBatch {
+        status: match view.status {
+            SpectrumViewStatus::Hidden => 0,
+            SpectrumViewStatus::NoPair => 1,
+            SpectrumViewStatus::WarmingUp => 2,
+            SpectrumViewStatus::Active => 3,
+            SpectrumViewStatus::Unavailable => 4,
+            SpectrumViewStatus::InUse => 5,
+        },
+        ..Default::default()
+    };
+    let skip = view
+        .pair_events
+        .len()
+        .saturating_sub(KIRIN_ATTACK_PAIR_EVENT_BATCH_CAPACITY);
+    for (destination, source) in batch
+        .events
+        .iter_mut()
+        .zip(view.pair_events.into_iter().skip(skip))
+    {
+        *destination = to_c_attack_pair_event(source);
         batch.count += 1;
     }
     batch

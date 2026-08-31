@@ -59,6 +59,7 @@ impl SpectrumRuntime {
                 AnalysisViewMode::Absolute => absolute.as_mut().is_some_and(|analyzer| {
                     analyzer.begin_block(block.presentation_start_samples, block.generation)
                 }),
+                AnalysisViewMode::Attack => false,
             };
             if mode == AnalysisViewMode::Absolute
                 && absolute
@@ -142,6 +143,7 @@ impl SpectrumRuntime {
                         }
                     }
                 }
+                AnalysisViewMode::Attack => return false,
             }
         }
         true
