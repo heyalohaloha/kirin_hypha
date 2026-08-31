@@ -106,7 +106,11 @@ LRAはSessionSummaryに存在するが現行6-cell UIには出ない。
 
 PLRはplugin dataで算出されるが、現行UI snapshotにはない。
 
-per-channel Peak/TP、correlation、balance、clip event、長時間historyはMeter Session coreとC ABIまで実装済みだが、現行6-cell UIには未接続である。
+per-channel Peak/TP、correlation、balance、clip event、長時間historyはMeter Session coreとC ABIまで実装済みである。
+
+Meter再設計branchのObservatoryはper-channel Peak/TP、balance、correlationをLEVEL/SPACEへ接続し、TIMEでは同一履歴点のM、S、TP、集約min/max、run境界を同時表示する。
+
+clip eventの画面接続と、exact PRE/POST時刻結合を必要とするTIME Δは未実装である。
 
 現行AnalysisのFREQ、SHARP、LIVEと完了したATTACKは、計測器として再利用するが画面名と配置を固定しない。
 

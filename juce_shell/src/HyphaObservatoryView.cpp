@@ -1,4 +1,5 @@
 #include "HyphaObservatoryView.h"
+#include "HyphaTimeHistoryPainter.h"
 #include <array>
 #include <cmath>
 #include <limits>
@@ -401,60 +402,15 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area)
 
 void View::paintTime (juce::Graphics& g, juce::Rectangle<int> area)
 {
-    drawPanel (g, area);
-    area.reduce (8, 7);
-    if (selectedTarget == ObservationTarget::delta || history.empty())
+    if (selectedTarget == ObservationTarget::delta)
     {
+        drawPanel (g, area);
         g.setColour (COL_MUTED);
         g.setFont (monoFont (12.0f));
-        g.drawText (selectedTarget == ObservationTarget::delta ? "DELTA HISTORY —" : "HISTORY —",
-                    area, juce::Justification::centred);
+        g.drawText ("DELTA HISTORY —", area, juce::Justification::centred);
         return;
     }
-    g.setColour (COL_MUTED.withAlpha (0.35f));
-    for (int line = 1; line < 4; ++line)
-        g.drawHorizontalLine (area.getY() + line * area.getHeight() / 4,
-                              (float) area.getX(), (float) area.getRight());
-
-    const auto mapY = [&area] (double value)
-    {
-        const auto normalized = juce::jlimit (0.0, 1.0, (value + 48.0) / 48.0);
-        return (float) area.getBottom() - (float) normalized * (float) area.getHeight();
-    };
-    juce::Path meanPath;
-    bool pathOpen = false;
-    uint64_t previousRun = 0;
-    for (size_t index = 0; index < history.size(); ++index)
-    {
-        const auto& entry = history[index];
-        const auto x = (float) area.getX()
-                     + (history.size() == 1 ? (float) area.getWidth()
-                                            : (float) index * (float) area.getWidth()
-                                                / (float) (history.size() - 1));
-        if (std::isfinite (entry.lufs_m.min) && std::isfinite (entry.lufs_m.max)
-            && entry.observation_count > 1)
-        {
-            g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.18f));
-            g.drawVerticalLine ((int) std::round (x), mapY (entry.lufs_m.max), mapY (entry.lufs_m.min));
-        }
-        if (! std::isfinite (entry.lufs_m.mean))
-        {
-            pathOpen = false;
-            continue;
-        }
-        const auto y = mapY (entry.lufs_m.mean);
-        if (! pathOpen || entry.run_id != previousRun)
-            meanPath.startNewSubPath (x, y);
-        else
-            meanPath.lineTo (x, y);
-        pathOpen = true;
-        previousRun = entry.run_id;
-    }
-    g.setColour (COL_SPECTRUM_DELTA);
-    g.strokePath (meanPath, juce::PathStrokeType (1.25f));
-    g.setColour (COL_MUTED);
-    g.setFont (monoFont (9.0f));
-    g.drawText (historyRequest().label, area.removeFromTop (13), juce::Justification::topRight);
+    time_history::paint (g, area, history, historyRequest().label);
 }
 void View::paintSpace (juce::Graphics& g, juce::Rectangle<int> area)
 {

@@ -167,6 +167,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         src/HyphaObservatoryCapture.cpp
         src/HyphaObservatoryView.cpp
         src/HyphaObservatoryLevelStrips.cpp
+        src/HyphaTimeHistoryPainter.cpp
         src/HyphaTypography.cpp
         src/HyphaHoverHelpPreference.cpp
         ${KIRIN_HYPHA_WIDGETS_SOURCE} # B-054: LED / mycelium bg / metric cells / editable name
@@ -287,9 +288,11 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         tests/SpectrumPresentationContractTest.cpp
         tests/GuideFrequencyOverlayContractTest.cpp
         tests/ObservatoryViewContractTest.cpp
+        tests/TimeHistoryContractTest.cpp
         src/HyphaObservatoryCapture.cpp
         src/HyphaObservatoryView.cpp
         src/HyphaObservatoryLevelStrips.cpp
+        src/HyphaTimeHistoryPainter.cpp
         src/HyphaTypography.cpp
         src/HyphaHoverHelpPreference.cpp
         src/HyphaGuideFrequencyOverlay.cpp
