@@ -109,12 +109,12 @@ private:
     hypha::PairDropdownButton pairDropdown;                // POST: vector arrow / candidate / All Keep / All Stop
 #if ! KIRIN_HYPHA_PRE_DISPLAY
     juce::TextButton          spectrumToggle;               // POST: meters / Analysis page
-    juce::TextButton          analysisModeToggle;            // POST: FREQ / SHARP page switch
+    juce::TextButton          analysisModeToggle;            // POST: ATTACK / FREQ / SHARP / LIVE
     juce::TextButton          spectrumSizeToggle;           // POST Analysis: 100/125/150/200 percent
     hypha::SpectrumComponent  spectrumView;                 // POST-only signed difference plot
     hypha::PerceptualComponent perceptualView;               // POST-only Δ Sharpness History
     hypha::AbsoluteComponent absoluteView;                    // POST-only absolute observation timeline
-    hypha::AttackInternalComponent attackInternalView;         // opt-in POST DRUM validator
+    hypha::AttackInternalComponent attackInternalView;         // POST DRUM product trial
 #endif
     hypha::TooltipLookAndFeel tooltipLookAndFeel;
     hypha::HoverHelpTooltipWindow tooltip { this, 550 };    // user-level, bounded hover help
@@ -124,7 +124,6 @@ private:
 #if ! KIRIN_HYPHA_PRE_DISPLAY
     AnalysisPage analysisPage = AnalysisPage::meters;
     size_t spectrumSizeIndex = 0;
-    bool internalAttackUi = false;
     KirinAttackEventBatch cachedAttackEvents {};
     KirinAttackWaveformBatch cachedAttackWaveform {};
     KirinAttackDetailBatch cachedAttackDetails {};

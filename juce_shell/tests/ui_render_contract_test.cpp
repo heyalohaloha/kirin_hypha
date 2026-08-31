@@ -373,12 +373,14 @@ int main()
 
     using AnalysisPage = hypha::analysis_navigation::Page;
     for (const auto previous : {
-             AnalysisPage::spectrum, AnalysisPage::perceptual, AnalysisPage::absolute })
+             AnalysisPage::attack, AnalysisPage::spectrum,
+             AnalysisPage::perceptual, AnalysisPage::absolute })
     {
         KIRIN_REQUIRE (hypha::analysis_navigation::releasesSlot (
             previous, AnalysisPage::meters));
         for (const auto next : {
-                 AnalysisPage::spectrum, AnalysisPage::perceptual, AnalysisPage::absolute })
+                 AnalysisPage::attack, AnalysisPage::spectrum,
+                 AnalysisPage::perceptual, AnalysisPage::absolute })
             KIRIN_REQUIRE (! hypha::analysis_navigation::releasesSlot (previous, next));
     }
     KIRIN_REQUIRE (! hypha::analysis_navigation::releasesSlot (

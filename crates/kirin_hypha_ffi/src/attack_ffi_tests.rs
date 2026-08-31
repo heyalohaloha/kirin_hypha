@@ -52,6 +52,17 @@ fn default_is_off_and_only_post_can_enable_internal_attack() {
 }
 
 #[test]
+fn selecting_another_analysis_view_stops_the_attack_worker_without_closing_analysis() {
+    let engine = KirinHyphaEngine::new(48_000, 2);
+    *engine.write_role.lock().unwrap() = Some(PluginDataRole::Post);
+    assert!(engine.set_internal_attack_enabled(true));
+    assert_eq!(engine.internal_attack_stats().enabled, 1);
+    assert!(engine.set_spectrum_visible(true));
+    assert_eq!(engine.internal_attack_stats().enabled, 0);
+    assert!(engine.spectrum.post_visible());
+}
+
+#[test]
 fn unsupported_host_rate_stays_unavailable_without_failing_engine() {
     let engine = KirinHyphaEngine::new(12_345, 2);
     *engine.write_role.lock().unwrap() = Some(PluginDataRole::Post);

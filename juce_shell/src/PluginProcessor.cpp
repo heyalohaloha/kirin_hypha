@@ -740,6 +740,7 @@ bool KirinHyphaProcessorBase::setSpectrumVisible (bool visible)
     {
         perceptualAnalysisRequested.store (false, std::memory_order_release);
         absoluteAnalysisRequested.store (false, std::memory_order_release);
+        internalAttackRequested.store (false, std::memory_order_release);
     }
     spectrumVisibleRequested.store (visible, std::memory_order_release);
     const juce::ScopedLock sl (handleLock);
@@ -760,6 +761,7 @@ bool KirinHyphaProcessorBase::setPerceptualVisible (bool visible)
     {
         perceptualAnalysisRequested.store (true, std::memory_order_release);
         absoluteAnalysisRequested.store (false, std::memory_order_release);
+        internalAttackRequested.store (false, std::memory_order_release);
     }
     else
     {
@@ -784,6 +786,7 @@ bool KirinHyphaProcessorBase::setAbsoluteVisible (bool visible)
     {
         perceptualAnalysisRequested.store (false, std::memory_order_release);
         absoluteAnalysisRequested.store (true, std::memory_order_release);
+        internalAttackRequested.store (false, std::memory_order_release);
     }
     else
     {
@@ -887,6 +890,12 @@ bool KirinHyphaProcessorBase::setInternalAttackEnabled (bool enabled)
 {
     if (role != Role::Post)
         return false;
+    if (enabled)
+    {
+        perceptualAnalysisRequested.store (false, std::memory_order_release);
+        absoluteAnalysisRequested.store (false, std::memory_order_release);
+    }
+    spectrumVisibleRequested.store (enabled, std::memory_order_release);
     internalAttackRequested.store (enabled, std::memory_order_release);
     const juce::ScopedLock sl (handleLock);
     return hyphaHandle != nullptr
@@ -1312,7 +1321,11 @@ void KirinHyphaProcessorBase::enableWritesNow()
                 persistPairProjectHash.clear();
             }
         }
-        if (spectrumVisibleRequested.load (std::memory_order_acquire))
+        if (internalAttackRequested.load (std::memory_order_acquire))
+        {
+            kirin_hypha_set_internal_attack_enabled (hyphaHandle, true);
+        }
+        else if (spectrumVisibleRequested.load (std::memory_order_acquire))
         {
             kirin_hypha_set_spectrum_channel_mode (
                 hyphaHandle,
@@ -1324,8 +1337,6 @@ void KirinHyphaProcessorBase::enableWritesNow()
             else
                 kirin_hypha_set_spectrum_visible (hyphaHandle, true);
         }
-        if (internalAttackRequested.load (std::memory_order_acquire))
-            kirin_hypha_set_internal_attack_enabled (hyphaHandle, true);
     }
     else
     {

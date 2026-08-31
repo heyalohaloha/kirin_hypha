@@ -124,6 +124,12 @@ namespace
 KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
     : juce::AudioProcessorEditor (&p), processorRef (p), isPost (p.isPostRole())
 {
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    const bool openAttackAtLaunch = isPost
+        && juce::SystemStats::getEnvironmentVariable (
+            hypha::attack_ui::activationEnvironmentVariable, {})
+               .trim() == hypha::attack_ui::activationValue;
+   #endif
     tooltip.setLookAndFeel (&tooltipLookAndFeel);
     setWantsKeyboardFocus (true);
     setFocusContainerType (juce::Component::FocusContainerType::keyboardFocusContainer);
@@ -159,11 +165,6 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
 
     if (isPost)
     {
-       #if ! KIRIN_HYPHA_PRE_DISPLAY
-        internalAttackUi = juce::SystemStats::getEnvironmentVariable (
-            hypha::attack_ui::activationEnvironmentVariable, {})
-                .trim() == hypha::attack_ui::activationValue;
-       #endif
         nameField.setPrefix ("pair: ");
         nameField.setFallback ("___");
         nameField.setLockedTooltip (juce::CharPointer_UTF8 ("Pair selection is locked during playback"));
@@ -212,20 +213,23 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         spectrumToggle.onClick = [this]
         {
             setAnalysisPage (analysisPage == AnalysisPage::meters
-                               ? AnalysisPage::spectrum : AnalysisPage::meters);
+                               ? AnalysisPage::attack : AnalysisPage::meters);
         };
         addAndMakeVisible (spectrumToggle);
         analysisModeToggle.setTitle ("Analysis view");
-        analysisModeToggle.setDescription ("Switch frequency, Sharpness Delta, and live facts");
+        analysisModeToggle.setDescription (
+            "Switch ATTACK, frequency, Sharpness Delta, and live facts");
         analysisModeToggle.setColour (juce::TextButton::buttonColourId, hypha::kFieldFill);
         analysisModeToggle.setColour (juce::TextButton::textColourOnId, COL_SPECTRUM_DELTA);
         analysisModeToggle.setColour (juce::TextButton::textColourOffId, COL_SPECTRUM_DELTA);
         analysisModeToggle.onClick = [this]
         {
-            setAnalysisPage (analysisPage == AnalysisPage::spectrum
-                               ? AnalysisPage::perceptual
-                               : analysisPage == AnalysisPage::perceptual
-                                   ? AnalysisPage::absolute : AnalysisPage::spectrum);
+            setAnalysisPage (analysisPage == AnalysisPage::attack
+                               ? AnalysisPage::spectrum
+                               : analysisPage == AnalysisPage::spectrum
+                                   ? AnalysisPage::perceptual
+                                   : analysisPage == AnalysisPage::perceptual
+                                       ? AnalysisPage::absolute : AnalysisPage::attack);
         };
         spectrumSizeToggle.setTitle ("Spectrum size");
         spectrumSizeToggle.setDescription (
@@ -300,28 +304,17 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
 #endif
 
     configureForKind (Kind::WatchAbs6); // current | MAX, three rows
-   #if ! KIRIN_HYPHA_PRE_DISPLAY
-    if (internalAttackUi)
-    {
-        for (auto& cell : cells)
-            cell.setVisible (false);
-        loudnessSelector.setVisible (false);
-        spectrumToggle.setVisible (false);
-        analysisModeToggle.setVisible (false);
-        spectrumSizeToggle.setVisible (false);
-        spectrumView.setVisible (false);
-        perceptualView.setVisible (false);
-        absoluteView.setVisible (false);
-        attackInternalView.setVisible (true);
-        processorRef.setInternalAttackEnabled (true);
-        const auto attackPreset = ui::spectrumSizePresets.back();
-        setSize (attackPreset.width, attackPreset.height);
-    }
-   #endif
     resized();                     // finalise positions now that postControls exists
     // Producer JSON and meter snapshots advance at 100 ms. Spectrum raises this same timer to
     // 30 Hz only while its exact-pair exchange is active; every normal meter stays at 10 Hz.
     startTimerHz (ui::preDisplayPresentationHz);
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (openAttackAtLaunch)
+    {
+        spectrumSizeIndex = ui::spectrumSizePresets.size() - 1u;
+        setAnalysisPage (AnalysisPage::attack);
+    }
+   #endif
 }
 
 KirinHyphaEditor::~KirinHyphaEditor()
@@ -334,8 +327,7 @@ KirinHyphaEditor::~KirinHyphaEditor()
         processorRef.setPerceptualVisible (false);
         processorRef.setAbsoluteVisible (false);
        #if ! KIRIN_HYPHA_PRE_DISPLAY
-        if (internalAttackUi)
-            processorRef.setInternalAttackEnabled (false);
+        processorRef.setInternalAttackEnabled (false);
        #endif
     }
 }
@@ -363,7 +355,7 @@ void KirinHyphaEditor::paint (juce::Graphics& g)
 
     // Spectrum page changes only this separator to its cool accent; meter pages keep flora.
    #if ! KIRIN_HYPHA_PRE_DISPLAY
-    g.setColour (internalAttackUi || analysisPage != AnalysisPage::meters
+    g.setColour (analysisPage != AnalysisPage::meters
                    ? COL_SPECTRUM_DELTA : COL_FLORA);
    #else
     g.setColour (COL_FLORA);
@@ -444,15 +436,25 @@ void KirinHyphaEditor::layoutMetrics (bool)
 #if ! KIRIN_HYPHA_PRE_DISPLAY
 void KirinHyphaEditor::setAnalysisPage (AnalysisPage page)
 {
-    if (! isPost || internalAttackUi || analysisPage == page)
+    if (! isPost || analysisPage == page)
         return;
     const auto previousPage = analysisPage;
     spectrumView.clearSnapshot();
     perceptualView.clearSnapshot();
     absoluteView.clearSnapshot();
-    // FREQ / SHARP / LIVE share the current Analysis lease. Their `true` edge atomically changes
-    // the isolated analyzer while post_visible remains set. Releasing the previous mode here gave
-    // a waiting third instance a brief chance to steal this user's slot.
+    attackInternalView.clearSnapshot();
+    cachedAttackEvents = {};
+    cachedAttackWaveform = {};
+    cachedAttackDetails = {};
+    cachedAttackPreWaveform = {};
+    cachedAttackPreDetails = {};
+    cachedAttackPairEvents = {};
+    cachedAttackStats = {};
+    cachedAttackLatest = -1;
+    cachedAttackRate = 0;
+    cachedAttackGeneration = 0;
+    // ATTACK / FREQ / SHARP / LIVE share the current Analysis lease. Their `true` edge changes
+    // the isolated analyzer while post_visible remains set. Only METERS releases the slot.
     if (hypha::analysis_navigation::releasesSlot (previousPage, page))
     {
         if (previousPage == AnalysisPage::spectrum)
@@ -461,6 +463,8 @@ void KirinHyphaEditor::setAnalysisPage (AnalysisPage page)
             processorRef.setPerceptualVisible (false);
         else if (previousPage == AnalysisPage::absolute)
             processorRef.setAbsoluteVisible (false);
+        else if (previousPage == AnalysisPage::attack)
+            processorRef.setInternalAttackEnabled (false);
     }
     analysisPage = page;
     const bool analysisOpen = page != AnalysisPage::meters;
@@ -470,15 +474,19 @@ void KirinHyphaEditor::setAnalysisPage (AnalysisPage page)
     spectrumView.setVisible (page == AnalysisPage::spectrum);
     perceptualView.setVisible (page == AnalysisPage::perceptual);
     absoluteView.setVisible (page == AnalysisPage::absolute);
+    attackInternalView.setVisible (page == AnalysisPage::attack);
     analysisModeToggle.setVisible (analysisOpen);
     spectrumSizeToggle.setVisible (analysisOpen);
     spectrumToggle.setButtonText (analysisOpen ? "METERS" : "ANALYSIS");
     spectrumToggle.setTooltip (ui::spectrumTooltip (analysisOpen));
     spectrumToggle.setColour (juce::TextButton::textColourOffId,
                               analysisOpen ? COL_SPECTRUM_DELTA : COL_MUTED);
-    analysisModeToggle.setButtonText (page == AnalysisPage::spectrum ? "FREQ"
+    analysisModeToggle.setButtonText (page == AnalysisPage::attack ? "ATTACK"
+                                       : page == AnalysisPage::spectrum ? "FREQ"
                                        : page == AnalysisPage::perceptual ? "SHARP" : "LIVE");
-    analysisModeToggle.setTooltip (page == AnalysisPage::spectrum
+    analysisModeToggle.setTooltip (page == AnalysisPage::attack
+                                     ? hypha::analysis_ui::switchViewTooltip ("Attack")
+                                     : page == AnalysisPage::spectrum
                                      ? hypha::analysis_ui::switchViewTooltip ("Frequency Delta")
                                      : page == AnalysisPage::perceptual
                                          ? hypha::analysis_ui::switchViewTooltip ("Sharpness Delta")
@@ -493,7 +501,9 @@ void KirinHyphaEditor::setAnalysisPage (AnalysisPage page)
         setSize (preset.width, preset.height);
     resized();
     repaint();
-    if (page == AnalysisPage::spectrum)
+    if (page == AnalysisPage::attack)
+        processorRef.setInternalAttackEnabled (true);
+    else if (page == AnalysisPage::spectrum)
         processorRef.setSpectrumVisible (true);
     else if (page == AnalysisPage::perceptual)
         processorRef.setPerceptualVisible (true);
@@ -1003,7 +1013,7 @@ void KirinHyphaEditor::updatePost()
                           pairStatus != KIRIN_PAIR_STATUS_UNPAIRED);
 
    #if ! KIRIN_HYPHA_PRE_DISPLAY
-    if (internalAttackUi)
+    if (analysisPage == AnalysisPage::attack)
     {
         KirinAttackStats stats {};
         if (processorRef.internalAttackStats (stats))

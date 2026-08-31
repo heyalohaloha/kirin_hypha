@@ -214,7 +214,7 @@ pub struct KirinAttackStats {
 }
 
 impl KirinHyphaEngine {
-    /// POST-only validation switch. It is intentionally absent from persisted JUCE state.
+    /// POST-only ATTACK page switch. It is intentionally absent from persisted JUCE state.
     pub fn set_internal_attack_enabled(&self, enabled: bool) -> bool {
         if self.write_role.lock().ok().and_then(|role| *role) != Some(PluginDataRole::Post) {
             return false;
@@ -283,7 +283,7 @@ impl KirinHyphaEngine {
     }
 }
 
-/// Internal ATTACK DRUM validation switch. Not a public analysis route.
+/// ATTACK DRUM worker switch. The C ABI name is retained for compatibility.
 ///
 /// # Safety
 /// `handle` must be null or a live pointer returned by `kirin_hypha_create`.

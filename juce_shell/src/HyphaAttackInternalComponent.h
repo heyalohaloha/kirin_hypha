@@ -8,7 +8,7 @@
 
 namespace hypha
 {
-    // POST-only internal product trial. It presents factual absolute PRE/POST shapes and deltas;
+    // POST-only ATTACK product trial. It presents factual absolute PRE/POST shapes and deltas;
     // no confidence score, instrument inference, or quality judgement is introduced.
     class AttackInternalComponent final : public juce::Component
     {

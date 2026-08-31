@@ -52,9 +52,13 @@ click、Left/Right、Home/Endで一eventを選び、詳細のPREとPOSTを同じ
 見た目から楽器名、原因、推奨操作を推測しない。
 未対応event、欠測、floor-limited、Brightness pendingは輪郭または`---`で事実状態を保つ。
 
-## Internal live route
+## ATTACK product-trial route
 
-内部試用routeは既存のexact-pair optional-analysis leaseを再利用し、別の常時通信を増やさない。
+POSTの通常Analysis導線は最初にDRUM ATTACKを開き、同じ枠内でATTACK、FREQ、SHARP、LIVEを切り替える。
+初回表示は細部を見落とさない200%とし、既存のsize操作で100%、125%、150%、200%を選べる。
+環境変数はATTACKを直接開く実機検証shortcutとしてだけ残し、通常利用の必須条件にしない。
+2MIXは別profileとして精度契約が確定するまでこの導線へ出さない。
+ATTACKは既存のexact-pair optional-analysis leaseを再利用し、別の常時通信を増やさない。
 POSTがATTACKを表示している間だけ10 HzでPREの六秒waveform、ODF、event detailを専用の固定上限payloadへ発行し、同じcontent sampleとdefinitionの系列だけを結合する。
 PRE未接続ではPOST実測だけを`POST ABSOLUTE`として表示し、PRE波形を複製しない。
 二段表示はPRE/POSTで同じ中立paletteと絶対scaleを使う。

@@ -2192,6 +2192,11 @@ impl KirinHyphaEngine {
         if !is_post {
             return false;
         }
+        if visible {
+            if let Some(runtime) = self.attack_runtime.as_ref() {
+                runtime.set_enabled(false);
+            }
+        }
         if visible
             && !self
                 .spectrum
@@ -2209,6 +2214,11 @@ impl KirinHyphaEngine {
             self.write_role.lock().ok().and_then(|role| *role) == Some(PluginDataRole::Post);
         if !is_post {
             return false;
+        }
+        if visible {
+            if let Some(runtime) = self.attack_runtime.as_ref() {
+                runtime.set_enabled(false);
+            }
         }
         if visible
             && !self
@@ -2228,6 +2238,11 @@ impl KirinHyphaEngine {
             self.write_role.lock().ok().and_then(|role| *role) == Some(PluginDataRole::Post);
         if !is_post {
             return false;
+        }
+        if visible {
+            if let Some(runtime) = self.attack_runtime.as_ref() {
+                runtime.set_enabled(false);
+            }
         }
         if visible
             && !self

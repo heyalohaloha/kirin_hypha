@@ -3,9 +3,9 @@
 #include <cstdint>
 #include <limits>
 
-// Internal ATTACK validation presentation. This contract is deliberately separate from the
-// shipping Analysis navigation: it maps confirmed event samples onto a fixed six-second axis and
-// never attempts to infer an instrument from a waveform or expose an editable threshold.
+// ATTACK product-trial presentation. It maps confirmed event samples onto a fixed six-second axis
+// and never attempts to infer an instrument from a waveform or expose an editable threshold. The
+// environment variable remains only as a direct-open validation shortcut.
 namespace hypha::attack_ui
 {
     constexpr int presentationSeconds = 6;
