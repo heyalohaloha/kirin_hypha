@@ -108,6 +108,7 @@ void verifyGuideFrequencyOverlayContract()
     presentation.payloadKind = "inspect";
     presentation.guideAvailable = true;
     presentation.hasPrimary = true;
+    presentation.primary.kind = pre_display::GuidePresentationFactKind::inspectEvent;
     presentation.primary.phase = pre_display::GuideFactPhase::active;
     presentation.primary.itemId = "event_1";
     presentation.primary.label = "True Peak";
@@ -116,12 +117,18 @@ void verifyGuideFrequencyOverlayContract()
     presentation.primary.hasBand = true;
 
     const auto active = guide_frequency::fromGuidePresentation (presentation);
-    KIRIN_GUIDE_OVERLAY_REQUIRE (active.emphasis == guide_frequency::Emphasis::active);
-    KIRIN_GUIDE_OVERLAY_REQUIRE (active.kind == guide_frequency::FactKind::inspect);
+    KIRIN_GUIDE_OVERLAY_REQUIRE (active.count == 1);
+    KIRIN_GUIDE_OVERLAY_REQUIRE (active.band (0) != nullptr);
+    KIRIN_GUIDE_OVERLAY_REQUIRE (
+        active.band (0)->emphasis == guide_frequency::Emphasis::active);
+    KIRIN_GUIDE_OVERLAY_REQUIRE (
+        active.band (0)->role == guide_frequency::BandRole::inspect);
     KIRIN_GUIDE_OVERLAY_REQUIRE (active.guideId == "guide_1");
-    KIRIN_GUIDE_OVERLAY_REQUIRE (active.itemId == "event_1");
-    KIRIN_GUIDE_OVERLAY_REQUIRE (std::abs (active.lowHz - 3'150.0) < 0.001);
-    KIRIN_GUIDE_OVERLAY_REQUIRE (std::abs (active.highHz - 3'700.0) < 0.001);
+    KIRIN_GUIDE_OVERLAY_REQUIRE (active.band (0)->itemId == "event_1");
+    KIRIN_GUIDE_OVERLAY_REQUIRE (
+        std::abs (active.band (0)->lowHz - 3'150.0) < 0.001);
+    KIRIN_GUIDE_OVERLAY_REQUIRE (
+        std::abs (active.band (0)->highHz - 3'700.0) < 0.001);
 
     for (const auto& preset : ui_contract::spectrumSizePresets)
     {
@@ -130,7 +137,7 @@ void verifyGuideFrequencyOverlayContract()
             0.0f, 0.0f, (float) area.width, (float) area.height);
         const auto plot = spectrum_geometry::dataPlotBoundsFor (componentBounds);
         const auto band = guide_frequency::bandBoundsFor (
-            active, 10.0f, 22'000.0f, plot);
+            *active.band (0), 10.0f, 22'000.0f, plot);
         KIRIN_GUIDE_OVERLAY_REQUIRE (! band.isEmpty());
         KIRIN_GUIDE_OVERLAY_REQUIRE (std::abs (
             band.getX() - spectrum_geometry::xForFrequency (
@@ -143,7 +150,7 @@ void verifyGuideFrequencyOverlayContract()
         KIRIN_GUIDE_OVERLAY_REQUIRE (countPaintedPixels (activeImage) > 60);
 
         auto cue = active;
-        cue.emphasis = guide_frequency::Emphasis::cue;
+        cue.bands[0].emphasis = guide_frequency::Emphasis::cue;
         const auto cueImage = renderOverlay (cue, componentBounds);
         const int cuePixels = countPaintedPixels (cueImage);
         KIRIN_GUIDE_OVERLAY_REQUIRE (cuePixels > 4);
@@ -151,7 +158,7 @@ void verifyGuideFrequencyOverlayContract()
             countPaintedPixels (activeImage) > cuePixels * 2);
 
         auto hidden = active;
-        hidden.emphasis = guide_frequency::Emphasis::hidden;
+        hidden.bands[0].emphasis = guide_frequency::Emphasis::hidden;
         KIRIN_GUIDE_OVERLAY_REQUIRE (
             countPaintedPixels (renderOverlay (hidden, componentBounds)) == 0);
 
@@ -198,17 +205,71 @@ void verifyGuideFrequencyOverlayContract()
         ! guide_frequency::fromGuidePresentation (presentation).visible());
     presentation.primary.phase = pre_display::GuideFactPhase::cue;
     KIRIN_GUIDE_OVERLAY_REQUIRE (
-        guide_frequency::fromGuidePresentation (presentation).emphasis
+        guide_frequency::fromGuidePresentation (presentation).band (0)->emphasis
             == guide_frequency::Emphasis::cue);
+
     presentation.payloadKind = "masking";
+    presentation.primary.kind
+        = pre_display::GuidePresentationFactKind::maskingMeasuredInterval;
+    presentation.primary.phase = pre_display::GuideFactPhase::active;
+    presentation.primary.lowHz = 120.0;
+    presentation.primary.highHz = 180.0;
+    presentation.hasMaskingFocus = true;
+    presentation.maskingFocus.kind
+        = pre_display::GuidePresentationFactKind::maskingReviewSelection;
+    presentation.maskingFocus.phase = pre_display::GuideFactPhase::active;
+    presentation.maskingFocus.itemId = "review_1";
+    presentation.maskingFocus.lowHz = 100.0;
+    presentation.maskingFocus.highHz = 200.0;
+    presentation.maskingFocus.hasBand = true;
+    auto masking = guide_frequency::fromGuidePresentation (presentation);
+    KIRIN_GUIDE_OVERLAY_REQUIRE (masking.count == 2);
     KIRIN_GUIDE_OVERLAY_REQUIRE (
-        guide_frequency::fromGuidePresentation (presentation).kind
-            == guide_frequency::FactKind::masking);
+        masking.band (0)->role == guide_frequency::BandRole::maskingFocus);
+    KIRIN_GUIDE_OVERLAY_REQUIRE (
+        masking.band (1)->role == guide_frequency::BandRole::maskingMeasured);
+    KIRIN_GUIDE_OVERLAY_REQUIRE (
+        masking.band (0)->lowHz == 100.0 && masking.band (0)->highHz == 200.0);
+    KIRIN_GUIDE_OVERLAY_REQUIRE (
+        masking.band (1)->lowHz == 120.0 && masking.band (1)->highHz == 180.0);
+    const juce::Rectangle<float> comparisonBounds (0.0f, 0.0f, 560.0f, 260.0f);
+    auto focusOnly = masking;
+    focusOnly.count = 1;
+    auto measuredOnly = masking;
+    measuredOnly.bands[0] = measuredOnly.bands[1];
+    measuredOnly.count = 1;
+    const auto focusImage = renderOverlay (focusOnly, comparisonBounds);
+    const auto measuredImage = renderOverlay (measuredOnly, comparisonBounds);
+    KIRIN_GUIDE_OVERLAY_REQUIRE (
+        countPaintedPixels (measuredImage) > countPaintedPixels (focusImage) * 2);
+    const auto maskingPreset = ui_contract::spectrumSizePresets.back();
+    const auto maskingArea = ui_contract::spectrumPlotBounds (
+        maskingPreset.width, maskingPreset.height);
+    SpectrumComponent maskingComponent;
+    maskingComponent.setSize (maskingArea.width, maskingArea.height);
+    maskingComponent.setSnapshot (spectrumSnapshot());
+    maskingComponent.setGuideFrequencyOverlay (masking);
+    const auto maskingOutputPath = juce::SystemStats::getEnvironmentVariable (
+        "KIRIN_UI_MASKING_GUIDE_OUTPUT", {});
+    if (maskingOutputPath.isNotEmpty())
+    {
+        auto output = juce::File (maskingOutputPath).createOutputStream();
+        KIRIN_GUIDE_OVERLAY_REQUIRE (output != nullptr);
+        KIRIN_GUIDE_OVERLAY_REQUIRE (juce::PNGImageFormat().writeImageToStream (
+            renderComponent (maskingComponent), *output));
+    }
+
+    presentation.hasPrimary = false;
+    masking = guide_frequency::fromGuidePresentation (presentation);
+    KIRIN_GUIDE_OVERLAY_REQUIRE (masking.count == 1);
+    KIRIN_GUIDE_OVERLAY_REQUIRE (
+        masking.band (0)->role == guide_frequency::BandRole::maskingFocus);
+
     presentation.targetRole = pre_display::GuideTargetRole::pre;
     KIRIN_GUIDE_OVERLAY_REQUIRE (
         ! guide_frequency::fromGuidePresentation (presentation).visible());
     presentation.targetRole = pre_display::GuideTargetRole::post;
-    presentation.primary.lowHz = std::numeric_limits<double>::quiet_NaN();
+    presentation.maskingFocus.lowHz = std::numeric_limits<double>::quiet_NaN();
     KIRIN_GUIDE_OVERLAY_REQUIRE (
         ! guide_frequency::fromGuidePresentation (presentation).visible());
 }

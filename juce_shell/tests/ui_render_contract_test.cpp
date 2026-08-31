@@ -150,9 +150,10 @@ namespace
         component.setSize (bounds.width, bounds.height);
         component.setSnapshot (snapshot);
         hypha::guide_frequency::Overlay guideOverlay;
-        guideOverlay.emphasis = hypha::guide_frequency::Emphasis::active;
-        guideOverlay.lowHz = 3'150.0;
-        guideOverlay.highHz = 3'700.0;
+        guideOverlay.count = 1;
+        guideOverlay.bands[0].emphasis = hypha::guide_frequency::Emphasis::active;
+        guideOverlay.bands[0].lowHz = 3'150.0;
+        guideOverlay.bands[0].highHz = 3'700.0;
         component.setGuideFrequencyOverlay (guideOverlay);
 
         const float scale = ui::spectrumVisualScale (bounds.width);

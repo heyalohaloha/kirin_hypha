@@ -87,6 +87,9 @@ namespace hypha::pre_display
                                                  GuideFactPhase phase)
         {
             GuidePresentationFact out;
+            out.kind = guide.payloadKind == "masking"
+                     ? GuidePresentationFactKind::maskingMeasuredInterval
+                     : GuidePresentationFactKind::inspectEvent;
             out.phase = phase;
             out.itemId = item.itemId;
             out.selectionRef = item.selectionRef;
@@ -101,6 +104,23 @@ namespace hypha::pre_display
             out.highHz = item.highHz;
             out.hasBand = item.hasBand;
             out.focused = item.itemId == guide.focusEventId;
+            return out;
+        }
+
+        GuidePresentationFact presentationFact (const GuideReviewSelection& selection,
+                                                 GuideFactPhase phase)
+        {
+            GuidePresentationFact out;
+            out.kind = GuidePresentationFactKind::maskingReviewSelection;
+            out.phase = phase;
+            out.itemId = selection.selectionId;
+            out.selectionRef = selection.selectionId;
+            out.startNs = selection.startNs;
+            out.endNs = selection.endNs;
+            out.temporalKind = TemporalFactKind::measuredInterval;
+            out.lowHz = selection.lowHz;
+            out.highHz = selection.highHz;
+            out.hasBand = selection.hasBand;
             return out;
         }
 
@@ -190,6 +210,32 @@ namespace hypha::pre_display
                 out.next = &*next;
             return out;
         }
+
+        struct SelectedReviewSelections
+        {
+            const GuideReviewSelection* active = nullptr;
+            const GuideReviewSelection* next = nullptr;
+        };
+
+        SelectedReviewSelections selectReviewSelections (
+            const GuideModel& guide, std::int64_t sourceNs)
+        {
+            SelectedReviewSelections out;
+            for (const auto& selection : guide.reviewSelections)
+            {
+                if (containsHalfOpen (selection.startNs, selection.endNs, sourceNs))
+                {
+                    if (out.active == nullptr
+                        || selection.startNs > out.active->startNs
+                        || (selection.startNs == out.active->startNs
+                            && selection.selectionId < out.active->selectionId))
+                        out.active = &selection;
+                }
+                else if (selection.startNs > sourceNs && out.next == nullptr)
+                    out.next = &selection;
+            }
+            return out;
+        }
     }
 
     GuidePresentationSnapshot projectGuidePresentation (
@@ -210,7 +256,8 @@ namespace hypha::pre_display
         out.clockPaused = ! clock.playing
                        || (clockObservedAtMs > 0
                            && nowMs - clockObservedAtMs > kClockStaleMs);
-        if (guide.payloadKind == "masking" && guide.items.empty())
+        if (guide.payloadKind == "masking" && guide.items.empty()
+            && guide.reviewSelections.empty())
         {
             out.status = DisplayStatus::received;
             return out;
@@ -228,6 +275,12 @@ namespace hypha::pre_display
                     guide, guide.items.front(), GuideFactPhase::next);
                 out.hasNext = true;
             }
+            if (! guide.reviewSelections.empty())
+            {
+                out.nextMaskingFocus = presentationFact (
+                    guide.reviewSelections.front(), GuideFactPhase::next);
+                out.hasNextMaskingFocus = true;
+            }
             return out;
         }
 
@@ -242,6 +295,8 @@ namespace hypha::pre_display
         out.hasSourcePosition = true;
 
         const auto selected = selectFacts (guide, out.sourcePositionNs);
+        const auto selectedReviews = selectReviewSelections (
+            guide, out.sourcePositionNs);
         out.overlapCount = selected.overlapCount;
         if (selected.primary != nullptr)
         {
@@ -254,8 +309,22 @@ namespace hypha::pre_display
             out.next = presentationFact (guide, *selected.next, GuideFactPhase::next);
             out.hasNext = true;
         }
-        if (! out.hasPrimary)
-            out.status = out.hasNext ? DisplayStatus::next : DisplayStatus::end;
+        if (selectedReviews.active != nullptr)
+        {
+            out.maskingFocus = presentationFact (
+                *selectedReviews.active, GuideFactPhase::active);
+            out.hasMaskingFocus = true;
+            out.status = DisplayStatus::active;
+        }
+        if (selectedReviews.next != nullptr)
+        {
+            out.nextMaskingFocus = presentationFact (
+                *selectedReviews.next, GuideFactPhase::next);
+            out.hasNextMaskingFocus = true;
+        }
+        if (! out.hasPrimary && ! out.hasMaskingFocus)
+            out.status = (out.hasNext || out.hasNextMaskingFocus)
+                       ? DisplayStatus::next : DisplayStatus::end;
         return out;
     }
 
@@ -300,9 +369,10 @@ namespace hypha::pre_display
                            + factSeparator() + "Guide retained";
                 return out;
             }
-            if (presentation.hasNext)
+            if (presentation.hasNext || presentation.hasNextMaskingFocus)
             {
-                const auto& first = presentation.next;
+                const auto& first = presentation.hasNext
+                                  ? presentation.next : presentation.nextMaskingFocus;
                 const auto fact = presentation.payloadKind == "inspect"
                                     ? first.label : bandText (first);
                 out.detail = "NEXT " + timeText (first.startNs)
@@ -339,9 +409,20 @@ namespace hypha::pre_display
             if (cue) appendState (out, "CUE");
             if (held) appendState (out, "HELD");
         }
-        else if (presentation.hasNext)
+        else if (presentation.hasMaskingFocus)
         {
-            const auto& next = presentation.next;
+            const auto& focus = presentation.maskingFocus;
+            out.status = DisplayStatus::active;
+            out.sectionActive = true;
+            out.primary = heading + "  " + timeText (presentation.sourcePositionNs);
+            const auto band = bandText (focus);
+            if (band.isNotEmpty()) out.primary += factSeparator() + band;
+            out.detail = presentation.sourcePairLabel;
+        }
+        else if (presentation.hasNext || presentation.hasNextMaskingFocus)
+        {
+            const auto& next = presentation.hasNext
+                             ? presentation.next : presentation.nextMaskingFocus;
             out.status = DisplayStatus::next;
             out.primary = heading + "  NEXT " + timeText (next.startNs);
             out.detail = itemDetail (presentation, next, 0);

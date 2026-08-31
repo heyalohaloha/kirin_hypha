@@ -337,8 +337,12 @@ int main()
              "parse the exact Kirin OS MASKING v1.1 fixture");
     require (fixtureModel.protocolVersion == "1.1"
              && fixtureModel.items.size() == 2
-             && fixtureModel.items.front().selectionRef == "review_0001",
-             "retain the v1.1 review selection binding without treating it as an exact runtime target");
+             && fixtureModel.items.front().selectionRef == "review_0001"
+             && fixtureModel.reviewSelections.size() == 1
+             && fixtureModel.reviewSelections.front().selectionId == "review_0001"
+             && exactDouble (fixtureModel.reviewSelections.front().lowHz, 90.0)
+             && exactDouble (fixtureModel.reviewSelections.front().highHz, 220.0),
+             "retain the v1.1 review focus and measured binding as separate facts");
     pre::ClockSnapshot fixtureClock;
     fixtureClock.generation = 1;
     fixtureClock.positionSamples = 72'000;
@@ -575,8 +579,56 @@ int main()
     require (pre::parseArtifactVerifiedGuideModel (
                  *exactMasking.getDynamicObject(), "exact-masking", exactMaskingModel)
              && exactMaskingModel.items.size() == 1
-             && exactMaskingModel.items.front().selectionRef == "review_0001",
-             "retain the selected MASKING range used to build the exact PRE guide");
+             && exactMaskingModel.items.front().selectionRef == "review_0001"
+             && exactMaskingModel.reviewSelections.size() == 1
+             && exactMaskingModel.reviewSelections.front().selectionId == "review_0001"
+             && exactMaskingModel.reviewSelections.front().startNs == 1'000'000'000
+             && exactMaskingModel.reviewSelections.front().endNs == 2'000'000'000
+             && exactDouble (exactMaskingModel.reviewSelections.front().lowHz, 100.0)
+             && exactDouble (exactMaskingModel.reviewSelections.front().highHz, 200.0),
+             "retain the selected MASKING focus separately from its measured interval");
+    pre::ClockSnapshot exactMaskingClock;
+    exactMaskingClock.generation = 1;
+    exactMaskingClock.positionSamples = 72'000;
+    exactMaskingClock.sampleRate = 48'000.0;
+    exactMaskingClock.playing = true;
+    exactMaskingClock.source = pre::ClockSource::projectTimeline;
+    const auto exactMaskingPresentation = pre::projectGuidePresentation (
+        exactMaskingModel, exactMaskingClock, 1'000, 1'000);
+    require (exactMaskingPresentation.status == pre::DisplayStatus::active
+             && exactMaskingPresentation.hasPrimary
+             && exactMaskingPresentation.primary.kind
+                    == pre::GuidePresentationFactKind::maskingMeasuredInterval
+             && exactMaskingPresentation.primary.selectionRef == "review_0001"
+             && exactMaskingPresentation.hasMaskingFocus
+             && exactMaskingPresentation.maskingFocus.kind
+                    == pre::GuidePresentationFactKind::maskingReviewSelection
+             && exactMaskingPresentation.maskingFocus.itemId == "review_0001",
+             "project MASKING focus and measured collision as two typed facts");
+    auto focusOnlyMasking = exactMaskingGuide (
+        exactWorkId, exactBindingId, exactRuntimeId);
+    focusOnlyMasking.getDynamicObject()->getProperty ("payload").getDynamicObject()
+        ->getProperty ("intervals").getArray()->clear();
+    pre::GuideModel focusOnlyMaskingModel;
+    require (pre::parseArtifactVerifiedGuideModel (
+                 *focusOnlyMasking.getDynamicObject(), "focus-only-masking",
+                 focusOnlyMaskingModel),
+             "accept a measured MASKING selection with no collision interval");
+    const auto focusOnlyPresentation = pre::projectGuidePresentation (
+        focusOnlyMaskingModel, exactMaskingClock, 1'000, 1'000);
+    require (focusOnlyPresentation.status == pre::DisplayStatus::active
+             && ! focusOnlyPresentation.hasPrimary
+             && focusOnlyPresentation.hasMaskingFocus
+             && focusOnlyPresentation.maskingFocus.phase == pre::GuideFactPhase::active,
+             "keep the selected MASKING focus visible without inventing a collision");
+    const auto focusOnlyDisplay = pre::projectDisplay (
+        focusOnlyMaskingModel, exactMaskingClock, 1'000, 1'000);
+    require (focusOnlyDisplay.status == pre::DisplayStatus::active
+             && focusOnlyDisplay.sectionActive
+             && focusOnlyDisplay.primary.contains (
+                    juce::String ("100") + juce::String::charToString (0x2013)
+                    + "200 Hz"),
+             "present the focus-only range factually in the compatibility display");
     auto intervalOutsideSelection = exactMaskingGuide (exactWorkId, exactBindingId, exactRuntimeId);
     intervalOutsideSelection.getDynamicObject()->getProperty ("payload").getDynamicObject()
         ->getProperty ("review_selections").getArray()->getReference (0).getDynamicObject()

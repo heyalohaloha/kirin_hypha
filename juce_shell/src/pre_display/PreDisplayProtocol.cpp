@@ -441,16 +441,8 @@ namespace hypha::pre_display
                 return false;
         }
 
-        struct ReviewSelection
-        {
-            std::int64_t startNs = 0;
-            std::int64_t endNs = 0;
-            double lowHz = 0.0;
-            double highHz = 0.0;
-        };
-
         const juce::Array<juce::var>* items = nullptr;
-        std::map<std::string, ReviewSelection> reviewSelections;
+        std::map<std::string, GuideReviewSelection> reviewSelections;
         std::int64_t maskingDuration = maxSafeJsonInteger;
         if (candidate.payloadKind == "masking")
         {
@@ -505,11 +497,13 @@ namespace hypha::pre_display
                         || ! parseBand (selection->getProperty ("focus_band"), focusBand)
                         || ! focusBand.hasBand)
                         return false;
-                    ReviewSelection parsedSelection;
+                    GuideReviewSelection parsedSelection;
+                    parsedSelection.selectionId = objectString (*selection, "selection_id");
                     parsedSelection.startNs = selectionStart;
                     parsedSelection.endNs = selectionEnd;
                     parsedSelection.lowHz = focusBand.lowHz;
                     parsedSelection.highHz = focusBand.highHz;
+                    parsedSelection.hasBand = true;
                     if (! reviewSelections.emplace (
                             objectString (*selection, "selection_id").toStdString(),
                             parsedSelection).second)
@@ -562,6 +556,18 @@ namespace hypha::pre_display
                               && item.lowHz < selection->second.highHz)))
                     return false;
             }
+            candidate.reviewSelections.reserve (reviewSelections.size());
+            for (const auto& [selectionId, selection] : reviewSelections)
+            {
+                juce::ignoreUnused (selectionId);
+                candidate.reviewSelections.push_back (selection);
+            }
+            std::stable_sort (candidate.reviewSelections.begin(),
+                              candidate.reviewSelections.end(), [] (const auto& a, const auto& b)
+            {
+                if (a.startNs != b.startNs) return a.startNs < b.startNs;
+                return a.selectionId < b.selectionId;
+            });
         }
         if (candidate.payloadKind == "inspect" && candidate.focusEventId.isNotEmpty()
             && itemIds.find (candidate.focusEventId.toStdString()) == itemIds.end())

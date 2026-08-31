@@ -154,9 +154,10 @@ namespace
         // Guide is a global presentation layer. Measure the combined worst-case paint path rather
         // than benchmarking Focus Trail with the newly shipped active band artificially hidden.
         guide_frequency::Overlay guideOverlay;
-        guideOverlay.emphasis = guide_frequency::Emphasis::active;
-        guideOverlay.lowHz = 3'150.0;
-        guideOverlay.highHz = 3'700.0;
+        guideOverlay.count = 1;
+        guideOverlay.bands[0].emphasis = guide_frequency::Emphasis::active;
+        guideOverlay.bands[0].lowHz = 3'150.0;
+        guideOverlay.bands[0].highHz = 3'700.0;
         component.setGuideFrequencyOverlay (guideOverlay);
         const int64_t cadence = static_cast<int64_t> (
             source.sample_rate / ui_contract::spectrumPresentationHz);

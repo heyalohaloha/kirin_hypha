@@ -92,6 +92,13 @@ namespace hypha::pre_display
         instantMarker,
     };
 
+    enum class GuidePresentationFactKind
+    {
+        inspectEvent,
+        maskingMeasuredInterval,
+        maskingReviewSelection,
+    };
+
     struct GuideItem
     {
         juce::String itemId;
@@ -108,10 +115,21 @@ namespace hypha::pre_display
         bool hasBand = false;
     };
 
+    struct GuideReviewSelection
+    {
+        juce::String selectionId;
+        std::int64_t startNs = 0;
+        std::int64_t endNs = 0;
+        double lowHz = 0.0;
+        double highHz = 0.0;
+        bool hasBand = false;
+    };
+
     // Bounded, UI-facing fact copied by the Guide worker. Domain views consume this type instead
     // of reparsing transport JSON or inferring time state from presentation text.
     struct GuidePresentationFact
     {
+        GuidePresentationFactKind kind = GuidePresentationFactKind::inspectEvent;
         GuideFactPhase phase = GuideFactPhase::none;
         juce::String itemId;
         juce::String selectionRef;
@@ -141,12 +159,16 @@ namespace hypha::pre_display
         std::int64_t sourcePositionNs = 0;
         GuidePresentationFact primary;
         GuidePresentationFact next;
+        GuidePresentationFact maskingFocus;
+        GuidePresentationFact nextMaskingFocus;
         int overlapCount = 0;
         bool guideAvailable = false;
         bool hasSourcePosition = false;
         bool clockPaused = false;
         bool hasPrimary = false;
         bool hasNext = false;
+        bool hasMaskingFocus = false;
+        bool hasNextMaskingFocus = false;
         bool truncated = false;
     };
 
@@ -168,6 +190,7 @@ namespace hypha::pre_display
         std::int64_t sourceZeroProjectNs = 0;
         std::int64_t revision = 0;
         std::vector<GuideItem> items;
+        std::vector<GuideReviewSelection> reviewSelections;
 
         bool valid() const noexcept { return guideId.isNotEmpty(); }
         bool hasMeasuredEmptyMasking() const noexcept
