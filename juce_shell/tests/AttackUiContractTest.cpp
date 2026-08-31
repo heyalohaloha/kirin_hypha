@@ -8,7 +8,7 @@
 #include <cstddef>
 #include <cstdlib>
 #include <iostream>
-
+#include <memory>
 namespace
 {
     void require (bool condition, const char* expression, int line)
@@ -19,7 +19,6 @@ namespace
                   << ": " << expression << '\n';
         std::exit (EXIT_FAILURE);
     }
-
 #define KIRIN_REQUIRE(expression) require ((expression), #expression, __LINE__)
 
     bool nearRgb (juce::Colour pixel, juce::Colour target)
@@ -167,7 +166,8 @@ int main()
     static_assert (sizeof (KirinAttackPairEvent) == 112);
     static_assert (sizeof (KirinAttackPairEventBatch) == 26'896);
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
-    hypha::AttackInternalComponent component;
+    auto componentStorage = std::make_unique<hypha::AttackInternalComponent>();
+    auto& component = *componentStorage;
     const auto selectionColour = juce::Colour (hypha::attack_ui::selectionColour);
     const auto bounds = hypha::ui_contract::spectrumPlotBounds (600, 400);
     component.setSize (bounds.width, bounds.height);
@@ -190,7 +190,8 @@ int main()
     events.events[3].event_sample = 200'000;
     events.events[3].generation = 6; // stale transport generation must not be painted
 
-    KirinAttackWaveformBatch waveform {};
+    auto waveformStorage = std::make_unique<KirinAttackWaveformBatch>();
+    auto& waveform = *waveformStorage;
     waveform.capacity = KIRIN_ATTACK_WAVEFORM_BATCH_CAPACITY;
     waveform.count = KIRIN_ATTACK_WAVEFORM_BATCH_CAPACITY;
     for (std::uint32_t index = 0; index < waveform.count; ++index)
@@ -222,7 +223,8 @@ int main()
         waveform.points[index].rms_dbfs = -58.0f + pulse * 48.0f;
     }
 
-    KirinAttackDetailBatch details {};
+    auto detailsStorage = std::make_unique<KirinAttackDetailBatch>();
+    auto& details = *detailsStorage;
     details.capacity = KIRIN_ATTACK_DETAIL_BATCH_CAPACITY;
     details.count = 1;
     auto& detail = details.details[0];
@@ -258,10 +260,12 @@ int main()
     details.details[2].shape_start_sample = -4'800;
     details.details[2].shape_end_sample = 1'440;
 
-    auto preWaveform = waveform;
+    auto preWaveformStorage = std::make_unique<KirinAttackWaveformBatch> (waveform);
+    auto& preWaveform = *preWaveformStorage;
     for (std::uint32_t index = 0; index < preWaveform.count; ++index)
         preWaveform.points[index].rms_dbfs -= 2.0f;
-    KirinAttackDetailBatch preDetails = details;
+    auto preDetailsStorage = std::make_unique<KirinAttackDetailBatch> (details);
+    auto& preDetails = *preDetailsStorage;
     for (std::uint32_t index = 0; index < preDetails.count; ++index)
     {
         preDetails.details[index].contrast_db = 5.0f;
@@ -309,7 +313,8 @@ int main()
     const auto postLane = juce::Rectangle<int> (
         0, hypha::attack_ui::headerHeight + laneHeight,
         image.getWidth(), timelineHeight - laneHeight);
-    hypha::AttackInternalComponent identityComponent;
+    auto identityComponentStorage = std::make_unique<hypha::AttackInternalComponent>();
+    auto& identityComponent = *identityComponentStorage;
     identityComponent.setSize (bounds.width, bounds.height);
     identityComponent.setSnapshot (events, waveform, details, waveform, details, pairEvents,
                                    288'000, 48'000, 7, stats);
@@ -340,8 +345,8 @@ int main()
         identityDifferenceGraphics, waveform, details, details, pairEvents,
         identityDifferenceLayer.getBounds(), 0, 288'000, 48'000);
     KIRIN_REQUIRE (countVisiblePixels (identityDifferenceLayer) == 0);
-
-    auto thresholdDetails = details;
+    auto thresholdDetailsStorage = std::make_unique<KirinAttackDetailBatch> (details);
+    auto& thresholdDetails = *thresholdDetailsStorage;
     for (std::uint32_t index = 0; index < thresholdDetails.count; ++index)
     {
         thresholdDetails.details[index].attack_rms_dbfs = hypha::attack_ui::strengthGlowOnDbfs;
@@ -351,7 +356,8 @@ int main()
         thresholdDetails.details[index].crest_db = 12.0f;
         thresholdDetails.details[index].peak_plateau_ms = 0.0f;
     }
-    hypha::AttackInternalComponent thresholdComponent;
+    auto thresholdComponentStorage = std::make_unique<hypha::AttackInternalComponent>();
+    auto& thresholdComponent = *thresholdComponentStorage;
     thresholdComponent.setSize (bounds.width, bounds.height);
     thresholdComponent.setSnapshot (
         events, waveform, thresholdDetails, waveform, thresholdDetails, pairEvents,
@@ -364,7 +370,8 @@ int main()
     for (const auto visual : { VisualComponent::strength, VisualComponent::brightness,
                                VisualComponent::transient, VisualComponent::texture })
     {
-        auto featureDetails = thresholdDetails;
+        auto featureDetailsStorage = std::make_unique<KirinAttackDetailBatch> (thresholdDetails);
+        auto& featureDetails = *featureDetailsStorage;
         for (std::uint32_t index = 0; index < featureDetails.count; ++index)
         {
             auto& feature = featureDetails.details[index];
@@ -386,7 +393,8 @@ int main()
                     break;
             }
         }
-        hypha::AttackInternalComponent featureComponent;
+        auto featureComponentStorage = std::make_unique<hypha::AttackInternalComponent>();
+        auto& featureComponent = *featureComponentStorage;
         featureComponent.setSize (bounds.width, bounds.height);
         featureComponent.setSnapshot (
             events, waveform, featureDetails, waveform, featureDetails, pairEvents,
