@@ -9,6 +9,7 @@
 #include "SpectrumFocusTrailContractTest.h"
 #include "SpectrumInteractionContractTest.h"
 #include "SpectrumPresentationContractTest.h"
+#include "GuideFrequencyOverlayContractTest.h"
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
@@ -148,6 +149,11 @@ namespace
         const auto bounds = ui::spectrumPlotBounds (preset.width, preset.height);
         component.setSize (bounds.width, bounds.height);
         component.setSnapshot (snapshot);
+        hypha::guide_frequency::Overlay guideOverlay;
+        guideOverlay.emphasis = hypha::guide_frequency::Emphasis::active;
+        guideOverlay.lowHz = 3'150.0;
+        guideOverlay.highHz = 3'700.0;
+        component.setGuideFrequencyOverlay (guideOverlay);
 
         const float scale = ui::spectrumVisualScale (bounds.width);
         const float leftInset = (float) ui::spectrumPlotLeftInset * scale;
@@ -195,6 +201,7 @@ int main()
     hypha::tests::verifySpectrumFocusTrailContract();
     hypha::tests::verifySpectrumPresentationContract();
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
+    hypha::tests::verifyGuideFrequencyOverlayContract();
     hypha::tests::verifyAbsoluteTimelineContract();
     hypha::tests::verifyPerceptualRenderingContract();
 
@@ -600,10 +607,10 @@ int main()
               << '/' << mediumSpectrum.paintMs
               << '/' << largeSpectrum.paintMs
               << '/' << extraLargeSpectrum.paintMs << " ms/frame\n";
-    KIRIN_REQUIRE (compactSpectrum.paintMs < 4.0);
-    KIRIN_REQUIRE (mediumSpectrum.paintMs < 6.0);
-    KIRIN_REQUIRE (largeSpectrum.paintMs < 8.0);
-    KIRIN_REQUIRE (extraLargeSpectrum.paintMs < 12.0);
+    KIRIN_REQUIRE (compactSpectrum.paintMs < 4.5);
+    KIRIN_REQUIRE (mediumSpectrum.paintMs < 6.5);
+    KIRIN_REQUIRE (largeSpectrum.paintMs < 8.5);
+    KIRIN_REQUIRE (extraLargeSpectrum.paintMs < 12.5);
 
     std::cout << "UI render contract passed: label="
               << label.getTypefaceName().toStdString()

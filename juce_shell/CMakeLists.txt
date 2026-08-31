@@ -152,6 +152,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
             src/HyphaAttackInternalComponent.cpp
             src/HyphaAttackInteraction.cpp
             src/HyphaAttackPainter.cpp
+            src/HyphaGuideFrequencyOverlay.cpp
             src/HyphaPerceptualComponent.cpp
             src/HyphaPerceptualPainter.cpp
             src/HyphaSpectrumComponent.cpp
@@ -243,7 +244,9 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         tests/SpectrumInteractionContractTest.cpp
         tests/SpectrumFocusTrailContractTest.cpp
         tests/SpectrumPresentationContractTest.cpp
+        tests/GuideFrequencyOverlayContractTest.cpp
         src/HyphaHoverHelpPreference.cpp
+        src/HyphaGuideFrequencyOverlay.cpp
         src/HyphaAbsoluteComponent.cpp
         src/HyphaAbsolutePainter.cpp
         src/HyphaPerceptualComponent.cpp
@@ -269,6 +272,33 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         juce::juce_recommended_config_flags
         juce::juce_recommended_warning_flags)
     add_test(NAME kirin_ui_render_contract COMMAND KirinUiRenderContractTests)
+
+    juce_add_console_app(KirinGuideFrequencyOverlayContractTests
+        PRODUCT_NAME "Kirin Guide Frequency Overlay Contract Tests")
+    target_sources(KirinGuideFrequencyOverlayContractTests PRIVATE
+        tests/GuideFrequencyOverlayContractTest.cpp
+        src/HyphaGuideFrequencyOverlay.cpp
+        src/HyphaSpectrumComponent.cpp
+        src/HyphaSpectrumTooltip.cpp
+        src/HyphaSpectrumChromePainter.cpp
+        src/HyphaSpectrumFocusTrail.cpp
+        src/HyphaSpectrumFocusTrailPainter.cpp
+        src/HyphaSpectrumPainter.cpp)
+    target_compile_definitions(KirinGuideFrequencyOverlayContractTests PRIVATE
+        KIRIN_GUIDE_OVERLAY_STANDALONE=1
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0
+        JUCE_DISPLAY_SPLASH_SCREEN=0)
+    target_compile_options(KirinGuideFrequencyOverlayContractTests PRIVATE
+        ${KIRIN_SOURCE_ENCODING_ARGS})
+    target_include_directories(KirinGuideFrequencyOverlayContractTests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../crates/kirin_hypha_ffi/include)
+    target_link_libraries(KirinGuideFrequencyOverlayContractTests PRIVATE
+        juce::juce_gui_basics
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_warning_flags)
+    add_test(NAME kirin_guide_frequency_overlay_contract
+        COMMAND KirinGuideFrequencyOverlayContractTests)
 
     juce_add_console_app(KirinAttackUiContractTests
         PRODUCT_NAME "Kirin ATTACK UI Contract Tests")

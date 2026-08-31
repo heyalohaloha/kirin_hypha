@@ -3,6 +3,7 @@
 #include <juce_graphics/juce_graphics.h>
 
 #include "HyphaSpectrumPainter.h"
+#include "HyphaGuideFrequencyOverlay.h"
 #include "HyphaSpectrumFocusTrail.h"
 #include "kirin_hypha_ffi.h"
 
@@ -23,6 +24,7 @@ namespace hypha::spectrum_chrome
         const spectrum_focus::FocusTrailHistory* focusTrail;
         const juce::String& actionNotice;
         const juce::String& analysisOwnerNames;
+        const guide_frequency::Overlay& guideOverlay;
         bool haveSnapshot;
         bool snapshotValid;
         bool haveMark;

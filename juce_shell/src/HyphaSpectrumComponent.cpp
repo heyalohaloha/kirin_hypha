@@ -85,6 +85,15 @@ void SpectrumComponent::setAnalysisOwnerNames (const juce::String& names)
     repaint();
 }
 
+void SpectrumComponent::setGuideFrequencyOverlay (
+    const guide_frequency::Overlay& next)
+{
+    if (guide_frequency::equivalent (guideOverlay, next))
+        return;
+    guideOverlay = next;
+    repaint();
+}
+
 void SpectrumComponent::setSnapshot (const KirinSpectrumView& next)
 {
     if (haveSnapshot && std::memcmp (&snapshot, &next, sizeof (snapshot)) == 0)
@@ -255,6 +264,7 @@ void SpectrumComponent::clearSnapshot()
     modeActionNoticeUntilMs = 0.0;
     lastCurvePresentationMs = 0.0;
     lastNumericPresentationMs = 0.0;
+    guideOverlay = {};
     repaint();
 }
 
@@ -424,6 +434,7 @@ void SpectrumComponent::paint (juce::Graphics& g)
         snapshot, displayedPre, displayedPost, displayedDelta,
         readoutPre, readoutPost, readoutDelta, markedDelta,
         focusTrail.get(), modeActionNotice, analysisOwnerNames,
+        guideOverlay,
         haveSnapshot, haveSnapshot && validSnapshot (snapshot),
         haveMark, hoverNormalisedX, focusFrequencyHz, channelMode, inputChannels
     };

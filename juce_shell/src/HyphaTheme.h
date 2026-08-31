@@ -19,6 +19,8 @@ namespace hypha
     inline const juce::Colour COL_MUTED     { ui_contract::muted }; // #606060 labels / units / "---"
     inline const juce::Colour COL_FLORA     { ui_contract::flora }; // #D4A043 name / flora line / Keeping / preset LED
     inline const juce::Colour COL_FLORA_BR  { ui_contract::floraBright }; // #FFE0A0 TP > -1.0 dBTP
+    inline const juce::Colour COL_GUIDE     { ui_contract::guideGold };
+    inline const juce::Colour COL_GUIDE_BR  { ui_contract::guideGoldBright };
     inline const juce::Colour COL_SPECTRUM_DELTA { ui_contract::spectrumDelta };
     inline const juce::Colour COL_SPECTRUM_DELTA_BR { ui_contract::spectrumDeltaBright };
     inline const juce::Colour COL_SPECTRUM_PRE { ui_contract::spectrumPre };

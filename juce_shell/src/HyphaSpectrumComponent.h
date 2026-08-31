@@ -7,6 +7,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "HyphaTheme.h"
+#include "HyphaGuideFrequencyOverlay.h"
 #include "HyphaSpectrumFocusTrail.h"
 #include "kirin_hypha_ffi.h"
 
@@ -28,6 +29,7 @@ public:
     void presentationTick();
     void presentationTickAt (double nowMs);
     void setAnalysisOwnerNames (const juce::String& names);
+    void setGuideFrequencyOverlay (const guide_frequency::Overlay& next);
     void paint (juce::Graphics&) override;
     void mouseMove (const juce::MouseEvent&) override;
     void mouseExit (const juce::MouseEvent&) override;
@@ -81,6 +83,7 @@ private:
     uint8_t inputChannels = 0;
     juce::String modeActionNotice;
     juce::String analysisOwnerNames;
+    guide_frequency::Overlay guideOverlay;
     double modeActionNoticeUntilMs = 0.0;
     bool hoverNeedsRepaint = false;
     double lastCurvePresentationMs = 0.0;

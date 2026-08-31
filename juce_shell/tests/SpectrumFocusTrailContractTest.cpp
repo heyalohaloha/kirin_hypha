@@ -151,6 +151,13 @@ namespace
         const auto componentBounds = ui_contract::spectrumPlotBounds (
             preset.width, preset.height);
         component.setSize (componentBounds.width, componentBounds.height);
+        // Guide is a global presentation layer. Measure the combined worst-case paint path rather
+        // than benchmarking Focus Trail with the newly shipped active band artificially hidden.
+        guide_frequency::Overlay guideOverlay;
+        guideOverlay.emphasis = guide_frequency::Emphasis::active;
+        guideOverlay.lowHz = 3'150.0;
+        guideOverlay.highHz = 3'700.0;
+        component.setGuideFrequencyOverlay (guideOverlay);
         const int64_t cadence = static_cast<int64_t> (
             source.sample_rate / ui_contract::spectrumPresentationHz);
         spectrum_focus::FocusTrailHistory directHistory;
@@ -316,12 +323,12 @@ void verifySpectrumFocusTrailContract()
 void verifySpectrumFocusTrailRendering (const KirinSpectrumView& snapshot)
 {
     verifyRenderingAtSize (snapshot, ui_contract::spectrumSizePresets[0],
-                           "KIRIN_UI_FOCUS_TRAIL_OUTPUT", 4.0, 0.5);
+                           "KIRIN_UI_FOCUS_TRAIL_OUTPUT", 4.5, 0.5);
     verifyRenderingAtSize (snapshot, ui_contract::spectrumSizePresets[1],
-                           "KIRIN_UI_FOCUS_TRAIL_OUTPUT_MEDIUM", 6.0, 0.65);
+                           "KIRIN_UI_FOCUS_TRAIL_OUTPUT_MEDIUM", 6.5, 0.65);
     verifyRenderingAtSize (snapshot, ui_contract::spectrumSizePresets[2],
-                           "KIRIN_UI_FOCUS_TRAIL_OUTPUT_LARGE", 8.0, 0.8);
+                           "KIRIN_UI_FOCUS_TRAIL_OUTPUT_LARGE", 8.5, 0.8);
     verifyRenderingAtSize (snapshot, ui_contract::spectrumSizePresets[3],
-                           "KIRIN_UI_FOCUS_TRAIL_OUTPUT_XLARGE", 12.0, 1.2);
+                           "KIRIN_UI_FOCUS_TRAIL_OUTPUT_XLARGE", 12.5, 1.2);
 }
 }

@@ -91,12 +91,6 @@ namespace hypha::pre_display
         return display;
     }
 
-    GuidePresentationSnapshot Controller::guidePresentationSnapshot() const
-    {
-        const juce::ScopedLock lock (displayLock);
-        return guidePresentation;
-    }
-
     ConnectionRequest Controller::pendingConnection() const
     {
         const juce::ScopedLock lock (connectionLock);
@@ -180,8 +174,7 @@ namespace hypha::pre_display
         }
     }
 
-    void Controller::publishDisplay (DisplaySnapshot next,
-                                     GuidePresentationSnapshot nextGuidePresentation)
+    void Controller::publishDisplay (DisplaySnapshot next, GuidePresentationSnapshot nextGuidePresentation)
     {
         const juce::ScopedLock lock (displayLock);
         display = std::move (next);

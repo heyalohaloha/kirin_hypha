@@ -75,6 +75,9 @@ namespace hypha::ui_contract
     constexpr std::uint32_t preDisplayContextDetail = 0xff898989;
     constexpr std::uint32_t flora      = 0xffd4a043;
     constexpr std::uint32_t floraBright = 0xffffe0a0;
+    // Guide gold is a semantic alias, not a quality scale: it identifies received Kirin OS facts.
+    constexpr std::uint32_t guideGold = flora;
+    constexpr std::uint32_t guideGoldBright = floraBright;
     constexpr std::uint32_t spectrumDelta = 0xff75d6e8;
     constexpr std::uint32_t spectrumDeltaBright = 0xffcdeff5;
     constexpr std::uint32_t spectrumPre = 0xff74808f;

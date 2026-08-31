@@ -75,6 +75,11 @@ namespace hypha::ui_contract
     constexpr float spectrumPostGlowAlpha = 0.05f;
     constexpr float spectrumPostStrokeWidth = 1.10f;
     constexpr float spectrumPostCurveAlpha = 0.70f;
+    constexpr float guideBandActiveTopAlpha = 0.16f;
+    constexpr float guideBandActiveBottomAlpha = 0.025f;
+    constexpr float guideBandGlowAlpha = 0.105f;
+    constexpr float guideBandActiveStrokeAlpha = 0.90f;
+    constexpr float guideBandCueStrokeAlpha = 0.36f;
     constexpr float spectrumDeltaLegendAlpha = 0.98f;
     constexpr float spectrumPreLegendAlpha = 0.92f;
     constexpr float spectrumPostLegendAlpha = 0.90f;

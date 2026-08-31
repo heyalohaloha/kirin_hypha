@@ -427,6 +427,9 @@ void paint (juce::Graphics& g,
         return;
     }
 
+    if (state.guideOverlay.visible())
+        guide_frequency::paint (g, plot, scale, state.guideOverlay,
+                                minimumHz, maximumHz);
     spectrum_painter::paintCurves (g, plot, scale, state.pre, state.post,
                                    state.delta, state.haveMark ? &state.mark : nullptr);
     if (focusNormalisedX >= 0.0f

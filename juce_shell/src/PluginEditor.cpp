@@ -1087,6 +1087,9 @@ void KirinHyphaEditor::updatePost()
         && processorRef.pollAnalysisOwnerNames (analysisOwnerNames);
     if (analysisPage == AnalysisPage::spectrum)
     {
+        spectrumView.setGuideFrequencyOverlay (
+            hypha::guide_frequency::fromGuidePresentation (
+                processorRef.guidePresentationSnapshot()));
         if (haveAnalysisOwnerNames)
             spectrumView.setAnalysisOwnerNames (analysisOwnerNames);
         spectrumView.presentationTick();

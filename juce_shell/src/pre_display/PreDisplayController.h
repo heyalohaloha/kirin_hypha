@@ -19,7 +19,11 @@ namespace hypha::pre_display
         void configureAndStart (RuntimeIdentity identityIn);
         void setName (const juce::String& name);
         DisplaySnapshot displaySnapshot() const;
-        GuidePresentationSnapshot guidePresentationSnapshot() const;
+        GuidePresentationSnapshot guidePresentationSnapshot() const
+        {
+            const juce::ScopedLock lock (displayLock);
+            return guidePresentation;
+        }
         ConnectionRequest pendingConnection() const;
         bool acceptPendingConnection();
 
