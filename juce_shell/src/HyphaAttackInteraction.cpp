@@ -14,18 +14,47 @@ AttackInternalComponent::AttackInternalComponent()
 void AttackInternalComponent::mouseDown (const juce::MouseEvent& event)
 {
     grabKeyboardFocus();
-    if (event.y < attack_ui::headerHeight && event.x > getWidth() - 130)
+    if (event.y < attack_ui::headerHeight
+        && event.x > getWidth() - attack_ui::modeControlWidth (getWidth()))
     {
         overlayMode = ! overlayMode;
         repaint();
         return;
     }
-    const auto timeline = timelineBounds();
-    if (! timeline.contains (event.getPosition()) || ! attack_ui::validTimeline (latest, rate))
+    const auto scrub = scrubBounds();
+    if (scrub.contains (event.getPosition()) && event.x > scrub.getRight() - 40)
+    {
+        followLatest = true;
+        selectBoundaryEvent (true);
+        repaint();
         return;
+    }
+    const auto timeline = timelineBounds();
+    if ((! timeline.contains (event.getPosition()) && ! scrub.contains (event.getPosition()))
+        || ! attack_ui::validTimeline (latest, rate))
+        return;
+    followLatest = false;
+    selectNearestEventAtX (event.x);
+    repaint();
+}
+
+void AttackInternalComponent::mouseDrag (const juce::MouseEvent& event)
+{
+    if ((! timelineBounds().contains (event.getPosition())
+         && ! scrubBounds().contains (event.getPosition()))
+        || ! attack_ui::validTimeline (latest, rate))
+        return;
+    followLatest = false;
+    selectNearestEventAtX (event.x);
+    repaint();
+}
+
+void AttackInternalComponent::selectNearestEventAtX (int x) noexcept
+{
+    const auto timeline = timelineBounds();
     const auto first = latest - attack_ui::windowSamples (rate);
     const auto requested = first + static_cast<std::int64_t> (
-        static_cast<long double> (event.x - timeline.getX()) * attack_ui::windowSamples (rate)
+        static_cast<long double> (x - timeline.getX()) * attack_ui::windowSamples (rate)
         / juce::jmax (1, timeline.getWidth() - 1));
     std::int64_t bestDistance = std::numeric_limits<std::int64_t>::max();
     const auto consider = [&] (std::int64_t sample)
@@ -54,7 +83,6 @@ void AttackInternalComponent::mouseDown (const juce::MouseEvent& event)
         for (std::uint32_t index = 0; index < count; ++index)
             consider (detailBatch.details[index].event_sample);
     }
-    repaint();
 }
 
 void AttackInternalComponent::selectBoundaryEvent (bool selectLast) noexcept
@@ -90,6 +118,7 @@ void AttackInternalComponent::selectBoundaryEvent (bool selectLast) noexcept
 
 void AttackInternalComponent::selectAdjacentEvent (bool moveRight) noexcept
 {
+    followLatest = false;
     auto selected = moveRight ? std::numeric_limits<std::int64_t>::max()
                               : std::numeric_limits<std::int64_t>::min();
     const auto consider = [&] (std::int64_t sample)
@@ -127,7 +156,10 @@ bool AttackInternalComponent::keyPressed (const juce::KeyPress& key)
     if (key == juce::KeyPress::leftKey || key == juce::KeyPress::rightKey)
         selectAdjacentEvent (key == juce::KeyPress::rightKey);
     else if (key == juce::KeyPress::homeKey || key == juce::KeyPress::endKey)
+    {
+        followLatest = key == juce::KeyPress::endKey;
         selectBoundaryEvent (key == juce::KeyPress::endKey);
+    }
     else
         return false;
     repaint();

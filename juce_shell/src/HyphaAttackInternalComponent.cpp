@@ -1,6 +1,6 @@
 #include "HyphaAttackInternalComponent.h"
-#include <cmath>
 
+#include "HyphaAttackPainter.h"
 #include "HyphaAttackUiContract.h"
 #include "HyphaTheme.h"
 
@@ -8,22 +8,13 @@ namespace hypha
 {
 namespace
 {
-const auto strengthColour = juce::Colour (0xffe8b76a);
-const auto brightnessColour = juce::Colour (0xff71d8ff);
-const auto textureColour = juce::Colour (0xffff8c74);
-
-float levelHeight (float db, float halfHeight)
-{
-    const auto normalized = juce::jlimit (
-        0.0f, 1.0f, (db - attack_ui::absoluteFloorDb) / -attack_ui::absoluteFloorDb);
-    return normalized * juce::jmax (0.0f, halfHeight - 1.0f);
-}
-
-float amplitudeHeight (float amplitude, float halfHeight)
-{
-    const auto db = 20.0f * std::log10 (juce::jmax (amplitude, 0.0002511886f));
-    return levelHeight (db, halfHeight);
-}
+const auto waveformColour = juce::Colour (attack_ui::waveformColour);
+const auto strengthColour = juce::Colour (attack_ui::strengthColour);
+const auto brightnessColour = juce::Colour (attack_ui::brightnessColour);
+const auto transientColour = juce::Colour (attack_ui::transientColour);
+const auto textureColour = juce::Colour (attack_ui::textureColour);
+const auto selectionColour = juce::Colour (attack_ui::selectionColour);
+const auto panelColour = juce::Colour (0xff111722);
 
 juce::String signedValue (float value, int decimals = 1)
 {
@@ -41,143 +32,12 @@ const KirinAttackDetail* findDetail (const KirinAttackDetailBatch& batch,
     return nullptr;
 }
 
-void drawWaveform (juce::Graphics& g,
-                   const KirinAttackWaveformBatch& batch,
-                   juce::Rectangle<int> area,
-                   std::int64_t first,
-                   std::int64_t latest,
-                   std::uint32_t rate,
-                   bool connected,
-                   float alpha)
-{
-    const auto centreY = area.getCentreY();
-    const auto halfHeight = area.getHeight() * 0.5f - 2.0f;
-    juce::Path upper;
-    juce::Path lower;
-    bool started = false;
-    const auto count = juce::jmin (
-        batch.count, static_cast<std::uint32_t> (KIRIN_ATTACK_WAVEFORM_BATCH_CAPACITY));
-    for (std::uint32_t index = 0; index < count; ++index)
-    {
-        const auto& point = batch.points[index];
-        if (point.sample_rate != rate)
-            continue;
-        const auto sample = point.start_sample + (point.end_sample - point.start_sample) / 2;
-        const auto localX = attack_ui::sampleX (sample, first, latest, area.getWidth());
-        if (localX < 0)
-            continue;
-        const auto x = static_cast<float> (area.getX() + localX);
-        const auto height = levelHeight (point.rms_dbfs, halfHeight);
-        if (! connected || index % 2u == 0u)
-        {
-            g.setColour (dim (COL_NORMAL, alpha * 0.42f));
-            g.drawVerticalLine (area.getX() + localX, centreY - height, centreY + height);
-        }
-        if (! connected)
-            continue;
-        if (! started)
-        {
-            upper.startNewSubPath (x, centreY - height);
-            lower.startNewSubPath (x, centreY + height);
-            started = true;
-        }
-        else
-        {
-            upper.lineTo (x, centreY - height);
-            lower.lineTo (x, centreY + height);
-        }
-    }
-    if (started)
-    {
-        g.setColour (dim (COL_NORMAL, alpha));
-        g.strokePath (upper, juce::PathStrokeType (1.15f));
-        g.strokePath (lower, juce::PathStrokeType (1.15f));
-    }
 }
 
-void drawShape (juce::Graphics& g,
-                const KirinAttackDetail& detail,
-                juce::Rectangle<int> area,
-                bool connected,
-                float alpha)
-{
-    const auto centreY = area.getCentreY();
-    const auto halfHeight = area.getHeight() * 0.5f - 2.0f;
-    juce::Path upper;
-    juce::Path lower;
-    const auto count = juce::jmin (
-        detail.shape_count, static_cast<std::uint32_t> (KIRIN_ATTACK_SHAPE_CAPACITY));
-    for (std::uint32_t index = 0; index < count; ++index)
-    {
-        const auto x = area.getX() + static_cast<float> (index) * area.getWidth()
-                     / juce::jmax (1.0f, static_cast<float> (count - 1));
-        const auto height = amplitudeHeight (detail.shape[index], halfHeight);
-        if (! connected || index % 2u == 0u)
-        {
-            g.setColour (dim (COL_NORMAL, alpha * 0.46f));
-            g.drawVerticalLine (juce::roundToInt (x), centreY - height, centreY + height);
-        }
-        if (! connected)
-            continue;
-        if (index == 0)
-        {
-            upper.startNewSubPath (x, centreY - height);
-            lower.startNewSubPath (x, centreY + height);
-        }
-        else
-        {
-            upper.lineTo (x, centreY - height);
-            lower.lineTo (x, centreY + height);
-        }
-    }
-    if (connected && count > 0)
-    {
-        g.setColour (dim (COL_NORMAL, alpha));
-        g.strokePath (upper, juce::PathStrokeType (1.35f));
-        g.strokePath (lower, juce::PathStrokeType (1.35f));
-    }
-}
-
-void drawOverlayAccents (juce::Graphics& g,
-                         const KirinAttackDetail& pre,
-                         const KirinAttackDetail& post,
-                         juce::Rectangle<int> area)
-{
-    const auto strength = post.contrast_db - pre.contrast_db;
-    const auto brightness = post.sharpness_acum - pre.sharpness_acum;
-    const auto texture = post.sample_edge_ratio_db > pre.sample_edge_ratio_db
-                      && post.crest_db < pre.crest_db
-                      && post.peak_plateau_ms > pre.peak_plateau_ms;
-    const auto count = juce::jmin (post.shape_count,
-                                   static_cast<std::uint32_t> (KIRIN_ATTACK_SHAPE_CAPACITY));
-    const auto centreY = static_cast<float> (area.getCentreY());
-    const auto halfHeight = area.getHeight() * 0.5f - 2.0f;
-    for (std::uint32_t index = 0; index < count; index += 4)
-    {
-        const auto x = area.getX() + static_cast<float> (index) * area.getWidth()
-                     / juce::jmax (1.0f, static_cast<float> (count - 1));
-        const auto height = amplitudeHeight (post.shape[index], halfHeight);
-        if (std::abs (strength) >= 0.05f)
-        {
-            g.setColour (strengthColour);
-            g.drawVerticalLine (juce::roundToInt (x), centreY - height, centreY + height);
-        }
-        if (pre.sharpness_available != 0 && post.sharpness_available != 0
-            && std::abs (brightness) >= 0.005f)
-        {
-            g.setColour (brightnessColour);
-            g.drawVerticalLine (juce::roundToInt (x), centreY - height * 0.58f,
-                                centreY + height * 0.58f);
-        }
-        if (texture && index % 8u == 0u)
-        {
-            g.setColour (textureColour);
-            g.drawLine (x - 1.5f, centreY + height * 0.68f,
-                        x + 1.5f, centreY - height * 0.68f, 0.9f);
-        }
-    }
-}
-}
+using attack_painter::drawMetricCard;
+using attack_painter::drawWaveform;
+using attack_painter::drawWaveformDifferences;
+using attack_painter::WaveformStyle;
 
 void AttackInternalComponent::setOverlayMode (bool shouldOverlay)
 {
@@ -196,6 +56,8 @@ void AttackInternalComponent::setSnapshot (const KirinAttackEventBatch& events,
                                            std::uint64_t generation,
                                            const KirinAttackStats& stats)
 {
+    if (currentGeneration != 0 && generation != currentGeneration)
+        followLatest = true;
     eventBatch = events;
     waveformBatch = waveform;
     detailBatch = details;
@@ -206,7 +68,12 @@ void AttackInternalComponent::setSnapshot (const KirinAttackEventBatch& events,
     latest = latestSample;
     rate = sampleRate;
     currentGeneration = generation;
-    if (pairEventBatch.status == KIRIN_SPECTRUM_ACTIVE && selectedPairEvent() == nullptr)
+    if (followLatest)
+    {
+        selectedEventSample = -1;
+        selectBoundaryEvent (true);
+    }
+    else if (pairEventBatch.status == KIRIN_SPECTRUM_ACTIVE && selectedPairEvent() == nullptr)
     {
         const auto count = juce::jmin (
             pairEventBatch.count,
@@ -236,6 +103,7 @@ void AttackInternalComponent::clearSnapshot()
     rate = 0;
     currentGeneration = 0;
     selectedEventSample = -1;
+    followLatest = true;
     repaint();
 }
 
@@ -243,9 +111,16 @@ juce::Rectangle<int> AttackInternalComponent::timelineBounds() const noexcept
 {
     auto bounds = getLocalBounds();
     bounds.removeFromTop (attack_ui::headerHeight);
-    bounds.removeFromBottom (attack_ui::axisLabelHeight);
-    return bounds.removeFromTop (juce::jmax (
-        attack_ui::timelineMinimumHeight, juce::roundToInt (bounds.getHeight() * 0.42f)));
+    bounds.removeFromBottom (attack_ui::metricsHeight (getHeight()));
+    return bounds.removeFromTop (attack_ui::timelineHeight (getHeight()));
+}
+
+juce::Rectangle<int> AttackInternalComponent::scrubBounds() const noexcept
+{
+    auto bounds = getLocalBounds();
+    bounds.removeFromTop (attack_ui::headerHeight + attack_ui::timelineHeight (getHeight()));
+    bounds.removeFromBottom (attack_ui::metricsHeight (getHeight()));
+    return bounds.removeFromTop (attack_ui::axisLabelHeight);
 }
 
 const KirinAttackPairEvent* AttackInternalComponent::selectedPairEvent() const noexcept
@@ -277,20 +152,39 @@ void AttackInternalComponent::paint (juce::Graphics& g)
 {
     auto bounds = getLocalBounds();
     auto header = bounds.removeFromTop (attack_ui::headerHeight);
-    auto axis = bounds.removeFromBottom (attack_ui::axisLabelHeight);
-    auto timeline = bounds.removeFromTop (juce::jmax (
-        attack_ui::timelineMinimumHeight, juce::roundToInt (bounds.getHeight() * 0.42f)));
-    timeline = timeline.reduced (1, 2);
-    auto detailArea = bounds.reduced (1, 2);
+    auto metrics = bounds.removeFromBottom (attack_ui::metricsHeight (getHeight()));
+    auto timeline = bounds.removeFromTop (attack_ui::timelineHeight (getHeight()));
+    auto scrub = bounds.removeFromTop (attack_ui::axisLabelHeight);
 
-    g.setFont (monoFont (10.0f));
+    auto titleRow = header.removeFromTop (17);
+    auto viewButton = titleRow.removeFromRight (attack_ui::modeControlWidth (getWidth()));
+    g.setFont (monoFont (9.4f));
     g.setColour (COL_NORMAL);
     const auto paired = pairEventBatch.status == KIRIN_SPECTRUM_ACTIVE;
-    g.drawText (paired ? "ATTACK / DRUM / PRE + POST" : "ATTACK / DRUM / POST ABSOLUTE",
-                header, juce::Justification::centredLeft);
+    g.drawText ("ATTACK  /  TRANSIENT FLOW", titleRow, juce::Justification::centredLeft);
+    g.setColour (waveformColour.withAlpha (0.11f));
+    g.fillRoundedRectangle (viewButton.reduced (1, 1).toFloat(), 3.0f);
+    g.setColour (COL_NORMAL);
+    g.setFont (monoFont (7.4f));
+    g.drawText (overlayMode ? "VIEW  2 ROWS" : "VIEW  OVERLAY",
+                viewButton, juce::Justification::centred);
+    g.setFont (monoFont (6.8f));
+    g.setColour (strengthColour);
+    g.drawText ("CORE STRENGTH", header.removeFromLeft (94),
+                juce::Justification::centredLeft);
+    g.setColour (textureColour);
+    g.drawText ("FIELD TEXTURE", header.removeFromLeft (94),
+                juce::Justification::centredLeft);
+    g.setColour (brightnessColour);
+    g.drawText ("SHELL BRIGHT", header.removeFromLeft (88),
+                juce::Justification::centredLeft);
+    g.setColour (transientColour);
+    g.drawText ("AURA TRANSIENT", header.removeFromLeft (100),
+                juce::Justification::centredLeft);
     g.setColour (COL_MUTED);
-    g.drawText (overlayMode ? "OVERLAY" : "SPLIT",
-                header.removeFromRight (125), juce::Justification::centredRight);
+    g.drawText (juce::String (paired ? "DRUM / " : "POST / ")
+                    + (followLatest ? "LIVE" : "LOCK"),
+                header, juce::Justification::centredRight);
 
     const bool running = runtimeStats.available != 0 && runtimeStats.enabled != 0
                       && runtimeStats.worker_running != 0;
@@ -302,26 +196,56 @@ void AttackInternalComponent::paint (juce::Graphics& g)
         return;
     }
 
-    g.setColour (kFieldFill.withAlpha (0.72f));
-    g.fillRoundedRectangle (timeline.toFloat(), 3.0f);
-    g.fillRoundedRectangle (detailArea.toFloat(), 3.0f);
+    timeline = timeline.reduced (1, 1);
+    g.setColour (panelColour.withAlpha (0.88f));
+    g.fillRoundedRectangle (timeline.toFloat(), 3.5f);
+    g.setColour (waveformColour.withAlpha (0.07f));
+    for (int second = 1; second < attack_ui::presentationSeconds; ++second)
+    {
+        const auto x = timeline.getX() + second * timeline.getWidth()
+                     / attack_ui::presentationSeconds;
+        g.drawVerticalLine (x, static_cast<float> (timeline.getY() + 2),
+                            static_cast<float> (timeline.getBottom() - 2));
+    }
     const auto first = latest - attack_ui::windowSamples (rate);
     if (paired && ! overlayMode)
     {
-        auto preLane = timeline.removeFromTop (timeline.getHeight() / 2);
-        auto postLane = timeline;
-        drawWaveform (g, preWaveformBatch, preLane, first, latest, rate, true, 0.72f);
-        drawWaveform (g, waveformBatch, postLane, first, latest, rate, true, 0.72f);
-        g.setFont (monoFont (8.0f));
+        const auto laneHeight = timeline.getHeight() / 2;
+        auto preLane = timeline.removeFromTop (laneHeight);
+        auto postLane = timeline.removeFromTop (laneHeight);
+        drawWaveform (g, preWaveformBatch, preDetailBatch, preLane.reduced (0, 5),
+                      first, latest, rate, WaveformStyle::continuous, true, 0.90f);
+        drawWaveform (g, waveformBatch, detailBatch, postLane.reduced (0, 5),
+                      first, latest, rate, WaveformStyle::continuous, true, 0.90f);
+        g.setColour (waveformColour.withAlpha (0.10f));
+        g.drawHorizontalLine (preLane.getBottom(), static_cast<float> (preLane.getX()),
+                              static_cast<float> (preLane.getRight()));
+        g.setFont (monoFont (7.3f));
         g.setColour (COL_MUTED);
-        g.drawText ("PRE", preLane.reduced (4, 1), juce::Justification::topLeft);
-        g.drawText ("POST", postLane.reduced (4, 1), juce::Justification::topLeft);
+        g.drawText ("PRE  SAME SCALE", preLane.reduced (5, 2), juce::Justification::topLeft);
+        g.drawText ("POST  SAME SCALE", postLane.reduced (5, 2), juce::Justification::topLeft);
+    }
+    else if (paired)
+    {
+        const auto waveArea = timeline.reduced (0, 8);
+        drawWaveform (g, preWaveformBatch, preDetailBatch, waveArea,
+                      first, latest, rate, WaveformStyle::pulse, false, 0.72f);
+        drawWaveform (g, waveformBatch, detailBatch, waveArea,
+                      first, latest, rate, WaveformStyle::continuous, false, 0.92f);
+        drawWaveformDifferences (g, waveformBatch, preDetailBatch, detailBatch,
+                                 pairEventBatch, waveArea, first, latest, rate);
+        g.setFont (monoFont (7.3f));
+        g.setColour (COL_MUTED);
+        g.drawText ("PRE PULSE  /  POST OUTLINE  /  COLOUR = DIFFERENCE",
+                    timeline.reduced (5, 2), juce::Justification::topLeft);
     }
     else
     {
-        if (paired)
-            drawWaveform (g, preWaveformBatch, timeline, first, latest, rate, false, 0.72f);
-        drawWaveform (g, waveformBatch, timeline, first, latest, rate, true, 0.82f);
+        drawWaveform (g, waveformBatch, detailBatch, timeline.reduced (0, 8),
+                      first, latest, rate, WaveformStyle::continuous, true, 0.92f);
+        g.setFont (monoFont (7.3f));
+        g.setColour (COL_MUTED);
+        g.drawText ("POST ABSOLUTE", timeline.reduced (5, 2), juce::Justification::topLeft);
     }
 
     std::uint32_t visibleCount = 0;
@@ -338,10 +262,13 @@ void AttackInternalComponent::paint (juce::Graphics& g)
             if (x < 0)
                 continue;
             ++visibleCount;
-            g.setColour (sample == selectedEventSample ? COL_FLORA_BR : COL_MUTED);
-            g.drawVerticalLine (markerArea.getX() + x,
-                                static_cast<float> (markerArea.getY() + 2),
-                                static_cast<float> (markerArea.getBottom() - 2));
+            if (sample != selectedEventSample)
+            {
+                g.setColour (COL_MUTED.withAlpha (0.30f));
+                g.drawVerticalLine (markerArea.getX() + x,
+                                    static_cast<float> (markerArea.getY() + 2),
+                                    static_cast<float> (markerArea.getBottom() - 2));
+            }
         }
     }
     else
@@ -356,92 +283,120 @@ void AttackInternalComponent::paint (juce::Graphics& g)
             if (x < 0)
                 continue;
             ++visibleCount;
-            g.setColour (attack.event_sample == selectedEventSample ? COL_FLORA_BR : COL_MUTED);
-            g.drawVerticalLine (markerArea.getX() + x,
-                                static_cast<float> (markerArea.getY() + 2),
-                                static_cast<float> (markerArea.getBottom() - 2));
+            if (attack.event_sample != selectedEventSample)
+            {
+                g.setColour (COL_MUTED.withAlpha (0.30f));
+                g.drawVerticalLine (markerArea.getX() + x,
+                                    static_cast<float> (markerArea.getY() + 2),
+                                    static_cast<float> (markerArea.getBottom() - 2));
+            }
         }
     }
 
     const auto* preDetail = selectedPreDetail();
     const auto* postDetail = selectedPostDetail();
-    if (postDetail != nullptr)
+    const auto selectedX = attack_ui::eventX (
+        selectedEventSample, latest, rate, markerArea.getWidth());
+    if (selectedX >= 0)
     {
-        auto metrics = detailArea.removeFromBottom (attack_ui::detailMetricsHeight);
-        auto shapeArea = detailArea.reduced (6, 3);
-        if (preDetail != nullptr && ! overlayMode)
+        const auto x = markerArea.getX() + selectedX;
+        g.setColour (selectionColour.withAlpha (0.10f));
+        g.fillRect (x - 5, markerArea.getY(), 11, markerArea.getHeight());
+        g.setColour (selectionColour.withAlpha (0.95f));
+        g.fillRect (x - 1, markerArea.getY(), 2, markerArea.getHeight());
+        if (preDetail != nullptr && postDetail != nullptr)
         {
-            auto preShape = shapeArea.removeFromTop (shapeArea.getHeight() / 2);
-            drawShape (g, *preDetail, preShape, true, 0.72f);
-            drawShape (g, *postDetail, shapeArea, true, 0.72f);
-            g.setFont (monoFont (8.0f));
-            g.setColour (COL_MUTED);
-            g.drawText ("PRE", preShape, juce::Justification::topLeft);
-            g.drawText ("POST", shapeArea, juce::Justification::topLeft);
-        }
-        else
-        {
-            if (preDetail != nullptr)
-                drawShape (g, *preDetail, shapeArea, false, 0.72f);
-            drawShape (g, *postDetail, shapeArea, true, 0.86f);
-            if (preDetail != nullptr)
-                drawOverlayAccents (g, *preDetail, *postDetail, shapeArea);
-        }
-
-        g.setFont (monoFont (8.2f));
-        if (preDetail != nullptr)
-        {
-            const auto strength = postDetail->contrast_db - preDetail->contrast_db;
-            const auto edge = postDetail->sample_edge_ratio_db - preDetail->sample_edge_ratio_db;
-            const auto crest = postDetail->crest_db - preDetail->crest_db;
-            const auto plateau = postDetail->peak_plateau_ms - preDetail->peak_plateau_ms;
-            const bool hasBrightness = preDetail->sharpness_available != 0
-                                    && postDetail->sharpness_available != 0;
-            const auto brightness = postDetail->sharpness_acum - preDetail->sharpness_acum;
-            const bool texturePattern = edge > 0.0f && crest < 0.0f && plateau > 0.0f;
-            g.setColour (strengthColour);
-            g.drawText ("STRENGTH  " + signedValue (strength) + " dB contrast",
-                        metrics.removeFromTop (metrics.getHeight() / 3),
-                        juce::Justification::centredLeft);
-            g.setColour (brightnessColour);
-            g.drawText ("BRIGHTNESS  " + (hasBrightness
-                            ? signedValue (brightness, 2) + " acum" : juce::String ("---")),
-                        metrics.removeFromTop (metrics.getHeight() / 2),
-                        juce::Justification::centredLeft);
-            g.setColour (texturePattern ? textureColour : COL_MUTED);
-            g.drawText ("TEXTURE  EDGE " + signedValue (edge)
-                        + "  CREST " + signedValue (crest)
-                        + "  PLATEAU " + signedValue (plateau, 2) + " ms",
-                        metrics, juce::Justification::centredLeft);
-        }
-        else
-        {
-            g.setColour (COL_NORMAL);
-            g.drawText ("CONTRAST " + signedValue (postDetail->contrast_db) + " dB"
-                        + "   PEAK " + juce::String (postDetail->sample_peak_dbfs, 1) + " dBFS"
-                        + "   CREST " + juce::String (postDetail->crest_db, 1) + " dB",
-                        metrics.removeFromTop (metrics.getHeight() / 2),
-                        juce::Justification::centredLeft);
-            g.setColour (COL_MUTED);
-            g.drawText ("EDGE " + juce::String (postDetail->sample_edge_ratio_db, 1)
-                        + " dB   PLATEAU " + juce::String (postDetail->peak_plateau_ms, 2)
-                        + " ms   BRIGHTNESS ---",
-                        metrics, juce::Justification::centredLeft);
+            auto badge = juce::Rectangle<int> (x - 22, markerArea.getY() + 3, 44, 13);
+            badge.setX (juce::jlimit (markerArea.getX(), markerArea.getRight() - badge.getWidth(),
+                                     badge.getX()));
+            g.setColour (panelColour.withAlpha (0.94f));
+            g.fillRoundedRectangle (badge.toFloat(), 2.0f);
+            g.setColour (transientColour);
+            g.setFont (monoFont (7.5f));
+            g.drawText (signedValue (postDetail->contrast_db - preDetail->contrast_db)
+                            + " dB", badge, juce::Justification::centred);
         }
     }
-    else
-    {
-        g.setColour (COL_MUTED);
-        g.drawText ("PLAY AUDIO TO CAPTURE AN ATTACK", detailArea,
-                    juce::Justification::centred);
-    }
 
-    g.setFont (monoFont (9.0f));
+    g.setColour (COL_MUTED.withAlpha (0.55f));
+    const auto railY = scrub.getCentreY() - 2;
+    g.fillRoundedRectangle (2.0f, static_cast<float> (railY),
+                            static_cast<float> (juce::jmax (1, scrub.getWidth() - 4)), 2.0f, 1.0f);
+    if (selectedX >= 0)
+    {
+        g.setColour (selectionColour.withAlpha (0.22f));
+        g.fillEllipse (static_cast<float> (selectedX - 5), static_cast<float> (railY - 5),
+                       11.0f, 11.0f);
+        g.setColour (selectionColour);
+        g.fillEllipse (static_cast<float> (selectedX - 2), static_cast<float> (railY - 2),
+                       5.0f, 5.0f);
+    }
+    g.setFont (monoFont (7.2f));
     g.setColour (COL_MUTED);
-    g.drawText ("-6 s", axis.removeFromLeft (40), juce::Justification::centredLeft);
-    g.drawText ("NOW", axis.removeFromRight (36), juce::Justification::centredRight);
+    g.drawText ("-6 s", scrub.removeFromLeft (32), juce::Justification::bottomLeft);
+    g.setColour (followLatest ? selectionColour : COL_MUTED);
+    g.drawText ("NOW", scrub.removeFromRight (32), juce::Justification::bottomRight);
     g.setColour (COL_NORMAL);
-    g.drawText (juce::String (visibleCount) + " EVENTS / CLICK TO SCRUB", axis,
-                juce::Justification::centred);
+    g.drawText (juce::String (visibleCount)
+                    + (followLatest ? " EVENTS  /  LIVE FOLLOW"
+                                    : " EVENTS  /  LOCK  /  DRAG TO SCRUB  /  END = LIVE"),
+                scrub, juce::Justification::centredBottom);
+
+    if (postDetail != nullptr && preDetail != nullptr)
+    {
+        const auto strength = postDetail->attack_rms_dbfs - preDetail->attack_rms_dbfs;
+        const auto edge = postDetail->sample_edge_ratio_db - preDetail->sample_edge_ratio_db;
+        const auto crest = postDetail->crest_db - preDetail->crest_db;
+        const auto plateau = postDetail->peak_plateau_ms - preDetail->peak_plateau_ms;
+        const bool hasBrightness = preDetail->sharpness_available != 0
+                                && postDetail->sharpness_available != 0;
+        const auto brightness = postDetail->sharpness_acum - preDetail->sharpness_acum;
+        const auto transient = postDetail->contrast_db - preDetail->contrast_db;
+        const bool texturePattern = edge > 0.0f && crest < 0.0f && plateau > 0.0f;
+        auto strengthArea = metrics.removeFromLeft (metrics.getWidth() / 4);
+        auto textureArea = metrics.removeFromLeft (metrics.getWidth() / 3);
+        auto brightnessArea = metrics.removeFromLeft (metrics.getWidth() / 2);
+        drawMetricCard (g, strengthArea, "STRENGTH",
+                        "PRE " + juce::String (preDetail->attack_rms_dbfs, 1)
+                            + "  POST " + juce::String (postDetail->attack_rms_dbfs, 1),
+                        "ATTACK RMS  D " + signedValue (strength) + " dB", strengthColour);
+        drawMetricCard (g, textureArea, "TEXTURE",
+                        "EDGE " + signedValue (edge) + "  CREST " + signedValue (crest),
+                        "PLATEAU  D " + signedValue (plateau, 2) + " ms",
+                        textureColour, texturePattern);
+        drawMetricCard (g, brightnessArea, "BRIGHTNESS",
+                        hasBrightness
+                            ? "PRE " + juce::String (preDetail->sharpness_acum, 2)
+                                + "  POST " + juce::String (postDetail->sharpness_acum, 2)
+                            : "---",
+                        "SHARPNESS  D " + signedValue (brightness, 2),
+                        brightnessColour, hasBrightness);
+        drawMetricCard (g, metrics, "TRANSIENT",
+                        "PRE " + juce::String (preDetail->contrast_db, 1)
+                            + "  POST " + juce::String (postDetail->contrast_db, 1),
+                        "CONTRAST  D " + signedValue (transient) + " dB", transientColour);
+    }
+    else if (postDetail != nullptr)
+    {
+        auto strengthArea = metrics.removeFromLeft (metrics.getWidth() / 4);
+        auto textureArea = metrics.removeFromLeft (metrics.getWidth() / 3);
+        auto brightnessArea = metrics.removeFromLeft (metrics.getWidth() / 2);
+        drawMetricCard (g, strengthArea, "STRENGTH",
+                        juce::String (postDetail->attack_rms_dbfs, 1) + " dBFS",
+                        "ATTACK RMS", strengthColour);
+        drawMetricCard (g, textureArea, "TEXTURE",
+                        "EDGE " + juce::String (postDetail->sample_edge_ratio_db, 1)
+                            + "  CREST " + juce::String (postDetail->crest_db, 1),
+                        "PLATEAU " + juce::String (postDetail->peak_plateau_ms, 2) + " ms",
+                        textureColour);
+        drawMetricCard (g, brightnessArea, "BRIGHTNESS",
+                        postDetail->sharpness_available != 0
+                            ? juce::String (postDetail->sharpness_acum, 2) + " acum" : "---",
+                        "SHARPNESS", brightnessColour,
+                        postDetail->sharpness_available != 0);
+        drawMetricCard (g, metrics, "TRANSIENT",
+                        juce::String (postDetail->contrast_db, 1) + " dB",
+                        "LOCAL CONTRAST", transientColour);
+    }
 }
 }

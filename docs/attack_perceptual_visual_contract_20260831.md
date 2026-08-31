@@ -7,16 +7,27 @@ SuperFluxはトランジェントの位置を決める内部検出器に限定�
 
 | 表示 | 実測量 | 見せ方 |
 |---|---|---|
-| CONTRAST | 30 ms attack RMS − 直前100 ms RMS | 六秒timelineの符号付きstem |
-| SHAPE | context power超過energyの30 ms時間重心 | 選択eventのPRE/POST位置、timeline cap幅 |
-| BRIGHTNESS | 既存100 ms Sharpness | 選択eventのPRE/POST barとΔ acum |
-| PEAK | 30 ms Sample Peak、補助Crest | 選択eventのPRE/POST barとΔ dB |
-| TEXTURE | sample-edge比、Crest、peak plateau幅 | 三条件の差が同時に現れる箇所だけ微細な繊維 |
+| STRENGTH | 30 ms attack RMS | 暖色の中心core。固定−48..0 dBFS、波形高と併記 |
+| BRIGHTNESS | 既存100 ms Sharpness | 低彩度アイスブルーの外側shell。固定0..3 acum |
+| TRANSIENT | 30 ms attack RMS − 直前100 ms RMS | 低彩度seafoamのenvelope aura。固定0..18 dB |
+| TEXTURE | sample-edge比、Crest、peak plateau幅 | 低彩度copperの追従する繊維。原因をSaturationとは断定しない |
 
-主stemの上はPOSTでアタックが直前の音からより際立った事実、下はPOSTで際立ちが弱まった事実だけを表す。
 色や文言で良い、悪い、改善、劣化を示さない。
-BrightnessとPeakを主stemへ重ねず、選択した一イベントの詳細へ分離する。
-TEXTUREは処理器を推定しない。POSTで高周波方向のsample-edge比が増え、Crestが下がり、−3 dB peak plateauが広がった三事実を別々に保持し、同時変化だけを`Saturation-like texture`として表示する。
+PREまたはPOST単体でも四成分を読めるよう、絶対値を同じ固定scaleで主scrubへ直接重ねる。
+色を境界線で区切らず、重なり合う半透明fieldとして連続的に溶かす。断面の中心傾向だけを固定し、波形中心のamberをStrength、その周囲のcopper密度をTexture、外層の低彩度iceをBrightness、envelope外周のseafoam auraをTransientとする。四角、三角、菱形、等間隔stripeのような記号形は使わず、波形へ追従する連続曲線と微細な密度揺らぎで、生き物の断面のように一体で見せる。
+四色を同じ彩度・面積で競わせない。量は色相の移動ではなく、固定色の明度、透明度、厚みで示す。色名が読めなくても、`CORE / FIELD / SHELL / AURA`の位置、形、密度、文字で四成分を区別できるようにする。
+各色は固定物理閾値を越えた時だけ発光し、発光開始からfull値までをsmooth-stepで連続表示する。初期値はStrength `−42..−6 dBFS attack RMS`、Brightness `0.60..2.50 acum`、Transient `3..15 dB contrast`、Texture composite `0.10..0.65`。比較表示の最小差はそれぞれ`0.50 dB / 0.05 acum / 0.50 dB / 0.04`とし、曲内max、percentile、material依存normalizationを使わない。
+TEXTUREは処理器を推定しない。sample-edge比、Crest、−3 dB peak plateauの固定観測からtexture-likeな状態だけを示し、`Saturation`という原因名へ置き換えない。
+
+## Palette evidence
+
+同じ値の増加が色によって不均一に見えないよう、paletteはScientific Colour Mapsの知覚均一性、順序性、色覚多様性の原則を採用する。Hypha固有色は同資料の色を直接転載せず、暗いpanel上でfull発光時の各componentが3:1以上になる低彩度familyとして固定する。
+W3CのUse of ColorとNon-text Contrastに従い、色を唯一の識別手段にせず、四つの固定断面、Textureの繊維、Transientのaura、明示labelを併用する。薄いgradient部分ではなく、輪郭とlabelを必要contrastの正本にする。
+
+- Fabio Crameri, Scientific Colour Maps: https://www.fabiocrameri.ch/colourmaps/
+- Crameri et al., 2020, *The misuse of colour in science communication*: https://www.nature.com/articles/s41467-020-19160-7
+- W3C WCAG 2.2, Use of Color: https://www.w3.org/WAI/WCAG22/Understanding/use-of-color.html
+- W3C WCAG 2.2, Non-text Contrast: https://www.w3.org/WAI/WCAG22/Understanding/non-text-contrast
 
 ## Why these four
 
@@ -46,9 +57,11 @@ TEXTUREは処理器を推定しない。POSTで高周波方向のsample-edge比�
 
 ## Interaction
 
-timelineはeventのない時刻を線で結ばない。
-click、Left/Right、Home/Endで一eventを選び、詳細のPREとPOSTを同じscaleで並べる。
-二段表示はPRE/POSTへ同じpaletteと絶対scaleを使い、identityでは同じ形・色にする。重ね表示は共通形を中立色、Brightness差を形の内側のcool tint、Peak/Contrast差を外側のgold aura、TEXTURE三条件の同時差を細い繊維で示す。
+初期状態は最新eventをLIVE追従し、clickまたはdrag、Left/Right、Homeで一eventをLOCKする。
+`NOW`またはEndでLIVE追従へ戻し、LIVEとLOCKは常に画面内へ明示する。これは視覚選択だけであり、Hyphaから音声を生成、加工、seekしない。
+初期表示は主scrubをPRE/POST二段で大きく使う。明示ボタンで、同じ全領域を使う一段の重ね表示へ切り替える。小さな別comparison plotは置かない。
+二段はPRE/POSTで同じpaletteと絶対scaleを使い、identityでは同じ形・色にする。
+重ね表示はPREを離散pulse、POSTを連続outlineにする。色は絶対値を二重表示せず、Strength差を金、Brightness差をアイスブルー、Transient差をミント、Texture差を珊瑚色の繊維で示す。
 見た目から楽器名、原因、推奨操作を推測しない。
 未対応event、欠測、floor-limited、Brightness pendingは輪郭または`---`で事実状態を保つ。
 
@@ -61,6 +74,6 @@ POSTの通常Analysis導線は最初にDRUM ATTACKを開き、同じ枠内でATT
 ATTACKは既存のexact-pair optional-analysis leaseを再利用し、別の常時通信を増やさない。
 POSTがATTACKを表示している間だけ10 HzでPREの六秒waveform、ODF、event detailを専用の固定上限payloadへ発行し、同じcontent sampleとdefinitionの系列だけを結合する。
 PRE未接続ではPOST実測だけを`POST ABSOLUTE`として表示し、PRE波形を複製しない。
-二段表示はPRE/POSTで同じ中立paletteと絶対scaleを使う。
-重ね表示はPREを離散線、POSTを連続輪郭にし、強さの差だけを金、Brightness差だけをシアン、三つのTexture条件が同時成立した部分だけを珊瑚色の繊維で示す。
+二段表示はPRE/POSTで同じ固定paletteと絶対scaleを使い、各scrubだけでStrength、Brightness、Transient、Textureを読めるようにする。
+重ね表示はPREを離散線、POSTを連続輪郭にし、四成分の差だけを各固定色で示す。
 同一音声では形と差分色が一致し、色だけでPRE/POSTを識別させない。

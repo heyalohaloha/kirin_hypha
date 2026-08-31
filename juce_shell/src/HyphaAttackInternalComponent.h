@@ -8,7 +8,7 @@
 
 namespace hypha
 {
-    // POST-only ATTACK product trial. It presents factual absolute PRE/POST shapes and deltas;
+    // POST-only DRUM ATTACK view. It presents factual absolute PRE/POST shapes and deltas;
     // no confidence score, instrument inference, or quality judgement is introduced.
     class AttackInternalComponent final : public juce::Component
     {
@@ -28,6 +28,7 @@ namespace hypha
         void setOverlayMode (bool shouldOverlay);
         void paint (juce::Graphics&) override;
         void mouseDown (const juce::MouseEvent&) override;
+        void mouseDrag (const juce::MouseEvent&) override;
         bool keyPressed (const juce::KeyPress&) override;
 
     private:
@@ -43,11 +44,14 @@ namespace hypha
         std::uint64_t currentGeneration = 0;
         std::int64_t selectedEventSample = -1;
         bool overlayMode = false;
+        bool followLatest = true;
 
         const KirinAttackPairEvent* selectedPairEvent() const noexcept;
         const KirinAttackDetail* selectedPostDetail() const noexcept;
         const KirinAttackDetail* selectedPreDetail() const noexcept;
         juce::Rectangle<int> timelineBounds() const noexcept;
+        juce::Rectangle<int> scrubBounds() const noexcept;
+        void selectNearestEventAtX (int x) noexcept;
         void selectBoundaryEvent (bool selectLast) noexcept;
         void selectAdjacentEvent (bool moveRight) noexcept;
 
