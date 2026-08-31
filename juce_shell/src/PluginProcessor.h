@@ -8,7 +8,7 @@
 
 #include "HyphaSignalStateContract.h"
 #include "kirin_hypha_ffi.h" // C ABI to the Rust RT-measure engine (Phase 1 / B-052)
-#if KIRIN_HYPHA_PRE_DISPLAY
+#if KIRIN_HYPHA_GUIDE_TRANSPORT
  #include "pre_display/PreDisplayClock.h"
  #include "pre_display/PreDisplayController.h"
 #endif
@@ -51,7 +51,7 @@ public:
         return persistShortTermLoudness.load (std::memory_order_acquire);
     }
     void setUseShortTermLoudness (bool shortTerm);
-#if KIRIN_HYPHA_PRE_DISPLAY
+#if KIRIN_HYPHA_GUIDE_TRANSPORT
     hypha::pre_display::DisplaySnapshot preDisplaySnapshot() const;
     hypha::pre_display::ConnectionRequest pendingPreDisplayConnection() const;
     bool acceptPreDisplayConnection();
@@ -206,7 +206,7 @@ private:
     std::atomic<uint8_t> preferredSpectrumSize { 3 };      // rich 200% default; Analysis still opens off
     std::atomic<uint8_t> preferredSpectrumChannelMode { KIRIN_SPECTRUM_CHANNEL_LR };
 
-#if KIRIN_HYPHA_PRE_DISPLAY
+#if KIRIN_HYPHA_GUIDE_TRANSPORT
     hypha::pre_display::ClockTap preDisplayClock;
     std::unique_ptr<hypha::pre_display::Controller> preDisplayController;
 #endif

@@ -131,19 +131,20 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         src/HyphaHoverHelpPreference.cpp
         ${KIRIN_HYPHA_WIDGETS_SOURCE} # B-054: LED / mycelium bg / metric cells / editable name
         src/PostControls.cpp     # B-054: POST Keep/Stop/Mark/Sense button row
+        src/pre_display/PreDisplayController.cpp
+        src/pre_display/PreDisplayPresence.cpp
+        src/pre_display/PreDisplayProjection.cpp
+        src/pre_display/PreDisplayProtocol.cpp
+        src/pre_display/PreDisplayProtocolTime.cpp
+        src/pre_display/PreDisplayRepository.cpp
+        src/pre_display/PreDisplayTransport.cpp
         ${MAIN_SRC})
 
+    target_compile_definitions(${TARGET} PRIVATE KIRIN_HYPHA_GUIDE_TRANSPORT=1)
+    target_link_libraries(${TARGET} PRIVATE juce::juce_cryptography)
+
     if("${TARGET}" STREQUAL "KirinHyphaPRE")
-        target_sources(${TARGET} PRIVATE
-            src/pre_display/PreDisplayController.cpp
-            src/pre_display/PreDisplayPresence.cpp
-            src/pre_display/PreDisplayProjection.cpp
-            src/pre_display/PreDisplayProtocol.cpp
-            src/pre_display/PreDisplayProtocolTime.cpp
-            src/pre_display/PreDisplayRepository.cpp
-            src/pre_display/PreDisplayTransport.cpp)
         target_compile_definitions(${TARGET} PRIVATE KIRIN_HYPHA_PRE_DISPLAY=1)
-        target_link_libraries(${TARGET} PRIVATE juce::juce_cryptography)
     else()
         target_sources(${TARGET} PRIVATE
             src/HyphaAbsoluteComponent.cpp

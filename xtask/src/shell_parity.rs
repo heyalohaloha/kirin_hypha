@@ -21,6 +21,10 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/../juce_shell/src/PluginProcessor.cpp"
     ));
+    const PLUGIN_PROCESSOR_H: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../juce_shell/src/PluginProcessor.h"
+    ));
     const JUCE_PLUGIN_CONFIG: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../juce_shell/src/KirinJucePluginConfig.h"
@@ -179,8 +183,9 @@ mod tests {
     }
 
     #[test]
-    fn pre_display_is_compiled_only_into_pre_while_au_and_vst3_share_it() {
+    fn guide_transport_is_compiled_into_both_roles_while_legacy_pre_ui_stays_pre_only() {
         assert!(JUCE_PLUGIN_CONFIG.contains("#define KIRIN_HYPHA_PRE_DISPLAY 0"));
+        assert!(JUCE_PLUGIN_CONFIG.contains("#define KIRIN_HYPHA_GUIDE_TRANSPORT 0"));
         assert_eq!(
             count_occurrences(JUCE_CMAKE, "src/pre_display/PreDisplayController.cpp"),
             2
@@ -198,6 +203,9 @@ mod tests {
         assert!(JUCE_CMAKE.contains("if(\"${TARGET}\" STREQUAL \"KirinHyphaPRE\")"));
         assert!(JUCE_CMAKE.contains("KIRIN_HYPHA_PRE_DISPLAY=1"));
         assert!(JUCE_CMAKE.contains("KIRIN_HYPHA_PRE_DISPLAY=0"));
+        assert!(JUCE_CMAKE.contains("KIRIN_HYPHA_GUIDE_TRANSPORT=1"));
+        assert!(PLUGIN_PROCESSOR_H.contains("#if KIRIN_HYPHA_GUIDE_TRANSPORT"));
+        assert!(PLUGIN_PROCESSOR_CPP.contains("#if KIRIN_HYPHA_GUIDE_TRANSPORT"));
         assert!(PRE_DISPLAY_PROTOCOL_TIME_CPP.contains("bool canonicalIsoInstant"));
         assert!(!PRE_DISPLAY_PROTOCOL_CPP.contains("bool canonicalIsoInstant"));
         assert!(
