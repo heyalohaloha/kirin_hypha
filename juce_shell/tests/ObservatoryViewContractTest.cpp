@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <limits>
+#include <utility>
 #include <vector>
 
 namespace hypha::tests
@@ -176,5 +177,15 @@ void verifyObservatoryViewContract()
     const auto request = post.historyRequest();
     KIRIN_OBSERVATORY_REQUIRE (request.resolution == KIRIN_METER_HISTORY_10_HZ);
     KIRIN_OBSERVATORY_REQUIRE (request.maxEntries == 300);
+    for (const auto dimensions : {
+             std::pair { 1'200, 630 }, std::pair { 1'080, 1'080 },
+             std::pair { 1'080, 1'350 } })
+    {
+        const auto capture = post.createCaptureImage (dimensions.first, dimensions.second);
+        const auto body = post.captureBodyBounds (dimensions.first, dimensions.second);
+        KIRIN_OBSERVATORY_REQUIRE (capture.getWidth() == dimensions.first);
+        KIRIN_OBSERVATORY_REQUIRE (capture.getHeight() == dimensions.second);
+        KIRIN_OBSERVATORY_REQUIRE (capture.getBounds().contains (body));
+    }
 }
 }

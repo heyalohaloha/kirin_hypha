@@ -92,8 +92,42 @@ add_subdirectory(JUCE)
 # B-054: embed the mycelium background PNG (the same GPLv3 asset egui uses:
 # crates/hypha_gui/assets/bg_mycelium.png, 300×200, brightness ~15%) as BinaryData so the
 # editor can draw it without a runtime file dependency. Shared by both plugin targets.
-juce_add_binary_data(KirinHyphaData
-    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../crates/hypha_gui/assets/bg_mycelium.png)
+#
+# Waldenburg Book is commercial Font Software and must never enter this GPL source tree. A release
+# owner with the separate Kimera App License supplies the original OTF at configure time. CMake
+# copies it only into the ignored build directory and BinaryData embeds it in the application.
+set(KIRIN_HYPHA_KIMERA_FONT_FILE "" CACHE FILEPATH
+    "Licensed KMR Waldenburg Book OTF (kept outside this GPL repository)")
+option(KIRIN_HYPHA_KIMERA_APP_LICENSE_CONFIRMED
+    "Confirm that the supplied Kimera file is covered by an App License for Kirin Hypha" OFF)
+option(KIRIN_HYPHA_REQUIRE_KIMERA_FONT
+    "Fail configure unless licensed Kimera Font Software is embedded" OFF)
+
+set(KIRIN_HYPHA_DATA_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/../crates/hypha_gui/assets/bg_mycelium.png)
+set(KIRIN_HYPHA_KIMERA_EMBEDDED 0)
+if(KIRIN_HYPHA_KIMERA_FONT_FILE)
+    if(NOT KIRIN_HYPHA_KIMERA_APP_LICENSE_CONFIRMED)
+        message(FATAL_ERROR
+            "Kimera font supplied without KIRIN_HYPHA_KIMERA_APP_LICENSE_CONFIRMED=ON")
+    endif()
+    if(NOT EXISTS "${KIRIN_HYPHA_KIMERA_FONT_FILE}")
+        message(FATAL_ERROR "Kimera font file does not exist: ${KIRIN_HYPHA_KIMERA_FONT_FILE}")
+    endif()
+    set(KIRIN_HYPHA_KIMERA_BUILD_FILE
+        "${CMAKE_CURRENT_BINARY_DIR}/licensed-font/KMRWaldenburgBook.otf")
+    configure_file("${KIRIN_HYPHA_KIMERA_FONT_FILE}"
+                   "${KIRIN_HYPHA_KIMERA_BUILD_FILE}" COPYONLY)
+    list(APPEND KIRIN_HYPHA_DATA_SOURCES "${KIRIN_HYPHA_KIMERA_BUILD_FILE}")
+    set(KIRIN_HYPHA_KIMERA_EMBEDDED 1)
+elseif(KIRIN_HYPHA_REQUIRE_KIMERA_FONT)
+    message(FATAL_ERROR
+        "Licensed Kimera App font is required: set KIRIN_HYPHA_KIMERA_FONT_FILE")
+endif()
+
+juce_add_binary_data(KirinHyphaData SOURCES ${KIRIN_HYPHA_DATA_SOURCES})
+target_compile_definitions(KirinHyphaData INTERFACE
+    KIRIN_HYPHA_KIMERA_EMBEDDED=${KIRIN_HYPHA_KIMERA_EMBEDDED})
 set(KIRIN_HYPHA_WIDGETS_SOURCE src/HyphaWidgets.cpp)
 
 # B-070: PRE and POST are two plugin targets sharing one role-parameterized base
@@ -128,8 +162,12 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
     target_sources(${TARGET} PRIVATE
         src/PluginProcessor.cpp
         src/PluginEditor.cpp
+        src/PluginEditorObservatory.cpp
+        src/PluginEditorCapture.cpp
+        src/HyphaObservatoryCapture.cpp
         src/HyphaObservatoryView.cpp
         src/HyphaObservatoryLevelStrips.cpp
+        src/HyphaTypography.cpp
         src/HyphaHoverHelpPreference.cpp
         ${KIRIN_HYPHA_WIDGETS_SOURCE} # B-054: LED / mycelium bg / metric cells / editable name
         src/PostControls.cpp     # B-054: POST Keep/Stop/Mark/Sense button row
@@ -248,8 +286,10 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         tests/SpectrumPresentationContractTest.cpp
         tests/GuideFrequencyOverlayContractTest.cpp
         tests/ObservatoryViewContractTest.cpp
+        src/HyphaObservatoryCapture.cpp
         src/HyphaObservatoryView.cpp
         src/HyphaObservatoryLevelStrips.cpp
+        src/HyphaTypography.cpp
         src/HyphaHoverHelpPreference.cpp
         src/HyphaGuideFrequencyOverlay.cpp
         src/HyphaAbsoluteComponent.cpp
@@ -288,7 +328,8 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/HyphaSpectrumChromePainter.cpp
         src/HyphaSpectrumFocusTrail.cpp
         src/HyphaSpectrumFocusTrailPainter.cpp
-        src/HyphaSpectrumPainter.cpp)
+        src/HyphaSpectrumPainter.cpp
+        src/HyphaTypography.cpp)
     target_compile_definitions(KirinGuideFrequencyOverlayContractTests PRIVATE
         KIRIN_GUIDE_OVERLAY_STANDALONE=1
         JUCE_WEB_BROWSER=0
@@ -299,6 +340,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
     target_include_directories(KirinGuideFrequencyOverlayContractTests PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/../crates/kirin_hypha_ffi/include)
     target_link_libraries(KirinGuideFrequencyOverlayContractTests PRIVATE
+        KirinHyphaData
         juce::juce_gui_basics
         juce::juce_recommended_config_flags
         juce::juce_recommended_warning_flags)
@@ -311,7 +353,8 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         tests/AttackUiContractTest.cpp
         src/HyphaAttackInternalComponent.cpp
         src/HyphaAttackInteraction.cpp
-        src/HyphaAttackPainter.cpp)
+        src/HyphaAttackPainter.cpp
+        src/HyphaTypography.cpp)
     target_compile_definitions(KirinAttackUiContractTests PRIVATE
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0
@@ -321,6 +364,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
     target_include_directories(KirinAttackUiContractTests PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/../crates/kirin_hypha_ffi/include)
     target_link_libraries(KirinAttackUiContractTests PRIVATE
+        KirinHyphaData
         juce::juce_gui_basics
         juce::juce_recommended_config_flags
         juce::juce_recommended_warning_flags)

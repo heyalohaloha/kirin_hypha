@@ -37,13 +37,14 @@ namespace hypha::ui_contract
     constexpr int pairMenuItemHeight     = 28;
     constexpr int pairMenuMinimumWidth   = editorWidth;
     constexpr int pairMenuMaximumColumns = 1;
-    // The release UI uses native platform fonts without redistributing either vendor's files.
-    // Keep the established macOS appearance, but never ask Windows to resolve Apple's private
-    // family names through the non-deterministic GDI fallback path.
-    constexpr const char* labelFontFamily = ".SF NS";
-    constexpr const char* monoFontFamily  = ".SF NS Mono";
-    constexpr const char* windowsLabelFontFamily = "Segoe UI";
-    constexpr const char* windowsMonoFontFamily  = "Consolas";
+    // Waldenburg Book is Hypha's product typeface. The paid file is never committed to this GPL
+    // repository: licensed release builds inject it through the CMake font boundary. Native faces
+    // remain a deterministic test/development fallback, never an acceptable release substitute.
+    constexpr const char* kimeraFontFamily = "KMR Waldenburg Book";
+    constexpr const char* fallbackLabelFontFamily = ".SF NS";
+    constexpr const char* fallbackMonoFontFamily  = ".SF NS Mono";
+    constexpr const char* windowsFallbackLabelFontFamily = "Segoe UI";
+    constexpr const char* windowsFallbackMonoFontFamily  = "Consolas";
     constexpr float titleFontHeight       = 20.0f;
     constexpr float pairStatusFontHeight  = 13.0f;
     constexpr float feedbackFontHeight    = 13.0f;

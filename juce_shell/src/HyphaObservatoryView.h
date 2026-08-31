@@ -19,6 +19,7 @@ public:
 
     std::function<void (Domain)> onDomainChange;
     std::function<void (ObservationTarget)> onTargetChange;
+    std::function<void (SizePreset)> onSizeChange;
     std::function<void()> onReset;
     std::function<void()> onCapture;
 
@@ -41,7 +42,12 @@ public:
     };
 
     HistoryRequest historyRequest() const noexcept;
+    juce::Image createCaptureImage (int pixelWidth, int pixelHeight) const;
+    juce::Rectangle<int> captureBodyBounds (int pixelWidth, int pixelHeight) const;
     juce::Rectangle<int> bodyBounds() const noexcept { return bodyArea; }
+    juce::Rectangle<int> connectionBounds() const noexcept { return connectionArea; }
+    juce::Rectangle<int> guideBounds() const noexcept { return guideArea; }
+    juce::Rectangle<int> sessionBounds() const noexcept { return sessionArea; }
     bool bodyOwnedByExternalAnalysis() const noexcept
     {
         return selectedDomain == Domain::frequency;
@@ -55,6 +61,7 @@ private:
 
     void cycleDomain();
     void cycleTimeRange();
+    void cycleSize();
     void updateControls();
     SizePreset currentPreset() const noexcept;
     GuidePresence guidePresence() const noexcept;
@@ -80,8 +87,12 @@ private:
     juce::String guidePrimary;
     juce::String guideDetail;
     bool guideEmphasized = false;
+    bool captureFrame = false;
     std::vector<KirinMeterHistoryEntry> history;
     juce::Rectangle<int> bodyArea;
+    juce::Rectangle<int> connectionArea;
+    juce::Rectangle<int> guideArea;
+    juce::Rectangle<int> sessionArea;
     MyceliumBackground background;
 
     juce::TextButton levelButton { "LEVEL" };
@@ -91,6 +102,7 @@ private:
     juce::TextButton domainCycleButton;
     juce::TextButton targetButton;
     juce::TextButton timeRangeButton;
+    juce::TextButton sizeButton;
     juce::TextButton resetButton { "RESET" };
     juce::TextButton captureButton { "CAPTURE" };
 

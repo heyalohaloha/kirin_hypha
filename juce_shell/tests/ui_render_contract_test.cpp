@@ -237,13 +237,23 @@ int main()
 
     const auto label = hypha::labelFont (ui::titleFontHeight);
     const auto mono = hypha::monoFont (ui::pairStatusFontHeight);
-   #if JUCE_WINDOWS
-    KIRIN_REQUIRE (label.getTypefaceName().equalsIgnoreCase (ui::windowsLabelFontFamily));
-    KIRIN_REQUIRE (mono.getTypefaceName().equalsIgnoreCase (ui::windowsMonoFontFamily));
-   #else
-    KIRIN_REQUIRE (label.getTypefaceName().equalsIgnoreCase (ui::labelFontFamily));
-    KIRIN_REQUIRE (mono.getTypefaceName().equalsIgnoreCase (ui::monoFontFamily));
-   #endif
+    if (hypha::usingKimeraTypography())
+    {
+        KIRIN_REQUIRE (label.getTypefaceName().containsIgnoreCase ("Waldenburg"));
+        KIRIN_REQUIRE (mono.getTypefaceName().containsIgnoreCase ("Waldenburg"));
+    }
+    else
+    {
+        KIRIN_REQUIRE (label.getTypefaceName().equalsIgnoreCase (
+            hypha::nativeFallbackLabelFontFamily()));
+        KIRIN_REQUIRE (mono.getTypefaceName().equalsIgnoreCase (
+            hypha::nativeFallbackMonoFontFamily()));
+    }
+#if KIRIN_HYPHA_KIMERA_EMBEDDED
+    KIRIN_REQUIRE (hypha::usingKimeraTypography());
+#endif
+    KIRIN_REQUIRE (std::abs (hypha::tabularTextWidth (mono, "-11.1")
+                            - hypha::tabularTextWidth (mono, "-88.8")) < 0.01f);
 
     const auto preLayout = ui::editorLayout (false);
     const auto postLayout = ui::editorLayout (true);
@@ -277,10 +287,12 @@ int main()
     KIRIN_REQUIRE (fits (mono, juce::CharPointer_UTF8 ("PAIR ◌"), ui::pairStatusWidth));
     KIRIN_REQUIRE (fits (mono, juce::CharPointer_UTF8 ("PAIR —"), ui::pairStatusWidth));
     KIRIN_REQUIRE (fits (mono, "ABS", ui::pairStatusWidth));
-    KIRIN_REQUIRE (fits (hypha::monoFont (ui::nameFontHeight), "WWWWWWWWWWWWWWWW",
+    // EditableName uses fitted painting and a bounded editor for pathological wide names. Keep
+    // a normal session identity readable without shrinking the product typeface.
+    KIRIN_REQUIRE (fits (hypha::monoFont (ui::nameFontHeight), "DRUM BUS",
                          preLayout.name.width));
     KIRIN_REQUIRE (fits (hypha::monoFont (ui::nameFontHeight),
-                         "pair: WWWWWWWWWWWWWWWW", postLayout.name.width));
+                         "pair: DRUM BUS", postLayout.name.width));
     KIRIN_REQUIRE (fits (hypha::monoFont (ui::spectrumLegendFontHeight),
                          juce::CharPointer_UTF8 ("\xCE\x94"),
                          ui::spectrumDeltaLegendLabelWidth));

@@ -4,6 +4,28 @@
 
 namespace hypha::observatory
 {
+SizePreset View::currentPreset() const noexcept
+{
+    for (const auto preset : sizePresets)
+        if (preset.width == getWidth() && preset.height == getHeight())
+            return preset;
+    const auto density = getWidth() < 338 ? Density::compact
+                       : getWidth() < 413 ? Density::focused
+                       : getWidth() < 525 ? Density::standard : Density::observatory;
+    return { getWidth(), getHeight(), density, "SIZE" };
+}
+
+void View::cycleSize()
+{
+    const auto preset = currentPreset();
+    size_t current = 0;
+    for (size_t index = 0; index < sizePresets.size(); ++index)
+        if (sizePresets[index].width == preset.width)
+            current = index;
+    if (onSizeChange)
+        onSizeChange (sizePresets[(current + 1u) % sizePresets.size()]);
+}
+
 void View::paintChannelStrips (juce::Graphics& g, juce::Rectangle<int> area)
 {
     g.setColour (BG.withAlpha (0.82f));

@@ -17,6 +17,14 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/../juce_shell/src/PluginEditor.h"
     ));
+    const PLUGIN_EDITOR_OBSERVATORY_CPP: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../juce_shell/src/PluginEditorObservatory.cpp"
+    ));
+    const PLUGIN_EDITOR_CAPTURE_CPP: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../juce_shell/src/PluginEditorCapture.cpp"
+    ));
     const PLUGIN_PROCESSOR_CPP: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../juce_shell/src/PluginProcessor.cpp"
@@ -41,9 +49,17 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/../juce_shell/src/HyphaTheme.h"
     ));
+    const HYPHA_TYPOGRAPHY_CPP: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../juce_shell/src/HyphaTypography.cpp"
+    ));
     const HYPHA_UI_CONTRACT_H: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../juce_shell/src/HyphaUiContract.h"
+    ));
+    const HYPHA_OBSERVATORY_VIEW_H: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../juce_shell/src/HyphaObservatoryView.h"
     ));
     const HYPHA_DISPLAY_CONTRACT_H: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -139,23 +155,50 @@ mod tests {
     }
 
     #[test]
-    fn shipped_vst3_and_au_use_one_native_font_contract() {
-        assert!(HYPHA_THEME_H.contains("ui_contract::labelFontFamily"));
-        assert!(HYPHA_THEME_H.contains("ui_contract::monoFontFamily"));
-        assert!(HYPHA_UI_CONTRACT_H.contains("labelFontFamily = \".SF NS\""));
-        assert!(HYPHA_UI_CONTRACT_H.contains("monoFontFamily  = \".SF NS Mono\""));
+    fn shipped_vst3_and_au_share_the_licensed_kimera_typeface_contract() {
+        assert!(HYPHA_THEME_H.contains("usingKimeraTypography"));
+        assert!(HYPHA_TYPOGRAPHY_CPP.contains("BinaryData::KMRWaldenburgBook_otf"));
+        assert!(HYPHA_UI_CONTRACT_H.contains("kimeraFontFamily = \"KMR Waldenburg Book\""));
+        assert!(JUCE_CMAKE.contains("KIRIN_HYPHA_KIMERA_APP_LICENSE_CONFIRMED"));
+        assert!(JUCE_CMAKE.contains("KIRIN_HYPHA_REQUIRE_KIMERA_FONT"));
+        assert!(JUCE_CMAKE.contains("src/HyphaTypography.cpp"));
+    }
+
+    #[test]
+    fn capture_freezes_the_authoritative_frame_before_the_async_save_panel() {
+        let freeze = PLUGIN_EDITOR_CAPTURE_CPP
+            .find("auto image = observatoryView.createCaptureImage")
+            .expect("Capture must freeze the parent frame");
+        let chooser = PLUGIN_EDITOR_CAPTURE_CPP
+            .find("captureChooser->launchAsync")
+            .expect("Capture must use the asynchronous save panel");
+        assert!(
+            freeze < chooser,
+            "visual facts must freeze before filename selection"
+        );
+        assert!(PLUGIN_EDITOR_CAPTURE_CPP.contains("[safeThis, image]"));
+        assert_eq!(
+            count_occurrences(
+                PLUGIN_EDITOR_CAPTURE_CPP,
+                "observatoryView.createCaptureImage"
+            ),
+            1
+        );
     }
 
     #[test]
     fn shipped_post_pair_selector_has_one_geometry_source() {
+        assert!(HYPHA_OBSERVATORY_VIEW_H.contains("connectionBounds() const noexcept"));
         assert!(PLUGIN_EDITOR_CPP
-            .contains("const auto layout = ui::editorLayout (isPost, getWidth(), getHeight())"));
-        assert!(PLUGIN_EDITOR_CPP.contains("nameField.setBounds (juceRect (layout.name))"));
+            .contains("auto connection = observatoryView.connectionBounds().reduced (4, 2)"));
         assert!(
-            PLUGIN_EDITOR_CPP.contains("pairDropdown.setBounds (juceRect (layout.pairDropdown))")
+            PLUGIN_EDITOR_CPP.contains("pairDropdown.setBounds (connection.removeFromRight (18))")
+        );
+        assert_eq!(
+            count_occurrences(PLUGIN_EDITOR_CPP, "pairDropdown.setBounds"),
+            1
         );
         assert!(!PLUGIN_EDITOR_CPP.contains("const int ddW = 22;"));
-        assert!(HYPHA_UI_CONTRACT_H.contains("constexpr int pairDropdownWidth = 28"));
         assert!(PLUGIN_EDITOR_CPP.contains("menu.setLookAndFeel (&pairMenuLookAndFeel())"));
         assert!(
             PLUGIN_EDITOR_H.contains("setColour (juce::PopupMenu::backgroundColourId, hypha::BG);")
@@ -183,7 +226,7 @@ mod tests {
     }
 
     #[test]
-    fn guide_transport_is_compiled_into_both_roles_while_legacy_pre_ui_stays_pre_only() {
+    fn guide_transport_is_compiled_into_both_roles_and_projected_by_the_parent_shell() {
         assert!(JUCE_PLUGIN_CONFIG.contains("#define KIRIN_HYPHA_PRE_DISPLAY 0"));
         assert!(JUCE_PLUGIN_CONFIG.contains("#define KIRIN_HYPHA_GUIDE_TRANSPORT 0"));
         assert_eq!(
@@ -211,21 +254,14 @@ mod tests {
         assert!(
             JUCE_CMAKE.contains("target_link_libraries(${TARGET} PRIVATE juce::juce_cryptography)")
         );
-        assert!(PLUGIN_EDITOR_H.contains("#if KIRIN_HYPHA_PRE_DISPLAY"));
-        assert!(PLUGIN_EDITOR_CPP.contains(
-            "const auto preDisplayTone = preDisplay.sectionActive || preDisplay.cueActive"
-        ));
-        assert!(PLUGIN_EDITOR_CPP.contains("ui::PreDisplayTone::emphasis"));
-        assert!(PLUGIN_EDITOR_CPP.contains("ui::preDisplayPrimaryColour (preDisplayTone)"));
-        assert!(PLUGIN_EDITOR_CPP.contains("ui::preDisplayDetailColour (preDisplayTone)"));
-        assert!(PLUGIN_EDITOR_CPP.contains("preDisplayStateLabel.setText (preDisplay.stateText"));
+        assert!(PLUGIN_EDITOR_H.contains("juce::TextButton          guideConnectButton"));
+        assert!(PLUGIN_EDITOR_OBSERVATORY_CPP.contains("pendingPreDisplayConnection"));
+        assert!(PLUGIN_EDITOR_OBSERVATORY_CPP.contains("preDisplaySnapshot"));
         assert!(
-            PLUGIN_EDITOR_CPP.contains("preDisplayStateLabel.getBorderSize().getLeftAndRight()")
+            PLUGIN_EDITOR_OBSERVATORY_CPP.contains("display.sectionActive || display.cueActive")
         );
-        assert!(PLUGIN_EDITOR_CPP.contains("preDisplayPrimaryLabel.setTooltip"));
-        assert!(PLUGIN_EDITOR_CPP.contains("preDisplayDetailLabel.setTooltip"));
-        assert!(HYPHA_UI_CONTRACT_H
-            .contains("Only a factual PRE section or bounded positional cue has emphasis tone"));
+        assert!(PLUGIN_EDITOR_OBSERVATORY_CPP.contains("observatoryView.setGuide"));
+        assert!(PLUGIN_EDITOR_CPP.contains("acceptPreDisplayConnection"));
         assert_eq!(
             count_occurrences(PLUGIN_PROCESSOR_CPP, "preDisplayClock.publish"),
             1,

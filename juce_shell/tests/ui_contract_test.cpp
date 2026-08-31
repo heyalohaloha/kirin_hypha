@@ -306,10 +306,11 @@ int main()
     static_assert (display::watchMetricMode (false, true, KIRIN_DELTA_MODE_ACTIVE)
                    == display::MetricMode::absolute);
 
-    assert (std::strcmp (ui::labelFontFamily, ".SF NS") == 0);
-    assert (std::strcmp (ui::monoFontFamily, ".SF NS Mono") == 0);
-    assert (std::strcmp (ui::windowsLabelFontFamily, "Segoe UI") == 0);
-    assert (std::strcmp (ui::windowsMonoFontFamily, "Consolas") == 0);
+    assert (std::strcmp (ui::kimeraFontFamily, "KMR Waldenburg Book") == 0);
+    assert (std::strcmp (ui::fallbackLabelFontFamily, ".SF NS") == 0);
+    assert (std::strcmp (ui::fallbackMonoFontFamily, ".SF NS Mono") == 0);
+    assert (std::strcmp (ui::windowsFallbackLabelFontFamily, "Segoe UI") == 0);
+    assert (std::strcmp (ui::windowsFallbackMonoFontFamily, "Consolas") == 0);
     assert (std::strcmp (ui::preTitle, "PRE") == 0);
     assert (std::strcmp (ui::postTitle, "POST") == 0);
     assert (std::strcmp (ui::maximumLabel, "MAX") == 0);

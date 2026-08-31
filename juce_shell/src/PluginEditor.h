@@ -9,6 +9,7 @@
 #include "DisplaySmoother.h"
 #include "HyphaAnalysisNavigation.h"
 #include "HyphaHoverHelpPreference.h"
+#include "HyphaObservatoryView.h"
 #include "HyphaTheme.h"
 #include "HyphaTooltipLookAndFeel.h"
 #include "HyphaWidgets.h"
@@ -64,6 +65,10 @@ private:
     void timerCallback() override;
     void updatePre();
     void updatePost();
+    void refreshObservatory();
+    void setObservatoryDomain (hypha::observatory::Domain domain);
+    void beginObservatoryCapture();
+    void chooseObservatoryCapture (int width, int height);
 #if ! KIRIN_HYPHA_PRE_DISPLAY
     using AnalysisPage = hypha::analysis_navigation::Page;
     void setAnalysisPage (AnalysisPage page);
@@ -86,12 +91,10 @@ private:
     void updateFeedback (double now, bool keeping, const juce::String& persistentError);
     juce::String instanceId8() const; // first 8 chars of instance_id (empty-name fallback)
     double nowSecs() const { return juce::Time::getMillisecondCounterHiRes() * 0.001; }
-#if KIRIN_HYPHA_PRE_DISPLAY
-    void layoutPreDisplayState (const juce::String& stateText);
-#endif
 
     KirinHyphaProcessorBase& processorRef;
     const bool isPost;
+    hypha::observatory::View observatoryView;
 
     hypha::MyceliumBackground bg;
     hypha::StatusLed          led;
@@ -100,13 +103,9 @@ private:
     std::array<hypha::MetricCell, 6> cells;
     hypha::LoudnessSelector   loudnessSelector;           // occupies cell 0's existing label column
     juce::Label               feedbackLabel;              // toast > persistent error > Keeping
-#if KIRIN_HYPHA_PRE_DISPLAY
-    juce::Label               preDisplayPrimaryLabel;      // PRE-only current/next measured fact
-    juce::Label               preDisplayDetailLabel;       // PRE-only bounded context line
-    juce::Label               preDisplayStateLabel;        // PRE-only state; reserved from context clipping
-    juce::TextButton          preDisplayConnectButton;      // PRE-only explicit Work/session connection
-#endif
+    juce::TextButton          guideConnectButton;          // role-neutral explicit Work/session connect
     std::unique_ptr<hypha::PostControls> postControls;    // POST button row
+    std::unique_ptr<juce::FileChooser> captureChooser;
     hypha::PairDropdownButton pairDropdown;                // POST: vector arrow / candidate / All Keep / All Stop
 #if ! KIRIN_HYPHA_PRE_DISPLAY
     juce::TextButton          spectrumToggle;               // POST: meters / Analysis page
@@ -122,6 +121,7 @@ private:
 
     Kind   currentKind = Kind::WatchAbs6;
     bool   currentSix  = false;
+    hypha::observatory::Domain observatoryDomain = hypha::observatory::Domain::level;
 #if ! KIRIN_HYPHA_PRE_DISPLAY
     AnalysisPage analysisPage = AnalysisPage::meters;
     size_t spectrumSizeIndex = 0;

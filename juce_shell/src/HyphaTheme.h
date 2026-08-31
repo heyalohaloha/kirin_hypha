@@ -36,33 +36,18 @@ namespace hypha
     // (Dark Cockpit). Defined after BG so its static initialisation is sequenced after it.
     inline const juce::Colour kFieldFill = BG.brighter (0.05f);
 
-    // ── fonts: native platform families; never depend on a cross-platform fallback ─────────
-    inline const char* nativeLabelFontFamily() noexcept
-    {
-       #if JUCE_WINDOWS
-        return ui_contract::windowsLabelFontFamily;
-       #else
-        return ui_contract::labelFontFamily;
-       #endif
-    }
-
-    inline const char* nativeMonoFontFamily() noexcept
-    {
-       #if JUCE_WINDOWS
-        return ui_contract::windowsMonoFontFamily;
-       #else
-        return ui_contract::monoFontFamily;
-       #endif
-    }
-
-    inline juce::Font labelFont (float h)
-    {
-        return juce::Font (nativeLabelFontFamily(), h, juce::Font::plain);
-    }
-    inline juce::Font monoFont  (float h)
-    {
-        return juce::Font (nativeMonoFontFamily(), h, juce::Font::plain);
-    }
+    // ── typography ────────────────────────────────────────────────────────────────────
+    // Both functions resolve to paid Kimera Waldenburg Book when a licensed typeface is embedded.
+    // `monoFont` names the measurement role, not a second family. Numeric painters give its digits
+    // fixed cells because JUCE 7 cannot request the font's OpenType `tnum` feature directly.
+    juce::Font labelFont (float h);
+    juce::Font monoFont (float h);
+    bool usingKimeraTypography() noexcept;
+    const char* nativeFallbackLabelFontFamily() noexcept;
+    const char* nativeFallbackMonoFontFamily() noexcept;
+    float tabularTextWidth (const juce::Font&, const juce::String&);
+    void drawTabularText (juce::Graphics&, const juce::Font&, const juce::String&,
+                          juce::Rectangle<float>, juce::Justification);
 
     // Δ (U+0394) built from its codepoint to avoid non-ASCII source/escape issues.
     inline juce::String delta() { return juce::String::charToString ((juce::juce_wchar) 0x0394); }

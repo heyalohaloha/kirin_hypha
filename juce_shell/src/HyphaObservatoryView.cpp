@@ -59,17 +59,15 @@ void drawMetric (juce::Graphics& g,
         g.setFont (labelFont (juce::jlimit (7.0f, 10.0f, valueHeight * 0.23f)));
         g.drawText (unit, labelArea.reduced (6, 1), juce::Justification::centredRight);
         g.setColour (std::isfinite (value) ? COL_NORMAL : COL_MUTED);
-        g.setFont (monoFont (valueHeight));
-        g.drawText (valueText (value, decimals, signedValue), area.reduced (5, 0),
-                    juce::Justification::centred);
+        drawTabularText (g, monoFont (valueHeight), valueText (value, decimals, signedValue),
+                         area.reduced (5, 0).toFloat(), juce::Justification::centred);
         return;
     }
     const auto unitWidth = juce::jmin (46, area.getWidth() / 3);
     const auto unitArea = area.removeFromRight (unitWidth);
     g.setColour (std::isfinite (value) ? COL_NORMAL : COL_MUTED);
-    g.setFont (monoFont (valueHeight));
-    g.drawText (valueText (value, decimals, signedValue), area.reduced (5, 0),
-                juce::Justification::centredRight);
+    drawTabularText (g, monoFont (valueHeight), valueText (value, decimals, signedValue),
+                     area.reduced (5, 0).toFloat(), juce::Justification::centredRight);
     g.setColour (COL_MUTED);
     g.setFont (labelFont (juce::jlimit (8.0f, 11.0f, valueHeight * 0.28f)));
     g.drawText (unit, unitArea.reduced (2, 0), juce::Justification::centredLeft);
@@ -96,7 +94,7 @@ View::View (Role roleIn) : role (roleIn)
     setOpaque (true);
     for (auto* button : { &levelButton, &timeButton, &frequencyButton, &spaceButton,
                           &domainCycleButton, &targetButton, &timeRangeButton,
-                          &resetButton, &captureButton })
+                          &sizeButton, &resetButton, &captureButton })
     {
         styleButton (*button);
         addAndMakeVisible (*button);
@@ -113,6 +111,7 @@ View::View (Role roleIn) : role (roleIn)
         if (onTargetChange) onTargetChange (next);
     };
     timeRangeButton.onClick = [this] { cycleTimeRange(); };
+    sizeButton.onClick = [this] { cycleSize(); };
     resetButton.onClick = [this] { if (onReset) onReset(); };
     captureButton.onClick = [this] { if (onCapture) onCapture(); };
     updateControls();
@@ -200,14 +199,6 @@ View::HistoryRequest View::historyRequest() const noexcept
     return {};
 }
 
-SizePreset View::currentPreset() const noexcept
-{
-    const auto density = getWidth() < 338 ? Density::compact
-                       : getWidth() < 413 ? Density::focused
-                       : getWidth() < 525 ? Density::standard : Density::observatory;
-    return { getWidth(), getHeight(), density, "" };
-}
-
 GuidePresence View::guidePresence() const noexcept
 {
     return (guidePrimary.isNotEmpty() || guideDetail.isNotEmpty())
@@ -243,13 +234,18 @@ void View::updateControls()
     targetButton.setButtonText (selectedTarget == ObservationTarget::absolute ? "POST" : hypha::delta());
     targetButton.setToggleState (selectedTarget == ObservationTarget::delta, juce::dontSendNotification);
     timeRangeButton.setButtonText (historyRequest().label);
+    sizeButton.setButtonText (currentPreset().label);
 }
 
 void View::resized()
 {
     const auto preset = currentPreset();
     const auto layout = shellLayout (role, preset, guidePresence());
+    sizeButton.setButtonText (preset.label);
     bodyArea = toJuce (layout.body);
+    connectionArea = toJuce (layout.connectionStatus);
+    guideArea = toJuce (layout.guideRail);
+    sessionArea = toJuce (layout.session);
     const auto compact = preset.density == Density::compact;
     const auto navigation = toJuce (layout.domainNavigation);
     domainCycleButton.setVisible (compact);
@@ -273,16 +269,23 @@ void View::resized()
     if (timeRangeButton.isVisible())
         timeRangeButton.setBounds (bodyArea.removeFromTop (juce::jmin (22, bodyArea.getHeight() / 5))
                                        .removeFromRight (juce::jmin (110, bodyArea.getWidth() / 2)));
+    sizeButton.setVisible (! captureFrame);
+    if (! captureFrame)
+    {
+        const auto sizeWidth = compact ? 42 : 52;
+        sizeButton.setBounds (sessionArea.removeFromRight (sizeWidth).reduced (1, 2));
+    }
     const auto actions = toJuce (layout.actions);
     const bool full = preset.density == Density::observatory && role == Role::post;
-    captureButton.setVisible (full);
-    if (full)
+    resetButton.setVisible (! captureFrame);
+    captureButton.setVisible (full && ! captureFrame);
+    if (full && ! captureFrame)
     {
         auto split = actions;
         resetButton.setBounds (split.removeFromLeft (split.getWidth() / 2).reduced (1, 2));
         captureButton.setBounds (split.reduced (1, 2));
     }
-    else
+    else if (! captureFrame)
         resetButton.setBounds (actions.reduced (1, 2));
 }
 
@@ -332,7 +335,7 @@ void View::paintGuide (juce::Graphics& g, const ShellLayout& layout)
 void View::paintFooter (juce::Graphics& g, const ShellLayout& layout)
 {
     drawPanel (g, toJuce (layout.footer), 4.0f);
-    const auto session = toJuce (layout.session).reduced (6, 0);
+    const auto session = sessionArea.reduced (6, 0);
     const auto state = ! meterAvailable ? juce::String ("SESSION —")
                      : meter.state == KIRIN_METER_SESSION_ACTIVE ? juce::String ("SESSION ACTIVE  ")
                      : meter.state == KIRIN_METER_SESSION_PAUSED ? juce::String ("SESSION PAUSED  ")
@@ -341,7 +344,9 @@ void View::paintFooter (juce::Graphics& g, const ShellLayout& layout)
         ? static_cast<double> (meter.active_frames) / static_cast<double> (meter.sample_rate) : 0.0;
     g.setColour (meterAvailable ? COL_MUTED.brighter (0.25f) : COL_MUTED);
     g.setFont (monoFont (currentPreset().density == Density::compact ? 8.5f : 10.5f));
-    g.drawText (state + juce::String (seconds, 1) + " S", session,
+    const auto standard = captureFrame ? juce::String ("  |  ITU-R BS.1770")
+                                       : juce::String();
+    g.drawText (state + juce::String (seconds, 1) + " S" + standard, session,
                 juce::Justification::centred);
 }
 

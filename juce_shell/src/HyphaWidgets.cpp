@@ -169,7 +169,7 @@ namespace hypha
         const auto  unitF  = labelFont (unitSize);
 
         const float labelW = juce::jmax (minColW, labelF.getStringWidthFloat (label));
-        const float valueW = juce::jmax (minColW, valueF.getStringWidthFloat (value));
+        const float valueW = juce::jmax (minColW, tabularTextWidth (valueF, value));
 
         const float h = (float) getHeight();
         float x = 0.0f;
@@ -179,9 +179,9 @@ namespace hypha
         g.drawText (label, juce::Rectangle<float> (x, 0.0f, labelW, h), juce::Justification::centredLeft);
         x += labelW + spacing;
 
-        g.setFont (valueF);
         g.setColour (valueColour);
-        g.drawText (value, juce::Rectangle<float> (x, 0.0f, valueW, h), juce::Justification::centredLeft);
+        drawTabularText (g, valueF, value, juce::Rectangle<float> (x, 0.0f, valueW, h),
+                         juce::Justification::centredLeft);
         x += valueW + spacing;
 
         g.setFont (unitF);
@@ -394,6 +394,7 @@ namespace hypha
         const juce::String shown = prefix + (empty ? fallback : rawName);
         g.setFont (monoFont (ui_contract::nameFontHeight));
         g.setColour (COL_FLORA);
-        g.drawText (shown, getLocalBounds(), juce::Justification::centredLeft);
+        g.drawFittedText (shown, getLocalBounds(), juce::Justification::centredLeft,
+                          1, 0.72f);
     }
 }

@@ -73,7 +73,7 @@ private:
         attributed.setJustification (juce::Justification::centred);
         attributed.append (
             text,
-            juce::Font (nativeLabelFontFamily(), 11.5f, juce::Font::bold),
+            labelFont (11.5f),
             findColour (juce::TooltipWindow::textColourId));
         juce::TextLayout layout;
         layout.createLayoutWithBalancedLineLengths (

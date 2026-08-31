@@ -36,14 +36,15 @@ fn shipped_au_and_vst3_compile_the_same_editor_processor_and_control_contract() 
         );
     }
     assert!(juce_editor.contains("setSize (ui::editorWidth, ui::editorHeight)"));
-    assert!(juce_editor.contains("ui::editorLayout (isPost, getWidth(), getHeight())"));
+    assert!(juce_editor.contains("observatoryView.setBounds (getLocalBounds())"));
+    assert!(juce_editor.contains("observatoryView.connectionBounds()"));
+    assert!(juce_editor.contains("observatoryView.bodyBounds()"));
     assert!(juce_editor.contains("ui::watchMetrics"));
     assert!(juce_editor.contains("ui::recordMetrics"));
     assert!(juce_editor.contains("ui::metricLabelFontHeight"));
     assert!(juce_editor.contains("ui::metricValueFontHeight"));
     assert!(juce_editor.contains("ui::metricUnitFontHeight"));
     assert!(juce_editor.contains("ui::maximumLabel"));
-    assert!(juce_editor.contains("ui::loudnessSelectorBounds"));
     assert!(juce_editor.contains("cachedRecordDisplay.session"));
     assert!(juce_editor.contains("menu.addSectionHeader"));
     assert!(juce_editor.contains("withMinimumWidth (ui::pairMenuMinimumWidth)"));
@@ -58,6 +59,24 @@ fn shipped_au_and_vst3_compile_the_same_editor_processor_and_control_contract() 
             || juce_editor.contains("ui::postTitle : ui::preTitle")
     );
     assert!(!juce_editor.contains("setSize (300, 200)"));
+
+    let observatory = read_repo("juce_shell/src/HyphaObservatoryContract.h");
+    for required in [
+        "enum class Domain",
+        "    level,",
+        "    time,",
+        "    frequency,",
+        "    space,",
+        "enum class ObservationTarget",
+        "    absolute,",
+        "    delta,",
+        "std::array<SizePreset, 4>",
+    ] {
+        assert!(
+            observatory.contains(required),
+            "Observatory contract missing {required}"
+        );
+    }
 
     let ui_contract = read_repo("juce_shell/src/HyphaUiContract.h");
     for required in [
@@ -84,8 +103,8 @@ fn shipped_au_and_vst3_compile_the_same_editor_processor_and_control_contract() 
         "ui_contract::normal",
         "ui_contract::muted",
         "ui_contract::flora",
-        "ui_contract::labelFontFamily",
-        "ui_contract::monoFontFamily",
+        "usingKimeraTypography",
+        "tabularTextWidth",
     ] {
         assert!(
             theme.contains(required),
@@ -409,7 +428,8 @@ fn optional_analysis_is_post_only_on_demand_and_isolated_from_existing_schemas()
     assert!(editor.contains("processorRef.pollAbsoluteBatch"));
     assert!(editor.contains("spectrumSizeIndex + 1u"));
     assert!(editor.contains("ui::spectrumSizePresets[spectrumSizeIndex]"));
-    assert!(editor.contains(": ui::spectrumSizePresets[0]"));
+    assert!(editor
+        .contains("const auto launchPreset = hypha::observatory::sizePresets[spectrumSizeIndex]"));
     assert!(editor.contains("setSize (preset.width, preset.height)"));
     assert!(!editor.contains("setResizable (true"));
 
